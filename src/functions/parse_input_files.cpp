@@ -37,7 +37,6 @@
 #include "parse_input_files.hh"
 #include <types/Dataset.hh>
 #include <functions/progress_bar.hh>
-#include <algorithms/surface_reconstruction.hh>
 
 #include <Eigen/Dense>
 #include <opencv4/opencv2/opencv.hpp>
@@ -47,6 +46,8 @@
 #include <thread>
 #include <future>
 
+
+namespace fs = std::filesystem;
 
 
 namespace linkml{
@@ -82,25 +83,25 @@ namespace linkml{
     * \param final_transform the resultant transform between source and target
     */
     void pairAlign (
-        PointCloud::Ptr cloud_src, 
-        const PointCloud::Ptr cloud_tgt, 
+        PointCloud::Cloud::Ptr cloud_src, 
+        const PointCloud::Cloud::Ptr cloud_tgt, 
         Eigen::Matrix4f &pairTransform, 
         std::optional<float> grid_size = {},
-        std::optional<uint8_t> confidence_filter = {}
+        std::optional<int32_t> confidence_filter = {}
         ){
         //
         // Downsample for consistency and speed
         // \note enable this for large datasets
 
 
-        PointCloud::Ptr input_src(new PointCloud);
-        PointCloud::Ptr input_tgt(new PointCloud);
+        PointCloud::Cloud::Ptr input_src(new PointCloud::Cloud);
+        PointCloud::Cloud::Ptr input_tgt(new PointCloud::Cloud);
 
         input_src = cloud_src;
         input_tgt = cloud_tgt; 
 
-        PointCloud::Ptr src(new PointCloud);
-        PointCloud::Ptr tgt(new PointCloud);
+        PointCloud::Cloud::Ptr src(new PointCloud::Cloud);
+        PointCloud::Cloud::Ptr tgt(new PointCloud::Cloud);
         
 
         if (confidence_filter.has_value()){
@@ -162,7 +163,7 @@ namespace linkml{
         reg.setInputSource(src);
         reg.setInputTarget(tgt);
 
-        PointCloud::Ptr reg_result = src;
+        PointCloud::Cloud::Ptr reg_result = src;
         reg.setMaximumIterations(50);
         reg.setRANSACIterations(1000);
         reg.setRANSACOutlierRejectionThreshold(0.05);
@@ -238,7 +239,7 @@ namespace linkml{
         return most_common;
     }
 
-    static size_t get_total_size(std::vector<PointCloud::Ptr, Eigen::aligned_allocator<PointCloud::Ptr>> const& clouds){
+    static size_t get_total_size(std::vector<PointCloud::Cloud::Ptr, Eigen::aligned_allocator<PointCloud::Cloud::Ptr>> const& clouds){
         size_t total_size = 0;
         for (auto const& cloud : clouds){
             total_size += cloud->size();
@@ -387,6 +388,14 @@ namespace linkml{
         std::optional<int> stop_in,
         int step){
 
+            // TODO: Make output path optional.
+            // And in case it is not set use a temp folder
+            //auto path = fs::temp_directory_path() / "linkml";
+            
+            // TODO: Optionally clear the output folder before saving the files
+            //if (fs::exists(path))
+            //    fs::remove_all(path);
+            
 
             auto fields = dataset.fields();
 
@@ -427,13 +436,13 @@ namespace linkml{
 
 
             auto progress_bar = util::progress_bar(n_frames,"Processing data");
-            #pragma omp parallel for firstprivate(step, start, step, output_path) shared(dataset)
+            #pragma omp parallel for firstprivate(step, start, output_path) shared(dataset)
             for (size_t i = 0; i < n_frames; i++ ){
 
                 size_t index = start + (i * step);
                 auto data = dataset[index];
 
-                auto cloud = PointCloud::Ptr(new PointCloud);
+                auto cloud = PointCloud();
                 setHeader(*cloud, i , data.get<Field::ODOMETRY>());
                 depth_to_3d(
                             *cloud,
@@ -457,7 +466,7 @@ namespace linkml{
                 // Save cloud
                 std::filesystem::create_directory(output_path);
                 std::string filename = fmt::format("{}/cloud_{}.pcd", output_path, cloud->header.frame_id);
-                cloud->save(filename, true);
+                cloud.save(filename, true);
 
 
                 progress_bar.update();

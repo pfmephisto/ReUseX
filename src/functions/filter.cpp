@@ -8,27 +8,29 @@
 
 namespace linkml
 {
-    PointCloud PointCloud::filter(){
+    void PointCloud::filter(typename PointCloud::Cloud::PointType::LableT value){
 
         // Only keep highest confidence
         ///////////////////////////////////////////////////////////////////////////////
         size_t j = 0;
-        for (size_t k = 0; k < this->size(); k++){
-            if (this->at(k).confidence >= 2U){
-                this->at(j) = this->at(k);
+        for (size_t k = 0; k < (*this)->size(); k++){
+            if ((*this)->at(k).confidence >= value){
+                (*this)->at(j) = (*this)->at(k);
                 j++;
             }
         }
-        this->resize(j);
-        this->width = j;
-        this->height = 1;
-        this->is_dense = false;
+        (*this)->resize(j);
+        (*this)->width = j;
+        (*this)->height = 1;
+        (*this)->is_dense = false;
 
-        return *this;
+
     }
 
     template <typename T>
-    PointClouds<T> PointClouds<T>::filter(){
+    PointClouds<T> PointClouds<T>::filter(
+        typename PointCloud::Cloud::PointType::LableT value
+    ){
 
         // Only keep highest confidence
         ///////////////////////////////////////////////////////////////////////////////
@@ -36,9 +38,11 @@ namespace linkml
         #pragma omp parallel for
         for (size_t i = 0; i < data.size(); i++){
             if constexpr (std::is_same<T, std::string>::value){
-                PointCloud::load(data[i])->filter().save(data[i]);
-            } else {
-                data[i]->filter();
+                auto cloud = PointCloud::load(data[i]);
+                cloud.filter(value);
+                cloud.save(data[i]);  
+            } else if constexpr (std::is_same<T, PointCloud>::value){
+                data[i].filter(value);
             }
             filter_bar.update();
         }
@@ -48,7 +52,7 @@ namespace linkml
 
     }
 
-    template PointCloudsInMemory  PointCloudsInMemory::filter();
-    template PointCloudsOnDisk  PointCloudsOnDisk::filter();
+    template PointCloudsInMemory  PointCloudsInMemory::filter( PointCloud::Cloud::PointType::LableT value);
+    template PointCloudsOnDisk  PointCloudsOnDisk::filter( PointCloud::Cloud::PointType::LableT value);
 
 } // namespace linkml

@@ -2,9 +2,11 @@
 
 #include <typed-geometry/tg.hh>
 #include "../types/Plane.hh"
+#include "../types/PointCloud.hh"
 
 
 #include <pcl/common/centroid.h>
+#include <pcl/common/eigen.h>
 // #include <pcl/segmentation/region_growing.h>
 // #include <pcl/segmentation/planar_region.h>
 
@@ -29,7 +31,7 @@ namespace linkml {
 
     }
 
-    static linkml::Plane fit_plane_thorugh_points(PointCloud::ConstPtr cloud,  pcl::Indices const & indecies){
+    static linkml::Plane fit_plane_thorugh_points(PointCloud::Cloud::ConstPtr cloud,  pcl::Indices const & indecies){
 
 
         Eigen::Vector4f vp = Eigen::Vector4f::Zero ();

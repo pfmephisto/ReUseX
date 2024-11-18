@@ -1,8 +1,10 @@
 cmake_minimum_required(VERSION 3.8)
-project(linkml)
+if (NOT SKBUILD_PROJECT_VERSION)
+    set(SKBUILD_PROJECT_VERSION 0.0.1)
+endif()
+project(linkml VERSION ${SKBUILD_PROJECT_VERSION} LANGUAGES CXX)
 
 set(LIB_PROJECT_NAME "${PROJECT_NAME}_lib")
-set(PYBIND_PROJECT_NAME "${PROJECT_NAME}_py")
 set(TEST_PROJECT_NAME "${PROJECT_NAME}_test")
 
 
@@ -65,13 +67,13 @@ if (MSVC)
     endif()
 else()
     list(APPEND COMMON_COMPILER_FLAGS -Wall -Wextra)
-
+    
     # Add support for OpenMP
     list(APPEND COMMON_COMPILER_FLAGS -fopenmp -lgomp)
 
-    if (LIN_ENABLE_WERROR)
-        list(APPEND COMMON_COMPILER_FLAGS -Werror)
-    endif()
+    # if (LIN_ENABLE_WERROR)
+    #     list(APPEND COMMON_COMPILER_FLAGS -Werror)
+    # endif()
 
     if (LIN_ENABLE_ASAN OR LIN_ENABLE_TSAN OR LIN_ENABLE_MSAN OR LIN_ENABLE_UBSAN)
         list(APPEND COMMON_COMPILER_FLAGS -fno-omit-frame-pointer -g)
@@ -132,88 +134,34 @@ set(CGAL_DO_NOT_WARN_ABOUT_CMAKE_BUILD_TYPE On)
 # ===============================================
 # find packages
 
-find_package( OpenCV REQUIRED )
-if (OpenCV_FOUND)
-    message(STATUS "Using OpenCV - ${OpenCV_VERSION} - ${OpenCV_INCLUDE_DIRS}")
-    set("OPENCV_LOG_LEVEL" "WARNING")
-    include_directories(${OpenCV_INCLUDE_DIRS})
-    link_directories(${OpenCV_LIBRARY_DIRS})
-    add_definitions(${OpenCV_DEFINITIONS})
-endif()
-# CGAL and its components
-find_package(CGAL REQUIRED)
 
-# Boost and its components
-find_package(Boost REQUIRED)
-if(NOT Boost_FOUND)
+#set("CUDA_TOOLKIT_ROOT_DIR" "/usr/local/cuda-12-3")
+#set(CUDA_INCLUDE_DIRS "${CUDA_TOOLKIT_ROOT_DIR}/include/")
+#set(CUDA_CUDART_LIBRARY "${CUDA_TOOLKIT_ROOT_DIR}/lib64/libcudart.so")
 
-  message(
-    STATUS
-      "NOTICE: This project requires the Boost library, and will not be compiled."
-  )
+include(cmake/CUDA.cmake)
+include(cmake/TBB.cmake)
+include(cmake/Boost.cmake)
+include(cmake/SCIP.cmake)
+include(cmake/Gurobi.cmake)
+include(cmake/Embree.cmake)
 
-  return()
-
-endif()
-
-find_package(Eigen3 3.3 REQUIRED) #(requires 3.1.0 or greater)
-include(CGAL_Eigen3_support)
-if(NOT TARGET CGAL::Eigen3_support)
-  message(
-    STATUS
-      "NOTICE: This project requires Eigen 3.1 (or greater) and will not be compiled."
-  )
-  return()
-endif()
-
-find_package( TBB REQUIRED )
-include(CGAL_TBB_support)
-
-find_package(SCIP REQUIRED)
-include(CGAL_SCIP_support)
-
-find_package(embree 3.12.2 REQUIRED)
-
-IF (EMBREE_ISPC_SUPPORT)
-
-  OPTION(ENABLE_ISPC_SUPPORT "Build ISPC version of find_embree tutorial." OFF)
-
-  # this configures the ADD_EMBREE_ISPC_EXECUTABLE from Embree
-  IF (ENABLE_ISPC_SUPPORT)
-    SET(ISPC_TARGETS "sse2;sse4;avx;avx2")
-    SET(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../../common/cmake" ${CMAKE_MODULE_PATH})
-    INCLUDE(ispc)
-
-    get_target_property(embree_include_dir embree INTERFACE_INCLUDE_DIRECTORIES)
-    INCLUDE_DIRECTORIES_ISPC(${embree_include_dir})
-    ADD_EMBREE_ISPC_EXECUTABLE(find_embree_ispc find_embree_ispc.cpp find_embree_ispc.ispc)
-    TARGET_LINK_LIBRARIES(find_embree_ispc embree)
-  ENDIF()
-ENDIF()
+include(cmake/Eigen.cmake)
+include(cmake/OpenCV.cmake)
+include(cmake/CGAL.cmake)
+include(cmake/PCL.cmake)
+include(cmake/Python.cmake)
+#include(cmake/HDF5.cmake)
 
 
-find_package(GUROBI REQUIRED)
-if (GUROBI_FOUND)
-    message(STATUS "Using Gurobi Solver")
-    add_compile_definitions(CGAL_USE_GUROBI=1)
-    include_directories(${GUROBI_INCLUDE_DIRS})
-endif()
-
-find_package(PCL REQUIRED PATHS /usr/local NO_DEFAULT_PATH)
-if(PCL_FOUND)
-    message(STATUS "Using PCL - ${PCL_VERSION}")
-    include_directories(${PCL_INCLUDE_DIRS})
-    link_directories(${PCL_LIBRARY_DIRS})
-    add_definitions(${PCL_DEFINITIONS})
-endif()
 
 
-# list(APPEND CMAKE_MODULE_PATH "./cmake/FindHDF5.cmake") # Replaces the bundled FindHDF5.cmake module
-# find_package(HDF5 1.10 COMPONENTS C HL)
+
 
 
 # ===============================================
 # add submodules
+
 add_subdirectory(extern/clean-core)
 add_subdirectory(extern/ctracer)
 add_subdirectory(extern/fmt)
@@ -224,12 +172,16 @@ add_subdirectory(extern/pybind11)
 add_subdirectory(extern/reflector)
 add_subdirectory(extern/rich-log)
 add_subdirectory(extern/typed-geometry)
+add_subdirectory(extern/opennurbs)
 
 # ===============================================
 # configure executable
+
+
 file(GLOB_RECURSE LIB_SOURCES
     "src/*.cc"
     "src/*.cpp"
+    #"src/*.cu"
 )
 
 file(GLOB_RECURSE LIB_HEADERS
@@ -238,25 +190,38 @@ file(GLOB_RECURSE LIB_HEADERS
 
 list(FILTER LIB_SOURCES EXCLUDE REGEX ".*py.cpp")
 
+file(GLOB_RECURSE  CU  "src/*.cu")
+
 # group sources according to folder structure
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${LIB_SOURCES})
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${LIB_HEADERS})
+source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${CU})
 
 
 
 ## ===============================================
-## add executable
+## add cuda library
+#set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS} -gencode)
+#cuda_add_library(cuda_lib STATIC ${CU})
+
+
+
+
+## ===============================================
 include_directories( ${OpenCV_INCLUDE_DIRS} )
 
+# ===============================================
+# main libary
 add_library(${LIB_PROJECT_NAME} STATIC ${LIB_SOURCES} ${LIB_HEADERS})
 set_target_properties(${LIB_PROJECT_NAME} PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
 target_link_libraries(${LIB_PROJECT_NAME} 
-    PRIVATE 
-    pybind11::embed 
-    optimized ${GUROBI_CXX_LIBRARY}
-    debug ${GUROBI_CXX_DEBUG_LIBRARY}
-    # HDF5::HDF5
-    )
+PRIVATE 
+pybind11::embed 
+optimized ${GUROBI_CXX_LIBRARY}
+debug ${GUROBI_CXX_DEBUG_LIBRARY}
+#cuda_lib
+# HDF5::HDF5
+)
 target_link_libraries(${LIB_PROJECT_NAME} PUBLIC
     clean-core
     typed-geometry
@@ -266,6 +231,8 @@ target_link_libraries(${LIB_PROJECT_NAME} PUBLIC
     polymesh
     polyscope
     embree
+    ${CUDA_LIBRARIES} 
+    ${CUDA_CUBLAS_LIBRARIES}
     Eigen3::Eigen3
     CGAL::Eigen3_support
     CGAL::SCIP_support
@@ -275,6 +242,8 @@ target_link_libraries(${LIB_PROJECT_NAME} PUBLIC
     ${PCL_COMMON_LIBRARIES}
     fmt
     nexus
+    mpfr
+    MPI::MPI_CXX
 
     ${OpenCV_LIBS}
 
@@ -297,17 +266,25 @@ set_property(TARGET ${TARGET_NAME} PROPERTY FOLDER "Extern")
 endforeach()
 
 
-# ===============================================
-# main libary
 target_include_directories(${LIB_PROJECT_NAME} PUBLIC "src")
 target_compile_options(${LIB_PROJECT_NAME} PUBLIC ${COMMON_COMPILER_FLAGS})
 
 
-# ===============================================
-# pyind11
-pybind11_add_module("${PYBIND_PROJECT_NAME}" src/linkmlpy.cpp)
-target_link_libraries("${PYBIND_PROJECT_NAME}" PRIVATE ${LIB_PROJECT_NAME})
+# # ===============================================
+# # pyind11
+# pybind11_add_module("${PYBIND_PROJECT_NAME}" src/linkmlpy.cpp)
+# target_link_libraries("${PYBIND_PROJECT_NAME}" PRIVATE ${LIB_PROJECT_NAME})
 
+# ===============================================
+# scikit_build
+python_add_library(_core MODULE src/linkmlpy.cpp WITH_SOABI)
+target_link_libraries(_core PRIVATE pybind11::headers ${LIB_PROJECT_NAME})
+
+# This is passing in the version as a define just as an example
+target_compile_definitions(_core PRIVATE VERSION_INFO=${PROJECT_VERSION})
+
+# The install directory is the output (wheel) directory
+install(TARGETS _core DESTINATION linkml_py)
 
 # ===============================================
 # tests

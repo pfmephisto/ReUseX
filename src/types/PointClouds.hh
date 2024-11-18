@@ -67,7 +67,7 @@ namespace linkml
             }
 
             // Modify the point clouds
-            PointClouds filter();
+            PointClouds filter( typename PointCloud::Cloud::PointType::LableT value = 2);
             PointClouds register_clouds();
             PointClouds annotate(std::string yolo_path, std::optional<Dataset> & dataset);
 
@@ -101,7 +101,7 @@ namespace linkml
 
 
 
-            PointCloud::Ptr operator[](std::size_t index) const {
+            PointCloud::Cloud::Ptr operator[](std::size_t index) const {
                 if constexpr (std::is_same<T, std::string>::value)
                     return PointCloud::load(data[index]);
                 else
@@ -126,11 +126,11 @@ namespace linkml
             
     };
 
-    template class PointClouds<PointCloud::Ptr>;
+    template class PointClouds<PointCloud>;
     template class PointClouds<std::string>;
 
     using PointCloudsOnDisk = PointClouds<std::string>;
-    using PointCloudsInMemory = PointClouds<PointCloud::Ptr>;
+    using PointCloudsInMemory = PointClouds<PointCloud>;
 
 } // namespace linkml
 

@@ -47,7 +47,7 @@ namespace linkml
         assert(n_frames > 0);
         if constexpr (std::is_same<T, std::string>::value){
             std::cout << "Not checking if point cloud is dense for On disk point clouds" << std::endl;
-        } else {
+        } else if constexpr (std::is_same<T, PointCloud>::value){
             for (size_t i = 0; i < n_frames; i++){
                 if (!data.at(i)->is_dense)
                     throw std::runtime_error("Clouds must be dense");
@@ -65,7 +65,7 @@ namespace linkml
                 pcl::PCLHeader header;
                 if constexpr (std::is_same<T, std::string>::value)
                     header = PointCloud::load_header(data.at(i));
-                else{
+                else if constexpr (std::is_same<T, PointCloud>::value){
                     header = data.at(i)->header;
                 }
                 
@@ -76,12 +76,13 @@ namespace linkml
         } else {
             #pragma omp parallel for shared(data, input_images)
             for (size_t i = 0; i < n_frames; i++){
-                PointCloud::Ptr cloud;
+                PointCloud cloud;
                 if constexpr (std::is_same<T, std::string>::value)
                     cloud = PointCloud::load(data.at(i));
-                else
+                else if constexpr (std::is_same<T, PointCloud>::value){
                     cloud = data.at(i);
-                input_images[i] = cloud->image();
+                } 
+                input_images[i] = cloud.image();
                 load_images_bar.update();
             }
         }
@@ -130,12 +131,12 @@ namespace linkml
 
             
 
-            PointCloud::Ptr cloud;
+            PointCloud cloud;
             if constexpr (std::is_same<T, std::string>::value){
                 cloud = PointCloud::load(data.at(i));
-            } else {
+            } else if constexpr (std::is_same<T, PointCloud>::value){
                 cloud = data.at(i);
-            }
+            } 
 
 
             // Reset the semantic field
@@ -185,8 +186,7 @@ namespace linkml
             //cv::waitKey(0);
 
             if constexpr (std::is_same<T, std::string>::value)
-                cloud->save(data.at(i));
-            
+                cloud.save(data.at(i));
 
             inference_postprocessing_bar.update();
         }

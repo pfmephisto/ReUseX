@@ -1,5 +1,6 @@
 #include "./Dataset.hh"
 #include <functions/lodepng.hh>
+#include <functions/polyscope.hh>
 #include <fstream>
 #include <iostream>
 #include <string>
@@ -216,6 +217,7 @@ Dataset::Dataset(const std::filesystem::path & path, const std::initializer_list
 
     _n_frames = get_number_of_frames(_path / "rgb.mp4");
 
+    // TODO: Rather implement this as lazy loading.
 
     // Load data
     for (auto field : fields) {
@@ -322,6 +324,14 @@ Data Dataset::operator[] (int idx) const {
     }
     return data;
 }
+
+
+void Dataset::display(std::string name, bool show) const {
+    polyscope::myinit();
+    polyscope::display<const Dataset &>(*this, name);
+    if (show) polyscope::myshow();
+}
+    
 
 } // namespace linkml
 

@@ -36,8 +36,8 @@ void merge_sets(std::unordered_set<int>& lhs, const std::unordered_set<int>& rhs
 #pragma omp declare reduction(merge : std::unordered_set<int> : merge_sets(omp_out, omp_in)) \
     initializer(omp_priv = std::unordered_set<int>())
 
-linkml::PointCloud linkml::PointCloud::region_growing(
-    float angle_threshold, // cos(25°)
+void linkml::PointCloud::region_growing(
+    float angle_threshold,
     float plane_dist_threshold,
     int minClusterSize, 
     float early_stop,
@@ -46,8 +46,7 @@ linkml::PointCloud linkml::PointCloud::region_growing(
     float interval_factor
     ){
 
-        // FIXME: This is bad, as makeShared will create a new copy of the point cloud
-        PointCloud::Ptr cloud = this->makeShared();
+        PointCloud cloud = *this;
 
         auto clusters = std::vector<std::unordered_set<int>>();
         auto plane_origins = std::vector<Eigen::Vector3f>();
@@ -66,7 +65,7 @@ linkml::PointCloud linkml::PointCloud::region_growing(
         
 
         // Create KDTree
-        pcl::KdTreeFLANN<PointCloud::PointType> tree;
+        pcl::KdTreeFLANN<PointCloud::Cloud::PointType> tree;
         tree.setInputCloud(cloud); // Takes some time
 
 
@@ -75,8 +74,7 @@ linkml::PointCloud linkml::PointCloud::region_growing(
         size_t total = indices.size();
 
 
-        auto progress = util::progress_bar(indices.size(), "Region Growing");
-        int plane_idx = 1;
+        auto progress = util::progress_bar(total, "Region Growing");
         while (indices.size() > 0 && indices.size() > total * early_stop){ 
 
             // Select seed
@@ -119,6 +117,7 @@ linkml::PointCloud linkml::PointCloud::region_growing(
                     // Filter neighbors that are already part of other clusters
                     std::vector<int> temp;
                     temp.reserve(nn_indices.size());
+                    // TODO: Find better way to filter
                     std::copy_if (nn_indices.begin(), nn_indices.end(), std::back_inserter(temp),
                         [&](int i){
                             return index_map.find(i) != index_map.end();
@@ -164,6 +163,8 @@ linkml::PointCloud linkml::PointCloud::region_growing(
                 // TODO: Maybe use a second set and parallelize
                 front.clear();
                 for (auto i : results){
+
+                    //FIXME: This is beeing added to as set and will always be unique
                     if (cluster_indices.find(i) != cluster_indices.end())
                         continue;
 
@@ -220,8 +221,6 @@ linkml::PointCloud linkml::PointCloud::region_growing(
 
             progress.update(cluster_indices.size());
 
-            //polyscope::frameTick();
-            plane_idx++;
         }
         progress.stop();
         
@@ -229,12 +228,7 @@ linkml::PointCloud linkml::PointCloud::region_growing(
         #pragma omp parallel for
         for (size_t i = 0; i < clusters.size(); ++i){
             for (auto idx: clusters[i]){
-                cloud->at(idx).label = i+1;
+                (*this)->at(idx).label = i+1;
             }
         }
-
-        
-        return *cloud;
-
-
 }

@@ -18,15 +18,50 @@ from _core import *
 
 
 # Actions
+# PARSE_DATASET: bool     = False
+# ANNOTATE: bool          = False
+# REGISTER: bool          = False
+# FILTER: bool            = False
+# MERGE: bool             = False
+# DOWNSAMPLE: bool        = False
+# CLUSTER: bool           = False
+# REGION_GROWING: bool    = False
+# SOLIDIFY: bool          = True
+# UPLOAD: bool            = False
+
+# PARSE_DATASET: bool     = False
+# ANNOTATE: bool          = False
+# REGISTER: bool          = False
+# FILTER: bool            = False
+# MERGE: bool             = False
+# DOWNSAMPLE: bool        = False
+# CLUSTER: bool           = False
+# REGION_GROWING: bool    = True
+# SOLIDIFY: bool          = True
+# UPLOAD: bool            = False
+
+
+# PARSE_DATASET: bool     = False
+# ANNOTATE: bool          = False
+# REGISTER: bool          = False
+# FILTER: bool            = False
+# MERGE: bool             = False
+# DOWNSAMPLE: bool        = True
+# CLUSTER: bool           = True
+# REGION_GROWING: bool    = True
+# SOLIDIFY: bool          = True
+# UPLOAD: bool            = False
+
 PARSE_DATASET: bool     = False
 ANNOTATE: bool          = False
 REGISTER: bool          = False
 FILTER: bool            = False
 MERGE: bool             = False
-CLUSTER: bool           = False
 DOWNSAMPLE: bool        = False
+CLUSTER: bool           = False
 REGION_GROWING: bool    = False
-SOLIDIFY: bool          = True
+SOLIDIFY: bool          = False
+UPLOAD: bool            = False
 
 
 
@@ -39,14 +74,14 @@ def chunks(lst, n):
     for i in range(0, len(lst), n):
         yield lst[i:i + n]
 
-
+dataset_path = None
 
 # dataset_path = "/home/mephisto/server_data/stray_scans/0ba33d855b/" # CPC Office
 # dataset_path = "/home/mephisto/server_data/stray_scans/7092626a22/" # Aarhus Office
 # dataset_path = "/home/mephisto/server_data/stray_scans/665518e46a/" # Lobby (School)
 
 # Aarhus
-dataset_path = "/home/mephisto/server_data/stray_scans/8c0e3c381c/" # New scan small Basement <- Selected (Needs compleate rerun)
+# dataset_path = "/home/mephisto/server_data/stray_scans/8c0e3c381c/" # New scan small Basement <- Selected (Needs compleate rerun)
 # dataset_path = "/home/mephisto/server_data/stray_scans/3c670b035f/" # Amtssygehus
 
 # Roskilde
@@ -60,16 +95,34 @@ dataset_path = "/home/mephisto/server_data/stray_scans/8c0e3c381c/" # New scan s
 # dataset_path = "/home/mephisto/server_data/stray_scans/bc53387047/" # School 2
 
 
-dataset = Dataset(dataset_path)
-name = f"./{dataset.name}.pcd"
+# For Rune 
+# dataset_path = "/home/mephisto/server_data/stray_scans/3c670b035f/" # Amtssygehus
+# dataset_path = "/home/mephisto/server_data/stray_scans/8c0e3c381c/" # Amtssygehus Basement
+# dataset_path = "/home/mephisto/server_data/stray_scans/15a7dbf663/" # ??? 7.4 GB
+
+# dataset_path = "/home/mephisto/server_data/stray_scans/afb3234950/" # ???
+# dataset_path = "/home/mephisto/server_data/stray_scans/c582d1f758/" # ???
+
+#  5672fda3aaf
+# id = "bf96883816" # bf96883816
+id = "bf96883816" #     
+dataset_path = f"/home/mephisto/server_data/stray_scans/{id}/"
+
+
+dataset = None
+name = None
+tmp_folder = None
+if dataset_path:
+    dataset = Dataset(dataset_path)
+    name = f"./{dataset.name}.pcd"
 
 
 
-tmp_folder = f"./{dataset.name}/"
+    tmp_folder = f"./{dataset.name}/"
 
 
-print(f"Dataset: {dataset.name} at {dataset_path}")
-print(f"temp folder: {tmp_folder}")
+    print(f"Dataset: {dataset.name} at {dataset_path}")
+    print(f"temp folder: {tmp_folder}")
 
 
 # Parse dataset
@@ -82,7 +135,7 @@ if (PARSE_DATASET):
             os.remove(os.path.join(tmp_folder, file))
     parse_dataset(dataset, tmp_folder, step=4)
 
-if os.path.exists(tmp_folder):
+if tmp_folder is not None and os.path.exists(tmp_folder):
     clouds = PointCloudsOnDisk(tmp_folder)
     #clouds = PointCloudsInMemory(tmp_folder)
 
@@ -109,11 +162,11 @@ if (MERGE):
 
 # cloud.display()
 
-# name = "/home/mephisto/server_data/Soagerskole.pcd"
+# name = "/home/mephisto/server_data/test_export 2.pcd"
 
-if (not os.path.exists(name)):
-    print(f"File \"{name}\" not found")
-    exit(1)
+# if (not os.path.exists(name)):
+#     print(f"File \"{name}\" not found")
+#     exit(1)
 
 print(f"Loading \"{name}\" ...")
 cloud = PointCloud(name)
@@ -153,8 +206,14 @@ if (REGION_GROWING):
 # cloud.display()
 
 
+
+
+
 # Solidify
-brep_folder = f"./{dataset.name}_breps/"
+brep_folder = f"./breps/"
+if dataset is not None:
+    brep_folder = f"./{dataset.name}_breps/"
+
 # brep_folder = f"./soagerskole_breps/"
 if (SOLIDIFY):
     breps = cloud.solidify()
@@ -173,39 +232,19 @@ if (SOLIDIFY):
 
 
 
-
-dataset.display(dataset.name, False)
+if dataset is not None:
+    dataset.display(dataset.name, False)
 
 if os.path.exists(brep_folder):
     for file in os.listdir(brep_folder):
         brep = Brep.load(brep_folder + file)
         brep.display(file, False)
+else:
+    print(f"Breps folder \"{brep_folder}\" not found")
 
 cloud.display()
 
 
 
-
-
-
-
-# cloud = PointCloud("/home/mephisto/server_data/test_export 2.pcd")
-# # cloud = PointCloud("/home/mephisto/server_data/test_4_rooms.pcd")
-
-# print("Loading cloud ...")
-
-# breps = cloud.solidify()
-# cloud.display()
-
-# # cloud = PointCloud("/home/mephisto/server_data/test_export 2.pcd")
-# [breps[idx].save(f"brep_new_{idx}.off") for idx in range(len(breps))]
-
-# # breps = [Brep.load(f"brep_new_{idx}.off") for idx in range(1)]
-# # for idx, b in enumerate(breps):
-# #     b.display(f"Brep {idx}")
-
-# # files = [f"brep_{idx}.off" for idx in range(4)]
-# # [Brep.load(f) for f in files]
-# # Brep.load("test.off")
 
 print("Done")

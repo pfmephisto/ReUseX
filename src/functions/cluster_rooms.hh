@@ -24,6 +24,7 @@
 
 #define UseIntersection 0
 #define SaveMatrix 0
+#define Visualize_Rays 0
 
 
 template<typename PointT>
@@ -45,7 +46,9 @@ public:
 
 using Filter = pcl::experimental::advanced::FunctorFilter<linkml::PointCloud::Cloud::PointType, MatchCondition<linkml::PointCloud::Cloud::PointType>>;
 using Clusters = std::vector<pcl::PointIndices>;
-using Tiles = std::vector<std::pair<unsigned int, linkml::Surface *>>;
+using Tile = std::pair<unsigned int, linkml::Surface *>;
+using Tiles = std::vector<Tile>;
+using RaysPair = std::vector<std::pair<Ray, Tile*>>;
 using Indices = pcl::Indices;
 
 class FaceMap{
@@ -177,6 +180,255 @@ class FaceIDMap{
     private:
     Tiles & tiles;
 };
+class NodeMap{
+    class NodeIterator{
+        public:
+        NodeIterator(RaysPair & rays, size_t index) : rays(rays), index(index){}
+
+        NodeIterator & operator++(){
+            node++;
+            if (node == 2){
+                node = 0;
+                index++;
+            }
+            return *this;
+        }
+        bool operator==(const NodeIterator & rhs) const{
+            return index == rhs.index && node == rhs.node;
+        }
+        bool operator!=(const NodeIterator & rhs) const{
+            return index != rhs.index || node != rhs.node;
+        }
+
+        std::array<float,3> operator*(){
+            auto & [ray, tile] = rays[index];
+            if (node == 0){
+                return std::array<float, 3>{
+                    ray.ray.org_x,
+                    ray.ray.org_y,
+                    ray.ray.org_z
+                };
+            }
+            else{
+                return std::array<float, 3>{
+                    ray.ray.org_x + ray.ray.dir_x * ray.ray.tfar,
+                    ray.ray.org_y + ray.ray.dir_y * ray.ray.tfar,
+                    ray.ray.org_z + ray.ray.dir_z * ray.ray.tfar
+                };
+            }
+        }
+        private:
+        RaysPair & rays;
+        size_t index = 0;
+        size_t node = 0;
+    };
+
+    public:
+    NodeMap(RaysPair & rays) : rays(rays) {}
+
+    NodeIterator begin() const {
+        return NodeIterator(rays, 0);
+    }
+    NodeIterator end() const {
+        return NodeIterator(rays, rays.size());
+    }
+    size_t size() const { return rays.size()*2;}
+    private:
+    RaysPair & rays;
+};
+class EdgeMap{
+class EdgeIterator{
+        public:
+        EdgeIterator(RaysPair & rays, size_t index) : rays(rays), index(index){}
+
+        EdgeIterator & operator++(){
+            index++;
+            return *this;
+        }
+        bool operator==(const EdgeIterator & rhs) const{
+            return index == rhs.index;
+        }
+        bool operator!=(const EdgeIterator & rhs) const{
+            return index != rhs.index;
+        }
+
+        std::array<int, 2> operator*(){
+            auto & [ray, tile] = rays[index];
+            return std::array<int, 2>{
+                (int)index*2,
+                (int)(index*2)+1
+            };
+        }
+        private:
+        RaysPair & rays;
+        size_t index = 0;
+    };
+
+    public:
+    EdgeMap(RaysPair & rays) : rays(rays){}
+    EdgeIterator begin() const {
+        return EdgeIterator(rays, 0);
+    }
+    EdgeIterator end() const {
+        return EdgeIterator(rays, rays.size());
+    }
+    size_t size() const { return rays.size();}
+    private:
+    RaysPair & rays;
+};
+class EdgeHitMap{
+    class EdgeHitIterator{
+        public:
+        EdgeHitIterator(RaysPair & rays, size_t index) : rays(rays), index(index){}
+
+        EdgeHitIterator & operator++(){
+            index++;
+            return *this;
+        }
+        bool operator==(const EdgeHitIterator & rhs) const{
+            return index == rhs.index;
+        }
+        bool operator!=(const EdgeHitIterator & rhs) const{
+            return index != rhs.index;
+        }
+
+        float operator*(){
+            auto & [ray, tile] = rays[index];
+
+#if UseIntersection
+
+            if (ray.hit.geomID == RTC_INVALID_GEOMETRY_ID)
+                return 0.1f;
+            
+            return 1;
+#else
+            if (ray.ray.tfar == -INFINITY)
+                return 1;
+            
+            return 0.1;
+#endif
+
+        }
+        private:
+        RaysPair & rays;
+        size_t index = 0;
+    };
+
+    public:
+    EdgeHitMap(RaysPair & rays) : rays(rays){}
+    EdgeHitIterator begin() const {
+        return EdgeHitIterator(rays, 0);
+    }
+    EdgeHitIterator end() const {
+        return EdgeHitIterator(rays, rays.size());
+    }
+    size_t size() const { return rays.size();}
+    private:
+    RaysPair & rays;
+};
+class EdgeHitColorMap{
+    class EdgeHitColorIterator{
+        public:
+        EdgeHitColorIterator(RaysPair & rays, size_t index) : rays(rays), index(index){}
+
+        EdgeHitColorIterator & operator++(){
+            index++;
+            return *this;
+        }
+        bool operator==(const EdgeHitColorIterator & rhs) const{
+            return index == rhs.index;
+        }
+        bool operator!=(const EdgeHitColorIterator & rhs) const{
+            return index != rhs.index;
+        }
+
+        cv::Vec3b operator*(){
+            auto & [ray, tile] = rays[index];
+
+
+#if UseIntersection
+            if (ray.hit.geomID == RTC_INVALID_GEOMETRY_ID)
+                return cv::Vec3b(0, 255, 0);
+            return cv::Vec3b(255, 0, 0);
+#else
+            if (ray.ray.tfar == -INFINITY)
+                return cv::Vec3b(0, 255, 0);
+            
+            return cv::Vec3b(255, 0, 0);
+#endif
+
+
+        }
+        private:
+        RaysPair & rays;
+        size_t index = 0;
+    };
+
+    public:
+    EdgeHitColorMap(RaysPair & rays) : rays(rays){}
+    EdgeHitColorIterator begin() const {
+        return EdgeHitColorIterator(rays, 0);
+    }
+    EdgeHitColorIterator end() const {
+        return EdgeHitColorIterator(rays, rays.size());
+    }
+    size_t size() const { return rays.size();}
+    private:
+    RaysPair & rays;
+};
+class NodeHitSizeMap{
+    class NodeHiSizeIterator{
+        public:
+        NodeHiSizeIterator(RaysPair & rays, size_t index) : rays(rays), index(index){}
+
+        NodeHiSizeIterator & operator++(){
+            node++;
+            if (node == 2){
+                node = 0;
+                index++;
+            }
+            return *this;
+        }
+        bool operator==(const NodeHiSizeIterator & rhs) const{
+            return index == rhs.index && node == rhs.node;
+        }
+        bool operator!=(const NodeHiSizeIterator & rhs) const{
+            return index != rhs.index || node != rhs.node;
+        }
+
+        float operator*(){
+            auto & [ray, tile] = rays[index];
+            if (node == 0){
+                return 1;
+            }
+
+#if UseIntersection
+            if (ray.hit.geomID == RTC_INVALID_GEOMETRY_ID)
+                return 1;
+            return 0.0005f;
+#else
+            if (ray.ray.tfar == -INFINITY)
+                return 0.0005f;
+            return 1;
+#endif
+        };
+        private:
+        RaysPair & rays;
+        size_t index = 0;
+        size_t node = 0;
+    };
+    public:
+    NodeHitSizeMap(RaysPair & rays) : rays(rays){}
+    NodeHiSizeIterator begin() const {
+        return NodeHiSizeIterator(rays, 0);
+    };
+    NodeHiSizeIterator end() const {
+        return NodeHiSizeIterator(rays, rays.size());
+    };
+    size_t size() const { return rays.size()*2;};
+    private:
+    RaysPair & rays;
+};
 
 
 static Clusters extract_clusters(linkml::PointCloud::Cloud::ConstPtr cloud){
@@ -186,7 +438,7 @@ static Clusters extract_clusters(linkml::PointCloud::Cloud::ConstPtr cloud){
     for (size_t i = 0; i < cloud->points.size(); i++)
         cluster_indices_set.insert(cloud->points[i].label);
 
-    cluster_indices_set.erase(-1);
+    cluster_indices_set.erase(0);
 
     Indices cluster_indices(cluster_indices_set.begin(), cluster_indices_set.end());
 
@@ -301,9 +553,6 @@ namespace linkml
         point_map_bar.stop();
 
 
-        using Tile = std::pair<unsigned int, Surface *>;
-
-
 
 
         auto tile_bar = util::progress_bar(surfaces.size(), "Creating tiles");
@@ -316,7 +565,6 @@ namespace linkml
 
 
         // Create rays
-        using Rays = std::vector<std::pair<Ray, Tile*>>;
         double const constexpr offset = 0.10;
         size_t const nrays = tiles.size()*(tiles.size()-1)/2;
         std::cout << "Number of rays: " << nrays << std::endl;
@@ -326,7 +574,7 @@ namespace linkml
         std::cout << "Size of RTCRay" << sizeof(RTCRay) << std::endl;
         
 
-        Rays rays(nrays);
+        RaysPair rays(nrays);
         auto creating_rays_bar = util::progress_bar(nrays, "Creating rays");
         #pragma omp parallel for collapse(2)
         for (size_t i = 0; i < tiles.size(); i++){
@@ -394,9 +642,16 @@ namespace linkml
         rays_bar.stop();
 
 
-        //polyscope::myinit();
-        //auto ps_tiles = polyscope::registerSurfaceMesh("tiles", VertexMap(tiles, scene ), FaceMap(tiles));
-        //ps_tiles->addFaceScalarQuantity("id", FaceIDMap(tiles));
+#if Visualize_Rays
+        polyscope::myinit();
+        auto ps_tiles = polyscope::registerSurfaceMesh("tiles", VertexMap(tiles, scene ), FaceMap(tiles));
+        ps_tiles->addFaceScalarQuantity("id", FaceIDMap(tiles));
+        auto ps_rays = polyscope::registerCurveNetwork("rays", NodeMap(rays), EdgeMap(rays));
+        ps_rays->addEdgeScalarQuantity("hit", EdgeHitMap(rays));
+        ps_rays->addNodeScalarQuantity("scale", NodeHitSizeMap(rays));
+        ps_rays->addEdgeColorQuantity("color", EdgeHitColorMap(rays));
+        ps_rays->setRadius(0.0005);
+#endif
         
         // Release the scene and device
         rtcReleaseScene(scene);

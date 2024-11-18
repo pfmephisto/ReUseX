@@ -38,12 +38,20 @@ in
   pkgs.stdenv.mkDerivation {
     name = "reuseExplorer-env";
 
+    nativeBuildInputs = [
+      pkgs.cmake
+      #pkgs.ninja
+      pkgs.pkg-config
+      #pkgs.python3
+      #pkgs.wrapQtAppsHook
+    ];
+
     # Add dependencies here
     buildInputs = [
       pkgs.gcc              # C++ compiler
-      pkgs.cmake            # CMake build tool (if using CMake)
+      # pkgs.cmake            # CMake build tool (if using CMake)
       pkgs.boost            # Boost library (example dependency)
-      pkgs.pkg-config       # Pkg-config for library detection
+      # pkgs.pkg-config       # Pkg-config for library detection
 
       # Project dependencies
       pkgs.pcl
@@ -66,6 +74,7 @@ in
       pkgs.mpfr
       pkgs.libusb1
     ];
+    
 
     shellHook = ''
      echo "This is the reuseExplorer dev shell!"

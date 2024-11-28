@@ -1,4 +1,4 @@
-# ReuseExplorer
+# ReUseX
 
 ### TODO:
 - [x] Add instructions for installing Dependencies

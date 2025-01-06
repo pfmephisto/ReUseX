@@ -1,9 +1,6 @@
 [submodule "extern/clean-core"]
 	path = extern/clean-core
 	url = https://github.com/project-arcana/clean-core.git
-[submodule "extern/typed-geometry"]
-	path = extern/typed-geometry
-	url = https://github.com/project-arcana/typed-geometry.git
 [submodule "extern/ctracer"]
 	path = extern/ctracer
 	url = https://github.com/project-arcana/ctracer.git
@@ -13,9 +10,6 @@
 [submodule "extern/rich-log"]
 	path = extern/rich-log
 	url = https://@github.com/project-arcana/rich-log.git
-[submodule "extern/polymesh"]
-	path = extern/polymesh
-	url = https://github.com/project-arcana/polymesh.git
 [submodule "extern/pybind11"]
 	path = extern/pybind11
 	url = git@github.com:pybind/pybind11.git
@@ -25,9 +19,6 @@
 [submodule "extern/fmt"]
 	path = extern/fmt
 	url = git@github.com:fmtlib/fmt.git
-[submodule "extern/nexus"]
-	path = extern/nexus
-  url = git@github.com:project-arcana/nexus.git
 [submodule "extern/opennurbs"]
 	path = extern/opennurbs
 	url = git@github.com:mcneel/opennurbs.git

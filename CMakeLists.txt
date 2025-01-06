@@ -165,13 +165,10 @@ include(cmake/Python.cmake)
 add_subdirectory(extern/clean-core)
 add_subdirectory(extern/ctracer)
 add_subdirectory(extern/fmt)
-add_subdirectory(extern/nexus)
-add_subdirectory(extern/polymesh)
 add_subdirectory(extern/polyscope)
 add_subdirectory(extern/pybind11)
 add_subdirectory(extern/reflector)
 add_subdirectory(extern/rich-log)
-add_subdirectory(extern/typed-geometry)
 add_subdirectory(extern/opennurbs)
 
 # ===============================================
@@ -241,7 +238,6 @@ target_link_libraries(${LIB_PROJECT_NAME} PUBLIC
     ${PCL_LIBRARIES}
     ${PCL_COMMON_LIBRARIES}
     fmt
-    nexus
     mpfr
     MPI::MPI_CXX
 
@@ -254,13 +250,10 @@ target_link_libraries(${LIB_PROJECT_NAME} PUBLIC
 # dependency grouping in the IDE
 foreach(TARGET_NAME
     clean-core
-    typed-geometry
     ctracer
     reflector
     rich-log
-    polymesh
     polyscope
-
 )
 set_property(TARGET ${TARGET_NAME} PROPERTY FOLDER "Extern")
 endforeach()
@@ -285,32 +278,4 @@ target_compile_definitions(_core PRIVATE VERSION_INFO=${PROJECT_VERSION})
 
 # The install directory is the output (wheel) directory
 install(TARGETS _core DESTINATION linkml_py)
-
-# ===============================================
-# tests
-if (LINKML_SAMPLES_TESTS)
-
-    file(GLOB_RECURSE TEST_SOURCES
-        "tests/*.cc"
-        "tests/*.hh"
-    )
-
-    source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${TEST_SOURCES})
-
-    add_executable("${TEST_PROJECT_NAME}" ${TEST_SOURCES})
-
-    target_link_libraries("${TEST_PROJECT_NAME}" PUBLIC
-        ${LIB_PROJECT_NAME}
-        nexus
-    )
-
-    target_include_directories("${TEST_PROJECT_NAME}" PUBLIC "tests")
-
-    if(MSVC)
-        target_compile_options("${TEST_PROJECT_NAME}" PUBLIC /MP /FC)
-    else()
-        target_compile_options("${TEST_PROJECT_NAME}" PUBLIC -Wall)
-    endif()
-
-endif()
 

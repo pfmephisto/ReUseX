@@ -1,8 +1,6 @@
 #pragma once
 #include "types/Surface_Mesh.hh"
-
-#include <typed-geometry/types/objects/aabb.hh>
-#include <typed-geometry/types/pos.hh>
+#include "types/Kernel.hh"
 
 
 namespace linkml
@@ -10,12 +8,14 @@ namespace linkml
     class Brep
     {
     public:
-        using Vertex    = tg::pos3;
-        using Vertices = std::vector<Vertex>;
-        using Curve3D   = std::vector<tg::pos3>;
-        using Curve2D   = std::vector<tg::pos2>;
+        using Vertex    = Kernel::Point_3;
+        using Vertices  = std::vector<Vertex>;
+        using Curve3D   = std::vector<Kernel::Point_3>;
+        using Curve2D   = std::vector<Kernel::Point_2>;
         using Curves3D  = std::vector<Curve3D>;
         using Curves2D  = std::vector<Curve2D>;
+        using Box = Kernel::Iso_cuboid_3;
+
 
         using Interval = std::tuple<float, float>;
 
@@ -43,7 +43,7 @@ namespace linkml
             std::vector<float> pointData = std::vector<float>();
             int countU = 1;
             int countV = 1;
-            tg::aabb3 bbox = tg::aabb3();
+            Box bbox = Box();
             bool closedU = false;
             bool closedV = false;
             Interval domainU = Interval(0, 1);
@@ -107,7 +107,7 @@ namespace linkml
         double volume() const;
         double area() const;
         bool is_closed() const;
-        tg::aabb3 get_bbox() const;
+        Box get_bbox() const;
         int get_Orientation() const;
         LinkMesh get_Mesh() const;
 

@@ -583,8 +583,8 @@ namespace linkml
                 auto [id1, surface1] = tiles[i];
                 auto [id2, surface2] = tiles[j];
 
-                Point_3 source = surface1->GetCentroid(id1);
-                Point_3 target = surface2->GetCentroid(id2);
+                Point source = surface1->GetCentroid(id1);
+                Point target = surface2->GetCentroid(id2);
 
                 auto normal1 = surface1->plane.orthogonal_vector();
                 auto normal2 = surface2->plane.orthogonal_vector();
@@ -599,7 +599,7 @@ namespace linkml
                 ray.ray.org_y = CGAL::to_double(source.y());
                 ray.ray.org_z = CGAL::to_double(source.z());
 
-                Vector_3 dir = target - source;
+                Vector dir = target - source;
                 dir = dir / CGAL::sqrt(CGAL::to_double(dir.squared_length()));
 
                 ray.ray.dir_x = CGAL::to_double(dir.x());

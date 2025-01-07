@@ -1,20 +1,17 @@
 #pragma once
-#include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
-#include <CGAL/Exact_predicates_exact_constructions_kernel.h>
+#include "types/Kernel.hh"
+#include "types/Point.hh"
+#include "types/FT.hh"
+#include "types/Vector.hh"
+#include "types/Direction.hh"
+#include "types/AABB.hh"
+
 #include <CGAL/Surface_mesh.h>
 #include <CGAL/number_utils.h>
 
-#include <typed-geometry/types/objects/aabb.hh>
-
 namespace linkml {
-    using Kernel =  CGAL::Exact_predicates_inexact_constructions_kernel;
     
-    using Point_3 = Kernel::Point_3;
-    using Vector_3 = Kernel::Vector_3;
-    using Direction_3 = Kernel::Direction_3;
-    using Surface_mesh = CGAL::Surface_mesh<Point_3>;
-    using FT = Kernel::FT;
-
+    using Surface_mesh = CGAL::Surface_mesh<Point>;
 
     class LinkMesh: public Surface_mesh
     {
@@ -35,8 +32,8 @@ namespace linkml {
 
         double volume() const;
         double area() const;
-        tg::aabb3 get_bbox() const;
-        std::vector<tg::pos3> get_vertices() const;
+        Box get_bbox() const;
+        std::vector<PointT> get_vertices() const;
         std::vector<int> get_faces() const;
         std::vector<int> get_colors() const;
         std::vector<float> get_textrueCoords() const;

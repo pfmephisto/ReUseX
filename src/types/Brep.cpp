@@ -1,15 +1,6 @@
 #include "types/Brep.hh"
 #include "functions/polyscope.hh"
 
-#include <typed-geometry/tg.hh>
-
-#include <typed-geometry/types/pos.hh>
-#include <typed-geometry/types/objects/aabb.hh>
-#include <typed-geometry/types/objects/quad.hh>
-
-#include <typed-geometry/functions/objects/area.hh>
-#include <typed-geometry/functions/objects/aabb.hh>
-
 #include <CGAL/Polygon_mesh_processing/triangulate_faces.h>
 #include <CGAL/Polygon_mesh_processing/stitch_borders.h>
 #include <CGAL/Polygon_mesh_processing/polygon_mesh_to_polygon_soup.h>
@@ -17,9 +8,11 @@
 #include <CGAL/Polygon_mesh_processing/measure.h>
 #include <CGAL/Surface_mesh/IO/OFF.h>
 #include <CGAL/Optimal_bounding_box/oriented_bounding_box.h>
+#include <CGAL/squared_distance_3.h>
 
 
 #include "types/Plane.hh"
+#include "types/Point2.hh"
 #include "functions/fit_plane_thorugh_points.hh"
 
 #include <vector>
@@ -35,6 +28,8 @@ namespace PMP = CGAL::Polygon_mesh_processing;
 
 namespace linkml
 {
+
+
  
     template <typename Mesh, typename Face_Handel>
     auto compute_plane(Mesh mesh, Face_Handel f ){
@@ -108,15 +103,15 @@ namespace linkml
     
     bool Brep::is_closed() const { return CGAL::is_closed(mesh);}
     
-    tg::aabb3 Brep::get_bbox() const { 
+    Box Brep::get_bbox() const { 
         auto box = CGAL::bounding_box(mesh.points().begin(), mesh.points().end());
-        return tg::aabb3(
-            tg::pos3(
+        return Box(
+            Point(
                 CGAL::to_double(box.xmin()), 
                 CGAL::to_double(box.ymin()), 
                 CGAL::to_double(box.zmin())
             ), 
-            tg::pos3(
+            Point(
                 CGAL::to_double(box.xmax()), 
                 CGAL::to_double(box.ymax()), 
                 CGAL::to_double(box.zmax()))
@@ -141,7 +136,7 @@ namespace linkml
 
         for (auto h : mesh.halfedges()){
 
-            Brep::Curve2D curve = std::vector<tg::pos2>(2);
+            Brep::Curve2D curve = std::vector<Point2>(2);
 
 
             auto v1 = mesh.source(h);
@@ -156,8 +151,8 @@ namespace linkml
             auto pt1 = plane.to_2d(mesh.point(v1)) - Ov;
             auto pt2 = plane.to_2d(mesh.point(v2)) - Ov;
 
-            curve[1] = tg::pos2(CGAL::to_double(pt1.x()), CGAL::to_double(pt1.y()));
-            curve[0] = tg::pos2(CGAL::to_double(pt2.x()), CGAL::to_double(pt2.y()));
+            curve[1] = Point2(CGAL::to_double(pt1.x()), CGAL::to_double(pt1.y()));
+            curve[0] = Point2(CGAL::to_double(pt2.x()), CGAL::to_double(pt2.y()));
 
             curves[h.idx()] = curve;
             
@@ -171,14 +166,14 @@ namespace linkml
         curves.resize(mesh.number_of_edges());
         for (auto e : mesh.edges())
         {
-            auto curve = std::vector<tg::pos3>(2);
+            auto curve = std::vector<Point>(2);
             auto h = mesh.halfedge(e, 0);
 
             auto p1 = mesh.point(mesh.source(h));
             auto p2 = mesh.point(mesh.target(h));
             
-            curve[0] = tg::pos3(CGAL::to_double(p1.x()), CGAL::to_double(p1.y()), CGAL::to_double(p1.z()));
-            curve[1] = tg::pos3(CGAL::to_double(p2.x()), CGAL::to_double(p2.y()), CGAL::to_double(p2.z()));
+            curve[0] = Point(CGAL::to_double(p1.x()), CGAL::to_double(p1.y()), CGAL::to_double(p1.z()));
+            curve[1] = Point(CGAL::to_double(p2.x()), CGAL::to_double(p2.y()), CGAL::to_double(p2.z()));
 
             curves[e.idx()] = curve;
         }
@@ -207,8 +202,8 @@ namespace linkml
             edge.EndIndex = v2.idx();
             edge.ProxyCurveIsReversed = false;
 
-            edge.Domain = Interval(0, tg::distance(tg::pos3(CGAL::to_double(p1.x()), CGAL::to_double(p1.y()), CGAL::to_double(p1.z())),tg::pos3(CGAL::to_double(p2.x()), CGAL::to_double(p2.y()), CGAL::to_double(p2.z()))));
-
+            edge.Domain = Interval(0, std::sqrt(CGAL::squared_distance(p1, p2)));
+            
             edge.Curve3dIndex = e.idx();
             edges[e.idx()] = edge;
         }
@@ -236,7 +231,7 @@ namespace linkml
         vertices.resize(mesh.number_of_vertices());
         for (auto v : mesh.vertices()){   
             auto p = mesh.point(v);
-            vertices[v.idx()] = tg::pos3(CGAL::to_double(p.x()), CGAL::to_double(p.y()), CGAL::to_double(p.z()));
+            vertices[v.idx()] = Point(CGAL::to_double(p.x()), CGAL::to_double(p.y()), CGAL::to_double(p.z()));
         }
         return vertices;
     }
@@ -366,15 +361,7 @@ namespace linkml
 
             auto p1 = mesh.point(mesh.source(h));
             auto p2 = mesh.point(mesh.target(h));
-            auto dist = tg::distance(
-                tg::pos3(
-                    CGAL::to_double(p1.x()), 
-                    CGAL::to_double(p1.y()), 
-                    CGAL::to_double(p1.z())),
-                tg::pos3(
-                    CGAL::to_double(p2.x()), 
-                    CGAL::to_double(p2.y()), 
-                    CGAL::to_double(p2.z())));
+            auto dist = std::sqrt(CGAL::squared_distance(p1, p2));
             trim.Domain = Interval(0, dist);
 
             trims[h.idx()] = trim;

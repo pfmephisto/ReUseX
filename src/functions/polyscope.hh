@@ -4,12 +4,12 @@
 #include "types/Surface_Mesh.hh"
 #include "types/surface.hh"
 #include "types/Dataset.hh"
+#include "types/AABB.hh"
 
 #include "functions/polyscope_helpers.hh"
 #include "functions/crop_plane_with_aabb.hh"
 #include "functions/color.hh"
 
-#include <typed-geometry/types/objects/aabb.hh>
 
 #include <valarray>
 
@@ -20,11 +20,11 @@
 
 #include <optional>
 
-static bool polyscope_enabled = false;
 
 
 namespace polyscope  {
 
+    static bool polyscope_enabled = false;
 
     static void myinit(){
 
@@ -128,7 +128,7 @@ namespace polyscope  {
             F == Field::Semantic_color || 
             F == Field::Instance_color
         >::type> {
-        using type = tg::color3;
+        using type = cv::Scalar;
     }; 
 
     template <Field F>
@@ -164,13 +164,13 @@ namespace polyscope  {
                     switch (cloud.points[idx].confidence)
                     {
                     case 0:
-                        return tg::color3(1.0, 0.0, 0.0);
+                        return cv::Scalar(1.0, 0.0, 0.0);
                         break;
                     case 1:
-                        return tg::color3(1.0, 1.0, 0.0);
+                        return cv::Scalar(1.0, 1.0, 0.0);
                         break;
                     case 2:
-                        return tg::color3(0.0, 1.0, 0.0);
+                        return cv::Scalar(0.0, 1.0, 0.0);
                         break;
                     default:
                         break;
@@ -178,15 +178,15 @@ namespace polyscope  {
                 } else if constexpr (F == Field::Lables){
                     return cloud.points[idx].label;
                 } else if constexpr (F == Field::Lables_color){
-                    return linkml::get_color_forom_angle(linkml::sample_circle(cloud.points[idx].label));
+                    return linkml::get_color_from_angle(linkml::sample_circle(cloud.points[idx].label));
                 } else if constexpr (F == Field::Semantic){
                     return cloud.points[idx].semantic;
                 } else if constexpr (F == Field::Semantic_color){
-                    return linkml::get_color_forom_angle(linkml::sample_circle(cloud.points[idx].semantic));
+                    return linkml::get_color_from_angle(linkml::sample_circle(cloud.points[idx].semantic));
                 } else if constexpr (F == Field::Instance){
                     return static_cast<int>(cloud.points[idx].instance);
                 } else if constexpr (F == Field::Instance_color){
-                    return linkml::get_color_forom_angle(linkml::sample_circle(cloud.points[idx].instance));
+                    return linkml::get_color_from_angle(linkml::sample_circle(cloud.points[idx].instance));
                 } else if constexpr (F == Field::Importance){
                     return (cloud.points[idx].confidence+0.01f)
                                 *

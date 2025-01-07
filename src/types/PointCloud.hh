@@ -22,9 +22,6 @@
 #include <pcl/point_cloud.h>
 #include <pcl/io/pcd_io.h>
 
-#include <typed-geometry/types/pos.hh>
-#include <typed-geometry/types/vec.hh>
-#include <typed-geometry/feature/colors.hh>
 
 #include <polyscope/polyscope.h>
 #include <polyscope/point_cloud.h>
@@ -32,9 +29,20 @@
 
 #include <vector>
 #include <filesystem>
-#include <opencv4/opencv2/core.hpp>
+
 
 #include "types/Brep.hh"
+
+
+#include "types/Point.hh"
+#include "types/Direction.hh"
+#include "types/AABB.hh"
+#include "types/Color.hh"
+
+using Point = linkml::Point;
+using Direction = linkml::Direction;
+using Color = linkml::Color;
+using AABB = linkml::AABB;
 
 struct EIGEN_ALIGN16 PointT
 {
@@ -85,9 +93,9 @@ struct EIGEN_ALIGN16 PointT
       curvature = _curvature;
     }
 
-    inline tg::pos3 getPos () const { return (tg::pos3(x, y, z)); }
-    inline tg::color3 getColor () const { return (tg::color3(r, g, b)); }
-    inline tg::vec3 getNormal () const { return (tg::vec3(normal_x, normal_y, normal_z)); }
+    inline Point getPos () const { return (Point(x, y, z)); }
+    inline Color getColor () const { return (Color(r, g, b)); }
+    inline Direction getNormal () const { return (Direction(normal_x, normal_y, normal_z)); }
     friend std::ostream& operator<< (std::ostream& os, const PointT& p){
         os << "(" << p.x << ", " << p.y << ", " << p.z << ")";
         os << " - ";
@@ -124,7 +132,6 @@ POINT_CLOUD_REGISTER_POINT_STRUCT(PointT,
 
 
 namespace linkml{
-
 
     /// @brief A point cloud.
     class PointCloud : public pcl::PointCloud<PointT>::Ptr {
@@ -173,7 +180,7 @@ namespace linkml{
         Cloud::PointType at(size_t x, size_t y);
 
         /// @brief Get the bounding box of the point cloud.
-        tg::aabb3 get_bbox() const; 
+        AABB get_bbox() const; 
 
         /// @brief Transform the point cloud.
         void filter( PointCloud::Cloud::PointType::LableT value = 2); 

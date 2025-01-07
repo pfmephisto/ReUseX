@@ -11,6 +11,7 @@
 using Mesh = linkml::Surface_mesh;
 using Plane_3 = linkml::Kernel::Plane_3;
 using Point_2 = linkml::Kernel::Point_2;
+using Point = linkml::Kernel::Point_3;
 
 
 using Ray = RTCRayHit;
@@ -59,8 +60,8 @@ namespace linkml
         
         void Create_Embree_Geometry(RTCDevice & device, RTCScene & scene);
 
-        inline Point_3 GetCentroid(unsigned int id) const { 
-            return mesh.property_map<Mesh::Face_index, Point_3>(centeroids_name).value()[valid.at(id)]; }
+        inline Point GetCentroid(unsigned int id) const { 
+            return mesh.property_map<Mesh::Face_index, Point>(centeroids_name).value()[valid.at(id)]; }
         inline pcl::Indices GetPoints(unsigned int id) const { 
             return mesh.property_map<Mesh::Face_index, pcl::Indices>(indecies_name).value()[valid.at(id)]; }
         inline pcl::Indices GetPoints(Mesh::Face_index f) const { 
@@ -77,7 +78,7 @@ namespace linkml
     private:
 
         std::pair<pcl::Indices,size_t> supporting_points(typename Mesh::Face_index face, const Mesh& mesh, const PointCloud::Cloud::ConstPtr cloud, const pcl::Indices indices);
-        Point_3 compute_centroid(typename Mesh::Face_index f, const Mesh& mesh) const;
+        Point compute_centroid(typename Mesh::Face_index f, const Mesh& mesh) const;
 
     };
 

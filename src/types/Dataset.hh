@@ -8,7 +8,6 @@
 #include <map>
 #include <any>
 #include <Eigen/Dense>
-#include <typed-geometry/tg-std.hh>
 #include <opencv4/opencv2/opencv.hpp>
 
 
@@ -44,8 +43,7 @@ namespace linkml {
 
         // Getters
         std::set<Field>                     fields()            const {return _fields;};
-        tg::dmat3                           intrinsic_matrix()  const;
-    
+        Eigen::Matrix3d                     intrinsic_matrix()  const;    
 
 
         // Operators

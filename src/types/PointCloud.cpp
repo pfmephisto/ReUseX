@@ -1,4 +1,5 @@
 #include "types/PointCloud.hh"
+#include "types/Color.hh"
 
 #include "functions/progress_bar.hh"
 #include "functions/polyscope.hh"
@@ -70,7 +71,7 @@ namespace linkml {
     }
 
     /// @brief Get the bounding box of the point cloud.
-    tg::aabb3  PointCloud::get_bbox() const {
+    AABB  PointCloud::get_bbox() const {
         float x_min = std::numeric_limits<float>::max();
         float y_min = std::numeric_limits<float>::max();
         float z_min = std::numeric_limits<float>::max();
@@ -89,7 +90,7 @@ namespace linkml {
             if (p.z > z_max) z_max = p.z;
         }
 
-        return tg::aabb3(tg::pos3(x_min, y_min, z_min), tg::pos3(x_max, y_max, z_max));
+        return AABB(Point(x_min, y_min, z_min), Point(x_max, y_max, z_max));
 
     }
 
@@ -189,6 +190,7 @@ namespace linkml {
 
         cv::Mat img = cv::Mat::zeros(cloud->height, cloud->width, CV_8UC3);
 
+
         if ( field_name == "rgb" ){
         #pragma omp parallel for shared(img)
         for (size_t i = 0; i < cloud->size(); i++){
@@ -204,8 +206,8 @@ namespace linkml {
             auto point = cloud->at(i);
             size_t y = i % cloud->width;
             size_t x = i / cloud->width;
-            auto c = linkml::get_color_forom_angle(linkml::sample_circle(point.semantic));
-            img.at<cv::Vec3b>(x, y) = cv::Vec3b(c.r * 255, c.g * 255, c.b * 255);
+            Color c = linkml::get_color_from_angle(linkml::sample_circle(point.semantic));
+            img.at<Color>(x,y) = c;
         }
         }
         else {

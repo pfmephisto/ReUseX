@@ -2,9 +2,8 @@
 #include <any>
 #include <map>
 #include <Eigen/Dense>
-#include <typed-geometry/tg.hh>
-#include <typed-geometry/tg-std.hh>
 #include <opencv4/opencv2/opencv.hpp>
+
 
 
 namespace linkml{
@@ -60,7 +59,7 @@ namespace linkml{
 
     template <>
     struct FieldType<Field::POSES> {
-        using type = tg::dmat4x4;
+        using type = Eigen::Matrix3d;
     };
 
 

@@ -15,7 +15,7 @@ namespace linkml
 
         
         typename Mesh::Vertex_around_face_circulator cir(mesh.halfedge(face), mesh);
-        Point_3 points_3d[4];
+        Point points_3d[4];
         points_3d[0] = mesh.point(*cir); ++cir;
         points_3d[1] = mesh.point(*cir); ++cir;
         points_3d[2] = mesh.point(*cir); ++cir;
@@ -32,7 +32,7 @@ namespace linkml
         for (size_t i = 0; i < indices_in.size(); i++){
 
             auto point = cloud->points[indices_in[i]].getVector3fMap();
-            Point_2 p = plane.to_2d(Point_3(point[0], point[1], point[2]));
+            Point_2 p = plane.to_2d(Point(point[0], point[1], point[2]));
         
             if ( bbox.xmin() <= p.x() && bbox.xmax() >= p.x() && bbox.ymin() <= p.y() && bbox.ymax() >= p.y() ){
                 indices.push_back(indices_in[i]);
@@ -65,7 +65,7 @@ namespace linkml
 
             typename Mesh::Vertex_around_face_circulator cir(mesh.halfedge(f), mesh); 
 
-            Point_3 points[4];
+            Point points[4];
             points[0] = mesh.point(*cir); ++cir;
             points[1] = mesh.point(*cir); ++cir;
             points[2] = mesh.point(*cir); ++cir;
@@ -100,16 +100,16 @@ namespace linkml
 
     
     };  
-    Point_3 Surface::compute_centroid(typename Mesh::Face_index f, const Mesh& mesh) const {
+    Point Surface::compute_centroid(typename Mesh::Face_index f, const Mesh& mesh) const {
 
             // Set the default values
-            Point_3 centroid(0,0,0);
+            Point centroid(0,0,0);
 
             // Get the vertex buffer
             typename Mesh::Vertex_around_face_circulator cir(mesh.halfedge(f), mesh), done_v(cir);
 
             // Get the vertex coordinates
-            Point_3 points[4];
+            Point points[4];
             points[0] = mesh.point(*cir); ++cir;
             points[1] = mesh.point(*cir); ++cir;
             points[2] = mesh.point(*cir); ++cir;
@@ -124,7 +124,7 @@ namespace linkml
                 Z += points[i].z();
             }
             X /= 4; Y /= 4; Z /= 4;
-            centroid = Point_3(X, Y, Z);
+            centroid = Point(X, Y, Z);
 
             return centroid;
 
@@ -139,10 +139,10 @@ namespace linkml
 
 
         // Initialize the Mesh properties
-        // auto coords = mesh.template add_property_map<Mesh::Vertex_index, Point_3>(coords_name).first;
+        // auto coords = mesh.template add_property_map<Mesh::Vertex_index, Point>(coords_name).first;
         auto num_supporting_points = mesh.template add_property_map<Mesh::Face_index, std::size_t>(num_supporting_points_name, 0).first;
         auto indecies = mesh.template add_property_map<Mesh::Face_index, pcl::Indices>(indecies_name).first;
-        auto centeroids = mesh.template add_property_map<Mesh::Face_index, Point_3>(centeroids_name).first;
+        auto centeroids = mesh.template add_property_map<Mesh::Face_index, Point>(centeroids_name).first;
 
 
         // Construct Plane
@@ -187,7 +187,7 @@ namespace linkml
         #pragma omp parallel for
         for (size_t i = 0; i < indices.size(); i++){
             auto point = cloud->points[indices[i]].getVector3fMap();
-            Point_3 p = Point_3(point[0], point[1], point[2]);
+            Point p = Point(point[0], point[1], point[2]);
             points_2d[i] = plane.to_2d(p);
         }
 

@@ -1,8 +1,7 @@
 #pragma once
 
-#include <typed-geometry/tg.hh>
-#include "../types/Plane.hh"
-#include "../types/PointCloud.hh"
+#include "types/Plane.hh"
+#include "types/PointCloud.hh"
 
 
 #include <pcl/common/centroid.h>
@@ -10,25 +9,25 @@
 // #include <pcl/segmentation/region_growing.h>
 // #include <pcl/segmentation/planar_region.h>
 
+#include <CGAL/linear_least_squares_fitting_3.h>
+
 namespace linkml {
 
-    static linkml::Plane fit_plane_thorugh_points(std::vector<tg::pos3> const& points){
+    static linkml::Plane fit_plane_thorugh_points(std::vector<Point> const& points){
 
-        std::vector<tg::pos3> centered = std::vector<tg::pos3>();
 
-        tg::pos3 com = tg::mean(points);
-        for (size_t i = 0; i < points.size(); i++)
-            centered.push_back(points.at(i) - (tg::vec3)com);
+        Plane best_fit_plane;
+        CGAL::linear_least_squares_fitting_3(
+            points.begin(),
+            points.end(),
+            best_fit_plane,
+            CGAL::Dimension_tag<0>() // 0D: points
+        );
 
-        tg::mat3x3 cov = tg::covariance_matrix(centered);
-        tg::array<float,3> eigenvalues = tg::eigenvalues_symmetric(cov);
-        tg::array<tg::vec3,3> eigenvectors = tg::eigenvectors_symmetric(cov);
+        Point com = CGAL::centroid(points.begin(), points.end());
+        com = best_fit_plane.projection(com);
 
-        tg::vec3 normal = tg::normalize_safe(eigenvectors[tg::min_index(eigenvalues)]);
-        float distance = tg::dot(-com,normal);
-
-        return linkml::Plane(normal.x,normal.y,normal.z,distance, com.x, com.y, com.z);
-
+        return linkml::Plane(best_fit_plane.a(), best_fit_plane.b(), best_fit_plane.c(), best_fit_plane.d(), com.x(), com.y(), com.z());
     }
 
     static linkml::Plane fit_plane_thorugh_points(PointCloud::Cloud::ConstPtr cloud,  pcl::Indices const & indecies){

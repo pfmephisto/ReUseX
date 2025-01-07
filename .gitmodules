@@ -1,15 +1,3 @@
-[submodule "extern/clean-core"]
-	path = extern/clean-core
-	url = https://github.com/project-arcana/clean-core.git
-[submodule "extern/ctracer"]
-	path = extern/ctracer
-	url = https://github.com/project-arcana/ctracer.git
-[submodule "extern/reflector"]
-	path = extern/reflector
-	url = https://github.com/project-arcana/reflector.git
-[submodule "extern/rich-log"]
-	path = extern/rich-log
-	url = https://@github.com/project-arcana/rich-log.git
 [submodule "extern/pybind11"]
 	path = extern/pybind11
 	url = git@github.com:pybind/pybind11.git

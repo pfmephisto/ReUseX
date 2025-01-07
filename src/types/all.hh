@@ -4,3 +4,7 @@
 #include "types/PointClouds.hh"
 #include "types/Dataset.hh"
 #include "types/Brep.hh"
+#include "types/Point.hh"
+#include "types/Point2.hh"
+#include "types/Vector.hh"
+#include "types/Direction.hh"

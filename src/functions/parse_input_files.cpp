@@ -7,7 +7,6 @@
 #include <pcl/point_types.h>
 #include <pcl/point_cloud.h>
 #include <pcl/point_representation.h>
-//#include <pcl/segmentation/region_growing.h>
 
 #include <pcl/filters/filter.h>
 
@@ -20,8 +19,6 @@
 
 #include <pcl/filters/conditional_removal.h>
 
-#include <typed-geometry/tg-std.hh>
-#include <typed-geometry/tg.hh>
 #include <functions/depth_to_3d.hh>
 #include <types/Yolo.hh>
 #include <types/Accumulators.hh>
@@ -31,7 +28,9 @@
 #include <polyscope/point_cloud.h>
 #include <polyscope/curve_network.h>
 
+#include <fmt/core.h>
 #include <fmt/printf.h>
+#include <fmt/format.h>
 #include <fmt/color.h>
 
 #include "parse_input_files.hh"
@@ -39,8 +38,7 @@
 #include <functions/progress_bar.hh>
 
 #include <Eigen/Dense>
-#include <opencv4/opencv2/opencv.hpp>
-#include <opencv4/opencv2/ml.hpp>
+
 
 #include <mutex>
 #include <thread>

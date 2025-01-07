@@ -37,8 +37,8 @@ PYBIND11_MODULE(_core, m) {
     // Attributes
     //    m.attr("default_params") = linkml::plane_fitting_parameters();
 
-    PYBIND11_NUMPY_DTYPE(tg::pos3, x, y, z);
-    PYBIND11_NUMPY_DTYPE(tg::vec3, x, y, z);
+    // PYBIND11_NUMPY_DTYPE(linkml::Point, x, y, z);
+    // PYBIND11_NUMPY_DTYPE(linkml::Vector, x, y, z);
     PYBIND11_NUMPY_DTYPE(linkml::PointCloud::Cloud::PointType, x, y, z, rgb, normal_x, normal_y, normal_z, curvature, confidence, semantic, instance, label);
 
 
@@ -454,81 +454,81 @@ PYBIND11_MODULE(_core, m) {
         .def(py::init<const float ,const float ,const float ,const float, const float, const float, const float>())
         .def("__repr__", [](const linkml::Plane &p){
             std::stringstream ss;
-            ss << "Plane A("<< p.normal.x<<") B(" <<p.normal.y << ") C(" <<p.normal.z << ") D(" << p.dis << ")";
+            ss << "Plane A("<< p.a()<<") B(" <<p.b() << ") C(" <<p.c() << ") D(" << p.d() << ")";
             return ss.str();
         })
         .def_readwrite("origin", &linkml::Plane::origin)
-        .def_readonly("normal", &linkml::Plane::normal)
+        .def("normal", &linkml::Plane::normal)
         ;
  
     /// @brief Position
-    py::class_<tg::pos3>(m, "Pos")
+    py::class_<linkml::Point>(m, "Pos")
         .def(py::init<const float, const float, const float>())
-        .def(("__repr__"), [](const tg::pos3 &p){
+        .def(("__repr__"), [](const linkml::Point &p){
             std::stringstream ss;;
-            ss << "Pos X=" << p.x << " y="<< p.y << " z=" << p.z;
+            ss << "Pos X=" << p.x() << " y="<< p.y() << " z=" << p.z();
             return ss.str();
         })
-        .def_readwrite("x", &tg::pos3::x)
-        .def_readwrite("y", &tg::pos3::y)
-        .def_readwrite("z", &tg::pos3::z)
+        .def("x", &linkml::Point::x)
+        .def("y", &linkml::Point::y)
+        .def("z", &linkml::Point::z)
         ;
 
     /// @brief Position
-    py::class_<tg::pos2>(m, "Pos2D")
+    py::class_<linkml::Point2>(m, "Pos2D")
         .def(py::init<const float, const float>())
-        .def(("__repr__"), [](const tg::pos2 &p){
+        .def(("__repr__"), [](const linkml::Point2 &p){
             std::stringstream ss;;
-            ss << "Pos2D X=" << p.x << " y="<< p.y;
+            ss << "Pos2D X=" << p.x() << " y="<< p.y();
             return ss.str();
         })
-        .def_readwrite("x", &tg::pos2::x)
-        .def_readwrite("y", &tg::pos2::y)
+        .def("x", &linkml::Point2::x)
+        .def("y", &linkml::Point2::y)
         ;
 
 
     /// @brief Vector
-    py::class_<tg::vec3>(m, "Vec")
+    py::class_<linkml::Vector>(m, "Vec")
         .def(py::init<const float, const float, const float>())
-        .def(("__repr__"), [](const tg::vec3 &v){
+        .def(("__repr__"), [](const linkml::Vector &v){
             std::stringstream ss;;
-            ss << "Vec X=" << v.x << " y="<< v.y << " z=" << v.z;
+            ss << "Vec X=" << v.x() << " y="<< v.y() << " z=" << v.z();
             return ss.str();
         })
         ;
 
     /// @brief Direction, Normalised vector
-    py::class_<tg::dir3>(m, "Dir")
+    py::class_<linkml::Direction>(m, "Dir")
         .def(py::init<const float, const float, const float>())
-        .def(("__repr__"), [](const tg::dir3 &v){
+        .def(("__repr__"), [](const linkml::Direction &v){
             std::stringstream ss;;
-            ss << "Dir X=" << v.x << " y="<< v.y << " z=" << v.z;
+            ss << "Dir X=" << v.dx() << " y="<< v.dy() << " z=" << v.dz();
             return ss.str();
         })
-        .def_property_readonly("valid", [](const tg::dir3 &v){ return tg::normalize_safe((tg::vec3)v) !=  tg::vec3::zero;
-         })
+        // .def_property_readonly("valid", [](const linkml::Direction &v){ return tg::normalize_safe((linkml::Vector)v) !=  linkml::Vector::zero;
+        //  })
         ;
-    py::class_<tg::aabb3>(m, "AABB")
-        .def(py::init<const tg::pos3, const tg::pos3>())
-        .def("__repr__", [](const tg::aabb3 &a){
+    py::class_<linkml::AABB>(m, "AABB")
+        .def(py::init<const linkml::Point, const linkml::Point>())
+        .def("__repr__", [](const linkml::AABB &a){
             std::stringstream ss;
-            ss << "AABB min(" << a.min.x << ", " << a.min.y << ", " << a.min.z << ") max(" << a.max.x << ", " << a.max.y << ", " << a.max.z << ")";
+            ss << "AABB min(" << a.min().x() << ", " << a.min().y() << ", " << a.min().z() << ") max(" << a.max().x() << ", " << a.max().y() << ", " << a.max().z() << ")";
             return ss.str();
         })
-        .def("volume", [](const tg::aabb3 &a){
-            return (a.max.x - a.min.x) * (a.max.y - a.min.y) * (a.max.z - a.min.z);
+        .def("volume", [](const linkml::AABB &a){
+            return (a.max().x() - a.min().x()) * (a.max().y() - a.min().y()) * (a.max().z() - a.min().z());
         })
-        .def("center", [](const tg::aabb3 &a){
-            return tg::pos3((a.max.x + a.min.x) / 2, (a.max.y + a.min.y) / 2, (a.max.z + a.min.z) / 2);
+        .def("center", [](const linkml::AABB &a){
+            return linkml::Point((a.max().x() + a.min().x()) / 2, (a.max().y() + a.min().y()) / 2, (a.max().z() + a.min().z()) / 2);
         })
-        .def("xInterval", [](const tg::aabb3 &a){
-            return std::make_tuple(a.min.x, a.max.x);
+        .def("xInterval", [](const linkml::AABB &a){
+            return std::make_tuple(a.min().x(), a.max().x());
         })
-        .def("yInterval", [](const tg::aabb3 &a){
-            return std::make_tuple(a.min.y, a.max.y);
+        .def("yInterval", [](const linkml::AABB &a){
+            return std::make_tuple(a.min().y(), a.max().y());
         })
-        .def("zInterval", [](const tg::aabb3 &a){
-            return std::make_tuple(a.min.z, a.max.z);
+        .def("zInterval", [](const linkml::AABB &a){
+            return std::make_tuple(a.min().z(), a.max().z());
         })
         ;
     

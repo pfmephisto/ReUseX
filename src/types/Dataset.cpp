@@ -6,8 +6,6 @@
 #include <string>
 #include <optional>
 #include <fmt/printf.h>
-#include <typed-geometry/tg-std.hh>
-#include <typed-geometry/tg.hh>
 
 #define CHECK_EXSISTANCE(path, file) if (!std::filesystem::exists(path / file)){ fmt::printf("{} does not exist\n", file); break; }
 
@@ -84,7 +82,7 @@ size_t get_number_of_frames(std::filesystem::path const& path){
     return cap.get(cv::CAP_PROP_FRAME_COUNT);
 }
 
-std::optional<tg::dmat3> read_camera_matrix(std::filesystem::path const& path){
+std::optional<Eigen::Matrix3d> read_camera_matrix(std::filesystem::path const& path){
 
     if (!std::filesystem::exists(path)){
         fmt::print("Camera matrix file does not exist\n");
@@ -98,7 +96,7 @@ std::optional<tg::dmat3> read_camera_matrix(std::filesystem::path const& path){
 
     auto matrix = read_csv(camera_matrix_stream, ',', false);
 
-    auto  mat = tg::dmat3::diag(1);
+    Eigen::Matrix3d  mat = Eigen::Matrix3d::Identity();
 
     // (int col, int row)  <-- Tyepd geometry
     // (int row, int col)  <-- Eigen
@@ -197,13 +195,20 @@ std::optional<Eigen::Matrix<double,     Eigen::Dynamic, Eigen::Dynamic>> read_co
 }
 
 
-auto create_pose(Eigen::Vector3d const& p, Eigen::Vector4d const& q){
-    tg::pos3 pos(p(0), p(1), p(2));
-    tg::dquat quat(q(0), q(1), q(2), q(3));
+Eigen::Matrix<double, 3, 3> create_pose( Eigen::Block<const Eigen::MatrixXd, 1, 3> const& p, Eigen::Block<const Eigen::MatrixXd, 1, 4> const& q){
 
-    auto mat = static_cast<tg::dmat4x4>(quat);
-    mat.set_col(3, tg::dvec4(pos, 1));
-    return mat;
+    Eigen::Matrix4d mat;
+    mat.setIdentity();
+    mat.block<3,3>(0,0) = Eigen::Quaternion(q[0], q[1], q[2], q[3]).toRotationMatrix();
+    mat.block<3,1>(0,3) = p;
+
+    // tg::pos3 pos(p(0), p(1), p(2));
+    // tg::dquat quat(q(0), q(1), q(2), q(3));
+
+    // auto mat = static_cast<tg::dmat4x4>(quat);
+    // mat.set_col(3, tg::dvec4(pos, 1));
+
+    return (Eigen::Matrix<double, 3, 3>)mat.block<3,3>(0,0);
 }
 
 
@@ -277,7 +282,7 @@ Dataset::Dataset(const std::filesystem::path & path, const std::initializer_list
     }
 };
 
-tg::dmat3 Dataset::intrinsic_matrix() const {
+Eigen::Matrix<double, 3, 3> Dataset::intrinsic_matrix() const {
     auto matrix = read_camera_matrix( _path / "camera_matrix.csv").value();
 
     // Scale intrinsic matrix to match depth image size

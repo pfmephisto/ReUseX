@@ -9,12 +9,12 @@
 #include <opencv4/opencv2/ml.hpp>
 
 #include <optional>
+#include "functions/color.hh"
 
 
 
 static void draw_box(cv::Mat & img,  linkml::OutputParams const& param){
-    auto color = linkml::get_color_forom_angle(linkml::sample_circle(param.id));
-    cv::Scalar color_scalar = cv::Scalar(color.r * 255, color.g * 255, color.b * 255);
+    cv::Scalar color_scalar = linkml::get_color_from_angle(linkml::sample_circle(param.id));
     std::string label = linkml::Yolov8Seg::GetClassName(param.id);
     cv::rectangle(img, param.box, color_scalar, 2);
     cv::putText(img, label, cv::Point(param.box.x, param.box.y), cv::FONT_HERSHEY_SIMPLEX, 1, color_scalar, 2);

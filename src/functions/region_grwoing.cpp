@@ -21,7 +21,6 @@
 #include <pcl/common/geometry.h>
 
 #include <Eigen/Core>
-#include <typed-geometry/tg.hh>
 
 #include <tbb/parallel_sort.h>
 
@@ -181,8 +180,8 @@ void linkml::PointCloud::region_growing(
                     // This should make it easier to port the code
                     Plane p = fit_plane_thorugh_points(cloud, indices_local);
 
-                    plane_normal = {p.normal.x, p.normal.y, p.normal.z};
-                    plane_origin = {p.origin.x, p.origin.y, p.origin.z};
+                    plane_normal = {p.normal().dx(), p.normal().dy(), p.normal().dz()};
+                    plane_origin = {p.origin.x(), p.origin.y(), p.origin.z()};
 
                     next_update *= interval_factor;
                 }

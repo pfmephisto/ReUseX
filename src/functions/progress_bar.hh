@@ -2,8 +2,6 @@
 
 #include <iostream>
 
-#include <clean-core/string.hh>
-#include <clean-core/string_view.hh>
 #include <types/Timer.hh>
 
 
@@ -23,7 +21,7 @@ public:
 
     progress_bar(int total_work) : _total_work(total_work)/*, _call_diff(total_work/200)*/ {start();}
 
-    progress_bar(int total_work, cc::string_view task_name) : _task_name(task_name), _total_work(total_work)/*, _call_diff(total_work/200)*/ {start();}
+    progress_bar(int total_work, std::string_view task_name) : _task_name(task_name), _total_work(total_work)/*, _call_diff(total_work/200)*/ {start();}
 
     void start() { _timer.start(); }
 
@@ -71,14 +69,14 @@ public:
         return *this;
     }
 
-    progress_bar& task_name(cc::string_view task_name)
+    progress_bar& task_name(std::string_view task_name)
     {
         _task_name = task_name;
         return *this;
     }
 
 private:
-    cc::string    _task_name      = "";     ///< Name of the task being performed
+    std::string    _task_name      = "";     ///< Name of the task being performed
     uint32_t      _total_work     = 0;      ///< Total work to be accomplished
     uint32_t      _finished_work  = 0;      ///< Amount of work done
     uint32_t      _next_update    = 0;      ///< Next point to update the visible progress bar

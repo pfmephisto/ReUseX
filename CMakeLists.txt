@@ -162,13 +162,9 @@ include(cmake/Python.cmake)
 # ===============================================
 # add submodules
 
-add_subdirectory(extern/clean-core)
-add_subdirectory(extern/ctracer)
 add_subdirectory(extern/fmt)
 add_subdirectory(extern/polyscope)
 add_subdirectory(extern/pybind11)
-add_subdirectory(extern/reflector)
-add_subdirectory(extern/rich-log)
 add_subdirectory(extern/opennurbs)
 
 # ===============================================
@@ -220,12 +216,6 @@ debug ${GUROBI_CXX_DEBUG_LIBRARY}
 # HDF5::HDF5
 )
 target_link_libraries(${LIB_PROJECT_NAME} PUBLIC
-    clean-core
-    typed-geometry
-    ctracer
-    reflector
-    rich-log
-    polymesh
     polyscope
     embree
     ${CUDA_LIBRARIES} 
@@ -249,10 +239,6 @@ target_link_libraries(${LIB_PROJECT_NAME} PUBLIC
 
 # dependency grouping in the IDE
 foreach(TARGET_NAME
-    clean-core
-    ctracer
-    reflector
-    rich-log
     polyscope
 )
 set_property(TARGET ${TARGET_NAME} PROPERTY FOLDER "Extern")

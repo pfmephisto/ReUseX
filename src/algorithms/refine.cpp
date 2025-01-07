@@ -8,7 +8,7 @@
 #include <cmath>
 
 
-namespace linkml{
+namespace ReUseX{
 
 
     std::vector<pcl::PointIndices> refine(

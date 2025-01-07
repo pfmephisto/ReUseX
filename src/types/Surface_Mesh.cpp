@@ -9,7 +9,7 @@
 namespace PMP = CGAL::Polygon_mesh_processing;
 
 
-namespace linkml
+namespace ReUseX
 {
    double LinkMesh::volume() const { return CGAL::to_double(PMP::volume((Base)*this)); }
    double LinkMesh::area() const { return CGAL::to_double(PMP::area((Base)*this)); }
@@ -55,4 +55,4 @@ namespace linkml
    std::vector<int> LinkMesh::get_colors() const { return std::vector<int>(); }
    std::vector<float> LinkMesh::get_textrueCoords() const { return std::vector<float>(); }
 
-} // namespace linkml
+} // namespace ReUseX

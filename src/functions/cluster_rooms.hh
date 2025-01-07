@@ -44,9 +44,9 @@ public:
 
 };
 
-using Filter = pcl::experimental::advanced::FunctorFilter<linkml::PointCloud::Cloud::PointType, MatchCondition<linkml::PointCloud::Cloud::PointType>>;
+using Filter = pcl::experimental::advanced::FunctorFilter<ReUseX::PointCloud::Cloud::PointType, MatchCondition<ReUseX::PointCloud::Cloud::PointType>>;
 using Clusters = std::vector<pcl::PointIndices>;
-using Tile = std::pair<unsigned int, linkml::Surface *>;
+using Tile = std::pair<unsigned int, ReUseX::Surface *>;
 using Tiles = std::vector<Tile>;
 using RaysPair = std::vector<std::pair<Ray, Tile*>>;
 using Indices = pcl::Indices;
@@ -431,7 +431,7 @@ class NodeHitSizeMap{
 };
 
 
-static Clusters extract_clusters(linkml::PointCloud::Cloud::ConstPtr cloud){
+static Clusters extract_clusters(ReUseX::PointCloud::Cloud::ConstPtr cloud){
 
     // Collect all cluster indices
     std::unordered_set<size_t> cluster_indices_set;
@@ -456,7 +456,7 @@ static Clusters extract_clusters(linkml::PointCloud::Cloud::ConstPtr cloud){
     return clusters;
 }
 
-namespace linkml
+namespace ReUseX
 {
     
     template<typename PointT>
@@ -522,7 +522,7 @@ namespace linkml
 
         // polyscope::myinit();
         // for (int i = 0; i< 202 /*surfaces.size()*/; i++)
-        //     polyscope::display< linkml::Surface const& >(surfaces[i], "Surface " + std::to_string(i));
+        //     polyscope::display< ReUseX::Surface const& >(surfaces[i], "Surface " + std::to_string(i));
         // polyscope::myshow();
             
 
@@ -815,4 +815,4 @@ namespace linkml
 
 
     }
-} // namespace linkml
+} // namespace ReUseX

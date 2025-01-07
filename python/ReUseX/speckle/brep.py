@@ -19,7 +19,7 @@ def chunks(lst, n):
 def BrepToBase(brep: Brep ) -> Base:
 
     sp_brep = Speckle_Brep()
-    sp_brep.provenance = "LinkML"
+    sp_brep.provenance = "ReUseX"
     sp_brep.units = Units.m
 
     sp_brep.bbox = AABBToBase(brep.bbox())

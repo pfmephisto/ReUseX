@@ -13,9 +13,9 @@
 
 
 
-static void draw_box(cv::Mat & img,  linkml::OutputParams const& param){
-    cv::Scalar color_scalar = linkml::get_color_from_angle(linkml::sample_circle(param.id));
-    std::string label = linkml::Yolov8Seg::GetClassName(param.id);
+static void draw_box(cv::Mat & img,  ReUseX::OutputParams const& param){
+    cv::Scalar color_scalar = ReUseX::get_color_from_angle(ReUseX::sample_circle(param.id));
+    std::string label = ReUseX::Yolov8Seg::GetClassName(param.id);
     cv::rectangle(img, param.box, color_scalar, 2);
     cv::putText(img, label, cv::Point(param.box.x, param.box.y), cv::FONT_HERSHEY_SIMPLEX, 1, color_scalar, 2);
 
@@ -31,7 +31,7 @@ static void draw_box(cv::Mat & img,  linkml::OutputParams const& param){
 }
 
 
-namespace linkml
+namespace ReUseX
 {
     template<class T>
     PointClouds<T> PointClouds<T>::annotate(std::string yolo_path, std::optional<Dataset> & dataset){ 
@@ -210,4 +210,4 @@ namespace linkml
     template PointCloudsInMemory  PointCloudsInMemory::annotate(std::string ,std::optional<Dataset> & );
     template PointCloudsOnDisk  PointCloudsOnDisk::annotate(std::string ,std::optional<Dataset> & );
 
-} // namespace linkml
+} // namespace ReUseX

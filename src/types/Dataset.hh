@@ -11,7 +11,7 @@
 #include <opencv4/opencv2/opencv.hpp>
 
 
-namespace linkml {
+namespace ReUseX {
 
     class Dataset
     {
@@ -60,4 +60,4 @@ namespace linkml {
     
     };
 
-} // namespace linkml
+} // namespace ReUseX

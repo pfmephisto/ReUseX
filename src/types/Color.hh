@@ -2,7 +2,7 @@
 
 #include <opencv4/opencv2/core.hpp>
 
-namespace linkml
+namespace ReUseX
 {
     using Color = cv::Scalar;
-} // namespace linkml
+} // namespace ReUseX

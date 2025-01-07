@@ -7,7 +7,7 @@
 
 #include <Eigen/Dense>
 
-namespace linkml {
+namespace ReUseX {
 
     struct Plane: Kernel::Plane_3
     {

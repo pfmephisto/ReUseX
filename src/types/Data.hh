@@ -6,7 +6,7 @@
 
 
 
-namespace linkml{
+namespace ReUseX{
 
     enum Field {
         COLOR,

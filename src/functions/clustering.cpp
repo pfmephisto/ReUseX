@@ -33,7 +33,7 @@ private:
     std::int32_t value_;
 };
 
-void linkml::PointCloud::clustering(
+void ReUseX::PointCloud::clustering(
     double cluster_tolerance,
     pcl::uindex_t min_cluster_size,
     pcl::uindex_t max_cluster_size

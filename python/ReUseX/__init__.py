@@ -25,5 +25,5 @@ from .cli import run
 
 __all__ = ["__doc__", "__version__", "speckle", "export", "run"]
 
-logger.info("LinkML-Py loaded")
+logger.info("ReUseX loaded")
 

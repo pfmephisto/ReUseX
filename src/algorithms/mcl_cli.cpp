@@ -20,7 +20,7 @@ using std::vector;
 using std::map;
 
 
-using Tile = std::pair<unsigned int, linkml::Surface *>;
+using Tile = std::pair<unsigned int, ReUseX::Surface *>;
 using RayCollection = std::vector<std::pair<RTCRayHit, Tile*>>;
 
 

@@ -39,10 +39,10 @@
 #include "types/AABB.hh"
 #include "types/Color.hh"
 
-using Point = linkml::Point;
-using Direction = linkml::Direction;
-using Color = linkml::Color;
-using AABB = linkml::AABB;
+using Point = ReUseX::Point;
+using Direction = ReUseX::Direction;
+using Color = ReUseX::Color;
+using AABB = ReUseX::AABB;
 
 struct EIGEN_ALIGN16 PointT
 {
@@ -131,7 +131,7 @@ POINT_CLOUD_REGISTER_POINT_STRUCT(PointT,
 
 
 
-namespace linkml{
+namespace ReUseX{
 
     /// @brief A point cloud.
     class PointCloud : public pcl::PointCloud<PointT>::Ptr {

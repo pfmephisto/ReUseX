@@ -20,7 +20,7 @@
 
 // using fs = std::filesystem;
 
-namespace linkml{
+namespace ReUseX{
 
     template <typename T>
     T merge( T left, T right);

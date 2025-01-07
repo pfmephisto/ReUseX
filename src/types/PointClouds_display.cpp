@@ -9,7 +9,7 @@
 #include <fmt/format.h>
 
 template <typename T>
-linkml::PointClouds<T> linkml::PointClouds<T>::display(bool show_clouds){
+ReUseX::PointClouds<T> ReUseX::PointClouds<T>::display(bool show_clouds){
 
 
     polyscope::myinit();
@@ -87,5 +87,5 @@ linkml::PointClouds<T> linkml::PointClouds<T>::display(bool show_clouds){
 }
 
 
-template linkml::PointCloudsInMemory linkml::PointCloudsInMemory::display(bool show_clouds);
-template linkml::PointCloudsOnDisk linkml::PointCloudsOnDisk::display(bool show_clouds);
+template ReUseX::PointCloudsInMemory ReUseX::PointCloudsInMemory::display(bool show_clouds);
+template ReUseX::PointCloudsOnDisk ReUseX::PointCloudsOnDisk::display(bool show_clouds);

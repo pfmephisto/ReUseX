@@ -12,7 +12,7 @@
 #define PHI 1.618033988749894
 #define PI 3.14159265358979323846
 
-namespace linkml {
+namespace ReUseX {
 
     using Kernel =  CGAL::Exact_predicates_inexact_constructions_kernel;    
     using FT = Kernel::FT;

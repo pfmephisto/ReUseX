@@ -9,7 +9,7 @@
 #include <CGAL/Surface_mesh.h>
 #include <CGAL/number_utils.h>
 
-namespace linkml {
+namespace ReUseX {
     
     using Surface_mesh = CGAL::Surface_mesh<Point>;
 

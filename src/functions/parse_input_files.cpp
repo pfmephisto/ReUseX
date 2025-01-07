@@ -48,7 +48,7 @@
 namespace fs = std::filesystem;
 
 
-namespace linkml{
+namespace ReUseX{
 
 
     // Define a new point representation for < x, y, z, curvature >
@@ -388,7 +388,7 @@ namespace linkml{
 
             // TODO: Make output path optional.
             // And in case it is not set use a temp folder
-            //auto path = fs::temp_directory_path() / "linkml";
+            //auto path = fs::temp_directory_path() / "ReUseX";
             
             // TODO: Optionally clear the output folder before saving the files
             //if (fs::exists(path))
@@ -474,5 +474,5 @@ namespace linkml{
         }
  
 
-} // namespace linkml
+} // namespace ReUseX
 

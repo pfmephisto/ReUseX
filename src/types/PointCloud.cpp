@@ -9,7 +9,7 @@
 
 // #include <fmt/printf.h>
 
-namespace linkml {
+namespace ReUseX {
 
     /// Constructors
     /// @brief Load the point cloud from a file.
@@ -97,7 +97,7 @@ namespace linkml {
     /// @brief Transform the point cloud.
     void PointCloud::downsample(double leaf_size){
         auto bar = util::progress_bar(1, "Downsampling");
-        linkml::downsample(*this, leaf_size);
+        ReUseX::downsample(*this, leaf_size);
         bar.stop();
     }
 
@@ -118,7 +118,7 @@ namespace linkml {
 
         auto cloud_copy = PointCloud::Cloud::Ptr(new PointCloud::Cloud(*cloud));
 
-        auto clusters = linkml::cluster_rooms<PointCloud::Cloud::PointType>(
+        auto clusters = ReUseX::cluster_rooms<PointCloud::Cloud::PointType>(
             cloud_copy, 
             downsample_size, 
             sx, 
@@ -158,7 +158,7 @@ namespace linkml {
         // polyscope::myinit();
         // this->display("Cloud");
         
-        auto meshes = linkml::solidify<PointCloud::Cloud::PointType>(cloud, clusters, fitting, coverage, complexity);
+        auto meshes = ReUseX::solidify<PointCloud::Cloud::PointType>(cloud, clusters, fitting, coverage, complexity);
 
         std::vector<Brep> breps;
         std::transform(meshes.begin(), meshes.end(), std::back_inserter(breps), [](Surface_mesh const& mesh){
@@ -206,7 +206,7 @@ namespace linkml {
             auto point = cloud->at(i);
             size_t y = i % cloud->width;
             size_t x = i / cloud->width;
-            Color c = linkml::get_color_from_angle(linkml::sample_circle(point.semantic));
+            Color c = ReUseX::get_color_from_angle(ReUseX::sample_circle(point.semantic));
             img.at<Color>(x,y) = c;
         }
         }
@@ -226,4 +226,4 @@ namespace linkml {
         polyscope::show();
     }
 
-} // namespace linkml
+} // namespace ReUseX

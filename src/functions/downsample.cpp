@@ -12,7 +12,7 @@
 
 
 
-namespace linkml
+namespace ReUseX
 {
     void downsample(PointCloud::Cloud::Ptr cloud, double leaf_size){
 
@@ -107,4 +107,4 @@ namespace linkml
     }
     
 
-} // namespace linkml
+} // namespace ReUseX

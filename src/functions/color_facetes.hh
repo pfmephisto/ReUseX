@@ -25,9 +25,9 @@ static std::size_t hashVector(const std::vector<T>& vec) {
 
 }
 
-namespace linkml{
+namespace ReUseX{
 
-    // static void color_facets(linkml::CellComplex & cw, std::vector<PlanarPointSet> const & clusters){
+    // static void color_facets(ReUseX::CellComplex & cw, std::vector<PlanarPointSet> const & clusters){
 
     //     const std::vector<int> default_id(clusters.size()+1, 0);
     //     auto facets_vec =  pm::face_attribute<std::vector<int>>(cw, default_id);

@@ -212,7 +212,7 @@ Eigen::Matrix<double, 3, 3> create_pose( Eigen::Block<const Eigen::MatrixXd, 1, 
 }
 
 
-namespace linkml {
+namespace ReUseX {
 
 Dataset::Dataset(const std::filesystem::path & path, const std::initializer_list<Field> & fields) {
 
@@ -338,5 +338,5 @@ void Dataset::display(std::string name, bool show) const {
 }
     
 
-} // namespace linkml
+} // namespace ReUseX
 

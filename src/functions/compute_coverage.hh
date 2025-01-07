@@ -3,10 +3,10 @@
 #include <types/point_cloud.hh>
 
 
-namespace linkml {
+namespace ReUseX {
 
 
-    void compute_coverage(linkml::CellComplex & cw, linkml::point_cloud const & cloud){
+    void compute_coverage(ReUseX::CellComplex & cw, ReUseX::point_cloud const & cloud){
 
         // Make a set vector of all facet ids.
         auto set = cw.faces().to_set([&](pm::face_handle h){return cw.facets[h]; });

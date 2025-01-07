@@ -26,7 +26,7 @@
 
 namespace PMP = CGAL::Polygon_mesh_processing;
 
-namespace linkml
+namespace ReUseX
 {
 
 
@@ -372,8 +372,8 @@ namespace linkml
 
     void Brep::display(std::string name, bool show ) const{
         polyscope::myinit();
-        polyscope::display<linkml::Surface_mesh const&>(this->get_Mesh(), name);
+        polyscope::display<ReUseX::Surface_mesh const&>(this->get_Mesh(), name);
         if (show) polyscope::show();
     }
 
-} // namespace linkml
+} // namespace ReUseX

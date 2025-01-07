@@ -7,7 +7,7 @@
 #include <functions/get_matrix_from_plane.hh>
 
 
-namespace linkml
+namespace ReUseX
 {
     static cc::vector<tg::pos2> project_2d(cc::vector<tg::pos3> const& pts, tg::plane3  const& pl){
 

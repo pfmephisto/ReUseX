@@ -65,7 +65,7 @@ UPLOAD: bool            = False
 
 
 
-print("LinkML-Py loaded")
+print("ReUseX loaded")
 
 
 

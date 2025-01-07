@@ -6,7 +6,7 @@
 #include <typed-geometry/types/mat.hh>
 
 
-namespace linkml{
+namespace ReUseX{
     static tg::mat4 get_matrix_from_plane(tg::plane3 pl){
 
         auto o = tg::project(tg::pos3(0,0,0),pl);

@@ -53,7 +53,7 @@ inline void merge_sets(std::unordered_set<int> &lhs, const std::unordered_set<in
 
 
 
-namespace linkml
+namespace ReUseX
 {
     template<typename PointT>
     struct PointMap
@@ -308,4 +308,4 @@ namespace linkml
 
         return meshes;
     }
-} // namespace linkml
+} // namespace ReUseX

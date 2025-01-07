@@ -8,10 +8,10 @@
 #include <embree3/rtcore.h>
 
 
-using Mesh = linkml::Surface_mesh;
-using Plane_3 = linkml::Kernel::Plane_3;
-using Point_2 = linkml::Kernel::Point_2;
-using Point = linkml::Kernel::Point_3;
+using Mesh = ReUseX::Surface_mesh;
+using Plane_3 = ReUseX::Kernel::Plane_3;
+using Point_2 = ReUseX::Kernel::Point_2;
+using Point = ReUseX::Kernel::Point_3;
 
 
 using Ray = RTCRayHit;
@@ -19,7 +19,7 @@ using Rays = std::vector<RTCRayHit>;
 using Geometries = std::vector<RTCGeometry>;
 
 
-namespace linkml
+namespace ReUseX
 {
 
     class Surface;
@@ -82,7 +82,7 @@ namespace linkml
 
     };
 
-} // namespace linkml
+} // namespace ReUseX
 
 
 

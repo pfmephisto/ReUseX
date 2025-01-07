@@ -6,7 +6,9 @@
 #include <pybind11/chrono.h>
 #include <pybind11/iostream.h>
 
-#include <linkml.hh>
+#include "algorithms/all.hh"
+#include "types/all.hh"
+#include "functions/all.hh"
 
 #include <eigen3/Eigen/Core>
 #include <sstream>
@@ -27,7 +29,7 @@ PYBIND11_MODULE(_core, m) {
 
     // Header
     m.doc() = R"pbdoc(
-        LINK Python Plugin
+        ReUseX - Reuse Explorer
         -----------------------
 
         This is allows for the segmentation of point clouds in python.
@@ -35,24 +37,24 @@ PYBIND11_MODULE(_core, m) {
 
 
     // Attributes
-    //    m.attr("default_params") = linkml::plane_fitting_parameters();
+    //    m.attr("default_params") = ReUseX::plane_fitting_parameters();
 
-    // PYBIND11_NUMPY_DTYPE(linkml::Point, x, y, z);
-    // PYBIND11_NUMPY_DTYPE(linkml::Vector, x, y, z);
-    PYBIND11_NUMPY_DTYPE(linkml::PointCloud::Cloud::PointType, x, y, z, rgb, normal_x, normal_y, normal_z, curvature, confidence, semantic, instance, label);
+    // PYBIND11_NUMPY_DTYPE(ReUseX::Point, x, y, z);
+    // PYBIND11_NUMPY_DTYPE(ReUseX::Vector, x, y, z);
+    PYBIND11_NUMPY_DTYPE(ReUseX::PointCloud::Cloud::PointType, x, y, z, rgb, normal_x, normal_y, normal_z, curvature, confidence, semantic, instance, label);
 
 
     /// Classes
 
     // Dastatset
     /// @brief A handle for accessing raw data, like the strayscanner export.
-    py::class_<linkml::Dataset>(m, "Dataset")
+    py::class_<ReUseX::Dataset>(m, "Dataset")
         .def(py::init<const std::string &>())
-        .def("fields", &linkml::Dataset::fields)
-        .def("intrinsic_matrix", &linkml::Dataset::intrinsic_matrix)
-        .def("__bool__", &linkml::Dataset::operator bool)
-        .def("__getitem__", &linkml::Dataset::operator[])
-        .def("__getitem__", [](const linkml::Dataset &d, py::slice slice) {
+        .def("fields", &ReUseX::Dataset::fields)
+        .def("intrinsic_matrix", &ReUseX::Dataset::intrinsic_matrix)
+        .def("__bool__", &ReUseX::Dataset::operator bool)
+        .def("__getitem__", &ReUseX::Dataset::operator[])
+        .def("__getitem__", [](const ReUseX::Dataset &d, py::slice slice) {
             py::list list;
             py::size_t start, stop, step, slicelength;
             if (!slice.compute(d.size(), &start, &stop, &step, &slicelength))
@@ -62,62 +64,62 @@ PYBIND11_MODULE(_core, m) {
                 list.append(d[i]);
             }
             return list;}, "Get a data package", "slice"_a)
-        .def("__len__", &linkml::Dataset::size)
-        .def_property_readonly("size", &linkml::Dataset::size)
-        .def_property_readonly("color_size", &linkml::Dataset::color_size)
-        .def_property_readonly("depth_size", &linkml::Dataset::depth_size)
-        .def_property_readonly("name", &linkml::Dataset::name)
-        .def("display", &linkml::Dataset::display, "Display the dataset",
+        .def("__len__", &ReUseX::Dataset::size)
+        .def_property_readonly("size", &ReUseX::Dataset::size)
+        .def_property_readonly("color_size", &ReUseX::Dataset::color_size)
+        .def_property_readonly("depth_size", &ReUseX::Dataset::depth_size)
+        .def_property_readonly("name", &ReUseX::Dataset::name)
+        .def("display", &ReUseX::Dataset::display, "Display the dataset",
             "name"_a,
             "show"_a = true )
         ;
 
     /// @brief Data is the indevidual frames that the dataset provieds.
     /// Think of the data-set as a clollection of data packages.
-    py::class_<linkml::Data>(m, "Data")
-        .def_property_readonly("color", [](const linkml::Data & d){return d.get<linkml::Field::COLOR>();})
-        .def_property_readonly("depth", [](const linkml::Data & d){return d.get<linkml::Field::DEPTH>();})
-        .def_property_readonly("confidence", [](const linkml::Data & d){return d.get<linkml::Field::CONFIDENCE>();})
-        .def_property_readonly("odometry", [](const linkml::Data & d){return d.get<linkml::Field::ODOMETRY>();})
-        .def_property_readonly("imu", [](const linkml::Data & d){return d.get<linkml::Field::IMU>();})
-        .def_property_readonly("pose", [](const linkml::Data & d){return d.get<linkml::Field::POSES>();})
+    py::class_<ReUseX::Data>(m, "Data")
+        .def_property_readonly("color", [](const ReUseX::Data & d){return d.get<ReUseX::Field::COLOR>();})
+        .def_property_readonly("depth", [](const ReUseX::Data & d){return d.get<ReUseX::Field::DEPTH>();})
+        .def_property_readonly("confidence", [](const ReUseX::Data & d){return d.get<ReUseX::Field::CONFIDENCE>();})
+        .def_property_readonly("odometry", [](const ReUseX::Data & d){return d.get<ReUseX::Field::ODOMETRY>();})
+        .def_property_readonly("imu", [](const ReUseX::Data & d){return d.get<ReUseX::Field::IMU>();})
+        .def_property_readonly("pose", [](const ReUseX::Data & d){return d.get<ReUseX::Field::POSES>();})
         ;
 
     /// @brief The collection of data types a data package can provide.
     /// They are passed to the Dataset on construction to limmit the amount of data that will be loaded.
-    py::enum_<linkml::Field>(m, "Field")
-        .value("COLOR", linkml::Field::COLOR)
-        // .value("Color", linkml::Field::COLOR)
-        .value("DEPTH", linkml::Field::DEPTH)
-        // .value("Depth", linkml::Field::DEPTH)
-        .value("CONFIDENCE", linkml::Field::CONFIDENCE)
-        // .value("Confidence", linkml::Field::CONFIDENCE)
-        .value("ODOMETRY", linkml::Field::ODOMETRY)
-        // .value("Odometry", linkml::Field::ODOMETRY)
-        .value("IMU", linkml::Field::IMU)
-        // .value("Imu", linkml::Field::IMU)
-        .value("POSES", linkml::Field::POSES)
-        // .value("Poses", linkml::Field::POSES)
+    py::enum_<ReUseX::Field>(m, "Field")
+        .value("COLOR", ReUseX::Field::COLOR)
+        // .value("Color", ReUseX::Field::COLOR)
+        .value("DEPTH", ReUseX::Field::DEPTH)
+        // .value("Depth", ReUseX::Field::DEPTH)
+        .value("CONFIDENCE", ReUseX::Field::CONFIDENCE)
+        // .value("Confidence", ReUseX::Field::CONFIDENCE)
+        .value("ODOMETRY", ReUseX::Field::ODOMETRY)
+        // .value("Odometry", ReUseX::Field::ODOMETRY)
+        .value("IMU", ReUseX::Field::IMU)
+        // .value("Imu", ReUseX::Field::IMU)
+        .value("POSES", ReUseX::Field::POSES)
+        // .value("Poses", ReUseX::Field::POSES)
         .export_values();
 
-    py::enum_<linkml::Brep::BrepTrim::BrepTrimType>(m, "BrepTrimType")
-        .value("Unknown", linkml::Brep::BrepTrim::BrepTrimType::Unknown)
-        .value("Boundary", linkml::Brep::BrepTrim::BrepTrimType::Boundary)
-        .value("Mated", linkml::Brep::BrepTrim::BrepTrimType::Mated)
-        .value("Seam", linkml::Brep::BrepTrim::BrepTrimType::Seam)
-        .value("Singular", linkml::Brep::BrepTrim::BrepTrimType::Singular)
-        .value("CurveOnSurface", linkml::Brep::BrepTrim::BrepTrimType::CurveOnSurface)
-        .value("PointOnSurface", linkml::Brep::BrepTrim::BrepTrimType::PointOnSurface)
-        .value("Slit", linkml::Brep::BrepTrim::BrepTrimType::Slit)
+    py::enum_<ReUseX::Brep::BrepTrim::BrepTrimType>(m, "BrepTrimType")
+        .value("Unknown", ReUseX::Brep::BrepTrim::BrepTrimType::Unknown)
+        .value("Boundary", ReUseX::Brep::BrepTrim::BrepTrimType::Boundary)
+        .value("Mated", ReUseX::Brep::BrepTrim::BrepTrimType::Mated)
+        .value("Seam", ReUseX::Brep::BrepTrim::BrepTrimType::Seam)
+        .value("Singular", ReUseX::Brep::BrepTrim::BrepTrimType::Singular)
+        .value("CurveOnSurface", ReUseX::Brep::BrepTrim::BrepTrimType::CurveOnSurface)
+        .value("PointOnSurface", ReUseX::Brep::BrepTrim::BrepTrimType::PointOnSurface)
+        .value("Slit", ReUseX::Brep::BrepTrim::BrepTrimType::Slit)
         .export_values();
 
-    py::enum_<linkml::Brep::BrepLoop::BrepLoopType>(m, "BrepLoopType")
-        .value("Unknown", linkml::Brep::BrepLoop::BrepLoopType::Unknown)
-        .value("Outer", linkml::Brep::BrepLoop::BrepLoopType::Outer)
-        .value("Inner", linkml::Brep::BrepLoop::BrepLoopType::Inner)
-        .value("Slit", linkml::Brep::BrepLoop::BrepLoopType::Slit)
-        .value("CurveOnSurface", linkml::Brep::BrepLoop::BrepLoopType::CurveOnSurface)
-        .value("PointOnSurface", linkml::Brep::BrepLoop::BrepLoopType::PointOnSurface)
+    py::enum_<ReUseX::Brep::BrepLoop::BrepLoopType>(m, "BrepLoopType")
+        .value("Unknown", ReUseX::Brep::BrepLoop::BrepLoopType::Unknown)
+        .value("Outer", ReUseX::Brep::BrepLoop::BrepLoopType::Outer)
+        .value("Inner", ReUseX::Brep::BrepLoop::BrepLoopType::Inner)
+        .value("Slit", ReUseX::Brep::BrepLoop::BrepLoopType::Slit)
+        .value("CurveOnSurface", ReUseX::Brep::BrepLoop::BrepLoopType::CurveOnSurface)
+        .value("PointOnSurface", ReUseX::Brep::BrepLoop::BrepLoopType::PointOnSurface)
         .export_values();
 
     /// @brief CV Mat, used to hold image and Depth data
@@ -164,7 +166,7 @@ PYBIND11_MODULE(_core, m) {
     // https://pybind11.readthedocs.io/en/stable/advanced/pycpp/utilities.html#capturing-standard-output-from-ostream
 
     /// @brief PointCloud class
-    py::class_<linkml::PointCloud>(m, "PointCloud", py::buffer_protocol())
+    py::class_<ReUseX::PointCloud>(m, "PointCloud", py::buffer_protocol())
         .def(py::init<const std::string &>(), 
             "Load a point cloud from disk",
             "path"_a,
@@ -192,7 +194,7 @@ PYBIND11_MODULE(_core, m) {
                 auto xyz_ = xyz.unchecked<2>();
 
 
-                linkml::PointCloud cloud;
+                ReUseX::PointCloud cloud;
                 (*cloud).points.resize(xyz.shape(0));
                 (*cloud).height = xyz.shape(0);
                 (*cloud).width = 1;
@@ -258,30 +260,30 @@ PYBIND11_MODULE(_core, m) {
             "label"_a = py::none(),
             py::call_guard<py::scoped_ostream_redirect, py::scoped_estream_redirect>()
         )
-        .def_static("load", &linkml::PointCloud::load,
+        .def_static("load", &ReUseX::PointCloud::load,
             "Load a point cloud from disk",
             "path"_a,
             py::call_guard<py::scoped_ostream_redirect, py::scoped_estream_redirect>()
         )
-        .def("save", &linkml::PointCloud::save, 
+        .def("save", &ReUseX::PointCloud::save, 
             "Save a point cloud to disk",
             "output_file"_a,
             "binary"_a = true, py::return_value_policy::reference_internal,
             py::call_guard<py::scoped_ostream_redirect, py::scoped_estream_redirect>()
         )
-        .def("filter", &linkml::PointCloud::filter, 
+        .def("filter", &ReUseX::PointCloud::filter, 
             "Filter the point cloud", 
             "value"_a = 2,
             py::return_value_policy::reference_internal,
             py::call_guard<py::scoped_ostream_redirect, py::scoped_estream_redirect>()
         )
-        .def("downsample", &linkml::PointCloud::downsample, 
+        .def("downsample", &ReUseX::PointCloud::downsample, 
             "Downsample the point cloud", 
             "leaf_size"_a=0.02, 
             py::return_value_policy::reference,
             py::call_guard<py::scoped_ostream_redirect, py::scoped_estream_redirect>()
         )
-        .def("region_growing", &linkml::PointCloud::region_growing, 
+        .def("region_growing", &ReUseX::PointCloud::region_growing, 
             "Region growing",
             "angle_threshold"_a = float(0.96592583), // cos(25°)
             "plane_dist_threshold"_a = float(0.1),
@@ -292,14 +294,14 @@ PYBIND11_MODULE(_core, m) {
             "interval_factor"_a = float(1.5),
             py::call_guard<py::scoped_ostream_redirect, py::scoped_estream_redirect>()
         )
-        .def("clustering", &linkml::PointCloud::clustering, "Cluster the sematic labels in to instances",
+        .def("clustering", &ReUseX::PointCloud::clustering, "Cluster the sematic labels in to instances",
             "cluster_tolerance"_a = 0.02,
             "min_cluster_size"_a = 100,
             "max_cluster_size"_a = std::numeric_limits<pcl::uindex_t>::max(),
             py::return_value_policy::reference_internal,
             py::call_guard<py::scoped_ostream_redirect, py::scoped_estream_redirect>()
         )
-        .def("solidify", &linkml::PointCloud::solidify, 
+        .def("solidify", &ReUseX::PointCloud::solidify, 
             "Solidify the point cloud",
             "downsample_size"_a = 5000000,
             "sx"_a = 0.4,
@@ -314,73 +316,73 @@ PYBIND11_MODULE(_core, m) {
             py::return_value_policy::reference_internal,
             py::call_guard<py::scoped_ostream_redirect, py::scoped_estream_redirect>()
         )
-        .def("display",&linkml::PointCloud::display, 
+        .def("display",&ReUseX::PointCloud::display, 
             "Display the point cloud",
             "name"_a = "Cloud", 
             py::return_value_policy::reference_internal
         )
-        .def("bbox", &linkml::PointCloud::get_bbox, 
+        .def("bbox", &ReUseX::PointCloud::get_bbox, 
             "Get the bounding box of the point cloud"
         )
-        .def("__len__", [](linkml::PointCloud &cloud){ return cloud->size();})
-        .def_buffer([](linkml::PointCloud &cloud) -> py::buffer_info {
+        .def("__len__", [](ReUseX::PointCloud &cloud){ return cloud->size();})
+        .def_buffer([](ReUseX::PointCloud &cloud) -> py::buffer_info {
             return py::buffer_info(
                 cloud->points.data(),
-                sizeof(linkml::PointCloud::Cloud::PointType),
-                py::format_descriptor<linkml::PointCloud::Cloud::PointType>::format(),
+                sizeof(ReUseX::PointCloud::Cloud::PointType),
+                py::format_descriptor<ReUseX::PointCloud::Cloud::PointType>::format(),
                 1,
                 { cloud->points.size() },
-                { sizeof(linkml::PointCloud::Cloud::PointType)}
+                { sizeof(ReUseX::PointCloud::Cloud::PointType)}
             );
         })
         ;
 
     /// @brief Collection of point clouds in memory class
-    py::class_<linkml::PointCloudsInMemory>(m, "PointCloudsInMemory")
+    py::class_<ReUseX::PointCloudsInMemory>(m, "PointCloudsInMemory")
         .def(py::init<const std::string &>(), 
             "Load a point cloud from disk",
             "path"_a,
             py::call_guard<py::scoped_ostream_redirect, py::scoped_estream_redirect>()
         )
-        .def_static("load", &linkml::PointCloudsInMemory::load, 
+        .def_static("load", &ReUseX::PointCloudsInMemory::load, 
             "Load a point cloud from disk",
             "path"_a,
             py::call_guard<py::scoped_ostream_redirect, py::scoped_estream_redirect>()
         )
-        .def("filter", &linkml::PointCloudsInMemory::filter, 
+        .def("filter", &ReUseX::PointCloudsInMemory::filter, 
             "Filter the point cloud",
             "value"_a = 2,
             py::return_value_policy::reference_internal,
             py::call_guard<py::scoped_ostream_redirect, py::scoped_estream_redirect>()
         )
-        .def("register", &linkml::PointCloudsInMemory::register_clouds, 
+        .def("register", &ReUseX::PointCloudsInMemory::register_clouds, 
             "Register the point clouds", 
             py::return_value_policy::reference_internal,
             py::call_guard<py::scoped_ostream_redirect, py::scoped_estream_redirect>()
         )
-        .def("merge", &linkml::PointCloudsInMemory::merge, 
+        .def("merge", &ReUseX::PointCloudsInMemory::merge, 
             "Merge the point clouds",
             py::call_guard<py::scoped_ostream_redirect, py::scoped_estream_redirect>()
         )
-        .def("annotate", &linkml::PointCloudsInMemory::annotate, 
+        .def("annotate", &ReUseX::PointCloudsInMemory::annotate, 
             "Annotate the point clouds",
             "yolo_path"_a,
             "dataset"_a = py::none(),
             py::return_value_policy::reference_internal,
             py::call_guard<py::scoped_ostream_redirect, py::scoped_estream_redirect>()
         )
-        .def("display", &linkml::PointCloudsInMemory::display, 
+        .def("display", &ReUseX::PointCloudsInMemory::display, 
             "Display the point clouds",
             "show_clouds"_a = false, 
             py::return_value_policy::reference_internal,
             py::call_guard<py::scoped_ostream_redirect, py::scoped_estream_redirect>()
         )
-        .def("__getitem__", [](const linkml::PointCloudsInMemory &obj, std::size_t index) {
+        .def("__getitem__", [](const ReUseX::PointCloudsInMemory &obj, std::size_t index) {
             return obj[index]; }, 
             "Get a point cloud", 
             "index"_a
         )
-        .def("__getitem__", [](const linkml::PointCloudsInMemory &obj, py::slice slice) {
+        .def("__getitem__", [](const ReUseX::PointCloudsInMemory &obj, py::slice slice) {
             py::size_t start, stop, step, slicelength;
             if (!slice.compute(obj.size(), &start, &stop, &step, &slicelength))
                 throw py::error_already_set();
@@ -388,55 +390,55 @@ PYBIND11_MODULE(_core, m) {
             "Get a point cloud", 
             "slice"_a
         )
-        .def("__len__", &linkml::PointCloudsInMemory::size)
+        .def("__len__", &ReUseX::PointCloudsInMemory::size)
         ; 
 
     /// @brief Collection of point clouds on disk class
-    py::class_<linkml::PointCloudsOnDisk>(m, "PointCloudsOnDisk")
+    py::class_<ReUseX::PointCloudsOnDisk>(m, "PointCloudsOnDisk")
         .def(py::init<const std::string &>(), 
             "Load a point cloud from disk",
             "path"_a,
             py::call_guard<py::scoped_ostream_redirect, py::scoped_estream_redirect>()
         )
-        .def_static("load", &linkml::PointCloudsOnDisk::load, 
+        .def_static("load", &ReUseX::PointCloudsOnDisk::load, 
             "Load a point cloud from disk",
             "path"_a,
             py::call_guard<py::scoped_ostream_redirect, py::scoped_estream_redirect>()
         )
-        .def("filter", &linkml::PointCloudsOnDisk::filter, 
+        .def("filter", &ReUseX::PointCloudsOnDisk::filter, 
             "Filter the point cloud",
             "value"_a = 2,
             py::return_value_policy::reference_internal,
             py::call_guard<py::scoped_ostream_redirect, py::scoped_estream_redirect>()
         )
-        .def("register", &linkml::PointCloudsOnDisk::register_clouds, 
+        .def("register", &ReUseX::PointCloudsOnDisk::register_clouds, 
             "Register the point clouds", 
             py::return_value_policy::reference_internal,
             py::call_guard<py::scoped_ostream_redirect, py::scoped_estream_redirect>()
         )
-        .def("merge", &linkml::PointCloudsOnDisk::merge, 
+        .def("merge", &ReUseX::PointCloudsOnDisk::merge, 
             "Merge the point clouds",
             py::call_guard<py::scoped_ostream_redirect, py::scoped_estream_redirect>()
         )
-        .def("annotate", &linkml::PointCloudsOnDisk::annotate, 
+        .def("annotate", &ReUseX::PointCloudsOnDisk::annotate, 
             "Annotate the point clouds",
             "yolo_path"_a, 
             "dataset"_a = py::none(), 
             py::return_value_policy::reference_internal,
             py::call_guard<py::scoped_ostream_redirect, py::scoped_estream_redirect>()
         )
-        .def("display", &linkml::PointCloudsOnDisk::display, 
+        .def("display", &ReUseX::PointCloudsOnDisk::display, 
             "Display the point clouds",
             "show_clouds"_a = false,
             py::return_value_policy::reference_internal,
             py::call_guard<py::scoped_ostream_redirect, py::scoped_estream_redirect>()
         )
-        .def("__getitem__", [](const linkml::PointCloudsOnDisk &obj, std::size_t index) {
+        .def("__getitem__", [](const ReUseX::PointCloudsOnDisk &obj, std::size_t index) {
             return obj[index]; }, 
             "Get a point cloud", 
             "index"_a
         )
-        .def("__getitem__", [](const linkml::PointCloudsOnDisk &obj, py::slice slice) {
+        .def("__getitem__", [](const ReUseX::PointCloudsOnDisk &obj, py::slice slice) {
             py::size_t start, stop, step, slicelength;
             if (!slice.compute(obj.size(), &start, &stop, &step, &slicelength))
                 throw py::error_already_set();
@@ -444,53 +446,53 @@ PYBIND11_MODULE(_core, m) {
             "Get a point cloud", 
             "slice"_a
         )
-        .def("__len__", &linkml::PointCloudsOnDisk::size)
+        .def("__len__", &ReUseX::PointCloudsOnDisk::size)
         ;
 
     /// @brief Plane class
-    py::class_<linkml::Plane>(m, "Plane")
+    py::class_<ReUseX::Plane>(m, "Plane")
         .def(py::init<>())
         .def(py::init<const float ,const float ,const float ,const float>())
         .def(py::init<const float ,const float ,const float ,const float, const float, const float, const float>())
-        .def("__repr__", [](const linkml::Plane &p){
+        .def("__repr__", [](const ReUseX::Plane &p){
             std::stringstream ss;
             ss << "Plane A("<< p.a()<<") B(" <<p.b() << ") C(" <<p.c() << ") D(" << p.d() << ")";
             return ss.str();
         })
-        .def_readwrite("origin", &linkml::Plane::origin)
-        .def("normal", &linkml::Plane::normal)
+        .def_readwrite("origin", &ReUseX::Plane::origin)
+        .def("normal", &ReUseX::Plane::normal)
         ;
  
     /// @brief Position
-    py::class_<linkml::Point>(m, "Pos")
+    py::class_<ReUseX::Point>(m, "Pos")
         .def(py::init<const float, const float, const float>())
-        .def(("__repr__"), [](const linkml::Point &p){
+        .def(("__repr__"), [](const ReUseX::Point &p){
             std::stringstream ss;;
             ss << "Pos X=" << p.x() << " y="<< p.y() << " z=" << p.z();
             return ss.str();
         })
-        .def("x", &linkml::Point::x)
-        .def("y", &linkml::Point::y)
-        .def("z", &linkml::Point::z)
+        .def("x", &ReUseX::Point::x)
+        .def("y", &ReUseX::Point::y)
+        .def("z", &ReUseX::Point::z)
         ;
 
     /// @brief Position
-    py::class_<linkml::Point2>(m, "Pos2D")
+    py::class_<ReUseX::Point2>(m, "Pos2D")
         .def(py::init<const float, const float>())
-        .def(("__repr__"), [](const linkml::Point2 &p){
+        .def(("__repr__"), [](const ReUseX::Point2 &p){
             std::stringstream ss;;
             ss << "Pos2D X=" << p.x() << " y="<< p.y();
             return ss.str();
         })
-        .def("x", &linkml::Point2::x)
-        .def("y", &linkml::Point2::y)
+        .def("x", &ReUseX::Point2::x)
+        .def("y", &ReUseX::Point2::y)
         ;
 
 
     /// @brief Vector
-    py::class_<linkml::Vector>(m, "Vec")
+    py::class_<ReUseX::Vector>(m, "Vec")
         .def(py::init<const float, const float, const float>())
-        .def(("__repr__"), [](const linkml::Vector &v){
+        .def(("__repr__"), [](const ReUseX::Vector &v){
             std::stringstream ss;;
             ss << "Vec X=" << v.x() << " y="<< v.y() << " z=" << v.z();
             return ss.str();
@@ -498,130 +500,130 @@ PYBIND11_MODULE(_core, m) {
         ;
 
     /// @brief Direction, Normalised vector
-    py::class_<linkml::Direction>(m, "Dir")
+    py::class_<ReUseX::Direction>(m, "Dir")
         .def(py::init<const float, const float, const float>())
-        .def(("__repr__"), [](const linkml::Direction &v){
+        .def(("__repr__"), [](const ReUseX::Direction &v){
             std::stringstream ss;;
             ss << "Dir X=" << v.dx() << " y="<< v.dy() << " z=" << v.dz();
             return ss.str();
         })
-        // .def_property_readonly("valid", [](const linkml::Direction &v){ return tg::normalize_safe((linkml::Vector)v) !=  linkml::Vector::zero;
+        // .def_property_readonly("valid", [](const ReUseX::Direction &v){ return tg::normalize_safe((ReUseX::Vector)v) !=  ReUseX::Vector::zero;
         //  })
         ;
-    py::class_<linkml::AABB>(m, "AABB")
-        .def(py::init<const linkml::Point, const linkml::Point>())
-        .def("__repr__", [](const linkml::AABB &a){
+    py::class_<ReUseX::AABB>(m, "AABB")
+        .def(py::init<const ReUseX::Point, const ReUseX::Point>())
+        .def("__repr__", [](const ReUseX::AABB &a){
             std::stringstream ss;
             ss << "AABB min(" << a.min().x() << ", " << a.min().y() << ", " << a.min().z() << ") max(" << a.max().x() << ", " << a.max().y() << ", " << a.max().z() << ")";
             return ss.str();
         })
-        .def("volume", [](const linkml::AABB &a){
+        .def("volume", [](const ReUseX::AABB &a){
             return (a.max().x() - a.min().x()) * (a.max().y() - a.min().y()) * (a.max().z() - a.min().z());
         })
-        .def("center", [](const linkml::AABB &a){
-            return linkml::Point((a.max().x() + a.min().x()) / 2, (a.max().y() + a.min().y()) / 2, (a.max().z() + a.min().z()) / 2);
+        .def("center", [](const ReUseX::AABB &a){
+            return ReUseX::Point((a.max().x() + a.min().x()) / 2, (a.max().y() + a.min().y()) / 2, (a.max().z() + a.min().z()) / 2);
         })
-        .def("xInterval", [](const linkml::AABB &a){
+        .def("xInterval", [](const ReUseX::AABB &a){
             return std::make_tuple(a.min().x(), a.max().x());
         })
-        .def("yInterval", [](const linkml::AABB &a){
+        .def("yInterval", [](const ReUseX::AABB &a){
             return std::make_tuple(a.min().y(), a.max().y());
         })
-        .def("zInterval", [](const linkml::AABB &a){
+        .def("zInterval", [](const ReUseX::AABB &a){
             return std::make_tuple(a.min().z(), a.max().z());
         })
         ;
     
-    py::class_<linkml::Brep>(m, "Brep")
-        .def("save", &linkml::Brep::save)
-        .def_static("load", &linkml::Brep::load, py::call_guard<py::scoped_ostream_redirect, py::scoped_estream_redirect>())
-        .def("volume", &linkml::Brep::volume)
-        .def("area", &linkml::Brep::area)
-        .def("is_closed", &linkml::Brep::is_closed)
-        .def("bbox", &linkml::Brep::get_bbox)
+    py::class_<ReUseX::Brep>(m, "Brep")
+        .def("save", &ReUseX::Brep::save)
+        .def_static("load", &ReUseX::Brep::load, py::call_guard<py::scoped_ostream_redirect, py::scoped_estream_redirect>())
+        .def("volume", &ReUseX::Brep::volume)
+        .def("area", &ReUseX::Brep::area)
+        .def("is_closed", &ReUseX::Brep::is_closed)
+        .def("bbox", &ReUseX::Brep::get_bbox)
 
-        .def("Curves2D", &linkml::Brep::get_Curves2D)
-        .def("Curves3D", &linkml::Brep::get_Curves3D)
+        .def("Curves2D", &ReUseX::Brep::get_Curves2D)
+        .def("Curves3D", &ReUseX::Brep::get_Curves3D)
 
-        .def("Edges", &linkml::Brep::get_Edges)
-        .def("Faces", &linkml::Brep::get_Faces)
-        .def("Vertices", &linkml::Brep::get_Vertices)
-        .def("Surfaces", &linkml::Brep::get_Surfaces)
+        .def("Edges", &ReUseX::Brep::get_Edges)
+        .def("Faces", &ReUseX::Brep::get_Faces)
+        .def("Vertices", &ReUseX::Brep::get_Vertices)
+        .def("Surfaces", &ReUseX::Brep::get_Surfaces)
 
-        .def("Loops", &linkml::Brep::get_Loops)
-        .def("Trims", &linkml::Brep::get_Trims)
-        .def("Orientation", &linkml::Brep::get_Orientation)
-        .def("get_mesh", &linkml::Brep::get_Mesh)
-        .def("display", &linkml::Brep::display, 
+        .def("Loops", &ReUseX::Brep::get_Loops)
+        .def("Trims", &ReUseX::Brep::get_Trims)
+        .def("Orientation", &ReUseX::Brep::get_Orientation)
+        .def("get_mesh", &ReUseX::Brep::get_Mesh)
+        .def("display", &ReUseX::Brep::display, 
             "Display the Brep", 
             "name"_a = "Brep", 
             "show_mesh"_a = true)
         ;
 
-    py::class_<linkml::Brep::Face>(m, "Face")
+    py::class_<ReUseX::Brep::Face>(m, "Face")
         .def(py::init<>())
-        .def_readwrite("SurfaceIndex", &linkml::Brep::Face::SurfaceIndex)
-        .def_readwrite("OuterLoopIndex", &linkml::Brep::Face::OuterLoopIndex)
-        .def_readwrite("OrientationReversed", &linkml::Brep::Face::OrientationReversed)
-        .def_readwrite("LoopIndices", &linkml::Brep::Face::LoopIndices)
+        .def_readwrite("SurfaceIndex", &ReUseX::Brep::Face::SurfaceIndex)
+        .def_readwrite("OuterLoopIndex", &ReUseX::Brep::Face::OuterLoopIndex)
+        .def_readwrite("OrientationReversed", &ReUseX::Brep::Face::OrientationReversed)
+        .def_readwrite("LoopIndices", &ReUseX::Brep::Face::LoopIndices)
         ;
     
-    py::class_<linkml::Brep::Edge>(m, "Edge")
+    py::class_<ReUseX::Brep::Edge>(m, "Edge")
         .def(py::init<>())
-        .def_readwrite("Curve3dIndex", &linkml::Brep::Edge::Curve3dIndex)
-        .def_readwrite("TrimIndices", &linkml::Brep::Edge::TrimIndices)
-        .def_readwrite("StartIndex", &linkml::Brep::Edge::StartIndex)
-        .def_readwrite("EndIndex", &linkml::Brep::Edge::EndIndex)
-        .def_readwrite("ProxyCurveIsReversed", &linkml::Brep::Edge::ProxyCurveIsReversed)
-        .def_readwrite("Domain", &linkml::Brep::Edge::Domain)
+        .def_readwrite("Curve3dIndex", &ReUseX::Brep::Edge::Curve3dIndex)
+        .def_readwrite("TrimIndices", &ReUseX::Brep::Edge::TrimIndices)
+        .def_readwrite("StartIndex", &ReUseX::Brep::Edge::StartIndex)
+        .def_readwrite("EndIndex", &ReUseX::Brep::Edge::EndIndex)
+        .def_readwrite("ProxyCurveIsReversed", &ReUseX::Brep::Edge::ProxyCurveIsReversed)
+        .def_readwrite("Domain", &ReUseX::Brep::Edge::Domain)
         ;
-    py::class_<linkml::Brep::Surface>(m, "Surface")
+    py::class_<ReUseX::Brep::Surface>(m, "Surface")
         .def(py::init<>())
-        .def_readwrite("degreeU", &linkml::Brep::Surface::degreeU)
-        .def_readwrite("degreeV", &linkml::Brep::Surface::degreeV)
-        .def_readwrite("rational", &linkml::Brep::Surface::rational)
-        .def_readwrite("area", &linkml::Brep::Surface::area)
-        .def_readwrite("pointData", &linkml::Brep::Surface::pointData)
-        .def_readwrite("countU", &linkml::Brep::Surface::countU)
-        .def_readwrite("countV", &linkml::Brep::Surface::countV)
-        .def_readwrite("bbox", &linkml::Brep::Surface::bbox)
-        .def_readwrite("closedU", &linkml::Brep::Surface::closedU)
-        .def_readwrite("closedV", &linkml::Brep::Surface::closedV)
-        .def_readwrite("domainU", &linkml::Brep::Surface::domainU)
-        .def_readwrite("domainV", &linkml::Brep::Surface::domainV)
-        .def_readwrite("knotsU", &linkml::Brep::Surface::knotsU)
-        .def_readwrite("knotsV", &linkml::Brep::Surface::knotsV)
+        .def_readwrite("degreeU", &ReUseX::Brep::Surface::degreeU)
+        .def_readwrite("degreeV", &ReUseX::Brep::Surface::degreeV)
+        .def_readwrite("rational", &ReUseX::Brep::Surface::rational)
+        .def_readwrite("area", &ReUseX::Brep::Surface::area)
+        .def_readwrite("pointData", &ReUseX::Brep::Surface::pointData)
+        .def_readwrite("countU", &ReUseX::Brep::Surface::countU)
+        .def_readwrite("countV", &ReUseX::Brep::Surface::countV)
+        .def_readwrite("bbox", &ReUseX::Brep::Surface::bbox)
+        .def_readwrite("closedU", &ReUseX::Brep::Surface::closedU)
+        .def_readwrite("closedV", &ReUseX::Brep::Surface::closedV)
+        .def_readwrite("domainU", &ReUseX::Brep::Surface::domainU)
+        .def_readwrite("domainV", &ReUseX::Brep::Surface::domainV)
+        .def_readwrite("knotsU", &ReUseX::Brep::Surface::knotsU)
+        .def_readwrite("knotsV", &ReUseX::Brep::Surface::knotsV)
         ;
-    py::class_<linkml::Brep::BrepTrim>(m, "BrepTrim")
+    py::class_<ReUseX::Brep::BrepTrim>(m, "BrepTrim")
         .def(py::init<>())
-        .def_readwrite("EdgeIndex", &linkml::Brep::BrepTrim::EdgeIndex)
-        .def_readwrite("StartIndex", &linkml::Brep::BrepTrim::StartIndex)
-        .def_readwrite("EndIndex", &linkml::Brep::BrepTrim::EndIndex)
-        .def_readwrite("FaceIndex", &linkml::Brep::BrepTrim::FaceIndex)
-        .def_readwrite("LoopIndex", &linkml::Brep::BrepTrim::LoopIndex)
-        .def_readwrite("CurveIndex", &linkml::Brep::BrepTrim::CurveIndex)
-        .def_readwrite("IsoStatus", &linkml::Brep::BrepTrim::IsoStatus)
-        .def_readwrite("TrimType", &linkml::Brep::BrepTrim::TrimType)
-        .def_readwrite("IsReversed", &linkml::Brep::BrepTrim::IsReversed)
-        .def_readwrite("Domain", &linkml::Brep::BrepTrim::Domain)
+        .def_readwrite("EdgeIndex", &ReUseX::Brep::BrepTrim::EdgeIndex)
+        .def_readwrite("StartIndex", &ReUseX::Brep::BrepTrim::StartIndex)
+        .def_readwrite("EndIndex", &ReUseX::Brep::BrepTrim::EndIndex)
+        .def_readwrite("FaceIndex", &ReUseX::Brep::BrepTrim::FaceIndex)
+        .def_readwrite("LoopIndex", &ReUseX::Brep::BrepTrim::LoopIndex)
+        .def_readwrite("CurveIndex", &ReUseX::Brep::BrepTrim::CurveIndex)
+        .def_readwrite("IsoStatus", &ReUseX::Brep::BrepTrim::IsoStatus)
+        .def_readwrite("TrimType", &ReUseX::Brep::BrepTrim::TrimType)
+        .def_readwrite("IsReversed", &ReUseX::Brep::BrepTrim::IsReversed)
+        .def_readwrite("Domain", &ReUseX::Brep::BrepTrim::Domain)
         ;   
-    py::class_<linkml::Brep::BrepLoop>(m, "BrepLoop")
+    py::class_<ReUseX::Brep::BrepLoop>(m, "BrepLoop")
         .def(py::init<>())
-        .def_readwrite("FaceIndex", &linkml::Brep::BrepLoop::FaceIndex)
-        .def_readwrite("TrimIndices", &linkml::Brep::BrepLoop::TrimIndices)
-        .def_readwrite("Type", &linkml::Brep::BrepLoop::Type)
+        .def_readwrite("FaceIndex", &ReUseX::Brep::BrepLoop::FaceIndex)
+        .def_readwrite("TrimIndices", &ReUseX::Brep::BrepLoop::TrimIndices)
+        .def_readwrite("Type", &ReUseX::Brep::BrepLoop::Type)
         ;
 
 
-    py::class_<linkml::LinkMesh>(m, "Mesh")
+    py::class_<ReUseX::LinkMesh>(m, "Mesh")
         .def(py::init<>())
-        .def("volume", &linkml::LinkMesh::volume)
-        .def("area", &linkml::LinkMesh::area)
-        .def("bbox", &linkml::LinkMesh::get_bbox)
-        .def("vertices", &linkml::LinkMesh::get_vertices)
-        .def("faces", &linkml::LinkMesh::get_faces)
-        .def("colors", &linkml::LinkMesh::get_colors)
-        .def("textrueCoords", &linkml::LinkMesh::get_textrueCoords)
+        .def("volume", &ReUseX::LinkMesh::volume)
+        .def("area", &ReUseX::LinkMesh::area)
+        .def("bbox", &ReUseX::LinkMesh::get_bbox)
+        .def("vertices", &ReUseX::LinkMesh::get_vertices)
+        .def("faces", &ReUseX::LinkMesh::get_faces)
+        .def("colors", &ReUseX::LinkMesh::get_colors)
+        .def("textrueCoords", &ReUseX::LinkMesh::get_textrueCoords)
         ;
 
 
@@ -629,7 +631,7 @@ PYBIND11_MODULE(_core, m) {
 
     // TODO: Those should be moved to their respecive classes
     // Functions
-    m.def("parse_dataset", &linkml::parse_Dataset, "Parse a StrayScanner scan in to a point cloud"
+    m.def("parse_dataset", &ReUseX::parse_Dataset, "Parse a StrayScanner scan in to a point cloud"
         "dataset"_a,
         "output_path"_a,
         "start"_a = 0,
@@ -637,7 +639,7 @@ PYBIND11_MODULE(_core, m) {
         "step"_a = 5
     );
 
-    m.def("extract_instances", &linkml::extract_instances, "Extract the instance for a point cloud"
+    m.def("extract_instances", &ReUseX::extract_instances, "Extract the instance for a point cloud"
         "point_cloud"_a);
 
 
@@ -649,4 +651,4 @@ PYBIND11_MODULE(_core, m) {
     m.attr("__version__") = "dev";
 #endif    
     
-} // PYBIND11_MODULE(linkml_py, m) 
+} // PYBIND11_MODULE(ReUseX, m) 

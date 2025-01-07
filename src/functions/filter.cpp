@@ -6,7 +6,7 @@
 #include <functions/progress_bar.hh>
 
 
-namespace linkml
+namespace ReUseX
 {
     void PointCloud::filter(typename PointCloud::Cloud::PointType::LableT value){
 
@@ -55,4 +55,4 @@ namespace linkml
     template PointCloudsInMemory  PointCloudsInMemory::filter( PointCloud::Cloud::PointType::LableT value);
     template PointCloudsOnDisk  PointCloudsOnDisk::filter( PointCloud::Cloud::PointType::LableT value);
 
-} // namespace linkml
+} // namespace ReUseX

@@ -1,10 +1,10 @@
 import torch
 from torch.utils.data import Dataset as TorchDataset
-from .._core import Dataset as LinkMLDataset
+from .._core import Dataset as ReUseXDataset
 
 class Dataset(TorchDataset):
     def __init__(self, path: str):
-        self.dataset = LinkMLDataset(path)
+        self.dataset = ReUseXDataset(path)
 
     def __len__(self):
         return len(self.dataset)

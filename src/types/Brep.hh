@@ -3,7 +3,7 @@
 #include "types/Kernel.hh"
 
 
-namespace linkml
+namespace ReUseX
 {
     class Brep
     {
@@ -127,4 +127,4 @@ namespace linkml
         
     };
     
-} // namespace linkml
+} // namespace ReUseX

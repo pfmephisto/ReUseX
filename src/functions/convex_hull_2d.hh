@@ -88,7 +88,7 @@ typedef CGAL::Convex_hull_traits_adapter_2<K,
           CGAL::Pointer_property_map<Point_2>::type > Convex_hull_traits_2;
 
 
-namespace linkml {
+namespace ReUseX {
     
     static std::vector<std::size_t> convex_hull(cc::vector<tg::pos2> points_in){
 

@@ -22,7 +22,7 @@ def PointCloudtoBase(cloud: PointCloud) -> Base:
     # Transform and rotate the point cloud to have Z point upwards
     # I've had issues with the python kernal crashing due to a missmatch between openMP version.
     # Though I am not sure where those versions are defined.
-    # To me it seems that this should be a numpy operation and have nothing to do with linkML
+    # To me it seems that this should be a numpy operation and have nothing to do with ReUseX.
     # But I also don't think that I am statically linking the openMP library.
     xyz = xyz @ np.array([
         [1,0,0],

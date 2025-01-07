@@ -10,7 +10,7 @@
 #include "../types/Data.hh"
 
 
-namespace linkml {
+namespace ReUseX {
 
     template <typename PointCloud>
     void depth_to_3d( 
@@ -80,4 +80,4 @@ namespace linkml {
         point_cloud.is_dense = true;
     }
 
-} // namespace linkml
+} // namespace ReUseX

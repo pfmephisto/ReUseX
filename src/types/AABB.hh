@@ -5,8 +5,8 @@
 #include <CGAL/AABB_tree.h>
 #include <CGAL/AABB_traits.h>
 
-namespace linkml
+namespace ReUseX
 {
     using AABB = CGAL::Iso_cuboid_3<Kernel>;
     using Box = AABB;
-} // namespace linkml
+} // namespace ReUseX

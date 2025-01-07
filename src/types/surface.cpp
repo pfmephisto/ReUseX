@@ -3,7 +3,7 @@
 #include <CGAL/bounding_box.h>
 
 
-namespace linkml
+namespace ReUseX
 {
     
     // Implementation

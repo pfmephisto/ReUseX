@@ -4,7 +4,7 @@
 #include <opencv4/opencv2/opencv.hpp>
 
 
-namespace linkml {
+namespace ReUseX {
 
 
     template <>

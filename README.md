@@ -186,7 +186,7 @@ flowchart LR
 Clone repository recursively:
 
 ```shell
-git clone --recursive https://github.com/linkarkitektur/linkml_cpp
+git clone --recursive https://github.com/pfmephisto/ReUseX
 # --recursive is used to clone submodules in (extern)
 ```
 
@@ -319,7 +319,7 @@ launch.json with the  [Python C++ Debugger](https://marketplace.visualstudio.com
 
 
 ```python
-from linkml_py import *
+from ReUseX import *
 
 dataset = Dataset("path_to_folder")
 parse_dataset(dataset, "./out_put_folder/", step=5)

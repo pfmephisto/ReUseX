@@ -2,7 +2,7 @@
 #include "types/Kernel.hh"
 
 
-namespace linkml
+namespace ReUseX
 {
     using Point2 = Kernel::Point_2;
-} // namespace linkml
+} // namespace ReUseX

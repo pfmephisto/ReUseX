@@ -14,10 +14,10 @@
 typedef std::vector<polymesh::face_handle> FacHs;
 typedef polymesh::face_handle FacH;
 
-namespace linkml {
+namespace ReUseX {
 
 
-    static void split_cellcomplex_with_planes(linkml::CellComplex & cw, linkml::result_fit_planes const & results){
+    static void split_cellcomplex_with_planes(ReUseX::CellComplex & cw, ReUseX::result_fit_planes const & results){
 
         // Intersect all planes in CW with each other
         auto bar = util::progress_bar(results.planes.size(), "Split planes");

@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.8)
 if (NOT SKBUILD_PROJECT_VERSION)
     set(SKBUILD_PROJECT_VERSION 0.0.1)
 endif()
-project(linkml VERSION ${SKBUILD_PROJECT_VERSION} LANGUAGES CXX)
+project(ReUseX VERSION ${SKBUILD_PROJECT_VERSION} LANGUAGES CXX)
 
 set(LIB_PROJECT_NAME "${PROJECT_NAME}_lib")
 set(TEST_PROJECT_NAME "${PROJECT_NAME}_test")
@@ -45,10 +45,6 @@ if (LIN_ENABLE_ASAN AND LIN_ENABLE_MSAN)
 endif()
 
 option(LIN_ENABLE_WERROR "if true, enables -Werror, /WX" OFF)
-
-# enable tests
-option(LINKML_SAMPLES_TESTS "if true, builds linkml tests" ON)
-
 
 
 
@@ -249,19 +245,15 @@ target_include_directories(${LIB_PROJECT_NAME} PUBLIC "src")
 target_compile_options(${LIB_PROJECT_NAME} PUBLIC ${COMMON_COMPILER_FLAGS})
 
 
-# # ===============================================
-# # pyind11
-# pybind11_add_module("${PYBIND_PROJECT_NAME}" src/linkmlpy.cpp)
-# target_link_libraries("${PYBIND_PROJECT_NAME}" PRIVATE ${LIB_PROJECT_NAME})
 
 # ===============================================
 # scikit_build
-python_add_library(_core MODULE src/linkmlpy.cpp WITH_SOABI)
+python_add_library(_core MODULE src/ReUseX.cpp WITH_SOABI)
 target_link_libraries(_core PRIVATE pybind11::headers ${LIB_PROJECT_NAME})
 
 # This is passing in the version as a define just as an example
 target_compile_definitions(_core PRIVATE VERSION_INFO=${PROJECT_VERSION})
 
 # The install directory is the output (wheel) directory
-install(TARGETS _core DESTINATION linkml_py)
+install(TARGETS _core DESTINATION ReUseX)
 

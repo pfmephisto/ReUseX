@@ -5,7 +5,7 @@
 #include "types/Vector.hh"
 
 
-namespace linkml {
+namespace ReUseX {
 
     static Point compute_average(const std::vector<Point>& points) {
         if (points.empty()) {

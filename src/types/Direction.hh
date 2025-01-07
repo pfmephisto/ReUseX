@@ -2,7 +2,7 @@
 
 #include "types/Kernel.hh"
 
-namespace linkml
+namespace ReUseX
 {
     using Direction = Kernel::Direction_3;
-} // namespace linkml
+} // namespace ReUseX

@@ -35,7 +35,7 @@ void merge_sets(std::unordered_set<int>& lhs, const std::unordered_set<int>& rhs
 #pragma omp declare reduction(merge : std::unordered_set<int> : merge_sets(omp_out, omp_in)) \
     initializer(omp_priv = std::unordered_set<int>())
 
-void linkml::PointCloud::region_growing(
+void ReUseX::PointCloud::region_growing(
     float angle_threshold,
     float plane_dist_threshold,
     int minClusterSize, 

@@ -57,12 +57,12 @@ namespace polyscope  {
     // void display( pcl::PointCloud<PointT> const& cloud, std::optional<const std::string> name);
 
     // template <>
-    // void display(linkml::Surface_mesh const& mesh, std::optional<const std::string> name); 
+    // void display(ReUseX::Surface_mesh const& mesh, std::optional<const std::string> name); 
 
     // static void display(const tg::plane3 & plane, const tg::aabb3 & bbox, std::optional<const std::string> name);
 
     // template <>
-    // static void display(const linkml::surface& surface, std::optional<const std::string> name);
+    // static void display(const ReUseX::surface& surface, std::optional<const std::string> name);
 
 
     enum class Field { 
@@ -178,15 +178,15 @@ namespace polyscope  {
                 } else if constexpr (F == Field::Lables){
                     return cloud.points[idx].label;
                 } else if constexpr (F == Field::Lables_color){
-                    return linkml::get_color_from_angle(linkml::sample_circle(cloud.points[idx].label));
+                    return ReUseX::get_color_from_angle(ReUseX::sample_circle(cloud.points[idx].label));
                 } else if constexpr (F == Field::Semantic){
                     return cloud.points[idx].semantic;
                 } else if constexpr (F == Field::Semantic_color){
-                    return linkml::get_color_from_angle(linkml::sample_circle(cloud.points[idx].semantic));
+                    return ReUseX::get_color_from_angle(ReUseX::sample_circle(cloud.points[idx].semantic));
                 } else if constexpr (F == Field::Instance){
                     return static_cast<int>(cloud.points[idx].instance);
                 } else if constexpr (F == Field::Instance_color){
-                    return linkml::get_color_from_angle(linkml::sample_circle(cloud.points[idx].instance));
+                    return ReUseX::get_color_from_angle(ReUseX::sample_circle(cloud.points[idx].instance));
                 } else if constexpr (F == Field::Importance){
                     return (cloud.points[idx].confidence+0.01f)
                                 *

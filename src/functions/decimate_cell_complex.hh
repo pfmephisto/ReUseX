@@ -2,9 +2,9 @@
 #include <functions/alpha_shape.hh>
 #include <types/CellComplex.hh>
 
-namespace linkml {
+namespace ReUseX {
 
-    void decimate_cell_complex(linkml::CellComplex & cw){
+    void decimate_cell_complex(ReUseX::CellComplex & cw){
 
         // Make a set vector of all facet ids.
         auto set = cw.faces().to_set([&](pm::face_handle h){return cw.facets[h]; });

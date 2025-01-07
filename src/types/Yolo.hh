@@ -5,7 +5,7 @@
 #include <opencv4/opencv2/opencv.hpp>
 
 
-namespace linkml{
+namespace ReUseX{
 
     //https://github.com/UNeedCryDear/yolov8-opencv-onnxruntime-cpp
 

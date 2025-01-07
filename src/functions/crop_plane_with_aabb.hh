@@ -12,41 +12,41 @@
 #include <CGAL/boost/graph/Euler_operations.h>
 #include <cmath>
 
-static auto comparator = [](std::pair<float, linkml::Point> p1, std::pair<float, linkml::Point> p2) {
+static auto comparator = [](std::pair<float, ReUseX::Point> p1, std::pair<float, ReUseX::Point> p2) {
     return p1.first < p2.first;
 };
-static std::array<linkml::Line, 12> get_segemets(linkml::AABB const & box) {
+static std::array<ReUseX::Line, 12> get_segemets(ReUseX::AABB const & box) {
 
-        auto segemets = std::array<linkml::Line, 12>();
+        auto segemets = std::array<ReUseX::Line, 12>();
 
-        auto p0 = linkml::Point(box.min().x(),box.min().y(), box.min().z()); // 0
-        auto p1 = linkml::Point(box.max().x(),box.min().y(), box.min().z()); // 1
-        auto p2 = linkml::Point(box.min().x(),box.max().y(), box.min().z()); // 2
-        auto p3 = linkml::Point(box.max().x(),box.max().y(), box.min().z()); // 3
+        auto p0 = ReUseX::Point(box.min().x(),box.min().y(), box.min().z()); // 0
+        auto p1 = ReUseX::Point(box.max().x(),box.min().y(), box.min().z()); // 1
+        auto p2 = ReUseX::Point(box.min().x(),box.max().y(), box.min().z()); // 2
+        auto p3 = ReUseX::Point(box.max().x(),box.max().y(), box.min().z()); // 3
 
-        auto p4 = linkml::Point(box.min().x(),box.min().y(), box.max().z()); // 4
-        auto p5 = linkml::Point(box.max().x(),box.min().y(), box.max().z()); // 5
-        auto p6 = linkml::Point(box.min().x(),box.max().y(), box.max().z()); // 6
-        auto p7 = linkml::Point(box.max().x(),box.max().y(), box.max().z()); // 7
+        auto p4 = ReUseX::Point(box.min().x(),box.min().y(), box.max().z()); // 4
+        auto p5 = ReUseX::Point(box.max().x(),box.min().y(), box.max().z()); // 5
+        auto p6 = ReUseX::Point(box.min().x(),box.max().y(), box.max().z()); // 6
+        auto p7 = ReUseX::Point(box.max().x(),box.max().y(), box.max().z()); // 7
 
 
 
-        segemets[0] = linkml::Line(p0, p1); 
-        segemets[1] = linkml::Line(p1, p3); 
-        segemets[2] = linkml::Line(p3, p2); 
-        segemets[3] = linkml::Line(p2, p0); 
-        segemets[4] = linkml::Line(p4, p5); 
-        segemets[5] = linkml::Line(p5, p7); 
-        segemets[6] = linkml::Line(p7, p6);
-        segemets[7] = linkml::Line(p6, p4);
-        segemets[8] = linkml::Line(p0, p4);
-        segemets[9] = linkml::Line(p1, p5);
-        segemets[10]= linkml::Line(p3, p7);
-        segemets[11]= linkml::Line(p2, p6);
+        segemets[0] = ReUseX::Line(p0, p1); 
+        segemets[1] = ReUseX::Line(p1, p3); 
+        segemets[2] = ReUseX::Line(p3, p2); 
+        segemets[3] = ReUseX::Line(p2, p0); 
+        segemets[4] = ReUseX::Line(p4, p5); 
+        segemets[5] = ReUseX::Line(p5, p7); 
+        segemets[6] = ReUseX::Line(p7, p6);
+        segemets[7] = ReUseX::Line(p6, p4);
+        segemets[8] = ReUseX::Line(p0, p4);
+        segemets[9] = ReUseX::Line(p1, p5);
+        segemets[10]= ReUseX::Line(p3, p7);
+        segemets[11]= ReUseX::Line(p2, p6);
 
         return segemets;
 }
-static std::vector<Point> get_points(std::array<linkml::Line, 12> const & segments, linkml::Plane const & plane){
+static std::vector<Point> get_points(std::array<ReUseX::Line, 12> const & segments, ReUseX::Plane const & plane){
 
     auto points = std::vector<Point>();
 
@@ -55,7 +55,7 @@ static std::vector<Point> get_points(std::array<linkml::Line, 12> const & segmen
         auto pt = CGAL::intersection(seg, plane);
 
         if (!pt.has_value()) continue;
-        points.push_back(std::get<linkml::Point>(pt.value()));
+        points.push_back(std::get<ReUseX::Point>(pt.value()));
     }
 
 
@@ -69,7 +69,7 @@ static std::vector<Point> get_points(std::array<linkml::Line, 12> const & segmen
 
 
 
-static std::vector<float> get_angles_in_plane(Eigen::Matrix3f mat, std::vector<linkml::Point> points, linkml::Point center ){
+static std::vector<float> get_angles_in_plane(Eigen::Matrix3f mat, std::vector<ReUseX::Point> points, ReUseX::Point center ){
 
     auto angs = std::vector<float>();
     for (auto& p : points){
@@ -80,8 +80,8 @@ static std::vector<float> get_angles_in_plane(Eigen::Matrix3f mat, std::vector<l
     }
     return angs;
 }
-static void make_unique(std::vector<linkml::Point> & collection){
-    auto set = std::unordered_set<linkml::Point>();
+static void make_unique(std::vector<ReUseX::Point> & collection){
+    auto set = std::unordered_set<ReUseX::Point>();
 
     for (auto & item : collection)
         set.insert(item);
@@ -93,7 +93,7 @@ static void make_unique(std::vector<linkml::Point> & collection){
 }
 
 
-namespace linkml {
+namespace ReUseX {
 
     static void crop_plane_with_aabb(Surface_mesh & mesh, const Box& box, const Plane plane ){
     

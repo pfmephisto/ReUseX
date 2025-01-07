@@ -1,6 +1,6 @@
 #pragma once
 #include "types/Kernel.hh"
- namespace linkml
+ namespace ReUseX
  {
     using FT = Kernel::FT;
- } // namespace linkml
+ } // namespace ReUseX

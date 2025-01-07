@@ -12,7 +12,7 @@ namespace polyscope  {
 
 
     template <>
-    void display(linkml::AABB const& box, std::optional<const std::string> name){
+    void display(ReUseX::AABB const& box, std::optional<const std::string> name){
 
         //  Drawing of cube with numbered vertecies.
         // 
@@ -33,14 +33,14 @@ namespace polyscope  {
         //        +----------------+
         //    (0)                    (1)
 
-        auto const p0 = linkml::Point(box.min().x(),box.min().y(), box.min().z()); // 0
-        auto const p1 = linkml::Point(box.max().x(),box.min().y(), box.min().z()); // 1
-        auto const p2 = linkml::Point(box.min().x(),box.max().y(), box.min().z()); // 2
-        auto const p3 = linkml::Point(box.max().x(),box.max().y(), box.min().z()); // 3
-        auto const p4 = linkml::Point(box.min().x(),box.min().y(), box.max().z()); // 4
-        auto const p5 = linkml::Point(box.max().x(),box.min().y(), box.max().z()); // 5
-        auto const p6 = linkml::Point(box.min().x(),box.max().y(), box.max().z()); // 6
-        auto const p7 = linkml::Point(box.max().x(),box.max().y(), box.max().z()); // 7
+        auto const p0 = ReUseX::Point(box.min().x(),box.min().y(), box.min().z()); // 0
+        auto const p1 = ReUseX::Point(box.max().x(),box.min().y(), box.min().z()); // 1
+        auto const p2 = ReUseX::Point(box.min().x(),box.max().y(), box.min().z()); // 2
+        auto const p3 = ReUseX::Point(box.max().x(),box.max().y(), box.min().z()); // 3
+        auto const p4 = ReUseX::Point(box.min().x(),box.min().y(), box.max().z()); // 4
+        auto const p5 = ReUseX::Point(box.max().x(),box.min().y(), box.max().z()); // 5
+        auto const p6 = ReUseX::Point(box.min().x(),box.max().y(), box.max().z()); // 6
+        auto const p7 = ReUseX::Point(box.max().x(),box.max().y(), box.max().z()); // 7
 
         std::vector<Point> const points = { p0, p1, p2, p3, p4, p5, p6, p7};
         std::vector<std::vector<int>> const edges = { {0,1},{1,3},{3,2},{2,0}, {4,5},{5,7},{7,6},{6,4}, {0,4},{1,5},{3,7},{2,6}};
@@ -82,12 +82,12 @@ namespace polyscope  {
     }
 
     template <>
-    void display(linkml::Surface_mesh const& mesh, std::optional<const std::string> name ){
+    void display(ReUseX::Surface_mesh const& mesh, std::optional<const std::string> name ){
 
         std::vector<std::array<size_t,3>> faces;
         std::vector<std::array<double,  3>> vertecies;
 
-        std::unordered_map<linkml::Surface_mesh::Vertex_index, size_t> index_map;
+        std::unordered_map<ReUseX::Surface_mesh::Vertex_index, size_t> index_map;
 
         size_t i = 0;
         for (auto idx: mesh.vertices()){
@@ -98,8 +98,8 @@ namespace polyscope  {
         }
         for (auto face_index: mesh.faces()){
 
-            CGAL::Vertex_around_face_circulator<linkml::Surface_mesh> vcirc(mesh.halfedge(face_index), mesh), done(vcirc);
-            std::vector<linkml::Surface_mesh::Vertex_index> indices;
+            CGAL::Vertex_around_face_circulator<ReUseX::Surface_mesh> vcirc(mesh.halfedge(face_index), mesh), done(vcirc);
+            std::vector<ReUseX::Surface_mesh::Vertex_index> indices;
             do {
                 indices.push_back(*vcirc++);
             } while (vcirc != done);
@@ -113,7 +113,7 @@ namespace polyscope  {
     }
 
     template <>
-    void display( linkml::Surface const& surface, std::optional<const std::string> name){
+    void display( ReUseX::Surface const& surface, std::optional<const std::string> name){
 
         auto mesh = surface.GetMesh();
         mesh.collect_garbage();
@@ -139,7 +139,7 @@ namespace polyscope  {
         ps_mesh->setBackFacePolicy(BackFacePolicy::Cull);
 
         // PMP::triangle_topology(mesh);
-        // display<linkml::Surface_mesh const&>(mesh , (name) ? name.value() : "Surface" );
+        // display<ReUseX::Surface_mesh const&>(mesh , (name) ? name.value() : "Surface" );
         // auto ps_mesh = polyscope::getSurfaceMesh((name) ? name.value() : "Surface");
 
         std::vector<double> num_supporting_points = std::vector<double>(mesh.num_faces(), 0.0);
@@ -154,7 +154,7 @@ namespace polyscope  {
 
 
     template <>
-    void display( linkml::Dataset const& dataset, std::optional<const std::string> name){
+    void display( ReUseX::Dataset const& dataset, std::optional<const std::string> name){
 
 
         std::vector<Eigen::Vector4f> path_node;
@@ -233,10 +233,10 @@ namespace polyscope  {
 
     }
 
-    static void display(const linkml::Plane & plane, const linkml::AABB & bbox, std::optional<const std::string> name){
-        linkml::Surface_mesh m;
-        linkml::crop_plane_with_aabb(m, bbox, plane);
-        display<linkml::Surface_mesh const&>(m, (name) ? name.value() : "Plane" );
+    static void display(const ReUseX::Plane & plane, const ReUseX::AABB & bbox, std::optional<const std::string> name){
+        ReUseX::Surface_mesh m;
+        ReUseX::crop_plane_with_aabb(m, bbox, plane);
+        display<ReUseX::Surface_mesh const&>(m, (name) ? name.value() : "Plane" );
     }
 
 

@@ -11,9 +11,9 @@
 
 #include <CGAL/linear_least_squares_fitting_3.h>
 
-namespace linkml {
+namespace ReUseX {
 
-    static linkml::Plane fit_plane_thorugh_points(std::vector<Point> const& points){
+    static ReUseX::Plane fit_plane_thorugh_points(std::vector<Point> const& points){
 
 
         Plane best_fit_plane;
@@ -27,10 +27,10 @@ namespace linkml {
         Point com = CGAL::centroid(points.begin(), points.end());
         com = best_fit_plane.projection(com);
 
-        return linkml::Plane(best_fit_plane.a(), best_fit_plane.b(), best_fit_plane.c(), best_fit_plane.d(), com.x(), com.y(), com.z());
+        return ReUseX::Plane(best_fit_plane.a(), best_fit_plane.b(), best_fit_plane.c(), best_fit_plane.d(), com.x(), com.y(), com.z());
     }
 
-    static linkml::Plane fit_plane_thorugh_points(PointCloud::Cloud::ConstPtr cloud,  pcl::Indices const & indecies){
+    static ReUseX::Plane fit_plane_thorugh_points(PointCloud::Cloud::ConstPtr cloud,  pcl::Indices const & indecies){
 
 
         Eigen::Vector4f vp = Eigen::Vector4f::Zero ();
@@ -58,6 +58,6 @@ namespace linkml {
             plane_params[3] = -1 * plane_params.dot (clust_centroid);
         }
 
-        return linkml::Plane(plane_params[0], plane_params[1], plane_params[2], plane_params[3], clust_centroid[0], clust_centroid[1], clust_centroid[2]);
+        return ReUseX::Plane(plane_params[0], plane_params[1], plane_params[2], plane_params[3], clust_centroid[0], clust_centroid[1], clust_centroid[2]);
     }
 }

@@ -8,7 +8,7 @@
 #include <filesystem>
 #include <optional>
 
-namespace linkml
+namespace ReUseX
 {
     /// @brief A collection of point clouds.
     /// Point clouds can be a clollection of point cloud files, or in memory point clouds.
@@ -132,7 +132,7 @@ namespace linkml
     using PointCloudsOnDisk = PointClouds<std::string>;
     using PointCloudsInMemory = PointClouds<PointCloud>;
 
-} // namespace linkml
+} // namespace ReUseX
 
 
 

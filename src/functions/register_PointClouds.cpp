@@ -47,8 +47,8 @@ class MyPointRepresentation : public pcl::PointRepresentation<PointT>
 * \param final_transform the resultant transform between source and target
 */
 void pairAlign (
-    linkml::PointCloud::Cloud::Ptr cloud_src, 
-    const linkml::PointCloud::Cloud::Ptr cloud_tgt, 
+    ReUseX::PointCloud::Cloud::Ptr cloud_src, 
+    const ReUseX::PointCloud::Cloud::Ptr cloud_tgt, 
     Eigen::Matrix4f &pairTransform, 
     std::optional<float> grid_size = {},
     std::optional<int32_t> confidence_filter = {}
@@ -58,14 +58,14 @@ void pairAlign (
     // \note enable this for large datasets
 
 
-    linkml::PointCloud::Cloud::Ptr input_src(new linkml::PointCloud::Cloud);
-    linkml::PointCloud::Cloud::Ptr input_tgt(new linkml::PointCloud::Cloud);
+    ReUseX::PointCloud::Cloud::Ptr input_src(new ReUseX::PointCloud::Cloud);
+    ReUseX::PointCloud::Cloud::Ptr input_tgt(new ReUseX::PointCloud::Cloud);
 
     input_src = cloud_src;
     input_tgt = cloud_tgt; 
 
-    linkml::PointCloud::Cloud::Ptr src(new linkml::PointCloud::Cloud);
-    linkml::PointCloud::Cloud::Ptr tgt(new linkml::PointCloud::Cloud);
+    ReUseX::PointCloud::Cloud::Ptr src(new ReUseX::PointCloud::Cloud);
+    ReUseX::PointCloud::Cloud::Ptr tgt(new ReUseX::PointCloud::Cloud);
     
 
     
@@ -128,7 +128,7 @@ void pairAlign (
     reg.setInputSource(src);
     reg.setInputTarget(tgt);
 
-    linkml::PointCloud::Cloud::Ptr reg_result = src;
+    ReUseX::PointCloud::Cloud::Ptr reg_result = src;
     reg.setMaximumIterations(50);
     reg.setRANSACIterations(1000);
     reg.setRANSACOutlierRejectionThreshold(0.05);
@@ -144,7 +144,7 @@ void pairAlign (
 
 
 
-namespace linkml{
+namespace ReUseX{
 
 
     template <class T>

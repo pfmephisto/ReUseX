@@ -4,7 +4,7 @@
 #include <pcl/common/impl/accumulators.hpp>
 
 
-namespace linkml {
+namespace ReUseX {
 
 
     struct AccumulatorConfidence
@@ -188,4 +188,4 @@ namespace linkml {
     //   }
 
     // };
-} // namespace linkml
+} // namespace ReUseX

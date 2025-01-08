@@ -6,8 +6,8 @@
 
 #include <Eigen/Dense>
 
-#include "../types/PointCloud.hh"
-#include "../types/Data.hh"
+#include "types/Geometry/PointCloud.hh"
+#include "types/Data.hh"
 
 
 namespace ReUseX {

@@ -1,7 +1,7 @@
 #pragma once
 #include <pcl/types.h>
 #include <Eigen/Core>
-#include <types/Plane.hh>
+#include <types/Geometry/Plane.hh>
 
 namespace ReUseX
 {

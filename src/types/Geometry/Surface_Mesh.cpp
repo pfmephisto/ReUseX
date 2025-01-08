@@ -3,7 +3,6 @@
 #include <CGAL/Surface_mesh.h>
 #include <CGAL/Polygon_mesh_processing/measure.h>
 #include <CGAL/bounding_box.h>
-// #include <CGAL/Polygon_mesh_processing/triangulate_faces.h>
 
 
 namespace PMP = CGAL::Polygon_mesh_processing;

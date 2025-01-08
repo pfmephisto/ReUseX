@@ -1,9 +1,10 @@
 
 #pragma once
-#include "types/Plane.hh"
-#include "types/Surface_Mesh.hh"
 #include "types/Point.hh"
-#include "types/Line.hh"
+
+#include "types/Geometry/Plane.hh"
+#include "types/Geometry/Surface_Mesh.hh"
+#include "types/Geometry/Line.hh"
 
 #include "functions/get_csystem.hh"
 

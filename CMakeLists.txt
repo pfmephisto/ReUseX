@@ -4,9 +4,6 @@ if (NOT SKBUILD_PROJECT_VERSION)
 endif()
 project(ReUseX VERSION ${SKBUILD_PROJECT_VERSION} LANGUAGES CXX)
 
-set(LIB_PROJECT_NAME "${PROJECT_NAME}_lib")
-set(TEST_PROJECT_NAME "${PROJECT_NAME}_test")
-
 
 # ===============================================
 # global settings
@@ -203,9 +200,9 @@ include_directories( ${OpenCV_INCLUDE_DIRS} )
 
 # ===============================================
 # main libary
-add_library(${LIB_PROJECT_NAME} STATIC ${LIB_SOURCES} ${LIB_HEADERS})
-set_target_properties(${LIB_PROJECT_NAME} PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
-target_link_libraries(${LIB_PROJECT_NAME} 
+add_library(${PROJECT_NAME} STATIC ${LIB_SOURCES} ${LIB_HEADERS})
+set_target_properties(${PROJECT_NAME} PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
+target_link_libraries(${PROJECT_NAME} 
 PRIVATE 
 pybind11::embed 
 optimized ${GUROBI_CXX_LIBRARY}
@@ -213,7 +210,8 @@ debug ${GUROBI_CXX_DEBUG_LIBRARY}
 #cuda_lib
 # HDF5::HDF5
 )
-target_link_libraries(${LIB_PROJECT_NAME} PUBLIC
+target_link_libraries(${PROJECT_NAME} PUBLIC
+    OpenNURBS
     polyscope
     embree
     ${CUDA_LIBRARIES} 
@@ -238,20 +236,21 @@ target_link_libraries(${LIB_PROJECT_NAME} PUBLIC
 # dependency grouping in the IDE
 foreach(TARGET_NAME
     polyscope
+    OpenNURBS
 )
 set_property(TARGET ${TARGET_NAME} PROPERTY FOLDER "Extern")
 endforeach()
 
 
-target_include_directories(${LIB_PROJECT_NAME} PUBLIC "src")
-target_compile_options(${LIB_PROJECT_NAME} PUBLIC ${COMMON_COMPILER_FLAGS})
+target_include_directories(${PROJECT_NAME} PUBLIC "src")
+target_compile_options(${PROJECT_NAME} PUBLIC ${COMMON_COMPILER_FLAGS})
 
 
 
 # ===============================================
 # scikit_build
 python_add_library(_core MODULE src/ReUseX.cpp WITH_SOABI)
-target_link_libraries(_core PRIVATE pybind11::headers ${LIB_PROJECT_NAME})
+target_link_libraries(_core PRIVATE pybind11::headers ${PROJECT_NAME})
 
 # This is passing in the version as a define just as an example
 target_compile_definitions(_core PRIVATE VERSION_INFO=${PROJECT_VERSION})

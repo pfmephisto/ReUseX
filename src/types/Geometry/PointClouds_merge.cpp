@@ -1,5 +1,5 @@
-#include <types/PointCloud.hh>
-#include <types/PointClouds.hh>
+#include "PointClouds.hh"
+#include "PointCloud.hh"
 #include <types/Accumulators.hh>
 
 #include <functions/progress_bar.hh>

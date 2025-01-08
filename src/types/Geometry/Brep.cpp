@@ -1,4 +1,4 @@
-#include "types/Brep.hh"
+#include "types/Geometry/Brep.hh"
 #include "functions/polyscope.hh"
 
 #include <CGAL/Polygon_mesh_processing/triangulate_faces.h>
@@ -11,7 +11,7 @@
 #include <CGAL/squared_distance_3.h>
 
 
-#include "types/Plane.hh"
+#include "types/Geometry/Plane.hh"
 #include "types/Point2.hh"
 #include "functions/fit_plane_thorugh_points.hh"
 

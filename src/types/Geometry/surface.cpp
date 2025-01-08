@@ -1,4 +1,4 @@
-#include "types/surface.hh"
+#include "surface.hh"
 
 #include <CGAL/bounding_box.h>
 

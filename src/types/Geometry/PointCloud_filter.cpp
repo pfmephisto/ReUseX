@@ -1,8 +1,6 @@
-#include <types/PointCloud.hh>
-#include <types/PointClouds.hh>
+#include "PointCloud.hh"
 
 #include <vector>
-#include <types/PointCloud.hh>
 #include <functions/progress_bar.hh>
 
 

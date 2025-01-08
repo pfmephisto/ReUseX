@@ -1,7 +1,7 @@
 #pragma once
 
-#include "types/PointCloud.hh"
-#include "types/Surface_Mesh.hh"
+#include "types/Geometry/PointCloud.hh"
+#include "types/Geometry/Surface_Mesh.hh"
 
 #include <pcl/point_types.h>
 

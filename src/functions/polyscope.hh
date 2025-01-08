@@ -1,10 +1,11 @@
 #pragma once
-#include "types/Surface_Mesh.hh"
-#include "types/PointCloud.hh"
-#include "types/Surface_Mesh.hh"
-#include "types/surface.hh"
 #include "types/Dataset.hh"
-#include "types/AABB.hh"
+
+#include "types/Geometry/Surface_Mesh.hh"
+#include "types/Geometry/PointCloud.hh"
+#include "types/Geometry/Surface_Mesh.hh"
+#include "types/Geometry/surface.hh"
+#include "types/Geometry/AABB.hh"
 
 #include "functions/crop_plane_with_aabb.hh"
 

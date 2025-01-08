@@ -1,5 +1,5 @@
 #pragma once
-#include "types/PointCloud.hh"
+#include "types/Geometry/PointCloud.hh"
 
 
 namespace ReUseX

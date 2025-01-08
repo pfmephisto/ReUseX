@@ -1,4 +1,4 @@
-#include <types/PointCloud.hh>
+#include "types/Geometry/PointCloud.hh"
 #include "functions/progress_bar.hh"
 
 #include <pcl/ModelCoefficients.h>

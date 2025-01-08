@@ -1,17 +1,20 @@
 #pragma once
-#include "types/Surface_Mesh.hh"
+#include "Surface_Mesh.hh"
 #include "types/Kernel.hh"
+#include "types/Point.hh"
+#include "types/Point2.hh"
+
+#include <opennurbs_public.h>
 
 
 namespace ReUseX
 {
-    class Brep
+    class Brep: public ON_Brep
     {
     public:
-        using Vertex    = Kernel::Point_3;
-        using Vertices  = std::vector<Vertex>;
-        using Curve3D   = std::vector<Kernel::Point_3>;
-        using Curve2D   = std::vector<Kernel::Point_2>;
+        using Vertices  = std::vector<Point>;
+        using Curve3D   = std::vector<Point>;
+        using Curve2D   = std::vector<Point2>;
         using Curves3D  = std::vector<Curve3D>;
         using Curves2D  = std::vector<Curve2D>;
         using Box = Kernel::Iso_cuboid_3;

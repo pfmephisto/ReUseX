@@ -1,6 +1,6 @@
 #include "functions/downsample.hh"
 #include "functions/progress_bar.hh"
-#include "types/PointCloud.hh"
+#include "types/Geometry/PointCloud.hh"
 #include "types/Accumulators.hh"
 
 #include <pcl/point_types.h>

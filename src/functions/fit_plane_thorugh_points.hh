@@ -1,7 +1,7 @@
 #pragma once
 
-#include "types/Plane.hh"
-#include "types/PointCloud.hh"
+#include "types/Geometry/Plane.hh"
+#include "types/Geometry/PointCloud.hh"
 
 
 #include <pcl/common/centroid.h>

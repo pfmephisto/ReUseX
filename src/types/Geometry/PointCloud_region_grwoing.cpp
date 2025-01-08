@@ -1,4 +1,4 @@
-#include <types/PointCloud.hh>
+#include "PointCloud.hh"
 #include <functions/progress_bar.hh>
 #include <functions/fit_plane_thorugh_points.hh>
 
@@ -6,8 +6,8 @@
 #include <pcl/segmentation/planar_region.h>
 #include <pcl/common/centroid.h>
 
-#include <types/Plane.hh>
-#include <types/PointCloud.hh>
+#include <types/Geometry/Plane.hh>
+#include <types/Geometry/PointCloud.hh>
 
 #include <pcl/sample_consensus/method_types.h>
 #include <pcl/sample_consensus/model_types.h>

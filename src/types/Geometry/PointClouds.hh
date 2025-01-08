@@ -1,6 +1,6 @@
 #pragma once
 #include "PointCloud.hh"
-#include "Dataset.hh"
+#include "types/Dataset.hh"
 
 #include <Eigen/Core>
 #include <vector>

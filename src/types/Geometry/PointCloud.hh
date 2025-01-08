@@ -29,14 +29,13 @@
 #include <vector>
 #include <filesystem>
 
-
-#include "types/Brep.hh"
-
-
 #include "types/Point.hh"
 #include "types/Direction.hh"
-#include "types/AABB.hh"
+#include "types/Geometry/AABB.hh"
 #include "types/Color.hh"
+
+#include "types/Geometry/Brep.hh"
+
 
 using Point = ReUseX::Point;
 using Direction = ReUseX::Direction;

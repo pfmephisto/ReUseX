@@ -1,4 +1,4 @@
-#include <types/PointClouds.hh>
+#include "PointClouds.hh"
 #include <functions/polyscope.hh>
 
 #include <polyscope/polyscope.h>

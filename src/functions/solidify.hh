@@ -1,7 +1,7 @@
 #pragma once
 
-#include "types/PointCloud.hh"
-#include "types/Surface_Mesh.hh"
+#include "types/Geometry/PointCloud.hh"
+#include "types/Geometry/Surface_Mesh.hh"
 
 #include "functions/progress_bar.hh"
 
@@ -192,7 +192,6 @@ namespace ReUseX
         double complexity = 0.70
     )
     {
-        // using Kernel_inexact = CGAL::Exact_predicates_inexact_constructions_kernel;
 
         using Point = typename Mesh::Point;
         using Kernel = typename CGAL::Kernel_traits<Point>::Kernel;

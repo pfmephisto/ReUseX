@@ -4,7 +4,8 @@
 #include "types/FT.hh"
 #include "types/Vector.hh"
 #include "types/Direction.hh"
-#include "types/AABB.hh"
+
+#include "types/Geometry/AABB.hh"
 
 #include <CGAL/Surface_mesh.h>
 #include <CGAL/number_utils.h>

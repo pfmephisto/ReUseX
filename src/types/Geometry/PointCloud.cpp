@@ -1,4 +1,4 @@
-#include "types/PointCloud.hh"
+#include "PointCloud.hh"
 #include "types/Color.hh"
 
 #include "functions/progress_bar.hh"

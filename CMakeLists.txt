@@ -67,9 +67,11 @@ else()
     # Add support for OpenMP
     list(APPEND COMMON_COMPILER_FLAGS -fopenmp -lgomp)
 
-    # if (LIN_ENABLE_WERROR)
-    #     list(APPEND COMMON_COMPILER_FLAGS -Werror)
-    # endif()
+    if (LIN_ENABLE_WERROR)
+        # list(APPEND COMMON_COMPILER_FLAGS -Werror)
+        list(APPEND COMMON_COMPILER_FLAGS -Wno-unused-variable -Wno-unused-function)
+    endif()
+
 
     if (LIN_ENABLE_ASAN OR LIN_ENABLE_TSAN OR LIN_ENABLE_MSAN OR LIN_ENABLE_UBSAN)
         list(APPEND COMMON_COMPILER_FLAGS -fno-omit-frame-pointer -g)

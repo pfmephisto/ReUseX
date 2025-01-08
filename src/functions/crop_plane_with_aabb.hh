@@ -5,7 +5,6 @@
 #include "types/Point.hh"
 #include "types/Line.hh"
 
-#include "functions/color.hh"
 #include "functions/get_csystem.hh"
 
 

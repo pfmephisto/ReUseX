@@ -8,7 +8,6 @@
 
 #include "functions/polyscope_helpers.hh"
 #include "functions/crop_plane_with_aabb.hh"
-#include "functions/color.hh"
 
 
 #include <valarray>
@@ -178,15 +177,15 @@ namespace polyscope  {
                 } else if constexpr (F == Field::Lables){
                     return cloud.points[idx].label;
                 } else if constexpr (F == Field::Lables_color){
-                    return ReUseX::get_color_from_angle(ReUseX::sample_circle(cloud.points[idx].label));
+                    return ReUseX::Color::from_index(cloud.points[idx].label);
                 } else if constexpr (F == Field::Semantic){
                     return cloud.points[idx].semantic;
                 } else if constexpr (F == Field::Semantic_color){
-                    return ReUseX::get_color_from_angle(ReUseX::sample_circle(cloud.points[idx].semantic));
+                    return ReUseX::Color::from_index(cloud.points[idx].semantic);
                 } else if constexpr (F == Field::Instance){
                     return static_cast<int>(cloud.points[idx].instance);
                 } else if constexpr (F == Field::Instance_color){
-                    return ReUseX::get_color_from_angle(ReUseX::sample_circle(cloud.points[idx].instance));
+                    return ReUseX::Color::from_index(cloud.points[idx].instance);
                 } else if constexpr (F == Field::Importance){
                     return (cloud.points[idx].confidence+0.01f)
                                 *

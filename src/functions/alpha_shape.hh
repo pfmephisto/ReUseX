@@ -55,7 +55,7 @@ static void alpha_indecies( const Alpha_shape_2& A, OutputIterator out, std::map
     }
 }
 
-namespace ReUseX {
+namespace linkml {
 
     // Reads a list of points and returns a list of segments
     // corresponding to the Alpha shape.

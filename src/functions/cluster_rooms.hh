@@ -4,7 +4,6 @@
 #include "algorithms/refine.hh"
 #include "types/surface.hh"
 #include "functions/progress_bar.hh"
-#include "functions/color.hh"
 #include "algorithms/mcl.hh"
 
 #include <functions/polyscope.hh>
@@ -734,14 +733,14 @@ namespace ReUseX
         //Check for blank (white) rows
         for (size_t i = 0; i < matrix.rows(); i++){
             bool all_white = true;
-            for (size_t j = i+1; j < matrix.cols(); j++){
+            for (int j = i+1; j < matrix.cols(); j++){
                 if (matrix(i, j) < 0.5){
                     all_white = false;
                     break;
                 }
             }
             if (all_white){
-                for (size_t j = 0; j < matrix.cols(); j++){
+                for (int j = 0; j < matrix.cols(); j++){
                     matrix(i, j) = 0;
                     matrix(j, i) = 0;
                 }

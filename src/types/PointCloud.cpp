@@ -206,7 +206,7 @@ namespace ReUseX {
             auto point = cloud->at(i);
             size_t y = i % cloud->width;
             size_t x = i / cloud->width;
-            Color c = ReUseX::get_color_from_angle(ReUseX::sample_circle(point.semantic));
+            Color c = ReUseX::Color::from_index(point.semantic);
             img.at<Color>(x,y) = c;
         }
         }

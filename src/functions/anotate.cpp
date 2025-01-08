@@ -3,18 +3,16 @@
 #include <types/Dataset.hh>
 
 #include <functions/progress_bar.hh>
-#include <functions/color.hh>
 
 #include <opencv4/opencv2/opencv.hpp>
 #include <opencv4/opencv2/ml.hpp>
 
 #include <optional>
-#include "functions/color.hh"
 
 
 
 static void draw_box(cv::Mat & img,  ReUseX::OutputParams const& param){
-    cv::Scalar color_scalar = ReUseX::get_color_from_angle(ReUseX::sample_circle(param.id));
+    cv::Scalar color_scalar = ReUseX::Color::from_index(param.id);
     std::string label = ReUseX::Yolov8Seg::GetClassName(param.id);
     cv::rectangle(img, param.box, color_scalar, 2);
     cv::putText(img, label, cv::Point(param.box.x, param.box.y), cv::FONT_HERSHEY_SIMPLEX, 1, color_scalar, 2);

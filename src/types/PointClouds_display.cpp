@@ -4,7 +4,7 @@
 #include <polyscope/polyscope.h>
 #include <polyscope/point_cloud.h>
 #include <polyscope/curve_network.h>
-#include <functions/color.hh>
+
 
 #include <fmt/format.h>
 

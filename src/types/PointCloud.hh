@@ -25,7 +25,6 @@
 
 #include <polyscope/polyscope.h>
 #include <polyscope/point_cloud.h>
-#include "functions/color.hh"
 
 #include <vector>
 #include <filesystem>

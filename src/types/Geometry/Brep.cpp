@@ -33,7 +33,7 @@ namespace ReUseX
  
     template <typename Mesh, typename Face_Handel>
     auto compute_plane(Mesh mesh, Face_Handel f ){
-            auto normal = PMP::compute_face_normal(f, mesh);
+            auto normal = PMP::compute_face_normal(f, static_cast<const typename CGAL::Surface_mesh<typename Mesh::PointT>&>(mesh));
             typename Mesh::Vertex_index v = *mesh.vertices_around_face(mesh.halfedge(f)).begin();
             Kernel::Point_3 p = mesh.point(v);
             return Kernel::Plane_3(p, normal);
@@ -61,8 +61,8 @@ namespace ReUseX
     }
 
 
-    Brep::Brep(Surface_mesh const& mesh) : mesh(mesh){
-        this->mesh.add_property_map<Surface_mesh::Face_index, Kernel::Point_2>("f:origin", Kernel::Point_2(0,0));
+    Brep::Brep(Mesh const& mesh) : mesh(mesh){
+        this->mesh.add_property_map<Mesh::Face_index, Kernel::Point_2>("f:origin", Kernel::Point_2(0,0));
 
         // ON_Mesh ONmesh = ON_Mesh();
         // for (auto v: mesh.vertices())
@@ -88,17 +88,17 @@ namespace ReUseX
     Brep Brep::load(std::string const& filename) {
 
         std::ifstream file(filename);
-        Surface_mesh mesh;
+        Mesh mesh;
         CGAL::IO::read_OFF(file, mesh);
 
         return Brep(mesh);
     }
 
-    double Brep::volume() const { return CGAL::to_double(PMP::volume(mesh));}
+    double Brep::volume() const { return CGAL::to_double(PMP::volume(static_cast<const typename Mesh::Base&>(mesh)));}
     
     double Brep::area() const {
         //TODO: Consider computing the footprint area
-        return CGAL::to_double(PMP::area(mesh));
+        return CGAL::to_double(PMP::area(static_cast<const typename Mesh::Base&>(mesh)));
     }
     
     bool Brep::is_closed() const { return CGAL::is_closed(mesh);}
@@ -120,16 +120,16 @@ namespace ReUseX
     
     int Brep::get_Orientation() const { return 1;}
     
-    LinkMesh Brep::get_Mesh() const {
-        auto mesh_copy = Surface_mesh(mesh);
+    Mesh Brep::get_Mesh() const {
+        auto mesh_copy = Mesh(mesh);
         unweld(mesh_copy);
         PMP::triangulate_faces(mesh_copy);
-        return LinkMesh(mesh_copy);
+        return Mesh(mesh_copy);
     }
 
     Brep::Curves2D Brep::get_Curves2D() const {
 
-        auto face_origin = this->mesh.property_map<Surface_mesh::Face_index, Kernel::Point_2>("f:origin").value();
+        auto face_origin = this->mesh.property_map<Mesh::Face_index, Kernel::Point_2>("f:origin").value();
 
         Curves2D curves = Curves2D();
         curves.resize(mesh.number_of_halfedges());
@@ -238,7 +238,7 @@ namespace ReUseX
 
     Brep::Surfaces Brep::get_Surfaces() const { 
 
-        auto surface_origin = this->mesh.property_map<Surface_mesh::Face_index, Kernel::Point_2>("f:origin").value();
+        auto surface_origin = this->mesh.property_map<Mesh::Face_index, Kernel::Point_2>("f:origin").value();
 
         Surfaces surfaces = Surfaces();
         surfaces.resize(mesh.number_of_faces());
@@ -260,7 +260,7 @@ namespace ReUseX
             for (auto v : mesh.vertices_around_face(mesh.halfedge(f)))
                 points.push_back(mesh.point(v));
 
-            auto normal = PMP::compute_face_normal(f, mesh);
+            auto normal = PMP::compute_face_normal(f, (Mesh::Base)mesh);
             CGAL::Plane_3 plane = Kernel::Plane_3(points[0], normal);
 
             std::vector<Kernel::Point_2> points_2d;
@@ -372,7 +372,7 @@ namespace ReUseX
 
     void Brep::display(std::string name, bool show ) const{
         polyscope::myinit();
-        polyscope::display<ReUseX::Surface_mesh const&>(this->get_Mesh(), name);
+        polyscope::display<ReUseX::Mesh const&>(this->get_Mesh(), name);
         if (show) polyscope::show();
     }
 

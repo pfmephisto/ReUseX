@@ -1,4 +1,6 @@
-#include "surface.hh"
+#include "Surface.hh"
+
+#include "types/Point2.hh"
 
 #include <CGAL/bounding_box.h>
 
@@ -22,7 +24,7 @@ namespace ReUseX
         points_3d[3] = mesh.point(*cir);
 
         
-        std::array<Point_2, 4> points_2d;
+        std::array<Point2, 4> points_2d;
         for (int i = 0; i < 4; i++)
             points_2d[i] = plane.to_2d(points_3d[i]); 
 
@@ -32,7 +34,7 @@ namespace ReUseX
         for (size_t i = 0; i < indices_in.size(); i++){
 
             auto point = cloud->points[indices_in[i]].getVector3fMap();
-            Point_2 p = plane.to_2d(Point(point[0], point[1], point[2]));
+            Point2 p = plane.to_2d(Point(point[0], point[1], point[2]));
         
             if ( bbox.xmin() <= p.x() && bbox.xmax() >= p.x() && bbox.ymin() <= p.y() && bbox.ymax() >= p.y() ){
                 indices.push_back(indices_in[i]);
@@ -179,11 +181,11 @@ namespace ReUseX
 
         normal.normalize();
 
-        plane = Plane_3(normal[0], normal[1], normal[2], -1 * normal.dot(centroid));
+        plane = Plane(normal[0], normal[1], normal[2], -1 * normal.dot(centroid));
 
 
         // Project points to 2D
-        std::vector<Point_2> points_2d(indices.size());
+        std::vector<Point2> points_2d(indices.size());
         #pragma omp parallel for
         for (size_t i = 0; i < indices.size(); i++){
             auto point = cloud->points[indices[i]].getVector3fMap();
@@ -221,8 +223,8 @@ namespace ReUseX
 
         for (int i = 0; i < nx+1; i++)
             for (int j = 0; j < ny+1; j++){
-                // coords[vertices[i + j * (nx+1)]] = plane.to_3d(Point_2(bbox.xmin() + i * dx / nx, bbox.ymin() + j * dy / ny));
-                mesh.point(vertices[i + j * (nx+1)]) = plane.to_3d(Point_2(bbox.xmin() + i * dx / nx, bbox.ymin() + j * dy / ny));
+                // coords[vertices[i + j * (nx+1)]] = plane.to_3d(Point2(bbox.xmin() + i * dx / nx, bbox.ymin() + j * dy / ny));
+                mesh.point(vertices[i + j * (nx+1)]) = plane.to_3d(Point2(bbox.xmin() + i * dx / nx, bbox.ymin() + j * dy / ny));
             }
             
         

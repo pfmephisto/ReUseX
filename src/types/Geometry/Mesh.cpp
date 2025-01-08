@@ -1,4 +1,4 @@
-#include "Surface_Mesh.hh"
+#include "Mesh.hh"
 
 #include <CGAL/Surface_mesh.h>
 #include <CGAL/Polygon_mesh_processing/measure.h>
@@ -10,13 +10,13 @@ namespace PMP = CGAL::Polygon_mesh_processing;
 
 namespace ReUseX
 {
-   double LinkMesh::volume() const { return CGAL::to_double(PMP::volume((Base)*this)); }
-   double LinkMesh::area() const { return CGAL::to_double(PMP::area((Base)*this)); }
-   Box LinkMesh::get_bbox() const
+   double Mesh::volume() const { return CGAL::to_double(PMP::volume((Base)*this)); }
+   double Mesh::area() const { return CGAL::to_double(PMP::area((Base)*this)); }
+   Box Mesh::get_bbox() const
    {
-      return CGAL::bounding_box(mesh.points().begin(), mesh.points().end());
+      return CGAL::bounding_box(this->points().begin(), this->points().end());
    }
-   std::vector<LinkMesh::PointT> LinkMesh::get_vertices() const { 
+   std::vector<Mesh::PointT> Mesh::get_vertices() const { 
 
       auto mesh = (Base)*this;
 
@@ -30,7 +30,7 @@ namespace ReUseX
 
       return points;
    }
-   std::vector<int> LinkMesh::get_faces() const { 
+   std::vector<int> Mesh::get_faces() const { 
 
       auto mesh = (Base)*this;
       auto values = std::vector<int>();
@@ -51,7 +51,7 @@ namespace ReUseX
    }
    
    // TODO: Implement this function
-   std::vector<int> LinkMesh::get_colors() const { return std::vector<int>(); }
-   std::vector<float> LinkMesh::get_textrueCoords() const { return std::vector<float>(); }
+   std::vector<int> Mesh::get_colors() const { return std::vector<int>(); }
+   std::vector<float> Mesh::get_textrueCoords() const { return std::vector<float>(); }
 
 } // namespace ReUseX

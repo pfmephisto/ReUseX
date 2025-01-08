@@ -1,17 +1,12 @@
 #pragma once
 
 #include "types/Geometry/PointCloud.hh"
-#include "types/Geometry/Surface_Mesh.hh"
+#include "types/Geometry/Mesh.hh"
+#include "types/Geometry/Plane.hh"
+#include "types/Point.hh"
 
 #include <pcl/point_types.h>
-
 #include <embree3/rtcore.h>
-
-
-using Mesh = ReUseX::Surface_mesh;
-using Plane_3 = ReUseX::Kernel::Plane_3;
-using Point_2 = ReUseX::Kernel::Point_2;
-using Point = ReUseX::Kernel::Point_3;
 
 
 using Ray = RTCRayHit;
@@ -40,7 +35,7 @@ namespace ReUseX
     class Surface  
     {
         public:
-            Plane_3 plane;
+            Plane plane;
 
 
         private:

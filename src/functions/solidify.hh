@@ -1,7 +1,7 @@
 #pragma once
 
 #include "types/Geometry/PointCloud.hh"
-#include "types/Geometry/Surface_Mesh.hh"
+#include "types/Geometry/Mesh.hh"
 
 #include "functions/progress_bar.hh"
 
@@ -253,7 +253,7 @@ namespace ReUseX
     
 
     template<typename PointT>
-    static std::vector<Surface_mesh> solidify(
+    static std::vector<Mesh> solidify(
         typename pcl::PointCloud<PointT>::ConstPtr cloud, 
         std::optional<std::vector<pcl::PointIndices::Ptr>> clusters_in = std::nullopt,
         double fitting =  0.20,
@@ -268,7 +268,7 @@ namespace ReUseX
         std::cout << "Number of clusters: " << clusters.size() << std::endl;
 
 
-        std::vector<Surface_mesh> meshes = std::vector<Surface_mesh>(clusters.size());
+        std::vector<Mesh> meshes = std::vector<Mesh>(clusters.size());
         auto solidification_bar = util::progress_bar(clusters.size(), "Solidification");
 
 #if 0 //Parallelize the solidification
@@ -286,7 +286,7 @@ namespace ReUseX
         }
 #else
         for (size_t i = 0; i < clusters.size(); i++){
-            create_polysurface<PointT, Surface_mesh>(cloud, clusters[i], meshes[i], i, fitting, coverage, complexity);
+            create_polysurface<PointT, Mesh>(cloud, clusters[i], meshes[i], i, fitting, coverage, complexity);
             solidification_bar.update();
         }
 #endif
@@ -295,8 +295,8 @@ namespace ReUseX
         
 
         // Filter meshes with no faces and too small volumes
-        std::vector<Surface_mesh> meshes_temp = std::vector<Surface_mesh>();
-        std::copy_if(meshes.begin(), meshes.end(), std::back_inserter(meshes_temp) , is_vaild<Surface_mesh>);
+        std::vector<Mesh> meshes_temp = std::vector<Mesh>();
+        std::copy_if(meshes.begin(), meshes.end(), std::back_inserter(meshes_temp) , is_vaild<Mesh>);
         std::swap(meshes, meshes_temp);
 
         for (size_t i = 0; i < meshes.size(); i++)

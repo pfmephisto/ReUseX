@@ -1,5 +1,5 @@
 #pragma once
-#include "Surface_Mesh.hh"
+#include "Mesh.hh"
 #include "types/Kernel.hh"
 #include "types/Point.hh"
 #include "types/Point2.hh"
@@ -9,7 +9,7 @@
 
 namespace ReUseX
 {
-    class Brep: public ON_Brep
+    struct Brep: public ON_Brep
     {
     public:
         using Vertices  = std::vector<Point>;
@@ -100,10 +100,10 @@ namespace ReUseX
 
 
     private:
-        Surface_mesh mesh;
+        Mesh mesh;
     
     public:
-        Brep(Surface_mesh const& mesh);
+        Brep(Mesh const& mesh);
         void save(std::string const& filename) const;
         static Brep load(std::string const& filename);
 
@@ -112,7 +112,7 @@ namespace ReUseX
         bool is_closed() const;
         Box get_bbox() const;
         int get_Orientation() const;
-        LinkMesh get_Mesh() const;
+        Mesh get_Mesh() const;
 
         Curves2D get_Curves2D() const;
         Curves3D get_Curves3D() const;

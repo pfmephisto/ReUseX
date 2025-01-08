@@ -1,5 +1,5 @@
 #include "algorithms/mcl.hh"
-#include "types/Geometry/surface.hh"
+#include "types/Geometry/Surface.hh"
 
 #include <Eigen/Dense>
 #include <unsupported/Eigen/MatrixFunctions>

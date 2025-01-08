@@ -1,7 +1,7 @@
 #pragma once
 #include "types/Geometry/PointCloud.hh"
 #include "types/PlanarPointSet.hh"
-#include "types/Geometry/surface.hh"
+#include "types/Geometry/Surface.hh"
 #include "functions/progress_bar.hh"
 #include "algorithms/mcl.hh"
 

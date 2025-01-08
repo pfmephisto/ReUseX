@@ -161,7 +161,7 @@ namespace ReUseX {
         auto meshes = ReUseX::solidify<PointCloud::Cloud::PointType>(cloud, clusters, fitting, coverage, complexity);
 
         std::vector<Brep> breps;
-        std::transform(meshes.begin(), meshes.end(), std::back_inserter(breps), [](Surface_mesh const& mesh){
+        std::transform(meshes.begin(), meshes.end(), std::back_inserter(breps), [](Mesh const& mesh){
             return Brep(mesh);
         });
 

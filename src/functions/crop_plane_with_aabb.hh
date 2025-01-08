@@ -3,7 +3,7 @@
 #include "types/Point.hh"
 
 #include "types/Geometry/Plane.hh"
-#include "types/Geometry/Surface_Mesh.hh"
+#include "types/Geometry/Mesh.hh"
 #include "types/Geometry/Line.hh"
 
 #include "functions/get_csystem.hh"
@@ -95,7 +95,7 @@ static void make_unique(std::vector<ReUseX::Point> & collection){
 
 namespace ReUseX {
 
-    static void crop_plane_with_aabb(Surface_mesh & mesh, const Box& box, const Plane plane ){
+    static void crop_plane_with_aabb(Mesh & mesh, const Box& box, const Plane plane ){
     
             auto const segemets = get_segemets(box);
             auto points = get_points(segemets, plane);
@@ -115,7 +115,7 @@ namespace ReUseX {
     
             std::sort(pairs.begin(), pairs.end(), comparator);
     
-            std::vector<Surface_mesh::vertex_index> vertecies;
+            std::vector<Mesh::vertex_index> vertecies;
             vertecies.reserve(pairs.size());
             for (auto & p : pairs)
                 vertecies.push_back(mesh.add_vertex(Point(p.second.x(), p.second.y(), p.second.z())));

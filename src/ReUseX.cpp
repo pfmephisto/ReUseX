@@ -615,15 +615,15 @@ PYBIND11_MODULE(_core, m) {
         ;
 
 
-    py::class_<ReUseX::LinkMesh>(m, "Mesh")
+    py::class_<ReUseX::Mesh>(m, "Mesh")
         .def(py::init<>())
-        .def("volume", &ReUseX::LinkMesh::volume)
-        .def("area", &ReUseX::LinkMesh::area)
-        .def("bbox", &ReUseX::LinkMesh::get_bbox)
-        .def("vertices", &ReUseX::LinkMesh::get_vertices)
-        .def("faces", &ReUseX::LinkMesh::get_faces)
-        .def("colors", &ReUseX::LinkMesh::get_colors)
-        .def("textrueCoords", &ReUseX::LinkMesh::get_textrueCoords)
+        .def("volume", &ReUseX::Mesh::volume)
+        .def("area", &ReUseX::Mesh::area)
+        .def("bbox", &ReUseX::Mesh::get_bbox)
+        .def("vertices", &ReUseX::Mesh::get_vertices)
+        .def("faces", &ReUseX::Mesh::get_faces)
+        .def("colors", &ReUseX::Mesh::get_colors)
+        .def("textrueCoords", &ReUseX::Mesh::get_textrueCoords)
         ;
 
 

@@ -82,12 +82,12 @@ namespace polyscope  {
     }
 
     template <>
-    void display(ReUseX::Surface_mesh const& mesh, std::optional<const std::string> name ){
+    void display(ReUseX::Mesh const& mesh, std::optional<const std::string> name ){
 
         std::vector<std::array<size_t,3>> faces;
         std::vector<std::array<double,  3>> vertecies;
 
-        std::unordered_map<ReUseX::Surface_mesh::Vertex_index, size_t> index_map;
+        std::unordered_map<ReUseX::Mesh::Vertex_index, size_t> index_map;
 
         size_t i = 0;
         for (auto idx: mesh.vertices()){
@@ -98,8 +98,8 @@ namespace polyscope  {
         }
         for (auto face_index: mesh.faces()){
 
-            CGAL::Vertex_around_face_circulator<ReUseX::Surface_mesh> vcirc(mesh.halfedge(face_index), mesh), done(vcirc);
-            std::vector<ReUseX::Surface_mesh::Vertex_index> indices;
+            CGAL::Vertex_around_face_circulator<ReUseX::Mesh> vcirc(mesh.halfedge(face_index), mesh), done(vcirc);
+            std::vector<ReUseX::Mesh::Vertex_index> indices;
             do {
                 indices.push_back(*vcirc++);
             } while (vcirc != done);
@@ -234,9 +234,9 @@ namespace polyscope  {
     }
 
     static void display(const ReUseX::Plane & plane, const ReUseX::AABB & bbox, std::optional<const std::string> name){
-        ReUseX::Surface_mesh m;
+        ReUseX::Mesh m;
         ReUseX::crop_plane_with_aabb(m, bbox, plane);
-        display<ReUseX::Surface_mesh const&>(m, (name) ? name.value() : "Plane" );
+        display<ReUseX::Mesh const&>(m, (name) ? name.value() : "Plane" );
     }
 
 

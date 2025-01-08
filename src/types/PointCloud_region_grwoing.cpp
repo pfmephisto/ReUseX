@@ -1,5 +1,4 @@
 #include <types/PointCloud.hh>
-#include <functions/region_growing.hh>
 #include <functions/progress_bar.hh>
 #include <functions/fit_plane_thorugh_points.hh>
 
@@ -9,9 +8,6 @@
 
 #include <types/Plane.hh>
 #include <types/PointCloud.hh>
-
-#include <algorithms/refine.hh>
-
 
 #include <pcl/sample_consensus/method_types.h>
 #include <pcl/sample_consensus/model_types.h>

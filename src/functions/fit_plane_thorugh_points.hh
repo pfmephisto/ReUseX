@@ -6,8 +6,7 @@
 
 #include <pcl/common/centroid.h>
 #include <pcl/common/eigen.h>
-// #include <pcl/segmentation/region_growing.h>
-// #include <pcl/segmentation/planar_region.h>
+
 
 #include <CGAL/linear_least_squares_fitting_3.h>
 

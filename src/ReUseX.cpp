@@ -13,6 +13,7 @@
 #include <eigen3/Eigen/Core>
 #include <sstream>
 #include <string>
+#include <opennurbs_brep.h>
 
 #define STRINGIFY(x) #x
 #define MACRO_STRINGIFY(x) STRINGIFY(x)
@@ -102,25 +103,25 @@ PYBIND11_MODULE(_core, m) {
         // .value("Poses", ReUseX::Field::POSES)
         .export_values();
 
-    py::enum_<ReUseX::Brep::BrepTrim::BrepTrimType>(m, "BrepTrimType")
-        .value("Unknown", ReUseX::Brep::BrepTrim::BrepTrimType::Unknown)
-        .value("Boundary", ReUseX::Brep::BrepTrim::BrepTrimType::Boundary)
-        .value("Mated", ReUseX::Brep::BrepTrim::BrepTrimType::Mated)
-        .value("Seam", ReUseX::Brep::BrepTrim::BrepTrimType::Seam)
-        .value("Singular", ReUseX::Brep::BrepTrim::BrepTrimType::Singular)
-        .value("CurveOnSurface", ReUseX::Brep::BrepTrim::BrepTrimType::CurveOnSurface)
-        .value("PointOnSurface", ReUseX::Brep::BrepTrim::BrepTrimType::PointOnSurface)
-        .value("Slit", ReUseX::Brep::BrepTrim::BrepTrimType::Slit)
-        .export_values();
+    // py::enum_<ReUseX::Brep::BrepTrim::BrepTrimType>(m, "BrepTrimType")
+    //     .value("Unknown", ReUseX::Brep::BrepTrim::BrepTrimType::Unknown)
+    //     .value("Boundary", ReUseX::Brep::BrepTrim::BrepTrimType::Boundary)
+    //     .value("Mated", ReUseX::Brep::BrepTrim::BrepTrimType::Mated)
+    //     .value("Seam", ReUseX::Brep::BrepTrim::BrepTrimType::Seam)
+    //     .value("Singular", ReUseX::Brep::BrepTrim::BrepTrimType::Singular)
+    //     .value("CurveOnSurface", ReUseX::Brep::BrepTrim::BrepTrimType::CurveOnSurface)
+    //     .value("PointOnSurface", ReUseX::Brep::BrepTrim::BrepTrimType::PointOnSurface)
+    //     .value("Slit", ReUseX::Brep::BrepTrim::BrepTrimType::Slit)
+    //     .export_values();
 
-    py::enum_<ReUseX::Brep::BrepLoop::BrepLoopType>(m, "BrepLoopType")
-        .value("Unknown", ReUseX::Brep::BrepLoop::BrepLoopType::Unknown)
-        .value("Outer", ReUseX::Brep::BrepLoop::BrepLoopType::Outer)
-        .value("Inner", ReUseX::Brep::BrepLoop::BrepLoopType::Inner)
-        .value("Slit", ReUseX::Brep::BrepLoop::BrepLoopType::Slit)
-        .value("CurveOnSurface", ReUseX::Brep::BrepLoop::BrepLoopType::CurveOnSurface)
-        .value("PointOnSurface", ReUseX::Brep::BrepLoop::BrepLoopType::PointOnSurface)
-        .export_values();
+    // py::enum_<ReUseX::Brep::BrepLoop::BrepLoopType>(m, "BrepLoopType")
+    //     .value("Unknown", ReUseX::Brep::BrepLoop::BrepLoopType::Unknown)
+    //     .value("Outer", ReUseX::Brep::BrepLoop::BrepLoopType::Outer)
+    //     .value("Inner", ReUseX::Brep::BrepLoop::BrepLoopType::Inner)
+    //     .value("Slit", ReUseX::Brep::BrepLoop::BrepLoopType::Slit)
+    //     .value("CurveOnSurface", ReUseX::Brep::BrepLoop::BrepLoopType::CurveOnSurface)
+    //     .value("PointOnSurface", ReUseX::Brep::BrepLoop::BrepLoopType::PointOnSurface)
+    //     .export_values();
 
     /// @brief CV Mat, used to hold image and Depth data
     py::class_<cv::Mat>(m, "Mat", py::buffer_protocol())
@@ -533,26 +534,116 @@ PYBIND11_MODULE(_core, m) {
             return std::make_tuple(a.min().z(), a.max().z());
         })
         ;
+
+    // Create compatible class for the ON_BoundingBox class
+    // py::class_<ON_BoundingBox>(m, "BoundingBox")
+    //     .def(py::init<const ReUseX::Point, const ReUseX::Point>())
+    //     .def("__repr__", [](const ReUseX::AABB &a){
+    //         std::stringstream ss;
+    //         ss << "AABB min(" << a.min().x() << ", " << a.min().y() << ", " << a.min().z() << ") max(" << a.max().x() << ", " << a.max().y() << ", " << a.max().z() << ")";
+    //         return ss.str();
+    //     })
+    //     .def("volume", [](const ReUseX::AABB &a){
+    //         return (a.max().x() - a.min().x()) * (a.max().y() - a.min().y()) * (a.max().z() - a.min().z());
+    //     })
+    //     .def("center", [](const ReUseX::AABB &a){
+    //         return ReUseX::Point((a.max().x() + a.min().x()) / 2, (a.max().y() + a.min().y()) / 2, (a.max().z() + a.min().z()) / 2);
+    //     })
+    //     .def("xInterval", [](const ReUseX::AABB &a){
+    //         return std::make_tuple(a.min().x(), a.max().x());
+    //     })
+    //     .def("yInterval", [](const ReUseX::AABB &a){
+    //         return std::make_tuple(a.min().y(), a.max().y());
+    //     })
+    //     .def("zInterval", [](const ReUseX::AABB &a){
+    //         return std::make_tuple(a.min().z(), a.max().z());
+    //     })
+    //     ;
     
     py::class_<ReUseX::Brep>(m, "Brep")
         .def("save", &ReUseX::Brep::save)
         .def_static("load", &ReUseX::Brep::load, py::call_guard<py::scoped_ostream_redirect, py::scoped_estream_redirect>())
-        .def("volume", &ReUseX::Brep::volume)
-        .def("area", &ReUseX::Brep::area)
-        .def("is_closed", &ReUseX::Brep::is_closed)
-        .def("bbox", &ReUseX::Brep::get_bbox)
+        // .def("volume", &ReUseX::Brep::volume)
+        // .def("area", &ReUseX::Brep::area)
+        // .def("bbox", &ReUseX::Brep::m_bbox)
+        .def("is_closed", &ReUseX::Brep::IsSolid)
 
-        .def("Curves2D", &ReUseX::Brep::get_Curves2D)
-        .def("Curves3D", &ReUseX::Brep::get_Curves3D)
+        // .def("Curves2D", [](const ReUseX::Brep &b){
+        //     std::vector<std::vector<std::array<double, 2>>> curves = std::vector<std::vector<std::array<double, 2>>>(b.m_C2.Count());
+        //     for (int i = 0; i < b.m_C2.Count(); i++){
+        //         ON_Curve curve = b.m_C2.operator[0] ;
 
-        .def("Edges", &ReUseX::Brep::get_Edges)
-        .def("Faces", &ReUseX::Brep::get_Faces)
-        .def("Vertices", &ReUseX::Brep::get_Vertices)
-        .def("Surfaces", &ReUseX::Brep::get_Surfaces)
+        //         for (int j = 0; j < curve.Count(); j++){
+        //             auto point = b.m_C2[i][j];
+        //             auto c = b.m_C2[i][j];
+        //             curves[i].push_back({c[0], c[1]});
+        //         }
+                    
+        //         auto c = b.m_C2[i];
+        //         curves[i] = {c[0], c[1]};
+        //     }
+        //     return curves;
+        // })
+        // .def("Curves3D", [](const ReUseX::Brep &b){
+        //     std::vector<std::array<double, 3>>curves = std::vector<std::array<double, 3>>(b.m_C3.Count());
+        //     for (int i = 0; i < b.m_C3.Count(); i++){
+        //         auto c = b.m_C3[i];
+        //         curves[i] = {c[0], c[1], c[2]};
+        //     }
+        //     return curves;
+        // })
 
-        .def("Loops", &ReUseX::Brep::get_Loops)
-        .def("Trims", &ReUseX::Brep::get_Trims)
-        .def("Orientation", &ReUseX::Brep::get_Orientation)
+        // .def("Edges", [](const ReUseX::Brep &b){
+        //     std::vector<ON_BrepEdge> edges = std::vector<ON_BrepEdge>(b.m_E.Count());
+        //     for (int i = 0; i < b.m_E.Count(); i++){
+        //         auto e = b.m_E[i];
+        //         edges[i] = e;
+        //     }
+        // })
+        // .def("Faces", [](const ReUseX::Brep &b){
+        //     std::vector<ON_BrepFace> faces = std::vector<ON_BrepFace>(b.m_F.Count());
+        //     for (int i = 0; i < b.m_F.Count(); i++){
+        //         auto f = b.m_F[i];
+        //         faces[i] = f;
+        //     }
+        //     return face;
+        // })
+        // .def("Vertices", [](const ReUseX::Brep &b){
+        //     std::vector<std::array<double, 3>> vertices = std::vector<std::array<double, 3>>(b.m_V.Count());
+
+        //     for (int i = 0; i < b.m_V.Count(); i++){
+        //         auto v = b.m_V[i];
+        //         vertices[i] = {v[0], v[1], v[2]};
+        //     }
+            
+        //     return vertices;
+        // })
+
+        // .def("Surfaces", [](const ReUseX::Brep &b){
+        //     std::vector<ON_Surface> surfaces = std::vector<ON_Surface>(b.m_S.Count());
+        //     for (int i = 0; i < b.m_S.Count(); i++){
+        //         auto s = b.m_S[i];
+        //         surfaces[i] = s;
+        //     }
+        //     return surfaces;
+        // })
+        // .def("Loops", [](const ReUseX::Brep &b){
+        //     std::vector<ON_BrepLoop> loops = std::vector<ON_BrepLoop>(b.m_L.Count());
+        //     for (int i = 0; i < b.m_L.Count(); i++){
+        //         auto l = b.m_L[i];
+        //         loops[i] = l;
+        //     }
+        //     return loops;
+        // })
+        // .def("Trims", [](const ReUseX::Brep &b){
+        //     std::vector<ON_BrepTrim> trims = std::vector<ON_BrepTrim>(b.m_T.Count());
+        //     for (int i = 0; i < b.m_T.Count(); i++){
+        //         auto t = b.m_T[i];
+        //         trims[i] = t;
+        //     }
+        //     return trims;
+        // })
+        .def("Orientation", &ReUseX::Brep::SolidOrientation) //solid_orientation
         .def("get_mesh", &ReUseX::Brep::get_Mesh)
         .def("display", &ReUseX::Brep::display, 
             "Display the Brep", 
@@ -560,58 +651,101 @@ PYBIND11_MODULE(_core, m) {
             "show_mesh"_a = true)
         ;
 
-    py::class_<ReUseX::Brep::Face>(m, "Face")
+    py::class_<ON_BrepFace>(m, "Face")
         .def(py::init<>())
-        .def_readwrite("SurfaceIndex", &ReUseX::Brep::Face::SurfaceIndex)
-        .def_readwrite("OuterLoopIndex", &ReUseX::Brep::Face::OuterLoopIndex)
-        .def_readwrite("OrientationReversed", &ReUseX::Brep::Face::OrientationReversed)
-        .def_readwrite("LoopIndices", &ReUseX::Brep::Face::LoopIndices)
+        .def_readwrite("SurfaceIndex", &ON_BrepFace::m_si)
+        .def("OuterLoopIndex", [](const ON_BrepFace &bf ){return bf.m_li[0];})
+        .def_readwrite("OrientationReversed", &ON_BrepFace::m_bRev)
+        .def_readwrite("LoopIndices", &ON_BrepFace::m_li)
         ;
     
-    py::class_<ReUseX::Brep::Edge>(m, "Edge")
+    py::class_<ON_BrepEdge>(m, "Edge")
         .def(py::init<>())
-        .def_readwrite("Curve3dIndex", &ReUseX::Brep::Edge::Curve3dIndex)
-        .def_readwrite("TrimIndices", &ReUseX::Brep::Edge::TrimIndices)
-        .def_readwrite("StartIndex", &ReUseX::Brep::Edge::StartIndex)
-        .def_readwrite("EndIndex", &ReUseX::Brep::Edge::EndIndex)
-        .def_readwrite("ProxyCurveIsReversed", &ReUseX::Brep::Edge::ProxyCurveIsReversed)
-        .def_readwrite("Domain", &ReUseX::Brep::Edge::Domain)
+        .def_readonly("Curve3dIndex", &ON_BrepEdge::m_c3i)
+        .def_readonly("TrimIndices", &ON_BrepEdge::m_ti)
+        .def("StartIndex", [](const ON_BrepEdge &be){ return be.m_vi[0];})
+        .def("EndIndex",   [](const ON_BrepEdge &be){ return be.m_vi[1];})
+        .def("ProxyCurveIsReversed", &ON_BrepEdge::ProxyCurveIsReversed)
+        .def("Domain", &ON_BrepEdge::Domain)
         ;
-    py::class_<ReUseX::Brep::Surface>(m, "Surface")
+
+
+        py::class_<ON_NurbsSurface>(m, "NurbsSurface")
         .def(py::init<>())
-        .def_readwrite("degreeU", &ReUseX::Brep::Surface::degreeU)
-        .def_readwrite("degreeV", &ReUseX::Brep::Surface::degreeV)
-        .def_readwrite("rational", &ReUseX::Brep::Surface::rational)
-        .def_readwrite("area", &ReUseX::Brep::Surface::area)
-        .def_readwrite("pointData", &ReUseX::Brep::Surface::pointData)
-        .def_readwrite("countU", &ReUseX::Brep::Surface::countU)
-        .def_readwrite("countV", &ReUseX::Brep::Surface::countV)
-        .def_readwrite("bbox", &ReUseX::Brep::Surface::bbox)
-        .def_readwrite("closedU", &ReUseX::Brep::Surface::closedU)
-        .def_readwrite("closedV", &ReUseX::Brep::Surface::closedV)
-        .def_readwrite("domainU", &ReUseX::Brep::Surface::domainU)
-        .def_readwrite("domainV", &ReUseX::Brep::Surface::domainV)
-        .def_readwrite("knotsU", &ReUseX::Brep::Surface::knotsU)
-        .def_readwrite("knotsV", &ReUseX::Brep::Surface::knotsV)
+        .def("degreeU", [](const ON_NurbsSurface &s){return s.Degree(0);})
+        .def("degreeV", [](const ON_NurbsSurface &s){return s.Degree(1);})
+        .def("rational", &ON_NurbsSurface::IsRational)
+        // .def_readwrite("area", &ON_NurbsSurface::area)
+        .def_readwrite("pointData", &ON_NurbsSurface::m_cv)
+        .def("countU", []( const ON_NurbsSurface &s){return s.m_cv_count[0];})
+        .def("countV", []( const ON_NurbsSurface &s){return s.m_cv_count[1];})
+        // .def_readwrite("bbox", &ON_NurbsSurface::BoundingBox)
+        .def("closedU", [](const ON_NurbsSurface &s){s.IsClosed(0);})
+        .def("closedV", [](const ON_NurbsSurface &s){s.IsClosed(1);})
+        .def("domainU", [](const ON_NurbsSurface &s){return s.Domain(0);})
+        .def("domainV", [](const ON_NurbsSurface &s){return s.Domain(1);})
+        .def("knotsU", [](const ON_NurbsSurface &s){
+            auto count = s.KnotCount(0);
+            std::vector<double> knots(count);
+            for (int i = 0; i < count; i++)
+                knots[i] = s.Knot(0, i);
+            return knots;
+            }
+        )
+        .def("knotsV", [](const ON_NurbsSurface &s){
+            auto count = s.KnotCount(1);
+            std::vector<double> knots(count);
+            for (int i = 0; i < count; i++)
+                knots[i] = s.Knot(1, i);
+            return knots;
+            }
+        )
         ;
-    py::class_<ReUseX::Brep::BrepTrim>(m, "BrepTrim")
+
+        py::class_<ON_Extrusion>(m, "Extrusion")
         .def(py::init<>())
-        .def_readwrite("EdgeIndex", &ReUseX::Brep::BrepTrim::EdgeIndex)
-        .def_readwrite("StartIndex", &ReUseX::Brep::BrepTrim::StartIndex)
-        .def_readwrite("EndIndex", &ReUseX::Brep::BrepTrim::EndIndex)
-        .def_readwrite("FaceIndex", &ReUseX::Brep::BrepTrim::FaceIndex)
-        .def_readwrite("LoopIndex", &ReUseX::Brep::BrepTrim::LoopIndex)
-        .def_readwrite("CurveIndex", &ReUseX::Brep::BrepTrim::CurveIndex)
-        .def_readwrite("IsoStatus", &ReUseX::Brep::BrepTrim::IsoStatus)
-        .def_readwrite("TrimType", &ReUseX::Brep::BrepTrim::TrimType)
-        .def_readwrite("IsReversed", &ReUseX::Brep::BrepTrim::IsReversed)
-        .def_readwrite("Domain", &ReUseX::Brep::BrepTrim::Domain)
+        .def("GetNurbsForm", [](const ON_Extrusion &s){
+            ON_NurbsSurface ns;
+            s.GetNurbForm(ns, 0.00001);
+            return ns;
+            }
+        )
+        ;
+
+        py::class_<ON_PlaneSurface>(m, "PlaneSurface")
+        .def(py::init<>())
+        .def("GetNurbsForm", [](const ON_PlaneSurface &s){
+            ON_NurbsSurface ns;
+            s.GetNurbForm(ns, 0.00001);
+            return ns;
+            }
+        )
+        ;
+
+    py::class_<ON_BrepTrim>(m, "BrepTrim")
+        .def(py::init<>())
+        .def_readwrite("EdgeIndex", &ON_BrepTrim::m_ei)
+        .def("StartIndex",[](const ON_BrepTrim& bt){ return bt.m_vi[0];})
+        .def("EndIndex",  [](const ON_BrepTrim& bt){ return bt.m_vi[1];})
+        .def_readwrite("FaceIndex", &ON_BrepTrim::m_trim_index)
+        .def_readwrite("LoopIndex", &ON_BrepTrim::m_li)
+        .def_readwrite("CurveIndex", &ON_BrepTrim::m_c2i)
+        .def_readwrite("IsoStatus", &ON_BrepTrim::m_iso)
+        .def_readwrite("TrimType", &ON_BrepTrim::m_type)
+        .def_readwrite("IsReversed", &ON_BrepTrim::m_bRev3d)
+        // .def_readwrite("Domain", &ON_BrepTrim::Domain)
         ;   
-    py::class_<ReUseX::Brep::BrepLoop>(m, "BrepLoop")
+    py::class_<ON_BrepLoop>(m, "BrepLoop")
         .def(py::init<>())
-        .def_readwrite("FaceIndex", &ReUseX::Brep::BrepLoop::FaceIndex)
-        .def_readwrite("TrimIndices", &ReUseX::Brep::BrepLoop::TrimIndices)
-        .def_readwrite("Type", &ReUseX::Brep::BrepLoop::Type)
+        .def_readwrite("FaceIndex", &ON_BrepLoop::m_fi)
+        .def_readwrite("TrimIndices", &ON_BrepLoop::m_ti)
+        .def_readwrite("Type", &ON_BrepLoop::m_type)
+        ;
+
+    py::class_<ON_Interval>(m, "Domain")
+        .def(py::init<>())
+        .def("Min", [](const ON_Interval &i){i.m_t[0];})
+        .def("Max", [](const ON_Interval &i){i.m_t[1];})
         ;
 
 

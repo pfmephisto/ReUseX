@@ -10,6 +10,7 @@
 #include <CGAL/Optimal_bounding_box/oriented_bounding_box.h>
 #include <CGAL/squared_distance_3.h>
 
+#include <opennurbs_public.h>
 
 #include "types/Geometry/Plane.hh"
 #include "types/Point2.hh"
@@ -17,357 +18,130 @@
 
 #include <vector>
 #include <algorithm>
+#include <filesystem>
 
 // defining OPENNURBS_PUBLIC_INSTALL_DIR enables automatic linking using pragmas
-#define OPENNURBS_PUBLIC_INSTALL_DIR "../extern/opennurbs"
+// #define OPENNURBS_PUBLIC_INSTALL_DIR "../extern/opennurbs"
 // uncomment the next line if you want to use opennurbs as a DLL
 //#define OPENNURBS_IMPORTS
-#include "../extern/opennurbs/opennurbs_public.h"
+// #include "../extern/opennurbs/opennurbs_public.h"
 
-namespace PMP = CGAL::Polygon_mesh_processing;
 
 namespace ReUseX
 {
 
 
- 
-    template <typename Mesh, typename Face_Handel>
-    auto compute_plane(Mesh mesh, Face_Handel f ){
-            auto normal = PMP::compute_face_normal(f, static_cast<const typename CGAL::Surface_mesh<typename Mesh::PointT>&>(mesh));
-            typename Mesh::Vertex_index v = *mesh.vertices_around_face(mesh.halfedge(f)).begin();
-            Kernel::Point_3 p = mesh.point(v);
-            return Kernel::Plane_3(p, normal);
-    }
+    Brep::Brep(Mesh const& mesh){
 
-    template <typename Mesh>
-    void unweld(Mesh& mesh){
+        ON_Mesh ONmesh = ON_Mesh();
+        for (auto v: mesh.vertices())
+            ONmesh.SetVertex(v.idx(), ON_3dPoint(mesh.point(v).x(), mesh.point(v).y(), mesh.point(v).z()));
 
-        using Vertex_index = typename Mesh::Vertex_index;
-        using Face_index = typename Mesh::Face_index;
 
         for (auto f: mesh.faces()){
-
-            std::vector<Vertex_index> vertices;
+            ON_SimpleArray<unsigned int> face;
             for (auto v : mesh.vertices_around_face(mesh.halfedge(f)))
-                vertices.push_back(v);
-            
-            for (size_t i = 0; i < vertices.size(); i++)
-                vertices[i] =  mesh.add_vertex(mesh.point(vertices[i]));
-            
-            mesh.add_face(vertices);
-            mesh.remove_face(f);
+                face.Append(v.idx());
+            ONmesh.AddNgon(face);
         }
-        mesh.collect_garbage();
-    }
-
-
-    Brep::Brep(Mesh const& mesh) : mesh(mesh){
-        this->mesh.add_property_map<Mesh::Face_index, Kernel::Point_2>("f:origin", Kernel::Point_2(0,0));
-
-        // ON_Mesh ONmesh = ON_Mesh();
-        // for (auto v: mesh.vertices())
-        //     ONmesh.SetVertex(v.idx(), ON_3dPoint(mesh.point(v).x(), mesh.point(v).y(), mesh.point(v).z()));
-
-
-        // for (auto f: mesh.faces()){
-        //     ON_SimpleArray<unsigned int> face;
-        //     for (auto v : mesh.vertices_around_face(mesh.halfedge(f)))
-        //         face.Append(v.idx());
-        //     ONmesh.AddNgon(face);
-        // }
         
-        // ON_Brep* pBrep = ON_BrepFromMeshWithNgons(ONmesh.Topology(), false, true, 0.000001);
+        ON_BrepFromMeshWithNgons(ONmesh.Topology(), false, true, 0.000001, this);
 
     }
 
-    void Brep::save(std::string const& filename) const { 
-        std::ofstream file(filename);
-        CGAL::IO::write_OFF(file, mesh);
+    // void Brep::save(std::string const& filename) const { 
+    //     std::ofstream file(filename);
+    //     CGAL::IO::write_OFF(file, mesh);
+    // }
+
+    void Brep::save(std::string const& filename) const {
+        ONX_Model model;
+
+        model.m_sStartSectionComments = "ReUseX Export";
+        model.m_properties.m_Application.m_application_name = "ReUseX";
+        model.m_properties.m_Application.m_application_URL = L"https://github.com/pfmephisto/ReUseX";
+        model.m_properties.m_Application.m_application_details = "ReUseX Export";
+
+        model.m_properties.m_Notes.m_notes = "ReUseX Export";
+        model.m_properties.m_Notes.m_bVisible = model.m_properties.m_Notes.m_notes.IsNotEmpty();
+
+        model.m_properties.m_RevisionHistory.NewRevision();
+
+        model.m_settings.m_ModelUnitsAndTolerances.m_unit_system = ON::LengthUnitSystem::Meters;
+        model.m_settings.m_ModelUnitsAndTolerances.m_absolute_tolerance = 0.001;
+        model.m_settings.m_ModelUnitsAndTolerances.m_angle_tolerance = ON_PI/180.0;
+        model.m_settings.m_ModelUnitsAndTolerances.m_relative_tolerance = 0.01;
+
+        auto layer_index = model.AddDefaultLayer(nullptr, ON_Color::UnsetColor);
+
+        ON_3dmObjectAttributes* attributes = new ON_3dmObjectAttributes();
+        attributes->m_layer_index = layer_index;
+        attributes->m_name = "Brep";
+
+        model.AddManagedModelGeometryComponent((ON_Object*)this, attributes);
+
+        model.Write(filename.c_str(), 0);
     }
 
     Brep Brep::load(std::string const& filename) {
 
-        std::ifstream file(filename);
-        Mesh mesh;
-        CGAL::IO::read_OFF(file, mesh);
+        if (!std::filesystem::exists(filename))
+            throw std::runtime_error("File does not exist");
+        if (!std::filesystem::is_regular_file(filename))
+            throw std::runtime_error("File is not a regular file");
 
-        return Brep(mesh);
+        if (std::filesystem::path(filename).extension() == "off"){    
+            std::ifstream file(filename);
+            Mesh mesh;
+            CGAL::IO::read_OFF(file, mesh);
+            return Brep(mesh);
+        }
+        if (std::filesystem::path(filename).extension() == ".3dm"){
+            ONX_Model model;
+            if (!model.Read(filename.c_str()))
+                throw std::runtime_error("Failed to read file");
+
+            auto object = model.ComponentFromIndex(ON_ModelComponent::Type::ModelGeometry, 0);
+            // if (object == nullptr)
+            //     throw std::runtime_error("Failed to read object");
+
+            // auto brep = dynamic_cast<ON_Brep*>(object);
+            // if (brep == nullptr)
+            //     throw std::runtime_error("Failed to read brep");
+
+            // return Brep::B;
+
+        }
+
+        throw std::runtime_error("File format not supported");
     }
 
-    double Brep::volume() const { return CGAL::to_double(PMP::volume(static_cast<const typename Mesh::Base&>(mesh)));}
-    
-    double Brep::area() const {
-        //TODO: Consider computing the footprint area
-        return CGAL::to_double(PMP::area(static_cast<const typename Mesh::Base&>(mesh)));
-    }
-    
-    bool Brep::is_closed() const { return CGAL::is_closed(mesh);}
-    
-    Box Brep::get_bbox() const { 
-        auto box = CGAL::bounding_box(mesh.points().begin(), mesh.points().end());
-        return Box(
-            Point(
-                CGAL::to_double(box.xmin()), 
-                CGAL::to_double(box.ymin()), 
-                CGAL::to_double(box.zmin())
-            ), 
-            Point(
-                CGAL::to_double(box.xmax()), 
-                CGAL::to_double(box.ymax()), 
-                CGAL::to_double(box.zmax()))
-            );
-    }
-    
-    int Brep::get_Orientation() const { return 1;}
     
     Mesh Brep::get_Mesh() const {
-        auto mesh_copy = Mesh(mesh);
-        unweld(mesh_copy);
-        PMP::triangulate_faces(mesh_copy);
-        return Mesh(mesh_copy);
-    }
 
-    Brep::Curves2D Brep::get_Curves2D() const {
+        ON_SimpleArray<ON_Mesh*> mesh_list = ON_SimpleArray<ON_Mesh*>();
+        this->CreateMesh(ON_MeshParameters::FastRenderMesh, mesh_list);
 
-        auto face_origin = this->mesh.property_map<Mesh::Face_index, Kernel::Point_2>("f:origin").value();
+        Mesh mesh;
+        for (int i = 0; i < mesh_list[0]->VertexCount(); i++)
+            mesh.add_vertex(Point(
+                mesh_list[0]->m_V[i].x,
+                mesh_list[0]->m_V[i].y,
+                mesh_list[0]->m_V[i].z));
 
-        Curves2D curves = Curves2D();
-        curves.resize(mesh.number_of_halfedges());
+        for (int i = 0; i < mesh_list[0]->FaceCount(); i++){
+            std::vector<Mesh::Vertex_index> face;
 
-        for (auto h : mesh.halfedges()){
+            // Check if the face is a triangle, quad or other
+            int n = mesh_list[0]->m_F[i].IsTriangle() ? 3 :
+                    mesh_list[0]->m_F[i].IsQuad()    ? 4 : 0;
 
-            Brep::Curve2D curve = std::vector<Point2>(2);
-
-
-            auto v1 = mesh.source(h);
-            auto v2 = mesh.target(h);
-
-            auto plane = compute_plane(mesh, mesh.face(h));
-
-            // Alight geometry to surace
-            auto o = face_origin[mesh.face(h)];
-            Kernel::Vector_2 Ov = Kernel::Vector_2(o.x(), o.y());
-   
-            auto pt1 = plane.to_2d(mesh.point(v1)) - Ov;
-            auto pt2 = plane.to_2d(mesh.point(v2)) - Ov;
-
-            curve[1] = Point2(CGAL::to_double(pt1.x()), CGAL::to_double(pt1.y()));
-            curve[0] = Point2(CGAL::to_double(pt2.x()), CGAL::to_double(pt2.y()));
-
-            curves[h.idx()] = curve;
-            
-        }
-        return curves;
-    }
-
-    Brep::Curves3D Brep::get_Curves3D() const {
-        Curves3D curves = Curves3D();
-
-        curves.resize(mesh.number_of_edges());
-        for (auto e : mesh.edges())
-        {
-            auto curve = std::vector<Point>(2);
-            auto h = mesh.halfedge(e, 0);
-
-            auto p1 = mesh.point(mesh.source(h));
-            auto p2 = mesh.point(mesh.target(h));
-            
-            curve[0] = Point(CGAL::to_double(p1.x()), CGAL::to_double(p1.y()), CGAL::to_double(p1.z()));
-            curve[1] = Point(CGAL::to_double(p2.x()), CGAL::to_double(p2.y()), CGAL::to_double(p2.z()));
-
-            curves[e.idx()] = curve;
-        }
-        return curves;
-    }
-
-    Brep::Edges Brep::get_Edges() const { 
-        Edges edges = Edges();
-        edges.resize(mesh.num_edges());
-        for (auto e : mesh.edges())
-        {
-            auto edge = Brep::Edge();
-            edge.Curve3dIndex = e.idx();
-
-            auto h = mesh.halfedge(e);
-            edge.TrimIndices.resize(2);
-            edge.TrimIndices[0] = h.idx();
-            edge.TrimIndices[1] = mesh.opposite(h).idx(); 
-
-            auto v1 = mesh.vertex(e, 1);
-            auto v2 = mesh.vertex(e, 0);
-            auto p1 = mesh.point(v1);
-            auto p2 = mesh.point(v2);
-
-            edge.StartIndex = v1.idx();
-            edge.EndIndex = v2.idx();
-            edge.ProxyCurveIsReversed = false;
-
-            edge.Domain = Interval(0, std::sqrt(CGAL::squared_distance(p1, p2)));
-            
-            edge.Curve3dIndex = e.idx();
-            edges[e.idx()] = edge;
-        }
-        return edges;
-    }
-    
-    Brep::Faces Brep::get_Faces() const { 
-        Faces faces = Faces();
-        faces.resize(mesh.number_of_faces());
-        for (auto f : mesh.faces())
-        {
-            auto face = Brep::Face();
-
-            face.SurfaceIndex = f.idx();
-            face.OuterLoopIndex =  f.idx();
-            face.LoopIndices = f.idx();
-            faces[f.idx()] = face;
+            for (int j = 0; j < n; j++)
+                face.push_back(Mesh::Vertex_index(mesh_list[0]->m_F[i].vi[j]));
+            mesh.add_face(face);
         }
 
-        return faces;
-    }
-
-    Brep::Vertices Brep::get_Vertices() const {
-        Vertices vertices = Vertices();
-        vertices.resize(mesh.number_of_vertices());
-        for (auto v : mesh.vertices()){   
-            auto p = mesh.point(v);
-            vertices[v.idx()] = Point(CGAL::to_double(p.x()), CGAL::to_double(p.y()), CGAL::to_double(p.z()));
-        }
-        return vertices;
-    }
-
-    Brep::Surfaces Brep::get_Surfaces() const { 
-
-        auto surface_origin = this->mesh.property_map<Mesh::Face_index, Kernel::Point_2>("f:origin").value();
-
-        Surfaces surfaces = Surfaces();
-        surfaces.resize(mesh.number_of_faces());
-        for (auto f : mesh.faces())
-        {
-            auto surface = Brep::Surface();
-            surface.degreeU = 1;
-            surface.degreeV = 1;
-            surface.rational = false;
-            surface.countU = 2;
-            surface.countV = 2;
-            surface.closedU = false;
-            surface.closedV = false;
-            surface.pointData.reserve(4/*Points*/ * 4/*Fields*/);
-
-
-            // Get all the points of the face
-            std::vector<Kernel::Point_3> points;
-            for (auto v : mesh.vertices_around_face(mesh.halfedge(f)))
-                points.push_back(mesh.point(v));
-
-            auto normal = PMP::compute_face_normal(f, (Mesh::Base)mesh);
-            CGAL::Plane_3 plane = Kernel::Plane_3(points[0], normal);
-
-            std::vector<Kernel::Point_2> points_2d;
-            for (auto p: points)
-                points_2d.push_back(plane.to_2d(p));
-
-
-            auto bbox = CGAL::bounding_box(points_2d.begin(), points_2d.end());
-
-
-            // Offset bbox
-            // TODO: Find a way to calculate the correct offset.
-            // Some surfaces seem to require an offset
-            static const double offset = 0.3;
-            bbox = CGAL::Bbox_2(
-                CGAL::to_double(bbox.xmin()-offset), 
-                CGAL::to_double(bbox.ymin()-offset), 
-                CGAL::to_double(bbox.xmax()+offset), 
-                CGAL::to_double(bbox.ymax()+offset));
-
-            points.clear();
-            points.resize(4);
-            points[0] = plane.to_3d(Kernel::Point_2(bbox.xmin(), bbox.ymin()));
-            points[1] = plane.to_3d(Kernel::Point_2(bbox.xmin(), bbox.ymax()));
-            points[2] = plane.to_3d(Kernel::Point_2(bbox.xmax(), bbox.ymin()));
-            points[3] = plane.to_3d(Kernel::Point_2(bbox.xmax(), bbox.ymax()));
-
-
-            for (auto & p: points)
-            {
-                surface.pointData.push_back(CGAL::to_double(p.x()));
-                surface.pointData.push_back(CGAL::to_double(p.y()));
-                surface.pointData.push_back(CGAL::to_double(p.z()));
-                surface.pointData.push_back(1.0);
-            }
-
-            surface_origin[f] = Kernel::Point_2(bbox.xmin(), bbox.ymin());
-     
-            float distU = bbox.xmax()-bbox.xmin();
-            float distV = bbox.ymax()-bbox.ymin();
-            surface.domainU = Interval(0, distU);
-            surface.domainV = Interval(0, distV);
-            surface.knotsU = std::vector<float>{0, distU}; 
-            surface.knotsV = std::vector<float>{0, distV};
-
-            surfaces[f.idx()] = surface;
-        }
-        return surfaces;
-    }
-
-    Brep::Loops Brep::get_Loops() const { 
-        Loops loops = Loops();
-        loops.resize(mesh.number_of_faces());
-        for (auto f : mesh.faces()){
-            auto loop = Brep::BrepLoop();
-            loop.FaceIndex = f.idx();
-            loop.Type = Brep::BrepLoop::BrepLoopType::Outer;
-            loop.TrimIndices = std::vector<int>();
-
-
-            for (auto h: mesh.halfedges_around_face(mesh.halfedge(f)))
-                loop.TrimIndices.push_back(h.idx());
-            std::reverse(loop.TrimIndices.begin(), loop.TrimIndices.end());
-
-            
-            loops[f.idx()] = loop;
-        }
-        return loops;
-    }
-
-    Brep::Trims Brep::get_Trims() const { 
-        Trims trims = Trims();
-        trims.resize(mesh.num_halfedges());
-        for (auto h : mesh.halfedges())
-        {
-            auto trim = Brep::BrepTrim();
-
-            // 3D curve index
-            trim.EdgeIndex = mesh.edge(h).idx();
-
-
-            trim.StartIndex = mesh.source(h).idx();
-            trim.EndIndex = mesh.target(h).idx();
-
-
-            trim.FaceIndex = mesh.face(h).idx();
-            trim.LoopIndex = mesh.face(h).idx();
-
-            // 2D curve index
-            trim.CurveIndex = h.idx();// mesh.edge(h).idx();
- 
-            trim.IsoStatus = 0; //What is this? --> https://developer.rhino3d.com/api/rhinocommon/rhino.geometry.isostatus
-            trim.TrimType = Brep::BrepTrim::BrepTrimType::Mated;
-            
-            // This values needs to be set
-            auto e = mesh.edge(h);
-            trim.IsReversed =  ( mesh.vertex(e,0) == mesh.source(h) )? true : false;
-
-            auto p1 = mesh.point(mesh.source(h));
-            auto p2 = mesh.point(mesh.target(h));
-            auto dist = std::sqrt(CGAL::squared_distance(p1, p2));
-            trim.Domain = Interval(0, dist);
-
-            trims[h.idx()] = trim;
-        }   
-
-        return trims;
+        return mesh;
     }
 
     void Brep::display(std::string name, bool show ) const{

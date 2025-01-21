@@ -11,6 +11,8 @@
 #include <CGAL/squared_distance_3.h>
 
 #include <opennurbs_public.h>
+#include <opennurbs_brep.h>
+
 
 #include "types/Geometry/Plane.hh"
 #include "types/Point2.hh"
@@ -90,7 +92,8 @@ namespace ReUseX
         if (!std::filesystem::is_regular_file(filename))
             throw std::runtime_error("File is not a regular file");
 
-        if (std::filesystem::path(filename).extension() == "off"){    
+
+        if (std::filesystem::path(filename).extension() == ".off"){    
             std::ifstream file(filename);
             Mesh mesh;
             CGAL::IO::read_OFF(file, mesh);
@@ -113,35 +116,37 @@ namespace ReUseX
 
         }
 
-        throw std::runtime_error("File format not supported");
+        throw std::runtime_error("File format not supported: " + std::filesystem::path(filename).extension().string());
     }
 
     
     Mesh Brep::get_Mesh() const {
 
-        ON_SimpleArray<ON_Mesh*> mesh_list = ON_SimpleArray<ON_Mesh*>();
-        this->CreateMesh(ON_MeshParameters::FastRenderMesh, mesh_list);
+        // ON_SimpleArray<ON_Mesh*> mesh_list = ON_SimpleArray<ON_Mesh*>();
+        // ON_Brep::CreateMesh(ON_MeshParameters::FastRenderMesh, mesh_list);
 
-        Mesh mesh;
-        for (int i = 0; i < mesh_list[0]->VertexCount(); i++)
-            mesh.add_vertex(Point(
-                mesh_list[0]->m_V[i].x,
-                mesh_list[0]->m_V[i].y,
-                mesh_list[0]->m_V[i].z));
+        // Mesh mesh;
+        // for (int i = 0; i < mesh_list[0]->VertexCount(); i++)
+        //     mesh.add_vertex(Point(
+        //         mesh_list[0]->m_V[i].x,
+        //         mesh_list[0]->m_V[i].y,
+        //         mesh_list[0]->m_V[i].z));
 
-        for (int i = 0; i < mesh_list[0]->FaceCount(); i++){
-            std::vector<Mesh::Vertex_index> face;
+        // for (int i = 0; i < mesh_list[0]->FaceCount(); i++){
+        //     std::vector<Mesh::Vertex_index> face;
 
-            // Check if the face is a triangle, quad or other
-            int n = mesh_list[0]->m_F[i].IsTriangle() ? 3 :
-                    mesh_list[0]->m_F[i].IsQuad()    ? 4 : 0;
+        //     // Check if the face is a triangle, quad or other
+        //     int n = mesh_list[0]->m_F[i].IsTriangle() ? 3 :
+        //             mesh_list[0]->m_F[i].IsQuad()    ? 4 : 0;
 
-            for (int j = 0; j < n; j++)
-                face.push_back(Mesh::Vertex_index(mesh_list[0]->m_F[i].vi[j]));
-            mesh.add_face(face);
-        }
+        //     for (int j = 0; j < n; j++)
+        //         face.push_back(Mesh::Vertex_index(mesh_list[0]->m_F[i].vi[j]));
+        //     mesh.add_face(face);
+        // }
 
-        return mesh;
+        return Mesh();
+
+        // return mesh;
     }
 
     void Brep::display(std::string name, bool show ) const{

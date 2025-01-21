@@ -70,6 +70,7 @@ namespace ReUseX
             PointClouds filter( typename PointCloud::Cloud::PointType::LableT value = 2);
             PointClouds register_clouds();
             PointClouds annotate(std::string yolo_path, std::optional<Dataset> & dataset);
+            PointClouds annotate_from_hdf5(std::string hdf5_path);
 
 
             // Return a point cloud or subset of point clouds
@@ -101,7 +102,7 @@ namespace ReUseX
 
 
 
-            PointCloud::Cloud::Ptr operator[](std::size_t index) const {
+            PointCloud operator[](std::size_t index) const {
                 if constexpr (std::is_same<T, std::string>::value)
                     return PointCloud::load(data[index]);
                 else

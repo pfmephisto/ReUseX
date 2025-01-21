@@ -8,6 +8,12 @@
 #include <pcl/point_cloud.h>
 #include <pcl/point_representation.h>
 
+#include <pcl/range_image/range_image.h> //TODO: TEST
+#include <pcl/point_types_conversion.h> //TODO: TEST
+#include <pcl/range_image/range_image_planar.h> //TODO: TEST
+#include <opencv2/core/eigen.hpp> // TODO: TEST
+#include <pcl/visualization/cloud_viewer.h>
+
 #include <pcl/filters/filter.h>
 
 #include <pcl/features/normal_3d_omp.h>
@@ -34,8 +40,9 @@
 #include <fmt/color.h>
 
 #include "parse_input_files.hh"
-#include <types/Dataset.hh>
-#include <functions/progress_bar.hh>
+#include "types/Dataset.hh"
+#include "functions/progress_bar.hh"
+#include "functions/io.hh"
 
 #include <Eigen/Dense>
 
@@ -47,150 +54,12 @@
 
 namespace fs = std::filesystem;
 
+// #define DISPLAY
 
 namespace ReUseX{
 
-
-    // Define a new point representation for < x, y, z, curvature >
-    class MyPointRepresentation : public pcl::PointRepresentation<PointT>
-    {
-        using pcl::PointRepresentation<PointT>::nr_dimensions_;
-        public:
-        MyPointRepresentation ()
-        {
-            // Define the number of dimensions
-            nr_dimensions_ = 3;
-        }
-
-        // Override the copyToFloatArray method to define our feature vector
-        virtual void copyToFloatArray (const PointT &p, float * out) const
-        {
-            // < x, y, z, curvature >
-            out[0] = p.x;
-            out[1] = p.y;
-            out[2] = p.z;
-            // out[3] = p.curvature;
-        }
-    };
-
-    ////////////////////////////////////////////////////////////////////////////////
-    /** \brief Align a pair of PointCloud datasets and return the result
-    * \param cloud_src the source PointCloud
-    * \param cloud_tgt the target PointCloud
-    * \param output the resultant aligned source PointCloud
-    * \param final_transform the resultant transform between source and target
-    */
-    void pairAlign (
-        PointCloud::Cloud::Ptr cloud_src, 
-        const PointCloud::Cloud::Ptr cloud_tgt, 
-        Eigen::Matrix4f &pairTransform, 
-        std::optional<float> grid_size = {},
-        std::optional<int32_t> confidence_filter = {}
-        ){
-        //
-        // Downsample for consistency and speed
-        // \note enable this for large datasets
-
-
-        PointCloud::Cloud::Ptr input_src(new PointCloud::Cloud);
-        PointCloud::Cloud::Ptr input_tgt(new PointCloud::Cloud);
-
-        input_src = cloud_src;
-        input_tgt = cloud_tgt; 
-
-        PointCloud::Cloud::Ptr src(new PointCloud::Cloud);
-        PointCloud::Cloud::Ptr tgt(new PointCloud::Cloud);
-        
-
-        if (confidence_filter.has_value()){
-            pcl::ConditionAnd<PointT>::Ptr range_cond (new pcl::ConditionAnd<PointT> ());
-            range_cond->addComparison (pcl::FieldComparison<PointT>::ConstPtr (new
-                pcl::FieldComparison<PointT>("confidence", pcl::ComparisonOps::EQ, confidence_filter.value())
-                ));
-
-            // build the filter
-            pcl::ConditionalRemoval<PointT> condrem;
-            condrem.setCondition(range_cond);
-            condrem.setKeepOrganized(false);
-
-            condrem.setInputCloud(input_src);
-            condrem.filter(*src);
-
-            condrem.setInputCloud(input_src);
-            condrem.filter(*tgt);
-
-            input_src = src;
-            input_tgt = tgt; 
-        }
-
-        if (grid_size.has_value()){
-            auto size = grid_size.value();
-            pcl::VoxelGrid<PointT> grid;
-            grid.setLeafSize(size, size, size);
-            grid.setInputCloud (input_src);
-            grid.filter (*src);
-
-            grid.setInputCloud(input_tgt);
-            grid.filter (*tgt);
-        }
-
-        // Compute point features
-        // https://github.com/evil0sheep/pcl-slam/blob/master/src/pcl_slam.cpp
-
-
-        //
-        // Instantiate our custom point representation (defined above) ...
-        MyPointRepresentation point_representation;
-
-        // ... and weight the 'curvature' dimension so that it is balanced against x, y, and z
-        float alpha[4] = {1.0, 1.0, 1.0, 1.0};
-        point_representation.setRescaleValues (alpha);
-
-        //
-        // Align
-        pcl::IterativeClosestPoint<PointT,PointT> reg; //NonLinear
-        reg.setTransformationEpsilon (1e-8);
-
-        // Set the maximum distance between two correspondences (src<->tgt) to 10cm
-        // Note: adjust this based on the size of your datasets
-        reg.setMaxCorrespondenceDistance(0.05);  
-
-        // Set the point representation
-        reg.setPointRepresentation(pcl::make_shared<const MyPointRepresentation>(point_representation));
-
-        reg.setInputSource(src);
-        reg.setInputTarget(tgt);
-
-        PointCloud::Cloud::Ptr reg_result = src;
-        reg.setMaximumIterations(50);
-        reg.setRANSACIterations(1000);
-        reg.setRANSACOutlierRejectionThreshold(0.05);
-        reg.align(*reg_result);
-        if (reg.hasConverged())
-        {
-            pairTransform = reg.getFinalTransformation().inverse();
-            pcl::transformPointCloudWithNormals(*cloud_src,*cloud_src, pairTransform);
-        }
-
-    }
-
     template<typename PointCloud>
-    void setConficence(PointCloud & cloud, Eigen::MatrixXd const confidences){
-
-        if (confidences.size() != cloud.size())
-            std::cout << "Confidences size is not equal to cloud size" << std::endl;
-
-        #pragma omp parallel for collapse(2) shared(cloud, confidences)
-        for (int row = 0; row < confidences.rows(); row++){
-            for (int col = 0; col < confidences.cols(); col++){
-                size_t index = row * confidences.cols() + col;
-                cloud[index].confidence = confidences(row,col);
-            }
-        }
-    }
-
-    template<typename PointCloud>
-    void setHeader(PointCloud & cloud, size_t const i,  Eigen::MatrixXd const & odometry){
+    static void setHeader(PointCloud & cloud, size_t const i,  Eigen::MatrixXd const & odometry){
 
         uint64_t time_stamp = odometry(0,0);
         std::string frame_id = fmt::format("{:06}", (int)odometry(0,1));
@@ -221,163 +90,6 @@ namespace ReUseX{
         cloud.sensor_orientation_ = orientation;
 
     }
-
-    template<typename T>
-    static T max_ocurance(std::vector<T> const& vec){
-        std::map<T,int> m;
-        int max = 0;
-        int most_common = 0;
-        for (auto const& vi : vec) {
-            m[vi]++;
-            if (m[vi] > max) {
-                max = m[vi]; 
-                most_common = vi;
-            }
-        }
-        return most_common;
-    }
-
-    static size_t get_total_size(std::vector<PointCloud::Cloud::Ptr, Eigen::aligned_allocator<PointCloud::Cloud::Ptr>> const& clouds){
-        size_t total_size = 0;
-        for (auto const& cloud : clouds){
-            total_size += cloud->size();
-        }
-        return total_size;
-    }
-
-    std::string print_matrix(Eigen::MatrixXd const& matrix, int n_rows = 10, int n_cols = 10, int precision = 3){
-
-        // FIXME: Cell width is not correct
-        // Example:
-        // Matrix: 256x192
-        //     |     0     1     2     3     4   ...  187   188   189   190   191 
-        //     | ------------------------------------------------------------------
-        //    0| 0.0234 0.0195 0.0195 0.0195 0.0195   ...0.0234 0.0234 0.0234 0.0234 0.0234 
-        //    1| 0.0234 0.0234 0.0234 0.0234 0.0234   ...0.0234 0.0234 0.0234 0.0234 0.0234 
-        //    2| 0.0234 0.0234 0.0234 0.0234 0.0234   ...0.0234 0.0234 0.0234 0.0234 0.0234 
-        //    3| 0.0234 0.0234 0.0234 0.0234 0.0234   ...0.0156 0.0156 0.0156 0.0156 0.0156 
-        //    4| 0.0234 0.0195 0.0195 0.0234 0.0234   ...0.0234 0.0234 0.0234 0.0234 0.0234 
-                    
-        //  251| 0.0195 0.0195 0.0195 0.0195 0.0195   ...0.0195 0.0195 0.0195 0.0195 0.0195 
-        //  252| 0.0195 0.0195 0.0195 0.0195 0.0195   ...0.0234 0.0234 0.0234 0.0234 0.0234 
-        //  253| 0.0234 0.0234 0.0234 0.0273 0.0273   ...0.0195 0.0195 0.0195 0.0195 0.0195 
-        //  254| 0.0195 0.0195 0.0195 0.0195 0.0195   ...0.0195 0.0195 0.0195 0.0195 0.0195 
-        //  255| 0.0195 0.0195 0.0195 0.0195 0.0195   ...0.0195 0.0195 0.0195 0.0195 0.0195 
-
-
-        int cols = matrix.cols();
-        int rows = matrix.rows();
-
-        auto columns_indexies = std::vector<int>();
-        auto row_indexies = std::vector<int>();
-
-        if (cols > n_cols){
-            int n_cols_half = n_cols / 2;
-
-            // First half
-            for (int i = 0; i < n_cols_half; i++){
-                columns_indexies.push_back(i);
-            }
-
-            // Sepparator
-            columns_indexies.push_back(-1);
-
-            // Second half
-            for (int i = cols - n_cols_half; i < cols; i++){
-                columns_indexies.push_back(i);
-            }
-        }
-        else {
-            for (int i = 0; i < cols; i++){
-                columns_indexies.push_back(i);
-            }
-        }
-
-        if (rows > n_rows){
-            int n_rows_half = n_rows / 2;
-
-            // First half
-            for (int i = 0; i < n_rows_half; i++){
-                row_indexies.push_back(i);
-            }
-            // Sepparator
-            row_indexies.push_back(-1);
-
-            // Second half
-            for (int i = rows - n_rows_half; i < rows; i++){
-                row_indexies.push_back(i);
-            }
-        }
-        else {
-            for (int i = 0; i < rows; i++){
-                row_indexies.push_back(i);
-            }
-        }
-
-        std::stringstream ss;
-
-        ss << "Matrix: " << rows << "x" << cols << "\n";
-
-        //Header
-        ss << std::right << std::setw(7) << " " << "| ";
-        for (auto const& col_index : columns_indexies){
-            if (col_index == -1){
-                ss << std::setw(5) << "...";
-                continue;
-            }
-            ss << std::setw(precision+2) << std::setprecision(precision) << col_index << " ";
-        }
-        ss << "\n";
-
-        // Sepparator
-        ss << std::right << std::setw(7) << " " << "| ";
-        for (auto const& col_index : columns_indexies){
-            ss << std::setw(precision+2) << std::setprecision(precision) << "-----"  << "-";
-        }
-        ss << "\n";
-
-        // Body
-        for (auto const& row_index : row_indexies){
-
-
-            // Row index
-            if (row_index == -1) ss << " "; else  ss << std::right << std::setw(7) << row_index << "| ";
-
-            // Cells
-            for (auto const& col_index : columns_indexies){
-
-                if (row_index == -1){
-                    ss << " ";
-                    continue;
-                }
-
-                if (col_index == -1){
-                    ss << std::setw(5) << "...";
-                    continue;
-                }
-                // FIXME: Cell width is not correct 
-
-                ss << std::setw(precision+2) << std::setprecision(precision) << matrix(row_index, col_index) << " ";
-            }
-            
-            // End of Row
-            ss << "\n";
-        }
-
-        return ss.str();
-
-    }
-
-    template<typename T>
-    void print_matrix(Eigen::Matrix<T,4,4> const & matrix){
-        fmt::printf ("Rotation matrix :\n");
-        fmt::printf ("    | %6.3f %6.3f %6.3f | \n", matrix (0, 0), matrix (0, 1), matrix (0, 2));
-        fmt::printf ("R = | %6.3f %6.3f %6.3f | \n", matrix (1, 0), matrix (1, 1), matrix (1, 2));
-        fmt::printf ("    | %6.3f %6.3f %6.3f | \n", matrix (2, 0), matrix (2, 1), matrix (2, 2));
-        fmt::printf ("Translation vector :\n");
-        fmt::printf ("t = < %6.3f, %6.3f, %6.3f >\n\n", matrix (0, 3), matrix (1, 3), matrix (2, 3));
-    }
-
 
     void parse_Dataset( 
         Dataset const & dataset, 
@@ -433,6 +145,11 @@ namespace ReUseX{
             if (n_frames == 0) return;
 
 
+#if DISPLAY
+            pcl::visualization::CloudViewer viewer ("Simple Cloud Viewer");
+#endif
+
+
             auto progress_bar = util::progress_bar(n_frames,"Processing data");
             #pragma omp parallel for firstprivate(step, start, output_path) shared(dataset)
             for (size_t i = 0; i < n_frames; i++ ){
@@ -440,37 +157,104 @@ namespace ReUseX{
                 size_t index = start + (i * step);
                 auto data = dataset[index];
 
-                auto cloud = PointCloud();
+
+                
+                pcl::RangeImagePlanar::Ptr points = pcl::RangeImagePlanar::Ptr(new pcl::RangeImagePlanar);
+                auto intrinsic_matrix = dataset.intrinsic_matrix();
+                auto fx = intrinsic_matrix(0,0);
+                auto fy = intrinsic_matrix(1,1);
+                auto cx = intrinsic_matrix(2,0);
+                auto cy = intrinsic_matrix(2,1);
+
+                auto depth = data.get<Field::DEPTH>();
+                points->setDepthImage(depth.data(),
+                    depth.rows(), depth.cols(), // ( Width, Height) The Eigne matrix seems reversed but it works when accessing the buffer
+                    cx, cy, fx, fy);
+
+
+                // depth.normalize();
+                // depth *= 255;
+                // cv::Mat depthCV;
+                // cv::eigen2cv(depth, depthCV);
+                // cv::imshow("Depth", depthCV);
+                // cv::waitKey(0);
+
+
+                pcl::PointCloud<pcl::PointXYZRGBL>::Ptr cloud = pcl::PointCloud<pcl::PointXYZRGBL>::Ptr(new pcl::PointCloud<pcl::PointXYZRGBL>);
+                pcl::copyPointCloud(*points, *cloud);
+
+                auto width = points->width;
+                auto height = points->height;
+                // fmt::printf("Size: %dx%d\n", width, height);
+
+                cv::Mat image = data.get<Field::COLOR>();
+
+                cv::resize( image, image, cv::Size(width, height));
+
+                auto confidence = data.get<Field::CONFIDENCE>();
+
+                #pragma omp parallel for shared(cloud, image, confidence)
+                for (size_t idx = 0; idx < cloud->size(); idx++){
+                    cloud->at(idx).label = static_cast<uint32_t>(confidence(idx));
+                    cv::Vec3b vec = image.at<cv::Vec3b>(idx);
+                    cloud->at(idx).r = vec[0];
+                    cloud->at(idx).g = vec[1];
+                    cloud->at(idx).b = vec[2];
+                }
+
+
+                // cv::Mat confidenceCV;
+                // confidence = (confidence.array() == 1).select(128, confidence); // Replace 1 with 128
+                // confidence = (confidence.array() == 2).select(255, confidence); // Replace 2 with 255
+                // cv::eigen2cv(confidence, confidenceCV);
+                // cv::imshow("Confidence", confidenceCV);
+                // cv::waitKey(0);
+
+
+                pcl::transformPointCloud(*cloud, *cloud, data.get<Field::POSES>());
+
                 setHeader(*cloud, i , data.get<Field::ODOMETRY>());
-                depth_to_3d(
-                            *cloud,
-                            data.get<Field::DEPTH>(),
-                            dataset.intrinsic_matrix(), 
-                            data.get<Field::POSES>(), 
-                            data.get<Field::COLOR>());
-                setConficence(*cloud, data.get<Field::CONFIDENCE>());
+
+                // cv::destroyAllWindows();
 
 
-                // Compute surface normals and curvature
-                pcl::NormalEstimationOMP<PointT, PointT> ne;
-                pcl::search::KdTree<PointT>::Ptr tree (new pcl::search::KdTree<PointT> ());
-                ne.setSearchMethod(tree);
-                // ne.setRadiusSearch (0.05);
-                ne.setKSearch(15);
 
-                ne.setInputCloud(cloud);
-                ne.compute(*cloud);
+#if DISPLAY
+                // Display the cloud
+                auto points_xyz = pcl::PointCloud<pcl::PointXYZ>::Ptr(new pcl::PointCloud<pcl::PointXYZ>);
+                pcl::copyPointCloud(*cloud, *points_xyz);
+                viewer.showCloud (points_xyz , fmt::format("Cloud {}", i));
+#endif
+
+
+
+                // // Compute surface normals and curvature
+                // pcl::NormalEstimationOMP<pcl::PointXYZRGBL, pcl::PointXYZRGBL> ne;
+                // pcl::search::KdTree<pcl::PointXYZRGBL>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZRGBL> ());
+                // ne.setSearchMethod(tree);
+                // // ne.setRadiusSearch (0.05);
+                // ne.setKSearch(15);
+                // ne.setInputCloud(cloud);
+                // ne.compute(*cloud);
+
 
                 // Save cloud
                 std::filesystem::create_directory(output_path);
-                std::string filename = fmt::format("{}/cloud_{}.pcd", output_path, cloud->header.frame_id);
-                cloud.save(filename, true);
+                std::filesystem::path file_path(fmt::format("{}/cloud_{}.pcd", output_path, cloud->header.frame_id));
 
+                
+                save<pcl::PointXYZRGBL>(file_path, cloud);
 
                 progress_bar.update();
             }
             progress_bar.stop();
 
+
+#if DISPLAY
+            while (!viewer.wasStopped ())
+            {
+            }
+#endif
         }
  
 

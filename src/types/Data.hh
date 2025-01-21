@@ -39,12 +39,12 @@ namespace ReUseX{
 
     template <>
     struct FieldType<Field::DEPTH> {
-        using type = Eigen::MatrixXd;
+        using type = Eigen::MatrixXf;
     };
 
     template <>
     struct FieldType<Field::CONFIDENCE> {
-        using type = Eigen::MatrixXd;
+        using type = Eigen::Matrix<uint8_t, Eigen::Dynamic, Eigen::Dynamic>;
     };
 
     template <>
@@ -59,7 +59,7 @@ namespace ReUseX{
 
     template <>
     struct FieldType<Field::POSES> {
-        using type = Eigen::Matrix3d;
+        using type = Eigen::Transform<float, 3, Eigen::Affine>;
     };
 
 

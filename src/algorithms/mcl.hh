@@ -7,8 +7,7 @@ namespace mcl
 	enum class MCLAlgorithm
 	{
 		CPP,
-		CLI,
-		GPU
+		CLI
 	};
 
 	template <enum MCLAlgorithm, typename Storage>

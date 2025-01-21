@@ -11,8 +11,12 @@
 
 namespace ReUseX{
 
-    void parse_input_files(std::string const&  path, size_t start = 0, size_t step = 5, size_t n_frames = 0, bool inference = true);
-
+    /// @brief Parse a dataset
+    /// @param dataset The dataset to parse
+    /// @param output_path The path to save the parsed data
+    /// @param start The start frame
+    /// @param stop The stop frame
+    /// @param step The step size
     void parse_Dataset( 
         Dataset const & dataset, 
         std::string const & output_path,

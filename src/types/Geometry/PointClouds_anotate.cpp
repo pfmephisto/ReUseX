@@ -7,6 +7,28 @@
 #include <opencv4/opencv2/opencv.hpp>
 #include <opencv4/opencv2/ml.hpp>
 
+#include <string>
+
+
+// #include <highfive/H5Easy.hpp>
+// #include <highfive/highfive.hpp>
+#include <pcl/filters/conditional_removal.h>
+
+#include <fmt/core.h>
+#include <fmt/color.h>
+
+#include <iostream> 
+#include <opencv2/opencv.hpp> 
+
+// #include <xtensor/xtensor.hpp>
+#include <xtensor/xarray.hpp>
+
+#include <xtensor/xio.hpp>
+#include <xtensor/xview.hpp>
+#include <xtensor-io/xhighfive.hpp>
+
+
+
 #include <optional>
 
 
@@ -27,6 +49,25 @@ static void draw_box(cv::Mat & img,  ReUseX::OutputParams const& param){
     cv::drawContours(overlay(param.box), contours, -1, color_scalar, cv::FILLED, cv::LINE_8, hierarchy,100);
     cv::addWeighted(overlay, 0.7, img, 0.3, 0, img);
 }
+
+static std::vector<std::string> split(const std::string& target, char c)
+{
+	std::string temp;
+	std::stringstream stringstream { target };
+	std::vector<std::string> result;
+
+	while (std::getline(stringstream, temp, c)) {
+		result.push_back(temp);
+	}
+
+	return result;
+}
+
+HighFive::DataType BoolMaskType = HighFive::AtomicType<uint8_t>();
+
+
+static constexpr typename ReUseX::PointCloud::Cloud::PointType::LableT Invalid = std::numeric_limits<ReUseX::PointCloud::Cloud::PointType::LableT>::max();
+static constexpr typename ReUseX::PointCloud::Cloud::PointType::LableT Deselected = std::numeric_limits<ReUseX::PointCloud::Cloud::PointType::LableT>::max()-1;
 
 
 namespace ReUseX
@@ -205,7 +246,119 @@ namespace ReUseX
        
     }
 
+
+    template<class T>
+    PointClouds<T> PointClouds<T>::annotate_from_hdf5(std::string hdf5_path){
+
+
+        HighFive::File file(hdf5_path, HighFive::File::ReadOnly);
+
+        HighFive::Group root = file.getGroup("/");
+
+        // std::vector<std::string> frames = root.listObjectNames();
+
+        // // Sort the frames
+        // std::sort(frames.begin(), frames.end(), [ ](const std::string &a, const std::string &b) {
+        //     auto a_num = std::stoi(a);
+        //     auto b_num = std::stoi(b);
+        //     return a_num < b_num;
+        // });
+
+        // Should check that the input frames match the point clouds
+
+        // std::cout << "Number ov frames: " << frames.size() << std::endl;
+        // std::cout << "Number ov clouds: " << data.size() << std::endl;
+
+        // if (frames.size() != data.size())
+        //     throw std::runtime_error("Number of frames and point clouds must match");
+
+
+        for (size_t i = 0; i < data.size(); i++) {
+
+
+            PointCloud cloud;
+            if constexpr (std::is_same<T, std::string>::value){
+                cloud = PointCloud::load(data.at(i));
+            } else if constexpr (std::is_same<T, PointCloud>::value){
+                cloud = data.at(i);
+            }
+
+            auto frame_id = cloud->header.frame_id;
+            HighFive::Group frame;
+            try{
+                frame = root.getGroup(frame_id);
+            } catch (const HighFive::GroupException & e){
+                fmt::print(fg(fmt::color::red), "Frame {} not found in the HDF5 file", frame_id);
+                continue;
+            }
+
+
+            // Set values for filtering
+            #pragma omp parallel for shared(cloud)
+            for (size_t i = 0; i < cloud->size(); i++){
+                if(cloud->at(i).label != 2)
+                    cloud->at(i).label = Invalid;
+                else
+                    cloud->at(i).label = Deselected;
+            }
+
+
+            xt::xarray<uint8_t,xt::layout_type::dynamic>  masks;
+            std::vector<int> lables;
+            try {
+                masks = xt::load<xt::xarray<uint8_t,xt::layout_type::dynamic>>(file, frame_id+"/masks");
+                lables = xt::load<std::vector<int>>(file, frame_id+"/names");
+            }
+            catch (const HighFive::DataSetException & e){
+                fmt::print(fg(fmt::color::red), "Masks or names not found in frame {}", frame_id);
+                continue;
+            }
+           
+
+            #pragma omp parallel for shared(cloud, masks, lables)
+            for (size_t i = 0; i < lables.size(); i++){
+
+                auto img_size = cv::Size(masks.shape()[2],masks.shape()[1]);
+                size_t offset = i * masks.shape()[1] * masks.shape()[2];
+
+                cv::Mat masks_cv (img_size, CV_8U, masks.data()+offset, img_size.width);
+
+                cv::rotate(masks_cv, masks_cv, cv::ROTATE_90_COUNTERCLOCKWISE);
+                cv::resize(masks_cv, masks_cv, cv::Size(cloud->width,cloud->height));
+
+                int label = lables[i];
+                #pragma omp parallel for shared(cloud, masks_cv) firstprivate(label)
+                for (size_t j = 0; j < masks_cv.total(); j++)
+                    if (masks_cv.data[j] > 0.5 && cloud->at(j).label == Deselected )
+                        cloud->at(j).label = label;
+            }
+
+
+            using PointT = PointCloud::Cloud::PointType;
+            pcl::ConditionAnd<PointT>::Ptr range_cond (new pcl::ConditionAnd<PointT> ());
+            range_cond->addComparison (pcl::FieldComparison<PointT>::ConstPtr (new pcl::FieldComparison<PointT> ("label", pcl::ComparisonOps::GE, 0)));
+            range_cond->addComparison (pcl::FieldComparison<PointT>::ConstPtr (new pcl::FieldComparison<PointT> ("label", pcl::ComparisonOps::LE, Deselected)));
+
+
+            pcl::ConditionalRemoval<PointT> condrem;
+            condrem.setCondition (range_cond);
+            condrem.setInputCloud (cloud);
+            condrem.setKeepOrganized (true);
+            condrem.filter (*cloud);
+
+
+            if constexpr (std::is_same<T, std::string>::value)
+                cloud.save(data.at(i));
+            
+        }
+
+        return *this;
+    }
+
     template PointCloudsInMemory  PointCloudsInMemory::annotate(std::string ,std::optional<Dataset> & );
     template PointCloudsOnDisk  PointCloudsOnDisk::annotate(std::string ,std::optional<Dataset> & );
+
+    template PointCloudsOnDisk  PointCloudsOnDisk::annotate_from_hdf5(std::string );
+    template PointCloudsInMemory  PointCloudsInMemory::annotate_from_hdf5(std::string );
 
 } // namespace ReUseX

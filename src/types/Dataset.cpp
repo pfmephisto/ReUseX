@@ -10,19 +10,6 @@
 #define CHECK_EXSISTANCE(path, file) if (!std::filesystem::exists(path / file)){ fmt::printf("{} does not exist\n", file); break; }
 
 
-template <typename T>
-Eigen::MatrixXd image_to_matrix(std::vector<T> const& image, int width, int height, int channel = 0, int stride = 4){
-    auto matrix = Eigen::MatrixXd(width, height);
-
-    for (int i = 0; i < width; i++){
-        for (int j = 0; j < height; j++){
-            auto selection = i * height + j * stride + channel;
-            matrix(i, j) = image[selection];
-        }
-    }
-
-    return matrix;
-}
 
 Eigen::MatrixXd read_csv(std::ifstream & stream, char delimiter = ',', bool header = false){
 
@@ -124,6 +111,8 @@ std::optional<Eigen::Matrix3d> read_camera_matrix(std::filesystem::path const& p
     return mat;
 }
 
+
+
 std::optional<Eigen::Matrix<double,     Eigen::Dynamic, Eigen::Dynamic>> read_odometry(std::filesystem::path const& path){
 
     if (!std::filesystem::exists(path)){
@@ -156,8 +145,7 @@ std::optional<Eigen::Matrix<double,     Eigen::Dynamic, Eigen::Dynamic>> read_im
 
 }
 
-std::optional<Eigen::Matrix<double,     Eigen::Dynamic, Eigen::Dynamic>> read_depth_image(std::filesystem::path const& path){
-
+std::optional<Eigen::Matrix<float,      Eigen::Dynamic, Eigen::Dynamic>> read_depth_image(std::filesystem::path const& path){
 
     std::vector<unsigned char> buffer1;
     unsigned width, height;
@@ -169,17 +157,18 @@ std::optional<Eigen::Matrix<double,     Eigen::Dynamic, Eigen::Dynamic>> read_de
     if(error) std::cout << "decoder error " << error << ": " << lodepng_error_text(error) << std::endl;
     if(error) return {};
 
-    std::vector<double> buffer2;
+    std::vector<float> buffer2;
 
     for (size_t i = 0; i < buffer1.size(); i += 2) {
         uint16_t value = (buffer1[i] << 8) | buffer1[i + 1]; // Combine two bytes into a uint16_t
-        buffer2.push_back(value);
+        buffer2.push_back(value ); /// 1000.0f
     }
 
-    return image_to_matrix(buffer2, height, width, 0, 1)  / 1000; // Convert to meters
+    Eigen::Map<Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic, Eigen::ColMajor>> matrix(buffer2.data(),width, height);
+    return matrix / 1000.0f; // Convert to meters;
 }
 
-std::optional<Eigen::Matrix<double,     Eigen::Dynamic, Eigen::Dynamic>> read_confidence_image(std::filesystem::path const& path){
+std::optional<Eigen::Matrix<uint8_t,    Eigen::Dynamic, Eigen::Dynamic>> read_confidence_image(std::filesystem::path const& path){
 
     std::vector<unsigned char> buffer;
     unsigned width, height;
@@ -191,25 +180,29 @@ std::optional<Eigen::Matrix<double,     Eigen::Dynamic, Eigen::Dynamic>> read_co
     if(error) std::cout << "decoder error " << error << ": " << lodepng_error_text(error) << std::endl;
     if(error) return {};
 
-    return image_to_matrix(buffer, height, width, 0, 1);
+    Eigen::Map<Eigen::Matrix<uint8_t, Eigen::Dynamic, Eigen::Dynamic, Eigen::ColMajor>> matrix(buffer.data(),width, height);
+    return matrix;
+
 }
 
+Eigen::Transform<float, 3, Eigen::Affine> create_pose( Eigen::Block<const Eigen::MatrixXd, 1, 3> const& p, Eigen::Block<const Eigen::MatrixXd, 1, 4> const& q){
 
-Eigen::Matrix<double, 3, 3> create_pose( Eigen::Block<const Eigen::MatrixXd, 1, 3> const& p, Eigen::Block<const Eigen::MatrixXd, 1, 4> const& q){
+    // Create an Eigen::Transform object
+    Eigen::Transform<float, 3, Eigen::Affine> transform;
 
+    // Set the rotation using the quaternion
+    Eigen::Quaternionf quat(q[3], q[0], q[1], q[2]);
+    transform.linear() = quat.toRotationMatrix();
+
+
+    // Set the translation
+    transform.translation() = Eigen::Vector3f(p[0], p[1], p[2]);
     Eigen::Matrix4d mat;
-    mat.setIdentity();
-    mat.block<3,3>(0,0) = Eigen::Quaternion(q[0], q[1], q[2], q[3]).toRotationMatrix();
-    mat.block<3,1>(0,3) = p;
 
-    // tg::pos3 pos(p(0), p(1), p(2));
-    // tg::dquat quat(q(0), q(1), q(2), q(3));
-
-    // auto mat = static_cast<tg::dmat4x4>(quat);
-    // mat.set_col(3, tg::dvec4(pos, 1));
-
-    return (Eigen::Matrix<double, 3, 3>)mat.block<3,3>(0,0);
+    // Set the matrix
+    return transform;
 }
+
 
 
 namespace ReUseX {
@@ -329,7 +322,6 @@ Data Dataset::operator[] (int idx) const {
     }
     return data;
 }
-
 
 void Dataset::display(std::string name, bool show) const {
     polyscope::myinit();

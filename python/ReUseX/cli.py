@@ -244,5 +244,27 @@ def run():
 
     
 
+def ml():
+
+    arg_parser = arg.ArgumentParser(description="Run ML ")
+    arg_parser.add_argument("path", type=str, help="Input file")
+
+    args = arg_parser.parse_args()
 
 
+    from ultralytics import SAM
+    import h5py
+
+    path = Path(args["path"])
+
+    model = SAM("sam2.1_b.pt")
+    results = model(args["path"], stream=True )
+
+    with h5py.File(f"./{path.parent.stem}.h5", "w") as h5file:
+
+        for i, r in enumerate(results):
+            group = h5file.create_group(f"frame_{i}")
+            group.attrs.create("orig_shape", data=r.orig_shape)
+            
+            group.create_dataset("boxes_xywh", data=r.boxes.cpu().numpy().xywh)
+            group.create_dataset("masks", data=r.masks.data.cpu().numpy(), compression="gzip", compression_opts=1)

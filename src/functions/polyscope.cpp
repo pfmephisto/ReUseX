@@ -57,27 +57,43 @@ namespace polyscope  {
         auto pcd = polyscope::registerPointCloud((name)? name.value() : "Cloud", PolyscopeMap<Field::Points>(cloud));
         pcd->setPointRadius(0.001);
 
-        auto normal_vectors = pcd->addVectorQuantity("Normals", PolyscopeMap<Field::Normal>(cloud));
-        normal_vectors->setVectorRadius(0.00050);
-        normal_vectors->setVectorLengthScale(0.0050);
 
-        pcd->addColorQuantity("RGB", PolyscopeMap<Field::RGB>(cloud));
-        pcd->addColorQuantity("Normal Colors", PolyscopeMap<Field::Normal_color>(cloud));
+        // check if PointT has normal
+        if constexpr (pcl::traits::has_normal_v<PointT>){
+            auto normal_vectors = pcd->addVectorQuantity("Normals", PolyscopeMap<Field::Normal>(cloud));
+            normal_vectors->setVectorRadius(0.00050);
+            normal_vectors->setVectorLengthScale(0.0050);
+            pcd->addColorQuantity("Normal Colors", PolyscopeMap<Field::Normal_color>(cloud));
+            pcd->quantities["Normal Colors"]->setEnabled(true);
+            
+        }
 
-        pcd->addScalarQuantity("Confidence", PolyscopeMap<Field::Confidence>(cloud));
-        pcd->addScalarQuantity("Lables", PolyscopeMap<Field::Lables>(cloud));
-        pcd->addScalarQuantity("Sematic Lables", PolyscopeMap<Field::Semantic>(cloud));
-        pcd->addScalarQuantity("Instance Lables", PolyscopeMap<Field::Instance>(cloud));
-        pcd->addScalarQuantity("Importance", PolyscopeMap<Field::Importance>(cloud));
+        // check if PointT has rgb
+        if constexpr (pcl::traits::has_color_v<PointT>){
+            pcd->addColorQuantity("RGB", PolyscopeMap<Field::RGB>(cloud));
+            pcd->quantities["RGB"]->setEnabled(true);
+        }
 
-        pcd->addColorQuantity("Confidence Colors", PolyscopeMap<Field::Confidence_color>(cloud));
-        pcd->addColorQuantity("Lables Colors", PolyscopeMap<Field::Lables_color>(cloud));
-        pcd->addColorQuantity("Sematic Colors", PolyscopeMap<Field::Semantic_color>(cloud));
-        pcd->addColorQuantity("Instance Colors", PolyscopeMap<Field::Instance_color>(cloud));
+        // check if PointT has confidence
+        if constexpr (pcl::traits::has_label_v<PointT>){
+            pcd->addScalarQuantity("Lables", PolyscopeMap<Field::Lables>(cloud));
+            pcd->addColorQuantity("Lables Colors", PolyscopeMap<Field::Lables_color>(cloud));
+            pcd->quantities["Lables Colors"]->setEnabled(true);
+        }
 
-        pcd->setPointRadiusQuantity("Importance", true);
 
-        pcd->quantities["Lables Colors"]->setEnabled(true);
+        // pcd->addScalarQuantity("Confidence", PolyscopeMap<Field::Confidence>(cloud));
+
+        // pcd->addScalarQuantity("Sematic Lables", PolyscopeMap<Field::Semantic>(cloud));
+        // pcd->addScalarQuantity("Instance Lables", PolyscopeMap<Field::Instance>(cloud));
+        // pcd->addScalarQuantity("Importance", PolyscopeMap<Field::Importance>(cloud));
+
+        // pcd->addColorQuantity("Confidence Colors", PolyscopeMap<Field::Confidence_color>(cloud));
+
+        // pcd->addColorQuantity("Sematic Colors", PolyscopeMap<Field::Semantic_color>(cloud));
+        // pcd->addColorQuantity("Instance Colors", PolyscopeMap<Field::Instance_color>(cloud));
+
+        // pcd->setPointRadiusQuantity("Importance", true);
 
     }
 

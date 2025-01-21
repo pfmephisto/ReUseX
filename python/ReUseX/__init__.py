@@ -21,7 +21,7 @@ logger.addHandler(console_logger)
 
 
 
-from .cli import run
+from .cli import run, ml
 
 __all__ = ["__doc__", "__version__", "speckle", "export", "run"]
 

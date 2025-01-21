@@ -16,6 +16,8 @@
 #include <polyscope/curve_network.h>
 #include <polyscope/surface_mesh.h>
 
+#include <pcl/point_types.h>
+
 #include <optional>
 
 
@@ -31,7 +33,7 @@ namespace polyscope  {
         polyscope::init();
         polyscope::options::groundPlaneMode = polyscope::GroundPlaneMode::ShadowOnly;
         // polyscope::view::setUpDir(polyscope::UpDir::ZUp);
-        polyscope::view::setUpDir(polyscope::UpDir::YUp);
+        // polyscope::view::setUpDir(polyscope::UpDir::YUp);
 
         polyscope_enabled = true;
 
@@ -124,19 +126,19 @@ namespace polyscope  {
             size_t size() const { return cloud.points.size(); }
             typename FieldType<F>::type operator[](size_t idx) const {
 
-                if constexpr (F == Field::Points) {
+                if constexpr (F == Field::Points && pcl::traits::has_xyz_v <PointT>) {
                     return std::array<float, 3>{cloud.points[idx].x, cloud.points[idx].y, cloud.points[idx].z};
-                } else if constexpr (F == Field::RGB){
+                } else if constexpr (F == Field::RGB && pcl::traits::has_color_v <PointT>) {
                     return std::array<float, 3>{
                         static_cast<float>(cloud.points[idx].r)/256,
                         static_cast<float>(cloud.points[idx].g)/256,
                         static_cast<float>(cloud.points[idx].b)/256};
-                } else if constexpr (F == Field::Normal){
+                } else if constexpr (F == Field::Normal && pcl::traits::has_normal_v <PointT>) {
                     return std::array<float, 3>{
                         cloud.points[idx].normal_x,
                         cloud.points[idx].normal_y,
                         cloud.points[idx].normal_z};
-                } else if constexpr (F == Field::Normal_color){
+                } else if constexpr (F == Field::Normal_color && pcl::traits::has_normal_v <PointT>) {
                     return std::array<float, 3>{
                         static_cast<float>(cloud.points[idx].normal_x + 1.0f)/2.0f,
                         static_cast<float>(cloud.points[idx].normal_y + 1.0f)/2.0f,
@@ -158,9 +160,9 @@ namespace polyscope  {
                     default:
                         break;
                     }
-                } else if constexpr (F == Field::Lables){
+                } else if constexpr (F == Field::Lables && pcl::traits::has_label_v <PointT>){
                     return cloud.points[idx].label;
-                } else if constexpr (F == Field::Lables_color){
+                } else if constexpr (F == Field::Lables_color && pcl::traits::has_label_v <PointT>){
                     return ReUseX::Color::from_index(cloud.points[idx].label);
                 } else if constexpr (F == Field::Semantic){
                     return cloud.points[idx].semantic;

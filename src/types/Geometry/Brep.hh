@@ -12,8 +12,7 @@ namespace ReUseX
     struct Brep: public ON_Brep
     {
     public:
-    
-    public:
+        Brep() = default;
         Brep(Mesh const& mesh);
         void save(std::string const& filename) const;
         static Brep load(std::string const& filename);

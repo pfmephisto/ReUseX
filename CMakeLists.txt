@@ -126,41 +126,77 @@ set(CGAL_DO_NOT_WARN_ABOUT_CMAKE_BUILD_TYPE On)
 
 
 
-# ===============================================
-# find packages
-
-
 #set("CUDA_TOOLKIT_ROOT_DIR" "/usr/local/cuda-12-3")
 #set(CUDA_INCLUDE_DIRS "${CUDA_TOOLKIT_ROOT_DIR}/include/")
 #set(CUDA_CUDART_LIBRARY "${CUDA_TOOLKIT_ROOT_DIR}/lib64/libcudart.so")
 
-include(cmake/CUDA.cmake)
-include(cmake/TBB.cmake)
-include(cmake/Boost.cmake)
-include(cmake/SCIP.cmake)
-include(cmake/Gurobi.cmake)
-include(cmake/Embree.cmake)
+if(Off)
 
-include(cmake/Eigen.cmake)
-include(cmake/OpenCV.cmake)
-include(cmake/CGAL.cmake)
-include(cmake/PCL.cmake)
-include(cmake/Python.cmake)
-#include(cmake/HDF5.cmake)
+    message(STATUS "Building inside a Nix environment.")
+    # ===============================================
 
+    # find_package(CUDA REQUIRED)
+    # find_package(CUDAToolkit REQUIRED)
+    # find_package(TBB REQUIRED)
+    find_package(Boost REQUIRED)
+    # find_package(SCIP REQUIRED)
+    # find_package(Gurobi REQUIRED)
+    find_package(embree REQUIRED)
 
+    # find_package(Eigen REQUIRED)
+    find_package(OpenCV REQUIRED)
+    find_package(CGAL REQUIRED)
+    find_package(PCL REQUIRED)
+    find_package(Python3 REQUIRED)
 
+    find_package(xtensor REQUIRED)
+    find_package(xtensor-io REQUIRED)
 
+    find_package(fmt REQUIRED)
+    find_package(polyscope REQUIRED)
+    find_package(pybind11 REQUIRED)
+    
+    find_package(opennurbs REQUIRED)
+
+    find_package(HighFive REQUIRED)
+
+else()
+
+# ===============================================
+# find packages
+
+    include(cmake/CUDA.cmake)
+    include(cmake/TBB.cmake)
+    include(cmake/Boost.cmake)
+    include(cmake/SCIP.cmake)
+    include(cmake/Gurobi.cmake)
+    include(cmake/Embree.cmake)
+
+    include(cmake/Eigen.cmake)
+    include(cmake/OpenCV.cmake)
+    include(cmake/CGAL.cmake)
+    include(cmake/PCL.cmake)
+    include(cmake/Python.cmake)
+
+    find_package(xtensor REQUIRED)
+    find_package(xtensor-io REQUIRED)
 
 
 
 # ===============================================
 # add submodules
 
-add_subdirectory(extern/fmt)
-add_subdirectory(extern/polyscope)
-add_subdirectory(extern/pybind11)
-add_subdirectory(extern/opennurbs)
+    add_subdirectory(extern/fmt)
+    add_subdirectory(extern/polyscope)
+    add_subdirectory(extern/pybind11)
+    add_subdirectory(extern/opennurbs)
+    add_subdirectory(extern/hdf5)
+
+    add_subdirectory(extern/highfive)
+
+endif()
+
+
 
 # ===============================================
 # configure executable
@@ -169,7 +205,6 @@ add_subdirectory(extern/opennurbs)
 file(GLOB_RECURSE LIB_SOURCES
     "src/*.cc"
     "src/*.cpp"
-    #"src/*.cu"
 )
 
 file(GLOB_RECURSE LIB_HEADERS
@@ -178,21 +213,10 @@ file(GLOB_RECURSE LIB_HEADERS
 
 list(FILTER LIB_SOURCES EXCLUDE REGEX ".*py.cpp")
 
-file(GLOB_RECURSE  CU  "src/*.cu")
 
 # group sources according to folder structure
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${LIB_SOURCES})
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${LIB_HEADERS})
-source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${CU})
-
-
-
-## ===============================================
-## add cuda library
-#set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS} -gencode)
-#cuda_add_library(cuda_lib STATIC ${CU})
-
-
 
 
 ## ===============================================
@@ -202,27 +226,36 @@ include_directories( ${OpenCV_INCLUDE_DIRS} )
 # main libary
 add_library(${PROJECT_NAME} STATIC ${LIB_SOURCES} ${LIB_HEADERS})
 set_target_properties(${PROJECT_NAME} PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
+
 target_link_libraries(${PROJECT_NAME} 
-PRIVATE 
-pybind11::embed 
-optimized ${GUROBI_CXX_LIBRARY}
-debug ${GUROBI_CXX_DEBUG_LIBRARY}
-#cuda_lib
-# HDF5::HDF5
+    PRIVATE 
+    pybind11::embed 
+    optimized ${GUROBI_CXX_LIBRARY}
+    debug ${GUROBI_CXX_DEBUG_LIBRARY}
 )
 target_link_libraries(${PROJECT_NAME} PUBLIC
+    HighFive
+    xtensor
+    xtensor-io
+    
     OpenNURBS
+    
     polyscope
     embree
     ${CUDA_LIBRARIES} 
     ${CUDA_CUBLAS_LIBRARIES}
+
     Eigen3::Eigen3
+
     CGAL::Eigen3_support
     CGAL::SCIP_support
     CGAL::TBB_support
+
     ${GUROBI_LIBRARY}
+
     ${PCL_LIBRARIES}
     ${PCL_COMMON_LIBRARIES}
+
     fmt
     mpfr
     MPI::MPI_CXX
@@ -232,14 +265,13 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
     ${COMMON_LINKER_FLAGS}
 )
 
-
-# dependency grouping in the IDE
-foreach(TARGET_NAME
-    polyscope
-    OpenNURBS
-)
-set_property(TARGET ${TARGET_NAME} PROPERTY FOLDER "Extern")
-endforeach()
+# # dependency grouping in the IDE
+# foreach(TARGET_NAME
+#     polyscope
+#     OpenNURBS
+# )
+# set_property(TARGET ${TARGET_NAME} PROPERTY FOLDER "Extern")
+# endforeach()
 
 
 target_include_directories(${PROJECT_NAME} PUBLIC "src")

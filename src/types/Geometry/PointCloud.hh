@@ -44,7 +44,7 @@ using AABB = ReUseX::AABB;
 
 struct EIGEN_ALIGN16 PointT
 {
-    using LableT = std::int32_t;
+    using LableT = std::uint32_t;
     PCL_ADD_POINT4D; // This adds the members x,y,z which can also be accessed using the point (which is float[4])
     PCL_ADD_NORMAL4D; // This adds the member normal[3] which can also be accessed using the point (which is float[4])
     union EIGEN_ALIGN16 {

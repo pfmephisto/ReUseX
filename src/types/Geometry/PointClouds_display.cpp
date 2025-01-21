@@ -14,8 +14,17 @@ ReUseX::PointClouds<T> ReUseX::PointClouds<T>::display(bool show_clouds){
 
     polyscope::myinit();
 
-    //if(show_clouds) for (size_t i = 0; i < data.size(); ++i)
-    //        data[i]->display(fmt::format("Cloud {}", i).c_str());
+    if(show_clouds) for (size_t i = 0; i < data.size(); ++i){
+
+        if constexpr (std::is_same<T, std::string>::value){
+            auto cloud = PointCloud::load(data[i]);
+            // polyscope::display<PointCloud const&>(cloud, fmt::format("Cloud {}", i).c_str());
+            polyscope::display<pcl::PointCloud<PointT> const&>(*cloud, fmt::format("Cloud {}", i).c_str());
+        } else if constexpr (std::is_same<T, PointCloud>::value){
+            polyscope::display<pcl::PointCloud<PointT> const&>(*data[i], fmt::format("Cloud {}", i).c_str());
+            // polyscope::display<PointCloud const&>(data[i], fmt::format("Cloud {}", i).c_str());
+        }
+    }
 
     std::vector<Eigen::Vector4f> path_node;
     std::vector<Eigen::Vector3f> x_axis;

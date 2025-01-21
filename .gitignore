@@ -74,3 +74,6 @@ rays.out
 ReUseX_py.egg-info/
 *.whl
 *.gz
+
+# HDF5 Datasets
+*.h5

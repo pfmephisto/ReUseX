@@ -10,3 +10,9 @@
 [submodule "extern/opennurbs"]
 	path = extern/opennurbs
 	url = git@github.com:mcneel/opennurbs.git
+[submodule "extern/hdf5"]
+	path = extern/hdf5
+	url = git@github.com:HDFGroup/hdf5.git
+[submodule "extern/highfive"]
+	path = extern/highfive
+	url = git@github.com:highfive-devs/highfive.git

@@ -7,21 +7,29 @@ maintainers = [
     {name = "Povl Filip Sonne-Frederiksen", email="pfs@linkarkitektur.dk"},
     ]
 requires-python = ">=3.9"
+
 dependencies = [
     "numpy", 
+    "rhino3dm",
     "specklepy",
     "wheel",
     ]
 
+
 [project.optional-dependencies]
 ml = ["pytorch"]
 
-[project.scripts]
-ReUseX = "ReUseX:run"
-
 [project.urls]
 source = "https://github.com/pfmephisto/ReUseX"
+repository = "https://github.com/pfmephisto/ReUseX"
 
+# Skripts
+[project.scripts]
+ReUseX = "ReUseX:run"
+ReUseX_ML = "ReUseX:ml"
+
+
+# Build system configuration
 [build-system]
 requires = ["scikit-build-core>=0.3.3", "pybind11"]
 build-backend = "scikit_build_core.build"
@@ -32,7 +40,8 @@ wheel.py-api = "cp39" # https://scikit-build-core.readthedocs.io/en/latest/cmake
 cmake.version = "==3.22.1"
 ninja.version = "==1.10.1"
 wheel.license-files = ["LICENSE"]
-sdist.exclude = [".github", "test.py", ".gitignore", ".gitmodules", ".clang-format", "test_data_loaders"]
+sdist.include = ["src/extern/**/*"]
+sdist.exclude = [".github", "test.py", ".gitignore", ".gitmodules",".clang-format"]
 cmake.args = [
     # Ensure that polyscope is not build to a directory with out write access
     # Otherwise the wheel will fail to build

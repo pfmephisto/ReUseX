@@ -5,6 +5,7 @@
 #include <pybind11/functional.h>
 #include <pybind11/chrono.h>
 #include <pybind11/iostream.h>
+#include <pybind11/stl/filesystem.h>
 
 #include "algorithms/all.hh"
 #include "types/all.hh"
@@ -41,10 +42,7 @@ PYBIND11_MODULE(_core, m) {
     // Attributes
     //    m.attr("default_params") = ReUseX::plane_fitting_parameters();
 
-    // PYBIND11_NUMPY_DTYPE(ReUseX::Point, x, y, z);
-    // PYBIND11_NUMPY_DTYPE(ReUseX::Vector, x, y, z);
-    PYBIND11_NUMPY_DTYPE(ReUseX::PointCloud::Cloud::PointType, x, y, z, rgb, normal_x, normal_y, normal_z, curvature, confidence, semantic, instance, label);
-
+    PYBIND11_NUMPY_DTYPE(PointT, x, y, z, normal_x, normal_y, normal_z, rgba, curvature, label);
 
     /// Classes
 
@@ -158,8 +156,6 @@ PYBIND11_MODULE(_core, m) {
             const py::array_t<float> xyz, 
             std::optional<const py::array_t<uint8_t>> rgb, 
             std::optional<const py::array_t<float>> normal, 
-            std::optional<const py::array_t<int32_t>> semantic, 
-            std::optional<const py::array_t<int32_t>> instance, 
             std::optional<const py::array_t<int32_t>> label) {
 
                 /* Request a buffer descriptor from Python */
@@ -207,21 +203,6 @@ PYBIND11_MODULE(_core, m) {
                     }
                 }
                 
-
-                if (semantic.has_value()){
-                    auto semantic_ = semantic.value().unchecked<2>();
-                    for (size_t i = 0; i < (size_t)xyz_.shape(0); i++)
-                        (*cloud).points[i].semantic = *semantic_.data(i, 0);
-                }
-                    
-                
-
-                if (instance.has_value()){
-                    auto instance_ = instance.value().unchecked<2>();
-                    for (size_t i = 0; i < (size_t)xyz_.shape(0); i++)
-                        (*cloud).points[i].instance = *instance_.data(i, 0);
-                }
-                    
                 
 
                 if (label.has_value()){
@@ -237,8 +218,6 @@ PYBIND11_MODULE(_core, m) {
             "xyz"_a, 
             "rgb"_a = py::none(), 
             "normal"_a = py::none(), 
-            "semantic"_a = py::none(), 
-            "instance"_a = py::none(), 
             "label"_a = py::none(),
             py::call_guard<py::scoped_ostream_redirect, py::scoped_estream_redirect>()
         )
@@ -352,13 +331,13 @@ PYBIND11_MODULE(_core, m) {
             py::return_value_policy::reference_internal,
             py::call_guard<py::scoped_ostream_redirect, py::scoped_estream_redirect>()
         )
-        .def("annotate", &ReUseX::PointCloudsInMemory::annotate, 
-            "Annotate the point clouds",
-            "yolo_path"_a,
-            "dataset"_a = py::none(),
-            py::return_value_policy::reference_internal,
-            py::call_guard<py::scoped_ostream_redirect, py::scoped_estream_redirect>()
-        )
+        // .def("annotate", &ReUseX::PointCloudsInMemory::annotate, 
+        //     "Annotate the point clouds",
+        //     "yolo_path"_a,
+        //     "dataset"_a = py::none(),
+        //     py::return_value_policy::reference_internal,
+        //     py::call_guard<py::scoped_ostream_redirect, py::scoped_estream_redirect>()
+        // )
         .def("display", &ReUseX::PointCloudsInMemory::display, 
             "Display the point clouds",
             "show_clouds"_a = false, 
@@ -414,13 +393,13 @@ PYBIND11_MODULE(_core, m) {
             py::return_value_policy::reference_internal,
             py::call_guard<py::scoped_ostream_redirect, py::scoped_estream_redirect>()
         )
-        .def("annotate", &ReUseX::PointCloudsOnDisk::annotate, 
-            "Annotate the point clouds",
-            "yolo_path"_a, 
-            "dataset"_a = py::none(), 
-            py::return_value_policy::reference_internal,
-            py::call_guard<py::scoped_ostream_redirect, py::scoped_estream_redirect>()
-        )
+        // .def("annotate", &ReUseX::PointCloudsOnDisk::annotate, 
+        //     "Annotate the point clouds",
+        //     "yolo_path"_a, 
+        //     "dataset"_a = py::none(), 
+        //     py::return_value_policy::reference_internal,
+        //     py::call_guard<py::scoped_ostream_redirect, py::scoped_estream_redirect>()
+        // )
         .def("display", &ReUseX::PointCloudsOnDisk::display, 
             "Display the point clouds",
             "show_clouds"_a = false,
@@ -574,6 +553,17 @@ PYBIND11_MODULE(_core, m) {
         "start"_a = 0,
         "stop"_a = nullptr,
         "step"_a = 5
+    );
+
+    m.def("slam", &ReUseX::slam, "SLAM",
+        "dataset"_a,
+        py::call_guard<py::scoped_ostream_redirect, py::scoped_estream_redirect>()
+    );
+
+    m.def("compute_normals", [](std::filesystem::path path){ ReUseX::compute_normals<pcl::PointXYZRGBA, PointT>( path ); },
+        "Compute the normals of a point cloud"
+        "path"_a,
+        py::call_guard<py::scoped_ostream_redirect, py::scoped_estream_redirect>()
     );
 
     m.def("extract_instances", &ReUseX::extract_instances, "Extract the instance for a point cloud"

@@ -20,6 +20,8 @@
 
 #include <optional>
 
+#include <opencv4/opencv2/core/types.hpp>
+
 
 
 namespace polyscope  {
@@ -32,12 +34,9 @@ namespace polyscope  {
 
         polyscope::init();
         polyscope::options::groundPlaneMode = polyscope::GroundPlaneMode::ShadowOnly;
-        // polyscope::view::setUpDir(polyscope::UpDir::ZUp);
-        // polyscope::view::setUpDir(polyscope::UpDir::YUp);
-
+        polyscope::view::setUpDir(polyscope::UpDir::YUp); //ZUp
+        polyscope::options::transparencyMode = polyscope::TransparencyMode::Simple;
         polyscope_enabled = true;
-
-
     }
 
     static void myshow(){
@@ -55,15 +54,9 @@ namespace polyscope  {
         RGB,
         Normal,
         Normal_color,
-        Confidence,
-        Confidence_color,
         Lables,
         Lables_color,
-        Semantic,
-        Semantic_color,
-        Instance,
-        Instance_color,
-        Importance
+        Transparancy
     };
 
     
@@ -87,20 +80,9 @@ namespace polyscope  {
     struct FieldType<
         F,
         typename std::enable_if<
-            F == Field::Lables ||
-            F == Field::Semantic ||
-            F == Field::Instance
+            F == Field::Transparancy
         >::type
     > {
-        using type = int;
-    };
-    template <Field F>
-    struct FieldType<
-        F,
-        typename std::enable_if<
-            F == Field::Confidence ||
-            F == Field::Importance
-        >::type> {
         using type = float;
     };
 
@@ -108,10 +90,18 @@ namespace polyscope  {
     struct FieldType<
         F,
         typename std::enable_if<
-            F == Field::Confidence_color ||
-            F == Field::Lables_color ||
-            F == Field::Semantic_color || 
-            F == Field::Instance_color
+            F == Field::Lables
+        >::type
+    > {
+        using type = uint32_t;
+    };
+
+
+    template <Field F>
+    struct FieldType<
+        F,
+        typename std::enable_if<
+            F == Field::Lables_color
         >::type> {
         using type = cv::Scalar;
     }; 
@@ -138,48 +128,20 @@ namespace polyscope  {
                         cloud.points[idx].normal_x,
                         cloud.points[idx].normal_y,
                         cloud.points[idx].normal_z};
+                } else if constexpr (F == Field::Transparancy && pcl::traits::has_color_v <PointT>){
+                    return static_cast<float>(cloud.points[idx].a)/256;
+                } else if constexpr (F == Field::Lables && pcl::traits::has_label_v <PointT>){
+                    return cloud.points[idx].label;
+                } else if constexpr (F == Field::Lables_color && pcl::traits::has_label_v <PointT>){
+                    return Color::from_index(cloud.points[idx].label);
                 } else if constexpr (F == Field::Normal_color && pcl::traits::has_normal_v <PointT>) {
                     return std::array<float, 3>{
                         static_cast<float>(cloud.points[idx].normal_x + 1.0f)/2.0f,
                         static_cast<float>(cloud.points[idx].normal_y + 1.0f)/2.0f,
-                        static_cast<float>(cloud.points[idx].normal_z + 1.0f)/2.0f};
-                } else if constexpr (F == Field::Confidence){
-                    return cloud.points[idx].confidence;
-                } else if constexpr (F == Field::Confidence_color){
-                    switch (cloud.points[idx].confidence)
-                    {
-                    case 0:
-                        return cv::Scalar(1.0, 0.0, 0.0);
-                        break;
-                    case 1:
-                        return cv::Scalar(1.0, 1.0, 0.0);
-                        break;
-                    case 2:
-                        return cv::Scalar(0.0, 1.0, 0.0);
-                        break;
-                    default:
-                        break;
-                    }
-                } else if constexpr (F == Field::Lables && pcl::traits::has_label_v <PointT>){
-                    return cloud.points[idx].label;
-                } else if constexpr (F == Field::Lables_color && pcl::traits::has_label_v <PointT>){
-                    return ReUseX::Color::from_index(cloud.points[idx].label);
-                } else if constexpr (F == Field::Semantic){
-                    return cloud.points[idx].semantic;
-                } else if constexpr (F == Field::Semantic_color){
-                    return ReUseX::Color::from_index(cloud.points[idx].semantic);
-                } else if constexpr (F == Field::Instance){
-                    return static_cast<int>(cloud.points[idx].instance);
-                } else if constexpr (F == Field::Instance_color){
-                    return ReUseX::Color::from_index(cloud.points[idx].instance);
-                } else if constexpr (F == Field::Importance){
-                    return (cloud.points[idx].confidence+0.01f)
-                                *
-                                ( (cloud.points[idx].label == 0 ? 0.1f : 1.0f)
-                                + (cloud.points[idx].semantic == 0 ? 0.1f : 2.0f)
-                                + (cloud.points[idx].instance == 0 ? 0.1f : 3.0f));
+                        static_cast<float>(cloud.points[idx].normal_z + 1.0f)/2.0f
+                    };
+                };
             }
-        }
     };
 
 }

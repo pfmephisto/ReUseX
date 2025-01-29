@@ -4,25 +4,16 @@
 
 #include <functions/progress_bar.hh>
 
-#include <opencv4/opencv2/opencv.hpp>
-#include <opencv4/opencv2/ml.hpp>
-
 #include <string>
+#include <iostream> 
 
-
-// #include <highfive/H5Easy.hpp>
-// #include <highfive/highfive.hpp>
 #include <pcl/filters/conditional_removal.h>
 
 #include <fmt/core.h>
 #include <fmt/color.h>
 
-#include <iostream> 
-#include <opencv2/opencv.hpp> 
 
-// #include <xtensor/xtensor.hpp>
 #include <xtensor/xarray.hpp>
-
 #include <xtensor/xio.hpp>
 #include <xtensor/xview.hpp>
 #include <xtensor-io/xhighfive.hpp>
@@ -66,8 +57,8 @@ static std::vector<std::string> split(const std::string& target, char c)
 HighFive::DataType BoolMaskType = HighFive::AtomicType<uint8_t>();
 
 
-static constexpr typename ReUseX::PointCloud::Cloud::PointType::LableT Invalid = std::numeric_limits<ReUseX::PointCloud::Cloud::PointType::LableT>::max();
-static constexpr typename ReUseX::PointCloud::Cloud::PointType::LableT Deselected = std::numeric_limits<ReUseX::PointCloud::Cloud::PointType::LableT>::max()-1;
+static constexpr std::uint32_t Invalid = std::numeric_limits<std::uint32_t>::max();
+static constexpr std::uint32_t Deselected = std::numeric_limits<std::uint32_t>::max()-1;
 
 
 namespace ReUseX
@@ -181,7 +172,7 @@ namespace ReUseX
             // Reset the semantic field
             #pragma omp parallel for
             for (size_t i =0; i < cloud->size(); i++){
-                cloud->at(i).semantic = 0;
+                cloud->at(i).label = 0;
             }
 
 
@@ -212,7 +203,7 @@ namespace ReUseX
                 for (int y = row_start; y < row_end; y++){
                     for (int x = col_start; x < col_end; x++){
                         if (result_param_r.boxMask.at<uchar>(y - row_start, x - col_start) > 0.5)
-                            cloud->at(x, y).semantic = result_param_r.id;
+                            cloud->at(x, y).label = result_param_r.id;
                     }
                 }
             }
@@ -355,8 +346,8 @@ namespace ReUseX
         return *this;
     }
 
-    template PointCloudsInMemory  PointCloudsInMemory::annotate(std::string ,std::optional<Dataset> & );
-    template PointCloudsOnDisk  PointCloudsOnDisk::annotate(std::string ,std::optional<Dataset> & );
+    template PointCloudsInMemory  PointCloudsInMemory::annotate(std::string, std::optional<Dataset> & );
+    template PointCloudsOnDisk  PointCloudsOnDisk::annotate(std::string, std::optional<Dataset> & );
 
     template PointCloudsOnDisk  PointCloudsOnDisk::annotate_from_hdf5(std::string );
     template PointCloudsInMemory  PointCloudsInMemory::annotate_from_hdf5(std::string );

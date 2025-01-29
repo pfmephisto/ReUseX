@@ -1,5 +1,10 @@
 #include "functions/polyscope.hh"
+#include <polyscope/camera_view.h>
+
+#include <fmt/format.h>
+
 #include <iostream>
+
 
 
 namespace polyscope  {
@@ -65,36 +70,43 @@ namespace polyscope  {
             normal_vectors->setVectorLengthScale(0.0050);
             pcd->addColorQuantity("Normal Colors", PolyscopeMap<Field::Normal_color>(cloud));
             pcd->quantities["Normal Colors"]->setEnabled(true);
-            
         }
 
         // check if PointT has rgb
         if constexpr (pcl::traits::has_color_v<PointT>){
             pcd->addColorQuantity("RGB", PolyscopeMap<Field::RGB>(cloud));
             pcd->quantities["RGB"]->setEnabled(true);
+
+            // Set tranceparancy
+            auto t = pcd->addScalarQuantity("Trancparancy", PolyscopeMap<Field::Transparancy>(cloud));
+            pcd->setTransparencyQuantity(t);
         }
+
 
         // check if PointT has confidence
         if constexpr (pcl::traits::has_label_v<PointT>){
             pcd->addScalarQuantity("Lables", PolyscopeMap<Field::Lables>(cloud));
             pcd->addColorQuantity("Lables Colors", PolyscopeMap<Field::Lables_color>(cloud));
-            pcd->quantities["Lables Colors"]->setEnabled(true);
+            // pcd->quantities["Lables Colors"]->setEnabled(true);
         }
 
 
-        // pcd->addScalarQuantity("Confidence", PolyscopeMap<Field::Confidence>(cloud));
+        if (cloud.sensor_origin_ != Eigen::Vector4f::Zero () &&
+            cloud.sensor_orientation_ != Eigen::Quaternionf::Identity ())
+        {
 
-        // pcd->addScalarQuantity("Sematic Lables", PolyscopeMap<Field::Semantic>(cloud));
-        // pcd->addScalarQuantity("Instance Lables", PolyscopeMap<Field::Instance>(cloud));
-        // pcd->addScalarQuantity("Importance", PolyscopeMap<Field::Importance>(cloud));
-
-        // pcd->addColorQuantity("Confidence Colors", PolyscopeMap<Field::Confidence_color>(cloud));
-
-        // pcd->addColorQuantity("Sematic Colors", PolyscopeMap<Field::Semantic_color>(cloud));
-        // pcd->addColorQuantity("Instance Colors", PolyscopeMap<Field::Instance_color>(cloud));
-
-        // pcd->setPointRadiusQuantity("Importance", true);
-
+            auto matrix = cloud.sensor_orientation_.toRotationMatrix().normalized();
+            auto params = polyscope::CameraParameters(
+                polyscope::CameraIntrinsics::fromFoVDegVerticalAndAspect(62.0946013428906, 0.75), // https://stackoverflow.com/a/41137160
+                polyscope::CameraExtrinsics::fromVectors(
+                    glm::vec3{ cloud.sensor_origin_.coeff(0) , cloud.sensor_origin_.coeff(1),cloud.sensor_origin_.coeff(2)},
+                    glm::vec3{ matrix.coeff(0,2) , matrix.coeff(1,2), matrix.coeff(2,2)},
+                    glm::vec3{ -matrix.coeff(0,0) , -matrix.coeff(1,0), -matrix.coeff(2,0)})
+            );
+            auto view = polyscope::registerCameraView(fmt::format("View From Point Cloud {}", cloud.header.frame_id), params);
+            view->setWidgetColor({0.01, 0.01, 0.01});
+            view->setWidgetThickness(0.005);
+        }
     }
 
     template <>

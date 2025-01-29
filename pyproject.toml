@@ -13,6 +13,8 @@ dependencies = [
     "rhino3dm",
     "specklepy",
     "wheel",
+    "g2opy",
+    "mast3r"
     ]
 
 
@@ -40,8 +42,8 @@ wheel.py-api = "cp39" # https://scikit-build-core.readthedocs.io/en/latest/cmake
 cmake.version = "==3.22.1"
 ninja.version = "==1.10.1"
 wheel.license-files = ["LICENSE"]
-sdist.include = ["src/extern/**/*"]
 sdist.exclude = [".github", "test.py", ".gitignore", ".gitmodules",".clang-format"]
+sdist.include = ["src/extern/**/*"]
 cmake.args = [
     # Ensure that polyscope is not build to a directory with out write access
     # Otherwise the wheel will fail to build

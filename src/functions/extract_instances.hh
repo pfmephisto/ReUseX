@@ -19,7 +19,7 @@ namespace ReUseX {
         // Get all semantic labels
         auto semantic_labels_set = std::unordered_set<int>();
         for (auto point : cloud->points)
-            semantic_labels_set.insert(point.semantic);
+            semantic_labels_set.insert(point.label);
 
         // (cloud->points.begin(), cloud->points.end(), [](const PointT& point){
         //         return point.semantic;
@@ -40,8 +40,8 @@ namespace ReUseX {
             // Get all instance labels
             auto instance_labels_set = std::unordered_set<int>();
             for (auto point : cloud->points){
-                if (point.semantic == label)
-                    instance_labels_set.insert(point.instance);
+                if (point.label == label)
+                    instance_labels_set.insert(point.label);
             }
 
 
@@ -63,7 +63,7 @@ namespace ReUseX {
                 instances[label_str][j] = PointCloud();
 
                 std::copy_if(cloud->points.begin(), cloud->points.end(), std::back_inserter(instances[label_str][j]->points), [label, instance](const PointCloud::Cloud::PointType & point){
-                    return point.semantic == label && point.instance == instance;
+                    return point.label == label;
                 });
 
             }

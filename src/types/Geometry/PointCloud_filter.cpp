@@ -6,13 +6,13 @@
 
 namespace ReUseX
 {
-    void PointCloud::filter(typename PointCloud::Cloud::PointType::LableT value){
+    void PointCloud::filter(std::uint32_t value){
 
         // Only keep highest confidence
         ///////////////////////////////////////////////////////////////////////////////
         size_t j = 0;
         for (size_t k = 0; k < (*this)->size(); k++){
-            if ((*this)->at(k).confidence >= value){
+            if ((*this)->at(k).label >= value){
                 (*this)->at(j) = (*this)->at(k);
                 j++;
             }

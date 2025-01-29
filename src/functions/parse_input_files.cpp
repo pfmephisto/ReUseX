@@ -11,7 +11,6 @@
 #include <pcl/range_image/range_image.h> //TODO: TEST
 #include <pcl/point_types_conversion.h> //TODO: TEST
 #include <pcl/range_image/range_image_planar.h> //TODO: TEST
-#include <opencv2/core/eigen.hpp> // TODO: TEST
 #include <pcl/visualization/cloud_viewer.h>
 
 #include <pcl/filters/filter.h>
@@ -25,7 +24,7 @@
 
 #include <pcl/filters/conditional_removal.h>
 
-#include <functions/depth_to_3d.hh>
+
 #include <types/Yolo.hh>
 #include <types/Accumulators.hh>
 
@@ -50,6 +49,9 @@
 #include <mutex>
 #include <thread>
 #include <future>
+
+
+#include <opencv4/opencv2/imgproc.hpp>
 
 
 namespace fs = std::filesystem;
@@ -180,7 +182,7 @@ namespace ReUseX{
                 // cv::waitKey(0);
 
 
-                pcl::PointCloud<pcl::PointXYZRGBL>::Ptr cloud = pcl::PointCloud<pcl::PointXYZRGBL>::Ptr(new pcl::PointCloud<pcl::PointXYZRGBL>);
+                pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud = pcl::PointCloud<pcl::PointXYZRGBA>::Ptr(new pcl::PointCloud<pcl::PointXYZRGBA>);
                 pcl::copyPointCloud(*points, *cloud);
 
                 auto width = points->width;
@@ -195,11 +197,11 @@ namespace ReUseX{
 
                 #pragma omp parallel for shared(cloud, image, confidence)
                 for (size_t idx = 0; idx < cloud->size(); idx++){
-                    cloud->at(idx).label = static_cast<uint32_t>(confidence(idx));
                     cv::Vec3b vec = image.at<cv::Vec3b>(idx);
                     cloud->at(idx).r = vec[0];
                     cloud->at(idx).g = vec[1];
                     cloud->at(idx).b = vec[2];
+                    cloud->at(idx).a = (confidence(idx) == 2) ? 255 : (confidence(idx) == 1) ? 50 : 0;
                 }
 
 
@@ -228,22 +230,12 @@ namespace ReUseX{
 
 
 
-                // // Compute surface normals and curvature
-                // pcl::NormalEstimationOMP<pcl::PointXYZRGBL, pcl::PointXYZRGBL> ne;
-                // pcl::search::KdTree<pcl::PointXYZRGBL>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZRGBL> ());
-                // ne.setSearchMethod(tree);
-                // // ne.setRadiusSearch (0.05);
-                // ne.setKSearch(15);
-                // ne.setInputCloud(cloud);
-                // ne.compute(*cloud);
-
-
                 // Save cloud
                 std::filesystem::create_directory(output_path);
                 std::filesystem::path file_path(fmt::format("{}/cloud_{}.pcd", output_path, cloud->header.frame_id));
 
                 
-                save<pcl::PointXYZRGBL>(file_path, cloud);
+                save<pcl::PointXYZRGBA>(file_path, cloud);
 
                 progress_bar.update();
             }

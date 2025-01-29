@@ -2,7 +2,11 @@
 #include <vector>
 #include <exception>
 #include <optional>
-#include <opencv4/opencv2/opencv.hpp>
+
+#include <opencv4/opencv2/core/types.hpp>
+#include <opencv4/opencv2/core/mat.hpp>
+#include <opencv4/opencv2/imgproc.hpp>
+#include <opencv4/opencv2/dnn/dnn.hpp>
 
 
 namespace ReUseX{

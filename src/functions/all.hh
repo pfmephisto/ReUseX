@@ -1,7 +1,9 @@
 #pragma once
 
-#include <functions/progress_bar.hh>
-#include <functions/fit_plane_thorugh_points.hh>
-#include <functions/parse_input_files.hh>
-#include <functions/polyscope.hh>
-#include <functions/extract_instances.hh>
+#include "compute_normals.hh"
+#include "progress_bar.hh"
+#include "fit_plane_thorugh_points.hh"
+#include "parse_input_files.hh"
+#include "polyscope.hh"
+#include "extract_instances.hh"
+#include "slam.hh"

@@ -1,19 +1,23 @@
-namespace ReUseX
-// #include <pcl/pcl_base.h>
+#pragma once
+
+#include <filesystem>
 #include <pcl/io/pcd_io.h>
 
+namespace fs =  std::filesystem;
+
+namespace ReUseX
 {
 
     /// @brief Save the header to a file.
     /// @param header
     /// @param output_path
     /// @return
-    static int save_header(std::filesystem::path const& output_path, typename pcl::PCLHeader const& header){
+    static int save_header(fs::path const& output_path, typename pcl::PCLHeader const& header){
 
-        std::filesystem::path p(output_path);
+        fs::path p(output_path);
         p.replace_extension(".head");
 
-        std::filesystem::exists(p) ? std::filesystem::remove(p) : std::filesystem::create_directories(p.parent_path());
+        fs::exists(p) ? fs::remove(p) : fs::create_directories(p.parent_path());
 
         std::ofstream header_file(p);
         if (header_file.is_open()){
@@ -29,13 +33,13 @@ namespace ReUseX
     /// @brief Load the header from a file.
     /// @param filename
     /// @return pcl::PCLHeader
-    static pcl::PCLHeader load_header(std::filesystem::path const& filename) {
+    static pcl::PCLHeader load_header(fs::path const& filename) {
         pcl::PCLHeader header;
 
-        std::filesystem::path head(filename);
+        fs::path head(filename);
         head.replace_extension(".head");
 
-        if (std::filesystem::exists(head)){
+        if (fs::exists(head)){
             std::ifstream header_file(head);
             if (header_file.is_open()){
                 header_file >> header.frame_id;
@@ -53,7 +57,7 @@ namespace ReUseX
     /// @param output_path 
     /// @return 
     template<typename PointT>
-    static int save(std::filesystem::path const & output_path, typename pcl::PointCloud<PointT>::Ptr const& cloud){
+    static int save(fs::path const & output_path, typename pcl::PointCloud<PointT>::Ptr const& cloud){
 
         auto resutl = pcl::io::savePCDFile(output_path, *cloud, true);
 
@@ -67,7 +71,7 @@ namespace ReUseX
     /// @param input_path
     /// @return
     template<class PointT>
-    static typename pcl::PointCloud<PointT>::Ptr load(std::filesystem::path const& input_path){
+    static typename pcl::PointCloud<PointT>::Ptr load(fs::path const& input_path){
 
         using CloudPtr = typename pcl::PointCloud<PointT>::Ptr;
 

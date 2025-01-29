@@ -67,7 +67,7 @@ namespace ReUseX
             }
 
             // Modify the point clouds
-            PointClouds filter( typename PointCloud::Cloud::PointType::LableT value = 2);
+            PointClouds filter( std::uint32_t value = 2);
             PointClouds register_clouds();
             PointClouds annotate(std::string yolo_path, std::optional<Dataset> & dataset);
             PointClouds annotate_from_hdf5(std::string hdf5_path);

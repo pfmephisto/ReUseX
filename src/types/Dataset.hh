@@ -1,6 +1,7 @@
 #pragma once
 #include "./Data.hh"
 
+#include <future>
 #include <filesystem>
 #include <initializer_list>
 #include <vector>
@@ -8,8 +9,6 @@
 #include <map>
 #include <any>
 #include <Eigen/Dense>
-#include <opencv4/opencv2/opencv.hpp>
-
 
 namespace ReUseX {
 
@@ -27,6 +26,7 @@ namespace ReUseX {
         int                                 _rgb_hight         = 1440;
         int                                 _depth_width       = 256;
         int                                 _depth_hight       = 192;
+        std::future<void>                   _asyncConstructor;
 
 
     

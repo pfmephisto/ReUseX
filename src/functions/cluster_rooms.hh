@@ -14,11 +14,9 @@
 
 #include <embree3/rtcore.h>
 
-#include <opencv4/opencv2/opencv.hpp>
+#include <opencv4/opencv2/core/matx.hpp>
+
 #include <omp.h>
-
-#include <opencv4/opencv2/core/eigen.hpp>
-
 
 #define UseIntersection 0
 #define SaveMatrix 0
@@ -34,7 +32,7 @@ public:
     // Overloaded function operator to be used as a functor
     bool operator()(const pcl::PointCloud<PointT> & cloud, pcl::index_t index)
     {
-        auto is_inventory = 0 != cloud.points[index].semantic;
+        auto is_inventory = 0 != cloud.points[index].label;
         auto is_surface = 0 != cloud.points[index].label;
 
         return !is_inventory && is_surface;
@@ -788,7 +786,7 @@ namespace ReUseX
 
             #pragma omp parallel for
             for(const auto & index : point_map[int_to_id[(int)member_i]]){
-                cloud->points[index].instance = cluster_j;
+                cloud->points[index].label = cluster_j;
                 #pragma omp critical
                 cluster_map[cluster_j].push_back(index);
             }

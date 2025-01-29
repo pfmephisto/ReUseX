@@ -42,54 +42,46 @@ using Direction = ReUseX::Direction;
 using Color = ReUseX::Color;
 using AABB = ReUseX::AABB;
 
+
+
 struct EIGEN_ALIGN16 PointT
 {
-    using LableT = std::uint32_t;
-    PCL_ADD_POINT4D; // This adds the members x,y,z which can also be accessed using the point (which is float[4])
-    PCL_ADD_NORMAL4D; // This adds the member normal[3] which can also be accessed using the point (which is float[4])
-    union EIGEN_ALIGN16 {
-        LableT data_i[4];
-        struct{
-            LableT confidence;
-            LableT semantic;
-            LableT instance;
-            LableT label;
-        };
-    };
+    PCL_ADD_POINT4D // This adds the members x,y,z which can also be accessed using the point (which is float[4])
+    PCL_ADD_NORMAL4D // This adds the member normal[3] which can also be accessed using the point (which is float[4])
     union
     {
       struct
       {
-        PCL_ADD_UNION_RGB;
+        PCL_ADD_UNION_RGB
         float curvature;
+        std::uint32_t label;
       };
       float data_c[4];
     };
-    PCL_ADD_EIGEN_MAPS_RGB;
+    PCL_ADD_EIGEN_MAPS_RGB
 
+    // inline PointT (float _curvature = 0.f):
+    //     PointT (0.f, 0.f, 0.f,  0, 0, 0, 0.f, 0.f, 0.f, _curvature) {}
 
-    inline PointT (float _curvature = 0.f):
-        PointT (0.f, 0.f, 0.f, 0, 0, 0, 0.f, 0.f, 0.f, _curvature) {}
+    // inline PointT (float _x, float _y, float _z):
+    //   PointT (_x, _y, _z, 0, 0, 0) {}
 
-    inline PointT (float _x, float _y, float _z):
-      PointT (_x, _y, _z, 0, 0, 0) {}
+    // inline PointT (std::uint8_t _r, std::uint8_t _g, std::uint8_t _b):
+    //   PointT (0.f, 0.f, 0.f, _r, _g, _b) {}
 
-    inline PointT (std::uint8_t _r, std::uint8_t _g, std::uint8_t _b):
-      PointT (0.f, 0.f, 0.f, _r, _g, _b) {}
+    // inline PointT (float _x, float _y, float _z, std::uint8_t _r, std::uint8_t _g, std::uint8_t _b):
+    //   PointT (_x, _y, _z, _r, _g, _b, 0.f, 0.f, 0.f) {}
 
-    inline PointT (float _x, float _y, float _z, std::uint8_t _r, std::uint8_t _g, std::uint8_t _b):
-      PointT (_x, _y, _z, _r, _g, _b, 0.f, 0.f, 0.f) {}
-
-    inline PointT (float _x, float _y, float _z, std::uint8_t _r, std::uint8_t _g, std::uint8_t _b,
-                              float n_x, float n_y, float n_z, float _curvature = 0.f){
-      x = _x; y = _y; z = _z;
-      data[3] = 1.0f;
-      r = _r; g = _g; b = _b;
-      a = 255;
-      normal_x = n_x; normal_y = n_y; normal_z = n_z;
-      data_n[3] = 0.f;
-      curvature = _curvature;
-    }
+    // inline PointT (float _x, float _y, float _z, std::uint8_t _r, std::uint8_t _g, std::uint8_t _b,
+    //                           float n_x, float n_y, float n_z){
+    //   x = _x; y = _y; z = _z;
+    //   data[3] = 1.0f;
+    //   r = _r; g = _g; b = _b;
+    //   a = 255;
+    //   normal_x = n_x; normal_y = n_y; normal_z = n_z;
+    //   data_n[3] = 0.f;
+    //   // curvature = _curvature;
+    // }
 
     inline Point getPos () const { return (Point(x, y, z)); }
     inline Color getColor () const { return (Color(r, g, b)); }
@@ -101,7 +93,7 @@ struct EIGEN_ALIGN16 PointT
         os << " - ";
         os << " (" << p.normal_x << ", " << p.normal_y << ", " << p.normal_z << ")";
         os << " - ";
-        os << " (" << p.confidence << ", " << p.semantic << ", " << p.instance << ", " << p.label << ")";
+        os << " (" << p.label << ")";
         return os;
     }
     
@@ -110,20 +102,46 @@ struct EIGEN_ALIGN16 PointT
 
 
 
+struct EIGEN_ALIGN16 PointXYZRGBANormal
+{
+    PCL_ADD_POINT4D // This adds the members x,y,z which can also be accessed using the point (which is float[4])
+    PCL_ADD_NORMAL4D // This adds the member normal[3] which can also be accessed using the point (which is float[4])
+    union
+    {
+      struct
+      {
+        PCL_ADD_UNION_RGB
+        float curvature;
+      };
+      float data_c[4];
+    };
+    PCL_ADD_EIGEN_MAPS_RGB
+    PCL_MAKE_ALIGNED_OPERATOR_NEW
+};
+
+
 
 POINT_CLOUD_REGISTER_POINT_STRUCT(PointT,  
     (float, x, x)
     (float, y, y)
     (float, z, z)
-    (float, rgb, rgb)
     (float, normal_x, normal_x)
     (float, normal_y, normal_y)
     (float, normal_z, normal_z)
+    (std::uint32_t, rgba, rgba)
     (float, curvature, curvature)
-    (PointT::LableT, confidence, confidence)
-    (PointT::LableT, semantic, semantic)
-    (PointT::LableT, instance, instance)
-    (PointT::LableT, label, label)
+    (std::uint32_t, label, label)
+);
+
+POINT_CLOUD_REGISTER_POINT_STRUCT(PointXYZRGBANormal,  
+    (float, x, x)
+    (float, y, y)
+    (float, z, z)
+    (float, normal_x, normal_x)
+    (float, normal_y, normal_y)
+    (float, normal_z, normal_z)
+    (std::uint32_t, rgba, rgba)
+    (float, curvature, curvature)
 )
 
 
@@ -181,7 +199,7 @@ namespace ReUseX{
         AABB get_bbox() const; 
 
         /// @brief Transform the point cloud.
-        void filter( PointCloud::Cloud::PointType::LableT value = 2); 
+        void filter( std::uint32_t value = 2); 
 
         /// @brief Register the point cloud.
         void downsample(double leaf_size = 0.02f);

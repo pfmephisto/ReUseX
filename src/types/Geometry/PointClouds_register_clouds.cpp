@@ -72,7 +72,7 @@ void pairAlign (
     if (confidence_filter.has_value()){
         pcl::ConditionAnd<PointT>::Ptr range_cond (new pcl::ConditionAnd<PointT> ());
         range_cond->addComparison (pcl::FieldComparison<PointT>::ConstPtr (new
-            pcl::FieldComparison<PointT>("confidence", pcl::ComparisonOps::EQ, confidence_filter.value())
+            pcl::FieldComparison<PointT>("label", pcl::ComparisonOps::EQ, confidence_filter.value())
             ));
 
         // build the filter

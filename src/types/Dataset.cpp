@@ -7,6 +7,9 @@
 #include <optional>
 #include <fmt/printf.h>
 
+#include <opencv4/opencv2/videoio.hpp>
+#include <opencv4/opencv2/imgproc.hpp>
+
 #define CHECK_EXSISTANCE(path, file) if (!std::filesystem::exists(path / file)){ fmt::printf("{} does not exist\n", file); break; }
 
 
@@ -217,65 +220,67 @@ Dataset::Dataset(const std::filesystem::path & path, const std::initializer_list
 
     // TODO: Rather implement this as lazy loading.
 
-    // Load data
-    for (auto field : fields) {
-        switch (field) {
+    _asyncConstructor = std::async(std::launch::async, [&](){ 
+        // Load data
+        for (auto field : fields) {
+            switch (field) {
 
-            case Field::COLOR:
-                CHECK_EXSISTANCE(path , "rgb.mp4");
-                _fields.insert(field);
-                break;
+                case Field::COLOR:
+                    CHECK_EXSISTANCE(path , "rgb.mp4");
+                    _fields.insert(field);
+                    break;
 
-            case Field::DEPTH:
-                CHECK_EXSISTANCE(path , "depth")
+                case Field::DEPTH:
+                    CHECK_EXSISTANCE(path , "depth")
 
-                // Get depth image paths
-                std::transform(
-                    std::filesystem::directory_iterator(path / "depth"), 
-                    std::filesystem::directory_iterator(), std::back_inserter(_depth_paths), 
-                    [](const auto& entry){return entry.path();});
-                std::sort(_depth_paths.begin(), _depth_paths.end());
-                _fields.insert(field);
-                break;
+                    // Get depth image paths
+                    std::transform(
+                        std::filesystem::directory_iterator(path / "depth"), 
+                        std::filesystem::directory_iterator(), std::back_inserter(_depth_paths), 
+                        [](const auto& entry){return entry.path();});
+                    std::sort(_depth_paths.begin(), _depth_paths.end());
+                    _fields.insert(field);
+                    break;
 
-            case Field::CONFIDENCE:
-                CHECK_EXSISTANCE(path , "confidence" );
+                case Field::CONFIDENCE:
+                    CHECK_EXSISTANCE(path , "confidence" );
 
-                // Get depth image paths
-                std::transform(
-                    std::filesystem::directory_iterator(path / "confidence"), 
-                    std::filesystem::directory_iterator(), std::back_inserter(_confidence_paths), 
-                    [](const auto& entry){return entry.path();});
-                std::sort(_confidence_paths.begin(), _confidence_paths.end());
-                _fields.insert(field);
-                break;
+                    // Get depth image paths
+                    std::transform(
+                        std::filesystem::directory_iterator(path / "confidence"), 
+                        std::filesystem::directory_iterator(), std::back_inserter(_confidence_paths), 
+                        [](const auto& entry){return entry.path();});
+                    std::sort(_confidence_paths.begin(), _confidence_paths.end());
+                    _fields.insert(field);
+                    break;
 
-            case Field::POSES:
-                _fields.insert(field);
-                // Chontious fall thorugh, since poses are dependent on Odemetry
+                case Field::POSES:
+                    _fields.insert(field);
+                    // Chontious fall thorugh, since poses are dependent on Odemetry
 
-            case Field::ODOMETRY:
-                CHECK_EXSISTANCE(path , "odometry.csv" );
+                case Field::ODOMETRY:
+                    CHECK_EXSISTANCE(path , "odometry.csv" );
 
-                _odometry_data = read_odometry(_path /"odometry.csv").value();
-                _fields.insert(field);
-                break;
-                
+                    _odometry_data = read_odometry(_path /"odometry.csv").value();
+                    _fields.insert(field);
+                    break;
+                    
 
+                case Field::IMU:
+                    CHECK_EXSISTANCE(path , "imu.csv" );
 
-            case Field::IMU:
-                CHECK_EXSISTANCE(path , "imu.csv" );
-
-                _imu_data = read_imu(_path /"imu.csv").value();
-                _fields.insert(field);
-                break;
-            default:
-                throw std::runtime_error("Unknown field");
+                    _imu_data = read_imu(_path /"imu.csv").value();
+                    _fields.insert(field);
+                    break;
+                default:
+                    throw std::runtime_error("Unknown field");
+            }
         }
-    }
+    });
 };
 
 Eigen::Matrix<double, 3, 3> Dataset::intrinsic_matrix() const {
+    _asyncConstructor.wait();
     auto matrix = read_camera_matrix( _path / "camera_matrix.csv").value();
 
     // Scale intrinsic matrix to match depth image size
@@ -294,6 +299,7 @@ Data Dataset::operator[] (int idx) const {
 
     // TODO: Check if idx is in range
 
+    _asyncConstructor.wait();
 
     Data data;
     for (auto field : _fields) {
@@ -325,6 +331,7 @@ Data Dataset::operator[] (int idx) const {
 
 void Dataset::display(std::string name, bool show) const {
     polyscope::myinit();
+    _asyncConstructor.wait();
     polyscope::display<const Dataset &>(*this, name);
     if (show) polyscope::myshow();
 }

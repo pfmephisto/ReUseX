@@ -26,7 +26,7 @@ public:
     // Overloaded function operator to be used as a functor
     bool operator()(const pcl::PointCloud<PointT> & cloud, pcl::index_t index)
     {
-        return value_ == cloud.points[index].semantic;
+        return value_ == cloud.points[index].label;
     }
 
 private:
@@ -46,7 +46,7 @@ void ReUseX::PointCloud::clustering(
     // Create a set of all labes
     std::unordered_set<int32_t> lables;
     for (size_t i = 0; i < (*this)->points.size(); ++i)
-        lables.insert((*this)->points[i].semantic);
+        lables.insert((*this)->points[i].label);
     
     lables.erase(0U); //Do not cluster the unlabeled points
 
@@ -78,7 +78,7 @@ void ReUseX::PointCloud::clustering(
         //#pragma omp parallel // for collapse(2)
         for (size_t j = 0; j < cluster_indices.size(); j++)
             for (size_t k = 0; k < cluster_indices[j].indices.size(); k++)
-                (*this)->points[cluster_indices[j].indices[k]].instance = j + 1;
+                (*this)->points[cluster_indices[j].indices[k]].label = j + 1;
 
         bar.update();
     }

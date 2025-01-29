@@ -160,6 +160,8 @@ if(Off)
 
     find_package(HighFive REQUIRED)
 
+    find_package(g2o REQUIRED)
+
 else()
 
 # ===============================================
@@ -183,6 +185,7 @@ else()
 
 
 
+
 # ===============================================
 # add submodules
 
@@ -193,6 +196,11 @@ else()
     add_subdirectory(extern/hdf5)
 
     add_subdirectory(extern/highfive)
+
+
+
+    set(OpenGL_GL_PREFERENCE  "GLVND") # use GLVND OpenGL library instead of legacy.
+    find_package(g2o REQUIRED)
 
 endif()
 

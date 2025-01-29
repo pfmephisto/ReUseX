@@ -19,38 +19,72 @@
       pkgs = import nixpkgs { 
         inherit system; 
        config = {
-          # allowUnfree = true;  # Allow unfree packages globally in this flake
-          allowUnfreePredicate = pkg: builtins.elem (lib.getName pkg) [
-             # Gurobi Solver
-             "gurobi" 
-             "gurobipy"
 
-             # CUDA Support in PCL an OpenCV
-             "cuda_nvcc"
-             "cuda_cudart"
-             "cuda_cccl"
-             "libnpp"
-             "libcublas"
-             "libcufft"
-             "cuda-merged"
-             "cuda_cuobjdump"
-             "cuda_gdb"
-             "cuda_nvdisasm"
-             "cuda_nvprune"
-             "cuda_cupti"
-             "cuda_cuxxfilt"
-             "cuda_nvml_dev"
-             "cuda_nvrtc"
-             "cuda_nvtx"
-             "cuda_profiler_api"
-             "cuda_sanitizer_api"
-             "libcurand"
-             "libcusolver"
-             "libnvjitlink"
-             "libcusparse"
-             "cudnn"
-           ];
+        cudaSupport = true;
+        allowUnfreePredicate = pkg: builtins.elem (lib.getName pkg) [
+          # Python model
+          "mast3r"
+
+          # Gurobi Solver
+          "gurobi" 
+          "gurobipy"
+
+          # CUDA Support in PCL an OpenCV
+          "cuda_nvcc"
+          "cuda_cudart"
+          "cuda_cccl"
+          "libnpp"
+          "libcublas"
+          "libcufft"
+          "cuda-merged"
+          "cuda_cuobjdump"
+          "cuda_gdb"
+          "cuda_nvdisasm"
+          "cuda_nvprune"
+          "cuda_cupti"
+          "cuda_cuxxfilt"
+          "cuda_nvml_dev"
+          "cuda_nvrtc"
+          "cuda_nvtx"
+          "cuda_profiler_api"
+          "cuda_sanitizer_api"
+          "libcurand"
+          "libcusolver"
+          "libnvjitlink"
+          "libcusparse"
+          "cudnn"
+
+          ];
        };
+       
+       overlays = [
+        (final: prev: {
+          # Fix the CUDA environment for the suiteSparse package
+          suitesparse = prev.suitesparse.override (old: {
+            stdenv = if pkgs.config.cudaSupport then pkgs.cudaPackages.backendStdenv else pkgs.stdenv;
+            });
+          })
+        (final: prev: {
+          # Change PCL to the main branch
+          pcl = prev.pcl.overrideAttrs (old: {
+            pname = "pcl";
+            # version = "1.14.1";
+            version = "6e4eb4e0c1222adcaddd32ccfd6dbcb08746f25c";
+            src = pkgs.fetchFromGitHub {
+              owner = "PointCloudLibrary";
+              repo = "pcl";
+              rev = "6e4eb4e0c1222adcaddd32ccfd6dbcb08746f25c";
+              sha256 = "sha256-OHzJwTtv+7CR+0UfyP0qB64lzFgUJG/0RWVreWo7KO8=";
+              # sha256 = lib.fakeSha256;
+            };
+          });
+         })
+        # (final: prev: (prev.lib.packagesFromDirectoryRecursive {
+        #     callPackage = prev.lib.callPackageWith final;
+        #     directory = ./pkgs;
+        #   })
+        #  )
+       ];
       };
 
       # hacks = pkgs.callPackage pyproject-nix.build.hacks {};
@@ -78,10 +112,15 @@
         in{
           rhino3dm =  localPackages.rhino3dm;
           specklepy = localPackages.specklepy;
+          g2opy = localPackages.g2opy;
+          mast3r = localPackages.mast3r;
         };
       };
 
+      localPackages = self.packages.${system};
+
       # Load the pyproject.toml file
+      pyproject = builtins.fromTOML (builtins.readFile ./pyproject.toml);
       project = pyproject-nix.lib.project.loadPyproject {
         projectRoot = ./.;
       };
@@ -174,8 +213,8 @@
             homepage = "https://polyscope.run/";
             license = licenses.mit;
             maintainers = with maintainers; [  ];
-          };};
-
+          };
+        };
         opennurbs = pkgs.stdenv.mkDerivation {
           pname = "opennurbs";
           version = "v8.13.24317.13001";
@@ -218,78 +257,209 @@
 
 
 
-          # installPhase = ''
-          # echo AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-          # ls -lp 
-          # echo ""
-          # # make install
-          # '';
-
-          # installPhase = ''
-          #   mkdir -p $out/include
-          #   cp -r * $out/include
-
-          #   # Create the CMake module directory
-          #   mkdir -p $dev/share/cmake/OpenNURBS
-          #   # Write the polyscopeConfig.cmake file to this directory
-          #   cat > $dev/share/cmake/OpenNURBS/OpenNURBSConfig.cmake << 'EOF'
-          #   # FindOpenNURBS.cmake
-          #   #[============[
-          #   FindOpenNURBS
-          #   --------------
-          #   Find the OpenNURBS library and headers.
-
-          #   This module searches for the OpenNURBS library and sets the following variables:
-
-          #   Result Variables
-          #   ^^^^^^^^^^^^^^^^
-          #   - `OpenNURBS_FOUND`: Set to `True` if OpenNURBS is found.
-
-          #   Cache Variables
-          #   ^^^^^^^^^^^^^^^
-          #   - `OpenNURBS_INCLUDE_DIRS`: Directories containing OpenNURBS header files.
-          #   - `OpenNURBS_LIBRARIES`: Paths to the OpenNURBS library files.
-
-          #   ]============]
-
-          #   # Locate the OpenNURBS headers
-          #   find_path(OpenNURBS_INCLUDE_DIR
-          #     NAMES opennurbs.h
-          #     PATHS $${CMAKE_CURRENT_LIST_DIR}/../include
-          #     PATH_SUFFIXES opennurbs
-          #   )
-
-          #   # Locate the OpenNURBS library
-          #   find_library(OpenNURBS_LIBRARY
-          #     NAMES opennurbs
-          #     PATHS $${CMAKE_CURRENT_LIST_DIR}/../lib
-          #   )
-
-          #   # Set result variables
-          #   if (OpenNURBS_INCLUDE_DIR AND OpenNURBS_LIBRARY)
-          #     set(OpenNURBS_FOUND True)
-          #     message(STATUS "Found OpenNURBS: $${OpenNURBS_LIBRARY}")
-          #   else()
-          #     set(OpenNURBS_FOUND False)
-          #     message(WARNING "Could not find OpenNURBS")
-          #   endif()
-
-          #   # Set include directories and libraries
-          #   if (OpenNURBS_FOUND)
-          #     set(OpenNURBS_INCLUDE_DIRS $${OpenNURBS_INCLUDE_DIR})
-          #     set(OpenNURBS_LIBRARIES $${OpenNURBS_LIBRARY})
-          #   endif()
-
-          #   # Mark as advanced so these variables aren't accidentally overridden
-          #   mark_as_advanced(OpenNURBS_INCLUDE_DIR OpenNURBS_LIBRARY)
-          #   EOF
-          # '';
 
           meta = with lib; {
             description = "OpenNURBS libraries allow anyone to read and write the 3DM file format without the need for Rhino. ";
             license = licenses.mit;
             maintainers = with maintainers; [  ];
-          };};
+          };
+        };
+        xtensor-io = pkgs.stdenv.mkDerivation {
+
+          stdenv = if pkgs.config.cudaSupport then pkgs.cudaPackages.backendStdenv else pkgs.stdenv;
+
+          pname = "xtensor-io";
+          version = "0.13.0";
+
+          src = pkgs.fetchFromGitHub {
+            owner = "xtensor-stack";
+            repo = "xtensor-io";
+            rev = "a96674992af48b75c14b1ee6c4580d7abd979afe";
+            fetchSubmodules = true;
+            sha256 = "sha256-Jm0q7U2rULPVEeluuaKJanNPVNdcfrjYeKdWzWJSMXo=";
+            # sha256 = lib.fakeSha256;
+          };
+
+          propagatedBuildInputs = with pkgs; [
+            xtensor
+            ghc_filesystem
+          ];
+
+          cmakeFlags = [ "-DCMAKE_INSTALL_LIBDIR=share" ];
+
+          buildInputs = with pkgs; [
+            cmake
+          ];
+
+          meta = with lib; {
+            description = "xtensor plugin to read and write images, audio files, numpy (compressed) npz and HDF5";
+            license = licenses.bsd3;
+            maintainers = with maintainers; [  ];
+          };
+        };
+        g2o = pkgs.g2o.overrideAttrs (old: {
+
+          version = "pymem";
+
+          patches = [
+          (builtins.toFile "inline-patch" ''
+            diff --git a/python/CMakeLists.txt b/python/CMakeLists.txt
+            index 010e6551..4ddd0cb2 100644
+            --- a/python/CMakeLists.txt
+            +++ b/python/CMakeLists.txt
+            @@ -1,13 +1,6 @@
+            -# download pybind11
+            -include(FetchContent)
+            -FetchContent_Declare(
+            -  pybind11
+            -  GIT_REPOSITORY https://github.com/pybind/pybind11.git
+            -  GIT_TAG        v2.13.6
+            -)
+            +find_package(pybind11)
+             # For Windows: Prevent overriding the parent project's compiler/linker settings
+             set(PYBIND11_FINDPYTHON ON)
+            -FetchContent_MakeAvailable(pybind11)
+            
+             if (TARGET simulator_lib)
+             set(PYSIM_SRC "simulator/py_simulator.cpp")
+            '')
+          ];
+
+          src = pkgs.fetchFromGitHub {
+            owner = "RainerKuemmerle";
+            repo = "g2o";
+            rev = "c203321596a38502cb3008a3883805cb91d3535a";
+            sha256 = "sha256-oGOzQpU0BW0KDjUZPK0pYjknio2rC2dQoDVLWrIb+SI=";
+            # sha256 = lib.fakeSha256;
+          };
+
+          nativeBuildInputs = (old.nativeBuildInputs or []) ++ (with pkgs; [
+            git
+          ]);
+
+          buildInputs = (old.buildInputs or []) ++ (with pkgs; [
+            python3Packages.pybind11
+            nlohmann_json
+          ]);
+
+          cmakeFlags = (old.cmakeFlags or []) ++ [
+            "-DG2O_BUILD_PYTHON=ON"
+          ];
+
+        });
+
+
+        g2opy = pkgs.python3.pkgs.buildPythonPackage rec {
+
+          stdenv = if pkgs.config.cudaSupport then pkgs.cudaPackages.backendStdenv else pkgs.stdenv;
+
+          pname = "g2o";
+          version = "0.0.1";
+          # format = "other";
+
+
+          dontUnpack = true;
+          pyproject = false;
+
+          propagatedBuildInputs = [
+            python
+          ];
+
+          installPhase = ''
+            echo "Installing the package"2
+
+            mkdir -p "$out/${python.sitePackages}/g2o"
+            export PYTHONPATH="$out/${python.sitePackages}:$PYTHONPATH"
+
+            cp -r ${localPackages.g2o}/g2o/* $out/${python.sitePackages}/g2o
+            # touch $out/${python.sitePackages}/g2o/__init__.py
+
+            echo "Finished installing the package"
+          '';
+          
+        };
+        mast3r = pkgs.python3.pkgs.buildPythonPackage rec {
+
+          pname = "mast3r";
+          version = "e06b009";
+
+          src = pkgs.fetchFromGitHub {
+            owner = "naver";
+            repo = "mast3r";
+            fetchSubmodules = true;
+            rev = "e06b0093ddacfd8267cdafe5387954a650af0d3b";
+            # sha256 = lib.fakeSha256;
+            sha256 = "sha256-xkLHkaQ3YrYETKB16EoUiiz51A9IaAXTihA1QVVg7T8=";
+          };
+
+          patches = [
+            (builtins.toFile "inline-patch" ''
+              diff --git a/pyproject.toml b/pyproject.toml
+              new file mode 100644
+              index 0000000..49f1eb5
+              --- /dev/null
+              +++ b/pyproject.toml
+              @@ -0,0 +1,34 @@
+              +[build-system]
+              +requires = ["setuptools>=42", "wheel"]
+              +build-backend = "setuptools.build_meta"
+              +
+              +[project]
+              +name = "mast3r"
+              +version = "0.1.0"  # Update this based on the actual version
+              +description = "MAST3R: Multimodal reasoning for situational awareness"
+              +#authors = [
+              +#    {name = "NAVER AI Lab", email = "your-email@domain.com"}  # Update the email address
+              +#]
+              +license = {file = "LICENSE"}
+              +readme = "README.md"
+              +requires-python = ">=3.8"  # Adjust Python version based on the project requirements
+              +keywords = ["multimodal", "reasoning", "AI", "situational-awareness"]
+              +classifiers = [
+              +    "Programming Language :: Python :: 3",
+              +    "License :: OSI Approved :: Apache Software License",  # Update if a different license applies
+              +    "Operating System :: OS Independent",
+              +]
+              +
+              +[project.urls]
+              +Homepage = "https://github.com/naver/mast3r"
+              +Source = "https://github.com/naver/mast3r"
+              +Issues = "https://github.com/naver/mast3r/issues"
+              +
+              +[tool.setuptools]
+              +packages = ["mast3r", "dust3r"]
+              +
+              +[tool.setuptools.package-dir]
+              +# Define the root directory for these packages
+              +"mast3r" = "."
+              +"dust3r" = "."
+              +
+              +#[project.dependencies]
+              +# List dependencies here. Add them if they are mentioned in the project's requirements.
+              +#torch = ">=1.10.0"
+              +#numpy = ">=1.21.0"
+              +#opencv-python = ">=4.5.0"
+              +#scipy = ">=1.7.0"
+              +# Add any other dependencies the project requires.
+            '')
+          ];
+
+          format = "pyproject";
+
+          buildInputs = with pkgs; [
+            python3Packages.setuptools
+          ];
+
+
+          # Metadata (optional)
+          meta = with lib; {
+            description = "Grounding Image Matching in 3D with MASt3R ";
+            license = licenses.cc-by-nc-sa-40;
+            homepage = "https://github.com/naver/mast3r";
+          };
+
+
+        };
         rhino3dm = pkgs.python3Packages.buildPythonPackage rec {
 
           pname = "rhino3dm";
@@ -324,17 +494,13 @@
             cmake
           ];
 
-          # cmakeFlags = [
-          #   # "-DROOT_PATH=src/"
-          # ];
-
-          # doCheck = false;
 
           meta = with lib; {
             description = "";
             license = licenses.bsd3;
             maintainers = with maintainers; [  ];
-          };};
+          };
+        };
         specklepy = pkgs.python3.pkgs.buildPythonPackage {
 
           pname = "specklepy";
@@ -427,108 +593,18 @@
             description = "xtensor plugin to read and write images, audio files, numpy (compressed) npz and HDF5";
             license = licenses.bsd3;
             maintainers = with maintainers; [  ];
-          };};
-
-        highfive = pkgs.highfive;
-        xtensor = pkgs.xtensor;
-        xtensor-io = pkgs.stdenv.mkDerivation {
-          pname = "xtensor-io";
-          version = "0.13.0";
-
-          src = pkgs.fetchFromGitHub {
-            owner = "xtensor-stack";
-            repo = "xtensor-io";
-            rev = "a96674992af48b75c14b1ee6c4580d7abd979afe";
-            fetchSubmodules = true;
-            sha256 = "sha256-Jm0q7U2rULPVEeluuaKJanNPVNdcfrjYeKdWzWJSMXo=";
-            # sha256 = lib.fakeSha256;
           };
+        };
 
-          propagatedBuildInputs = with pkgs; [
-            xtensor
-            ghc_filesystem
+        editablePkg = default.overrideAttrs (oldAttrs: {
+          nativeBuildInputs = oldAttrs.nativeBuildInputs ++ [
+            (python.pkgs.mkPythonEditablePackage {
+              pname = pyproject.project.name;
+              inherit (pyproject.project) scripts version;
+              root = "$PWD";
+            })
           ];
-
-          cmakeFlags = [ "-DCMAKE_INSTALL_LIBDIR=share" ];
-
-          buildInputs = with pkgs; [
-            cmake
-          ];
-
-          meta = with lib; {
-            description = "xtensor plugin to read and write images, audio files, numpy (compressed) npz and HDF5";
-            license = licenses.bsd3;
-            maintainers = with maintainers; [  ];
-          };};
-        embree = pkgs.embree;
-        eigen = pkgs.eigen;
-        cgal = pkgs.cgal;
-        pcl =  pkgs.stdenv.mkDerivation rec {
-
-          pname = "pcl";
-          version = "1.14.1";
-
-          cudaSupport = true;
-
-          src = pkgs.fetchFromGitHub {
-            owner = "PointCloudLibrary";
-            repo = "pcl";
-            rev = "${pname}-${version}";
-            sha256 = "sha256-vu5pG4/FE8GCJfd8OZbgRguGJMMZr9PEEdbxUsuV/5Q=";
-            #  sha256 = lib.fakeSha256;
-          };
-
-          nativeBuildInputs = with pkgs; [
-            pkg-config
-            cmake
-            libsForQt5.qt5.wrapQtAppsHook
-          ] ++ lib.optionals cudaSupport [ pkgs.cudaPackages.cuda_nvcc ];
-
-          buildInputs = with pkgs; [
-              eigen
-              libusb1
-              libpcap
-              libsForQt5.qt5.qtbase
-              xorg.libXt
-          ]
-            ++ lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
-              Cocoa
-              AGL
-            ];
-
-          propagatedBuildInputs = with pkgs; [
-            boost183
-            flann
-            libpng
-            libtiff
-            qhull
-            vtk
-          ];
-
-          cmakeFlags =
-            lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
-              "-DOPENGL_INCLUDE_DIR=${pkgs.OpenGL}/Library/Frameworks"
-              "-DCMAKE_CXX_STANDARD=17" 
-              "-DCMAKE_CUDA_STANDARD=17"
-            ]
-            ++ lib.optionals cudaSupport [ "-DWITH_CUDA=true" ];
-
-          meta = {
-            homepage = "https://pointclouds.org/";
-            description = "Open project for 2D/3D image and point cloud processing";
-            license = lib.licenses.bsd3;
-            maintainers = [ ];
-            platforms = with lib.platforms; linux ++ darwin;
-          };}; 
-        fmt = pkgs.fmt;
-        mpfr = pkgs.mpfr;
-        mpi = pkgs.mpi;
-        opencv = pkgs.opencv.override {
-            enableCuda = true;}; 
-        gurobi = pkgs.gurobi;
-        scip = pkgs.scip;
-        tbb = pkgs.tbb;
-
+        });
 
         # ReUseX
         default =
@@ -564,28 +640,30 @@
             # These are often programs and libraries used by the new derivation at run-time
             buildInputs = (attrs.buildInputs or [
             ]) ++ (with pkgs; [
+
               localPackages.polyscope
               localPackages.opennurbs
-              localPackages.highfive
-              localPackages.xtensor
               localPackages.xtensor-io
-              localPackages.embree
-              localPackages.eigen
-              localPackages.cgal
-              localPackages.pcl
-              localPackages.fmt
-              localPackages.mpfr
-              localPackages.mpi
-              localPackages.opencv
-              localPackages.gurobi
-              localPackages.scip
-              localPackages.tbb
+              highfive
+              xtensor
+              
+              embree
+              eigen
+              cgal
+              pcl
+              fmt
+              mpfr
+              mpi
+              opencv
+              gurobi
+              scip
+              tbb
 
-              cudaPackages.cudatoolkit
+              cudatoolkit
+              nvidia-optical-flow-sdk
               cudaPackages.cuda_cudart
               cudaPackages.cuda_cccl # <thrust/*>
               cudaPackages.libnpp # npp.h
-              nvidia-optical-flow-sdk
               cudaPackages.cudnn
               cudaPackages.libcublas
               cudaPackages.libcufft
@@ -593,6 +671,7 @@
 
               glfw
               glm
+
               python3Packages.pybind11
             ]);
 
@@ -608,7 +687,7 @@
               "-DCUDA_LIB=${pkgs.cudaPackages.cudatoolkit}/lib64/stubs/libcuda.so"
               "-DCUDA_TOOLKIT_ROOT_DIR=${pkgs.cudaPackages.cudatoolkit}"
               # "-DCMAKE_PREFIX_PATH=${localPackages.polyscope}/include/polyscope"
-              "-DHighFive_DIR=${localPackages.highfive}/share/HighFive/CMake"
+              "-DHighFive_DIR=${pkgs.highfive}/share/HighFive/CMake"
             ];
 
             # Enviroment variables
@@ -626,15 +705,33 @@
       devShells.default =
       let
         arg = project.renderers.withPackages { inherit python; };
-        pythonEnv = python.withPackages arg;
+        argEditable = project.renderers.mkPythonEditablePackage { inherit python; };
+
+        myPython = python.override {
+          packageOverrides = final: prev: {
+            ReUseX = final.mkPythonEditablePackage argEditable;
+          };
+        };
+
+        pythonEnv = myPython.withPackages (ps: with ps; [ ReUseX ]);
+
+        ReUseXPython_dependanceis = python.withPackages arg;
+        localPackages = self.packages.${system};
       in
        pkgs.mkShellNoCC {
         packages = with pkgs; [
           pythonEnv
+          ReUseXPython_dependanceis
+          localPackages.mast3r
+          localPackages.g2opy
+          python3Packages.torch
         ];
+
+        # inputsFrom = [ editablePkg ];
 
         shellHook = ''
           echo "Entering dev shell"
+          export VIRTUAL_ENV_PROMPT="ReUseX Environment"
         '';
       }; # end of devShells
 

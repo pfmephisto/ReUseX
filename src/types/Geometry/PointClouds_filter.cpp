@@ -9,7 +9,7 @@ namespace ReUseX
 {
     template <typename T>
     PointClouds<T> PointClouds<T>::filter(
-        typename PointCloud::Cloud::PointType::LableT value
+        std::uint32_t value
     ){
 
         // Only keep highest confidence
@@ -32,7 +32,7 @@ namespace ReUseX
 
     }
 
-    template PointCloudsInMemory  PointCloudsInMemory::filter( PointCloud::Cloud::PointType::LableT value);
-    template PointCloudsOnDisk  PointCloudsOnDisk::filter( PointCloud::Cloud::PointType::LableT value);
+    template PointCloudsInMemory  PointCloudsInMemory::filter( std::uint32_t value);
+    template PointCloudsOnDisk  PointCloudsOnDisk::filter( std::uint32_t value);
 
 } // namespace ReUseX

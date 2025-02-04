@@ -1,4 +1,5 @@
 #pragma once
+#define PCL_NO_PRECOMPILE
 
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/filters/conditional_removal.h>

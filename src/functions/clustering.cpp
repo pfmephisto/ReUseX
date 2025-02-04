@@ -1,3 +1,5 @@
+#define PCL_NO_PRECOMPILE
+
 #include "types/Geometry/PointCloud.hh"
 #include "functions/progress_bar.hh"
 

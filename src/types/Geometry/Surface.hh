@@ -1,4 +1,5 @@
 #pragma once
+#define PCL_NO_PRECOMPILE
 
 #include "types/Geometry/PointCloud.hh"
 #include "types/Geometry/Mesh.hh"

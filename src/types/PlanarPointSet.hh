@@ -1,4 +1,6 @@
 #pragma once
+#define PCL_NO_PRECOMPILE
+
 #include <pcl/types.h>
 #include <Eigen/Core>
 #include <types/Geometry/Plane.hh>

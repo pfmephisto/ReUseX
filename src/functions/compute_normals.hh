@@ -1,4 +1,6 @@
 #pragma once
+#define PCL_NO_PRECOMPILE
+
 #include "progress_bar.hh"
 #include "io.hh"
 

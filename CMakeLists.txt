@@ -24,17 +24,6 @@ if(CXX)
 endif()
 
 
-# list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}")
-# message(STATUS "CMAKE_MODULE_PATH: ${CMAKE_MODULE_PATH}")
-
-# set(MY_PATH "${CMAKE_MODULE_PATH}")  # Replace with your target path
-# file(GLOB FILE_LIST "${MY_PATH}}/*")
-
-# message(STATUS "Files in ${MY_PATH}:")
-# foreach(FILE ${FILE_LIST})
-#     message(STATUS "  ${FILE}")
-# endforeach()
-
 # ===============================================
 # options
 
@@ -124,42 +113,10 @@ else()
     set(BIN_DIR ${CMAKE_SOURCE_DIR}/bin/${CMAKE_BUILD_TYPE})
 endif()
 
-# set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${BIN_DIR})
-# set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE ${BIN_DIR})
-# set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${BIN_DIR})
-# set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG ${BIN_DIR})
-# Set CMAKE_POSITION_INDEPENDENT_CODE to ON
-# set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-#set(GLOW_BIN_DIR ${CMAKE_SOURCE_DIR}/bin)
 
-# REMOVED: this is not needed anymore
-set(CGAL_DO_NOT_WARN_ABOUT_CMAKE_BUILD_TYPE On)
-
-# Polyscope requires this
-add_definitions(-DGLM_ENABLE_EXPERIMENTAL)
-
-
-#set("CUDA_TOOLKIT_ROOT_DIR" "/usr/local/cuda-12-3")
-#set(CUDA_INCLUDE_DIRS "${CUDA_TOOLKIT_ROOT_DIR}/include/")
-#set(CUDA_CUDART_LIBRARY "${CUDA_TOOLKIT_ROOT_DIR}/lib64/libcudart.so")
-
-
-
-
-# find_package(CUDA REQUIRED)
-# find_package(CUDAToolkit REQUIRED)
 find_package(Boost CONFIG REQUIRED)
+find_package(MPI REQUIRED)
 find_package(TBB REQUIRED)
-# find_package(MPI REQUIRED)
-
-
-find_package(fmt REQUIRED)
-
-find_package(Eigen3 REQUIRED)
-find_package(SCIP REQUIRED)
-find_package(OpenCV REQUIRED)
-find_package(embree REQUIRED)
-find_package(g2o REQUIRED)
 
 
 # find_package(Gurobi REQUIRED)
@@ -188,31 +145,31 @@ find_package_handle_standard_args(GUROBI DEFAULT_MSG GUROBI_LIBRARY)
 # add_compile_definitions(CGAL_USE_GUROBI=1)
 
 
+find_package(Eigen3 REQUIRED)
+find_package(SCIP REQUIRED)
+
 find_package(CGAL REQUIRED Core)
 include(CGAL_Eigen3_support)
 include(CGAL_SCIP_support)
 include(CGAL_TBB_support)
 
-
+find_package(fmt REQUIRED)
+find_package(OpenCV REQUIRED)
+find_package(embree REQUIRED)
+find_package(g2o REQUIRED)
 
 find_package(xtensor REQUIRED)
 find_package(xtensor-io REQUIRED)
 find_package(HighFive REQUIRED)
 find_package(opennurbs REQUIRED)
 
-message(STATUS "OpenNURBS: ${OpenNURBS}")
-message(STATUS "OpenNURBS_DIR: ${OpenNURBS_DIR}")
-message(STATUS "OpenNURBS_LIBRARY: ${OpenNURBS_LIBRARY}")
-message(STATUS "OPENNURBS_SHARED_PUBLIC_INSTALL_DIR: ${OPENNURBS_SHARED_PUBLIC_INSTALL_DIR}")
-# add_compile_definitions(OPENNURBS_PUBLIC_INSTALL_DIR=OPENNURBS_SHARED_PUBLIC_INSTALL_DIR)
-
-
 find_package(PCL REQUIRED)
-
 find_package(polyscope REQUIRED)
-
 find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
 find_package(pybind11 REQUIRED)
+
+
+
 
 # ===============================================
 # configure executable
@@ -235,16 +192,15 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${LIB_SOURCES})
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${LIB_HEADERS})
 
 
-## ===============================================
-include_directories( ${OpenCV_INCLUDE_DIRS} )
 
 # ===============================================
 # main libary
 add_library(${PROJECT_NAME} STATIC ${LIB_SOURCES} ${LIB_HEADERS})
 set_target_properties(${PROJECT_NAME} PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
 
-target_link_libraries(${PROJECT_NAME} 
-    PRIVATE 
+
+
+target_link_libraries(${PROJECT_NAME}  PRIVATE 
     pybind11::embed
     optimized ${GUROBI_CXX_LIBRARY}
     debug ${GUROBI_CXX_DEBUG_LIBRARY}
@@ -256,11 +212,8 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
     xtensor-io
     
     OpenNURBS
-    
-    polyscope
     embree
-    ${CUDA_LIBRARIES} 
-    ${CUDA_CUBLAS_LIBRARIES}
+    polyscope
 
     Eigen3::Eigen
 
@@ -269,35 +222,33 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
     CGAL::SCIP_support
     CGAL::TBB_support
 
-    ${GUROBI_LIBRARY}
-
-    ${PCL_LIBRARIES}
-    ${PCL_COMMON_LIBRARIES}
-
     fmt
     mpfr
-    # MPI::MPI_CXX
+    MPI::MPI_CXX
 
     ${OpenCV_LIBS}
+    ${GUROBI_LIBRARY}
+    ${PCL_LIBRARIES}
+)
 
-    ${COMMON_LINKER_FLAGS}
+target_compile_definitions(${PROJECT_NAME} PUBLIC
+    ${PCL_DEFINITIONS}
+)
+
+target_link_libraries(${PROJECT_NAME} PUBLIC
+    ${PCL_LIBRARY_DIRS}
 )
 
 target_include_directories(${PROJECT_NAME} PUBLIC 
-    ${OpenNURBS_DIR}
     ${GUROBI_INCLUDE_DIRS}
+    ${OpenCV_INCLUDE_DIRS}
+    ${PCL_INCLUDE_DIRS}
 )
 
-# # dependency grouping in the IDE
-# foreach(TARGET_NAME
-#     polyscope
-#     OpenNURBS
-# )
-# set_property(TARGET ${TARGET_NAME} PROPERTY FOLDER "Extern")
-# endforeach()
 
 
 target_include_directories(${PROJECT_NAME} PUBLIC "src")
+target_link_libraries(${PROJECT_NAME} PUBLIC ${COMMON_LINKER_FLAGS})
 target_compile_options(${PROJECT_NAME} PUBLIC ${COMMON_COMPILER_FLAGS})
 
 

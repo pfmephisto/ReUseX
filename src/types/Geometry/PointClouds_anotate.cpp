@@ -1,3 +1,5 @@
+#define PCL_NO_PRECOMPILE
+
 #include "PointClouds.hh"
 #include <types/Yolo.hh>
 #include <types/Dataset.hh>

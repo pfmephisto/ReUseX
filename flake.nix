@@ -54,8 +54,6 @@
           "libcusparse"
           "cudnn"
           "cudatoolkit"
-
-
           ];
        };
        
@@ -124,12 +122,13 @@
       cudatoolkit_joined = pkgs.symlinkJoin {
         name = "${pkgs.cudaPackages.cudatoolkit.name}-joined";
         paths = with pkgs.cudaPackages; [ 
-          cudatoolkit.out 
-          cudatoolkit.lib 
-          nccl.dev 
-          nccl.out 
-          cudnn.out 
-          cudnn.dev 
+            cudatoolkit
+      #     cudatoolkit.out 
+      #     cudatoolkit.lib 
+      #     nccl.dev 
+      #     nccl.out 
+      #     cudnn.out 
+      #     cudnn.dev 
         ];
       };
 
@@ -161,7 +160,6 @@
             postConfigure = ''
               echo "moving one level up (should be project root)"
               cd ..
-              ls
             '';
 
             # Native dependencies
@@ -172,11 +170,6 @@
               mpi
               cudatoolkit_joined
             ]);
-
-            # configureFlags = (attrs.configureFlags or []) ++ [
-            #   "--with-gurobi-incdir=${pkgs.gurobi}/include"
-            #   "--with-gurobi-lib=-lgurobi${pkgs.gurobi.libSuffix}"
-            # ];
 
             # Rutime dependencies
             # These are often programs and libraries used by the new derivation at run-time
@@ -193,7 +186,7 @@
 
               g2o
               
-              pcl
+              # pcl
               boost
               embree
 
@@ -217,13 +210,9 @@
               gurobi
             ]);
 
-
-            # # Build dependencies
-            # propagatedBuildInputs = (attrs.propagatedBuildInputs or [
-            # ]) ++ ( with pkgs; [ 
-            #   # specklepy
-            #   # pkgs.tbb.dev
-            # ]);
+            propagatedBuildInputs = (attrs.propagatedBuildInputs or []) ++ (with pkgs; [
+              pcl
+            ]);
 
             # Pass additional CMake flags
             cmakeFlags = (attrs.cmakeFlags or []) ++ [
@@ -272,20 +261,7 @@
         arg = project.renderers.withPackages { inherit python; }; 
       in
       pkgs.mkShell{
-
-        # buildInputs = with pkgs; [
-        #   cmake
-        #   ninja
-        #   mpi
-        #   cudatoolkit_joined
-        #   python
-        #   (python.withPackages arg)
-          
-        # ];
-
         inputsFrom = [ self.packages.${system}.default ];
-
-
         shellHook = ''
           echo "Entering dev shell"
           export VIRTUAL_ENV_PROMPT="ReUseX Environment"
@@ -309,7 +285,7 @@
       in
        pkgs.mkShellNoCC {
         packages = with pkgs; [
-          ReUseXPython_dependanceis
+          # ReUseXPython_dependanceis
           pythonEnv
           mast3r
           g2opy

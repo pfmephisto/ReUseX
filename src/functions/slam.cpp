@@ -1,3 +1,5 @@
+#define PCL_NO_PRECOMPILE
+
 #include "slam.hh"
 
 #include "io.hh"

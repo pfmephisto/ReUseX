@@ -1,3 +1,5 @@
+#define PCL_NO_PRECOMPILE
+
 #include "icp.hh"
 #include "../types/Geometry/PointCloud.hh"
 #include "../types/Filters.hh"

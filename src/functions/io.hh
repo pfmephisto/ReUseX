@@ -1,4 +1,5 @@
 #pragma once
+#define PCL_NO_PRECOMPILE
 
 #include <filesystem>
 #include <pcl/io/pcd_io.h>

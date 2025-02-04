@@ -1,4 +1,6 @@
 #pragma once
+#define PCL_NO_PRECOMPILE
+
 #include "types/Dataset.hh"
 
 #include "types/Geometry/Mesh.hh"

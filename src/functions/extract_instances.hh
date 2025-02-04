@@ -1,3 +1,5 @@
+#define PCL_NO_PRECOMPILE
+
 #include <types/Yolo.hh>
 
 #include <pcl/point_types.h>

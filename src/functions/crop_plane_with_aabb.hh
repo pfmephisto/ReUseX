@@ -52,10 +52,12 @@ static std::vector<Point> get_points(std::array<ReUseX::Line, 12> const & segmen
 
     for (auto & seg : segments){
 
-        auto pt = CGAL::intersection(seg, plane);
+        auto optional = CGAL::intersection(seg, plane);
+        if (!optional) continue;
 
-        if (!pt.has_value()) continue;
-        points.push_back(std::get<ReUseX::Point>(pt.value()));
+        if (auto* p = boost::get<CGAL::Point_3<CGAL::Epick>>(&(*optional))) {
+            points.push_back(*p);  // Dereference the pointer to get the value
+        }
     }
 
 

@@ -1,12 +1,16 @@
         
 {
-    buildPythonPackage,
     fetchPypi,
     pkgs,
     python3Packages,
+    callPackage,
+    lib,
     ...
 }:
 let
+    buildPythonPackage = python3Packages.buildPythonPackage;
+    pythonOlder = python3Packages.pythonOlder;
+
     httpx-0-26-0 = buildPythonPackage rec {
         pname = "httpx";
         version = "0.26.0";
@@ -65,13 +69,13 @@ let
     };
 
 in
-buildPythonPackage {
+pkgs.python3Packages.buildPythonPackage rec {
 
     pname = "specklepy";
     version = "2.21.2";
     format = "pyproject";
 
-    src = fetchPypi {
+    src = fetchPypi rec {
         inherit pname version;
         sha256 = "sha256-ukS7kWfO0y5Sun5XF9Cx0OzhqiPKAiQ8518Oq6COgQc=";
     };
@@ -82,7 +86,7 @@ buildPythonPackage {
         python3Packages.poetry-core
     ];
 
-    propagatedBuildInputs = with pkgs; [
+    propagatedBuildInputs = with pkgs.python3Packages; [
         deprecated
         appdirs
         gql

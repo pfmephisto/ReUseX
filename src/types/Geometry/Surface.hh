@@ -6,7 +6,7 @@
 #include "types/Point.hh"
 
 #include <pcl/point_types.h>
-#include <embree3/rtcore.h>
+#include <embree4/rtcore.h>
 
 
 using Ray = RTCRayHit;
@@ -55,12 +55,37 @@ namespace ReUseX
         
         void Create_Embree_Geometry(RTCDevice & device, RTCScene & scene);
 
-        inline Point GetCentroid(unsigned int id) const { 
-            return mesh.property_map<Mesh::Face_index, Point>(centeroids_name).value()[valid.at(id)]; }
-        inline pcl::Indices GetPoints(unsigned int id) const { 
-            return mesh.property_map<Mesh::Face_index, pcl::Indices>(indecies_name).value()[valid.at(id)]; }
-        inline pcl::Indices GetPoints(Mesh::Face_index f) const { 
-            return mesh.property_map<Mesh::Face_index, pcl::Indices>(indecies_name).value()[f]; }
+        inline Point GetCentroid(unsigned int id) const {
+            auto pm_pair = mesh.property_map<Mesh::Face_index, Point>(centeroids_name);
+            // if (!pm_pair.second) {
+            //     // Handle the error: property map not found
+            //     throw std::runtime_error("Property map not found");
+            // }
+            auto& pm = pm_pair.first;
+            return pm[valid.at(id)];
+            // return mesh.property_map<Mesh::Face_index, Point>(centeroids_name).first()[valid.at(id)];
+        }
+        inline pcl::Indices GetPoints(unsigned int id) const {
+            auto pm_pair = mesh.property_map<Mesh::Face_index, pcl::Indices>(indecies_name);
+            // if (!pm_pair.second) {
+            //     // Handle the error: property map not found
+            //     throw std::runtime_error("Property map not found");
+            // }
+            auto& pm = pm_pair.first;
+            return pm[valid.at(id)];
+            // return mesh.property_map<Mesh::Face_index, pcl::Indices>(indecies_name).first()[valid.at(id)]; 
+
+        }
+        inline pcl::Indices GetPoints(Mesh::Face_index f) const {
+            auto pm_pair = mesh.property_map<Mesh::Face_index, pcl::Indices>(indecies_name);
+            // if (!pm_pair.second) {
+            //     // Handle the error: property map not found
+            //     throw std::runtime_error("Property map not found");
+            // }
+            auto& pm = pm_pair.first;
+            return pm[f];
+            // return mesh.property_map<Mesh::Face_index, pcl::Indices>(indecies_name).first()[f]; }
+        }
         inline size_t size() const { return valid.size(); }
 
         auto begin() { return IndciesIterator(valid.begin(), this); }

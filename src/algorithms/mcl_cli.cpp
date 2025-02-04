@@ -12,7 +12,7 @@
 #include <array>
 #include <fstream>
 
-#include <embree3/rtcore.h>
+#include <embree4/rtcore.h>
 
 
 

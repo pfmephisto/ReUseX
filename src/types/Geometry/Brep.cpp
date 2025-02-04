@@ -10,6 +10,7 @@
 #include <CGAL/Optimal_bounding_box/oriented_bounding_box.h>
 #include <CGAL/squared_distance_3.h>
 
+#define OPENNURBS_PUBLIC_INSTALL_DIR "/path/to/opennurbs"
 #include <opennurbs_public.h>
 #include <opennurbs_brep.h>
 

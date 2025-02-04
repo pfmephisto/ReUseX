@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.8)
+cmake_minimum_required(VERSION 3.10)
 if (NOT SKBUILD_PROJECT_VERSION)
     set(SKBUILD_PROJECT_VERSION 0.0.1)
 endif()
@@ -23,7 +23,17 @@ if(CXX)
   enable_language(CXX)
 endif()
 
-list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
+
+# list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}")
+# message(STATUS "CMAKE_MODULE_PATH: ${CMAKE_MODULE_PATH}")
+
+# set(MY_PATH "${CMAKE_MODULE_PATH}")  # Replace with your target path
+# file(GLOB FILE_LIST "${MY_PATH}}/*")
+
+# message(STATUS "Files in ${MY_PATH}:")
+# foreach(FILE ${FILE_LIST})
+#     message(STATUS "  ${FILE}")
+# endforeach()
 
 # ===============================================
 # options
@@ -113,98 +123,96 @@ elseif(CMAKE_BUILD_TYPE STREQUAL "")
 else()
     set(BIN_DIR ${CMAKE_SOURCE_DIR}/bin/${CMAKE_BUILD_TYPE})
 endif()
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${BIN_DIR})
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE ${BIN_DIR})
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${BIN_DIR})
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG ${BIN_DIR})
+
+# set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${BIN_DIR})
+# set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE ${BIN_DIR})
+# set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${BIN_DIR})
+# set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG ${BIN_DIR})
 # Set CMAKE_POSITION_INDEPENDENT_CODE to ON
-set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+# set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 #set(GLOW_BIN_DIR ${CMAKE_SOURCE_DIR}/bin)
 
 # REMOVED: this is not needed anymore
 set(CGAL_DO_NOT_WARN_ABOUT_CMAKE_BUILD_TYPE On)
 
+# Polyscope requires this
+add_definitions(-DGLM_ENABLE_EXPERIMENTAL)
 
 
 #set("CUDA_TOOLKIT_ROOT_DIR" "/usr/local/cuda-12-3")
 #set(CUDA_INCLUDE_DIRS "${CUDA_TOOLKIT_ROOT_DIR}/include/")
 #set(CUDA_CUDART_LIBRARY "${CUDA_TOOLKIT_ROOT_DIR}/lib64/libcudart.so")
 
-if(Off)
-
-    message(STATUS "Building inside a Nix environment.")
-    # ===============================================
-
-    # find_package(CUDA REQUIRED)
-    # find_package(CUDAToolkit REQUIRED)
-    # find_package(TBB REQUIRED)
-    find_package(Boost REQUIRED)
-    # find_package(SCIP REQUIRED)
-    # find_package(Gurobi REQUIRED)
-    find_package(embree REQUIRED)
-
-    # find_package(Eigen REQUIRED)
-    find_package(OpenCV REQUIRED)
-    find_package(CGAL REQUIRED)
-    find_package(PCL REQUIRED)
-    find_package(Python3 REQUIRED)
-
-    find_package(xtensor REQUIRED)
-    find_package(xtensor-io REQUIRED)
-
-    find_package(fmt REQUIRED)
-    find_package(polyscope REQUIRED)
-    find_package(pybind11 REQUIRED)
-    
-    find_package(opennurbs REQUIRED)
-
-    find_package(HighFive REQUIRED)
-
-    find_package(g2o REQUIRED)
-
-else()
-
-# ===============================================
-# find packages
-
-    include(cmake/CUDA.cmake)
-    include(cmake/TBB.cmake)
-    include(cmake/Boost.cmake)
-    include(cmake/SCIP.cmake)
-    include(cmake/Gurobi.cmake)
-    include(cmake/Embree.cmake)
-
-    include(cmake/Eigen.cmake)
-    include(cmake/OpenCV.cmake)
-    include(cmake/CGAL.cmake)
-    include(cmake/PCL.cmake)
-    include(cmake/Python.cmake)
-
-    find_package(xtensor REQUIRED)
-    find_package(xtensor-io REQUIRED)
 
 
 
-
-# ===============================================
-# add submodules
-
-    add_subdirectory(extern/fmt)
-    add_subdirectory(extern/polyscope)
-    add_subdirectory(extern/pybind11)
-    add_subdirectory(extern/opennurbs)
-    add_subdirectory(extern/hdf5)
-
-    add_subdirectory(extern/highfive)
+# find_package(CUDA REQUIRED)
+# find_package(CUDAToolkit REQUIRED)
+find_package(Boost CONFIG REQUIRED)
+find_package(TBB REQUIRED)
+# find_package(MPI REQUIRED)
 
 
+find_package(fmt REQUIRED)
 
-    set(OpenGL_GL_PREFERENCE  "GLVND") # use GLVND OpenGL library instead of legacy.
-    find_package(g2o REQUIRED)
+find_package(Eigen3 REQUIRED)
+find_package(SCIP REQUIRED)
+find_package(OpenCV REQUIRED)
+find_package(embree REQUIRED)
+find_package(g2o REQUIRED)
 
-endif()
+
+# find_package(Gurobi REQUIRED)
+find_path(GUROBI_INCLUDE_DIRS
+    NAMES gurobi_c.h
+    HINTS ${GUROBI_DIR} $ENV{GUROBI_HOME}
+    PATH_SUFFIXES include)
+
+find_library(GUROBI_LIBRARY
+    NAMES gurobi gurobi120 
+    # NAMES gurobi120 libgurobi_c++
+    # NAMES gurobi gurobi110 libgurobi110 libgurobi_c++ 
+    # NAMES gurobi_c++ gurobi_c
+    HINTS ${GUROBI_DIR} $ENV{GUROBI_HOME}
+    PATH_SUFFIXES lib)
+message(STATUS "GUROBI_LIBRARY: ${GUROBI_LIBRARY}")
 
 
+find_library(GUROBI_CXX_LIBRARY
+    NAMES gurobi_c++
+    HINTS ${GUROBI_DIR} $ENV{GUROBI_HOME}
+    PATH_SUFFIXES lib)
+set(GUROBI_CXX_DEBUG_LIBRARY ${GUROBI_CXX_LIBRARY})
+
+find_package_handle_standard_args(GUROBI DEFAULT_MSG GUROBI_LIBRARY)
+# add_compile_definitions(CGAL_USE_GUROBI=1)
+
+
+find_package(CGAL REQUIRED Core)
+include(CGAL_Eigen3_support)
+include(CGAL_SCIP_support)
+include(CGAL_TBB_support)
+
+
+
+find_package(xtensor REQUIRED)
+find_package(xtensor-io REQUIRED)
+find_package(HighFive REQUIRED)
+find_package(opennurbs REQUIRED)
+
+message(STATUS "OpenNURBS: ${OpenNURBS}")
+message(STATUS "OpenNURBS_DIR: ${OpenNURBS_DIR}")
+message(STATUS "OpenNURBS_LIBRARY: ${OpenNURBS_LIBRARY}")
+message(STATUS "OPENNURBS_SHARED_PUBLIC_INSTALL_DIR: ${OPENNURBS_SHARED_PUBLIC_INSTALL_DIR}")
+# add_compile_definitions(OPENNURBS_PUBLIC_INSTALL_DIR=OPENNURBS_SHARED_PUBLIC_INSTALL_DIR)
+
+
+find_package(PCL REQUIRED)
+
+find_package(polyscope REQUIRED)
+
+find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
+find_package(pybind11 REQUIRED)
 
 # ===============================================
 # configure executable
@@ -237,11 +245,12 @@ set_target_properties(${PROJECT_NAME} PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
 
 target_link_libraries(${PROJECT_NAME} 
     PRIVATE 
-    pybind11::embed 
+    pybind11::embed
     optimized ${GUROBI_CXX_LIBRARY}
     debug ${GUROBI_CXX_DEBUG_LIBRARY}
 )
 target_link_libraries(${PROJECT_NAME} PUBLIC
+
     HighFive
     xtensor
     xtensor-io
@@ -253,8 +262,9 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
     ${CUDA_LIBRARIES} 
     ${CUDA_CUBLAS_LIBRARIES}
 
-    Eigen3::Eigen3
+    Eigen3::Eigen
 
+    CGAL::CGAL
     CGAL::Eigen3_support
     CGAL::SCIP_support
     CGAL::TBB_support
@@ -266,11 +276,16 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
 
     fmt
     mpfr
-    MPI::MPI_CXX
+    # MPI::MPI_CXX
 
     ${OpenCV_LIBS}
 
     ${COMMON_LINKER_FLAGS}
+)
+
+target_include_directories(${PROJECT_NAME} PUBLIC 
+    ${OpenNURBS_DIR}
+    ${GUROBI_INCLUDE_DIRS}
 )
 
 # # dependency grouping in the IDE
@@ -289,7 +304,7 @@ target_compile_options(${PROJECT_NAME} PUBLIC ${COMMON_COMPILER_FLAGS})
 
 # ===============================================
 # scikit_build
-python_add_library(_core MODULE src/ReUseX.cpp WITH_SOABI)
+Python_add_library(_core MODULE src/ReUseX.cpp WITH_SOABI)
 target_link_libraries(_core PRIVATE pybind11::headers ${PROJECT_NAME})
 
 # This is passing in the version as a define just as an example

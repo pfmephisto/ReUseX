@@ -47,7 +47,7 @@ namespace ReUseX
     }
     void Surface::Create_Embree_Geometry(RTCDevice & device, RTCScene & scene){
 
-        auto num_supporting_points = mesh.property_map<Mesh::Face_index, size_t>(num_supporting_points_name).value();
+        auto num_supporting_points = mesh.property_map<Mesh::Face_index, size_t>(num_supporting_points_name).first;
 
         for (auto f : mesh.faces()){
             

@@ -12,7 +12,7 @@
 #include <pcl/filters/extract_indices.h>
 #include <pcl/PointIndices.h>
 
-#include <embree3/rtcore.h>
+#include <embree4/rtcore.h>
 
 #include <opencv4/opencv2/core/matx.hpp>
 
@@ -616,11 +616,19 @@ namespace ReUseX
         }
         creating_rays_bar.stop();
 
-        
         // Instatiate the context
-        RTCIntersectContext context;
-        rtcInitIntersectContext(&context);
+        RTCRayQueryContext context;
+        rtcInitRayQueryContext(&context);
 
+#if UseIntersection
+        // Define intersection arguments
+        RTCIntersectArguments intersectArgs;
+        rtcInitIntersectArguments(&intersectArgs);
+#else
+    // Define occlusion arguments
+    RTCOccludedArguments occludedArgs;
+    rtcInitOccludedArguments(&occludedArgs);
+#endif
 
         // Intersect all rays with the scene
         auto rays_bar = util::progress_bar(rays.size(), "Intersecting rays");
@@ -629,9 +637,9 @@ namespace ReUseX
         #pragma omp parallel for
         for (size_t i = 0; i < rays.size(); i++){
 #if UseIntersection
-            rtcIntersect1(scene, &context, (RTCRayHit*)&rays[i].first);
+            rtcIntersect1(scene, (RTCRayHit*)&rays[i].first, &intersectArgs);
 #else
-            rtcOccluded1(scene, &context, (RTCRay*)&rays[i].first.ray);
+            rtcOccluded1(scene, (RTCRay*)&rays[i].first.ray, &occludedArgs);
 #endif
             rays_bar.update();
         }

@@ -1,10 +1,10 @@
 {
-    buildPythonPackage,
     fetchPypi,
     pkgs,
+    lib,
     ...
 }:
-buildPythonPackage rec {
+pkgs.python3Packages.buildPythonPackage rec {
 
     pname = "rhino3dm";
     version = "8.9.0";

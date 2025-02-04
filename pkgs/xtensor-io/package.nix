@@ -1,15 +1,16 @@
 {
-    mkDerivation,
+    stdenv,
+    config,
+    lib,
     cudaSupport ? config.cudaSupport,
     cudaPackages,
-    stdenv,
     fetchFromGitHub,
     pkgs,
     ...
-}:
-mkDerivation {
-
+}:let
     stdenv = if cudaSupport then cudaPackages.backendStdenv else stdenv;
+in
+stdenv.mkDerivation rec {
 
     pname = "xtensor-io";
     version = "0.13.0";

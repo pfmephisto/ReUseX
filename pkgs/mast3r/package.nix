@@ -1,10 +1,11 @@
 {
-    buildPythonPackage,
     fetchFromGitHub,
+    lib,
+    pkgs,
     ...
 }:
 
-buildPythonPackage rec {
+pkgs.python3Packages.buildPythonPackage rec {
 
     pname = "mast3r";
     version = "e06b009";
@@ -13,7 +14,7 @@ buildPythonPackage rec {
 
     src = fetchFromGitHub {
         owner = "naver";
-        repo = "mast3r";
+        repo = "${pname}";
         fetchSubmodules = true;
         rev = "e06b0093ddacfd8267cdafe5387954a650af0d3b";
         # sha256 = lib.fakeSha256;

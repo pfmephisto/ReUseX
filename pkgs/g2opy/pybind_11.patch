@@ -11,9 +11,9 @@ index 010e6551..4ddd0cb2 100644
 -  GIT_TAG        v2.13.6
 -)
 +find_package(pybind11)
-# For Windows: Prevent overriding the parent project's compiler/linker settings
-set(PYBIND11_FINDPYTHON ON)
+ # For Windows: Prevent overriding the parent project's compiler/linker settings
+ set(PYBIND11_FINDPYTHON ON)
 -FetchContent_MakeAvailable(pybind11)
 
-if (TARGET simulator_lib)
-set(PYSIM_SRC "simulator/py_simulator.cpp")
+ if (TARGET simulator_lib)
+ set(PYSIM_SRC "simulator/py_simulator.cpp")

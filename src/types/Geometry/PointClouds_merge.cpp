@@ -5,7 +5,7 @@
 #include <functions/progress_bar.hh>
 
 #include <pcl/octree/octree.h>
-#include <pcl/gpu/octree/octree.hpp>
+// #include <pcl/gpu/octree/octree.hpp>
 #include <pcl/io/pcd_io.h>
 
 #include <functions/progress_bar.hh>

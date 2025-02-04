@@ -1,10 +1,14 @@
 {
-    mkDerivation,
     fetchFromGitHub,
     pkgs,
+    lib,
+    stdenv,
     ...
 }:
-mkDerivation {
+let
+    opennurbsConfig = ./opennurbsConfig.cmake;
+in
+stdenv.mkDerivation rec {
 
     pname = "opennurbs";
     version = "8.13.24317.13001";
@@ -23,25 +27,12 @@ mkDerivation {
 
     fixupPhase = ''
         mkdir -p $out/share/cmake/opennurbs
-        cat > $out/share/cmake/opennurbs/opennurbsConfig.cmake << 'EOF'
+        cp ${opennurbsConfig} $out/share/cmake/opennurbs/opennurbsConfig.cmake
+        cp ../*.h $out/include/
+        # cp ../opennurbs_public.h $out/include/opennurbs_public.h
+        # cp ../opennurbs_public.h $out/include/OpenNURBS/opennurbs_public.h
+        # cp ../opennurbs_public.h $out/include/opennurbsStatic/opennurbs_public.h
 
-        set(polyscope_DIR $${opennurbs_INCLUDE_DIR} $out)
-
-        if($${opennurbs_INCLUDE_DIR} STREQUAL opennurbs-NOTFOUND)
-            message("can't found opennurbs")
-            set(opennurbs_FOUND False)
-        else()
-            message("found opennurbs at path:" $${opennurbs_INCLUDE_DIR})
-            
-            set(opennurbs_FOUND True)
-            set(opennurbs_INCLUDE_DIRS $out/lnclude/OpenNURBS
-                                        $out/lnclude/opennurbsStatic
-            )
-            set(opennurbs_LIBRARIES $out/lib
-            )
-
-        endif()
-        EOF
     '';
 
     meta = with lib; {

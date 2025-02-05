@@ -16,10 +16,13 @@
     flake-utils.lib.eachSystem [ "x86_64-linux" ] (system: # flake-utils.lib.eachDefaultSystem (system:
     let
       inherit (nixpkgs) lib;
-      pkgs = import nixpkgs { 
-        inherit system; 
-       config = {
 
+      # Import nixpkgs with custom configurations and overlays
+      pkgs = import nixpkgs { 
+        inherit system;
+
+        # Set systm comfigurations such as CUDA support and unfree packages
+        config = {
         cudaSupport = true;
         allowUnfreePredicate = pkg: builtins.elem (lib.getName pkg) [
           # Python model
@@ -30,11 +33,12 @@
           "gurobipy"
 
           # CUDA Support in PCL an OpenCV
-          "cuda_nvcc"
           "cuda_cudart"
+          "cuda_nvcc"
+          "cuda_nvml_dev"
           "cuda_cccl"
-          "libnpp"
           "libcublas"
+          "libnpp"
           "libcufft"
           "cuda-merged"
           "cuda_cuobjdump"
@@ -43,7 +47,6 @@
           "cuda_nvprune"
           "cuda_cupti"
           "cuda_cuxxfilt"
-          "cuda_nvml_dev"
           "cuda_nvrtc"
           "cuda_nvtx"
           "cuda_profiler_api"
@@ -53,11 +56,13 @@
           "libnvjitlink"
           "libcusparse"
           "cudnn"
-          "cudatoolkit"
+          # "cudatoolkit"
           ];
-       };
+        };
+
        
-       overlays = [
+        # Set overlays and custom fixes for broken packages
+        overlays = [
         (final: prev: {
           # Fix the CUDA environment for the suiteSparse package
           suitesparse = prev.suitesparse.override (old: {
@@ -78,12 +83,12 @@
               # sha256 = lib.fakeSha256;
             };
           });
-         })
+          })
         (final: prev: (prev.lib.packagesFromDirectoryRecursive {
             callPackage = prev.lib.callPackageWith final;
             directory = ./pkgs;
           })
-         )
+          )
         (final: prev: {
           papilo = prev.papilo.overrideAttrs (old: {
             version = "2.4.0";
@@ -94,44 +99,14 @@
               sha256 = "sha256-WMw9v57nuP6MHj9Ft4l5FxdIF5VUWCRm/909tbz7VD4=";
             };
             propagatedBuildInputs = with pkgs;[ tbb_2022_0 ];
-            # outputs = [ "out" "bin" "lib" ];
           });
-         })
-       ];
-      };
-
-      # hacks = pkgs.callPackage pyproject-nix.build.hacks {};
-
-      # overlay = final: prev: {
-      #   # Adapt torch from nixpkgs
-      #   torch = hacks.nixpkgsPrebuilt {
-      #     from = pkgs.python3Packages.torchWithoutCuda;
-      #     prev = prev.torch;
-      #   };
-
-      #   other = hacks.nixpkgsPrebuilt {
-      #     from = pkgs.python3Packages.torchWithoutCuda;
-      #     prev = prev.torch.overrideAttrs(old: {
-      #       passthru = old.passthru // {
-      #         dependencies = lib.filterAt trs (name: _: ! lib.hasPrefix "nvidia" name) old.passthru.dependencies;
-      #       };
-      #     });        
-      #   };
-      # };
-
-      cudatoolkit_joined = pkgs.symlinkJoin {
-        name = "${pkgs.cudaPackages.cudatoolkit.name}-joined";
-        paths = with pkgs.cudaPackages; [ 
-            cudatoolkit
-      #     cudatoolkit.out 
-      #     cudatoolkit.lib 
-      #     nccl.dev 
-      #     nccl.out 
-      #     cudnn.out 
-      #     cudnn.dev 
+          })
         ];
+      
       };
 
+
+      # Customize the python environment by adding required packages
       python = pkgs.python3.override {
         packageOverrides = final: prev: let 
         in{
@@ -142,7 +117,6 @@
         };
       };
 
-      # localPackages = self.packages.${system};
 
       # Load the pyproject.toml file
       pyproject = builtins.fromTOML (builtins.readFile ./pyproject.toml);
@@ -152,9 +126,9 @@
 
 
       ReUseX_Package = 
-      let
+        let
           attrs = project.renderers.buildPythonPackage { inherit python;  };
-      in
+        in
           python.pkgs.buildPythonPackage (attrs // {
 
             postConfigure = ''
@@ -168,7 +142,7 @@
               cmake
               ninja
               mpi
-              cudatoolkit_joined
+              cudatoolkit
             ]);
 
             # Rutime dependencies
@@ -212,6 +186,7 @@
 
             propagatedBuildInputs = (attrs.propagatedBuildInputs or []) ++ (with pkgs; [
               pcl
+              hdf5
             ]);
 
             # Pass additional CMake flags
@@ -228,81 +203,89 @@
 
           }); # end of ReUseX
     
+    
+
+
     in {
 
-
-      packages =
-        # All custom packages
-        (pkgs.lib.packagesFromDirectoryRecursive {
-          callPackage = pkgs.lib.callPackageWith pkgs;
-          directory = ./pkgs;
-        }) // {
+      packages = {
+        default = ReUseX_Package; # ReUseX
 
 
-        # ReUseX
-        default = ReUseX_Package;
-
-        editablePkg = ReUseX_Package.overrideAttrs (oldAttrs: {
-          nativeBuildInputs = oldAttrs.nativeBuildInputs ++ [
-            (python.pkgs.mkPythonEditablePackage {
-              pname = pyproject.project.name;
-              inherit (pyproject.project) scripts version;
-              root = "$PWD";
-            })
-          ];
-        });
-
-      }; # end of packages
+      } // # All custom packages
+      (pkgs.lib.packagesFromDirectoryRecursive {
+        callPackage = pkgs.lib.callPackageWith pkgs;
+        directory = ./pkgs;
+      }); # end of packages
       
 
+      devShells = {
+        default = let
+          arg = project.renderers.withPackages { inherit python; }; 
+        in
+        pkgs.mkShell{
+          inputsFrom = [ self.packages.${system}.default ];
+          shellHook = ''
+            echo "Entering dev shell"
+            export VIRTUAL_ENV_PROMPT="ReUseX Environment"
+          '';
+        }; # end of devShells
 
-      devShells.default =
-      let
-        arg = project.renderers.withPackages { inherit python; }; 
-      in
-      pkgs.mkShell{
-        inputsFrom = [ self.packages.${system}.default ];
-        shellHook = ''
-          echo "Entering dev shell"
-          export VIRTUAL_ENV_PROMPT="ReUseX Environment"
-        '';
-      }; # end of devShells
 
-      devShells.python =
-      let
-        arg = project.renderers.withPackages { inherit python; };
-        argEditable = project.renderers.mkPythonEditablePackage { inherit python; };
+        python = let
 
-        myPython = python.override {
-          packageOverrides = final: prev: {
-            ReUseX = final.mkPythonEditablePackage argEditable;
+          arg = project.renderers.mkPythonEditablePackage { 
+            inherit python;
+            root = "$REPO_ROOT/python";
           };
+
+          myPython = python.override {
+            packageOverrides = final: prev: {
+              ReUseX = final.mkPythonEditablePackage arg;
+            };
+          };
+
+          editablePkg = ReUseX_Package.overrideAttrs (oldAttrs: {
+            nativeBuildInputs = oldAttrs.nativeBuildInputs ++ [
+              (python.pkgs.mkPythonEditablePackage  arg // {
+                  # pname = pyproject.project.name;
+                  # inherit (pyproject.project) scripts version;
+                  # root = lib.mkOverride "$REPO_ROOT/python/ReUseX";
+                }
+              )
+            ];
+          });
+        
+        in
+        pkgs.mkShellNoCC {
+          packages = with pkgs; [
+            cmake
+            ninja
+            mpi
+            cudatoolkit
+          ] ++[
+            # Python Environment
+            (myPython.withPackages (ps: with ps; [ 
+              # editablePkg
+              ReUseX
+              # mast3r
+              # g2o
+              # torch
+            ])) #.override (args: { ignoreCollisions = true; })
+          ];
+
+          # inputsFrom = [ 
+          #   editablePkg
+          # ];
+
+          shellHook = ''
+            echo "Entering dev shell"
+            export VIRTUAL_ENV_PROMPT="ReUseX Environment"
+            export REPO_ROOT=$(pwd)
+          '';
         };
 
-        pythonEnv = myPython.withPackages (ps: with ps; [ ReUseX ]);
 
-        # ReUseXPython_dependanceis = python.withPackages arg;
-      in
-       pkgs.mkShellNoCC {
-        packages = with pkgs; [
-          # ReUseXPython_dependanceis
-          pythonEnv
-          mast3r
-          g2opy
-          python3Packages.torch
-
-          cmake
-          ninja
-          mpi
-          cudatoolkit_joined
-        ];
-
-        inputsFrom = [ self.packages.${system}.editablePkg ];
-
-        shellHook = ''
-          echo "Entering dev shell"
-          export VIRTUAL_ENV_PROMPT="ReUseX Environment"
-        '';
       }; # end of devShells
 
     }); # end of outputs

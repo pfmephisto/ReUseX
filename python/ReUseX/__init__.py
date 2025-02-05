@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import logging
 
-
-
 from ._core import *
 from ._core import __doc__, __version__
 

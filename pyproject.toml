@@ -2,6 +2,7 @@
 name = "ReUseX"
 version = "0.0.1"
 readme = "README.md"
+description = "ReUseX is a too for processing point cloud scans of buildings intended for reuse."
 keywords = ["ReUseX", "python", "ReUse Explorer"]
 maintainers = [
     {name = "Povl Filip Sonne-Frederiksen", email="pfs@linkarkitektur.dk"},

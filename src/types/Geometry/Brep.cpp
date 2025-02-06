@@ -10,7 +10,6 @@
 #include <CGAL/Optimal_bounding_box/oriented_bounding_box.h>
 #include <CGAL/squared_distance_3.h>
 
-#define OPENNURBS_PUBLIC_INSTALL_DIR "/path/to/opennurbs"
 #include <opennurbs_public.h>
 #include <opennurbs_brep.h>
 
@@ -22,12 +21,6 @@
 #include <vector>
 #include <algorithm>
 #include <filesystem>
-
-// defining OPENNURBS_PUBLIC_INSTALL_DIR enables automatic linking using pragmas
-// #define OPENNURBS_PUBLIC_INSTALL_DIR "../extern/opennurbs"
-// uncomment the next line if you want to use opennurbs as a DLL
-//#define OPENNURBS_IMPORTS
-// #include "../extern/opennurbs/opennurbs_public.h"
 
 
 namespace ReUseX

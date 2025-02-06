@@ -10,9 +10,13 @@
     };
 
     flake-utils.url = "github:numtide/flake-utils";
+
+    nixvim = {
+        url = "github:nix-community/nixvim";
+      };
   }; # end of inputs
 
-  outputs = { self, nixpkgs, flake-utils, pyproject-nix}:
+  outputs = { self, nixpkgs, flake-utils, pyproject-nix, nixvim}:
     flake-utils.lib.eachSystem [ "x86_64-linux" ] (system: # flake-utils.lib.eachDefaultSystem (system:
     let
       inherit (nixpkgs) lib;
@@ -222,6 +226,21 @@
       devShells = {
         default = let
           arg = project.renderers.withPackages { inherit python; }; 
+          nvim = nixvim.legacyPackages.x86_64-linux.makeNixvim {
+            plugins.lsp = {
+	            enable = true;
+	            autoLoad = true;
+	            servers = {
+	              clangd.enable = true;
+	            };
+            };
+	    colorschemes.nord.enable = true;
+            clipboard.providers.wl-copy.enable = true;
+            opts = {
+              number = true;
+              relativenumber = true;
+              };
+          };
         in
         pkgs.mkShell{
           inputsFrom = [ self.packages.${system}.default ];
@@ -229,6 +248,8 @@
             echo "Entering dev shell"
             export VIRTUAL_ENV_PROMPT="ReUseX Environment"
           '';
+
+          buildInputs = [nvim];
         }; # end of devShells
 
 
@@ -258,6 +279,7 @@
         
         in
         pkgs.mkShellNoCC {
+
           packages = with pkgs; [
             cmake
             ninja
@@ -265,13 +287,14 @@
             cudatoolkit
           ] ++[
             # Python Environment
-            (myPython.withPackages (ps: with ps; [ 
+            ((myPython.withPackages (ps: with ps; [ 
               # editablePkg
               ReUseX
-              # mast3r
-              # g2o
-              # torch
-            ])) #.override (args: { ignoreCollisions = true; })
+              torch
+	      matplotlib
+	      tqdm
+	      ipykernel
+            ])).override (args: { ignoreCollisions = true; }))
           ];
 
           # inputsFrom = [ 

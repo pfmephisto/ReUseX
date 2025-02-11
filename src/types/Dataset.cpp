@@ -3,7 +3,7 @@
 #include <fstream>
 #include <functions/lodepng.hh>
 #include <functions/polyscope.hh>
-#include <future>
+
 #include <iostream>
 #include <optional>
 #include <string>
@@ -17,8 +17,10 @@
     break;                                                                     \
   }
 
-Eigen::MatrixXd read_csv(std::ifstream &stream, char delimiter = ',',
-                         bool header = false) {
+Eigen::MatrixXd read_csv(
+		std::ifstream &stream, 
+		char delimiter = ',',
+                bool header = false) {
 
   std::string line;
   std::vector<double> values;
@@ -53,25 +55,20 @@ Eigen::MatrixXd read_csv(std::ifstream &stream, char delimiter = ',',
 std::optional<cv::Mat> read_frame_at_index(std::filesystem::path const &path,
                                            int idx) {
 
-  cv::VideoCapture cap(path);
+  cv::VideoCapture cap(path.c_str());
   cap.set(cv::CAP_PROP_POS_FRAMES, idx);
 
   cv::Mat frame;
-  bool sucsess = cap.read(frame);
+  bool sucsess = cap.read((cv::OutputArray)frame);
 
   if (!sucsess) {
     fmt::print("Failed to read frame at index: {}\n", idx);
     return {};
   }
 
-  cv::cvtColor(frame, frame, cv::COLOR_BGR2RGB);
+  cv::cvtColor((cv::InputArray)frame, (cv::OutputArray)frame, cv::COLOR_BGR2RGB);
 
   return frame;
-}
-
-size_t get_number_of_frames(std::filesystem::path const &path) {
-  cv::VideoCapture cap(path);
-  return cap.get(cv::CAP_PROP_FRAME_COUNT);
 }
 
 std::optional<Eigen::Matrix3d>
@@ -223,40 +220,25 @@ create_pose(Eigen::Block<const Eigen::MatrixXd, 1, 3> const &p,
 
 namespace ReUseX {
 
-//Dataset::Dataset(const std::filesystem::path &path,
-//                 const std::initializer_list<Field> &fields)
+size_t Dataset::get_number_of_frames(const std::filesystem::path &path){
+  cv::VideoCapture cap(path);
+  return cap.get(cv::CAP_PROP_FRAME_COUNT);
+}; 
 
- Dataset::Dataset(const std::filesystem::path &path,
-          const std::initializer_list<Field> &fields){
-
-  // Check if directories and files exists
-  assert(std::filesystem::exists(path) &&
-         fmt::format("Directory does not exist: {}", path.string()).c_str());
-  _path = path;
-
-  _n_frames = get_number_of_frames(_path / "rgb.mp4");
-
-  // TODO: Rather implement this as lazy loading.
-  //_asyncConstructor = std::async(std::launch::async, [&]() {
-  //      fmt::print("Inside async..");
-  //	std::this_thread::sleep_for(std::chrono::seconds(2));
-  //});
-
-  // Load data
-  for (auto field : fields) {
+void Dataset::set_field(Field field){
 
     switch (field) {
 
     case Field::COLOR:
-      CHECK_EXSISTANCE(path, "rgb.mp4");
+      CHECK_EXSISTANCE(_path, "rgb.mp4");
       _fields.insert(field);
       break;
 
     case Field::DEPTH:
-      CHECK_EXSISTANCE(path, "depth")
+      CHECK_EXSISTANCE(_path, "depth");
 
       // Get depth image paths
-      std::transform(std::filesystem::directory_iterator(path / "depth"),
+      std::transform(std::filesystem::directory_iterator(_path / "depth"),
                      std::filesystem::directory_iterator(),
                      std::back_inserter(_depth_paths),
                      [](const auto &entry) { return entry.path(); });
@@ -265,10 +247,10 @@ namespace ReUseX {
       break;
 
     case Field::CONFIDENCE:
-      CHECK_EXSISTANCE(path, "confidence");
+      CHECK_EXSISTANCE(_path, "confidence");
 
       // Get depth image paths
-      std::transform(std::filesystem::directory_iterator(path / "confidence"),
+      std::transform(std::filesystem::directory_iterator(_path / "confidence"),
                      std::filesystem::directory_iterator(),
                      std::back_inserter(_confidence_paths),
                      [](const auto &entry) { return entry.path(); });
@@ -281,14 +263,14 @@ namespace ReUseX {
       // Chontious fall thorugh, since poses are dependent on Odemetry
 
     case Field::ODOMETRY:
-      CHECK_EXSISTANCE(path, "odometry.csv");
+      CHECK_EXSISTANCE(_path, "odometry.csv");
 
       _odometry_data = read_odometry(_path / "odometry.csv").value();
       _fields.insert(field);
       break;
 
     case Field::IMU:
-      CHECK_EXSISTANCE(path, "imu.csv");
+      CHECK_EXSISTANCE(_path, "imu.csv");
 
       _imu_data = read_imu(_path / "imu.csv").value();
       _fields.insert(field);
@@ -296,9 +278,9 @@ namespace ReUseX {
     default:
       throw std::runtime_error("Unknown field");
     }
-  }
-  
-};
+
+  };
+
 
 Eigen::Matrix<double, 3, 3> Dataset::intrinsic_matrix() const {
   auto matrix = read_camera_matrix(_path / "camera_matrix.csv").value();
@@ -319,7 +301,7 @@ Data Dataset::operator[](int idx) const {
 
   // TODO: Check if idx is in range
 
-  Data data;
+  Data data(idx);
   for (auto field : _fields) {
     switch (field) {
     case Field::COLOR:

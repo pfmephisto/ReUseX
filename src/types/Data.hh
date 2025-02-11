@@ -1,6 +1,7 @@
 #pragma once
 #include <any>
 #include <map>
+#include <variant>
 #include <Eigen/Dense>
 
 #include <opencv4/opencv2/core/mat.hpp>
@@ -64,38 +65,58 @@ namespace ReUseX{
     };
 
 
+	//// Helper to extract all types from field_type_map and create a variant
+	//template <typename... Pairs>
+	//struct ExtractTypes;
+	//
+	//template <typename... Ts>
+	//struct ExtractTypes<std::pair<Field, Ts>...> {
+	//    using type = std::variant<Ts...>;
+	//};
+	//
+	//// Define FieldVariant automatically
+	//using FieldVariant = typename ExtractTypes<decltype(field_type_map)::value_type...>::type;
 
 
-    class Data
-    {
-    private:
-        std::map<Field, std::any> _data;
+    // Define FieldVariant type using std::variant<>
+    using FieldVariant = std::variant<
+        cv::Mat,
+        Eigen::MatrixXf,
+        Eigen::Matrix<uint8_t, Eigen::Dynamic, Eigen::Dynamic>,
+        Eigen::MatrixXd,
+        Eigen::Transform<float, 3, Eigen::Affine>>;
 
-    public:
-        Data() = default;
 
-        
+
+    class Data: public std::map<Field, FieldVariant>    {
+
+	    size_t _index = 0;
+
+	public:
+		Data(size_t index_) : std::map<Field, FieldVariant>() {
+			_index = index_;
+		}
+
         template <Field F>
         typename FieldType<F>::type get() const {
-            using ValueType = typename FieldType<F>::type;
-            return std::any_cast<ValueType>(_data.at(F));
+            return std::get<typename FieldType<F>::type>(this->at(F));
         }
 
         template <Field F>
         void set(typename FieldType<F>::type value) {
-            _data[F] = value;
+		this->operator[](F) = value;
         }
 
-        auto begin() const { return _data.begin(); }
-        auto end() const { return _data.end(); }
+	inline size_t index() { return _index; }
 
         auto fields() const {
             std::vector<Field> fields;
-            for (auto const& [key, value] : _data) {
+            for (auto const& [key, value] : *this) {
                 fields.push_back(key);
             }
             return fields;
         }
+
 
     };
 

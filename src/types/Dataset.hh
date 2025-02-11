@@ -26,14 +26,37 @@ private:
   std::shared_future<void> _asyncConstructor;
 
 public:
-  Dataset(const std::filesystem::path &path,
-          const std::initializer_list<Field> &fields);
+  template<typename T>
+  Dataset(const std::filesystem::path &path, T begin, T end){
+  	// Check if directories and files exists
+  	assert(std::filesystem::exists(path) &&
+  	       fmt::format("Directory does not exist: {}", path.string()).c_str());
+  	_path = path;
 
-  Dataset(const std::string &path) {
-    new (this) Dataset(std::filesystem::path(path), {Field::COLOR, Field::DEPTH, Field::CONFIDENCE,
-                              Field::ODOMETRY, Field::IMU, Field::POSES});
+  	_n_frames = get_number_of_frames(_path / "rgb.mp4");
+
+  	// TODO: Rather implement this as lazy loading.
+  	//_asyncConstructor = std::async(std::launch::async, [&]() {
+  	//      fmt::print("Inside async..");
+  	//	std::this_thread::sleep_for(std::chrono::seconds(2));
+  	//});
+
+  	// Load data
+  	for (auto it = begin; it != end; it++) {
+  	  Field field = *it;  
+	  set_field(field);
+	};
+ 
   };
 
+  Dataset(const std::filesystem::path &path,
+          const std::initializer_list<Field> &fields):
+    Dataset(path, fields.begin(), fields.end()){};  
+
+  Dataset(const std::string &path):
+    Dataset(std::filesystem::path(path),
+		    {Field::COLOR, Field::DEPTH, Field::CONFIDENCE,
+		    Field::ODOMETRY, Field::IMU, Field::POSES}){};
 
   // Getters
   std::set<Field> fields() const { return _fields; };
@@ -54,6 +77,10 @@ public:
   inline std::string name() const { return _path.parent_path().filename(); };
 
   inline auto get_odometry() const { return _odometry_data; };
+
+private:
+  void set_field(Field field);
+  static size_t get_number_of_frames(const std::filesystem::path &path);
 };
 
 } // namespace ReUseX

@@ -1,6 +1,7 @@
         
 {
     fetchPypi,
+    fetchFromGitHub,
     pkgs,
     python3Packages,
     callPackage,
@@ -73,11 +74,29 @@ pkgs.python3Packages.buildPythonPackage rec {
 
     pname = "specklepy";
     version = "2.21.2";
-    format = "pyproject";
+    pyproject = true;
 
-    src = fetchPypi rec {
-        inherit pname version;
-        sha256 = "sha256-ukS7kWfO0y5Sun5XF9Cx0OzhqiPKAiQ8518Oq6COgQc=";
+    # src = fetchPypi rec {
+    #     inherit pname version;
+    #     sha256 = "sha256-ukS7kWfO0y5Sun5XF9Cx0OzhqiPKAiQ8518Oq6COgQc=";
+    # };
+
+
+    patches = [
+        ./version.patch
+    ];
+
+    #patchPhase
+
+    configurePhase = ''
+        ${pkgs.python3}/bin/python ./patch_version.py ${version}
+    '';
+
+    src = fetchFromGitHub {
+        owner = "specklesystems";
+        repo = "specklepy";
+        rev = "${version}";
+        sha256 = "sha256-SRwINUjrPzx3/uEfAoKx5XE0CbUrx85PD3GJ+vd3rAs=";
     };
 
     doCheck = false;
@@ -94,7 +113,8 @@ pkgs.python3Packages.buildPythonPackage rec {
         stringcase
         ujson
         httpx-0-26-0 # httpx<0.26.0,>=0.25.0 not satisfied by version 0.27.2
-        attrs-24-0-0 # attrs<24.0.0,>=23.1.0 not satisfied by version 24.2.0
+        attrs
+        #attrs-24-0-0 # attrs<24.0.0,>=23.1.0 not satisfied by version 24.2.0
     ];
 
     meta = with lib; {

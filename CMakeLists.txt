@@ -103,6 +103,9 @@ else()
     endif()
 endif()
 
+# Generate compile commands for clangd and nvim highlighting
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # ===============================================
 # Bin dir
 if(MSVC)

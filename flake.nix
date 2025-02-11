@@ -14,9 +14,10 @@
     nixvim = {
         url = "github:nix-community/nixvim";
       };
+
   }; # end of inputs
 
-  outputs = { self, nixpkgs, flake-utils, pyproject-nix, nixvim}:
+  outputs = { self, nixpkgs, flake-utils, pyproject-nix, nixvim }:
     flake-utils.lib.eachSystem [ "x86_64-linux" ] (system: # flake-utils.lib.eachDefaultSystem (system:
     let
       inherit (nixpkgs) lib;
@@ -28,6 +29,7 @@
         # Set systm comfigurations such as CUDA support and unfree packages
         config = {
         cudaSupport = true;
+        hardware.nvidia.open = false;
         allowUnfreePredicate = pkg: builtins.elem (lib.getName pkg) [
           # Python model
           "mast3r"
@@ -60,7 +62,10 @@
           "libnvjitlink"
           "libcusparse"
           "cudnn"
+	        "nvidia-x11"
           # "cudatoolkit"
+	        "triton"
+	        "torch"
           ];
         };
 
@@ -227,20 +232,40 @@
         default = let
           arg = project.renderers.withPackages { inherit python; }; 
           nvim = nixvim.legacyPackages.x86_64-linux.makeNixvim {
-            plugins.lsp = {
-	            enable = true;
-	            autoLoad = true;
-	            servers = {
-	              clangd.enable = true;
+            plugins = {
+	            lsp = {
+	              enable = true;
+	              autoLoad = true;
+	              servers = {
+	                clangd.enable = true;
+	              };
+              };
+	          #   # lsp-format = {
+	          #   #   enable = true;
+	          #   # };
+	            conform-nvim = {
+	              enable = true;
+                settings = {
+                  formatters_by_ft = {
+                    cpp = [ "clang-format" ];
+                  };
+                  format_on_save = {
+                    lsp_format = "fallback";
+                    timeout_ms = 500;
+                  };
+                };
+	            };
+	            treesitter = {
+		            enable = true;
 	            };
             };
-	    colorschemes.nord.enable = true;
+	          colorschemes.nord.enable = true;
             clipboard.providers.wl-copy.enable = true;
             opts = {
               number = true;
               relativenumber = true;
-              };
-          };
+            };
+         };
         in
         pkgs.mkShell{
           inputsFrom = [ self.packages.${system}.default ];
@@ -276,7 +301,7 @@
               )
             ];
           });
-        
+
         in
         pkgs.mkShellNoCC {
 
@@ -288,23 +313,29 @@
           ] ++[
             # Python Environment
             ((myPython.withPackages (ps: with ps; [ 
-              # editablePkg
               ReUseX
               torch
-	      matplotlib
-	      tqdm
-	      ipykernel
+	            torchvision
+	            safetensors
+              opencv-python
+              matplotlib
+              tqdm
+              scipy
+              ipykernel
             ])).override (args: { ignoreCollisions = true; }))
           ];
 
-          # inputsFrom = [ 
+          #inputsFrom = [ 
           #   editablePkg
-          # ];
+          #];
 
           shellHook = ''
             echo "Entering dev shell"
             export VIRTUAL_ENV_PROMPT="ReUseX Environment"
             export REPO_ROOT=$(pwd)
+
+            export CUDA_PATH=${pkgs.cudaPackages.cudatoolkit}
+	  
           '';
         };
 

@@ -301,7 +301,8 @@ Data Dataset::operator[](int idx) const {
 
   // TODO: Check if idx is in range
 
-  Data data(idx);
+  Data data;
+  data.set<Field::INDEX>(idx);
   for (auto field : _fields) {
     switch (field) {
     case Field::COLOR:

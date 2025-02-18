@@ -33,7 +33,7 @@ namespace ReUseX
      * \return the resultant aligned source PointCloud
      */
     template <typename PointT>
-    Eigen::Matrix4f pair_align (
+    Eigen::Matrix4f pair_align ( //TODO: Rename to icp
         const typename pcl::PointCloud<PointT>::ConstPtr cloud_src,
         const typename pcl::PointCloud<PointT>::ConstPtr cloud_tgt,
         std::vector<typename pcl::Filter<PointT>::Ptr> filters

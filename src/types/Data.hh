@@ -11,6 +11,7 @@
 namespace ReUseX{
 
     enum Field {
+	INDEX,
         COLOR,
         DEPTH,
         CONFIDENCE,
@@ -64,6 +65,11 @@ namespace ReUseX{
         using type = Eigen::Transform<float, 3, Eigen::Affine>;
     };
 
+    template <>
+    struct FieldType<Field::INDEX> {
+        using type = size_t;
+    };
+
 
 	//// Helper to extract all types from field_type_map and create a variant
 	//template <typename... Pairs>
@@ -80,6 +86,7 @@ namespace ReUseX{
 
     // Define FieldVariant type using std::variant<>
     using FieldVariant = std::variant<
+	size_t,
         cv::Mat,
         Eigen::MatrixXf,
         Eigen::Matrix<uint8_t, Eigen::Dynamic, Eigen::Dynamic>,
@@ -90,13 +97,7 @@ namespace ReUseX{
 
     class Data: public std::map<Field, FieldVariant>    {
 
-	    size_t _index = 0;
-
 	public:
-		Data(size_t index_) : std::map<Field, FieldVariant>() {
-			_index = index_;
-		}
-
         template <Field F>
         typename FieldType<F>::type get() const {
             return std::get<typename FieldType<F>::type>(this->at(F));
@@ -106,8 +107,6 @@ namespace ReUseX{
         void set(typename FieldType<F>::type value) {
 		this->operator[](F) = value;
         }
-
-	inline size_t index() { return _index; }
 
         auto fields() const {
             std::vector<Field> fields;

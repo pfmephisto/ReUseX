@@ -57,8 +57,9 @@ def resize(img, size = 256, square_ok = False):
     return img
 
 def fast_reciprocal_NNs(pts1, pts2, subsample_or_initxy1=8, ret_xy=True, pixel_tol=0, ret_basin=False, device="cuda", **matcher_kw):
-    H1, W1, DIM1 = pts1.shape
-    H2, W2, DIM2 = pts2.shape
+    slice_ = slice(1, None, 1) if len(pts1.shape) > 3 else slice(0, None, 1)
+    H1, W1, DIM1 = pts1.shape[slice_]
+    H2, W2, DIM2 = pts2.shape[slice_]
     assert DIM1 == DIM2
 
     pts1 = pts1.reshape(-1, DIM1)

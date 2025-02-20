@@ -3,7 +3,7 @@ from torch.utils.data import Dataset as TorchDataset
 
 
 from .._core import Dataset as ReUseXDataset, Field
-from .._core import Data
+from .._core import DataItem
 
 from ..pose_graph.pose_graph import *
 
@@ -32,7 +32,7 @@ def make_pairs(data):
     return pairs 
 
 
-def make_pytorch_dict(data: Data):
+def make_pytorch_dict(data: DataItem):
     data = dict(data)
     
     # Covert openCV image to numpy array

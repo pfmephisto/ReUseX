@@ -17,10 +17,8 @@
     break;                                                                     \
   }
 
-Eigen::MatrixXd read_csv(
-		std::ifstream &stream, 
-		char delimiter = ',',
-                bool header = false) {
+Eigen::MatrixXd read_csv(std::ifstream &stream, char delimiter = ',',
+                         bool header = false) {
 
   std::string line;
   std::vector<double> values;
@@ -66,7 +64,8 @@ std::optional<cv::Mat> read_frame_at_index(std::filesystem::path const &path,
     return {};
   }
 
-  cv::cvtColor((cv::InputArray)frame, (cv::OutputArray)frame, cv::COLOR_BGR2RGB);
+  cv::cvtColor((cv::InputArray)frame, (cv::OutputArray)frame,
+               cv::COLOR_BGR2RGB);
 
   return frame;
 }
@@ -220,67 +219,65 @@ create_pose(Eigen::Block<const Eigen::MatrixXd, 1, 3> const &p,
 
 namespace ReUseX {
 
-size_t Dataset::get_number_of_frames(const std::filesystem::path &path){
+size_t Dataset::get_number_of_frames(const std::filesystem::path &path) {
   cv::VideoCapture cap(path);
   return cap.get(cv::CAP_PROP_FRAME_COUNT);
-}; 
+};
 
-void Dataset::set_field(Field field){
+void Dataset::set_field(Field field) {
 
-    switch (field) {
+  switch (field) {
 
-    case Field::COLOR:
-      CHECK_EXSISTANCE(_path, "rgb.mp4");
-      _fields.insert(field);
-      break;
+  case Field::COLOR:
+    CHECK_EXSISTANCE(_path, "rgb.mp4");
+    _fields.insert(field);
+    break;
 
-    case Field::DEPTH:
-      CHECK_EXSISTANCE(_path, "depth");
+  case Field::DEPTH:
+    CHECK_EXSISTANCE(_path, "depth");
 
-      // Get depth image paths
-      std::transform(std::filesystem::directory_iterator(_path / "depth"),
-                     std::filesystem::directory_iterator(),
-                     std::back_inserter(_depth_paths),
-                     [](const auto &entry) { return entry.path(); });
-      std::sort(_depth_paths.begin(), _depth_paths.end());
-      _fields.insert(field);
-      break;
+    // Get depth image paths
+    std::transform(std::filesystem::directory_iterator(_path / "depth"),
+                   std::filesystem::directory_iterator(),
+                   std::back_inserter(_depth_paths),
+                   [](const auto &entry) { return entry.path(); });
+    std::sort(_depth_paths.begin(), _depth_paths.end());
+    _fields.insert(field);
+    break;
 
-    case Field::CONFIDENCE:
-      CHECK_EXSISTANCE(_path, "confidence");
+  case Field::CONFIDENCE:
+    CHECK_EXSISTANCE(_path, "confidence");
 
-      // Get depth image paths
-      std::transform(std::filesystem::directory_iterator(_path / "confidence"),
-                     std::filesystem::directory_iterator(),
-                     std::back_inserter(_confidence_paths),
-                     [](const auto &entry) { return entry.path(); });
-      std::sort(_confidence_paths.begin(), _confidence_paths.end());
-      _fields.insert(field);
-      break;
+    // Get depth image paths
+    std::transform(std::filesystem::directory_iterator(_path / "confidence"),
+                   std::filesystem::directory_iterator(),
+                   std::back_inserter(_confidence_paths),
+                   [](const auto &entry) { return entry.path(); });
+    std::sort(_confidence_paths.begin(), _confidence_paths.end());
+    _fields.insert(field);
+    break;
 
-    case Field::POSES:
-      _fields.insert(field);
-      // Chontious fall thorugh, since poses are dependent on Odemetry
+  case Field::POSES:
+    _fields.insert(field);
+    // Chontious fall thorugh, since poses are dependent on Odemetry
 
-    case Field::ODOMETRY:
-      CHECK_EXSISTANCE(_path, "odometry.csv");
+  case Field::ODOMETRY:
+    CHECK_EXSISTANCE(_path, "odometry.csv");
 
-      _odometry_data = read_odometry(_path / "odometry.csv").value();
-      _fields.insert(field);
-      break;
+    _odometry_data = read_odometry(_path / "odometry.csv").value();
+    _fields.insert(field);
+    break;
 
-    case Field::IMU:
-      CHECK_EXSISTANCE(_path, "imu.csv");
+  case Field::IMU:
+    CHECK_EXSISTANCE(_path, "imu.csv");
 
-      _imu_data = read_imu(_path / "imu.csv").value();
-      _fields.insert(field);
-      break;
-    default:
-      throw std::runtime_error("Unknown field");
-    }
-
-  };
-
+    _imu_data = read_imu(_path / "imu.csv").value();
+    _fields.insert(field);
+    break;
+  default:
+    throw std::runtime_error("Unknown field");
+  }
+};
 
 Eigen::Matrix<double, 3, 3> Dataset::intrinsic_matrix() const {
   auto matrix = read_camera_matrix(_path / "camera_matrix.csv").value();
@@ -297,11 +294,11 @@ Eigen::Matrix<double, 3, 3> Dataset::intrinsic_matrix() const {
   return matrix;
 }
 
-Data Dataset::operator[](int idx) const {
+DataItem Dataset::operator[](int idx) const {
 
   // TODO: Check if idx is in range
 
-  Data data;
+  DataItem data;
   data.set<Field::INDEX>(idx);
   for (auto field : _fields) {
     switch (field) {

@@ -8,10 +8,31 @@
 namespace py = pybind11;
 using namespace pybind11::literals;
 
+template <typename PointT>
+void definePointCloud(py::object &m, const char *suffix) {
+  using Cloud = pcl::PointCloud<PointT>;
+  using Type =
+      py::class_<Cloud, std::shared_ptr<Cloud>>; // boost::shared_ptr<Cloud>
+  std::string name = fmt::format("Cloud_{}", suffix);
+  auto pc = Type(m, name.c_str());
+  pc.def("__len__", [](Cloud &cloud) { return cloud.size(); });
+  pc.def("__repr__", [suffix](Cloud &) {
+    return fmt::format("ReUseX Cloud <{}>", suffix);
+  });
+  pc.def("__str__", [suffix](Cloud &cloud) {
+    return fmt::format("Cloud {} {}", suffix, cloud.size());
+  });
+}
+
 void bind_pointcloud(py::module_ &m) {
 
   PYBIND11_NUMPY_DTYPE(PointT, x, y, z, normal_x, normal_y, normal_z, rgba,
                        curvature, label);
+  PYBIND11_NUMPY_DTYPE(pcl::PointXYZRGBA, x, y, z, rgba);
+
+  // TODO: Implement Base point cloud class_
+
+  // py::class_<>(m, "Cloud", py::buffer_protocol());
 
   // TODO: Capture standard out on all functions that use the progress bar
   // https://pybind11.readthedocs.io/en/stable/advanced/pycpp/utilities.html#capturing-standard-output-from-ostream
@@ -137,4 +158,8 @@ void bind_pointcloud(py::module_ &m) {
             1, {cloud->points.size()},
             {sizeof(ReUseX::PointCloud::Cloud::PointType)});
       });
+
+  definePointCloud<pcl::PointXYZRGBA>(m, "PointXYZRGBA");
+  definePointCloud<PointXYZRGBANormal>(m, "PointXYZRGBANormal");
+  definePointCloud<PointT>(m, "PointTXYZRGBALNormal");
 }

@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 #include <optional>
 #include <string>
 
@@ -16,6 +17,7 @@
 #include <fmt/format.h>
 #include <fmt/printf.h>
 
+namespace fs = std::filesystem;
 namespace ReUseX {
 
 static Eigen::Matrix3d ipad_intrinsic() {
@@ -36,8 +38,14 @@ void parse_Dataset(Dataset const &dataset, std::string const &output_path,
                    std::optional<int> stop = std::optional<int>{},
                    int step = 5);
 
+fs::path ParseDataset(Dataset const &dataset,
+                      std::optional<fs::path> output_path_,
+                      Eigen::Matrix3d const &intrinsic_matrix,
+                      std::optional<std::vector<size_t> *> samples_);
+
 pcl::PointCloud<pcl::PointXYZRGBA>::Ptr
-CreateCloud(Data const &data,
-            Eigen::Matrix3d intrinsic_matrix = ipad_intrinsic());
+CreateCloud(DataItem const &data,
+            Eigen::Matrix3d intrinsic_matrix = ipad_intrinsic(),
+            std::optional<size_t const> seq_index = {});
 
 } // namespace ReUseX

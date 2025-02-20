@@ -1,41 +1,35 @@
 #pragma once
-
 #include <optional>
 
-#include <pcl/pcl_base.h>
-#include <pcl/filters/filter.h>
 #include <Eigen/Core>
+#include <pcl/filters/filter.h>
+#include <pcl/pcl_base.h>
 
+namespace ReUseX {
 
-namespace ReUseX
-{
+////////////////////////////////////////////////////////////////////////////////
+/** \brief Align a pair of PointCloud datasets and return the result
+ * \param cloud_src the source PointCloud
+ * \param cloud_tgt the target PointCloud
+ * \param grid_size the size of the grid
+ * \return the resultant aligned source PointCloud
+ */
+template <typename PointT>
+Eigen::Matrix4f
+pair_align(const typename pcl::PointCloud<PointT>::ConstPtr cloud_src,
+           const typename pcl::PointCloud<PointT>::ConstPtr cloud_tgt,
+           std::optional<float> grid_size = {});
 
-    ////////////////////////////////////////////////////////////////////////////////
-    /** \brief Align a pair of PointCloud datasets and return the result
-    * \param cloud_src the source PointCloud
-    * \param cloud_tgt the target PointCloud
-    * \param grid_size the size of the grid
-    * \return the resultant aligned source PointCloud
-    */
-    template <typename PointT>
-    Eigen::Matrix4f pair_align(
-        const typename pcl::PointCloud<PointT>::ConstPtr cloud_src,
-        const typename pcl::PointCloud<PointT>::ConstPtr cloud_tgt,
-        std::optional<float> grid_size = {}
-    );
-
-
-    ////////////////////////////////////////////////////////////////////////////////
-    /** \brief Align a pair of PointCloud datasets and return the result
-     * \param cloud_src the source PointCloud
-     * \param cloud_tgt the target PointCloud
-     * \param filters the filters to apply
-     * \return the resultant aligned source PointCloud
-     */
-    template <typename PointT>
-    Eigen::Matrix4f pair_align ( //TODO: Rename to icp
-        const typename pcl::PointCloud<PointT>::ConstPtr cloud_src,
-        const typename pcl::PointCloud<PointT>::ConstPtr cloud_tgt,
-        std::vector<typename pcl::Filter<PointT>::Ptr> filters
-    );
+////////////////////////////////////////////////////////////////////////////////
+/** \brief Align a pair of PointCloud datasets and return the result
+ * \param cloud_src the source PointCloud
+ * \param cloud_tgt the target PointCloud
+ * \param filters the filters to apply
+ * \return the resultant aligned source PointCloud
+ */
+template <typename PointT>
+Eigen::Matrix4f icp(const typename pcl::PointCloud<PointT>::ConstPtr cloud_src,
+                    const typename pcl::PointCloud<PointT>::ConstPtr cloud_tgt,
+                    std::vector<typename pcl::Filter<PointT>::Ptr> filters =
+                        std::vector<typename pcl::Filter<PointT>::Ptr>());
 } // namespace ReUseX

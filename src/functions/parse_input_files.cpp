@@ -50,7 +50,11 @@
 
 #include <opencv4/opencv2/imgproc.hpp>
 
+#include <algorithm>
 #include <cassert>
+#include <numeric>
+#include <optional>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -59,8 +63,8 @@ namespace fs = std::filesystem;
 namespace ReUseX {
 
 template <typename PointCloud>
-static void setHeader(PointCloud &cloud, size_t const i,
-                      Eigen::MatrixXd const &odometry) {
+static void setHeader(PointCloud &cloud, Eigen::MatrixXd const &odometry,
+                      std::optional<size_t> i) {
 
   uint64_t time_stamp = odometry(0, 0);
   std::string frame_id = fmt::format("{:06}", (int)odometry(0, 1));
@@ -79,7 +83,7 @@ static void setHeader(PointCloud &cloud, size_t const i,
   orientation.z() = quat(2);
   orientation.w() = quat(3);
 
-  cloud.header.seq = i;
+  cloud.header.seq = i.has_value() ? i.value() : 0;
   cloud.header.frame_id = frame_id;
   cloud.header.stamp = time_stamp;
 
@@ -92,9 +96,11 @@ static void setHeader(PointCloud &cloud, size_t const i,
 }
 
 pcl::PointCloud<pcl::PointXYZRGBA>::Ptr
-CreateCloud(Data const &data, double fx, double fy, double cx, double cy) {
+CreateCloud(DataItem const &data, double fx, double fy, double cx, double cy,
+            std::optional<size_t const> i) {
 
   // We need at least the depth info
+  auto fields = data.fields();
   assert(std::count(fields.begin(), fields.end(), Field::DEPTH) == 1);
 
   pcl::RangeImagePlanar::Ptr points =
@@ -117,8 +123,8 @@ CreateCloud(Data const &data, double fx, double fy, double cx, double cy) {
   auto height = points->height;
 
   // If there is color information add it
-  bool has_color_values = std::find(data.fields().begin(), data.fields().end(),
-                                    Field::COLOR) != data.fields().end();
+  bool has_color_values =
+      std::find(fields.begin(), fields.end(), Field::COLOR) != fields.end();
   cv::Mat image;
   if (has_color_values) {
     image = data.get<Field::COLOR>();
@@ -126,10 +132,10 @@ CreateCloud(Data const &data, double fx, double fy, double cx, double cy) {
   }
 
   // If there there are confidence values add them
-  bool has_confidence_values =
-      std::find(data.fields().begin(), data.fields().end(),
-                Field::CONFIDENCE) != data.fields().end();
+  bool has_confidence_values = std::find(fields.begin(), fields.end(),
+                                         Field::CONFIDENCE) != fields.end();
   Eigen::Matrix<uint8_t, Eigen::Dynamic, Eigen::Dynamic> confidence;
+
   if (has_confidence_values)
     confidence = data.get<Field::CONFIDENCE>();
 
@@ -150,11 +156,20 @@ CreateCloud(Data const &data, double fx, double fy, double cx, double cy) {
     }
   }
 
+  // Set Header
+  if (std::find(fields.begin(), fields.end(), Field::ODOMETRY) != fields.end())
+    setHeader(*cloud, data.get<Field::ODOMETRY>(), i);
+
+  // Move the cloud
+  if (std::find(fields.begin(), fields.end(), Field::POSES) != fields.end())
+    pcl::transformPointCloud(*cloud, *cloud, data.get<Field::POSES>());
+
   return cloud;
 }
 
-inline pcl::PointCloud<pcl::PointXYZRGBA>::Ptr
-CreateCloud(Data const &data, Eigen::Matrix3d intrinsic_matrix) {
+pcl::PointCloud<pcl::PointXYZRGBA>::Ptr
+CreateCloud(DataItem const &data, Eigen::Matrix3d intrinsic_matrix,
+            std::optional<size_t const> seq_index) {
 
   auto fx = intrinsic_matrix(0, 0);
   auto fy = intrinsic_matrix(1, 1);
@@ -162,8 +177,50 @@ CreateCloud(Data const &data, Eigen::Matrix3d intrinsic_matrix) {
   auto cx = intrinsic_matrix(0, 2);
   auto cy = intrinsic_matrix(1, 2);
 
-  return CreateCloud(data, fx, fy, cx, cy);
+  return CreateCloud(data, fx, fy, cx, cy, seq_index);
 };
+
+fs::path ParseDataset(Dataset const &dataset,
+                      std::optional<fs::path> output_path_,
+                      Eigen::Matrix3d const &intrinsic_matrix,
+                      std::optional<std::vector<size_t> *> samples_) {
+
+  // Set output path
+  fs::path output_path = output_path_.has_value()
+                             ? output_path_.value()
+                             : fs::path("./") / dataset.name();
+
+  // set the samples
+  std::vector<size_t> samples;
+  if (samples_.has_value())
+    samples = *samples_.value();
+  else {
+    samples.resize(dataset.size());
+    std::iota(samples.begin(), samples.end(), 0);
+  }
+
+  auto progress_bar = util::progress_bar(samples.size(), "Processing data");
+#pragma omp parallel for firstprivate(output_path)                             \
+    shared(dataset, intrinsic_matrix)
+  for (size_t i = 0; i < samples.size(); i++) {
+
+    auto data = dataset[samples[i]];
+
+    auto cloud = CreateCloud(data, intrinsic_matrix, i);
+
+    // Save cloud
+    std::filesystem::create_directory(output_path);
+    std::filesystem::path file_path(fmt::format(
+        "{}/cloud_{}.pcd", output_path.c_str(), cloud->header.frame_id));
+
+    save<pcl::PointXYZRGBA>(file_path, cloud);
+
+    progress_bar.update();
+  }
+  progress_bar.stop();
+
+  return output_path;
+}
 
 void parse_Dataset(Dataset const &dataset, std::string const &output_path,
                    int start, std::optional<int> stop_in, int step) {
@@ -288,7 +345,7 @@ void parse_Dataset(Dataset const &dataset, std::string const &output_path,
 
     pcl::transformPointCloud(*cloud, *cloud, data.get<Field::POSES>());
 
-    setHeader(*cloud, i, data.get<Field::ODOMETRY>());
+    setHeader(*cloud, data.get<Field::ODOMETRY>(), i);
 
     // cv::destroyAllWindows();
 

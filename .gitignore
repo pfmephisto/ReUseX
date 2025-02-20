@@ -51,7 +51,6 @@ imgui.ini
 # Ignore Images
 *.png
 .polyscope.ini
-**/__pycache__/**/*
 **/*.lp
 
 
@@ -77,3 +76,13 @@ ReUseX_py.egg-info/
 
 # HDF5 Datasets
 *.h5
+
+# Ignore cache
+**/__pycache__/**/*
+**/.cache/**/*
+
+
+#Ignore IDE files
+compile_commands.json
+.envrc
+result

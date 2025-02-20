@@ -1,4 +1,5 @@
 #include <opencv4/opencv2/core.hpp>
+
 #include <pybind11/iostream.h>
 #include <pybind11/pybind11.h>
 
@@ -8,6 +9,7 @@ namespace py = pybind11;
 using namespace pybind11::literals;
 
 void bind_image(py::module_ &m) {
+
   /// @brief CV Mat, used to hold image and Depth data
   py::class_<cv::Mat>(m, "Mat", py::buffer_protocol())
       .def_buffer([](cv::Mat &m) -> py::buffer_info {

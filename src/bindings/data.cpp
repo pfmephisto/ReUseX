@@ -30,36 +30,38 @@ void bind_dataitem(py::module_ &m) {
   /// @brief Data is the indevidual frames that the dataset provieds.
   /// Think of the data-set as a clollection of data packages.
   py::bind_map<FieldMap>(m, "DataDict", py::module_local(false));
-  py::class_<ReUseX::Data, FieldMap>(m, "Data")
+  py::class_<ReUseX::DataItem, FieldMap>(m, "DataItem")
       .def(py::init<>())
-      .def_property_readonly(
-          "color",
-          [](const ReUseX::Data &d) { return d.get<ReUseX::Field::COLOR>(); })
-      .def_property_readonly(
-          "depth",
-          [](const ReUseX::Data &d) { return d.get<ReUseX::Field::DEPTH>(); })
+      .def_property_readonly("color",
+                             [](const ReUseX::DataItem &d) {
+                               return d.get<ReUseX::Field::COLOR>();
+                             })
+      .def_property_readonly("depth",
+                             [](const ReUseX::DataItem &d) {
+                               return d.get<ReUseX::Field::DEPTH>();
+                             })
       .def_property_readonly("confidence",
-                             [](const ReUseX::Data &d) {
+                             [](const ReUseX::DataItem &d) {
                                return d.get<ReUseX::Field::CONFIDENCE>();
                              })
       .def_property_readonly("odometry",
-                             [](const ReUseX::Data &d) {
+                             [](const ReUseX::DataItem &d) {
                                return d.get<ReUseX::Field::ODOMETRY>();
                              })
       .def_property_readonly(
           "imu",
-          [](const ReUseX::Data &d) { return d.get<ReUseX::Field::IMU>(); })
+          [](const ReUseX::DataItem &d) { return d.get<ReUseX::Field::IMU>(); })
       .def_property_readonly("pose",
-                             [](const ReUseX::Data &d) {
+                             [](const ReUseX::DataItem &d) {
                                return d.get<ReUseX::Field::POSES>().matrix();
                              })
       .def("__repr__",
-           [](ReUseX::Data const &d) { return fmt::format("Data Item"); })
+           [](ReUseX::DataItem const &d) { return fmt::format("DataItem"); })
       .def(
           "__torch_function__",
           [](py::object self, py::args args, py::kwargs kwargs) {
             return py::reinterpret_borrow<py::object>(
                 py::module_::import("torch").attr("as_tensor")(py::dict(self)));
           })
-      .def("fields", &ReUseX::Data::fields);
+      .def("fields", &ReUseX::DataItem::fields);
 }

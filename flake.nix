@@ -189,7 +189,9 @@
                   cgal
 
                   fmt
-                  mpfr
+		  spdlog
+                  
+		  mpfr
 
                   opencv
                   tbb_2022_0
@@ -247,8 +249,8 @@
               opts = {
                 foldmethod = "expr";
                 foldexpr = "nvim_treesitter#foldexpr()";
-		foldnestmax = 3;
-		#foldenable = false;
+                foldnestmax = 3;
+                #foldenable = false;
               };
               plugins = {
                 lsp = {
@@ -266,6 +268,8 @@
                     {name = "path";}
                     {name = "buffer";}
                     {name = "copilot";}
+                    {name = "nvim_lsp_signature_help";}
+                    {name = "treesitter";}
                   ];
                   settings = {
                     mapping = {

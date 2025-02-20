@@ -1,28 +1,17 @@
 #include "functions/all.hh"
 #include <pybind11/iostream.h>
 #include <pybind11/pybind11.h>
+#include <pybind11/pytypes.h>
+
+#include <pybind11/eigen.h>
+#include <pybind11/numpy.h>
 
 // #include <pybind11/chrono.h>
 // #include <pybind11/complex.h>
-// #include <pybind11/eigen.h>
 // #include <pybind11/functional.h>
-// #include <pybind11/numpy.h>
-// #include <pybind11/pybind11.h>
-// #include <pybind11/stl.h>
-// #include <pybind11/stl/filesystem.h>
-// #include <pybind11/stl_bind.h>
+#include <pybind11/stl.h>
 
-// #include "algorithms/all.hh"
-// #include "functions/all.hh"
-// #include "types/all.hh"
-
-// #include <algorithm>
-// #include <eigen3/Eigen/Core>
-// #include <string>
-// #include <vector>
-
-// #include <fmt/core.h>
-// #include <fmt/format.h>
+#define PYBIND11_DETAILED_ERROR_MESSAGES
 
 namespace py = pybind11;
 using namespace pybind11::literals;
@@ -43,6 +32,7 @@ void bind_functions(py::module_ &m) {
         "output_path"_a, "start"_a = 0, "stop"_a = nullptr, "step"_a = 5);
 
   m.def("slam", &ReUseX::slam, "SLAM", "dataset"_a,
+#include <pybind11/eigen.h>
         py::call_guard<py::scoped_ostream_redirect,
                        py::scoped_estream_redirect>());
 
@@ -60,13 +50,13 @@ void bind_functions(py::module_ &m) {
         "Extract the instance for a point cloud"
         "point_cloud"_a);
 
-  // m.def("icp", &ReUseX::pair_align<pcl::PointXYZRGBA>,
-  //       "Compute the the allignment between two point clouds"
-  //       "source"_a,
-  //       "target"_a, "filters"_a);
+  m.def("icp", &ReUseX::icp<pcl::PointXYZRGBA>,
+        "Compute the the allignment between two point clouds"
+        "source"_a,
+        "target"_a, "filters"_a = py::list());
 
-  // m.def("create_cloud" & ReUseX::CreateCloud,
-  //       "Create a point cloud from a dataset data item."
-  //       "data item"_a,
-  //       "intrinsic_matrix"_a = ReUseX::ipad_intrinsic());
+  m.def("create_cloud", &ReUseX::CreateCloud,
+        "Create a point cloud from a dataset data item.", "data_item"_a,
+        "intrinsic_matrix"_a = ReUseX::ipad_intrinsic(),
+        "seq_index"_a = py::none());
 }

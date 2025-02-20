@@ -11,11 +11,11 @@ requires-python = ">=3.9"
 
 dependencies = [
     "numpy", 
-    "rhino3dm",
+    #"rhino3dm",
     "specklepy",
     "wheel",
-    "g2o",
-    "mast3r"
+    "g2o", # Nix packaged python package provided
+    "mast3r" # Nix packaged python package provided
     ]
 
 

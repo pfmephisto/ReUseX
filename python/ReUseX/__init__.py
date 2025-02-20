@@ -32,7 +32,7 @@ from ._core import __doc__, __version__
 
 from .cli import run, ml
 
-__all__ = ["__doc__", "__version__", "speckle", "export", "run"]
+__all__ = ["__doc__", "__version__", "export", "run"]
 
 logger.info("ReUseX loaded")
 

@@ -3,6 +3,10 @@
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 
+#include <Eigen/Core>
+
+#include <pcl/common/common.h>
+
 #include <fmt/format.h>
 
 namespace py = pybind11;
@@ -21,6 +25,61 @@ void definePointCloud(py::object &m, const char *suffix) {
   });
   pc.def("__str__", [suffix](Cloud &cloud) {
     return fmt::format("Cloud {} {}", suffix, cloud.size());
+  });
+  pc.def("toSpeckle", [](Cloud &cloud) {
+    // Import library and namespaces
+    auto specklepy = py::module_::import("specklepy");
+    auto sp_obj = specklepy.attr("objects");
+    auto sp_geo = sp_obj.attr("geometry");
+
+    // Get types
+    auto Plane = sp_geo.attr("Plane");
+    auto Point = sp_geo.attr("Point");
+    auto Vector = sp_geo.attr("Vector");
+    auto Interval = sp_geo.attr("Interval");
+    auto BBox = sp_geo.attr("Box");
+    auto M_unit = sp_obj.attr("units").attr("Units").attr("m");
+    auto PointCloud = sp_geo.attr("Pointcloud");
+
+    // Create default World-XY Plane
+    auto WORLDXY =
+        Plane("origin"_a = Point("x"_a = 0.0, "y"_a = 0.0, "z"_a = 0.0),
+              "normal"_a = Vector("x"_a = 0.0, "y"_a = 0.0, "z"_a = 1.0),
+              "xdir"_a = Vector("x"_a = 1.0, "y"_a = 0.0, "z"_a = 0.0),
+              "ydir"_a = Vector("x"_a = 0.0, "y"_a = 1.0, "z"_a = 0.0));
+
+    // Compute AABB
+    PointT min;
+    PointT max;
+    pcl::getMinMax3D(cloud, min, max);
+
+    auto bbox =
+        BBox("basePlane"_a = WORLDXY,
+             "xSize"_a = Interval("start"_a = min.x, "end"_a = max.x),
+             "ySize"_a = Interval("start"_a = min.y, "end"_a = max.y),
+             "zSize"_a = Interval("start"_a = min.z, "end"_a = max.z),
+             "volume"_a = (max.x - min.x) * (max.y - min.y) * (max.z - min.z));
+
+    // Create views for point values and colors
+    // TODO: Create propper views
+    std::vector<size_t> sizes(cloud.size(), 3);
+    std::vector<float> points{};
+    std::vector<int> colors{};
+
+    // Initialize Speckle PointCloud
+    auto sp_cloud =
+        PointCloud("points"_a = points, "colors"_a = colors, "sizes"_a = sizes,
+                   "bbox"_a = bbox, "units"_a = M_unit);
+
+    // Set chunkable attribures
+    sp_cloud.attr("add_chunkable_attrs")("points"_a = 31250, "colors"_a = 62500,
+                                         "sizes"_a = 62500);
+
+    sp_cloud.attr("add_detachable_attrs")(
+        py::list(py::make_tuple("points", "colors", "sizes")));
+
+    // Return the final object
+    return sp_cloud;
   });
 }
 

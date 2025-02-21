@@ -1,16 +1,47 @@
 #include "types/Geometry/PointCloud.hh"
+
+#include <pybind11/eigen.h>
 #include <pybind11/iostream.h>
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
+#include <pybind11/stl.h>
 
 #include <Eigen/Core>
 
 #include <pcl/common/common.h>
+#include <pcl/point_struct_traits.h>
 
 #include <fmt/format.h>
 
 namespace py = pybind11;
 using namespace pybind11::literals;
+
+template <typename PointT, typename OutType, int D>
+using EigenMapTypeConst =
+    Eigen::Map<const Eigen::Matrix<OutType, Eigen::Dynamic, D>, Eigen::Aligned,
+               Eigen::Stride<Eigen::Dynamic, Eigen::Dynamic>>;
+
+template <typename PointT, typename Field, int D, typename OutType>
+EigenMapTypeConst<PointT, OutType, D>
+getMap(const pcl::PointCloud<PointT> &cloud) {
+
+  constexpr size_t offset = pcl::traits::offset<PointT, Field>::value;
+  constexpr size_t stride = sizeof(PointT) / sizeof(OutType);
+
+  return EigenMapTypeConst<PointT, OutType, D>(
+      reinterpret_cast<OutType *>(const_cast<PointT *>(&cloud.points[0])) +
+          offset,
+      cloud.size(), D,
+      Eigen::Stride<Eigen::Dynamic, Eigen::Dynamic>(1, stride));
+}
+
+template <typename PointT, typename Field, int D>
+EigenMapTypeConst<PointT, typename pcl::traits::datatype<PointT, Field>::type,
+                  D>
+getMap(const pcl::PointCloud<PointT> &cloud) {
+  using OutType = typename pcl::traits::datatype<PointT, Field>::type;
+  return getMap<PointT, Field, D, OutType>(cloud);
+}
 
 template <typename PointT>
 void definePointCloud(py::object &m, const char *suffix) {
@@ -61,15 +92,19 @@ void definePointCloud(py::object &m, const char *suffix) {
              "volume"_a = (max.x - min.x) * (max.y - min.y) * (max.z - min.z));
 
     // Create views for point values and colors
-    // TODO: Create propper views
     std::vector<size_t> sizes(cloud.size(), 3);
-    std::vector<float> points{};
-    std::vector<int> colors{};
+    auto points = getMap<PointT, pcl::fields::x, 3>(cloud);
+    auto colors = getMap<PointT, pcl::fields::rgba, 1>(cloud);
 
     // Initialize Speckle PointCloud
-    auto sp_cloud =
-        PointCloud("points"_a = points, "colors"_a = colors, "sizes"_a = sizes,
-                   "bbox"_a = bbox, "units"_a = M_unit);
+    // TODO: Make this more efficient.
+    // This currently cast the Eigen::Matrix -> Numpy Array -> Python List
+    auto sp_cloud = PointCloud(
+        "points"_a =
+            py::cast(points.template reshaped<Eigen::RowMajor>().transpose())
+                .attr("tolist")(),
+        "colors"_a = py::cast(colors).attr("tolist")(),
+        "sizes"_a = py::cast(sizes), "bbox"_a = bbox, "units"_a = M_unit);
 
     // Set chunkable attribures
     sp_cloud.attr("add_chunkable_attrs")("points"_a = 31250, "colors"_a = 62500,

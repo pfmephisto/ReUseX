@@ -120,6 +120,7 @@ endif()
 find_package(Boost CONFIG REQUIRED)
 find_package(MPI REQUIRED)
 find_package(TBB REQUIRED)
+find_package(spdlog REQUIRED)
 
 
 # find_package(Gurobi REQUIRED)
@@ -224,6 +225,10 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
     CGAL::Eigen3_support
     CGAL::SCIP_support
     CGAL::TBB_support
+
+
+    spdlog
+
 
     fmt
     mpfr

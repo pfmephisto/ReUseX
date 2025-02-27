@@ -11,6 +11,7 @@ requires-python = ">=3.9"
 
 dependencies = [
     "numpy", 
+    "spdlog",
     #"rhino3dm",
     "specklepy",
     "wheel",

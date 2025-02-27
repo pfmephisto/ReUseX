@@ -134,6 +134,7 @@
             specklepy = prev.pkgs.specklepy;
             g2o = prev.pkgs.g2opy;
             mast3r = prev.pkgs.mast3r;
+	    spdlog = prev.pkgs.spdlog-python;
           };
         };
 

@@ -121,6 +121,7 @@ find_package(Boost CONFIG REQUIRED)
 find_package(MPI REQUIRED)
 find_package(TBB REQUIRED)
 find_package(spdlog REQUIRED)
+find_package(spdmon REQUIRED)
 
 
 # find_package(Gurobi REQUIRED)
@@ -160,7 +161,12 @@ include(CGAL_TBB_support)
 find_package(fmt REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(embree REQUIRED)
+get_property(importTargets DIRECTORY "${CMAKE_SOURCE_DIR}" PROPERTY IMPORTED_TARGETS)
 find_package(g2o REQUIRED)
+get_property(importTargetsAfter DIRECTORY "${CMAKE_SOURCE_DIR}" PROPERTY IMPORTED_TARGETS)
+list(REMOVE_ITEM importTargetsAfter ${importTargets})
+message("Listing TARGETS __________________________________")
+message("${importTargetsAfter}")
 
 find_package(xtensor REQUIRED)
 find_package(xtensor-io REQUIRED)
@@ -206,6 +212,7 @@ set_target_properties(${PROJECT_NAME} PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
 
 target_link_libraries(${PROJECT_NAME}  PRIVATE 
     pybind11::embed
+    spdlog::spdlog
     optimized ${GUROBI_CXX_LIBRARY}
     debug ${GUROBI_CXX_DEBUG_LIBRARY}
 )
@@ -227,7 +234,29 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
     CGAL::TBB_support
 
 
-    spdlog
+    g2o::g2o_ceres_ad
+    g2o::stuff
+    g2o::opengl_helper
+    g2o::core
+    g2o::g2o_cli_library
+    g2o::g2o_simulator_library
+    g2o::types_slam2d
+    g2o::types_slam2d_addons
+    g2o::types_sclam2d
+    g2o::types_slam3d
+    g2o::types_slam3d_addons
+    g2o::types_sba
+    g2o::types_icp
+    g2o::types_sim3
+    g2o::solver_pcg
+    g2o::solver_dense
+    g2o::solver_slam2d_linear
+    g2o::solver_structure_only
+    g2o::solver_csparse
+    g2o::csparse_extension
+    g2o::solver_cholmod
+    g2o::solver_eigen
+
 
 
     fmt
@@ -241,6 +270,7 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
 
 target_compile_definitions(${PROJECT_NAME} PUBLIC
     ${PCL_DEFINITIONS}
+    SPDLOG_FMT_EXTERNAL
 )
 
 target_link_libraries(${PROJECT_NAME} PUBLIC
@@ -252,7 +282,6 @@ target_include_directories(${PROJECT_NAME} PUBLIC
     ${OpenCV_INCLUDE_DIRS}
     ${PCL_INCLUDE_DIRS}
 )
-
 
 
 target_include_directories(${PROJECT_NAME} PUBLIC "src")

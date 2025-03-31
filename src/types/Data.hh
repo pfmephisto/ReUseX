@@ -4,6 +4,8 @@
 #include <map>
 #include <variant>
 
+#include <fmt/format.h>
+
 #include <opencv4/opencv2/core/mat.hpp>
 
 namespace ReUseX {
@@ -18,16 +20,16 @@ enum Field {
   POSES,
 };
 
-//     std::ostream& operator<<(std::ostream& lhs, Field e) {
-//     switch(e) {
-//         case COLOR: lhs << "COLOR"; break;
-//         case DEPTH: lhs << "DEPTH"; break;
-//         case CONFIDENCE: lhs << "CONFIDENCE"; break;
-//         case ODOMETRY: lhs << "ODOMETRY"; break;
-//         case IMU: lhs << "IMU"; break;
-//     }
-//     return lhs;
-// }
+//    std::ostream& operator<<(std::ostream& lhs, Field e) {
+//    switch(e) {
+//        case COLOR: lhs << "COLOR"; break;
+//        case DEPTH: lhs << "DEPTH"; break;
+//        case CONFIDENCE: lhs << "CONFIDENCE"; break;
+//        case ODOMETRY: lhs << "ODOMETRY"; break;
+//        case IMU: lhs << "IMU"; break;
+//    }
+//    return lhs;
+//}
 
 template <int F> struct FieldType;
 
@@ -99,3 +101,27 @@ public:
 };
 
 } // namespace ReUseX
+
+// Specialization of fmt::formatter for ReUseX::Field
+template <> struct fmt::formatter<ReUseX::Field> : fmt::formatter<std::string> {
+  auto format(ReUseX::Field field, fmt::format_context &ctx) const {
+    switch (field) {
+    case ReUseX::INDEX:
+      return fmt::format_to(ctx.out(), "INDEX");
+    case ReUseX::COLOR:
+      return fmt::format_to(ctx.out(), "COLOR");
+    case ReUseX::DEPTH:
+      return fmt::format_to(ctx.out(), "DEPTH");
+    case ReUseX::CONFIDENCE:
+      return fmt::format_to(ctx.out(), "CONFIDENCE");
+    case ReUseX::ODOMETRY:
+      return fmt::format_to(ctx.out(), "ODOMETRY");
+    case ReUseX::IMU:
+      return fmt::format_to(ctx.out(), "IMU");
+    case ReUseX::POSES:
+      return fmt::format_to(ctx.out(), "POSES");
+    default:
+      return fmt::format_to(ctx.out(), "UNKNOWN");
+    }
+  }
+};

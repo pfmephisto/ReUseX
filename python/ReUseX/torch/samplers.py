@@ -1,10 +1,14 @@
+from typing import Union
+
 import numpy as np
 from torch.utils.data import Sampler
 
 # Custom sampler to select every 4th element
 class StepSampler(Sampler):
-    def __init__(self, data_source, step=4, shuffle=False):
-        self.indices = list(range(0, len(data_source), step))  # Select every 4th index
+    def __init__(self, data_source, step=4, shuffle=False, start:int=0, stop:Union[int|None]=None):
+
+        stop = stop if stop else len(data_source)
+        self.indices = list(range(start, stop, step))
 
         if shuffle:
             np.random.shuffle(self.indices)

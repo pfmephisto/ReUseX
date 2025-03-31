@@ -63,5 +63,86 @@ void bind_dataitem(py::module_ &m) {
             return py::reinterpret_borrow<py::object>(
                 py::module_::import("torch").attr("as_tensor")(py::dict(self)));
           })
-      .def("fields", &ReUseX::DataItem::fields);
+      .def("fields", &ReUseX::DataItem::fields)
+      .def(py::pickle(
+          [](const ReUseX::DataItem &d) { //__getstate__
+            std::vector<ReUseX::Field> field_keys;
+            std::vector<py::object> field_values;
+
+            for (const auto &[key, value] : d) {
+              field_keys.push_back(key);
+
+              std::visit(
+                  [&](auto &&arg) {
+                    field_values.push_back(
+                        py::cast(arg)); // Convert value to Python
+                  },
+                  value);
+            }
+
+            return py::make_tuple(field_keys, field_values);
+          },
+          [](py::tuple t) { //__setstate__
+            if (t.size() != 2) {
+              throw std::runtime_error("Invalid state tuple for DataItem");
+            }
+
+            auto field_keys = t[0].cast<std::vector<ReUseX::Field>>();
+            auto field_values = t[1].cast<std::vector<py::object>>();
+
+            if (field_keys.size() != field_values.size()) {
+              throw std::runtime_error("Field keys and values size mismatch");
+            }
+
+            ReUseX::DataItem d;
+
+            for (size_t i = 0; i < field_keys.size(); ++i) {
+              ReUseX::Field key = field_keys[i];
+
+              switch (key) {
+              case ReUseX::Field::INDEX:
+                d[key] =
+                    field_values[i]
+                        .cast<ReUseX::FieldType<ReUseX::Field::INDEX>::type>();
+                break;
+              case ReUseX::Field::COLOR:
+                d[key] =
+                    field_values[i]
+                        .cast<ReUseX::FieldType<ReUseX::Field::COLOR>::type>();
+                break;
+              case ReUseX::Field::DEPTH:
+                d[key] =
+                    field_values[i]
+                        .cast<ReUseX::FieldType<ReUseX::Field::DEPTH>::type>();
+                break;
+              case ReUseX::Field::CONFIDENCE:
+                d[key] = field_values[i]
+                             .cast<ReUseX::FieldType<
+                                 ReUseX::Field::CONFIDENCE>::type>();
+                break;
+              case ReUseX::Field::ODOMETRY:
+                d[key] =
+                    field_values[i]
+                        .cast<
+                            ReUseX::FieldType<ReUseX::Field::ODOMETRY>::type>();
+                break;
+              case ReUseX::Field::IMU:
+                d[key] =
+                    field_values[i]
+                        .cast<ReUseX::FieldType<ReUseX::Field::IMU>::type>();
+                break;
+              case ReUseX::Field::POSES:
+                d[key] =
+                    field_values[i]
+                        .cast<ReUseX::FieldType<ReUseX::Field::POSES>::type>();
+                break;
+              default:
+                throw std::runtime_error(
+                    "Unknown field type encountered during deserialization");
+              }
+            }
+
+            return d;
+
+          }));
 }

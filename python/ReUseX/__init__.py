@@ -1,47 +1,43 @@
 from __future__ import annotations
 
-#import logging
+import sys
 from os import getpid
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--log-level", choices=["TRACE" "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], default="DEBUG")
+args = parser.parse_args()
 
 import spdlog
-logger = spdlog.ConsoleLogger("ReUseX")
-logger.set_level(spdlog.LogLevel.DEBUG)
+
+logger = spdlog.ConsoleLogger(__name__)
+logger.set_level(getattr(spdlog.LogLevel, args.log_level))
+logger.set_level(spdlog.LogLevel.TRACE)
+logger.set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%n] [%^%=7l%$] %v")
 
 from ._core import *
 from ._core import __doc__, __version__
 
 _core.register_logger(logger.get_underlying_logger())
-#logger.set_pattern("[%l] %n: %v")
-# register logger with the function from mylib, so it is accessible inside MyClass
+_core.set_default_logger(logger.get_underlying_logger())
+
+logger.info("ReUseX loaded")
+logger.debug(f"Thread ID: {getpid()}")
 
 
-# # Define the logger format
-# logging.basicConfig(level=logging.INFO, format=log_format)
+if "torch" in sys.modules:
+    device = 'cuda' if sys.modules["torch"].cuda.is_available() else 'cpu'
+    if sys.modules["torch"].cuda.is_available():
+        device = sys.modules['torch'].cuda.device('cuda')
+        device_name = sys.modules['torch'].cuda.get_device_name(device)
+        logger.debug(f"Cuda device avaliable: {device_name}")
+    else:
+        logger.warn("Cuda not avaliable")
+else:
+    logger.debug("pyTorch has not been imported")
 
-##only enable logging for this module
-#logger = logging.getLogger(__name__)
-#logger.setLevel(logging.DEBUG)
-#
-## Disable propagation to prevent duplicate messages from root handlers
-#logger.propagate = False
-#
-#console_logger = logging.StreamHandler()
-#console_logger.setLevel(logging.DEBUG)
-#console_logger.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-#logger.addHandler(console_logger)
-#
-## Ensure no duplicate handlers are added
-#if not logger.hasHandlers():
-#    logger.addHandler(console_logger)
-
-
-logger.debug("Thread ID: %s", getpid())
-logger.debug("Loading ReUseX")
 
 
 from .cli import run, ml
 
 __all__ = ["__doc__", "__version__", "export", "run"]
-
-logger.info("ReUseX loaded")
-

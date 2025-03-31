@@ -54,10 +54,10 @@ class Dataset(TorchDataset):
     def __getitem__(self, idx):
         data = self.dataset[idx] 
 
-        if isinstance(data, tuple):
-            data = tuple(make_pytorch_dict(e) for e in data)
-        else:
-            data = make_pytorch_dict(data)
+        #if isinstance(data, tuple):
+        #    data = tuple(make_pytorch_dict(e) for e in data)
+        #else:
+        #    data = make_pytorch_dict(data)
 
         return data
 

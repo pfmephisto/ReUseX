@@ -11,6 +11,16 @@
 #include <set>
 #include <vector>
 
+#if defined(SPDLOG_FMT_EXTERNAL)
+#include <spdlog/fmt/fmt.h>
+#include <spdlog/fmt/ranges.h>
+#include <spdlog/fmt/std.h>
+#else
+#include <spdlog/fmt/bundled/rangers.h>
+#endif
+
+#include <spdlog/spdlog.h>
+
 namespace ReUseX {
 
 class Dataset {
@@ -27,16 +37,23 @@ private:
   int _depth_width = 256;
   int _depth_hight = 192;
   std::shared_future<void> _asyncConstructor;
+  std::shared_ptr<spdlog::logger> logger = spdlog::get("ReUseX");
 
 public:
   template <typename T>
   Dataset(const std::filesystem::path &path, T begin, T end) {
+
     // Check if directories and files exists
     assert(std::filesystem::exists(path) &&
            fmt::format("Directory does not exist: {}", path.string()).c_str());
+
     _path = path;
+    logger->info("Creating Dataset: {}",
+                 _path.parent_path().filename().c_str());
+    logger->debug("Path: {}", _path.c_str());
 
     _n_frames = get_number_of_frames(_path / "rgb.mp4");
+    logger->debug("Number of frames: {}", _n_frames);
 
     // TODO: Rather implement this as lazy loading.
     //_asyncConstructor = std::async(std::launch::async, [&]() {
@@ -49,6 +66,7 @@ public:
       Field field = *it;
       set_field(field);
     };
+    logger->debug("Fields: [{}]", fmt::join(_fields, ", "));
   };
 
   Dataset(const std::filesystem::path &path,

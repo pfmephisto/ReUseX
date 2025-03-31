@@ -1,0 +1,55 @@
+#!/bin/bash
+
+SESSION_NAME="ReUseX"
+
+# Parse input command into a single string
+Command=""
+
+while [ $# -gt 0 ]; do
+  Command+=" "$1
+  shift
+done
+
+# Check if session exists
+tmux has-session -t "$SESSION_NAME" 2>/dev/null
+
+if [ $? -eq 0 ]; then
+  # If session exists, attach to it
+  tmux new-session -t "$SESSION_NAME"
+  exit 0
+fi
+
+# Set up session and panes
+tmux new-session -d -s "$SESSION_NAME"
+tmux rename-window 'Develop'
+tmux select-window -t "$SESSION_NAME":1
+tmux split-window -h -t 1
+tmux new-window
+tmux rename-window 'Build'
+
+# Launch commands
+tmux select-window -t "$SESSION_NAME":1
+tmux select-pane -t 1
+tmux send-keys 'fish' 'C-m'
+tmux send-keys 'nix develop .#python' 'C-m'
+tmux send-keys -R 'fish' 'C-m'
+
+tmux select-pane -t 2
+tmux send-keys 'fish' 'C-m'
+tmux send-keys 'nix develop .#' 'C-m'
+tmux send-keys -R 'fish' 'C-m'
+
+tmux select-window -t "$SESSION_NAME":2
+tmux select-pane -t 1
+tmux send-keys 'fish' 'C-m'
+tmux send-keys 'nix develop .#' 'C-m'
+tmux send-keys 'cd build' 'C-m'
+tmux send-keys -R 'fish' 'C-m'
+
+tmux select-window -t "$SESSION_NAME":1
+tmux select-pane -t 2
+tmux send-keys "$Command" 'C-m'
+
+# Attach to the session
+tmux attach-session -t "$SESSION_NAME"
+

@@ -7,4 +7,6 @@
 #include "parse_input_files.hh"
 #include "polyscope.hh"
 #include "progress_bar.hh"
+#include "register.hh"
 #include "slam.hh"
+#include "spdmon.hh"

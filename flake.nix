@@ -191,6 +191,7 @@
 
                   fmt
 		  spdlog
+		  spdmon
                   
 		  mpfr
 
@@ -303,6 +304,7 @@
                 treesitter = {
                   enable = true;
                 };
+		which-key.enable = true;
               };
               colorschemes.nord.enable = true;
               clipboard.providers.wl-copy.enable = true;

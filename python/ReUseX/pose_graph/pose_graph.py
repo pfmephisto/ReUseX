@@ -319,3 +319,27 @@ def create_pose_graph(dataset: Dataset, model: Module)-> g2o.SparseOptimizer:
         
 
     return optimizer
+
+
+def find_matches(view1:dict, view2:dict, model):
+
+    # Fid match
+    pred1, pred2 = model(view1, view2)
+
+    desc1, desc2 = pred1["desc"].squeeze(0).detach(), pred2["desc"].squeeze(0).detach()
+
+
+    matches_im0, matches_im1 = fast_reciprocal_NNs(desc1, desc2, subsample_or_initxy1=8, device=device, dist="dot", block_size=2**13)
+
+
+    # ignore small border around the edge
+    H0, W0 = view1["true_shape"][0]
+    valid_matches_im0 = (matches_im0[:, 0] >= 3) & (matches_im0[:, 0] < int(W0) - 3) & (matches_im0[:, 1] >= 3) & (matches_im0[:, 1] < int(H0) - 3)
+
+    H1, W1 = view2["true_shape"][0]
+    valid_matches_im1 = (matches_im1[:, 0] >= 3) & (matches_im1[:, 0] < int(W1) - 3) & (matches_im1[:, 1] >= 3) & (matches_im1[:, 1] < int(H1) - 3)
+
+    valid_matches = valid_matches_im0 & valid_matches_im1
+
+    return valid_matches, matches_im0, matches_im1, view1, view2
+

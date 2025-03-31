@@ -39,12 +39,20 @@ using Direction = ReUseX::Direction;
 using Color = ReUseX::Color;
 using AABB = ReUseX::AABB;
 
+// PointXYZRGBA
+// |1|2|3|4|  5|6|7|8| => n 4xbyes (32bytes)
+// |z|y|z|_|rbg|_|_|_|
+
+// PointT
+// |1|2|3|4| 5| 6| 7|8|  9|10|11|12| => n 4xbyes (48bytes)
+// |z|y|z|_|nx|ny|nz|_|rbg| C| L| _|
+
 struct EIGEN_ALIGN16 PointT {
-  PCL_ADD_POINT4D // This adds the members x,y,z which can also be accessed
-                  // using the point (which is float[4])
-                      PCL_ADD_NORMAL4D // This adds the member normal[3] which
-                                       // can also be accessed using the point
-                                       // (which is float[4])
+  PCL_ADD_POINT4D      // This adds the members x,y,z which can also be accessed
+                       // using the point (which is float[4])
+      PCL_ADD_NORMAL4D // This adds the member normal[3] which
+                       // can also be accessed using the point
+                       // (which is float[4])
       union {
     struct {
       PCL_ADD_UNION_RGB
@@ -99,12 +107,16 @@ struct EIGEN_ALIGN16 PointT {
   PCL_MAKE_ALIGNED_OPERATOR_NEW
 };
 
+// PointXYZRGBANormal
+//|1|2|3|4| 5| 6| 7|8|  9|10|11|12| => n 4xbyes (48bytes)
+//|z|y|z|_|nx|ny|nz|_|rbg| C|  | _|
+
 struct EIGEN_ALIGN16 PointXYZRGBANormal {
-  PCL_ADD_POINT4D // This adds the members x,y,z which can also be accessed
-                  // using the point (which is float[4])
-                      PCL_ADD_NORMAL4D // This adds the member normal[3] which
-                                       // can also be accessed using the point
-                                       // (which is float[4])
+  PCL_ADD_POINT4D      // This adds the members x,y,z which can also be accessed
+                       // using the point (which is float[4])
+      PCL_ADD_NORMAL4D // This adds the member normal[3] which
+                       // can also be accessed using the point
+                       // (which is float[4])
       union {
     struct {
       PCL_ADD_UNION_RGB

@@ -1,4 +1,5 @@
 #include "functions/all.hh"
+
 #include <pybind11/iostream.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/pytypes.h>
@@ -50,10 +51,31 @@ void bind_functions(py::module_ &m) {
   m.def(
       "compute_normals",
       [](std::filesystem::path path) {
-        ReUseX::compute_normals<pcl::PointXYZRGBA, PointT>(path);
+        return ReUseX::compute_normals<pcl::PointXYZRGBA, PointXYZRGBANormal>(
+            path);
       },
+      // static_cast<void (*)(std::filesystem::path)>(
+      //     &ReUseX::compute_normals<pcl::PointXYZRGBA, PointT>),
+      // py::overload_cast<void (*)(std::filesystem::path)>(
+      //     &ReUseX::compute_normals<pcl::PointXYZRGBA, PointT>),
       "Compute the normals of a point cloud"
       "path"_a,
+      py::call_guard<py::scoped_ostream_redirect,
+                     py::scoped_estream_redirect>());
+
+  m.def(
+      "compute_normals",
+      [](typename pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud) {
+        return ReUseX::compute_normals<pcl::PointXYZRGBA, PointXYZRGBANormal>(
+            cloud);
+      },
+      // static_cast<pcl::PointCloud<PointT>::Ptr (*)(
+      //     pcl::PointCloud<pcl::PointXYZRGBA>::Ptr)>(
+      //     &ReUseX::compute_normals<pcl::PointXYZRGBA, PointT>),
+      //  py::overload_cast<typename pcl::PointCloud<PointT>::Ptr (*)(
+      //      typename pcl::PointCloud<pcl::PointXYZRGBA>::Ptr)>(
+      //      &ReUseX::compute_normals<pcl::PointXYZRGBA, PointT>),
+      "Compute the normals of a point cloud", "cloud"_a,
       py::call_guard<py::scoped_ostream_redirect,
                      py::scoped_estream_redirect>());
 
@@ -62,6 +84,11 @@ void bind_functions(py::module_ &m) {
         "point_cloud"_a);
 
   m.def("icp", &ReUseX::icp<pcl::PointXYZRGBA>,
+        "Compute the the allignment between two point clouds"
+        "source"_a,
+        "target"_a, "filters"_a = py::list(), "max_corespondance"_a = 0.2);
+
+  m.def("icp", &ReUseX::icp<PointXYZRGBANormal>,
         "Compute the the allignment between two point clouds"
         "source"_a,
         "target"_a, "filters"_a = py::list(), "max_corespondance"_a = 0.2);

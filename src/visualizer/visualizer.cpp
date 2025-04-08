@@ -109,7 +109,7 @@ template <> PCLVisualizer *Visualizer::getViewer<PCLVisualizer>() const {
 
 void Visualizer::wait() const {
   spdlog::trace("Wait for interupt");
-  while (!pcl_viewer->wasStopped()) {
+  while (!pcl_viewer->wasStopped() /*|| pcl_viewer->*/) {
     step();
     std::this_thread::sleep_for(100ms);
   }

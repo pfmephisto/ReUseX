@@ -8,8 +8,8 @@
 #include <optional>
 #include <string>
 
-#include <opencv4/opencv2/imgproc.hpp>
-#include <opencv4/opencv2/videoio.hpp>
+#include <opencv4/opencv2/core.hpp>
+#include <opencv4/opencv2/opencv.hpp>
 
 #define CHECK_EXSISTANCE(path, file)                                           \
   if (!std::filesystem::exists(path / file)) {                                 \

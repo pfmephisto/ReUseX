@@ -1,10 +1,12 @@
 #include "types/Geometry/PointCloud.hh"
+#include "functions/io.hh"
 
+#include <filesystem>
 #include <pybind11/eigen.h>
 #include <pybind11/iostream.h>
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
-#include <pybind11/stl.h>
+#include <pybind11/stl/filesystem.h>
 
 #include <Eigen/Core>
 
@@ -57,6 +59,23 @@ void definePointCloud(py::object &m, const char *suffix) {
   pc.def("__str__", [suffix](Cloud &cloud) {
     return fmt::format("Cloud {} {}", suffix, cloud.size());
   });
+
+  pc.def_static(
+      "load",
+      [](std::filesystem::path path) { return ReUseX::load<PointT>(path); },
+      "Load a point cloud from disk", "path"_a,
+      py::call_guard<py::scoped_ostream_redirect,
+                     py::scoped_estream_redirect>());
+  pc.def(
+      "save",
+      [](typename Cloud::Ptr cloud, std::filesystem::path path) {
+        ReUseX::save<PointT>(path, cloud);
+      },
+      "Save a point cloud to disk", "output_file"_a,
+      py::return_value_policy::reference_internal,
+      py::call_guard<py::scoped_ostream_redirect,
+                     py::scoped_estream_redirect>());
+
   pc.def("toSpeckle", [](Cloud &cloud) {
     // Import library and namespaces
     auto specklepy = py::module_::import("specklepy");

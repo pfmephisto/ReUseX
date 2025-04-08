@@ -2,21 +2,27 @@
 
 #include "icp.hh"
 // #include "functions/spdmon.hh"
+#include "functions/fmt_formatter.hh"
 #include "types/Filters.hh"
 #include "types/Geometry/PointCloud.hh"
 #include "visualizer/visualizer.hh"
 
 #include <spdlog/spdlog.h>
 
-#include <pcl/common/impl/transforms.hpp>
+#include <pcl/common/transforms.h>
 #include <pcl/filters/filter.h>
 #include <pcl/filters/voxel_grid.h>
+#include <pcl/kdtree/kdtree_flann.h>
 #include <pcl/memory.h>
 #include <pcl/point_types.h>
 #include <pcl/registration/gicp.h>
 #include <pcl/registration/icp.h>
 #include <pcl/registration/icp_nl.h>
+#include <pcl/registration/transformation_estimation_point_to_plane_lls.h>
+#include <pcl/registration/transformation_estimation_svd.h>
 #include <pcl/visualization/pcl_visualizer.h>
+
+#include <eigen3/Eigen/Core>
 
 #include <fmt/color.h>
 #include <fmt/printf.h>
@@ -71,6 +77,20 @@ public:
   }
 };
 
+bool step_view = false;
+std::function<void(const pcl::visualization::KeyboardEvent &)>
+    keyboardEvnetCallback(
+        [&step_view](const pcl::visualization::KeyboardEvent &event) {
+          if (event.keyUp()) {
+            switch (event.getKeyCode()) {
+            case 'n':
+              // case 110:
+              step_view = true;
+              break;
+            }
+          }
+        });
+
 ////////////////////////////////////////////////////////////////////////////////
 #define icp_source "icp_source"
 #define icp_target "icp_target"
@@ -79,13 +99,14 @@ public:
 template <typename PointT>
 Eigen::Matrix4f icp(const typename pcl::PointCloud<PointT>::ConstPtr cloud_src,
                     const typename pcl::PointCloud<PointT>::ConstPtr cloud_tgt,
-                    std::vector<typename pcl::Filter<PointT>::Ptr> filters,
+                    std::vector<typename pcl::Filter<PointT>::Ptr> &filters,
                     const double maxCorrespondence) {
 
   using Ptr = typename pcl::PointCloud<PointT>::Ptr;
   using Color = pcl::visualization::PointCloudColorHandlerCustom<PointT>;
 
   spdlog::info("Running ICP");
+  spdlog::debug("Number of Filters = {}", filters.size());
   spdlog::debug("maxCorrespondence = {}", maxCorrespondence);
 
   Ptr input_src(new pcl::PointCloud<PointT>);
@@ -94,8 +115,28 @@ Eigen::Matrix4f icp(const typename pcl::PointCloud<PointT>::ConstPtr cloud_src,
   input_src = cloud_src->makeShared(); // Makes a copy
   input_tgt = cloud_tgt->makeShared(); // Makes a copy
 
+  //// Get Pose
+  // auto pose_src = Eigen::Affine3f::Identity();
+  // pose_src.linear() = input_src->sensor_orientation_.toRotationMatrix();
+  // pose_src.translation() = input_src->sensor_origin_.template head<3>();
+
+  // auto pose_tgt = Eigen::Affine3f::Identity();
+  // pose_tgt.linear() = input_tgt->sensor_orientation_.toRotationMatrix();
+  // pose_tgt.translation() = input_tgt->sensor_origin_.template head<3>();
+
+  //// Strip Sensor data
+  // input_src->sensor_origin_ = Eigen::Vector4f(0, 0, 0, 1);
+  // input_src->sensor_orientation_ = Eigen::Quaternionf::Identity();
+
+  // input_tgt->sensor_origin_ = Eigen::Vector4f(0, 0, 0, 1);
+  // input_tgt->sensor_orientation_ = Eigen::Quaternionf::Identity();
+
+  // pcl::transformPointCloud(*input_src, *input_src, pose_src);
+  // pcl::transformPointCloud(*input_tgt, *input_tgt, pose_tgt);
+
   // Add point clouds to viewer for visualization
   if (Visualizer::Visualizer::isInitialised()) {
+    pcl::console::setVerbosityLevel(pcl::console::L_VERBOSE);
     auto viewer = Visualizer::Visualizer::getInstance()
                       ->getViewer<pcl::visualization::PCLVisualizer>();
 
@@ -113,15 +154,16 @@ Eigen::Matrix4f icp(const typename pcl::PointCloud<PointT>::ConstPtr cloud_src,
   }
 
   // Temporary grid filters
-  auto vg =
-      std::shared_ptr<pcl::VoxelGrid<PointT>>(new pcl::VoxelGrid<PointT>());
-  vg->setLeafSize(0.1, 0.1, 0.1);
-  filters.clear();
+  // auto vg =
+  //    std::shared_ptr<pcl::VoxelGrid<PointT>>(new pcl::VoxelGrid<PointT>());
+  // vg->setLeafSize(0.1, 0.1, 0.1);
+  // filters.clear();
   // filters.push_back(vg);
   // filters.push_back(ReUseX::Filters::HighConfidenceFilter<PointT>());
-  filters.push_back(ReUseX::Filters::SIVFeatures<PointT>());
+  // filters.push_back(ReUseX::Filters::SIVFeatures<PointT>());
 
   // Apply filters
+  spdlog::trace("Apply filters");
   for (auto filter : filters) {
     filter->setInputCloud(input_src);
     filter->filter(*input_src);
@@ -130,23 +172,11 @@ Eigen::Matrix4f icp(const typename pcl::PointCloud<PointT>::ConstPtr cloud_src,
     filter->filter(*input_tgt);
   }
 
-  //// Defining a rotation matrix and translation vector
-  // Eigen::Matrix4d transformation_matrix = Eigen::Matrix4d::Identity();
-
-  //// A rotation matrix (see https://en.wikipedia.org/wiki/Rotation_matrix)
-  // double theta = M_PI / 8; // The angle of rotation in radians
-  // transformation_matrix(0, 0) = std::cos(theta);
-  // transformation_matrix(0, 1) = -sin(theta);
-  // transformation_matrix(1, 0) = sin(theta);
-  // transformation_matrix(1, 1) = std::cos(theta);
-
-  //// A translation on Z axis (0.4 meters)
-  // transformation_matrix(2, 3) = 0.4;
-
-  // input_src = input_tgt->makeShared(); // Makes a copy
-  // pcl::transformPointCloud(*input_src, *input_src, transformation_matrix);
+  spdlog::debug("Number of point in cloud: {} & {}", input_src->points.size(),
+                input_tgt->points.size());
 
   // Add point clouds to viewer for visualization
+  spdlog::trace("Visualize Intial state");
   if (Visualizer::Visualizer::isInitialised()) {
     auto viewer = Visualizer::Visualizer::getInstance()
                       ->getViewer<pcl::visualization::PCLVisualizer>();
@@ -180,78 +210,142 @@ Eigen::Matrix4f icp(const typename pcl::PointCloud<PointT>::ConstPtr cloud_src,
 
   // ... and weight the 'curvature' dimension so that it is balanced against x,
   // y, and z
-  float alpha[7] = {1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
+  float alpha[7] = {1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0};
 
   point_representation.setRescaleValues(alpha);
 
   // Align
-  using RegType =
-      std::conditional_t<pcl::traits::has_normal_v<PointT>,
-                         pcl::IterativeClosestPointWithNormals<PointT, PointT>,
-                         pcl::GeneralizedIterativeClosestPoint<PointT, PointT>>;
-  // pcl::IterativeClosestPointNonLinear<PointT, PointT>>;
-  // pcl::IterativeClosestPoint<PointT, PointT>>; // NonLinear
+  using RegType = std::conditional_t<
+      pcl::traits::has_normal_v<PointT>,
+      pcl::IterativeClosestPointWithNormals<PointT, PointT>,
+      // pcl::GeneralizedIterativeClosestPoint<PointT, PointT>>;
+      // pcl::IterativeClosestPointNonLinear<PointT, PointT>>;
+      pcl::IterativeClosestPoint<PointT, PointT>>; // NonLinear
 
   RegType reg;
+
+  // Set the point representation
+  // reg.setPointRepresentation(
+  //     pcl::make_shared<const MyPointRepresentation<PointT>>(
+  //         point_representation));
+
+  // reg.setTransformationEpsilon(1e-8);
+  // reg.setEuclideanFitnessEpsilon(1e-8);
+  reg.setMaximumIterations(50);
+  // typename pcl::registration::
+  //     TransformationEstimationPointToPlaneLLS<PointT, PointT>::Ptr trans_lls(
+  //         new pcl::registration::TransformationEstimationPointToPlaneLLS<
+  //             PointT, PointT>);
+  // typename pcl::registration::TransformationEstimationSVD<PointT,
+  // PointT>::Ptr
+  //     trans_svd(
+  //         new pcl::registration::TransformationEstimationSVD<PointT,
+  //         PointT>);
+  // reg.setTransformationEstimation(trans_svd);
+  // reg.setRANSACIterations(1000);
+  // reg.setRANSACOutlierRejectionThreshold(0.02);
+  //  Set the maximum distance between two correspondences (src<->tgt) to 10cm
+  //  Note: adjust this based on the size of your datasets
+  reg.setMaxCorrespondenceDistance(maxCorrespondence);
 
   reg.setInputSource(input_src);
   reg.setInputTarget(input_tgt);
 
-  reg.setTransformationEpsilon(1e-8);
-  reg.setEuclideanFitnessEpsilon(1e-8);
-  reg.setMaximumIterations(50);
-  reg.setRANSACOutlierRejectionThreshold(0.05);
-  reg.setRANSACIterations(1000);
-  // Set the maximum distance between two correspondences (src<->tgt) to 10cm
-  // Note: adjust this based on the size of your datasets
-  reg.setMaxCorrespondenceDistance(maxCorrespondence);
+  std::shared_ptr<pcl::PointCloud<PointT>> dummy(new pcl::PointCloud<PointT>());
 
-  // Set the point representation
-  reg.setPointRepresentation(
-      pcl::make_shared<const MyPointRepresentation<PointT>>(
-          point_representation));
-
-  Ptr dummy =
-      std::shared_ptr<pcl::PointCloud<PointT>>(new pcl::PointCloud<PointT>());
   // Add point clouds to viewer for visualization
   if (Visualizer::Visualizer::isInitialised()) {
     auto viewer = Visualizer::Visualizer::getInstance()
                       ->getViewer<pcl::visualization::PCLVisualizer>();
 
-    Eigen::Matrix4f prev;
-
-    reg.setMaximumIterations(1);
-    for (size_t i = 0; i < 80; ++i) {
-
-      // Update the input to be able to take another step
-      reg.setInputSource(input_src);
-      reg.align(*dummy);
-
-      pcl::transformPointCloud(*input_src, *input_src,
-                               reg.getFinalTransformation().inverse());
-
-      // Color green(input_src, 0, 255, 0);
-      // viewer->removePointCloud(icp_source_filtered);
-      // viewer->addPointCloud<PointT>(input_src, green, icp_source_filtered);
-      // viewer->setPointCloudRenderingProperties(
-      //     pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 10,
-      //     icp_source_filtered);
-
-      viewer->spinOnce(100);
-
-      // if the difference between this transformation and the previous one
-      // is smaller than the threshold, refine the process by reducing
-      // the maximal correspondence distance
-      if (std::abs((reg.getLastIncrementalTransformation() - prev).sum()) <
-          reg.getTransformationEpsilon()) {
-        reg.setMaxCorrespondenceDistance(reg.getMaxCorrespondenceDistance() -
-                                         0.001);
-        spdlog::debug("Updating max Correspondence Distance = {:.3f}",
-                      reg.getMaxCorrespondenceDistance());
+    spdlog::debug("Add Keyboard Even Keybard Callback");
+    viewer->registerKeyboardCallback(keyboardEvnetCallback);
+    std::function<typename pcl::Registration<
+        PointT, PointT>::UpdateVisualizerCallbackSignature>
+    callback([viewer, &step_view](const pcl::PointCloud<PointT> &c1,
+                                  const pcl::Indices &idxs1,
+                                  const pcl::PointCloud<PointT> &c2,
+                                  const pcl::Indices &idxs2) -> void {
+      // turn idxs into one correspondence vector
+      pcl::Correspondences correspondences;
+      for (size_t i = 0; i < idxs1.size(); ++i) {
+        correspondences.push_back(pcl::Correspondence(idxs1[i], idxs2[i], 1));
       }
-      prev = reg.getLastIncrementalTransformation();
-    }
 
+      // viewer needs ptrs, not values (expensiveish)
+      const typename pcl::PointCloud<PointT>::Ptr input_src = c1.makeShared();
+      const typename pcl::PointCloud<PointT>::Ptr input_tgt = c2.makeShared();
+
+      Color green(input_src, 0, 255, 0);
+      viewer->removePointCloud(icp_source_filtered);
+      viewer->addPointCloud<PointT>(input_src, green, icp_source_filtered);
+      viewer->setPointCloudRenderingProperties(
+          pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 10,
+          icp_source_filtered);
+
+      Color red(input_tgt, 255, 0, 0);
+      viewer->removePointCloud(icp_target_filtered);
+      viewer->addPointCloud<PointT>(input_tgt, red, icp_target_filtered);
+      viewer->setPointCloudRenderingProperties(
+          pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 10,
+          icp_target_filtered);
+
+      // if (!viewer->updateText("Source", 10, 10)) {
+      //   viewer->addText("Source", 10, 10, 20, 0, 1,
+      //   1);
+      // }
+      // if (!viewer->updateText("Target", 10, 40)) {
+      //   viewer->addText("Target", 10, 40, 20, 1, 1,
+      //   0);
+      // }
+
+      // many lines missing
+      if (!viewer->updateCorrespondences<PointT>(input_src, input_tgt,
+                                                 correspondences)) {
+        viewer->addCorrespondences<PointT>(input_src, input_tgt,
+                                           correspondences, "correspondences");
+      }
+      viewer->setShapeRenderingProperties(
+          pcl::visualization::PCL_VISUALIZER_LINE_WIDTH, 3, "correspondences");
+      // viewer->spin();
+      // });
+
+      // Step through optimisation
+      if (!viewer->wasStopped() && !step_view)
+        spdlog::debug("Waiting for next stepn. To step press 'n'");
+
+      while (!viewer->wasStopped() && !step_view) {
+        viewer->spinOnce(100);
+        std::this_thread::sleep_for(100ms);
+      }
+      step_view = false;
+    });
+    reg.registerVisualizationCallback(callback);
+
+    // Eigen::Matrix4f prev;
+
+    // reg.setMaximumIterations(2);
+    // for (size_t i = 0; i < 20; ++i) {
+
+    // Update the input to be able to take another step
+    // reg.setInputSource(input_src);
+    reg.align(*dummy);
+
+    // pcl::transformPointCloud(*input_src, *input_src,
+    //                          reg.getFinalTransformation().inverse());
+
+    // if the difference between this transformation and the previous one
+    // is smaller than the threshold, refine the process by reducing
+    // the maximal correspondence distance
+    // if (std::abs((reg.getLastIncrementalTransformation() - prev).sum()) <
+    //    reg.getTransformationEpsilon()) {
+    //  reg.setMaxCorrespondenceDistance(reg.getMaxCorrespondenceDistance() -
+    //                                   0.001);
+    //  spdlog::debug("Updating max Correspondence Distance = {:.3f}",
+    //                reg.getMaxCorrespondenceDistance());
+    //}
+    // prev = reg.getLastIncrementalTransformation();
+    //}
   } else {
     // Automate registration
     reg.align(*dummy); // This does the actual computation
@@ -261,9 +355,10 @@ Eigen::Matrix4f icp(const typename pcl::PointCloud<PointT>::ConstPtr cloud_src,
 
   if (reg.hasConverged()) {
     pairTransform = reg.getFinalTransformation().inverse();
-    // spdlog::debug("{} -> {} Fiiness score: {} after {} iterations",
-    //               input_src->header.frame_id, input_tgt->header.frame_id,
-    //               reg.getFitnessScore(), reg.nr_iterations_);
+    // spdlog::debug("{} -> {} Fiiness score: {} after {}
+    //  iterations",
+    //                input_src->header.frame_id, input_tgt->header.frame_id,
+    //                reg.getFitnessScore(), reg.nr_iterations_);
   }
 
   else
@@ -317,7 +412,12 @@ pair_align<PointT>(const typename pcl::PointCloud<PointT>::ConstPtr cloud_src,
 template Eigen::Matrix4f icp<pcl::PointXYZRGBA>(
     const typename pcl::PointCloud<pcl::PointXYZRGBA>::ConstPtr cloud_src,
     const typename pcl::PointCloud<pcl::PointXYZRGBA>::ConstPtr cloud_tgt,
-    std::vector<typename pcl::Filter<pcl::PointXYZRGBA>::Ptr> filters,
+    std::vector<typename pcl::Filter<pcl::PointXYZRGBA>::Ptr> &filters,
     const double maxCorrespondence);
 
+template Eigen::Matrix4f icp<PointXYZRGBANormal>(
+    const typename pcl::PointCloud<PointXYZRGBANormal>::ConstPtr cloud_src,
+    const typename pcl::PointCloud<PointXYZRGBANormal>::ConstPtr cloud_tgt,
+    std::vector<typename pcl::Filter<PointXYZRGBANormal>::Ptr> &filters,
+    const double maxCorrespondence);
 } // namespace ReUseX

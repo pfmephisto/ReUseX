@@ -1,5 +1,7 @@
 
 #define PCL_NO_PRECOMPILE
+#include "functions/fmt_formatter.hh"
+
 #include <pcl/common/impl/accumulators.hpp>
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/memory.h>
@@ -37,6 +39,8 @@
 #include <fmt/format.h>
 #include <fmt/printf.h>
 
+#include <spdlog/spdlog.h>
+
 #include "functions/io.hh"
 #include "functions/progress_bar.hh"
 #include "parse_input_files.hh"
@@ -72,7 +76,11 @@ static void setHeader(PointCloud &cloud, Eigen::MatrixXd const &odometry,
   auto pos = odometry.block<1, 3>(0, 2);  // x,y,z
   auto quat = odometry.block<1, 4>(0, 5); // x,y,z,w
 
-  Eigen::Vector4f origin = Eigen::Vector4f(0, 0, 0, 0);
+  // spdlog::debug("Odometry {}", odometry.format(OctaveFmt));
+  // spdlog::debug("Pos: {}", pos.format(OctaveFmt));
+  // spdlog::debug("Quat: {}", quat.format(OctaveFmt));
+
+  Eigen::Vector4f origin = Eigen::Vector4f(0, 0, 0, 1);
   origin.x() = pos(0);
   origin.y() = pos(1);
   origin.z() = pos(2);
@@ -87,11 +95,7 @@ static void setHeader(PointCloud &cloud, Eigen::MatrixXd const &odometry,
   cloud.header.frame_id = frame_id;
   cloud.header.stamp = time_stamp;
 
-  cloud.sensor_origin_[0] = origin[0];
-  cloud.sensor_origin_[1] = origin[1];
-  cloud.sensor_origin_[2] = origin[2];
-  cloud.sensor_origin_[3] = origin[3];
-
+  cloud.sensor_origin_ = origin;
   cloud.sensor_orientation_ = orientation;
 }
 
@@ -160,9 +164,19 @@ CreateCloud(DataItem const &data, double fx, double fy, double cx, double cy,
   if (std::find(fields.begin(), fields.end(), Field::ODOMETRY) != fields.end())
     setHeader(*cloud, data.get<Field::ODOMETRY>(), i);
 
-  // Move the cloud
-  if (std::find(fields.begin(), fields.end(), Field::POSES) != fields.end())
-    pcl::transformPointCloud(*cloud, *cloud, data.get<Field::POSES>());
+  // Get Pose
+  auto pose = Eigen::Affine3f::Identity();
+  pose.linear() = cloud->sensor_orientation_.toRotationMatrix();
+  pose.translation() = cloud->sensor_origin_.template head<3>();
+
+  cloud->sensor_origin_ = Eigen::Vector4f(0, 0, 0, 1);
+  cloud->sensor_orientation_ = Eigen::Quaternionf::Identity();
+
+  pcl::transformPointCloud(*cloud, *cloud, pose);
+
+  //// Move the cloud
+  // if (std::find(fields.begin(), fields.end(), Field::POSES) != fields.end())
+  //   pcl::transformPointCloud(*cloud, *cloud, data.get<Field::POSES>());
 
   return cloud;
 }

@@ -1,3 +1,4 @@
+#include "types/Filters.hh"
 #include "types/Geometry/PointCloud.hh"
 
 #include <pcl/filters/voxel_grid.h>
@@ -7,6 +8,7 @@
 #include <pybind11/stl.h>
 
 #include <pcl/common/common.h>
+#include <pcl/filters/conditional_removal.h>
 #include <pcl/filters/extract_indices.h>
 #include <pcl/filters/filter.h>
 #include <pcl/point_struct_traits.h>
@@ -52,12 +54,10 @@ auto defineVoxelGridFilter(py::module_ &m, const char *name) {
       py::class_<FilterType, std::shared_ptr<FilterType>, pcl::Filter<PointT>>(
           m, fmt::format("VolxelGrid_{}", name).c_str());
   F.def(py::init());
-  F.def(
-      "set_leaf_size",
-      [](pcl::VoxelGrid<PointT> self, float x, float y, float z) {
-        return self.setLeafSize(x, y, z);
-      },
-      "x"_a, "y"_a, "z"_a);
+  F.def("set_leaf_size",
+        py::overload_cast<float, float, float>(
+            &pcl::VoxelGrid<PointT>::setLeafSize),
+        "x"_a, "y"_a, "z"_a);
   return F;
 }
 
@@ -77,6 +77,25 @@ auto defineExtractIndicesFilter(py::module_ &m, const char *name) {
   return F;
 }
 
+template <typename PointT>
+auto defienConditionalRemoval(py::module_ &m, const char *name) {
+  using FilterType = pcl::ConditionalRemoval<PointT>;
+
+  auto F =
+      py::class_<FilterType, std::shared_ptr<FilterType>, pcl::Filter<PointT>>(
+          m, fmt::format("ConditionalRemoval_{}", name).c_str());
+
+  F.def(py::init());
+  F.def("__repr__", [name](FilterType &) {
+    return fmt::format("ConditionalRemoval<{}>", name);
+  });
+  F.def("__str__", [name](FilterType &) {
+    return fmt::format("ConditionalRemoval<{}>", name);
+  });
+
+  return F;
+}
+
 void bind_filters(py::module_ &m) {
 
   defineFilter<pcl::PointXYZRGBA>(m, "PointXYZRGBA");
@@ -90,4 +109,14 @@ void bind_filters(py::module_ &m) {
 
   defineVoxelGridFilter<pcl::PointXYZRGBA>(m, "PointXYZRGBA");
   defineVoxelGridFilter<PointXYZRGBANormal>(m, "PointXYZRGBANormal");
+
+  defienConditionalRemoval<pcl::PointXYZRGBA>(m, "PointXYZRGBA");
+  defienConditionalRemoval<PointXYZRGBANormal>(m, "PointXYZRGBANormal");
+
+  m.def("HighConfidenceFilter_PointXYZRGBA",
+        &ReUseX::Filters::HighConfidenceFilter<pcl::PointXYZRGBA>);
+  m.def("HighConfidenceFilter_PointXYZRGBA",
+        &ReUseX::Filters::HighConfidenceFilter<PointXYZRGBANormal>);
+  m.def("HighConfidenceFilter_PointXYZRGBANormal",
+        &ReUseX::Filters::HighConfidenceFilter<PointXYZRGBANormal>);
 }

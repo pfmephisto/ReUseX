@@ -1,4 +1,5 @@
 #include "functions/register.hh"
+#include "functions/fmt_formatter.hh"
 #include "functions/icp.hh"
 #include "functions/parse_input_files.hh"
 #include "functions/progress_bar.hh"
@@ -7,6 +8,8 @@
 
 #include "visualizer/visualizer.hh"
 
+#include <algorithm>
+#include <eigen3/Eigen/src/Core/util/Constants.h>
 #include <pcl/common/transforms.h>
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/impl/point_types.hpp>
@@ -52,12 +55,6 @@
 #include <filesystem>
 #include <string>
 #include <vector>
-
-const Eigen::IOFormat OctaveFmt(Eigen::StreamPrecision, 0, ", ", ";\n", "", "",
-                                "\n[", "]");
-
-template <typename T>
-struct fmt::formatter<Eigen::WithFormat<T>> : fmt::ostream_formatter {};
 
 namespace fs = std::filesystem;
 using namespace ReUseX;
@@ -166,8 +163,8 @@ void register_consecutive_edges(
   {
     spdmon::LoggerProgress monitor("Adding edges",
                                    (indices.size() - groupSize) * groupSize);
+    monitor.GetLogger()->set_level(spdlog::level::trace);
 
-    // monitor.GetLogger()->set_level(spdlog::level::trace);
 #pragma omp parallel for firstprivate(groupSize, maxCorrespondence,            \
                                           deltaValue)                          \
     shared(dataset, edges, monitor, robust_kernel_factory)
@@ -199,28 +196,27 @@ void register_consecutive_edges(
         pose_source.linear() =
             source->sensor_orientation_.toRotationMatrix().cast<double>();
 
+        auto vg = std::shared_ptr<pcl::VoxelGrid<PointT>>(
+            new pcl::VoxelGrid<PointT>());
+        vg->setLeafSize(0.1, 0.1, 0.1);
+
         // Set up filters
         FilterCollection filters{
-            // Filters::HighConfidenceFilter<pcl::PointXYZRGBA>(),
+            Filters::HighConfidenceFilter<pcl::PointXYZRGBA>(), vg,
             // Filters::GridFilter<pcl::PointXYZRGBA>(0.1),
-            Filters::SIVFeatures<pcl::PointXYZRGBA>()};
+            // Filters::SIVFeatures<pcl::PointXYZRGBA>()
+            // Filters::SIVFeatures<PointT>());
+        };
 
         // Compute ICP
+        spdlog::debug("Number of filters pre icp: {}", filters.size());
         g2o::Isometry3 xform = g2o::Isometry3(
             icp<PointT>(source, target, filters, maxCorrespondence)
                 .cast<double>());
 
         // Update the soruce
-        // pose_source = pose_source * xform;
-        pose_source = pose_source * xform.inverse();
-        // pose_source = xform * pose_source;
         // pose_source = xform.inverse() * pose_source;
-
-        // Isometry t = Isometry(pose_target);
-        // t = t * xform;
-        // t = t * xform.inverse();
-        // t = xform * t;
-        // t = xform.inverse() * t;
+        // pose_source = xform * pose_source;
 
         // Create Edge
         edges[idx] = new g2o::EdgeSE3();
@@ -232,7 +228,7 @@ void register_consecutive_edges(
                                      optimizer->vertex(source_index)));
 
         // edges[idx]->setMeasurement(pose_source.inverse() * pose_target);
-        edges[idx]->setMeasurement(pose_target.inverse() * pose_source);
+        edges[idx]->setMeasurement(pose_target * pose_source);
         // edges[idx]->setInformation(information_matrix);
 
         // Set Robust Kernel
@@ -254,6 +250,57 @@ void register_consecutive_edges(
   spdlog::trace("Setting edges");
   for (auto &edge : edges) // Add edges to optimizer
     optimizer->addEdge(edge);
+}
+
+void visualize_cloud(Dataset &dataset, std::vector<size_t> indices,
+                     std::string name) {
+
+  // Check if we are in a visualization context
+  if (!ReUseX::Visualizer::isInitialised())
+    return;
+
+  auto viewer = ReUseX::Visualizer::getInstance();
+  auto pcl_viewer = viewer->getViewer<pcl::visualization::PCLVisualizer>();
+
+  spdmon::LoggerProgress monitor("Adding Clouds to Viewer", indices.size());
+
+  // Merge clouds
+  typename pcl::PointCloud<pcl::PointXYZRGBA>::Ptr merged(
+      new pcl::PointCloud<pcl::PointXYZRGBA>());
+#pragma omp parallel for
+  for (int i = 0; i < indices.size(); i++) {
+    auto cloud = CreateCloud(dataset[idx]);
+
+    // Filter point cloud to only include hight confidence points
+    auto filter = Filters::HighConfidenceFilter<pcl::PointXYZRGBA>();
+    filter->setInputCloud(cloud);
+    filter->filter(*cloud);
+
+    // Get the pose
+    Eigen::Affine3f pose = Eigen::Affine3f::Identity();
+    pose.linear() = cloud->sensor_orientation_.toRotationMatrix();
+    pose.translation() = cloud->sensor_origin_.head<3>();
+#pragma omp critical
+    {
+      *merged += *cloud;
+      pcl_viewer->addCoordinateSystem(0.5, pose,
+                                      fmt::format("{}_{}_pose", name, i));
+    }
+    ++monitor;
+  }
+
+  // Filter if there are a lot of points
+  if (indicies.size() > 500) {
+    pcl::VoxelGrid<pcl::PointXYZRGBA> vg;
+    vg.setLeafSize(0.2, 0.2, 0.2);
+    vg.setInputCloud(merged);
+    vg.filter(*merged);
+  }
+  pcl::visualization::PointCloudColorHandlerRGBField<pcl::PointXYZRGBA> rgb(
+      merged);
+  pcl_viewer->addPointCloud<pcl::PointXYZRGBA>(merged, rgb, name);
+  pcl_viewer->setPointCloudRenderingProperties(
+      pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, name);
 }
 
 // solverName = "lm_fix6_3_csparse"
@@ -308,14 +355,23 @@ ReUseX::write_graph(fs::path path, Dataset &dataset,
       // Set name for point cloud in viewer
       std::string name = cloud->header.frame_id + "_pre";
 
-      // Set the point cloud colore to be rea
-      pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZRGBA> red(
-          cloud, 255, 0, 0);
+      //// Set the point cloud colore to be rea
+      // pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZRGBA>
+      // red(
+      //     cloud, 255, 0, 0);
+
+      pcl::visualization::PointCloudColorHandlerRGBField<pcl::PointXYZRGBA> rgb(
+          cloud);
+
+      Eigen::Affine3f pose = Eigen::Affine3f::Identity();
+      pose.linear() = cloud->sensor_orientation_.toRotationMatrix();
+      pose.translation() = cloud->sensor_origin_.head<3>();
 
 #pragma omp critical
       {
         // Add point cloud to viewer
-        pcl_viewer->addPointCloud<pcl::PointXYZRGBA>(cloud, red, name);
+        pcl_viewer->addPointCloud<pcl::PointXYZRGBA>(cloud, rgb, name);
+        pcl_viewer->addCoordinateSystem(0.5, pose, name + "_pose");
 
         // Set point cloud display properties
         // pcl_viewer->setPointCloudRenderingProperties(
@@ -358,7 +414,8 @@ ReUseX::write_graph(fs::path path, Dataset &dataset,
   //// Temporary code
   // if (ReUseX::Visualizer::isInitialised() && groupSize == 1) {
   //   auto viewer = ReUseX::Visualizer::getInstance();
-  //   auto pcl_viewer = viewer->getViewer<pcl::visualization::PCLVisualizer>();
+  //   auto pcl_viewer =
+  // viewer->getViewer<pcl::visualization::PCLVisualizer>();
 
   //  std::vector<g2o::Isometry3> transforms = std::vector<g2o::Isometry3>();
   //  transforms.resize(optimizer->edges()->size());
@@ -383,6 +440,9 @@ ReUseX::write_graph(fs::path path, Dataset &dataset,
 
     spdmon::LoggerProgress monitor("Adding Target Point Clouds",
                                    indices.size());
+
+    typename pcl::PointCloud<pcl::PointXYZRGBA>::Ptr merged(
+        new pcl::PointCloud<pcl::PointXYZRGBA>());
 
     // monitor.GetLogger()->set_level(spdlog::level::debug);
 #pragma omp parallel for
@@ -410,31 +470,61 @@ ReUseX::write_graph(fs::path path, Dataset &dataset,
 
       // Compute relative transform and aplly it
       g2o::Isometry3 xform = pose_orig.inverse() * estimate;
+      // g2o::Isometry3 xform = pose_orig * estimate;
       pcl::transformPointCloud(*cloud, *cloud, xform.matrix());
 
       // Set the name for the point cloud in the viewer
       std::string name = cloud->header.frame_id + "_post";
 
+      pcl::visualization::PointCloudColorHandlerRGBField<pcl::PointXYZRGBA> rgb(
+          cloud);
       // The the point cloud color to be green
       pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZRGBA> green(
-          cloud, 0, 255, 0);
+          cloud, 0, 80, 0);
+
+      Eigen::Affine3f pose = Eigen::Affine3f::Identity();
+      pose.linear() = cloud->sensor_orientation_.toRotationMatrix();
+      pose.translation() = cloud->sensor_origin_.head<3>();
 
 #pragma omp critical
       {
-        // Add point cloud to the viewer
-        pcl_viewer->addPointCloud<pcl::PointXYZRGBA>(cloud, green, name);
 
-        // Set point cloud display properties
-        // pcl_viewer->setPointCloudRenderingProperties(
-        //     pcl::visualization::PCL_VISUALIZER_SHADING,
-        //     pcl::visualization::PCL_VISUALIZER_SHADING_PHONG, name);
-        pcl_viewer->setPointCloudRenderingProperties(
-            pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 4, name);
-        pcl_viewer->setPointCloudRenderingProperties(
-            pcl::visualization::PCL_VISUALIZER_OPACITY, 0.5, name);
+        if (indices.size() > 500) {
+          *merged += *cloud;
+        } else {
+          // Add point cloud to the viewer
+          pcl_viewer->addPointCloud<pcl::PointXYZRGBA>(cloud, green, name);
+          pcl_viewer->addCoordinateSystem(0.5, pose, name + "_pose");
+
+          // Set point cloud display properties
+          // pcl_viewer->setPointCloudRenderingProperties(
+          //     pcl::visualization::PCL_VISUALIZER_SHADING,
+          //     pcl::visualization::PCL_VISUALIZER_SHADING_PHONG, name);
+          pcl_viewer->setPointCloudRenderingProperties(
+              pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 4, name);
+          pcl_viewer->setPointCloudRenderingProperties(
+              pcl::visualization::PCL_VISUALIZER_OPACITY, 0.5, name);
+        }
       }
 
       ++monitor;
+    }
+
+    if (indices.size() > 500) {
+
+      pcl::VoxelGrid<pcl::PointXYZRGBA> vg;
+      vg.setLeafSize(0.2, 0.2, 0.2);
+      vg.setInputCloud(merged);
+      vg.filter(*merged);
+
+      std::string name = "merged post";
+      pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZRGBA> green(
+          merged, 0, 80, 0);
+      pcl_viewer->addPointCloud<pcl::PointXYZRGBA>(merged, green, name);
+      pcl_viewer->setPointCloudRenderingProperties(
+          pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 4, name);
+      pcl_viewer->setPointCloudRenderingProperties(
+          pcl::visualization::PCL_VISUALIZER_OPACITY, 0.5, name);
     }
   }
 

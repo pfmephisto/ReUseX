@@ -38,19 +38,6 @@ void bind_pointclouds(py::module_ &m) {
            py::return_value_policy::reference_internal,
            py::call_guard<py::scoped_ostream_redirect,
                           py::scoped_estream_redirect>())
-      // .def("annotate", &ReUseX::PointCloudsInMemory::annotate,
-      //     "Annotate the point clouds",
-      //     "yolo_path"_a,
-      //     "dataset"_a = py::none(),
-      //     py::return_value_policy::reference_internal,
-      //     py::call_guard<py::scoped_ostream_redirect,
-      //     py::scoped_estream_redirect>()
-      // )
-      .def("display", &ReUseX::PointCloudsInMemory::display,
-           "Display the point clouds", "show_clouds"_a = false,
-           py::return_value_policy::reference_internal,
-           py::call_guard<py::scoped_ostream_redirect,
-                          py::scoped_estream_redirect>())
       .def(
           "__getitem__",
           [](const ReUseX::PointCloudsInMemory &obj, std::size_t index) {
@@ -104,11 +91,6 @@ void bind_pointclouds(py::module_ &m) {
       //     py::call_guard<py::scoped_ostream_redirect,
       //     py::scoped_estream_redirect>()
       // )
-      .def("display", &ReUseX::PointCloudsOnDisk::display,
-           "Display the point clouds", "show_clouds"_a = false,
-           py::return_value_policy::reference_internal,
-           py::call_guard<py::scoped_ostream_redirect,
-                          py::scoped_estream_redirect>())
       .def(
           "__getitem__",
           [](const ReUseX::PointCloudsOnDisk &obj, std::size_t index) {

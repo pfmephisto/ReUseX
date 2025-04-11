@@ -174,7 +174,6 @@ find_package(HighFive REQUIRED)
 find_package(opennurbs REQUIRED)
 
 find_package(PCL REQUIRED)
-find_package(polyscope REQUIRED)
 find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
 find_package(pybind11 REQUIRED)
 
@@ -224,7 +223,6 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
     
     OpenNURBS
     embree
-    polyscope
 
     Eigen3::Eigen
 

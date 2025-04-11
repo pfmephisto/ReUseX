@@ -51,10 +51,6 @@ void bind_dataitem(py::module_ &m) {
       .def_property_readonly(
           "imu",
           [](const ReUseX::DataItem &d) { return d.get<ReUseX::Field::IMU>(); })
-      // .def_property_readonly("pose",
-      //                        [](const ReUseX::DataItem &d) {
-      //                          return d.get<ReUseX::Field::POSES>().matrix();
-      //                        })
       .def("__repr__",
            [](ReUseX::DataItem const &d) { return fmt::format("DataItem"); })
       .def(
@@ -131,11 +127,6 @@ void bind_dataitem(py::module_ &m) {
                     field_values[i]
                         .cast<ReUseX::FieldType<ReUseX::Field::IMU>::type>();
                 break;
-              // case ReUseX::Field::POSES:
-              //   d[key] =
-              //       field_values[i]
-              //           .cast<ReUseX::FieldType<ReUseX::Field::POSES>::type>();
-              //   break;
               default:
                 throw std::runtime_error(
                     "Unknown field type encountered during deserialization");

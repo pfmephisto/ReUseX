@@ -108,7 +108,6 @@ public:
   // Operators
   operator bool() const { return !_fields.empty(); };
   DataItem operator[](int idx) const;
-  void display(std::string name, bool show = true) const;
 
   inline size_t size() const { return _n_frames; };
   inline cv::Size color_size() const {

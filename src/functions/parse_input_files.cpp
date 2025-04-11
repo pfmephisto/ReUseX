@@ -1,38 +1,30 @@
-
 #define PCL_NO_PRECOMPILE
+#include "parse_input_files.hh"
 #include "functions/fmt_formatter.hh"
+#include "functions/io.hh"
+#include "functions/progress_bar.hh"
+#include "types/Accumulators.hh"
+#include "types/Dataset.hh"
+#include "types/Yolo.hh"
 
 #include <pcl/common/impl/accumulators.hpp>
+#include <pcl/common/transforms.h>
+#include <pcl/features/normal_3d_omp.h>
+#include <pcl/filters/conditional_removal.h>
+#include <pcl/filters/filter.h>
 #include <pcl/filters/voxel_grid.h>
+#include <pcl/io/pcd_io.h>
 #include <pcl/memory.h>
 #include <pcl/octree/octree.h>
 #include <pcl/point_cloud.h>
 #include <pcl/point_representation.h>
 #include <pcl/point_types.h>
-
 #include <pcl/point_types_conversion.h>         //TODO: TEST
 #include <pcl/range_image/range_image.h>        //TODO: TEST
 #include <pcl/range_image/range_image_planar.h> //TODO: TEST
-#include <pcl/visualization/cloud_viewer.h>
-
-#include <pcl/filters/filter.h>
-
-#include <pcl/features/normal_3d_omp.h>
-
-#include <pcl/common/transforms.h>
-#include <pcl/io/pcd_io.h>
 #include <pcl/registration/icp.h>
 #include <pcl/registration/icp_nl.h>
-
-#include <pcl/filters/conditional_removal.h>
-
-#include <types/Accumulators.hh>
-#include <types/Yolo.hh>
-
-#include <functions/polyscope.hh>
-#include <polyscope/curve_network.h>
-#include <polyscope/point_cloud.h>
-#include <polyscope/polyscope.h>
+#include <pcl/visualization/cloud_viewer.h>
 
 #include <fmt/color.h>
 #include <fmt/core.h>
@@ -41,23 +33,17 @@
 
 #include <spdlog/spdlog.h>
 
-#include "functions/io.hh"
-#include "functions/progress_bar.hh"
-#include "parse_input_files.hh"
-#include "types/Dataset.hh"
+#include <opencv4/opencv2/imgproc.hpp>
 
 #include <Eigen/Dense>
 
-#include <future>
-#include <mutex>
-#include <thread>
-
-#include <opencv4/opencv2/imgproc.hpp>
-
 #include <algorithm>
 #include <cassert>
+#include <future>
+#include <mutex>
 #include <numeric>
 #include <optional>
+#include <thread>
 #include <vector>
 
 namespace fs = std::filesystem;

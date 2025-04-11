@@ -6,26 +6,20 @@
 
 #include <opennurbs_public.h>
 
+namespace ReUseX {
+struct Brep : public ON_Brep {
+public:
+  Brep() = default;
+  Brep(Mesh const &mesh);
+  void save(std::string const &filename) const;
+  static Brep load(std::string const &filename);
 
-namespace ReUseX
-{
-    struct Brep: public ON_Brep
-    {
-    public:
-        Brep() = default;
-        Brep(Mesh const& mesh);
-        void save(std::string const& filename) const;
-        static Brep load(std::string const& filename);
+  // double volume() const;
+  // double area() const;
+  // bool is_closed() const;
+  // Box get_bbox() const;
+  // int get_Orientation() const;
+  Mesh get_Mesh() const;
+};
 
-        // double volume() const;
-        // double area() const;
-        // bool is_closed() const;
-        // Box get_bbox() const;
-        // int get_Orientation() const;
-        Mesh get_Mesh() const;
-
-        void display(std::string name = "Mesh", bool show = true) const;
-        
-    };
-    
 } // namespace ReUseX

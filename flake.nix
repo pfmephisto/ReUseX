@@ -173,7 +173,6 @@
                   or [
                   ])
                 ++ (with pkgs; [
-                  polyscope
                   opennurbs
                   xtensor-io
                   scip-solver

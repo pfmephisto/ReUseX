@@ -18,12 +18,6 @@ void bind_brep(py::module_ &m) {
                   "filename"_a,
                   py::call_guard<py::scoped_ostream_redirect,
                                  py::scoped_estream_redirect>())
-      .def(
-          "display",
-          [](ReUseX::Brep &brep, std::string name = "Brep", bool show = true) {
-            brep.display(name, show);
-          },
-          "Display a Brep")
       .def("__repr__",
            [](const ReUseX::Brep &b) {
              std::stringstream ss;

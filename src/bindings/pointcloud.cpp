@@ -258,8 +258,6 @@ void bind_pointcloud(py::module_ &m) {
            py::return_value_policy::reference_internal,
            py::call_guard<py::scoped_ostream_redirect,
                           py::scoped_estream_redirect>())
-      .def("display", &ReUseX::PointCloud::display, "Display the point cloud",
-           "name"_a = "Cloud", py::return_value_policy::reference_internal)
       .def("bbox", &ReUseX::PointCloud::get_bbox,
            "Get the bounding box of the point cloud")
       .def("__len__", [](ReUseX::PointCloud &cloud) { return cloud->size(); })

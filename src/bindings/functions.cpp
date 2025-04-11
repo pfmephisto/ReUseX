@@ -29,13 +29,6 @@ using namespace pybind11::literals;
 using namespace std::literals::chrono_literals;
 
 void bind_functions(py::module_ &m) {
-  m.def(
-      "display_brep",
-      [](ReUseX::Brep &brep, std::string name = "Brep", bool show = true) {
-        brep.display(name, show);
-      },
-      "Display a Brep");
-
   // TODO: Those should be moved to their respecive classes
   // Functions
   m.def("parse_dataset", &ReUseX::parse_Dataset,

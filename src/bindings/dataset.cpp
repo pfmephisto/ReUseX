@@ -51,8 +51,6 @@ void bind_dataset(py::module_ &m) {
       .def_property_readonly("color_size", &ReUseX::Dataset::color_size)
       .def_property_readonly("depth_size", &ReUseX::Dataset::depth_size)
       .def_property_readonly("name", &ReUseX::Dataset::name)
-      .def("display", &ReUseX::Dataset::display, "Display the dataset",
-           "name"_a, "show"_a = true)
       .def("__repr__", [](ReUseX::Dataset const &d) -> std::string {
         return fmt::format("Dataset: {}", d.name());
       });

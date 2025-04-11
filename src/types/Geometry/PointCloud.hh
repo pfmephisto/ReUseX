@@ -21,9 +21,6 @@
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 
-#include <polyscope/point_cloud.h>
-#include <polyscope/polyscope.h>
-
 #include <filesystem>
 #include <vector>
 
@@ -218,9 +215,6 @@ public:
                              double inflate_factor = 2, double max_loop = 10.0,
                              double mult_factor = 1.0, double fitting = 0.20,
                              double coverage = 0.10, double complexity = 0.70);
-
-  /// @brief Register the point cloud.
-  void display(std::string name = "Cloud") const;
 
   PCL_MAKE_ALIGNED_OPERATOR_NEW
 };

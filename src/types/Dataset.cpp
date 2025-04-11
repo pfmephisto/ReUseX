@@ -1,9 +1,8 @@
 #include "./Dataset.hh"
+#include "functions/lodepng.hh"
+
 #include <fmt/printf.h>
 #include <fstream>
-#include <functions/lodepng.hh>
-#include <functions/polyscope.hh>
-
 #include <iostream>
 #include <optional>
 #include <string>
@@ -343,13 +342,6 @@ DataItem Dataset::operator[](int idx) const {
     }
   }
   return data;
-}
-
-void Dataset::display(std::string name, bool show) const {
-  polyscope::myinit();
-  polyscope::display<const Dataset &>(*this, name);
-  if (show)
-    polyscope::myshow();
 }
 
 } // namespace ReUseX

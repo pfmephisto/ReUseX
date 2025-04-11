@@ -9,16 +9,18 @@
 in
   stdenv.mkDerivation rec {
     pname = "polyscope";
-    version = "2.3.0";
+    version = "2.4.0";
     # version = "36da8ec";
 
     src = fetchFromGitHub {
       owner = "nmwsharp";
       repo = "${pname}";
       # rev = "v${version}";
-      rev = "36da8ec95cc04713748f8190004849312a557c96";
+      rev = "v${version}";
       fetchSubmodules = true;
-      sha256 = "sha256-pViqQ/7F0+7LfVVNkb/Yb/iOdOm1puY8QEoNip0LsYk="; # polyscope-2.3.0
+      sha256 = "sha256-Cq/MHzw9lCSTmGsD6gxAciKtJDQPQAxWC/GU5v2Q9so="; # polyscope-2.4.0
+      # sha256 = "sha256-pViqQ/7F0+7LfVVNkb/Yb/iOdOm1puY8QEoNip0LsYk="; # polyscope-2.3.0
+      #sha256 = "sha256-QpbOjq5eKMDItyktFKyQ++2mM2h9onraNTM3jyOa1pA="; # Has does not match any more 
       # hash = "sha256-QpbOjq5eKMDItyktFKyQ++2mM2h9onraNTM3jyOa1pA="; # polyscope-36da8ec
       # hash = lib.fakeHash;
     };
@@ -48,7 +50,7 @@ in
       # libGL
 
       libGLU.dev
-      mesa.dev
+      mesa
       freeglut.dev
     ];
 

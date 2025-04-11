@@ -107,7 +107,7 @@ Eigen::Matrix4f icp(const typename pcl::PointCloud<PointT>::ConstPtr cloud_src,
 
   spdlog::info("Running ICP");
   spdlog::debug("Number of Filters = {}", filters.size());
-  spdlog::debug("maxCorrespondence = {}", maxCorrespondence);
+  spdlog::debug("maxCorrespondence = {:.6f}", maxCorrespondence);
 
   Ptr input_src(new pcl::PointCloud<PointT>);
   Ptr input_tgt(new pcl::PointCloud<PointT>);
@@ -124,7 +124,7 @@ Eigen::Matrix4f icp(const typename pcl::PointCloud<PointT>::ConstPtr cloud_src,
   // pose_tgt.linear() = input_tgt->sensor_orientation_.toRotationMatrix();
   // pose_tgt.translation() = input_tgt->sensor_origin_.template head<3>();
 
-  //// Strip Sensor data
+  // Strip Sensor data
   // input_src->sensor_origin_ = Eigen::Vector4f(0, 0, 0, 1);
   // input_src->sensor_orientation_ = Eigen::Quaternionf::Identity();
 

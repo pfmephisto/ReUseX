@@ -1,4 +1,4 @@
-#!/bin/bash
+#! /usr/bin/env bash
 
 SESSION_NAME="ReUseX"
 
@@ -30,25 +30,25 @@ tmux rename-window 'Build'
 # Launch commands
 tmux select-window -t "$SESSION_NAME":1
 tmux select-pane -t 1
-tmux send-keys 'fish' 'C-m'
-tmux send-keys 'nix develop .#python' 'C-m'
-tmux send-keys -R 'fish' 'C-m'
+#tmux send-keys 'fish' 'C-m'
+#tmux send-keys 'nix develop .#python' 'C-m'
+#tmux send-keys -R 'fish' 'C-m'
 
 tmux select-pane -t 2
-tmux send-keys 'fish' 'C-m'
-tmux send-keys 'nix develop .#' 'C-m'
-tmux send-keys -R 'fish' 'C-m'
+#tmux send-keys 'fish' 'C-m'
+#tmux send-keys 'nix develop .#' 'C-m'
+#tmux send-keys -R 'fish' 'C-m'
 
 tmux select-window -t "$SESSION_NAME":2
 tmux select-pane -t 1
-tmux send-keys 'fish' 'C-m'
-tmux send-keys 'nix develop .#' 'C-m'
+#tmux send-keys 'fish' 'C-m'
+#tmux send-keys 'nix develop .#' 'C-m'
 tmux send-keys 'cd build' 'C-m'
-tmux send-keys -R 'fish' 'C-m'
+#tmux send-keys -R 'fish' 'C-m'
 
 tmux select-window -t "$SESSION_NAME":1
 tmux select-pane -t 2
-tmux send-keys "$Command" 'C-m'
+#tmux send-keys "$Command" 'C-m'
 
 # Attach to the session
 tmux attach-session -t "$SESSION_NAME"

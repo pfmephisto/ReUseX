@@ -90,21 +90,22 @@
                   else pkgs.stdenv;
               });
             })
-            (final: prev: {
-              # Change PCL to the main branch
-              pcl = prev.pcl.overrideAttrs (old: {
-                pname = "pcl";
-                # version = "1.14.1";
-                version = "6e4eb4e0c1222adcaddd32ccfd6dbcb08746f25c";
-                src = pkgs.fetchFromGitHub {
-                  owner = "PointCloudLibrary";
-                  repo = "pcl";
-                  rev = "6e4eb4e0c1222adcaddd32ccfd6dbcb08746f25c";
-                  sha256 = "sha256-OHzJwTtv+7CR+0UfyP0qB64lzFgUJG/0RWVreWo7KO8=";
-                  # sha256 = lib.fakeSha256;
-                };
-              });
-            })
+            # (final: prev: {
+            #   # Change PCL to the main branch
+            #   pcl = prev.pcl.overrideAttrs (old: {
+            #     pname = "pcl";
+            #     # version = "1.14.1";
+            #     version = "1.15.0";
+            #     src = pkgs.fetchFromGitHub {
+            #       owner = "PointCloudLibrary";
+            #       repo = "pcl";
+            #       rev = "pcl-1.15.0";
+	    #       sha256 = "sha256-UCuQMWGwe+YxeGj0Y6m5IT58NW2lAWN5RqyZnvyFSr4=";
+	    #       # sha256 = "sha256-OHzJwTtv+7CR+0UfyP0qB64lzFgUJG/0RWVreWo7KO8=";
+            #       # sha256 = lib.fakeSha256;
+            #     };
+            #   });
+            # })
             (
               final: prev: (prev.lib.packagesFromDirectoryRecursive {
                 callPackage = prev.lib.callPackageWith final;
@@ -245,94 +246,20 @@
           }); # end of packages
 
         devShells = {
+
+
+
           default = let
             arg = project.renderers.withPackages {inherit python;};
-            nvim = nixvim.legacyPackages.x86_64-linux.makeNixvim {
-              opts = {
-                foldmethod = "expr";
-                foldexpr = "nvim_treesitter#foldexpr()";
-                foldnestmax = 3;
-                #foldenable = false;
-              };
-              plugins = {
-                lsp = {
-                  enable = true;
-                  autoLoad = true;
-                  servers = {
-                    clangd.enable = true;
-                  };
-                };
-                cmp = {
-                  enable = true;
-                  autoEnableSources = true;
-                  settings.sources = [
-                    {name = "nvim_lsp";}
-                    {name = "path";}
-                    {name = "buffer";}
-                    {name = "copilot";}
-                    {name = "nvim_lsp_signature_help";}
-                    {name = "treesitter";}
-                  ];
-                  settings = {
-                    mapping = {
-                      "<C-Space>" = "cmp.mapping.complete()";
-                      "<CR>" = "cmp.mapping.confirm({ select = true })";
-                      "<C-f>" = "cmp.mapping.scroll_docs(4)";
-                      "<C-d>" = "cmp.mapping.scroll_docs(-4)";
-                      "<C-e>" = "cmp.mapping.close()";
-                      "<S-Tab>" = "cmp.mapping(cmp.mapping.select_prev_item(), {'i', 's'})";
-                      "<Tab>" = "cmp.mapping(cmp.mapping.select_next_item(), {'i', 's'})";
-                    };
-                  };
-                };
-                copilot-lua.enable = true;
-                lsp-format = {
-                  enable = true;
-                };
-                conform-nvim = {
-                  enable = true;
-                  settings = {
-                    formatters_by_ft = {
-                      cpp = ["clang-format"];
-                    };
-                    format_on_save = {
-                      lsp_format = "fallback";
-                      timeout_ms = 500;
-                    };
-                  };
-                };
-                treesitter = {
-                  enable = true;
-                };
-		which-key.enable = true;
-              };
-              colorschemes.nord.enable = true;
-              clipboard.providers.wl-copy.enable = true;
-              opts = {
-                number = true;
-                relativenumber = true;
-              };
-            };
-          in
-            pkgs.mkShell {
-              inputsFrom = [self.packages.${system}.default];
-              shellHook = ''
-                echo "Entering dev shell"
-                export VIRTUAL_ENV_PROMPT="ReUseX Environment"
-              '';
 
-              buildInputs = [nvim];
-            }; # end of devShells
-
-          python = let
-            arg = project.renderers.mkPythonEditablePackage {
+	    arg_1 = project.renderers.mkPythonEditablePackage {
               inherit python;
               root = "$REPO_ROOT/python";
             };
 
             myPython = python.override {
               packageOverrides = final: prev: {
-                ReUseX = final.mkPythonEditablePackage arg;
+                ReUseX = final.mkPythonEditablePackage arg_1;
               };
             };
 
@@ -341,7 +268,7 @@
                 oldAttrs.nativeBuildInputs
                 ++ [
                   (
-                    python.pkgs.mkPythonEditablePackage arg
+                    python.pkgs.mkPythonEditablePackage arg_1
                     // {
                       # pname = pyproject.project.name;
                       # inherit (pyproject.project) scripts version;
@@ -350,8 +277,15 @@
                   )
                 ];
             });
+
+
+
           in
-            pkgs.mkShellNoCC {
+            pkgs.mkShell {
+              inputsFrom = [
+	        self.packages.${system}.default
+	      ];
+
               packages = with pkgs;
                 [
                   cmake
@@ -359,6 +293,9 @@
                   mpi
                   cudatoolkit
                 ]
+                ++ [
+		  libnotify # Send noctification when build finishes
+		]
                 ++ [
                   # Python Environment
                   ((myPython.withPackages (ps:
@@ -374,22 +311,17 @@
                       scipy
                       ipykernel
                     ]))
-                  .override (args: {ignoreCollisions = true;}))
-                ];
 
-              #inputsFrom = [
-              #   editablePkg
-              #];
+                  .override (args: {ignoreCollisions = true;}))
+                ];	
 
               shellHook = ''
                 echo "Entering dev shell"
                 export VIRTUAL_ENV_PROMPT="ReUseX Environment"
                 export REPO_ROOT=$(pwd)
-
                 export CUDA_PATH=${pkgs.cudaPackages.cudatoolkit}
-
               '';
-            };
+            }; # end of default shell
         }; # end of devShells
       }); # end of outputs
 }

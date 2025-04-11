@@ -254,12 +254,12 @@ void parse_Dataset(Dataset const &dataset, std::string const &output_path,
   check &= std::count(fields.begin(), fields.end(), Field::DEPTH) == 1;
   check &= std::count(fields.begin(), fields.end(), Field::CONFIDENCE) == 1;
   check &= std::count(fields.begin(), fields.end(), Field::ODOMETRY) == 1;
-  check &= std::count(fields.begin(), fields.end(), Field::POSES) == 1;
+  // check &= std::count(fields.begin(), fields.end(), Field::POSES) == 1;
 
   if (!check) {
     fmt::print(fg(fmt::color::red),
                "Dataset does not contain all required fields [COLOR, DEPTH, "
-               "CONFIDENCE, ODOMETRY, POSES]");
+               "CONFIDENCE, ODOMETRY]");
     return;
   }
 
@@ -357,7 +357,18 @@ void parse_Dataset(Dataset const &dataset, std::string const &output_path,
     // confidence); // Replace 2 with 255 cv::eigen2cv(confidence,
     // confidenceCV); cv::imshow("Confidence", confidenceCV); cv::waitKey(0);
 
-    pcl::transformPointCloud(*cloud, *cloud, data.get<Field::POSES>());
+    // Get Pose
+    auto odometry = data.get<Field::ODOMETRY>();
+    auto pose = Eigen::Affine3f::Identity();
+    auto p = odometry.block<1, 3>(0, 2);
+    auto q = odometry.block<1, 4>(0, 5);
+
+    // Set the rotation using the quaternion
+    Eigen::Quaternionf quat(/*W*/ q[3], /*X*/ q[0], /*Y*/ q[1], /*Z*/ q[2]);
+    pose.linear() = quat.toRotationMatrix();
+    pose.translation() = Eigen::Vector3f(p[0], p[1], p[2]);
+
+    pcl::transformPointCloud(*cloud, *cloud, pose);
 
     setHeader(*cloud, data.get<Field::ODOMETRY>(), i);
 

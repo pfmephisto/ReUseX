@@ -1,10 +1,11 @@
 #pragma once
 #include <Eigen/Dense>
+
+#include <fmt/format.h>
+
 #include <any>
 #include <map>
 #include <variant>
-
-#include <fmt/format.h>
 
 #include <opencv4/opencv2/core/mat.hpp>
 
@@ -17,19 +18,7 @@ enum Field {
   CONFIDENCE,
   ODOMETRY,
   IMU,
-  POSES,
 };
-
-//    std::ostream& operator<<(std::ostream& lhs, Field e) {
-//    switch(e) {
-//        case COLOR: lhs << "COLOR"; break;
-//        case DEPTH: lhs << "DEPTH"; break;
-//        case CONFIDENCE: lhs << "CONFIDENCE"; break;
-//        case ODOMETRY: lhs << "ODOMETRY"; break;
-//        case IMU: lhs << "IMU"; break;
-//    }
-//    return lhs;
-//}
 
 template <int F> struct FieldType;
 
@@ -51,10 +40,6 @@ template <> struct FieldType<Field::ODOMETRY> {
 
 template <> struct FieldType<Field::IMU> {
   using type = Eigen::MatrixXd;
-};
-
-template <> struct FieldType<Field::POSES> {
-  using type = Eigen::Transform<float, 3, Eigen::Affine>;
 };
 
 template <> struct FieldType<Field::INDEX> {
@@ -118,8 +103,6 @@ template <> struct fmt::formatter<ReUseX::Field> : fmt::formatter<std::string> {
       return fmt::format_to(ctx.out(), "ODOMETRY");
     case ReUseX::IMU:
       return fmt::format_to(ctx.out(), "IMU");
-    case ReUseX::POSES:
-      return fmt::format_to(ctx.out(), "POSES");
     default:
       return fmt::format_to(ctx.out(), "UNKNOWN");
     }

@@ -9,7 +9,11 @@
 #include <future>
 #include <initializer_list>
 #include <set>
+#include <thread>
 #include <vector>
+
+#include <sys/ioctl.h> //ioctl() and TIOCGWINSZ
+#include <unistd.h>    // for STDOUT_FILENO
 
 #if defined(SPDLOG_FMT_EXTERNAL)
 #include <spdlog/fmt/fmt.h>
@@ -20,6 +24,26 @@
 #endif
 
 #include <spdlog/spdlog.h>
+
+static std::string trimPathMiddle(const std::string &path, int offset = 0) {
+  struct winsize size;
+  ioctl(STDOUT_FILENO, TIOCGWINSZ, &size);
+  int termWidth = size.ws_col;
+
+  int maxLen = termWidth;
+  maxLen = std::max(maxLen - offset, 10);
+
+  if (path.length() <= static_cast<size_t>(maxLen)) {
+    return path;
+  }
+
+  const std::string ellipsis = "[...]";
+  int keepLen = maxLen - ellipsis.length();
+  int front = keepLen / 2;
+  int back = keepLen - front;
+
+  return path.substr(0, front) + ellipsis + path.substr(path.length() - back);
+}
 
 namespace ReUseX {
 
@@ -36,8 +60,6 @@ private:
   int _rgb_hight = 1440;
   int _depth_width = 256;
   int _depth_hight = 192;
-  std::shared_future<void> _asyncConstructor;
-  std::shared_ptr<spdlog::logger> logger = spdlog::get("ReUseX");
 
 public:
   template <typename T>
@@ -48,25 +70,26 @@ public:
            fmt::format("Directory does not exist: {}", path.string()).c_str());
 
     _path = path;
-    logger->info("Creating Dataset: {}",
+    spdlog::info("Creating Dataset: {}",
                  _path.parent_path().filename().c_str());
-    logger->debug("Path: {}", _path.c_str());
+
+    struct winsize size;
+    ioctl(STDOUT_FILENO, TIOCGWINSZ, &size);
+
+    spdlog::debug("Path: {}", trimPathMiddle(_path.c_str(), 51));
 
     _n_frames = get_number_of_frames(_path / "rgb.mp4");
-    logger->debug("Number of frames: {}", _n_frames);
-
-    // TODO: Rather implement this as lazy loading.
-    //_asyncConstructor = std::async(std::launch::async, [&]() {
-    //      fmt::print("Inside async..");
-    //	std::this_thread::sleep_for(std::chrono::seconds(2));
-    //});
+    spdlog::debug("Number of frames: {}", _n_frames);
 
     // Load data
+#pragma omp parallel
+#pragma omp single
     for (auto it = begin; it != end; it++) {
       Field field = *it;
+#pragma omp task
       set_field(field);
     };
-    logger->debug("Fields: [{}]", fmt::join(_fields, ", "));
+    spdlog::debug("Fields: [{}]", fmt::join(_fields, ", "));
   };
 
   Dataset(const std::filesystem::path &path,
@@ -76,7 +99,7 @@ public:
   Dataset(const std::string &path)
       : Dataset(std::filesystem::path(path),
                 {Field::COLOR, Field::DEPTH, Field::CONFIDENCE, Field::ODOMETRY,
-                 Field::IMU, Field::POSES}) {};
+                 Field::IMU /*, Field::POSES*/}) {};
 
   // Getters
   std::set<Field> fields() const { return _fields; };

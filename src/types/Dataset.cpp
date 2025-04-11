@@ -226,10 +226,22 @@ size_t Dataset::get_number_of_frames(const std::filesystem::path &path) {
 
 void Dataset::set_field(Field field) {
 
+  // auto a_result = std::async(std::launch::async, []() {
+  //   std::cout << "Async constructor started" << std::endl;
+  //   std::this_thread::sleep_for(std::chrono::seconds(5));
+  //   std::cout << "Async constructor finished" << std::endl;
+  // });
+  // std::cout << "Other code in main thread" << std::endl;
+  // std::this_thread::sleep_for(std::chrono::seconds(2));
+  // std::cout << "Main thread finished" << std::endl;
+  // a_result.wait();
+  // std::cout << "Async constructor finished" << std::endl;
+
   switch (field) {
 
   case Field::COLOR:
     CHECK_EXSISTANCE(_path, "rgb.mp4");
+#pragma omp critical
     _fields.insert(field);
     break;
 
@@ -242,6 +254,7 @@ void Dataset::set_field(Field field) {
                    std::back_inserter(_depth_paths),
                    [](const auto &entry) { return entry.path(); });
     std::sort(_depth_paths.begin(), _depth_paths.end());
+#pragma omp critical
     _fields.insert(field);
     break;
 
@@ -254,17 +267,20 @@ void Dataset::set_field(Field field) {
                    std::back_inserter(_confidence_paths),
                    [](const auto &entry) { return entry.path(); });
     std::sort(_confidence_paths.begin(), _confidence_paths.end());
+#pragma omp critical
     _fields.insert(field);
     break;
 
-  case Field::POSES:
-    _fields.insert(field);
-    // Chontious fall thorugh, since poses are dependent on Odemetry
+    //  case Field::POSES:
+    // #pragma omp critical
+    //    _fields.insert(field);
+    //    // Chontious fall thorugh, since poses are dependent on Odemetry
 
   case Field::ODOMETRY:
     CHECK_EXSISTANCE(_path, "odometry.csv");
 
     _odometry_data = read_odometry(_path / "odometry.csv").value();
+#pragma omp critical
     _fields.insert(field);
     break;
 
@@ -272,6 +288,7 @@ void Dataset::set_field(Field field) {
     CHECK_EXSISTANCE(_path, "imu.csv");
 
     _imu_data = read_imu(_path / "imu.csv").value();
+#pragma omp critical
     _fields.insert(field);
     break;
   default:
@@ -297,6 +314,8 @@ Eigen::Matrix<double, 3, 3> Dataset::intrinsic_matrix() const {
 DataItem Dataset::operator[](int idx) const {
 
   // TODO: Check if idx is in range
+  // TODO: Make this evaluate lazyly
+  // There is no need to get the havey image data if it is not needed.
 
   DataItem data;
   data.set<Field::INDEX>(idx);
@@ -315,10 +334,6 @@ DataItem Dataset::operator[](int idx) const {
       break;
     case Field::ODOMETRY:
       data.set<Field::ODOMETRY>(_odometry_data.row(idx));
-      break;
-    case Field::POSES:
-      data.set<Field::POSES>(create_pose(_odometry_data.block<1, 3>(idx, 2),
-                                         _odometry_data.block<1, 4>(idx, 5)));
       break;
     case Field::IMU:
       data.set<Field::IMU>(_imu_data.row(idx));

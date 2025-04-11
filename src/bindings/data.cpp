@@ -24,8 +24,8 @@ void bind_dataitem(py::module_ &m) {
       .value("DEPTH", ReUseX::Field::DEPTH)
       .value("CONFIDENCE", ReUseX::Field::CONFIDENCE)
       .value("ODOMETRY", ReUseX::Field::ODOMETRY)
-      .value("IMU", ReUseX::Field::IMU)
-      .value("POSES", ReUseX::Field::POSES);
+      .value("IMU", ReUseX::Field::IMU);
+  //.value("POSES", ReUseX::Field::POSES);
 
   /// @brief Data is the indevidual frames that the dataset provieds.
   /// Think of the data-set as a clollection of data packages.
@@ -51,10 +51,10 @@ void bind_dataitem(py::module_ &m) {
       .def_property_readonly(
           "imu",
           [](const ReUseX::DataItem &d) { return d.get<ReUseX::Field::IMU>(); })
-      .def_property_readonly("pose",
-                             [](const ReUseX::DataItem &d) {
-                               return d.get<ReUseX::Field::POSES>().matrix();
-                             })
+      // .def_property_readonly("pose",
+      //                        [](const ReUseX::DataItem &d) {
+      //                          return d.get<ReUseX::Field::POSES>().matrix();
+      //                        })
       .def("__repr__",
            [](ReUseX::DataItem const &d) { return fmt::format("DataItem"); })
       .def(
@@ -131,11 +131,11 @@ void bind_dataitem(py::module_ &m) {
                     field_values[i]
                         .cast<ReUseX::FieldType<ReUseX::Field::IMU>::type>();
                 break;
-              case ReUseX::Field::POSES:
-                d[key] =
-                    field_values[i]
-                        .cast<ReUseX::FieldType<ReUseX::Field::POSES>::type>();
-                break;
+              // case ReUseX::Field::POSES:
+              //   d[key] =
+              //       field_values[i]
+              //           .cast<ReUseX::FieldType<ReUseX::Field::POSES>::type>();
+              //   break;
               default:
                 throw std::runtime_error(
                     "Unknown field type encountered during deserialization");

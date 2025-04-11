@@ -13,6 +13,8 @@
 #include <fmt/ranges.h>
 #include <fmt/std.h>
 
+#include <opencv4/opencv2/core.hpp>
+
 // template<>
 // struct fmt::formatter<Eigen::Matrix4f>{
 //     // Define the parse function (optional for custom types)
@@ -46,6 +48,9 @@ const Eigen::IOFormat OctaveFmt(Eigen::StreamPrecision, 0, ", ", ";\n", "", "",
 // Parese Eigen matrix with included formatter
 template <typename T>
 struct fmt::formatter<Eigen::WithFormat<T>> : fmt::ostream_formatter {};
+
+template <typename T>
+struct fmt::formatter<cv::Size_<T>> : fmt::ostream_formatter {};
 
 template <typename Scalar>
 struct fmt::formatter<Eigen::Quaternion<Scalar>>

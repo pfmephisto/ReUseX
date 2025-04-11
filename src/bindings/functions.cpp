@@ -36,11 +36,6 @@ void bind_functions(py::module_ &m) {
         "dataset"_a,
         "output_path"_a, "start"_a = 0, "stop"_a = nullptr, "step"_a = 5);
 
-  m.def("slam", &ReUseX::slam, "SLAM", "dataset"_a,
-#include <pybind11/eigen.h>
-        py::call_guard<py::scoped_ostream_redirect,
-                       py::scoped_estream_redirect>());
-
   m.def(
       "compute_normals",
       [](std::filesystem::path path) {

@@ -49,6 +49,19 @@ ReUseX::Visualizer *Visualizer::getInstance() {
   return instance.get();
 }
 
+bool skip_view = false;
+std::function<void(const pcl::visualization::KeyboardEvent &)>
+    keyboardSkipCallback(
+        [&skip_view](const pcl::visualization::KeyboardEvent &event) {
+          if (event.keyUp()) {
+            switch (event.getKeyCode()) {
+            case 'm':
+              skip_view = true;
+              break;
+            }
+          }
+        });
+
 void Visualizer::initialise() {
   spdlog::trace("Initialising Viewer");
 
@@ -59,6 +72,7 @@ void Visualizer::initialise() {
 
     pcl_viewer->addCoordinateSystem(1.0);
     pcl_viewer->initCameraParameters();
+    pcl_viewer->registerKeyboardCallback(keyboardSkipCallback);
 
     spdlog::trace("PCL Visualizer Initialized");
   }
@@ -109,11 +123,13 @@ template <> PCLVisualizer *Visualizer::getViewer<PCLVisualizer>() const {
 
 void Visualizer::wait() const {
   spdlog::trace("Wait for interupt");
-  while (!pcl_viewer->wasStopped() /*|| pcl_viewer->*/) {
+  while (!pcl_viewer->wasStopped() && !skip_view) {
     step();
     std::this_thread::sleep_for(100ms);
   }
+  skip_view = false;
 }
+bool Visualizer::skip() const { return skip_view; }
 
 void Visualizer::step() const { pcl_viewer->spinOnce(100); }
 

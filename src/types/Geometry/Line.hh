@@ -2,5 +2,5 @@
 #include "types/Kernel.hh"
 
 namespace ReUseX {
-    using Line = Kernel::Line_3;
+using Line = Kernel::Line_3;
 }

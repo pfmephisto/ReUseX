@@ -2,8 +2,6 @@
 #include <memory>
 #define PCL_NO_PRECOMPILE
 
-#include "SIFTFilter.hh"
-
 #include <pcl/filters/conditional_removal.h>
 #include <pcl/filters/voxel_grid.h>
 
@@ -52,11 +50,6 @@ public:
     grid->setLeafSize(size, size, size);
 
     return grid;
-  };
-
-  template <typename PointT>
-  static typename std::shared_ptr<SIFTFilter<PointT>> SIVFeatures() {
-    return std::shared_ptr<SIFTFilter<PointT>>(new SIFTFilter<PointT>());
   };
 };
 } // namespace ReUseX

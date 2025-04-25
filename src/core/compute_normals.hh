@@ -2,7 +2,10 @@
 #define PCL_NO_PRECOMPILE
 
 #include "io.hh"
-#include "progress_bar.hh"
+#include "spdmon.hh"
+
+#include <spdlog/spdlog.h>
+#include <spdlog/stopwatch.h>
 
 #include <pcl/features/normal_3d_omp.h>
 
@@ -54,7 +57,8 @@ static OutContainer compute_normals(InContainer src) {
 
   // Load the clouds and compute normals
   auto clouds = OutContainer(src.size());
-  auto progress_bar = util::progress_bar(src.size(), "Computing normals");
+  auto monitor = spdmon::LoggerProgress("Computing normals", src.size());
+  spdlog::stopwatch sw;
 
 #pragma omp parallel for shared(clouds)
   for (std::size_t i = 0; i < clouds.size(); ++i) {
@@ -78,9 +82,9 @@ static OutContainer compute_normals(InContainer src) {
     clouds[i]->sensor_origin_ = src[i]->sensor_origin_;
     clouds[i]->sensor_orientation_ = src[i]->sensor_orientation_;
 
-    progress_bar.update();
+    ++monitor;
   }
-  progress_bar.stop();
+  spdlog::info("Normals computed in {} seconds", sw);
   return clouds;
 }
 
@@ -161,13 +165,14 @@ static void compute_normals(std::vector<fs::path> paths) {
   OutContainer clouds_out = compute_normals<PointTIn, PointTOut>(clouds_in);
   clouds_in.clear();
 
-  util::progress_bar progress_bar(paths.size(), "Saving clouds");
+  auto monitor = spdmon::LoggerProgress("Saving clouds", paths.size());
+  spdlog::stopwatch sw;
 #pragma omp parallel for shared(clouds_out, paths)
   for (std::size_t i = 0; i < clouds_out.size(); ++i) {
     save<PointTOut>(paths[i], clouds_out[i]);
-    progress_bar.update();
+    ++monitor;
   };
-  progress_bar.stop();
+  spdlog::info("Clouds saved in {} seconds", sw);
 }
 
 /**

@@ -1,4 +1,7 @@
 #include "types/Geometry/Brep.hh"
+#include "core/fit_plane_thorugh_points.hh"
+#include "types/Geometry/Plane.hh"
+#include "types/Point2.hh"
 
 #include <CGAL/Optimal_bounding_box/oriented_bounding_box.h>
 #include <CGAL/Polygon_mesh_processing/measure.h>
@@ -11,10 +14,6 @@
 
 #include <opennurbs_brep.h>
 #include <opennurbs_public.h>
-
-#include "functions/fit_plane_thorugh_points.hh"
-#include "types/Geometry/Plane.hh"
-#include "types/Point2.hh"
 
 #include <algorithm>
 #include <filesystem>

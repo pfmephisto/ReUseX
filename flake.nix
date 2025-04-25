@@ -206,6 +206,8 @@
                   imgui
                   glm
 
+		  libGLU
+
                   gurobi
                 ]);
 
@@ -291,6 +293,7 @@
                   ninja
                   mpi
                   cudatoolkit
+		  gdb
                 ]
                 ++ [
 		  libnotify # Send noctification when build finishes

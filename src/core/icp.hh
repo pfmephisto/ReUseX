@@ -28,9 +28,10 @@ pair_align(const typename pcl::PointCloud<PointT>::ConstPtr cloud_src,
  * \return the resultant aligned source PointCloud
  */
 template <typename PointT>
-Eigen::Matrix4f icp(const typename pcl::PointCloud<PointT>::ConstPtr cloud_src,
-                    const typename pcl::PointCloud<PointT>::ConstPtr cloud_tgt,
-                    std::vector<typename pcl::Filter<PointT>::Ptr> &filters =
-                        std::vector<typename pcl::Filter<PointT>::Ptr>(),
-                    const double maxCorrespondence = 0.2);
+std::tuple<Eigen::Matrix4f, double>
+icp(const typename pcl::PointCloud<PointT>::ConstPtr cloud_src,
+    const typename pcl::PointCloud<PointT>::ConstPtr cloud_tgt,
+    std::vector<typename pcl::Filter<PointT>::Ptr> &filters =
+        std::vector<typename pcl::Filter<PointT>::Ptr>(),
+    const double maxCorrespondence = 0.2);
 } // namespace ReUseX

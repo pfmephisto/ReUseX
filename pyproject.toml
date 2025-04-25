@@ -50,11 +50,5 @@ cmake.build-type = "Release"
 wheel.py-api = "cp39" # https://scikit-build-core.readthedocs.io/en/latest/cmakelists.html
 wheel.license-files = ["LICENSE"]
 sdist.exclude = [".github", "test.py", ".gitignore", ".gitmodules",".clang-format", "pkgs/**/*", "shell.nix", "test.py", "flake.*"] 
-# sdist.include = ["src/extern/**/*"]
-cmake.args = [
-    # Ensure that polyscope is not build to a directory with out write access
-    # Otherwise the wheel will fail to build
-    "-DCMAKE_INSTALL_PREFIX=./build/"
-    ]
 cmake.verbose = true
 logging.level = "ERROR"

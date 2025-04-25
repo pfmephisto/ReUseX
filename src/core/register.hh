@@ -1,20 +1,20 @@
 #pragma once
-
-#include "g2o/solvers/eigen/linear_solver_eigen.h"
-#include <Eigen/Core>
-#include <algorithm>
-#include <g2o/core/block_solver.h>
-#include <g2o/core/optimization_algorithm_levenberg.h>
-#include <g2o/core/sparse_optimizer.h>
-#include <g2o/solvers/dense/linear_solver_dense.h>
-#include <g2o/types/slam3d/types_slam3d.h>
-#include <iostream>
-
 #include "types/Data.hh"
 #include "types/Dataset.hh"
 #include "types/Geometry/PointCloud.hh"
 
+#include <Eigen/Core>
+
+#include <g2o/core/block_solver.h>
+#include <g2o/core/optimization_algorithm_levenberg.h>
+#include <g2o/core/sparse_optimizer.h>
+#include <g2o/solvers/dense/linear_solver_dense.h>
+#include <g2o/solvers/eigen/linear_solver_eigen.h>
+#include <g2o/types/slam3d/types_slam3d.h>
+
+#include <algorithm>
 #include <filesystem>
+#include <iostream>
 #include <string>
 
 namespace fs = std::filesystem;

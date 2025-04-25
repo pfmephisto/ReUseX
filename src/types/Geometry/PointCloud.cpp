@@ -1,10 +1,11 @@
 #include "PointCloud.hh"
+#include "core/cluster_rooms.hh"
+#include "core/downsample.hh"
+#include "core/solidify.hh"
 #include "types/Color.hh"
 
-#include "functions/cluster_rooms.hh"
-#include "functions/downsample.hh"
-#include "functions/progress_bar.hh"
-#include "functions/solidify.hh"
+#include <spdlog/spdlog.h>
+#include <spdlog/stopwatch.h>
 
 #include <opencv4/opencv2/opencv.hpp>
 
@@ -103,9 +104,9 @@ AABB PointCloud::get_bbox() const {
 
 /// @brief Transform the point cloud.
 void PointCloud::downsample(double leaf_size) {
-  auto bar = util::progress_bar(1, "Downsampling");
+  spdlog::stopwatch sw;
   ReUseX::downsample(*this, leaf_size);
-  bar.stop();
+  spdlog::info("Downsampling took {} seconds", sw);
 }
 
 /// @brief Cluster and solidify the point cloud.

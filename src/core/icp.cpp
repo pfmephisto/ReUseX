@@ -1,8 +1,8 @@
 #define PCL_NO_PRECOMPILE // This needs to be called before any pcl import
 
 #include "icp.hh"
-// #include "functions/spdmon.hh"
-#include "functions/fmt_formatter.hh"
+// #include "spdmon.hh"
+#include "fmt_formatter.hh"
 #include "types/Filters.hh"
 #include "types/Geometry/PointCloud.hh"
 #include "visualizer/visualizer.hh"
@@ -97,10 +97,11 @@ std::function<void(const pcl::visualization::KeyboardEvent &)>
 #define icp_source_filtered "icp_source_filtered"
 #define icp_target_filtered "icp_target_filtered"
 template <typename PointT>
-Eigen::Matrix4f icp(const typename pcl::PointCloud<PointT>::ConstPtr cloud_src,
-                    const typename pcl::PointCloud<PointT>::ConstPtr cloud_tgt,
-                    std::vector<typename pcl::Filter<PointT>::Ptr> &filters,
-                    const double maxCorrespondence) {
+std::tuple<Eigen::Matrix4f, double>
+icp(const typename pcl::PointCloud<PointT>::ConstPtr cloud_src,
+    const typename pcl::PointCloud<PointT>::ConstPtr cloud_tgt,
+    std::vector<typename pcl::Filter<PointT>::Ptr> &filters,
+    const double maxCorrespondence) {
 
   using Ptr = typename pcl::PointCloud<PointT>::Ptr;
   using Color = pcl::visualization::PointCloudColorHandlerCustom<PointT>;
@@ -114,6 +115,11 @@ Eigen::Matrix4f icp(const typename pcl::PointCloud<PointT>::ConstPtr cloud_src,
 
   input_src = cloud_src->makeShared(); // Makes a copy
   input_tgt = cloud_tgt->makeShared(); // Makes a copy
+
+  input_src->sensor_origin_ = Eigen::Vector4f(0, 0, 0, 1);
+  input_src->sensor_orientation_ = Eigen::Quaternionf::Identity();
+  input_tgt->sensor_origin_ = Eigen::Vector4f(0, 0, 0, 1);
+  input_tgt->sensor_orientation_ = Eigen::Quaternionf::Identity();
 
   //// Get Pose
   // auto pose_src = Eigen::Affine3f::Identity();
@@ -153,15 +159,6 @@ Eigen::Matrix4f icp(const typename pcl::PointCloud<PointT>::ConstPtr cloud_src,
     viewer->spinOnce(100);
   }
 
-  // Temporary grid filters
-  // auto vg =
-  //    std::shared_ptr<pcl::VoxelGrid<PointT>>(new pcl::VoxelGrid<PointT>());
-  // vg->setLeafSize(0.1, 0.1, 0.1);
-  // filters.clear();
-  // filters.push_back(vg);
-  // filters.push_back(ReUseX::Filters::HighConfidenceFilter<PointT>());
-  // filters.push_back(ReUseX::Filters::SIVFeatures<PointT>());
-
   // Apply filters
   spdlog::trace("Apply filters");
   for (auto filter : filters) {
@@ -199,7 +196,8 @@ Eigen::Matrix4f icp(const typename pcl::PointCloud<PointT>::ConstPtr cloud_src,
   if (input_src->empty() || input_tgt->empty()) {
     fmt::print(fmt::fg(fmt::color::red),
                "Pair alignment failed: Empty point cloud!\n");
-    return Eigen::Matrix4f::Identity();
+    return std::make_tuple<Eigen::Matrix4f, double>(Eigen::Matrix4f::Identity(),
+                                                    -1.0);
   }
 
   // Compute point features
@@ -311,10 +309,12 @@ Eigen::Matrix4f icp(const typename pcl::PointCloud<PointT>::ConstPtr cloud_src,
       // });
 
       // Step through optimisation
-      if (!viewer->wasStopped() && !step_view)
+      if (!viewer->wasStopped() && !step_view &&
+          !Visualizer::getInstance()->skip())
         spdlog::debug("Waiting for next stepn. To step press 'n'");
 
-      while (!viewer->wasStopped() && !step_view) {
+      while (!viewer->wasStopped() && !step_view &&
+             !Visualizer::getInstance()->skip()) {
         viewer->spinOnce(100);
         std::this_thread::sleep_for(100ms);
       }
@@ -374,16 +374,25 @@ Eigen::Matrix4f icp(const typename pcl::PointCloud<PointT>::ConstPtr cloud_src,
 
   // Clean up viewer-
   if (Visualizer::Visualizer::isInitialised()) {
-    Visualizer::getInstance()->wait();
+    // Get the viewer
     auto viewer = Visualizer::getInstance()
                       ->getViewer<pcl::visualization::PCLVisualizer>();
+
+    // Set the addCoordinateSystem
+    viewer->addCoordinateSystem(1.5, Eigen::Affine3f(pairTransform), "xform");
+
+    // Wait for user to view the result
+    spdlog::debug("Before waiting for user to view the result");
+    Visualizer::getInstance()->wait();
+
+    // Remove the point clouds
     viewer->removePointCloud(icp_source);
     viewer->removePointCloud(icp_target);
     viewer->removePointCloud(icp_source_filtered);
     viewer->removePointCloud(icp_target_filtered);
   }
 
-  return pairTransform;
+  return std::make_tuple(pairTransform, reg.getFitnessScore());
   // reg.getConvergeCriteria()->getRelativeMSE();
 }
 
@@ -401,7 +410,9 @@ pair_align(const typename pcl::PointCloud<PointT>::ConstPtr cloud_src,
   if (grid_size.has_value())
     filters.push_back(Filters::GridFilter<PointT>(grid_size.value()));
 
-  return icp<PointT>(cloud_src, cloud_tgt, filters);
+  auto [xform, fitness_score] = icp<PointT>(cloud_src, cloud_tgt, filters);
+
+  return xform;
 }
 
 template Eigen::Matrix4f
@@ -409,13 +420,13 @@ pair_align<PointT>(const typename pcl::PointCloud<PointT>::ConstPtr cloud_src,
                    const typename pcl::PointCloud<PointT>::ConstPtr cloud_tgt,
                    std::optional<float> grid_size);
 
-template Eigen::Matrix4f icp<pcl::PointXYZRGBA>(
+template std::tuple<Eigen::Matrix4f, double> icp<pcl::PointXYZRGBA>(
     const typename pcl::PointCloud<pcl::PointXYZRGBA>::ConstPtr cloud_src,
     const typename pcl::PointCloud<pcl::PointXYZRGBA>::ConstPtr cloud_tgt,
     std::vector<typename pcl::Filter<pcl::PointXYZRGBA>::Ptr> &filters,
     const double maxCorrespondence);
 
-template Eigen::Matrix4f icp<PointXYZRGBANormal>(
+template std::tuple<Eigen::Matrix4f, double> icp<PointXYZRGBANormal>(
     const typename pcl::PointCloud<PointXYZRGBANormal>::ConstPtr cloud_src,
     const typename pcl::PointCloud<PointXYZRGBANormal>::ConstPtr cloud_tgt,
     std::vector<typename pcl::Filter<PointXYZRGBANormal>::Ptr> &filters,

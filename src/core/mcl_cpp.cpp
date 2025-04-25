@@ -1,4 +1,4 @@
-#include "functions/mcl.hh"
+#include "mcl.hh"
 
 #include <Eigen/Dense>
 #include <unsupported/Eigen/MatrixFunctions>

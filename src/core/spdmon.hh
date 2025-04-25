@@ -1,3 +1,4 @@
+#pragma once
 #include <array>
 #include <atomic>
 #include <fmt/core.h>
@@ -187,7 +188,7 @@ public:
 
     if (total_ == 0) {
       fmt::format_to(fmt::appender(buf), kNoTotalFmt, fmt::arg("desc", desc_),
-                     fmt::arg("n", n_), fmt::arg("elapsed", elapsed),
+                     fmt::arg("n", n_.load()), fmt::arg("elapsed", elapsed),
                      fmt::arg("eol", kTermEol));
       return;
     }
@@ -207,7 +208,7 @@ public:
     const float percent = frac * 100;
     fmt::format_to(fmt::appender(buf), kLbarFmt, fmt::arg("desc", desc_),
                    fmt::arg("frac", percent));
-    fmt::format_to(fmt::appender(right), kRbarFmt, fmt::arg("n", n_),
+    fmt::format_to(fmt::appender(right), kRbarFmt, fmt::arg("n", n_.load()),
                    fmt::arg("total", total_), fmt::arg("elapsed", elapsed),
                    fmt::arg("remaining", remaining), fmt::arg("eol", kTermEol),
                    fmt::arg("speed", speed));

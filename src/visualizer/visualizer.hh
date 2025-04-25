@@ -26,6 +26,7 @@ public:
   static void resetViewer();
   void wait() const;
   void step() const;
+  bool skip() const;
 
   template <typename T>
   void showCloud(typename pcl::PointCloud<T>::ConstPtr,

@@ -1,5 +1,5 @@
 #include "./Dataset.hh"
-#include "functions/lodepng.hh"
+#include "core/lodepng.hh"
 
 #include <fmt/printf.h>
 #include <fstream>

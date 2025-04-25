@@ -1,35 +1,28 @@
 #pragma once
 #define PCL_NO_PRECOMPILE
-#include <pcl/filters/impl/passthrough.hpp>
-#include <pcl/filters/passthrough.h>
-
-#include <pcl/registration/icp.h>
-#include <pcl/registration/impl/icp.hpp>
-
-#include <pcl/registration/icp_nl.h>
-// #include <pcl/registration/impl/icp_nl.hpp>
-
-#include <pcl/filters/impl/voxel_grid.hpp>
-#include <pcl/filters/voxel_grid.h>
+#include "types/Color.hh"
+#include "types/Direction.hh"
+#include "types/Geometry/AABB.hh"
+#include "types/Geometry/Brep.hh"
+#include "types/Point.hh"
 
 #include <pcl/common/impl/transforms.hpp>
 #include <pcl/common/transforms.h>
-
+#include <pcl/filters/impl/passthrough.hpp>
+#include <pcl/filters/impl/voxel_grid.hpp>
+#include <pcl/filters/passthrough.h>
+#include <pcl/filters/voxel_grid.h>
 #include <pcl/io/pcd_io.h>
 #include <pcl/memory.h>
 #include <pcl/pcl_macros.h>
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
+#include <pcl/registration/icp.h>
+#include <pcl/registration/icp_nl.h>
+#include <pcl/registration/impl/icp.hpp>
 
 #include <filesystem>
 #include <vector>
-
-#include "types/Color.hh"
-#include "types/Direction.hh"
-#include "types/Geometry/AABB.hh"
-#include "types/Point.hh"
-
-#include "types/Geometry/Brep.hh"
 
 using Point = ReUseX::Point;
 using Direction = ReUseX::Direction;

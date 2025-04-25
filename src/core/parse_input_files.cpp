@@ -1,8 +1,8 @@
 #define PCL_NO_PRECOMPILE
 #include "parse_input_files.hh"
-#include "functions/fmt_formatter.hh"
-#include "functions/io.hh"
-#include "functions/progress_bar.hh"
+#include "fmt_formatter.hh"
+#include "io.hh"
+#include "spdmon.hh"
 #include "types/Accumulators.hh"
 #include "types/Dataset.hh"
 #include "types/Yolo.hh"
@@ -32,6 +32,7 @@
 #include <fmt/printf.h>
 
 #include <spdlog/spdlog.h>
+#include <spdlog/stopwatch.h>
 
 #include <opencv4/opencv2/imgproc.hpp>
 
@@ -155,8 +156,8 @@ CreateCloud(DataItem const &data, double fx, double fy, double cx, double cy,
   pose.linear() = cloud->sensor_orientation_.toRotationMatrix();
   pose.translation() = cloud->sensor_origin_.template head<3>();
 
-  cloud->sensor_origin_ = Eigen::Vector4f(0, 0, 0, 1);
-  cloud->sensor_orientation_ = Eigen::Quaternionf::Identity();
+  // cloud->sensor_origin_ = Eigen::Vector4f(0, 0, 0, 1);
+  // cloud->sensor_orientation_ = Eigen::Quaternionf::Identity();
 
   pcl::transformPointCloud(*cloud, *cloud, pose);
 
@@ -199,7 +200,9 @@ fs::path ParseDataset(Dataset const &dataset,
     std::iota(samples.begin(), samples.end(), 0);
   }
 
-  auto progress_bar = util::progress_bar(samples.size(), "Processing data");
+  auto monitor = spdmon::LoggerProgress("Processing data", samples.size());
+  spdlog::stopwatch sw;
+
 #pragma omp parallel for firstprivate(output_path)                             \
     shared(dataset, intrinsic_matrix)
   for (size_t i = 0; i < samples.size(); i++) {
@@ -215,9 +218,9 @@ fs::path ParseDataset(Dataset const &dataset,
 
     save<pcl::PointXYZRGBA>(file_path, cloud);
 
-    progress_bar.update();
+    ++monitor;
   }
-  progress_bar.stop();
+  spdlog::info("Elapsed time: {}s", sw);
 
   return output_path;
 }
@@ -282,7 +285,9 @@ void parse_Dataset(Dataset const &dataset, std::string const &output_path,
   pcl::visualization::CloudViewer viewer("Simple Cloud Viewer");
 #endif
 
-  auto progress_bar = util::progress_bar(n_frames, "Processing data");
+  auto monitor = spdmon::LoggerProgress("Processing data", n_frames);
+  spdlog::stopwatch sw;
+
 #pragma omp parallel for firstprivate(step, start, output_path) shared(dataset)
   for (size_t i = 0; i < n_frames; i++) {
 
@@ -375,9 +380,9 @@ void parse_Dataset(Dataset const &dataset, std::string const &output_path,
 
     save<pcl::PointXYZRGBA>(file_path, cloud);
 
-    progress_bar.update();
+    ++monitor;
   }
-  progress_bar.stop();
+  spdlog::info("Elapsed time: {}s", sw);
 
 #if DISPLAY
   while (!viewer.wasStopped()) {

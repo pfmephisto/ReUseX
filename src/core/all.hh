@@ -4,6 +4,5 @@
 #include "fit_plane_thorugh_points.hh"
 #include "icp.hh"
 #include "parse_input_files.hh"
-#include "progress_bar.hh"
 #include "register.hh"
 #include "spdmon.hh"

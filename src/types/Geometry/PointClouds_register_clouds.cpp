@@ -1,13 +1,15 @@
 #define PCL_NO_PRECOMPILE
-
 #include "PointCloud.hh"
 #include "PointClouds.hh"
-#include <functions/progress_bar.hh>
+#include "core/spdmon.hh"
 
 #include <filesystem>
 #include <optional>
 #include <string>
 #include <vector>
+
+#include <spdlog/spdlog.h>
+#include <spdlog/stopwatch.h>
 
 #include <fmt/color.h>
 #include <fmt/printf.h>
@@ -139,14 +141,18 @@ namespace ReUseX {
 
 template <class T> PointClouds<T> PointClouds<T>::register_clouds() {
 
-  auto duration = std::chrono::nanoseconds(0);
-
   // Calculate Registartion
   ///////////////////////////////////////////////////////////////////////////////
   auto transforms =
       std::vector<Eigen::Matrix4f>(data.size(), Eigen::Matrix4f::Identity());
-  auto reg_bar = util::progress_bar(data.size(), "Registration");
-  reg_bar.update(); // Skipping the first frame
+
+  std::shared_ptr<spdmon::LoggerProgress> monitor;
+  monitor =
+      std::make_shared<spdmon::LoggerProgress>("Registration", data.size());
+
+  ++(*monitor);
+
+  spdlog::stopwatch sw;
 #pragma omp parallel for shared(transforms)
   for (std::size_t i = 1; i < data.size(); ++i) {
 
@@ -168,26 +174,29 @@ template <class T> PointClouds<T> PointClouds<T>::register_clouds() {
     // ICP
     pairAlign(source, target, pairTransform, 0.1f, 2U);
     transforms[i] = pairTransform;
-    reg_bar.update();
+
+    ++(*monitor);
   }
-  duration += reg_bar.stop();
 
   // Compute compound transformations
   ///////////////////////////////////////////////////////////////////////////////
-  auto update_bar =
-      util::progress_bar(data.size(), "Compute compound transformations");
+  monitor.reset();
+  monitor = std::make_shared<spdmon::LoggerProgress>(
+      "Compute compound transformations", data.size());
+
   auto compund_transforms =
       std::vector<Eigen::Matrix4f>(data.size(), Eigen::Matrix4f::Identity());
   for (std::size_t i = 1; i < data.size(); ++i) {
     compund_transforms[i] = compund_transforms[i - 1] * transforms[i];
-    // update_bar.update(); // Too fast for printing
   }
-  duration += update_bar.stop();
 
   // Update Position
   ///////////////////////////////////////////////////////////////////////////////
-  auto move_bar = util::progress_bar(data.size(), "Moving clouds");
-  move_bar.update(); // Skipping the first frame
+  monitor.reset();
+  monitor =
+      std::make_shared<spdmon::LoggerProgress>("Update position", data.size());
+  ++(*monitor);
+
 #pragma omp parallel for shared(data)
   for (std::size_t i = 1; i < data.size(); ++i) {
 
@@ -203,13 +212,10 @@ template <class T> PointClouds<T> PointClouds<T>::register_clouds() {
                                           compund_transforms[i]);
     }
 
-    move_bar.update();
+    ++(*monitor);
   }
-  duration += move_bar.stop();
 
-  fmt::print(fg(fmt::color::green), "Total duration: ");
-  fmt::print(fmt::emphasis::italic, "{:3.2f}ms\n",
-             std::chrono::duration<double, std::milli>(duration).count());
+  spdlog::info("Registration took {}", sw);
 
   return *this;
 }

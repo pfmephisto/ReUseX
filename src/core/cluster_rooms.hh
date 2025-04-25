@@ -1,11 +1,15 @@
 #pragma once
+#include <memory>
+#include <spdlog/common.h>
 #define PCL_NO_PRECOMPILE
-
-#include "functions/mcl.hh"
-#include "functions/progress_bar.hh"
+#include "mcl.hh"
+#include "spdmon.hh"
 #include "types/Geometry/PointCloud.hh"
 #include "types/Geometry/Surface.hh"
 #include "types/PlanarPointSet.hh"
+
+#include <spdlog/spdlog.h>
+#include <spdlog/stopwatch.h>
 
 #include <pcl/PointIndices.h>
 #include <pcl/filters/experimental/functor_filter.h>
@@ -460,11 +464,15 @@ cluster_rooms(typename pcl::PointCloud<PointT>::Ptr cloud,
 
   // Create surfaces
   std::vector<Surface> surfaces(clusters.size());
-  auto surface_bar = util::progress_bar(surfaces.size(), "Creating surfaces");
+
+  std::shared_ptr<spdmon::LoggerProgress> monitor;
+  monitor = std::make_shared<spdmon::LoggerProgress>("Creating surfaces",
+                                                     surfaces.size());
+  spdlog::stopwatch sw;
 #if 1
   for (size_t i = 0; i < clusters.size(); i++) {
     surfaces[i] = Surface(cloud, clusters[i].indices, sx, sy);
-    surface_bar.update();
+    ++(*monitor);
   }
 #else
 #pragma omp parallel
@@ -476,14 +484,14 @@ cluster_rooms(typename pcl::PointCloud<PointT>::Ptr cloud,
 #pragma omp task
         {
           surfaces[i] = Surface(cloud, clusters[i].indices);
-          surface_bar.update();
+          ++(*monitor);
         }
       }
     }
 #pragma omp taskwait
   }
 #endif
-  surface_bar.stop();
+  spdlog::info("Time to create surfaces: {}s", sw);
 
   // polyscope::myinit();
   // for (int i = 0; i< 202 /*surfaces.size()*/; i++)
@@ -498,31 +506,29 @@ cluster_rooms(typename pcl::PointCloud<PointT>::Ptr cloud,
   RTCScene scene = rtcNewScene(device);
   rtcSetSceneFlags(scene, RTC_SCENE_FLAG_ROBUST);
 
-  auto embree_bar =
-      util::progress_bar(surfaces.size(), "Creating Embree Scene");
+  spdlog::stopwatch sw2;
   for (size_t i = 0; i < surfaces.size(); i++)
     surfaces[i].Create_Embree_Geometry(device, scene);
-  embree_bar.stop();
+  spdlog::info("Time to create Embree scene: {}s", sw2);
 
   rtcCommitScene(scene);
 
-  auto point_map_bar =
-      util::progress_bar(surfaces.size(), "Creating point map");
+  spdlog::stopwatch sw3;
   // Create a map of point indicies
   std::unordered_map<unsigned int, pcl::Indices> point_map;
   for (auto &surface : surfaces)
     for (const auto &[id, indices] : surface)
       std::copy(indices.begin(), indices.end(),
                 std::back_insert_iterator(point_map[id]));
-  point_map_bar.stop();
+  spdlog::info("Time to create point map: {}s", sw3);
 
-  auto tile_bar = util::progress_bar(surfaces.size(), "Creating tiles");
+  spdlog::stopwatch sw4;
   std::vector<Tile> tiles;
   for (auto &surface : surfaces)
     for (const auto &[id, _] : surface)
       tiles.push_back(std::make_pair(id, &surface));
-  tile_bar.stop();
-  std::cout << "Number of tiles: " << tiles.size() << std::endl;
+  spdlog::info("Time to create tiles: {}s", sw4);
+  spdlog::info("Number of tiles: {}", tiles.size());
 
   // Create rays
   double const constexpr offset = 0.10;
@@ -535,7 +541,7 @@ cluster_rooms(typename pcl::PointCloud<PointT>::Ptr cloud,
   std::cout << "Size of RTCRay" << sizeof(RTCRay) << std::endl;
 
   RaysPair rays(nrays);
-  auto creating_rays_bar = util::progress_bar(nrays, "Creating rays");
+  spdlog::stopwatch sw5;
 #pragma omp parallel for collapse(2)
   for (size_t i = 0; i < tiles.size(); i++) {
     for (size_t j = i + 1; j < tiles.size(); j++) {
@@ -581,7 +587,7 @@ cluster_rooms(typename pcl::PointCloud<PointT>::Ptr cloud,
       rays[idx] = std::make_pair(ray, &tiles[i]);
     }
   }
-  creating_rays_bar.stop();
+  spdlog::info("Time to create rays: {}s", sw5);
 
   // Instatiate the context
   RTCRayQueryContext context;
@@ -598,7 +604,11 @@ cluster_rooms(typename pcl::PointCloud<PointT>::Ptr cloud,
 #endif
 
   // Intersect all rays with the scene
-  auto rays_bar = util::progress_bar(rays.size(), "Intersecting rays");
+  monitor.reset();
+  monitor = std::make_shared<spdmon::LoggerProgress>("Intersecting rays",
+                                                     rays.size());
+  spdlog::stopwatch sw6;
+
 // FIXME: This is not realably parallel, sometimes all and other times a single
 // thread is used. rtcIntersect1M(scene, &context, (RTCRayHit*)&rays[0],
 // rays.size(), sizeof(std::pair<Ray, Tile*>));
@@ -609,9 +619,9 @@ cluster_rooms(typename pcl::PointCloud<PointT>::Ptr cloud,
 #else
     rtcOccluded1(scene, (RTCRay *)&rays[i].first.ray, &occludedArgs);
 #endif
-    rays_bar.update();
+    ++(*monitor);
   }
-  rays_bar.stop();
+  spdlog::info("Time to intersect rays: {}s", sw6);
 
 #if Visualize_Rays
   polyscope::myinit();
@@ -631,7 +641,6 @@ cluster_rooms(typename pcl::PointCloud<PointT>::Ptr cloud,
   rtcReleaseDevice(device);
 
   // TODO Write out tab file.
-
   std::unordered_map<size_t, unsigned int> id_to_int;
   std::unordered_map<unsigned int, size_t> int_to_id;
 
@@ -675,7 +684,10 @@ cluster_rooms(typename pcl::PointCloud<PointT>::Ptr cloud,
 
   // output_file_bar.stop();
 
-  auto matrix_bar = util::progress_bar(rays.size(), "Creating matrix");
+  monitor.reset();
+  monitor =
+      std::make_shared<spdmon::LoggerProgress>("Creating matrix", rays.size());
+  spdlog::stopwatch sw7;
 #pragma omp parallel for
   for (size_t i = 0; i < rays.size(); i++) {
 
@@ -699,9 +711,9 @@ cluster_rooms(typename pcl::PointCloud<PointT>::Ptr cloud,
     matrix(source_int, target_int) = value;
     matrix(target_int, source_int) = value;
 
-    matrix_bar.update();
+    ++(*monitor);
   }
-  matrix_bar.stop();
+  spdlog::info("Time to create matrix: {}s", sw7);
 
   // Check for blank (white) rows
   for (size_t i = 0; i < matrix.rows(); i++) {
@@ -741,7 +753,7 @@ cluster_rooms(typename pcl::PointCloud<PointT>::Ptr cloud,
 
   // // Markov Clustering
   // //// 2.5 < infaltion < 2.8  => 3.5
-  auto clustering_bar = util::progress_bar(1, "Markov Clustering");
+  spdlog::stopwatch sw8;
   auto asign_cluster = [&](size_t cluster_j, size_t member_i) {
   // Assigne the clusters to the point cloud
   // printf("Cluster %d: %d\n", cluster_j, member_i);
@@ -771,7 +783,7 @@ cluster_rooms(typename pcl::PointCloud<PointT>::Ptr cloud,
 #if SaveMatrix
   cv::imwrite("matrix_mcl.png", colorImage);
 #endif
-  clustering_bar.stop();
+  spdlog::info("Time to cluster: {}s", sw8);
 
   std::vector<pcl::PointIndices::Ptr> clusters2 =
       std::vector<pcl::PointIndices::Ptr>();

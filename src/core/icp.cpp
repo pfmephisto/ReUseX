@@ -27,6 +27,8 @@
 #include <fmt/color.h>
 #include <fmt/printf.h>
 
+#define VISUALIZE 0
+
 using namespace std::chrono_literals;
 
 namespace ReUseX {
@@ -36,7 +38,7 @@ template <typename PointT>
 class MyPointRepresentation : public pcl::PointRepresentation<PointT> {
   using pcl::PointRepresentation<PointT>::nr_dimensions_;
 
-public:
+    public:
   MyPointRepresentation() {
     // Define the number of dimensions
     nr_dimensions_ = 0;
@@ -105,6 +107,12 @@ icp(const typename pcl::PointCloud<PointT>::ConstPtr cloud_src,
 
   using Ptr = typename pcl::PointCloud<PointT>::Ptr;
   using Color = pcl::visualization::PointCloudColorHandlerCustom<PointT>;
+  using RegType = std::conditional_t<
+      pcl::traits::has_normal_v<PointT>,
+      pcl::IterativeClosestPointWithNormals<PointT, PointT>,
+      // pcl::GeneralizedIterativeClosestPoint<PointT, PointT>>;
+      // pcl::IterativeClosestPointNonLinear<PointT, PointT>>;
+      pcl::IterativeClosestPoint<PointT, PointT>>; // NonLinear
 
   spdlog::info("Running ICP");
   spdlog::debug("Number of Filters = {}", filters.size());
@@ -121,25 +129,7 @@ icp(const typename pcl::PointCloud<PointT>::ConstPtr cloud_src,
   input_tgt->sensor_origin_ = Eigen::Vector4f(0, 0, 0, 1);
   input_tgt->sensor_orientation_ = Eigen::Quaternionf::Identity();
 
-  //// Get Pose
-  // auto pose_src = Eigen::Affine3f::Identity();
-  // pose_src.linear() = input_src->sensor_orientation_.toRotationMatrix();
-  // pose_src.translation() = input_src->sensor_origin_.template head<3>();
-
-  // auto pose_tgt = Eigen::Affine3f::Identity();
-  // pose_tgt.linear() = input_tgt->sensor_orientation_.toRotationMatrix();
-  // pose_tgt.translation() = input_tgt->sensor_origin_.template head<3>();
-
-  // Strip Sensor data
-  // input_src->sensor_origin_ = Eigen::Vector4f(0, 0, 0, 1);
-  // input_src->sensor_orientation_ = Eigen::Quaternionf::Identity();
-
-  // input_tgt->sensor_origin_ = Eigen::Vector4f(0, 0, 0, 1);
-  // input_tgt->sensor_orientation_ = Eigen::Quaternionf::Identity();
-
-  // pcl::transformPointCloud(*input_src, *input_src, pose_src);
-  // pcl::transformPointCloud(*input_tgt, *input_tgt, pose_tgt);
-
+#if VISUALIZE
   // Add point clouds to viewer for visualization
   if (Visualizer::Visualizer::isInitialised()) {
     pcl::console::setVerbosityLevel(pcl::console::L_VERBOSE);
@@ -158,6 +148,7 @@ icp(const typename pcl::PointCloud<PointT>::ConstPtr cloud_src,
 
     viewer->spinOnce(100);
   }
+#endif
 
   // Apply filters
   spdlog::trace("Apply filters");
@@ -172,6 +163,7 @@ icp(const typename pcl::PointCloud<PointT>::ConstPtr cloud_src,
   spdlog::debug("Number of point in cloud: {} & {}", input_src->points.size(),
                 input_tgt->points.size());
 
+#if VISUALIZE
   // Add point clouds to viewer for visualization
   spdlog::trace("Visualize Intial state");
   if (Visualizer::Visualizer::isInitialised()) {
@@ -192,6 +184,7 @@ icp(const typename pcl::PointCloud<PointT>::ConstPtr cloud_src,
     viewer->resetCamera();
     viewer->spinOnce(100);
   }
+#endif
 
   if (input_src->empty() || input_tgt->empty()) {
     fmt::print(fmt::fg(fmt::color::red),
@@ -213,15 +206,7 @@ icp(const typename pcl::PointCloud<PointT>::ConstPtr cloud_src,
   point_representation.setRescaleValues(alpha);
 
   // Align
-  using RegType = std::conditional_t<
-      pcl::traits::has_normal_v<PointT>,
-      pcl::IterativeClosestPointWithNormals<PointT, PointT>,
-      // pcl::GeneralizedIterativeClosestPoint<PointT, PointT>>;
-      // pcl::IterativeClosestPointNonLinear<PointT, PointT>>;
-      pcl::IterativeClosestPoint<PointT, PointT>>; // NonLinear
-
   RegType reg;
-
   // Set the point representation
   // reg.setPointRepresentation(
   //     pcl::make_shared<const MyPointRepresentation<PointT>>(
@@ -251,6 +236,7 @@ icp(const typename pcl::PointCloud<PointT>::ConstPtr cloud_src,
 
   std::shared_ptr<pcl::PointCloud<PointT>> dummy(new pcl::PointCloud<PointT>());
 
+#if VISUALIZE
   // Add point clouds to viewer for visualization
   if (Visualizer::Visualizer::isInitialised()) {
     auto viewer = Visualizer::Visualizer::getInstance()
@@ -347,9 +333,12 @@ icp(const typename pcl::PointCloud<PointT>::ConstPtr cloud_src,
     // prev = reg.getLastIncrementalTransformation();
     //}
   } else {
+#endif
     // Automate registration
     reg.align(*dummy); // This does the actual computation
+#if VISUALIZE
   }
+#endif
 
   Eigen::Matrix4f pairTransform = Eigen::Matrix4f::Identity();
 
@@ -363,15 +352,17 @@ icp(const typename pcl::PointCloud<PointT>::ConstPtr cloud_src,
 
   else
     spdlog::warn("Unable has not converge");
-  //     fmt::print(fmt::fg(fmt::color::red), "Pair alignment failed to converge
-  //     for {} & {}!\n", input_src->header.frame_id,
+  //     fmt::print(fmt::fg(fmt::color::red), "Pair alignment failed to
+  //     converge for {} & {}!\n", input_src->header.frame_id,
   //     input_tgt->header.frame_id);
 
   // if (reg.hasConverged())
   //     fmt::print(fmt::fg(fmt::color::green), "Pair {} & {} converged with
   //     score: {} after {} iterations\n", input_src->header.frame_id,
-  //     input_tgt->header.frame_id, reg.getFitnessScore(), reg.nr_iterations_);
+  //     input_tgt->header.frame_id, reg.getFitnessScore(),
+  //     reg.nr_iterations_);
 
+#if VISUALIZE
   // Clean up viewer-
   if (Visualizer::Visualizer::isInitialised()) {
     // Get the viewer
@@ -391,6 +382,7 @@ icp(const typename pcl::PointCloud<PointT>::ConstPtr cloud_src,
     viewer->removePointCloud(icp_source_filtered);
     viewer->removePointCloud(icp_target_filtered);
   }
+#endif
 
   return std::make_tuple(pairTransform, reg.getFitnessScore());
   // reg.getConvergeCriteria()->getRelativeMSE();

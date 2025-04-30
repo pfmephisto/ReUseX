@@ -221,9 +221,7 @@ void register_consecutive_edges(
   using Isometry = g2o::Isometry3;
 
   spdlog::trace("Set up result vector");
-  std::vector<g2o::EdgeSE3 *> edges{};
   size_t const num_edges = (indices.size() - groupSize) * groupSize;
-  edges.resize(num_edges);
 
   spdlog::trace("Creating edge pairs");
   std::vector<std::pair<size_t, size_t>> edge_pairs;
@@ -237,140 +235,227 @@ void register_consecutive_edges(
     }
   }
 
-  g2o::RobustKernelFactory *robust_kernel_factory =
+  spdlog::trace("Creating edges");
+  std::vector<g2o::EdgeSE3 *> edges{};
+  edges.resize(num_edges);
+
+  const g2o::RobustKernelFactory *kernel_factory =
       g2o::RobustKernelFactory::instance();
 
-  double max_fitness_score = std::numeric_limits<double>::min();
-  double min_fitness_score = std::numeric_limits<double>::max();
+  std::shared_ptr<spdmon::LoggerProgress> monitor =
+      std::make_shared<spdmon::LoggerProgress>("Adding edges",
+                                               edge_pairs.size());
+  spdlog::trace("Starting parallel for loop");
+#pragma omp parallel for shared(dataset, edge_pairs, edges, kernel_factory)    \
+    firstprivate(kernelName, deltaValue, information_matrix)
+  for (size_t i = 0; i < edge_pairs.size(); i++) {
+    // Get the two indices
+    const auto [source_index, target_index] = edge_pairs[i];
 
-  spdlog::trace("Starting parrallel for loop");
-  spdmon::LoggerProgress monitor("Adding edges", num_edges);
-  // monitor.GetLogger()->set_level(spdlog::level::trace);
+    const auto source =
+        static_cast<g2o::VertexSE3 *>(optimizer->vertex(source_index));
+    const auto target =
+        static_cast<g2o::VertexSE3 *>(optimizer->vertex(target_index));
 
-#pragma omp parallel for shared(dataset, edge_pairs, edges, monitor)
-  for (int i = 0; i < edge_pairs.size(); ++i) {
-
-    auto [source_index, target_index] = edge_pairs[i];
-
-    spdlog::trace("Edge: {:06}-{:06}", target_index, source_index);
-
-    // Set up target
-    Cloud target = CreateCloud(dataset[target_index]);
-    g2o::Isometry3 pose_target = g2o::Isometry3::Identity();
-    pose_target.translation() = target->sensor_origin_.head<3>().cast<double>();
-    pose_target.linear() =
-        target->sensor_orientation_.toRotationMatrix().cast<double>();
-
-    // Set up source
-    Cloud source = CreateCloud(dataset[source_index]);
-    g2o::Isometry3 pose_source = g2o::Isometry3::Identity();
-    pose_source.translation() = source->sensor_origin_.head<3>().cast<double>();
-    pose_source.linear() =
-        source->sensor_orientation_.toRotationMatrix().cast<double>();
-
-    pcl::PointXYZ p_source, p_target;
-    p_source.x = pose_source.translation().x();
-    p_source.y = pose_source.translation().y();
-    p_source.z = pose_source.translation().z();
-    p_target.x = pose_target.translation().x();
-    p_target.y = pose_target.translation().y();
-    p_target.z = pose_target.translation().z();
-
-    // Set up filters
-    FilterCollection filters{
-        Filters::HighConfidenceFilter<pcl::PointXYZRGBA>(), // vg,
-        Filters::GridFilter<pcl::PointXYZRGBA>(0.1),
-    };
-
-    // Compute ICP
-    spdlog::debug("Number of filters pre icp: {}", filters.size());
-    // auto [matrix, fitness_score] =
-    //     icp<PointT>(source, target, filters, maxCorrespondence);
-    Eigen::Matrix4f matrix = Eigen::Matrix4f::Identity();
-    double fitness_score = 0.001;
-
-    // Collect statitics on the fitness_score
-#pragma omp critical
-    {
-      min_fitness_score = std::min(min_fitness_score, fitness_score);
-      max_fitness_score = std::max(max_fitness_score, fitness_score);
-    }
-
-    // TODO: Fix
-
-    if (fitness_score > 0.04) {
-      matrix = Eigen::Matrix4f::Identity();
-      // spdlog::warn("Fitness score is too large: {:.6f}", fitness_score);
-    }
-
-    g2o::Isometry3 xform = g2o::Isometry3(matrix.cast<double>());
-
-    // Update the soruce
-    pose_source = pose_source * xform;
-
-    pcl::PointXYZ p_source_new;
-    p_source_new.x = pose_source.translation().x();
-    p_source_new.y = pose_source.translation().y();
-    p_source_new.z = pose_source.translation().z();
-
-    const std::string name_1 =
-        fmt::format("edge_{}-{}", target_index, source_index);
-    const std::string name_2 = fmt::format("edge_{}-move", source_index);
-
-    if (!ReUseX::Visualizer::isInitialised()) {
-      auto viewer = ReUseX::Visualizer::getInstance()
-                        ->getViewer<pcl::visualization::PCLVisualizer>();
-
-      // Clamp the input to [0.0, 1.0] to avoid overflow/underflow
-      double value =
-          std::max<double>(0.0, std::min<double>(1.0, fitness_score));
-      auto lut = pcl::ColorLUT<pcl::LUT_VIRIDIS>();
-      pcl::RGB color = lut.at(static_cast<size_t>(value * lut.size()));
-      double r, g, b;
-      r = color.r / 255.0;
-      g = color.g / 255.0;
-      b = color.b / 255.0;
-
-      viewer->addLine(p_source, p_target, 1, 0, 0, name_1);
-      viewer->addLine(p_source, p_source_new, r, g, b, name_2);
-
-      viewer->setShapeRenderingProperties(
-          pcl::visualization::PCL_VISUALIZER_LINE_WIDTH, 2, name_1);
-      viewer->setShapeRenderingProperties(
-          pcl::visualization::PCL_VISUALIZER_LINE_WIDTH, 5, name_2);
-    }
+    const auto source_pose = source->estimate();
+    const auto target_pose = target->estimate();
 
     // Create Edge
     edges[i] = new g2o::EdgeSE3();
     edges[i]->setId(i);
-    edges[i]->setVertex(0, static_cast<g2o::OptimizableGraph::Vertex *>(
-                               optimizer->vertex(target_index)));
-    edges[i]->setVertex(1, static_cast<g2o::OptimizableGraph::Vertex *>(
-                               optimizer->vertex(source_index)));
+    edges[i]->setVertex(0, source);
+    edges[i]->setVertex(1, target);
 
-    // TODO: Why is this not inversed but is seems to be correnct?
-    edges[i]->setMeasurement(pose_target.inverse() * pose_source);
-    edges[i]->setInformation(information_matrix / fitness_score);
+    edges[i]->setMeasurement(source_pose.inverse() * target_pose);
+    edges[i]->setInformation(information_matrix);
 
     // Set Robust Kernel
-    g2o::RobustKernel *kernel = robust_kernel_factory->construct(kernelName);
-    if (kernel == nullptr) {
-      spdlog::error("Kernel {} not found!", kernelName);
-      continue;
-    }
-
+    g2o::RobustKernel *kernel = kernel_factory->construct(kernelName);
     kernel->setDelta(deltaValue); // 1.5 to 2.5
     edges[i]->setRobustKernel(kernel);
 
-    ++monitor;
+    ++(*monitor);
   }
+
+  if (!ReUseX::Visualizer::isInitialised()) {
+    monitor.reset();
+    monitor.reset(
+        new spdmon::LoggerProgress("Adding edges to viewer", edges.size()));
+    spdlog::trace("Visualize edges");
+    const auto viewer = ReUseX::Visualizer::getInstance()
+                            ->getViewer<pcl::visualization::PCLVisualizer>();
+    for (size_t i = 0; i < edges.size(); i++) {
+
+      const auto edge = edges[i];
+
+      auto const source = static_cast<g2o::VertexSE3 *>(
+                              optimizer->vertex(edge->vertex(0)->id()))
+                              ->estimate()
+                              .translation()
+                              .cast<float>();
+      auto const target = static_cast<g2o::VertexSE3 *>(
+                              optimizer->vertex(edge->vertex(1)->id()))
+                              ->estimate()
+                              .translation()
+                              .cast<float>();
+
+      pcl::PointXYZ p_start, p_end;
+      p_start.x = source.x();
+      p_start.y = source.y();
+      p_start.z = source.z();
+      p_end.x = target.x();
+      p_end.y = target.y();
+      p_end.z = target.z();
+
+      const std::string name =
+          fmt::format("edge_{}-{}_orig", edge->vertices()[0]->id(),
+                      edge->vertices()[1]->id());
+
+      viewer->addLine(p_start, p_end, 0, 1, 0, name);
+      viewer->setShapeRenderingProperties(
+          pcl::visualization::PCL_VISUALIZER_LINE_WIDTH, 3, name);
+
+      ++(*monitor);
+    }
+  }
+  // g2o::RobustKernelFactory *robust_kernel_factory =
+  //     g2o::RobustKernelFactory::instance();
+
+  // double max_fitness_score = std::numeric_limits<double>::min();
+  // double min_fitness_score = std::numeric_limits<double>::max();
+
+  // spdlog::trace("Starting parrallel for loop");
+  // spdmon::LoggerProgress monitor("Adding edges", num_edges);
+  // monitor.GetLogger()->set_level(spdlog::level::trace);
+
+  // #pragma omp parallel for shared(dataset, edge_pairs, edges, monitor)
+  //   for (int i = 0; i < edge_pairs.size(); ++i) {
+  //
+  //     auto [source_index, target_index] = edge_pairs[i];
+  //
+  //     spdlog::trace("Edge: {:06}-{:06}", target_index, source_index);
+  //
+  //     // Set up target
+  //     Cloud target = CreateCloud(dataset[target_index]);
+  //     g2o::Isometry3 pose_target = g2o::Isometry3::Identity();
+  //     pose_target.translation() =
+  //     target->sensor_origin_.head<3>().cast<double>(); pose_target.linear()
+  //     =
+  //         target->sensor_orientation_.toRotationMatrix().cast<double>();
+  //
+  //     // Set up source
+  //     Cloud source = CreateCloud(dataset[source_index]);
+  //     g2o::Isometry3 pose_source = g2o::Isometry3::Identity();
+  //     pose_source.translation() =
+  //     source->sensor_origin_.head<3>().cast<double>(); pose_source.linear()
+  //     =
+  //         source->sensor_orientation_.toRotationMatrix().cast<double>();
+  //
+  //     pcl::PointXYZ p_source, p_target;
+  //     p_source.x = pose_source.translation().x();
+  //     p_source.y = pose_source.translation().y();
+  //     p_source.z = pose_source.translation().z();
+  //     p_target.x = pose_target.translation().x();
+  //     p_target.y = pose_target.translation().y();
+  //     p_target.z = pose_target.translation().z();
+  //
+  //     // Set up filters
+  //     FilterCollection filters{
+  //         Filters::HighConfidenceFilter<pcl::PointXYZRGBA>(), // vg,
+  //         Filters::GridFilter<pcl::PointXYZRGBA>(0.1),
+  //     };
+  //
+  //     // Compute ICP
+  //     spdlog::debug("Number of filters pre icp: {}", filters.size());
+  //     // auto [matrix, fitness_score] =
+  //     //     icp<PointT>(source, target, filters, maxCorrespondence);
+  //     Eigen::Matrix4f matrix = Eigen::Matrix4f::Identity();
+  //     double fitness_score = 0.001;
+  //
+  //     // Collect statitics on the fitness_score
+  // #pragma omp critical
+  //     {
+  //       min_fitness_score = std::min(min_fitness_score, fitness_score);
+  //       max_fitness_score = std::max(max_fitness_score, fitness_score);
+  //     }
+  //
+  //     // TODO: Fix
+  //
+  //     if (fitness_score > 0.04) {
+  //       matrix = Eigen::Matrix4f::Identity();
+  //       // spdlog::warn("Fitness score is too large: {:.6f}",
+  //       fitness_score);
+  //     }
+  //
+  //     g2o::Isometry3 xform = g2o::Isometry3(matrix.cast<double>());
+  //
+  //     // Update the soruce
+  //     pose_source = pose_source * xform;
+  //
+  //     pcl::PointXYZ p_source_new;
+  //     p_source_new.x = pose_source.translation().x();
+  //     p_source_new.y = pose_source.translation().y();
+  //     p_source_new.z = pose_source.translation().z();
+  //
+  //     const std::string name_1 =
+  //         fmt::format("edge_{}-{}", target_index, source_index);
+  //     const std::string name_2 = fmt::format("edge_{}-move", source_index);
+  //
+  //     if (!ReUseX::Visualizer::isInitialised()) {
+  //       auto viewer = ReUseX::Visualizer::getInstance()
+  //                         ->getViewer<pcl::visualization::PCLVisualizer>();
+  //
+  //       // Clamp the input to [0.0, 1.0] to avoid overflow/underflow
+  //       double value =
+  //           std::max<double>(0.0, std::min<double>(1.0, fitness_score));
+  //       auto lut = pcl::ColorLUT<pcl::LUT_VIRIDIS>();
+  //       pcl::RGB color = lut.at(static_cast<size_t>(value * lut.size()));
+  //       double r, g, b;
+  //       r = color.r / 255.0;
+  //       g = color.g / 255.0;
+  //       b = color.b / 255.0;
+  //
+  //       viewer->addLine(p_source, p_target, 1, 0, 0, name_1);
+  //       viewer->addLine(p_source, p_source_new, r, g, b, name_2);
+  //
+  //       viewer->setShapeRenderingProperties(
+  //           pcl::visualization::PCL_VISUALIZER_LINE_WIDTH, 2, name_1);
+  //       viewer->setShapeRenderingProperties(
+  //           pcl::visualization::PCL_VISUALIZER_LINE_WIDTH, 5, name_2);
+  //     }
+  //
+  //     // Create Edge
+  //     edges[i] = new g2o::EdgeSE3();
+  //     edges[i]->setId(i);
+  //     edges[i]->setVertex(0, static_cast<g2o::OptimizableGraph::Vertex *>(
+  //                                optimizer->vertex(target_index)));
+  //     edges[i]->setVertex(1, static_cast<g2o::OptimizableGraph::Vertex *>(
+  //                                optimizer->vertex(source_index)));
+  //
+  //     // TODO: Why is this not inversed but is seems to be correnct?
+  //     edges[i]->setMeasurement(pose_target.inverse() * pose_source);
+  //     edges[i]->setInformation(information_matrix / fitness_score);
+  //
+  //     // Set Robust Kernel
+  //     g2o::RobustKernel *kernel =
+  //     robust_kernel_factory->construct(kernelName); if (kernel == nullptr)
+  //     {
+  //       spdlog::error("Kernel {} not found!", kernelName);
+  //       continue;
+  //     }
+  //
+  //     kernel->setDelta(deltaValue); // 1.5 to 2.5
+  //     edges[i]->setRobustKernel(kernel);
+  //
+  //     ++monitor;
+  //   }
 
   spdlog::trace("Setting edges");
   for (auto &edge : edges) // Add edges to optimizer
     optimizer->addEdge(edge);
 
-  spdlog::info("Min fitness score: {:.6f}", min_fitness_score);
-  spdlog::info("Max fitness score: {:.6f}", max_fitness_score);
+  // spdlog::info("Min fitness score: {:.6f}", min_fitness_score);
+  // spdlog::info("Max fitness score: {:.6f}", max_fitness_score);
 }
 
 /**

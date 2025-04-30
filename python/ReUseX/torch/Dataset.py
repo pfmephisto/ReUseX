@@ -117,7 +117,7 @@ class SpeckleDataset(TorchDataset):
         self.client =  self.wrapper.get_client()
 
         commit_objects = self.client.version.get(self.wrapper.commit_id, self.wrapper.stream_id)
-        base = operations.receive(obj_id=commit_objects.referencedObject, remote_transport=self.wrapper.get_transport())
+        base = operations.receive(obj_id=commit_objects.referenced_object, remote_transport=self.wrapper.get_transport())
         self.data = base["Data"]["@{0}"]
 
     def __len__(self):
@@ -159,6 +159,9 @@ class SpeckleDataset(TorchDataset):
                                                 obj["quat"][2],
                                                 obj["quat"][3]
                                                 ]])
+                R[Field.DEPTH] = np.array([])
+                R[Field.COLOR] = np.array([])
+                R[Field.CONFIDENCE] = np.array([])
 
         return R
 

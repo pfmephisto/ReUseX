@@ -4,5 +4,5 @@
 # see http://google-styleguide.googlecode.com/svn/trunk/cppguide.xml
 BasedOnStyle: LLVM
 #Language: Cpp
-Standard: Cpp17
+Standard: c++17
 AccessModifierOffset: 2

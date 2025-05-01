@@ -8,7 +8,6 @@
   ...
 }: let
   buildPythonPackage = python3Packages.buildPythonPackage;
-
 in
   buildPythonPackage rec {
     pname = "spdlog";
@@ -16,8 +15,8 @@ in
     pyproject = true;
 
     src = fetchPypi rec {
-        inherit pname version;
-        sha256 = "sha256-l5HPF/H9IxaMCggDFws8v4Y9foGa3usl4iTyQuP57O8=";
+      inherit pname version;
+      sha256 = "sha256-l5HPF/H9IxaMCggDFws8v4Y9foGa3usl4iTyQuP57O8=";
     };
 
     postPatch = ''

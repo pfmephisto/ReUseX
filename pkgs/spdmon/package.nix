@@ -39,8 +39,8 @@ stdenv.mkDerivation rec {
   #dontBuild = true;
 
   installPhase = ''
-  cp -r $src/include ./
-  make install
+    cp -r $src/include ./
+    make install
   '';
 
   #doCheck = false;
@@ -51,8 +51,6 @@ stdenv.mkDerivation rec {
     spdlog
     fmt_11
   ];
-
-
 
   propagateBuildInputs = with pkgs; [spdlog fmt_11];
 

@@ -100,8 +100,8 @@
             #       owner = "PointCloudLibrary";
             #       repo = "pcl";
             #       rev = "pcl-1.15.0";
-	    #       sha256 = "sha256-UCuQMWGwe+YxeGj0Y6m5IT58NW2lAWN5RqyZnvyFSr4=";
-	    #       # sha256 = "sha256-OHzJwTtv+7CR+0UfyP0qB64lzFgUJG/0RWVreWo7KO8=";
+            #       sha256 = "sha256-UCuQMWGwe+YxeGj0Y6m5IT58NW2lAWN5RqyZnvyFSr4=";
+            #       # sha256 = "sha256-OHzJwTtv+7CR+0UfyP0qB64lzFgUJG/0RWVreWo7KO8=";
             #       # sha256 = lib.fakeSha256;
             #     };
             #   });
@@ -135,7 +135,7 @@
             specklepy = prev.pkgs.specklepy;
             g2o = prev.pkgs.g2opy;
             mast3r = prev.pkgs.mast3r;
-	    spdlog = prev.pkgs.spdlog-python;
+            spdlog = prev.pkgs.spdlog-python;
           };
         };
 
@@ -190,10 +190,10 @@
                   cgal
 
                   fmt
-		  spdlog
-		  spdmon
-                  
-		  mpfr
+                  spdlog
+                  spdmon
+
+                  mpfr
 
                   opencv
                   tbb_2022_0
@@ -206,7 +206,7 @@
                   imgui
                   glm
 
-		  libGLU
+                  libGLU
 
                   gurobi
                 ]);
@@ -247,13 +247,10 @@
           }); # end of packages
 
         devShells = {
-
-
-
           default = let
             arg = project.renderers.withPackages {inherit python;};
 
-	    arg_1 = project.renderers.mkPythonEditablePackage {
+            arg_1 = project.renderers.mkPythonEditablePackage {
               inherit python;
               root = "$REPO_ROOT/python";
             };
@@ -278,14 +275,11 @@
                   )
                 ];
             });
-
-
-
           in
             pkgs.mkShell {
               inputsFrom = [
-	        self.packages.${system}.default
-	      ];
+                self.packages.${system}.default
+              ];
 
               packages = with pkgs;
                 [
@@ -293,12 +287,12 @@
                   ninja
                   mpi
                   cudatoolkit
-		  gdb
+                  gdb
                 ]
                 ++ [
-		  libnotify # Send noctification when build finishes
-		  sqlite
-		]
+                  libnotify # Send noctification when build finishes
+                  sqlite
+                ]
                 ++ [
                   # Python Environment
                   ((myPython.withPackages (ps:
@@ -314,9 +308,8 @@
                       scipy
                       ipykernel
                     ]))
-
                   .override (args: {ignoreCollisions = true;}))
-                ];	
+                ];
 
               shellHook = ''
                 echo "Entering dev shell"

@@ -277,6 +277,40 @@ void register_consecutive_edges(
     ++(*monitor);
   }
 
+  std::vector<double> fitness_scores;
+#if 0 // ICP Alignment
+  fitness_scores.resize(edges.size());
+  for (int i = 0; i < edges.size(); i++) {
+
+    size_t source_index = edge_pairs[i].first;
+    size_t target_index = edge_pairs[i].second;
+    auto source_cloud = dataset[source_index].get<Field::CLOUD>();
+    auto target_cloud = dataset[target_index].get<Field::CLOUD>();
+
+    // Set up filters
+    FilterCollection filters{
+        Filters::HighConfidenceFilter<PointT>(),
+        Filters::GridFilter<PointT>(0.1),
+    };
+
+    auto [matrix, fitness_score] =
+        icp<PointT>(source_cloud, target_cloud, filters, maxCorrespondence);
+    fitness_scores[i] = fitness_score;
+
+    auto source_pose =
+        static_cast<g2o::VertexSE3 *>(optimizer->vertex(source_index))
+            ->estimate();
+    auto const target_pose =
+        static_cast<g2o::VertexSE3 *>(optimizer->vertex(target_index))
+            ->estimate();
+
+    // Update the source pose
+    source_pose = source_pose * g2o::Isometry3(matrix.cast<double>());
+    edges[i]->setMeasurement(source_pose.inverse() * target_pose);
+    edges[i]->setInformation(information_matrix / fitness_score);
+  }
+#endif
+
   if (!ReUseX::Visualizer::isInitialised()) {
     monitor.reset();
     monitor.reset(

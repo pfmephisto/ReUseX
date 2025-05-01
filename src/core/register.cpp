@@ -676,8 +676,20 @@ void loop_detection(std::unique_ptr<g2o::SparseOptimizer> &optimizer,
   spdlog::info("Subsampling edges");
   std::vector<std::pair<size_t, size_t>> subsampled_edges;
   subsampled_edges.reserve(NUM_SAMPLES);
-  std::sample(edges.begin(), edges.end(), std::back_inserter(subsampled_edges),
-              NUM_SAMPLES, std::mt19937{std::random_device{}()});
+
+  // Sort edges by largest loops
+  std::sort(edges.begin(), edges.end(), [](const auto &lhs, const auto &rhs) {
+    return std::abs(static_cast<int>(lhs.first) -
+                    static_cast<int>(lhs.second)) <
+           std::abs(static_cast<int>(rhs.first) - static_cast<int>(rhs.second));
+  });
+  // Copy the first NUM_SAMPLES edges
+  std::copy(edges.begin(), edges.begin() + NUM_SAMPLES,
+            std::back_inserter(subsampled_edges));
+
+  // std::sample(edges.begin(), edges.end(),
+  // std::back_inserter(subsampled_edges),
+  //             NUM_SAMPLES, std::mt19937{std::random_device{}()});
 
   monitor.reset();
   monitor.reset(

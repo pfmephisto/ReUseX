@@ -134,13 +134,12 @@ bool Visualizer::skip() const { return skip_view; }
 void Visualizer::step() const { pcl_viewer->spinOnce(100); }
 
 bool Visualizer::isInitialised() {
-  spdlog::trace("Checking if viewer is initialised");
-
-  if (omp_get_num_threads() > 1)
-    return false;
-
-  spdlog::debug("Instace: {}", fmt::ptr(instance));
-  return bool(instance);
+  bool const is_initialised = bool(instance) && bool(omp_get_thread_num() <= 1);
+  spdlog::trace("Is Viewer initialised: {}", is_initialised);
+  if (!is_initialised)
+    spdlog::debug("Instance: {}, Threads: {}", fmt::ptr(instance),
+                  omp_get_thread_num());
+  return is_initialised;
 };
 
 } // namespace ReUseX

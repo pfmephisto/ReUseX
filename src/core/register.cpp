@@ -604,6 +604,15 @@ void visualize_cloud(
   viewer->step();
 }
 
+inline void merge_edges(std::vector<std::pair<size_t, size_t>> lhs,
+                        const std::vector<std::pair<size_t, size_t>> rhs) {
+  std::copy(rhs.begin(), rhs.end(), std::back_inserter(lhs));
+}
+#pragma omp declare reduction(                                                 \
+        + : std::vector<std::pair<size_t, size_t>> : merge_edges(omp_out,      \
+                                                                     omp_in))  \
+    initializer(omp_priv = std::vector<std::pair<size_t, size_t>>())
+
 // TODO: Add function doc string
 void loop_detection(std::unique_ptr<g2o::SparseOptimizer> &optimizer,
                     Dataset &dataset, std::vector<size_t> &indices,
@@ -630,11 +639,13 @@ void loop_detection(std::unique_ptr<g2o::SparseOptimizer> &optimizer,
   std::shared_ptr<spdmon::LoggerProgress> monitor;
   monitor =
       std::make_shared<spdmon::LoggerProgress>("Collect all edges", num_edges);
+  monitor->GetLogger()->set_level(spdlog::level::warn);
 
-#pragma omp parrallel for collapse(2)                                          \
+#pragma omp parrallel for collapse(2) reduction(+ : edges)                     \
     shared(dataset, indices, edges, LIMIT_UPPER)
   for (int i = 0; i < indices.size(); ++i) { // Target
     for (int j = 0; j < i; ++j) {            // Source
+
       if (i == j) {
         ++(*monitor);
         continue;
@@ -654,13 +665,9 @@ void loop_detection(std::unique_ptr<g2o::SparseOptimizer> &optimizer,
           std::abs(static_cast<int>(idx_i) - static_cast<int>(idx_j));
 
       if (dist > LIMIT_UPPER || num_frames_appart < MAX_FRAMES_DIST) {
-        ++(*monitor);
-        continue;
+        edges.emplace_back(idx_j, idx_i);
       }
 
-      const std::pair<size_t, size_t> edge_pair = std::make_pair(idx_i, idx_j);
-#pragma omp critical
-      edges.push_back(edge_pair);
       ++(*monitor);
     }
   }

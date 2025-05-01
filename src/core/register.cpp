@@ -341,11 +341,21 @@ void register_consecutive_edges(
       p_end.y = target.y();
       p_end.z = target.z();
 
+      pcl::RGB color = pcl::RGB(0, 255, 0);
+
+      if (fitness_scores.size() > 0) {
+        double const score =
+            std::max<double>(0.0, std::min<double>(1.0, fitness_scores[i]));
+        auto lut = pcl::ColorLUT<pcl::LUT_VIRIDIS>();
+        color = lut.at(static_cast<size_t>(score * lut.size()));
+      }
+
       const std::string name =
           fmt::format("edge_{}-{}_orig", edge->vertices()[0]->id(),
                       edge->vertices()[1]->id());
 
-      viewer->addLine(p_start, p_end, 0, 1, 0, name);
+      viewer->addLine(p_start, p_end, color.r / 255, color.g / 255,
+                      color.b / 255, name);
       viewer->setShapeRenderingProperties(
           pcl::visualization::PCL_VISUALIZER_LINE_WIDTH, 3, name);
 

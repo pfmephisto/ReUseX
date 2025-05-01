@@ -907,9 +907,7 @@ ReUseX::write_graph(fs::path path, Dataset &dataset,
     spdlog::trace("Not using Visualizer");
 
   auto data = dataset[0];
-  for (auto field : data.fields()) {
-    spdlog::debug("Field: {}", field);
-  }
+  spdlog::debug("Field: {}", data.fields());
 
   visualize_cloud(dataset, indices, "Pre Align");
 

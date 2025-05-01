@@ -297,6 +297,7 @@
                 ]
                 ++ [
 		  libnotify # Send noctification when build finishes
+		  sqlite
 		]
                 ++ [
                   # Python Environment

@@ -1,9 +1,7 @@
 {
   stdenvNoCC,
-  cudaPackages,
   pkgs,
   python3,
-  lib,
   fetchurl,
   ...
 }:
@@ -17,7 +15,6 @@ stdenvNoCC.mkDerivation rec {
 
   nativeBuildInputs = with pkgs; [
     autoPatchelfHook
-    #cudaPackages.autoAddOpenGLRunpathHook
     autoAddDriverRunpath
     libsForQt5.wrapQtAppsHook
     makeWrapper

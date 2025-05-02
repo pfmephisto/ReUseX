@@ -9,14 +9,6 @@
     };
 
     flake-utils.url = "github:numtide/flake-utils";
-
-    nixvim = {
-      url = "github:nix-community/nixvim";
-    };
-    #alejandra = {
-    #    url = "github:kamadorueda/alejandra/3.1.0";
-    #  inputs.nixpkgs.follows = "nixpkgs";
-    #};
   }; # end of inputs
 
   outputs = {
@@ -24,7 +16,6 @@
     nixpkgs,
     flake-utils,
     pyproject-nix,
-    nixvim,
   }:
     flake-utils.lib.eachSystem ["x86_64-linux"] (system:
       # flake-utils.lib.eachDefaultSystem (system:
@@ -90,22 +81,6 @@
                   else pkgs.stdenv;
               });
             })
-            # (final: prev: {
-            #   # Change PCL to the main branch
-            #   pcl = prev.pcl.overrideAttrs (old: {
-            #     pname = "pcl";
-            #     # version = "1.14.1";
-            #     version = "1.15.0";
-            #     src = pkgs.fetchFromGitHub {
-            #       owner = "PointCloudLibrary";
-            #       repo = "pcl";
-            #       rev = "pcl-1.15.0";
-            #       sha256 = "sha256-UCuQMWGwe+YxeGj0Y6m5IT58NW2lAWN5RqyZnvyFSr4=";
-            #       # sha256 = "sha256-OHzJwTtv+7CR+0UfyP0qB64lzFgUJG/0RWVreWo7KO8=";
-            #       # sha256 = lib.fakeSha256;
-            #     };
-            #   });
-            # })
             (
               final: prev: (prev.lib.packagesFromDirectoryRecursive {
                 callPackage = prev.lib.callPackageWith final;
@@ -171,7 +146,7 @@
               buildInputs =
                 (attrs.buildInputs
                   or [
-                  ])
+                ])
                 ++ (with pkgs; [
                   opennurbs
                   xtensor-io

@@ -137,7 +137,7 @@ void register_nodes(std::unique_ptr<g2o::SparseOptimizer> &optimizer,
   spdlog::trace("Starting parallel for loop");
 
   {
-    spdmon::LoggerProgress monitor("Add Verticies", indices.size());
+    spdmon::LoggerProgress monitor("Add Nodes", indices.size());
 #pragma omp parallel for shared(dataset, verticies, monitor)
     for (int i = 0; i < indices.size(); i++) {
       size_t index = indices[i];
@@ -267,7 +267,7 @@ void register_consecutive_edges(
     edges[i]->setVertex(1, target);
 
     edges[i]->setMeasurement(source_pose.inverse() * target_pose);
-    edges[i]->setInformation(information_matrix);
+    edges[i]->setInformation(information_matrix * 1000);
 
     // Set Robust Kernel
     g2o::RobustKernel *kernel = kernel_factory->construct(kernelName);
@@ -311,56 +311,56 @@ void register_consecutive_edges(
   }
 #endif
 
-  if (!ReUseX::Visualizer::isInitialised()) {
-    monitor.reset();
-    monitor.reset(
-        new spdmon::LoggerProgress("Adding edges to viewer", edges.size()));
-    spdlog::trace("Visualize edges");
-    const auto viewer = ReUseX::Visualizer::getInstance()
-                            ->getViewer<pcl::visualization::PCLVisualizer>();
-    for (size_t i = 0; i < edges.size(); i++) {
+  // if (!ReUseX::Visualizer::isInitialised()) {
+  monitor.reset();
+  monitor.reset(
+      new spdmon::LoggerProgress("Adding edges to viewer", edges.size()));
+  spdlog::trace("Visualize edges");
+  const auto viewer = ReUseX::Visualizer::getInstance()
+                          ->getViewer<pcl::visualization::PCLVisualizer>();
+  for (size_t i = 0; i < edges.size(); i++) {
 
-      const auto edge = edges[i];
+    const auto edge = edges[i];
 
-      auto const source = static_cast<g2o::VertexSE3 *>(
-                              optimizer->vertex(edge->vertex(0)->id()))
-                              ->estimate()
-                              .translation()
-                              .cast<float>();
-      auto const target = static_cast<g2o::VertexSE3 *>(
-                              optimizer->vertex(edge->vertex(1)->id()))
-                              ->estimate()
-                              .translation()
-                              .cast<float>();
+    auto const source =
+        static_cast<g2o::VertexSE3 *>(optimizer->vertex(edge->vertex(0)->id()))
+            ->estimate()
+            .translation()
+            .cast<float>();
+    auto const target =
+        static_cast<g2o::VertexSE3 *>(optimizer->vertex(edge->vertex(1)->id()))
+            ->estimate()
+            .translation()
+            .cast<float>();
 
-      pcl::PointXYZ p_start, p_end;
-      p_start.x = source.x();
-      p_start.y = source.y();
-      p_start.z = source.z();
-      p_end.x = target.x();
-      p_end.y = target.y();
-      p_end.z = target.z();
+    pcl::PointXYZ p_start, p_end;
+    p_start.x = source.x();
+    p_start.y = source.y();
+    p_start.z = source.z();
+    p_end.x = target.x();
+    p_end.y = target.y();
+    p_end.z = target.z();
 
-      pcl::RGB color = pcl::RGB(0, 255, 0);
+    pcl::RGB color = pcl::RGB(0, 255, 0);
 
-      if (fitness_scores.size() > 0) {
-        double const score =
-            std::max<double>(0.0, std::min<double>(1.0, fitness_scores[i]));
-        auto lut = pcl::ColorLUT<pcl::LUT_VIRIDIS>();
-        color = lut.at(static_cast<size_t>(score * lut.size()));
-      }
-
-      const std::string name =
-          fmt::format("edge_{}-{}_orig", edge->vertices()[0]->id(),
-                      edge->vertices()[1]->id());
-
-      viewer->addLine(p_start, p_end, color.r / 255, color.g / 255,
-                      color.b / 255, name);
-      viewer->setShapeRenderingProperties(
-          pcl::visualization::PCL_VISUALIZER_LINE_WIDTH, 3, name);
-
-      ++(*monitor);
+    if (fitness_scores.size() > 0) {
+      double const score =
+          std::max<double>(0.0, std::min<double>(1.0, fitness_scores[i]));
+      auto lut = pcl::ColorLUT<pcl::LUT_VIRIDIS>();
+      color = lut.at(static_cast<size_t>(score * lut.size()));
     }
+
+    const std::string name =
+        fmt::format("edge_{}-{}_orig", edge->vertices()[0]->id(),
+                    edge->vertices()[1]->id());
+
+    viewer->addLine(p_start, p_end, color.r / 255, color.g / 255, color.b / 255,
+                    name);
+    viewer->setShapeRenderingProperties(
+        pcl::visualization::PCL_VISUALIZER_LINE_WIDTH, 3, name);
+
+    ++(*monitor);
+    //}
   }
   // g2o::RobustKernelFactory *robust_kernel_factory =
   //     g2o::RobustKernelFactory::instance();
@@ -526,21 +526,22 @@ void register_consecutive_edges(
  *       indices are within bounds. The visualization requires the PCL (Point
  *       Cloud Library) to be properly installed and configured.
  */
-void visualize_cloud(
-    Dataset &dataset, std::vector<size_t> indices, std::string name,
-    std::optional<std::function<
-        void(typename pcl::PointCloud<pcl::PointXYZRGBA>::Ptr, int)>>
-        func = {},
-    std::function<
-        typename pcl::visualization::PointCloudColorHandler<pcl::PointXYZRGBA>::
-            Ptr(typename pcl::PointCloud<pcl::PointXYZRGBA>::Ptr)>
-        getColor = [](pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud)
-        -> std::shared_ptr<
-            pcl::visualization::PointCloudColorHandler<pcl::PointXYZRGBA>> {
-      return std::make_shared<
-          pcl::visualization::PointCloudColorHandlerRGBField<
-              pcl::PointXYZRGBA>>(cloud);
-    }) {
+using ColorFunc = std::function<
+    typename pcl::visualization::PointCloudColorHandler<pcl::PointXYZRGBA>::Ptr(
+        typename pcl::PointCloud<pcl::PointXYZRGBA>::Ptr)>;
+using TranformFunc =
+    std::function<void(typename pcl::PointCloud<pcl::PointXYZRGBA>::Ptr, int)>;
+static ColorFunc get_rgb_color =
+    [](pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud)
+    -> std::shared_ptr<
+        pcl::visualization::PointCloudColorHandler<pcl::PointXYZRGBA>> {
+  return std::make_shared<
+      pcl::visualization::PointCloudColorHandlerRGBField<pcl::PointXYZRGBA>>(
+      cloud);
+};
+void visualize_cloud(Dataset &dataset, std::vector<size_t> indices,
+                     std::string name, std::optional<TranformFunc> func = {},
+                     ColorFunc getColor = get_rgb_color) {
 
   // Check if we are in a visualization context
   if (!ReUseX::Visualizer::isInitialised())
@@ -568,9 +569,9 @@ void visualize_cloud(
       func.value()(cloud, idx);
 
     // Get the pose
-    Eigen::Affine3f pose = Eigen::Affine3f::Identity();
-    pose.linear() = cloud->sensor_orientation_.toRotationMatrix();
-    pose.translation() = cloud->sensor_origin_.head<3>();
+    // Eigen::Affine3f pose = Eigen::Affine3f::Identity();
+    // pose.linear() = cloud->sensor_orientation_.toRotationMatrix();
+    // pose.translation() = cloud->sensor_origin_.head<3>();
 #pragma omp critical
     {
       *merged += *cloud;
@@ -694,7 +695,7 @@ void loop_detection(std::unique_ptr<g2o::SparseOptimizer> &optimizer,
   monitor.reset();
   monitor.reset(
       new spdmon::LoggerProgress("Compute alignment", subsampled_edges.size()));
-  monitor->GetLogger()->set_level(spdlog::level::debug);
+  monitor->GetLogger()->set_level(spdlog::level::warn);
 
   size_t num_edges_found = 0;
   double min_fitness_score = std::numeric_limits<double>::max();
@@ -898,8 +899,9 @@ ReUseX::write_graph(fs::path path, Dataset &dataset,
                     const Eigen::Matrix<double, 6, 6> information_matrix) {
   spdlog::info("Entering Write Graph Function");
 
-  spdlog::debug("Indecies: first: {} last: {}, count: {}", indices.front(),
-                indices.back(), indices.size());
+  spdlog::debug("Indecies: first: {} last: {}, count: {}, step: ~{}",
+                indices.front(), indices.back(), indices.size(),
+                (indices.back() - indices.front()) / indices.size());
 
   if (ReUseX::Visualizer::isInitialised())
     spdlog::info("Using Visualizer");
@@ -930,101 +932,102 @@ ReUseX::write_graph(fs::path path, Dataset &dataset,
   optimizer->setVerbose(false);
   optimizer->setAlgorithm(solver);
 
-  spdlog::trace("Add Verticies");
+  spdlog::trace("Add Nodes");
   register_nodes(optimizer, dataset, indices);
 
   spdlog::trace("Add Edges");
   register_consecutive_edges(optimizer, dataset, indices, groupSize, kernelName,
                              deltaValue, maxCorrespondence, information_matrix);
 
-  spdlog::trace("Finding loop closures");
-  loop_detection(optimizer, dataset, indices, kernelName, deltaValue,
-                 information_matrix);
-
-  spdlog::trace("Optimize");
-  spdlog::stopwatch sw;
-  optimizer->initializeOptimization();
-  optimizer->optimize(maxIterations);
-  spdlog::debug("Optimize ran in {:.3f}s", sw);
-
-  spdlog::trace("Save graph to file");
-  optimizer->save(path.c_str());
-
-  auto move_cloud = [&optimizer](
-                        typename pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud,
-                        int idx) {
-    // Construct original pose
-    g2o::Isometry3 pose_orig = g2o::Isometry3::Identity();
-    pose_orig.translation() = cloud->sensor_origin_.head<3>().cast<double>();
-    pose_orig.linear() =
-        cloud->sensor_orientation_.toRotationMatrix().cast<double>();
-
-    // Get estimated location
-    g2o::Isometry3 estimate =
-        static_cast<g2o::VertexSE3 *>(optimizer->vertex(idx))->estimate();
-
-    // Compute relative transform and aplly it
-    g2o::Isometry3 xform = pose_orig.inverse() * estimate;
-
-    pcl::transformPointCloud(*cloud, *cloud, xform.matrix());
-  };
-
-  visualize_cloud(dataset, indices, "Post Align", move_cloud,
-                  [](pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud) {
-                    pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud_rgb(
-                        new pcl::PointCloud<pcl::PointXYZRGBA>());
-                    cloud_rgb->resize(cloud->size());
-
-#pragma omp parallel for
-                    for (int i = 0; i < cloud->size(); ++i) {
-                      cloud_rgb->points[i].r = cloud->points[i].r;
-                      cloud_rgb->points[i].g =
-                          std::min(cloud->points[i].g + 50, 255);
-                      cloud_rgb->points[i].b = cloud->points[i].b;
-                    }
-                    return std::make_shared<
-                        pcl::visualization::PointCloudColorHandlerRGBField<
-                            pcl::PointXYZRGBA>>(cloud_rgb);
-                  });
-
-  // Visualize new path
-  if (ReUseX::Visualizer::isInitialised()) {
-    auto viewer = ReUseX::Visualizer::getInstance()
-                      ->getViewer<pcl::visualization::PCLVisualizer>();
-
-    for (size_t i = 1; i < indices.size(); i++) {
-
-      size_t idx_start = indices[i - 1];
-      size_t idx_end = indices[i];
-
-      auto v_start = static_cast<g2o::VertexSE3 *>(optimizer->vertex(idx_start))
-                         ->estimate()
-                         .translation()
-                         .cast<float>();
-      auto v_end = static_cast<g2o::VertexSE3 *>(optimizer->vertex(idx_end))
-                       ->estimate()
-                       .translation()
-                       .cast<float>();
-
-      pcl::PointXYZ p_start, p_end;
-      p_start.x = v_start.x();
-      p_start.y = v_start.y();
-      p_start.z = v_start.z();
-      p_end.x = v_end.x();
-      p_end.y = v_end.y();
-      p_end.z = v_end.z();
-
-      viewer->addLine(p_start, p_end, 0, 1, 0,
-                      fmt::format("edge_new{}-{}", idx_start, idx_end));
-      viewer->setShapeRenderingProperties(
-          pcl::visualization::PCL_VISUALIZER_LINE_WIDTH, 3,
-          fmt::format("edge_new{}-{}", idx_start, idx_end));
-    }
-  } // End if visualizer
-
-  spdlog::trace("Clear");
-  optimizer->clear();
-
+  //  spdlog::trace("Finding loop closures");
+  //  loop_detection(optimizer, dataset, indices, kernelName, deltaValue,
+  //                 information_matrix);
+  //
+  //  spdlog::trace("Optimize");
+  //  spdlog::stopwatch sw;
+  //  optimizer->initializeOptimization();
+  //  optimizer->optimize(maxIterations);
+  //  spdlog::debug("Optimize ran in {:.3f}s", sw);
+  //
+  //  spdlog::trace("Save graph to file");
+  //  optimizer->save(path.c_str());
+  //
+  //  auto move_cloud = [&optimizer](
+  //                        typename pcl::PointCloud<pcl::PointXYZRGBA>::Ptr
+  //                        cloud, int idx) {
+  //    // Construct original pose
+  //    g2o::Isometry3 pose_orig = g2o::Isometry3::Identity();
+  //    pose_orig.translation() =
+  //    cloud->sensor_origin_.head<3>().cast<double>(); pose_orig.linear() =
+  //        cloud->sensor_orientation_.toRotationMatrix().cast<double>();
+  //
+  //    // Get estimated location
+  //    g2o::Isometry3 estimate =
+  //        static_cast<g2o::VertexSE3 *>(optimizer->vertex(idx))->estimate();
+  //
+  //    // Compute relative transform and aplly it
+  //    g2o::Isometry3 xform = pose_orig.inverse() * estimate;
+  //
+  //    pcl::transformPointCloud(*cloud, *cloud, xform.matrix());
+  //  };
+  //
+  //  //   visualize_cloud(dataset, indices, "Post Align", move_cloud,
+  //  //                   [](pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud) {
+  //  //                     pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud_rgb(
+  //  //                         new pcl::PointCloud<pcl::PointXYZRGBA>());
+  //  //                     cloud_rgb->resize(cloud->size());
+  //  //
+  //  // #pragma omp parallel for
+  //  //                     for (int i = 0; i < cloud->size(); ++i) {
+  //  //                       cloud_rgb->points[i].r = cloud->points[i].r;
+  //  //                       cloud_rgb->points[i].g =
+  //  //                           std::min(cloud->points[i].g + 50, 255);
+  //  //                       cloud_rgb->points[i].b = cloud->points[i].b;
+  //  //                     }
+  //  //                     return std::make_shared<
+  //  // pcl::visualization::PointCloudColorHandlerRGBField<
+  //  //                             pcl::PointXYZRGBA>>(cloud_rgb);
+  //  //                   });
+  //
+  //  // Visualize new path
+  //  if (ReUseX::Visualizer::isInitialised()) {
+  //    auto viewer = ReUseX::Visualizer::getInstance()
+  //                      ->getViewer<pcl::visualization::PCLVisualizer>();
+  //
+  //    for (size_t i = 1; i < indices.size(); i++) {
+  //
+  //      size_t idx_start = indices[i - 1];
+  //      size_t idx_end = indices[i];
+  //
+  //      auto v_start = static_cast<g2o::VertexSE3
+  //      *>(optimizer->vertex(idx_start))
+  //                         ->estimate()
+  //                         .translation()
+  //                         .cast<float>();
+  //      auto v_end = static_cast<g2o::VertexSE3 *>(optimizer->vertex(idx_end))
+  //                       ->estimate()
+  //                       .translation()
+  //                       .cast<float>();
+  //
+  //      pcl::PointXYZ p_start, p_end;
+  //      p_start.x = v_start.x();
+  //      p_start.y = v_start.y();
+  //      p_start.z = v_start.z();
+  //      p_end.x = v_end.x();
+  //      p_end.y = v_end.y();
+  //      p_end.z = v_end.z();
+  //
+  //      viewer->addLine(p_start, p_end, 0, 1, 0,
+  //                      fmt::format("edge_new{}-{}", idx_start, idx_end));
+  //      viewer->setShapeRenderingProperties(
+  //          pcl::visualization::PCL_VISUALIZER_LINE_WIDTH, 3,
+  //          fmt::format("edge_new{}-{}", idx_start, idx_end));
+  //    }
+  //  } // End if visualizer
+  //
+  //  spdlog::trace("Clear");
+  //  optimizer->clear();
+  //
   if (ReUseX::Visualizer::isInitialised())
     ReUseX::Visualizer::getInstance()->wait();
 

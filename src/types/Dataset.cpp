@@ -311,36 +311,46 @@ Eigen::Matrix<double, 3, 3> Dataset::intrinsic_matrix() const {
 }
 
 DataItem Dataset::operator[](int idx) const {
-
   // TODO: Check if idx is in range
-  // TODO: Make this evaluate lazyly
-  // There is no need to get the havey image data if it is not needed.
 
   DataItem data;
-  data.set<Field::INDEX>(idx);
+  data.set<Field::INDEX>([idx]() { return idx; });
+
   for (auto field : _fields) {
     switch (field) {
-    case Field::COLOR:
+    case Field::COLOR: {
+      auto path = _path / "rgb.mp4";
       data.set<Field::COLOR>(
-          read_frame_at_index(_path / "rgb.mp4", idx).value());
+          [idx, path]() { return read_frame_at_index(path, idx).value(); });
       break;
-    case Field::DEPTH:
-      data.set<Field::DEPTH>(read_depth_image(_depth_paths[idx]).value());
+    }
+    case Field::DEPTH: {
+      auto depth_path = _depth_paths[idx];
+      data.set<Field::DEPTH>(
+          [depth_path]() { return read_depth_image(depth_path).value(); });
       break;
-    case Field::CONFIDENCE:
+    }
+    case Field::CONFIDENCE: {
+      auto conf_path = _confidence_paths[idx];
       data.set<Field::CONFIDENCE>(
-          read_confidence_image(_confidence_paths[idx]).value());
+          [conf_path]() { return read_confidence_image(conf_path).value(); });
       break;
-    case Field::ODOMETRY:
-      data.set<Field::ODOMETRY>(_odometry_data.row(idx));
+    }
+    case Field::ODOMETRY: {
+      auto row = _odometry_data.row(idx);
+      data.set<Field::ODOMETRY>([row]() { return row; });
       break;
-    case Field::IMU:
-      data.set<Field::IMU>(_imu_data.row(idx));
+    }
+    case Field::IMU: {
+      auto row = _imu_data.row(idx);
+      data.set<Field::IMU>([row]() { return row; });
       break;
+    }
     default:
       throw std::runtime_error("Unknown field");
     }
   }
+
   return data;
 }
 

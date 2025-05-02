@@ -65,14 +65,15 @@ using FieldVariant =
                  Eigen::Matrix<uint8_t, Eigen::Dynamic, Eigen::Dynamic>,
                  Eigen::MatrixXd, Eigen::Transform<float, 3, Eigen::Affine>>;
 
-class DataItem : public std::map<Field, FieldVariant> {
+class DataItem : public std::map<Field, std::function<FieldVariant()>> {
 
-public:
+    public:
   template <Field F> typename FieldType<F>::type get() const {
-    return std::get<typename FieldType<F>::type>(this->at(F));
+    return std::get<typename FieldType<F>::type>(this->at(F)());
   }
 
-  template <Field F> void set(typename FieldType<F>::type value) {
+  template <Field F>
+  void set(std::function<typename FieldType<F>::type()> value) {
     this->operator[](F) = value;
   }
 

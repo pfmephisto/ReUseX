@@ -63,20 +63,9 @@ static void setHeader(PointCloud &cloud, Eigen::MatrixXd const &odometry,
   auto pos = odometry.block<1, 3>(0, 2);  // x,y,z
   auto quat = odometry.block<1, 4>(0, 5); // x,y,z,w
 
-  // spdlog::debug("Odometry {}", odometry.format(OctaveFmt));
-  // spdlog::debug("Pos: {}", pos.format(OctaveFmt));
-  // spdlog::debug("Quat: {}", quat.format(OctaveFmt));
+  Eigen::Vector4f origin(pos(0), pos(1), pos(2), 1);
 
-  Eigen::Vector4f origin = Eigen::Vector4f(0, 0, 0, 1);
-  origin.x() = pos(0);
-  origin.y() = pos(1);
-  origin.z() = pos(2);
-
-  Eigen::Quaternionf orientation = Eigen::Quaternionf::Identity();
-  orientation.x() = quat(0);
-  orientation.y() = quat(1);
-  orientation.z() = quat(2);
-  orientation.w() = quat(3);
+  Eigen::Quaternionf orientation(quat(3), quat(0), quat(1), quat(2));
 
   cloud.header.seq = i.has_value() ? i.value() : 0;
   cloud.header.frame_id = frame_id;
@@ -160,10 +149,6 @@ CreateCloud(DataItem const &data, double fx, double fy, double cx, double cy,
   // cloud->sensor_orientation_ = Eigen::Quaternionf::Identity();
 
   pcl::transformPointCloud(*cloud, *cloud, pose);
-
-  //// Move the cloud
-  // if (std::find(fields.begin(), fields.end(), Field::POSES) != fields.end())
-  //   pcl::transformPointCloud(*cloud, *cloud, data.get<Field::POSES>());
 
   return cloud;
 }

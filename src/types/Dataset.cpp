@@ -2,18 +2,21 @@
 #include "core/lodepng.hh"
 
 #include <fmt/printf.h>
+
 #include <fstream>
 #include <iostream>
 #include <optional>
 #include <string>
 
+#include <spdlog/spdlog.h>
+#include <spdlog/stopwatch.h>
+
 #include <opencv4/opencv2/core.hpp>
 #include <opencv4/opencv2/opencv.hpp>
 
-#define CHECK_EXSISTANCE(path, file)                                           \
-  if (!std::filesystem::exists(path / file)) {                                 \
-    fmt::printf("{} does not exist\n", file);                                  \
-    break;                                                                     \
+#define CHECK_EXSISTANCE(path)                                                 \
+  if (!std::filesystem::exists(path)) {                                        \
+    spdlog::error("{} does not exist", path);                                  \
   }
 
 Eigen::MatrixXd read_csv(std::ifstream &stream, char delimiter = ',',
@@ -218,81 +221,55 @@ create_pose(Eigen::Block<const Eigen::MatrixXd, 1, 3> const &p,
 
 namespace ReUseX {
 
+Dataset::Dataset(const std::filesystem::path &path) {
+
+  // Check if directories and files exists
+  assert(std::filesystem::exists(path) &&
+         fmt::format("Directory does not exist: {}", path.string()).c_str());
+
+  _path = path;
+
+  spdlog::info("Creating Dataset: {}", _path.parent_path().filename().c_str());
+
+  struct winsize size;
+  ioctl(STDOUT_FILENO, TIOCGWINSZ, &size);
+
+  spdlog::debug("Path: {}", trimPathMiddle(_path.c_str(), 51));
+
+  _n_frames = get_number_of_frames(_path / "rgb.mp4");
+  spdlog::debug("Number of frames: {}", _n_frames);
+
+  spdlog::stopwatch sw;
+
+  CHECK_EXSISTANCE(_path / "rgb.mp4");
+  CHECK_EXSISTANCE(_path / "depth");
+  CHECK_EXSISTANCE(_path / "confidence");
+  CHECK_EXSISTANCE(_path / "odometry.csv");
+  CHECK_EXSISTANCE(_path / "imu.csv");
+
+  _odometry_data = read_odometry(_path / "odometry.csv").value();
+  _imu_data = read_imu(_path / "imu.csv").value();
+
+  //// Get depth image paths
+  // std::transform(std::filesystem::directory_iterator(_path / "depth"),
+  //                std::filesystem::directory_iterator(),
+  //                std::back_inserter(_depth_paths),
+  //                [](const auto &entry) { return entry.path(); });
+  // std::sort(_depth_paths.begin(), _depth_paths.end());
+
+  //// Get depth image paths
+  // std::transform(std::filesystem::directory_iterator(_path / "confidence"),
+  //                std::filesystem::directory_iterator(),
+  //                std::back_inserter(_confidence_paths),
+  //                [](const auto &entry) { return entry.path(); });
+  // std::sort(_confidence_paths.begin(), _confidence_paths.end());
+
+  spdlog::debug("Loaded fields in {}s", sw);
+}
+
 size_t Dataset::get_number_of_frames(const std::filesystem::path &path) {
   cv::VideoCapture cap(path);
   return cap.get(cv::CAP_PROP_FRAME_COUNT);
-};
-
-void Dataset::set_field(Field field) {
-
-  // auto a_result = std::async(std::launch::async, []() {
-  //   std::cout << "Async constructor started" << std::endl;
-  //   std::this_thread::sleep_for(std::chrono::seconds(5));
-  //   std::cout << "Async constructor finished" << std::endl;
-  // });
-  // std::cout << "Other code in main thread" << std::endl;
-  // std::this_thread::sleep_for(std::chrono::seconds(2));
-  // std::cout << "Main thread finished" << std::endl;
-  // a_result.wait();
-  // std::cout << "Async constructor finished" << std::endl;
-
-  switch (field) {
-
-  case Field::COLOR:
-    CHECK_EXSISTANCE(_path, "rgb.mp4");
-#pragma omp critical
-    _fields.insert(field);
-    break;
-
-  case Field::DEPTH:
-    CHECK_EXSISTANCE(_path, "depth");
-
-    // Get depth image paths
-    std::transform(std::filesystem::directory_iterator(_path / "depth"),
-                   std::filesystem::directory_iterator(),
-                   std::back_inserter(_depth_paths),
-                   [](const auto &entry) { return entry.path(); });
-    std::sort(_depth_paths.begin(), _depth_paths.end());
-#pragma omp critical
-    _fields.insert(field);
-    break;
-
-  case Field::CONFIDENCE:
-    CHECK_EXSISTANCE(_path, "confidence");
-
-    // Get depth image paths
-    std::transform(std::filesystem::directory_iterator(_path / "confidence"),
-                   std::filesystem::directory_iterator(),
-                   std::back_inserter(_confidence_paths),
-                   [](const auto &entry) { return entry.path(); });
-    std::sort(_confidence_paths.begin(), _confidence_paths.end());
-#pragma omp critical
-    _fields.insert(field);
-    break;
-
-    //  case Field::POSES:
-    // #pragma omp critical
-    //    _fields.insert(field);
-    //    // Chontious fall thorugh, since poses are dependent on Odemetry
-
-  case Field::ODOMETRY:
-    CHECK_EXSISTANCE(_path, "odometry.csv");
-
-    _odometry_data = read_odometry(_path / "odometry.csv").value();
-#pragma omp critical
-    _fields.insert(field);
-    break;
-
-  case Field::IMU:
-    CHECK_EXSISTANCE(_path, "imu.csv");
-
-    _imu_data = read_imu(_path / "imu.csv").value();
-#pragma omp critical
-    _fields.insert(field);
-    break;
-  default:
-    throw std::runtime_error("Unknown field");
-  }
 };
 
 Eigen::Matrix<double, 3, 3> Dataset::intrinsic_matrix() const {
@@ -315,7 +292,6 @@ DataItem Dataset::operator[](int idx) const {
 
   DataItem data;
   data.set<Field::INDEX>([idx]() { return idx; });
-
   for (auto field : _fields) {
     switch (field) {
     case Field::COLOR: {
@@ -325,15 +301,19 @@ DataItem Dataset::operator[](int idx) const {
       break;
     }
     case Field::DEPTH: {
-      auto depth_path = _depth_paths[idx];
-      data.set<Field::DEPTH>(
-          [depth_path]() { return read_depth_image(depth_path).value(); });
+      auto depth_path = _path / "depth" / fmt::format("{:06}.png", idx);
+      data.set<Field::DEPTH>([depth_path]() {
+        CHECK_EXSISTANCE(depth_path);
+        return read_depth_image(depth_path).value();
+      });
       break;
     }
     case Field::CONFIDENCE: {
-      auto conf_path = _confidence_paths[idx];
-      data.set<Field::CONFIDENCE>(
-          [conf_path]() { return read_confidence_image(conf_path).value(); });
+      auto conf_path = _path / "confidence" / fmt::format("{:06}.png", idx);
+      data.set<Field::CONFIDENCE>([conf_path]() {
+        CHECK_EXSISTANCE(conf_path);
+        return read_confidence_image(conf_path).value();
+      });
       break;
     }
     case Field::ODOMETRY: {

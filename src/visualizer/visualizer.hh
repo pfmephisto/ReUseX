@@ -15,9 +15,13 @@ class Visualizer;
 // using VisualizerPtr = std::unique_ptr<Visualizer>;
 
 class Visualizer {
-public:
+    public:
   static Visualizer *getInstance();
   static bool isInitialised();
+  static void pause();
+  static void resume();
+  static bool skip();
+
   ~Visualizer() {
     // spdlog::trace("Calling destructor on Viewer");
     if (instance)
@@ -26,7 +30,6 @@ public:
   static void resetViewer();
   void wait() const;
   void step() const;
-  bool skip() const;
 
   template <typename T>
   void showCloud(typename pcl::PointCloud<T>::ConstPtr,
@@ -40,7 +43,7 @@ public:
   Visualizer(const Visualizer &) = delete;
   Visualizer &operator=(const Visualizer &) = delete;
 
-private:
+    private:
   Visualizer() { spdlog::trace("Calling constructor on Viewer"); };
 
   static void initialise();

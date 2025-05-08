@@ -48,11 +48,12 @@ static std::string trimPathMiddle(const std::string &path, int offset = 0) {
 namespace ReUseX {
 
 class Dataset {
-private:
+    private:
   std::filesystem::path _path = {};
-  std::set<Field> _fields = {};
-  std::vector<std::filesystem::path> _depth_paths = {};
-  std::vector<std::filesystem::path> _confidence_paths = {};
+  std::set<Field> _fields = {
+      Field::COLOR,    Field::DEPTH, Field::CONFIDENCE,
+      Field::ODOMETRY, Field::IMU,
+  };
   Eigen::MatrixXd _odometry_data = {};
   Eigen::MatrixXd _imu_data = {};
   size_t _n_frames = 0;
@@ -61,45 +62,10 @@ private:
   int _depth_width = 256;
   int _depth_hight = 192;
 
-public:
-  template <typename T>
-  Dataset(const std::filesystem::path &path, T begin, T end) {
+    public:
+  Dataset(const std::filesystem::path &path);
 
-    // Check if directories and files exists
-    assert(std::filesystem::exists(path) &&
-           fmt::format("Directory does not exist: {}", path.string()).c_str());
-
-    _path = path;
-    spdlog::info("Creating Dataset: {}",
-                 _path.parent_path().filename().c_str());
-
-    struct winsize size;
-    ioctl(STDOUT_FILENO, TIOCGWINSZ, &size);
-
-    spdlog::debug("Path: {}", trimPathMiddle(_path.c_str(), 51));
-
-    _n_frames = get_number_of_frames(_path / "rgb.mp4");
-    spdlog::debug("Number of frames: {}", _n_frames);
-
-    // Load data
-#pragma omp parallel
-#pragma omp single
-    for (auto it = begin; it != end; it++) {
-      Field field = *it;
-#pragma omp task
-      set_field(field);
-    };
-    spdlog::debug("Fields: [{}]", fmt::join(_fields, ", "));
-  };
-
-  Dataset(const std::filesystem::path &path,
-          const std::initializer_list<Field> &fields)
-      : Dataset(path, fields.begin(), fields.end()) {};
-
-  Dataset(const std::string &path)
-      : Dataset(std::filesystem::path(path),
-                {Field::COLOR, Field::DEPTH, Field::CONFIDENCE, Field::ODOMETRY,
-                 Field::IMU /*, Field::POSES*/}) {};
+  Dataset(const std::string &path) : Dataset(std::filesystem::path(path)) {};
 
   // Getters
   std::set<Field> fields() const { return _fields; };
@@ -120,8 +86,7 @@ public:
 
   inline auto get_odometry() const { return _odometry_data; };
 
-private:
-  void set_field(Field field);
+    private:
   static size_t get_number_of_frames(const std::filesystem::path &path);
 };
 

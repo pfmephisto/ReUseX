@@ -141,12 +141,11 @@ CreateCloud(DataItem const &data, double fx, double fy, double cx, double cy,
     setHeader(*cloud, data.get<Field::ODOMETRY>(), i);
 
   // Get Pose
-  auto pose = Eigen::Affine3f::Identity();
+  Eigen::Affine3f pose = Eigen::Affine3f::Identity();
   pose.linear() = cloud->sensor_orientation_.toRotationMatrix();
   pose.translation() = cloud->sensor_origin_.template head<3>();
-
-  // cloud->sensor_origin_ = Eigen::Vector4f(0, 0, 0, 1);
-  // cloud->sensor_orientation_ = Eigen::Quaternionf::Identity();
+  // Eigen::Affine3f pose = Eigen::Affine3f::Identity();
+  // pose.rotate(Eigen::AngleAxisf(-M_PI / 2.0f, Eigen::Vector3f::UnitZ()));
 
   pcl::transformPointCloud(*cloud, *cloud, pose);
 

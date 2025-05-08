@@ -13,10 +13,7 @@ void bind_dataset(py::module_ &m) {
   /// @brief A handle for accessing raw data, like the strayscanner export.
   py::class_<ReUseX::Dataset>(m, "Dataset")
       .def(py::init<const std::string &>())
-      .def(py::init([](std::string &path, std::vector<ReUseX::Field> &fields) {
-        return ReUseX::Dataset(std::filesystem::path(path), fields.begin(),
-                               fields.end());
-      }))
+      .def(py::init<const std::filesystem::path &>())
       .def("fields", &ReUseX::Dataset::fields)
       .def("intrinsic_matrix", &ReUseX::Dataset::intrinsic_matrix)
       .def("__bool__", &ReUseX::Dataset::operator bool)

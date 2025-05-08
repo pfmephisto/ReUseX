@@ -124,6 +124,23 @@ icp(const typename pcl::PointCloud<PointT>::ConstPtr cloud_src,
   input_src = cloud_src->makeShared(); // Makes a copy
   input_tgt = cloud_tgt->makeShared(); // Makes a copy
 
+#if VISUALIZE
+  // Orient the point clouds for ICP the same way as theose in the viewer
+  Eigen::Affine3f pose_source, pose_target;
+  pose_source = Eigen::Affine3f::Identity();
+  pose_source.translation().template head<3>() =
+      input_src->sensor_origin_.template head<3>();
+  pose_source.linear() = input_src->sensor_orientation_.toRotationMatrix();
+
+  pose_target = Eigen::Affine3f::Identity();
+  pose_target.translation().template head<3>() =
+      input_tgt->sensor_origin_.template head<3>();
+  pose_target.linear() = input_tgt->sensor_orientation_.toRotationMatrix();
+
+  pcl::transformPointCloud(*input_src, *input_src, pose_source);
+  pcl::transformPointCloud(*input_tgt, *input_tgt, pose_target);
+#endif
+
   input_src->sensor_origin_ = Eigen::Vector4f(0, 0, 0, 1);
   input_src->sensor_orientation_ = Eigen::Quaternionf::Identity();
   input_tgt->sensor_origin_ = Eigen::Vector4f(0, 0, 0, 1);
@@ -137,7 +154,7 @@ icp(const typename pcl::PointCloud<PointT>::ConstPtr cloud_src,
                       ->getViewer<pcl::visualization::PCLVisualizer>();
 
     Color blue(cloud_src, 0, 0, 255);
-    Color red(cloud_tgt, 255, 0, 0);
+    Color red(cloud_tgt, 128, 0, 0);
     viewer->addPointCloud<PointT>(cloud_src, blue, icp_source);
     viewer->addPointCloud<PointT>(cloud_tgt, red, icp_target);
 
@@ -201,19 +218,19 @@ icp(const typename pcl::PointCloud<PointT>::ConstPtr cloud_src,
 
   // ... and weight the 'curvature' dimension so that it is balanced against x,
   // y, and z
-  float alpha[7] = {1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0};
+  float alpha[7] = {1.0, 1.0, 1.0, 2.5, 2.5, 2.5, 0.0};
 
   point_representation.setRescaleValues(alpha);
 
   // Align
   RegType reg;
   // Set the point representation
-  // reg.setPointRepresentation(
-  //     pcl::make_shared<const MyPointRepresentation<PointT>>(
-  //         point_representation));
+  reg.setPointRepresentation(
+      pcl::make_shared<const MyPointRepresentation<PointT>>(
+          point_representation));
 
-  // reg.setTransformationEpsilon(1e-8);
-  // reg.setEuclideanFitnessEpsilon(1e-8);
+  reg.setTransformationEpsilon(1e-8);
+  reg.setEuclideanFitnessEpsilon(1e-8);
   reg.setMaximumIterations(50);
   // typename pcl::registration::
   //     TransformationEstimationPointToPlaneLLS<PointT, PointT>::Ptr trans_lls(
@@ -244,6 +261,8 @@ icp(const typename pcl::PointCloud<PointT>::ConstPtr cloud_src,
 
     spdlog::debug("Add Keyboard Even Keybard Callback");
     viewer->registerKeyboardCallback(keyboardEvnetCallback);
+
+    // Construct the callback function to visualize the registration process
     std::function<typename pcl::Registration<
         PointT, PointT>::UpdateVisualizerCallbackSignature>
     callback([viewer, &step_view](const pcl::PointCloud<PointT> &c1,
@@ -274,15 +293,6 @@ icp(const typename pcl::PointCloud<PointT>::ConstPtr cloud_src,
           pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 10,
           icp_target_filtered);
 
-      // if (!viewer->updateText("Source", 10, 10)) {
-      //   viewer->addText("Source", 10, 10, 20, 0, 1,
-      //   1);
-      // }
-      // if (!viewer->updateText("Target", 10, 40)) {
-      //   viewer->addText("Target", 10, 40, 20, 1, 1,
-      //   0);
-      // }
-
       // many lines missing
       if (!viewer->updateCorrespondences<PointT>(input_src, input_tgt,
                                                  correspondences)) {
@@ -291,47 +301,25 @@ icp(const typename pcl::PointCloud<PointT>::ConstPtr cloud_src,
       }
       viewer->setShapeRenderingProperties(
           pcl::visualization::PCL_VISUALIZER_LINE_WIDTH, 3, "correspondences");
-      // viewer->spin();
-      // });
 
       // Step through optimisation
       if (!viewer->wasStopped() && !step_view &&
           !Visualizer::getInstance()->skip())
         spdlog::debug("Waiting for next stepn. To step press 'n'");
 
-      while (!viewer->wasStopped() && !step_view &&
-             !Visualizer::getInstance()->skip()) {
+      while (!viewer->wasStopped() && !step_view && !Visualizer::skip()) {
         viewer->spinOnce(100);
         std::this_thread::sleep_for(100ms);
       }
       step_view = false;
     });
+
+    // Register the callback
     reg.registerVisualizationCallback(callback);
 
-    // Eigen::Matrix4f prev;
-
-    // reg.setMaximumIterations(2);
-    // for (size_t i = 0; i < 20; ++i) {
-
-    // Update the input to be able to take another step
-    // reg.setInputSource(input_src);
+    // Registration loop
     reg.align(*dummy);
 
-    // pcl::transformPointCloud(*input_src, *input_src,
-    //                          reg.getFinalTransformation().inverse());
-
-    // if the difference between this transformation and the previous one
-    // is smaller than the threshold, refine the process by reducing
-    // the maximal correspondence distance
-    // if (std::abs((reg.getLastIncrementalTransformation() - prev).sum()) <
-    //    reg.getTransformationEpsilon()) {
-    //  reg.setMaxCorrespondenceDistance(reg.getMaxCorrespondenceDistance() -
-    //                                   0.001);
-    //  spdlog::debug("Updating max Correspondence Distance = {:.3f}",
-    //                reg.getMaxCorrespondenceDistance());
-    //}
-    // prev = reg.getLastIncrementalTransformation();
-    //}
   } else {
 #endif
     // Automate registration

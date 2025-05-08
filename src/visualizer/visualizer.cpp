@@ -25,6 +25,8 @@
 
 #include <string>
 
+bool ReUseX_VISUALIZER_DISABLE = false;
+
 using namespace std::chrono_literals;
 
 namespace ReUseX {
@@ -129,12 +131,17 @@ void Visualizer::wait() const {
   }
   skip_view = false;
 }
-bool Visualizer::skip() const { return skip_view; }
 
 void Visualizer::step() const { pcl_viewer->spinOnce(100); }
 
+void Visualizer::pause() { ReUseX_VISUALIZER_DISABLE = true; }
+void Visualizer::resume() { ReUseX_VISUALIZER_DISABLE = false; }
+bool Visualizer::skip() { return skip_view; }
+
 bool Visualizer::isInitialised() {
-  bool const is_initialised = bool(instance) && bool(omp_get_thread_num() <= 1);
+  bool const is_initialised = bool(instance) &&
+                              bool(omp_get_thread_num() <= 1) &&
+                              !ReUseX_VISUALIZER_DISABLE;
   spdlog::trace("Is Viewer initialised: {}", is_initialised);
   if (!is_initialised)
     spdlog::debug("Instance: {}, Threads: {}", fmt::ptr(instance),

@@ -287,10 +287,11 @@
                 ];
 
               shellHook = ''
-                echo "Entering dev shell"
-                export VIRTUAL_ENV_PROMPT="ReUseX Environment"
-                export REPO_ROOT=$(pwd)
-                export CUDA_PATH=${pkgs.cudaPackages.cudatoolkit}
+                              echo "Entering dev shell"
+                              export VIRTUAL_ENV_PROMPT="ReUseX Environment"
+                              export REPO_ROOT=$(pwd)
+                              export CUDA_PATH=${pkgs.cudaPackages.cudatoolkit}
+                ./tmux_session
               '';
             }; # end of default shell
         }; # end of devShells

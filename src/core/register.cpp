@@ -13,6 +13,7 @@
 #include <pcl/features/fpfh_omp.h>
 #include <pcl/features/normal_3d.h>
 #include <pcl/filters/voxel_grid.h>
+#include <pcl/io/ply_io.h>
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 #include <pcl/registration/elch.h>
@@ -62,6 +63,8 @@
 #include <utility>
 #include <vector>
 
+#define VISUALIZE 1
+
 namespace fs = std::filesystem;
 using namespace ReUseX;
 
@@ -89,6 +92,9 @@ using namespace ReUseX;
  */
 g2o::Isometry3 odometryToIsometry(Eigen::MatrixXd odometry) {
 
+  Eigen::Matrix4d xform{};
+  xform << 1, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 1;
+
   // Create an Eigen::Transform object
   g2o::Isometry3 transform = g2o::Isometry3::Identity();
 
@@ -100,617 +106,15 @@ g2o::Isometry3 odometryToIsometry(Eigen::MatrixXd odometry) {
   Eigen::Quaterniond quat(q[3], q[0], q[1], q[2]); // w, x, y, z
 
   // Normalize quaternion to avoid numerical instability
-  // quat.normalize();
+  quat.normalize();
 
   // Set transformation matrix
   transform.linear() = quat.toRotationMatrix();
-  transform.translation() = p;
-
-  return transform;
-}
-
-/**
- * @brief Registers nodes into a graph optimization problem.
- *
- * This function adds nodes to a graph managed by a g2o::SparseOptimizer
- * instance. It processes a dataset and a set of indices to register nodes into
- * the optimizer.
- *
- * @param optimizer A unique pointer to the g2o::SparseOptimizer instance.
- *                  This optimizer manages the graph structure.
- * @param dataset The dataset containing the nodes to be registered.
- * @param indices A vector of indices specifying the nodes to be added to the
- * graph.
- *
- * @note Ensure that the optimizer is properly initialized before calling this
- *       function. The dataset must contain valid nodes corresponding to the
- *       provided indices.
- */
-void register_nodes(std::unique_ptr<g2o::SparseOptimizer> &optimizer,
-                    Dataset &dataset, std::vector<size_t> &indices) {
-  spdlog::info("Entering register_nodes");
-
-  std::vector<g2o::VertexSE3 *> verticies{};
-  verticies.resize(indices.size());
-
-  spdlog::trace("Starting parallel for loop");
-
-  {
-    spdmon::LoggerProgress monitor("Add Nodes", indices.size());
-#pragma omp parallel for shared(dataset, verticies, monitor)
-    for (int i = 0; i < indices.size(); i++) {
-      size_t index = indices[i];
-
-      verticies[i] = new g2o::VertexSE3();
-
-      verticies[i]->setId(index);
-      auto odometry = dataset[index].get<Field::ODOMETRY>();
-
-      g2o::Isometry3 pose = odometryToIsometry(odometry);
-
-      verticies[i]->setEstimate(pose);
-
-      ++monitor;
-    }
-  }
-
-  // Fix the location of the first frame
-  verticies[0]->setFixed(true);
-  // verticies[0]->setEstimate(g2o::Isometry3::Identity());
-
-  spdlog::trace("Setting verticies");
-  for (auto &v : verticies)
-    optimizer->addVertex(v);
-}
-
-/**
- * @brief Registers consecutive edges in a graph optimization problem.
- *
- * This function adds edges between consecutive nodes in a graph, using the
- * specified kernel and optimization parameters. It is designed to work with
- * a sparse optimizer and a dataset containing graph nodes.
- *
- * @param optimizer A unique pointer to the g2o::SparseOptimizer instance.
- *                  This optimizer is used to manage the graph structure.
- * @param dataset The dataset containing the graph nodes to be connected.
- * @param indices A vector of indices specifying the nodes to connect.
- * @param groupSize The size of the groups of nodes to be connected
- * consecutively.
- * @param kernelName The name of the robust kernel to be used for edge
- * weighting. Supported kernels include:
- *                   - Huber
- *                   - Cauchy
- *                   - Welsch
- *                   - Tukey
- *                   - Fair
- *                   - DCS
- *                   - GemanMcClure
- *                   - ScaleDelta
- *                   - Saturated
- *                   - PseudoHuber
- * @param deltaValue The delta value used for the robust kernel.
- * @param maxCorrespondence The maximum correspondence threshold for edge
- * creation.
- * @param information_matrix The 6x6 information matrix used for edge weighting.
- *
- * @note Ensure that the optimizer is properly initialized before calling this
- *       function. The kernel name must match one of the supported kernels.
- */
-void register_consecutive_edges(
-    std::unique_ptr<g2o::SparseOptimizer> &optimizer, Dataset &dataset,
-    std::vector<size_t> &indices, const size_t groupSize,
-    const std::string kernelName, const double deltaValue,
-    const double maxCorrespondence,
-    const Eigen::Matrix<double, 6, 6> information_matrix) {
-  spdlog::info("Entering register_consecutive_edges");
-  assert(groupSize > 0);
-  // spdlog::trace("Parameters=> groupSize:{} maxCorrespondence:{}",groupSize,
-  // maxCorrespondence);
-  spdlog::debug("Parameters:");
-  spdlog::debug("groupSize = {}", groupSize);
-  spdlog::debug("kernelName = {}", kernelName);
-  spdlog::debug("deltaValue = {}", deltaValue);
-  spdlog::debug("maxCorrespondence = {}", maxCorrespondence);
-  spdlog::debug("information_matrix = {}",
-                information_matrix.format(OctaveFmt));
-
-  using PointT = pcl::PointXYZRGBA;
-  using Cloud = typename pcl::PointCloud<PointT>::Ptr;
-  using FilterCollection = std::vector<typename pcl::Filter<PointT>::Ptr>;
-  using Isometry = g2o::Isometry3;
-
-  spdlog::trace("Set up result vector");
-  size_t const num_edges = (indices.size() - groupSize) * groupSize;
-
-  spdlog::trace("Creating edge pairs");
-  std::vector<std::pair<size_t, size_t>> edge_pairs;
-  edge_pairs.reserve(num_edges);
-  for (size_t i = groupSize; i < indices.size(); i++) {
-    for (size_t j = groupSize; j > 0; j--) {
-      const size_t idx = (i - groupSize) * (groupSize - 1) + (i - j);
-      const size_t target_index = indices[i - j];
-      const size_t source_index = indices[i];
-      edge_pairs.push_back(std::make_pair(source_index, target_index));
-    }
-  }
-
-  spdlog::trace("Creating edges");
-  std::vector<g2o::EdgeSE3 *> edges{};
-  edges.resize(num_edges);
-
-  const g2o::RobustKernelFactory *kernel_factory =
-      g2o::RobustKernelFactory::instance();
-
-  std::shared_ptr<spdmon::LoggerProgress> monitor =
-      std::make_shared<spdmon::LoggerProgress>("Adding edges",
-                                               edge_pairs.size());
-  spdlog::trace("Starting parallel for loop");
-#pragma omp parallel for shared(dataset, edge_pairs, edges, kernel_factory)    \
-    firstprivate(kernelName, deltaValue, information_matrix)
-  for (size_t i = 0; i < edge_pairs.size(); i++) {
-    // Get the two indices
-    const auto [source_index, target_index] = edge_pairs[i];
-
-    const auto source =
-        static_cast<g2o::VertexSE3 *>(optimizer->vertex(source_index));
-    const auto target =
-        static_cast<g2o::VertexSE3 *>(optimizer->vertex(target_index));
-
-    const auto source_pose = source->estimate();
-    const auto target_pose = target->estimate();
-
-    // Create Edge
-    edges[i] = new g2o::EdgeSE3();
-    edges[i]->setId(i);
-    edges[i]->setVertex(0, source);
-    edges[i]->setVertex(1, target);
-
-    edges[i]->setMeasurement(source_pose.inverse() * target_pose);
-    edges[i]->setInformation(information_matrix * 1000);
-
-    // Set Robust Kernel
-    g2o::RobustKernel *kernel = kernel_factory->construct(kernelName);
-    kernel->setDelta(deltaValue); // 1.5 to 2.5
-    edges[i]->setRobustKernel(kernel);
-
-    ++(*monitor);
-  }
-
-  std::vector<double> fitness_scores;
-#if 0 // ICP Alignment
-  fitness_scores.resize(edges.size());
-  for (int i = 0; i < edges.size(); i++) {
-
-    size_t source_index = edge_pairs[i].first;
-    size_t target_index = edge_pairs[i].second;
-    auto source_cloud = dataset[source_index].get<Field::CLOUD>();
-    auto target_cloud = dataset[target_index].get<Field::CLOUD>();
-
-    // Set up filters
-    FilterCollection filters{
-        Filters::HighConfidenceFilter<PointT>(),
-        Filters::GridFilter<PointT>(0.1),
-    };
-
-    auto [matrix, fitness_score] =
-        icp<PointT>(source_cloud, target_cloud, filters, maxCorrespondence);
-    fitness_scores[i] = fitness_score;
-
-    auto source_pose =
-        static_cast<g2o::VertexSE3 *>(optimizer->vertex(source_index))
-            ->estimate();
-    auto const target_pose =
-        static_cast<g2o::VertexSE3 *>(optimizer->vertex(target_index))
-            ->estimate();
-
-    // Update the source pose
-    source_pose = source_pose * g2o::Isometry3(matrix.cast<double>());
-    edges[i]->setMeasurement(source_pose.inverse() * target_pose);
-    edges[i]->setInformation(information_matrix / fitness_score);
-  }
-#endif
-
-  // if (!ReUseX::Visualizer::isInitialised()) {
-  monitor.reset();
-  monitor.reset(
-      new spdmon::LoggerProgress("Adding edges to viewer", edges.size()));
-  spdlog::trace("Visualize edges");
-  const auto viewer = ReUseX::Visualizer::getInstance()
-                          ->getViewer<pcl::visualization::PCLVisualizer>();
-  for (size_t i = 0; i < edges.size(); i++) {
-
-    const auto edge = edges[i];
-
-    auto const source =
-        static_cast<g2o::VertexSE3 *>(optimizer->vertex(edge->vertex(0)->id()))
-            ->estimate()
-            .translation()
-            .cast<float>();
-    auto const target =
-        static_cast<g2o::VertexSE3 *>(optimizer->vertex(edge->vertex(1)->id()))
-            ->estimate()
-            .translation()
-            .cast<float>();
-
-    pcl::PointXYZ p_start, p_end;
-    p_start.x = source.x();
-    p_start.y = source.y();
-    p_start.z = source.z();
-    p_end.x = target.x();
-    p_end.y = target.y();
-    p_end.z = target.z();
-
-    pcl::RGB color = pcl::RGB(0, 255, 0);
-
-    if (fitness_scores.size() > 0) {
-      double const score =
-          std::max<double>(0.0, std::min<double>(1.0, fitness_scores[i]));
-      auto lut = pcl::ColorLUT<pcl::LUT_VIRIDIS>();
-      color = lut.at(static_cast<size_t>(score * lut.size()));
-    }
-
-    const std::string name =
-        fmt::format("edge_{}-{}_orig", edge->vertices()[0]->id(),
-                    edge->vertices()[1]->id());
-
-    viewer->addLine(p_start, p_end, color.r / 255, color.g / 255, color.b / 255,
-                    name);
-    viewer->setShapeRenderingProperties(
-        pcl::visualization::PCL_VISUALIZER_LINE_WIDTH, 3, name);
-
-    ++(*monitor);
-    //}
-  }
-
-  spdlog::trace("Setting edges");
-  for (auto &edge : edges) // Add edges to optimizer
-    optimizer->addEdge(edge);
-
-  // spdlog::info("Min fitness score: {:.6f}", min_fitness_score);
-  // spdlog::info("Max fitness score: {:.6f}", max_fitness_score);
-}
-
-/**
- * @brief Visualizes a point cloud with optional custom processing.
- *
- * This function visualizes a subset of a point cloud dataset using the
- * specified indices. It optionally applies a custom processing function to the
- * point cloud before visualization.
- *
- * @param dataset The dataset containing the point cloud data.
- * @param indices A vector of indices specifying the points to visualize.
- * @param name A string representing the name of the visualization window.
- * @param func An optional custom function to process the point cloud before
- *             visualization. The function takes a shared pointer to a
- *             pcl::PointCloud<pcl::PointXYZRGBA> and an integer as arguments.
- *
- * @details The function extracts the specified points from the dataset and
- *          visualizes them in a window. If a custom function is provided, it
- *          is applied to the point cloud before visualization. This is useful
- *          for tasks such as filtering, coloring, or transforming the point
- * cloud.
- *
- * @note Ensure that the dataset contains valid point cloud data and that the
- *       indices are within bounds. The visualization requires the PCL (Point
- *       Cloud Library) to be properly installed and configured.
- */
-using ColorFunc = std::function<
-    typename pcl::visualization::PointCloudColorHandler<pcl::PointXYZRGBA>::Ptr(
-        typename pcl::PointCloud<pcl::PointXYZRGBA>::Ptr)>;
-using TranformFunc =
-    std::function<void(typename pcl::PointCloud<pcl::PointXYZRGBA>::Ptr, int)>;
-static ColorFunc get_rgb_color =
-    [](pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud)
-    -> std::shared_ptr<
-        pcl::visualization::PointCloudColorHandler<pcl::PointXYZRGBA>> {
-  return std::make_shared<
-      pcl::visualization::PointCloudColorHandlerRGBField<pcl::PointXYZRGBA>>(
-      cloud);
-};
-void visualize_cloud(Dataset &dataset, std::vector<size_t> indices,
-                     std::string name, std::optional<TranformFunc> func = {},
-                     ColorFunc getColor = get_rgb_color) {
-
-  // Check if we are in a visualization context
-  if (!ReUseX::Visualizer::isInitialised())
-    return;
-
-  auto viewer = ReUseX::Visualizer::getInstance();
-  auto pcl_viewer = viewer->getViewer<pcl::visualization::PCLVisualizer>();
-
-  spdmon::LoggerProgress monitor("Adding Clouds to Viewer", indices.size());
-
-  // Merge clouds
-  typename pcl::PointCloud<pcl::PointXYZRGBA>::Ptr merged(
-      new pcl::PointCloud<pcl::PointXYZRGBA>());
-#pragma omp parallel for
-  for (int i = 0; i < indices.size(); i++) {
-    auto idx = indices[i];
-    auto cloud = CreateCloud(dataset[idx]);
-
-    // Filter point cloud to only include hight confidence points
-    auto filter = Filters::HighConfidenceFilter<pcl::PointXYZRGBA>();
-    filter->setInputCloud(cloud);
-    filter->filter(*cloud);
-
-    if (func.has_value())
-      func.value()(cloud, idx);
-
-    // Get the pose
-    // Eigen::Affine3f pose = Eigen::Affine3f::Identity();
-    // pose.linear() = cloud->sensor_orientation_.toRotationMatrix();
-    // pose.translation() = cloud->sensor_origin_.head<3>();
-#pragma omp critical
-    {
-      *merged += *cloud;
-      // pcl_viewer->addCoordinateSystem(0.5, pose,
-      //                                 fmt::format("{}_{}_pose", name, i));
-    }
-    ++monitor;
-  }
-
-  // Filter if there are a lot of points
-  if (indices.size() > 300) {
-    pcl::VoxelGrid<pcl::PointXYZRGBA> vg;
-    vg.setLeafSize(0.05, 0.05, 0.05);
-    vg.setInputCloud(merged);
-    vg.filter(*merged);
-  }
-  auto color = getColor(merged);
-
-  // Set orientation adn origin to identity
-  merged->sensor_origin_ = Eigen::Vector4f(0, 0, 0, 1);
-  merged->sensor_orientation_ = Eigen::Quaternionf::Identity();
-
-  pcl_viewer->addPointCloud<pcl::PointXYZRGBA>(merged, *color, name);
-  pcl_viewer->setPointCloudRenderingProperties(
-      pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, name);
-  // pcl_viewer->setPointCloudRenderingProperties(
-  //     pcl::visualization::RenderingProperties::PCL_VISUALIZER_SHADING,
-  //     pcl::visualization::ShadingRepresentationProperties::
-  //         PCL_VISUALIZER_SHADING_PHONG,
-  //     name);
-  viewer->step();
-}
-
-inline void merge_edges(std::vector<std::pair<size_t, size_t>> lhs,
-                        const std::vector<std::pair<size_t, size_t>> rhs) {
-  std::copy(rhs.begin(), rhs.end(), std::back_inserter(lhs));
-}
-#pragma omp declare reduction(                                                 \
-        + : std::vector<std::pair<size_t, size_t>> : merge_edges(omp_out,      \
-                                                                     omp_in))  \
-    initializer(omp_priv = std::vector<std::pair<size_t, size_t>>())
-
-// TODO: Add function doc string
-void loop_detection(std::unique_ptr<g2o::SparseOptimizer> &optimizer,
-                    Dataset &dataset, std::vector<size_t> &indices,
-                    const std::string kernelName, const double deltaValue,
-                    const Eigen::Matrix<double, 6, 6> information_matrix) {
-
-  using PointT = pcl::PointXYZRGBA;
-  using Cloud = typename pcl::PointCloud<PointT>::Ptr;
-  using FilterCollection = std::vector<typename pcl::Filter<PointT>::Ptr>;
-
-  // const float LIMIT_LOWER = 0.3f;
-  const float LIMIT_UPPER = 2.0f;
-  const size_t MAX_FRAMES_DIST = 500;
-  const size_t NUM_SAMPLES = 100;
-
-  spdlog::trace("Entering loop detection");
-
-  size_t num_edges = (indices.size() * (indices.size() - 1)) / 2;
-
-  std::vector<std::pair<size_t, size_t>> edges;
-  edges.reserve(num_edges);
-
-  // Set up logger
-  std::shared_ptr<spdmon::LoggerProgress> monitor;
-  monitor =
-      std::make_shared<spdmon::LoggerProgress>("Collect all edges", num_edges);
-  monitor->GetLogger()->set_level(spdlog::level::warn);
-
-#pragma omp parrallel for collapse(2) reduction(+ : edges)                     \
-    shared(dataset, indices, edges, LIMIT_UPPER)
-  for (int i = 0; i < indices.size(); ++i) { // Target
-    for (int j = 0; j < i; ++j) {            // Source
-
-      if (i == j) {
-        ++(*monitor);
-        continue;
-      }
-
-      const std::size_t idx_i = indices[i];
-      const std::size_t idx_j = indices[j];
-
-      // Get the two verticies
-      const g2o::Isometry3 pose1 =
-          static_cast<g2o::VertexSE3 *>(optimizer->vertex(idx_i))->estimate();
-      const g2o::Isometry3 pose2 =
-          static_cast<g2o::VertexSE3 *>(optimizer->vertex(idx_j))->estimate();
-
-      const double dist = (pose1.translation() - pose2.translation()).norm();
-      const size_t num_frames_appart =
-          std::abs(static_cast<int>(idx_i) - static_cast<int>(idx_j));
-
-      if (dist > LIMIT_UPPER || num_frames_appart < MAX_FRAMES_DIST) {
-        edges.emplace_back(idx_j, idx_i);
-      }
-
-      ++(*monitor);
-    }
-  }
-  spdlog::info("Found {} edges", edges.size());
-
-  spdlog::info("Subsampling edges");
-  std::vector<std::pair<size_t, size_t>> subsampled_edges;
-  subsampled_edges.reserve(NUM_SAMPLES);
-
-  // Sort edges by largest loops
-  std::sort(edges.begin(), edges.end(), [](const auto &lhs, const auto &rhs) {
-    return std::abs(static_cast<int>(lhs.first) -
-                    static_cast<int>(lhs.second)) <
-           std::abs(static_cast<int>(rhs.first) - static_cast<int>(rhs.second));
-  });
-  // Copy the first NUM_SAMPLES edges
-  std::copy(edges.begin(), edges.begin() + NUM_SAMPLES,
-            std::back_inserter(subsampled_edges));
-
-  // std::sample(edges.begin(), edges.end(),
-  // std::back_inserter(subsampled_edges),
-  //             NUM_SAMPLES, std::mt19937{std::random_device{}()});
-
-  monitor.reset();
-  monitor.reset(
-      new spdmon::LoggerProgress("Compute alignment", subsampled_edges.size()));
-  monitor->GetLogger()->set_level(spdlog::level::warn);
-
-  size_t num_edges_found = 0;
-  double min_fitness_score = std::numeric_limits<double>::max();
-  double max_fitness_score = std::numeric_limits<double>::min();
-
-#pragma omp parallel for shared(dataset, subsampled_edges)
-  for (int i = 0; i < subsampled_edges.size(); ++i) {
-
-    auto [target_index, source_index] = subsampled_edges[i];
-
-    // Set up target
-    spdlog::trace("Create target pose");
-    Cloud target = CreateCloud(dataset[target_index]);
-    g2o::Isometry3 pose_target = g2o::Isometry3::Identity();
-    pose_target.translation() = target->sensor_origin_.head<3>().cast<double>();
-    pose_target.linear() =
-        target->sensor_orientation_.toRotationMatrix().cast<double>();
-
-    // Set up source
-    spdlog::trace("Create source pose");
-    Cloud source = CreateCloud(dataset[source_index]);
-    g2o::Isometry3 pose_source = g2o::Isometry3::Identity();
-    pose_source.translation() = source->sensor_origin_.head<3>().cast<double>();
-    pose_source.linear() =
-        source->sensor_orientation_.toRotationMatrix().cast<double>();
-
-    // Set up filters
-    spdlog::trace("Setting up filters");
-    FilterCollection filters{
-        Filters::HighConfidenceFilter<pcl::PointXYZRGBA>(), // vg,
-        Filters::GridFilter<pcl::PointXYZRGBA>(0.1),
-    };
-
-    // Compute ICP
-    spdlog::trace("Computing ICP");
-    auto [matrix, fitness_score] =
-        icp<PointT>(source, target, filters, LIMIT_UPPER);
-
-#pragma omp critical
-    {
-      min_fitness_score = std::min(min_fitness_score, fitness_score);
-      max_fitness_score = std::max(max_fitness_score, fitness_score);
-    }
-
-    if (fitness_score > 0.04) {
-      spdlog::warn("Fitness score is too large: {:.6f}", fitness_score);
-      matrix = Eigen::Matrix4f::Identity();
-      // continue;
-    }
-
-    //// Check if the distance it too large
-    // if (xform.linear().norm() > 2.0) {
-    //   spdlog::warn("Distance between {} and {} is too large: {}", i, j,
-    //                xform.linear().norm());
-    //   ++monitor;
-    //   continue;
-    // } else {
-    //   spdlog::error("Distance between {} and {} is: {}", i, j,
-    //                 xform.linear().norm());
-    // }
-
-    // TODO: Fix loop detection
-    // Update the soruce
-    spdlog::trace("Updating pose");
-    pose_source = pose_source * g2o::Isometry3(matrix.cast<double>());
-
-    // Create edge
-    spdlog::trace("Creating edge");
-    g2o::EdgeSE3 *edge = new g2o::EdgeSE3();
-    edge->setVertex(0, optimizer->vertex(target_index)); // Target
-    edge->setVertex(1, optimizer->vertex(source_index)); // Source
-    edge->setMeasurement(pose_target.inverse() * pose_source);
-
-    // Set information matrix
-    edge->setInformation(information_matrix / (fitness_score * fitness_score));
-
-    // Set robust kernel
-    g2o::RobustKernel *kernel =
-        g2o::RobustKernelFactory::instance()->construct(kernelName);
-    if (kernel == nullptr) {
-      spdlog::error("Kernel {} not found!", kernelName);
-      ++(*monitor);
-      continue;
-    }
-    kernel->setDelta(deltaValue);
-    edge->setRobustKernel(kernel);
-
-#pragma omp critical
-    {
-      // Add debug Geometry
-#if 1 // TODO: Remove debugging code
-      auto viewer = ReUseX::Visualizer::getInstance()
-                        ->getViewer<pcl::visualization::PCLVisualizer>();
-      // viewer->addCoordinateSystem(
-      //     0.2, Eigen::Affine3f(matrix),
-      //     fmt::format("xform_{}-{}", target_index, source_index));
-
-      pcl::PointXYZ p1, p2;
-      p1.x = pose_source.translation().x();
-      p1.y = pose_source.translation().y();
-      p1.z = pose_source.translation().z();
-
-      p2.x = pose_target.translation().x();
-      p2.y = pose_target.translation().y();
-      p2.z = pose_target.translation().z();
-
-      // Clamp the input to [0.0, 1.0] to avoid overflow/underflow
-      auto value = std::max<double>(0.0, std::min<double>(fitness_score, 1.0));
-      auto lut = pcl::ColorLUT<pcl::LUT_VIRIDIS>();
-      pcl::RGB color = lut.at(static_cast<size_t>(value * lut.size()));
-      double r, g, b;
-      r = color.r / 255.0;
-      g = color.g / 255.0;
-      b = color.b / 255.0;
-
-      viewer->addLine(p1, p2, r, g, b,
-                      fmt::format("edge_{}-{}", target_index, source_index));
-
-      pcl::PointXYZ center;
-      center.x = (p1.x + p2.x) / 2;
-      center.y = (p1.y + p2.y) / 2;
-      center.z = (p1.z + p2.z) / 2;
-
-      // If disntance larger 20cm
-      double distance = (p1.getVector3fMap() - p2.getVector3fMap()).norm();
-      if (distance > 0.2) {
-        viewer->addText3D(
-            fmt::format("edge {}-{}", target_index, source_index), center, 0.01,
-            0.0, 0.0, 0.0,
-            fmt::format("edge_text_{}-{}", target_index, source_index));
-      }
-#endif
-
-      // Add Add edge
-      spdlog::trace("Adding edge");
-      edge->setId(optimizer->edges().size());
-      optimizer->addEdge(edge);
-
-      // Update min and max fitness score
-      ++num_edges_found;
-    }
-    // spdlog::debug("Added edge between {} and {}", i, j);
-    ++(*monitor);
-  }
-  spdlog::info("Found {} of {} edges", num_edges_found, num_edges);
-  spdlog::info("Min fitness score: {}", min_fitness_score);
-  spdlog::info("Max fitness score: {}", max_fitness_score);
+  // transform.translation() = p.head<3>(); // Eigen::Vector3d(p[0], p[1],
+  // p[1]);
+  transform.translation() = Eigen::Vector3d(p[0], p[1], p[2]);
+
+  return transform; //* g2o::Isometry3(xform);
 }
 
 /**
@@ -804,13 +208,12 @@ ReUseX::write_graph(fs::path path, Dataset &dataset,
 
   // Initialise point cloud for icp alignment
   CloudPtr cloud(new Cloud());
-  *cloud += *CreateCloud(dataset[indices[0]]);
+  //*cloud += *CreateCloud(dataset[indices[0]]);
   Filter filter = ReUseX::Filters::HighConfidenceFilter<PointT>();
   filter->setInputCloud(cloud);
   filter->filter(*cloud);
 
-  Eigen::Matrix4f xform = Eigen::Matrix4f::Identity();
-
+#if VISUALIZE
   if (ReUseX::Visualizer::isInitialised()) {
     auto viewer = ReUseX::Visualizer::getInstance()
                       ->getViewer<pcl::visualization::PCLVisualizer>();
@@ -818,9 +221,11 @@ ReUseX::write_graph(fs::path path, Dataset &dataset,
     viewer->resetCamera();
     viewer->spinOnce(100);
   }
+#endif
 
   // All point clouds
-  std::vector<pcl::PointCloud<pcl::PointXYZRGBA>::Ptr> clouds(indices.size());
+  std::vector<CloudPtr, Eigen::aligned_allocator<CloudPtr>> clouds(
+      indices.size());
   auto monitor = std::make_shared<spdmon::LoggerProgress>(
       "Loading Point clouds", indices.size());
 #pragma omp parallel for shared(dataset, indices, clouds)
@@ -836,7 +241,6 @@ ReUseX::write_graph(fs::path path, Dataset &dataset,
     ++(*monitor);
   }
 
-  monitor.reset();
   monitor =
       std::make_shared<spdmon::LoggerProgress>("Set vertecies", indices.size());
 #pragma omp parallel for shared(dataset, indices, optimizer)
@@ -857,376 +261,360 @@ ReUseX::write_graph(fs::path path, Dataset &dataset,
     ++(*monitor);
   }
 
-  monitor.reset();
-  monitor = std::make_shared<spdmon::LoggerProgress>("SLAM", indices.size());
-  g2o::Isometry3 correction = g2o::Isometry3::Identity();
+#if 0
+  if (ReUseX::Visualizer::isInitialised()) {
+    auto viewer = ReUseX::Visualizer::getInstance()
+                      ->getViewer<pcl::visualization::PCLVisualizer>();
+    for (size_t i = 0; i < indices.size(); ++i) {
 
-  for (size_t i = 0; i < indices.size(); ++i) {
+      auto pose =
+          static_cast<g2o::VertexSE3 *>(optimizer->vertex(i))->estimate();
 
-    auto prev_index = (i == 0) ? 0 : i - 1;
+      Eigen::Affine3f af_pose = Eigen::Affine3f::Identity();
+      af_pose.linear() = pose.rotation().cast<float>();
+      af_pose.translation() = pose.translation().cast<float>();
+
+      auto name = fmt::format("pose_{}", indices[i]);
+
+      viewer->addCoordinateSystem(0.2, af_pose,
+                                  fmt::format("pose_{}", indices[i]));
+    }
+  }
+#endif
+
+  // std::getchar();
+
+  monitor = std::make_shared<spdmon::LoggerProgress>("Creating splits",
+                                                     indices.size() - 1);
+  std::vector<std::pair<size_t, size_t>> sections;
+  size_t start, end;
+  start = 0;
+
+  for (size_t i = 1; i < indices.size(); ++i) {
+    size_t prev_index = i - 1;
 
     g2o::Isometry3 pose, pose_prev;
-
-    // Get the previous pose
     pose = static_cast<g2o::VertexSE3 *>(optimizer->vertex(i))->estimate();
     pose_prev = static_cast<g2o::VertexSE3 *>(optimizer->vertex(prev_index))
                     ->estimate();
-    // // Correct the pose
-    // static_cast<g2o::VertexSE3 *>(optimizer->vertex(i))->setEstimate(pose);
-
-    // spdlog::debug("Number of points: {} in cloud {}", clouds[i]->size(),
-    //               indices[i]);
-
-    // Eigen::Affine3f matrix_temp = Eigen::Affine3f::Identity();
-    // matrix_temp.translation() = correction.translation().cast<float>();
-    // matrix_temp.linear() = correction.linear().cast<float>();
-    // pcl::transformPointCloud(*clouds[i], *clouds[i], matrix_temp.matrix());
-
-    // spdlog::debug("Number of points: {} in cloud {}", clouds[i]->size(),
-    //               indices[i]);
-    // spdlog::debug("Matri: {}", correction.matrix().format(OctaveFmt));
-
-    // assert(50 < clouds[i]->size() <= 49152);
 
     double dist = (pose_prev.translation() - pose.translation()).norm();
     if (dist > 0.2) {
 
-      spdlog::warn("Distance between {} and {} is too large: {}", indices[i],
-                   indices[i - 1], dist);
-      correction = pose.inverse() * pose_prev; // Inverse direction
-
-#pragma omp parralel for shared(optimizer, indices, correction)
-      for (int j = i; j < indices.size(); ++j) {
-        auto estimate =
-            static_cast<g2o::VertexSE3 *>(optimizer->vertex(j))->estimate();
-        estimate = estimate * correction;
-#pragma omp critical
-        static_cast<g2o::VertexSE3 *>(optimizer->vertex(j))
-            ->setEstimate(estimate);
-      }
-
-#pragma omp parralel for shared(clouds, correction)
-      for (int j = i; j < indices.size(); ++j) {
-
-        Eigen::Affine3f correction_temp = Eigen::Affine3f::Identity();
-        correction_temp.translation() = correction.translation().cast<float>();
-        correction_temp.linear() = correction.linear().cast<float>();
-
-        // // Mirror aroud the x-axis
-        // correction_temp =
-        //     correction_temp * Eigen::AngleAxisf(M_PI, Eigen::Vector3f(0, 0,
-        //     1));
-        // correction_temp = correction_temp.inverse();
-
-        pcl::transformPointCloud(*clouds[j], *clouds[j],
-                                 correction_temp.matrix().cast<float>());
-      }
+      sections.emplace_back(start, i - 1);
+      start = i;
     }
-
-    // if (dist > 0.2) {
-    //   spdlog::warn("Distance between {} and {} is too large: {}", indices[i],
-    //                indices[i - 1], dist);
-
-    //  correction = pose_prev.inverse() * pose;
-    //  // correction = correction.inverse();
-    //  correction.linear() = Eigen::Matrix3d::Identity();
-    //  spdlog::debug("Correction: {}", correction.matrix().format(OctaveFmt));
-    //}
-    // pcl::transformPointCloud(*clouds[i], *clouds[i], correction.matrix());
-    // pose = pose * correction;
-
-    // if (dist > 0.2 && ReUseX::Visualizer::isInitialised()) {
-    //   auto viewer = ReUseX::Visualizer::getInstance()
-    //                     ->getViewer<pcl::visualization::PCLVisualizer>();
-
-    //  pcl::PointXYZ p1;
-    //  p1.x = pose.translation().x();
-    //  p1.y = pose.translation().y();
-    //  p1.z = pose.translation().z();
-
-    //  viewer->addSphere(p1, 0.05, fmt::format("sphere_{}", i));
-
-    //  spdlog::debug("pose {}: {}", indices[i],
-    //  pose.matrix().format(OctaveFmt)); spdlog::debug("pose_prev {}: {}",
-    //  indices[i - 1],
-    //                pose_prev.matrix().format(OctaveFmt));
-    //  // wait for any key to be processed
-    //  std::getchar();
-    //}
-
-    // Get the first cloud
-
-    // spdlog::trace("ICP alignment");
-    // ReUseX::Visualizer::pause();
-
-    //// Set up filters ofr ICP
-    // FilterCollection filters = {
-    //     Filters::HighConfidenceFilter<pcl::PointXYZRGBA>(),
-    //     Filters::GridFilter<pcl::PointXYZRGBA>(0.15)};
-
-    // auto cloud_prev = (i == 0) ? cloud : clouds[i - 1];
-    // auto [matrix, fitness_score] = icp<pcl::PointXYZRGBA>(
-    //     clouds[i], cloud_prev, filters, 2.0 /*maxCorrespondence*/);
-
-    // if (fitness_score > 0.04) {
-    //   spdlog::warn("Fitness score is too large: {:.6f}", fitness_score);
-    //   matrix = Eigen::Matrix4f::Identity();
-    // }
-
-    // pcl::transformPointCloud(*clouds[i], *clouds[i], matrix);
-
-    // auto [matrix2, fitness_score2] = icp<pcl::PointXYZRGBA>(
-    //     clouds[i], cloud, filters, 0.3 /*maxCorrespondence*/);
-
-    // if (fitness_score2 > 0.04) {
-    //   spdlog::warn("Fitness score is too large: {:.6f}", fitness_score2);
-    //   matrix2 = Eigen::Matrix4f::Identity();
-    // }
-    // pcl::transformPointCloud(*clouds[i], *clouds[i], matrix2);
-
-    // if (fitness_score > 0.04 && fitness_score2 > 0.04) {
-    //   spdlog::warn("Removing the cloud", fitness_score);
-    //   clouds[i]->clear();
-    // }
-
-    // ReUseX::Visualizer::resume();
-
-    // pose = static_cast<g2o::VertexSE3 *>(optimizer->vertex(i))->estimate();
-    // static_cast<g2o::VertexSE3 *>(optimizer->vertex(i))
-    //     ->setEstimate(pose * g2o::Isometry3(matrix.cast<double>()));
-
-    spdlog::trace("Adding cloud to global cloud");
-    *cloud += *clouds[i];
-
-    // Downsample the cloud n_th frames
-    if (i % 5 == 0) {
-      spdlog::trace("Downsampling cloud");
-      pcl::VoxelGrid<PointT> vg;
-      vg.setLeafSize(0.10, 0.10, 0.10);
-      vg.setInputCloud(cloud);
-      vg.filter(*cloud);
-    }
-    //
-
-    //
-    //     // Step if we are in the first loop
-    //     if (i == 0) {
-    //       ++(*monitor);
-    //       continue;
-    //     }
-    //
-    //     // Add consecutive edge
-    //     spdlog::trace("Adding edge to optimizer");
-    //     g2o::EdgeSE3 *edge = new g2o::EdgeSE3();
-    //     edge->setVertex(0, optimizer->vertex(i - 1));
-    //     edge->setVertex(1, optimizer->vertex(i));
-    //     g2o::Isometry3 pose_prev =
-    //         static_cast<g2o::VertexSE3 *>(optimizer->vertex(i -
-    //         1))->estimate();
-    //     edge->setMeasurement(pose_prev.inverse() * pose);
-    //     edge->setInformation(information_matrix / fitness_score);
-    //     edge->setId(optimizer->edges().size());
-    //     edge->setRobustKernel(
-    //         g2o::RobustKernelFactory::instance()->construct(kernelName));
-    //     optimizer->addEdge(edge);
-    //
-    //     // Create graph for loop closure detection
-    //     spdlog::trace("Creating graph for loop closure detection");
-    //     pcl::PointCloud<pcl::PointXYZ>::Ptr nodes(
-    //         new pcl::PointCloud<pcl::PointXYZ>());
-    //     std::vector<size_t> cloud_indicies;
-    //     for (size_t j = 0; j <= i; ++j) {
-    //       // Skip frame if it is too close
-    //       if ((indices[i] - std::atoi(clouds[j]->header.frame_id.c_str()))
-    //       < 1000)
-    //         continue;
-    //
-    //       pcl::PointXYZ p;
-    //       p.x = cloud->sensor_origin_.x();
-    //       p.y = cloud->sensor_origin_.y();
-    //       p.z = cloud->sensor_origin_.z();
-    //
-    //       nodes->push_back(p);
-    //       cloud_indicies.push_back(j);
-    //     }
-    //     spdlog::debug("Nodes size: {}", nodes->size());
-    //
-    //     spdlog::trace("Finding nearest node");
-    //     pcl::KdTreeFLANN<pcl::PointXYZ> kdtree;
-    //     size_t k = 1;
-    //     kdtree.setInputCloud(nodes);
-    //     std::vector<int> pointIdxRadiusSearch(k);
-    //     std::vector<float> pointRadiusSquaredDistance(k);
-    //     pcl::PointXYZ search_point(pose.translation().x(),
-    //     pose.translation().y(),
-    //                                pose.translation().z());
-    //
-    //     const auto resutl = kdtree.nearestKSearch(
-    //         search_point, k, pointIdxRadiusSearch,
-    //         pointRadiusSquaredDistance);
-    //     spdlog::debug("KDTree look up result: {}", resutl);
-    //
-    //     if (resutl != 1) {
-    //       spdlog::warn("No point found in the cloud for loop closure
-    //       detection");
-    //
-    //       spdlog::trace("Visualizing clouds");
-    //       if (ReUseX::Visualizer::isInitialised()) {
-    //
-    //         auto viewer = ReUseX::Visualizer::getInstance()
-    //                           ->getViewer<pcl::visualization::PCLVisualizer>();
-    //
-    //         viewer->updatePointCloud<pcl::PointXYZRGBA>(cloud,
-    //         RGBHandler(cloud),
-    //                                                     "cloud");
-    //         viewer->spinOnce(1);
-    //       }
-    //       ++(*monitor);
-    //       continue; // Skip if no point is found
-    //     }
-    //
-    //     // Check if the point is within the radius
-    //     if (pointRadiusSquaredDistance[0] > 5.0) {
-    //       spdlog::warn("Point is too far away from the cloud, distance:
-    //       {}",
-    //                    pointRadiusSquaredDistance[0]);
-    //       spdlog::trace("Visualizing clouds");
-    //       if (ReUseX::Visualizer::isInitialised()) {
-    //
-    //         auto viewer = ReUseX::Visualizer::getInstance()
-    //                           ->getViewer<pcl::visualization::PCLVisualizer>();
-    //
-    //         viewer->updatePointCloud<pcl::PointXYZRGBA>(cloud,
-    //         RGBHandler(cloud),
-    //                                                     "cloud");
-    //         viewer->spinOnce(1);
-    //       }
-    //       ++(*monitor);
-    //       continue;
-    //     }
-    //
-    //     spdlog::trace("Found loop closures");
-    //     const size_t target_index =
-    //     cloud_indicies[pointIdxRadiusSearch[0]]; const g2o::VertexSE3
-    //     *target_vertex =
-    //         static_cast<g2o::VertexSE3 *>(optimizer->vertex(target_index));
-    //     const g2o::Isometry3 pose_target = target_vertex->estimate();
-    //
-    //     g2o::Isometry3 pose_source =
-    //         static_cast<g2o::VertexSE3
-    //         *>(optimizer->vertex(i))->estimate();
-    //
-    //     spdlog::trace("Get cloudse ipc alignment");
-    //     const CloudPtr source_cloud = clouds[i];
-    //     const CloudPtr target_cloud = clouds[target_index];
-    //
-    //     spdlog::trace("Computing alignment");
-    //     auto [matrix_loop, fitness_score_loop] =
-    //         icp<PointT>(source_cloud, target_cloud, filters,
-    //         maxCorrespondence);
-    //
-    //     if (fitness_score_loop > 0.04) {
-    //       spdlog::warn("Fitness score is too large: {:.6f}",
-    //       fitness_score_loop); matrix_loop = Eigen::Matrix4f::Identity();
-    //       ++(*monitor);
-    //       continue;
-    //     }
-    //
-    //     // Update the source pose
-    //     spdlog::trace("Updating source pose");
-    //     pose_source = pose_source *
-    //     g2o::Isometry3(matrix_loop.cast<double>());
-    //
-    //     // Create edge
-    //     spdlog::trace("Creating edge");
-    //     edge = new g2o::EdgeSE3();
-    //     edge->setVertex(0, optimizer->vertex(target_index));
-    //     edge->setVertex(1, optimizer->vertex(i));
-    //     edge->setMeasurement(pose_target.inverse() * pose_source);
-    //     edge->setInformation(information_matrix / fitness_score);
-    //     edge->setId(optimizer->edges().size());
-    //     edge->setRobustKernel(
-    //         g2o::RobustKernelFactory::instance()->construct(kernelName));
-    //     optimizer->addEdge(edge);
-    //
-    //     spdlog::trace("Collect poses pre alignment");
-    //     std::vector<g2o::Isometry3> poses(i);
-    //     // #pragma omp parallel for
-    //     for (size_t j = 0; j <= i; ++j)
-    //       poses[j] =
-    //           static_cast<g2o::VertexSE3
-    //           *>(optimizer->vertex(j))->estimate();
-    //
-    //     // Update the poses
-    //     spdlog::trace("Updating poses");
-    //     optimizer->optimize(maxIterations);
-    //
-    //     // Transform the clouds
-    //     spdlog::trace("Transforming clouds");
-    //  #pragma omp parrallel for
-    //     for (int j = 0; j <= i; ++j)
-    //       pcl::transformPointCloud(
-    //           *clouds[j], *clouds[j],
-    //           (poses[j].inverse() *
-    //            static_cast<g2o::VertexSE3
-    //            *>(optimizer->vertex(j))->estimate())
-    //               .matrix());
-    //
-    // Merge the clouds
-    // spdlog::trace("Merging clouds");
-    // cloud->clear();
-    // for (size_t j = 0; j <= i; ++j)
-    //   *cloud += *clouds[j];
-
-    // filter->setInputCloud(cloud);
-    // filter->filter(*cloud);
-
-    // Step progress bar
     ++(*monitor);
+  }
+  sections.emplace_back(start, indices.size() - 1);
 
-    spdlog::trace("Visualizing clouds");
-    // Visualize
-    if (!ReUseX::Visualizer::isInitialised())
-      continue;
+  std::vector<std::pair<size_t, size_t>> unrolled_pairs;
+  unrolled_pairs = std::vector<std::pair<size_t, size_t>>();
+  for (int i = 0; i < sections.size(); ++i)
+    for (int j = sections[i].first + 1; j <= sections[i].second; ++j)
+      unrolled_pairs.emplace_back(j - 1, j);
 
+#if VISUALIZE
+  if (ReUseX::Visualizer::isInitialised()) {
     auto viewer = ReUseX::Visualizer::getInstance()
                       ->getViewer<pcl::visualization::PCLVisualizer>();
+    for (size_t i = 0; i < unrolled_pairs.size(); ++i) {
+      auto name = fmt::format("edge_{}-{}", unrolled_pairs[i].first,
+                              unrolled_pairs[i].second);
 
-    viewer->updatePointCloud<pcl::PointXYZRGBA>(cloud, RGBHandler(cloud),
-                                                "cloud");
+      g2o::Isometry3 pose1, pose2;
+      pose1 = static_cast<g2o::VertexSE3 *>(
+                  optimizer->vertex(unrolled_pairs[i].first))
+                  ->estimate();
+      pose2 = static_cast<g2o::VertexSE3 *>(
+                  optimizer->vertex(unrolled_pairs[i].second))
+                  ->estimate();
 
-    pcl::PointXYZ p1, p2;
-    std::string name = fmt::format("line_{}-{}", indices[i], indices[i - 1]);
+      pcl::PointXYZ p1, p2;
+      p1.x = pose1.translation()(0);
+      p1.y = pose1.translation()(1);
+      p1.z = pose1.translation()(2);
+      p2.x = pose2.translation()(0);
+      p2.y = pose2.translation()(1);
+      p2.z = pose2.translation()(2);
 
-    // Update the pose and pose_prev
-    pose = static_cast<g2o::VertexSE3 *>(optimizer->vertex(i))->estimate();
-    pose_prev = (i == 0)
-                    ? pose
-                    : static_cast<g2o::VertexSE3 *>(optimizer->vertex(i - 1))
-                          ->estimate();
-    p1.x = pose.translation().x();
-    p1.y = pose.translation().y();
-    p1.z = pose.translation().z();
-    p2.x = pose_prev.translation().x();
-    p2.y = pose_prev.translation().y();
-    p2.z = pose_prev.translation().z();
-
-    pcl::ColorLUT<pcl::LUT_VIRIDIS> lut;
-    auto value = std::max<double>(0.0, std::min<double>(dist / 2.0, 1.0));
-    pcl::RGB color = lut.at(static_cast<size_t>(value * lut.size()));
-    spdlog::debug("Point 1: {} {} {}", p1.x, p1.y, p1.z);
-    spdlog::debug("Point 2: {} {} {}", p2.x, p2.y, p2.z);
-    spdlog::debug("Color values: {} {} {}", color.r, color.g, color.b);
-    spdlog::debug("Distance: {:.6}", dist);
-    viewer->addLine(p1, p2, color.r / 255.0, color.g / 255.0, color.b / 255.0,
-                    name);
-    viewer->setShapeRenderingProperties(
-        pcl::visualization::PCL_VISUALIZER_LINE_WIDTH, 3, name);
-    viewer->spinOnce(1);
+      viewer->addLine(p1, p2, 0, 0, 0, name);
+      viewer->setShapeRenderingProperties(
+          pcl::visualization::PCL_VISUALIZER_LINE_WIDTH, 3, name);
+    }
   }
+#endif
+
+  monitor = std::make_shared<spdmon::LoggerProgress>("Alining segments",
+                                                     unrolled_pairs.size());
+#pragma omp parallel for shared(clouds, optimizer, sections)                   \
+    firstprivate(maxCorrespondence)
+  for (int i = 0; i < unrolled_pairs.size(); ++i) {
+
+    const size_t idx_tgt = unrolled_pairs[i].first;
+    const size_t idx_src = unrolled_pairs[i].second;
+
+    const FilterCollection filters = {
+        Filters::HighConfidenceFilter<pcl::PointXYZRGBA>(),
+        Filters::GridFilter<pcl::PointXYZRGBA>(0.15)};
+
+    auto [matrix, fitness_score] = icp<pcl::PointXYZRGBA>(
+        clouds[idx_src], clouds[idx_tgt], filters, maxCorrespondence);
+
+    if (fitness_score > 0.02) {
+      ++(*monitor);
+      continue;
+    }
+
+    pcl::transformPointCloud(*clouds[idx_src], *clouds[idx_src], matrix);
+
+    // Update pose
+    g2o::Isometry3 pose =
+        static_cast<g2o::VertexSE3 *>(optimizer->vertex(idx_src))->estimate();
+    pose = pose * matrix.cast<double>();
+    static_cast<g2o::VertexSE3 *>(optimizer->vertex(idx_src))
+        ->setEstimate(pose);
+
+    // Add edge
+
+    g2o::EdgeSE3 *edge = new g2o::EdgeSE3();
+    edge->setVertex(0, optimizer->vertex(idx_tgt));
+    edge->setVertex(1, optimizer->vertex(idx_src));
+    edge->setMeasurement(g2o::Isometry3(matrix.cast<double>()));
+    edge->setInformation(information_matrix / fitness_score);
+
+    auto kernel = g2o::RobustKernelFactory::instance()->construct(kernelName);
+    kernel->setDelta(deltaValue);
+    edge->setRobustKernel(kernel);
+    // edge->setLevel(1);
+
+#pragma omp critical
+    optimizer->addEdge(edge);
+
+    ++(*monitor);
+  }
+
+  monitor = std::make_shared<spdmon::LoggerProgress>("Merge Sections",
+                                                     sections.size());
+  std::vector<CloudPtr> clouds_sections(sections.size());
+  for (size_t i = 0; i < sections.size(); ++i) {
+    clouds_sections[i] = CloudPtr(new Cloud());
+    for (size_t j = sections[i].first; j <= sections[i].second; ++j) {
+      *clouds_sections[i] += *clouds[j];
+    }
+
+    auto filter = Filters::GridFilter<pcl::PointXYZRGBA>(0.05);
+    filter->setInputCloud(clouds_sections[i]);
+    filter->filter(*clouds_sections[i]);
+  }
+
+#if 0
+  if (ReUseX::Visualizer::isInitialised()) {
+    auto viewer = ReUseX::Visualizer::getInstance()
+                      ->getViewer<pcl::visualization::PCLVisualizer>();
+    viewer->removeAllPointClouds();
+    for (size_t i = 0; i < sections.size(); ++i) {
+      pcl::RGB color = pcl::GlasbeyLUT::at(i % pcl::GlasbeyLUT::size());
+      auto ch =
+          CustomColorHander(clouds_sections[i], color.r, color.g, color.b);
+      auto name =
+          fmt::format("cloud_{}-{}", sections[i].first, sections[i].second);
+      viewer->addPointCloud<pcl::PointXYZRGBA>(clouds_sections[i], ch, name);
+      viewer->spinOnce(100);
+    }
+  }
+#endif
+
+  monitor = std::make_shared<spdmon::LoggerProgress>(
+      "Reorient Sections", clouds_sections.size() - 1);
+  g2o::Isometry3 matrix = g2o::Isometry3::Identity();
+  for (size_t i = 1; i < clouds_sections.size(); ++i) {
+
+    const auto s_idx = sections[i - 1].second;
+    const auto e_idx = sections[i].first;
+
+    g2o::Isometry3 s_pose, e_pose;
+    s_pose =
+        static_cast<g2o::VertexSE3 *>(optimizer->vertex(s_idx))->estimate();
+    e_pose =
+        static_cast<g2o::VertexSE3 *>(optimizer->vertex(e_idx))->estimate();
+
+    // matrix = g2o::Isometry3::Identity();
+    matrix = matrix * (e_pose.inverse() * s_pose);
+    // TODO: This is disableing the reorientation of the point clouds
+    // matrix = matrix * g2o::Isometry3::Identity(); // Don't change anything
+
+#if 0
+    if (ReUseX::Visualizer::isInitialised()) {
+      auto viewer = ReUseX::Visualizer::getInstance()
+                        ->getViewer<pcl::visualization::PCLVisualizer>();
+      auto name =
+          fmt::format("cloud_{}-{}_pre", sections[i].first, sections[i].second);
+
+      pcl::RGB color = pcl::GlasbeyLUT::at(i % pcl::GlasbeyLUT::size());
+      auto ch =
+          CustomColorHander(clouds_sections[i], color.r, color.g, color.b);
+      viewer->addPointCloud<pcl::PointXYZRGBA>(clouds_sections[i], ch, name);
+
+      Eigen::Affine3f s_pose_a, e_pose_a;
+      s_pose_a = Eigen::Affine3f::Identity();
+      s_pose_a.linear() = s_pose.rotation().cast<float>();
+      s_pose_a.translation() = s_pose.translation().cast<float>();
+
+      e_pose_a = Eigen::Affine3f::Identity();
+      e_pose_a.linear() = e_pose.rotation().cast<float>();
+      e_pose_a.translation() = e_pose.translation().cast<float>();
+
+      pcl::PointXYZ p1, p2;
+      p1.x = s_pose_a.translation()(0);
+      p1.y = s_pose_a.translation()(1);
+      p1.z = s_pose_a.translation()(2);
+      p2.x = e_pose_a.translation()(0);
+      p2.y = e_pose_a.translation()(1);
+      p2.z = e_pose_a.translation()(2);
+
+      pcl::RGB color_line = pcl::GlasbeyLUT::at(i % pcl::GlasbeyLUT::size());
+
+      viewer->addLine(p1, p2, color_line.r / 255.0, color_line.g / 255.0,
+                      color_line.b / 255.0,
+                      fmt::format("line_{}-{}_pre", s_idx, e_idx));
+      viewer->setShapeRenderingProperties(
+          pcl::visualization::PCL_VISUALIZER_LINE_WIDTH, 3,
+          fmt::format("line_{}-{}_pre", s_idx, e_idx));
+
+      viewer->addCoordinateSystem(0.2, s_pose_a,
+                                  fmt::format("s_pose_{}_pre", s_idx));
+      viewer->addCoordinateSystem(0.2, e_pose_a,
+                                  fmt::format("e_pose_{}_pre", e_idx));
+      viewer->spinOnce(100);
+    }
+#endif
+    pcl::transformPointCloud(*clouds_sections[i], *clouds_sections[i],
+                             matrix.matrix());
+
+#if VISUALIZE
+    if (ReUseX::Visualizer::isInitialised()) {
+      auto viewer = ReUseX::Visualizer::getInstance()
+                        ->getViewer<pcl::visualization::PCLVisualizer>();
+      auto name = fmt::format("cloud_{}-{}_post", sections[i].first,
+                              sections[i].second);
+
+      pcl::RGB color = pcl::GlasbeyLUT::at(i % pcl::GlasbeyLUT::size());
+      auto ch =
+          CustomColorHander(clouds_sections[i], color.r, color.g, color.b);
+      viewer->addPointCloud<pcl::PointXYZRGBA>(clouds_sections[i], ch, name);
+
+      s_pose = s_pose * matrix;
+      e_pose = e_pose * matrix;
+
+      Eigen::Affine3f s_pose_a, e_pose_a;
+      s_pose_a = Eigen::Affine3f::Identity();
+      s_pose_a.linear() = s_pose.rotation().cast<float>();
+      s_pose_a.translation() = s_pose.translation().cast<float>();
+
+      e_pose_a = Eigen::Affine3f::Identity();
+      e_pose_a.linear() = e_pose.rotation().cast<float>();
+      e_pose_a.translation() = e_pose.translation().cast<float>();
+
+      pcl::PointXYZ p1, p2;
+      p1.x = s_pose_a.translation()(0);
+      p1.y = s_pose_a.translation()(1);
+      p1.z = s_pose_a.translation()(2);
+      p2.x = e_pose_a.translation()(0);
+      p2.y = e_pose_a.translation()(1);
+      p2.z = e_pose_a.translation()(2);
+
+      pcl::RGB color_line = pcl::GlasbeyLUT::at(i % pcl::GlasbeyLUT::size());
+
+      viewer->addLine(p1, p2, color_line.r / 255.0, color_line.g / 255.0,
+                      color_line.b / 255.0,
+                      fmt::format("line_{}-{}_post", s_idx, e_idx));
+      viewer->setShapeRenderingProperties(
+          pcl::visualization::PCL_VISUALIZER_LINE_WIDTH, 3,
+          fmt::format("line_{}-{}_post", s_idx, e_idx));
+
+      viewer->addCoordinateSystem(0.2, s_pose_a,
+                                  fmt::format("s_pose_{}_post", s_idx));
+      viewer->addCoordinateSystem(0.2, e_pose_a,
+                                  fmt::format("e_pose_{}_post", e_idx));
+      viewer->spinOnce(100);
+    }
+
+#endif
+    ++(*monitor);
+  }
+
+  // // Sort by size
+  // std::vector<size_t> selected_indices(sections.size());
+  // std::iota(selected_indices.begin(), selected_indices.end(), 0);
+  // std::sort(selected_indices.begin(), selected_indices.end(),
+  //           [&clouds_sections](size_t a, size_t b) {
+  //             return clouds_sections[a]->size() >
+  //             clouds_sections[b]->size();
+  //           });
+
+  // monitor = std::make_shared<spdmon::LoggerProgress>(
+  //     "Alining sections", clouds_sections.size() - 1);
+  // for (size_t i = 1; i < clouds_sections.size(); ++i) {
+  //   auto tgt_idx = selected_indices[i - 1];
+  //   auto src_idx = selected_indices[i];
+
+  //   FilterCollection filters = {
+  //       Filters::HighConfidenceFilter<pcl::PointXYZRGBA>(),
+  //       Filters::GridFilter<pcl::PointXYZRGBA>(0.30)};
+
+  //   auto [matrix, fitness_score] = icp<pcl::PointXYZRGBA>(
+  //       clouds_sections[src_idx], clouds_sections[tgt_idx], filters, 5);
+
+  //   pcl::transformPointCloud(*clouds_sections[src_idx],
+  //                            *clouds_sections[src_idx], matrix);
+  //   ++(*monitor);
+  // }
+
+#if VISUALIZE
+  if (ReUseX::Visualizer::isInitialised()) {
+    auto viewer = ReUseX::Visualizer::getInstance()
+                      ->getViewer<pcl::visualization::PCLVisualizer>();
+    // viewer->removeAllPointClouds();
+    for (size_t i = 0; i < clouds_sections.size(); ++i) {
+      pcl::RGB color = pcl::GlasbeyLUT::at(i % pcl::GlasbeyLUT::size());
+      auto ch =
+          CustomColorHander(clouds_sections[i], color.r, color.g, color.b);
+      auto name =
+          fmt::format("cloud_{}-{}", sections[i].first, sections[i].second);
+      viewer->addPointCloud<pcl::PointXYZRGBA>(clouds_sections[i], ch, name);
+      viewer->spinOnce(100);
+    }
+  }
+#endif
 
   if (ReUseX::Visualizer::isInitialised())
     ReUseX::Visualizer::getInstance()->wait();
+
+  // Save start and end pose save the point clouds
+
+  // for (size_t i = 0; i < sections.size(); ++i) {
+  //   auto start_idx = sections[i].first;
+  //   auto end_idx = sections[i].second;
+
+  //  auto start_pose =
+  //      static_cast<g2o::VertexSE3
+  //      *>(optimizer->vertex(start_idx))->estimate();
+  //  auto end_pose =
+  //      static_cast<g2o::VertexSE3 *>(optimizer->vertex(end_idx))->estimate();
+
+  //  std::string file_name = fmt::format("cloud_{}-{}.ply", start_idx,
+  //  end_idx); fs::path file_path = fs::path("./") / file_name;
+
+  //  spdlog::debug("Start Pose {}-{}: {}", start_idx, end_idx,
+  //                start_pose.matrix().format(OctaveFmt));
+  //  spdlog::debug("End Pose {}-{}: {}", start_idx, end_idx,
+  //                end_pose.matrix().format(OctaveFmt));
+
+  //  // save<pcl::PointXYZRGBA>(file_path, clouds_sections[i]);
+  //  pcl::PLYWriter writer;
+  //  writer.write(file_path, *clouds_sections[i], true, false);
+  //}
 
   return path;
 }

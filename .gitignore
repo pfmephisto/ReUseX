@@ -80,6 +80,7 @@ ReUseX_py.egg-info/
 # Ignore cache
 **/__pycache__/**/*
 **/.cache/**/*
+.ccls-cache
 
 
 #Ignore IDE files

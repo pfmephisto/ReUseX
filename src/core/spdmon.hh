@@ -89,7 +89,7 @@ static const char *kBarSymsAscii[] = {" ", "0", "1", "2", "3", "4",
  * needs ShowProgress() filled in
  */
 class BaseProgress {
-public:
+    public:
   using clock_t = std::chrono::steady_clock;
   using timepoint_t = clock_t::time_point;
   using duration_t = clock_t::duration;
@@ -224,7 +224,7 @@ public:
 
   virtual void ShowProgress(timepoint_t now = clock_t::now()) = 0;
 
-private:
+    private:
   std::atomic<unsigned int> n_{0};
   unsigned int last_print_n_{0};
   unsigned int total_{0};
@@ -250,7 +250,7 @@ private:
 
 /* Progress monitor writing directly to a file */
 class Progress final : public BaseProgress {
-public:
+    public:
   explicit Progress(std::string desc = "", unsigned int total = 0,
                     bool ascii = false, FILE *file = stderr,
                     unsigned int width = 0)
@@ -287,7 +287,7 @@ public:
 
   const std::string kTermMoveUp = "\x1B[A";
 
-private:
+    private:
   unsigned int width_;
   FILE *file_;
 };
@@ -295,7 +295,7 @@ private:
 class StatusLine;
 
 class StatusLineRegistry {
-public:
+    public:
   StatusLineRegistry() { status_lines_.reserve(20); }
 
   virtual ~StatusLineRegistry() = default;
@@ -313,13 +313,13 @@ public:
 
   virtual void PrintStatusLineRegistry() = 0;
 
-private:
+    private:
   std::vector<StatusLine *> status_lines_ = {};
   int change_since_last_print_{0};
 };
 
 class StatusLine {
-public:
+    public:
   explicit StatusLine(spdlog::level::level_enum level) : level_(level) {}
 
   virtual ~StatusLine() {
@@ -385,17 +385,17 @@ public:
     }
   }
 
-private:
+    private:
   std::shared_ptr<spdlog::logger> logger_{nullptr};
   spdlog::level::level_enum level_{spdlog::level::off};
 };
 
 class SigwinchMixin {
-public:
+    public:
   SPDMON_DECLARE_NON_COPYABLE(SigwinchMixin)
   SPDMON_DECLARE_NON_MOVEABLE(SigwinchMixin)
 
-protected:
+    protected:
   explicit SigwinchMixin(bool install) {
     if (install) {
       InstallHandler();
@@ -417,7 +417,7 @@ protected:
     return false;
   }
 
-private:
+    private:
   static sig_atomic_t &GotSigwinch() {
     static sig_atomic_t flag;
     return flag;
@@ -461,7 +461,7 @@ template <class ConsoleMutex>
 class TerminalSink final : public spdlog::sinks::ansicolor_sink<ConsoleMutex>,
                            public StatusLineRegistry,
                            public SigwinchMixin {
-public:
+    public:
   using log_sink = spdlog::sinks::ansicolor_sink<ConsoleMutex>;
   using mutex_t = typename ConsoleMutex::mutex_t;
 
@@ -536,7 +536,7 @@ public:
   const std::string kTermMoveUp = "\x1B[A";
   const std::string term_clear_line = "\x1B[K";
 
-private:
+    private:
   unsigned int ncols_{60};
   unsigned int last_status_lines_{0};
   mutex_t mutex_;
@@ -579,7 +579,7 @@ stderr_terminal_st(const std::string &logger_name) {
       (typeid(*(sink)) == typeid(spdlog::sinks::ansicolor_stdout_sink_mt))
 
 class LoggerProgress final : public BaseProgress, StatusLine {
-public:
+    public:
   explicit LoggerProgress(std::shared_ptr<spdlog::logger> logger,
                           std::string desc = "", unsigned int total = 0,
                           bool ascii = false, unsigned int /*width*/ = 0,
@@ -607,7 +607,7 @@ public:
                           spdlog::level::level_enum level = spdlog::level::warn)
       : BaseProgress(desc, total, ascii), StatusLine(level) {
     default_logger_ = spdlog::default_logger();
-    custom_logger_ = spdmon::stdout_terminal_mt("Progress logger");
+    custom_logger_ = spdmon::stdout_terminal_mt(desc);
     custom_logger_->set_pattern(
         "[%Y-%m-%d %H:%M:%S.%e] [%n] [%=8t] [%^%=7l%$] %v");
     custom_logger_->set_level(spdlog::get_level());
@@ -645,7 +645,7 @@ public:
 
   std::shared_ptr<spdlog::logger> GetLogger() { return this->custom_logger_; }
 
-private:
+    private:
   timepoint_t last_update_{std::chrono::seconds(0)};
   duration_t mininterval_{std::chrono::milliseconds(500)};
   std::shared_ptr<spdlog::logger> default_logger_{nullptr};
@@ -653,14 +653,14 @@ private:
 };
 
 template <typename Iterable> class IterableProgressMonitor {
-private:
+    private:
   std::shared_ptr<LoggerProgress> progress_logger_;
   Iterable iter_;
   std::size_t size_;
   decltype(std::begin(iter_)) begin_;
   const decltype(std::end(iter_)) end_;
 
-public:
+    public:
   IterableProgressMonitor(Iterable iter, std::string name = "Progress logger")
       : iter_(iter), size_(0), begin_(std::begin(iter)), end_(std::end(iter)) {
     progress_logger_ =

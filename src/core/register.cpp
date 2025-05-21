@@ -1,7 +1,5 @@
 #include "register.hh"
-#include "compute_normals.hh"
 #include "fmt_formatter.hh"
-#include "icp.hh"
 #include "parse_input_files.hh"
 #include "spdmon.hh"
 #include "types/Filters.hh"
@@ -12,14 +10,23 @@
 #include <pcl/features/fpfh.h>
 #include <pcl/features/fpfh_omp.h>
 #include <pcl/features/normal_3d.h>
+#include <pcl/features/range_image_border_extractor.h>
+#include <pcl/filters/crop_box.h>
+#include <pcl/filters/extract_indices.h>
+#include <pcl/filters/frustum_culling.h>
+#include <pcl/filters/statistical_outlier_removal.h>
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/io/ply_io.h>
+#include <pcl/keypoints/narf_keypoint.h>
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
+#include <pcl/range_image/range_image.h>
+#include <pcl/range_image/range_image_planar.h>
 #include <pcl/registration/elch.h>
 #include <pcl/registration/lum.h>
 #include <pcl/visualization/cloud_viewer.h>
 #include <pcl/visualization/pcl_visualizer.h>
+#include <pcl/visualization/range_image_visualizer.h>
 
 #include <spdlog/common.h>
 #include <spdlog/spdlog.h>
@@ -68,6 +75,10 @@
 namespace fs = std::filesystem;
 using namespace ReUseX;
 
+constexpr auto mkLogger = [](const std::string name, const int size) {
+  return std::make_shared<spdmon::LoggerProgress>(name, size);
+};
+
 /**
  * @brief Converts an odometry matrix to an isometry transformation.
  *
@@ -90,7 +101,7 @@ using namespace ReUseX;
  * linked. The input matrix must conform to the expected structure for
  * conversion.
  */
-g2o::Isometry3 odometryToIsometry(Eigen::MatrixXd odometry) {
+static const g2o::Isometry3 odometryToIsometry(Eigen::MatrixXd odometry) {
 
   Eigen::Matrix4d xform{};
   xform << 1, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 1;
@@ -116,6 +127,123 @@ g2o::Isometry3 odometryToIsometry(Eigen::MatrixXd odometry) {
 
   return transform; //* g2o::Isometry3(xform);
 }
+
+class custom_mapping : public pcl::PointRepresentation<pcl::PointXYZRGBA> {
+  using pcl::PointRepresentation<pcl::PointXYZRGBA>::nr_dimensions_;
+
+    private:
+  const Eigen::Vector3f rgb_to_intensity_weight_ =
+      Eigen::Vector3f(0.299, 0.587, 0.114); // YIQ, YUV and NTSC
+  // static const Eigen::Vector3f rgb_to_intensity_weight_ =
+  //   Eigen::Vector3f (0.2126, 0.7152, 0.0722); // sRGB (and Rec709)
+
+    public:
+  custom_mapping() { nr_dimensions_ = 4; };
+
+  // Override the copyToFloatArray method to define our feature vector
+  virtual void copyToFloatArray(const pcl::PointXYZRGBA &p, float *out) const {
+    out[0] = p.x;
+    out[1] = p.y;
+    out[2] = p.z;
+    out[3] =
+        p.getRGBVector3i().cast<float>().dot(rgb_to_intensity_weight_) / 255.0;
+  }
+};
+
+bool getKeypoints(pcl::PointCloud<pcl::PointXYZRGBA>::ConstPtr cloud,
+                  pcl::PointCloud<pcl::PointXYZRGBA> &keypoints,
+                  const Eigen::Affine3f &pose = Eigen::Affine3f::Identity()) {
+
+  using PointT = pcl::PointXYZRGBA;
+  using Cloud = pcl::PointCloud<PointT>;
+  using CloudPtr = typename Cloud::Ptr;
+
+  using Image = pcl::RangeImagePlanar;
+  using ImagePtr = pcl::RangeImagePlanar::Ptr;
+
+  using Extractor = pcl::ExtractIndices<pcl::PointXYZRGBA>;
+  using ExtractorPtr = typename Extractor::Ptr;
+
+  ImagePtr range_image_ptr(new Image);
+  Image range_image = *range_image_ptr;
+  range_image.createFromPointCloudWithFixedSize(
+      *cloud, 256 /*width*/, 192 /*height*/, 127.12994667 /*center x*/,
+      95.74299333 /*center y*/, 212.14793333 /*focal length x*/,
+      212.14793333 /*focal length y*/, pose /*sensor pose*/,
+      pcl::RangeImage::CAMERA_FRAME /*coordinate frame*/, 0.0f /*noise level*/,
+      0.0f /*min range*/);
+  // range_image.setUnseenToMaxRange();
+
+  // range_image_widget_src.showRangeImage(range_image_src);
+  // range_image_widget_tgt.showRangeImage(range_image_tgt);
+
+  spdlog::trace("Keypoint detection");
+  pcl::RangeImageBorderExtractor b_ext;
+  pcl::NarfKeypoint detect(&b_ext);
+  detect.getParameters().support_size = 0.1f;
+
+  spdlog::trace("Set range image");
+  detect.setRangeImage(&range_image);
+  pcl::PointCloud<int> keypoint_idx;
+  detect.compute(keypoint_idx);
+
+  spdlog::trace("Convert keypoint indices to PointIndices");
+  pcl::PointIndices::Ptr sel(new pcl::PointIndices());
+  sel->indices.reserve(keypoint_idx.size());
+  for (size_t idx = 0; idx < keypoint_idx.size(); ++idx)
+    sel->indices.push_back(keypoint_idx[idx]);
+
+  if (sel->indices.size() < 3) {
+    spdlog::warn("No keypoints found");
+    return false;
+  }
+
+  spdlog::trace("Extract keypoints");
+  ExtractorPtr ext(new Extractor(true));
+  ext->setInputCloud(cloud);
+  ext->setIndices(sel);
+  ext->filter(keypoints);
+
+  return true;
+};
+
+class Buffer {
+  using Affine3f = Eigen::Affine3f;
+  using Matrix4f = Eigen::Matrix4f;
+  using Vector3f = Eigen::Vector3f;
+
+    private:
+  const size_t capacity_;
+  std::vector<Vector3f> buffer_;
+  Affine3f last_;
+  size_t end_ = 0;
+
+    public:
+  Buffer(const size_t capacity) : capacity_(capacity) {
+    buffer_ = std::vector<Vector3f>(capacity, Vector3f::Zero());
+    last_ = Affine3f::Identity();
+  }
+
+  void push_back(const Matrix4f &value) {
+    Affine3f last_(value);
+    buffer_[end_] = last_.translation();
+    end_ = (end_ + 1) % capacity_;
+  }
+
+  Affine3f average() const {
+
+    Eigen::Vector3f t = Eigen::Vector3f::Zero();
+    for (const auto &vec : buffer_)
+      t += vec;
+    t /= capacity_;
+
+    Affine3f avg = Affine3f::Identity();
+    avg.translation() = t;
+    avg.linear() = last_.linear();
+
+    return avg;
+  }
+};
 
 /**
  * @brief Writes a graph structure to a specified file path.
@@ -169,13 +297,34 @@ ReUseX::write_graph(fs::path path, Dataset &dataset,
                     const int maxIterations, const double maxCorrespondence,
                     const double deltaValue,
                     const Eigen::Matrix<double, 6, 6> information_matrix) {
-  spdlog::info("Entering Write Graph Function");
 
+  using PointT = pcl::PointXYZRGBA;
+  // using PointT = PointXYZRGBANormal;
+  using Cloud = typename pcl::PointCloud<PointT>;
+  using CloudPtr = typename Cloud::Ptr;
+
+  using Clouds = std::vector<CloudPtr, Eigen::aligned_allocator<CloudPtr>>;
+  using CloudsWithNormals =
+      std::vector<CloudPtr, Eigen::aligned_allocator<CloudPtr>>;
+
+  using NormalT = pcl::Normal;
+  using CloudNormal = typename pcl::PointCloud<NormalT>;
+  using CloudNormalPtr = typename CloudNormal::Ptr;
+
+  using Filter = typename pcl::Filter<PointT>::Ptr;
+  using FilterCollection = std::vector<Filter>;
+
+  using RGBHandler =
+      typename pcl::visualization::PointCloudColorHandlerRGBField<PointT>;
+  using CustomColorHander =
+      pcl::visualization::PointCloudColorHandlerCustom<PointT>;
+
+  using ICP = typename pcl::IterativeClosestPoint<PointT, PointT>;
+
+  spdlog::info("Entering Write Graph Function");
   spdlog::debug("Indecies: first: {} last: {}, count: {}, step: ~{}",
                 indices.front(), indices.back(), indices.size(),
-                (indices.back() - indices.front()) / indices.size());
-
-  spdlog::debug("Field: {}", dataset[0].fields());
+                ((indices.back() - indices.front()) / indices.size()) + 1);
 
   // Set up sover
   g2o::OptimizationAlgorithmFactory *solver_factory =
@@ -196,425 +345,397 @@ ReUseX::write_graph(fs::path path, Dataset &dataset,
   optimizer->setVerbose(false);
   optimizer->setAlgorithm(solver);
 
-  using PointT = pcl::PointXYZRGBA;
-  using Cloud = typename pcl::PointCloud<PointT>;
-  using CloudPtr = typename Cloud::Ptr;
-  using Filter = typename pcl::Filter<PointT>::Ptr;
-  using FilterCollection = std::vector<Filter>;
-  using RGBHandler =
-      typename pcl::visualization::PointCloudColorHandlerRGBField<PointT>;
-  using CustomColorHander =
-      pcl::visualization::PointCloudColorHandlerCustom<PointT>;
-
   // Initialise point cloud for icp alignment
-  CloudPtr cloud(new Cloud());
-  //*cloud += *CreateCloud(dataset[indices[0]]);
-  Filter filter = ReUseX::Filters::HighConfidenceFilter<PointT>();
-  filter->setInputCloud(cloud);
-  filter->filter(*cloud);
+  Clouds clouds(indices.size());
+  Clouds keypoints(indices.size());
 
-#if VISUALIZE
-  if (ReUseX::Visualizer::isInitialised()) {
-    auto viewer = ReUseX::Visualizer::getInstance()
-                      ->getViewer<pcl::visualization::PCLVisualizer>();
-    viewer->addPointCloud<pcl::PointXYZRGBA>(cloud, RGBHandler(cloud), "cloud");
-    viewer->resetCamera();
-    viewer->spinOnce(100);
-  }
-#endif
+  pcl::PointCloud<pcl::PointXYZ> path1 = pcl::PointCloud<pcl::PointXYZ>();
+  pcl::PointCloud<pcl::PointXYZ> path2 = pcl::PointCloud<pcl::PointXYZ>();
 
   // All point clouds
-  std::vector<CloudPtr, Eigen::aligned_allocator<CloudPtr>> clouds(
-      indices.size());
-  auto monitor = std::make_shared<spdmon::LoggerProgress>(
-      "Loading Point clouds", indices.size());
+  // CloudsWithNormals clouds_with_normals(indices.size(),
+  //                                       CloudNormalPtr(new CloudNormal()));
+
+  CloudPtr cloud(new Cloud());
+  CloudPtr keypoint_cloud(new Cloud());
+  if constexpr (VISUALIZE) {
+    if (ReUseX::Visualizer::isInitialised()) {
+      auto viewer = ReUseX::Visualizer::getInstance()
+                        ->getViewer<pcl::visualization::PCLVisualizer>();
+      viewer->addPointCloud<pcl::PointXYZRGBA>(cloud, RGBHandler(cloud),
+                                               "cloud");
+      viewer->addPointCloud<pcl::PointXYZRGBA>(
+          keypoint_cloud, CustomColorHander(cloud, 0, 255, 0), "keypoints");
+      viewer->resetCamera();
+      viewer->spinOnce(100);
+    }
+  }
+
+  auto monitor = mkLogger("Loading Point clouds", indices.size());
 #pragma omp parallel for shared(dataset, indices, clouds)
   for (int i = 0; i < indices.size(); ++i) {
-    clouds[i] = CreateCloud(dataset[indices[i]]);
-    auto filter = Filters::HighConfidenceFilter<pcl::PointXYZRGBA>();
-    filter->setInputCloud(clouds[i]);
-    filter->filter(*clouds[i]);
 
+    using Image = pcl::RangeImagePlanar;
+    using ImagePtr = typename Image::Ptr;
+
+    using Extractor = pcl::ExtractIndices<pcl::PointXYZRGBA>;
+    using ExtractorPtr = typename Extractor::Ptr;
+
+    spdlog::trace("Loading point cloud: {}", i);
+    clouds[i] = CreateCloud(dataset[indices[i]]);
+
+    spdlog::trace("Filter point cloud: {}", i);
+    auto hf = ReUseX::Filters::HighConfidenceFilter<pcl::PointXYZRGBA>();
+    hf->setInputCloud(clouds[i]);
+    hf->filter(*clouds[i]);
+
+    spdlog::trace("Creating planar image: {}", i);
+    ImagePtr range_image_ptr(new Image);
+    Image range_image = *range_image_ptr;
+    range_image.createFromPointCloudWithFixedSize(
+        *clouds[i], 256 /*width*/, 192 /*height*/, 127.12994667 /*center x*/,
+        95.74299333 /*center y*/, 212.14793333 /*focal length x*/,
+        212.14793333 /*focal length y*/,
+        Eigen::Affine3f::Identity() /*sensor pose*/,
+        pcl::RangeImage::CAMERA_FRAME /*coordinate frame*/,
+        0.0f /*noise level*/, 0.0f /*min range*/);
+
+    spdlog::trace("Keypoint detection");
+    pcl::PointCloud<int> keypoint_idx;
+    pcl::RangeImageBorderExtractor b_ext;
+    pcl::NarfKeypoint detect(&b_ext);
+    detect.getParameters().support_size = 0.1f;
+    detect.setRangeImage(&range_image);
+    detect.compute(keypoint_idx);
+
+    spdlog::trace("Add point the keypoint cloud");
+    keypoints[i] = CloudPtr(new Cloud());
+    for (size_t idx = 0; idx < keypoint_idx.size(); ++idx)
+      keypoints[i]->points.push_back(clouds[i]->points[keypoint_idx[idx]]);
+
+    // spdlog::trace("Compute normals: {}", i);
+    // pcl::NormalEstimation<PointT, NormalT> ne;
+    // ne.setInputCloud(clouds[i]);
+    // pcl::search::KdTree<PointT>::Ptr tree(new pcl::search::KdTree<PointT>());
+    // ne.setSearchMethod(tree);
+    // ne.setRadiusSearch(0.03);
+    // ne.compute(*normals[i]);
+
+    // spdlog::trace("Pre align point cloud: {}", i);
+    // Eigen::Affine3f pose = Eigen::Affine3f::Identity();
+    // pose.linear() = clouds[i]->sensor_orientation_.toRotationMatrix();
+    // pose.translation() = clouds[i]->sensor_origin_.template head<3>();
+    // pcl::transformPointCloud(*clouds[i], *clouds[i], pose);
+
+    spdlog::trace("Clear point cloud header: {}", i);
     clouds[i]->sensor_origin_ = Eigen::Vector4f(0, 0, 0, 1);
     clouds[i]->sensor_orientation_ = Eigen::Quaternionf::Identity();
 
     ++(*monitor);
+
+    if constexpr (VISUALIZE) {
+      if (ReUseX::Visualizer::isInitialised()) {
+        auto viewer = ReUseX::Visualizer::getInstance()
+                          ->getViewer<pcl::visualization::PCLVisualizer>();
+#pragma omp critical
+        viewer->spinOnce(100);
+      }
+    }
   }
 
-  monitor =
-      std::make_shared<spdmon::LoggerProgress>("Set vertecies", indices.size());
-#pragma omp parallel for shared(dataset, indices, optimizer)
+  const Eigen::Matrix4d FLIP =
+      (Eigen::Matrix4d() << 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1)
+          .finished();
+
+  std::vector<g2o::VertexSE3 *> vertices =
+      std::vector<g2o::VertexSE3 *>(indices.size());
+
+  monitor = mkLogger("Set vertecies", indices.size());
+  const auto START =
+      odometryToIsometry(dataset[indices[0]].get<Field::ODOMETRY>()).inverse();
+#pragma omp parallel for shared(dataset, indices, optimizer, vertices)
   for (int i = 0; i < indices.size(); ++i) {
     // Get the pose
     g2o::Isometry3 pose =
         odometryToIsometry(dataset[indices[i]].get<Field::ODOMETRY>());
+
+    pose = START * pose;
+
+    // pose *= FLIP;
+    // pose.translation()[1] *= -1;
+    // pose.translation()[2] *= -1;
 
     // Add vertex
     g2o::VertexSE3 *vert = new g2o::VertexSE3();
     vert->setId(i);
     vert->setFixed(i == 0); // Fix the first vertex
     vert->setEstimate(pose);
+    vertices[i] = vert;
 
-#pragma omp critical
-    optimizer->addVertex(vert);
-
-    ++(*monitor);
-  }
-
-#if 0
-  if (ReUseX::Visualizer::isInitialised()) {
-    auto viewer = ReUseX::Visualizer::getInstance()
-                      ->getViewer<pcl::visualization::PCLVisualizer>();
-    for (size_t i = 0; i < indices.size(); ++i) {
-
-      auto pose =
-          static_cast<g2o::VertexSE3 *>(optimizer->vertex(i))->estimate();
-
-      Eigen::Affine3f af_pose = Eigen::Affine3f::Identity();
-      af_pose.linear() = pose.rotation().cast<float>();
-      af_pose.translation() = pose.translation().cast<float>();
-
-      auto name = fmt::format("pose_{}", indices[i]);
-
-      viewer->addCoordinateSystem(0.2, af_pose,
-                                  fmt::format("pose_{}", indices[i]));
-    }
-  }
-#endif
-
-  // std::getchar();
-
-  monitor = std::make_shared<spdmon::LoggerProgress>("Creating splits",
-                                                     indices.size() - 1);
-  std::vector<std::pair<size_t, size_t>> sections;
-  size_t start, end;
-  start = 0;
-
-  for (size_t i = 1; i < indices.size(); ++i) {
-    size_t prev_index = i - 1;
-
-    g2o::Isometry3 pose, pose_prev;
-    pose = static_cast<g2o::VertexSE3 *>(optimizer->vertex(i))->estimate();
-    pose_prev = static_cast<g2o::VertexSE3 *>(optimizer->vertex(prev_index))
-                    ->estimate();
-
-    double dist = (pose_prev.translation() - pose.translation()).norm();
-    if (dist > 0.2) {
-
-      sections.emplace_back(start, i - 1);
-      start = i;
-    }
-    ++(*monitor);
-  }
-  sections.emplace_back(start, indices.size() - 1);
-
-  std::vector<std::pair<size_t, size_t>> unrolled_pairs;
-  unrolled_pairs = std::vector<std::pair<size_t, size_t>>();
-  for (int i = 0; i < sections.size(); ++i)
-    for (int j = sections[i].first + 1; j <= sections[i].second; ++j)
-      unrolled_pairs.emplace_back(j - 1, j);
-
-#if VISUALIZE
-  if (ReUseX::Visualizer::isInitialised()) {
-    auto viewer = ReUseX::Visualizer::getInstance()
-                      ->getViewer<pcl::visualization::PCLVisualizer>();
-    for (size_t i = 0; i < unrolled_pairs.size(); ++i) {
-      auto name = fmt::format("edge_{}-{}", unrolled_pairs[i].first,
-                              unrolled_pairs[i].second);
-
-      g2o::Isometry3 pose1, pose2;
-      pose1 = static_cast<g2o::VertexSE3 *>(
-                  optimizer->vertex(unrolled_pairs[i].first))
-                  ->estimate();
-      pose2 = static_cast<g2o::VertexSE3 *>(
-                  optimizer->vertex(unrolled_pairs[i].second))
-                  ->estimate();
-
-      pcl::PointXYZ p1, p2;
-      p1.x = pose1.translation()(0);
-      p1.y = pose1.translation()(1);
-      p1.z = pose1.translation()(2);
-      p2.x = pose2.translation()(0);
-      p2.y = pose2.translation()(1);
-      p2.z = pose2.translation()(2);
-
-      viewer->addLine(p1, p2, 0, 0, 0, name);
-      viewer->setShapeRenderingProperties(
-          pcl::visualization::PCL_VISUALIZER_LINE_WIDTH, 3, name);
-    }
-  }
-#endif
-
-  monitor = std::make_shared<spdmon::LoggerProgress>("Alining segments",
-                                                     unrolled_pairs.size());
-#pragma omp parallel for shared(clouds, optimizer, sections)                   \
-    firstprivate(maxCorrespondence)
-  for (int i = 0; i < unrolled_pairs.size(); ++i) {
-
-    const size_t idx_tgt = unrolled_pairs[i].first;
-    const size_t idx_src = unrolled_pairs[i].second;
-
-    const FilterCollection filters = {
-        Filters::HighConfidenceFilter<pcl::PointXYZRGBA>(),
-        Filters::GridFilter<pcl::PointXYZRGBA>(0.15)};
-
-    auto [matrix, fitness_score] = icp<pcl::PointXYZRGBA>(
-        clouds[idx_src], clouds[idx_tgt], filters, maxCorrespondence);
-
-    if (fitness_score > 0.02) {
-      ++(*monitor);
-      continue;
-    }
-
-    pcl::transformPointCloud(*clouds[idx_src], *clouds[idx_src], matrix);
-
-    // Update pose
-    g2o::Isometry3 pose =
-        static_cast<g2o::VertexSE3 *>(optimizer->vertex(idx_src))->estimate();
-    pose = pose * matrix.cast<double>();
-    static_cast<g2o::VertexSE3 *>(optimizer->vertex(idx_src))
-        ->setEstimate(pose);
-
-    // Add edge
-
-    g2o::EdgeSE3 *edge = new g2o::EdgeSE3();
-    edge->setVertex(0, optimizer->vertex(idx_tgt));
-    edge->setVertex(1, optimizer->vertex(idx_src));
-    edge->setMeasurement(g2o::Isometry3(matrix.cast<double>()));
-    edge->setInformation(information_matrix / fitness_score);
-
-    auto kernel = g2o::RobustKernelFactory::instance()->construct(kernelName);
-    kernel->setDelta(deltaValue);
-    edge->setRobustKernel(kernel);
-    // edge->setLevel(1);
-
-#pragma omp critical
-    optimizer->addEdge(edge);
+    // #pragma omp critical
+    //     optimizer->addVertex(vert);
 
     ++(*monitor);
   }
 
-  monitor = std::make_shared<spdmon::LoggerProgress>("Merge Sections",
-                                                     sections.size());
-  std::vector<CloudPtr> clouds_sections(sections.size());
-  for (size_t i = 0; i < sections.size(); ++i) {
-    clouds_sections[i] = CloudPtr(new Cloud());
-    for (size_t j = sections[i].first; j <= sections[i].second; ++j) {
-      *clouds_sections[i] += *clouds[j];
+  monitor = mkLogger("Aligning frames", indices.size() - 1);
+  // monitor->GetLogger()->set_level(spdlog::level::trace);
+
+  Eigen::Matrix4f matrix = Eigen::Matrix4f::Identity();
+
+  *cloud += *clouds[0];
+  *keypoint_cloud += *keypoints[0];
+
+  pcl::PointXYZ p;
+  p.getVector3fMap() =
+      vertices[0]->estimate().translation().head<3>().cast<float>();
+  path1.points.push_back(p);
+  path2.points.push_back(p);
+
+  // pcl::visualization::RangeImageVisualizer range_image_widget_src(
+  //     "Range image Source");
+  // pcl::visualization::RangeImageVisualizer range_image_widget_tgt(
+  //     "Range image Target");
+
+  const Eigen::Matrix4f FRUSTUM_CONVERSIO =
+      (Eigen::Matrix4f() << 0, 0, 1, 0, 0, -1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1)
+          .finished();
+
+  const float alpha[4] = {1.0, 1.0, 1.0, 0.0};
+  custom_mapping point_representation{};
+  point_representation.setRescaleValues(alpha);
+  auto point_representation_ptr =
+      pcl::make_shared<const custom_mapping>(point_representation);
+
+  for (size_t i = 1; i < indices.size() - 1; ++i) {
+    // Intiialize Filters
+    using FrustomCulling = pcl::FrustumCulling<PointT>::Ptr;
+    using GridFilter = pcl::VoxelGrid<PointT>::Ptr;
+
+    FrustomCulling fc = FrustomCulling(new pcl::FrustumCulling<PointT>());
+    fc->setVerticalFOV(80);   // 60 degrees
+    fc->setHorizontalFOV(60); // 45 degrees
+    fc->setNearPlaneDistance(1.0);
+    fc->setFarPlaneDistance(7);
+    fc->setCameraPose(vertices[i]->estimate().matrix().cast<float>() *
+                      FRUSTUM_CONVERSIO);
+
+    GridFilter gf = ReUseX::Filters::GridFilter<PointT>(0.10);
+
+    CloudPtr ft_src(new Cloud());
+    CloudPtr ft_tgt(new Cloud());
+
+    fc->setInputCloud(keypoint_cloud);
+    fc->filter(*ft_tgt);
+
+    bool use_keypoints = keypoints[i]->size() > 3 && ft_tgt->size() > 3;
+
+    if (use_keypoints) {
+      pcl::copyPointCloud(*keypoints[i], *ft_src);
+    } else {
+      gf->setInputCloud(clouds[i]);
+      gf->filter(*ft_src);
+
+      fc->setInputCloud(cloud);
+      fc->filter(*ft_tgt);
+
+      gf->setInputCloud(ft_tgt);
+      gf->filter(*ft_tgt);
     }
 
-    auto filter = Filters::GridFilter<pcl::PointXYZRGBA>(0.05);
-    filter->setInputCloud(clouds_sections[i]);
-    filter->filter(*clouds_sections[i]);
-  }
+    // TODO: List of things to implement
+    //   Add compute_normals
 
-#if 0
-  if (ReUseX::Visualizer::isInitialised()) {
-    auto viewer = ReUseX::Visualizer::getInstance()
-                      ->getViewer<pcl::visualization::PCLVisualizer>();
-    viewer->removeAllPointClouds();
-    for (size_t i = 0; i < sections.size(); ++i) {
-      pcl::RGB color = pcl::GlasbeyLUT::at(i % pcl::GlasbeyLUT::size());
-      auto ch =
-          CustomColorHander(clouds_sections[i], color.r, color.g, color.b);
-      auto name =
-          fmt::format("cloud_{}-{}", sections[i].first, sections[i].second);
-      viewer->addPointCloud<pcl::PointXYZRGBA>(clouds_sections[i], ch, name);
-      viewer->spinOnce(100);
-    }
-  }
-#endif
+    assert(ft_src->size() > 0 && "ft_src can not be empty");
+    assert(ft_tgt->size() > 0 && "ft_tgt can not be empty");
 
-  monitor = std::make_shared<spdmon::LoggerProgress>(
-      "Reorient Sections", clouds_sections.size() - 1);
-  g2o::Isometry3 matrix = g2o::Isometry3::Identity();
-  for (size_t i = 1; i < clouds_sections.size(); ++i) {
+    optimizer->addVertex(vertices[i]);
 
-    const auto s_idx = sections[i - 1].second;
-    const auto e_idx = sections[i].first;
+    ICP reg;
+    reg.setMaximumIterations(50);
+    reg.setMaxCorrespondenceDistance(0.5);
+    reg.setTransformationEpsilon(1e-8);
+    reg.setEuclideanFitnessEpsilon(1e-8);
+    reg.setRANSACIterations(1000);
+    reg.setRANSACOutlierRejectionThreshold(0.02);
+    reg.setPointRepresentation(point_representation_ptr);
 
-    g2o::Isometry3 s_pose, e_pose;
-    s_pose =
-        static_cast<g2o::VertexSE3 *>(optimizer->vertex(s_idx))->estimate();
-    e_pose =
-        static_cast<g2o::VertexSE3 *>(optimizer->vertex(e_idx))->estimate();
+    reg.setInputSource(ft_src);
+    reg.setInputTarget(ft_tgt);
 
-    // matrix = g2o::Isometry3::Identity();
-    matrix = matrix * (e_pose.inverse() * s_pose);
-    // TODO: This is disableing the reorientation of the point clouds
-    // matrix = matrix * g2o::Isometry3::Identity(); // Don't change anything
+    // Add icp visualization callback
+    if constexpr (VISUALIZE) {
+      if (ReUseX::Visualizer::isInitialised()) {
+        auto viewer = ReUseX::Visualizer::getInstance()
+                          ->getViewer<pcl::visualization::PCLVisualizer>();
+        // Construct the callback function to visualize the
+        // registration process
+        std::function<typename pcl::Registration<
+            PointT, PointT>::UpdateVisualizerCallbackSignature>
+        callback([viewer](const pcl::PointCloud<PointT> &c1,
+                          const pcl::Indices &idxs1,
+                          const pcl::PointCloud<PointT> &c2,
+                          const pcl::Indices &idxs2) -> void {
+          CloudPtr c1_ptr = c1.makeShared();
+          CloudPtr c2_ptr = c2.makeShared();
 
-#if 0
-    if (ReUseX::Visualizer::isInitialised()) {
-      auto viewer = ReUseX::Visualizer::getInstance()
-                        ->getViewer<pcl::visualization::PCLVisualizer>();
-      auto name =
-          fmt::format("cloud_{}-{}_pre", sections[i].first, sections[i].second);
+          viewer->addPointCloud<PointT>(
+              c1_ptr, CustomColorHander(c1.makeShared(), 255, 0, 0),
+              "icp_source");
 
-      pcl::RGB color = pcl::GlasbeyLUT::at(i % pcl::GlasbeyLUT::size());
-      auto ch =
-          CustomColorHander(clouds_sections[i], color.r, color.g, color.b);
-      viewer->addPointCloud<pcl::PointXYZRGBA>(clouds_sections[i], ch, name);
+          viewer->addPointCloud<PointT>(
+              c2_ptr, CustomColorHander(c2.makeShared(), 0, 0, 255),
+              "icp_target");
 
-      Eigen::Affine3f s_pose_a, e_pose_a;
-      s_pose_a = Eigen::Affine3f::Identity();
-      s_pose_a.linear() = s_pose.rotation().cast<float>();
-      s_pose_a.translation() = s_pose.translation().cast<float>();
+          pcl::Correspondences correspondences;
+          for (size_t i = 0; i < idxs1.size(); ++i)
+            correspondences.push_back(
+                pcl::Correspondence(idxs1[i], idxs2[i], 1));
 
-      e_pose_a = Eigen::Affine3f::Identity();
-      e_pose_a.linear() = e_pose.rotation().cast<float>();
-      e_pose_a.translation() = e_pose.translation().cast<float>();
+          viewer->addCorrespondences<PointT>(c1_ptr, c2_ptr, correspondences,
+                                             "correspondences");
 
-      pcl::PointXYZ p1, p2;
-      p1.x = s_pose_a.translation()(0);
-      p1.y = s_pose_a.translation()(1);
-      p1.z = s_pose_a.translation()(2);
-      p2.x = e_pose_a.translation()(0);
-      p2.y = e_pose_a.translation()(1);
-      p2.z = e_pose_a.translation()(2);
+          viewer->setPointCloudRenderingProperties(
+              pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, "icp_source");
 
-      pcl::RGB color_line = pcl::GlasbeyLUT::at(i % pcl::GlasbeyLUT::size());
+          viewer->setPointCloudRenderingProperties(
+              pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, "icp_target");
 
-      viewer->addLine(p1, p2, color_line.r / 255.0, color_line.g / 255.0,
-                      color_line.b / 255.0,
-                      fmt::format("line_{}-{}_pre", s_idx, e_idx));
-      viewer->setShapeRenderingProperties(
-          pcl::visualization::PCL_VISUALIZER_LINE_WIDTH, 3,
-          fmt::format("line_{}-{}_pre", s_idx, e_idx));
+          viewer->spinOnce(1);
 
-      viewer->addCoordinateSystem(0.2, s_pose_a,
-                                  fmt::format("s_pose_{}_pre", s_idx));
-      viewer->addCoordinateSystem(0.2, e_pose_a,
-                                  fmt::format("e_pose_{}_pre", e_idx));
-      viewer->spinOnce(100);
-    }
-#endif
-    pcl::transformPointCloud(*clouds_sections[i], *clouds_sections[i],
-                             matrix.matrix());
+          viewer->removePointCloud("icp_source");
+          viewer->removePointCloud("icp_target");
+          viewer->removeShape("correspondences");
+        });
+        // Register the callback
+        reg.registerVisualizationCallback(callback);
+      }
+    };
 
-#if VISUALIZE
-    if (ReUseX::Visualizer::isInitialised()) {
-      auto viewer = ReUseX::Visualizer::getInstance()
-                        ->getViewer<pcl::visualization::PCLVisualizer>();
-      auto name = fmt::format("cloud_{}-{}_post", sections[i].first,
-                              sections[i].second);
+    reg.align(*ft_src, matrix);
 
-      pcl::RGB color = pcl::GlasbeyLUT::at(i % pcl::GlasbeyLUT::size());
-      auto ch =
-          CustomColorHander(clouds_sections[i], color.r, color.g, color.b);
-      viewer->addPointCloud<pcl::PointXYZRGBA>(clouds_sections[i], ch, name);
+    auto dist = reg.getFinalTransformation().block<3, 1>(0, 3).norm();
 
-      s_pose = s_pose * matrix;
-      e_pose = e_pose * matrix;
-
-      Eigen::Affine3f s_pose_a, e_pose_a;
-      s_pose_a = Eigen::Affine3f::Identity();
-      s_pose_a.linear() = s_pose.rotation().cast<float>();
-      s_pose_a.translation() = s_pose.translation().cast<float>();
-
-      e_pose_a = Eigen::Affine3f::Identity();
-      e_pose_a.linear() = e_pose.rotation().cast<float>();
-      e_pose_a.translation() = e_pose.translation().cast<float>();
-
-      pcl::PointXYZ p1, p2;
-      p1.x = s_pose_a.translation()(0);
-      p1.y = s_pose_a.translation()(1);
-      p1.z = s_pose_a.translation()(2);
-      p2.x = e_pose_a.translation()(0);
-      p2.y = e_pose_a.translation()(1);
-      p2.z = e_pose_a.translation()(2);
-
-      pcl::RGB color_line = pcl::GlasbeyLUT::at(i % pcl::GlasbeyLUT::size());
-
-      viewer->addLine(p1, p2, color_line.r / 255.0, color_line.g / 255.0,
-                      color_line.b / 255.0,
-                      fmt::format("line_{}-{}_post", s_idx, e_idx));
-      viewer->setShapeRenderingProperties(
-          pcl::visualization::PCL_VISUALIZER_LINE_WIDTH, 3,
-          fmt::format("line_{}-{}_post", s_idx, e_idx));
-
-      viewer->addCoordinateSystem(0.2, s_pose_a,
-                                  fmt::format("s_pose_{}_post", s_idx));
-      viewer->addCoordinateSystem(0.2, e_pose_a,
-                                  fmt::format("e_pose_{}_post", e_idx));
-      viewer->spinOnce(100);
+    bool hasConverged = false;
+    if (reg.hasConverged() && reg.getFitnessScore() < 0.01 && dist < 0.5) {
+      *keypoint_cloud += *keypoints[i];
+      *cloud += *clouds[i];
+      hasConverged = true;
     }
 
-#endif
+    auto xform = hasConverged ? reg.getFinalTransformation()
+                              : Eigen::Matrix4f::Identity();
+
+    if (hasConverged) {
+      pcl::transformPointCloud(*clouds[i], *clouds[i], xform);
+      pcl::transformPointCloud(*keypoints[i], *keypoints[i], xform);
+
+      *keypoint_cloud += *keypoints[i];
+      *cloud += *clouds[i];
+    } else {
+      if (!reg.hasConverged())
+        spdlog::warn("ICP failed to converge at {}", indices[i]);
+      if (reg.getFitnessScore() > 0.01)
+        spdlog::warn("ICP fitness score too high at {}", indices[i]);
+      if (dist > 0.5)
+        spdlog::warn("ICP distance too high at {}", indices[i]);
+
+      // std::getchar();
+    }
+
     ++(*monitor);
-  }
 
-  // // Sort by size
-  // std::vector<size_t> selected_indices(sections.size());
-  // std::iota(selected_indices.begin(), selected_indices.end(), 0);
-  // std::sort(selected_indices.begin(), selected_indices.end(),
-  //           [&clouds_sections](size_t a, size_t b) {
-  //             return clouds_sections[a]->size() >
-  //             clouds_sections[b]->size();
-  //           });
+    if constexpr (VISUALIZE) {
 
-  // monitor = std::make_shared<spdmon::LoggerProgress>(
-  //     "Alining sections", clouds_sections.size() - 1);
-  // for (size_t i = 1; i < clouds_sections.size(); ++i) {
-  //   auto tgt_idx = selected_indices[i - 1];
-  //   auto src_idx = selected_indices[i];
+      if (i % 5 == 0) {
+        spdlog::trace("Grid filter point cloud: {}", i);
+        auto gf = ReUseX::Filters::GridFilter<PointT>(0.05);
+        gf->setInputCloud(cloud);
+        gf->filter(*cloud);
 
-  //   FilterCollection filters = {
-  //       Filters::HighConfidenceFilter<pcl::PointXYZRGBA>(),
-  //       Filters::GridFilter<pcl::PointXYZRGBA>(0.30)};
+        spdlog::trace("Staticical outlier filter point cloud: {}", i);
+        pcl::StatisticalOutlierRemoval<PointT> sor;
+        sor.setInputCloud(cloud);
+        sor.setMeanK(50);
+        sor.setStddevMulThresh(1.0);
+        // sor.filter(*cloud);
+      }
 
-  //   auto [matrix, fitness_score] = icp<pcl::PointXYZRGBA>(
-  //       clouds_sections[src_idx], clouds_sections[tgt_idx], filters, 5);
+      p.getVector3fMap() =
+          vertices[i]->estimate().translation().head<3>().cast<float>();
+      path1.points.push_back(p);
+      path2.points.emplace_back(xform(0, 3), xform(1, 3), xform(2, 3));
 
-  //   pcl::transformPointCloud(*clouds_sections[src_idx],
-  //                            *clouds_sections[src_idx], matrix);
-  //   ++(*monitor);
-  // }
+      pcl::PolygonMesh mesh1, mesh2;
+      pcl::toPCLPointCloud2(path1, mesh1.cloud);
+      pcl::toPCLPointCloud2(path2, mesh2.cloud);
 
-#if VISUALIZE
-  if (ReUseX::Visualizer::isInitialised()) {
-    auto viewer = ReUseX::Visualizer::getInstance()
-                      ->getViewer<pcl::visualization::PCLVisualizer>();
-    // viewer->removeAllPointClouds();
-    for (size_t i = 0; i < clouds_sections.size(); ++i) {
-      pcl::RGB color = pcl::GlasbeyLUT::at(i % pcl::GlasbeyLUT::size());
-      auto ch =
-          CustomColorHander(clouds_sections[i], color.r, color.g, color.b);
-      auto name =
-          fmt::format("cloud_{}-{}", sections[i].first, sections[i].second);
-      viewer->addPointCloud<pcl::PointXYZRGBA>(clouds_sections[i], ch, name);
-      viewer->spinOnce(100);
+      mesh1.polygons.emplace_back();
+      mesh1.polygons[0].vertices.resize(path1.points.size());
+      std::iota(mesh1.polygons[0].vertices.begin(),
+                mesh1.polygons[0].vertices.end(), 0);
+
+      mesh2.polygons.emplace_back();
+      mesh2.polygons[0].vertices.resize(path2.points.size());
+      std::iota(mesh2.polygons[0].vertices.begin(),
+                mesh2.polygons[0].vertices.end(), 0);
+
+      if (ReUseX::Visualizer::isInitialised()) {
+        auto viewer = ReUseX::Visualizer::getInstance()
+                          ->getViewer<pcl::visualization::PCLVisualizer>();
+
+        // Draw frustum
+        if (i != 1) {
+          viewer->removeShape(fmt::format("line_orig-{}", i));
+          viewer->removeShape(fmt::format("line_icp-{}", i));
+        }
+        viewer->addPolylineFromPolygonMesh(mesh1,
+                                           fmt::format("line_orig-{}", i));
+        viewer->addPolylineFromPolygonMesh(mesh2,
+                                           fmt::format("line_icp-{}", i));
+        viewer->updatePointCloud<PointT>(cloud, RGBHandler(cloud), "cloud");
+        viewer->updatePointCloud<PointT>(
+            keypoint_cloud, CustomColorHander(keypoint_cloud, 0, 255, 0),
+            "keypoints");
+
+        viewer->addCoordinateSystem(
+            0.2,
+            Eigen::Affine3f(vertices[i]->estimate().matrix().cast<float>()),
+            fmt::format("pose_icp_{}", i));
+        if (i == 1)
+          viewer->addCoordinateSystem(0.5, Eigen::Affine3f(FRUSTUM_CONVERSIO),
+                                      fmt::format("Frustom", i));
+
+        viewer->setPointCloudRenderingProperties(
+            pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, "cloud");
+        viewer->setPointCloudRenderingProperties(
+            pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 7, "keypoints");
+        viewer->setShapeRenderingProperties(
+            pcl::visualization::PCL_VISUALIZER_LINE_WIDTH, 2,
+            fmt::format("line_orig-{}", i));
+        viewer->setShapeRenderingProperties(
+            pcl::visualization::PCL_VISUALIZER_LINE_WIDTH, 2,
+            fmt::format("line_icp-{}", i));
+        viewer->setShapeRenderingProperties(
+            pcl::visualization::PCL_VISUALIZER_COLOR, 0, 0.5, 0,
+            fmt::format("line_orig-{}", i));
+        viewer->setShapeRenderingProperties(
+            pcl::visualization::PCL_VISUALIZER_COLOR, 1, 0, 0,
+            fmt::format("line_icp-{}", i));
+        viewer->spinOnce(100);
+      }
     }
+
+    // if (!reg.hasConverged()) {
+    //   spdlog::warn("ICP failed to converge at {}",
+    //   indices[i]); if (ReUseX::Visualizer::isInitialised())
+    //     ReUseX::Visualizer::getInstance()->wait();
+    //   return path;
+    // }
   }
-#endif
 
   if (ReUseX::Visualizer::isInitialised())
     ReUseX::Visualizer::getInstance()->wait();
-
-  // Save start and end pose save the point clouds
-
-  // for (size_t i = 0; i < sections.size(); ++i) {
-  //   auto start_idx = sections[i].first;
-  //   auto end_idx = sections[i].second;
-
-  //  auto start_pose =
-  //      static_cast<g2o::VertexSE3
-  //      *>(optimizer->vertex(start_idx))->estimate();
-  //  auto end_pose =
-  //      static_cast<g2o::VertexSE3 *>(optimizer->vertex(end_idx))->estimate();
-
-  //  std::string file_name = fmt::format("cloud_{}-{}.ply", start_idx,
-  //  end_idx); fs::path file_path = fs::path("./") / file_name;
-
-  //  spdlog::debug("Start Pose {}-{}: {}", start_idx, end_idx,
-  //                start_pose.matrix().format(OctaveFmt));
-  //  spdlog::debug("End Pose {}-{}: {}", start_idx, end_idx,
-  //                end_pose.matrix().format(OctaveFmt));
-
-  //  // save<pcl::PointXYZRGBA>(file_path, clouds_sections[i]);
-  //  pcl::PLYWriter writer;
-  //  writer.write(file_path, *clouds_sections[i], true, false);
-  //}
 
   return path;
 }

@@ -102,7 +102,7 @@ template <typename PointT>
 std::tuple<Eigen::Matrix4f, double>
 icp(const typename pcl::PointCloud<PointT>::ConstPtr cloud_src,
     const typename pcl::PointCloud<PointT>::ConstPtr cloud_tgt,
-    std::vector<typename pcl::Filter<PointT>::Ptr> &filters,
+    const std::vector<typename pcl::Filter<PointT>::Ptr> &filters,
     const double maxCorrespondence) {
 
   using Ptr = typename pcl::PointCloud<PointT>::Ptr;
@@ -218,7 +218,7 @@ icp(const typename pcl::PointCloud<PointT>::ConstPtr cloud_src,
 
   // ... and weight the 'curvature' dimension so that it is balanced against x,
   // y, and z
-  float alpha[7] = {1.0, 1.0, 1.0, 2.5, 2.5, 2.5, 0.0};
+  float alpha[7] = {1.0, 1.0, 1.0, 5, 5, 5, 0.0};
 
   point_representation.setRescaleValues(alpha);
 
@@ -403,12 +403,12 @@ pair_align<PointT>(const typename pcl::PointCloud<PointT>::ConstPtr cloud_src,
 template std::tuple<Eigen::Matrix4f, double> icp<pcl::PointXYZRGBA>(
     const typename pcl::PointCloud<pcl::PointXYZRGBA>::ConstPtr cloud_src,
     const typename pcl::PointCloud<pcl::PointXYZRGBA>::ConstPtr cloud_tgt,
-    std::vector<typename pcl::Filter<pcl::PointXYZRGBA>::Ptr> &filters,
+    const std::vector<typename pcl::Filter<pcl::PointXYZRGBA>::Ptr> &filters,
     const double maxCorrespondence);
 
 template std::tuple<Eigen::Matrix4f, double> icp<PointXYZRGBANormal>(
     const typename pcl::PointCloud<PointXYZRGBANormal>::ConstPtr cloud_src,
     const typename pcl::PointCloud<PointXYZRGBANormal>::ConstPtr cloud_tgt,
-    std::vector<typename pcl::Filter<PointXYZRGBANormal>::Ptr> &filters,
+    const std::vector<typename pcl::Filter<PointXYZRGBANormal>::Ptr> &filters,
     const double maxCorrespondence);
 } // namespace ReUseX

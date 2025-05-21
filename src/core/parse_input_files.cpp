@@ -57,19 +57,20 @@ template <typename PointCloud>
 static void setHeader(PointCloud &cloud, Eigen::MatrixXd const &odometry,
                       std::optional<size_t> i) {
 
-  uint64_t time_stamp = odometry(0, 0);
-  std::string frame_id = fmt::format("{:06}", (int)odometry(0, 1));
-
-  auto pos = odometry.block<1, 3>(0, 2);  // x,y,z
-  auto quat = odometry.block<1, 4>(0, 5); // x,y,z,w
-
-  Eigen::Vector4f origin(pos(0), pos(1), pos(2), 1);
-
-  Eigen::Quaternionf orientation(quat(3), quat(0), quat(1), quat(2));
+  const uint64_t time_stamp = odometry(0, 0);
+  const std::string frame_id = fmt::format("{:06}", (int)odometry(0, 1));
 
   cloud.header.seq = i.has_value() ? i.value() : 0;
   cloud.header.frame_id = frame_id;
   cloud.header.stamp = time_stamp;
+
+  const auto pos = odometry.block<1, 3>(0, 2);  // x,y,z
+  const auto quat = odometry.block<1, 4>(0, 5); // x,y,z,w
+
+  const Eigen::Vector4f origin(pos(0), pos(1), pos(2), 1);
+
+  Eigen::Quaternionf orientation(quat(3), quat(0), quat(1), quat(2));
+  orientation = orientation.normalized();
 
   cloud.sensor_origin_ = origin;
   cloud.sensor_orientation_ = orientation;
@@ -79,12 +80,17 @@ pcl::PointCloud<pcl::PointXYZRGBA>::Ptr
 CreateCloud(DataItem const &data, double fx, double fy, double cx, double cy,
             std::optional<size_t const> i) {
 
-  // We need at least the depth info
-  auto fields = data.fields();
-  assert(std::count(fields.begin(), fields.end(), Field::DEPTH) == 1);
+  using RangeImage = pcl::RangeImagePlanar;
+  using RangeImagePtr = pcl::RangeImagePlanar::Ptr;
 
-  pcl::RangeImagePlanar::Ptr points =
-      pcl::RangeImagePlanar::Ptr(new pcl::RangeImagePlanar);
+  using PointT = pcl::PointXYZRGBA;
+  using Cloud = pcl::PointCloud<PointT>;
+  using CloudPtr = typename Cloud::Ptr;
+
+  using Image = cv::Mat;
+  using Confidence = Eigen::Matrix<uint8_t, Eigen::Dynamic, Eigen::Dynamic>;
+
+  RangeImagePtr points(new pcl::RangeImagePlanar);
 
   auto depth = data.get<Field::DEPTH>();
   points->setDepthImage(
@@ -94,60 +100,39 @@ CreateCloud(DataItem const &data, double fx, double fy, double cx, double cy,
       cx, cy, fx, fy);
 
   // Convert the RangeImage to a Point Cloud
-  pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud =
-      pcl::PointCloud<pcl::PointXYZRGBA>::Ptr(
-          new pcl::PointCloud<pcl::PointXYZRGBA>);
+  CloudPtr cloud(new Cloud());
   pcl::copyPointCloud(*points, *cloud);
 
-  auto width = points->width;
-  auto height = points->height;
+  // Get color values
+  Image image = data.get<Field::COLOR>();
+  cv::resize(image, image, cv::Size(points->width, points->height));
 
-  // If there is color information add it
-  bool has_color_values =
-      std::find(fields.begin(), fields.end(), Field::COLOR) != fields.end();
-  cv::Mat image;
-  if (has_color_values) {
-    image = data.get<Field::COLOR>();
-    cv::resize(image, image, cv::Size(width, height));
-  }
+  // Get confidence values
+  Confidence confidence = data.get<Field::CONFIDENCE>();
 
-  // If there there are confidence values add them
-  bool has_confidence_values = std::find(fields.begin(), fields.end(),
-                                         Field::CONFIDENCE) != fields.end();
-  Eigen::Matrix<uint8_t, Eigen::Dynamic, Eigen::Dynamic> confidence;
-
-  if (has_confidence_values)
-    confidence = data.get<Field::CONFIDENCE>();
-
-  // Set values
-  if (has_color_values || has_confidence_values) {
 #pragma omp parallel for shared(cloud, image, confidence)
-    for (size_t idx = 0; idx < cloud->size(); idx++) {
-      if (has_color_values) {
-        cv::Vec3b vec = image.at<cv::Vec3b>(idx);
-        cloud->at(idx).r = vec[0];
-        cloud->at(idx).g = vec[1];
-        cloud->at(idx).b = vec[2];
-      }
-      if (has_confidence_values)
-        cloud->at(idx).a = (confidence(idx) == 2)   ? 255
-                           : (confidence(idx) == 1) ? 50
-                                                    : 0;
-    }
+  for (size_t idx = 0; idx < cloud->size(); idx++) {
+    cv::Vec3b vec = image.at<cv::Vec3b>(idx);
+    cloud->at(idx).r = vec[0];
+    cloud->at(idx).g = vec[1];
+    cloud->at(idx).b = vec[2];
+    cloud->at(idx).a = (confidence(idx) == 2)   ? 255
+                       : (confidence(idx) == 1) ? 50
+                                                : 0;
   }
 
   // Set Header
-  if (std::find(fields.begin(), fields.end(), Field::ODOMETRY) != fields.end())
-    setHeader(*cloud, data.get<Field::ODOMETRY>(), i);
+  setHeader(*cloud, data.get<Field::ODOMETRY>(), i);
 
   // Get Pose
   Eigen::Affine3f pose = Eigen::Affine3f::Identity();
   pose.linear() = cloud->sensor_orientation_.toRotationMatrix();
   pose.translation() = cloud->sensor_origin_.template head<3>();
+
+  // Transform the point cloud
+  // pcl::transformPointCloud(*cloud, *cloud, pose);
   // Eigen::Affine3f pose = Eigen::Affine3f::Identity();
   // pose.rotate(Eigen::AngleAxisf(-M_PI / 2.0f, Eigen::Vector3f::UnitZ()));
-
-  pcl::transformPointCloud(*cloud, *cloud, pose);
 
   return cloud;
 }
@@ -256,11 +241,9 @@ void parse_Dataset(Dataset const &dataset, std::string const &output_path,
   double ratio = (double)n_frames / (double)dataset.size() * 100;
 
   // Print info
-  fmt::print("Number of frames: ");
-  fmt::print(fg(fmt::color::red), "{}", n_frames);
-  fmt::print(fmt::emphasis::italic,
-             " -> ( start: {}; step: {}; end: {} ) {:3.2f}% \n", start, step,
-             stop, ratio);
+  spdlog::debug("Number of frames: {}", n_frames);
+  spdlog::debug("Start: {} Stop: {} Step: {} Ratio: {:3.2f}", start, stop, step,
+                ratio);
 
   if (n_frames == 0)
     return;

@@ -2,6 +2,11 @@
 
 SESSION_NAME="ReUseX"
 
+# Exit if tmux is nested
+if [ -n "$TMUX" ]; then
+  exit 0
+fi
+
 # Parse input command into a single string
 Command=""
 

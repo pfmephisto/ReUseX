@@ -10,13 +10,15 @@
 #include <pcl/features/fpfh.h>
 #include <pcl/features/fpfh_omp.h>
 #include <pcl/features/normal_3d.h>
+#include <pcl/features/normal_3d_omp.h>
 #include <pcl/features/range_image_border_extractor.h>
 #include <pcl/filters/crop_box.h>
 #include <pcl/filters/extract_indices.h>
+#include <pcl/filters/filter.h>
 #include <pcl/filters/frustum_culling.h>
 #include <pcl/filters/statistical_outlier_removal.h>
 #include <pcl/filters/voxel_grid.h>
-#include <pcl/io/ply_io.h>
+#include <pcl/io/auto_io.h>
 #include <pcl/keypoints/narf_keypoint.h>
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
@@ -71,13 +73,10 @@
 #include <vector>
 
 #define VISUALIZE 1
+#define TEMP_EXTENSION "pcd"
 
 namespace fs = std::filesystem;
 using namespace ReUseX;
-
-constexpr auto mkLogger = [](const std::string name, const int size) {
-  return std::make_shared<spdmon::LoggerProgress>(name, size);
-};
 
 /**
  * @brief Converts an odometry matrix to an isometry transformation.
@@ -148,6 +147,8 @@ class custom_mapping : public pcl::PointRepresentation<pcl::PointXYZRGBA> {
     out[3] =
         p.getRGBVector3i().cast<float>().dot(rgb_to_intensity_weight_) / 255.0;
   }
+
+  virtual bool isValid(const pcl::PointXYZRGBA &) const { return true; }
 };
 
 bool getKeypoints(pcl::PointCloud<pcl::PointXYZRGBA>::ConstPtr cloud,
@@ -207,55 +208,179 @@ bool getKeypoints(pcl::PointCloud<pcl::PointXYZRGBA>::ConstPtr cloud,
   return true;
 };
 
-class Buffer {
-  using Affine3f = Eigen::Affine3f;
-  using Matrix4f = Eigen::Matrix4f;
-  using Vector3f = Eigen::Vector3f;
+template <class T, size_t N> constexpr size_t size(T (&)[N]) { return N; }
 
-    private:
-  const size_t capacity_;
-  std::vector<Vector3f> buffer_;
-  Affine3f last_;
-  size_t end_ = 0;
+template <
+    typename PointT, typename NormalT = pcl::Normal,
+    typename FPFHSignature33T = pcl::FPFHSignature33,
 
-    public:
-  Buffer(const size_t capacity) : capacity_(capacity) {
-    buffer_ = std::vector<Vector3f>(capacity, Vector3f::Zero());
-    last_ = Affine3f::Identity();
+    typename CloudNormal = typename pcl::PointCloud<NormalT>,
+    typename FPFHSignature33 = typename pcl::PointCloud<FPFHSignature33T>,
+
+    typename CloudNormalPtr = typename CloudNormal::Ptr,
+    typename FPFHSignature33Ptr =
+        typename pcl::PointCloud<FPFHSignature33T>::Ptr,
+
+    typename KDTree = pcl::search::KdTree<PointT>,
+    typename KDTreePtr = typename pcl::search::KdTree<PointT>::Ptr,
+
+    typename NormalEstimation = pcl::NormalEstimationOMP<PointT, pcl::Normal>,
+    typename FPFHEstimation =
+        pcl::FPFHEstimationOMP<PointT, pcl::Normal, pcl::FPFHSignature33>>
+FPFHSignature33T
+getHistogram(typename pcl::PointCloud<PointT>::ConstPtr cloud) {
+
+  spdlog::trace("Starting FPFH histogram computation");
+
+  if (cloud->empty()) {
+    spdlog::warn("Input cloud is empty, cannot compute FPFH histogram");
+    return FPFHSignature33T();
   }
 
-  void push_back(const Matrix4f &value) {
-    Affine3f last_(value);
-    buffer_[end_] = last_.translation();
-    end_ = (end_ + 1) % capacity_;
-  }
+  NormalEstimation ne;
+  ne.setInputCloud(cloud);
+  KDTreePtr tree(new KDTree());
+  ne.setSearchMethod(tree);
+  ne.setRadiusSearch(0.05);
+  ne.useSensorOriginAsViewPoint();
 
-  Affine3f average() const {
+  spdlog::trace("Computing normals");
+  CloudNormalPtr normals(new CloudNormal);
+  ne.compute(*normals);
 
-    Eigen::Vector3f t = Eigen::Vector3f::Zero();
-    for (const auto &vec : buffer_)
-      t += vec;
-    t /= capacity_;
+  // Create the FPFH estimation class, and pass the input dataset+normals to it
+  spdlog::trace("Creating FPFH estimation object");
+  FPFHEstimation fpfh;
+  fpfh.setInputCloud(cloud);
+  fpfh.setInputNormals(normals);
+  fpfh.setSearchMethod(tree);
+  // IMPORTANT: the radius used here has to be larger than the radius used to
+  // estimate the surface normals!!!
+  fpfh.setRadiusSearch(0.15);
 
-    Affine3f avg = Affine3f::Identity();
-    avg.translation() = t;
-    avg.linear() = last_.linear();
+  spdlog::trace("Computing FPFH features");
+  FPFHSignature33Ptr fpfhs(new FPFHSignature33());
+  fpfh.compute(*fpfhs);
 
-    return avg;
-  }
+  spdlog::trace("Aggregating FPFH features into a global histogram");
+  FPFHSignature33T global;
+  std::fill(std::begin(global.histogram), std::end(global.histogram), 0.0f);
+
+  size_t histogram_size = size(global.histogram);
+
+  for (const auto &f : fpfhs->points)
+    for (int i = 0; i < histogram_size; ++i)
+      global.histogram[i] += f.histogram[i];
+
+  for (int i = 0; i < histogram_size; ++i)
+    global.histogram[i] /= static_cast<float>(fpfhs->size());
+
+  return global;
+}
+
+template <typename PointT> struct Submap {
+  using Cloud = typename pcl::PointCloud<PointT>;
+  using CloudPtr = typename Cloud::Ptr;
+  CloudPtr map = CloudPtr(new Cloud());
+  CloudPtr keypoints = CloudPtr(new Cloud());
+  std::vector<size_t> indices = std::vector<size_t>();
 };
+
+bool spliteSubmap(const Eigen::Affine3f &prev, const Eigen::Affine3f &current,
+                  const float translation_threshold = 0.07,
+                  const float angle_threshold = pcl::deg2rad(5.0)) {
+
+  const float distance = (current.translation() - prev.translation()).norm();
+  const Eigen::Quaternionf q_prev(prev.linear());
+  const Eigen::Quaternionf q_current(current.linear());
+  const float angle = q_prev.angularDistance(q_current);
+
+  const bool split = (distance > translation_threshold ||
+                      angle > angle_threshold); // 0.05m, 2 degrees
+
+  spdlog::debug("Distance: {:.3f}, Angle: {:.3f} -> Split: {}", distance,
+                pcl::rad2deg(angle), split);
+
+  return split;
+}
+
+template <typename PointT>
+std::function<typename pcl::Registration<
+    PointT, PointT>::UpdateVisualizerCallbackSignature>
+reg_visualization_callback([](const pcl::PointCloud<PointT> &c1,
+                              const pcl::Indices &idxs1,
+                              const pcl::PointCloud<PointT> &c2,
+                              const pcl::Indices &idxs2) -> void {
+  if constexpr (VISUALIZE) {
+    using CloudPtr = typename pcl::PointCloud<PointT>::Ptr;
+    using RGBHandler =
+        typename pcl::visualization::PointCloudColorHandlerRGBField<PointT>;
+    using CustomColorHander =
+        pcl::visualization::PointCloudColorHandlerCustom<PointT>;
+
+    if (c1.empty() || c2.empty()) {
+      spdlog::warn("One of the point clouds is empty, skipping visualization");
+      return;
+    }
+
+    if (!ReUseX::Visualizer::isInitialised()) {
+      spdlog::warn("Visualizer is not initialized, skipping visualization");
+      return;
+    }
+
+    // Create shared pointers for the point clouds
+    spdlog::trace("Creating shared pointers for point clouds");
+    CloudPtr c1_ptr = c1.makeShared();
+    CloudPtr c2_ptr = c2.makeShared();
+
+    // Get the viewer instance
+    auto viewer = ReUseX::Visualizer::getInstance()
+                      ->getViewer<pcl::visualization::PCLVisualizer>();
+
+    spdlog::trace("Adding point clouds to viewer");
+    viewer->addPointCloud<PointT>(
+        c1_ptr, CustomColorHander(c1.makeShared(), 255, 0, 0), "icp_source");
+
+    viewer->addPointCloud<PointT>(
+        c2_ptr, CustomColorHander(c2.makeShared(), 0, 0, 255), "icp_target");
+
+    spdlog::trace("Adding correspondences to viewer");
+    pcl::Correspondences correspondences;
+    for (size_t i = 0; i < idxs1.size(); ++i)
+      correspondences.push_back(pcl::Correspondence(idxs1[i], idxs2[i], 1));
+
+    viewer->addCorrespondences<PointT>(c1_ptr, c2_ptr, correspondences,
+                                       "correspondences");
+
+    spdlog::trace("Setting point cloud rendering properties");
+    viewer->setPointCloudRenderingProperties(
+        pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, "icp_source");
+
+    viewer->setPointCloudRenderingProperties(
+        pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, "icp_target");
+
+    viewer->spinOnce(1);
+
+    spdlog::trace("Removing point clouds and correspondences from viewer");
+    viewer->removePointCloud("icp_source");
+    viewer->removePointCloud("icp_target");
+    viewer->removeShape("correspondences");
+    spdlog::trace("Visualization callback completed");
+  };
+});
 
 /**
  * @brief Writes a graph structure to a specified file path.
  *
- * This function processes a dataset and writes a graph representation to the
- * specified file path. It supports configurable solver and kernel options,
- * as well as parameters for controlling the graph generation process.
+ * This function processes a dataset and writes a graph representation to
+ * the specified file path. It supports configurable solver and kernel
+ * options, as well as parameters for controlling the graph generation
+ * process.
  *
  * @param path The file path where the graph will be written.
  * @param dataset The dataset containing the graph data.
- * @param indices A vector of indices specifying the subset of the dataset to
- * process.
+ * @param indices A vector of indices specifying the subset of the dataset
+ * to process.
  * @param groupSize The size of the groups to be processed in the graph.
  * @param solverName The name of the solver to be used. Format:
  *                   [algorithm]_[fix|var][pose_dim]_[landmark_dim]_[linear_solver].
@@ -286,10 +411,54 @@ class Buffer {
  *
  * @return fs::path The path to the written graph file.
  *
- * @note Ensure that the provided `path` is writable and the dataset is valid.
- *       The solver and kernel names must conform to the expected formats.
+ * @note Ensure that the provided `path` is writable and the dataset is
+ * valid. The solver and kernel names must conform to the expected formats.
  *       This function logs its progress using `spdlog`.
  */
+
+template <typename PointT>
+typename pcl::PointCloud<PointT>::Ptr
+extract_key_points(typename pcl::PointCloud<PointT>::Ptr cloud,
+                   const Eigen::Affine3f pose = Eigen::Affine3f::Identity()) {
+
+  using Cloud = pcl::PointCloud<PointT>;
+  using CloudPtr = typename Cloud::Ptr;
+
+  using Image = pcl::RangeImagePlanar;
+  using ImagePtr = pcl::RangeImagePlanar::Ptr;
+
+  using Extractor = pcl::ExtractIndices<pcl::PointXYZRGBA>;
+  using ExtractorPtr = typename Extractor::Ptr;
+
+  spdlog::trace("Get planar image");
+  ImagePtr range_image_ptr(new Image);
+  Image range_image = *range_image_ptr;
+  range_image.createFromPointCloudWithFixedSize(
+      *cloud, 256 /*width*/, 192 /*height*/, 127.12994667 /*center x*/,
+      95.74299333 /*center y*/, 212.14793333 /*focal length x*/,
+      212.14793333 /*focal length y*/, pose /*sensor pose*/,
+      pcl::RangeImage::CAMERA_FRAME /*coordinate frame*/, 0.0f /*noise level*/,
+      0.0f /*min range*/);
+  // range_image.setUnseenToMaxRange();
+
+  spdlog::trace("Keypoint detection");
+  pcl::RangeImageBorderExtractor b_ext;
+  pcl::NarfKeypoint detect(&b_ext);
+  detect.getParameters().support_size = 0.1f;
+
+  spdlog::trace("Set range image");
+  detect.setRangeImage(&range_image);
+  pcl::PointCloud<int> keypoint_idx;
+  detect.compute(keypoint_idx);
+
+  spdlog::trace("Set keypoints");
+  CloudPtr keypoints = CloudPtr(new Cloud());
+  for (size_t i = 0; i < keypoint_idx.size(); ++i)
+    keypoints->points.push_back(cloud->points[keypoint_idx[i]]);
+
+  return keypoints;
+}
+
 fs::path
 ReUseX::write_graph(fs::path path, Dataset &dataset,
                     std::vector<size_t> &indices, const size_t groupSize,
@@ -313,6 +482,8 @@ ReUseX::write_graph(fs::path path, Dataset &dataset,
 
   using Filter = typename pcl::Filter<PointT>::Ptr;
   using FilterCollection = std::vector<Filter>;
+  using ConditionalRemoval = pcl::ConditionalRemoval<PointT>::Ptr;
+  using GridFilter = pcl::VoxelGrid<PointT>::Ptr;
 
   using RGBHandler =
       typename pcl::visualization::PointCloudColorHandlerRGBField<PointT>;
@@ -345,397 +516,543 @@ ReUseX::write_graph(fs::path path, Dataset &dataset,
   optimizer->setVerbose(false);
   optimizer->setAlgorithm(solver);
 
-  // Initialise point cloud for icp alignment
-  Clouds clouds(indices.size());
-  Clouds keypoints(indices.size());
+  // Save submaps
+  const fs::path temp_path = fs::path(fmt::format("./{}_reg", dataset.name()));
 
-  pcl::PointCloud<pcl::PointXYZ> path1 = pcl::PointCloud<pcl::PointXYZ>();
-  pcl::PointCloud<pcl::PointXYZ> path2 = pcl::PointCloud<pcl::PointXYZ>();
+  spdlog::trace("Precompute submaps");
+  std::vector<Submap<PointT>> submaps = std::vector<Submap<PointT>>();
+  std::vector<Eigen::Affine3f> poses(indices.size());
 
-  // All point clouds
-  // CloudsWithNormals clouds_with_normals(indices.size(),
-  //                                       CloudNormalPtr(new CloudNormal()));
+  // Skip preprocessing if submaps already exist
+  std::set<size_t> submap_indices = std::set<size_t>();
+  if (fs::exists(temp_path))
+    goto load_submaps;
 
-  CloudPtr cloud(new Cloud());
-  CloudPtr keypoint_cloud(new Cloud());
-  if constexpr (VISUALIZE) {
-    if (ReUseX::Visualizer::isInitialised()) {
-      auto viewer = ReUseX::Visualizer::getInstance()
-                        ->getViewer<pcl::visualization::PCLVisualizer>();
-      viewer->addPointCloud<pcl::PointXYZRGBA>(cloud, RGBHandler(cloud),
-                                               "cloud");
-      viewer->addPointCloud<pcl::PointXYZRGBA>(
-          keypoint_cloud, CustomColorHander(cloud, 0, 255, 0), "keypoints");
-      viewer->resetCamera();
-      viewer->spinOnce(100);
-    }
+  submaps.push_back(Submap<PointT>());
+  for (size_t i = 0; i < indices.size(); ++i) {
+
+    spdlog::trace("Load data");
+    const size_t index = indices[i];
+    const auto data = dataset[index];
+
+    spdlog::trace("Get pose");
+    g2o::Isometry3 pose = odometryToIsometry(data.get<Field::ODOMETRY>());
+
+    spdlog::trace("Get point cloud");
+    poses[i] = Eigen::Affine3f::Identity();
+    poses[i].linear() = pose.linear().cast<float>();
+    poses[i].translation() = pose.translation().cast<float>();
+
+    spdlog::trace("Check if we need to split the submap");
+    if (spliteSubmap(poses[i - 1], poses[i]))
+      submaps.push_back(Submap<PointT>());
+
+    submaps.back().indices.push_back(i);
   }
 
-  auto monitor = mkLogger("Loading Point clouds", indices.size());
-#pragma omp parallel for shared(dataset, indices, clouds)
-  for (int i = 0; i < indices.size(); ++i) {
+  spdlog::debug("Submaps: {}", submaps.size());
+  {
+    auto logger = spdmon::LoggerProgress("Submap", submaps.size());
+#pragma omp parallel for shared(submaps, dataset, indices, poses)              \
+    schedule(dynamic, 1)
+    for (int i = 0; i < submaps.size(); i++) {
 
-    using Image = pcl::RangeImagePlanar;
-    using ImagePtr = typename Image::Ptr;
+      // Submap
+      spdlog::trace("Processing submap {}", i);
+      CloudPtr submap = submaps[i].map;
+      CloudPtr kp_submap = submaps[i].keypoints;
 
-    using Extractor = pcl::ExtractIndices<pcl::PointXYZRGBA>;
-    using ExtractorPtr = typename Extractor::Ptr;
+      spdlog::trace("Submap {}: indices: {}", i, submaps[i].indices.size());
 
-    spdlog::trace("Loading point cloud: {}", i);
-    clouds[i] = CreateCloud(dataset[indices[i]]);
-
-    spdlog::trace("Filter point cloud: {}", i);
-    auto hf = ReUseX::Filters::HighConfidenceFilter<pcl::PointXYZRGBA>();
-    hf->setInputCloud(clouds[i]);
-    hf->filter(*clouds[i]);
-
-    spdlog::trace("Creating planar image: {}", i);
-    ImagePtr range_image_ptr(new Image);
-    Image range_image = *range_image_ptr;
-    range_image.createFromPointCloudWithFixedSize(
-        *clouds[i], 256 /*width*/, 192 /*height*/, 127.12994667 /*center x*/,
-        95.74299333 /*center y*/, 212.14793333 /*focal length x*/,
-        212.14793333 /*focal length y*/,
-        Eigen::Affine3f::Identity() /*sensor pose*/,
-        pcl::RangeImage::CAMERA_FRAME /*coordinate frame*/,
-        0.0f /*noise level*/, 0.0f /*min range*/);
-
-    spdlog::trace("Keypoint detection");
-    pcl::PointCloud<int> keypoint_idx;
-    pcl::RangeImageBorderExtractor b_ext;
-    pcl::NarfKeypoint detect(&b_ext);
-    detect.getParameters().support_size = 0.1f;
-    detect.setRangeImage(&range_image);
-    detect.compute(keypoint_idx);
-
-    spdlog::trace("Add point the keypoint cloud");
-    keypoints[i] = CloudPtr(new Cloud());
-    for (size_t idx = 0; idx < keypoint_idx.size(); ++idx)
-      keypoints[i]->points.push_back(clouds[i]->points[keypoint_idx[idx]]);
-
-    // spdlog::trace("Compute normals: {}", i);
-    // pcl::NormalEstimation<PointT, NormalT> ne;
-    // ne.setInputCloud(clouds[i]);
-    // pcl::search::KdTree<PointT>::Ptr tree(new pcl::search::KdTree<PointT>());
-    // ne.setSearchMethod(tree);
-    // ne.setRadiusSearch(0.03);
-    // ne.compute(*normals[i]);
-
-    // spdlog::trace("Pre align point cloud: {}", i);
-    // Eigen::Affine3f pose = Eigen::Affine3f::Identity();
-    // pose.linear() = clouds[i]->sensor_orientation_.toRotationMatrix();
-    // pose.translation() = clouds[i]->sensor_origin_.template head<3>();
-    // pcl::transformPointCloud(*clouds[i], *clouds[i], pose);
-
-    spdlog::trace("Clear point cloud header: {}", i);
-    clouds[i]->sensor_origin_ = Eigen::Vector4f(0, 0, 0, 1);
-    clouds[i]->sensor_orientation_ = Eigen::Quaternionf::Identity();
-
-    ++(*monitor);
-
-    if constexpr (VISUALIZE) {
-      if (ReUseX::Visualizer::isInitialised()) {
-        auto viewer = ReUseX::Visualizer::getInstance()
-                          ->getViewer<pcl::visualization::PCLVisualizer>();
-#pragma omp critical
-        viewer->spinOnce(100);
+      if (submaps[i].indices.size() == 0) {
+        spdlog::warn("Submap {} is empty, skipping", i);
+        ++logger;
+        continue;
       }
-    }
-  }
 
-  const Eigen::Matrix4d FLIP =
-      (Eigen::Matrix4d() << 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1)
-          .finished();
+      // Index of the first point cloud in the map
+      const size_t index_0 = submaps[i].indices[0];
+      const Eigen::Affine3f pose_0 = poses[index_0];
+      spdlog::debug("Submap {}: first index: {}", i, index_0);
 
-  std::vector<g2o::VertexSE3 *> vertices =
-      std::vector<g2o::VertexSE3 *>(indices.size());
+      const size_t index_0_mapped = indices[index_0];
+      spdlog::debug("Submap {}: first index mapped: {}", i, index_0_mapped);
+      CloudPtr first_cloud = CreateCloud(dataset[indices[index_0]]);
 
-  monitor = mkLogger("Set vertecies", indices.size());
-  const auto START =
-      odometryToIsometry(dataset[indices[0]].get<Field::ODOMETRY>()).inverse();
-#pragma omp parallel for shared(dataset, indices, optimizer, vertices)
-  for (int i = 0; i < indices.size(); ++i) {
-    // Get the pose
-    g2o::Isometry3 pose =
-        odometryToIsometry(dataset[indices[i]].get<Field::ODOMETRY>());
+      ConditionalRemoval hf =
+          ReUseX::Filters::HighConfidenceFilter<pcl::PointXYZRGBA>();
+      hf->setInputCloud(first_cloud);
+      hf->filter(*first_cloud);
 
-    pose = START * pose;
+      *submap += *first_cloud;
+      *kp_submap += *extract_key_points<PointT>(first_cloud);
 
-    // pose *= FLIP;
-    // pose.translation()[1] *= -1;
-    // pose.translation()[2] *= -1;
+      pcl::transformPointCloud(*submap, *submap, pose_0);
+      pcl::transformPointCloud(*kp_submap, *kp_submap, pose_0);
 
-    // Add vertex
-    g2o::VertexSE3 *vert = new g2o::VertexSE3();
-    vert->setId(i);
-    vert->setFixed(i == 0); // Fix the first vertex
-    vert->setEstimate(pose);
-    vertices[i] = vert;
+      for (size_t j = 1; j < submaps[i].indices.size(); ++j) {
 
-    // #pragma omp critical
-    //     optimizer->addVertex(vert);
+        // Get the point cloud
+        const size_t index_j = submaps[i].indices[j];
+        const size_t index_j_mapped = indices[index_j];
+        spdlog::trace("Load point cloud {} at index "
+                      "{} in dataset",
+                      index_j, index_j_mapped);
+        CloudPtr cloud = CreateCloud(dataset[index_j_mapped]);
+        CloudPtr keypoints = extract_key_points<PointT>(cloud);
 
-    ++(*monitor);
-  }
+        spdlog::trace("Transform point cloud and keypoints");
+        pcl::transformPointCloud(*cloud, *cloud, poses[index_j]);
+        pcl::transformPointCloud(*keypoints, *keypoints, poses[index_j]);
 
-  monitor = mkLogger("Aligning frames", indices.size() - 1);
-  // monitor->GetLogger()->set_level(spdlog::level::trace);
+        cloud->sensor_origin_ = Eigen::Vector4f(0, 0, 0, 1);
+        cloud->sensor_orientation_ = Eigen::Quaternionf::Identity();
 
-  Eigen::Matrix4f matrix = Eigen::Matrix4f::Identity();
+        // Cloud for registration
 
-  *cloud += *clouds[0];
-  *keypoint_cloud += *keypoints[0];
+        spdlog::trace("Filter point cloud");
+        hf->setInputCloud(cloud);
+        hf->filter(*cloud);
 
-  pcl::PointXYZ p;
-  p.getVector3fMap() =
-      vertices[0]->estimate().translation().head<3>().cast<float>();
-  path1.points.push_back(p);
-  path2.points.push_back(p);
+        CloudPtr src_cloud(new Cloud());
 
-  // pcl::visualization::RangeImageVisualizer range_image_widget_src(
-  //     "Range image Source");
-  // pcl::visualization::RangeImageVisualizer range_image_widget_tgt(
-  //     "Range image Target");
-
-  const Eigen::Matrix4f FRUSTUM_CONVERSIO =
-      (Eigen::Matrix4f() << 0, 0, 1, 0, 0, -1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1)
-          .finished();
-
-  const float alpha[4] = {1.0, 1.0, 1.0, 0.0};
-  custom_mapping point_representation{};
-  point_representation.setRescaleValues(alpha);
-  auto point_representation_ptr =
-      pcl::make_shared<const custom_mapping>(point_representation);
-
-  for (size_t i = 1; i < indices.size() - 1; ++i) {
-    // Intiialize Filters
-    using FrustomCulling = pcl::FrustumCulling<PointT>::Ptr;
-    using GridFilter = pcl::VoxelGrid<PointT>::Ptr;
-
-    FrustomCulling fc = FrustomCulling(new pcl::FrustumCulling<PointT>());
-    fc->setVerticalFOV(80);   // 60 degrees
-    fc->setHorizontalFOV(60); // 45 degrees
-    fc->setNearPlaneDistance(1.0);
-    fc->setFarPlaneDistance(7);
-    fc->setCameraPose(vertices[i]->estimate().matrix().cast<float>() *
-                      FRUSTUM_CONVERSIO);
-
-    GridFilter gf = ReUseX::Filters::GridFilter<PointT>(0.10);
-
-    CloudPtr ft_src(new Cloud());
-    CloudPtr ft_tgt(new Cloud());
-
-    fc->setInputCloud(keypoint_cloud);
-    fc->filter(*ft_tgt);
-
-    bool use_keypoints = keypoints[i]->size() > 3 && ft_tgt->size() > 3;
-
-    if (use_keypoints) {
-      pcl::copyPointCloud(*keypoints[i], *ft_src);
-    } else {
-      gf->setInputCloud(clouds[i]);
-      gf->filter(*ft_src);
-
-      fc->setInputCloud(cloud);
-      fc->filter(*ft_tgt);
-
-      gf->setInputCloud(ft_tgt);
-      gf->filter(*ft_tgt);
-    }
-
-    // TODO: List of things to implement
-    //   Add compute_normals
-
-    assert(ft_src->size() > 0 && "ft_src can not be empty");
-    assert(ft_tgt->size() > 0 && "ft_tgt can not be empty");
-
-    optimizer->addVertex(vertices[i]);
-
-    ICP reg;
-    reg.setMaximumIterations(50);
-    reg.setMaxCorrespondenceDistance(0.5);
-    reg.setTransformationEpsilon(1e-8);
-    reg.setEuclideanFitnessEpsilon(1e-8);
-    reg.setRANSACIterations(1000);
-    reg.setRANSACOutlierRejectionThreshold(0.02);
-    reg.setPointRepresentation(point_representation_ptr);
-
-    reg.setInputSource(ft_src);
-    reg.setInputTarget(ft_tgt);
-
-    // Add icp visualization callback
-    if constexpr (VISUALIZE) {
-      if (ReUseX::Visualizer::isInitialised()) {
-        auto viewer = ReUseX::Visualizer::getInstance()
-                          ->getViewer<pcl::visualization::PCLVisualizer>();
-        // Construct the callback function to visualize the
-        // registration process
-        std::function<typename pcl::Registration<
-            PointT, PointT>::UpdateVisualizerCallbackSignature>
-        callback([viewer](const pcl::PointCloud<PointT> &c1,
-                          const pcl::Indices &idxs1,
-                          const pcl::PointCloud<PointT> &c2,
-                          const pcl::Indices &idxs2) -> void {
-          CloudPtr c1_ptr = c1.makeShared();
-          CloudPtr c2_ptr = c2.makeShared();
-
-          viewer->addPointCloud<PointT>(
-              c1_ptr, CustomColorHander(c1.makeShared(), 255, 0, 0),
-              "icp_source");
-
-          viewer->addPointCloud<PointT>(
-              c2_ptr, CustomColorHander(c2.makeShared(), 0, 0, 255),
-              "icp_target");
-
-          pcl::Correspondences correspondences;
-          for (size_t i = 0; i < idxs1.size(); ++i)
-            correspondences.push_back(
-                pcl::Correspondence(idxs1[i], idxs2[i], 1));
-
-          viewer->addCorrespondences<PointT>(c1_ptr, c2_ptr, correspondences,
-                                             "correspondences");
-
-          viewer->setPointCloudRenderingProperties(
-              pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, "icp_source");
-
-          viewer->setPointCloudRenderingProperties(
-              pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, "icp_target");
-
-          viewer->spinOnce(1);
-
-          viewer->removePointCloud("icp_source");
-          viewer->removePointCloud("icp_target");
-          viewer->removeShape("correspondences");
-        });
-        // Register the callback
-        reg.registerVisualizationCallback(callback);
-      }
-    };
-
-    reg.align(*ft_src, matrix);
-
-    auto dist = reg.getFinalTransformation().block<3, 1>(0, 3).norm();
-
-    bool hasConverged = false;
-    if (reg.hasConverged() && reg.getFitnessScore() < 0.01 && dist < 0.5) {
-      *keypoint_cloud += *keypoints[i];
-      *cloud += *clouds[i];
-      hasConverged = true;
-    }
-
-    auto xform = hasConverged ? reg.getFinalTransformation()
-                              : Eigen::Matrix4f::Identity();
-
-    if (hasConverged) {
-      pcl::transformPointCloud(*clouds[i], *clouds[i], xform);
-      pcl::transformPointCloud(*keypoints[i], *keypoints[i], xform);
-
-      *keypoint_cloud += *keypoints[i];
-      *cloud += *clouds[i];
-    } else {
-      if (!reg.hasConverged())
-        spdlog::warn("ICP failed to converge at {}", indices[i]);
-      if (reg.getFitnessScore() > 0.01)
-        spdlog::warn("ICP fitness score too high at {}", indices[i]);
-      if (dist > 0.5)
-        spdlog::warn("ICP distance too high at {}", indices[i]);
-
-      // std::getchar();
-    }
-
-    ++(*monitor);
-
-    if constexpr (VISUALIZE) {
-
-      if (i % 5 == 0) {
-        spdlog::trace("Grid filter point cloud: {}", i);
         auto gf = ReUseX::Filters::GridFilter<PointT>(0.05);
         gf->setInputCloud(cloud);
-        gf->filter(*cloud);
+        gf->filter(*src_cloud);
 
-        spdlog::trace("Staticical outlier filter point cloud: {}", i);
-        pcl::StatisticalOutlierRemoval<PointT> sor;
-        sor.setInputCloud(cloud);
-        sor.setMeanK(50);
-        sor.setStddevMulThresh(1.0);
-        // sor.filter(*cloud);
+        if (src_cloud->size() < 3) {
+          spdlog::warn("Not enough points in cloud "
+                       "at index {}",
+                       indices[index_j]);
+          ++logger;
+          continue;
+        }
+
+        spdlog::trace("ICP registration");
+        ICP reg;
+        reg.setMaximumIterations(50);
+        reg.setMaxCorrespondenceDistance(0.5);
+        reg.setTransformationEpsilon(1e-8);
+        reg.setEuclideanFitnessEpsilon(1e-8);
+        reg.setRANSACIterations(1000);
+        reg.setMaxCorrespondenceDistance(0.05);
+        reg.setRANSACOutlierRejectionThreshold(0.02);
+
+        // Set point representation
+        const float alpha[4] = {1, 1, 1, 1};
+        custom_mapping point_representation{};
+        auto point_representation_ptr =
+            pcl::make_shared<const custom_mapping>(point_representation);
+        reg.setPointRepresentation(point_representation_ptr);
+
+        spdlog::debug("Clouds: src: {}, submap: {}", fmt::ptr(src_cloud.get()),
+                      fmt::ptr(submap.get()));
+
+        reg.setInputSource(src_cloud);
+        reg.setInputTarget(submap);
+
+        // reg.registerVisualizationCallback(reg_visualization_callback<PointT>);
+
+        reg.align(*src_cloud);
+
+        if (reg.hasConverged()) {
+
+          spdlog::trace("Get transformation");
+          Eigen::Matrix4f xform = reg.getFinalTransformation();
+
+          spdlog::trace("Transform cloud and keypoints");
+          pcl::transformPointCloud(*cloud, *cloud, xform);
+          pcl::transformPointCloud(*keypoints, *keypoints, xform);
+
+          spdlog::trace("Add cloud and keypoints to submap");
+          *submap += *cloud;
+          *kp_submap += *keypoints;
+
+        } else
+          spdlog::warn("ICP failed to converge at {}", indices[index_j]);
+
+        if (i % 5 == 0) {
+          spdlog::trace("Grid filter point cloud");
+          auto gf = ReUseX::Filters::GridFilter<PointT>(0.05);
+          gf->setInputCloud(submap);
+          gf->filter(*submap);
+        }
       }
 
-      p.getVector3fMap() =
-          vertices[i]->estimate().translation().head<3>().cast<float>();
-      path1.points.push_back(p);
-      path2.points.emplace_back(xform(0, 3), xform(1, 3), xform(2, 3));
+      spdlog::trace("Grid filter point cloud");
+      auto gf = ReUseX::Filters::GridFilter<PointT>(0.05);
+      gf->setInputCloud(submap);
+      gf->filter(*submap);
 
-      pcl::PolygonMesh mesh1, mesh2;
-      pcl::toPCLPointCloud2(path1, mesh1.cloud);
-      pcl::toPCLPointCloud2(path2, mesh2.cloud);
+      spdlog::trace("Staticical outlier filter point cloud");
+      pcl::StatisticalOutlierRemoval<PointT> sor;
+      sor.setInputCloud(submap);
+      sor.setMeanK(50);
+      sor.setStddevMulThresh(1.0);
+      // sor.filter(*submap);
 
-      mesh1.polygons.emplace_back();
-      mesh1.polygons[0].vertices.resize(path1.points.size());
-      std::iota(mesh1.polygons[0].vertices.begin(),
-                mesh1.polygons[0].vertices.end(), 0);
+      ++logger;
+    }
+  }
 
-      mesh2.polygons.emplace_back();
-      mesh2.polygons[0].vertices.resize(path2.points.size());
-      std::iota(mesh2.polygons[0].vertices.begin(),
-                mesh2.polygons[0].vertices.end(), 0);
+save_submaps:
+  // Create temp directory
+  if (!fs::exists(temp_path))
+    std::filesystem::create_directories(temp_path);
+  else if (!fs::is_empty(temp_path)) {
+    spdlog::warn("Temp directory {} is not empty, clearing it",
+                 temp_path.string());
+    fs::remove_all(temp_path);
+    std::filesystem::create_directories(temp_path);
+  }
 
+  spdlog::trace("Save submaps");
+  for (size_t i = 0; i < submaps.size(); ++i) {
+
+    const std::string ext = TEMP_EXTENSION;
+    const auto &submap = submaps[i];
+
+    const fs::path submap_path =
+        temp_path / fmt::format("submap_{}.{}", i, ext);
+    spdlog::debug("Saving submap {} to {}", i, submap_path.string());
+    pcl::io::savePCDFile(submap_path.string(), *submap.map);
+
+    const fs::path keypoints_path =
+        temp_path / fmt::format("keypoints_{}.{}", i, ext);
+    spdlog::debug("Saving keypoints {} to {}", i, keypoints_path.string());
+    pcl::io::savePCDFile(keypoints_path.string(), *submap.keypoints);
+
+    // Save indices
+    const fs::path indices_path = temp_path / fmt::format("indices_{}.txt", i);
+    spdlog::debug("Saving indices {} to {}", i, indices_path.string());
+    std::ofstream indices_file(indices_path);
+    if (!indices_file.is_open()) {
+      spdlog::error("Failed to open indices file: {}", indices_path.string());
+      continue;
+    }
+    for (const auto &index : submap.indices) {
+      indices_file << index << "\n";
+    }
+    indices_file.close();
+  }
+  goto align_submaps;
+
+load_submaps:
+  // Load submaps
+  spdlog::trace("Load submaps");
+
+  for (auto &entry : fs::directory_iterator(temp_path)) {
+    if (entry.is_regular_file() &&
+        entry.path().extension() ==
+            fmt::format(".{}", TEMP_EXTENSION).c_str()) {
+      const std::string filename = entry.path().filename().string();
+      const std::string index_str =
+          filename.substr(filename.find('_') + 1, filename.find('.'));
+
+      size_t submap_index = std::atoi(index_str.c_str());
+      spdlog::debug("Found submap index: {}", submap_index);
+
+      submap_indices.insert(submap_index);
+    }
+  }
+
+  spdlog::debug("Found {} submaps", submap_indices.size());
+  submaps.clear();
+  submaps.resize(submap_indices.size());
+
+  {
+    auto logger = spdmon::LoggerProgress("Load Submaps", submap_indices.size());
+
+    for (const auto &index : submap_indices) {
+
+      submaps[index] = Submap<PointT>();
+
+      const std::string ext = TEMP_EXTENSION;
+
+      const fs::path submap_path =
+          temp_path / fmt::format("submap_{}.{}", index, ext);
+      const fs::path keypoints_path =
+          temp_path / fmt::format("keypoints_{}.{}", index, ext);
+
+      spdlog::debug("Loading submap {} from {}", index, submap_path.string());
+      pcl::io::loadPCDFile(submap_path.string(), *submaps[index].map);
+
+      spdlog::debug("Loading keypoints {} from {}", index,
+                    keypoints_path.string());
+      pcl::io::loadPCDFile(keypoints_path.string(), *submaps[index].keypoints);
+
+      // spdlog::trace("Remove NaN points from submap and keypoints");
+      // pcl::PassThrough<PointT> pass;
+      // for (CloudPtr m : std::array<CloudPtr, 2>{submaps[index].map,
+      //                                           submaps[index].keypoints}) {
+      //   pcl::Indices indices_map;
+      //   pcl::removeNaNFromPointCloud(*m, *m, indices_map);
+      //   for (auto &f : {"z", "y", "x"}) {
+      //     pass.setInputCloud(m);
+      //     pass.setFilterFieldName(f);
+      //     pass.setFilterLimits(std::numeric_limits<float>::min(),
+      //                          std::numeric_limits<float>::max());
+      //     pass.filter(*m);
+      //   }
+      // }
+
+      // Load indices
+      const fs::path indices_path =
+          temp_path / fmt::format("indices_{}.txt", index);
+      spdlog::debug("Loading indices {} from {}", index, indices_path.string());
+      std::ifstream indices_file(indices_path);
+      if (!indices_file.is_open()) {
+        spdlog::error("Failed to open indices file: {}", indices_path.string());
+        continue;
+      }
+      std::string line;
+      while (std::getline(indices_file, line)) {
+        if (!line.empty()) {
+          size_t idx = std::stoul(line);
+          submaps[index].indices.push_back(idx);
+        }
+      }
+      indices_file.close();
+
+      spdlog::debug("Loaded submap {} with {} points and {} keypoints", index,
+                    submaps[index].map->size(),
+                    submaps[index].keypoints->size());
+      ++logger;
+    }
+  }
+
+align_submaps:
+  spdlog::trace("Align submaps");
+
+  if (false) {
+
+    if constexpr (VISUALIZE) {
+      spdlog::trace("Visualize submaps before alignment");
+      if (ReUseX::Visualizer::isInitialised()) {
+        auto viewer = ReUseX::Visualizer ::getInstance()
+                          ->getViewer<pcl::visualization::PCLVisualizer>();
+        CloudPtr all_submaps(new Cloud());
+        for (size_t i = 0; i < submaps.size(); ++i)
+          *all_submaps += *submaps[i].map;
+
+        auto gf = ReUseX::Filters::GridFilter<PointT>(0.05);
+        gf->setInputCloud(all_submaps);
+        gf->filter(*all_submaps);
+
+        viewer->addPointCloud<PointT>(all_submaps, RGBHandler(all_submaps),
+                                      "all_submaps_before_alignment");
+        viewer->setPointCloudRenderingProperties(
+            pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5,
+            "all_submaps_before_alignment");
+        viewer->resetCamera();
+        viewer->spinOnce(1);
+      }
+    }
+
+    auto logger = spdmon::LoggerProgress("Align Submaps", submaps.size() - 1);
+
+    int prev_index = 0;
+    for (size_t i = 1; i < submaps.size(); ++i) {
+
+      // if (submaps[prev_index].map->empty()) {
+      if (submaps[prev_index].keypoints->empty()) {
+        prev_index = i;
+        spdlog::warn(
+            "Previous submap is empty, skipping registration for index {}", i);
+        ++logger;
+        continue;
+      }
+
+      // if (submaps[i].map->empty()) {
+      if (submaps[i].keypoints->empty()) {
+        spdlog::warn(
+            "Current submap is empty, skipping registration for index {}", i);
+        ++logger;
+        continue;
+      }
+
+      spdlog::trace("ICP registration {} -> {}", prev_index, i);
+      ICP reg;
+      reg.setMaximumIterations(50);
+      reg.setMaxCorrespondenceDistance(0.5);
+      reg.setTransformationEpsilon(1e-8);
+      reg.setEuclideanFitnessEpsilon(1e-8);
+      reg.setRANSACIterations(1000);
+      reg.setMaxCorrespondenceDistance(1.00);
+      reg.setRANSACOutlierRejectionThreshold(0.02);
+
+      // Set point representation
+      const float alpha[4] = {1, 1, 1, 0};
+      custom_mapping point_representation{};
+      auto point_representation_ptr =
+          pcl::make_shared<const custom_mapping>(point_representation);
+      reg.setPointRepresentation(point_representation_ptr);
+
+      // reg.setInputSource(submaps[i].map);
+      // reg.setInputTarget(submaps[prev_index].map);
+      reg.setInputSource(submaps[i].keypoints);
+      reg.setInputTarget(submaps[prev_index].keypoints);
+
+      reg.registerVisualizationCallback(reg_visualization_callback<PointT>);
+
+      auto pose = poses[submaps[i].indices[0]].inverse() *
+                  poses[submaps[i - 1].indices[0]];
+
+      CloudPtr dummy(new Cloud());
+      reg.align(*dummy, pose.matrix());
+
+      if (reg.hasConverged()) {
+
+        spdlog::trace("Get transformation");
+        Eigen::Matrix4f xform = reg.getFinalTransformation();
+
+        spdlog::trace("Transform cloud and keypoints");
+        pcl::transformPointCloud(*submaps[i].map, *submaps[i].map, xform);
+        pcl::transformPointCloud(*submaps[i].keypoints, *submaps[i].keypoints,
+                                 xform);
+
+        for (size_t j = 0; j < submaps[i].indices.size(); ++j) {
+          const size_t index = submaps[i].indices[j];
+          poses[index] = poses[index] * Eigen::Affine3f(xform);
+        }
+
+        prev_index = i;
+      } else
+        spdlog::warn("ICP failed to converge at {}", i);
+
+      ++logger;
+    }
+  }
+
+  pcl::PointCloud<pcl::FPFHSignature33>::Ptr vocabulary(
+      new pcl::PointCloud<pcl::FPFHSignature33>());
+
+  static std::string VOCABULARY_NAME =
+      fmt::format("{}_fpfh_vocab.pcd", dataset.name());
+
+  if (fs::exists(VOCABULARY_NAME)) {
+    spdlog::trace("Load vocabulary from file");
+    pcl::io::loadPCDFile(VOCABULARY_NAME, *vocabulary);
+    spdlog::debug("Vocabulary loaded with {} points", vocabulary->size());
+  } else {
+    spdlog::trace("Vocabulary file not found, creating new vocabulary");
+
+    vocabulary->points.resize(submaps.size());
+    vocabulary->width = submaps.size();
+    vocabulary->height = 1;
+
+#pragma omp parallel for shared(submaps, vocabulary)
+    for (int i = 0; i < submaps.size(); ++i) {
+      vocabulary->points[i] = getHistogram<PointT>(submaps[i].map);
+    }
+    spdlog::debug("Vocabulary created with {} points", vocabulary->size());
+    pcl::io::savePCDFile(VOCABULARY_NAME, *vocabulary);
+  }
+
+  pcl::KdTreeFLANN<pcl::FPFHSignature33> kdtree;
+  kdtree.setInputCloud(vocabulary);
+
+  for (size_t i = 0; i < submaps.size(); ++i) {
+    spdlog::trace("Get FPFH histogram for submap {}", i);
+
+    if (submaps[i].map->empty()) {
+      spdlog::warn("Submap {} is empty, skipping FPFH computation", i);
+      continue;
+    }
+
+    pcl::FPFHSignature33 fpfh = getHistogram<PointT>(submaps[i].map);
+
+    // Find the nearest neighbor in the vocabulary
+    std::vector<int> search_indices(2);
+    std::vector<float> search_distances(2);
+
+    if (!kdtree.nearestKSearch(fpfh, 2, search_indices, search_distances)) {
+      spdlog::warn("No nearest neighbors found for submap {}", i);
+      continue;
+    }
+
+    spdlog::debug("Nearest neighbor for submap {}: index {}, distance {}", i,
+                  search_indices[1], search_distances[1]);
+
+    // Visualize the edge between submaps
+    if constexpr (VISUALIZE) {
       if (ReUseX::Visualizer::isInitialised()) {
         auto viewer = ReUseX::Visualizer::getInstance()
                           ->getViewer<pcl::visualization::PCLVisualizer>();
 
-        // Draw frustum
-        if (i != 1) {
-          viewer->removeShape(fmt::format("line_orig-{}", i));
-          viewer->removeShape(fmt::format("line_icp-{}", i));
-        }
-        viewer->addPolylineFromPolygonMesh(mesh1,
-                                           fmt::format("line_orig-{}", i));
-        viewer->addPolylineFromPolygonMesh(mesh2,
-                                           fmt::format("line_icp-{}", i));
-        viewer->updatePointCloud<PointT>(cloud, RGBHandler(cloud), "cloud");
-        viewer->updatePointCloud<PointT>(
-            keypoint_cloud, CustomColorHander(keypoint_cloud, 0, 255, 0),
-            "keypoints");
+        const pcl::RGB c = pcl::GlasbeyLUT::at(i);
+        const size_t idx_1 = indices[submaps[i].indices[0]];
+        const size_t idx_2 = indices[submaps[search_indices[1]].indices[0]];
+        const std::string name = fmt::format("edge_{}_{}", idx_1, idx_2);
 
-        viewer->addCoordinateSystem(
-            0.2,
-            Eigen::Affine3f(vertices[i]->estimate().matrix().cast<float>()),
-            fmt::format("pose_icp_{}", i));
-        if (i == 1)
-          viewer->addCoordinateSystem(0.5, Eigen::Affine3f(FRUSTUM_CONVERSIO),
-                                      fmt::format("Frustom", i));
+        pcl::PointXYZ p1, p2;
+        p1.getVector3fMap() = dataset[idx_1]
+                                  .get<Field::ODOMETRY>()
+                                  .block<1, 3>(0, 2)
+                                  .cast<float>();
+        p2.getVector3fMap() = dataset[idx_2]
+                                  .get<Field::ODOMETRY>()
+                                  .block<1, 3>(0, 2)
+                                  .cast<float>();
 
-        viewer->setPointCloudRenderingProperties(
-            pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, "cloud");
-        viewer->setPointCloudRenderingProperties(
-            pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 7, "keypoints");
+        viewer->addLine<pcl::PointXYZ>(p1, p2, c.r, c.g, c.b, name);
         viewer->setShapeRenderingProperties(
-            pcl::visualization::PCL_VISUALIZER_LINE_WIDTH, 2,
-            fmt::format("line_orig-{}", i));
-        viewer->setShapeRenderingProperties(
-            pcl::visualization::PCL_VISUALIZER_LINE_WIDTH, 2,
-            fmt::format("line_icp-{}", i));
-        viewer->setShapeRenderingProperties(
-            pcl::visualization::PCL_VISUALIZER_COLOR, 0, 0.5, 0,
-            fmt::format("line_orig-{}", i));
-        viewer->setShapeRenderingProperties(
-            pcl::visualization::PCL_VISUALIZER_COLOR, 1, 0, 0,
-            fmt::format("line_icp-{}", i));
-        viewer->spinOnce(100);
+            pcl::visualization::PCL_VISUALIZER_LINE_WIDTH, 2, name);
       }
     }
 
-    // if (!reg.hasConverged()) {
-    //   spdlog::warn("ICP failed to converge at {}",
-    //   indices[i]); if (ReUseX::Visualizer::isInitialised())
-    //     ReUseX::Visualizer::getInstance()->wait();
-    //   return path;
+    // // Create a vertex for the submap
+    // g2o::VertexSE3 *v = new g2o::VertexSE3();
+    // v->setId(i);
+    // v->setEstimate(g2o::Isometry3(poses[submaps[i].indices[0]]));
+    // v->setFixed(i == 0); // Fix the first vertex
+    // optimizer->addVertex(v);
+
+    // // Add a feature vector to the vertex
+    // g2o::Vector7D feature_vector;
+    // feature_vector.head<6>() =
+    //     poses[submaps[i].indices[0]].matrix().cast<double>();
+    // feature_vector[6] = static_cast<double>(indices[0]);
+    // v->setUserData(new g2o::Vector7D(feature_vector));
+
+    // // Add edges between submaps based on nearest neighbors
+    // if (i > 0) {
+    //   g2o::EdgeSE3 *e = new g2o::EdgeSE3();
+    //   e->vertices()[0] = optimizer->vertex(i - 1);
+    //   e->vertices()[1] = optimizer->vertex(i);
+    //   e->setInformation(information_matrix.cast<double>());
+    //   e->setMeasurement(g2o::Isometry3(poses[submaps[i].indices[0]]).inverse()
+    //   *
+    //                     g2o::Isometry3(poses[submaps[i - 1].indices[0]]));
+    //   optimizer->addEdge(e);
     // }
   }
 
-  if (ReUseX::Visualizer::isInitialised())
-    ReUseX::Visualizer::getInstance()->wait();
+  if constexpr (VISUALIZE) {
+    spdlog::trace("Visualize submaps");
+    if (ReUseX::Visualizer::isInitialised()) {
+      auto viewer = ReUseX::Visualizer::getInstance()
+                        ->getViewer<pcl::visualization::PCLVisualizer>();
 
+      for (size_t i = 0; i < submaps.size(); ++i) {
+        CloudPtr map = submaps[i].map;
+        CloudPtr keypoints = submaps[i].keypoints;
+
+        const pcl::RGB c = pcl::GlasbeyLUT::at(i);
+
+        viewer->addPointCloud<PointT>(map, RGBHandler(map),
+                                      fmt::format("submap_cloud_{}", i));
+        viewer->addPointCloud<PointT>(
+            keypoints, CustomColorHander(keypoints, c.r, c.g, c.b),
+            fmt::format("submap_keypoints_{}", i));
+
+        viewer->setPointCloudRenderingProperties(
+            pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5,
+            fmt::format("submap_keypoints_{}", i));
+      }
+    }
+
+    ReUseX::Visualizer::getInstance()->wait();
+  }
   return path;
 }

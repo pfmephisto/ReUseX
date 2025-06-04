@@ -27,7 +27,7 @@
 #define Visualize_Rays 0
 
 template <typename PointT> class MatchCondition {
-public:
+    public:
   MatchCondition() {}
 
   // Overloaded function operator to be used as a functor
@@ -50,7 +50,7 @@ using Indices = pcl::Indices;
 
 class FaceMap {
   class FaceIterator {
-  public:
+      public:
     FaceIterator(int idx) : index(idx) {}
 
     FaceIterator &operator++() {
@@ -72,24 +72,24 @@ class FaceMap {
       return std::array<int, 4>{v1, v2, v3, v4};
     }
 
-  private:
+      private:
     constexpr static int offset = 4;
     size_t index = 0;
   };
 
-public:
+    public:
   FaceMap(Tiles &tiles) : tiles(tiles) {}
 
   FaceIterator begin() const { return FaceIterator(0); }
   FaceIterator end() const { return FaceIterator(tiles.size()); }
   size_t size() const { return tiles.size(); }
 
-private:
+    private:
   Tiles &tiles;
 };
 class VertexMap {
   class VertexIterator {
-  public:
+      public:
     VertexIterator(Tiles &tiles, RTCScene &scene, size_t index)
         : tiles(tiles), scene(scene), index(index) {}
 
@@ -117,7 +117,7 @@ class VertexMap {
                                   points[vertex * 3 + 2]};
     }
 
-  private:
+      private:
     Tiles &tiles;
     RTCScene &scene;
     size_t index = 0;
@@ -125,7 +125,7 @@ class VertexMap {
     constexpr static int offset = 4;
   };
 
-public:
+    public:
   VertexMap(Tiles &tiles, RTCScene &scene) : tiles(tiles), scene(scene) {}
 
   VertexIterator begin() const { return VertexIterator(tiles, scene, 0); }
@@ -134,13 +134,13 @@ public:
   }
   size_t size() const { return tiles.size() * 4; }
 
-private:
+    private:
   Tiles &tiles;
   RTCScene &scene;
 };
 class FaceIDMap {
   class FaceIDIterator {
-  public:
+      public:
     FaceIDIterator(Tiles &tiles, size_t index) : tiles(tiles), index(index) {}
 
     FaceIDIterator &operator++() {
@@ -160,23 +160,23 @@ class FaceIDMap {
       return address;
     }
 
-  private:
+      private:
     Tiles &tiles;
     size_t index = 0;
   };
 
-public:
+    public:
   FaceIDMap(Tiles &tiles) : tiles(tiles) {}
   FaceIDIterator begin() const { return FaceIDIterator(tiles, 0); }
   FaceIDIterator end() const { return FaceIDIterator(tiles, tiles.size()); }
   size_t size() const { return tiles.size(); }
 
-private:
+    private:
   Tiles &tiles;
 };
 class NodeMap {
   class NodeIterator {
-  public:
+      public:
     NodeIterator(RaysPair &rays, size_t index) : rays(rays), index(index) {}
 
     NodeIterator &operator++() {
@@ -207,25 +207,25 @@ class NodeMap {
       }
     }
 
-  private:
+      private:
     RaysPair &rays;
     size_t index = 0;
     size_t node = 0;
   };
 
-public:
+    public:
   NodeMap(RaysPair &rays) : rays(rays) {}
 
   NodeIterator begin() const { return NodeIterator(rays, 0); }
   NodeIterator end() const { return NodeIterator(rays, rays.size()); }
   size_t size() const { return rays.size() * 2; }
 
-private:
+    private:
   RaysPair &rays;
 };
 class EdgeMap {
   class EdgeIterator {
-  public:
+      public:
     EdgeIterator(RaysPair &rays, size_t index) : rays(rays), index(index) {}
 
     EdgeIterator &operator++() {
@@ -244,23 +244,23 @@ class EdgeMap {
       return std::array<int, 2>{(int)index * 2, (int)(index * 2) + 1};
     }
 
-  private:
+      private:
     RaysPair &rays;
     size_t index = 0;
   };
 
-public:
+    public:
   EdgeMap(RaysPair &rays) : rays(rays) {}
   EdgeIterator begin() const { return EdgeIterator(rays, 0); }
   EdgeIterator end() const { return EdgeIterator(rays, rays.size()); }
   size_t size() const { return rays.size(); }
 
-private:
+    private:
   RaysPair &rays;
 };
 class EdgeHitMap {
   class EdgeHitIterator {
-  public:
+      public:
     EdgeHitIterator(RaysPair &rays, size_t index) : rays(rays), index(index) {}
 
     EdgeHitIterator &operator++() {
@@ -291,23 +291,23 @@ class EdgeHitMap {
 #endif
     }
 
-  private:
+      private:
     RaysPair &rays;
     size_t index = 0;
   };
 
-public:
+    public:
   EdgeHitMap(RaysPair &rays) : rays(rays) {}
   EdgeHitIterator begin() const { return EdgeHitIterator(rays, 0); }
   EdgeHitIterator end() const { return EdgeHitIterator(rays, rays.size()); }
   size_t size() const { return rays.size(); }
 
-private:
+    private:
   RaysPair &rays;
 };
 class EdgeHitColorMap {
   class EdgeHitColorIterator {
-  public:
+      public:
     EdgeHitColorIterator(RaysPair &rays, size_t index)
         : rays(rays), index(index) {}
 
@@ -337,12 +337,12 @@ class EdgeHitColorMap {
 #endif
     }
 
-  private:
+      private:
     RaysPair &rays;
     size_t index = 0;
   };
 
-public:
+    public:
   EdgeHitColorMap(RaysPair &rays) : rays(rays) {}
   EdgeHitColorIterator begin() const { return EdgeHitColorIterator(rays, 0); }
   EdgeHitColorIterator end() const {
@@ -350,12 +350,12 @@ public:
   }
   size_t size() const { return rays.size(); }
 
-private:
+    private:
   RaysPair &rays;
 };
 class NodeHitSizeMap {
   class NodeHiSizeIterator {
-  public:
+      public:
     NodeHiSizeIterator(RaysPair &rays, size_t index)
         : rays(rays), index(index) {}
 
@@ -391,13 +391,13 @@ class NodeHitSizeMap {
 #endif
     };
 
-  private:
+      private:
     RaysPair &rays;
     size_t index = 0;
     size_t node = 0;
   };
 
-public:
+    public:
   NodeHitSizeMap(RaysPair &rays) : rays(rays) {}
   NodeHiSizeIterator begin() const { return NodeHiSizeIterator(rays, 0); };
   NodeHiSizeIterator end() const {
@@ -405,7 +405,7 @@ public:
   };
   size_t size() const { return rays.size() * 2; };
 
-private:
+    private:
   RaysPair &rays;
 };
 

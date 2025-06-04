@@ -187,6 +187,7 @@ find_package(pybind11 REQUIRED)
 file(GLOB_RECURSE LIB_SOURCES
     "src/*.cc"
     "src/*.cpp"
+    #"src/*.cu"
 )
 
 file(GLOB_RECURSE LIB_HEADERS
@@ -199,6 +200,15 @@ list(FILTER LIB_SOURCES EXCLUDE REGEX ".*py.cpp")
 # group sources according to folder structure
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${LIB_SOURCES})
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${LIB_HEADERS})
+source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${CU})
+
+
+
+## ===============================================
+## add cuda library
+#set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS} -gencode)
+#cuda_add_library(cuda_lib STATIC ${CU})
+
 
 
 

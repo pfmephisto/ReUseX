@@ -1,102 +1,111 @@
 #pragma once
+#include <Eigen/Dense>
+
+#include <fmt/format.h>
+
 #include <any>
 #include <map>
-#include <Eigen/Dense>
-#include <typed-geometry/tg.hh>
-#include <typed-geometry/tg-std.hh>
-#include <opencv4/opencv2/opencv.hpp>
+#include <variant>
 
+#include <opencv4/opencv2/core/mat.hpp>
 
-namespace linkml{
+namespace ReUseX {
 
-    enum Field {
-        COLOR,
-        DEPTH,
-        CONFIDENCE,
-        ODOMETRY,
-        IMU,
-        POSES,
-    };
+enum Field {
+  INDEX,
+  COLOR,
+  DEPTH,
+  CONFIDENCE,
+  ODOMETRY,
+  IMU,
+};
 
-//     std::ostream& operator<<(std::ostream& lhs, Field e) {
-//     switch(e) {
-//         case COLOR: lhs << "COLOR"; break;
-//         case DEPTH: lhs << "DEPTH"; break;
-//         case CONFIDENCE: lhs << "CONFIDENCE"; break;
-//         case ODOMETRY: lhs << "ODOMETRY"; break;
-//         case IMU: lhs << "IMU"; break;
-//     }
-//     return lhs;
-// }
+template <int F> struct FieldType;
 
+template <> struct FieldType<Field::COLOR> {
+  using type = cv::Mat;
+};
 
-    template <int F>
-    struct FieldType;
+template <> struct FieldType<Field::DEPTH> {
+  using type = Eigen::MatrixXf;
+};
 
-    template <>
-    struct FieldType<Field::COLOR> {
-        using type = cv::Mat;
-    };
+template <> struct FieldType<Field::CONFIDENCE> {
+  using type = Eigen::Matrix<uint8_t, Eigen::Dynamic, Eigen::Dynamic>;
+};
 
-    template <>
-    struct FieldType<Field::DEPTH> {
-        using type = Eigen::MatrixXd;
-    };
+template <> struct FieldType<Field::ODOMETRY> {
+  using type = Eigen::MatrixXd;
+};
 
-    template <>
-    struct FieldType<Field::CONFIDENCE> {
-        using type = Eigen::MatrixXd;
-    };
+template <> struct FieldType<Field::IMU> {
+  using type = Eigen::MatrixXd;
+};
 
-    template <>
-    struct FieldType<Field::ODOMETRY> {
-        using type = Eigen::MatrixXd;
-    };
+template <> struct FieldType<Field::INDEX> {
+  using type = size_t;
+};
 
-    template <>
-    struct FieldType<Field::IMU> {
-        using type = Eigen::MatrixXd;
-    };
+//// Helper to extract all types from field_type_map and create a variant
+// template <typename... Pairs>
+// struct ExtractTypes;
+//
+// template <typename... Ts>
+// struct ExtractTypes<std::pair<Field, Ts>...> {
+//     using type = std::variant<Ts...>;
+// };
+//
+//// Define FieldVariant automatically
+// using FieldVariant = typename
+// ExtractTypes<decltype(field_type_map)::value_type...>::type;
 
-    template <>
-    struct FieldType<Field::POSES> {
-        using type = tg::dmat4x4;
-    };
+// Define FieldVariant type using std::variant<>
+using FieldVariant =
+    std::variant<size_t, cv::Mat, Eigen::MatrixXf,
+                 Eigen::Matrix<uint8_t, Eigen::Dynamic, Eigen::Dynamic>,
+                 Eigen::MatrixXd, Eigen::Transform<float, 3, Eigen::Affine>>;
 
-
-
-
-    class Data
-    {
-    private:
-        std::map<Field, std::any> _data;
+class DataItem : public std::map<Field, std::function<FieldVariant()>> {
 
     public:
-        Data() = default;
+  template <Field F> typename FieldType<F>::type get() const {
+    return std::get<typename FieldType<F>::type>(this->at(F)());
+  }
 
-        
-        template <Field F>
-        typename FieldType<F>::type get() const {
-            using ValueType = typename FieldType<F>::type;
-            return std::any_cast<ValueType>(_data.at(F));
-        }
+  template <Field F>
+  void set(std::function<typename FieldType<F>::type()> value) {
+    this->operator[](F) = value;
+  }
 
-        template <Field F>
-        void set(typename FieldType<F>::type value) {
-            _data[F] = value;
-        }
+  std::vector<Field> fields() const {
+    std::vector<Field> fields{};
+    for (auto const &[key, value] : *this) {
+      fields.push_back(key);
+    }
+    return fields;
+  }
+};
 
-        auto begin() const { return _data.begin(); }
-        auto end() const { return _data.end(); }
+} // namespace ReUseX
 
-        auto fields() const {
-            std::vector<Field> fields;
-            for (auto const& [key, value] : _data) {
-                fields.push_back(key);
-            }
-            return fields;
-        }
-
-    };
-
-}
+// Specialization of fmt::formatter for ReUseX::Field
+template <> struct fmt::formatter<ReUseX::Field> : fmt::formatter<std::string> {
+  auto format(ReUseX::Field field, fmt::format_context &ctx) const {
+    switch (field) {
+    case ReUseX::INDEX:
+      return fmt::format_to(ctx.out(), "INDEX");
+    case ReUseX::COLOR:
+      return fmt::format_to(ctx.out(), "COLOR");
+    case ReUseX::DEPTH:
+      return fmt::format_to(ctx.out(), "DEPTH");
+    case ReUseX::CONFIDENCE:
+      return fmt::format_to(ctx.out(), "CONFIDENCE");
+    case ReUseX::ODOMETRY:
+      return fmt::format_to(ctx.out(), "ODOMETRY");
+    case ReUseX::IMU:
+      return fmt::format_to(ctx.out(), "IMU");
+    default:
+      return fmt::format_to(ctx.out(), "UNKNOWN");
+    }
+  }
+};

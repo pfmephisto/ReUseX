@@ -1,9 +1,11 @@
 #pragma once
+#define PCL_NO_PRECOMPILE
+
 #include <pcl/types.h>
 #include <Eigen/Core>
-#include <types/Plane.hh>
+#include <types/Geometry/Plane.hh>
 
-namespace linkml
+namespace ReUseX
 {
     struct PlanarPointSet
     {
@@ -14,7 +16,7 @@ namespace linkml
 
         Plane get_Plane() const
         {
-            return linkml::Plane( coefficients[0], coefficients[1], coefficients[2], coefficients[3], centroid[0], centroid[1], centroid[2] );
+            return ReUseX::Plane( coefficients[0], coefficients[1], coefficients[2], coefficients[3], centroid[0], centroid[1], centroid[2] );
         }
     };
-} // namespace linkml
+} // namespace ReUseX

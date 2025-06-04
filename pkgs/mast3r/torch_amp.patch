@@ -1,0 +1,92 @@
+Submodule dust3r contains modified content
+Submodule croco contains modified content
+diff --git a/dust3r/croco/pretrain.py b/dust3r/croco/pretrain.py
+index 2c45e48..fe947c7 100644
+--- a/dust3r/croco/pretrain.py
++++ b/dust3r/croco/pretrain.py
+@@ -211,7 +211,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
+ 
+         image1 = image1.to(device, non_blocking=True) 
+         image2 = image2.to(device, non_blocking=True)
+-        with torch.cuda.amp.autocast(enabled=bool(args.amp)):
++        with torch.amp.autocast(device, enabled=bool(args.amp)):
+             out, mask, target = model(image1, image2)
+             loss = criterion(out, mask, target)
+ 
+diff --git a/dust3r/croco/stereoflow/engine.py b/dust3r/croco/stereoflow/engine.py
+index c057346..779020e 100644
+--- a/dust3r/croco/stereoflow/engine.py
++++ b/dust3r/croco/stereoflow/engine.py
+@@ -58,7 +58,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module, metrics:
+         if data_iter_step % accum_iter == 0:
+             misc.adjust_learning_rate(optimizer, data_iter_step / len_data_loader + epoch, args)
+ 
+-        with torch.cuda.amp.autocast(enabled=bool(args.amp)):
++        with torch.amp.autocast(device, enabled=bool(args.amp)):
+             prediction = model(image1, image2)
+             prediction, conf = split_prediction_conf(prediction, criterion.with_conf)
+             batch_metrics = metrics(prediction.detach(), gt)
+@@ -277,4 +277,4 @@ def _crop(img, sy, sx):
+     l, r = max(0,-sx.start), max(0,sx.stop-W)
+     t, b = max(0,-sy.start), max(0,sy.stop-H)
+     img = torch.nn.functional.pad(img, (l,r,t,b), mode='constant')
+-    return img[:, :, slice(sy.start+t,sy.stop+t), slice(sx.start+l,sx.stop+l)]
+\ No newline at end of file
++    return img[:, :, slice(sy.start+t,sy.stop+t), slice(sx.start+l,sx.stop+l)]
+diff --git a/dust3r/dust3r/cloud_opt/base_opt.py b/dust3r/dust3r/cloud_opt/base_opt.py
+index 4d36e05..68115ec 100644
+--- a/dust3r/dust3r/cloud_opt/base_opt.py
++++ b/dust3r/dust3r/cloud_opt/base_opt.py
+@@ -272,7 +272,7 @@ class BasePCOptimizer (nn.Module):
+             return loss, details
+         return loss
+ 
+-    @torch.cuda.amp.autocast(enabled=False)
++    @torch.amp.autocast(self.device, enabled=False)
+     def compute_global_alignment(self, init=None, niter_PnP=10, **kw):
+         if init is None:
+             pass
+diff --git a/dust3r/dust3r/inference.py b/dust3r/dust3r/inference.py
+index 9054048..6cae44a 100644
+--- a/dust3r/dust3r/inference.py
++++ b/dust3r/dust3r/inference.py
+@@ -41,11 +41,11 @@ def loss_of_one_batch(batch, model, criterion, device, symmetrize_batch=False, u
+     if symmetrize_batch:
+         view1, view2 = make_batch_symmetric(batch)
+ 
+-    with torch.cuda.amp.autocast(enabled=bool(use_amp)):
++    with torch.amp.autocast(device, enabled=bool(use_amp)):
+         pred1, pred2 = model(view1, view2)
+ 
+         # loss is supposed to be symmetric
+-        with torch.cuda.amp.autocast(enabled=False):
++        with torch.amp.autocast(device, enabled=False):
+             loss = criterion(view1, view2, pred1, pred2) if criterion is not None else None
+ 
+     result = dict(view1=view1, view2=view2, pred1=pred1, pred2=pred2, loss=loss)
+diff --git a/dust3r/dust3r/model.py b/dust3r/dust3r/model.py
+index 41c3a4f..2720181 100644
+--- a/dust3r/dust3r/model.py
++++ b/dust3r/dust3r/model.py
+@@ -202,7 +202,7 @@ class AsymmetricCroCo3DStereo (
+         # combine all ref images into object-centric representation
+         dec1, dec2 = self._decoder(feat1, pos1, feat2, pos2)
+ 
+-        with torch.cuda.amp.autocast(enabled=False):
++        with torch.amp.autocast("cuda", enabled=False):
+             res1 = self._downstream_head(1, [tok.float() for tok in dec1], shape1)
+             res2 = self._downstream_head(2, [tok.float() for tok in dec2], shape2)
+ 
+diff --git a/mast3r/cloud_opt/sparse_ga.py b/mast3r/cloud_opt/sparse_ga.py
+index eb1eb6b..ae98c4b 100644
+--- a/mast3r/cloud_opt/sparse_ga.py
++++ b/mast3r/cloud_opt/sparse_ga.py
+@@ -579,7 +579,7 @@ def symmetric_inference(model, img1, img2, device):
+ 
+     def decoder(feat1, feat2, pos1, pos2, shape1, shape2):
+         dec1, dec2 = model._decoder(feat1, pos1, feat2, pos2)
+-        with torch.cuda.amp.autocast(enabled=False):
++        with torch.amp.autocast(device, enabled=False):
+             res1 = model._downstream_head(1, [tok.float() for tok in dec1], shape1)
+             res2 = model._downstream_head(2, [tok.float() for tok in dec2], shape2)
+         return res1, res2

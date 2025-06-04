@@ -1,11 +1,8 @@
-cmake_minimum_required(VERSION 3.8)
+cmake_minimum_required(VERSION 3.10)
 if (NOT SKBUILD_PROJECT_VERSION)
     set(SKBUILD_PROJECT_VERSION 0.0.1)
 endif()
-project(linkml VERSION ${SKBUILD_PROJECT_VERSION} LANGUAGES CXX)
-
-set(LIB_PROJECT_NAME "${PROJECT_NAME}_lib")
-set(TEST_PROJECT_NAME "${PROJECT_NAME}_test")
+project(ReUseX VERSION ${SKBUILD_PROJECT_VERSION} LANGUAGES CXX)
 
 
 # ===============================================
@@ -26,7 +23,6 @@ if(CXX)
   enable_language(CXX)
 endif()
 
-list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
 
 # ===============================================
 # options
@@ -45,10 +41,6 @@ if (LIN_ENABLE_ASAN AND LIN_ENABLE_MSAN)
 endif()
 
 option(LIN_ENABLE_WERROR "if true, enables -Werror, /WX" OFF)
-
-# enable tests
-option(LINKML_SAMPLES_TESTS "if true, builds linkml tests" ON)
-
 
 
 
@@ -71,9 +63,11 @@ else()
     # Add support for OpenMP
     list(APPEND COMMON_COMPILER_FLAGS -fopenmp -lgomp)
 
-    # if (LIN_ENABLE_WERROR)
-    #     list(APPEND COMMON_COMPILER_FLAGS -Werror)
-    # endif()
+    if (LIN_ENABLE_WERROR)
+        # list(APPEND COMMON_COMPILER_FLAGS -Werror)
+        list(APPEND COMMON_COMPILER_FLAGS -Wno-unused-variable -Wno-unused-function)
+    endif()
+
 
     if (LIN_ENABLE_ASAN OR LIN_ENABLE_TSAN OR LIN_ENABLE_MSAN OR LIN_ENABLE_UBSAN)
         list(APPEND COMMON_COMPILER_FLAGS -fno-omit-frame-pointer -g)
@@ -109,6 +103,9 @@ else()
     endif()
 endif()
 
+# Generate compile commands for clangd and nvim highlighting
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # ===============================================
 # Bin dir
 if(MSVC)
@@ -118,61 +115,70 @@ elseif(CMAKE_BUILD_TYPE STREQUAL "")
 else()
     set(BIN_DIR ${CMAKE_SOURCE_DIR}/bin/${CMAKE_BUILD_TYPE})
 endif()
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${BIN_DIR})
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE ${BIN_DIR})
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${BIN_DIR})
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG ${BIN_DIR})
-# Set CMAKE_POSITION_INDEPENDENT_CODE to ON
-set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-#set(GLOW_BIN_DIR ${CMAKE_SOURCE_DIR}/bin)
-
-# REMOVED: this is not needed anymore
-set(CGAL_DO_NOT_WARN_ABOUT_CMAKE_BUILD_TYPE On)
 
 
-
-# ===============================================
-# find packages
-
-
-#set("CUDA_TOOLKIT_ROOT_DIR" "/usr/local/cuda-12-3")
-#set(CUDA_INCLUDE_DIRS "${CUDA_TOOLKIT_ROOT_DIR}/include/")
-#set(CUDA_CUDART_LIBRARY "${CUDA_TOOLKIT_ROOT_DIR}/lib64/libcudart.so")
-
-include(cmake/CUDA.cmake)
-include(cmake/TBB.cmake)
-include(cmake/Boost.cmake)
-include(cmake/SCIP.cmake)
-include(cmake/Gurobi.cmake)
-include(cmake/Embree.cmake)
-
-include(cmake/Eigen.cmake)
-include(cmake/OpenCV.cmake)
-include(cmake/CGAL.cmake)
-include(cmake/PCL.cmake)
-include(cmake/Python.cmake)
-#include(cmake/HDF5.cmake)
+find_package(Boost CONFIG REQUIRED)
+find_package(MPI REQUIRED)
+find_package(TBB REQUIRED)
+find_package(spdlog REQUIRED)
+find_package(spdmon REQUIRED)
 
 
+# find_package(Gurobi REQUIRED)
+find_path(GUROBI_INCLUDE_DIRS
+    NAMES gurobi_c.h
+    HINTS ${GUROBI_DIR} $ENV{GUROBI_HOME}
+    PATH_SUFFIXES include)
+
+find_library(GUROBI_LIBRARY
+    NAMES gurobi gurobi120 
+    # NAMES gurobi120 libgurobi_c++
+    # NAMES gurobi gurobi110 libgurobi110 libgurobi_c++ 
+    # NAMES gurobi_c++ gurobi_c
+    HINTS ${GUROBI_DIR} $ENV{GUROBI_HOME}
+    PATH_SUFFIXES lib)
+message(STATUS "GUROBI_LIBRARY: ${GUROBI_LIBRARY}")
+
+
+find_library(GUROBI_CXX_LIBRARY
+    NAMES gurobi_c++
+    HINTS ${GUROBI_DIR} $ENV{GUROBI_HOME}
+    PATH_SUFFIXES lib)
+set(GUROBI_CXX_DEBUG_LIBRARY ${GUROBI_CXX_LIBRARY})
+
+find_package_handle_standard_args(GUROBI DEFAULT_MSG GUROBI_LIBRARY)
+# add_compile_definitions(CGAL_USE_GUROBI=1)
+
+
+find_package(Eigen3 REQUIRED)
+find_package(SCIP REQUIRED)
+
+find_package(CGAL REQUIRED Core)
+include(CGAL_Eigen3_support)
+include(CGAL_SCIP_support)
+include(CGAL_TBB_support)
+
+find_package(fmt REQUIRED)
+find_package(OpenCV REQUIRED)
+find_package(embree REQUIRED)
+get_property(importTargets DIRECTORY "${CMAKE_SOURCE_DIR}" PROPERTY IMPORTED_TARGETS)
+find_package(g2o REQUIRED)
+get_property(importTargetsAfter DIRECTORY "${CMAKE_SOURCE_DIR}" PROPERTY IMPORTED_TARGETS)
+list(REMOVE_ITEM importTargetsAfter ${importTargets})
+message("Listing TARGETS __________________________________")
+message("${importTargetsAfter}")
+
+find_package(xtensor REQUIRED)
+find_package(xtensor-io REQUIRED)
+find_package(HighFive REQUIRED)
+find_package(opennurbs REQUIRED)
+
+find_package(PCL REQUIRED)
+find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
+find_package(pybind11 REQUIRED)
 
 
 
-
-
-# ===============================================
-# add submodules
-
-add_subdirectory(extern/clean-core)
-add_subdirectory(extern/ctracer)
-add_subdirectory(extern/fmt)
-add_subdirectory(extern/nexus)
-add_subdirectory(extern/polymesh)
-add_subdirectory(extern/polyscope)
-add_subdirectory(extern/pybind11)
-add_subdirectory(extern/reflector)
-add_subdirectory(extern/rich-log)
-add_subdirectory(extern/typed-geometry)
-add_subdirectory(extern/opennurbs)
 
 # ===============================================
 # configure executable
@@ -190,7 +196,6 @@ file(GLOB_RECURSE LIB_HEADERS
 
 list(FILTER LIB_SOURCES EXCLUDE REGEX ".*py.cpp")
 
-file(GLOB_RECURSE  CU  "src/*.cu")
 
 # group sources according to folder structure
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${LIB_SOURCES})
@@ -207,110 +212,100 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${CU})
 
 
 
-## ===============================================
-include_directories( ${OpenCV_INCLUDE_DIRS} )
-
 # ===============================================
 # main libary
-add_library(${LIB_PROJECT_NAME} STATIC ${LIB_SOURCES} ${LIB_HEADERS})
-set_target_properties(${LIB_PROJECT_NAME} PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
-target_link_libraries(${LIB_PROJECT_NAME} 
-PRIVATE 
-pybind11::embed 
-optimized ${GUROBI_CXX_LIBRARY}
-debug ${GUROBI_CXX_DEBUG_LIBRARY}
-#cuda_lib
-# HDF5::HDF5
+add_library(${PROJECT_NAME} STATIC ${LIB_SOURCES} ${LIB_HEADERS})
+set_target_properties(${PROJECT_NAME} PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
+
+
+
+target_link_libraries(${PROJECT_NAME}  PRIVATE 
+    pybind11::embed
+    spdlog::spdlog
+    optimized ${GUROBI_CXX_LIBRARY}
+    debug ${GUROBI_CXX_DEBUG_LIBRARY}
 )
-target_link_libraries(${LIB_PROJECT_NAME} PUBLIC
-    clean-core
-    typed-geometry
-    ctracer
-    reflector
-    rich-log
-    polymesh
-    polyscope
+target_link_libraries(${PROJECT_NAME} PUBLIC
+
+    HighFive
+    xtensor
+    xtensor-io
+    
+    OpenNURBS
     embree
-    ${CUDA_LIBRARIES} 
-    ${CUDA_CUBLAS_LIBRARIES}
-    Eigen3::Eigen3
+
+    Eigen3::Eigen
+
+    CGAL::CGAL
     CGAL::Eigen3_support
     CGAL::SCIP_support
     CGAL::TBB_support
-    ${GUROBI_LIBRARY}
-    ${PCL_LIBRARIES}
-    ${PCL_COMMON_LIBRARIES}
+
+
+    g2o::g2o_ceres_ad
+    g2o::stuff
+    g2o::opengl_helper
+    g2o::core
+    g2o::g2o_cli_library
+    g2o::g2o_simulator_library
+    g2o::types_slam2d
+    g2o::types_slam2d_addons
+    g2o::types_sclam2d
+    g2o::types_slam3d
+    g2o::types_slam3d_addons
+    g2o::types_sba
+    g2o::types_icp
+    g2o::types_sim3
+    g2o::solver_pcg
+    g2o::solver_dense
+    g2o::solver_slam2d_linear
+    g2o::solver_structure_only
+    g2o::solver_csparse
+    g2o::csparse_extension
+    g2o::solver_cholmod
+    g2o::solver_eigen
+
+
+
     fmt
-    nexus
     mpfr
     MPI::MPI_CXX
 
     ${OpenCV_LIBS}
+    ${GUROBI_LIBRARY}
+    ${PCL_LIBRARIES}
+)
 
-    ${COMMON_LINKER_FLAGS}
+target_compile_definitions(${PROJECT_NAME} PUBLIC
+    ${PCL_DEFINITIONS}
+    SPDLOG_FMT_EXTERNAL
+)
+
+target_link_libraries(${PROJECT_NAME} PUBLIC
+    ${PCL_LIBRARY_DIRS}
+)
+
+target_include_directories(${PROJECT_NAME} PUBLIC 
+    ${GUROBI_INCLUDE_DIRS}
+    ${OpenCV_INCLUDE_DIRS}
+    ${PCL_INCLUDE_DIRS}
 )
 
 
-# dependency grouping in the IDE
-foreach(TARGET_NAME
-    clean-core
-    typed-geometry
-    ctracer
-    reflector
-    rich-log
-    polymesh
-    polyscope
-
-)
-set_property(TARGET ${TARGET_NAME} PROPERTY FOLDER "Extern")
-endforeach()
+target_include_directories(${PROJECT_NAME} PUBLIC "src")
+target_link_libraries(${PROJECT_NAME} PUBLIC ${COMMON_LINKER_FLAGS})
+target_compile_options(${PROJECT_NAME} PUBLIC ${COMMON_COMPILER_FLAGS})
 
 
-target_include_directories(${LIB_PROJECT_NAME} PUBLIC "src")
-target_compile_options(${LIB_PROJECT_NAME} PUBLIC ${COMMON_COMPILER_FLAGS})
-
-
-# # ===============================================
-# # pyind11
-# pybind11_add_module("${PYBIND_PROJECT_NAME}" src/linkmlpy.cpp)
-# target_link_libraries("${PYBIND_PROJECT_NAME}" PRIVATE ${LIB_PROJECT_NAME})
 
 # ===============================================
 # scikit_build
-python_add_library(_core MODULE src/linkmlpy.cpp WITH_SOABI)
-target_link_libraries(_core PRIVATE pybind11::headers ${LIB_PROJECT_NAME})
+Python_add_library(_core MODULE src/ReUseX.cpp WITH_SOABI)
+target_link_libraries(_core PRIVATE pybind11::headers ${PROJECT_NAME})
 
 # This is passing in the version as a define just as an example
 target_compile_definitions(_core PRIVATE VERSION_INFO=${PROJECT_VERSION})
 
 # The install directory is the output (wheel) directory
-install(TARGETS _core DESTINATION linkml_py)
-
-# ===============================================
-# tests
-if (LINKML_SAMPLES_TESTS)
-
-    file(GLOB_RECURSE TEST_SOURCES
-        "tests/*.cc"
-        "tests/*.hh"
-    )
-
-    source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${TEST_SOURCES})
-
-    add_executable("${TEST_PROJECT_NAME}" ${TEST_SOURCES})
-
-    target_link_libraries("${TEST_PROJECT_NAME}" PUBLIC
-        ${LIB_PROJECT_NAME}
-        nexus
-    )
-
-    target_include_directories("${TEST_PROJECT_NAME}" PUBLIC "tests")
-
-    if(MSVC)
-        target_compile_options("${TEST_PROJECT_NAME}" PUBLIC /MP /FC)
-    else()
-        target_compile_options("${TEST_PROJECT_NAME}" PUBLIC -Wall)
-    endif()
-
-endif()
+install(TARGETS _core DESTINATION ReUseX)
 

@@ -22,6 +22,10 @@
 
 #include <tbb/parallel_sort.h>
 
+// TODO: Implement Tegiongrowing based on `pcl::RegionGrowin<PointT, NormalT>`
+// category=Improvment author=pfmephisto
+// See `10.1016/j.autcon.2022.104250`for reference
+
 // Custom reduction function for std::unordered_set
 void merge_sets(std::unordered_set<int> &lhs,
                 const std::unordered_set<int> &rhs) {

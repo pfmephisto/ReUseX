@@ -87,3 +87,5 @@ ReUseX_py.egg-info/
 compile_commands.json
 .envrc
 result
+
+tmux_session

@@ -1,6 +1,7 @@
 #include "register.hh"
 #include "fmt_formatter.hh"
 #include "parse_input_files.hh"
+#include "report.hh"
 #include "spdmon.hh"
 #include "types/Filters.hh"
 #include "visualizer/visualizer.hh"
@@ -289,7 +290,8 @@ void setHistogram(Submap<PointT> &submap) {
   pcl::PointIndicesConstPtr keypoints_indices =
       iss_detector.getKeypointsIndices();
 
-  // Create the FPFH estimation class, and pass the input dataset+normals to it
+  // Create the FPFH estimation class, and pass the input dataset+normals to
+  // it
   spdlog::trace("Creating FPFH estimation object");
   FPFHEstimation fpfh;
   fpfh.setInputCloud(submap.map);
@@ -542,6 +544,8 @@ ReUseX::write_graph(fs::path path, Dataset &dataset,
   optimizer->setVerbose(false);
   optimizer->setAlgorithm(solver);
 
+  Report report("Registration Report");
+
   // Save submaps
   const fs::path temp_path = fs::path(fmt::format("./{}_reg", dataset.name()));
 
@@ -588,6 +592,7 @@ ReUseX::write_graph(fs::path path, Dataset &dataset,
   spdlog::debug("Submaps: {}", submaps.size());
   {
     auto logger = spdmon::LoggerProgress("Submap", submaps.size());
+    spdlog::stopwatch sw;
 #pragma omp parallel for shared(submaps, dataset, indices, poses)              \
     schedule(dynamic, 1)
     for (int i = 0; i < submaps.size(); i++) {
@@ -727,6 +732,7 @@ ReUseX::write_graph(fs::path path, Dataset &dataset,
 
       ++logger;
     }
+    report.addLine(logger.GetLogger()->name(), sw.elapsed().count());
   }
 
 save_submaps:
@@ -796,6 +802,7 @@ load_submaps:
 
   {
     auto logger = spdmon::LoggerProgress("Load Submaps", submap_indices.size());
+    spdlog::stopwatch sw;
 
     for (const auto &index : submap_indices) {
 
@@ -814,21 +821,6 @@ load_submaps:
       spdlog::debug("Loading keypoints {} from {}", index,
                     keypoints_path.string());
       pcl::io::loadPCDFile(keypoints_path.string(), *submaps[index].keypoints);
-
-      // spdlog::trace("Remove NaN points from submap and keypoints");
-      // pcl::PassThrough<PointT> pass;
-      // for (CloudPtr m : std::array<CloudPtr, 2>{submaps[index].map,
-      //                                           submaps[index].keypoints}) {
-      //   pcl::Indices indices_map;
-      //   pcl::removeNaNFromPointCloud(*m, *m, indices_map);
-      //   for (auto &f : {"z", "y", "x"}) {
-      //     pass.setInputCloud(m);
-      //     pass.setFilterFieldName(f);
-      //     pass.setFilterLimits(std::numeric_limits<float>::min(),
-      //                          std::numeric_limits<float>::max());
-      //     pass.filter(*m);
-      //   }
-      // }
 
       // Load indices
       const fs::path indices_path =
@@ -853,6 +845,7 @@ load_submaps:
                     submaps[index].keypoints->size());
       ++logger;
     }
+    report.addLine(logger.GetLogger()->name(), sw.elapsed().count());
   }
 
   if constexpr (VISUALIZE) {
@@ -869,9 +862,7 @@ load_submaps:
                                       RGBHandler(submaps[i].map),
                                       fmt::format("submap_{}", i));
 
-        // HACK: Slow down the visualization to be able to see it.
-        viewer->spinOnce(50);
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        viewer->spinOnce(1);
       }
     }
   }
@@ -882,6 +873,7 @@ align_submaps:
   {
     auto logger =
         spdmon::LoggerProgress("Add vertecies to Optimizer", submaps.size());
+    spdlog::stopwatch sw;
 
     for (size_t i = 0; i < submaps.size(); ++i) {
       spdlog::trace("Creating vertex for submap {}", i);
@@ -892,11 +884,13 @@ align_submaps:
       v->setFixed(i == 0); // Fix the first vertex
       optimizer->addVertex(v);
     }
+    report.addLine(logger.GetLogger()->name(), sw.elapsed().count());
   }
 
   {
     auto logger = spdmon::LoggerProgress("Compute Keypoints and Histogram",
                                          submaps.size());
+    spdlog::stopwatch sw;
 #pragma omp parallel for shared(submaps)
     for (int i = 0; i < submaps.size(); ++i) {
       setHistogram<PointT>(submaps[i]);
@@ -904,11 +898,13 @@ align_submaps:
                     submaps[i].keypoints->size(), submaps[i].features->size());
       ++logger;
     }
+    report.addLine(logger.GetLogger()->name(), sw.elapsed().count());
   }
 
   {
     auto logger =
         spdmon::LoggerProgress("Consecutive Edges", submaps.size() - 1);
+    spdlog::stopwatch sw;
 
     mesh->polygons.push_back(pcl::Vertices());
 
@@ -941,7 +937,7 @@ align_submaps:
       reg.setMaxCorrespondenceDistance(0.05);
       reg.setRANSACOutlierRejectionThreshold(0.02);
       // Set point representation
-      const float alpha[4] = {1, 1, 1, 0.1};
+      const float alpha[4] = {1, 1, 1, 0.5};
       custom_mapping point_representation{};
       auto point_representation_ptr =
           pcl::make_shared<const custom_mapping>(point_representation);
@@ -952,7 +948,14 @@ align_submaps:
       reg.registerVisualizationCallback(reg_visualization_callback<PointT>);
 
       CloudPtr dummy(new Cloud());
-      reg.align(*dummy /*, (current_pose.inverse() * prev_pose).matrix()*/);
+      // FIXME: The reorientation seems wrong,
+      reg.align(*dummy);
+      // reg.align(*dummy, (current_pose.inverse() * prev_pose).matrix());
+      // reg.align(*dummy, (prev_pose.inverse() * current_pose).matrix());
+      // reg.align(*dummy,
+      //           (prev_pose.inverse() * current_pose).inverse().matrix());
+      // reg.align(*dummy,
+      //           (current_pose.inverse() * prev_pose).inverse().matrix());
 
       if (!reg.hasConverged()) {
         spdlog::warn("ICP failed to converge for submaps {} and {}", i - 1, i);
@@ -993,20 +996,20 @@ align_submaps:
           viewer->addPointCloud<PointT>(dummy, RGBHandler(dummy),
                                         fmt::format("submap_dummy_{}", i));
 
-          // HACK: Slow down the visualization to be able to see it.
-          viewer->spinOnce(50);
-          std::this_thread::sleep_for(std::chrono::milliseconds(50));
+          viewer->spinOnce(1);
         }
       }
 
       ++logger;
     }
+    report.addLine(logger.GetLogger()->name(), sw.elapsed().count());
   }
 
-  {
+  if (false) {
 
     auto logger = spdmon::LoggerProgress("Compute Loop Closure Candidates",
                                          submaps.size() - 1);
+    spdlog::stopwatch sw;
 
     for (size_t i = 1; i < submaps.size(); ++i) {
 
@@ -1101,7 +1104,7 @@ align_submaps:
                   pcl::PointXYZ(poses[submaps[j].indices[0]].translation().x(),
                                 poses[submaps[j].indices[0]].translation().y(),
                                 poses[submaps[j].indices[0]].translation().z()),
-                  176, 139, 142, fmt::format("edge_{}_{}", i, j));
+                  0.6875, 0.5429, 0.5546, fmt::format("edge_{}_{}", i, j));
               viewer->setShapeRenderingProperties(
                   pcl::visualization::PCL_VISUALIZER_LINE_WIDTH, 2,
                   fmt::format("edge_{}_{}", i, j));
@@ -1133,14 +1136,17 @@ align_submaps:
         auto viewer = ReUseX::Visualizer::getInstance()
                           ->getViewer<pcl::visualization::PCLVisualizer>();
         viewer->removeAllPointClouds();
+        viewer->removeAllShapes();
         viewer->spinOnce(100);
       }
     }
+    report.addLine(logger.GetLogger()->name(), sw.elapsed().count());
   }
 
-  {
+  if (false) {
     auto logger =
         spdmon::LoggerProgress("Add Submaps to Optimizer", submaps.size());
+    spdlog::stopwatch sw;
 
     for (size_t i = 0; i < submaps.size(); ++i) {
 
@@ -1277,6 +1283,7 @@ align_submaps:
 
       ++logger;
     }
+    report.addLine(logger.GetLogger()->name(), sw.elapsed().count());
   }
 
   spdlog::stopwatch sw;
@@ -1286,6 +1293,7 @@ align_submaps:
 
   {
     auto logger = spdmon::LoggerProgress("Update Submaps", submaps.size());
+    spdlog::stopwatch sw;
     for (size_t i = 0; i < submaps.size(); ++i) {
       const auto &submap = submaps[i];
       if (submap.indices.empty()) {
@@ -1306,6 +1314,7 @@ align_submaps:
       pcl::transformPointCloud(*submap.keypoints, *submap.keypoints, delta);
       ++logger;
     }
+    report.addLine(logger.GetLogger()->name(), sw.elapsed().count());
   }
 
   if constexpr (VISUALIZE) {
@@ -1385,5 +1394,8 @@ align_submaps:
 
     ReUseX::Visualizer::getInstance()->wait();
   }
+
+  report.print();
+
   return path;
 }

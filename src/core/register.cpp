@@ -389,6 +389,13 @@ reg_visualization_callback([](const pcl::PointCloud<PointT> &c1,
   };
 });
 
+g2o::Isometry3
+getMeasurment(const Eigen::Affine3f &pose1, Eigen::Affine3f pose2,
+              const Eigen::Matrix4f &xform = Eigen::Matrix4f::Identity()) {
+  pose2 = pose2 * Eigen::Affine3f(xform);
+  return g2o::Isometry3((pose1.inverse() * pose2).matrix().cast<double>());
+}
+
 /**
  * @brief Writes a graph structure to a specified file path.
  *
@@ -873,6 +880,21 @@ align_submaps:
   spdlog::trace("Align submaps");
 
   {
+    auto logger =
+        spdmon::LoggerProgress("Add vertecies to Optimizer", submaps.size());
+
+    for (size_t i = 0; i < submaps.size(); ++i) {
+      spdlog::trace("Creating vertex for submap {}", i);
+      g2o::VertexSE3 *v = new g2o::VertexSE3();
+      v->setId(i);
+      v->setEstimate(
+          g2o::Isometry3(poses[submaps[i].indices[0]].matrix().cast<double>()));
+      v->setFixed(i == 0); // Fix the first vertex
+      optimizer->addVertex(v);
+    }
+  }
+
+  {
     auto logger = spdmon::LoggerProgress("Compute Keypoints and Histogram",
                                          submaps.size());
 #pragma omp parallel for shared(submaps)
@@ -898,10 +920,14 @@ align_submaps:
       auto current_pose = poses[current_index];
 
       // INFO: Add path to path cloud
-      path_cloud->points.push_back(pcl::PointXYZ(prev_pose.translation().x(),
-                                                 prev_pose.translation().y(),
-                                                 prev_pose.translation().z()));
-      mesh->polygons.back().vertices.push_back(path_cloud->points.size() - 1);
+      for (size_t j = 0; j < submaps[i - 1].indices.size(); ++j) {
+        size_t idx = submaps[i - 1].indices[j];
+        auto pose = poses[idx];
+        path_cloud->points.push_back(pcl::PointXYZ(pose.translation().x(),
+                                                   pose.translation().y(),
+                                                   pose.translation().z()));
+        mesh->polygons.back().vertices.push_back(path_cloud->points.size() - 1);
+      }
       path_cloud->points.push_back(pcl::PointXYZ(
           current_pose.translation().x(), current_pose.translation().y(),
           current_pose.translation().z()));
@@ -937,25 +963,32 @@ align_submaps:
       auto xform = reg.getFinalTransformation();
       auto score = reg.getFitnessScore();
 
-      g2o::EdgeSE3 *edge = new g2o::EdgeSE3();
-      edge->setVertex(0, optimizer->vertex(i - 1));
-      edge->setVertex(1, optimizer->vertex(i));
-      edge->setMeasurement(g2o::Isometry3(xform.cast<double>()));
-      edge->setInformation(information_matrix.cast<double>() /* * score*/);
+      // TODO: Add edges for concecutive submaps
+      g2o::EdgeSE3 *e = new g2o::EdgeSE3();
+      spdlog::debug("Vertex {}: {}, Vertex {}: {}", i - 1,
+                    optimizer->vertex(i - 1)->id(), i,
+                    optimizer->vertex(i)->id());
+      e->setVertex(0, optimizer->vertex(i - 1));
+      e->setVertex(1, optimizer->vertex(i));
+      e->setMeasurement(getMeasurment(poses[submaps[i - 1].indices[0]],
+                                      poses[submaps[i].indices[0]], xform));
+      e->setInformation(information_matrix.cast<double>() * score);
 
-      edge->setRobustKernel(
+      e->setRobustKernel(
           g2o::RobustKernelFactory::instance()->construct(kernelName));
-      optimizer->addEdge(edge);
 
+      optimizer->addEdge(e);
+
+      // INFO: Visualize the
       if constexpr (VISUALIZE) {
         if (ReUseX::Visualizer::isInitialised()) {
           auto viewer = ReUseX::Visualizer::getInstance()
                             ->getViewer<pcl::visualization::PCLVisualizer>();
 
-          viewer->addCoordinateSystem(0.1, prev_pose,
-                                      fmt::format("pose_{}_prev", i - 1));
-          viewer->addCoordinateSystem(0.1, current_pose,
-                                      fmt::format("pose_{}_curr", i));
+          // viewer->addCoordinateSystem(0.1, prev_pose,
+          //                             fmt::format("pose_{}_prev", i - 1));
+          // viewer->addCoordinateSystem(0.1, current_pose,
+          //                             fmt::format("pose_{}_curr", i));
 
           viewer->addPointCloud<PointT>(dummy, RGBHandler(dummy),
                                         fmt::format("submap_dummy_{}", i));
@@ -1061,6 +1094,18 @@ align_submaps:
                   pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5,
                   name_keypoints);
 
+              viewer->addLine<pcl::PointXYZ>(
+                  pcl::PointXYZ(poses[submaps[i].indices[0]].translation().x(),
+                                poses[submaps[i].indices[0]].translation().y(),
+                                poses[submaps[i].indices[0]].translation().z()),
+                  pcl::PointXYZ(poses[submaps[j].indices[0]].translation().x(),
+                                poses[submaps[j].indices[0]].translation().y(),
+                                poses[submaps[j].indices[0]].translation().z()),
+                  176, 139, 142, fmt::format("edge_{}_{}", i, j));
+              viewer->setShapeRenderingProperties(
+                  pcl::visualization::PCL_VISUALIZER_LINE_WIDTH, 2,
+                  fmt::format("edge_{}_{}", i, j));
+
               viewer->spinOnce(1);
             }
           } // End of visualization
@@ -1105,14 +1150,6 @@ align_submaps:
         ++logger;
         continue;
       }
-
-      spdlog::trace("Creating vertex for submap {}", i);
-      g2o::VertexSE3 *v = new g2o::VertexSE3();
-      v->setId(i);
-      v->setEstimate(
-          g2o::Isometry3(poses[submap.indices[0]].matrix().cast<double>()));
-      v->setFixed(i == 0); // Fix the first vertex
-      optimizer->addVertex(v);
 
       for (const auto &pair : submap.loop_closure_candidates) {
         spdlog::trace("Processing loop closure candidate {} -> {}", i,
@@ -1221,18 +1258,16 @@ align_submaps:
         }
 
         transform = reg.getFinalTransformation();
-        pcl::transformPointCloud(*submap.map, *submap.map, transform);
-        pcl::transformPointCloud(*submap.keypoints, *submap.keypoints,
-                                 transform);
 
         auto score = reg.getFitnessScore();
 
-        // TODO: Add edges for concecutive submaps
+        // TODO: Add edges for loop closure candidates
         g2o::EdgeSE3 *e = new g2o::EdgeSE3();
-        e->vertices()[0] = optimizer->vertex(j);
-        e->vertices()[1] = optimizer->vertex(i);
-        e->setMeasurement(g2o::Isometry3(transform.cast<double>()));
-        e->setInformation(information_matrix.cast<double>() /* * score*/);
+        e->setVertex(0, optimizer->vertex(j)); // j > tgt
+        e->setVertex(1, optimizer->vertex(i)); // i > src
+        e->setMeasurement(getMeasurment(poses[submaps[j].indices[0]],
+                                        poses[submap.indices[0]], transform));
+        e->setInformation(information_matrix.cast<double>() * score);
 
         e->setRobustKernel(
             g2o::RobustKernelFactory::instance()->construct(kernelName));
@@ -1244,30 +1279,6 @@ align_submaps:
     }
   }
 
-  // // Create a vertex for the submap
-  // g2o::VertexSE3 *v = new g2o::VertexSE3();
-  // v->setId(i);
-  // v->setEstimate(g2o::Isometry3(poses[submaps[i].indices[0]]));
-  // v->setFixed(i == 0); // Fix the first vertex
-  // optimizer->addVertex(v);
-
-  // // Add a feature vector to the vertex
-  // g2o::Vector7D feature_vector;
-  // feature_vector.head<6>() =
-  //     poses[submaps[i].indices[0]].matrix().cast<double>();
-  // feature_vector[6] = static_cast<double>(indices[0]);
-  // v->setUserData(new g2o::Vector7D(feature_vector));
-
-  // // Add edges between submaps based on nearest neighbors
-  // if (i > 0) {
-  //   g2o::EdgeSE3 *e = new g2o::EdgeSE3();
-  //   e->vertices()[0] = optimizer->vertex(i - 1);
-  //   e->vertices()[1] = optimizer->vertex(i);
-  //   e->setInformation(information_matrix.cast<double>());
-  //   e->setMeasurement(g2o::Isometry3(poses[submaps[i].indices[0]]).inverse()
-  //   *
-  //                     g2o::Isometry3(poses[submaps[i - 1].indices[0]]));
-  //   optimizer->addEdge(e); }
   spdlog::stopwatch sw;
   optimizer->initializeOptimization();
   optimizer->optimize(maxIterations);
@@ -1299,7 +1310,39 @@ align_submaps:
 
   if constexpr (VISUALIZE) {
     spdlog::trace("Visualize submaps");
+
     if (ReUseX::Visualizer::isInitialised()) {
+
+      // INFO: Creat new paht for visualization
+      pcl::PolygonMesh::Ptr mesh_path_optimised(new pcl::PolygonMesh());
+      pcl::PointCloud<pcl::PointXYZ>::Ptr path_cloud_optimised(
+          new pcl::PointCloud<pcl::PointXYZ>());
+
+      mesh_path_optimised->polygons.push_back(pcl::Vertices());
+
+      for (size_t i = 0; i < optimizer->vertices().size(); ++i) {
+        const auto v = static_cast<g2o::VertexSE3 *>(optimizer->vertex(i));
+        const auto pose = Eigen::Affine3f(v->estimate().matrix().cast<float>());
+
+        // INFO: Add intermeidiate poses to the path
+        auto relative_xfrom = poses[submaps[i].indices[0]].inverse() * pose;
+
+        for (size_t j = 0; j < submaps[i].indices.size(); ++j) {
+          size_t idx = submaps[i].indices[j];
+          auto pose_j = poses[idx];
+
+          pose_j = relative_xfrom * pose_j;
+
+          pcl::PointXYZ p_j(pose_j.translation().x(), pose_j.translation().y(),
+                            pose_j.translation().z());
+          path_cloud_optimised->points.push_back(p_j);
+
+          // Add the edge to the mesh
+          mesh_path_optimised->polygons.back().vertices.push_back(
+              path_cloud_optimised->points.size() - 1);
+        }
+      }
+
       auto viewer = ReUseX::Visualizer::getInstance()
                         ->getViewer<pcl::visualization::PCLVisualizer>();
 
@@ -1313,6 +1356,15 @@ align_submaps:
       viewer->setShapeRenderingProperties(
           pcl::visualization::PCL_VISUALIZER_COLOR, 1, 0, 0, "path");
 
+      // INFO: Visualize the new path
+      pcl::toPCLPointCloud2(*path_cloud_optimised, mesh_path_optimised->cloud);
+      viewer->addPolylineFromPolygonMesh(*mesh_path_optimised,
+                                         "path_optimised");
+      viewer->setShapeRenderingProperties(
+          pcl::visualization::PCL_VISUALIZER_LINE_WIDTH, 5, "path_optimised");
+      viewer->setShapeRenderingProperties(
+          pcl::visualization::PCL_VISUALIZER_COLOR, 0, 0, 1, "path_optimised");
+
       for (size_t i = 0; i < submaps.size(); ++i) {
         CloudPtr map = submaps[i].map;
         CloudPtr keypoints = submaps[i].keypoints;
@@ -1321,12 +1373,12 @@ align_submaps:
 
         viewer->addPointCloud<PointT>(map, RGBHandler(map),
                                       fmt::format("submap_cloud_{}", i));
-        viewer->addPointCloud<PointT>(
-            keypoints, CustomColorHander(keypoints, c.r, c.g, c.b),
-            fmt::format("submap_keypoints_{}", i));
+        viewer->addPointCloud<PointT>(keypoints,
+                                      CustomColorHander(keypoints, 184, 16, 33),
+                                      fmt::format("submap_keypoints_{}", i));
 
         viewer->setPointCloudRenderingProperties(
-            pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5,
+            pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3,
             fmt::format("submap_keypoints_{}", i));
       }
     }

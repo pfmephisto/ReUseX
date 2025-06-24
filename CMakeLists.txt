@@ -123,7 +123,6 @@ find_package(TBB REQUIRED)
 find_package(spdlog REQUIRED)
 find_package(spdmon REQUIRED)
 
-
 # find_package(Gurobi REQUIRED)
 find_path(GUROBI_INCLUDE_DIRS
     NAMES gurobi_c.h
@@ -148,7 +147,6 @@ set(GUROBI_CXX_DEBUG_LIBRARY ${GUROBI_CXX_LIBRARY})
 
 find_package_handle_standard_args(GUROBI DEFAULT_MSG GUROBI_LIBRARY)
 # add_compile_definitions(CGAL_USE_GUROBI=1)
-
 
 find_package(Eigen3 REQUIRED)
 find_package(SCIP REQUIRED)
@@ -178,7 +176,7 @@ find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
 find_package(pybind11 REQUIRED)
 
 
-
+find_package(RTABMap REQUIRED)
 
 # ===============================================
 # configure executable
@@ -218,7 +216,6 @@ add_library(${PROJECT_NAME} STATIC ${LIB_SOURCES} ${LIB_HEADERS})
 set_target_properties(${PROJECT_NAME} PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
 
 
-
 target_link_libraries(${PROJECT_NAME}  PRIVATE 
     pybind11::embed
     spdlog::spdlog
@@ -241,6 +238,7 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
     CGAL::SCIP_support
     CGAL::TBB_support
 
+    rtabmap::rtabmap
 
     g2o::g2o_ceres_ad
     g2o::stuff
@@ -265,8 +263,6 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
     g2o::solver_cholmod
     g2o::solver_eigen
 
-
-
     fmt
     mpfr
     MPI::MPI_CXX
@@ -290,6 +286,14 @@ target_include_directories(${PROJECT_NAME} PUBLIC
     ${OpenCV_INCLUDE_DIRS}
     ${PCL_INCLUDE_DIRS}
 )
+
+# #Set Qt5 properties
+# set_target_properties(${PROJECT_NAME}
+#   PROPERTIES
+#     AUTOUIC ON
+#     AUTOMOC ON
+#     AUTORCC ON
+# )
 
 
 target_include_directories(${PROJECT_NAME} PUBLIC "src")

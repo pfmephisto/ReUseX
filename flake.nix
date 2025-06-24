@@ -150,6 +150,8 @@
                   or [
                 ])
                 ++ (with pkgs; [
+                  vtkWithQt5
+
                   opennurbs
                   xtensor-io
                   scip-solver
@@ -165,6 +167,21 @@
 
                   eigen
                   cgal
+
+                  (rtabmap.overrideAttrs
+                    (old: {
+                      version = "0.22.0";
+                      patches = [];
+                      src = pkgs.fetchFromGitHub {
+                        owner = "introlab";
+                        repo = "rtabmap";
+                        rev = "0.22.0-jazzy";
+                        hash = "sha256-zlr9ydQnpIvef+x4LSK47Mwbz8PLkHUPTvKJxKaiqqI=";
+                      };
+                    }))
+                  libsForQt5.qtbase
+                  librealsense
+                  octomap
 
                   fmt
                   spdlog
@@ -191,7 +208,8 @@
               propagatedBuildInputs =
                 (attrs.propagatedBuildInputs or [])
                 ++ (with pkgs; [
-                  pcl
+                  vtkWithQt5
+                  (pcl.override {vtk = pkgs.vtkWithQt5;})
                   hdf5
                 ]);
 

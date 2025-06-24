@@ -16,7 +16,6 @@ dependencies = [
     "specklepy",
     "wheel",
     "g2o", # Nix packaged python package provided
-    "mast3r" # Nix packaged python package provided
     ]
 
 

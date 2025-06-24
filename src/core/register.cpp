@@ -64,6 +64,13 @@
 #include <Eigen/src/Geometry/Quaternion.h>
 #include <Eigen/src/Geometry/Transform.h>
 
+#ifdef RTABMAP_PYTHON
+#include <rtabmap/core/PythonInterface.h>
+#endif
+#include <rtabmap/core/CameraRGB.h>
+#include <rtabmap/core/Rtabmap.h>
+#include <rtabmap/utilite/UFile.h>
+
 #include <omp.h>
 
 #include <algorithm>
@@ -544,7 +551,7 @@ ReUseX::write_graph(fs::path path, Dataset &dataset,
   optimizer->setVerbose(false);
   optimizer->setAlgorithm(solver);
 
-  Report report("Registration Report");
+  Report report("Registration");
 
   // Save submaps
   const fs::path temp_path = fs::path(fmt::format("./{}_reg", dataset.name()));
@@ -593,7 +600,7 @@ ReUseX::write_graph(fs::path path, Dataset &dataset,
   {
     auto logger = spdmon::LoggerProgress("Submap", submaps.size());
     spdlog::stopwatch sw;
-#pragma omp parallel for shared(submaps, dataset, indices, poses)              \
+#pragma omp parallel for shared(submaps, dataset, indices, poses, logger)      \
     schedule(dynamic, 1)
     for (int i = 0; i < submaps.size(); i++) {
 
@@ -664,7 +671,6 @@ ReUseX::write_graph(fs::path path, Dataset &dataset,
           spdlog::warn("Not enough points in cloud "
                        "at index {}",
                        indices[index_j]);
-          ++logger;
           continue;
         }
 
@@ -710,7 +716,7 @@ ReUseX::write_graph(fs::path path, Dataset &dataset,
         } else
           spdlog::warn("ICP failed to converge at {}", indices[index_j]);
 
-        if (i % 5 == 0) {
+        if (j % 5 == 0) {
           spdlog::trace("Grid filter point cloud");
           auto gf = ReUseX::Filters::GridFilter<PointT>(0.05);
           gf->setInputCloud(submap);
@@ -728,7 +734,7 @@ ReUseX::write_graph(fs::path path, Dataset &dataset,
       sor.setInputCloud(submap);
       sor.setMeanK(50);
       sor.setStddevMulThresh(1.0);
-      // sor.filter(*submap);
+      sor.filter(*submap);
 
       ++logger;
     }
@@ -736,64 +742,79 @@ ReUseX::write_graph(fs::path path, Dataset &dataset,
   }
 
 save_submaps:
-  // Create temp directory
-  if (!fs::exists(temp_path))
-    std::filesystem::create_directories(temp_path);
-  else if (!fs::is_empty(temp_path)) {
-    spdlog::warn("Temp directory {} is not empty, clearing it",
-                 temp_path.string());
-    fs::remove_all(temp_path);
-    std::filesystem::create_directories(temp_path);
-  }
-
-  spdlog::trace("Save submaps");
-  for (size_t i = 0; i < submaps.size(); ++i) {
-
-    const std::string ext = TEMP_EXTENSION;
-    const auto &submap = submaps[i];
-
-    const fs::path submap_path =
-        temp_path / fmt::format("submap_{}.{}", i, ext);
-    spdlog::debug("Saving submap {} to {}", i, submap_path.string());
-    pcl::io::savePCDFile(submap_path.string(), *submap.map);
-
-    const fs::path keypoints_path =
-        temp_path / fmt::format("keypoints_{}.{}", i, ext);
-    spdlog::debug("Saving keypoints {} to {}", i, keypoints_path.string());
-    pcl::io::savePCDFile(keypoints_path.string(), *submap.keypoints);
-
-    // Save indices
-    const fs::path indices_path = temp_path / fmt::format("indices_{}.txt", i);
-    spdlog::debug("Saving indices {} to {}", i, indices_path.string());
-    std::ofstream indices_file(indices_path);
-    if (!indices_file.is_open()) {
-      spdlog::error("Failed to open indices file: {}", indices_path.string());
-      continue;
+  spdlog::trace("Save submaps to disk");
+  {
+    // Create temp directory
+    if (!fs::exists(temp_path))
+      std::filesystem::create_directories(temp_path);
+    else if (!fs::is_empty(temp_path)) {
+      spdlog::warn("Temp directory {} is not empty, clearing it",
+                   temp_path.string());
+      fs::remove_all(temp_path);
+      std::filesystem::create_directories(temp_path);
     }
-    for (const auto &index : submap.indices) {
-      indices_file << index << "\n";
+
+    auto logger = spdmon::LoggerProgress("Save Submaps", submaps.size());
+    spdlog::stopwatch sw;
+
+    spdlog::trace("Save submaps");
+    for (size_t i = 0; i < submaps.size(); ++i) {
+
+      const std::string ext = TEMP_EXTENSION;
+      const auto &submap = submaps[i];
+
+      const fs::path submap_path =
+          temp_path / fmt::format("submap_{}.{}", i, ext);
+      spdlog::debug("Saving submap {} to {}", i, submap_path.string());
+      pcl::io::savePCDFile(submap_path.string(), *submap.map);
+
+      const fs::path keypoints_path =
+          temp_path / fmt::format("keypoints_{}.{}", i, ext);
+      spdlog::debug("Saving keypoints {} to {}", i, keypoints_path.string());
+      pcl::io::savePCDFile(keypoints_path.string(), *submap.keypoints);
+
+      // Save indices
+      const fs::path indices_path =
+          temp_path / fmt::format("indices_{}.txt", i);
+      spdlog::debug("Saving indices {} to {}", i, indices_path.string());
+      std::ofstream indices_file(indices_path);
+      if (!indices_file.is_open()) {
+        spdlog::error("Failed to open indices file: {}", indices_path.string());
+        continue;
+      }
+      for (const auto &index : submap.indices) {
+        indices_file << index << "\n";
+      }
+      indices_file.close();
+      ++logger;
     }
-    indices_file.close();
+    report.addLine(logger.GetLogger()->name(), sw.elapsed().count());
+    goto align_submaps;
   }
-  goto align_submaps;
 
 load_submaps:
   // Load submaps
   spdlog::trace("Load submaps");
+  {
+    auto logger = spdmon::LoggerProgress("Find files", -1);
+    spdlog::stopwatch sw;
 
-  for (auto &entry : fs::directory_iterator(temp_path)) {
-    if (entry.is_regular_file() &&
-        entry.path().extension() ==
-            fmt::format(".{}", TEMP_EXTENSION).c_str()) {
-      const std::string filename = entry.path().filename().string();
-      const std::string index_str =
-          filename.substr(filename.find('_') + 1, filename.find('.'));
+    for (auto &entry : fs::directory_iterator(temp_path)) {
+      if (entry.is_regular_file() &&
+          entry.path().extension() ==
+              fmt::format(".{}", TEMP_EXTENSION).c_str()) {
+        const std::string filename = entry.path().filename().string();
+        const std::string index_str =
+            filename.substr(filename.find('_') + 1, filename.find('.'));
 
-      size_t submap_index = std::atoi(index_str.c_str());
-      spdlog::debug("Found submap index: {}", submap_index);
+        size_t submap_index = std::atoi(index_str.c_str());
+        spdlog::debug("Found submap index: {}", submap_index);
 
-      submap_indices.insert(submap_index);
+        submap_indices.insert(submap_index);
+      }
+      ++logger;
     }
+    report.addLine(logger.GetLogger()->name(), sw.elapsed().count());
   }
 
   spdlog::debug("Found {} submaps", submap_indices.size());
@@ -949,22 +970,43 @@ align_submaps:
 
       CloudPtr dummy(new Cloud());
       // FIXME: The reorientation seems wrong,
-      reg.align(*dummy);
+      // reg.align(*dummy);
       // reg.align(*dummy, (current_pose.inverse() * prev_pose).matrix());
       // reg.align(*dummy, (prev_pose.inverse() * current_pose).matrix());
       // reg.align(*dummy,
       //           (prev_pose.inverse() * current_pose).inverse().matrix());
-      // reg.align(*dummy,
-      //           (current_pose.inverse() * prev_pose).inverse().matrix());
+      // spdlog::debug("Current pose:{}",
+      // current_pose.matrix().format(OctaveFmt)); spdlog::debug("Preve
+      // pose:{}", prev_pose.matrix().format(OctaveFmt)); spdlog::debug("Current
+      // inverse pose:{}",
+      //               current_pose.inverse().matrix().format(OctaveFmt));
+      // spdlog::debug("Preve inverse pose:{}",
+      //               prev_pose.inverse().matrix().format(OctaveFmt));
+      Eigen::Affine3f relative_pose = Eigen::Affine3f::Identity();
+      // if ((current_pose.translation() - prev_pose.translation()).norm() >
+      // 0.5)
+      //   // relative_pose = 0.5f * (current_pose.inverse() * prev_pose) +
+      //   //                 0.5f * (prev_pose.inverse() * current_pose);
+      //   relative_pose = current_pose.inverse() * prev_pose;
 
-      if (!reg.hasConverged()) {
-        spdlog::warn("ICP failed to converge for submaps {} and {}", i - 1, i);
-        ++logger;
-        continue;
-      }
+      reg.align(*dummy, relative_pose.matrix());
+
+      // Add the cloud to the global map
+
+      // if (!reg.hasConverged()) {
+      //   spdlog::warn("ICP failed to converge for submaps {} and {}", i - 1,
+      //   i);
+      //   ++logger;
+      //   continue;
+      // }
 
       auto xform = reg.getFinalTransformation();
       auto score = reg.getFitnessScore();
+
+      if (!reg.hasConverged()) {
+        xform = Eigen::Matrix4f::Identity();
+        score = 0.00001f;
+      }
 
       // TODO: Add edges for concecutive submaps
       g2o::EdgeSE3 *e = new g2o::EdgeSE3();
@@ -1143,7 +1185,7 @@ align_submaps:
     report.addLine(logger.GetLogger()->name(), sw.elapsed().count());
   }
 
-  if (false) {
+  if (true) {
     auto logger =
         spdmon::LoggerProgress("Add Submaps to Optimizer", submaps.size());
     spdlog::stopwatch sw;
@@ -1290,6 +1332,7 @@ align_submaps:
   optimizer->initializeOptimization();
   optimizer->optimize(maxIterations);
   spdlog::info("Graph optimization completed in {}s", sw);
+  report.addLine("Graph Optimization", sw.elapsed().count());
 
   {
     auto logger = spdmon::LoggerProgress("Update Submaps", submaps.size());

@@ -67,6 +67,8 @@
                 # "cudatoolkit"
                 "triton"
                 "torch"
+                "libcusparse_lt"
+                "libcufile"
               ];
           };
 
@@ -109,7 +111,7 @@
             rhino3dm = prev.pkgs.rhino3dm;
             specklepy = prev.pkgs.specklepy;
             g2o = prev.pkgs.g2opy;
-            mast3r = prev.pkgs.mast3r;
+            #mast3r = prev.pkgs.mast3r;
             spdlog = prev.pkgs.spdlog-python;
           };
         };

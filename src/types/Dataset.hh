@@ -86,6 +86,9 @@ class Dataset {
 
   inline auto get_odometry() const { return _odometry_data; };
 
+  inline auto get_rgb_path() const { return _path / "rgb.mp4"; };
+  inline auto get_depth_path() const { return _path / "depth"; };
+
     private:
   static size_t get_number_of_frames(const std::filesystem::path &path);
 };

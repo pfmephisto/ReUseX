@@ -30,59 +30,11 @@
           config = {
             cudaSupport = true;
             hardware.nvidia.open = false;
-            allowUnfreePredicate = pkg:
-              builtins.elem (lib.getName pkg) [
-                # Python model
-                "mast3r"
-
-                # Gurobi Solver
-                "gurobi"
-                "gurobipy"
-
-                # CUDA Support in PCL an OpenCV
-                "cuda_cudart"
-                "cuda_nvcc"
-                "cuda_nvml_dev"
-                "cuda_cccl"
-                "libcublas"
-                "libnpp"
-                "libcufft"
-                "cuda-merged"
-                "cuda_cuobjdump"
-                "cuda_gdb"
-                "cuda_nvdisasm"
-                "cuda_nvprune"
-                "cuda_cupti"
-                "cuda_cuxxfilt"
-                "cuda_nvrtc"
-                "cuda_nvtx"
-                "cuda_profiler_api"
-                "cuda_sanitizer_api"
-                "libcurand"
-                "libcusolver"
-                "libnvjitlink"
-                "libcusparse"
-                "cudnn"
-                "nvidia-x11"
-                # "cudatoolkit"
-                "triton"
-                "torch"
-                "libcusparse_lt"
-                "libcufile"
-              ];
+            allowUnfree = true;
           };
 
           # Set overlays and custom fixes for broken packages
           overlays = [
-            (final: prev: {
-              # Fix the CUDA environment for the suiteSparse package
-              suitesparse = prev.suitesparse.override (old: {
-                stdenv =
-                  if pkgs.config.cudaSupport
-                  then pkgs.cudaPackages.backendStdenv
-                  else pkgs.stdenv;
-              });
-            })
             (
               final: prev: (prev.lib.packagesFromDirectoryRecursive {
                 callPackage = prev.lib.callPackageWith final;
@@ -101,6 +53,71 @@
                 propagatedBuildInputs = with pkgs; [tbb_2022_0];
               });
             })
+            (final: prev: {
+              opencv4 = prev.opencv4.override {
+                enableGtk2 = true;
+                # gtk2 = prev.pkgs.gtk2;
+                # gtk2 = prev.pkgs.gtk2-x11;
+                enableGtk3 = true;
+                # gtk3 = prev.pkgs.gtk3;
+                # gtk3 = prev.pkgs.gtk3-x11;
+                enableVtk = true;
+                enableTbb = true;
+                enableCudnn = true;
+                enablePython = true;
+                enableUnfree = true;
+              };
+            })
+            (findal: prev: {
+              rtabmap =
+                prev.rtabmap.overrideAttrs
+                (old: {
+                  version = "0.22.0-dev-2e71831";
+                  patches = [];
+                  src = pkgs.fetchFromGitHub {
+                    owner = "introlab";
+                    repo = "rtabmap";
+                    #rev = "0.22.0-jazzy";
+                    # hash = "sha256-zlr9ydQnpIvef+x4LSK47Mwbz8PLkHUPTvKJxKaiqqI=";
+                    rev = "2e71831324d5e9fe1d412241f794691687c6b2e0";
+                    hash = "sha256-NShWR037KYL3Cnsa3m6St9QXrJaK5kpY9Qfoh1p0knA=";
+                  };
+
+                  buildInputs =
+                    (old.buildInputs or [])
+                    ++ (with prev.pkgs; [
+                      python3Packages.pybind11
+                    ]);
+
+                  cmakeFlags =
+                    (prev.rtabmap.cmakeFlags or [])
+                    ++ [
+                      "-DWITH_TORCH=ON"
+                      "-DWITH_PYTHON=ON"
+                      "-DWITH_PYTHON_THREADING=ON"
+                      "-DWITH_LIBLAS=ON"
+                      "-DWITH_CERES=ON"
+                      "-DWITH_CVSBA=ON"
+                      "-DWITH_CCCORELIB=ON"
+                      "-DWITH_LOAM=ON"
+                      "-DWITH_FLOAM=ON"
+                      "-DWITH_DEPTHAI=ON"
+                      "-DWITH_XVSDK=ON"
+                      "-DWITH_GRIDMAP=ON"
+                      "-DWITH_CPUTSDF=ON"
+                      "-DWITH_OPENCHISEL=ON"
+                      "-DWITH_ALICE_VISION=ON"
+                      "-DWITH_FOVIS=ON"
+                      "-DWITH_VISO2=ON"
+                      "-DWITH_DVO=ON"
+                      "-DWITH_ORB_SLAM=ON"
+                      "-DWITH_OKVIS=ON"
+                      "-DWITH_MSCKF_VIO=ON"
+                      "-DWITH_VINS=ON"
+                      "-DWITH_OPENVINS=ON"
+                    ];
+                });
+            })
           ];
         };
 
@@ -108,10 +125,7 @@
         python = pkgs.python3.override {
           packageOverrides = final: prev: let
           in {
-            rhino3dm = prev.pkgs.rhino3dm;
             specklepy = prev.pkgs.specklepy;
-            g2o = prev.pkgs.g2opy;
-            #mast3r = prev.pkgs.mast3r;
             spdlog = prev.pkgs.spdlog-python;
           };
         };
@@ -141,6 +155,7 @@
                   ninja
                   mpi
                   cudatoolkit
+                  wrapGAppsHook
                 ]);
 
               # Rutime dependencies
@@ -150,8 +165,6 @@
                   or [
                 ])
                 ++ (with pkgs; [
-                  vtkWithQt5
-
                   opennurbs
                   xtensor-io
                   scip-solver
@@ -168,17 +181,7 @@
                   eigen
                   cgal
 
-                  (rtabmap.overrideAttrs
-                    (old: {
-                      version = "0.22.0";
-                      patches = [];
-                      src = pkgs.fetchFromGitHub {
-                        owner = "introlab";
-                        repo = "rtabmap";
-                        rev = "0.22.0-jazzy";
-                        hash = "sha256-zlr9ydQnpIvef+x4LSK47Mwbz8PLkHUPTvKJxKaiqqI=";
-                      };
-                    }))
+                  rtabmap
                   libsForQt5.qtbase
                   librealsense
                   octomap
@@ -234,6 +237,7 @@
         packages =
           {
             default = ReUseX_Package; # ReUseX
+            rtabmap = pkgs.rtabmap;
           }
           // # All custom packages
           (pkgs.lib.packagesFromDirectoryRecursive {
@@ -276,6 +280,8 @@
                 self.packages.${system}.default
               ];
 
+              buildInputs = with pkgs; [gtk4 pkg-config];
+
               packages = with pkgs;
                 [
                   cmake
@@ -283,10 +289,21 @@
                   mpi
                   cudatoolkit
                   gdb
+
+                  pkgs.qt5.full
+                  pkgs.qtcreator
+                  pkgs.qt5.qtdeclarative
                 ]
                 ++ [
                   libnotify # Send noctification when build finishes
                   sqlite
+
+                  gtk2
+                  gtk3
+                  glib
+                  ffmpeg
+                  libva
+                  pkg-config
                 ]
                 ++ [
                   # Python Environment
@@ -307,10 +324,11 @@
                 ];
 
               shellHook = ''
-                              echo "Entering dev shell"
-                              export VIRTUAL_ENV_PROMPT="ReUseX Environment"
-                              export REPO_ROOT=$(pwd)
-                              export CUDA_PATH=${pkgs.cudaPackages.cudatoolkit}
+                echo "Entering dev shell"
+                export VIRTUAL_ENV_PROMPT="ReUseX Environment"
+                export QT_STYLE_OVERRIDE="fusion"
+                export REPO_ROOT=$(pwd)
+                export CUDA_PATH=${pkgs.cudaPackages.cudatoolkit}
                 ./tmux_session
               '';
             }; # end of default shell

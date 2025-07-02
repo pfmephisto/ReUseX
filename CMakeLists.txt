@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.17)
 if (NOT SKBUILD_PROJECT_VERSION)
     set(SKBUILD_PROJECT_VERSION 0.0.1)
 endif()
@@ -209,7 +209,6 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${CU})
 
 
 
-
 # ===============================================
 # main libary
 add_library(${PROJECT_NAME} STATIC ${LIB_SOURCES} ${LIB_HEADERS})
@@ -287,13 +286,15 @@ target_include_directories(${PROJECT_NAME} PUBLIC
     ${PCL_INCLUDE_DIRS}
 )
 
-# #Set Qt5 properties
-# set_target_properties(${PROJECT_NAME}
-#   PROPERTIES
-#     AUTOUIC ON
-#     AUTOMOC ON
-#     AUTORCC ON
-# )
+
+
+#Set Qt5 properties
+set_target_properties(${PROJECT_NAME}
+  PROPERTIES
+    AUTOUIC ON
+    AUTOMOC ON
+    AUTORCC ON
+)
 
 
 target_include_directories(${PROJECT_NAME} PUBLIC "src")

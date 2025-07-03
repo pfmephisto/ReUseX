@@ -86,15 +86,15 @@
                   buildInputs =
                     (old.buildInputs or [])
                     ++ (with prev.pkgs; [
-                      python3Packages.pybind11
+                      #python3Packages.pybind11
                     ]);
 
                   cmakeFlags =
                     (prev.rtabmap.cmakeFlags or [])
                     ++ [
                       "-DWITH_TORCH=ON"
-                      "-DWITH_PYTHON=ON"
-                      "-DWITH_PYTHON_THREADING=ON"
+                      #"-DWITH_PYTHON=ON"
+                      #"-DWITH_PYTHON_THREADING=ON"
                       "-DWITH_LIBLAS=ON"
                       "-DWITH_CERES=ON"
                       "-DWITH_CVSBA=ON"
@@ -206,6 +206,7 @@
                   libGLU
 
                   gurobi
+                  cli11
                 ]);
 
               propagatedBuildInputs =
@@ -293,6 +294,8 @@
                   pkgs.qt5.full
                   pkgs.qtcreator
                   pkgs.qt5.qtdeclarative
+
+                  valgrind
                 ]
                 ++ [
                   libnotify # Send noctification when build finishes

@@ -178,6 +178,7 @@ find_package(pybind11 REQUIRED)
 
 find_package(RTABMap REQUIRED)
 
+
 # ===============================================
 # configure executable
 
@@ -301,7 +302,13 @@ target_include_directories(${PROJECT_NAME} PUBLIC "src")
 target_link_libraries(${PROJECT_NAME} PUBLIC ${COMMON_LINKER_FLAGS})
 target_compile_options(${PROJECT_NAME} PUBLIC ${COMMON_COMPILER_FLAGS})
 
+if(NOT DEFINED CLI11_DIR)
+set (CLI11_DIR "/opt/CLI11" CACHE STRING "CLI11 git repository")
+endif()
+include_directories(${CLI11_DIR}/include)
 
+add_executable(reusex_rtabmap_export src/reusex_rtabmap_export.cpp)
+target_link_libraries(reusex_rtabmap_export PRIVATE ${PROJECT_NAME})
 
 # ===============================================
 # scikit_build

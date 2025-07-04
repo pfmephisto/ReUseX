@@ -64,7 +64,7 @@ struct MaskParams {
 };
 
 class Yolov8Seg {
-private:
+    private:
   inline static const std::vector<std::string> _className = {
       "person",         // 0
       "bicycle",        // 1
@@ -157,7 +157,7 @@ private:
   static float _nmsThreshold;
   static float _maskThreshold;
 
-public:
+    public:
   Yolov8Seg(std::string netPath, bool isCuda = false) {
 
     model = cv::dnn::readNetFromONNX(netPath);
@@ -180,4 +180,17 @@ public:
 
   static std::string GetClassName(int id) { return _className[id]; }
 };
+
+std::vector<OutputParams>
+Postprocess(const std::vector<cv::Mat> &blob, const cv::Vec4d &params,
+            const cv::Size &srcImgSize, const float classThreshold = 0.25,
+            const float nmsThreshold = 0.45, const float maskThreshold = 0.5,
+            const int netWidth = 640, const int netHeight = 640);
+
+void LetterBox(const cv::Mat &image, cv::Mat &outImage,
+               cv::Vec4d &params, //[ratio_x,ratio_y,dw,dh]
+               const cv::Size &newShape = cv::Size(640, 640),
+               bool autoShape = false, bool scaleFill = false,
+               bool scaleUp = true, int stride = 32,
+               const cv::Scalar &color = cv::Scalar(114, 114, 114));
 } // namespace ReUseX

@@ -7,6 +7,7 @@
 
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
+#include <spdlog/stopwatch.h>
 
 #include <pcl/common/io.h>
 #include <pcl/features/normal_3d_omp.h>
@@ -14,8 +15,10 @@
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/io/pcd_io.h>
 
+#include <rtabmap/core/DBDriver.h>
 #include <rtabmap/core/Graph.h>
 #include <rtabmap/core/Rtabmap.h>
+#include <rtabmap/core/optimizer/OptimizerG2O.h>
 #include <rtabmap/core/util3d.h>
 #include <rtabmap/core/util3d_filtering.h>
 
@@ -26,10 +29,10 @@ using namespace rtabmap;
 
 struct Params {
   fs::path database_path;
-  fs::path out_cloud_path;
-  fs::path out_normals_path;
-  fs::path out_trajectory_path;
-  fs::path net_path;
+  fs::path out_cloud_path = fs::current_path() / "cloud.pcd";
+  fs::path out_normals_path = fs::current_path() / "normals.pcd";
+  fs::path out_trajectory_path = fs::current_path() / "trajectory.txt";
+  fs::path net_path = fs::current_path() / "yolov8x-seg.onnx";
 
   bool isCuda{false};
   bool skipInference{false};
@@ -40,7 +43,27 @@ struct Params {
   float grid_size = 0.01f;
 
   int verbosity = 0;
+
+  bool validate() {
+    // INFO: Check for valid values
+    if (verbosity < 0 || verbosity > 3)
+      spdlog::warn("Verbosity must be between 0 and 3.");
+    // 0 > trace, 1 > debug, 2 > info, 3 > warn, 4 > err, 5 > critical, 6 > of
+    verbosity = std::max(verbosity, 0);
+    verbosity = std::min(verbosity, 3);
+    verbosity = 3 - verbosity;
+
+    if (database_path.empty()) {
+      spdlog::error("Database path is empty.");
+      return false;
+    }
+
+    return true;
+  };
 };
+
+std::string shell;
+CLI::App *comp = nullptr;
 
 std::unique_ptr<CLI::App> initApp(Params &params) {
 
@@ -58,21 +81,21 @@ std::unique_ptr<CLI::App> initApp(Params &params) {
   app->add_option("cloud", params.out_cloud_path,
                   "Path to the output point cloud file")
       //->check(CLI::NonexistentPath)
-      ->default_val(fs::current_path() / "cloud.pcd");
+      ->default_val(params.out_cloud_path);
 
   app->add_option("normals", params.out_normals_path,
                   "Path to the output normals file")
       //->check(CLI::NonexistentPath)
-      ->default_val(fs::current_path() / "normals.pcd");
+      ->default_val(params.out_normals_path);
 
   app->add_option("trajectory", params.out_trajectory_path,
                   "Path to the output trajectory file")
       //->check(CLI::NonexistentPath)
-      ->default_val(fs::current_path() / "trajectory.txt");
+      ->default_val(params.out_trajectory_path);
 
   app->add_option("-n, --net", params.net_path, "Path to the YOLOv8 ONNX model")
       ->check(CLI::ExistingFile)
-      ->default_val(fs::current_path() / "yolov8x-seg.onnx");
+      ->default_val(params.net_path);
 
   app->add_option("-g,--grid", params.grid_size,
                   "Voxel grid size for downsampling the point cloud")
@@ -109,16 +132,6 @@ std::unique_ptr<CLI::App> initApp(Params &params) {
   return app;
 }
 
-bool checkParams(Params &params) {
-  // INFO: Check for valid values
-  params.verbosity = std::max(params.verbosity, 0);
-  params.verbosity = std::min(params.verbosity, 3);
-  params.verbosity = 3 - params.verbosity;
-  // 0 > trace, 1 > debug, 2 > info, 3 > warn, 4 > err, 5 > critical, 6 > of
-
-  return true;
-}
-
 int main(int argc, char **argv) {
 
   Params config;
@@ -126,57 +139,138 @@ int main(int argc, char **argv) {
   argv = app->ensure_utf8(argv);
   CLI11_PARSE(*app, argc, argv);
 
-  if (!checkParams(config))
+  if (!config.validate())
     return 1;
 
   spdlog::set_level(static_cast<spdlog::level::level_enum>(config.verbosity));
   spdlog::trace("reusex_rtabmap_export started");
 
-  ParametersMap params;
-  Rtabmap rtabmap;
+  // ParametersMap params;
+  // Rtabmap rtabmap;
   spdlog::debug("Database path: {}", config.database_path);
-  rtabmap.init(params, config.database_path.c_str());
-  rtabmap.setWorkingDirectory("./");
+  // rtabmap.init(params, config.database_path.c_str());
+  // rtabmap.setWorkingDirectory("./");
 
   // Save 3D map
   spdlog::info("Processing database");
-  std::map<int, Signature> nodes;
-  std::map<int, Transform> optimizedPoses;
-  std::multimap<int, Link> links;
-  rtabmap.getGraph(optimizedPoses, links, true, true, &nodes, true, true, true,
-                   true);
+  spdlog::stopwatch timer;
 
+  ParametersMap parameters;
+  DBDriver *driver = DBDriver::create();
+  if (driver->openConnection(config.database_path.c_str())) {
+    parameters = driver->getLastParameters();
+    driver->closeConnection(false);
+  }
+  delete driver;
+  driver = 0;
+  for (ParametersMap::iterator iter = parameters.begin();
+       iter != parameters.end(); ++iter)
+    spdlog::debug("Param {}={}", iter->first.c_str(), iter->second.c_str());
+
+  std::shared_ptr<DBDriver> dbDriver(DBDriver::create(parameters));
+  if (!dbDriver->openConnection(config.database_path.c_str())) {
+    printf("Failed to open database \"%s\"!\n", config.database_path.c_str());
+    return -1;
+  }
+  spdlog::info("Opening database \"{}\"... done ({}s).", config.database_path,
+               timer);
+
+  std::map<int, Transform> odomPoses;
+  std::multimap<int, Link> links;
+
+  dbDriver->getAllOdomPoses(odomPoses, true);
+  dbDriver->getAllLinks(links, true, true);
+
+  spdlog::trace("Initializing Optimizer");
+  std::shared_ptr<Optimizer> optimizer(Optimizer::create(parameters));
+  std::map<int, Transform> posesOut;
+  std::multimap<int, Link> linksOut;
+
+  optimizer->getConnectedGraph(odomPoses.lower_bound(1)->first, odomPoses,
+                               links, posesOut, linksOut);
+  spdlog::trace("Getting optimized poses and linkgs");
+  std::map<int, Transform> optimizedPoses =
+      optimizer->optimize(odomPoses.lower_bound(1)->first, posesOut, linksOut);
+
+  if (optimizedPoses.empty()) {
+    spdlog::error("The optimized graph is empty!? Aborting...");
+    return -1;
+  }
+
+  if (false) {
+    spdlog::info("Global bundle adjustment...\n");
+    // UASSERT(optimizedPoses.lower_bound(1) != optimizedPoses.end());
+    OptimizerG2O g2o(parameters);
+    std::list<int> ids;
+    for (std::map<int, Transform>::iterator iter =
+             optimizedPoses.lower_bound(1);
+         iter != optimizedPoses.end(); ++iter) {
+      ids.push_back(iter->first);
+    }
+    std::list<Signature *> signatures;
+    dbDriver->loadSignatures(ids, signatures);
+    std::map<int, Signature> nodes;
+    for (std::list<Signature *>::iterator iter = signatures.begin();
+         iter != signatures.end(); ++iter) {
+      nodes.insert(std::make_pair((*iter)->id(), *(*iter)));
+    }
+    optimizedPoses = ((Optimizer *)&g2o)
+                         ->optimizeBA(optimizedPoses.lower_bound(1)->first,
+                                      optimizedPoses, links, nodes, true);
+    spdlog::info("Global bundle adjustment... done ({}s).", timer);
+  }
+
+  // INFO: Start old section
+
+  // std::map<int, Transform> optimizedPoses;
+  // std::multimap<int, Link> links;
+  // rtabmap.getGraph(optimizedPoses /*poses*/, links /*constraints*/,
+  //                 true /*optimized*/, true /*global*/, &nodes /*signatures*/,
+  //                 true /*withImages*/, true /*withScan*/,
+  //                 true /*withUserData*/,
+  //                 true /*withGrid*/ /*withWords*/ /*withGlobalDescriptors*/);
+
+  spdlog::trace("Assembling point clouds from signatures");
   pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud(
       new pcl::PointCloud<pcl::PointXYZRGBNormal>);
   pcl::PointCloud<pcl::Label>::Ptr labels(new pcl::PointCloud<pcl::Label>);
 
   {
-    auto logger = spdmon::LoggerProgress(
-        "Assembling point clouds from signatures", nodes.size());
+    spdlog::trace("Number of poses: {}", posesOut.size());
+    auto logger = spdmon::LoggerProgress("Assembling cloud", posesOut.size());
 
     // TODO: Wratp this in a openMP parallel loop
     // and make the seperate steps tasks.
     // Figure out how to batch the calls to the Yolo model
-    //
-    cv::dnn::Net model = cv::dnn::readNetFromONNX(config.net_path);
-    model.setPreferableBackend((config.isCuda) ? cv::dnn::DNN_BACKEND_CUDA
-                                               : cv::dnn::DNN_BACKEND_DEFAULT);
-    model.setPreferableTarget((config.isCuda) ? cv::dnn::DNN_TARGET_CUDA
-                                              // or DNN_TARGET_CUDA_FP16
-                                              : cv::dnn::DNN_TARGET_CPU);
+
+    cv::dnn::Net model;
+    if (!config.skipInference) {
+      spdlog::trace("Initializing YOLOv8 model");
+      model = cv::dnn::readNetFromONNX(config.net_path);
+      model.setPreferableBackend((config.isCuda)
+                                     ? cv::dnn::DNN_BACKEND_CUDA
+                                     : cv::dnn::DNN_BACKEND_DEFAULT);
+      model.setPreferableTarget((config.isCuda) ? cv::dnn::DNN_TARGET_CUDA
+                                                // or DNN_TARGET_CUDA_FP16
+                                                : cv::dnn::DNN_TARGET_CPU);
+    }
 
     for (std::map<int, Transform>::iterator iter = optimizedPoses.begin();
          iter != optimizedPoses.end(); ++iter) {
-      Signature node = nodes.find(iter->first)->second;
+
+      SensorData data;
+      dbDriver->getNodeData(iter->first, data, true /*loadImages*/,
+                            true /*loadScan*/, false, false);
+      // Signature node = nodes.find(iter->first)->second;
 
       // uncompress data
-      node.sensorData().uncompressData();
+      data.uncompressData();
 
       spdlog::trace("Creating point cloud from sensor data");
       pcl::IndicesPtr validIndices(new pcl::Indices);
       pcl::PointCloud<pcl::PointXYZRGB>::Ptr tmp =
           util3d::cloudRGBFromSensorData(
-              node.sensorData(), config.sampling_factor, config.max_distance,
+              data, config.sampling_factor, config.max_distance,
               config.min_distance, validIndices.get());
       spdlog::debug("Point cloud size: {}, valid: {}, size: {}x{}", tmp->size(),
                     validIndices->size(), tmp->width, tmp->height);
@@ -188,7 +282,7 @@ int main(int argc, char **argv) {
       cv::Size cloud_size(tmp->width, tmp->height);
 
       spdlog::trace("Set up labledImage");
-      cv::Mat image = node.sensorData().imageRaw();
+      cv::Mat image = data.imageRaw();
       cv::rotate(image, image, cv::ROTATE_90_CLOCKWISE);
 
       cv::Mat labledImage(image.size(), /*CV_32S*/ CV_64F, cv::Scalar(0));
@@ -307,7 +401,7 @@ int main(int argc, char **argv) {
   // TODO: Add assertions
   if (!cloud->size()) {
     spdlog::error("Error: The cloud is empty.");
-    rtabmap.close(false);
+    // rtabmap.close(false);
     return 1;
   }
 
@@ -363,13 +457,23 @@ int main(int argc, char **argv) {
   // INFO: Saving the trajectory
   spdlog::info("Saving {} ...", config.out_trajectory_path);
   if (optimizedPoses.size() && graph::exportPoses(config.out_trajectory_path, 0,
-                                                  optimizedPoses, links)) {
+                                                  optimizedPoses, linksOut)) {
+    // const std::string & filePath,
+    // int format, // 0=Raw, 1=RGBD-SLAM motion capture (10=without change of
+    // coordinate frame, 11=10+ID), 2=KITTI, 3=TORO, 4=g2o
+    // const std::map<int, Transform> & poses
+    // const std::multimap<int, Link> & constraints required for formats 3 and 4
+    // const std::map<int, double> & stamps required for format 1, 10 and 11
+    // const ParametersMap & parameters) optional for formats 3 and 4
+
+    // Raw = KITTI Fromat
+    // // Format: r11 r12 r13 tx r21 r22 r23 ty r31 r32 r33 tz
   } else {
     spdlog::error("Saving {} ... failed!", config.out_trajectory_path);
-    rtabmap.close(false);
+    // rtabmap.close(false);
     return 1;
   }
 
-  rtabmap.close();
+  // rtabmap.close();
   return 0;
 }

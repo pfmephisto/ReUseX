@@ -50,7 +50,7 @@
                   rev = "v2.4.0";
                   sha256 = "sha256-WMw9v57nuP6MHj9Ft4l5FxdIF5VUWCRm/909tbz7VD4=";
                 };
-                propagatedBuildInputs = with pkgs; [tbb_2022_0];
+                propagatedBuildInputs = with pkgs; [tbb_2022];
               });
             })
             (final: prev: {
@@ -72,27 +72,30 @@
               rtabmap =
                 prev.rtabmap.overrideAttrs
                 (old: {
-                  version = "0.22.0-dev-2e71831";
-                  patches = [];
-                  src = pkgs.fetchFromGitHub {
-                    owner = "introlab";
-                    repo = "rtabmap";
-                    #rev = "0.22.0-jazzy";
-                    # hash = "sha256-zlr9ydQnpIvef+x4LSK47Mwbz8PLkHUPTvKJxKaiqqI=";
-                    rev = "2e71831324d5e9fe1d412241f794691687c6b2e0";
-                    hash = "sha256-NShWR037KYL3Cnsa3m6St9QXrJaK5kpY9Qfoh1p0knA=";
-                  };
+                  #version = "0.22.0-dev-2e71831";
+                  #patches = [];
+                  #src = pkgs.fetchFromGitHub {
+                  #  owner = "introlab";
+                  #  repo = "rtabmap";
+                  #  #rev = "0.22.0-jazzy";
+                  #  # hash = "sha256-zlr9ydQnpIvef+x4LSK47Mwbz8PLkHUPTvKJxKaiqqI=";
+                  #  rev = "2e71831324d5e9fe1d412241f794691687c6b2e0";
+                  #  hash = "sha256-NShWR037KYL3Cnsa3m6St9QXrJaK5kpY9Qfoh1p0knA=";
+                  #};
 
                   buildInputs =
                     (old.buildInputs or [])
                     ++ (with prev.pkgs; [
                       #python3Packages.pybind11
+                      tbb
+                      gtsam
                     ]);
 
                   cmakeFlags =
                     (prev.rtabmap.cmakeFlags or [])
                     ++ [
                       "-DWITH_TORCH=ON"
+                      "-DWITH_GTSAM=ON"
                       #"-DWITH_PYTHON=ON"
                       #"-DWITH_PYTHON_THREADING=ON"
                       "-DWITH_LIBLAS=ON"
@@ -174,7 +177,7 @@
 
                   g2o
 
-                  # pcl
+                  pcl
                   boost
                   embree
 
@@ -182,7 +185,7 @@
                   cgal
 
                   rtabmap
-                  libsForQt5.qtbase
+                  #libsForQt5.qtbase
                   librealsense
                   octomap
 
@@ -193,7 +196,7 @@
                   mpfr
 
                   opencv
-                  tbb_2022_0
+                  tbb_2022
 
                   glfw
 
@@ -213,7 +216,7 @@
                 (attrs.propagatedBuildInputs or [])
                 ++ (with pkgs; [
                   vtkWithQt5
-                  (pcl.override {vtk = pkgs.vtkWithQt5;})
+                  #(pcl.override {vtk = pkgs.vtkWithQt5;})
                   hdf5
                 ]);
 
@@ -291,9 +294,9 @@
                   cudatoolkit
                   gdb
 
-                  pkgs.qt5.full
-                  pkgs.qtcreator
-                  pkgs.qt5.qtdeclarative
+                  #pkgs.qt5.full
+                  #pkgs.qtcreator
+                  #pkgs.qt5.qtdeclarative
 
                   valgrind
                 ]

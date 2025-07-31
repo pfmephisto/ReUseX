@@ -166,9 +166,6 @@ list(REMOVE_ITEM importTargetsAfter ${importTargets})
 message("Listing TARGETS __________________________________")
 message("${importTargetsAfter}")
 
-find_package(xtensor REQUIRED)
-find_package(xtensor-io REQUIRED)
-find_package(HighFive REQUIRED)
 find_package(opennurbs REQUIRED)
 
 find_package(PCL REQUIRED)
@@ -224,10 +221,6 @@ target_link_libraries(${PROJECT_NAME}  PRIVATE
 )
 target_link_libraries(${PROJECT_NAME} PUBLIC
 
-    HighFive
-    xtensor
-    xtensor-io
-    
     OpenNURBS
     embree
 

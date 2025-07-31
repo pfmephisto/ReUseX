@@ -169,15 +169,11 @@
                 ])
                 ++ (with pkgs; [
                   opennurbs
-                  xtensor-io
                   scip-solver
-
-                  highfive
-                  xtensor
 
                   g2o
 
-                  pcl
+                  #pcl
                   boost
                   embree
 
@@ -185,9 +181,12 @@
                   cgal
 
                   rtabmap
-                  #libsForQt5.qtbase
+                  libsForQt5.qtbase
                   librealsense
                   octomap
+                  qt5.full
+                  qtcreator
+                  qt5.qtdeclarative
 
                   fmt
                   spdlog
@@ -216,7 +215,7 @@
                 (attrs.propagatedBuildInputs or [])
                 ++ (with pkgs; [
                   vtkWithQt5
-                  #(pcl.override {vtk = pkgs.vtkWithQt5;})
+                  (pcl.override {vtk = pkgs.vtkWithQt5;})
                   hdf5
                 ]);
 
@@ -225,8 +224,6 @@
                 (attrs.cmakeFlags or [])
                 ++ [
                   "-DCGAL_DIR=${pkgs.cgal}/lib/cmake/CGAL"
-
-                  "-DHighFive_DIR=${pkgs.highfive}/share/HighFive/CMake"
                   "-DOpenGL_GL_PREFERENCE=GLVND"
                 ]
                 ++ [
@@ -234,6 +231,8 @@
                   (lib.strings.cmakeFeature "CUDA_NVCC_FLAGS" "--expt-relaxed-constexpr")
                   (lib.strings.cmakeFeature "GUROBI_DIR" "${pkgs.gurobi}")
                 ];
+
+              dontWrapQtApps = true;
             }); # end of ReUseX
       in {
         formatter = nixpkgs.legacyPackages.${system}.alejandra;

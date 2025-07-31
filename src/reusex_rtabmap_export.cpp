@@ -132,6 +132,28 @@ std::unique_ptr<CLI::App> initApp(Params &params) {
   return app;
 }
 
+inline void
+merge_clouds(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr lhs,
+             const pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr rhs) {
+  *lhs += *rhs;
+}
+
+#pragma omp declare reduction(                                                 \
+        + : pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr : merge_clouds(       \
+                omp_out, omp_in))                                              \
+    initializer(omp_priv = pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr(       \
+                        new pcl::PointCloud<pcl::PointXYZRGBNormal>()))
+
+inline void merge_clouds(pcl::PointCloud<pcl::Label>::Ptr lhs,
+                         const pcl::PointCloud<pcl::Label>::Ptr rhs) {
+  *lhs += *rhs;
+}
+
+#pragma omp declare reduction(                                                 \
+        + : pcl::PointCloud<pcl::Label>::Ptr : merge_clouds(omp_out, omp_in))  \
+    initializer(omp_priv = pcl::PointCloud<pcl::Label>::Ptr(                   \
+                        new pcl::PointCloud<pcl::Label>()))
+
 int main(int argc, char **argv) {
 
   Params config;
@@ -152,7 +174,7 @@ int main(int argc, char **argv) {
   spdlog::debug("Database path: {}", config.database_path);
   rtabmap.init(params, config.database_path.c_str());
   rtabmap.setWorkingDirectory("./");
-  spdlog::info("RTAB-Map initialized in {}s", timer);
+  spdlog::debug("RTAB-Map initialized in {:.3f}s", timer);
 
   // Save 3D map
   spdlog::info("Loading Graph");
@@ -165,21 +187,16 @@ int main(int argc, char **argv) {
                    true /*global*/, &nodes /*signatures*/, true /*withImages*/,
                    true /*withScan*/, true /*withUserData*/,
                    true /*withGrid*/ /*withWords*/ /*withGlobalDescriptors*/);
-  spdlog::debug("Graph loaded in {}s", timer);
+  spdlog::debug("Graph loaded in {:.3f}s", timer);
 
   spdlog::trace("Assembling point clouds from signatures");
   pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud(
       new pcl::PointCloud<pcl::PointXYZRGBNormal>);
   pcl::PointCloud<pcl::Label>::Ptr labels(new pcl::PointCloud<pcl::Label>);
 
-  {
-    spdlog::trace("Number of poses: {}", poses.size());
-    auto logger = spdmon::LoggerProgress("Assembling cloud", poses.size());
+  { // scope logger variable
 
-    // TODO: Wratp this in a openMP parallel loop
-    // and make the seperate steps tasks.
-    // Figure out how to batch the calls to the Yolo model
-
+    // INFO: Initialize the Yolo model if image segmentation is enabled
     cv::dnn::Net model;
     if (!config.skipInference) {
       spdlog::trace("Initializing YOLOv8 model");
@@ -192,16 +209,23 @@ int main(int argc, char **argv) {
                                                 : cv::dnn::DNN_TARGET_CPU);
     }
 
+    // INFO: Create vector of poses for openMP parallel processing
+    std::vector<std::pair<int, Transform>> poseVector;
     for (std::map<int, Transform>::iterator iter = poses.begin();
          iter != poses.end(); ++iter) {
+      poseVector.push_back(*iter);
+    }
 
-      SensorData data;
-      // dbDriver->getNodeData(iter->first, data, true /*loadImages*/,
-      //                       true /*loadScan*/, false, false);
-      Signature node = nodes.find(iter->first)->second;
-      data = node.sensorData();
+    spdlog::trace("Number of poses: {}", poseVector.size());
+    auto logger = spdmon::LoggerProgress("Assembling cloud", poseVector.size());
 
-      // uncompress data
+#pragma omp parallel for reduction(+ : cloud, labels)                          \
+    shared(model, poses, nodes, logger)
+    for (int i = 0; i < (int)poseVector.size(); ++i) {
+      auto [id, pose] = poseVector[i];
+
+      Signature node = nodes.find(id)->second;
+      SensorData data = node.sensorData();
       data.uncompressData();
 
       spdlog::trace("Creating point cloud from sensor data");
@@ -238,11 +262,14 @@ int main(int argc, char **argv) {
         cv::dnn::blobFromImage(netInputImg, netInputImg, 1.0 / 255,
                                netInputSize, cv::Scalar(0, 0, 0), true, false);
 
-        spdlog::trace("Running YOLOv8 inference");
-        model.setInput(netInputImg);
         std::vector<cv::Mat> net_output_img;
-        std::vector<std::string> output_layer_names{"output0", "output1"};
-        model.forward(net_output_img, output_layer_names);
+#pragma omp critical
+        {
+          spdlog::trace("Running YOLOv8 inference");
+          model.setInput(netInputImg);
+          std::vector<std::string> output_layer_names{"output0", "output1"};
+          model.forward(net_output_img, output_layer_names);
+        }
 
         spdlog::trace("Postprocessing YOLOv8 output");
         std::vector<ReUseX::OutputParams> results =
@@ -286,11 +313,11 @@ int main(int argc, char **argv) {
       if (!tmp->empty()) {
 
         spdlog::trace("Transforming point cloud to pose");
-        tmp = util3d::transformPointCloud(tmp, iter->second);
+        tmp = util3d::transformPointCloud(tmp, pose);
 
         spdlog::trace("Setting sensor origin for normal estimation");
         float x, y, z;
-        iter->second.getTranslation(x, y, z);
+        pose.getTranslation(x, y, z);
         tmp->sensor_origin_ = Eigen::Vector4f(x, y, z, 1.0f);
 
         spdlog::trace("Estimating normals for point cloud");
@@ -321,8 +348,8 @@ int main(int argc, char **argv) {
         // pcl::copyPointCloud(normalsTmp, *tmpCloud);
 
         // spdlog::debug(
-        //     "Point 0: XYZ({}, {}, {}), RGB({}, {}, {}), Normal({}, {}, {})",
-        //     tmpCloud->at(0).x, tmpCloud->at(0).y, tmpCloud->at(0).z,
+        //     "Point 0: XYZ({}, {}, {}), RGB({}, {}, {}), Normal({}, {},
+        //     {})", tmpCloud->at(0).x, tmpCloud->at(0).y, tmpCloud->at(0).z,
         //     tmpCloud->at(0).r, tmpCloud->at(0).g, tmpCloud->at(0).b,
         //     tmpCloud->at(0).normal_x, tmpCloud->at(0).normal_y,
         //     tmpCloud->at(0).normal_z);
@@ -400,8 +427,8 @@ int main(int argc, char **argv) {
     // int format, // 0=Raw, 1=RGBD-SLAM motion capture (10=without change of
     // coordinate frame, 11=10+ID), 2=KITTI, 3=TORO, 4=g2o
     // const std::map<int, Transform> & poses
-    // const std::multimap<int, Link> & constraints required for formats 3 and 4
-    // const std::map<int, double> & stamps required for format 1, 10 and 11
+    // const std::multimap<int, Link> & constraints required for formats 3 and
+    // 4 const std::map<int, double> & stamps required for format 1, 10 and 11
     // const ParametersMap & parameters) optional for formats 3 and 4
 
     // Raw = KITTI Fromat

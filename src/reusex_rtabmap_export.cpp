@@ -145,90 +145,27 @@ int main(int argc, char **argv) {
   spdlog::set_level(static_cast<spdlog::level::level_enum>(config.verbosity));
   spdlog::trace("reusex_rtabmap_export started");
 
-  // ParametersMap params;
-  // Rtabmap rtabmap;
+  spdlog::info("Intializing RTAB-Map ...");
+  spdlog::stopwatch timer;
+  ParametersMap params;
+  Rtabmap rtabmap;
   spdlog::debug("Database path: {}", config.database_path);
-  // rtabmap.init(params, config.database_path.c_str());
-  // rtabmap.setWorkingDirectory("./");
+  rtabmap.init(params, config.database_path.c_str());
+  rtabmap.setWorkingDirectory("./");
+  spdlog::info("RTAB-Map initialized in {}s", timer);
 
   // Save 3D map
-  spdlog::info("Processing database");
-  spdlog::stopwatch timer;
+  spdlog::info("Loading Graph");
+  timer.reset();
 
-  ParametersMap parameters;
-  DBDriver *driver = DBDriver::create();
-  if (driver->openConnection(config.database_path.c_str())) {
-    parameters = driver->getLastParameters();
-    driver->closeConnection(false);
-  }
-  delete driver;
-  driver = 0;
-  for (ParametersMap::iterator iter = parameters.begin();
-       iter != parameters.end(); ++iter)
-    spdlog::debug("Param {}={}", iter->first.c_str(), iter->second.c_str());
-
-  std::shared_ptr<DBDriver> dbDriver(DBDriver::create(parameters));
-  if (!dbDriver->openConnection(config.database_path.c_str())) {
-    printf("Failed to open database \"%s\"!\n", config.database_path.c_str());
-    return -1;
-  }
-  spdlog::info("Opening database \"{}\"... done ({}s).", config.database_path,
-               timer);
-
-  std::map<int, Transform> odomPoses;
+  std::map<int, Transform> poses;
   std::multimap<int, Link> links;
-
-  dbDriver->getAllOdomPoses(odomPoses, true);
-  dbDriver->getAllLinks(links, true, true);
-
-  spdlog::trace("Initializing Optimizer");
-  std::shared_ptr<Optimizer> optimizer(Optimizer::create(parameters));
-  std::map<int, Transform> posesOut;
-  std::multimap<int, Link> linksOut;
-
-  optimizer->getConnectedGraph(odomPoses.lower_bound(1)->first, odomPoses,
-                               links, posesOut, linksOut);
-  spdlog::trace("Getting optimized poses and linkgs");
-  std::map<int, Transform> optimizedPoses =
-      optimizer->optimize(odomPoses.lower_bound(1)->first, posesOut, linksOut);
-
-  if (optimizedPoses.empty()) {
-    spdlog::error("The optimized graph is empty!? Aborting...");
-    return -1;
-  }
-
-  if (false) {
-    spdlog::info("Global bundle adjustment...\n");
-    // UASSERT(optimizedPoses.lower_bound(1) != optimizedPoses.end());
-    OptimizerG2O g2o(parameters);
-    std::list<int> ids;
-    for (std::map<int, Transform>::iterator iter =
-             optimizedPoses.lower_bound(1);
-         iter != optimizedPoses.end(); ++iter) {
-      ids.push_back(iter->first);
-    }
-    std::list<Signature *> signatures;
-    dbDriver->loadSignatures(ids, signatures);
-    std::map<int, Signature> nodes;
-    for (std::list<Signature *>::iterator iter = signatures.begin();
-         iter != signatures.end(); ++iter) {
-      nodes.insert(std::make_pair((*iter)->id(), *(*iter)));
-    }
-    optimizedPoses = ((Optimizer *)&g2o)
-                         ->optimizeBA(optimizedPoses.lower_bound(1)->first,
-                                      optimizedPoses, links, nodes, true);
-    spdlog::info("Global bundle adjustment... done ({}s).", timer);
-  }
-
-  // INFO: Start old section
-
-  // std::map<int, Transform> optimizedPoses;
-  // std::multimap<int, Link> links;
-  // rtabmap.getGraph(optimizedPoses /*poses*/, links /*constraints*/,
-  //                 true /*optimized*/, true /*global*/, &nodes /*signatures*/,
-  //                 true /*withImages*/, true /*withScan*/,
-  //                 true /*withUserData*/,
-  //                 true /*withGrid*/ /*withWords*/ /*withGlobalDescriptors*/);
+  std::map<int, Signature> nodes;
+  rtabmap.getGraph(poses /*poses*/, links /*constraints*/, true /*optimized*/,
+                   true /*global*/, &nodes /*signatures*/, true /*withImages*/,
+                   true /*withScan*/, true /*withUserData*/,
+                   true /*withGrid*/ /*withWords*/ /*withGlobalDescriptors*/);
+  spdlog::debug("Graph loaded in {}s", timer);
 
   spdlog::trace("Assembling point clouds from signatures");
   pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud(
@@ -236,8 +173,8 @@ int main(int argc, char **argv) {
   pcl::PointCloud<pcl::Label>::Ptr labels(new pcl::PointCloud<pcl::Label>);
 
   {
-    spdlog::trace("Number of poses: {}", posesOut.size());
-    auto logger = spdmon::LoggerProgress("Assembling cloud", posesOut.size());
+    spdlog::trace("Number of poses: {}", poses.size());
+    auto logger = spdmon::LoggerProgress("Assembling cloud", poses.size());
 
     // TODO: Wratp this in a openMP parallel loop
     // and make the seperate steps tasks.
@@ -255,13 +192,14 @@ int main(int argc, char **argv) {
                                                 : cv::dnn::DNN_TARGET_CPU);
     }
 
-    for (std::map<int, Transform>::iterator iter = optimizedPoses.begin();
-         iter != optimizedPoses.end(); ++iter) {
+    for (std::map<int, Transform>::iterator iter = poses.begin();
+         iter != poses.end(); ++iter) {
 
       SensorData data;
-      dbDriver->getNodeData(iter->first, data, true /*loadImages*/,
-                            true /*loadScan*/, false, false);
-      // Signature node = nodes.find(iter->first)->second;
+      // dbDriver->getNodeData(iter->first, data, true /*loadImages*/,
+      //                       true /*loadScan*/, false, false);
+      Signature node = nodes.find(iter->first)->second;
+      data = node.sensorData();
 
       // uncompress data
       data.uncompressData();
@@ -401,7 +339,7 @@ int main(int argc, char **argv) {
   // TODO: Add assertions
   if (!cloud->size()) {
     spdlog::error("Error: The cloud is empty.");
-    // rtabmap.close(false);
+    rtabmap.close(false);
     return 1;
   }
 
@@ -456,8 +394,8 @@ int main(int argc, char **argv) {
 
   // INFO: Saving the trajectory
   spdlog::info("Saving {} ...", config.out_trajectory_path);
-  if (optimizedPoses.size() && graph::exportPoses(config.out_trajectory_path, 0,
-                                                  optimizedPoses, linksOut)) {
+  if (poses.size() &&
+      graph::exportPoses(config.out_trajectory_path, 0, poses, links)) {
     // const std::string & filePath,
     // int format, // 0=Raw, 1=RGBD-SLAM motion capture (10=without change of
     // coordinate frame, 11=10+ID), 2=KITTI, 3=TORO, 4=g2o
@@ -470,10 +408,10 @@ int main(int argc, char **argv) {
     // // Format: r11 r12 r13 tx r21 r22 r23 ty r31 r32 r33 tz
   } else {
     spdlog::error("Saving {} ... failed!", config.out_trajectory_path);
-    // rtabmap.close(false);
+    rtabmap.close(false);
     return 1;
   }
 
-  // rtabmap.close();
+  rtabmap.close();
   return 0;
 }

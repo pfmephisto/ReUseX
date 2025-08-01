@@ -303,6 +303,9 @@ include_directories(${CLI11_DIR}/include)
 add_executable(reusex_rtabmap_export src/reusex_rtabmap_export.cpp)
 target_link_libraries(reusex_rtabmap_export PRIVATE ${PROJECT_NAME})
 
+add_executable(reusex_rhino_export src/reusex_rhino_export.cpp)
+target_link_libraries(reusex_rhino_export PRIVATE ${PROJECT_NAME})
+
 # ===============================================
 # scikit_build
 Python_add_library(_core MODULE src/ReUseX.cpp WITH_SOABI)

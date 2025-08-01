@@ -178,7 +178,13 @@ class Yolov8Seg {
                                                const cv::Vec4d &params,
                                                const cv::Size &srcImgSize);
 
-  static std::string GetClassName(int id) { return _className[id]; }
+  static std::string GetClassName(int id) {
+    if (id < 0 || (size_t)id >= _className.size())
+      return "Unknown Class";
+
+    // Return the class name for the given ID
+    return _className[id];
+  }
 };
 
 std::vector<OutputParams>

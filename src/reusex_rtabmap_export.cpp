@@ -241,6 +241,10 @@ int main(int argc, char **argv) {
           new pcl::PointCloud<pcl::Label>);
       labledCloud->resize(tmp->size());
 
+      // INFO: Initialize the labels to 0
+      for (size_t i = 0; i < labledCloud->size(); ++i)
+        labledCloud->points[i].label = 0;
+
       cv::Size cloud_size(tmp->width, tmp->height);
 
       spdlog::trace("Set up labledImage");

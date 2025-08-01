@@ -15,8 +15,12 @@
 #include <opennurbs_brep.h>
 #include <opennurbs_public.h>
 
+#include <fmt/core.h>
+#include <fmt/ostream.h>
+
 #include <algorithm>
 #include <filesystem>
+#include <iostream>
 #include <vector>
 
 namespace ReUseX {

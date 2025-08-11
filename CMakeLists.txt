@@ -170,7 +170,7 @@ find_package(opennurbs REQUIRED)
 
 find_package(PCL REQUIRED)
 find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
-find_package(pybind11 REQUIRED)
+# find_package(pybind11 REQUIRED)
 
 
 find_package(RTABMap REQUIRED)
@@ -191,6 +191,11 @@ file(GLOB_RECURSE LIB_HEADERS
 )
 
 list(FILTER LIB_SOURCES EXCLUDE REGEX ".*py.cpp")
+
+# Exclude python bindings
+list(FILTER LIB_SOURCES EXCLUDE REGEX ".*bindings.*")
+list(FILTER LIB_SOURCES EXCLUDE REGEX ".*ReUseX.cpp")
+list(FILTER LIB_HEADERS EXCLUDE REGEX ".*bindings.*")
 
 
 # group sources according to folder structure
@@ -214,7 +219,7 @@ set_target_properties(${PROJECT_NAME} PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
 
 
 target_link_libraries(${PROJECT_NAME}  PRIVATE 
-    pybind11::embed
+	# pybind11::embed
     spdlog::spdlog
     optimized ${GUROBI_CXX_LIBRARY}
     debug ${GUROBI_CXX_DEBUG_LIBRARY}
@@ -223,6 +228,7 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
 
     OpenNURBS
     embree
+    TBB::tbb
 
     Eigen3::Eigen
 
@@ -282,13 +288,13 @@ target_include_directories(${PROJECT_NAME} PUBLIC
 
 
 
-#Set Qt5 properties
-set_target_properties(${PROJECT_NAME}
-  PROPERTIES
-    AUTOUIC ON
-    AUTOMOC ON
-    AUTORCC ON
-)
+# #Set Qt5 properties
+# set_target_properties(${PROJECT_NAME}
+#   PROPERTIES
+#     AUTOUIC ON
+#     AUTOMOC ON
+#     AUTORCC ON
+# )
 
 
 target_include_directories(${PROJECT_NAME} PUBLIC "src")
@@ -306,14 +312,17 @@ target_link_libraries(reusex_rtabmap_export PRIVATE ${PROJECT_NAME})
 add_executable(reusex_rhino_export src/reusex_rhino_export.cpp)
 target_link_libraries(reusex_rhino_export PRIVATE ${PROJECT_NAME})
 
-# ===============================================
-# scikit_build
-Python_add_library(_core MODULE src/ReUseX.cpp WITH_SOABI)
-target_link_libraries(_core PRIVATE pybind11::headers ${PROJECT_NAME})
+add_executable(reusex_plane_segmentation src/reusex_plane_segmentation.cpp)
+target_link_libraries(reusex_plane_segmentation PRIVATE ${PROJECT_NAME})
 
-# This is passing in the version as a define just as an example
-target_compile_definitions(_core PRIVATE VERSION_INFO=${PROJECT_VERSION})
+# ===============================================
+# # scikit_build
+# Python_add_library(_core MODULE src/ReUseX.cpp WITH_SOABI)
+# target_link_libraries(_core PRIVATE pybind11::headers ${PROJECT_NAME})
+# 
+# # This is passing in the version as a define just as an example
+# target_compile_definitions(_core PRIVATE VERSION_INFO=${PROJECT_VERSION})
 
 # The install directory is the output (wheel) directory
-install(TARGETS _core DESTINATION ReUseX)
+#install(TARGETS _core DESTINATION ReUseX)
 

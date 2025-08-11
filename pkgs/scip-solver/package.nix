@@ -18,7 +18,7 @@ stdenv.mkDerivation rec {
 
   nativeBuildInputs = with pkgs; [cmake];
 
-  propagatedBuildInputs = with pkgs; [tbb];
+  propagatedBuildInputs = with pkgs; [tbb_2022];
 
   strictDeps = true;
 

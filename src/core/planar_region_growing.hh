@@ -15,12 +15,22 @@
 #include <pcl/segmentation/plane_coefficient_comparator.h>
 #include <pcl/segmentation/plane_refinement_comparator.h>
 
+#include <cmath>
 #include <queue>
-#include <tbb/parallel_sort.h>
 
 #include "core/spdmon.hh"
 #include <spdlog/spdlog.h>
 #include <spdlog/stopwatch.h>
+
+template <typename Derived>
+inline bool is_finite(const Eigen::MatrixBase<Derived> &x) {
+  return ((x - x).array() == (x - x).array()).all();
+}
+
+template <typename Derived>
+inline bool is_nan(const Eigen::MatrixBase<Derived> &x) {
+  return ((x.array() == x.array())).all();
+}
 
 namespace pcl {
 
@@ -109,18 +119,20 @@ class PCL_EXPORTS PlanarRegionGrowing : public PCLBase<PointT> {
   /** \brief Get the minimum number of inliers required per plane. */
   inline unsigned getMinInliers() const { return (min_inliers_); }
 
-  /** \brief Set the tolerance in radians for difference in normal direction
+  /** \brief Set the tolerance in degrees for difference in normal direction
    * between neighboring points, to be considered part of the same plane.
-   * \param[in] angular_threshold the tolerance in radians
+   * \param[in] angular_threshold the tolerance in degrees
    */
   inline void setAngularThreshold(double angular_threshold) {
-    angular_threshold_ = angular_threshold;
+    angular_threshold_ = pcl::deg2rad(angular_threshold);
   }
 
-  /** \brief Get the angular threshold in radians for difference in normal
+  /** \brief Get the angular threshold in degrees for difference in normal
    * direction between neighboring points, to be considered part of the same
    * plane. */
-  inline double getAngularThreshold() const { return (angular_threshold_); }
+  inline double getAngularThreshold() const {
+    return (pcl::rad2deg(angular_threshold_));
+  }
 
   /** \brief Set the tolerance in meters for difference in perpendicular
    * distance (d component of plane equation) to the plane between neighboring
@@ -185,7 +197,7 @@ class PCL_EXPORTS PlanarRegionGrowing : public PCLBase<PointT> {
   /** \brief Get the inlier indices for each detected plane.
    * \return a vector of indices for each detected plane
    */
-  inline std::vector<pcl::Indices> getInlierIndices() const {
+  inline std::vector<std::shared_ptr<pcl::Indices>> getInlierIndices() const {
     return inlier_indices_;
   }
 
@@ -197,24 +209,36 @@ class PCL_EXPORTS PlanarRegionGrowing : public PCLBase<PointT> {
     return centroids_;
   }
 
+  /** \brief Get the initial interval for the plane fitting.
+   * \return the initial interval for the plane fitting
+   */
+  inline float getInitialInterval() const { return initial_interval_; }
+
+  /** \brief Set the initial interval for the plane fitting.
+   * \param[in] interval the initial interval for the plane fitting
+   */
+  inline void setInitialInterval(float interval) {
+    initial_interval_ = interval;
+  }
+
+  /** \brief Get the factor by which the update interval is multiplied
+   * after each plane fitting.
+   * \return the factor by which the update interval is multiplied
+   */
+  inline float getIntervalFactor() const { return interval_factor_; }
+
+  /** \brief Set the factor by which the update interval is multiplied
+   * after each plane fitting.
+   * \param[in] factor the factor by which the update interval is multiplied
+   */
+  inline void setIntervalFactor(float factor) { interval_factor_ = factor; }
+
   /** \brief Segmentation of all planes in a point cloud given by
    * setInputCloud(), setIndices()
-   * \param[out] model_coefficients a vector of model_coefficients for each
-   * plane found in the input cloud
-   * \param[out] inlier_indices a vector of inliers for each detected plane
-   * \param[out] centroids a vector of centroids for each plane
-   * \param[out] covariances a vector of covariance matrices for the inliers of
-   * each plane
    * \param[out] labels a point cloud for the connected component labels of each
-   * pixel
-   * \param[out] label_indices a vector of PointIndices for each labeled
-   * component
+   * point in the input cloud.
    */
   void segment(const typename pcl::PointCloud<PointLT>::Ptr &labels) {
-    // std::vector<ModelCoefficients> &model_coefficients,
-    // std::vector<PointIndices> &inlier_indices,
-    // std::vector<Eigen::Vector4f, Eigen::aligned_allocator<Eigen::Vector4f>>
-    //     &centroids) {
 
     spdlog::trace("Initializing segmentation class");
     if (!initCompute()) {
@@ -234,8 +258,6 @@ class PCL_EXPORTS PlanarRegionGrowing : public PCLBase<PointT> {
     labels_ = labels;
 
     spdlog::trace("Sorting indices");
-    // INFO: Check if using tbb will make it faster
-    // tbb::parallel_sort
     std::sort(indices_->begin(), indices_->end(), [&](int i, int j) {
       return normals_->at(i).curvature < normals_->at(j).curvature;
     });
@@ -247,10 +269,11 @@ class PCL_EXPORTS PlanarRegionGrowing : public PCLBase<PointT> {
     point_neighbours_.resize(indices_->size(), pcl::Indices());
 #pragma omp parallel for
     for (int i = 0; i < static_cast<int>(indices_->size()); ++i) {
+      const unsigned int index = indices_->at(i);
       pcl::Indices k_indices;
       std::vector<float> k_distances;
-      search_method_(*input_, indices_->at(i), k_indices, k_distances);
-      std::swap(k_indices, point_neighbours_[i]);
+      search_method_(*input_, index, k_indices, k_distances);
+      std::swap(k_indices, point_neighbours_[index]);
     }
     spdlog::trace("Precompute neighbor indices took {}s", sw);
 
@@ -260,40 +283,31 @@ class PCL_EXPORTS PlanarRegionGrowing : public PCLBase<PointT> {
     size_t segmented_pts_num = 0;
     size_t number_of_segments = 0;
 
-    auto logger = spdmon::LoggerProgress("Region Growing", indices_->size());
+    {
+      auto logger = spdmon::LoggerProgress("Region Growing", indices_->size());
 
-    while (segmented_pts_num < indices_->size()) { // TODO: Add early stop
-      size_t pts_in_segment = 0;
-      pts_in_segment = growRegion(seed, number_of_segments);
-      segmented_pts_num += pts_in_segment;
-      num_pts_in_segment_.push_back(pts_in_segment);
-      number_of_segments++; // Increment the segment number
+      while (segmented_pts_num < indices_->size()) {
+        size_t pts_in_segment = 0;
+        pts_in_segment = growRegion(seed, number_of_segments);
+        segmented_pts_num += pts_in_segment;
+        num_pts_in_segment_.push_back(pts_in_segment);
+        number_of_segments++; // Increment the segment number
 
-      logger += pts_in_segment; // Update the progress bar
+        logger += pts_in_segment;
 
-      // Find the next seed point
-      for (size_t i_seed = seed_counter + 1; i_seed < indices_->size();
-           ++i_seed) {
-        size_t index = indices_->at(i_seed);
-        if (labels_->points[index].label == 0) {
-          seed = index;
-          seed_counter = i_seed;
-          break;
+        // Find the next seed point
+        for (size_t i_seed = seed_counter + 1; i_seed < indices_->size();
+             ++i_seed) {
+          size_t index = indices_->at(i_seed);
+          if (labels_->points[index].label == 0) {
+            seed = index;
+            seed_counter = i_seed;
+            break;
+          }
         }
       }
-    }
-
-    // INFO: Refine segments
-    spdlog::trace("Refining segments");
-#pragma omp parallel for
-    for (size_t i = 0; i < inlier_indices_.size(); ++i) {
-      if (inlier_indices_[i].size() < min_inliers_) {
-        for (size_t j = 0; j < inlier_indices_[i].size(); ++j) {
-          size_t index = inlier_indices_[i][j];
-          labels_->points[index].label = 0; // Reset the label
-        }
-      }
-    }
+    } // Scope for the logger
+    assembleRegions();
 
     deinitCompute();
   }
@@ -415,6 +429,9 @@ class PCL_EXPORTS PlanarRegionGrowing : public PCLBase<PointT> {
     inlier_indices_.clear();
     centroids_.clear();
 
+    spdlog::debug("angular_threshold_: {}", angular_threshold_);
+    spdlog::debug("distance_threshold_: {}", distance_threshold_);
+
     return (true);
   }
 
@@ -436,6 +453,7 @@ class PCL_EXPORTS PlanarRegionGrowing : public PCLBase<PointT> {
 
     size_t num_pts = 1;
 
+    // Initialize the plane object
     compare_->initializePlane(initial_seed);
     next_update_ = initial_interval_;
 
@@ -444,6 +462,8 @@ class PCL_EXPORTS PlanarRegionGrowing : public PCLBase<PointT> {
 
     // TODO: See if there is an omp parallel queue implementation
     while (!seeds.empty()) {
+
+      // Get the current seed point
       size_t curr_seed = seeds.front();
       seeds.pop();
 
@@ -471,14 +491,145 @@ class PCL_EXPORTS PlanarRegionGrowing : public PCLBase<PointT> {
 
       // INFO: Update the plane coefficients
       if (num_pts >= next_update_) {
+
         pca_->setIndices(plane_indices);
-        compare_->setPlaneNormal(pca_->getEigenVectors().col(2));
-        compare_->setPlaneOrigin(pca_->getMean());
+
+        auto pca_normal = pca_->getEigenVectors().col(2);
+        auto pca_mean = pca_->getMean();
+
+        // TODO: Consider removing this check
+        if (std::isnan(pca_normal[0]) || std::isnan(pca_normal[1]) ||
+            std::isnan(pca_normal[2])) {
+          PCL_ERROR("[pcl::%s::growRegion] PCA normal contains NaN values.",
+                    getClassName().c_str());
+        }
+
+        // TODO: Consider removing this check
+        if (std::isnan(pca_mean[0]) || std::isnan(pca_mean[1]) ||
+            std::isnan(pca_mean[2]) || std::isnan(pca_mean[3])) {
+          PCL_ERROR("[pcl::%s::growRegion] PCA mean contains NaN values.",
+                    getClassName().c_str());
+        }
+
+        compare_->setPlaneNormal(pca_normal);
+        compare_->setPlaneOrigin(pca_mean);
+
         next_update_ *= interval_factor_;
       }
+
     } // next seed
 
+    // INFO: Reset the label if not enough points
+    // if (num_pts < min_inliers_) {
+    //   for (size_t i = 0; i < plane_indices->size(); ++i) {
+    //     size_t index = plane_indices->at(i);
+    //     labels_->points[index].label = 0; // Reset the label
+    //   }
+    //   num_pts = 1; // Reset the number of points
+    // }
+
     return num_pts;
+  }
+
+  /** \brief Assemble the regions found in the input cloud.
+   * This method will create a vector of model coefficients, inlier indices,
+   * and centroids for each plane found in the input cloud.
+   */
+  void assembleRegions() {
+    spdlog::trace("assembleRegions() called");
+    // TODO: Make sure the following variables are set correctly a the end of
+    // this method:
+    //  - inlier_indices_
+    //  - model_coefficients_
+    //  - centroids_
+    //  - num_pts_in_segment_
+    // Use the the valaue for min_inliers_ to filter out small segments
+    //
+    const size_t number_of_segments = num_pts_in_segment_.size();
+    const auto number_of_points = input_->size();
+
+    spdlog::trace("Resizing inlier indices vector");
+    inlier_indices_.resize(number_of_segments);
+
+    spdlog::trace("Resizing inlier indices for each segment");
+    for (std::size_t i_seg = 0; i_seg < number_of_segments; i_seg++) {
+      inlier_indices_[i_seg] = IndicesPtr(new Indices);
+      inlier_indices_[i_seg]->resize(num_pts_in_segment_[i_seg], 0);
+    }
+
+    spdlog::trace("Resizing counter vector");
+    std::vector<int> counter(number_of_segments, 0);
+
+    spdlog::trace("Set inlier indices for each segment");
+    for (std::size_t i_point = 0; i_point < number_of_points; i_point++) {
+      if (labels_->points[i_point].label != 0) {
+        const size_t seg_id =
+            labels_->points[i_point].label - 1; // -1 to convert to 0-based
+        const size_t point_index = counter[seg_id];
+
+        inlier_indices_[seg_id]->at(point_index) = i_point;
+        counter[seg_id] = point_index + 1;
+      }
+    }
+
+    // INFO: Filtering
+    spdlog::trace("Filtering segments with minimum inliers");
+    std::vector<IndicesPtr> tmp_inlier_indices;
+    tmp_inlier_indices.reserve(inlier_indices_.size());
+    for (size_t i = 0; i < inlier_indices_.size(); ++i)
+      if (inlier_indices_[i]->size() >= min_inliers_)
+        tmp_inlier_indices.push_back(inlier_indices_[i]);
+    std::swap(inlier_indices_, tmp_inlier_indices);
+
+    spdlog::trace("Filter num_pts_in_segment_ based on min_inliers");
+    std::vector<pcl::uindex_t> tmp_num_pts_in_segment;
+    tmp_num_pts_in_segment.reserve(num_pts_in_segment_.size());
+    for (size_t i = 0; i < num_pts_in_segment_.size(); ++i)
+      if (num_pts_in_segment_[i] >= min_inliers_)
+        tmp_num_pts_in_segment.push_back(num_pts_in_segment_[i]);
+    std::swap(num_pts_in_segment_, tmp_num_pts_in_segment);
+
+    spdlog::trace("Renumbering segments");
+    for (size_t i = 0; i < inlier_indices_.size(); ++i) {
+      for (size_t j = 0; j < inlier_indices_[i]->size(); ++j) {
+        labels_->points[inlier_indices_[i]->at(j)].label = i + 1;
+      }
+    }
+
+    // INFO: Compute the centroids and model coefficients for each segment
+    spdlog::trace("Computing centroid and model coefficients for each segment");
+    centroids_.resize(inlier_indices_.size(), Eigen::Vector4f::Zero());
+    ModelCoefficients model_coefficients;
+    model_coefficients.values.resize(4, 0.0f);
+    model_coefficients_.resize(inlier_indices_.size(), model_coefficients);
+
+    for (size_t i_seg = 0; i_seg < inlier_indices_.size(); ++i_seg) {
+      pca_->setIndices(inlier_indices_[i_seg]);
+      const Eigen::Vector4f &mean = pca_->getMean();
+      const Eigen::Vector3f &normal =
+          pca_->getEigenVectors().col(2).normalized();
+      // Set the centroid and model coefficients for the segment
+      centroids_[i_seg] = mean;
+      model_coefficients_[i_seg].values[0] = normal[0];
+      model_coefficients_[i_seg].values[1] = normal[1];
+      model_coefficients_[i_seg].values[2] = normal[2];
+      model_coefficients_[i_seg].values[3] = -normal.dot(mean.head<3>());
+
+      // INFO: Flip normal if not pointing in the right direction
+      Eigen::Vector3f plane_normal = Eigen::Vector3f::Zero();
+      for (size_t i = 0; i < inlier_indices_[i_seg]->size(); ++i)
+        plane_normal +=
+            normals_->at(inlier_indices_[i_seg]->at(i)).getNormalVector3fMap();
+      plane_normal.normalize();
+
+      if (plane_normal.dot(normal) < 0.0f) {
+        // Flip the normal if it is pointing in the opposite direction
+        model_coefficients_[i_seg].values[0] *= -1.0f;
+        model_coefficients_[i_seg].values[1] *= -1.0f;
+        model_coefficients_[i_seg].values[2] *= -1.0f;
+        model_coefficients_[i_seg].values[3] *= -1.0f;
+      }
+    }
   }
 
   /** \brief Get a string representation of the name of this class. */
@@ -511,7 +662,6 @@ class PCL_EXPORTS PlanarRegionGrowing : public PCLBase<PointT> {
   float interval_factor_{1.5f};
 
   /** \brief Early stop factor for the region growing algorithm.*/
-  float early_stop_factor_{0.3f};
 
   /** \brief A tree for fast neighbor search. */
   KdTreePtr tree_{nullptr}; // KdTreePtr(new KdTree(false));
@@ -547,7 +697,7 @@ class PCL_EXPORTS PlanarRegionGrowing : public PCLBase<PointT> {
   std::vector<pcl::ModelCoefficients> model_coefficients_{};
 
   /** \brief A vector of inlier indices for each detected plane. */
-  std::vector<pcl::Indices> inlier_indices_{};
+  std::vector<IndicesPtr> inlier_indices_{};
 
   /** \brief Tells how much points each segment contains. Used for
    * reserving memory. */
@@ -611,13 +761,13 @@ class PlanarRegionGrowingComparator : public PCLBase<PointT> {
       return false;
     }
 
-    //// Check if the absolute value of the angle between the point normal
-    //// and the plane normal is less than the angular threshold
-    // if (std::abs(plane_normal_.dot(normals_->at(idx).getNormalVector3fMap()))
-    // >
-    //     angular_threshold_) {
-    //   return false; // Point normal is not aligned with the plane normal
-    // }
+    // Check if the absolute value of the angle between the point normal
+    // and the plane normal is less than the angular threshold
+    if (std::abs(plane_normal_.dot(
+            normals_->at(idx).getNormalVector3fMap().normalized())) <
+        angular_threshold_) {
+      return false; // Point normal is not aligned with the plane normal
+    }
 
     // Check if the distance of the point to the plane is less than the
     // distance threshold
@@ -636,7 +786,7 @@ class PlanarRegionGrowingComparator : public PCLBase<PointT> {
    */
   void initializePlane(size_t index) {
     plane_origin_ = input_->at(index).getVector4fMap();
-    plane_normal_ = normals_->at(index).getNormalVector3fMap();
+    plane_normal_ = normals_->at(index).getNormalVector3fMap().normalized();
   }
 
   /** \brief Set the input normals for the comparator.
@@ -656,11 +806,13 @@ class PlanarRegionGrowingComparator : public PCLBase<PointT> {
    * \param[in] normal the plane normal
    */
   inline void setPlaneNormal(const Eigen::Vector3f &normal) {
-    plane_normal_ = normal;
+    plane_normal_ = normal.normalized();
   }
 
   /** \brief Get the plane normal used for comparison. */
-  inline Eigen::Vector3f getPlaneNormal() const { return plane_normal_; }
+  inline Eigen::Vector3f getPlaneNormal() const {
+    return plane_normal_.normalized();
+  }
 
   /** \brief Set the plane origin to be used for comparison.
    * \param[in] origin the plane origin
@@ -678,13 +830,15 @@ class PlanarRegionGrowingComparator : public PCLBase<PointT> {
    * \param[in] threshold the angular threshold in radians
    */
   inline void setAngularThreshold(float threshold) {
-    angular_threshold_ = threshold;
+    angular_threshold_ = std::cos(threshold);
   }
 
   /** \brief Get the angular threshold for comparison.
    * \return the angular threshold in radians
    */
-  inline float getAngularThreshold() const { return angular_threshold_; }
+  inline float getAngularThreshold() const {
+    return std::acos(angular_threshold_);
+  }
 
   /** \brief Set the distance threshold for comparison.
    * \param[in] threshold the distance threshold in meters
@@ -746,7 +900,7 @@ class PlanarRegionGrowingComparator : public PCLBase<PointT> {
 
   PointCloudNConstPtr normals_{nullptr};
 
-  float angular_threshold_ = pcl::deg2rad(25.0f);
+  float angular_threshold_ = 0.906308f; // cos(25°) = 0.906308f;
   float distance_threshold_ = 0.05f;
 
   Eigen::Vector3f plane_normal_ = Eigen::Vector3f::Zero();

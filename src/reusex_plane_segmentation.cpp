@@ -9,6 +9,7 @@
 #include <spdlog/spdlog.h>
 #include <spdlog/stopwatch.h>
 
+#include <pcl/filters/filter.h>
 #include <pcl/io/pcd_io.h>
 
 namespace fs = std::filesystem;
@@ -33,12 +34,11 @@ struct Params {
   fs::path path_in;
   fs::path path_out = fs::current_path() / "planes.pcd";
 
-  float angle_threshold = std::cos(25); // 0.96592583; // cos(25°)
+  float angle_threshold = 25.0f;
   float plane_dist_threshold = 0.07;
-  int minClusterSize =
-      2 * (1 / 0.02) * (1 / 0.02); // ca 2sqm in 2cm resolution of point cloud
-  float early_stop = 0.3;
-  float radius = 0.3;
+  int minInliers = 1000;
+  // 2 * (1 / 0.02) * (1 / 0.02); // ca 2sqm in 2cm resolution of point cloud
+  float radius = 0.5;
   float interval_0 = 16;
   float interval_factor = 1.5;
 
@@ -69,24 +69,18 @@ std::unique_ptr<CLI::App> initApp(Params &params) {
                   "Angle threshold for plane fitting (default: 25° aka. "
                   "cos(25) or 0.96592583)")
       ->default_val(params.angle_threshold)
-      ->check(CLI::Range(0.0, 1.0));
+      ->check(CLI::Range(0.0, 365.0));
 
   app->add_option("-d, --plane-dist-threshold", params.plane_dist_threshold,
                   "Distance threshold for plane fitting (default: 0.1m)")
       ->default_val(params.plane_dist_threshold)
       ->check(CLI::Range(0.0, 1.0));
 
-  app->add_option("-m, --min-cluster-size", params.minClusterSize,
+  app->add_option("-m, --min-cluster-size", params.minInliers,
                   "Minimum cluster size for plane fitting (default: 2sqm in "
                   "2cm resolution of point cloud)")
-      ->default_val(params.minClusterSize)
+      ->default_val(params.minInliers)
       ->check(CLI::Range(1, 1000000));
-
-  app->add_option("-e, --early-stop", params.early_stop,
-                  "Early stop threshold for region growing (default: 0.3, "
-                  "stop when less than 30% of points are left)")
-      ->default_val(params.early_stop)
-      ->check(CLI::Range(0.0, 1.0));
 
   app->add_option("-r, --radius", params.radius, "Radius for region growing")
       ->default_val(params.radius)
@@ -128,11 +122,22 @@ int main(int argc, char **argv) {
   CloudPtr cloud(new Cloud);
   pcl::io::loadPCDFile<PointT>(config.path_in.string(), *cloud);
 
+  pcl::Indices indices;
+  pcl::removeNaNNormalsFromPointCloud(*cloud, *cloud, indices);
+
   spdlog::trace("Initialize the segmentation algorithm");
   pcl::PlanarRegionGrowing<PointT, NormalT, LabelT> seg;
   seg.setInputCloud(cloud);
   seg.setInputNormals(cloud);
+
+  seg.setAngularThreshold(config.angle_threshold);
+  seg.setDistanceThreshold(config.plane_dist_threshold);
+  seg.setMinInliers(config.minInliers);
+
   seg.setRadiusSearch(config.radius);
+
+  seg.setInitialInterval(config.interval_0);
+  seg.setIntervalFactor(config.interval_factor);
 
   // pcl::IndicesPtr indices(new pcl::Indices);
   // for (size_t i = 0; i < 1000; ++i) {

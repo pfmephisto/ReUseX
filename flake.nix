@@ -304,6 +304,7 @@
                   #pkgs.qt5.qtdeclarative
 
                   valgrind
+                  libsForQt5.kcachegrind
                 ]
                 ++ [
                   libnotify # Send noctification when build finishes

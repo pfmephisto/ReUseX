@@ -215,6 +215,8 @@
 
                   gurobi
                   cli11
+
+                  HipMCL
                 ]);
 
               propagatedBuildInputs =

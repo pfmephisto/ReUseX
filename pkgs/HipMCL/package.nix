@@ -11,10 +11,10 @@ stdenv.mkDerivation rec {
 
   src = fetchFromBitbucket {
     owner = "azadcse";
-    repo = "${pname}";
+    repo = "HipMCL";
     rev = "ca6a4fb17d0dc46a6fa7401a1ffdc9ec317de10c";
     sha256 = "sha256-v5UvYrplS7HhZj3vgF4MqMDTGfEiWnMHubVNCBf6RNY=";
-  };
+  }; #)    + "/src/CombBLAS";
 
   nativeBuildInputs = [pkgs.cmake];
 

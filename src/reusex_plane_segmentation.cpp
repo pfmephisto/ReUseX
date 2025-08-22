@@ -10,6 +10,7 @@
 #include <spdlog/stopwatch.h>
 
 #include <pcl/filters/filter.h>
+#include <pcl/io/auto_io.h>
 #include <pcl/io/pcd_io.h>
 
 namespace fs = std::filesystem;
@@ -80,7 +81,7 @@ std::unique_ptr<CLI::App> initApp(Params &params) {
                   "Minimum cluster size for plane fitting (default: 2sqm in "
                   "2cm resolution of point cloud)")
       ->default_val(params.minInliers)
-      ->check(CLI::Range(1, 1000000));
+      ->check(CLI::Range(3, 1000000));
 
   app->add_option("-r, --radius", params.radius, "Radius for region growing")
       ->default_val(params.radius)
@@ -120,10 +121,11 @@ int main(int argc, char **argv) {
 
   spdlog::trace("Load the point cloud from disk");
   CloudPtr cloud(new Cloud);
-  pcl::io::loadPCDFile<PointT>(config.path_in.string(), *cloud);
+  // pcl::io::loadPCDFile<PointT>(config.path_in.string(), *cloud);
+  pcl::io::load<PointT>(config.path_in.string(), *cloud);
 
-  pcl::Indices indices;
-  pcl::removeNaNNormalsFromPointCloud(*cloud, *cloud, indices);
+  // pcl::Indices indices;
+  // pcl::removeNaNNormalsFromPointCloud(*cloud, *cloud, indices);
 
   spdlog::trace("Initialize the segmentation algorithm");
   pcl::PlanarRegionGrowing<PointT, NormalT, LabelT> seg;

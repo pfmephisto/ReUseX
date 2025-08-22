@@ -22,16 +22,6 @@
 #include <spdlog/spdlog.h>
 #include <spdlog/stopwatch.h>
 
-template <typename Derived>
-inline bool is_finite(const Eigen::MatrixBase<Derived> &x) {
-  return ((x - x).array() == (x - x).array()).all();
-}
-
-template <typename Derived>
-inline bool is_nan(const Eigen::MatrixBase<Derived> &x) {
-  return ((x.array() == x.array())).all();
-}
-
 namespace pcl {
 
 // Forward declaration of PlanarRegionGrowingComparator class
@@ -262,52 +252,11 @@ class PCL_EXPORTS PlanarRegionGrowing : public PCLBase<PointT> {
       return normals_->at(i).curvature < normals_->at(j).curvature;
     });
 
-    // TODO: Move this to custom mehthod for redability
-    spdlog::trace("Precompute neighbor indices");
-    spdlog::stopwatch sw;
-    point_neighbours_.clear();
-    point_neighbours_.resize(indices_->size(), pcl::Indices());
-#pragma omp parallel for
-    for (int i = 0; i < static_cast<int>(indices_->size()); ++i) {
-      const unsigned int index = indices_->at(i);
-      pcl::Indices k_indices;
-      std::vector<float> k_distances;
-      search_method_(*input_, index, k_indices, k_distances);
-      std::swap(k_indices, point_neighbours_[index]);
-    }
-    spdlog::trace("Precompute neighbor indices took {}s", sw);
-
-    size_t seed_counter = 0;
-    size_t seed = static_cast<size_t>(indices_->at(seed_counter));
-
-    size_t segmented_pts_num = 0;
-    size_t number_of_segments = 0;
-
-    {
-      auto logger = spdmon::LoggerProgress("Region Growing", indices_->size());
-
-      while (segmented_pts_num < indices_->size()) {
-        size_t pts_in_segment = 0;
-        pts_in_segment = growRegion(seed, number_of_segments);
-        segmented_pts_num += pts_in_segment;
-        num_pts_in_segment_.push_back(pts_in_segment);
-        number_of_segments++; // Increment the segment number
-
-        logger += pts_in_segment;
-
-        // Find the next seed point
-        for (size_t i_seed = seed_counter + 1; i_seed < indices_->size();
-             ++i_seed) {
-          size_t index = indices_->at(i_seed);
-          if (labels_->points[index].label == 0) {
-            seed = index;
-            seed_counter = i_seed;
-            break;
-          }
-        }
-      }
-    } // Scope for the logger
+    findPointNeighbours();
+    applyRegionGrowingAlgorithm();
     assembleRegions();
+    filterRegions();
+    computeCentroidsAndCoefficients();
 
     deinitCompute();
   }
@@ -343,6 +292,16 @@ class PCL_EXPORTS PlanarRegionGrowing : public PCLBase<PointT> {
                 static_cast<std::size_t>(normals_->size()));
       deinitCompute();
       return (false);
+    }
+
+    // Check if normals contain NaN values and issue warning.
+    for (const auto &point : normals_->points) {
+      if (std::isnan(point.normal_x) || std::isnan(point.normal_y) ||
+          std::isnan(point.normal_z)) {
+        PCL_WARN("[pcl::%s::initCompute] Input normals contain NaN values.\n",
+                 getClassName().c_str());
+        break;
+      }
     }
 
     // Check if a space search locator was given
@@ -431,8 +390,72 @@ class PCL_EXPORTS PlanarRegionGrowing : public PCLBase<PointT> {
 
     spdlog::debug("angular_threshold_: {}", angular_threshold_);
     spdlog::debug("distance_threshold_: {}", distance_threshold_);
+    spdlog::debug("search_parameter_: {} {}", search_parameter_,
+                  (search_parameter_ == k_ ? "k-nearest neighbors" : "radius"));
+    spdlog::debug("initial_interval_: {}", initial_interval_);
+    spdlog::debug("interval_factor_: {}", interval_factor_);
+    spdlog::debug("min_inliers_: {}", min_inliers_);
 
     return (true);
+  }
+
+  /** \brief Find the neighbors for each point in the input cloud and stores
+   * them in point_neighbours_.
+   */
+  void findPointNeighbours() {
+    spdlog::trace("findPointNeighbours() called");
+    spdlog::stopwatch sw;
+
+    point_neighbours_.clear();
+    point_neighbours_.resize(indices_->size(), pcl::Indices());
+
+#pragma omp parallel for
+    for (int i = 0; i < static_cast<int>(indices_->size()); ++i) {
+      const unsigned int index = indices_->at(i);
+      pcl::Indices k_indices;
+      std::vector<float> k_distances;
+      search_method_(*input_, index, k_indices, k_distances);
+      std::swap(k_indices, point_neighbours_[index]);
+    }
+
+    spdlog::debug("Precompute neighbor indices took {}s", sw);
+  }
+
+  /** \brief Apply the region growing algorithm to segment the input cloud.
+   * This method will iterate over the seed points and grow regions based on
+   * the plane normal and distance to the plane.
+   */
+  void applyRegionGrowingAlgorithm() {
+    size_t seed_counter = 0;
+    size_t seed = static_cast<size_t>(indices_->at(seed_counter));
+
+    size_t segmented_pts_num = 0;
+    size_t number_of_segments = 0;
+
+    {
+      auto logger = spdmon::LoggerProgress("Region Growing", indices_->size());
+
+      while (segmented_pts_num < indices_->size()) {
+        size_t pts_in_segment = 0;
+        pts_in_segment = growRegion(seed, number_of_segments);
+        segmented_pts_num += pts_in_segment;
+        num_pts_in_segment_.push_back(pts_in_segment);
+        number_of_segments++; // Increment the segment number
+
+        logger += pts_in_segment;
+
+        // Find the next seed point
+        for (size_t i_seed = seed_counter + 1; i_seed < indices_->size();
+             ++i_seed) {
+          size_t index = indices_->at(i_seed);
+          if (labels_->points[index].label == 0) {
+            seed = index;
+            seed_counter = i_seed;
+            break;
+          }
+        }
+      }
+    } // Scope for the logger
   }
 
   /** \brief This method grows a segment for the given seed point. And
@@ -460,7 +483,6 @@ class PCL_EXPORTS PlanarRegionGrowing : public PCLBase<PointT> {
     IndicesPtr plane_indices(new Indices);
     plane_indices->push_back(initial_seed);
 
-    // TODO: See if there is an omp parallel queue implementation
     while (!seeds.empty()) {
 
       // Get the current seed point
@@ -494,57 +516,23 @@ class PCL_EXPORTS PlanarRegionGrowing : public PCLBase<PointT> {
 
         pca_->setIndices(plane_indices);
 
-        auto pca_normal = pca_->getEigenVectors().col(2);
-        auto pca_mean = pca_->getMean();
-
-        // TODO: Consider removing this check
-        if (std::isnan(pca_normal[0]) || std::isnan(pca_normal[1]) ||
-            std::isnan(pca_normal[2])) {
-          PCL_ERROR("[pcl::%s::growRegion] PCA normal contains NaN values.",
-                    getClassName().c_str());
-        }
-
-        // TODO: Consider removing this check
-        if (std::isnan(pca_mean[0]) || std::isnan(pca_mean[1]) ||
-            std::isnan(pca_mean[2]) || std::isnan(pca_mean[3])) {
-          PCL_ERROR("[pcl::%s::growRegion] PCA mean contains NaN values.",
-                    getClassName().c_str());
-        }
-
-        compare_->setPlaneNormal(pca_normal);
-        compare_->setPlaneOrigin(pca_mean);
+        compare_->setPlaneNormal(pca_->getEigenVectors().col(2));
+        compare_->setPlaneOrigin(pca_->getMean());
 
         next_update_ *= interval_factor_;
       }
 
     } // next seed
 
-    // INFO: Reset the label if not enough points
-    // if (num_pts < min_inliers_) {
-    //   for (size_t i = 0; i < plane_indices->size(); ++i) {
-    //     size_t index = plane_indices->at(i);
-    //     labels_->points[index].label = 0; // Reset the label
-    //   }
-    //   num_pts = 1; // Reset the number of points
-    // }
-
     return num_pts;
   }
 
   /** \brief Assemble the regions found in the input cloud.
-   * This method will create a vector of model coefficients, inlier indices,
-   * and centroids for each plane found in the input cloud.
+   * This method will create a vector of inlier indices for each segment.
    */
   void assembleRegions() {
     spdlog::trace("assembleRegions() called");
-    // TODO: Make sure the following variables are set correctly a the end of
-    // this method:
-    //  - inlier_indices_
-    //  - model_coefficients_
-    //  - centroids_
-    //  - num_pts_in_segment_
-    // Use the the valaue for min_inliers_ to filter out small segments
-    //
+
     const size_t number_of_segments = num_pts_in_segment_.size();
     const auto number_of_points = input_->size();
 
@@ -571,23 +559,38 @@ class PCL_EXPORTS PlanarRegionGrowing : public PCLBase<PointT> {
         counter[seg_id] = point_index + 1;
       }
     }
+  }
 
+  /** \brief Filter the regions based on the minimum number of inliers.
+   * This method will remove segments that do not have enough inliers.
+   */
+  void filterRegions() {
     // INFO: Filtering
     spdlog::trace("Filtering segments with minimum inliers");
+    spdlog::debug("Number of segments before filtering: {}",
+                  inlier_indices_.size());
     std::vector<IndicesPtr> tmp_inlier_indices;
     tmp_inlier_indices.reserve(inlier_indices_.size());
     for (size_t i = 0; i < inlier_indices_.size(); ++i)
       if (inlier_indices_[i]->size() >= min_inliers_)
         tmp_inlier_indices.push_back(inlier_indices_[i]);
     std::swap(inlier_indices_, tmp_inlier_indices);
+    spdlog::debug("Number of segments after filtering: {}",
+                  inlier_indices_.size());
+    // Clear num_pts_in_segment_ vector as it is no longer valid
+    num_pts_in_segment_.clear();
 
-    spdlog::trace("Filter num_pts_in_segment_ based on min_inliers");
-    std::vector<pcl::uindex_t> tmp_num_pts_in_segment;
-    tmp_num_pts_in_segment.reserve(num_pts_in_segment_.size());
-    for (size_t i = 0; i < num_pts_in_segment_.size(); ++i)
-      if (num_pts_in_segment_[i] >= min_inliers_)
-        tmp_num_pts_in_segment.push_back(num_pts_in_segment_[i]);
-    std::swap(num_pts_in_segment_, tmp_num_pts_in_segment);
+    // spdlog::trace("Filter num_pts_in_segment_ based on min_inliers");
+    // std::vector<pcl::uindex_t> tmp_num_pts_in_segment;
+    // tmp_num_pts_in_segment.reserve(num_pts_in_segment_.size());
+    // for (size_t i = 0; i < num_pts_in_segment_.size(); ++i)
+    //   if (num_pts_in_segment_[i] >= min_inliers_)
+    //     tmp_num_pts_in_segment.push_back(num_pts_in_segment_[i]);
+    // std::swap(num_pts_in_segment_, tmp_num_pts_in_segment);
+
+    spdlog::trace("Reset all labels to 0");
+    for (size_t i = 0; i < labels_->size(); ++i)
+      labels_->points[i].label = 0;
 
     spdlog::trace("Renumbering segments");
     for (size_t i = 0; i < inlier_indices_.size(); ++i) {
@@ -595,7 +598,11 @@ class PCL_EXPORTS PlanarRegionGrowing : public PCLBase<PointT> {
         labels_->points[inlier_indices_[i]->at(j)].label = i + 1;
       }
     }
+  }
 
+  /** \brief Compute the centroids and model coefficients for each segment.
+   */
+  void computeCentroidsAndCoefficients() {
     // INFO: Compute the centroids and model coefficients for each segment
     spdlog::trace("Computing centroid and model coefficients for each segment");
     centroids_.resize(inlier_indices_.size(), Eigen::Vector4f::Zero());

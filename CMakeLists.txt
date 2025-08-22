@@ -315,6 +315,12 @@ target_link_libraries(reusex_rhino_export PRIVATE ${PROJECT_NAME})
 add_executable(reusex_plane_segmentation src/reusex_plane_segmentation.cpp)
 target_link_libraries(reusex_plane_segmentation PRIVATE ${PROJECT_NAME})
 
+add_executable(reusex_polygonal_surface_reconstruction src/reusex_polygonal_surface_reconstruction.cpp)
+target_link_libraries(reusex_polygonal_surface_reconstruction PRIVATE ${PROJECT_NAME})
+
+add_executable(reusex_markov_clustering src/reusex_markov_clustering.cpp)
+target_link_libraries(reusex_markov_clustering PRIVATE ${PROJECT_NAME})
+
 # ===============================================
 # # scikit_build
 # Python_add_library(_core MODULE src/ReUseX.cpp WITH_SOABI)

@@ -12,6 +12,7 @@
 #include <pcl/common/io.h>
 #include <pcl/features/normal_3d_omp.h>
 #include <pcl/filters/extract_indices.h>
+#include <pcl/filters/filter.h>
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/io/pcd_io.h>
 
@@ -382,6 +383,10 @@ int main(int argc, char **argv) {
   spdlog::debug("Points after voxel grid filtering: {}",
                 downsampledCloud->size());
 
+  pcl::Indices filter_indices;
+  pcl::removeNaNNormalsFromPointCloud(*downsampledCloud, *downsampledCloud,
+                                      filter_indices);
+
   // INFO: Saving the point cloud with normals
   spdlog::info("Saving {} ({})", config.out_normals_path,
                downsampledCloud->size());
@@ -396,6 +401,7 @@ int main(int argc, char **argv) {
       new pcl::PointCloud<pcl::PointXYZRGBL>);
   pointLabels->resize(downsampledCloud->size());
   pcl::copyPointCloud(*downsampledCloud, *pointLabels);
+
   for (size_t i = 0; i < downsampledCloud->size(); ++i) {
     auto &point = downsampledCloud->at(i);
     std::vector<int> indices;

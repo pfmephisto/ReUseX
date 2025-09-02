@@ -35,12 +35,28 @@
 
           # Set overlays and custom fixes for broken packages
           overlays = [
+            (final: prev: {embree = prev.embree.override {tbb = prev.tbb_2022;};})
             (
               final: prev: (prev.lib.packagesFromDirectoryRecursive {
                 callPackage = prev.lib.callPackageWith final;
                 directory = ./pkgs;
               })
             )
+            (final: prev: {
+              suitesparse-graphblas =
+                (
+                  prev.suitesparse-graphblas.override {
+                    #stdenv = prev.cudaPackages.stdenv-linux;
+                  }
+                ).overrideAttrs (old: {
+                  cmakeFlags =
+                    (old.cmakeFlags or [])
+                    ++ [
+                      (lib.cmakeBool "GRAPHBLAS_USE_CUDA" true)
+                    ];
+                  buildInputs = (old.buildInputs or []) ++ [prev.cudaPackages.cudatoolkit];
+                });
+            })
             (final: prev: {
               papilo = prev.papilo.overrideAttrs (old: {
                 version = "2.4.0";
@@ -70,6 +86,7 @@
                 # gtk3 = prev.pkgs.gtk3-x11;
                 enableVtk = true;
                 enableTbb = true;
+                tbb = prev.tbb_2022;
                 enableCudnn = true;
                 enablePython = true;
                 enableUnfree = true;
@@ -93,7 +110,7 @@
                   buildInputs =
                     (old.buildInputs or [])
                     ++ (with prev.pkgs; [
-                      tbb
+                      tbb_2022
                       gtsam
                     ]);
 
@@ -216,7 +233,9 @@
                   gurobi
                   cli11
 
-                  HipMCL
+                  suitesparse-graphblas
+                  suitesparse
+                  LAGraph
                 ]);
 
               propagatedBuildInputs =

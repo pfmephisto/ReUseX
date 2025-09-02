@@ -238,14 +238,15 @@ class BaseProgress {
   std::string bar_tpl_{""};
   std::mutex mutex_;
 
-  const std::string kTermEraseLine = "\x1B[0K";
-  const std::string kTermEol = "\n";
-  const std::string kLbarFmt = "{desc}: {frac:3.0f}%|";
-  // const std::string kRbarFmt =
+  static constexpr std::string_view kTermEraseLine = "\x1B[0K";
+  static constexpr std::string_view kTermEol = "\n";
+  static constexpr std::string_view kLbarFmt = "{desc}: {frac:3.0f}%|";
+  // static constexpr std::string_view kRbarFmt =
   //     "| {n}/{total} [{elapsed:%T} / {remaining:%T}]{eol}";
-  const std::string kRbarFmt =
+  static constexpr std::string_view kRbarFmt =
       "| {n}/{total} [{elapsed:.3%T}<{remaining:.3%T}, {speed:.2f}it/s]{eol}";
-  const std::string kNoTotalFmt = "{desc}: {n} [{elapsed:%T}]{eol}";
+  static constexpr std::string_view kNoTotalFmt =
+      "{desc}: {n} [{elapsed:%T}]{eol}";
 };
 
 /* Progress monitor writing directly to a file */

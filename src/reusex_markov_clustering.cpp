@@ -2,6 +2,12 @@
 #include "core/markov_clustering.hh"
 #include "core/spdmon.hh"
 
+// GraphBLAS imports complex.h which defines a macro named 'I' that conflicts
+// with the type in CLI11
+#ifdef I
+#undef I
+#endif
+
 #include <CLI/CLI.hpp>
 #include <fmt/format.h>
 
@@ -15,6 +21,7 @@
 #include <pcl/io/auto_io.h>
 #include <pcl/io/pcd_io.h>
 #include <pcl/point_types.h>
+#include <pcl/search/kdtree.h>
 
 namespace fs = std::filesystem;
 
@@ -42,7 +49,12 @@ struct Params {
   fs::path path_in;
   fs::path path_out = fs::current_path() / "clusters.pcd";
 
-  float inflation = 2.0f;
+  int expansion = 2;
+  double inflation = 2;
+  double pruning_threshold = 0.0001;
+  double convergence_threshold = 1e-8;
+  int max_iter = 100;
+
   float grid_size = 0.2f;
 
   int verbosity = 0;
@@ -72,6 +84,26 @@ std::unique_ptr<CLI::App> initApp(Params &params) {
                   "The inflation factor for the MCL algorithm.")
       ->default_val(params.inflation)
       ->check(CLI::Range(0.0, 10.0));
+
+  app->add_option("-e, --expansion", params.expansion,
+                  "The expansion factor for the MCL algorithm.")
+      ->default_val(params.expansion)
+      ->check(CLI::Range(1, 10));
+
+  app->add_option("-p, --pruning-threshold", params.pruning_threshold,
+                  "The pruning threshold for the MCL algorithm.")
+      ->default_val(params.pruning_threshold)
+      ->check(CLI::Range(0.0, 1.0));
+
+  app->add_option("-c, --convergence-threshold", params.convergence_threshold,
+                  "The convergence threshold for the MCL algorithm.")
+      ->default_val(params.convergence_threshold)
+      ->check(CLI::Range(0.0, 1.0));
+
+  app->add_option("-m, --max-iter", params.max_iter,
+                  "The maximum number of iterations for the MCL algorithm.")
+      ->default_val(params.max_iter)
+      ->check(CLI::Range(1, 1000));
 
   app->add_option("-g, --grid-size", params.grid_size,
                   "The grid size for the MCL algorithm.")
@@ -153,6 +185,11 @@ int main(int argc, char **argv) {
   spdlog::trace("Initialize the Markov Clustering algorithm");
   pcl::MarkovClustering<PointT, NormalT, LabelT> mcl;
   mcl.setInflationFactor(config.inflation);
+  mcl.setExpansionFactor(config.expansion);
+  mcl.setPruningThreshold(config.pruning_threshold);
+  mcl.setConvergenceThreshold(config.convergence_threshold);
+  mcl.setMaxIterations(config.max_iter);
+
   mcl.setGridSize(config.grid_size);
   mcl.setInputCloud(cloud);
   mcl.setInputNormals(normals);
@@ -161,12 +198,47 @@ int main(int argc, char **argv) {
   spdlog::trace("Initialize labels and copy xyzrgb data to labels");
   CloudLPtr labels(new CloudL);
   pcl::copyPointCloud(*cloud, *labels);
+  for (size_t i = 0; i < labels->points.size(); ++i)
+    labels->points[i].label = -1;
 
   mcl.cluster(*labels);
+  spdlog::trace("Done clustering");
+
+  // Assign the label to all points
+  pcl::KdTreeFLANN<PointT> kdtree;
+  kdtree.setInputCloud(cloud, indices);
+  IndicesPtr missing_indices(new Indices);
+  spdlog::trace("Resizing missing indices to size {}, cloud size: {}, "
+                "indices size: {}",
+                cloud->points.size() - indices->size(), cloud->points.size(),
+                indices->size());
+  missing_indices->reserve(cloud->points.size() - indices->size());
+
+  std::sort(indices->begin(), indices->end());
+
+  int j = 0;
+  for (int i = 0; i < static_cast<int>(cloud->size()); ++i) {
+    if (j < static_cast<int>(indices->size()) && indices->at(j) == i) {
+      ++j; // skip
+    } else {
+      missing_indices->push_back(i);
+    }
+  }
+
+  for (size_t i = 0; i < missing_indices->size(); ++i) {
+    const size_t idx = missing_indices->at(i);
+    std::vector<int> nn_indices(1);
+    std::vector<float> nn_sqr_dists(1);
+    if (kdtree.nearestKSearch(cloud->points[idx], 1, nn_indices, nn_sqr_dists) >
+        0) {
+      labels->points[idx].label = labels->points[nn_indices[0]].label;
+    }
+  }
 
   spdlog::info("Number of clusters found: {}", mcl.getNumClusters());
 
-  spdlog::trace("Save the point cloud with planes");
+  spdlog::trace("Save the point cloud with planes to dist at: {}",
+                config.path_out.string());
   pcl::io::savePCDFileBinary(config.path_out, *labels);
 
   return 0;

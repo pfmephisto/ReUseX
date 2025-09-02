@@ -13,15 +13,13 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 message("CMAKE_BUILD_TYPE: ${CMAKE_BUILD_TYPE}")
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
-option(CXX "enable C++ compilation" ON)
 
-if(CXX)
-  enable_language(CXX)
-endif()
+enable_language(CXX)
+enable_language(C)
 
 
 # ===============================================
@@ -174,6 +172,8 @@ find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
 
 
 find_package(RTABMap REQUIRED)
+find_package(GraphBLAS REQUIRED)
+find_package(LAGraph REQUIRED)
 
 
 # ===============================================
@@ -266,6 +266,10 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
     mpfr
     MPI::MPI_CXX
 
+    SuiteSparse::GraphBLAS
+    SuiteSparse::LAGraph
+    SuiteSparse::LAGraphX
+
     ${OpenCV_LIBS}
     ${GUROBI_LIBRARY}
     ${PCL_LIBRARIES}
@@ -285,8 +289,6 @@ target_include_directories(${PROJECT_NAME} PUBLIC
     ${OpenCV_INCLUDE_DIRS}
     ${PCL_INCLUDE_DIRS}
 )
-
-
 
 # #Set Qt5 properties
 # set_target_properties(${PROJECT_NAME}

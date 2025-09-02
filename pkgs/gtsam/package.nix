@@ -25,7 +25,7 @@ stdenv.mkDerivation rec {
 
   buildInputs = with pkgs; [
     boost
-    tbb
+    tbb_2022
     mkl
 
     eigen

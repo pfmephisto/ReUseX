@@ -17,7 +17,8 @@
     flake-utils,
     pyproject-nix,
   }:
-    flake-utils.lib.eachSystem ["x86_64-linux"] (system:
+    flake-utils.lib.eachSystem ["x86_64-linux"] (
+      system:
       # flake-utils.lib.eachDefaultSystem (system:
       let
         inherit (nixpkgs) lib;
@@ -44,11 +45,10 @@
             )
             (final: prev: {
               suitesparse-graphblas =
-                (
-                  prev.suitesparse-graphblas.override {
-                    #stdenv = prev.cudaPackages.stdenv-linux;
-                  }
-                ).overrideAttrs (old: {
+                (prev.suitesparse-graphblas.override {
+                  #stdenv = prev.cudaPackages.stdenv-linux;
+                }).overrideAttrs
+                (old: {
                   cmakeFlags =
                     (old.cmakeFlags or [])
                     ++ [
@@ -69,21 +69,12 @@
                 propagatedBuildInputs = with pkgs; [
                   tbb_2022
                 ];
-                # cmakeFlangs =
-                #   (old.cmakeFlags or [])
-                #   ++ [
-                #     "-DTBB_DIR=${pkgs.tbb}/lib/"
-                #   ];
               });
             })
             (final: prev: {
               opencv4 = prev.opencv4.override {
                 enableGtk2 = true;
-                # gtk2 = prev.pkgs.gtk2;
-                # gtk2 = prev.pkgs.gtk2-x11;
                 enableGtk3 = true;
-                # gtk3 = prev.pkgs.gtk3;
-                # gtk3 = prev.pkgs.gtk3-x11;
                 enableVtk = true;
                 enableTbb = true;
                 tbb = prev.tbb_2022;
@@ -93,56 +84,43 @@
               };
             })
             (findal: prev: {
-              rtabmap =
-                prev.rtabmap.overrideAttrs
-                (old: {
-                  #version = "0.22.0-dev-2e71831";
-                  #patches = [];
-                  #src = pkgs.fetchFromGitHub {
-                  #  owner = "introlab";
-                  #  repo = "rtabmap";
-                  #  #rev = "0.22.0-jazzy";
-                  #  # hash = "sha256-zlr9ydQnpIvef+x4LSK47Mwbz8PLkHUPTvKJxKaiqqI=";
-                  #  rev = "2e71831324d5e9fe1d412241f794691687c6b2e0";
-                  #  hash = "sha256-NShWR037KYL3Cnsa3m6St9QXrJaK5kpY9Qfoh1p0knA=";
-                  #};
+              rtabmap = prev.rtabmap.overrideAttrs (old: {
+                buildInputs =
+                  (old.buildInputs or [])
+                  ++ (with prev.pkgs; [
+                    tbb_2022
+                    gtsam
+                  ]);
 
-                  buildInputs =
-                    (old.buildInputs or [])
-                    ++ (with prev.pkgs; [
-                      tbb_2022
-                      gtsam
-                    ]);
-
-                  cmakeFlags =
-                    (prev.rtabmap.cmakeFlags or [])
-                    ++ [
-                      "-DWITH_TORCH=ON"
-                      "-DWITH_GTSAM=ON"
-                      #"-DWITH_PYTHON=ON"
-                      #"-DWITH_PYTHON_THREADING=ON"
-                      "-DWITH_LIBLAS=ON"
-                      "-DWITH_CERES=ON"
-                      "-DWITH_CVSBA=ON"
-                      "-DWITH_CCCORELIB=ON"
-                      "-DWITH_LOAM=ON"
-                      "-DWITH_FLOAM=ON"
-                      "-DWITH_DEPTHAI=ON"
-                      "-DWITH_XVSDK=ON"
-                      "-DWITH_GRIDMAP=ON"
-                      "-DWITH_CPUTSDF=ON"
-                      "-DWITH_OPENCHISEL=ON"
-                      "-DWITH_ALICE_VISION=ON"
-                      "-DWITH_FOVIS=ON"
-                      "-DWITH_VISO2=ON"
-                      "-DWITH_DVO=ON"
-                      "-DWITH_ORB_SLAM=ON"
-                      "-DWITH_OKVIS=ON"
-                      "-DWITH_MSCKF_VIO=ON"
-                      "-DWITH_VINS=ON"
-                      "-DWITH_OPENVINS=ON"
-                    ];
-                });
+                cmakeFlags =
+                  (prev.rtabmap.cmakeFlags or [])
+                  ++ [
+                    "-DWITH_TORCH=ON"
+                    "-DWITH_GTSAM=ON"
+                    #"-DWITH_PYTHON=ON"
+                    #"-DWITH_PYTHON_THREADING=ON"
+                    "-DWITH_LIBLAS=ON"
+                    "-DWITH_CERES=ON"
+                    "-DWITH_CVSBA=ON"
+                    "-DWITH_CCCORELIB=ON"
+                    "-DWITH_LOAM=ON"
+                    "-DWITH_FLOAM=ON"
+                    "-DWITH_DEPTHAI=ON"
+                    "-DWITH_XVSDK=ON"
+                    "-DWITH_GRIDMAP=ON"
+                    "-DWITH_CPUTSDF=ON"
+                    "-DWITH_OPENCHISEL=ON"
+                    "-DWITH_ALICE_VISION=ON"
+                    "-DWITH_FOVIS=ON"
+                    "-DWITH_VISO2=ON"
+                    "-DWITH_DVO=ON"
+                    "-DWITH_ORB_SLAM=ON"
+                    "-DWITH_OKVIS=ON"
+                    "-DWITH_MSCKF_VIO=ON"
+                    "-DWITH_VINS=ON"
+                    "-DWITH_OPENVINS=ON"
+                  ];
+              });
             })
           ];
         };
@@ -165,7 +143,8 @@
         ReUseX_Package = let
           attrs = project.renderers.buildPythonPackage {inherit python;};
         in
-          python.pkgs.buildPythonPackage (attrs
+          python.pkgs.buildPythonPackage (
+            attrs
             // {
               postConfigure = ''
                 echo "moving one level up (should be project root)"
@@ -187,9 +166,10 @@
               # Rutime dependencies
               # These are often programs and libraries used by the new derivation at run-time
               buildInputs =
-                (attrs.buildInputs
-                  or [
-                ])
+                (
+                  attrs.buildInputs or [
+                  ]
+                )
                 ++ (with pkgs; [
                   opennurbs
                   scip-solver
@@ -230,7 +210,6 @@
 
                   libGLU
 
-                  gurobi
                   cli11
 
                   suitesparse-graphblas
@@ -256,11 +235,11 @@
                 ++ [
                   (lib.strings.cmakeBool "CUDA_FAST_MATH" true)
                   (lib.strings.cmakeFeature "CUDA_NVCC_FLAGS" "--expt-relaxed-constexpr")
-                  (lib.strings.cmakeFeature "GUROBI_DIR" "${pkgs.gurobi}")
                 ];
 
               dontWrapQtApps = true;
-            }); # end of ReUseX
+            }
+          ); # end of ReUseX
       in {
         formatter = nixpkgs.legacyPackages.${system}.alejandra;
 
@@ -269,8 +248,8 @@
             default = ReUseX_Package; # ReUseX
             rtabmap = pkgs.rtabmap;
           }
-          // # All custom packages
-          (pkgs.lib.packagesFromDirectoryRecursive {
+          # All custom packages
+          // (pkgs.lib.packagesFromDirectoryRecursive {
             callPackage = pkgs.lib.callPackageWith pkgs;
             directory = ./pkgs;
           }); # end of packages
@@ -310,7 +289,10 @@
                 self.packages.${system}.default
               ];
 
-              buildInputs = with pkgs; [gtk4 pkg-config];
+              buildInputs = with pkgs; [
+                gtk4
+                pkg-config
+              ];
 
               packages = with pkgs;
                 [
@@ -319,10 +301,6 @@
                   mpi
                   cudatoolkit
                   gdb
-
-                  #pkgs.qt5.full
-                  #pkgs.qtcreator
-                  #pkgs.qt5.qtdeclarative
 
                   valgrind
                   libsForQt5.kcachegrind
@@ -340,20 +318,26 @@
                 ]
                 ++ [
                   # Python Environment
-                  ((myPython.withPackages (ps:
-                    with ps; [
-                      ReUseX
-                      torch
-                      torchvision
-                      safetensors
-                      numba
-                      opencv-python
-                      matplotlib
-                      tqdm
-                      scipy
-                      ipykernel
-                    ]))
-                  .override (args: {ignoreCollisions = true;}))
+                  (
+                    (myPython.withPackages (
+                      ps:
+                        with ps; [
+                          ReUseX
+                          torch
+                          torchvision
+                          safetensors
+                          numba
+                          opencv-python
+                          matplotlib
+                          tqdm
+                          scipy
+                          ipykernel
+                        ]
+                    )).override
+                    (args: {
+                      ignoreCollisions = true;
+                    })
+                  )
                 ];
 
               shellHook = ''
@@ -366,5 +350,6 @@
               '';
             }; # end of default shell
         }; # end of devShells
-      }); # end of outputs
+      }
+    ); # end of outputs
 }

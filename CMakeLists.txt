@@ -121,30 +121,6 @@ find_package(TBB REQUIRED)
 find_package(spdlog REQUIRED)
 find_package(spdmon REQUIRED)
 
-# find_package(Gurobi REQUIRED)
-find_path(GUROBI_INCLUDE_DIRS
-    NAMES gurobi_c.h
-    HINTS ${GUROBI_DIR} $ENV{GUROBI_HOME}
-    PATH_SUFFIXES include)
-
-find_library(GUROBI_LIBRARY
-    NAMES gurobi gurobi120 
-    # NAMES gurobi120 libgurobi_c++
-    # NAMES gurobi gurobi110 libgurobi110 libgurobi_c++ 
-    # NAMES gurobi_c++ gurobi_c
-    HINTS ${GUROBI_DIR} $ENV{GUROBI_HOME}
-    PATH_SUFFIXES lib)
-message(STATUS "GUROBI_LIBRARY: ${GUROBI_LIBRARY}")
-
-
-find_library(GUROBI_CXX_LIBRARY
-    NAMES gurobi_c++
-    HINTS ${GUROBI_DIR} $ENV{GUROBI_HOME}
-    PATH_SUFFIXES lib)
-set(GUROBI_CXX_DEBUG_LIBRARY ${GUROBI_CXX_LIBRARY})
-
-find_package_handle_standard_args(GUROBI DEFAULT_MSG GUROBI_LIBRARY)
-# add_compile_definitions(CGAL_USE_GUROBI=1)
 
 find_package(Eigen3 REQUIRED)
 find_package(SCIP REQUIRED)
@@ -201,14 +177,6 @@ list(FILTER LIB_HEADERS EXCLUDE REGEX ".*bindings.*")
 # group sources according to folder structure
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${LIB_SOURCES})
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${LIB_HEADERS})
-source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${CU})
-
-
-
-## ===============================================
-## add cuda library
-#set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS} -gencode)
-#cuda_add_library(cuda_lib STATIC ${CU})
 
 
 
@@ -225,8 +193,6 @@ target_include_directories(${PROJECT_NAME} PUBLIC
 target_link_libraries(${PROJECT_NAME}  PRIVATE 
 	# pybind11::embed
     spdlog::spdlog
-    optimized ${GUROBI_CXX_LIBRARY}
-    debug ${GUROBI_CXX_DEBUG_LIBRARY}
 )
 target_link_libraries(${PROJECT_NAME} PUBLIC
 
@@ -275,7 +241,6 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
     SuiteSparse::LAGraphX
 
     ${OpenCV_LIBS}
-    ${GUROBI_LIBRARY}
     ${PCL_LIBRARIES}
 )
 
@@ -289,18 +254,9 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
 )
 
 target_include_directories(${PROJECT_NAME} PUBLIC 
-    ${GUROBI_INCLUDE_DIRS}
     ${OpenCV_INCLUDE_DIRS}
     ${PCL_INCLUDE_DIRS}
 )
-
-# #Set Qt5 properties
-# set_target_properties(${PROJECT_NAME}
-#   PROPERTIES
-#     AUTOUIC ON
-#     AUTOMOC ON
-#     AUTORCC ON
-# )
 
 
 target_include_directories(${PROJECT_NAME} PUBLIC "src")

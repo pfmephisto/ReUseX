@@ -8,9 +8,6 @@
 
 namespace py = pybind11;
 
-void bind_functions(py::module_ &);
-void bind_types(py::module_ &);
-
 PYBIND11_MODULE(_core, m) {
 
   m.doc() = R"pbdoc(
@@ -19,9 +16,6 @@ PYBIND11_MODULE(_core, m) {
 
         This is allows for the segmentation of point clouds in python.
     )pbdoc";
-
-  bind_types(m);
-  bind_functions(m);
 
 #ifdef VERSION_INFO
   m.attr("__version__") = MACRO_STRINGIFY(VERSION_INFO);

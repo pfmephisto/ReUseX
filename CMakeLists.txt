@@ -187,7 +187,7 @@ file(GLOB_RECURSE LIB_SOURCES
 )
 
 file(GLOB_RECURSE LIB_HEADERS
-    "src/*.hh"
+    "include/*.hh"
 )
 
 list(FILTER LIB_SOURCES EXCLUDE REGEX ".*py.cpp")
@@ -217,6 +217,10 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${CU})
 add_library(${PROJECT_NAME} STATIC ${LIB_SOURCES} ${LIB_HEADERS})
 set_target_properties(${PROJECT_NAME} PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
 
+target_include_directories(${PROJECT_NAME} PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
 
 target_link_libraries(${PROJECT_NAME}  PRIVATE 
 	# pybind11::embed

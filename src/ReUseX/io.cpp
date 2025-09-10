@@ -1,4 +1,6 @@
-#include "io.hh"
+#include "ReUseX/io.hh"
+
+#include <fstream>
 
 bool ReUseX::save(
     fs::path const &output_path,

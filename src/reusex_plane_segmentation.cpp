@@ -1,7 +1,6 @@
-#include "core/fmt_formatter.hh"
-#include "core/io.hh"
-#include "core/planar_region_growing.hh"
-#include "core/spdmon.hh"
+#include "ReUseX/fmt_formatter.hh"
+#include "pcl/planar_region_growing.hh"
+#include "spdmon/spdmon.hh"
 
 #include <CLI/CLI.hpp>
 #include <fmt/format.h>
@@ -14,6 +13,7 @@
 #include <pcl/io/auto_io.h>
 #include <pcl/io/pcd_io.h>
 
+#include "ReUseX/io.hh"
 namespace fs = std::filesystem;
 
 using PointT = pcl::PointXYZRGBNormal;

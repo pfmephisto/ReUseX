@@ -1,6 +1,6 @@
-#include "core/fmt_formatter.hh"
-#include "core/polygonal_surface_reconstruction.hh"
-#include "core/spdmon.hh"
+#include "ReUseX/fmt_formatter.hh"
+#include "pcl/polygonal_surface_reconstruction.hh"
+#include "spdmon/spdmon.hh"
 
 #include <CLI/CLI.hpp>
 #include <fmt/format.h>

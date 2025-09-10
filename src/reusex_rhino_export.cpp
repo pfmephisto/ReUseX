@@ -1,6 +1,6 @@
-#include "core/Yolo.hh"
-#include "core/fmt_formatter.hh"
-#include "core/spdmon.hh"
+#include "ReUseX/Yolo.hh"
+#include "ReUseX/fmt_formatter.hh"
+#include "spdmon/spdmon.hh"
 
 #include <CLI/CLI.hpp>
 #include <fmt/format.h>

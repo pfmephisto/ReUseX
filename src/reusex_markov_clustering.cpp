@@ -1,6 +1,7 @@
-#include "core/fmt_formatter.hh"
-#include "core/markov_clustering.hh"
-#include "core/spdmon.hh"
+#include "ReUseX/fmt_formatter.hh"
+#include "ReUseX/io.hh"
+#include "pcl/markov_clustering.hh"
+#include "spdmon/spdmon.hh"
 
 // GraphBLAS imports complex.h which defines a macro named 'I' that conflicts
 // with the type in CLI11
@@ -24,8 +25,6 @@
 #include <pcl/point_types.h>
 #include <pcl/search/kdtree.h>
 #include <pcl/visualization/pcl_visualizer.h>
-
-#include "core/io.hh"
 
 namespace fs = std::filesystem;
 

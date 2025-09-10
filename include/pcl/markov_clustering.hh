@@ -227,46 +227,16 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
     GRB_TRY(GrB_Matrix_set_INT32(M, 32, GxB_COLINDEX_INTEGER_HINT));
     GRB_TRY(GrB_Matrix_set_INT32(M, 32, GxB_OFFSET_INTEGER_HINT));
 
-    bool make_symmetric = true;
-    LAGraph_Kind kind = LAGraph_ADJACENCY_DIRECTED;
-
-    if (make_symmetric == true) {
-      // INFO: Symmetrize the matrix
-      LAGRAPH_TRY(GrB_Matrix_eWiseAdd_BinaryOp(M, NULL, NULL, GrB_PLUS_FP32, M,
-                                               M, GrB_DESC_T1));
-      kind = LAGraph_ADJACENCY_UNDIRECTED;
-    }
+    // INFO: Symmetrize the matrix
+    LAGRAPH_TRY(GrB_Matrix_eWiseAdd_BinaryOp(M, NULL, NULL, GrB_PLUS_FP32, M, M,
+                                             GrB_DESC_T1));
 
     show_matrix(M, "Stochastic Matrix - Before");
 
     spdlog::trace("Running Markov Clustering");
     spdlog::stopwatch sw;
-    LAGRAPH_TRY(LAGraph_New(&G, &M, kind, msg));
-
-    // compute G->AT and determine if A has a symmetric structure
-    LAGRAPH_TRY(LAGraph_Cached_IsSymmetricStructure(G, msg));
-    if ((G->is_symmetric_structure == LAGraph_TRUE)) {
-      // if G->A has a symmetric structure, declare the graph undirected
-      // and free G->AT since it isn't needed.
-      G->kind = LAGraph_ADJACENCY_UNDIRECTED;
-      GRB_TRY(GrB_Matrix_free(&(G->AT)));
-    } else if (true) {
-      // make sure G->A is symmetric
-      bool sym;
-      LAGRAPH_TRY(LAGraph_Matrix_IsEqual(&sym, G->A, G->AT, msg));
-      if (!sym) {
-
-        GRB_TRY(GrB_Matrix_eWiseAdd_BinaryOp(G->A, NULL, NULL, GrB_PLUS_FP32,
-                                             G->A, G->AT, NULL));
-      }
-      // G->AT is not required
-      GRB_TRY(GrB_Matrix_free(&(G->AT)));
-      G->kind = LAGraph_ADJACENCY_UNDIRECTED;
-      G->is_symmetric_structure = LAGraph_TRUE;
-    }
-
-    // G->is_symmetric_structure = LAGraph_TRUE;
-    // G->kind = LAGraph_ADJACENCY_UNDIRECTED;
+    LAGRAPH_TRY(LAGraph_New(&G, &M, LAGraph_ADJACENCY_UNDIRECTED, msg));
+    G->is_symmetric_structure = LAGraph_TRUE;
 
     // FIXME: Visual debug the stochastic matrix
     // LAGRAPH_TRY(LAGraph_Graph_Print(G, LAGraph_SHORT_VERBOSE, stdout, msg));
@@ -676,6 +646,8 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
 
     cv::normalize(mat, mat, 0, 1, cv::NORM_MINMAX);
     cv::imshow(name, mat);
+
+    cv::imwrite("./" + name + ".png", mat * 255);
 #if 0
     cv::waitKey(10);
 #else

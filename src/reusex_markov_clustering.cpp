@@ -16,12 +16,16 @@
 #include <spdlog/stopwatch.h>
 
 #include <pcl/common/pca.h>
+#include <pcl/correspondence.h>
 #include <pcl/filters/filter.h>
 #include <pcl/filters/uniform_sampling.h>
 #include <pcl/io/auto_io.h>
 #include <pcl/io/pcd_io.h>
 #include <pcl/point_types.h>
 #include <pcl/search/kdtree.h>
+#include <pcl/visualization/pcl_visualizer.h>
+
+#include "core/io.hh"
 
 namespace fs = std::filesystem;
 
@@ -58,6 +62,7 @@ struct Params {
   float grid_size = 0.2f;
 
   int verbosity = 0;
+  bool visualize = false;
 };
 
 std::string shell;
@@ -110,6 +115,10 @@ std::unique_ptr<CLI::App> initApp(Params &params) {
       ->default_val(params.grid_size)
       ->check(CLI::Range(0.01, 10.0));
 
+  app->add_flag("-d, --visualize", params.visualize,
+                "Visualize the clustering process.")
+      ->default_val(params.visualize);
+
   app->add_flag("-v,--verbose", params.verbosity,
                 "Increase verbosity, use -vv & -vvv "
                 "for more verbosity")
@@ -136,51 +145,44 @@ int main(int argc, char **argv) {
   CloudPtr cloud(new Cloud);
   pcl::io::load<PointT>(config.path_in.string(), *cloud);
 
-  std::map<size_t, IndicesPtr> inlier_indices_map;
-  for (size_t i = 0; i < cloud->points.size(); ++i) {
-    if (cloud->points[i].label == 0)
-      continue; // Skip points without label
-    if (inlier_indices_map.find(cloud->points[i].label) ==
-        inlier_indices_map.end())
-      inlier_indices_map[cloud->points[i].label] = IndicesPtr(new Indices);
-    inlier_indices_map[cloud->points[i].label]->push_back(i);
-  }
+  std::vector<pcl::ModelCoefficients> model_coefficients;
+  std::vector<Eigen::Vector4f, Eigen::aligned_allocator<Eigen::Vector4f>>
+      centroids;
+  std::vector<IndicesPtr> inlier_indices;
 
-  size_t number_of_segments = inlier_indices_map.size();
-  spdlog::info("Number of segments found: {}", number_of_segments);
+  fs::path planes_path = config.path_in.replace_extension(".planes");
+  if (!ReUseX::read(planes_path, model_coefficients, centroids, inlier_indices))
+    spdlog::warn("Loading planes form {} failed.", planes_path.string());
 
-  spdlog::trace("Compute plane normals using PCA");
-  CloudNPtr normals(new CloudN);
-  normals->resize(cloud->size());
-  pcl::PCA<PointT> pca;
-  pca.setInputCloud(cloud);
+  assert(model_coefficients.size() == inlier_indices.size());
+  assert(model_coefficients.size() == centroids.size());
 
-  for (const auto &pair : inlier_indices_map) {
-
-    pca.setIndices(pair.second);
-    const Eigen::Vector3f &normal = pca.getEigenVectors().col(2).normalized();
-
-    Eigen::Vector3f avg_normal = Eigen::Vector3f::Zero();
-
-    for (const auto &index : *pair.second)
-      avg_normal += cloud->points[index].getVector3fMap();
-    avg_normal /= static_cast<float>(pair.second->size());
-
-    const int flip = (avg_normal.dot(normal) < 0.0f) ? -1 : 1;
-
-    for (const auto &index : *pair.second) {
-      normals->points[index].normal_x = normal[0] * flip;
-      normals->points[index].normal_y = normal[1] * flip;
-      normals->points[index].normal_z = normal[2] * flip;
-    }
-  }
-
-  // TODO: Filter the point cloud select only a few indices
   IndicesPtr indices(new Indices);
   pcl::UniformSampling<PointT> us;
   us.setInputCloud(cloud);
   us.setRadiusSearch(config.grid_size);
-  us.filter(*indices);
+  for (const auto &idx : inlier_indices) {
+    us.setIndices(idx);
+    IndicesPtr local_indices(new Indices);
+    us.filter(*local_indices);
+    indices->insert(indices->end(), local_indices->begin(),
+                    local_indices->end());
+  }
+
+  CloudNPtr normals(new CloudN);
+  normals->resize(cloud->size());
+
+  for (size_t i = 0; i < model_coefficients.size(); ++i) {
+    const auto &coeff = model_coefficients[i];
+
+    Eigen::Vector3f normal(coeff.values[0], coeff.values[1], coeff.values[2]);
+    normal.normalize();
+    for (const auto &index : *inlier_indices[i]) {
+      normals->points[index].normal_x = normal[0];
+      normals->points[index].normal_y = normal[1];
+      normals->points[index].normal_z = normal[2];
+    }
+  }
 
   spdlog::trace("Initialize the Markov Clustering algorithm");
   pcl::MarkovClustering<PointT, NormalT, LabelT> mcl;
@@ -195,6 +197,38 @@ int main(int argc, char **argv) {
   mcl.setInputNormals(normals);
   mcl.setIndices(indices);
 
+  // Set up PCL Visualizer
+  pcl::visualization::PCLVisualizer::Ptr viewer;
+  if (config.visualize) {
+    spdlog::warn("Visualization is an experimental feature.");
+    viewer = pcl::visualization::PCLVisualizer::Ptr(
+        new pcl::visualization::PCLVisualizer("MCL Viewer"));
+    viewer->setBackgroundColor(0, 0, 0);
+    viewer->addCoordinateSystem(1.0);
+    viewer->initCameraParameters();
+    mcl.registerVisualizationCallback(
+        [&viewer](typename pcl::PointCloud<pcl::PointXYZ>::Ptr points,
+                  std::shared_ptr<std::vector<pcl::Vertices>> vertices,
+                  pcl::CorrespondencesPtr correspondences) {
+          spdlog::trace("Updating visualization context with {} points and "
+                        "{} polygons",
+                        points->size(), vertices->size());
+
+          const std::string polygon_id = "disk_polygon";
+          viewer->addPolygonMesh<pcl::PointXYZ>(points, *vertices, polygon_id);
+          viewer->setPointCloudRenderingProperties(
+              pcl::visualization::PCL_VISUALIZER_COLOR, 1.0, 0.0, 0.0,
+              polygon_id);
+          viewer->setPointCloudRenderingProperties(
+              pcl::visualization::PCL_VISUALIZER_OPACITY, 0.5, polygon_id);
+
+          viewer->addCorrespondences<pcl::PointXYZ>(
+              points, points, *correspondences, "correspondences");
+        });
+
+    viewer->addPointCloud<PointT>(cloud, "cloud");
+  }
+
   spdlog::trace("Initialize labels and copy xyzrgb data to labels");
   CloudLPtr labels(new CloudL);
   pcl::copyPointCloud(*cloud, *labels);
@@ -203,6 +237,12 @@ int main(int argc, char **argv) {
 
   mcl.cluster(*labels);
   spdlog::trace("Done clustering");
+
+  if (viewer)
+    while (!viewer->wasStopped()) {
+      viewer->spinOnce(100);
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
 
   // Assign the label to all points
   pcl::KdTreeFLANN<PointT> kdtree;

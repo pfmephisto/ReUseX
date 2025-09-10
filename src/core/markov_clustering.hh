@@ -4,6 +4,7 @@
 #include <cmath>
 
 #include <pcl/PointIndices.h>
+#include <pcl/Vertices.h>
 #include <pcl/common/pca.h>
 #include <pcl/common/utils.h>
 #include <pcl/memory.h>
@@ -28,8 +29,8 @@
 #include <opencv4/opencv2/highgui.hpp>
 #include <opencv4/opencv2/opencv.hpp>
 
-using IT = int64_t; // Index type
-using NT = double;  // Numeric type
+using IT = int32_t; // Index type
+using NT = float;   // Numeric type
 
 // Define OpenMP reduction for std::vector<std::tuple<int64_t, int64_t,
 // double>>
@@ -41,18 +42,20 @@ using NT = double;  // Numeric type
 // Only during CMAKE_BUILD_TYPE=Debug, CHECK will check the return value
 // #ifdef NDEBUG
 #if 1
-#define CHECK(info)                                                            \
-  do {                                                                         \
-    GrB_Info _info = (info);                                                   \
-    if (_info != GrB_SUCCESS) {                                                \
-      fprintf(stderr, "GraphBLAS error %d at %s:%d\n", (int)_info, __FILE__,   \
-              __LINE__);                                                       \
-      exit(1);                                                                 \
-    }                                                                          \
-  } while (0)
-// Else do nothing
+#define LAGRAPH_CATCH(status)                                                  \
+  {                                                                            \
+    spdlog::error("LAGraph error {}: {} at \n {}:{}", (int)status, msg,        \
+                  __FILE__, __LINE__);                                         \
+  }
+
+#define GRB_CATCH(status)                                                      \
+  {                                                                            \
+    spdlog::error("GraphBLAS error {} at \n {}:{}", (int)status, __FILE__,     \
+                  __LINE__);                                                   \
+  }
 #else
-#define CHECK(info) (info)
+#define LAGRAPH_CATCH(info) (info)
+#define GRB_CATCH(info) (info)
 #endif
 
 namespace pcl {
@@ -82,6 +85,10 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
   using PointCloudL = pcl::PointCloud<PointLT>;
   using PointCloudLPtr = typename PointCloudL::Ptr;
   using PointCloudLConstPtr = typename PointCloudL::ConstPtr;
+
+  using VisualizationCallback = std::function<void(
+      typename pcl::PointCloud<pcl::PointXYZ>::Ptr,
+      std::shared_ptr<std::vector<pcl::Vertices>>, CorrespondencesPtr)>;
 
     protected:
   using PCLBase<PointT>::input_;
@@ -150,6 +157,10 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
 
   inline size_t getNumClusters() const { return numClusters_; }
 
+  inline void registerVisualizationCallback(VisualizationCallback callback) {
+    visualization_callback_ = callback;
+  }
+
   /** \brief Segmentation of all planes in a point cloud given by
    * setInputCloud(), setIndices()
    * \param[out] labels a point cloud for the connected component labels of each
@@ -165,81 +176,40 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
 
     createScene();
 
-    spdlog::trace("Running ray tracing");
-    spdlog::stopwatch sw;
     std::vector<std::tuple<IT, IT, NT>> triplets;
 
-    // INFO: Ray tracing
-    {
-      const size_t N = indices_->size();
-      auto logger = spdmon::LoggerProgress("Ray tracing", N * (N - 1) / 2);
+    rayTracing(triplets);
 
-#pragma omp parallel for reduction(mergeTriplets : triplets)                   \
-    schedule(dynamic, 4)
-      for (size_t i = 0; i < N; i++) {
-        for (size_t j = i + 1; j < N; j++) {
-          const size_t idx_s = indices_->at(i);
-          const size_t idx_t = indices_->at(j);
-
-          Eigen::Vector3f point_s = input_->points[idx_s].getVector3fMap();
-          Eigen::Vector3f point_t = input_->points[idx_t].getVector3fMap();
-
-          Eigen::Vector3f normal_s =
-              normals_->points[idx_s].getNormalVector3fMap();
-          Eigen::Vector3f normal_t =
-              normals_->points[idx_t].getNormalVector3fMap();
-
-          point_s = point_s + (offset_ * normal_s);
-          point_t = point_t + (offset_ * normal_t);
-
-          RTCRay ray;
-          memset(&ray, 0, sizeof(ray));
-          ray.org_x = point_s.x();
-          ray.org_y = point_s.y();
-          ray.org_z = point_s.z();
-
-          Eigen::Vector3f dir = point_t - point_s;
-
-          ray.tnear = epsilon_;
-          const auto dir_norm = dir.norm();
-          ray.tfar = dir_norm - epsilon_;
-
-          dir.normalize();
-
-          ray.dir_x = dir.x();
-          ray.dir_y = dir.y();
-          ray.dir_z = dir.z();
-
-          // FIXME: This should not be necessary as memset should already have
-          // set everything to zero
-          ray.time = 0.0f;       // motion blur time, not used here
-          ray.mask = 0xFFFFFFFF; // mask for ray types, not used here
-          ray.id = 0;            // ray ID, not used here
-          ray.flags = 0;         // ray flags, not used here
-
-          ++logger;
-          rtcOccluded1(scene_, &ray);
-
-          // When no intersection is found, the ray data is not updated. Incase
-          // a hit was found, the tfar component of the ray is set to -inf.
-          if (ray.tfar != -INFINITY) // A.k.a An intersection was found
-            continue;
-
-          triplets.emplace_back(i, j, 1.0);
-        }
-      }
-    }
-
-    spdlog::debug("Ray tracing completed in {} seconds", sw);
-
-    if (triplets.empty()) {
+    if (triplets.empty())
       spdlog::warn("No triplets found during ray tracing. Exiting.");
+
+    if (visualization_callback_) {
+      spdlog::trace("Creating visualization context");
+      using CloudV = pcl::PointCloud<pcl::PointXYZ>;
+      using CloudVPtr = CloudV::Ptr;
+      using Vertices = std::vector<pcl::Vertices>;
+      using VecticesPtr = std::shared_ptr<Vertices>;
+
+      CloudVPtr points(new CloudV);
+      VecticesPtr vertices(new Vertices);
+      create_visualization_context(points, vertices);
+      CorrespondencesPtr correspondences(new Correspondences);
+
+      correspondences->resize(triplets.size());
+      for (size_t i = 0; i < triplets.size(); ++i) {
+        const auto &[s, t, v] = triplets[i];
+        (*correspondences)[i].index_query = static_cast<int>(s * (N_ + 1));
+        (*correspondences)[i].index_match = static_cast<int>(t * (N_ + 1));
+      }
+
+      visualization_callback_(points, vertices, correspondences);
     }
 
     GrB_Matrix M = NULL;
-    GrB_Matrix_new(&M, GrB_BOOL, indices_->size(), indices_->size());
+    LAGRAPH_TRY(
+        GrB_Matrix_new(&M, GrB_FP32, indices_->size(), indices_->size()));
     for (const auto &[i, j, v] : triplets) {
-      GrB_Matrix_setElement_BOOL(M, true, i, j);
+      LAGRAPH_TRY(GrB_Matrix_setElement_FP32(M, 1.0, i, j));
     }
     triplets.clear();
 
@@ -249,21 +219,63 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
       spdlog::error("LAGraph_MMWrite failed! {}", std::string(msg));
     fclose(fout);
 
-    // INFO: Symmetrize the matrix
-    GrB_Matrix_eWiseAdd_BinaryOp(M, NULL, NULL, GrB_PLUS_FP64, M, M,
-                                 GrB_DESC_T1);
-
-    // GrB_Matrix_free(&M);
+    // LAGRAPH_TRY(GrB_Matrix_free(&M));
     // FILE *f = fopen("/home/mephisto/mcl.mtx", "r");
-    // LAGraph_MMRead(&M, f, msg);
-    // show_matrix(M, "Stochastic Matrix - Before");
+    // LAGRAPH_TRY(LAGraph_MMRead(&M, f, msg));
+
+    GRB_TRY(GrB_Matrix_set_INT32(M, 32, GxB_ROWINDEX_INTEGER_HINT));
+    GRB_TRY(GrB_Matrix_set_INT32(M, 32, GxB_COLINDEX_INTEGER_HINT));
+    GRB_TRY(GrB_Matrix_set_INT32(M, 32, GxB_OFFSET_INTEGER_HINT));
+
+    bool make_symmetric = true;
+    LAGraph_Kind kind = LAGraph_ADJACENCY_DIRECTED;
+
+    if (make_symmetric == true) {
+      // INFO: Symmetrize the matrix
+      LAGRAPH_TRY(GrB_Matrix_eWiseAdd_BinaryOp(M, NULL, NULL, GrB_PLUS_FP32, M,
+                                               M, GrB_DESC_T1));
+      kind = LAGraph_ADJACENCY_UNDIRECTED;
+    }
+
+    show_matrix(M, "Stochastic Matrix - Before");
 
     spdlog::trace("Running Markov Clustering");
-    sw.reset();
-    LAGraph_New(&G, &M, LAGraph_ADJACENCY_UNDIRECTED, msg);
-    G->is_symmetric_structure = LAGraph_TRUE;
+    spdlog::stopwatch sw;
+    LAGRAPH_TRY(LAGraph_New(&G, &M, kind, msg));
 
-    LAGraph_Graph_Print(G, LAGraph_SHORT_VERBOSE, stdout, msg);
+    // compute G->AT and determine if A has a symmetric structure
+    LAGRAPH_TRY(LAGraph_Cached_IsSymmetricStructure(G, msg));
+    if ((G->is_symmetric_structure == LAGraph_TRUE)) {
+      // if G->A has a symmetric structure, declare the graph undirected
+      // and free G->AT since it isn't needed.
+      G->kind = LAGraph_ADJACENCY_UNDIRECTED;
+      GRB_TRY(GrB_Matrix_free(&(G->AT)));
+    } else if (true) {
+      // make sure G->A is symmetric
+      bool sym;
+      LAGRAPH_TRY(LAGraph_Matrix_IsEqual(&sym, G->A, G->AT, msg));
+      if (!sym) {
+
+        GRB_TRY(GrB_Matrix_eWiseAdd_BinaryOp(G->A, NULL, NULL, GrB_PLUS_FP32,
+                                             G->A, G->AT, NULL));
+      }
+      // G->AT is not required
+      GRB_TRY(GrB_Matrix_free(&(G->AT)));
+      G->kind = LAGraph_ADJACENCY_UNDIRECTED;
+      G->is_symmetric_structure = LAGraph_TRUE;
+    }
+
+    // G->is_symmetric_structure = LAGraph_TRUE;
+    // G->kind = LAGraph_ADJACENCY_UNDIRECTED;
+
+    // FIXME: Visual debug the stochastic matrix
+    // LAGRAPH_TRY(LAGraph_Graph_Print(G, LAGraph_SHORT_VERBOSE, stdout, msg));
+
+    spdlog::debug("LAGraph is symmetric: {}",
+                  G->is_symmetric_structure == LAGraph_TRUE ? "true" : "false");
+    spdlog::debug("LAGraph kind: {}", G->kind == LAGraph_ADJACENCY_UNDIRECTED
+                                          ? "undirected"
+                                          : "directed");
 
     if (LAGr_MarkovClustering(&c, expansion_, inflation_, pruning_threshold_,
                               convergence_threshold_, max_iter_, G,
@@ -271,62 +283,71 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
       spdlog::error("LAGr_MarkovClustering failed! {}", std::string(msg));
     spdlog::info("Markov Clustering completed in {:.3f} seconds", sw);
 
-    // FIXME: Visual debug the stochastic matrix
-    show_matrix(G->A, "Stochastic Matrix");
-
-    LAGraph_Vector_Print(c, LAGraph_SHORT_VERBOSE, stdout, msg);
-
-    double cov, perf, mod;
-    LAGr_PartitionQuality(&cov, &perf, c, G, msg);
-    spdlog::info("Partition quality: coverage: {:.6f}, performance: {:.6f}, "
-                 "modularity: {:.6f}",
-                 cov, perf, mod);
-
-    LAGr_Modularity(&mod, (double)1, c, G, msg);
-    spdlog::info("Modularity: {:.6f}", mod);
-
-    GrB_Index nclusters;
-    GrB_Vector_nvals(&nclusters, c);
-    spdlog::info("Number of clusters (from nvals): {}", nclusters);
-
-    GrB_Vector vpc, vpc_sorted = NULL;
-    GrB_Matrix C = NULL;
-    GrB_Scalar TRUE_BOOL = NULL;
-
-    GrB_Index *cI, *cX = NULL;
-
-    GrB_Matrix_new(&C, GrB_BOOL, indices_->size(), indices_->size());
-    GrB_Vector_new(&vpc, GrB_INT64, indices_->size());
-    GrB_Vector_new(&vpc_sorted, GrB_INT64, indices_->size());
-
-    LAGraph_Malloc((void **)&cI, nclusters, sizeof(GrB_Index), msg);
-    LAGraph_Malloc((void **)&cX, nclusters, sizeof(GrB_Index), msg);
-    GrB_Vector_extractTuples_INT64(cI, (int64_t *)cX, &nclusters, c);
-    GxB_Matrix_build_Scalar(C, cX, cI, TRUE_BOOL, nclusters);
-
-    GrB_Matrix_reduce_Monoid(vpc, NULL, NULL, GrB_PLUS_MONOID_INT64, C, NULL);
-    GxB_Vector_sort(vpc_sorted, NULL, GrB_GT_FP64, vpc, NULL);
-
-    LAGraph_Vector_Print(vpc_sorted, LAGraph_SHORT_VERBOSE, stdout, msg);
-
-    // // INFO: Extract labels from converged matrix
-    // GrB_Index nvals = 0;
-    // GrB_Vector_nvals(&nvals, c);
-    // assert(nvals == indices_->size());
-    // labels.resize(input_->size());
-    // for (GrB_Index i = 0; i < nvals; ++i) {
-    //   int label = -1;
-    //   GrB_Vector_extractElement_INT32(&label, c, i);
-    //   labels.points[indices_->at(i)].label = label;
-    // }
-
-    // // FIXME: Set numClusters_
-    // int32_t max_label = 0;
-    // GrB_Vector_reduce_INT32(&max_label, NULL, GrB_MAX_MONOID_INT32, c, NULL);
-    // numClusters_ = static_cast<unsigned int>(max_label) + 1;
-    // spdlog::debug("Number of clusters found: {}", numClusters_);
+    extractClusters(labels);
 
     deinitCompute();
+  }
+
+  void rayTracing(std::vector<std::tuple<IT, IT, NT>> &triplets) {
+
+    spdlog::trace("Running ray tracing");
+    spdlog::stopwatch sw;
+
+    const size_t N = indices_->size();
+    auto logger = spdmon::LoggerProgress("Ray tracing", N * (N - 1) / 2);
+
+#pragma omp parallel for reduction(mergeTriplets : triplets)                   \
+    schedule(dynamic, 4)
+    for (size_t i = 0; i < N; i++) {
+      for (size_t j = i + 1; j < N; j++) {
+        const size_t idx_s = indices_->at(i);
+        const size_t idx_t = indices_->at(j);
+
+        Eigen::Vector3f point_s = input_->points[idx_s].getVector3fMap();
+        Eigen::Vector3f point_t = input_->points[idx_t].getVector3fMap();
+
+        Eigen::Vector3f normal_s =
+            normals_->points[idx_s].getNormalVector3fMap();
+        Eigen::Vector3f normal_t =
+            normals_->points[idx_t].getNormalVector3fMap();
+
+        point_s = point_s + (offset_ * normal_s);
+        point_t = point_t + (offset_ * normal_t);
+
+        RTCRay ray;
+        ray.org_x = point_s.x();
+        ray.org_y = point_s.y();
+        ray.org_z = point_s.z();
+
+        Eigen::Vector3f dir = point_t - point_s;
+
+        ray.tnear = epsilon_;
+        const auto dir_norm = dir.norm();
+        ray.tfar = dir_norm - epsilon_;
+
+        dir.normalize();
+
+        ray.dir_x = dir.x();
+        ray.dir_y = dir.y();
+        ray.dir_z = dir.z();
+
+        ray.time = 0.0f;       // motion blur time, not used here
+        ray.mask = 0xFFFFFFFF; // mask for ray types, not used here
+        ray.id = 0;            // ray ID, not used here
+        ray.flags = 0;         // ray flags, not used here
+
+        ++logger;
+        rtcOccluded1(scene_, &ray);
+
+        // When no intersection is found, the ray data is not updated. Incase
+        // a hit was found, the tfar component of the ray is set to -inf.
+        if (ray.tfar == -INFINITY) // A.k.a An intersection was found
+          continue;
+
+        triplets.emplace_back(i, j, 1.0);
+      }
+    }
+    spdlog::debug("Ray tracing completed in {} seconds", sw);
   }
 
     protected:
@@ -343,6 +364,7 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
     device_ = rtcNewDevice("verbose=0"); // 0-3
     scene_ = rtcNewScene(device_);
     rtcSetSceneFlags(scene_, RTC_SCENE_FLAG_ROBUST);
+    rtcSetSceneBuildQuality(scene_, RTC_BUILD_QUALITY_HIGH);
     assert(device_ != nullptr && "Error creating Embree device");
     assert(scene_ != nullptr && "Error creating Embree scene");
     rtcSetDeviceErrorFunction(device_, rtcCheckError, nullptr);
@@ -397,10 +419,13 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
     LAGraph_Init(msg);
     // GrB_Vector_new(&c, GrB_INT32, indices_->size());
 
-    spdlog::debug("Initilized with inflation: {}, expansion: {}, pruning: "
-                  "{:.6f}, convergence: {:.6f}, max_iter: {}, radius: {:.3f}",
-                  inflation_, expansion_, pruning_threshold_,
-                  convergence_threshold_, max_iter_, radius_);
+    spdlog::debug("Initilized with with:");
+    spdlog::debug("inflation: {:.3}", inflation_);
+    spdlog::debug("expansion: {}", expansion_);
+    spdlog::debug("pruning: {:.6f}", pruning_threshold_);
+    spdlog::debug("convergence: {:.9f}", convergence_threshold_);
+    spdlog::debug("max_iter: {}", max_iter_);
+    spdlog::debug("radius: {:.3f}", radius_);
 
     return (true);
   }
@@ -425,15 +450,14 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
   void createScene() {
     spdlog::trace("Creating scene geometry for ray tracing");
 
-    RTCGeometry geom =
-        rtcNewGeometry(device_, RTC_GEOMETRY_TYPE_ORIENTED_DISC_POINT);
+    geometry_ = rtcNewGeometry(device_, RTC_GEOMETRY_TYPE_ORIENTED_DISC_POINT);
 
     Vertex *vb = (Vertex *)rtcSetNewGeometryBuffer(
-        geom, RTC_BUFFER_TYPE_VERTEX, 0, RTC_FORMAT_FLOAT4, sizeof(Vertex),
+        geometry_, RTC_BUFFER_TYPE_VERTEX, 0, RTC_FORMAT_FLOAT4, sizeof(Vertex),
         indices_->size());
 
     Normal *nb = (Normal *)rtcSetNewGeometryBuffer(
-        geom, RTC_BUFFER_TYPE_NORMAL, 0, RTC_FORMAT_FLOAT3, sizeof(Normal),
+        geometry_, RTC_BUFFER_TYPE_NORMAL, 0, RTC_FORMAT_FLOAT3, sizeof(Normal),
         indices_->size());
 
     for (size_t i = 0; i < indices_->size(); ++i) {
@@ -444,16 +468,18 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
       vb[i].x = static_cast<float>(p.x);
       vb[i].y = static_cast<float>(p.y);
       vb[i].z = static_cast<float>(p.z);
-      vb[i].r = static_cast<float>(radius_) + radius_ * 0.05f;
+      vb[i].r = static_cast<float>(radius_) * 1.05f;
 
       nb[i].x = static_cast<float>(n.normal_x);
       nb[i].y = static_cast<float>(n.normal_y);
       nb[i].z = static_cast<float>(n.normal_z);
     }
 
-    rtcCommitGeometry(geom);
-    rtcAttachGeometry(scene_, geom);
-    rtcReleaseGeometry(geom);
+    rtcSetGeometryMask(geometry_, 0xFFFFFFFF);
+
+    rtcCommitGeometry(geometry_);
+    rtcAttachGeometry(scene_, geometry_);
+    rtcReleaseGeometry(geometry_);
 
     spdlog::trace("Committing scene");
     rtcCommitScene(scene_);
@@ -493,8 +519,114 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
     }
   }
 
-  static void show_matrix(GrB_Matrix m, const std::string &name = "Matrix",
-                          unsigned int w = 1000, unsigned int h = 1000) {
+  void extractClusters(PointCloudL &labels) {
+    GrB_Index n;
+    LAGRAPH_TRY(GrB_Matrix_nrows(&n, G->A));
+
+    // FIXME: Visual debug the stochastic matrix
+    // LAGRAPH_TRY(LAGraph_Vector_Print(c, LAGraph_SHORT_VERBOSE, stdout, msg));
+
+    // INFO: Extract labels from converged matrix
+    assert(n == indices_->size());
+    labels.resize(input_->size());
+    for (GrB_Index i = 0; i < n; ++i) {
+      int label = -1;
+      LAGRAPH_TRY(GrB_Vector_extractElement_INT32(&label, c, i));
+      labels.points[indices_->at(i)].label = static_cast<unsigned int>(label);
+    }
+
+    double cov, perf, mod;
+    LAGRAPH_TRY(LAGr_PartitionQuality(&cov, &perf, c, G, msg));
+    LAGRAPH_TRY(LAGr_Modularity(&mod, (double)1, c, G, msg));
+    spdlog::info("Partition quality: coverage: {:.3f}, performance: {:.3f}, "
+                 "modularity: {:.3f}",
+                 cov, perf, mod);
+
+    GrB_Index nclusters;
+    LAGRAPH_TRY(GrB_Vector_nvals(&nclusters, c));
+
+    GrB_Vector vpc, vpc_sorted = NULL;
+    GrB_Matrix C = NULL;
+    GrB_Scalar TRUE_BOOL = NULL;
+    GrB_Index *cI, *cX = NULL;
+
+    LAGRAPH_TRY(GrB_Matrix_new(&C, GrB_BOOL, n, n));
+    LAGRAPH_TRY(GrB_Vector_new(&vpc, GrB_INT64, n));
+    LAGRAPH_TRY(GrB_Vector_new(&vpc_sorted, GrB_INT64, n));
+    LAGRAPH_TRY(GrB_Scalar_new(&TRUE_BOOL, GrB_BOOL));
+
+    LAGRAPH_TRY(
+        LAGraph_Malloc((void **)&cI, nclusters, sizeof(GrB_Index), msg));
+    LAGRAPH_TRY(
+        LAGraph_Malloc((void **)&cX, nclusters, sizeof(GrB_Index), msg));
+    LAGRAPH_TRY(GrB_Scalar_setElement_BOOL(TRUE_BOOL, (bool)1));
+
+    LAGRAPH_TRY(
+        GrB_Vector_extractTuples_INT64(cI, (int64_t *)cX, &nclusters, c));
+    LAGRAPH_TRY(GxB_Matrix_build_Scalar(C, cX, cI, TRUE_BOOL, nclusters));
+
+    LAGRAPH_TRY(GrB_Matrix_reduce_Monoid(vpc, NULL, NULL, GrB_PLUS_MONOID_INT64,
+                                         C, NULL));
+    LAGRAPH_TRY(GxB_Vector_sort(vpc_sorted, NULL, GrB_GT_FP32, vpc, NULL));
+
+    // FIXME: Visual debug
+    // LAGRAPH_TRY(
+    //     LAGraph_Vector_Print(vpc_sorted, LAGraph_SHORT_VERBOSE, stdout,
+    //     msg));
+
+    LAGRAPH_TRY(GrB_Vector_nvals(&numClusters_, vpc_sorted));
+  }
+
+  void create_visualization_context(
+      pcl::PointCloud<pcl::PointXYZ>::Ptr points,
+      std::shared_ptr<std::vector<pcl::Vertices>> vertices) {
+
+    Vertex *vb = (Vertex *)rtcGetGeometryBufferData(geometry_,
+                                                    RTC_BUFFER_TYPE_VERTEX, 0);
+    Normal *nb = (Normal *)rtcGetGeometryBufferData(geometry_,
+                                                    RTC_BUFFER_TYPE_NORMAL, 0);
+    assert(vb != nullptr && nb != nullptr);
+
+    points->resize(indices_->size() * (N_ + 1)); // +1 for center point
+    vertices->resize(indices_->size());
+
+    for (size_t i = 0; i < indices_->size(); ++i) {
+      pcl::Vertices *circle = &(*vertices)[i];
+      circle->vertices.resize(N_);
+
+      Eigen::Vector3d center(vb[i].x, vb[i].y, vb[i].z);
+      Eigen::Vector3d dir(nb[i].x, nb[i].y, nb[i].z);
+
+      points->points[i * (N_ + 1)] =
+          pcl::PointXYZ(center.x(), center.y(), center.z());
+
+      dir = dir.normalized();
+
+      // pick an arbitrary vector not parallel to n
+      Eigen::Vector3d arbitrary(1.0, 0.0, 0.0);
+      if (std::fabs(dir.dot(arbitrary)) > 0.9) { // too close to parallel
+        arbitrary = Eigen::Vector3d(0.0, 1.0, 0.0);
+      }
+
+      Eigen::Vector3d u, v;
+      u = dir.cross(arbitrary).normalized(); // first basis vector
+      v = dir.cross(u).normalized();         // second basis vector
+
+      for (unsigned int j = 0; j < N_; ++j) {
+
+        double theta = 2.0 * M_PI * j / N_;
+        Eigen::Vector3d local = radius_ * (cos(theta) * u + sin(theta) * v);
+        Eigen::Vector3d global = center + local;
+
+        const size_t idx = i * (N_ + 1) + (j + 1);
+        points->points[idx] = pcl::PointXYZ(global.x(), global.y(), global.z());
+        circle->vertices[j] = static_cast<uint32_t>(idx);
+      }
+    };
+  }
+
+  void show_matrix(GrB_Matrix m, const std::string &name = "Matrix",
+                   unsigned int w = 1000, unsigned int h = 1000) {
 
     if (m == NULL) {
       spdlog::warn("Matrix {} is NULL", name);
@@ -502,9 +634,9 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
     }
 
     GrB_Index nrows = 0, ncols = 0, nvals = 0;
-    CHECK(GrB_Matrix_nrows(&nrows, m));
-    CHECK(GrB_Matrix_ncols(&ncols, m));
-    CHECK(GrB_Matrix_nvals(&nvals, m));
+    LAGRAPH_TRY(GrB_Matrix_nrows(&nrows, m));
+    LAGRAPH_TRY(GrB_Matrix_ncols(&ncols, m));
+    LAGRAPH_TRY(GrB_Matrix_nvals(&nvals, m));
 
     unsigned int w_, h_;
     w_ = w;
@@ -519,14 +651,14 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
     cv::Mat mat(w, h, CV_32FC1, cv::Scalar(0));
     std::vector<GrB_Index> rows(nvals);
     std::vector<GrB_Index> cols(nvals);
-    std::vector<double> vals(nvals);
+    std::vector<NT> vals(nvals);
 
     rows.resize(nvals);
     cols.resize(nvals);
     vals.resize(nvals);
 
-    CHECK(GrB_Matrix_extractTuples_FP64(rows.data(), cols.data(), vals.data(),
-                                        &nvals, m));
+    LAGRAPH_TRY(GrB_Matrix_extractTuples_FP32(rows.data(), cols.data(),
+                                              vals.data(), &nvals, m));
 
     for (size_t i = 0; i < nvals; ++i) {
       int x = static_cast<int>(cols[i] * (w - 1) / nrows);
@@ -559,13 +691,14 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
   /** \brief A pointer to the input normals */
   PointCloudNConstPtr normals_{nullptr};
 
-  unsigned int numClusters_ = 0;
+  long unsigned int numClusters_ = 0;
 
   float offset_{0.10f};
   float radius_{0.05f};
 
   RTCDevice device_{};
   RTCScene scene_{};
+  RTCGeometry geometry_{};
 
   // TODO: Make these parameters settable
   int expansion_{2};
@@ -578,9 +711,13 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
   LAGraph_Graph G = NULL;
   GrB_Vector c = NULL;
 
-  constexpr static double epsilon_ = 0.00001;
+  VisualizationCallback visualization_callback_{nullptr};
+  static constexpr unsigned int N_ =
+      6; // Number of vertices to represent a disc
 
-  unsigned int old_mxcsr = _mm_getcsr(); // save current flags
+  constexpr static double epsilon_ = 1e-4;
+
+  unsigned int old_mxcsr = _mm_getcsr(); // save current flagsq
 
     public:
   PCL_MAKE_ALIGNED_OPERATOR_NEW

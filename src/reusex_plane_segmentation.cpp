@@ -1,4 +1,5 @@
 #include "core/fmt_formatter.hh"
+#include "core/io.hh"
 #include "core/planar_region_growing.hh"
 #include "core/spdmon.hh"
 
@@ -154,6 +155,15 @@ int main(int argc, char **argv) {
   spdlog::trace("Call the segmentation algorithm");
   seg.segment(labels);
   spdlog::info("Found {} clusters", seg.getCentroids().size());
+
+  std::vector<pcl::ModelCoefficients> model_coefficients =
+      seg.getModelCoefficients();
+  auto centroids = seg.getCentroids();
+  auto inlier_indices = seg.getInlierIndices();
+
+  if (!ReUseX::save(config.path_out.string(), model_coefficients, centroids,
+                    inlier_indices))
+    spdlog::error("Could not save the planes to disk");
 
   spdlog::trace("Save the point cloud with planes");
   pcl::io::savePCDFileBinary(config.path_out, *labels);

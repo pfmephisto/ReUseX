@@ -1,4 +1,4 @@
-#include "ReUseX/io.hh"
+#include "ReUseX/io.hpp"
 
 #include <fstream>
 

@@ -1,6 +1,8 @@
-#include "ReUseX/fmt_formatter.hh"
-#include "pcl/polygonal_surface_reconstruction.hh"
-#include "spdmon/spdmon.hh"
+#include "rux/surface_reconstruction.hpp"
+
+#include "ReUseX/fmt_formatter.hpp"
+#include "pcl/polygonal_surface_reconstruction.hpp"
+#include "spdmon/spdmon.hpp"
 
 #include <CLI/CLI.hpp>
 #include <fmt/format.h>
@@ -36,83 +38,53 @@ using Mesh = pcl::PolygonMesh;
 using MeshPtr = typename Mesh::Ptr;
 using MeshConstPtr = typename Mesh::ConstPtr;
 
-struct Params {
-  fs::path path_in;
-  fs::path path_in_labels;
-  fs::path path_out = fs::current_path() / "mesh.ply";
+void setup_subcommand_surface_reconstruction(CLI::App &app) {
 
-  double fitting = 0.20;
-  double coverage = 0.10;
-  double complexity = 0.70;
+  auto opt = std::make_shared<SubcommandSurfaceReconstructionOptions>();
+  auto *sub =
+      app.add_subcommand("surface_reconctruction",
+                         "Run the polygonal surface reconstruction algorithm");
 
-  int verbosity = 0;
-};
-
-std::string shell;
-CLI::App *comp = nullptr;
-
-std::unique_ptr<CLI::App> initApp(Params &params) {
-
-  auto app = std::make_unique<CLI::App>(
-      "This tool exports a rtab-map database to a pcl point cloud for "
-      "use in reusex.");
-
-  app->get_formatter()->column_width(40);
-
-  app->add_option("input", params.path_in,
-                  "Path to the input point cloud file.")
+  sub->add_option("input", opt->path_in, "Path to the input point cloud file.")
       ->required()
       ->check(CLI::ExistingFile);
 
-  app->add_option("input-labels", params.path_in_labels,
+  sub->add_option("input-labels", opt->path_in_labels,
                   "Path to the input labels file")
       ->required()
       ->check(CLI::ExistingFile);
 
-  app->add_option("output", params.path_out, "Path to the output mesh file")
-      ->default_val(params.path_out);
+  sub->add_option("output", opt->path_out, "Path to the output mesh file")
+      ->default_val(opt->path_out);
 
-  app->add_option("-f, --fitting", params.fitting, "")
-      ->default_val(params.fitting)
+  sub->add_option("-f, --fitting", opt->fitting, "")
+      ->default_val(opt->fitting)
       ->check(CLI::Range(0.0, 1.0));
 
-  app->add_option("-c, --coverage", params.coverage, "")
-      ->default_val(params.coverage)
+  sub->add_option("-c, --coverage", opt->coverage, "")
+      ->default_val(opt->coverage)
       ->check(CLI::Range(0.0, 1.0));
 
-  app->add_option("-x, --complexity", params.complexity, "")
-      ->default_val(params.complexity)
+  sub->add_option("-x, --complexity", opt->complexity, "")
+      ->default_val(opt->complexity)
       ->check(CLI::Range(0.0, 1.0));
 
-  app->add_flag("-v,--verbose", params.verbosity,
-                "Increase verbosity, use -vv & -vvv "
-                "for more verbosity")
-      ->multi_option_policy(CLI::MultiOptionPolicy::Sum)
-      ->check(CLI::Range(0, 3));
-
-  return app;
+  sub->callback([opt]() {
+    spdlog::trace("calling surface_reconctruction subcommand");
+    return run_subcommand_surface_reconstruction(*opt);
+  });
 }
 
-int main(int argc, char **argv) {
-
-  Params config;
-  auto app = initApp(config);
-  argv = app->ensure_utf8(argv);
-  CLI11_PARSE(*app, argc, argv);
-
-  spdlog::set_level(
-      static_cast<spdlog::level::level_enum>(3 - config.verbosity));
-  spdlog::trace("reusex_polygonal_surface_reconstruction started");
-  spdlog::info("Verbosity level: {}",
-               spdlog::level::to_string_view(spdlog::get_level()));
+int run_subcommand_surface_reconstruction(
+    SubcommandSurfaceReconstructionOptions const &opt) {
 
   spdlog::trace("Load the point cloud from disk");
   CloudPtr cloud(new Cloud);
-  pcl::io::load<PointT>(config.path_in.string(), *cloud);
+  pcl::io::load<PointT>(opt.path_in.string(), *cloud);
 
   spdlog::trace("Load the labels from disk");
   CloudLPtr labels(new CloudL);
-  pcl::io::load<LabelT>(config.path_in_labels.string(), *labels);
+  pcl::io::load<LabelT>(opt.path_in_labels.string(), *labels);
 
   if (cloud->empty() || labels->empty()) {
     spdlog::error("Input point cloud or labels are empty.");
@@ -130,9 +102,9 @@ int main(int argc, char **argv) {
   psr.setInputNormals(cloud);
   psr.setInputLabels(labels);
 
-  psr.setFittingParam(config.fitting);
-  psr.setCoverageParam(config.coverage);
-  psr.setComplexityParam(config.complexity);
+  psr.setFittingParam(opt.fitting);
+  psr.setCoverageParam(opt.coverage);
+  psr.setComplexityParam(opt.complexity);
 
   spdlog::trace("Call the segmentation algorithm");
   MeshPtr mesh(new Mesh);
@@ -145,7 +117,7 @@ int main(int argc, char **argv) {
   // spdlog::info("Found {} clusters", seg.getCentroids().size());
 
   spdlog::trace("Save the mesh to disk");
-  pcl::io::save(config.path_out, *mesh);
+  pcl::io::save(opt.path_out, *mesh);
 
   return 0;
 }

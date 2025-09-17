@@ -35,94 +35,7 @@
           };
 
           # Set overlays and custom fixes for broken packages
-          overlays = [
-            (final: prev: {embree = prev.embree.override {tbb = prev.tbb_2022;};})
-            (
-              final: prev: (prev.lib.packagesFromDirectoryRecursive {
-                callPackage = prev.lib.callPackageWith final;
-                directory = ./pkgs;
-              })
-            )
-            (final: prev: {
-              suitesparse-graphblas =
-                (prev.suitesparse-graphblas.override {
-                  #stdenv = prev.cudaPackages.stdenv-linux;
-                }).overrideAttrs
-                (old: {
-                  cmakeFlags =
-                    (old.cmakeFlags or [])
-                    ++ [
-                      (lib.cmakeBool "GRAPHBLAS_USE_CUDA" true)
-                    ];
-                  buildInputs = (old.buildInputs or []) ++ [prev.cudaPackages.cudatoolkit];
-                });
-            })
-            (final: prev: {
-              papilo = prev.papilo.overrideAttrs (old: {
-                version = "2.4.0";
-                src = pkgs.fetchFromGitHub {
-                  owner = "scipopt";
-                  repo = "papilo";
-                  rev = "v2.4.0";
-                  sha256 = "sha256-WMw9v57nuP6MHj9Ft4l5FxdIF5VUWCRm/909tbz7VD4=";
-                };
-                propagatedBuildInputs = with pkgs; [
-                  tbb_2022
-                ];
-              });
-            })
-            (final: prev: {
-              opencv4 = prev.opencv4.override {
-                enableGtk2 = true;
-                enableGtk3 = true;
-                enableVtk = true;
-                enableTbb = true;
-                tbb = prev.tbb_2022;
-                enableCudnn = true;
-                enablePython = true;
-                enableUnfree = true;
-              };
-            })
-            (findal: prev: {
-              rtabmap = prev.rtabmap.overrideAttrs (old: {
-                buildInputs =
-                  (old.buildInputs or [])
-                  ++ (with prev.pkgs; [
-                    tbb_2022
-                    gtsam
-                  ]);
-
-                cmakeFlags =
-                  (prev.rtabmap.cmakeFlags or [])
-                  ++ [
-                    "-DWITH_TORCH=ON"
-                    "-DWITH_GTSAM=ON"
-                    #"-DWITH_PYTHON=ON"
-                    #"-DWITH_PYTHON_THREADING=ON"
-                    "-DWITH_LIBLAS=ON"
-                    "-DWITH_CERES=ON"
-                    "-DWITH_CVSBA=ON"
-                    "-DWITH_CCCORELIB=ON"
-                    "-DWITH_LOAM=ON"
-                    "-DWITH_FLOAM=ON"
-                    "-DWITH_DEPTHAI=ON"
-                    "-DWITH_XVSDK=ON"
-                    "-DWITH_GRIDMAP=ON"
-                    "-DWITH_CPUTSDF=ON"
-                    "-DWITH_OPENCHISEL=ON"
-                    "-DWITH_ALICE_VISION=ON"
-                    "-DWITH_FOVIS=ON"
-                    "-DWITH_VISO2=ON"
-                    "-DWITH_DVO=ON"
-                    "-DWITH_ORB_SLAM=ON"
-                    "-DWITH_OKVIS=ON"
-                    "-DWITH_MSCKF_VIO=ON"
-                    "-DWITH_VINS=ON"
-                    "-DWITH_OPENVINS=ON"
-                  ];
-              });
-            })
-          ];
+          overlays = import ./overlays {inherit lib;};
         };
 
         # Customize the python environment by adding required packages
@@ -174,9 +87,7 @@
                   opennurbs
                   scip-solver
 
-                  g2o
-
-                  #pcl
+                  # pcl
                   boost
                   embree
 
@@ -184,12 +95,12 @@
                   cgal
 
                   rtabmap
-                  libsForQt5.qtbase
+                  # libsForQt6.qtbase
                   librealsense
                   octomap
-                  qt5.full
-                  qtcreator
-                  qt5.qtdeclarative
+                  # qt6.full
+                  # qtcreator
+                  # qt6.qtdeclarative
 
                   fmt
                   spdlog
@@ -220,9 +131,8 @@
               propagatedBuildInputs =
                 (attrs.propagatedBuildInputs or [])
                 ++ (with pkgs; [
-                  vtkWithQt5
-                  (pcl.override {vtk = pkgs.vtkWithQt5;})
-                  hdf5
+                  # vtkWithQt5
+                  #(pcl.override {vtk = pkgs.vtkWithQt5;})
                 ]);
 
               # Pass additional CMake flags
@@ -303,7 +213,7 @@
                   gdb
 
                   valgrind
-                  libsForQt5.kcachegrind
+                  kdePackages.kcachegrind
                 ]
                 ++ [
                   libnotify # Send noctification when build finishes
@@ -326,7 +236,6 @@
                           torch
                           torchvision
                           safetensors
-                          numba
                           opencv-python
                           matplotlib
                           tqdm

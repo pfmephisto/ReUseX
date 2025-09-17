@@ -1,7 +1,8 @@
-#include "ReUseX/fmt_formatter.hh"
-#include "ReUseX/io.hh"
-#include "pcl/markov_clustering.hh"
-#include "spdmon/spdmon.hh"
+#include "rux/seg-rooms.hpp"
+#include "ReUseX/fmt_formatter.hpp"
+#include "ReUseX/io.hpp"
+#include "pcl/markov_clustering.hpp"
+#include "spdmon/spdmon.hpp"
 
 // GraphBLAS imports complex.h which defines a macro named 'I' that conflicts
 // with the type in CLI11
@@ -48,108 +49,75 @@ using CloudL = pcl::PointCloud<LabelT>;
 using CloudLPtr = typename CloudL::Ptr;
 using CloudLConstPtr = typename CloudL::ConstPtr;
 
-struct Params {
-  fs::path path_in;
-  fs::path path_out = fs::current_path() / "clusters.pcd";
+void setup_subcommand_seg_rooms(CLI::App &app) {
 
-  int expansion = 2;
-  double inflation = 2;
-  double pruning_threshold = 0.0001;
-  double convergence_threshold = 1e-8;
-  int max_iter = 100;
-
-  float grid_size = 0.2f;
-
-  int verbosity = 0;
-  bool visualize = false;
-};
-
-std::string shell;
-CLI::App *comp = nullptr;
-
-std::unique_ptr<CLI::App> initApp(Params &params) {
-
-  auto app = std::make_unique<CLI::App>(
+  auto opt = std::make_shared<SubcommandSegRoomsOptions>();
+  auto *sub = app.add_subcommand(
+      "seg-rooms",
       "This tool applies the Markov clustering algorithm to a point cloud "
       "based in the visual relation between the points.");
 
-  app->get_formatter()->column_width(40);
-
-  app->add_option("input", params.path_in,
-                  "Path to the input point cloud file.")
+  sub->add_option("input", opt->path_in, "Path to the input point cloud file.")
       ->required()
       ->check(CLI::ExistingFile);
 
-  app->add_option("output", params.path_out,
+  sub->add_option("output", opt->path_out,
                   "Path to the output point cloud file")
-      ->default_val(params.path_out);
+      ->default_val(opt->path_out);
 
-  app->add_option("-i, --inflation", params.inflation,
+  sub->add_option("-i, --inflation", opt->inflation,
                   "The inflation factor for the MCL algorithm.")
-      ->default_val(params.inflation)
+      ->default_val(opt->inflation)
       ->check(CLI::Range(0.0, 10.0));
 
-  app->add_option("-e, --expansion", params.expansion,
+  sub->add_option("-e, --expansion", opt->expansion,
                   "The expansion factor for the MCL algorithm.")
-      ->default_val(params.expansion)
+      ->default_val(opt->expansion)
       ->check(CLI::Range(1, 10));
 
-  app->add_option("-p, --pruning-threshold", params.pruning_threshold,
+  sub->add_option("-p, --pruning-threshold", opt->pruning_threshold,
                   "The pruning threshold for the MCL algorithm.")
-      ->default_val(params.pruning_threshold)
+      ->default_val(opt->pruning_threshold)
       ->check(CLI::Range(0.0, 1.0));
 
-  app->add_option("-c, --convergence-threshold", params.convergence_threshold,
+  sub->add_option("-c, --convergence-threshold", opt->convergence_threshold,
                   "The convergence threshold for the MCL algorithm.")
-      ->default_val(params.convergence_threshold)
+      ->default_val(opt->convergence_threshold)
       ->check(CLI::Range(0.0, 1.0));
 
-  app->add_option("-m, --max-iter", params.max_iter,
+  sub->add_option("-m, --max-iter", opt->max_iter,
                   "The maximum number of iterations for the MCL algorithm.")
-      ->default_val(params.max_iter)
+      ->default_val(opt->max_iter)
       ->check(CLI::Range(1, 1000));
 
-  app->add_option("-g, --grid-size", params.grid_size,
+  sub->add_option("-g, --grid-size", opt->grid_size,
                   "The grid size for the MCL algorithm.")
-      ->default_val(params.grid_size)
+      ->default_val(opt->grid_size)
       ->check(CLI::Range(0.01, 10.0));
 
-  app->add_flag("-d, --visualize", params.visualize,
+  sub->add_flag("-d, --visualize", opt->visualize,
                 "Visualize the clustering process.")
-      ->default_val(params.visualize);
+      ->default_val(opt->visualize);
 
-  app->add_flag("-v,--verbose", params.verbosity,
-                "Increase verbosity, use -vv & -vvv "
-                "for more verbosity")
-      ->multi_option_policy(CLI::MultiOptionPolicy::Sum)
-      ->check(CLI::Range(0, 3));
-
-  return app;
+  sub->callback([opt]() {
+    spdlog::trace("calling seg-rooms subcommand");
+    return run_subcommand_seg_rooms(*opt);
+  });
 }
 
-int main(int argc, char **argv) {
-
-  Params config;
-  auto app = initApp(config);
-  argv = app->ensure_utf8(argv);
-  CLI11_PARSE(*app, argc, argv);
-
-  spdlog::set_level(
-      static_cast<spdlog::level::level_enum>(3 - config.verbosity));
-  spdlog::trace("reusex_markov_clustering started");
-  spdlog::info("Verbosity level: {}",
-               spdlog::level::to_string_view(spdlog::get_level()));
+int run_subcommand_seg_rooms(SubcommandSegRoomsOptions const &opt) {
 
   spdlog::trace("Load the point cloud from disk");
   CloudPtr cloud(new Cloud);
-  pcl::io::load<PointT>(config.path_in.string(), *cloud);
+  pcl::io::load<PointT>(opt.path_in.string(), *cloud);
 
   std::vector<pcl::ModelCoefficients> model_coefficients;
   std::vector<Eigen::Vector4f, Eigen::aligned_allocator<Eigen::Vector4f>>
       centroids;
   std::vector<IndicesPtr> inlier_indices;
 
-  fs::path planes_path = config.path_in.replace_extension(".planes");
+  fs::path planes_path = opt.path_in;
+  planes_path.replace_extension("planes");
   if (!ReUseX::read(planes_path, model_coefficients, centroids, inlier_indices))
     spdlog::warn("Loading planes form {} failed.", planes_path.string());
 
@@ -159,7 +127,7 @@ int main(int argc, char **argv) {
   IndicesPtr indices(new Indices);
   pcl::UniformSampling<PointT> us;
   us.setInputCloud(cloud);
-  us.setRadiusSearch(config.grid_size);
+  us.setRadiusSearch(opt.grid_size);
   for (const auto &idx : inlier_indices) {
     us.setIndices(idx);
     IndicesPtr local_indices(new Indices);
@@ -185,20 +153,20 @@ int main(int argc, char **argv) {
 
   spdlog::trace("Initialize the Markov Clustering algorithm");
   pcl::MarkovClustering<PointT, NormalT, LabelT> mcl;
-  mcl.setInflationFactor(config.inflation);
-  mcl.setExpansionFactor(config.expansion);
-  mcl.setPruningThreshold(config.pruning_threshold);
-  mcl.setConvergenceThreshold(config.convergence_threshold);
-  mcl.setMaxIterations(config.max_iter);
+  mcl.setInflationFactor(opt.inflation);
+  mcl.setExpansionFactor(opt.expansion);
+  mcl.setPruningThreshold(opt.pruning_threshold);
+  mcl.setConvergenceThreshold(opt.convergence_threshold);
+  mcl.setMaxIterations(opt.max_iter);
 
-  mcl.setGridSize(config.grid_size);
+  mcl.setGridSize(opt.grid_size);
   mcl.setInputCloud(cloud);
   mcl.setInputNormals(normals);
   mcl.setIndices(indices);
 
   // Set up PCL Visualizer
   pcl::visualization::PCLVisualizer::Ptr viewer;
-  if (config.visualize) {
+  if (opt.visualize) {
     spdlog::warn("Visualization is an experimental feature.");
     viewer = pcl::visualization::PCLVisualizer::Ptr(
         new pcl::visualization::PCLVisualizer("MCL Viewer"));
@@ -277,8 +245,8 @@ int main(int argc, char **argv) {
   spdlog::info("Number of clusters found: {}", mcl.getNumClusters());
 
   spdlog::trace("Save the point cloud with planes to dist at: {}",
-                config.path_out.string());
-  pcl::io::savePCDFileBinary(config.path_out, *labels);
+                opt.path_out.string());
+  pcl::io::savePCDFileBinary(opt.path_out, *labels);
 
   return 0;
 }

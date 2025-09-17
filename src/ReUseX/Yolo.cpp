@@ -1,4 +1,4 @@
-#include "ReUseX/Yolo.hh"
+#include "ReUseX/Yolo.hpp"
 #include <optional>
 #include <vector>
 
@@ -164,7 +164,7 @@ void GetMask2(const cv::Mat &maskProposals, const cv::Mat &maskProtos,
   int seg_width = maskProtos.size[3];
   float mask_threshold = maskParams.maskThreshold;
   cv::Vec4f params = maskParams.params;
-  cv::Size src_img_shape = maskParams.srcImgShape;
+  // cv::Size src_img_shape = maskParams.srcImgShape;
 
   cv::Rect temp_rect = output.box;
   // crop from mask_protos
@@ -337,7 +337,7 @@ Postprocess(const std::vector<cv::Mat> &blob, const cv::Vec4d &params,
   // cv::Rect holeImgRect(0, 0, srcImg.cols, srcImg.rows);
   cv::Rect holeImgRect(0, 0, srcImgSize.width, srcImgSize.height);
 
-  for (int i = 0; i < nms_result.size(); ++i) {
+  for (size_t i = 0; i < nms_result.size(); ++i) {
 
     int idx = nms_result[i];
     OutputParams result;
@@ -355,7 +355,7 @@ Postprocess(const std::vector<cv::Mat> &blob, const cv::Vec4d &params,
   mask_params.netWidth = netWidth;
   mask_params.maskThreshold = maskThreshold;
 
-  for (int i = 0; i < temp_mask_proposals.size(); ++i) {
+  for (size_t i = 0; i < temp_mask_proposals.size(); ++i) {
     GetMask2(cv::Mat(temp_mask_proposals[i]).t(), blob[1], output[i],
              mask_params);
   }

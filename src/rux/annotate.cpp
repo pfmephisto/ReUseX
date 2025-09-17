@@ -1,8 +1,9 @@
-#include "ReUseX/Yolo.hh"
-#include "ReUseX/fmt_formatter.hh"
-#include "spdmon/spdmon.hh"
+#include "rux/annotate.hpp"
 
-#include <CLI/CLI.hpp>
+#include "ReUseX/Yolo.hpp"
+#include "ReUseX/fmt_formatter.hpp"
+#include "spdmon/spdmon.hpp"
+
 #include <fmt/format.h>
 
 #include <spdlog/sinks/stdout_color_sinks.h>
@@ -28,111 +29,6 @@
 namespace fs = std::filesystem;
 using namespace rtabmap;
 
-struct Params {
-  fs::path database_path;
-  fs::path out_cloud_path = fs::current_path() / "cloud.pcd";
-  fs::path out_normals_path = fs::current_path() / "normals.pcd";
-  fs::path out_trajectory_path = fs::current_path() / "trajectory.txt";
-  fs::path net_path = fs::current_path() / "yolov8x-seg.onnx";
-
-  bool isCuda{false};
-  bool skipInference{false};
-  bool ascii{false};
-  float min_distance = 0.00f;
-  float max_distance = 4.00f;
-  size_t sampling_factor = 4;
-  float grid_size = 0.01f;
-
-  int verbosity = 0;
-
-  bool validate() {
-    // INFO: Check for valid values
-    if (verbosity < 0 || verbosity > 3)
-      spdlog::warn("Verbosity must be between 0 and 3.");
-    // 0 > trace, 1 > debug, 2 > info, 3 > warn, 4 > err, 5 > critical, 6 > of
-    verbosity = std::max(verbosity, 0);
-    verbosity = std::min(verbosity, 3);
-    verbosity = 3 - verbosity;
-
-    if (database_path.empty()) {
-      spdlog::error("Database path is empty.");
-      return false;
-    }
-
-    return true;
-  };
-};
-
-std::string shell;
-CLI::App *comp = nullptr;
-
-std::unique_ptr<CLI::App> initApp(Params &params) {
-
-  auto app = std::make_unique<CLI::App>(
-      "This tool exports a rtab-map database to a pcl point cloud for "
-      "use in reusex.");
-
-  app->get_formatter()->column_width(40);
-
-  app->add_option("database", params.database_path,
-                  "Path to the RTAB-Map database file.")
-      ->required()
-      ->check(CLI::ExistingFile);
-
-  app->add_option("cloud", params.out_cloud_path,
-                  "Path to the output point cloud file")
-      //->check(CLI::NonexistentPath)
-      ->default_val(params.out_cloud_path);
-
-  app->add_option("normals", params.out_normals_path,
-                  "Path to the output normals file")
-      //->check(CLI::NonexistentPath)
-      ->default_val(params.out_normals_path);
-
-  app->add_option("trajectory", params.out_trajectory_path,
-                  "Path to the output trajectory file")
-      //->check(CLI::NonexistentPath)
-      ->default_val(params.out_trajectory_path);
-
-  app->add_option("-n, --net", params.net_path, "Path to the YOLOv8 ONNX model")
-      ->check(CLI::ExistingFile)
-      ->default_val(params.net_path);
-
-  app->add_option("-g,--grid", params.grid_size,
-                  "Voxel grid size for downsampling the point cloud")
-      ->default_val(params.grid_size);
-
-  app->add_option("--min-distance", params.min_distance,
-                  "Minimum distance points need to be from the camera")
-      ->default_val(params.min_distance);
-
-  app->add_option("--max-distance", params.max_distance,
-                  "Maximum distance points can be from the camera")
-      ->default_val(params.max_distance);
-
-  app->add_option("--sampling-factor", params.sampling_factor,
-                  "Factor for downsampling the individual frames")
-      ->default_val(params.sampling_factor);
-
-  app->add_flag("-c, --cuda", params.isCuda, "Use CUDA for YOLOv8 inference")
-      ->default_val(params.isCuda);
-
-  app->add_flag("-s, --skip-inference", params.skipInference,
-                "Skip YOLOv8 inference and only export the point cloud "
-                "(default: false, perform inference)")
-      ->default_val(params.skipInference);
-
-  app->add_flag("--ascii", params.ascii, "Save the point cloud in ASCII format")
-      ->default_val(params.ascii);
-
-  app->add_flag("-v,--verbose", params.verbosity,
-                "Increase verbosity, use -vv & -vvv "
-                "for more verbosity")
-      ->multi_option_policy(CLI::MultiOptionPolicy::Sum);
-
-  return app;
-}
-
 inline void
 merge_clouds(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr lhs,
              const pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr rhs) {
@@ -155,25 +51,80 @@ inline void merge_clouds(pcl::PointCloud<pcl::Label>::Ptr lhs,
     initializer(omp_priv = pcl::PointCloud<pcl::Label>::Ptr(                   \
                         new pcl::PointCloud<pcl::Label>()))
 
-int main(int argc, char **argv) {
+void setup_subcommand_annotate(CLI::App &app) {
 
-  Params config;
-  auto app = initApp(config);
-  argv = app->ensure_utf8(argv);
-  CLI11_PARSE(*app, argc, argv);
+  // Create the option and subcommand objects.
+  auto opt = std::make_shared<SubcommandAnnotateOptions>();
+  auto *sub = app.add_subcommand(
+      "annotate", "Annotate an RTAB-Map database and "
+                  "export a point cloud with labels and normals, "
+                  "and the trajectory.");
 
-  if (!config.validate())
-    return 1;
+  sub->add_option("database", opt->database_path,
+                  "Path to the RTAB-Map database file.")
+      ->required()
+      ->check(CLI::ExistingFile);
 
-  spdlog::set_level(static_cast<spdlog::level::level_enum>(config.verbosity));
-  spdlog::trace("reusex_rtabmap_export started");
+  sub->add_option("cloud", opt->out_cloud_path,
+                  "Path to the output point cloud file")
+      //->check(CLI::NonexistentPath)
+      ->default_val(opt->out_cloud_path);
+
+  sub->add_option("normals", opt->out_normals_path,
+                  "Path to the output normals file")
+      //->check(CLI::NonexistentPath)
+      ->default_val(opt->out_normals_path);
+
+  sub->add_option("trajectory", opt->out_trajectory_path,
+                  "Path to the output trajectory file")
+      //->check(CLI::NonexistentPath)
+      ->default_val(opt->out_trajectory_path);
+
+  sub->add_option("-n, --net", opt->net_path, "Path to the YOLOv8 ONNX model")
+      //->check(CLI::ExistingFile)
+      ->default_val(opt->net_path);
+
+  sub->add_option("-g,--grid", opt->grid_size,
+                  "Voxel grid size for downsampling the point cloud")
+      ->default_val(opt->grid_size);
+
+  sub->add_option("--min-distance", opt->min_distance,
+                  "Minimum distance points need to be from the camera")
+      ->default_val(opt->min_distance);
+
+  sub->add_option("--max-distance", opt->max_distance,
+                  "Maximum distance points can be from the camera")
+      ->default_val(opt->max_distance);
+
+  sub->add_option("--sampling-factor", opt->sampling_factor,
+                  "Factor for downsampling the individual frames")
+      ->default_val(opt->sampling_factor);
+
+  sub->add_flag("-c, --cuda", opt->isCuda, "Use CUDA for YOLOv8 inference")
+      ->default_val(opt->isCuda);
+
+  sub->add_flag("-s, --skip-inference", opt->skipInference,
+                "Skip YOLOv8 inference and only export the point cloud "
+                "(default: false, perform inference)")
+      ->default_val(opt->skipInference);
+
+  sub->add_flag("--ascii", opt->ascii, "Save the point cloud in ASCII format")
+      ->default_val(opt->ascii);
+
+  sub->callback([opt]() {
+    spdlog::trace("calling run_subcommand_annotate");
+    return run_subcommand_annotate(*opt);
+  });
+}
+
+int run_subcommand_annotate(SubcommandAnnotateOptions const &opt) {
 
   spdlog::info("Intializing RTAB-Map ...");
   spdlog::stopwatch timer;
   ParametersMap params;
   Rtabmap rtabmap;
-  spdlog::debug("Database path: {}", config.database_path);
-  rtabmap.init(params, config.database_path.c_str());
+  spdlog::debug("Database path: {}", opt.database_path);
+  rtabmap.init(params, opt.database_path.c_str());
   rtabmap.setWorkingDirectory("./");
   spdlog::debug("RTAB-Map initialized in {:.3f}s", timer);
 
@@ -199,15 +150,14 @@ int main(int argc, char **argv) {
 
     // INFO: Initialize the Yolo model if image segmentation is enabled
     cv::dnn::Net model;
-    if (!config.skipInference) {
+    if (!opt.skipInference) {
       spdlog::trace("Initializing YOLOv8 model");
-      model = cv::dnn::readNetFromONNX(config.net_path);
-      model.setPreferableBackend((config.isCuda)
-                                     ? cv::dnn::DNN_BACKEND_CUDA
-                                     : cv::dnn::DNN_BACKEND_DEFAULT);
-      model.setPreferableTarget((config.isCuda) ? cv::dnn::DNN_TARGET_CUDA
-                                                // or DNN_TARGET_CUDA_FP16
-                                                : cv::dnn::DNN_TARGET_CPU);
+      model = cv::dnn::readNetFromONNX(opt.net_path);
+      model.setPreferableBackend((opt.isCuda) ? cv::dnn::DNN_BACKEND_CUDA
+                                              : cv::dnn::DNN_BACKEND_DEFAULT);
+      model.setPreferableTarget((opt.isCuda) ? cv::dnn::DNN_TARGET_CUDA
+                                             // or DNN_TARGET_CUDA_FP16
+                                             : cv::dnn::DNN_TARGET_CPU);
     }
 
     // INFO: Create vector of poses for openMP parallel processing
@@ -232,9 +182,9 @@ int main(int argc, char **argv) {
       spdlog::trace("Creating point cloud from sensor data");
       pcl::IndicesPtr validIndices(new pcl::Indices);
       pcl::PointCloud<pcl::PointXYZRGB>::Ptr tmp =
-          util3d::cloudRGBFromSensorData(
-              data, config.sampling_factor, config.max_distance,
-              config.min_distance, validIndices.get());
+          util3d::cloudRGBFromSensorData(data, opt.sampling_factor,
+                                         opt.max_distance, opt.min_distance,
+                                         validIndices.get());
       spdlog::debug("Point cloud size: {}, valid: {}, size: {}x{}", tmp->size(),
                     validIndices->size(), tmp->width, tmp->height);
 
@@ -254,7 +204,7 @@ int main(int argc, char **argv) {
 
       cv::Mat labledImage(image.size(), /*CV_32S*/ CV_64F, cv::Scalar(0));
 
-      if (!config.skipInference) {
+      if (!opt.skipInference) {
 
         static constexpr size_t netWidth = 640;
         static constexpr size_t netHeight = 640;
@@ -378,8 +328,8 @@ int main(int argc, char **argv) {
   // INFO: Downsample the point cloud
   spdlog::info(
       "Voxel grid filtering of the assembled cloud (voxel={}, {} points)",
-      config.grid_size, (int)cloud->size());
-  auto downsampledCloud = util3d::voxelize(cloud, config.grid_size);
+      opt.grid_size, (int)cloud->size());
+  auto downsampledCloud = util3d::voxelize(cloud, opt.grid_size);
   spdlog::debug("Points after voxel grid filtering: {}",
                 downsampledCloud->size());
 
@@ -388,10 +338,9 @@ int main(int argc, char **argv) {
                                       filter_indices);
 
   // INFO: Saving the point cloud with normals
-  spdlog::info("Saving {} ({})", config.out_normals_path,
+  spdlog::info("Saving {} ({})", opt.out_normals_path,
                downsampledCloud->size());
-  pcl::io::savePCDFile(config.out_normals_path, *downsampledCloud,
-                       !config.ascii);
+  pcl::io::savePCDFile(opt.out_normals_path, *downsampledCloud, !opt.ascii);
 
   spdlog::trace("Creating point cloud with labels");
   pcl::KdTreeFLANN<pcl::PointXYZRGBNormal> kdtree;
@@ -406,7 +355,7 @@ int main(int argc, char **argv) {
     auto &point = downsampledCloud->at(i);
     std::vector<int> indices;
     std::vector<float> distances;
-    kdtree.radiusSearch(point, config.grid_size / 2.0f, indices, distances);
+    kdtree.radiusSearch(point, opt.grid_size / 2.0f, indices, distances);
     std::unordered_map<int, int> labelCount;
     for (const auto &idx : indices) {
       int label = labels->points[idx].label;
@@ -426,13 +375,13 @@ int main(int argc, char **argv) {
   }
 
   // INFO: Saving the point cloud with labels
-  spdlog::info("Saving {} ({})", config.out_cloud_path, pointLabels->size());
-  pcl::io::savePCDFile(config.out_cloud_path, *pointLabels, !config.ascii);
+  spdlog::info("Saving {} ({})", opt.out_cloud_path, pointLabels->size());
+  pcl::io::savePCDFile(opt.out_cloud_path, *pointLabels, !opt.ascii);
 
   // INFO: Saving the trajectory
-  spdlog::info("Saving {} ...", config.out_trajectory_path);
+  spdlog::info("Saving {} ...", opt.out_trajectory_path);
   if (poses.size() &&
-      graph::exportPoses(config.out_trajectory_path, 0, poses, links)) {
+      graph::exportPoses(opt.out_trajectory_path, 0, poses, links)) {
     // const std::string & filePath,
     // int format, // 0=Raw, 1=RGBD-SLAM motion capture (10=without change of
     // coordinate frame, 11=10+ID), 2=KITTI, 3=TORO, 4=g2o
@@ -444,7 +393,7 @@ int main(int argc, char **argv) {
     // Raw = KITTI Fromat
     // // Format: r11 r12 r13 tx r21 r22 r23 ty r31 r32 r33 tz
   } else {
-    spdlog::error("Saving {} ... failed!", config.out_trajectory_path);
+    spdlog::error("Saving {} ... failed!", opt.out_trajectory_path);
     rtabmap.close(false);
     return 1;
   }

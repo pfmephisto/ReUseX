@@ -21,7 +21,7 @@
 #include "xmmintrin.h" // for SSE intrinsics reytracing
 
 // Optional: Include spdmon for progress logging and opencv for visual debugging
-#include "spdmon/spdmon.hh"
+#include "spdmon/spdmon.hpp"
 #include <spdlog/spdlog.h>
 #include <spdlog/stopwatch.h>
 

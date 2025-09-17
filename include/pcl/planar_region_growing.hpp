@@ -18,7 +18,7 @@
 #include <cmath>
 #include <queue>
 
-#include "spdmon/spdmon.hh"
+#include "spdmon/spdmon.hpp"
 #include <spdlog/spdlog.h>
 #include <spdlog/stopwatch.h>
 
@@ -75,6 +75,9 @@ class PCL_EXPORTS PlanarRegionGrowing : public PCLBase<PointT> {
   using PlaneComparator = PlanarRegionGrowingComparator<PointT, PointNT>;
   using PlaneComparatorPtr = typename PlaneComparator::Ptr;
   using PlaneComparatorConstPtr = typename PlaneComparator::ConstPtr;
+
+  using VisualizationCallback =
+      std::function<void(const ModelCoefficients &, const Eigen::Vector4f &)>;
 
     protected:
   using PCLBase<PointT>::input_;
@@ -222,6 +225,10 @@ class PCL_EXPORTS PlanarRegionGrowing : public PCLBase<PointT> {
    * \param[in] factor the factor by which the update interval is multiplied
    */
   inline void setIntervalFactor(float factor) { interval_factor_ = factor; }
+
+  inline void registerVisualizationCallback(VisualizationCallback callback) {
+    visualization_callback_ = callback;
+  }
 
   /** \brief Segmentation of all planes in a point cloud given by
    * setInputCloud(), setIndices()
@@ -524,6 +531,10 @@ class PCL_EXPORTS PlanarRegionGrowing : public PCLBase<PointT> {
 
     } // next seed
 
+    if (visualization_callback_)
+      visualization_callback_(compare_->getModelCoefficients(),
+                              compare_->getPlaneOrigin());
+
     return num_pts;
   }
 
@@ -720,6 +731,8 @@ class PCL_EXPORTS PlanarRegionGrowing : public PCLBase<PointT> {
   /** \brief Variable to store the value for the next update of the plane
    * coefficients. */
   float next_update_{0.0f};
+
+  VisualizationCallback visualization_callback_{nullptr};
 
     public:
   PCL_MAKE_ALIGNED_OPERATOR_NEW

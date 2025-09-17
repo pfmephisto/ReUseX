@@ -40,7 +40,7 @@ using MIP_Solver = CGAL::GUROBI_mixed_integer_program_traits<double>;
 #include <cmath>
 #include <queue>
 
-#include "spdmon/spdmon.hh"
+#include "spdmon/spdmon.hpp"
 #include <spdlog/spdlog.h>
 #include <spdlog/stopwatch.h>
 

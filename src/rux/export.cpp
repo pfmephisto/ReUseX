@@ -1,8 +1,8 @@
-#include "ReUseX/Yolo.hh"
-#include "ReUseX/fmt_formatter.hh"
-#include "spdmon/spdmon.hh"
+#include "rux/export.hpp"
+#include "ReUseX/Yolo.hpp"
+#include "ReUseX/fmt_formatter.hpp"
+#include "spdmon/spdmon.hpp"
 
-#include <CLI/CLI.hpp>
 #include <fmt/format.h>
 
 #include <spdlog/sinks/stdout_color_sinks.h>
@@ -27,65 +27,29 @@ using Type = pcl::PointXYZRGBL;
 using Cloud = pcl::PointCloud<Type>;
 using CloudPtr = typename Cloud::Ptr;
 
-struct Params {
-  fs::path path_in;
-  fs::path path_out = fs::current_path() / "cloud.3dm";
+void setup_subcommand_export(CLI::App &app) {
 
-  int verbosity = 0;
-
-  bool validate() {
-    // INFO: Check for valid values
-    if (verbosity < 0 || verbosity > 3)
-      spdlog::warn("Verbosity must be between 0 and 3.");
-    // 0 > trace, 1 > debug, 2 > info, 3 > warn, 4 > err, 5 > critical, 6 > of
-    verbosity = std::max(verbosity, 0);
-    verbosity = std::min(verbosity, 3);
-    verbosity = 3 - verbosity;
-
-    return true;
-  };
-};
-
-std::string shell;
-CLI::App *comp = nullptr;
-
-std::unique_ptr<CLI::App> initApp(Params &params) {
-
-  auto app = std::make_unique<CLI::App>(
+  auto opt = std::make_shared<SubcommandExportOptions>();
+  auto *sub = app.add_subcommand(
+      "export",
       "This tool exports a rtab-map database to a pcl point cloud for "
       "use in reusex.");
 
-  app->get_formatter()->column_width(40);
-
-  app->add_option("input", params.path_in,
-                  "Path to the input point cloud file.")
+  sub->add_option("input", opt->path_in, "Path to the input point cloud file.")
       ->required()
       ->check(CLI::ExistingFile);
 
-  app->add_option("output", params.path_out,
+  sub->add_option("output", opt->path_out,
                   "Path to the output point cloud file")
-      ->default_val(params.path_out);
+      ->default_val(opt->path_out);
 
-  app->add_flag("-v,--verbose", params.verbosity,
-                "Increase verbosity, use -vv & -vvv "
-                "for more verbosity")
-      ->multi_option_policy(CLI::MultiOptionPolicy::Sum);
-
-  return app;
+  sub->callback([opt]() {
+    spdlog::trace("calling export subcommand");
+    return run_subcommand_export(*opt);
+  });
 }
 
-int main(int argc, char **argv) {
-
-  Params config;
-  auto app = initApp(config);
-  argv = app->ensure_utf8(argv);
-  CLI11_PARSE(*app, argc, argv);
-
-  if (!config.validate())
-    return 1;
-
-  spdlog::set_level(static_cast<spdlog::level::level_enum>(config.verbosity));
-  spdlog::trace("reusex_rhino_export started");
+int run_subcommand_export(SubcommandExportOptions const &opt) {
 
   spdlog::trace("creating rhino model");
   ONX_Model model;
@@ -111,9 +75,9 @@ int main(int argc, char **argv) {
   model.m_settings.m_ModelUnitsAndTolerances.m_angle_tolerance = ON_PI / 180.0;
   model.m_settings.m_ModelUnitsAndTolerances.m_relative_tolerance = 0.01;
 
-  spdlog::trace("load pcl point cloud from file: {}", config.path_in);
+  spdlog::trace("load pcl point cloud from file: {}", opt.path_in);
   CloudPtr pcl_cloud(new Cloud);
-  pcl::io::loadPCDFile<Type>(config.path_in.c_str(), *pcl_cloud);
+  pcl::io::loadPCDFile<Type>(opt.path_in.c_str(), *pcl_cloud);
 
   if (pcl_cloud->empty()) {
     spdlog::error("Point cloud is empty, nothing to export.");
@@ -219,15 +183,15 @@ int main(int argc, char **argv) {
     model.AddManagedModelGeometryComponent(rhino_cloud, attribute);
   }
 
-  spdlog::trace("writeing model to file: {}", config.path_out.string());
+  spdlog::trace("writeing model to file: {}", opt.path_out.string());
   int version = 0;
   // const char *comment = __FILE__ "write_layers_example()" __DATE__;
-  if (!model.Write(config.path_out.c_str(), version
+  if (!model.Write(opt.path_out.c_str(), version
                    /*, comment, &error_log*/)) {
-    spdlog::error("Failed to write model to file: {}",
-                  config.path_out.string());
+    spdlog::error("Failed to write model to file: {}", opt.path_out.string());
     return 1;
   }
-  spdlog::info("Model successfully written to {}", config.path_out.string());
+  spdlog::info("Model successfully written to {}", opt.path_out.string());
+
   return 0;
 }

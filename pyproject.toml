@@ -15,7 +15,6 @@ dependencies = [
     #"rhino3dm",
     "specklepy",
     "wheel",
-    #"g2o", # Nix packaged python package provided
     ]
 
 

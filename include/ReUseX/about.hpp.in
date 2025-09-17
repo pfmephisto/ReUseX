@@ -1,0 +1,6 @@
+#pragma once
+
+namespace ReUseX {
+constexpr const char *VERSION = "@PROJECT_VERSION@";
+constexpr const char *LICENSE_TEXT = R"(@LICENSE_TEXT@)";
+} // namespace ReUseX

@@ -23,7 +23,6 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # Generate compile commands for clangd and
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 set(CGAL_DO_NOT_WARN_ABOUT_CMAKE_BUILD_TYPE ON) # Suppress CGAL debug/release warning 
 set(CMAKE_POSITION_INDEPENDENT_CODE TRUE) # Needed for dynamic linked spdlog
-set(SPDLOG_FMT_EXTERNAL ON)
 
 enable_language(CXX)
 enable_language(C)
@@ -122,7 +121,7 @@ endif()
 #find_package(Qt6 COMPONENTS Core Widgets Gui OpenGL REQUIRED) 
 find_package(Boost CONFIG REQUIRED)
 find_package(TBB REQUIRED)
-find_package(fmt CONFIG REQUIRED)
+# find_package(fmt CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
 # find_package(spdmon REQUIRED)
  
@@ -190,7 +189,7 @@ configure_file(
 # ===============================================
 # ReUseX library
 add_library(${PROJECT_NAME} SHARED ${REUSEX_SOURCES} ${REUSEX_HEADERS}) #STATIC #SHARED
-set_target_properties(${PROJECT_NAME} PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
+# set_target_properties(${PROJECT_NAME} PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
 
 target_include_directories(${PROJECT_NAME} PUBLIC
 	$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -232,13 +231,12 @@ target_link_libraries(${PROJECT_NAME}
         rtabmap::rtabmap
 
     PRIVATE 
-        #fmt::fmt  #fmt-header-onlyonly
-	fmt::fmt-header-only
+        # fmt::fmt
         spdlog::spdlog
         # Move Library to Private as their stops being used in the public interface
 )
 
-target_compile_definitions(${PROJECT_NAME} PUBLIC SPDLOG_FMT_EXTERNAL)
+# target_compile_definitions(${PROJECT_NAME} PUBLIC SPDLOG_FMT_EXTERNAL)
 target_link_libraries(${PROJECT_NAME} PUBLIC ${COMMON_LINKER_FLAGS})
 target_compile_options(${PROJECT_NAME} PUBLIC ${COMMON_COMPILER_FLAGS})
 
@@ -274,15 +272,15 @@ target_include_directories(rux PRIVATE
 target_link_libraries(rux 
 	PUBLIC 
 	  CLI11::CLI11 
-	  ${PROJECT_NAME} 
 	PRIVATE 
-	  fmt::fmt-header-only
+	  ${PROJECT_NAME} 
+	  # fmt::fmt
 	  spdlog::spdlog
   )
 target_link_libraries(rux PUBLIC ${COMMON_LINKER_FLAGS})
 target_compile_options(rux PUBLIC ${COMMON_COMPILER_FLAGS})
-target_compile_definitions(rux PRIVATE SPDLOG_FMT_EXTERNAL)
-set_target_properties(rux PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
+# target_compile_definitions(rux PUBLIC SPDLOG_FMT_EXTERNAL)
+# set_target_properties(rux PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
 
 # ===============================================
 # # Python module

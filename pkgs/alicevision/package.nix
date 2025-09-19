@@ -5,6 +5,7 @@
   fetchFromGitHub,
   lib,
   stdenv,
+  cmake,
   libpng,
   libjpeg,
   libtiff,
@@ -60,7 +61,7 @@ in
       sha256 = "sha256-c63cQyVS6L8r1ld+/EX56TcPklQXz3iJZZG5lPdCe7U=";
     };
 
-    nativeBuildInputs = with pkgs; [
+    nativeBuildInputs = [
       cmake
     ];
 

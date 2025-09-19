@@ -6,7 +6,6 @@
   bash,
   lib,
   stdenv,
-  bash,
   autoreconfHook,
   zoem,
   cimfomfa,

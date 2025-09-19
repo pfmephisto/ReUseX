@@ -23,12 +23,10 @@
   libdrm,
   libGLU,
   libglvnd,
-  libglvnd,
   ocl-icd,
   xorg,
   autoPatchelfHook,
   autoAddDriverRunpath,
-  libsForQt5,
   makeWrapper,
   ...
 }:

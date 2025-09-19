@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 #include "rux/cellcomplex.hpp"
 
 #include <CLI/CLI.hpp>
@@ -28,6 +32,7 @@ using Kernel = CGAL::Homogeneous<CGAL::Exact_integer>; // Constructor not
 // available for Nef_polyhedron_3 and Plane_3
 using Nef_polyhedron = CGAL::Nef_polyhedron_3<Kernel>;
 using Polyhedron = CGAL::Polyhedron_3<Kernel>;
+using RT = Kernel::RT;
 using Plane_3 = Nef_polyhedron::Plane_3;
 using Point_3 = Kernel::Point_3;
 // using Iso_cuboid_3 = Kernel::Iso_cuboid_3;
@@ -123,9 +128,9 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
     //     Plane_3(p.values[0], p.values[1], p.values[2], p.values[3]),
     //     Nef_polyhedron::EXCLUDED));
 
-    space = space.intersection(
-        Plane_3(p.values[0], p.values[1], p.values[2], p.values[3]),
-        Nef_polyhedron::Intersection_mode::PLANE_ONLY);
+    space = space.intersection(Plane_3(RT(p.values[0]), RT(p.values[1]),
+                                       RT(p.values[2]), RT(p.values[3])),
+                               Nef_polyhedron::Intersection_mode::PLANE_ONLY);
   }
 // Nef_polyhedron::Intersection_mode::PLANE_ONLY
 // CLOSED_HALFSPACE

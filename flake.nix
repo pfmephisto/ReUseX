@@ -1,14 +1,23 @@
+# SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
 {
   description = "ReUseX";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+
     pyproject-nix = {
       url = "github:nix-community/pyproject.nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
     flake-utils.url = "github:numtide/flake-utils";
+
+    pre-commit-hooks = {
+      url = "github:cachix/git-hooks.nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   }; # end of inputs
 
   outputs = {
@@ -16,6 +25,7 @@
     nixpkgs,
     flake-utils,
     pyproject-nix,
+    pre-commit-hooks,
   }:
     flake-utils.lib.eachSystem ["x86_64-linux"] (
       system:
@@ -70,10 +80,10 @@
                 (attrs.nativeBuildInputs or [])
                 ++ (with pkgs; [
                   cmake
-                  ninja
-                  mpi
+                  qt6.wrapQtAppsHook
+                  pkg-config
+                  wrapGAppsHook3
                   cudatoolkit
-                  wrapGAppsHook
                 ]);
 
               # Rutime dependencies
@@ -86,72 +96,78 @@
                 ++ (with pkgs; [
                   opennurbs
                   scip-solver
-
-                  # pcl
                   boost
-                  embree
 
+                  fmt
+                  spdlog
+                  #spdmon
+
+                  pcl
+                  embree
                   eigen
                   cgal
 
                   rtabmap
-                  # libsForQt6.qtbase
                   librealsense
                   octomap
-                  # qt6.full
-                  # qtcreator
-                  # qt6.qtdeclarative
 
-                  fmt
-                  spdlog
-                  spdmon
+                  # suitesparse
+                  suitesparse-graphblas
+                  LAGraph
 
                   mpfr
 
                   opencv
-                  tbb_2022
+                  # glfw
 
-                  glfw
+                  # python3Packages.pybind11
+                  # python
 
-                  python3Packages.pybind11
-                  python
-
-                  imgui
-                  glm
-
-                  libGLU
+                  # imgui
+                  # glm
+                  # libGLU
 
                   cli11
-
-                  suitesparse-graphblas
-                  suitesparse
-                  LAGraph
                 ]);
 
               propagatedBuildInputs =
                 (attrs.propagatedBuildInputs or [])
                 ++ (with pkgs; [
-                  # vtkWithQt5
-                  #(pcl.override {vtk = pkgs.vtkWithQt5;})
-                ]);
+                  ]);
 
-              # Pass additional CMake flags
-              cmakeFlags =
-                (attrs.cmakeFlags or [])
-                ++ [
-                  "-DCGAL_DIR=${pkgs.cgal}/lib/cmake/CGAL"
-                  "-DOpenGL_GL_PREFERENCE=GLVND"
-                ]
-                ++ [
-                  (lib.strings.cmakeBool "CUDA_FAST_MATH" true)
-                  (lib.strings.cmakeFeature "CUDA_NVCC_FLAGS" "--expt-relaxed-constexpr")
-                ];
+              # # Pass additional CMake flags
+              # cmakeFlags =
+              #   (attrs.cmakeFlags or [])
+              #   ++ [
+              #     "-DCGAL_DIR=${pkgs.cgal}/lib/cmake/CGAL"
+              #     "-DOpenGL_GL_PREFERENCE=GLVND"
+              #   ]
+              #   ++ [
+              #     (lib.strings.cmakeBool "CUDA_FAST_MATH" true)
+              #     (lib.strings.cmakeFeature "CUDA_NVCC_FLAGS" "--expt-relaxed-constexpr")
+              #   ];
 
               dontWrapQtApps = true;
             }
           ); # end of ReUseX
       in {
-        formatter = nixpkgs.legacyPackages.${system}.alejandra;
+        formatter = pkgs.alejandra;
+
+        checks.pre-commit-check = pre-commit-hooks.lib.${system}.run {
+          src = ./.;
+          default_stages = ["pre-commit"];
+          hooks = {
+            check-added-large-files.enable = true;
+            check-case-conflicts.enable = true;
+            check-executables-have-shebangs.enable = true;
+            check-shebang-scripts-are-executable.enable = true;
+            check-merge-conflicts.enable = true;
+            alejandra.enable = true;
+            reuse = {
+              enable = true;
+            };
+          };
+        };
 
         packages =
           {
@@ -199,16 +215,17 @@
                 self.packages.${system}.default
               ];
 
-              buildInputs = with pkgs; [
-                gtk4
-                pkg-config
-              ];
+              buildInputs = with pkgs;
+                [
+                  gtk4
+                  pkg-config
+                ]
+                ++ self.checks.${system}.pre-commit-check.enabledPackages;
 
               packages = with pkgs;
                 [
                   cmake
                   ninja
-                  mpi
                   cudatoolkit
                   gdb
 
@@ -218,12 +235,7 @@
                 ++ [
                   libnotify # Send noctification when build finishes
                   sqlite
-
-                  gtk2
-                  gtk3
-                  glib
                   ffmpeg
-                  libva
                   pkg-config
                 ]
                 ++ [
@@ -249,14 +261,16 @@
                   )
                 ];
 
-              shellHook = ''
-                echo "Entering dev shell"
-                export VIRTUAL_ENV_PROMPT="ReUseX Environment"
-                export QT_STYLE_OVERRIDE="fusion"
-                export REPO_ROOT=$(pwd)
-                export CUDA_PATH=${pkgs.cudaPackages.cudatoolkit}
-                ./tmux_session
-              '';
+              shellHook =
+                ''
+                  echo "Entering dev shell"
+                  export VIRTUAL_ENV_PROMPT="ReUseX Environment"
+                  export QT_STYLE_OVERRIDE="fusion"
+                  export REPO_ROOT=$(pwd)
+                  export CUDA_PATH=${pkgs.cudaPackages.cudatoolkit}
+                  ./tmux_session
+                ''
+                + self.checks.${system}.pre-commit-check.shellHook;
             }; # end of default shell
         }; # end of devShells
       }

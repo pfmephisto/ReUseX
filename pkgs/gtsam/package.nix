@@ -1,8 +1,16 @@
+# SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+#
+# SPDX-License-Identifier: MIT
 {
   fetchFromGitHub,
-  pkgs,
   lib,
   stdenv,
+  cmake,
+  tbb_2022,
+  boost,
+  mkl,
+  eigen,
+  metis,
   ...
 }:
 stdenv.mkDerivation rec {
@@ -16,16 +24,16 @@ stdenv.mkDerivation rec {
     sha256 = "sha256-HjpGrHclpm2XsicZty/rX/RM/762wzmj4AAoEfni8es=";
   };
 
-  nativeBuildInputs = with pkgs; [
+  nativeBuildInputs = [
     cmake
   ];
 
-  propagationBuildInputs = with pkgs; [
+  propagationBuildInputs = [
+    tbb_2022
   ];
 
-  buildInputs = with pkgs; [
+  buildInputs = [
     boost
-    tbb_2022
     mkl
 
     eigen

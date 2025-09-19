@@ -1,8 +1,35 @@
+# SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+#
+# SPDX-License-Identifier: MIT
 {
+  lib,
   stdenvNoCC,
-  pkgs,
   python3,
   fetchurl,
+  e2fsprogs,
+  glib,
+  krb5,
+  zlib,
+  postgresql,
+  unixODBC,
+  cups,
+  speechd,
+  libsForQt5,
+  gtk3,
+  atk,
+  gdk-pixbuf,
+  cairo,
+  pango,
+  libdrm,
+  libGLU,
+  libglvnd,
+  libglvnd,
+  ocl-icd,
+  xorg,
+  autoPatchelfHook,
+  autoAddDriverRunpath,
+  libsForQt5,
+  makeWrapper,
   ...
 }:
 stdenvNoCC.mkDerivation rec {
@@ -13,14 +40,14 @@ stdenvNoCC.mkDerivation rec {
     hash = "sha256-3pTrJktbMNVbNjKcR2FZa8xrTEQ7CWsLFayWOJLXnuQ=";
   };
 
-  nativeBuildInputs = with pkgs; [
+  nativeBuildInputs = [
     autoPatchelfHook
     autoAddDriverRunpath
     libsForQt5.wrapQtAppsHook
     makeWrapper
   ];
 
-  buildInputs = with pkgs; [
+  buildInputs = [
     e2fsprogs
     glib
     krb5
@@ -68,7 +95,7 @@ stdenvNoCC.mkDerivation rec {
   '';
 
   postFixup = ''
-    patchelf --debug --add-needed libpython${pkgs.lib.versions.major python3.pythonVersion}.so \
+    patchelf --debug --add-needed libpython${lib.versions.major python3.pythonVersion}.so \
       "$out/opt/meshroom/Meshroom"
   '';
 

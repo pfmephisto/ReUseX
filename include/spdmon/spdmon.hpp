@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+//
+// SPDX-License-Identifier: MIT
+
 #pragma once
 #include <array>
 #include <atomic>

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 from .._core import Dataset
 
 import g2o.g2opy as g2o

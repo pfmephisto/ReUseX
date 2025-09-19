@@ -1,8 +1,13 @@
+# SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+#
+# SPDX-License-Identifier: MIT
 {
   fetchFromGitHub,
-  pkgs,
+  fetchpatch,
   lib,
   stdenv,
+  autoreconfHook,
+  cimfomfa,
   ...
 }:
 stdenv.mkDerivation rec {
@@ -17,7 +22,7 @@ stdenv.mkDerivation rec {
   };
 
   patches = [
-    (pkgs.fetchpatch {
+    (fetchpatch {
       url = "https://salsa.debian.org/science-team/zoem/-/raw/master/debian/patches/gcc-10.patch?ref_type=heads";
       hash = "sha256-gDHxAtmL4diiJObXI5z9aiHnSrcYTl+J3FTWIb25m98=";
     })
@@ -33,11 +38,11 @@ stdenv.mkDerivation rec {
       --replace "doc" ""
   '';
 
-  nativeBuildInputs = with pkgs; [
+  nativeBuildInputs = [
     autoreconfHook
   ];
 
-  buildInputs = with pkgs; [
+  buildInputs = [
     cimfomfa
   ];
 

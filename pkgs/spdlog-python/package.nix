@@ -1,9 +1,10 @@
+# SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+#
+# SPDX-License-Identifier: MIT
 {
   fetchPypi,
   fetchFromGitHub,
-  pkgs,
   python3Packages,
-  callPackage,
   lib,
   ...
 }: let
@@ -26,7 +27,7 @@ in
 
     doCheck = false;
 
-    propagatedBuildInputs = with pkgs.python3Packages; [
+    propagatedBuildInputs = with python3Packages; [
       wheel
       setuptools
       pybind11

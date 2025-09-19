@@ -1,8 +1,15 @@
+# SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+#
+# SPDX-License-Identifier: MIT
 {
   fetchFromGitHub,
-  pkgs,
+  bash,
   lib,
   stdenv,
+  bash,
+  autoreconfHook,
+  zoem,
+  cimfomfa,
   ...
 }:
 stdenv.mkDerivation rec {
@@ -18,7 +25,7 @@ stdenv.mkDerivation rec {
 
   postPatch = ''
     substituteInPlace shed/setversion \
-      --replace-fail "#!/bin/bash -e" "#!${pkgs.bash}/bin/bash -e" \
+      --replace-fail "#!/bin/bash -e" "#!${bash}/bin/bash -e" \
   '';
 
   preAutoreconf = ''
@@ -34,15 +41,15 @@ stdenv.mkDerivation rec {
       --replace "doc" ""
   '';
 
-  nativeBuildInputs = with pkgs; [
+  nativeBuildInputs = [
     autoreconfHook
     zoem
   ];
 
-  buildInputs = with pkgs; [
+  buildInputs = [
   ];
 
-  propagatedBuildInputs = with pkgs; [
+  propagatedBuildInputs = [
     cimfomfa
   ];
 

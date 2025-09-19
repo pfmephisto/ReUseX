@@ -1,9 +1,15 @@
+# SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+#
+# SPDX-License-Identifier: MIT
 {
   fetchFromGitHub,
-  pkgs,
   lib,
   stdenv,
   config,
+  cmake,
+  suitesparse,
+  suitesparse-graphblas,
+  cudatoolkit,
   cudaSupport ? config.cudaSupport,
   ...
 }:
@@ -22,16 +28,17 @@ stdenv.mkDerivation rec {
     ./1.patch
   ];
 
-  nativeBuildInputs = with pkgs; [
+  nativeBuildInputs = [
     cmake
     # gfortran
   ];
 
-  buildInputs = with pkgs;
-    [
-      suitesparse-graphblas
-    ]
-    ++ lib.optionals cudaSupport [pkgs.cudatoolkit];
+  buildInputs = [suitesparse-graphblas] ++ lib.optionals cudaSupport [cudatoolkit];
+
+  propagateBuildInputs = [
+    suitesparse
+    suitesparse-graphblas
+  ];
 
   cmakeFlags = [
     (lib.cmakeBool "BUILD_SHARED_LIBS" true)

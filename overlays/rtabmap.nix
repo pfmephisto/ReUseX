@@ -1,10 +1,13 @@
+# SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+#
+# SPDX-License-Identifier: MIT
 {...}: findal: prev: {
   rtabmap = prev.rtabmap.overrideAttrs (old: {
     buildInputs =
       (old.buildInputs or [])
       ++ (with prev.pkgs; [
-        tbb_2022
         gtsam
+        tbb_2022
       ]);
 
     cmakeFlags =

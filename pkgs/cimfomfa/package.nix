@@ -1,8 +1,11 @@
+# SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+#
+# SPDX-License-Identifier: MIT
 {
   fetchFromGitHub,
-  pkgs,
   lib,
   stdenv,
+  autoreconfHook,
   ...
 }:
 stdenv.mkDerivation rec {
@@ -20,7 +23,7 @@ stdenv.mkDerivation rec {
     cp configure.ac.in configure.ac
   '';
 
-  nativeBuildInputs = with pkgs; [
+  nativeBuildInputs = [
     autoreconfHook
   ];
 

@@ -1,8 +1,20 @@
+# SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+#
+# SPDX-License-Identifier: MIT
 {
   stdenv,
   fetchFromGitHub,
   lib,
-  pkgs,
+  cmake,
+  tbb_2022,
+  soplex,
+  zlib,
+  readline,
+  gmp,
+  papilo,
+  zimpl,
+  ipopt,
+  boost,
   ...
 }:
 stdenv.mkDerivation rec {
@@ -16,15 +28,15 @@ stdenv.mkDerivation rec {
     sha256 = "sha256-F9PBnPuGh+vDYuBL9R0pWg0PUiDrrKT4YdOH1K22dRk=";
   };
 
-  nativeBuildInputs = with pkgs; [cmake];
+  nativeBuildInputs = [cmake];
 
-  propagatedBuildInputs = with pkgs; [tbb_2022];
+  propagatedBuildInputs = [tbb_2022];
 
   strictDeps = true;
 
   doCheck = true;
 
-  buildInputs = with pkgs; [
+  buildInputs = [
     soplex
     zlib
     readline

@@ -1,11 +1,13 @@
+# SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+#
+# SPDX-License-Identifier: MIT
 {
   fetchFromGitHub,
-  pkgs,
   python3Packages,
   lib,
   ...
 }:
-pkgs.python3Packages.buildPythonPackage rec {
+python3Packages.buildPythonPackage rec {
   pname = "specklepy";
   version = "3.0.0a7";
   pyproject = true;
@@ -19,13 +21,13 @@ pkgs.python3Packages.buildPythonPackage rec {
 
   doCheck = false;
 
-  nativeBuildInputs = with pkgs; [
+  nativeBuildInputs = [
     python3Packages.poetry-core
     python3Packages.hatchling
     python3Packages.hatch-vcs
   ];
 
-  propagatedBuildInputs = with pkgs.python3Packages; [
+  propagatedBuildInputs = with python3Packages; [
     appdirs
     attrs
     deprecated

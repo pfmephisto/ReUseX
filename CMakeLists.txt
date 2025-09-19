@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 cmake_minimum_required(VERSION 3.17)
 if (NOT SKBUILD_PROJECT_VERSION)
     set(SKBUILD_PROJECT_VERSION 0.0.1)
@@ -15,12 +19,14 @@ message("CMAKE_BUILD_TYPE: ${CMAKE_BUILD_TYPE}")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # Generate compile commands for clangd and nvim highlighting
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
-
+set(CGAL_DO_NOT_WARN_ABOUT_CMAKE_BUILD_TYPE ON) # Suppress CGAL debug/release warning 
+set(CMAKE_POSITION_INDEPENDENT_CODE TRUE) # Needed for dynamic linked spdlog
+set(SPDLOG_FMT_EXTERNAL ON)
 
 enable_language(CXX)
 enable_language(C)
-
 
 # ===============================================
 # options
@@ -29,7 +35,6 @@ option(LIN_ENABLE_ASAN "if true, enables clang/MSVC address sanitizer" OFF)
 option(LIN_ENABLE_MSAN "if true, enables clang/MSVC memory sanitizer" OFF)
 option(LIN_ENABLE_UBSAN "if true, enables clang/MSVC undefined behaviour sanitizer" OFF)
 option(LIN_ENABLE_TSAN "if true, enables clang/MSVC thread sanitizer" OFF)
-option(OPENMP, "if true, enables ")
 
 if (LIN_ENABLE_ASAN AND LIN_ENABLE_TSAN)
     message(FATAL_ERROR "Can only enable one of TSan or ASan at a time")
@@ -40,9 +45,6 @@ endif()
 
 option(LIN_ENABLE_WERROR "if true, enables -Werror, /WX" OFF)
 
-
-
-option(GUI_ENABLED "if true, enables GUI" OFF)
 
 
 # ===============================================
@@ -104,8 +106,7 @@ else()
     endif()
 endif()
 
-# Generate compile commands for clangd and nvim highlighting
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 
 # ===============================================
 # Bin dir
@@ -117,44 +118,42 @@ else()
     set(BIN_DIR ${CMAKE_SOURCE_DIR}/bin/${CMAKE_BUILD_TYPE})
 endif()
 
+
+#find_package(Qt6 COMPONENTS Core Widgets Gui OpenGL REQUIRED) 
 find_package(Boost CONFIG REQUIRED)
-find_package(MPI REQUIRED)
 find_package(TBB REQUIRED)
-find_package(spdlog REQUIRED)
-find_package(spdmon REQUIRED)
-
-
-find_package(Eigen3 REQUIRED)
-find_package(SCIP REQUIRED)
-
-find_package(CGAL REQUIRED 
-		Core )#OPTIONAL_COMPONENTS Qt5
-include(CGAL_Eigen3_support)
-include(CGAL_SCIP_support)
-include(CGAL_TBB_support)
-if (GUI_ENABLED)
-	set(CMAKE_AUTOMOC ON)
-        set(CMAKE_AUTORCC ON)
-        set(CMAKE_AUTOUIC ON)
-	add_definitions(-DCGAL_USE_BASIC_VIEWER)
-endif()
-
-find_package(fmt REQUIRED)
+find_package(fmt CONFIG REQUIRED)
+find_package(spdlog CONFIG REQUIRED)
+# find_package(spdmon REQUIRED)
+ 
 find_package(OpenCV REQUIRED COMPONENTS core imgproc highgui)
-find_package(embree REQUIRED)
-
-find_package(opennurbs REQUIRED)
-
-find_package(PCL REQUIRED)
-
 find_package(RTABMap REQUIRED)
 find_package(GraphBLAS REQUIRED)
 find_package(LAGraph REQUIRED)
+find_package(PCL REQUIRED)
+ 
+find_package(Eigen3 REQUIRED)
+find_package(SCIP REQUIRED)
+find_package(embree REQUIRED)
+ 
 
-find_package(CLI11 CONFIG REQUIRED) 
+find_package(CGAL REQUIRED Core) #OPTIONAL_COMPONENTS Qt6
+include(CGAL_Eigen3_support)
+include(CGAL_SCIP_support)
+include(CGAL_TBB_support)
+ 
+ 
+ 
+find_package(opennurbs REQUIRED)
+ 
+# option(GUI_ENABLED "if true, enables GUI" OFF)
+# if (GUI_ENABLED)
+# 	set(CMAKE_AUTOMOC ON)
+#         set(CMAKE_AUTORCC ON)
+#         set(CMAKE_AUTOUIC ON)
+# 	add_definitions(-DCGAL_USE_BASIC_VIEWER)
+# endif()
 
-# find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
-# find_package(pybind11 REQUIRED)
 
 
 # ===============================================
@@ -178,7 +177,7 @@ set(REUSEX_HEADERS
     include/spdmon/spdmon.hpp
 ) 
 
-
+# Replace version and license in about.hpp file
 file(READ ${CMAKE_SOURCE_DIR}/LICENSE.md LICENSE_TEXT)
 string(REPLACE "\"" "\\\"" LICENSE_TEXT "${LICENSE_TEXT}")
 configure_file(
@@ -189,8 +188,8 @@ configure_file(
 
 
 # ===============================================
-# main libary
-add_library(${PROJECT_NAME} STATIC ${REUSEX_SOURCES} ${REUSEX_HEADERS})
+# ReUseX library
+add_library(${PROJECT_NAME} SHARED ${REUSEX_SOURCES} ${REUSEX_HEADERS}) #STATIC #SHARED
 set_target_properties(${PROJECT_NAME} PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
 
 target_include_directories(${PROJECT_NAME} PUBLIC
@@ -201,9 +200,7 @@ target_include_directories(${PROJECT_NAME} PUBLIC
 target_link_libraries(${PROJECT_NAME} 
     PUBLIC
 
-        rtabmap::rtabmap
-
-        CGAL::CGAL
+	CGAL::CGAL
         CGAL::Eigen3_support
         CGAL::SCIP_support
         CGAL::TBB_support
@@ -217,15 +214,14 @@ target_link_libraries(${PROJECT_NAME}
         pcl_registration
         pcl_visualization
         embree
-        TBB::tbb
+        # TBB::tbb
 
         Eigen3::Eigen
 
-        fmt
-        mpfr
-        MPI::MPI_CXX
+        # mpfr
+        # MPI::MPI_CXX
 
-        SuiteSparse::GraphBLAS
+	SuiteSparse::GraphBLAS
         SuiteSparse::LAGraph
         SuiteSparse::LAGraphX
 
@@ -233,21 +229,24 @@ target_link_libraries(${PROJECT_NAME}
         opencv_imgproc
         opencv_highgui
 
-        spdlog::spdlog
+        rtabmap::rtabmap
 
     PRIVATE 
+        #fmt::fmt  #fmt-header-onlyonly
+	fmt::fmt-header-only
+        spdlog::spdlog
         # Move Library to Private as their stops being used in the public interface
 )
 
-target_compile_definitions(${PROJECT_NAME} PUBLIC
-    SPDLOG_FMT_EXTERNAL
-)
-
-
+target_compile_definitions(${PROJECT_NAME} PUBLIC SPDLOG_FMT_EXTERNAL)
 target_link_libraries(${PROJECT_NAME} PUBLIC ${COMMON_LINKER_FLAGS})
 target_compile_options(${PROJECT_NAME} PUBLIC ${COMMON_COMPILER_FLAGS})
 
+
 # ===============================================
+# rux executable
+# ===============================================
+
 set(rux_SOURCES
     src/rux/annotate.cpp
     src/rux/cellcomplex.cpp
@@ -266,16 +265,30 @@ set(rux_HEADERS
     include/rux/surface_reconstruction.hpp
 ) 
 
-
+find_package(CLI11 CONFIG REQUIRED) 
 
 add_executable(rux src/rux/rux.cpp ${rux_SOURCES} ${rux_HEADERS})
 target_include_directories(rux PRIVATE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )
-target_link_libraries(rux PUBLIC CLI11::CLI11 PRIVATE ${PROJECT_NAME})
-
+target_link_libraries(rux 
+	PUBLIC 
+	  CLI11::CLI11 
+	  ${PROJECT_NAME} 
+	PRIVATE 
+	  fmt::fmt-header-only
+	  spdlog::spdlog
+  )
+target_link_libraries(rux PUBLIC ${COMMON_LINKER_FLAGS})
+target_compile_options(rux PUBLIC ${COMMON_COMPILER_FLAGS})
+target_compile_definitions(rux PRIVATE SPDLOG_FMT_EXTERNAL)
+set_target_properties(rux PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
 
 # ===============================================
+# # Python module
+# ===============================================
+# find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
+# find_package(pybind11 REQUIRED)
 # # scikit_build
 # Python_add_library(_core MODULE src/ReUseX.cpp WITH_SOABI)
 # target_link_libraries(_core PRIVATE pybind11::headers ${PROJECT_NAME})
@@ -286,8 +299,12 @@ target_link_libraries(rux PUBLIC CLI11::CLI11 PRIVATE ${PROJECT_NAME})
 # The install directory is the output (wheel) directory
 #install(TARGETS _core DESTINATION ReUseX)
 
+
+
+
 # ===============================================
 # Installation & Export
+# ===============================================
 include(GNUInstallDirs)
 
 # Library

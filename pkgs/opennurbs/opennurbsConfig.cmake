@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+#
+# SPDX-License-Identifier: MIT
+
 get_filename_component(opennurbs_ROOT_DIR "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
 
 message(STATUS "Found opennurbs: ${opennurbs_ROOT_DIR}")

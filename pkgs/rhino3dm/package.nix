@@ -1,10 +1,14 @@
+# SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+#
+# SPDX-License-Identifier: MIT
 {
-  fetchPypi,
-  pkgs,
   lib,
+  fetchPypi,
+  python3Packages,
+  cmake,
   ...
 }:
-pkgs.python3Packages.buildPythonPackage rec {
+python3Packages.buildPythonPackage rec {
   pname = "rhino3dm";
   version = "8.9.0";
   format = "setuptools";
@@ -27,7 +31,7 @@ pkgs.python3Packages.buildPythonPackage rec {
     cd ..
   '';
 
-  nativeBuildInputs = with pkgs; [
+  nativeBuildInputs = [
     python3Packages.setuptools
     python3Packages.distutils
     cmake

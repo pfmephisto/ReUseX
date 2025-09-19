@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+#
+# SPDX-License-Identifier: MIT
 {...}: final: prev: {
   suitesparse-graphblas =
     (prev.suitesparse-graphblas.override {

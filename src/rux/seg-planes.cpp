@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 #include "rux/seg-planes.hpp"
 #include "ReUseX/fmt_formatter.hpp"
 #include "pcl/planar_region_growing.hpp"

@@ -1,6 +1,8 @@
-#pragma once
-#include <mpi.h>
+// SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+//
+// SPDX-License-Identifier: MIT
 
+#pragma once
 #include <cmath>
 
 #include <pcl/PointIndices.h>

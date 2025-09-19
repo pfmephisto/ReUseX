@@ -1,3 +1,9 @@
+<!--
+SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+
+SPDX-License-Identifier: GPL-3.0-or-later
+-->
+
 # ReUseX
 
 ReUseX is a tool for processing scan data captured with an iPhone / iPad for the purpose of mapping buildings. Currently the only supported source is the [StrayScanner](https://github.com/strayrobots/scanner) app which can be found in the [App Store](https://apps.apple.com/us/app/stray-scanner/id1557051662). The app captures LiDAR data as png depth images and RGB images as a mp4 video file, as well as as odometry data  in a csv file. Together with confidence mapps stored as png images, these files are used to create a point cloud representation of the scanned environment.

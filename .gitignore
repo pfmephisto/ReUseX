@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # Prerequisites
 *.d
 
@@ -89,3 +93,4 @@ compile_commands.json
 result
 
 tmux_session
+.pre-commit-config.yaml

@@ -13,6 +13,8 @@ namespace fs = std::filesystem;
 struct SubcommandCellcomplexOptions {
   fs::path input;
   fs::path output = fs::current_path() / "output.vtk";
+
+  bool display = false;
 };
 
 // Function declarations.

@@ -9,7 +9,6 @@
   cudaSupport ? config.cudaSupport,
   qt6,
   pkg-config,
-  wrapGAppsHook3,
   cudatoolkit,
   opennurbs,
   scip-solver,
@@ -36,6 +35,7 @@
   # glm,
   # libGLU,
   cli11,
+  qt6Packages,
   ...
 }:
 stdenv.mkDerivation rec {
@@ -48,10 +48,12 @@ stdenv.mkDerivation rec {
   # programs and libraries used at build-time
   nativeBuildInputs = [
     cmake
-    qt6.wrapQtAppsHook
     pkg-config
-    wrapGAppsHook3
     cudatoolkit
+    qt6.qtbase
+    # qt6Packages.wrapQtAppsHook
+    #qt6.wrapQtAppsHook
+    qt6.wrapQtAppsNoGuiHook
   ];
 
   buildInputs = [
@@ -79,15 +81,6 @@ stdenv.mkDerivation rec {
     mpfr
 
     opencv
-    # glfw
-
-    # python3Packages.pybind11
-    # python
-
-    # imgui
-    # glm
-    # libGLU
-
     cli11
   ];
 

@@ -12,13 +12,21 @@
 #include "ReUseX/about.hpp"
 
 #include <CLI/CLI.hpp>
+#include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
 
 int main(int argc, char **argv) {
-  spdlog::set_level(spdlog::level::warn); // Default level
+  // Create a new logger with a custom name
+  auto console_logger = spdlog::stdout_color_mt("rux");
 
-  CLI::App app{
-      "rux: ReUseX a tool for processing interior lidar scans of buildings."};
+  // Replace the default logger with our custom logger
+  spdlog::set_default_logger(console_logger);
+
+  spdlog::set_level(spdlog::level::warn); // Default level
+  spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%n] [%^%=7l%$] %v");
+
+  CLI::App app{"rux: ReUseX a tool for processing "
+               "interior lidar scans of buildings."};
   app.get_formatter()->column_width(40);
 
   app.add_flag(

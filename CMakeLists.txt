@@ -118,7 +118,7 @@ else()
 endif()
 
 
-#find_package(Qt6 COMPONENTS Core Widgets Gui OpenGL REQUIRED) 
+find_package(Qt6 COMPONENTS Core Widgets Gui OpenGL REQUIRED) 
 find_package(Boost CONFIG REQUIRED)
 find_package(TBB REQUIRED)
 # find_package(fmt CONFIG REQUIRED)
@@ -145,13 +145,30 @@ include(CGAL_TBB_support)
  
 find_package(opennurbs REQUIRED)
  
-# option(GUI_ENABLED "if true, enables GUI" OFF)
-# if (GUI_ENABLED)
-# 	set(CMAKE_AUTOMOC ON)
-#         set(CMAKE_AUTORCC ON)
-#         set(CMAKE_AUTOUIC ON)
-# 	add_definitions(-DCGAL_USE_BASIC_VIEWER)
-# endif()
+option(GUI_ENABLED "if true, enables GUI" OFF)
+if (GUI_ENABLED)
+	message(STATUS "CMAKE_BINARY_DIR: ${CMAKE_BINARY_DIR}")
+	message(STATUS "CGAL_GRAPHICSVIEW_PACKAGE_DIR: ${CGAL_GRAPHICSVIEW_PACKAGE_DIR}")
+	message(STATUS "CGAL_MODULES_DIR: ${CGAL_MODULES_DIR}")
+	message(STATUS "CMAKE_BINARY_DIR: ${CMAKE_BINARY_DIR}")
+	message(STATUS "_CGAL_Qt6_RESOURCE_FILES_private: ${_CGAL_Qt6_RESOURCE_FILES_private}")
+	find_package(CGAL COMPONENTS Qt6) 
+	#   qt6_add_resources (_CGAL_Qt6_RESOURCE_FILES_private
+	#     ${CGAL_GRAPHICSVIEW_PACKAGE_DIR}/demo/resources/CGAL.qrc
+	#     ${CGAL_GRAPHICSVIEW_PACKAGE_DIR}/demo/icons/Input.qrc
+	#     ${CGAL_GRAPHICSVIEW_PACKAGE_DIR}/demo/icons/File.qrc
+	#     ${CGAL_GRAPHICSVIEW_PACKAGE_DIR}/demo/icons/Triangulation_2.qrc)
+
+	#   qt6_add_resources (_CGAL_Qt6_RESOURCE_FILES_private
+	#     ${CMAKE_BINARY_DIR}/resources/CGAL.qrc
+	#     ${CMAKE_BINARY_DIR}/icons/Input.qrc
+	#     ${CMAKE_BINARY_DIR}/icons/File.qrc
+	#     ${CMAKE_BINARY_DIR}/icons/Triangulation_2.qrc)
+	set(CMAKE_AUTOMOC ON)
+	set(CMAKE_AUTORCC ON)
+	set(CMAKE_AUTOUIC ON)
+	add_definitions(-DCGAL_USE_BASIC_VIEWER)
+endif()
 
 
 
@@ -203,6 +220,7 @@ target_link_libraries(${PROJECT_NAME}
         CGAL::Eigen3_support
         CGAL::SCIP_support
         CGAL::TBB_support
+	#CGAL::CGAL_Basic_viewer
 
         OpenNURBS
 

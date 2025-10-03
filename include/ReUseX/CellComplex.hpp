@@ -9,6 +9,8 @@
 
 #include <spdlog/spdlog.h>
 
+#include <fmt/format.h>
+
 #include <filesystem>
 #include <set>
 #include <string>
@@ -24,7 +26,7 @@ struct VertexData {
 };
 struct FaceData {
   int id;
-  // int plane_id;
+  int plane_id;
   // double area;
 };
 struct CellData {
@@ -34,6 +36,7 @@ struct CellData {
 
 // Generic vertex bundle
 struct VerteciesData {
+  // TODO: Consider moving the ID field to here
   NodeType type;
   std::variant<VertexData, FaceData, CellData> data;
 };
@@ -141,7 +144,8 @@ class CellComplex
       int n_adj = 0;
       auto [begin, end] = boost::adjacent_vertices(vd, *g);
       for (auto it = begin; it != end; ++it)
-        ++n_adj;
+        if ((*g)[*it].type == NodeType::Cell)
+          ++n_adj;
       return prop.type == NodeType::Face && n_adj >= 2;
     }
   };
@@ -169,16 +173,18 @@ class CellComplex
     return v;
   };
 
-  template <typename T> inline Vertex add_face(T begin, T end) {
+  template <typename T>
+  inline Vertex add_face(T begin, T end, int plane_id = -1) {
     auto f = boost::add_vertex(*this);
     (*this)[f].type = NodeType::Face;
-    (*this)[f].data = FaceData{face_count++};
+    (*this)[f].data = FaceData{face_count++, plane_id};
     for (auto it = begin; it != end; ++it)
       boost::add_edge(*it, f, *this);
     return f;
   };
-  template <typename Range> inline Vertex add_face(Range vertices) {
-    return add_face(std::begin(vertices), std::end(vertices));
+  template <typename Range>
+  inline Vertex add_face(Range vertices, int plane_id = -1) {
+    return add_face(std::begin(vertices), std::end(vertices), plane_id);
   };
 
   template <typename T> inline Vertex add_cell(T begin, T end) {
@@ -197,6 +203,8 @@ class CellComplex
   size_t num_faces() const;
   size_t num_cells() const;
 
+  std::ostream &operator<<(std::ostream &os) const;
+
   auto vertices_begin() const -> VertexIterator;
   auto vertices_end() const -> VertexIterator;
 
@@ -206,8 +214,13 @@ class CellComplex
   auto cells_begin() const -> CellIterator;
   auto cells_end() const -> CellIterator;
 
+  // TODO: Consider renameing to x_around_y_{begin/end} e.g.
+  // vertices_around_face_begin
   auto vertices_begin(Vertex f) const -> VertexOnFaceIterator;
   auto vertices_end(Vertex f) const -> VertexOnFaceIterator;
+
+  // auto cells_begin(Vertex f) const -> CellOnFaceIterator;
+  // auto cells_end(Vertex f) const -> CellOnFaceIterator;
 
   auto faces_begin(Vertex c) const -> FaceOnCellIterator;
   auto faces_end(Vertex c) const -> FaceOnCellIterator;
@@ -216,3 +229,18 @@ class CellComplex
   auto get_b(Vertex f) const -> Vertex;
 };
 } // namespace ReUseX
+
+template <> struct fmt::formatter<ReUseX::CellComplex> {
+  // Parse function (optional)
+  template <typename ParseContext> constexpr auto parse(ParseContext &ctx) {
+    return ctx.begin();
+  }
+
+  // Format function
+  template <typename FormatContext>
+  auto format(const ReUseX::CellComplex &obj, FormatContext &ctx) {
+    return fmt::format_to(ctx.out(), "[{}c {}f {}v {}r  {}w]", obj.num_cells(),
+                          obj.num_faces(), obj.num_vertices(), obj.n_rooms,
+                          obj.n_walls);
+  }
+};

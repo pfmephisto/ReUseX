@@ -15,7 +15,9 @@
 
 #include <CGAL/Arr_non_caching_segment_traits_2.h>
 #include <CGAL/Arrangement_2.h>
+#include <CGAL/Boolean_set_operations_2.h>
 #include <CGAL/Exact_predicates_exact_constructions_kernel.h>
+#include <CGAL/Polygon_2.h>
 #include <CGAL/Polygon_2_algorithms.h>
 
 #include <pcl/common/colors.h>
@@ -54,7 +56,38 @@ using Point_2 = Traits::Point_2;
 using Line_2 = Traits::Line_2;
 using Direction_2 = Traits::Direction_2;
 using Segment = Traits::X_monotone_curve_2;
-using Arrangement = CGAL::Arrangement_2<Traits>;
+
+// The map-extended dcel vertex.
+template <typename Point_2>
+class Arr_map_vertex : public CGAL::Arr_vertex_base<Point_2> {
+    public:
+  // std::string name, type;
+};
+
+// The map-extended dcel halfedge.
+template <typename X_monotone_curve_2>
+class Arr_map_halfedge : public CGAL::Arr_halfedge_base<X_monotone_curve_2> {
+    public:
+  int source_id = -1;
+  // std::string name, type;
+};
+
+// The map-extended dcel face.
+class Arr_map_face : public CGAL::Arr_face_base {
+    public:
+  // std::string name, type;
+};
+
+// The map-extended dcel.
+template <typename Traits>
+class DCEL
+    : public CGAL::Arr_dcel_base<
+          Arr_map_vertex<typename Traits::Point_2>,
+          Arr_map_halfedge<typename Traits::X_monotone_curve_2>, Arr_map_face> {
+};
+
+using Arrangement = CGAL::Arrangement_2<Traits, DCEL<Traits>>;
+// using Arrangement = CGAL::Arrangement_2<Traits>;
 
 using Vertex_handle = Arrangement::Vertex_handle;
 using Halfedge_handle = Arrangement::Halfedge_handle;
@@ -65,6 +98,7 @@ using Point_3 = Kernel::Point_3;
 using Vector_3 = Kernel::Vector_3;
 using Iso_cuboid_3 = Kernel::Iso_cuboid_3;
 using Iso_rectangle_2 = CGAL::Iso_rectangle_2<Kernel>;
+using Polygon_2 = CGAL::Polygon_2<Kernel>;
 
 using Indices = pcl::Indices;
 using IndicesPtr = pcl::IndicesPtr;
@@ -146,12 +180,12 @@ template <typename Container> inline constexpr auto collect() {
 auto separate_planes(const Planes &planes,
                      const Vector_3 &up = Vector_3(0, 0, 1),
                      const double epsilon = 0.1) {
-  spdlog::trace("Separate planes into walls and floors/ceilings");
+  spdlog::trace("Separate planes into vertical and horizontal planes");
 
-  using value_type = Planes::value_type;
+  // using value_type = Planes::value_type;
 
-  std::vector<value_type> walls{};
-  std::vector<value_type> floors{};
+  std::vector<size_t> vertical{};
+  std::vector<size_t> horizontal{};
 
   for (size_t i = 0; i < planes.size(); ++i) {
     auto plane = std::get<0>(planes[i]);
@@ -160,16 +194,15 @@ auto separate_planes(const Planes &planes,
     const double scalar = CGAL::to_double(normal * up);
 
     if (std::abs(scalar) < epsilon) // Wall
-      walls.push_back(planes[i]);
+      vertical.push_back(i);
     else if (std::abs(scalar - 1.0) < epsilon) // Floor
-      floors.push_back(planes[i]);
+      horizontal.push_back(i);
     else if (std::abs(scalar + 1.0) < epsilon) // Ceiling
-      floors.push_back(planes[i]);
+      horizontal.push_back(i);
     else
       spdlog::warn("Plane {} is not vertical or horizontal", i);
   }
-
-  return std::make_tuple(walls, floors);
+  return std::make_tuple(vertical, horizontal);
 };
 
 auto dist_to_plane(const Eigen::Vector4f &plane, const Eigen::Vector3f &p) {
@@ -378,6 +411,47 @@ Planes force_orthogonal_planes(Planes &planes, const double threshold = 0.1,
   return planes;
 }
 
+double compute_grid_coverage(const Polygon_2 &polygon,
+                             const std::vector<Point_2> &points,
+                             double cell_size = 0.2) {
+  // Bounding box
+  double min_x = polygon[0].x(), max_x = polygon[0].x();
+  double min_y = polygon[0].y(), max_y = polygon[0].y();
+  for (auto &p : polygon) {
+    min_x = std::min(min_x, p.x());
+    max_x = std::max(max_x, p.x());
+    min_y = std::min(min_y, p.y());
+    max_y = std::max(max_y, p.y());
+  }
+
+  int nx = static_cast<int>(std::ceil((max_x - min_x) / cell_size));
+  int ny = static_cast<int>(std::ceil((max_y - min_y) / cell_size));
+
+  int covered_cells = 0;
+  int total_cells = 0;
+
+  for (int i = 0; i < nx; ++i) {
+    for (int j = 0; j < ny; ++j) {
+      const double cx = min_x + (i + 0.5) * cell_size;
+      const double cy = min_y + (j + 0.5) * cell_size;
+      Point_2 cell_center(cx, cy);
+      if (polygon.bounded_side(cell_center) == CGAL::ON_UNBOUNDED_SIDE)
+        continue;
+
+      ++total_cells;
+      for (auto &pt : points) {
+        if (std::abs(pt.x() - cx) <= cell_size / 2 &&
+            std::abs(pt.y() - cy) <= cell_size / 2) {
+          ++covered_cells;
+          break;
+        }
+      }
+    }
+  }
+
+  return static_cast<double>(covered_cells) / total_cells;
+}
+
 void setup_subcommand_cellcomplex(CLI::App &app) {
 
   auto opt = std::make_shared<SubcommandCellcomplexOptions>();
@@ -456,28 +530,21 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
   spdlog::debug("Number of planes after forcing orthogonality: {}",
                 planes.size());
 
-  // TODO: First make pairs, the split
-  // auto pairs = make_pairs(planes);
-  // auto [walls, floors] = separate_planes(planes);
-
-  auto [walls, floors] = separate_planes(planes);
-  spdlog::debug("Number of walls: {}", walls.size());
-  spdlog::debug("Number of floors: {}", floors.size());
-
   const double threshold = 1.5;
-  auto wall_pairs = make_pairs(walls, threshold);
-  spdlog::debug("Number of wall pairs: {} of {}", wall_pairs.size(),
-                walls.size());
+  auto pairs = make_pairs(planes, threshold);
+  auto [walls, floors] = separate_planes(planes);
 
-  auto floor_pairs = make_pairs(floors, threshold);
-  spdlog::debug("Number of floor pairs: {} of {}", floor_pairs.size(),
-                floors.size());
+  // auto [walls, floors] = separate_planes(planes);
+  spdlog::debug("Number of horizonal planes: {}", walls.size());
+  spdlog::debug("Number of vertical planes: {}", floors.size());
 
   if (opt.display) {
     size_t count = 0;
     for (size_t i = 0; i < walls.size(); ++i) {
-      auto plane = std::get<0>(walls[i]);
-      auto origin = std::get<2>(walls[i]);
+      const size_t id = walls[i];
+      const auto wall = planes[id];
+      const auto plane = std::get<0>(wall);
+      const auto origin = std::get<2>(wall);
       std::string name = fmt::format("wall_{}-planes", i);
       pcl::ModelCoefficients coeff;
       coeff.values = {
@@ -496,8 +563,10 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
       ++count;
     }
     for (size_t i = 0; i < floors.size(); ++i) {
-      auto plane = std::get<0>(floors[i]);
-      auto origin = std::get<2>(floors[i]);
+      const size_t id = floors[i];
+      const auto floor = planes[id];
+      const auto plane = std::get<0>(floor);
+      const auto origin = std::get<2>(floor);
       std::string name = fmt::format("floor_{}-planes", i);
       pcl::ModelCoefficients coeff;
       coeff.values = {
@@ -515,26 +584,15 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
                         fmt::format("text_{}", name));
       ++count;
     }
-
-    for (const auto &[i, j] : wall_pairs) {
-      auto origin_i = std::get<2>(walls[i]);
-      auto origin_j = std::get<2>(walls[j]);
-
-      PointT p1, p2;
-      std::string name = fmt::format("wall_pair_{}-{}", i, j);
-      p1.getVector3fMap() = origin_i.head<3>();
-      p2.getVector3fMap() = origin_j.head<3>();
-      viewer->addLine<PointT>(p1, p2, 1.0, 0.0, 0.0, name);
-    }
-    for (const auto &[i, j] : floor_pairs) {
-      auto origin_i = std::get<2>(floors[i]);
-      auto origin_j = std::get<2>(floors[j]);
+    for (const auto &[i, j] : pairs) {
+      auto origin_i = std::get<2>(planes[i]);
+      auto origin_j = std::get<2>(planes[j]);
 
       PointT p1, p2;
-      std::string name = fmt::format("floor_pair_{}-{}", i, j);
+      std::string name = fmt::format("pair_{}-{}", i, j);
       p1.getVector3fMap() = origin_i.head<3>();
       p2.getVector3fMap() = origin_j.head<3>();
-      viewer->addLine<PointT>(p1, p2, 0.0, 1.0, 0.0, name);
+      viewer->addLine<PointT>(p1, p2, 0.0, 0.0, 1.0, name);
     }
   }
 
@@ -545,7 +603,8 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
   const Iso_rectangle_2 brec(min.x - offset, min.y - offset, max.x + offset,
                              max.y + offset);
   const Plane_3 ground_plane(0, 0, 1, -min.z);
-  for (auto const &wall : walls) {
+  for (auto const id : walls) {
+    auto const &wall = planes[id];
     const auto plane = std::get<0>(wall);
     // Intersect with ground plane to get line
     auto intersection_1 = CGAL::intersection(ground_plane, *plane);
@@ -565,6 +624,14 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
     }
     const auto segment = std::get<Segment>(intersection_2.value());
     CGAL::insert(arr, segment);
+    // TODO: This seems like a hacky way to assign ids to halfedges
+    for (auto heit = arr.halfedges_begin(); heit != arr.halfedges_end();
+         ++heit) {
+      if (heit->source_id == -1) {
+        heit->source_id = id;
+        heit->twin()->source_id = id;
+      }
+    }
   }
 
   if (opt.display) {
@@ -618,7 +685,6 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
   }
 
   if (opt.display) {
-    size_t n_floors = 0;
     auto map_val = [&min, &max, &offset](const double val) {
       const double min_in = min.z - offset;
       const double max_in = max.z + offset;
@@ -628,7 +694,9 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
           (val - min_in) / (max_in - min_in) * (max_out - min_out) + min_out);
     };
 
-    for (auto floor : floors) {
+    for (size_t i = 0; i < floors.size(); ++i) {
+      const auto id = floors[i];
+      const auto &floor = planes[id];
       const double height = std::get<2>(floor)[2];
       pcl::PointCloud<pcl::PointXYZ>::Ptr points(
           new pcl::PointCloud<pcl::PointXYZ>);
@@ -642,7 +710,7 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
 
       auto color = pcl::ViridisLUT::at(map_val(height));
 
-      std::string name = fmt::format("floor_{}-layer", n_floors);
+      std::string name = fmt::format("floor_{}-layer", i);
       viewer->addPolygonMesh<pcl::PointXYZ>(points, {face}, name);
       viewer->setPointCloudRenderingProperties(
           pcl::visualization::PCL_VISUALIZER_COLOR,
@@ -651,7 +719,6 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
           static_cast<double>(color.b) / 255.0, name);
       viewer->setPointCloudRenderingProperties(
           pcl::visualization::PCL_VISUALIZER_OPACITY, 0.2, name);
-      ++n_floors;
     }
   }
 
@@ -669,14 +736,18 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
       std::make_shared<ReUseX::CellComplex>();
 
   auto sorted_floors = floors;
-  std::sort(sorted_floors.begin(), sorted_floors.end(), [](auto a, auto b) {
-    const double h1 = -std::get<0>(a)->d() * std::get<0>(a)->c();
-    const double h2 = -std::get<0>(b)->d() * std::get<0>(b)->c();
-    return h1 < h2;
-  });
+  std::sort(sorted_floors.begin(), sorted_floors.end(),
+            [&planes](auto a, auto b) {
+              const auto &Pa = planes[a];
+              const auto &Pb = planes[b];
+              const double h1 = -std::get<0>(Pa)->d() * std::get<0>(Pa)->c();
+              const double h2 = -std::get<0>(Pb)->d() * std::get<0>(Pb)->c();
+              return h1 < h2;
+            });
 
   for (size_t i = 0; i < sorted_floors.size(); ++i) {
-    const auto plane = std::get<0>(sorted_floors[i]);
+    const auto id = sorted_floors[i];
+    const auto plane = std::get<0>(planes[id]);
     auto height = -plane->d() * plane->c();
     spdlog::trace("Horizontal plane {} at height {:.3f} ", i, height);
   }
@@ -690,9 +761,9 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
                 arr.number_of_vertices() * sorted_floors.size());
   CloudPtr points(new Cloud);
   for (size_t i = 0; i < sorted_floors.size(); ++i) {
-    const auto plane = std::get<0>(sorted_floors[i]);
+    const auto id = sorted_floors[i];
+    const auto plane = std::get<0>(planes[id]);
     const double height = -plane->d() * plane->c();
-    // const double height = std::get<0>(sorted_floors[i])->d();
 
     for (auto vit = arr.vertices_begin(); vit != arr.vertices_end(); ++vit) {
 
@@ -753,7 +824,7 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
         if (++vit == done)
           break;
       }
-      auto f = cc->add_face(verts);
+      auto f = cc->add_face(verts, sorted_floors[i] /* plane id */);
       face_map[fit][i] = f;
       areas[f] = area;
     }
@@ -783,12 +854,12 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
                 arr.number_of_faces() * (sorted_floors.size() - 1));
   auto volumes = cc->add_property_map<Cd, double>("c:volume").first;
   for (size_t i = 0; i < sorted_floors.size() - 1; ++i) {
-    const auto plane1 = std::get<0>(sorted_floors[i]);
-    const auto plane2 = std::get<0>(sorted_floors[i + 1]);
+    const auto id1 = sorted_floors[i];
+    const auto id2 = sorted_floors[i + 1];
+    const auto plane1 = std::get<0>(planes[id1]);
+    const auto plane2 = std::get<0>(planes[id2]);
     const double h1 = -plane1->d() * plane1->c();
     const double h2 = -plane2->d() * plane2->c();
-    // const double h1 = std::get<0>(sorted_floors[i])->d();
-    // const double h2 = std::get<0>(sorted_floors[i + 1])->d();
     const double dist = h2 - h1;
     spdlog::trace("Horizontal section thickness is {:.3f}", dist);
 
@@ -808,7 +879,7 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
             point_map[heit->target()][i + 1],
             point_map[heit->source()][i + 1],
         };
-        auto f = cc->add_face(pts);
+        auto f = cc->add_face(pts, heit->source_id);
         face_map[fit][i] = f;
         areas[f] =
             dist * std::sqrt(CGAL::squared_distance(heit->source()->point(),
@@ -850,27 +921,24 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
     return result;
   };
 
-  // TODO: When pairs have been merged, merge these two loops
-  size_t n_wall_pairs = 0;
-  for (const auto &[i, j] : wall_pairs) {
-    auto plane_i = std::get<0>(walls[i]);
-    auto plane_j = std::get<0>(walls[j]);
-    Eigen::Vector4f plane_i_vec(plane_i->a(), plane_i->b(), plane_i->c(),
-                                plane_i->d());
-    Eigen::Vector4f plane_j_vec(plane_j->a(), plane_j->b(), plane_j->c(),
-                                plane_j->d());
+  for (size_t i = 0; i < pairs.size(); ++i) {
+    const auto &[id1, id2] = pairs[i];
+    auto plane1 = std::get<0>(planes[id1]);
+    auto plane2 = std::get<0>(planes[id2]);
 
-    auto indices = get_cell_indices(cell_centers, -plane_i_vec, -plane_j_vec);
+    Eigen::Vector4f plane1_vec(plane1->a(), plane1->b(), plane1->c(),
+                               plane1->d());
+    Eigen::Vector4f plane2_vec(plane2->a(), plane2->b(), plane2->c(),
+                               plane2->d());
+    auto indices = get_cell_indices(cell_centers, -plane1_vec, -plane2_vec);
 
-    spdlog::trace("Wall pair {}-{} has {} inliers", i, j, indices->size());
-
+    spdlog::trace("Plane pair {}-{} has {} inliers", id1, id2, indices->size());
     for (auto idx : *indices) {
       auto c = cell_center_map[idx];
-      std::get<CellData>((*cc)[c].data).wall_ids.insert(n_wall_pairs);
+      std::get<CellData>((*cc)[c].data).wall_ids.insert(i);
     }
-
-    ++n_wall_pairs;
   }
+  cc->n_walls = pairs.size();
 
   if (opt.display) {
     pcl::visualization::PointCloudColorHandlerCustom<PointT> red_color(
@@ -881,36 +949,77 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
         pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, name);
   }
 
-  for (const auto &[i, j] : floor_pairs) {
-    auto plane_i = std::get<0>(floors[i]);
-    auto plane_j = std::get<0>(floors[j]);
-
-    Eigen::Vector4f plane_i_vec(plane_i->a(), plane_i->b(), plane_i->c(),
-                                plane_i->d());
-    Eigen::Vector4f plane_j_vec(plane_j->a(), plane_j->b(), plane_j->c(),
-                                plane_j->d());
-
-    auto indices = get_cell_indices(cell_centers, -plane_i_vec, -plane_j_vec);
-
-    spdlog::trace("Horizontal pair {}-{} has {} inliers", i, j,
-                  indices->size());
-
-    for (auto idx : *indices) {
-      auto c = cell_center_map[idx];
-      std::get<CellData>((*cc)[c].data).wall_ids.insert(n_wall_pairs);
-    }
-    ++n_wall_pairs;
-  }
-  cc->n_walls = n_wall_pairs;
-
-  // TODO: Compute face and room probabilities
+  // TODO: Compute face probabilities
   auto f_sp = cc->add_property_map<Fd, double>("f:support_probability").first;
+  for (auto fit = cc->faces_begin(); fit != cc->faces_end(); ++fit) {
+    const int plane_id = std::get<FaceData>((*cc)[*fit].data).plane_id;
+    if (plane_id < 0) {
+      spdlog::warn("Face {} has no associated plane",
+                   std::get<FaceData>((*cc)[*fit].data).id);
+      continue; // Horizontal face
+    }
+    const auto plane = std::get<0>(planes[plane_id]);
+    const Eigen::Vector4f plane_vec(plane->a(), plane->b(), plane->c(),
+                                    plane->d());
+    // TODO: Set the main cell (positive side of the plane)
+    auto [begin, end] = boost::out_edges(*fit, *cc);
+    for (auto eit = begin; eit != end; ++eit) {
+
+      // Get the adjacent cell
+      const auto t = boost::target(*eit, *cc);
+      const auto s = boost::source(*eit, *cc);
+      auto c = (*fit == t) ? s : t;
+      if ((*cc)[c].type != NodeType::Cell)
+        continue;
+
+      // spdlog::trace("Face {} is adjacent to cell {}",
+      //               std::get<FaceData>((*cc)[*fit].data).id,
+      //               std::get<CellData>((*cc)[c].data).id);
+
+      const int cell_id = std::get<CellData>((*cc)[c].data).id;
+      const PointT &center = cell_centers->points[cell_id];
+
+      const auto dist = dist_to_plane(plane_vec, center.getVector3fMap());
+      if (dist < 0)
+        continue; // Negative side of the plane
+      (*cc)[*eit].is_main = true;
+    }
+
+    const auto indices = std::get<1>(planes[plane_id]);
+    if (indices->empty()) {
+      // spdlog::warn("Plane {} has no inliers", plane_id);
+      f_sp[*fit] = 0.0;
+      continue;
+    }
+
+    Polygon_2 polygon{};
+    std::transform(cc->vertices_begin(*fit), cc->vertices_end(*fit),
+                   std::back_inserter(polygon), [&](Vd v) {
+                     const auto id = std::get<VertexData>((*cc)[v].data).id;
+                     const PointT &p = points->points[id];
+                     return plane->to_2d(Point_3(p.x, p.y, p.z));
+                   });
+
+    auto inliers = *indices | std::views::transform([&](int idx) {
+      const PointT &p = cloud->points[idx];
+      return plane->to_2d(Point_3(p.x, p.y, p.z));
+    }) | std::views::filter([&](const Point_2 &p) {
+      return polygon.bounded_side(p) == CGAL::ON_BOUNDED_SIDE;
+    }) | collect<std::vector>();
+
+    if (inliers.empty()) {
+      f_sp[*fit] = 0.0;
+      continue;
+    }
+    f_sp[*fit] = compute_grid_coverage(polygon, inliers, 0.2);
+  }
+
+  // TODO: Compute room probabilities
   auto c_rp =
       cc->add_property_map<Cd, std::vector<double>>("c:room_probabilities")
           .first;
 
-  spdlog::debug("Cell complex has {} vertices, {} faces, and {} cells",
-                cc->num_vertices(), cc->num_faces(), cc->num_cells());
+  spdlog::debug("Cell complex: {}", *cc);
 
   spdlog::trace("Initializing Solidifier");
   ReUseX::Solidifier solidifier(cc);

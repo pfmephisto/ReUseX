@@ -26,6 +26,13 @@ size_t CellComplex::num_vertices() const {
 size_t CellComplex::num_faces() const { return _count<NodeType::Face>(this); }
 size_t CellComplex::num_cells() const { return _count<NodeType::Cell>(this); }
 
+std::ostream &CellComplex::operator<<(std::ostream &os) const {
+  spdlog::warn("This << operator mith chage in the future");
+  os << fmt::format("[{}c {}f {}v {}r  {}w]", num_cells(), num_faces(),
+                    num_vertices(), n_rooms, n_walls);
+  return os;
+}
+
 auto CellComplex::vertices_begin() const -> CellComplex::VertexIterator {
   auto [begin, end] = boost::vertices(*this);
   return boost::make_filter_iterator(IsVertex{this}, begin, end);
@@ -67,6 +74,19 @@ auto CellComplex::vertices_end(Vertex f) const
   auto end = boost::adjacent_vertices(f, *this).second;
   return boost::make_filter_iterator(IsVertex{this}, end, end);
 }
+
+/*
+auto CellComplex::cells_begin(Vertex f) const
+    -> CellComplex::CellOnFaceIterator {
+  auto [begin, end] = boost::adjacent_vertices(f, *this);
+  return boost::make_filter_iterator(IsCell{this}, begin, end);
+}
+
+auto CellComplex::cells_end(Vertex f) const -> CellComplex::CellOnFaceIterator {
+  auto end = boost::adjacent_vertices(f, *this).second;
+  return boost::make_filter_iterator(IsCell{this}, end, end);
+}
+*/
 
 auto CellComplex::faces_begin(Vertex c) const
     -> CellComplex::FaceOnCellIterator {

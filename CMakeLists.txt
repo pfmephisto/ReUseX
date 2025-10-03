@@ -177,6 +177,8 @@ endif()
 set(REUSEX_SOURCES
     src/ReUseX/io.cpp
     src/ReUseX/Yolo.cpp
+    src/ReUseX/CellComplex.cpp
+    src/ReUseX/Solidifier.cpp
 )
 
 set(REUSEX_HEADERS
@@ -187,6 +189,8 @@ set(REUSEX_HEADERS
     include/ReUseX/split.hpp
     include/ReUseX/straiten.hpp
     include/ReUseX/Yolo.hpp
+    include/ReUseX/CellComplex.hpp
+    include/ReUseX/Solidifier.hpp
     include/pcl/markov_clustering.hpp
     include/pcl/planar_region_growing.hpp
     include/pcl/polygonal_surface_reconstruction.hpp

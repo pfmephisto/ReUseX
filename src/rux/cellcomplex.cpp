@@ -23,11 +23,16 @@
 #include <pcl/common/colors.h>
 #include <pcl/common/common.h>
 #include <pcl/common/pca.h>
+#include <pcl/filters/filter.h>
+#include <pcl/filters/passthrough.h>
 #include <pcl/filters/plane_clipper3D.h>
+#include <pcl/filters/uniform_sampling.h>
 #include <pcl/io/auto_io.h>
 #include <pcl/io/pcd_io.h>
 #include <pcl/point_types.h>
 #include <pcl/visualization/pcl_visualizer.h>
+
+#include <embree4/rtcore.h>
 
 #include <algorithm>
 #include <filesystem>
@@ -127,6 +132,14 @@ using PlaneIndicesPairs = std::vector<PlaneIndicesPair>;
 using PCA = pcl::PCA<PointT>;
 
 using Planes = std::vector<std::tuple<Plane_3Ptr, IndicesPtr, Eigen::Vector4f>>;
+
+using RTCVertex = struct RTCVertex {
+  float x, y, z, r; // x, y, z coordinates and radius
+};
+
+using RTCNormal = struct RTCNormal {
+  float x, y, z; // x, y, z components of the normal vector
+};
 
 namespace collect_impl {
 template <typename Container>
@@ -452,6 +465,27 @@ double compute_grid_coverage(const Polygon_2 &polygon,
   return static_cast<double>(covered_cells) / total_cells;
 }
 
+// Spherical Fibonacci
+std::vector<Eigen::Vector3d> sampleSphericalFibonacci(size_t N) {
+  std::vector<Eigen::Vector3d> out;
+  out.reserve(N);
+  if (N == 0)
+    return out;
+  constexpr double golden_angle =
+      M_PI * (3.0 - std::sqrt(5.0)); // ~2.3999632297
+
+  for (size_t i = 0; i < N; ++i) {
+    double t = (double)i;
+    double z = 1.0 - 2.0 * t / (double)(N - 1); // maps to [1, -1] if N>1
+    double phi = golden_angle * t;
+    double r = std::sqrt(std::max(0.0, 1.0 - z * z));
+    double x = std::cos(phi) * r;
+    double y = std::sin(phi) * r;
+    out.emplace_back(x, y, z);
+  }
+  return out;
+}
+
 void setup_subcommand_cellcomplex(CLI::App &app) {
 
   auto opt = std::make_shared<SubcommandCellcomplexOptions>();
@@ -462,6 +496,9 @@ void setup_subcommand_cellcomplex(CLI::App &app) {
   sub->add_option("input", opt->input, "Path to the input file.")
       ->required()
       ->check(CLI::ExistingFile);
+  sub->add_option("labels", opt->labels_path, "Path to the input label file.")
+      ->required()
+      ->check(CLI::ExistingFile); // ->default_val(opt->labels);
   sub->add_option("output", opt->output, "Path to the output file.")
       ->default_val(opt->output);
 
@@ -493,6 +530,7 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
 
   assert(fs::exists(cloud_path) && "Input point cloud file does not exist");
   assert(fs::exists(planes_path) && "Input planes file does not exist");
+  assert(fs::exists(opt.labels_path) && "Input labels file does not exist");
 
   CloudPtr cloud(new Cloud);
 
@@ -503,6 +541,13 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
     spdlog::trace("Displaying point cloud with {} points", cloud->size());
     const std::string cloud_name = "cloud";
     viewer->addPointCloud<PointT>(cloud, cloud_name);
+  }
+
+  CloudLPtr room_labels(new CloudL);
+  pcl::io::load<LabelT>(opt.labels_path.string(), *room_labels);
+  if (room_labels->size() != cloud->size()) {
+    spdlog::error("Labels size does not match point cloud size");
+    return EXIT_FAILURE;
   }
 
   spdlog::trace("Reading input file: {}", planes_path);
@@ -522,6 +567,18 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
         inliers[i], centroids[i]));
   }
   spdlog::trace("Number of planes read: {}", planes.size());
+
+  // Create normal cloud
+  CloudNPtr normals(new CloudN);
+  normals->resize(cloud->size());
+  for (size_t i = 0; i < planes.size(); ++i) {
+    const auto &coeff = planes_coeff[i];
+    for (const auto &index : *inliers[i]) {
+      normals->points[index].normal_x = coeff.values[0];
+      normals->points[index].normal_y = coeff.values[1];
+      normals->points[index].normal_z = coeff.values[2];
+    }
+  }
 
   planes = merge_plaes(planes, cloud);
   spdlog::debug("Number of planes after merging: {}", planes.size());
@@ -1015,9 +1072,159 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
   }
 
   // TODO: Compute room probabilities
+  const double grid_size_ = 0.2;
+  const double radius_ = grid_size_ * M_SQRT2;
+  const float epsilon_ = 0.01f;
+  unsigned int old_mxcsr = _mm_getcsr(); // save current flagsq
+
+  _MM_SET_FLUSH_ZERO_MODE(_MM_FLUSH_ZERO_ON);
+  _MM_SET_DENORMALS_ZERO_MODE(_MM_DENORMALS_ZERO_ON);
+
+  spdlog::trace("Creating device and scene for ray tracing");
+  RTCDevice device_ = rtcNewDevice("verbose=0"); // 0-3
+  RTCScene scene_ = rtcNewScene(device_);
+  rtcSetSceneFlags(scene_, RTC_SCENE_FLAG_ROBUST);
+  rtcSetSceneBuildQuality(scene_, RTC_BUILD_QUALITY_HIGH);
+  assert(device_ != nullptr && "Error creating Embree device");
+  assert(scene_ != nullptr && "Error creating Embree scene");
+  // rtcSetDeviceErrorFunction(device_, rtcCheckError, nullptr);
+
+  // TODO: Get Subsampled indices for point cloud
+
+  // Get unique labels
+  std::set<unsigned int> labels_set{};
+  for (const auto &l : room_labels->points)
+    labels_set.insert(l.label);
+
+  std::vector<unsigned int> labels(labels_set.begin(), labels_set.end());
+
   auto c_rp =
       cc->add_property_map<Cd, std::vector<double>>("c:room_probabilities")
           .first;
+
+  for (auto cit = cc->cells_begin(); cit != cc->cells_end(); ++cit)
+    c_rp[*cit] = std::vector<double>(labels.size(), 0.0);
+
+  // Intersect with ground plane to get line/ INFO: Create Embree scene
+  spdlog::trace("Creating scene geometry for ray tracing");
+  pcl::PassThrough<LabelT> pass;
+  pass.setInputCloud(room_labels);
+  pass.setFilterFieldName("label");
+
+  pcl::UniformSampling<LabelT> us;
+  us.setInputCloud(room_labels);
+  us.setRadiusSearch(grid_size_);
+  struct RTCData {
+    size_t label_index;
+  };
+  using RTCDataPtr = std::shared_ptr<RTCData>;
+  std::vector<RTCDataPtr> rtc_data_vec{}; // To keep data alive
+  for (size_t i = 0; i < labels.size(); ++i) {
+
+    IndicesPtr indices(new Indices);
+    pass.setFilterLimits(static_cast<float>(labels[i]),
+                         static_cast<float>(labels[i]));
+    pass.filter(*indices);
+    us.setIndices(indices);
+    us.filter(*indices);
+
+    RTCGeometry geometry_ =
+        rtcNewGeometry(device_, RTC_GEOMETRY_TYPE_ORIENTED_DISC_POINT);
+
+    RTCVertex *vb = (RTCVertex *)rtcSetNewGeometryBuffer(
+        geometry_, RTC_BUFFER_TYPE_VERTEX, 0, RTC_FORMAT_FLOAT4,
+        sizeof(RTCVertex), indices->size());
+
+    RTCNormal *nb = (RTCNormal *)rtcSetNewGeometryBuffer(
+        geometry_, RTC_BUFFER_TYPE_NORMAL, 0, RTC_FORMAT_FLOAT3,
+        sizeof(RTCNormal), indices->size());
+
+    for (size_t i = 0; i < indices->size(); ++i) {
+      const auto &p = cloud->points[indices->at(i)];
+      const auto &n = normals->points[indices->at(i)];
+
+      vb[i].x = static_cast<float>(p.x);
+      vb[i].y = static_cast<float>(p.y);
+      vb[i].z = static_cast<float>(p.z);
+      vb[i].r = static_cast<float>(radius_) * 1.05f;
+
+      nb[i].x = static_cast<float>(n.normal_x);
+      nb[i].y = static_cast<float>(n.normal_y);
+      nb[i].z = static_cast<float>(n.normal_z);
+    }
+
+    rtcSetGeometryMask(geometry_, 0xFFFFFFFF);
+
+    rtc_data_vec.emplace_back(new RTCData{i});
+    rtcSetGeometryUserData(geometry_, rtc_data_vec.back().get());
+
+    rtcCommitGeometry(geometry_);
+    rtcAttachGeometry(scene_, geometry_);
+    rtcReleaseGeometry(geometry_);
+  }
+
+  spdlog::trace("Committing scene");
+  rtcCommitScene(scene_);
+
+  const auto dirs = sampleSphericalFibonacci(100);
+  /*
+   #pragma omp parallel for reduction(mergeTriplets : triplets) \
+    schedule(dynamic, 4)
+  */
+  for (auto cit = cc->cells_begin(); cit != cc->cells_end(); ++cit) {
+    // For each cell create n random rays
+    // Count the number of intersections per id nad normalize
+    for (size_t i = 0; i < dirs.size(); ++i) {
+      const auto dir = dirs[i];
+
+      const size_t idx = std::get<CellData>((*cc)[*cit].data).id;
+      Eigen::Vector3f point_s = cell_centers->points[idx].getVector3fMap();
+
+      RTCRayHit rayhit;
+      rayhit.ray.org_x = point_s.x();
+      rayhit.ray.org_y = point_s.y();
+      rayhit.ray.org_z = point_s.z();
+      rayhit.ray.dir_x = dir.x();
+      rayhit.ray.dir_y = dir.y();
+      rayhit.ray.dir_z = dir.z();
+
+      rayhit.ray.tnear = epsilon_;
+      // rayhit.ray.tfar = dir_norm - epsilon_;
+
+      // rayhit.ray.time = 0.0f;       // motion blur time, not used here
+      // rayhit.ray.mask = 0xFFFFFFFF; // mask for ray types, not used here
+      // rayhit.ray.id = 0;            // ray ID, not used here
+      // rayhit.ray.flags = 0;         // ray flags, not used here
+
+      rtcIntersect1(scene_, &rayhit);
+      if (rayhit.hit.geomID != RTC_INVALID_GEOMETRY_ID) {
+        // Check if backside
+        const auto normal =
+            Eigen::Vector3f(rayhit.hit.Ng_x, rayhit.hit.Ng_y, rayhit.hit.Ng_z)
+                .normalized();
+        const Eigen::Vector3f dir_vec(dir.x(), dir.y(), dir.z());
+        if (normal.dot(dir_vec) < 0)
+          continue; // Backside
+
+        auto geometry = rtcGetGeometry(scene_, rayhit.hit.geomID);
+        rtcGetGeometryUserData(geometry);
+        RTCData *data = (RTCData *)rtcGetGeometryUserData(geometry);
+
+        // #pragma omp critical
+        c_rp[*cit][data->label_index] += 1;
+      }
+
+      // Compute probabilities
+      double sum = std::accumulate(c_rp[*cit].begin(), c_rp[*cit].end(), 0.0);
+      if (sum > 0)
+        for (size_t j = 0; j < c_rp[*cit].size(); ++j)
+          c_rp[*cit][j] /= sum;
+    }
+  }
+  rtcReleaseScene(scene_);
+  rtcReleaseDevice(device_);
+
+  _mm_setcsr(old_mxcsr); // restore old flags
 
   spdlog::debug("Cell complex: {}", *cc);
 

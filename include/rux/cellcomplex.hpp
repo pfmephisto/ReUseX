@@ -12,6 +12,7 @@ namespace fs = std::filesystem;
 /// Collection of all options of Subcommand A.
 struct SubcommandCellcomplexOptions {
   fs::path input;
+  fs::path labels_path = fs::current_path() / "clusters.pcd";
   fs::path output = fs::current_path() / "output.vtk";
 
   bool display = false;

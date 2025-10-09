@@ -135,10 +135,11 @@ class CellComplex
   };
   using IsVertex = Is_Type<NodeType::Vertex>;
   using IsCell = Is_Type<NodeType::Cell>;
-  struct IsFace {
+  using IsFace = Is_Type<NodeType::Face>;
+  struct IsFaceBetweenCells {
     const CellComplex *g;
-    IsFace() = delete;
-    IsFace(const CellComplex *g) : g(g) {}
+    IsFaceBetweenCells() = delete;
+    IsFaceBetweenCells(const CellComplex *g) : g(g) {}
     bool operator()(CellComplex::vertex_descriptor vd) const {
       auto const &prop = (*g)[vd];
       int n_adj = 0;
@@ -152,6 +153,8 @@ class CellComplex
 
   using VertexIterator = boost::filter_iterator<IsVertex, GraphIter>;
   using FaceIterator = boost::filter_iterator<IsFace, GraphIter>;
+  using FaceBetweenCellIterator =
+      boost::filter_iterator<IsFaceBetweenCells, GraphIter>;
   using CellIterator = boost::filter_iterator<IsCell, GraphIter>;
   using VertexOnFaceIterator = boost::filter_iterator<IsVertex, AdjacencyIter>;
   using FaceOnCellIterator = boost::filter_iterator<IsFace, AdjacencyIter>;
@@ -210,6 +213,9 @@ class CellComplex
 
   auto faces_begin() const -> FaceIterator;
   auto faces_end() const -> FaceIterator;
+
+  auto faces_between_cells_begin() const -> FaceBetweenCellIterator;
+  auto faces_between_cells_end() const -> FaceBetweenCellIterator;
 
   auto cells_begin() const -> CellIterator;
   auto cells_end() const -> CellIterator;

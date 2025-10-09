@@ -53,6 +53,18 @@ auto CellComplex::faces_end() const -> CellComplex::FaceIterator {
   return boost::make_filter_iterator(IsFace{this}, end, end);
 }
 
+auto CellComplex::faces_between_cells_begin() const
+    -> CellComplex::FaceBetweenCellIterator {
+  auto [begin, end] = boost::vertices(*this);
+  return boost::make_filter_iterator(IsFaceBetweenCells{this}, begin, end);
+}
+
+auto CellComplex::faces_between_cells_end() const
+    -> CellComplex::FaceBetweenCellIterator {
+  auto end = boost::vertices(*this).second;
+  return boost::make_filter_iterator(IsFaceBetweenCells{this}, end, end);
+}
+
 auto CellComplex::cells_begin() const -> CellComplex::CellIterator {
   auto [begin, end] = boost::vertices(*this);
   return boost::make_filter_iterator(IsCell{this}, begin, end);
@@ -91,6 +103,8 @@ auto CellComplex::cells_end(Vertex f) const -> CellComplex::CellOnFaceIterator {
 auto CellComplex::faces_begin(Vertex c) const
     -> CellComplex::FaceOnCellIterator {
   auto [begin, end] = boost::adjacent_vertices(c, *this);
+  spdlog::trace("Cell {} has {} adjacent vertices", c,
+                std::distance(begin, end));
   return boost::make_filter_iterator(IsFace{this}, begin, end);
 }
 
@@ -102,23 +116,33 @@ auto CellComplex::faces_end(Vertex c) const -> CellComplex::FaceOnCellIterator {
 auto CellComplex::get_a(Vertex f) const -> CellComplex::Vertex {
   auto [begin, end] = boost::out_edges(f, *this);
   for (auto it = begin; it != end; ++it)
-    if ((*this)[*it].is_main) {
+    if ((*this)[*it].is_main) { // in front of the plane
       auto u = boost::source(*it, *this);
       auto v = boost::target(*it, *this);
-      return (f == u) ? v : u; // opposite vertex
+      auto c = (f == u) ? v : u;             // opposite vertex
+      if ((*this)[c].type != NodeType::Cell) // skip if not a cell
+        continue;
+      return c;
     }
-  throw std::runtime_error("Face does not have an adjacent cell on side A");
+  auto id = std::get<FaceData>((*this)[f].data).id;
+  throw std::runtime_error(
+      fmt::format("Face does not have an adjacent cell on side A", id));
 }
 
 auto CellComplex::get_b(Vertex f) const -> CellComplex::Vertex {
   auto [begin, end] = boost::out_edges(f, *this);
   for (auto it = begin; it != end; ++it)
-    if ((*this)[*it].is_main) {
+    if (!(*this)[*it].is_main) { // behind of the plane
       auto u = boost::source(*it, *this);
       auto v = boost::target(*it, *this);
-      return (f == u) ? v : u; // opposite vertex
+      auto c = (f == u) ? v : u;             // opposite vertex
+      if ((*this)[c].type != NodeType::Cell) // skip if not a cell
+        continue;
+      return c;
     }
-  throw std::runtime_error("Face does not have an adjacent cell on side B");
+  auto id = std::get<FaceData>((*this)[f].data).id;
+  throw std::runtime_error(
+      fmt::format("Face {} does not have an adjacent cell on side B", id));
 }
 
 } // namespace ReUseX

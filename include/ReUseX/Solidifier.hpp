@@ -32,7 +32,6 @@ class Solidifier {
 
   std::unordered_map<Cd, std::vector<Variable *>> _room_variables{};
   std::unordered_map<Cd, std::vector<Variable *>> _wall_variables{};
-  std::unordered_map<Cd, Variable *> _outside_variables{};
 
   static constexpr double alpha = 0.04;
 
@@ -42,12 +41,32 @@ class Solidifier {
     spdlog::trace("Solidifier created");
   }
 
-  std::optional<std::vector<double>> solve() {
+  auto variables() { return solver.variables(); }
+
+  std::optional<std::pair<std::unordered_map<Cd, int>,
+                          std::unordered_map<Cd, std::set<int>>>>
+  solve() {
     spdlog::trace("Start solving MIP");
 
     _setupVariables();
+    // for (auto var : solver.variables()) {
+    //   spdlog::trace("Variable: {:<8}", var->name());
+    // }
     _setupObjective();
+    // auto obj = solver.objective();
+    // for (auto var : solver.variables()) {
+    //   auto coeff = obj->get_coefficient(var);
+    //   auto offset = obj->offset();
+    //   spdlog::trace(
+    //       "Objective variable: {:<8} coeff: {:>8.3f} offset: {:>8.3f}",
+    //       var->name(), coeff, offset);
+    // }
     _setupConstraints();
+    // for (auto con : solver.constraints()) {
+    //   //   spdlog::trace("Constraint: {}", con->to_string());
+    // }
+
+    spdlog::trace("Start solving");
 
     // INFO: Solve
     if (!solver.solve()) {
@@ -55,19 +74,31 @@ class Solidifier {
       return {};
     }
 
-    return solver.solution();
+    auto room_label = std::unordered_map<Cd, int>{};
+    auto wall_label = std::unordered_map<Cd, std::set<int>>{};
+    for (auto cit = _cc->cells_begin(); cit != _cc->cells_end(); ++cit) {
+      for (size_t i = 0; i < _room_variables[*cit].size(); ++i) {
+        if (_room_variables[*cit][i]->solution_value() > 0.5)
+          room_label[*cit] = static_cast<int>(i);
+      }
+      wall_label[*cit] = std::set<int>{};
+      for (size_t i = 0; i < _wall_variables[*cit].size(); ++i) {
+        if (_wall_variables[*cit][i]->solution_value() > 0.5)
+          wall_label[*cit].insert(static_cast<int>(i));
+      }
+    }
+
+    return std::make_pair(room_label, wall_label);
   }
 
     private:
-  // TODO: Consider if the pre-compute functions should be part of this class or
-  // be the resposibility of the function construcitn the cell CellComplex.
-  // Some things, like are and volume are easier to compute there, while the
-  // reconstruction logic would be nicer if self-contained here.
-  // void _pre_compute_data();
-  // void _set_f_area(Fd fit);
-  // void _set_c_volume(Cd cit);
-  // void _set_fs_probability(Fd fit);
-  // void _set_cr_probabilities(Cd cit);
+  // TODO: Consider if the pre-compute functions should be part of this
+  // class or be the resposibility of the function construcitn the cell
+  // CellComplex. Some things, like are and volume are easier to compute
+  // there, while the reconstruction logic would be nicer if self-contained
+  // here. void _pre_compute_data(); void _set_f_area(Fd fit); void
+  // _set_c_volume(Cd cit); void _set_fs_probability(Fd fit); void
+  // _set_cr_probabilities(Cd cit);
 
   void _setupVariables();
   void _setupObjective();

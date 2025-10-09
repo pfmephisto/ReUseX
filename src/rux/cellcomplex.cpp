@@ -7,6 +7,7 @@
 #include <CLI/CLI.hpp>
 #include <spdlog/spdlog.h>
 
+#include <fmt/color.h>
 #include <fmt/std.h>
 
 #include <ReUseX/CellComplex.hpp>
@@ -19,6 +20,7 @@
 #include <CGAL/Exact_predicates_exact_constructions_kernel.h>
 #include <CGAL/Polygon_2.h>
 #include <CGAL/Polygon_2_algorithms.h>
+#include <CGAL/circulator.h>
 
 #include <pcl/common/colors.h>
 #include <pcl/common/common.h>
@@ -131,6 +133,7 @@ using PlaneIndicesPairs = std::vector<PlaneIndicesPair>;
 
 using PCA = pcl::PCA<PointT>;
 
+// FIXME: Use Eigen::Vector4f instead of Plane_3Ptr
 using Planes = std::vector<std::tuple<Plane_3Ptr, IndicesPtr, Eigen::Vector4f>>;
 
 using RTCVertex = struct RTCVertex {
@@ -496,7 +499,7 @@ void setup_subcommand_cellcomplex(CLI::App &app) {
   sub->add_option("input", opt->input, "Path to the input file.")
       ->required()
       ->check(CLI::ExistingFile);
-  sub->add_option("labels", opt->labels_path, "Path to the input label file.")
+  sub->add_option("labels", opt->labels_path, "Path to the input labe file.")
       ->required()
       ->check(CLI::ExistingFile); // ->default_val(opt->labels);
   sub->add_option("output", opt->output, "Path to the output file.")
@@ -518,10 +521,20 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
   //   [link](https://doc.cgal.org/latest/Shape_regularization/index.html#Chapter_Shape_Regularization)
 
   pcl::visualization::PCLVisualizer::Ptr viewer;
+  int vp_1, vp_2;
   if (opt.display) {
     viewer = std::make_shared<pcl::visualization::PCLVisualizer>("3D Viewer");
-    viewer->setBackgroundColor(0, 0, 0);
-    viewer->addCoordinateSystem(1.0);
+
+    // INFO: Create viewports 1
+    viewer->createViewPort(0.0, 0.0, 0.5, 1.0, vp_1);
+    viewer->setBackgroundColor(0, 0, 0, 0);
+    viewer->addCoordinateSystem(1.0, "reference_vp1", vp_1);
+
+    // INFO: Create viewports 2
+    viewer->createViewPort(0.5, 0.0, 1.0, 1.0, vp_2);
+    viewer->setBackgroundColor(0, 0, 0, 1);
+    viewer->addCoordinateSystem(1.0, "reference_vp2", vp_2);
+
     viewer->initCameraParameters();
   }
 
@@ -539,16 +552,40 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
 
   if (opt.display) {
     spdlog::trace("Displaying point cloud with {} points", cloud->size());
-    const std::string cloud_name = "cloud";
-    viewer->addPointCloud<PointT>(cloud, cloud_name);
+    viewer->addPointCloud<PointT>(cloud, "cloud", vp_1);
   }
 
+  spdlog::trace("Reading labels file: {}", opt.labels_path.string());
   CloudLPtr room_labels(new CloudL);
   pcl::io::load<LabelT>(opt.labels_path.string(), *room_labels);
   if (room_labels->size() != cloud->size()) {
     spdlog::error("Labels size does not match point cloud size");
     return EXIT_FAILURE;
   }
+
+  // INFO: Create room labels from point colors
+
+  // std::unordered_set<uint32_t> unique_labels;
+  // for (const auto &pt : cloud->points)
+  //   unique_labels.insert(pt.rgba);
+
+  // spdlog::info("Found {} unique room labels", unique_labels.size());
+  // std::vector<uint32_t> labels_tmp(unique_labels.begin(),
+  // unique_labels.end()); std::unordered_map<uint32_t, size_t>
+  // label_to_index{};
+
+  // for (size_t i = 0; i < labels_tmp.size(); ++i)
+  //   label_to_index[labels_tmp[i]] = i;
+
+  // spdlog::info("Labels: {}", fmt::join(labels_tmp, ", "));
+  // room_labels->points.resize(cloud->size());
+  // room_labels->width = cloud->width;
+  // room_labels->height = cloud->height;
+
+  // for (size_t i = 0; i < cloud->size(); ++i)
+  //   room_labels->points[i].label = label_to_index[cloud->points[i].rgba];
+
+  // pcl::io::save<LabelT>(opt.labels_path.string(), *room_labels);
 
   spdlog::trace("Reading input file: {}", planes_path);
   // TODO: Rewrite reader function to be more portable
@@ -595,6 +632,7 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
   spdlog::debug("Number of horizonal planes: {}", walls.size());
   spdlog::debug("Number of vertical planes: {}", floors.size());
 
+  // INFO: Display planes
   if (opt.display) {
     size_t count = 0;
     for (size_t i = 0; i < walls.size(); ++i) {
@@ -607,16 +645,17 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
       coeff.values = {
           static_cast<float>(plane->a()), static_cast<float>(plane->b()),
           static_cast<float>(plane->c()), static_cast<float>(plane->d())};
-      viewer->addPlane(coeff, origin[0], origin[1], origin[2], name);
+      viewer->addPlane(coeff, origin[0], origin[1], origin[2], name, vp_1);
       auto color = pcl::GlasbeyLUT::at(count);
       viewer->setShapeRenderingProperties(
           pcl::visualization::PCL_VISUALIZER_COLOR,
           static_cast<double>(color.r) / 255.0,
           static_cast<double>(color.g) / 255.0,
-          static_cast<double>(color.b) / 255.0, name);
-      const PointT p(origin[0], origin[1], origin[2]);
-      viewer->addText3D(name, p, 0.2, 1.0, 1.0, 1.0,
-                        fmt::format("text_{}", name));
+          static_cast<double>(color.b) / 255.0, name, vp_1);
+      // Add text next to plane
+      // const PointT p(origin[0], origin[1], origin[2]);
+      // viewer->addText3D(name, p, 0.2, 1.0, 1.0, 1.0,
+      //                   fmt::format("text_{}", name), vp_1);
       ++count;
     }
     for (size_t i = 0; i < floors.size(); ++i) {
@@ -629,7 +668,7 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
       coeff.values = {
           static_cast<float>(plane->a()), static_cast<float>(plane->b()),
           static_cast<float>(plane->c()), static_cast<float>(plane->d())};
-      viewer->addPlane(coeff, origin[0], origin[1], origin[2], name);
+      viewer->addPlane(coeff, origin[0], origin[1], origin[2], name, vp_1);
       auto color = pcl::GlasbeyLUT::at(count);
       viewer->setShapeRenderingProperties(
           pcl::visualization::PCL_VISUALIZER_COLOR,
@@ -638,7 +677,7 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
           static_cast<double>(color.b) / 255.0, name);
       const PointT p(origin[0], origin[1], origin[2]);
       viewer->addText3D(name, p, 0.2, 1.0, 1.0, 1.0,
-                        fmt::format("text_{}", name));
+                        fmt::format("text_{}", name), vp_1);
       ++count;
     }
     for (const auto &[i, j] : pairs) {
@@ -649,7 +688,7 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
       std::string name = fmt::format("pair_{}-{}", i, j);
       p1.getVector3fMap() = origin_i.head<3>();
       p2.getVector3fMap() = origin_j.head<3>();
-      viewer->addLine<PointT>(p1, p2, 0.0, 0.0, 1.0, name);
+      viewer->addLine<PointT>(p1, p2, 0.0, 0.0, 1.0, name, vp_1);
     }
   }
 
@@ -691,6 +730,7 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
     }
   }
 
+  // INFO: Display arrangement
   if (opt.display) {
     constexpr double z_offset = -0.7;
     constexpr uint8_t color[3] = {0, 0, 0};
@@ -729,18 +769,19 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
       // Add polygon to viewer
       const std::string name = fmt::format("face_{}", count);
       auto c = pcl::GlasbeyLUT::at(count);
-      viewer->addPolygonMesh<PointT>(points, {face}, name);
+      viewer->addPolygonMesh<PointT>(points, {face}, name, vp_1);
       viewer->setPointCloudRenderingProperties(
           pcl::visualization::PCL_VISUALIZER_COLOR,
           static_cast<double>(c.r) / 255.0, static_cast<double>(c.g) / 255.0,
-          static_cast<double>(c.b) / 255.0, name);
+          static_cast<double>(c.b) / 255.0, name, vp_1);
       viewer->setPointCloudRenderingProperties(
-          pcl::visualization::PCL_VISUALIZER_OPACITY, 0.5, name);
+          pcl::visualization::PCL_VISUALIZER_OPACITY, 0.5, name, vp_1);
 
       ++count;
     }
   }
 
+  // INFO: Display floors
   if (opt.display) {
     auto map_val = [&min, &max, &offset](const double val) {
       const double min_in = min.z - offset;
@@ -768,14 +809,14 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
       auto color = pcl::ViridisLUT::at(map_val(height));
 
       std::string name = fmt::format("floor_{}-layer", i);
-      viewer->addPolygonMesh<pcl::PointXYZ>(points, {face}, name);
+      viewer->addPolygonMesh<pcl::PointXYZ>(points, {face}, name, vp_1);
       viewer->setPointCloudRenderingProperties(
           pcl::visualization::PCL_VISUALIZER_COLOR,
           static_cast<double>(color.r) / 255.0,
           static_cast<double>(color.g) / 255.0,
           static_cast<double>(color.b) / 255.0, name);
       viewer->setPointCloudRenderingProperties(
-          pcl::visualization::PCL_VISUALIZER_OPACITY, 0.2, name);
+          pcl::visualization::PCL_VISUALIZER_OPACITY, 0.2, name, vp_1);
     }
   }
 
@@ -835,13 +876,14 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
     }
   }
 
+  // INFO: Display vertices
   if (opt.display) {
     const std::string name = "cellcomplex_vertices";
     pcl::visualization::PointCloudColorHandlerCustom<PointT> color_handler(
         points, 0, 0, 255);
-    viewer->addPointCloud<PointT>(points, color_handler, name);
+    viewer->addPointCloud<PointT>(points, color_handler, name, vp_2);
     viewer->setPointCloudRenderingProperties(
-        pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, name);
+        pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, name, vp_2);
   }
 
   // Initialize face map
@@ -918,7 +960,9 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
     const double h1 = -plane1->d() * plane1->c();
     const double h2 = -plane2->d() * plane2->c();
     const double dist = h2 - h1;
-    spdlog::trace("Horizontal section thickness is {:.3f}", dist);
+    spdlog::trace("Horizontal section thickness is {:.3}", dist);
+
+    std::unordered_map<Arrangement::Halfedge_handle, Fd> face_cache{};
 
     for (auto fit = arr.faces_begin(); fit != arr.faces_end(); ++fit) {
       if (fit->is_unbounded())
@@ -928,24 +972,34 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
       fc.push_back(face_map[fit][i]);
       fc.push_back(face_map[fit][i + 1]);
 
-      // Walk around the outer boundary
-      for (auto heit = fit->outer_ccb(), done = heit;;) {
-        const auto pts = {
-            point_map[heit->source()][i],
-            point_map[heit->target()][i],
-            point_map[heit->target()][i + 1],
-            point_map[heit->source()][i + 1],
+      for (auto he : CGAL::Container_from_circulator(fit->outer_ccb())) {
+
+        // auto he_id = he.he;
+        auto key = he.twin()->twin();
+        auto cbb = he.ccb();
+        assert(cbb != key);
+
+        // INFO: Reuse vertical faces
+        if (face_cache.contains(he.ccb())) {
+          fc.push_back(face_cache[he.ccb()]);
+          continue;
+        }
+
+        const auto pts = std::array{
+            point_map[he.source()][i],
+            point_map[he.target()][i],
+            point_map[he.target()][i + 1],
+            point_map[he.source()][i + 1],
         };
-        auto f = cc->add_face(pts, heit->source_id);
+
+        auto f = cc->add_face(pts, he.source_id);
         face_map[fit][i] = f;
-        areas[f] =
-            dist * std::sqrt(CGAL::squared_distance(heit->source()->point(),
-                                                    heit->target()->point()));
+
+        areas[f] = dist * std::sqrt(CGAL::squared_distance(
+                              he.source()->point(), he.target()->point()));
 
         fc.push_back(f);
-
-        if (++heit == done)
-          break;
+        face_cache[he.twin()] = f; // Cache twin halfedge
       }
 
       // Create the cell
@@ -965,6 +1019,7 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
     }
   }
 
+  spdlog::info("Assigning wall ids to each cell");
   auto get_cell_indices = [](CloudConstPtr cloud, Eigen::Vector4f const &p1,
                              Eigen::Vector4f const &p2) {
     pcl::PlaneClipper3D<PointT> clipper(p1);
@@ -997,6 +1052,8 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
   }
   cc->n_walls = pairs.size();
 
+  // INFO: Display cell centers
+  /*
   if (opt.display) {
     pcl::visualization::PointCloudColorHandlerCustom<PointT> red_color(
         cell_centers, 255, 0, 0);
@@ -1005,20 +1062,24 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
     viewer->setPointCloudRenderingProperties(
         pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, name);
   }
+  */
 
-  // TODO: Compute face probabilities
-  auto f_sp = cc->add_property_map<Fd, double>("f:support_probability").first;
+  // INFO: Set main cell for each face
+  spdlog::info("Setting main cell for each face");
   for (auto fit = cc->faces_begin(); fit != cc->faces_end(); ++fit) {
-    const int plane_id = std::get<FaceData>((*cc)[*fit].data).plane_id;
+    // const auto face_id = std::get<FaceData>((*cc)[*fit].data).id;
+    const auto plane_id = std::get<FaceData>((*cc)[*fit].data).plane_id;
+
     if (plane_id < 0) {
       spdlog::warn("Face {} has no associated plane",
                    std::get<FaceData>((*cc)[*fit].data).id);
-      continue; // Horizontal face
+      continue;
     }
+
     const auto plane = std::get<0>(planes[plane_id]);
     const Eigen::Vector4f plane_vec(plane->a(), plane->b(), plane->c(),
                                     plane->d());
-    // TODO: Set the main cell (positive side of the plane)
+
     auto [begin, end] = boost::out_edges(*fit, *cc);
     for (auto eit = begin; eit != end; ++eit) {
 
@@ -1037,10 +1098,31 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
       const PointT &center = cell_centers->points[cell_id];
 
       const auto dist = dist_to_plane(plane_vec, center.getVector3fMap());
-      if (dist < 0)
-        continue; // Negative side of the plane
-      (*cc)[*eit].is_main = true;
+      (*cc)[*eit].is_main = dist >= 0;
+      auto status = (*cc)[*eit].is_main
+                        ? fmt::format(fmt::fg(fmt::rgb(0, 255, 0)), "true")
+                        : fmt::format(fmt::fg(fmt::rgb(255, 0, 0)), "false");
+      spdlog::trace("Face {:<3} cell {:>3} is main {}",
+                    std::get<FaceData>((*cc)[*fit].data).id,
+                    std::get<CellData>((*cc)[c].data).id, status);
     }
+  }
+
+  // INFO: Compute face probabilities
+  spdlog::info("Computing face support probabilities");
+  auto f_sp = cc->add_property_map<Fd, double>("f:support_probability").first;
+  for (auto fit = cc->faces_begin(); fit != cc->faces_end(); ++fit) {
+    // spdlog::trace("Computing support probability for face {}",
+    //               std::get<FaceData>((*cc)[*fit].data).id);
+    const int plane_id = std::get<FaceData>((*cc)[*fit].data).plane_id;
+    if (plane_id < 0) {
+      spdlog::warn("Face {} has no associated plane",
+                   std::get<FaceData>((*cc)[*fit].data).id);
+      continue; // Horizontal face
+    }
+    const auto plane = std::get<0>(planes[plane_id]);
+    const Eigen::Vector4f plane_vec(plane->a(), plane->b(), plane->c(),
+                                    plane->d());
 
     const auto indices = std::get<1>(planes[plane_id]);
     if (indices->empty()) {
@@ -1057,6 +1139,13 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
                      return plane->to_2d(Point_3(p.x, p.y, p.z));
                    });
 
+    if (!polygon.is_simple()) {
+      spdlog::warn("Face {} polygon not is simple",
+                   std::get<FaceData>((*cc)[*fit].data).id);
+      f_sp[*fit] = 0.0;
+      continue;
+    }
+
     auto inliers = *indices | std::views::transform([&](int idx) {
       const PointT &p = cloud->points[idx];
       return plane->to_2d(Point_3(p.x, p.y, p.z));
@@ -1072,6 +1161,7 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
   }
 
   // TODO: Compute room probabilities
+  spdlog::info("Computing cell room probabilities using ray tracing");
   const double grid_size_ = 0.2;
   const double radius_ = grid_size_ * M_SQRT2;
   const float epsilon_ = 0.01f;
@@ -1097,22 +1187,22 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
     labels_set.insert(l.label);
 
   std::vector<unsigned int> labels(labels_set.begin(), labels_set.end());
+  spdlog::debug("Room labels: {}", fmt::join(labels, ", "));
 
   auto c_rp =
       cc->add_property_map<Cd, std::vector<double>>("c:room_probabilities")
           .first;
 
   for (auto cit = cc->cells_begin(); cit != cc->cells_end(); ++cit)
-    c_rp[*cit] = std::vector<double>(labels.size(), 0.0);
+    c_rp[*cit] = std::vector<double>(labels.size() + 1, 0.0);
+  cc->n_rooms = labels.size();
+  spdlog::debug("Number of rooms (labels): {}", labels.size());
 
   // Intersect with ground plane to get line/ INFO: Create Embree scene
   spdlog::trace("Creating scene geometry for ray tracing");
-  pcl::PassThrough<LabelT> pass;
-  pass.setInputCloud(room_labels);
-  pass.setFilterFieldName("label");
 
   pcl::UniformSampling<LabelT> us;
-  us.setInputCloud(room_labels);
+  us.setInputCloud(cloud);
   us.setRadiusSearch(grid_size_);
   struct RTCData {
     size_t label_index;
@@ -1122,11 +1212,16 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
   for (size_t i = 0; i < labels.size(); ++i) {
 
     IndicesPtr indices(new Indices);
-    pass.setFilterLimits(static_cast<float>(labels[i]),
-                         static_cast<float>(labels[i]));
-    pass.filter(*indices);
+    for (size_t j = 0; j < cloud->size(); ++j)
+      if (room_labels->points[j].label == labels[i])
+        indices->push_back(static_cast<int>(j));
+
+    // size_t n_points_before = indices->size();
     us.setIndices(indices);
     us.filter(*indices);
+    // spdlog::trace(
+    //     "Label {}: Reduced from {} to {} points after uniform sampling",
+    //     labels[i], n_points_before, indices->size());
 
     RTCGeometry geometry_ =
         rtcNewGeometry(device_, RTC_GEOMETRY_TYPE_ORIENTED_DISC_POINT);
@@ -1157,6 +1252,7 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
 
     rtc_data_vec.emplace_back(new RTCData{i});
     rtcSetGeometryUserData(geometry_, rtc_data_vec.back().get());
+    // rtcSetGeometryUserData(geometry_, new RTCData{i});
 
     rtcCommitGeometry(geometry_);
     rtcAttachGeometry(scene_, geometry_);
@@ -1172,12 +1268,12 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
     schedule(dynamic, 4)
   */
   for (auto cit = cc->cells_begin(); cit != cc->cells_end(); ++cit) {
+    const size_t idx = std::get<CellData>((*cc)[*cit].data).id;
     // For each cell create n random rays
     // Count the number of intersections per id nad normalize
     for (size_t i = 0; i < dirs.size(); ++i) {
       const auto dir = dirs[i];
 
-      const size_t idx = std::get<CellData>((*cc)[*cit].data).id;
       Eigen::Vector3f point_s = cell_centers->points[idx].getVector3fMap();
 
       RTCRayHit rayhit;
@@ -1189,6 +1285,9 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
       rayhit.ray.dir_z = dir.z();
 
       rayhit.ray.tnear = epsilon_;
+      rayhit.ray.tfar = std::numeric_limits<float>::infinity();
+      rayhit.hit.geomID = RTC_INVALID_GEOMETRY_ID;
+
       // rayhit.ray.tfar = dir_norm - epsilon_;
 
       // rayhit.ray.time = 0.0f;       // motion blur time, not used here
@@ -1197,44 +1296,128 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
       // rayhit.ray.flags = 0;         // ray flags, not used here
 
       rtcIntersect1(scene_, &rayhit);
-      if (rayhit.hit.geomID != RTC_INVALID_GEOMETRY_ID) {
-        // Check if backside
-        const auto normal =
-            Eigen::Vector3f(rayhit.hit.Ng_x, rayhit.hit.Ng_y, rayhit.hit.Ng_z)
-                .normalized();
-        const Eigen::Vector3f dir_vec(dir.x(), dir.y(), dir.z());
-        if (normal.dot(dir_vec) < 0)
-          continue; // Backside
 
-        auto geometry = rtcGetGeometry(scene_, rayhit.hit.geomID);
-        rtcGetGeometryUserData(geometry);
-        RTCData *data = (RTCData *)rtcGetGeometryUserData(geometry);
-
-        // #pragma omp critical
-        c_rp[*cit][data->label_index] += 1;
+      if (rayhit.hit.geomID == RTC_INVALID_GEOMETRY_ID) { // No hit
+        c_rp[*cit][0] += 1;
+        continue;
       }
 
-      // Compute probabilities
-      double sum = std::accumulate(c_rp[*cit].begin(), c_rp[*cit].end(), 0.0);
-      if (sum > 0)
-        for (size_t j = 0; j < c_rp[*cit].size(); ++j)
-          c_rp[*cit][j] /= sum;
+      // Check if backside
+      // TODO: Is this correct?
+      const auto normal =
+          Eigen::Vector3f(rayhit.hit.Ng_x, rayhit.hit.Ng_y, rayhit.hit.Ng_z)
+              .normalized();
+      const Eigen::Vector3f dir_vec(dir.x(), dir.y(), dir.z());
+      if (normal.dot(dir_vec) > 0) {
+        c_rp[*cit][0] += 1;
+        continue; // Backside
+      }
+
+      auto geometry = rtcGetGeometry(scene_, rayhit.hit.geomID);
+      rtcGetGeometryUserData(geometry);
+      RTCData *data = (RTCData *)rtcGetGeometryUserData(geometry);
+
+      // const auto label = labels[data->label_index];
+      // spdlog::trace("Cell {:>3} ray {} hit label {} (index {})", idx, i,
+      //               label, data->label_index);
+
+      //  #pragma omp critical
+      c_rp[*cit][data->label_index + 1] += 1;
+      // spdlog::trace("Cell {:>3} hit label {} (index {})", idx,
+      //               labels[data->label_index], data->label_index);
     }
+    // Compute probabilities
+    // double sum = std::accumulate(c_rp[*cit].begin(), c_rp[*cit].end(), 0.0);
+    // spdlog::trace("Cell {:>3} sum = {:.3f}", idx, sum);
+    // if (sum > 0)
+    //  for (size_t j = 0; j < c_rp[*cit].size(); ++j)
+    //    c_rp[*cit][j] /= sum;
+    for (size_t j = 0; j < c_rp[*cit].size(); ++j)
+      c_rp[*cit][j] /= dirs.size();
   }
   rtcReleaseScene(scene_);
   rtcReleaseDevice(device_);
 
   _mm_setcsr(old_mxcsr); // restore old flags
 
+  // for (auto cit = cc->cells_begin(); cit != cc->cells_end(); ++cit) {
+  //   const auto id = std::get<CellData>((*cc)[*cit].data).id;
+  //   const auto vec = c_rp[*cit];
+  //   spdlog::trace("Cell {:>3} probabilities => [{:.3f}]", id,
+  //                 fmt::join(vec, ", "));
+  // }
+
+  // INFO: Display cell probabilities
+  /*
+  if (opt.display) {
+    for (auto cit = cc->cells_begin(); cit != cc->cells_end(); ++cit) {
+      const auto id = std::get<CellData>((*cc)[*cit].data).id;
+      const auto &vec = c_rp[*cit];
+      std::string prob_str = fmt::format("[{:.2f}]", fmt::join(vec, ", "));
+      std::string name = fmt::format("cell_{}-prob", id);
+
+      PointT p = cell_centers->points[id];
+      viewer->addText3D(fmt::format("C{}:R{}", id, prob_str), p,
+      0.05, 1.0, 1.0,
+                        1.0, name);
+    }
+  }
+  */
+
   spdlog::debug("Cell complex: {}", *cc);
 
   spdlog::trace("Initializing Solidifier");
   ReUseX::Solidifier solidifier(cc);
   auto results = solidifier.solve();
-  if (results.has_value()) {
-    auto values = results.value();
-    for (size_t i = 0; i < values.size(); ++i)
-      spdlog::trace("x_{}= {}", i, values[i]);
+
+  // INFO: Display results
+  if (opt.display && results.has_value()) {
+    spdlog::trace("Displaying results");
+
+    auto [res_room_labels, res_wall_labels] = results.value();
+
+    for (auto cit = cc->cells_begin(); cit != cc->cells_end(); ++cit) {
+      const auto id = std::get<CellData>((*cc)[*cit].data).id;
+      const auto name = fmt::format("cell_{}", id);
+      const auto label = res_room_labels[*cit];
+      const auto color = pcl::GlasbeyLUT::at(label);
+
+      switch (label) {
+      case 0:
+        viewer->addText3D(fmt::format("R{} W[{}]", label,
+                                      fmt::join(res_wall_labels[*cit], ",")),
+                          cell_centers->points[id], 0.1, 1.0, 1.0, 1.0, name,
+                          vp_2);
+        break;
+      default:
+        std::vector<pcl::Vertices> faces{};
+        size_t count = 0;
+
+        for (auto fit = cc->faces_begin(*cit); fit != cc->faces_end(*cit);
+             ++fit, ++count) {
+          pcl::Vertices face{};
+
+          for (auto vit = cc->vertices_begin(*fit);
+               vit != cc->vertices_end(*fit); ++vit) {
+            const auto vid = std::get<VertexData>((*cc)[*vit].data).id;
+            face.vertices.push_back(static_cast<int>(vid));
+          }
+
+          // Close the face
+          if (!face.vertices.empty())
+            face.vertices.push_back(face.vertices[0]);
+
+          faces.push_back(face);
+        }
+        spdlog::trace("Cell {} has {} faces", id, count);
+        viewer->addPolygonMesh<PointT>(points, faces, name, vp_2);
+        viewer->setPointCloudRenderingProperties(
+            pcl::visualization::PCL_VISUALIZER_COLOR,
+            static_cast<double>(color.r) / 255.0,
+            static_cast<double>(color.g) / 255.0,
+            static_cast<double>(color.b) / 255.0, name, vp_2);
+      }
+    }
   }
 
   if (opt.display)
@@ -1243,5 +1426,6 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 
+  spdlog::info("Finished");
   return 0;
 }

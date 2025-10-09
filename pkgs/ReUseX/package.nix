@@ -34,6 +34,8 @@
   # imgui,
   # glm,
   # libGLU,
+  libe57format,
+  xercesc,
   cli11,
   qt6Packages,
   ...
@@ -73,6 +75,9 @@ stdenv.mkDerivation rec {
     rtabmap
     librealsense
     octomap
+
+    libe57format
+    xercesc
 
     # suitesparse
     suitesparse-graphblas

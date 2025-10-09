@@ -140,7 +140,8 @@ find_package(CGAL REQUIRED Core) #OPTIONAL_COMPONENTS Qt6
 include(CGAL_Eigen3_support)
 include(CGAL_SCIP_support)
 include(CGAL_TBB_support)
- 
+
+find_package(E57Format REQUIRED)
  
  
 find_package(opennurbs REQUIRED)
@@ -236,6 +237,7 @@ target_link_libraries(${PROJECT_NAME}
         pcl_visualization
         embree
         # TBB::tbb
+	E57Format
 
         Eigen3::Eigen
 

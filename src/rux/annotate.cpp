@@ -20,6 +20,7 @@
 #include <pcl/filters/filter.h>
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/io/pcd_io.h>
+#include <pcl/io/ply_io.h>
 
 #include <rtabmap/core/DBDriver.h>
 #include <rtabmap/core/Graph.h>
@@ -377,10 +378,13 @@ int run_subcommand_annotate(SubcommandAnnotateOptions const &opt) {
     pointLabels->points[i].label = mostCommonLabel;
     // pointLabels->at(i).label = labels->points.at(i).label;
   }
+  // TODO:Condider only writing files for specified output paths and removing
+  // the default values
 
   // INFO: Saving the point cloud with labels
   spdlog::info("Saving {} ({})", opt.out_cloud_path, pointLabels->size());
   pcl::io::savePCDFile(opt.out_cloud_path, *pointLabels, !opt.ascii);
+  // pcl::io::savePLYFile(opt.out_cloud_path, *pointLabels, !opt.ascii);
 
   // INFO: Saving the trajectory
   spdlog::info("Saving {} ...", opt.out_trajectory_path);

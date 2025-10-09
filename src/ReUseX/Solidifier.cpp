@@ -5,6 +5,8 @@
 #include "ReUseX/Solidifier.hpp"
 #include <spdlog/spdlog.h>
 
+#define SolverDebug 0
+
 namespace ReUseX {
 
 // Overload operator- for std::set
@@ -31,17 +33,14 @@ std::set<T> operator+(const std::set<T> &a, const std::set<T> &b) {
 void Solidifier::_setupVariables() {
   spdlog::trace("Create variables");
   for (auto cit = _cc->cells_begin(); cit != _cc->cells_end(); ++cit) {
-    _room_variables[*cit] = std::vector<Variable *>(_cc->n_rooms);
+    _room_variables[*cit] = std::vector<Variable *>(_cc->n_rooms + 1);
     _wall_variables[*cit] = std::vector<Variable *>(_cc->n_walls);
 
     const int c_id = std::get<CellData>((*_cc)[*cit].data).id;
 
-    _outside_variables[*cit] = solver.create_variable(
-        Variable::BINARY, 0, 1, fmt::format("x_{},o", c_id));
-
-    for (size_t r = 0; r < _cc->n_rooms; ++r)
-      _room_variables[*cit][r] = solver.create_variable(
-          Variable::BINARY, 0, 1, fmt::format("x_{},r{}", c_id, r));
+    for (size_t l = 0; l < _cc->n_rooms + 1; ++l)
+      _room_variables[*cit][l] = solver.create_variable(
+          Variable::BINARY, 0, 1, fmt::format("x_{},r{}", c_id, l));
     for (size_t w = 0; w < _cc->n_walls; ++w)
       _wall_variables[*cit][w] = solver.create_variable(
           Variable::BINARY, 0, 1, fmt::format("x_{},w{}", c_id, w));
@@ -71,15 +70,22 @@ void Solidifier::_setupObjective() {
 
   Linear_objective *obj = solver.create_objective(Linear_objective::MINIMIZE);
   for (auto cit = _cc->cells_begin(); cit != _cc->cells_end(); ++cit) {
-    for (size_t r = 0; r < _cc->n_rooms; ++r) {
-      // R_c
-      const double weight = c_rp[*cit][r] * volume[*cit];
-      Variable *x_cr = _room_variables[*cit][r];
+    // R_c
+    for (size_t l = 0; l < _cc->n_rooms + 1; ++l) {
+      const double weight = c_rp[*cit][l] * volume[*cit];
+#if SolverDebug
+      spdlog::trace(
+          "Cell: {}, Label: {}, P_C: {:.3f}, volume: {:.3f} => weight: {:.3f}",
+          std::get<CellData>((*_cc)[*cit].data).id, l, c_rp[*cit][l],
+          volume[*cit], weight);
+#endif
+      Variable *x_cr = _room_variables[*cit][l];
       obj->add_coefficient(x_cr, -weight);
     }
   }
 
-  for (auto fit = _cc->faces_begin(); fit != _cc->faces_end(); ++fit) {
+  for (auto fit = _cc->faces_between_cells_begin();
+       fit != _cc->faces_between_cells_end(); ++fit) {
     // For a particular cell pair ca, bc, we define the set W_{\bar{c_a},
     // c_b} of walls that are contained in cell cb but not in ca
     auto cit_a = _cc->get_a(*fit);
@@ -88,22 +94,48 @@ void Solidifier::_setupObjective() {
     auto Wa = std::get<CellData>((*_cc)[cit_a].data).wall_ids;
     auto Wb = std::get<CellData>((*_cc)[cit_b].data).wall_ids;
 
+#if SolverDebug
+    spdlog::trace("Face {} A:{} B:{} Wa: [{}], Wb [{}]",
+                  std::get<FaceData>((*_cc)[*fit].data).id,
+                  std::get<CellData>((*_cc)[cit_a].data).id,
+                  std::get<CellData>((*_cc)[cit_b].data).id, fmt::join(Wa, ","),
+                  fmt::join(Wb, ","));
+#endif
+
     const double weight = (1 - f_sp[*fit]) * area[*fit];
 
     // W_{F_b}
+#if SolverDebug
+    spdlog::trace("W_Fb");
+#endif
     for (auto id : Wb - Wa) {
       Variable *Xcbw = _wall_variables[cit_b][id];
       obj->add_coefficient(Xcbw, alpha * weight);
+#if SolverDebug
+      spdlog::trace("Var {:<8}, alpha {:.3f}, weight: {:.3f}", Xcbw->name(),
+                    alpha, weight);
+#endif
     }
 
     // Analogously, we define the set W_{c_a, c_b} of walls that are
     // contained in both ca and cb
     // W_{F_i}
+#if SolverDebug
+    spdlog::trace("W_Fi");
+#endif
     for (auto id : Wa + Wb) {
       Variable *Xcbw = _wall_variables[cit_b][id];
       obj->add_coefficient(Xcbw, alpha * weight);
+#if SolverDebug
+      spdlog::trace("Var {:<8}, alpha {:.3f}, weight: {:.3f}", Xcbw->name(),
+                    alpha, weight);
+#endif
       Variable *Xcaw = _wall_variables[cit_a][id];
       obj->add_coefficient(Xcaw, -alpha * weight);
+#if SolverDebug
+      spdlog::trace("Var {:<8}, alpha {:.3f}, weight: {:.3f}", Xcaw->name(),
+                    alpha, weight);
+#endif
     }
   }
 }
@@ -116,9 +148,13 @@ void Solidifier::_c_1() {
   spdlog::trace("Create constraint 1");
   for (auto cit = _cc->cells_begin(); cit != _cc->cells_end(); ++cit) {
     Linear_constraint *c1 = solver.create_constraint(1, 1, "c1");
-    for (size_t r = 1; r < _cc->n_rooms + 1; ++r) {
-      Variable *Xcr = _room_variables[*cit][r];
+    for (size_t l = 0; l < _cc->n_rooms + 1; ++l) {
+      Variable *Xcr = _room_variables[*cit][l];
       c1->add_coefficient(Xcr, 1);
+#if SolverDebug
+      spdlog::trace("Cell: {}, Label: {}, 1",
+                    std::get<CellData>((*_cc)[*cit].data).id, l);
+#endif
     }
   }
 }
@@ -131,7 +167,8 @@ void Solidifier::_c_1() {
  */
 void Solidifier::_c_2() {
   spdlog::trace("Create constraint 2");
-  for (auto fit = _cc->faces_begin(); fit != _cc->faces_end(); ++fit) {
+  for (auto fit = _cc->faces_between_cells_begin();
+       fit != _cc->faces_between_cells_end(); ++fit) {
     for (size_t r = 1; r < _cc->n_rooms + 1; ++r) {
       Variable *x_car = _room_variables[_cc->get_a(*fit)][r];
       Variable *x_cbr = _room_variables[_cc->get_b(*fit)][r];
@@ -139,6 +176,11 @@ void Solidifier::_c_2() {
           solver.create_constraint(0, Linear_constraint::infinity(), "c2");
       c2->add_coefficient(x_car, 1);
       c2->add_coefficient(x_cbr, -1);
+#if SolverDebug
+      spdlog::trace("Face: {}, Room: {}, A:{} - B:{}",
+                    std::get<FaceData>((*_cc)[*fit].data).id, r, x_car->name(),
+                    x_cbr->name());
+#endif
     }
   }
 }
@@ -153,11 +195,16 @@ void Solidifier::_c_3() {
   for (auto cit = _cc->cells_begin(); cit != _cc->cells_end(); ++cit) {
     for (size_t w = 0; w < _cc->n_walls; ++w) {
       Variable *Xcw = _wall_variables[*cit][w];
-      Variable *Xco = _outside_variables[*cit];
+      Variable *Xco = _room_variables[*cit][0];
       Linear_constraint *c3 =
           solver.create_constraint(-Linear_constraint::infinity(), 0, "c3");
       c3->add_coefficient(Xcw, 1);
       c3->add_coefficient(Xco, -1);
+#if SolverDebug
+      spdlog::trace("Cell: {}, Wall: {} - {} <= 0",
+                    std::get<CellData>((*_cc)[*cit].data).id, Xcw->name(),
+                    Xco->name());
+#endif
     }
   }
 }
@@ -169,14 +216,14 @@ void Solidifier::_c_3() {
  */
 void Solidifier::_c_4() {
   spdlog::trace("Create constraint 4");
-  for (auto fit = _cc->faces_begin(); fit != _cc->faces_end(); ++fit) {
+  for (auto fit = _cc->faces_between_cells_begin();
+       fit != _cc->faces_between_cells_end(); ++fit) {
     auto cit_a = _cc->get_a(*fit);
     auto cit_b = _cc->get_b(*fit);
 
     auto W_a = std::get<CellData>((*_cc)[cit_a].data).wall_ids;
     auto W_b = std::get<CellData>((*_cc)[cit_b].data).wall_ids;
 
-    // TODO: Check signs of coefficients
     Linear_constraint *c4 =
         solver.create_constraint(0, Linear_constraint::infinity(), "c4");
 
@@ -185,11 +232,17 @@ void Solidifier::_c_4() {
       c4->add_coefficient(Xcbw, 1);
     }
 
-    Variable *Xcao = _outside_variables[cit_a];
-    Variable *Xcbo = _outside_variables[cit_b];
+    Variable *Xcao = _room_variables[cit_a][0];
+    Variable *Xcbo = _room_variables[cit_b][0];
 
-    c4->add_coefficient(Xcbo, 1);
-    c4->add_coefficient(Xcao, -1);
+    c4->add_coefficient(Xcbo, -1);
+    c4->add_coefficient(Xcao, 1);
+
+#if SolverDebug
+    spdlog::trace("Face: {}, (Wb - Wa) x_cb[{}] - {} + {} >= 0",
+                  std::get<FaceData>((*_cc)[*fit].data).id,
+                  fmt::join(W_b - W_a, ", "), Xcbo->name(), Xcao->name());
+#endif
   }
 }
 
@@ -201,7 +254,8 @@ void Solidifier::_c_4() {
  */
 void Solidifier::_c_5() {
   spdlog::trace("Create constraint 5");
-  for (auto fit = _cc->faces_begin(); fit != _cc->faces_end(); ++fit) {
+  for (auto fit = _cc->faces_between_cells_begin();
+       fit != _cc->faces_between_cells_end(); ++fit) {
     auto cit_a = _cc->get_a(*fit);
     auto cit_b = _cc->get_b(*fit);
 
@@ -215,6 +269,11 @@ void Solidifier::_c_5() {
           solver.create_constraint(0, Linear_constraint::infinity(), "c5");
       c5->add_coefficient(Xcbw, 1);
       c5->add_coefficient(Xcaw, -1);
+#if SolverDebug
+      spdlog::trace("Face: {}, Wall: {}, {} - {} >= 0",
+                    std::get<FaceData>((*_cc)[*fit].data).id, id, Xcbw->name(),
+                    Xcaw->name());
+#endif
     }
   }
 }
@@ -227,26 +286,37 @@ void Solidifier::_c_5() {
  */
 void Solidifier::_c_6() {
   spdlog::trace("Create constraint 6");
-  for (auto fit = _cc->faces_begin(); fit != _cc->faces_end(); ++fit) {
+  for (auto fit = _cc->faces_between_cells_begin();
+       fit != _cc->faces_between_cells_end(); ++fit) {
     auto cit_a = _cc->get_a(*fit);
     auto cit_b = _cc->get_b(*fit);
 
     auto W_a = std::get<CellData>((*_cc)[cit_a].data).wall_ids;
     auto W_b = std::get<CellData>((*_cc)[cit_b].data).wall_ids;
-    // TODO: Check Constraint
-    // I assume there might be a mistake with the signs of the coefficients
+
     for (auto id : W_a + W_b) {
-      Variable *Xcaw = _wall_variables[cit_a][id];
-      Variable *Xcbw = _wall_variables[cit_b][id];
       Linear_constraint *c6 =
           solver.create_constraint(0, Linear_constraint::infinity(), "c6");
+      // c6->add_coefficient(Xcaw, 1);
+
+      Variable *Xcaw = _wall_variables[cit_a][id];
+      Variable *Xcbw = _wall_variables[cit_b][id];
+
       c6->add_coefficient(Xcbw, -1);
       c6->add_coefficient(Xcaw, 1);
 
       for (auto id2 : W_b - W_a) {
-        Variable *Xcbw2 = _wall_variables[cit_b][id2];
-        c6->add_coefficient(Xcbw2, 1);
+        Variable *Xcbw_ = _wall_variables[cit_b][id2];
+        // Variable *Xcaw_ = _wall_variables[cit_a][id2];
+        c6->add_coefficient(Xcbw_, 1);
+        // c6->add_coefficient(Xcaw_, 1);
       }
+
+#if SolverDebug
+      spdlog::trace("Face: {}, Wall: {}, sum(Wb - Wa) x_cb[{}] - {} + {} >= 0 ",
+                    std::get<FaceData>((*_cc)[*fit].data).id,
+                    fmt::join(W_b - W_a, ", "), id, Xcbw->name(), Xcaw->name());
+#endif
     }
   }
 }
@@ -258,17 +328,23 @@ void Solidifier::_c_6() {
  */
 void Solidifier::_c_7() {
   spdlog::trace("Create constraint 7");
-  for (auto fit = _cc->faces_begin(); fit != _cc->faces_end(); ++fit) {
+  for (auto fit = _cc->faces_between_cells_begin();
+       fit != _cc->faces_between_cells_end(); ++fit) {
     auto cit_a = _cc->get_a(*fit);
     auto cit_b = _cc->get_b(*fit);
 
-    Variable *Xcao = _outside_variables[cit_a];
-    Variable *Xcbo = _outside_variables[cit_b];
+    Variable *Xcao = _room_variables[cit_a][0];
+    Variable *Xcbo = _room_variables[cit_b][0];
 
     Linear_constraint *c7 =
         solver.create_constraint(-Linear_constraint::infinity(), 0, "c7");
     c7->add_coefficient(Xcao, 1);
     c7->add_coefficient(Xcbo, -1);
+#if SolverDebug
+    spdlog::trace("Face: {}, {} - {} <= 0",
+                  std::get<FaceData>((*_cc)[*fit].data).id, Xcao->name(),
+                  Xcbo->name());
+#endif
   }
 }
 

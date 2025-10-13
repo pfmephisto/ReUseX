@@ -103,8 +103,6 @@ auto CellComplex::cells_end(Vertex f) const -> CellComplex::CellOnFaceIterator {
 auto CellComplex::faces_begin(Vertex c) const
     -> CellComplex::FaceOnCellIterator {
   auto [begin, end] = boost::adjacent_vertices(c, *this);
-  spdlog::trace("Cell {} has {} adjacent vertices", c,
-                std::distance(begin, end));
   return boost::make_filter_iterator(IsFace{this}, begin, end);
 }
 
@@ -124,7 +122,7 @@ auto CellComplex::get_a(Vertex f) const -> CellComplex::Vertex {
         continue;
       return c;
     }
-  auto id = std::get<FaceData>((*this)[f].data).id;
+  auto id = (*this)[f].id;
   throw std::runtime_error(
       fmt::format("Face does not have an adjacent cell on side A", id));
 }
@@ -140,7 +138,7 @@ auto CellComplex::get_b(Vertex f) const -> CellComplex::Vertex {
         continue;
       return c;
     }
-  auto id = std::get<FaceData>((*this)[f].data).id;
+  auto id = (*this)[f].id;
   throw std::runtime_error(
       fmt::format("Face {} does not have an adjacent cell on side B", id));
 }

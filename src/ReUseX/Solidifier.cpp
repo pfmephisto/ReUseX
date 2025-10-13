@@ -36,7 +36,7 @@ void Solidifier::_setupVariables() {
     _room_variables[*cit] = std::vector<Variable *>(_cc->n_rooms + 1);
     _wall_variables[*cit] = std::vector<Variable *>(_cc->n_walls);
 
-    const int c_id = std::get<CellData>((*_cc)[*cit].data).id;
+    const int c_id = (*_cc)[*cit].id;
 
     for (size_t l = 0; l < _cc->n_rooms + 1; ++l)
       _room_variables[*cit][l] = solver.create_variable(

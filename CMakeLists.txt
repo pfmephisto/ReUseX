@@ -124,6 +124,7 @@ find_package(TBB REQUIRED)
 # find_package(fmt CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
 # find_package(spdmon REQUIRED)
+find_package(range-v3 CONFIG REQUIRED)
  
 find_package(OpenCV REQUIRED COMPONENTS core imgproc highgui)
 find_package(RTABMap REQUIRED)
@@ -179,19 +180,29 @@ set(REUSEX_SOURCES
     src/ReUseX/io.cpp
     src/ReUseX/Yolo.cpp
     src/ReUseX/CellComplex.cpp
+    src/ReUseX/CellComplexConstructor.cpp
     src/ReUseX/Solidifier.cpp
 )
 
 set(REUSEX_HEADERS
     include/ReUseX/about.hpp.in
+    include/ReUseX/helpers.hpp
     include/ReUseX/filter.hpp
     include/ReUseX/fmt_formatter.hpp
     include/ReUseX/io.hpp
+    include/ReUseX/registry.hpp
+    #include/ReUseX/collect.hpp
+    #include/ReUseX/zip_view.hpp
     include/ReUseX/split.hpp
     include/ReUseX/straiten.hpp
     include/ReUseX/Yolo.hpp
     include/ReUseX/CellComplex.hpp
     include/ReUseX/Solidifier.hpp
+    include/ReUseX/force_orthogonal_planes.hpp
+    include/ReUseX/merge_planes.hpp
+    include/ReUseX/make_pairs.hpp
+    include/ReUseX/separate_planes.hpp
+
     include/pcl/markov_clustering.hpp
     include/pcl/planar_region_growing.hpp
     include/pcl/polygonal_surface_reconstruction.hpp
@@ -257,6 +268,7 @@ target_link_libraries(${PROJECT_NAME}
     PRIVATE 
         # fmt::fmt
         spdlog::spdlog
+	range-v3::range-v3
         # Move Library to Private as their stops being used in the public interface
 )
 

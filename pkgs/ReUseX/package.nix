@@ -16,6 +16,7 @@
   # fmt,
   spdlog,
   #spdmon,
+  range-v3,
   pcl,
   embree,
   eigen,
@@ -66,6 +67,7 @@ stdenv.mkDerivation rec {
     # fmt
     spdlog
     #spdmon
+    range-v3
 
     pcl
     embree

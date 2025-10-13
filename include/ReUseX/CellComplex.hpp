@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #pragma once
+#include "ReUseX/registry.hpp"
+
 #include <boost/graph/adjacency_list.hpp>
 #include <boost/graph/graph_traits.hpp>
 #include <boost/iterator/filter_iterator.hpp>
@@ -11,26 +13,29 @@
 
 #include <fmt/format.h>
 
-#include <filesystem>
 #include <set>
 #include <string>
 #include <vector>
+
+#include <Eigen/StdVector>
+
+#include <pcl/pcl_base.h>
+#include <pcl/point_cloud.h>
+#include <pcl/point_types.h>
+
+#include <range/v3/range/concepts.hpp>
+#include <range/v3/view/zip.hpp>
 
 namespace fs = std::filesystem;
 
 // Tags to distinguish node types
 enum class NodeType { Cell, Face, Vertex };
 
-struct VertexData {
-  int id;
-};
+struct VertexData {};
 struct FaceData {
-  int id;
   int plane_id;
-  // double area;
 };
 struct CellData {
-  int id;
   std::set<int> wall_ids{};
 };
 
@@ -38,6 +43,8 @@ struct CellData {
 struct VerteciesData {
   // TODO: Consider moving the ID field to here
   NodeType type;
+  int id;
+  Eigen::Vector3d pos;
   std::variant<VertexData, FaceData, CellData> data;
 };
 
@@ -45,64 +52,12 @@ struct EdgeData {
   bool is_main = false;
 };
 
+template <typename Scalar, int Rows>
+using EigenVectorContainer =
+    std::vector<Eigen::Matrix<Scalar, Rows, 1>,
+                Eigen::aligned_allocator<Eigen::Matrix<Scalar, Rows, 1>>>;
+
 namespace ReUseX {
-class Registry {
-    private:
-  // Keyed by name and type_index
-  std::map<std::pair<std::string, std::type_index>, std::shared_ptr<void>>
-      registry;
-
-    public:
-  virtual ~Registry() = default;
-  template <typename Key, typename T>
-  std::pair<boost::associative_property_map<std::map<Key, T>>, bool>
-  add_property_map(const std::string &name) {
-    auto key = std::make_pair(name, std::type_index(typeid(T)));
-    auto it = registry.find(key);
-    if (it != registry.end()) {
-      // Already exists: recover the map and wrap it in a property_map
-      auto map_ptr = std::static_pointer_cast<std::map<Key, T>>(it->second);
-      return {boost::associative_property_map<std::map<Key, T>>(*map_ptr),
-              false};
-      // already exists
-      /*
-      auto ptr = std::static_pointer_cast<
-          boost::associative_property_map<std::map<Key, T>>>(it->second);
-      return {*ptr, false};
-      */
-    } else {
-      // Create new map and store in registry
-      auto m = std::make_shared<std::map<Key, T>>();
-      registry[key] = m;
-      return {boost::associative_property_map<std::map<Key, T>>(*m), true};
-      /*
-      auto m = std::make_shared<std::map<Key, T>>();
-      auto pm =
-          std::make_shared<boost::associative_property_map<std::map<Key, T>>>(
-              *m);
-      registry[key] = pm;
-      return {*pm, true};
-      */
-    }
-  }
-
-  template <typename Key, typename T>
-  const boost::associative_property_map<std::map<Key, T>>
-  property_map(const std::string &name) const {
-    auto key = std::make_pair(name, std::type_index(typeid(T)));
-    auto it = registry.find(key);
-    if (it == registry.end()) {
-      spdlog::error("Property map not found: {}", name);
-      throw std::runtime_error("Property map not found");
-    }
-    auto map_ptr = std::static_pointer_cast<std::map<Key, T>>(it->second);
-    return boost::associative_property_map<std::map<Key, T>>(*map_ptr);
-    /*
-    return *std::static_pointer_cast<
-        boost::associative_property_map<std::map<Key, T>>>(it->second);
-            */
-  }
-};
 
 class CellComplex
     : public boost::adjacency_list<boost::vecS,        // edge container
@@ -168,38 +123,73 @@ class CellComplex
     public:
   size_t n_rooms, n_walls;
 
-  inline Vertex add_vertex(std::optional<int> id = std::nullopt) {
+  CellComplex() = delete;
+
+  CellComplex(
+      std::vector<Eigen::Vector4d, Eigen::aligned_allocator<Eigen::Vector4d>>
+          &planes,
+      std::vector<size_t> &verticals, std::vector<size_t> &horizontals,
+      std::vector<std::pair<size_t, size_t>> &pairs,
+      std::optional<
+          std::function<void(size_t, std::vector<std::array<double, 3>> const &,
+                             std::vector<int> const &)>>
+          viz_func = std::nullopt);
+
+  // TODO: We might want to return something here
+  template <typename PointT = pcl::PointXYZ>
+  auto compute_face_coverage(pcl::PointCloud<PointT>::ConstPtr cloud,
+                             EigenVectorContainer<double, 4> &planes,
+                             std::vector<pcl::IndicesPtr> &inliers,
+                             const double grid_size = 0.2) -> void;
+
+  template <typename PointT = pcl::PointXYZ, typename PointN = pcl::Normal,
+            typename PointL = pcl::Label>
+  auto compute_room_probabilities(pcl::PointCloud<PointT>::ConstPtr cloud,
+                                  pcl::PointCloud<PointN>::ConstPtr normals,
+                                  pcl::PointCloud<PointL>::ConstPtr labels,
+                                  const double grid_size = 0.2) -> void;
+
+  inline Vertex add_vertex(Eigen::Vector3d pos) {
     auto v = boost::add_vertex(*this);
     (*this)[v].type = NodeType::Vertex;
-    (*this)[v].data =
-        id.has_value() ? VertexData{*id} : VertexData{vertex_count++};
+    (*this)[v].id = vertex_count++;
+    (*this)[v].pos = pos;
+    (*this)[v].data = VertexData{};
     return v;
   };
 
   template <typename T>
-  inline Vertex add_face(T begin, T end, int plane_id = -1) {
+  inline Vertex add_face(Eigen::Vector3d pos, T begin, T end,
+                         int plane_id = -1) {
     auto f = boost::add_vertex(*this);
     (*this)[f].type = NodeType::Face;
-    (*this)[f].data = FaceData{face_count++, plane_id};
+    (*this)[f].id = face_count++;
+    (*this)[f].pos = pos;
+    (*this)[f].data = FaceData{plane_id};
     for (auto it = begin; it != end; ++it)
       boost::add_edge(*it, f, *this);
     return f;
   };
   template <typename Range>
-  inline Vertex add_face(Range vertices, int plane_id = -1) {
-    return add_face(std::begin(vertices), std::end(vertices), plane_id);
+  inline Vertex add_face(Eigen::Vector3d pos, Range vertices,
+                         int plane_id = -1) {
+    return add_face(pos, std::begin(vertices), std::end(vertices), plane_id);
   };
 
-  template <typename T> inline Vertex add_cell(T begin, T end) {
+  template <typename T>
+  inline Vertex add_cell(Eigen::Vector3d pos, T begin, T end) {
     auto c = boost::add_vertex(*this);
     (*this)[c].type = NodeType::Cell;
-    (*this)[c].data = CellData{cell_count++};
+    (*this)[c].id = cell_count++;
+    (*this)[c].pos = pos;
+    (*this)[c].data = CellData{};
     for (auto it = begin; it != end; ++it)
       boost::add_edge(*it, c, *this);
     return c;
   };
-  template <typename Range> inline Vertex add_cell(Range faces) {
-    return add_cell(std::begin(faces), std::end(faces));
+  template <typename Range>
+  inline Vertex add_cell(Eigen::Vector3d pos, Range faces) {
+    return add_cell(pos, std::begin(faces), std::end(faces));
   };
 
   size_t num_vertices() const;
@@ -250,3 +240,7 @@ template <> struct fmt::formatter<ReUseX::CellComplex> {
                           obj.n_walls);
   }
 };
+
+// Implementation files
+#include "./CellComplexFaceCoverage.hpp"
+#include "./CellComplexRoomProbabilites.hpp"

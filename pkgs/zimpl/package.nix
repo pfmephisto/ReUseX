@@ -12,7 +12,7 @@
 }:
 stdenv.mkDerivation rec {
   pname = "zimpl";
-  version = "3.6.2";
+  version = "362";
 
   src = fetchFromGitHub {
     owner = "scipopt";

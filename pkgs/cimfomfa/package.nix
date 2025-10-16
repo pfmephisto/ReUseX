@@ -10,7 +10,7 @@
 }:
 stdenv.mkDerivation rec {
   pname = "cimfomfa";
-  version = "25-230";
+  version = "21-361";
 
   src = fetchFromGitHub {
     owner = "micans";

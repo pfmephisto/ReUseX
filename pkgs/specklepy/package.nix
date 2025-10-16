@@ -9,14 +9,14 @@
 }:
 python3Packages.buildPythonPackage rec {
   pname = "specklepy";
-  version = "3.0.0a7";
+  version = "3.0.10";
   pyproject = true;
 
   src = fetchFromGitHub {
     owner = "specklesystems";
     repo = "specklepy";
     rev = "${version}";
-    sha256 = "sha256-Jyo9XGADWeIWXnJwh0n72KSEbbq0jsCyOtKr+A/y6Og="; # 3.0.0a7
+    sha256 = "sha256-3MQQH/LtH3mdcdHrYxqS955BF9Q6C2wn5CjhkZASlh4="; # 3.0.0a7
   };
 
   doCheck = false;

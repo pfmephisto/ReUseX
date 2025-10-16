@@ -100,6 +100,8 @@
 
               qt6.full
               qtcreator
+
+              nix-update
             ];
 
             shellHook =

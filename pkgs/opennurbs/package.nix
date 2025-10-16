@@ -12,14 +12,14 @@
 in
   stdenv.mkDerivation rec {
     pname = "opennurbs";
-    version = "8.13.24317.13001";
+    version = "8.21.25188.17001";
 
     src = fetchFromGitHub {
       owner = "mcneel";
       repo = "${pname}";
       rev = "v${version}";
       fetchSubmodules = true;
-      sha256 = "sha256-Q+ExlsJqsjUXQs8le/bjp8nw6I10W0YWJUNgAjKTNXg=";
+      sha256 = "sha256-HpUqn2RFp8KhLql0s7PH3aeFtsp0vVI8umZawgkKVzs=";
     };
 
     nativeBuildInputs = [

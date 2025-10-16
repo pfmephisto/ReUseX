@@ -51,7 +51,7 @@
 in
   stdenv.mkDerivation rec {
     pname = "AliceVision";
-    version = "e17a609-dev";
+    version = "3.3.0";
 
     src = fetchFromGitHub {
       owner = "alicevision";

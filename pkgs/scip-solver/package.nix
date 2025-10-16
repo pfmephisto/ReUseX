@@ -19,7 +19,7 @@
 }:
 stdenv.mkDerivation rec {
   pname = "scip-solver";
-  version = "9.2.0";
+  version = "923";
 
   src = fetchFromGitHub {
     owner = "scipopt";

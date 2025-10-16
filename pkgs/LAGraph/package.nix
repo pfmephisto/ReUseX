@@ -15,13 +15,13 @@
 }:
 stdenv.mkDerivation rec {
   pname = "LAGraph";
-  version = "1.2.0";
+  version = "1.2.1";
 
   src = fetchFromGitHub {
     owner = "GraphBLAS";
     repo = "${pname}";
     rev = "v${version}";
-    sha256 = "sha256-FjqGrOc67aeWTU+p8JByPNjqcJiwDVhviJv4xtAh3LU=";
+    sha256 = "sha256-WJ6ol3NJDAXdWw2Y74RQAUTIaZ45YZjsgpFhj3HTBnE=";
   };
 
   patches = [

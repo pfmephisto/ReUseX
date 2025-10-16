@@ -10,12 +10,12 @@
 }:
 python3Packages.buildPythonPackage rec {
   pname = "rhino3dm";
-  version = "8.9.0";
+  version = "8.17.0";
   format = "setuptools";
 
   src = fetchPypi {
     inherit pname version;
-    sha256 = "sha256-sB4J26Va/QDX89w9UlR9PFETBKpH/M+yoElUJ+rU/7I=";
+    sha256 = "sha256-htnTw7R71wKG352vQHhYIZFNHgyTOHvjS8vYHZ8+yb8=";
   };
 
   preConfigure = ''

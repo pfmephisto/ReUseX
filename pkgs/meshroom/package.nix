@@ -32,7 +32,7 @@
 }:
 stdenvNoCC.mkDerivation rec {
   pname = "meshroom-bin";
-  version = "2021.1.0";
+  version = "2025.1.0";
   src = fetchurl {
     url = "https://github.com/alicevision/meshroom/releases/download/v${version}/Meshroom-${version}-linux-cuda10.tar.gz";
     hash = "sha256-3pTrJktbMNVbNjKcR2FZa8xrTEQ7CWsLFayWOJLXnuQ=";

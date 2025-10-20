@@ -5,47 +5,21 @@
 #include "ReUseX/CellComplex.hpp"
 #include "ReUseX/helpers.hpp"
 
-#include <CGAL/Arr_linear_traits_2.h>
+// #include <CGAL/Arr_linear_traits_2.h>
+#include <CGAL/Arr_non_caching_segment_traits_2.h>
 #include <CGAL/Arrangement_with_history_2.h>
 #include <CGAL/Boolean_set_operations_2.h>
 #include <CGAL/Exact_predicates_exact_constructions_kernel.h>
-#include <CGAL/Polygon_2.h>
-#include <CGAL/Polygon_2_algorithms.h>
-#include <CGAL/circulator.h>
 
 #include <range/v3/to_container.hpp>
 #include <range/v3/view/transform.hpp>
+#include <range/v3/view/zip.hpp>
 
 #include <map>
-
-using Kernel = CGAL::Exact_predicates_inexact_constructions_kernel;
-using NT = Kernel::FT;
-
-using Plane_3 = Kernel::Plane_3;
-using Point_3 = Kernel::Point_3;
-using Vector_3 = Kernel::Vector_3;
-
-using Polygon_2 = CGAL::Polygon_2<Kernel>;
-using Traits = CGAL::Arr_linear_traits_2<Kernel>;
-using Point_2 = Traits::Point_2;
-using Line_2 = Traits::Line_2;
-using Curve_2 = Traits::Curve_2;
-using Direction_2 = Traits::Direction_2;
-
-using Arrangement = CGAL::Arrangement_with_history_2<Traits>;
-
-using Vertex_handle = Arrangement::Vertex_handle;
-using Halfedge_handle = Arrangement::Halfedge_handle;
-using Face_handle = Arrangement::Face_handle;
-using Curve_handle = Arrangement::Curve_handle;
 
 using Vd = ReUseX::CellComplex::Vertex;
 using Fd = ReUseX::CellComplex::Vertex;
 using Cd = ReUseX::CellComplex::Vertex;
-
-using VertexMap =
-    std::unordered_map<Arrangement::Vertex_handle, std::vector<Vd>>;
-using FaceMap = std::unordered_map<Arrangement::Face_handle, std::vector<Fd>>;
 
 template <typename Scalar, int Rows>
 using EigenVectorContainer =
@@ -57,12 +31,33 @@ CellComplex::CellComplex(
     std::vector<Eigen::Vector4d, Eigen::aligned_allocator<Eigen::Vector4d>>
         &planes_vec,
     std::vector<size_t> &verticals, std::vector<size_t> &horizontals,
-    std::vector<std::pair<size_t, size_t>> &pairs,
+    std::vector<std::pair<size_t, size_t>> &pairs, std::array<double, 2> min_xy,
+    std::array<double, 2> max_xy,
     std::optional<
         std::function<void(size_t, std::vector<std::array<double, 3>> const &,
                            std::vector<int> const &)>>
         viz_func)
     : n_rooms(0), n_walls(pairs.size()) {
+
+  using EPECK = CGAL::Exact_predicates_exact_constructions_kernel;
+  using Traits = CGAL::Arr_non_caching_segment_traits_2<EPECK>;
+  using Arrangement = CGAL::Arrangement_with_history_2<Traits>;
+  using NT = EPECK::FT;
+
+  using Plane_3 = EPECK::Plane_3;
+  using Line_3 = EPECK::Line_3;
+  using Iso_rectangle = EPECK::Iso_rectangle_2;
+
+  using Point_2 = Traits::Point_2;
+  using Line_2 = Traits::Line_2;
+  using Segment = Traits::X_monotone_curve_2;
+  using Direction_2 = Traits::Direction_2;
+
+  using Curve_handle = Arrangement::Curve_handle;
+
+  using VertexMap =
+      std::unordered_map<Arrangement::Vertex_handle, std::vector<Vd>>;
+  using FaceMap = std::unordered_map<Arrangement::Face_handle, std::vector<Fd>>;
 
   auto planes = planes_vec | ranges::views::transform([](auto const &p) {
                   return Plane_3(p[0], p[1], p[2], p[3]);
@@ -72,27 +67,48 @@ CellComplex::CellComplex(
   auto volumes = this->add_property_map<Cd, double>("c:volume").first;
   auto areas = this->add_property_map<Fd, double>("f:area").first;
 
-  spdlog::trace("Constructing arrangement with {} vertical planes",
-                verticals.size());
+  spdlog::trace("Constructing arrangement with {} vertical planes and "
+                "[({:.3f}),({:.3f})] bounding box",
+                verticals.size(), fmt::join(min_xy, ","),
+                fmt::join(max_xy, ","));
 
-  Arrangement arr;
-  std::unordered_map<Curve_handle, int> ch_map{};
-  const Plane_3 ground_plane(0, 0, 1, 0);
-  for (auto const id : verticals) {
-    auto const &plane = planes[id];
+  Iso_rectangle rect(Point_2(min_xy[0] - 5, min_xy[1] - 5),
+                     Point_2(max_xy[0] + 5, max_xy[1] + 5));
 
-    //  Intersect with ground plane to get line
-    auto intersection_1 = CGAL::intersection(ground_plane, plane);
-    if (!intersection_1) {
-      spdlog::warn("Wall plane does not intersect ground plane");
-      continue;
-    }
-    const auto line_3d = std::get<Kernel::Line_3>(intersection_1.value());
+  auto make_segment = ranges::views::transform([&rect](auto const &v4d) {
+    auto const plane = Plane_3(v4d[0], v4d[1], v4d[2], v4d[3]);
+
+    // Intersect with groud plane z=0
+    const Plane_3 ground_plane(0, 0, 1, 0);
+    auto intersection = CGAL::intersection(ground_plane, plane);
+    if (!intersection)
+      throw std::runtime_error("Wall plane does not intersect ground plane");
+
+    const auto line_3d = std::get<Line_3>(intersection.value());
     const Point_2 p(line_3d.point().x(), line_3d.point().y());
     const Direction_2 d(line_3d.direction().dx(), line_3d.direction().dy());
     const Line_2 line_2d(p, d);
-    auto ch = insert(arr, (Curve_2)line_2d);
-    ch_map[ch] = id;
+
+    // Clip line to bounding rectangle
+    auto clipped = CGAL::intersection(rect, line_2d);
+    if (!clipped)
+      throw std::runtime_error("Clipping line resulted in empty intersection");
+
+    if (!std::holds_alternative<Segment>(clipped.value()))
+      throw std::runtime_error("Clipped line is not a segment");
+
+    return std::get<Segment>(clipped.value());
+  });
+
+  auto select = ranges::views::transform(
+      [&planes_vec](auto const &id) { return planes_vec[id]; });
+
+  auto segments = verticals | select | make_segment;
+
+  Arrangement arr;
+  std::unordered_map<Curve_handle, int> ch_map{};
+  for (auto const &[seg, id] : ranges::view::zip(segments, verticals)) {
+    ch_map[insert(arr, seg)] = id;
   }
 
   // Visualize arrangement
@@ -125,8 +141,8 @@ CellComplex::CellComplex(
             [&planes](auto a, auto b) {
               const auto &Pa = planes[a];
               const auto &Pb = planes[b];
-              const double h1 = -Pa.d() * Pa.c();
-              const double h2 = -Pb.d() * Pb.c();
+              const double h1 = CGAL::to_double(-Pa.d() * Pa.c());
+              const double h2 = CGAL::to_double(-Pb.d() * Pb.c());
               return h1 < h2;
             });
 
@@ -156,7 +172,7 @@ CellComplex::CellComplex(
   for (size_t i = 0; i < sorted_floors.size(); ++i) {
     const auto id = sorted_floors[i];
     const auto plane = planes[id];
-    const double height = -plane.d() * plane.c();
+    const double height = CGAL::to_double(-plane.d() * plane.c());
 
     for (auto vit = arr.vertices_begin(); vit != arr.vertices_end(); ++vit)
       point_map[vit][i] = this->add_vertex(
@@ -215,8 +231,8 @@ CellComplex::CellComplex(
     const auto id2 = sorted_floors[i + 1];
     const auto plane1 = planes[id1];
     const auto plane2 = planes[id2];
-    const double h1 = -plane1.d() * plane1.c();
-    const double h2 = -plane2.d() * plane2.c();
+    const double h1 = CGAL::to_double(-plane1.d() * plane1.c());
+    const double h2 = CGAL::to_double(-plane2.d() * plane2.c());
     const double dist = h2 - h1;
     const double h = (h1 + h2) / 2.0;
     spdlog::trace("Horizontal section thickness is {:.3}", dist);
@@ -307,12 +323,18 @@ CellComplex::CellComplex(
 
     for (auto cit = this->cells_begin(); cit != this->cells_end(); ++cit) {
       auto p = (*this)[*cit].pos;
-      auto dist1 = planePointDist(
-          Eigen::Vector4d(plane1.a(), plane1.b(), plane1.c(), plane1.d()), p);
+      auto dist1 = planePointDist(Eigen::Vector4d(CGAL::to_double(plane1.a()),
+                                                  CGAL::to_double(plane1.b()),
+                                                  CGAL::to_double(plane1.c()),
+                                                  CGAL::to_double(plane1.d())),
+                                  p);
       if (dist1 > 0)
         continue;
-      auto dist2 = planePointDist(
-          Eigen::Vector4d(plane2.a(), plane2.b(), plane2.c(), plane2.d()), p);
+      auto dist2 = planePointDist(Eigen::Vector4d(CGAL::to_double(plane2.a()),
+                                                  CGAL::to_double(plane2.b()),
+                                                  CGAL::to_double(plane2.c()),
+                                                  CGAL::to_double(plane2.d())),
+                                  p);
       if (dist2 > 0)
         continue;
 
@@ -332,7 +354,9 @@ CellComplex::CellComplex(
     }
 
     const auto plane = planes[plane_id];
-    Eigen::Vector4d plane_vec(plane.a(), plane.b(), plane.c(), plane.d());
+    Eigen::Vector4d plane_vec(
+        CGAL::to_double(plane.a()), CGAL::to_double(plane.b()),
+        CGAL::to_double(plane.c()), CGAL::to_double(plane.d()));
 
     auto [begin, end] = boost::out_edges(*fit, *this);
     for (auto eit = begin; eit != end; ++eit) {

@@ -31,6 +31,10 @@
 #include <opencv4/opencv2/highgui.hpp>
 #include <opencv4/opencv2/opencv.hpp>
 
+#include <thread>
+
+#define USE_CLI 1
+
 using IT = int32_t; // Index type
 using NT = float;   // Numeric type
 
@@ -207,6 +211,64 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
       visualization_callback_(points, vertices, correspondences);
     }
 
+#if USE_CLI
+    // INFO: Define output paths
+    std::filesystem::path abc_path_in =
+        std::filesystem::current_path() / "matrix.abc";
+    std::filesystem::path abc_path_out =
+        std::filesystem::current_path() /
+        fmt::format("matrix.abc.out.I{}", inflation_);
+
+    // INFO: Save the triples to disk in abc format
+    std::ofstream abc_file(abc_path_in);
+    // Set precision to 6 decimal places
+    abc_file << std::fixed << std::setprecision(1);
+    for (const auto &[i, j, v] : triplets) {
+      abc_file << i << " " << j << " " << v << "\n";
+    }
+    abc_file.close();
+
+    // Call mcl on the saved file
+    try {
+
+      // Construct the command
+      auto cmd = fmt::format(
+          "mcl {} --abc -I {} -te {} -o {}", abc_path_in.string(), inflation_,
+          std::thread::hardware_concurrency(), abc_path_out.string());
+
+      // Execute the command and capture output
+      std::array<char, 128> buffer;
+      std::string result;
+      std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(cmd.data(), "r"),
+                                                    pclose);
+      if (!pipe) {
+        throw std::runtime_error("popen() failed!");
+      }
+      while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr)
+        std::cout << buffer.data();
+
+      // Read the output file and assign labels
+      labels.resize(input_->size());
+      std::ifstream file(abc_path_out);
+      if (file.is_open()) {
+        std::string line;
+        size_t cls_i = 0, mem_j = 0;
+        while (std::getline(file, line)) {
+          std::istringstream iss(line);
+          // int mem_j;
+          while (iss >> mem_j)
+            labels.points[indices_->at(mem_j)].label =
+                static_cast<unsigned int>(cls_i);
+          cls_i++;
+        }
+        file.close();
+        numClusters_ = cls_i;
+      } else
+        spdlog::error("Unable to open output file from mcl: {}", abc_path_out);
+    } catch (const std::exception &e) {
+      spdlog::error("Exception during MCL execution: {}", e.what());
+    }
+#else
     GrB_Matrix M = NULL;
     LAGRAPH_TRY(
         GrB_Matrix_new(&M, GrB_FP32, indices_->size(), indices_->size()));
@@ -215,11 +277,11 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
     }
     triplets.clear();
 
-    // INFO: Save the matric to disk for debugging
-    std::FILE *fout = fopen("./mcl.mtx", "w");
-    if (LAGraph_MMWrite(M, fout, NULL, msg) != GrB_SUCCESS)
-      spdlog::error("LAGraph_MMWrite failed! {}", std::string(msg));
-    fclose(fout);
+    // // INFO: Save the matric to disk for debugging
+    // std::FILE *fout = fopen("./mcl.mtx", "w");
+    // if (LAGraph_MMWrite(M, fout, NULL, msg) != GrB_SUCCESS)
+    //   spdlog::error("LAGraph_MMWrite failed! {}", std::string(msg));
+    // fclose(fout);
 
     // LAGRAPH_TRY(GrB_Matrix_free(&M));
     // FILE *f = fopen("/home/mephisto/mcl.mtx", "r");
@@ -256,7 +318,7 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
     spdlog::info("Markov Clustering completed in {:.3f} seconds", sw);
 
     extractClusters(labels);
-
+#endif
     deinitCompute();
   }
 
@@ -303,10 +365,10 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
         ray.dir_y = dir.y();
         ray.dir_z = dir.z();
 
-        ray.time = 0.0f;       // motion blur time, not used here
-        ray.mask = 0xFFFFFFFF; // mask for ray types, not used here
-        ray.id = 0;            // ray ID, not used here
-        ray.flags = 0;         // ray flags, not used here
+        ray.time = 0.0f; // motion blur time, not used here
+        ray.mask = -1;   // mask for ray types, not used here
+        ray.id = 0;      // ray ID, not used here
+        ray.flags = 0;   // ray flags, not used here
 
         ++logger;
         rtcOccluded1(scene_, &ray);
@@ -649,7 +711,10 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
     cv::normalize(mat, mat, 0, 1, cv::NORM_MINMAX);
     cv::imshow(name, mat);
 
-    cv::imwrite("./" + name + ".png", mat * 255);
+    cv::Mat mat8u;
+    mat.convertTo(mat8u, CV_8UC1, 255.0);
+    cv::imwrite("./" + name + ".png", mat8u);
+
 #if 0
     cv::waitKey(10);
 #else

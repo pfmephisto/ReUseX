@@ -7,7 +7,7 @@
 #include "ReUseX/helpers.hpp"
 
 #include <CGAL/Boolean_set_operations_2.h>
-#include <CGAL/Exact_predicates_exact_constructions_kernel.h>
+#include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
 #include <CGAL/Polygon_2.h>
 #include <CGAL/Polygon_2_algorithms.h>
 #include <CGAL/circulator.h>
@@ -18,17 +18,11 @@
 #include <range/v3/view/transform.hpp>
 #include <range/v3/view/zip.hpp>
 
-using Kernel = CGAL::Exact_predicates_inexact_constructions_kernel;
-
-using Plane_3 = Kernel::Plane_3;
-using Point_3 = Kernel::Point_3;
-
-using Polygon_2 = CGAL::Polygon_2<Kernel>;
-using Point_2 = Polygon_2::Point_2;
-
-static double compute_grid_coverage(const Polygon_2 &polygon,
-                                    const std::vector<Point_2> &points,
-                                    const double cell_size = 0.2) {
+template <class Kernel>
+static double
+compute_grid_coverage(typename CGAL::Polygon_2<Kernel> const &polygon,
+                      std::vector<typename Kernel::Point_2> const &points,
+                      const double cell_size = 0.2) {
   // Bounding box
   double min_x = polygon[0].x(), max_x = polygon[0].x();
   double min_y = polygon[0].y(), max_y = polygon[0].y();
@@ -49,7 +43,7 @@ static double compute_grid_coverage(const Polygon_2 &polygon,
     for (int j = 0; j < ny; ++j) {
       const double cx = min_x + (i + 0.5) * cell_size;
       const double cy = min_y + (j + 0.5) * cell_size;
-      Point_2 cell_center(cx, cy);
+      typename Kernel::Point_2 cell_center(cx, cy);
       if (polygon.bounded_side(cell_center) == CGAL::ON_UNBOUNDED_SIDE)
         continue;
 
@@ -63,6 +57,8 @@ static double compute_grid_coverage(const Polygon_2 &polygon,
       }
     }
   }
+  if (total_cells == 0)
+    return 0.0;
 
   return static_cast<double>(covered_cells) / total_cells;
 }
@@ -72,6 +68,14 @@ auto CellComplex::compute_face_coverage(pcl::PointCloud<PointT>::ConstPtr cloud,
                                         EigenVectorContainer<double, 4> &planes,
                                         std::vector<pcl::IndicesPtr> &inliers,
                                         const double grid_size) -> void {
+
+  using EPICK = CGAL::Exact_predicates_inexact_constructions_kernel;
+
+  using Point_3 = EPICK::Point_3;
+  using Plane_3 = EPICK::Plane_3;
+
+  using Polygon_2 = CGAL::Polygon_2<EPICK>;
+  using Point_2 = Polygon_2::Point_2;
 
   // INFO: Compute face probabilities
   spdlog::trace("calling compute_face_coverage");
@@ -84,7 +88,8 @@ auto CellComplex::compute_face_coverage(pcl::PointCloud<PointT>::ConstPtr cloud,
     const int plane_id = std::get<FaceData>((*this)[*fit].data).plane_id;
 
     if (plane_id < 0) {
-      // spdlog::warn("Face {} has no associated plane", (*this)[*fit].id);
+      spdlog::warn("Face {} has no associated plane", (*this)[*fit].id);
+      f_sp[*fit] = -1.0;
       continue;
     }
 
@@ -124,7 +129,7 @@ auto CellComplex::compute_face_coverage(pcl::PointCloud<PointT>::ConstPtr cloud,
       continue;
     }
 
-    f_sp[*fit] = compute_grid_coverage(polygon, inliers, grid_size);
+    f_sp[*fit] = compute_grid_coverage<EPICK>(polygon, inliers, grid_size);
   }
 }
 } // namespace ReUseX

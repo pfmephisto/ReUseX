@@ -130,6 +130,7 @@ class CellComplex
           &planes,
       std::vector<size_t> &verticals, std::vector<size_t> &horizontals,
       std::vector<std::pair<size_t, size_t>> &pairs,
+      std::array<double, 2> min_xy, std::array<double, 2> max_xy,
       std::optional<
           std::function<void(size_t, std::vector<std::array<double, 3>> const &,
                              std::vector<int> const &)>>

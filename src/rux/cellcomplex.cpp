@@ -399,11 +399,11 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
   std::shared_ptr<ReUseX::CellComplex> cc =
       std::make_shared<ReUseX::CellComplex>(
           planes, vertical, horizontal, pairs,
+          std::array<double, 2>{min.x - offset - 1, min.y - offset - 1},
+          std::array<double, 2>{max.x + offset + 1, max.y + offset + 1},
           opt.display ? std::optional{viz_callback} : std::nullopt);
 
-  cc->compute_face_coverage<PointT>(cloud, planes, inliers);
-  cc->compute_room_probabilities<PointT, NormalT, LabelT>(cloud, normals,
-                                                          labels);
+  spdlog::debug("Cell complex: {}", *cc);
 
   if (opt.display) {
     // INFO: Display vertices
@@ -488,6 +488,8 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
         pcl::visualization::PCL_VISUALIZER_COLOR, 0.5, 0.5, 0.5, fv_name, vp_2);
   }
 
+  cc->compute_room_probabilities<PointT, NormalT, LabelT>(cloud, normals,
+                                                          labels);
   // INFO: Display room probabilities
   if (opt.display) {
     auto c_rp =
@@ -534,6 +536,7 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
     }
   }
 
+  cc->compute_face_coverage<PointT>(cloud, planes, inliers);
   // INFO: Display face support probabilities
   if (opt.display) {
     spdlog::trace("Displaying face support probabilities");
@@ -546,9 +549,7 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
       vertices->points[id].y = pos[1];
       vertices->points[id].z = pos[2];
     }
-    spdlog::trace("Face points created with {} points", vertices->size());
 
-    spdlog::trace("Getting face support probabilities property map");
     auto f_sp = cc->property_map<ReUseX::CellComplex::Vertex, double>(
         "f:support_probability");
     for (auto fit = cc->faces_begin(); fit != cc->faces_end(); ++fit) {

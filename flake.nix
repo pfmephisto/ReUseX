@@ -102,6 +102,7 @@
               qtcreator
 
               nix-update
+              mcl
             ];
 
             shellHook =

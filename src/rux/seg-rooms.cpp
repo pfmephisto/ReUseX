@@ -70,7 +70,10 @@ void setup_subcommand_seg_rooms(CLI::App &app) {
       ->default_val(opt->path_out);
 
   sub->add_option("-i, --inflation", opt->inflation,
-                  "The inflation factor for the MCL algorithm.")
+                  "The inflation factor for the MCL algorithm. "
+                  "Higher values lead to more clusters. "
+                  "Common values are: "
+                  "1.4 1.6 2 3 4")
       ->default_val(opt->inflation)
       ->check(CLI::Range(0.0, 10.0));
 
@@ -185,16 +188,28 @@ int run_subcommand_seg_rooms(SubcommandSegRoomsOptions const &opt) {
                         "{} polygons",
                         points->size(), vertices->size());
 
-          const std::string polygon_id = "disk_polygon";
-          viewer->addPolygonMesh<pcl::PointXYZ>(points, *vertices, polygon_id);
+          constexpr std::string_view polygon_id = "disk_polygon";
+          viewer->addPolygonMesh<pcl::PointXYZ>(points, *vertices,
+                                                polygon_id.data());
           viewer->setPointCloudRenderingProperties(
               pcl::visualization::PCL_VISUALIZER_COLOR, 1.0, 0.0, 0.0,
-              polygon_id);
+              polygon_id.data());
           viewer->setPointCloudRenderingProperties(
-              pcl::visualization::PCL_VISUALIZER_OPACITY, 0.5, polygon_id);
+              pcl::visualization::PCL_VISUALIZER_OPACITY, 0.5,
+              polygon_id.data());
+
+          constexpr std::string_view corr_id = "correspondences";
 
           viewer->addCorrespondences<pcl::PointXYZ>(
-              points, points, *correspondences, "correspondences");
+              points, points, *correspondences, corr_id.data());
+
+          viewer->setShapeRenderingProperties(
+              pcl::visualization::PCL_VISUALIZER_COLOR, 0.5, 0.5, 0.5,
+              corr_id.data());
+          viewer->setShapeRenderingProperties(
+              pcl::visualization::PCL_VISUALIZER_LINE_WIDTH, 2, corr_id.data());
+          viewer->setShapeRenderingProperties(
+              pcl::visualization::PCL_VISUALIZER_OPACITY, 0.5, corr_id.data());
         });
 
     viewer->addPointCloud<PointT>(cloud, "cloud");

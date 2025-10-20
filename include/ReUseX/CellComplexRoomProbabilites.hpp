@@ -223,6 +223,10 @@ auto CellComplex::compute_room_probabilities(
       rayhit.ray.tfar = std::numeric_limits<float>::infinity();
       rayhit.hit.geomID = RTC_INVALID_GEOMETRY_ID;
 
+      rayhit.ray.mask = -1;
+      rayhit.ray.flags = 0;
+      rayhit.hit.instID[0] = RTC_INVALID_GEOMETRY_ID;
+
       rtcIntersect1(scene_, &rayhit);
 
       if (rayhit.hit.geomID == RTC_INVALID_GEOMETRY_ID) { // No hit

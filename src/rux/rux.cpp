@@ -7,7 +7,7 @@
 #include "rux/export.hpp"
 #include "rux/seg-planes.hpp"
 #include "rux/seg-rooms.hpp"
-#include "rux/surface_reconstruction.hpp"
+#include "rux/view.hpp"
 
 #include "ReUseX/about.hpp"
 
@@ -59,7 +59,7 @@ int main(int argc, char **argv) {
   setup_subcommand_seg_planes(app);
   setup_subcommand_seg_rooms(app);
   setup_subcommand_cellcomplex(app);
-  setup_subcommand_surface_reconstruction(app);
+  setup_subcommand_view(app);
 
   app.add_subcommand("assemble", "Assemble multiple scans.")->callback([]() {
     spdlog::warn("The assemble command is not yet implemented.");

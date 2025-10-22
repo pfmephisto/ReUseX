@@ -3,13 +3,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #pragma once
+#include "global-params.hpp"
 
 #include <CLI/CLI.hpp>
 namespace fs = std::filesystem;
 
 /// Collection of all options of Subcommand A.
 struct SubcommandExportOptions {
-  fs::path path_in;
+  fs::path cloud_path_in;
+  fs::path labels_path_in;
   fs::path path_out = fs::current_path() / "cloud.3dm";
 };
 

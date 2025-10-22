@@ -2,6 +2,8 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include "spdmon/spdmon.hpp"
+
 #include <embree4/rtcore.h>
 
 #include <pcl/filters/uniform_sampling.h>
@@ -75,7 +77,8 @@ auto CellComplex::compute_room_probabilities(
   labels.reserve(labels_->points.size());
 
   for (const auto &p : labels_->points)
-    labels.push_back(p.label);
+    if (p.label != static_cast<unsigned int>(-1))
+      labels.push_back(p.label);
 
   std::sort(labels.begin(), labels.end());
   labels.erase(std::unique(labels.begin(), labels.end()), labels.end());
@@ -138,7 +141,7 @@ auto CellComplex::compute_room_probabilities(
   // Intersect with ground plane to get line/ INFO: Create Embree scene
   spdlog::trace("Creating scene geometry for ray tracing");
 
-  pcl::UniformSampling<PointL> us;
+  pcl::UniformSampling<PointT> us;
   us.setInputCloud(cloud_);
   us.setRadiusSearch(grid_size);
 
@@ -196,78 +199,93 @@ auto CellComplex::compute_room_probabilities(
   spdlog::trace("Committing scene");
   rtcCommitScene(scene_);
 
-  const auto dirs = sampleSphericalFibonacci(100);
+  {
+    const auto dirs = sampleSphericalFibonacci(100);
+    //
+    auto logger = spdmon::LoggerProgress("Computing room probabilities",
+                                         this->num_cells());
 
-  // std::this_thread::sleep_for(std::chrono::milliseconds(100));
-  /*
-   #pragma omp parallel for reduction(mergeTriplets : triplets) \
-    schedule(dynamic, 4)
-  */
-  for (auto cit = this->cells_begin(); cit != this->cells_end(); ++cit) {
-    // const size_t idx = (*this)[*cit].id;
-    // For each cell create n random rays
-    // Count the number of intersections per id nad normalize
-    for (size_t i = 0; i < dirs.size(); ++i) {
-      const auto dir = dirs[i];
-      auto c = (*this)[*cit].pos;
+#pragma omp parallel for schedule(dynamic)
+    for (size_t cell_idx = 0; cell_idx < this->num_cells(); ++cell_idx) {
+      auto cit = this->cells_begin();
+      std::advance(cit, cell_idx);
+      // const size_t idx = (*this)[*cit].id;
+      // For each cell create n random rays
+      // Count the number of intersections per id nad normalize
 
-      RTCRayHit rayhit;
-      rayhit.ray.org_x = static_cast<float>(c.x());
-      rayhit.ray.org_y = static_cast<float>(c.y());
-      rayhit.ray.org_z = static_cast<float>(c.z());
-      rayhit.ray.dir_x = static_cast<float>(dir.x());
-      rayhit.ray.dir_y = static_cast<float>(dir.y());
-      rayhit.ray.dir_z = static_cast<float>(dir.z());
+      std::vector<double> local_accum(c_rp[*cit].size(), 0.0);
+      double *accum_ptr = local_accum.data();
+      const int N = static_cast<int>(c_rp[*cit].size());
 
-      rayhit.ray.tnear = 0.001f; // Start a bit away from the origin
-      rayhit.ray.tfar = std::numeric_limits<float>::infinity();
-      rayhit.hit.geomID = RTC_INVALID_GEOMETRY_ID;
+#pragma omp parallel for reduction(+ : accum_ptr[ : N])
+      for (size_t i = 0; i < dirs.size(); ++i) {
+        const auto dir = dirs[i];
+        auto c = (*this)[*cit].pos;
 
-      rayhit.ray.mask = -1;
-      rayhit.ray.flags = 0;
-      rayhit.hit.instID[0] = RTC_INVALID_GEOMETRY_ID;
+        RTCRayHit rayhit;
+        rayhit.ray.org_x = static_cast<float>(c.x());
+        rayhit.ray.org_y = static_cast<float>(c.y());
+        rayhit.ray.org_z = static_cast<float>(c.z());
+        rayhit.ray.dir_x = static_cast<float>(dir.x());
+        rayhit.ray.dir_y = static_cast<float>(dir.y());
+        rayhit.ray.dir_z = static_cast<float>(dir.z());
 
-      rtcIntersect1(scene_, &rayhit);
+        rayhit.ray.tnear = 0.001f; // Start a bit away from the origin
+        rayhit.ray.tfar = std::numeric_limits<float>::infinity();
+        rayhit.hit.geomID = RTC_INVALID_GEOMETRY_ID;
 
-      if (rayhit.hit.geomID == RTC_INVALID_GEOMETRY_ID) { // No hit
-        c_rp[*cit][0] += 1;
-        spdlog::trace(fmt::format(fmt::fg(fmt::color::red), "No hit"));
-        continue;
+        rayhit.ray.mask = -1;
+        rayhit.ray.flags = 0;
+        rayhit.hit.instID[0] = RTC_INVALID_GEOMETRY_ID;
+
+        rtcIntersect1(scene_, &rayhit);
+
+        if (rayhit.hit.geomID == RTC_INVALID_GEOMETRY_ID) { // No hit
+          accum_ptr[0] += 1;
+          // spdlog::trace(fmt::format(fmt::fg(fmt::color::red), "No hit"));
+          continue;
+        }
+
+        // Check if backside
+        const auto normal =
+            Eigen::Vector3f(rayhit.hit.Ng_x, rayhit.hit.Ng_y, rayhit.hit.Ng_z)
+                .normalized();
+        const Eigen::Vector3f dir_vec(dir.x(), dir.y(), dir.z());
+        if (normal.dot(dir_vec) > 0) {
+          accum_ptr[0] += 1;
+          // spdlog::trace(
+          //     fmt::format(fmt::fg(fmt::color::yellow), "Backside hit"));
+          continue; // Backside
+        }
+        // spdlog::trace(fmt::format(fmt::fg(fmt::color::green), "Frontside
+        // hit"));
+
+        auto geometry = rtcGetGeometry(scene_, rayhit.hit.geomID);
+        rtcGetGeometryUserData(geometry);
+        RTCData *data = (RTCData *)rtcGetGeometryUserData(geometry);
+
+        // const auto label = labels[data->label_index];
+        // spdlog::trace("Cell {:>3} ray {} hit label {} (index {})",
+        //               (*this)[*cit].id, i, label, data->label_index);
+
+        //  #pragma omp critical
+        accum_ptr[data->label_index + 1] += 1;
+        // spdlog::trace("Cell {:>3} hit label {} (index {})", idx,
+        //               labels[data->label_index], data->label_index);
       }
 
-      // Check if backside
-      const auto normal =
-          Eigen::Vector3f(rayhit.hit.Ng_x, rayhit.hit.Ng_y, rayhit.hit.Ng_z)
-              .normalized();
-      const Eigen::Vector3f dir_vec(dir.x(), dir.y(), dir.z());
-      if (normal.dot(dir_vec) > 0) {
-        c_rp[*cit][0] += 1;
-        spdlog::trace(fmt::format(fmt::fg(fmt::color::yellow), "Backside hit"));
-        continue; // Backside
-      }
-      spdlog::trace(fmt::format(fmt::fg(fmt::color::green), "Frontside hit"));
+      // Compute probabilities
+      // double sum = std::accumulate(c_rp[*cit].begin(), c_rp[*cit].end(),
+      // 0.0); spdlog::trace("Cell {:>3} sum = {:.3f}", idx, sum); if (sum > 0)
+      //  for (size_t j = 0; j < c_rp[*cit].size(); ++j)
+      //    c_rp[*cit][j] /= sum;
+      //
+      for (auto &p : local_accum)
+        p /= dirs.size();
+      c_rp[*cit] = std::move(local_accum);
 
-      auto geometry = rtcGetGeometry(scene_, rayhit.hit.geomID);
-      rtcGetGeometryUserData(geometry);
-      RTCData *data = (RTCData *)rtcGetGeometryUserData(geometry);
-
-      // const auto label = labels[data->label_index];
-      // spdlog::trace("Cell {:>3} ray {} hit label {} (index {})",
-      //               (*this)[*cit].id, i, label, data->label_index);
-
-      //  #pragma omp critical
-      c_rp[*cit][data->label_index + 1] += 1;
-      // spdlog::trace("Cell {:>3} hit label {} (index {})", idx,
-      //               labels[data->label_index], data->label_index);
+      ++logger;
     }
-    // Compute probabilities
-    // double sum = std::accumulate(c_rp[*cit].begin(), c_rp[*cit].end(), 0.0);
-    // spdlog::trace("Cell {:>3} sum = {:.3f}", idx, sum);
-    // if (sum > 0)
-    //  for (size_t j = 0; j < c_rp[*cit].size(); ++j)
-    //    c_rp[*cit][j] /= sum;
-    for (size_t j = 0; j < c_rp[*cit].size(); ++j)
-      c_rp[*cit][j] /= dirs.size();
   }
   rtcReleaseScene(scene_);
   rtcReleaseDevice(device_);

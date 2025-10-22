@@ -65,33 +65,38 @@ void setup_subcommand_annotate(CLI::App &app) {
                   "export a point cloud with labels and normals, "
                   "and the trajectory.");
 
-  sub->add_option("database", opt->database_path,
+  sub->add_option("database", opt->database_path_in,
                   "Path to the RTAB-Map database file.")
       ->required()
       ->check(CLI::ExistingFile);
 
-  sub->add_option("cloud", opt->out_cloud_path,
+  sub->add_option("cloud", opt->cloud_path_out,
                   "Path to the output point cloud file")
       //->check(CLI::NonexistentPath)
-      ->default_val(opt->out_cloud_path);
+      ->default_val(opt->cloud_path_out);
 
-  sub->add_option("normals", opt->out_normals_path,
+  sub->add_option("labels", opt->labels_path_out,
+                  "Path to the output labels file")
+      //->check(CLI::NonexistentPath)
+      ->default_val(opt->labels_path_out);
+
+  sub->add_option("normals", opt->normals_path_out,
                   "Path to the output normals file")
       //->check(CLI::NonexistentPath)
-      ->default_val(opt->out_normals_path);
+      ->default_val(opt->normals_path_out);
 
-  sub->add_option("trajectory", opt->out_trajectory_path,
+  sub->add_option("trajectory", opt->trajectory_path_out,
                   "Path to the output trajectory file")
       //->check(CLI::NonexistentPath)
-      ->default_val(opt->out_trajectory_path);
+      ->default_val(opt->trajectory_path_out);
 
   sub->add_option("-n, --net", opt->net_path, "Path to the YOLOv8 ONNX model")
       //->check(CLI::ExistingFile)
       ->default_val(opt->net_path);
 
-  sub->add_option("-g,--grid", opt->grid_size,
+  sub->add_option("-g,--grid", opt->resulution,
                   "Voxel grid size for downsampling the point cloud")
-      ->default_val(opt->grid_size);
+      ->default_val(opt->resulution);
 
   sub->add_option("--min-distance", opt->min_distance,
                   "Minimum distance points need to be from the camera")
@@ -124,12 +129,14 @@ void setup_subcommand_annotate(CLI::App &app) {
 
 int run_subcommand_annotate(SubcommandAnnotateOptions const &opt) {
 
+  // TODO: Add path check for onnx model and package it with the application
+
   spdlog::info("Intializing RTAB-Map ...");
   spdlog::stopwatch timer;
   ParametersMap params;
   Rtabmap rtabmap;
-  spdlog::debug("Database path: {}", opt.database_path);
-  rtabmap.init(params, opt.database_path.c_str());
+  spdlog::debug("Database path: {}", opt.database_path_in);
+  rtabmap.init(params, opt.database_path_in.c_str());
   rtabmap.setWorkingDirectory("./");
   spdlog::debug("RTAB-Map initialized in {:.3f}s", timer);
 
@@ -333,8 +340,8 @@ int run_subcommand_annotate(SubcommandAnnotateOptions const &opt) {
   // INFO: Downsample the point cloud
   spdlog::info(
       "Voxel grid filtering of the assembled cloud (voxel={}, {} points)",
-      opt.grid_size, (int)cloud->size());
-  auto downsampledCloud = util3d::voxelize(cloud, opt.grid_size);
+      opt.resulution, (int)cloud->size());
+  auto downsampledCloud = util3d::voxelize(cloud, opt.resulution);
   spdlog::debug("Points after voxel grid filtering: {}",
                 downsampledCloud->size());
 
@@ -342,30 +349,29 @@ int run_subcommand_annotate(SubcommandAnnotateOptions const &opt) {
   pcl::removeNaNNormalsFromPointCloud(*downsampledCloud, *downsampledCloud,
                                       filter_indices);
 
-  // INFO: Saving the point cloud with normals
-  spdlog::info("Saving {} ({})", opt.out_normals_path,
-               downsampledCloud->size());
-  pcl::io::savePCDFile(opt.out_normals_path, *downsampledCloud, !opt.ascii);
+  // INFO: Saving the point cloud
+  CloudPtr out_cloud(new Cloud);
+  pcl::copyPointCloud(*downsampledCloud, *out_cloud);
+  spdlog::info("Saving {} ({})", opt.cloud_path_out, out_cloud->size());
+  pcl::io::savePCDFile(opt.cloud_path_out, *out_cloud, !opt.ascii);
 
-  spdlog::trace("Creating point cloud with labels");
+  // INFO: Saving the normals
+  CloudNPtr out_normals(new CloudN);
+  pcl::copyPointCloud(*downsampledCloud, *out_normals);
+  spdlog::info("Saving {} ({})", opt.normals_path_out, out_normals->size());
+  pcl::io::savePCDFile(opt.normals_path_out, *out_normals, !opt.ascii);
+
+  spdlog::trace("Creating labels");
+
+  // BUG: There is a segfault here
   pcl::KdTreeFLANN<pcl::PointXYZRGBNormal> kdtree;
-  kdtree.setInputCloud(cloud);
+  kdtree.setInputCloud(cloud); // Original cloud before downsampling
 
-  pcl::PointCloud<pcl::PointXYZRGBL>::Ptr pointLabels(
-      new pcl::PointCloud<pcl::PointXYZRGBL>);
-  pointLabels->resize(downsampledCloud->size());
-  pcl::copyPointCloud(*downsampledCloud, *pointLabels);
+  CloudLPtr out_labels(new CloudL);
+  out_labels->resize(downsampledCloud->size());
 
-  for (size_t i = 0; i < downsampledCloud->size(); ++i) {
-    auto &point = downsampledCloud->at(i);
-    std::vector<int> indices;
-    std::vector<float> distances;
-    kdtree.radiusSearch(point, opt.grid_size / 2.0f, indices, distances);
-    std::unordered_map<int, int> labelCount;
-    for (const auto &idx : indices) {
-      int label = labels->points[idx].label;
-      labelCount[label]++;
-    }
+  auto const half_resulution = opt.resulution / 2.0f;
+  auto mostCommonLabel = [](std::unordered_map<int, int> &labelCount) {
     // Find the most common label
     int maxCount = 0;
     int mostCommonLabel = -1;
@@ -375,21 +381,33 @@ int run_subcommand_annotate(SubcommandAnnotateOptions const &opt) {
         mostCommonLabel = pair.first;
       }
     }
-    pointLabels->points[i].label = mostCommonLabel;
-    // pointLabels->at(i).label = labels->points.at(i).label;
+    return mostCommonLabel;
+  };
+  for (size_t i = 0; i < downsampledCloud->size(); ++i) {
+    auto &point = downsampledCloud->at(i);
+
+    std::vector<int> indices;
+    std::vector<float> distances; // Unused
+    kdtree.radiusSearch(point, half_resulution, indices, distances);
+
+    std::unordered_map<int, int> labelCount;
+    for (const auto &idx : indices) {
+      int label = labels->points[idx].label;
+      labelCount[label]++;
+    }
+    out_labels->points[i].label = mostCommonLabel(labelCount);
   }
   // TODO:Condider only writing files for specified output paths and removing
   // the default values
 
-  // INFO: Saving the point cloud with labels
-  spdlog::info("Saving {} ({})", opt.out_cloud_path, pointLabels->size());
-  pcl::io::savePCDFile(opt.out_cloud_path, *pointLabels, !opt.ascii);
-  // pcl::io::savePLYFile(opt.out_cloud_path, *pointLabels, !opt.ascii);
+  // INFO: Saving the labels
+  spdlog::info("Saving {} ({})", opt.labels_path_out, out_labels->size());
+  pcl::io::savePCDFile(opt.labels_path_out, *out_labels, !opt.ascii);
 
   // INFO: Saving the trajectory
-  spdlog::info("Saving {} ...", opt.out_trajectory_path);
+  spdlog::info("Saving {} ...", opt.trajectory_path_out);
   if (poses.size() &&
-      graph::exportPoses(opt.out_trajectory_path, 0, poses, links)) {
+      graph::exportPoses(opt.trajectory_path_out, 0, poses, links)) {
     // const std::string & filePath,
     // int format, // 0=Raw, 1=RGBD-SLAM motion capture (10=without change of
     // coordinate frame, 11=10+ID), 2=KITTI, 3=TORO, 4=g2o
@@ -401,7 +419,7 @@ int run_subcommand_annotate(SubcommandAnnotateOptions const &opt) {
     // Raw = KITTI Fromat
     // // Format: r11 r12 r13 tx r21 r22 r23 ty r31 r32 r33 tz
   } else {
-    spdlog::error("Saving {} ... failed!", opt.out_trajectory_path);
+    spdlog::error("Saving {} ... failed!", opt.trajectory_path_out);
     rtabmap.close(false);
     return 1;
   }

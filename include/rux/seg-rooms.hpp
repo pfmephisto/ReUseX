@@ -3,14 +3,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #pragma once
-
+#include "global-params.hpp"
 #include <CLI/CLI.hpp>
 namespace fs = std::filesystem;
 
 /// Collection of all options of Subcommand A.
 struct SubcommandSegRoomsOptions {
-  fs::path path_in;
-  fs::path path_out = fs::current_path() / "clusters.pcd";
+  fs::path cloud_path_in = GlobalParams::cloud;
+  fs::path normals_path_in = GlobalParams::normals;
+  fs::path planes_path_in = GlobalParams::planes;
+  fs::path rooms_path_out = GlobalParams::rooms;
 
   int expansion = 2;
   double inflation = 2;
@@ -18,9 +20,9 @@ struct SubcommandSegRoomsOptions {
   double convergence_threshold = 1e-8;
   int max_iter = 100;
 
-  float grid_size = 0.2f;
+  float grid_size = GlobalParams::grid_size;
 
-  bool visualize = false;
+  bool visualize = GlobalParams::visualize;
 };
 
 // Function declarations.

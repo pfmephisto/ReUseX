@@ -27,10 +27,6 @@
 namespace fs = std::filesystem;
 using namespace ReUseX;
 
-using Type = pcl::PointXYZRGBL;
-using Cloud = pcl::PointCloud<Type>;
-using CloudPtr = typename Cloud::Ptr;
-
 void setup_subcommand_export(CLI::App &app) {
 
   auto opt = std::make_shared<SubcommandExportOptions>();
@@ -39,7 +35,13 @@ void setup_subcommand_export(CLI::App &app) {
       "This tool exports a rtab-map database to a pcl point cloud for "
       "use in reusex.");
 
-  sub->add_option("input", opt->path_in, "Path to the input point cloud file.")
+  sub->add_option("cloud", opt->cloud_path_in,
+                  "Path to the input point cloud file.")
+      ->required()
+      ->check(CLI::ExistingFile);
+
+  sub->add_option("labels", opt->labels_path_in,
+                  "Path to the input point cloud file.")
       ->required()
       ->check(CLI::ExistingFile);
 
@@ -79,18 +81,30 @@ int run_subcommand_export(SubcommandExportOptions const &opt) {
   model.m_settings.m_ModelUnitsAndTolerances.m_angle_tolerance = ON_PI / 180.0;
   model.m_settings.m_ModelUnitsAndTolerances.m_relative_tolerance = 0.01;
 
-  spdlog::trace("load pcl point cloud from file: {}", opt.path_in);
+  spdlog::trace("load pcl point cloud from file: {}", opt.cloud_path_in);
   CloudPtr pcl_cloud(new Cloud);
-  pcl::io::loadPCDFile<Type>(opt.path_in.c_str(), *pcl_cloud);
+  pcl::io::loadPCDFile<PointT>(opt.cloud_path_in.c_str(), *pcl_cloud);
+
+  spdlog::trace("load pcl labels from file: {}", opt.labels_path_in);
+  CloudLPtr pcl_labels(new CloudL);
+  pcl::io::loadPCDFile<LabelT>(opt.labels_path_in.c_str(), *pcl_labels);
 
   if (pcl_cloud->empty()) {
     spdlog::error("Point cloud is empty, nothing to export.");
     return 1;
   }
 
+  if (pcl_cloud->size() != pcl_labels->size()) {
+    spdlog::error(
+        "Point cloud and labels have different sizes (cloud: {}, labels: "
+        "{})",
+        pcl_cloud->size(), pcl_labels->size());
+    return 1;
+  }
+
   spdlog::trace("creating set of labels");
   std::set<uint32_t> labels_set{};
-  for (const auto &point : pcl_cloud->points)
+  for (const auto &point : pcl_labels->points)
     labels_set.insert(point.label);
 
   spdlog::trace("creating sorted vector of labels");
@@ -106,7 +120,7 @@ int run_subcommand_export(SubcommandExportOptions const &opt) {
   for (int i = 0; i < (int)labels.size(); i++) {
     clouds[i] = CloudPtr(new Cloud());
     for (int j = 0; j < (int)pcl_cloud->points.size(); j++) {
-      if (pcl_cloud->points[j].label == labels[i])
+      if (pcl_labels->points[j].label == labels[i])
         clouds[i]->points.push_back(pcl_cloud->points[j]);
     }
   }

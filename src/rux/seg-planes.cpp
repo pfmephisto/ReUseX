@@ -22,22 +22,6 @@
 #include "ReUseX/io.hpp"
 namespace fs = std::filesystem;
 
-using PointT = pcl::PointXYZRGBNormal;
-using NormalT = pcl::PointXYZRGBNormal;
-using LabelT = pcl::PointXYZRGBL;
-
-using Cloud = pcl::PointCloud<PointT>;
-using CloudPtr = typename Cloud::Ptr;
-using CloudConstPtr = typename Cloud::ConstPtr;
-
-using CloudN = pcl::PointCloud<NormalT>;
-using CloudNPtr = typename CloudN::Ptr;
-using CloudNConstPtr = typename CloudN::ConstPtr;
-
-using CloudL = pcl::PointCloud<LabelT>;
-using CloudLPtr = typename CloudL::Ptr;
-using CloudLConstPtr = typename CloudL::ConstPtr;
-
 void setup_subcommand_seg_planes(CLI::App &app) {
 
   auto opt = std::make_shared<SubcommandSegPlanesOptions>();
@@ -46,13 +30,21 @@ void setup_subcommand_seg_planes(CLI::App &app) {
 
   sub->get_formatter()->column_width(40);
 
-  sub->add_option("input", opt->path_in, "Path to the input point cloud file.")
-      ->required()
-      ->check(CLI::ExistingFile);
+  sub->add_option("cloud", opt->cloud_path_in,
+                  "Path to the input point cloud file.")
+      //->required()
+      // ->check(CLI::ExistingFile)
+      ->default_val(opt->cloud_path_in);
 
-  sub->add_option("output", opt->path_out,
-                  "Path to the output point cloud file")
-      ->default_val(opt->path_out);
+  sub->add_option("normals", opt->normals_path_in,
+                  "Path to the input point cloud file.")
+      //->required()
+      // ->check(CLI::ExistingFile)
+      ->default_val(opt->normals_path_in);
+
+  sub->add_option("planes", opt->planes_path_out,
+                  "Path to the output planes file")
+      ->default_val(opt->planes_path_out);
 
   sub->add_option("-a, --angle-threshold", opt->angle_threshold,
                   "Angle threshold for plane fitting (default: 25° aka. "
@@ -100,7 +92,11 @@ int run_subcommand_seg_planes(SubcommandSegPlanesOptions const &opt) {
   spdlog::trace("Load the point cloud from disk");
   CloudPtr cloud(new Cloud);
   // pcl::io::loadPCDFile<PointT>(opt.path_in.string(), *cloud);
-  pcl::io::load<PointT>(opt.path_in.string(), *cloud);
+  pcl::io::load<PointT>(opt.cloud_path_in.string(), *cloud);
+
+  spdlog::trace("Load the normals from disk");
+  CloudNPtr normals(new CloudN);
+  pcl::io::loadPCDFile<NormalT>(opt.normals_path_in.string(), *normals);
 
   // pcl::Indices indices;
   // pcl::removeNaNNormalsFromPointCloud(*cloud, *cloud, indices);
@@ -108,7 +104,7 @@ int run_subcommand_seg_planes(SubcommandSegPlanesOptions const &opt) {
   spdlog::trace("Initialize the segmentation algorithm");
   pcl::PlanarRegionGrowing<PointT, NormalT, LabelT> seg;
   seg.setInputCloud(cloud);
-  seg.setInputNormals(cloud);
+  seg.setInputNormals(normals);
 
   seg.setAngularThreshold(opt.angle_threshold);
   seg.setDistanceThreshold(opt.plane_dist_threshold);
@@ -165,12 +161,13 @@ int run_subcommand_seg_planes(SubcommandSegPlanesOptions const &opt) {
   auto centroids = seg.getCentroids();
   auto inlier_indices = seg.getInlierIndices();
 
-  if (!ReUseX::save(opt.path_out.string(), model_coefficients, centroids,
+  // TODO: Reconsider how to save the planes
+  if (!ReUseX::save(opt.planes_path_out.string(), model_coefficients, centroids,
                     inlier_indices))
     spdlog::error("Could not save the planes to disk");
 
   spdlog::trace("Save the point cloud with planes");
-  pcl::io::savePCDFileBinary(opt.path_out, *labels);
+  pcl::io::savePCDFileBinary(opt.planes_path_out, *labels);
 
   return 0;
 }

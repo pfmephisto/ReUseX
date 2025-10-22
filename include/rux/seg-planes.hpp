@@ -3,14 +3,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #pragma once
-
+#include "global-params.hpp"
 #include <CLI/CLI.hpp>
 namespace fs = std::filesystem;
 
 /// Collection of all options of Subcommand A.
 struct SubcommandSegPlanesOptions {
-  fs::path path_in;
-  fs::path path_out = fs::current_path() / "planes.pcd";
+  fs::path cloud_path_in = GlobalParams::cloud;
+  fs::path normals_path_in = GlobalParams::normals;
+  fs::path planes_path_out = GlobalParams::planes;
 
   float angle_threshold = 25.0f;
   float plane_dist_threshold = 0.07;
@@ -20,7 +21,7 @@ struct SubcommandSegPlanesOptions {
   float interval_0 = 16;
   float interval_factor = 1.5;
 
-  bool visualize = false;
+  bool visualize = GlobalParams::visualize;
 };
 
 // Function declarations.

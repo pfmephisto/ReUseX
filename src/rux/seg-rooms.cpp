@@ -33,26 +33,6 @@
 
 namespace fs = std::filesystem;
 
-using Indices = pcl::Indices;
-using IndicesPtr = pcl::IndicesPtr;
-using IndicesConstPtr = pcl::IndicesConstPtr;
-
-using PointT = pcl::PointXYZRGBL;
-using NormalT = pcl::Normal;
-using LabelT = pcl::PointXYZRGBL;
-
-using Cloud = pcl::PointCloud<PointT>;
-using CloudPtr = typename Cloud::Ptr;
-using CloudConstPtr = typename Cloud::ConstPtr;
-
-using CloudN = pcl::PointCloud<NormalT>;
-using CloudNPtr = typename CloudN::Ptr;
-using CloudNConstPtr = typename CloudN::ConstPtr;
-
-using CloudL = pcl::PointCloud<LabelT>;
-using CloudLPtr = typename CloudL::Ptr;
-using CloudLConstPtr = typename CloudL::ConstPtr;
-
 void setup_subcommand_seg_rooms(CLI::App &app) {
 
   auto opt = std::make_shared<SubcommandSegRoomsOptions>();
@@ -61,13 +41,27 @@ void setup_subcommand_seg_rooms(CLI::App &app) {
       "This tool applies the Markov clustering algorithm to a point cloud "
       "based in the visual relation between the points.");
 
-  sub->add_option("input", opt->path_in, "Path to the input point cloud file.")
-      ->required()
-      ->check(CLI::ExistingFile);
+  sub->add_option("cloud", opt->cloud_path_in,
+                  "Path to the input point cloud file.")
+      //->required()
+      // ->check(CLI::ExistingFile)
+      ->default_val(opt->cloud_path_in);
 
-  sub->add_option("output", opt->path_out,
+  sub->add_option("normals", opt->normals_path_in,
+                  "Path to the input normals file.")
+      //->required()
+      // ->check(CLI::ExistingFile)
+      ->default_val(opt->normals_path_in);
+
+  sub->add_option("planes", opt->planes_path_in,
+                  "Path to the input planes file.")
+      //->required()
+      // ->check(CLI::ExistingFile)
+      ->default_val(opt->planes_path_in);
+
+  sub->add_option("rooms", opt->rooms_path_out,
                   "Path to the output point cloud file")
-      ->default_val(opt->path_out);
+      ->default_val(opt->rooms_path_out);
 
   sub->add_option("-i, --inflation", opt->inflation,
                   "The inflation factor for the MCL algorithm. "
@@ -116,14 +110,18 @@ int run_subcommand_seg_rooms(SubcommandSegRoomsOptions const &opt) {
 
   spdlog::trace("Load the point cloud from disk");
   CloudPtr cloud(new Cloud);
-  pcl::io::load<PointT>(opt.path_in.string(), *cloud);
+  pcl::io::load<PointT>(opt.cloud_path_in.string(), *cloud);
+
+  spdlog::trace("Load the normals from disk");
+  CloudNPtr normals(new CloudN);
+  pcl::io::load<NormalT>(opt.normals_path_in.string(), *normals);
 
   std::vector<pcl::ModelCoefficients> model_coefficients;
   std::vector<Eigen::Vector4f, Eigen::aligned_allocator<Eigen::Vector4f>>
       centroids;
   std::vector<IndicesPtr> inlier_indices;
 
-  fs::path planes_path = opt.path_in;
+  fs::path planes_path = opt.planes_path_in;
   planes_path.replace_extension("planes");
   if (!ReUseX::read(planes_path, model_coefficients, centroids, inlier_indices))
     spdlog::warn("Loading planes form {} failed.", planes_path.string());
@@ -143,18 +141,13 @@ int run_subcommand_seg_rooms(SubcommandSegRoomsOptions const &opt) {
                     local_indices->end());
   }
 
-  CloudNPtr normals(new CloudN);
-  normals->resize(cloud->size());
-
+  // Set the normals according to the plane coefficients
   for (size_t i = 0; i < model_coefficients.size(); ++i) {
     const auto &coeff = model_coefficients[i];
-
-    Eigen::Vector3f normal(coeff.values[0], coeff.values[1], coeff.values[2]);
-    normal.normalize();
     for (const auto &index : *inlier_indices[i]) {
-      normals->points[index].normal_x = normal[0];
-      normals->points[index].normal_y = normal[1];
-      normals->points[index].normal_z = normal[2];
+      normals->points[index].normal_x = coeff.values[0];
+      normals->points[index].normal_y = coeff.values[1];
+      normals->points[index].normal_z = coeff.values[2];
     }
   }
 
@@ -264,8 +257,8 @@ int run_subcommand_seg_rooms(SubcommandSegRoomsOptions const &opt) {
   spdlog::info("Number of clusters found: {}", mcl.getNumClusters());
 
   spdlog::trace("Save the point cloud with planes to dist at: {}",
-                opt.path_out.string());
-  pcl::io::savePCDFileBinary(opt.path_out, *labels);
+                opt.rooms_path_out.string());
+  pcl::io::savePCDFileBinary(opt.rooms_path_out, *labels);
 
   return 0;
 }

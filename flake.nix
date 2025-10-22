@@ -103,6 +103,18 @@
 
               nix-update
               mcl
+              (pkgs.python3.withPackages (
+                ps:
+                  with ps; [
+                    numpy
+                    ruamel-yaml
+                    opencv-python
+                    # from skvideo import io
+                    pillow
+                    pandas
+                    scipy
+                  ]
+              ))
             ];
 
             shellHook =

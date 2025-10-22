@@ -35,9 +35,9 @@ auto force_orthogonal_planes(EigenVectorContainer<NType, 4> &planes,
       // Ceiling
       normal = -up;
     } else {
-      spdlog::warn(
-          "Plane with normal ({}, {}, {}) is not vertical or horizontal",
-          normal.x(), normal.y(), normal.z());
+      spdlog::warn("Plane with normal ({:3f}, {:3f}, {:3f}) is not vertical or "
+                   "horizontal",
+                   normal.x(), normal.y(), normal.z());
     }
   }
 

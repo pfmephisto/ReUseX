@@ -20,44 +20,16 @@
 #include <ReUseX/separate_planes.hpp>
 
 #include <pcl/common/common.h>
-// #include <pcl/common/colors.h>
 #include <pcl/io/auto_io.h>
-// #include <pcl/io/pcd_io.h>
-// #include <pcl/point_types.h>
 #include <pcl/visualization/pcl_visualizer.h>
 
-#include <embree4/rtcore.h>
-
-// #include <range/v3/all.hpp>
-// #include <range/v3/numeric/iota.hpp>
-// #include <range/v3/view/iota.hpp>
-// #include <range/v3/view/take.hpp>
-// #include <range/v3/view/zip.hpp>
-
 #include <algorithm>
+#include <atomic>
 #include <filesystem>
+#include <mutex>
+#include <thread>
 
 namespace fs = std::filesystem;
-
-using Indices = pcl::Indices;
-using IndicesPtr = pcl::IndicesPtr;
-using IndicesConstPtr = pcl::IndicesConstPtr;
-
-using PointT = pcl::PointXYZRGBL;
-using NormalT = pcl::Normal;
-using LabelT = pcl::PointXYZRGBL;
-
-using Cloud = pcl::PointCloud<PointT>;
-using CloudPtr = typename Cloud::Ptr;
-using CloudConstPtr = typename Cloud::ConstPtr;
-
-using CloudN = pcl::PointCloud<NormalT>;
-using CloudNPtr = typename CloudN::Ptr;
-using CloudNConstPtr = typename CloudN::ConstPtr;
-
-using CloudL = pcl::PointCloud<LabelT>;
-using CloudLPtr = typename CloudL::Ptr;
-using CloudLConstPtr = typename CloudL::ConstPtr;
 
 void setup_subcommand_cellcomplex(CLI::App &app) {
 
@@ -66,14 +38,30 @@ void setup_subcommand_cellcomplex(CLI::App &app) {
       "cellcomplex",
       "This tool computes the best fit volumes form a set of input planes.");
 
-  sub->add_option("input", opt->input, "Path to the input file.")
-      ->required()
-      ->check(CLI::ExistingFile);
-  sub->add_option("labels", opt->labels_path, "Path to the input labe file.")
-      ->required()
-      ->check(CLI::ExistingFile); // ->default_val(opt->labels);
-  sub->add_option("output", opt->output, "Path to the output file.")
-      ->default_val(opt->output);
+  sub->add_option("cloud", opt->cloud_path_in, "Path to the input cloud file.")
+      //->required()
+      //->check(CLI::ExistingFile)
+      ->default_val(opt->cloud_path_in);
+
+  sub->add_option("normals", opt->normals_path_in,
+                  "Path to the input normals file.")
+      //->required()
+      //->check(CLI::ExistingFile)
+      ->default_val(opt->normals_path_in);
+
+  sub->add_option("planes", opt->planes_path_in,
+                  "Path to the input planes file.")
+      //->required()
+      //->check(CLI::ExistingFile)
+      ->default_val(opt->planes_path_in);
+
+  sub->add_option("rooms", opt->rooms_path_in, "Path to the input labe file.")
+      //->required()
+      // ->check(CLI::ExistingFile)
+      ->default_val(opt->rooms_path_in);
+
+  sub->add_option("output", opt->output_out, "Path to the output file.")
+      ->default_val(opt->output_out);
 
   sub->add_flag("-d, --visualize", opt->display, "Display the result.")
       ->default_val(opt->display);
@@ -86,11 +74,18 @@ void setup_subcommand_cellcomplex(CLI::App &app) {
 
 int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
 
+  // TODO: Move the visualizer to a separate thread
+  // The goal is to be able to use the viewer while the computation is running
+
   // TODO: Make sure the input planse are cleaned
   // - optinally apply shape regularization to enforce orthogonality
   //   [link](https://doc.cgal.org/latest/Shape_regularization/index.html#Chapter_Shape_Regularization)
 
   // INFO: Setup viewer
+  if (opt.display)
+    std::thread viz_thread(
+        []() { spdlog::trace("Visualization thread started"); });
+
   pcl::visualization::PCLVisualizer::Ptr viewer;
   int vp_1, vp_2, vp_3, vp_4;
   if (opt.display) {
@@ -119,28 +114,39 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
     viewer->initCameraParameters();
   }
 
-  fs::path cloud_path = fs::path(opt.input).replace_extension(".pcd");
-  fs::path planes_path = fs::path(opt.input).replace_extension(".planes");
-
-  assert(fs::exists(cloud_path) && "Input point cloud file does not exist");
-  assert(fs::exists(planes_path) && "Input planes file does not exist");
-  assert(fs::exists(opt.labels_path) && "Input labels file does not exist");
+  assert(fs::exists(opt.cloud_path_in) &&
+         "Input point cloud file does not exist");
+  assert(fs::exists(opt.normals_path_in) &&
+         "Input normals file does not exist");
+  assert(fs::exists(opt.planes_path_in) && "Input planes file does not exist");
+  assert(fs::exists(opt.rooms_path_in) && "Input rooms file does not exist");
 
   CloudPtr cloud(new Cloud);
-
-  spdlog::trace("Reading input file: {}", cloud_path);
-  pcl::io::load<PointT>(cloud_path.string(), *cloud);
+  spdlog::trace("Reading input file: {}", opt.cloud_path_in);
+  pcl::io::load<PointT>(opt.cloud_path_in.string(), *cloud);
 
   if (opt.display) {
     spdlog::trace("Displaying point cloud with {} points", cloud->size());
     viewer->addPointCloud<PointT>(cloud, "cloud", vp_1);
   }
 
-  spdlog::trace("Reading labels file: {}", opt.labels_path.string());
-  CloudLPtr labels(new CloudL);
-  pcl::io::load<LabelT>(opt.labels_path.string(), *labels);
-  if (labels->size() != cloud->size()) {
-    spdlog::error("Labels size does not match point cloud size");
+  CloudNPtr normals(new CloudN);
+  spdlog::trace("Reading normals file: {}", opt.normals_path_in.string());
+  pcl::io::load<NormalT>(opt.normals_path_in.string(), *normals);
+
+  // TODO: Currently not used
+  // Instead we are reading planes form the .planes file
+  // CloudLPtr planes_cloud(new CloudL);
+  // spdlog::trace("Reading planes file: {}", opt.planes_path_in.string());
+  // pcl::io::load<LabelT>(opt.planes_path_in.string() * planes_cloud);
+
+  CloudLPtr rooms(new CloudL);
+  spdlog::trace("Reading rooms file: {}", opt.rooms_path_in.string());
+  pcl::io::load<LabelT>(opt.rooms_path_in.string(), *rooms);
+
+  if (rooms->size() != cloud->size() || /*planes->size() != cloud->size() ||*/
+      normals->size() != cloud->size()) {
+    spdlog::error("Input files have inconsistent sizes:");
     return EXIT_FAILURE;
   }
 
@@ -167,8 +173,10 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
 
   // pcl::io::save<LabelT>(opt.labels_path.string(), *labels);
 
-  spdlog::trace("Reading input file: {}", planes_path);
   // TODO: Rewrite reader function to be more portable
+  fs::path planes_path = opt.planes_path_in;
+  planes_path.replace_extension("planes");
+  spdlog::trace("Reading input file: {}", planes_path);
   std::vector<pcl::ModelCoefficients> planes_coeff = {};
   std::vector<Eigen::Vector4f, Eigen::aligned_allocator<Eigen::Vector4f>>
       centroids_in;
@@ -191,18 +199,6 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
       centroids_in.begin(), centroids_in.end(), std::back_inserter(centroids),
       [](auto const &c) { return Eigen::Vector3d(c[0], c[1], c[2]); });
   spdlog::trace("Number of planes read: {}", planes.size());
-
-  // Create normal cloud
-  CloudNPtr normals(new CloudN);
-  normals->resize(cloud->size());
-  for (size_t i = 0; i < planes_coeff.size(); ++i) {
-    const auto &coeff = planes_coeff[i];
-    for (const auto &index : *inliers[i]) {
-      normals->points[index].normal_x = coeff.values[0];
-      normals->points[index].normal_y = coeff.values[1];
-      normals->points[index].normal_z = coeff.values[2];
-    }
-  }
 
   std::tie(planes, inliers, centroids) =
       ReUseX::merge_planes<PointT, double>(planes, inliers, centroids, cloud);
@@ -241,6 +237,7 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
 
   // INFO: Display planes
   if (opt.display) {
+    spdlog::trace("Displaying planes");
 
     size_t count = 0;
     for (size_t i = 0; i < vertical.size(); ++i, ++count) {
@@ -329,6 +326,7 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
 
   // INFO: Display floors
   if (opt.display) {
+    spdlog::trace("Displaying floors");
     auto map_val = [&min, &max, &offset](const double val) {
       const double min_in = min.z - offset;
       const double max_in = max.z + offset;
@@ -406,6 +404,7 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
   spdlog::debug("Cell complex: {}", *cc);
 
   if (opt.display) {
+    spdlog::trace("Displaying cell complex vertices");
     // INFO: Display vertices
     auto vertices = CloudPtr(new Cloud);
     vertices->points.resize(cc->num_vertices());
@@ -424,6 +423,7 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
         pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, v_name, vp_2);
 
     // INFO: Display faces
+    spdlog::trace("Displaying cell complex faces");
     auto faces = CloudPtr(new Cloud);
     faces->points.resize(cc->num_faces());
     for (auto fit = cc->faces_begin(); fit != cc->faces_end(); ++fit) {
@@ -441,6 +441,7 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
         pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, f_name, vp_2);
 
     // INFO: Display cell centers
+    spdlog::trace("Displaying cell complex cell centers");
     auto cells = CloudPtr(new Cloud);
     cells->points.resize(cc->num_cells());
     for (auto cit = cc->cells_begin(); cit != cc->cells_end(); ++cit) {
@@ -458,6 +459,7 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
         pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, c_name);
 
     // INFO: Display Cell Face Correspondences
+    spdlog::trace("Displaying cell face correspondences");
     std::string cf_name = "correspondences_cf";
     pcl::CorrespondencesPtr cf(new pcl::Correspondences);
     for (auto cit = cc->cells_begin(); cit != cc->cells_end(); ++cit) {
@@ -473,6 +475,7 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
         pcl::visualization::PCL_VISUALIZER_COLOR, 1.0, 1.0, 1.0, cf_name, vp_2);
 
     // INFO: Display Face Vertex Correspondences
+    spdlog::trace("Displaying face vertex correspondences");
     std::string fv_name = "correspondences_fv";
     pcl::CorrespondencesPtr fv(new pcl::Correspondences);
     for (auto fit = cc->faces_begin(); fit != cc->faces_end(); ++fit) {
@@ -489,9 +492,10 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
   }
 
   cc->compute_room_probabilities<PointT, NormalT, LabelT>(cloud, normals,
-                                                          labels);
+                                                          rooms);
   // INFO: Display room probabilities
   if (opt.display) {
+    spdlog::trace("Displaying room probabilities");
     auto c_rp =
         cc->property_map<ReUseX::CellComplex::Vertex, std::vector<double>>(
             "c:room_probabilities");
@@ -685,6 +689,10 @@ int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt) {
       viewer->spinOnce(100);
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
+
+  viz_thread.join();
+
+  // TODO: Save the output as file
 
   return 0;
 }

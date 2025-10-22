@@ -287,16 +287,17 @@ set(rux_SOURCES
     src/rux/export.cpp
     src/rux/seg-planes.cpp
     src/rux/seg-rooms.cpp
-    src/rux/surface_reconstruction.cpp
+    src/rux/view.cpp
 )
 
 set(rux_HEADERS
+    include/rux/global-params.hpp
     include/rux/annotate.hpp
     include/rux/cellcomplex.hpp
     include/rux/export.hpp
     include/rux/seg-planes.hpp
     include/rux/seg-rooms.hpp
-    include/rux/surface_reconstruction.hpp
+    include/rux/view.hpp
 ) 
 
 find_package(CLI11 CONFIG REQUIRED) 

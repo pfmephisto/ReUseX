@@ -5,6 +5,7 @@
 #pragma once
 #include "ReUseX/CellComplex.hpp"
 #include "ReUseX/helpers.hpp"
+#include "spdmon/spdmon.hpp"
 
 #include <CGAL/Boolean_set_operations_2.h>
 #include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
@@ -82,54 +83,75 @@ auto CellComplex::compute_face_coverage(pcl::PointCloud<PointT>::ConstPtr cloud,
   auto f_sp =
       this->add_property_map<Vertex, double>("f:support_probability").first;
 
-  for (auto fit = this->faces_begin(); fit != this->faces_end(); ++fit) {
-    // spdlog::trace("Computing support probability for face {}",
-    //               (*this)[*fit].id);
-    const int plane_id = std::get<FaceData>((*this)[*fit].data).plane_id;
+  {
+    auto logger =
+        spdmon::LoggerProgress("Computing face coverage", this->num_faces());
 
-    if (plane_id < 0) {
-      spdlog::warn("Face {} has no associated plane", (*this)[*fit].id);
-      f_sp[*fit] = -1.0;
-      continue;
+    std::vector<ReUseX::CellComplex::Vertex> face_list;
+    face_list.reserve(this->num_faces());
+    for (auto fit = this->faces_begin(); fit != this->faces_end(); ++fit)
+      face_list.push_back(*fit);
+
+#pragma omp parallel for schedule(dynamic)
+    for (size_t face_idx = 0; face_idx < face_list.size(); ++face_idx) {
+      auto fit = face_list[face_idx];
+
+      // for (size_t face_idx = 0; face_idx < this->num_faces(); ++face_idx) {
+      // auto fit = this->faces_begin();
+
+      const int plane_id = std::get<FaceData>((*this)[fit].data).plane_id;
+
+      auto get_comverage = [&](const int id) {
+        // if (id < 0) {
+        //   spdlog::warn("Face {} has no associated plane",
+        //   (*this)[*fit].id); f_sp[*fit] = -1.0;
+        //   ++logger;
+        //   continue;
+        // }
+
+        const auto plane_vec = planes[id];
+        const auto indices = inliers[id];
+
+        const Plane_3 plane(plane_vec[0], plane_vec[1], plane_vec[2],
+                            plane_vec[3]);
+
+        if (indices->empty())
+          return 0.0;
+
+        Polygon_2 polygon{};
+        std::transform(this->vertices_begin(fit), this->vertices_end(fit),
+                       std::back_inserter(polygon), [&](Vertex v) {
+                         const auto pos = (*this)[v].pos;
+                         return plane.to_2d(Point_3(pos[0], pos[1], pos[2]));
+                       });
+
+        // if (!polygon.is_simple()) {
+        //   spdlog::warn("Face {} polygon not is simple",
+        //   (*this)[fit].id); f_sp[fit] = -1.0;
+        //   ++logger;
+        //   continue;
+        // }
+
+        const auto inliers = *indices | ranges::views::transform([&](int idx) {
+          const PointT &p = cloud->points[idx];
+          return plane.to_2d(Point_3(p.x, p.y, p.z));
+        }) | ranges::views::filter([&](const Point_2 &p) {
+          return polygon.bounded_side(p) == CGAL::ON_BOUNDED_SIDE;
+        }) | ranges::to<std::vector>();
+
+        if (inliers.empty())
+          return 0.0;
+
+        return compute_grid_coverage<EPICK>(polygon, inliers, grid_size);
+      };
+
+      auto val = get_comverage(plane_id);
+
+#pragma omp critical
+      f_sp[fit] = val;
+
+      ++logger;
     }
-
-    const auto plane_vec = planes[plane_id];
-    const auto indices = inliers[plane_id];
-
-    const Plane_3 plane(plane_vec[0], plane_vec[1], plane_vec[2], plane_vec[3]);
-
-    if (indices->empty()) {
-      // spdlog::warn("Plane {} has no inliers", plane_id);
-      f_sp[*fit] = 0.0;
-      continue;
-    }
-
-    Polygon_2 polygon{};
-    std::transform(this->vertices_begin(*fit), this->vertices_end(*fit),
-                   std::back_inserter(polygon), [&](Vertex v) {
-                     const auto pos = (*this)[v].pos;
-                     return plane.to_2d(Point_3(pos[0], pos[1], pos[2]));
-                   });
-
-    if (!polygon.is_simple()) {
-      spdlog::warn("Face {} polygon not is simple", (*this)[*fit].id);
-      f_sp[*fit] = -1.0;
-      continue;
-    }
-
-    const auto inliers = *indices | ranges::views::transform([&](int idx) {
-      const PointT &p = cloud->points[idx];
-      return plane.to_2d(Point_3(p.x, p.y, p.z));
-    }) | ranges::views::filter([&](const Point_2 &p) {
-      return polygon.bounded_side(p) == CGAL::ON_BOUNDED_SIDE;
-    }) | ranges::to<std::vector>();
-
-    if (inliers.empty()) {
-      f_sp[*fit] = 0.0;
-      continue;
-    }
-
-    f_sp[*fit] = compute_grid_coverage<EPICK>(polygon, inliers, grid_size);
   }
 }
 } // namespace ReUseX

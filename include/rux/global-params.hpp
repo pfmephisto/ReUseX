@@ -3,34 +3,45 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #pragma once
+#include <ReUseX/types.hpp>
+
 #include <filesystem>
-#include <pcl/pcl_base.h>
-#include <pcl/point_types.h>
 
-using PointT = pcl::PointXYZRGB;
-using NormalT = pcl::Normal;
-using LabelT = pcl::Label;
+using PointT = ReUseX::PointT;
+using NormalT = ReUseX::NormalT;
+using LabelT = ReUseX::LabelT;
 
-using Indices = pcl::Indices;
-using IndicesPtr = pcl::IndicesPtr;
-using IndicesConstPtr = pcl::IndicesConstPtr;
+using Indices = ReUseX::Indices;
+using IndicesPtr = ReUseX::IndicesPtr;
+using IndicesConstPtr = ReUseX::IndicesConstPtr;
 
-using Cloud = pcl::PointCloud<PointT>;
-using CloudPtr = typename Cloud::Ptr;
-using CloudConstPtr = typename Cloud::ConstPtr;
+using Cloud = ReUseX::Cloud;
+using CloudPtr = ReUseX::CloudPtr;
+using CloudConstPtr = ReUseX::CloudConstPtr;
 
-using CloudN = pcl::PointCloud<NormalT>;
-using CloudNPtr = typename CloudN::Ptr;
-using CloudNConstPtr = typename CloudN::ConstPtr;
+using CloudN = ReUseX::CloudN;
+using CloudNPtr = ReUseX::CloudNPtr;
+using CloudNConstPtr = ReUseX::CloudNConstPtr;
 
-using CloudL = pcl::PointCloud<LabelT>;
-using CloudLPtr = typename CloudL::Ptr;
-using CloudLConstPtr = typename CloudL::ConstPtr;
+using CloudL = ReUseX::CloudL;
+using CloudLPtr = ReUseX::CloudLPtr;
+using CloudLConstPtr = ReUseX::CloudLConstPtr;
+
+enum RuxError {
+  SUCCESS = 0,
+  GENERIC = -1,
+  IO = -2,
+  INVALID_ARGUMENT = -3,
+  NOT_IMPLEMENTED = -4
+};
 
 namespace fs = std::filesystem;
 
 /// Collection of all options of Subcommand A.
 namespace GlobalParams {
+
+const fs::path db = fs::current_path() / "database.db";
+
 // PointT
 const fs::path cloud = fs::current_path() / "cloud.pcd";
 // PointN

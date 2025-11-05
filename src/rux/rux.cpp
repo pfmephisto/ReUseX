@@ -3,13 +3,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "rux/annotate.hpp"
+#include "rux/assemble.hpp"
 #include "rux/cellcomplex.hpp"
 #include "rux/export.hpp"
-#include "rux/seg-planes.hpp"
-#include "rux/seg-rooms.hpp"
+#include "rux/import.hpp"
+#include "rux/segment.hpp"
 #include "rux/view.hpp"
 
-#include "ReUseX/about.hpp"
+#include "ReUseX/core/version.hpp"
 
 #include <CLI/CLI.hpp>
 #include <spdlog/sinks/stdout_color_sinks.h>
@@ -42,31 +43,32 @@ int main(int argc, char **argv) {
   app.add_flag(
       "-V, --version",
       [](bool /*count*/) {
-        std::cout << "rux version: " << ReUseX::VERSION << std::endl;
+        std::cout << "rux version: " << ReUseX::core::VERSION << std::endl;
         exit(0);
       },
       "Show version information");
   app.add_flag(
       "	-L, --license",
       [](bool /*count*/) {
-        std::cout << ReUseX::LICENSE_TEXT << std::endl;
+        std::cout << ReUseX::core::LICENSE_TEXT << std::endl;
         exit(0);
       },
       "Show license information");
 
-  setup_subcommand_annotate(app);
+  setup_subcommand_assemble(app);
+
+  setup_subcommand_import(app);
   setup_subcommand_export(app);
-  setup_subcommand_seg_planes(app);
-  setup_subcommand_seg_rooms(app);
-  setup_subcommand_cellcomplex(app);
+
   setup_subcommand_view(app);
 
-  app.add_subcommand("assemble", "Assemble multiple scans.")->callback([]() {
-    spdlog::warn("The assemble command is not yet implemented.");
-    exit(1);
-  });
+  setup_subcommand_annotate(app);
 
-  app.require_subcommand(/* min */ 1, /* max */ 1);
+  setup_subcommand_segment(app);
+
+  setup_subcommand_cellcomplex(app);
+
+  app.require_subcommand(/* min */ 1, /* max */ 2);
 
   argv = app.ensure_utf8(argv);
 

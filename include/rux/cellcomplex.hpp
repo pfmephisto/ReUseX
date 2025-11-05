@@ -20,6 +20,12 @@ struct SubcommandCellcomplexOptions {
   float grid_size = GlobalParams::grid_size;
 
   bool display = GlobalParams::visualize;
+
+  double angle_threshold = 25.0;
+  double distance_threshold = 0.2;
+
+  double search_threshold = 0.60;
+  double new_plane_offset = 0.25;
 };
 
 // Function declarations.

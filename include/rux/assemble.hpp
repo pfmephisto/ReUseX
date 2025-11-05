@@ -4,15 +4,17 @@
 
 #pragma once
 #include "global-params.hpp"
+
 #include <CLI/CLI.hpp>
+#include <vector>
 namespace fs = std::filesystem;
 
 /// Collection of all options of Subcommand A.
-struct SubcommandViewOptions {
-  fs::path cloud_path_in;
-  std::vector<fs::path> label_paths_in = {};
+struct SubcommandAssembleOptions {
+  std::vector<fs::path> paths_in;
+  fs::path db_path_out = GlobalParams::db;
 };
 
 // Function declarations.
-void setup_subcommand_view(CLI::App &app);
-int run_subcommand_view(SubcommandViewOptions const &opt);
+void setup_subcommand_assemble(CLI::App &app);
+int run_subcommand_assemble(SubcommandAssembleOptions const &opt);

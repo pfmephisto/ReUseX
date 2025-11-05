@@ -7,6 +7,7 @@
   stdenv,
   config,
   cudaSupport ? config.cudaSupport,
+  cudaPackages,
   qt6,
   pkg-config,
   cudatoolkit,
@@ -38,64 +39,89 @@
   libe57format,
   xercesc,
   cli11,
+  #libtorch-bin,
+  libtorch,
+  mkl,
   qt6Packages,
+  protobuf,
   ...
-}:
-stdenv.mkDerivation rec {
-  pname = "ReUseX";
-  version = "0.0.1";
+}: let
+  effectiveStdenv =
+    if cudaSupport
+    then cudaPackages.backendStdenv
+    else stdenv;
+in
+  effectiveStdenv.mkDerivation rec {
+    pname = "ReUseX";
+    version = "0.0.1";
 
-  src = ../../.;
+    src = ../../.;
 
-  # Native dependencies
-  # programs and libraries used at build-time
-  nativeBuildInputs = [
-    cmake
-    pkg-config
-    cudatoolkit
-    qt6.qtbase
-    # qt6Packages.wrapQtAppsHook
-    #qt6.wrapQtAppsHook
-    qt6.wrapQtAppsNoGuiHook
-  ];
+    # Native dependencies
+    # programs and libraries used at build-time
+    nativeBuildInputs = [
+      cmake
+      pkg-config
+      cudatoolkit
+      qt6.qtbase
+      # qt6Packages.wrapQtAppsHook
+      # qt6.wrapQtAppsHook
+      qt6.wrapQtAppsNoGuiHook
+    ];
 
-  buildInputs = [
-    opennurbs
-    scip-solver
-    boost
+    buildInputs =
+      [
+        opennurbs
+        scip-solver
+        boost
 
-    # fmt
-    spdlog
-    #spdmon
-    range-v3
+        # fmt
+        spdlog
+        #spdmon
+        range-v3
 
-    pcl
-    embree
-    eigen
-    cgal
+        pcl
+        embree
+        eigen
+        cgal
 
-    rtabmap
-    librealsense
-    octomap
+        rtabmap
+        librealsense
+        octomap
 
-    libe57format
-    xercesc
+        libe57format
+        xercesc
 
-    # suitesparse
-    suitesparse-graphblas
-    LAGraph
+        # suitesparse
+        suitesparse-graphblas
+        LAGraph
 
-    mpfr
+        mpfr
 
-    opencv
-    cli11
-  ];
+        opencv
+        cli11
 
-  dontWrapQtApps = true;
+        #libtorch-bin
+        libtorch
+        protobuf # should be in libtorch?
 
-  meta = with lib; {
-    description = "ReUseX: A tool for processing lidar scans with the aim to facilitate reuse in the construction industry";
-    license = licenses.gpl3Plus;
-    maintainers = with maintainers; [];
-  };
-}
+        mkl
+      ]
+      ++ (
+        if cudaSupport
+        then
+          with cudaPackages; [
+            cuda_cudart
+            cudnn
+          ]
+        else []
+      );
+
+    dontWrapQtApps = true;
+
+    meta = with lib; {
+      description = "ReUseX: A tool for processing lidar scans with the aim to facilitate reuse in the construction industry";
+      license = licenses.gpl3Plus;
+      maintainers = with maintainers; [];
+    };
+  }

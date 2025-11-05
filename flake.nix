@@ -97,12 +97,29 @@
               libnotify # Send noctification when build finishes
               sqlite
               ffmpeg
-
-              qt6.full
-              qtcreator
-
-              nix-update
               mcl
+
+              # Qt tools
+              # qt6.full
+              # qtcreator
+
+              # DevOps tools
+              nix-update
+              sqlitebrowser
+            ];
+
+            shellHook =
+              ''
+                echo "Entering dev shell"
+                export VIRTUAL_ENV_PROMPT="ReUseX Environment"
+                # export QMLLS_BUILD_DIRS=${pkgs.qt6.qtdeclarative}/lib/qt-6/qml/:${pkgs.quickshell}/lib/qt-6/qml/
+                # export QML_IMPORT_PATH=$PWD/src
+              ''
+              + self.checks.${system}.pre-commit-check.shellHook;
+          }; # end of default shell
+          python = pkgs.mkShell {
+            inputsFrom = [self.packages.${system}.default];
+            buildInputs = with pkgs; [
               (pkgs.python3.withPackages (
                 ps:
                   with ps; [
@@ -113,24 +130,16 @@
                     pillow
                     pandas
                     scipy
+                    ultralytics
                   ]
               ))
             ];
 
-            shellHook =
-              ''
-                       echo "Entering dev shell"
-                       export VIRTUAL_ENV_PROMPT="ReUseX Environment"
-                       #export QT_STYLE_OVERRIDE="fusion"
-                       #export REPO_ROOT=$(pwd)
-                       #export CUDA_PATH=${pkgs.cudaPackages.cudatoolkit}
-                # Required for qmlls to find the correct type declarations
-                    export QMLLS_BUILD_DIRS=${pkgs.qt6.qtdeclarative}/lib/qt-6/qml/:${pkgs.quickshell}/lib/qt-6/qml/
-                       export QML_IMPORT_PATH=$PWD/src
-                       # ./tmux_session
-              ''
-              + self.checks.${system}.pre-commit-check.shellHook;
-          }; # end of default shell
+            shellHook = ''
+              echo "Entering python shell"
+              export VIRTUAL_ENV_PROMPT="ReUseX Python Environment"
+            '';
+          }; # end of python shell
         }; # end of devShells
       }
     ); # end of outputs

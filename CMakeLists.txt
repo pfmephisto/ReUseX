@@ -6,7 +6,7 @@ cmake_minimum_required(VERSION 3.17)
 if (NOT SKBUILD_PROJECT_VERSION)
     set(SKBUILD_PROJECT_VERSION 0.0.1)
 endif()
-project(ReUseX VERSION ${SKBUILD_PROJECT_VERSION} LANGUAGES CXX)
+project(ReUseX VERSION ${SKBUILD_PROJECT_VERSION} LANGUAGES CXX CUDA)
 
 
 # ===============================================
@@ -121,11 +121,17 @@ endif()
 find_package(Qt6 COMPONENTS Core Widgets Gui OpenGL REQUIRED) 
 find_package(Boost CONFIG REQUIRED)
 find_package(TBB REQUIRED)
-# find_package(fmt CONFIG REQUIRED)
+
 find_package(spdlog CONFIG REQUIRED)
+set_target_properties(spdlog::spdlog PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
+)
+# find_package(fmt CONFIG REQUIRED)
 # find_package(spdmon REQUIRED)
 find_package(range-v3 CONFIG REQUIRED)
- 
+
+find_package(Torch 2.9.0 CONFIG REQUIRED)
+
 find_package(OpenCV REQUIRED COMPONENTS core imgproc highgui)
 find_package(RTABMap REQUIRED)
 find_package(GraphBLAS REQUIRED)
@@ -172,49 +178,70 @@ if (GUI_ENABLED)
 	add_definitions(-DCGAL_USE_BASIC_VIEWER)
 endif()
 
-
-
 # ===============================================
 # Library sources
-set(REUSEX_SOURCES
-    src/ReUseX/io.cpp
-    src/ReUseX/Yolo.cpp
-    src/ReUseX/CellComplex.cpp
-    src/ReUseX/CellComplexConstructor.cpp
-    src/ReUseX/Solidifier.cpp
-)
+#set(REUSEX_SOURCES
+#    src/ReUseX/io.cpp
+#    src/ReUseX/io/rtabmap.cpp
+#    src/ReUseX/annotate.cpp
+#    src/ReUseX/Yolo.cpp
+#    src/ReUseX/letterbox.cpp
+#    src/ReUseX/non_max_suppression.cpp
+#    src/ReUseX/CellComplex.cpp
+#    src/ReUseX/CellComplexConstructor.cpp
+#    src/ReUseX/Solidifier.cpp
+#    src/ReUseX/rtab-map_io.cpp
+#    src/ReUseX/rtabmapTorchDataset.cpp
+#)
+# FIXME: The CMake lists should probably be completely restructured 
+# This is a temporary solution to avoid manually adding new source files during 
+# refactoring
+file(GLOB_RECURSE REUSEX_SOURCES CONFIGURE_DEPENDS
+     "${CMAKE_CURRENT_SOURCE_DIR}/src/ReUseX/**/*.cpp")
 
-set(REUSEX_HEADERS
-    include/ReUseX/about.hpp.in
-    include/ReUseX/helpers.hpp
-    include/ReUseX/filter.hpp
-    include/ReUseX/fmt_formatter.hpp
-    include/ReUseX/io.hpp
-    include/ReUseX/registry.hpp
-    #include/ReUseX/collect.hpp
-    #include/ReUseX/zip_view.hpp
-    include/ReUseX/split.hpp
-    include/ReUseX/straiten.hpp
-    include/ReUseX/Yolo.hpp
-    include/ReUseX/CellComplex.hpp
-    include/ReUseX/Solidifier.hpp
-    include/ReUseX/force_orthogonal_planes.hpp
-    include/ReUseX/merge_planes.hpp
-    include/ReUseX/make_pairs.hpp
-    include/ReUseX/separate_planes.hpp
-
-    include/pcl/markov_clustering.hpp
-    include/pcl/planar_region_growing.hpp
-    include/pcl/polygonal_surface_reconstruction.hpp
-    include/spdmon/spdmon.hpp
-) 
+# set(REUSEX_HEADERS
+#     include/ReUseX/about.hpp.in
+#     include/ReUseX/helpers.hpp
+#     include/ReUseX/filter.hpp
+#     include/ReUseX/annotate.hpp
+#     include/ReUseX/fmt_formatter.hpp
+#     include/ReUseX/rtabmapTorchDataset.hpp
+#     include/ReUseX/io.hpp
+#     include/ReUseX/io/rtabmap.hpp
+#     include/ReUseX/letterbox.hpp
+#     include/ReUseX/non_max_suppression.hpp
+#     include/ReUseX/registry.hpp
+#     include/ReUseX/regularization.hpp
+#     include/ReUseX/split.hpp
+#     include/ReUseX/straiten.hpp
+#     include/ReUseX/Yolo.hpp
+#     include/ReUseX/CellComplex.hpp
+#     include/ReUseX/Solidifier.hpp
+#     include/ReUseX/force_orthogonal_planes.hpp
+#     include/ReUseX/merge_planes.hpp
+#     include/ReUseX/make_pairs.hpp
+#     include/ReUseX/separate_planes.hpp
+# 
+#     include/pcl/markov_clustering.hpp
+#     include/pcl/planar_region_growing.hpp
+#     include/pcl/polygonal_surface_reconstruction.hpp
+#     include/spdmon/spdmon.hpp
+# ) 
+# FIXME: The CMake lists should probably be completely restructured 
+# This is a temporary solution to avoid manually adding new source files during 
+# refactoring
+file(GLOB_RECURSE REUSEX_HEADERS CONFIGURE_DEPENDS
+     "${CMAKE_CURRENT_SOURCE_DIR}/include/ReUseX/**/*.hpp"
+     "${CMAKE_CURRENT_SOURCE_DIR}/include/pcl/**/*.hpp"
+     "${CMAKE_CURRENT_SOURCE_DIR}/include/spdmon/**/*.hpp"
+     )
 
 # Replace version and license in about.hpp file
 file(READ ${CMAKE_SOURCE_DIR}/LICENSE.md LICENSE_TEXT)
 string(REPLACE "\"" "\\\"" LICENSE_TEXT "${LICENSE_TEXT}")
 configure_file(
-    ${CMAKE_SOURCE_DIR}/include/ReUseX/about.hpp.in
-    ${CMAKE_BINARY_DIR}/generated/ReUseX/about.hpp
+    ${CMAKE_SOURCE_DIR}/include/ReUseX/core/version.hpp.in
+    ${CMAKE_BINARY_DIR}/generated/ReUseX/core/version.hpp
     @ONLY
 )
 
@@ -231,7 +258,6 @@ target_include_directories(${PROJECT_NAME} PUBLIC
 
 target_link_libraries(${PROJECT_NAME} 
     PUBLIC
-
 	CGAL::CGAL
         CGAL::Eigen3_support
         CGAL::SCIP_support
@@ -266,8 +292,9 @@ target_link_libraries(${PROJECT_NAME}
         rtabmap::rtabmap
 
     PRIVATE 
-        # fmt::fmt
-        spdlog::spdlog
+	torch
+	spdlog::spdlog
+	#fmt::fmt#-header-only
 	range-v3::range-v3
         # Move Library to Private as their stops being used in the public interface
 )
@@ -281,24 +308,47 @@ target_compile_options(${PROJECT_NAME} PUBLIC ${COMMON_COMPILER_FLAGS})
 # rux executable
 # ===============================================
 
-set(rux_SOURCES
-    src/rux/annotate.cpp
-    src/rux/cellcomplex.cpp
-    src/rux/export.cpp
-    src/rux/seg-planes.cpp
-    src/rux/seg-rooms.cpp
-    src/rux/view.cpp
-)
+# set(rux_SOURCES
+#     src/rux/assemble.cpp
+#     src/rux/import.cpp
+#     src/rux/import/rtabmap.cpp
+#     src/rux/export.cpp
+#     src/rux/view.cpp
+#     src/rux/annotate.cpp
+#     src/rux/segment.cpp
+#     src/rux/segment/planes.cpp
+#     src/rux/segment/rooms.cpp
+#     src/rux/cellcomplex.cpp
+# )
+# FIXME: The CMake lists should probably be completely restructured 
+# This is a temporary solution to avoid manually adding new source files during 
+# refactoring
+file(GLOB_RECURSE rux_SOURCES CONFIGURE_DEPENDS
+     "${CMAKE_CURRENT_SOURCE_DIR}/src/rux/*.cpp"
+     "${CMAKE_CURRENT_SOURCE_DIR}/src/rux/**/*.cpp"
+     )
 
-set(rux_HEADERS
-    include/rux/global-params.hpp
-    include/rux/annotate.hpp
-    include/rux/cellcomplex.hpp
-    include/rux/export.hpp
-    include/rux/seg-planes.hpp
-    include/rux/seg-rooms.hpp
-    include/rux/view.hpp
-) 
+
+# set(rux_HEADERS
+#     include/rux/global-params.hpp
+#     include/rux/assemble.hpp
+#     include/rux/import.hpp
+#     include/rux/import/rtabmap.hpp
+#     include/rux/export.hpp
+#     include/rux/view.hpp
+#     include/rux/annotate.hpp
+#     include/rux/segment.hpp
+#     include/rux/segment/planes.hpp
+#     include/rux/segment/rooms.hpp
+#     include/rux/cellcomplex.hpp
+# ) 
+# FIXME: The CMake lists should probably be completely restructured 
+# This is a temporary solution to avoid manually adding new source files during 
+# refactoring
+file(GLOB_RECURSE rux_HEADERS CONFIGURE_DEPENDS
+     "${CMAKE_CURRENT_SOURCE_DIR}/include/rux/*.hpp"
+     "${CMAKE_CURRENT_SOURCE_DIR}/include/rux/**/*.hpp"
+     )
 
 find_package(CLI11 CONFIG REQUIRED) 
 
@@ -311,8 +361,8 @@ target_link_libraries(rux
 	  CLI11::CLI11 
 	PRIVATE 
 	  ${PROJECT_NAME} 
-	  # fmt::fmt
 	  spdlog::spdlog
+	  #fmt::fmt-header-only
   )
 target_link_libraries(rux PUBLIC ${COMMON_LINKER_FLAGS})
 target_compile_options(rux PUBLIC ${COMMON_COMPILER_FLAGS})

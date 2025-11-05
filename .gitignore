@@ -66,6 +66,7 @@ imgui.ini
 *.head
 rays.in
 rays.out
+*.torchscript
 
 # Ignore logging
 *.log

@@ -6,10 +6,12 @@
 
 namespace ReUseX::geometry {
 
-auto foo(CloudConstPtr cloud, CloudNConstPtr normals,
-         const float angle_threshold, const float plane_dist_threshold,
-         const int minInliers, const float radius, const float interval_0,
-         const float interval_factor, const bool visualize) -> CloudLPtr {
+auto segment_planes_impl(CloudConstPtr cloud, CloudNConstPtr normals,
+                         const float angle_threshold,
+                         const float plane_dist_threshold,
+                         const int min_inliers, const float radius,
+                         const float interval_0, const float interval_factor,
+                         const bool visualize) -> CloudLPtr {
 
   spdlog::trace("Initialize the segmentation algorithm");
   pcl::PlanarRegionGrowing<PointT, NormalT, LabelT> seg;
@@ -18,7 +20,7 @@ auto foo(CloudConstPtr cloud, CloudNConstPtr normals,
 
   seg.setAngularThreshold(angle_threshold);
   seg.setDistanceThreshold(plane_dist_threshold);
-  seg.setMinInliers(minInliers);
+  seg.setMinInliers(min_inliers);
 
   seg.setRadiusSearch(radius);
 

@@ -5,10 +5,11 @@
 #include "ReUseX/geometry/segment_rooms.hpp"
 
 namespace ReUseX::geometry {
-auto bar(CloudConstPtr cloud, CloudNPtr normals, const float grid_size,
-         const float inflation, const float expansion,
-         const float pruning_threshold, const float convergence_threshold,
-         const int max_iter, const bool visualize) -> CloudLPtr {
+auto segment_rooms_impl(CloudConstPtr cloud, CloudNPtr normals,
+                        const float grid_size, const float inflation,
+                        const float expansion, const float pruning_threshold,
+                        const float convergence_threshold, const int max_iter,
+                        const bool visualize) -> CloudLPtr {
 
   std::vector<pcl::ModelCoefficients> model_coefficients;
   std::vector<Eigen::Vector4f, Eigen::aligned_allocator<Eigen::Vector4f>>

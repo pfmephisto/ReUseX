@@ -11,7 +11,8 @@ auto segment_planes_impl(CloudConstPtr cloud, CloudNConstPtr normals,
                          const float plane_dist_threshold,
                          const int min_inliers, const float radius,
                          const float interval_0, const float interval_factor,
-                         const bool visualize) -> CloudLPtr {
+                         const bool visualize)
+    -> std::tuple<CloudLPtr, CloudLocPtr, CloudNPtr> {
 
   spdlog::trace("Initialize the segmentation algorithm");
   pcl::PlanarRegionGrowing<PointT, NormalT, LabelT> seg;
@@ -73,6 +74,25 @@ auto segment_planes_impl(CloudConstPtr cloud, CloudNConstPtr normals,
   auto centroids = seg.getCentroids();
   auto inlier_indices = seg.getInlierIndices();
 
-  return labels;
+  CloudLocPtr centroids_cloud(new CloudLoc);
+  centroids_cloud->points.resize(centroids.size());
+  centroids_cloud->width = static_cast<uint32_t>(centroids.size());
+  centroids_cloud->height = 1;
+  for (size_t i = 0; i < centroids.size(); ++i) {
+    centroids_cloud->points[i].x = centroids[i][0];
+    centroids_cloud->points[i].y = centroids[i][1];
+    centroids_cloud->points[i].z = centroids[i][2];
+  }
+  CloudNPtr plane_normals(new CloudN);
+  plane_normals->points.resize(model_coefficients.size());
+  plane_normals->height = 1;
+  plane_normals->width = static_cast<uint32_t>(model_coefficients.size());
+  for (size_t i = 0; i < model_coefficients.size(); ++i) {
+    plane_normals->points[i].normal_x = model_coefficients[i].values[0];
+    plane_normals->points[i].normal_y = model_coefficients[i].values[1];
+    plane_normals->points[i].normal_z = model_coefficients[i].values[2];
+  }
+
+  return std::make_tuple(labels, centroids_cloud, plane_normals);
 }
 } // namespace ReUseX::geometry

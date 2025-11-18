@@ -10,8 +10,11 @@ namespace fs = std::filesystem;
 /// Collection of all options of Subcommand A.
 struct SubcommandSegRoomsOptions {
   fs::path cloud_path_in = GlobalParams::cloud;
-  fs::path normals_path_in = GlobalParams::normals;
+  // fs::path normals_path_in = GlobalParams::normals;
   fs::path planes_path_in = GlobalParams::planes;
+  fs::path plane_centroids_path_in = GlobalParams::plane_centroids;
+  fs::path plane_normals_path_in = GlobalParams::plane_normals;
+
   fs::path rooms_path_out = GlobalParams::rooms;
 
   int expansion = 2;

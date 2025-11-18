@@ -11,7 +11,10 @@ namespace fs = std::filesystem;
 struct SubcommandSegPlanesOptions {
   fs::path cloud_path_in = GlobalParams::cloud;
   fs::path normals_path_in = GlobalParams::normals;
+
   fs::path planes_path_out = GlobalParams::planes;
+  fs::path plane_centroids_path_out = GlobalParams::plane_centroids;
+  fs::path plane_normals_path_out = GlobalParams::plane_normals;
 
   float angle_threshold = 25.0f;
   float plane_dist_threshold = 0.07;

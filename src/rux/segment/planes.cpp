@@ -44,6 +44,14 @@ void setup_subcommand_segment_planes(CLI::App &app) {
                   "Path to the output planes file")
       ->default_val(opt->planes_path_out);
 
+  sub->add_option("centroids", opt->plane_centroids_path_out,
+                  "Path to the output plane centroids file")
+      ->default_val(opt->plane_centroids_path_out);
+
+  sub->add_option("plane-normals", opt->plane_normals_path_out,
+                  "Path to the output plane normals file")
+      ->default_val(opt->plane_normals_path_out);
+
   sub->add_option("-a, --angle-threshold", opt->angle_threshold,
                   "Angle threshold for plane fitting (default: 25° aka. "
                   "cos(25) or 0.96592583)")
@@ -125,7 +133,7 @@ int run_subcommand_segment_planes(SubcommandSegPlanesOptions const &opt) {
   //   viewer->addPointCloud<PointT>(cloud, "cloud");
   // }
 
-  auto labels = ReUseX::geometry::segment_planes(
+  auto [labels, centroids, plane_normals] = ReUseX::geometry::segment_planes(
       cloud, normals, _angle_threshold = opt.angle_threshold,
       _plane_dist_threshold = opt.plane_dist_threshold,
       _min_inliers = opt.minInliers, _radius = opt.radius,
@@ -138,13 +146,11 @@ int run_subcommand_segment_planes(SubcommandSegPlanesOptions const &opt) {
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 
-  ///// TODO: Reconsider how to save the planes
-  /// if (!ReUseX::io::save(opt.planes_path_out.string(), model_coefficients,
-  ///                      centroids, inlier_indices))
-  ///  spdlog::error("Could not save the planes to disk");
-
   spdlog::trace("Save the point cloud with planes");
   pcl::io::savePCDFileBinary(opt.planes_path_out, *labels);
+  pcl::io::savePCDFileBinary(opt.plane_centroids_path_out.string(), *centroids);
+  pcl::io::savePCDFileBinary(opt.plane_normals_path_out.string(),
+                             *plane_normals);
 
-  return 0;
+  return RuxError::SUCCESS;
 }

@@ -39,14 +39,16 @@ namespace parameter = boost::parameter;
 namespace fs = std::filesystem;
 
 namespace ReUseX::geometry {
-auto segment_rooms_impl(CloudConstPtr cloud, CloudNPtr normals,
-                        const float grid_size, const float inflation,
-                        const float expansion, const float pruning_threshold,
+auto segment_rooms_impl(CloudConstPtr cloud, CloudNConstPtr normals,
+                        CloudLConstPtr planes, const float grid_size,
+                        const float inflation, const float expansion,
+                        const float pruning_threshold,
                         const float convergence_threshold, const int max_iter,
                         const bool visualize) -> CloudLPtr;
 
 BOOST_PARAMETER_NAME(cloud)
 BOOST_PARAMETER_NAME(normals)
+BOOST_PARAMETER_NAME(planes)
 BOOST_PARAMETER_NAME(grid_size)
 BOOST_PARAMETER_NAME(inflation)
 BOOST_PARAMETER_NAME(expansion)
@@ -60,7 +62,8 @@ BOOST_PARAMETER_FUNCTION((CloudLPtr),   // 1. parenthesized return type
                          tag,           // 3. namespace of tag types
                          (required      //
                           (cloud, (CloudConstPtr))                //
-                          (normals, (CloudNPtr))                  //
+                          (normals, (CloudNConstPtr))             //
+                          (planes, (CloudLConstPtr))              //
                           )                                       //
                          (optional                                //
                           (grid_size, (double), 0.5)              //
@@ -71,9 +74,9 @@ BOOST_PARAMETER_FUNCTION((CloudLPtr),   // 1. parenthesized return type
                           (max_iter, (int), 100)                  //
                           (visualize, (bool), false)              //
                           )) {
-  return segment_rooms_impl(cloud, normals, grid_size, inflation, expansion,
-                            pruning_threshold, convergence_threshold, max_iter,
-                            visualize);
+  return segment_rooms_impl(cloud, normals, planes, grid_size, inflation,
+                            expansion, pruning_threshold, convergence_threshold,
+                            max_iter, visualize);
 }
 
 } // namespace ReUseX::geometry

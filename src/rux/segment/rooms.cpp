@@ -49,17 +49,23 @@ void setup_subcommand_segment_rooms(CLI::App &app) {
       // ->check(CLI::ExistingFile)
       ->default_val(opt->cloud_path_in);
 
-  sub->add_option("normals", opt->normals_path_in,
-                  "Path to the input normals file.")
-      //->required()
-      // ->check(CLI::ExistingFile)
-      ->default_val(opt->normals_path_in);
+  // sub->add_option("normals", opt->normals_path_in,
+  //                 "Path to the input normals file.")
+  //     //->required()
+  //     // ->check(CLI::ExistingFile)
+  //     ->default_val(opt->normals_path_in);
 
   sub->add_option("planes", opt->planes_path_in,
                   "Path to the input planes file.")
-      //->required()
-      // ->check(CLI::ExistingFile)
       ->default_val(opt->planes_path_in);
+
+  sub->add_option("plane-centroids", opt->plane_centroids_path_in,
+                  "Path to the input plane centroids file.")
+      ->default_val(opt->plane_centroids_path_in);
+
+  sub->add_option("plane-normals", opt->plane_normals_path_in,
+                  "Path to the input plane normals file.")
+      ->default_val(opt->plane_normals_path_in);
 
   sub->add_option("rooms", opt->rooms_path_out,
                   "Path to the output point cloud file")
@@ -114,14 +120,46 @@ int run_subcommand_segment_rooms(SubcommandSegRoomsOptions const &opt) {
   CloudPtr cloud(new Cloud);
   pcl::io::load<PointT>(opt.cloud_path_in.string(), *cloud);
 
-  spdlog::trace("Load the normals from disk");
+  spdlog::trace("Load the planes, plane centroids and plane normals from "
+                "disk");
+  CloudLPtr planes(new CloudL);
+  pcl::io::load<LabelT>(opt.planes_path_in.string(), *planes);
+
+  spdlog::trace("Load the plane centroids and plane normals from disk");
+  CloudLocPtr plane_centroids(new CloudLoc);
+  pcl::io::load<LocT>(opt.plane_centroids_path_in.string(), *plane_centroids);
+
+  spdlog::trace("Load the plane normals from disk");
+  CloudNPtr plane_normals(new CloudN);
+  pcl::io::load<NormalT>(opt.plane_normals_path_in.string(), *plane_normals);
+
+  assert(planes->size() == cloud->size() &&
+         "Planes and cloud size must be equal");
+
+  std::set<int> unique_labels{};
+  for (const auto &point : planes->points)
+    unique_labels.insert(point.label);
+  spdlog::debug("Unique plane labels found: {}",
+                fmt::join(unique_labels, ", "));
+
+  // FIXME: There is probably an offset missing to account for unlabeled points
+  spdlog::trace("Create normals cloud for all points based on plane labels");
   CloudNPtr normals(new CloudN);
-  pcl::io::load<NormalT>(opt.normals_path_in.string(), *normals);
+  normals->resize(planes->size());
+  normals->width = planes->width;
+  normals->height = planes->height;
+  for (size_t i = 0; i < planes->points.size(); ++i) {
+    if (planes->points[i].label < 1)
+      continue;
+    normals->points[i] = plane_normals->points[planes->points[i].label - 1];
+  }
+  spdlog::trace("Calling segment_rooms");
 
   using namespace ReUseX::geometry;
   auto labels = ReUseX::geometry::segment_rooms(
-      cloud, normals, _grid_size = opt.grid_size, _inflation = opt.inflation,
-      _expansion = opt.expansion, _pruning_threshold = opt.pruning_threshold,
+      cloud, normals, planes, _grid_size = opt.grid_size,
+      _inflation = opt.inflation, _expansion = opt.expansion,
+      _pruning_threshold = opt.pruning_threshold,
       _convergence_threshold = opt.convergence_threshold,
       _max_iter = opt.max_iter, _visualize = opt.visualize);
 

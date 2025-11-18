@@ -169,10 +169,10 @@ auto import_rtabmap_database(const fs::path &database_path, float resolution,
 
       cv::Size cloud_size(tmp->width, tmp->height);
 
-      spdlog::trace("Set up labledImage");
       cv::Mat image = data.imageRaw();
       cv::rotate(image, image, cv::ROTATE_90_CLOCKWISE);
 
+      spdlog::trace("Set up labledImage");
       cv::Mat labledImage(image.size(), CV_32S /*CV_64F*/, cv::Scalar(0));
 
       if (!skipInference) {
@@ -181,17 +181,30 @@ auto import_rtabmap_database(const fs::path &database_path, float resolution,
         if (sqlite3_step(stmt) == SQLITE_ROW) {
           const void *data = sqlite3_column_blob(stmt, idx);
           int datasize = sqlite3_column_bytes(stmt, idx++);
-          cv::Mat imgMat = cv::Mat(1, datasize, CV_8UC4, (void *)data);
-          imgMat = cv::imdecode(imgMat, cv::IMREAD_UNCHANGED);
-          labledImage = cv::Mat(imgMat.size(), CV_32S, imgMat.data);
-          sqlite3_reset(stmt);
-          // TODO:: Add lables
-          // spdlog::trace("Rotate image back");
-          // cv::rotate(labledImage, labledImage,
-          // cv::ROTATE_90_COUNTERCLOCKWISE);
-          // spdlog::trace("Resize image to cloud size");
-          cv::resize(labledImage, labledImage, cloud_size);
+
+          spdlog::trace("Decoding label image from database");
+          // imgMat = cv::imdecode(imgMat, cv::IMREAD_UNCHANGED);
+
+          // The blob is just a stream of bytes (compressed PNG)
+          std::vector<uchar> buffer((uchar *)data, (uchar *)data + datasize);
+
+          // Decode the PNG into a cv::Mat
+          cv::Mat img = cv::imdecode(buffer, cv::IMREAD_UNCHANGED);
+          if (img.empty()) {
+            spdlog::error("Failed to decode image from database");
+          } else {
+            spdlog::debug("Decoded image: {}x{}, channels={}", img.cols,
+                          img.rows, img.channels());
+
+            spdlog::trace("Convert label image to CV_32S");
+            cv::Mat img = cv::imdecode(buffer, cv::IMREAD_UNCHANGED);
+            img.convertTo(img, CV_32S);
+
+            spdlog::trace("Resizing label image to cloud size");
+            cv::resize(img, labledImage, cloud_size, 0, 0, cv::INTER_NEAREST);
+          }
         }
+        sqlite3_reset(stmt);
       }
 
       spdlog::trace("Set the values of the labled cloud");

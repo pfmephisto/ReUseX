@@ -4,9 +4,9 @@
 
 #include "rux/annotate.hpp"
 #include "rux/assemble.hpp"
-#include "rux/cellcomplex.hpp"
 #include "rux/export.hpp"
 #include "rux/import.hpp"
+#include "rux/mesh.hpp"
 #include "rux/segment.hpp"
 #include "rux/view.hpp"
 
@@ -66,7 +66,7 @@ int main(int argc, char **argv) {
 
   setup_subcommand_segment(app);
 
-  setup_subcommand_cellcomplex(app);
+  setup_subcommand_mesh(app);
 
   app.require_subcommand(/* min */ 1, /* max */ 2);
 

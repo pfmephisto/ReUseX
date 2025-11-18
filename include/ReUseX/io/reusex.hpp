@@ -15,6 +15,11 @@ namespace fs = std::filesystem;
 
 namespace ReUseX::io {
 
+auto getPlanes(CloudLConstPtr planes, CloudNConstPtr normals,
+               CloudLocConstPtr locations)
+    -> std::tuple<EigenVectorContainer<double, 4>,
+                  EigenVectorContainer<double, 3>, std::vector<IndicesPtr>>;
+
 [[nodiscard]]
 bool save(
     fs::path const &output_path,

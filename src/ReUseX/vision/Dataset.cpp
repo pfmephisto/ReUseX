@@ -101,9 +101,9 @@ void Dataset::save(std::vector<cv::Mat> imgs, torch::Tensor index) {
 
     std::vector<unsigned char> bytes;
 
-    // save in 8bits-4channel
-    cv::Mat bgra(imgs[i].size(), CV_8UC4, imgs[i].data);
-    cv::imencode(".png", bgra, bytes);
+    cv::Mat labels16U;
+    imgs[i].convertTo(labels16U, CV_16U);
+    cv::imencode(".png", labels16U, bytes);
 
     // Bind parameters
     sqlite3_bind_int(stmt, 1, index[i].item<int>());

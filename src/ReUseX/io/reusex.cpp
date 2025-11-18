@@ -4,9 +4,74 @@
 
 #include "ReUseX/io/reusex.hpp"
 
+#include <range/v3/action.hpp>
+#include <range/v3/view.hpp>
+
+#include <spdlog/spdlog.h>
+
 #include <fstream>
+#include <map>
+#include <set>
 
 namespace ReUseX::io {
+
+auto getPlanes(CloudLConstPtr planes, CloudNConstPtr normals,
+               CloudLocConstPtr locations)
+    -> std::tuple<EigenVectorContainer<double, 4>,
+                  EigenVectorContainer<double, 3>, std::vector<IndicesPtr>> {
+  EigenVectorContainer<double, 4> plane_coefficients{};
+  EigenVectorContainer<double, 3> centroids{};
+  std::vector<IndicesPtr> inlier_indices{};
+
+  plane_coefficients.resize(normals->size());
+  centroids.resize(locations->size());
+  inlier_indices.resize(normals->size());
+
+  spdlog::debug("Number of planes: {}", planes->size());
+  spdlog::debug("Number of normals: {}", normals->size());
+  spdlog::debug("Number of locations: {}", locations->size());
+
+  assert(normals->size() == locations->size() &&
+         "Normals and locations size mismatch");
+
+  for (size_t i = 0; i < normals->size(); ++i) {
+    auto const &n = normals->points[i];
+    auto const &c = locations->points[i];
+
+    Eigen::Vector4d plane;
+    plane.head<3>() = n.getNormalVector3fMap().cast<double>();
+    plane[3] = -(plane[0] * c.x + plane[1] * c.y + plane[2] * c.z);
+
+    plane_coefficients[i] = plane;
+    centroids[i] = c.getVector3fMap().cast<double>();
+    inlier_indices[i] = IndicesPtr(new Indices);
+  }
+
+  std::set<uint32_t> unique_labels{};
+  for (const auto &pt : planes->points)
+    unique_labels.insert(pt.label);
+
+  // Remove the unlabeled points (label == 0)
+  if (unique_labels.find(0) != unique_labels.end())
+    unique_labels.erase(0);
+
+  spdlog::debug("Found {} unique plane labels: {}", unique_labels.size(),
+                fmt::join(unique_labels, ", "));
+
+  std::unordered_map<uint32_t, size_t> label_to_index{};
+  for (auto [idx, label] : unique_labels | ranges::views::enumerate)
+    label_to_index[label] = idx;
+
+  for (size_t i = 0; i < planes->size(); ++i) {
+    auto const &label = planes->points[i].label;
+    if (label == 0)
+      continue;
+    auto id = label_to_index[label];
+    inlier_indices[id]->push_back(static_cast<int>(i));
+  }
+
+  return std::make_tuple(plane_coefficients, centroids, inlier_indices);
+}
 bool save(
     fs::path const &output_path,
     std::vector<pcl::ModelCoefficients> const &model_coefficients,

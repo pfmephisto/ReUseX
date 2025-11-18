@@ -10,12 +10,14 @@
 namespace fs = std::filesystem;
 
 /// Collection of all options of Subcommand A.
-struct SubcommandCellcomplexOptions {
+struct SubcommandMeshOptions {
   fs::path cloud_path_in = GlobalParams::cloud;
   fs::path normals_path_in = GlobalParams::normals;
   fs::path planes_path_in = GlobalParams::planes;
+  fs::path plane_centroids_path_in = GlobalParams::plane_centroids;
+  fs::path plane_normals_path_in = GlobalParams::plane_normals;
   fs::path rooms_path_in = GlobalParams::rooms;
-  fs::path output_out = fs::current_path() / "output.vtk";
+  fs::path output_out = fs::current_path() / "mesh.ply";
 
   float grid_size = GlobalParams::grid_size;
 
@@ -29,5 +31,5 @@ struct SubcommandCellcomplexOptions {
 };
 
 // Function declarations.
-void setup_subcommand_cellcomplex(CLI::App &app);
-int run_subcommand_cellcomplex(SubcommandCellcomplexOptions const &opt);
+void setup_subcommand_mesh(CLI::App &app);
+int run_subcommand_mesh(SubcommandMeshOptions const &opt);

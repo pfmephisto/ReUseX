@@ -14,6 +14,7 @@ using MIP_Solver = CGAL::GLPK_mixed_integer_program_traits<double>;
 #endif
 
 #include <spdlog/spdlog.h>
+#include <spdlog/stopwatch.h>
 #include <tbb/concurrent_unordered_map.h>
 
 namespace ReUseX::geometry {
@@ -47,6 +48,7 @@ class Solidifier {
                           std::unordered_map<Cd, std::set<int>>>>
   solve() {
     spdlog::trace("Start solving MIP");
+    spdlog::stopwatch sw;
 
     _setupVariables();
     // for (auto var : solver.variables()) {
@@ -87,9 +89,13 @@ class Solidifier {
           wall_label[*cit].insert(static_cast<int>(i));
       }
     }
+    spdlog::info("Solved MIP in {:>.3f} seconds", sw);
 
     return std::make_pair(room_label, wall_label);
   }
+
+  auto toMesh(std::function<bool(const Cd)> filter)
+      -> std::pair<Eigen::MatrixXd, Eigen::MatrixXi>;
 
     private:
   // TODO: Consider if the pre-compute functions should be part of this

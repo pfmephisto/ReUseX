@@ -5,25 +5,32 @@
 #include "ReUseX/geometry/segment_rooms.hpp"
 
 namespace ReUseX::geometry {
-auto segment_rooms_impl(CloudConstPtr cloud, CloudNPtr normals,
-                        const float grid_size, const float inflation,
-                        const float expansion, const float pruning_threshold,
+auto segment_rooms_impl(CloudConstPtr cloud, CloudNConstPtr normals,
+                        CloudLConstPtr planes, const float grid_size,
+                        const float inflation, const float expansion,
+                        const float pruning_threshold,
                         const float convergence_threshold, const int max_iter,
                         const bool visualize) -> CloudLPtr {
 
-  std::vector<pcl::ModelCoefficients> model_coefficients;
-  std::vector<Eigen::Vector4f, Eigen::aligned_allocator<Eigen::Vector4f>>
-      centroids;
-  std::vector<IndicesPtr> inlier_indices;
+  std::unordered_map<int, IndicesPtr> plane_inlier_map;
+  for (size_t i = 0; i < planes->points.size(); ++i) {
+    const int label = planes->points[i].label;
 
-  assert(model_coefficients.size() == inlier_indices.size());
-  assert(model_coefficients.size() == centroids.size());
+    // Skip unlabeled points
+    if (label < 1)
+      continue;
+
+    if (plane_inlier_map.find(label) == plane_inlier_map.end()) {
+      plane_inlier_map[label] = IndicesPtr(new Indices);
+    }
+    plane_inlier_map[label]->push_back(i);
+  }
 
   IndicesPtr indices(new Indices);
   pcl::UniformSampling<PointT> us;
   us.setInputCloud(cloud);
   us.setRadiusSearch(grid_size);
-  for (const auto &idx : inlier_indices) {
+  for (const auto &[key, idx] : plane_inlier_map) {
     us.setIndices(idx);
     IndicesPtr local_indices(new Indices);
     us.filter(*local_indices);
@@ -31,17 +38,6 @@ auto segment_rooms_impl(CloudConstPtr cloud, CloudNPtr normals,
                     local_indices->end());
   }
 
-  // Set the normals according to the plane coefficients
-  for (size_t i = 0; i < model_coefficients.size(); ++i) {
-    const auto &coeff = model_coefficients[i];
-    for (const auto &index : *inlier_indices[i]) {
-      normals->points[index].normal_x = coeff.values[0];
-      normals->points[index].normal_y = coeff.values[1];
-      normals->points[index].normal_z = coeff.values[2];
-    }
-  }
-
-  spdlog::trace("Initialize the Markov Clustering algorithm");
   pcl::MarkovClustering<PointT, NormalT, LabelT> mcl;
   mcl.setInflationFactor(inflation);
   mcl.setExpansionFactor(expansion);

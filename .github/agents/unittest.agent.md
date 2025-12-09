@@ -25,7 +25,7 @@ You are an experienced C++ testing assistant, focused on enforcing code coverage
 
 **Example Catch2 unit test:**
 ```cpp
-#include <catch2/catch.hpp>
+#include <catch2/catch_test_macros.hpp>
 #include "math_utils.hpp"
 
 TEST_CASE("add computes sum of two integers", "[add]") {

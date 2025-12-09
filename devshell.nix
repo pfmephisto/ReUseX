@@ -36,6 +36,7 @@ pkgs.mkShell {
     sqlitebrowser
     github-copilot-cli
     doxygen
+    tree
   ];
 
   shellHook =

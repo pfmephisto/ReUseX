@@ -8,6 +8,7 @@
 #include <Eigen/Core>
 #include <boost/functional/hash.hpp>
 #include <pcl/ModelCoefficients.h>
+#include <pcl/PolygonMesh.h>
 #include <pcl/common/pca.h>
 #include <range/v3/view/iota.hpp>
 #include <range/v3/view/zip.hpp>
@@ -26,10 +27,10 @@ auto dist_plane_point(const Eigen::Vector4d &plane,
 
 /**
  * @brief Create pairs of opposite parallel planes.
- * 
+ *
  * Finds pairs of planes with opposite normals within a distance threshold.
  * Creates new planes for unpaired planes.
- * 
+ *
  * @param planes Plane coefficients.
  * @param inliers Indices of points belonging to each plane.
  * @param centroids Plane centroids.
@@ -46,19 +47,19 @@ auto make_pairs(EigenVectorContainer<double, 4> &planes,
 
 /**
  * @brief Force planes to be orthogonal to a reference direction.
- * 
- * Adjusts plane normals to be either parallel or perpendicular to the up vector.
- * 
+ *
+ * Adjusts plane normals to be either parallel or perpendicular to the up
+ * vector.
+ *
  * @param planes Plane coefficients to adjust.
  * @param threshold Angular threshold for orthogonality. Default 0.1.
  * @param up Reference up vector. Default (0, 0, 1).
  * @return Adjusted plane coefficients.
  */
-auto force_orthogonal_planes(EigenVectorContainer<double, 4> &planes,
-                             const double threshold = 0.1,
-                             const Eigen::Matrix<double, 3, 1> &up =
-                                 Eigen::Matrix<double, 3, 1>(0, 0, 1))
-    -> EigenVectorContainer<double, 4>;
+auto force_orthogonal_planes(
+    EigenVectorContainer<double, 4> &planes, const double threshold = 0.1,
+    const Eigen::Matrix<double, 3, 1> &up = Eigen::Matrix<double, 3, 1>(
+        0, 0, 1)) -> EigenVectorContainer<double, 4>;
 
 /**
  * @brief Count number of inliers for a plane.
@@ -75,7 +76,7 @@ auto compute_number_of_inliers(CloudConstPtr cloud,
 
 /**
  * @brief Merge similar planes based on angle, distance, and overlap.
- * 
+ *
  * @param planes_ Input plane coefficients.
  * @param inliers_ Inliers for each plane.
  * @param centroids_ Plane centroids.
@@ -96,7 +97,7 @@ auto merge_planes(EigenVectorContainer<double, 4> const &planes_,
 
 /**
  * @brief Separate planes into horizontal and vertical based on up vector.
- * 
+ *
  * @param planes Plane coefficients.
  * @param up Reference up vector. Default (0, 0, 1).
  * @param epsilon Angular epsilon for classification. Default 0.1.
@@ -106,5 +107,31 @@ auto separate_planes(const EigenVectorContainer<double, 4> &planes,
                      const Eigen::Vector3d &up = Eigen::Vector3d(0, 0, 1),
                      const double epsilon = 0.1)
     -> std::tuple<std::vector<size_t>, std::vector<size_t>>;
+
+/**
+ * @brief Compute the normal vector of a polygon.
+ *
+ * Calculates the normal vector of a polygon using the cross product sum method
+ * (also known as Newell's method). The normal is automatically normalized.
+ *
+ * @tparam CloudPtr Point cloud pointer type (e.g., CloudLocPtr).
+ * @param poly Polygon with vertex indices.
+ * @param cloud Point cloud containing the vertices.
+ * @return Normalized normal vector of the polygon.
+ */
+template <typename CloudPtr>
+auto compute_polygon_normal(const pcl::Vertices &poly,
+                            const CloudPtr &cloud) -> Eigen::Vector3f {
+  Eigen::Vector3f normal = Eigen::Vector3f::Zero();
+  for (size_t i = 0; i < poly.vertices.size(); ++i) {
+    const auto idx_c = poly.vertices[i];
+    const auto idx_n = poly.vertices[(i + 1) % poly.vertices.size()];
+    const auto &v_c = cloud->points[idx_c].getVector3fMap();
+    const auto &v_n = cloud->points[idx_n].getVector3fMap();
+    normal += v_c.cross(v_n);
+  }
+  normal.normalize();
+  return normal;
+}
 
 } // namespace ReUseX::geometry

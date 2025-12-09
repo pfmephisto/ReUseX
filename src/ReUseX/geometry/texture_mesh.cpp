@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include <ReUseX/geometry/texture_mesh.hpp>
+#include <ReUseX/geometry/utils.hpp>
 #include <ReUseX/types.hpp>
 #include <ReUseX/visualize/pcl.hpp>
 
@@ -45,17 +46,8 @@ pcl::TextureMesh::Ptr texture_mesh_with_cloud(pcl::PolygonMesh::Ptr mesh,
   Eigen::Vector3f prev_normal = Eigen::Vector3f::Zero();
   for (const auto &poly : mesh->polygons) {
 
-    // TODO: Extract as utility function
     // Compute normal of the polygon
-    Eigen::Vector3f f_normal = Eigen::Vector3f::Zero();
-    for (size_t i = 0; i < poly.vertices.size(); ++i) {
-      auto idx_c = poly.vertices[i];
-      auto idx_n = poly.vertices[(i + 1) % poly.vertices.size()];
-      const auto &v_c = cloud_xyz->points[idx_c].getVector3fMap();
-      const auto &v_n = cloud_xyz->points[idx_n].getVector3fMap();
-      f_normal += v_c.cross(v_n);
-    }
-    f_normal.normalize();
+    const Eigen::Vector3f f_normal = compute_polygon_normal(poly, cloud_xyz);
 
     // Assign normal to all vertices in the polygon
     for (const auto &vertex : poly.vertices)
@@ -190,17 +182,8 @@ texture_mesh(pcl::PolygonMesh::Ptr mesh,
 
   for (const auto &poly : mesh->polygons) {
 
-    // TODO: Extract as utility function
     // Compute normal of the polygon
-    Eigen::Vector3f f_normal = Eigen::Vector3f::Zero();
-    for (size_t i = 0; i < poly.vertices.size(); ++i) {
-      auto idx_c = poly.vertices[i];
-      auto idx_n = poly.vertices[(i + 1) % poly.vertices.size()];
-      const auto &v_c = cloud->points[idx_c].getVector3fMap();
-      const auto &v_n = cloud->points[idx_n].getVector3fMap();
-      f_normal += v_c.cross(v_n);
-    }
-    f_normal.normalize();
+    const Eigen::Vector3f f_normal = compute_polygon_normal(poly, cloud);
 
     // Assign normal to all vertices in the polygon
     for (const auto &vertex : poly.vertices)

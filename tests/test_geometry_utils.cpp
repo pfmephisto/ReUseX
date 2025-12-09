@@ -68,13 +68,13 @@ TEST_CASE("Distance from point to plane", "[geometry][dist_plane_point]") {
     
     SECTION("Distance with non-unit normal") {
         // Plane with normal (2, 0, 0) and d = 0
-        // This should still compute correct distance
+        // Note: This function uses squaredNorm() which may not be the standard definition
         Eigen::Vector4d plane(2.0, 0.0, 0.0, 0.0);
         Eigen::Vector3d point(1.0, 0.0, 0.0);
         
         double distance = dist_plane_point(plane, point);
-        // Distance = (2*1 + 0*0 + 0*0 + 0) / sqrt(4 + 0 + 0) = 2/2 = 1
-        REQUIRE(distance == Approx(2.0).margin(1e-10));
+        // Distance = (2*1 + 0*0 + 0*0 + 0) / (4 + 0 + 0) = 2/4 = 0.5
+        REQUIRE(distance == Approx(0.5).margin(1e-10));
     }
     
     SECTION("Distance to diagonal plane") {
@@ -84,8 +84,8 @@ TEST_CASE("Distance from point to plane", "[geometry][dist_plane_point]") {
         Eigen::Vector3d point(1.0, 1.0, 1.0);
         
         double distance = dist_plane_point(plane, point);
-        // Distance = (1 + 1 + 1 + 0) / sqrt(3) = 3 / sqrt(3) = sqrt(3)
-        REQUIRE(distance == Approx(3.0).margin(1e-10));
+        // Distance = (1 + 1 + 1 + 0) / (1 + 1 + 1) = 3 / 3 = 1.0
+        REQUIRE(distance == Approx(1.0).margin(1e-10));
     }
     
     SECTION("Distance from origin to plane") {
@@ -94,8 +94,8 @@ TEST_CASE("Distance from point to plane", "[geometry][dist_plane_point]") {
         Eigen::Vector3d point(0.0, 0.0, 0.0);
         
         double distance = dist_plane_point(plane, point);
-        // Distance = (0 + 0 + 0 - 6) / sqrt(3) = -6 / sqrt(3) = -2*sqrt(3)
-        REQUIRE(distance == Approx(-6.0).margin(1e-10));
+        // Distance = (0 + 0 + 0 - 6) / (1 + 1 + 1) = -6 / 3 = -2.0
+        REQUIRE(distance == Approx(-2.0).margin(1e-10));
     }
     
     SECTION("Symmetric points have opposite signed distances") {

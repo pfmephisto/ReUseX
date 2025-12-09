@@ -23,10 +23,26 @@
 // using Mesh = CGAL::Surface_mesh<Point>;
 //
 // namespace PMP = CGAL::Polygon_mesh_processing;
+// Forward declaration of internal helper
+namespace ReUseX::geometry {
+std::pair<Eigen::MatrixXd, Eigen::MatrixXi>
+toMesh_impl(const std::shared_ptr<const CellComplex>& cc,
+            std::function<bool(CellComplex::Vertex)> filter);
+}
+
 namespace ReUseX::geometry {
 
-auto Solidifier::toMesh(std::function<bool(const Cd)> filter)
-    -> std::pair<Eigen::MatrixXd, Eigen::MatrixXi> {
+std::pair<Eigen::MatrixXd, Eigen::MatrixXi>
+Solidifier::toMesh(std::function<bool(const Cd)> filter) {
+  // Delegate to helper function
+  return toMesh_impl(get_cell_complex(), filter);
+}
+
+// Internal implementation (has access to CellComplex)
+std::pair<Eigen::MatrixXd, Eigen::MatrixXi>
+toMesh_impl(const std::shared_ptr<const CellComplex>& _cc,
+            std::function<bool(CellComplex::Vertex)> filter) {
+  
   /*
  Mesh mesh;
 
@@ -118,12 +134,12 @@ auto Solidifier::toMesh(std::function<bool(const Cd)> filter)
           const auto v0 = (*_cc)[verts[i]].pos;
           const auto v1 = (*_cc)[verts[(i + 1) % verts.size()]].pos;
           face_normal +=
-              (v0 - (*_cc)[*fit].pos).cross(v1 - (*_cc)[*fit].pos).head<3>();
+              (v0 - (*_cc)[*fit].pos).cross(v1 - (*_cc)[*fit].pos).template head<3>();
         }
         face_normal.normalize();
 
         Eigen::Vector3d cell_dir =
-            ((*_cc)[cell].pos - (*_cc)[*fit].pos).head<3>();
+            ((*_cc)[cell].pos - (*_cc)[*fit].pos).template head<3>();
         cell_dir.normalize();
 
         const double dot = face_normal.dot(cell_dir);
@@ -172,7 +188,7 @@ auto Solidifier::toMesh(std::function<bool(const Cd)> filter)
 
   int id = 0;
   for (const auto &[old_id, v] : vertex_indices) {
-    V.row(id) << (*_cc)[v].pos.head<3>().transpose();
+    V.row(id) << (*_cc)[v].pos.template head<3>().transpose();
     vmap[old_id] = id++;
   }
 

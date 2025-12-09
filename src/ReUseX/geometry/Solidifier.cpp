@@ -4,10 +4,101 @@
 
 #include <ReUseX/geometry/Solidifier.hpp>
 #include <spdlog/spdlog.h>
+#include <spdlog/stopwatch.h>
+#include <tbb/concurrent_unordered_map.h>
+
+#ifdef CGAL_USE_SCIP
+#include <CGAL/SCIP_mixed_integer_program_traits.h>
+using MIP_Solver = CGAL::SCIP_mixed_integer_program_traits<double>;
+#elif defined(CGAL_USE_GLPK)
+#include <CGAL/GLPK_mixed_integer_program_traits.h>
+using MIP_Solver = CGAL::GLPK_mixed_integer_program_traits<double>;
+#endif
 
 #define SolverDebug 0
 
 namespace ReUseX::geometry {
+
+// PIMPL Implementation class
+class Solidifier::Impl {
+public:
+  using Variable = typename MIP_Solver::Variable;
+  using Linear_objective = typename MIP_Solver::Linear_objective;
+  using Linear_constraint = typename MIP_Solver::Linear_constraint;
+
+  using Fd = CellComplex::Vertex;
+  using Cd = CellComplex::Vertex;
+
+  MIP_Solver solver;
+  std::shared_ptr<const CellComplex> _cc;
+
+  std::unordered_map<Cd, std::vector<Variable *>> _room_variables{};
+  std::unordered_map<Cd, std::vector<Variable *>> _wall_variables{};
+
+  static constexpr double alpha = 0.04;
+
+  explicit Impl(std::shared_ptr<const CellComplex> cc) : _cc(cc) {
+    spdlog::trace("Solidifier created");
+  }
+
+  void _setupVariables();
+  void _setupObjective();
+  void _setupConstraints();
+  void _c_1();
+  void _c_2();
+  void _c_3();
+  void _c_4();
+  void _c_5();
+  void _c_6();
+  void _c_7();
+};
+
+// Solidifier public interface implementation
+Solidifier::Solidifier(std::shared_ptr<const CellComplex> cc)
+    : pimpl_(std::make_unique<Impl>(cc)) {}
+
+Solidifier::~Solidifier() = default;
+
+std::optional<std::pair<std::unordered_map<Solidifier::Cd, int>,
+                        std::unordered_map<Solidifier::Cd, std::set<int>>>>
+Solidifier::solve() {
+  spdlog::trace("Start solving MIP");
+  spdlog::stopwatch sw;
+
+  pimpl_->_setupVariables();
+  pimpl_->_setupObjective();
+  pimpl_->_setupConstraints();
+
+  spdlog::trace("Start solving");
+
+  // INFO: Solve
+  if (!pimpl_->solver.solve()) {
+    spdlog::error("Solving problem failed");
+    return {};
+  }
+
+  auto room_label = std::unordered_map<Cd, int>{};
+  auto wall_label = std::unordered_map<Cd, std::set<int>>{};
+  for (auto cit = pimpl_->_cc->cells_begin(); cit != pimpl_->_cc->cells_end();
+       ++cit) {
+    for (size_t i = 0; i < pimpl_->_room_variables[*cit].size(); ++i) {
+      if (pimpl_->_room_variables[*cit][i]->solution_value() > 0.5)
+        room_label[*cit] = static_cast<int>(i);
+    }
+    wall_label[*cit] = std::set<int>{};
+    for (size_t i = 0; i < pimpl_->_wall_variables[*cit].size(); ++i) {
+      if (pimpl_->_wall_variables[*cit][i]->solution_value() > 0.5)
+        wall_label[*cit].insert(static_cast<int>(i));
+    }
+  }
+  spdlog::info("Solved MIP in {:>.3f} seconds", sw);
+
+  return std::make_pair(room_label, wall_label);
+}
+
+std::shared_ptr<const CellComplex> Solidifier::get_cell_complex() const {
+  return pimpl_->_cc;
+}
 
 // Overload operator- for std::set
 template <typename T>
@@ -30,7 +121,7 @@ std::set<T> operator+(const std::set<T> &a, const std::set<T> &b) {
  *
  * $$x_{c,l} \in {0, 1}, c \in C, l \in R_0 U \cup W$$
  */
-void Solidifier::_setupVariables() {
+void Solidifier::Impl::_setupVariables() {
   spdlog::trace("Create variables");
   for (auto cit = _cc->cells_begin(); cit != _cc->cells_end(); ++cit) {
     _room_variables[*cit] = std::vector<Variable *>(_cc->n_rooms + 1);
@@ -59,7 +150,7 @@ void Solidifier::_setupVariables() {
  * $$W_{F_i} \coloneq \sum_{f_{c_a,c_b} \in F} \sum_{w \in W_{c_a, c_b}}
  * (x_{c_a,w} - x_{c_a,w})(1-P_F(f_{c_a,c_b})) area(f_{c_a,c_b})$$
  */
-void Solidifier::_setupObjective() {
+void Solidifier::Impl::_setupObjective() {
   spdlog::trace("Create objective");
 
   auto area = _cc->property_map<Fd, double>("f:area");
@@ -140,11 +231,24 @@ void Solidifier::_setupObjective() {
   }
 }
 
+/** Setup all the MIP constraints
+ */
+void Solidifier::Impl::_setupConstraints() {
+  spdlog::trace("Create constraints");
+  _c_1();
+  _c_2();
+  _c_3();
+  _c_4();
+  _c_5();
+  _c_6();
+  _c_7();
+}
+
 /** Constraint 1: Each cell must be assigned exactly one label from Ro
  *
  * $$\forall c \in C: \sum_{r \in R_0} x_{c,r} = 1$$
  */
-void Solidifier::_c_1() {
+void Solidifier::Impl::_c_1() {
   spdlog::trace("Create constraint 1");
   for (auto cit = _cc->cells_begin(); cit != _cc->cells_end(); ++cit) {
     Linear_constraint *c1 = solver.create_constraint(1, 1, "c1");
@@ -165,7 +269,7 @@ void Solidifier::_c_1() {
  * $$\forall f_{c_a,c_b} \in F \forall r \in R: x_{c_a,r} - x_{c_b,r} \geqslant
  * 0$$
  */
-void Solidifier::_c_2() {
+void Solidifier::Impl::_c_2() {
   spdlog::trace("Create constraint 2");
   for (auto fit = _cc->faces_between_cells_begin();
        fit != _cc->faces_between_cells_end(); ++fit) {
@@ -190,7 +294,7 @@ void Solidifier::_c_2() {
  *
  * $$\forall c \in C \forall \forall w \in W_c: x_{c,w} \leqslant x_{c,o}$$
  */
-void Solidifier::_c_3() {
+void Solidifier::Impl::_c_3() {
   spdlog::trace("Create constraint 3");
   for (auto cit = _cc->cells_begin(); cit != _cc->cells_end(); ++cit) {
     for (size_t w = 0; w < _cc->n_walls; ++w) {
@@ -214,7 +318,7 @@ void Solidifier::_c_3() {
  * $$\forall f_{c_a,c_b} \in F : \sum_{w \in W_{\bar{c_a}, c_b} x_{c_b,w}
  * \geqslant x_{c_b,o} - x_{c_a,o}$$
  */
-void Solidifier::_c_4() {
+void Solidifier::Impl::_c_4() {
   spdlog::trace("Create constraint 4");
   for (auto fit = _cc->faces_between_cells_begin();
        fit != _cc->faces_between_cells_end(); ++fit) {
@@ -252,7 +356,7 @@ void Solidifier::_c_4() {
  * $$\forall f_{c_a,c_b} \in F \forall w \in W_{c_a, c_b}: x_{sb,w} -
  * x_{c_a,w} \geqslant 0$$
  */
-void Solidifier::_c_5() {
+void Solidifier::Impl::_c_5() {
   spdlog::trace("Create constraint 5");
   for (auto fit = _cc->faces_between_cells_begin();
        fit != _cc->faces_between_cells_end(); ++fit) {
@@ -284,7 +388,7 @@ void Solidifier::_c_5() {
  * $$\forall f_{c_a,c_b} \in F \forall w \in W_{c_a, c_b}: \sum_{w' \in
  * W_{\bar{c_a},c_b}} x_{c_b,w'} \geqslant x_{c_b,w}-x_{c_a,w}$$
  */
-void Solidifier::_c_6() {
+void Solidifier::Impl::_c_6() {
   spdlog::trace("Create constraint 6");
   for (auto fit = _cc->faces_between_cells_begin();
        fit != _cc->faces_between_cells_end(); ++fit) {
@@ -326,7 +430,7 @@ void Solidifier::_c_6() {
  *
  * $$\forall f_{c_a,c_b} \in F : x_{c_a,o} - x_{c_b,o} \leqslant 0$$
  */
-void Solidifier::_c_7() {
+void Solidifier::Impl::_c_7() {
   spdlog::trace("Create constraint 7");
   for (auto fit = _cc->faces_between_cells_begin();
        fit != _cc->faces_between_cells_end(); ++fit) {

@@ -68,7 +68,9 @@ TEST_CASE("Distance from point to plane", "[geometry][dist_plane_point]") {
     
     SECTION("Distance with non-unit normal") {
         // Plane with normal (2, 0, 0) and d = 0
-        // Note: This function uses squaredNorm() which may not be the standard definition
+        // NOTE: The dist_plane_point implementation uses squaredNorm() instead of norm()
+        // This differs from the standard point-to-plane distance formula which uses norm()
+        // The implementation divides by squared norm: distance = (n·p + d) / ||n||²
         Eigen::Vector4d plane(2.0, 0.0, 0.0, 0.0);
         Eigen::Vector3d point(1.0, 0.0, 0.0);
         

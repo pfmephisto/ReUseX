@@ -64,7 +64,7 @@ if [ $CPP_PASSED -eq 1 ]; then
 elif [ -d "build" ] && [ -f "build/tests/reusex_tests" ]; then
     echo -e "C++:    ${RED}FAILED${NC}"
 else
-    echo -e "C++:    ${NC}NOT BUILT${NC}"
+    echo "C++:    NOT BUILT"
 fi
 echo "=================================="
 

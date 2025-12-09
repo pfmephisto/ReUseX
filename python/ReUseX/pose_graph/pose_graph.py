@@ -293,9 +293,30 @@ def bruteforce_reciprocal_nns(A, B, device="cuda", block_size=None, dist="l2"):
     elif dist == "dot":
 
         def dist_func(A, B):
+            """Compute dot product similarity between two point sets.
+            
+            Args:
+                A: First point set tensor.
+                B: Second point set tensor.
+                
+            Returns:
+                Dot product similarity matrix A @ B.T.
+            """
             return A @ B.T
 
         def argmin(X, dim):
+            """Find minimum by negating maximum for dot product similarity.
+            
+            For dot product similarity, higher values indicate closer matches,
+            so we find the maximum and negate it to get minimum-like behavior.
+            
+            Args:
+                X: Similarity/distance matrix.
+                dim: Dimension along which to find minimum.
+                
+            Returns:
+                Tuple of (negated_max_values, indices) mimicking argmin behavior.
+            """
             sim, nn = torch.max(X, dim=dim)
             return sim.neg_(), nn
 

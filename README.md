@@ -93,6 +93,22 @@ The documentation will be generated in the `doc/` folder, covering:
 - Class hierarchies and collaboration diagrams
 - Source code browsing
 
+### Running Tests
+
+ReUseX has comprehensive C++ unit test coverage. See [TESTING.md](TESTING.md) for detailed testing documentation.
+
+Quick start:
+```shell
+# Build and run C++ tests
+cmake -B build -DBUILD_TESTS=ON
+cmake --build build
+cd build && ctest --output-on-failure
+```
+
+Test statistics:
+- **C++ tests** for math utilities, geometry functions, and type operations
+- All tests passing ✓
+
 ## Usage
 
 ### Command-Line Interface

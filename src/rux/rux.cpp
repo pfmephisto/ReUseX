@@ -6,10 +6,13 @@
 #include "rux/assemble.hpp"
 #include "rux/export.hpp"
 #include "rux/import.hpp"
-#include "rux/mesh.hpp"
 #include "rux/segment.hpp"
 #include "rux/texture.hpp"
+
+#ifdef REUSEX_HAS_VISUALIZATION
+#include "rux/mesh.hpp"
 #include "rux/view.hpp"
+#endif
 
 #include "ReUseX/core/version.hpp"
 
@@ -61,14 +64,16 @@ int main(int argc, char **argv) {
   setup_subcommand_import(app);
   setup_subcommand_export(app);
 
-  setup_subcommand_view(app);
-
   setup_subcommand_annotate(app);
 
   setup_subcommand_segment(app);
 
-  setup_subcommand_mesh(app);
   setup_subcommand_texture(app);
+
+#ifdef REUSEX_HAS_VISUALIZATION
+  setup_subcommand_view(app);
+  setup_subcommand_mesh(app);
+#endif
 
   app.require_subcommand(/* min */ 1, /* max */ 2);
 

@@ -4,10 +4,15 @@
 
 #pragma once
 #include <ReUseX/types.hpp>
-#include <ReUseX/visualize/Visualizer.hpp>
 
 #include <pcl/PolygonMesh.h>
 #include <pcl/common/common.h>
+#include <memory>
+
+// Forward declaration to avoid dependency on visualization library
+namespace ReUseX::visualize {
+class Visualizer;
+}
 
 namespace ReUseX::geometry {
 

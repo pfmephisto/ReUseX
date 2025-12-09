@@ -61,7 +61,21 @@ list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
 include(CompilerOptions)
 include(Dependencies)
+
+# -----------------------------------------------
+# Optional Visualization Library
+# -----------------------------------------------
+option(BUILD_VISUALIZATION "Build visualization library" ON)
+
 include(ReUseXLibrary)
+
+if(BUILD_VISUALIZATION)
+    message(STATUS "Building visualization library")
+    include(ReUseXVisualizationLibrary)
+else()
+    message(STATUS "Visualization library disabled")
+endif()
+
 include(RuxExecutable)
 include(Installation)
 include(Documentation)
@@ -88,6 +102,7 @@ message(STATUS "Install Prefix:    ${CMAKE_INSTALL_PREFIX}")
 message(STATUS "C++ Compiler:      ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
 message(STATUS "CUDA Support:      ${CMAKE_CUDA_COMPILER_ID} ${CMAKE_CUDA_COMPILER_VERSION}")
 message(STATUS "GUI Enabled:       ${GUI_ENABLED}")
+message(STATUS "Visualization:     ${BUILD_VISUALIZATION}")
 message(STATUS "Documentation:     ${BUILD_DOCUMENTATION}")
 message(STATUS "Unit Tests:        ${BUILD_TESTS}")
 message(STATUS "========================================")

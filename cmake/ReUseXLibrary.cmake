@@ -19,7 +19,16 @@ file(GLOB_RECURSE REUSEX_HEADERS CONFIGURE_DEPENDS
      "${CMAKE_CURRENT_SOURCE_DIR}/include/pcl/**/*.hpp"
      "${CMAKE_CURRENT_SOURCE_DIR}/include/spdmon/**/*.hpp")
 
-message(STATUS "Found ${CMAKE_MATCH_COUNT} ReUseX source files")
+# Exclude visualization files from main library
+list(FILTER REUSEX_SOURCES EXCLUDE REGEX ".*/visualize/.*\\.cpp$")
+list(FILTER REUSEX_HEADERS EXCLUDE REGEX ".*/visualize/.*\\.hpp$")
+
+# Exclude geometry files that use Visualizer
+list(FILTER REUSEX_SOURCES EXCLUDE REGEX ".*/geometry/mesh\\.cpp$")
+list(FILTER REUSEX_SOURCES EXCLUDE REGEX ".*/geometry/texture_mesh\\.cpp$")
+
+list(LENGTH REUSEX_SOURCES REUSEX_SOURCE_COUNT)
+message(STATUS "Found ${REUSEX_SOURCE_COUNT} ReUseX source files")
 
 # -----------------------------------------------
 # Generate version header
@@ -59,13 +68,12 @@ target_link_libraries(${PROJECT_NAME}
         OpenNURBS
         E57Format
 
-        # Point Cloud Library
+        # Point Cloud Library (excluding visualization)
         pcl_common
         pcl_io
         pcl_filters
         pcl_segmentation
         pcl_registration
-        pcl_visualization
         
         # Ray tracing
         embree
@@ -106,4 +114,6 @@ target_compile_options(${PROJECT_NAME} PUBLIC ${COMMON_COMPILER_FLAGS})
 # -----------------------------------------------
 # Export library information
 # -----------------------------------------------
-set(REUSEX_LIBRARY_TARGET ${PROJECT_NAME} PARENT_SCOPE)
+if(NOT CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
+    set(REUSEX_LIBRARY_TARGET ${PROJECT_NAME} PARENT_SCOPE)
+endif()

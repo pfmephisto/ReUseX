@@ -6,6 +6,7 @@
 #include <ReUseX/geometry/CellComplex.hpp>
 #include <ReUseX/geometry/Solidifier.hpp>
 #include <ReUseX/geometry/regularization.hpp>
+#include <ReUseX/visualize/Visualizer.hpp>
 // #include "ReUseX/geometry/utils.hpp"
 // #include "ReUseX/io/reusex.hpp"
 

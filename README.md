@@ -61,6 +61,14 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ```
 
+**Build Options:**
+- `-DBUILD_VISUALIZATION=ON/OFF` - Enable/disable visualization library (default: ON)
+- `-DBUILD_TESTS=ON/OFF` - Enable/disable unit tests (default: ON)
+- `-DBUILD_DOCUMENTATION=ON/OFF` - Enable/disable documentation generation (default: ON)
+- `-DGUI_ENABLED=ON/OFF` - Enable/disable CGAL GUI features (default: OFF)
+
+**Note on Visualization:** The visualization functionality (including `rux view` and `rux mesh` commands) can be optionally disabled by setting `-DBUILD_VISUALIZATION=OFF`. This reduces dependencies and build time if you only need the core processing functionality.
+
 ### Building API Documentation
 
 Generate comprehensive API documentation with Doxygen:

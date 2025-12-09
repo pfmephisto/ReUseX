@@ -43,6 +43,12 @@ target_link_libraries(rux
         spdlog::spdlog
 )
 
+# Link visualization library if enabled
+if(BUILD_VISUALIZATION)
+    target_link_libraries(rux PRIVATE ${PROJECT_NAME}_visualization)
+    target_compile_definitions(rux PRIVATE REUSEX_HAS_VISUALIZATION)
+endif()
+
 # -----------------------------------------------
 # Compiler options
 # -----------------------------------------------

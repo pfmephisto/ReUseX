@@ -17,8 +17,8 @@ float letterbox(cv::Mat &input_image, cv::Mat &output_image,
 float cropbox(cv::Mat &input_image, cv::Mat &output_image,
               const cv::Size &target_size);
 
-torch::Tensor xyxy2xywh(const torch::Tensor &x);
-torch::Tensor xywh2xyxy(const torch::Tensor &x);
+torch::Tensor xyxy_to_xywh(const torch::Tensor &x);
+torch::Tensor xywh_to_xyxy(const torch::Tensor &x);
 torch::Tensor nms(const torch::Tensor &bboces, const torch::Tensor &scores,
                   float iou_threshold = 0.45);
 
@@ -26,4 +26,14 @@ torch::Tensor non_max_suppression(torch::Tensor &predictions,
                                   float confThreshold = 0.25,
                                   float iouThreshold = 0.45,
                                   int maxDetections = 300);
+
+// Deprecated aliases for backward compatibility
+[[deprecated("Use xyxy_to_xywh instead")]] inline torch::Tensor
+xyxy2xywh(const torch::Tensor &x) {
+  return xyxy_to_xywh(x);
+}
+[[deprecated("Use xywh_to_xyxy instead")]] inline torch::Tensor
+xywh2xyxy(const torch::Tensor &x) {
+  return xywh_to_xyxy(x);
+}
 } // namespace ReUseX::vision

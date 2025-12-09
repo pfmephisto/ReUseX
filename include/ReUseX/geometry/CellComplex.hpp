@@ -26,8 +26,6 @@
 #include <range/v3/range/concepts.hpp>
 #include <range/v3/view/zip.hpp>
 
-namespace fs = std::filesystem;
-
 // Tags to distinguish node types
 enum class NodeType { Cell, Face, Vertex };
 

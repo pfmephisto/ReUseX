@@ -11,14 +11,13 @@
 #include <filesystem>
 #include <map>
 #include <vector>
-namespace fs = std::filesystem;
 
 namespace ReUseX::vision {
 class Dataset : public torch::data::datasets::Dataset<Dataset> {
   using Example = torch::data::Example<>;
 
     public:
-  Dataset(fs::path dbPath = "");
+  Dataset(std::filesystem::path dbPath = "");
   Example get(size_t index);
   torch::optional<size_t> size() const;
   void save(std::vector<cv::Mat> img, torch::Tensor index);

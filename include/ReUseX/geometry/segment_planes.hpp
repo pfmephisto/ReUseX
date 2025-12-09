@@ -26,7 +26,6 @@
 #include <boost/parameter/name.hpp>
 
 #include <ReUseX/io/reusex.hpp>
-namespace fs = std::filesystem;
 
 namespace parameter = boost::parameter;
 

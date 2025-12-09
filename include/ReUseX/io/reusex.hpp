@@ -11,7 +11,6 @@
 #include <pcl/point_types.h>
 
 #include <filesystem>
-namespace fs = std::filesystem;
 
 namespace ReUseX::io {
 
@@ -22,14 +21,14 @@ auto getPlanes(CloudLConstPtr planes, CloudNConstPtr normals,
 
 [[nodiscard]]
 bool save(
-    fs::path const &output_path,
+    std::filesystem::path const &output_path,
     std::vector<pcl::ModelCoefficients> const &model_coefficients,
     std::vector<Eigen::Vector4f,
                 Eigen::aligned_allocator<Eigen::Vector4f>> const &centroids,
     std::vector<std::shared_ptr<pcl::Indices>> const &inlier_indices);
 
 [[nodiscard]]
-bool read(fs::path const &input_path,
+bool read(std::filesystem::path const &input_path,
           std::vector<pcl::ModelCoefficients> &model_coefficients,
           std::vector<Eigen::Vector4f,
                       Eigen::aligned_allocator<Eigen::Vector4f>> &centroids,

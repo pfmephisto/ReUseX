@@ -15,7 +15,7 @@
 #include <sqlite3.h>
 
 namespace ReUseX::vision {
-Dataset::Dataset(fs::path dbPath) {
+Dataset::Dataset(std::filesystem::path dbPath) {
 
   if (sqlite3_open(dbPath.string().c_str(), &db_) != SQLITE_OK) {
     spdlog::error("Cannot open database: {}", sqlite3_errmsg(db_));

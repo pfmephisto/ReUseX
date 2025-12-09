@@ -36,7 +36,6 @@
 #include <boost/parameter/name.hpp>
 
 namespace parameter = boost::parameter;
-namespace fs = std::filesystem;
 
 namespace ReUseX::geometry {
 auto segment_rooms_impl(CloudConstPtr cloud, CloudNConstPtr normals,

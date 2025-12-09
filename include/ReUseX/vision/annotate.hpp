@@ -22,9 +22,8 @@
 // #include <rtabmap/core/Parameters.h>
 // #include <rtabmap/core/Rtabmap.h>
 
-namespace fs = std::filesystem;
-
 namespace ReUseX::vision {
-auto annotateRTABMap(const fs::path &dbPath, const fs::path &modelPath,
-                     bool isCuda) -> int;
+auto annotateRTABMap(const std::filesystem::path &dbPath,
+                     const std::filesystem::path &modelPath, bool isCuda)
+    -> int;
 }

@@ -91,7 +91,7 @@ float cropbox(cv::Mat &input_image, cv::Mat &output_image,
   return resize_scale;
 };
 
-torch::Tensor xyxy2xywh(const torch::Tensor &x) {
+torch::Tensor xyxy_to_xywh(const torch::Tensor &x) {
   auto y = torch::empty_like(x);
   y.index_put_({"...", 0}, (x.index({"...", 0}) + x.index({"...", 2})).div(2));
   y.index_put_({"...", 1}, (x.index({"...", 1}) + x.index({"...", 3})).div(2));
@@ -100,7 +100,7 @@ torch::Tensor xyxy2xywh(const torch::Tensor &x) {
   return y;
 }
 
-torch::Tensor xywh2xyxy(const torch::Tensor &x) {
+torch::Tensor xywh_to_xyxy(const torch::Tensor &x) {
   auto y = torch::empty_like(x);
   auto dw = x.index({"...", 2}).div(2);
   auto dh = x.index({"...", 3}).div(2);
@@ -201,7 +201,7 @@ torch::Tensor non_max_suppression(torch::Tensor &predictions,
 
   predictions = predictions.transpose(-1, -2); // [bs, 8400, 116]
   predictions.index_put_({"...", Slice({None, 4})},
-                         xywh2xyxy(predictions.index({"...", Slice(None, 4)})));
+                         xywh_to_xyxy(predictions.index({"...", Slice(None, 4)})));
 
   torch::Tensor output =
       torch::zeros({bs, maxDetections, 6 + nm}, predictions.options());
@@ -242,7 +242,7 @@ torch::Tensor non_max_suppression(torch::Tensor &predictions,
 
   //// Convert boxes back to xywh
   // output.index_put_({"...", Slice({None, 4})},
-  //                   xyxy2xywh(output.index({"...", Slice(None, 4)})));
+  //                   xyxy_to_xywh(output.index({"...", Slice(None, 4)})));
 
   return output;
 }

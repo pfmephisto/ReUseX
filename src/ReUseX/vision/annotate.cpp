@@ -143,8 +143,9 @@ void applyGlasberyColorMap(const cv::Mat &input, cv::Mat &output) {
   output = temp;
 }
 
-auto annotateRTABMap(const fs::path &dbPath, const fs::path &modelPath,
-                     bool isCuda) -> int {
+auto annotateRTABMap(const std::filesystem::path &dbPath,
+                     const std::filesystem::path &modelPath, bool isCuda)
+    -> int {
   spdlog::trace("calling annotateRTABMap");
 
   torch::manual_seed(1);

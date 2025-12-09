@@ -20,8 +20,6 @@
 
 #include <filesystem>
 
-namespace fs = std::filesystem;
-
 namespace ReUseX::geometry {
 pcl::TextureMesh::Ptr texture_mesh_with_cloud(pcl::PolygonMesh::Ptr mesh,
                                               CloudConstPtr cloud) {
@@ -82,11 +80,11 @@ pcl::TextureMesh::Ptr texture_mesh_with_cloud(pcl::PolygonMesh::Ptr mesh,
 
   spdlog::trace("Create directory for textures");
   static constexpr char texture_dir[] = "./mesh_textures";
-  if (fs::exists(texture_dir)) {
-    fs::remove_all(texture_dir);
+  if (std::filesystem::exists(texture_dir)) {
+    std::filesystem::remove_all(texture_dir);
   }
-  fs::create_directory(texture_dir);
-  fs::path base_path = fs::path(texture_dir);
+  std::filesystem::create_directory(texture_dir);
+  std::filesystem::path base_path = std::filesystem::path(texture_dir);
 
   spdlog::trace("Resizing texture mesh structures");
   const size_t nr_polygons = textured_mesh->tex_polygons.size();
@@ -102,7 +100,8 @@ pcl::TextureMesh::Ptr texture_mesh_with_cloud(pcl::PolygonMesh::Ptr mesh,
        textured_mesh->tex_materials | ranges::views::enumerate) {
 
     auto name = fmt::format("texture-{:06}", idx);
-    fs::path texture_path = base_path / fmt::format("{}.jpg", name);
+    std::filesystem::path texture_path =
+        base_path / fmt::format("{}.jpg", name);
 
     mat.tex_file = texture_path.string();
     mat.tex_name = name;
@@ -226,11 +225,11 @@ texture_mesh(pcl::PolygonMesh::Ptr mesh,
 
   spdlog::trace("Create directory for textures");
   static constexpr char texture_dir[] = "./mesh_textures";
-  if (fs::exists(texture_dir)) {
-    fs::remove_all(texture_dir);
+  if (std::filesystem::exists(texture_dir)) {
+    std::filesystem::remove_all(texture_dir);
   }
-  fs::create_directory(texture_dir);
-  fs::path base_path = fs::path(texture_dir);
+  std::filesystem::create_directory(texture_dir);
+  std::filesystem::path base_path = std::filesystem::path(texture_dir);
 
   spdlog::trace("Retrive all cameras and textures from the database");
   pcl::texture_mapping::CameraVector cameras{};
@@ -254,7 +253,8 @@ texture_mesh(pcl::PolygonMesh::Ptr mesh,
         continue;
       }
       auto name = fmt::format("texture-{:06}", i);
-      fs::path texture_path = base_path / fmt::format("{}.jpg", name);
+      std::filesystem::path texture_path =
+          base_path / fmt::format("{}.jpg", name);
       cv::imwrite(texture_path.string(), image);
 
       cameras[i] = pcl::texture_mapping::Camera();

@@ -59,9 +59,9 @@ inline void merge_clouds(pcl::PointCloud<pcl::Label>::Ptr lhs,
                         new pcl::PointCloud<pcl::Label>()))
 
 namespace ReUseX::io {
-auto import_rtabmap_database(const fs::path &database_path, float resolution,
-                             float min_distance, float max_distance,
-                             float sampling_factor)
+auto import_rtabmap_database(const std::filesystem::path &database_path,
+                             float resolution, float min_distance,
+                             float max_distance, float sampling_factor)
     -> std::tuple<CloudPtr, CloudNPtr, CloudLPtr> {
 
   // TODO: Add path check for onnx model and package it with the application
@@ -376,12 +376,12 @@ auto import_rtabmap_database(const fs::path &database_path, float resolution,
   return std::make_tuple(out_cloud, out_normals, out_labels);
 }
 
-bool checkRTABMapDatabase(fs::path const &dbPath) {
+bool checkRTABMapDatabase(std::filesystem::path const &dbPath) {
   spdlog::trace("calling checkRTABMapDatabase");
   return false;
 }
 
-bool initRTABMapDatabase(fs::path const &dbPath) {
+bool initRTABMapDatabase(std::filesystem::path const &dbPath) {
   spdlog::trace("calling initRTABMapDatabase");
 
   rtabmap::DBDriver *driver = rtabmap::DBDriver::create();
@@ -401,13 +401,15 @@ bool initRTABMapDatabase(fs::path const &dbPath) {
   return true;
 }
 
-bool writeLabelsToRTABMapDatabase(fs::path const &dbPath, cv::Mat const &labels,
+bool writeLabelsToRTABMapDatabase(std::filesystem::path const &dbPath,
+                                  cv::Mat const &labels,
                                   std::optional<size_t> id) {
   spdlog::trace("calling writeLabelsToRTABMapDatabase");
   return false;
 }
 
-cv::Mat readLabelsFromRTABMapDatabase(fs::path const &dbPath, size_t id) {
+cv::Mat readLabelsFromRTABMapDatabase(std::filesystem::path const &dbPath,
+                                      size_t id) {
   spdlog::trace("calling readLabelsFromRTABMapDatabase");
   return cv::Mat();
 }

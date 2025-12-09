@@ -76,16 +76,17 @@ auto getPlanes(CloudLConstPtr planes, CloudNConstPtr normals,
   return std::make_tuple(plane_coefficients, centroids, inlier_indices);
 }
 bool save(
-    fs::path const &output_path,
+    std::filesystem::path const &output_path,
     std::vector<pcl::ModelCoefficients> const &model_coefficients,
     std::vector<Eigen::Vector4f,
                 Eigen::aligned_allocator<Eigen::Vector4f>> const &centroids,
     std::vector<std::shared_ptr<pcl::Indices>> const &inlier_indices) {
 
-  fs::path p(output_path);
+  std::filesystem::path p(output_path);
   p.replace_extension(".planes");
 
-  fs::exists(p) ? fs::remove(p) : fs::create_directories(p.parent_path());
+  std::filesystem::exists(p) ? std::filesystem::remove(p)
+                             : std::filesystem::create_directories(p.parent_path());
 
   const char *version = "# ReUseX file v0.0.1\n";
   const char *header =
@@ -121,7 +122,7 @@ bool save(
   return true;
 }
 
-bool read(fs::path const &input_path,
+bool read(std::filesystem::path const &input_path,
           std::vector<pcl::ModelCoefficients> &model_coefficients,
           std::vector<Eigen::Vector4f,
                       Eigen::aligned_allocator<Eigen::Vector4f>> &centroids,

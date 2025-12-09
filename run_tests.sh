@@ -40,7 +40,7 @@ else
     echo "To build and run tests:"
     echo "  cmake -B build -DBUILD_TESTS=ON"
     echo "  cmake --build build"
-    echo "  ./run_tests.sh"
+    echo "  cd build && ctest --output-on-failure"
     echo "=================================="
     exit 1
 fi

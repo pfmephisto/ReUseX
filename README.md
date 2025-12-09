@@ -109,7 +109,7 @@ cd build && ctest --output-on-failure
 ```
 
 Test statistics:
-- **C++ tests**: 23+ test cases for math utilities, geometry functions, and type operations
+- **C++ tests** for math utilities, geometry functions, and type operations
 - All tests passing ✓
 
 ## Usage

@@ -293,14 +293,14 @@ def bruteforce_reciprocal_nns(A, B, device="cuda", block_size=None, dist="l2"):
     elif dist == "dot":
 
         def dist_func(A, B):
-            """Compute dot product distance between two point sets.
+            """Compute dot product similarity between two point sets.
             
             Args:
                 A: First point set tensor.
                 B: Second point set tensor.
                 
             Returns:
-                Dot product matrix A @ B.T.
+                Dot product similarity matrix A @ B.T.
             """
             return A @ B.T
 

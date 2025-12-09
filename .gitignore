@@ -90,11 +90,6 @@ ReUseX_py.egg-info/
 **/.cache/**/*
 .ccls-cache
 
-# Ignore test coverage reports
-htmlcov/
-.coverage
-.pytest_cache/
-
 
 #Ignore IDE files
 compile_commands.json

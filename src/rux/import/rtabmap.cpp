@@ -29,7 +29,7 @@ void setup_subcommand_import_rtabmap(CLI::App &app, ImportContext &ctx) {
       ->default_val(opt->trajectory_path_out);
 
   sub->add_option("-g,--grid", opt->resulution,
-                  "Voxel grid size for downsampling the point cloud")
+                  "Voxel grid resolution for downsampling the point cloud")
       ->default_val(opt->resulution);
 
   sub->add_option("--min-distance", opt->min_distance,

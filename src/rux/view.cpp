@@ -21,8 +21,7 @@ void setup_subcommand_view(CLI::App &app) {
 
   auto opt = std::make_shared<SubcommandViewOptions>();
   auto *sub =
-      app.add_subcommand("view", "This tool allows for viewing of the 3D "
-                                 "annotated point clouds.");
+      app.add_subcommand("view", "Visualize 3D point clouds with optional label overlays.");
 
   sub->add_option("cloud", opt->cloud_path_in, "Path to the input cloud file.")
       ->required()

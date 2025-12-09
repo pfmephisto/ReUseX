@@ -28,13 +28,13 @@ void setup_subcommand_segment(CLI::App &app) {
   auto opt = std::make_shared<SubcommandSegmentOptions>();
 
   auto *sub = app.add_subcommand(
-      "segment", "This command gives acess to different segment methods.");
+      "segment", "Segment point clouds using various segmentation methods.");
 
   setup_subcommand_segment_planes(*sub);
   setup_subcommand_segment_rooms(*sub);
 
   sub->callback([opt]() {
-    spdlog::trace("calling import subcommand");
+    spdlog::trace("calling segment subcommand");
     return run_subcommand_segment(*opt);
   });
 }

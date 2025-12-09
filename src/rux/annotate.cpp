@@ -54,7 +54,7 @@ void setup_subcommand_annotate(CLI::App &app) {
       ->required()
       ->check(CLI::ExistingFile);
 
-  sub->add_option("-n, --net", opt->net_path, "Path to the YOLOv8 ONNX model")
+  sub->add_option("-n, --net", opt->net_path, "Path to the YOLOv8 model file (ONNX or PT format)")
       //->check(CLI::ExistingFile)
       ->default_val(opt->net_path);
 

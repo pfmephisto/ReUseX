@@ -23,15 +23,19 @@ void setup_subcommand_texture(CLI::App &app) {
   auto opt = std::make_shared<SubcommandTextureOptions>();
   auto *sub = app.add_subcommand(
       "texture",
-      "This tool textures a mesh based on the views in the database.");
+      "Apply textures to a mesh using views from an RTAB-Map database.");
 
   sub->add_option("mesh", opt->mesh_path_in, "Path to the input mesh file.")
+      ->required()
+      ->check(CLI::ExistingFile)
       ->default_val(opt->mesh_path_in);
 
-  sub->add_option("db", opt->db_path_in, "Path to the input database file.")
+  sub->add_option("db", opt->db_path_in, "Path to the RTAB-Map database file.")
+      ->required()
+      ->check(CLI::ExistingFile)
       ->default_val(opt->db_path_in);
 
-  sub->add_option("output", opt->mesh_path_out, "Path to the output mesh file.")
+  sub->add_option("output", opt->mesh_path_out, "Path to the output textured mesh file.")
       ->default_val(opt->mesh_path_out);
 
   sub->callback([opt]() {

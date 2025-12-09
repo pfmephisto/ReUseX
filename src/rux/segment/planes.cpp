@@ -43,26 +43,26 @@ void setup_subcommand_segment_planes(CLI::App &app) {
       ->default_val(opt->cloud_path_in);
 
   sub->add_option("normals", opt->normals_path_in,
-                  "Path to the input point cloud file.")
+                  "Path to the input normals file.")
       //->required()
       // ->check(CLI::ExistingFile)
       ->default_val(opt->normals_path_in);
 
   sub->add_option("planes", opt->planes_path_out,
-                  "Path to the output planes file")
+                  "Path to save the output plane labels file")
       ->default_val(opt->planes_path_out);
 
   sub->add_option("centroids", opt->plane_centroids_path_out,
-                  "Path to the output plane centroids file")
+                  "Path to save the output plane centroids file")
       ->default_val(opt->plane_centroids_path_out);
 
   sub->add_option("plane-normals", opt->plane_normals_path_out,
-                  "Path to the output plane normals file")
+                  "Path to save the output plane normals file")
       ->default_val(opt->plane_normals_path_out);
 
   sub->add_option("-a, --angle-threshold", opt->angle_threshold,
-                  "Angle threshold for plane fitting (default: 25° aka. "
-                  "cos(25) or 0.96592583)")
+                  "Angle threshold for plane fitting "
+                  "(default: 25° or cos(25°) = 0.96592583)")
       ->default_val(opt->angle_threshold)
       ->check(CLI::Range(0.0, 365.0));
 
@@ -72,8 +72,8 @@ void setup_subcommand_segment_planes(CLI::App &app) {
       ->check(CLI::Range(0.0, 1.0));
 
   sub->add_option("-m, --min-cluster-size", opt->minInliers,
-                  "Minimum cluster size for plane fitting (default: 2sqm in "
-                  "2cm resolution of point cloud)")
+                  "Minimum cluster size for plane fitting "
+                  "(default: 2sqm in 2cm resolution)")
       ->default_val(opt->minInliers)
       ->check(CLI::Range(3, 1000000));
 

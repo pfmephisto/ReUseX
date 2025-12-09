@@ -28,7 +28,7 @@ void setup_subcommand_import(CLI::App &app) {
   auto ctx = std::make_shared<ImportContext>();
 
   auto *sub = app.add_subcommand(
-      "import", "This command imports from different sources for use in rux.");
+      "import", "Import data from various sources into point cloud format.");
 
   // sub->add_option("path", opt->path_in, "Path to the input file.")
   //     ->required()

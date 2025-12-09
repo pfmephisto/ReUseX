@@ -48,8 +48,7 @@ void setup_subcommand_segment_rooms(CLI::App &app) {
   auto opt = std::make_shared<SubcommandSegRoomsOptions>();
   auto *sub = app.add_subcommand(
       "rooms",
-      "This tool applies the Markov clustering algorithm to a point cloud "
-      "based in the visual relation between the points.");
+      "Segment rooms using Markov clustering based on visual relationships.");
 
   sub->add_option("cloud", opt->cloud_path_in,
                   "Path to the input point cloud file.")
@@ -76,39 +75,38 @@ void setup_subcommand_segment_rooms(CLI::App &app) {
       ->default_val(opt->plane_normals_path_in);
 
   sub->add_option("rooms", opt->rooms_path_out,
-                  "Path to the output point cloud file")
+                  "Path to save the output room labels file")
       ->default_val(opt->rooms_path_out);
 
   sub->add_option("-i, --inflation", opt->inflation,
-                  "The inflation factor for the MCL algorithm. "
+                  "Inflation factor for MCL algorithm. "
                   "Higher values lead to more clusters. "
-                  "Common values are: "
-                  "1.4 1.6 2 3 4")
+                  "Common values: 1.4, 1.6, 2.0, 3.0, 4.0")
       ->default_val(opt->inflation)
       ->check(CLI::Range(0.0, 10.0));
 
   sub->add_option("-e, --expansion", opt->expansion,
-                  "The expansion factor for the MCL algorithm.")
+                  "Expansion factor for MCL algorithm.")
       ->default_val(opt->expansion)
       ->check(CLI::Range(1, 10));
 
   sub->add_option("-p, --pruning-threshold", opt->pruning_threshold,
-                  "The pruning threshold for the MCL algorithm.")
+                  "Pruning threshold for MCL algorithm.")
       ->default_val(opt->pruning_threshold)
       ->check(CLI::Range(0.0, 1.0));
 
   sub->add_option("-c, --convergence-threshold", opt->convergence_threshold,
-                  "The convergence threshold for the MCL algorithm.")
+                  "Convergence threshold for MCL algorithm.")
       ->default_val(opt->convergence_threshold)
       ->check(CLI::Range(0.0, 1.0));
 
   sub->add_option("-m, --max-iter", opt->max_iter,
-                  "The maximum number of iterations for the MCL algorithm.")
+                  "Maximum number of iterations for MCL algorithm.")
       ->default_val(opt->max_iter)
       ->check(CLI::Range(1, 1000));
 
   sub->add_option("-g, --grid-size", opt->grid_size,
-                  "The grid size for the MCL algorithm.")
+                  "Grid size for spatial discretization in MCL algorithm.")
       ->default_val(opt->grid_size)
       ->check(CLI::Range(0.01, 10.0));
 

@@ -28,10 +28,9 @@ void setup_subcommand_assemble(CLI::App &app) {
 
   auto opt = std::make_shared<SubcommandAssembleOptions>();
   auto *sub =
-      app.add_subcommand("assemble", "This command assembles multiple scans in "
-                                     "to a single database for use in rux.");
+      app.add_subcommand("assemble", "Assemble multiple scans into a single RTAB-Map database.");
 
-  sub->add_option("path", opt->paths_in, "Path to the input file.")
+  sub->add_option("path", opt->paths_in, "Path(s) to the input scan file(s).")
       ->required()
       ->check(CLI::ExistingFile);
 

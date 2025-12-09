@@ -19,8 +19,7 @@ void setup_subcommand_export(CLI::App &app) {
   auto opt = std::make_shared<SubcommandExportOptions>();
   auto *sub = app.add_subcommand(
       "export",
-      "This tool exports a rtab-map database to a pcl point cloud for "
-      "use in reusex.");
+      "Export a labeled point cloud to Rhino 3DM format.");
 
   sub->add_option("cloud", opt->cloud_path_in,
                   "Path to the input point cloud file.")
@@ -28,12 +27,12 @@ void setup_subcommand_export(CLI::App &app) {
       ->check(CLI::ExistingFile);
 
   sub->add_option("labels", opt->labels_path_in,
-                  "Path to the input point cloud file.")
+                  "Path to the input point cloud labels file.")
       ->required()
       ->check(CLI::ExistingFile);
 
   sub->add_option("output", opt->path_out,
-                  "Path to the output point cloud file")
+                  "Path to the output Rhino 3DM file")
       ->default_val(opt->path_out);
 
   sub->callback([opt]() {

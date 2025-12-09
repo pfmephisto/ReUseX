@@ -46,7 +46,7 @@ void setup_subcommand_mesh(CLI::App &app) {
   auto opt = std::make_shared<SubcommandMeshOptions>();
   auto *sub = app.add_subcommand(
       "mesh",
-      "This tool computes the best fit volumes form a set of input planes.");
+      "Generate a mesh by computing best-fit volumes from segmented planes.");
 
   sub->add_option("cloud", opt->cloud_path_in, "Path to the input cloud file.")
       //->required()
@@ -73,14 +73,14 @@ void setup_subcommand_mesh(CLI::App &app) {
                   "Path to the input plane normals file.")
       ->default_val(opt->plane_normals_path_in);
 
-  sub->add_option("rooms", opt->rooms_path_in, "Path to the input labe file.")
+  sub->add_option("rooms", opt->rooms_path_in, "Path to the input room labels file.")
       //->required()
       // ->check(CLI::ExistingFile)
       ->default_val(opt->rooms_path_in);
 
   sub->add_option("output", opt->output_out,
-                  "Path to the output file."
-                  "Optional file formats are .ply, .obj, .stl, .vtk .")
+                  "Path to the output mesh file. "
+                  "Supported formats: .ply, .obj, .stl, .vtk")
       ->default_val(opt->output_out);
 
   sub->add_option("-a, --angle", opt->angle_threshold,
@@ -89,17 +89,17 @@ void setup_subcommand_mesh(CLI::App &app) {
       ->check(CLI::Range(1.0, 180.0));
 
   sub->add_option("-l, --distance", opt->distance_threshold,
-                  "Distance threshold for plane pairing.")
+                  "Maximum distance threshold for plane pairing.")
       ->default_val(opt->distance_threshold)
       ->check(CLI::Range(0.001, 3.0));
 
   sub->add_option("-t, --threshold", opt->search_threshold,
-                  "Distance threshold for plane pairing.")
+                  "Search distance threshold for finding nearby planes.")
       ->default_val(opt->search_threshold)
       ->check(CLI::Range(0.01, 10.0));
 
   sub->add_option("-o, --offset", opt->new_plane_offset,
-                  "Distance threshold for new plane creation.")
+                  "Offset distance for new plane creation.")
       ->default_val(opt->new_plane_offset)
       ->check(CLI::Range(0.01, 1.0));
 

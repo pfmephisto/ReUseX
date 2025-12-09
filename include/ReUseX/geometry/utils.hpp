@@ -116,9 +116,10 @@ auto separate_planes(const EigenVectorContainer<double, 4> &planes,
  * Calculates the normal vector of a polygon using the cross product sum method
  * (also known as Newell's method). The normal is automatically normalized.
  *
- * @tparam CloudPtr Point cloud pointer type (e.g., CloudLocPtr).
+ * @tparam CloudPtr Point cloud pointer type (const or non-const, e.g.,
+ * CloudLocConstPtr).
  * @param poly Polygon with vertex indices.
- * @param cloud Point cloud containing the vertices.
+ * @param cloud Point cloud containing the vertices (read-only).
  * @return Normalized normal vector of the polygon.
  * @throws std::invalid_argument if polygon has fewer than 3 vertices.
  * @throws std::runtime_error if polygon is degenerate (zero normal magnitude).

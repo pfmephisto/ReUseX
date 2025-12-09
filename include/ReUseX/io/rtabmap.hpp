@@ -6,7 +6,7 @@
 #include <ReUseX/types.hpp>
 
 #include <filesystem>
-#include <opencv4/opencv2/core/mat.hpp>
+#include <opencv2/core/mat.hpp>
 #include <optional>
 #include <tuple>
 

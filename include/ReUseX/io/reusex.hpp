@@ -6,7 +6,7 @@
 #include <ReUseX/types.hpp>
 
 #include <Eigen/Core>
-#include <opencv4/opencv2/core.hpp>
+#include <opencv2/core.hpp>
 #include <pcl/ModelCoefficients.h>
 #include <pcl/point_types.h>
 

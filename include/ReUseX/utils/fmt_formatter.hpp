@@ -7,7 +7,7 @@
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 
-#include <eigen3/Eigen/src/Core/Matrix.h>
+#include <Eigen/src/Core/Matrix.h>
 #include <fmt/chrono.h>
 #include <fmt/color.h>
 #include <fmt/core.h>
@@ -17,7 +17,7 @@
 #include <fmt/ranges.h>
 #include <fmt/std.h>
 
-#include <opencv4/opencv2/core.hpp>
+#include <opencv2/core.hpp>
 
 // template<>
 // struct fmt::formatter<Eigen::Matrix4f>{

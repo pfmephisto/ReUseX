@@ -6,8 +6,8 @@
 
 #include <torch/torch.h>
 
-#include <opencv4/opencv2/core/mat.hpp>
-#include <opencv4/opencv2/core/types.hpp>
+#include <opencv2/core/mat.hpp>
+#include <opencv2/core/types.hpp>
 
 namespace ReUseX::vision {
 float generate_scale(cv::Mat &image, const cv::Size &target_size,

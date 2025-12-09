@@ -5,11 +5,11 @@
 #include <ReUseX/vision/Dataset.hpp>
 #include <ReUseX/vision/utils.hpp>
 
-#include <opencv4/opencv2/core.hpp>
-#include <opencv4/opencv2/imgcodecs.hpp>
-#include <opencv4/opencv2/imgproc.hpp>
+#include <opencv2/core.hpp>
+#include <opencv2/imgcodecs.hpp>
+#include <opencv2/imgproc.hpp>
 
-#include <opencv4/opencv2/highgui.hpp>
+#include <opencv2/highgui.hpp>
 #include <spdlog/spdlog.h>
 
 #include <sqlite3.h>

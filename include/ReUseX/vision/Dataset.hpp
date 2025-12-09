@@ -4,7 +4,7 @@
 
 #pragma once
 // #include <rtabmap/core/DBDriver.h>
-#include <opencv4/opencv2/core.hpp>
+#include <opencv2/core.hpp>
 #include <sqlite3.h>
 #include <torch/torch.h>
 

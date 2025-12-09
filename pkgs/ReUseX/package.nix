@@ -36,6 +36,7 @@
   # imgui,
   # glm,
   # libGLU,
+  catch2_3,
   libe57format,
   xercesc,
   cli11,
@@ -104,6 +105,8 @@ in
         #libtorch-bin
         libtorch
         protobuf # should be in libtorch?
+
+        catch2_3
 
         mkl
       ]

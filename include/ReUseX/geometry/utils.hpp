@@ -14,6 +14,8 @@
 #include <range/v3/view/zip.hpp>
 #include <spdlog/spdlog.h>
 
+#include <stdexcept>
+
 namespace ReUseX::geometry {
 
 /**
@@ -118,10 +120,17 @@ auto separate_planes(const EigenVectorContainer<double, 4> &planes,
  * @param poly Polygon with vertex indices.
  * @param cloud Point cloud containing the vertices.
  * @return Normalized normal vector of the polygon.
+ * @throws std::invalid_argument if polygon has fewer than 3 vertices.
+ * @throws std::runtime_error if polygon is degenerate (zero normal magnitude).
  */
 template <typename CloudPtr>
 auto compute_polygon_normal(const pcl::Vertices &poly,
                             const CloudPtr &cloud) -> Eigen::Vector3f {
+  if (poly.vertices.size() < 3) {
+    throw std::invalid_argument(
+        "Polygon must have at least 3 vertices to compute a normal");
+  }
+
   Eigen::Vector3f normal = Eigen::Vector3f::Zero();
   for (size_t i = 0; i < poly.vertices.size(); ++i) {
     const auto idx_c = poly.vertices[i];
@@ -130,6 +139,13 @@ auto compute_polygon_normal(const pcl::Vertices &poly,
     const auto &v_n = cloud->points[idx_n].getVector3fMap();
     normal += v_c.cross(v_n);
   }
+
+  const float magnitude = normal.norm();
+  if (magnitude < 1e-10f) {
+    throw std::runtime_error(
+        "Cannot compute normal for degenerate polygon (zero magnitude)");
+  }
+
   normal.normalize();
   return normal;
 }

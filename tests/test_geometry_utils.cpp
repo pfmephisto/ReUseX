@@ -153,3 +153,50 @@ TEST_CASE("compute_polygon_normal - reverse winding", "[geometry][utils]") {
   REQUIRE(normal_ccw.norm() == Catch::Approx(1.0f).margin(1e-6));
   REQUIRE(normal_cw.norm() == Catch::Approx(1.0f).margin(1e-6));
 }
+
+TEST_CASE("compute_polygon_normal - invalid input: too few vertices",
+          "[geometry][utils]") {
+  CloudLocPtr cloud(new CloudLoc);
+  cloud->points.resize(2);
+
+  cloud->points[0].x = 0.0f;
+  cloud->points[0].y = 0.0f;
+  cloud->points[0].z = 0.0f;
+
+  cloud->points[1].x = 1.0f;
+  cloud->points[1].y = 0.0f;
+  cloud->points[1].z = 0.0f;
+
+  // Polygon with only 2 vertices
+  pcl::Vertices poly;
+  poly.vertices = {0, 1};
+
+  REQUIRE_THROWS_AS(geometry::compute_polygon_normal(poly, cloud),
+                    std::invalid_argument);
+}
+
+TEST_CASE("compute_polygon_normal - degenerate polygon: collinear vertices",
+          "[geometry][utils]") {
+  CloudLocPtr cloud(new CloudLoc);
+  cloud->points.resize(3);
+
+  // All three points are collinear
+  cloud->points[0].x = 0.0f;
+  cloud->points[0].y = 0.0f;
+  cloud->points[0].z = 0.0f;
+
+  cloud->points[1].x = 1.0f;
+  cloud->points[1].y = 0.0f;
+  cloud->points[1].z = 0.0f;
+
+  cloud->points[2].x = 2.0f;
+  cloud->points[2].y = 0.0f;
+  cloud->points[2].z = 0.0f;
+
+  pcl::Vertices poly;
+  poly.vertices = {0, 1, 2};
+
+  // Should throw because the normal has zero magnitude
+  REQUIRE_THROWS_AS(geometry::compute_polygon_normal(poly, cloud),
+                    std::runtime_error);
+}

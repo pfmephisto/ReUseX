@@ -6,7 +6,7 @@
   lib,
   stdenv,
   cmake,
-  tbb_2022,
+  onetbb,
   boost,
   mkl,
   eigen,
@@ -29,7 +29,7 @@ stdenv.mkDerivation rec {
   ];
 
   propagationBuildInputs = [
-    tbb_2022
+    onetbb
   ];
 
   buildInputs = [
@@ -44,6 +44,7 @@ stdenv.mkDerivation rec {
   ];
 
   cmakeFlags = [
+    (lib.cmakeFeature "CMAKE_POLICY_VERSION_MINIMUM" "3.5")
     "-DGTSAM_USE_SYSTEM_EIGEN=ON"
     "-DGTSAM_USE_SYSTEM_METIS=ON"
   ];

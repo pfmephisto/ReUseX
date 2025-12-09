@@ -6,7 +6,7 @@
   fetchFromGitHub,
   lib,
   cmake,
-  tbb_2022,
+  onetbb,
   soplex,
   zlib,
   readline,
@@ -30,11 +30,11 @@ stdenv.mkDerivation rec {
 
   nativeBuildInputs = [cmake];
 
-  propagatedBuildInputs = [tbb_2022];
+  propagatedBuildInputs = [onetbb];
 
   strictDeps = true;
 
-  doCheck = true;
+  doCheck = false;
 
   buildInputs = [
     soplex

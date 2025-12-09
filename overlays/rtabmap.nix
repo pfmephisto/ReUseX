@@ -7,7 +7,7 @@
       (old.buildInputs or [])
       ++ (with prev.pkgs; [
         gtsam
-        tbb_2022
+        onetbb
       ]);
 
     cmakeFlags =

@@ -43,7 +43,7 @@ python3Packages.buildPythonPackage rec {
   ];
 
   meta = with lib; {
-    description = "xtensor plugin to read and write images, audio files, numpy (compressed) npz and HDF5";
+    description = "The Speckle Python SDK";
     license = licenses.bsd3;
     maintainers = with maintainers; [];
   };

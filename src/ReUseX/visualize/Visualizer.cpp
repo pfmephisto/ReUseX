@@ -198,5 +198,4 @@ void Visualizer::addRooms(
     ReUseX::visualize::addRooms(viewer, cc, results, name, vp);
   });
 }
-
 } // namespace ReUseX::visualize

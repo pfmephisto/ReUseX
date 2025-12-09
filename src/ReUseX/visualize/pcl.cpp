@@ -403,4 +403,70 @@ void addRooms(
     }
   }
 }
+
+void addCameraFrustum(std::shared_ptr<pcl::visualization::PCLVisualizer> viewer,
+                      pcl::TextureMapping<pcl::PointXYZ>::Camera &cam,
+                      const std::string_view &name, int vp) {
+  // read current camera
+  const bool use_focal =
+      cam.focal_length != 0.0; // if focal_length is set, use it for both axes
+  const double focal_x = cam.focal_length ? use_focal : cam.focal_length_w;
+  const double focal_y = cam.focal_length ? use_focal : cam.focal_length_h;
+
+  const double height = cam.height;
+  const double width = cam.width;
+
+  // create a 5-point visual for each camera
+  pcl::PointXYZ p1, p2, p3, p4, p5;
+  p1.x = 0;
+  p1.y = 0;
+  p1.z = 0;
+  double dist = 0.75;
+  double minX, minY, maxX, maxY;
+  maxX = dist * tan(std::atan(width / (2.0 * focal_x)));
+  minX = -maxX;
+  maxY = dist * tan(std::atan(height / (2.0 * focal_y)));
+  minY = -maxY;
+  p2.x = minX;
+  p2.y = minY;
+  p2.z = dist;
+  p3.x = maxX;
+  p3.y = minY;
+  p3.z = dist;
+  p4.x = maxX;
+  p4.y = maxY;
+  p4.z = dist;
+  p5.x = minX;
+  p5.y = maxY;
+  p5.z = dist;
+  p1 = pcl::transformPoint(p1, cam.pose);
+  p2 = pcl::transformPoint(p2, cam.pose);
+  p3 = pcl::transformPoint(p3, cam.pose);
+  p4 = pcl::transformPoint(p4, cam.pose);
+  p5 = pcl::transformPoint(p5, cam.pose);
+
+  viewer->addText3D(name.data(), p1, 0.1, 1.0, 1.0, 1.0, name.data(), vp);
+  viewer->addLine(p1, p2, fmt::format("{}_line1", name), vp);
+  viewer->addLine(p1, p3, fmt::format("{}_line2", name), vp);
+  viewer->addLine(p1, p4, fmt::format("{}_line3", name), vp);
+  viewer->addLine(p1, p5, fmt::format("{}_line4", name), vp);
+  viewer->addLine(p2, p5, fmt::format("{}_line5", name), vp);
+  viewer->addLine(p5, p4, fmt::format("{}_line6", name), vp);
+  viewer->addLine(p4, p3, fmt::format("{}_line7", name), vp);
+  viewer->addLine(p3, p2, fmt::format("{}_line8", name), vp);
+}
+
+void addCameraFrustums(
+    std::shared_ptr<pcl::visualization::PCLVisualizer> viewer,
+    pcl::texture_mapping::CameraVector cams, const std::string_view &name,
+    int vp) {
+  // add a visual for each camera at the correct pose
+  for (std::size_t i = 0; i < cams.size(); ++i) {
+    // read current camera
+    pcl::TextureMapping<pcl::PointXYZ>::Camera cam = cams[i];
+    std::string cam_name = fmt::format("{}_{}", name, i);
+    addCameraFrustum(viewer, cam, cam_name, vp);
+  }
+}
+
 } // namespace ReUseX::visualize

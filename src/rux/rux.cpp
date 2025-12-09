@@ -8,6 +8,7 @@
 #include "rux/import.hpp"
 #include "rux/mesh.hpp"
 #include "rux/segment.hpp"
+#include "rux/texture.hpp"
 #include "rux/view.hpp"
 
 #include "ReUseX/core/version.hpp"
@@ -67,6 +68,7 @@ int main(int argc, char **argv) {
   setup_subcommand_segment(app);
 
   setup_subcommand_mesh(app);
+  setup_subcommand_texture(app);
 
   app.require_subcommand(/* min */ 1, /* max */ 2);
 

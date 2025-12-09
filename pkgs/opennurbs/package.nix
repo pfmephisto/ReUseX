@@ -12,15 +12,19 @@
 in
   stdenv.mkDerivation rec {
     pname = "opennurbs";
-    version = "8.21.25188.17001";
+    version = "8.24.25281.15001";
 
     src = fetchFromGitHub {
       owner = "mcneel";
       repo = "${pname}";
       rev = "v${version}";
       fetchSubmodules = true;
-      sha256 = "sha256-HpUqn2RFp8KhLql0s7PH3aeFtsp0vVI8umZawgkKVzs=";
+      sha256 = "sha256-G8bYWY4qQQ7DEo6RLhf80KtAVZuGMyUcomy2c9Kr41Q=";
     };
+
+    cmakeFlags = [
+      (lib.cmakeFeature "CMAKE_POLICY_VERSION_MINIMUM" "3.5")
+    ];
 
     nativeBuildInputs = [
       cmake

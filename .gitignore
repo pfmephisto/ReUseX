@@ -42,6 +42,9 @@ CMakeLists.txt.user
 bin/
 build/
 
+# Generated documentation
+doc/
+
 # VS Code
 .vscode
 build_vs/
@@ -95,3 +98,4 @@ result
 
 tmux_session
 .pre-commit-config.yaml
+*.safetensors

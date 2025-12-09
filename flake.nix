@@ -106,6 +106,8 @@
               # DevOps tools
               nix-update
               sqlitebrowser
+              github-copilot-cli
+              doxygen
             ];
 
             shellHook =
@@ -131,6 +133,7 @@
                     pandas
                     scipy
                     ultralytics
+                    sam3
                   ]
               ))
             ];

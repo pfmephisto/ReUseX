@@ -7,6 +7,9 @@
 #include <range/v3/action.hpp>
 #include <range/v3/view.hpp>
 
+#include <fmt/format.h>
+#include <fmt/ranges.h>
+
 #include <spdlog/spdlog.h>
 
 #include <fstream>

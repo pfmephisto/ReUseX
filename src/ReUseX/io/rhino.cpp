@@ -72,6 +72,7 @@ auto create_rhino_layers(ONX_Model &model,
                          const std::vector<std::string> &layer_names,
                          std::optional<std::vector<ON_Color>> layer_colors,
                          const ON_Layer *base_layer) -> std::vector<int> {
+  spdlog::trace("creating rhino layers: {}", fmt::join(layer_names, ", "));
 
   std::vector<int> layer_map(layer_names.size(), ON_UNSET_INT_INDEX);
 
@@ -80,6 +81,9 @@ auto create_rhino_layers(ONX_Model &model,
     colors = *layer_colors;
 
   for (size_t i = 0; i < layer_names.size(); i++) {
+    spdlog::trace("  creating layer: {}", layer_names[i]);
+    spdlog::trace("    color: R={}, G={}, B={}", colors[i].Red(),
+                  colors[i].Green(), colors[i].Blue());
     ON_wString name(layer_names[i].c_str());
     layer_map[i] = model.AddLayer(name, colors[i]);
 
@@ -137,22 +141,31 @@ auto save_rhino_pointcloud(CloudConstPtr pcl_cloud, CloudLConstPtr pcl_labels)
   // model.AddDefaultLayer(nullptr, ON_Color::UnsetColor);
   ON_wString base_layer_name = L"ReUseX Export";
   auto base_layer_id = model->AddLayer(base_layer_name, ON_Color::Black);
+  spdlog::trace("base layer id: {}", base_layer_id);
   const ON_Layer *base_layer =
       ON_Layer::Cast(model->LayerFromIndex(base_layer_id).ModelComponent());
+  spdlog::trace("base layer pointer: {}", (void *)base_layer);
 
   auto layer_names =
       labels | ranges::views::transform([](uint32_t label) {
-        return label == 0
+        spdlog::trace("label: {}", label);
+        return label == static_cast<uint32_t>(-1)
                    ? "Semantic class: 0 (unlabeled)"
                    : fmt::format("Semantic class: {} ({})", label,
-                                 ReUseX::vision::Yolov8_className[label - 1]);
+                                 ReUseX::vision::Yolov8_className[label]);
       }) |
       ranges::to<std::vector<std::string>>();
+  spdlog::trace("layer names: {}", fmt::join(layer_names, ", "));
   auto colors = labels | ranges::views::transform([](uint32_t label) {
                   auto c = pcl::GlasbeyLUT::at(label % pcl::GlasbeyLUT::size());
                   return ON_Color(c.r, c.g, c.b);
                 }) |
                 ranges::to<std::vector<ON_Color>>();
+  spdlog::trace("layer colors:");
+  for (const auto &color : colors) {
+    spdlog::trace("  R={}, G={}, B={}", color.Red(), color.Green(),
+                  color.Blue());
+  }
 
   auto layer_map = create_rhino_layers(*model, layer_names, colors, base_layer);
 

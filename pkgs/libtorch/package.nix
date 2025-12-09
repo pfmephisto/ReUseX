@@ -72,6 +72,7 @@ in
     ];
 
     cmakeFlags = [
+      (lib.cmakeFeature "CMAKE_POLICY_VERSION_MINIMUM" "3.5")
       (lib.cmakeBool "USE_CUDA" cudaSupport)
       (lib.cmakeBool "DBUILD_SHARED_LIBS" true)
       (lib.cmakeBool "BUILD_PYTHON" false)

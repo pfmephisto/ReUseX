@@ -3,11 +3,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #pragma once
+#include "ReUseX/geometry/CellComplex.hpp"
 #include "ReUseX/types.hpp"
 
 #include <Eigen/Dense>
-#include <ReUseX/geometry/CellComplex.hpp>
 #include <pcl/common/colors.h>
+#include <pcl/surface/texture_mapping.h>
 #include <pcl/visualization/pcl_visualizer.h>
 #include <vector>
 
@@ -62,4 +63,16 @@ void addRooms(
         std::unordered_map<ReUseX::geometry::CellComplex::Vertex,
                            std::set<int>>> &results,
     const std::string_view &name = "rooms", int vp = 0);
+
+void addCameraFrustum(std::shared_ptr<pcl::visualization::PCLVisualizer> viewer,
+                      pcl::TextureMapping<pcl::PointXYZ>::Camera &cam,
+                      const std::string_view &name = "camera", int vp = 0);
+
+/** \brief Display a 3D representation showing the a cloud and a list of camera
+ * with their 6DOf poses */
+void addCameraFrustums(
+    std::shared_ptr<pcl::visualization::PCLVisualizer> viewer,
+    pcl::texture_mapping::CameraVector cams,
+    const std::string_view &name = "camera", int vp = 0);
+
 } // namespace ReUseX::visualize

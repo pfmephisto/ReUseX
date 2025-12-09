@@ -99,10 +99,7 @@ ReUseX has comprehensive C++ unit test coverage. See [TESTING.md](TESTING.md) fo
 
 Quick start:
 ```shell
-# Run all tests
-./run_tests.sh
-
-# Or run C++ tests directly (after building)
+# Build and run C++ tests
 cmake -B build -DBUILD_TESTS=ON
 cmake --build build
 cd build && ctest --output-on-failure

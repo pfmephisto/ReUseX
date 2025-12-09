@@ -99,3 +99,6 @@ result
 tmux_session
 .pre-commit-config.yaml
 *.safetensors
+
+# Ignore CodeQL artifacts
+_codeql_detected_source_root

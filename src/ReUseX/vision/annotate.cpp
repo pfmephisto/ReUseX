@@ -25,6 +25,9 @@ namespace ReUseX::vision {
 
 namespace {
 
+/**
+ * @brief Bounding box representation for object detection.
+ */
 struct BoundingBox {
   int x1, y1, x2, y2;
   int width() const { return std::max(0, x2 - x1); }
@@ -33,6 +36,13 @@ struct BoundingBox {
   cv::Rect toRect() const { return cv::Rect(x1, y1, width(), height()); }
 };
 
+/**
+ * @brief Clip bounding box to image dimensions.
+ * @param box Bounding box tensor [x1, y1, x2, y2].
+ * @param imgWidth Image width.
+ * @param imgHeight Image height.
+ * @return Clipped bounding box.
+ */
 BoundingBox clipBoundingBox(torch::Tensor box, int imgWidth, int imgHeight) {
   BoundingBox bbox;
   bbox.x1 = std::max(0, box[0].item<int>());
@@ -42,12 +52,23 @@ BoundingBox clipBoundingBox(torch::Tensor box, int imgWidth, int imgHeight) {
   return bbox;
 }
 
+/**
+ * @brief Resize segmentation mask to target size.
+ * @param maskTensor Input mask tensor (160x160).
+ * @param targetSize Target size for resized mask.
+ * @return Resized mask as OpenCV Mat.
+ */
 cv::Mat resizeMask(torch::Tensor maskTensor, cv::Size targetSize) {
   cv::Mat mask(160, 160, CV_32F, maskTensor.cpu().data_ptr<float>());
   cv::resize(mask, mask, targetSize, 0, 0, cv::INTER_NEAREST);
   return mask;
 }
 
+/**
+ * @brief Select computation device (CUDA or CPU).
+ * @param isCuda Whether to attempt using CUDA.
+ * @return Selected torch device.
+ */
 torch::Device selectDevice(bool isCuda) {
   torch::Device device =
       (isCuda && torch::cuda::is_available()) ? torch::kCUDA : torch::kCPU;
@@ -57,6 +78,12 @@ torch::Device selectDevice(bool isCuda) {
   return device;
 }
 
+/**
+ * @brief Load TorchScript model from file.
+ * @param modelPath Path to model file.
+ * @param device Device to load model on.
+ * @return Loaded model in evaluation mode.
+ */
 torch::jit::script::Module loadModel(const std::filesystem::path &modelPath,
                                       torch::Device device) {
   auto model = torch::jit::load(modelPath.string(), device);
@@ -65,6 +92,12 @@ torch::jit::script::Module loadModel(const std::filesystem::path &modelPath,
   return model;
 }
 
+/**
+ * @brief Process mask predictions from YOLO model.
+ * @param keep Filtered detection tensor.
+ * @param p2 Proto masks from model.
+ * @return Pair of (processed masks, keep tensor).
+ */
 std::pair<torch::Tensor, torch::Tensor>
 processMasks(torch::Tensor keep, torch::Tensor p2) {
   using torch::indexing::None;
@@ -83,6 +116,18 @@ processMasks(torch::Tensor keep, torch::Tensor p2) {
   return {masks, keep};
 }
 
+/**
+ * @brief Create label image from detection masks.
+ * 
+ * Generates a label image where each pixel is assigned the class ID
+ * of the detected object it belongs to.
+ * 
+ * @param keep Filtered detection tensor.
+ * @param masks Processed mask tensors.
+ * @param batchIndex Index of image in batch.
+ * @param imgSize Size of output label image.
+ * @return Label image with class IDs.
+ */
 cv::Mat createLabelImage(torch::Tensor keep, torch::Tensor masks, size_t batchIndex,
                           int imgSize) {
   using torch::indexing::Slice;

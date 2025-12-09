@@ -6,6 +6,23 @@
 
 namespace ReUseX::geometry {
 
+/**
+ * @brief Implementation of plane segmentation using multi-scale region growing.
+ * 
+ * Performs planar region growing segmentation on a point cloud using adaptive
+ * interval scaling and returns labeled planes with their centroids and normals.
+ * 
+ * @param cloud Input point cloud.
+ * @param normals Point cloud normals.
+ * @param angle_threshold Angular threshold for plane fitting (degrees).
+ * @param plane_dist_threshold Distance threshold for plane fitting.
+ * @param min_inliers Minimum number of inliers for a valid plane.
+ * @param radius Search radius for region growing.
+ * @param interval_0 Initial interval for multi-scale processing.
+ * @param interval_factor Factor for interval scaling between iterations.
+ * @param visualize Enable visualization of segmentation process.
+ * @return Tuple of (labeled point cloud, plane centroids, plane normals).
+ */
 auto segment_planes_impl(CloudConstPtr cloud, CloudNConstPtr normals,
                          const float angle_threshold,
                          const float plane_dist_threshold,

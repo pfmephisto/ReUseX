@@ -75,6 +75,19 @@ auto getPlanes(CloudLConstPtr planes, CloudNConstPtr normals,
 
   return std::make_tuple(plane_coefficients, centroids, inlier_indices);
 }
+
+/**
+ * @brief Save plane data to a custom file format.
+ * 
+ * Saves plane model coefficients, inlier indices, and centroids to a text file
+ * with the .planes extension.
+ * 
+ * @param output_path Path to output file (extension will be changed to .planes).
+ * @param model_coefficients Plane model coefficients to save.
+ * @param centroids Plane centroid positions.
+ * @param inlier_indices Indices of points belonging to each plane.
+ * @return True if save was successful.
+ */
 bool save(
     std::filesystem::path const &output_path,
     std::vector<pcl::ModelCoefficients> const &model_coefficients,
@@ -122,6 +135,18 @@ bool save(
   return true;
 }
 
+/**
+ * @brief Read plane data from a custom file format.
+ * 
+ * Reads plane model coefficients, inlier indices, and centroids from a
+ * text file with the .planes format.
+ * 
+ * @param input_path Path to input .planes file.
+ * @param model_coefficients Output plane model coefficients.
+ * @param centroids Output plane centroid positions.
+ * @param inlier_indices Output indices of points belonging to each plane.
+ * @return True if read was successful.
+ */
 bool read(std::filesystem::path const &input_path,
           std::vector<pcl::ModelCoefficients> &model_coefficients,
           std::vector<Eigen::Vector4f,

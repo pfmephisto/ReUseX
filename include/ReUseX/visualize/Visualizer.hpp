@@ -16,9 +16,23 @@
 
 namespace ReUseX::visualize {
 
+/**
+ * @brief 3D visualization class for point clouds and geometric primitives.
+ * 
+ * Provides methods to visualize point clouds, planes, cell complexes, and other
+ * geometric data using PCL visualization.
+ */
 class Visualizer {
 public:
+  /**
+   * @brief Construct a new Visualizer object.
+   * @param vps Optional viewport configuration.
+   */
   Visualizer(std::shared_ptr<std::vector<int>> vps = nullptr);
+  
+  /**
+   * @brief Destroy the Visualizer object.
+   */
   ~Visualizer();
 
   // Delete copy constructor and copy assignment operator
@@ -30,29 +44,86 @@ public:
   Visualizer &operator=(Visualizer &&) = delete;
 
 public:
+  /**
+   * @brief Get the configured viewports.
+   * @return Shared pointer to viewport configuration.
+   */
   std::shared_ptr<const std::vector<int>> getViewports() const;
+  
+  /**
+   * @brief Reset camera viewpoint to default.
+   * @param name Optional viewport name.
+   */
   void reset_camera_viewpoint(const std::string &name = "");
 
+  /**
+   * @brief Add a point cloud to the visualization.
+   * @param cloud Point cloud to visualize.
+   * @param name Identifier for the cloud. Default "cloud".
+   * @param vp Viewport index. Default 0.
+   */
   void add_point_cloud(CloudConstPtr cloud, std::string name = "cloud",
                        int vp = 0);
 
+  /**
+   * @brief Add a single plane to the visualization.
+   * @param plane Plane coefficients (nx, ny, nz, d).
+   * @param origin Plane origin point.
+   * @param color RGB color for the plane.
+   * @param name Identifier for the plane. Default "plane".
+   * @param vp Viewport index. Default 0.
+   */
   void add_plane(const Eigen::Vector4d &plane, const Eigen::Vector3d &origin,
                  const pcl::RGB &color, const std::string_view &name = "plane",
                  int vp = 0);
 
+  /**
+   * @brief Add multiple planes to the visualization.
+   * @param planes Vector of plane pairs to visualize.
+   * @param name Base identifier for planes. Default "plane".
+   * @param vp Viewport index. Default 0.
+   */
   void add_planes(const std::vector<Pair> &planes,
                   const std::string_view &name = "plane", int vp = 0);
 
+  /**
+   * @brief Add a plane pair to the visualization.
+   * @param plane_pair Pair of planes to visualize.
+   * @param name Identifier for the plane pair. Default "plane_pair".
+   * @param vp Viewport index. Default 0.
+   */
   void add_pair(const PlanePair &plane_pair,
                 const std::string_view &name = "plane_pair", int vp = 0);
 
+  /**
+   * @brief Add multiple plane pairs to the visualization.
+   * @param plane_pairs Vector of plane pairs.
+   * @param name Base identifier for plane pairs. Default "plane_pair".
+   * @param vp Viewport index. Default 0.
+   */
   void add_plane_pairs(const std::vector<PlanePair> &plane_pairs,
                        const std::string_view &name = "plane_pair", int vp = 0);
 
+  /**
+   * @brief Add a floor plane at specified height.
+   * @param height Height of the floor.
+   * @param min Minimum extent of the floor.
+   * @param max Maximum extent of the floor.
+   * @param name Identifier for the floor. Default "floor".
+   * @param vp Viewport index. Default 0.
+   */
   void add_floor(const double height, const Eigen::Vector3d &min,
                  const Eigen::Vector3d &max,
                  const std::string_view &name = "floor", int vp = 0);
 
+  /**
+   * @brief Add multiple floor planes at different heights.
+   * @param heights Vector of floor heights.
+   * @param min Minimum extent of the floors.
+   * @param max Maximum extent of the floors.
+   * @param name Base identifier for floors. Default "floor".
+   * @param vp Viewport index. Default 0.
+   */
   void add_floors(const std::vector<double> &heights, const Eigen::Vector3d &min,
                   const Eigen::Vector3d &max,
                   const std::string_view &name = "floor", int vp = 0);

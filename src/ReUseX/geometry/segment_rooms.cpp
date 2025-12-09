@@ -5,6 +5,24 @@
 #include <ReUseX/geometry/segment_rooms.hpp>
 
 namespace ReUseX::geometry {
+/**
+ * @brief Implementation of room segmentation using Markov clustering.
+ * 
+ * Segments a point cloud into rooms using Markov clustering based on
+ * visual relations between points. Uses uniform sampling and MCL algorithm.
+ * 
+ * @param cloud Input point cloud.
+ * @param normals Point cloud normals.
+ * @param planes Labeled point cloud with plane IDs.
+ * @param grid_size Uniform sampling grid size.
+ * @param inflation MCL inflation factor (higher = more clusters).
+ * @param expansion MCL expansion factor.
+ * @param pruning_threshold MCL pruning threshold.
+ * @param convergence_threshold MCL convergence threshold.
+ * @param max_iter Maximum MCL iterations.
+ * @param visualize Enable visualization of clustering process.
+ * @return Labeled point cloud with room assignments.
+ */
 auto segment_rooms_impl(CloudConstPtr cloud, CloudNConstPtr normals,
                         CloudLConstPtr planes, const float grid_size,
                         const float inflation, const float expansion,

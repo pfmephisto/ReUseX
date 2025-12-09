@@ -15,9 +15,28 @@
 
 namespace ReUseX::geometry {
 
+/**
+ * @brief Calculate distance from a point to a plane.
+ * @param plane Plane coefficients (nx, ny, nz, d) where n is the normal.
+ * @param point 3D point coordinates.
+ * @return Signed distance from point to plane.
+ */
 auto dist_plane_point(const Eigen::Vector4d &plane,
                       const Eigen::Vector3d &point) -> double;
 
+/**
+ * @brief Create pairs of opposite parallel planes.
+ * 
+ * Finds pairs of planes with opposite normals within a distance threshold.
+ * Creates new planes for unpaired planes.
+ * 
+ * @param planes Plane coefficients.
+ * @param inliers Indices of points belonging to each plane.
+ * @param centroids Plane centroids.
+ * @param threshold Maximum distance threshold for pairing. Default 0.6.
+ * @param new_plane_offset Offset for creating new planes. Default 0.5.
+ * @return Vector of plane index pairs.
+ */
 auto make_pairs(EigenVectorContainer<double, 4> &planes,
                 std::vector<IndicesPtr> &inliers,
                 EigenVectorContainer<double, 3> &centroids,
@@ -25,17 +44,47 @@ auto make_pairs(EigenVectorContainer<double, 4> &planes,
                 const double new_plane_offset = 0.5)
     -> std::vector<std::pair<size_t, size_t>>;
 
+/**
+ * @brief Force planes to be orthogonal to a reference direction.
+ * 
+ * Adjusts plane normals to be either parallel or perpendicular to the up vector.
+ * 
+ * @param planes Plane coefficients to adjust.
+ * @param threshold Angular threshold for orthogonality. Default 0.1.
+ * @param up Reference up vector. Default (0, 0, 1).
+ * @return Adjusted plane coefficients.
+ */
 auto force_orthogonal_planes(EigenVectorContainer<double, 4> &planes,
                              const double threshold = 0.1,
                              const Eigen::Matrix<double, 3, 1> &up =
                                  Eigen::Matrix<double, 3, 1>(0, 0, 1))
     -> EigenVectorContainer<double, 4>;
 
+/**
+ * @brief Count number of inliers for a plane.
+ * @param cloud Input point cloud.
+ * @param plane Plane coefficients.
+ * @param indices Point indices to check.
+ * @param threshold Distance threshold for inliers. Default 0.2.
+ * @return Number of inliers.
+ */
 auto compute_number_of_inliers(CloudConstPtr cloud,
                                Eigen::Vector4d const &plane,
                                IndicesConstPtr indices,
                                const float threshold = 0.2) -> size_t;
 
+/**
+ * @brief Merge similar planes based on angle, distance, and overlap.
+ * 
+ * @param planes_ Input plane coefficients.
+ * @param inliers_ Inliers for each plane.
+ * @param centroids_ Plane centroids.
+ * @param cloud Point cloud.
+ * @param angle_threshold Angular similarity threshold. Default 0.1.
+ * @param distance_threshold Distance threshold for merging. Default 0.5.
+ * @param min_overlap Minimum overlap ratio for merging. Default 0.8.
+ * @return Tuple of (merged planes, merged inliers, merged centroids).
+ */
 auto merge_planes(EigenVectorContainer<double, 4> const &planes_,
                   std::vector<IndicesPtr> const &inliers_,
                   EigenVectorContainer<double, 3> const &centroids_,
@@ -45,6 +94,14 @@ auto merge_planes(EigenVectorContainer<double, 4> const &planes_,
     -> std::tuple<EigenVectorContainer<double, 4>, std::vector<IndicesPtr>,
                   EigenVectorContainer<double, 3>>;
 
+/**
+ * @brief Separate planes into horizontal and vertical based on up vector.
+ * 
+ * @param planes Plane coefficients.
+ * @param up Reference up vector. Default (0, 0, 1).
+ * @param epsilon Angular epsilon for classification. Default 0.1.
+ * @return Tuple of (horizontal indices, vertical indices).
+ */
 auto separate_planes(const EigenVectorContainer<double, 4> &planes,
                      const Eigen::Vector3d &up = Eigen::Vector3d(0, 0, 1),
                      const double epsilon = 0.1)

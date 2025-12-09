@@ -35,6 +35,14 @@
 
 namespace fs = std::filesystem;
 
+/**
+ * @brief Setup CLI options for the room segmentation subcommand.
+ * 
+ * Configures command-line arguments including paths, MCL parameters,
+ * and visualization options for room segmentation.
+ * 
+ * @param app CLI application to add the subcommand to.
+ */
 void setup_subcommand_segment_rooms(CLI::App &app) {
 
   auto opt = std::make_shared<SubcommandSegRoomsOptions>();
@@ -114,6 +122,15 @@ void setup_subcommand_segment_rooms(CLI::App &app) {
   });
 }
 
+/**
+ * @brief Execute room segmentation using Markov clustering.
+ * 
+ * Loads point cloud, plane labels, and plane data, then performs room
+ * segmentation using MCL algorithm based on visual relations.
+ * 
+ * @param opt Options containing file paths and MCL parameters.
+ * @return Exit code (0 on success).
+ */
 int run_subcommand_segment_rooms(SubcommandSegRoomsOptions const &opt) {
 
   spdlog::trace("Load the point cloud from disk");

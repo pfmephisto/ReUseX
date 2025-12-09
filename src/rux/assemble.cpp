@@ -16,6 +16,14 @@
 namespace fs = std::filesystem;
 // using namespace ReUseX;
 
+/**
+ * @brief Setup CLI options for the assemble subcommand.
+ * 
+ * Configures command-line arguments for assembling multiple scans into
+ * a single database.
+ * 
+ * @param app CLI application to add the subcommand to.
+ */
 void setup_subcommand_assemble(CLI::App &app) {
 
   auto opt = std::make_shared<SubcommandAssembleOptions>();
@@ -37,6 +45,15 @@ void setup_subcommand_assemble(CLI::App &app) {
   });
 }
 
+/**
+ * @brief Execute the assemble operation on multiple scan files.
+ * 
+ * Assembles multiple scan files into a single RTABMap-compatible database.
+ * Currently not fully implemented.
+ * 
+ * @param opt Options containing input file paths and output database path.
+ * @return Exit code (RuxError::NOT_IMPLEMENTED currently).
+ */
 int run_subcommand_assemble(SubcommandAssembleOptions const &opt) {
 
   spdlog::warn("The assemble command is not yet implemented.");

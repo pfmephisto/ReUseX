@@ -21,6 +21,14 @@
 #include "ReUseX/io/reusex.hpp"
 namespace fs = std::filesystem;
 
+/**
+ * @brief Setup CLI options for the plane segmentation subcommand.
+ * 
+ * Configures command-line arguments including cloud paths, thresholds,
+ * and visualization options for plane segmentation.
+ * 
+ * @param app CLI application to add the subcommand to.
+ */
 void setup_subcommand_segment_planes(CLI::App &app) {
 
   auto opt = std::make_shared<SubcommandSegPlanesOptions>();
@@ -93,6 +101,15 @@ void setup_subcommand_segment_planes(CLI::App &app) {
   });
 }
 
+/**
+ * @brief Execute plane segmentation on a point cloud.
+ * 
+ * Loads point cloud and normals, performs multi-scale region growing plane
+ * segmentation, and saves the results (labeled planes, centroids, normals).
+ * 
+ * @param opt Options containing file paths and segmentation parameters.
+ * @return Exit code (RuxError::SUCCESS on success).
+ */
 int run_subcommand_segment_planes(SubcommandSegPlanesOptions const &opt) {
 
   spdlog::trace("Load the point cloud from disk");

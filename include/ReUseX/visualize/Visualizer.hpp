@@ -4,8 +4,8 @@
 
 #pragma once
 
-#include "ReUseX/geometry/CellComplex.hpp"
-#include "ReUseX/types.hpp"
+#include <ReUseX/geometry/CellComplex.hpp>
+#include <ReUseX/types.hpp>
 
 #include <pcl/visualization/pcl_visualizer.h>
 

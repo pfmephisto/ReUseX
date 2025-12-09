@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "ReUseX/io/reusex.hpp"
+#include <ReUseX/io/reusex.hpp>
 
 #include <range/v3/action.hpp>
 #include <range/v3/view.hpp>

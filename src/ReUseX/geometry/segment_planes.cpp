@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "ReUseX/geometry/segment_planes.hpp"
+#include <ReUseX/geometry/segment_planes.hpp>
 
 namespace ReUseX::geometry {
 

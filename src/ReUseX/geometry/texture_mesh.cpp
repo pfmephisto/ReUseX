@@ -1,9 +1,9 @@
 // SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "ReUseX/geometry/texture_mesh.hpp"
-#include "ReUseX/types.hpp"
-#include "ReUseX/visualize/pcl.hpp"
+#include <ReUseX/geometry/texture_mesh.hpp>
+#include <ReUseX/types.hpp>
+#include <ReUseX/visualize/pcl.hpp>
 
 #include <Eigen/Dense>
 #include <fmt/format.h>

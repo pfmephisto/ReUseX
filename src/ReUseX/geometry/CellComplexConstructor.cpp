@@ -2,9 +2,9 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "ReUseX/geometry/CellComplex.hpp"
-#include "ReUseX/geometry/utils.hpp"
-#include "ReUseX/types.hpp"
+#include <ReUseX/geometry/CellComplex.hpp>
+#include <ReUseX/geometry/utils.hpp>
+#include <ReUseX/types.hpp>
 
 // #include <CGAL/Arr_linear_traits_2.h>
 #include <CGAL/Arr_non_caching_segment_traits_2.h>

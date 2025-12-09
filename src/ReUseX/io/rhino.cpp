@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "ReUseX/io/rhino.hpp"
+#include <ReUseX/io/rhino.hpp>
 
 #include <range/v3/to_container.hpp>
 #include <range/v3/view/common.hpp>

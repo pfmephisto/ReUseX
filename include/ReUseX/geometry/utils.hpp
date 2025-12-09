@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #pragma once
-#include "ReUseX/types.hpp"
+#include <ReUseX/types.hpp>
 
 #include <Eigen/Core>
 #include <boost/functional/hash.hpp>

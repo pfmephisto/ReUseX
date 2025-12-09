@@ -4,10 +4,10 @@
 //
 
 #pragma once
-#include "ReUseX/types.hpp"
-#include "ReUseX/utils/fmt_formatter.hpp"
-#include "ReUseX/vision/Yolo.hpp"
-#include "spdmon/spdmon.hpp"
+#include <ReUseX/types.hpp>
+#include <ReUseX/utils/fmt_formatter.hpp>
+#include <ReUseX/vision/Yolo.hpp>
+#include <spdmon/spdmon.hpp>
 
 #include <fmt/format.h>
 

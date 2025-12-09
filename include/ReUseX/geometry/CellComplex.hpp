@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #pragma once
-#include "./Registry.hpp"
+#include <ReUseX/geometry/Registry.hpp>
 
 #include <boost/graph/adjacency_list.hpp>
 #include <boost/graph/graph_traits.hpp>
@@ -244,5 +244,5 @@ template <> struct fmt::formatter<ReUseX::geometry::CellComplex> {
 };
 
 // Implementation files
-#include "./CellComplexFaceCoverage.hpp"
-#include "./CellComplexRoomProbabilites.hpp"
+#include <ReUseX/geometry/CellComplexFaceCoverage.hpp>
+#include <ReUseX/geometry/CellComplexRoomProbabilites.hpp>

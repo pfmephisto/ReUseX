@@ -3,9 +3,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #pragma once
-#include "./CellComplex.hpp"
-#include "./utils.hpp"
-#include "spdmon/spdmon.hpp"
+#include <ReUseX/geometry/CellComplex.hpp>
+#include <ReUseX/geometry/utils.hpp>
+#include <spdmon/spdmon.hpp>
 
 #include <CGAL/Boolean_set_operations_2.h>
 #include <CGAL/Exact_predicates_inexact_constructions_kernel.h>

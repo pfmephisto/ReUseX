@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "ReUseX/geometry/segment_rooms.hpp"
+#include <ReUseX/geometry/segment_rooms.hpp>
 
 namespace ReUseX::geometry {
 auto segment_rooms_impl(CloudConstPtr cloud, CloudNConstPtr normals,

@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "ReUseX/vision/utils.hpp"
+#include <ReUseX/vision/utils.hpp>
 
 #include <cmath>
 #include <opencv4/opencv2/core.hpp>

@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #pragma once
-#include "ReUseX/geometry/CellComplex.hpp"
-#include "ReUseX/types.hpp"
+#include <ReUseX/geometry/CellComplex.hpp>
+#include <ReUseX/types.hpp>
 
 #include <Eigen/Dense>
 #include <pcl/common/colors.h>

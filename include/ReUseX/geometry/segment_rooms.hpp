@@ -3,11 +3,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #pragma once
-#include "ReUseX/io/reusex.hpp"
-#include "ReUseX/types.hpp"
-#include "ReUseX/utils/fmt_formatter.hpp"
-#include "pcl/markov_clustering.hpp"
-#include "spdmon/spdmon.hpp"
+#include <ReUseX/io/reusex.hpp>
+#include <ReUseX/types.hpp>
+#include <ReUseX/utils/fmt_formatter.hpp>
+#include <pcl/markov_clustering.hpp>
+#include <spdmon/spdmon.hpp>
 
 // GraphBLAS imports complex.h which defines a macro named 'I' that conflicts
 // with the type in CLI11

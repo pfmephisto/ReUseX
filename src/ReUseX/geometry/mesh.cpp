@@ -2,10 +2,10 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "ReUseX/geometry/mesh.hpp"
-#include "ReUseX/geometry/CellComplex.hpp"
-#include "ReUseX/geometry/Solidifier.hpp"
-#include "ReUseX/geometry/regularization.hpp"
+#include <ReUseX/geometry/mesh.hpp>
+#include <ReUseX/geometry/CellComplex.hpp>
+#include <ReUseX/geometry/Solidifier.hpp>
+#include <ReUseX/geometry/regularization.hpp>
 // #include "ReUseX/geometry/utils.hpp"
 // #include "ReUseX/io/reusex.hpp"
 

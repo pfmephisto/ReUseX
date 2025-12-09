@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #pragma once
-#include "ReUseX/types.hpp"
-#include "ReUseX/visualize/Visualizer.hpp"
+#include <ReUseX/types.hpp>
+#include <ReUseX/visualize/Visualizer.hpp>
 
 #include <pcl/PolygonMesh.h>
 #include <pcl/common/common.h>

@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #pragma once
-#include "./CellComplex.hpp"
+#include <ReUseX/geometry/CellComplex.hpp>
 
 #ifdef CGAL_USE_SCIP
 #include <CGAL/SCIP_mixed_integer_program_traits.h>

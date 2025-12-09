@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "ReUseX/visualize/Visualizer.hpp"
-#include "ReUseX/visualize/pcl.hpp"
+#include <ReUseX/visualize/Visualizer.hpp>
+#include <ReUseX/visualize/pcl.hpp>
 
 #include <pcl/visualization/pcl_visualizer.h>
 #include <spdlog/spdlog.h>

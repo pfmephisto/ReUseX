@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "ReUseX/geometry/utils.hpp"
+#include <ReUseX/geometry/utils.hpp>
 
 namespace ReUseX::geometry {
 auto dist_plane_point(const Eigen::Vector4d &plane,

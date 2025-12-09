@@ -2,11 +2,11 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "ReUseX/vision/annotate.hpp"
-#include "ReUseX/vision/Dataset.hpp"
-#include "ReUseX/vision/utils.hpp"
+#include <ReUseX/vision/annotate.hpp>
+#include <ReUseX/vision/Dataset.hpp>
+#include <ReUseX/vision/utils.hpp>
 
-#include "spdmon/spdmon.hpp"
+#include <spdmon/spdmon.hpp>
 
 #include <torch/script.h>
 #include <torch/torch.h>

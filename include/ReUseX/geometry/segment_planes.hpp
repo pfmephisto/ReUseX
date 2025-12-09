@@ -3,11 +3,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #pragma once
-#include "pcl/planar_region_growing.hpp"
-#include "rux/segment/planes.hpp"
+#include <pcl/planar_region_growing.hpp>
 
-#include "ReUseX/utils/fmt_formatter.hpp"
-#include "spdmon/spdmon.hpp"
+#include <ReUseX/types.hpp>
+#include <ReUseX/utils/fmt_formatter.hpp>
+#include <spdmon/spdmon.hpp>
 
 #include <fmt/format.h>
 
@@ -25,7 +25,7 @@
 #include <boost/parameter/keyword.hpp>
 #include <boost/parameter/name.hpp>
 
-#include "ReUseX/io/reusex.hpp"
+#include <ReUseX/io/reusex.hpp>
 namespace fs = std::filesystem;
 
 namespace parameter = boost::parameter;

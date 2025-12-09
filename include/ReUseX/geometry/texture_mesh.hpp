@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include "ReUseX/types.hpp"
+#include <ReUseX/types.hpp>
 
 #include <pcl/PolygonMesh.h>
 #include <pcl/TextureMesh.h>

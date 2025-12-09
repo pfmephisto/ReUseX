@@ -93,6 +93,29 @@ The documentation will be generated in the `doc/` folder, covering:
 - Class hierarchies and collaboration diagrams
 - Source code browsing
 
+### Running Tests
+
+ReUseX has comprehensive test coverage for both C++ and Python components. See [TESTING.md](TESTING.md) for detailed testing documentation.
+
+Quick start:
+```shell
+# Run all tests
+./run_tests.sh
+
+# Run Python tests only
+pytest python/tests/ -v
+
+# Run C++ tests (after building)
+cmake -B build -DBUILD_TESTS=ON
+cmake --build build
+cd build && ctest --output-on-failure
+```
+
+Test statistics:
+- **45 Python tests** covering utility functions, samplers, and data processing
+- **C++ tests** for math utilities, geometry functions, and type operations
+- All tests passing ✓
+
 ## Usage
 
 ### Command-Line Interface

@@ -6,21 +6,47 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # ReUseX
 
-ReUseX is a tool for processing scan data captured with an iPhone / iPad for the purpose of mapping buildings. Currently the only supported source is the [StrayScanner](https://github.com/strayrobots/scanner) app which can be found in the [App Store](https://apps.apple.com/us/app/stray-scanner/id1557051662). The app captures LiDAR data as png depth images and RGB images as a mp4 video file, as well as as odometry data  in a csv file. Together with confidence mapps stored as png images, these files are used to create a point cloud representation of the scanned environment.
-The point cloud is then used to create a simplified 3d surface modle of the scanned environment, while the images are used to semantically segment the point cloud into individual components, such as walls, windows, doors, etc.
+ReUseX is a comprehensive tool for processing 3D point cloud scans of building interiors, designed to support building reuse and renovation projects. The project processes LiDAR scans to create semantic 3D models with advanced segmentation capabilities for architectural elements.
 
+## Features
 
-## Getting started
+- **Point Cloud Processing**: Import and process 3D point cloud data from RTABMap SLAM databases
+- **Planar Segmentation**: Extract and segment planar surfaces (walls, floors, ceilings) using advanced geometric algorithms
+- **Room Segmentation**: Automatically partition point clouds into individual rooms using graph-based methods (GraphBLAS/LAGraph)
+- **Semantic Segmentation**: Deep learning-based identification of architectural elements using YOLO and SAM2 models
+- **3D Reconstruction**: Create cell complex representations and simplified 3D surface models
+- **Mesh Generation**: Generate textured 3D meshes from segmented point clouds
+- **Multiple I/O Formats**: Support for E57, PCD, OpenNURBS (.3dm), and HDF5 formats
+- **GPU Acceleration**: CUDA-accelerated processing with PyTorch for neural network inference
 
-This project definces its dependencies in a nix flake file, to lauch a development shell first install [nix](https://nixos.org/download.html) and then run:
+## Architecture
+
+The project consists of:
+- **ReUseX Library**: C++ library with core point cloud processing and geometric algorithms
+- **rux CLI**: Command-line interface with subcommands for various operations
+
+## Getting Started
+
+### Prerequisites
+
+- **Nix with Flakes** (recommended): For reproducible builds with all dependencies
+- **CUDA-capable GPU** (optional): For GPU-accelerated deep learning inference
+- **C++20 compatible compiler**: GCC 10+ or Clang 12+
+- **CMake 3.17+**
+
+This project uses Nix flakes for reproducible dependency management. Install [Nix](https://nixos.org/download.html) with flakes enabled for the easiest setup.
+
+### Development Shell
+
+Launch a development environment with all dependencies:
 
 ```shell
 nix develop
 ```
 
+### Build Instructions
 
-
-### Build instructions:
+#### Using Nix (Recommended)
 
 ```shell
 git clone https://github.com/pfmephisto/ReUseX
@@ -28,63 +54,153 @@ cd ReUseX
 nix build
 ```
 
-### Dependencies:
-As of now, the project uses the following dependencies, though an updated list can be found in the `flake.nix` file:
+#### Using CMake
 
-__Core dependencies:__
-- pcl
-- eigen
-- cgal
-- opencv
-- boost
-- tbb
-- mpfr
+```shell
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+```
 
-__Logging dependencies:__
-- fmt
-- spdlog
-- spdmon
+### Building API Documentation
 
-__Solvers dependencies:__
-- g2o
-- embree
-- scip-solver
-- gurobi
+Generate comprehensive API documentation with Doxygen:
 
-__I/O dependencies:__
-- opennurbs
-- hdf5
-- highfive
-- xtensor
-- xtensor-io
+```shell
+# Configure the build with documentation enabled (default)
+cmake -B build -DBUILD_DOCUMENTATION=ON
 
-__Visualization dependencies:__
-- glfw
-- imgui
-- glm
-- libGLU
+# Generate the documentation
+cmake --build build --target doc
 
-__Python dependencies:__
- - pybind11
- - python
+# View the documentation
+xdg-open doc/html/index.html  # Linux
+open doc/html/index.html       # macOS
+```
+
+**Requirements:** Doxygen and optionally Graphviz (for diagrams)
+
+The documentation will be generated in the `doc/` folder, covering:
+- Complete API reference for all C++ classes and functions
+- Module and namespace organization
+- Class hierarchies and collaboration diagrams
+- Source code browsing
 
 ## Usage
-__Am example of how to access the data in the point cloud from Python:__
 
-As long as fields are continuous in memory, `structured_to_unstructured` will provide a view of the data rather than a copy.
+### Command-Line Interface
 
-```python
-from numpy.lib.recfunctions import structured_to_unstructured
+The `rux` executable provides several subcommands for a complete point cloud processing pipeline:
 
-cloud = PointCloud("path_to_file.pcd")
-data = np.asarray(cloud)
+```shell
+# Show version and help
+rux --version
+rux --help
 
-# View of position values
-structured_to_unstructured(data[["x","y","z"]])
+# Verbosity control (use -v, -vv, or -vvv for increasing detail)
+rux -vv <subcommand>
 
-# View of normal values
-structured_to_unstructured(data[["normal_x","normal_y","normal_z"]])
+# Import scan data from various sources
+rux import rtabmap <path>      # Import from RTABMap database
 
-# View of RGB values
-data["rgb"].view("u4").reshape(-1, 1).view("u1")[:, :3]
+# Segment point cloud into components
+rux segment planes <options>   # Detect and segment planar surfaces
+rux segment rooms <options>    # Segment into rooms
+
+# Generate 3D mesh from point cloud
+rux mesh <options>
+
+# Apply textures to mesh
+rux texture <options>
+
+# Export results in various formats
+rux export <options>
+
+# Visualize point clouds and results
+rux view <options>
+
+# Annotate point clouds with semantic information
+rux annotate <options>
+
+# Assemble multiple scans into unified model
+rux assemble <options>
 ```
+
+> **Note:** Python bindings are currently disabled and being refactored. They will be reintroduced in a future release.
+
+## Dependencies
+
+The project relies on an extensive set of libraries (see `flake.nix` for complete list):
+
+**Core Libraries:**
+- PCL (Point Cloud Library)
+- Eigen3 - Linear algebra
+- CGAL - Computational geometry
+- OpenCV - Computer vision
+- Boost, TBB - System utilities
+- Qt6 - GUI components
+
+**Deep Learning:**
+- PyTorch (LibTorch) 2.9.0+ with CUDA support
+- RTABMap - SLAM and 3D mapping
+
+**Optimization:**
+- SCIP solver
+- Embree - Ray tracing
+- GraphBLAS, LAGraph - Graph algorithms
+
+**I/O Formats:**
+- E57Format - Point cloud exchange
+- OpenNURBS - 3D modeling
+- HDF5 - Data storage
+
+**Development Tools:**
+- CMake (3.17+) with C++20 support
+- CLI11 - Command-line parsing
+- spdlog - Fast logging
+- fmt - String formatting
+- range-v3 - Modern C++ ranges
+
+## Pre-trained Models
+
+The project supports various pre-trained PyTorch models for semantic segmentation and feature detection:
+
+- **YOLO11**: Object detection for architectural elements
+  - `yolo11n.pt` - Nano variant (fastest)
+  - `yolo11l.pt` - Large variant (balanced)
+  - `yolo11x.pt` - Extra-large variant (most accurate)
+  - Segmentation variants: `yolo11n-seg.pt`, `yolo11l-seg.pt`
+- **SAM2** (Segment Anything Model 2): Universal image segmentation
+  - `sam2.1_s.pt` - Small variant
+  - `sam2.1_b.pt` - Base variant
+  - `sam2_hiera_large.pt` - Large hierarchical variant
+- **SuperPoint** (`superpoint.pt`): Feature point detection and description
+- **YOLOv8**: Legacy support for older YOLO models
+
+Models should be placed in the project root directory or specified via command-line arguments.
+
+## License
+
+This project is licensed under the GNU General Public License v3.0 or later - see the [LICENSE.md](LICENSE.md) file for details.
+
+## Contributing
+
+Contributions are welcome! This project follows the REUSE specification for license compliance.
+
+## Roadmap
+
+- [ ] Re-enable Python bindings with updated API
+- [ ] Enhanced texture mapping capabilities
+- [ ] Support for additional scan sources beyond RTABMap
+- [ ] Improved visualization tools
+- [ ] BIM model export (IFC format)
+- [ ] Real-time processing pipeline
+
+## Author
+
+**Povl Filip Sonne-Frederiksen**  
+Link Arkitektur  
+Email: pfs@linkarkitektur.dk
+
+## Acknowledgments
+
+This project builds upon numerous open-source libraries and tools from the computer vision, geometry processing, and deep learning communities.

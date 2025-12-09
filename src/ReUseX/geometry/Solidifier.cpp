@@ -51,6 +51,12 @@ public:
   void _c_5();
   void _c_6();
   void _c_7();
+
+  std::pair<std::set<int>, std::set<int>> getWallIds(Cd cit_a, Cd cit_b) const {
+    auto W_a = std::get<CellData>((*_cc)[cit_a].data).wall_ids;
+    auto W_b = std::get<CellData>((*_cc)[cit_b].data).wall_ids;
+    return {W_a, W_b};
+  }
 };
 
 // Solidifier public interface implementation
@@ -177,13 +183,10 @@ void Solidifier::Impl::_setupObjective() {
 
   for (auto fit = _cc->faces_between_cells_begin();
        fit != _cc->faces_between_cells_end(); ++fit) {
-    // For a particular cell pair ca, bc, we define the set W_{\bar{c_a},
-    // c_b} of walls that are contained in cell cb but not in ca
     auto cit_a = _cc->get_a(*fit);
     auto cit_b = _cc->get_b(*fit);
 
-    auto Wa = std::get<CellData>((*_cc)[cit_a].data).wall_ids;
-    auto Wb = std::get<CellData>((*_cc)[cit_b].data).wall_ids;
+    auto [Wa, Wb] = getWallIds(cit_a, cit_b);
 
 #if SolverDebug
     spdlog::trace("Face {} A:{} B:{} Wa: [{}], Wb [{}]",
@@ -195,7 +198,7 @@ void Solidifier::Impl::_setupObjective() {
 
     const double weight = (1 - f_sp[*fit]) * area[*fit];
 
-    // W_{F_b}
+    // W_{F_b}: walls in cb but not in ca
 #if SolverDebug
     spdlog::trace("W_Fb");
 #endif
@@ -208,9 +211,7 @@ void Solidifier::Impl::_setupObjective() {
 #endif
     }
 
-    // Analogously, we define the set W_{c_a, c_b} of walls that are
-    // contained in both ca and cb
-    // W_{F_i}
+    // W_{F_i}: walls in both ca and cb
 #if SolverDebug
     spdlog::trace("W_Fi");
 #endif
@@ -325,8 +326,7 @@ void Solidifier::Impl::_c_4() {
     auto cit_a = _cc->get_a(*fit);
     auto cit_b = _cc->get_b(*fit);
 
-    auto W_a = std::get<CellData>((*_cc)[cit_a].data).wall_ids;
-    auto W_b = std::get<CellData>((*_cc)[cit_b].data).wall_ids;
+    auto [W_a, W_b] = getWallIds(cit_a, cit_b);
 
     Linear_constraint *c4 =
         solver.create_constraint(0, Linear_constraint::infinity(), "c4");
@@ -363,8 +363,7 @@ void Solidifier::Impl::_c_5() {
     auto cit_a = _cc->get_a(*fit);
     auto cit_b = _cc->get_b(*fit);
 
-    auto W_a = std::get<CellData>((*_cc)[cit_a].data).wall_ids;
-    auto W_b = std::get<CellData>((*_cc)[cit_b].data).wall_ids;
+    auto [W_a, W_b] = getWallIds(cit_a, cit_b);
 
     for (auto id : W_a + W_b) {
       Variable *Xcaw = _wall_variables[cit_a][id];
@@ -395,13 +394,11 @@ void Solidifier::Impl::_c_6() {
     auto cit_a = _cc->get_a(*fit);
     auto cit_b = _cc->get_b(*fit);
 
-    auto W_a = std::get<CellData>((*_cc)[cit_a].data).wall_ids;
-    auto W_b = std::get<CellData>((*_cc)[cit_b].data).wall_ids;
+    auto [W_a, W_b] = getWallIds(cit_a, cit_b);
 
     for (auto id : W_a + W_b) {
       Linear_constraint *c6 =
           solver.create_constraint(0, Linear_constraint::infinity(), "c6");
-      // c6->add_coefficient(Xcaw, 1);
 
       Variable *Xcaw = _wall_variables[cit_a][id];
       Variable *Xcbw = _wall_variables[cit_b][id];
@@ -411,9 +408,7 @@ void Solidifier::Impl::_c_6() {
 
       for (auto id2 : W_b - W_a) {
         Variable *Xcbw_ = _wall_variables[cit_b][id2];
-        // Variable *Xcaw_ = _wall_variables[cit_a][id2];
         c6->add_coefficient(Xcbw_, 1);
-        // c6->add_coefficient(Xcaw_, 1);
       }
 
 #if SolverDebug

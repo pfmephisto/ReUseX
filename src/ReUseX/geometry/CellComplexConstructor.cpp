@@ -310,29 +310,26 @@ CellComplex::CellComplex(
   }
 
   // INFO: Assign wall ids to each cell
-  // TODO: Inconsisten use of Plane_3 and Eigen::Vector4d for planes
   spdlog::info("Assigning wall ids to each cell");
+  
+  auto toEigenPlane = [](const Plane_3 &plane) {
+    return Eigen::Vector4d(CGAL::to_double(plane.a()),
+                          CGAL::to_double(plane.b()),
+                          CGAL::to_double(plane.c()),
+                          CGAL::to_double(plane.d()));
+  };
+  
   for (size_t i = 0; i < pairs.size(); ++i) {
     const auto &[id1, id2] = pairs[i];
-    auto plane1 = planes[id1];
-    auto plane2 = planes[id2];
+    auto eigen_plane1 = toEigenPlane(planes[id1]);
+    auto eigen_plane2 = toEigenPlane(planes[id2]);
 
     for (auto cit = this->cells_begin(); cit != this->cells_end(); ++cit) {
       auto p = (*this)[*cit].pos;
-      auto dist1 =
-          dist_plane_point(Eigen::Vector4d(CGAL::to_double(plane1.a()),
-                                           CGAL::to_double(plane1.b()),
-                                           CGAL::to_double(plane1.c()),
-                                           CGAL::to_double(plane1.d())),
-                           p);
+      auto dist1 = dist_plane_point(eigen_plane1, p);
       if (dist1 > 0)
         continue;
-      auto dist2 =
-          dist_plane_point(Eigen::Vector4d(CGAL::to_double(plane2.a()),
-                                           CGAL::to_double(plane2.b()),
-                                           CGAL::to_double(plane2.c()),
-                                           CGAL::to_double(plane2.d())),
-                           p);
+      auto dist2 = dist_plane_point(eigen_plane2, p);
       if (dist2 > 0)
         continue;
 

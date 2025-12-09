@@ -23,6 +23,97 @@
 #include <range/v3/all.hpp>
 namespace ReUseX::vision {
 
+namespace {
+
+struct BoundingBox {
+  int x1, y1, x2, y2;
+  int width() const { return std::max(0, x2 - x1); }
+  int height() const { return std::max(0, y2 - y1); }
+  bool isValid() const { return width() > 0 && height() > 0; }
+  cv::Rect toRect() const { return cv::Rect(x1, y1, width(), height()); }
+};
+
+BoundingBox clipBoundingBox(torch::Tensor box, int imgWidth, int imgHeight) {
+  BoundingBox bbox;
+  bbox.x1 = std::max(0, box[0].item<int>());
+  bbox.y1 = std::max(0, box[1].item<int>());
+  bbox.x2 = std::min(imgWidth, box[2].item<int>());
+  bbox.y2 = std::min(imgHeight, box[3].item<int>());
+  return bbox;
+}
+
+cv::Mat resizeMask(torch::Tensor maskTensor, cv::Size targetSize) {
+  cv::Mat mask(160, 160, CV_32F, maskTensor.cpu().data_ptr<float>());
+  cv::resize(mask, mask, targetSize, 0, 0, cv::INTER_NEAREST);
+  return mask;
+}
+
+torch::Device selectDevice(bool isCuda) {
+  torch::Device device =
+      (isCuda && torch::cuda::is_available()) ? torch::kCUDA : torch::kCPU;
+  if (isCuda && !torch::cuda::is_available())
+    spdlog::warn("CUDA is not available. Using CPU for inference.");
+  spdlog::debug("Using device: {}", device.is_cuda() ? "CUDA" : "CPU");
+  return device;
+}
+
+torch::jit::script::Module loadModel(const std::filesystem::path &modelPath,
+                                      torch::Device device) {
+  auto model = torch::jit::load(modelPath.string(), device);
+  model.eval();
+  model.to(device, torch::kFloat32);
+  return model;
+}
+
+std::pair<torch::Tensor, torch::Tensor>
+processMasks(torch::Tensor keep, torch::Tensor p2) {
+  using torch::indexing::None;
+  using torch::indexing::Slice;
+
+  auto const batch_size = keep.size(0);
+  auto max_num_detections = keep.size(1);
+
+  auto p2_flat = p2.view({batch_size, 32, -1});
+  auto mask_weights = keep.index({Slice(), Slice(), Slice(6, None)});
+
+  auto masks = torch::bmm(mask_weights, p2_flat);
+  masks = masks.view({batch_size, max_num_detections, 160, 160});
+  masks = masks.sigmoid();
+
+  return {masks, keep};
+}
+
+cv::Mat createLabelImage(torch::Tensor keep, torch::Tensor masks, size_t batchIndex,
+                          int imgSize) {
+  using torch::indexing::Slice;
+  using torch::indexing::None;
+
+  cv::Mat labelImg = cv::Mat::zeros(imgSize, imgSize, CV_32S);
+  auto max_num_detections = keep.size(1);
+
+  for (size_t j = 0; j < static_cast<size_t>(max_num_detections); ++j) {
+    auto conf = keep[batchIndex][j][4].item<float>();
+
+    if (conf < 0.5)
+      continue;
+
+    auto id = keep[batchIndex][j][5].item<int>();
+    auto box = keep[batchIndex][j].index({Slice(None, 4)});
+
+    cv::Mat mask = resizeMask(masks[batchIndex][j], cv::Size(imgSize, imgSize));
+    auto bbox = clipBoundingBox(box, labelImg.cols, labelImg.rows);
+
+    if (!bbox.isValid())
+      continue;
+
+    labelImg(bbox.toRect()).setTo(id + 1, mask(bbox.toRect()) > 0.5);
+  }
+
+  return labelImg;
+}
+
+} // anonymous namespace
+
 template <typename T>
 cv::Mat drawPred(cv::Mat const &img_, T output, T labels) {
   using torch::indexing::None;
@@ -77,22 +168,13 @@ cv::Mat drawPred(cv::Mat const &img_, T output, T labels) {
 
     auto box = output[i].index({Slice(None, 4)});
 
-    // Clip boxes to image size
-    int x1 = std::max(0, box[0].template item<int>());
-    int y1 = std::max(0, box[1].template item<int>());
-    int x2 = std::min(img.cols, box[2].template item<int>());
-    int y2 = std::min(img.rows, box[3].template item<int>());
+    auto bbox = clipBoundingBox(box, img.cols, img.rows);
+    if (!bbox.isValid())
+      continue;
 
-    int width = std::max(0, x2 - x1);
-    int height = std::max(0, y2 - y1);
+    cv::Rect rect = bbox.toRect();
 
-    if (width == 0 || height == 0)
-      continue; // skip invalid boxes
-
-    cv::Rect rect(x1, y1, width, height);
-
-    cv::Mat mask(160, 160, CV_32F, labels[i].cpu().template data_ptr<float>());
-    cv::resize(mask, mask, cv::Size(img.cols, img.rows));
+    cv::Mat mask = resizeMask(labels[i], cv::Size(img.cols, img.rows));
     // img(rect).setTo(colors(id), mask(rect) > 0.5);
 
     cv::Mat roi = img(rect);
@@ -114,13 +196,9 @@ cv::Mat drawPred(cv::Mat const &img_, T output, T labels) {
     int baseLine;
     cv::Size textSize =
         cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseLine);
-    y1 = std::max(y1, textSize.height);
+    int y1 = std::max(bbox.y1, textSize.height);
 
-    // cv::rectangle(frame, cv::Point(x1, y1 - int(1.5 * textSize.height)),
-    //               cv::Point(x1 + int(1.5 * textSize.width), y1 + baseLine),
-    //               cv::Scalar(0, 255, 0), cv::FILLED);
-
-    cv::putText(img, label, cv::Point(x1, y1), cv::FONT_HERSHEY_SIMPLEX, 1,
+    cv::putText(img, label, cv::Point(bbox.x1, y1), cv::FONT_HERSHEY_SIMPLEX, 1,
                 colors(id), 2);
   }
   return img;
@@ -150,16 +228,8 @@ auto annotateRTABMap(const std::filesystem::path &dbPath,
 
   torch::manual_seed(1);
 
-  // INFO: Initialize the Yolo model if image segmentation is enabled
-  torch::Device device =
-      (isCuda && torch::cuda::is_available()) ? torch::kCUDA : torch::kCPU;
-  if (isCuda && !torch::cuda::is_available())
-    spdlog::warn("CUDA is not available. Using CPU for inference.");
-  spdlog::debug("Using device: {}", device.is_cuda() ? "CUDA" : "CPU");
-
-  auto model = torch::jit::load(modelPath.string(), device);
-  model.eval();
-  model.to(device, torch::kFloat32);
+  torch::Device device = selectDevice(isCuda);
+  auto model = loadModel(modelPath, device);
 
   auto dataset = ReUseX::vision::Dataset(dbPath);
   auto mapped_dataset = dataset.map(torch::data::transforms::Stack<>());
@@ -178,94 +248,40 @@ auto annotateRTABMap(const std::filesystem::path &dbPath,
 
     for (torch::data::Example<> &batch : *dataloader) {
       torch::Tensor data = batch.data.to(device);
-      torch::Tensor node_ids = batch.target.cpu(); //.to(device);
+      torch::Tensor node_ids = batch.target.cpu();
 
       auto output = model.forward({data});
       auto out_tuple = output.toTuple();
       auto elements = out_tuple->elements();
 
-      auto p1 = elements[0].toTensor().cpu(); // p1 shape: [16, 116, 8400]
-      auto p2 = elements[1].toTensor().cpu(); // p2 shape: [16, 32, 160, 160]
+      auto p1 = elements[0].toTensor().cpu();
+      auto p2 = elements[1].toTensor().cpu();
 
-      // TODO:: NMS and postprocessing
-      using torch::indexing::None;
-      using torch::indexing::Slice;
+      auto keep = non_max_suppression(p1);
 
-      // INFO: Model output details
-      // Payload 1: 4(box x,y,w,h)+80(class weight)+32(mask weights)=116
-      // 8400 boxes per image
-      // Payload 2: 32 mask prototype weights per image
-      // 160x160 mask prototype per image
-      // Mask => (mask weights * mask prototypes) > threshold
+      auto const actual_batch_size = keep.size(0);
+      auto [masks, processed_keep] = processMasks(keep, p2);
 
-      auto keep = non_max_suppression(
-          p1); // [bc, max_num_detections, 6 + 32]
-               // 6 = 4(box x1,y1,x2,y2)+1(conf)+1(class) +32(mask weights)
-
-      auto const batch_size = keep.size(0);
-      auto max_num_detections = keep.size(1);
-
-      auto p2_flat = p2.view({batch_size, 32, -1}); // [bc, 32, 25600]
-      auto mask_weights = // [bs, max_num_detections, 32]
-          keep.index({Slice(), Slice(), Slice(6, None)});
-
-      auto masks = torch::bmm(mask_weights, p2_flat); // [bs,max,160 * 160]
-      masks = masks.view({batch_size, max_num_detections, 160, 160}); // reshape
-      masks = masks.sigmoid(); // [bs, max, 160, 160] binary
-
-      // Create label images
-      std::vector<cv::Mat> labels(batch_size);
-      for (size_t i = 0; i < static_cast<size_t>(batch_size); ++i) {
-
-        labels[i] = cv::Mat::zeros(640, 640, CV_32S);
-
-        for (size_t j = 0; j < static_cast<size_t>(max_num_detections); ++j) {
-
-          auto conf = keep[i][j][4].item<float>(); // [bs, max_num_detections]
-
-          // Skip low confidence detections
-          if (conf < 0.5)
-            continue; // break;
-
-          auto id = keep[i][j][5].item<int>(); // [bs, max_num_detections]
-          auto box =
-              keep[i][j].index({Slice(None, 4)}); // [bs, max_num_detections,4]
-
-          cv::Mat mask(160, 160, CV_32F, masks[i][j].cpu().data_ptr<float>());
-          cv::resize(mask, mask, cv::Size(640, 640), 0, 0, cv::INTER_NEAREST);
-
-          int x1 = std::max(0, box[0].item<int>());
-          int y1 = std::max(0, box[1].item<int>());
-          int x2 = std::min(labels[i].cols, box[2].item<int>());
-          int y2 = std::min(labels[i].rows, box[3].item<int>());
-
-          int width = std::max(0, x2 - x1);
-          int height = std::max(0, y2 - y1);
-
-          if (width == 0 || height == 0)
-            continue; // skip invalid boxes
-
-          cv::Rect rect(x1, y1, width, height);
-          labels[i](rect).setTo(id + 1, mask(rect) > 0.5);
-        }
+      std::vector<cv::Mat> labels(actual_batch_size);
+      for (size_t i = 0; i < static_cast<size_t>(actual_batch_size); ++i) {
+        labels[i] = createLabelImage(processed_keep, masks, i, 640);
       }
 
-      if (false) { // Visualize results
-        for (size_t i = 0; i < static_cast<size_t>(batch_size); ++i) {
+      if (false) {
+        for (size_t i = 0; i < static_cast<size_t>(actual_batch_size); ++i) {
           cv::Mat img =
               cv::Mat(640, 640, CV_32FC3,
                       data[i]
                           .cpu()
-                          .permute({1, 2, 0} /*(C, H, W) -> (H, W, C)*/)
+                          .permute({1, 2, 0})
                           .contiguous()
                           .data_ptr<float>());
           img.convertTo(img, CV_8UC3, 255.0);
-          cv::imshow("Image", drawPred(img, keep[i], masks[i]));
+          cv::imshow("Image", drawPred(img, processed_keep[i], masks[i]));
           cv::waitKey(0);
         }
       }
 
-      // Save output
       dataset.save(labels, node_ids);
 
       ++logger;

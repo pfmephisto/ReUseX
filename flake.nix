@@ -77,73 +77,26 @@
             directory = ./pkgs;
           }); # end of packages
 
-        devShells = {
-          default = pkgs.mkShell {
-            inputsFrom = [self.packages.${system}.default];
-            buildInputs = self.checks.${system}.pre-commit-check.enabledPackages;
-
-            packages = with pkgs; [
-              # Documentation tools
-              help2man # For generating man pages from --help output
-              pandoc
-              sphinx
-
-              # Degugging and analysis tools
-              gdb
-              valgrind
-              kdePackages.kcachegrind
-
-              # Development tools
-              libnotify # Send noctification when build finishes
-              sqlite
-              ffmpeg
-              mcl
-
-              # Qt tools
-              # qt6.full
-              # qtcreator
-
-              # DevOps tools
-              nix-update
-              sqlitebrowser
-              github-copilot-cli
-              doxygen
-            ];
-
-            shellHook =
-              ''
-                echo "Entering dev shell"
-                export VIRTUAL_ENV_PROMPT="ReUseX Environment"
-                # export QMLLS_BUILD_DIRS=${pkgs.qt6.qtdeclarative}/lib/qt-6/qml/:${pkgs.quickshell}/lib/qt-6/qml/
-                # export QML_IMPORT_PATH=$PWD/src
-              ''
-              + self.checks.${system}.pre-commit-check.shellHook;
-          }; # end of default shell
-          python = pkgs.mkShell {
-            inputsFrom = [self.packages.${system}.default];
-            buildInputs = with pkgs; [
-              (pkgs.python3.withPackages (
-                ps:
-                  with ps; [
-                    numpy
-                    ruamel-yaml
-                    opencv-python
-                    # from skvideo import io
-                    pillow
-                    pandas
-                    scipy
-                    ultralytics
-                    sam3
-                  ]
-              ))
-            ];
-
-            shellHook = ''
-              echo "Entering python shell"
-              export VIRTUAL_ENV_PROMPT="ReUseX Python Environment"
-            '';
-          }; # end of python shell
-        }; # end of devShells
+        devShells =
+          {
+            default = import ./devshell.nix {
+              inherit pkgs self system;
+            };
+          }
+          // (
+            let
+              devshellFiles = builtins.readDir ./devshells;
+              validShell = name: devshellFiles.${name} == "regular" && lib.hasSuffix ".nix" name;
+              shellNames = builtins.filter validShell (builtins.attrNames devshellFiles);
+              toShellAttr = name: {
+                name = lib.removeSuffix ".nix" name;
+                value = import (./devshells + "/${name}") {
+                  inherit pkgs self system;
+                };
+              };
+            in
+              builtins.listToAttrs (builtins.map toShellAttr shellNames)
+          ); # end of devShells
       }
     ); # end of outputs
 }

@@ -8,7 +8,7 @@ import numpy as np
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedSeq
 import cv2
-from skvideo import io
+#from skvideo import io
 from PIL import Image
 #from stray_visualize import DEPTH_WIDTH, DEPTH_HEIGHT, _resize_camera_matrix
 import pandas as pd
@@ -20,6 +20,11 @@ OUT_WIDTH = 640
 OUT_HEIGHT = 480
 
 def read_args():
+    """Parse command-line arguments for dataset conversion.
+    
+    Returns:
+        Parsed command-line arguments including dataset path, output path, and confidence threshold.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset', type=str)
     parser.add_argument('--out', type=str)
@@ -27,6 +32,16 @@ def read_args():
     return parser.parse_args()
 
 def _resize_camera_matrix(camera_matrix, scale_x, scale_y):
+    """Resize camera intrinsic matrix by scaling factors.
+    
+    Args:
+        camera_matrix: 3x3 camera intrinsic matrix.
+        scale_x: Horizontal scaling factor.
+        scale_y: Vertical scaling factor.
+        
+    Returns:
+        Scaled 3x3 camera intrinsic matrix.
+    """
     fx = camera_matrix[0, 0]
     fy = camera_matrix[1, 1]
     cx = camera_matrix[0, 2]
@@ -36,22 +51,71 @@ def _resize_camera_matrix(camera_matrix, scale_x, scale_y):
         [0., 0., 1.0]])
 
 def write_frames(flags, rgb_out_dir):
+    """Extract and write RGB frames from video to JPEG files.
+    
+    Args:
+        flags: Command-line arguments containing dataset path.
+        rgb_out_dir: Output directory for RGB frames.
+    """
     rgb_video = os.path.join(flags.dataset, 'rgb.mp4')
-    video = io.vreader(rgb_video)
-    for i, frame in enumerate(video):
-        print(f"Writing rgb frame {i:06}" + " " * 10, end='\r')
-        frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-        frame = cv2.resize(frame, (OUT_WIDTH, OUT_HEIGHT))
-        frame_path = os.path.join(rgb_out_dir, f"{i:06}.jpg")
-        params = [int(cv2.IMWRITE_JPEG_QUALITY), 90]
-        cv2.imwrite(frame_path, frame, params)
+
+    # Open video file using OpenCV
+    cap = cv2.VideoCapture(rgb_video)
+    if not cap.isOpened():
+        raise IOError(f"Cannot open video file: {rgb_video}")
+
+    os.makedirs(rgb_out_dir, exist_ok=True)
+
+    frame_idx = 0
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break  # End of video
+        
+        print(f"Writing rgb frame {frame_idx:06}" + " " * 10, end='\r')
+
+        # Resize and save as JPEG
+        frame_resized = cv2.resize(frame, (OUT_WIDTH, OUT_HEIGHT))
+        frame_path = os.path.join(rgb_out_dir, f"{frame_idx:06}.jpg")
+        params = [cv2.IMWRITE_JPEG_QUALITY, 90]
+        cv2.imwrite(frame_path, frame_resized, params)
+
+        frame_idx += 1
+
+    cap.release()
+    print(f"\nFinished writing {frame_idx} frames to {rgb_out_dir}")
+
+# def write_frames(flags, rgb_out_dir):
+#     rgb_video = os.path.join(flags.dataset, 'rgb.mp4')
+#     video = io.vreader(rgb_video)
+#     for i, frame in enumerate(video):
+#         print(f"Writing rgb frame {i:06}" + " " * 10, end='\r')
+#         frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+#         frame = cv2.resize(frame, (OUT_WIDTH, OUT_HEIGHT))
+#         frame_path = os.path.join(rgb_out_dir, f"{i:06}.jpg")
+#         params = [int(cv2.IMWRITE_JPEG_QUALITY), 90]
+#         cv2.imwrite(frame_path, frame, params)
 
 def resize_depth(depth):
+    """Resize depth image with nearest neighbor interpolation.
+    
+    Args:
+        depth: Input depth image array.
+        
+    Returns:
+        Resized depth image with values below 10 set to 0.
+    """
     out = cv2.resize(depth, (OUT_WIDTH, OUT_HEIGHT), interpolation=cv2.INTER_NEAREST_EXACT)
     out[out < 10] = 0
     return out
 
 def write_depth(flags, depth_out_dir):
+    """Process and write depth frames with confidence filtering.
+    
+    Args:
+        flags: Command-line arguments containing dataset path and confidence threshold.
+        depth_out_dir: Output directory for depth frames.
+    """
     depth_dir_in = os.path.join(flags.dataset, 'depth')
     confidence_dir = os.path.join(flags.dataset, 'confidence')
     files = sorted(os.listdir(depth_dir_in))
@@ -70,6 +134,13 @@ def write_depth(flags, depth_out_dir):
         cv2.imwrite(os.path.join(depth_out_dir, f'{number}.png'), depth)
 
 def write_intrinsics(flags):
+    """Write camera intrinsics to YAML file.
+    
+    Scales the camera intrinsics from original resolution to output resolution.
+    
+    Args:
+        flags: Command-line arguments containing dataset and output paths.
+    """
     yaml = YAML()
     yaml.width = 60
     intrinsics = np.loadtxt(os.path.join(flags.dataset, 'camera_matrix.csv'), delimiter=',')
@@ -93,6 +164,14 @@ def write_intrinsics(flags):
         yaml.dump(data, f)
 
 def write_odometry(flags):
+    """Convert and write odometry data from OpenGL to ROS coordinate frame.
+    
+    Reorganizes odometry from: timestamp frame x y z qx qy qz qw
+    to: timestamp x y z qx qy qz qw frame
+    
+    Args:
+        flags: Command-line arguments containing dataset and output paths.
+    """
     # Reorganize as below from while converting poses from opengl to ROS coordinate frame.
     # From:
     #  timestamp frame x y z qx qy qz qw
@@ -140,6 +219,15 @@ def write_odometry(flags):
     df_out['timestamp'].to_csv(os.path.join(flags.out, 'timestamps.txt'), header=False, index=False, float_format='%.8f')
     
 def write_imu(flags):
+    """Convert IMU data to EuRoC dataset format.
+    
+    Converts from: timestamp(float), a_x, a_y, a_z, alpha_x, alpha_y, alpha_z
+    to: timestamp [ns], w_RS_S_x [rad s^-1], w_RS_S_y [rad s^-1], w_RS_S_z [rad s^-1],
+        a_RS_S_x [m s^-2], a_RS_S_y [m s^-2], a_RS_S_z [m s^-2]
+    
+    Args:
+        flags: Command-line arguments containing dataset and output paths.
+    """
     # Convert imu data to EuRoC dataset format:
     # From:
     #  timestamp(float), a_x, a_y, a_z, alpha_x, alpha_y, alpha_z
@@ -172,6 +260,10 @@ def write_imu(flags):
     
 
 def main():
+    """Main function to convert Stray Scanner dataset to RTABMap format.
+    
+    Processes RGB frames, depth images, camera intrinsics, odometry, and IMU data.
+    """
     flags = read_args()
     rgb_out = os.path.join(flags.out, 'color/')
     depth_out = os.path.join(flags.out, 'depth/')

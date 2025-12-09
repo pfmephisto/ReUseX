@@ -16,7 +16,15 @@ logger = logging.getLogger(__name__)
 
 
 def chunks(lst, n):
-    """Yield successive n-sized chunks from lst."""
+    """Yield successive n-sized chunks from lst.
+    
+    Args:
+        lst: List to be divided into chunks.
+        n: Size of each chunk.
+        
+    Yields:
+        Successive n-sized chunks from the input list.
+    """
     for i in range(0, len(lst), n):
         yield lst[i:i + n]
 
@@ -26,6 +34,12 @@ def chunks(lst, n):
 
 
 def run():
+    """Run the main CLI application for processing ReUseX datasets.
+    
+    This function handles command-line argument parsing and orchestrates various
+    processing steps including dataset parsing, annotation, registration, filtering,
+    merging, clustering, downsampling, region growing, and solidification.
+    """
 
     arg_parser = arg.ArgumentParser(description="Run the CLI")
     arg_parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
@@ -249,6 +263,11 @@ def run():
     
 
 def ml():
+    """Run machine learning inference using SAM model on input data.
+    
+    This function processes input images using the SAM (Segment Anything Model)
+    and saves the results to an HDF5 file containing masks and bounding boxes.
+    """
 
     arg_parser = arg.ArgumentParser(description="Run ML ")
     arg_parser.add_argument("path", type=str, help="Input file")

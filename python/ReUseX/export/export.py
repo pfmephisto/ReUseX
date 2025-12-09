@@ -12,6 +12,15 @@ from numpy.lib.recfunctions import structured_to_unstructured
 
 
 def toPTS(cloud: PointCloud, path: str):
+    """Export point cloud to PTS format for TwinMotion.
+    
+    Converts a ReUseX PointCloud to PTS format with XYZ coordinates,
+    intensity, and RGB color values.
+    
+    Args:
+        cloud: PointCloud to export.
+        path: Output file path for the PTS file.
+    """
     data = np.array(cloud)
 
     xyz = structured_to_unstructured(data[["x","y","z"]])

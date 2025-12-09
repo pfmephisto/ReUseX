@@ -32,6 +32,15 @@ model_name = 'naver/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric'
 # img = exif_transpose(image_1).convert("RGB")
 
 def _resize_pil_image(img, long_edge_size):
+    """Resize PIL image with appropriate interpolation based on size.
+    
+    Args:
+        img: PIL Image to resize.
+        long_edge_size: Target size for the longest edge.
+        
+    Returns:
+        Resized PIL Image.
+    """
     S = max(img.size)
     if S > long_edge_size:
         interp = Image.LANCZOS
@@ -40,7 +49,17 @@ def _resize_pil_image(img, long_edge_size):
     new_size = tuple(int(round(x * long_edge_size / S)) for x in img.size)
     return img.resize(new_size, interp)
 
-def resize(img, size = 256, square_ok = False):
+def resize(img, size=256, square_ok=False):
+    """Resize image to specified size with cropping.
+    
+    Args:
+        img: PIL Image to resize.
+        size: Target size. Defaults to 256.
+        square_ok: Whether square aspect ratio is acceptable. Defaults to False.
+        
+    Returns:
+        Resized and cropped PIL Image.
+    """
     W1, H1 = img.size
     if size == 224:
         # resize short side to 224 (then crop)
@@ -61,6 +80,24 @@ def resize(img, size = 256, square_ok = False):
     return img
 
 def fast_reciprocal_NNs(pts1, pts2, subsample_or_initxy1=8, ret_xy=True, pixel_tol=0, ret_basin=False, device="cuda", **matcher_kw):
+    """Find fast reciprocal nearest neighbors between two point sets.
+    
+    This function performs iterative nearest neighbor search to find reciprocal
+    matches between two sets of points.
+    
+    Args:
+        pts1: First set of points.
+        pts2: Second set of points.
+        subsample_or_initxy1: Subsampling factor or initial xy coordinates. Defaults to 8.
+        ret_xy: Whether to return xy coordinates. Defaults to True.
+        pixel_tol: Pixel tolerance for convergence. Defaults to 0.
+        ret_basin: Whether to return basin information. Defaults to False.
+        device: Device to run computation on. Defaults to "cuda".
+        **matcher_kw: Additional keyword arguments for the matcher.
+        
+    Returns:
+        Tuple of (xy1, xy2) matched coordinates, optionally with basin if ret_basin=True.
+    """
     slice_ = slice(1, None, 1) if len(pts1.shape) > 3 else slice(0, None, 1)
     H1, W1, DIM1 = pts1.shape[slice_]
     H2, W2, DIM2 = pts2.shape[slice_]
@@ -145,11 +182,19 @@ def fast_reciprocal_NNs(pts1, pts2, subsample_or_initxy1=8, ret_xy=True, pixel_t
     return xy1, xy2
 
 def todevice(batch, device, callback=None, non_blocking=False):
-    """Transfer some variables to another device (i.e. GPU, CPU:torch, CPU:numpy).
+    """Transfer variables to another device (GPU, CPU:torch, CPU:numpy).
+    
+    Recursively transfers tensors and nested structures (dicts, lists, tuples)
+    to the specified device.
 
-    batch: list, tuple, dict of tensors or other things
-    device: pytorch device or 'numpy'
-    callback: function that would be called on every sub-elements.
+    Args:
+        batch: Data to transfer (list, tuple, dict of tensors or other types).
+        device: Target PyTorch device or 'numpy'.
+        callback: Optional function called on every sub-element.
+        non_blocking: Whether to use non-blocking transfer. Defaults to False.
+        
+    Returns:
+        Data transferred to the specified device.
     """
     if callback:
         batch = callback(batch)
@@ -173,9 +218,30 @@ def todevice(batch, device, callback=None, non_blocking=False):
 
 
 def to_numpy(x):
+    """Convert data to numpy format.
+    
+    Args:
+        x: Data to convert (tensor, dict, list, tuple, or numpy array).
+        
+    Returns:
+        Data converted to numpy arrays.
+    """
     return todevice(x, "numpy")
 
 def merge_corres(idx1, idx2, shape1=None, shape2=None, ret_xy=True, ret_index=False):
+    """Merge and deduplicate correspondence indices.
+    
+    Args:
+        idx1: First set of indices.
+        idx2: Second set of indices.
+        shape1: Shape of first image for coordinate conversion.
+        shape2: Shape of second image for coordinate conversion.
+        ret_xy: Whether to return xy coordinates. Defaults to True.
+        ret_index: Whether to return original indices. Defaults to False.
+        
+    Returns:
+        Tuple of (xy1, xy2) or (idx1, idx2), optionally with indices if ret_index=True.
+    """
     assert idx1.dtype == idx2.dtype == np.int32
 
     # unique and sort along idx1
@@ -198,6 +264,21 @@ def merge_corres(idx1, idx2, shape1=None, shape2=None, ret_xy=True, ret_index=Fa
 
 @torch.no_grad()
 def bruteforce_reciprocal_nns(A, B, device="cuda", block_size=None, dist="l2"):
+    """Compute brute-force reciprocal nearest neighbors.
+    
+    Finds reciprocal nearest neighbors between two point sets using
+    brute-force distance computation, optionally in blocks.
+    
+    Args:
+        A: First point set.
+        B: Second point set.
+        device: Device to run computation on. Defaults to "cuda".
+        block_size: Block size for chunked computation. If None, processes all at once.
+        dist: Distance metric ("l2" or "dot"). Defaults to "l2".
+        
+    Returns:
+        Tuple of (nn_A, nn_B) nearest neighbor indices.
+    """
     if isinstance(A, np.ndarray):
         A = torch.from_numpy(A).to(device)
     if isinstance(B, np.ndarray):
@@ -255,11 +336,34 @@ def bruteforce_reciprocal_nns(A, B, device="cuda", block_size=None, dist="l2"):
     return nn_A, nn_B
 
 class cdistMatcher:
+    """Distance-based matcher using cdist for nearest neighbor queries.
+    
+    Attributes:
+        db_pts: Database points to match against.
+        device: Device for computation.
+    """
+    
     def __init__(self, db_pts, device="cuda"):
+        """Initialize the cdist matcher.
+        
+        Args:
+            db_pts: Database points.
+            device: Device for computation. Defaults to "cuda".
+        """
         self.db_pts = db_pts.to(device)
         self.device = device
 
     def query(self, queries, k=1, **kw):
+        """Query nearest neighbors for given points.
+        
+        Args:
+            queries: Query points.
+            k: Number of nearest neighbors. Must be 1.
+            **kw: Additional keyword arguments for bruteforce_reciprocal_nns.
+            
+        Returns:
+            Tuple of (distances, indices) where distances is None and indices are nearest neighbors.
+        """
         assert k == 1
         if queries.numel() == 0:
             return None, []
@@ -270,7 +374,16 @@ class cdistMatcher:
 
 ImgNorm = Compose([ToTensor(), Normalize(mean=(0.5, 0.5, 0.5),std=(0.5, 0.5, 0.5))])
 
-def create_pose_graph(dataset: Dataset, model: Module)-> g2o.SparseOptimizer:
+def create_pose_graph(dataset: Dataset, model: Module) -> g2o.SparseOptimizer:
+    """Create a pose graph from a dataset using a vision model.
+    
+    Args:
+        dataset: ReUseX dataset containing images.
+        model: Vision model for feature extraction and matching.
+        
+    Returns:
+        g2o SparseOptimizer containing the pose graph.
+    """
     optimizer = g2o.SparseOptimizer()
 
     # Not planing on running the solver just creating the graph
@@ -325,7 +438,17 @@ def create_pose_graph(dataset: Dataset, model: Module)-> g2o.SparseOptimizer:
     return optimizer
 
 
-def find_matches(view1:dict, view2:dict, model):
+def find_matches(view1: dict, view2: dict, model):
+    """Find feature matches between two views.
+    
+    Args:
+        view1: First view dictionary containing image data.
+        view2: Second view dictionary containing image data.
+        model: Vision model for feature extraction and matching.
+        
+    Returns:
+        Tuple of (valid_matches, matches_im0, matches_im1, view1, view2).
+    """
 
     # Fid match
     pred1, pred2 = model(view1, view2)

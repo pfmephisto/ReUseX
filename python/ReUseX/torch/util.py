@@ -12,11 +12,30 @@ from  numpy.typing import NDArray
 
 logger = logging.getLogger(__name__)
 
-def _collate(batch: List) -> NDArray: 
+def _collate(batch: List) -> NDArray:
+    """Collate a batch of items into a numpy array.
+    
+    Args:
+        batch: List of items to collate.
+        
+    Returns:
+        Numpy array containing the batch data.
+    """
     return np.array(batch)
 
 
-def numpy_collate_fn(batch) -> Union[Dict,Tuple,NDArray,DataItem]:
+def numpy_collate_fn(batch) -> Union[Dict, Tuple, NDArray, DataItem]:
+    """Custom collate function for numpy arrays and DataItems.
+    
+    This function handles batching of various data types including DataItem,
+    tuples, dictionaries, and numpy arrays.
+    
+    Args:
+        batch: Batch of data to collate.
+        
+    Returns:
+        Collated data in appropriate format (Dict, Tuple, NDArray, or DataItem).
+    """
     elem = batch[0]
     #logger.debug("Element of type: %s", type(elem))
     #logger.debug("batch len() => %i", len(batch))

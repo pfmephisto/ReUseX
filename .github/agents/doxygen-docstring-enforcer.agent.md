@@ -47,6 +47,6 @@ int add(int a, int b);
 void process(std::istream& in);
 ```
 
-If the function purpose is unclear, write a placeholder summary with `FIXME: Document function purpose.`
+If the function purpose is unclear, write a placeholder summary with `FIXME: Document function purpose.`.
 
 **Domains:** C++, Doxygen, code review, documentation improvement.

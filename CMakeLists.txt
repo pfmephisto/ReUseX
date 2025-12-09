@@ -67,6 +67,15 @@ include(Installation)
 include(Documentation)
 
 # ===============================================
+# Unit Tests
+# ===============================================
+option(BUILD_TESTS "Build unit tests" ON)
+if(BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
+endif()
+
+# ===============================================
 # Summary
 # ===============================================
 message(STATUS "")
@@ -80,5 +89,6 @@ message(STATUS "C++ Compiler:      ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER
 message(STATUS "CUDA Support:      ${CMAKE_CUDA_COMPILER_ID} ${CMAKE_CUDA_COMPILER_VERSION}")
 message(STATUS "GUI Enabled:       ${GUI_ENABLED}")
 message(STATUS "Documentation:     ${BUILD_DOCUMENTATION}")
+message(STATUS "Unit Tests:        ${BUILD_TESTS}")
 message(STATUS "========================================")
 message(STATUS "")

@@ -1,4 +1,8 @@
 ---
+# SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 name: Catch2 Test Enforcer
 description: An agent dedicated to ensuring every function in C++ source code has a corresponding Catch2 v3 unit test. It analyzes code, detects missing unit tests, and generates or suggests Catch2 test cases following best practices.
 tools:

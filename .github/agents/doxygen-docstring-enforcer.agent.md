@@ -1,4 +1,8 @@
 ---
+# SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 name: Doxygen Docstring Enforcer
 description: An agent that ensures every function and method in C++ (and Python, where relevant) files contains a well-formatted Doxygen-style docstring. It detects missing documentation and inserts or suggests Doxygen-compliant comments using best practices.
 tools:

@@ -68,7 +68,7 @@
 
         packages =
           {
-            default = pkgs.ReUseX; # ReUseX
+            default = pkgs.callPackage ./default.nix {}; # ReUseX
             rtabmap = pkgs.rtabmap;
           }
           # All custom packages
@@ -79,7 +79,7 @@
 
         devShells =
           {
-            default = import ./devshell.nix {
+            default = import ./shell.nix {
               inherit pkgs self system;
             };
           }

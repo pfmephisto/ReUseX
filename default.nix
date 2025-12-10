@@ -45,6 +45,7 @@
   mkl,
   qt6Packages,
   protobuf,
+  libpng,
   ...
 }: let
   effectiveStdenv =
@@ -56,7 +57,7 @@ in
     pname = "ReUseX";
     version = "0.0.1";
 
-    src = ../../.;
+    src = ./.;
 
     # Native dependencies
     # programs and libraries used at build-time
@@ -80,6 +81,7 @@ in
         spdlog
         #spdmon
         range-v3
+        libpng
 
         pcl
         embree

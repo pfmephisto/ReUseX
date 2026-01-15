@@ -28,6 +28,8 @@ pkgs.mkShell {
     ffmpeg
     mcl
 
+    openusd
+
     #qt6.full
     #qtcreator
 

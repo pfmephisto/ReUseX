@@ -27,15 +27,16 @@ void setup_subcommand_texture(CLI::App &app) {
 
   sub->add_option("mesh", opt->mesh_path_in, "Path to the input mesh file.")
       ->required()
-      ->check(CLI::ExistingFile)
+      //->check(CLI::ExistingFile)
       ->default_val(opt->mesh_path_in);
 
   sub->add_option("db", opt->db_path_in, "Path to the RTAB-Map database file.")
       ->required()
-      ->check(CLI::ExistingFile)
+      //->check(CLI::ExistingFile)
       ->default_val(opt->db_path_in);
 
-  sub->add_option("output", opt->mesh_path_out, "Path to the output textured mesh file.")
+  sub->add_option("output", opt->mesh_path_out,
+                  "Path to the output textured mesh file.")
       ->default_val(opt->mesh_path_out);
 
   sub->callback([opt]() {

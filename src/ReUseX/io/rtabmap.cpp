@@ -15,6 +15,7 @@
 #include <spdlog/spdlog.h>
 #include <spdlog/stopwatch.h>
 
+#include <pcl/common/colors.h>
 #include <pcl/common/io.h>
 #include <pcl/features/normal_3d_omp.h>
 #include <pcl/filters/extract_indices.h>
@@ -57,6 +58,37 @@ inline void merge_clouds(pcl::PointCloud<pcl::Label>::Ptr lhs,
         + : pcl::PointCloud<pcl::Label>::Ptr : merge_clouds(omp_out, omp_in))  \
     initializer(omp_priv = pcl::PointCloud<pcl::Label>::Ptr(                   \
                         new pcl::PointCloud<pcl::Label>()))
+
+auto make_debug_images(cv::Mat const &labelImage,
+                       pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr cloud)
+    -> std::tuple<cv::Mat, cv::Mat> {
+
+  // Create Image form ordered point cloud
+  const auto cloud_size = cv::Size(cloud->width, cloud->height);
+  cv::Mat cloudImage(cloud_size, CV_8UC3);
+
+  for (size_t i = 0; i < cloud->size(); ++i) {
+    int r = cloud->at(i).r;
+    int g = cloud->at(i).g;
+    int b = cloud->at(i).b;
+    cloudImage.at<cv::Vec3b>(i) = cv::Vec3b(b, g, r);
+  }
+
+  cv::Mat colorImage(labelImage.size(), CV_8UC3);
+
+  // cv::normalize(labelImage, colorImage, 0, 255, cv::NORM_MINMAX);
+  // colorImage.convertTo(colorImage, CV_8UC1);
+  // cv::applyColorMap(colorImage, colorImage, cv::COLORMAP_JET);
+
+  // Create color map for labels
+  for (size_t i = 0; i < labelImage.total(); ++i) {
+    auto label = labelImage.at<int>(i);
+    auto color = pcl::GlasbeyLUT::at(label % pcl::GlasbeyLUT::size());
+    colorImage.at<cv::Vec3b>(i) = cv::Vec3b(color.b, color.g, color.r);
+  }
+
+  return std::make_tuple(colorImage, cloudImage);
+}
 
 namespace ReUseX::io {
 auto import_rtabmap_database(const std::filesystem::path &database_path,
@@ -197,8 +229,13 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
                           img.rows, img.channels());
 
             spdlog::trace("Convert label image to CV_32S");
-            cv::Mat img = cv::imdecode(buffer, cv::IMREAD_UNCHANGED);
             img.convertTo(img, CV_32S);
+
+            //// DEBUG: Show the images
+            // auto [img1, img2] = make_debug_images(img, tmp);
+            // cv::imshow("Image", img1);
+            // cv::imshow("Label Image", img2);
+            // cv::waitKey(0);
 
             spdlog::trace("Resizing label image to cloud size");
             cv::resize(img, labledImage, cloud_size, 0, 0, cv::INTER_NEAREST);
@@ -352,7 +389,8 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
   // if (poses.size() &&
   //     graph::exportPoses(trajectory_path_out, 0, poses, links)) {
   //   // const std::string & filePath,
-  //   // int format, // 0=Raw, 1=RGBD-SLAM motion capture (10=without change of
+  //   // int format, // 0=Raw, 1=RGBD-SLAM motion capture (10=without change
+  //   of
   //   // coordinate frame, 11=10+ID), 2=KITTI, 3=TORO, 4=g2o
   //   // const std::map<int, Transform> & poses
   //   // const std::multimap<int, Link> & constraints required for formats 3

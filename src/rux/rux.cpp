@@ -2,19 +2,17 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "rux/annotate.hpp"
-#include "rux/assemble.hpp"
-#include "rux/export.hpp"
-#include "rux/import.hpp"
-#include "rux/segment.hpp"
-#include "rux/texture.hpp"
+#include <rux/annotate.hpp>
+#include <rux/assemble.hpp>
+#include <rux/export.hpp>
+#include <rux/import.hpp>
+#include <rux/mesh.hpp>
+#include <rux/project.hpp>
+#include <rux/segment.hpp>
+#include <rux/texture.hpp>
+#include <rux/view.hpp>
 
-#ifdef REUSEX_HAS_VISUALIZATION
-#include "rux/mesh.hpp"
-#include "rux/view.hpp"
-#endif
-
-#include "ReUseX/core/version.hpp"
+#include <ReUseX/core/version.hpp>
 
 #include <CLI/CLI.hpp>
 #include <spdlog/sinks/stdout_color_sinks.h>
@@ -69,11 +67,10 @@ int main(int argc, char **argv) {
   setup_subcommand_segment(app);
 
   setup_subcommand_texture(app);
+  setup_subcommand_project(app);
 
-#ifdef REUSEX_HAS_VISUALIZATION
   setup_subcommand_view(app);
   setup_subcommand_mesh(app);
-#endif
 
   app.require_subcommand(/* min */ 1, /* max */ 2);
 

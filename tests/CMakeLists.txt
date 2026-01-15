@@ -29,6 +29,7 @@ target_link_libraries(reusex_tests
     PRIVATE 
         ${PROJECT_NAME}
         Catch2::Catch2WithMain
+        fmt::fmt
 )
 
 # Include ReUseX headers

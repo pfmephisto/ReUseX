@@ -2,10 +2,13 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include <ReUseX/vision/annotate.hpp>
 #include <ReUseX/vision/Dataset.hpp>
+#include <ReUseX/vision/annotate.hpp>
 #include <ReUseX/vision/utils.hpp>
 
+#include <fmt/core.h>
+#include <fmt/format-inl.h>
+#include <fmt/ranges.h>
 #include <spdmon/spdmon.hpp>
 
 #include <torch/script.h>
@@ -85,7 +88,7 @@ torch::Device selectDevice(bool isCuda) {
  * @return Loaded model in evaluation mode.
  */
 torch::jit::script::Module loadModel(const std::filesystem::path &modelPath,
-                                      torch::Device device) {
+                                     torch::Device device) {
   auto model = torch::jit::load(modelPath.string(), device);
   model.eval();
   model.to(device, torch::kFloat32);
@@ -98,8 +101,8 @@ torch::jit::script::Module loadModel(const std::filesystem::path &modelPath,
  * @param p2 Proto masks from model.
  * @return Pair of (processed masks, keep tensor).
  */
-std::pair<torch::Tensor, torch::Tensor>
-processMasks(torch::Tensor keep, torch::Tensor p2) {
+std::pair<torch::Tensor, torch::Tensor> processMasks(torch::Tensor keep,
+                                                     torch::Tensor p2) {
   using torch::indexing::None;
   using torch::indexing::Slice;
 
@@ -118,20 +121,20 @@ processMasks(torch::Tensor keep, torch::Tensor p2) {
 
 /**
  * @brief Create label image from detection masks.
- * 
+ *
  * Generates a label image where each pixel is assigned the class ID
  * of the detected object it belongs to.
- * 
+ *
  * @param keep Filtered detection tensor.
  * @param masks Processed mask tensors.
  * @param batchIndex Index of image in batch.
  * @param imgSize Size of output label image.
  * @return Label image with class IDs.
  */
-cv::Mat createLabelImage(torch::Tensor keep, torch::Tensor masks, size_t batchIndex,
-                          int imgSize) {
-  using torch::indexing::Slice;
+cv::Mat createLabelImage(torch::Tensor keep, torch::Tensor masks,
+                         size_t batchIndex, int imgSize) {
   using torch::indexing::None;
+  using torch::indexing::Slice;
 
   cv::Mat labelImg = cv::Mat::zeros(imgSize, imgSize, CV_32S);
   auto max_num_detections = keep.size(1);
@@ -296,6 +299,14 @@ auto annotateRTABMap(const std::filesystem::path &dbPath,
       torch::Tensor node_ids = batch.target.cpu();
 
       auto output = model.forward({data});
+
+      if (output.isTuple() == false) {
+        spdlog::error("Model output is not a tuple as expected.");
+        spdlog::info("Have you used the correct model? This script expects the "
+                     "yolo segmentation variant.");
+        return -1;
+      }
+
       auto out_tuple = output.toTuple();
       auto elements = out_tuple->elements();
 
@@ -314,13 +325,9 @@ auto annotateRTABMap(const std::filesystem::path &dbPath,
 
       if (false) {
         for (size_t i = 0; i < static_cast<size_t>(actual_batch_size); ++i) {
-          cv::Mat img =
-              cv::Mat(640, 640, CV_32FC3,
-                      data[i]
-                          .cpu()
-                          .permute({1, 2, 0})
-                          .contiguous()
-                          .data_ptr<float>());
+          cv::Mat img = cv::Mat(
+              640, 640, CV_32FC3,
+              data[i].cpu().permute({1, 2, 0}).contiguous().data_ptr<float>());
           img.convertTo(img, CV_8UC3, 255.0);
           cv::imshow("Image", drawPred(img, processed_keep[i], masks[i]));
           cv::waitKey(0);

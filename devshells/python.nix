@@ -23,6 +23,8 @@ pkgs.mkShell {
           scipy
           ultralytics
           sam3
+          notebook
+          ipywidgets
         ]
     ))
   ];

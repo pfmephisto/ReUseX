@@ -60,9 +60,9 @@
             check-shebang-scripts-are-executable.enable = true;
             check-merge-conflicts.enable = true;
             alejandra.enable = true;
-            reuse = {
-              enable = true;
-            };
+            # reuse = {
+            #   enable = true;
+            # };
           };
         };
 

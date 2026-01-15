@@ -42,7 +42,7 @@
   cli11,
   #libtorch-bin,
   libtorch,
-  mkl,
+  oneDNN,
   qt6Packages,
   protobuf,
   libpng,
@@ -106,11 +106,10 @@ in
 
         #libtorch-bin
         libtorch
+        oneDNN
         protobuf # should be in libtorch?
 
         catch2_3
-
-        mkl
       ]
       ++ (
         if cudaSupport
@@ -127,6 +126,7 @@ in
     meta = with lib; {
       description = "ReUseX: A tool for processing lidar scans with the aim to facilitate reuse in the construction industry";
       license = licenses.gpl3Plus;
+      mainProgram = "rux";
       maintainers = with maintainers; [];
     };
   }

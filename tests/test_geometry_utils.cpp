@@ -204,7 +204,7 @@ TEST_CASE("compute_polygon_normal - degenerate polygon: collinear vertices",
   // Should throw because the normal has zero magnitude
   REQUIRE_THROWS_AS(geometry::compute_polygon_normal(poly, cloud),
                     std::runtime_error);
-
+}
 
 TEST_CASE("Distance from point to plane", "[geometry][dist_plane_point]") {
     

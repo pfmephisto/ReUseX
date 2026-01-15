@@ -99,20 +99,17 @@
       "decord"
     ];
   };
-
-  regex = python3Packages.regex.overridePythonAttrs (old: rec {
-    version = "2025.11.3";
-    src = fetchFromGitHub {
-      owner = "mrabarnett";
-      repo = "mrab-regex";
-      tag = "2025.11.3";
-      hash = "sha256-KEn+8DoAAq2OBqnl7vluqn1UPBpIfmO1v4wxKUZrcyA=";
-    };
-
-    checkPhase = '''';
-
-    pythonImportsCheck = [];
-  });
+  #regex = python3Packages.regex.overridePythonAttrs (old: rec {
+  #  version = "2025.11.3";
+  #  src = fetchFromGitHub {
+  #    owner = "mrabarnett";
+  #    repo = "mrab-regex";
+  #    tag = "2025.11.3";
+  #    hash = "sha256-KEn+8DoAAq2OBqnl7vluqn1UPBpIfmO1v4wxKUZrcyA=";
+  #  };
+  #  checkPhase = '''';
+  #  pythonImportsCheck = [];
+  #});
 in
   python3Packages.buildPythonPackage rec {
     pname = "sam3";

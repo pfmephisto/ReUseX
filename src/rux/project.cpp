@@ -80,8 +80,31 @@ int run_subcommand_project(SubcommandProjectOptions const &opt) {
   // }
 
   CloudLPtr labels = ReUseX::vision::project(opt.database_path_in, cloud);
+  // pcl::io::save(opt.labels_path_out.string(), *labels);
 
-  pcl::io::save(opt.labels_path_out.string(), *labels);
+  // TODO: Remove the following temporary code tha merges labels and cloud.
+  pcl::PointCloud<pcl::PointXYZRGBL>::Ptr labeled_cloud(
+      new pcl::PointCloud<pcl::PointXYZRGBL>);
+
+  labeled_cloud->width = cloud->width;
+  labeled_cloud->height = cloud->height;
+  labeled_cloud->is_dense = cloud->is_dense;
+  labeled_cloud->points.resize(cloud->points.size());
+
+#pragma omp parallel for
+  for (size_t i = 0; i < cloud->points.size(); ++i) {
+    pcl::PointXYZRGBL &pt = labeled_cloud->points[i];
+    const PointT &src_pt = cloud->points[i];
+    pt.x = src_pt.x;
+    pt.y = src_pt.y;
+    pt.z = src_pt.z;
+    pt.r = src_pt.r;
+    pt.g = src_pt.g;
+    pt.b = src_pt.b;
+    pt.label = labels->points[i].label;
+  }
+
+  pcl::io::save(opt.labels_path_out.string(), *labeled_cloud);
 
   return RuxError::SUCCESS;
 }

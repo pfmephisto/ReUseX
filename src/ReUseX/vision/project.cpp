@@ -49,11 +49,6 @@ namespace ReUseX::vision {
 
 namespace {
 
-struct CameraIntrinsics {
-  double fx{0.0}, fy{0.0}, cx{0.0}, cy{0.0};
-  int width{0}, height{0};
-};
-
 inline rtabmap::CameraModel scaledCameraModel(const rtabmap::CameraModel &cm,
                                               const cv::Size &targetSize) {
   const double scaleX =
@@ -152,103 +147,6 @@ auto getLabeledImage(sqlite3_stmt *stmt, int id) -> cv::Mat {
   return labledImage;
 }
 
-Eigen::Matrix3d getintrinsicmatrix(const rtabmap::CameraModel &cm) {
-  Eigen::Matrix3d K = Eigen::Matrix3d::Identity();
-  cv::cv2eigen(cm.K(), K);
-  return K;
-}
-
-inline cv::Mat buildZBufferFromCloud(const CloudConstPtr &cloud,
-                                     const pcl::Indices &indices,
-                                     const rtabmap::CameraModel &cm,
-                                     const rtabmap::Transform &pose) {
-
-  const double INF = std::numeric_limits<double>::infinity();
-  cv::Mat zbuffer(cm.imageSize(), CV_64F, cv::Scalar(INF));
-
-  // Eigen::Matrix4d rtab_T_pcl = Eigen::Matrix4d::Identity();
-  // rtab_T_pcl.topLeftCorner<4, 3>() << 1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1, 0;
-  // const Eigen::Matrix4d pcl_T_rtab = rtab_T_pcl.inverse();
-
-  // const Eigen::Matrix4d world_T_base = pose.inverse().toEigen4d();
-  // const Eigen::Matrix4d base_T_cam = cm.localTransform().toEigen4d();
-
-  // const Eigen::Matrix4d world_T_cam = plc_T_rtab * world_T_base * base_T_cam;
-
-  Eigen::Matrix4d map_T_base = pose.toEigen4d(); // map/world → base
-  Eigen::Matrix4d base_T_cam = cm.localTransform().toEigen4d(); // base → camera
-  Eigen::Matrix4d rtab_T_pcl;
-  rtab_T_pcl << 1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1;
-
-  Eigen::Matrix4d map_T_pclCamera = map_T_base * base_T_cam * rtab_T_pcl;
-
-  const Eigen::Matrix3d K = getintrinsicmatrix(cm);
-
-  // const Eigen::Matrix4d pcl_T_cam = base_T_cam * pcl_T_rtab;
-
-  // auto world_T_cam = cm.localTransform().toEigen3f();
-  // base_T_cam(3, 3) = 1.0; // ensure bottom-right is 1.0
-
-  for (const auto &idx : indices) {
-
-    // Point in world frame
-    Eigen::Vector4d p;
-    p.head<3>() = cloud->points[idx].getVector3fMap().cast<double>();
-    p[3] = 1.0;
-
-    // Transform to PCL camera frame
-    Eigen::Vector4d pc = map_T_pclCamera.inverse() * p;
-
-    // Skip points behind camera
-    if (pc[2] <= 0.0)
-      continue;
-
-    // Project to image
-    Eigen::Vector3d uv = K * pc.head<3>();
-    uv /= uv[2];
-
-    int px = static_cast<int>(std::round(uv[0]));
-    int py = static_cast<int>(std::round(uv[1]));
-
-    if (px < 0 || py < 0 || px >= cm.imageSize().width ||
-        py >= cm.imageSize().height)
-      continue;
-
-    double &cur = zbuffer.at<double>(py, px);
-    if (pc[2] < cur)
-      cur = pc[2]; // keep closest
-
-    // // Get point in world coordinates
-    // Eigen::Vector4d p = Eigen::Vector4d::Identity();
-    // p.head<3>() = cloud->points[idx].getVector3fMap().cast<double>();
-    // p[3] = 1.0;
-
-    // // Apply world pose
-    // p = world_T_cam * p;
-
-    // // Project to image plane
-    // p.head<3>() = K * p.head<3>();
-    // const double dist = p[2];
-    // p /= p[2]; // normalize by depth
-
-    // const int px = static_cast<int>(std::round(p[0]));
-    // const int py = static_cast<int>(std::round(p[1]));
-
-    // // Check image bounds
-    // if (px < 0 || py < 0 || px >= cm.imageSize().width ||
-    //     py >= cm.imageSize().height) {
-    //   continue; // out of image bounds
-    // }
-
-    // const double cur = zbuffer.at<double>(py, px);
-
-    // if (dist < cur)
-    //   zbuffer.at<double>(py, px) = dist; // keep closest point
-  };
-
-  return zbuffer;
-}
-
 inline void
 add_camera(std::shared_ptr<pcl::visualization::PCLVisualizer> viewer,
            const rtabmap::CameraModel &cm, const rtabmap::Transform &pose) {
@@ -297,6 +195,29 @@ add_camera(std::shared_ptr<pcl::visualization::PCLVisualizer> viewer,
   viewer->addLine(p5, p4, fmt::format("{}_line6", "camera"));
   viewer->addLine(p4, p3, fmt::format("{}_line7", "camera"));
   viewer->addLine(p3, p2, fmt::format("{}_line8", "camera"));
+}
+
+cv::Mat colorizeLabels(const cv::Mat &labels) {
+  cv::Mat coloredLabels(labels.size(), CV_8UC3);
+
+#pragma omp parallel for shared(coloredLabels, labels)
+  for (int i = 0; i < labels.rows; ++i) {
+    for (int j = 0; j < labels.cols; ++j) {
+      int label = labels.at<int>(i, j);
+      auto color = pcl::GlasbeyLUT::at(label % pcl::GlasbeyLUT::size());
+      coloredLabels.at<cv::Vec3b>(i, j) = cv::Vec3b(color.b, color.g, color.r);
+    }
+  }
+
+  return coloredLabels;
+}
+
+cv::Mat normalizeDepthImage(const cv::Mat &depthImage) {
+  cv::Mat normalizedDepth = depthImage.clone();
+  cv::normalize(depthImage, normalizedDepth, 0.0, 1.0, cv::NORM_MINMAX);
+  normalizedDepth = normalizedDepth * 255.0;
+  normalizedDepth.convertTo(normalizedDepth, CV_8UC1);
+  return normalizedDepth;
 }
 
 } // namespace
@@ -418,33 +339,48 @@ auto project(const std::filesystem::path &dbPath, CloudConstPtr cloud)
       SensorData data = node.sensorData();
       data.uncompressData();
 
+      std::filesystem::path tmpPath = "./debth_debug";
+      if (!std::filesystem::exists(tmpPath))
+        std::filesystem::create_directory(tmpPath);
+
+      // cv::imwrite(tmpPath / fmt::format("img_node_{}.png", id),
+      //             data.imageRaw());
+
+      // cv::imwrite(tmpPath / fmt::format("depth_node_{}.png", id),
+      //             /*normalizeDepthImage(*/
+      //             data.depthOrRightRaw());
+
       // --- Fetch label image
       cv::Mat labeledImage = getLabeledImage(stmt, id); // CV_32S
+      // cv::imwrite(tmpPath / fmt::format("labeled_img_{}.png", id),
+      //             colorizeLabels(labeledImage));
 
-      rtabmap::CameraModel cm = data.cameraModels().front();
+      rtabmap::CameraModel cm = data.cameraModels().back();
 
       // cm = scaledCameraModel(cm, labeledImage.size());
       cm = scaledCameraModel(cm, cm.imageSize() / 16);
 
-      auto cam_T_world = (pose * rtabmapCam_T_pclCam).inverse();
-      auto world_T_cam = pose.inverse() * cm.localTransform().inverse();
+      auto t_local = pose.inverse();
+      auto t_cam = cm.localTransform();
 
       // Frustum culling setup
-      pcl::FrustumCulling<Cloud::PointType> fc;
-      fc.setInputCloud(cloud);
-      fc.setCameraPose(
-          (pose * cm.localTransform().inverse() * rtabmapCam_T_pclCam)
-              .toEigen4f());
-      fc.setNearPlaneDistance(0.05f);
-      fc.setFarPlaneDistance(50.0f); // wide enough to include valid points
-      auto [fovYdeg, fovXdeg] = fovsFromCameraModel(cm);
-      fc.setVerticalFOV(static_cast<float>(fovYdeg));
-      fc.setHorizontalFOV(static_cast<float>(fovXdeg));
+      // pcl::FrustumCulling<Cloud::PointType> fc;
+      // fc.setInputCloud(cloud);
+      // fc.setCameraPose(
+      //    (pose * cm.localTransform().inverse() * rtabmapCam_T_pclCam)
+      //        .toEigen4f());
+      // fc.setNearPlaneDistance(0.05f);
+      // fc.setFarPlaneDistance(50.0f); // wide enough to include valid points
+      // auto [fovYdeg, fovXdeg] = fovsFromCameraModel(cm);
+      // fc.setVerticalFOV(static_cast<float>(fovYdeg));
+      // fc.setHorizontalFOV(static_cast<float>(fovXdeg));
 
       // add_camera(viewer, cm, pose);
 
       pcl::Indices indices;
-      fc.filter(indices);
+      // fc.filter(indices);
+      indices.resize(cloud->points.size());
+      std::iota(indices.begin(), indices.end(), 0);
 
       // INFO: Visualize frustum culled points
       //{
@@ -466,24 +402,22 @@ auto project(const std::filesystem::path &dbPath, CloudConstPtr cloud)
           new pcl::PointCloud<pcl::PointXYZ>);
       pcl::copyPointCloud(*cloud, *cloud_lf);
       cloud_lf = rtabmap::util3d::transformPointCloud(
-          cloud_lf, pose.inverse()); // Mover cloud to link frame
+          cloud_lf, t_local); // Mover cloud to link frame
 
       // --- Build Z-buffer from frustum points and fill holes
       cv::Mat zbuffer = rtabmap::util3d::projectCloudToCamera(
-          cm.imageSize() /*labeledImage.size()*/, cm.K(), cloud_lf,
-          cm.localTransform());
-      // cv::Mat zbuffer = buildZBufferFromCloud(cloud, indices, cm, pose);
+          cm.imageSize() /*labeledImage.size()*/, cm.K_raw(), cloud_lf, t_cam);
+
       spdlog::trace("Filling Z-buffer holes for node {}", id);
       // rtabmap::util2d::fillDepthHoles(zbuffer, 1, 0.50f);
       // rtabmap::util2d::fillRegisteredDepthHoles(zbuffer, true, false, false);
-
       rtabmap::util3d::fillProjectedCloudHoles(zbuffer, true, true);
 
       cv::resize(zbuffer, zbuffer, labeledImage.size());
 
-      cv::Mat zbufferDisplay = zbuffer.clone();
-      cv::normalize(zbufferDisplay, zbufferDisplay, 0.0, 1.0, cv::NORM_MINMAX);
-      // cv::imshow("Z-Buffer", zbufferDisplay);
+      // cv::Mat zbufferDisplay = zbuffer.clone();
+      // cv::normalize(zbufferDisplay, zbufferDisplay, 0.0, 1.0,
+      // cv::NORM_MINMAX); cv::imshow("Z-Buffer", zbufferDisplay);
 
       // cv::Mat labeledDisplay = cv::Mat(labeledImage.size(), CV_8UC3);
       // for (size_t i = 0; i < labeledImage.total(); ++i) {
@@ -502,33 +436,32 @@ auto project(const std::filesystem::path &dbPath, CloudConstPtr cloud)
       //   std::this_thread::sleep_for(std::chrono::milliseconds(100));
       // }
 
-      // std::filesystem::path tmpPath = "./debth_debug";
-      // if (!std::filesystem::exists(tmpPath)) {
-      //   std::filesystem::create_directory(tmpPath);
-      // }
       // cv::imwrite(tmpPath / fmt::format("zbuffer_node_{}.png", id),
-      //             zbufferDisplay * 255.0);
+      //             normalizeDepthImage(zbuffer) /* zbufferDisplay * 255.0*/);
+
+      cv::Mat temp(labeledImage.size(), CV_8UC3);
+      temp.setTo(cv::Vec3b(0, 0, 0));
 
       cm = scaledCameraModel(cm, labeledImage.size());
       {
         spdlog::trace("Assigning labels for node {}", id);
         // Assign labels to the points in the point cloud
-        auto t = cm.localTransform().inverse();
         auto fx = cm.fx();
         auto fy = cm.fy();
         auto cx = cm.cx();
         auto cy = cm.cy();
         auto h = cm.imageHeight();
         auto w = cm.imageWidth();
-#pragma omp parallel for shared(labels, cloud, indices, labeledImage, zbuffer) \
-    firstprivate(t, fx, fy, cx, cy, w, h)
+#pragma omp parallel for shared(labels, cloud, indices, labeledImage, zbuffer, \
+                                    temp)                                      \
+    firstprivate(t_cam, fx, fy, cx, cy, w, h, tmpPath)
         for (int j = 0; j < static_cast<int>(indices.size()); ++j) {
           auto i = indices[j];
 
-          const auto &pt = cloud_lf->points[i];
-
-          auto pt_cam = rtabmap::util3d::transformPoint(pt, t);
-          if (pt_cam.z <= 0.0f)
+          auto pt_cam = rtabmap::util3d::transformPoint(cloud_lf->points[i],
+                                                        t_cam.inverse());
+          if (pt_cam.z <= 0.0f ||
+              pt_cam.z > 7.0f) // TODO: parameterize max depth
             continue;
 
           auto inv_z = 1.0 / static_cast<double>(pt_cam.z);
@@ -547,12 +480,17 @@ auto project(const std::filesystem::path &dbPath, CloudConstPtr cloud)
             continue;
 
           labels->points[i].label = labeledImage.at<int>(py, px);
+
+          temp.at<cv::Vec3b>(py, px) = cv::Vec3b(
+              cloud->points[i].b, cloud->points[i].g, cloud->points[i].r);
         }
-      }
+      } // end assign labels
 
       ++(*logger);
+      // cv::imwrite(tmpPath / fmt::format("temp_{}.png", id), temp);
     }
   }
+
   spdlog::info("Projection completed in {:.3f}s", timer);
   sqlite3_finalize(stmt);
 

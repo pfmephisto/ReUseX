@@ -38,6 +38,8 @@ stdenv.mkDerivation rec {
       --replace "doc" ""
   '';
 
+  NIX_CFLAGS_COMPILE = ["-std=gnu89"];
+
   nativeBuildInputs = [
     autoreconfHook
   ];

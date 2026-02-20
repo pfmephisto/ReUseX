@@ -10,11 +10,14 @@
   fetchFromGitHub,
   ffmpeg-full,
   ffmpeg_4,
+  ffmpeg_6,
+  ffmpeg_4-full,
   cudaSupport ? false,
   cudatoolkit,
   stdenv,
   cmake,
   fetchurl,
+  gcc14Stdenv,
   ninja,
   pkg-config,
   #setuptools,
@@ -34,7 +37,8 @@
   };
 
   bpe_simple_vocab_16e6 = fetchurl {
-    url = "https://github.com/facebookresearch/sam3/raw/refs/heads/main/assets/bpe_simple_vocab_16e6.txt.gz";
+    #url = "https://github.com/facebookresearch/sam3/raw/refs/heads/main/assets/bpe_simple_vocab_16e6.txt.gz";
+    url = "https://github.com/openai/CLIP/raw/refs/heads/main/clip/bpe_simple_vocab_16e6.txt.gz";
     hash = "sha256-kkaRrCiOVECSNhFWUq1KolD0ggPeUKnkcipuzUjWgEo=";
   };
 
@@ -46,7 +50,7 @@
     hash = hashes.${version};
   };
 
-  decord_cpp = stdenv.mkDerivation rec {
+  decord_cpp = gcc14Stdenv.mkDerivation rec {
     inherit src version;
     pname = "decord-cpp";
 
@@ -54,18 +58,20 @@
       cmake
     ];
 
-    build-system = with python3Packages; [
-      setuptools
-    ];
+    #build-system = with python3Packages; [
+    #  setuptools
+    #];
 
     cmakeFlags = [
-      (lib.cmakeBool "USECUDA" false) # cudaSupport)
+      (lib.cmakeBool "USECUDA" cudaSupport)
     ];
 
-    buildInputs = [
-      ffmpeg_4
-      #python3Packages.setuptools
-    ]; # ++ lib.optional cudaSupport [ python3Packages.cudatoolkit ];
+    buildInputs =
+      [
+        ffmpeg_4
+        #python3Packages.setuptools
+      ]
+      ++ lib.optional cudaSupport [python3Packages.cudatoolkit];
   };
 
   decord = python3Packages.buildPythonPackage rec {

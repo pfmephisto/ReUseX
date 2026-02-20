@@ -13,9 +13,13 @@
 # Note: CONFIGURE_DEPENDS tells CMake to recheck the glob at build time
 file(GLOB_RECURSE REUSEX_SOURCES CONFIGURE_DEPENDS
      "${CMAKE_CURRENT_SOURCE_DIR}/src/ReUseX/**/*.cpp")
+file(GLOB_RECURSE REUSEX_CUDA_SOURCES CONFIGURE_DEPENDS
+     "${CMAKE_CURRENT_SOURCE_DIR}/src/ReUseX/**/*.cu")
+list(APPEND REUSEX_SOURCES ${REUSEX_CUDA_SOURCES})
 
 file(GLOB_RECURSE REUSEX_HEADERS CONFIGURE_DEPENDS
      "${CMAKE_CURRENT_SOURCE_DIR}/include/ReUseX/**/*.hpp"
+     "${CMAKE_CURRENT_SOURCE_DIR}/include/ReUseX/**/*.cuh"
      "${CMAKE_CURRENT_SOURCE_DIR}/include/pcl/**/*.hpp"
      "${CMAKE_CURRENT_SOURCE_DIR}/include/spdmon/**/*.hpp")
 
@@ -103,6 +107,7 @@ target_link_libraries(${PROJECT_NAME}
         
         # Ranges
         range-v3::range-v3
+	trtsam3::trtsam_core
 )
 
 # -----------------------------------------------

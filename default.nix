@@ -46,7 +46,7 @@
   qt6Packages,
   protobuf,
   libpng,
-  ...
+  trtsam3,
 }: let
   effectiveStdenv =
     if cudaSupport
@@ -103,6 +103,8 @@ in
 
         opencv
         cli11
+
+        trtsam3
 
         #libtorch-bin
         libtorch

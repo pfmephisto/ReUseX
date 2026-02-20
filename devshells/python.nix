@@ -22,7 +22,13 @@ pkgs.mkShell {
           pandas
           scipy
           ultralytics
+          clip
+          onnx
+          timm
+          tensorrt
+          onnx2torch
           sam3
+
           notebook
           ipywidgets
         ]

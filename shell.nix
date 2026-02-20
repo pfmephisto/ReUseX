@@ -36,6 +36,7 @@ pkgs.mkShell {
     # DevOps tools
     nix-update
     sqlitebrowser
+    hugin
     github-copilot-cli
     doxygen
     tree
@@ -45,12 +46,6 @@ pkgs.mkShell {
     ''
       echo "Entering dev shell"
       export VIRTUAL_ENV_PROMPT="ReUseX Environment"
-      #export QT_STYLE_OVERRIDE="fusion"
-      #export REPO_ROOT=$(pwd)
-      #export CUDA_PATH=${pkgs.cudaPackages.cudatoolkit}
-      # Required for qmlls to find the correct type declarations
-      export QMLLS_BUILD_DIRS=${pkgs.qt6.qtdeclarative}/lib/qt-6/qml/:${pkgs.quickshell}/lib/qt-6/qml/
-      export QML_IMPORT_PATH=$PWD/src
       # ./tmux_session
     ''
     + self.checks.${system}.pre-commit-check.shellHook;

@@ -2,13 +2,13 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include <ReUseX/vision/Dataset.hpp>
 #include <ReUseX/vision/annotate.hpp>
+#include <ReUseX/vision/libtorch/Dataset.hpp>
 #include <ReUseX/vision/utils.hpp>
 
 #include <fmt/core.h>
-#include <fmt/format-inl.h>
 #include <fmt/ranges.h>
+#include <fmt/std.h>
 #include <spdmon/spdmon.hpp>
 
 #include <torch/script.h>
@@ -279,7 +279,7 @@ auto annotateRTABMap(const std::filesystem::path &dbPath,
   torch::Device device = selectDevice(isCuda);
   auto model = loadModel(modelPath, device);
 
-  auto dataset = ReUseX::vision::Dataset(dbPath);
+  auto dataset = ReUseX::vision::libtorch::TorchDataset(dbPath);
   auto mapped_dataset = dataset.map(torch::data::transforms::Stack<>());
 
   const size_t batch_size = 16;

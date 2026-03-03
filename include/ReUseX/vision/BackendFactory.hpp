@@ -17,6 +17,10 @@ enum class Backend {
 
 class BackendFactory {
     public:
+  /* Detects the appropriate backend based on the model path.
+   * @pram model_path: The file or directory path of the model.
+   * @return The detected backend type. Currently hardcoded to TensorRT.
+   */
   static Backend detect_backend(const std::filesystem::path &model_path) {
     // TODO:: Update this to select backend based on model path
     spdlog::warn("Backend detection is currently hardcoded to TensorRT. Please "
@@ -24,6 +28,12 @@ class BackendFactory {
     return Backend::TensorRT;
   }
 
+  /* Creates an instance of the specified backend type.
+   * @param type: The backend type to create.
+   * @return A unique pointer to the created backend instance.
+   * @throws std::runtime_error if the backend type is not implemented or
+   * unsupported.
+   */
   static std::unique_ptr<IMLBackend> create(Backend type) {
     switch (type) {
     case Backend::OpenCV:

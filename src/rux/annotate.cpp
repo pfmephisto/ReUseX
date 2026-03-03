@@ -54,7 +54,8 @@ void setup_subcommand_annotate(CLI::App &app) {
       ->required()
       ->check(CLI::ExistingFile);
 
-  sub->add_option("-n, --net", opt->net_path, "Path to the YOLOv8 model file (ONNX or PT format)")
+  sub->add_option("-n, --net", opt->net_path,
+                  "Path to the YOLOv8 model file (ONNX or PT format)")
       //->check(CLI::ExistingFile)
       ->default_val(opt->net_path);
 
@@ -68,6 +69,7 @@ void setup_subcommand_annotate(CLI::App &app) {
 }
 
 int run_subcommand_annotate(SubcommandAnnotateOptions const &opt) {
-  return ReUseX::vision::annotateRTABMap(opt.database_path_in, opt.net_path,
-                                         opt.isCuda);
+  // return ReUseX::vision::annotateRTABMap(opt.database_path_in, opt.net_path,
+  //                                        opt.isCuda);
+  return ReUseX::vision::annotate(opt.database_path_in, opt.net_path);
 }

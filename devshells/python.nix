@@ -27,6 +27,7 @@ pkgs.mkShell {
           timm
           tensorrt
           onnx2torch
+          transformers
           sam3
 
           notebook

@@ -108,6 +108,8 @@ target_link_libraries(${PROJECT_NAME}
         # Ranges
         range-v3::range-v3
 	trtsam3::trtsam_core
+
+	tokenizers_cpp::tokenizers_cpp
 )
 
 # -----------------------------------------------

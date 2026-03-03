@@ -26,8 +26,8 @@
 #include <range/v3/all.hpp>
 namespace ReUseX::vision {
 
-auto annotate_NEW(const std::filesystem::path &dbPath,
-                  const std::filesystem::path &modelPath) -> int {
+auto annotate(const std::filesystem::path &dbPath,
+              const std::filesystem::path &modelPath) -> int {
   spdlog::trace("calling annotateRT-RTABMap");
 
   // Create backend, model, and dataset
@@ -39,10 +39,10 @@ auto annotate_NEW(const std::filesystem::path &dbPath,
 
   // Create dataloader with multi-threaded prefetching
   // Parameters: dataset, batch_size, shuffle, num_workers, prefetch_batches
-  constexpr size_t batch_size = 4;
+  constexpr size_t batch_size = 1; // 4;
   constexpr bool shuffle = false;
-  constexpr size_t num_workers = 4;
-  constexpr size_t prefetch_batches = 2;
+  constexpr size_t num_workers = 1;      // 4;
+  constexpr size_t prefetch_batches = 1; // 2;
 
   Dataloader loader(*dataset, batch_size, shuffle, num_workers,
                     prefetch_batches);
@@ -55,8 +55,8 @@ auto annotate_NEW(const std::filesystem::path &dbPath,
   for (auto [logger, batch] : spdmon::LogProgress(loader)) {
     spdlog::trace("Processing batch {}/{} with {} items", ++batch_count,
                   loader.size(), batch.size());
-    //  auto results = model->forward(batch);
-    //  dataset->save(results, batch);
+    auto results = model->forward(batch);
+    dataset->save(results);
   }
 
   spdlog::info("Annotation completed");

@@ -1,62 +1,91 @@
 #pragma once
 #include <ReUseX/vision/IData.hpp>
 #include <ReUseX/vision/IModel.hpp>
+
 #include <ReUseX/vision/tensor_rt/TensorRTData.hpp>
+#include <ReUseX/vision/tensor_rt/common/object.hpp>
+#include <ReUseX/vision/tensor_rt/infer/sam3type.hpp>
 // #include <ReUseX/vision/tensor_rt/common/device.hpp>
 #include <ReUseX/vision/tensor_rt/common/memory.hpp>
 #include <ReUseX/vision/tensor_rt/common/norm.hpp>
 #include <ReUseX/vision/tensor_rt/common/tensorrt.hpp>
-// #include <ReUseX/vision/tensor_rt/infer/infer.hpp>
 #include <unordered_map>
 #include <vector>
 
+#include <tokenizers_cpp.h>
+
 namespace ReUseX::vision::tensor_rt {
+
+/* TensorRTSam3 is an implementation of the SAM3 model using TensorRT for
+efficient inference. It supports batch processing of images and prompts, with
+careful memory management to optimize performance on GPU. The class handles the
+loading of TensorRT engines for the vision encoder, text encoder, geometry
+encoder, and decoder, and provides a forward method to process input data and
+produce segmentation results. The implementation includes preprocessing of
+images, gathering of features from the vision encoder, and post-processing of
+the decoder outputs to generate final masks and bounding boxes. The design
+allows for flexibility in handling different types of prompts (text and
+geometry) and is optimized for use in real-time applications where latency is a
+concern. */
 class TensorRTSam3 : public IModel {
+    private:
+  using InferResult = object::DetectionBoxArray;
+  using InferResultArray = std::vector<object::DetectionBoxArray>;
+
     public:
+  /* Constructor for TensorRTSam3 without geometry encoder. Initializes the
+   * model with the specified paths for the vision encoder, text encoder, and
+   * decoder, and sets the GPU ID for inference.
+   * @param vision_encoder_path: Path to the TensorRT engine file for the vision
+   * encoder.
+   * @param text_encoder_path: Path to the TensorRT engine file for the text
+   * encoder.
+   * @param decoder_path: Path to the TensorRT engine file for the decoder.
+   * @param gpu_id: ID of the GPU to use for inference.
+   */
   TensorRTSam3(const std::string vision_encoder_path,
                const std::string text_encoder_path,
                const std::string geometry_encoder_path,
-               const std::string decoder_path, int gpu_id);
+               const std::string decoder_path, const std::string tokenizer_path,
+               int gpu_id);
 
+  /* Destructor for TensorRTSam3. Cleans up any resources used by the model.
+   * @param model_path: Path to the model files (not used in this
+   * implementation).
+   * @return A unique pointer to an instance of TensorRTSam3.
+   */
   static std::unique_ptr<TensorRTSam3>
   create(const std::filesystem::path &model_path);
 
-  std::vector<IData> forward(const std::vector<IData> &inputs) const override;
+  /* Forward method for TensorRTSam3. Takes a span of input pairs and processes
+   * them through the model to produce output pairs. This method handles the
+   * entire inference pipeline, including preprocessing, feature extraction,
+   * decoding, and post-processing to generate the final segmentation results.
+   * @param input: A span of input pairs containing the data to be processed.
+   * @return A vector of output pairs containing the results of the inference.
+   */
+  std::vector<IDataset::Pair>
+  forward(const std::span<IDataset::Pair> &input) override;
 
     protected:
-  /*
-  static std::shared_ptr<Sam3Infer>
-  create_instance(const std::string &vision_encoder_path,
-                  const std::string &text_encoder_path,
-                  const std::string &decoder_path, int gpu_id = 0);
+  // virtual ~TensorRTSam3() = default;
 
-  static std::shared_ptr<Sam3Infer>
-  create_instance(const std::string &vision_encoder_path,
-                  const std::string &text_encoder_path,
-                  const std::string &geometry_encoder_path,
-                  const std::string &decoder_path, int gpu_id = 0);
-
-  Sam3Infer(const std::string &vision_encoder_path,
-            const std::string &text_encoder_path,
-            const std::string &geometry_encoder_path,
-            const std::string &decoder_path, int gpu_id = 0);
-
-  virtual ~Sam3Infer() = default;
-
-  */
+  /* Loads the TensorRT engines for the vision encoder, text encoder, geometry
+   * encoder, and decoder. This method is responsible for initializing the
+   * engines based on the provided model paths and ensuring that they are ready
+   * for inference. It returns true if all engines are loaded successfully, and
+   * false otherwise.
+   * @return A boolean indicating whether the engines were loaded successfully.
+   */
   bool load_engines();
 
-  /*
-  void
-  setup_text_inputs(const std::string &input_text,
-                    const std::array<int64_t, 32> &input_ids,
-                    const std::array<int64_t, 32> &attention_mask) override;
+  static std::string load_bytes_from_file(const std::string &file_path);
 
   bool setup_geometry_input(
       const cv::Mat &image, const std::string &label,
-      const std::vector<std::pair<std::string, std::array<float, 4>>> &boxes)
-      override;
+      const std::vector<std::pair<std::string, std::array<float, 4>>> &boxes);
 
+  /*
   // Core implementation
   virtual InferResultArray forwards(const std::vector<Sam3Input> &inputs,
                                     bool return_mask = false,
@@ -68,45 +97,46 @@ class TensorRTSam3 : public IModel {
     */
 
     private:
-  /*
   // Define internal structure for flattening Prompt
   struct PromptMeta {
     int image_idx;    // Which image this Prompt belongs to
-    int original_idx; // The index of this Prompt in the original image
-  vector const Sam3PromptUnit *ptr; // Pointer to the original Prompt data
+    int original_idx; // The index of this Prompt in the original image vector
+    const Sam3PromptUnit *ptr; // Pointer to the original Prompt data
   };
 
   // Internal processing function
-  void preprocess(const Sam3Input &input, int ibatch, void *stream);
+  void preprocess(const TensorRTData &input, int ibatch, void *stream);
+
   bool encode_image(int batch_size, void *stream);
 
-  // Modification: Gather features, collect data from Vision features
-  according
+  // Modification: Gather features, collect data from Vision features according
   // to the image index corresponding to the current Prompt Batch
-  void gather_vision_features(const std::vector<PromptMeta>
-  &batch_prompts, int batch_size, void *stream);
+  void gather_vision_features(const std::vector<PromptMeta> &batch_prompts,
+                              int batch_size, void *stream);
 
   // Modified encoding function, based on the current batch size
-  bool encode_text(const std::vector<PromptMeta> &batch_prompts, int
-  batch_size, void *stream); bool encode_boxes(const
-  std::vector<PromptMeta> &batch_prompts, int batch_size, int max_boxes,
-  void *stream); bool decode(int batch_size, int prompt_len, void
-  *stream);
+  bool encode_text(const std::vector<PromptMeta> &batch_prompts, int batch_size,
+                   void *stream);
+  bool encode_boxes(const std::vector<PromptMeta> &batch_prompts,
+                    int batch_size, int max_boxes, void *stream);
+  bool decode(int batch_size, int prompt_len, void *stream);
 
-  */
+  // Post-processing
+  void postprocess(InferResult &image_result, int batch_idx, int image_idx,
+                   const std::string &label, float confidence_threshold,
+                   bool return_mask, void *stream);
 
-  //// Post-processing
-  // void postprocess(InferResult &image_result, int batch_idx, int image_idx,
-  //                  const std::string &label, float confidence_threshold,
-  //                  bool return_mask, void *stream);
-
-  // Memory initialization (called only once)
+  /* Allocates memory for all the necessary buffers used during inference. This
+   * method is designed to be called only once during the initialization phase
+   * of the model, and it sets up the memory structures based on the maximum
+   * batch sizes and input dimensions defined in the class. It ensures that all
+   * buffers are properly allocated and ready for use during the forward pass,
+   * optimizing memory usage and performance on the GPU.
+   */
   void allocate_memory_once();
 
-  /*
   void set_binding_dim(std::shared_ptr<TensorRT::Engine> &engine,
                        int binding_index, const std::vector<int> &dims);
-  */
 
     private:
   // Configuration
@@ -145,6 +175,7 @@ class TensorRTSam3 : public IModel {
   std::shared_ptr<TensorRT::Engine> decoder_trt_;
   std::shared_ptr<TensorRT::Engine> geometry_encoder_trt_;
 
+  // TODO:
   // Data cache
   std::unordered_map<
       std::string, std::pair<std::array<int64_t, 32>, std::array<int64_t, 32>>>
@@ -216,5 +247,8 @@ class TensorRTSam3 : public IModel {
   tensor::Memory<uint8_t> mask_buffer_;
   tensor::Memory<float>
       box_affine_matrices_; // Matrix for each Box during Mask recovery
+
+  // Tokenizer
+  std::unique_ptr<tokenizers::Tokenizer> tokenizer_;
 };
 } // namespace ReUseX::vision::tensor_rt

@@ -12,6 +12,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include <spdlog/spdlog.h>
+
 constexpr int COCO_NUM_KEYPOINTS = 17;
 constexpr int HAND_NUM_KEYPOINTS = 21;
 
@@ -361,6 +363,10 @@ int calculateDynamicFontSize(
 void osd(cv::Mat &img,
          const ::ReUseX::vision::tensor_rt::object::DetectionBoxArray &boxes,
          bool osd_rect, double font_scale_ratio) {
+
+  spdlog::debug("OSD called with {} boxes, osd_rect={}, font_scale_ratio={}",
+                boxes.size(), osd_rect, font_scale_ratio);
+
   int height = img.rows, width = img.cols;
   const int PAD_X = 2; // Consistent with LayoutSolver
   const int PAD_Y = 2;

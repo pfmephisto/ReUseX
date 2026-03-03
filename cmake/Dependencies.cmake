@@ -27,6 +27,7 @@ find_package(range-v3 CONFIG REQUIRED)
 # -----------------------------------------------
 find_package(Torch 2.9.0 CONFIG REQUIRED)
 find_package(trtsam3 CONFIG REQUIRED)
+find_package(tokenizers_cpp CONFIG REQUIRED)
 
 # -----------------------------------------------
 # Computer Vision & Point Cloud Processing

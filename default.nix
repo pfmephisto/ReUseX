@@ -47,6 +47,7 @@
   protobuf,
   libpng,
   trtsam3,
+  tokenizers-cpp,
 }: let
   effectiveStdenv =
     if cudaSupport
@@ -112,6 +113,7 @@ in
         protobuf # should be in libtorch?
 
         catch2_3
+        tokenizers-cpp
       ]
       ++ (
         if cudaSupport

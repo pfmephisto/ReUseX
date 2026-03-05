@@ -347,8 +347,10 @@ SKIP_FUNCTION_MACROS   = YES
 #---------------------------------------------------------------------------
 # Configuration options related to external references
 #---------------------------------------------------------------------------
-TAGFILES               = 
-GENERATE_TAGFILE       = 
+TAGFILES               = /path/to/pcl.tag=http://pointclouds.org/documentation/ \
+                         /path/to/opencv.tag=https://docs.opencv.org/4.x/ \
+                         /path/to/eigen.tag=https://eigen.tuxfamily.org/dox/
+GENERATE_TAGFILE       = ReUseX.tag
 ALLEXTERNALS           = NO
 EXTERNAL_GROUPS        = YES
 EXTERNAL_PAGES         = YES

@@ -4,7 +4,7 @@
 #pragma once
 #include <ReUseX/vision/IData.hpp>
 #include <filesystem>
-#include <opencv4/opencv2/core/mat.hpp>
+#include <opencv2/core/mat.hpp>
 #include <span>
 #include <sqlite3.h>
 #include <vector>

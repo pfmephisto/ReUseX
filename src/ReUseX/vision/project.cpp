@@ -140,6 +140,8 @@ auto getLabeledImage(sqlite3_stmt *stmt, int id) -> cv::Mat {
 
   spdlog::trace("Convert label image to CV_32S");
   labledImage.convertTo(labledImage, CV_32S);
+  labledImage -= 1; // Move 0 to -1 so that it can be stored as signed
+                    // 32-bit integer
 
   // sqlite3_finalize(stmt);
   sqlite3_clear_bindings(stmt);
@@ -354,6 +356,11 @@ auto project(const std::filesystem::path &dbPath, CloudConstPtr cloud)
       cv::Mat labeledImage = getLabeledImage(stmt, id); // CV_32S
       // cv::imwrite(tmpPath / fmt::format("labeled_img_{}.png", id),
       //             colorizeLabels(labeledImage));
+      if (labeledImage.empty()) {
+        spdlog::warn("No label image for node {}, skipping projection", id);
+        ++(*logger);
+        continue;
+      }
 
       rtabmap::CameraModel cm = data.cameraModels().back();
 

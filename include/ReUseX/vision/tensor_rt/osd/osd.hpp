@@ -1,6 +1,6 @@
 #pragma once
 #include <ReUseX/vision/tensor_rt/common/object.hpp>
-#include <opencv4/opencv2/opencv.hpp>
+#include <opencv2/opencv.hpp>
 #include <string>
 #include <tuple>
 #include <unordered_map>
@@ -27,6 +27,8 @@ void drawDepth(cv::Mat &img, const object::DetectionBox &box);
 void drawPolygon(cv::Mat &img,
                  const std::vector<std::tuple<float, float>> &points,
                  const cv::Scalar &color, int thickness);
+
+void osd_new(cv::Mat &img, const object::DetectionBoxArray &boxes);
 
 // Main OSD function
 void osd(cv::Mat &img, const object::DetectionBoxArray &boxes,

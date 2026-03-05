@@ -136,7 +136,8 @@ cv::Mat createLabelImage(torch::Tensor keep, torch::Tensor masks,
   using torch::indexing::None;
   using torch::indexing::Slice;
 
-  cv::Mat labelImg = cv::Mat::zeros(imgSize, imgSize, CV_32S);
+  // cv::Mat labelImg = cv::Mat::zeros(imgSize, imgSize, CV_32S);
+  cv::Mat labelImg = cv::Mat::zeros(imgSize, imgSize, CV_16U);
   auto max_num_detections = keep.size(1);
 
   for (size_t j = 0; j < static_cast<size_t>(max_num_detections); ++j) {

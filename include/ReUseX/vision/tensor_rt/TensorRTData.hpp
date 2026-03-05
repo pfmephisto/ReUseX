@@ -1,6 +1,6 @@
 #pragma once
 #include <ReUseX/vision/IData.hpp>
-#include <opencv4/opencv2/core/mat.hpp>
+#include <opencv2/core/mat.hpp>
 
 #include <ReUseX/vision/tensor_rt/infer/sam3type.hpp>
 
@@ -22,14 +22,21 @@ struct TensorRTData : IData {
 
   cv::Mat image;
   std::vector<Sam3PromptUnit> prompts = {
-	  
-      Sam3PromptUnit("wall")
-      ,Sam3PromptUnit("floor")
-      /*, Sam3PromptUnit("ceiling"), Sam3PromptUnit("door"),
-	Sam3PromptUnit("window"),  Sam3PromptUnit("radiator"),
-	Sam3PromptUnit("lamp"),    Sam3PromptUnit("table"),
-	Sam3PromptUnit("chair")
-	*/};
-  float confidence_threshold = 0.1f;
+      Sam3PromptUnit("ceiling"),
+      Sam3PromptUnit("floor"),
+      Sam3PromptUnit("wall"),
+      Sam3PromptUnit("door frame"),
+      Sam3PromptUnit("window"),
+      Sam3PromptUnit("radiator"),
+      Sam3PromptUnit("table"),
+      Sam3PromptUnit("chair"),
+      Sam3PromptUnit("shelf"),
+      Sam3PromptUnit("bench"),
+      Sam3PromptUnit("ceiling lamp"),
+      Sam3PromptUnit("desk lamp")
+      //
+  };
+
+  float confidence_threshold = 0.5f;
 };
 } // namespace ReUseX::vision::tensor_rt

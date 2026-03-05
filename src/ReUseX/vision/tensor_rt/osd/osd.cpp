@@ -14,6 +14,8 @@
 
 #include <spdlog/spdlog.h>
 
+#include <pcl/common/colors.h>
+
 constexpr int COCO_NUM_KEYPOINTS = 17;
 constexpr int HAND_NUM_KEYPOINTS = 21;
 
@@ -81,10 +83,12 @@ std::tuple<uint8_t, uint8_t, uint8_t> hsv2bgr(float h, float s, float v) {
 
 // Random color
 std::tuple<uint8_t, uint8_t, uint8_t> random_color(int id) {
-  float h_plane = ((((unsigned int)id << 2) ^ 0x937151) % 100) / 100.0f;
-  float s_plane =
-      ((((unsigned int)id << 3) ^ 0x315793) % 100) / 100.0f * 0.5f + 0.5f;
-  return hsv2bgr(h_plane, s_plane, 1.0f);
+  // float h_plane = ((((unsigned int)id << 2) ^ 0x937151) % 100) / 100.0f;
+  // float s_plane =
+  //     ((((unsigned int)id << 3) ^ 0x315793) % 100) / 100.0f * 0.5f + 0.5f;
+  // return hsv2bgr(h_plane, s_plane, 1.0f);
+  auto c = pcl::GlasbeyLUT::at(id % pcl::GlasbeyLUT::size());
+  return {c.r, c.g, c.b};
 }
 
 std::tuple<uint8_t, uint8_t, uint8_t> random_color(const std::string &label) {
@@ -359,6 +363,45 @@ int calculateDynamicFontSize(
 // ==================================================================
 // Main OSD function
 // ===================================================================
+void osd_new(
+    cv::Mat &img,
+    const ::ReUseX::vision::tensor_rt::object::DetectionBoxArray &boxes) {
+
+  spdlog::debug("OSD called with {} boxes", boxes.size());
+
+  // Iterate and draw geometry
+  for (const auto &box : boxes) {
+
+    if (!box.segmentation || box.segmentation->mask.empty())
+      return;
+
+    if (img.empty() || box.segmentation->mask.empty())
+      return;
+
+    cv::Rect roi(cv::Point(box.box.left, box.box.top),
+                 cv::Point(box.box.right, box.box.bottom));
+
+    roi &= cv::Rect(0, 0, img.cols, img.rows);
+
+    if (roi.area() <= 0)
+      return;
+
+    double alpha = 0.5; // Transparency factor
+    cv::Mat image_roi = img(roi);
+
+    cv::Mat resized_mask;
+    cv::resize(box.segmentation->mask, resized_mask, roi.size());
+
+    //// TODO: assign label based on box.class_name
+    // std::hash<std::string> hasher;
+    // const int lable = static_cast<int>(hasher(box.class_name) & 0x7FFFFFFF);
+
+    spdlog::debug("Class Id: {}, Class Name: {}", box.class_id, box.class_name);
+
+    cv::Mat color_patch(roi.size(), img.type(), box.class_id);
+    color_patch.copyTo(image_roi, resized_mask);
+  }
+}
 
 void osd(cv::Mat &img,
          const ::ReUseX::vision::tensor_rt::object::DetectionBoxArray &boxes,

@@ -6,9 +6,6 @@
 #include <spdlog/fmt/std.h>
 #include <spdlog/spdlog.h>
 
-// FIX: This is a temporary include for testing purposes.
-#include <opencv4/opencv2/highgui.hpp>
-
 namespace ReUseX::vision::tensor_rt {
 
 ReUseX::vision::IDataset::Pair
@@ -26,17 +23,9 @@ bool TensorRTDataset::save(const std::span<IDataset::Pair> &data) {
   for (const auto &[item, index] : data) {
     TensorRTData *data = dynamic_cast<TensorRTData *>(item.get());
     cv::Mat &img = data->image;
-    // TODO: Add postprocessing here
-    spdlog::warn("Postprocessing is not implemented yet!");
-    // TODO: Reenable the following
-    // success &= saveImage(index, img);
 
-    // TODO: Remove this after postprocessing is implemented
-    cv::imshow("TensorRTDataset Save", img);
-    cv::waitKey(0);
+    success &= saveImage(index, img);
   }
-
-  cv::destroyAllWindows();
 
   spdlog::debug("Save operation completed with success={}", success);
   return success;

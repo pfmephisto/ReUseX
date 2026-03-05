@@ -123,8 +123,8 @@ class TensorRTSam3 : public IModel {
 
   // Post-processing
   void postprocess(InferResult &image_result, int batch_idx, int image_idx,
-                   const std::string &label, float confidence_threshold,
-                   bool return_mask, void *stream);
+                   const std::string &label, const int label_id,
+                   float confidence_threshold, bool return_mask, void *stream);
 
   /* Allocates memory for all the necessary buffers used during inference. This
    * method is designed to be called only once during the initialization phase
@@ -175,10 +175,14 @@ class TensorRTSam3 : public IModel {
   std::shared_ptr<TensorRT::Engine> decoder_trt_;
   std::shared_ptr<TensorRT::Engine> geometry_encoder_trt_;
 
-  // TODO:
-  // Data cache
-  std::unordered_map<
-      std::string, std::pair<std::array<int64_t, 32>, std::array<int64_t, 32>>>
+  // std::unordered_map<
+  //    std::string, std::pair<std::array<int64_t, 32>, std::array<int64_t,
+  //    32>>> text_input_map_;
+  // INFO:
+  // The first array is for input_ids, the second is for attention_mask. The
+  // last int is the prompt ID
+  std::unordered_map<std::string, std::tuple<std::array<int64_t, 32>,
+                                             std::array<int64_t, 32>, int>>
       text_input_map_;
 
   // --- Memory management ---

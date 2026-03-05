@@ -1,6 +1,6 @@
 #pragma once
 #include <ReUseX/vision/tensor_rt/common/check.hpp>
-#include <opencv4/opencv2/opencv.hpp>
+#include <opencv2/opencv.hpp>
 #include <optional>
 #include <ostream>
 #include <string>

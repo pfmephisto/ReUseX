@@ -154,16 +154,21 @@ TensorRTSam3::forward(const std::span<IDataset::Pair> &input) {
 
       // Add to cache (cache miss)
       auto [ids, mask] = make_ids(tokenizer_->Encode(prompt.text));
-      text_input_map_[prompt.text] = std::make_pair(ids, mask);
-      spdlog::trace("Tokenized text: '{}', IDs: [{}], Mask: [{}]", prompt.text,
+      int idx = (int)text_input_map_.size();
+      text_input_map_[prompt.text] = std::make_tuple(ids, mask, idx);
+      spdlog::trace("Tokenized text: '{}' ({}), IDs: [{}], Mask: [{}]",
+                    prompt.text, idx,
                     fmt::join(ids | ranges::views::take(5), ", "),
                     fmt::join(mask | ranges::views::take(5), ", "));
     }
   }
 
   constexpr bool return_mask = true;
-  // TODO: Set ptr for steam as default keeps rasing warnings
-  void *stream = nullptr;
+
+  // void *stream = nullptr;
+  cudaStream_t stream = nullptr;
+  if (auto s = cudaStreamCreate(&stream); s != cudaSuccess)
+    spdlog::error("Failed to create CUDA stream: {}", cudaGetErrorString(s));
 
   AutoDevice device_guard(gpu_id_);
 
@@ -248,21 +253,25 @@ TensorRTSam3::forward(const std::span<IDataset::Pair> &input) {
 
       // float conf = 0.05;
       float conf = tensor_inputs[meta.image_idx]->confidence_threshold;
+      const int label_idx = std::get<2>(text_input_map_[label]);
 
       // Write result to corresponding image_idx
-      postprocess(results[meta.image_idx], k, meta.image_idx, label, conf,
-                  return_mask, stream);
+      postprocess(results[meta.image_idx], k, meta.image_idx, label, label_idx,
+                  conf, return_mask, stream);
     }
   }
 
   // Make Result Image
   for (size_t i = 0; i < results.size(); i++) {
 
-    cv::Mat img = tensor_inputs[i]->image.clone();
-    osd(img, results[i]);
-
     auto res_ptr = std::make_unique<TensorRTData>();
-    res_ptr->image = img;
+    res_ptr->image = cv::Mat(tensor_inputs[i]->image.size(), CV_32S /*CV_16U*/,
+                             cv::Scalar(-1));
+
+    // cv::Mat img = tensor_inputs[i]->image.clone();
+    //  TODO: Make custom OSD
+    osd_new(res_ptr->image, results[i]);
+    // osd(img, results[i]);
 
     results_img[i] = IDataset::Pair();
     results_img[i].first = std::move(res_ptr);
@@ -628,8 +637,8 @@ bool TensorRTSam3::encode_text(const std::vector<PromptMeta> &batch_prompts,
 
     if (prompt && text_input_map_.count(prompt->text)) {
       // TODO: Find a way to pass the actual id and masks directly
-      src_ids = text_input_map_[prompt->text].first.data();
-      src_mask = text_input_map_[prompt->text].second.data();
+      src_ids = std::get<0>(text_input_map_[prompt->text]).data();
+      src_mask = std::get<1>(text_input_map_[prompt->text]).data();
       // spdlog::trace("Input {} IDs: [{}]", prompt->text,
       //               fmt::join(src_ids, src_ids + seq_len, ", "));
     }
@@ -796,8 +805,10 @@ bool TensorRTSam3::decode(int batch_size, int prompt_len, void *stream) {
 
 void TensorRTSam3::postprocess(InferResult &image_result, int batch_idx,
                                int image_idx, const std::string &label,
-                               float confidence_threshold, bool return_mask,
-                               void *stream) {
+                               const int label_id, float confidence_threshold,
+                               bool return_mask, void *stream) {
+  spdlog::trace("Postprocessing results for image index {}, batch index {}",
+                image_idx, batch_idx);
   cudaStream_t s = (cudaStream_t)stream;
 
   // Pointer offset (based on index in current Batch: batch_idx)
@@ -840,8 +851,12 @@ void TensorRTSam3::postprocess(InferResult &image_result, int batch_idx,
     if (!return_mask) {
       for (int i = 0; i < count; ++i) {
         float *b = h_boxes.data() + i * 4;
-        image_result.push_back(
-            object::createBox(b[0], b[1], b[2], b[3], h_scores[i], -1, label));
+        spdlog::trace("Creating Box for Image {}, Box {}: [{}, {}, {}, {}], "
+                      "Score: {}, Label: '{}' ({})",
+                      image_idx, i, b[0], b[1], b[2], b[3], h_scores[i], label,
+                      label_id);
+        image_result.push_back(object::createBox(b[0], b[1], b[2], b[3],
+                                                 h_scores[i], label_id, label));
       }
       return;
     }
@@ -904,8 +919,14 @@ void TensorRTSam3::postprocess(InferResult &image_result, int batch_idx,
       uint8_t *mask_ptr = mask_buffer_.cpu() + mask_offsets[i];
       cv::Mat bin_mask(mask_sizes[i].height, mask_sizes[i].width, CV_8U,
                        mask_ptr);
+
+      spdlog::trace(
+          "Creating SegmentationBox for Image {}, Box {}: [{}, {}, {}, {}], "
+          "Score: {}, Label: '{}' ({})",
+          image_idx, i, b[0], b[1], b[2], b[3], h_scores[i], label, label_id);
       image_result.push_back(object::createSegmentationBox(
-          b[0], b[1], b[2], b[3], bin_mask.clone(), h_scores[i], -1, label));
+          b[0], b[1], b[2], b[3], bin_mask.clone(), h_scores[i], label_id,
+          label));
     }
   }
 }

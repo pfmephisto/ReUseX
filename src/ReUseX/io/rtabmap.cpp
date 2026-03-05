@@ -35,6 +35,29 @@
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
 
+#ifndef NDEBUG
+#include <opencv2/highgui.hpp>
+#include <pcl/common/colors.h>
+namespace {
+const cv::Mat &getGlasbeyLUT() {
+  static cv::Mat lut = [] {
+    cv::Mat m(1, 256, CV_8UC3);
+    for (int i = 1; i < 255; ++i) {
+      const auto &c = pcl::GlasbeyLUT::at(i);
+      m.at<cv::Vec3b>(0, i) =
+          cv::Vec3b(static_cast<uchar>(c.b), static_cast<uchar>(c.g),
+                    static_cast<uchar>(c.r));
+    }
+    m.at<cv::Vec3b>(0, 255) = cv::Vec3b(0, 0, 0); // Background color (black)
+    return m;
+  }();
+  return lut;
+}
+
+auto lut = getGlasbeyLUT();
+} // namespace
+#endif
+
 using namespace rtabmap;
 
 inline void
@@ -58,37 +81,6 @@ inline void merge_clouds(pcl::PointCloud<pcl::Label>::Ptr lhs,
         + : pcl::PointCloud<pcl::Label>::Ptr : merge_clouds(omp_out, omp_in))  \
     initializer(omp_priv = pcl::PointCloud<pcl::Label>::Ptr(                   \
                         new pcl::PointCloud<pcl::Label>()))
-
-auto make_debug_images(cv::Mat const &labelImage,
-                       pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr cloud)
-    -> std::tuple<cv::Mat, cv::Mat> {
-
-  // Create Image form ordered point cloud
-  const auto cloud_size = cv::Size(cloud->width, cloud->height);
-  cv::Mat cloudImage(cloud_size, CV_8UC3);
-
-  for (size_t i = 0; i < cloud->size(); ++i) {
-    int r = cloud->at(i).r;
-    int g = cloud->at(i).g;
-    int b = cloud->at(i).b;
-    cloudImage.at<cv::Vec3b>(i) = cv::Vec3b(b, g, r);
-  }
-
-  cv::Mat colorImage(labelImage.size(), CV_8UC3);
-
-  // cv::normalize(labelImage, colorImage, 0, 255, cv::NORM_MINMAX);
-  // colorImage.convertTo(colorImage, CV_8UC1);
-  // cv::applyColorMap(colorImage, colorImage, cv::COLORMAP_JET);
-
-  // Create color map for labels
-  for (size_t i = 0; i < labelImage.total(); ++i) {
-    auto label = labelImage.at<int>(i);
-    auto color = pcl::GlasbeyLUT::at(label % pcl::GlasbeyLUT::size());
-    colorImage.at<cv::Vec3b>(i) = cv::Vec3b(color.b, color.g, color.r);
-  }
-
-  return std::make_tuple(colorImage, cloudImage);
-}
 
 namespace ReUseX::io {
 auto import_rtabmap_database(const std::filesystem::path &database_path,
@@ -174,8 +166,16 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
     spdlog::trace("Number of poses: {}", poseVector.size());
     auto logger = spdmon::LoggerProgress("Assembling cloud", poseVector.size());
 
+#ifdef NDEBUG
+    // INFO: Create and OpenCV window for visualizing the results during
+    // development
+    cv::namedWindow("Images", cv::WINDOW_AUTOSIZE);
+#endif
+
+#ifndef NDEBUG
 #pragma omp parallel for reduction(+ : cloud, labels)                          \
     shared(poses, nodes, logger)
+#endif
     for (int i = 0; i < (int)poseVector.size(); ++i) {
       auto [id, pose] = poseVector[i];
 
@@ -195,9 +195,9 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
           new pcl::PointCloud<pcl::Label>);
       labledCloud->resize(tmp->size());
 
-      // INFO: Initialize the labels to 0
+      // INFO: Initialize the labels to -1
       for (size_t i = 0; i < labledCloud->size(); ++i)
-        labledCloud->points[i].label = 0;
+        labledCloud->points[i].label = -1;
 
       cv::Size cloud_size(tmp->width, tmp->height);
 
@@ -205,17 +205,15 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
       cv::rotate(image, image, cv::ROTATE_90_CLOCKWISE);
 
       spdlog::trace("Set up labledImage");
-      cv::Mat labledImage(image.size(), CV_32S /*CV_64F*/, cv::Scalar(0));
+      cv::Mat labledImage(image.size(), CV_32S, cv::Scalar(-1));
 
       if (!skipInference) {
+        spdlog::trace("Querying label image for node_id {}", id);
         int idx = 0;
         sqlite3_bind_int(stmt, 1, id);
         if (sqlite3_step(stmt) == SQLITE_ROW) {
           const void *data = sqlite3_column_blob(stmt, idx);
           int datasize = sqlite3_column_bytes(stmt, idx++);
-
-          spdlog::trace("Decoding label image from database");
-          // imgMat = cv::imdecode(imgMat, cv::IMREAD_UNCHANGED);
 
           // The blob is just a stream of bytes (compressed PNG)
           std::vector<uchar> buffer((uchar *)data, (uchar *)data + datasize);
@@ -225,24 +223,46 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
           if (img.empty()) {
             spdlog::error("Failed to decode image from database");
           } else {
-            spdlog::debug("Decoded image: {}x{}, channels={}", img.cols,
-                          img.rows, img.channels());
+            spdlog::debug("Decoded image: {}x{}, channels={}, type={}",
+                          img.cols, img.rows, img.channels(), img.type());
 
             spdlog::trace("Convert label image to CV_32S");
-            img.convertTo(img, CV_32S);
-
-            //// DEBUG: Show the images
-            // auto [img1, img2] = make_debug_images(img, tmp);
-            // cv::imshow("Image", img1);
-            // cv::imshow("Label Image", img2);
-            // cv::waitKey(0);
-
-            spdlog::trace("Resizing label image to cloud size");
-            cv::resize(img, labledImage, cloud_size, 0, 0, cv::INTER_NEAREST);
+            img.convertTo(labledImage, CV_32S);
+            labledImage -= 1; // Move 0 to -1 so that it can be stored as signed
+                              // 32-bit integer
           }
         }
         sqlite3_reset(stmt);
       }
+
+      spdlog::trace("Resizing label image to cloud size");
+      cv::resize(labledImage, labledImage, cloud_size, 0, 0, cv::INTER_NEAREST);
+
+#ifndef NDEBUG
+      cv::Mat debugImage(cloud_size, CV_8UC3);
+      for (size_t i = 0; i < labledCloud->size(); ++i) {
+        const auto rgb = tmp->at(i).getRGBVector3i();
+        const uint8_t r = static_cast<uint8_t>(rgb[0]);
+        const uint8_t g = static_cast<uint8_t>(rgb[1]);
+        const uint8_t b = static_cast<uint8_t>(rgb[2]);
+        debugImage.at<cv::Vec3b>(i) = cv::Vec3b(b, g, r);
+      }
+
+      // DEBUG: Show the images
+      cv::Mat temp = labledImage.clone();
+      temp = temp & 255;
+      temp.convertTo(temp, CV_8U);
+      // cv::normalize(temp, temp, 0, 255, cv::NORM_MINMAX, CV_8U);
+      cv::cvtColor(temp, temp, cv::COLOR_GRAY2BGR);
+      cv::LUT(temp, lut, temp);
+
+      cv::addWeighted(debugImage, 0.5, temp, 0.5, 0, temp);
+
+      cv::resize(temp, temp, cv::Size(), 4.0, 4.0, cv::INTER_NEAREST);
+
+      cv::imshow("Annotation", temp);
+      cv::waitKey(0);
+#endif
 
       spdlog::trace("Set the values of the labled cloud");
       for (size_t i = 0; i < labledCloud->size(); ++i)
@@ -320,6 +340,13 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
   }
 
   sqlite3_finalize(stmt);
+
+#ifndef NDEBUG
+  // INFO: Wait for user input before closing the visualization window
+  cv::waitKey(5 * 1000); // Wait for 5 seconds
+  cv::destroyWindow("Annotation");
+  // cv::destroyAllWindows();
+#endif
 
   // TODO: Add assertions
   if (!cloud->size()) {

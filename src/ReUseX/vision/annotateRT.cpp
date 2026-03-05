@@ -14,9 +14,12 @@
 // #include <spdmon/spdmon.hpp>
 
 #include <opencv2/core.hpp>
+
+#ifdef NDEBUG
 // For visualization/debugging purposes
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
+#endif
 
 #include <pcl/common/colors.h>
 
@@ -47,6 +50,12 @@ auto annotate(const std::filesystem::path &dbPath,
   Dataloader loader(*dataset, batch_size, shuffle, num_workers,
                     prefetch_batches);
 
+#ifndef NDEBUG
+  // INFO: Create and OpenCV window for visualizing the results during
+  // development
+  cv::namedWindow("Annotation", cv::WINDOW_AUTOSIZE);
+#endif
+
   spdlog::info("Starting annotation with {} batches using {} worker threads",
                loader.size(), loader.get_num_workers());
 
@@ -58,6 +67,13 @@ auto annotate(const std::filesystem::path &dbPath,
     auto results = model->forward(batch);
     dataset->save(results);
   }
+
+#ifndef NDEBUG
+  // INFO: Wait for user input before closing the visualization window
+  cv::waitKey(5 * 1000); // Wait for 5 seconds
+  cv::destroyWindow("Annotation");
+  // cv::destroyAllWindows();
+#endif
 
   spdlog::info("Annotation completed");
   return 0;

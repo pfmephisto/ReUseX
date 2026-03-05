@@ -43,7 +43,9 @@ bin/
 build/
 
 # Generated documentation
-doc/
+doc/html/
+ReUseX.tag
+
 
 # VS Code
 .vscode

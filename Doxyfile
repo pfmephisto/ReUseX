@@ -131,6 +131,7 @@ INPUT                  = include/ReUseX \
                          include/rux \
                          include/pcl \
                          include/spdmon \
+			 doc \
                          README.md
 INPUT_ENCODING         = UTF-8
 INPUT_FILE_ENCODING    = 

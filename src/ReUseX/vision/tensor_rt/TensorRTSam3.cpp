@@ -1,13 +1,13 @@
 #include <ReUseX/vision/IDataset.hpp>
+#include <ReUseX/vision/common/createObject.hpp>
+#include <ReUseX/vision/common/image.hpp>
+#include <ReUseX/vision/osd/osd.hpp>
 #include <ReUseX/vision/tensor_rt/TensorRTData.hpp>
 #include <ReUseX/vision/tensor_rt/TensorRTSam3.hpp>
 #include <ReUseX/vision/tensor_rt/common/affine.hpp>
-#include <ReUseX/vision/common/createObject.hpp>
-#include <ReUseX/vision/common/image.hpp>
 #include <ReUseX/vision/tensor_rt/infer/sam3infer.hpp>
 #include <ReUseX/vision/tensor_rt/kernels/postprocess.cuh>
 #include <ReUseX/vision/tensor_rt/kernels/process_kernel_warp.hpp>
-#include <ReUseX/vision/osd/osd.hpp>
 
 #include <fmt/ranges.h>
 #include <spdlog/fmt/std.h>
@@ -273,7 +273,8 @@ TensorRTSam3::forward(const std::span<IDataset::Pair> &input) {
 
     // cv::Mat img = tensor_inputs[i]->image.clone();
     //  TODO: Make custom OSD
-    osd_new(res_ptr->image, results[i]);
+
+    ReUseX::vision::osd::osd_new(res_ptr->image, results[i]);
     // osd(img, results[i]);
 
     results_img[i] = IDataset::Pair();

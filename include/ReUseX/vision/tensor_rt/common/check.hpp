@@ -20,22 +20,24 @@ namespace ReUseX::vision::tensor_rt::nv {
   }
 
 #if DEBUG
-#define checkRuntime(call) nv::check_runtime(call, #call, __LINE__, __FILE__)
+#define checkRuntime(call)                                                     \
+  ReUseX::vision::tensor_rt::nv::check_runtime(call, #call, __LINE__, __FILE__)
 #define checkKernel(...)                                                       \
   [&] {                                                                        \
     __VA_ARGS__;                                                               \
     checkRuntime(cudaStreamSynchronize(nullptr));                              \
-    return nv::check_runtime(cudaGetLastError(), #__VA_ARGS__, __LINE__,       \
-                             __FILE__);                                        \
+    return ReUseX::vision::tensor_rt::nv::check_runtime(                       \
+        cudaGetLastError(), #__VA_ARGS__, __LINE__, __FILE__);                 \
   }()
 #define dprintf printf
 #else
-#define checkRuntime(call) nv::check_runtime(call, #call, __LINE__, __FILE__)
+#define checkRuntime(call)                                                     \
+  ReUseX::vision::tensor_rt::nv::check_runtime(call, #call, __LINE__, __FILE__)
 #define checkKernel(...)                                                       \
   do {                                                                         \
     __VA_ARGS__;                                                               \
-    nv::check_runtime(cudaPeekAtLastError(), #__VA_ARGS__, __LINE__,           \
-                      __FILE__);                                               \
+    ReUseX::vision::tensor_rt::nv::check_runtime(                              \
+        cudaPeekAtLastError(), #__VA_ARGS__, __LINE__, __FILE__);              \
   } while (false)
 #define dprintf(...)
 #endif
@@ -92,9 +94,6 @@ template <typename... Args>
 constexpr void Assertf(bool cond, const char *fmt, Args... args) {
   do {
     if (!(cond)) {
-      // fprintf(stderr, "Assert failed 💀. %s in file %s:%d, message: " fmt
-      // "\n",
-      //         cond, __FILE__, __LINE__, __VA_ARGS__);
       spdlog::error("Assert failed 💀. {} in file {}:{}, message: {}", cond,
                     __FILE__, __LINE__, /*__VA_ARGS__,*/ fmt);
       abort();

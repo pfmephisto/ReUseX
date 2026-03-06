@@ -18,7 +18,7 @@ enum class Backend {
 class BackendFactory {
     public:
   /* Detects the appropriate backend based on the model path.
-   * @pram model_path: The file or directory path of the model.
+   * @param model_path: The file or directory path of the model.
    * @return The detected backend type. Currently hardcoded to TensorRT.
    */
   static Backend detect_backend(const std::filesystem::path &model_path) {

@@ -1,11 +1,11 @@
-#include <ReUseX/vision/tensor_rt/common/createObject.hpp>
-#include <ReUseX/vision/tensor_rt/common/object.hpp>
+#include <ReUseX/vision/common/createObject.hpp>
+#include <ReUseX/vision/common/object.hpp>
 #include <cmath>
 #include <tuple>
 
-namespace ReUseX::vision::tensor_rt {
-
-std::tuple<float, float, float, float>
+namespace {
+/// @brief Compute the axis-aligned bounding box that tightly encloses an OBB.
+static std::tuple<float, float, float, float>
 getAABBFromObb(float cx, float cy, float w, float h, float angle_degrees) {
   float cos_a = std::cos(angle_degrees);
   float sin_a = std::sin(angle_degrees);
@@ -26,10 +26,10 @@ getAABBFromObb(float cx, float cy, float w, float h, float angle_degrees) {
 
   return std::make_tuple(left, top, right, bottom);
 }
+} // namespace
 
-} // namespace ReUseX::vision::tensor_rt
+namespace ReUseX::vision::common::object {
 
-namespace ReUseX::vision::tensor_rt::object {
 DetectionBox createBox(float left, float top, float right, float bottom,
                        float score, int class_id,
                        const std::string &class_name) {
@@ -125,8 +125,7 @@ DetectionBox createObbBox(float cx, float cy, float w, float h, float angle,
   box.class_id = class_id;
   box.class_name = class_name;
 
-  std::tuple<float, float, float, float> aabb =
-      getAABBFromObb(cx, cy, w, h, angle);
+  auto aabb = getAABBFromObb(cx, cy, w, h, angle);
   box.box = Box(std::get<0>(aabb), std::get<1>(aabb), std::get<2>(aabb),
                 std::get<3>(aabb));
   return box;
@@ -187,4 +186,4 @@ DetectionBox createDepthAnythingBox(const cv::Mat &depth) {
   return box;
 }
 
-} // namespace ReUseX::vision::tensor_rt::object
+} // namespace ReUseX::vision::common::object

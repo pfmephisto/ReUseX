@@ -1,13 +1,13 @@
 #include <ReUseX/vision/IDataset.hpp>
+#include <ReUseX/vision/common/createObject.hpp>
+#include <ReUseX/vision/common/image.hpp>
+#include <ReUseX/vision/osd/osd.hpp>
 #include <ReUseX/vision/tensor_rt/TensorRTData.hpp>
 #include <ReUseX/vision/tensor_rt/TensorRTSam3.hpp>
 #include <ReUseX/vision/tensor_rt/common/affine.hpp>
-#include <ReUseX/vision/tensor_rt/common/createObject.hpp>
-#include <ReUseX/vision/tensor_rt/common/image.hpp>
-#include <ReUseX/vision/tensor_rt/infer/sam3infer.hpp>
+#include <ReUseX/vision/tensor_rt/common/device.hpp>
 #include <ReUseX/vision/tensor_rt/kernels/postprocess.cuh>
 #include <ReUseX/vision/tensor_rt/kernels/process_kernel_warp.hpp>
-#include <ReUseX/vision/tensor_rt/osd/osd.hpp>
 
 #include <fmt/ranges.h>
 #include <spdlog/fmt/std.h>
@@ -54,6 +54,9 @@ std::pair<ArrayInt64, ArrayInt64> make_ids(const std::vector<int32_t> &ids) {
 }
 
 namespace ReUseX::vision::tensor_rt {
+
+namespace object = ::ReUseX::vision::common::object;
+namespace common_tensor = ::ReUseX::vision::common::tensor;
 
 std::unique_ptr<TensorRTSam3>
 TensorRTSam3::create(const std::filesystem::path &model_path) {
@@ -270,7 +273,8 @@ TensorRTSam3::forward(const std::span<IDataset::Pair> &input) {
 
     // cv::Mat img = tensor_inputs[i]->image.clone();
     //  TODO: Make custom OSD
-    osd_new(res_ptr->image, results[i]);
+
+    ReUseX::vision::osd::osd_new(res_ptr->image, results[i]);
     // osd(img, results[i]);
 
     results_img[i] = IDataset::Pair();
@@ -511,7 +515,7 @@ void TensorRTSam3::preprocess(const TensorRTData &input, int ibatch,
   cudaStream_t s = (cudaStream_t)stream;
   // const cv::Mat &img = input.image;
   const cv::Mat &img = input.image;
-  tensor::Image img_tensor = tensor::cvimg(img);
+  common_tensor::Image img_tensor = common_tensor::cvimg(img);
 
   // Record original size
   original_image_sizes_[ibatch] = {img_tensor.width, img_tensor.height};

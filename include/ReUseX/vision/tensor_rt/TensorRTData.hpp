@@ -2,7 +2,7 @@
 #include <ReUseX/vision/IData.hpp>
 #include <opencv2/core/mat.hpp>
 
-#include <ReUseX/vision/tensor_rt/infer/sam3type.hpp>
+#include <ReUseX/vision/tensor_rt/TensorRTSam3Type.hpp>
 
 #include <array>
 #include <memory>

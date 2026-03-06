@@ -3,9 +3,8 @@
 #include <ReUseX/vision/IModel.hpp>
 
 #include <ReUseX/vision/common/object.hpp>
-#include <ReUseX/vision/tensor_rt/TensorRTData.hpp>
-#include <ReUseX/vision/tensor_rt/TensorRTSam3Type.hpp>
-// #include <ReUseX/vision/tensor_rt/common/device.hpp>
+#include <ReUseX/vision/tensor_rt/Data.hpp>
+#include <ReUseX/vision/tensor_rt/Sam3Type.hpp>
 #include <ReUseX/vision/tensor_rt/common/memory.hpp>
 #include <ReUseX/vision/tensor_rt/common/norm.hpp>
 #include <ReUseX/vision/tensor_rt/common/tensorrt.hpp>

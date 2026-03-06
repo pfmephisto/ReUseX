@@ -1,7 +1,7 @@
 #pragma once
 #include <ReUseX/vision/IMLBackend.hpp>
-#include <ReUseX/vision/tensor_rt/TensorRTDataset.hpp>
-#include <ReUseX/vision/tensor_rt/TensorRTSam3.hpp>
+#include <ReUseX/vision/tensor_rt/Dataset.hpp>
+#include <ReUseX/vision/tensor_rt/Sam3.hpp>
 
 namespace ReUseX::vision::tensor_rt {
 /* TensorRTBackend is a concrete implementation of the IMLBackend interface for

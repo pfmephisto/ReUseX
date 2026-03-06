@@ -1,7 +1,7 @@
 #include <ReUseX/vision/IData.hpp>
 #include <ReUseX/vision/IDataset.hpp>
-#include <ReUseX/vision/tensor_rt/TensorRTData.hpp>
-#include <ReUseX/vision/tensor_rt/TensorRTDataset.hpp>
+#include <ReUseX/vision/tensor_rt/Data.hpp>
+#include <ReUseX/vision/tensor_rt/Dataset.hpp>
 
 #include <spdlog/fmt/std.h>
 #include <spdlog/spdlog.h>

@@ -1,7 +1,7 @@
 #pragma once
 #include <ReUseX/vision/IData.hpp>
 #include <ReUseX/vision/IDataset.hpp>
-#include <ReUseX/vision/tensor_rt/TensorRTData.hpp>
+#include <ReUseX/vision/tensor_rt/Data.hpp>
 
 namespace ReUseX::vision::tensor_rt {
 /* TensorRTDataset is a dataset class that manages TensorRTData objects. It

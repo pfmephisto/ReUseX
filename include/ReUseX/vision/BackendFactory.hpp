@@ -4,7 +4,7 @@
 #include <fmt/std.h>
 #include <spdlog/spdlog.h>
 
-#include <ReUseX/vision/tensor_rt/TensorRTBackend.hpp>
+#include <ReUseX/vision/tensor_rt/Backend.hpp>
 
 namespace ReUseX::vision {
 enum class Backend {

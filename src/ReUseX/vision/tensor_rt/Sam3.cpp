@@ -2,8 +2,8 @@
 #include <ReUseX/vision/common/createObject.hpp>
 #include <ReUseX/vision/common/image.hpp>
 #include <ReUseX/vision/osd/osd.hpp>
-#include <ReUseX/vision/tensor_rt/TensorRTData.hpp>
-#include <ReUseX/vision/tensor_rt/TensorRTSam3.hpp>
+#include <ReUseX/vision/tensor_rt/Data.hpp>
+#include <ReUseX/vision/tensor_rt/Sam3.hpp>
 #include <ReUseX/vision/tensor_rt/common/affine.hpp>
 #include <ReUseX/vision/tensor_rt/common/device.hpp>
 #include <ReUseX/vision/tensor_rt/kernels/postprocess.cuh>

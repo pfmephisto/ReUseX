@@ -2,9 +2,9 @@
 #include <ReUseX/vision/IData.hpp>
 #include <ReUseX/vision/IModel.hpp>
 
-#include <ReUseX/vision/tensor_rt/TensorRTData.hpp>
 #include <ReUseX/vision/common/object.hpp>
-#include <ReUseX/vision/tensor_rt/infer/sam3type.hpp>
+#include <ReUseX/vision/tensor_rt/TensorRTData.hpp>
+#include <ReUseX/vision/tensor_rt/TensorRTSam3Type.hpp>
 // #include <ReUseX/vision/tensor_rt/common/device.hpp>
 #include <ReUseX/vision/tensor_rt/common/memory.hpp>
 #include <ReUseX/vision/tensor_rt/common/norm.hpp>
@@ -30,7 +30,8 @@ concern. */
 class TensorRTSam3 : public IModel {
     private:
   using InferResult = ::ReUseX::vision::common::object::DetectionBoxArray;
-  using InferResultArray = std::vector<::ReUseX::vision::common::object::DetectionBoxArray>;
+  using InferResultArray =
+      std::vector<::ReUseX::vision::common::object::DetectionBoxArray>;
 
     public:
   /* Constructor for TensorRTSam3 without geometry encoder. Initializes the

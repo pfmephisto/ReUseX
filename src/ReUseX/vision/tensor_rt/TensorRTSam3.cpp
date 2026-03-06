@@ -5,7 +5,7 @@
 #include <ReUseX/vision/tensor_rt/TensorRTData.hpp>
 #include <ReUseX/vision/tensor_rt/TensorRTSam3.hpp>
 #include <ReUseX/vision/tensor_rt/common/affine.hpp>
-#include <ReUseX/vision/tensor_rt/infer/sam3infer.hpp>
+#include <ReUseX/vision/tensor_rt/common/device.hpp>
 #include <ReUseX/vision/tensor_rt/kernels/postprocess.cuh>
 #include <ReUseX/vision/tensor_rt/kernels/process_kernel_warp.hpp>
 

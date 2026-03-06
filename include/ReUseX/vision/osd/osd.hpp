@@ -14,8 +14,7 @@ namespace ReUseX::vision::osd {
 /// @param box       Detection box providing coordinates and type.
 /// @param color     BGR color for the rectangle.
 /// @param thickness Line thickness in pixels.
-void drawBaseInfoGeometry(cv::Mat &img,
-                          const common::object::DetectionBox &box,
+void drawBaseInfoGeometry(cv::Mat &img, const common::object::DetectionBox &box,
                           const cv::Scalar &color, int thickness);
 
 /// @brief Draw a dashed or solid rectangle indicating a position ROI.
@@ -59,8 +58,7 @@ void drawTrackTrace(cv::Mat &img, const common::object::DetectionBox &box,
 /// @param img       Image to draw on (modified in-place).
 /// @param box       Detection box with track history pose data.
 /// @param thickness Line thickness in pixels.
-void drawTrackHistoryPose(cv::Mat &img,
-                          const common::object::DetectionBox &box,
+void drawTrackHistoryPose(cv::Mat &img, const common::object::DetectionBox &box,
                           int thickness);
 
 /// @brief Overlay a depth map as a colour-mapped image blended with the input.
@@ -81,7 +79,8 @@ void drawPolygon(cv::Mat &img,
 /// color (no text labels).
 /// @param img   Image to draw on (modified in-place).
 /// @param boxes Detection results to visualize.
-void osd_new(cv::Mat &img, const common::object::DetectionBoxArray &boxes);
+void make_labled_image(cv::Mat &img,
+                       const common::object::DetectionBoxArray &boxes);
 
 /// @brief Full on-screen display: draws bounding boxes, masks, poses, OBBs,
 /// tracks, and text labels with automatic non-overlapping label placement.

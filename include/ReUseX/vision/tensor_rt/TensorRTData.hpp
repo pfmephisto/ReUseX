@@ -33,7 +33,8 @@ struct TensorRTData : IData {
       Sam3PromptUnit("shelf"),
       Sam3PromptUnit("bench"),
       Sam3PromptUnit("ceiling lamp"),
-      Sam3PromptUnit("desk lamp")
+      Sam3PromptUnit("desk lamp"),
+      Sam3PromptUnit("electrical outlet")
       //
   };
 

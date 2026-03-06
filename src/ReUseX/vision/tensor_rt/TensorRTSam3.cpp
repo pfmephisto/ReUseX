@@ -271,11 +271,7 @@ TensorRTSam3::forward(const std::span<IDataset::Pair> &input) {
     res_ptr->image = cv::Mat(tensor_inputs[i]->image.size(), CV_32S /*CV_16U*/,
                              cv::Scalar(-1));
 
-    // cv::Mat img = tensor_inputs[i]->image.clone();
-    //  TODO: Make custom OSD
-
-    ReUseX::vision::osd::osd_new(res_ptr->image, results[i]);
-    // osd(img, results[i]);
+    ReUseX::vision::osd::make_labled_image(res_ptr->image, results[i]);
 
     results_img[i] = IDataset::Pair();
     results_img[i].first = std::move(res_ptr);
@@ -640,11 +636,8 @@ bool TensorRTSam3::encode_text(const std::vector<PromptMeta> &batch_prompts,
     const int64_t *src_mask = def_mask.data();
 
     if (prompt && text_input_map_.count(prompt->text)) {
-      // TODO: Find a way to pass the actual id and masks directly
       src_ids = std::get<0>(text_input_map_[prompt->text]).data();
       src_mask = std::get<1>(text_input_map_[prompt->text]).data();
-      // spdlog::trace("Input {} IDs: [{}]", prompt->text,
-      //               fmt::join(src_ids, src_ids + seq_len, ", "));
     }
 
     memcpy(h_ids + i * seq_len, src_ids, seq_len * sizeof(int64_t));

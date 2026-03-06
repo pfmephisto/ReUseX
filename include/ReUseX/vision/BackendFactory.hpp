@@ -1,6 +1,7 @@
 #pragma once
 #include <ReUseX/vision/IMLBackend.hpp>
 #include <filesystem>
+#include <fmt/std.h>
 #include <spdlog/spdlog.h>
 
 #include <ReUseX/vision/tensor_rt/TensorRTBackend.hpp>
@@ -13,6 +14,7 @@ enum class Backend {
   DNN,
   ONNXRuntime,
   OpenVINO,
+  Unknown,
 };
 
 class BackendFactory {
@@ -22,10 +24,19 @@ class BackendFactory {
    * @return The detected backend type. Currently hardcoded to TensorRT.
    */
   static Backend detect_backend(const std::filesystem::path &model_path) {
-    // TODO:: Update this to select backend based on model path
-    spdlog::warn("Backend detection is currently hardcoded to TensorRT. Please "
-                 "implement proper detection logic.");
-    return Backend::TensorRT;
+    using namespace std::filesystem;
+
+    if (is_regular_file(model_path))
+      return detect_backend_from_file(model_path);
+
+    if (is_directory(model_path))
+      for (const auto &entry : directory_iterator(model_path))
+        if (entry.is_regular_file())
+          if (auto backend = detect_backend_from_file(entry.path());
+              backend != Backend::Unknown)
+            return backend;
+
+    return Backend::Unknown;
   }
 
   /* Creates an instance of the specified backend type.
@@ -57,6 +68,42 @@ class BackendFactory {
       spdlog::error("Unsupported backend type: {}", static_cast<int>(type));
       throw std::runtime_error("Unsupported backend");
     }
+  }
+
+    private:
+  /* Helper function to detect backend type from a single file based on its
+   * extension.
+   * @param file_path: The path of the file to analyze.
+   * @return The detected backend type or Unknown if the extension is not
+   * recognized.
+   */
+  static Backend
+  detect_backend_from_file(const std::filesystem::path &file_path) {
+    auto ext = file_path.extension();
+
+    if (ext.empty()) {
+      spdlog::warn("File {} has no extension. Unable to detect backend.",
+                   file_path);
+      return Backend::Unknown;
+    }
+
+    else if (ext == ".engine") {
+      spdlog::info("Detected TensorRT engine file: {}", file_path);
+      return Backend::TensorRT;
+    } else if (ext == ".pt" || ext == ".pth" || ext == ".torchscript") {
+      spdlog::info("Detected PyTorch model file: {}", file_path);
+      return Backend::libTorch;
+    } else if (ext == ".onnx") {
+      spdlog::info("Detected ONNX model file: {}", file_path);
+      return Backend::ONNXRuntime;
+    } else if (ext == ".xml" || ext == ".bin") {
+      spdlog::info("Detected OpenVINO model files: {}", file_path);
+      return Backend::OpenVINO;
+    }
+
+    spdlog::warn("Unknown model file extension: {}. Defaulting to TensorRT.",
+                 ext);
+    return Backend::Unknown;
   }
 };
 } // namespace ReUseX::vision

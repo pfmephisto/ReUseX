@@ -16,10 +16,6 @@
 
 namespace ReUseX::vision::tensor_rt {
 
-/// @brief Convenience namespace alias so existing tensor_rt code can continue
-/// to reference types via `object::DetectionBox` etc.
-namespace object = ReUseX::vision::common::object;
-
 /* TensorRTSam3 is an implementation of the SAM3 model using TensorRT for
 efficient inference. It supports batch processing of images and prompts, with
 careful memory management to optimize performance on GPU. The class handles the
@@ -33,8 +29,8 @@ geometry) and is optimized for use in real-time applications where latency is a
 concern. */
 class TensorRTSam3 : public IModel {
     private:
-  using InferResult = object::DetectionBoxArray;
-  using InferResultArray = std::vector<object::DetectionBoxArray>;
+  using InferResult = ::ReUseX::vision::common::object::DetectionBoxArray;
+  using InferResultArray = std::vector<::ReUseX::vision::common::object::DetectionBoxArray>;
 
     public:
   /* Constructor for TensorRTSam3 without geometry encoder. Initializes the

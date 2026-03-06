@@ -1,12 +1,16 @@
 #include <ReUseX/vision/tensor_rt/common/affine.hpp>
 #include <ReUseX/vision/common/createObject.hpp>
-#include <ReUseX/vision/tensor_rt/common/image.hpp>
+#include <ReUseX/vision/common/image.hpp>
 #include <ReUseX/vision/tensor_rt/infer/sam3infer.hpp>
 #include <ReUseX/vision/tensor_rt/kernels/postprocess.cuh>
 #include <ReUseX/vision/tensor_rt/kernels/process_kernel_warp.hpp>
 #include <algorithm>
 
 namespace ReUseX::vision::tensor_rt {
+
+namespace object = ::ReUseX::vision::common::object;
+namespace common_tensor = ::ReUseX::vision::common::tensor;
+
 // Global load function
 std::shared_ptr<InferBase> load(const std::string &vision_encoder_path,
                                 const std::string &text_encoder_path,
@@ -266,7 +270,7 @@ void Sam3Infer::set_binding_dim(std::shared_ptr<TensorRT::Engine> &engine,
 void Sam3Infer::preprocess(const Sam3Input &input, int ibatch, void *stream) {
   cudaStream_t s = (cudaStream_t)stream;
   const cv::Mat &img = input.image;
-  tensor::Image img_tensor = tensor::cvimg(img);
+  common_tensor::Image img_tensor = common_tensor::cvimg(img);
 
   // Record original size
   original_image_sizes_[ibatch] = {img_tensor.width, img_tensor.height};

@@ -131,7 +131,7 @@ INPUT                  = include/ReUseX \
                          include/rux \
                          include/pcl \
                          include/spdmon \
-			 doc \
+			 doc/articles \
                          README.md
 INPUT_ENCODING         = UTF-8
 INPUT_FILE_ENCODING    = 
@@ -162,7 +162,7 @@ INPUT_FILTER           =
 FILTER_PATTERNS        = 
 FILTER_SOURCE_FILES    = NO
 FILTER_SOURCE_PATTERNS = 
-USE_MDFILE_AS_MAINPAGE = README.md
+USE_MDFILE_AS_MAINPAGE = README.md 
 
 #---------------------------------------------------------------------------
 # Configuration options related to source browsing
@@ -193,12 +193,20 @@ IGNORE_PREFIX          =
 GENERATE_HTML          = YES
 HTML_OUTPUT            = html
 HTML_FILE_EXTENSION    = .html
-HTML_HEADER            = 
+HTML_HEADER            = doc/header.html
 HTML_FOOTER            = 
 HTML_STYLESHEET        = 
-HTML_EXTRA_STYLESHEET  = doxygen-awesome-css/doxygen-awesome.css \
-                        doxygen-awesome-css/doxygen-awesome-sidebar-only.css
-HTML_EXTRA_FILES       = 
+HTML_EXTRA_STYLESHEET  = doc/doxygen-awesome-css/doxygen-awesome.css \
+                         doc/doxygen-awesome-css/doxygen-awesome-sidebar-only.css \
+			 doc/doxygen-awesome-css/doxygen-awesome-sidebar-only-darkmode-toggle.css 
+
+
+HTML_EXTRA_FILES       = doc/doxygen-awesome-css/doxygen-awesome-darkmode-toggle.js \
+			 doc/doxygen-awesome-css/doxygen-awesome-fragment-copy-button.js \
+			 doc/doxygen-awesome-css/doxygen-awesome-paragraph-link.js \
+			 doc/doxygen-awesome-css/doxygen-awesome-interactive-toc.js \
+			 doc/doxygen-awesome-css/doxygen-awesome-tabs.js
+
 HTML_COLORSTYLE        = LIGHT # required with Doxygen >= 1.9.5
 HTML_COLORSTYLE_HUE    = 220
 HTML_COLORSTYLE_SAT    = 100
@@ -225,7 +233,7 @@ TOC_EXPAND             = NO
 GENERATE_QHP           = NO
 QCH_FILE               = 
 QHP_NAMESPACE          = org.doxygen.Project
-QHP_VIRTUAL_FOLDER     = doc
+QHP_VIRTUAL_FOLDER     = doc # required with Doxygen >= 1.9.5
 QHP_CUST_FILTER_NAME   = 
 QHP_CUST_FILTER_ATTRS  = 
 QHP_SECT_FILTER_ATTRS  = 
@@ -338,7 +346,7 @@ ENABLE_PREPROCESSING   = YES
 MACRO_EXPANSION        = YES
 EXPAND_ONLY_PREDEF     = NO
 SEARCH_INCLUDES        = YES
-INCLUDE_PATH           = include
+INCLUDE_PATH           = include # ../include
 INCLUDE_FILE_PATTERNS  = 
 PREDEFINED             = 
 EXPAND_AS_DEFINED      = 

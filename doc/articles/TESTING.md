@@ -1,7 +1,3 @@
-# SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
-#
-# SPDX-License-Identifier: GPL-3.0-or-later
-
 # Testing Guide for ReUseX
 
 This document describes the testing infrastructure and procedures for the ReUseX project.

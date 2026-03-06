@@ -1,7 +1,3 @@
-# SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
-#
-# SPDX-License-Identifier: GPL-3.0-or-later
-
 # ReUseX API Documentation Guide
 
 This guide explains how to generate and use the ReUseX API documentation.

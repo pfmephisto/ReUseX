@@ -2,12 +2,12 @@
 #include <ReUseX/vision/tensor_rt/TensorRTData.hpp>
 #include <ReUseX/vision/tensor_rt/TensorRTSam3.hpp>
 #include <ReUseX/vision/tensor_rt/common/affine.hpp>
-#include <ReUseX/vision/tensor_rt/common/createObject.hpp>
+#include <ReUseX/vision/common/createObject.hpp>
 #include <ReUseX/vision/tensor_rt/common/image.hpp>
 #include <ReUseX/vision/tensor_rt/infer/sam3infer.hpp>
 #include <ReUseX/vision/tensor_rt/kernels/postprocess.cuh>
 #include <ReUseX/vision/tensor_rt/kernels/process_kernel_warp.hpp>
-#include <ReUseX/vision/tensor_rt/osd/osd.hpp>
+#include <ReUseX/vision/osd/osd.hpp>
 
 #include <fmt/ranges.h>
 #include <spdlog/fmt/std.h>

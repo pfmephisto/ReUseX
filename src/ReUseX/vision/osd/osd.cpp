@@ -1,6 +1,6 @@
-#include <ReUseX/vision/tensor_rt/osd/cvx_text.hpp>
-#include <ReUseX/vision/tensor_rt/osd/labelLayoutSolver.hpp>
-#include <ReUseX/vision/tensor_rt/osd/osd.hpp>
+#include <ReUseX/vision/osd/cvx_text.hpp>
+#include <ReUseX/vision/osd/labelLayoutSolver.hpp>
+#include <ReUseX/vision/osd/osd.hpp>
 #include <filesystem>
 #include <functional>
 #include <iomanip>
@@ -21,7 +21,6 @@ constexpr int HAND_NUM_KEYPOINTS = 21;
 
 namespace {
 
-// COCO Key Point Connections
 const std::vector<std::pair<int, int>> coco_pairs = {
     {0, 1}, {0, 2},  {1, 3},   {2, 4},   {0, 5},   {0, 6},
     {5, 6}, {5, 11}, {6, 12},  {11, 12}, {5, 7},   {7, 9},
@@ -32,7 +31,6 @@ const std::vector<std::pair<int, int>> hand_pairs = {
     {6, 7},   {7, 8},   {9, 10},  {10, 11}, {11, 12}, {13, 14},
     {14, 15}, {15, 16}, {17, 18}, {18, 19}, {19, 20}};
 
-// HSV to BGR
 std::tuple<uint8_t, uint8_t, uint8_t> hsv2bgr(float h, float s, float v) {
   const int h_i = static_cast<int>(h * 6);
   const float f = h * 6 - h_i;
@@ -41,52 +39,19 @@ std::tuple<uint8_t, uint8_t, uint8_t> hsv2bgr(float h, float s, float v) {
   const float t = v * (1 - (1 - f) * s);
   float r, g, b;
   switch (h_i) {
-  case 0:
-    r = v;
-    g = t;
-    b = p;
-    break;
-  case 1:
-    r = q;
-    g = v;
-    b = p;
-    break;
-  case 2:
-    r = p;
-    g = v;
-    b = t;
-    break;
-  case 3:
-    r = p;
-    g = q;
-    b = v;
-    break;
-  case 4:
-    r = t;
-    g = p;
-    b = v;
-    break;
-  case 5:
-    r = v;
-    g = p;
-    b = q;
-    break;
-  default:
-    r = 1;
-    g = 1;
-    b = 1;
-    break;
+  case 0: r = v; g = t; b = p; break;
+  case 1: r = q; g = v; b = p; break;
+  case 2: r = p; g = v; b = t; break;
+  case 3: r = p; g = q; b = v; break;
+  case 4: r = t; g = p; b = v; break;
+  case 5: r = v; g = p; b = q; break;
+  default: r = 1; g = 1; b = 1; break;
   }
   return {static_cast<uint8_t>(b * 255), static_cast<uint8_t>(g * 255),
           static_cast<uint8_t>(r * 255)};
 }
 
-// Random color
 std::tuple<uint8_t, uint8_t, uint8_t> random_color(int id) {
-  // float h_plane = ((((unsigned int)id << 2) ^ 0x937151) % 100) / 100.0f;
-  // float s_plane =
-  //     ((((unsigned int)id << 3) ^ 0x315793) % 100) / 100.0f * 0.5f + 0.5f;
-  // return hsv2bgr(h_plane, s_plane, 1.0f);
   auto c = pcl::GlasbeyLUT::at(id % pcl::GlasbeyLUT::size());
   return {c.r, c.g, c.b};
 }
@@ -96,9 +61,8 @@ std::tuple<uint8_t, uint8_t, uint8_t> random_color(const std::string &label) {
   return random_color(static_cast<int>(hasher(label) & 0x7FFFFFFF));
 }
 
-// Mask overlay
 void overlay_mask(cv::Mat &image, const cv::Mat &mask,
-                  const ::ReUseX::vision::tensor_rt::object::Box &box,
+                  const ::ReUseX::vision::common::object::Box &box,
                   const cv::Scalar &color, double alpha) {
   if (image.empty() || mask.empty())
     return;
@@ -116,7 +80,6 @@ void overlay_mask(cv::Mat &image, const cv::Mat &mask,
   weighted_color.copyTo(image_roi, resized_mask);
 }
 
-// Polygon center
 std::tuple<float, float>
 calculatePolygonCentroid(const std::vector<std::tuple<float, float>> &pts) {
   if (pts.empty())
@@ -130,7 +93,6 @@ calculatePolygonCentroid(const std::vector<std::tuple<float, float>> &pts) {
 }
 
 std::filesystem::path getFontPath() {
-  // Preferred font families in order of preference
   const std::vector<std::string> preferred_fonts = {
       "DejaVuSans.ttf",
       "DejaVuSans-Bold.ttf",
@@ -142,27 +104,21 @@ std::filesystem::path getFontPath() {
       "FreeSans.ttf",
       "NotoSans-Regular.ttf"};
 
-  // Platform-specific font directories
   std::vector<std::filesystem::path> search_dirs;
 
-  // Check environment variables (useful for NixOS and custom setups)
-  if (const char *fontconfig_path = std::getenv("FONTCONFIG_PATH")) {
+  if (const char *fontconfig_path = std::getenv("FONTCONFIG_PATH"))
     search_dirs.push_back(std::filesystem::path(fontconfig_path));
-  }
   if (const char *fc_file = std::getenv("FONTCONFIG_FILE")) {
     auto parent = std::filesystem::path(fc_file).parent_path();
     if (!parent.empty())
       search_dirs.push_back(parent);
   }
 
-  // Local directory (highest priority after env vars)
   search_dirs.push_back(".");
 
-  // NixOS-specific paths
-  if (const char *nix_profile = std::getenv("NIX_PROFILE")) {
+  if (const char *nix_profile = std::getenv("NIX_PROFILE"))
     search_dirs.push_back(std::filesystem::path(nix_profile) / "share" /
                           "fonts");
-  }
   search_dirs.push_back("/run/current-system/sw/share/fonts");
   if (const char *home = std::getenv("HOME")) {
     search_dirs.push_back(std::filesystem::path(home) / ".nix-profile" /
@@ -171,46 +127,31 @@ std::filesystem::path getFontPath() {
                           "fonts");
   }
 
-  // Standard Linux paths
   search_dirs.push_back("/usr/share/fonts");
   search_dirs.push_back("/usr/local/share/fonts");
-
-  // macOS paths
   search_dirs.push_back("/Library/Fonts");
   search_dirs.push_back("/System/Library/Fonts");
-  if (const char *home = std::getenv("HOME")) {
+  if (const char *home = std::getenv("HOME"))
     search_dirs.push_back(std::filesystem::path(home) / "Library" / "Fonts");
-  }
-
-  // Windows paths
-  if (const char *windir = std::getenv("WINDIR")) {
+  if (const char *windir = std::getenv("WINDIR"))
     search_dirs.push_back(std::filesystem::path(windir) / "Fonts");
-  }
   search_dirs.push_back("C:\\Windows\\Fonts");
 
-  // Search for fonts
   for (const auto &dir : search_dirs) {
     if (!std::filesystem::exists(dir))
       continue;
-
     for (const auto &font : preferred_fonts) {
-      // Direct path
       auto font_path = dir / font;
-      if (std::filesystem::exists(font_path)) {
+      if (std::filesystem::exists(font_path))
         return font_path;
-      }
-
-      // Search subdirectories (common in font directories)
       try {
         for (const auto &entry : std::filesystem::recursive_directory_iterator(
                  dir,
                  std::filesystem::directory_options::skip_permission_denied)) {
-          if (entry.is_regular_file() && entry.path().filename() == font) {
+          if (entry.is_regular_file() && entry.path().filename() == font)
             return entry.path();
-          }
         }
       } catch (const std::filesystem::filesystem_error &) {
-        // Skip directories we can't access
         continue;
       }
     }
@@ -221,36 +162,32 @@ std::filesystem::path getFontPath() {
       "ensure a TrueType font is available.");
 }
 
-//"./DejaVuSansMNerdFont-Regular.ttf";
 static const std::string font_path_str = getFontPath().string();
-static ReUseX::vision::tensor_rt::CvxText text_renderer(font_path_str.c_str());
+static ReUseX::vision::osd::CvxText text_renderer(font_path_str.c_str());
+
 } // namespace
 
-namespace ReUseX::vision::tensor_rt {
+namespace ReUseX::vision::osd {
 
-// Geometric drawing function
-void drawBaseInfoGeometry(
-    cv::Mat &img, const ::ReUseX::vision::tensor_rt::object::DetectionBox &box,
-    const cv::Scalar &color, int thickness) {
+void drawBaseInfoGeometry(cv::Mat &img,
+                          const common::object::DetectionBox &box,
+                          const cv::Scalar &color, int thickness) {
   cv::Rect rect(cv::Point(box.box.left, box.box.top),
                 cv::Point(box.box.right, box.box.bottom));
   cv::rectangle(img, rect, color, thickness);
 }
 
-void drawPositionRectGeometry(
-    cv::Mat &img, const ::ReUseX::vision::tensor_rt::object::DetectionBox &box,
-    const cv::Scalar &color, int thickness) {
-  // A simple way to implement a dashed box, or simply a solid line.
+void drawPositionRectGeometry(cv::Mat &img,
+                              const common::object::DetectionBox &box,
+                              const cv::Scalar &color, int thickness) {
   cv::Rect rect(cv::Point(box.box.left, box.box.top),
                 cv::Point(box.box.right, box.box.bottom));
   cv::rectangle(img, rect, color, thickness);
 }
 
-void drawPoseSkeleton(
-    cv::Mat &img, const ::ReUseX::vision::tensor_rt::object::DetectionBox &box,
-    int thickness) {
-  if (box.type == ::ReUseX::vision::tensor_rt::object::ObjectType::TRACK ||
-      !box.pose)
+void drawPoseSkeleton(cv::Mat &img, const common::object::DetectionBox &box,
+                      int thickness) {
+  if (box.type == common::object::ObjectType::TRACK || !box.pose)
     return;
   const auto &points = box.pose->points;
   const auto *pairs = (points.size() == COCO_NUM_KEYPOINTS)   ? &coco_pairs
@@ -271,11 +208,9 @@ void drawPoseSkeleton(
   }
 }
 
-void drawObbBox(cv::Mat &img,
-                const ::ReUseX::vision::tensor_rt::object::DetectionBox &box,
+void drawObbBox(cv::Mat &img, const common::object::DetectionBox &box,
                 int thickness) {
-  if (box.type == ::ReUseX::vision::tensor_rt::object::ObjectType::TRACK ||
-      !box.obb)
+  if (box.type == common::object::ObjectType::TRACK || !box.obb)
     return;
   auto c = random_color(box.class_name);
   cv::RotatedRect rRect(cv::Point2f(box.obb->cx, box.obb->cy),
@@ -289,9 +224,8 @@ void drawObbBox(cv::Mat &img,
              thickness);
 }
 
-void drawSegmentationMask(
-    cv::Mat &img,
-    const ::ReUseX::vision::tensor_rt::object::DetectionBox &box) {
+void drawSegmentationMask(cv::Mat &img,
+                          const common::object::DetectionBox &box) {
   if (!box.segmentation || box.segmentation->mask.empty())
     return;
   auto c = random_color(box.class_name);
@@ -301,14 +235,16 @@ void drawSegmentationMask(
       0.5);
 }
 
-void drawTrackHistoryPose(
-    cv::Mat &img, const ::ReUseX::vision::tensor_rt::object::DetectionBox &box,
-    int thickness) {
-  // Implementation details omitted, depending on specific requirements
+void drawTrackHistoryPose(cv::Mat &img,
+                          const common::object::DetectionBox &box,
+                          int thickness) {
+  // Implementation reserved for future use
+  (void)img;
+  (void)box;
+  (void)thickness;
 }
 
-void drawDepth(cv::Mat &img,
-               const ::ReUseX::vision::tensor_rt::object::DetectionBox &box) {
+void drawDepth(cv::Mat &img, const common::object::DetectionBox &box) {
   if (!box.depth || box.depth->depth.empty())
     return;
   cv::Mat norm, cmap;
@@ -317,9 +253,8 @@ void drawDepth(cv::Mat &img,
   cv::addWeighted(img, 0.5, cmap, 0.5, 0.0, img);
 }
 
-void drawTrackTrace(
-    cv::Mat &img, const ::ReUseX::vision::tensor_rt::object::DetectionBox &box,
-    int font_size) {
+void drawTrackTrace(cv::Mat &img, const common::object::DetectionBox &box,
+                    int font_size) {
   if (!box.track)
     return;
   auto c = random_color(box.track->track_id);
@@ -349,72 +284,45 @@ void drawPolygon(cv::Mat &img,
   cv::polylines(img, poly, true, color, thickness);
 }
 
-int calculateDynamicFontSize(
-    int img_w, int img_h, const ::ReUseX::vision::tensor_rt::object::Box &box,
-    double ratio) {
-  // Calculate font size based only on image resolution to ensure consistency
-  // across the entire image
-
-  // ratio defaults to 0.04 (i.e., 4% of the shorter side of the image)
+static int calculateDynamicFontSize(int img_w, int img_h,
+                                    const common::object::Box &box,
+                                    double ratio) {
   int target_size =
       std::max(12, static_cast<int>(std::min(img_w, img_h) * ratio));
   return target_size;
 }
-// ==================================================================
-// Main OSD function
-// ===================================================================
-void osd_new(
-    cv::Mat &img,
-    const ::ReUseX::vision::tensor_rt::object::DetectionBoxArray &boxes) {
 
+void osd_new(cv::Mat &img, const common::object::DetectionBoxArray &boxes) {
   spdlog::debug("OSD called with {} boxes", boxes.size());
-
-  // Iterate and draw geometry
   for (const auto &box : boxes) {
-
     if (!box.segmentation || box.segmentation->mask.empty())
       return;
-
     if (img.empty() || box.segmentation->mask.empty())
       return;
-
     cv::Rect roi(cv::Point(box.box.left, box.box.top),
                  cv::Point(box.box.right, box.box.bottom));
-
     roi &= cv::Rect(0, 0, img.cols, img.rows);
-
     if (roi.area() <= 0)
       return;
-
-    double alpha = 0.5; // Transparency factor
+    double alpha = 0.5;
     cv::Mat image_roi = img(roi);
-
     cv::Mat resized_mask;
     cv::resize(box.segmentation->mask, resized_mask, roi.size());
-
-    //// TODO: assign label based on box.class_name
-    // std::hash<std::string> hasher;
-    // const int lable = static_cast<int>(hasher(box.class_name) & 0x7FFFFFFF);
-
     spdlog::debug("Class Id: {}, Class Name: {}", box.class_id, box.class_name);
-
     cv::Mat color_patch(roi.size(), img.type(), box.class_id);
     color_patch.copyTo(image_roi, resized_mask);
   }
 }
 
-void osd(cv::Mat &img,
-         const ::ReUseX::vision::tensor_rt::object::DetectionBoxArray &boxes,
+void osd(cv::Mat &img, const common::object::DetectionBoxArray &boxes,
          bool osd_rect, double font_scale_ratio) {
-
   spdlog::debug("OSD called with {} boxes, osd_rect={}, font_scale_ratio={}",
                 boxes.size(), osd_rect, font_scale_ratio);
 
   int height = img.rows, width = img.cols;
-  const int PAD_X = 2; // Consistent with LayoutSolver
+  const int PAD_X = 2;
   const int PAD_Y = 2;
 
-  // 1. Initialize layout solver
   LabelLayoutSolver solver(
       width, height, [&](const std::string &txt, int fontSize) -> TextSize {
         int w, h, base;
@@ -425,12 +333,9 @@ void osd(cv::Mat &img,
   std::vector<cv::Scalar> label_colors;
   std::vector<std::string> label_texts;
 
-  // 2. Iterate and draw geometry
   for (const auto &box : boxes) {
-    if (box.type ==
-            ::ReUseX::vision::tensor_rt::object::ObjectType::DEPTH_PRO ||
-        box.type ==
-            ::ReUseX::vision::tensor_rt::object::ObjectType::DEPTH_ANYTHING) {
+    if (box.type == common::object::ObjectType::DEPTH_PRO ||
+        box.type == common::object::ObjectType::DEPTH_ANYTHING) {
       drawDepth(img, box);
       continue;
     }
@@ -443,7 +348,7 @@ void osd(cv::Mat &img,
     int thickness = std::max(1, base_font_size / 10);
 
     if (osd_rect) {
-      if (box.type == ::ReUseX::vision::tensor_rt::object::ObjectType::POSITION)
+      if (box.type == common::object::ObjectType::POSITION)
         drawPositionRectGeometry(img, box, color, thickness);
       else
         drawBaseInfoGeometry(img, box, color, thickness);
@@ -455,10 +360,9 @@ void osd(cv::Mat &img,
     drawTrackTrace(img, box, base_font_size);
     drawObbBox(img, box, thickness);
 
-    // Add text task
     if (osd_rect && (box.box.bottom - box.box.top) >= 1) {
       std::string text;
-      if (box.type == ::ReUseX::vision::tensor_rt::object::ObjectType::POSITION)
+      if (box.type == common::object::ObjectType::POSITION)
         text = box.class_name;
       else {
         std::ostringstream oss;
@@ -466,7 +370,6 @@ void osd(cv::Mat &img,
             << box.score;
         text = oss.str();
       }
-
       solver.add(box.box.left, box.box.top, box.box.right, box.box.bottom, text,
                  base_font_size);
       label_colors.push_back(color);
@@ -474,35 +377,23 @@ void osd(cv::Mat &img,
     }
   }
 
-  // 3. Solve
   solver.solve();
-
-  // 4. Draw text
   auto results = solver.getResults();
 
   for (size_t i = 0; i < results.size() && i < label_colors.size(); ++i) {
     const auto &res = results[i];
-
     cv::Rect bg_rect(static_cast<int>(res.x), static_cast<int>(res.y),
                      res.width, res.height);
     bg_rect &= cv::Rect(0, 0, width, height);
     if (bg_rect.area() <= 0)
       continue;
-
-    // Solid fill background
-    // cv::rectangle(img, bg_rect, label_colors[i], cv::FILLED);
-
-    // Draw text (correct Baseline offset)
     int text_x = bg_rect.x + PAD_X;
-    // Coordinate = BoxTop + Padding + Ascent
     int text_y = bg_rect.y + PAD_Y + res.textAscent;
-
     text_renderer.putText(img, label_texts[i], cv::Point(text_x, text_y),
                           label_colors[i], res.fontSize);
   }
 }
 
-// Polygon overload
 void osd(
     cv::Mat &img,
     const std::unordered_map<std::string, std::vector<std::tuple<float, float>>>
@@ -545,4 +436,5 @@ void osd(cv::Mat &img, const std::tuple<float, float> &position,
                         cv::Point(std::get<0>(position), std::get<1>(position)),
                         color, font_size);
 }
-} // namespace ReUseX::vision::tensor_rt
+
+} // namespace ReUseX::vision::osd

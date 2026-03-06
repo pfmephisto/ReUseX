@@ -3,7 +3,7 @@
 #include <ReUseX/vision/IModel.hpp>
 
 #include <ReUseX/vision/tensor_rt/TensorRTData.hpp>
-#include <ReUseX/vision/tensor_rt/common/object.hpp>
+#include <ReUseX/vision/common/object.hpp>
 #include <ReUseX/vision/tensor_rt/infer/sam3type.hpp>
 // #include <ReUseX/vision/tensor_rt/common/device.hpp>
 #include <ReUseX/vision/tensor_rt/common/memory.hpp>
@@ -15,6 +15,10 @@
 #include <tokenizers_cpp.h>
 
 namespace ReUseX::vision::tensor_rt {
+
+/// @brief Convenience namespace alias so existing tensor_rt code can continue
+/// to reference types via `object::DetectionBox` etc.
+namespace object = ReUseX::vision::common::object;
 
 /* TensorRTSam3 is an implementation of the SAM3 model using TensorRT for
 efficient inference. It supports batch processing of images and prompts, with

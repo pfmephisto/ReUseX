@@ -1,5 +1,5 @@
 #pragma once
-#include <ReUseX/vision/tensor_rt/common/object.hpp>
+#include <ReUseX/vision/common/object.hpp>
 #include <ReUseX/vision/tensor_rt/infer/sam3type.hpp>
 #include <array>
 #include <iostream>
@@ -7,6 +7,10 @@
 #include <vector>
 
 namespace ReUseX::vision::tensor_rt {
+
+/// @brief Convenience namespace alias so existing tensor_rt code can continue
+/// to reference types via `object::DetectionBox` etc.
+namespace object = ReUseX::vision::common::object;
 
 using InferResult = object::DetectionBoxArray;
 using InferResultArray = std::vector<object::DetectionBoxArray>;

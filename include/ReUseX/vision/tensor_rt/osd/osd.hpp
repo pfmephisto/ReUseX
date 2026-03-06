@@ -1,51 +1,18 @@
 #pragma once
-#include <ReUseX/vision/tensor_rt/common/object.hpp>
-#include <opencv2/opencv.hpp>
-#include <string>
-#include <tuple>
-#include <unordered_map>
-#include <vector>
+// Backward compatibility header — OSD functions have been moved to vision/osd.
+// New code should include <ReUseX/vision/osd/osd.hpp> directly.
+#include <ReUseX/vision/osd/osd.hpp>
 
 namespace ReUseX::vision::tensor_rt {
-
-// Basic drawing
-void drawBaseInfoGeometry(cv::Mat &img, const object::DetectionBox &box,
-                          const cv::Scalar &color, int thickness);
-void drawPositionRectGeometry(cv::Mat &img, const object::DetectionBox &box,
-                              const cv::Scalar &color, int thickness);
-
-// Auxiliary drawing
-void drawPoseSkeleton(cv::Mat &img, const object::DetectionBox &box,
-                      int thickness);
-void drawObbBox(cv::Mat &img, const object::DetectionBox &box, int thickness);
-void drawSegmentationMask(cv::Mat &img, const object::DetectionBox &box);
-void drawTrackTrace(cv::Mat &img, const object::DetectionBox &box,
-                    int font_size);
-void drawTrackHistoryPose(cv::Mat &img, const object::DetectionBox &box,
-                          int thickness);
-void drawDepth(cv::Mat &img, const object::DetectionBox &box);
-void drawPolygon(cv::Mat &img,
-                 const std::vector<std::tuple<float, float>> &points,
-                 const cv::Scalar &color, int thickness);
-
-void osd_new(cv::Mat &img, const object::DetectionBoxArray &boxes);
-
-// Main OSD function
-void osd(cv::Mat &img, const object::DetectionBoxArray &boxes,
-         bool osd_rect = true, double font_scale_ratio = 0.04);
-
-// Polygon overload
-void osd(
-    cv::Mat &img,
-    const std::unordered_map<std::string, std::vector<std::tuple<float, float>>>
-        &points,
-    const cv::Scalar &color = cv::Scalar(0, 255, 0),
-    double font_scale_ratio = 0.04);
-void osd(cv::Mat &img, const std::string &fence_name,
-         const std::vector<std::tuple<float, float>> &points,
-         const cv::Scalar &color = cv::Scalar(0, 255, 0),
-         double font_scale_ratio = 0.04);
-void osd(cv::Mat &img, const std::tuple<float, float> &position,
-         const std::string &text,
-         const cv::Scalar &color = cv::Scalar(0, 255, 0), int font_size = 40);
+using ReUseX::vision::osd::drawBaseInfoGeometry;
+using ReUseX::vision::osd::drawDepth;
+using ReUseX::vision::osd::drawObbBox;
+using ReUseX::vision::osd::drawPolygon;
+using ReUseX::vision::osd::drawPositionRectGeometry;
+using ReUseX::vision::osd::drawPoseSkeleton;
+using ReUseX::vision::osd::drawSegmentationMask;
+using ReUseX::vision::osd::drawTrackHistoryPose;
+using ReUseX::vision::osd::drawTrackTrace;
+using ReUseX::vision::osd::osd;
+using ReUseX::vision::osd::osd_new;
 } // namespace ReUseX::vision::tensor_rt

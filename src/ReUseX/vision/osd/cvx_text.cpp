@@ -1,12 +1,12 @@
-#include <ReUseX/vision/tensor_rt/osd/cvx_text.hpp>
+#include <ReUseX/vision/osd/cvx_text.hpp>
 #include <iostream>
 
-namespace ReUseX::vision::tensor_rt {
+namespace ReUseX::vision::osd {
+
 CvxText::CvxText(const char *font_path) {
   if (FT_Init_FreeType(&m_library)) {
     throw std::runtime_error("Error: Unable to initialize FreeType library");
   }
-
   getFace(font_path);
 }
 
@@ -21,34 +21,25 @@ FT_Face CvxText::getFace(const char *font_path) {
   if (m_faces.count(font_path)) {
     return m_faces[font_path];
   }
-
-  // Otherwise, load new font
   FT_Face face;
   if (FT_New_Face(m_library, font_path, 0, &face)) {
     std::cerr << "Error: Unable to load font from file " << font_path
               << std::endl;
     return nullptr;
   }
-
-  // Cache and return
   m_faces[font_path] = face;
   return face;
 }
 
 void CvxText::putText(cv::Mat &img, const std::string &text, cv::Point org,
                       cv::Scalar color, int font_size) {
-  // By default, use the font loaded in the constructor
-  if (m_faces.empty()) {
-    // std::cerr << "Error: No font loaded" << std::endl;
+  if (m_faces.empty())
     return;
-  }
-  FT_Face face = m_faces.begin()->second; // Get the first (default) font
+  FT_Face face = m_faces.begin()->second;
 
-  // Set font size
   FT_Set_Pixel_Sizes(face, 0, font_size);
   FT_Select_Charmap(face, FT_ENCODING_UNICODE);
 
-  // Decode UTF-8 to Unicode
   std::vector<long> ucs4_codes;
   utf8_to_ucs4(text, ucs4_codes);
 
@@ -73,10 +64,8 @@ void CvxText::putText(cv::Mat &img, const std::string &text, cv::Point org,
           unsigned char alpha = bitmap.buffer[r * bitmap.pitch + c];
           if (alpha == 0)
             continue;
-
           double alpha_norm = alpha / 255.0;
           cv::Vec3b &dst_pixel = img.at<cv::Vec3b>(y, x);
-
           for (int k = 0; k < 3; ++k) {
             dst_pixel[k] = cv::saturate_cast<uchar>(
                 color.val[k] * alpha_norm + dst_pixel[k] * (1 - alpha_norm));
@@ -105,22 +94,19 @@ void CvxText::getTextSize(const std::string &text, int font_size, int *w,
   std::vector<long> ucs4_codes;
   utf8_to_ucs4(text, ucs4_codes);
 
-  if (ucs4_codes.empty()) {
+  if (ucs4_codes.empty())
     return;
-  }
 
   int pen_x = 0;
-  int max_ascent = 0;  // Highest point (relative to baseline)
-  int max_descent = 0; // Lowest point (relative to baseline, positive value)
+  int max_ascent = 0;
+  int max_descent = 0;
 
   for (size_t i = 0; i < ucs4_codes.size(); ++i) {
     long code = ucs4_codes[i];
-    if (FT_Load_Char(face, code, FT_LOAD_DEFAULT)) {
+    if (FT_Load_Char(face, code, FT_LOAD_DEFAULT))
       continue;
-    }
 
     FT_GlyphSlot slot = face->glyph;
-
     int ascent = slot->bitmap_top;
     int descent = slot->bitmap.rows - slot->bitmap_top;
 
@@ -129,12 +115,10 @@ void CvxText::getTextSize(const std::string &text, int font_size, int *w,
     if (descent > max_descent)
       max_descent = descent;
 
-    // Calculate the width of the last character
-    if (i == ucs4_codes.size() - 1) {
+    if (i == ucs4_codes.size() - 1)
       pen_x += slot->bitmap_left + slot->bitmap.width;
-    } else {
+    else
       pen_x += (slot->advance.x >> 6);
-    }
   }
 
   if (w)
@@ -170,4 +154,5 @@ void CvxText::utf8_to_ucs4(const std::string &str, std::vector<long> &ucs4) {
     i += len;
   }
 }
-} // namespace ReUseX::vision::tensor_rt
+
+} // namespace ReUseX::vision::osd

@@ -1,5 +1,5 @@
 #include <ReUseX/vision/tensor_rt/common/affine.hpp>
-#include <ReUseX/vision/tensor_rt/common/createObject.hpp>
+#include <ReUseX/vision/common/createObject.hpp>
 #include <ReUseX/vision/tensor_rt/common/image.hpp>
 #include <ReUseX/vision/tensor_rt/infer/sam3infer.hpp>
 #include <ReUseX/vision/tensor_rt/kernels/postprocess.cuh>

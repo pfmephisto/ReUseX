@@ -29,6 +29,26 @@ option(LIN_ENABLE_WERROR "if true, enables -Werror, /WX" OFF)
 set(COMMON_COMPILER_FLAGS "")
 set(COMMON_LINKER_FLAGS "")
 
+# ===============================================
+# Optimization flags for Release builds
+# ===============================================
+
+if (CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
+    if (MSVC)
+        # MSVC optimization flags
+        add_compile_options(/O2 /Ob2 /Oi /Ot /GL)
+        add_link_options(/LTCG /OPT:REF /OPT:ICF)
+    else()
+        # GCC/Clang optimization flags
+        add_compile_options(-O3 -march=native -DNDEBUG)
+        if (CMAKE_BUILD_TYPE STREQUAL "Release")
+            # Strip symbols in pure Release mode
+            add_link_options(-s)
+        endif()
+    endif()
+    message(STATUS "Optimization flags enabled for ${CMAKE_BUILD_TYPE} build")
+endif()
+
 if (MSVC)
     list(APPEND COMMON_COMPILER_FLAGS /MP)
     list(APPEND COMMON_COMPILER_FLAGS /openmp)

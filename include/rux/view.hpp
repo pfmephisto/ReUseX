@@ -9,7 +9,7 @@ namespace fs = std::filesystem;
 
 /// Collection of all options of Subcommand A.
 struct SubcommandViewOptions {
-  fs::path cloud_path_in;
+  std::vector<fs::path> input_paths;
   std::vector<fs::path> label_paths_in = {};
 };
 

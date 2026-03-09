@@ -6,6 +6,8 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # ReUseX
 
+![](assets/banner.png)
+
 ReUseX is a comprehensive tool for processing 3D point cloud scans of building interiors, designed to support building reuse and renovation projects. The project processes LiDAR scans to create semantic 3D models with advanced segmentation capabilities for architectural elements.
 
 ## Features

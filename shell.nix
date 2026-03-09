@@ -41,6 +41,7 @@ pkgs.mkShell {
     claude-code
     doxygen
     tree
+    git-lfs
   ];
 
   shellHook =

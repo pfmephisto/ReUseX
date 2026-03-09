@@ -128,7 +128,6 @@ WARN_LOGFILE           =
 # Configuration options related to the input files
 #---------------------------------------------------------------------------
 INPUT                  = include/ReUseX \
-                         include/rux \
                          include/pcl \
                          include/spdmon \
 			 doc/articles \
@@ -157,7 +156,7 @@ EXCLUDE_SYMBOLS        =
 EXAMPLE_PATH           = 
 EXAMPLE_PATTERNS       = *
 EXAMPLE_RECURSIVE      = NO
-IMAGE_PATH             = 
+IMAGE_PATH             =  .
 INPUT_FILTER           = 
 FILTER_PATTERNS        = 
 FILTER_SOURCE_FILES    = NO

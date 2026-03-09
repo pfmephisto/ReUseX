@@ -38,6 +38,7 @@ pkgs.mkShell {
     sqlitebrowser
     hugin
     github-copilot-cli
+    claude-code
     doxygen
     tree
   ];

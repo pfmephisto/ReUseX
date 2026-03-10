@@ -13,6 +13,7 @@
   cudatoolkit,
   opennurbs,
   scip-solver,
+  highs,
   boost,
   # fmt,
   spdlog,
@@ -76,6 +77,7 @@ in
       [
         opennurbs
         scip-solver
+        highs
         boost
 
         # fmt

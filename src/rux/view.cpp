@@ -59,16 +59,16 @@ int run_subcommand_view(SubcommandViewOptions const &opt) {
     float right =
         static_cast<float>(i + 1) / static_cast<float>(viewports.size());
     viewer->createViewPort(left, 0.0, right, 1.0, viewports[i]);
-    viewer->setBackgroundColor(0, 0, 0, viewports[i]);
+    viewer->setBackgroundColor(255, 255, 255, viewports[i]);
     viewer->addCoordinateSystem(1.0, fmt::format("vp{}", i), viewports[i]);
   }
 
   // Initialize camera with proper orientation (fix upside-down issue)
   viewer->initCameraParameters();
-  // viewer->setCameraPosition(0, 0, -10, // Camera position
-  //                           0, 0, 0,   // Look at point
-  //                           0, -1,
-  //                           0); // Up vector (negative Y to fix orientation)
+  viewer->setCameraPosition(0, 0, -10, // Camera position
+                            0, 0, 0,   // Look at point
+                            0, -1,
+                            0); // Up vector (negative Y to fix orientation)
 
   // ============================================================================
   // DATA LOADING

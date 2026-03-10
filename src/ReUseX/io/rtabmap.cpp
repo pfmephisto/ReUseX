@@ -261,7 +261,7 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
       cv::resize(temp, temp, cv::Size(), 4.0, 4.0, cv::INTER_NEAREST);
 
       cv::imshow("Annotation", temp);
-      cv::waitKey(0);
+      cv::waitKey(1);
 #endif
 
       spdlog::trace("Set the values of the labled cloud");

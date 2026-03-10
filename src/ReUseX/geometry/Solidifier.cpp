@@ -9,6 +9,7 @@
 
 #ifdef CGAL_USE_SCIP
 #include <CGAL/SCIP_mixed_integer_program_traits.h>
+#include <scip/scip.h>
 using MIP_Solver = CGAL::SCIP_mixed_integer_program_traits<double>;
 #elif defined(CGAL_USE_GLPK)
 #include <CGAL/GLPK_mixed_integer_program_traits.h>
@@ -21,7 +22,7 @@ namespace ReUseX::geometry {
 
 // PIMPL Implementation class
 class Solidifier::Impl {
-public:
+    public:
   using Variable = typename MIP_Solver::Variable;
   using Linear_objective = typename MIP_Solver::Linear_objective;
   using Linear_constraint = typename MIP_Solver::Linear_constraint;
@@ -41,6 +42,7 @@ public:
     spdlog::trace("Solidifier created");
   }
 
+  void _configureSolver();
   void _setupVariables();
   void _setupObjective();
   void _setupConstraints();
@@ -71,6 +73,7 @@ Solidifier::solve() {
   spdlog::trace("Start solving MIP");
   spdlog::stopwatch sw;
 
+  pimpl_->_configureSolver();
   pimpl_->_setupVariables();
   pimpl_->_setupObjective();
   pimpl_->_setupConstraints();
@@ -121,6 +124,54 @@ std::set<T> operator+(const std::set<T> &a, const std::set<T> &b) {
   std::set_union(a.begin(), a.end(), b.begin(), b.end(),
                  std::inserter(result, result.begin()));
   return result;
+}
+
+/** Configure the MIP solver with parameters to improve performance and reduce
+ * memory usage. The specific parameters depend on the solver being used (e.g.,
+ * SCIP, Gurobi, CPLEX). Below are example configurations for SCIP, which is a
+ * popular open-source MIP solver. Adjust the parameters as needed for other
+ * solvers.
+ */
+void Solidifier::Impl::_configureSolver() {
+
+#ifdef CGAL_USE_SCIP
+  /*
+SCIP *scip = solver.scip();
+
+// --- Overall solver emphasis: minimize memory usage ---
+// SCIPsetEmphasis(scip, SCIP_PARAMEMPHASIS_MEMORY, TRUE);
+
+// --- Hard memory limit (MB) ---
+SCIPsetRealParam(scip, "limits/memory", 50000.0); // 50 GB
+
+// --- Limit search tree growth ---
+SCIPsetLongintParam(scip, "limits/nodes", 500000);
+
+// --- Store fewer feasible solutions ---
+SCIPsetIntParam(scip, "limits/maxsol", 5);
+
+// --- Reduce presolve rounds ---
+SCIPsetIntParam(scip, "presolving/maxrounds", 3);
+
+// --- Reduce cutting plane generation ---
+SCIPsetIntParam(scip, "separating/maxrounds", 5);
+
+// --- Disable conflict analysis (large memory consumer) ---
+SCIPsetBoolParam(scip, "conflict/enable", FALSE);
+
+// --- Reduce heuristic memory usage ---
+SCIPsetHeuristics(scip, SCIP_PARAMSETTING_FAST, TRUE);
+
+// --- Depth-first node exploration (stores fewer nodes) ---
+SCIPsetCharParam(scip, "nodeselection/childsel", 'd');
+
+// --- Encourage node compression / disk usage ---
+SCIPsetRealParam(scip, "memory/savefac", 0.1);
+
+// If your model has tons of binary variables, also add:
+SCIPsetIntParam(scip, "separating/maxcuts", 50);
+*/
+#endif
 }
 
 /** Setup the MIP variables

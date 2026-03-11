@@ -10,6 +10,18 @@
       "Bash(ctest:*)",
       "Bash(ldd:*)",
       "Bash(cmake:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git branch:*)",
+      "Bash(nix develop:*)",
+      "Bash(nix build:*)",
+      "Bash(make:*)",
+      "Bash(clang-format:*)",
+      "Bash(doxygen:*)",
+      "Bash(lcov:*)",
+      "Bash(gcov:*)",
       "WebSearch"
     ]
   }

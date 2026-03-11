@@ -104,3 +104,58 @@ tmux_session
 
 # Ignore CodeQL artifacts
 _codeql_detected_source_root
+
+# TensorRT artifacts
+*.engine
+*.trt
+*.plan
+*.cache
+tensorrt_cache/
+
+# RTABMap databases and E57 point clouds
+*.db
+*.db3
+*.e57
+
+# Coverage reports
+*.gcda
+*.gcno
+*.gcov
+*.profraw
+*.profdata
+coverage/
+coverage.info
+lcov.info
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+install_manifest.txt
+CTestTestfile.cmake
+_deps/
+
+# Doxygen temp files
+*.tmp
+
+# Editor backup files
+*~
+*.swp
+*.swo
+.*.swp
+.*.swo
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Testing artifacts
+Testing/
+CTestTestfile.cmake
+
+# Temporary model artifacts
+*.ckpt
+*.pth
+models/tmp/
+models/cache/

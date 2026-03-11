@@ -1,102 +1,168 @@
-<!--
-SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+# ReUseX Testing Guide
 
-SPDX-License-Identifier: GPL-3.0-or-later
--->
+This directory contains the test suite for the ReUseX library.
 
-# ReUseX Unit Tests
+## Directory Structure
 
-This directory contains unit tests for the ReUseX library using Catch2 v3.
+```
+tests/
+├── unit/                    # Unit tests organized by module
+│   ├── core/               # Core functionality tests
+│   ├── geometry/           # Geometry utilities tests
+│   ├── io/                 # I/O and database tests
+│   ├── utils/              # Utility function tests
+│   ├── vision/             # Vision module tests
+│   └── visualize/          # Visualization tests
+├── integration/            # Integration and end-to-end tests
+├── fixtures/               # Test data and sample files
+└── README.md               # This file
+```
 
-## Building and Running Tests
+## Running Tests
 
-### Configure with Tests Enabled (default)
+### Quick Run
 
 ```bash
 cmake -B build -DBUILD_TESTS=ON
+cmake --build build
+cd build && ctest --output-on-failure
 ```
 
-### Build Tests
-
-```bash
-cmake --build build --target reusex_tests
-```
-
-### Run All Tests
+### Verbose Output
 
 ```bash
 cd build
-ctest --output-on-failure
-```
-
-Or run the test executable directly:
-
-```bash
-./build/tests/reusex_tests
+ctest --verbose
 ```
 
 ### Run Specific Tests
 
 ```bash
-# Run tests matching a tag
-./build/tests/reusex_tests "[sample]"
+# Run only unit tests
+./build/reusex_unit_tests
 
-# Run tests matching a name
-./build/tests/reusex_tests "Point cloud*"
+# Run tests matching a pattern
+./build/reusex_unit_tests "[geometry]"
 
-# List all available tests
-./build/tests/reusex_tests --list-tests
-
-# List all tags
-./build/tests/reusex_tests --list-tags
+# List all tests
+./build/reusex_unit_tests --list-tests
 ```
 
-## Test Structure
+## Code Coverage
 
-- `test_sample.cpp` - Sample tests demonstrating Catch2 features
-- `test_types.cpp` - Tests for ReUseX type definitions and basic operations
+### Generate Coverage Report
 
-## Writing New Tests
+```bash
+./tools/coverage/generate_coverage.sh
+```
 
-Create a new `.cpp` file in this directory with your tests. The CMake configuration will automatically discover and include it.
+This script will:
+1. Configure with coverage enabled
+2. Build the project
+3. Run all tests
+4. Generate HTML coverage report in `build/coverage_html/`
 
-Example test structure:
+### View Coverage Report
+
+```bash
+xdg-open build/coverage_html/index.html
+```
+
+### Requirements
+
+Install lcov for coverage reporting:
+```bash
+sudo apt install lcov
+```
+
+## Current Test Coverage
+
+**Overall Coverage**: ~5% (as of 2026-03-11)
+
+### Coverage by Module
+
+| Module       | Coverage | Notes                          |
+|--------------|----------|--------------------------------|
+| Core         | ~10%     | Basic type tests only          |
+| Geometry     | ~8%      | Utilities tested               |
+| IO           | 0%       | **Priority**: RTABMapDatabase  |
+| Utils        | ~15%     | Math utilities covered         |
+| Vision       | 0%       | **Priority**: Dataset, YOLO    |
+| Visualize    | 0%       | Needs integration tests        |
+
+### Priority Testing Gaps
+
+1. **RTABMapDatabase** (io module)
+   - Critical new functionality
+   - Test getImage, getLabels, saveLabels
+   - Verify rotation and encoding conventions
+
+2. **Dataset Classes** (vision module)
+   - IDataset, TorchDataset, TensorRTDataset
+   - Test data loading and transformation
+
+3. **YOLO Detection** (vision module)
+   - Test inference pipeline
+   - Verify detection output format
+
+4. **Geometry Segmentation** (geometry module)
+   - Test segmentation algorithms
+   - Verify point cloud processing
+
+## Writing Tests
+
+### File Organization
+
+Place tests in the appropriate module directory:
+- `unit/core/` - Core types, logging
+- `unit/geometry/` - Point clouds, segmentation
+- `unit/io/` - Database access, file I/O
+- `unit/utils/` - Math, string utilities
+- `unit/vision/` - Datasets, models, object detection
+- `unit/visualize/` - GUI components
+
+### Test Template
 
 ```cpp
 #include <catch2/catch_test_macros.hpp>
-#include <ReUseX/your_header.hpp>
+#include <ReUseX/module/component.hpp>
 
-TEST_CASE("Description of what is being tested", "[tag]") {
-    // Setup
-    YourClass obj;
-    
-    SECTION("Test scenario 1") {
-        REQUIRE(obj.method() == expected_value);
-    }
-    
-    SECTION("Test scenario 2") {
-        REQUIRE_FALSE(obj.is_invalid());
+TEST_CASE("Component description", "[module][tag]") {
+    SECTION("specific behavior") {
+        // Arrange
+        auto obj = ReUseX::module::Component();
+
+        // Act
+        auto result = obj.method();
+
+        // Assert
+        REQUIRE(result == expected);
     }
 }
 ```
 
-## Useful Catch2 Macros
+### Best Practices
 
-- `REQUIRE(condition)` - Test fails if condition is false
-- `REQUIRE_FALSE(condition)` - Test fails if condition is true
-- `CHECK(condition)` - Like REQUIRE but continues after failure
-- `REQUIRE_THROWS(expression)` - Test fails if expression doesn't throw
-- `REQUIRE_NOTHROW(expression)` - Test fails if expression throws
+1. **Use descriptive test names**: Explain what's being tested
+2. **Tag tests appropriately**: Use `[module]` tags for filtering
+3. **Test one thing per TEST_CASE**: Keep tests focused
+4. **Use SECTION for variations**: Group related assertions
+5. **Provide clear failure messages**: Use `INFO()` for context
+6. **Test edge cases**: Zero, negative, null, empty, large values
+7. **Mock external dependencies**: Isolate unit tests
 
-For floating point comparisons:
-```cpp
-#include <catch2/catch_approx.hpp>
-using Catch::Approx;
+### Fixtures
 
-REQUIRE(value == Approx(expected).epsilon(0.01));
-```
+Place test data in `fixtures/` with a descriptive README:
+- Sample images
+- Test databases
+- Point cloud samples
+- Configuration files
 
-## Documentation
+## Contributing
 
-- [Catch2 Documentation](https://github.com/catchorg/Catch2/tree/devel/docs)
-- [Catch2 Tutorial](https://github.com/catchorg/Catch2/blob/devel/docs/tutorial.md)
+When contributing code:
+1. Write tests for new functionality
+2. Ensure all tests pass: `ctest --output-on-failure`
+3. Verify coverage hasn't decreased significantly
+4. Update this README if adding new test categories

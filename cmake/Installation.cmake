@@ -9,30 +9,54 @@
 include(GNUInstallDirs)
 
 # -----------------------------------------------
-# Install library
+# Install library (if target exists)
 # -----------------------------------------------
-install(TARGETS ReUseX
-    EXPORT ReUseXTargets
-    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-)
+if(TARGET ReUseX)
+    install(TARGETS ReUseX
+        EXPORT ReUseXTargets
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    )
+endif()
 
 # -----------------------------------------------
-# Install executable
+# Install visualization library (if target exists)
 # -----------------------------------------------
-install(TARGETS rux
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-) 
+if(TARGET ReUseX_visualization)
+    install(TARGETS ReUseX_visualization
+        EXPORT ReUseXTargets
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    )
+endif()
+
+# -----------------------------------------------
+# Install executable (if target exists)
+# -----------------------------------------------
+if(TARGET rux)
+    install(TARGETS rux
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    )
+endif() 
 
 # -----------------------------------------------
 # Install headers
 # -----------------------------------------------
-install(DIRECTORY include/ 
+install(DIRECTORY libs/reusex/include/
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-    FILES_MATCHING 
+    FILES_MATCHING
     PATTERN "*.hpp"
     PATTERN "*.cuh"
+)
+
+# Install external headers (CGAL, pcl, spdmon extensions)
+install(DIRECTORY libs/reusex/extern/include/
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    FILES_MATCHING
+    PATTERN "*.hpp"
+    PATTERN "*.h"
 )
 
 install(DIRECTORY ${CMAKE_BINARY_DIR}/generated/

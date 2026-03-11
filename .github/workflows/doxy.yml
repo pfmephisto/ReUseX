@@ -22,7 +22,7 @@ jobs:
     - name: Doxygen Action
       uses: mattnotmitt/doxygen-action@v1.1.0
       with:
-        doxyfile-path: ./doc/Doxyfile
+        doxyfile-path: ./docs/Doxyfile
         working-directory: .
 
 
@@ -30,7 +30,7 @@ jobs:
       id: deployment
       uses: actions/upload-pages-artifact@v3
       with:
-        path: ./doc/html/
+        path: ./docs/api/html/
 
   # Deployment job
   deploy:

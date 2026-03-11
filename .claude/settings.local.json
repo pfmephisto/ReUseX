@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep:*)",
+      "Bash(find:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(wc:*)",
+      "Bash(cmake --build:*)",
+      "Bash(ctest:*)",
+      "Bash(ldd:*)",
+      "Bash(cmake:*)"
+    ]
+  }
+}

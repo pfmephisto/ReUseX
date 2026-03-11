@@ -9,40 +9,79 @@
 message(STATUS "Configuring unit tests...")
 
 # -----------------------------------------------
-# Find Catch2
+# Find dependencies
 # -----------------------------------------------
 find_package(Catch2 3 REQUIRED)
+find_package(fmt CONFIG REQUIRED)
 
 # -----------------------------------------------
-# Collect test source files
+# Coverage support (optional)
 # -----------------------------------------------
-file(GLOB_RECURSE TEST_SOURCES CONFIGURE_DEPENDS
-     "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
+option(ENABLE_COVERAGE "Enable code coverage" OFF)
+if(ENABLE_COVERAGE)
+    message(STATUS "Code coverage enabled")
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        add_compile_options(--coverage)
+        add_link_options(--coverage)
+    else()
+        message(WARNING "Coverage only supported with GCC or Clang")
+    endif()
+endif()
 
 # -----------------------------------------------
-# Create test executable
+# Collect test source files from unit/ directory
 # -----------------------------------------------
-add_executable(reusex_tests ${TEST_SOURCES})
+file(GLOB_RECURSE UNIT_TEST_SOURCES CONFIGURE_DEPENDS
+     "${CMAKE_CURRENT_SOURCE_DIR}/unit/*.cpp")
+
+# -----------------------------------------------
+# Create unit test executable
+# -----------------------------------------------
+add_executable(reusex_unit_tests ${UNIT_TEST_SOURCES})
 
 # Link against ReUseX library and Catch2
-target_link_libraries(reusex_tests 
-    PRIVATE 
-        ${PROJECT_NAME}
+target_link_libraries(reusex_unit_tests
+    PRIVATE
+        ReUseX
         Catch2::Catch2WithMain
         fmt::fmt
 )
 
-# Include ReUseX headers
-target_include_directories(reusex_tests PRIVATE
-    ${CMAKE_SOURCE_DIR}/include
+# Include ReUseX headers from new location
+target_include_directories(reusex_unit_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/libs/reusex/include
     ${CMAKE_BINARY_DIR}/generated
 )
+
+# -----------------------------------------------
+# Integration tests (future)
+# -----------------------------------------------
+file(GLOB_RECURSE INTEGRATION_TEST_SOURCES CONFIGURE_DEPENDS
+     "${CMAKE_CURRENT_SOURCE_DIR}/integration/*.cpp")
+
+if(INTEGRATION_TEST_SOURCES)
+    add_executable(reusex_integration_tests ${INTEGRATION_TEST_SOURCES})
+    target_link_libraries(reusex_integration_tests
+        PRIVATE
+            ReUseX
+            Catch2::Catch2WithMain
+            fmt::fmt
+    )
+    target_include_directories(reusex_integration_tests PRIVATE
+        ${CMAKE_SOURCE_DIR}/libs/reusex/include
+        ${CMAKE_BINARY_DIR}/generated
+    )
+endif()
 
 # -----------------------------------------------
 # Enable CTest and discover tests
 # -----------------------------------------------
 include(CTest)
 include(Catch)
-catch_discover_tests(reusex_tests)
+catch_discover_tests(reusex_unit_tests)
+
+if(INTEGRATION_TEST_SOURCES)
+    catch_discover_tests(reusex_integration_tests)
+endif()
 
 message(STATUS "Unit tests configured successfully")

@@ -43,7 +43,7 @@ bin/
 build/
 
 # Generated documentation
-doc/html/
+docs/api/
 ReUseX.tag
 
 

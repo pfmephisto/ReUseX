@@ -8,13 +8,8 @@
 
 cmake_minimum_required(VERSION 3.17)
 
-# Project version (can be overridden by scikit-build)
-if (NOT SKBUILD_PROJECT_VERSION)
-    set(SKBUILD_PROJECT_VERSION 0.0.1)
-endif()
-
-project(ReUseX 
-    VERSION ${SKBUILD_PROJECT_VERSION} 
+project(ReUseX
+    VERSION 0.0.1
     LANGUAGES CXX CUDA
     DESCRIPTION "Tool for processing interior lidar scans of buildings"
 )
@@ -55,31 +50,25 @@ else()
 endif()
 
 # ===============================================
-# Include CMake Modules
+# Shared CMake Modules
 # ===============================================
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
-include(CompilerOptions)
-include(CUDAOptions)
-include(Dependencies)
+# ===============================================
+# Build Subprojects
+# ===============================================
 
-# -----------------------------------------------
-# Optional Visualization Library
-# -----------------------------------------------
-option(BUILD_VISUALIZATION "Build visualization library" ON)
+# Core library
+add_subdirectory(libs/reusex)
 
-include(ReUseXLibrary)
+# CLI application
+add_subdirectory(apps/rux)
 
-if(BUILD_VISUALIZATION)
-    message(STATUS "Building visualization library")
-    include(ReUseXVisualizationLibrary)
-else()
-    message(STATUS "Visualization library disabled")
+# Optional Python bindings
+option(BUILD_PYTHON_BINDINGS "Build Python bindings" OFF)
+if(BUILD_PYTHON_BINDINGS)
+    add_subdirectory(bindings/python)
 endif()
-
-include(RuxExecutable)
-include(Installation)
-include(Documentation)
 
 # ===============================================
 # Unit Tests
@@ -89,6 +78,19 @@ if(BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
 endif()
+
+# ===============================================
+# Documentation
+# ===============================================
+option(BUILD_DOCUMENTATION "Build documentation" ON)
+if(BUILD_DOCUMENTATION)
+    include(Documentation)
+endif()
+
+# ===============================================
+# Installation
+# ===============================================
+include(Installation)
 
 # ===============================================
 # Summary
@@ -102,9 +104,9 @@ message(STATUS "Build Type:        ${CMAKE_BUILD_TYPE}")
 message(STATUS "Install Prefix:    ${CMAKE_INSTALL_PREFIX}")
 message(STATUS "C++ Compiler:      ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
 message(STATUS "CUDA Support:      ${CMAKE_CUDA_COMPILER_ID} ${CMAKE_CUDA_COMPILER_VERSION}")
-message(STATUS "GUI Enabled:       ${GUI_ENABLED}")
 message(STATUS "Visualization:     ${BUILD_VISUALIZATION}")
 message(STATUS "Documentation:     ${BUILD_DOCUMENTATION}")
 message(STATUS "Unit Tests:        ${BUILD_TESTS}")
+message(STATUS "Python Bindings:   ${BUILD_PYTHON_BINDINGS}")
 message(STATUS "========================================")
 message(STATUS "")

@@ -65,8 +65,8 @@ int run_subcommand_view(SubcommandViewOptions const &opt) {
 
   // Initialize camera with proper orientation (fix upside-down issue)
   viewer->initCameraParameters();
-  viewer->setCameraPosition(0, 0, -10, // Camera position
-                            0, 0, 0,   // Look at point
+  viewer->setCameraPosition(0, 0, 10, // Camera position
+                            0, 0, 0,  // Look at point
                             0, -1,
                             0); // Up vector (negative Y to fix orientation)
 

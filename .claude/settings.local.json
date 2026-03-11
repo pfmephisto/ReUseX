@@ -9,7 +9,8 @@
       "Bash(cmake --build:*)",
       "Bash(ctest:*)",
       "Bash(ldd:*)",
-      "Bash(cmake:*)"
+      "Bash(cmake:*)",
+      "WebSearch"
     ]
   }
 }

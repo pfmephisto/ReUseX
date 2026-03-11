@@ -64,6 +64,108 @@ auto lut = getGlasbeyLUT();
 
 using namespace rtabmap;
 
+namespace {
+
+/**
+ * @brief Applies depth discontinuity filtering to remove "flying pixels" at edges
+ *
+ * This filter targets iOS LiDAR artifacts where depth changes abruptly at object boundaries,
+ * causing spurious points to appear in mid-air. It computes depth gradients using Sobel
+ * operators and rejects pixels with high gradient magnitudes.
+ *
+ * @param depth Input/output depth map (CV_32FC1 or CV_16UC1), modified in-place
+ * @param confidence Input/output confidence map, modified in-place (can be empty)
+ * @param gradient_threshold Maximum allowed depth gradient in meters per pixel (default: 0.5)
+ */
+void applyDepthDiscontinuityFilter(cv::Mat& depth, cv::Mat& confidence,
+                                    float gradient_threshold = 0.5f) {
+  if (depth.empty() || depth.channels() != 1) return;
+
+  spdlog::trace("Applying depth discontinuity filter (threshold={})",
+                gradient_threshold);
+
+  // Convert to float for gradient computation
+  cv::Mat depth_float;
+  if (depth.type() != CV_32F) {
+    depth.convertTo(depth_float, CV_32F);
+  } else {
+    depth_float = depth;
+  }
+
+  // Compute gradients using Sobel operators
+  cv::Mat grad_x, grad_y, grad_magnitude;
+  cv::Sobel(depth_float, grad_x, CV_32F, 1, 0, 3);
+  cv::Sobel(depth_float, grad_y, CV_32F, 0, 1, 3);
+  cv::magnitude(grad_x, grad_y, grad_magnitude);
+
+  // Create mask for low-gradient regions (valid pixels)
+  cv::Mat valid_mask = grad_magnitude < gradient_threshold;
+
+  // Apply mask to depth and confidence
+  depth.setTo(0, ~valid_mask);
+  if (!confidence.empty()) {
+    confidence.setTo(0, ~valid_mask);
+  }
+
+  int removed = cv::countNonZero(~valid_mask);
+  spdlog::debug("Depth discontinuity filter removed {} / {} pixels ({:.1f}%)",
+                removed, depth.total(), 100.0 * removed / depth.total());
+}
+
+/**
+ * @brief Applies ray consistency filtering to remove isolated noisy depth measurements
+ *
+ * This filter checks each depth pixel against its 8-neighborhood, rejecting pixels that
+ * deviate significantly from their neighbors. This is effective for removing speckled
+ * noise common in iOS LiDAR captures.
+ *
+ * @param depth Input/output depth map (CV_32FC1 or CV_16UC1), modified in-place
+ * @param confidence Input/output confidence map, modified in-place (can be empty)
+ * @param consistency_threshold Maximum allowed deviation from neighborhood median in meters (default: 0.2)
+ */
+void applyRayConsistencyFilter(cv::Mat& depth, cv::Mat& confidence,
+                                float consistency_threshold = 0.2f) {
+  if (depth.empty() || depth.channels() != 1) return;
+
+  spdlog::trace("Applying ray consistency filter (threshold={})",
+                consistency_threshold);
+
+  // Convert to float for computation
+  cv::Mat depth_float;
+  if (depth.type() != CV_32F) {
+    depth.convertTo(depth_float, CV_32F);
+  } else {
+    depth_float = depth;
+  }
+
+  // Median filter for neighborhood reference
+  cv::Mat depth_median;
+  cv::medianBlur(depth_float, depth_median, 5);
+
+  // Compute deviation from neighborhood median
+  cv::Mat deviation;
+  cv::absdiff(depth_float, depth_median, deviation);
+
+  // Create consistency mask
+  cv::Mat valid_mask = deviation < consistency_threshold;
+
+  // Morphological opening to remove small isolated noise clusters
+  cv::Mat kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(3, 3));
+  cv::morphologyEx(valid_mask, valid_mask, cv::MORPH_OPEN, kernel);
+
+  // Apply mask to depth and confidence
+  depth.setTo(0, ~valid_mask);
+  if (!confidence.empty()) {
+    confidence.setTo(0, ~valid_mask);
+  }
+
+  int removed = cv::countNonZero(~valid_mask);
+  spdlog::debug("Ray consistency filter removed {} / {} pixels ({:.1f}%)",
+                removed, depth.total(), 100.0 * removed / depth.total());
+}
+
+} // anonymous namespace
+
 inline void
 merge_clouds(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr lhs,
              const pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr rhs) {
@@ -187,13 +289,33 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
       SensorData data = node.sensorData();
       data.uncompressData();
 
-      spdlog::trace("Creating point cloud from sensor data");
+      // Apply per-frame depth filtering for iOS LiDAR artifacts
+      cv::Mat depth = data.depthOrRightRaw();
+      if (!depth.empty() && depth.channels() == 1) {
+        // Clone data for filtering (SensorData is const)
+        depth = depth.clone();
+        cv::Mat confidence = data.depthConfidenceRaw().clone();
+        cv::Mat image = data.imageRaw().clone();
+
+        // Apply depth discontinuity filter (removes flying pixels at edges)
+        applyDepthDiscontinuityFilter(depth, confidence, 0.5f);
+
+        // Apply ray consistency filter (removes isolated noisy pixels)
+        applyRayConsistencyFilter(depth, confidence, 0.2f);
+
+        // Create new SensorData with filtered depth and confidence
+        data = SensorData(image, depth, confidence,
+                          data.cameraModels(), data.id(), data.stamp());
+      }
+
+      spdlog::trace("Creating point cloud from sensor data with confidence threshold 2");
       pcl::IndicesPtr validIndices(new pcl::Indices);
       pcl::PointCloud<pcl::PointXYZRGB>::Ptr tmp =
           util3d::cloudRGBFromSensorData(data, sampling_factor, max_distance,
-                                         min_distance, validIndices.get());
-      spdlog::debug("Point cloud size: {}, valid: {}, size: {}x{}", tmp->size(),
-                    validIndices->size(), tmp->width, tmp->height);
+                                         min_distance, validIndices.get(),
+                                         ParametersMap(), std::vector<float>(), 2);
+      spdlog::debug("Point cloud size: {}, valid: {}, size: {}x{} (confidence ≥ 2)",
+                    tmp->size(), validIndices->size(), tmp->width, tmp->height);
 
       pcl::PointCloud<pcl::Label>::Ptr labledCloud(
           new pcl::PointCloud<pcl::Label>);

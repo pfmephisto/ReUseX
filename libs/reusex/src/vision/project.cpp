@@ -468,7 +468,11 @@ auto project(const std::filesystem::path &dbPath, CloudConstPtr cloud)
           auto pt_cam = rtabmap::util3d::transformPoint(cloud_lf->points[i],
                                                         t_cam.inverse());
           if (pt_cam.z <= 0.0f ||
-              pt_cam.z > 7.0f) // TODO: parameterize max depth
+              pt_cam.z > 7.0f) // TODO: Make maximum depth threshold configurable
+            // category=Vision estimate=30m
+            // Hardcoded 7.0m cutoff may not suit all sensors (LiDAR has longer range).
+            // Should add as function parameter or read from config file.
+            // Typical values: 3-5m for depth cameras, 10-30m for LiDAR
             continue;
 
           auto inv_z = 1.0 / static_cast<double>(pt_cam.z);

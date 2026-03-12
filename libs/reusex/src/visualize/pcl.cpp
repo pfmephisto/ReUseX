@@ -249,7 +249,14 @@ void addRoomProbabilities(
     p.x = (*cc)[*cit].pos[0];
     p.y = (*cc)[*cit].pos[1];
     p.z = (*cc)[*cit].pos[2];
-    // TODO: Scale sphere size based on if its a room or not
+    // TODO: Differentiate sphere size for room cells vs face/vertex nodes
+    // category=Visualization estimate=1h
+    // Current radius calculation uses prob_outside but doesn't distinguish node types.
+    // Would improve visual clarity to:
+    // 1. Use larger spheres for room cell centers (e.g., r=0.5-1.0)
+    // 2. Smaller spheres for face centers (e.g., r=0.2-0.3)
+    // 3. Smallest for vertices (e.g., r=0.1)
+    // Check CellComplex vertex type or use graph degree to classify
     auto prob_outside = vec[0];
     double r = 0.4 * (1.0 - prob_outside) + 0.1;
 
@@ -343,7 +350,14 @@ void addRooms(
     const std::string_view &name, int vp) {
   spdlog::trace("Displaying results");
 
-  // TODO: Make view base constructor form CellComplex
+  // TODO: Create reusable CellComplex-to-PointCloud conversion utility
+  // category=Visualization estimate=2h
+  // Currently duplicates CellComplex vertex extraction code across multiple functions.
+  // Should refactor to a shared helper:
+  // 1. CloudPtr cellComplexToCloud(const CellComplex&, filter_predicate)
+  // 2. Handles vertex position extraction and optional filtering
+  // 3. Reuse in addRooms(), addCellComplex(), and other visualization functions
+  // Reduces code duplication and improves maintainability
   auto points = CloudPtr(new Cloud);
   points->points.resize(cc->num_vertices());
   for (auto vit = cc->vertices_begin(); vit != cc->vertices_end(); ++vit) {

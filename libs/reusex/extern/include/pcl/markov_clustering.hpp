@@ -302,7 +302,11 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
     LAGRAPH_TRY(LAGraph_New(&G, &M, LAGraph_ADJACENCY_UNDIRECTED, msg));
     G->is_symmetric_structure = LAGraph_TRUE;
 
-    // FIXME: Visual debug the stochastic matrix
+    // FIXME: Add optional visualization of stochastic matrix for debugging
+    // category=Geometry estimate=1h
+    // Currently commented out LAGraph_Graph_Print call for debugging matrix state.
+    // Should make this controllable via debug flag or verbosity level rather than
+    // requiring code changes. Useful for validating graph structure during development.
     // LAGRAPH_TRY(LAGraph_Graph_Print(G, LAGraph_SHORT_VERBOSE, stdout, msg));
 
     spdlog::debug("LAGraph is symmetric: {}",
@@ -557,7 +561,11 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
     GrB_Index n;
     LAGRAPH_TRY(GrB_Matrix_nrows(&n, G->A));
 
-    // FIXME: Visual debug the stochastic matrix
+    // FIXME: Add optional visualization of cluster assignment vector
+    // category=Geometry estimate=1h
+    // Commented LAGraph_Vector_Print for debugging cluster assignments.
+    // Should integrate with spdlog debug levels instead of requiring code edits.
+    // Helpful for verifying cluster convergence and label distribution.
     // LAGRAPH_TRY(LAGraph_Vector_Print(c, LAGraph_SHORT_VERBOSE, stdout, msg));
 
     // INFO: Extract labels from converged matrix
@@ -603,7 +611,11 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
                                          C, NULL));
     LAGRAPH_TRY(GxB_Vector_sort(vpc_sorted, NULL, GrB_GT_FP32, vpc, NULL));
 
-    // FIXME: Visual debug
+    // FIXME: Add visualization of sorted votes-per-cluster vector
+    // category=Geometry estimate=1h
+    // Commented debug print for sorted cluster sizes. Useful for understanding
+    // cluster size distribution and detecting degenerate cases (too many/few clusters).
+    // Should be controlled by debug flags rather than code modification.
     // LAGRAPH_TRY(
     //     LAGraph_Vector_Print(vpc_sorted, LAGraph_SHORT_VERBOSE, stdout,
     //     msg));
@@ -739,7 +751,14 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
   RTCScene scene_{};
   RTCGeometry geometry_{};
 
-  // TODO: Make these parameters settable
+  // TODO: Expose MCL algorithm parameters via public setter methods
+  // category=Geometry estimate=2h
+  // Currently expansion, inflation, and pruning_threshold are hardcoded private members.
+  // Should add public setter/getter methods to allow tuning MCL behavior:
+  // - setExpansion(int): Controls matrix expansion iterations
+  // - setInflation(double): Controls cluster granularity
+  // - setPruningThreshold(double): Controls sparsity pruning
+  // Enables parameter tuning without recompilation for upstream PCL contribution
   int expansion_{2};
   double inflation_{2.0};
   double pruning_threshold_{0.0001};

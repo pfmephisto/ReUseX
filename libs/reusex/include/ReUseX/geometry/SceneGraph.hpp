@@ -59,7 +59,17 @@ struct EdgeData {
 
 namespace ReUseX::geometry {
 
-// TODO: Implement the SceneGraph class and make it the core of ReUseX
+// TODO: Fully implement SceneGraph as central scene representation
+// category=Geometry estimate=2w
+// SceneGraph is partially defined but needs complete implementation to become
+// the core data structure for ReUseX spatial reasoning. Required features:
+// 1. Hierarchical object relationships (rooms contain walls, walls contain windows)
+// 2. Spatial queries (find objects in bounding box, nearest neighbors)
+// 3. Attribute management via Registry (materials, labels, metadata)
+// 4. Serialization/deserialization to HDF5 format
+// 5. Integration with CellComplex for 3D reconstruction pipeline
+// 6. Visitor pattern for scene traversal and operations
+// Major architectural work but enables modular scene manipulation
 class SceneGraph
     : public boost::adjacency_list<boost::vecS, boost::vecS, boost::undirectedS,
                                    VertexData, EdgeData>,

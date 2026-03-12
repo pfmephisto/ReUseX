@@ -125,7 +125,14 @@ toMesh_impl(const std::shared_ptr<const CellComplex>& _cc,
           continue; // Skip faces between two valid cells
       }
 
-      // TODO: Check face oriehntation
+      // TODO: Validate face orientation for correct normal direction
+      // category=Geometry estimate=2h
+      // Current flip detection may produce inconsistent face normals leading to
+      // rendering artifacts. Should verify that:
+      // 1. Face normal points outward from the valid cell (not inward)
+      // 2. Vertex winding order follows right-hand rule consistently
+      // 3. Handle edge cases with single-neighbor faces (boundary faces)
+      // Test with mesh visualization to check for inside-out faces
       bool flip = false;
       if (neighbor_cells.size() >= 1) {
 
@@ -215,8 +222,15 @@ toMesh_impl(const std::shared_ptr<const CellComplex>& _cc,
   V.resize(nV, 3);
   F.resize(nF, 3);
 
-  // TODO: Convert to modern C++ style
-  // CGAL has containers
+  // TODO: Refactor to modern C++ using CGAL containers and ranges
+  // category=Geometry estimate=3h
+  // Replace manual index mapping with CGAL property maps and range adaptors.
+  // Benefits:
+  // 1. Use CGAL::vertices(mesh) | ranges::to<std::vector> instead of manual loops
+  // 2. Leverage CGAL vertex/face property maps for cleaner indexing
+  // 3. Replace std::unordered_map with CGAL::dynamic_vertex_property_t
+  // 4. Use structured bindings for iterator pairs
+  // Improves readability and reduces boilerplate code
 
   // Map vertex indices
   std::unordered_map<Mesh::Vertex_index, int> vmap;

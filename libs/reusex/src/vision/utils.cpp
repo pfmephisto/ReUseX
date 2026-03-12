@@ -111,9 +111,15 @@ torch::Tensor xywh_to_xyxy(const torch::Tensor &x) {
   return y;
 }
 
-// TODO: Maybe package torchvision and use their nms implementation?
-// Reference:
-// https://github.com/pytorch/vision/blob/main/torchvision/csrc/ops/cpu/nms_kernel.cpp
+// TODO: Replace custom NMS with torchvision library implementation
+// category=Vision estimate=4h
+// Current implementation is custom-written. Consider using official torchvision NMS:
+// Reference: https://github.com/pytorch/vision/blob/main/torchvision/csrc/ops/cpu/nms_kernel.cpp
+// Benefits:
+// 1. Optimized CPU/CUDA implementations available
+// 2. Better maintained and tested by PyTorch team
+// 3. Reduces custom code maintenance burden
+// Trade-off: Adds torchvision as dependency (currently only use LibTorch)
 torch::Tensor nms(const torch::Tensor &bboxes, const torch::Tensor &scores,
                   float iou_threshold) {
   if (bboxes.numel() == 0)

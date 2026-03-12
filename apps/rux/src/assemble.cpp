@@ -64,9 +64,17 @@ int run_subcommand_assemble(SubcommandAssembleOptions const &opt) {
 
   spdlog::debug("Input files: {}", fmt::join(input_files, ", "));
 
-  // TODO: Copy the implementation from rtabmap-reprocess
-  // Sett the defualt parameters that work well for rux
-  // https://github.com/introlab/rtabmap/blob/master/tools/Reprocess/main.cpp
+  // TODO: Implement multi-scan assembly from rtabmap-reprocess reference
+  // category=CLI estimate=1w
+  // Need to port logic from RTABMap's reprocess tool to assemble multiple scans:
+  // Reference: https://github.com/introlab/rtabmap/blob/master/tools/Reprocess/main.cpp
+  // Key steps:
+  // 1. Load multiple .db files and extract pose graphs
+  // 2. Perform global registration/alignment between scans
+  // 3. Set default parameters optimized for building interiors (rux use case)
+  // 4. Merge point clouds and update node links in output database
+  // 5. Run graph optimization to refine alignment
+  // This unblocks the multi-scan workflow for large building projects
 
   return RuxError::NOT_IMPLEMENTED;
 }

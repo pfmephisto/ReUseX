@@ -176,8 +176,14 @@ auto save_rhino_pointcloud(CloudConstPtr pcl_cloud, CloudLConstPtr pcl_labels)
 
     // INFO: Creating attributes for the point cloud
     ON_3dmObjectAttributes *attribute = new ON_3dmObjectAttributes();
-    // TODO: Add actual label name to the attribute name
-    // See Layer names for reference
+    // TODO: Include semantic label names in Rhino object attributes
+    // category=I/O estimate=1h
+    // Currently hardcoded to generic "ReUseX Point Cloud Semantic" name.
+    // Should append actual class label (e.g., "Wall", "Floor", "Ceiling") to attribute:
+    // 1. Look up label name from labels[i] using class ID mapping
+    // 2. Convert to wide string for ON_wString compatibility
+    // 3. Follow same pattern as layer naming (already implemented above)
+    // Makes exported .3dm files easier to navigate in Rhino UI
     attribute->m_name = L"ReUseX Point Cloud Semantic"; // + labels[i];
     attribute->m_layer_index = layer_map[i];
     attribute->m_color = ON_Color::UnsetColor;

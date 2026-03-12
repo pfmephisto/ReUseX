@@ -126,11 +126,26 @@ pcl::TextureMesh::Ptr texture_mesh_with_cloud(pcl::PolygonMesh::Ptr mesh,
       const Eigen::Vector3f normal{};
       const Eigen::Vector3f center{};
 
-      // TODO: Get the size of the polygon
+      // TODO: Calculate optimal texture size based on polygon area
+      // category=Geometry estimate=2h
+      // Currently hardcoded to 1024x1024 texture (line 131). Should compute
+      // texture dimensions dynamically based on:
+      // 1. Polygon bounding box size in 3D space
+      // 2. Desired texel density (e.g., pixels per meter)
+      // 3. Power-of-2 constraints for GPU compatibility
+      // This ensures consistent texture quality across different polygon sizes
 
       cv::Mat image(1024, 1024, CV_8UC3, cv::Scalar(0, 0, 0));
 
-      // TODO: Fill the image with the texture from the cloud points
+      // TODO: Project point cloud colors onto texture image via UV mapping
+      // category=Geometry estimate=1d
+      // Need to implement texture generation pipeline:
+      // 1. Compute UV coordinates for polygon vertices (planar projection)
+      // 2. Query KdTree to find point cloud points near polygon surface
+      // 3. Project points onto texture image using UV coordinates
+      // 4. Handle occlusion and depth testing for overlapping points
+      // 5. Apply filtering/interpolation to fill gaps in texture
+      // Reference existing project.cpp for 3D-to-2D projection logic
 
       cv::imwrite(mat.tex_file, image);
 
@@ -215,13 +230,28 @@ texture_mesh(pcl::PolygonMesh::Ptr mesh,
   std::filesystem::path base_path = std::filesystem::path(texture_dir);
 
   spdlog::trace("Retrive all cameras and textures from the database");
+  // TODO: Implement camera/texture retrieval from RTABMapDatabase
+  // category=Geometry estimate=1d
+  // Need to extract camera poses and images from RTABMap database for texturing:
+  // 1. Query RTABMapDatabase::getNodeIds() for all camera frames
+  // 2. Use RTABMapDatabase::getImage(nodeId) to retrieve images (handles rotation)
+  // 3. Extract camera intrinsics and poses from SLAM graph
+  // 4. Build camera frustum for visibility testing during texture projection
+  // 5. Select best camera view for each mesh polygon based on viewing angle
+  // This enables photo-realistic texture mapping from scan images
   pcl::texture_mapping::CameraVector cameras{};
   cameras.resize(poses.size());
   {
     auto logger =
         spdmon::LoggerProgress("Retrieving textures and cameras", poses.size());
 
-    // TODO: Get all the textures and cameras from the database
+    // TODO: Extract camera intrinsics and image data for each node
+    // category=Geometry estimate=4h
+    // Loop retrieves nodes but needs to extract camera parameters:
+    // 1. Parse calibration data from SensorData for fx, fy, cx, cy
+    // 2. Convert rtabmap::Transform pose to PCL camera format
+    // 3. Decompress and store image data for texture projection
+    // Part of larger texture mapping pipeline (see TODO at line 233)
     for (auto &&[i, inner] : poses | ranges::views::enumerate) {
       auto &[id, pose] = inner;
 

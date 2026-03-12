@@ -39,7 +39,14 @@ struct CellData {
 
 // Generic vertex bundle
 struct VerteciesData {
-  // TODO: Consider moving the ID field to here
+  // TODO: Refactor ID field to be type-specific instead of generic
+  // category=Geometry estimate=3h
+  // Current design stores ID at VerteciesData level, but IDs may have different
+  // semantics for different node types (vertex/face/cell). Consider:
+  // 1. Move ID into VertexData/FaceData/CellData variant members
+  // 2. Use std::optional<int> for types that don't need IDs
+  // 3. Update all access patterns to use std::visit for type-safe ID retrieval
+  // Trade-off: More type-safe but requires more boilerplate for access
   NodeType type;
   int id;
   Eigen::Vector3d pos;
@@ -134,7 +141,14 @@ class CellComplex
                              std::vector<int> const &)>>
           viz_func = std::nullopt);
 
-  // TODO: We might want to return something here
+  // TODO: Consider returning coverage metrics instead of void
+  // category=Geometry estimate=2h
+  // compute_face_coverage() currently returns void but computes useful metrics.
+  // Could return coverage data structure:
+  // 1. Per-face coverage percentage (points/area)
+  // 2. Grid occupancy map for each face
+  // 3. Confidence metrics for plane fitting
+  // Enables downstream quality assessment and filtering of low-coverage faces
   template <typename PointT = pcl::PointXYZ>
   auto compute_face_coverage(pcl::PointCloud<PointT>::ConstPtr cloud,
                              EigenVectorContainer<double, 4> &planes,
@@ -209,8 +223,14 @@ class CellComplex
   auto cells_begin() const -> CellIterator;
   auto cells_end() const -> CellIterator;
 
-  // TODO: Consider renameing to x_around_y_{begin/end} e.g.
-  // vertices_around_face_begin
+  // TODO: Rename adjacency iterators to follow CGAL naming convention
+  // category=Geometry estimate=2h
+  // Current names are unclear about what they iterate over. Adopt CGAL-style:
+  // - vertices_of_face_begin/end instead of face_vertices_begin/end
+  // - faces_of_cell_begin/end instead of cell_faces_begin/end
+  // - cells_of_face_begin/end instead of face_cells_begin/end
+  // Pattern: "elements_of_container" reads more naturally than "container_elements"
+  // Requires updating all call sites but improves API consistency
   auto vertices_begin(Vertex f) const -> VertexOnFaceIterator;
   auto vertices_end(Vertex f) const -> VertexOnFaceIterator;
 

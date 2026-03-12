@@ -157,7 +157,13 @@ class PCL_EXPORTS PolygonalSurfaceReconstruction : public PCLBase<PointT> {
    */
   inline double getComplexityParam() const { return (complexity_); }
 
-  // TODO: Add description
+  // TODO: Add comprehensive documentation for segment() method
+  // category=Documentation estimate=30m
+  // Missing Doxygen documentation describing:
+  // \param[out] output - The reconstructed polygonal mesh surface
+  // \brief Performs polygonal surface reconstruction using CGAL optimization
+  // Converts labeled planar regions into watertight polygonal mesh using
+  // mixed-integer programming for optimal surface selection
   /** \brief    */
   void segment(pcl::PolygonMesh &output) {
 
@@ -167,7 +173,13 @@ class PCL_EXPORTS PolygonalSurfaceReconstruction : public PCLBase<PointT> {
       return;
     }
 
-    // TODO: Filter indices that that belong to a plane
+    // TODO: Implement plane membership filtering for input point indices
+    // category=Geometry estimate=3h
+    // Currently processes all input indices without filtering. Should add:
+    // 1. Check if points belong to detected planar regions (via label_map_)
+    // 2. Optionally filter out points not assigned to any plane
+    // 3. Add threshold parameter for minimum points per plane
+    // Reduces noise in reconstruction and improves mesh quality
 
     Polygonal_surface_reconstruction algo(*indices_, *point_map_, *normal_map_,
                                           *label_map_);

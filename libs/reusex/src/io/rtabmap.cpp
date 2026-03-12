@@ -194,7 +194,14 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
                              float max_distance, float sampling_factor)
     -> std::tuple<CloudPtr, CloudNPtr, CloudLPtr> {
 
-  // TODO: Add path check for onnx model and package it with the application
+  // TODO: Validate ONNX model path and package model with application
+  // category=I/O estimate=4h
+  // Currently assumes ONNX model is available at runtime without validation.
+  // Should add:
+  // 1. Check if model file exists before RTABMap init
+  // 2. Package default model with application (e.g., in share/reusex/models/)
+  // 3. Allow override via environment variable or config file
+  // 4. Provide clear error message if model not found
   spdlog::info("Intializing RTAB-Map ...");
   spdlog::stopwatch timer;
   ParametersMap params;
@@ -474,7 +481,13 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
   // cv::destroyAllWindows();
 #endif
 
-  // TODO: Add assertions
+  // TODO: Add post-processing validation assertions
+  // category=I/O estimate=1h
+  // After annotation loop completes, should verify:
+  // 1. Assert that all expected nodes were processed (count == expected)
+  // 2. Validate that labels were written correctly to database
+  // 3. Check for any sqlite3 errors during batch insert
+  // Helps catch silent failures during label persistence
   if (!cloud->size()) {
     spdlog::error("Error: The cloud is empty.");
     rtabmap.close(false);
@@ -500,7 +513,14 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
   pcl::copyPointCloud(*downsampledCloud, *out_normals);
 
   spdlog::trace("Creating labels");
-  // BUG: There is a segfault here
+  // BUG: Segfault during KdTree initialization with empty/small clouds
+  // category=I/O estimate=1d
+  // Occurs when setInputCloud() is called on an empty or very small point cloud
+  // after voxel downsampling. Need to add validation:
+  // 1. Check if cloud->empty() before KdTree operations
+  // 2. Check if cloud->size() < minimum threshold (e.g., 10 points)
+  // 3. Handle gracefully by returning nullptr labels or logging error
+  // Reproduction: Small scans with aggressive voxel grid settings
   pcl::KdTreeFLANN<pcl::PointXYZRGBNormal> kdtree;
   kdtree.setInputCloud(cloud); // Original cloud before downsampling
 
@@ -534,8 +554,14 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
     }
     out_labels->points[i].label = mostCommonLabel(labelCount);
   }
-  // TODO:Condider only writing files for specified output paths and removing
-  // the default values
+  // TODO: Refactor file output to only write when paths explicitly provided
+  // category=I/O estimate=2h
+  // Currently uses default output paths which causes unnecessary file writes.
+  // Should change API to accept optional output paths (std::optional or empty path)
+  // and only write files when user explicitly requests them. This avoids:
+  // 1. Polluting working directory with unwanted output files
+  // 2. Performance overhead of unnecessary I/O operations
+  // 3. Confusion about which files are actually needed
 
   //// INFO: Saving the trajectory
   // spdlog::info("Saving {} ...", trajectory_path_out);

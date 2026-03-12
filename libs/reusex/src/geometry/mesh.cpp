@@ -184,7 +184,11 @@ mesh(CloudConstPtr cloud, CloudNConstPtr normals,
 
   pcl::PolygonMeshPtr mesh(new pcl::PolygonMesh());
   if (results) {
-    // TODO: Convert to mesh and return
+    // TODO: Refactor mesh conversion to return value instead of out parameter
+    // category=Geometry estimate=1h
+    // Current code builds mesh in-place but could return it directly for cleaner API.
+    // Consider returning pcl::PolygonMeshPtr from this branch instead of using
+    // the mesh variable declared above. Improves readability and follows modern C++ patterns.
     auto [room_labels, wall_labels] = results.value();
     auto [vertices, faces] = solidifier.toMesh(
         [&](const CellComplex::Vertex v) { return room_labels[v] > 0; });

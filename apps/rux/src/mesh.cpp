@@ -157,7 +157,13 @@ int run_subcommand_mesh(SubcommandMeshOptions const &opt) {
                 opt.plane_normals_path_in);
   pcl::io::load<NormalT>(opt.plane_normals_path_in.string(), *plane_normals);
 
-  // TODO: Validate input sizes
+  // TODO: Add comprehensive input size validation with detailed error messages
+  // category=CLI estimate=30m
+  // Current validation only checks a subset of input files. Should validate all:
+  // 1. Check cloud, rooms, normals, plane_labels all have same size
+  // 2. Verify plane_normals and plane_centroids have expected dimensions
+  // 3. Provide specific error message showing actual vs expected sizes
+  // 4. Add early validation before heavy processing to fail fast
   if (rooms->size() != cloud->size() || /*planes->size() != cloud->size() ||*/
       normals->size() != cloud->size()) {
     spdlog::error("Input files have inconsistent sizes:");

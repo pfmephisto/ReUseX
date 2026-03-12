@@ -108,6 +108,7 @@ in
       hugin
       github-copilot-cli
       claude-code
+      gh
       doxygen
       tree
       git-lfs

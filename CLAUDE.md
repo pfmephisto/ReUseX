@@ -247,6 +247,226 @@ Just add your file in the correct location and rebuild.
 - `std::multimap` is in `<map>` header, not `<multimap>`
 - Segmentation table foreign key references `Node(id)` (singular)
 
+## TODO Comment Conventions
+
+This project uses structured TODO comments compatible with the [tdg (TODO Generator)](https://gitlab.com/ribtoks/tdg) tool. A GitHub Action automatically parses these comments and can sync them with issue trackers.
+
+### Format Specification
+
+All TODO-style comments must follow this format:
+
+```cpp
+// [MARKER]: Brief imperative title (50-70 chars max)
+// category=ModuleName estimate=Xh [issue=N] [author=alias]
+// Multi-line description providing context and rationale.
+// Additional details about current behavior, impact, or solution approach.
+```
+
+**Key formatting rules:**
+- First line: Marker keyword followed by colon, then brief imperative title
+- Second line: Metadata fields as `key=value` pairs, space-separated
+- Subsequent lines: Detailed description (no metadata, just explanation)
+- All lines must start with `//` (C++ line comment style)
+
+### Supported Markers
+
+Use the appropriate marker based on the task type:
+
+- **TODO:** Future improvements, missing features, enhancements, or refactoring opportunities
+  - Example: Adding new functionality, improving performance, enhancing UX
+
+- **FIXME:** Known issues that need fixing, incorrect behavior requiring correction
+  - Example: Logic errors, edge cases not handled, suboptimal implementations
+
+- **BUG:** Active bugs, crashes, segfaults, or critical defects
+  - Example: Segmentation faults, memory leaks, race conditions
+
+- **HACK:** Temporary workarounds or shortcuts needing proper refactoring
+  - Example: Quick fixes, technical debt, code that bypasses proper patterns
+
+### Required Metadata Fields
+
+Every TODO comment **must** include these fields on the second line:
+
+1. **`category=X`** - Module or area of codebase (see Categories below)
+2. **`estimate=Xh`** - Time estimate using standard suffixes:
+   - `30m`, `1h`, `2h`, `4h` - Hours (use 'm' for minutes, 'h' for hours)
+   - `1d`, `2d` - Days
+   - `1w`, `2w` - Weeks
+
+**Example:**
+```cpp
+// TODO: Add input validation for mesh generation parameters
+// category=CLI estimate=30m
+// Currently accepts any values which can lead to crashes with extreme inputs.
+```
+
+### Optional Metadata Fields
+
+- **`issue=N`** - GitHub issue number (usually auto-assigned by tdg GitHub Action)
+  - Don't add manually unless linking to existing issue
+  - Example: `issue=123`
+
+- **`author=alias`** - Creator's alias (use for handoffs; git blame is preferred otherwise)
+  - Example: `author=pfils`
+
+### Time Estimate Guidelines
+
+Choose estimates based on complexity and scope:
+
+| Estimate | Complexity | Description | Example |
+|----------|-----------|-------------|---------|
+| `30m-1h` | TRIVIAL | Quick config change, single-line fix, simple parameter addition | Adding a CLI flag, fixing typo logic |
+| `1h-4h` | EASY | Single-session task, isolated change, well-understood problem | Input validation, error message improvement |
+| `1d-2d` | MEDIUM | Multi-session work, moderate complexity, some research needed | Refactoring a module, adding medium feature |
+| `3d-1w` | HARD | Significant refactor, architectural changes, complex debugging | Redesigning subsystem, fixing deep bugs |
+| `>1w` | VERY_HARD | Major feature, fundamental redesign, multi-component changes | New backend support, SLAM integration |
+
+**Estimation tips:**
+- Consider implementation + testing + documentation time
+- Account for unknowns and edge cases
+- When uncertain, estimate higher (easier to complete early than explain delays)
+
+### Categories
+
+Map your TODO to the appropriate module:
+
+| Category | Scope | Examples |
+|----------|-------|----------|
+| `CLI` | Command-line interface, argument parsing, rux subcommands | Argument validation, help text, new subcommand |
+| `I/O` | File I/O, database access, format conversions | RTABMap database, E57 import, Rhino export, HDF5 |
+| `Geometry` | Point cloud processing, segmentation, mesh generation | Plane detection, room segmentation, CGAL algorithms |
+| `Vision` | ML models, inference backends, semantic annotation | YOLO integration, TensorRT optimization, SAM2 |
+| `Visualization` | PCL visualization, on-screen display, rendering | Point cloud viewer, debug overlays, Qt widgets |
+| `Documentation` | Code comments, Doxygen, guides, examples | API docs, tutorials, inline comments |
+
+**Category selection tips:**
+- Choose the primary module affected (even if change touches multiple areas)
+- Use `CLI` for user-facing interface changes
+- Use module name for internal implementation changes
+- When truly cross-cutting, pick the most impacted area
+
+### Best Practices
+
+**Writing good titles:**
+- Use imperative mood: "Add validation" not "Validation needed"
+- Be specific: "Validate mesh vertex count" not "Fix validation"
+- Keep under 70 characters
+- Focus on the *what*, not the *why* (save that for description)
+
+**Writing good descriptions:**
+- **Line 1**: Describe current behavior or problem
+- **Line 2**: Explain why change is needed (impact, rationale)
+- **Line 3+**: Outline solution approach or steps
+- **Include references**: Related TODOs, docs, issue numbers
+
+**Example structure:**
+```cpp
+// TODO: Add comprehensive input size validation with detailed error messages
+// category=CLI estimate=30m
+// Current validation only checks a subset of input files. Should validate all:
+// 1. Check cloud, rooms, normals, plane_labels all have same size
+// 2. Verify plane_normals and plane_centroids have expected dimensions
+// 3. Provide specific error message showing actual vs expected sizes
+// 4. Add early validation before heavy processing to fail fast
+```
+
+### Real Examples from Codebase
+
+**Simple TODO (mesh.cpp:160-166):**
+```cpp
+// TODO: Add comprehensive input size validation with detailed error messages
+// category=CLI estimate=30m
+// Current validation only checks a subset of input files. Should validate all:
+// 1. Check cloud, rooms, normals, plane_labels all have same size
+// 2. Verify plane_normals and plane_centroids have expected dimensions
+// 3. Provide specific error message showing actual vs expected sizes
+// 4. Add early validation before heavy processing to fail fast
+```
+
+**Critical BUG (rtabmap.cpp:516-523):**
+```cpp
+// BUG: Segfault during KdTree initialization with empty/small clouds
+// category=I/O estimate=1d
+// Occurs when setInputCloud() is called on an empty or very small point cloud
+// after voxel downsampling. Need to add validation:
+// 1. Check if cloud->empty() before KdTree operations
+// 2. Check if cloud->size() < minimum threshold (e.g., 10 points)
+// 3. Handle gracefully by returning nullptr labels or logging error
+// Reproduction: Small scans with aggressive voxel grid settings
+```
+
+**FIXME with cross-reference (rooms.cpp:160-168):**
+```cpp
+// FIXME: Label encoding offset may cause indexing errors for unlabeled points
+// category=Geometry estimate=2h
+// Current code uses label-1 as index into plane_normals vector (line 169).
+// If unlabeled points (label < 1) exist and are not skipped properly, this
+// could cause off-by-one indexing errors. Need to verify that:
+// 1. All unlabeled points have label < 1 (currently checking this)
+// 2. Plane labels start at 1 (not 0) consistently throughout pipeline
+// 3. plane_normals vector size matches max(label) not unique label count
+// See MEMORY.md for label encoding conventions: -1 for background in API
+```
+
+### Workflow Integration
+
+**GitHub Action (`.github/workflows/todo-action.yml`):**
+- Automatically runs on push to scan for TODO comments
+- Generates `TODO.json` with all parsed comments
+- Can create/update GitHub issues based on TODOs
+- Tracks completion when TODOs are removed from code
+
+**Local development:**
+```bash
+# Find all TODOs in the codebase
+grep -r "// TODO:" libs/ apps/ --include="*.cpp" --include="*.hpp"
+
+# Find TODOs by category
+grep -r "category=Geometry" libs/ apps/ --include="*.cpp" --include="*.hpp"
+
+# Find high-estimate TODOs (1d+)
+grep -r "estimate=[0-9]*[dw]" libs/ apps/ --include="*.cpp" --include="*.hpp"
+```
+
+**Using tdg locally:**
+Install tdg from https://gitlab.com/ribtoks/tdg and run:
+```bash
+tdg --path libs/ --path apps/ --output TODO.json
+```
+
+### When to Use Each Marker
+
+**Use TODO when:**
+- Planning future enhancements or features
+- Identifying optimization opportunities
+- Noting missing functionality in initial implementations
+- Suggesting refactoring that isn't urgent
+
+**Use FIXME when:**
+- Code works but has known limitations
+- Edge cases aren't fully handled
+- Implementation is suboptimal but functional
+- Workarounds are in place
+
+**Use BUG when:**
+- Code crashes or produces incorrect results
+- Memory leaks or resource leaks are present
+- Race conditions or concurrency issues exist
+- Critical functionality is broken
+
+**Use HACK when:**
+- Using temporary workarounds to unblock development
+- Bypassing proper abstractions for quick fixes
+- Duplicating code that should be refactored
+- Violating design patterns knowingly
+
+### See Also
+
+- Full tdg documentation: https://gitlab.com/ribtoks/tdg
+- GitHub Action config: `.github/workflows/todo-action.yml`
+- Existing TODOs: Run `grep -r "// TODO:" libs/ apps/`
+
 ## Key Dependencies
 
 **Geometry & Processing:**

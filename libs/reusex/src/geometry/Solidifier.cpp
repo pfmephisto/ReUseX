@@ -7,7 +7,12 @@
 #include <spdlog/stopwatch.h>
 #include <tbb/concurrent_unordered_map.h>
 
-#ifdef CGAL_USE_SCIP
+#define CGAL_USE_HIGHS 1
+
+#ifdef CGAL_USE_HIGHS
+#include <CGAL/HiGHS_mixed_integer_program_traits.h>
+using MIP_Solver = CGAL::HiGHS_mixed_integer_program_traits<double>;
+#elif defined(CGAL_USE_SCIP)
 #include <CGAL/SCIP_mixed_integer_program_traits.h>
 #include <scip/scip.h>
 using MIP_Solver = CGAL::SCIP_mixed_integer_program_traits<double>;
@@ -70,6 +75,9 @@ Solidifier::~Solidifier() = default;
 std::optional<std::pair<std::unordered_map<Solidifier::Cd, int>,
                         std::unordered_map<Solidifier::Cd, std::set<int>>>>
 Solidifier::solve() {
+
+  spdlog::info("Using MIP solver: {}", typeid(pimpl_->solver).name());
+
   spdlog::trace("Start solving MIP");
   spdlog::stopwatch sw;
 
@@ -78,13 +86,24 @@ Solidifier::solve() {
   pimpl_->_setupObjective();
   pimpl_->_setupConstraints();
 
+  // Log problem statistics
+  spdlog::debug(
+      "Problem size: {} cells, {} rooms, {} walls",
+      std::distance(pimpl_->_cc->cells_begin(), pimpl_->_cc->cells_end()),
+      pimpl_->_cc->n_rooms, pimpl_->_cc->n_walls);
+  spdlog::debug("Total variables: {}, Total constraints: {}",
+                pimpl_->solver.number_of_variables(),
+                pimpl_->solver.number_of_constraints());
+
   spdlog::trace("Start solving");
 
   // INFO: Solve
   if (!pimpl_->solver.solve()) {
-    spdlog::error("Solving problem failed");
+    spdlog::error("MIP solver failed to find solution");
     return {};
   }
+
+  spdlog::info("MIP solver succeeded");
 
   auto room_label = std::unordered_map<Cd, int>{};
   auto wall_label = std::unordered_map<Cd, std::set<int>>{};

@@ -483,7 +483,12 @@ tdg --path libs/ --path apps/ --output TODO.json
 - GraphBLAS, LAGraph - sparse graph algorithms for room segmentation
 
 **Optimization:**
-- SCIP solver - constraint optimization
+- HiGHS - Mixed Integer Programming (MIP) solver
+  - ✅ Built with CUDA/GPU support (`CUPDLP_GPU=ON` in `overlays/highs.nix`)
+  - ⚠️  GPU acceleration (PDLP solver) not used by Solidifier class
+  - **Reason**: Solidifier uses MIP with binary variables; PDLP only works for continuous LP
+  - See `docs/HIGHS_GPU_ACCELERATION.md` for details and alternatives
+- SCIP solver - constraint optimization (alternative to HiGHS)
 - TBB - parallel processing
 
 **I/O:**

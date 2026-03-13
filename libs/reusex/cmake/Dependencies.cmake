@@ -40,6 +40,7 @@ find_package(PCL REQUIRED)
 # Geometry & Optimization
 # -----------------------------------------------
 find_package(Eigen3 REQUIRED)
+find_package(highs REQUIRED)
 find_package(SCIP REQUIRED)
 find_package(embree REQUIRED)
 

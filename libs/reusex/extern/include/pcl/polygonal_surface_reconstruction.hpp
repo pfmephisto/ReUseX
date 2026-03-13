@@ -27,10 +27,12 @@
 // #include <CGAL/Polygon_mesh_processing/stitch_borders.h>
 // #include <CGAL/Polygon_mesh_processing/triangulate_faces.h>
 
-// Define CGAL_USE_SCIP or CGAL_USE_GLPK in CMakeLists.txt to use SCIP or GLPK
-#define CGAL_USE_SCIP 1
+// Define CGAL_USE_HIGHS, CGAL_USE_SCIP, or CGAL_USE_GLPK in CMakeLists.txt to select MIP solver
 
-#ifdef CGAL_USE_SCIP
+#ifdef CGAL_USE_HIGHS
+#include <CGAL/HiGHS_mixed_integer_program_traits.h>
+using MIP_Solver = CGAL::HiGHS_mixed_integer_program_traits<double>;
+#elif defined(CGAL_USE_SCIP)
 #include <CGAL/SCIP_mixed_integer_program_traits.h>
 using MIP_Solver = CGAL::SCIP_mixed_integer_program_traits<double>;
 #elif defined(CGAL_USE_GLPK)

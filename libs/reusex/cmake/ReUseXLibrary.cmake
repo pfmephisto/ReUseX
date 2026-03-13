@@ -60,13 +60,16 @@ target_include_directories(ReUseX PUBLIC
 # -----------------------------------------------
 # Link dependencies
 # -----------------------------------------------
-target_link_libraries(ReUseX 
+target_link_libraries(ReUseX
     PUBLIC
         # Geometry & CGAL
         CGAL::CGAL
         CGAL::Eigen3_support
         CGAL::SCIP_support
         CGAL::TBB_support
+
+        # MIP Solver (HiGHS primary, SCIP fallback)
+        highs::highs
 
         # 3D Formats
         OpenNURBS

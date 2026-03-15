@@ -29,13 +29,7 @@
 #include <pcl/point_types.h>
 #include <pcl/search/kdtree.h>
 
-#include <boost/parameter.hpp>
-#include <boost/parameter/keyword.hpp>
-#include <boost/parameter/name.hpp>
-
 #include <atomic>
-
-namespace parameter = boost::parameter;
 
 namespace ReUseX::geometry {
 struct SegmentRoomsRequest {
@@ -57,44 +51,5 @@ struct SegmentRoomsRequest {
 
 auto segment_rooms_impl(const SegmentRoomsRequest &request) -> CloudLPtr;
 auto segment_rooms(const SegmentRoomsRequest &request) -> CloudLPtr;
-
-BOOST_PARAMETER_NAME(cloud)
-BOOST_PARAMETER_NAME(normals)
-BOOST_PARAMETER_NAME(planes)
-BOOST_PARAMETER_NAME(grid_size)
-BOOST_PARAMETER_NAME(inflation)
-BOOST_PARAMETER_NAME(expansion)
-BOOST_PARAMETER_NAME(pruning_threshold)
-BOOST_PARAMETER_NAME(convergence_threshold)
-BOOST_PARAMETER_NAME(max_iter)
-
-BOOST_PARAMETER_FUNCTION((CloudLPtr),   // 1. parenthesized return type
-                         segment_rooms, // 2. name of the function template
-                         tag,           // 3. namespace of tag types
-                         (required      //
-                          (cloud, (CloudConstPtr))                //
-                          (normals, (CloudNConstPtr))             //
-                          (planes, (CloudLConstPtr))              //
-                          )                                       //
-                         (optional                                //
-                          (grid_size, (double), 0.5)              //
-                          (inflation, (double), 2.0)              //
-                          (expansion, (int), 2)                   //
-                          (pruning_threshold, (double), 0.0001)   //
-                          (convergence_threshold, (double), 1e-8) //
-                          (max_iter, (int), 100)                  //
-                           )) {
-  SegmentRoomsRequest request;
-  request.cloud = cloud;
-  request.normals = normals;
-  request.planes = planes;
-  request.grid_size = grid_size;
-  request.inflation = inflation;
-  request.expansion = expansion;
-  request.pruning_threshold = pruning_threshold;
-  request.convergence_threshold = convergence_threshold;
-  request.max_iter = max_iter;
-  return segment_rooms(request);
-}
 
 } // namespace ReUseX::geometry

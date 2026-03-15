@@ -2,6 +2,9 @@
 
 This document provides an architectural overview of the ReUseX library and its components.
 
+For a focused public API consistency audit and refactoring roadmap, see
+`docs/design/api-design-review.md`.
+
 ## High-Level Overview
 
 ReUseX is a C++20 library for processing 3D point cloud data from interior lidar scans of buildings. It combines SLAM (RTABMap), deep learning (YOLO, SAM), and point cloud processing (CGAL, PCL) to enable automated semantic segmentation and object detection for building reuse applications.

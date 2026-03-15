@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include <ReUseX/core/logging.hpp>
 #include <ReUseX/geometry/segment_rooms.hpp>
 
 namespace ReUseX::geometry {
@@ -71,7 +72,7 @@ auto segment_rooms_impl(CloudConstPtr cloud, CloudNConstPtr normals,
   // Set up PCL Visualizer
   pcl::visualization::PCLVisualizer::Ptr viewer;
   if (visualize) {
-    spdlog::warn("Visualization is an experimental feature.");
+    ReUseX::core::warn("Visualization is an experimental feature.");
     viewer = pcl::visualization::PCLVisualizer::Ptr(
         new pcl::visualization::PCLVisualizer("MCL Viewer"));
     viewer->setBackgroundColor(0, 0, 0);
@@ -81,7 +82,7 @@ auto segment_rooms_impl(CloudConstPtr cloud, CloudNConstPtr normals,
         [&viewer](typename pcl::PointCloud<pcl::PointXYZ>::Ptr points,
                   std::shared_ptr<std::vector<pcl::Vertices>> vertices,
                   pcl::CorrespondencesPtr correspondences) {
-          spdlog::trace("Updating visualization context with {} points and "
+          ReUseX::core::trace("Updating visualization context with {} points and "
                         "{} polygons",
                         points->size(), vertices->size());
 
@@ -112,14 +113,14 @@ auto segment_rooms_impl(CloudConstPtr cloud, CloudNConstPtr normals,
     viewer->addPointCloud<PointT>(cloud, "cloud");
   }
 
-  spdlog::trace("Initialize labels and copy xyzrgb data to labels");
+  ReUseX::core::trace("Initialize labels and copy xyzrgb data to labels");
   CloudLPtr labels(new CloudL);
   pcl::copyPointCloud(*cloud, *labels);
   for (size_t i = 0; i < labels->points.size(); ++i)
     labels->points[i].label = -1;
 
   mcl.cluster(*labels);
-  spdlog::trace("Done clustering");
+  ReUseX::core::trace("Done clustering");
 
   if (viewer)
     while (!viewer->wasStopped()) {
@@ -131,7 +132,7 @@ auto segment_rooms_impl(CloudConstPtr cloud, CloudNConstPtr normals,
   pcl::KdTreeFLANN<PointT> kdtree;
   kdtree.setInputCloud(cloud, indices);
   IndicesPtr missing_indices(new Indices);
-  spdlog::trace("Resizing missing indices to size {}, cloud size: {}, "
+  ReUseX::core::trace("Resizing missing indices to size {}, cloud size: {}, "
                 "indices size: {}",
                 cloud->points.size() - indices->size(), cloud->points.size(),
                 indices->size());
@@ -158,7 +159,7 @@ auto segment_rooms_impl(CloudConstPtr cloud, CloudNConstPtr normals,
     }
   }
 
-  spdlog::info("Number of clusters found: {}", mcl.getNumClusters());
+  ReUseX::core::info("Number of clusters found: {}", mcl.getNumClusters());
 
   return labels;
 }

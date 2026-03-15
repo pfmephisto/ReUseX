@@ -2,13 +2,13 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include <ReUseX/core/logging.hpp>
 #include <ReUseX/vision/libtorch/Dataset.hpp>
 #include <ReUseX/io/RTABMapDatabase.hpp>
 #include <ReUseX/vision/utils.hpp>
 
 #include <opencv2/core.hpp>
 
-#include <spdlog/spdlog.h>
 
 namespace ReUseX::vision::libtorch {
 
@@ -18,7 +18,7 @@ TorchDataset::TorchDataset(std::filesystem::path dbPath)
   // Cache node IDs from database
   ids_ = db_->getNodeIds(false);
 
-  spdlog::trace("TorchDataset initialized with {} entries", ids_.size());
+  ReUseX::core::trace("TorchDataset initialized with {} entries", ids_.size());
 }
 
 TorchDataset::Example TorchDataset::get(size_t index) {
@@ -42,7 +42,7 @@ TorchDataset::Example TorchDataset::get(size_t index) {
 torch::optional<size_t> TorchDataset::size() const { return ids_.size(); }
 
 void TorchDataset::save(std::vector<cv::Mat> imgs, torch::Tensor index) {
-  spdlog::trace("TorchDataset saving {} images", imgs.size());
+  ReUseX::core::trace("TorchDataset saving {} images", imgs.size());
 
   // Prepare node IDs and images for batch save
   std::vector<int> nodeIds;
@@ -64,7 +64,7 @@ void TorchDataset::save(std::vector<cv::Mat> imgs, torch::Tensor index) {
   // autoRotate=true means RTABMapDatabase will apply the 90° counterclockwise rotation
   db_->saveLabels(nodeIds, processedImgs, true);
 
-  spdlog::trace("TorchDataset save completed");
+  ReUseX::core::trace("TorchDataset save completed");
 }
 
 } // namespace ReUseX::vision::libtorch

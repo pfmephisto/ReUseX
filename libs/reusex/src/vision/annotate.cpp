@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include <ReUseX/core/logging.hpp>
 #include <ReUseX/vision/annotate.hpp>
 #include <ReUseX/vision/libtorch/Dataset.hpp>
 #include <ReUseX/vision/utils.hpp>
@@ -21,7 +22,6 @@
 
 #include <pcl/common/colors.h>
 
-#include <spdlog/spdlog.h>
 
 #include <range/v3/all.hpp>
 namespace ReUseX::vision {
@@ -76,8 +76,8 @@ torch::Device selectDevice(bool isCuda) {
   torch::Device device =
       (isCuda && torch::cuda::is_available()) ? torch::kCUDA : torch::kCPU;
   if (isCuda && !torch::cuda::is_available())
-    spdlog::warn("CUDA is not available. Using CPU for inference.");
-  spdlog::debug("Using device: {}", device.is_cuda() ? "CUDA" : "CPU");
+    ReUseX::core::warn("CUDA is not available. Using CPU for inference.");
+  ReUseX::core::debug("Using device: {}", device.is_cuda() ? "CUDA" : "CPU");
   return device;
 }
 
@@ -273,7 +273,7 @@ void applyGlasberyColorMap(const cv::Mat &input, cv::Mat &output) {
 auto annotateRTABMap(const std::filesystem::path &dbPath,
                      const std::filesystem::path &modelPath, bool isCuda)
     -> int {
-  spdlog::trace("calling annotateRTABMap");
+  ReUseX::core::trace("calling annotateRTABMap");
 
   torch::manual_seed(1);
 
@@ -292,7 +292,7 @@ auto annotateRTABMap(const std::filesystem::path &dbPath,
           torch::data::DataLoaderOptions().batch_size(batch_size).workers(5));
 
   {
-    spdlog::info("Starting annotation of {} batches", num_batches);
+    ReUseX::core::info("Starting annotation of {} batches", num_batches);
     auto logger = spdmon::LoggerProgress("Processing batch", num_batches);
 
     for (torch::data::Example<> &batch : *dataloader) {
@@ -302,8 +302,8 @@ auto annotateRTABMap(const std::filesystem::path &dbPath,
       auto output = model.forward({data});
 
       if (output.isTuple() == false) {
-        spdlog::error("Model output is not a tuple as expected.");
-        spdlog::info("Have you used the correct model? This script expects the "
+        ReUseX::core::error("Model output is not a tuple as expected.");
+        ReUseX::core::info("Have you used the correct model? This script expects the "
                      "yolo segmentation variant.");
         return -1;
       }

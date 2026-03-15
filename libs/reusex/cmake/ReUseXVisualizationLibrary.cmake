@@ -48,10 +48,6 @@ target_link_libraries(ReUseX_visualization
         
         # Linear Algebra
         Eigen3::Eigen
-
-    PRIVATE 
-        # Logging
-        spdlog::spdlog
 )
 
 # -----------------------------------------------

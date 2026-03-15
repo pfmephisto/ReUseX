@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include <ReUseX/core/logging.hpp>
 #include <ReUseX/geometry/segment_planes.hpp>
 
 namespace ReUseX::geometry {
@@ -31,7 +32,7 @@ auto segment_planes_impl(CloudConstPtr cloud, CloudNConstPtr normals,
                          const bool visualize)
     -> std::tuple<CloudLPtr, CloudLocPtr, CloudNPtr> {
 
-  spdlog::trace("Initialize the segmentation algorithm");
+  ReUseX::core::trace("Initialize the segmentation algorithm");
   pcl::PlanarRegionGrowing<PointT, NormalT, LabelT> seg;
   seg.setInputCloud(cloud);
   seg.setInputNormals(normals);
@@ -48,7 +49,7 @@ auto segment_planes_impl(CloudConstPtr cloud, CloudNConstPtr normals,
   pcl::visualization::PCLVisualizer::Ptr viewer;
   if (visualize) {
     static int plane_id = 0;
-    spdlog::warn("Visualization is an experimental feature.");
+    ReUseX::core::warn("Visualization is an experimental feature.");
     viewer = pcl::visualization::PCLVisualizer::Ptr(
         new pcl::visualization::PCLVisualizer("MCL Viewer"));
     viewer->setBackgroundColor(0, 0, 0);
@@ -57,7 +58,7 @@ auto segment_planes_impl(CloudConstPtr cloud, CloudNConstPtr normals,
     seg.registerVisualizationCallback(
         [&viewer](const pcl::ModelCoefficients &plane,
                   const Eigen::Vector4f &origin) {
-          spdlog::trace("Visualization callback called");
+          ReUseX::core::trace("Visualization callback called");
           const auto name = "plane" + std::to_string(plane_id);
           const auto color = pcl::GlasbeyLUT::at(plane_id);
           viewer->addPlane(plane, origin.x(), origin.y(), origin.z(), name);
@@ -72,14 +73,14 @@ auto segment_planes_impl(CloudConstPtr cloud, CloudNConstPtr normals,
     viewer->addPointCloud<PointT>(cloud, "cloud");
   }
 
-  spdlog::trace("Initialize labels and copy xyzrgb data to labels");
+  ReUseX::core::trace("Initialize labels and copy xyzrgb data to labels");
   CloudLPtr labels(new CloudL);
   pcl::copyPointCloud(*cloud, *labels);
 
-  spdlog::trace("Call the segmentation algorithm");
+  ReUseX::core::trace("Call the segmentation algorithm");
   seg.segment(labels);
 
-  spdlog::info("Found {} clusters", seg.getCentroids().size());
+  ReUseX::core::info("Found {} clusters", seg.getCentroids().size());
   if (viewer)
     while (!viewer->wasStopped()) {
       viewer->spinOnce(100);

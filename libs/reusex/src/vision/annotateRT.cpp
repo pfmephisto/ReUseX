@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include <ReUseX/core/logging.hpp>
 #include <ReUseX/vision/BackendFactory.hpp>
 #include <ReUseX/vision/Dataloader.hpp>
 // #include <ReUseX/vision/Dataset.hpp>
@@ -23,7 +24,6 @@
 
 #include <pcl/common/colors.h>
 
-#include <spdlog/spdlog.h>
 #include <spdmon/spdmon.hpp>
 
 #include <range/v3/all.hpp>
@@ -31,7 +31,7 @@ namespace ReUseX::vision {
 
 auto annotate(const std::filesystem::path &dbPath,
               const std::filesystem::path &modelPath) -> int {
-  spdlog::trace("calling annotateRT-RTABMap");
+  ReUseX::core::trace("calling annotateRT-RTABMap");
 
   // Create backend, model, and dataset
   auto backendType = BackendFactory::detect_backend(modelPath);
@@ -56,13 +56,13 @@ auto annotate(const std::filesystem::path &dbPath,
   cv::namedWindow("Annotation", cv::WINDOW_AUTOSIZE);
 #endif
 
-  spdlog::info("Starting annotation with {} batches using {} worker threads",
+  ReUseX::core::info("Starting annotation with {} batches using {} worker threads",
                loader.size(), loader.get_num_workers());
 
   size_t batch_count = 0;
   // for (auto batch : loader) {
   for (auto [logger, batch] : spdmon::LogProgress(loader)) {
-    spdlog::trace("Processing batch {}/{} with {} items", ++batch_count,
+    ReUseX::core::trace("Processing batch {}/{} with {} items", ++batch_count,
                   loader.size(), batch.size());
     auto results = model->forward(batch);
     dataset->save(results);
@@ -75,7 +75,7 @@ auto annotate(const std::filesystem::path &dbPath,
   // cv::destroyAllWindows();
 #endif
 
-  spdlog::info("Annotation completed");
+  ReUseX::core::info("Annotation completed");
   return 0;
 }
 

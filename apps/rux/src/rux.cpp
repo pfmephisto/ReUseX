@@ -12,11 +12,17 @@
 #include <texture.hpp>
 #include <view.hpp>
 
+#include <ReUseX/core/logging.hpp>
 #include <reusex/core/version.hpp>
 
 #include <CLI/CLI.hpp>
+#include <algorithm>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
+
+namespace {
+constexpr int kMaxVerbosity = 3;
+}
 
 int main(int argc, char **argv) {
   // Create a new logger with a custom name
@@ -28,6 +34,33 @@ int main(int argc, char **argv) {
   spdlog::set_level(spdlog::level::warn); // Default level
   spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%n] [%^%=7l%$] %v");
 
+  ReUseX::core::set_log_handler(
+      [](ReUseX::core::LogLevel level, std::string_view message) {
+        switch (level) {
+        case ReUseX::core::LogLevel::trace:
+          spdlog::trace("{}", message);
+          break;
+        case ReUseX::core::LogLevel::debug:
+          spdlog::debug("{}", message);
+          break;
+        case ReUseX::core::LogLevel::info:
+          spdlog::info("{}", message);
+          break;
+        case ReUseX::core::LogLevel::warn:
+          spdlog::warn("{}", message);
+          break;
+        case ReUseX::core::LogLevel::error:
+          spdlog::error("{}", message);
+          break;
+        case ReUseX::core::LogLevel::critical:
+          spdlog::critical("{}", message);
+          break;
+        case ReUseX::core::LogLevel::off:
+          break;
+        }
+      });
+  ReUseX::core::set_log_level(ReUseX::core::LogLevel::warn);
+
   CLI::App app{"rux: ReUseX a tool for processing "
                "interior lidar scans of buildings."};
   app.get_formatter()->column_width(40);
@@ -35,7 +68,12 @@ int main(int argc, char **argv) {
   app.add_flag(
          "-v, --verbose",
          [](int count) {
-           spdlog::set_level(static_cast<spdlog::level::level_enum>(3 - count));
+           const int safe_count = std::clamp(count, 0, kMaxVerbosity);
+           const auto level = static_cast<spdlog::level::level_enum>(
+               kMaxVerbosity - safe_count);
+           spdlog::set_level(level);
+           ReUseX::core::set_log_level(
+               static_cast<ReUseX::core::LogLevel>(kMaxVerbosity - safe_count));
            spdlog::info("Verbosity level: {}",
                         spdlog::level::to_string_view(spdlog::get_level()));
          },

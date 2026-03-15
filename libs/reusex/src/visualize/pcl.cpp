@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include <ReUseX/core/logging.hpp>
 #include <ReUseX/visualize/pcl.hpp>
 #include <ReUseX/utils/math.hpp>
 
@@ -34,7 +35,7 @@ void addPlane(std::shared_ptr<pcl::visualization::PCLVisualizer> viewer,
 void addPlanes(std::shared_ptr<pcl::visualization::PCLVisualizer> viewer,
                const std::vector<Pair> &vertical_planes,
                const std::string_view &name, int vp) {
-  // spdlog::trace("Displaying planes");
+  // ReUseX::core::trace("Displaying planes");
   for (auto [idx, pair] : ranges::views::enumerate(vertical_planes)) {
     auto [plane, origin] = pair;
     auto color = pcl::GlasbeyLUT::at(idx);
@@ -121,7 +122,7 @@ void addFloors(std::shared_ptr<pcl::visualization::PCLVisualizer> viewer,
                const std::vector<double> &heights, const Eigen::Vector3d &min,
                const Eigen::Vector3d &max, const std::string_view &name,
                int vp) {
-  // spdlog::trace("Displaying floors");
+  // ReUseX::core::trace("Displaying floors");
   for (auto [idx, height] : ranges::views::enumerate(heights)) {
     addFloor(viewer, height, min, max, fmt::format("{}_{}", name, idx), vp);
   }
@@ -130,7 +131,7 @@ void addFloors(std::shared_ptr<pcl::visualization::PCLVisualizer> viewer,
 void addCellComplex(std::shared_ptr<pcl::visualization::PCLVisualizer> viewer,
                     const std::shared_ptr<ReUseX::geometry::CellComplex> &cc,
                     const std::string_view &name, int vp) {
-  spdlog::trace("Displaying cell complex vertices");
+  ReUseX::core::trace("Displaying cell complex vertices");
   // INFO: Display vertices
   auto vertices = CloudPtr(new Cloud);
   vertices->points.resize(cc->num_vertices());
@@ -149,7 +150,7 @@ void addCellComplex(std::shared_ptr<pcl::visualization::PCLVisualizer> viewer,
       pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, v_name, vp);
 
   // INFO: Display faces
-  spdlog::trace("Displaying cell complex faces");
+  ReUseX::core::trace("Displaying cell complex faces");
   auto faces = CloudPtr(new Cloud);
   faces->points.resize(cc->num_faces());
   for (auto fit = cc->faces_begin(); fit != cc->faces_end(); ++fit) {
@@ -167,7 +168,7 @@ void addCellComplex(std::shared_ptr<pcl::visualization::PCLVisualizer> viewer,
       pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, f_name, vp);
 
   // INFO: Display cell centers
-  spdlog::trace("Displaying cell complex cell centers");
+  ReUseX::core::trace("Displaying cell complex cell centers");
   auto cells = CloudPtr(new Cloud);
   cells->points.resize(cc->num_cells());
   for (auto cit = cc->cells_begin(); cit != cc->cells_end(); ++cit) {
@@ -185,7 +186,7 @@ void addCellComplex(std::shared_ptr<pcl::visualization::PCLVisualizer> viewer,
       pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, c_name, vp);
 
   // INFO: Display Cell Face Correspondences
-  spdlog::trace("Displaying cell face correspondences");
+  ReUseX::core::trace("Displaying cell face correspondences");
   std::string cf_name = "correspondences_cf";
   pcl::CorrespondencesPtr cf(new pcl::Correspondences);
   for (auto cit = cc->cells_begin(); cit != cc->cells_end(); ++cit) {
@@ -200,7 +201,7 @@ void addCellComplex(std::shared_ptr<pcl::visualization::PCLVisualizer> viewer,
                                       1.0, 1.0, 1.0, cf_name, vp);
 
   // INFO: Display Face Vertex Correspondences
-  spdlog::trace("Displaying face vertex correspondences");
+  ReUseX::core::trace("Displaying face vertex correspondences");
   std::string fv_name = "correspondences_fv";
   pcl::CorrespondencesPtr fv(new pcl::Correspondences);
   for (auto fit = cc->faces_begin(); fit != cc->faces_end(); ++fit) {
@@ -220,7 +221,7 @@ void addRoomProbabilities(
     std::shared_ptr<pcl::visualization::PCLVisualizer> viewer,
     const std::shared_ptr<ReUseX::geometry::CellComplex> &cc,
     const std::string_view &name, int vp) {
-  spdlog::trace("Displaying room probabilities");
+  ReUseX::core::trace("Displaying room probabilities");
   auto c_rp = cc->property_map<ReUseX::geometry::CellComplex::Vertex,
                                std::vector<double>>("c:room_probabilities");
   // Create a Lut for the room labels
@@ -279,7 +280,7 @@ void addSupportProbabilities(
     std::shared_ptr<pcl::visualization::PCLVisualizer> viewer,
     const std::shared_ptr<ReUseX::geometry::CellComplex> &cc,
     const std::string_view &name, int vp) {
-  spdlog::trace("Displaying face support probabilities");
+  ReUseX::core::trace("Displaying face support probabilities");
   auto vertices = CloudPtr(new Cloud);
   vertices->points.resize(cc->num_vertices());
   for (auto vit = cc->vertices_begin(); vit != cc->vertices_end(); ++vit) {
@@ -348,7 +349,7 @@ void addRooms(
         std::unordered_map<ReUseX::geometry::CellComplex::Vertex,
                            std::set<int>>> &results,
     const std::string_view &name, int vp) {
-  spdlog::trace("Displaying results");
+  ReUseX::core::trace("Displaying results");
 
   // TODO: Create reusable CellComplex-to-PointCloud conversion utility
   // category=Visualization estimate=2h

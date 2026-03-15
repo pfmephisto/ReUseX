@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #pragma once
+#include <ReUseX/core/logging.hpp>
 #include <ReUseX/types.hpp>
 
 #include <Eigen/Core>
@@ -12,7 +13,6 @@
 #include <pcl/common/pca.h>
 #include <range/v3/view/iota.hpp>
 #include <range/v3/view/zip.hpp>
-#include <spdlog/spdlog.h>
 
 #include <stdexcept>
 

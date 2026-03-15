@@ -1,3 +1,4 @@
+#include <ReUseX/core/logging.hpp>
 #include <ReUseX/vision/IDataset.hpp>
 #include <ReUseX/vision/common/createObject.hpp>
 #include <ReUseX/vision/common/image.hpp>
@@ -10,8 +11,6 @@
 #include <ReUseX/vision/tensor_rt/kernels/process_kernel_warp.hpp>
 
 #include <fmt/ranges.h>
-#include <spdlog/fmt/std.h>
-#include <spdlog/spdlog.h>
 
 #include <range/v3/numeric/accumulate.hpp>
 #include <range/v3/view/take.hpp>
@@ -60,7 +59,7 @@ namespace common_tensor = ::ReUseX::vision::common::tensor;
 
 std::unique_ptr<TensorRTSam3>
 TensorRTSam3::create(const std::filesystem::path &model_path) {
-  spdlog::info("Creating TensorRTSam3 from model path: {}", model_path);
+  ReUseX::core::info("Creating TensorRTSam3 from model path: {}", model_path);
 
   std::filesystem::path vision_encoder_path =
       model_path / "vision-encoder.engine";
@@ -78,9 +77,9 @@ TensorRTSam3::create(const std::filesystem::path &model_path) {
       tokenizer_path, gpu_id);
 
   if (!instance->load_engines()) {
-    // spdlog::error("Failed to load TensorRTSam3 engines from path: {}",
+    // ReUseX::core::error("Failed to load TensorRTSam3 engines from path: {}",
     //               model_path);
-    spdlog::error("Failed to load TensorRTSam3 engines with "
+    ReUseX::core::error("Failed to load TensorRTSam3 engines with "
                   "vision_encoder_path : {}, "
                   "text_encoder_path : {}, geometry_encoder_path : {}, "
                   "decoder_path : {} ",
@@ -88,7 +87,7 @@ TensorRTSam3::create(const std::filesystem::path &model_path) {
                   decoder_path);
     return nullptr;
   }
-  spdlog::info("TensorRTSam3 created successfully");
+  ReUseX::core::info("TensorRTSam3 created successfully");
   return instance;
 }
 
@@ -101,7 +100,7 @@ TensorRTSam3::TensorRTSam3(const std::string vision_encoder_path,
       text_encoder_path_(text_encoder_path),
       geometry_encoder_path_(geometry_encoder_path),
       decoder_path_(decoder_path), gpu_id_(gpu_id) {
-  spdlog::debug("Initializing TensorRTSam3 with gpu_id={}, max_image_batch={}, "
+  ReUseX::core::debug("Initializing TensorRTSam3 with gpu_id={}, max_image_batch={}, "
                 "max_prompt_batch={}",
                 gpu_id_, max_image_batch_, max_prompt_batch_);
 
@@ -117,18 +116,18 @@ TensorRTSam3::TensorRTSam3(const std::string vision_encoder_path,
   // Note: all the current factory APIs takes in-memory blob as input.
   // This gives some flexibility on how these blobs can be read.
   auto blob = load_bytes_from_file(tokenizer_path);
-  spdlog::debug("Tokenizer blob loaded, size: {} bytes", blob.size());
+  ReUseX::core::debug("Tokenizer blob loaded, size: {} bytes", blob.size());
   tokenizer_ = tokenizers::Tokenizer::FromBlobJSON(blob);
-  spdlog::debug("Tokenizer initialized successfully with vocab size: {}",
+  ReUseX::core::debug("Tokenizer initialized successfully with vocab size: {}",
                 tokenizer_->GetVocabSize());
 }
 
 std::vector<IDataset::Pair>
 TensorRTSam3::forward(const std::span<IDataset::Pair> &input) {
-  spdlog::debug("TensorRTSam3 forward pass with {} inputs", input.size());
+  ReUseX::core::debug("TensorRTSam3 forward pass with {} inputs", input.size());
 
   if (input.empty()) {
-    spdlog::warn("Empty input provided to forward pass");
+    ReUseX::core::warn("Empty input provided to forward pass");
     return {};
   }
   std::vector<IDataset::Pair> results_img(input.size());
@@ -139,7 +138,7 @@ TensorRTSam3::forward(const std::span<IDataset::Pair> &input) {
     // INFO: Maybe a visior patter should be considered
     tensor_inputs[i] = dynamic_cast<const TensorRTData *>(input[i].first.get());
     if (!tensor_inputs[i]) {
-      spdlog::error("Input at index {} is not of type TensorRTData. "
+      ReUseX::core::error("Input at index {} is not of type TensorRTData. "
                     "Returning empty results.",
                     i);
       return results_img;
@@ -159,7 +158,7 @@ TensorRTSam3::forward(const std::span<IDataset::Pair> &input) {
       auto [ids, mask] = make_ids(tokenizer_->Encode(prompt.text));
       int idx = (int)text_input_map_.size();
       text_input_map_[prompt.text] = std::make_tuple(ids, mask, idx);
-      spdlog::trace("Tokenized text: '{}' ({}), IDs: [{}], Mask: [{}]",
+      ReUseX::core::trace("Tokenized text: '{}' ({}), IDs: [{}], Mask: [{}]",
                     prompt.text, idx,
                     fmt::join(ids | ranges::views::take(5), ", "),
                     fmt::join(mask | ranges::views::take(5), ", "));
@@ -171,7 +170,7 @@ TensorRTSam3::forward(const std::span<IDataset::Pair> &input) {
   // void *stream = nullptr;
   cudaStream_t stream = nullptr;
   if (auto s = cudaStreamCreate(&stream); s != cudaSuccess)
-    spdlog::error("Failed to create CUDA stream: {}", cudaGetErrorString(s));
+    ReUseX::core::error("Failed to create CUDA stream: {}", cudaGetErrorString(s));
 
   AutoDevice device_guard(gpu_id_);
 
@@ -278,7 +277,7 @@ TensorRTSam3::forward(const std::span<IDataset::Pair> &input) {
     results_img[i].second = input[i].second;
   }
 
-  spdlog::debug("TensorRTSam3 forward pass completed");
+  ReUseX::core::debug("TensorRTSam3 forward pass completed");
   return results_img;
 }
 
@@ -286,10 +285,10 @@ std::string TensorRTSam3::load_bytes_from_file(const std::string &path) {
   // Load bytes from file
   std::ifstream fs(path, std::ios::in | std::ios::binary);
   if (fs.fail()) {
-    spdlog::error("Failed to open tokenizer file at path: {}", path);
+    ReUseX::core::error("Failed to open tokenizer file at path: {}", path);
     exit(1);
   }
-  spdlog::debug("Loading json from file: {}", path);
+  ReUseX::core::debug("Loading json from file: {}", path);
 
   std::string data;
   fs.seekg(0, std::ios::end);
@@ -302,25 +301,25 @@ std::string TensorRTSam3::load_bytes_from_file(const std::string &path) {
 }
 
 bool TensorRTSam3::load_engines() {
-  spdlog::info("Loading TensorRT engines");
+  ReUseX::core::info("Loading TensorRT engines");
   AutoDevice device_guard(gpu_id_);
   auto load_engine = [&](const std::string &path,
                          std::shared_ptr<TensorRT::Engine> &engine,
                          const char *name) {
     if (path.empty()) {
-      spdlog::debug("Skipping {} encoder (empty path)", name);
+      ReUseX::core::debug("Skipping {} encoder (empty path)", name);
       return true;
     }
-    spdlog::debug("Loading {} encoder from: {}", name, path);
+    ReUseX::core::debug("Loading {} encoder from: {}", name, path);
     engine = TensorRT::load(path);
     if (!engine) {
-      spdlog::error("Failed to load {} from path: {}", name, path);
+      ReUseX::core::error("Failed to load {} from path: {}", name, path);
       return false;
     }
     engine->print(path.c_str());
     if (isdynamic_model_)
       isdynamic_model_ = engine->has_dynamic_dim();
-    spdlog::debug("{} encoder loaded successfully", name);
+    ReUseX::core::debug("{} encoder loaded successfully", name);
     return true;
   };
 
@@ -352,12 +351,12 @@ bool TensorRTSam3::load_engines() {
   // Initialize fixed GPU memory
   allocate_memory_once();
 
-  spdlog::info("All TensorRT engines loaded successfully");
+  ReUseX::core::info("All TensorRT engines loaded successfully");
   return true;
 }
 
 void TensorRTSam3::allocate_memory_once() {
-  spdlog::debug("Allocating GPU memory for TensorRTSam3");
+  ReUseX::core::debug("Allocating GPU memory for TensorRTSam3");
   // 1. Image Batch related (allocated by max_image_batch_)
   affine_matrix_.cpu(max_image_batch_ * 6);
   affine_matrix_.gpu(max_image_batch_ * 6);
@@ -450,7 +449,7 @@ void TensorRTSam3::allocate_memory_once() {
   // size_t mask_pool_size = 256 * 1024 * 1024;
   // mask_buffer_.gpu(mask_pool_size);
   // mask_buffer_.cpu(mask_pool_size);
-  spdlog::debug("GPU memory allocation completed");
+  ReUseX::core::debug("GPU memory allocation completed");
 }
 
 // Only call geometry model to store results in geom_features_cache_ and
@@ -507,7 +506,7 @@ void TensorRTSam3::set_binding_dim(std::shared_ptr<TensorRT::Engine> &engine,
 
 void TensorRTSam3::preprocess(const TensorRTData &input, int ibatch,
                               void *stream) {
-  spdlog::trace("Preprocessing image for batch index {}", ibatch);
+  ReUseX::core::trace("Preprocessing image for batch index {}", ibatch);
   cudaStream_t s = (cudaStream_t)stream;
   // const cv::Mat &img = input.image;
   const cv::Mat &img = input.image;
@@ -558,7 +557,7 @@ void TensorRTSam3::preprocess(const TensorRTData &input, int ibatch,
 }
 
 bool TensorRTSam3::encode_image(int batch_size, void *stream) {
-  spdlog::debug("Encoding {} images with vision encoder", batch_size);
+  ReUseX::core::debug("Encoding {} images with vision encoder", batch_size);
   // Set input dimensions
   set_binding_dim(vision_encoder_trt_, 0,
                   {batch_size, 3, input_image_height_, input_image_width_});
@@ -571,7 +570,7 @@ bool TensorRTSam3::encode_image(int batch_size, void *stream) {
                                     {"fpn_pos_2", fpn_pos_2_.gpu()}},
                                    (cudaStream_t)stream);
   if (!success) {
-    spdlog::error("Vision encoder forward pass failed");
+    ReUseX::core::error("Vision encoder forward pass failed");
   }
   return success;
 }
@@ -620,7 +619,7 @@ void TensorRTSam3::gather_vision_features(
 
 bool TensorRTSam3::encode_text(const std::vector<PromptMeta> &batch_prompts,
                                int batch_size, void *stream) {
-  spdlog::trace("Encoding text for batch_size={}", batch_size);
+  ReUseX::core::trace("Encoding text for batch_size={}", batch_size);
   int seq_len = 32;
   int64_t *h_ids = text_input_ids_.cpu();
   int64_t *h_mask = text_attention_mask_.cpu();
@@ -733,7 +732,7 @@ bool TensorRTSam3::encode_boxes(const std::vector<PromptMeta> &batch_prompts,
 }
 
 bool TensorRTSam3::decode(int batch_size, int prompt_len, void *stream) {
-  spdlog::debug("Decoding with batch_size={}, prompt_len={}", batch_size,
+  ReUseX::core::debug("Decoding with batch_size={}, prompt_len={}", batch_size,
                 prompt_len);
   int text_len = text_ids_shape_[1];
   int feat_dim = 256;
@@ -804,7 +803,7 @@ void TensorRTSam3::postprocess(InferResult &image_result, int batch_idx,
                                int image_idx, const std::string &label,
                                const int label_id, float confidence_threshold,
                                bool return_mask, void *stream) {
-  spdlog::trace("Postprocessing results for image index {}, batch index {}",
+  ReUseX::core::trace("Postprocessing results for image index {}, batch index {}",
                 image_idx, batch_idx);
   cudaStream_t s = (cudaStream_t)stream;
 
@@ -848,7 +847,7 @@ void TensorRTSam3::postprocess(InferResult &image_result, int batch_idx,
     if (!return_mask) {
       for (int i = 0; i < count; ++i) {
         float *b = h_boxes.data() + i * 4;
-        spdlog::trace("Creating Box for Image {}, Box {}: [{}, {}, {}, {}], "
+        ReUseX::core::trace("Creating Box for Image {}, Box {}: [{}, {}, {}, {}], "
                       "Score: {}, Label: '{}' ({})",
                       image_idx, i, b[0], b[1], b[2], b[3], h_scores[i], label,
                       label_id);
@@ -917,7 +916,7 @@ void TensorRTSam3::postprocess(InferResult &image_result, int batch_idx,
       cv::Mat bin_mask(mask_sizes[i].height, mask_sizes[i].width, CV_8U,
                        mask_ptr);
 
-      spdlog::trace(
+      ReUseX::core::trace(
           "Creating SegmentationBox for Image {}, Box {}: [{}, {}, {}, {}], "
           "Score: {}, Label: '{}' ({})",
           image_idx, i, b[0], b[1], b[2], b[3], h_scores[i], label, label_id);
@@ -936,12 +935,12 @@ InferResultArray TensorRTSam3::forwards(const std::vector<Sam3Input>
   // Check if cache exists
   if (geom_mask_cache_.count(geom_label) == 0 ||
       geom_features_cache_.count(geom_label) == 0) {
-    spdlog::error("Geometry cache not found for label: {}", geom_label);
+    ReUseX::core::error("Geometry cache not found for label: {}", geom_label);
     return {};
   }
 
   if (inputs.size() > (size_t)max_image_batch_) {
-    spdlog::error("Input image batch size ({}) exceeds maximum supported
+    ReUseX::core::error("Input image batch size ({}) exceeds maximum supported
 ({}). " "Returning empty.", inputs.size(), max_image_batch_); return
 InferResultArray(inputs.size());
   }
@@ -1024,7 +1023,7 @@ InferResultArray TensorRTSam3::forwards(const std::vector<Sam3Input>
 
 // 1. Check if number of images exceeds limit
 if (inputs.size() > (size_t)max_image_batch_) {
-  spdlog::error("Input image batch size ({}) exceeds maximum supported ({}).
+  ReUseX::core::error("Input image batch size ({}) exceeds maximum supported ({}).
 " "Returning empty.", inputs.size(), max_image_batch_); return
 InferResultArray(inputs.size()); // Return empty result
 }

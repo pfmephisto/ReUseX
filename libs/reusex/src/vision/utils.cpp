@@ -2,13 +2,13 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include <ReUseX/core/logging.hpp>
 #include <ReUseX/vision/utils.hpp>
 
 #include <cmath>
 #include <opencv2/core.hpp>
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
-#include <spdlog/spdlog.h>
 #include <torch/torch.h>
 #include <vector>
 
@@ -200,10 +200,10 @@ torch::Tensor non_max_suppression(torch::Tensor &predictions,
   auto nm = predictions.size(1) - nc - 4; // num masks
   auto mi = 4 + nc;                       // mask start index
 
-  // spdlog::debug("bs: {}, nc: {}, nm: {}, mi:{}", bs, nc, nm, mi);
+  // ReUseX::core::debug("bs: {}, nc: {}, nm: {}, mi:{}", bs, nc, nm, mi);
   auto xc = predictions.index({Slice(), Slice(4, mi)}).amax(1) > confThreshold;
 
-  // spdlog::debug("xc shape: [{}]", fmt::join(xc.sizes(), ", "));
+  // ReUseX::core::debug("xc shape: [{}]", fmt::join(xc.sizes(), ", "));
 
   predictions = predictions.transpose(-1, -2); // [bs, 8400, 116]
   predictions.index_put_({"...", Slice({None, 4})},

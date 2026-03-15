@@ -2,14 +2,13 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include <ReUseX/core/logging.hpp>
 #include <ReUseX/vision/IDataset.hpp>
 #include <ReUseX/io/RTABMapDatabase.hpp>
 
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
 
-#include <spdlog/fmt/std.h>
-#include <spdlog/spdlog.h>
 #ifndef NDEBUG
 #include <opencv2/highgui.hpp>
 #include <pcl/common/colors.h>
@@ -42,12 +41,12 @@ IDataset::IDataset(std::shared_ptr<io::RTABMapDatabase> database)
     throw std::runtime_error("Database pointer is null");
   }
 
-  spdlog::info("Initializing IDataset with database: {}", db_->getPath());
+  ReUseX::core::info("Initializing IDataset with database: {}", db_->getPath());
 
   // Cache node IDs from database
   ids_ = db_->getNodeIds(false);
 
-  spdlog::info("Dataset initialized with {} entries", ids_.size());
+  ReUseX::core::info("Dataset initialized with {} entries", ids_.size());
 }
 
 IDataset::IDataset(std::filesystem::path dbPath)
@@ -55,13 +54,13 @@ IDataset::IDataset(std::filesystem::path dbPath)
 }
 
 cv::Mat IDataset::getImage(const size_t index) const {
-  spdlog::trace("Getting image at index {}", index);
+  ReUseX::core::trace("Getting image at index {}", index);
   int node_id = ids_.at(index);
   return db_->getImage(node_id);
 }
 
 bool IDataset::saveImage(const size_t index, const cv::Mat &image) {
-  spdlog::trace("Saving image at index {}", index);
+  ReUseX::core::trace("Saving image at index {}", index);
 
   try {
     int node_id = ids_.at(index);
@@ -79,7 +78,7 @@ bool IDataset::saveImage(const size_t index, const cv::Mat &image) {
 
     return true;
   } catch (const std::exception& e) {
-    spdlog::error("Failed to save image at index {}: {}", index, e.what());
+    ReUseX::core::error("Failed to save image at index {}: {}", index, e.what());
     return false;
   }
 }

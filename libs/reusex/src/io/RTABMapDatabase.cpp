@@ -2,13 +2,12 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include <ReUseX/core/logging.hpp>
 #include <ReUseX/io/RTABMapDatabase.hpp>
 
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
 
-#include <spdlog/fmt/std.h>
-#include <spdlog/spdlog.h>
 
 #include <sqlite3.h>
 
@@ -29,7 +28,7 @@ public:
     Impl(std::filesystem::path path, bool ro)
         : dbPath(std::move(path)), readOnly(ro) {
 
-        spdlog::info("Opening RTABMap database: {}", dbPath);
+        ReUseX::core::info("Opening RTABMap database: {}", dbPath);
 
         // Open sqlite3 connection for custom table access
         int flags = readOnly ? SQLITE_OPEN_READONLY : (SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE);
@@ -68,11 +67,11 @@ public:
             createSegmentationTable();
         }
 
-        spdlog::info("RTABMap database opened successfully");
+        ReUseX::core::info("RTABMap database opened successfully");
     }
 
     ~Impl() {
-        spdlog::trace("Closing RTABMap database connection");
+        ReUseX::core::trace("Closing RTABMap database connection");
         if (rtabmap) {
             delete rtabmap;
         }
@@ -96,7 +95,7 @@ public:
             std::string error = sqlite3_errmsg(db);
             throw std::runtime_error("Failed to create Segmentation table: " + error);
         }
-        spdlog::trace("Segmentation table created or already exists");
+        ReUseX::core::trace("Segmentation table created or already exists");
     }
 
     void validateSchema() const {
@@ -119,7 +118,7 @@ public:
                 throw std::runtime_error("Required table '" + std::string(table) + "' not found in database");
             }
         }
-        spdlog::trace("Database schema validation passed");
+        ReUseX::core::trace("Database schema validation passed");
     }
 
     std::vector<int> getNodeIds(bool ignoreChildren) const {
@@ -139,12 +138,12 @@ public:
         }
         sqlite3_finalize(stmt);
 
-        spdlog::trace("Retrieved {} node IDs", ids.size());
+        ReUseX::core::trace("Retrieved {} node IDs", ids.size());
         return ids;
     }
 
     cv::Mat getImage(int nodeId) const {
-        spdlog::trace("Getting image for node {}", nodeId);
+        ReUseX::core::trace("Getting image for node {}", nodeId);
 
         sqlite3_stmt* stmt;
         const char* query = "SELECT image FROM Data WHERE id=?;";
@@ -164,11 +163,11 @@ public:
             img = cv::imdecode(encoded, cv::IMREAD_UNCHANGED);
 
             if (!img.empty()) {
-                spdlog::trace("Image decoded: {}x{}", img.cols, img.rows);
+                ReUseX::core::trace("Image decoded: {}x{}", img.cols, img.rows);
                 cv::rotate(img, img, cv::ROTATE_90_CLOCKWISE);
             }
         } else {
-            spdlog::warn("No image found for node {}", nodeId);
+            ReUseX::core::warn("No image found for node {}", nodeId);
         }
 
         sqlite3_finalize(stmt);
@@ -191,7 +190,7 @@ public:
     }
 
     cv::Mat getLabels(int nodeId) const {
-        spdlog::trace("Getting labels for node {}", nodeId);
+        ReUseX::core::trace("Getting labels for node {}", nodeId);
 
         sqlite3_stmt* stmt;
         const char* query = "SELECT label_image FROM Segmentation WHERE id=?;";
@@ -218,10 +217,10 @@ public:
                 // Apply rotation to match image coordinates
                 cv::rotate(labels, labels, cv::ROTATE_90_CLOCKWISE);
 
-                spdlog::trace("Labels decoded: {}x{}", labels.cols, labels.rows);
+                ReUseX::core::trace("Labels decoded: {}x{}", labels.cols, labels.rows);
             }
         } else {
-            spdlog::debug("No labels found for node {}", nodeId);
+            ReUseX::core::debug("No labels found for node {}", nodeId);
         }
 
         sqlite3_finalize(stmt);
@@ -229,7 +228,7 @@ public:
     }
 
     void saveLabels(int nodeId, const cv::Mat& labels, bool autoRotate) {
-        spdlog::trace("Saving labels for node {}", nodeId);
+        ReUseX::core::trace("Saving labels for node {}", nodeId);
 
         if (labels.empty()) {
             throw std::runtime_error("Cannot save empty labels");
@@ -274,7 +273,7 @@ public:
         }
 
         sqlite3_finalize(stmt);
-        spdlog::trace("Labels saved successfully for node {}", nodeId);
+        ReUseX::core::trace("Labels saved successfully for node {}", nodeId);
     }
 
     void saveLabelsBatch(const std::vector<int>& nodeIds,
@@ -284,7 +283,7 @@ public:
             throw std::runtime_error("nodeIds and labels vectors must have same size");
         }
 
-        spdlog::trace("Batch saving labels for {} nodes", nodeIds.size());
+        ReUseX::core::trace("Batch saving labels for {} nodes", nodeIds.size());
 
         // Begin transaction
         if (sqlite3_exec(db, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr) != SQLITE_OK) {
@@ -301,7 +300,7 @@ public:
                 throw std::runtime_error("Failed to commit transaction: " + std::string(sqlite3_errmsg(db)));
             }
 
-            spdlog::trace("Batch save completed successfully");
+            ReUseX::core::trace("Batch save completed successfully");
 
         } catch (...) {
             // Rollback on any error
@@ -351,7 +350,7 @@ void RTABMapDatabase::getGraph(
     bool withImages,
     bool withScan) const {
 
-    spdlog::trace("Retrieving graph from database");
+    ReUseX::core::trace("Retrieving graph from database");
 
     if (!impl_->rtabmap) {
         throw std::runtime_error("Rtabmap instance not initialized");
@@ -359,7 +358,7 @@ void RTABMapDatabase::getGraph(
 
     impl_->rtabmap->getGraph(poses, links, optimized, withImages, signatures, withScan);
 
-    spdlog::trace("Graph retrieved: {} poses, {} links", poses.size(), links.size());
+    ReUseX::core::trace("Graph retrieved: {} poses, {} links", poses.size(), links.size());
 }
 
 bool RTABMapDatabase::hasSegmentation(int nodeId) const {

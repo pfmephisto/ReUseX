@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #pragma once
+#include <ReUseX/core/logging.hpp>
 #include <ReUseX/io/reusex.hpp>
 #include <ReUseX/types.hpp>
 #include <ReUseX/utils/fmt_formatter.hpp>
@@ -17,9 +18,6 @@
 
 #include <fmt/format.h>
 
-#include <spdlog/sinks/stdout_color_sinks.h>
-#include <spdlog/spdlog.h>
-#include <spdlog/stopwatch.h>
 
 #include <pcl/common/pca.h>
 #include <pcl/correspondence.h>

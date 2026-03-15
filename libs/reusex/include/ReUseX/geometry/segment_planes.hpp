@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #pragma once
+#include <ReUseX/core/logging.hpp>
 #include <pcl/planar_region_growing.hpp>
 
 #include <ReUseX/types.hpp>
@@ -11,9 +12,6 @@
 
 #include <fmt/format.h>
 
-#include <spdlog/sinks/stdout_color_sinks.h>
-#include <spdlog/spdlog.h>
-#include <spdlog/stopwatch.h>
 
 #include <pcl/common/colors.h>
 #include <pcl/filters/filter.h>

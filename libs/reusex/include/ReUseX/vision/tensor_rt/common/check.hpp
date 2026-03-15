@@ -1,7 +1,7 @@
 #pragma once
+#include <ReUseX/core/logging.hpp>
 #include <assert.h>
 #include <cuda_runtime.h>
-#include <spdlog/spdlog.h>
 #include <stdarg.h>
 #include <stdio.h>
 
@@ -94,7 +94,7 @@ template <typename... Args>
 constexpr void Assertf(bool cond, const char *fmt, Args... args) {
   do {
     if (!(cond)) {
-      spdlog::error("Assert failed 💀. {} in file {}:{}, message: {}", cond,
+      ReUseX::core::error("Assert failed 💀. {} in file {}:{}, message: {}", cond,
                     __FILE__, __LINE__, /*__VA_ARGS__,*/ fmt);
       abort();
     }
@@ -103,7 +103,7 @@ constexpr void Assertf(bool cond, const char *fmt, Args... args) {
 
 constexpr void Asserts(bool cond, const char *s) {
   if (!cond) {
-    spdlog::error("Assert failed 💀. in file {}:{}, message: {}", __FILE__,
+    ReUseX::core::error("Assert failed 💀. in file {}:{}, message: {}", __FILE__,
                   __LINE__, s);
     abort();
   }
@@ -111,7 +111,7 @@ constexpr void Asserts(bool cond, const char *s) {
 
 constexpr void Assert(bool cond) {
   if (!cond) {
-    spdlog::error("Assert failed 💀. in file {}:{}", __FILE__, __LINE__);
+    ReUseX::core::error("Assert failed 💀. in file {}:{}", __FILE__, __LINE__);
     abort();
   }
 }

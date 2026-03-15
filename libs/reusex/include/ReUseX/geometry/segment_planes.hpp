@@ -4,6 +4,7 @@
 
 #pragma once
 #include <ReUseX/core/logging.hpp>
+#include <ReUseX/core/processing_observer.hpp>
 #include <pcl/planar_region_growing.hpp>
 
 #include <ReUseX/types.hpp>
@@ -25,16 +26,32 @@
 
 #include <ReUseX/io/reusex.hpp>
 
+#include <atomic>
+
 namespace parameter = boost::parameter;
 
 namespace ReUseX::geometry {
 
-auto segment_planes_impl(CloudConstPtr cloud, CloudNConstPtr normals,
-                         const float angle_threshold,
-                         const float plane_dist_threshold,
-                         const int min_inliers, const float radius,
-                         const float interval_0, const float interval_factor,
-                         const bool visualize)
+struct SegmentPlanesRequest {
+  CloudConstPtr cloud;
+  CloudNConstPtr normals;
+
+  float angle_threshold = 25.0F;
+  float plane_dist_threshold = 0.07F;
+  int min_inliers = 1000;
+  float radius = 0.5F;
+  float interval_0 = 16.0F;
+  float interval_factor = 1.5F;
+  bool visualize = false;
+
+  core::IProcessingObserver *observer = nullptr;
+  const std::atomic_bool *cancel_token = nullptr;
+};
+
+auto segment_planes_impl(const SegmentPlanesRequest &request)
+    -> std::tuple<CloudLPtr, CloudLocPtr, CloudNPtr>;
+
+auto segment_planes(const SegmentPlanesRequest &request)
     -> std::tuple<CloudLPtr, CloudLocPtr, CloudNPtr>;
 
 BOOST_PARAMETER_NAME(cloud)
@@ -63,11 +80,19 @@ BOOST_PARAMETER_FUNCTION(
      (radius, (float), 0.5)                //
      (interval_0, (int), 16)               //
      (interval_factor, (float), 1.5)       //
-     (visualize, (bool), false)            //
-     )) {
-  return segment_planes_impl(cloud, normals, angle_threshold,
-                             plane_dist_threshold, min_inliers, radius,
-                             interval_0, interval_factor, visualize);
+      (visualize, (bool), false)            //
+      )) {
+  SegmentPlanesRequest request;
+  request.cloud = cloud;
+  request.normals = normals;
+  request.angle_threshold = angle_threshold;
+  request.plane_dist_threshold = plane_dist_threshold;
+  request.min_inliers = min_inliers;
+  request.radius = radius;
+  request.interval_0 = interval_0;
+  request.interval_factor = interval_factor;
+  request.visualize = visualize;
+  return segment_planes(request);
 }
 
 } // namespace ReUseX::geometry

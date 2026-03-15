@@ -4,6 +4,7 @@
 
 #pragma once
 #include <ReUseX/core/logging.hpp>
+#include <ReUseX/core/processing_observer.hpp>
 #include <ReUseX/io/reusex.hpp>
 #include <ReUseX/types.hpp>
 #include <ReUseX/utils/fmt_formatter.hpp>
@@ -33,15 +34,30 @@
 #include <boost/parameter/keyword.hpp>
 #include <boost/parameter/name.hpp>
 
+#include <atomic>
+
 namespace parameter = boost::parameter;
 
 namespace ReUseX::geometry {
-auto segment_rooms_impl(CloudConstPtr cloud, CloudNConstPtr normals,
-                        CloudLConstPtr planes, const float grid_size,
-                        const float inflation, const float expansion,
-                        const float pruning_threshold,
-                        const float convergence_threshold, const int max_iter,
-                        const bool visualize) -> CloudLPtr;
+struct SegmentRoomsRequest {
+  CloudConstPtr cloud;
+  CloudNConstPtr normals;
+  CloudLConstPtr planes;
+
+  float grid_size = 0.5F;
+  float inflation = 2.0F;
+  int expansion = 2;
+  float pruning_threshold = 0.0001F;
+  float convergence_threshold = 1e-8F;
+  int max_iter = 100;
+  bool visualize = false;
+
+  core::IProcessingObserver *observer = nullptr;
+  const std::atomic_bool *cancel_token = nullptr;
+};
+
+auto segment_rooms_impl(const SegmentRoomsRequest &request) -> CloudLPtr;
+auto segment_rooms(const SegmentRoomsRequest &request) -> CloudLPtr;
 
 BOOST_PARAMETER_NAME(cloud)
 BOOST_PARAMETER_NAME(normals)
@@ -69,11 +85,20 @@ BOOST_PARAMETER_FUNCTION((CloudLPtr),   // 1. parenthesized return type
                           (pruning_threshold, (double), 0.0001)   //
                           (convergence_threshold, (double), 1e-8) //
                           (max_iter, (int), 100)                  //
-                          (visualize, (bool), false)              //
-                          )) {
-  return segment_rooms_impl(cloud, normals, planes, grid_size, inflation,
-                            expansion, pruning_threshold, convergence_threshold,
-                            max_iter, visualize);
+                           (visualize, (bool), false)              //
+                           )) {
+  SegmentRoomsRequest request;
+  request.cloud = cloud;
+  request.normals = normals;
+  request.planes = planes;
+  request.grid_size = grid_size;
+  request.inflation = inflation;
+  request.expansion = expansion;
+  request.pruning_threshold = pruning_threshold;
+  request.convergence_threshold = convergence_threshold;
+  request.max_iter = max_iter;
+  request.visualize = visualize;
+  return segment_rooms(request);
 }
 
 } // namespace ReUseX::geometry

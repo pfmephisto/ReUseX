@@ -163,6 +163,9 @@ libs/reusex/include/ReUseX/
 ## 7. Quick Wins vs Long-Term Refactors
 
 ### Quick wins (low effort, high impact)
+- ✅ Introduced request-object + observer entry points for segmentation
+  (`SegmentPlanesRequest`, `SegmentRoomsRequest`, `IProcessingObserver`) while
+  keeping existing free-function call sites compatible.
 - Add API style guide section in `CONTRIBUTING.md` (naming + construction rules).
 - Normalize enum names in `Backend` from `libTorch` to `LibTorch` with deprecation aliases.
 - Deprecate direct public use of free `project(...)` in favor of a service façade.

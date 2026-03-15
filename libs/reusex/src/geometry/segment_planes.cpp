@@ -24,32 +24,43 @@ namespace ReUseX::geometry {
  * @param visualize Enable visualization of segmentation process.
  * @return Tuple of (labeled point cloud, plane centroids, plane normals).
  */
-auto segment_planes_impl(CloudConstPtr cloud, CloudNConstPtr normals,
-                         const float angle_threshold,
-                         const float plane_dist_threshold,
-                         const int min_inliers, const float radius,
-                         const float interval_0, const float interval_factor,
-                         const bool visualize)
+auto segment_planes_impl(const SegmentPlanesRequest &request)
     -> std::tuple<CloudLPtr, CloudLocPtr, CloudNPtr> {
+  auto *observer = request.observer;
+  if (observer) {
+    observer->on_stage_started("segment_planes:init");
+  }
+
+  if (request.cancel_token != nullptr && request.cancel_token->load()) {
+    ReUseX::core::warn("Plane segmentation cancelled before execution.");
+    if (observer) {
+      observer->on_warning("Plane segmentation cancelled before execution.");
+    }
+    return std::make_tuple(CloudLPtr(new CloudL), CloudLocPtr(new CloudLoc),
+                           CloudNPtr(new CloudN));
+  }
 
   ReUseX::core::trace("Initialize the segmentation algorithm");
   pcl::PlanarRegionGrowing<PointT, NormalT, LabelT> seg;
-  seg.setInputCloud(cloud);
-  seg.setInputNormals(normals);
+  seg.setInputCloud(request.cloud);
+  seg.setInputNormals(request.normals);
 
-  seg.setAngularThreshold(angle_threshold);
-  seg.setDistanceThreshold(plane_dist_threshold);
-  seg.setMinInliers(min_inliers);
+  seg.setAngularThreshold(request.angle_threshold);
+  seg.setDistanceThreshold(request.plane_dist_threshold);
+  seg.setMinInliers(request.min_inliers);
 
-  seg.setRadiusSearch(radius);
+  seg.setRadiusSearch(request.radius);
 
-  seg.setInitialInterval(interval_0);
-  seg.setIntervalFactor(interval_factor);
+  seg.setInitialInterval(request.interval_0);
+  seg.setIntervalFactor(request.interval_factor);
 
   pcl::visualization::PCLVisualizer::Ptr viewer;
-  if (visualize) {
+  if (request.visualize) {
     static int plane_id = 0;
     ReUseX::core::warn("Visualization is an experimental feature.");
+    if (observer) {
+      observer->on_warning("Visualization is an experimental feature.");
+    }
     viewer = pcl::visualization::PCLVisualizer::Ptr(
         new pcl::visualization::PCLVisualizer("MCL Viewer"));
     viewer->setBackgroundColor(0, 0, 0);
@@ -70,19 +81,32 @@ auto segment_planes_impl(CloudConstPtr cloud, CloudNConstPtr normals,
           plane_id++;
         });
 
-    viewer->addPointCloud<PointT>(cloud, "cloud");
+    viewer->addPointCloud<PointT>(request.cloud, "cloud");
   }
 
   ReUseX::core::trace("Initialize labels and copy xyzrgb data to labels");
   CloudLPtr labels(new CloudL);
-  pcl::copyPointCloud(*cloud, *labels);
+  pcl::copyPointCloud(*request.cloud, *labels);
 
   ReUseX::core::trace("Call the segmentation algorithm");
+  if (observer) {
+    observer->on_stage_started("segment_planes:segment");
+  }
   seg.segment(labels);
+  if (observer) {
+    observer->on_progress("segment_planes:segment", 1.0F);
+  }
 
   ReUseX::core::info("Found {} clusters", seg.getCentroids().size());
   if (viewer)
     while (!viewer->wasStopped()) {
+      if (request.cancel_token != nullptr && request.cancel_token->load()) {
+        ReUseX::core::warn("Stopping visualization due to cancellation.");
+        if (observer) {
+          observer->on_warning("Stopping visualization due to cancellation.");
+        }
+        break;
+      }
       viewer->spinOnce(100);
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
@@ -112,5 +136,10 @@ auto segment_planes_impl(CloudConstPtr cloud, CloudNConstPtr normals,
   }
 
   return std::make_tuple(labels, centroids_cloud, plane_normals);
+}
+
+auto segment_planes(const SegmentPlanesRequest &request)
+    -> std::tuple<CloudLPtr, CloudLocPtr, CloudNPtr> {
+  return segment_planes_impl(request);
 }
 } // namespace ReUseX::geometry

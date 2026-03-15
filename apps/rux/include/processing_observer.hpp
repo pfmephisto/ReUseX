@@ -9,6 +9,5 @@
 namespace rux {
 
 void enable_processing_observer(bool enabled);
-auto processing_observer() -> ReUseX::core::IProcessingObserver *;
 
 } // namespace rux

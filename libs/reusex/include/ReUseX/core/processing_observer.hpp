@@ -29,4 +29,10 @@ public:
 
 class NullProcessingObserver final : public IProcessingObserver {};
 
+// Register a global processing observer. The caller retains ownership and must
+// keep the observer alive until reset or replacement. Passing nullptr clears it.
+void set_processing_observer(IProcessingObserver *observer);
+void reset_processing_observer();
+auto get_processing_observer() -> IProcessingObserver *;
+
 } // namespace ReUseX::core

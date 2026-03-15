@@ -49,13 +49,7 @@ struct SegmentRoomsRequest {
   float pruning_threshold = 0.0001F;
   float convergence_threshold = 1e-8F;
   int max_iter = 100;
-  bool visualize = false;
 
-  // Optional observer. Caller retains ownership. If the same observer instance
-  // is shared across concurrent pipelines, the observer implementation must be
-  // thread-safe. Current segmentation APIs invoke callbacks synchronously and
-  // complete all observer calls before returning.
-  core::IProcessingObserver *observer = nullptr;
   // Optional cancellation flag. Caller retains ownership and must keep this
   // alive for the full duration of the segment_rooms(...) call.
   const std::atomic_bool *cancel_token = nullptr;
@@ -73,7 +67,6 @@ BOOST_PARAMETER_NAME(expansion)
 BOOST_PARAMETER_NAME(pruning_threshold)
 BOOST_PARAMETER_NAME(convergence_threshold)
 BOOST_PARAMETER_NAME(max_iter)
-BOOST_PARAMETER_NAME(visualize)
 
 BOOST_PARAMETER_FUNCTION((CloudLPtr),   // 1. parenthesized return type
                          segment_rooms, // 2. name of the function template
@@ -90,7 +83,6 @@ BOOST_PARAMETER_FUNCTION((CloudLPtr),   // 1. parenthesized return type
                           (pruning_threshold, (double), 0.0001)   //
                           (convergence_threshold, (double), 1e-8) //
                           (max_iter, (int), 100)                  //
-                           (visualize, (bool), false)              //
                            )) {
   SegmentRoomsRequest request;
   request.cloud = cloud;
@@ -102,7 +94,6 @@ BOOST_PARAMETER_FUNCTION((CloudLPtr),   // 1. parenthesized return type
   request.pruning_threshold = pruning_threshold;
   request.convergence_threshold = convergence_threshold;
   request.max_iter = max_iter;
-  request.visualize = visualize;
   return segment_rooms(request);
 }
 

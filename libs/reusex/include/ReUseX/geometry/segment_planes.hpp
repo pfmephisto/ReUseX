@@ -41,13 +41,7 @@ struct SegmentPlanesRequest {
   float radius = 0.5F;
   float interval_0 = 16.0F;
   float interval_factor = 1.5F;
-  bool visualize = false;
 
-  // Optional observer. Caller retains ownership. If the same observer instance
-  // is shared across concurrent pipelines, the observer implementation must be
-  // thread-safe. Current segmentation APIs invoke callbacks synchronously and
-  // complete all observer calls before returning.
-  core::IProcessingObserver *observer = nullptr;
   // Optional cancellation flag. Caller retains ownership and must keep this
   // alive for the full duration of the segment_planes(...) call.
   const std::atomic_bool *cancel_token = nullptr;
@@ -67,7 +61,6 @@ BOOST_PARAMETER_NAME(min_inliers)
 BOOST_PARAMETER_NAME(radius)
 BOOST_PARAMETER_NAME(interval_0)
 BOOST_PARAMETER_NAME(interval_factor)
-BOOST_PARAMETER_NAME(visualize)
 
 BOOST_PARAMETER_FUNCTION(
     (std::tuple<CloudLPtr, CloudLocPtr, CloudNPtr>), // 1. parenthesized return
@@ -85,7 +78,6 @@ BOOST_PARAMETER_FUNCTION(
      (radius, (float), 0.5)                //
      (interval_0, (int), 16)               //
      (interval_factor, (float), 1.5)       //
-      (visualize, (bool), false)            //
       )) {
   SegmentPlanesRequest request;
   request.cloud = cloud;
@@ -96,7 +88,6 @@ BOOST_PARAMETER_FUNCTION(
   request.radius = radius;
   request.interval_0 = interval_0;
   request.interval_factor = interval_factor;
-  request.visualize = visualize;
   return segment_planes(request);
 }
 

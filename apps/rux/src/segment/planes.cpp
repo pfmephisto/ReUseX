@@ -3,8 +3,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "segment/planes.hpp"
-#include "processing_observer.hpp"
-
 #include "ReUseX/geometry/segment_planes.hpp"
 
 #include <fmt/format.h>
@@ -128,8 +126,6 @@ int run_subcommand_segment_planes(SubcommandSegPlanesOptions const &opt) {
   request.radius = opt.radius;
   request.interval_0 = opt.interval_0;
   request.interval_factor = opt.interval_factor;
-  request.observer = rux::processing_observer();
-  request.visualize = request.observer != nullptr;
 
   auto [labels, centroids, plane_normals] =
       ReUseX::geometry::segment_planes(request);

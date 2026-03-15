@@ -6,7 +6,6 @@
 #include <ReUseX/geometry/segment_planes.hpp>
 
 #include <stdexcept>
-#include <string_view>
 
 namespace ReUseX::geometry {
 
@@ -24,14 +23,11 @@ namespace ReUseX::geometry {
  * @param radius Search radius for region growing.
  * @param interval_0 Initial interval for multi-scale processing.
  * @param interval_factor Factor for interval scaling between iterations.
- * @param visualize Enable visualization of segmentation process.
  * @return Tuple of (labeled point cloud, plane centroids, plane normals).
  */
 auto segment_planes_impl(const SegmentPlanesRequest &request)
     -> std::tuple<CloudLPtr, CloudLocPtr, CloudNPtr> {
-  constexpr std::string_view kExperimentalVisualizationWarning =
-      "Visualization is an experimental feature.";
-  auto *observer = request.observer;
+  auto *observer = ReUseX::core::get_processing_observer();
   if (observer) {
     observer->on_stage_started("segment_planes:init");
   }
@@ -58,15 +54,6 @@ auto segment_planes_impl(const SegmentPlanesRequest &request)
 
   seg.setInitialInterval(request.interval_0);
   seg.setIntervalFactor(request.interval_factor);
-
-  if (request.visualize) {
-    ReUseX::core::warn(
-        "segment_planes: visualize=true requested; rendering is delegated to "
-        "observer/front-end integration.");
-    if (observer) {
-      observer->on_warning(kExperimentalVisualizationWarning);
-    }
-  }
 
   ReUseX::core::trace("Initialize labels and copy xyzrgb data to labels");
   CloudLPtr labels(new CloudL);

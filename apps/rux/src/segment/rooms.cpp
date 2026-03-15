@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "segment/rooms.hpp"
-#include "processing_observer.hpp"
 #include "ReUseX/io/reusex.hpp"
 #include "ReUseX/utils/fmt_formatter.hpp"
 #include "pcl/markov_clustering.hpp"
@@ -185,8 +184,6 @@ int run_subcommand_segment_rooms(SubcommandSegRoomsOptions const &opt) {
   request.pruning_threshold = opt.pruning_threshold;
   request.convergence_threshold = opt.convergence_threshold;
   request.max_iter = opt.max_iter;
-  request.observer = rux::processing_observer();
-  request.visualize = request.observer != nullptr;
 
   auto labels = ReUseX::geometry::segment_rooms(request);
 

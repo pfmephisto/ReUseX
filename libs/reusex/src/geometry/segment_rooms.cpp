@@ -6,7 +6,6 @@
 #include <ReUseX/geometry/segment_rooms.hpp>
 
 #include <stdexcept>
-#include <string_view>
 
 namespace ReUseX::geometry {
 /**
@@ -24,13 +23,10 @@ namespace ReUseX::geometry {
  * @param pruning_threshold MCL pruning threshold.
  * @param convergence_threshold MCL convergence threshold.
  * @param max_iter Maximum MCL iterations.
- * @param visualize Enable visualization of clustering process.
  * @return Labeled point cloud with room assignments.
  */
 auto segment_rooms_impl(const SegmentRoomsRequest &request) -> CloudLPtr {
-  constexpr std::string_view kExperimentalVisualizationWarning =
-      "Visualization is an experimental feature.";
-  auto *observer = request.observer;
+  auto *observer = ReUseX::core::get_processing_observer();
   if (observer) {
     observer->on_stage_started("segment_rooms:init");
   }
@@ -81,15 +77,6 @@ auto segment_rooms_impl(const SegmentRoomsRequest &request) -> CloudLPtr {
   mcl.setInputCloud(request.cloud);
   mcl.setInputNormals(request.normals);
   mcl.setIndices(indices);
-
-  if (request.visualize) {
-    ReUseX::core::warn(
-        "segment_rooms: visualize=true requested; rendering is delegated to "
-        "observer/front-end integration.");
-    if (observer) {
-      observer->on_warning(kExperimentalVisualizationWarning);
-    }
-  }
 
   ReUseX::core::trace("Initialize labels and copy xyzrgb data to labels");
   CloudLPtr labels(new CloudL);

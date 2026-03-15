@@ -4,7 +4,6 @@
 
 #include "processing_observer.hpp"
 
-#include <atomic>
 #include <spdlog/spdlog.h>
 
 namespace rux {
@@ -29,19 +28,16 @@ public:
   }
 };
 
-std::atomic_bool g_processing_observer_enabled{false};
 SpdlogProcessingObserver g_processing_observer;
 
 } // namespace
 
 void enable_processing_observer(bool enabled) {
-  g_processing_observer_enabled.store(enabled, std::memory_order_release);
-}
-
-auto processing_observer() -> ReUseX::core::IProcessingObserver * {
-  return g_processing_observer_enabled.load(std::memory_order_acquire)
-             ? &g_processing_observer
-             : nullptr;
+  if (enabled) {
+    ReUseX::core::set_processing_observer(&g_processing_observer);
+    return;
+  }
+  ReUseX::core::reset_processing_observer();
 }
 
 } // namespace rux

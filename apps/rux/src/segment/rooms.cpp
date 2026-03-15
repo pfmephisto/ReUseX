@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "segment/rooms.hpp"
+#include "processing_observer.hpp"
 #include "ReUseX/io/reusex.hpp"
 #include "ReUseX/utils/fmt_formatter.hpp"
 #include "pcl/markov_clustering.hpp"
@@ -31,7 +32,6 @@
 #include <pcl/io/pcd_io.h>
 #include <pcl/point_types.h>
 #include <pcl/search/kdtree.h>
-#include <pcl/visualization/pcl_visualizer.h>
 
 namespace fs = std::filesystem;
 
@@ -39,7 +39,7 @@ namespace fs = std::filesystem;
  * @brief Setup CLI options for the room segmentation subcommand.
  * 
  * Configures command-line arguments including paths, MCL parameters,
- * and visualization options for room segmentation.
+ * and clustering options for room segmentation.
  * 
  * @param app CLI application to add the subcommand to.
  */
@@ -110,10 +110,6 @@ void setup_subcommand_segment_rooms(CLI::App &app) {
       ->default_val(opt->grid_size)
       ->check(CLI::Range(0.01, 10.0));
 
-  sub->add_flag("-d, --visualize", opt->visualize,
-                "Visualize the clustering process.")
-      ->default_val(opt->visualize);
-
   sub->callback([opt]() {
     spdlog::trace("calling seg-rooms subcommand");
     return run_subcommand_segment_rooms(*opt);
@@ -179,12 +175,20 @@ int run_subcommand_segment_rooms(SubcommandSegRoomsOptions const &opt) {
   spdlog::trace("Calling segment_rooms");
 
   using namespace ReUseX::geometry;
-  auto labels = ReUseX::geometry::segment_rooms(
-      cloud, normals, planes, _grid_size = opt.grid_size,
-      _inflation = opt.inflation, _expansion = opt.expansion,
-      _pruning_threshold = opt.pruning_threshold,
-      _convergence_threshold = opt.convergence_threshold,
-      _max_iter = opt.max_iter, _visualize = opt.visualize);
+  ReUseX::geometry::SegmentRoomsRequest request;
+  request.cloud = cloud;
+  request.normals = normals;
+  request.planes = planes;
+  request.grid_size = opt.grid_size;
+  request.inflation = opt.inflation;
+  request.expansion = opt.expansion;
+  request.pruning_threshold = opt.pruning_threshold;
+  request.convergence_threshold = opt.convergence_threshold;
+  request.max_iter = opt.max_iter;
+  request.observer = rux::processing_observer();
+  request.visualize = request.observer != nullptr;
+
+  auto labels = ReUseX::geometry::segment_rooms(request);
 
   spdlog::trace("Save the point cloud with planes to dist at: {}",
                 opt.rooms_path_out.string());

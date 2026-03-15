@@ -28,7 +28,6 @@
 #include <pcl/io/pcd_io.h>
 #include <pcl/point_types.h>
 #include <pcl/search/kdtree.h>
-#include <pcl/visualization/pcl_visualizer.h>
 
 #include <boost/parameter.hpp>
 #include <boost/parameter/keyword.hpp>

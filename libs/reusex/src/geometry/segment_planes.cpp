@@ -59,34 +59,13 @@ auto segment_planes_impl(const SegmentPlanesRequest &request)
   seg.setInitialInterval(request.interval_0);
   seg.setIntervalFactor(request.interval_factor);
 
-  pcl::visualization::PCLVisualizer::Ptr viewer;
   if (request.visualize) {
-    static int plane_id = 0;
-    ReUseX::core::warn(kExperimentalVisualizationWarning);
+    ReUseX::core::warn(
+        "segment_planes: visualize=true requested; rendering is delegated to "
+        "observer/front-end integration.");
     if (observer) {
       observer->on_warning(kExperimentalVisualizationWarning);
     }
-    viewer = pcl::visualization::PCLVisualizer::Ptr(
-        new pcl::visualization::PCLVisualizer("MCL Viewer"));
-    viewer->setBackgroundColor(0, 0, 0);
-    viewer->addCoordinateSystem(1.0);
-    viewer->initCameraParameters();
-    seg.registerVisualizationCallback(
-        [&viewer](const pcl::ModelCoefficients &plane,
-                  const Eigen::Vector4f &origin) {
-          ReUseX::core::trace("Visualization callback called");
-          const auto name = "plane" + std::to_string(plane_id);
-          const auto color = pcl::GlasbeyLUT::at(plane_id);
-          viewer->addPlane(plane, origin.x(), origin.y(), origin.z(), name);
-          viewer->setShapeRenderingProperties(
-              pcl::visualization::PCL_VISUALIZER_COLOR, color.r / 254,
-              color.g / 254, color.b / 254, name);
-          viewer->setShapeRenderingProperties(
-              pcl::visualization::PCL_VISUALIZER_OPACITY, 0.5, name);
-          plane_id++;
-        });
-
-    viewer->addPointCloud<PointT>(request.cloud, "cloud");
   }
 
   ReUseX::core::trace("Initialize labels and copy xyzrgb data to labels");
@@ -103,18 +82,6 @@ auto segment_planes_impl(const SegmentPlanesRequest &request)
   }
 
   ReUseX::core::info("Found {} clusters", seg.getCentroids().size());
-  if (viewer)
-    while (!viewer->wasStopped()) {
-      if (request.cancel_token != nullptr && request.cancel_token->load()) {
-        ReUseX::core::warn("Stopping visualization due to cancellation.");
-        if (observer) {
-          observer->on_warning("Stopping visualization due to cancellation.");
-        }
-        break;
-      }
-      viewer->spinOnce(100);
-      std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    }
 
   std::vector<pcl::ModelCoefficients> model_coefficients =
       seg.getModelCoefficients();

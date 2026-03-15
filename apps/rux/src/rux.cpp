@@ -7,6 +7,7 @@
 #include <export.hpp>
 #include <import.hpp>
 #include <mesh.hpp>
+#include <processing_observer.hpp>
 #include <project.hpp>
 #include <segment.hpp>
 #include <texture.hpp>
@@ -17,6 +18,7 @@
 
 #include <CLI/CLI.hpp>
 #include <algorithm>
+#include <cstdint>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
 
@@ -94,6 +96,12 @@ int main(int argc, char **argv) {
         exit(0);
       },
       "Show license information");
+  app.add_flag(
+         "--visualize",
+         [](std::int64_t count) { rux::enable_processing_observer(count > 0); },
+         "Enable top-level processing observer hooks for GUI/visual "
+         "integrations.")
+      ->default_val(false);
 
   setup_subcommand_assemble(app);
 

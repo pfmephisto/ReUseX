@@ -82,51 +82,13 @@ auto segment_rooms_impl(const SegmentRoomsRequest &request) -> CloudLPtr {
   mcl.setInputNormals(request.normals);
   mcl.setIndices(indices);
 
-  // Set up PCL Visualizer
-  pcl::visualization::PCLVisualizer::Ptr viewer;
   if (request.visualize) {
-    ReUseX::core::warn(kExperimentalVisualizationWarning);
+    ReUseX::core::warn(
+        "segment_rooms: visualize=true requested; rendering is delegated to "
+        "observer/front-end integration.");
     if (observer) {
       observer->on_warning(kExperimentalVisualizationWarning);
     }
-    viewer = pcl::visualization::PCLVisualizer::Ptr(
-        new pcl::visualization::PCLVisualizer("MCL Viewer"));
-    viewer->setBackgroundColor(0, 0, 0);
-    viewer->addCoordinateSystem(1.0);
-    viewer->initCameraParameters();
-    mcl.registerVisualizationCallback(
-        [&viewer](typename pcl::PointCloud<pcl::PointXYZ>::Ptr points,
-                  std::shared_ptr<std::vector<pcl::Vertices>> vertices,
-                  pcl::CorrespondencesPtr correspondences) {
-          ReUseX::core::trace("Updating visualization context with {} points and "
-                        "{} polygons",
-                        points->size(), vertices->size());
-
-          constexpr std::string_view polygon_id = "disk_polygon";
-          viewer->addPolygonMesh<pcl::PointXYZ>(points, *vertices,
-                                                polygon_id.data());
-          viewer->setPointCloudRenderingProperties(
-              pcl::visualization::PCL_VISUALIZER_COLOR, 1.0, 0.0, 0.0,
-              polygon_id.data());
-          viewer->setPointCloudRenderingProperties(
-              pcl::visualization::PCL_VISUALIZER_OPACITY, 0.5,
-              polygon_id.data());
-
-          constexpr std::string_view corr_id = "correspondences";
-
-          viewer->addCorrespondences<pcl::PointXYZ>(
-              points, points, *correspondences, corr_id.data());
-
-          viewer->setShapeRenderingProperties(
-              pcl::visualization::PCL_VISUALIZER_COLOR, 0.5, 0.5, 0.5,
-              corr_id.data());
-          viewer->setShapeRenderingProperties(
-              pcl::visualization::PCL_VISUALIZER_LINE_WIDTH, 2, corr_id.data());
-          viewer->setShapeRenderingProperties(
-              pcl::visualization::PCL_VISUALIZER_OPACITY, 0.5, corr_id.data());
-        });
-
-    viewer->addPointCloud<PointT>(request.cloud, "cloud");
   }
 
   ReUseX::core::trace("Initialize labels and copy xyzrgb data to labels");
@@ -143,19 +105,6 @@ auto segment_rooms_impl(const SegmentRoomsRequest &request) -> CloudLPtr {
     observer->on_progress("segment_rooms:cluster", 1.0F);
   }
   ReUseX::core::trace("Done clustering");
-
-  if (viewer)
-    while (!viewer->wasStopped()) {
-      if (request.cancel_token != nullptr && request.cancel_token->load()) {
-        ReUseX::core::warn("Stopping visualization due to cancellation.");
-        if (observer) {
-          observer->on_warning("Stopping visualization due to cancellation.");
-        }
-        break;
-      }
-      viewer->spinOnce(100);
-      std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    }
 
   // Assign the label to all points
   pcl::KdTreeFLANN<PointT> kdtree;

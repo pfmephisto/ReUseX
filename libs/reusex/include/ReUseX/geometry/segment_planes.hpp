@@ -44,7 +44,13 @@ struct SegmentPlanesRequest {
   float interval_factor = 1.5F;
   bool visualize = false;
 
+  // Optional observer. Caller retains ownership. If the same observer instance
+  // is shared across concurrent pipelines, the observer implementation must be
+  // thread-safe. Current segmentation APIs invoke callbacks synchronously and
+  // complete all observer calls before returning.
   core::IProcessingObserver *observer = nullptr;
+  // Optional cancellation flag. Caller retains ownership and must keep this
+  // alive for the full duration of the segment_planes(...) call.
   const std::atomic_bool *cancel_token = nullptr;
 };
 

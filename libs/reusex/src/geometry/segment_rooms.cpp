@@ -5,6 +5,9 @@
 #include <ReUseX/core/logging.hpp>
 #include <ReUseX/geometry/segment_rooms.hpp>
 
+#include <stdexcept>
+#include <string_view>
+
 namespace ReUseX::geometry {
 /**
  * @brief Implementation of room segmentation using Markov clustering.
@@ -25,17 +28,20 @@ namespace ReUseX::geometry {
  * @return Labeled point cloud with room assignments.
  */
 auto segment_rooms_impl(const SegmentRoomsRequest &request) -> CloudLPtr {
+  constexpr std::string_view kExperimentalVisualizationWarning =
+      "Visualization is an experimental feature.";
   auto *observer = request.observer;
   if (observer) {
     observer->on_stage_started("segment_rooms:init");
   }
 
   if (request.cancel_token != nullptr && request.cancel_token->load()) {
-    ReUseX::core::warn("Room segmentation cancelled before execution.");
+    ReUseX::core::warn(
+        "segment_rooms: cancellation requested before execution.");
     if (observer) {
-      observer->on_warning("Room segmentation cancelled before execution.");
+      observer->on_error("Room segmentation cancelled.");
     }
-    return CloudLPtr(new CloudL);
+    throw std::runtime_error("Room segmentation cancelled.");
   }
 
   std::unordered_map<int, IndicesPtr> plane_inlier_map;
@@ -79,9 +85,9 @@ auto segment_rooms_impl(const SegmentRoomsRequest &request) -> CloudLPtr {
   // Set up PCL Visualizer
   pcl::visualization::PCLVisualizer::Ptr viewer;
   if (request.visualize) {
-    ReUseX::core::warn("Visualization is an experimental feature.");
+    ReUseX::core::warn(kExperimentalVisualizationWarning);
     if (observer) {
-      observer->on_warning("Visualization is an experimental feature.");
+      observer->on_warning(kExperimentalVisualizationWarning);
     }
     viewer = pcl::visualization::PCLVisualizer::Ptr(
         new pcl::visualization::PCLVisualizer("MCL Viewer"));

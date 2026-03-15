@@ -5,6 +5,9 @@
 #include <ReUseX/core/logging.hpp>
 #include <ReUseX/geometry/segment_planes.hpp>
 
+#include <stdexcept>
+#include <string_view>
+
 namespace ReUseX::geometry {
 
 /**
@@ -26,18 +29,20 @@ namespace ReUseX::geometry {
  */
 auto segment_planes_impl(const SegmentPlanesRequest &request)
     -> std::tuple<CloudLPtr, CloudLocPtr, CloudNPtr> {
+  constexpr std::string_view kExperimentalVisualizationWarning =
+      "Visualization is an experimental feature.";
   auto *observer = request.observer;
   if (observer) {
     observer->on_stage_started("segment_planes:init");
   }
 
   if (request.cancel_token != nullptr && request.cancel_token->load()) {
-    ReUseX::core::warn("Plane segmentation cancelled before execution.");
+    ReUseX::core::warn(
+        "segment_planes: cancellation requested before execution.");
     if (observer) {
-      observer->on_warning("Plane segmentation cancelled before execution.");
+      observer->on_error("Plane segmentation cancelled.");
     }
-    return std::make_tuple(CloudLPtr(new CloudL), CloudLocPtr(new CloudLoc),
-                           CloudNPtr(new CloudN));
+    throw std::runtime_error("Plane segmentation cancelled.");
   }
 
   ReUseX::core::trace("Initialize the segmentation algorithm");
@@ -57,9 +62,9 @@ auto segment_planes_impl(const SegmentPlanesRequest &request)
   pcl::visualization::PCLVisualizer::Ptr viewer;
   if (request.visualize) {
     static int plane_id = 0;
-    ReUseX::core::warn("Visualization is an experimental feature.");
+    ReUseX::core::warn(kExperimentalVisualizationWarning);
     if (observer) {
-      observer->on_warning("Visualization is an experimental feature.");
+      observer->on_warning(kExperimentalVisualizationWarning);
     }
     viewer = pcl::visualization::PCLVisualizer::Ptr(
         new pcl::visualization::PCLVisualizer("MCL Viewer"));

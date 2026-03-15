@@ -8,18 +8,36 @@ The public API is functional but architecturally uneven: naming and construction
 
 | Location | Problem | Recommended fix (+ sketch) |
 |---|---|---|
-| `libs/reusex/include/ReUseX/vision/IDataset.hpp` (`IDataset`) vs `.../vision/libtorch/Dataset.hpp` (`TorchDataset`) vs `.../vision/tensor_rt/Dataset.hpp` (`TensorRTDataset`) | Inconsistent naming for the same abstraction family (`IDataset`, `TorchDataset`, `TensorRTDataset`) and mixed responsibility (dataset + DB access). | Standardize on `Dataset` interface + backend-specific suffixes in backend namespace (`vision::Dataset`, `vision::libtorch::DatasetAdapter`, `vision::tensor_rt::DatasetAdapter`).<br><br>```cpp\nnamespace ReUseX::vision {\nclass Dataset { /* interface */ };\n}\nnamespace ReUseX::vision::libtorch {\nclass DatasetAdapter final : public torch::data::datasets::Dataset<DatasetAdapter> { /* ... */ };\n}\n``` |
-| `libs/reusex/include/ReUseX/vision/BackendFactory.hpp` (`BackendFactory::create`) and `libs/reusex/include/ReUseX/vision/IModel.hpp` (`IModel::create`) | Mixed creation paradigm (factory class + static interface factory) with no documented rule. | Adopt one construction rule for public API: “all polymorphic model creation goes through `ModelFactory`”. Keep static `create` only for concrete implementation internals.<br><br>```cpp\nclass ModelFactory {\npublic:\n  static std::unique_ptr<IModel> create(const ModelSpec& spec);\n};\n``` |
+| `libs/reusex/include/ReUseX/vision/IDataset.hpp` (`IDataset`) vs `.../vision/libtorch/Dataset.hpp` (`TorchDataset`) vs `.../vision/tensor_rt/Dataset.hpp` (`TensorRTDataset`) | Inconsistent naming for the same abstraction family (`IDataset`, `TorchDataset`, `TensorRTDataset`) and mixed responsibility (dataset + DB access). | Keep interface prefix (`IDataset`) and standardize backend-specific suffixes in backend namespaces (`vision::libtorch::DatasetAdapter`, `vision::tensor_rt::DatasetAdapter`). See sketch below. |
+| `libs/reusex/include/ReUseX/vision/BackendFactory.hpp` (`BackendFactory::create`) and `libs/reusex/include/ReUseX/vision/IModel.hpp` (`IModel::create`) | Mixed creation paradigm (factory class + static interface factory) with no documented rule. | Adopt one construction rule for public API by consolidating creation behind a single factory (shown below as `ModelFactory`, a proposed replacement for split `BackendFactory`/`IModel::create`). Keep static `create` only for concrete implementation internals. |
 | `libs/reusex/include/ReUseX/vision/project.hpp` (`project(...)`) | Free-function entry point in `vision` while related model/dataset APIs are class-based; rationale is not explicit. | Introduce a small service façade (`ProjectionService`) and keep free function as deprecated forwarding shim to preserve compatibility. |
-| `libs/reusex/include/ReUseX/vision/common/object.hpp` (`Box::center_x`, `center_y`) | Snake case method names in an API where many symbols follow Camel/Pascal variants (`TensorRTDataset`, `BackendFactory`). | Pick one method naming style for public members (recommended: `snake_case` for functions/methods in this codebase) and apply uniformly in touched API areas. |
+| `libs/reusex/include/ReUseX/vision/common/object.hpp` (`Box::center_x`, `center_y`) | `snake_case` method names in an API where many symbols follow Camel/Pascal variants (`TensorRTDataset`, `BackendFactory`). | Pick one method naming style for public members (recommended: `snake_case` for functions/methods/parameters in this codebase) and apply uniformly in touched API areas. |
 | `libs/reusex/include/ReUseX/vision/BackendFactory.hpp` (`Backend::libTorch`) | Mixed enum casing (`libTorch` among `OpenCV`, `TensorRT`, `DNN`). | Normalize enum values (`LibTorch`) and keep compatibility alias during migration (`[[deprecated]]`). |
+
+```cpp
+namespace ReUseX::vision {
+class IDataset { /* interface */ };
+
+class ModelFactory {
+public:
+  // ModelSpec = lightweight model path + backend/options descriptor.
+  static std::unique_ptr<IModel> create(const ModelSpec& spec);
+};
+} // namespace ReUseX::vision
+
+namespace ReUseX::vision::libtorch {
+// Backend-internal adapter type; do not expose via generic vision headers.
+class DatasetAdapter final
+    : public torch::data::datasets::Dataset<DatasetAdapter> { /* ... */ };
+} // namespace ReUseX::vision::libtorch
+```
 
 ## 3. Reusability Issues
 
 | Location | Problem | Recommended fix (+ sketch) |
 |---|---|---|
 | `libs/reusex/include/ReUseX/vision/IDataset.hpp` | `IDataset` requires `io::RTABMapDatabase` in constructors and protected API. Dataset abstraction is not reusable without RTABMap DB. | Split data access from dataset behavior: introduce `IFrameStore` (or `ISampleStore`) in `vision` and adapt `RTABMapDatabase` behind it. |
-| `libs/reusex/include/ReUseX/types.hpp` and geometry headers using `Cloud*` aliases | Core types are direct PCL aliases; geometry API cannot be reused with alternate point containers. | Introduce boundary-level view types (`PointSpan`, `NormalSpan`) in public API and convert internally to PCL when needed. Start with overloads, not replacement, to reduce churn. |
+| `libs/reusex/include/ReUseX/types.hpp` and geometry headers using `Cloud*` aliases | Core types are direct PCL aliases; geometry API cannot be reused with alternate point containers. | Introduce boundary-level view types (`PointSpan`, `NormalSpan`) in public API and convert internally to PCL when needed. Start with overloads (e.g., `segment_rooms(...)`, `regularize_planes(...)`) instead of replacement to reduce churn. |
 | `libs/reusex/include/ReUseX/vision/libtorch/Dataset.hpp` | Public inheritance from `torch::data::datasets::Dataset<>` hard-couples API to PyTorch. | Keep this in backend adapter namespace only, and avoid exposing it in generic `vision` headers. |
 | `libs/reusex/include/ReUseX/geometry/regularization.hpp` | Templated algorithm includes CGAL+PCL headers directly in public interface. Reuse and build times suffer for clients not needing this algorithm. | Move heavy-template implementation to detail header and expose a narrow compiled façade in `.cpp` where possible (or explicit instantiations for supported types). |
 
@@ -43,7 +61,7 @@ struct MutableImageView { int width{}, height{}, channels{}; std::span<std::byte
 ```cpp
 namespace ReUseX::geometry {
 struct Point3f { float x, y, z; };
-using PointBuffer = std::span<const Point3f>;
+using PointSpan = std::span<const Point3f>;
 }
 ```
 
@@ -53,7 +71,11 @@ using PointBuffer = std::span<const Point3f>;
 
 ```cpp
 struct PlaneRegularizationOptions { double angle_deg{25.0}; double distance{0.01}; };
-auto regularize_planes(PlaneSet&, const PointSet&, PlaneRegularizationOptions) -> void;
+// PlaneVector<Scalar> refers to the existing alias in geometry/regularization.hpp.
+template <typename Scalar>
+auto regularize_planes(PlaneVector<Scalar>& planes,
+                       PointSpan points,
+                       PlaneRegularizationOptions opts) -> void;
 ```
 
 ### PyTorch
@@ -62,11 +84,11 @@ auto regularize_planes(PlaneSet&, const PointSet&, PlaneRegularizationOptions) -
 
 ### TensorRT/CUDA
 - **Where it leaks:** `vision/tensor_rt/Sam3.hpp` includes TensorRT/CUDA-heavy headers publicly.
-- **Abstraction strategy:** keep `IModel` pure and move TensorRT model classes behind factory + pimpl in compiled module.
+- **Abstraction strategy:** Keep `IModel` pure and move TensorRT model classes behind factory + pimpl in compiled module.
 
 ### RTABMap
-- **Where it leaks:** `io/RTABMapDatabase.hpp` exposes `rtabmap::Transform`, `rtabmap::Link`, `rtabmap::Signature` in `getGraph`.
-- **Abstraction strategy:** return ReUseX-owned graph DTOs from public API and add conversion adapter for RTABMap-specific consumers.
+- **Where it leaks:** `io/RTABMapDatabase.hpp` uses Pimpl but still exposes `rtabmap::Transform`, `rtabmap::Link`, `rtabmap::Signature` in the public `getGraph` signature.
+- **Abstraction strategy:** Return ReUseX-owned graph DTOs from public API and add conversion adapter for RTABMap-specific consumers.
 
 ```cpp
 namespace ReUseX::io {
@@ -113,7 +135,7 @@ libs/reusex/include/ReUseX/
    class FrameStoreFacade {
    public:
      virtual ~FrameStoreFacade() = default;
-     virtual ImageView image(std::size_t i) const = 0;
+     virtual ImageView image(std::size_t frame_index) const = 0;
    };
    class RTABMapFrameStoreAdapter final : public FrameStoreFacade { /* ... */ };
    ```
@@ -132,7 +154,7 @@ libs/reusex/include/ReUseX/
 
 5. **Rule-of-Zero enforcement**
    - **Apply to:** value-like structs in `vision/common/object.hpp` and similar DTOs.
-   - **Why:** avoid custom special members unless ownership is real (e.g., `SegmentMap` is an exception because it owns CUDA pinned memory).
+   - **Why:** Avoid custom special members unless ownership is real (e.g., `SegmentMap` is an exception because it owns CUDA pinned memory).
 
 6. **Unified error model**
    - **Apply to:** factory/detection code paths that currently mix logs + throws.
@@ -142,7 +164,7 @@ libs/reusex/include/ReUseX/
 
 ### Quick wins (low effort, high impact)
 - Add API style guide section in `CONTRIBUTING.md` (naming + construction rules).
-- Normalize enum names in `Backend` (e.g., `LibTorch`) with deprecation aliases.
+- Normalize enum names in `Backend` from `libTorch` to `LibTorch` with deprecation aliases.
 - Deprecate direct public use of free `project(...)` in favor of a service façade.
 - Introduce thin wrapper types (`ImageView`, `Point3f`) alongside existing `cv::Mat`/PCL APIs (non-breaking additive change).
 - Move backend-heavy includes out of top-level `vision` headers where possible.
@@ -153,4 +175,3 @@ libs/reusex/include/ReUseX/
 - Replace RTABMap types in public IO signatures with ReUseX DTOs.
 - Build a stable `api/` façade layer that shields consumers from third-party churn.
 - Gradually isolate CGAL/PCL-heavy algorithms behind compiled boundaries and explicit instantiations.
-

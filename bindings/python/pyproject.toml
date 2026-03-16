@@ -51,8 +51,7 @@ sdist.exclude = [
     ".gitignore",
     ".gitmodules",
     ".clang-format",
-    "shell.nix",
-    "flake.*"
+    "**/*.nix"
 ]
 cmake.verbose = true
 logging.level = "INFO"

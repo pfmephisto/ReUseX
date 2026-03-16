@@ -13,6 +13,7 @@ message(STATUS "Configuring unit tests...")
 # -----------------------------------------------
 find_package(Catch2 3 REQUIRED)
 find_package(fmt CONFIG REQUIRED)
+find_package(OpenSSL REQUIRED)
 
 # -----------------------------------------------
 # Coverage support (optional)
@@ -45,6 +46,7 @@ target_link_libraries(reusex_unit_tests
         ReUseX
         Catch2::Catch2WithMain
         fmt::fmt
+        OpenSSL::Crypto
 )
 
 # Include ReUseX headers from new location

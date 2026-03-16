@@ -12,7 +12,7 @@
 #include <texture.hpp>
 #include <view.hpp>
 
-#include <ReUseX/core/version.hpp>
+#include <reusex/core/version.hpp>
 
 #include <CLI/CLI.hpp>
 #include <spdlog/sinks/stdout_color_sinks.h>
@@ -50,7 +50,7 @@ int main(int argc, char **argv) {
       },
       "Show version information");
   app.add_flag(
-      "	-L, --license",
+      "-L, --license",
       [](bool /*count*/) {
         std::cout << ReUseX::core::LICENSE_TEXT << std::endl;
         exit(0);
@@ -72,7 +72,7 @@ int main(int argc, char **argv) {
   setup_subcommand_view(app);
   setup_subcommand_mesh(app);
 
-  app.require_subcommand(/* min */ 1, /* max */ 2);
+  app.require_subcommand(/* min */ 0, /* max */ 2);
 
   argv = app.ensure_utf8(argv);
 

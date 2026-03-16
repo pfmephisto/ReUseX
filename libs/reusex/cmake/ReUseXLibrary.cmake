@@ -37,9 +37,11 @@ message(STATUS "Found ${REUSEX_SOURCE_COUNT} ReUseX source files")
 # -----------------------------------------------
 file(READ ${CMAKE_SOURCE_DIR}/LICENSE.md LICENSE_TEXT)
 string(REPLACE "\"" "\\\"" LICENSE_TEXT "${LICENSE_TEXT}")
+# Use CMAKE_PROJECT_VERSION to get the root project version (not subdirectory project version)
+set(PROJECT_VERSION ${CMAKE_PROJECT_VERSION})
 configure_file(
     ${CMAKE_CURRENT_SOURCE_DIR}/include/ReUseX/core/version.hpp.in
-    ${CMAKE_BINARY_DIR}/generated/ReUseX/core/version.hpp
+    ${CMAKE_BINARY_DIR}/generated/reusex/core/version.hpp
     @ONLY
 )
 

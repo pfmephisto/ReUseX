@@ -20,6 +20,7 @@ Welcome to the ReUseX documentation! This directory contains comprehensive docum
 ### Architecture
 - [Architecture Overview](../ARCHITECTURE.md) - High-level repository structure
 - [Detailed Architecture](design/architecture.md) - Module organization and data flow
+- [API Design Review](design/api-design-review.md) - Public API audit and refactoring recommendations
 - [Subproject Structure](design/subproject-structure.md) - Build system organization
 - [Database Design](design/database-design.md) - RTABMapDatabase detailed design
 

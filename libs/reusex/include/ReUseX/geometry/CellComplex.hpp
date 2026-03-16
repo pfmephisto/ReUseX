@@ -3,13 +3,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #pragma once
+#include <ReUseX/core/logging.hpp>
 #include <ReUseX/geometry/Registry.hpp>
 
 #include <boost/graph/adjacency_list.hpp>
 #include <boost/graph/graph_traits.hpp>
 #include <boost/iterator/filter_iterator.hpp>
 
-#include <spdlog/spdlog.h>
 
 #include <fmt/format.h>
 

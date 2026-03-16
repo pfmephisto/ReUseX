@@ -2,7 +2,10 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include <ReUseX/core/logging.hpp>
 #include <ReUseX/geometry/segment_planes.hpp>
+
+#include <stdexcept>
 
 namespace ReUseX::geometry {
 
@@ -20,71 +23,52 @@ namespace ReUseX::geometry {
  * @param radius Search radius for region growing.
  * @param interval_0 Initial interval for multi-scale processing.
  * @param interval_factor Factor for interval scaling between iterations.
- * @param visualize Enable visualization of segmentation process.
  * @return Tuple of (labeled point cloud, plane centroids, plane normals).
  */
-auto segment_planes_impl(CloudConstPtr cloud, CloudNConstPtr normals,
-                         const float angle_threshold,
-                         const float plane_dist_threshold,
-                         const int min_inliers, const float radius,
-                         const float interval_0, const float interval_factor,
-                         const bool visualize)
+auto segment_planes_impl(const SegmentPlanesRequest &request)
     -> std::tuple<CloudLPtr, CloudLocPtr, CloudNPtr> {
-
-  spdlog::trace("Initialize the segmentation algorithm");
-  pcl::PlanarRegionGrowing<PointT, NormalT, LabelT> seg;
-  seg.setInputCloud(cloud);
-  seg.setInputNormals(normals);
-
-  seg.setAngularThreshold(angle_threshold);
-  seg.setDistanceThreshold(plane_dist_threshold);
-  seg.setMinInliers(min_inliers);
-
-  seg.setRadiusSearch(radius);
-
-  seg.setInitialInterval(interval_0);
-  seg.setIntervalFactor(interval_factor);
-
-  pcl::visualization::PCLVisualizer::Ptr viewer;
-  if (visualize) {
-    static int plane_id = 0;
-    spdlog::warn("Visualization is an experimental feature.");
-    viewer = pcl::visualization::PCLVisualizer::Ptr(
-        new pcl::visualization::PCLVisualizer("MCL Viewer"));
-    viewer->setBackgroundColor(0, 0, 0);
-    viewer->addCoordinateSystem(1.0);
-    viewer->initCameraParameters();
-    seg.registerVisualizationCallback(
-        [&viewer](const pcl::ModelCoefficients &plane,
-                  const Eigen::Vector4f &origin) {
-          spdlog::trace("Visualization callback called");
-          const auto name = "plane" + std::to_string(plane_id);
-          const auto color = pcl::GlasbeyLUT::at(plane_id);
-          viewer->addPlane(plane, origin.x(), origin.y(), origin.z(), name);
-          viewer->setShapeRenderingProperties(
-              pcl::visualization::PCL_VISUALIZER_COLOR, color.r / 254,
-              color.g / 254, color.b / 254, name);
-          viewer->setShapeRenderingProperties(
-              pcl::visualization::PCL_VISUALIZER_OPACITY, 0.5, name);
-          plane_id++;
-        });
-
-    viewer->addPointCloud<PointT>(cloud, "cloud");
+  auto *observer = ReUseX::core::get_processing_observer();
+  if (observer) {
+    observer->on_stage_started("segment_planes:init");
   }
 
-  spdlog::trace("Initialize labels and copy xyzrgb data to labels");
-  CloudLPtr labels(new CloudL);
-  pcl::copyPointCloud(*cloud, *labels);
-
-  spdlog::trace("Call the segmentation algorithm");
-  seg.segment(labels);
-
-  spdlog::info("Found {} clusters", seg.getCentroids().size());
-  if (viewer)
-    while (!viewer->wasStopped()) {
-      viewer->spinOnce(100);
-      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  if (request.cancel_token != nullptr && request.cancel_token->load()) {
+    ReUseX::core::warn(
+        "segment_planes: cancellation requested before execution.");
+    if (observer) {
+      observer->on_error("Plane segmentation cancelled.");
     }
+    throw std::runtime_error("Plane segmentation cancelled.");
+  }
+
+  ReUseX::core::trace("Initialize the segmentation algorithm");
+  pcl::PlanarRegionGrowing<PointT, NormalT, LabelT> seg;
+  seg.setInputCloud(request.cloud);
+  seg.setInputNormals(request.normals);
+
+  seg.setAngularThreshold(request.angle_threshold);
+  seg.setDistanceThreshold(request.plane_dist_threshold);
+  seg.setMinInliers(request.min_inliers);
+
+  seg.setRadiusSearch(request.radius);
+
+  seg.setInitialInterval(request.interval_0);
+  seg.setIntervalFactor(request.interval_factor);
+
+  ReUseX::core::trace("Initialize labels and copy xyzrgb data to labels");
+  CloudLPtr labels(new CloudL);
+  pcl::copyPointCloud(*request.cloud, *labels);
+
+  ReUseX::core::trace("Call the segmentation algorithm");
+  if (observer) {
+    observer->on_stage_started("segment_planes:segment");
+  }
+  seg.segment(labels);
+  if (observer) {
+    observer->on_progress("segment_planes:segment", 1.0F);
+  }
+
+  ReUseX::core::info("Found {} clusters", seg.getCentroids().size());
 
   std::vector<pcl::ModelCoefficients> model_coefficients =
       seg.getModelCoefficients();
@@ -111,5 +95,10 @@ auto segment_planes_impl(CloudConstPtr cloud, CloudNConstPtr normals,
   }
 
   return std::make_tuple(labels, centroids_cloud, plane_normals);
+}
+
+auto segment_planes(const SegmentPlanesRequest &request)
+    -> std::tuple<CloudLPtr, CloudLocPtr, CloudNPtr> {
+  return segment_planes_impl(request);
 }
 } // namespace ReUseX::geometry

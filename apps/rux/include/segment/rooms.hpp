@@ -18,14 +18,13 @@ struct SubcommandSegRoomsOptions {
   fs::path rooms_path_out = GlobalParams::rooms;  ///< Output rooms path
 
   int expansion = 2;  ///< Cell expansion factor
-  double inflation = 2;  ///< Inflation factor for room boundaries
-  double pruning_threshold = 0.0001;  ///< Threshold for pruning small regions
-  double convergence_threshold = 1e-8;  ///< Convergence threshold for optimization
+  float inflation = 2.0F;  ///< Inflation factor for room boundaries
+  float pruning_threshold = 0.0001F;  ///< Threshold for pruning small regions
+  float convergence_threshold = 1e-8F;  ///< Convergence threshold for optimization
   int max_iter = 100;  ///< Maximum number of iterations
 
   float grid_size = GlobalParams::grid_size;  ///< Grid cell size
 
-  bool visualize = GlobalParams::visualize;  ///< Enable visualization
 };
 
 /**

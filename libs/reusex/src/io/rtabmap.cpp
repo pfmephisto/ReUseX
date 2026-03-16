@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include <ReUseX/core/logging.hpp>
 #include <ReUseX/io/RTABMapDatabase.hpp>
 #include <ReUseX/io/rtabmap.hpp>
 #include <ReUseX/utils/fmt_formatter.hpp>
@@ -12,9 +13,6 @@
 
 #include <fmt/format.h>
 
-#include <spdlog/sinks/stdout_color_sinks.h>
-#include <spdlog/spdlog.h>
-#include <spdlog/stopwatch.h>
 
 #include <pcl/common/colors.h>
 #include <pcl/common/io.h>
@@ -81,7 +79,7 @@ void applyDepthDiscontinuityFilter(cv::Mat& depth, cv::Mat& confidence,
                                     float gradient_threshold = 0.5f) {
   if (depth.empty() || depth.channels() != 1) return;
 
-  spdlog::trace("Applying depth discontinuity filter (threshold={})",
+  ReUseX::core::trace("Applying depth discontinuity filter (threshold={})",
                 gradient_threshold);
 
   // Convert to float for gradient computation
@@ -108,7 +106,7 @@ void applyDepthDiscontinuityFilter(cv::Mat& depth, cv::Mat& confidence,
   }
 
   int removed = cv::countNonZero(~valid_mask);
-  spdlog::debug("Depth discontinuity filter removed {} / {} pixels ({:.1f}%)",
+  ReUseX::core::debug("Depth discontinuity filter removed {} / {} pixels ({:.1f}%)",
                 removed, depth.total(), 100.0 * removed / depth.total());
 }
 
@@ -127,7 +125,7 @@ void applyRayConsistencyFilter(cv::Mat& depth, cv::Mat& confidence,
                                 float consistency_threshold = 0.2f) {
   if (depth.empty() || depth.channels() != 1) return;
 
-  spdlog::trace("Applying ray consistency filter (threshold={})",
+  ReUseX::core::trace("Applying ray consistency filter (threshold={})",
                 consistency_threshold);
 
   // Convert to float for computation
@@ -160,7 +158,7 @@ void applyRayConsistencyFilter(cv::Mat& depth, cv::Mat& confidence,
   }
 
   int removed = cv::countNonZero(~valid_mask);
-  spdlog::debug("Ray consistency filter removed {} / {} pixels ({:.1f}%)",
+  ReUseX::core::debug("Ray consistency filter removed {} / {} pixels ({:.1f}%)",
                 removed, depth.total(), 100.0 * removed / depth.total());
 }
 
@@ -202,17 +200,17 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
   // 2. Package default model with application (e.g., in share/reusex/models/)
   // 3. Allow override via environment variable or config file
   // 4. Provide clear error message if model not found
-  spdlog::info("Intializing RTAB-Map ...");
-  spdlog::stopwatch timer;
+  ReUseX::core::info("Initializing RTAB-Map ...");
+  ReUseX::core::stopwatch timer;
   ParametersMap params;
   Rtabmap rtabmap;
-  spdlog::debug("Database path: {}", database_path);
+  ReUseX::core::debug("Database path: {}", database_path);
   rtabmap.init(params, database_path.c_str());
   rtabmap.setWorkingDirectory("./");
-  spdlog::debug("RTAB-Map initialized in {:.3f}s", timer);
+  ReUseX::core::debug("RTAB-Map initialized in {:.3f}s", timer);
 
   // Save 3D map
-  spdlog::info("Loading Graph");
+  ReUseX::core::info("Loading Graph");
   timer.reset();
 
   std::map<int, Transform> poses;
@@ -227,9 +225,9 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
                    true /*withScan*/, true /*withUserData*/,
                    true /*withGrid*/ /*withWords*/
                    /*withGlobalDescriptors*/);
-  spdlog::debug("Graph loaded in {:.3f}s", timer);
+  ReUseX::core::debug("Graph loaded in {:.3f}s", timer);
 
-  spdlog::trace("Assembling point clouds from signatures");
+  ReUseX::core::trace("Assembling point clouds from signatures");
   pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud(
       new pcl::PointCloud<pcl::PointXYZRGBNormal>);
   pcl::PointCloud<pcl::Label>::Ptr labels(new pcl::PointCloud<pcl::Label>);
@@ -237,7 +235,7 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
   // Open database connection for reading segmentation results
   sqlite3 *db_ = nullptr;
   if (sqlite3_open(database_path.string().c_str(), &db_) != SQLITE_OK) {
-    spdlog::error("Cannot open database: {}", sqlite3_errmsg(db_));
+    ReUseX::core::error("Cannot open database: {}", sqlite3_errmsg(db_));
     sqlite3_close(db_);
     throw std::runtime_error("Cannot open database");
   }
@@ -249,7 +247,7 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
                          "SELECT name FROM sqlite_master WHERE type='table' "
                          "AND name='Segmentation';",
                          -1, &stmt, nullptr) != SQLITE_OK) {
-    spdlog::warn("No Segmentation table found in database: {}",
+    ReUseX::core::warn("No Segmentation table found in database: {}",
                  sqlite3_errmsg(db_));
     sqlite3_close(db_);
     skipInference = true;
@@ -260,7 +258,7 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
     if (sqlite3_prepare_v2(db_,
                            "SELECT label_image FROM Segmentation WHERE id=?;",
                            -1, &stmt, nullptr) != SQLITE_OK) {
-      spdlog::error("Failed to prepare statement for Segmentation table: {}",
+      ReUseX::core::error("Failed to prepare statement for Segmentation table: {}",
                     sqlite3_errmsg(db_));
       sqlite3_close(db_);
       skipInference = true;
@@ -276,7 +274,7 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
       poseVector.push_back(*iter);
     }
 
-    spdlog::trace("Number of poses: {}", poseVector.size());
+    ReUseX::core::trace("Number of poses: {}", poseVector.size());
     auto logger = spdmon::LoggerProgress("Assembling cloud", poseVector.size());
 
 #ifdef NDEBUG
@@ -315,13 +313,13 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
                           data.cameraModels(), data.id(), data.stamp());
       }
 
-      spdlog::trace("Creating point cloud from sensor data with confidence threshold 2");
+      ReUseX::core::trace("Creating point cloud from sensor data with confidence threshold 2");
       pcl::IndicesPtr validIndices(new pcl::Indices);
       pcl::PointCloud<pcl::PointXYZRGB>::Ptr tmp =
           util3d::cloudRGBFromSensorData(data, sampling_factor, max_distance,
                                          min_distance, validIndices.get(),
                                          ParametersMap(), std::vector<float>(), 2);
-      spdlog::debug("Point cloud size: {}, valid: {}, size: {}x{} (confidence ≥ 2)",
+      ReUseX::core::debug("Point cloud size: {}, valid: {}, size: {}x{} (confidence ≥ 2)",
                     tmp->size(), validIndices->size(), tmp->width, tmp->height);
 
       pcl::PointCloud<pcl::Label>::Ptr labledCloud(
@@ -337,11 +335,11 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
       cv::Mat image = data.imageRaw();
       cv::rotate(image, image, cv::ROTATE_90_CLOCKWISE);
 
-      spdlog::trace("Set up labledImage");
+      ReUseX::core::trace("Set up labledImage");
       cv::Mat labledImage(image.size(), CV_32S, cv::Scalar(-1));
 
       if (!skipInference) {
-        spdlog::trace("Querying label image for node_id {}", id);
+        ReUseX::core::trace("Querying label image for node_id {}", id);
         int idx = 0;
         sqlite3_bind_int(stmt, 1, id);
         if (sqlite3_step(stmt) == SQLITE_ROW) {
@@ -354,12 +352,12 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
           // Decode the PNG into a cv::Mat
           cv::Mat img = cv::imdecode(buffer, cv::IMREAD_UNCHANGED);
           if (img.empty()) {
-            spdlog::error("Failed to decode image from database");
+            ReUseX::core::error("Failed to decode image from database");
           } else {
-            spdlog::debug("Decoded image: {}x{}, channels={}, type={}",
+            ReUseX::core::debug("Decoded image: {}x{}, channels={}, type={}",
                           img.cols, img.rows, img.channels(), img.type());
 
-            spdlog::trace("Convert label image to CV_32S");
+            ReUseX::core::trace("Convert label image to CV_32S");
             img.convertTo(labledImage, CV_32S);
             labledImage -= 1; // Move 0 to -1 so that it can be stored as signed
                               // 32-bit integer
@@ -368,7 +366,7 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
         sqlite3_reset(stmt);
       }
 
-      spdlog::trace("Resizing label image to cloud size");
+      ReUseX::core::trace("Resizing label image to cloud size");
       cv::resize(labledImage, labledImage, cloud_size, 0, 0, cv::INTER_NEAREST);
 
 #ifndef NDEBUG
@@ -397,7 +395,7 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
       cv::waitKey(1);
 #endif
 
-      spdlog::trace("Set the values of the labled cloud");
+      ReUseX::core::trace("Set the values of the labled cloud");
       for (size_t i = 0; i < labledCloud->size(); ++i)
         labledCloud->points[i].label = labledImage.at<int>(i);
 
@@ -407,7 +405,7 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
       extract.setNegative(false);
       extract.filter(*labledCloud);
 
-      spdlog::trace("Filterout NaN points");
+      ReUseX::core::trace("Filterout NaN points");
       pcl::IndicesPtr nonNaNindices(new pcl::Indices);
       pcl::PointCloud<pcl::PointXYZRGB>::Ptr tmpNoNaN(
           new pcl::PointCloud<pcl::PointXYZRGB>);
@@ -421,22 +419,22 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
 
       if (!tmp->empty()) {
 
-        spdlog::trace("Transforming point cloud to pose");
+        ReUseX::core::trace("Transforming point cloud to pose");
         tmp = util3d::transformPointCloud(tmp, pose);
 
-        spdlog::trace("Setting sensor origin for normal estimation");
+        ReUseX::core::trace("Setting sensor origin for normal estimation");
         float x, y, z;
         pose.getTranslation(x, y, z);
         tmp->sensor_origin_ = Eigen::Vector4f(x, y, z, 1.0f);
 
-        spdlog::trace("Estimating normals for point cloud");
+        ReUseX::core::trace("Estimating normals for point cloud");
         pcl::NormalEstimationOMP<pcl::PointXYZRGB, pcl::Normal> ne;
         ne.setInputCloud(tmp);
         ne.setRadiusSearch(0.1);
         pcl::PointCloud<pcl::Normal> normalsTmp;
         ne.compute(normalsTmp);
 
-        spdlog::trace("Merging normals with point cloud");
+        ReUseX::core::trace("Merging normals with point cloud");
         pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr tmpCloud(
             new pcl::PointCloud<pcl::PointXYZRGBNormal>);
         tmpCloud->resize(tmp->size());
@@ -456,14 +454,14 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
         // pcl::copyPointCloud(*tmp, *tmpCloud);
         // pcl::copyPointCloud(normalsTmp, *tmpCloud);
 
-        // spdlog::debug(
+        // ReUseX::core::debug(
         //     "Point 0: XYZ({}, {}, {}), RGB({}, {}, {}), Normal({}, {},
         //     {})", tmpCloud->at(0).x, tmpCloud->at(0).y, tmpCloud->at(0).z,
         //     tmpCloud->at(0).r, tmpCloud->at(0).g, tmpCloud->at(0).b,
         //     tmpCloud->at(0).normal_x, tmpCloud->at(0).normal_y,
         //     tmpCloud->at(0).normal_z);
 
-        spdlog::trace("Appending frame to the cloud");
+        ReUseX::core::trace("Appending frame to the cloud");
         *cloud += *tmpCloud;
         *labels += *labledCloud;
       }
@@ -489,17 +487,17 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
   // 3. Check for any sqlite3 errors during batch insert
   // Helps catch silent failures during label persistence
   if (!cloud->size()) {
-    spdlog::error("Error: The cloud is empty.");
+    ReUseX::core::error("Error: The cloud is empty.");
     rtabmap.close(false);
     return std::make_tuple(nullptr, nullptr, nullptr);
   }
 
   // INFO: Downsample the point cloud
-  spdlog::info(
+  ReUseX::core::info(
       "Voxel grid filtering of the assembled cloud (voxel={}, {} points)",
       resolution, (int)cloud->size());
   auto downsampledCloud = util3d::voxelize(cloud, resolution);
-  spdlog::debug("Points after voxel grid filtering: {}",
+  ReUseX::core::debug("Points after voxel grid filtering: {}",
                 downsampledCloud->size());
 
   pcl::Indices filter_indices;
@@ -512,7 +510,7 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
   CloudNPtr out_normals(new CloudN);
   pcl::copyPointCloud(*downsampledCloud, *out_normals);
 
-  spdlog::trace("Creating labels");
+  ReUseX::core::trace("Creating labels");
   // BUG: Segfault during KdTree initialization with empty/small clouds
   // category=I/O estimate=1d
   // Occurs when setInputCloud() is called on an empty or very small point cloud
@@ -564,7 +562,7 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
   // 3. Confusion about which files are actually needed
 
   //// INFO: Saving the trajectory
-  // spdlog::info("Saving {} ...", trajectory_path_out);
+  // ReUseX::core::info("Saving {} ...", trajectory_path_out);
   // if (poses.size() &&
   //     graph::exportPoses(trajectory_path_out, 0, poses, links)) {
   //   // const std::string & filePath,
@@ -581,7 +579,7 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
   //  // Raw = KITTI Fromat
   //  // // Format: r11 r12 r13 tx r21 r22 r23 ty r31 r32 r33 tz
   //} else {
-  //  spdlog::error("Saving {} ... failed!", trajectory_path_out);
+  //  ReUseX::core::error("Saving {} ... failed!", trajectory_path_out);
   //  rtabmap.close(false);
   //  return std::make_tuple(nullptr, nullptr, nullptr);
   //}
@@ -591,12 +589,12 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
   rtabmap.close();
 
   // Filter outliers and noise from the point cloud
-  spdlog::info("Filtering outliers from point cloud ({} points)", out_cloud->size());
+  ReUseX::core::info("Filtering outliers from point cloud ({} points)", out_cloud->size());
   timer.reset();
 
   // Step 1: Statistical Outlier Removal
   // Removes points that are statistical outliers based on mean distance
-  spdlog::trace("Applying statistical outlier removal");
+  ReUseX::core::trace("Applying statistical outlier removal");
   pcl::StatisticalOutlierRemoval<PointT> sor;
   sor.setInputCloud(out_cloud);
   sor.setMeanK(50);              // Number of neighbors to analyze
@@ -604,12 +602,12 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
 
   pcl::IndicesPtr stat_inliers(new pcl::Indices);
   sor.filter(*stat_inliers);
-  spdlog::debug("Statistical outlier removal kept {}/{} points",
+  ReUseX::core::debug("Statistical outlier removal kept {}/{} points",
                 stat_inliers->size(), out_cloud->size());
 
   // Step 2: Radius Outlier Removal
   // Removes points that have fewer neighbors within a specified radius
-  spdlog::trace("Applying radius outlier removal");
+  ReUseX::core::trace("Applying radius outlier removal");
   pcl::RadiusOutlierRemoval<PointT> ror;
   ror.setInputCloud(out_cloud);
   ror.setIndices(stat_inliers);  // Apply on top of statistical filtering
@@ -618,12 +616,12 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
 
   pcl::IndicesPtr filtered_indices(new pcl::Indices);
   ror.filter(*filtered_indices);
-  spdlog::debug("Radius outlier removal kept {}/{} points",
+  ReUseX::core::debug("Radius outlier removal kept {}/{} points",
                 filtered_indices->size(), stat_inliers->size());
 
   // Step 3: Apply the same filtering to all three clouds (points, normals, labels)
   // This ensures they remain synchronized
-  spdlog::trace("Extracting filtered points, normals, and labels");
+  ReUseX::core::trace("Extracting filtered points, normals, and labels");
 
   CloudPtr filtered_cloud(new Cloud);
   pcl::ExtractIndices<PointT> extract_points;
@@ -649,12 +647,12 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
   // Verify all clouds have the same size
   if (filtered_cloud->size() != filtered_normals->size() ||
       filtered_cloud->size() != filtered_labels->size()) {
-    spdlog::error("Filtered clouds have mismatched sizes: points={}, normals={}, labels={}",
+    ReUseX::core::error("Filtered clouds have mismatched sizes: points={}, normals={}, labels={}",
                   filtered_cloud->size(), filtered_normals->size(), filtered_labels->size());
     return std::make_tuple(nullptr, nullptr, nullptr);
   }
 
-  spdlog::info("Filtering complete in {:.3f}s: {}/{} points retained ({:.1f}%)",
+  ReUseX::core::info("Filtering complete in {:.3f}s: {}/{} points retained ({:.1f}%)",
                timer, filtered_cloud->size(), out_cloud->size(),
                100.0 * filtered_cloud->size() / out_cloud->size());
 
@@ -662,28 +660,28 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
 }
 
 bool checkRTABMapDatabase(std::filesystem::path const &dbPath) {
-  spdlog::trace("Checking RTABMap database: {}", dbPath);
+  ReUseX::core::trace("Checking RTABMap database: {}", dbPath);
 
   try {
     RTABMapDatabase db(dbPath, /*readOnly=*/true);
     db.validateSchema();
     return db.isOpen();
   } catch (const std::exception &e) {
-    spdlog::error("Database check failed: {}", e.what());
+    ReUseX::core::error("Database check failed: {}", e.what());
     return false;
   }
 }
 
 bool initRTABMapDatabase(std::filesystem::path const &dbPath) {
-  spdlog::trace("Initializing RTABMap database: {}", dbPath);
+  ReUseX::core::trace("Initializing RTABMap database: {}", dbPath);
 
   try {
     // Constructor creates Segmentation table if needed
     RTABMapDatabase db(dbPath, /*readOnly=*/false);
-    spdlog::info("Database initialized successfully");
+    ReUseX::core::info("Database initialized successfully");
     return true;
   } catch (const std::exception &e) {
-    spdlog::error("Database initialization failed: {}", e.what());
+    ReUseX::core::error("Database initialization failed: {}", e.what());
     return false;
   }
 }
@@ -691,27 +689,27 @@ bool initRTABMapDatabase(std::filesystem::path const &dbPath) {
 bool writeLabelsToRTABMapDatabase(std::filesystem::path const &dbPath,
                                   cv::Mat const &labels,
                                   std::optional<size_t> id) {
-  spdlog::trace("Writing labels to RTABMap database: {}", dbPath);
+  ReUseX::core::trace("Writing labels to RTABMap database: {}", dbPath);
 
   if (!id.has_value()) {
-    spdlog::error("Node ID is required to write labels");
+    ReUseX::core::error("Node ID is required to write labels");
     return false;
   }
 
   try {
     RTABMapDatabase db(dbPath, /*readOnly=*/false);
     db.saveLabels(static_cast<int>(id.value()), labels, /*autoRotate=*/true);
-    spdlog::debug("Labels written successfully for node {}", id.value());
+    ReUseX::core::debug("Labels written successfully for node {}", id.value());
     return true;
   } catch (const std::exception &e) {
-    spdlog::error("Failed to write labels: {}", e.what());
+    ReUseX::core::error("Failed to write labels: {}", e.what());
     return false;
   }
 }
 
 cv::Mat readLabelsFromRTABMapDatabase(std::filesystem::path const &dbPath,
                                       size_t id) {
-  spdlog::trace("Reading labels from RTABMap database: {} for node {}", dbPath,
+  ReUseX::core::trace("Reading labels from RTABMap database: {} for node {}", dbPath,
                 id);
 
   try {
@@ -719,15 +717,15 @@ cv::Mat readLabelsFromRTABMapDatabase(std::filesystem::path const &dbPath,
     cv::Mat labels = db.getLabels(static_cast<int>(id));
 
     if (labels.empty()) {
-      spdlog::warn("No labels found for node {}", id);
+      ReUseX::core::warn("No labels found for node {}", id);
     } else {
-      spdlog::debug("Labels read successfully for node {}: {}x{}", id,
+      ReUseX::core::debug("Labels read successfully for node {}: {}x{}", id,
                     labels.cols, labels.rows);
     }
 
     return labels;
   } catch (const std::exception &e) {
-    spdlog::error("Failed to read labels: {}", e.what());
+    ReUseX::core::error("Failed to read labels: {}", e.what());
     return cv::Mat();
   }
 }

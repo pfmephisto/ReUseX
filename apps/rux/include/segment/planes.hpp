@@ -24,7 +24,6 @@ struct SubcommandSegPlanesOptions {
   float interval_0 = 16;  ///< Initial interval for multi-scale processing
   float interval_factor = 1.5;  ///< Factor for interval scaling
 
-  bool visualize = GlobalParams::visualize;  ///< Enable visualization
 };
 
 /**

@@ -2,13 +2,12 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include <ReUseX/core/logging.hpp>
 #include <ReUseX/types.hpp>
 #include <ReUseX/vision/project.hpp>
 #include <ReUseX/visualize/Visualizer.hpp>
 #include <ReUseX/visualize/pcl.hpp>
 
-#include <spdlog/spdlog.h>
-#include <spdlog/stopwatch.h>
 #include <spdmon/spdmon.hpp>
 
 #include <range/v3/view/iota.hpp>
@@ -57,7 +56,7 @@ inline rtabmap::CameraModel scaledCameraModel(const rtabmap::CameraModel &cm,
       static_cast<double>(targetSize.height) / cm.imageSize().height;
 
   if (!cm.isValidForProjection()) {
-    spdlog::warn(
+    ReUseX::core::warn(
         "CameraModel is not valid for projection, returning unscaled model.");
     return cm;
   }
@@ -101,25 +100,25 @@ fovsFromCameraModel(const rtabmap::CameraModel &cm) {
 }
 
 auto getLabeledImage(sqlite3_stmt *stmt, int id) -> cv::Mat {
-  spdlog::trace("Fetching label image for id {} from database", id);
+  ReUseX::core::trace("Fetching label image for id {} from database", id);
 
   cv::Mat labledImage;
   sqlite3_bind_int(stmt, 1, id);
   if (sqlite3_step(stmt) != SQLITE_ROW) {
-    spdlog::error("No label image found for id {} in database", id);
+    ReUseX::core::error("No label image found for id {} in database", id);
     sqlite3_clear_bindings(stmt);
     sqlite3_reset(stmt);
     return labledImage;
   }
 
-  spdlog::trace("Reading blob data for label image id {} from database", id);
+  ReUseX::core::trace("Reading blob data for label image id {} from database", id);
 
   int idx = 0;
   const void *data = sqlite3_column_blob(stmt, idx);
-  spdlog::trace("Blob data pointer: {}", fmt::ptr((void *)data));
+  ReUseX::core::trace("Blob data pointer: {}", fmt::ptr((void *)data));
   int datasize = sqlite3_column_bytes(stmt, idx++);
 
-  spdlog::trace("Decoding label image from database");
+  ReUseX::core::trace("Decoding label image from database");
   // imgMat = cv::imdecode(imgMat, cv::IMREAD_UNCHANGED);
 
   // The blob is just a stream of bytes (compressed PNG)
@@ -129,16 +128,16 @@ auto getLabeledImage(sqlite3_stmt *stmt, int id) -> cv::Mat {
   labledImage = cv::imdecode(buffer, cv::IMREAD_UNCHANGED);
 
   if (labledImage.empty()) {
-    spdlog::error("Failed to decode image {} from database", id);
+    ReUseX::core::error("Failed to decode image {} from database", id);
     sqlite3_clear_bindings(stmt);
     sqlite3_reset(stmt);
     return labledImage;
   }
 
-  spdlog::debug("Decoded image: {}x{}, channels={}", labledImage.cols,
+  ReUseX::core::debug("Decoded image: {}x{}, channels={}", labledImage.cols,
                 labledImage.rows, labledImage.channels());
 
-  spdlog::trace("Convert label image to CV_32S");
+  ReUseX::core::trace("Convert label image to CV_32S");
   labledImage.convertTo(labledImage, CV_32S);
   labledImage -= 1; // Move 0 to -1 so that it can be stored as signed
                     // 32-bit integer
@@ -226,7 +225,7 @@ cv::Mat normalizeDepthImage(const cv::Mat &depthImage) {
 
 auto project(const std::filesystem::path &dbPath, CloudConstPtr cloud)
     -> CloudLPtr {
-  spdlog::trace("calling project");
+  ReUseX::core::trace("calling project");
 
   // auto viewer =
   //     std::make_shared<pcl::visualization::PCLVisualizer>("3D Viewer");
@@ -241,17 +240,17 @@ auto project(const std::filesystem::path &dbPath, CloudConstPtr cloud)
   labels->height = cloud->height;
   labels->is_dense = cloud->is_dense;
 
-  spdlog::info("Intializing RTAB-Map ...");
-  spdlog::stopwatch timer;
+  ReUseX::core::info("Initializing RTAB-Map ...");
+  ReUseX::core::stopwatch timer;
   ParametersMap params;
   Rtabmap rtabmap;
-  spdlog::debug("Database path: {}", dbPath);
+  ReUseX::core::debug("Database path: {}", dbPath);
   rtabmap.init(params, dbPath.c_str());
   rtabmap.setWorkingDirectory("./");
-  spdlog::debug("RTAB-Map initialized in {:.3f}s", timer);
+  ReUseX::core::debug("RTAB-Map initialized in {:.3f}s", timer);
 
   // Save 3D map
-  spdlog::info("Loading Graph");
+  ReUseX::core::info("Loading Graph");
   timer.reset();
 
   std::map<int, Transform> poses;
@@ -266,13 +265,13 @@ auto project(const std::filesystem::path &dbPath, CloudConstPtr cloud)
                    true /*withScan*/, true /*withUserData*/,
                    true /*withGrid*/ /*withWords*/
                    /*withGlobalDescriptors*/);
-  spdlog::debug("Graph loaded in {:.3f}s", timer);
+  ReUseX::core::debug("Graph loaded in {:.3f}s", timer);
   timer.reset();
 
   // Open database connection for reading segmentation results
   sqlite3 *db_ = nullptr;
   if (sqlite3_open(dbPath.string().c_str(), &db_) != SQLITE_OK) {
-    spdlog::error("Cannot open database: {}", sqlite3_errmsg(db_));
+    ReUseX::core::error("Cannot open database: {}", sqlite3_errmsg(db_));
     sqlite3_close(db_);
     throw std::runtime_error("Cannot open database");
   }
@@ -283,7 +282,7 @@ auto project(const std::filesystem::path &dbPath, CloudConstPtr cloud)
                          "SELECT name FROM sqlite_master WHERE type='table' "
                          "AND name='Segmentation';",
                          -1, &stmt, nullptr) != SQLITE_OK) {
-    spdlog::error("No Segmentation table found in database: {}",
+    ReUseX::core::error("No Segmentation table found in database: {}",
                   sqlite3_errmsg(db_));
     sqlite3_close(db_);
     return labels;
@@ -293,7 +292,7 @@ auto project(const std::filesystem::path &dbPath, CloudConstPtr cloud)
   if (sqlite3_prepare_v2(db_,
                          "SELECT label_image FROM Segmentation WHERE id=?;", -1,
                          &stmt, nullptr) != SQLITE_OK) {
-    spdlog::error("Failed to prepare statement for Segmentation table: {}",
+    ReUseX::core::error("Failed to prepare statement for Segmentation table: {}",
                   sqlite3_errmsg(db_));
     sqlite3_close(db_);
     return labels;
@@ -332,7 +331,7 @@ auto project(const std::filesystem::path &dbPath, CloudConstPtr cloud)
     auto logger = std::make_shared<spdmon::LoggerProgress>("Projecting labels",
                                                            poseVector.size());
     for (size_t i = 0; i < poseVector.size(); ++i) {
-      spdlog::trace("Processing node {}/{}", i + 1, poseVector.size());
+      ReUseX::core::trace("Processing node {}/{}", i + 1, poseVector.size());
 
       auto [id, pose] = poseVector[i];
 
@@ -357,7 +356,7 @@ auto project(const std::filesystem::path &dbPath, CloudConstPtr cloud)
       // cv::imwrite(tmpPath / fmt::format("labeled_img_{}.png", id),
       //             colorizeLabels(labeledImage));
       if (labeledImage.empty()) {
-        spdlog::warn("No label image for node {}, skipping projection", id);
+        ReUseX::core::warn("No label image for node {}, skipping projection", id);
         ++(*logger);
         continue;
       }
@@ -415,7 +414,7 @@ auto project(const std::filesystem::path &dbPath, CloudConstPtr cloud)
       cv::Mat zbuffer = rtabmap::util3d::projectCloudToCamera(
           cm.imageSize() /*labeledImage.size()*/, cm.K_raw(), cloud_lf, t_cam);
 
-      spdlog::trace("Filling Z-buffer holes for node {}", id);
+      ReUseX::core::trace("Filling Z-buffer holes for node {}", id);
       // rtabmap::util2d::fillDepthHoles(zbuffer, 1, 0.50f);
       // rtabmap::util2d::fillRegisteredDepthHoles(zbuffer, true, false, false);
       rtabmap::util3d::fillProjectedCloudHoles(zbuffer, true, true);
@@ -451,7 +450,7 @@ auto project(const std::filesystem::path &dbPath, CloudConstPtr cloud)
 
       cm = scaledCameraModel(cm, labeledImage.size());
       {
-        spdlog::trace("Assigning labels for node {}", id);
+        ReUseX::core::trace("Assigning labels for node {}", id);
         // Assign labels to the points in the point cloud
         auto fx = cm.fx();
         auto fy = cm.fy();
@@ -502,13 +501,13 @@ auto project(const std::filesystem::path &dbPath, CloudConstPtr cloud)
     }
   }
 
-  spdlog::info("Projection completed in {:.3f}s", timer);
+  ReUseX::core::info("Projection completed in {:.3f}s", timer);
   sqlite3_finalize(stmt);
 
-  spdlog::trace("closing database");
+  ReUseX::core::trace("closing database");
   sqlite3_exec(db_, "END TRANSACTION;", nullptr, nullptr, nullptr);
   sqlite3_close(db_);
-  spdlog::trace("database closed");
+  ReUseX::core::trace("database closed");
 
   return labels;
 }

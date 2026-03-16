@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include <ReUseX/core/logging.hpp>
 #include <ReUseX/geometry/texture_mesh.hpp>
 #include <ReUseX/geometry/utils.hpp>
 #include <ReUseX/types.hpp>
@@ -15,7 +16,6 @@
 
 #include <pcl/visualization/pcl_visualizer.h>
 
-#include <spdlog/spdlog.h>
 
 #include <spdmon/spdmon.hpp>
 
@@ -24,13 +24,13 @@
 namespace ReUseX::geometry {
 pcl::TextureMesh::Ptr texture_mesh_with_cloud(pcl::PolygonMesh::Ptr mesh,
                                               CloudConstPtr cloud) {
-  spdlog::trace("Entering ReUseX::geometry::texture_mesh_with_cloud");
+  ReUseX::core::trace("Entering ReUseX::geometry::texture_mesh_with_cloud");
 
   // Copy cloud and polygons
   pcl::TextureMesh::Ptr textured_mesh(new pcl::TextureMesh);
   textured_mesh->cloud = mesh->cloud;
 
-  spdlog::trace("Converting mesh cloud to PointXYZ");
+  ReUseX::core::trace("Converting mesh cloud to PointXYZ");
   CloudLocPtr cloud_xyz(new CloudLoc);
   pcl::fromPCLPointCloud2(mesh->cloud, *cloud_xyz);
   CloudNPtr normals(new CloudN);
@@ -65,12 +65,12 @@ pcl::TextureMesh::Ptr texture_mesh_with_cloud(pcl::PolygonMesh::Ptr mesh,
   for (auto &p : normals->points)
     p.getNormalVector3fMap().normalize();
 
-  spdlog::trace("Concatenateing fields normals to the mesh cloud");
+  ReUseX::core::trace("Concatenateing fields normals to the mesh cloud");
   pcl::PointCloud<pcl::PointNormal> cloud_with_normals;
   pcl::concatenateFields(*cloud_xyz, *normals, cloud_with_normals);
   pcl::toPCLPointCloud2(cloud_with_normals, textured_mesh->cloud);
 
-  spdlog::trace("Create directory for textures");
+  ReUseX::core::trace("Create directory for textures");
   static constexpr char texture_dir[] = "./mesh_textures";
   if (std::filesystem::exists(texture_dir)) {
     std::filesystem::remove_all(texture_dir);
@@ -78,7 +78,7 @@ pcl::TextureMesh::Ptr texture_mesh_with_cloud(pcl::PolygonMesh::Ptr mesh,
   std::filesystem::create_directory(texture_dir);
   std::filesystem::path base_path = std::filesystem::path(texture_dir);
 
-  spdlog::trace("Resizing texture mesh structures");
+  ReUseX::core::trace("Resizing texture mesh structures");
   const size_t nr_polygons = textured_mesh->tex_polygons.size();
   textured_mesh->tex_materials.resize(nr_polygons);
   textured_mesh->tex_coordinates.resize(nr_polygons);
@@ -87,7 +87,7 @@ pcl::TextureMesh::Ptr texture_mesh_with_cloud(pcl::PolygonMesh::Ptr mesh,
     textured_mesh->tex_coord_indices[i].resize(
         textured_mesh->tex_polygons[i].size());
 
-  spdlog::trace("Create materials");
+  ReUseX::core::trace("Create materials");
   for (auto &&[idx, mat] :
        textured_mesh->tex_materials | ranges::views::enumerate) {
 
@@ -115,7 +115,7 @@ pcl::TextureMesh::Ptr texture_mesh_with_cloud(pcl::PolygonMesh::Ptr mesh,
     mat.tex_illum = 2;
   }
 
-  spdlog::trace("Create textutes form points in the cloud");
+  ReUseX::core::trace("Create textutes form points in the cloud");
   {
     auto logger = spdmon::LoggerProgress("Createing material", nr_polygons);
 
@@ -153,17 +153,17 @@ pcl::TextureMesh::Ptr texture_mesh_with_cloud(pcl::PolygonMesh::Ptr mesh,
     }
   }
 
-  spdlog::debug("Number of materials: {}", textured_mesh->tex_materials.size());
-  spdlog::debug("Number of texture polygons: {}",
+  ReUseX::core::debug("Number of materials: {}", textured_mesh->tex_materials.size());
+  ReUseX::core::debug("Number of texture polygons: {}",
                 textured_mesh->tex_polygons.size());
-  spdlog::debug("Number of texture coordinates: {}",
+  ReUseX::core::debug("Number of texture coordinates: {}",
                 textured_mesh->tex_coordinates.size());
   for (auto [idx, poly_group] :
        textured_mesh->tex_polygons | ranges::views::enumerate) {
-    spdlog::debug("  Number of polygons in group {}: {}", idx,
+    ReUseX::core::debug("  Number of polygons in group {}: {}", idx,
                   poly_group.size());
   }
-  spdlog::trace("Nuber of coordinates {}",
+  ReUseX::core::trace("Nuber of coordinates {}",
                 textured_mesh->tex_coord_indices.size());
 
   return textured_mesh;
@@ -173,13 +173,13 @@ pcl::TextureMesh::Ptr
 texture_mesh(pcl::PolygonMesh::Ptr mesh,
              std::map<int, rtabmap::Transform> const &poses,
              std::map<int, rtabmap::Signature> const &nodes) {
-  spdlog::trace("Entering ReUseX::geometry::texture_mesh");
+  ReUseX::core::trace("Entering ReUseX::geometry::texture_mesh");
 
   // Copy cloud and polygons
   pcl::TextureMesh::Ptr textured_mesh(new pcl::TextureMesh);
   textured_mesh->cloud = mesh->cloud;
 
-  spdlog::trace("Converting mesh cloud to PointXYZ");
+  ReUseX::core::trace("Converting mesh cloud to PointXYZ");
   CloudLocPtr cloud(new CloudLoc);
   pcl::fromPCLPointCloud2(mesh->cloud, *cloud);
   CloudNPtr normals(new CloudN);
@@ -209,19 +209,19 @@ texture_mesh(pcl::PolygonMesh::Ptr mesh,
   for (auto &p : normals->points)
     p.getNormalVector3fMap().normalize();
 
-  spdlog::trace("Concatenateing fields normals to the mesh cloud");
+  ReUseX::core::trace("Concatenateing fields normals to the mesh cloud");
   pcl::PointCloud<pcl::PointNormal> cloud_with_normals;
   pcl::concatenateFields(*cloud, *normals, cloud_with_normals);
   pcl::toPCLPointCloud2(cloud_with_normals, textured_mesh->cloud);
 
-  spdlog::debug("Number of polygons: {}", textured_mesh->tex_polygons.size());
+  ReUseX::core::debug("Number of polygons: {}", textured_mesh->tex_polygons.size());
   size_t num_faces = 0;
   for (const auto &poly_group : textured_mesh->tex_polygons)
     num_faces += poly_group.size();
-  spdlog::debug("Total number of faces: {}", num_faces);
-  spdlog::debug("Number of vertices: {}", cloud->size());
+  ReUseX::core::debug("Total number of faces: {}", num_faces);
+  ReUseX::core::debug("Number of vertices: {}", cloud->size());
 
-  spdlog::trace("Create directory for textures");
+  ReUseX::core::trace("Create directory for textures");
   static constexpr char texture_dir[] = "./mesh_textures";
   if (std::filesystem::exists(texture_dir)) {
     std::filesystem::remove_all(texture_dir);
@@ -229,7 +229,7 @@ texture_mesh(pcl::PolygonMesh::Ptr mesh,
   std::filesystem::create_directory(texture_dir);
   std::filesystem::path base_path = std::filesystem::path(texture_dir);
 
-  spdlog::trace("Retrive all cameras and textures from the database");
+  ReUseX::core::trace("Retrive all cameras and textures from the database");
   // TODO: Implement camera/texture retrieval from RTABMapDatabase
   // category=Geometry estimate=1d
   // Need to extract camera poses and images from RTABMap database for texturing:
@@ -261,7 +261,7 @@ texture_mesh(pcl::PolygonMesh::Ptr mesh,
 
       cv::Mat image = data.imageRaw();
       if (image.empty()) {
-        spdlog::warn("Empty image for node id {}", id);
+        ReUseX::core::warn("Empty image for node id {}", id);
         ++logger;
         continue;
       }
@@ -305,11 +305,11 @@ texture_mesh(pcl::PolygonMesh::Ptr mesh,
     }
   }
 
-  spdlog::debug("Number of cameras: {}", cameras.size());
-  spdlog::debug("Number of materials: {}", textured_mesh->tex_materials.size());
-  spdlog::debug("Number of texture polygons: {}",
+  ReUseX::core::debug("Number of cameras: {}", cameras.size());
+  ReUseX::core::debug("Number of materials: {}", textured_mesh->tex_materials.size());
+  ReUseX::core::debug("Number of texture polygons: {}",
                 textured_mesh->tex_polygons.size());
-  spdlog::debug("Number of texture coordinates: {}",
+  ReUseX::core::debug("Number of texture coordinates: {}",
                 textured_mesh->tex_coordinates.size());
 
   pcl::TextureMapping<pcl::PointXYZ> tm;
@@ -320,7 +320,7 @@ texture_mesh(pcl::PolygonMesh::Ptr mesh,
     pcl::TexMaterial material;
     material.tex_name = "texture-unassigned";
     material.tex_file = textured_mesh->tex_materials[0].tex_file;
-    spdlog::warn("Number of texture polygons ({}) is greater than number of "
+    ReUseX::core::warn("Number of texture polygons ({}) is greater than number of "
                  "materials ({}). Adding default material '{}' at {}.",
                  textured_mesh->tex_polygons.size(),
                  textured_mesh->tex_materials.size(), material.tex_name,
@@ -328,21 +328,21 @@ texture_mesh(pcl::PolygonMesh::Ptr mesh,
     textured_mesh->tex_materials.push_back(material);
   }
 
-  spdlog::debug("Number of materials: {}", textured_mesh->tex_materials.size());
-  spdlog::debug("Number of texture polygons: {}",
+  ReUseX::core::debug("Number of materials: {}", textured_mesh->tex_materials.size());
+  ReUseX::core::debug("Number of texture polygons: {}",
                 textured_mesh->tex_polygons.size());
-  spdlog::debug("Number of texture coordinates: {}",
+  ReUseX::core::debug("Number of texture coordinates: {}",
                 textured_mesh->tex_coordinates.size());
   for (auto [idx, poly_group] :
        textured_mesh->tex_polygons | ranges::views::enumerate) {
-    spdlog::debug("  Number of polygons in group {}: {}", idx,
+    ReUseX::core::debug("  Number of polygons in group {}: {}", idx,
                   poly_group.size());
   }
-  spdlog::trace("Nuber of coordinates {}",
+  ReUseX::core::trace("Nuber of coordinates {}",
                 textured_mesh->tex_coord_indices.size());
   if (textured_mesh->tex_coord_indices.size() !=
       textured_mesh->tex_polygons.size()) {
-    spdlog::warn("Number of texture coordinate indices ({}) does not match "
+    ReUseX::core::warn("Number of texture coordinate indices ({}) does not match "
                  "number of texture polygons ({}).",
                  textured_mesh->tex_coord_indices.size(),
                  textured_mesh->tex_polygons.size());

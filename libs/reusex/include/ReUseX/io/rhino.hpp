@@ -4,6 +4,7 @@
 //
 
 #pragma once
+#include <ReUseX/core/logging.hpp>
 #include <ReUseX/types.hpp>
 #include <ReUseX/utils/fmt_formatter.hpp>
 #include <ReUseX/vision/Yolo.hpp>
@@ -11,9 +12,6 @@
 
 #include <fmt/format.h>
 
-#include <spdlog/sinks/stdout_color_sinks.h>
-#include <spdlog/spdlog.h>
-#include <spdlog/stopwatch.h>
 
 #include <pcl/common/colors.h>
 #include <pcl/common/io.h>

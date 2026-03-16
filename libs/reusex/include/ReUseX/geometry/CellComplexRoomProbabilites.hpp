@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include <ReUseX/core/logging.hpp>
 #include "spdmon/spdmon.hpp"
 
 #include <embree4/rtcore.h>
@@ -57,7 +58,7 @@ auto CellComplex::compute_room_probabilities(
     size_t label_index;
   };
 
-  spdlog::trace("calling compute_room_probabilities");
+  ReUseX::core::trace("calling compute_room_probabilities");
 
   assert(cloud_->size() == labels_->size() &&
          "Point cloud and label cloud must have the same size");
@@ -66,7 +67,7 @@ auto CellComplex::compute_room_probabilities(
 
   const double radius_ = grid_size * M_SQRT2;
 
-  spdlog::debug(
+  ReUseX::core::debug(
       "Using ray tracing for {} points with grid size {:.3} and radius {:.3}",
       cloud_->size(), grid_size, radius_);
 
@@ -84,18 +85,18 @@ auto CellComplex::compute_room_probabilities(
 
   std::sort(labels.begin(), labels.end());
   labels.erase(std::unique(labels.begin(), labels.end()), labels.end());
-  spdlog::debug("Room labels: {}", fmt::join(labels, ", "));
+  ReUseX::core::debug("Room labels: {}", fmt::join(labels, ", "));
 
   for (auto cit = this->cells_begin(); cit != this->cells_end(); ++cit)
     c_rp[*cit] = std::vector<double>(labels.size() + 1, 0.0);
   this->n_rooms = labels.size();
-  spdlog::debug("Number of rooms (labels): {}", labels.size());
+  ReUseX::core::debug("Number of rooms (labels): {}", labels.size());
 
   unsigned int old_mxcsr = _mm_getcsr(); // save current flagsq
   _MM_SET_FLUSH_ZERO_MODE(_MM_FLUSH_ZERO_ON);
   _MM_SET_DENORMALS_ZERO_MODE(_MM_DENORMALS_ZERO_ON);
 
-  spdlog::trace("Creating device and scene for ray tracing");
+  ReUseX::core::trace("Creating device and scene for ray tracing");
   RTCDevice device_ = rtcNewDevice("verbose=0"); // 0-3
   RTCScene scene_ = rtcNewScene(device_);
   rtcSetSceneFlags(scene_, RTC_SCENE_FLAG_ROBUST);
@@ -105,7 +106,7 @@ auto CellComplex::compute_room_probabilities(
   rtcSetDeviceErrorFunction(
       device_,
       [](void *, RTCError err, const char *str) {
-        spdlog::error("Embree error {}:", str);
+        ReUseX::core::error("Embree error {}:", str);
         switch (err) {
         case RTC_ERROR_NONE:
           break;
@@ -141,7 +142,7 @@ auto CellComplex::compute_room_probabilities(
       nullptr);
 
   // Intersect with ground plane to get line/ INFO: Create Embree scene
-  spdlog::trace("Creating scene geometry for ray tracing");
+  ReUseX::core::trace("Creating scene geometry for ray tracing");
 
   pcl::UniformSampling<PointT> us;
   us.setInputCloud(cloud_);
@@ -156,12 +157,12 @@ auto CellComplex::compute_room_probabilities(
       if (labels_->points[j].label == labels[i])
         indices->push_back(static_cast<int>(j));
 
-    spdlog::trace("Room label {}: {} points", labels[i], indices->size());
+    ReUseX::core::trace("Room label {}: {} points", labels[i], indices->size());
 
     // size_t n_points_before = indices->size();
     us.setIndices(indices);
     us.filter(*indices);
-    // spdlog::trace(
+    // ReUseX::core::trace(
     //     "Label {}: Reduced from {} to {} points after uniform sampling",
     //     labels[i], n_points_before, indices->size());
 
@@ -198,7 +199,7 @@ auto CellComplex::compute_room_probabilities(
     rtcReleaseGeometry(geometry_);
   }
 
-  spdlog::trace("Committing scene");
+  ReUseX::core::trace("Committing scene");
   rtcCommitScene(scene_);
 
   {
@@ -244,7 +245,7 @@ auto CellComplex::compute_room_probabilities(
 
         if (rayhit.hit.geomID == RTC_INVALID_GEOMETRY_ID) { // No hit
           accum_ptr[0] += 1;
-          // spdlog::trace(fmt::format(fmt::fg(fmt::color::red), "No hit"));
+          // ReUseX::core::trace(fmt::format(fmt::fg(fmt::color::red), "No hit"));
           continue;
         }
 
@@ -255,11 +256,11 @@ auto CellComplex::compute_room_probabilities(
         const Eigen::Vector3f dir_vec(dir.x(), dir.y(), dir.z());
         if (normal.dot(dir_vec) > 0) {
           accum_ptr[0] += 1;
-          // spdlog::trace(
+          // ReUseX::core::trace(
           //     fmt::format(fmt::fg(fmt::color::yellow), "Backside hit"));
           continue; // Backside
         }
-        // spdlog::trace(fmt::format(fmt::fg(fmt::color::green), "Frontside
+        // ReUseX::core::trace(fmt::format(fmt::fg(fmt::color::green), "Frontside
         // hit"));
 
         auto geometry = rtcGetGeometry(scene_, rayhit.hit.geomID);
@@ -267,18 +268,18 @@ auto CellComplex::compute_room_probabilities(
         RTCData *data = (RTCData *)rtcGetGeometryUserData(geometry);
 
         // const auto label = labels[data->label_index];
-        // spdlog::trace("Cell {:>3} ray {} hit label {} (index {})",
+        // ReUseX::core::trace("Cell {:>3} ray {} hit label {} (index {})",
         //               (*this)[*cit].id, i, label, data->label_index);
 
         //  #pragma omp critical
         accum_ptr[data->label_index + 1] += 1;
-        // spdlog::trace("Cell {:>3} hit label {} (index {})", idx,
+        // ReUseX::core::trace("Cell {:>3} hit label {} (index {})", idx,
         //               labels[data->label_index], data->label_index);
       }
 
       // Compute probabilities
       // double sum = std::accumulate(c_rp[*cit].begin(), c_rp[*cit].end(),
-      // 0.0); spdlog::trace("Cell {:>3} sum = {:.3f}", idx, sum); if (sum > 0)
+      // 0.0); ReUseX::core::trace("Cell {:>3} sum = {:.3f}", idx, sum); if (sum > 0)
       //  for (size_t j = 0; j < c_rp[*cit].size(); ++j)
       //    c_rp[*cit][j] /= sum;
       //
@@ -299,6 +300,6 @@ auto CellComplex::compute_room_probabilities(
   for (auto cit = this->cells_begin(); cit != this->cells_end(); ++cit)
     for (size_t i = 0; i < c_rp[*cit].size(); ++i)
       sum_results[i] += c_rp[*cit][i];
-  spdlog::trace("Sum probabilities => [{:.3f}]", fmt::join(sum_results, ", "));
+  ReUseX::core::trace("Sum probabilities => [{:.3f}]", fmt::join(sum_results, ", "));
 }
 } // namespace ReUseX::geometry

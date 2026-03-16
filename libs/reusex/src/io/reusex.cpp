@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include <ReUseX/core/logging.hpp>
 #include <ReUseX/io/reusex.hpp>
 
 #include <range/v3/action.hpp>
@@ -10,7 +11,6 @@
 #include <fmt/format.h>
 #include <fmt/ranges.h>
 
-#include <spdlog/spdlog.h>
 
 #include <fstream>
 #include <map>
@@ -30,9 +30,9 @@ auto getPlanes(CloudLConstPtr planes, CloudNConstPtr normals,
   centroids.resize(locations->size());
   inlier_indices.resize(normals->size());
 
-  spdlog::debug("Number of planes: {}", planes->size());
-  spdlog::debug("Number of normals: {}", normals->size());
-  spdlog::debug("Number of locations: {}", locations->size());
+  ReUseX::core::debug("Number of planes: {}", planes->size());
+  ReUseX::core::debug("Number of normals: {}", normals->size());
+  ReUseX::core::debug("Number of locations: {}", locations->size());
 
   assert(normals->size() == locations->size() &&
          "Normals and locations size mismatch");
@@ -58,7 +58,7 @@ auto getPlanes(CloudLConstPtr planes, CloudNConstPtr normals,
   if (unique_labels.find(0) != unique_labels.end())
     unique_labels.erase(0);
 
-  spdlog::debug("Found {} unique plane labels: {}", unique_labels.size(),
+  ReUseX::core::debug("Found {} unique plane labels: {}", unique_labels.size(),
                 fmt::join(unique_labels, ", "));
 
   std::unordered_map<uint32_t, size_t> label_to_index{};

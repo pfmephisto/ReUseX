@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #pragma once
+#include <ReUseX/core/logging.hpp>
 #include <ReUseX/geometry/Registry.hpp>
 #include <ReUseX/types.hpp>
 
@@ -14,7 +15,6 @@
 #include <boost/serialization/shared_ptr.hpp>
 #include <fstream>
 
-#include <spdlog/spdlog.h>
 
 #include <fmt/format.h>
 

@@ -1,6 +1,6 @@
 #pragma once
+#include <ReUseX/core/logging.hpp>
 #include <ReUseX/vision/tensor_rt/common/check.hpp>
-#include <spdlog/spdlog.h>
 
 namespace ReUseX::vision::tensor_rt::nv {
 
@@ -26,7 +26,7 @@ class EventTimer {
     checkRuntime(cudaEventRecord(end_, stream_));
     checkRuntime(cudaEventSynchronize(end_));
     checkRuntime(cudaEventElapsedTime(&times, begin_, end_));
-    spdlog::info("[⏰ {}] : {:.5f} ms", prefix, times);
+    ReUseX::core::info("[⏰ {}] : {:.5f} ms", prefix, times);
     return times;
   }
 

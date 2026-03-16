@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include <ReUseX/core/logging.hpp>
 #include <ReUseX/geometry/mesh.hpp>
 #include <ReUseX/geometry/CellComplex.hpp>
 #include <ReUseX/geometry/Solidifier.hpp>
@@ -20,7 +21,6 @@
 
 #include <fmt/color.h>
 #include <fmt/std.h>
-#include <spdlog/spdlog.h>
 
 namespace ReUseX::geometry {
 
@@ -37,7 +37,7 @@ mesh(CloudConstPtr cloud, CloudNConstPtr normals,
   if (viewer) {
     vps = viewer->getViewports();
     if (vps->size() < 4) {
-      spdlog::warn("Visualizer has less than 4 viewports defined, disabling "
+      ReUseX::core::warn("Visualizer has less than 4 viewports defined, disabling "
                    "visualization");
       viewer = nullptr;
     }
@@ -52,27 +52,27 @@ mesh(CloudConstPtr cloud, CloudNConstPtr normals,
 
   std::tie(planes, inliers, centroids) =
       merge_planes(planes, inliers, centroids, cloud);
-  spdlog::debug("Number of planes after merging: {}", planes.size());
+  ReUseX::core::debug("Number of planes after merging: {}", planes.size());
 
   planes = force_orthogonal_planes(planes);
-  spdlog::debug("Number of planes after forcing orthogonality: {}",
+  ReUseX::core::debug("Number of planes after forcing orthogonality: {}",
                 planes.size());
 
   auto pairs = make_pairs(planes, inliers, centroids, opt.search_threshold,
                           opt.new_plane_offset);
-  spdlog::debug("Number of plane pairs: {}", pairs.size());
+  ReUseX::core::debug("Number of plane pairs: {}", pairs.size());
 
   auto [vertical, horizontal] = separate_planes(planes);
-  spdlog::debug("Number indices in inliers [{}]",
+  ReUseX::core::debug("Number indices in inliers [{}]",
                 fmt::join(inliers | ranges::views::transform([](auto const &i) {
                             return i->size();
                           }),
                           ", "));
-  spdlog::debug("Number of horizonal planes: {}", horizontal.size());
-  spdlog::debug("Number of vertical planes: {}", vertical.size());
+  ReUseX::core::debug("Number of horizonal planes: {}", horizontal.size());
+  ReUseX::core::debug("Number of vertical planes: {}", vertical.size());
 
-  spdlog::debug("Vertical planes [{}]", fmt::join(vertical, ", "));
-  spdlog::debug("Horizontal planes [{}]", fmt::join(horizontal, ", "));
+  ReUseX::core::debug("Vertical planes [{}]", fmt::join(vertical, ", "));
+  ReUseX::core::debug("Horizontal planes [{}]", fmt::join(horizontal, ", "));
 
   if (viewer) {
     auto sel = [&](size_t idx) {
@@ -151,7 +151,7 @@ mesh(CloudConstPtr cloud, CloudNConstPtr normals,
       std::array<double, 2>{min.x - 1, min.y - 1},
       std::array<double, 2>{max.x + 1, max.y + 1}, std::nullopt);
 
-  spdlog::debug("Cell complex: {}", *cc);
+  ReUseX::core::debug("Cell complex: {}", *cc);
 
   // INFO: Display cell complex
   if (viewer)
@@ -169,14 +169,14 @@ mesh(CloudConstPtr cloud, CloudNConstPtr normals,
   if (viewer)
     viewer->addRoomProbabilities(cc, "room_probablilites", vps->at(2));
 
-  spdlog::debug("Cell complex: {}", *cc);
+  ReUseX::core::debug("Cell complex: {}", *cc);
 
-  spdlog::trace("Initializing Solidifier");
+  ReUseX::core::trace("Initializing Solidifier");
   ReUseX::geometry::Solidifier solidifier(cc);
   auto results = solidifier.solve();
 
   if (!results)
-    spdlog::warn("Solidification failed to find a solution");
+    ReUseX::core::warn("Solidification failed to find a solution");
 
   // INFO: Display results
   if (results.has_value() && viewer)
@@ -210,7 +210,7 @@ mesh(CloudConstPtr cloud, CloudNConstPtr normals,
       }
       mesh->polygons[i] = polygon;
     }
-    // spdlog::debug("Generated mesh with {} polygons", mesh->polygons.size());
+    // ReUseX::core::debug("Generated mesh with {} polygons", mesh->polygons.size());
     // return mesh;
   }
 

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #pragma once
+#include <ReUseX/core/logging.hpp>
 #include <Eigen/Dense>
 
 #include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
@@ -18,7 +19,6 @@
 #include <range/v3/to_container.hpp>
 #include <range/v3/view/transform.hpp>
 
-#include <spdlog/spdlog.h>
 
 #include <vector>
 template <typename Kernel, typename Scalar> struct plane_map {
@@ -83,7 +83,7 @@ auto regularizePlanes(PlaneVector<Scalar> &planes,
                       std::vector<pcl::IndicesPtr> &inliers,
                       double angle_threshold = 25.0,
                       double distance_threshold = 0.01) {
-  spdlog::trace(
+  ReUseX::core::trace(
       "Regularizing planes with threshold: {} degrees and {} distance",
       angle_threshold, distance_threshold);
 

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #pragma once
+#include <ReUseX/core/logging.hpp>
 #include <ReUseX/geometry/CellComplex.hpp>
 #include <ReUseX/geometry/utils.hpp>
 #include <spdmon/spdmon.hpp>
@@ -79,7 +80,7 @@ auto CellComplex::compute_face_coverage(pcl::PointCloud<PointT>::ConstPtr cloud,
   using Point_2 = Polygon_2::Point_2;
 
   // INFO: Compute face probabilities
-  spdlog::trace("calling compute_face_coverage");
+  ReUseX::core::trace("calling compute_face_coverage");
   auto f_sp =
       this->add_property_map<Vertex, double>("f:support_probability").first;
 
@@ -103,7 +104,7 @@ auto CellComplex::compute_face_coverage(pcl::PointCloud<PointT>::ConstPtr cloud,
 
       auto get_comverage = [&](const int id) {
         // if (id < 0) {
-        //   spdlog::warn("Face {} has no associated plane",
+        //   ReUseX::core::warn("Face {} has no associated plane",
         //   (*this)[*fit].id); f_sp[*fit] = -1.0;
         //   ++logger;
         //   continue;
@@ -126,7 +127,7 @@ auto CellComplex::compute_face_coverage(pcl::PointCloud<PointT>::ConstPtr cloud,
                        });
 
         // if (!polygon.is_simple()) {
-        //   spdlog::warn("Face {} polygon not is simple",
+        //   ReUseX::core::warn("Face {} polygon not is simple",
         //   (*this)[fit].id); f_sp[fit] = -1.0;
         //   ++logger;
         //   continue;

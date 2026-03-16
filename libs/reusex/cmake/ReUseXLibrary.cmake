@@ -90,6 +90,9 @@ target_link_libraries(ReUseX
         # Linear Algebra
         Eigen3::Eigen
 
+        # Formatting used by ReUseX logging facade
+        fmt::fmt
+
         # Graph algorithms
         SuiteSparse::GraphBLAS
         SuiteSparse::LAGraph
@@ -106,9 +109,6 @@ target_link_libraries(ReUseX
     PRIVATE 
         # Deep Learning (keep internal to avoid exposing torch ABI)
         torch
-        
-        # Logging (keep internal to avoid ABI issues)
-        spdlog::spdlog
         
         # Ranges
         range-v3::range-v3

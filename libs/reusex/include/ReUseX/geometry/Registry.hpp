@@ -4,8 +4,8 @@
 
 #pragma once
 
+#include <ReUseX/core/logging.hpp>
 #include <boost/property_map/property_map.hpp>
-#include <spdlog/spdlog.h>
 
 #include <map>
 #include <memory>
@@ -46,7 +46,7 @@ class Registry {
     auto key = std::make_pair(name, std::type_index(typeid(T)));
     auto it = registry.find(key);
     if (it == registry.end()) {
-      spdlog::error("Property map not found: {}", name);
+      ReUseX::core::error("Property map not found: {}", name);
       throw std::runtime_error("Property map not found");
     }
     auto map_ptr = std::static_pointer_cast<std::map<Key, T>>(it->second);

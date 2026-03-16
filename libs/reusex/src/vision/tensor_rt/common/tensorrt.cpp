@@ -1,3 +1,4 @@
+#include <ReUseX/core/logging.hpp>
 #include <ReUseX/vision/tensor_rt/common/tensorrt.hpp>
 
 #include <cuda_runtime.h>
@@ -22,24 +23,24 @@ namespace ReUseX::vision::tensor_rt::TensorRT {
 static class Logger : public nvinfer1::ILogger {
     public:
   void log(Severity severity, const char *msg) noexcept override {
-    spdlog::log(to_spdlog_level(severity), "[NVINFER {}]: {}",
+    ReUseX::core::log(to_log_level(severity), "[NVINFER {}]: {}",
                 to_string(severity), msg);
   }
 
     private:
-  static spdlog::level::level_enum to_spdlog_level(Severity severity) {
+  static ReUseX::core::LogLevel to_log_level(Severity severity) {
     switch (severity) {
     case Severity::kINTERNAL_ERROR:
     case Severity::kERROR:
-      return spdlog::level::err;
+      return ReUseX::core::LogLevel::error;
     case Severity::kWARNING:
-      return spdlog::level::warn;
+      return ReUseX::core::LogLevel::warn;
     case Severity::kINFO:
-      return spdlog::level::info;
+      return ReUseX::core::LogLevel::info;
     case Severity::kVERBOSE:
-      return spdlog::level::debug;
+      return ReUseX::core::LogLevel::debug;
     default:
-      return spdlog::level::info;
+      return ReUseX::core::LogLevel::info;
     }
   }
   static const char *to_string(Severity severity) {
@@ -128,12 +129,12 @@ class __native_engine_context {
     destroy();
 
     if (pdata == nullptr || size == 0) {
-      spdlog::error("Construct for empty data found.");
+      ReUseX::core::error("Construct for empty data found.");
       return false;
     }
 
     if (!initLibNvInferPlugins(&gLogger_, "")) {
-      spdlog::error("Failed to initialize TensorRT's plugin library.");
+      ReUseX::core::error("Failed to initialize TensorRT's plugin library.");
       return false;
     }
 
@@ -141,7 +142,7 @@ class __native_engine_context {
         nvinfer1::createInferRuntime(gLogger_),
         destroy_pointer<nvinfer1::IRuntime>);
     if (runtime_ == nullptr) {
-      spdlog::error("Failed to create tensorRT runtime: {}.", message_name);
+      ReUseX::core::error("Failed to create tensorRT runtime: {}.", message_name);
       return false;
     }
 
@@ -150,7 +151,7 @@ class __native_engine_context {
         destroy_pointer<nvinfer1::ICudaEngine>);
 
     if (engine_ == nullptr) {
-      spdlog::error("Failed to deserialize engine: {}.", message_name);
+      ReUseX::core::error("Failed to deserialize engine: {}.", message_name);
       return false;
     }
 
@@ -158,7 +159,7 @@ class __native_engine_context {
         engine_->createExecutionContext(),
         destroy_pointer<nvinfer1::IExecutionContext>);
     if (context_ == nullptr) {
-      spdlog::error("Failed to create execution context: {}.", message_name);
+      ReUseX::core::error("Failed to create execution context: {}.", message_name);
       return false;
     }
     return context_ != nullptr;
@@ -197,7 +198,7 @@ class EngineImplement : public Engine {
   bool load(const std::string &file) {
     auto data = load_file(file);
     if (data.empty()) {
-      spdlog::error(
+      ReUseX::core::error(
           "An empty file has been loaded. Please confirm your file path: {}.",
           file);
       return false;
@@ -233,7 +234,7 @@ class EngineImplement : public Engine {
       auto tensor_name = engine->getIOTensorName(ibinding);
       auto binding_iter = bindings.find(tensor_name);
       if (binding_iter == bindings.end()) {
-        spdlog::error("Failed to set the tensor address, can not found tensor "
+        ReUseX::core::error("Failed to set the tensor address, can not found tensor "
                       "{} in bindings provided.",
                       tensor_name);
         return false;
@@ -241,7 +242,7 @@ class EngineImplement : public Engine {
 
       if (!context->setTensorAddress(tensor_name,
                                      (void *)binding_iter->second)) {
-        spdlog::error("Failed to set tensor address for tensor {}.",
+        ReUseX::core::error("Failed to set tensor address for tensor {}.",
                       tensor_name);
         return false;
       }
@@ -367,9 +368,9 @@ class EngineImplement : public Engine {
   }
 
   virtual void print(const char *name) override {
-    spdlog::info("-------------------------------------------------------");
+    ReUseX::core::info("-------------------------------------------------------");
 
-    spdlog::info("{} 🌱 is {} model", name,
+    ReUseX::core::info("{} 🌱 is {} model", name,
                  has_dynamic_dim() ? "Dynamic Shape" : "Static Shape");
 
     int num_input = 0;
@@ -382,24 +383,24 @@ class EngineImplement : public Engine {
         num_output++;
     }
 
-    spdlog::info("Inputs: {}", num_input);
+    ReUseX::core::info("Inputs: {}", num_input);
     for (int i = 0; i < num_input; ++i) {
       auto name = engine->getIOTensorName(i);
       auto dim = engine->getTensorShape(name);
       auto dtype = engine->getTensorDataType(name);
-      spdlog::info("\t{}.{} : {{{}}} [{}]", i, name, format_shape(dim),
+      ReUseX::core::info("\t{}.{} : {{{}}} [{}]", i, name, format_shape(dim),
                    data_type_string(dtype));
     }
 
-    spdlog::info("Outputs: {}", num_output);
+    ReUseX::core::info("Outputs: {}", num_output);
     for (int i = 0; i < num_output; ++i) {
       auto name = engine->getIOTensorName(i + num_input);
       auto dim = engine->getTensorShape(name);
       auto dtype = engine->getTensorDataType(name);
-      spdlog::info("\t{}.{} : {{{}}} [{}]", i, name, format_shape(dim),
+      ReUseX::core::info("\t{}.{} : {{{}}} [{}]", i, name, format_shape(dim),
                    data_type_string(dtype));
     }
-    spdlog::info("-------------------------------------------------------");
+    ReUseX::core::info("-------------------------------------------------------");
   }
 };
 

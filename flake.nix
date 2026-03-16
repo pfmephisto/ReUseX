@@ -63,6 +63,47 @@
             # reuse = {
             #   enable = true;
             # };
+            git-lfs-pre-push = {
+              enable = true;
+              name = "git-lfs pre-push";
+              entry = "${pkgs.writeShellScript "git-lfs-pre-push" ''
+                exec ${pkgs.git-lfs}/bin/git-lfs pre-push "$PRE_COMMIT_REMOTE_NAME" "$PRE_COMMIT_REMOTE_URL"
+              ''}";
+              stages = ["pre-push"];
+              pass_filenames = false;
+              always_run = true;
+            };
+
+            git-lfs-post-checkout = {
+              enable = true;
+              name = "git-lfs post-checkout";
+              entry = "${pkgs.writeShellScript "git-lfs-post-checkout" ''
+                exec ${pkgs.git-lfs}/bin/git-lfs post-checkout "$PRE_COMMIT_FROM_REF" "$PRE_COMMIT_TO_REF" "$PRE_COMMIT_CHECKOUT_TYPE"
+              ''}";
+              stages = ["post-checkout"];
+              pass_filenames = false;
+              always_run = true;
+            };
+
+            git-lfs-post-merge = {
+              enable = true;
+              name = "git-lfs post-merge";
+              entry = "${pkgs.writeShellScript "git-lfs-post-merge" ''
+                exec ${pkgs.git-lfs}/bin/git-lfs post-merge "$PRE_COMMIT_IS_SQUASH_MERGE"
+              ''}";
+              stages = ["post-merge"];
+              pass_filenames = false;
+              always_run = true;
+            };
+
+            git-lfs-post-commit = {
+              enable = true;
+              name = "git-lfs post-commit";
+              entry = "${pkgs.git-lfs}/bin/git-lfs post-commit";
+              stages = ["post-commit"];
+              pass_filenames = false;
+              always_run = true;
+            };
           };
         };
 

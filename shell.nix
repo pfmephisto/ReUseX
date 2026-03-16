@@ -6,134 +6,84 @@
   self,
   system,
   ...
-}: let
-  #!/usr/bin/env python
-  script = ''
-    #!/usr/bin/env python
+}:
+pkgs.mkShell {
+  inputsFrom = [self.packages.${system}.default];
+  buildInputs = self.checks.${system}.pre-commit-check.enabledPackages;
 
-    import argparse
-    from os import path
-    import subprocess
+  packages = with pkgs; [
+    # Documentation tools
+    help2man # For generating man pages from --help output
+    pandoc
+    sphinx
+    graphviz # For Doxygen diagrams and visualization
 
-    lfs_script = 'git lfs %s "$@"'
+    # Debugging and analysis tools
+    gdb
+    valgrind
+    kdePackages.kcachegrind
+    heaptrack # Memory profiler with GUI
 
-    parser = argparse.ArgumentParser(
-        description="A simple script that installs git lfs hook"
-    )
-    parser.add_argument(
-        "--stage", help="Specify the stage where to add the git lfs part", required=True
-    )
+    # Build tools
+    cmake-format # Format CMakeLists.txt files
+    ccache # Cache C++ compilation to speed up rebuilds
+    ninja # Faster build system alternative to Make
+    bear # Generate compile_commands.json for LSP/clangd
 
-    args = parser.parse_args()
+    # C++ development tools
+    clang-tools # Includes clang-format, clang-tidy, clang-rename
+    cppcheck # Static analysis for C++
+    include-what-you-use # Check #include dependencies
 
-    git_command = subprocess.run(
-        ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    git_common_dir = git_command.stdout.strip()
+    # Performance profiling
+    linuxPackages.perf # Performance profiling
+    hotspot # GUI for perf data visualization
 
-    stage_location = path.join(git_common_dir, "hooks", args.stage)
+    # Development tools
+    libnotify # Send notification when build finishes
+    sqlite
+    ffmpeg
+    mcl
+    openusd
+    jq # JSON processor for scripts
+    ripgrep # Fast code search (faster than grep)
+    fd # Fast file finder (faster than find)
+    hyperfine # Command-line benchmarking
 
-    if path.exists(stage_location):
-        # check if the script was already installed
-        with open(stage_location, "r") as file:
-            for line in file:
-                if line.startswith('git lfs %s "$@"' % args.stage):
-                    exit(0)  # nothing else to do
+    # Version control tools
+    tig # Text-mode interface for git
+    git-filter-repo # Advanced git history rewriting
+    gitui # Terminal UI for git (alternative)
 
-        with open(stage_location, "a") as file:
-            file.write(lfs_script % args.stage)
-    else:
-        with open(stage_location, "w") as file:
-            file.write("#!/usr/bin/env bash")
-            file.write(lfs_script % args.stage)
-  '';
-in
-  pkgs.mkShell {
-    inputsFrom = [self.packages.${system}.default];
-    buildInputs = self.checks.${system}.pre-commit-check.enabledPackages;
+    #qt6.full
+    #qtcreator
 
-    packages = with pkgs; [
-      # Documentation tools
-      help2man # For generating man pages from --help output
-      pandoc
-      sphinx
-      graphviz # For Doxygen diagrams and visualization
+    # DevOps tools
+    nix-update
+    sqlitebrowser
+    hugin
+    github-copilot-cli
+    claude-code
+    gh
+    doxygen
+    tree
+    git-lfs
 
-      # Debugging and analysis tools
-      gdb
-      valgrind
-      kdePackages.kcachegrind
-      heaptrack # Memory profiler with GUI
+    # Code coverage
+    lcov
+    gcovr # Alternative coverage report generator
 
-      # Build tools
-      cmake-format # Format CMakeLists.txt files
-      ccache # Cache C++ compilation to speed up rebuilds
-      ninja # Faster build system alternative to Make
-      bear # Generate compile_commands.json for LSP/clangd
+    # Python development (for Python bindings)
+    python3Packages.black # Python code formatter
+    python3Packages.pytest # Testing framework
+    python3Packages.mypy # Type checking
+  ];
 
-      # C++ development tools
-      clang-tools # Includes clang-format, clang-tidy, clang-rename
-      cppcheck # Static analysis for C++
-      include-what-you-use # Check #include dependencies
-
-      # Performance profiling
-      linuxPackages.perf # Performance profiling
-      hotspot # GUI for perf data visualization
-
-      # Development tools
-      libnotify # Send notification when build finishes
-      sqlite
-      ffmpeg
-      mcl
-      openusd
-      jq # JSON processor for scripts
-      ripgrep # Fast code search (faster than grep)
-      fd # Fast file finder (faster than find)
-      hyperfine # Command-line benchmarking
-
-      # Version control tools
-      tig # Text-mode interface for git
-      git-filter-repo # Advanced git history rewriting
-      gitui # Terminal UI for git (alternative)
-
-      #qt6.full
-      #qtcreator
-
-      # DevOps tools
-      nix-update
-      sqlitebrowser
-      hugin
-      github-copilot-cli
-      claude-code
-      gh
-      doxygen
-      tree
-      git-lfs
-      (pkgs.writeScriptBin "project-git-lfs-hook-installer" script)
-
-      # Code coverage
-      lcov
-      gcovr # Alternative coverage report generator
-
-      # Python development (for Python bindings)
-      python3Packages.black # Python code formatter
-      python3Packages.pytest # Testing framework
-      python3Packages.mypy # Type checking
-    ];
-
-    shellHook =
-      ''
-        echo "Entering dev shell"
-
-        echo "Injecting Git LFS hooks..."
-        for hook in pre-push post-checkout post-commit post-merge; do
-           project-git-lfs-hook-installer --stage $hook
-        done
-        export VIRTUAL_ENV_PROMPT="ReUseX Environment"
-        # ./tmux_session
-      ''
-      + self.checks.${system}.pre-commit-check.shellHook;
-  }
+  shellHook =
+    ''
+      echo "Entering dev shell"
+      export VIRTUAL_ENV_PROMPT="ReUseX Environment"
+      # ./tmux_session
+    ''
+    + self.checks.${system}.pre-commit-check.shellHook;
+}

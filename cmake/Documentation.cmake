@@ -6,7 +6,7 @@
 # Documentation with Doxygen
 # ===============================================
 
-option(BUILD_DOCUMENTATION "Build API docsumentation with Doxygen" ON)
+option(BUILD_DOCUMENTATION "Build API documentation with Doxygen" ON)
 
 if(BUILD_DOCUMENTATION)
     find_package(Doxygen OPTIONAL_COMPONENTS dot)
@@ -18,24 +18,24 @@ if(BUILD_DOCUMENTATION)
         # Configure the Doxyfile to use build directory
         configure_file(${DOXYGEN_IN} ${DOXYGEN_OUT} @ONLY)
         
-        message(STATUS "Doxygen found - docsumentation can be built with 'make docs' or 'cmake --build . --target docs'")
+        message(STATUS "Doxygen found - documentation can be built with 'make docs' or 'cmake --build . --target docs'")
         
-        # Add custom target for building docsumentation
+        # Add custom target for building documentation
         add_custom_target(docs
             COMMAND ${DOXYGEN_EXECUTABLE} ${DOXYGEN_OUT}
             WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-            COMMENT "Generating API docsumentation with Doxygen"
+            COMMENT "Generating API documentation with Doxygen"
             VERBATIM
         )
         
-        # Optionally install docsumentation
+        # Optionally install documentation
         if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/docs/html)
             install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/docs/html
                     DESTINATION ${CMAKE_INSTALL_DOCDIR}
                     OPTIONAL)
         endif()
     else()
-        message(STATUS "Doxygen not found - docsumentation will not be built")
+        message(STATUS "Doxygen not found - documentation will not be built")
     endif()
 else()
     message(STATUS "Documentation build disabled")

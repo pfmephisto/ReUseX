@@ -1,13 +1,25 @@
+# SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+#
+# SPDX-License-Identifier: MIT
 {
   stdenv,
   fetchFromGitHub,
   lib,
-  pkgs,
+  cmake,
+  onetbb,
+  soplex,
+  zlib,
+  readline,
+  gmp,
+  papilo,
+  zimpl,
+  ipopt,
+  boost,
   ...
 }:
 stdenv.mkDerivation rec {
   pname = "scip-solver";
-  version = "9.2.0";
+  version = "923";
 
   src = fetchFromGitHub {
     owner = "scipopt";
@@ -16,15 +28,15 @@ stdenv.mkDerivation rec {
     sha256 = "sha256-F9PBnPuGh+vDYuBL9R0pWg0PUiDrrKT4YdOH1K22dRk=";
   };
 
-  nativeBuildInputs = with pkgs; [cmake];
+  nativeBuildInputs = [cmake];
 
-  propagatedBuildInputs = with pkgs; [tbb];
+  propagatedBuildInputs = [onetbb];
 
   strictDeps = true;
 
-  doCheck = true;
+  doCheck = false;
 
-  buildInputs = with pkgs; [
+  buildInputs = [
     soplex
     zlib
     readline

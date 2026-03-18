@@ -1,25 +1,32 @@
+# SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+#
+# SPDX-License-Identifier: MIT
 {
   fetchFromGitHub,
-  pkgs,
   lib,
   stdenv,
+  cmake,
   ...
 }: let
   opennurbsConfig = ./opennurbsConfig.cmake;
 in
   stdenv.mkDerivation rec {
     pname = "opennurbs";
-    version = "8.13.24317.13001";
+    version = "8.24.25281.15001";
 
     src = fetchFromGitHub {
       owner = "mcneel";
       repo = "${pname}";
       rev = "v${version}";
       fetchSubmodules = true;
-      sha256 = "sha256-Q+ExlsJqsjUXQs8le/bjp8nw6I10W0YWJUNgAjKTNXg=";
+      sha256 = "sha256-G8bYWY4qQQ7DEo6RLhf80KtAVZuGMyUcomy2c9Kr41Q=";
     };
 
-    nativeBuildInputs = with pkgs; [
+    cmakeFlags = [
+      (lib.cmakeFeature "CMAKE_POLICY_VERSION_MINIMUM" "3.5")
+    ];
+
+    nativeBuildInputs = [
       cmake
     ];
 

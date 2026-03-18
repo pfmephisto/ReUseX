@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # Style file for clang-format ( http://clang.llvm.org/docs/ClangFormatStyleOptions.html )
 
 # Style is based on google's c++ coding style.

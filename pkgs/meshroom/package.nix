@@ -1,26 +1,51 @@
+# SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+#
+# SPDX-License-Identifier: MIT
 {
+  lib,
   stdenvNoCC,
-  pkgs,
   python3,
   fetchurl,
+  e2fsprogs,
+  glib,
+  krb5,
+  zlib,
+  postgresql,
+  unixODBC,
+  cups,
+  speechd,
+  libsForQt5,
+  gtk3,
+  atk,
+  gdk-pixbuf,
+  cairo,
+  pango,
+  libdrm,
+  libGLU,
+  libglvnd,
+  ocl-icd,
+  xorg,
+  autoPatchelfHook,
+  autoAddDriverRunpath,
+  makeWrapper,
   ...
 }:
 stdenvNoCC.mkDerivation rec {
   pname = "meshroom-bin";
-  version = "2021.1.0";
+  version = "2025.1.0";
   src = fetchurl {
     url = "https://github.com/alicevision/meshroom/releases/download/v${version}/Meshroom-${version}-linux-cuda10.tar.gz";
     hash = "sha256-3pTrJktbMNVbNjKcR2FZa8xrTEQ7CWsLFayWOJLXnuQ=";
   };
 
-  nativeBuildInputs = with pkgs; [
+  nativeBuildInputs = [
     autoPatchelfHook
     autoAddDriverRunpath
     libsForQt5.wrapQtAppsHook
     makeWrapper
   ];
 
-  buildInputs = with pkgs; [
+  buildInputs = [
     e2fsprogs
     glib
     krb5
@@ -68,7 +93,7 @@ stdenvNoCC.mkDerivation rec {
   '';
 
   postFixup = ''
-    patchelf --debug --add-needed libpython${pkgs.lib.versions.major python3.pythonVersion}.so \
+    patchelf --debug --add-needed libpython${lib.versions.major python3.pythonVersion}.so \
       "$out/opt/meshroom/Meshroom"
   '';
 

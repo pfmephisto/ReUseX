@@ -1,0 +1,52 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep:*)",
+      "Bash(find:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(wc:*)",
+      "Bash(cmake --build:*)",
+      "Bash(ctest:*)",
+      "Bash(ldd:*)",
+      "Bash(cmake:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git branch:*)",
+      "Bash(nix develop:*)",
+      "Bash(nix build:*)",
+      "Bash(nix flake:*)",
+      "Bash(nix-shell:*)",
+      "Bash(nix run:*)",
+      "Bash(nix eval:*)",
+      "Bash(nix show:*)",
+      "Bash(nix search:*)",
+      "Bash(nix-store:*)",
+      "Bash(nix-env:*)",
+      "Bash(nix copy:*)",
+      "Bash(nix log:*)",
+      "Bash(nix-prefetch-git:*)",
+      "Bash(nix-prefetch-url:*)",
+      "Bash(nix profile:*)",
+      "Bash(nix registry:*)",
+      "Bash(nix repl:*)",
+      "Bash(make:*)",
+      "Bash(clang-format:*)",
+      "Bash(doxygen:*)",
+      "Bash(lcov:*)",
+      "Bash(gcov:*)",
+      "WebSearch",
+      "Bash(nm:*)",
+      "WebFetch(domain:docs.nvidia.com)",
+      "Bash(xargs cat:*)",
+      "Bash(nix-build:*)",
+      "Bash(git add:*)"
+    ]
+  },
+  "sandbox": {
+    "enabled": false,
+    "autoAllowBashIfSandboxed": false
+  }
+}

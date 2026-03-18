@@ -1,8 +1,13 @@
+# SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+#
+# SPDX-License-Identifier: MIT
 {
   fetchFromGitHub,
-  pkgs,
   lib,
   stdenv,
+  cmake,
+  opencv,
+  cudaPackages,
   ...
 }: let
 in
@@ -18,19 +23,19 @@ in
       sha256 = "sha256-nuTgr4Rb1HLYE2RUXEeI7x+FRz3gE0LuZdbwTkU0WVg=";
     };
 
-    nativeBuildInputs = with pkgs; [
+    nativeBuildInputs = [
       cmake
     ];
 
-    propagationBuildInputs = with pkgs; [
+    propagationBuildInputs = [
     ];
 
-    buildInputs = with pkgs; [
+    buildInputs = [
       opencv
     ];
 
     cmakeFlags = [
-      "-D CUDA_TOOLKIT_ROOT_DIR=${pkgs.cudaPackages.cudatoolkit}"
+      "-D CUDA_TOOLKIT_ROOT_DIR=${cudaPackages.cudatoolkit}"
     ];
 
     meta = with lib; {

@@ -1,8 +1,14 @@
+# SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+#
+# SPDX-License-Identifier: MIT
 {
   fetchFromGitHub,
-  pkgs,
   lib,
   stdenv,
+  cmake,
+  gtest,
+  spdlog,
+  fmt,
   ...
 }:
 stdenv.mkDerivation rec {
@@ -45,14 +51,17 @@ stdenv.mkDerivation rec {
 
   #doCheck = false;
 
-  nativeBuildInputs = with pkgs; [
+  nativeBuildInputs = [
     cmake
     gtest
     spdlog
-    fmt_11
+    fmt
   ];
 
-  propagateBuildInputs = with pkgs; [spdlog fmt_11];
+  propagateBuildInputs = [
+    spdlog
+    fmt
+  ];
 
   meta = with lib; {
     description = "A simple to use progress bar for C++";

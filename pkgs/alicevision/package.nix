@@ -1,11 +1,44 @@
+# SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+#
+# SPDX-License-Identifier: MIT
 {
   fetchFromGitHub,
-  pkgs,
   lib,
   stdenv,
+  cmake,
+  libpng,
+  libjpeg,
+  libtiff,
+  xorg,
+  graphviz,
+  assimp,
+  boost,
+  ceres-solver,
+  suitesparse,
+  coin-utils,
+  clp,
+  eigen,
+  expat,
+  flann,
+  geogram,
+  nanoflann,
+  openexr,
+  openimageio,
+  openmesh,
+  osi,
+  zlib,
+  alembic,
+  cctag,
+  cudaPackages,
+  opencv,
+  opengv,
+  pcl,
+  lemon,
+  libe57format,
+  onnxruntime,
   ...
 }: let
-  flann = pkgs.flann.overrideAttrs {
+  flann' = flann.overrideAttrs {
     src = fetchFromGitHub {
       owner = "alicevision";
       repo = "flann";
@@ -18,7 +51,7 @@
 in
   stdenv.mkDerivation rec {
     pname = "AliceVision";
-    version = "e17a609-dev";
+    version = "3.3.0";
 
     src = fetchFromGitHub {
       owner = "alicevision";
@@ -28,11 +61,11 @@ in
       sha256 = "sha256-c63cQyVS6L8r1ld+/EX56TcPklQXz3iJZZG5lPdCe7U=";
     };
 
-    nativeBuildInputs = with pkgs; [
+    nativeBuildInputs = [
       cmake
     ];
 
-    propagationBuildInputs = with pkgs; [
+    propagationBuildInputs = [
       libpng
       libjpeg
       libtiff
@@ -42,7 +75,7 @@ in
       graphviz
     ];
 
-    buildInputs = with pkgs; [
+    buildInputs = [
       assimp
       boost
       ceres-solver
@@ -51,7 +84,7 @@ in
       clp
       eigen
       expat
-      flann
+      flann'
       geogram
       nanoflann
       openexr

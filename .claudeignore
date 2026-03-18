@@ -1,0 +1,74 @@
+# SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# .claudeignore - Files Claude Code should not read
+
+# Build artifacts
+build/
+bin/
+.cache/
+.ccls-cache/
+*.o
+*.a
+*.so
+*.dylib
+
+# Large model files
+models/
+*.pt
+*.safetensors
+*.onnx
+*.engine
+
+# Generated documentation
+docs/api/
+ReUseX.tag
+doc/
+
+# Test outputs
+Testing/
+*.xml
+*.junit
+
+# IDE and editor files
+.vscode/
+.vs/
+.idea/
+*.swp
+*.swo
+*~
+CMakeLists.txt.user
+
+# Nix artifacts
+result
+.direnv/
+
+# Git internals
+.git/
+
+# Large data files
+*.db
+*.db3
+*.e57
+*.pcd
+*.h5
+*.png
+*.jpg
+*.jpeg
+
+# Log files
+*.log
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
+
+# Coverage reports
+coverage/
+*.gcda
+*.gcno
+*.gcov

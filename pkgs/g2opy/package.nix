@@ -1,13 +1,20 @@
+# SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+#
+# SPDX-License-Identifier: MIT
 {
   stdenv,
   # buildPythonPackage,
+  python3Packages,
   fetchFromGitHub,
+  nlohmann_json,
   config,
+  cudaPackages,
   cudaSupport ? config.cudaSupport,
-  pkgs,
+  g2o,
+  python3,
   ...
 }: let
-  g2o-pymem = pkgs.g2o.overrideAttrs (old: {
+  g2o-pymem = g2o.overrideAttrs (old: {
     version = "pymem";
 
     patches = [
@@ -21,16 +28,12 @@
       sha256 = "sha256-oGOzQpU0BW0KDjUZPK0pYjknio2rC2dQoDVLWrIb+SI=";
     };
 
-    # nativeBuildInputs = (old.nativeBuildInputs or []) ++ (with pkgs; [
-    #     git
-    # ]);
-
     buildInputs =
       (old.buildInputs or [])
-      ++ (with pkgs; [
+      ++ [
         python3Packages.pybind11
         nlohmann_json
-      ]);
+      ];
 
     cmakeFlags =
       (old.cmakeFlags or [])
@@ -38,14 +41,12 @@
         "-DG2O_BUILD_PYTHON=ON"
       ];
   });
-
-  python = pkgs.python3;
 in
-  pkgs.python3Packages.buildPythonPackage rec {
+  python3Packages.buildPythonPackage rec {
     stdenv =
       if cudaSupport
-      then pkgs.cudaPackages.backendStdenv
-      else pkgs.stdenv;
+      then cudaPackages.backendStdenv
+      else stdenv;
 
     pname = g2o-pymem.pname;
     version = g2o-pymem.version;
@@ -53,22 +54,22 @@ in
     dontUnpack = true;
     pyproject = false;
 
-    propagatedBuildInputs = with pkgs; [
-      python
+    propagatedBuildInputs = [
+      python3
     ];
 
     installPhase = ''
-      mkdir -p "$out/${python.sitePackages}/${pname}"
-      export PYTHONPATH="$out/${python.sitePackages}:$PYTHONPATH"
+      mkdir -p "$out/${python3.sitePackages}/${pname}"
+      export PYTHONPATH="$out/${python3.sitePackages}:$PYTHONPATH"
 
-      cp -r ${g2o-pymem}/g2o/* $out/${python.sitePackages}/${pname}
-      touch $out/${python.sitePackages}/${pname}/__init__.py
-      # echo "from .g2opy import g2o as g2o">> $out/${python.sitePackages}/${pname}/__init__.py
-      echo "from .g2opy import *" >> $out/${python.sitePackages}/${pname}/__init__.py
+      cp -r ${g2o-pymem}/g2o/* $out/${python3.sitePackages}/${pname}
+      touch $out/${python3.sitePackages}/${pname}/__init__.py
+      # echo "from .g2opy import g2o as g2o">> $out/${python3.sitePackages}/${pname}/__init__.py
+      echo "from .g2opy import *" >> $out/${python3.sitePackages}/${pname}/__init__.py
 
-      mkdir -p "$out/${python.sitePackages}/${pname}-${version}.dist-info"
+      mkdir -p "$out/${python3.sitePackages}/${pname}-${version}.dist-info"
       # Create a minimal METADATA file
-      cat > "$out/${python.sitePackages}/${pname}-${version}.dist-info/METADATA" <<EOF
+      cat > "$out/${python3.sitePackages}/${pname}-${version}.dist-info/METADATA" <<EOF
       Metadata-Version: 2.1
       Name: ${pname}
       Version: ${version}

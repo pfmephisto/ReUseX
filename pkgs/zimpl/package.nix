@@ -1,12 +1,18 @@
+# SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+#
+# SPDX-License-Identifier: MIT
 {
   stdenv,
-  pkgs,
+  cmake,
   fetchFromGitHub,
+  bison,
+  flex,
+  gmp,
   ...
 }:
 stdenv.mkDerivation rec {
   pname = "zimpl";
-  version = "3.6.2";
+  version = "362";
 
   src = fetchFromGitHub {
     owner = "scipopt";
@@ -15,9 +21,9 @@ stdenv.mkDerivation rec {
     sha256 = "sha256-juqAwzqBArsFXmz7L7RQaE78EhQdP5P51wQFlCoo7/o=";
   };
 
-  nativeBuildInputs = with pkgs; [cmake];
+  nativeBuildInputs = [cmake];
 
-  buildInputs = with pkgs; [
+  buildInputs = [
     bison
     flex
     gmp

@@ -1,0 +1,157 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 1eaca8c..e92069e 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -14,23 +14,23 @@ set(CMAKE_CUDA_ARCHITECTURES 80 86 89)
+ set(CMAKE_LIBRARY_OUTPUT_PATH ${CMAKE_BINARY_DIR}/workspace)
+ set(CMAKE_RUNTIME_OUTPUT_PATH ${CMAKE_BINARY_DIR}/workspace)
+ 
+-# =============================================================================
+-# 2. 查找依赖项
+-# =============================================================================
+-# 智能查找通过pip安装的pybind11
+-execute_process(
+-    COMMAND python3 -m pybind11 --cmakedir
+-    OUTPUT_VARIABLE pybind11_DIR
+-    OUTPUT_STRIP_TRAILING_WHITESPACE
+-    RESULT_VARIABLE pybind11_FOUND_RESULT
+-)
+-if(pybind11_FOUND_RESULT EQUAL 0)
+-    find_package(pybind11 REQUIRED HINTS ${pybind11_DIR})
+-    message(STATUS "Found pybind11: ${pybind11_VERSION} (at ${pybind11_DIR})")
+-else()
+-    message(WARNING "Could not auto-find pybind11. Falling back to standard search.")
+-    find_package(pybind11 REQUIRED)
+-endif()
++## =============================================================================
++## 2. 查找依赖项
++## =============================================================================
++## 智能查找通过pip安装的pybind11
++#execute_process(
++#    COMMAND python3 -m pybind11 --cmakedir
++#    OUTPUT_VARIABLE pybind11_DIR
++#    OUTPUT_STRIP_TRAILING_WHITESPACE
++#    RESULT_VARIABLE pybind11_FOUND_RESULT
++#)
++#if(pybind11_FOUND_RESULT EQUAL 0)
++#    find_package(pybind11 REQUIRED HINTS ${pybind11_DIR})
++#    message(STATUS "Found pybind11: ${pybind11_VERSION} (at ${pybind11_DIR})")
++#else()
++#    message(WARNING "Could not auto-find pybind11. Falling back to standard search.")
++#    find_package(pybind11 REQUIRED)
++#endif()
+ 
+ # 手动查找TensorRT组件
+ find_path(TENSORRT_INCLUDE_DIRS NvInfer.h
+@@ -102,22 +102,28 @@ set(EXECUTABLE_SOURCES
+ add_library(trtsam_core STATIC ${CORE_SOURCES})
+ 
+ # B. 定义Python模块 (由interface.cpp创建)
+-pybind11_add_module(trtsam3 SHARED ${INTERFACE_SOURCES})
++#pybind11_add_module(trtsam3 SHARED ${INTERFACE_SOURCES})
+ 
+ # C. 定义纯C++可执行文件 (由main.cpp创建)
+-add_executable(pro ${EXECUTABLE_SOURCES})
++#add_executable(pro ${EXECUTABLE_SOURCES})
+ 
+ # =============================================================================
+ # 5. 设置目标属性 (链接)
+ # =============================================================================
+ # --- A. 为核心库 trtsam_core 配置所有外部依赖 ---
+ # 使用PUBLIC，这样链接它的目标会自动继承这些属性
++#target_include_directories(trtsam_core PUBLIC
++#    ${CMAKE_CURRENT_SOURCE_DIR}/src
++#    ${OpenCV_INCLUDE_DIRS}
++#    ${TENSORRT_INCLUDE_DIRS}
++#    ${CUDAToolkit_INCLUDE_DIRS}
++#    ${FREETYPE_INCLUDE_DIRS}
++#)
++
+ target_include_directories(trtsam_core PUBLIC
+-    ${CMAKE_CURRENT_SOURCE_DIR}/src
+-    ${OpenCV_INCLUDE_DIRS}
+-    ${TENSORRT_INCLUDE_DIRS}
+-    ${CUDAToolkit_INCLUDE_DIRS}
+-    ${FREETYPE_INCLUDE_DIRS}
++    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
++    $<INSTALL_INTERFACE:include/trtsam3>
++    #$<INSTALL_INTERFACE:include>
+ )
+ 
+ target_link_libraries(trtsam_core PUBLIC
+@@ -132,16 +138,50 @@ target_compile_options(trtsam_core PUBLIC -O2 -w -fPIC)
+ 
+ # --- B. 为最终目标链接核心库 ---
+ # Python模块 和 C++可执行文件 都依赖于核心库
+-target_link_libraries(trtsam3 PRIVATE trtsam_core)
+-target_link_libraries(pro PRIVATE trtsam_core)
++#target_link_libraries(trtsam3 PRIVATE trtsam_core)
++#target_link_libraries(pro PRIVATE trtsam_core)
+ 
+ # --- C. 为最终产物设置RPATH ---
+-set_target_properties(trtsam3 pro PROPERTIES
+-    INSTALL_RPATH "$ORIGIN"
+-    BUILD_WITH_INSTALL_RPATH TRUE
+-)
++#set_target_properties(trtsam3 pro PROPERTIES
++#    INSTALL_RPATH "$ORIGIN"
++#    BUILD_WITH_INSTALL_RPATH TRUE
++#)
+ # =============================================================================
+ # 6. 添加自定义命令
+ # =============================================================================
+ add_custom_target(run COMMAND python3 demo.py WORKING_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_PATH} DEPENDS trtsam3)
+-add_custom_target(runpro COMMAND ./pro WORKING_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_PATH} DEPENDS pro)
+\ No newline at end of file
++add_custom_target(runpro COMMAND ./pro WORKING_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_PATH} DEPENDS pro)
++
++include(CMakePackageConfigHelpers)
++
++install(TARGETS trtsam_core
++        EXPORT trtsam3Targets
++        ARCHIVE DESTINATION lib
++        LIBRARY DESTINATION lib)
++
++install(DIRECTORY src/
++        DESTINATION include/trtsam3
++        FILES_MATCHING PATTERN "*.hpp")
++
++install(EXPORT trtsam3Targets
++        FILE trtsam3Targets.cmake
++        NAMESPACE trtsam3::
++        DESTINATION lib/cmake/trtsam3)
++
++configure_package_config_file(
++    cmake/trtsam3Config.cmake.in
++    ${CMAKE_CURRENT_BINARY_DIR}/trtsam3Config.cmake
++    INSTALL_DESTINATION lib/cmake/trtsam3
++)
++
++write_basic_package_version_file(
++    ${CMAKE_CURRENT_BINARY_DIR}/trtsam3ConfigVersion.cmake
++    VERSION 1.0
++    COMPATIBILITY SameMajorVersion
++)
++
++install(FILES
++    ${CMAKE_CURRENT_BINARY_DIR}/trtsam3Config.cmake
++    ${CMAKE_CURRENT_BINARY_DIR}/trtsam3ConfigVersion.cmake
++    DESTINATION lib/cmake/trtsam3
++)
+diff --git a/cmake/trtsam3Config.cmake.in b/cmake/trtsam3Config.cmake.in
+new file mode 100644
+index 0000000..8444f23
+--- /dev/null
++++ b/cmake/trtsam3Config.cmake.in
+@@ -0,0 +1,11 @@
++@PACKAGE_INIT@
++
++include(CMakeFindDependencyMacro)
++
++find_dependency(OpenCV)
++find_dependency(CUDAToolkit)
++find_dependency(Freetype)
++find_dependency(OpenMP)
++
++include("${CMAKE_CURRENT_LIST_DIR}/trtsam3Targets.cmake")
++

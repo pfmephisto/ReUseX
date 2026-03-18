@@ -1,0 +1,57 @@
+# SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+[project]
+name = "reusex"
+dynamic = ["version"]  # Version comes from CMake PROJECT_VERSION
+readme = "README.md"
+description = "ReUseX Python bindings - tools for processing point cloud scans of buildings intended for reuse."
+keywords = ["ReUseX", "python", "point-cloud", "computer-vision", "building-reconstruction"]
+maintainers = [
+    {name = "Povl Filip Sonne-Frederiksen", email="pfs@linkarkitektur.dk"},
+    ]
+requires-python = ">=3.9"
+
+dependencies = [
+    "numpy",
+    ]
+
+
+[project.optional-dependencies]
+ml = ["torch"]
+
+
+[project.urls]
+source = "https://github.com/pfmephisto/ReUseX"
+repository = "https://github.com/pfmephisto/ReUseX"
+
+
+# Build system configuration
+[build-system]
+requires = [
+    "scikit-build-core",
+    "pybind11",
+    "wheel",
+    ]
+build-backend = "scikit_build_core.build"
+
+
+[tool.scikit-build]
+cmake.source-dir = "../.."              # Point to repository root
+cmake.build-type = "Release"
+cmake.version = true                     # Use CMake project version
+cmake.targets = []                       # No compiled targets yet (only pure Python for now)
+wheel.install-dir = "reusex"            # Install to reusex/ in wheel
+wheel.license-files = ["../../LICENSE"]
+wheel.py-api = "cp39"
+sdist.exclude = [
+    ".github",
+    "tests/**/*",
+    ".gitignore",
+    ".gitmodules",
+    ".clang-format",
+    "**/*.nix"
+]
+cmake.verbose = true
+logging.level = "INFO"

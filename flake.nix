@@ -1,14 +1,23 @@
+# SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
 {
   description = "ReUseX";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+
     pyproject-nix = {
       url = "github:nix-community/pyproject.nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
     flake-utils.url = "github:numtide/flake-utils";
+
+    pre-commit-hooks = {
+      url = "github:cachix/git-hooks.nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   }; # end of inputs
 
   outputs = {
@@ -16,8 +25,10 @@
     nixpkgs,
     flake-utils,
     pyproject-nix,
+    pre-commit-hooks,
   }:
-    flake-utils.lib.eachSystem ["x86_64-linux"] (system:
+    flake-utils.lib.eachSystem ["x86_64-linux"] (
+      system:
       # flake-utils.lib.eachDefaultSystem (system:
       let
         inherit (nixpkgs) lib;
@@ -30,270 +41,103 @@
           config = {
             cudaSupport = true;
             hardware.nvidia.open = false;
-            allowUnfreePredicate = pkg:
-              builtins.elem (lib.getName pkg) [
-                # Python model
-                "mast3r"
-
-                # Gurobi Solver
-                "gurobi"
-                "gurobipy"
-
-                # CUDA Support in PCL an OpenCV
-                "cuda_cudart"
-                "cuda_nvcc"
-                "cuda_nvml_dev"
-                "cuda_cccl"
-                "libcublas"
-                "libnpp"
-                "libcufft"
-                "cuda-merged"
-                "cuda_cuobjdump"
-                "cuda_gdb"
-                "cuda_nvdisasm"
-                "cuda_nvprune"
-                "cuda_cupti"
-                "cuda_cuxxfilt"
-                "cuda_nvrtc"
-                "cuda_nvtx"
-                "cuda_profiler_api"
-                "cuda_sanitizer_api"
-                "libcurand"
-                "libcusolver"
-                "libnvjitlink"
-                "libcusparse"
-                "cudnn"
-                "nvidia-x11"
-                # "cudatoolkit"
-                "triton"
-                "torch"
-              ];
+            allowUnfree = true;
           };
 
           # Set overlays and custom fixes for broken packages
-          overlays = [
-            (final: prev: {
-              # Fix the CUDA environment for the suiteSparse package
-              suitesparse = prev.suitesparse.override (old: {
-                stdenv =
-                  if pkgs.config.cudaSupport
-                  then pkgs.cudaPackages.backendStdenv
-                  else pkgs.stdenv;
-              });
-            })
-            (
-              final: prev: (prev.lib.packagesFromDirectoryRecursive {
-                callPackage = prev.lib.callPackageWith final;
-                directory = ./pkgs;
-              })
-            )
-            (final: prev: {
-              papilo = prev.papilo.overrideAttrs (old: {
-                version = "2.4.0";
-                src = pkgs.fetchFromGitHub {
-                  owner = "scipopt";
-                  repo = "papilo";
-                  rev = "v2.4.0";
-                  sha256 = "sha256-WMw9v57nuP6MHj9Ft4l5FxdIF5VUWCRm/909tbz7VD4=";
-                };
-                propagatedBuildInputs = with pkgs; [tbb_2022_0];
-              });
-            })
-          ];
+          overlays = import ./overlays {inherit lib;};
         };
+      in {
+        formatter = pkgs.alejandra;
 
-        # Customize the python environment by adding required packages
-        python = pkgs.python3.override {
-          packageOverrides = final: prev: let
-          in {
-            rhino3dm = prev.pkgs.rhino3dm;
-            specklepy = prev.pkgs.specklepy;
-            g2o = prev.pkgs.g2opy;
-            mast3r = prev.pkgs.mast3r;
-            spdlog = prev.pkgs.spdlog-python;
+        checks.pre-commit-check = pre-commit-hooks.lib.${system}.run {
+          src = ./.;
+          default_stages = ["pre-commit"];
+          hooks = {
+            check-added-large-files.enable = true;
+            check-case-conflicts.enable = true;
+            check-executables-have-shebangs.enable = true;
+            check-shebang-scripts-are-executable.enable = true;
+            check-merge-conflicts.enable = true;
+            alejandra.enable = true;
+            # reuse = {
+            #   enable = true;
+            # };
+            git-lfs-pre-push = {
+              enable = true;
+              name = "git-lfs pre-push";
+              entry = "${pkgs.writeShellScript "git-lfs-pre-push" ''
+                exec ${pkgs.git-lfs}/bin/git-lfs pre-push "$PRE_COMMIT_REMOTE_NAME" "$PRE_COMMIT_REMOTE_URL"
+              ''}";
+              stages = ["pre-push"];
+              pass_filenames = false;
+              always_run = true;
+            };
+
+            git-lfs-post-checkout = {
+              enable = true;
+              name = "git-lfs post-checkout";
+              entry = "${pkgs.writeShellScript "git-lfs-post-checkout" ''
+                exec ${pkgs.git-lfs}/bin/git-lfs post-checkout "$PRE_COMMIT_FROM_REF" "$PRE_COMMIT_TO_REF" "$PRE_COMMIT_CHECKOUT_TYPE"
+              ''}";
+              stages = ["post-checkout"];
+              pass_filenames = false;
+              always_run = true;
+            };
+
+            git-lfs-post-merge = {
+              enable = true;
+              name = "git-lfs post-merge";
+              entry = "${pkgs.writeShellScript "git-lfs-post-merge" ''
+                exec ${pkgs.git-lfs}/bin/git-lfs post-merge "$PRE_COMMIT_IS_SQUASH_MERGE"
+              ''}";
+              stages = ["post-merge"];
+              pass_filenames = false;
+              always_run = true;
+            };
+
+            git-lfs-post-commit = {
+              enable = true;
+              name = "git-lfs post-commit";
+              entry = "${pkgs.git-lfs}/bin/git-lfs post-commit";
+              stages = ["post-commit"];
+              pass_filenames = false;
+              always_run = true;
+            };
           };
         };
 
-        # Load the pyproject.toml file
-        pyproject = builtins.fromTOML (builtins.readFile ./pyproject.toml);
-        project = pyproject-nix.lib.project.loadPyproject {
-          projectRoot = ./.;
-        };
-
-        ReUseX_Package = let
-          attrs = project.renderers.buildPythonPackage {inherit python;};
-        in
-          python.pkgs.buildPythonPackage (attrs
-            // {
-              postConfigure = ''
-                echo "moving one level up (should be project root)"
-                cd ..
-              '';
-
-              # Native dependencies
-              # programs and libraries used at build-time
-              nativeBuildInputs =
-                (attrs.nativeBuildInputs or [])
-                ++ (with pkgs; [
-                  cmake
-                  ninja
-                  mpi
-                  cudatoolkit
-                ]);
-
-              # Rutime dependencies
-              # These are often programs and libraries used by the new derivation at run-time
-              buildInputs =
-                (attrs.buildInputs
-                  or [
-                ])
-                ++ (with pkgs; [
-                  opennurbs
-                  xtensor-io
-                  scip-solver
-
-                  highfive
-                  xtensor
-
-                  g2o
-
-                  # pcl
-                  boost
-                  embree
-
-                  eigen
-                  cgal
-
-                  fmt
-                  spdlog
-                  spdmon
-
-                  mpfr
-
-                  opencv
-                  tbb_2022_0
-
-                  glfw
-
-                  python3Packages.pybind11
-                  python
-
-                  imgui
-                  glm
-
-                  libGLU
-
-                  gurobi
-                ]);
-
-              propagatedBuildInputs =
-                (attrs.propagatedBuildInputs or [])
-                ++ (with pkgs; [
-                  pcl
-                  hdf5
-                ]);
-
-              # Pass additional CMake flags
-              cmakeFlags =
-                (attrs.cmakeFlags or [])
-                ++ [
-                  "-DCGAL_DIR=${pkgs.cgal}/lib/cmake/CGAL"
-
-                  "-DHighFive_DIR=${pkgs.highfive}/share/HighFive/CMake"
-                  "-DOpenGL_GL_PREFERENCE=GLVND"
-                ]
-                ++ [
-                  (lib.strings.cmakeBool "CUDA_FAST_MATH" true)
-                  (lib.strings.cmakeFeature "CUDA_NVCC_FLAGS" "--expt-relaxed-constexpr")
-                  (lib.strings.cmakeFeature "GUROBI_DIR" "${pkgs.gurobi}")
-                ];
-            }); # end of ReUseX
-      in {
-        formatter = nixpkgs.legacyPackages.${system}.alejandra;
-
         packages =
           {
-            default = ReUseX_Package; # ReUseX
+            default = pkgs.callPackage ./default.nix {}; # ReUseX
+            rtabmap = pkgs.rtabmap;
           }
-          // # All custom packages
-          (pkgs.lib.packagesFromDirectoryRecursive {
+          # All custom packages
+          // (pkgs.lib.packagesFromDirectoryRecursive {
             callPackage = pkgs.lib.callPackageWith pkgs;
             directory = ./pkgs;
           }); # end of packages
 
-        devShells = {
-          default = let
-            arg = project.renderers.withPackages {inherit python;};
-
-            arg_1 = project.renderers.mkPythonEditablePackage {
-              inherit python;
-              root = "$REPO_ROOT/python";
+        devShells =
+          {
+            default = import ./shell.nix {
+              inherit pkgs self system;
             };
-
-            myPython = python.override {
-              packageOverrides = final: prev: {
-                ReUseX = final.mkPythonEditablePackage arg_1;
+          }
+          // (
+            let
+              devshellFiles = builtins.readDir ./devshells;
+              validShell = name: devshellFiles.${name} == "regular" && lib.hasSuffix ".nix" name;
+              shellNames = builtins.filter validShell (builtins.attrNames devshellFiles);
+              toShellAttr = name: {
+                name = lib.removeSuffix ".nix" name;
+                value = import (./devshells + "/${name}") {
+                  inherit pkgs self system;
+                };
               };
-            };
-
-            editablePkg = ReUseX_Package.overrideAttrs (oldAttrs: {
-              nativeBuildInputs =
-                oldAttrs.nativeBuildInputs
-                ++ [
-                  (
-                    python.pkgs.mkPythonEditablePackage arg_1
-                    // {
-                      # pname = pyproject.project.name;
-                      # inherit (pyproject.project) scripts version;
-                      # root = lib.mkOverride "$REPO_ROOT/python/ReUseX";
-                    }
-                  )
-                ];
-            });
-          in
-            pkgs.mkShell {
-              inputsFrom = [
-                self.packages.${system}.default
-              ];
-
-              packages = with pkgs;
-                [
-                  cmake
-                  ninja
-                  mpi
-                  cudatoolkit
-                  gdb
-                ]
-                ++ [
-                  libnotify # Send noctification when build finishes
-                  sqlite
-                ]
-                ++ [
-                  # Python Environment
-                  ((myPython.withPackages (ps:
-                    with ps; [
-                      ReUseX
-                      torch
-                      torchvision
-                      safetensors
-                      numba
-                      opencv-python
-                      matplotlib
-                      tqdm
-                      scipy
-                      ipykernel
-                    ]))
-                  .override (args: {ignoreCollisions = true;}))
-                ];
-
-              shellHook = ''
-                              echo "Entering dev shell"
-                              export VIRTUAL_ENV_PROMPT="ReUseX Environment"
-                              export REPO_ROOT=$(pwd)
-                              export CUDA_PATH=${pkgs.cudaPackages.cudatoolkit}
-                ./tmux_session
-              '';
-            }; # end of default shell
-        }; # end of devShells
-      }); # end of outputs
+            in
+              builtins.listToAttrs (builtins.map toShellAttr shellNames)
+          ); # end of devShells
+      }
+    ); # end of outputs
 }

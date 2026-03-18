@@ -2,9 +2,9 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include <ReUseX/core/logging.hpp>
-#include <ReUseX/visualize/pcl.hpp>
-#include <ReUseX/utils/math.hpp>
+#include "core/logging.hpp"
+#include "utils/math.hpp"
+#include "visualize/pcl.hpp"
 
 #include <range/v3/to_container.hpp>
 #include <range/v3/view/enumerate.hpp>
@@ -252,8 +252,8 @@ void addRoomProbabilities(
     p.z = (*cc)[*cit].pos[2];
     // TODO: Differentiate sphere size for room cells vs face/vertex nodes
     // category=Visualization estimate=1h
-    // Current radius calculation uses prob_outside but doesn't distinguish node types.
-    // Would improve visual clarity to:
+    // Current radius calculation uses prob_outside but doesn't distinguish node
+    // types. Would improve visual clarity to:
     // 1. Use larger spheres for room cell centers (e.g., r=0.5-1.0)
     // 2. Smaller spheres for face centers (e.g., r=0.2-0.3)
     // 3. Smallest for vertices (e.g., r=0.1)
@@ -353,8 +353,8 @@ void addRooms(
 
   // TODO: Create reusable CellComplex-to-PointCloud conversion utility
   // category=Visualization estimate=2h
-  // Currently duplicates CellComplex vertex extraction code across multiple functions.
-  // Should refactor to a shared helper:
+  // Currently duplicates CellComplex vertex extraction code across multiple
+  // functions. Should refactor to a shared helper:
   // 1. CloudPtr cellComplexToCloud(const CellComplex&, filter_predicate)
   // 2. Handles vertex position extraction and optional filtering
   // 3. Reuse in addRooms(), addCellComplex(), and other visualization functions

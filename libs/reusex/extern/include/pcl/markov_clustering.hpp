@@ -3,6 +3,9 @@
 // SPDX-License-Identifier: MIT
 
 #pragma once
+#include "reusex/core/logging.hpp"
+#include "reusex/core/processing_observer.hpp"
+
 #include <cmath>
 
 #include <pcl/PointIndices.h>
@@ -21,11 +24,6 @@
 
 #include "pmmintrin.h"
 #include "xmmintrin.h" // for SSE intrinsics reytracing
-
-// Optional: Include spdmon for progress logging and opencv for visual debugging
-#include "spdmon/spdmon.hpp"
-#include <spdlog/spdlog.h>
-#include <spdlog/stopwatch.h>
 
 #include <opencv2/core.hpp>
 #include <opencv2/highgui.hpp>
@@ -50,14 +48,14 @@ using NT = float;   // Numeric type
 #if 1
 #define LAGRAPH_CATCH(status)                                                  \
   {                                                                            \
-    spdlog::error("LAGraph error {}: {} at \n {}:{}", (int)status, msg,        \
-                  __FILE__, __LINE__);                                         \
+    ReUseX::core::error("LAGraph error {}: {} at \n {}:{}", (int)status, msg,  \
+                        __FILE__, __LINE__);                                   \
   }
 
 #define GRB_CATCH(status)                                                      \
   {                                                                            \
-    spdlog::error("GraphBLAS error {} at \n {}:{}", (int)status, __FILE__,     \
-                  __LINE__);                                                   \
+    ReUseX::core::error("GraphBLAS error {} at \n {}:{}", (int)status,         \
+                        __FILE__, __LINE__);                                   \
   }
 #else
 #define LAGRAPH_CATCH(info) (info)
@@ -174,7 +172,7 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
    */
   void cluster(PointCloudL &labels) {
 
-    spdlog::trace("Initializing segmentation class");
+    ReUseX::core::trace("Initializing segmentation class");
     if (!initCompute()) {
       deinitCompute();
       return;
@@ -187,10 +185,10 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
     rayTracing(triplets);
 
     if (triplets.empty())
-      spdlog::warn("No triplets found during ray tracing. Exiting.");
+      ReUseX::core::warn("No triplets found during ray tracing. Exiting.");
 
     if (visualization_callback_) {
-      spdlog::trace("Creating visualization context");
+      ReUseX::core::trace("Creating visualization context");
       using CloudV = pcl::PointCloud<pcl::PointXYZ>;
       using CloudVPtr = CloudV::Ptr;
       using Vertices = std::vector<pcl::Vertices>;
@@ -264,9 +262,10 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
         file.close();
         numClusters_ = cls_i;
       } else
-        spdlog::error("Unable to open output file from mcl: {}", abc_path_out);
+        ReUseX::core::error("Unable to open output file from mcl: {}",
+                            abc_path_out);
     } catch (const std::exception &e) {
-      spdlog::error("Exception during MCL execution: {}", e.what());
+      ReUseX::core::error("Exception during MCL execution: {}", e.what());
     }
 #else
     GrB_Matrix M = NULL;
@@ -280,7 +279,7 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
     // // INFO: Save the matric to disk for debugging
     // std::FILE *fout = fopen("./mcl.mtx", "w");
     // if (LAGraph_MMWrite(M, fout, NULL, msg) != GrB_SUCCESS)
-    //   spdlog::error("LAGraph_MMWrite failed! {}", std::string(msg));
+    //   ReUseX::core::error("LAGraph_MMWrite failed! {}", std::string(msg));
     // fclose(fout);
 
     // LAGRAPH_TRY(GrB_Matrix_free(&M));
@@ -297,29 +296,31 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
 
     show_matrix(M, "Stochastic Matrix - Before");
 
-    spdlog::trace("Running Markov Clustering");
-    spdlog::stopwatch sw;
+    ReUseX::core::trace("Running Markov Clustering");
+    ReUseX::core::stopwatch sw;
     LAGRAPH_TRY(LAGraph_New(&G, &M, LAGraph_ADJACENCY_UNDIRECTED, msg));
     G->is_symmetric_structure = LAGraph_TRUE;
 
     // FIXME: Add optional visualization of stochastic matrix for debugging
     // category=Geometry estimate=1h
-    // Currently commented out LAGraph_Graph_Print call for debugging matrix state.
-    // Should make this controllable via debug flag or verbosity level rather than
-    // requiring code changes. Useful for validating graph structure during development.
-    // LAGRAPH_TRY(LAGraph_Graph_Print(G, LAGraph_SHORT_VERBOSE, stdout, msg));
+    // Currently commented out LAGraph_Graph_Print call for debugging matrix
+    // state. Should make this controllable via debug flag or verbosity level
+    // rather than requiring code changes. Useful for validating graph structure
+    // during development. LAGRAPH_TRY(LAGraph_Graph_Print(G,
+    // LAGraph_SHORT_VERBOSE, stdout, msg));
 
-    spdlog::debug("LAGraph is symmetric: {}",
-                  G->is_symmetric_structure == LAGraph_TRUE ? "true" : "false");
-    spdlog::debug("LAGraph kind: {}", G->kind == LAGraph_ADJACENCY_UNDIRECTED
-                                          ? "undirected"
-                                          : "directed");
+    ReUseX::core::debug("LAGraph is symmetric: {}",
+                        G->is_symmetric_structure == LAGraph_TRUE ? "true"
+                                                                  : "false");
+    ReUseX::core::debug("LAGraph kind: {}",
+                        G->kind == LAGraph_ADJACENCY_UNDIRECTED ? "undirected"
+                                                                : "directed");
 
     if (LAGr_MarkovClustering(&c, expansion_, inflation_, pruning_threshold_,
                               convergence_threshold_, max_iter_, G,
                               msg) != GrB_SUCCESS)
-      spdlog::error("LAGr_MarkovClustering failed! {}", std::string(msg));
-    spdlog::info("Markov Clustering completed in {:.3f} seconds", sw);
+      ReUseX::core::error("LAGr_MarkovClustering failed! {}", std::string(msg));
+    ReUseX::core::info("Markov Clustering completed in {:.3f} seconds", sw);
 
     extractClusters(labels);
 #endif
@@ -328,11 +329,12 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
 
   void rayTracing(std::vector<std::tuple<IT, IT, NT>> &triplets) {
 
-    spdlog::trace("Running ray tracing");
-    spdlog::stopwatch sw;
+    ReUseX::core::trace("Running ray tracing");
+    ReUseX::core::stopwatch sw;
 
     const size_t N = indices_->size();
-    auto logger = spdmon::LoggerProgress("Ray tracing", N * (N - 1) / 2);
+    auto observer =
+        ReUseX::core::ProgressObserver("Ray tracing", N * (N - 1) / 2);
 
 #pragma omp parallel for reduction(mergeTriplets : triplets)                   \
     schedule(dynamic, 4)
@@ -374,7 +376,7 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
         ray.id = 0;      // ray ID, not used here
         ray.flags = 0;   // ray flags, not used here
 
-        ++logger;
+        ++observer;
         rtcOccluded1(scene_, &ray);
 
         // When no intersection is found, the ray data is not updated. Incase
@@ -385,7 +387,7 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
         triplets.emplace_back(i, j, 1.0);
       }
     }
-    spdlog::debug("Ray tracing completed in {} seconds", sw);
+    ReUseX::core::debug("Ray tracing completed in {} seconds", sw);
   }
 
     protected:
@@ -393,12 +395,12 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
    * \return true if initialization was successful, false otherwise
    */
   bool initCompute() {
-    spdlog::trace("Initializing MarkovClustering");
+    ReUseX::core::trace("Initializing MarkovClustering");
 
     _MM_SET_FLUSH_ZERO_MODE(_MM_FLUSH_ZERO_ON);
     _MM_SET_DENORMALS_ZERO_MODE(_MM_DENORMALS_ZERO_ON);
 
-    spdlog::trace("Creating device and scene for ray tracing");
+    ReUseX::core::trace("Creating device and scene for ray tracing");
     device_ = rtcNewDevice("verbose=0"); // 0-3
     scene_ = rtcNewScene(device_);
     rtcSetSceneFlags(scene_, RTC_SCENE_FLAG_ROBUST);
@@ -407,7 +409,7 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
     assert(scene_ != nullptr && "Error creating Embree scene");
     rtcSetDeviceErrorFunction(device_, rtcCheckError, nullptr);
 
-    spdlog::trace("Checking if input cloud is set");
+    ReUseX::core::trace("Checking if input cloud is set");
     if (!PCLBase<PointT>::initCompute()) {
       PCL_ERROR("[pcl::%s::initCompute] Init failed.\n",
                 getClassName().c_str());
@@ -415,7 +417,7 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
       return (false);
     }
 
-    spdlog::trace("Checking if input normals are set");
+    ReUseX::core::trace("Checking if input normals are set");
     if (!normals_) {
       PCL_ERROR("[pcl::%s::segment] Must specify normals.\n",
                 getClassName().c_str());
@@ -423,7 +425,8 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
       return (false);
     }
 
-    spdlog::trace("Checking if input normals size matches input cloud size");
+    ReUseX::core::trace(
+        "Checking if input normals size matches input cloud size");
     if (normals_->size() != input_->size()) {
       PCL_ERROR("[pcl::%s::segment] Number of points in input cloud "
                 "(%zu) and normal "
@@ -435,7 +438,7 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
       return (false);
     }
 
-    spdlog::trace("Checking if input normals are normalized");
+    ReUseX::core::trace("Checking if input normals are normalized");
     for (const auto &point : normals_->points) {
       if ((point.getNormalVector3fMap().norm() - 1.0f) > epsilon_) {
         PCL_WARN("[pcl::%s::initCompute] Input normals are not normalized.\n",
@@ -444,7 +447,7 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
       }
     }
 
-    spdlog::trace("Checking if input normals contain NaN values");
+    ReUseX::core::trace("Checking if input normals contain NaN values");
     for (const auto &point : normals_->points) {
       if (std::isnan(point.normal_x) || std::isnan(point.normal_y) ||
           std::isnan(point.normal_z)) {
@@ -457,21 +460,21 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
     LAGraph_Init(msg);
     // GrB_Vector_new(&c, GrB_INT32, indices_->size());
 
-    spdlog::debug("Initilized with with:");
-    spdlog::debug("inflation: {:.3}", inflation_);
-    spdlog::debug("expansion: {}", expansion_);
-    spdlog::debug("pruning: {:.6f}", pruning_threshold_);
-    spdlog::debug("convergence: {:.9f}", convergence_threshold_);
-    spdlog::debug("max_iter: {}", max_iter_);
-    spdlog::debug("radius: {:.3f}", radius_);
+    ReUseX::core::debug("Initilized with with:");
+    ReUseX::core::debug("inflation: {:.3}", inflation_);
+    ReUseX::core::debug("expansion: {}", expansion_);
+    ReUseX::core::debug("pruning: {:.6f}", pruning_threshold_);
+    ReUseX::core::debug("convergence: {:.9f}", convergence_threshold_);
+    ReUseX::core::debug("max_iter: {}", max_iter_);
+    ReUseX::core::debug("radius: {:.3f}", radius_);
 
     return (true);
   }
 
   void deinitCompute() {
-    spdlog::trace("Deinitializing MarkovClustering");
+    ReUseX::core::trace("Deinitializing MarkovClustering");
     pcl::PCLBase<PointT>::deinitCompute();
-    spdlog::trace("Releasing scene and device");
+    ReUseX::core::trace("Releasing scene and device");
     rtcReleaseScene(scene_);
     rtcReleaseDevice(device_);
 
@@ -486,7 +489,7 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
    * This function creates an oriented disc point geometry in the scene.
    */
   void createScene() {
-    spdlog::trace("Creating scene geometry for ray tracing");
+    ReUseX::core::trace("Creating scene geometry for ray tracing");
 
     geometry_ = rtcNewGeometry(device_, RTC_GEOMETRY_TYPE_ORIENTED_DISC_POINT);
 
@@ -519,12 +522,12 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
     rtcAttachGeometry(scene_, geometry_);
     rtcReleaseGeometry(geometry_);
 
-    spdlog::trace("Committing scene");
+    ReUseX::core::trace("Committing scene");
     rtcCommitScene(scene_);
   }
 
   static void rtcCheckError(void *, RTCError err, const char *str) {
-    spdlog::error("Embree error {}:", str);
+    ReUseX::core::error("Embree error {}:", str);
     switch (err) {
     case RTC_ERROR_NONE:
       break;
@@ -564,8 +567,8 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
     // FIXME: Add optional visualization of cluster assignment vector
     // category=Geometry estimate=1h
     // Commented LAGraph_Vector_Print for debugging cluster assignments.
-    // Should integrate with spdlog debug levels instead of requiring code edits.
-    // Helpful for verifying cluster convergence and label distribution.
+    // Should integrate with spdlog debug levels instead of requiring code
+    // edits. Helpful for verifying cluster convergence and label distribution.
     // LAGRAPH_TRY(LAGraph_Vector_Print(c, LAGraph_SHORT_VERBOSE, stdout, msg));
 
     // INFO: Extract labels from converged matrix
@@ -580,9 +583,10 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
     double cov, perf, mod;
     LAGRAPH_TRY(LAGr_PartitionQuality(&cov, &perf, c, G, msg));
     LAGRAPH_TRY(LAGr_Modularity(&mod, (double)1, c, G, msg));
-    spdlog::info("Partition quality: coverage: {:.3f}, performance: {:.3f}, "
-                 "modularity: {:.3f}",
-                 cov, perf, mod);
+    ReUseX::core::info(
+        "Partition quality: coverage: {:.3f}, performance: {:.3f}, "
+        "modularity: {:.3f}",
+        cov, perf, mod);
 
     GrB_Index nclusters;
     LAGRAPH_TRY(GrB_Vector_nvals(&nclusters, c));
@@ -614,9 +618,9 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
     // FIXME: Add visualization of sorted votes-per-cluster vector
     // category=Geometry estimate=1h
     // Commented debug print for sorted cluster sizes. Useful for understanding
-    // cluster size distribution and detecting degenerate cases (too many/few clusters).
-    // Should be controlled by debug flags rather than code modification.
-    // LAGRAPH_TRY(
+    // cluster size distribution and detecting degenerate cases (too many/few
+    // clusters). Should be controlled by debug flags rather than code
+    // modification. LAGRAPH_TRY(
     //     LAGraph_Vector_Print(vpc_sorted, LAGraph_SHORT_VERBOSE, stdout,
     //     msg));
 
@@ -675,7 +679,7 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
                    unsigned int w = 1000, unsigned int h = 1000) {
 
     if (m == NULL) {
-      spdlog::warn("Matrix {} is NULL", name);
+      ReUseX::core::warn("Matrix {} is NULL", name);
       return;
     }
 
@@ -716,7 +720,7 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
 
     // Scale image to original size
     if (w != w_ || h != h_) {
-      spdlog::debug("Resizing image from {}x{} to {}x{}", w, h, w_, h_);
+      ReUseX::core::debug("Resizing image from {}x{} to {}x{}", w, h, w_, h_);
       cv::resize(mat, mat, cv::Size(w_, h_), 0, 0, cv::INTER_NEAREST);
     }
 
@@ -753,12 +757,14 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
 
   // TODO: Expose MCL algorithm parameters via public setter methods
   // category=Geometry estimate=2h
-  // Currently expansion, inflation, and pruning_threshold are hardcoded private members.
-  // Should add public setter/getter methods to allow tuning MCL behavior:
+  // Currently expansion, inflation, and pruning_threshold are hardcoded private
+  // members. Should add public setter/getter methods to allow tuning MCL
+  // behavior:
   // - setExpansion(int): Controls matrix expansion iterations
   // - setInflation(double): Controls cluster granularity
   // - setPruningThreshold(double): Controls sparsity pruning
-  // Enables parameter tuning without recompilation for upstream PCL contribution
+  // Enables parameter tuning without recompilation for upstream PCL
+  // contribution
   int expansion_{2};
   double inflation_{2.0};
   double pruning_threshold_{0.0001};

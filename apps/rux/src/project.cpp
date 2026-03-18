@@ -11,9 +11,9 @@
 // #include <fmt/color.h>
 #include <fmt/std.h>
 
-#include <ReUseX/io/reusex.hpp>
-#include <ReUseX/vision/project.hpp>
-#include <ReUseX/visualize/Visualizer.hpp>
+#include <reusex/io/reusex.hpp>
+#include <reusex/vision/project.hpp>
+#include <reusex/visualize/Visualizer.hpp>
 
 #include <pcl/common/common.h>
 #include <pcl/io/auto_io.h>

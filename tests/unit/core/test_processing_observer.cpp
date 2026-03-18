@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include <ReUseX/core/processing_observer.hpp>
+#include <reusex/core/processing_observer.hpp>
 
 #include <catch2/catch_test_macros.hpp>
 

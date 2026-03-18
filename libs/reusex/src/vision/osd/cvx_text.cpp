@@ -1,5 +1,5 @@
-#include <ReUseX/vision/osd/cvx_text.hpp>
 #include <iostream>
+#include "vision/osd/cvx_text.hpp"
 
 namespace ReUseX::vision::osd {
 

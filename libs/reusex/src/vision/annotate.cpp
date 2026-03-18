@@ -2,15 +2,15 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include <ReUseX/core/logging.hpp>
-#include <ReUseX/vision/annotate.hpp>
-#include <ReUseX/vision/libtorch/Dataset.hpp>
-#include <ReUseX/vision/utils.hpp>
+#include "vision/annotate.hpp"
+#include "core/logging.hpp"
+#include "core/processing_observer.hpp"
+#include "vision/libtorch/Dataset.hpp"
+#include "vision/utils.hpp"
 
 #include <fmt/core.h>
 #include <fmt/ranges.h>
 #include <fmt/std.h>
-#include <spdmon/spdmon.hpp>
 
 #include <torch/script.h>
 #include <torch/torch.h>
@@ -21,7 +21,6 @@
 #include <opencv2/imgproc.hpp>
 
 #include <pcl/common/colors.h>
-
 
 #include <range/v3/all.hpp>
 namespace ReUseX::vision {
@@ -293,7 +292,8 @@ auto annotateRTABMap(const std::filesystem::path &dbPath,
 
   {
     ReUseX::core::info("Starting annotation of {} batches", num_batches);
-    auto logger = spdmon::LoggerProgress("Processing batch", num_batches);
+    auto observer =
+        ReUseX::core::ProgressObserver("Processing batch", num_batches);
 
     for (torch::data::Example<> &batch : *dataloader) {
       torch::Tensor data = batch.data.to(device);
@@ -303,8 +303,9 @@ auto annotateRTABMap(const std::filesystem::path &dbPath,
 
       if (output.isTuple() == false) {
         ReUseX::core::error("Model output is not a tuple as expected.");
-        ReUseX::core::info("Have you used the correct model? This script expects the "
-                     "yolo segmentation variant.");
+        ReUseX::core::info(
+            "Have you used the correct model? This script expects the "
+            "yolo segmentation variant.");
         return -1;
       }
 
@@ -337,7 +338,7 @@ auto annotateRTABMap(const std::filesystem::path &dbPath,
 
       dataset.save(labels, node_ids);
 
-      ++logger;
+      ++observer;
     }
   }
 

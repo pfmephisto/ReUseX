@@ -2,9 +2,9 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include <ReUseX/core/logging.hpp>
-#include <ReUseX/vision/IDataset.hpp>
-#include <ReUseX/io/RTABMapDatabase.hpp>
+#include "core/logging.hpp"
+#include "io/RTABMapDatabase.hpp"
+#include "vision/IDataset.hpp"
 
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
@@ -50,8 +50,8 @@ IDataset::IDataset(std::shared_ptr<io::RTABMapDatabase> database)
 }
 
 IDataset::IDataset(std::filesystem::path dbPath)
-    : IDataset(std::make_shared<io::RTABMapDatabase>(std::move(dbPath), false)) {
-}
+    : IDataset(
+          std::make_shared<io::RTABMapDatabase>(std::move(dbPath), false)) {}
 
 cv::Mat IDataset::getImage(const size_t index) const {
   ReUseX::core::trace("Getting image at index {}", index);
@@ -77,8 +77,9 @@ bool IDataset::saveImage(const size_t index, const cv::Mat &image) {
 #endif
 
     return true;
-  } catch (const std::exception& e) {
-    ReUseX::core::error("Failed to save image at index {}: {}", index, e.what());
+  } catch (const std::exception &e) {
+    ReUseX::core::error("Failed to save image at index {}: {}", index,
+                        e.what());
     return false;
   }
 }

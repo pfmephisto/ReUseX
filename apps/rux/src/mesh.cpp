@@ -10,15 +10,15 @@
 // #include <fmt/color.h>
 #include <fmt/std.h>
 
-#include <ReUseX/geometry/mesh.hpp>
-#include <ReUseX/io/reusex.hpp>
-// #include <ReUseX/geometry/CellComplex.hpp>
-// #include <ReUseX/geometry/Solidifier.hpp>
-// #include <ReUseX/geometry/regularization.hpp>
-// #include <ReUseX/geometry/utils.hpp>
-// #include <ReUseX/visualize/pcl.hpp>
+#include <reusex/geometry/mesh.hpp>
+#include <reusex/io/reusex.hpp>
+// #include <reusex/geometry/CellComplex.hpp>
+// #include <reusex/geometry/Solidifier.hpp>
+// #include <reusex/geometry/regularization.hpp>
+// #include <reusex/geometry/utils.hpp>
+// #include <reusex/visualize/pcl.hpp>
 
-#include <ReUseX/visualize/Visualizer.hpp>
+#include <reusex/visualize/Visualizer.hpp>
 
 #include <pcl/common/common.h>
 #include <pcl/io/auto_io.h>

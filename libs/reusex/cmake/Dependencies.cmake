@@ -11,16 +11,16 @@ message(STATUS "Finding project dependencies...")
 # -----------------------------------------------
 # Core dependencies
 # -----------------------------------------------
-find_package(Qt6 COMPONENTS Core Widgets Gui OpenGL REQUIRED) 
+find_package(Qt6 COMPONENTS Core Widgets Gui OpenGL REQUIRED)
 find_package(Boost CONFIG REQUIRED)
 find_package(TBB REQUIRED)
 
 # Logging and formatting
 find_package(fmt CONFIG REQUIRED)
-find_package(spdlog CONFIG REQUIRED)
-set_target_properties(spdlog::spdlog PROPERTIES
-    POSITION_INDEPENDENT_CODE ON
-)
+#find_package(spdlog CONFIG REQUIRED)
+#set_target_properties(spdlog::spdlog PROPERTIES
+#    POSITION_INDEPENDENT_CODE ON
+#)
 find_package(range-v3 CONFIG REQUIRED)
 
 # -----------------------------------------------
@@ -72,9 +72,9 @@ if (GUI_ENABLED)
     message(STATUS "CMAKE_BINARY_DIR: ${CMAKE_BINARY_DIR}")
     message(STATUS "CGAL_GRAPHICSVIEW_PACKAGE_DIR: ${CGAL_GRAPHICSVIEW_PACKAGE_DIR}")
     message(STATUS "CGAL_MODULES_DIR: ${CGAL_MODULES_DIR}")
-    
-    find_package(CGAL COMPONENTS Qt6) 
-    
+
+    find_package(CGAL COMPONENTS Qt6)
+
     set(CMAKE_AUTOMOC ON)
     set(CMAKE_AUTORCC ON)
     set(CMAKE_AUTOUIC ON)

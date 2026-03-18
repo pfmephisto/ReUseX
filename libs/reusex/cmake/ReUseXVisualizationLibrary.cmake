@@ -13,7 +13,7 @@ file(GLOB REUSEX_VIS_SOURCES CONFIGURE_DEPENDS
      "${CMAKE_CURRENT_SOURCE_DIR}/src/visualize/*.cpp")
 
 file(GLOB REUSEX_VIS_HEADERS CONFIGURE_DEPENDS
-     "${CMAKE_CURRENT_SOURCE_DIR}/include/ReUseX/visualize/*.hpp")
+     "${CMAKE_CURRENT_SOURCE_DIR}/include/visualize/*.hpp")
 
 # Add geometry files that use Visualizer
 list(APPEND REUSEX_VIS_SOURCES
@@ -29,10 +29,15 @@ message(STATUS "Found ${REUSEX_VIS_SOURCE_COUNT} ReUseX visualization source fil
 add_library(ReUseX_visualization SHARED ${REUSEX_VIS_SOURCES} ${REUSEX_VIS_HEADERS})
 
 # Include directories
-target_include_directories(ReUseX_visualization PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<BUILD_INTERFACE:${CMAKE_BINARY_DIR}/generated>
-    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+target_include_directories(ReUseX_visualization
+    PUBLIC
+        # For consumers: see headers as reusex/visualize/...
+        $<BUILD_INTERFACE:${CMAKE_BINARY_DIR}/include>
+        $<BUILD_INTERFACE:${CMAKE_BINARY_DIR}/generated>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+    PRIVATE
+        # For internal library code: direct access to flat structure
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
 # -----------------------------------------------

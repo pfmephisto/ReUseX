@@ -2,10 +2,10 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include <ReUseX/core/logging.hpp>
-#include <ReUseX/geometry/CellComplex.hpp>
-#include <ReUseX/geometry/utils.hpp>
-#include <ReUseX/types.hpp>
+#include "core/logging.hpp"
+#include "geometry/CellComplex.hpp"
+#include "geometry/utils.hpp"
+#include "types.hpp"
 
 // #include <CGAL/Arr_linear_traits_2.h>
 #include <CGAL/Arr_non_caching_segment_traits_2.h>
@@ -65,9 +65,9 @@ CellComplex::CellComplex(
   auto areas = this->add_property_map<Fd, double>("f:area").first;
 
   ReUseX::core::trace("Constructing arrangement with {} vertical planes and "
-                "[({:.3f}),({:.3f})] bounding box",
-                verticals.size(), fmt::join(min_xy, ","),
-                fmt::join(max_xy, ","));
+                      "[({:.3f}),({:.3f})] bounding box",
+                      verticals.size(), fmt::join(min_xy, ","),
+                      fmt::join(max_xy, ","));
 
   Iso_rectangle rect(Point_2(min_xy[0], min_xy[1]),
                      Point_2(max_xy[0], max_xy[1]));
@@ -152,13 +152,15 @@ CellComplex::CellComplex(
   //}
 
   VertexMap point_map{};
-  ReUseX::core::trace("Initialize vertex map for {} floors", sorted_floors.size());
+  ReUseX::core::trace("Initialize vertex map for {} floors",
+                      sorted_floors.size());
   for (auto vit = arr.vertices_begin(); vit != arr.vertices_end(); ++vit) {
     point_map[vit] = std::vector<Vd>(sorted_floors.size());
   }
   // Initialize face map
   FaceMap face_map{};
-  ReUseX::core::trace("Initialize face map for {} floors", sorted_floors.size());
+  ReUseX::core::trace("Initialize face map for {} floors",
+                      sorted_floors.size());
   for (auto fit = arr.faces_begin(); fit != arr.faces_end(); ++fit) {
     if (fit->is_unbounded())
       continue;
@@ -312,14 +314,13 @@ CellComplex::CellComplex(
 
   // INFO: Assign wall ids to each cell
   ReUseX::core::info("Assigning wall ids to each cell");
-  
+
   auto toEigenPlane = [](const Plane_3 &plane) {
-    return Eigen::Vector4d(CGAL::to_double(plane.a()),
-                          CGAL::to_double(plane.b()),
-                          CGAL::to_double(plane.c()),
-                          CGAL::to_double(plane.d()));
+    return Eigen::Vector4d(
+        CGAL::to_double(plane.a()), CGAL::to_double(plane.b()),
+        CGAL::to_double(plane.c()), CGAL::to_double(plane.d()));
   };
-  
+
   for (size_t i = 0; i < pairs.size(); ++i) {
     const auto &[id1, id2] = pairs[i];
     auto eigen_plane1 = toEigenPlane(planes[id1]);

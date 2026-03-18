@@ -2,7 +2,8 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include <ReUseX/core/processing_observer.hpp>
+#include "core/processing_observer.hpp"
+#include "core/logging.hpp"
 
 #include <atomic>
 
@@ -24,5 +25,21 @@ void reset_processing_observer() { set_processing_observer(nullptr); }
 auto get_processing_observer() -> IProcessingObserver * {
   return g_processing_observer.load(std::memory_order_acquire);
 }
+
+ProgressObserver::ProgressObserver(std::string_view stage, size_t total)
+    : stage_(stage), total_(total) {
+  if (auto *observer = get_processing_observer())
+    observer->on_process_started(stage, total);
+}
+
+ProgressObserver::~ProgressObserver() {
+  if (auto *observer = get_processing_observer())
+    observer->on_process_finished(stage_);
+}
+
+void ProgressObserver::update(size_t progress) {
+  if (auto *observer = get_processing_observer())
+    observer->on_process_updated(stage_, progress);
+};
 
 } // namespace ReUseX::core

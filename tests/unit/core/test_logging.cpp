@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include <ReUseX/core/logging.hpp>
+#include <reusex/core/logging.hpp>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -30,8 +30,8 @@ TEST_CASE("Custom log handler can be registered", "[core][logging]") {
 
 TEST_CASE("Log level filtering works", "[core][logging]") {
   int called = 0;
-  ReUseX::core::set_log_handler([&called](ReUseX::core::LogLevel,
-                                          std::string_view) { ++called; });
+  ReUseX::core::set_log_handler(
+      [&called](ReUseX::core::LogLevel, std::string_view) { ++called; });
 
   ReUseX::core::set_log_level(ReUseX::core::LogLevel::warn);
   ReUseX::core::debug("debug message");
@@ -42,4 +42,3 @@ TEST_CASE("Log level filtering works", "[core][logging]") {
   ReUseX::core::reset_log_handler();
   ReUseX::core::set_log_level(ReUseX::core::LogLevel::info);
 }
-

@@ -1,8 +1,8 @@
-#include <ReUseX/vision/common/object.hpp>
-#include <ReUseX/vision/tensor_rt/common/check.hpp>
 #include <iostream>
 #include <string>
 #include <vector>
+#include "vision/common/object.hpp"
+#include "vision/tensor_rt/common/check.hpp"
 
 namespace ReUseX::vision::common::object {
 
@@ -89,9 +89,8 @@ Obb &Obb::operator=(const Obb &other) {
 }
 
 std::ostream &operator<<(std::ostream &os, const Obb &obb) {
-  os << "{ \"cx\": " << obb.cx << ", \"cy\": " << obb.cy
-     << ", \"w\": " << obb.w << ", \"h\": " << obb.h
-     << ", \"angle\": " << obb.angle << " }";
+  os << "{ \"cx\": " << obb.cx << ", \"cy\": " << obb.cy << ", \"w\": " << obb.w
+     << ", \"h\": " << obb.h << ", \"angle\": " << obb.angle << " }";
   return os;
 }
 
@@ -208,7 +207,7 @@ void Segmentation::keep_largest_part() {
 }
 
 Segmentation Segmentation::align_to_left_top(int left, int top, int width,
-                                              int height) const {
+                                             int height) const {
   object::Segmentation aligned_seg;
   cv::Mat aligned_mask = cv::Mat::zeros(height, width, mask.type());
   if (mask.empty())

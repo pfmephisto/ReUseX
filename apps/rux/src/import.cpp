@@ -4,7 +4,7 @@
 
 #include "import.hpp"
 #include "import/rtabmap.hpp"
-#include "spdmon/spdmon.hpp"
+#include "spdmon.hpp"
 
 #include <fmt/format.h>
 #include <fmt/std.h>

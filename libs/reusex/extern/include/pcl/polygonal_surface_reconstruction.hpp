@@ -27,7 +27,8 @@
 // #include <CGAL/Polygon_mesh_processing/stitch_borders.h>
 // #include <CGAL/Polygon_mesh_processing/triangulate_faces.h>
 
-// Define CGAL_USE_HIGHS, CGAL_USE_SCIP, or CGAL_USE_GLPK in CMakeLists.txt to select MIP solver
+// Define CGAL_USE_HIGHS, CGAL_USE_SCIP, or CGAL_USE_GLPK in CMakeLists.txt to
+// select MIP solver
 
 #ifdef CGAL_USE_HIGHS
 #include <CGAL/HiGHS_mixed_integer_program_traits.h>
@@ -39,16 +40,12 @@ using MIP_Solver = CGAL::SCIP_mixed_integer_program_traits<double>;
 #include <CGAL/GLPK_mixed_integer_program_traits.h>
 using MIP_Solver = CGAL::GLPK_mixed_integer_program_traits<double>;
 #elif defined(CGAL_USE_GUROBI)
-#include "core/GUROBI_mixed_integer_program_traits.hh"
+#include "reusex/core/GUROBI_mixed_integer_program_traits.hh"
 using MIP_Solver = CGAL::GUROBI_mixed_integer_program_traits<double>;
 #endif
 
 #include <cmath>
 #include <queue>
-
-#include "spdmon/spdmon.hpp"
-#include <spdlog/spdlog.h>
-#include <spdlog/stopwatch.h>
 
 // namespace PMP = CGAL::Polygon_mesh_processing;
 namespace pcl {

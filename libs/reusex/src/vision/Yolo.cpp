@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include <ReUseX/vision/Yolo.hpp>
+#include "vision/Yolo.hpp"
 
 namespace ReUseX::vision {
 std::vector<std::string> Yolov8_className = {

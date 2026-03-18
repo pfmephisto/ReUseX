@@ -1,4 +1,4 @@
-#include <ReUseX/vision/common/image.hpp>
+#include "vision/common/image.hpp"
 
 namespace ReUseX::vision::common::tensor {
 

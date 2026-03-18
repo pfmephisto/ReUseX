@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include <ReUseX/core/logging.hpp>
-#include <ReUseX/io/rhino.hpp>
+#include "io/rhino.hpp"
+#include "core/logging.hpp"
 
 #include <range/v3/to_container.hpp>
 #include <range/v3/view/common.hpp>
@@ -73,7 +73,8 @@ auto create_rhino_layers(ONX_Model &model,
                          const std::vector<std::string> &layer_names,
                          std::optional<std::vector<ON_Color>> layer_colors,
                          const ON_Layer *base_layer) -> std::vector<int> {
-  ReUseX::core::trace("creating rhino layers: {}", fmt::join(layer_names, ", "));
+  ReUseX::core::trace("creating rhino layers: {}",
+                      fmt::join(layer_names, ", "));
 
   std::vector<int> layer_map(layer_names.size(), ON_UNSET_INT_INDEX);
 
@@ -84,7 +85,7 @@ auto create_rhino_layers(ONX_Model &model,
   for (size_t i = 0; i < layer_names.size(); i++) {
     ReUseX::core::trace("  creating layer: {}", layer_names[i]);
     ReUseX::core::trace("    color: R={}, G={}, B={}", colors[i].Red(),
-                  colors[i].Green(), colors[i].Blue());
+                        colors[i].Green(), colors[i].Blue());
     ON_wString name(layer_names[i].c_str());
     layer_map[i] = model.AddLayer(name, colors[i]);
 
@@ -120,7 +121,7 @@ auto save_rhino_pointcloud(CloudConstPtr pcl_cloud, CloudLConstPtr pcl_labels)
   std::sort(labels.begin(), labels.end());
 
   ReUseX::core::debug("Found {} unique labels [{}]", labels.size(),
-                fmt::join(labels, ", "));
+                      fmt::join(labels, ", "));
 
   std::vector<CloudPtr, Eigen::aligned_allocator<CloudPtr>> clouds(
       labels.size());
@@ -136,7 +137,7 @@ auto save_rhino_pointcloud(CloudConstPtr pcl_cloud, CloudLConstPtr pcl_labels)
   std::transform(clouds.begin(), clouds.end(), sizes.begin(),
                  [](const CloudPtr &c) { return c->size(); });
   ReUseX::core::debug("Filtered {} clouds of sizes [{}]", clouds.size(),
-                fmt::join(sizes, ", "));
+                      fmt::join(sizes, ", "));
 
   ReUseX::core::trace("creating document layers");
   // model.AddDefaultLayer(nullptr, ON_Color::UnsetColor);
@@ -165,7 +166,7 @@ auto save_rhino_pointcloud(CloudConstPtr pcl_cloud, CloudLConstPtr pcl_labels)
   ReUseX::core::trace("layer colors:");
   for (const auto &color : colors) {
     ReUseX::core::trace("  R={}, G={}, B={}", color.Red(), color.Green(),
-                  color.Blue());
+                        color.Blue());
   }
 
   auto layer_map = create_rhino_layers(*model, layer_names, colors, base_layer);
@@ -180,7 +181,8 @@ auto save_rhino_pointcloud(CloudConstPtr pcl_cloud, CloudLConstPtr pcl_labels)
     // TODO: Include semantic label names in Rhino object attributes
     // category=I/O estimate=1h
     // Currently hardcoded to generic "ReUseX Point Cloud Semantic" name.
-    // Should append actual class label (e.g., "Wall", "Floor", "Ceiling") to attribute:
+    // Should append actual class label (e.g., "Wall", "Floor", "Ceiling") to
+    // attribute:
     // 1. Look up label name from labels[i] using class ID mapping
     // 2. Convert to wide string for ON_wString compatibility
     // 3. Follow same pattern as layer naming (already implemented above)

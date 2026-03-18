@@ -3,12 +3,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "segment/rooms.hpp"
-#include "ReUseX/io/reusex.hpp"
-#include "ReUseX/utils/fmt_formatter.hpp"
 #include "pcl/markov_clustering.hpp"
-#include "spdmon/spdmon.hpp"
+#include "spdmon.hpp"
+#include <reusex/io/reusex.hpp>
+#include <reusex/utils/fmt_formatter.hpp>
 
-#include "ReUseX/geometry/segment_rooms.hpp"
+#include <reusex/geometry/segment_rooms.hpp>
 
 // GraphBLAS imports complex.h which defines a macro named 'I' that conflicts
 // with the type in CLI11
@@ -36,10 +36,10 @@ namespace fs = std::filesystem;
 
 /**
  * @brief Setup CLI options for the room segmentation subcommand.
- * 
+ *
  * Configures command-line arguments including paths, MCL parameters,
  * and clustering options for room segmentation.
- * 
+ *
  * @param app CLI application to add the subcommand to.
  */
 void setup_subcommand_segment_rooms(CLI::App &app) {
@@ -117,10 +117,10 @@ void setup_subcommand_segment_rooms(CLI::App &app) {
 
 /**
  * @brief Execute room segmentation using Markov clustering.
- * 
+ *
  * Loads point cloud, plane labels, and plane data, then performs room
  * segmentation using MCL algorithm based on visual relations.
- * 
+ *
  * @param opt Options containing file paths and MCL parameters.
  * @return Exit code (0 on success).
  */

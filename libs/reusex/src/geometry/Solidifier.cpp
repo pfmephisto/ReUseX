@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include <ReUseX/core/logging.hpp>
-#include <ReUseX/geometry/Solidifier.hpp>
+#include "core/logging.hpp"
+#include "geometry/Solidifier.hpp"
 #include <tbb/concurrent_unordered_map.h>
 
 #define CGAL_USE_HIGHS 1
@@ -93,6 +93,7 @@ Solidifier::solve() {
                       pimpl_->solver.number_of_constraints());
 
   ReUseX::core::trace("Start solving");
+  auto sw = ReUseX::core::stopwatch{};
 
   // INFO: Solve
   if (!pimpl_->solver.solve()) {
@@ -100,7 +101,7 @@ Solidifier::solve() {
     return {};
   }
 
-  spdlog::info("MIP solver succeeded");
+  ReUseX::core::info("MIP solver succeeded");
 
   auto room_label = std::unordered_map<Cd, int>{};
   auto wall_label = std::unordered_map<Cd, std::set<int>>{};

@@ -2,13 +2,12 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include <ReUseX/core/logging.hpp>
-#include <ReUseX/vision/libtorch/Dataset.hpp>
-#include <ReUseX/io/RTABMapDatabase.hpp>
-#include <ReUseX/vision/utils.hpp>
+#include "core/logging.hpp"
+#include "io/RTABMapDatabase.hpp"
+#include "vision/libtorch/Dataset.hpp"
+#include "vision/utils.hpp"
 
 #include <opencv2/core.hpp>
-
 
 namespace ReUseX::vision::libtorch {
 
@@ -31,8 +30,8 @@ TorchDataset::Example TorchDataset::get(size_t index) {
   letterbox(img, img, cv::Size(640, 640));
 
   // Convert to torch tensor
-  torch::Tensor tdata = torch::from_blob(img.data, {img.rows, img.cols, 3},
-                                         torch::kByte);
+  torch::Tensor tdata =
+      torch::from_blob(img.data, {img.rows, img.cols, 3}, torch::kByte);
   tdata = tdata.toType(torch::kFloat32).div(255);
   tdata = tdata.permute({2, 0, 1}); // Change to CxHxW
 
@@ -61,7 +60,8 @@ void TorchDataset::save(std::vector<cv::Mat> imgs, torch::Tensor index) {
   }
 
   // Use RTABMapDatabase for batch save with transaction
-  // autoRotate=true means RTABMapDatabase will apply the 90° counterclockwise rotation
+  // autoRotate=true means RTABMapDatabase will apply the 90° counterclockwise
+  // rotation
   db_->saveLabels(nodeIds, processedImgs, true);
 
   ReUseX::core::trace("TorchDataset save completed");

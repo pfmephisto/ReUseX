@@ -45,7 +45,7 @@ endif()
 # Install headers
 # -----------------------------------------------
 install(DIRECTORY libs/reusex/include/
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/reusex
     FILES_MATCHING
     PATTERN "*.hpp"
     PATTERN "*.cuh"
@@ -53,7 +53,7 @@ install(DIRECTORY libs/reusex/include/
 
 # Install external headers (CGAL, pcl, spdmon extensions)
 install(DIRECTORY libs/reusex/extern/include/
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/reusex
     FILES_MATCHING
     PATTERN "*.hpp"
     PATTERN "*.h"

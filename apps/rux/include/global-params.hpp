@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #pragma once
-#include <ReUseX/types.hpp>
+#include <reusex/types.hpp>
 
 #include <filesystem>
 

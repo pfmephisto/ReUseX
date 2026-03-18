@@ -18,8 +18,8 @@ file(GLOB_RECURSE REUSEX_CUDA_SOURCES CONFIGURE_DEPENDS
 list(APPEND REUSEX_SOURCES ${REUSEX_CUDA_SOURCES})
 
 file(GLOB_RECURSE REUSEX_HEADERS CONFIGURE_DEPENDS
-     "${CMAKE_CURRENT_SOURCE_DIR}/include/ReUseX/**/*.hpp"
-     "${CMAKE_CURRENT_SOURCE_DIR}/include/ReUseX/**/*.cuh")
+     "${CMAKE_CURRENT_SOURCE_DIR}/include/**/*.hpp"
+     "${CMAKE_CURRENT_SOURCE_DIR}/include/**/*.cuh")
 
 # Exclude visualization files from main library
 list(FILTER REUSEX_SOURCES EXCLUDE REGEX ".*/visualize/.*\\.cpp$")
@@ -33,6 +33,19 @@ list(LENGTH REUSEX_SOURCES REUSEX_SOURCE_COUNT)
 message(STATUS "Found ${REUSEX_SOURCE_COUNT} ReUseX source files")
 
 # -----------------------------------------------
+# Create symlink for prefixed includes
+# -----------------------------------------------
+# Create build/include/reusex -> libs/reusex/include symlink
+# This allows consumers (like rux) to use #include <reusex/core/...>
+# while internal code uses #include "core/..." directly
+file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/include)
+file(CREATE_LINK
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_BINARY_DIR}/include/reusex
+    SYMBOLIC
+)
+
+# -----------------------------------------------
 # Generate version header
 # -----------------------------------------------
 file(READ ${CMAKE_SOURCE_DIR}/LICENSE.md LICENSE_TEXT)
@@ -40,7 +53,7 @@ string(REPLACE "\"" "\\\"" LICENSE_TEXT "${LICENSE_TEXT}")
 # Use CMAKE_PROJECT_VERSION to get the root project version (not subdirectory project version)
 set(PROJECT_VERSION ${CMAKE_PROJECT_VERSION})
 configure_file(
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/ReUseX/core/version.hpp.in
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/core/version.hpp.in
     ${CMAKE_BINARY_DIR}/generated/reusex/core/version.hpp
     @ONLY
 )
@@ -52,11 +65,16 @@ configure_file(
 add_library(ReUseX SHARED ${REUSEX_SOURCES} ${REUSEX_HEADERS})
 
 # Include directories
-target_include_directories(ReUseX PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/extern/include>
-    $<BUILD_INTERFACE:${CMAKE_BINARY_DIR}/generated>
-    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+target_include_directories(ReUseX
+    PUBLIC
+        # For consumers (rux, external): see headers as reusex/core/...
+        $<BUILD_INTERFACE:${CMAKE_BINARY_DIR}/include>
+        $<BUILD_INTERFACE:${CMAKE_BINARY_DIR}/generated>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/extern/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+    PRIVATE
+        # For internal library code: direct access to flat structure
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
 # -----------------------------------------------
@@ -83,7 +101,7 @@ target_link_libraries(ReUseX
         pcl_filters
         pcl_segmentation
         pcl_registration
-        
+
         # Ray tracing
         embree
 
@@ -99,22 +117,22 @@ target_link_libraries(ReUseX
         SuiteSparse::LAGraphX
 
         # Computer Vision
-        opencv_core 
+        opencv_core
         opencv_imgproc
         opencv_highgui
 
         # SLAM
         rtabmap::rtabmap
 
-    PRIVATE 
+    PRIVATE
         # Deep Learning (keep internal to avoid exposing torch ABI)
         torch
-        
+
         # Ranges
         range-v3::range-v3
-	trtsam3::trtsam_core
+	      trtsam3::trtsam_core
 
-	tokenizers_cpp::tokenizers_cpp
+	      tokenizers_cpp::tokenizers_cpp
 )
 
 # -----------------------------------------------

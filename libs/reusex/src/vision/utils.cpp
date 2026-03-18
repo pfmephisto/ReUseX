@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include <ReUseX/core/logging.hpp>
-#include <ReUseX/vision/utils.hpp>
+#include "core/logging.hpp"
+#include "vision/utils.hpp"
 
 #include <cmath>
 #include <opencv2/core.hpp>
@@ -113,8 +113,9 @@ torch::Tensor xywh_to_xyxy(const torch::Tensor &x) {
 
 // TODO: Replace custom NMS with torchvision library implementation
 // category=Vision estimate=4h
-// Current implementation is custom-written. Consider using official torchvision NMS:
-// Reference: https://github.com/pytorch/vision/blob/main/torchvision/csrc/ops/cpu/nms_kernel.cpp
+// Current implementation is custom-written. Consider using official torchvision
+// NMS: Reference:
+// https://github.com/pytorch/vision/blob/main/torchvision/csrc/ops/cpu/nms_kernel.cpp
 // Benefits:
 // 1. Optimized CPU/CUDA implementations available
 // 2. Better maintained and tested by PyTorch team
@@ -206,8 +207,9 @@ torch::Tensor non_max_suppression(torch::Tensor &predictions,
   // ReUseX::core::debug("xc shape: [{}]", fmt::join(xc.sizes(), ", "));
 
   predictions = predictions.transpose(-1, -2); // [bs, 8400, 116]
-  predictions.index_put_({"...", Slice({None, 4})},
-                         xywh_to_xyxy(predictions.index({"...", Slice(None, 4)})));
+  predictions.index_put_(
+      {"...", Slice({None, 4})},
+      xywh_to_xyxy(predictions.index({"...", Slice(None, 4)})));
 
   torch::Tensor output =
       torch::zeros({bs, maxDetections, 6 + nm}, predictions.options());

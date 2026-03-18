@@ -2,14 +2,14 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include <ReUseX/core/logging.hpp>
-#include <ReUseX/geometry/mesh.hpp>
-#include <ReUseX/geometry/CellComplex.hpp>
-#include <ReUseX/geometry/Solidifier.hpp>
-#include <ReUseX/geometry/regularization.hpp>
-#include <ReUseX/visualize/Visualizer.hpp>
-// #include "ReUseX/geometry/utils.hpp"
-// #include "ReUseX/io/reusex.hpp"
+#include "core/logging.hpp"
+#include "geometry/CellComplex.hpp"
+#include "geometry/Solidifier.hpp"
+#include "geometry/mesh.hpp"
+#include "geometry/regularization.hpp"
+#include "visualize/Visualizer.hpp"
+// #include "geometry/utils.hpp"
+// #include "io/reusex.hpp"
 
 #include <pcl/visualization/pcl_visualizer.h>
 
@@ -37,8 +37,9 @@ mesh(CloudConstPtr cloud, CloudNConstPtr normals,
   if (viewer) {
     vps = viewer->getViewports();
     if (vps->size() < 4) {
-      ReUseX::core::warn("Visualizer has less than 4 viewports defined, disabling "
-                   "visualization");
+      ReUseX::core::warn(
+          "Visualizer has less than 4 viewports defined, disabling "
+          "visualization");
       viewer = nullptr;
     }
   }
@@ -56,18 +57,18 @@ mesh(CloudConstPtr cloud, CloudNConstPtr normals,
 
   planes = force_orthogonal_planes(planes);
   ReUseX::core::debug("Number of planes after forcing orthogonality: {}",
-                planes.size());
+                      planes.size());
 
   auto pairs = make_pairs(planes, inliers, centroids, opt.search_threshold,
                           opt.new_plane_offset);
   ReUseX::core::debug("Number of plane pairs: {}", pairs.size());
 
   auto [vertical, horizontal] = separate_planes(planes);
-  ReUseX::core::debug("Number indices in inliers [{}]",
-                fmt::join(inliers | ranges::views::transform([](auto const &i) {
-                            return i->size();
-                          }),
-                          ", "));
+  ReUseX::core::debug(
+      "Number indices in inliers [{}]",
+      fmt::join(inliers | ranges::views::transform(
+                              [](auto const &i) { return i->size(); }),
+                ", "));
   ReUseX::core::debug("Number of horizonal planes: {}", horizontal.size());
   ReUseX::core::debug("Number of vertical planes: {}", vertical.size());
 
@@ -186,9 +187,10 @@ mesh(CloudConstPtr cloud, CloudNConstPtr normals,
   if (results) {
     // TODO: Refactor mesh conversion to return value instead of out parameter
     // category=Geometry estimate=1h
-    // Current code builds mesh in-place but could return it directly for cleaner API.
-    // Consider returning pcl::PolygonMeshPtr from this branch instead of using
-    // the mesh variable declared above. Improves readability and follows modern C++ patterns.
+    // Current code builds mesh in-place but could return it directly for
+    // cleaner API. Consider returning pcl::PolygonMeshPtr from this branch
+    // instead of using the mesh variable declared above. Improves readability
+    // and follows modern C++ patterns.
     auto [room_labels, wall_labels] = results.value();
     auto [vertices, faces] = solidifier.toMesh(
         [&](const CellComplex::Vertex v) { return room_labels[v] > 0; });
@@ -210,8 +212,8 @@ mesh(CloudConstPtr cloud, CloudNConstPtr normals,
       }
       mesh->polygons[i] = polygon;
     }
-    // ReUseX::core::debug("Generated mesh with {} polygons", mesh->polygons.size());
-    // return mesh;
+    // ReUseX::core::debug("Generated mesh with {} polygons",
+    // mesh->polygons.size()); return mesh;
   }
 
   return mesh;

@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "segment/planes.hpp"
-#include "ReUseX/geometry/segment_planes.hpp"
+#include <reusex/geometry/segment_planes.hpp>
 
 #include <fmt/format.h>
 
@@ -16,7 +16,7 @@
 #include <pcl/io/auto_io.h>
 #include <pcl/io/pcd_io.h>
 
-#include "ReUseX/io/reusex.hpp"
+#include <reusex/io/reusex.hpp>
 namespace fs = std::filesystem;
 
 /**

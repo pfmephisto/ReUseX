@@ -4,9 +4,9 @@
 
 #include "annotate.hpp"
 
-#include "ReUseX/utils/fmt_formatter.hpp"
-#include "ReUseX/vision/annotate.hpp"
-#include "spdmon/spdmon.hpp"
+#include "spdmon.hpp"
+#include <reusex/utils/fmt_formatter.hpp>
+#include <reusex/vision/annotate.hpp>
 
 #include <sqlite3.h>
 

@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include <ReUseX/core/logging.hpp>
-#include <ReUseX/geometry/segment_planes.hpp>
+#include "geometry/segment_planes.hpp"
+#include "core/logging.hpp"
 
 #include <stdexcept>
 
@@ -11,10 +11,10 @@ namespace ReUseX::geometry {
 
 /**
  * @brief Implementation of plane segmentation using multi-scale region growing.
- * 
+ *
  * Performs planar region growing segmentation on a point cloud using adaptive
  * interval scaling and returns labeled planes with their centroids and normals.
- * 
+ *
  * @param cloud Input point cloud.
  * @param normals Point cloud normals.
  * @param angle_threshold Angular threshold for plane fitting (degrees).
@@ -27,17 +27,10 @@ namespace ReUseX::geometry {
  */
 auto segment_planes_impl(const SegmentPlanesRequest &request)
     -> std::tuple<CloudLPtr, CloudLocPtr, CloudNPtr> {
-  auto *observer = ReUseX::core::get_processing_observer();
-  if (observer) {
-    observer->on_stage_started("segment_planes:init");
-  }
 
   if (request.cancel_token != nullptr && request.cancel_token->load()) {
     ReUseX::core::warn(
         "segment_planes: cancellation requested before execution.");
-    if (observer) {
-      observer->on_error("Plane segmentation cancelled.");
-    }
     throw std::runtime_error("Plane segmentation cancelled.");
   }
 
@@ -60,13 +53,7 @@ auto segment_planes_impl(const SegmentPlanesRequest &request)
   pcl::copyPointCloud(*request.cloud, *labels);
 
   ReUseX::core::trace("Call the segmentation algorithm");
-  if (observer) {
-    observer->on_stage_started("segment_planes:segment");
-  }
   seg.segment(labels);
-  if (observer) {
-    observer->on_progress("segment_planes:segment", 1.0F);
-  }
 
   ReUseX::core::info("Found {} clusters", seg.getCentroids().size());
 

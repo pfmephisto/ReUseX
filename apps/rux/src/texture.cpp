@@ -4,7 +4,7 @@
 
 #include "texture.hpp"
 
-#include <ReUseX/geometry/texture_mesh.hpp>
+#include <reusex/geometry/texture_mesh.hpp>
 #include <pcl/io/auto_io.h>
 
 #include <rtabmap/core/DBDriver.h>

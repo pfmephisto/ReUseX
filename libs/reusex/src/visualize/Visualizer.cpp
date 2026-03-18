@@ -2,9 +2,9 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include <ReUseX/core/logging.hpp>
-#include <ReUseX/visualize/Visualizer.hpp>
-#include <ReUseX/visualize/pcl.hpp>
+#include "core/logging.hpp"
+#include "visualize/Visualizer.hpp"
+#include "visualize/pcl.hpp"
 
 #include <pcl/visualization/pcl_visualizer.h>
 
@@ -19,7 +19,7 @@ namespace ReUseX::visualize {
 
 // PIMPL implementation class
 class Visualizer::Impl {
-public:
+    public:
   using VisualizerPtr = std::shared_ptr<pcl::visualization::PCLVisualizer>;
   using VizTask = std::function<void(VisualizerPtr)>;
 
@@ -123,10 +123,11 @@ void Visualizer::reset_camera_viewpoint(const std::string &name) {
 
 void Visualizer::add_point_cloud(CloudConstPtr cloud, std::string name,
                                  int vp) {
-  ReUseX::core::trace("Displaying point cloud: {} in vp {} with {} points", name, vp,
-                cloud->size());
+  ReUseX::core::trace("Displaying point cloud: {} in vp {} with {} points",
+                      name, vp, cloud->size());
   pimpl_->enqueueTask([=](Impl::VisualizerPtr viewer) {
-    ReUseX::core::trace("Displaying point cloud: {} in vp {} with points", name, vp);
+    ReUseX::core::trace("Displaying point cloud: {} in vp {} with points", name,
+                        vp);
     viewer->addPointCloud<PointT>(cloud, name, vp);
   });
 }

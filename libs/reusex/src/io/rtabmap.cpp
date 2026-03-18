@@ -2,18 +2,16 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include <ReUseX/core/logging.hpp>
-#include <ReUseX/io/RTABMapDatabase.hpp>
-#include <ReUseX/io/rtabmap.hpp>
-#include <ReUseX/utils/fmt_formatter.hpp>
-
-#include <spdmon/spdmon.hpp>
-
-#include <sqlite3.h>
+#include "io/rtabmap.hpp"
+#include "core/logging.hpp"
+#include "core/processing_observer.hpp"
+#include "io/RTABMapDatabase.hpp"
+#include "utils/fmt_formatter.hpp"
 
 #include <fmt/format.h>
-
-
+#include <opencv2/core.hpp>
+#include <opencv2/imgcodecs.hpp>
+#include <opencv2/imgproc.hpp>
 #include <pcl/common/colors.h>
 #include <pcl/common/io.h>
 #include <pcl/features/normal_3d_omp.h>
@@ -25,17 +23,13 @@
 #include <pcl/io/pcd_io.h>
 #include <pcl/io/ply_io.h>
 #include <pcl/kdtree/kdtree_flann.h>
-
 #include <rtabmap/core/DBDriver.h>
 #include <rtabmap/core/Graph.h>
 #include <rtabmap/core/Rtabmap.h>
 #include <rtabmap/core/optimizer/OptimizerG2O.h>
 #include <rtabmap/core/util3d.h>
 #include <rtabmap/core/util3d_filtering.h>
-
-#include <opencv2/core.hpp>
-#include <opencv2/imgcodecs.hpp>
-#include <opencv2/imgproc.hpp>
+#include <sqlite3.h>
 
 #ifndef NDEBUG
 #include <opencv2/highgui.hpp>
@@ -65,22 +59,27 @@ using namespace rtabmap;
 namespace {
 
 /**
- * @brief Applies depth discontinuity filtering to remove "flying pixels" at edges
+ * @brief Applies depth discontinuity filtering to remove "flying pixels" at
+ * edges
  *
- * This filter targets iOS LiDAR artifacts where depth changes abruptly at object boundaries,
- * causing spurious points to appear in mid-air. It computes depth gradients using Sobel
- * operators and rejects pixels with high gradient magnitudes.
+ * This filter targets iOS LiDAR artifacts where depth changes abruptly at
+ * object boundaries, causing spurious points to appear in mid-air. It computes
+ * depth gradients using Sobel operators and rejects pixels with high gradient
+ * magnitudes.
  *
  * @param depth Input/output depth map (CV_32FC1 or CV_16UC1), modified in-place
- * @param confidence Input/output confidence map, modified in-place (can be empty)
- * @param gradient_threshold Maximum allowed depth gradient in meters per pixel (default: 0.5)
+ * @param confidence Input/output confidence map, modified in-place (can be
+ * empty)
+ * @param gradient_threshold Maximum allowed depth gradient in meters per pixel
+ * (default: 0.5)
  */
-void applyDepthDiscontinuityFilter(cv::Mat& depth, cv::Mat& confidence,
-                                    float gradient_threshold = 0.5f) {
-  if (depth.empty() || depth.channels() != 1) return;
+void applyDepthDiscontinuityFilter(cv::Mat &depth, cv::Mat &confidence,
+                                   float gradient_threshold = 0.5f) {
+  if (depth.empty() || depth.channels() != 1)
+    return;
 
   ReUseX::core::trace("Applying depth discontinuity filter (threshold={})",
-                gradient_threshold);
+                      gradient_threshold);
 
   // Convert to float for gradient computation
   cv::Mat depth_float;
@@ -106,27 +105,32 @@ void applyDepthDiscontinuityFilter(cv::Mat& depth, cv::Mat& confidence,
   }
 
   int removed = cv::countNonZero(~valid_mask);
-  ReUseX::core::debug("Depth discontinuity filter removed {} / {} pixels ({:.1f}%)",
-                removed, depth.total(), 100.0 * removed / depth.total());
+  ReUseX::core::debug(
+      "Depth discontinuity filter removed {} / {} pixels ({:.1f}%)", removed,
+      depth.total(), 100.0 * removed / depth.total());
 }
 
 /**
- * @brief Applies ray consistency filtering to remove isolated noisy depth measurements
+ * @brief Applies ray consistency filtering to remove isolated noisy depth
+ * measurements
  *
- * This filter checks each depth pixel against its 8-neighborhood, rejecting pixels that
- * deviate significantly from their neighbors. This is effective for removing speckled
- * noise common in iOS LiDAR captures.
+ * This filter checks each depth pixel against its 8-neighborhood, rejecting
+ * pixels that deviate significantly from their neighbors. This is effective for
+ * removing speckled noise common in iOS LiDAR captures.
  *
  * @param depth Input/output depth map (CV_32FC1 or CV_16UC1), modified in-place
- * @param confidence Input/output confidence map, modified in-place (can be empty)
- * @param consistency_threshold Maximum allowed deviation from neighborhood median in meters (default: 0.2)
+ * @param confidence Input/output confidence map, modified in-place (can be
+ * empty)
+ * @param consistency_threshold Maximum allowed deviation from neighborhood
+ * median in meters (default: 0.2)
  */
-void applyRayConsistencyFilter(cv::Mat& depth, cv::Mat& confidence,
-                                float consistency_threshold = 0.2f) {
-  if (depth.empty() || depth.channels() != 1) return;
+void applyRayConsistencyFilter(cv::Mat &depth, cv::Mat &confidence,
+                               float consistency_threshold = 0.2f) {
+  if (depth.empty() || depth.channels() != 1)
+    return;
 
   ReUseX::core::trace("Applying ray consistency filter (threshold={})",
-                consistency_threshold);
+                      consistency_threshold);
 
   // Convert to float for computation
   cv::Mat depth_float;
@@ -159,7 +163,7 @@ void applyRayConsistencyFilter(cv::Mat& depth, cv::Mat& confidence,
 
   int removed = cv::countNonZero(~valid_mask);
   ReUseX::core::debug("Ray consistency filter removed {} / {} pixels ({:.1f}%)",
-                removed, depth.total(), 100.0 * removed / depth.total());
+                      removed, depth.total(), 100.0 * removed / depth.total());
 }
 
 } // anonymous namespace
@@ -248,7 +252,7 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
                          "AND name='Segmentation';",
                          -1, &stmt, nullptr) != SQLITE_OK) {
     ReUseX::core::warn("No Segmentation table found in database: {}",
-                 sqlite3_errmsg(db_));
+                       sqlite3_errmsg(db_));
     sqlite3_close(db_);
     skipInference = true;
   }
@@ -258,8 +262,9 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
     if (sqlite3_prepare_v2(db_,
                            "SELECT label_image FROM Segmentation WHERE id=?;",
                            -1, &stmt, nullptr) != SQLITE_OK) {
-      ReUseX::core::error("Failed to prepare statement for Segmentation table: {}",
-                    sqlite3_errmsg(db_));
+      ReUseX::core::error(
+          "Failed to prepare statement for Segmentation table: {}",
+          sqlite3_errmsg(db_));
       sqlite3_close(db_);
       skipInference = true;
     }
@@ -275,7 +280,8 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
     }
 
     ReUseX::core::trace("Number of poses: {}", poseVector.size());
-    auto logger = spdmon::LoggerProgress("Assembling cloud", poseVector.size());
+    auto observer =
+        core::ProgressObserver("Assembling cloud", poseVector.size());
 
 #ifdef NDEBUG
     // INFO: Create and OpenCV window for visualizing the results during
@@ -309,18 +315,20 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
         applyRayConsistencyFilter(depth, confidence, 0.2f);
 
         // Create new SensorData with filtered depth and confidence
-        data = SensorData(image, depth, confidence,
-                          data.cameraModels(), data.id(), data.stamp());
+        data = SensorData(image, depth, confidence, data.cameraModels(),
+                          data.id(), data.stamp());
       }
 
-      ReUseX::core::trace("Creating point cloud from sensor data with confidence threshold 2");
+      ReUseX::core::trace(
+          "Creating point cloud from sensor data with confidence threshold 2");
       pcl::IndicesPtr validIndices(new pcl::Indices);
       pcl::PointCloud<pcl::PointXYZRGB>::Ptr tmp =
-          util3d::cloudRGBFromSensorData(data, sampling_factor, max_distance,
-                                         min_distance, validIndices.get(),
-                                         ParametersMap(), std::vector<float>(), 2);
-      ReUseX::core::debug("Point cloud size: {}, valid: {}, size: {}x{} (confidence ≥ 2)",
-                    tmp->size(), validIndices->size(), tmp->width, tmp->height);
+          util3d::cloudRGBFromSensorData(
+              data, sampling_factor, max_distance, min_distance,
+              validIndices.get(), ParametersMap(), std::vector<float>(), 2);
+      ReUseX::core::debug(
+          "Point cloud size: {}, valid: {}, size: {}x{} (confidence ≥ 2)",
+          tmp->size(), validIndices->size(), tmp->width, tmp->height);
 
       pcl::PointCloud<pcl::Label>::Ptr labledCloud(
           new pcl::PointCloud<pcl::Label>);
@@ -355,7 +363,7 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
             ReUseX::core::error("Failed to decode image from database");
           } else {
             ReUseX::core::debug("Decoded image: {}x{}, channels={}, type={}",
-                          img.cols, img.rows, img.channels(), img.type());
+                                img.cols, img.rows, img.channels(), img.type());
 
             ReUseX::core::trace("Convert label image to CV_32S");
             img.convertTo(labledImage, CV_32S);
@@ -465,8 +473,7 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
         *cloud += *tmpCloud;
         *labels += *labledCloud;
       }
-
-      ++logger;
+      ++observer;
     }
   }
 
@@ -498,7 +505,7 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
       resolution, (int)cloud->size());
   auto downsampledCloud = util3d::voxelize(cloud, resolution);
   ReUseX::core::debug("Points after voxel grid filtering: {}",
-                downsampledCloud->size());
+                      downsampledCloud->size());
 
   pcl::Indices filter_indices;
   pcl::removeNaNNormalsFromPointCloud(*downsampledCloud, *downsampledCloud,
@@ -555,8 +562,8 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
   // TODO: Refactor file output to only write when paths explicitly provided
   // category=I/O estimate=2h
   // Currently uses default output paths which causes unnecessary file writes.
-  // Should change API to accept optional output paths (std::optional or empty path)
-  // and only write files when user explicitly requests them. This avoids:
+  // Should change API to accept optional output paths (std::optional or empty
+  // path) and only write files when user explicitly requests them. This avoids:
   // 1. Polluting working directory with unwanted output files
   // 2. Performance overhead of unnecessary I/O operations
   // 3. Confusion about which files are actually needed
@@ -589,7 +596,8 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
   rtabmap.close();
 
   // Filter outliers and noise from the point cloud
-  ReUseX::core::info("Filtering outliers from point cloud ({} points)", out_cloud->size());
+  ReUseX::core::info("Filtering outliers from point cloud ({} points)",
+                     out_cloud->size());
   timer.reset();
 
   // Step 1: Statistical Outlier Removal
@@ -597,30 +605,30 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
   ReUseX::core::trace("Applying statistical outlier removal");
   pcl::StatisticalOutlierRemoval<PointT> sor;
   sor.setInputCloud(out_cloud);
-  sor.setMeanK(50);              // Number of neighbors to analyze
-  sor.setStddevMulThresh(1.0);   // Standard deviation multiplier threshold
+  sor.setMeanK(50);            // Number of neighbors to analyze
+  sor.setStddevMulThresh(1.0); // Standard deviation multiplier threshold
 
   pcl::IndicesPtr stat_inliers(new pcl::Indices);
   sor.filter(*stat_inliers);
   ReUseX::core::debug("Statistical outlier removal kept {}/{} points",
-                stat_inliers->size(), out_cloud->size());
+                      stat_inliers->size(), out_cloud->size());
 
   // Step 2: Radius Outlier Removal
   // Removes points that have fewer neighbors within a specified radius
   ReUseX::core::trace("Applying radius outlier removal");
   pcl::RadiusOutlierRemoval<PointT> ror;
   ror.setInputCloud(out_cloud);
-  ror.setIndices(stat_inliers);  // Apply on top of statistical filtering
-  ror.setRadiusSearch(resolution * 2.0);  // Search radius based on voxel size
-  ror.setMinNeighborsInRadius(5);         // Minimum neighbors required
+  ror.setIndices(stat_inliers); // Apply on top of statistical filtering
+  ror.setRadiusSearch(resolution * 2.0); // Search radius based on voxel size
+  ror.setMinNeighborsInRadius(5);        // Minimum neighbors required
 
   pcl::IndicesPtr filtered_indices(new pcl::Indices);
   ror.filter(*filtered_indices);
   ReUseX::core::debug("Radius outlier removal kept {}/{} points",
-                filtered_indices->size(), stat_inliers->size());
+                      filtered_indices->size(), stat_inliers->size());
 
-  // Step 3: Apply the same filtering to all three clouds (points, normals, labels)
-  // This ensures they remain synchronized
+  // Step 3: Apply the same filtering to all three clouds (points, normals,
+  // labels) This ensures they remain synchronized
   ReUseX::core::trace("Extracting filtered points, normals, and labels");
 
   CloudPtr filtered_cloud(new Cloud);
@@ -647,14 +655,17 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
   // Verify all clouds have the same size
   if (filtered_cloud->size() != filtered_normals->size() ||
       filtered_cloud->size() != filtered_labels->size()) {
-    ReUseX::core::error("Filtered clouds have mismatched sizes: points={}, normals={}, labels={}",
-                  filtered_cloud->size(), filtered_normals->size(), filtered_labels->size());
+    ReUseX::core::error("Filtered clouds have mismatched sizes: points={}, "
+                        "normals={}, labels={}",
+                        filtered_cloud->size(), filtered_normals->size(),
+                        filtered_labels->size());
     return std::make_tuple(nullptr, nullptr, nullptr);
   }
 
-  ReUseX::core::info("Filtering complete in {:.3f}s: {}/{} points retained ({:.1f}%)",
-               timer, filtered_cloud->size(), out_cloud->size(),
-               100.0 * filtered_cloud->size() / out_cloud->size());
+  ReUseX::core::info(
+      "Filtering complete in {:.3f}s: {}/{} points retained ({:.1f}%)", timer,
+      filtered_cloud->size(), out_cloud->size(),
+      100.0 * filtered_cloud->size() / out_cloud->size());
 
   return std::make_tuple(filtered_cloud, filtered_normals, filtered_labels);
 }
@@ -709,8 +720,8 @@ bool writeLabelsToRTABMapDatabase(std::filesystem::path const &dbPath,
 
 cv::Mat readLabelsFromRTABMapDatabase(std::filesystem::path const &dbPath,
                                       size_t id) {
-  ReUseX::core::trace("Reading labels from RTABMap database: {} for node {}", dbPath,
-                id);
+  ReUseX::core::trace("Reading labels from RTABMap database: {} for node {}",
+                      dbPath, id);
 
   try {
     RTABMapDatabase db(dbPath, /*readOnly=*/true);
@@ -720,7 +731,7 @@ cv::Mat readLabelsFromRTABMapDatabase(std::filesystem::path const &dbPath,
       ReUseX::core::warn("No labels found for node {}", id);
     } else {
       ReUseX::core::debug("Labels read successfully for node {}: {}x{}", id,
-                    labels.cols, labels.rows);
+                          labels.cols, labels.rows);
     }
 
     return labels;

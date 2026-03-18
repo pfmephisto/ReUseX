@@ -1,6 +1,6 @@
-#include <ReUseX/vision/tensor_rt/common/norm.hpp>
 #include <cstring>
 #include <memory>
+#include "vision/tensor_rt/common/norm.hpp"
 
 namespace ReUseX::vision::tensor_rt::norm_image {
 

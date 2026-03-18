@@ -1,5 +1,6 @@
-#include <ReUseX/core/logging.hpp>
-#include <ReUseX/vision/tensor_rt/common/tensorrt.hpp>
+#include "core/logging.hpp"
+#include "vision/tensor_rt/common/check.hpp"
+#include "vision/tensor_rt/common/tensorrt.hpp"
 
 #include <cuda_runtime.h>
 #include <fmt/format.h>
@@ -16,7 +17,6 @@
 #include <NvInfer.h>
 #include <NvInferPlugin.h>
 #include <NvInferRuntime.h>
-#include <ReUseX/vision/tensor_rt/common/check.hpp>
 
 namespace ReUseX::vision::tensor_rt::TensorRT {
 
@@ -24,7 +24,7 @@ static class Logger : public nvinfer1::ILogger {
     public:
   void log(Severity severity, const char *msg) noexcept override {
     ReUseX::core::log(to_log_level(severity), "[NVINFER {}]: {}",
-                to_string(severity), msg);
+                      to_string(severity), msg);
   }
 
     private:
@@ -142,7 +142,8 @@ class __native_engine_context {
         nvinfer1::createInferRuntime(gLogger_),
         destroy_pointer<nvinfer1::IRuntime>);
     if (runtime_ == nullptr) {
-      ReUseX::core::error("Failed to create tensorRT runtime: {}.", message_name);
+      ReUseX::core::error("Failed to create tensorRT runtime: {}.",
+                          message_name);
       return false;
     }
 
@@ -159,7 +160,8 @@ class __native_engine_context {
         engine_->createExecutionContext(),
         destroy_pointer<nvinfer1::IExecutionContext>);
     if (context_ == nullptr) {
-      ReUseX::core::error("Failed to create execution context: {}.", message_name);
+      ReUseX::core::error("Failed to create execution context: {}.",
+                          message_name);
       return false;
     }
     return context_ != nullptr;
@@ -234,16 +236,17 @@ class EngineImplement : public Engine {
       auto tensor_name = engine->getIOTensorName(ibinding);
       auto binding_iter = bindings.find(tensor_name);
       if (binding_iter == bindings.end()) {
-        ReUseX::core::error("Failed to set the tensor address, can not found tensor "
-                      "{} in bindings provided.",
-                      tensor_name);
+        ReUseX::core::error(
+            "Failed to set the tensor address, can not found tensor "
+            "{} in bindings provided.",
+            tensor_name);
         return false;
       }
 
       if (!context->setTensorAddress(tensor_name,
                                      (void *)binding_iter->second)) {
         ReUseX::core::error("Failed to set tensor address for tensor {}.",
-                      tensor_name);
+                            tensor_name);
         return false;
       }
     }
@@ -368,10 +371,11 @@ class EngineImplement : public Engine {
   }
 
   virtual void print(const char *name) override {
-    ReUseX::core::info("-------------------------------------------------------");
+    ReUseX::core::info(
+        "-------------------------------------------------------");
 
     ReUseX::core::info("{} 🌱 is {} model", name,
-                 has_dynamic_dim() ? "Dynamic Shape" : "Static Shape");
+                       has_dynamic_dim() ? "Dynamic Shape" : "Static Shape");
 
     int num_input = 0;
     int num_output = 0;
@@ -389,7 +393,7 @@ class EngineImplement : public Engine {
       auto dim = engine->getTensorShape(name);
       auto dtype = engine->getTensorDataType(name);
       ReUseX::core::info("\t{}.{} : {{{}}} [{}]", i, name, format_shape(dim),
-                   data_type_string(dtype));
+                         data_type_string(dtype));
     }
 
     ReUseX::core::info("Outputs: {}", num_output);
@@ -398,9 +402,10 @@ class EngineImplement : public Engine {
       auto dim = engine->getTensorShape(name);
       auto dtype = engine->getTensorDataType(name);
       ReUseX::core::info("\t{}.{} : {{{}}} [{}]", i, name, format_shape(dim),
-                   data_type_string(dtype));
+                         data_type_string(dtype));
     }
-    ReUseX::core::info("-------------------------------------------------------");
+    ReUseX::core::info(
+        "-------------------------------------------------------");
   }
 };
 

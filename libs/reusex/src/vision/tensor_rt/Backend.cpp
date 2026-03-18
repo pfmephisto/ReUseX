@@ -1,9 +1,8 @@
-#include <ReUseX/core/logging.hpp>
-#include <ReUseX/vision/IMLBackend.hpp>
-#include <ReUseX/vision/tensor_rt/Backend.hpp>
-#include <ReUseX/vision/tensor_rt/Dataset.hpp>
-#include <ReUseX/vision/tensor_rt/Sam3.hpp>
-
+#include "core/logging.hpp"
+#include "vision/IMLBackend.hpp"
+#include "vision/tensor_rt/Backend.hpp"
+#include "vision/tensor_rt/Dataset.hpp"
+#include "vision/tensor_rt/Sam3.hpp"
 
 #include <memory>
 
@@ -13,7 +12,7 @@ std::unique_ptr<IModel>
 TensorRTBackend::createModel(const Model type,
                              const std::filesystem::path &modelPath) {
   ReUseX::core::info("Creating TensorRT model type {} from path: {}",
-               static_cast<int>(type), modelPath);
+                     static_cast<int>(type), modelPath);
   switch (type) {
   case Model::Sam3:
     return TensorRTSam3::create(modelPath);

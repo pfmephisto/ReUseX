@@ -1,23 +1,20 @@
 // SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include <ReUseX/core/logging.hpp>
-#include <ReUseX/geometry/texture_mesh.hpp>
-#include <ReUseX/geometry/utils.hpp>
-#include <ReUseX/types.hpp>
-#include <ReUseX/visualize/pcl.hpp>
+#include "geometry/texture_mesh.hpp"
+#include "core/logging.hpp"
+#include "core/processing_observer.hpp"
+#include "geometry/utils.hpp"
+#include "types.hpp"
+#include "visualize/pcl.hpp"
 
 #include <Eigen/Dense>
 #include <fmt/format.h>
 #include <pcl/common/io.h>
 #include <pcl/point_types.h>
 #include <pcl/surface/texture_mapping.h>
-#include <range/v3/view/enumerate.hpp>
-
 #include <pcl/visualization/pcl_visualizer.h>
-
-
-#include <spdmon/spdmon.hpp>
+#include <range/v3/view/enumerate.hpp>
 
 #include <filesystem>
 
@@ -117,7 +114,8 @@ pcl::TextureMesh::Ptr texture_mesh_with_cloud(pcl::PolygonMesh::Ptr mesh,
 
   ReUseX::core::trace("Create textutes form points in the cloud");
   {
-    auto logger = spdmon::LoggerProgress("Createing material", nr_polygons);
+    auto observer =
+        ReUseX::core::ProgressObserver("Createing material", nr_polygons);
 
     for (auto &&[idx, mat] :
          textured_mesh->tex_materials | ranges::views::enumerate) {
@@ -149,22 +147,23 @@ pcl::TextureMesh::Ptr texture_mesh_with_cloud(pcl::PolygonMesh::Ptr mesh,
 
       cv::imwrite(mat.tex_file, image);
 
-      ++logger;
+      ++observer;
     }
   }
 
-  ReUseX::core::debug("Number of materials: {}", textured_mesh->tex_materials.size());
+  ReUseX::core::debug("Number of materials: {}",
+                      textured_mesh->tex_materials.size());
   ReUseX::core::debug("Number of texture polygons: {}",
-                textured_mesh->tex_polygons.size());
+                      textured_mesh->tex_polygons.size());
   ReUseX::core::debug("Number of texture coordinates: {}",
-                textured_mesh->tex_coordinates.size());
+                      textured_mesh->tex_coordinates.size());
   for (auto [idx, poly_group] :
        textured_mesh->tex_polygons | ranges::views::enumerate) {
     ReUseX::core::debug("  Number of polygons in group {}: {}", idx,
-                  poly_group.size());
+                        poly_group.size());
   }
   ReUseX::core::trace("Nuber of coordinates {}",
-                textured_mesh->tex_coord_indices.size());
+                      textured_mesh->tex_coord_indices.size());
 
   return textured_mesh;
 }
@@ -214,7 +213,8 @@ texture_mesh(pcl::PolygonMesh::Ptr mesh,
   pcl::concatenateFields(*cloud, *normals, cloud_with_normals);
   pcl::toPCLPointCloud2(cloud_with_normals, textured_mesh->cloud);
 
-  ReUseX::core::debug("Number of polygons: {}", textured_mesh->tex_polygons.size());
+  ReUseX::core::debug("Number of polygons: {}",
+                      textured_mesh->tex_polygons.size());
   size_t num_faces = 0;
   for (const auto &poly_group : textured_mesh->tex_polygons)
     num_faces += poly_group.size();
@@ -232,9 +232,11 @@ texture_mesh(pcl::PolygonMesh::Ptr mesh,
   ReUseX::core::trace("Retrive all cameras and textures from the database");
   // TODO: Implement camera/texture retrieval from RTABMapDatabase
   // category=Geometry estimate=1d
-  // Need to extract camera poses and images from RTABMap database for texturing:
+  // Need to extract camera poses and images from RTABMap database for
+  // texturing:
   // 1. Query RTABMapDatabase::getNodeIds() for all camera frames
-  // 2. Use RTABMapDatabase::getImage(nodeId) to retrieve images (handles rotation)
+  // 2. Use RTABMapDatabase::getImage(nodeId) to retrieve images (handles
+  // rotation)
   // 3. Extract camera intrinsics and poses from SLAM graph
   // 4. Build camera frustum for visibility testing during texture projection
   // 5. Select best camera view for each mesh polygon based on viewing angle
@@ -242,8 +244,8 @@ texture_mesh(pcl::PolygonMesh::Ptr mesh,
   pcl::texture_mapping::CameraVector cameras{};
   cameras.resize(poses.size());
   {
-    auto logger =
-        spdmon::LoggerProgress("Retrieving textures and cameras", poses.size());
+    auto observer = ReUseX::core::ProgressObserver(
+        "Retrieving textures and cameras", poses.size());
 
     // TODO: Extract camera intrinsics and image data for each node
     // category=Geometry estimate=4h
@@ -262,7 +264,7 @@ texture_mesh(pcl::PolygonMesh::Ptr mesh,
       cv::Mat image = data.imageRaw();
       if (image.empty()) {
         ReUseX::core::warn("Empty image for node id {}", id);
-        ++logger;
+        ++observer;
         continue;
       }
       auto name = fmt::format("texture-{:06}", i);
@@ -301,16 +303,17 @@ texture_mesh(pcl::PolygonMesh::Ptr mesh,
       material.tex_illum = 2;
 
       textured_mesh->tex_materials.push_back(material);
-      ++logger;
+      ++observer;
     }
   }
 
   ReUseX::core::debug("Number of cameras: {}", cameras.size());
-  ReUseX::core::debug("Number of materials: {}", textured_mesh->tex_materials.size());
+  ReUseX::core::debug("Number of materials: {}",
+                      textured_mesh->tex_materials.size());
   ReUseX::core::debug("Number of texture polygons: {}",
-                textured_mesh->tex_polygons.size());
+                      textured_mesh->tex_polygons.size());
   ReUseX::core::debug("Number of texture coordinates: {}",
-                textured_mesh->tex_coordinates.size());
+                      textured_mesh->tex_coordinates.size());
 
   pcl::TextureMapping<pcl::PointXYZ> tm;
   tm.textureMeshwithMultipleCameras(*textured_mesh, cameras);
@@ -320,32 +323,34 @@ texture_mesh(pcl::PolygonMesh::Ptr mesh,
     pcl::TexMaterial material;
     material.tex_name = "texture-unassigned";
     material.tex_file = textured_mesh->tex_materials[0].tex_file;
-    ReUseX::core::warn("Number of texture polygons ({}) is greater than number of "
-                 "materials ({}). Adding default material '{}' at {}.",
-                 textured_mesh->tex_polygons.size(),
-                 textured_mesh->tex_materials.size(), material.tex_name,
-                 material.tex_file);
+    ReUseX::core::warn(
+        "Number of texture polygons ({}) is greater than number of "
+        "materials ({}). Adding default material '{}' at {}.",
+        textured_mesh->tex_polygons.size(), textured_mesh->tex_materials.size(),
+        material.tex_name, material.tex_file);
     textured_mesh->tex_materials.push_back(material);
   }
 
-  ReUseX::core::debug("Number of materials: {}", textured_mesh->tex_materials.size());
+  ReUseX::core::debug("Number of materials: {}",
+                      textured_mesh->tex_materials.size());
   ReUseX::core::debug("Number of texture polygons: {}",
-                textured_mesh->tex_polygons.size());
+                      textured_mesh->tex_polygons.size());
   ReUseX::core::debug("Number of texture coordinates: {}",
-                textured_mesh->tex_coordinates.size());
+                      textured_mesh->tex_coordinates.size());
   for (auto [idx, poly_group] :
        textured_mesh->tex_polygons | ranges::views::enumerate) {
     ReUseX::core::debug("  Number of polygons in group {}: {}", idx,
-                  poly_group.size());
+                        poly_group.size());
   }
   ReUseX::core::trace("Nuber of coordinates {}",
-                textured_mesh->tex_coord_indices.size());
+                      textured_mesh->tex_coord_indices.size());
   if (textured_mesh->tex_coord_indices.size() !=
       textured_mesh->tex_polygons.size()) {
-    ReUseX::core::warn("Number of texture coordinate indices ({}) does not match "
-                 "number of texture polygons ({}).",
-                 textured_mesh->tex_coord_indices.size(),
-                 textured_mesh->tex_polygons.size());
+    ReUseX::core::warn(
+        "Number of texture coordinate indices ({}) does not match "
+        "number of texture polygons ({}).",
+        textured_mesh->tex_coord_indices.size(),
+        textured_mesh->tex_polygons.size());
     textured_mesh->tex_coord_indices.resize(textured_mesh->tex_polygons.size());
     for (size_t i = 0; i < textured_mesh->tex_polygons.size(); ++i) {
       textured_mesh->tex_coord_indices[i].resize(

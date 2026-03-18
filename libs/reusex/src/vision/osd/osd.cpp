@@ -1,20 +1,19 @@
-#include <ReUseX/core/logging.hpp>
-#include <ReUseX/vision/osd/cvx_text.hpp>
-#include <ReUseX/vision/osd/labelLayoutSolver.hpp>
-#include <ReUseX/vision/osd/osd.hpp>
+#include "core/logging.hpp"
 #include <filesystem>
 #include <functional>
-#include <memory>
-#include <mutex>
 #include <iomanip>
 #include <iostream>
 #include <limits>
+#include <memory>
+#include <mutex>
 #include <opencv2/opencv.hpp>
 #include <sstream>
 #include <tuple>
 #include <unordered_map>
 #include <vector>
-
+#include "vision/osd/cvx_text.hpp"
+#include "vision/osd/labelLayoutSolver.hpp"
+#include "vision/osd/osd.hpp"
 
 #include <pcl/common/colors.h>
 
@@ -192,7 +191,7 @@ std::filesystem::path getFontPath() {
 }
 
 // Lazy initialization - only create text renderer when first used
-static ReUseX::vision::osd::CvxText& getTextRenderer() {
+static ReUseX::vision::osd::CvxText &getTextRenderer() {
   static std::unique_ptr<ReUseX::vision::osd::CvxText> text_renderer;
   static std::once_flag init_flag;
 
@@ -200,11 +199,13 @@ static ReUseX::vision::osd::CvxText& getTextRenderer() {
     try {
       auto font_path = getFontPath();
       if (!font_path.empty()) {
-        text_renderer = std::make_unique<ReUseX::vision::osd::CvxText>(font_path.string().c_str());
+        text_renderer = std::make_unique<ReUseX::vision::osd::CvxText>(
+            font_path.string().c_str());
       }
-    } catch (const std::exception& e) {
+    } catch (const std::exception &e) {
       // Font loading failed - text renderer will remain null
-      std::cerr << "Warning: Could not initialize text renderer: " << e.what() << std::endl;
+      std::cerr << "Warning: Could not initialize text renderer: " << e.what()
+                << std::endl;
     }
   });
 
@@ -319,8 +320,8 @@ void drawTrackTrace(cv::Mat &img, const common::object::DetectionBox &box,
   }
   std::string text = "ID:" + std::to_string(box.track->track_id);
   getTextRenderer().putText(img, text,
-                        cv::Point(box.box.center_x(), box.box.center_y()),
-                        color, font_size * 0.8);
+                            cv::Point(box.box.center_x(), box.box.center_y()),
+                            color, font_size * 0.8);
 }
 
 void drawPolygon(cv::Mat &img,
@@ -359,7 +360,8 @@ void make_labled_image(cv::Mat &img,
     cv::Mat image_roi = img(roi);
     cv::Mat resized_mask;
     cv::resize(box.segmentation->mask, resized_mask, roi.size());
-    ReUseX::core::debug("Class Id: {}, Class Name: {}", box.class_id, box.class_name);
+    ReUseX::core::debug("Class Id: {}, Class Name: {}", box.class_id,
+                        box.class_name);
     cv::Mat color_patch(roi.size(), img.type(), box.class_id);
     color_patch.copyTo(image_roi, resized_mask);
   }
@@ -367,8 +369,9 @@ void make_labled_image(cv::Mat &img,
 
 void osd(cv::Mat &img, const common::object::DetectionBoxArray &boxes,
          bool osd_rect, double font_scale_ratio) {
-  ReUseX::core::debug("OSD called with {} boxes, osd_rect={}, font_scale_ratio={}",
-                boxes.size(), osd_rect, font_scale_ratio);
+  ReUseX::core::debug(
+      "OSD called with {} boxes, osd_rect={}, font_scale_ratio={}",
+      boxes.size(), osd_rect, font_scale_ratio);
 
   int height = img.rows, width = img.cols;
   const int PAD_X = 2;
@@ -441,7 +444,7 @@ void osd(cv::Mat &img, const common::object::DetectionBoxArray &boxes,
     int text_x = bg_rect.x + PAD_X;
     int text_y = bg_rect.y + PAD_Y + res.textAscent;
     getTextRenderer().putText(img, label_texts[i], cv::Point(text_x, text_y),
-                          label_colors[i], res.fontSize);
+                              label_colors[i], res.fontSize);
   }
 }
 
@@ -459,8 +462,8 @@ void osd(
     drawPolygon(img, pts, color, th);
     if (pts.size() >= 3) {
       auto c = calculatePolygonCentroid(pts);
-      getTextRenderer().putText(img, l, cv::Point(std::get<0>(c), std::get<1>(c)),
-                            color, fs);
+      getTextRenderer().putText(
+          img, l, cv::Point(std::get<0>(c), std::get<1>(c)), color, fs);
     }
   }
 }
@@ -476,16 +479,16 @@ void osd(cv::Mat &img, const std::string &fence_name,
   drawPolygon(img, points, color, th);
   if (points.size() >= 3) {
     auto c = calculatePolygonCentroid(points);
-    getTextRenderer().putText(img, fence_name,
-                          cv::Point(std::get<0>(c), std::get<1>(c)), color, fs);
+    getTextRenderer().putText(
+        img, fence_name, cv::Point(std::get<0>(c), std::get<1>(c)), color, fs);
   }
 }
 
 void osd(cv::Mat &img, const std::tuple<float, float> &position,
          const std::string &text, const cv::Scalar &color, int font_size) {
-  getTextRenderer().putText(img, text,
-                        cv::Point(std::get<0>(position), std::get<1>(position)),
-                        color, font_size);
+  getTextRenderer().putText(
+      img, text, cv::Point(std::get<0>(position), std::get<1>(position)), color,
+      font_size);
 }
 
 } // namespace ReUseX::vision::osd

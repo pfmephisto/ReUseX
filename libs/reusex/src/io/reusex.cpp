@@ -2,15 +2,14 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include <ReUseX/core/logging.hpp>
-#include <ReUseX/io/reusex.hpp>
+#include "core/logging.hpp"
+#include "io/reusex.hpp"
 
 #include <range/v3/action.hpp>
 #include <range/v3/view.hpp>
 
 #include <fmt/format.h>
 #include <fmt/ranges.h>
-
 
 #include <fstream>
 #include <map>
@@ -59,7 +58,7 @@ auto getPlanes(CloudLConstPtr planes, CloudNConstPtr normals,
     unique_labels.erase(0);
 
   ReUseX::core::debug("Found {} unique plane labels: {}", unique_labels.size(),
-                fmt::join(unique_labels, ", "));
+                      fmt::join(unique_labels, ", "));
 
   std::unordered_map<uint32_t, size_t> label_to_index{};
   for (auto [idx, label] : unique_labels | ranges::views::enumerate)
@@ -78,11 +77,12 @@ auto getPlanes(CloudLConstPtr planes, CloudNConstPtr normals,
 
 /**
  * @brief Save plane data to a custom file format.
- * 
+ *
  * Saves plane model coefficients, inlier indices, and centroids to a text file
  * with the .planes extension.
- * 
- * @param output_path Path to output file (extension will be changed to .planes).
+ *
+ * @param output_path Path to output file (extension will be changed to
+ * .planes).
  * @param model_coefficients Plane model coefficients to save.
  * @param centroids Plane centroid positions.
  * @param inlier_indices Indices of points belonging to each plane.
@@ -98,8 +98,9 @@ bool save(
   std::filesystem::path p(output_path);
   p.replace_extension(".planes");
 
-  std::filesystem::exists(p) ? std::filesystem::remove(p)
-                             : std::filesystem::create_directories(p.parent_path());
+  std::filesystem::exists(p)
+      ? std::filesystem::remove(p)
+      : std::filesystem::create_directories(p.parent_path());
 
   const char *version = "# ReUseX file v0.0.1\n";
   const char *header =
@@ -137,10 +138,10 @@ bool save(
 
 /**
  * @brief Read plane data from a custom file format.
- * 
+ *
  * Reads plane model coefficients, inlier indices, and centroids from a
  * text file with the .planes format.
- * 
+ *
  * @param input_path Path to input .planes file.
  * @param model_coefficients Output plane model coefficients.
  * @param centroids Output plane centroid positions.

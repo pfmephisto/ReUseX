@@ -5,7 +5,7 @@
 #include "segment.hpp"
 #include "segment/planes.hpp"
 #include "segment/rooms.hpp"
-#include "spdmon/spdmon.hpp"
+#include "spdmon.hpp"
 
 #include <fmt/format.h>
 #include <fmt/std.h>

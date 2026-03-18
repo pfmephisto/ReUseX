@@ -1,7 +1,7 @@
-#include <ReUseX/vision/common/createObject.hpp>
-#include <ReUseX/vision/common/object.hpp>
 #include <cmath>
 #include <tuple>
+#include "vision/common/createObject.hpp"
+#include "vision/common/object.hpp"
 
 namespace {
 /// @brief Compute the axis-aligned bounding box that tightly encloses an OBB.

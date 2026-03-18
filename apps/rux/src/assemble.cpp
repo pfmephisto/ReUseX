@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "assemble.hpp"
-#include "spdmon/spdmon.hpp"
+#include "spdmon.hpp"
 
 #include <fmt/format.h>
 #include <fmt/ranges.h>
@@ -18,17 +18,17 @@ namespace fs = std::filesystem;
 
 /**
  * @brief Setup CLI options for the assemble subcommand.
- * 
+ *
  * Configures command-line arguments for assembling multiple scans into
  * a single database.
- * 
+ *
  * @param app CLI application to add the subcommand to.
  */
 void setup_subcommand_assemble(CLI::App &app) {
 
   auto opt = std::make_shared<SubcommandAssembleOptions>();
-  auto *sub =
-      app.add_subcommand("assemble", "Assemble multiple scans into a single RTAB-Map database.");
+  auto *sub = app.add_subcommand(
+      "assemble", "Assemble multiple scans into a single RTAB-Map database.");
 
   sub->add_option("path", opt->paths_in, "Path(s) to the input scan file(s).")
       ->required()
@@ -46,10 +46,10 @@ void setup_subcommand_assemble(CLI::App &app) {
 
 /**
  * @brief Execute the assemble operation on multiple scan files.
- * 
+ *
  * Assembles multiple scan files into a single RTABMap-compatible database.
  * Currently not fully implemented.
- * 
+ *
  * @param opt Options containing input file paths and output database path.
  * @return Exit code (RuxError::NOT_IMPLEMENTED currently).
  */
@@ -66,8 +66,9 @@ int run_subcommand_assemble(SubcommandAssembleOptions const &opt) {
 
   // TODO: Implement multi-scan assembly from rtabmap-reprocess reference
   // category=CLI estimate=1w
-  // Need to port logic from RTABMap's reprocess tool to assemble multiple scans:
-  // Reference: https://github.com/introlab/rtabmap/blob/master/tools/Reprocess/main.cpp
+  // Need to port logic from RTABMap's reprocess tool to assemble multiple
+  // scans: Reference:
+  // https://github.com/introlab/rtabmap/blob/master/tools/Reprocess/main.cpp
   // Key steps:
   // 1. Load multiple .db files and extract pose graphs
   // 2. Perform global registration/alignment between scans

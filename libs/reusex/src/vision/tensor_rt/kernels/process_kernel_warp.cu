@@ -1,6 +1,6 @@
-#include <ReUseX/vision/tensor_rt/common/check.hpp>
-#include <ReUseX/vision/tensor_rt/kernels/postprocess.cuh>
-#include <ReUseX/vision/tensor_rt/kernels/process_kernel_warp.hpp>
+#include "vision/tensor_rt/common/check.hpp"
+#include "vision/tensor_rt/kernels/postprocess.cuh"
+#include "vision/tensor_rt/kernels/process_kernel_warp.hpp"
 
 namespace ReUseX::vision::tensor_rt {
 #define GPU_BLOCK_THREADS 512

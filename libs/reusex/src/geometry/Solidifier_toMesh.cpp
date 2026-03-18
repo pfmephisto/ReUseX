@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include <ReUseX/core/logging.hpp>
-#include <ReUseX/geometry/Solidifier.hpp>
+#include "core/logging.hpp"
+#include "geometry/Solidifier.hpp"
 
 /*
 #include <CGAL/Polygon_mesh_processing/corefinement.h>
@@ -25,7 +25,7 @@
 // Forward declaration of internal helper
 namespace ReUseX::geometry {
 std::pair<Eigen::MatrixXd, Eigen::MatrixXi>
-toMesh_impl(const std::shared_ptr<const CellComplex>& cc,
+toMesh_impl(const std::shared_ptr<const CellComplex> &cc,
             std::function<bool(CellComplex::Vertex)> filter);
 }
 
@@ -39,9 +39,9 @@ Solidifier::toMesh(std::function<bool(const Cd)> filter) {
 
 // Internal implementation (has access to CellComplex)
 std::pair<Eigen::MatrixXd, Eigen::MatrixXi>
-toMesh_impl(const std::shared_ptr<const CellComplex>& _cc,
+toMesh_impl(const std::shared_ptr<const CellComplex> &_cc,
             std::function<bool(CellComplex::Vertex)> filter) {
-  
+
   /*
  Mesh mesh;
 
@@ -114,7 +114,7 @@ toMesh_impl(const std::shared_ptr<const CellComplex>& _cc,
 
       if (neighbor_cells.size() > 2)
         ReUseX::core::warn("Face {} has more than two adjacent cells",
-                     (*_cc)[*fit].id);
+                           (*_cc)[*fit].id);
 
       if (neighbor_cells.size() == 2) {
         const auto a = neighbor_cells[0];
@@ -139,8 +139,9 @@ toMesh_impl(const std::shared_ptr<const CellComplex>& _cc,
         for (size_t i = 0; i < verts.size(); ++i) {
           const auto v0 = (*_cc)[verts[i]].pos;
           const auto v1 = (*_cc)[verts[(i + 1) % verts.size()]].pos;
-          face_normal +=
-              (v0 - (*_cc)[*fit].pos).cross(v1 - (*_cc)[*fit].pos).template head<3>();
+          face_normal += (v0 - (*_cc)[*fit].pos)
+                             .cross(v1 - (*_cc)[*fit].pos)
+                             .template head<3>();
         }
         face_normal.normalize();
 
@@ -155,7 +156,8 @@ toMesh_impl(const std::shared_ptr<const CellComplex>& _cc,
 
       // INFO: Create face
       if (verts.size() < 3) {
-        ReUseX::core::error("Face {} has less than 3 vertices", (*_cc)[*fit].id);
+        ReUseX::core::error("Face {} has less than 3 vertices",
+                            (*_cc)[*fit].id);
         continue;
       }
 
@@ -225,7 +227,8 @@ toMesh_impl(const std::shared_ptr<const CellComplex>& _cc,
   // category=Geometry estimate=3h
   // Replace manual index mapping with CGAL property maps and range adaptors.
   // Benefits:
-  // 1. Use CGAL::vertices(mesh) | ranges::to<std::vector> instead of manual loops
+  // 1. Use CGAL::vertices(mesh) | ranges::to<std::vector> instead of manual
+  loops
   // 2. Leverage CGAL vertex/face property maps for cleaner indexing
   // 3. Replace std::unordered_map with CGAL::dynamic_vertex_property_t
   // 4. Use structured bindings for iterator pairs

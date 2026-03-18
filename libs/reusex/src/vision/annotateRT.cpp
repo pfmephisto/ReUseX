@@ -2,17 +2,14 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include <ReUseX/core/logging.hpp>
-#include <ReUseX/vision/BackendFactory.hpp>
-#include <ReUseX/vision/Dataloader.hpp>
-// #include <ReUseX/vision/Dataset.hpp>
-#include <ReUseX/vision/annotate.hpp>
-// #include <ReUseX/vision/infer/sam3infer.hpp>
-#include <ReUseX/vision/utils.hpp>
-
-// #include <fmt/core.h>
-// #include <fmt/ranges.h>
-// #include <spdmon/spdmon.hpp>
+#include "core/logging.hpp"
+#include "core/processing_observer.hpp"
+#include "vision/BackendFactory.hpp"
+#include "vision/Dataloader.hpp"
+// #include "vision/Dataset.hpp"
+#include "vision/annotate.hpp"
+// #include "vision/infer/sam3infer.hpp"
+#include "vision/utils.hpp"
 
 #include <opencv2/core.hpp>
 
@@ -23,8 +20,6 @@
 #endif
 
 #include <pcl/common/colors.h>
-
-#include <spdmon/spdmon.hpp>
 
 #include <range/v3/all.hpp>
 namespace ReUseX::vision {
@@ -56,16 +51,22 @@ auto annotate(const std::filesystem::path &dbPath,
   cv::namedWindow("Annotation", cv::WINDOW_AUTOSIZE);
 #endif
 
-  ReUseX::core::info("Starting annotation with {} batches using {} worker threads",
-               loader.size(), loader.get_num_workers());
+  ReUseX::core::info(
+      "Starting annotation with {} batches using {} worker threads",
+      loader.size(), loader.get_num_workers());
 
   size_t batch_count = 0;
-  // for (auto batch : loader) {
-  for (auto [logger, batch] : spdmon::LogProgress(loader)) {
-    ReUseX::core::trace("Processing batch {}/{} with {} items", ++batch_count,
-                  loader.size(), batch.size());
-    auto results = model->forward(batch);
-    dataset->save(results);
+  {
+    auto observer =
+        ReUseX::core::ProgressObserver("Annotating batches", loader.size());
+    for (auto batch : loader) {
+      // for (auto [logger, batch] : spdmon::LogProgress(loader)) {
+      ReUseX::core::trace("Processing batch {}/{} with {} items", ++batch_count,
+                          loader.size(), batch.size());
+      auto results = model->forward(batch);
+      dataset->save(results);
+      ++observer;
+    }
   }
 
 #ifndef NDEBUG

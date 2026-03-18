@@ -2,13 +2,11 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include <ReUseX/core/logging.hpp>
-#include <ReUseX/types.hpp>
-#include <ReUseX/vision/project.hpp>
-#include <ReUseX/visualize/Visualizer.hpp>
-#include <ReUseX/visualize/pcl.hpp>
-
-#include <spdmon/spdmon.hpp>
+#include "vision/project.hpp"
+#include "core/logging.hpp"
+#include "types.hpp"
+#include "visualize/Visualizer.hpp"
+#include "visualize/pcl.hpp"
 
 #include <range/v3/view/iota.hpp>
 
@@ -111,7 +109,8 @@ auto getLabeledImage(sqlite3_stmt *stmt, int id) -> cv::Mat {
     return labledImage;
   }
 
-  ReUseX::core::trace("Reading blob data for label image id {} from database", id);
+  ReUseX::core::trace("Reading blob data for label image id {} from database",
+                      id);
 
   int idx = 0;
   const void *data = sqlite3_column_blob(stmt, idx);
@@ -135,7 +134,7 @@ auto getLabeledImage(sqlite3_stmt *stmt, int id) -> cv::Mat {
   }
 
   ReUseX::core::debug("Decoded image: {}x{}, channels={}", labledImage.cols,
-                labledImage.rows, labledImage.channels());
+                      labledImage.rows, labledImage.channels());
 
   ReUseX::core::trace("Convert label image to CV_32S");
   labledImage.convertTo(labledImage, CV_32S);
@@ -283,7 +282,7 @@ auto project(const std::filesystem::path &dbPath, CloudConstPtr cloud)
                          "AND name='Segmentation';",
                          -1, &stmt, nullptr) != SQLITE_OK) {
     ReUseX::core::error("No Segmentation table found in database: {}",
-                  sqlite3_errmsg(db_));
+                        sqlite3_errmsg(db_));
     sqlite3_close(db_);
     return labels;
   }
@@ -292,8 +291,9 @@ auto project(const std::filesystem::path &dbPath, CloudConstPtr cloud)
   if (sqlite3_prepare_v2(db_,
                          "SELECT label_image FROM Segmentation WHERE id=?;", -1,
                          &stmt, nullptr) != SQLITE_OK) {
-    ReUseX::core::error("Failed to prepare statement for Segmentation table: {}",
-                  sqlite3_errmsg(db_));
+    ReUseX::core::error(
+        "Failed to prepare statement for Segmentation table: {}",
+        sqlite3_errmsg(db_));
     sqlite3_close(db_);
     return labels;
   }
@@ -328,8 +328,8 @@ auto project(const std::filesystem::path &dbPath, CloudConstPtr cloud)
    */
 
   {
-    auto logger = std::make_shared<spdmon::LoggerProgress>("Projecting labels",
-                                                           poseVector.size());
+    auto observer = std::make_shared<ReUseX::core::ProgressObserver>(
+        "Projecting labels", poseVector.size());
     for (size_t i = 0; i < poseVector.size(); ++i) {
       ReUseX::core::trace("Processing node {}/{}", i + 1, poseVector.size());
 
@@ -356,8 +356,9 @@ auto project(const std::filesystem::path &dbPath, CloudConstPtr cloud)
       // cv::imwrite(tmpPath / fmt::format("labeled_img_{}.png", id),
       //             colorizeLabels(labeledImage));
       if (labeledImage.empty()) {
-        ReUseX::core::warn("No label image for node {}, skipping projection", id);
-        ++(*logger);
+        ReUseX::core::warn("No label image for node {}, skipping projection",
+                           id);
+        ++(*observer);
         continue;
       }
 
@@ -467,11 +468,12 @@ auto project(const std::filesystem::path &dbPath, CloudConstPtr cloud)
           auto pt_cam = rtabmap::util3d::transformPoint(cloud_lf->points[i],
                                                         t_cam.inverse());
           if (pt_cam.z <= 0.0f ||
-              pt_cam.z > 7.0f) // TODO: Make maximum depth threshold configurable
+              pt_cam.z >
+                  7.0f) // TODO: Make maximum depth threshold configurable
             // category=Vision estimate=30m
-            // Hardcoded 7.0m cutoff may not suit all sensors (LiDAR has longer range).
-            // Should add as function parameter or read from config file.
-            // Typical values: 3-5m for depth cameras, 10-30m for LiDAR
+            // Hardcoded 7.0m cutoff may not suit all sensors (LiDAR has longer
+            // range). Should add as function parameter or read from config
+            // file. Typical values: 3-5m for depth cameras, 10-30m for LiDAR
             continue;
 
           auto inv_z = 1.0 / static_cast<double>(pt_cam.z);
@@ -496,7 +498,7 @@ auto project(const std::filesystem::path &dbPath, CloudConstPtr cloud)
         }
       } // end assign labels
 
-      ++(*logger);
+      ++(*observer);
       // cv::imwrite(tmpPath / fmt::format("temp_{}.png", id), temp);
     }
   }

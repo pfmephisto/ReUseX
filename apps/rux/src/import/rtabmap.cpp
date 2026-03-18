@@ -5,7 +5,7 @@
 #include "import/rtabmap.hpp"
 #include "import.hpp"
 
-#include <ReUseX/io/rtabmap.hpp>
+#include <reusex/io/rtabmap.hpp>
 #include <spdlog/spdlog.h>
 #include <tuple>
 

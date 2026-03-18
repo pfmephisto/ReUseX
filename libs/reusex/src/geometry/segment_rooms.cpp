@@ -2,18 +2,18 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include <ReUseX/core/logging.hpp>
-#include <ReUseX/geometry/segment_rooms.hpp>
+#include "geometry/segment_rooms.hpp"
+#include "core/logging.hpp"
 
 #include <stdexcept>
 
 namespace ReUseX::geometry {
 /**
  * @brief Implementation of room segmentation using Markov clustering.
- * 
+ *
  * Segments a point cloud into rooms using Markov clustering based on
  * visual relations between points. Uses uniform sampling and MCL algorithm.
- * 
+ *
  * @param cloud Input point cloud.
  * @param normals Point cloud normals.
  * @param planes Labeled point cloud with plane IDs.
@@ -26,17 +26,10 @@ namespace ReUseX::geometry {
  * @return Labeled point cloud with room assignments.
  */
 auto segment_rooms_impl(const SegmentRoomsRequest &request) -> CloudLPtr {
-  auto *observer = ReUseX::core::get_processing_observer();
-  if (observer) {
-    observer->on_stage_started("segment_rooms:init");
-  }
 
   if (request.cancel_token != nullptr && request.cancel_token->load()) {
     ReUseX::core::warn(
         "segment_rooms: cancellation requested before execution.");
-    if (observer) {
-      observer->on_error("Room segmentation cancelled.");
-    }
     throw std::runtime_error("Room segmentation cancelled.");
   }
 
@@ -84,13 +77,7 @@ auto segment_rooms_impl(const SegmentRoomsRequest &request) -> CloudLPtr {
   for (size_t i = 0; i < labels->points.size(); ++i)
     labels->points[i].label = -1;
 
-  if (observer) {
-    observer->on_stage_started("segment_rooms:cluster");
-  }
   mcl.cluster(*labels);
-  if (observer) {
-    observer->on_progress("segment_rooms:cluster", 1.0F);
-  }
   ReUseX::core::trace("Done clustering");
 
   // Assign the label to all points
@@ -98,9 +85,9 @@ auto segment_rooms_impl(const SegmentRoomsRequest &request) -> CloudLPtr {
   kdtree.setInputCloud(request.cloud, indices);
   IndicesPtr missing_indices(new Indices);
   ReUseX::core::trace("Resizing missing indices to size {}, cloud size: {}, "
-                "indices size: {}",
-                request.cloud->points.size() - indices->size(), request.cloud->points.size(),
-                indices->size());
+                      "indices size: {}",
+                      request.cloud->points.size() - indices->size(),
+                      request.cloud->points.size(), indices->size());
   missing_indices->reserve(request.cloud->points.size() - indices->size());
 
   std::sort(indices->begin(), indices->end());
@@ -118,8 +105,8 @@ auto segment_rooms_impl(const SegmentRoomsRequest &request) -> CloudLPtr {
     const size_t idx = missing_indices->at(i);
     std::vector<int> nn_indices(1);
     std::vector<float> nn_sqr_dists(1);
-    if (kdtree.nearestKSearch(request.cloud->points[idx], 1, nn_indices, nn_sqr_dists) >
-        0) {
+    if (kdtree.nearestKSearch(request.cloud->points[idx], 1, nn_indices,
+                              nn_sqr_dists) > 0) {
       labels->points[idx].label = labels->points[nn_indices[0]].label;
     }
   }

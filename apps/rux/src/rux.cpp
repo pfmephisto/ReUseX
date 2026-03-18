@@ -13,25 +13,38 @@
 #include <texture.hpp>
 #include <view.hpp>
 
-#include <ReUseX/core/logging.hpp>
+#include <reusex/core/logging.hpp>
 #include <reusex/core/version.hpp>
 
 #include <CLI/CLI.hpp>
 #include <algorithm>
 #include <cstdint>
+#include <spdlog/async.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
 
 namespace {
 constexpr int kMaxVerbosity = 3;
-}
+rux::VizualizationObserver g_processing_observer;
+} // namespace
 
 int main(int argc, char **argv) {
-  // Create a new logger with a custom name
-  auto console_logger = spdlog::stdout_color_mt("rux");
+  // Initialize async logger thread pool (lock-free queue, background writer
+  // thread) Queue size: 8192 messages, 1 background thread
+  spdlog::init_thread_pool(8192, 1);
 
-  // Replace the default logger with our custom logger
+  // Create async logger with lock-free queue (no mutex contention)
+  auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+  auto console_logger = std::make_shared<spdlog::async_logger>(
+      "rux", console_sink, spdlog::thread_pool(),
+      spdlog::async_overflow_policy::block);
+
+  // Replace the default logger with our async logger
   spdlog::set_default_logger(console_logger);
+
+  // Set the global processing observer to enable progress reporting and
+  // visualization
+  ReUseX::core::set_processing_observer(&g_processing_observer);
 
   spdlog::set_level(spdlog::level::warn); // Default level
   spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%n] [%^%=7l%$] %v");
@@ -97,10 +110,8 @@ int main(int argc, char **argv) {
       },
       "Show license information");
   app.add_flag(
-         "--visualize",
-         [](std::int64_t count) { rux::enable_processing_observer(count > 0); },
-         "Enable top-level processing observer hooks for GUI/visual "
-         "integrations.")
+         "-D, --visualize", [](bool) { g_processing_observer.start(); },
+         "Enable visualization of processing steps")
       ->default_val(false);
 
   setup_subcommand_assemble(app);
@@ -125,7 +136,17 @@ int main(int argc, char **argv) {
   try {
     app.parse(argc, argv);
   } catch (const CLI::ParseError &e) {
+    spdlog::shutdown(); // Flush async queue before exit
     return app.exit(e);
   }
+
+  if (g_processing_observer.is_active()) {
+    g_processing_observer.wait_for_user();
+  }
+  ReUseX::core::reset_processing_observer();
+  // g_processing_observer.stop();
+
+  // Flush async queue to ensure all logs are written before exit
+  spdlog::shutdown();
   return 0;
 }

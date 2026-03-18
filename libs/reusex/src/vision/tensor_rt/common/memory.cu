@@ -1,6 +1,6 @@
-#include <ReUseX/vision/tensor_rt/common/check.hpp>
-#include <ReUseX/vision/tensor_rt/common/memory.hpp> // Assume the file name is memory.hpp
 #include <cuda_runtime.h>
+#include "vision/tensor_rt/common/check.hpp"
+#include "vision/tensor_rt/common/memory.hpp" // Assume the file name is memory.hpp
 
 namespace ReUseX::vision::tensor_rt::tensor {
 

@@ -125,7 +125,7 @@ auto CellComplex::get_a(Vertex f) const -> CellComplex::Vertex {
     }
   auto id = (*this)[f].id;
   throw std::runtime_error(
-      fmt::format("Face does not have an adjacent cell on side A", id));
+      fmt::format("Face {} does not have an adjacent cell on side A", id));
 }
 
 auto CellComplex::get_b(Vertex f) const -> CellComplex::Vertex {

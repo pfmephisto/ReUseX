@@ -7,6 +7,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <string>
+#include <fmt/format.h>
 
 namespace ReUseX::vision::tensor_rt::nv {
 
@@ -92,14 +93,15 @@ static inline bool check_runtime(cudaError_t e, const char *call, int line,
 namespace ReUseX::vision::tensor_rt {
 
 template <typename... Args>
-constexpr void Assertf(bool cond, const char *fmt, Args... args) {
-  do {
-    if (!(cond)) {
-      ReUseX::core::error("Assert failed 💀. {} in file {}:{}, message: {}",
-                          cond, __FILE__, __LINE__, /*__VA_ARGS__,*/ fmt);
-      abort();
-    }
-  } while (false);
+inline void Assertf(bool cond, const char *fmt, Args &&...args) {
+  if (!cond) {
+    const auto formattedMessage =
+        fmt::format(fmt, std::forward<Args>(args)...);
+    ReUseX::core::error(
+        "Assert failed 💀. in file {}:{}, message: {}",
+        __FILE__, __LINE__, formattedMessage);
+    abort();
+  }
 }
 
 constexpr void Asserts(bool cond, const char *s) {

@@ -5,6 +5,7 @@
 #include <memory>
 #include <queue>
 #include <thread>
+#include <atomic>
 
 // Comsumer Producer Model
 
@@ -21,8 +22,8 @@ template <typename Result, typename Input, typename Model> class Instance {
   std::queue<Item> input_queue_;
   std::mutex queue_lock_;
   std::shared_ptr<std::thread> worker_;
-  volatile bool run_ = false;
-  volatile int max_items_processed_ = 0;
+  std::atomic_bool run_{false};
+  std::atomic_int max_items_processed_{0};
   void *stream_ = nullptr;
 
     public:

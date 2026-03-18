@@ -60,7 +60,8 @@ else()
     list(APPEND COMMON_COMPILER_FLAGS -Wall -Wextra)
     
     # Add support for OpenMP
-    list(APPEND COMMON_COMPILER_FLAGS -fopenmp -lgomp)
+    list(APPEND COMMON_COMPILER_FLAGS -fopenmp)
+    list(APPEND COMMON_LINKER_FLAGS -lgomp)
 
     if (LIN_ENABLE_WERROR)
         # list(APPEND COMMON_COMPILER_FLAGS -Werror)

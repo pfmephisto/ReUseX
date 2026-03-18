@@ -79,10 +79,12 @@ void set_log_handler(LogHandler handler) {
   g_handler_version.fetch_add(1, std::memory_order_release);
 }
 
-void reset_log_handler() { set_log_handler(default_log_handler); }
+void reset_log_handler() { set_log_handler(nullptr); }
 
 void set_log_level(LogLevel level) {
   g_level.store(level, std::memory_order_relaxed);
+  // Bump version so all threads refresh cached log level
+  g_handler_version.fetch_add(1, std::memory_order_release);
 }
 
 auto get_log_level() -> LogLevel {

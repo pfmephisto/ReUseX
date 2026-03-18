@@ -104,7 +104,8 @@ class BackendFactory {
     }
 
     ReUseX::core::warn(
-        "Unknown model file extension: {}. Defaulting to TensorRT.", ext);
+        "Unknown model file extension: {}. Unable to detect backend; returning Backend::Unknown.",
+        ext);
     return Backend::Unknown;
   }
 };

@@ -12,6 +12,8 @@
 #include <pcl/visualization/pcl_visualizer.h>
 
 #include <vector>
+#include <unordered_map>
+#include <set>
 
 namespace ReUseX::visualize {
 

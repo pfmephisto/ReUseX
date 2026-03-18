@@ -18,7 +18,7 @@ float cropbox(cv::Mat &input_image, cv::Mat &output_image,
 
 torch::Tensor xyxy_to_xywh(const torch::Tensor &x);
 torch::Tensor xywh_to_xyxy(const torch::Tensor &x);
-torch::Tensor nms(const torch::Tensor &bboces, const torch::Tensor &scores,
+torch::Tensor nms(const torch::Tensor &bboxes, const torch::Tensor &scores,
                   float iou_threshold = 0.45);
 
 torch::Tensor non_max_suppression(torch::Tensor &predictions,

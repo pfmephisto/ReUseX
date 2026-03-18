@@ -27,10 +27,10 @@ size_t CellComplex::num_vertices() const {
 size_t CellComplex::num_faces() const { return _count<NodeType::Face>(this); }
 size_t CellComplex::num_cells() const { return _count<NodeType::Cell>(this); }
 
-std::ostream &CellComplex::operator<<(std::ostream &os) const {
+std::ostream &operator<<(std::ostream &os, const CellComplex &cc) {
   ReUseX::core::warn("This << operator might change in the future");
-  os << fmt::format("[{}c {}f {}v {}r  {}w]", num_cells(), num_faces(),
-                    num_vertices(), n_rooms, n_walls);
+  os << fmt::format("[{}c {}f {}v {}r  {}w]", cc.num_cells(), cc.num_faces(),
+                    cc.num_vertices(), cc.n_rooms, cc.n_walls);
   return os;
 }
 

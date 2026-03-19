@@ -59,7 +59,11 @@ target_link_libraries(ReUseX_visualization
 # Compiler options
 # -----------------------------------------------
 target_link_libraries(ReUseX_visualization PUBLIC ${COMMON_LINKER_FLAGS})
-target_compile_options(ReUseX_visualization PUBLIC ${COMMON_COMPILER_FLAGS})
+# Apply compiler flags only to C/C++ (visualization has no CUDA files, but keep consistent)
+target_compile_options(ReUseX_visualization PUBLIC
+    $<$<COMPILE_LANGUAGE:CXX>:${COMMON_COMPILER_FLAGS}>
+    $<$<COMPILE_LANGUAGE:C>:${COMMON_COMPILER_FLAGS}>
+)
 
 # -----------------------------------------------
 # Export library information

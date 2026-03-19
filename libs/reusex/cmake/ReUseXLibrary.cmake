@@ -139,7 +139,11 @@ target_link_libraries(ReUseX
 # Compiler options
 # -----------------------------------------------
 target_link_libraries(ReUseX PUBLIC ${COMMON_LINKER_FLAGS})
-target_compile_options(ReUseX PUBLIC ${COMMON_COMPILER_FLAGS})
+# Apply compiler flags only to C/C++, not CUDA (CUDA has its own flags)
+target_compile_options(ReUseX PUBLIC
+    $<$<COMPILE_LANGUAGE:CXX>:${COMMON_COMPILER_FLAGS}>
+    $<$<COMPILE_LANGUAGE:C>:${COMMON_COMPILER_FLAGS}>
+)
 
 # -----------------------------------------------
 # Export library information

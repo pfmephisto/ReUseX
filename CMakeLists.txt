@@ -15,6 +15,17 @@ project(ReUseX
 )
 
 # ===============================================
+# CUDA Flags (must be set early to avoid conflicts)
+# ===============================================
+# Prevent "incompatible redefinition for option 'optimize'" warning from nvcc
+# PyTorch adds -O2 via INTERFACE_COMPILE_OPTIONS, so we match it to avoid conflicts
+# Using -O2 instead of -O3 to prevent "incompatible redefinition" warning
+set(CMAKE_CUDA_FLAGS "" CACHE STRING "Base CUDA compiler flags" FORCE)
+set(CMAKE_CUDA_FLAGS_RELEASE "-DNDEBUG" CACHE STRING "CUDA Release flags (no -O flag, let deps handle it)" FORCE)
+set(CMAKE_CUDA_FLAGS_RELWITHDEBINFO "-g -DNDEBUG" CACHE STRING "CUDA RelWithDebInfo flags" FORCE)
+set(CMAKE_CUDA_FLAGS_DEBUG "-g" CACHE STRING "CUDA Debug flags" FORCE)
+
+# ===============================================
 # Global Settings
 # ===============================================
 

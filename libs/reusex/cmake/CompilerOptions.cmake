@@ -39,8 +39,14 @@ if (CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDeb
         add_compile_options(/O2 /Ob2 /Oi /Ot /GL)
         add_link_options(/LTCG /OPT:REF /OPT:ICF)
     else()
-        # GCC/Clang optimization flags
-        add_compile_options(-O3 -march=native -DNDEBUG)
+        # GCC/Clang optimization flags (only for C/C++, not CUDA)
+        # CUDA uses its own optimization flags via CMAKE_CUDA_FLAGS
+        add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-O3>)
+        add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-march=native>)
+        add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-DNDEBUG>)
+        add_compile_options($<$<COMPILE_LANGUAGE:C>:-O3>)
+        add_compile_options($<$<COMPILE_LANGUAGE:C>:-march=native>)
+        add_compile_options($<$<COMPILE_LANGUAGE:C>:-DNDEBUG>)
         if (CMAKE_BUILD_TYPE STREQUAL "Release")
             # Strip symbols in pure Release mode
             add_link_options(-s)

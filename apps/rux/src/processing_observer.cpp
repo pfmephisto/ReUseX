@@ -20,18 +20,97 @@ constexpr int kViewerSpinTimeoutMs = 100;
 rux::VizualizationObserver g_processing_observer;
 }; // namespace
 
-// Utility to calculate viewport bounds for a given index and total number of
-// viewports
-std::tuple<float, float, float, float> get_viewport_bounds(size_t index,
-                                                           size_t total) {
-  float left = static_cast<float>(index) / static_cast<float>(total);
-  float right = static_cast<float>(index + 1) / static_cast<float>(total);
-  return {left, 0.0f, right, 1.0f};
+/* Utility function to calculate viewport bounds for a given index and total
+ * count. Uses recursive binary space partitioning to split the viewport area.
+ *
+ * @param index Index of the viewport (0-based)
+ * @param total Total number of viewports
+ * @param left Left bound of the current area (default 0.0)
+ * @param top Top bound of the current area (default 0.0)
+ * @param right Right bound of the current area (default 1.0)
+ * @param bottom Bottom bound of the current area (default 1.0)
+ * @param split_horizontal Whether to split horizontally first (default true)
+ * @return Tuple of (left, top, right, bottom) bounds for the specified viewport
+ */
+std::tuple<float, float, float, float>
+get_viewport_bounds(size_t index, size_t total, float left = 0.0f,
+                    float top = 0.0f, float right = 1.0f, float bottom = 1.0f,
+                    bool split_horizontal = true) {
+
+  // Ratio used for odd viewport counts: first viewport gets this much space
+  constexpr float ODD_VIEWPORT_RATIO = 0.6f;
+
+  // Base case: single viewport gets full bounds
+  if (total == 1) {
+    return {left, top, right, bottom};
+  }
+
+  // Even count: binary split
+  if (total % 2 == 0) {
+    size_t half = total / 2;
+
+    if (split_horizontal) {
+      // Split horizontally (left/right regions)
+      float mid = left + (right - left) * 0.5f;
+
+      if (index < half) {
+        // First half: left region, recurse with vertical split
+        return get_viewport_bounds(index, half, left, top, mid, bottom, false);
+      } else {
+        // Second half: right region, recurse with vertical split
+        return get_viewport_bounds(index - half, half, mid, top, right, bottom,
+                                   false);
+      }
+    } else {
+      // Split vertically (top/bottom regions)
+      float mid = top + (bottom - top) * 0.5f;
+
+      if (index < half) {
+        // First half: top region, recurse with horizontal split
+        return get_viewport_bounds(index, half, left, top, right, mid, true);
+      } else {
+        // Second half: bottom region, recurse with horizontal split
+        return get_viewport_bounds(index - half, half, left, mid, right, bottom,
+                                   true);
+      }
+    }
+  }
+
+  // Odd count: first viewport larger (60%), rest split recursively
+  if (index == 0) {
+    // First viewport gets the larger portion
+    if (split_horizontal) {
+      float mid = left + (right - left) * ODD_VIEWPORT_RATIO;
+      return {left, top, mid, bottom};
+    } else {
+      float mid = top + (bottom - top) * ODD_VIEWPORT_RATIO;
+      return {left, top, right, mid};
+    }
+  }
+
+  // Remaining viewports recursively split the smaller region
+  if (split_horizontal) {
+    float mid = left + (right - left) * ODD_VIEWPORT_RATIO;
+    return get_viewport_bounds(index - 1, total - 1, mid, top, right, bottom,
+                               false);
+  } else {
+    float mid = top + (bottom - top) * ODD_VIEWPORT_RATIO;
+    return get_viewport_bounds(index - 1, total - 1, left, mid, right, bottom,
+                               true);
+  }
 }
 
-VizualizationObserver::~VizualizationObserver() { stop_viewer(); }
+VizualizationObserver::~VizualizationObserver() { viewer_stop(); }
 
-// VizualizationObserver
+// ============================================================================
+// Viewer Callbacks
+// ============================================================================
+
+//
+
+// ============================================================================
+// Progress Bar Callbacks
+// ===========================================================================
 void VizualizationObserver::on_process_started(std::string_view process,
                                                size_t total) {
   progress_logger_ = std::make_unique<spdmon::LoggerProgress>(
@@ -47,7 +126,7 @@ void VizualizationObserver::on_process_updated(std::string_view,
   *progress_logger_ += increment;
 }
 
-void VizualizationObserver::start_viewer() {
+void VizualizationObserver::viewer_start() {
   if (running_.load(std::memory_order_acquire)) {
     spdlog::trace("Viewer already running, skipping start");
     return;
@@ -79,7 +158,7 @@ void VizualizationObserver::start_viewer() {
   initialized->wait();
 }
 
-void VizualizationObserver::stop_viewer() {
+void VizualizationObserver::viewer_stop() {
   running_.store(false, std::memory_order_release);
   stop_requested_.store(true, std::memory_order_release);
   if (viz_thread_.joinable()) {
@@ -87,7 +166,7 @@ void VizualizationObserver::stop_viewer() {
   }
 }
 
-bool VizualizationObserver::is_viewer_active() const {
+bool VizualizationObserver::viewer_is_active() const {
   return running_.load(std::memory_order_acquire);
 }
 
@@ -101,7 +180,7 @@ void VizualizationObserver::viewer_wait_for_user() {
   }
 }
 
-void VizualizationObserver::enqueue_viewer_task(VizTask task) {
+void VizualizationObserver::viewer_enqueue_task(VizTask task) {
   if (!running_.load(std::memory_order_acquire)) {
     return;
   }
@@ -109,7 +188,21 @@ void VizualizationObserver::enqueue_viewer_task(VizTask task) {
   task_queue_.push(std::move(task));
 }
 
-void VizualizationObserver::drain_tasks(const ViewerPtr &viewer) {
+void VizualizationObserver::viewer_request_viewports(size_t num_viewports) {
+  if (num_viewports == viewports_.size())
+    return;
+
+  bool is_active = viewer_is_active();
+  if (is_active)
+    viewer_stop();
+
+  viewports_ = std::vector<int>(num_viewports);
+
+  if (is_active)
+    viewer_start();
+}
+
+void VizualizationObserver::viewer_drain_tasks(const ViewerPtr &viewer) {
   std::queue<VizTask> local_tasks;
   {
     std::lock_guard<std::mutex> lock(queue_mutex_);
@@ -127,7 +220,6 @@ void VizualizationObserver::viewer_loop(std::latch &initialized) {
   ViewerPtr viewer = std::make_shared<pcl::visualization::PCLVisualizer>("rux");
 
   // Create viewport
-  viewports_ = std::vector<int>(1);
   for (size_t i = 0; i < viewports_.size(); ++i) {
     auto const [l, t, r, b] = get_viewport_bounds(i, viewports_.size());
     viewer->createViewPort(l, t, r, b, viewports_[i]);
@@ -147,19 +239,20 @@ void VizualizationObserver::viewer_loop(std::latch &initialized) {
 
   while (!stop_requested_.load(std::memory_order_acquire) &&
          !viewer->wasStopped()) {
-    drain_tasks(viewer);
+    viewer_drain_tasks(viewer);
     viewer->spinOnce(kViewerSpinTimeoutMs);
   }
-  drain_tasks(viewer);
+  viewer_drain_tasks(viewer);
+  viewer->close();
   running_.store(false, std::memory_order_release);
 }
 
 void setup_processing_observer() {
   ReUseX::core::set_processing_observer(&g_processing_observer);
 }
-void start_viewer() { g_processing_observer.start_viewer(); }
+void start_viewer() { g_processing_observer.viewer_start(); }
 void wait_for_viewer() {
-  if (g_processing_observer.is_viewer_active()) {
+  if (g_processing_observer.viewer_is_active()) {
     g_processing_observer.viewer_wait_for_user();
   }
 }

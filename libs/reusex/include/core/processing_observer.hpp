@@ -3,9 +3,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #pragma once
+#include "reusex/core/logging.hpp"
 #include "reusex/types.hpp"
 
+#include <fmt/format.h>
 #include <string_view>
+#include <typeinfo>
 
 namespace ReUseX::core {
 
@@ -19,7 +22,27 @@ enum class EventType {
 class IProcessingObserver {
     public:
   virtual ~IProcessingObserver() = default;
+  // Viewer callbacks
+  template <typename T>
+  void viewer_add_geometry(std::string_view name,
+                           [[maybe_unused]] const T &geometry,
+                           std::string_view stage) {
+    // Default implementation: log that geometry type is not handled
+    // This prevents linker errors while providing runtime visibility
+    core::debug("viewer_add_geometry<{}> called for '{}' at stage '{}' "
+                "(no handler registered)",
+                typeid(T).name(), name, stage);
+  }
 
+  template <typename T>
+  void viewer_add_geometries(std::string_view name, const T &geometries,
+                             const std::string_view stage) {
+    for (size_t i = 0; i < geometries.size(); ++i) {
+      viewer_add_geometry(fmt::format("{}_{}", name, i), geometries[i], stage);
+    }
+  }
+
+  // Progress bar callbacks
   virtual void on_process_started(std::string_view, size_t) {}
   virtual void on_process_finished(std::string_view) {}
   virtual void on_process_updated(std::string_view, size_t) {}

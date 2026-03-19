@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "core/processing_observer.hpp"
-#include "core/logging.hpp"
+#include "reusex/core/processing_observer.hpp"
+#include "reusex/core/logging.hpp"
 
 #include <atomic>
 

@@ -20,7 +20,7 @@
 
 namespace ReUseX::geometry {
 pcl::TextureMesh::Ptr texture_mesh_with_cloud(pcl::PolygonMesh::Ptr mesh,
-                                              CloudConstPtr cloud) {
+                                              CloudConstPtr /*cloud*/) {
   ReUseX::core::trace("Entering ReUseX::geometry::texture_mesh_with_cloud");
 
   // Copy cloud and polygons
@@ -120,7 +120,7 @@ pcl::TextureMesh::Ptr texture_mesh_with_cloud(pcl::PolygonMesh::Ptr mesh,
     for (auto &&[idx, mat] :
          textured_mesh->tex_materials | ranges::views::enumerate) {
 
-      const auto &polygons = textured_mesh->tex_polygons[idx];
+      // const auto &polygons = textured_mesh->tex_polygons[idx];
       const Eigen::Vector3f normal{};
       const Eigen::Vector3f center{};
 

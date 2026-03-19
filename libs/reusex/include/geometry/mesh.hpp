@@ -38,11 +38,9 @@ struct MeshOptions {
  * @param viewer Optional visualizer for debugging.
  * @return Generated polygon mesh.
  */
-pcl::PolygonMeshPtr
-mesh(CloudConstPtr cloud, CloudNConstPtr normals,
-     EigenVectorContainer<double, 4> &planes,
-     EigenVectorContainer<double, 3> &centroids,
-     std::vector<IndicesPtr> &inliers, CloudLConstPtr rooms,
-     MeshOptions const opt = MeshOptions{},
-     std::shared_ptr<ReUseX::visualize::Visualizer> viewer = nullptr);
+pcl::PolygonMeshPtr mesh(CloudConstPtr cloud, CloudNConstPtr normals,
+                         EigenVectorContainer<double, 4> &planes,
+                         EigenVectorContainer<double, 3> &centroids,
+                         std::vector<IndicesPtr> &inliers, CloudLConstPtr rooms,
+                         MeshOptions const opt = MeshOptions{});
 } // namespace ReUseX::geometry

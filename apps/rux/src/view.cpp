@@ -98,7 +98,7 @@ load_point_cloud(const fs::path &path, const std::string &name,
     pcl::io::load<PointT>(path.string(), *loaded.cloud);
 
     // Add to viewer
-    observer.enqueue_viewer_task(
+    observer.viewer_enqueue_task(
         [loaded](const rux::VizualizationObserver::ViewerPtr &viewer,
                  const std::vector<int> &viewports) {
           viewer->addPointCloud<PointT>(loaded.cloud, loaded.name,
@@ -148,7 +148,7 @@ std::optional<LoadedMesh> load_mesh(const fs::path &path,
     }
 
     // Add to viewer
-    observer.enqueue_viewer_task(
+    observer.viewer_enqueue_task(
         [loaded](const rux::VizualizationObserver::ViewerPtr &viewer,
                  const std::vector<int> &viewports) {
           viewer->addPolygonMesh(*loaded.mesh, loaded.name, viewports[0]);
@@ -297,9 +297,9 @@ template <> struct ItemTraits<LoadedCloud> {
     viewer->addPointCloud<PointT>(item.cloud, item.name, viewport);
   }
 
-  static void remove_from_viewer(
-      const rux::VizualizationObserver::ViewerPtr &viewer,
-      const std::string &name) {
+  static void
+  remove_from_viewer(const rux::VizualizationObserver::ViewerPtr &viewer,
+                     const std::string &name) {
     viewer->removePointCloud(name);
   }
 };
@@ -314,9 +314,9 @@ template <> struct ItemTraits<LoadedMesh> {
     viewer->addPolygonMesh(*item.mesh, item.name, viewport);
   }
 
-  static void remove_from_viewer(
-      const rux::VizualizationObserver::ViewerPtr &viewer,
-      const std::string &name) {
+  static void
+  remove_from_viewer(const rux::VizualizationObserver::ViewerPtr &viewer,
+                     const std::string &name) {
     viewer->removePolygonMesh(name);
   }
 };
@@ -338,7 +338,7 @@ void register_individual_toggles(std::vector<LoadedItem> &items,
   if (items.empty())
     return;
 
-  observer.enqueue_viewer_task(
+  observer.viewer_enqueue_task(
       [&items, &observer](const rux::VizualizationObserver::ViewerPtr &viewer,
                           const std::vector<int> &) {
         viewer->registerKeyboardCallback(
@@ -350,7 +350,7 @@ void register_individual_toggles(std::vector<LoadedItem> &items,
                     event.keyDown()) {
                   items[i].visible = !items[i].visible;
                   if (items[i].visible) {
-                    observer.enqueue_viewer_task(
+                    observer.viewer_enqueue_task(
                         [i, &items](
                             const rux::VizualizationObserver::ViewerPtr &viewer,
                             const std::vector<int> &viewports) {
@@ -358,7 +358,7 @@ void register_individual_toggles(std::vector<LoadedItem> &items,
                         });
                     spdlog::info("{} {} shown", Traits::type_name, i);
                   } else {
-                    observer.enqueue_viewer_task(
+                    observer.viewer_enqueue_task(
                         [i, &items](
                             const rux::VizualizationObserver::ViewerPtr &viewer,
                             const std::vector<int> &) {
@@ -385,7 +385,7 @@ void register_toggle_all_callback(std::vector<LoadedItem> &items,
   if (items.empty())
     return;
 
-  observer.enqueue_viewer_task(
+  observer.viewer_enqueue_task(
       [&items, &observer](const rux::VizualizationObserver::ViewerPtr &viewer,
                           const std::vector<int> &) {
         viewer->registerKeyboardCallback(
@@ -404,7 +404,7 @@ void register_toggle_all_callback(std::vector<LoadedItem> &items,
                 // Toggle all items
                 for (size_t i = 0; i < items.size(); ++i) {
                   if (all_visible) {
-                    observer.enqueue_viewer_task(
+                    observer.viewer_enqueue_task(
                         [i, &items](
                             const rux::VizualizationObserver::ViewerPtr &viewer,
                             const std::vector<int> &) {
@@ -412,7 +412,7 @@ void register_toggle_all_callback(std::vector<LoadedItem> &items,
                           items[i].visible = false;
                         });
                   } else {
-                    observer.enqueue_viewer_task(
+                    observer.viewer_enqueue_task(
                         [i, &items](
                             const rux::VizualizationObserver::ViewerPtr &viewer,
                             const std::vector<int> &viewports) {
@@ -437,7 +437,7 @@ void register_label_toggles(
     const std::vector<pcl::PointCloud<pcl::PointXYZL>::Ptr> &label_clouds,
     std::shared_ptr<ViewerState> state, rux::VizualizationObserver &observer) {
   for (size_t i = 0; i < label_clouds.size() && i < 9; ++i) {
-    observer.enqueue_viewer_task([i, &observer, &label_clouds, state](
+    observer.viewer_enqueue_task([i, &observer, &label_clouds, state](
                                      const rux::VizualizationObserver::ViewerPtr
                                          &viewer,
                                      const std::vector<int> &) {
@@ -450,7 +450,7 @@ void register_label_toggles(
               // Toggle this label view
               if (static_cast<int>(i) == state->current_label) {
                 // Already showing this label, turn it off
-                observer.enqueue_viewer_task(
+                observer.viewer_enqueue_task(
                     [cloud_name,
                      state](const rux::VizualizationObserver::ViewerPtr &viewer,
                             const std::vector<int> &) {
@@ -461,7 +461,7 @@ void register_label_toggles(
               } else {
                 // Remove previous label if any
                 if (state->current_label >= 0) {
-                  observer.enqueue_viewer_task(
+                  observer.viewer_enqueue_task(
                       [state](
                           const rux::VizualizationObserver::ViewerPtr &viewer,
                           const std::vector<int> &) {
@@ -471,7 +471,7 @@ void register_label_toggles(
                 }
 
                 // Add new label
-                observer.enqueue_viewer_task(
+                observer.viewer_enqueue_task(
                     [i, &label_clouds, cloud_name,
                      state](const rux::VizualizationObserver::ViewerPtr &viewer,
                             const std::vector<int> &viewports) {
@@ -505,7 +505,7 @@ void register_help_callback(
     const std::vector<LoadedMesh> &meshes,
     const std::vector<pcl::PointCloud<pcl::PointXYZL>::Ptr> &label_clouds,
     rux::VizualizationObserver &observer) {
-  observer.enqueue_viewer_task(
+  observer.viewer_enqueue_task(
       [&clouds, &meshes,
        &label_clouds](const rux::VizualizationObserver::ViewerPtr &viewer,
                       const std::vector<int> &) {

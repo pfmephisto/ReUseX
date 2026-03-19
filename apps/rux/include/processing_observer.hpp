@@ -22,21 +22,31 @@ class VizualizationObserver final : public ReUseX::core::IProcessingObserver {
 
   ~VizualizationObserver() override;
 
+  // Viewer callbacks
+
+  // Default implementation does nothing - users can override this method to add
+  template <typename T>
+  void viewer_add_geometry(std::string_view /*name*/, const T & /*geometry*/,
+                           std::string_view /*stage*/) {};
+
+  // Progress bar callbacks
   void on_process_started(std::string_view process, size_t total) override;
   void on_process_finished(std::string_view) override;
   void on_process_updated(std::string_view, size_t increment) override;
 
-  void start_viewer();
-  void stop_viewer();
-  bool is_viewer_active() const;
+  // Viewer control methods
+  void viewer_start();
+  void viewer_stop();
+  bool viewer_is_active() const;
   void viewer_wait_for_user();
-  void enqueue_viewer_task(VizTask task);
+  void viewer_enqueue_task(VizTask task);
+  void viewer_request_viewports(size_t num_viewports);
 
     private:
-  void drain_tasks(const ViewerPtr &viewer);
+  void viewer_drain_tasks(const ViewerPtr &viewer);
   void viewer_loop(std::latch &initialized);
 
-  std::vector<int> viewports_;
+  std::vector<int> viewports_ = std::vector<int>(1);
   std::thread viz_thread_;
   std::queue<VizTask> task_queue_;
   std::mutex queue_mutex_;

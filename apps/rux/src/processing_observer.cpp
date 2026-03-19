@@ -17,16 +17,25 @@
 namespace rux {
 namespace {
 constexpr int kViewerSpinTimeoutMs = 100;
-};
+rux::VizualizationObserver g_processing_observer;
+}; // namespace
+
+// Utility to calculate viewport bounds for a given index and total number of
+// viewports
+std::tuple<float, float, float, float> get_viewport_bounds(size_t index,
+                                                           size_t total) {
+  float left = static_cast<float>(index) / static_cast<float>(total);
+  float right = static_cast<float>(index + 1) / static_cast<float>(total);
+  return {left, 0.0f, right, 1.0f};
+}
+
+VizualizationObserver::~VizualizationObserver() { stop_viewer(); }
 
 // VizualizationObserver
-
 void VizualizationObserver::on_process_started(std::string_view process,
                                                size_t total) {
   progress_logger_ = std::make_unique<spdmon::LoggerProgress>(
       fmt::format("Processing: {}", process), total);
-  // spdlog::info("Processing started: {}", process);
-  // enqueue_status(fmt::format("Process: {}", process));
 }
 
 void VizualizationObserver::on_process_finished(std::string_view) {
@@ -38,7 +47,12 @@ void VizualizationObserver::on_process_updated(std::string_view,
   *progress_logger_ += increment;
 }
 
-void VizualizationObserver::start() {
+void VizualizationObserver::start_viewer() {
+  if (running_.load(std::memory_order_acquire)) {
+    spdlog::trace("Viewer already running, skipping start");
+    return;
+  }
+
   spdlog::trace("Starting visualization observer thread");
   if (viz_thread_.joinable()) {
     spdlog::trace(
@@ -65,7 +79,7 @@ void VizualizationObserver::start() {
   initialized->wait();
 }
 
-void VizualizationObserver::stop() {
+void VizualizationObserver::stop_viewer() {
   running_.store(false, std::memory_order_release);
   stop_requested_.store(true, std::memory_order_release);
   if (viz_thread_.joinable()) {
@@ -73,11 +87,11 @@ void VizualizationObserver::stop() {
   }
 }
 
-bool VizualizationObserver::is_active() const {
+bool VizualizationObserver::is_viewer_active() const {
   return running_.load(std::memory_order_acquire);
 }
 
-void VizualizationObserver::wait_for_user() {
+void VizualizationObserver::viewer_wait_for_user() {
   spdlog::trace("Waiting for user to close visualization");
   if (running_.load(std::memory_order_acquire) && viz_thread_.joinable()) {
     spdlog::info("Visualization window open. Close it to exit the program.");
@@ -87,37 +101,7 @@ void VizualizationObserver::wait_for_user() {
   }
 }
 
-VizualizationObserver::~VizualizationObserver() { stop(); }
-
-void VizualizationObserver::enqueue_status(std::string message) {
-  enqueue_task([message = std::move(message)](const ViewerPtr &viewer) {
-    viewer->removeShape("reusex_status");
-    viewer->addText(message, 10, 10, 16.0, 1.0, 1.0, 1.0, "reusex_status");
-  });
-}
-
-void VizualizationObserver::enqueue_progress(std::string message) {
-  enqueue_task([message = std::move(message)](const ViewerPtr &viewer) {
-    viewer->removeShape("reusex_progress");
-    viewer->addText(message, 10, 30, 16.0, 0.6, 0.9, 1.0, "reusex_progress");
-  });
-}
-
-void VizualizationObserver::enqueue_warning(std::string message) {
-  enqueue_task([message = std::move(message)](const ViewerPtr &viewer) {
-    viewer->removeShape("reusex_warning");
-    viewer->addText(message, 10, 50, 16.0, 1.0, 0.8, 0.0, "reusex_warning");
-  });
-}
-
-void VizualizationObserver::enqueue_error(std::string message) {
-  enqueue_task([message = std::move(message)](const ViewerPtr &viewer) {
-    viewer->removeShape("reusex_error");
-    viewer->addText(message, 10, 70, 16.0, 1.0, 0.2, 0.2, "reusex_error");
-  });
-}
-
-void VizualizationObserver::enqueue_task(VizTask task) {
+void VizualizationObserver::enqueue_viewer_task(VizTask task) {
   if (!running_.load(std::memory_order_acquire)) {
     return;
   }
@@ -133,7 +117,7 @@ void VizualizationObserver::drain_tasks(const ViewerPtr &viewer) {
   }
 
   while (!local_tasks.empty()) {
-    local_tasks.front()(viewer);
+    local_tasks.front()(viewer, viewports_);
     local_tasks.pop();
   }
 }
@@ -141,9 +125,24 @@ void VizualizationObserver::drain_tasks(const ViewerPtr &viewer) {
 void VizualizationObserver::viewer_loop(std::latch &initialized) {
   spdlog::trace("Initializing PCLVisualizer in viewer loop");
   ViewerPtr viewer = std::make_shared<pcl::visualization::PCLVisualizer>("rux");
-  viewer->setBackgroundColor(0, 0, 0);
-  viewer->addCoordinateSystem(1.0);
+
+  // Create viewport
+  viewports_ = std::vector<int>(1);
+  for (size_t i = 0; i < viewports_.size(); ++i) {
+    auto const [l, t, r, b] = get_viewport_bounds(i, viewports_.size());
+    viewer->createViewPort(l, t, r, b, viewports_[i]);
+    viewer->setBackgroundColor(255, 255, 255, viewports_[i]);
+    viewer->addCoordinateSystem(1.0, fmt::format("vp{}", i), viewports_[i]);
+  }
+
+  // Initialize camera with proper orientation (fix upside-down issue)
   viewer->initCameraParameters();
+  viewer->setCameraPosition(0, 0, 10, // Camera position
+                            0, 0, 0,  // Look at point
+                            0, -1,
+                            0); // Up vector (negative Y to fix orientation)
+
+  // Notify that viewer is initialized and ready
   initialized.count_down();
 
   while (!stop_requested_.load(std::memory_order_acquire) &&
@@ -155,4 +154,16 @@ void VizualizationObserver::viewer_loop(std::latch &initialized) {
   running_.store(false, std::memory_order_release);
 }
 
+void setup_processing_observer() {
+  ReUseX::core::set_processing_observer(&g_processing_observer);
+}
+void start_viewer() { g_processing_observer.start_viewer(); }
+void wait_for_viewer() {
+  if (g_processing_observer.is_viewer_active()) {
+    g_processing_observer.viewer_wait_for_user();
+  }
+}
+VizualizationObserver &get_processing_observer() {
+  return g_processing_observer;
+}
 } // namespace rux

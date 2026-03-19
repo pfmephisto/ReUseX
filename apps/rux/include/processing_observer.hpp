@@ -17,28 +17,26 @@ namespace rux {
 class VizualizationObserver final : public ReUseX::core::IProcessingObserver {
     public:
   using ViewerPtr = std::shared_ptr<pcl::visualization::PCLVisualizer>;
-  using VizTask = std::function<void(const ViewerPtr &)>;
+  using VizTask =
+      std::function<void(const ViewerPtr &, const std::vector<int> &viewports)>;
+
+  ~VizualizationObserver() override;
 
   void on_process_started(std::string_view process, size_t total) override;
   void on_process_finished(std::string_view) override;
   void on_process_updated(std::string_view, size_t increment) override;
 
-  void start();
-  void stop();
-  bool is_active() const;
-  void wait_for_user();
-
-  ~VizualizationObserver() override;
+  void start_viewer();
+  void stop_viewer();
+  bool is_viewer_active() const;
+  void viewer_wait_for_user();
+  void enqueue_viewer_task(VizTask task);
 
     private:
-  void enqueue_status(std::string message);
-  void enqueue_progress(std::string message);
-  void enqueue_warning(std::string message);
-  void enqueue_error(std::string message);
-  void enqueue_task(VizTask task);
   void drain_tasks(const ViewerPtr &viewer);
   void viewer_loop(std::latch &initialized);
 
+  std::vector<int> viewports_;
   std::thread viz_thread_;
   std::queue<VizTask> task_queue_;
   std::mutex queue_mutex_;
@@ -47,6 +45,10 @@ class VizualizationObserver final : public ReUseX::core::IProcessingObserver {
   std::unique_ptr<spdmon::LoggerProgress> progress_logger_;
 };
 
-// void enable_processing_observer(bool enabled);
+void setup_processing_observer();
+void start_viewer();
+void wait_for_viewer();
 
+// Return non-owning reference to the global processing observer instance
+VizualizationObserver &get_processing_observer();
 } // namespace rux

@@ -26,7 +26,7 @@ auto get_processing_observer() -> IProcessingObserver * {
   return g_processing_observer.load(std::memory_order_acquire);
 }
 
-ProgressObserver::ProgressObserver(std::string_view stage, size_t total)
+ProgressObserver::ProgressObserver(Stage stage, size_t total)
     : stage_(stage), total_(total) {
   if (auto *observer = get_processing_observer())
     observer->on_process_started(stage, total);

@@ -32,26 +32,9 @@ pcl::PolygonMeshPtr mesh(CloudConstPtr cloud, CloudNConstPtr normals,
                          MeshOptions const opt) {
 
   auto observer = ReUseX::core::get_processing_observer();
-  constexpr std::string_view stage_name = "Mesh Generation";
+  constexpr auto stage = ReUseX::core::Stage::MeshGeneration;
 
-  // TODO: Set up calls to observer
-
-  // std::shared_ptr<const std::vector<int>> vps = nullptr;
-
-  // if (viewer) {
-  //   vps = viewer->getViewports();
-  //   if (vps->size() < 4) {
-  //     ReUseX::core::warn(
-  //         "Visualizer has less than 4 viewports defined, disabling "
-  //         "visualization");
-  //     viewer = nullptr;
-  //   }
-  // }
-
-  // if (viewer) {
-  //   viewer->addPointCloud(cloud, "cloud", vps->at(0));
-  //   viewer->resetCameraViewpoint("cloud");
-  // }
+  observer->viewer_add_geometry("input_cloud", cloud, stage);
 
   planes = regularizePlanes<double, PointT>(planes, cloud, inliers, 10.0);
 
@@ -79,49 +62,43 @@ pcl::PolygonMeshPtr mesh(CloudConstPtr cloud, CloudNConstPtr normals,
   ReUseX::core::debug("Vertical planes [{}]", fmt::join(vertical, ", "));
   ReUseX::core::debug("Horizontal planes [{}]", fmt::join(horizontal, ", "));
 
-  observer->viewer_add_geometries("planes", planes, stage_name);
+  auto sel = [&](size_t idx) {
+    return std::make_pair(planes[idx], centroids[idx]);
+  };
 
-  // if (viewer) {
-  //   auto sel = [&](size_t idx) {
-  //     return std::make_pair(planes[idx], centroids[idx]);
-  //   };
+  auto vPlanes =
+      vertical | ranges::views::transform(sel) | ranges::to<std::vector>();
 
-  //   auto vertical_planes =
-  //       vertical | ranges::views::transform(sel) |
-  //       ranges::to<std::vector>();
-  //   viewer->addPlanes(vertical_planes, "vertical_planes", vps->at(0));
+  auto hPlanes =
+      horizontal | ranges::views::transform(sel) | ranges::to<std::vector>();
 
-  //   auto horizontal_planes =
-  //       horizontal | ranges::views::transform(sel) |
-  //       ranges::to<std::vector>();
-  //   viewer->addPlanes(horizontal_planes, "horizontal_planes",
-  //   vps->at(0));
+  auto pPairs = pairs | ranges::views::transform([&](auto const &p) {
+                  return std::make_pair(sel(p.first), sel(p.second));
+                }) |
+                ranges::to<std::vector>();
 
-  //   auto plane_pairs = pairs | ranges::views::transform([&](auto
-  //   const &p) {
-  //                        return std::make_pair(sel(p.first),
-  //                        sel(p.second));
-  //                      }) |
-  //                      ranges::to<std::vector>();
-  //   viewer->addPlanePairs(plane_pairs, "plain_pairs",
-  //   vps->at(0));
-  // }
+  observer->viewer_add_geometries("vertical_planes", vPlanes, stage);
+  observer->viewer_add_geometries("horizontal_planes", hPlanes, stage);
+  observer->viewer_add_geometries("plane_pairs", pPairs, stage);
+
+  // viewer->addPlanes(vertical_planes, "vertical_planes", vps->at(0));
+  // viewer->addPlanes(horizontal_planes, "horizontal_planes", vps->at(0));
+  // viewer->addPlanePairs(plane_pairs, "plain_pairs", vps->at(0));
 
   PointT min, max;
   pcl::getMinMax3D(*cloud, min, max);
 
   // INFO: Display floors
-  // if (viewer) {
-  //   auto heights =
-  //       horizontal |
-  //       ranges::views::transform([&](auto idx) { return planes[idx][2]; }) |
-  //       ranges::to<std::vector>();
-  //   Eigen::Vector3d min_vec(min.x, min.y, min.z);
-  //   Eigen::Vector3d max_vec(max.x, max.y, max.z);
-  //   min_vec -= Eigen::Vector3d::Ones();
-  //   max_vec += Eigen::Vector3d::Ones();
-  //   viewer->addFloors(heights, min_vec, max_vec, "floor", vps->at(0));
-  // }
+  auto heights =
+      horizontal |
+      ranges::views::transform([&](auto idx) { return planes[idx][2]; }) |
+      ranges::to<std::vector>();
+  Eigen::Vector3d min_vec(min.x, min.y, min.z);
+  Eigen::Vector3d max_vec(max.x, max.y, max.z);
+  min_vec -= Eigen::Vector3d::Ones();
+  max_vec += Eigen::Vector3d::Ones();
+  observer->viewer_add_geometries("floors", heights, stage);
+  // viewer->addFloors(heights, min_vec, max_vec, "floor", vps->at(0));
 
   // // auto viz_callback = [&queue_mutex, &task_queue,
   // //                      vp_2](size_t idx,
@@ -178,8 +155,8 @@ pcl::PolygonMeshPtr mesh(CloudConstPtr cloud, CloudNConstPtr normals,
   //   vps->at(2));
 
   cc->compute_face_coverage<PointT>(cloud, planes, inliers);
-  // // INFO: Display room probabilities
-  // if (viewer)
+  // INFO: Display room probabilities
+  observer->viewer_add_geometry("cell_complex", *cc, stage);
   //   viewer->addRoomProbabilities(cc, "room_probablilites", vps->at(2));
 
   ReUseX::core::debug("Cell complex: {}", *cc);
@@ -192,8 +169,9 @@ pcl::PolygonMeshPtr mesh(CloudConstPtr cloud, CloudNConstPtr normals,
     ReUseX::core::warn("Solidification failed to find a solution");
 
   // INFO: Display results
-  // if (results.has_value() && viewer)
-  //   viewer->addRooms(cc, results.value(), "rooms", vps->at(3));
+  if (results.has_value())
+    observer->viewer_add_geometry("rooms", results.value(), stage);
+  // viewer->addRooms(cc, results.value(), "rooms", vps->at(3));
 
   pcl::PolygonMeshPtr mesh(new pcl::PolygonMesh());
   if (results) {

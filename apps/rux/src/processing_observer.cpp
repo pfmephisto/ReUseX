@@ -106,22 +106,123 @@ VizualizationObserver::~VizualizationObserver() { viewer_stop(); }
 // Viewer Callbacks
 // ============================================================================
 
-//
+void VizualizationObserver::viewer_add_plane(std::string_view name,
+                                             const Eigen::Vector4d &plane,
+                                             ReUseX::core::Stage stage,
+                                             int /*idx*/) {
+  if (!viewer_is_active())
+    return;
+
+  viewer_enqueue_task(
+      [name = std::string(name), plane](const ViewerPtr & /*viewer*/,
+                                        const std::vector<int> & /*viewports*/) {
+        // int vp = viewports.empty() ? 0 : viewports[0];
+
+        // TODO: Implement plane visualization
+
+        // auto sel = [&](size_t idx) {
+        //   return std::make_pair(planes[idx], centroids[idx]);
+        // };
+
+        // auto vertical_planes = vertical | ranges::views::transform(sel) |
+        //                        ranges::to<std::vector>();
+        // viewer->addPlanes(vertical_planes, "vertical_planes", vps->at(0));
+
+        // auto horizontal_planes = horizontal | ranges::views::transform(sel) |
+        //                          ranges::to<std::vector>();
+        // viewer->addPlanes(horizontal_planes, "horizontal_planes",
+        // vps->at(0));
+
+        // auto plane_pairs = pairs | ranges::views::transform([&](auto const
+        // &p) {
+        //                      return std::make_pair(sel(p.first),
+        //                      sel(p.second));
+        //                    }) |
+        //                    ranges::to<std::vector>();
+        // viewer->addPlanePairs(plane_pairs, "plain_pairs", vps->at(0));
+      });
+}
+
+void VizualizationObserver::viewer_add_plane(std::string_view name,
+                                             const Pair &plane,
+                                             ReUseX::core::Stage stage, int idx) {
+  // Check if viewer is active before proceeding
+  if (!viewer_is_active())
+    return;
+
+  // Check if we want this to be added to a specific viewport based on stage and
+  // index
+  int vp = viewports_.empty() ? 0 : viewports_[0];
+  if (stage == ReUseX::core::Stage::Default) {
+    if (viewports_.size() == 4)
+      vp = viewports_[0];
+  }
+
+  // Set the color based on the index using Glasbey LUT for better visibility
+  const size_t n_colors = pcl::GlasbeyLUT::size();
+  auto color = pcl::GlasbeyLUT::at(idx % n_colors);
+
+  pcl::ModelCoefficients coeffs;
+  coeffs.values = {
+      static_cast<float>(plane.first[0]), static_cast<float>(plane.first[1]),
+      static_cast<float>(plane.first[2]), static_cast<float>(plane.first[3])};
+
+  viewer_enqueue_task([name = std::string(name), coeffs, color,
+                       vp](const ViewerPtr &viewer, const std::vector<int> &) {
+    viewer->addPlane(coeffs, fmt::format("{}_plane", name), vp);
+    viewer->setShapeRenderingProperties(
+        pcl::visualization::PCL_VISUALIZER_COLOR,
+        static_cast<double>(color.r) / 255.0,
+        static_cast<double>(color.g) / 255.0,
+        static_cast<double>(color.b) / 255.0, std::string{name}, vp);
+  });
+}
+
+void VizualizationObserver::viewer_add_plane_pair(std::string_view name,
+                                                  const PlanePair &pair,
+                                                  ReUseX::core::Stage stage,
+                                                  int idx) {
+  if (!viewer_is_active())
+    return;
+}
+
+void VizualizationObserver::viewer_add_cell_complex(
+    std::string_view name,
+    const std::shared_ptr<ReUseX::geometry::CellComplex> &cc,
+    ReUseX::core::Stage stage, int idx) {
+  if (!viewer_is_active())
+    return;
+}
+
+void VizualizationObserver::viewer_add_cloud(std::string_view name,
+                                             const ReUseX::CloudConstPtr &cloud,
+                                             ReUseX::core::Stage stage, int idx) {
+  if (!viewer_is_active())
+    return;
+
+  // viewer_enqueue_task(
+  //     [name = std::string(name), cloud,
+  //      stage = std::string(stage)](const ViewerPtr &viewer,
+  //                                  const std::vector<int> &viewports) {
+  //       int vp = viewports.empty() ? 0 : viewports[0];
+  //       viewer->addPointCloud(cloud, fmt::format("{}_cloud", name), vp);
+  //     });
+}
 
 // ============================================================================
 // Progress Bar Callbacks
 // ===========================================================================
-void VizualizationObserver::on_process_started(std::string_view process,
+void VizualizationObserver::on_process_started(ReUseX::core::Stage stage,
                                                size_t total) {
   progress_logger_ = std::make_unique<spdmon::LoggerProgress>(
-      fmt::format("Processing: {}", process), total);
+      fmt::format("Processing: {}", ReUseX::core::to_string(stage)), total);
 }
 
-void VizualizationObserver::on_process_finished(std::string_view) {
+void VizualizationObserver::on_process_finished(ReUseX::core::Stage) {
   progress_logger_.reset();
 }
 
-void VizualizationObserver::on_process_updated(std::string_view,
+void VizualizationObserver::on_process_updated(ReUseX::core::Stage,
                                                size_t increment) {
   *progress_logger_ += increment;
 }

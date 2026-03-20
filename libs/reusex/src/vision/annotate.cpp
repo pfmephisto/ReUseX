@@ -292,8 +292,8 @@ auto annotateRTABMap(const std::filesystem::path &dbPath,
 
   {
     ReUseX::core::info("Starting annotation of {} batches", num_batches);
-    auto observer =
-        ReUseX::core::ProgressObserver("Processing batch", num_batches);
+    auto observer = ReUseX::core::ProgressObserver(
+        ReUseX::core::Stage::ProcessingBatch, num_batches);
 
     for (torch::data::Example<> &batch : *dataloader) {
       torch::Tensor data = batch.data.to(device);

@@ -48,7 +48,7 @@ cmake -B "$BUILD_DIR" \
     -DCMAKE_BUILD_TYPE=Debug \
     -DENABLE_COVERAGE=ON \
     -DBUILD_TESTS=ON \
-    -DBUILD_VISUALIZATION=OFF
+    -DBUILD_VISUALIZATION=ON
 
 # Build
 echo -e "${YELLOW}Building...${NC}"

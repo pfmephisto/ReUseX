@@ -39,8 +39,8 @@ HTML_DIR="$BUILD_DIR/coverage_html"
 cd "$PROJECT_ROOT"
 
 # Clean previous build
-#echo -e "${YELLOW}Cleaning previous build...${NC}"
-#rm -rf "$BUILD_DIR"
+echo -e "${YELLOW}Cleaning previous build...${NC}"
+rm -rf "$BUILD_DIR"
 
 # Configure with coverage
 echo -e "${YELLOW}Configuring with coverage enabled...${NC}"

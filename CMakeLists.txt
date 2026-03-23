@@ -66,6 +66,21 @@ endif()
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
 # ===============================================
+# Coverage Support (must be set before library)
+# ===============================================
+option(ENABLE_COVERAGE "Enable code coverage" OFF)
+if(ENABLE_COVERAGE)
+    message(STATUS "Code coverage enabled")
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        # These flags will be inherited by all targets
+        add_compile_options(--coverage)
+        add_link_options(--coverage)
+    else()
+        message(WARNING "Coverage only supported with GCC or Clang")
+    endif()
+endif()
+
+# ===============================================
 # Build Subprojects
 # ===============================================
 

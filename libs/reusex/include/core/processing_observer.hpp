@@ -30,7 +30,8 @@ class IVisualObserver : IObserver {};
 class IProgressObserver_new : IObserver {};
 
 // TODO: Refactor to separate visualization and progress observers
-[[deprecated]] class IProcessingObserver {
+class [[deprecated("Migrate to using IVisulaObserver and "
+                   "IProgressObserver_new")]] IProcessingObserver {
     public:
   virtual ~IProcessingObserver() = default;
 
@@ -40,8 +41,8 @@ class IProgressObserver_new : IObserver {};
   // Viewer callbacks
   template <typename T>
   void viewer_add_geometry(std::string_view name,
-                           [[maybe_unused]] const T &geometry,
-                           Stage stage, int idx = 0) {
+                           [[maybe_unused]] const T &geometry, Stage stage,
+                           int idx = 0) {
     // Special case: if T is Eigen::Vector4d, use virtual dispatch
     if constexpr (std::is_same_v<T, Eigen::Vector4d>) {
       viewer_add_plane(name, geometry, stage, idx);
@@ -76,7 +77,7 @@ class IProgressObserver_new : IObserver {};
   // Virtual method for specific geometry types (can be overridden)
   virtual void viewer_add_plane(std::string_view name,
                                 [[maybe_unused]] const Eigen::Vector4d &plane,
-                                Stage stage, int idx = 0) {
+                                Stage stage, int /*idx*/ = 0) {
     // Default: log that geometry type is not handled
     core::debug("viewer_add_plane called for '{}' at stage '{}' "
                 "(no handler registered)",
@@ -86,7 +87,7 @@ class IProgressObserver_new : IObserver {};
   virtual void viewer_add_plane(
       std::string_view name,
       [[maybe_unused]] const std::pair<Eigen::Vector4d, Eigen::Vector3d> &plane,
-      Stage stage, int idx = 0) {
+      Stage stage, int /*idx*/ = 0) {
     // Default: log that geometry type is not handled
     core::debug("viewer_add_plane (with origin) called for '{}' at stage '{}' "
                 "(no handler registered)",
@@ -95,7 +96,7 @@ class IProgressObserver_new : IObserver {};
 
   virtual void viewer_add_plane_pair(std::string_view name,
                                      [[maybe_unused]] const PlanePair &pair,
-                                     Stage stage, int idx = 0) {
+                                     Stage stage, int /*idx*/ = 0) {
     // Default: log that geometry type is not handled
     core::debug("viewer_add_plane_pair called for '{}' at stage '{}' "
                 "(no handler registered)",
@@ -105,7 +106,7 @@ class IProgressObserver_new : IObserver {};
   virtual void viewer_add_cell_complex(
       std::string_view name,
       [[maybe_unused]] const std::shared_ptr<ReUseX::geometry::CellComplex> &cc,
-      Stage stage, int idx = 0) {
+      Stage stage, int /*idx*/ = 0) {
     // Default: log that geometry type is not handled
     core::debug("viewer_add_cell_complex called for '{}' at stage '{}' "
                 "(no handler registered)",
@@ -114,7 +115,7 @@ class IProgressObserver_new : IObserver {};
 
   virtual void viewer_add_cloud(std::string_view name,
                                 [[maybe_unused]] const CloudConstPtr &cloud,
-                                Stage stage, int idx = 0) {
+                                Stage stage, int /*idx*/ = 0) {
     // Default: log that geometry type is not handled
     core::debug("viewer_add_cloud called for '{}' at stage '{}' "
                 "(no handler registered)",

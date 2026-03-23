@@ -13,32 +13,43 @@ namespace {
 // the observer outlives all in-flight processing that may read it. Acquire/
 // release semantics provide thread-safe publication of pointer updates, while
 // observer implementations themselves must be thread-safe if shared.
-std::atomic<IProcessingObserver *> g_processing_observer{nullptr};
+std::atomic<IProgressObserver *> g_progress_observer{nullptr};
+std::atomic<IVisualObserver *> g_visual_observer{nullptr};
 } // namespace
 
-void set_processing_observer(IProcessingObserver *observer) {
-  g_processing_observer.store(observer, std::memory_order_release);
+void set_progress_observer(IProgressObserver *observer) {
+  g_progress_observer.store(observer, std::memory_order_release);
 }
 
-void reset_processing_observer() { set_processing_observer(nullptr); }
+void reset_progress_observer() { set_progress_observer(nullptr); }
 
-auto get_processing_observer() -> IProcessingObserver * {
-  return g_processing_observer.load(std::memory_order_acquire);
+auto get_progress_observer() -> IProgressObserver * {
+  return g_progress_observer.load(std::memory_order_acquire);
+}
+
+void set_visual_observer(IVisualObserver *observer) {
+  g_visual_observer.store(observer, std::memory_order_release);
+}
+
+void reset_visual_observer() { set_visual_observer(nullptr); }
+
+auto get_visual_observer() -> IVisualObserver * {
+  return g_visual_observer.load(std::memory_order_acquire);
 }
 
 ProgressObserver::ProgressObserver(Stage stage, size_t total)
     : stage_(stage), total_(total) {
-  if (auto *observer = get_processing_observer())
+  if (auto *observer = get_progress_observer())
     observer->on_process_started(stage, total);
 }
 
 ProgressObserver::~ProgressObserver() {
-  if (auto *observer = get_processing_observer())
+  if (auto *observer = get_progress_observer())
     observer->on_process_finished(stage_);
 }
 
 void ProgressObserver::update(size_t progress) {
-  if (auto *observer = get_processing_observer())
+  if (auto *observer = get_progress_observer())
     observer->on_process_updated(stage_, progress);
 };
 

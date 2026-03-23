@@ -589,7 +589,8 @@ void VizualizationObserver::viewer_loop(std::latch &initialized) {
 }
 
 void setup_processing_observer() {
-  ReUseX::core::set_processing_observer(&g_processing_observer);
+  ReUseX::core::set_visual_observer(&g_processing_observer);
+  ReUseX::core::set_progress_observer(&g_processing_observer);
 }
 void start_viewer() { g_processing_observer.viewer_start(); }
 void wait_for_viewer() {

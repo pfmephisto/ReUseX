@@ -16,7 +16,8 @@
 
 namespace rux {
 
-class VizualizationObserver final : public ReUseX::core::IProcessingObserver {
+class VizualizationObserver final : public ReUseX::core::IVisualObserver,
+                                    public ReUseX::core::IProgressObserver {
     public:
   using ViewerPtr = std::shared_ptr<pcl::visualization::PCLVisualizer>;
   using VizTask =

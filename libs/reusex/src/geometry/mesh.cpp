@@ -31,7 +31,7 @@ pcl::PolygonMeshPtr mesh(CloudConstPtr cloud, CloudNConstPtr normals,
                          std::vector<IndicesPtr> &inliers, CloudLConstPtr rooms,
                          MeshOptions const opt) {
 
-  auto observer = ReUseX::core::get_processing_observer();
+  auto observer = ReUseX::core::get_visual_observer();
   constexpr auto stage = ReUseX::core::Stage::MeshGeneration;
 
   observer->viewer_add_geometry("input_cloud", cloud, stage);

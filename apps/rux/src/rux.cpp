@@ -140,7 +140,8 @@ int main(int argc, char **argv) {
   }
 
   rux::wait_for_viewer();
-  ReUseX::core::reset_processing_observer();
+  ReUseX::core::reset_visual_observer();
+  ReUseX::core::reset_progress_observer();
   // g_processing_observer.stop();
 
   // Flush async queue to ensure all logs are written before exit

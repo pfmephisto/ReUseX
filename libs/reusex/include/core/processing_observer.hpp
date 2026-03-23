@@ -26,15 +26,26 @@ enum class EventType {
 };
 
 class IObserver {};
-class IVisualObserver : IObserver {};
-class IProgressObserver_new : IObserver {};
 
-// TODO: Refactor to separate visualization and progress observers
-class [[deprecated("Migrate to using IVisulaObserver and "
-                   "IProgressObserver_new")]] IProcessingObserver {
+class ProgressObserver {
     public:
-  virtual ~IProcessingObserver() = default;
+  ProgressObserver(Stage stage, size_t total = 0);
+  ~ProgressObserver();
 
+  void update(size_t progress = 1);
+
+  inline void operator++() { update(1); };
+  inline void operator+=(size_t increment) { update(increment); };
+
+    private:
+  Stage stage_;
+  size_t total_ = 0;
+};
+
+class IVisualObserver : IObserver {
+
+    public:
+  virtual ~IVisualObserver() = default;
   using Pair = std::pair<Eigen::Vector4d, Eigen::Vector3d>;
   using PlanePair = std::pair<Pair, Pair>;
 
@@ -121,6 +132,10 @@ class [[deprecated("Migrate to using IVisulaObserver and "
                 "(no handler registered)",
                 name, to_string(stage));
   }
+};
+class IProgressObserver : IObserver {
+    public:
+  virtual ~IProgressObserver() = default;
 
   // Progress bar callbacks
   virtual void on_process_started(Stage, size_t) {}
@@ -128,29 +143,19 @@ class [[deprecated("Migrate to using IVisulaObserver and "
   virtual void on_process_updated(Stage, size_t) {}
 };
 
-class NullProcessingObserver final : public IProcessingObserver {};
-
-class ProgressObserver {
-    public:
-  ProgressObserver(Stage stage, size_t total = 0);
-  ~ProgressObserver();
-
-  void update(size_t progress = 1);
-
-  inline void operator++() { update(1); };
-  inline void operator+=(size_t increment) { update(increment); };
-
-    private:
-  Stage stage_;
-  size_t total_ = 0;
-};
+// class NullProcessingObserver final : public IProcessingObserver {};
 
 // Register a global processing observer. The caller retains ownership and must
 // keep the observer alive until reset or replacement. Passing nullptr clears
 // it.
 
-void set_processing_observer(IProcessingObserver *observer);
-void reset_processing_observer();
-auto get_processing_observer() -> IProcessingObserver *;
+void set_visual_observer(IVisualObserver *observer);
+void set_progress_observer(IProgressObserver *observer);
+
+void reset_visual_observer();
+void reset_progress_observer();
+
+auto get_visual_observer() -> IVisualObserver *;
+auto get_progress_observer() -> IProgressObserver *;
 
 } // namespace ReUseX::core

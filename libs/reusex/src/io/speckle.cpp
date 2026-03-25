@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include <ReUseX/io/speckle.hpp>
+#include "io/speckle.hpp"
 
 #include <curl/curl.h>
 #include <nlohmann/json.hpp>
@@ -70,13 +70,15 @@ make_chunks(const std::vector<T> &data, std::size_t chunk_size,
         chunk_obj["speckle_type"] = "Speckle.Core.Models.DataChunk";
         chunk_obj["data"] = std::move(chunk_data);
 
-        // Sort keys and compute hash
+        // Compute hash BEFORE adding metadata
         std::string canonical = chunk_obj.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
         chunk_obj["id"] = md5_hash(canonical);
+        chunk_obj["totalChildrenCount"] = 0;
 
         chunk_refs.push_back(
             nlohmann::json({{"referencedId", chunk_obj["id"]},
-                            {"speckle_type", "reference"}}));
+                            {"speckle_type", "reference"},
+                            {"__closure", nullptr}}));
         all_objects.push_back(std::move(chunk_obj));
     }
     return chunk_refs;
@@ -84,9 +86,13 @@ make_chunks(const std::vector<T> &data, std::size_t chunk_size,
 
 // ---- Serialization ----
 
+// Closure map: detached child id -> depth relative to parent
+using ClosureMap = std::map<std::string, int>;
+
 // Forward declare
 nlohmann::json serialize_base(const Base &obj,
                               std::vector<nlohmann::json> &all_objects,
+                              ClosureMap &closure,
                               std::size_t chunk_size);
 
 nlohmann::json serialize_point(const Point &pt) {
@@ -99,8 +105,16 @@ nlohmann::json serialize_point(const Point &pt) {
     return j;
 }
 
+/// Extract referenced IDs from chunk refs and add to closure at depth 1.
+void track_chunk_refs(const std::vector<nlohmann::json> &refs,
+                      ClosureMap &closure) {
+    for (const auto &ref : refs)
+        closure[ref["referencedId"].get<std::string>()] = 1;
+}
+
 nlohmann::json serialize_base(const Base &obj,
                               std::vector<nlohmann::json> &all_objects,
+                              ClosureMap &closure,
                               std::size_t chunk_size) {
     nlohmann::json j;
     j["speckle_type"] = obj.speckle_type;
@@ -112,32 +126,33 @@ nlohmann::json serialize_base(const Base &obj,
     for (const auto &[key, value] : obj.properties)
         j[key] = value;
 
-    // Build detachment hint key: @(N)name
-    std::string hint = "@(" + std::to_string(chunk_size) + ")";
+    // Helper: embed small arrays directly, chunk large ones.
+    // Key is always the plain property name (no @(N) prefix).
+    auto serialize_array = [&](const auto &vec, const std::string &name) {
+        if (vec.empty())
+            return;
+        if (vec.size() <= chunk_size) {
+            // Embed directly (no chunking needed)
+            j[name] = vec;
+        } else {
+            // Chunk and detach
+            auto refs = make_chunks(vec, chunk_size, all_objects);
+            track_chunk_refs(refs, closure);
+            j[name] = std::move(refs);
+        }
+    };
 
     // Type-specific fields
     if (auto *pc = dynamic_cast<const Pointcloud *>(&obj)) {
         j["units"] = pc->units;
-        if (!pc->points.empty())
-            j[hint + "points"] =
-                make_chunks(pc->points, chunk_size, all_objects);
-        if (!pc->colors.empty())
-            j[hint + "colors"] =
-                make_chunks(pc->colors, chunk_size, all_objects);
-        if (!pc->sizes.empty())
-            j[hint + "sizes"] =
-                make_chunks(pc->sizes, chunk_size, all_objects);
+        serialize_array(pc->points, "points");
+        serialize_array(pc->colors, "colors");
+        serialize_array(pc->sizes, "sizes");
     } else if (auto *mesh = dynamic_cast<const Mesh *>(&obj)) {
         j["units"] = mesh->units;
-        if (!mesh->vertices.empty())
-            j[hint + "vertices"] =
-                make_chunks(mesh->vertices, chunk_size, all_objects);
-        if (!mesh->faces.empty())
-            j[hint + "faces"] =
-                make_chunks(mesh->faces, chunk_size, all_objects);
-        if (!mesh->colors.empty())
-            j[hint + "colors"] =
-                make_chunks(mesh->colors, chunk_size, all_objects);
+        serialize_array(mesh->vertices, "vertices");
+        serialize_array(mesh->faces, "faces");
+        serialize_array(mesh->colors, "colors");
     } else if (auto *line = dynamic_cast<const Line *>(&obj)) {
         j["units"] = line->units;
         j["start"] = serialize_point(line->start);
@@ -156,15 +171,34 @@ nlohmann::json serialize_base(const Base &obj,
     if (!obj.elements.empty()) {
         nlohmann::json element_refs = nlohmann::json::array();
         for (const auto &child : obj.elements) {
-            nlohmann::json child_json = serialize_base(*child, all_objects, chunk_size);
+            ClosureMap child_closure;
+            nlohmann::json child_json =
+                serialize_base(*child, all_objects, child_closure, chunk_size);
 
-            // Compute hash for child
-            std::string canonical = child_json.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
-            child_json["id"] = md5_hash(canonical);
+            // Compute hash BEFORE adding metadata fields
+            std::string canonical = child_json.dump(
+                -1, ' ', false, nlohmann::json::error_handler_t::replace);
+            std::string child_id = md5_hash(canonical);
+
+            // Add metadata after hashing (Speckle convention)
+            child_json["id"] = child_id;
+            child_json["totalChildrenCount"] = nullptr;
+            if (!child_closure.empty()) {
+                nlohmann::json cc;
+                for (const auto &[id, d] : child_closure)
+                    cc[id] = d;
+                child_json["__closure"] = std::move(cc);
+            }
+
+            // Track in parent closure: child at depth 1, its children at depth+1
+            closure[child_id] = 1;
+            for (const auto &[id, d] : child_closure)
+                closure[id] = d + 1;
 
             element_refs.push_back(
-                nlohmann::json({{"referencedId", child_json["id"]},
-                                {"speckle_type", "reference"}}));
+                nlohmann::json({{"referencedId", child_id},
+                                {"speckle_type", "reference"},
+                                {"__closure", nullptr}}));
             all_objects.push_back(std::move(child_json));
         }
         j["@elements"] = std::move(element_refs);
@@ -177,12 +211,24 @@ nlohmann::json serialize_base(const Base &obj,
 std::pair<std::string, std::vector<nlohmann::json>>
 flatten(const Base &root, std::size_t chunk_size) {
     std::vector<nlohmann::json> all_objects;
-    nlohmann::json root_json = serialize_base(root, all_objects, chunk_size);
+    ClosureMap root_closure;
+    nlohmann::json root_json =
+        serialize_base(root, all_objects, root_closure, chunk_size);
 
-    // Compute root hash
-    std::string canonical = root_json.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
+    // Compute root hash BEFORE adding metadata fields
+    std::string canonical = root_json.dump(
+        -1, ' ', false, nlohmann::json::error_handler_t::replace);
     std::string root_id = md5_hash(canonical);
+
+    // Add metadata after hashing (Speckle convention)
     root_json["id"] = root_id;
+    root_json["totalChildrenCount"] = nullptr;
+    if (!root_closure.empty()) {
+        nlohmann::json cc;
+        for (const auto &[id, d] : root_closure)
+            cc[id] = d;
+        root_json["__closure"] = std::move(cc);
+    }
 
     // Root goes first
     all_objects.insert(all_objects.begin(), std::move(root_json));
@@ -212,6 +258,7 @@ std::string http_post_multipart(const std::string &url,
     curl_mime *mime = curl_mime_init(curl);
     curl_mimepart *part = curl_mime_addpart(mime);
     curl_mime_name(part, "batch-0");
+    curl_mime_filename(part, "batch-0");
     curl_mime_data(part, json_payload.c_str(),
                    static_cast<curl_off_t>(json_payload.size()));
     curl_mime_type(part, "application/json");
@@ -319,10 +366,20 @@ std::string SpeckleClient::send(const Base &root) {
 
     std::string url = server_url_ + "/objects/" + project_id_;
 
-    // Split objects into size-limited batches to avoid huge payloads.
+    // Split objects into size-limited batches (JSON array format).
     nlohmann::json current_batch = nlohmann::json::array();
     std::size_t current_size = 0;
     std::size_t batch_num = 0;
+
+    auto send_batch = [&]() {
+        std::string payload = current_batch.dump();
+        spdlog::info("Speckle: sending batch {} ({} bytes, {} objects)",
+                     batch_num, payload.size(), current_batch.size());
+        http_post_multipart(url, token_, payload);
+        current_batch = nlohmann::json::array();
+        current_size = 0;
+        ++batch_num;
+    };
 
     for (auto &obj : objects) {
         std::string obj_str = obj.dump();
@@ -330,28 +387,17 @@ std::string SpeckleClient::send(const Base &root) {
 
         if (!current_batch.empty() &&
             current_size + obj_size > max_batch_bytes_) {
-            std::string payload = current_batch.dump();
-            spdlog::info("Speckle: sending batch {} ({} bytes, {} objects)",
-                         batch_num, payload.size(), current_batch.size());
-            http_post_multipart(url, token_, payload);
-            current_batch = nlohmann::json::array();
-            current_size = 0;
-            ++batch_num;
+            send_batch();
         }
 
         current_batch.push_back(std::move(obj));
         current_size += obj_size;
     }
 
-    // Send remaining objects
-    if (!current_batch.empty()) {
-        std::string payload = current_batch.dump();
-        spdlog::info("Speckle: sending batch {} ({} bytes, {} objects)",
-                     batch_num, payload.size(), current_batch.size());
-        http_post_multipart(url, token_, payload);
-    }
+    if (!current_batch.empty())
+        send_batch();
 
-    spdlog::info("Speckle: upload complete ({} batches)", batch_num + 1);
+    spdlog::info("Speckle: upload complete ({} batches)", batch_num);
     return root_id;
 }
 
@@ -374,6 +420,8 @@ std::string SpeckleClient::commit(const std::string &object_id,
     std::string response = http_post_json(url, token_, mutation.dump());
 
     auto resp_json = nlohmann::json::parse(response);
+    spdlog::debug("GraphQL commit response: {}", resp_json.dump(2));
+
     if (resp_json.contains("errors") && !resp_json["errors"].empty()) {
         throw std::runtime_error(
             "Speckle commit failed: " +

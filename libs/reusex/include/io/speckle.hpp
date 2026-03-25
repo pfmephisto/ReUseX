@@ -8,6 +8,8 @@
 #include <Eigen/Core>
 #include <pcl/PolygonMesh.h>
 
+#include <nlohmann/json.hpp>
+
 #include <map>
 #include <memory>
 #include <string>
@@ -21,7 +23,7 @@ namespace ReUseX::io::speckle {
 struct Base {
     std::string speckle_type = "Base";
     std::string applicationId;
-    std::map<std::string, std::string> properties;
+    std::map<std::string, nlohmann::json> properties;
 
     /// Child objects (serialized as detached @elements).
     std::vector<std::shared_ptr<Base>> elements;

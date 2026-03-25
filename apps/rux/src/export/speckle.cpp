@@ -5,10 +5,10 @@
 #include "export/speckle.hpp"
 #include "global-params.hpp"
 
-#include <reusex/types.hpp>
-#include <reusex/io/speckle.hpp>
 #include <fmt/format.h>
 #include <pcl/io/pcd_io.h>
+#include <reusex/io/speckle.hpp>
+#include <reusex/types.hpp>
 #include <spdlog/spdlog.h>
 
 #include <cstdlib>
@@ -52,8 +52,7 @@ void setup_subcommand_export_speckle(CLI::App &parent) {
                   "Model/branch name (what users call 'model' in Speckle UI)")
       ->default_val(opt->model_name);
 
-  sub->add_option("-M,--message", opt->commit_message,
-                  "Version commit message")
+  sub->add_option("-M,--message", opt->commit_message, "Version commit message")
       ->default_val(opt->commit_message);
 
   sub->add_option("--max-batch", opt->max_batch_bytes,
@@ -123,19 +122,19 @@ int run_subcommand_export_speckle(SubcommandExportSpeckleOptions const &opt) {
 
   // 6. Upload
   try {
-    spdlog::info("Uploading to model '{}' with message: '{}'",
-                 opt.model_name, opt.commit_message);
+    spdlog::info("Uploading to model '{}' with message: '{}'", opt.model_name,
+                 opt.commit_message);
 
-    std::string commit_id = client.upload(speckle_cloud, opt.model_name,
-                                         opt.commit_message);
+    std::string commit_id =
+        client.upload(speckle_cloud, opt.model_name, opt.commit_message);
 
     spdlog::info("Upload successful!");
     spdlog::info("Commit ID: {}", commit_id);
 
     // Construct viewable URL
-    std::string view_url = fmt::format("{}/projects/{}/models/{}",
-                                       opt.server_url, opt.project_id,
-                                       opt.model_name);
+    std::string view_url =
+        fmt::format("{}/projects/{}/models/{}", opt.server_url, opt.project_id,
+                    opt.model_name);
     spdlog::info("View at: {}", view_url);
 
     return RuxError::SUCCESS;

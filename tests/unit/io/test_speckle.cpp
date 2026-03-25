@@ -294,3 +294,74 @@ TEST_CASE("SpeckleClient set_chunk_size compiles and does not throw",
     REQUIRE_NOTHROW(client.set_chunk_size(1000));
     REQUIRE_NOTHROW(client.set_chunk_size(100000));
 }
+
+// ============================================================
+// Dynamic property tests
+// ============================================================
+
+TEST_CASE("Base properties support various JSON types", "[speckle]") {
+    Base b;
+
+    SECTION("String properties") {
+        b.properties["name"] = "Test Object";
+        REQUIRE(b.properties["name"].is_string());
+        REQUIRE(b.properties["name"].get<std::string>() == "Test Object");
+    }
+
+    SECTION("Integer properties") {
+        b.properties["count"] = 42;
+        REQUIRE(b.properties["count"].is_number_integer());
+        REQUIRE(b.properties["count"].get<int>() == 42);
+    }
+
+    SECTION("Floating-point properties") {
+        b.properties["area"] = 3.14;
+        REQUIRE(b.properties["area"].is_number_float());
+        REQUIRE(b.properties["area"].get<double>() == Catch::Approx(3.14));
+    }
+
+    SECTION("Boolean properties") {
+        b.properties["visible"] = true;
+        REQUIRE(b.properties["visible"].is_boolean());
+        REQUIRE(b.properties["visible"].get<bool>() == true);
+    }
+
+    SECTION("Null properties") {
+        b.properties["empty"] = nullptr;
+        REQUIRE(b.properties["empty"].is_null());
+    }
+
+    SECTION("Array properties") {
+        b.properties["tags"] = nlohmann::json::array({"wall", "exterior"});
+        REQUIRE(b.properties["tags"].is_array());
+        REQUIRE(b.properties["tags"].size() == 2);
+        REQUIRE(b.properties["tags"][0] == "wall");
+    }
+
+    SECTION("Nested object properties") {
+        b.properties["metadata"] = {{"source", "scan_01"}, {"confidence", 0.95}};
+        REQUIRE(b.properties["metadata"].is_object());
+        REQUIRE(b.properties["metadata"]["source"] == "scan_01");
+        REQUIRE(b.properties["metadata"]["confidence"].get<double>() ==
+                Catch::Approx(0.95));
+    }
+
+    SECTION("Properties serialize as top-level JSON keys") {
+        b.properties["level"] = 2;
+        b.properties["label"] = "floor";
+        b.properties["area_m2"] = 42.5;
+        b.properties["is_exterior"] = false;
+
+        // Build JSON the same way serialize_base does
+        nlohmann::json j;
+        j["speckle_type"] = b.speckle_type;
+        for (const auto &[key, value] : b.properties)
+            j[key] = value;
+
+        REQUIRE(j["level"] == 2);
+        REQUIRE(j["label"] == "floor");
+        REQUIRE(j["area_m2"].get<double>() == Catch::Approx(42.5));
+        REQUIRE(j["is_exterior"] == false);
+        REQUIRE(j["speckle_type"] == "Base");
+    }
+}

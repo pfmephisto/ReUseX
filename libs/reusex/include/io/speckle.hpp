@@ -108,15 +108,11 @@ class SpeckleClient {
     /// Max HTTP batch payload size in bytes (default: 25 MB).
     void set_max_batch_size(std::size_t bytes);
 
-    /// Speckle DataChunk element count (default: 50 000).
-    void set_chunk_size(std::size_t elements);
-
   private:
     std::string server_url_;
     std::string project_id_;
     std::string token_;
     std::size_t max_batch_bytes_ = 25 * 1024 * 1024; // 25 MB
-    std::size_t chunk_size_ = 50000;
 };
 
 // --- Conversion Helpers ---

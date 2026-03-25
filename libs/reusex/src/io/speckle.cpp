@@ -7,7 +7,7 @@
 #include <curl/curl.h>
 #include <nlohmann/json.hpp>
 #include <openssl/evp.h>
-#include <spdlog/spdlog.h>
+#include "core/logging.hpp"
 
 #include <pcl/common/io.h>
 
@@ -92,8 +92,7 @@ using ClosureMap = std::map<std::string, int>;
 // Forward declare
 nlohmann::json serialize_base(const Base &obj,
                               std::vector<nlohmann::json> &all_objects,
-                              ClosureMap &closure,
-                              std::size_t chunk_size);
+                              ClosureMap &closure);
 
 nlohmann::json serialize_point(const Point &pt) {
     nlohmann::json j;
@@ -114,8 +113,7 @@ void track_chunk_refs(const std::vector<nlohmann::json> &refs,
 
 nlohmann::json serialize_base(const Base &obj,
                               std::vector<nlohmann::json> &all_objects,
-                              ClosureMap &closure,
-                              std::size_t chunk_size) {
+                              ClosureMap &closure) {
     nlohmann::json j;
     j["speckle_type"] = obj.speckle_type;
 
@@ -127,8 +125,11 @@ nlohmann::json serialize_base(const Base &obj,
         j[key] = value;
 
     // Helper: embed small arrays directly, chunk large ones.
-    // Key is always the plain property name (no @(N) prefix).
-    auto serialize_array = [&](const auto &vec, const std::string &name) {
+    // chunk_size is per-property, matching official Speckle SDK conventions:
+    //   points/vertices/textureCoordinates: 31250 elements (~250 KB for doubles)
+    //   colors/faces/sizes:                 62500 elements (~250 KB for ints)
+    auto serialize_array = [&](const auto &vec, const std::string &name,
+                               std::size_t chunk_size) {
         if (vec.empty())
             return;
         if (vec.size() <= chunk_size) {
@@ -142,17 +143,21 @@ nlohmann::json serialize_base(const Base &obj,
         }
     };
 
+    // Official Speckle SDK chunk sizes (keep serialized chunks ~250 KB each)
+    constexpr std::size_t kChunkCoords = 31250; // doubles: points, vertices
+    constexpr std::size_t kChunkInts = 62500;   // ints: colors, faces, sizes
+
     // Type-specific fields
     if (auto *pc = dynamic_cast<const Pointcloud *>(&obj)) {
         j["units"] = pc->units;
-        serialize_array(pc->points, "points");
-        serialize_array(pc->colors, "colors");
-        serialize_array(pc->sizes, "sizes");
+        serialize_array(pc->points, "points", kChunkCoords);
+        serialize_array(pc->colors, "colors", kChunkInts);
+        serialize_array(pc->sizes, "sizes", kChunkInts);
     } else if (auto *mesh = dynamic_cast<const Mesh *>(&obj)) {
         j["units"] = mesh->units;
-        serialize_array(mesh->vertices, "vertices");
-        serialize_array(mesh->faces, "faces");
-        serialize_array(mesh->colors, "colors");
+        serialize_array(mesh->vertices, "vertices", kChunkCoords);
+        serialize_array(mesh->faces, "faces", kChunkInts);
+        serialize_array(mesh->colors, "colors", kChunkInts);
     } else if (auto *line = dynamic_cast<const Line *>(&obj)) {
         j["units"] = line->units;
         j["start"] = serialize_point(line->start);
@@ -173,7 +178,7 @@ nlohmann::json serialize_base(const Base &obj,
         for (const auto &child : obj.elements) {
             ClosureMap child_closure;
             nlohmann::json child_json =
-                serialize_base(*child, all_objects, child_closure, chunk_size);
+                serialize_base(*child, all_objects, child_closure);
 
             // Compute hash BEFORE adding metadata fields
             std::string canonical = child_json.dump(
@@ -209,11 +214,11 @@ nlohmann::json serialize_base(const Base &obj,
 
 // Collect all objects into a flat list with IDs
 std::pair<std::string, std::vector<nlohmann::json>>
-flatten(const Base &root, std::size_t chunk_size) {
+flatten(const Base &root) {
     std::vector<nlohmann::json> all_objects;
     ClosureMap root_closure;
     nlohmann::json root_json =
-        serialize_base(root, all_objects, root_closure, chunk_size);
+        serialize_base(root, all_objects, root_closure);
 
     // Compute root hash BEFORE adding metadata fields
     std::string canonical = root_json.dump(
@@ -346,7 +351,7 @@ SpeckleClient::SpeckleClient(std::string server_url, std::string project_id,
     }
 
     if (token_.empty())
-        spdlog::warn("SpeckleClient: no auth token provided (set SPECKLE_TOKEN "
+        core::warn("SpeckleClient: no auth token provided (set SPECKLE_TOKEN "
                      "env or pass token to constructor)");
 }
 
@@ -354,14 +359,10 @@ void SpeckleClient::set_max_batch_size(std::size_t bytes) {
     max_batch_bytes_ = bytes;
 }
 
-void SpeckleClient::set_chunk_size(std::size_t elements) {
-    chunk_size_ = elements;
-}
-
 std::string SpeckleClient::send(const Base &root) {
-    auto [root_id, objects] = flatten(root, chunk_size_);
+    auto [root_id, objects] = flatten(root);
 
-    spdlog::info("Speckle: uploading {} objects (root: {})", objects.size(),
+    core::info("Speckle: uploading {} objects (root: {})", objects.size(),
                  root_id);
 
     std::string url = server_url_ + "/objects/" + project_id_;
@@ -373,7 +374,7 @@ std::string SpeckleClient::send(const Base &root) {
 
     auto send_batch = [&]() {
         std::string payload = current_batch.dump();
-        spdlog::info("Speckle: sending batch {} ({} bytes, {} objects)",
+        core::info("Speckle: sending batch {} ({} bytes, {} objects)",
                      batch_num, payload.size(), current_batch.size());
         http_post_multipart(url, token_, payload);
         current_batch = nlohmann::json::array();
@@ -397,7 +398,7 @@ std::string SpeckleClient::send(const Base &root) {
     if (!current_batch.empty())
         send_batch();
 
-    spdlog::info("Speckle: upload complete ({} batches)", batch_num);
+    core::info("Speckle: upload complete ({} batches)", batch_num);
     return root_id;
 }
 
@@ -420,7 +421,7 @@ std::string SpeckleClient::commit(const std::string &object_id,
     std::string response = http_post_json(url, token_, mutation.dump());
 
     auto resp_json = nlohmann::json::parse(response);
-    spdlog::debug("GraphQL commit response: {}", resp_json.dump(2));
+    core::debug("GraphQL commit response: {}", resp_json.dump(2));
 
     if (resp_json.contains("errors") && !resp_json["errors"].empty()) {
         throw std::runtime_error(
@@ -430,7 +431,7 @@ std::string SpeckleClient::commit(const std::string &object_id,
 
     std::string commit_id =
         resp_json["data"]["commitCreate"].get<std::string>();
-    spdlog::info("Speckle: commit created: {}", commit_id);
+    core::info("Speckle: commit created: {}", commit_id);
     return commit_id;
 }
 
@@ -468,19 +469,41 @@ Pointcloud to_speckle(CloudConstPtr cloud) {
 Mesh to_speckle(const pcl::PolygonMesh &mesh) {
     Mesh speckle_mesh;
 
-    // Extract vertices from the mesh cloud
-    Cloud cloud;
-    pcl::fromPCLPointCloud2(mesh.cloud, cloud);
+    // Check if the mesh cloud has color data
+    bool has_color = false;
+    for (const auto &field : mesh.cloud.fields) {
+        if (field.name == "rgb" || field.name == "rgba") {
+            has_color = true;
+            break;
+        }
+    }
 
-    speckle_mesh.vertices.reserve(cloud.size() * 3);
-    speckle_mesh.colors.reserve(cloud.size());
-    for (const auto &pt : cloud.points) {
-        speckle_mesh.vertices.push_back(static_cast<double>(pt.x));
-        speckle_mesh.vertices.push_back(static_cast<double>(pt.y));
-        speckle_mesh.vertices.push_back(static_cast<double>(pt.z));
+    if (has_color) {
+        // Extract vertices + colors via PointXYZRGB
+        Cloud cloud;
+        pcl::fromPCLPointCloud2(mesh.cloud, cloud);
 
-        int argb = (255 << 24) | (pt.r << 16) | (pt.g << 8) | pt.b;
-        speckle_mesh.colors.push_back(argb);
+        speckle_mesh.vertices.reserve(cloud.size() * 3);
+        speckle_mesh.colors.reserve(cloud.size());
+        for (const auto &pt : cloud.points) {
+            speckle_mesh.vertices.push_back(static_cast<double>(pt.x));
+            speckle_mesh.vertices.push_back(static_cast<double>(pt.y));
+            speckle_mesh.vertices.push_back(static_cast<double>(pt.z));
+
+            int argb = (255 << 24) | (pt.r << 16) | (pt.g << 8) | pt.b;
+            speckle_mesh.colors.push_back(argb);
+        }
+    } else {
+        // No color data — extract XYZ only
+        pcl::PointCloud<pcl::PointXYZ> cloud;
+        pcl::fromPCLPointCloud2(mesh.cloud, cloud);
+
+        speckle_mesh.vertices.reserve(cloud.size() * 3);
+        for (const auto &pt : cloud.points) {
+            speckle_mesh.vertices.push_back(static_cast<double>(pt.x));
+            speckle_mesh.vertices.push_back(static_cast<double>(pt.y));
+            speckle_mesh.vertices.push_back(static_cast<double>(pt.z));
+        }
     }
 
     // Convert polygon indices to Speckle face format:

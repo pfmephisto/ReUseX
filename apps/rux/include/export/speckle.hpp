@@ -11,13 +11,12 @@
 namespace fs = std::filesystem;
 
 struct SubcommandExportSpeckleOptions {
-  fs::path cloud_path_in;
+  fs::path input_path;
   std::string server_url;
   std::string project_id;
   std::string model_name = "main";
   std::string commit_message = "ReUseX export";
   std::size_t max_batch_bytes = 25 * 1024 * 1024; // 25 MB
-  std::size_t chunk_size = 50000;
 };
 
 void setup_subcommand_export_speckle(CLI::App &parent);

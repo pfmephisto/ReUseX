@@ -6,12 +6,18 @@
 #include "global-params.hpp"
 
 #include <fmt/format.h>
+#include <pcl/PolygonMesh.h>
+#include <pcl/io/obj_io.h>
 #include <pcl/io/pcd_io.h>
+#include <pcl/io/ply_io.h>
+#include <pcl/io/vtk_lib_io.h>
 #include <reusex/io/speckle.hpp>
 #include <reusex/types.hpp>
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
 #include <cstdlib>
+#include <memory>
 #include <stdexcept>
 
 namespace fs = std::filesystem;
@@ -21,22 +27,28 @@ void setup_subcommand_export_speckle(CLI::App &parent) {
   auto opt = std::make_shared<SubcommandExportSpeckleOptions>();
   auto *sub = parent.add_subcommand(
       "speckle",
-      "Export a point cloud to Speckle (app.speckle.systems).\n\n"
+      "Export a point cloud or mesh to Speckle (app.speckle.systems).\n\n"
+      "Supported formats:\n"
+      "  Point clouds: .pcd\n"
+      "  Meshes:       .ply, .obj, .stl, .vtk\n\n"
       "Authentication: Set SPECKLE_TOKEN environment variable.\n"
       "Find your token at: https://app.speckle.systems/profile\n\n"
       "How to find your Project ID:\n"
       "  1. Open your project in Speckle web UI\n"
       "  2. Copy the project ID from the URL: /projects/{PROJECT_ID}\n\n"
-      "Example:\n"
+      "Examples:\n"
       "  export SPECKLE_TOKEN=your_token_here\n"
       "  rux export speckle cloud.pcd \\\n"
       "    -s https://app.speckle.systems \\\n"
       "    -p abc123def456 \\\n"
-      "    -m main \\\n"
-      "    -M \"Point cloud from ReUseX\"");
+      "    -M \"Point cloud from ReUseX\"\n"
+      "  rux export speckle mesh.ply \\\n"
+      "    -s https://app.speckle.systems \\\n"
+      "    -p abc123def456 \\\n"
+      "    -M \"Mesh from ReUseX\"");
 
-  sub->add_option("cloud", opt->cloud_path_in,
-                  "Path to the input point cloud file (PCD format).")
+  sub->add_option("input", opt->input_path,
+                  "Input file (PCD point cloud, or PLY/OBJ/STL/VTK mesh).")
       ->required()
       ->check(CLI::ExistingFile);
 
@@ -59,10 +71,6 @@ void setup_subcommand_export_speckle(CLI::App &parent) {
                   "HTTP batch size in bytes (default: 25 MB)")
       ->default_val(opt->max_batch_bytes);
 
-  sub->add_option("--chunk-size", opt->chunk_size,
-                  "DataChunk size (default: 50000 points)")
-      ->default_val(opt->chunk_size);
-
   sub->callback([opt]() {
     spdlog::trace("calling export speckle subcommand");
     return run_subcommand_export_speckle(*opt);
@@ -81,52 +89,82 @@ int run_subcommand_export_speckle(SubcommandExportSpeckleOptions const &opt) {
   }
   std::string token(token_env);
 
-  // 2. Load point cloud
-  spdlog::info("Loading point cloud from: {}", opt.cloud_path_in.string());
-  CloudPtr cloud(new Cloud);
-  if (pcl::io::loadPCDFile<PointT>(opt.cloud_path_in.c_str(), *cloud) < 0) {
-    spdlog::error("Failed to load point cloud from: {}",
-                  opt.cloud_path_in.string());
+  // 2. Detect file type and load
+  std::string ext = opt.input_path.extension().string();
+  std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+
+  std::unique_ptr<io::speckle::Base> speckle_obj;
+
+  if (ext == ".pcd") {
+    // Point cloud
+    spdlog::info("Loading point cloud from: {}", opt.input_path.string());
+    CloudPtr cloud(new Cloud);
+    if (pcl::io::loadPCDFile<PointT>(opt.input_path.c_str(), *cloud) < 0) {
+      spdlog::error("Failed to load point cloud from: {}",
+                    opt.input_path.string());
+      return RuxError::INVALID_ARGUMENT;
+    }
+    if (cloud->empty()) {
+      spdlog::error("Point cloud is empty");
+      return RuxError::INVALID_ARGUMENT;
+    }
+    spdlog::info("Loaded {} points", cloud->size());
+    speckle_obj =
+        std::make_unique<io::speckle::Pointcloud>(io::speckle::to_speckle(cloud));
+
+  } else if (ext == ".ply" || ext == ".obj" || ext == ".stl" || ext == ".vtk") {
+    // Mesh
+    spdlog::info("Loading mesh from: {}", opt.input_path.string());
+    pcl::PolygonMesh mesh;
+    int result = -1;
+    if (ext == ".ply") {
+      result = pcl::io::loadPLYFile(opt.input_path.string(), mesh);
+    } else if (ext == ".obj") {
+      result = pcl::io::loadOBJFile(opt.input_path.string(), mesh);
+    } else if (ext == ".stl") {
+      result = pcl::io::loadPolygonFileSTL(opt.input_path.string(), mesh);
+    } else if (ext == ".vtk") {
+      result = pcl::io::loadPolygonFileVTK(opt.input_path.string(), mesh);
+    }
+    if (result < 0) {
+      spdlog::error("Failed to load mesh from: {}", opt.input_path.string());
+      return RuxError::INVALID_ARGUMENT;
+    }
+    if (mesh.polygons.empty()) {
+      spdlog::error("Mesh has no polygons");
+      return RuxError::INVALID_ARGUMENT;
+    }
+    spdlog::info("Loaded {} polygons", mesh.polygons.size());
+    speckle_obj =
+        std::make_unique<io::speckle::Mesh>(io::speckle::to_speckle(mesh));
+
+  } else {
+    spdlog::error("Unsupported file format: {}", ext);
+    spdlog::error("Supported formats: .pcd (point cloud), .ply .obj .stl .vtk (mesh)");
     return RuxError::INVALID_ARGUMENT;
   }
 
-  if (cloud->empty()) {
-    spdlog::error("Point cloud is empty");
-    return RuxError::INVALID_ARGUMENT;
-  }
-
-  spdlog::info("Loaded {} points", cloud->size());
-
-  // 3. Convert to Speckle format
-  spdlog::debug("Converting point cloud to Speckle format");
-  auto speckle_cloud = io::speckle::to_speckle(cloud);
-
-  // 4. Create Speckle client
+  // 3. Create Speckle client
   spdlog::debug("Creating Speckle client for server: {}", opt.server_url);
   spdlog::debug("Project ID: {}", opt.project_id);
   io::speckle::SpeckleClient client(opt.server_url, opt.project_id, token);
 
-  // 5. Configure batching
+  // 4. Configure batching
   client.set_max_batch_size(opt.max_batch_bytes);
-  client.set_chunk_size(opt.chunk_size);
 
   if (opt.max_batch_bytes < 1024 * 1024) {
     spdlog::warn("Very small batch size (< 1MB) may impact performance");
   }
-  if (opt.chunk_size > 500000) {
-    spdlog::warn("Very large chunk size (> 500k) may cause memory issues");
-  }
 
   spdlog::debug("Batch size: {} bytes", opt.max_batch_bytes);
-  spdlog::debug("Chunk size: {} points", opt.chunk_size);
 
-  // 6. Upload
+  // 5. Upload
   try {
     spdlog::info("Uploading to model '{}' with message: '{}'", opt.model_name,
                  opt.commit_message);
 
     std::string commit_id =
-        client.upload(speckle_cloud, opt.model_name, opt.commit_message);
+        client.upload(*speckle_obj, opt.model_name, opt.commit_message);
 
     spdlog::info("Upload successful!");
     spdlog::info("Commit ID: {}", commit_id);

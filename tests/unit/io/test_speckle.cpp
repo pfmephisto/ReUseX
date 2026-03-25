@@ -288,13 +288,6 @@ TEST_CASE("SpeckleClient set_max_batch_size compiles and does not throw",
     REQUIRE_NOTHROW(client.set_max_batch_size(1));
 }
 
-TEST_CASE("SpeckleClient set_chunk_size compiles and does not throw",
-          "[speckle]") {
-    SpeckleClient client("https://example.com", "proj", "tok");
-    REQUIRE_NOTHROW(client.set_chunk_size(1000));
-    REQUIRE_NOTHROW(client.set_chunk_size(100000));
-}
-
 // ============================================================
 // Dynamic property tests
 // ============================================================

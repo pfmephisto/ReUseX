@@ -142,24 +142,26 @@ void Deserializer::deserialize_enum_value(void *ptr,
                                            std::string_view enum_type) {
   std::string_view str = value.as_string();
 
-  // Determine which enum type based on struct context
-  // For now, handle Material, SubstanceContentMethod, EmissionQuantityType
+  // Dispatch based on struct context to use the correct enum type
+  if (enum_type == "DangerousSubstance") {
+    if (auto result = substance_content_method_from_string(str)) {
+      *static_cast<SubstanceContentMethod *>(ptr) = *result;
+      return;
+    }
+    throw std::runtime_error("Failed to parse SubstanceContentMethod: " + std::string(str));
+  }
 
-  // Material enum (used in ConstructionItemDescription)
+  if (enum_type == "Emission") {
+    if (auto result = emission_quantity_type_from_string(str)) {
+      *static_cast<EmissionQuantityType *>(ptr) = *result;
+      return;
+    }
+    throw std::runtime_error("Failed to parse EmissionQuantityType: " + std::string(str));
+  }
+
+  // Default: Material enum
   if (auto result = material_from_string(str)) {
     *static_cast<Material *>(ptr) = *result;
-    return;
-  }
-
-  // SubstanceContentMethod enum (used in DangerousSubstance)
-  if (auto result = substance_content_method_from_string(str)) {
-    *static_cast<SubstanceContentMethod *>(ptr) = *result;
-    return;
-  }
-
-  // EmissionQuantityType enum (used in Emission)
-  if (auto result = emission_quantity_type_from_string(str)) {
-    *static_cast<EmissionQuantityType *>(ptr) = *result;
     return;
   }
 
@@ -211,6 +213,14 @@ void Deserializer::deserialize_object_array(
       throw std::runtime_error("Expected JSON array for object_array type");
     }
 
+    // Helper lambda to extract JSON value as string without extra quotes
+    auto json_to_string = [](const json &val) -> std::string {
+      if (val.is_string()) {
+        return val.get<std::string>();
+      }
+      return val.dump();
+    };
+
     // Handle DangerousSubstance array
     if (desc.nested_properties == traits::PropertyTraits<DangerousSubstance>::properties()) {
       auto *field = static_cast<std::vector<DangerousSubstance> *>(ptr);
@@ -224,7 +234,7 @@ void Deserializer::deserialize_object_array(
         for (size_t i = 0; i < desc.nested_count; ++i) {
           const auto &nested_desc = desc.nested_properties[i];
           if (obj.contains(nested_desc.field_name)) {
-            std::string val_str = obj[nested_desc.field_name].dump();
+            std::string val_str = json_to_string(obj[nested_desc.field_name]);
             nested_values.emplace(nested_desc.leksikon_guid,
                                   PropertyValue(val_str, nested_desc.type));
           }
@@ -248,7 +258,7 @@ void Deserializer::deserialize_object_array(
         for (size_t i = 0; i < desc.nested_count; ++i) {
           const auto &nested_desc = desc.nested_properties[i];
           if (obj.contains(nested_desc.field_name)) {
-            std::string val_str = obj[nested_desc.field_name].dump();
+            std::string val_str = json_to_string(obj[nested_desc.field_name]);
             nested_values.emplace(nested_desc.leksikon_guid,
                                   PropertyValue(val_str, nested_desc.type));
           }
@@ -317,23 +327,20 @@ PropertyValue Serializer::serialize_string_array(const void *ptr) {
 
 PropertyValue Serializer::serialize_enum_value(const void *ptr,
                                                  std::string_view enum_type) {
-  // Try all enum types
+  // Dispatch based on struct context to avoid misinterpreting enum values
+  if (enum_type == "DangerousSubstance") {
+    const auto *sub = static_cast<const SubstanceContentMethod *>(ptr);
+    return PropertyValue(to_string(*sub), traits::PropertyType::EnumValue);
+  }
+
+  if (enum_type == "Emission") {
+    const auto *emit = static_cast<const EmissionQuantityType *>(ptr);
+    return PropertyValue(to_string(*emit), traits::PropertyType::EnumValue);
+  }
+
+  // Default: Material enum (used in ConstructionItemDescription and others)
   const auto *mat = static_cast<const Material *>(ptr);
-  std::string_view str = to_string(*mat);
-
-  if (!str.empty()) {
-    return PropertyValue(str, traits::PropertyType::EnumValue);
-  }
-
-  const auto *sub = static_cast<const SubstanceContentMethod *>(ptr);
-  str = to_string(*sub);
-  if (!str.empty()) {
-    return PropertyValue(str, traits::PropertyType::EnumValue);
-  }
-
-  const auto *emit = static_cast<const EmissionQuantityType *>(ptr);
-  str = to_string(*emit);
-  return PropertyValue(str, traits::PropertyType::EnumValue);
+  return PropertyValue(to_string(*mat), traits::PropertyType::EnumValue);
 }
 
 PropertyValue Serializer::serialize_enum_array(const void *ptr,

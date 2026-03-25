@@ -5,6 +5,7 @@
 #pragma once
 
 #include "core/materialepas_property_types.hpp"
+#include <array>
 #include <cstddef>
 
 namespace ReUseX::core::traits {
@@ -66,72 +67,576 @@ template <typename T> struct PropertyTraits {
 };
 
 // ============================================================================
-// Registration Macros
+// Helper Functions for Creating PropertyDescriptors
 // ============================================================================
 
-/**
- * @brief Calculate field offset in struct
- */
-#define REUSEX_PROPERTY_OFFSET(Struct, Field) offsetof(Struct, Field)
+namespace detail {
 
 /**
- * @brief Define a simple property (non-nested)
+ * @brief Create a simple property descriptor (non-nested)
  *
- * @param Struct The struct type
- * @param Field The field name
- * @param Guid The Molio leksiCon GUID string
- * @param Type The PropertyType enum value (without namespace)
+ * Helper function to construct PropertyDescriptor for simple fields.
+ * Provides type-safe, constexpr property creation without macros.
+ *
+ * @tparam T The struct type containing the field
+ * @param field_name C++ field name (e.g., "contact_email")
+ * @param leksikon_guid Molio leksiCon GUID string
+ * @param type PropertyType enum value
+ * @param field_offset Offset of field in struct (use offsetof)
+ * @return PropertyDescriptor instance
  */
-#define REUSEX_PROP(Struct, Field, Guid, Type)                                 \
-  PropertyDescriptor { #Field, Guid, PropertyType::Type,                       \
-                       REUSEX_PROPERTY_OFFSET(Struct, Field), nullptr, 0 }
+template <typename T>
+constexpr PropertyDescriptor make_property(
+    const char* field_name,
+    const char* leksikon_guid,
+    PropertyType type,
+    size_t field_offset) noexcept {
+  return PropertyDescriptor{
+    field_name,
+    leksikon_guid,
+    type,
+    field_offset,
+    nullptr,
+    0
+  };
+}
 
 /**
- * @brief Define a nested object array property
+ * @brief Create a nested object array property descriptor
  *
- * For fields like std::vector<DangerousSubstance>, links to nested traits.
+ * Helper function for fields like std::vector<DangerousSubstance>.
+ * Links to nested type's PropertyTraits for recursive serialization.
  *
- * @param Struct The parent struct type
- * @param Field The field name
- * @param NestedStruct The nested struct type (must have PropertyTraits
- * specialization)
+ * @tparam T The parent struct type
+ * @tparam NestedT The nested struct type (must have PropertyTraits specialization)
+ * @param field_name C++ field name
+ * @param field_offset Offset of field in struct (use offsetof)
+ * @return PropertyDescriptor instance with nested properties linked
  */
-#define REUSEX_PROP_NESTED(Struct, Field, NestedStruct)                        \
-  PropertyDescriptor {                                                         \
-    #Field, "", PropertyType::ObjectArray,                                     \
-        REUSEX_PROPERTY_OFFSET(Struct, Field),                                 \
-        PropertyTraits<NestedStruct>::properties(),                            \
-        PropertyTraits<NestedStruct>::property_count()                         \
+template <typename T, typename NestedT>
+constexpr PropertyDescriptor make_nested_property(
+    const char* field_name,
+    size_t field_offset) noexcept {
+  return PropertyDescriptor{
+    field_name,
+    "",  // No GUID for nested arrays
+    PropertyType::ObjectArray,
+    field_offset,
+    PropertyTraits<NestedT>::properties(),
+    PropertyTraits<NestedT>::property_count()
+  };
+}
+
+} // namespace detail
+
+} // namespace ReUseX::core::traits
+
+// ===========================================================================
+// Include types before specializations
+// ===========================================================================
+
+#include "core/materialepas_types.hpp"
+
+namespace ReUseX::core::traits {
+
+// Bring types into scope for convenience
+using ::ReUseX::core::Owner;
+using ::ReUseX::core::ConstructionItemDescription;
+using ::ReUseX::core::ProductInformation;
+using ::ReUseX::core::Certifications;
+using ::ReUseX::core::Dimensions;
+using ::ReUseX::core::Condition;
+using ::ReUseX::core::DangerousSubstance;
+using ::ReUseX::core::Emission;
+using ::ReUseX::core::Pollution;
+using ::ReUseX::core::EnvironmentalPotential;
+using ::ReUseX::core::FireProperties;
+using ::ReUseX::core::History;
+
+// ===========================================================================
+// Template Specializations
+// ===========================================================================
+
+// ===========================================================================
+// Section 1: Owner (3 properties)
+// ===========================================================================
+
+template <>
+struct PropertyTraits<Owner> {
+  static inline constexpr std::array properties_array = {
+    detail::make_property<Owner>(
+      "contact_email", "0Bwj05D$55V931bq9VaBE5",
+      PropertyType::String, offsetof(Owner, contact_email)),
+    detail::make_property<Owner>(
+      "contact_name", "17BdeQk152gR5YUt5oSLfp",
+      PropertyType::String, offsetof(Owner, contact_name)),
+    detail::make_property<Owner>(
+      "company_name", "1bb51PIefCe9uHGCmR0gFJ",
+      PropertyType::String, offsetof(Owner, company_name))
+  };
+
+  static constexpr const PropertyDescriptor* properties() noexcept {
+    return properties_array.data();
   }
 
-/**
- * @brief Declare PropertyTraits specialization for a struct
- *
- * Usage example:
- * @code
- * REUSEX_DECLARE_PROPERTIES(Owner,
- *   REUSEX_PROP(Owner, contact_email, "0Bwj05D$55V931bq9VaBE5", String),
- *   REUSEX_PROP(Owner, contact_name, "17BdeQk152gR5YUt5oSLfp", String),
- *   REUSEX_PROP(Owner, company_name, "1bb51PIefCe9uHGCmR0gFJ", String)
- * );
- * @endcode
- *
- * @param StructName The struct type to register
- * @param ... Variadic list of REUSEX_PROP or REUSEX_PROP_NESTED macro calls
- */
-#define REUSEX_DECLARE_PROPERTIES(StructName, ...)                             \
-  template <> struct PropertyTraits<StructName> {                              \
-    static constexpr PropertyDescriptor properties_array[] = {__VA_ARGS__};    \
-                                                                               \
-    static constexpr const PropertyDescriptor *properties() noexcept {         \
-      return properties_array;                                                 \
-    }                                                                          \
-                                                                               \
-    static constexpr size_t property_count() noexcept {                        \
-      return sizeof(properties_array) / sizeof(PropertyDescriptor);            \
-    }                                                                          \
-                                                                               \
-    static constexpr const char *struct_name() noexcept { return #StructName; }\
+  static constexpr size_t property_count() noexcept {
+    return properties_array.size();
+  }
+
+  static constexpr const char* struct_name() noexcept {
+    return "Owner";
+  }
+};
+
+// ===========================================================================
+// Section 2: Construction Item Description (8 properties)
+// ===========================================================================
+
+template <>
+struct PropertyTraits<ConstructionItemDescription> {
+  static inline constexpr std::array properties_array = {
+    detail::make_property<ConstructionItemDescription>(
+      "designation", "2_mYRkA$9EcwXAxqBGoMrM",
+      PropertyType::String, offsetof(ConstructionItemDescription, designation)),
+    detail::make_property<ConstructionItemDescription>(
+      "images", "1dvQfmc2z9lB_rwknYkM3y",
+      PropertyType::StringArray, offsetof(ConstructionItemDescription, images)),
+    detail::make_property<ConstructionItemDescription>(
+      "has_qr_code", "06moAxe0j7EutROb0dD3B7",
+      PropertyType::Boolean, offsetof(ConstructionItemDescription, has_qr_code)),
+    detail::make_property<ConstructionItemDescription>(
+      "has_rfid_tag", "2$Owq1iHrAuw$ASWOXAk9p",
+      PropertyType::Boolean, offsetof(ConstructionItemDescription, has_rfid_tag)),
+    detail::make_property<ConstructionItemDescription>(
+      "materials", "1R_z75Gd52OQYxVkJ$E3ZU",
+      PropertyType::EnumArray, offsetof(ConstructionItemDescription, materials)),
+    detail::make_property<ConstructionItemDescription>(
+      "assembly_methods", "0N7Qwopp125xrULezqArw4",
+      PropertyType::StringArray, offsetof(ConstructionItemDescription, assembly_methods)),
+    detail::make_property<ConstructionItemDescription>(
+      "year_of_installation", "294ZkUyYn6TfdwCsbo2X63",
+      PropertyType::Integer, offsetof(ConstructionItemDescription, year_of_installation)),
+    detail::make_property<ConstructionItemDescription>(
+      "year_of_construction", "17LFECVML6buNXwBLz416Y",
+      PropertyType::Integer, offsetof(ConstructionItemDescription, year_of_construction))
   };
+
+  static constexpr const PropertyDescriptor* properties() noexcept {
+    return properties_array.data();
+  }
+
+  static constexpr size_t property_count() noexcept {
+    return properties_array.size();
+  }
+
+  static constexpr const char* struct_name() noexcept {
+    return "ConstructionItemDescription";
+  }
+};
+
+// ===========================================================================
+// Section 3: Product Information (5 properties)
+// ===========================================================================
+
+template <>
+struct PropertyTraits<ProductInformation> {
+  static inline constexpr std::array properties_array = {
+    detail::make_property<ProductInformation>(
+      "manufacturer", "1QwFy1F3T4dPe2N2cbsuRv",
+      PropertyType::String, offsetof(ProductInformation, manufacturer)),
+    detail::make_property<ProductInformation>(
+      "gtin", "1rQ9Z5vy5AygUSncyWuhXr",
+      PropertyType::String, offsetof(ProductInformation, gtin)),
+    detail::make_property<ProductInformation>(
+      "product_name", "198tMTFIX5PecEfAwMEIeo",
+      PropertyType::String, offsetof(ProductInformation, product_name)),
+    detail::make_property<ProductInformation>(
+      "model_label", "06t2gkj49FNvMebmltrHXV",
+      PropertyType::String, offsetof(ProductInformation, model_label)),
+    detail::make_property<ProductInformation>(
+      "production_year", "3nif2XJKH8r9I09LfEYaRm",
+      PropertyType::Integer, offsetof(ProductInformation, production_year))
+  };
+
+  static constexpr const PropertyDescriptor* properties() noexcept {
+    return properties_array.data();
+  }
+
+  static constexpr size_t property_count() noexcept {
+    return properties_array.size();
+  }
+
+  static constexpr const char* struct_name() noexcept {
+    return "ProductInformation";
+  }
+};
+
+// ===========================================================================
+// Section 4: Certifications (13 properties)
+// ===========================================================================
+
+template <>
+struct PropertyTraits<Certifications> {
+  static inline constexpr std::array properties_array = {
+    detail::make_property<Certifications>(
+      "has_epd", "2_jn1$mEr1780H5QOiEj6O",
+      PropertyType::Boolean, offsetof(Certifications, has_epd)),
+    detail::make_property<Certifications>(
+      "epd_programme_operator", "0ORiYBKRnCFQzUwOsNqbYn",
+      PropertyType::String, offsetof(Certifications, epd_programme_operator)),
+    detail::make_property<Certifications>(
+      "epd_operator_web_domain", "2kqTixLBr9sBqGKYs9lNSI",
+      PropertyType::String, offsetof(Certifications, epd_operator_web_domain)),
+    detail::make_property<Certifications>(
+      "epd_registration_number", "2aCraAVB91qw8CzrM6x3ia",
+      PropertyType::String, offsetof(Certifications, epd_registration_number)),
+    detail::make_property<Certifications>(
+      "reference_service_life", "28mSsPe_z69BksBt5oRXMl",
+      PropertyType::Double, offsetof(Certifications, reference_service_life)),
+    detail::make_property<Certifications>(
+      "has_safety_data_sheet", "3D1KFVwbDBuumnIBZZHQId",
+      PropertyType::Boolean, offsetof(Certifications, has_safety_data_sheet)),
+    detail::make_property<Certifications>(
+      "declaration_of_performance", "1tqCmrJwn3yvF$k2lU2fFa",
+      PropertyType::StringArray, offsetof(Certifications, declaration_of_performance)),
+    detail::make_property<Certifications>(
+      "technical_documentation", "1IfrbnqGv5Pu3GBuocLZgi",
+      PropertyType::StringArray, offsetof(Certifications, technical_documentation)),
+    detail::make_property<Certifications>(
+      "non_destructive_tests", "0aTBceworF$QTXM6CqyOdV",
+      PropertyType::StringArray, offsetof(Certifications, non_destructive_tests)),
+    detail::make_property<Certifications>(
+      "assessed_period_of_use", "3xW23JRMTAzOQb79uZW3qC",
+      PropertyType::Double, offsetof(Certifications, assessed_period_of_use)),
+    detail::make_property<Certifications>(
+      "avg_service_life_build", "2TtVRWo_56mBphAcSiFIHG",
+      PropertyType::Double, offsetof(Certifications, avg_service_life_build)),
+    detail::make_property<Certifications>(
+      "remaining_service_life_rsl", "2id4UZ8ynAF9DEzV0NC_wT",
+      PropertyType::Double, offsetof(Certifications, remaining_service_life_rsl)),
+    detail::make_property<Certifications>(
+      "remaining_service_life_build", "27gXAA5Iz7lgcOytMRqOBv",
+      PropertyType::Double, offsetof(Certifications, remaining_service_life_build))
+  };
+
+  static constexpr const PropertyDescriptor* properties() noexcept {
+    return properties_array.data();
+  }
+
+  static constexpr size_t property_count() noexcept {
+    return properties_array.size();
+  }
+
+  static constexpr const char* struct_name() noexcept {
+    return "Certifications";
+  }
+};
+
+// ===========================================================================
+// Section 5: Dimensions (11 properties)
+// ===========================================================================
+
+template <>
+struct PropertyTraits<Dimensions> {
+  static inline constexpr std::array properties_array = {
+    detail::make_property<Dimensions>(
+      "width_mm", "3NHBUedX9438Hi3mwD15$Z",
+      PropertyType::Double, offsetof(Dimensions, width_mm)),
+    detail::make_property<Dimensions>(
+      "height_mm", "2G$wMhUvL2LgKNY0J66oAT",
+      PropertyType::Double, offsetof(Dimensions, height_mm)),
+    detail::make_property<Dimensions>(
+      "length_mm", "1uUn3YWZfBaPqYQMo_$Om$",
+      PropertyType::Double, offsetof(Dimensions, length_mm)),
+    detail::make_property<Dimensions>(
+      "thickness_mm", "0SyXPZ9an9vh49k$Lgkvly",
+      PropertyType::Double, offsetof(Dimensions, thickness_mm)),
+    detail::make_property<Dimensions>(
+      "depth_mm", "1$OV5du3LFWwa$P7SfJhAr",
+      PropertyType::Double, offsetof(Dimensions, depth_mm)),
+    detail::make_property<Dimensions>(
+      "volume_m3", "3IHRMkfs9EDPXVvPJ0hbFn",
+      PropertyType::Double, offsetof(Dimensions, volume_m3)),
+    detail::make_property<Dimensions>(
+      "surface_area_m2", "3Cs4d96Ff1nPGHWlsTyYIS",
+      PropertyType::Double, offsetof(Dimensions, surface_area_m2)),
+    detail::make_property<Dimensions>(
+      "inner_diameter_mm", "0ayREcz2zBuPWmCDTem2a8",
+      PropertyType::Double, offsetof(Dimensions, inner_diameter_mm)),
+    detail::make_property<Dimensions>(
+      "outer_diameter_mm", "3BWwvo0lf3iAd_34y7ac$4",
+      PropertyType::Double, offsetof(Dimensions, outer_diameter_mm)),
+    detail::make_property<Dimensions>(
+      "weight_kg", "1XyLvnxf94pwJW6LWaD6Zw",
+      PropertyType::Double, offsetof(Dimensions, weight_kg)),
+    detail::make_property<Dimensions>(
+      "technical_drawing", "2d01jZqvP7GOR3V$coAprV",
+      PropertyType::String, offsetof(Dimensions, technical_drawing))
+  };
+
+  static constexpr const PropertyDescriptor* properties() noexcept {
+    return properties_array.data();
+  }
+
+  static constexpr size_t property_count() noexcept {
+    return properties_array.size();
+  }
+
+  static constexpr const char* struct_name() noexcept {
+    return "Dimensions";
+  }
+};
+
+// ===========================================================================
+// Section 6: Condition (8 properties)
+// ===========================================================================
+
+template <>
+struct PropertyTraits<Condition> {
+  static inline constexpr std::array properties_array = {
+    detail::make_property<Condition>(
+      "photo_documentation", "3$DH1Zm_r9_gzqdwKK39Ua",
+      PropertyType::StringArray, offsetof(Condition, photo_documentation)),
+    detail::make_property<Condition>(
+      "visual_inspection_performed", "2jB20LC_nEzBN4_j2ypip8",
+      PropertyType::Boolean, offsetof(Condition, visual_inspection_performed)),
+    detail::make_property<Condition>(
+      "has_signs_of_damage", "0rQimGJFHEueqtqwbwBaC5",
+      PropertyType::Boolean, offsetof(Condition, has_signs_of_damage)),
+    detail::make_property<Condition>(
+      "is_deformed", "1g6mt3SrvDlho6YqBIu1lW",
+      PropertyType::Boolean, offsetof(Condition, is_deformed)),
+    detail::make_property<Condition>(
+      "is_scratched", "365luGupDCfwgtD32gGGrS",
+      PropertyType::Boolean, offsetof(Condition, is_scratched)),
+    detail::make_property<Condition>(
+      "is_surface_intact", "2GO932BuX5EvXOecmhbbl3",
+      PropertyType::Boolean, offsetof(Condition, is_surface_intact)),
+    detail::make_property<Condition>(
+      "has_intact_edges", "0AoBmqQ9v1pw7ca1VVp_Za",
+      PropertyType::Boolean, offsetof(Condition, has_intact_edges)),
+    detail::make_property<Condition>(
+      "has_signs_of_degradation", "01lVHQF$XAneE8CFtajgr_",
+      PropertyType::Boolean, offsetof(Condition, has_signs_of_degradation))
+  };
+
+  static constexpr const PropertyDescriptor* properties() noexcept {
+    return properties_array.data();
+  }
+
+  static constexpr size_t property_count() noexcept {
+    return properties_array.size();
+  }
+
+  static constexpr const char* struct_name() noexcept {
+    return "Condition";
+  }
+};
+
+// ===========================================================================
+// Section 7: Pollution - Nested Types (DangerousSubstance, Emission)
+// ===========================================================================
+
+// DangerousSubstance (5 properties - nested)
+template <>
+struct PropertyTraits<DangerousSubstance> {
+  static inline constexpr std::array properties_array = {
+    detail::make_property<DangerousSubstance>(
+      "content_method", "2ympiI4PL6c8ooh9Agqnz4",
+      PropertyType::EnumValue, offsetof(DangerousSubstance, content_method)),
+    detail::make_property<DangerousSubstance>(
+      "analyzed_substance", "3Y2oTiV9r3NfoZQBVP_Bpx",
+      PropertyType::String, offsetof(DangerousSubstance, analyzed_substance)),
+    detail::make_property<DangerousSubstance>(
+      "cas_number", "2tZYDby2H2PADWYcTMn50O",
+      PropertyType::String, offsetof(DangerousSubstance, cas_number)),
+    detail::make_property<DangerousSubstance>(
+      "ec_number", "1cV5alHQ93Zu44Uv4Iuqoj",
+      PropertyType::String, offsetof(DangerousSubstance, ec_number)),
+    detail::make_property<DangerousSubstance>(
+      "concentration_mg_per_kg", "0yw_0Ggsf6ihdShOA1niRl",
+      PropertyType::Double, offsetof(DangerousSubstance, concentration_mg_per_kg))
+  };
+
+  static constexpr const PropertyDescriptor* properties() noexcept {
+    return properties_array.data();
+  }
+
+  static constexpr size_t property_count() noexcept {
+    return properties_array.size();
+  }
+
+  static constexpr const char* struct_name() noexcept {
+    return "DangerousSubstance";
+  }
+};
+
+// Emission (6 properties - nested)
+template <>
+struct PropertyTraits<Emission> {
+  static inline constexpr std::array properties_array = {
+    detail::make_property<Emission>(
+      "standard", "1Kx6G$uIXEZO3Br$MEsdaB",
+      PropertyType::String, offsetof(Emission, standard)),
+    detail::make_property<Emission>(
+      "type", "12ZQ3obYHB1OhXiyy3LcfK",
+      PropertyType::String, offsetof(Emission, type)),
+    detail::make_property<Emission>(
+      "lower_interval", "1dSnTNTGD5YQPcgcbzMJaD",
+      PropertyType::Double, offsetof(Emission, lower_interval)),
+    detail::make_property<Emission>(
+      "upper_interval", "3YTotdivHEeQS4ij2Xa7PU",
+      PropertyType::Double, offsetof(Emission, upper_interval)),
+    detail::make_property<Emission>(
+      "quantity_type", "33HQrsPDn9uhOu$7D3HhWU",
+      PropertyType::EnumValue, offsetof(Emission, quantity_type)),
+    detail::make_property<Emission>(
+      "quantity", "0lZ6gflK18WBte7dMyQQ$h",
+      PropertyType::Double, offsetof(Emission, quantity))
+  };
+
+  static constexpr const PropertyDescriptor* properties() noexcept {
+    return properties_array.data();
+  }
+
+  static constexpr size_t property_count() noexcept {
+    return properties_array.size();
+  }
+
+  static constexpr const char* struct_name() noexcept {
+    return "Emission";
+  }
+};
+
+// Pollution (9 properties including 2 nested arrays)
+template <>
+struct PropertyTraits<Pollution> {
+  static inline constexpr std::array properties_array = {
+    detail::make_property<Pollution>(
+      "contains_reach_substances", "2E6_MQ4Cn36f0s6CVYxQOR",
+      PropertyType::TriState, offsetof(Pollution, contains_reach_substances)),
+    detail::make_property<Pollution>(
+      "is_chemically_treated", "1Cf0jFllr2HAk8FOmT2VGr",
+      PropertyType::TriState, offsetof(Pollution, is_chemically_treated)),
+    detail::make_property<Pollution>(
+      "surface_treatments", "1zV5ZyYKT6CPWjKdTEZ1K0",
+      PropertyType::StringArray, offsetof(Pollution, surface_treatments)),
+    detail::make_nested_property<Pollution, DangerousSubstance>(
+      "dangerous_substances", offsetof(Pollution, dangerous_substances)),
+    detail::make_nested_property<Pollution, Emission>(
+      "emissions", offsetof(Pollution, emissions)),
+    detail::make_property<Pollution>(
+      "intended_for_indoor_use", "2W1zl8TFb459xOVytRmX3J",
+      PropertyType::Boolean, offsetof(Pollution, intended_for_indoor_use)),
+    detail::make_property<Pollution>(
+      "labelling_scheme", "3Txv$QA7zCp8azbWeuubx2",
+      PropertyType::String, offsetof(Pollution, labelling_scheme)),
+    detail::make_property<Pollution>(
+      "emission_level", "3areU4Rpv9gfbeDNE9eBgA",
+      PropertyType::String, offsetof(Pollution, emission_level)),
+    detail::make_property<Pollution>(
+      "has_asbestos_analysis", "2962p$Lwj68Br6satSNLAn",
+      PropertyType::Boolean, offsetof(Pollution, has_asbestos_analysis))
+  };
+
+  static constexpr const PropertyDescriptor* properties() noexcept {
+    return properties_array.data();
+  }
+
+  static constexpr size_t property_count() noexcept {
+    return properties_array.size();
+  }
+
+  static constexpr const char* struct_name() noexcept {
+    return "Pollution";
+  }
+};
+
+// ===========================================================================
+// Section 8: Environmental Potential (2 properties)
+// ===========================================================================
+
+template <>
+struct PropertyTraits<EnvironmentalPotential> {
+  static inline constexpr std::array properties_array = {
+    detail::make_property<EnvironmentalPotential>(
+      "takeback_scheme_available", "2__I$nkL94YRI_YCBy0ou8",
+      PropertyType::Boolean, offsetof(EnvironmentalPotential, takeback_scheme_available)),
+    detail::make_property<EnvironmentalPotential>(
+      "consists_of_separate_parts", "2nZqcaXkz7YPHhKI$FMowg",
+      PropertyType::Boolean, offsetof(EnvironmentalPotential, consists_of_separate_parts))
+  };
+
+  static constexpr const PropertyDescriptor* properties() noexcept {
+    return properties_array.data();
+  }
+
+  static constexpr size_t property_count() noexcept {
+    return properties_array.size();
+  }
+
+  static constexpr const char* struct_name() noexcept {
+    return "EnvironmentalPotential";
+  }
+};
+
+// ===========================================================================
+// Section 9: Fire Properties (4 properties)
+// ===========================================================================
+
+template <>
+struct PropertyTraits<FireProperties> {
+  static inline constexpr std::array properties_array = {
+    detail::make_property<FireProperties>(
+      "reaction_to_fire", "2bipZ4JrzDnwNZZHkwfk8O",
+      PropertyType::String, offsetof(FireProperties, reaction_to_fire)),
+    detail::make_property<FireProperties>(
+      "resistance_to_fire", "0NlhENUQr4YA5$p0zBrXSp",
+      PropertyType::String, offsetof(FireProperties, resistance_to_fire)),
+    detail::make_property<FireProperties>(
+      "documentation_of_fire_classification", "1DdkDjj1H7POQtnzDtu7CC",
+      PropertyType::String, offsetof(FireProperties, documentation_of_fire_classification)),
+    detail::make_property<FireProperties>(
+      "field_of_application", "37sNiQNwHC399AW2B60MrY",
+      PropertyType::String, offsetof(FireProperties, field_of_application))
+  };
+
+  static constexpr const PropertyDescriptor* properties() noexcept {
+    return properties_array.data();
+  }
+
+  static constexpr size_t property_count() noexcept {
+    return properties_array.size();
+  }
+
+  static constexpr const char* struct_name() noexcept {
+    return "FireProperties";
+  }
+};
+
+// ===========================================================================
+// Section 10: History (1 property)
+// ===========================================================================
+
+template <>
+struct PropertyTraits<History> {
+  static inline constexpr std::array properties_array = {
+    detail::make_property<History>(
+      "previous_usage_environments", "3BiwSSLEz9l8YLgoWcixHq",
+      PropertyType::StringArray, offsetof(History, previous_usage_environments))
+  };
+
+  static constexpr const PropertyDescriptor* properties() noexcept {
+    return properties_array.data();
+  }
+
+  static constexpr size_t property_count() noexcept {
+    return properties_array.size();
+  }
+
+  static constexpr const char* struct_name() noexcept {
+    return "History";
+  }
+};
 
 } // namespace ReUseX::core::traits

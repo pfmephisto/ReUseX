@@ -5,6 +5,7 @@
 #include "core/project_db.hpp"
 #include "core/MaterialPassport.hpp"
 #include "core/materialepas_serialization.hpp"
+#include "core/materialepas_traits.hpp"
 #include "core/logging.hpp"
 
 #include <opencv2/imgcodecs.hpp>
@@ -83,9 +84,10 @@ class ProjectDB::Impl {
         id            TEXT PRIMARY KEY,
         passport_id   TEXT REFERENCES material_passports(id),
         property_id   TEXT REFERENCES property_definitions(id),
-        leksikon_guid TEXT UNIQUE,
+        leksikon_guid TEXT,
         sort_order    INTEGER,
-        value         BLOB
+        value         BLOB,
+        UNIQUE(passport_id, leksikon_guid)
       );
 
       CREATE TABLE IF NOT EXISTS passport_log (
@@ -356,6 +358,123 @@ class ProjectDB::Impl {
     return passport;
   }
 
+  /**
+   * @brief Ensure a property definition exists in the database
+   *
+   * Uses INSERT OR IGNORE to upsert property definitions from PropertyTraits
+   * metadata. This is called during addMaterialPassport to guarantee that
+   * the property_definitions table is populated before inserting values.
+   */
+  void ensurePropertyDefinitions(
+      const ReUseX::core::traits::PropertyDescriptor *props, size_t count,
+      const char *category, sqlite3_stmt *stmt) {
+    for (size_t i = 0; i < count; ++i) {
+      const auto &prop = props[i];
+
+      // Nested object arrays use field_name as ID (not leksikon_guid)
+      if (prop.type == ReUseX::core::traits::PropertyType::ObjectArray) {
+        auto data_type =
+            ReUseX::core::traits::to_data_type_string(prop.type);
+
+        sqlite3_bind_text(stmt, 1, prop.field_name, -1, SQLITE_STATIC);
+        sqlite3_bind_text(stmt, 2, prop.field_name, -1, SQLITE_STATIC);
+        sqlite3_bind_text(stmt, 3, prop.field_name, -1, SQLITE_STATIC);
+        sqlite3_bind_text(stmt, 4, category, -1, SQLITE_STATIC);
+        sqlite3_bind_text(stmt, 5, data_type.data(),
+                          static_cast<int>(data_type.size()), SQLITE_STATIC);
+
+        if (sqlite3_step(stmt) != SQLITE_DONE) {
+          std::string error = sqlite3_errmsg(db);
+          sqlite3_finalize(stmt);
+          throw std::runtime_error(
+              "Failed to insert property definition: " + error);
+        }
+        sqlite3_reset(stmt);
+        continue;
+      }
+
+      auto data_type =
+          ReUseX::core::traits::to_data_type_string(prop.type);
+
+      sqlite3_bind_text(stmt, 1, prop.leksikon_guid, -1, SQLITE_STATIC);
+      sqlite3_bind_text(stmt, 2, prop.leksikon_guid, -1, SQLITE_STATIC);
+      sqlite3_bind_text(stmt, 3, prop.field_name, -1, SQLITE_STATIC);
+      sqlite3_bind_text(stmt, 4, category, -1, SQLITE_STATIC);
+      sqlite3_bind_text(stmt, 5, data_type.data(),
+                        static_cast<int>(data_type.size()), SQLITE_STATIC);
+
+      if (sqlite3_step(stmt) != SQLITE_DONE) {
+        std::string error = sqlite3_errmsg(db);
+        sqlite3_finalize(stmt);
+        throw std::runtime_error(
+            "Failed to insert property definition: " + error);
+      }
+      sqlite3_reset(stmt);
+    }
+  }
+
+  /**
+   * @brief Populate property_definitions for all MaterialPassport sections
+   */
+  void ensureAllPropertyDefinitions() {
+    const char *query =
+        "INSERT OR IGNORE INTO property_definitions "
+        "(id, leksikon_guid, name_en, category, data_type) "
+        "VALUES (?, ?, ?, ?, ?);";
+
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, query, -1, &stmt, nullptr) != SQLITE_OK) {
+      throw std::runtime_error(
+          "Failed to prepare property definition insert: " +
+          std::string(sqlite3_errmsg(db)));
+    }
+
+    using namespace ReUseX::core::traits;
+
+    ensurePropertyDefinitions(
+        PropertyTraits<ReUseX::core::Owner>::properties(),
+        PropertyTraits<ReUseX::core::Owner>::property_count(), "Owner", stmt);
+    ensurePropertyDefinitions(
+        PropertyTraits<ReUseX::core::ConstructionItemDescription>::properties(),
+        PropertyTraits<ReUseX::core::ConstructionItemDescription>::
+            property_count(),
+        "Description", stmt);
+    ensurePropertyDefinitions(
+        PropertyTraits<ReUseX::core::ProductInformation>::properties(),
+        PropertyTraits<ReUseX::core::ProductInformation>::property_count(),
+        "Product", stmt);
+    ensurePropertyDefinitions(
+        PropertyTraits<ReUseX::core::Certifications>::properties(),
+        PropertyTraits<ReUseX::core::Certifications>::property_count(),
+        "Certifications", stmt);
+    ensurePropertyDefinitions(
+        PropertyTraits<ReUseX::core::Dimensions>::properties(),
+        PropertyTraits<ReUseX::core::Dimensions>::property_count(),
+        "Dimensions", stmt);
+    ensurePropertyDefinitions(
+        PropertyTraits<ReUseX::core::Condition>::properties(),
+        PropertyTraits<ReUseX::core::Condition>::property_count(), "Condition",
+        stmt);
+    ensurePropertyDefinitions(
+        PropertyTraits<ReUseX::core::Pollution>::properties(),
+        PropertyTraits<ReUseX::core::Pollution>::property_count(), "Pollution",
+        stmt);
+    ensurePropertyDefinitions(
+        PropertyTraits<ReUseX::core::EnvironmentalPotential>::properties(),
+        PropertyTraits<ReUseX::core::EnvironmentalPotential>::property_count(),
+        "Environmental", stmt);
+    ensurePropertyDefinitions(
+        PropertyTraits<ReUseX::core::FireProperties>::properties(),
+        PropertyTraits<ReUseX::core::FireProperties>::property_count(), "Fire",
+        stmt);
+    ensurePropertyDefinitions(
+        PropertyTraits<ReUseX::core::History>::properties(),
+        PropertyTraits<ReUseX::core::History>::property_count(), "History",
+        stmt);
+
+    sqlite3_finalize(stmt);
+  }
+
   void addMaterialPassport(const ReUseX::core::MaterialPassport &passport,
                            std::string_view projectId) {
     ReUseX::core::info("Adding MaterialPassport: {}",
@@ -365,6 +484,30 @@ class ProjectDB::Impl {
     sqlite3_exec(db, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
 
     try {
+      // 0. Ensure property_definitions are populated
+      ensureAllPropertyDefinitions();
+
+      // 0b. Ensure project row exists
+      {
+        const char *upsert_project =
+            "INSERT OR IGNORE INTO projects (id) VALUES (?);";
+        sqlite3_stmt *proj_stmt;
+        if (sqlite3_prepare_v2(db, upsert_project, -1, &proj_stmt, nullptr) !=
+            SQLITE_OK) {
+          throw std::runtime_error(
+              "Failed to prepare project insert: " +
+              std::string(sqlite3_errmsg(db)));
+        }
+        sqlite3_bind_text(proj_stmt, 1, projectId.data(), projectId.size(),
+                          SQLITE_TRANSIENT);
+        if (sqlite3_step(proj_stmt) != SQLITE_DONE) {
+          std::string error = sqlite3_errmsg(db);
+          sqlite3_finalize(proj_stmt);
+          throw std::runtime_error("Failed to insert project: " + error);
+        }
+        sqlite3_finalize(proj_stmt);
+      }
+
       // 1. Insert material_passports row
       const char *insert_passport_query =
           "INSERT INTO material_passports (id, project_id, document_guid, "

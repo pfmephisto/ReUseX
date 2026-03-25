@@ -145,8 +145,11 @@ void Deserializer::deserialize(
   for (size_t i = 0; i < Traits::property_count(); ++i) {
     const auto &desc = Traits::properties()[i];
 
-    // Find property by leksikon_guid
-    auto it = values.find(desc.leksikon_guid);
+    // Find property by leksikon_guid (or field_name for nested arrays)
+    const char *lookup_key = desc.type == traits::PropertyType::ObjectArray
+                                 ? desc.field_name
+                                 : desc.leksikon_guid;
+    auto it = values.find(lookup_key);
     if (it == values.end()) {
       continue; // Use default value (field already initialized)
     }
@@ -230,8 +233,11 @@ std::map<std::string, PropertyValue> Serializer::serialize(const T &obj) {
       break;
     }
 
-    // Store with leksikon_guid as key
-    values.emplace(desc.leksikon_guid, std::move(value));
+    // Store with leksikon_guid as key (or field_name for nested arrays)
+    const char *store_key = desc.type == traits::PropertyType::ObjectArray
+                                ? desc.field_name
+                                : desc.leksikon_guid;
+    values.emplace(store_key, std::move(value));
   }
 
   return values;

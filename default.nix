@@ -52,7 +52,6 @@
   libpng,
   trtsam3,
   tokenizers-cpp,
-  nlohmann_json,
 }: let
   effectiveStdenv =
     if cudaSupport

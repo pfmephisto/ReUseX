@@ -19,8 +19,6 @@
 // #include <reusex/geometry/utils.hpp>
 // #include <reusex/visualize/pcl.hpp>
 
-#include <reusex/visualize/Visualizer.hpp>
-
 #include <pcl/common/common.h>
 #include <pcl/io/auto_io.h>
 #include <pcl/io/ply_io.h>

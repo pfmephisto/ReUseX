@@ -52,6 +52,12 @@ class VizualizationObserver final : public ReUseX::core::IVisualObserver,
                         const ReUseX::CloudConstPtr &cloud,
                         ReUseX::core::Stage stage, int idx) override;
 
+  void viewer_add_camera_frustum(std::string_view name, double focal_x,
+                                 double focal_y, int image_width,
+                                 int image_height,
+                                 const Eigen::Affine3f &pose,
+                                 ReUseX::core::Stage stage, int idx) override;
+
   // Progress bar callbacks
   void on_process_started(ReUseX::core::Stage stage, size_t total) override;
   void on_process_finished(ReUseX::core::Stage stage) override;

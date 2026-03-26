@@ -122,9 +122,9 @@ int main(int argc, char **argv) {
 
   setup_subcommand_segment(app);
 
-  setup_subcommand_texture(app);
   setup_subcommand_project(app);
 
+  setup_subcommand_texture(app);
   setup_subcommand_view(app);
   setup_subcommand_mesh(app);
 

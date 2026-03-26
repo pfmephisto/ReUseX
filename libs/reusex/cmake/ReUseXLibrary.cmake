@@ -25,10 +25,6 @@ file(GLOB_RECURSE REUSEX_HEADERS CONFIGURE_DEPENDS
 list(FILTER REUSEX_SOURCES EXCLUDE REGEX ".*/visualize/.*\\.cpp$")
 list(FILTER REUSEX_HEADERS EXCLUDE REGEX ".*/visualize/.*\\.hpp$")
 
-# Exclude geometry files that use Visualizer
-list(FILTER REUSEX_SOURCES EXCLUDE REGEX ".*/geometry/mesh\\.cpp$")
-list(FILTER REUSEX_SOURCES EXCLUDE REGEX ".*/geometry/texture_mesh\\.cpp$")
-
 list(LENGTH REUSEX_SOURCES REUSEX_SOURCE_COUNT)
 message(STATUS "Found ${REUSEX_SOURCE_COUNT} ReUseX source files")
 

@@ -9,11 +9,11 @@ file(GLOB_RECURSE rux_SOURCES CONFIGURE_DEPENDS "src/*.cpp")
 
 add_executable(rux ${rux_SOURCES})
 target_include_directories(rux PRIVATE include)
-target_link_libraries(rux PRIVATE ReUseX CLI11::CLI11 spdlog::spdlog)
-
-if(TARGET ReUseX_visualization)
-    target_link_libraries(rux PRIVATE ReUseX_visualization)
-    target_compile_definitions(rux PRIVATE REUSEX_HAS_VISUALIZATION)
-endif()
+target_link_libraries(rux PRIVATE
+    ReUseX
+    CLI11::CLI11
+    spdlog::spdlog
+    pcl_visualization
+)
 
 install(TARGETS rux DESTINATION bin)

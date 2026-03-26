@@ -9,6 +9,9 @@
 #include <spdlog/spdlog.h>
 
 #include <atomic>
+#include <pcl/common/transforms.h>
+
+#include <cmath>
 #include <functional>
 #include <memory>
 #include <string>
@@ -157,6 +160,45 @@ void VizualizationObserver::viewer_add_plane(std::string_view name,
   if (stage == ReUseX::core::Stage::Default) {
     if (viewports_.size() == 4)
       vp = viewports_[0];
+  }
+
+  // Horizontal planes are rendered as bounded floor quads
+  if (std::string_view(name).find("horizontal_planes") != std::string_view::npos) {
+    auto centroid = plane.second;
+    double height = centroid.z();
+    // Use ViridisLUT color based on index
+    auto color = pcl::ViridisLUT::at(
+        static_cast<size_t>(idx) % pcl::ViridisLUT::size());
+
+    viewer_enqueue_task([name = std::string(name), centroid, height, color,
+                         vp](const ViewerPtr &viewer,
+                             const std::vector<int> &) {
+      // Create a bounded floor quad centered on the centroid XY
+      constexpr double extent = 5.0;
+      pcl::PointCloud<pcl::PointXYZ>::Ptr points(
+          new pcl::PointCloud<pcl::PointXYZ>);
+      points->push_back(pcl::PointXYZ(centroid.x() - extent,
+                                       centroid.y() - extent, height));
+      points->push_back(pcl::PointXYZ(centroid.x() + extent,
+                                       centroid.y() - extent, height));
+      points->push_back(pcl::PointXYZ(centroid.x() + extent,
+                                       centroid.y() + extent, height));
+      points->push_back(pcl::PointXYZ(centroid.x() - extent,
+                                       centroid.y() + extent, height));
+
+      pcl::Vertices face;
+      face.vertices = {0, 1, 2, 3, 0};
+
+      viewer->addPolygonMesh<pcl::PointXYZ>(points, {face}, name, vp);
+      viewer->setPointCloudRenderingProperties(
+          pcl::visualization::PCL_VISUALIZER_COLOR,
+          static_cast<double>(color.r) / 255.0,
+          static_cast<double>(color.g) / 255.0,
+          static_cast<double>(color.b) / 255.0, name, vp);
+      viewer->setPointCloudRenderingProperties(
+          pcl::visualization::PCL_VISUALIZER_OPACITY, 0.2, name, vp);
+    });
+    return;
   }
 
   // Set the color based on the index using Glasbey LUT for better visibility
@@ -435,18 +477,74 @@ void VizualizationObserver::viewer_add_cell_complex(
 }
 
 void VizualizationObserver::viewer_add_cloud(
-    std::string_view /*name*/, const ReUseX::CloudConstPtr & /*cloud*/,
+    std::string_view name, const ReUseX::CloudConstPtr &cloud,
     ReUseX::core::Stage /*stage*/, int /*idx*/) {
   if (!viewer_is_active())
     return;
 
-  // viewer_enqueue_task(
-  //     [name = std::string(name), cloud,
-  //      stage = std::string(stage)](const ViewerPtr &viewer,
-  //                                  const std::vector<int> &viewports) {
-  //       int vp = viewports.empty() ? 0 : viewports[0];
-  //       viewer->addPointCloud(cloud, fmt::format("{}_cloud", name), vp);
-  //     });
+  viewer_enqueue_task(
+      [name = std::string(name), cloud](const ViewerPtr &viewer,
+                                        const std::vector<int> &viewports) {
+        int vp = viewports.empty() ? 0 : viewports[0];
+        viewer->addPointCloud(cloud, fmt::format("{}_cloud", name), vp);
+      });
+}
+
+void VizualizationObserver::viewer_add_camera_frustum(
+    std::string_view name, double focal_x, double focal_y, int image_width,
+    int image_height, const Eigen::Affine3f &pose,
+    ReUseX::core::Stage /*stage*/, int /*idx*/) {
+  if (!viewer_is_active())
+    return;
+
+  viewer_enqueue_task([name = std::string(name), focal_x, focal_y, image_width,
+                       image_height,
+                       pose](const ViewerPtr &viewer,
+                             const std::vector<int> &viewports) {
+    int vp = viewports.empty() ? 0 : viewports[0];
+    const double width = static_cast<double>(image_width);
+    const double height = static_cast<double>(image_height);
+
+    // Create a 5-point wireframe frustum
+    pcl::PointXYZ p1, p2, p3, p4, p5;
+    p1.x = 0;
+    p1.y = 0;
+    p1.z = 0;
+    constexpr double dist = 0.75;
+    double maxX = dist * std::tan(std::atan(width / (2.0 * focal_x)));
+    double minX = -maxX;
+    double maxY = dist * std::tan(std::atan(height / (2.0 * focal_y)));
+    double minY = -maxY;
+    p2.x = minX;
+    p2.y = minY;
+    p2.z = dist;
+    p3.x = maxX;
+    p3.y = minY;
+    p3.z = dist;
+    p4.x = maxX;
+    p4.y = maxY;
+    p4.z = dist;
+    p5.x = minX;
+    p5.y = maxY;
+    p5.z = dist;
+
+    p1 = pcl::transformPoint(p1, pose);
+    p2 = pcl::transformPoint(p2, pose);
+    p3 = pcl::transformPoint(p3, pose);
+    p4 = pcl::transformPoint(p4, pose);
+    p5 = pcl::transformPoint(p5, pose);
+
+    viewer->addText3D(name, p1, 0.1, 1.0, 1.0, 1.0,
+                      fmt::format("{}_text", name), vp);
+    viewer->addLine(p1, p2, fmt::format("{}_line1", name), vp);
+    viewer->addLine(p1, p3, fmt::format("{}_line2", name), vp);
+    viewer->addLine(p1, p4, fmt::format("{}_line3", name), vp);
+    viewer->addLine(p1, p5, fmt::format("{}_line4", name), vp);
+    viewer->addLine(p2, p5, fmt::format("{}_line5", name), vp);
+    viewer->addLine(p5, p4, fmt::format("{}_line6", name), vp);
+    viewer->addLine(p4, p3, fmt::format("{}_line7", name), vp);
+    viewer->addLine(p3, p2, fmt::format("{}_line8", name), vp);
+  });
 }
 
 // ============================================================================

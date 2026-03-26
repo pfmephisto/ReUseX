@@ -6,6 +6,7 @@
 #include "reusex/core/logging.hpp"
 #include "reusex/types.hpp"
 
+#include <Eigen/Geometry>
 #include <fmt/format.h>
 #include <string_view>
 #include <type_traits>
@@ -129,6 +130,18 @@ class IVisualObserver : IObserver {
                                 Stage stage, int /*idx*/ = 0) {
     // Default: log that geometry type is not handled
     core::debug("viewer_add_cloud called for '{}' at stage '{}' "
+                "(no handler registered)",
+                name, to_string(stage));
+  }
+
+  virtual void viewer_add_camera_frustum(
+      std::string_view name, [[maybe_unused]] double focal_x,
+      [[maybe_unused]] double focal_y, [[maybe_unused]] int image_width,
+      [[maybe_unused]] int image_height,
+      [[maybe_unused]] const Eigen::Affine3f &pose, Stage stage,
+      int /*idx*/ = 0) {
+    // Default: log that geometry type is not handled
+    core::debug("viewer_add_camera_frustum called for '{}' at stage '{}' "
                 "(no handler registered)",
                 name, to_string(stage));
   }

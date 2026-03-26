@@ -6,14 +6,12 @@
 #include "core/processing_observer.hpp"
 #include "geometry/utils.hpp"
 #include "types.hpp"
-#include "visualize/pcl.hpp"
 
 #include <Eigen/Dense>
 #include <fmt/format.h>
 #include <pcl/common/io.h>
 #include <pcl/point_types.h>
 #include <pcl/surface/texture_mapping.h>
-#include <pcl/visualization/pcl_visualizer.h>
 #include <range/v3/view/enumerate.hpp>
 
 #include <filesystem>

@@ -8,11 +8,8 @@
 #include "geometry/CellComplex.hpp"
 #include "geometry/Solidifier.hpp"
 #include "geometry/regularization.hpp"
-#include "visualize/Visualizer.hpp"
 // #include "geometry/utils.hpp"
 // #include "io/reusex.hpp"
-
-#include <pcl/visualization/pcl_visualizer.h>
 
 // #include <algorithm>
 // #include <filesystem>
@@ -88,17 +85,8 @@ pcl::PolygonMeshPtr mesh(CloudConstPtr cloud, CloudNConstPtr normals,
   PointT min, max;
   pcl::getMinMax3D(*cloud, min, max);
 
-  // INFO: Display floors
-  auto heights =
-      horizontal |
-      ranges::views::transform([&](auto idx) { return planes[idx][2]; }) |
-      ranges::to<std::vector>();
-  Eigen::Vector3d min_vec(min.x, min.y, min.z);
-  Eigen::Vector3d max_vec(max.x, max.y, max.z);
-  min_vec -= Eigen::Vector3d::Ones();
-  max_vec += Eigen::Vector3d::Ones();
-  observer->viewer_add_geometries("floors", heights, stage);
-  // viewer->addFloors(heights, min_vec, max_vec, "floor", vps->at(0));
+  // Floors are visualized via the "horizontal_planes" observer call above.
+  // The rux VizualizationObserver renders horizontal planes as floor quads.
 
   // // auto viz_callback = [&queue_mutex, &task_queue,
   // //                      vp_2](size_t idx,

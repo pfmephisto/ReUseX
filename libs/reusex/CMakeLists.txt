@@ -7,8 +7,3 @@ include(CompilerOptions)
 include(CUDAOptions)
 include(Dependencies)
 include(ReUseXLibrary)
-
-option(BUILD_VISUALIZATION "Build visualization library" ON)
-if(BUILD_VISUALIZATION)
-    include(ReUseXVisualizationLibrary)
-endif()

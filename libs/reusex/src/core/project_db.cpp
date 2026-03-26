@@ -10,14 +10,167 @@
 
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
+#include <pcl/io/ply_io.h>
 #include <sqlite3.h>
 
+#include <cstring>
+#include <fstream>
+#include <sstream>
+
 namespace ReUseX {
+
+// ── RAII helper for sqlite3_stmt ────────────────────────────────────────
+class StmtGuard {
+    sqlite3_stmt *stmt_;
+  public:
+    explicit StmtGuard(sqlite3_stmt *s) : stmt_(s) {}
+    ~StmtGuard() { if (stmt_) sqlite3_finalize(stmt_); }
+    StmtGuard(const StmtGuard &) = delete;
+    StmtGuard &operator=(const StmtGuard &) = delete;
+    sqlite3_stmt *get() const { return stmt_; }
+};
+
+// ── Compact point serialization helpers ─────────────────────────────────
+
+static constexpr int XYZRGB_STEP = 16; // 3 float + 1 uint32
+static constexpr int NORMAL_STEP = 16; // 3 float + curvature
+static constexpr int LABEL_STEP  = 4;  // 1 uint32
+static constexpr int XYZ_STEP    = 12; // 3 float
+
+static std::vector<uint8_t> serializeXYZRGB(const Cloud &cloud) {
+  std::vector<uint8_t> buf(cloud.size() * XYZRGB_STEP);
+  auto *dst = buf.data();
+  for (const auto &pt : cloud.points) {
+    std::memcpy(dst, &pt.x, sizeof(float));
+    std::memcpy(dst + 4, &pt.y, sizeof(float));
+    std::memcpy(dst + 8, &pt.z, sizeof(float));
+    std::memcpy(dst + 12, &pt.rgba, sizeof(uint32_t));
+    dst += XYZRGB_STEP;
+  }
+  return buf;
+}
+
+static CloudPtr deserializeXYZRGB(const void *data, size_t size,
+                                  uint32_t width, uint32_t height) {
+  auto cloud = std::make_shared<Cloud>();
+  size_t count = size / XYZRGB_STEP;
+  cloud->points.resize(count);
+  cloud->width = width;
+  cloud->height = height;
+  cloud->is_dense = false;
+  auto *src = static_cast<const uint8_t *>(data);
+  for (size_t i = 0; i < count; ++i) {
+    auto &pt = cloud->points[i];
+    std::memcpy(&pt.x, src, sizeof(float));
+    std::memcpy(&pt.y, src + 4, sizeof(float));
+    std::memcpy(&pt.z, src + 8, sizeof(float));
+    std::memcpy(&pt.rgba, src + 12, sizeof(uint32_t));
+    src += XYZRGB_STEP;
+  }
+  return cloud;
+}
+
+static std::vector<uint8_t> serializeNormal(const CloudN &cloud) {
+  std::vector<uint8_t> buf(cloud.size() * NORMAL_STEP);
+  auto *dst = buf.data();
+  for (const auto &pt : cloud.points) {
+    std::memcpy(dst, &pt.normal_x, sizeof(float));
+    std::memcpy(dst + 4, &pt.normal_y, sizeof(float));
+    std::memcpy(dst + 8, &pt.normal_z, sizeof(float));
+    std::memcpy(dst + 12, &pt.curvature, sizeof(float));
+    dst += NORMAL_STEP;
+  }
+  return buf;
+}
+
+static CloudNPtr deserializeNormal(const void *data, size_t size,
+                                   uint32_t width, uint32_t height) {
+  auto cloud = std::make_shared<CloudN>();
+  size_t count = size / NORMAL_STEP;
+  cloud->points.resize(count);
+  cloud->width = width;
+  cloud->height = height;
+  cloud->is_dense = false;
+  auto *src = static_cast<const uint8_t *>(data);
+  for (size_t i = 0; i < count; ++i) {
+    auto &pt = cloud->points[i];
+    std::memcpy(&pt.normal_x, src, sizeof(float));
+    std::memcpy(&pt.normal_y, src + 4, sizeof(float));
+    std::memcpy(&pt.normal_z, src + 8, sizeof(float));
+    std::memcpy(&pt.curvature, src + 12, sizeof(float));
+    src += NORMAL_STEP;
+  }
+  return cloud;
+}
+
+static std::vector<uint8_t> serializeLabel(const CloudL &cloud) {
+  std::vector<uint8_t> buf(cloud.size() * LABEL_STEP);
+  auto *dst = buf.data();
+  for (const auto &pt : cloud.points) {
+    std::memcpy(dst, &pt.label, sizeof(uint32_t));
+    dst += LABEL_STEP;
+  }
+  return buf;
+}
+
+static CloudLPtr deserializeLabel(const void *data, size_t size,
+                                  uint32_t width, uint32_t height) {
+  auto cloud = std::make_shared<CloudL>();
+  size_t count = size / LABEL_STEP;
+  cloud->points.resize(count);
+  cloud->width = width;
+  cloud->height = height;
+  cloud->is_dense = false;
+  auto *src = static_cast<const uint8_t *>(data);
+  for (size_t i = 0; i < count; ++i) {
+    std::memcpy(&cloud->points[i].label, src, sizeof(uint32_t));
+    src += LABEL_STEP;
+  }
+  return cloud;
+}
+
+static std::vector<uint8_t>
+serializeXYZ(const pcl::PointCloud<pcl::PointXYZ> &cloud) {
+  std::vector<uint8_t> buf(cloud.size() * XYZ_STEP);
+  auto *dst = buf.data();
+  for (const auto &pt : cloud.points) {
+    std::memcpy(dst, &pt.x, sizeof(float));
+    std::memcpy(dst + 4, &pt.y, sizeof(float));
+    std::memcpy(dst + 8, &pt.z, sizeof(float));
+    dst += XYZ_STEP;
+  }
+  return buf;
+}
+
+static pcl::PointCloud<pcl::PointXYZ>::Ptr
+deserializeXYZ(const void *data, size_t size,
+               uint32_t width, uint32_t height) {
+  auto cloud = std::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
+  size_t count = size / XYZ_STEP;
+  cloud->points.resize(count);
+  cloud->width = width;
+  cloud->height = height;
+  cloud->is_dense = false;
+  auto *src = static_cast<const uint8_t *>(data);
+  for (size_t i = 0; i < count; ++i) {
+    auto &pt = cloud->points[i];
+    std::memcpy(&pt.x, src, sizeof(float));
+    std::memcpy(&pt.y, src + 4, sizeof(float));
+    std::memcpy(&pt.z, src + 8, sizeof(float));
+    src += XYZ_STEP;
+  }
+  return cloud;
+}
+
+// ── Impl ────────────────────────────────────────────────────────────────
+
 class ProjectDB::Impl {
     public:
   std::filesystem::path dbPath;
   bool readOnly;
   sqlite3 *db = nullptr;
+
+  static constexpr int LATEST_SCHEMA_VERSION = 1;
 
   Impl(std::filesystem::path path, bool ro)
       : dbPath(std::move(path)), readOnly(ro) {
@@ -33,9 +186,22 @@ class ProjectDB::Impl {
       throw std::runtime_error("Cannot open database: " + error);
     }
 
-    // Create project tables if in write mode
     if (!readOnly) {
+      // Performance pragmas for write mode
+      sqlite3_exec(db, "PRAGMA journal_mode = WAL;", nullptr, nullptr,
+                   nullptr);
+      sqlite3_exec(db, "PRAGMA synchronous = NORMAL;", nullptr, nullptr,
+                   nullptr);
+      sqlite3_exec(db, "PRAGMA foreign_keys = ON;", nullptr, nullptr,
+                   nullptr);
+
+      // Create legacy passport tables (always needed)
       createTables();
+      // Run schema migrations
+      runMigrations();
+    } else {
+      sqlite3_exec(db, "PRAGMA foreign_keys = ON;", nullptr, nullptr,
+                   nullptr);
     }
 
     ReUseX::core::info("Project database opened successfully");
@@ -47,6 +213,166 @@ class ProjectDB::Impl {
       sqlite3_close(db);
     }
   }
+
+  // ── Schema versioning ──────────────────────────────────────────────
+
+  bool tableExists(const char *tableName) const {
+    const char *query =
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, query, -1, &stmt, nullptr) != SQLITE_OK)
+      return false;
+    StmtGuard guard(stmt);
+    sqlite3_bind_text(stmt, 1, tableName, -1, SQLITE_STATIC);
+    return sqlite3_step(stmt) == SQLITE_ROW;
+  }
+
+  void createSchemaVersionTable() {
+    const char *sql = R"(
+      CREATE TABLE IF NOT EXISTS schema_version (
+        version     INTEGER NOT NULL,
+        applied_at  TEXT NOT NULL DEFAULT (datetime('now')),
+        description TEXT
+      );
+    )";
+    char *errMsg = nullptr;
+    if (sqlite3_exec(db, sql, nullptr, nullptr, &errMsg) != SQLITE_OK) {
+      std::string error = errMsg;
+      sqlite3_free(errMsg);
+      throw std::runtime_error(
+          "Failed to create schema_version table: " + error);
+    }
+  }
+
+  int getCurrentSchemaVersion() const {
+    if (!tableExists("schema_version"))
+      return -1;
+
+    const char *query = "SELECT MAX(version) FROM schema_version;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, query, -1, &stmt, nullptr) != SQLITE_OK)
+      return -1;
+    StmtGuard guard(stmt);
+
+    if (sqlite3_step(stmt) == SQLITE_ROW &&
+        sqlite3_column_type(stmt, 0) != SQLITE_NULL) {
+      return sqlite3_column_int(stmt, 0);
+    }
+    return -1;
+  }
+
+  void runMigrations() {
+    createSchemaVersionTable();
+
+    int current = getCurrentSchemaVersion();
+
+    if (current < 0) {
+      // Fresh DB or legacy DB — check if legacy passport tables exist
+      if (tableExists("material_passports")) {
+        // Legacy DB: mark as version 0, then migrate
+        insertSchemaVersion(0, "Legacy passport schema");
+        current = 0;
+      }
+      // else: completely fresh DB, will go straight to v1
+    }
+
+    if (current < 1) {
+      migrateToV1();
+    }
+
+    ReUseX::core::trace("Schema version: {}", getCurrentSchemaVersion());
+  }
+
+  void insertSchemaVersion(int version, const char *description) {
+    const char *sql =
+        "INSERT INTO schema_version (version, description) VALUES (?, ?);";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to insert schema version: " +
+                               std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+    sqlite3_bind_int(stmt, 1, version);
+    sqlite3_bind_text(stmt, 2, description, -1, SQLITE_STATIC);
+    if (sqlite3_step(stmt) != SQLITE_DONE)
+      throw std::runtime_error("Failed to insert schema version row");
+  }
+
+  void migrateToV1() {
+    ReUseX::core::info("Migrating database to schema version 1");
+
+    const char *v1_schema = R"(
+      CREATE TABLE IF NOT EXISTS point_clouds (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        name        TEXT NOT NULL UNIQUE,
+        point_type  TEXT NOT NULL,
+        point_count INTEGER NOT NULL,
+        point_step  INTEGER NOT NULL,
+        width       INTEGER NOT NULL,
+        height      INTEGER NOT NULL DEFAULT 1,
+        created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+        stage       TEXT,
+        parameters  TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS point_cloud_data (
+        cloud_id    INTEGER PRIMARY KEY REFERENCES point_clouds(id) ON DELETE CASCADE,
+        data        BLOB NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS label_definitions (
+        cloud_id    INTEGER NOT NULL REFERENCES point_clouds(id) ON DELETE CASCADE,
+        label_id    INTEGER NOT NULL,
+        name        TEXT NOT NULL,
+        color_rgb   INTEGER,
+        PRIMARY KEY (cloud_id, label_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS meshes (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        name        TEXT NOT NULL UNIQUE,
+        format      TEXT NOT NULL,
+        data        BLOB NOT NULL,
+        vertex_count INTEGER,
+        face_count   INTEGER,
+        created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+        stage       TEXT,
+        parameters  TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS sensor_frames (
+        node_id     INTEGER PRIMARY KEY,
+        color       BLOB,
+        depth       BLOB,
+        confidence  BLOB,
+        transform   BLOB,
+        width       INTEGER,
+        height      INTEGER
+      );
+
+      CREATE TABLE IF NOT EXISTS pipeline_log (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        stage       TEXT NOT NULL,
+        started_at  TEXT NOT NULL DEFAULT (datetime('now')),
+        finished_at TEXT,
+        parameters  TEXT,
+        status      TEXT NOT NULL DEFAULT 'running',
+        error_msg   TEXT
+      );
+    )";
+
+    char *errMsg = nullptr;
+    if (sqlite3_exec(db, v1_schema, nullptr, nullptr, &errMsg) != SQLITE_OK) {
+      std::string error = errMsg;
+      sqlite3_free(errMsg);
+      throw std::runtime_error("Migration to v1 failed: " + error);
+    }
+
+    insertSchemaVersion(1, "Add point clouds, meshes, sensor frames, "
+                           "pipeline log");
+    ReUseX::core::info("Migration to schema version 1 complete");
+  }
+
+  // ── Legacy passport tables ─────────────────────────────────────────
 
   void createTables() {
     const char *schema = R"(
@@ -140,6 +466,418 @@ class ProjectDB::Impl {
     }
     ReUseX::core::trace("Database schema validation passed");
   }
+
+  // ── Point cloud CRUD ───────────────────────────────────────────────
+
+  void savePointCloudMeta(std::string_view name, const char *pointType,
+                          size_t pointCount, int pointStep, uint32_t width,
+                          uint32_t height, const std::vector<uint8_t> &data,
+                          std::string_view stage,
+                          std::string_view paramsJson) {
+    sqlite3_exec(db, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
+    try {
+      // Upsert point_clouds row
+      const char *upsert = R"(
+        INSERT INTO point_clouds (name, point_type, point_count, point_step, width, height, stage, parameters)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(name) DO UPDATE SET
+          point_type = excluded.point_type,
+          point_count = excluded.point_count,
+          point_step = excluded.point_step,
+          width = excluded.width,
+          height = excluded.height,
+          created_at = datetime('now'),
+          stage = excluded.stage,
+          parameters = excluded.parameters;
+      )";
+
+      sqlite3_stmt *stmt;
+      if (sqlite3_prepare_v2(db, upsert, -1, &stmt, nullptr) != SQLITE_OK)
+        throw std::runtime_error("Failed to prepare point cloud upsert: " +
+                                 std::string(sqlite3_errmsg(db)));
+      StmtGuard guard(stmt);
+
+      sqlite3_bind_text(stmt, 1, name.data(),
+                        static_cast<int>(name.size()), SQLITE_TRANSIENT);
+      sqlite3_bind_text(stmt, 2, pointType, -1, SQLITE_STATIC);
+      sqlite3_bind_int64(stmt, 3, static_cast<sqlite3_int64>(pointCount));
+      sqlite3_bind_int(stmt, 4, pointStep);
+      sqlite3_bind_int(stmt, 5, static_cast<int>(width));
+      sqlite3_bind_int(stmt, 6, static_cast<int>(height));
+      if (!stage.empty())
+        sqlite3_bind_text(stmt, 7, stage.data(),
+                          static_cast<int>(stage.size()), SQLITE_TRANSIENT);
+      else
+        sqlite3_bind_null(stmt, 7);
+      if (!paramsJson.empty())
+        sqlite3_bind_text(stmt, 8, paramsJson.data(),
+                          static_cast<int>(paramsJson.size()),
+                          SQLITE_TRANSIENT);
+      else
+        sqlite3_bind_null(stmt, 8);
+
+      if (sqlite3_step(stmt) != SQLITE_DONE)
+        throw std::runtime_error("Failed to upsert point cloud metadata: " +
+                                 std::string(sqlite3_errmsg(db)));
+
+      // Get the cloud_id (might be new or existing)
+      int cloudId = getCloudId(name);
+
+      // Upsert point_cloud_data
+      const char *dataUpsert = R"(
+        INSERT INTO point_cloud_data (cloud_id, data)
+        VALUES (?, ?)
+        ON CONFLICT(cloud_id) DO UPDATE SET data = excluded.data;
+      )";
+
+      sqlite3_stmt *dstmt;
+      if (sqlite3_prepare_v2(db, dataUpsert, -1, &dstmt, nullptr) != SQLITE_OK)
+        throw std::runtime_error("Failed to prepare data upsert: " +
+                                 std::string(sqlite3_errmsg(db)));
+      StmtGuard dguard(dstmt);
+
+      sqlite3_bind_int(dstmt, 1, cloudId);
+      sqlite3_bind_blob(dstmt, 2, data.data(),
+                        static_cast<int>(data.size()), SQLITE_TRANSIENT);
+      if (sqlite3_step(dstmt) != SQLITE_DONE)
+        throw std::runtime_error("Failed to upsert point cloud data: " +
+                                 std::string(sqlite3_errmsg(db)));
+
+      sqlite3_exec(db, "COMMIT;", nullptr, nullptr, nullptr);
+    } catch (...) {
+      sqlite3_exec(db, "ROLLBACK;", nullptr, nullptr, nullptr);
+      throw;
+    }
+  }
+
+  int getCloudId(std::string_view name) const {
+    const char *sql = "SELECT id FROM point_clouds WHERE name = ?;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to query cloud ID");
+    StmtGuard guard(stmt);
+    sqlite3_bind_text(stmt, 1, name.data(),
+                      static_cast<int>(name.size()), SQLITE_TRANSIENT);
+    if (sqlite3_step(stmt) != SQLITE_ROW)
+      throw std::runtime_error("Point cloud not found: " +
+                               std::string(name));
+    return sqlite3_column_int(stmt, 0);
+  }
+
+  // Generic point cloud loader: returns raw data, point_type, width, height
+  struct CloudMeta {
+    std::string point_type;
+    uint32_t width;
+    uint32_t height;
+    std::vector<uint8_t> data;
+  };
+
+  CloudMeta loadCloudRaw(std::string_view name) const {
+    const char *sql = R"(
+      SELECT pc.point_type, pc.width, pc.height, pcd.data
+      FROM point_clouds pc
+      JOIN point_cloud_data pcd ON pcd.cloud_id = pc.id
+      WHERE pc.name = ?;
+    )";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to prepare cloud load: " +
+                               std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+    sqlite3_bind_text(stmt, 1, name.data(),
+                      static_cast<int>(name.size()), SQLITE_TRANSIENT);
+
+    if (sqlite3_step(stmt) != SQLITE_ROW)
+      throw std::runtime_error("Point cloud not found: " +
+                               std::string(name));
+
+    CloudMeta meta;
+    meta.point_type = reinterpret_cast<const char *>(
+        sqlite3_column_text(stmt, 0));
+    meta.width = static_cast<uint32_t>(sqlite3_column_int(stmt, 1));
+    meta.height = static_cast<uint32_t>(sqlite3_column_int(stmt, 2));
+
+    const void *blob = sqlite3_column_blob(stmt, 3);
+    int blobSize = sqlite3_column_bytes(stmt, 3);
+    meta.data.assign(static_cast<const uint8_t *>(blob),
+                     static_cast<const uint8_t *>(blob) + blobSize);
+    return meta;
+  }
+
+  bool hasPointCloud(std::string_view name) const {
+    const char *sql =
+        "SELECT COUNT(*) FROM point_clouds WHERE name = ?;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      return false;
+    StmtGuard guard(stmt);
+    sqlite3_bind_text(stmt, 1, name.data(),
+                      static_cast<int>(name.size()), SQLITE_TRANSIENT);
+    if (sqlite3_step(stmt) == SQLITE_ROW)
+      return sqlite3_column_int(stmt, 0) > 0;
+    return false;
+  }
+
+  void deletePointCloud(std::string_view name) {
+    // CASCADE will remove point_cloud_data and label_definitions rows
+    const char *sql = "DELETE FROM point_clouds WHERE name = ?;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to prepare delete: " +
+                               std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+    sqlite3_bind_text(stmt, 1, name.data(),
+                      static_cast<int>(name.size()), SQLITE_TRANSIENT);
+    sqlite3_step(stmt);
+  }
+
+  std::vector<std::string> listPointClouds() const {
+    const char *sql = "SELECT name FROM point_clouds ORDER BY id;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to list point clouds");
+    StmtGuard guard(stmt);
+
+    std::vector<std::string> names;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+      names.emplace_back(
+          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0)));
+    }
+    return names;
+  }
+
+  // ── Label definitions ──────────────────────────────────────────────
+
+  void saveLabelDefinitions(std::string_view cloudName,
+                            const std::map<int, std::string> &labelMap) {
+    int cloudId = getCloudId(cloudName);
+
+    sqlite3_exec(db, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
+    try {
+      // Delete existing definitions for this cloud
+      {
+        const char *del =
+            "DELETE FROM label_definitions WHERE cloud_id = ?;";
+        sqlite3_stmt *stmt;
+        if (sqlite3_prepare_v2(db, del, -1, &stmt, nullptr) != SQLITE_OK)
+          throw std::runtime_error("Failed to prepare label delete");
+        StmtGuard guard(stmt);
+        sqlite3_bind_int(stmt, 1, cloudId);
+        sqlite3_step(stmt);
+      }
+
+      // Insert new definitions
+      const char *ins = R"(
+        INSERT INTO label_definitions (cloud_id, label_id, name)
+        VALUES (?, ?, ?);
+      )";
+      sqlite3_stmt *stmt;
+      if (sqlite3_prepare_v2(db, ins, -1, &stmt, nullptr) != SQLITE_OK)
+        throw std::runtime_error("Failed to prepare label insert");
+      StmtGuard guard(stmt);
+
+      for (const auto &[labelId, labelName] : labelMap) {
+        sqlite3_bind_int(stmt, 1, cloudId);
+        sqlite3_bind_int(stmt, 2, labelId);
+        sqlite3_bind_text(stmt, 3, labelName.c_str(), -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(stmt) != SQLITE_DONE)
+          throw std::runtime_error("Failed to insert label definition");
+        sqlite3_reset(stmt);
+      }
+
+      sqlite3_exec(db, "COMMIT;", nullptr, nullptr, nullptr);
+    } catch (...) {
+      sqlite3_exec(db, "ROLLBACK;", nullptr, nullptr, nullptr);
+      throw;
+    }
+  }
+
+  std::map<int, std::string>
+  getLabelDefinitions(std::string_view cloudName) const {
+    int cloudId = getCloudId(cloudName);
+
+    const char *sql =
+        "SELECT label_id, name FROM label_definitions WHERE cloud_id = ? "
+        "ORDER BY label_id;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to query label definitions");
+    StmtGuard guard(stmt);
+    sqlite3_bind_int(stmt, 1, cloudId);
+
+    std::map<int, std::string> result;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+      int id = sqlite3_column_int(stmt, 0);
+      const char *name = reinterpret_cast<const char *>(
+          sqlite3_column_text(stmt, 1));
+      result[id] = name;
+    }
+    return result;
+  }
+
+  // ── Mesh CRUD ──────────────────────────────────────────────────────
+
+  void saveMesh(std::string_view name, const pcl::PolygonMesh &mesh,
+                std::string_view stage, std::string_view paramsJson) {
+    // Serialize mesh to PLY binary via temp file
+    auto tmpPath = std::filesystem::temp_directory_path() /
+                   ("reusex_mesh_" + std::to_string(reinterpret_cast<uintptr_t>(&mesh)) + ".ply");
+    pcl::io::savePLYFileBinary(tmpPath.string(), mesh);
+
+    // Read the file into a buffer
+    std::ifstream ifs(tmpPath, std::ios::binary | std::ios::ate);
+    if (!ifs)
+      throw std::runtime_error("Failed to read temporary PLY file");
+    auto fileSize = ifs.tellg();
+    ifs.seekg(0, std::ios::beg);
+    std::vector<char> plyData(static_cast<size_t>(fileSize));
+    ifs.read(plyData.data(), fileSize);
+    ifs.close();
+    std::filesystem::remove(tmpPath);
+
+    // Count vertices and faces
+    int vertexCount = 0;
+    int faceCount = static_cast<int>(mesh.polygons.size());
+    if (mesh.cloud.height > 0)
+      vertexCount = static_cast<int>(mesh.cloud.width * mesh.cloud.height);
+
+    const char *upsert = R"(
+      INSERT INTO meshes (name, format, data, vertex_count, face_count, stage, parameters)
+      VALUES (?, 'ply_binary', ?, ?, ?, ?, ?)
+      ON CONFLICT(name) DO UPDATE SET
+        format = excluded.format,
+        data = excluded.data,
+        vertex_count = excluded.vertex_count,
+        face_count = excluded.face_count,
+        created_at = datetime('now'),
+        stage = excluded.stage,
+        parameters = excluded.parameters;
+    )";
+
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, upsert, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to prepare mesh upsert: " +
+                               std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+
+    sqlite3_bind_text(stmt, 1, name.data(),
+                      static_cast<int>(name.size()), SQLITE_TRANSIENT);
+    sqlite3_bind_blob(stmt, 2, plyData.data(),
+                      static_cast<int>(plyData.size()), SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 3, vertexCount);
+    sqlite3_bind_int(stmt, 4, faceCount);
+    if (!stage.empty())
+      sqlite3_bind_text(stmt, 5, stage.data(),
+                        static_cast<int>(stage.size()), SQLITE_TRANSIENT);
+    else
+      sqlite3_bind_null(stmt, 5);
+    if (!paramsJson.empty())
+      sqlite3_bind_text(stmt, 6, paramsJson.data(),
+                        static_cast<int>(paramsJson.size()),
+                        SQLITE_TRANSIENT);
+    else
+      sqlite3_bind_null(stmt, 6);
+
+    if (sqlite3_step(stmt) != SQLITE_DONE)
+      throw std::runtime_error("Failed to upsert mesh: " +
+                               std::string(sqlite3_errmsg(db)));
+  }
+
+  pcl::PolygonMesh::Ptr getMesh(std::string_view name) const {
+    const char *sql = "SELECT data FROM meshes WHERE name = ?;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to prepare mesh load");
+    StmtGuard guard(stmt);
+    sqlite3_bind_text(stmt, 1, name.data(),
+                      static_cast<int>(name.size()), SQLITE_TRANSIENT);
+
+    if (sqlite3_step(stmt) != SQLITE_ROW)
+      throw std::runtime_error("Mesh not found: " + std::string(name));
+
+    const void *blob = sqlite3_column_blob(stmt, 0);
+    int blobSize = sqlite3_column_bytes(stmt, 0);
+
+    // Write to temp file and load via PCL
+    auto tmpPath = std::filesystem::temp_directory_path() /
+                   ("reusex_mesh_load_" + std::string(name) + ".ply");
+    {
+      std::ofstream ofs(tmpPath, std::ios::binary);
+      ofs.write(static_cast<const char *>(blob), blobSize);
+    }
+
+    auto mesh = std::make_shared<pcl::PolygonMesh>();
+    if (pcl::io::loadPLYFile(tmpPath.string(), *mesh) < 0) {
+      std::filesystem::remove(tmpPath);
+      throw std::runtime_error("Failed to parse PLY mesh data");
+    }
+    std::filesystem::remove(tmpPath);
+    return mesh;
+  }
+
+  bool hasMesh(std::string_view name) const {
+    const char *sql = "SELECT COUNT(*) FROM meshes WHERE name = ?;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      return false;
+    StmtGuard guard(stmt);
+    sqlite3_bind_text(stmt, 1, name.data(),
+                      static_cast<int>(name.size()), SQLITE_TRANSIENT);
+    if (sqlite3_step(stmt) == SQLITE_ROW)
+      return sqlite3_column_int(stmt, 0) > 0;
+    return false;
+  }
+
+  // ── Pipeline log ───────────────────────────────────────────────────
+
+  int logPipelineStart(std::string_view stage, std::string_view paramsJson) {
+    const char *sql = R"(
+      INSERT INTO pipeline_log (stage, parameters) VALUES (?, ?);
+    )";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to prepare pipeline log insert");
+    StmtGuard guard(stmt);
+    sqlite3_bind_text(stmt, 1, stage.data(),
+                      static_cast<int>(stage.size()), SQLITE_TRANSIENT);
+    if (!paramsJson.empty())
+      sqlite3_bind_text(stmt, 2, paramsJson.data(),
+                        static_cast<int>(paramsJson.size()),
+                        SQLITE_TRANSIENT);
+    else
+      sqlite3_bind_null(stmt, 2);
+
+    if (sqlite3_step(stmt) != SQLITE_DONE)
+      throw std::runtime_error("Failed to log pipeline start");
+
+    return static_cast<int>(sqlite3_last_insert_rowid(db));
+  }
+
+  void logPipelineEnd(int logId, bool success, std::string_view errorMsg) {
+    const char *sql = R"(
+      UPDATE pipeline_log
+      SET finished_at = datetime('now'), status = ?, error_msg = ?
+      WHERE id = ?;
+    )";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to prepare pipeline log update");
+    StmtGuard guard(stmt);
+    sqlite3_bind_text(stmt, 1, success ? "success" : "failed", -1,
+                      SQLITE_STATIC);
+    if (!errorMsg.empty())
+      sqlite3_bind_text(stmt, 2, errorMsg.data(),
+                        static_cast<int>(errorMsg.size()),
+                        SQLITE_TRANSIENT);
+    else
+      sqlite3_bind_null(stmt, 2);
+    sqlite3_bind_int(stmt, 3, logId);
+
+    if (sqlite3_step(stmt) != SQLITE_DONE)
+      throw std::runtime_error("Failed to log pipeline end");
+  }
+
+  // ── Material passport operations (unchanged) ──────────────────────
 
   size_t getNuberOfMaterials() const {
     const char *query = "SELECT COUNT(*) FROM material_passports;";
@@ -358,20 +1096,12 @@ class ProjectDB::Impl {
     return passport;
   }
 
-  /**
-   * @brief Ensure a property definition exists in the database
-   *
-   * Uses INSERT OR IGNORE to upsert property definitions from PropertyTraits
-   * metadata. This is called during addMaterialPassport to guarantee that
-   * the property_definitions table is populated before inserting values.
-   */
   void ensurePropertyDefinitions(
       const ReUseX::core::traits::PropertyDescriptor *props, size_t count,
       const char *category, sqlite3_stmt *stmt) {
     for (size_t i = 0; i < count; ++i) {
       const auto &prop = props[i];
 
-      // Nested object arrays use field_name as ID (not leksikon_guid)
       if (prop.type == ReUseX::core::traits::PropertyType::ObjectArray) {
         auto data_type =
             ReUseX::core::traits::to_data_type_string(prop.type);
@@ -413,9 +1143,6 @@ class ProjectDB::Impl {
     }
   }
 
-  /**
-   * @brief Populate property_definitions for all MaterialPassport sections
-   */
   void ensureAllPropertyDefinitions() {
     const char *query =
         "INSERT OR IGNORE INTO property_definitions "
@@ -521,7 +1248,7 @@ class ProjectDB::Impl {
                                  std::string(sqlite3_errmsg(db)));
       }
 
-      std::string passport_id = passport.metadata.document_guid; // Use document_guid as id
+      std::string passport_id = passport.metadata.document_guid;
       sqlite3_bind_text(stmt, 1, passport_id.c_str(), -1, SQLITE_TRANSIENT);
       sqlite3_bind_text(stmt, 2, projectId.data(), projectId.size(), SQLITE_TRANSIENT);
       sqlite3_bind_text(stmt, 3, passport.metadata.document_guid.c_str(), -1,
@@ -643,7 +1370,8 @@ class ProjectDB::Impl {
   }
 };
 
-// --- Public Interface Implementation ---
+// ── Public Interface Implementation ─────────────────────────────────────
+
 ProjectDB::ProjectDB(std::filesystem::path dbPath, bool readOnly)
     : impl_(std::make_unique<Impl>(std::move(dbPath), readOnly)) {
   impl_->validateSchema();
@@ -662,7 +1390,144 @@ const std::filesystem::path &ProjectDB::getPath() const noexcept {
   return impl_->dbPath;
 }
 
+int ProjectDB::getSchemaVersion() const {
+  return impl_->getCurrentSchemaVersion();
+}
+
 void ProjectDB::validateSchema() const { impl_->validateSchema(); }
+
+// --- Point Cloud Operations ---
+
+void ProjectDB::savePointCloud(std::string_view name, const Cloud &cloud,
+                               std::string_view stage,
+                               std::string_view paramsJson) {
+  auto data = serializeXYZRGB(cloud);
+  impl_->savePointCloudMeta(name, "PointXYZRGB", cloud.size(), XYZRGB_STEP,
+                            cloud.width, cloud.height, data, stage,
+                            paramsJson);
+}
+
+void ProjectDB::savePointCloud(std::string_view name, const CloudN &cloud,
+                               std::string_view stage,
+                               std::string_view paramsJson) {
+  auto data = serializeNormal(cloud);
+  impl_->savePointCloudMeta(name, "Normal", cloud.size(), NORMAL_STEP,
+                            cloud.width, cloud.height, data, stage,
+                            paramsJson);
+}
+
+void ProjectDB::savePointCloud(std::string_view name, const CloudL &cloud,
+                               std::string_view stage,
+                               std::string_view paramsJson) {
+  auto data = serializeLabel(cloud);
+  impl_->savePointCloudMeta(name, "Label", cloud.size(), LABEL_STEP,
+                            cloud.width, cloud.height, data, stage,
+                            paramsJson);
+}
+
+void ProjectDB::savePointCloud(std::string_view name,
+                               const pcl::PointCloud<pcl::PointXYZ> &cloud,
+                               std::string_view stage,
+                               std::string_view paramsJson) {
+  auto data = serializeXYZ(cloud);
+  impl_->savePointCloudMeta(name, "PointXYZ", cloud.size(), XYZ_STEP,
+                            cloud.width, cloud.height, data, stage,
+                            paramsJson);
+}
+
+CloudPtr ProjectDB::getPointCloudXYZRGB(std::string_view name) const {
+  auto meta = impl_->loadCloudRaw(name);
+  if (meta.point_type != "PointXYZRGB")
+    throw std::runtime_error("Point cloud '" + std::string(name) +
+                             "' is type " + meta.point_type +
+                             ", expected PointXYZRGB");
+  return deserializeXYZRGB(meta.data.data(), meta.data.size(), meta.width,
+                           meta.height);
+}
+
+CloudNPtr ProjectDB::getPointCloudNormal(std::string_view name) const {
+  auto meta = impl_->loadCloudRaw(name);
+  if (meta.point_type != "Normal")
+    throw std::runtime_error("Point cloud '" + std::string(name) +
+                             "' is type " + meta.point_type +
+                             ", expected Normal");
+  return deserializeNormal(meta.data.data(), meta.data.size(), meta.width,
+                           meta.height);
+}
+
+CloudLPtr ProjectDB::getPointCloudLabel(std::string_view name) const {
+  auto meta = impl_->loadCloudRaw(name);
+  if (meta.point_type != "Label")
+    throw std::runtime_error("Point cloud '" + std::string(name) +
+                             "' is type " + meta.point_type +
+                             ", expected Label");
+  return deserializeLabel(meta.data.data(), meta.data.size(), meta.width,
+                          meta.height);
+}
+
+pcl::PointCloud<pcl::PointXYZ>::Ptr
+ProjectDB::getPointCloudXYZ(std::string_view name) const {
+  auto meta = impl_->loadCloudRaw(name);
+  if (meta.point_type != "PointXYZ")
+    throw std::runtime_error("Point cloud '" + std::string(name) +
+                             "' is type " + meta.point_type +
+                             ", expected PointXYZ");
+  return deserializeXYZ(meta.data.data(), meta.data.size(), meta.width,
+                        meta.height);
+}
+
+bool ProjectDB::hasPointCloud(std::string_view name) const {
+  return impl_->hasPointCloud(name);
+}
+
+void ProjectDB::deletePointCloud(std::string_view name) {
+  impl_->deletePointCloud(name);
+}
+
+std::vector<std::string> ProjectDB::listPointClouds() const {
+  return impl_->listPointClouds();
+}
+
+// --- Label Definitions ---
+
+void ProjectDB::saveLabelDefinitions(
+    std::string_view cloudName,
+    const std::map<int, std::string> &labelMap) {
+  impl_->saveLabelDefinitions(cloudName, labelMap);
+}
+
+std::map<int, std::string>
+ProjectDB::getLabelDefinitions(std::string_view cloudName) const {
+  return impl_->getLabelDefinitions(cloudName);
+}
+
+// --- Mesh Operations ---
+
+void ProjectDB::saveMesh(std::string_view name, const pcl::PolygonMesh &mesh,
+                         std::string_view stage,
+                         std::string_view paramsJson) {
+  impl_->saveMesh(name, mesh, stage, paramsJson);
+}
+
+pcl::PolygonMesh::Ptr ProjectDB::getMesh(std::string_view name) const {
+  return impl_->getMesh(name);
+}
+
+bool ProjectDB::hasMesh(std::string_view name) const {
+  return impl_->hasMesh(name);
+}
+
+// --- Pipeline Log ---
+
+int ProjectDB::logPipelineStart(std::string_view stage,
+                                std::string_view paramsJson) {
+  return impl_->logPipelineStart(stage, paramsJson);
+}
+
+void ProjectDB::logPipelineEnd(int logId, bool success,
+                               std::string_view errorMsg) {
+  impl_->logPipelineEnd(logId, success, errorMsg);
+}
 
 // --- Material Passport Operations ---
 
@@ -676,49 +1541,4 @@ void ProjectDB::addMaterialPassport(const ReUseX::core::MaterialPassport &passpo
   impl_->addMaterialPassport(passport, projectId);
 }
 
-/*
-std::vector<int> ProjectDB::getNodeIds(bool ignoreChildren) const {
-  return impl_->getNodeIds(ignoreChildren);
-}
-
-cv::Mat ProjectDB::getImage(int nodeId) const {
-  return impl_->getImage(nodeId);
-}
-
-void ProjectDB::getGraph(std::map<int, rtabmap::Transform> &poses,
-                         std::multimap<int, rtabmap::Link> &links,
-                         std::map<int, rtabmap::Signature> *signatures,
-                         bool optimized, bool withImages, bool withScan) const {
-
-  ReUseX::core::trace("Retrieving graph from database");
-
-  if (!impl_->rtabmap) {
-    throw std::runtime_error("Rtabmap instance not initialized");
-  }
-
-  impl_->rtabmap->getGraph(poses, links, optimized, withImages, signatures,
-                           withScan);
-
-  ReUseX::core::trace("Graph retrieved: {} poses, {} links", poses.size(),
-                      links.size());
-}
-
-bool ProjectDB::hasSegmentation(int nodeId) const {
-  return impl_->hasSegmentation(nodeId);
-}
-
-cv::Mat ProjectDB::getLabels(int nodeId) const {
-  return impl_->getLabels(nodeId);
-}
-
-void ProjectDB::saveLabels(int nodeId, const cv::Mat &labels, bool autoRotate) {
-  impl_->saveLabels(nodeId, labels, autoRotate);
-}
-
-void ProjectDB::saveLabels(const std::vector<int> &nodeIds,
-                           const std::vector<cv::Mat> &labels,
-                           bool autoRotate) {
-  impl_->saveLabelsBatch(nodeIds, labels, autoRotate);
-}
-*/
 } // namespace ReUseX

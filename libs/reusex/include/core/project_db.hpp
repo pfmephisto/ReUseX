@@ -1,7 +1,12 @@
 #pragma once
 #include <filesystem>
+#include <map>
 #include <memory>
 #include <opencv2/core/mat.hpp>
+#include <pcl/PolygonMesh.h>
+#include <pcl/point_cloud.h>
+#include <pcl/point_types.h>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -11,6 +16,17 @@ namespace ReUseX {
 namespace core {
 struct MaterialPassport;
 }
+
+// PCL type aliases (mirror types.hpp to avoid heavy include)
+using PointT = pcl::PointXYZRGB;
+using NormalT = pcl::Normal;
+using LabelT = pcl::Label;
+using Cloud = pcl::PointCloud<PointT>;
+using CloudPtr = Cloud::Ptr;
+using CloudN = pcl::PointCloud<NormalT>;
+using CloudNPtr = CloudN::Ptr;
+using CloudL = pcl::PointCloud<LabelT>;
+using CloudLPtr = CloudL::Ptr;
 
 class ProjectDB {
     public:
@@ -23,6 +39,12 @@ class ProjectDB {
    * - material_passports: Material passport documents
    * - passport_property_values: Property values for each passport
    * - passport_log: Audit log for tracking changes
+   * - schema_version: Schema version tracking
+   * - point_clouds / point_cloud_data: Point cloud storage
+   * - label_definitions: Semantic label lookup
+   * - meshes: Mesh storage
+   * - sensor_frames: Imported sensor data (placeholder)
+   * - pipeline_log: Pipeline provenance log
    *
    * @param dbPath Path to the database file
    * @param readOnly If true, opens database in read-only mode
@@ -56,6 +78,12 @@ class ProjectDB {
    * @return filesystem path to the database
    */
   const std::filesystem::path &getPath() const noexcept;
+
+  /**
+   * @brief Get the current schema version
+   * @return schema version number, or -1 if no schema_version table exists
+   */
+  int getSchemaVersion() const;
 
   /**
    * @brief Validate that required project database tables exist
@@ -161,6 +189,96 @@ class ProjectDB {
   // void saveLabels(const std::vector<int> &nodeIds,
   //                 const std::vector<cv::Mat> &labels, bool autoRotate =
   //                 true);
+
+  // --- Point Cloud Operations ---
+
+  /**
+   * @brief Save a PointXYZRGB cloud to the database
+   *
+   * Uses compact binary serialization (16 bytes/point: xyz + rgba).
+   * Replaces any existing cloud with the same name.
+   */
+  void savePointCloud(std::string_view name, const Cloud &cloud,
+                      std::string_view stage = "",
+                      std::string_view paramsJson = "");
+
+  /**
+   * @brief Save a Normal cloud to the database
+   *
+   * Uses compact binary serialization (16 bytes/point: nx, ny, nz, curvature).
+   */
+  void savePointCloud(std::string_view name, const CloudN &cloud,
+                      std::string_view stage = "",
+                      std::string_view paramsJson = "");
+
+  /**
+   * @brief Save a Label cloud to the database
+   *
+   * Uses compact binary serialization (4 bytes/point: label uint32).
+   */
+  void savePointCloud(std::string_view name, const CloudL &cloud,
+                      std::string_view stage = "",
+                      std::string_view paramsJson = "");
+
+  /**
+   * @brief Save a PointXYZ cloud to the database
+   *
+   * Uses compact binary serialization (12 bytes/point: xyz).
+   */
+  void savePointCloud(std::string_view name,
+                      const pcl::PointCloud<pcl::PointXYZ> &cloud,
+                      std::string_view stage = "",
+                      std::string_view paramsJson = "");
+
+  CloudPtr getPointCloudXYZRGB(std::string_view name) const;
+  CloudNPtr getPointCloudNormal(std::string_view name) const;
+  CloudLPtr getPointCloudLabel(std::string_view name) const;
+  pcl::PointCloud<pcl::PointXYZ>::Ptr
+  getPointCloudXYZ(std::string_view name) const;
+
+  bool hasPointCloud(std::string_view name) const;
+  void deletePointCloud(std::string_view name);
+  std::vector<std::string> listPointClouds() const;
+
+  // --- Label Definitions ---
+
+  /**
+   * @brief Save label definitions for a named label cloud
+   *
+   * Maps integer label IDs to human-readable names (e.g., 0 → "wall").
+   * Replaces any existing definitions for this cloud.
+   */
+  void saveLabelDefinitions(std::string_view cloudName,
+                            const std::map<int, std::string> &labelMap);
+
+  std::map<int, std::string>
+  getLabelDefinitions(std::string_view cloudName) const;
+
+  // --- Mesh Operations ---
+
+  /**
+   * @brief Save a polygon mesh to the database as binary PLY
+   *
+   * Replaces any existing mesh with the same name.
+   */
+  void saveMesh(std::string_view name, const pcl::PolygonMesh &mesh,
+                std::string_view stage = "",
+                std::string_view paramsJson = "");
+
+  pcl::PolygonMesh::Ptr getMesh(std::string_view name) const;
+  bool hasMesh(std::string_view name) const;
+
+  // --- Pipeline Log ---
+
+  /**
+   * @brief Log the start of a pipeline stage
+   * @return log entry ID (use with logPipelineEnd)
+   */
+  int logPipelineStart(std::string_view stage,
+                       std::string_view paramsJson = "");
+
+  void logPipelineEnd(int logId, bool success,
+                      std::string_view errorMsg = "");
 
   // --- Material Passport Operations ---
 

@@ -59,6 +59,8 @@ const fs::path rooms = fs::current_path() / "rooms.pcd";
 const fs::path plane_centroids = fs::current_path() / "plane_centroids.pcd";
 const fs::path plane_normals = fs::current_path() / "plane_normals.pcd";
 
+const fs::path project_db = fs::current_path() / "project.rux";
+
 const double resulution = 0.05;
 const double grid_size = 0.5;
 }; // namespace GlobalParams

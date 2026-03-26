@@ -291,7 +291,7 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
 
 #ifndef NDEBUG
 #pragma omp parallel for reduction(+ : cloud, labels)                          \
-    shared(poses, nodes, logger)
+    shared(poses, nodes)
 #endif
     for (int i = 0; i < (int)poseVector.size(); ++i) {
       auto [id, pose] = poseVector[i];

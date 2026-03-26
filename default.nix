@@ -41,6 +41,9 @@
   libe57format,
   xercesc,
   cli11,
+  curl,
+  nlohmann_json,
+  openssl,
   #libtorch-bin,
   libtorch,
   oneDNN,
@@ -118,7 +121,9 @@ in
         catch2_3
         tokenizers-cpp
 
+        curl
         nlohmann_json
+        openssl
       ]
       ++ (
         if cudaSupport

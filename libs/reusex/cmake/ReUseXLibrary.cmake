@@ -136,6 +136,11 @@ target_link_libraries(ReUseX
 	      trtsam3::trtsam_core
 
 	      tokenizers_cpp::tokenizers_cpp
+
+        # Speckle upload support
+        CURL::libcurl
+        nlohmann_json::nlohmann_json
+        OpenSSL::Crypto
 )
 
 # -----------------------------------------------

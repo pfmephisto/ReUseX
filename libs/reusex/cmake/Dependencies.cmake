@@ -65,6 +65,13 @@ find_package(E57Format REQUIRED)
 find_package(opennurbs REQUIRED)
 
 # -----------------------------------------------
+# Speckle upload support (HTTP, JSON, hashing)
+# -----------------------------------------------
+find_package(CURL REQUIRED)
+find_package(nlohmann_json REQUIRED)
+find_package(OpenSSL REQUIRED)
+
+# -----------------------------------------------
 # Optional GUI support
 # -----------------------------------------------
 option(GUI_ENABLED "if true, enables GUI visualization features" OFF)

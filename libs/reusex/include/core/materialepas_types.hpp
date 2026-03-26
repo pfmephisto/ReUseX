@@ -393,6 +393,7 @@ struct Emission {
   /// @brief Measuring unit for the emission quantity
   /// @note Danish: 'Måleenhed'
   std::string measuring_unit;
+  std::string leksikon_guid_measuring_unit = "3d1HQUJVb23ReixUzvSyvS";
 
   /// @brief Measured emission quantity
   /// @note Danish: 'Emissionsmængde'

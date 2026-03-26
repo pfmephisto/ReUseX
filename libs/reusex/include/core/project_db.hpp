@@ -199,7 +199,7 @@ class ProjectDB {
   /**
    * @brief Save label definitions for a named label cloud
    *
-   * Maps integer label IDs to human-readable names (e.g., 0 → "wall").
+   * Maps integer label IDs to human-readable names (e.g., 0 -> "wall").
    * Replaces any existing definitions for this cloud.
    */
   void saveLabelDefinitions(std::string_view cloudName,

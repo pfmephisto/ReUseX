@@ -11,6 +11,7 @@
 #include <pcl/io/pcd_io.h>
 #include <pcl/io/ply_io.h>
 #include <pcl/io/vtk_lib_io.h>
+#include <reusex/geometry/unweld.hpp>
 #include <reusex/io/speckle.hpp>
 #include <reusex/types.hpp>
 #include <spdlog/spdlog.h>
@@ -135,8 +136,14 @@ int run_subcommand_export_speckle(SubcommandExportSpeckleOptions const &opt) {
       return RuxError::INVALID_ARGUMENT;
     }
     spdlog::info("Loaded {} polygons", mesh.polygons.size());
+
+    // Unweld mesh vertices at sharp edges for correct shading
+    auto unwelded = geometry::unweld_mesh(mesh, 0.0f);
+    spdlog::info("Unwelded mesh: {} vertices",
+                 unwelded->cloud.data.size() / unwelded->cloud.point_step);
+
     speckle_obj =
-        std::make_unique<io::speckle::Mesh>(io::speckle::to_speckle(mesh));
+        std::make_unique<io::speckle::Mesh>(io::speckle::to_speckle(*unwelded));
 
   } else {
     spdlog::error("Unsupported file format: {}", ext);

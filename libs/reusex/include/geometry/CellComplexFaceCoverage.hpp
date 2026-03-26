@@ -85,8 +85,8 @@ auto CellComplex::compute_face_coverage(pcl::PointCloud<PointT>::ConstPtr cloud,
       this->add_property_map<Vertex, double>("f:support_probability").first;
 
   {
-    auto observer = ReUseX::core::ProgressObserver("Computing face coverage",
-                                                   this->num_faces());
+    auto observer = ReUseX::core::ProgressObserver(
+        ReUseX::core::Stage::ComputingFaceCoverage, this->num_faces());
 
     std::vector<ReUseX::geometry::CellComplex::Vertex> face_list;
     face_list.reserve(this->num_faces());

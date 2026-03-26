@@ -329,7 +329,7 @@ auto project(const std::filesystem::path &dbPath, CloudConstPtr cloud)
 
   {
     auto observer = std::make_shared<ReUseX::core::ProgressObserver>(
-        "Projecting labels", poseVector.size());
+        ReUseX::core::Stage::ProjectingLabels, poseVector.size());
     for (size_t i = 0; i < poseVector.size(); ++i) {
       ReUseX::core::trace("Processing node {}/{}", i + 1, poseVector.size());
 

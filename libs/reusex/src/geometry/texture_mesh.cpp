@@ -114,8 +114,8 @@ pcl::TextureMesh::Ptr texture_mesh_with_cloud(pcl::PolygonMesh::Ptr mesh,
 
   ReUseX::core::trace("Create textutes form points in the cloud");
   {
-    auto observer =
-        ReUseX::core::ProgressObserver("Createing material", nr_polygons);
+    auto observer = ReUseX::core::ProgressObserver(
+        ReUseX::core::Stage::CreatingMaterial, nr_polygons);
 
     for (auto &&[idx, mat] :
          textured_mesh->tex_materials | ranges::views::enumerate) {
@@ -245,7 +245,7 @@ texture_mesh(pcl::PolygonMesh::Ptr mesh,
   cameras.resize(poses.size());
   {
     auto observer = ReUseX::core::ProgressObserver(
-        "Retrieving textures and cameras", poses.size());
+        ReUseX::core::Stage::RetrievingTextures, poses.size());
 
     // TODO: Extract camera intrinsics and image data for each node
     // category=Geometry estimate=4h

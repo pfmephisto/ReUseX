@@ -48,7 +48,7 @@ cmake -B "$BUILD_DIR" \
     -DCMAKE_BUILD_TYPE=Debug \
     -DENABLE_COVERAGE=ON \
     -DBUILD_TESTS=ON \
-    -DBUILD_VISUALIZATION=OFF
+    -DBUILD_VISUALIZATION=ON
 
 # Build
 echo -e "${YELLOW}Building...${NC}"
@@ -67,28 +67,35 @@ cd "$COVERAGE_DIR"
 echo -e "${YELLOW}Capturing coverage data...${NC}"
 lcov --capture \
     --directory "$BUILD_DIR" \
+    --base-directory "$PROJECT_ROOT" \
     --output-file coverage.info \
-    --rc lcov_branch_coverage=1
+    --ignore-errors mismatch,inconsistent,version \
+    --rc branch_coverage=1
 
 # Filter out system headers and test code
 echo -e "${YELLOW}Filtering coverage data...${NC}"
 lcov --remove coverage.info \
     '/usr/*' \
+    '/nix/*' \
     '*/tests/*' \
     '*/catch2/*' \
     '*/vcpkg_installed/*' \
-    '*/build/*' \
+    '*/build/_deps/*' \
+    '*/build/CMakeFiles/*' \
     --output-file coverage_filtered.info \
-    --rc lcov_branch_coverage=1
+    --ignore-errors mismatch,inconsistent,unused \
+    --rc branch_coverage=1
 
 # Generate HTML report
 echo -e "${YELLOW}Generating HTML report...${NC}"
 genhtml coverage_filtered.info \
     --output-directory "$HTML_DIR" \
     --title "ReUseX Coverage Report" \
+    --current-date "$(date '+%Y-%m-%d %H:%M:%S')" \
     --legend \
     --show-details \
-    --rc lcov_branch_coverage=1
+    --ignore-errors inconsistent \
+    --rc branch_coverage=1
 
 # Summary
 echo -e "${GREEN}========================================${NC}"
@@ -98,7 +105,7 @@ echo -e "Report location: ${YELLOW}$HTML_DIR/index.html${NC}"
 echo ""
 
 # Extract summary
-lcov --summary coverage_filtered.info --rc lcov_branch_coverage=1
+lcov --summary coverage_filtered.info --ignore-errors mismatch,inconsistent --rc branch_coverage=1
 
 echo ""
 echo -e "Open report with: ${YELLOW}xdg-open $HTML_DIR/index.html${NC}"

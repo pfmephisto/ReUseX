@@ -7,6 +7,8 @@
 
 #include <pcl/visualization/pcl_visualizer.h>
 #include <reusex/core/processing_observer.hpp>
+#include <reusex/geometry/CellComplex.hpp>
+#include <reusex/types.hpp>
 
 #include <latch>
 #include <mutex>
@@ -14,11 +16,14 @@
 
 namespace rux {
 
-class VizualizationObserver final : public ReUseX::core::IProcessingObserver {
+class VizualizationObserver final : public ReUseX::core::IVisualObserver,
+                                    public ReUseX::core::IProgressObserver {
     public:
   using ViewerPtr = std::shared_ptr<pcl::visualization::PCLVisualizer>;
   using VizTask =
       std::function<void(const ViewerPtr &, const std::vector<int> &viewports)>;
+  using Pair = std::pair<Eigen::Vector4d, Eigen::Vector3d>;
+  using PlanePair = std::pair<Pair, Pair>;
 
   ~VizualizationObserver() override;
 
@@ -26,13 +31,31 @@ class VizualizationObserver final : public ReUseX::core::IProcessingObserver {
 
   // Default implementation does nothing - users can override this method to add
   template <typename T>
-  void viewer_add_geometry(std::string_view /*name*/, const T & /*geometry*/,
-                           std::string_view /*stage*/) {};
+  void viewer_add_geometry(std::string_view
+                           /*name*/,
+                           const T & /*geometry*/, std::string_view /*stage*/,
+                           int /*idx*/) {};
+
+  // Override virtual method for planes
+  void viewer_add_plane(std::string_view name, const Eigen::Vector4d &plane,
+                        ReUseX::core::Stage stage, int idx) override;
+  void viewer_add_plane(std::string_view name, const Pair &plane,
+                        ReUseX::core::Stage stage, int idx) override;
+  void viewer_add_plane_pair(std::string_view name, const PlanePair &pair,
+                             ReUseX::core::Stage stage, int idx) override;
+  void viewer_add_cell_complex(
+      std::string_view name,
+      const std::shared_ptr<ReUseX::geometry::CellComplex> &cc,
+      ReUseX::core::Stage stage, int idx) override;
+
+  void viewer_add_cloud(std::string_view name,
+                        const ReUseX::CloudConstPtr &cloud,
+                        ReUseX::core::Stage stage, int idx) override;
 
   // Progress bar callbacks
-  void on_process_started(std::string_view process, size_t total) override;
-  void on_process_finished(std::string_view) override;
-  void on_process_updated(std::string_view, size_t increment) override;
+  void on_process_started(ReUseX::core::Stage stage, size_t total) override;
+  void on_process_finished(ReUseX::core::Stage stage) override;
+  void on_process_updated(ReUseX::core::Stage stage, size_t increment) override;
 
   // Viewer control methods
   void viewer_start();

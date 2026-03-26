@@ -671,6 +671,16 @@ ProjectDB::getMaterialPassport(std::string_view documentGuid) const {
   return impl_->getMaterialPassport(documentGuid);
 }
 
+std::vector<ReUseX::core::MaterialPassport>
+ProjectDB::getAllMaterialPassports() const {
+  auto iter = impl_->getMaterialPassports();
+  std::vector<ReUseX::core::MaterialPassport> result;
+  while (iter.hasNext()) {
+    result.push_back(iter.next());
+  }
+  return result;
+}
+
 void ProjectDB::addMaterialPassport(const ReUseX::core::MaterialPassport &passport,
                                     std::string_view projectId) {
   impl_->addMaterialPassport(passport, projectId);

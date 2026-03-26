@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include "core/materialepas_enums.hpp"
+#include "materialepas_enums.hpp"
 
 #include <optional>
 #include <string>

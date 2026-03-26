@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include "core/materialepas_property_types.hpp"
+#include "materialepas_property_types.hpp"
 #include <array>
 #include <cstddef>
 
@@ -146,7 +146,7 @@ constexpr PropertyDescriptor make_nested_property(
 // Include types before specializations
 // ===========================================================================
 
-#include "core/materialepas_types.hpp"
+#include "materialepas_types.hpp"
 
 namespace ReUseX::core::traits {
 

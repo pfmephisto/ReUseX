@@ -174,6 +174,17 @@ class ProjectDB {
   core::MaterialPassport getMaterialPassport(std::string_view documentGuid) const;
 
   /**
+   * @brief Retrieve all material passports from the database
+   *
+   * Iterates over every passport in the material_passports table,
+   * ordered by creation date, and returns them as a vector.
+   *
+   * @return Vector of MaterialPassport structs with all sections populated
+   * @throws std::runtime_error if database access fails
+   */
+  std::vector<core::MaterialPassport> getAllMaterialPassports() const;
+
+  /**
    * @brief Add a new material passport to the database
    *
    * @param passport MaterialPassport to store

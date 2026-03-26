@@ -4,8 +4,8 @@
 
 #pragma once
 
-#include "core/materialepas_property_types.hpp"
-#include "core/materialepas_traits.hpp"
+#include "materialepas_property_types.hpp"
+#include "materialepas_traits.hpp"
 #include <cstdint>
 #include <map>
 #include <optional>

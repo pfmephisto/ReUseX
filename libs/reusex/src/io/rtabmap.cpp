@@ -280,8 +280,8 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
     }
 
     ReUseX::core::trace("Number of poses: {}", poseVector.size());
-    auto observer = core::ProgressObserver(core::Stage::AssemblingCloud,
-                                           poseVector.size());
+    auto observer =
+        core::ProgressObserver(core::Stage::AssemblingCloud, poseVector.size());
 
 #ifdef NDEBUG
     // INFO: Create and OpenCV window for visualizing the results during
@@ -290,7 +290,8 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
 #endif
 
 #ifndef NDEBUG
-#pragma omp parallel for reduction(+ : cloud, labels) shared(poses, nodes)
+#pragma omp parallel for reduction(+ : cloud, labels)                          \
+    shared(poses, nodes, observer)
 #endif
     for (int i = 0; i < (int)poseVector.size(); ++i) {
       auto [id, pose] = poseVector[i];

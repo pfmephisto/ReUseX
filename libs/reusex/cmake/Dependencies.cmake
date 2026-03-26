@@ -22,6 +22,7 @@ find_package(fmt CONFIG REQUIRED)
 #    POSITION_INDEPENDENT_CODE ON
 #)
 find_package(range-v3 CONFIG REQUIRED)
+find_package(nlohmann_json 3.11 REQUIRED)
 
 # -----------------------------------------------
 # Deep Learning

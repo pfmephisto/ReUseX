@@ -111,6 +111,9 @@ target_link_libraries(ReUseX
         # Formatting used by ReUseX logging facade
         fmt::fmt
 
+        # JSON serialization
+        nlohmann_json::nlohmann_json
+
         # Graph algorithms
         SuiteSparse::GraphBLAS
         SuiteSparse::LAGraph

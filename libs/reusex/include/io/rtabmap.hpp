@@ -5,11 +5,12 @@
 #pragma once
 #include "reusex/types.hpp"
 
-#include <opencv2/core/mat.hpp>
-
 #include <filesystem>
-#include <optional>
 #include <tuple>
+
+namespace ReUseX {
+class ProjectDB;
+}
 
 namespace ReUseX::io {
 
@@ -18,13 +19,18 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
                              float max_distance, float sampling_factor)
     -> std::tuple<CloudPtr, CloudNPtr, CloudLPtr>;
 
-bool checkRTABMapDatabase(std::filesystem::path const &dbPath);
-bool initRTABMapDatabase(std::filesystem::path const &dbPath);
-
-bool writeLabelsToRTABMapDatabase(std::filesystem::path const &dbPath,
-                                  cv::Mat const &labels,
-                                  std::optional<size_t> id = std::nullopt);
-cv::Mat readLabelsFromRTABMapDatabase(std::filesystem::path const &dbPath,
-                                      size_t id);
+/**
+ * @brief Import sensor frame color images from an RTABMap database into
+ * ProjectDB
+ *
+ * Reads JPEG images from RTABMap's Data table, applies 90 deg CW rotation
+ * (RTABMap convention), and stores them as pre-rotated JPEGs in
+ * sensor_frames.
+ *
+ * @param projectDb Target project database (must be open in write mode)
+ * @param rtabmapDbPath Path to the RTABMap .db file
+ */
+void importSensorFrames(ProjectDB &projectDb,
+                        const std::filesystem::path &rtabmapDbPath);
 
 } // namespace ReUseX::io

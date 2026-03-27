@@ -8,6 +8,7 @@
 
 #include <CLI/CLI.hpp>
 #include <filesystem>
+#include <optional>
 #include <string>
 
 namespace fs = std::filesystem;
@@ -21,6 +22,8 @@ struct SubcommandImportRTABMapOptions {
   float max_distance = 4.00f;
   size_t sampling_factor = 4;
   float resulution = GlobalParams::resulution;
+
+  std::optional<fs::path> project;
 };
 
 // Function declarations.

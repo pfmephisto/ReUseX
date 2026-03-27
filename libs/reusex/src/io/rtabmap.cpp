@@ -5,7 +5,7 @@
 #include "io/rtabmap.hpp"
 #include "core/logging.hpp"
 #include "core/processing_observer.hpp"
-#include "io/RTABMapDatabase.hpp"
+#include "core/project_db.hpp"
 #include "utils/fmt_formatter.hpp"
 
 #include <fmt/format.h>
@@ -670,75 +670,75 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
   return std::make_tuple(filtered_cloud, filtered_normals, filtered_labels);
 }
 
-bool checkRTABMapDatabase(std::filesystem::path const &dbPath) {
-  ReUseX::core::trace("Checking RTABMap database: {}", dbPath);
+void importSensorFrames(ProjectDB &projectDb,
+                        const std::filesystem::path &rtabmapDbPath) {
+  ReUseX::core::info("Importing sensor frames from RTABMap database: {}",
+                     rtabmapDbPath);
 
-  try {
-    RTABMapDatabase db(dbPath, /*readOnly=*/true);
-    db.validateSchema();
-    return db.isOpen();
-  } catch (const std::exception &e) {
-    ReUseX::core::error("Database check failed: {}", e.what());
-    return false;
-  }
-}
-
-bool initRTABMapDatabase(std::filesystem::path const &dbPath) {
-  ReUseX::core::trace("Initializing RTABMap database: {}", dbPath);
-
-  try {
-    // Constructor creates Segmentation table if needed
-    RTABMapDatabase db(dbPath, /*readOnly=*/false);
-    ReUseX::core::info("Database initialized successfully");
-    return true;
-  } catch (const std::exception &e) {
-    ReUseX::core::error("Database initialization failed: {}", e.what());
-    return false;
-  }
-}
-
-bool writeLabelsToRTABMapDatabase(std::filesystem::path const &dbPath,
-                                  cv::Mat const &labels,
-                                  std::optional<size_t> id) {
-  ReUseX::core::trace("Writing labels to RTABMap database: {}", dbPath);
-
-  if (!id.has_value()) {
-    ReUseX::core::error("Node ID is required to write labels");
-    return false;
+  sqlite3 *db = nullptr;
+  if (sqlite3_open_v2(rtabmapDbPath.string().c_str(), &db,
+                      SQLITE_OPEN_READONLY, nullptr) != SQLITE_OK) {
+    std::string error = sqlite3_errmsg(db);
+    sqlite3_close(db);
+    throw std::runtime_error("Cannot open RTABMap database: " + error);
   }
 
-  try {
-    RTABMapDatabase db(dbPath, /*readOnly=*/false);
-    db.saveLabels(static_cast<int>(id.value()), labels, /*autoRotate=*/true);
-    ReUseX::core::debug("Labels written successfully for node {}", id.value());
-    return true;
-  } catch (const std::exception &e) {
-    ReUseX::core::error("Failed to write labels: {}", e.what());
-    return false;
-  }
-}
-
-cv::Mat readLabelsFromRTABMapDatabase(std::filesystem::path const &dbPath,
-                                      size_t id) {
-  ReUseX::core::trace("Reading labels from RTABMap database: {} for node {}",
-                      dbPath, id);
-
-  try {
-    RTABMapDatabase db(dbPath, /*readOnly=*/true);
-    cv::Mat labels = db.getLabels(static_cast<int>(id));
-
-    if (labels.empty()) {
-      ReUseX::core::warn("No labels found for node {}", id);
-    } else {
-      ReUseX::core::debug("Labels read successfully for node {}: {}x{}", id,
-                          labels.cols, labels.rows);
+  // Get all node IDs
+  std::vector<int> nodeIds;
+  {
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, "SELECT id FROM Node ORDER BY id;", -1, &stmt,
+                           nullptr) != SQLITE_OK) {
+      std::string error = sqlite3_errmsg(db);
+      sqlite3_close(db);
+      throw std::runtime_error("Failed to query Node table: " + error);
     }
 
-    return labels;
-  } catch (const std::exception &e) {
-    ReUseX::core::error("Failed to read labels: {}", e.what());
-    return cv::Mat();
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+      nodeIds.push_back(sqlite3_column_int(stmt, 0));
+    }
+    sqlite3_finalize(stmt);
   }
+
+  ReUseX::core::info("Found {} sensor frames to import", nodeIds.size());
+
+  // Prepare image query
+  sqlite3_stmt *imgStmt;
+  if (sqlite3_prepare_v2(db, "SELECT image FROM Data WHERE id = ?;", -1,
+                         &imgStmt, nullptr) != SQLITE_OK) {
+    std::string error = sqlite3_errmsg(db);
+    sqlite3_close(db);
+    throw std::runtime_error("Failed to prepare image query: " + error);
+  }
+
+  size_t imported = 0;
+  for (int nodeId : nodeIds) {
+    sqlite3_bind_int(imgStmt, 1, nodeId);
+
+    if (sqlite3_step(imgStmt) == SQLITE_ROW) {
+      const void *data = sqlite3_column_blob(imgStmt, 0);
+      int datasize = sqlite3_column_bytes(imgStmt, 0);
+
+      if (data && datasize > 0) {
+        cv::Mat encoded(1, datasize, CV_8UC1, const_cast<void *>(data));
+        cv::Mat img = cv::imdecode(encoded, cv::IMREAD_UNCHANGED);
+
+        if (!img.empty()) {
+          // Apply 90 deg CW rotation (RTABMap convention)
+          cv::rotate(img, img, cv::ROTATE_90_CLOCKWISE);
+          projectDb.saveSensorFrame(nodeId, img);
+          ++imported;
+        }
+      }
+    }
+
+    sqlite3_reset(imgStmt);
+  }
+
+  sqlite3_finalize(imgStmt);
+  sqlite3_close(db);
+
+  ReUseX::core::info("Imported {} sensor frames", imported);
 }
 
 } // namespace ReUseX::io

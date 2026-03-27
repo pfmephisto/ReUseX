@@ -11,16 +11,16 @@
 #include <vector>
 
 // Forward declaration
-namespace ReUseX::io {
-class RTABMapDatabase;
+namespace ReUseX {
+class ProjectDB;
 }
 
 namespace ReUseX::vision::libtorch {
 /**
- * @brief PyTorch Dataset for RTABMap databases
+ * @brief PyTorch Dataset for ReUseX project databases
  *
  * This dataset class implements the torch::data::datasets::Dataset interface
- * for use with PyTorch DataLoaders. It uses RTABMapDatabase internally for
+ * for use with PyTorch DataLoaders. It uses ProjectDB internally for
  * database access, eliminating code duplication.
  */
 class TorchDataset : public torch::data::datasets::Dataset<TorchDataset> {
@@ -29,7 +29,7 @@ class TorchDataset : public torch::data::datasets::Dataset<TorchDataset> {
     public:
   /**
    * @brief Construct TorchDataset from database path
-   * @param dbPath Path to RTABMap database file
+   * @param dbPath Path to ReUseX project database file
    */
   TorchDataset(std::filesystem::path dbPath = "");
 
@@ -59,7 +59,7 @@ class TorchDataset : public torch::data::datasets::Dataset<TorchDataset> {
   void save(std::vector<cv::Mat> imgs, torch::Tensor index);
 
     private:
-  std::shared_ptr<io::RTABMapDatabase> db_;
+  std::shared_ptr<ProjectDB> db_;
   std::vector<int> ids_;
 };
 } // namespace ReUseX::vision::libtorch

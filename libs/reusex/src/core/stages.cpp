@@ -8,18 +8,18 @@ namespace ReUseX::core {
 
 std::string_view to_string(Stage stage) {
   switch (stage) {
-    case Stage::Default: return "Default";
-    case Stage::MeshGeneration: return "Mesh Generation";
-    case Stage::AssemblingCloud: return "Assembling cloud";
-    case Stage::CreatingMaterial: return "Creating material";
-    case Stage::RetrievingTextures: return "Retrieving textures and cameras";
-    case Stage::ComputingFaceCoverage: return "Computing face coverage";
-    case Stage::ComputingRoomProbabilities: return "Computing room probabilities";
-    case Stage::ProcessingBatch: return "Processing batch";
-    case Stage::AnnotatingBatches: return "Annotating batches";
-    case Stage::ProjectingLabels: return "Projecting labels";
-    case Stage::RayTracing: return "Ray tracing";
-    case Stage::RegionGrowing: return "Region Growing";
+    case Stage::idle: return "Default";
+    case Stage::mesh_generation: return "Mesh Generation";
+    case Stage::assembling_cloud: return "Assembling cloud";
+    case Stage::creating_material: return "Creating material";
+    case Stage::retrieving_textures: return "Retrieving textures and cameras";
+    case Stage::computing_face_coverage: return "Computing face coverage";
+    case Stage::computing_room_probabilities: return "Computing room probabilities";
+    case Stage::processing_batch: return "Processing batch";
+    case Stage::annotating_batches: return "Annotating batches";
+    case Stage::projecting_labels: return "Projecting labels";
+    case Stage::ray_tracing: return "Ray tracing";
+    case Stage::region_growing: return "Region Growing";
     default: return "Unknown Stage";
   }
 }

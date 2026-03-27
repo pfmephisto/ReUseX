@@ -253,7 +253,7 @@ auto project(const std::filesystem::path &dbPath, CloudConstPtr cloud)
 
   {
     auto observer = std::make_shared<ReUseX::core::ProgressObserver>(
-        ReUseX::core::Stage::ProjectingLabels, poseVector.size());
+        ReUseX::core::Stage::projecting_labels, poseVector.size());
     for (size_t i = 0; i < poseVector.size(); ++i) {
       ReUseX::core::trace("Processing node {}/{}", i + 1, poseVector.size());
 
@@ -314,7 +314,7 @@ auto project(const std::filesystem::path &dbPath, CloudConstPtr cloud)
             fmt::format("camera_{}", id), cm.fx(), cm.fy(),
             cm.imageSize().width, cm.imageSize().height,
             Eigen::Affine3f(camera_pose),
-            ReUseX::core::Stage::ProjectingLabels, static_cast<int>(i));
+            ReUseX::core::Stage::projecting_labels, static_cast<int>(i));
       }
 
       pcl::Indices indices;

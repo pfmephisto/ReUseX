@@ -269,10 +269,10 @@ void applyGlasberyColorMap(const cv::Mat &input, cv::Mat &output) {
   output = temp;
 }
 
-auto annotateRTABMap(const std::filesystem::path &dbPath,
-                     const std::filesystem::path &modelPath, bool isCuda)
+auto annotate_rtabmap(const std::filesystem::path &dbPath,
+                      const std::filesystem::path &modelPath, bool isCuda)
     -> int {
-  ReUseX::core::trace("calling annotateRTABMap");
+  ReUseX::core::trace("calling annotate_rtabmap");
 
   torch::manual_seed(1);
 
@@ -293,7 +293,7 @@ auto annotateRTABMap(const std::filesystem::path &dbPath,
   {
     ReUseX::core::info("Starting annotation of {} batches", num_batches);
     auto observer = ReUseX::core::ProgressObserver(
-        ReUseX::core::Stage::ProcessingBatch, num_batches);
+        ReUseX::core::Stage::processing_batch, num_batches);
 
     for (torch::data::Example<> &batch : *dataloader) {
       torch::Tensor data = batch.data.to(device);

@@ -113,7 +113,7 @@ pcl::TextureMesh::Ptr texture_mesh_with_cloud(pcl::PolygonMesh::Ptr mesh,
   ReUseX::core::trace("Create textutes form points in the cloud");
   {
     auto observer = ReUseX::core::ProgressObserver(
-        ReUseX::core::Stage::CreatingMaterial, nr_polygons);
+        ReUseX::core::Stage::creating_material, nr_polygons);
 
     for (auto &&[idx, mat] :
          textured_mesh->tex_materials | ranges::views::enumerate) {
@@ -231,8 +231,8 @@ texture_mesh(pcl::PolygonMesh::Ptr mesh,
   // TODO: Implement camera/texture retrieval from ProjectDB
   // category=Geometry estimate=1d
   // Need to extract camera poses and images from ProjectDB for texturing:
-  // 1. Query ProjectDB::getSensorFrameIds() for all camera frames
-  // 2. Use ProjectDB::getSensorFrameImage(nodeId) to retrieve images
+  // 1. Query ProjectDB::sensor_frame_ids() for all camera frames
+  // 2. Use ProjectDB::sensor_frame_image(nodeId) to retrieve images
   // 3. Extract camera intrinsics and poses from SLAM graph
   // 4. Build camera frustum for visibility testing during texture projection
   // 5. Select best camera view for each mesh polygon based on viewing angle
@@ -241,7 +241,7 @@ texture_mesh(pcl::PolygonMesh::Ptr mesh,
   cameras.resize(poses.size());
   {
     auto observer = ReUseX::core::ProgressObserver(
-        ReUseX::core::Stage::RetrievingTextures, poses.size());
+        ReUseX::core::Stage::retrieving_textures, poses.size());
 
     // TODO: Extract camera intrinsics and image data for each node
     // category=Geometry estimate=4h

@@ -239,7 +239,7 @@ void drawPositionRectGeometry(cv::Mat &img,
 
 void drawPoseSkeleton(cv::Mat &img, const common::object::DetectionBox &box,
                       int thickness) {
-  if (box.type == common::object::ObjectType::TRACK || !box.pose)
+  if (box.type == common::object::ObjectType::track || !box.pose)
     return;
   const auto &points = box.pose->points;
   const auto *pairs = (points.size() == COCO_NUM_KEYPOINTS)   ? &coco_pairs
@@ -262,7 +262,7 @@ void drawPoseSkeleton(cv::Mat &img, const common::object::DetectionBox &box,
 
 void drawObbBox(cv::Mat &img, const common::object::DetectionBox &box,
                 int thickness) {
-  if (box.type == common::object::ObjectType::TRACK || !box.obb)
+  if (box.type == common::object::ObjectType::track || !box.obb)
     return;
   auto c = random_color(box.class_name);
   cv::RotatedRect rRect(cv::Point2f(box.obb->cx, box.obb->cy),
@@ -388,8 +388,8 @@ void osd(cv::Mat &img, const common::object::DetectionBoxArray &boxes,
   std::vector<std::string> label_texts;
 
   for (const auto &box : boxes) {
-    if (box.type == common::object::ObjectType::DEPTH_PRO ||
-        box.type == common::object::ObjectType::DEPTH_ANYTHING) {
+    if (box.type == common::object::ObjectType::depth_pro ||
+        box.type == common::object::ObjectType::depth_anything) {
       drawDepth(img, box);
       continue;
     }
@@ -402,7 +402,7 @@ void osd(cv::Mat &img, const common::object::DetectionBoxArray &boxes,
     int thickness = std::max(1, base_font_size / 10);
 
     if (osd_rect) {
-      if (box.type == common::object::ObjectType::POSITION)
+      if (box.type == common::object::ObjectType::position)
         drawPositionRectGeometry(img, box, color, thickness);
       else
         drawBaseInfoGeometry(img, box, color, thickness);
@@ -416,7 +416,7 @@ void osd(cv::Mat &img, const common::object::DetectionBoxArray &boxes,
 
     if (osd_rect && (box.box.bottom - box.box.top) >= 1) {
       std::string text;
-      if (box.type == common::object::ObjectType::POSITION)
+      if (box.type == common::object::ObjectType::position)
         text = box.class_name;
       else {
         std::ostringstream oss;

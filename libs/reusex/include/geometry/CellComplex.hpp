@@ -5,6 +5,7 @@
 #pragma once
 #include "reusex/core/logging.hpp"
 #include "reusex/geometry/Registry.hpp"
+#include "reusex/types.hpp"
 
 #include <Eigen/StdVector>
 #include <boost/graph/adjacency_list.hpp>
@@ -21,10 +22,12 @@
 #include <string>
 #include <vector>
 
-// Tags to distinguish node types
-enum class NodeType { Cell, Face, Vertex };
+namespace ReUseX::geometry {
 
-struct VertexData {};
+// Tags to distinguish node types in CellComplex
+enum class CellNodeType { cell, face, vertex };
+
+struct CellVertexData {};
 struct FaceData {
   int plane_id;
 };
@@ -33,31 +36,24 @@ struct CellData {
 };
 
 // Generic vertex bundle
-struct VerteciesData {
+struct VertexProperties {
   // TODO: Refactor ID field to be type-specific instead of generic
   // category=Geometry estimate=3h
-  // Current design stores ID at VerteciesData level, but IDs may have different
-  // semantics for different node types (vertex/face/cell). Consider:
-  // 1. Move ID into VertexData/FaceData/CellData variant members
+  // Current design stores ID at VertexProperties level, but IDs may have
+  // different semantics for different node types (vertex/face/cell). Consider:
+  // 1. Move ID into CellVertexData/FaceData/CellData variant members
   // 2. Use std::optional<int> for types that don't need IDs
   // 3. Update all access patterns to use std::visit for type-safe ID retrieval
   // Trade-off: More type-safe but requires more boilerplate for access
-  NodeType type;
+  CellNodeType type;
   int id;
   Eigen::Vector3d pos;
-  std::variant<VertexData, FaceData, CellData> data;
+  std::variant<CellVertexData, FaceData, CellData> data;
 };
 
-struct EdgeData {
+struct CellEdgeData {
   bool is_main = false;
 };
-
-template <typename Scalar, int Rows>
-using EigenVectorContainer =
-    std::vector<Eigen::Matrix<Scalar, Rows, 1>,
-                Eigen::aligned_allocator<Eigen::Matrix<Scalar, Rows, 1>>>;
-
-namespace ReUseX::geometry {
 
 class CellComplex
     : public boost::adjacency_list<boost::vecS,        // edge container
@@ -65,13 +61,14 @@ class CellComplex
                                    boost::undirectedS, // cells–faces are
                                    // bidirectional
                                    // boost::directedS,
-                                   VerteciesData, // vertex bundle
-                                   EdgeData       // edge bundle
+                                   VertexProperties, // vertex bundle
+                                   CellEdgeData      // edge bundle
                                    >,
       public Registry {
     protected:
-  using Graph = boost::adjacency_list<boost::vecS, boost::vecS,
-                                      boost::undirectedS, VertexData, EdgeData>;
+  using Graph =
+      boost::adjacency_list<boost::vecS, boost::vecS, boost::undirectedS,
+                            CellVertexData, CellEdgeData>;
 
     public:
   using Vertex = boost::graph_traits<Graph>::vertex_descriptor;
@@ -79,7 +76,7 @@ class CellComplex
   using AdjacencyIter = boost::graph_traits<CellComplex>::adjacency_iterator;
 
     protected:
-  template <NodeType T> struct Is_Type {
+  template <CellNodeType T> struct Is_Type {
     const CellComplex *g;
     Is_Type() = delete;
     Is_Type(const CellComplex *g) : g(g) {}
@@ -88,9 +85,9 @@ class CellComplex
       return prop.type == T;
     }
   };
-  using IsVertex = Is_Type<NodeType::Vertex>;
-  using IsCell = Is_Type<NodeType::Cell>;
-  using IsFace = Is_Type<NodeType::Face>;
+  using IsVertex = Is_Type<CellNodeType::vertex>;
+  using IsCell = Is_Type<CellNodeType::cell>;
+  using IsFace = Is_Type<CellNodeType::face>;
   struct IsFaceBetweenCells {
     const CellComplex *g;
     IsFaceBetweenCells() = delete;
@@ -100,9 +97,9 @@ class CellComplex
       int n_adj = 0;
       auto [begin, end] = boost::adjacent_vertices(vd, *g);
       for (auto it = begin; it != end; ++it)
-        if ((*g)[*it].type == NodeType::Cell)
+        if ((*g)[*it].type == CellNodeType::cell)
           ++n_adj;
-      return prop.type == NodeType::Face && n_adj >= 2;
+      return prop.type == CellNodeType::face && n_adj >= 2;
     }
   };
 
@@ -159,10 +156,10 @@ class CellComplex
 
   inline Vertex add_vertex(Eigen::Vector3d pos) {
     auto v = boost::add_vertex(*this);
-    (*this)[v].type = NodeType::Vertex;
+    (*this)[v].type = CellNodeType::vertex;
     (*this)[v].id = vertex_count++;
     (*this)[v].pos = pos;
-    (*this)[v].data = VertexData{};
+    (*this)[v].data = CellVertexData{};
     return v;
   };
 
@@ -170,7 +167,7 @@ class CellComplex
   inline Vertex add_face(Eigen::Vector3d pos, T begin, T end,
                          int plane_id = -1) {
     auto f = boost::add_vertex(*this);
-    (*this)[f].type = NodeType::Face;
+    (*this)[f].type = CellNodeType::face;
     (*this)[f].id = face_count++;
     (*this)[f].pos = pos;
     (*this)[f].data = FaceData{plane_id};
@@ -187,7 +184,7 @@ class CellComplex
   template <typename T>
   inline Vertex add_cell(Eigen::Vector3d pos, T begin, T end) {
     auto c = boost::add_vertex(*this);
-    (*this)[c].type = NodeType::Cell;
+    (*this)[c].type = CellNodeType::cell;
     (*this)[c].id = cell_count++;
     (*this)[c].pos = pos;
     (*this)[c].data = CellData{};
@@ -259,4 +256,4 @@ template <> struct fmt::formatter<ReUseX::geometry::CellComplex> {
 
 // Implementation files
 #include "reusex/geometry/CellComplexFaceCoverage.hpp"
-#include "reusex/geometry/CellComplexRoomProbabilites.hpp"
+#include "reusex/geometry/CellComplexRoomProbabilities.hpp"

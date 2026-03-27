@@ -6,7 +6,7 @@
 #include "import.hpp"
 
 #include <fmt/format.h>
-#include <reusex/core/project_db.hpp>
+#include <reusex/core/ProjectDB.hpp>
 #include <reusex/io/rtabmap.hpp>
 #include <spdlog/spdlog.h>
 #include <tuple>
@@ -68,27 +68,27 @@ int run_subcommand_import_rtabmap(SubcommandImportRTABMapOptions const &opt,
                  opt.project->string());
     ReUseX::ProjectDB projectDb(*opt.project);
 
-    int logId = projectDb.logPipelineStart("import",
+    int logId = projectDb.log_pipeline_start("import",
         fmt::format(R"({{"resolution":{}, "min_distance":{}, "max_distance":{}, "sampling_factor":{}}})",
                     opt.resulution, opt.min_distance, opt.max_distance,
                     opt.sampling_factor));
     try {
       if (ctx.cloud && !ctx.cloud->empty())
-        projectDb.savePointCloud("cloud", *ctx.cloud, "import");
+        projectDb.save_point_cloud("cloud", *ctx.cloud, "import");
 
       if (ctx.normals && !ctx.normals->empty())
-        projectDb.savePointCloud("normals", *ctx.normals, "import");
+        projectDb.save_point_cloud("normals", *ctx.normals, "import");
 
       if (ctx.labels && !ctx.labels->empty())
-        projectDb.savePointCloud("labels", *ctx.labels, "import");
+        projectDb.save_point_cloud("labels", *ctx.labels, "import");
 
       // Import sensor frame color images for annotation pipeline
-      ReUseX::io::importSensorFrames(projectDb, opt.database_path_in);
+      ReUseX::io::import_sensor_frames(projectDb, opt.database_path_in);
 
-      projectDb.logPipelineEnd(logId, true);
+      projectDb.log_pipeline_end(logId, true);
       spdlog::info("Project database saved successfully");
     } catch (const std::exception &e) {
-      projectDb.logPipelineEnd(logId, false, e.what());
+      projectDb.log_pipeline_end(logId, false, e.what());
       throw;
     }
   }

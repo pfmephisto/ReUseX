@@ -1,6 +1,6 @@
 #include "core/logging.hpp"
 #include "vision/IDataset.hpp"
-#include "vision/common/createObject.hpp"
+#include "vision/common/create_object.hpp"
 #include "vision/common/image.hpp"
 #include "vision/osd/osd.hpp"
 #include "vision/tensor_rt/Data.hpp"
@@ -854,8 +854,8 @@ void TensorRTSam3::postprocess(InferResult &image_result, int batch_idx,
             "Creating Box for Image {}, Box {}: [{}, {}, {}, {}], "
             "Score: {}, Label: '{}' ({})",
             image_idx, i, b[0], b[1], b[2], b[3], h_scores[i], label, label_id);
-        image_result.push_back(object::createBox(b[0], b[1], b[2], b[3],
-                                                 h_scores[i], label_id, label));
+        image_result.push_back(object::create_box(b[0], b[1], b[2], b[3],
+                                                  h_scores[i], label_id, label));
       }
       return;
     }
@@ -923,7 +923,7 @@ void TensorRTSam3::postprocess(InferResult &image_result, int batch_idx,
           "Creating SegmentationBox for Image {}, Box {}: [{}, {}, {}, {}], "
           "Score: {}, Label: '{}' ({})",
           image_idx, i, b[0], b[1], b[2], b[3], h_scores[i], label, label_id);
-      image_result.push_back(object::createSegmentationBox(
+      image_result.push_back(object::create_segmentation_box(
           b[0], b[1], b[2], b[3], bin_mask.clone(), h_scores[i], label_id,
           label));
     }

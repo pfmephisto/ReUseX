@@ -1,6 +1,6 @@
 #include <cmath>
 #include <tuple>
-#include "vision/common/createObject.hpp"
+#include "vision/common/create_object.hpp"
 #include "vision/common/object.hpp"
 
 namespace {
@@ -30,11 +30,11 @@ getAABBFromObb(float cx, float cy, float w, float h, float angle_degrees) {
 
 namespace ReUseX::vision::common::object {
 
-DetectionBox createBox(float left, float top, float right, float bottom,
-                       float score, int class_id,
-                       const std::string &class_name) {
+DetectionBox create_box(float left, float top, float right, float bottom,
+                        float score, int class_id,
+                        const std::string &class_name) {
   DetectionBox box;
-  box.type = ObjectType::DETECTION;
+  box.type = ObjectType::detection;
   box.box = Box(left, top, right, bottom);
   box.score = score;
   box.class_id = class_id;
@@ -42,11 +42,11 @@ DetectionBox createBox(float left, float top, float right, float bottom,
   return box;
 }
 
-DetectionBox createPositionBox(float left, float top, float right, float bottom,
-                               float score, int class_id,
-                               const std::string &class_name) {
+DetectionBox create_position_box(float left, float top, float right,
+                                 float bottom, float score, int class_id,
+                                 const std::string &class_name) {
   DetectionBox box;
-  box.type = ObjectType::POSITION;
+  box.type = ObjectType::position;
   box.box = Box(left, top, right, bottom);
   box.score = score;
   box.class_id = class_id;
@@ -54,11 +54,11 @@ DetectionBox createPositionBox(float left, float top, float right, float bottom,
   return box;
 }
 
-DetectionBox createTrackBox(float left, float top, float right, float bottom,
+DetectionBox create_track_box(float left, float top, float right, float bottom,
                             float score, int track_id,
                             const std::string &class_name) {
   DetectionBox box;
-  box.type = ObjectType::TRACK;
+  box.type = ObjectType::track;
   box.box = Box(left, top, right, bottom);
   box.score = score;
   box.class_name = class_name;
@@ -67,12 +67,12 @@ DetectionBox createTrackBox(float left, float top, float right, float bottom,
   return box;
 }
 
-DetectionBox createTrackBox(float left, float top, float right, float bottom,
+DetectionBox create_track_box(float left, float top, float right, float bottom,
                             float score, int track_id,
                             const std::string &class_name,
                             const object::Pose &pose) {
   DetectionBox box;
-  box.type = ObjectType::TRACK;
+  box.type = ObjectType::track;
   box.box = Box(left, top, right, bottom);
   box.score = score;
   box.class_name = class_name;
@@ -83,12 +83,12 @@ DetectionBox createTrackBox(float left, float top, float right, float bottom,
   return box;
 }
 
-DetectionBox createTrackBox(float left, float top, float right, float bottom,
+DetectionBox create_track_box(float left, float top, float right, float bottom,
                             float score, int track_id,
                             const std::string &class_name,
                             const object::Obb &obb) {
   DetectionBox box;
-  box.type = ObjectType::TRACK;
+  box.type = ObjectType::track;
   box.box = Box(left, top, right, bottom);
   box.score = score;
   box.class_name = class_name;
@@ -99,12 +99,12 @@ DetectionBox createTrackBox(float left, float top, float right, float bottom,
   return box;
 }
 
-DetectionBox createTrackBox(float left, float top, float right, float bottom,
+DetectionBox create_track_box(float left, float top, float right, float bottom,
                             float score, int track_id,
                             const std::string &class_name,
                             const object::Segmentation &seg) {
   DetectionBox box;
-  box.type = ObjectType::TRACK;
+  box.type = ObjectType::track;
   box.box = Box(left, top, right, bottom);
   box.score = score;
   box.class_name = class_name;
@@ -115,11 +115,11 @@ DetectionBox createTrackBox(float left, float top, float right, float bottom,
   return box;
 }
 
-DetectionBox createObbBox(float cx, float cy, float w, float h, float angle,
-                          float score, int class_id,
-                          const std::string &class_name) {
+DetectionBox create_obb_box(float cx, float cy, float w, float h, float angle,
+                            float score, int class_id,
+                            const std::string &class_name) {
   DetectionBox box;
-  box.type = ObjectType::OBB;
+  box.type = ObjectType::obb;
   box.obb = Obb(cx, cy, w, h, angle);
   box.score = score;
   box.class_id = class_id;
@@ -131,12 +131,12 @@ DetectionBox createObbBox(float cx, float cy, float w, float h, float angle,
   return box;
 }
 
-DetectionBox createPoseBox(float left, float top, float right, float bottom,
-                           const std::vector<PosePoint> &pose_points,
-                           float score, int class_id,
-                           const std::string &class_name) {
+DetectionBox create_pose_box(float left, float top, float right, float bottom,
+                             const std::vector<PosePoint> &pose_points,
+                             float score, int class_id,
+                             const std::string &class_name) {
   DetectionBox box;
-  box.type = ObjectType::POSE;
+  box.type = ObjectType::pose;
   box.box = Box(left, top, right, bottom);
   box.pose.emplace();
   box.pose->points = pose_points;
@@ -146,12 +146,12 @@ DetectionBox createPoseBox(float left, float top, float right, float bottom,
   return box;
 }
 
-DetectionBox createSegmentationBox(float left, float top, float right,
-                                   float bottom, const cv::Mat &mask,
-                                   float score, int class_id,
-                                   const std::string &class_name) {
+DetectionBox create_segmentation_box(float left, float top, float right,
+                                     float bottom, const cv::Mat &mask,
+                                     float score, int class_id,
+                                     const std::string &class_name) {
   DetectionBox box;
-  box.type = ObjectType::SEGMENTATION;
+  box.type = ObjectType::segmentation;
   box.box = Box(left, top, right, bottom);
   box.segmentation.emplace();
   box.segmentation->mask = mask.clone();
@@ -161,9 +161,9 @@ DetectionBox createSegmentationBox(float left, float top, float right,
   return box;
 }
 
-DetectionBox createDepthProBox(const cv::Mat &depth, float fog_data) {
+DetectionBox create_depth_pro_box(const cv::Mat &depth, float fog_data) {
   DetectionBox box;
-  box.type = ObjectType::DEPTH_PRO;
+  box.type = ObjectType::depth_pro;
   box.box = Box(0, 0, depth.cols, depth.rows);
   box.depth.emplace();
   box.depth->depth = depth.clone();
@@ -174,9 +174,9 @@ DetectionBox createDepthProBox(const cv::Mat &depth, float fog_data) {
   return box;
 }
 
-DetectionBox createDepthAnythingBox(const cv::Mat &depth) {
+DetectionBox create_depth_anything_box(const cv::Mat &depth) {
   DetectionBox box;
-  box.type = ObjectType::DEPTH_ANYTHING;
+  box.type = ObjectType::depth_anything;
   box.box = Box(0, 0, depth.cols, depth.rows);
   box.depth.emplace();
   box.depth->depth = depth.clone();

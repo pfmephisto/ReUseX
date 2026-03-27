@@ -445,7 +445,7 @@ class PCL_EXPORTS PlanarRegionGrowing : public PCLBase<PointT> {
 
     {
       auto observer = ReUseX::core::ProgressObserver(
-          ReUseX::core::Stage::RegionGrowing, indices_->size());
+          ReUseX::core::Stage::region_growing, indices_->size());
 
       while (segmented_pts_num < indices_->size()) {
         size_t pts_in_segment = 0;

@@ -110,7 +110,7 @@ Visualizer::Visualizer(std::shared_ptr<std::vector<int>> vps)
 
 Visualizer::~Visualizer() = default;
 
-std::shared_ptr<const std::vector<int>> Visualizer::getViewports() const {
+std::shared_ptr<const std::vector<int>> Visualizer::viewports() const {
   return pimpl_->viewports;
 }
 

@@ -157,7 +157,7 @@ void VizualizationObserver::viewer_add_plane(std::string_view name,
   // Check if we want this to be added to a specific viewport based on stage and
   // index
   int vp = viewports_.empty() ? 0 : viewports_[0];
-  if (stage == ReUseX::core::Stage::Default) {
+  if (stage == ReUseX::core::Stage::idle) {
     if (viewports_.size() == 4)
       vp = viewports_[0];
   }
@@ -230,7 +230,7 @@ void VizualizationObserver::viewer_add_plane_pair(std::string_view name,
 
   // Viewport selection logic (same as viewer_add_plane(Pair))
   int vp = viewports_.empty() ? 0 : viewports_[0];
-  if (stage == ReUseX::core::Stage::Default) {
+  if (stage == ReUseX::core::Stage::idle) {
     if (viewports_.size() == 4)
       vp = viewports_[0];
   }
@@ -259,7 +259,7 @@ void VizualizationObserver::viewer_add_cell_complex(
 
   // Viewport selection logic
   int vp = viewports_.empty() ? 0 : viewports_[0];
-  if (stage == ReUseX::core::Stage::Default) {
+  if (stage == ReUseX::core::Stage::idle) {
     if (viewports_.size() == 4)
       vp = viewports_[0];
   }
@@ -361,7 +361,7 @@ void VizualizationObserver::viewer_add_cell_complex(
         if (f_sp[*fit] != -1.0)
           continue; // Only display text for unsupported faces
 
-        auto plane_id = std::get<FaceData>((*cc)[*fit].data).plane_id;
+        auto plane_id = std::get<ReUseX::geometry::FaceData>((*cc)[*fit].data).plane_id;
 
         viewer->addText3D(
             fmt::format("P{}", plane_id),

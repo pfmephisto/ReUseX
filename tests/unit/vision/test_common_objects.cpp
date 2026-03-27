@@ -4,7 +4,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
-#include <vision/common/createObject.hpp>
+#include <vision/common/create_object.hpp>
 #include <vision/common/object.hpp>
 #include <opencv2/opencv.hpp>
 
@@ -76,11 +76,11 @@ TEST_CASE("Depth statistics with valid data", "[vision][depth]") {
   REQUIRE_THAT(val_11, WithinAbs(4.0f, 0.001f));
 }
 
-TEST_CASE("createBox factory function", "[vision][factory]") {
-  // createBox takes individual coordinates
-  auto obj = createBox(10.0f, 20.0f, 30.0f, 40.0f, 0.9f, 5, "person");
+TEST_CASE("create_box factory function", "[vision][factory]") {
+  // create_box takes individual coordinates
+  auto obj = create_box(10.0f, 20.0f, 30.0f, 40.0f, 0.9f, 5, "person");
 
-  REQUIRE(obj.type == ObjectType::DETECTION);
+  REQUIRE(obj.type == ObjectType::detection);
   REQUIRE_THAT(obj.box.left, WithinAbs(10.0f, 0.001f));
   REQUIRE_THAT(obj.box.top, WithinAbs(20.0f, 0.001f));
   REQUIRE_THAT(obj.score, WithinAbs(0.9f, 0.001f));
@@ -88,12 +88,12 @@ TEST_CASE("createBox factory function", "[vision][factory]") {
   REQUIRE(obj.class_name == "person");
 }
 
-TEST_CASE("createObbBox factory function", "[vision][factory]") {
-  // createObbBox takes individual OBB parameters
+TEST_CASE("create_obb_box factory function", "[vision][factory]") {
+  // create_obb_box takes individual OBB parameters
   float cx = 5.0f, cy = 5.0f, w = 10.0f, h = 20.0f, angle = 0.0f;
-  auto obj = createObbBox(cx, cy, w, h, angle, 0.85f, 3, "box");
+  auto obj = create_obb_box(cx, cy, w, h, angle, 0.85f, 3, "box");
 
-  REQUIRE(obj.type == ObjectType::OBB);
+  REQUIRE(obj.type == ObjectType::obb);
   REQUIRE(obj.obb.has_value());
   REQUIRE_THAT(obj.obb->cx, WithinAbs(5.0f, 0.001f));
   REQUIRE_THAT(obj.obb->cy, WithinAbs(5.0f, 0.001f));

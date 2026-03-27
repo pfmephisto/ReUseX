@@ -5,7 +5,7 @@
 #include "io/rtabmap.hpp"
 #include "core/logging.hpp"
 #include "core/processing_observer.hpp"
-#include "core/project_db.hpp"
+#include "core/ProjectDB.hpp"
 #include "utils/fmt_formatter.hpp"
 
 #include <fmt/format.h>
@@ -281,7 +281,7 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
 
     ReUseX::core::trace("Number of poses: {}", poseVector.size());
     auto observer =
-        core::ProgressObserver(core::Stage::AssemblingCloud, poseVector.size());
+        core::ProgressObserver(core::Stage::assembling_cloud, poseVector.size());
 
 #ifdef NDEBUG
     // INFO: Create and OpenCV window for visualizing the results during
@@ -670,8 +670,8 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
   return std::make_tuple(filtered_cloud, filtered_normals, filtered_labels);
 }
 
-void importSensorFrames(ProjectDB &projectDb,
-                        const std::filesystem::path &rtabmapDbPath) {
+void import_sensor_frames(ProjectDB &projectDb,
+                          const std::filesystem::path &rtabmapDbPath) {
   ReUseX::core::info("Importing sensor frames from RTABMap database: {}",
                      rtabmapDbPath);
 
@@ -739,7 +739,7 @@ void importSensorFrames(ProjectDB &projectDb,
         if (!img.empty()) {
           // Apply 90 deg CW rotation (RTABMap convention)
           cv::rotate(img, img, cv::ROTATE_90_CLOCKWISE);
-          projectDb.saveSensorFrame(nodeId, img);
+          projectDb.save_sensor_frame(nodeId, img);
           ++imported;
         }
       }

@@ -29,7 +29,7 @@ pcl::PolygonMeshPtr mesh(CloudConstPtr cloud, CloudNConstPtr normals,
                          MeshOptions const opt) {
 
   auto observer = ReUseX::core::get_visual_observer();
-  constexpr auto stage = ReUseX::core::Stage::MeshGeneration;
+  constexpr auto stage = ReUseX::core::Stage::mesh_generation;
 
   observer->viewer_add_geometry("input_cloud", cloud, stage);
 

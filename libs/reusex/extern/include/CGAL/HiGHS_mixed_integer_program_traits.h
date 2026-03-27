@@ -5,7 +5,7 @@
 #pragma once
 #include <CGAL/Mixed_integer_program_traits.h>
 
-#if defined(CGAL_USE_HIGHS) || defined(DOXYGEN_RUNNING)
+#if defined(USE_HIGHS) || defined(DOXYGEN_RUNNING)
 
 #include "Highs.h"
 
@@ -419,4 +419,4 @@ class HiGHS_mixed_integer_program_traits
 
 } // namespace CGAL
 
-#endif // CGAL_USE_HIGHS or DOXYGEN_RUNNING
+#endif // USE_HIGHS or DOXYGEN_RUNNING

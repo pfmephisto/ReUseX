@@ -5,7 +5,7 @@
 #include <Highs.h>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
-#include <spdlog/spdlog.h>
+#include "core/logging.hpp"
 
 using namespace Catch::Matchers;
 
@@ -26,16 +26,16 @@ TEST_CASE("HiGHS PDLP solver with continuous LP", "[highs][pdlp][gpu]") {
   // Try to enable PDLP solver (will fail if not built with GPU support)
   HighsStatus pdlp_status = highs.setOptionValue("solver", "pdlp");
 
-  // Enable logging to see solver output
-  highs.setOptionValue("log_to_console", true);
-  highs.setOptionValue("output_flag", true);
+  // Suppress solver output in tests
+  highs.setOptionValue("log_to_console", false);
+  highs.setOptionValue("output_flag", false);
 
   SECTION("PDLP solver availability") {
     if (pdlp_status == HighsStatus::kOk) {
-      spdlog::info("✓ HiGHS built with PDLP support (GPU acceleration available)");
+      ReUseX::core::info("✓ HiGHS built with PDLP support (GPU acceleration available)");
     } else {
-      spdlog::warn("✗ HiGHS built without PDLP support (GPU acceleration not available)");
-      spdlog::warn("  This is expected if CUPDLP_GPU=OFF in overlays/highs.nix");
+      ReUseX::core::warn("✗ HiGHS built without PDLP support (GPU acceleration not available)");
+      ReUseX::core::warn("  This is expected if CUPDLP_GPU=OFF in overlays/highs.nix");
     }
 
     // Test should pass regardless - we're just checking availability
@@ -45,7 +45,7 @@ TEST_CASE("HiGHS PDLP solver with continuous LP", "[highs][pdlp][gpu]") {
   SECTION("Solve simple continuous LP") {
     // Skip if PDLP not available
     if (pdlp_status != HighsStatus::kOk) {
-      spdlog::info("Skipping LP solve test - PDLP not available");
+      ReUseX::core::info("Skipping LP solve test - PDLP not available");
       REQUIRE(true);
       return;
     }
@@ -103,7 +103,7 @@ TEST_CASE("HiGHS PDLP solver with continuous LP", "[highs][pdlp][gpu]") {
     double x = solution.col_value[0];
     double y = solution.col_value[1];
 
-    spdlog::info("PDLP solution: x = {}, y = {}, objective = {}", x, y, obj_value);
+    ReUseX::core::info("PDLP solution: x = {}, y = {}, objective = {}", x, y, obj_value);
 
     // Verify solution satisfies constraint: x + y >= 1
     REQUIRE(x + y >= 0.999);  // Allow small numerical error
@@ -126,12 +126,13 @@ TEST_CASE("HiGHS PDLP incompatible with binary variables", "[highs][pdlp][mip]")
   HighsStatus pdlp_status = highs.setOptionValue("solver", "pdlp");
 
   if (pdlp_status != HighsStatus::kOk) {
-    spdlog::info("Skipping MIP incompatibility test - PDLP not available");
+    ReUseX::core::info("Skipping MIP incompatibility test - PDLP not available");
     REQUIRE(true);
     return;
   }
 
-  highs.setOptionValue("log_to_console", true);
+  highs.setOptionValue("log_to_console", false);
+  highs.setOptionValue("output_flag", false);
 
   // Create binary variable: x in {0, 1}
   std::vector<double> obj_coeffs = {1.0};          // minimize x
@@ -160,12 +161,12 @@ TEST_CASE("HiGHS PDLP incompatible with binary variables", "[highs][pdlp][mip]")
   const HighsSolution& solution = highs.getSolution();
   double x = solution.col_value[0];
 
-  spdlog::info("MIP solution with binary variable: x = {}", x);
+  ReUseX::core::info("MIP solution with binary variable: x = {}", x);
 
   // Verify x is either 0 or 1 (within numerical tolerance)
   bool is_zero = std::abs(x) < 1e-6;
   bool is_one = std::abs(x - 1.0) < 1e-6;
   REQUIRE((is_zero || is_one));
 
-  spdlog::info("✓ HiGHS correctly handled binary variable (PDLP not used for MIP)");
+  ReUseX::core::info("✓ HiGHS correctly handled binary variable (PDLP not used for MIP)");
 }

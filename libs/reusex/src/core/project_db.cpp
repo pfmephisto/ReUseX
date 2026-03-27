@@ -172,6 +172,15 @@ class ProjectDB::Impl {
 
   static constexpr int LATEST_SCHEMA_VERSION = 2;
 
+  void execOrThrow(const char *sql) {
+    char *errMsg = nullptr;
+    if (sqlite3_exec(db, sql, nullptr, nullptr, &errMsg) != SQLITE_OK) {
+      std::string error = errMsg ? errMsg : "unknown error";
+      sqlite3_free(errMsg);
+      throw std::runtime_error(std::string("SQL exec failed: ") + error);
+    }
+  }
+
   Impl(std::filesystem::path path, bool ro)
       : dbPath(std::move(path)), readOnly(ro) {
     ReUseX::core::info("Opening ReUseX database: {}", dbPath);
@@ -195,10 +204,14 @@ class ProjectDB::Impl {
       sqlite3_exec(db, "PRAGMA foreign_keys = ON;", nullptr, nullptr,
                    nullptr);
 
+      // Capture legacy state BEFORE createTables() adds material_passports
+      bool isLegacyDb = !tableExists("schema_version") &&
+                         tableExists("material_passports");
+
       // Create legacy passport tables (always needed)
       createTables();
       // Run schema migrations
-      runMigrations();
+      runMigrations(isLegacyDb);
     } else {
       sqlite3_exec(db, "PRAGMA foreign_keys = ON;", nullptr, nullptr,
                    nullptr);
@@ -261,14 +274,14 @@ class ProjectDB::Impl {
     return -1;
   }
 
-  void runMigrations() {
+  void runMigrations(bool isLegacyDb) {
     createSchemaVersionTable();
 
     int current = getCurrentSchemaVersion();
 
     if (current < 0) {
-      // Fresh DB or legacy DB — check if legacy passport tables exist
-      if (tableExists("material_passports")) {
+      // Fresh DB or legacy DB — use pre-createTables() state to decide
+      if (isLegacyDb) {
         // Legacy DB: mark as version 0, then migrate
         insertSchemaVersion(0, "Legacy passport schema");
         current = 0;
@@ -560,7 +573,7 @@ class ProjectDB::Impl {
           "nodeIds and labels vectors must have same size");
     }
 
-    sqlite3_exec(db, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
+    execOrThrow("BEGIN TRANSACTION;");
     try {
       for (size_t i = 0; i < nodeIds.size(); ++i) {
         saveSegmentationImage(nodeIds[i], labels[i]);
@@ -674,7 +687,7 @@ class ProjectDB::Impl {
                           uint32_t height, const std::vector<uint8_t> &data,
                           std::string_view stage,
                           std::string_view paramsJson) {
-    sqlite3_exec(db, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
+    execOrThrow("BEGIN TRANSACTION;");
     try {
       // Upsert point_clouds row
       const char *upsert = R"(
@@ -799,6 +812,9 @@ class ProjectDB::Impl {
 
     const void *blob = sqlite3_column_blob(stmt, 3);
     int blobSize = sqlite3_column_bytes(stmt, 3);
+    if (!blob || blobSize <= 0)
+      throw std::runtime_error("Point cloud data is NULL or empty for: " +
+                               std::string(name));
     meta.data.assign(static_cast<const uint8_t *>(blob),
                      static_cast<const uint8_t *>(blob) + blobSize);
     return meta;
@@ -828,7 +844,9 @@ class ProjectDB::Impl {
     StmtGuard guard(stmt);
     sqlite3_bind_text(stmt, 1, name.data(),
                       static_cast<int>(name.size()), SQLITE_TRANSIENT);
-    sqlite3_step(stmt);
+    if (sqlite3_step(stmt) != SQLITE_DONE)
+      throw std::runtime_error("Failed to delete point cloud: " +
+                               std::string(sqlite3_errmsg(db)));
   }
 
   std::vector<std::string> listPointClouds() const {
@@ -852,7 +870,7 @@ class ProjectDB::Impl {
                             const std::map<int, std::string> &labelMap) {
     int cloudId = getCloudId(cloudName);
 
-    sqlite3_exec(db, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
+    execOrThrow("BEGIN TRANSACTION;");
     try {
       // Delete existing definitions for this cloud
       {
@@ -998,9 +1016,11 @@ class ProjectDB::Impl {
     const void *blob = sqlite3_column_blob(stmt, 0);
     int blobSize = sqlite3_column_bytes(stmt, 0);
 
-    // Write to temp file and load via PCL
+    // Write to temp file and load via PCL (use hash to avoid path traversal)
     auto tmpPath = std::filesystem::temp_directory_path() /
-                   ("reusex_mesh_load_" + std::string(name) + ".ply");
+                   ("reusex_mesh_load_" +
+                    std::to_string(std::hash<std::string>{}(std::string(name))) +
+                    ".ply");
     {
       std::ofstream ofs(tmpPath, std::ios::binary);
       ofs.write(static_cast<const char *>(blob), blobSize);
@@ -1408,7 +1428,7 @@ class ProjectDB::Impl {
                        passport.metadata.document_guid);
 
     // Begin transaction for atomicity
-    sqlite3_exec(db, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
+    execOrThrow("BEGIN TRANSACTION;");
 
     try {
       // 0. Ensure property_definitions are populated

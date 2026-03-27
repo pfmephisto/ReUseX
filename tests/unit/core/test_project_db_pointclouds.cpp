@@ -16,6 +16,7 @@
 
 #include <cstdio>
 #include <filesystem>
+#include <iostream>
 
 using namespace ReUseX;
 using namespace Catch::Matchers;
@@ -25,11 +26,18 @@ namespace fs = std::filesystem;
 // Helper: create a temp database path that auto-cleans
 struct TempDB {
   fs::path path;
-  TempDB() : path(fs::temp_directory_path() /
-                   ("test_projectdb_" +
-                    std::to_string(reinterpret_cast<uintptr_t>(this)) +
-                    ".rux")) {}
-  ~TempDB() { fs::remove(path); }
+  TempDB()
+      : path(fs::temp_directory_path() /
+             ("test_projectdb_" +
+              std::to_string(reinterpret_cast<uintptr_t>(this)) + ".rux")) {}
+  ~TempDB() noexcept {
+    std::error_code ec;
+    fs::remove(path, ec);
+    if (ec) {
+      std::cerr << "Warning: Failed to remove temp DB file " << path << ": "
+                << ec.message() << std::endl;
+    }
+  }
 };
 
 // Helper: create a small XYZRGB cloud with known values
@@ -325,7 +333,9 @@ TEST_CASE("ProjectDB read-only mode", "[projectdb]") {
   TempDB tmp;
 
   // Create DB first in write mode
-  { ProjectDB db(tmp.path); }
+  {
+    ProjectDB db(tmp.path);
+  }
 
   // Open in read-only mode
   ProjectDB rodb(tmp.path, true);
@@ -381,8 +391,7 @@ TEST_CASE("ProjectDB getSensorFrameImage returns empty for missing node",
 
 // ── Segmentation Image Tests ────────────────────────────────────────
 
-TEST_CASE("ProjectDB segmentation image save/load round-trip",
-          "[projectdb]") {
+TEST_CASE("ProjectDB segmentation image save/load round-trip", "[projectdb]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
 
@@ -417,8 +426,7 @@ TEST_CASE("ProjectDB segmentation image save/load round-trip",
   }
 }
 
-TEST_CASE("ProjectDB hasSegmentationImage before/after save",
-          "[projectdb]") {
+TEST_CASE("ProjectDB hasSegmentationImage before/after save", "[projectdb]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
 

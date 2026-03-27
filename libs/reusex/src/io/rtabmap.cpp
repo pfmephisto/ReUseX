@@ -676,12 +676,24 @@ void importSensorFrames(ProjectDB &projectDb,
                      rtabmapDbPath);
 
   sqlite3 *db = nullptr;
-  if (sqlite3_open_v2(rtabmapDbPath.string().c_str(), &db,
-                      SQLITE_OPEN_READONLY, nullptr) != SQLITE_OK) {
-    std::string error = sqlite3_errmsg(db);
-    sqlite3_close(db);
+  if (sqlite3_open_v2(rtabmapDbPath.string().c_str(), &db, SQLITE_OPEN_READONLY,
+                      nullptr) != SQLITE_OK) {
+    std::string error;
+    if (db != nullptr) {
+      error = sqlite3_errmsg(db);
+      sqlite3_close(db);
+    } else {
+      error = "Unknown error (sqlite3_open_v2 returned nullptr)";
+    }
     throw std::runtime_error("Cannot open RTABMap database: " + error);
   }
+
+  // RAII guard for sqlite3 connection
+  auto dbGuard = std::unique_ptr<sqlite3, decltype(&sqlite3_close)>(
+      db, sqlite3_close);
+
+  // RAII guard for sqlite3_stmt
+  auto stmtDeleter = [](sqlite3_stmt *s) { if (s) sqlite3_finalize(s); };
 
   // Get all node IDs
   std::vector<int> nodeIds;
@@ -689,15 +701,15 @@ void importSensorFrames(ProjectDB &projectDb,
     sqlite3_stmt *stmt;
     if (sqlite3_prepare_v2(db, "SELECT id FROM Node ORDER BY id;", -1, &stmt,
                            nullptr) != SQLITE_OK) {
-      std::string error = sqlite3_errmsg(db);
-      sqlite3_close(db);
-      throw std::runtime_error("Failed to query Node table: " + error);
+      throw std::runtime_error("Failed to query Node table: " +
+                               std::string(sqlite3_errmsg(db)));
     }
+    auto guard = std::unique_ptr<sqlite3_stmt, decltype(stmtDeleter)>(
+        stmt, stmtDeleter);
 
     while (sqlite3_step(stmt) == SQLITE_ROW) {
       nodeIds.push_back(sqlite3_column_int(stmt, 0));
     }
-    sqlite3_finalize(stmt);
   }
 
   ReUseX::core::info("Found {} sensor frames to import", nodeIds.size());
@@ -706,10 +718,11 @@ void importSensorFrames(ProjectDB &projectDb,
   sqlite3_stmt *imgStmt;
   if (sqlite3_prepare_v2(db, "SELECT image FROM Data WHERE id = ?;", -1,
                          &imgStmt, nullptr) != SQLITE_OK) {
-    std::string error = sqlite3_errmsg(db);
-    sqlite3_close(db);
-    throw std::runtime_error("Failed to prepare image query: " + error);
+    throw std::runtime_error("Failed to prepare image query: " +
+                             std::string(sqlite3_errmsg(db)));
   }
+  auto imgStmtGuard = std::unique_ptr<sqlite3_stmt, decltype(stmtDeleter)>(
+      imgStmt, stmtDeleter);
 
   size_t imported = 0;
   for (int nodeId : nodeIds) {
@@ -734,9 +747,6 @@ void importSensorFrames(ProjectDB &projectDb,
 
     sqlite3_reset(imgStmt);
   }
-
-  sqlite3_finalize(imgStmt);
-  sqlite3_close(db);
 
   ReUseX::core::info("Imported {} sensor frames", imported);
 }

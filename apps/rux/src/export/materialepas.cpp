@@ -41,33 +41,43 @@ void setup_subcommand_export_materialepas(CLI::App &parent) {
 
 int run_subcommand_export_materialepas(
     SubcommandExportMaterialepasOptions const &opt) {
-  // 1. Open database read-only
-  spdlog::info("Opening project database: {}", opt.input_path.string());
-  ReUseX::ProjectDB db(opt.input_path, /*readOnly=*/true);
+  try {
+    // 1. Open database read-only
+    spdlog::info("Opening project database: {}", opt.input_path.string());
+    ReUseX::ProjectDB db(opt.input_path, /*readOnly=*/true);
 
-  // 2. Retrieve all material passports
-  auto passports = db.getAllMaterialPassports();
-  if (passports.empty()) {
-    spdlog::warn("No material passports found in database");
+    // 2. Retrieve all material passports
+    auto passports = db.getAllMaterialPassports();
+    if (passports.empty()) {
+      spdlog::warn("No material passports found in database");
+      return RuxError::SUCCESS;
+    }
+    spdlog::info("Found {} material passport(s)", passports.size());
+
+    // 3. Serialize to JSON
+    std::string json_str =
+        ReUseX::core::json_export::to_json_string(passports);
+
+    // 4. Write to output file
+    std::ofstream ofs(opt.output_path);
+    if (!ofs.is_open()) {
+      spdlog::error("Failed to open output file: {}",
+                     opt.output_path.string());
+      return RuxError::IO;
+    }
+
+    ofs << json_str;
+    if (!ofs) {
+      spdlog::error("Failed to write output file: {}",
+                     opt.output_path.string());
+      return RuxError::IO;
+    }
+
+    spdlog::info("Exported {} passport(s) to {}", passports.size(),
+                 opt.output_path.string());
     return RuxError::SUCCESS;
-  }
-  spdlog::info("Found {} material passport(s)", passports.size());
-
-  // 3. Serialize to JSON
-  std::string json_str =
-      ReUseX::core::json_export::to_json_string(passports);
-
-  // 4. Write to output file
-  std::ofstream ofs(opt.output_path);
-  if (!ofs.is_open()) {
-    spdlog::error("Failed to open output file: {}", opt.output_path.string());
+  } catch (const std::exception &e) {
+    spdlog::error("Export failed: {}", e.what());
     return RuxError::IO;
   }
-
-  ofs << json_str;
-  ofs.close();
-
-  spdlog::info("Exported {} passport(s) to {}", passports.size(),
-               opt.output_path.string());
-  return RuxError::SUCCESS;
 }

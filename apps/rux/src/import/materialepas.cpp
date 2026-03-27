@@ -64,7 +64,7 @@ int run_subcommand_import_materialepas(
     passports = ReUseX::core::json_import::from_json_string(json_str);
   } catch (const std::exception &e) {
     spdlog::error("Failed to parse JSON: {}", e.what());
-    return RuxError::IO;
+    return RuxError::INVALID_ARGUMENT;
   }
 
   if (passports.empty()) {
@@ -74,11 +74,16 @@ int run_subcommand_import_materialepas(
   spdlog::info("Parsed {} material passport(s)", passports.size());
 
   // 3. Open database and store passports
-  spdlog::info("Opening project database: {}", opt.db_path.string());
-  ReUseX::ProjectDB db(opt.db_path, /*readOnly=*/false);
+  try {
+    spdlog::info("Opening project database: {}", opt.db_path.string());
+    ReUseX::ProjectDB db(opt.db_path, /*readOnly=*/false);
 
-  for (const auto &passport : passports) {
-    db.addMaterialPassport(passport, opt.project_id);
+    for (const auto &passport : passports) {
+      db.addMaterialPassport(passport, opt.project_id);
+    }
+  } catch (const std::exception &e) {
+    spdlog::error("Database import failed: {}", e.what());
+    return RuxError::IO;
   }
 
   spdlog::info("Imported {} passport(s) into database with project_id='{}'",

@@ -342,6 +342,10 @@ MaterialPassport from_json(const json &j) {
     throw std::runtime_error(
         "Invalid material passport JSON: missing 'sections' key");
   }
+  if (!j["sections"].is_array()) {
+    throw std::runtime_error(
+        "Invalid material passport JSON: 'sections' must be an array");
+  }
 
   MaterialPassport passport;
 

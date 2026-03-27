@@ -25,7 +25,6 @@
 
 namespace {
 constexpr int kMaxVerbosity = 3;
-rux::VizualizationObserver g_processing_observer;
 } // namespace
 
 int main(int argc, char **argv) {
@@ -44,7 +43,7 @@ int main(int argc, char **argv) {
 
   // Set the global processing observer to enable progress reporting and
   // visualization
-  ReUseX::core::set_processing_observer(&g_processing_observer);
+  rux::setup_processing_observer();
 
   spdlog::set_level(spdlog::level::warn); // Default level
   spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%n] [%^%=7l%$] %v");
@@ -110,7 +109,7 @@ int main(int argc, char **argv) {
       },
       "Show license information");
   app.add_flag(
-         "-D, --visualize", [](bool) { g_processing_observer.start(); },
+         "-D, --visualize", [](bool) { rux::start_viewer(); },
          "Enable visualization of processing steps")
       ->default_val(false);
 
@@ -123,9 +122,9 @@ int main(int argc, char **argv) {
 
   setup_subcommand_segment(app);
 
-  setup_subcommand_texture(app);
   setup_subcommand_project(app);
 
+  setup_subcommand_texture(app);
   setup_subcommand_view(app);
   setup_subcommand_mesh(app);
 
@@ -140,10 +139,9 @@ int main(int argc, char **argv) {
     return app.exit(e);
   }
 
-  if (g_processing_observer.is_active()) {
-    g_processing_observer.wait_for_user();
-  }
-  ReUseX::core::reset_processing_observer();
+  rux::wait_for_viewer();
+  ReUseX::core::reset_visual_observer();
+  ReUseX::core::reset_progress_observer();
   // g_processing_observer.stop();
 
   // Flush async queue to ensure all logs are written before exit

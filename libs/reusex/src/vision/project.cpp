@@ -4,9 +4,8 @@
 
 #include "vision/project.hpp"
 #include "core/logging.hpp"
+#include "core/processing_observer.hpp"
 #include "types.hpp"
-#include "visualize/Visualizer.hpp"
-#include "visualize/pcl.hpp"
 
 #include <range/v3/view/iota.hpp>
 
@@ -37,8 +36,6 @@
 #include <opencv2/core/eigen.hpp>
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgcodecs.hpp>
-
-#include <pcl/visualization/pcl_visualizer.h>
 
 using namespace rtabmap;
 
@@ -145,79 +142,6 @@ auto getLabeledImage(sqlite3_stmt *stmt, int id) -> cv::Mat {
   sqlite3_clear_bindings(stmt);
   sqlite3_reset(stmt);
   return labledImage;
-}
-
-inline void
-add_camera(std::shared_ptr<pcl::visualization::PCLVisualizer> viewer,
-           const rtabmap::CameraModel &cm, const rtabmap::Transform &pose) {
-  // read current camera
-  const double focal_x = cm.fx();
-  const double focal_y = cm.fy();
-  const double height = cm.imageSize().height;
-  const double width = cm.imageSize().width;
-  auto pose_af = (cm.localTransform().inverse() * pose).toEigen3f();
-
-  // create a 5-point visual for each camera
-  pcl::PointXYZ p1, p2, p3, p4, p5;
-  p1.x = 0;
-  p1.y = 0;
-  p1.z = 0;
-  double dist = 0.75;
-  double minX, minY, maxX, maxY;
-  maxX = dist * tan(std::atan(width / (2.0 * focal_x)));
-  minX = -maxX;
-  maxY = dist * tan(std::atan(height / (2.0 * focal_y)));
-  minY = -maxY;
-  p2.x = minX;
-  p2.y = minY;
-  p2.z = dist;
-  p3.x = maxX;
-  p3.y = minY;
-  p3.z = dist;
-  p4.x = maxX;
-  p4.y = maxY;
-  p4.z = dist;
-  p5.x = minX;
-  p5.y = maxY;
-  p5.z = dist;
-  p1 = pcl::transformPoint(p1, pose_af);
-  p2 = pcl::transformPoint(p2, pose_af);
-  p3 = pcl::transformPoint(p3, pose_af);
-  p4 = pcl::transformPoint(p4, pose_af);
-  p5 = pcl::transformPoint(p5, pose_af);
-
-  viewer->addText3D("camera", p1, 0.1, 1.0, 1.0, 1.0, "camera");
-  viewer->addLine(p1, p2, fmt::format("{}_line1", "camera"));
-  viewer->addLine(p1, p3, fmt::format("{}_line2", "camera"));
-  viewer->addLine(p1, p4, fmt::format("{}_line3", "camera"));
-  viewer->addLine(p1, p5, fmt::format("{}_line4", "camera"));
-  viewer->addLine(p2, p5, fmt::format("{}_line5", "camera"));
-  viewer->addLine(p5, p4, fmt::format("{}_line6", "camera"));
-  viewer->addLine(p4, p3, fmt::format("{}_line7", "camera"));
-  viewer->addLine(p3, p2, fmt::format("{}_line8", "camera"));
-}
-
-cv::Mat colorizeLabels(const cv::Mat &labels) {
-  cv::Mat coloredLabels(labels.size(), CV_8UC3);
-
-#pragma omp parallel for shared(coloredLabels, labels)
-  for (int i = 0; i < labels.rows; ++i) {
-    for (int j = 0; j < labels.cols; ++j) {
-      int label = labels.at<int>(i, j);
-      auto color = pcl::GlasbeyLUT::at(label % pcl::GlasbeyLUT::size());
-      coloredLabels.at<cv::Vec3b>(i, j) = cv::Vec3b(color.b, color.g, color.r);
-    }
-  }
-
-  return coloredLabels;
-}
-
-cv::Mat normalizeDepthImage(const cv::Mat &depthImage) {
-  cv::Mat normalizedDepth = depthImage.clone();
-  cv::normalize(depthImage, normalizedDepth, 0.0, 1.0, cv::NORM_MINMAX);
-  normalizedDepth = normalizedDepth * 255.0;
-  normalizedDepth.convertTo(normalizedDepth, CV_8UC1);
-  return normalizedDepth;
 }
 
 } // namespace
@@ -329,7 +253,7 @@ auto project(const std::filesystem::path &dbPath, CloudConstPtr cloud)
 
   {
     auto observer = std::make_shared<ReUseX::core::ProgressObserver>(
-        "Projecting labels", poseVector.size());
+        ReUseX::core::Stage::ProjectingLabels, poseVector.size());
     for (size_t i = 0; i < poseVector.size(); ++i) {
       ReUseX::core::trace("Processing node {}/{}", i + 1, poseVector.size());
 
@@ -382,7 +306,16 @@ auto project(const std::filesystem::path &dbPath, CloudConstPtr cloud)
       // fc.setVerticalFOV(static_cast<float>(fovYdeg));
       // fc.setHorizontalFOV(static_cast<float>(fovXdeg));
 
-      // add_camera(viewer, cm, pose);
+      {
+        auto visual_observer = ReUseX::core::get_visual_observer();
+        auto camera_pose =
+            (pose * cm.localTransform().inverse()).toEigen3f();
+        visual_observer->viewer_add_camera_frustum(
+            fmt::format("camera_{}", id), cm.fx(), cm.fy(),
+            cm.imageSize().width, cm.imageSize().height,
+            Eigen::Affine3f(camera_pose),
+            ReUseX::core::Stage::ProjectingLabels, static_cast<int>(i));
+      }
 
       pcl::Indices indices;
       // fc.filter(indices);

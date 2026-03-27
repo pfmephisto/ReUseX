@@ -61,5 +61,4 @@ const fs::path plane_normals = fs::current_path() / "plane_normals.pcd";
 
 const double resulution = 0.05;
 const double grid_size = 0.5;
-const bool visualize = false;
 }; // namespace GlobalParams

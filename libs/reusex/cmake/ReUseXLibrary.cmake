@@ -25,10 +25,6 @@ file(GLOB_RECURSE REUSEX_HEADERS CONFIGURE_DEPENDS
 list(FILTER REUSEX_SOURCES EXCLUDE REGEX ".*/visualize/.*\\.cpp$")
 list(FILTER REUSEX_HEADERS EXCLUDE REGEX ".*/visualize/.*\\.hpp$")
 
-# Exclude geometry files that use Visualizer
-list(FILTER REUSEX_SOURCES EXCLUDE REGEX ".*/geometry/mesh\\.cpp$")
-list(FILTER REUSEX_SOURCES EXCLUDE REGEX ".*/geometry/texture_mesh\\.cpp$")
-
 list(LENGTH REUSEX_SOURCES REUSEX_SOURCE_COUNT)
 message(STATUS "Found ${REUSEX_SOURCE_COUNT} ReUseX source files")
 
@@ -111,6 +107,9 @@ target_link_libraries(ReUseX
         # Formatting used by ReUseX logging facade
         fmt::fmt
 
+        # JSON serialization
+        nlohmann_json::nlohmann_json
+
         # Graph algorithms
         SuiteSparse::GraphBLAS
         SuiteSparse::LAGraph
@@ -133,13 +132,22 @@ target_link_libraries(ReUseX
 	      trtsam3::trtsam_core
 
 	      tokenizers_cpp::tokenizers_cpp
+
+        # Speckle upload support
+        CURL::libcurl
+        nlohmann_json::nlohmann_json
+        OpenSSL::Crypto
 )
 
 # -----------------------------------------------
 # Compiler options
 # -----------------------------------------------
 target_link_libraries(ReUseX PUBLIC ${COMMON_LINKER_FLAGS})
-target_compile_options(ReUseX PUBLIC ${COMMON_COMPILER_FLAGS})
+# Apply compiler flags only to C/C++, not CUDA (CUDA has its own flags)
+target_compile_options(ReUseX PUBLIC
+    $<$<COMPILE_LANGUAGE:CXX>:${COMMON_COMPILER_FLAGS}>
+    $<$<COMPILE_LANGUAGE:C>:${COMMON_COMPILER_FLAGS}>
+)
 
 # -----------------------------------------------
 # Export library information

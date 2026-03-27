@@ -237,8 +237,8 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
       // Execute the command and capture output
       std::array<char, 128> buffer;
       std::string result;
-      std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(cmd.data(), "r"),
-                                                    pclose);
+      std::unique_ptr<FILE, int(*)(FILE*)> pipe(popen(cmd.data(), "r"),
+                                                pclose);
       if (!pipe) {
         throw std::runtime_error("popen() failed!");
       }
@@ -333,8 +333,8 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
     ReUseX::core::stopwatch sw;
 
     const size_t N = indices_->size();
-    auto observer =
-        ReUseX::core::ProgressObserver("Ray tracing", N * (N - 1) / 2);
+    auto observer = ReUseX::core::ProgressObserver(
+        ReUseX::core::Stage::RayTracing, N * (N - 1) / 2);
 
 #pragma omp parallel for reduction(mergeTriplets : triplets)                   \
     schedule(dynamic, 4)

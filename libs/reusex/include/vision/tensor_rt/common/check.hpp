@@ -96,7 +96,7 @@ template <typename... Args>
 inline void Assertf(bool cond, const char *fmt, Args &&...args) {
   if (!cond) {
     const auto formattedMessage =
-        fmt::format(fmt, std::forward<Args>(args)...);
+        fmt::format(fmt::runtime(fmt), std::forward<Args>(args)...);
     ReUseX::core::error(
         "Assert failed 💀. in file {}:{}, message: {}",
         __FILE__, __LINE__, formattedMessage);

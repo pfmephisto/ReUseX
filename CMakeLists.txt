@@ -15,6 +15,17 @@ project(ReUseX
 )
 
 # ===============================================
+# CUDA Flags (must be set early to avoid conflicts)
+# ===============================================
+# Prevent "incompatible redefinition for option 'optimize'" warning from nvcc
+# PyTorch adds -O2 via INTERFACE_COMPILE_OPTIONS, so we match it to avoid conflicts
+# Using -O2 instead of -O3 to prevent "incompatible redefinition" warning
+set(CMAKE_CUDA_FLAGS "" CACHE STRING "Base CUDA compiler flags" FORCE)
+set(CMAKE_CUDA_FLAGS_RELEASE "-DNDEBUG" CACHE STRING "CUDA Release flags (no -O flag, let deps handle it)" FORCE)
+set(CMAKE_CUDA_FLAGS_RELWITHDEBINFO "-g -DNDEBUG" CACHE STRING "CUDA RelWithDebInfo flags" FORCE)
+set(CMAKE_CUDA_FLAGS_DEBUG "-g" CACHE STRING "CUDA Debug flags" FORCE)
+
+# ===============================================
 # Global Settings
 # ===============================================
 
@@ -53,6 +64,21 @@ endif()
 # Shared CMake Modules
 # ===============================================
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
+
+# ===============================================
+# Coverage Support (must be set before library)
+# ===============================================
+option(ENABLE_COVERAGE "Enable code coverage" OFF)
+if(ENABLE_COVERAGE)
+    message(STATUS "Code coverage enabled")
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        # These flags will be inherited by all targets
+        add_compile_options(--coverage)
+        add_link_options(--coverage)
+    else()
+        message(WARNING "Coverage only supported with GCC or Clang")
+    endif()
+endif()
 
 # ===============================================
 # Build Subprojects
@@ -104,7 +130,6 @@ message(STATUS "Build Type:        ${CMAKE_BUILD_TYPE}")
 message(STATUS "Install Prefix:    ${CMAKE_INSTALL_PREFIX}")
 message(STATUS "C++ Compiler:      ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
 message(STATUS "CUDA Support:      ${CMAKE_CUDA_COMPILER_ID} ${CMAKE_CUDA_COMPILER_VERSION}")
-message(STATUS "Visualization:     ${BUILD_VISUALIZATION}")
 message(STATUS "Documentation:     ${BUILD_DOCUMENTATION}")
 message(STATUS "Unit Tests:        ${BUILD_TESTS}")
 message(STATUS "Python Bindings:   ${BUILD_PYTHON_BINDINGS}")

@@ -57,8 +57,8 @@ auto annotate(const std::filesystem::path &dbPath,
 
   size_t batch_count = 0;
   {
-    auto observer =
-        ReUseX::core::ProgressObserver("Annotating batches", loader.size());
+    auto observer = ReUseX::core::ProgressObserver(
+        ReUseX::core::Stage::AnnotatingBatches, loader.size());
     for (auto batch : loader) {
       // for (auto [logger, batch] : spdmon::LogProgress(loader)) {
       ReUseX::core::trace("Processing batch {}/{} with {} items", ++batch_count,

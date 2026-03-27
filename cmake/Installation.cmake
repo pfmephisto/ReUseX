@@ -21,18 +21,6 @@ if(TARGET ReUseX)
 endif()
 
 # -----------------------------------------------
-# Install visualization library (if target exists)
-# -----------------------------------------------
-if(TARGET ReUseX_visualization)
-    install(TARGETS ReUseX_visualization
-        EXPORT ReUseXTargets
-        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-    )
-endif()
-
-# -----------------------------------------------
 # Install executable (if target exists)
 # -----------------------------------------------
 if(TARGET rux)

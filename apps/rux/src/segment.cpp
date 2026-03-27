@@ -39,7 +39,7 @@ void setup_subcommand_segment(CLI::App &app) {
   });
 }
 
-int run_subcommand_segment(SubcommandSegmentOptions const &opt) {
+int run_subcommand_segment(SubcommandSegmentOptions const & /*opt*/) {
   spdlog::trace("running segment subcommand");
 
   return RuxError::SUCCESS;

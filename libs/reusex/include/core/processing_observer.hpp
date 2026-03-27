@@ -3,9 +3,19 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #pragma once
+#include "reusex/core/logging.hpp"
 #include "reusex/types.hpp"
 
+#include <Eigen/Geometry>
+#include <fmt/format.h>
 #include <string_view>
+#include <type_traits>
+#include <typeinfo>
+
+// Forward declaration to avoid circular dependency
+namespace ReUseX::geometry {
+class CellComplex;
+} // namespace ReUseX::geometry
 
 namespace ReUseX::core {
 
@@ -16,27 +26,11 @@ enum class EventType {
   //
 };
 
-class IProcessingObserver {
-    public:
-  virtual ~IProcessingObserver() = default;
-
-  virtual void on_process_started(std::string_view, size_t) {}
-  virtual void on_process_finished(std::string_view) {}
-  virtual void on_process_updated(std::string_view, size_t) {}
-};
-
-class NullProcessingObserver final : public IProcessingObserver {};
-
-// Register a global processing observer. The caller retains ownership and must
-// keep the observer alive until reset or replacement. Passing nullptr clears
-// it.
-void set_processing_observer(IProcessingObserver *observer);
-void reset_processing_observer();
-auto get_processing_observer() -> IProcessingObserver *;
+class IObserver {};
 
 class ProgressObserver {
     public:
-  ProgressObserver(std::string_view stage, size_t total = 0);
+  ProgressObserver(Stage stage, size_t total = 0);
   ~ProgressObserver();
 
   void update(size_t progress = 1);
@@ -45,10 +39,136 @@ class ProgressObserver {
   inline void operator+=(size_t increment) { update(increment); };
 
     private:
-  std::string_view stage_;
+  Stage stage_;
   size_t total_ = 0;
 };
 
-// void emit_visualization(std::string_view stage, CloudConstPtr cloud);
+class IVisualObserver : IObserver {
+
+    public:
+  virtual ~IVisualObserver() = default;
+  using Pair = std::pair<Eigen::Vector4d, Eigen::Vector3d>;
+  using PlanePair = std::pair<Pair, Pair>;
+
+  // Viewer callbacks
+  template <typename T>
+  void viewer_add_geometry(std::string_view name,
+                           [[maybe_unused]] const T &geometry, Stage stage,
+                           int idx = 0) {
+    // Special case: if T is Eigen::Vector4d, use virtual dispatch
+    if constexpr (std::is_same_v<T, Eigen::Vector4d>) {
+      viewer_add_plane(name, geometry, stage, idx);
+    } else if constexpr (std::is_same_v<
+                             T, std::pair<Eigen::Vector4d, Eigen::Vector3d>>) {
+      viewer_add_plane(name, geometry, stage, idx);
+    } else if constexpr (std::is_same_v<T, PlanePair>) {
+      viewer_add_plane_pair(name, geometry, stage, idx);
+    } else if constexpr (std::is_same_v<
+                             T, std::shared_ptr<geometry::CellComplex>>) {
+      viewer_add_cell_complex(name, geometry, stage, idx);
+    } else if constexpr (std::is_same_v<T, CloudConstPtr>) {
+      viewer_add_cloud(name, geometry, stage, idx);
+    } else {
+      // Default implementation: log that geometry type is not handled
+      // This prevents linker errors while providing runtime visibility
+      core::debug("viewer_add_geometry<{}> called for '{}' at stage '{}' "
+                  "(no handler registered)",
+                  typeid(T).name(), name, to_string(stage));
+    }
+  }
+
+  template <typename T>
+  void viewer_add_geometries(std::string_view name, const T &geometries,
+                             Stage stage) {
+    for (size_t i = 0; i < geometries.size(); ++i) {
+      viewer_add_geometry(fmt::format("{}_{}", name, i), geometries[i], stage,
+                          i);
+    }
+  }
+
+  // Virtual method for specific geometry types (can be overridden)
+  virtual void viewer_add_plane(std::string_view name,
+                                [[maybe_unused]] const Eigen::Vector4d &plane,
+                                Stage stage, int /*idx*/ = 0) {
+    // Default: log that geometry type is not handled
+    core::debug("viewer_add_plane called for '{}' at stage '{}' "
+                "(no handler registered)",
+                name, to_string(stage));
+  }
+
+  virtual void viewer_add_plane(
+      std::string_view name,
+      [[maybe_unused]] const std::pair<Eigen::Vector4d, Eigen::Vector3d> &plane,
+      Stage stage, int /*idx*/ = 0) {
+    // Default: log that geometry type is not handled
+    core::debug("viewer_add_plane (with origin) called for '{}' at stage '{}' "
+                "(no handler registered)",
+                name, to_string(stage));
+  }
+
+  virtual void viewer_add_plane_pair(std::string_view name,
+                                     [[maybe_unused]] const PlanePair &pair,
+                                     Stage stage, int /*idx*/ = 0) {
+    // Default: log that geometry type is not handled
+    core::debug("viewer_add_plane_pair called for '{}' at stage '{}' "
+                "(no handler registered)",
+                name, to_string(stage));
+  }
+
+  virtual void viewer_add_cell_complex(
+      std::string_view name,
+      [[maybe_unused]] const std::shared_ptr<ReUseX::geometry::CellComplex> &cc,
+      Stage stage, int /*idx*/ = 0) {
+    // Default: log that geometry type is not handled
+    core::debug("viewer_add_cell_complex called for '{}' at stage '{}' "
+                "(no handler registered)",
+                name, to_string(stage));
+  }
+
+  virtual void viewer_add_cloud(std::string_view name,
+                                [[maybe_unused]] const CloudConstPtr &cloud,
+                                Stage stage, int /*idx*/ = 0) {
+    // Default: log that geometry type is not handled
+    core::debug("viewer_add_cloud called for '{}' at stage '{}' "
+                "(no handler registered)",
+                name, to_string(stage));
+  }
+
+  virtual void viewer_add_camera_frustum(
+      std::string_view name, [[maybe_unused]] double focal_x,
+      [[maybe_unused]] double focal_y, [[maybe_unused]] int image_width,
+      [[maybe_unused]] int image_height,
+      [[maybe_unused]] const Eigen::Affine3f &pose, Stage stage,
+      int /*idx*/ = 0) {
+    // Default: log that geometry type is not handled
+    core::debug("viewer_add_camera_frustum called for '{}' at stage '{}' "
+                "(no handler registered)",
+                name, to_string(stage));
+  }
+};
+class IProgressObserver : IObserver {
+    public:
+  virtual ~IProgressObserver() = default;
+
+  // Progress bar callbacks
+  virtual void on_process_started(Stage, size_t) {}
+  virtual void on_process_finished(Stage) {}
+  virtual void on_process_updated(Stage, size_t) {}
+};
+
+// class NullProcessingObserver final : public IProcessingObserver {};
+
+// Register a global processing observer. The caller retains ownership and must
+// keep the observer alive until reset or replacement. Passing nullptr clears
+// it.
+
+void set_visual_observer(IVisualObserver *observer);
+void set_progress_observer(IProgressObserver *observer);
+
+void reset_visual_observer();
+void reset_progress_observer();
+
+auto get_visual_observer() -> IVisualObserver *;
+auto get_progress_observer() -> IProgressObserver *;
 
 } // namespace ReUseX::core

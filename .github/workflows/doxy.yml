@@ -6,7 +6,7 @@ permissions:
 # events but only for the master branch
 on:
   push:
-    branches: [ main, dev ] # keep develoment branch for testing
+    branches: [ main ] # keep develoment branch for testing
 
 jobs:
   # Build job
@@ -19,7 +19,7 @@ jobs:
       with:
         submodules: true
         lfs: true
-    
+
     # Build the HTML documentation
     - name: Doxygen Action
       uses: mattnotmitt/doxygen-action@v1.1.0

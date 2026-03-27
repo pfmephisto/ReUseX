@@ -13,7 +13,6 @@
 
 #include <reusex/io/reusex.hpp>
 #include <reusex/vision/project.hpp>
-#include <reusex/visualize/Visualizer.hpp>
 
 #include <pcl/common/common.h>
 #include <pcl/io/auto_io.h>

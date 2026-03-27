@@ -6,6 +6,8 @@
 #include <catch2/catch_test_macros.hpp>
 #include <reusex/utils/math.hpp>
 
+#include <numbers>
+
 using namespace ReUseX::utils;
 using Catch::Approx;
 
@@ -92,5 +94,36 @@ TEST_CASE("Remap function precision tests", "[math][remap][precision]") {
   SECTION("Float precision") {
     float result = remap(5.12345f, 0.0f, 10.0f);
     REQUIRE(result == Approx(0.512345f).epsilon(1e-6));
+  }
+}
+
+TEST_CASE("deg_to_rad converts degrees to radians", "[utils][math]") {
+  REQUIRE(deg_to_rad(0.0) == Approx(0.0));
+  REQUIRE(deg_to_rad(90.0) == Approx(std::numbers::pi / 2.0));
+  REQUIRE(deg_to_rad(180.0) == Approx(std::numbers::pi));
+  REQUIRE(deg_to_rad(360.0) == Approx(2.0 * std::numbers::pi));
+
+  SECTION("Works with float") {
+    REQUIRE(deg_to_rad(90.0f) == Approx(std::numbers::pi_v<float> / 2.0f));
+  }
+}
+
+TEST_CASE("rad_to_deg converts radians to degrees", "[utils][math]") {
+  REQUIRE(rad_to_deg(0.0) == Approx(0.0));
+  REQUIRE(rad_to_deg(std::numbers::pi) == Approx(180.0));
+  REQUIRE(rad_to_deg(std::numbers::pi / 2.0) == Approx(90.0));
+
+  SECTION("Works with float") {
+    REQUIRE(rad_to_deg(std::numbers::pi_v<float>) == Approx(180.0f));
+  }
+}
+
+TEST_CASE("deg_to_rad and rad_to_deg roundtrip", "[utils][math]") {
+  REQUIRE(rad_to_deg(deg_to_rad(45.0)) == Approx(45.0));
+  REQUIRE(rad_to_deg(deg_to_rad(123.456)) == Approx(123.456));
+  REQUIRE(deg_to_rad(rad_to_deg(1.5)) == Approx(1.5));
+
+  SECTION("Float roundtrip") {
+    REQUIRE(rad_to_deg(deg_to_rad(45.0f)) == Approx(45.0f));
   }
 }

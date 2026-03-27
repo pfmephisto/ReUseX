@@ -21,8 +21,6 @@ struct SubcommandMeshOptions {
 
   float grid_size = GlobalParams::grid_size;
 
-  bool display = GlobalParams::visualize;
-
   double angle_threshold = 25.0;
   double distance_threshold = 0.2;
 

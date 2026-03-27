@@ -6,21 +6,19 @@
 #include "core/processing_observer.hpp"
 #include "geometry/utils.hpp"
 #include "types.hpp"
-#include "visualize/pcl.hpp"
 
 #include <Eigen/Dense>
 #include <fmt/format.h>
 #include <pcl/common/io.h>
 #include <pcl/point_types.h>
 #include <pcl/surface/texture_mapping.h>
-#include <pcl/visualization/pcl_visualizer.h>
 #include <range/v3/view/enumerate.hpp>
 
 #include <filesystem>
 
 namespace ReUseX::geometry {
 pcl::TextureMesh::Ptr texture_mesh_with_cloud(pcl::PolygonMesh::Ptr mesh,
-                                              CloudConstPtr cloud) {
+                                              CloudConstPtr /*cloud*/) {
   ReUseX::core::trace("Entering ReUseX::geometry::texture_mesh_with_cloud");
 
   // Copy cloud and polygons
@@ -114,13 +112,13 @@ pcl::TextureMesh::Ptr texture_mesh_with_cloud(pcl::PolygonMesh::Ptr mesh,
 
   ReUseX::core::trace("Create textutes form points in the cloud");
   {
-    auto observer =
-        ReUseX::core::ProgressObserver("Createing material", nr_polygons);
+    auto observer = ReUseX::core::ProgressObserver(
+        ReUseX::core::Stage::CreatingMaterial, nr_polygons);
 
     for (auto &&[idx, mat] :
          textured_mesh->tex_materials | ranges::views::enumerate) {
 
-      const auto &polygons = textured_mesh->tex_polygons[idx];
+      // const auto &polygons = textured_mesh->tex_polygons[idx];
       const Eigen::Vector3f normal{};
       const Eigen::Vector3f center{};
 
@@ -245,7 +243,7 @@ texture_mesh(pcl::PolygonMesh::Ptr mesh,
   cameras.resize(poses.size());
   {
     auto observer = ReUseX::core::ProgressObserver(
-        "Retrieving textures and cameras", poses.size());
+        ReUseX::core::Stage::RetrievingTextures, poses.size());
 
     // TODO: Extract camera intrinsics and image data for each node
     // category=Geometry estimate=4h

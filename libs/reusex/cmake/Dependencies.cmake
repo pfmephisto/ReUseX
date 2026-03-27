@@ -22,6 +22,7 @@ find_package(fmt CONFIG REQUIRED)
 #    POSITION_INDEPENDENT_CODE ON
 #)
 find_package(range-v3 CONFIG REQUIRED)
+find_package(nlohmann_json 3.11 REQUIRED)
 
 # -----------------------------------------------
 # Deep Learning
@@ -62,6 +63,13 @@ find_package(LAGraph REQUIRED)
 # -----------------------------------------------
 find_package(E57Format REQUIRED)
 find_package(opennurbs REQUIRED)
+
+# -----------------------------------------------
+# Speckle upload support (HTTP, JSON, hashing)
+# -----------------------------------------------
+find_package(CURL REQUIRED)
+find_package(nlohmann_json REQUIRED)
+find_package(OpenSSL REQUIRED)
 
 # -----------------------------------------------
 # Optional GUI support

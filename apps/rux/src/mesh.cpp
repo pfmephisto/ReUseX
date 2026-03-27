@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "mesh.hpp"
+#include "processing_observer.hpp"
 
 #include <CLI/CLI.hpp>
 #include <spdlog/spdlog.h>
@@ -17,8 +18,6 @@
 // #include <reusex/geometry/regularization.hpp>
 // #include <reusex/geometry/utils.hpp>
 // #include <reusex/visualize/pcl.hpp>
-
-#include <reusex/visualize/Visualizer.hpp>
 
 #include <pcl/common/common.h>
 #include <pcl/io/auto_io.h>
@@ -73,7 +72,8 @@ void setup_subcommand_mesh(CLI::App &app) {
                   "Path to the input plane normals file.")
       ->default_val(opt->plane_normals_path_in);
 
-  sub->add_option("rooms", opt->rooms_path_in, "Path to the input room labels file.")
+  sub->add_option("rooms", opt->rooms_path_in,
+                  "Path to the input room labels file.")
       //->required()
       // ->check(CLI::ExistingFile)
       ->default_val(opt->rooms_path_in);
@@ -103,9 +103,6 @@ void setup_subcommand_mesh(CLI::App &app) {
       ->default_val(opt->new_plane_offset)
       ->check(CLI::Range(0.01, 1.0));
 
-  sub->add_flag("-d, --visualize", opt->display, "Display the result.")
-      ->default_val(opt->display);
-
   sub->callback([opt]() {
     spdlog::trace("calling run_subcommand_mesh");
     return run_subcommand_mesh(*opt);
@@ -114,15 +111,9 @@ void setup_subcommand_mesh(CLI::App &app) {
 
 int run_subcommand_mesh(SubcommandMeshOptions const &opt) {
 
-  // INFO: Setup viewer and vizualiztion queue
-  std::shared_ptr<ReUseX::visualize::Visualizer> viewer;
-  auto vps = std::make_shared<std::vector<int>>();
-  vps->resize(4);
-  if (opt.display) {
-    spdlog::trace("Setting up visualization thread and queue");
-    viewer = std::make_shared<ReUseX::visualize::Visualizer>(vps);
-    spdlog::debug("VPs: {}", fmt::join(*vps, ", "));
-  }
+  // rux::VizualizationObserver
+  auto &observer = rux::get_processing_observer();
+  observer.viewer_request_viewports(4);
 
   assert(fs::exists(opt.cloud_path_in) &&
          "Input point cloud file does not exist");
@@ -159,7 +150,8 @@ int run_subcommand_mesh(SubcommandMeshOptions const &opt) {
 
   // TODO: Add comprehensive input size validation with detailed error messages
   // category=CLI estimate=30m
-  // Current validation only checks a subset of input files. Should validate all:
+  // Current validation only checks a subset of input files. Should validate
+  // all:
   // 1. Check cloud, rooms, normals, plane_labels all have same size
   // 2. Verify plane_normals and plane_centroids have expected dimensions
   // 3. Provide specific error message showing actual vs expected sizes
@@ -178,12 +170,9 @@ int run_subcommand_mesh(SubcommandMeshOptions const &opt) {
   options.new_plane_offset = opt.new_plane_offset;
 
   pcl::PolygonMeshPtr mesh = ReUseX::geometry::mesh(
-      cloud, normals, planes, centroids, inliers, rooms, options, viewer);
+      cloud, normals, planes, centroids, inliers, rooms, options);
 
   pcl::io::save(opt.output_out.string(), *mesh);
-  // pcl::io::savePolygonFileVTK(opt.output_out.string(), *mesh, false);
-  // pcl::io::saveVTKFile(opt.output_out.string(), *mesh);
-  // pcl::io::saveOBJFile(opt.output_out.string(), *mesh);
 
   return RuxError::SUCCESS;
 }

@@ -8,7 +8,7 @@
   ...
 }:
 pkgs.mkShell {
-  inputsFrom = [ self.packages.${system}.default ];
+  inputsFrom = [self.packages.${system}.default];
   buildInputs = self.checks.${system}.pre-commit-check.enabledPackages;
 
   packages = with pkgs; [
@@ -79,10 +79,11 @@ pkgs.mkShell {
     python3Packages.mypy # Type checking
   ];
 
-  shellHook = ''
-    echo "Entering dev shell"
-    export VIRTUAL_ENV_PROMPT="ReUseX Environment"
-    # ./tmux_session
-  ''
-  + self.checks.${system}.pre-commit-check.shellHook;
+  shellHook =
+    ''
+      echo "Entering dev shell"
+      export VIRTUAL_ENV_PROMPT="ReUseX Environment"
+      # ./tmux_session
+    ''
+    + self.checks.${system}.pre-commit-check.shellHook;
 }

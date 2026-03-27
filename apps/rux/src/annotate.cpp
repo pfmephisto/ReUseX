@@ -8,49 +8,27 @@
 #include <reusex/utils/fmt_formatter.hpp>
 #include <reusex/vision/annotate.hpp>
 
-#include <sqlite3.h>
-
 #include <fmt/format.h>
 
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
 #include <spdlog/stopwatch.h>
 
-#include <pcl/common/io.h>
-#include <pcl/features/normal_3d_omp.h>
-#include <pcl/filters/extract_indices.h>
-#include <pcl/filters/filter.h>
-#include <pcl/filters/voxel_grid.h>
-#include <pcl/io/pcd_io.h>
-#include <pcl/io/ply_io.h>
-
-#include <rtabmap/core/DBDriver.h>
-#include <rtabmap/core/Graph.h>
-#include <rtabmap/core/Rtabmap.h>
-#include <rtabmap/core/optimizer/OptimizerG2O.h>
-#include <rtabmap/core/util3d.h>
-#include <rtabmap/core/util3d_filtering.h>
-
-#include <opencv2/core.hpp>
-#include <opencv2/imgcodecs.hpp>
-#include <opencv2/imgproc.hpp>
-
 #include <filesystem>
 
 namespace fs = std::filesystem;
-using namespace rtabmap;
 
 void setup_subcommand_annotate(CLI::App &app) {
 
   // Create the option and subcommand objects.
   auto opt = std::make_shared<SubcommandAnnotateOptions>();
   auto *sub = app.add_subcommand(
-      "annotate", "Annotate an RTAB-Map database and "
+      "annotate", "Annotate a ReUseX project database and "
                   "export a point cloud with labels and normals, "
                   "and the trajectory.");
 
   sub->add_option("database", opt->database_path_in,
-                  "Path to the RTAB-Map database file.")
+                  "Path to the ReUseX project database file (.rux).")
       ->required()
       ->check(CLI::ExistingFile);
 
@@ -69,7 +47,5 @@ void setup_subcommand_annotate(CLI::App &app) {
 }
 
 int run_subcommand_annotate(SubcommandAnnotateOptions const &opt) {
-  // return ReUseX::vision::annotateRTABMap(opt.database_path_in, opt.net_path,
-  //                                        opt.isCuda);
   return ReUseX::vision::annotate(opt.database_path_in, opt.net_path);
 }

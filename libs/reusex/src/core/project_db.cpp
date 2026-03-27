@@ -170,7 +170,7 @@ class ProjectDB::Impl {
   bool readOnly;
   sqlite3 *db = nullptr;
 
-  static constexpr int LATEST_SCHEMA_VERSION = 1;
+  static constexpr int LATEST_SCHEMA_VERSION = 2;
 
   Impl(std::filesystem::path path, bool ro)
       : dbPath(std::move(path)), readOnly(ro) {
@@ -280,6 +280,10 @@ class ProjectDB::Impl {
       migrateToV1();
     }
 
+    if (current < 2) {
+      migrateToV2();
+    }
+
     ReUseX::core::trace("Schema version: {}", getCurrentSchemaVersion());
   }
 
@@ -370,6 +374,202 @@ class ProjectDB::Impl {
     insertSchemaVersion(1, "Add point clouds, meshes, sensor frames, "
                            "pipeline log");
     ReUseX::core::info("Migration to schema version 1 complete");
+  }
+
+  void migrateToV2() {
+    ReUseX::core::info("Migrating database to schema version 2");
+
+    const char *v2_schema = R"(
+      CREATE TABLE IF NOT EXISTS segmentation_images (
+        node_id     INTEGER PRIMARY KEY REFERENCES sensor_frames(node_id) ON DELETE CASCADE,
+        label_image BLOB NOT NULL
+      );
+    )";
+
+    char *errMsg = nullptr;
+    if (sqlite3_exec(db, v2_schema, nullptr, nullptr, &errMsg) != SQLITE_OK) {
+      std::string error = errMsg;
+      sqlite3_free(errMsg);
+      throw std::runtime_error("Migration to v2 failed: " + error);
+    }
+
+    insertSchemaVersion(2, "Add segmentation_images table");
+    ReUseX::core::info("Migration to schema version 2 complete");
+  }
+
+  // ── Sensor frame CRUD ─────────────────────────────────────────────
+
+  void saveSensorFrame(int nodeId, const cv::Mat &colorImage) {
+    if (colorImage.empty()) {
+      throw std::runtime_error("Cannot save empty color image");
+    }
+
+    std::vector<unsigned char> jpegBytes;
+    if (!cv::imencode(".jpg", colorImage, jpegBytes,
+                      {cv::IMWRITE_JPEG_QUALITY, 95})) {
+      throw std::runtime_error("Failed to encode color image as JPEG");
+    }
+
+    const char *upsert = R"(
+      INSERT INTO sensor_frames (node_id, color, width, height)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(node_id) DO UPDATE SET
+        color = excluded.color,
+        width = excluded.width,
+        height = excluded.height;
+    )";
+
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, upsert, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to prepare sensor frame upsert: " +
+                               std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+
+    sqlite3_bind_int(stmt, 1, nodeId);
+    sqlite3_bind_blob(stmt, 2, jpegBytes.data(),
+                      static_cast<int>(jpegBytes.size()), SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 3, colorImage.cols);
+    sqlite3_bind_int(stmt, 4, colorImage.rows);
+
+    if (sqlite3_step(stmt) != SQLITE_DONE)
+      throw std::runtime_error("Failed to upsert sensor frame: " +
+                               std::string(sqlite3_errmsg(db)));
+  }
+
+  std::vector<int> getSensorFrameIds() const {
+    const char *sql =
+        "SELECT node_id FROM sensor_frames ORDER BY node_id;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to query sensor frame IDs: " +
+                               std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+
+    std::vector<int> ids;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+      ids.push_back(sqlite3_column_int(stmt, 0));
+    }
+    return ids;
+  }
+
+  cv::Mat getSensorFrameImage(int nodeId) const {
+    const char *sql =
+        "SELECT color FROM sensor_frames WHERE node_id = ?;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to prepare sensor frame query: " +
+                               std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+    sqlite3_bind_int(stmt, 1, nodeId);
+
+    if (sqlite3_step(stmt) != SQLITE_ROW)
+      return cv::Mat(); // Not found
+
+    const void *blob = sqlite3_column_blob(stmt, 0);
+    int blobSize = sqlite3_column_bytes(stmt, 0);
+
+    if (!blob || blobSize == 0)
+      return cv::Mat();
+
+    cv::Mat encoded(1, blobSize, CV_8UC1, const_cast<void *>(blob));
+    return cv::imdecode(encoded, cv::IMREAD_UNCHANGED);
+  }
+
+  // ── Segmentation image CRUD ───────────────────────────────────────
+
+  bool hasSegmentationImage(int nodeId) const {
+    const char *sql =
+        "SELECT 1 FROM segmentation_images WHERE node_id = ? LIMIT 1;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      return false;
+    StmtGuard guard(stmt);
+    sqlite3_bind_int(stmt, 1, nodeId);
+    return sqlite3_step(stmt) == SQLITE_ROW;
+  }
+
+  cv::Mat getSegmentationImage(int nodeId) const {
+    const char *sql =
+        "SELECT label_image FROM segmentation_images WHERE node_id = ?;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to prepare segmentation query: " +
+                               std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+    sqlite3_bind_int(stmt, 1, nodeId);
+
+    if (sqlite3_step(stmt) != SQLITE_ROW)
+      return cv::Mat(); // Not found
+
+    const void *blob = sqlite3_column_blob(stmt, 0);
+    int blobSize = sqlite3_column_bytes(stmt, 0);
+
+    cv::Mat encoded(1, blobSize, CV_8UC1, const_cast<void *>(blob));
+    cv::Mat labels16U = cv::imdecode(encoded, cv::IMREAD_UNCHANGED);
+
+    if (labels16U.empty())
+      return cv::Mat();
+
+    // Convert CV_16U to CV_32S and apply -1 offset (0 -> -1 for background)
+    cv::Mat labels;
+    labels16U.convertTo(labels, CV_32S);
+    labels -= 1;
+    return labels;
+  }
+
+  void saveSegmentationImage(int nodeId, const cv::Mat &labels) {
+    if (labels.empty()) {
+      throw std::runtime_error("Cannot save empty segmentation labels");
+    }
+
+    // Apply +1 offset and convert to CV_16U for storage (0 = background)
+    cv::Mat toSave;
+    cv::Mat offset = labels + 1;
+    offset.convertTo(toSave, CV_16U);
+
+    std::vector<unsigned char> pngBytes;
+    if (!cv::imencode(".png", toSave, pngBytes)) {
+      throw std::runtime_error("Failed to encode segmentation labels as PNG");
+    }
+
+    const char *upsert = R"(
+      INSERT INTO segmentation_images (node_id, label_image)
+      VALUES (?, ?)
+      ON CONFLICT(node_id) DO UPDATE SET label_image = excluded.label_image;
+    )";
+
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, upsert, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to prepare segmentation upsert: " +
+                               std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+
+    sqlite3_bind_int(stmt, 1, nodeId);
+    sqlite3_bind_blob(stmt, 2, pngBytes.data(),
+                      static_cast<int>(pngBytes.size()), SQLITE_TRANSIENT);
+
+    if (sqlite3_step(stmt) != SQLITE_DONE)
+      throw std::runtime_error("Failed to upsert segmentation image: " +
+                               std::string(sqlite3_errmsg(db)));
+  }
+
+  void saveSegmentationImages(const std::vector<int> &nodeIds,
+                              const std::vector<cv::Mat> &labels) {
+    if (nodeIds.size() != labels.size()) {
+      throw std::runtime_error(
+          "nodeIds and labels vectors must have same size");
+    }
+
+    sqlite3_exec(db, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
+    try {
+      for (size_t i = 0; i < nodeIds.size(); ++i) {
+        saveSegmentationImage(nodeIds[i], labels[i]);
+      }
+      sqlite3_exec(db, "COMMIT;", nullptr, nullptr, nullptr);
+    } catch (...) {
+      sqlite3_exec(db, "ROLLBACK;", nullptr, nullptr, nullptr);
+      throw;
+    }
   }
 
   // ── Legacy passport tables ─────────────────────────────────────────
@@ -1395,6 +1595,39 @@ int ProjectDB::getSchemaVersion() const {
 }
 
 void ProjectDB::validateSchema() const { impl_->validateSchema(); }
+
+// --- Sensor Frame Operations ---
+
+void ProjectDB::saveSensorFrame(int nodeId, const cv::Mat &colorImage) {
+  impl_->saveSensorFrame(nodeId, colorImage);
+}
+
+std::vector<int> ProjectDB::getSensorFrameIds() const {
+  return impl_->getSensorFrameIds();
+}
+
+cv::Mat ProjectDB::getSensorFrameImage(int nodeId) const {
+  return impl_->getSensorFrameImage(nodeId);
+}
+
+// --- Segmentation Image Operations ---
+
+bool ProjectDB::hasSegmentationImage(int nodeId) const {
+  return impl_->hasSegmentationImage(nodeId);
+}
+
+cv::Mat ProjectDB::getSegmentationImage(int nodeId) const {
+  return impl_->getSegmentationImage(nodeId);
+}
+
+void ProjectDB::saveSegmentationImage(int nodeId, const cv::Mat &labels) {
+  impl_->saveSegmentationImage(nodeId, labels);
+}
+
+void ProjectDB::saveSegmentationImages(const std::vector<int> &nodeIds,
+                                       const std::vector<cv::Mat> &labels) {
+  impl_->saveSegmentationImages(nodeIds, labels);
+}
 
 // --- Point Cloud Operations ---
 

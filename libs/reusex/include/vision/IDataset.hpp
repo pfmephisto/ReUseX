@@ -12,8 +12,8 @@
 #include <vector>
 
 // Forward declaration
-namespace ReUseX::io {
-class RTABMapDatabase;
+namespace ReUseX {
+class ProjectDB;
 }
 
 namespace ReUseX::vision {
@@ -48,18 +48,17 @@ class IDataset {
    * database connection. The database is managed by shared_ptr, so it will
    * remain open as long as any IDataset instance references it.
    *
-   * @param database Shared pointer to RTABMapDatabase instance
+   * @param database Shared pointer to ProjectDB instance
    */
-  explicit IDataset(std::shared_ptr<io::RTABMapDatabase> database);
+  explicit IDataset(std::shared_ptr<ProjectDB> database);
 
   /* Constructs a new IDataset object by opening a database at the given path.
    *
-   * This convenience constructor creates a new RTABMapDatabase instance
-   * internally and stores it as a shared_ptr. The database connection is
-   * managed by the IDataset and will be closed when the last reference is
-   * destroyed.
+   * This convenience constructor creates a new ProjectDB instance internally
+   * and stores it as a shared_ptr. The database connection is managed by the
+   * IDataset and will be closed when the last reference is destroyed.
    *
-   * @param dbPath The path to the RTABMap database file.
+   * @param dbPath The path to the ReUseX project database file.
    */
   explicit IDataset(std::filesystem::path dbPath);
 
@@ -138,16 +137,16 @@ class IDataset {
    * Subclasses can use this to access database functionality beyond the
    * basic getImage/saveImage interface if needed.
    *
-   * @return Shared pointer to the RTABMapDatabase instance
+   * @return Shared pointer to the ProjectDB instance
    */
-  std::shared_ptr<io::RTABMapDatabase> getDatabase() const;
+  std::shared_ptr<ProjectDB> getDatabase() const;
 
     private:
-  /* Shared pointer to the RTABMap database. Multiple IDataset instances can
+  /* Shared pointer to the project database. Multiple IDataset instances can
    * share the same database connection. The database connection is managed
    * via RAII and will be closed when the last reference is destroyed.
    */
-  std::shared_ptr<io::RTABMapDatabase> db_;
+  std::shared_ptr<ProjectDB> db_;
 
   /* Cached list of node IDs in the dataset. This is populated once during
    * construction by querying the database. The IDs are used to map from

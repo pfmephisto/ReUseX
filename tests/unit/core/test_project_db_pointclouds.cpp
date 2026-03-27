@@ -6,6 +6,9 @@
 
 #include <core/project_db.hpp>
 
+#include <opencv2/core.hpp>
+#include <opencv2/imgcodecs.hpp>
+
 #include <pcl/common/generate.h>
 #include <pcl/conversions.h>
 #include <pcl/point_cloud.h>
@@ -95,7 +98,7 @@ static pcl::PointCloud<pcl::PointXYZ>::Ptr makeXYZCloud(size_t n) {
 TEST_CASE("ProjectDB schema version on fresh DB", "[projectdb]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
-  REQUIRE(db.getSchemaVersion() == 1);
+  REQUIRE(db.getSchemaVersion() == 2);
 }
 
 TEST_CASE("ProjectDB point cloud XYZRGB round-trip", "[projectdb]") {
@@ -307,7 +310,7 @@ TEST_CASE("ProjectDB fresh DB includes all v1 tables", "[projectdb]") {
 
   // Fresh DB should create passport tables + v1 tables in one pass
   ProjectDB db(tmp.path);
-  REQUIRE(db.getSchemaVersion() == 1);
+  REQUIRE(db.getSchemaVersion() == 2);
 
   // V1 tables should work
   REQUIRE_FALSE(db.hasPointCloud("anything"));
@@ -328,4 +331,158 @@ TEST_CASE("ProjectDB read-only mode", "[projectdb]") {
   ProjectDB rodb(tmp.path, true);
   REQUIRE(rodb.isOpen());
   REQUIRE(rodb.listPointClouds().empty());
+}
+
+// ── Sensor Frame Tests ──────────────────────────────────────────────
+
+TEST_CASE("ProjectDB sensor frame save/load round-trip", "[projectdb]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+
+  // Create a small color image
+  cv::Mat original(480, 640, CV_8UC3);
+  cv::randu(original, cv::Scalar(0, 0, 0), cv::Scalar(255, 255, 255));
+
+  db.saveSensorFrame(1, original);
+
+  cv::Mat loaded = db.getSensorFrameImage(1);
+  REQUIRE_FALSE(loaded.empty());
+  REQUIRE(loaded.rows == original.rows);
+  REQUIRE(loaded.cols == original.cols);
+  REQUIRE(loaded.channels() == original.channels());
+}
+
+TEST_CASE("ProjectDB getSensorFrameIds returns correct list", "[projectdb]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+
+  cv::Mat img(100, 100, CV_8UC3, cv::Scalar(128, 128, 128));
+
+  db.saveSensorFrame(10, img);
+  db.saveSensorFrame(5, img);
+  db.saveSensorFrame(20, img);
+
+  auto ids = db.getSensorFrameIds();
+  REQUIRE(ids.size() == 3);
+  // Should be sorted by node_id
+  REQUIRE(ids[0] == 5);
+  REQUIRE(ids[1] == 10);
+  REQUIRE(ids[2] == 20);
+}
+
+TEST_CASE("ProjectDB getSensorFrameImage returns empty for missing node",
+          "[projectdb]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+
+  cv::Mat result = db.getSensorFrameImage(999);
+  REQUIRE(result.empty());
+}
+
+// ── Segmentation Image Tests ────────────────────────────────────────
+
+TEST_CASE("ProjectDB segmentation image save/load round-trip",
+          "[projectdb]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+
+  // Create a sensor frame first (foreign key)
+  cv::Mat color(100, 100, CV_8UC3, cv::Scalar(128, 128, 128));
+  db.saveSensorFrame(1, color);
+
+  // Create labels: -1 for background, 0-4 for classes
+  cv::Mat labels(100, 100, CV_32S);
+  for (int r = 0; r < 100; ++r) {
+    for (int c = 0; c < 100; ++c) {
+      if (r < 20)
+        labels.at<int>(r, c) = -1; // background
+      else
+        labels.at<int>(r, c) = (r + c) % 5; // class labels 0-4
+    }
+  }
+
+  db.saveSegmentationImage(1, labels);
+
+  cv::Mat loaded = db.getSegmentationImage(1);
+  REQUIRE_FALSE(loaded.empty());
+  REQUIRE(loaded.rows == labels.rows);
+  REQUIRE(loaded.cols == labels.cols);
+  REQUIRE(loaded.type() == CV_32S);
+
+  // Exact value preservation
+  for (int r = 0; r < 100; ++r) {
+    for (int c = 0; c < 100; ++c) {
+      REQUIRE(loaded.at<int>(r, c) == labels.at<int>(r, c));
+    }
+  }
+}
+
+TEST_CASE("ProjectDB hasSegmentationImage before/after save",
+          "[projectdb]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+
+  cv::Mat color(50, 50, CV_8UC3, cv::Scalar(0, 0, 0));
+  db.saveSensorFrame(42, color);
+
+  REQUIRE_FALSE(db.hasSegmentationImage(42));
+
+  cv::Mat labels(50, 50, CV_32S, cv::Scalar(0));
+  db.saveSegmentationImage(42, labels);
+
+  REQUIRE(db.hasSegmentationImage(42));
+}
+
+TEST_CASE("ProjectDB saveSegmentationImages batch save", "[projectdb]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+
+  cv::Mat color(50, 50, CV_8UC3, cv::Scalar(0, 0, 0));
+  db.saveSensorFrame(1, color);
+  db.saveSensorFrame(2, color);
+  db.saveSensorFrame(3, color);
+
+  std::vector<int> nodeIds = {1, 2, 3};
+  std::vector<cv::Mat> labels;
+  for (int i = 0; i < 3; ++i) {
+    labels.emplace_back(50, 50, CV_32S, cv::Scalar(i));
+  }
+
+  db.saveSegmentationImages(nodeIds, labels);
+
+  for (int i = 0; i < 3; ++i) {
+    REQUIRE(db.hasSegmentationImage(nodeIds[i]));
+    cv::Mat loaded = db.getSegmentationImage(nodeIds[i]);
+    REQUIRE(loaded.at<int>(0, 0) == i);
+  }
+}
+
+TEST_CASE("ProjectDB label encoding: background -1 preserved", "[projectdb]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+
+  cv::Mat color(10, 10, CV_8UC3, cv::Scalar(0, 0, 0));
+  db.saveSensorFrame(1, color);
+
+  // All background
+  cv::Mat labels(10, 10, CV_32S, cv::Scalar(-1));
+  db.saveSegmentationImage(1, labels);
+
+  cv::Mat loaded = db.getSegmentationImage(1);
+  for (int r = 0; r < 10; ++r) {
+    for (int c = 0; c < 10; ++c) {
+      REQUIRE(loaded.at<int>(r, c) == -1);
+    }
+  }
+}
+
+TEST_CASE("ProjectDB fresh DB has schema version 2", "[projectdb]") {
+  TempDB tmp;
+
+  ProjectDB db(tmp.path);
+  REQUIRE(db.getSchemaVersion() == 2);
+
+  // V2 tables should work
+  REQUIRE_FALSE(db.hasSegmentationImage(1));
+  REQUIRE(db.getSensorFrameIds().empty());
 }

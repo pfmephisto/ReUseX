@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "core/logging.hpp"
-#include "io/RTABMapDatabase.hpp"
+#include "core/project_db.hpp"
 #include "vision/libtorch/Dataset.hpp"
 #include "vision/utils.hpp"
 
@@ -12,10 +12,10 @@
 namespace ReUseX::vision::libtorch {
 
 TorchDataset::TorchDataset(std::filesystem::path dbPath)
-    : db_(std::make_shared<io::RTABMapDatabase>(std::move(dbPath), false)) {
+    : db_(std::make_shared<ProjectDB>(std::move(dbPath), false)) {
 
-  // Cache node IDs from database
-  ids_ = db_->getNodeIds(false);
+  // Cache sensor frame IDs from database
+  ids_ = db_->getSensorFrameIds();
 
   ReUseX::core::trace("TorchDataset initialized with {} entries", ids_.size());
 }
@@ -23,8 +23,8 @@ TorchDataset::TorchDataset(std::filesystem::path dbPath)
 TorchDataset::Example TorchDataset::get(size_t index) {
   int node_id = ids_.at(index);
 
-  // Get image from database (already rotated by RTABMapDatabase)
-  cv::Mat img = db_->getImage(node_id);
+  // Get image from database (already in display orientation)
+  cv::Mat img = db_->getSensorFrameImage(node_id);
 
   // Apply letterbox transformation for YOLO-style models
   letterbox(img, img, cv::Size(640, 640));
@@ -55,14 +55,12 @@ void TorchDataset::save(std::vector<cv::Mat> imgs, torch::Tensor index) {
     cv::Mat processed;
     cropbox(imgs[i], processed, cv::Size(480, 640));
 
-    // Note: rotation is handled by RTABMapDatabase when autoRotate=true
+    // No rotation needed — images stored in display orientation
     processedImgs.push_back(processed);
   }
 
-  // Use RTABMapDatabase for batch save with transaction
-  // autoRotate=true means RTABMapDatabase will apply the 90° counterclockwise
-  // rotation
-  db_->saveLabels(nodeIds, processedImgs, true);
+  // Use ProjectDB for batch save with transaction
+  db_->saveSegmentationImages(nodeIds, processedImgs);
 
   ReUseX::core::trace("TorchDataset save completed");
 }

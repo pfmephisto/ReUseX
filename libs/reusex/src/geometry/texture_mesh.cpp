@@ -228,13 +228,11 @@ texture_mesh(pcl::PolygonMesh::Ptr mesh,
   std::filesystem::path base_path = std::filesystem::path(texture_dir);
 
   ReUseX::core::trace("Retrive all cameras and textures from the database");
-  // TODO: Implement camera/texture retrieval from RTABMapDatabase
+  // TODO: Implement camera/texture retrieval from ProjectDB
   // category=Geometry estimate=1d
-  // Need to extract camera poses and images from RTABMap database for
-  // texturing:
-  // 1. Query RTABMapDatabase::getNodeIds() for all camera frames
-  // 2. Use RTABMapDatabase::getImage(nodeId) to retrieve images (handles
-  // rotation)
+  // Need to extract camera poses and images from ProjectDB for texturing:
+  // 1. Query ProjectDB::getSensorFrameIds() for all camera frames
+  // 2. Use ProjectDB::getSensorFrameImage(nodeId) to retrieve images
   // 3. Extract camera intrinsics and poses from SLAM graph
   // 4. Build camera frustum for visibility testing during texture projection
   // 5. Select best camera view for each mesh polygon based on viewing angle

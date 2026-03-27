@@ -82,6 +82,9 @@ int run_subcommand_import_rtabmap(SubcommandImportRTABMapOptions const &opt,
       if (ctx.labels && !ctx.labels->empty())
         projectDb.savePointCloud("labels", *ctx.labels, "import");
 
+      // Import sensor frame color images for annotation pipeline
+      ReUseX::io::importSensorFrames(projectDb, opt.database_path_in);
+
       projectDb.logPipelineEnd(logId, true);
       spdlog::info("Project database saved successfully");
     } catch (const std::exception &e) {

@@ -4,8 +4,8 @@
 
 #pragma once
 
-#include "core/materialepas_enums.hpp"
-#include "core/materialepas_types.hpp"
+#include "materialepas_enums.hpp"
+#include "materialepas_types.hpp"
 
 #include <fmt/format.h>
 

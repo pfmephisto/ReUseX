@@ -4,8 +4,8 @@
 
 #pragma once
 
-#include "core/MaterialPassport.hpp"
-#include "core/materialepas_traits.hpp"
+#include "MaterialPassport.hpp"
+#include "materialepas_traits.hpp"
 
 #include <nlohmann/json.hpp>
 

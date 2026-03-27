@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "import.hpp"
+#include "import/materialepas.hpp"
 #include "import/rtabmap.hpp"
 #include "spdmon.hpp"
 
@@ -49,6 +50,7 @@ void setup_subcommand_import(CLI::App &app) {
   sub->add_flag("--ascii", opt->ascii, "Save the point cloud in ASCII format")
       ->default_val(opt->ascii);
   setup_subcommand_import_rtabmap(*sub, *ctx);
+  setup_subcommand_import_materialepas(*sub);
 
   sub->callback([opt, ctx]() {
     spdlog::trace("calling import subcommand");

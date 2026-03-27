@@ -1,6 +1,7 @@
 #pragma once
 #include "reusex/core/logging.hpp"
 #include "reusex/vision/IMLBackend.hpp"
+#include "reusex/vision/libtorch/Backend.hpp"
 #include "reusex/vision/tensor_rt/Backend.hpp"
 
 #include <fmt/std.h>
@@ -22,7 +23,7 @@ class BackendFactory {
     public:
   /* Detects the appropriate backend based on the model path.
    * @param model_path: The file or directory path of the model.
-   * @return The detected backend type. Currently hardcoded to TensorRT.
+   * @return The detected backend type.
    */
   static Backend detect_backend(const std::filesystem::path &model_path) {
     using namespace std::filesystem;
@@ -54,8 +55,7 @@ class BackendFactory {
     case Backend::tensor_rt:
       return std::make_unique<ReUseX::vision::tensor_rt::TensorRTBackend>();
     case Backend::libtorch:
-      ReUseX::core::error("libTorch backend is not implemented yet.");
-      throw std::runtime_error("libTorch backend not implemented");
+      return std::make_unique<ReUseX::vision::libtorch::LibTorchBackend>();
     case Backend::dnn:
       ReUseX::core::error("DNN backend is not implemented yet.");
       throw std::runtime_error("DNN backend not implemented");
@@ -76,7 +76,7 @@ class BackendFactory {
   /* Helper function to detect backend type from a single file based on its
    * extension.
    * @param file_path: The path of the file to analyze.
-   * @return The detected backend type or Unknown if the extension is not
+   * @return The detected backend type or unknown if the extension is not
    * recognized.
    */
   static Backend

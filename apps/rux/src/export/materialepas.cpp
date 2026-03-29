@@ -6,7 +6,7 @@
 #include "global-params.hpp"
 
 #include <reusex/core/materialepas_json_export.hpp>
-#include <reusex/core/project_db.hpp>
+#include <reusex/core/ProjectDB.hpp>
 
 #include <fstream>
 #include <spdlog/spdlog.h>
@@ -47,7 +47,7 @@ int run_subcommand_export_materialepas(
     ReUseX::ProjectDB db(opt.input_path, /*readOnly=*/true);
 
     // 2. Retrieve all material passports
-    auto passports = db.getAllMaterialPassports();
+    auto passports = db.all_material_passports();
     if (passports.empty()) {
       spdlog::warn("No material passports found in database");
       return RuxError::SUCCESS;

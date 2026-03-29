@@ -144,6 +144,7 @@ class ProjectDB {
   // --- Material Passport Operations ---
 
   core::MaterialPassport material_passport(std::string_view documentGuid) const;
+  std::vector<core::MaterialPassport> all_material_passports() const;
 
   void add_material_passport(const core::MaterialPassport &passport,
                              std::string_view projectId);

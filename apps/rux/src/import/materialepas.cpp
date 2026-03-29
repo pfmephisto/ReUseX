@@ -6,7 +6,7 @@
 #include "global-params.hpp"
 
 #include <reusex/core/materialepas_json_import.hpp>
-#include <reusex/core/project_db.hpp>
+#include <reusex/core/ProjectDB.hpp>
 
 #include <fstream>
 #include <spdlog/spdlog.h>
@@ -79,7 +79,7 @@ int run_subcommand_import_materialepas(
     ReUseX::ProjectDB db(opt.db_path, /*readOnly=*/false);
 
     for (const auto &passport : passports) {
-      db.addMaterialPassport(passport, opt.project_id);
+      db.add_material_passport(passport, opt.project_id);
     }
   } catch (const std::exception &e) {
     spdlog::error("Database import failed: {}", e.what());

@@ -87,15 +87,21 @@ in
       cudaPackages.cuda_nvcc
     ];
 
-    buildInputs =
+    buildInputs = [
+      boost
+      bzip2
+      zlib
+      tbb
+      argparse
+      rapids-cmake
+      cpm-cmake
+      cudaPackages.cuda_profiler_api
+    ];
+
+    # Transitive cmake deps: cuopt's cmake config references these as
+    # INTERFACE_LINK_LIBRARIES, so consumers need them on CMAKE_PREFIX_PATH
+    propagatedBuildInputs =
       [
-        boost
-        bzip2
-        zlib
-        tbb
-        argparse
-        rapids-cmake
-        cpm-cmake
         cccl
         nvtx3
         rmm
@@ -107,7 +113,6 @@ in
       ]
       ++ (with cudaPackages; [
         cuda_cudart
-        cuda_profiler_api
         libcublas
         libcusolver
         libcusparse
@@ -132,11 +137,14 @@ in
       "-DFETCHCONTENT_SOURCE_DIR_PAPILO=${papilo-src}"
 
       # Use specific CUDA architectures instead of "all"
+      # cuOpt requires Volta (sm_70) or newer
       # 75=Turing, 80=Ampere, 86=Ampere(Gaming), 89=Ada, 90=Hopper
       "-DCMAKE_CUDA_ARCHITECTURES=75;80;86;89;90"
 
-      # Build only LP/MIP solver, not routing engine
-      "-DBUILD_LP_ONLY=ON"
+      # Build LP and MIP solver (not routing engine).
+      # OFF is needed because solve_mip template instantiation in
+      # src/mip/solve.cu is only compiled when BUILD_LP_ONLY=OFF.
+      "-DBUILD_LP_ONLY=OFF"
 
       # Disable tests and benchmarks (require GPU runtime)
       "-DBUILD_TESTS=OFF"
@@ -177,60 +185,27 @@ in
     '';
 
     postInstall = ''
-      # If native CMake config doesn't exist, create it
-      if [ ! -f "$out/lib/cmake/cuOpt/cuOptConfig.cmake" ]; then
-        mkdir -p $out/lib/cmake/cuOpt
+            # Patch cuopt-dependencies.cmake to find all interface dependencies.
+            # The upstream file only finds CUDAToolkit and rapids_logger, but
+            # cuopt-targets.cmake references rmm::rmm, CCCL::CCCL, raft::raft
+            # as INTERFACE_LINK_LIBRARIES.
+            local deps_file="$out/lib/cmake/cuopt/cuopt-dependencies.cmake"
+            if [ -f "$deps_file" ]; then
+              cat >> "$deps_file" <<'NIXEOF'
 
-        cat > $out/lib/cmake/cuOpt/cuOptConfig.cmake <<'EOF'
-      # cuOpt CMake Config File (Nix fallback)
-      if(NOT TARGET cuopt::cuopt)
-        # Try to find the library
-        find_library(CUOPT_LIBRARY
-          NAMES cuopt
-          PATHS "''${CMAKE_CURRENT_LIST_DIR}/../.."
-          PATH_SUFFIXES lib
-          NO_DEFAULT_PATH
-        )
+      # Nix: find transitive dependencies referenced in cuopt-targets.cmake
+      find_dependency(rmm)
+      find_dependency(CCCL)
+      find_dependency(raft)
+      NIXEOF
+            fi
 
-        if(NOT CUOPT_LIBRARY)
-          message(FATAL_ERROR "cuOpt library not found in ''${CMAKE_CURRENT_LIST_DIR}/../..")
-        endif()
-
-        # Create imported target
-        add_library(cuopt::cuopt SHARED IMPORTED)
-        set_target_properties(cuopt::cuopt PROPERTIES
-          IMPORTED_LOCATION "''${CUOPT_LIBRARY}"
-          INTERFACE_INCLUDE_DIRECTORIES "''${CMAKE_CURRENT_LIST_DIR}/../../include"
-        )
-
-        # Mark as found
-        set(cuOpt_FOUND TRUE)
-
-        # Version info
-        set(cuOpt_VERSION "${version}")
-        set(cuOpt_VERSION_MAJOR "25")
-        set(cuOpt_VERSION_MINOR "10")
-      endif()
-      EOF
-
-        # Create version file
-        cat > $out/lib/cmake/cuOpt/cuOptConfigVersion.cmake <<'EOF'
-      set(PACKAGE_VERSION "${version}")
-      if("''${PACKAGE_FIND_VERSION}" VERSION_EQUAL "''${PACKAGE_VERSION}")
-        set(PACKAGE_VERSION_EXACT TRUE)
-      endif()
-      if("''${PACKAGE_FIND_VERSION}" VERSION_LESS_EQUAL "''${PACKAGE_VERSION}")
-        set(PACKAGE_VERSION_COMPATIBLE TRUE)
-      endif()
-      EOF
-      fi
-
-      # Validate installation
-      if [ ! -f "$out/lib/libcuopt.so" ] && [ ! -f "$out/lib/libcuopt.dylib" ]; then
-        echo "ERROR: cuOpt library not found after installation"
-        ls -R $out/
-        exit 1
-      fi
+            # Validate installation
+            if [ ! -f "$out/lib/libcuopt.so" ] && [ ! -f "$out/lib/libcuopt.dylib" ]; then
+              echo "ERROR: cuOpt library not found after installation"
+              ls -R $out/
+              exit 1
+            fi
     '';
 
     # Skip tests (require GPU runtime)

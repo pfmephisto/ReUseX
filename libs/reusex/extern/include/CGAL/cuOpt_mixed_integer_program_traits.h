@@ -10,7 +10,7 @@
 
 #include <CGAL/Mixed_integer_program_traits.h>
 
-#if defined(CGAL_USE_CUOPT) || defined(DOXYGEN_RUNNING)
+#if defined(USE_CUOPT) || defined(DOXYGEN_RUNNING)
 
 #include <cuopt/linear_programming/cuopt_c.h>
 #include <cuopt/linear_programming/constants.h>

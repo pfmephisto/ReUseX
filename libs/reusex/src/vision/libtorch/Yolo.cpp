@@ -35,9 +35,13 @@ BoundingBox clipBoundingBox(torch::Tensor box, int imgWidth, int imgHeight) {
 }
 
 cv::Mat resizeMask(torch::Tensor maskTensor, cv::Size targetSize) {
-  cv::Mat mask(160, 160, CV_32F, maskTensor.cpu().data_ptr<float>());
-  cv::resize(mask, mask, targetSize, 0, 0, cv::INTER_NEAREST);
-  return mask;
+  auto maskCpu = maskTensor.to(torch::kCPU).contiguous();
+  const int mask_h = static_cast<int>(maskCpu.size(0));
+  const int mask_w = static_cast<int>(maskCpu.size(1));
+  cv::Mat src(mask_h, mask_w, CV_32F, maskCpu.data_ptr<float>());
+  cv::Mat dst;
+  cv::resize(src, dst, targetSize, 0, 0, cv::INTER_NEAREST);
+  return dst;
 }
 
 std::pair<torch::Tensor, torch::Tensor> processMasks(torch::Tensor keep,
@@ -48,11 +52,15 @@ std::pair<torch::Tensor, torch::Tensor> processMasks(torch::Tensor keep,
   auto const batch_size = keep.size(0);
   auto max_num_detections = keep.size(1);
 
-  auto p2_flat = p2.view({batch_size, 32, -1});
+  auto const nm = p2.size(1);   // number of prototype masks
+  auto const ph = p2.size(2);   // prototype height
+  auto const pw = p2.size(3);   // prototype width
+
+  auto p2_flat = p2.view({batch_size, nm, -1});
   auto mask_weights = keep.index({Slice(), Slice(), Slice(6, None)});
 
   auto masks = torch::bmm(mask_weights, p2_flat);
-  masks = masks.view({batch_size, max_num_detections, 160, 160});
+  masks = masks.view({batch_size, max_num_detections, ph, pw});
   masks = masks.sigmoid();
 
   return {masks, keep};
@@ -122,11 +130,23 @@ torch::Tensor LibTorchYolo::images_to_tensor(
   for (const auto *data : inputs) {
     const cv::Mat &img = data->image;
     torch::Tensor t =
-        torch::from_blob(const_cast<uchar *>(img.data),
-                         {img.rows, img.cols, 3}, torch::kByte);
+        torch::from_blob(img.data, {img.rows, img.cols, 3}, torch::kByte)
+            .clone();
     t = t.toType(torch::kFloat32).div(255);
+    t = t.index({torch::indexing::Slice(), torch::indexing::Slice(),
+                 torch::tensor({2, 1, 0})}); // BGR -> RGB
     t = t.permute({2, 0, 1}); // HWC -> CHW
     tensors.push_back(t);
+  }
+
+  if (tensors.size() > 1) {
+    auto ref_shape = tensors[0].sizes();
+    for (size_t k = 1; k < tensors.size(); ++k) {
+      if (tensors[k].sizes() != ref_shape)
+        throw std::runtime_error(
+            "LibTorchYolo: image " + std::to_string(k) +
+            " has different shape than image 0 — cannot batch");
+    }
   }
 
   return torch::stack(tensors).to(device_);
@@ -134,6 +154,9 @@ torch::Tensor LibTorchYolo::images_to_tensor(
 
 std::vector<IDataset::Pair>
 LibTorchYolo::forward(const std::span<IDataset::Pair> &input) {
+  if (input.empty())
+    return {};
+
   // Cast inputs to LibTorchData*
   std::vector<const LibTorchData *> lt_inputs;
   lt_inputs.reserve(input.size());
@@ -158,6 +181,13 @@ LibTorchYolo::forward(const std::span<IDataset::Pair> &input) {
 
   auto out_tuple = output.toTuple();
   auto elements = out_tuple->elements();
+
+  if (elements.size() < 2) {
+    throw std::runtime_error(
+        "LibTorchYolo: Model output tuple has insufficient elements. "
+        "Expected at least 2 elements (predictions and masks) for YOLO "
+        "segmentation model (yolo*-seg.pt).");
+  }
 
   auto p1 = elements[0].toTensor().cpu();
   auto p2 = elements[1].toTensor().cpu();

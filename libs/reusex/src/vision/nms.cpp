@@ -35,6 +35,11 @@ torch::Tensor nms(const torch::Tensor &bboxes, const torch::Tensor &scores,
   if (bboxes.numel() == 0)
     return torch::empty({0}, bboxes.options().dtype(torch::kLong));
 
+  TORCH_CHECK(bboxes.device().is_cpu(), "nms: bboxes must be on CPU");
+  TORCH_CHECK(bboxes.dtype() == torch::kFloat32, "nms: bboxes must be float32");
+  TORCH_CHECK(scores.device().is_cpu(), "nms: scores must be on CPU");
+  TORCH_CHECK(scores.dtype() == torch::kFloat32, "nms: scores must be float32");
+
   auto x1_t = bboxes.select(1, 0).contiguous();
   auto y1_t = bboxes.select(1, 1).contiguous();
   auto x2_t = bboxes.select(1, 2).contiguous();
@@ -93,15 +98,18 @@ torch::Tensor nms(const torch::Tensor &bboxes, const torch::Tensor &scores,
   return keep_t.narrow(0, 0, num_to_keep);
 }
 
-torch::Tensor non_max_suppression(torch::Tensor &predictions,
+torch::Tensor non_max_suppression(torch::Tensor predictions,
                                   float confThreshold, float iouThreshold,
                                   int maxDetections) {
   using torch::indexing::None;
   using torch::indexing::Slice;
 
   auto bs = predictions.size(0);          // batch size
-  auto nc = predictions.size(1) - 4 - 32; // num classes (32 mask weights)
-  auto nm = predictions.size(1) - nc - 4; // num masks
+  // YOLO-seg output: 4 bbox + nc classes + nm mask coefficients
+  // nm=32 is the YOLO-seg default; nc is derived from the tensor shape
+  constexpr int64_t kYoloMaskCoeffs = 32;
+  auto nc = predictions.size(1) - 4 - kYoloMaskCoeffs; // num classes
+  auto nm = kYoloMaskCoeffs;                            // num masks
   auto mi = 4 + nc;                       // mask start index
 
   auto xc = predictions.index({Slice(), Slice(4, mi)}).amax(1) > confThreshold;
@@ -130,7 +138,10 @@ torch::Tensor non_max_suppression(torch::Tensor &predictions,
     if (!n)
       continue;
 
-    auto c = x.index({Slice(), Slice{5, 6}}) * 7680;
+    // Class offset for class-aware NMS: spatially separates each class's boxes
+    // Value = 12 * default YOLO input size (640)
+    constexpr float kClassOffset = 7680.0f;
+    auto c = x.index({Slice(), Slice{5, 6}}) * kClassOffset;
     auto boxes = x.index({Slice(), Slice(None, 4)}) + c;
     auto scores = x.index({Slice(), 4});
     auto i = nms(boxes, scores, iouThreshold);

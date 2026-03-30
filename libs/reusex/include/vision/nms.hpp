@@ -39,7 +39,7 @@ torch::Tensor nms(const torch::Tensor &bboxes, const torch::Tensor &scores,
  * @param maxDetections Maximum detections to keep per image.
  * @return Filtered detections [batch_size, maxDetections, 6+32].
  */
-torch::Tensor non_max_suppression(torch::Tensor &predictions,
+torch::Tensor non_max_suppression(torch::Tensor predictions,
                                   float confThreshold = 0.25,
                                   float iouThreshold = 0.45,
                                   int maxDetections = 300);

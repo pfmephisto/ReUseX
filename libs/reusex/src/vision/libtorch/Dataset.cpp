@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "core/logging.hpp"
-#include "core/ProjectDB.hpp"
+#include "vision/libtorch/Data.hpp"
 #include "vision/libtorch/Dataset.hpp"
 #include "vision/utils.hpp"
 
@@ -11,58 +11,39 @@
 
 namespace ReUseX::vision::libtorch {
 
-TorchDataset::TorchDataset(std::filesystem::path dbPath)
-    : db_(std::make_shared<ProjectDB>(std::move(dbPath), false)) {
+IDataset::Pair LibTorchDataset::get(const std::size_t index) const {
+  ReUseX::core::trace("LibTorchDataset getting data at index {}", index);
 
-  // Cache sensor frame IDs from database
-  ids_ = db_->sensor_frame_ids();
+  auto data = std::make_unique<LibTorchData>();
+  data->image = image(index);
+  data->original_size = data->image.size();
+  data->letterbox_scale =
+      letterbox(data->image, data->image, cv::Size(data->target_size, data->target_size));
 
-  ReUseX::core::trace("TorchDataset initialized with {} entries", ids_.size());
+  return std::make_pair(std::move(data), index);
 }
 
-TorchDataset::Example TorchDataset::get(size_t index) {
-  int node_id = ids_.at(index);
+bool LibTorchDataset::save(const std::span<IDataset::Pair> &data) {
+  ReUseX::core::info("Saving {} LibTorch dataset items", data.size());
 
-  // Get image from database (already in display orientation)
-  cv::Mat img = db_->sensor_frame_image(node_id);
+  bool success = true;
+  for (const auto &[item, index] : data) {
+    auto *lt_data = dynamic_cast<LibTorchData *>(item.get());
+    if (!lt_data) {
+      ReUseX::core::error("Failed to cast IData to LibTorchData at index {}", index);
+      success = false;
+      continue;
+    }
 
-  // Apply letterbox transformation for YOLO-style models
-  letterbox(img, img, cv::Size(640, 640));
+    // Reverse letterbox: crop label image back to original dimensions
+    cv::Mat cropped;
+    cropbox(lt_data->label_image, cropped, lt_data->original_size);
 
-  // Convert to torch tensor
-  torch::Tensor tdata =
-      torch::from_blob(img.data, {img.rows, img.cols, 3}, torch::kByte);
-  tdata = tdata.toType(torch::kFloat32).div(255);
-  tdata = tdata.permute({2, 0, 1}); // Change to CxHxW
-
-  return {tdata, torch::tensor(node_id, torch::kLong)};
-}
-
-torch::optional<size_t> TorchDataset::size() const { return ids_.size(); }
-
-void TorchDataset::save(std::vector<cv::Mat> imgs, torch::Tensor index) {
-  ReUseX::core::trace("TorchDataset saving {} images", imgs.size());
-
-  // Prepare node IDs and images for batch save
-  std::vector<int> nodeIds;
-  std::vector<cv::Mat> processedImgs;
-
-  for (size_t i = 0; i < imgs.size(); ++i) {
-    int nodeId = index[i].item<int>();
-    nodeIds.push_back(nodeId);
-
-    // Apply cropbox transformation (reverse of letterbox)
-    cv::Mat processed;
-    cropbox(imgs[i], processed, cv::Size(480, 640));
-
-    // No rotation needed — images stored in display orientation
-    processedImgs.push_back(processed);
+    success &= save_image(index, cropped);
   }
 
-  // Use ProjectDB for batch save with transaction
-  db_->save_segmentation_images(nodeIds, processedImgs);
-
-  ReUseX::core::trace("TorchDataset save completed");
+  ReUseX::core::debug("Save operation completed with success={}", success);
+  return success;
 }
 
 } // namespace ReUseX::vision::libtorch

@@ -150,6 +150,52 @@ target_compile_options(ReUseX PUBLIC
 )
 
 # -----------------------------------------------
+# MIP Solver Selection
+# -----------------------------------------------
+# Priority: cuOpt (GPU) > HiGHS > SCIP
+set(MIP_SOLVER "AUTO" CACHE STRING "MIP solver to use (AUTO, CUOPT, HIGHS, SCIP)")
+set_property(CACHE MIP_SOLVER PROPERTY STRINGS AUTO CUOPT HIGHS SCIP)
+
+# Determine which solver to enable
+if(MIP_SOLVER STREQUAL "AUTO")
+  if(cuOpt_FOUND)
+    set(USE_MIP_SOLVER "CUOPT")
+  elseif(highs_FOUND)
+    set(USE_MIP_SOLVER "HIGHS")
+  elseif(SCIP_FOUND)
+    set(USE_MIP_SOLVER "SCIP")
+  else()
+    message(FATAL_ERROR "No MIP solver found. Please install cuOpt, HiGHS, or SCIP.")
+  endif()
+else()
+  set(USE_MIP_SOLVER ${MIP_SOLVER})
+endif()
+
+# Set compile definition and link library
+if(USE_MIP_SOLVER STREQUAL "CUOPT")
+  if(NOT cuOpt_FOUND)
+    message(FATAL_ERROR "cuOpt solver requested but not found")
+  endif()
+  target_compile_definitions(ReUseX PUBLIC USE_CUOPT)
+  target_link_libraries(ReUseX PUBLIC cuOpt::cuOpt)
+  message(STATUS "MIP Solver: cuOpt (GPU-accelerated)")
+elseif(USE_MIP_SOLVER STREQUAL "HIGHS")
+  if(NOT highs_FOUND)
+    message(FATAL_ERROR "HiGHS solver requested but not found")
+  endif()
+  target_compile_definitions(ReUseX PUBLIC USE_HIGHS)
+  message(STATUS "MIP Solver: HiGHS (CPU)")
+elseif(USE_MIP_SOLVER STREQUAL "SCIP")
+  if(NOT SCIP_FOUND)
+    message(FATAL_ERROR "SCIP solver requested but not found")
+  endif()
+  target_compile_definitions(ReUseX PUBLIC CGAL_USE_SCIP)
+  message(STATUS "MIP Solver: SCIP (CPU)")
+else()
+  message(FATAL_ERROR "Unknown MIP solver: ${USE_MIP_SOLVER}")
+endif()
+
+# -----------------------------------------------
 # Export library information
 # -----------------------------------------------
 if(NOT CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)

@@ -52,6 +52,7 @@
   libpng,
   trtsam3,
   tokenizers-cpp,
+  # cuOpt,
 }: let
   effectiveStdenv =
     if cudaSupport
@@ -131,6 +132,8 @@ in
             cuda_cudart
             cudnn
           ]
+        # cuOpt is optional GPU solver (disabled - marked broken)
+        # ++ [cuOpt]
         else []
       );
 

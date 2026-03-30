@@ -15,8 +15,9 @@ namespace ReUseX::io {
 /// Import raw sensor data from an RTABMap database into a ProjectDB.
 ///
 /// For each node the function extracts color, depth, confidence, the optimized
-/// world pose, and camera intrinsics, applies the 90 deg CW rotation required
-/// by the RTABMap convention, and stores everything in the project database.
+/// world pose, and camera intrinsics in their original RTABMap format and stores
+/// everything in the project database. Images are stored in their native orientation
+/// without rotation.
 ///
 /// No heavy processing (voxelization, normal estimation, etc.) is performed.
 /// Point cloud generation is handled separately by

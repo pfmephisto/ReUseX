@@ -8,6 +8,7 @@
 #include "core/logging.hpp"
 #include "core/processing_observer.hpp"
 #include "geometry/depth_filters.hpp"
+#include "utils/fmt_formatter.hpp"
 
 #include <Eigen/Core>
 #include <Eigen/Geometry>
@@ -93,6 +94,15 @@ void reconstruct_point_clouds(ProjectDB &db,
     Eigen::Affine3f localTf = to_affine(intr.local_transform);
     Eigen::Affine3f worldTf = to_affine(pose);
 
+    // Debug logging for first frame to verify transform correctness
+    if (nodeId == frameIds[0]) {
+      core::debug("=== First frame transform verification (nodeId={}) ===", nodeId);
+      core::debug("localTf rotation:\n{}", localTf.rotation().format(OctaveFmt));
+      core::debug("worldTf translation: [{:.3f}, {:.3f}, {:.3f}]",
+                  worldTf.translation().x(), worldTf.translation().y(),
+                  worldTf.translation().z());
+    }
+
     const float fx = static_cast<float>(intr.fx);
     const float fy = static_cast<float>(intr.fy);
     const float cx_cam = static_cast<float>(intr.cx);
@@ -130,11 +140,12 @@ void reconstruct_point_clouds(ProjectDB &db,
         if (conf_row && conf_row[u] < conf_thresh)
           continue;
 
-        // Camera-frame 3D point
+        // Camera-frame 3D point in optical frame
         float x = (static_cast<float>(u) - cx_cam) * z / fx;
         float y = (static_cast<float>(v) - cy_cam) * z / fy;
 
         Eigen::Vector3f cam_pt(x, y, z);
+        // Apply local transform (optical → sensor) then world transform (sensor → world)
         Eigen::Vector3f world_pt = worldTf * (localTf * cam_pt);
 
         // Get color from the color image

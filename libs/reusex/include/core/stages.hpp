@@ -7,6 +7,7 @@ namespace ReUseX::core {
 enum class Stage {
   idle,
   mesh_generation,
+  importing_data,
   assembling_cloud,
   creating_material,
   retrieving_textures,

@@ -44,7 +44,7 @@ void import_rtabmap(ProjectDB &db,
 
   // ── Import each node ─────────────────────────────────────────────
   auto observer =
-      core::ProgressObserver(core::Stage::assembling_cloud, poses.size());
+      core::ProgressObserver(core::Stage::importing_data, poses.size());
 
   int logId = db.log_pipeline_start(
       "import", fmt::format(R"({{"source":"{}"}})", rtabmap_db_path.string()));
@@ -74,24 +74,20 @@ void import_rtabmap(ProjectDB &db,
         continue;
       }
 
-      // ── Rotate 90 deg CW (RTABMap → display convention) ─────────
-      cv::rotate(color, color, cv::ROTATE_90_CLOCKWISE);
-      if (!depth.empty())
-        cv::rotate(depth, depth, cv::ROTATE_90_CLOCKWISE);
-      if (!confidence.empty())
-        cv::rotate(confidence, confidence, cv::ROTATE_90_CLOCKWISE);
+      // Store images in original RTABMap orientation (no rotation).
+      // Any rotation for display should be handled at visualization time.
 
       // ── Camera intrinsics ────────────────────────────────────────
       core::SensorIntrinsics intrinsics;
       if (!data.cameraModels().empty()) {
         const auto &cm = data.cameraModels().front();
-        // After 90 CW rotation: width/height swap, intrinsics remap.
-        intrinsics.fx = cm.fy();
-        intrinsics.fy = cm.fx();
-        intrinsics.cx = cm.cy();
-        intrinsics.cy = static_cast<double>(cm.imageWidth()) - cm.cx();
-        intrinsics.width = cm.imageHeight(); // swapped
-        intrinsics.height = cm.imageWidth(); // swapped
+        // Store intrinsics as-is from RTABMap
+        intrinsics.fx = cm.fx();
+        intrinsics.fy = cm.fy();
+        intrinsics.cx = cm.cx();
+        intrinsics.cy = cm.cy();
+        intrinsics.width = cm.imageWidth();
+        intrinsics.height = cm.imageHeight();
 
         // Convert local transform to row-major array
         const auto &lt = cm.localTransform();

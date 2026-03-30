@@ -116,7 +116,7 @@ class IDataset {
    * @param index The index of the sample whose image data to retrieve.
    * @return A cv::Mat object containing the image data for the sample.
    */
-  cv::Mat getImage(const std::size_t index) const;
+  cv::Mat image(const std::size_t index) const;
 
   /* Saves the image data for a sample to the database. The saveImage method
    * takes an index and a cv::Mat object as input, which represent the index of
@@ -130,7 +130,7 @@ class IDataset {
    * sample.
    * @return true if the image was saved successfully, and false otherwise.
    */
-  bool saveImage(const std::size_t index, const cv::Mat &image);
+  bool save_image(const std::size_t index, const cv::Mat &image);
 
   /* Access to the underlying database for subclasses.
    *
@@ -139,7 +139,7 @@ class IDataset {
    *
    * @return Shared pointer to the ProjectDB instance
    */
-  std::shared_ptr<ProjectDB> getDatabase() const;
+  std::shared_ptr<ProjectDB> database() const;
 
     private:
   /* Shared pointer to the project database. Multiple IDataset instances can

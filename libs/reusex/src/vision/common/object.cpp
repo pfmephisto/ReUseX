@@ -8,25 +8,25 @@ namespace ReUseX::vision::common::object {
 
 static std::string ObjectTypeToString(ObjectType type) {
   switch (type) {
-  case ObjectType::DETECTION:
+  case ObjectType::detection:
     return "DETECTION";
-  case ObjectType::POSE:
+  case ObjectType::pose:
     return "POSE";
-  case ObjectType::OBB:
+  case ObjectType::obb:
     return "OBB";
-  case ObjectType::SEGMENTATION:
+  case ObjectType::segmentation:
     return "SEGMENTATION";
-  case ObjectType::TRACK:
+  case ObjectType::track:
     return "TRACK";
-  case ObjectType::DEPTH_ANYTHING:
+  case ObjectType::depth_anything:
     return "DEPTH_ANYTHING";
-  case ObjectType::DEPTH_PRO:
+  case ObjectType::depth_pro:
     return "DEPTH_PRO";
-  case ObjectType::POSITION:
+  case ObjectType::position:
     return "POSITION";
-  case ObjectType::UNKNOW:
+  case ObjectType::unknown:
   default:
-    return "UNKNOW";
+    return "UNKNOWN";
   }
 }
 
@@ -251,7 +251,7 @@ std::ostream &operator<<(std::ostream &os, const DetectionBox &box) {
   return os;
 }
 
-cv::Mat segmentMapToMat(const std::shared_ptr<SegmentMap> &map) {
+cv::Mat segment_map_to_mat(const std::shared_ptr<SegmentMap> &map) {
   if (map->data == nullptr || map->width <= 0 || map->height <= 0)
     return cv::Mat();
   return cv::Mat(map->height, map->width, CV_8UC1, map->data);

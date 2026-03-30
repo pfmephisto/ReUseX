@@ -26,33 +26,33 @@
 #include <string>
 #include <vector>
 
-enum class NodeType { PointCluster, Plane, Object };
+namespace ReUseX::geometry {
+
+enum class SceneNodeType { point_cluster, plane, object };
 
 struct PointCluster {
   std::vector<int> point_indices;
 };
 
-struct Plane {
+struct ScenePlane {
   Eigen::Vector4d coefficients;
   Eigen::Vector3d origin;
 };
 
-struct Object {
+struct SceneObject {
   int label;
 };
 
 // Generic vertex bundle
-struct VertexData {
+struct SceneVertexData {
   Eigen::Vector3d centroid;
-  NodeType type;
-  std::variant<PointCluster, Plane> data;
+  SceneNodeType type;
+  std::variant<PointCluster, ScenePlane> data;
 };
 
-struct EdgeData {
+struct SceneEdgeData {
   //
 };
-
-namespace ReUseX::geometry {
 
 // TODO: Fully implement SceneGraph as central scene representation
 // category=Geometry estimate=2w
@@ -68,11 +68,12 @@ namespace ReUseX::geometry {
 // Major architectural work but enables modular scene manipulation
 class SceneGraph
     : public boost::adjacency_list<boost::vecS, boost::vecS, boost::undirectedS,
-                                   VertexData, EdgeData>,
+                                   SceneVertexData, SceneEdgeData>,
       public Registry {
     protected:
-  using Graph = boost::adjacency_list<boost::vecS, boost::vecS,
-                                      boost::undirectedS, VertexData, EdgeData>;
+  using Graph =
+      boost::adjacency_list<boost::vecS, boost::vecS, boost::undirectedS,
+                            SceneVertexData, SceneEdgeData>;
 
     public:
   using Vertex = boost::graph_traits<Graph>::vertex_descriptor;
@@ -107,7 +108,7 @@ class SceneGraph
    * This method extracts all point clouds from the scene graph that are
    * associated with a specific semantic label name.
    */
-  std::vector<CloudConstPtr> ectract(std::string const label_name) const;
+  std::vector<CloudConstPtr> extract(std::string const label_name) const;
 
   /** @brief Get all unique labels in the scene graph
    *

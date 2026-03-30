@@ -5,7 +5,7 @@
 #pragma once
 #include <CGAL/Mixed_integer_program_traits.h>
 
-#if defined(USE_HIGHS) || defined(DOXYGEN_RUNNING)
+#if defined(CGAL_USE_HIGHS) || defined(DOXYGEN_RUNNING)
 
 #include "Highs.h"
 
@@ -16,8 +16,7 @@
 #include <string>
 #include <vector>
 
-// Add spdlog for debug logging
-#include <spdlog/spdlog.h>
+#include <reusex/core/logging.hpp>
 
 namespace CGAL {
 
@@ -50,24 +49,24 @@ class HiGHS_mixed_integer_program_traits
 
     Highs highs;
 
-    // Enable detailed logging for debugging
-    highs.setOptionValue("log_to_console", true);
-    highs.setOptionValue("output_flag", true);
-    highs.setOptionValue("log_dev_level",
-                         2); // 0=none, 1=info, 2=detailed, 3=verbose
+    // Only show HiGHS solver output at debug/trace log levels
+    bool verbose = ReUseX::core::should_log(ReUseX::core::LogLevel::debug);
+    highs.setOptionValue("output_flag", verbose);
+    highs.setOptionValue("log_to_console", verbose);
+    highs.setOptionValue("log_dev_level", verbose ? 2 : 0);
 
     // Optionally write logs to file for detailed analysis
     // highs.openLogFile("highs_solver.log");
 
     // EXPERIMENTAL: Try to force PDLP solver (will likely fail for MIP)
-    // spdlog::warn("EXPERIMENTAL: Attempting to enable PDLP solver for MIP
+    // ReUseX::core::warn("EXPERIMENTAL: Attempting to enable PDLP solver for MIP
     // (will "
     //              "likely fail)");
     // HighsStatus pdlp_status = highs.setOptionValue("solver", "pdlp");
     // if (pdlp_status == HighsStatus::kOk) {
     //   spdlog::info("PDLP solver enabled (may be ignored for MIP problems)");
     // } else {
-    //   spdlog::warn("Failed to enable PDLP solver (status: {})",
+    //   ReUseX::core::warn("Failed to enable PDLP solver (status: {})",
     //                static_cast<int>(pdlp_status));
     // }
 
@@ -170,11 +169,11 @@ class HiGHS_mixed_integer_program_traits
 
     // Log deduplication statistics
     std::size_t num_duplicates = total_entries - unique_entries;
-    spdlog::debug("HiGHS matrix building: {} total entries, {} unique entries, "
+    ReUseX::core::debug("HiGHS matrix building: {} total entries, {} unique entries, "
                   "{} duplicates",
                   total_entries, unique_entries, num_duplicates);
     if (num_duplicates > 0) {
-      spdlog::warn(
+      ReUseX::core::warn(
           "HiGHS: Found {} duplicate matrix entries, accumulated coefficients",
           num_duplicates);
     }
@@ -207,7 +206,7 @@ class HiGHS_mixed_integer_program_traits
     }
     a_starts.push_back(current_pos); // Final entry = total non-zeros
 
-    spdlog::debug("HiGHS: Built packed row format: {} rows, {} non-zeros",
+    ReUseX::core::debug("HiGHS: Built packed row format: {} rows, {} non-zeros",
                   num_constraints, a_values.size());
 
     // Add the model to HiGHS
@@ -239,27 +238,27 @@ class HiGHS_mixed_integer_program_traits
     if (num_constraints > 0 && !a_values.empty()) {
       // Validate packed row format
       if (a_starts.size() != num_constraints + 1) {
-        spdlog::error("HiGHS: Invalid starts array size: {} (expected {})",
+        ReUseX::core::error("HiGHS: Invalid starts array size: {} (expected {})",
                       a_starts.size(), num_constraints + 1);
         Base_class::error_message_ =
             "invalid packed row format: wrong starts array size";
         return false;
       }
       if (a_starts[0] != 0) {
-        spdlog::error("HiGHS: Invalid starts array: first entry must be 0");
+        ReUseX::core::error("HiGHS: Invalid starts array: first entry must be 0");
         Base_class::error_message_ =
             "invalid packed row format: starts[0] != 0";
         return false;
       }
       if (a_starts[num_constraints] != static_cast<HighsInt>(a_values.size())) {
-        spdlog::error("HiGHS: Invalid starts array: last entry {} != num_nz {}",
+        ReUseX::core::error("HiGHS: Invalid starts array: last entry {} != num_nz {}",
                       a_starts[num_constraints], a_values.size());
         Base_class::error_message_ =
             "invalid packed row format: wrong final starts value";
         return false;
       }
 
-      spdlog::debug(
+      ReUseX::core::debug(
           "HiGHS: Calling addRows with packed format: {} rows, {} non-zeros",
           num_constraints, a_values.size());
 
@@ -279,7 +278,7 @@ class HiGHS_mixed_integer_program_traits
     highs.setOptionValue("presolve", presolve ? "on" : "off");
 
     // Log problem dimensions for debugging
-    spdlog::debug(
+    ReUseX::core::debug(
         "HiGHS MIP problem: {} variables, {} constraints, {} non-zeros",
         num_vars, num_constraints, a_values.size());
 
@@ -295,10 +294,10 @@ class HiGHS_mixed_integer_program_traits
     // Get detailed solver info
     const HighsInfo &info = highs.getInfo();
 
-    spdlog::debug("HiGHS solve status: run_status={}, model_status={}",
+    ReUseX::core::debug("HiGHS solve status: run_status={}, model_status={}",
                   static_cast<int>(status),
                   static_cast<int>(highs.getModelStatus()));
-    spdlog::debug("HiGHS info: primal_status={}, dual_status={}, objective={}",
+    ReUseX::core::debug("HiGHS info: primal_status={}, dual_status={}, objective={}",
                   info.primal_solution_status, info.dual_solution_status,
                   info.objective_function_value);
 
@@ -309,28 +308,28 @@ class HiGHS_mixed_integer_program_traits
 
     switch (model_status) {
     case HighsModelStatus::kOptimal:
-      spdlog::debug("HiGHS found optimal solution");
+      ReUseX::core::debug("HiGHS found optimal solution");
       success = true;
       break;
 
     case HighsModelStatus::kInfeasible:
-      spdlog::warn("HiGHS: model was infeasible");
+      ReUseX::core::warn("HiGHS: model was infeasible");
       Base_class::error_message_ = "model was infeasible";
       break;
 
     case HighsModelStatus::kUnbounded:
     case HighsModelStatus::kUnboundedOrInfeasible:
-      spdlog::warn("HiGHS: model was unbounded");
+      ReUseX::core::warn("HiGHS: model was unbounded");
       Base_class::error_message_ = "model was unbounded";
       break;
 
     case HighsModelStatus::kTimeLimit:
-      spdlog::warn("HiGHS: aborted due to time limit");
+      ReUseX::core::warn("HiGHS: aborted due to time limit");
       Base_class::error_message_ = "aborted due to time limit";
       // Some solvers may still have a feasible solution
       {
         HighsInt primal_status = highs.getInfo().primal_solution_status;
-        spdlog::debug("HiGHS time limit: primal_status={}", primal_status);
+        ReUseX::core::debug("HiGHS time limit: primal_status={}", primal_status);
 
         // SolutionStatus enum values from HiGHS:
         // kSolutionStatusNone = 0
@@ -338,10 +337,10 @@ class HiGHS_mixed_integer_program_traits
         // kSolutionStatusFeasible = 2
         if (primal_status ==
             static_cast<HighsInt>(SolutionStatus::kSolutionStatusFeasible)) {
-          spdlog::debug("HiGHS: feasible solution found despite time limit");
+          ReUseX::core::debug("HiGHS: feasible solution found despite time limit");
           success = true;
         } else {
-          spdlog::debug(
+          ReUseX::core::debug(
               "HiGHS: no feasible solution at time limit (primal_status={})",
               primal_status);
         }
@@ -349,20 +348,20 @@ class HiGHS_mixed_integer_program_traits
       break;
 
     case HighsModelStatus::kIterationLimit:
-      spdlog::warn("HiGHS: aborted due to iteration limit");
+      ReUseX::core::warn("HiGHS: aborted due to iteration limit");
       Base_class::error_message_ = "aborted due to iteration limit";
       // Check if we have a feasible solution
       {
         HighsInt primal_status = highs.getInfo().primal_solution_status;
-        spdlog::debug("HiGHS iteration limit: primal_status={}", primal_status);
+        ReUseX::core::debug("HiGHS iteration limit: primal_status={}", primal_status);
 
         if (primal_status ==
             static_cast<HighsInt>(SolutionStatus::kSolutionStatusFeasible)) {
-          spdlog::debug(
+          ReUseX::core::debug(
               "HiGHS: feasible solution found despite iteration limit");
           success = true;
         } else {
-          spdlog::debug("HiGHS: no feasible solution at iteration limit "
+          ReUseX::core::debug("HiGHS: no feasible solution at iteration limit "
                         "(primal_status={})",
                         primal_status);
         }
@@ -370,7 +369,7 @@ class HiGHS_mixed_integer_program_traits
       break;
 
     default:
-      spdlog::warn("HiGHS: solver terminated with status: {}",
+      ReUseX::core::warn("HiGHS: solver terminated with status: {}",
                    static_cast<int>(model_status));
       Base_class::error_message_ =
           "solver terminated with status: " +
@@ -379,14 +378,14 @@ class HiGHS_mixed_integer_program_traits
     }
 
     // Extract solution if available
-    spdlog::debug("HiGHS solution extraction: success={}, model_status={}, "
+    ReUseX::core::debug("HiGHS solution extraction: success={}, model_status={}, "
                   "checking extraction",
                   success, static_cast<int>(model_status));
 
     if (success) {
       const HighsSolution &solution = highs.getSolution();
 
-      spdlog::debug(
+      ReUseX::core::debug(
           "HiGHS solution vector: size={} (expected {}), extracting values",
           solution.col_value.size(), num_vars);
 
@@ -419,4 +418,4 @@ class HiGHS_mixed_integer_program_traits
 
 } // namespace CGAL
 
-#endif // USE_HIGHS or DOXYGEN_RUNNING
+#endif // CGAL_USE_HIGHS or DOXYGEN_RUNNING

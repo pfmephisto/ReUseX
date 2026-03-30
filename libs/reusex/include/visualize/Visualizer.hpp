@@ -47,7 +47,7 @@ class Visualizer {
    * @brief Get the configured viewports.
    * @return Shared pointer to viewport configuration.
    */
-  std::shared_ptr<const std::vector<int>> getViewports() const;
+  std::shared_ptr<const std::vector<int>> viewports() const;
 
   /**
    * @brief Reset camera viewpoint to default.

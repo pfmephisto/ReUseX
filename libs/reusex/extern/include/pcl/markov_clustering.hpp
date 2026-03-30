@@ -334,7 +334,7 @@ class PCL_EXPORTS MarkovClustering : public PCLBase<PointT> {
 
     const size_t N = indices_->size();
     auto observer = ReUseX::core::ProgressObserver(
-        ReUseX::core::Stage::RayTracing, N * (N - 1) / 2);
+        ReUseX::core::Stage::ray_tracing, N * (N - 1) / 2);
 
 #pragma omp parallel for reduction(mergeTriplets : triplets)                   \
     schedule(dynamic, 4)

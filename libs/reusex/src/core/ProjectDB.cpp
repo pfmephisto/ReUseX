@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "core/project_db.hpp"
+#include "core/ProjectDB.hpp"
 #include "core/MaterialPassport.hpp"
 #include "core/materialepas_serialization.hpp"
 #include "core/materialepas_traits.hpp"
@@ -1602,93 +1602,93 @@ ProjectDB::~ProjectDB() = default;
 ProjectDB::ProjectDB(ProjectDB &&) noexcept = default;
 ProjectDB &ProjectDB::operator=(ProjectDB &&) noexcept = default;
 
-bool ProjectDB::isOpen() const noexcept {
+bool ProjectDB::is_open() const noexcept {
   return impl_ && impl_->db != nullptr;
 }
 
-const std::filesystem::path &ProjectDB::getPath() const noexcept {
+const std::filesystem::path &ProjectDB::path() const noexcept {
   return impl_->dbPath;
 }
 
-int ProjectDB::getSchemaVersion() const {
+int ProjectDB::schema_version() const {
   return impl_->getCurrentSchemaVersion();
 }
 
-void ProjectDB::validateSchema() const { impl_->validateSchema(); }
+void ProjectDB::validate_schema() const { impl_->validateSchema(); }
 
 // --- Sensor Frame Operations ---
 
-void ProjectDB::saveSensorFrame(int nodeId, const cv::Mat &colorImage) {
+void ProjectDB::save_sensor_frame(int nodeId, const cv::Mat &colorImage) {
   impl_->saveSensorFrame(nodeId, colorImage);
 }
 
-std::vector<int> ProjectDB::getSensorFrameIds() const {
+std::vector<int> ProjectDB::sensor_frame_ids() const {
   return impl_->getSensorFrameIds();
 }
 
-cv::Mat ProjectDB::getSensorFrameImage(int nodeId) const {
+cv::Mat ProjectDB::sensor_frame_image(int nodeId) const {
   return impl_->getSensorFrameImage(nodeId);
 }
 
 // --- Segmentation Image Operations ---
 
-bool ProjectDB::hasSegmentationImage(int nodeId) const {
+bool ProjectDB::has_segmentation_image(int nodeId) const {
   return impl_->hasSegmentationImage(nodeId);
 }
 
-cv::Mat ProjectDB::getSegmentationImage(int nodeId) const {
+cv::Mat ProjectDB::segmentation_image(int nodeId) const {
   return impl_->getSegmentationImage(nodeId);
 }
 
-void ProjectDB::saveSegmentationImage(int nodeId, const cv::Mat &labels) {
+void ProjectDB::save_segmentation_image(int nodeId, const cv::Mat &labels) {
   impl_->saveSegmentationImage(nodeId, labels);
 }
 
-void ProjectDB::saveSegmentationImages(const std::vector<int> &nodeIds,
-                                       const std::vector<cv::Mat> &labels) {
+void ProjectDB::save_segmentation_images(const std::vector<int> &nodeIds,
+                                         const std::vector<cv::Mat> &labels) {
   impl_->saveSegmentationImages(nodeIds, labels);
 }
 
 // --- Point Cloud Operations ---
 
-void ProjectDB::savePointCloud(std::string_view name, const Cloud &cloud,
-                               std::string_view stage,
-                               std::string_view paramsJson) {
+void ProjectDB::save_point_cloud(std::string_view name, const Cloud &cloud,
+                                 std::string_view stage,
+                                 std::string_view paramsJson) {
   auto data = serializeXYZRGB(cloud);
   impl_->savePointCloudMeta(name, "PointXYZRGB", cloud.size(), XYZRGB_STEP,
                             cloud.width, cloud.height, data, stage,
                             paramsJson);
 }
 
-void ProjectDB::savePointCloud(std::string_view name, const CloudN &cloud,
-                               std::string_view stage,
-                               std::string_view paramsJson) {
+void ProjectDB::save_point_cloud(std::string_view name, const CloudN &cloud,
+                                 std::string_view stage,
+                                 std::string_view paramsJson) {
   auto data = serializeNormal(cloud);
   impl_->savePointCloudMeta(name, "Normal", cloud.size(), NORMAL_STEP,
                             cloud.width, cloud.height, data, stage,
                             paramsJson);
 }
 
-void ProjectDB::savePointCloud(std::string_view name, const CloudL &cloud,
-                               std::string_view stage,
-                               std::string_view paramsJson) {
+void ProjectDB::save_point_cloud(std::string_view name, const CloudL &cloud,
+                                 std::string_view stage,
+                                 std::string_view paramsJson) {
   auto data = serializeLabel(cloud);
   impl_->savePointCloudMeta(name, "Label", cloud.size(), LABEL_STEP,
                             cloud.width, cloud.height, data, stage,
                             paramsJson);
 }
 
-void ProjectDB::savePointCloud(std::string_view name,
-                               const pcl::PointCloud<pcl::PointXYZ> &cloud,
-                               std::string_view stage,
-                               std::string_view paramsJson) {
+void ProjectDB::save_point_cloud(std::string_view name,
+                                 const pcl::PointCloud<pcl::PointXYZ> &cloud,
+                                 std::string_view stage,
+                                 std::string_view paramsJson) {
   auto data = serializeXYZ(cloud);
   impl_->savePointCloudMeta(name, "PointXYZ", cloud.size(), XYZ_STEP,
                             cloud.width, cloud.height, data, stage,
                             paramsJson);
 }
 
-CloudPtr ProjectDB::getPointCloudXYZRGB(std::string_view name) const {
+CloudPtr ProjectDB::point_cloud_xyzrgb(std::string_view name) const {
   auto meta = impl_->loadCloudRaw(name);
   if (meta.point_type != "PointXYZRGB")
     throw std::runtime_error("Point cloud '" + std::string(name) +
@@ -1698,7 +1698,7 @@ CloudPtr ProjectDB::getPointCloudXYZRGB(std::string_view name) const {
                            meta.height);
 }
 
-CloudNPtr ProjectDB::getPointCloudNormal(std::string_view name) const {
+CloudNPtr ProjectDB::point_cloud_normal(std::string_view name) const {
   auto meta = impl_->loadCloudRaw(name);
   if (meta.point_type != "Normal")
     throw std::runtime_error("Point cloud '" + std::string(name) +
@@ -1708,7 +1708,7 @@ CloudNPtr ProjectDB::getPointCloudNormal(std::string_view name) const {
                            meta.height);
 }
 
-CloudLPtr ProjectDB::getPointCloudLabel(std::string_view name) const {
+CloudLPtr ProjectDB::point_cloud_label(std::string_view name) const {
   auto meta = impl_->loadCloudRaw(name);
   if (meta.point_type != "Label")
     throw std::runtime_error("Point cloud '" + std::string(name) +
@@ -1719,7 +1719,7 @@ CloudLPtr ProjectDB::getPointCloudLabel(std::string_view name) const {
 }
 
 pcl::PointCloud<pcl::PointXYZ>::Ptr
-ProjectDB::getPointCloudXYZ(std::string_view name) const {
+ProjectDB::point_cloud_xyz(std::string_view name) const {
   auto meta = impl_->loadCloudRaw(name);
   if (meta.point_type != "PointXYZ")
     throw std::runtime_error("Point cloud '" + std::string(name) +
@@ -1729,68 +1729,68 @@ ProjectDB::getPointCloudXYZ(std::string_view name) const {
                         meta.height);
 }
 
-bool ProjectDB::hasPointCloud(std::string_view name) const {
+bool ProjectDB::has_point_cloud(std::string_view name) const {
   return impl_->hasPointCloud(name);
 }
 
-void ProjectDB::deletePointCloud(std::string_view name) {
+void ProjectDB::delete_point_cloud(std::string_view name) {
   impl_->deletePointCloud(name);
 }
 
-std::vector<std::string> ProjectDB::listPointClouds() const {
+std::vector<std::string> ProjectDB::list_point_clouds() const {
   return impl_->listPointClouds();
 }
 
 // --- Label Definitions ---
 
-void ProjectDB::saveLabelDefinitions(
+void ProjectDB::save_label_definitions(
     std::string_view cloudName,
     const std::map<int, std::string> &labelMap) {
   impl_->saveLabelDefinitions(cloudName, labelMap);
 }
 
 std::map<int, std::string>
-ProjectDB::getLabelDefinitions(std::string_view cloudName) const {
+ProjectDB::label_definitions(std::string_view cloudName) const {
   return impl_->getLabelDefinitions(cloudName);
 }
 
 // --- Mesh Operations ---
 
-void ProjectDB::saveMesh(std::string_view name, const pcl::PolygonMesh &mesh,
-                         std::string_view stage,
-                         std::string_view paramsJson) {
+void ProjectDB::save_mesh(std::string_view name, const pcl::PolygonMesh &mesh,
+                           std::string_view stage,
+                           std::string_view paramsJson) {
   impl_->saveMesh(name, mesh, stage, paramsJson);
 }
 
-pcl::PolygonMesh::Ptr ProjectDB::getMesh(std::string_view name) const {
+pcl::PolygonMesh::Ptr ProjectDB::mesh(std::string_view name) const {
   return impl_->getMesh(name);
 }
 
-bool ProjectDB::hasMesh(std::string_view name) const {
+bool ProjectDB::has_mesh(std::string_view name) const {
   return impl_->hasMesh(name);
 }
 
 // --- Pipeline Log ---
 
-int ProjectDB::logPipelineStart(std::string_view stage,
-                                std::string_view paramsJson) {
+int ProjectDB::log_pipeline_start(std::string_view stage,
+                                  std::string_view paramsJson) {
   return impl_->logPipelineStart(stage, paramsJson);
 }
 
-void ProjectDB::logPipelineEnd(int logId, bool success,
-                               std::string_view errorMsg) {
+void ProjectDB::log_pipeline_end(int logId, bool success,
+                                 std::string_view errorMsg) {
   impl_->logPipelineEnd(logId, success, errorMsg);
 }
 
 // --- Material Passport Operations ---
 
 ReUseX::core::MaterialPassport
-ProjectDB::getMaterialPassport(std::string_view documentGuid) const {
+ProjectDB::material_passport(std::string_view documentGuid) const {
   return impl_->getMaterialPassport(documentGuid);
 }
 
 std::vector<ReUseX::core::MaterialPassport>
-ProjectDB::getAllMaterialPassports() const {
+ProjectDB::all_material_passports() const {
   auto iter = impl_->getMaterialPassports();
   std::vector<ReUseX::core::MaterialPassport> result;
   while (iter.hasNext()) {
@@ -1799,8 +1799,8 @@ ProjectDB::getAllMaterialPassports() const {
   return result;
 }
 
-void ProjectDB::addMaterialPassport(const ReUseX::core::MaterialPassport &passport,
-                                    std::string_view projectId) {
+void ProjectDB::add_material_passport(const ReUseX::core::MaterialPassport &passport,
+                                      std::string_view projectId) {
   impl_->addMaterialPassport(passport, projectId);
 }
 

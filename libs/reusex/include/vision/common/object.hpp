@@ -12,15 +12,15 @@ namespace ReUseX::vision::common::object {
 /// @brief Enumeration of supported detection object types.
 /// Identifies the kind of data stored in a DetectionBox.
 enum class ObjectType {
-  UNKNOW = -1,        ///< Unknown or unclassified object type.
-  POSITION = 0,       ///< Simple position/region of interest.
-  POSE = 1,           ///< Human pose estimation result.
-  OBB = 2,            ///< Oriented bounding box.
-  SEGMENTATION = 3,   ///< Instance segmentation mask.
-  DEPTH_ANYTHING = 4, ///< Depth map from DepthAnything model.
-  DEPTH_PRO = 5,      ///< Depth map from DepthPro model.
-  TRACK = 6,          ///< Multi-object tracking result.
-  DETECTION = 7,      ///< Standard bounding box detection.
+  unknown = -1,        ///< Unknown or unclassified object type.
+  position = 0,        ///< Simple position/region of interest.
+  pose = 1,            ///< Human pose estimation result.
+  obb = 2,             ///< Oriented bounding box.
+  segmentation = 3,    ///< Instance segmentation mask.
+  depth_anything = 4,  ///< Depth map from DepthAnything model.
+  depth_pro = 5,       ///< Depth map from DepthPro model.
+  track = 6,           ///< Multi-object tracking result.
+  detection = 7,       ///< Standard bounding box detection.
 };
 
 /// @brief Axis-aligned bounding box defined by (left, top, right, bottom)
@@ -187,7 +187,7 @@ struct Track {
 /// @brief Universal detection result container that holds a bounding box plus
 /// optional enriched data (pose, OBB, segmentation, depth, tracking).
 struct DetectionBox {
-  ObjectType type = ObjectType::UNKNOW; ///< Type of this detection.
+  ObjectType type = ObjectType::unknown; ///< Type of this detection.
   Box box;                              ///< Axis-aligned bounding box.
   float score = 0.0f;                   ///< Confidence score in [0, 1].
   int class_id = -1;                    ///< Class index.
@@ -206,7 +206,7 @@ struct DetectionBox {
 /// @brief Convert a SegmentMap to an OpenCV Mat (zero-copy header wrapper).
 /// @param map The shared SegmentMap to wrap.
 /// @return A CV_8UC1 Mat pointing to the SegmentMap's data buffer.
-cv::Mat segmentMapToMat(const std::shared_ptr<SegmentMap> &map);
+cv::Mat segment_map_to_mat(const std::shared_ptr<SegmentMap> &map);
 
 /// @brief Convenience alias for a collection of DetectionBox results.
 using DetectionBoxArray = std::vector<DetectionBox>;

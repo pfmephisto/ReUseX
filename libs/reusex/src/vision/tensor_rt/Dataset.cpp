@@ -10,7 +10,7 @@ ReUseX::vision::IDataset::Pair
 TensorRTDataset::get(const std::size_t index) const {
   ReUseX::core::trace("TensorRTDataset getting data at index {}", index);
   auto data = std::make_pair(std::make_unique<TensorRTData>(), index);
-  data.first->image = getImage(index);
+  data.first->image = image(index);
   return data;
 }
 
@@ -22,7 +22,7 @@ bool TensorRTDataset::save(const std::span<IDataset::Pair> &data) {
     TensorRTData *data = dynamic_cast<TensorRTData *>(item.get());
     cv::Mat &img = data->image;
 
-    success &= saveImage(index, img);
+    success &= save_image(index, img);
   }
 
   ReUseX::core::debug("Save operation completed with success={}", success);

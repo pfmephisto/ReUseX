@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "core/logging.hpp"
-#include "core/project_db.hpp"
+#include "core/ProjectDB.hpp"
 #include "vision/IDataset.hpp"
 
 #include <opencv2/core.hpp>
@@ -41,10 +41,10 @@ IDataset::IDataset(std::shared_ptr<ProjectDB> database)
     throw std::runtime_error("Database pointer is null");
   }
 
-  ReUseX::core::info("Initializing IDataset with database: {}", db_->getPath());
+  ReUseX::core::info("Initializing IDataset with database: {}", db_->path());
 
   // Cache sensor frame IDs from database
-  ids_ = db_->getSensorFrameIds();
+  ids_ = db_->sensor_frame_ids();
 
   ReUseX::core::info("Dataset initialized with {} entries", ids_.size());
 }
@@ -53,18 +53,18 @@ IDataset::IDataset(std::filesystem::path dbPath)
     : IDataset(
           std::make_shared<ProjectDB>(std::move(dbPath), false)) {}
 
-cv::Mat IDataset::getImage(const size_t index) const {
+cv::Mat IDataset::image(const size_t index) const {
   ReUseX::core::trace("Getting image at index {}", index);
   int node_id = ids_.at(index);
-  return db_->getSensorFrameImage(node_id);
+  return db_->sensor_frame_image(node_id);
 }
 
-bool IDataset::saveImage(const size_t index, const cv::Mat &image) {
+bool IDataset::save_image(const size_t index, const cv::Mat &image) {
   ReUseX::core::trace("Saving image at index {}", index);
 
   try {
     int node_id = ids_.at(index);
-    db_->saveSegmentationImage(node_id, image);
+    db_->save_segmentation_image(node_id, image);
 
 #ifndef NDEBUG
     cv::Mat temp = image.clone();
@@ -84,7 +84,7 @@ bool IDataset::saveImage(const size_t index, const cv::Mat &image) {
   }
 }
 
-std::shared_ptr<ProjectDB> IDataset::getDatabase() const {
+std::shared_ptr<ProjectDB> IDataset::database() const {
   return db_;
 }
 

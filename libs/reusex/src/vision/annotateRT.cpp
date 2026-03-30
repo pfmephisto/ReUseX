@@ -32,8 +32,8 @@ auto annotate(const std::filesystem::path &dbPath,
   auto backendType = BackendFactory::detect_backend(modelPath);
   auto backend = BackendFactory::create(backendType);
 
-  auto model = backend->createModel(ReUseX::vision::Model::Sam3, modelPath);
-  auto dataset = backend->createDataset(dbPath);
+  auto model = backend->create_model(ReUseX::vision::Model::sam3, modelPath);
+  auto dataset = backend->create_dataset(dbPath);
 
   // Create dataloader with multi-threaded prefetching
   // Parameters: dataset, batch_size, shuffle, num_workers, prefetch_batches
@@ -58,7 +58,7 @@ auto annotate(const std::filesystem::path &dbPath,
   size_t batch_count = 0;
   {
     auto observer = ReUseX::core::ProgressObserver(
-        ReUseX::core::Stage::AnnotatingBatches, loader.size());
+        ReUseX::core::Stage::annotating_batches, loader.size());
     for (auto batch : loader) {
       // for (auto [logger, batch] : spdmon::LogProgress(loader)) {
       ReUseX::core::trace("Processing batch {}/{} with {} items", ++batch_count,

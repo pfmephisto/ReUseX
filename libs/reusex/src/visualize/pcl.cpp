@@ -331,7 +331,7 @@ void addSupportProbabilities(
     if (f_sp[*fit] != -1.0)
       continue; // Only display text for unsupported faces
 
-    auto plane_id = std::get<FaceData>((*cc)[*fit].data).plane_id;
+    auto plane_id = std::get<geometry::FaceData>((*cc)[*fit].data).plane_id;
 
     viewer->addText3D(fmt::format("P{}", plane_id),
                       PointT{static_cast<float>((*cc)[*fit].pos[0]),

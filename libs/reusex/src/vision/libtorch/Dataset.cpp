@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "core/logging.hpp"
-#include "core/project_db.hpp"
+#include "core/ProjectDB.hpp"
 #include "vision/libtorch/Dataset.hpp"
 #include "vision/utils.hpp"
 
@@ -15,7 +15,7 @@ TorchDataset::TorchDataset(std::filesystem::path dbPath)
     : db_(std::make_shared<ProjectDB>(std::move(dbPath), false)) {
 
   // Cache sensor frame IDs from database
-  ids_ = db_->getSensorFrameIds();
+  ids_ = db_->sensor_frame_ids();
 
   ReUseX::core::trace("TorchDataset initialized with {} entries", ids_.size());
 }
@@ -24,7 +24,7 @@ TorchDataset::Example TorchDataset::get(size_t index) {
   int node_id = ids_.at(index);
 
   // Get image from database (already in display orientation)
-  cv::Mat img = db_->getSensorFrameImage(node_id);
+  cv::Mat img = db_->sensor_frame_image(node_id);
 
   // Apply letterbox transformation for YOLO-style models
   letterbox(img, img, cv::Size(640, 640));
@@ -60,7 +60,7 @@ void TorchDataset::save(std::vector<cv::Mat> imgs, torch::Tensor index) {
   }
 
   // Use ProjectDB for batch save with transaction
-  db_->saveSegmentationImages(nodeIds, processedImgs);
+  db_->save_segmentation_images(nodeIds, processedImgs);
 
   ReUseX::core::trace("TorchDataset save completed");
 }

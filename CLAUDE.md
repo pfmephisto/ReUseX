@@ -14,6 +14,20 @@ ReUseX is a C++20/CUDA project for processing 3D point cloud scans of building i
 - Mesh generation with texture mapping
 - Support for E57, PCD, OpenNURBS, and HDF5 formats
 
+## Naming Conventions
+
+- **Functions/methods**: snake_case — `save_point_cloud()`, `is_open()`
+- **Getters**: No `get_` prefix — `path()`, `schema_version()`, `mesh()`
+- **Boolean queries**: `is_`/`has_` prefix — `is_open()`, `has_mesh()`
+- **Setters**: `set_` prefix — `set_log_level()`, `set_database_path()`
+- **Classes/structs**: PascalCase — `CellComplex`, `ProjectDB`, `DetectionBox`
+- **Enum classes**: PascalCase name, snake_case values — `Stage::mesh_generation`
+- **Namespaces**: snake_case — `ReUseX::geometry`, `ReUseX::vision::tensor_rt`
+- **Type aliases**: PascalCase — `CloudPtr`, `CloudNConstPtr`
+- **Member variables**: snake_case with trailing `_` — `impl_`, `cloud_`
+- **File naming**: PascalCase for class files, snake_case for function/algorithm files
+- **Header guards**: `#pragma once`
+
 ## Build System
 
 ### Development Environment

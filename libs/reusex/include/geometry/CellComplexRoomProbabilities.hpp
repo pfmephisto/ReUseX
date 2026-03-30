@@ -203,7 +203,7 @@ auto CellComplex::compute_room_probabilities(
     const auto dirs = sampleSphericalFibonacci(100);
 
     auto observer = ReUseX::core::ProgressObserver(
-        ReUseX::core::Stage::ComputingRoomProbabilities, this->num_cells());
+        ReUseX::core::Stage::computing_room_probabilities, this->num_cells());
 
 #pragma omp parallel for schedule(dynamic)
     for (size_t cell_idx = 0; cell_idx < this->num_cells(); ++cell_idx) {

@@ -20,9 +20,9 @@ class CellComplex;
 namespace ReUseX::core {
 
 enum class EventType {
-  Process,
-  Progress,
-  Visualization
+  process,
+  progress,
+  visualization
   //
 };
 

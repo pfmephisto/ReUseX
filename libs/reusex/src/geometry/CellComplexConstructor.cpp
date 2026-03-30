@@ -362,7 +362,7 @@ CellComplex::CellComplex(
       const auto t = boost::target(*eit, *this);
       const auto s = boost::source(*eit, *this);
       auto c = (*fit == t) ? s : t;
-      if ((*this)[c].type != NodeType::Cell)
+      if ((*this)[c].type != CellNodeType::cell)
         continue;
 
       // ReUseX::core::trace("Face {} is adjacent to cell {}",

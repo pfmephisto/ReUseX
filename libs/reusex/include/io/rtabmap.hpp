@@ -30,7 +30,7 @@ auto import_rtabmap_database(const std::filesystem::path &database_path,
  * @param projectDb Target project database (must be open in write mode)
  * @param rtabmapDbPath Path to the RTABMap .db file
  */
-void importSensorFrames(ProjectDB &projectDb,
-                        const std::filesystem::path &rtabmapDbPath);
+void import_sensor_frames(ProjectDB &projectDb,
+                          const std::filesystem::path &rtabmapDbPath);
 
 } // namespace ReUseX::io

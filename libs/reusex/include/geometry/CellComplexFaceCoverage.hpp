@@ -86,7 +86,7 @@ auto CellComplex::compute_face_coverage(pcl::PointCloud<PointT>::ConstPtr cloud,
 
   {
     auto observer = ReUseX::core::ProgressObserver(
-        ReUseX::core::Stage::ComputingFaceCoverage, this->num_faces());
+        ReUseX::core::Stage::computing_face_coverage, this->num_faces());
 
     std::vector<ReUseX::geometry::CellComplex::Vertex> face_list;
     face_list.reserve(this->num_faces());

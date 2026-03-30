@@ -11,7 +11,7 @@
 
 namespace ReUseX::geometry {
 
-template <NodeType P> size_t _count(CellComplex const *c) {
+template <CellNodeType P> size_t _count(CellComplex const *c) {
   size_t count = 0;
   auto [begin, end] = boost::vertices(*c);
   for (auto it = begin; it != end; ++it) {
@@ -22,10 +22,10 @@ template <NodeType P> size_t _count(CellComplex const *c) {
   return count;
 }
 size_t CellComplex::num_vertices() const {
-  return _count<NodeType::Vertex>(this);
+  return _count<CellNodeType::vertex>(this);
 }
-size_t CellComplex::num_faces() const { return _count<NodeType::Face>(this); }
-size_t CellComplex::num_cells() const { return _count<NodeType::Cell>(this); }
+size_t CellComplex::num_faces() const { return _count<CellNodeType::face>(this); }
+size_t CellComplex::num_cells() const { return _count<CellNodeType::cell>(this); }
 
 std::ostream &operator<<(std::ostream &os, const CellComplex &cc) {
   ReUseX::core::warn("This << operator might change in the future");
@@ -119,7 +119,7 @@ auto CellComplex::get_a(Vertex f) const -> CellComplex::Vertex {
       auto u = boost::source(*it, *this);
       auto v = boost::target(*it, *this);
       auto c = (f == u) ? v : u;             // opposite vertex
-      if ((*this)[c].type != NodeType::Cell) // skip if not a cell
+      if ((*this)[c].type != CellNodeType::cell) // skip if not a cell
         continue;
       return c;
     }
@@ -135,7 +135,7 @@ auto CellComplex::get_b(Vertex f) const -> CellComplex::Vertex {
       auto u = boost::source(*it, *this);
       auto v = boost::target(*it, *this);
       auto c = (f == u) ? v : u;             // opposite vertex
-      if ((*this)[c].type != NodeType::Cell) // skip if not a cell
+      if ((*this)[c].type != CellNodeType::cell) // skip if not a cell
         continue;
       return c;
     }

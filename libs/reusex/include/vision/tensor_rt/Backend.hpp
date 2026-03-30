@@ -24,8 +24,8 @@ class TensorRTBackend : public IMLBackend {
    * model.
    */
   std::unique_ptr<IModel>
-  createModel(const Model type,
-              const std::filesystem::path &modelPath) override;
+  create_model(const Model type,
+               const std::filesystem::path &modelPath) override;
 
   /* Creates a dataset based on the provided dataset path. This method is
    * responsible for initializing and returning a dataset that can be used for
@@ -36,6 +36,6 @@ class TensorRTBackend : public IMLBackend {
    * dataset.
    */
   std::unique_ptr<IDataset>
-  createDataset(const std::filesystem::path &datasetPath) override;
+  create_dataset(const std::filesystem::path &datasetPath) override;
 };
 } // namespace ReUseX::vision::tensor_rt

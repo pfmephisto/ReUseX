@@ -5,7 +5,7 @@
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
 #include <core/MaterialPassport.hpp>
-#include <core/project_db.hpp>
+#include <core/ProjectDB.hpp>
 #include <core/materialepas_types.hpp>
 
 #include <filesystem>
@@ -294,9 +294,9 @@ TEST_CASE("MaterialPassport database round-trip", "[core][serialization][databas
         // 3. Create database and write passport
         {
             ReUseX::ProjectDB db(temp_db, false);  // false = write mode
-            REQUIRE(db.isOpen());
+            REQUIRE(db.is_open());
 
-            db.addMaterialPassport(original, "test-project-001");
+            db.add_material_passport(original, "test-project-001");
 
             // Verify it was written
             REQUIRE(std::filesystem::exists(temp_db));
@@ -307,9 +307,9 @@ TEST_CASE("MaterialPassport database round-trip", "[core][serialization][databas
         MaterialPassport retrieved;
         {
             ReUseX::ProjectDB db(temp_db, true);  // true = read-only mode
-            REQUIRE(db.isOpen());
+            REQUIRE(db.is_open());
 
-            retrieved = db.getMaterialPassport(original.metadata.document_guid);
+            retrieved = db.material_passport(original.metadata.document_guid);
         }  // db closed
 
         // 5. Verify all fields match
@@ -333,12 +333,12 @@ TEST_CASE("ProjectDB handles empty passport", "[core][serialization][database]")
 
     {
         ReUseX::ProjectDB db(temp_db, false);
-        db.addMaterialPassport(empty_passport, "test-project");
+        db.add_material_passport(empty_passport, "test-project");
     }
 
     {
         ReUseX::ProjectDB db(temp_db, true);
-        auto retrieved = db.getMaterialPassport("empty-guid-001");
+        auto retrieved = db.material_passport("empty-guid-001");
 
         // Verify default/empty values preserved
         REQUIRE(retrieved.owner.contact_email.empty());
@@ -365,7 +365,7 @@ TEST_CASE("ProjectDB read non-existent passport throws", "[core][serialization][
     {
         ReUseX::ProjectDB db(temp_db, true);
         REQUIRE_THROWS_AS(
-            db.getMaterialPassport("non-existent-guid"),
+            db.material_passport("non-existent-guid"),
             std::runtime_error
         );
     }
@@ -398,18 +398,18 @@ TEST_CASE("ProjectDB handles multiple passports", "[core][serialization][databas
     {
         ReUseX::ProjectDB db(temp_db, false);
 
-        db.addMaterialPassport(passport1, "project-A");
-        db.addMaterialPassport(passport2, "project-B");
-        db.addMaterialPassport(passport3, "project-A");  // Same project as passport1
+        db.add_material_passport(passport1, "project-A");
+        db.add_material_passport(passport2, "project-B");
+        db.add_material_passport(passport3, "project-A");  // Same project as passport1
     }
 
     // Read them back and verify
     {
         ReUseX::ProjectDB db(temp_db, true);
 
-        auto retrieved1 = db.getMaterialPassport("passport-001");
-        auto retrieved2 = db.getMaterialPassport("passport-002");
-        auto retrieved3 = db.getMaterialPassport("passport-003");
+        auto retrieved1 = db.material_passport("passport-001");
+        auto retrieved2 = db.material_passport("passport-002");
+        auto retrieved3 = db.material_passport("passport-003");
 
         verifyPassportEquality(passport1, retrieved1);
         verifyPassportEquality(passport2, retrieved2);

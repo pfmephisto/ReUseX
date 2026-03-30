@@ -68,7 +68,7 @@ class CellComplex
     protected:
   using Graph =
       boost::adjacency_list<boost::vecS, boost::vecS, boost::undirectedS,
-                            CellVertexData, CellEdgeData>;
+                            VertexProperties, CellEdgeData>;
 
     public:
   using Vertex = boost::graph_traits<Graph>::vertex_descriptor;

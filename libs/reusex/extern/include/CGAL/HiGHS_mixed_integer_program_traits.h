@@ -16,7 +16,7 @@
 #include <string>
 #include <vector>
 
-#include "core/logging.hpp"
+#include <reusex/core/logging.hpp>
 
 namespace CGAL {
 

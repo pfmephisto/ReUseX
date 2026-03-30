@@ -47,8 +47,7 @@ void setup_subcommand_import_rtabmap(CLI::App &app, ImportContext &ctx) {
       ->default_val(opt->sampling_factor);
 
   sub->add_option("--project", opt->project,
-                  "Save imported data to a .rux project database instead of "
-                  "PCD files");
+                  "Also save imported data to a .rux project database");
 
   sub->callback([opt, &ctx]() {
     spdlog::trace("calling run_subcommand_import_rtabmap");

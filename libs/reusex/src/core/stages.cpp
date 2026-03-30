@@ -8,7 +8,7 @@ namespace ReUseX::core {
 
 std::string_view to_string(Stage stage) {
   switch (stage) {
-    case Stage::idle: return "Default";
+    case Stage::idle: return "Idle";
     case Stage::mesh_generation: return "Mesh Generation";
     case Stage::assembling_cloud: return "Assembling cloud";
     case Stage::creating_material: return "Creating material";

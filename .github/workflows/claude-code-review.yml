@@ -2,10 +2,12 @@ name: Claude Code Review
 
 on:
   pull_request:
-    types: [opened, synchronize, ready_for_review, reopened]
+    types: [labeled]
 
 jobs:
   claude-review:
+    # Only run when the "needs-review" label is added
+    if: github.event.label.name == 'needs-review'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -43,3 +45,14 @@ jobs:
             Use a top-level PR comment for a summary of the review.
 
             This is a C++20/CUDA project. Follow the conventions in CLAUDE.md.
+
+      - name: Update labels after review
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Remove the "needs-review" label
+          gh pr edit ${{ github.event.pull_request.number }} --remove-label "needs-review"
+
+          # Add the "reviewed" label
+          gh pr edit ${{ github.event.pull_request.number }} --add-label "reviewed"

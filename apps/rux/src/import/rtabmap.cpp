@@ -3,94 +3,49 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "import/rtabmap.hpp"
-#include "import.hpp"
 
-#include <fmt/format.h>
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/io/rtabmap.hpp>
+#include <spdlog/fmt/std.h>
 #include <spdlog/spdlog.h>
-#include <tuple>
 
-void setup_subcommand_import_rtabmap(CLI::App &app, ImportContext &ctx) {
+void setup_subcommand_import_rtabmap(CLI::App &app) {
 
-  // Create the option and subcommand objects.
   auto opt = std::make_shared<SubcommandImportRTABMapOptions>();
-  auto *sub = app.add_subcommand(
-      "rtabmap", "Import an RTAB-Map database and "
-                 "create a point cloud with labels and normals, "
-                 "and the trajectory.");
+  auto *sub =
+      app.add_subcommand("rtabmap", "Import raw sensor data from an RTABMap "
+                                    "database into a ReUseX project.");
 
   sub->add_option("database", opt->database_path_in,
-                  "Path to the RTAB-Map database file.")
+                  "Path to the RTABMap database file.")
       ->required()
       ->check(CLI::ExistingFile);
 
-  sub->add_option("trajectory", opt->trajectory_path_out,
-                  "Path to the output trajectory file")
-      //->check(CLI::NonexistentPath)
-      ->default_val(opt->trajectory_path_out);
+  sub->add_option("project", opt->project_path_out,
+                  "Path to the output .rux project database.")
+      ->default_val(opt->project_path_out);
 
-  sub->add_option("-g,--grid", opt->resulution,
-                  "Voxel grid resolution for downsampling the point cloud")
-      ->default_val(opt->resulution);
-
-  sub->add_option("--min-distance", opt->min_distance,
-                  "Minimum distance points need to be from the camera")
-      ->default_val(opt->min_distance);
-
-  sub->add_option("--max-distance", opt->max_distance,
-                  "Maximum distance points can be from the camera")
-      ->default_val(opt->max_distance);
-
-  sub->add_option("--sampling-factor", opt->sampling_factor,
-                  "Factor for downsampling the individual frames")
-      ->default_val(opt->sampling_factor);
-
-  sub->add_option("--project", opt->project,
-                  "Also save imported data to a .rux project database");
-
-  sub->callback([opt, &ctx]() {
+  sub->callback([opt]() {
     spdlog::trace("calling run_subcommand_import_rtabmap");
-    return run_subcommand_import_rtabmap(*opt, ctx);
+    return run_subcommand_import_rtabmap(*opt);
   });
 }
 
-int run_subcommand_import_rtabmap(SubcommandImportRTABMapOptions const &opt,
-                                  ImportContext &ctx) {
-  std::tie(ctx.cloud, ctx.normals, ctx.labels) =
-      ReUseX::io::import_rtabmap_database(opt.database_path_in, opt.resulution,
-                                          opt.min_distance, opt.max_distance,
-                                          opt.sampling_factor);
+int run_subcommand_import_rtabmap(SubcommandImportRTABMapOptions const &opt) {
 
-  if (opt.project) {
-    spdlog::info("Saving imported data to project database: {}",
-                 opt.project->string());
-    ReUseX::ProjectDB projectDb(*opt.project);
+  spdlog::info("Importing RTABMap database to project: {}",
+               opt.project_path_out.string());
 
-    int logId = projectDb.log_pipeline_start("import",
-        fmt::format(R"({{"resolution":{}, "min_distance":{}, "max_distance":{}, "sampling_factor":{}}})",
-                    opt.resulution, opt.min_distance, opt.max_distance,
-                    opt.sampling_factor));
-    try {
-      if (ctx.cloud && !ctx.cloud->empty())
-        projectDb.save_point_cloud("cloud", *ctx.cloud, "import");
+  ReUseX::ProjectDB project_db(opt.project_path_out);
+  ReUseX::io::import_rtabmap(project_db, opt.database_path_in);
 
-      if (ctx.normals && !ctx.normals->empty())
-        projectDb.save_point_cloud("normals", *ctx.normals, "import");
+  int logId = project_db.log_pipeline_start(
+      "import", fmt::format(R"({{"Import ":{}}})", opt.database_path_in));
+  spdlog::trace("logId: {}", logId);
 
-      if (ctx.labels && !ctx.labels->empty())
-        projectDb.save_point_cloud("labels", *ctx.labels, "import");
-
-      // Import sensor frame color images for annotation pipeline
-      ReUseX::io::import_sensor_frames(projectDb, opt.database_path_in);
-
-      projectDb.log_pipeline_end(logId, true);
-      spdlog::info("Project database saved successfully");
-    } catch (const std::exception &e) {
-      projectDb.log_pipeline_end(logId, false, e.what());
-      throw;
-    }
-  }
+  spdlog::info("Import complete. Use 'rux create clouds {}' to generate "
+               "point clouds.",
+               opt.project_path_out);
 
   return RuxError::SUCCESS;
 }

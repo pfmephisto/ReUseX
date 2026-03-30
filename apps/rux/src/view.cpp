@@ -4,6 +4,8 @@
 #include "view.hpp"
 #include "processing_observer.hpp"
 
+#include <reusex/core/ProjectDB.hpp>
+
 #include <fmt/format.h>
 #include <fmt/std.h>
 #include <pcl/PolygonMesh.h>
@@ -55,6 +57,7 @@ struct ViewerState {
 enum class FileType {
   PointCloud, ///< .pcd files
   Mesh,       ///< .ply, .obj, .stl, .vtk files
+  Project,    ///< .rux project database files
   Unsupported ///< Unrecognized extension
 };
 
@@ -70,6 +73,8 @@ FileType detect_file_type(const fs::path &path) {
     return FileType::PointCloud;
   } else if (ext == ".ply" || ext == ".obj" || ext == ".stl" || ext == ".vtk") {
     return FileType::Mesh;
+  } else if (ext == ".rux") {
+    return FileType::Project;
   } else {
     return FileType::Unsupported;
   }
@@ -277,6 +282,116 @@ load_all_labels(const std::vector<fs::path> &label_paths,
   }
 
   return label_clouds;
+}
+
+// ============================================================================
+// PROJECT DATABASE LOADING
+// ============================================================================
+
+/// Result of loading geometry from a .rux project database.
+struct ProjectLoadResult {
+  std::vector<LoadedCloud> clouds;
+  std::vector<LoadedMesh> meshes;
+  std::vector<pcl::PointCloud<pcl::PointXYZL>::Ptr> labels;
+};
+
+/// Load all viewable geometry from a ReUseX project database.
+///
+/// @param path Filesystem path to .rux file
+/// @param observer Visualization observer for enqueueing viewer tasks
+/// @return ProjectLoadResult containing loaded clouds, meshes, and labels
+ProjectLoadResult load_from_project_db(const fs::path &path,
+                                       rux::VizualizationObserver &observer) {
+  spdlog::info("Opening project database: {}", path);
+  ReUseX::ProjectDB db(path, /*readOnly=*/true);
+
+  ProjectLoadResult result;
+  CloudPtr first_xyzrgb;
+
+  // Load point clouds
+  auto cloud_names = db.list_point_clouds();
+  for (const auto &name : cloud_names) {
+    auto type = db.point_cloud_type(name);
+
+    if (type == "PointXYZRGB") {
+      try {
+        auto cloud = db.point_cloud_xyzrgb(name);
+        if (!first_xyzrgb)
+          first_xyzrgb = cloud;
+
+        LoadedCloud loaded;
+        loaded.cloud = cloud;
+        loaded.name = fmt::format("cloud_{}", result.clouds.size());
+
+        observer.viewer_enqueue_task(
+            [loaded](const rux::VizualizationObserver::ViewerPtr &viewer,
+                     const std::vector<int> &viewports) {
+              viewer->addPointCloud<PointT>(loaded.cloud, loaded.name,
+                                            viewports[0]);
+            });
+
+        spdlog::info("Loaded cloud '{}' ({} points)", name, cloud->size());
+        result.clouds.push_back(std::move(loaded));
+      } catch (const std::exception &e) {
+        spdlog::error("Failed to load cloud '{}': {}", name, e.what());
+      }
+    } else if (type == "Label") {
+      // Defer — will merge with first XYZRGB cloud below
+      spdlog::debug("Found label cloud '{}', will merge after loading", name);
+    } else {
+      spdlog::debug("Skipping cloud '{}' (type: {})", name, type);
+    }
+  }
+
+  // Merge label clouds with first XYZRGB cloud
+  if (first_xyzrgb) {
+    for (const auto &name : cloud_names) {
+      auto type = db.point_cloud_type(name);
+      if (type != "Label")
+        continue;
+
+      try {
+        auto labels = db.point_cloud_label(name);
+        if (labels->size() != first_xyzrgb->size()) {
+          spdlog::error(
+              "Label cloud '{}' size ({}) does not match first point cloud "
+              "size ({})",
+              name, labels->size(), first_xyzrgb->size());
+          continue;
+        }
+        result.labels.push_back(create_label_cloud(labels, first_xyzrgb));
+        spdlog::info("Loaded label cloud '{}'", name);
+      } catch (const std::exception &e) {
+        spdlog::error("Failed to load label cloud '{}': {}", name, e.what());
+      }
+    }
+  }
+
+  // Load meshes
+  auto mesh_names = db.list_meshes();
+  for (const auto &name : mesh_names) {
+    try {
+      auto mesh = db.mesh(name);
+
+      LoadedMesh loaded;
+      loaded.mesh = mesh;
+      loaded.name = fmt::format("mesh_{}", result.meshes.size());
+
+      observer.viewer_enqueue_task(
+          [loaded](const rux::VizualizationObserver::ViewerPtr &viewer,
+                   const std::vector<int> &viewports) {
+            viewer->addPolygonMesh(*loaded.mesh, loaded.name, viewports[0]);
+          });
+
+      spdlog::info("Loaded mesh '{}' ({} polygons)", name,
+                   mesh->polygons.size());
+      result.meshes.push_back(std::move(loaded));
+    } catch (const std::exception &e) {
+      spdlog::error("Failed to load mesh '{}': {}", name, e.what());
+    }
+  }
+
+  return result;
 }
 
 // ============================================================================
@@ -568,9 +683,23 @@ int run_subcommand_view(SubcommandViewOptions const &opt) {
   rux::VizualizationObserver &observer = rux::get_processing_observer();
 
   // === Phase 1: Load Data ===
-  auto clouds = load_all_clouds(opt.input_paths, observer);
-  auto meshes = load_all_meshes(opt.input_paths, observer);
-  auto labels = load_all_labels(opt.label_paths_in, clouds, observer);
+  std::vector<LoadedCloud> clouds;
+  std::vector<LoadedMesh> meshes;
+  std::vector<pcl::PointCloud<pcl::PointXYZL>::Ptr> labels;
+
+  bool is_project = !opt.input_paths.empty() &&
+                    detect_file_type(opt.input_paths[0]) == FileType::Project;
+
+  if (is_project) {
+    auto result = load_from_project_db(opt.input_paths[0], observer);
+    clouds = std::move(result.clouds);
+    meshes = std::move(result.meshes);
+    labels = std::move(result.labels);
+  } else {
+    clouds = load_all_clouds(opt.input_paths, observer);
+    meshes = load_all_meshes(opt.input_paths, observer);
+    labels = load_all_labels(opt.label_paths_in, clouds, observer);
+  }
 
   // === Phase 2: Register Keyboard Callbacks ===
   register_individual_toggles(clouds, observer);

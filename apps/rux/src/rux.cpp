@@ -4,6 +4,7 @@
 
 #include <annotate.hpp>
 #include <assemble.hpp>
+#include <create.hpp>
 #include <export.hpp>
 #include <import.hpp>
 #include <mesh.hpp>
@@ -115,6 +116,7 @@ int main(int argc, char **argv) {
 
   setup_subcommand_assemble(app);
 
+  setup_subcommand_create(app);
   setup_subcommand_import(app);
   setup_subcommand_export(app);
 

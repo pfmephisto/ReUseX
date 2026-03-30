@@ -484,6 +484,59 @@ TEST_CASE("ProjectDB label encoding: background -1 preserved", "[projectdb]") {
   }
 }
 
+TEST_CASE("ProjectDB point_cloud_type returns correct types", "[projectdb]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+
+  db.save_point_cloud("rgb_cloud", *makeXYZRGBCloud(5));
+  db.save_point_cloud("normal_cloud", *makeNormalCloud(5));
+  db.save_point_cloud("label_cloud", *makeLabelCloud(5));
+  db.save_point_cloud("xyz_cloud", *makeXYZCloud(5));
+
+  REQUIRE(db.point_cloud_type("rgb_cloud") == "PointXYZRGB");
+  REQUIRE(db.point_cloud_type("normal_cloud") == "Normal");
+  REQUIRE(db.point_cloud_type("label_cloud") == "Label");
+  REQUIRE(db.point_cloud_type("xyz_cloud") == "PointXYZ");
+}
+
+TEST_CASE("ProjectDB point_cloud_type throws for missing cloud", "[projectdb]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+
+  REQUIRE_THROWS_AS(db.point_cloud_type("nonexistent"), std::runtime_error);
+}
+
+TEST_CASE("ProjectDB list_meshes returns correct names", "[projectdb]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+
+  // Empty initially
+  REQUIRE(db.list_meshes().empty());
+
+  // Create a simple triangle mesh
+  pcl::PolygonMesh mesh;
+  Cloud meshCloud;
+  meshCloud.width = 3;
+  meshCloud.height = 1;
+  meshCloud.is_dense = true;
+  meshCloud.points.resize(3);
+  meshCloud.points[0] = pcl::PointXYZRGB(0.0f, 0.0f, 0.0f);
+  meshCloud.points[1] = pcl::PointXYZRGB(1.0f, 0.0f, 0.0f);
+  meshCloud.points[2] = pcl::PointXYZRGB(0.0f, 1.0f, 0.0f);
+  pcl::toPCLPointCloud2(meshCloud, mesh.cloud);
+  pcl::Vertices tri;
+  tri.vertices = {0, 1, 2};
+  mesh.polygons.push_back(tri);
+
+  db.save_mesh("mesh_a", mesh);
+  db.save_mesh("mesh_b", mesh);
+
+  auto names = db.list_meshes();
+  REQUIRE(names.size() == 2);
+  REQUIRE(names[0] == "mesh_a");
+  REQUIRE(names[1] == "mesh_b");
+}
+
 TEST_CASE("ProjectDB fresh DB has schema version 2", "[projectdb]") {
   TempDB tmp;
 

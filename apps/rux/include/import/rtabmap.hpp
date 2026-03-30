@@ -4,7 +4,6 @@
 
 #pragma once
 #include "../global-params.hpp"
-#include "../import.hpp"
 
 #include <CLI/CLI.hpp>
 #include <filesystem>
@@ -13,10 +12,9 @@ namespace fs = std::filesystem;
 
 struct SubcommandImportRTABMapOptions {
   fs::path database_path_in;
-  fs::path project = GlobalParams::project_db;
+  fs::path project_path_out = GlobalParams::project_db;
 };
 
 // Function declarations.
-void setup_subcommand_import_rtabmap(CLI::App &app, ImportContext &ctx);
-int run_subcommand_import_rtabmap(SubcommandImportRTABMapOptions const &opt,
-                                  ImportContext &ctx);
+void setup_subcommand_import_rtabmap(CLI::App &app);
+int run_subcommand_import_rtabmap(SubcommandImportRTABMapOptions const &opt);

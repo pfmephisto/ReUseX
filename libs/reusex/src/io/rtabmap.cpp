@@ -47,8 +47,7 @@ void import_rtabmap(ProjectDB &db,
       core::ProgressObserver(core::Stage::assembling_cloud, poses.size());
 
   int logId = db.log_pipeline_start(
-      "import",
-      fmt::format(R"({{"source":"{}"}})", rtabmap_db_path.string()));
+      "import", fmt::format(R"({{"source":"{}"}})", rtabmap_db_path.string()));
 
   try {
     for (const auto &[id, pose] : poses) {

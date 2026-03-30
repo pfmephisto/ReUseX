@@ -2,35 +2,18 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "core/logging.hpp"
-#include "core/ProjectDB.hpp"
 #include "vision/IDataset.hpp"
+#include "core/ProjectDB.hpp"
+#include "core/logging.hpp"
 
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
 
 #ifndef NDEBUG
-#include <opencv2/highgui.hpp>
-#include <pcl/common/colors.h>
-
+#include "utils/cv.hpp"
 namespace {
-const cv::Mat &getGlasbeyLUT() {
-  static cv::Mat lut = [] {
-    cv::Mat m(1, 256, CV_8UC3);
-    for (int i = 0; i < 255; ++i) {
-      const auto &c = pcl::GlasbeyLUT::at(i);
-      m.at<cv::Vec3b>(0, i) =
-          cv::Vec3b(static_cast<uchar>(c.b), static_cast<uchar>(c.g),
-                    static_cast<uchar>(c.r));
-    }
-    m.at<cv::Vec3b>(0, 255) = cv::Vec3b(0, 0, 0); // Background color (black)
-    return m;
-  }();
-  return lut;
+auto lut = ReUseX::utils::get_glasbey_lut();
 }
-
-auto lut = getGlasbeyLUT();
-} // namespace
 #endif
 
 namespace ReUseX::vision {
@@ -50,8 +33,7 @@ IDataset::IDataset(std::shared_ptr<ProjectDB> database)
 }
 
 IDataset::IDataset(std::filesystem::path dbPath)
-    : IDataset(
-          std::make_shared<ProjectDB>(std::move(dbPath), false)) {}
+    : IDataset(std::make_shared<ProjectDB>(std::move(dbPath), false)) {}
 
 cv::Mat IDataset::image(const size_t index) const {
   ReUseX::core::trace("Getting image at index {}", index);
@@ -84,9 +66,7 @@ bool IDataset::save_image(const size_t index, const cv::Mat &image) {
   }
 }
 
-std::shared_ptr<ProjectDB> IDataset::database() const {
-  return db_;
-}
+std::shared_ptr<ProjectDB> IDataset::database() const { return db_; }
 
 size_t IDataset::size() const { return ids_.size(); }
 

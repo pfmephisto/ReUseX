@@ -26,5 +26,4 @@ namespace ReUseX::io {
 /// @param rtabmap_db_path  Path to the source RTABMap .db file.
 void import_rtabmap(ProjectDB &db,
                     const std::filesystem::path &rtabmap_db_path);
-
 } // namespace ReUseX::io

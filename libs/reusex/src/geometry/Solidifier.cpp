@@ -2,13 +2,14 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "core/logging.hpp"
 #include "geometry/Solidifier.hpp"
+#include "core/logging.hpp"
 #include <tbb/concurrent_unordered_map.h>
 
-#define CGAL_USE_HIGHS 1
-
-#ifdef CGAL_USE_HIGHS
+#ifdef USE_CUOPT
+#include <CGAL/cuOpt_mixed_integer_program_traits.h>
+using MIP_Solver = CGAL::cuOpt_mixed_integer_program_traits<double>;
+#elif defined(USE_HIGHS)
 #include <CGAL/HiGHS_mixed_integer_program_traits.h>
 using MIP_Solver = CGAL::HiGHS_mixed_integer_program_traits<double>;
 #elif defined(CGAL_USE_SCIP)

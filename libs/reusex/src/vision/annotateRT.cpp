@@ -32,7 +32,8 @@ auto annotate(const std::filesystem::path &dbPath,
   auto backendType = BackendFactory::detect_backend(modelPath);
   auto backend = BackendFactory::create(backendType);
 
-  auto model = backend->create_model(ReUseX::vision::Model::sam3, modelPath);
+  auto modelType = (backendType == Backend::libtorch) ? Model::yolo : Model::sam3;
+  auto model = backend->create_model(modelType, modelPath);
   auto dataset = backend->create_dataset(dbPath);
 
   // Create dataloader with multi-threaded prefetching

@@ -3,63 +3,33 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #pragma once
-#include <opencv2/core.hpp>
-#include <torch/torch.h>
-
-#include <filesystem>
-#include <memory>
-#include <vector>
-
-// Forward declaration
-namespace ReUseX {
-class ProjectDB;
-}
+#include "reusex/vision/IData.hpp"
+#include "reusex/vision/IDataset.hpp"
+#include "reusex/vision/libtorch/Data.hpp"
 
 namespace ReUseX::vision::libtorch {
-/**
- * @brief PyTorch Dataset for ReUseX project databases
+
+/** @brief LibTorch dataset for RTABMap databases.
  *
- * This dataset class implements the torch::data::datasets::Dataset interface
- * for use with PyTorch DataLoaders. It uses ProjectDB internally for
- * database access, eliminating code duplication.
+ * Implements the IDataset interface for use with the backend-agnostic
+ * annotation pipeline. Loads images, applies letterbox preprocessing,
+ * and stores results as LibTorchData objects.
  */
-class TorchDataset : public torch::data::datasets::Dataset<TorchDataset> {
-  using Example = torch::data::Example<>;
-
+class LibTorchDataset : public IDataset {
     public:
-  /**
-   * @brief Construct TorchDataset from database path
-   * @param dbPath Path to ReUseX project database file
-   */
-  TorchDataset(std::filesystem::path dbPath = "");
+  using IDataset::IDataset;
 
-  /**
-   * @brief Get a data sample at the given index
-   *
-   * Returns a torch::data::Example containing the image tensor and node ID.
-   * Images are automatically letterboxed to 640x640 for YOLO-style models.
-   *
+  /** @brief Get a data sample at the given index.
    * @param index Index in the dataset (0 to size()-1)
-   * @return Example with image tensor (CHW format, normalized to [0,1]) and node ID
+   * @return Pair containing LibTorchData with letterboxed image and the index
    */
-  Example get(size_t index);
+  IDataset::Pair get(const std::size_t index) const override;
 
-  /**
-   * @brief Get the number of samples in the dataset
-   * @return Optional size (always returns a value)
+  /** @brief Save processed results back to the database.
+   * @param data Span of pairs containing LibTorchData with label_image set
+   * @return true if all saves succeeded
    */
-  torch::optional<size_t> size() const;
-
-  /**
-   * @brief Save label images for multiple nodes
-   *
-   * @param imgs Vector of label images to save
-   * @param index Tensor containing node IDs corresponding to each image
-   */
-  void save(std::vector<cv::Mat> imgs, torch::Tensor index);
-
-    private:
-  std::shared_ptr<ProjectDB> db_;
-  std::vector<int> ids_;
+  bool save(const std::span<Pair> &data) override;
 };
+
 } // namespace ReUseX::vision::libtorch

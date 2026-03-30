@@ -1085,6 +1085,20 @@ class ProjectDB::Impl {
     return names;
   }
 
+  std::string getPointCloudType(std::string_view name) const {
+    const char *sql = "SELECT point_type FROM point_clouds WHERE name = ?;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to query point cloud type");
+    StmtGuard guard(stmt);
+    sqlite3_bind_text(stmt, 1, name.data(),
+                      static_cast<int>(name.size()), SQLITE_TRANSIENT);
+    if (sqlite3_step(stmt) != SQLITE_ROW)
+      throw std::runtime_error("Point cloud not found: " +
+                               std::string(name));
+    return reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
+  }
+
   // ── Label definitions ──────────────────────────────────────────────
 
   void saveLabelDefinitions(std::string_view cloudName,
@@ -1267,6 +1281,21 @@ class ProjectDB::Impl {
     if (sqlite3_step(stmt) == SQLITE_ROW)
       return sqlite3_column_int(stmt, 0) > 0;
     return false;
+  }
+
+  std::vector<std::string> listMeshes() const {
+    const char *sql = "SELECT name FROM meshes ORDER BY id;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to list meshes");
+    StmtGuard guard(stmt);
+
+    std::vector<std::string> names;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+      names.emplace_back(
+          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0)));
+    }
+    return names;
   }
 
   // ── Pipeline log ───────────────────────────────────────────────────
@@ -1991,6 +2020,10 @@ std::vector<std::string> ProjectDB::list_point_clouds() const {
   return impl_->listPointClouds();
 }
 
+std::string ProjectDB::point_cloud_type(std::string_view name) const {
+  return impl_->getPointCloudType(name);
+}
+
 // --- Label Definitions ---
 
 void ProjectDB::save_label_definitions(
@@ -2018,6 +2051,10 @@ pcl::PolygonMesh::Ptr ProjectDB::mesh(std::string_view name) const {
 
 bool ProjectDB::has_mesh(std::string_view name) const {
   return impl_->hasMesh(name);
+}
+
+std::vector<std::string> ProjectDB::list_meshes() const {
+  return impl_->listMeshes();
 }
 
 // --- Pipeline Log ---

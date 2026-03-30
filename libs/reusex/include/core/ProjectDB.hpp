@@ -119,6 +119,7 @@ class ProjectDB {
   bool has_point_cloud(std::string_view name) const;
   void delete_point_cloud(std::string_view name);
   std::vector<std::string> list_point_clouds() const;
+  std::string point_cloud_type(std::string_view name) const;
 
   // --- Label Definitions ---
 
@@ -135,6 +136,7 @@ class ProjectDB {
 
   pcl::PolygonMesh::Ptr mesh(std::string_view name) const;
   bool has_mesh(std::string_view name) const;
+  std::vector<std::string> list_meshes() const;
 
   // --- Pipeline Log ---
 

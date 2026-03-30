@@ -1,4 +1,7 @@
 #pragma once
+#include "reusex/types.hpp"
+
+#include <array>
 #include <filesystem>
 #include <map>
 #include <memory>
@@ -15,18 +18,8 @@ namespace ReUseX {
 // Forward declarations
 namespace core {
 struct MaterialPassport;
+struct SensorIntrinsics;
 }
-
-// PCL type aliases (mirror types.hpp to avoid heavy include)
-using PointT = pcl::PointXYZRGB;
-using NormalT = pcl::Normal;
-using LabelT = pcl::Label;
-using Cloud = pcl::PointCloud<PointT>;
-using CloudPtr = Cloud::Ptr;
-using CloudN = pcl::PointCloud<NormalT>;
-using CloudNPtr = CloudN::Ptr;
-using CloudL = pcl::PointCloud<LabelT>;
-using CloudLPtr = CloudL::Ptr;
 
 class ProjectDB {
     public:
@@ -76,8 +69,19 @@ class ProjectDB {
   // --- Sensor Frame Operations ---
 
   void save_sensor_frame(int nodeId, const cv::Mat &colorImage);
+
+  void save_sensor_frame(int nodeId, const cv::Mat &color,
+                         const cv::Mat &depth, const cv::Mat &confidence,
+                         const std::array<double, 16> &worldPose,
+                         const core::SensorIntrinsics &intrinsics);
+
   std::vector<int> sensor_frame_ids() const;
   cv::Mat sensor_frame_image(int nodeId) const;
+  cv::Mat sensor_frame_depth(int nodeId) const;
+  cv::Mat sensor_frame_confidence(int nodeId) const;
+  std::array<double, 16> sensor_frame_pose(int nodeId) const;
+  core::SensorIntrinsics sensor_frame_intrinsics(int nodeId) const;
+  bool has_sensor_frame(int nodeId) const;
 
   // --- Segmentation Image Operations ---
 
@@ -127,8 +131,7 @@ class ProjectDB {
   // --- Mesh Operations ---
 
   void save_mesh(std::string_view name, const pcl::PolygonMesh &mesh,
-                 std::string_view stage = "",
-                 std::string_view paramsJson = "");
+                 std::string_view stage = "", std::string_view paramsJson = "");
 
   pcl::PolygonMesh::Ptr mesh(std::string_view name) const;
   bool has_mesh(std::string_view name) const;

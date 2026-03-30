@@ -6,9 +6,6 @@
 #include <filesystem>
 
 namespace ReUseX::vision {
-auto annotate_rtabmap(const std::filesystem::path &dbPath,
-                      const std::filesystem::path &modelPath, bool isCuda)
-    -> int;
 auto annotate(const std::filesystem::path &dbPath,
               const std::filesystem::path &modelPath) -> int;
 } // namespace ReUseX::vision

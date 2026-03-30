@@ -4,6 +4,7 @@
 
 #include "core/ProjectDB.hpp"
 #include "core/MaterialPassport.hpp"
+#include "core/SensorIntrinsics.hpp"
 #include "core/materialepas_serialization.hpp"
 #include "core/materialepas_traits.hpp"
 #include "core/logging.hpp"
@@ -170,7 +171,7 @@ class ProjectDB::Impl {
   bool readOnly;
   sqlite3 *db = nullptr;
 
-  static constexpr int LATEST_SCHEMA_VERSION = 2;
+  static constexpr int LATEST_SCHEMA_VERSION = 3;
 
   void execOrThrow(const char *sql) {
     char *errMsg = nullptr;
@@ -297,6 +298,10 @@ class ProjectDB::Impl {
       migrateToV2();
     }
 
+    if (current < 3) {
+      migrateToV3();
+    }
+
     ReUseX::core::trace("Schema version: {}", getCurrentSchemaVersion());
   }
 
@@ -410,6 +415,29 @@ class ProjectDB::Impl {
     ReUseX::core::info("Migration to schema version 2 complete");
   }
 
+  void migrateToV3() {
+    ReUseX::core::info("Migrating database to schema version 3");
+
+    // sensor_frames already has depth, confidence, transform columns from v1.
+    // Only need to add camera_model TEXT column.
+    const char *alter = "ALTER TABLE sensor_frames ADD COLUMN camera_model TEXT;";
+
+    char *errMsg = nullptr;
+    if (sqlite3_exec(db, alter, nullptr, nullptr, &errMsg) != SQLITE_OK) {
+      std::string error = errMsg;
+      sqlite3_free(errMsg);
+      // Column may already exist if DB was created fresh (v1 schema doesn't
+      // include it, but a manual migration might have added it).  Ignore
+      // "duplicate column" errors.
+      if (error.find("duplicate column") == std::string::npos) {
+        throw std::runtime_error("Migration to v3 failed: " + error);
+      }
+    }
+
+    insertSchemaVersion(3, "Add camera_model column to sensor_frames");
+    ReUseX::core::info("Migration to schema version 3 complete");
+  }
+
   // ── Sensor frame CRUD ─────────────────────────────────────────────
 
   void saveSensorFrame(int nodeId, const cv::Mat &colorImage) {
@@ -486,6 +514,199 @@ class ProjectDB::Impl {
 
     cv::Mat encoded(1, blobSize, CV_8UC1, const_cast<void *>(blob));
     return cv::imdecode(encoded, cv::IMREAD_UNCHANGED);
+  }
+
+  void saveSensorFrameFull(int nodeId, const cv::Mat &color,
+                           const cv::Mat &depth, const cv::Mat &confidence,
+                           const std::array<double, 16> &worldPose,
+                           const ReUseX::core::SensorIntrinsics &intrinsics) {
+    if (color.empty())
+      throw std::runtime_error("Cannot save empty color image");
+
+    // Encode color as JPEG
+    std::vector<unsigned char> jpegBytes;
+    if (!cv::imencode(".jpg", color, jpegBytes,
+                      {cv::IMWRITE_JPEG_QUALITY, 95}))
+      throw std::runtime_error("Failed to encode color image as JPEG");
+
+    // Encode depth as PNG (CV_16UC1 millimeters)
+    std::vector<unsigned char> depthBytes;
+    if (!depth.empty()) {
+      cv::Mat depth16;
+      if (depth.type() == CV_32FC1) {
+        // Convert meters to millimeters
+        cv::Mat mm;
+        depth.convertTo(mm, CV_16UC1, 1000.0);
+        depth16 = mm;
+      } else if (depth.type() == CV_16UC1) {
+        depth16 = depth;
+      } else {
+        depth.convertTo(depth16, CV_16UC1);
+      }
+      if (!cv::imencode(".png", depth16, depthBytes))
+        throw std::runtime_error("Failed to encode depth as PNG");
+    }
+
+    // Encode confidence as PNG (CV_8UC1)
+    std::vector<unsigned char> confBytes;
+    if (!confidence.empty()) {
+      cv::Mat conf8;
+      if (confidence.type() != CV_8UC1)
+        confidence.convertTo(conf8, CV_8UC1);
+      else
+        conf8 = confidence;
+      if (!cv::imencode(".png", conf8, confBytes))
+        throw std::runtime_error("Failed to encode confidence as PNG");
+    }
+
+    // Camera model as JSON TEXT
+    std::string cameraJson = intrinsics.to_json();
+
+    const char *upsert = R"(
+      INSERT INTO sensor_frames (node_id, color, depth, confidence, transform, width, height, camera_model)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(node_id) DO UPDATE SET
+        color = excluded.color,
+        depth = excluded.depth,
+        confidence = excluded.confidence,
+        transform = excluded.transform,
+        width = excluded.width,
+        height = excluded.height,
+        camera_model = excluded.camera_model;
+    )";
+
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, upsert, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to prepare sensor frame upsert: " +
+                               std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+
+    sqlite3_bind_int(stmt, 1, nodeId);
+    sqlite3_bind_blob(stmt, 2, jpegBytes.data(),
+                      static_cast<int>(jpegBytes.size()), SQLITE_TRANSIENT);
+    if (!depthBytes.empty())
+      sqlite3_bind_blob(stmt, 3, depthBytes.data(),
+                        static_cast<int>(depthBytes.size()), SQLITE_TRANSIENT);
+    else
+      sqlite3_bind_null(stmt, 3);
+
+    if (!confBytes.empty())
+      sqlite3_bind_blob(stmt, 4, confBytes.data(),
+                        static_cast<int>(confBytes.size()), SQLITE_TRANSIENT);
+    else
+      sqlite3_bind_null(stmt, 4);
+
+    // Transform: 16 x float64 = 128 bytes, row-major
+    sqlite3_bind_blob(stmt, 5, worldPose.data(),
+                      static_cast<int>(worldPose.size() * sizeof(double)),
+                      SQLITE_TRANSIENT);
+
+    sqlite3_bind_int(stmt, 6, color.cols);
+    sqlite3_bind_int(stmt, 7, color.rows);
+    sqlite3_bind_text(stmt, 8, cameraJson.c_str(), -1, SQLITE_TRANSIENT);
+
+    if (sqlite3_step(stmt) != SQLITE_DONE)
+      throw std::runtime_error("Failed to upsert sensor frame: " +
+                               std::string(sqlite3_errmsg(db)));
+  }
+
+  cv::Mat getSensorFrameDepth(int nodeId) const {
+    const char *sql =
+        "SELECT depth FROM sensor_frames WHERE node_id = ?;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to prepare depth query: " +
+                               std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+    sqlite3_bind_int(stmt, 1, nodeId);
+
+    if (sqlite3_step(stmt) != SQLITE_ROW)
+      return cv::Mat();
+
+    const void *blob = sqlite3_column_blob(stmt, 0);
+    int blobSize = sqlite3_column_bytes(stmt, 0);
+    if (!blob || blobSize == 0)
+      return cv::Mat();
+
+    cv::Mat encoded(1, blobSize, CV_8UC1, const_cast<void *>(blob));
+    return cv::imdecode(encoded, cv::IMREAD_UNCHANGED); // CV_16UC1
+  }
+
+  cv::Mat getSensorFrameConfidence(int nodeId) const {
+    const char *sql =
+        "SELECT confidence FROM sensor_frames WHERE node_id = ?;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to prepare confidence query: " +
+                               std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+    sqlite3_bind_int(stmt, 1, nodeId);
+
+    if (sqlite3_step(stmt) != SQLITE_ROW)
+      return cv::Mat();
+
+    const void *blob = sqlite3_column_blob(stmt, 0);
+    int blobSize = sqlite3_column_bytes(stmt, 0);
+    if (!blob || blobSize == 0)
+      return cv::Mat();
+
+    cv::Mat encoded(1, blobSize, CV_8UC1, const_cast<void *>(blob));
+    return cv::imdecode(encoded, cv::IMREAD_UNCHANGED); // CV_8UC1
+  }
+
+  std::array<double, 16> getSensorFramePose(int nodeId) const {
+    const char *sql =
+        "SELECT transform FROM sensor_frames WHERE node_id = ?;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to prepare pose query: " +
+                               std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+    sqlite3_bind_int(stmt, 1, nodeId);
+
+    std::array<double, 16> pose = {1, 0, 0, 0, 0, 1, 0, 0,
+                                   0, 0, 1, 0, 0, 0, 0, 1};
+    if (sqlite3_step(stmt) != SQLITE_ROW)
+      return pose;
+
+    const void *blob = sqlite3_column_blob(stmt, 0);
+    int blobSize = sqlite3_column_bytes(stmt, 0);
+    if (blob && blobSize == static_cast<int>(16 * sizeof(double)))
+      std::memcpy(pose.data(), blob, 16 * sizeof(double));
+
+    return pose;
+  }
+
+  ReUseX::core::SensorIntrinsics getSensorFrameIntrinsics(int nodeId) const {
+    const char *sql =
+        "SELECT camera_model FROM sensor_frames WHERE node_id = ?;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to prepare intrinsics query: " +
+                               std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+    sqlite3_bind_int(stmt, 1, nodeId);
+
+    if (sqlite3_step(stmt) != SQLITE_ROW)
+      return {};
+
+    const char *text = reinterpret_cast<const char *>(
+        sqlite3_column_text(stmt, 0));
+    if (!text)
+      return {};
+
+    return ReUseX::core::SensorIntrinsics::from_json(text);
+  }
+
+  bool hasSensorFrame(int nodeId) const {
+    const char *sql =
+        "SELECT 1 FROM sensor_frames WHERE node_id = ? LIMIT 1;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      return false;
+    StmtGuard guard(stmt);
+    sqlite3_bind_int(stmt, 1, nodeId);
+    return sqlite3_step(stmt) == SQLITE_ROW;
   }
 
   // ── Segmentation image CRUD ───────────────────────────────────────
@@ -1622,12 +1843,41 @@ void ProjectDB::save_sensor_frame(int nodeId, const cv::Mat &colorImage) {
   impl_->saveSensorFrame(nodeId, colorImage);
 }
 
+void ProjectDB::save_sensor_frame(int nodeId, const cv::Mat &color,
+                                   const cv::Mat &depth,
+                                   const cv::Mat &confidence,
+                                   const std::array<double, 16> &worldPose,
+                                   const core::SensorIntrinsics &intrinsics) {
+  impl_->saveSensorFrameFull(nodeId, color, depth, confidence, worldPose,
+                             intrinsics);
+}
+
 std::vector<int> ProjectDB::sensor_frame_ids() const {
   return impl_->getSensorFrameIds();
 }
 
 cv::Mat ProjectDB::sensor_frame_image(int nodeId) const {
   return impl_->getSensorFrameImage(nodeId);
+}
+
+cv::Mat ProjectDB::sensor_frame_depth(int nodeId) const {
+  return impl_->getSensorFrameDepth(nodeId);
+}
+
+cv::Mat ProjectDB::sensor_frame_confidence(int nodeId) const {
+  return impl_->getSensorFrameConfidence(nodeId);
+}
+
+std::array<double, 16> ProjectDB::sensor_frame_pose(int nodeId) const {
+  return impl_->getSensorFramePose(nodeId);
+}
+
+core::SensorIntrinsics ProjectDB::sensor_frame_intrinsics(int nodeId) const {
+  return impl_->getSensorFrameIntrinsics(nodeId);
+}
+
+bool ProjectDB::has_sensor_frame(int nodeId) const {
+  return impl_->hasSensorFrame(nodeId);
 }
 
 // --- Segmentation Image Operations ---

@@ -22,6 +22,47 @@
 
 namespace ReUseX::geometry {
 
+namespace {
+
+/** \brief Convert Eigen matrices to PCL PolygonMesh.
+ *
+ * \param vertices Nx3 matrix of vertex coordinates (x, y, z)
+ * \param faces Mx3 matrix of triangle face indices
+ * \return PCL polygon mesh with vertices and faces populated
+ */
+pcl::PolygonMeshPtr eigen_to_polygon_mesh(const Eigen::MatrixXd &vertices,
+                                          const Eigen::MatrixXi &faces) {
+    auto mesh = pcl::PolygonMeshPtr(new pcl::PolygonMesh());
+
+    // Convert vertices: Eigen::MatrixXd → CloudLoc → PCLPointCloud2
+    CloudLocPtr mesh_vertices(new CloudLoc);
+    mesh_vertices->points.resize(vertices.rows());
+    mesh_vertices->width = static_cast<uint32_t>(vertices.rows());
+    mesh_vertices->height = 1;
+
+    for (int i = 0; i < vertices.rows(); ++i) {
+        mesh_vertices->points[i].x = static_cast<float>(vertices(i, 0));
+        mesh_vertices->points[i].y = static_cast<float>(vertices(i, 1));
+        mesh_vertices->points[i].z = static_cast<float>(vertices(i, 2));
+    }
+    pcl::toPCLPointCloud2(*mesh_vertices, mesh->cloud);
+
+    // Convert faces: Eigen::MatrixXi → pcl::Vertices
+    mesh->polygons.resize(faces.rows());
+    for (int i = 0; i < faces.rows(); ++i) {
+        pcl::Vertices polygon;
+        polygon.vertices.reserve(faces.cols());
+        for (int j = 0; j < faces.cols(); ++j) {
+            polygon.vertices.push_back(faces(i, j));
+        }
+        mesh->polygons[i] = polygon;
+    }
+
+    return mesh;
+}
+
+} // anonymous namespace
+
 pcl::PolygonMeshPtr mesh(CloudConstPtr cloud, CloudNConstPtr normals,
                          EigenVectorContainer<double, 4> &planes,
                          EigenVectorContainer<double, 3> &centroids,
@@ -161,39 +202,14 @@ pcl::PolygonMeshPtr mesh(CloudConstPtr cloud, CloudNConstPtr normals,
     observer->viewer_add_geometry("rooms", results.value(), stage);
   // viewer->addRooms(cc, results.value(), "rooms", vps->at(3));
 
-  pcl::PolygonMeshPtr mesh(new pcl::PolygonMesh());
   if (results) {
-    // TODO: Refactor mesh conversion to return value instead of out parameter
-    // category=Geometry estimate=1h
-    // Current code builds mesh in-place but could return it directly for
-    // cleaner API. Consider returning pcl::PolygonMeshPtr from this branch
-    // instead of using the mesh variable declared above. Improves readability
-    // and follows modern C++ patterns.
     auto [room_labels, wall_labels] = results.value();
     auto [vertices, faces] = solidifier.toMesh(
         [&](const CellComplex::Vertex v) { return room_labels[v] > 0; });
-    CloudLocPtr mesh_vertices(new CloudLoc);
-    mesh_vertices->points.resize(vertices.rows());
-    mesh_vertices->width = static_cast<uint32_t>(vertices.rows());
-    mesh_vertices->height = 1;
-    for (int i = 0; i < vertices.rows(); ++i) {
-      mesh_vertices->points[i].x = static_cast<float>(vertices(i, 0));
-      mesh_vertices->points[i].y = static_cast<float>(vertices(i, 1));
-      mesh_vertices->points[i].z = static_cast<float>(vertices(i, 2));
-    }
-    pcl::toPCLPointCloud2(*mesh_vertices, mesh->cloud);
-    mesh->polygons.resize(faces.rows());
-    for (int i = 0; i < faces.rows(); ++i) {
-      pcl::Vertices polygon;
-      for (int j = 0; j < faces.cols(); ++j) {
-        polygon.vertices.push_back(faces(i, j));
-      }
-      mesh->polygons[i] = polygon;
-    }
-    // ReUseX::core::debug("Generated mesh with {} polygons",
-    // mesh->polygons.size()); return mesh;
+    return eigen_to_polygon_mesh(vertices, faces);
   }
 
-  return mesh;
+  // Fallback: return empty mesh when solidification fails
+  return pcl::PolygonMeshPtr(new pcl::PolygonMesh());
 }
 } // namespace ReUseX::geometry

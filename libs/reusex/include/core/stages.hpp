@@ -18,6 +18,7 @@ enum class Stage {
   projecting_labels,
   ray_tracing,
   region_growing,
+  instance_clustering,
 };
 
 // Convert Stage enum to human-readable string for logging/display

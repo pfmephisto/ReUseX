@@ -34,6 +34,8 @@ std::string_view to_string(Stage stage) {
     return "Ray tracing";
   case Stage::region_growing:
     return "Region Growing";
+  case Stage::instance_clustering:
+    return "Instance Clustering";
   default:
     return "Unknown Stage";
   }

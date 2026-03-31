@@ -37,5 +37,7 @@ ValidationResult validate_mesh_prerequisites(const ReUseX::ProjectDB &db);
 ValidationResult validate_texture_prerequisites(const ReUseX::ProjectDB &db);
 ValidationResult validate_project_prerequisites(const ReUseX::ProjectDB &db);
 ValidationResult validate_annotate_prerequisites(const ReUseX::ProjectDB &db);
+ValidationResult validate_instances_prerequisites(const ReUseX::ProjectDB &db,
+                                                    const std::string &semantic_cloud_name);
 
 } // namespace rux::validation

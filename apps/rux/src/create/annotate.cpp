@@ -3,8 +3,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "create/annotate.hpp"
+#include "validation.hpp"
 
 #include "spdmon.hpp"
+#include <reusex/core/ProjectDB.hpp>
 #include <reusex/utils/fmt_formatter.hpp>
 #include <reusex/vision/annotate.hpp>
 
@@ -45,5 +47,21 @@ void setup_subcommand_create_annotate(CLI::App &app) {
 }
 
 int run_subcommand_annotate(SubcommandAnnotateOptions const &opt) {
-  return ReUseX::vision::annotate(opt.database_path_in, opt.net_path, opt.isCuda);
+  try {
+    ReUseX::ProjectDB db(opt.database_path_in);
+
+    // Pre-flight validation: check for sensor frames
+    auto validation = rux::validation::validate_annotate_prerequisites(db);
+    if (!validation) {
+      spdlog::error("{}", validation.error_message);
+      spdlog::info("Resolution: {}", validation.resolution_hint);
+      return RuxError::INVALID_ARGUMENT;
+    }
+
+    return ReUseX::vision::annotate(opt.database_path_in, opt.net_path, opt.isCuda);
+
+  } catch (const std::exception &e) {
+    spdlog::error("Annotation failed: {}", e.what());
+    return RuxError::GENERIC;
+  }
 }

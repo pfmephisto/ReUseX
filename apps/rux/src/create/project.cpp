@@ -4,6 +4,7 @@
 
 #include "curand_globals.h"
 #include "create/project.hpp"
+#include "validation.hpp"
 
 #include <CLI/CLI.hpp>
 #include <spdlog/spdlog.h>
@@ -46,6 +47,14 @@ int run_subcommand_project(SubcommandProjectOptions const &opt) {
 
   try {
     ReUseX::ProjectDB db(opt.project);
+
+    // Pre-flight validation: check for cloud and segmentation images
+    auto validation = rux::validation::validate_project_prerequisites(db);
+    if (!validation) {
+      spdlog::error("{}", validation.error_message);
+      spdlog::info("Resolution: {}", validation.resolution_hint);
+      return RuxError::INVALID_ARGUMENT;
+    }
 
     int logId = db.log_pipeline_start("project_labels");
 

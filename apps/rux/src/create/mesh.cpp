@@ -4,6 +4,7 @@
 
 #include "create/mesh.hpp"
 #include "processing_observer.hpp"
+#include "validation.hpp"
 
 #include <CLI/CLI.hpp>
 #include <spdlog/spdlog.h>
@@ -83,6 +84,15 @@ int run_subcommand_mesh(SubcommandMeshOptions const &opt) {
   try {
     ReUseX::ProjectDB db(opt.project);
 
+    // Pre-flight validation: comprehensive check for all prerequisites
+    // This resolves the TODO comment from lines 101-107
+    auto validation = rux::validation::validate_mesh_prerequisites(db);
+    if (!validation) {
+      spdlog::error("{}", validation.error_message);
+      spdlog::info("Resolution: {}", validation.resolution_hint);
+      return RuxError::INVALID_ARGUMENT;
+    }
+
     int logId = db.log_pipeline_start(
         "mesh_generation",
         fmt::format(
@@ -97,20 +107,6 @@ int run_subcommand_mesh(SubcommandMeshOptions const &opt) {
     auto plane_labels = db.point_cloud_label("planes");
     auto plane_centroids = db.point_cloud_xyz("plane_centroids");
     auto plane_normals = db.point_cloud_normal("plane_normals");
-
-    // TODO: Add comprehensive input size validation with detailed error
-    // messages category=CLI estimate=30m Current validation only checks a
-    // subset of input files. Should validate all:
-    // 1. Check cloud, rooms, normals, plane_labels all have same size
-    // 2. Verify plane_normals and plane_centroids have expected dimensions
-    // 3. Provide specific error message showing actual vs expected sizes
-    // 4. Add early validation before heavy processing to fail fast
-    if (rooms->size() != cloud->size() || normals->size() != cloud->size()) {
-      spdlog::error("Point cloud size mismatch: cloud={}, normals={}, rooms={}",
-                    cloud->size(), normals->size(), rooms->size());
-      db.log_pipeline_end(logId, false, "Size validation failed");
-      return RuxError::INVALID_ARGUMENT;
-    }
 
     spdlog::trace("Processing plane data");
     auto [planes, centroids, inliers] =

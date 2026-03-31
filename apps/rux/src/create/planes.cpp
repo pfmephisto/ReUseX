@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "create/planes.hpp"
+#include "validation.hpp"
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/geometry/segment_planes.hpp>
 
@@ -88,6 +89,14 @@ int run_subcommand_segment_planes(SubcommandSegPlanesOptions const &opt) {
 
   try {
     ReUseX::ProjectDB db(opt.project);
+
+    // Pre-flight validation: check for cloud and normals
+    auto validation = rux::validation::validate_planes_prerequisites(db);
+    if (!validation) {
+      spdlog::error("{}", validation.error_message);
+      spdlog::info("Resolution: {}", validation.resolution_hint);
+      return RuxError::INVALID_ARGUMENT;
+    }
 
     int logId = db.log_pipeline_start("segment_planes",
         fmt::format(R"({{"angle_threshold":{},"plane_dist_threshold":{},"min_inliers":{},"radius":{},"interval_0":{},"interval_factor":{}}})",

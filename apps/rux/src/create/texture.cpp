@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "create/texture.hpp"
+#include "validation.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/geometry/texture_mesh.hpp>
@@ -43,6 +44,14 @@ int run_subcommand_texture(SubcommandTextureOptions const &opt) {
 
   try {
     ReUseX::ProjectDB db(opt.project);
+
+    // Pre-flight validation: check for mesh and sensor frames
+    auto validation = rux::validation::validate_texture_prerequisites(db);
+    if (!validation) {
+      spdlog::error("{}", validation.error_message);
+      spdlog::info("Resolution: {}", validation.resolution_hint);
+      return RuxError::INVALID_ARGUMENT;
+    }
 
     int logId = db.log_pipeline_start("texture_mesh",
         fmt::format(R"({{"mesh_name":"{}","output_name":"{}"}})",

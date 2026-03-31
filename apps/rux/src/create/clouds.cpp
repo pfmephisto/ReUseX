@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "create/clouds.hpp"
+#include "validation.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/geometry/reconstruct.hpp>
@@ -49,32 +50,40 @@ void setup_subcommand_create_clouds(CLI::App &app) {
 int run_subcommand_create_clouds(SubcommandCreateCloudsOptions const &opt) {
   spdlog::info("Reconstructing point clouds from: {}", opt.project.string());
 
-  ReUseX::ProjectDB db(opt.project);
+  try {
+    ReUseX::ProjectDB db(opt.project);
 
-  int logId = db.log_pipeline_start(
-      "cloud_reconstruction",
-      fmt::format(
-          R"({{"resolution":{},"min_distance":{},"max_distance":{},"sampling_factor":{},"confidence_threshold":{}}})",
-          opt.resolution, opt.min_distance, opt.max_distance,
-          opt.sampling_factor, opt.confidence_threshold));
+    // Pre-flight validation: check for sensor frames
+    auto validation = rux::validation::validate_clouds_prerequisites(db);
+    if (!validation) {
+      spdlog::error("{}", validation.error_message);
+      spdlog::info("Resolution: {}", validation.resolution_hint);
+      return RuxError::INVALID_ARGUMENT;
+    }
 
-  ReUseX::geometry::ReconstructionParams params;
-  params.resolution = opt.resolution;
-  params.min_distance = opt.min_distance;
-  params.max_distance = opt.max_distance;
-  params.sampling_factor = opt.sampling_factor;
-  params.confidence_threshold = opt.confidence_threshold;
+    int logId = db.log_pipeline_start(
+        "cloud_reconstruction",
+        fmt::format(
+            R"({{"resolution":{},"min_distance":{},"max_distance":{},"sampling_factor":{},"confidence_threshold":{}}})",
+            opt.resolution, opt.min_distance, opt.max_distance,
+            opt.sampling_factor, opt.confidence_threshold));
 
-  // TODO: Add check for errors in reconstruction and log failure if needed
-  ReUseX::geometry::reconstruct_point_clouds(db, params);
-  // if (/*failure condition*/) {
-  //   db.log_pipeline_end(logId, false);
-  //   spdlog::error("Point cloud reconstruction failed");
-  //   return RuxError::FAILURE;
-  // }
+    ReUseX::geometry::ReconstructionParams params;
+    params.resolution = opt.resolution;
+    params.min_distance = opt.min_distance;
+    params.max_distance = opt.max_distance;
+    params.sampling_factor = opt.sampling_factor;
+    params.confidence_threshold = opt.confidence_threshold;
 
-  db.log_pipeline_end(logId, true);
+    ReUseX::geometry::reconstruct_point_clouds(db, params);
 
-  spdlog::info("Point cloud reconstruction complete");
-  return RuxError::SUCCESS;
+    db.log_pipeline_end(logId, true);
+
+    spdlog::info("Point cloud reconstruction complete");
+    return RuxError::SUCCESS;
+
+  } catch (const std::exception &e) {
+    spdlog::error("Point cloud reconstruction failed: {}", e.what());
+    return RuxError::GENERIC;
+  }
 }

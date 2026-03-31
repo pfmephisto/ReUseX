@@ -5,6 +5,7 @@
 #include "create/rooms.hpp"
 #include "pcl/markov_clustering.hpp"
 #include "spdmon.hpp"
+#include "validation.hpp"
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/utils/fmt_formatter.hpp>
 
@@ -104,6 +105,14 @@ int run_subcommand_segment_rooms(SubcommandSegRoomsOptions const &opt) {
 
   try {
     ReUseX::ProjectDB db(opt.project);
+
+    // Pre-flight validation: check for planes prerequisites
+    auto validation = rux::validation::validate_rooms_prerequisites(db);
+    if (!validation) {
+      spdlog::error("{}", validation.error_message);
+      spdlog::info("Resolution: {}", validation.resolution_hint);
+      return RuxError::INVALID_ARGUMENT;
+    }
 
     int logId = db.log_pipeline_start("segment_rooms",
         fmt::format(R"({{"grid_size":{},"inflation":{},"expansion":{},"pruning_threshold":{},"convergence_threshold":{},"max_iter":{}}})",

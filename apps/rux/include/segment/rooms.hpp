@@ -9,13 +9,7 @@ namespace fs = std::filesystem;
 
 /// Collection of all options for room segmentation subcommand.
 struct SubcommandSegRoomsOptions {
-  fs::path cloud_path_in = GlobalParams::cloud;  ///< Input point cloud path
-  // fs::path normals_path_in = GlobalParams::normals;
-  fs::path planes_path_in = GlobalParams::planes;  ///< Input planes path
-  fs::path plane_centroids_path_in = GlobalParams::plane_centroids;  ///< Input plane centroids path
-  fs::path plane_normals_path_in = GlobalParams::plane_normals;  ///< Input plane normals path
-
-  fs::path rooms_path_out = GlobalParams::rooms;  ///< Output rooms path
+  fs::path project;  ///< Path to .rux project file (required, positional)
 
   int expansion = 2;  ///< Cell expansion factor
   float inflation = 2.0F;  ///< Inflation factor for room boundaries

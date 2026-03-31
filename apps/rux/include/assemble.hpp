@@ -12,7 +12,7 @@ namespace fs = std::filesystem;
 /// Collection of all options for the assemble subcommand.
 struct SubcommandAssembleOptions {
   std::vector<fs::path> paths_in;  ///< Input file paths to assemble
-  fs::path db_path_out = GlobalParams::db;  ///< Output database path
+  fs::path db_path_out = fs::current_path() / "assembled.db";  ///< Output database path
 };
 
 /**

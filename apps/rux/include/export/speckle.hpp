@@ -11,7 +11,10 @@
 namespace fs = std::filesystem;
 
 struct SubcommandExportSpeckleOptions {
-  fs::path input_path;
+  fs::path project;  ///< Path to .rux project file (required, positional)
+  std::string data_name = "cloud";  ///< Cloud or mesh name in ProjectDB
+  bool is_mesh = false;  ///< Load as mesh instead of cloud
+
   std::string server_url;
   std::string project_id;
   std::string model_name = "main";

@@ -4,18 +4,13 @@
 
 #include "texture.hpp"
 
+#include <reusex/core/ProjectDB.hpp>
 #include <reusex/geometry/texture_mesh.hpp>
-#include <pcl/io/auto_io.h>
-
-#include <rtabmap/core/DBDriver.h>
-#include <rtabmap/core/Graph.h>
-#include <rtabmap/core/Rtabmap.h>
-#include <rtabmap/core/optimizer/OptimizerG2O.h>
-#include <rtabmap/core/util3d.h>
-#include <rtabmap/core/util3d_filtering.h>
 
 #include <spdlog/spdlog.h>
 #include <spdlog/stopwatch.h>
+
+#include <fmt/format.h>
 
 #include <Eigen/Dense>
 
@@ -23,21 +18,20 @@ void setup_subcommand_texture(CLI::App &app) {
   auto opt = std::make_shared<SubcommandTextureOptions>();
   auto *sub = app.add_subcommand(
       "texture",
-      "Apply textures to a mesh using views from an RTAB-Map database.");
+      "Apply textures to a mesh using sensor frames from ProjectDB.");
 
-  sub->add_option("mesh", opt->mesh_path_in, "Path to the input mesh file.")
+  sub->add_option("project", opt->project,
+                  "Path to the .rux project file.")
       ->required()
-      //->check(CLI::ExistingFile)
-      ->default_val(opt->mesh_path_in);
+      ->check(CLI::ExistingFile);
 
-  sub->add_option("db", opt->db_path_in, "Path to the RTAB-Map database file.")
-      ->required()
-      //->check(CLI::ExistingFile)
-      ->default_val(opt->db_path_in);
+  sub->add_option("-m, --mesh-name", opt->mesh_name,
+                  "Name of the input mesh in ProjectDB")
+      ->default_val(opt->mesh_name);
 
-  sub->add_option("output", opt->mesh_path_out,
-                  "Path to the output textured mesh file.")
-      ->default_val(opt->mesh_path_out);
+  sub->add_option("-o, --output-name", opt->output_name,
+                  "Name for the output textured mesh in ProjectDB")
+      ->default_val(opt->output_name);
 
   sub->callback([opt]() {
     spdlog::trace("calling run_subcommand_texture");
@@ -45,47 +39,59 @@ void setup_subcommand_texture(CLI::App &app) {
   });
 }
 int run_subcommand_texture(SubcommandTextureOptions const &opt) {
+  spdlog::info("Texturing mesh from project: {}", opt.project.string());
 
-  using Poses = std::map<int, rtabmap::Transform>;
-  using Nodes = std::map<int, rtabmap::Signature>;
-  using Links = std::multimap<int, rtabmap::Link>;
+  try {
+    ReUseX::ProjectDB db(opt.project);
 
-  spdlog::info("Intializing RTAB-Map ...");
-  spdlog::stopwatch timer;
-  rtabmap::ParametersMap params;
-  rtabmap::Rtabmap rtabmap;
-  spdlog::debug("Database path: {}", opt.db_path_in.string());
-  rtabmap.init(params, opt.db_path_in.c_str());
-  rtabmap.setWorkingDirectory("./");
-  spdlog::debug("RTAB-Map initialized in {:.3f}s", timer);
+    int logId = db.log_pipeline_start("texture_mesh",
+        fmt::format(R"({{"mesh_name":"{}","output_name":"{}"}})",
+                    opt.mesh_name, opt.output_name));
 
-  // Save 3D map
-  spdlog::info("Loading Graph");
-  timer.reset();
+    spdlog::trace("Loading mesh '{}' from ProjectDB", opt.mesh_name);
+    auto mesh = db.mesh(opt.mesh_name);
 
-  Poses poses;
-  Links links;
-  Nodes nodes;
+    spdlog::trace("Loading sensor frames from ProjectDB");
+    auto frame_ids = db.sensor_frame_ids();
+    spdlog::info("Found {} sensor frames for texturing", frame_ids.size());
 
-  rtabmap.getGraph(poses /*poses*/, links /*constraints*/,
-                   true
-                   /*optimized*/,
-                   true /*global*/, &nodes /*signatures*/,
-                   true
-                   /*withImages*/,
-                   true /*withScan*/, true /*withUserData*/,
-                   true /*withGrid*/ /*withWords*/
-                   /*withGlobalDescriptors*/);
-  spdlog::debug("Graph loaded in {:.3f}s", timer);
+    // Build camera data map from ProjectDB
+    std::map<int, ReUseX::geometry::CameraData> cameras;
+    for (int nodeId : frame_ids) {
+      ReUseX::geometry::CameraData cam_data;
 
-  auto mesh = std::make_shared<pcl::PolygonMesh>();
-  pcl::io::load(opt.mesh_path_in.string(), *mesh);
+      cam_data.image = db.sensor_frame_image(nodeId);
+      if (cam_data.image.empty()) {
+        spdlog::warn("Skipping node {} - empty image", nodeId);
+        continue;
+      }
 
-  auto textured_mesh = ReUseX::geometry::texture_mesh(mesh, poses, nodes);
+      cam_data.intrinsics = db.sensor_frame_intrinsics(nodeId);
 
-  spdlog::info("Saving textured mesh to {}", opt.mesh_path_out.string());
-  pcl::io::save(opt.mesh_path_out.string(), *textured_mesh);
+      // Get pose as 4x4 SE(3) matrix
+      auto pose_array = db.sensor_frame_pose(nodeId);
+      for (int i = 0; i < 16; ++i) {
+        cam_data.pose(i / 4, i % 4) = pose_array[i];
+      }
 
-  rtabmap.close(false);
-  return RuxError::SUCCESS;
+      cameras[nodeId] = std::move(cam_data);
+    }
+
+    spdlog::info("Loaded {} camera frames for texturing", cameras.size());
+
+    spdlog::trace("Generating textured mesh");
+    auto textured_mesh = ReUseX::geometry::texture_mesh(mesh, cameras);
+
+    spdlog::trace("Saving textured mesh to ProjectDB as '{}'", opt.output_name);
+    db.save_mesh(opt.output_name, *textured_mesh, "texture_mesh");
+
+    spdlog::info("Textured mesh '{}' saved to ProjectDB", opt.output_name);
+
+    db.log_pipeline_end(logId, true);
+    return RuxError::SUCCESS;
+
+  } catch (const std::exception &e) {
+    spdlog::error("Mesh texturing failed: {}", e.what());
+    return RuxError::GENERIC;
+  }
 }

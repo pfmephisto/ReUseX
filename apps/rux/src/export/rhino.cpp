@@ -5,11 +5,11 @@
 #include "export/rhino.hpp"
 #include "global-params.hpp"
 
+#include <reusex/core/ProjectDB.hpp>
 #include <reusex/types.hpp>
 #include <reusex/io/rhino.hpp>
 #include <fmt/format.h>
 #include <pcl/common/io.h>
-#include <pcl/io/pcd_io.h>
 #include <spdlog/spdlog.h>
 
 #include <filesystem>
@@ -20,19 +20,21 @@ void setup_subcommand_export_rhino(CLI::App &parent) {
   auto opt = std::make_shared<SubcommandExportRhinoOptions>();
   auto *sub = parent.add_subcommand(
       "rhino",
-      "Export a labeled point cloud to Rhino 3DM format.");
+      "Export a labeled point cloud from ProjectDB to Rhino 3DM format.");
 
-  sub->add_option("cloud", opt->cloud_path_in,
-                  "Path to the input point cloud file.")
+  sub->add_option("project", opt->project,
+                  "Path to the .rux project file.")
       ->required()
       ->check(CLI::ExistingFile);
 
-  sub->add_option("labels", opt->labels_path_in,
-                  "Path to the input point cloud labels file.")
-      ->required()
-      ->check(CLI::ExistingFile);
+  sub->add_option("-c, --cloud-name", opt->cloud_name,
+                  "Name of the point cloud in ProjectDB")
+      ->default_val(opt->cloud_name);
 
-  sub->add_option("output", opt->path_out,
+  sub->add_option("-l, --labels-name", opt->labels_name,
+                  "Name of the labels in ProjectDB (optional)");
+
+  sub->add_option("-o, --output", opt->path_out,
                   "Path to the output Rhino 3DM file")
       ->default_val(opt->path_out);
 
@@ -43,25 +45,39 @@ void setup_subcommand_export_rhino(CLI::App &parent) {
 }
 
 int run_subcommand_export_rhino(SubcommandExportRhinoOptions const &opt) {
-  spdlog::trace("load pcl point cloud from file: {}", opt.cloud_path_in);
-  CloudPtr pcl_cloud(new Cloud);
-  pcl::io::loadPCDFile<PointT>(opt.cloud_path_in.c_str(), *pcl_cloud);
+  spdlog::info("Exporting to Rhino from project: {}", opt.project.string());
 
-  spdlog::trace("load pcl labels from file: {}", opt.labels_path_in);
-  CloudLPtr pcl_labels(new CloudL);
-  pcl::io::loadPCDFile<LabelT>(opt.labels_path_in.c_str(), *pcl_labels);
+  try {
+    ProjectDB db(opt.project);
 
-  auto model = ReUseX::io::save_rhino_pointcloud(pcl_cloud, pcl_labels);
+    spdlog::trace("Loading point cloud '{}' from ProjectDB", opt.cloud_name);
+    CloudPtr pcl_cloud = db.point_cloud_xyzrgb(opt.cloud_name);
 
-  spdlog::trace("writeing model to file: {}", opt.path_out.string());
-  int version = 0;
-  // const char *comment = __FILE__ "write_layers_example()" __DATE__;
-  if (!model->Write(opt.path_out.c_str(), version
-                    /*, comment, &error_log*/)) {
-    spdlog::error("Failed to write model to file: {}", opt.path_out.string());
-    return 1;
+    CloudLPtr pcl_labels;
+    if (!opt.labels_name.empty()) {
+      spdlog::trace("Loading labels '{}' from ProjectDB", opt.labels_name);
+      pcl_labels = db.point_cloud_label(opt.labels_name);
+    } else {
+      spdlog::trace("No labels specified, creating empty label cloud");
+      pcl_labels = CloudLPtr(new CloudL);
+      pcl_labels->resize(pcl_cloud->size());
+    }
+
+    spdlog::trace("Converting to Rhino format");
+    auto model = ReUseX::io::save_rhino_pointcloud(pcl_cloud, pcl_labels);
+
+    spdlog::trace("Writing Rhino model to: {}", opt.path_out.string());
+    int version = 0;
+    if (!model->Write(opt.path_out.c_str(), version)) {
+      spdlog::error("Failed to write Rhino model to: {}", opt.path_out.string());
+      return RuxError::IO;
+    }
+
+    spdlog::info("Rhino model successfully written to: {}", opt.path_out.string());
+    return RuxError::SUCCESS;
+
+  } catch (const std::exception &e) {
+    spdlog::error("Rhino export failed: {}", e.what());
+    return RuxError::GENERIC;
   }
-  spdlog::info("Model successfully written to {}", opt.path_out.string());
-
-  return RuxError::SUCCESS;
 }

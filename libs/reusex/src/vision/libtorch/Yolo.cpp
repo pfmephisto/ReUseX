@@ -118,8 +118,8 @@ LibTorchYolo::LibTorchYolo(const std::filesystem::path &model_path,
 }
 
 std::unique_ptr<LibTorchYolo>
-LibTorchYolo::create(const std::filesystem::path &model_path) {
-  return std::make_unique<LibTorchYolo>(model_path);
+LibTorchYolo::create(const std::filesystem::path &model_path, bool use_cuda) {
+  return std::make_unique<LibTorchYolo>(model_path, use_cuda);
 }
 
 torch::Tensor LibTorchYolo::images_to_tensor(

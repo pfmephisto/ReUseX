@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "segment/planes.hpp"
+#include <reusex/core/ProjectDB.hpp>
 #include <reusex/geometry/segment_planes.hpp>
 
 #include <fmt/format.h>
@@ -13,10 +14,7 @@
 
 #include <pcl/common/colors.h>
 #include <pcl/filters/filter.h>
-#include <pcl/io/auto_io.h>
-#include <pcl/io/pcd_io.h>
 
-#include <reusex/io/reusex.hpp>
 namespace fs = std::filesystem;
 
 /**
@@ -34,29 +32,10 @@ void setup_subcommand_segment_planes(CLI::App &app) {
 
   sub->get_formatter()->column_width(40);
 
-  sub->add_option("cloud", opt->cloud_path_in,
-                  "Path to the input point cloud file.")
-      //->required()
-      // ->check(CLI::ExistingFile)
-      ->default_val(opt->cloud_path_in);
-
-  sub->add_option("normals", opt->normals_path_in,
-                  "Path to the input normals file.")
-      //->required()
-      // ->check(CLI::ExistingFile)
-      ->default_val(opt->normals_path_in);
-
-  sub->add_option("planes", opt->planes_path_out,
-                  "Path to save the output plane labels file")
-      ->default_val(opt->planes_path_out);
-
-  sub->add_option("centroids", opt->plane_centroids_path_out,
-                  "Path to save the output plane centroids file")
-      ->default_val(opt->plane_centroids_path_out);
-
-  sub->add_option("plane-normals", opt->plane_normals_path_out,
-                  "Path to save the output plane normals file")
-      ->default_val(opt->plane_normals_path_out);
+  sub->add_option("project", opt->project,
+                  "Path to the .rux project file.")
+      ->required()
+      ->check(CLI::ExistingFile);
 
   sub->add_option("-a, --angle-threshold", opt->angle_threshold,
                   "Angle threshold for plane fitting "
@@ -97,44 +76,56 @@ void setup_subcommand_segment_planes(CLI::App &app) {
 
 /**
  * @brief Execute plane segmentation on a point cloud.
- * 
- * Loads point cloud and normals, performs multi-scale region growing plane
- * segmentation, and saves the results (labeled planes, centroids, normals).
- * 
- * @param opt Options containing file paths and segmentation parameters.
+ *
+ * Loads point cloud and normals from ProjectDB, performs multi-scale region
+ * growing plane segmentation, and saves results to ProjectDB.
+ *
+ * @param opt Options containing project path and segmentation parameters.
  * @return Exit code (RuxError::SUCCESS on success).
  */
 int run_subcommand_segment_planes(SubcommandSegPlanesOptions const &opt) {
+  spdlog::info("Segmenting planes in project: {}", opt.project.string());
 
-  spdlog::trace("Load the point cloud from disk");
-  CloudPtr cloud(new Cloud);
-  // pcl::io::loadPCDFile<PointT>(opt.path_in.string(), *cloud);
-  pcl::io::load<PointT>(opt.cloud_path_in.string(), *cloud);
+  try {
+    ReUseX::ProjectDB db(opt.project);
 
-  spdlog::trace("Load the normals from disk");
-  CloudNPtr normals(new CloudN);
-  pcl::io::loadPCDFile<NormalT>(opt.normals_path_in.string(), *normals);
+    int logId = db.log_pipeline_start("segment_planes",
+        fmt::format(R"({{"angle_threshold":{},"plane_dist_threshold":{},"min_inliers":{},"radius":{},"interval_0":{},"interval_factor":{}}})",
+                    opt.angle_threshold, opt.plane_dist_threshold, opt.minInliers,
+                    opt.radius, opt.interval_0, opt.interval_factor));
 
-  using namespace ReUseX::geometry;
+    spdlog::trace("Loading point cloud and normals from ProjectDB");
+    auto cloud = db.point_cloud_xyzrgb("cloud");
+    auto normals = db.point_cloud_normal("normals");
 
-  ReUseX::geometry::SegmentPlanesRequest request;
-  request.cloud = cloud;
-  request.normals = normals;
-  request.angle_threshold = opt.angle_threshold;
-  request.plane_dist_threshold = opt.plane_dist_threshold;
-  request.min_inliers = opt.minInliers;
-  request.radius = opt.radius;
-  request.interval_0 = opt.interval_0;
-  request.interval_factor = opt.interval_factor;
+    using namespace ReUseX::geometry;
 
-  auto [labels, centroids, plane_normals] =
-      ReUseX::geometry::segment_planes(request);
+    ReUseX::geometry::SegmentPlanesRequest request;
+    request.cloud = cloud;
+    request.normals = normals;
+    request.angle_threshold = opt.angle_threshold;
+    request.plane_dist_threshold = opt.plane_dist_threshold;
+    request.min_inliers = opt.minInliers;
+    request.radius = opt.radius;
+    request.interval_0 = opt.interval_0;
+    request.interval_factor = opt.interval_factor;
 
-  spdlog::trace("Save the point cloud with planes");
-  pcl::io::savePCDFileBinary(opt.planes_path_out, *labels);
-  pcl::io::savePCDFileBinary(opt.plane_centroids_path_out.string(), *centroids);
-  pcl::io::savePCDFileBinary(opt.plane_normals_path_out.string(),
-                             *plane_normals);
+    spdlog::trace("Running plane segmentation algorithm");
+    auto [labels, centroids, plane_normals] =
+        ReUseX::geometry::segment_planes(request);
 
-  return RuxError::SUCCESS;
+    spdlog::trace("Saving results to ProjectDB");
+    db.save_point_cloud("planes", *labels, "segment_planes");
+    db.save_point_cloud("plane_centroids", *centroids, "segment_planes");
+    db.save_point_cloud("plane_normals", *plane_normals, "segment_planes");
+
+    spdlog::info("Plane segmentation complete: {} planes detected", centroids->size());
+
+    db.log_pipeline_end(logId, true);
+    return RuxError::SUCCESS;
+
+  } catch (const std::exception &e) {
+    spdlog::error("Plane segmentation failed: {}", e.what());
+    return RuxError::GENERIC;
+  }
 }

@@ -7,5 +7,6 @@
 
 namespace ReUseX::vision {
 auto annotate(const std::filesystem::path &dbPath,
-              const std::filesystem::path &modelPath) -> int;
+              const std::filesystem::path &modelPath,
+              bool use_cuda = false) -> int;
 } // namespace ReUseX::vision

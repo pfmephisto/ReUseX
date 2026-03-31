@@ -14,12 +14,13 @@ namespace ReUseX::vision::libtorch {
 
 std::unique_ptr<IModel>
 LibTorchBackend::create_model(const Model type,
-                              const std::filesystem::path &modelPath) {
+                              const std::filesystem::path &modelPath,
+                              bool use_cuda) {
   ReUseX::core::info("Creating LibTorch model type {} from path: {}",
                      static_cast<int>(type), modelPath);
   switch (type) {
   case Model::yolo:
-    return LibTorchYolo::create(modelPath);
+    return LibTorchYolo::create(modelPath, use_cuda);
   default:
     ReUseX::core::error("Unsupported model type for LibTorch backend: {}",
                         static_cast<int>(type));

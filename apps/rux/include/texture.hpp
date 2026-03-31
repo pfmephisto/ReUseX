@@ -11,9 +11,9 @@ namespace fs = std::filesystem;
 
 /// Collection of all options of Subcommand A.
 struct SubcommandTextureOptions {
-  fs::path mesh_path_in = fs::current_path() / "mesh.ply";
-  fs::path db_path_in = GlobalParams::db;
-  fs::path mesh_path_out = fs::current_path() / "mesh.obj";
+  fs::path project;  ///< Path to .rux project file (required, positional)
+  std::string mesh_name = "mesh";  ///< Mesh name in ProjectDB
+  std::string output_name = "textured_mesh";  ///< Output textured mesh name in ProjectDB
 };
 
 // Function declarations.

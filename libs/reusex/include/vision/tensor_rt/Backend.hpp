@@ -20,12 +20,15 @@ class TensorRTBackend : public IMLBackend {
    * implementation).
    * @param: modelPath - The file path to the model to be created (not used in
    * this implementation).
+   * @param: use_cuda - Whether to use CUDA for inference (ignored for TensorRT,
+   * always uses GPU).
    * @return: A unique pointer to an IModel instance representing the created
    * model.
    */
   std::unique_ptr<IModel>
   create_model(const Model type,
-               const std::filesystem::path &modelPath) override;
+               const std::filesystem::path &modelPath,
+               bool use_cuda = false) override;
 
   /* Creates a dataset based on the provided dataset path. This method is
    * responsible for initializing and returning a dataset that can be used for

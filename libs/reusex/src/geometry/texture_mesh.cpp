@@ -373,4 +373,148 @@ texture_mesh(pcl::PolygonMesh::Ptr mesh,
 
   return textured_mesh;
 }
+
+pcl::TextureMesh::Ptr
+texture_mesh(pcl::PolygonMesh::Ptr mesh,
+             std::map<int, CameraData> const &cameras) {
+  ReUseX::core::trace("Entering ReUseX::geometry::texture_mesh (ProjectDB API)");
+
+  // Copy cloud and polygons
+  pcl::TextureMesh::Ptr textured_mesh(new pcl::TextureMesh);
+  textured_mesh->cloud = mesh->cloud;
+
+  ReUseX::core::trace("Converting mesh cloud to PointXYZ");
+  CloudLocPtr cloud(new CloudLoc);
+  pcl::fromPCLPointCloud2(mesh->cloud, *cloud);
+  CloudNPtr normals(new CloudN);
+  normals->resize(cloud->size());
+  normals->width = cloud->width;
+  normals->height = cloud->height;
+  for (auto &p : normals->points)
+    p.getNormalVector3fMap() = Eigen::Vector3f::Zero();
+
+  // Merge triangles into polygons
+  textured_mesh->tex_polygons.resize(1);
+  textured_mesh->tex_polygons[0] = mesh->polygons;
+
+  for (const auto &poly : mesh->polygons) {
+    const Eigen::Vector3f f_normal = compute_polygon_normal(poly, cloud);
+    for (const auto &vertex : poly.vertices)
+      normals->points[vertex].getNormalVector3fMap() += f_normal;
+  }
+
+  // Normalize all normals
+  for (auto &p : normals->points)
+    p.getNormalVector3fMap().normalize();
+
+  ReUseX::core::trace("Concatenating normals to mesh cloud");
+  pcl::PointCloud<pcl::PointNormal> cloud_with_normals;
+  pcl::concatenateFields(*cloud, *normals, cloud_with_normals);
+  pcl::toPCLPointCloud2(cloud_with_normals, textured_mesh->cloud);
+
+  ReUseX::core::debug("Number of polygons: {}", textured_mesh->tex_polygons.size());
+  size_t num_faces = 0;
+  for (const auto &poly_group : textured_mesh->tex_polygons)
+    num_faces += poly_group.size();
+  ReUseX::core::debug("Total number of faces: {}", num_faces);
+  ReUseX::core::debug("Number of vertices: {}", cloud->size());
+
+  ReUseX::core::trace("Creating directory for textures");
+  static constexpr char texture_dir[] = "./mesh_textures";
+  if (std::filesystem::exists(texture_dir)) {
+    std::filesystem::remove_all(texture_dir);
+  }
+  std::filesystem::create_directory(texture_dir);
+  std::filesystem::path base_path = std::filesystem::path(texture_dir);
+
+  ReUseX::core::trace("Extracting cameras and textures from ProjectDB data");
+  pcl::texture_mapping::CameraVector pcl_cameras{};
+  pcl_cameras.resize(cameras.size());
+  {
+    auto observer = ReUseX::core::ProgressObserver(
+        ReUseX::core::Stage::retrieving_textures, cameras.size());
+
+    for (auto &&[i, inner] : cameras | ranges::views::enumerate) {
+      auto &[id, cam_data] = inner;
+
+      const cv::Mat &image = cam_data.image;
+      if (image.empty()) {
+        ReUseX::core::warn("Empty image for camera id {}", id);
+        ++observer;
+        continue;
+      }
+
+      auto name = fmt::format("texture-{:06}", i);
+      std::filesystem::path texture_path =
+          base_path / fmt::format("{}.jpg", name);
+      cv::imwrite(texture_path.string(), image);
+
+      // Convert pose from Eigen::Matrix4d to Eigen::Affine3f
+      Eigen::Affine3f pose_affine(cam_data.pose.cast<float>());
+
+      pcl_cameras[i] = pcl::texture_mapping::Camera();
+      pcl_cameras[i].focal_length_w = cam_data.intrinsics.fx;
+      pcl_cameras[i].focal_length_h = cam_data.intrinsics.fy;
+      pcl_cameras[i].center_w = cam_data.intrinsics.cx;
+      pcl_cameras[i].center_h = cam_data.intrinsics.cy;
+      pcl_cameras[i].width = image.cols;
+      pcl_cameras[i].height = image.rows;
+      pcl_cameras[i].pose = pose_affine;
+      pcl_cameras[i].texture_file = texture_path.string();
+
+      pcl::TexMaterial material;
+      material.tex_file = texture_path.string();
+      material.tex_name = name;
+
+      material.tex_Ka.r = 0.2f;
+      material.tex_Ka.g = 0.2f;
+      material.tex_Ka.b = 0.2f;
+
+      material.tex_Kd.r = 0.8f;
+      material.tex_Kd.g = 0.8f;
+      material.tex_Kd.b = 0.8f;
+
+      material.tex_Ks.r = 1.0f;
+      material.tex_Ks.g = 1.0f;
+      material.tex_Ks.b = 1.0f;
+
+      material.tex_d = 1.0f;
+      material.tex_Ns = 75.0f;
+      material.tex_illum = 2;
+
+      textured_mesh->tex_materials.push_back(material);
+      ++observer;
+    }
+  }
+
+  ReUseX::core::debug("Number of cameras: {}", pcl_cameras.size());
+  ReUseX::core::debug("Number of materials: {}", textured_mesh->tex_materials.size());
+
+  pcl::TextureMapping<pcl::PointXYZ> tm;
+  tm.textureMeshwithMultipleCameras(*textured_mesh, pcl_cameras);
+
+  if (textured_mesh->tex_polygons.size() > textured_mesh->tex_materials.size()) {
+    pcl::TexMaterial material;
+    material.tex_name = "texture-unassigned";
+    material.tex_file = textured_mesh->tex_materials[0].tex_file;
+    ReUseX::core::warn(
+        "Number of texture polygons ({}) > materials ({}). Adding default material.",
+        textured_mesh->tex_polygons.size(), textured_mesh->tex_materials.size());
+    textured_mesh->tex_materials.push_back(material);
+  }
+
+  ReUseX::core::debug("Final - Materials: {}, Polygons: {}, Coordinates: {}",
+                      textured_mesh->tex_materials.size(),
+                      textured_mesh->tex_polygons.size(),
+                      textured_mesh->tex_coordinates.size());
+
+  if (textured_mesh->tex_coord_indices.size() != textured_mesh->tex_polygons.size()) {
+    textured_mesh->tex_coord_indices.resize(textured_mesh->tex_polygons.size());
+    for (size_t i = 0; i < textured_mesh->tex_polygons.size(); ++i) {
+      textured_mesh->tex_coord_indices[i].resize(textured_mesh->tex_polygons[i].size());
+    }
+  }
+
+  return textured_mesh;
+}
 } // namespace ReUseX::geometry

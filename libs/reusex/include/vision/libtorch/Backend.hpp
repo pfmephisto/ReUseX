@@ -21,12 +21,14 @@ class LibTorchBackend : public IMLBackend {
   /** @brief Create a LibTorch model.
    * @param type Model type (currently only Yolo is supported).
    * @param modelPath Path to the TorchScript model file.
+   * @param use_cuda Whether to use CUDA for inference (defaults to false).
    * @return Unique pointer to the created model.
    * @throws std::runtime_error if model type is not supported.
    */
   std::unique_ptr<IModel>
   create_model(const Model type,
-               const std::filesystem::path &modelPath) override;
+               const std::filesystem::path &modelPath,
+               bool use_cuda = false) override;
 
   /** @brief Create a LibTorch dataset from a database path.
    * @param datasetPath Path to the RTABMap database file.

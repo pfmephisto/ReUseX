@@ -7,6 +7,7 @@
 #include <memory>
 #include <opencv2/core/mat.hpp>
 #include <pcl/PolygonMesh.h>
+#include <pcl/TextureMesh.h>
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 #include <string>
@@ -134,7 +135,11 @@ class ProjectDB {
   void save_mesh(std::string_view name, const pcl::PolygonMesh &mesh,
                  std::string_view stage = "", std::string_view paramsJson = "");
 
+  void save_mesh(std::string_view name, const pcl::TextureMesh &mesh,
+                 std::string_view stage = "", std::string_view paramsJson = "");
+
   pcl::PolygonMesh::Ptr mesh(std::string_view name) const;
+  pcl::TextureMesh::Ptr texture_mesh(std::string_view name) const;
   bool has_mesh(std::string_view name) const;
   std::vector<std::string> list_meshes() const;
 

@@ -11,9 +11,7 @@ namespace fs = std::filesystem;
 
 /// Collection of all options of Subcommand A.
 struct SubcommandProjectOptions {
-  fs::path cloud_path_in = GlobalParams::cloud;
-  fs::path database_path_in = GlobalParams::db;
-  fs::path labels_path_out = GlobalParams::labels;
+  fs::path project;  ///< Path to .rux project file (required, positional)
 };
 
 // Function declarations.

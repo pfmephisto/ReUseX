@@ -31,8 +31,8 @@ class IModel {
    * @return A unique pointer to an instance of a class that implements the
    * IModel interface.
    */
-  static std::unique_ptr<IModel>
-  create(const std::filesystem::path &model_path);
+  static std::unique_ptr<IModel> create(const std::filesystem::path &model_path,
+                                        bool use_gpu = false);
 
   /* The forward function is a pure virtual function that must be implemented by
    * any class that inherits from the IModel interface. It takes a span of

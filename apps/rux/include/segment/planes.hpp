@@ -9,12 +9,7 @@ namespace fs = std::filesystem;
 
 /// Collection of all options for plane segmentation subcommand.
 struct SubcommandSegPlanesOptions {
-  fs::path cloud_path_in = GlobalParams::cloud;  ///< Input point cloud path
-  fs::path normals_path_in = GlobalParams::normals;  ///< Input normals path
-
-  fs::path planes_path_out = GlobalParams::planes;  ///< Output planes path
-  fs::path plane_centroids_path_out = GlobalParams::plane_centroids;  ///< Output plane centroids path
-  fs::path plane_normals_path_out = GlobalParams::plane_normals;  ///< Output plane normals path
+  fs::path project;  ///< Path to .rux project file (required, positional)
 
   float angle_threshold = 25.0f;  ///< Angular threshold for plane detection (degrees)
   float plane_dist_threshold = 0.07;  ///< Distance threshold for plane detection

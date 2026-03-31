@@ -25,7 +25,8 @@
 namespace ReUseX::vision {
 
 auto annotate(const std::filesystem::path &dbPath,
-              const std::filesystem::path &modelPath) -> int {
+              const std::filesystem::path &modelPath,
+              bool use_cuda) -> int {
   ReUseX::core::trace("calling annotateRT-RTABMap");
 
   // Create backend, model, and dataset
@@ -33,7 +34,7 @@ auto annotate(const std::filesystem::path &dbPath,
   auto backend = BackendFactory::create(backendType);
 
   auto modelType = (backendType == Backend::libtorch) ? Model::yolo : Model::sam3;
-  auto model = backend->create_model(modelType, modelPath);
+  auto model = backend->create_model(modelType, modelPath, use_cuda);
   auto dataset = backend->create_dataset(dbPath);
 
   // Create dataloader with multi-threaded prefetching

@@ -47,5 +47,5 @@ void setup_subcommand_annotate(CLI::App &app) {
 }
 
 int run_subcommand_annotate(SubcommandAnnotateOptions const &opt) {
-  return ReUseX::vision::annotate(opt.database_path_in, opt.net_path);
+  return ReUseX::vision::annotate(opt.database_path_in, opt.net_path, opt.isCuda);
 }

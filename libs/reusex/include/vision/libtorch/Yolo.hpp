@@ -28,14 +28,15 @@ class LibTorchYolo : public IModel {
    * @param use_cuda Whether to use CUDA for inference (falls back to CPU).
    */
   explicit LibTorchYolo(const std::filesystem::path &model_path,
-                        bool use_cuda = true);
+                        bool use_cuda = false);
 
   /** @brief Factory method for creating a LibTorchYolo instance.
    * @param model_path Path to the .pt TorchScript model file.
+   * @param use_cuda Whether to use CUDA for inference (defaults to false).
    * @return Unique pointer to the created model.
    */
   static std::unique_ptr<LibTorchYolo>
-  create(const std::filesystem::path &model_path);
+  create(const std::filesystem::path &model_path, bool use_cuda = false);
 
   /** @brief Run YOLO inference on a batch of images.
    *

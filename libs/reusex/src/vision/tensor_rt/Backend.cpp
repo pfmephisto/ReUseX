@@ -10,7 +10,10 @@ namespace ReUseX::vision::tensor_rt {
 
 std::unique_ptr<IModel>
 TensorRTBackend::create_model(const Model type,
-                              const std::filesystem::path &modelPath) {
+                              const std::filesystem::path &modelPath,
+                              bool use_cuda) {
+  // TensorRT always uses GPU, so use_cuda parameter is ignored
+  (void)use_cuda; // Suppress unused parameter warning
   ReUseX::core::info("Creating TensorRT model type {} from path: {}",
                      static_cast<int>(type), modelPath);
   switch (type) {

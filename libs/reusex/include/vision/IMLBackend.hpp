@@ -22,10 +22,12 @@ class IMLBackend {
    *
    * @param type The type of model to create, specified as an enum value.
    * @param modelPath The filesystem path to the model file.
+   * @param use_cuda Whether to use CUDA for inference (defaults to false).
    * @return A unique pointer to the created IModel object.
    */
   virtual std::unique_ptr<IModel>
-  create_model(const Model type, const std::filesystem::path &modelPath) = 0;
+  create_model(const Model type, const std::filesystem::path &modelPath,
+               bool use_cuda = false) = 0;
 
   /* Creates a dataset from the specified path.
    * @param datasetPath The filesystem path to the dataset.

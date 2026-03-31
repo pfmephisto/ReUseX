@@ -12,6 +12,8 @@
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
 #include <pcl/io/ply_io.h>
+#include <pcl/io/obj_io.h>
+#include <pcl/TextureMesh.h>
 #include <sqlite3.h>
 
 #include <cstring>
@@ -1236,6 +1238,99 @@ class ProjectDB::Impl {
                                std::string(sqlite3_errmsg(db)));
   }
 
+  void saveMesh(std::string_view name, const pcl::TextureMesh &mesh,
+                std::string_view stage, std::string_view paramsJson) {
+    // Serialize texture mesh to OBJ via temp file (preserves texture data)
+    auto tmpPath = std::filesystem::temp_directory_path() /
+                   ("reusex_texmesh_" + std::to_string(reinterpret_cast<uintptr_t>(&mesh)) + ".obj");
+    pcl::io::saveOBJFile(tmpPath.string(), mesh);
+
+    // Read OBJ file and associated MTL file into buffers
+    std::ifstream ifs_obj(tmpPath, std::ios::binary | std::ios::ate);
+    if (!ifs_obj)
+      throw std::runtime_error("Failed to read temporary OBJ file");
+    auto objSize = ifs_obj.tellg();
+    ifs_obj.seekg(0, std::ios::beg);
+    std::vector<char> objData(static_cast<size_t>(objSize));
+    ifs_obj.read(objData.data(), objSize);
+    ifs_obj.close();
+
+    // Read MTL file if it exists
+    auto mtlPath = tmpPath;
+    mtlPath.replace_extension(".mtl");
+    std::vector<char> mtlData;
+    if (std::filesystem::exists(mtlPath)) {
+      std::ifstream ifs_mtl(mtlPath, std::ios::binary | std::ios::ate);
+      if (ifs_mtl) {
+        auto mtlSize = ifs_mtl.tellg();
+        ifs_mtl.seekg(0, std::ios::beg);
+        mtlData.resize(static_cast<size_t>(mtlSize));
+        ifs_mtl.read(mtlData.data(), mtlSize);
+        ifs_mtl.close();
+      }
+    }
+
+    std::filesystem::remove(tmpPath);
+    if (std::filesystem::exists(mtlPath))
+      std::filesystem::remove(mtlPath);
+
+    // Combine OBJ and MTL data with a separator
+    std::vector<char> combinedData = objData;
+    if (!mtlData.empty()) {
+      combinedData.push_back('\0'); // Null separator
+      combinedData.insert(combinedData.end(), mtlData.begin(), mtlData.end());
+    }
+
+    // Count vertices and faces
+    int vertexCount = 0;
+    int faceCount = 0;
+    for (const auto &poly_group : mesh.tex_polygons)
+      faceCount += static_cast<int>(poly_group.size());
+    if (mesh.cloud.height > 0)
+      vertexCount = static_cast<int>(mesh.cloud.width * mesh.cloud.height);
+
+    const char *upsert = R"(
+      INSERT INTO meshes (name, format, data, vertex_count, face_count, stage, parameters)
+      VALUES (?, 'obj_textured', ?, ?, ?, ?, ?)
+      ON CONFLICT(name) DO UPDATE SET
+        format = excluded.format,
+        data = excluded.data,
+        vertex_count = excluded.vertex_count,
+        face_count = excluded.face_count,
+        created_at = datetime('now'),
+        stage = excluded.stage,
+        parameters = excluded.parameters;
+    )";
+
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, upsert, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to prepare texture mesh upsert: " +
+                               std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+
+    sqlite3_bind_text(stmt, 1, name.data(),
+                      static_cast<int>(name.size()), SQLITE_TRANSIENT);
+    sqlite3_bind_blob(stmt, 2, combinedData.data(),
+                      static_cast<int>(combinedData.size()), SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 3, vertexCount);
+    sqlite3_bind_int(stmt, 4, faceCount);
+    if (!stage.empty())
+      sqlite3_bind_text(stmt, 5, stage.data(),
+                        static_cast<int>(stage.size()), SQLITE_TRANSIENT);
+    else
+      sqlite3_bind_null(stmt, 5);
+    if (!paramsJson.empty())
+      sqlite3_bind_text(stmt, 6, paramsJson.data(),
+                        static_cast<int>(paramsJson.size()),
+                        SQLITE_TRANSIENT);
+    else
+      sqlite3_bind_null(stmt, 6);
+
+    if (sqlite3_step(stmt) != SQLITE_DONE)
+      throw std::runtime_error("Failed to upsert texture mesh: " +
+                               std::string(sqlite3_errmsg(db)));
+  }
+
   pcl::PolygonMesh::Ptr getMesh(std::string_view name) const {
     const char *sql = "SELECT data FROM meshes WHERE name = ?;";
     sqlite3_stmt *stmt;
@@ -1267,6 +1362,68 @@ class ProjectDB::Impl {
       throw std::runtime_error("Failed to parse PLY mesh data");
     }
     std::filesystem::remove(tmpPath);
+    return mesh;
+  }
+
+  pcl::TextureMesh::Ptr getTextureMesh(std::string_view name) const {
+    const char *sql = "SELECT format, data FROM meshes WHERE name = ?;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to prepare texture mesh load");
+    StmtGuard guard(stmt);
+    sqlite3_bind_text(stmt, 1, name.data(),
+                      static_cast<int>(name.size()), SQLITE_TRANSIENT);
+
+    if (sqlite3_step(stmt) != SQLITE_ROW)
+      throw std::runtime_error("Texture mesh not found: " + std::string(name));
+
+    const char *format = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
+    if (std::string(format) != "obj_textured")
+      throw std::runtime_error("Mesh '" + std::string(name) + "' is not a texture mesh (format: " + std::string(format) + ")");
+
+    const void *blob = sqlite3_column_blob(stmt, 1);
+    int blobSize = sqlite3_column_bytes(stmt, 1);
+
+    // Find null separator between OBJ and MTL data
+    const char *blobData = static_cast<const char *>(blob);
+    const char *separator = std::find(blobData, blobData + blobSize, '\0');
+    int objSize = static_cast<int>(separator - blobData);
+
+    // Write OBJ file
+    auto tmpPath = std::filesystem::temp_directory_path() /
+                   ("reusex_texmesh_load_" +
+                    std::to_string(std::hash<std::string>{}(std::string(name))) +
+                    ".obj");
+    {
+      std::ofstream ofs(tmpPath, std::ios::binary);
+      ofs.write(blobData, objSize);
+    }
+
+    // Write MTL file if present
+    if (separator != blobData + blobSize && separator + 1 < blobData + blobSize) {
+      auto mtlPath = tmpPath;
+      mtlPath.replace_extension(".mtl");
+      std::ofstream ofs(mtlPath, std::ios::binary);
+      ofs.write(separator + 1, blobSize - objSize - 1);
+    }
+
+    auto mesh = std::make_shared<pcl::TextureMesh>();
+    if (pcl::io::loadOBJFile(tmpPath.string(), *mesh) < 0) {
+      std::filesystem::remove(tmpPath);
+      auto mtlPath = tmpPath;
+      mtlPath.replace_extension(".mtl");
+      if (std::filesystem::exists(mtlPath))
+        std::filesystem::remove(mtlPath);
+      throw std::runtime_error("Failed to parse OBJ texture mesh data");
+    }
+
+    // Clean up temp files
+    std::filesystem::remove(tmpPath);
+    auto mtlPath = tmpPath;
+    mtlPath.replace_extension(".mtl");
+    if (std::filesystem::exists(mtlPath))
+      std::filesystem::remove(mtlPath);
+
     return mesh;
   }
 
@@ -2045,8 +2202,18 @@ void ProjectDB::save_mesh(std::string_view name, const pcl::PolygonMesh &mesh,
   impl_->saveMesh(name, mesh, stage, paramsJson);
 }
 
+void ProjectDB::save_mesh(std::string_view name, const pcl::TextureMesh &mesh,
+                           std::string_view stage,
+                           std::string_view paramsJson) {
+  impl_->saveMesh(name, mesh, stage, paramsJson);
+}
+
 pcl::PolygonMesh::Ptr ProjectDB::mesh(std::string_view name) const {
   return impl_->getMesh(name);
+}
+
+pcl::TextureMesh::Ptr ProjectDB::texture_mesh(std::string_view name) const {
+  return impl_->getTextureMesh(name);
 }
 
 bool ProjectDB::has_mesh(std::string_view name) const {

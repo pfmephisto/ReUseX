@@ -11,13 +11,8 @@ namespace fs = std::filesystem;
 
 /// Collection of all options of Subcommand A.
 struct SubcommandMeshOptions {
-  fs::path cloud_path_in = GlobalParams::cloud;
-  fs::path normals_path_in = GlobalParams::normals;
-  fs::path planes_path_in = GlobalParams::planes;
-  fs::path plane_centroids_path_in = GlobalParams::plane_centroids;
-  fs::path plane_normals_path_in = GlobalParams::plane_normals;
-  fs::path rooms_path_in = GlobalParams::rooms;
-  fs::path output_out = fs::current_path() / "mesh.ply";
+  fs::path project;  ///< Path to .rux project file (required, positional)
+  std::string output_mesh_name = "mesh";  ///< Mesh name in ProjectDB
 
   float grid_size = GlobalParams::grid_size;
 

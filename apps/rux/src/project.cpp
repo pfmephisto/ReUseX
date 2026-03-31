@@ -8,14 +8,13 @@
 #include <CLI/CLI.hpp>
 #include <spdlog/spdlog.h>
 
-// #include <fmt/color.h>
+#include <fmt/format.h>
 #include <fmt/std.h>
 
-#include <reusex/io/reusex.hpp>
+#include <reusex/core/ProjectDB.hpp>
 #include <reusex/vision/project.hpp>
 
 #include <pcl/common/common.h>
-#include <pcl/io/auto_io.h>
 #include <pcl/visualization/pcl_visualizer.h>
 
 #include <range/v3/to_container.hpp>
@@ -29,18 +28,12 @@ void setup_subcommand_project(CLI::App &app) {
 
   auto opt = std::make_shared<SubcommandProjectOptions>();
   auto *sub = app.add_subcommand(
-      "project", "Project labes for the dataset on the the point cloud.");
+      "project", "Project labels from the dataset onto the point cloud.");
 
-  sub->add_option("databae", opt->database_path_in,
-                  "Path to the database file.")
-      ->default_val(opt->database_path_in);
-
-  sub->add_option("cloud", opt->cloud_path_in, "Path to the input cloud file.")
-      ->default_val(opt->cloud_path_in);
-
-  sub->add_option("labels", opt->labels_path_out,
-                  "Path to the output labels file.")
-      ->default_val(opt->labels_path_out);
+  sub->add_option("project", opt->project,
+                  "Path to the .rux project file.")
+      ->required()
+      ->check(CLI::ExistingFile);
 
   sub->callback([opt]() {
     spdlog::trace("calling run_subcommand_project");
@@ -49,29 +42,29 @@ void setup_subcommand_project(CLI::App &app) {
 };
 
 int run_subcommand_project(SubcommandProjectOptions const &opt) {
+  spdlog::info("Projecting labels in project: {}", opt.project.string());
 
-  //// INFO: Setup viewer and vizualiztion queue
-  //// INFO: Setup viewer and vizualiztion
-  /// queue/std::shared_ptr<ReUseX::visualize::Visualizer> viewer;
-  // auto vps = std::make_shared<std::vector<int>>();
-  // vps->resize(4);
-  // if (opt.display) {
-  //   spdlog::trace("Setting up visualization thread and queue");
-  //   viewer = std::make_shared<ReUseX::visualize::Visualizer>(vps);
-  //   spdlog::debug("VPs: {}", fmt::join(*vps, ", "));
-  // }
+  try {
+    ReUseX::ProjectDB db(opt.project);
 
-  assert(fs::exists(opt.database_path_in) &&
-         "Input database file does not exist");
-  assert(fs::exists(opt.cloud_path_in) &&
-         "Input point cloud file does not exist");
+    int logId = db.log_pipeline_start("project_labels");
 
-  CloudPtr cloud(new Cloud);
-  spdlog::trace("Reading {:<8} file: {}", "input", opt.cloud_path_in);
-  pcl::io::load<PointT>(opt.cloud_path_in.string(), *cloud);
+    spdlog::trace("Loading point cloud from ProjectDB");
+    auto cloud = db.point_cloud_xyzrgb("cloud");
 
-  CloudLPtr labels = ReUseX::vision::project(opt.database_path_in, cloud);
-  pcl::io::save(opt.labels_path_out.string(), *labels);
+    spdlog::trace("Projecting labels from sensor frames");
+    CloudLPtr labels = ReUseX::vision::project(opt.project, cloud);
 
-  return RuxError::SUCCESS;
+    spdlog::trace("Saving projected labels to ProjectDB");
+    db.save_point_cloud("labels", *labels, "project_labels");
+
+    spdlog::info("Label projection complete");
+
+    db.log_pipeline_end(logId, true);
+    return RuxError::SUCCESS;
+
+  } catch (const std::exception &e) {
+    spdlog::error("Label projection failed: {}", e.what());
+    return RuxError::GENERIC;
+  }
 }

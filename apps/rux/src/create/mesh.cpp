@@ -35,12 +35,11 @@ namespace fs = std::filesystem;
 void setup_subcommand_create_mesh(CLI::App &app) {
 
   auto opt = std::make_shared<SubcommandMeshOptions>();
-  auto *sub = app.add_subcommand(
-      "mesh",
-      "Generate a watertight 3D mesh by computing best-fit volumes from segmented planes");
+  auto *sub =
+      app.add_subcommand("mesh", "Generate a watertight 3D mesh by computing "
+                                 "best-fit volumes from segmented planes");
 
-  sub->add_option("project", opt->project,
-                  "Path to the .rux project file.")
+  sub->add_option("project", opt->project, "Path to the .rux project file.")
       ->required()
       ->check(CLI::ExistingFile);
 
@@ -84,10 +83,12 @@ int run_subcommand_mesh(SubcommandMeshOptions const &opt) {
   try {
     ReUseX::ProjectDB db(opt.project);
 
-    int logId = db.log_pipeline_start("mesh_generation",
-        fmt::format(R"({{"angle_threshold":{},"distance_threshold":{},"search_threshold":{},"new_plane_offset":{}}})",
-                    opt.angle_threshold, opt.distance_threshold,
-                    opt.search_threshold, opt.new_plane_offset));
+    int logId = db.log_pipeline_start(
+        "mesh_generation",
+        fmt::format(
+            R"({{"angle_threshold":{},"distance_threshold":{},"search_threshold":{},"new_plane_offset":{}}})",
+            opt.angle_threshold, opt.distance_threshold, opt.search_threshold,
+            opt.new_plane_offset));
 
     spdlog::trace("Loading point clouds from ProjectDB");
     auto cloud = db.point_cloud_xyzrgb("cloud");
@@ -97,9 +98,9 @@ int run_subcommand_mesh(SubcommandMeshOptions const &opt) {
     auto plane_centroids = db.point_cloud_xyz("plane_centroids");
     auto plane_normals = db.point_cloud_normal("plane_normals");
 
-    // TODO: Add comprehensive input size validation with detailed error messages
-    // category=CLI estimate=30m
-    // Current validation only checks a subset of input files. Should validate all:
+    // TODO: Add comprehensive input size validation with detailed error
+    // messages category=CLI estimate=30m Current validation only checks a
+    // subset of input files. Should validate all:
     // 1. Check cloud, rooms, normals, plane_labels all have same size
     // 2. Verify plane_normals and plane_centroids have expected dimensions
     // 3. Provide specific error message showing actual vs expected sizes

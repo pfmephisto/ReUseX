@@ -11,8 +11,9 @@
 
 void setup_subcommand_create_clouds(CLI::App &app) {
   auto opt = std::make_shared<SubcommandCreateCloudsOptions>();
-  auto *sub = app.add_subcommand(
-      "clouds", "Generate 3D point clouds by reconstructing depth data from sensor frames");
+  auto *sub =
+      app.add_subcommand("clouds", "Generate 3D point clouds by reconstructing "
+                                   "depth data from sensor frames");
 
   sub->add_option("project", opt->project,
                   "Path to the ReUseX project database (.rux).")
@@ -50,6 +51,13 @@ int run_subcommand_create_clouds(SubcommandCreateCloudsOptions const &opt) {
 
   ReUseX::ProjectDB db(opt.project);
 
+  int logId = db.log_pipeline_start(
+      "cloud_reconstruction",
+      fmt::format(
+          R"({{"resolution":{},"min_distance":{},"max_distance":{},"sampling_factor":{},"confidence_threshold":{}}})",
+          opt.resolution, opt.min_distance, opt.max_distance,
+          opt.sampling_factor, opt.confidence_threshold));
+
   ReUseX::geometry::ReconstructionParams params;
   params.resolution = opt.resolution;
   params.min_distance = opt.min_distance;
@@ -57,7 +65,15 @@ int run_subcommand_create_clouds(SubcommandCreateCloudsOptions const &opt) {
   params.sampling_factor = opt.sampling_factor;
   params.confidence_threshold = opt.confidence_threshold;
 
+  // TODO: Add check for errors in reconstruction and log failure if needed
   ReUseX::geometry::reconstruct_point_clouds(db, params);
+  // if (/*failure condition*/) {
+  //   db.log_pipeline_end(logId, false);
+  //   spdlog::error("Point cloud reconstruction failed");
+  //   return RuxError::FAILURE;
+  // }
+
+  db.log_pipeline_end(logId, true);
 
   spdlog::info("Point cloud reconstruction complete");
   return RuxError::SUCCESS;

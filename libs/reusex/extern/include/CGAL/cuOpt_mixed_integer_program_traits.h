@@ -18,7 +18,6 @@
 #include <cmath>
 #include <iostream>
 #include <string>
-#include <unordered_map>
 #include <vector>
 #include <sstream>
 
@@ -83,9 +82,6 @@ public:
           col_lower[i] = 0.0;
           col_upper[i] = 1.0;
           break;
-        default:
-          Base_class::error_message_ = "cuOpt: unknown variable type";
-          return false;
       }
     }
 
@@ -325,6 +321,6 @@ public:
 
 } // namespace CGAL
 
-#endif // USE_CUOPT or DOXYGEN_RUNNING
+#endif // CGAL_USE_CUOPT or DOXYGEN_RUNNING
 
 #endif // CGAL_CUOPT_MIXED_INTEGER_PROGRAM_TRAITS_H

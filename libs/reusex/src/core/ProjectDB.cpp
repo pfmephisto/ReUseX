@@ -1995,6 +1995,186 @@ class ProjectDB::Impl {
       throw;
     }
   }
+
+  // ── Pipeline Log ───────────────────────────────────────────────────
+
+  std::vector<ProjectDB::PipelineLogEntry> getPipelineLog(int limit) const {
+    std::string sql = "SELECT id, stage, started_at, finished_at, parameters, status, error_msg FROM pipeline_log ORDER BY id DESC";
+    if (limit > 0) {
+      sql += " LIMIT " + std::to_string(limit);
+    }
+    sql += ";";
+
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to query pipeline log: " +
+                               std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+
+    std::vector<ProjectDB::PipelineLogEntry> entries;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+      ProjectDB::PipelineLogEntry entry;
+      entry.id = sqlite3_column_int(stmt, 0);
+
+      const char *stage = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1));
+      entry.stage = stage ? stage : "";
+
+      const char *started = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 2));
+      entry.started_at = started ? started : "";
+
+      const char *finished = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 3));
+      entry.finished_at = finished ? finished : "";
+
+      const char *params = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 4));
+      entry.parameters = params ? params : "";
+
+      const char *status = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 5));
+      entry.status = status ? status : "";
+
+      const char *error = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 6));
+      entry.error_msg = error ? error : "";
+
+      entries.push_back(std::move(entry));
+    }
+    return entries;
+  }
+
+  // ── Project Summary ────────────────────────────────────────────────
+
+  ProjectDB::ProjectSummary getProjectSummary() const {
+    ProjectDB::ProjectSummary summary;
+    summary.path = dbPath;
+    summary.schema_version = getCurrentSchemaVersion();
+
+    // Query point clouds
+    {
+      const char *sql = "SELECT name, point_type, point_count, width, height FROM point_clouds ORDER BY id;";
+      sqlite3_stmt *stmt;
+      if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+        throw std::runtime_error("Failed to query point clouds: " +
+                                 std::string(sqlite3_errmsg(db)));
+      StmtGuard guard(stmt);
+
+      while (sqlite3_step(stmt) == SQLITE_ROW) {
+        ProjectDB::ProjectSummary::CloudInfo cloud;
+        cloud.name = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
+        cloud.type = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1));
+        cloud.point_count = static_cast<size_t>(sqlite3_column_int64(stmt, 2));
+        cloud.width = static_cast<size_t>(sqlite3_column_int(stmt, 3));
+        cloud.height = static_cast<size_t>(sqlite3_column_int(stmt, 4));
+        cloud.organized = cloud.height > 1;
+
+        // Load label definitions if this is a Label cloud
+        if (cloud.type == "Label") {
+          cloud.labels = getLabelDefinitions(cloud.name);
+        }
+
+        summary.clouds.push_back(std::move(cloud));
+      }
+    }
+
+    // Query meshes
+    {
+      const char *sql = "SELECT name, vertex_count, face_count FROM meshes ORDER BY id;";
+      sqlite3_stmt *stmt;
+      if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+        throw std::runtime_error("Failed to query meshes: " +
+                                 std::string(sqlite3_errmsg(db)));
+      StmtGuard guard(stmt);
+
+      while (sqlite3_step(stmt) == SQLITE_ROW) {
+        ProjectDB::ProjectSummary::MeshInfo mesh;
+        mesh.name = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
+        mesh.vertex_count = sqlite3_column_int(stmt, 1);
+        mesh.face_count = sqlite3_column_int(stmt, 2);
+        summary.meshes.push_back(std::move(mesh));
+      }
+    }
+
+    // Query sensor frames
+    {
+      // Get total count
+      const char *count_sql = "SELECT COUNT(*) FROM sensor_frames;";
+      sqlite3_stmt *stmt;
+      if (sqlite3_prepare_v2(db, count_sql, -1, &stmt, nullptr) != SQLITE_OK)
+        throw std::runtime_error("Failed to count sensor frames: " +
+                                 std::string(sqlite3_errmsg(db)));
+      StmtGuard count_guard(stmt);
+
+      if (sqlite3_step(stmt) == SQLITE_ROW) {
+        summary.sensor_frames.total_count = sqlite3_column_int(stmt, 0);
+      } else {
+        summary.sensor_frames.total_count = 0;
+      }
+    }
+
+    // Get dimensions from first frame if any exist
+    if (summary.sensor_frames.total_count > 0) {
+      const char *dim_sql = "SELECT camera_model FROM sensor_frames LIMIT 1;";
+      sqlite3_stmt *stmt;
+      if (sqlite3_prepare_v2(db, dim_sql, -1, &stmt, nullptr) != SQLITE_OK)
+        throw std::runtime_error("Failed to query sensor frame dimensions: " +
+                                 std::string(sqlite3_errmsg(db)));
+      StmtGuard dim_guard(stmt);
+
+      if (sqlite3_step(stmt) == SQLITE_ROW) {
+        const char *json_text = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
+        if (json_text) {
+          try {
+            auto intrinsics = ReUseX::core::SensorIntrinsics::from_json(json_text);
+            summary.sensor_frames.width = intrinsics.width;
+            summary.sensor_frames.height = intrinsics.height;
+          } catch (...) {
+            summary.sensor_frames.width = 0;
+            summary.sensor_frames.height = 0;
+          }
+        } else {
+          summary.sensor_frames.width = 0;
+          summary.sensor_frames.height = 0;
+        }
+      } else {
+        summary.sensor_frames.width = 0;
+        summary.sensor_frames.height = 0;
+      }
+    } else {
+      summary.sensor_frames.width = 0;
+      summary.sensor_frames.height = 0;
+    }
+
+    // Get segmented count
+    {
+      const char *seg_sql = "SELECT COUNT(*) FROM segmentation_images;";
+      sqlite3_stmt *stmt;
+      if (sqlite3_prepare_v2(db, seg_sql, -1, &stmt, nullptr) != SQLITE_OK)
+        throw std::runtime_error("Failed to count segmentation images: " +
+                                 std::string(sqlite3_errmsg(db)));
+      StmtGuard seg_guard(stmt);
+
+      if (sqlite3_step(stmt) == SQLITE_ROW) {
+        summary.sensor_frames.segmented_count = sqlite3_column_int(stmt, 0);
+      } else {
+        summary.sensor_frames.segmented_count = 0;
+      }
+    }
+
+    // Query material passports
+    {
+      const char *sql = "SELECT COUNT(*) FROM material_passports;";
+      sqlite3_stmt *stmt;
+      if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+        throw std::runtime_error("Failed to count material passports: " +
+                                 std::string(sqlite3_errmsg(db)));
+      StmtGuard guard(stmt);
+
+      if (sqlite3_step(stmt) == SQLITE_ROW) {
+        summary.material_passport_count = sqlite3_column_int(stmt, 0);
+      } else {
+        summary.material_passport_count = 0;
+      }
+    }
+
+    return summary;
+  }
 };
 
 // ── Public Interface Implementation ─────────────────────────────────────
@@ -2256,6 +2436,16 @@ ProjectDB::all_material_passports() const {
 void ProjectDB::add_material_passport(const ReUseX::core::MaterialPassport &passport,
                                       std::string_view projectId) {
   impl_->addMaterialPassport(passport, projectId);
+}
+
+// --- Project Summary ---
+
+ProjectDB::ProjectSummary ProjectDB::project_summary() const {
+  return impl_->getProjectSummary();
+}
+
+std::vector<ProjectDB::PipelineLogEntry> ProjectDB::pipeline_log(int limit) const {
+  return impl_->getPipelineLog(limit);
 }
 
 } // namespace ReUseX

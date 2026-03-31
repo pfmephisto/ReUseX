@@ -151,6 +151,54 @@ class ProjectDB {
   void log_pipeline_end(int logId, bool success,
                         std::string_view errorMsg = "");
 
+  struct PipelineLogEntry {
+    int id;
+    std::string stage;
+    std::string started_at;
+    std::string finished_at;  // Empty if still running
+    std::string parameters;   // JSON string
+    std::string status;       // "running", "success", "failed"
+    std::string error_msg;    // Empty if no error
+  };
+
+  std::vector<PipelineLogEntry> pipeline_log(int limit = 0) const;
+
+  // --- Project Summary ---
+
+  struct ProjectSummary {
+    struct CloudInfo {
+      std::string name;
+      std::string type;           // "PointXYZRGB", "Normal", "Label", "PointXYZ"
+      size_t point_count;
+      size_t width;
+      size_t height;
+      bool organized;             // height > 1
+      std::map<int, std::string> labels;  // Only for Label clouds
+    };
+
+    struct MeshInfo {
+      std::string name;
+      int vertex_count;
+      int face_count;
+    };
+
+    struct SensorFrameInfo {
+      int total_count;
+      int width;                  // 0 if no frames
+      int height;                 // 0 if no frames
+      int segmented_count;        // frames with segmentation
+    };
+
+    std::filesystem::path path;
+    int schema_version;
+    std::vector<CloudInfo> clouds;
+    std::vector<MeshInfo> meshes;
+    SensorFrameInfo sensor_frames;
+    int material_passport_count;
+  };
+
+  ProjectSummary project_summary() const;
+
   // --- Material Passport Operations ---
 
   core::MaterialPassport material_passport(std::string_view documentGuid) const;

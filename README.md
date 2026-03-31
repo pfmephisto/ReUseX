@@ -1,10 +1,9 @@
-<!--
-SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
-
-SPDX-License-Identifier: GPL-3.0-or-later
+<!-- SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen SPDX-License-Identifier: GPL-3.0-or-later
 -->
 
 # ReUseX
+
+⚠️ **Warning: This project is in active development and will regularly be introducing breaking changes**
 
 ![](assets/banner.png)
 
@@ -69,7 +68,7 @@ cmake --build build
 - `-DBUILD_DOCUMENTATION=ON/OFF` - Enable/disable documentation generation (default: ON)
 - `-DGUI_ENABLED=ON/OFF` - Enable/disable CGAL GUI features (default: OFF)
 
-**Note on Visualization:** The visualization functionality (including `rux view` and `rux mesh` commands) can be optionally disabled by setting `-DBUILD_VISUALIZATION=OFF`. This reduces dependencies and build time if you only need the core processing functionality.
+**Note on Visualization:** The visualization functionality (including `rux view` and `rux create mesh` commands) can be optionally disabled by setting `-DBUILD_VISUALIZATION=OFF`. This reduces dependencies and build time if you only need the core processing functionality.
 
 ### Building API Documentation
 
@@ -126,26 +125,22 @@ rux --help
 rux -vv <subcommand>
 
 # Import scan data from various sources
-rux import rtabmap <path>      # Import from RTABMap database
+rux import rtabmap <path>              # Import from RTABMap database
 
-# Segment point cloud into components
-rux segment planes <options>   # Detect and segment planar surfaces
-rux segment rooms <options>    # Segment into rooms
-
-# Generate 3D mesh from point cloud
-rux mesh <options>
-
-# Apply textures to mesh
-rux texture <options>
+# Create derived data products (all creation operations)
+rux create clouds <options>            # Generate point clouds from sensor frames
+rux create annotate <options>          # Annotate with semantic information
+rux create planes <options>            # Detect and segment planar surfaces
+rux create rooms <options>             # Segment into rooms
+rux create mesh <options>              # Generate 3D mesh from point cloud
+rux create project <options>           # Project labels onto point clouds
+rux create texture <options>           # Apply textures to mesh
 
 # Export results in various formats
 rux export <options>
 
 # Visualize point clouds and results
 rux view <options>
-
-# Annotate point clouds with semantic information
-rux annotate <options>
 
 # Assemble multiple scans into unified model
 rux assemble <options>

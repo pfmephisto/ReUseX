@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #pragma once
-#include "global-params.hpp"
+#include "../global-params.hpp"
 
 #include <CLI/CLI.hpp>
 #include <filesystem>
@@ -20,5 +20,5 @@ struct SubcommandAnnotateOptions {
 };
 
 // Function declarations.
-void setup_subcommand_annotate(CLI::App &app);
+void setup_subcommand_create_annotate(CLI::App &app);
 int run_subcommand_annotate(SubcommandAnnotateOptions const &opt);

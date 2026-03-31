@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "annotate.hpp"
+#include "create/annotate.hpp"
 
 #include "spdmon.hpp"
 #include <reusex/utils/fmt_formatter.hpp>
@@ -18,14 +18,12 @@
 
 namespace fs = std::filesystem;
 
-void setup_subcommand_annotate(CLI::App &app) {
+void setup_subcommand_create_annotate(CLI::App &app) {
 
   // Create the option and subcommand objects.
   auto opt = std::make_shared<SubcommandAnnotateOptions>();
   auto *sub = app.add_subcommand(
-      "annotate", "Annotate a ReUseX project database and "
-                  "export a point cloud with labels and normals, "
-                  "and the trajectory.");
+      "annotate", "Run semantic segmentation inference on sensor frames using ML models (YOLO/SAM2)");
 
   sub->add_option("database", opt->database_path_in,
                   "Path to the ReUseX project database file (.rux).")

@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "segment/rooms.hpp"
+#include "create/rooms.hpp"
 #include "pcl/markov_clustering.hpp"
 #include "spdmon.hpp"
 #include <reusex/core/ProjectDB.hpp>
@@ -40,12 +40,12 @@ namespace fs = std::filesystem;
  *
  * @param app CLI application to add the subcommand to.
  */
-void setup_subcommand_segment_rooms(CLI::App &app) {
+void setup_subcommand_create_rooms(CLI::App &app) {
 
   auto opt = std::make_shared<SubcommandSegRoomsOptions>();
   auto *sub = app.add_subcommand(
       "rooms",
-      "Segment rooms using Markov clustering based on visual relationships.");
+      "Segment rooms using Markov clustering based on spatial relationships between planes");
 
   sub->add_option("project", opt->project,
                   "Path to the .rux project file.")

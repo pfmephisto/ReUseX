@@ -12,7 +12,7 @@
 void setup_subcommand_create_clouds(CLI::App &app) {
   auto opt = std::make_shared<SubcommandCreateCloudsOptions>();
   auto *sub = app.add_subcommand(
-      "clouds", "Generate point clouds from imported sensor frames.");
+      "clouds", "Generate 3D point clouds by reconstructing depth data from sensor frames");
 
   sub->add_option("project", opt->project,
                   "Path to the ReUseX project database (.rux).")

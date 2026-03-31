@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "texture.hpp"
+#include "create/texture.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/geometry/texture_mesh.hpp>
@@ -14,7 +14,7 @@
 
 #include <Eigen/Dense>
 
-void setup_subcommand_texture(CLI::App &app) {
+void setup_subcommand_create_texture(CLI::App &app) {
   auto opt = std::make_shared<SubcommandTextureOptions>();
   auto *sub = app.add_subcommand(
       "texture",

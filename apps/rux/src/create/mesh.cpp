@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "mesh.hpp"
+#include "create/mesh.hpp"
 #include "processing_observer.hpp"
 
 #include <CLI/CLI.hpp>
@@ -32,12 +32,12 @@
 
 namespace fs = std::filesystem;
 
-void setup_subcommand_mesh(CLI::App &app) {
+void setup_subcommand_create_mesh(CLI::App &app) {
 
   auto opt = std::make_shared<SubcommandMeshOptions>();
   auto *sub = app.add_subcommand(
       "mesh",
-      "Generate a mesh by computing best-fit volumes from segmented planes.");
+      "Generate a watertight 3D mesh by computing best-fit volumes from segmented planes");
 
   sub->add_option("project", opt->project,
                   "Path to the .rux project file.")

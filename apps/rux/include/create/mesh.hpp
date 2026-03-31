@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #pragma once
-#include "global-params.hpp"
+#include "../global-params.hpp"
 #include <CLI/CLI.hpp>
 #include <string>
 
@@ -24,5 +24,5 @@ struct SubcommandMeshOptions {
 };
 
 // Function declarations.
-void setup_subcommand_mesh(CLI::App &app);
+void setup_subcommand_create_mesh(CLI::App &app);
 int run_subcommand_mesh(SubcommandMeshOptions const &opt);

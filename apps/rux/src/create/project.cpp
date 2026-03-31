@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "curand_globals.h"
-#include <project.hpp>
+#include "create/project.hpp"
 
 #include <CLI/CLI.hpp>
 #include <spdlog/spdlog.h>
@@ -24,11 +24,11 @@
 
 namespace fs = std::filesystem;
 
-void setup_subcommand_project(CLI::App &app) {
+void setup_subcommand_create_project(CLI::App &app) {
 
   auto opt = std::make_shared<SubcommandProjectOptions>();
   auto *sub = app.add_subcommand(
-      "project", "Project labels from the dataset onto the point cloud.");
+      "project", "Project 2D segmentation labels from sensor frames onto the 3D point cloud");
 
   sub->add_option("project", opt->project,
                   "Path to the .rux project file.")

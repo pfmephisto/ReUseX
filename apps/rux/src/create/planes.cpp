@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "segment/planes.hpp"
+#include "create/planes.hpp"
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/geometry/segment_planes.hpp>
 
@@ -25,10 +25,10 @@ namespace fs = std::filesystem;
  * 
  * @param app CLI application to add the subcommand to.
  */
-void setup_subcommand_segment_planes(CLI::App &app) {
+void setup_subcommand_create_planes(CLI::App &app) {
 
   auto opt = std::make_shared<SubcommandSegPlanesOptions>();
-  auto *sub = app.add_subcommand("planes", "Segment planes in a point cloud");
+  auto *sub = app.add_subcommand("planes", "Detect and segment planar surfaces (walls, floors, ceilings) in a point cloud");
 
   sub->get_formatter()->column_width(40);
 

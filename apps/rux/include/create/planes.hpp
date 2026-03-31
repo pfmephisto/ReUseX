@@ -25,7 +25,7 @@ struct SubcommandSegPlanesOptions {
  * @brief Setup the segment planes subcommand in the CLI application.
  * @param app CLI application to add the subcommand to.
  */
-void setup_subcommand_segment_planes(CLI::App &app);
+void setup_subcommand_create_planes(CLI::App &app);
 
 /**
  * @brief Run the segment planes subcommand with given options.

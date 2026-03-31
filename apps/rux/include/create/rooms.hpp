@@ -25,7 +25,7 @@ struct SubcommandSegRoomsOptions {
  * @brief Setup the segment rooms subcommand in the CLI application.
  * @param app CLI application to add the subcommand to.
  */
-void setup_subcommand_segment_rooms(CLI::App &app);
+void setup_subcommand_create_rooms(CLI::App &app);
 
 /**
  * @brief Run the segment rooms subcommand with given options.

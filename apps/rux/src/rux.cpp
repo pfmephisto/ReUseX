@@ -2,18 +2,13 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include <annotate.hpp>
 #include <assemble.hpp>
 #include <create.hpp>
 #include <export.hpp>
 #include <import.hpp>
 #include <info.hpp>
 #include <log.hpp>
-#include <mesh.hpp>
 #include <processing_observer.hpp>
-#include <project.hpp>
-#include <segment.hpp>
-#include <texture.hpp>
 #include <view.hpp>
 
 #include <reusex/core/logging.hpp>
@@ -117,23 +112,12 @@ int main(int argc, char **argv) {
       ->default_val(false);
 
   setup_subcommand_assemble(app);
-
   setup_subcommand_create(app);
   setup_subcommand_import(app);
   setup_subcommand_export(app);
-
-  setup_subcommand_annotate(app);
-
-  setup_subcommand_segment(app);
-
-  setup_subcommand_project(app);
-
   setup_subcommand_info(app);
   setup_subcommand_log(app);
-
-  setup_subcommand_texture(app);
   setup_subcommand_view(app);
-  setup_subcommand_mesh(app);
 
   app.require_subcommand(/* min */ 0, /* max */ 2);
 

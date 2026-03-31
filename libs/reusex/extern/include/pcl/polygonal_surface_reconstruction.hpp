@@ -159,14 +159,29 @@ class PCL_EXPORTS PolygonalSurfaceReconstruction : public PCLBase<PointT> {
    */
   inline double getComplexityParam() const { return (complexity_); }
 
-  // TODO: Add comprehensive documentation for segment() method
-  // category=Documentation estimate=30m
-  // Missing Doxygen documentation describing:
-  // \param[out] output - The reconstructed polygonal mesh surface
-  // \brief Performs polygonal surface reconstruction using CGAL optimization
-  // Converts labeled planar regions into watertight polygonal mesh using
-  // mixed-integer programming for optimal surface selection
-  /** \brief    */
+  /** \brief Performs polygonal surface reconstruction from labeled planar regions.
+   *
+   * Converts input point clouds with labeled planar regions into a watertight
+   * polygonal mesh using CGAL's Polygonal Surface Reconstruction algorithm.
+   * Uses mixed-integer programming to optimize surface selection based on
+   * data fitting, point coverage, and model complexity.
+   *
+   * \par Prerequisites
+   * Must set input cloud (setInputCloud), normals (setInputNormals), and
+   * labels (setInputLabels) before calling. Labels should be 1-based indices
+   * (1, 2, 3, ...) indicating planar region membership.
+   *
+   * \par Parameters
+   * Reconstruction controlled by fitting (default: 0.20), coverage (0.10),
+   * and complexity (0.70). Higher fitting = closer to input points. Higher
+   * coverage = more points covered. Higher complexity = simpler meshes.
+   *
+   * \param[out] output Reconstructed polygonal mesh. Empty on failure.
+   *
+   * \see setInputCloud(), setInputNormals(), setInputLabels()
+   * \see setFittingParam(), setCoverageParam(), setComplexityParam()
+   * \see CGAL::Polygonal_surface_reconstruction
+   */
   void segment(pcl::PolygonMesh &output) {
 
     spdlog::trace("Solid Model Construction: segment() called");

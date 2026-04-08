@@ -20,9 +20,8 @@
 
 namespace ReUseX::geometry {
 
-struct SegmentPlanesRequest {
-  CloudConstPtr cloud;
-  CloudNConstPtr normals;
+struct SegmentPlanesOptions {
+  IndicesConstPtr filter = nullptr; // Optional filter to limit processing
 
   float angle_threshold = 25.0F;
   float plane_dist_threshold = 0.07F;
@@ -36,10 +35,12 @@ struct SegmentPlanesRequest {
   const std::atomic_bool *cancel_token = nullptr;
 };
 
-auto segment_planes_impl(const SegmentPlanesRequest &request)
+auto segment_planes_impl(CloudConstPtr cloud, CloudNConstPtr normals,
+                         const SegmentPlanesOptions &options)
     -> std::tuple<CloudLPtr, CloudLocPtr, CloudNPtr>;
 
-auto segment_planes(const SegmentPlanesRequest &request)
+auto segment_planes(CloudConstPtr cloud, CloudNConstPtr normals,
+                    const SegmentPlanesOptions &options = SegmentPlanesOptions{})
     -> std::tuple<CloudLPtr, CloudLocPtr, CloudNPtr>;
 
 } // namespace ReUseX::geometry

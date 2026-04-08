@@ -31,10 +31,8 @@
 #include <atomic>
 
 namespace ReUseX::geometry {
-struct SegmentRoomsRequest {
-  CloudConstPtr cloud;
-  CloudNConstPtr normals;
-  CloudLConstPtr planes;
+struct SegmentRoomsOptions {
+  IndicesConstPtr filter = nullptr; // Optional filter to limit processing
 
   float grid_size = 0.5F;
   float inflation = 2.0F;
@@ -48,7 +46,12 @@ struct SegmentRoomsRequest {
   const std::atomic_bool *cancel_token = nullptr;
 };
 
-auto segment_rooms_impl(const SegmentRoomsRequest &request) -> CloudLPtr;
-auto segment_rooms(const SegmentRoomsRequest &request) -> CloudLPtr;
+auto segment_rooms_impl(CloudConstPtr cloud, CloudNConstPtr normals,
+                        CloudLConstPtr planes,
+                        const SegmentRoomsOptions &options) -> CloudLPtr;
+auto segment_rooms(CloudConstPtr cloud, CloudNConstPtr normals,
+                   CloudLConstPtr planes,
+                   const SegmentRoomsOptions &options = SegmentRoomsOptions{})
+    -> CloudLPtr;
 
 } // namespace ReUseX::geometry

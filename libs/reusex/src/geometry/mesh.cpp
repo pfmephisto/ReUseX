@@ -69,6 +69,25 @@ pcl::PolygonMeshPtr mesh(CloudConstPtr cloud, CloudNConstPtr normals,
                          std::vector<IndicesPtr> &inliers, CloudLConstPtr rooms,
                          MeshOptions const opt) {
 
+  // If filter is provided in options, filter the inliers lists
+  if (opt.filter) {
+    std::unordered_set<int> filtered_set(opt.filter->begin(), opt.filter->end());
+    ReUseX::core::debug("Mesh generation using {} filtered points",
+                        opt.filter->size());
+
+    // Filter each inlier list to only include filtered indices
+    for (auto &inlier_list : inliers) {
+      IndicesPtr filtered_inliers = std::make_shared<Indices>();
+      filtered_inliers->reserve(inlier_list->size());
+      for (int idx : *inlier_list) {
+        if (filtered_set.find(idx) != filtered_set.end()) {
+          filtered_inliers->push_back(idx);
+        }
+      }
+      inlier_list = filtered_inliers;
+    }
+  }
+
   auto observer = ReUseX::core::get_visual_observer();
   constexpr auto stage = ReUseX::core::Stage::mesh_generation;
 

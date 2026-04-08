@@ -19,6 +19,8 @@ struct SubcommandSegRoomsOptions {
 
   float grid_size = GlobalParams::grid_size;  ///< Grid cell size
 
+  std::string filter_expr;  ///< Filter expression to limit processing
+
 };
 
 /**

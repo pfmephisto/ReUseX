@@ -418,7 +418,9 @@ class PCL_EXPORTS PlanarRegionGrowing : public PCLBase<PointT> {
     ReUseX::core::stopwatch sw;
 
     point_neighbours_.clear();
-    point_neighbours_.resize(indices_->size(), pcl::Indices());
+    // BUG FIX: Resize to input_->size() not indices_->size() because we index
+    // by actual point cloud index, not offset into indices array
+    point_neighbours_.resize(input_->size(), pcl::Indices());
 
 #pragma omp parallel for
     for (int i = 0; i < static_cast<int>(indices_->size()); ++i) {

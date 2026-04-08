@@ -21,6 +21,8 @@ struct SubcommandMeshOptions {
 
   double search_threshold = 0.60;
   double new_plane_offset = 0.25;
+
+  std::string filter_expr;  ///< Filter expression to limit processing
 };
 
 // Function declarations.

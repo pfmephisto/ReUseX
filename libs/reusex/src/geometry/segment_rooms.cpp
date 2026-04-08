@@ -6,6 +6,7 @@
 #include "core/logging.hpp"
 
 #include <stdexcept>
+#include <unordered_set>
 
 namespace ReUseX::geometry {
 /**
@@ -17,25 +18,36 @@ namespace ReUseX::geometry {
  * @param cloud Input point cloud.
  * @param normals Point cloud normals.
  * @param planes Labeled point cloud with plane IDs.
- * @param grid_size Uniform sampling grid size.
- * @param inflation MCL inflation factor (higher = more clusters).
- * @param expansion MCL expansion factor.
- * @param pruning_threshold MCL pruning threshold.
- * @param convergence_threshold MCL convergence threshold.
- * @param max_iter Maximum MCL iterations.
+ * @param options Segmentation options (MCL parameters, filter, etc.).
  * @return Labeled point cloud with room assignments.
  */
-auto segment_rooms_impl(const SegmentRoomsRequest &request) -> CloudLPtr {
+auto segment_rooms_impl(CloudConstPtr cloud, CloudNConstPtr normals,
+                        CloudLConstPtr planes,
+                        const SegmentRoomsOptions &options) -> CloudLPtr {
 
-  if (request.cancel_token != nullptr && request.cancel_token->load()) {
+  if (options.cancel_token != nullptr && options.cancel_token->load()) {
     ReUseX::core::warn(
         "segment_rooms: cancellation requested before execution.");
     throw std::runtime_error("Room segmentation cancelled.");
   }
 
+  // Build set of filtered indices for fast lookup if filter is provided
+  std::unordered_set<int> filtered_indices_set;
+  if (options.filter) {
+    filtered_indices_set.insert(options.filter->begin(), options.filter->end());
+    ReUseX::core::debug("Room segmentation using {} filtered points",
+                        options.filter->size());
+  }
+
   std::unordered_map<int, IndicesPtr> plane_inlier_map;
-  for (size_t i = 0; i < request.planes->points.size(); ++i) {
-    const int label = request.planes->points[i].label;
+  for (size_t i = 0; i < planes->points.size(); ++i) {
+    // Skip if not in filter (when filter is provided)
+    if (options.filter && filtered_indices_set.find(static_cast<int>(i)) ==
+                              filtered_indices_set.end()) {
+      continue;
+    }
+
+    const int label = planes->points[i].label;
 
     // Skip unlabeled points
     if (label < 1)
@@ -49,8 +61,8 @@ auto segment_rooms_impl(const SegmentRoomsRequest &request) -> CloudLPtr {
 
   IndicesPtr indices(new Indices);
   pcl::UniformSampling<PointT> us;
-  us.setInputCloud(request.cloud);
-  us.setRadiusSearch(request.grid_size);
+  us.setInputCloud(cloud);
+  us.setRadiusSearch(options.grid_size);
   for (const auto &[key, idx] : plane_inlier_map) {
     us.setIndices(idx);
     IndicesPtr local_indices(new Indices);
@@ -60,20 +72,20 @@ auto segment_rooms_impl(const SegmentRoomsRequest &request) -> CloudLPtr {
   }
 
   pcl::MarkovClustering<PointT, NormalT, LabelT> mcl;
-  mcl.setInflationFactor(request.inflation);
-  mcl.setExpansionFactor(request.expansion);
-  mcl.setPruningThreshold(request.pruning_threshold);
-  mcl.setConvergenceThreshold(request.convergence_threshold);
-  mcl.setMaxIterations(request.max_iter);
+  mcl.setInflationFactor(options.inflation);
+  mcl.setExpansionFactor(options.expansion);
+  mcl.setPruningThreshold(options.pruning_threshold);
+  mcl.setConvergenceThreshold(options.convergence_threshold);
+  mcl.setMaxIterations(options.max_iter);
 
-  mcl.setGridSize(request.grid_size);
-  mcl.setInputCloud(request.cloud);
-  mcl.setInputNormals(request.normals);
+  mcl.setGridSize(options.grid_size);
+  mcl.setInputCloud(cloud);
+  mcl.setInputNormals(normals);
   mcl.setIndices(indices);
 
   ReUseX::core::trace("Initialize labels and copy xyzrgb data to labels");
   CloudLPtr labels(new CloudL);
-  pcl::copyPointCloud(*request.cloud, *labels);
+  pcl::copyPointCloud(*cloud, *labels);
   for (size_t i = 0; i < labels->points.size(); ++i)
     labels->points[i].label = -1;
 
@@ -82,18 +94,18 @@ auto segment_rooms_impl(const SegmentRoomsRequest &request) -> CloudLPtr {
 
   // Assign the label to all points
   pcl::KdTreeFLANN<PointT> kdtree;
-  kdtree.setInputCloud(request.cloud, indices);
+  kdtree.setInputCloud(cloud, indices);
   IndicesPtr missing_indices(new Indices);
   ReUseX::core::trace("Resizing missing indices to size {}, cloud size: {}, "
                       "indices size: {}",
-                      request.cloud->points.size() - indices->size(),
-                      request.cloud->points.size(), indices->size());
-  missing_indices->reserve(request.cloud->points.size() - indices->size());
+                      cloud->points.size() - indices->size(),
+                      cloud->points.size(), indices->size());
+  missing_indices->reserve(cloud->points.size() - indices->size());
 
   std::sort(indices->begin(), indices->end());
 
   int j = 0;
-  for (int i = 0; i < static_cast<int>(request.cloud->size()); ++i) {
+  for (int i = 0; i < static_cast<int>(cloud->size()); ++i) {
     if (j < static_cast<int>(indices->size()) && indices->at(j) == i) {
       ++j; // skip
     } else {
@@ -105,7 +117,7 @@ auto segment_rooms_impl(const SegmentRoomsRequest &request) -> CloudLPtr {
     const size_t idx = missing_indices->at(i);
     std::vector<int> nn_indices(1);
     std::vector<float> nn_sqr_dists(1);
-    if (kdtree.nearestKSearch(request.cloud->points[idx], 1, nn_indices,
+    if (kdtree.nearestKSearch(cloud->points[idx], 1, nn_indices,
                               nn_sqr_dists) > 0) {
       labels->points[idx].label = labels->points[nn_indices[0]].label;
     }
@@ -116,7 +128,9 @@ auto segment_rooms_impl(const SegmentRoomsRequest &request) -> CloudLPtr {
   return labels;
 }
 
-auto segment_rooms(const SegmentRoomsRequest &request) -> CloudLPtr {
-  return segment_rooms_impl(request);
+auto segment_rooms(CloudConstPtr cloud, CloudNConstPtr normals,
+                   CloudLConstPtr planes, const SegmentRoomsOptions &options)
+    -> CloudLPtr {
+  return segment_rooms_impl(cloud, normals, planes, options);
 }
 } // namespace ReUseX::geometry

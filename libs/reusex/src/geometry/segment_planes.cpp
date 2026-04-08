@@ -17,18 +17,14 @@ namespace ReUseX::geometry {
  *
  * @param cloud Input point cloud.
  * @param normals Point cloud normals.
- * @param angle_threshold Angular threshold for plane fitting (degrees).
- * @param plane_dist_threshold Distance threshold for plane fitting.
- * @param min_inliers Minimum number of inliers for a valid plane.
- * @param radius Search radius for region growing.
- * @param interval_0 Initial interval for multi-scale processing.
- * @param interval_factor Factor for interval scaling between iterations.
+ * @param options Segmentation options (thresholds, filter, etc.).
  * @return Tuple of (labeled point cloud, plane centroids, plane normals).
  */
-auto segment_planes_impl(const SegmentPlanesRequest &request)
+auto segment_planes_impl(CloudConstPtr cloud, CloudNConstPtr normals,
+                         const SegmentPlanesOptions &options)
     -> std::tuple<CloudLPtr, CloudLocPtr, CloudNPtr> {
 
-  if (request.cancel_token != nullptr && request.cancel_token->load()) {
+  if (options.cancel_token != nullptr && options.cancel_token->load()) {
     ReUseX::core::warn(
         "segment_planes: cancellation requested before execution.");
     throw std::runtime_error("Plane segmentation cancelled.");
@@ -36,21 +32,28 @@ auto segment_planes_impl(const SegmentPlanesRequest &request)
 
   ReUseX::core::trace("Initialize the segmentation algorithm");
   pcl::PlanarRegionGrowing<PointT, NormalT, LabelT> seg;
-  seg.setInputCloud(request.cloud);
-  seg.setInputNormals(request.normals);
+  seg.setInputCloud(cloud);
+  seg.setInputNormals(normals);
 
-  seg.setAngularThreshold(request.angle_threshold);
-  seg.setDistanceThreshold(request.plane_dist_threshold);
-  seg.setMinInliers(request.min_inliers);
+  // Apply filter if provided
+  if (options.filter) {
+    seg.setIndices(options.filter);
+    ReUseX::core::debug("Plane segmentation using {} filtered points",
+                        options.filter->size());
+  }
 
-  seg.setRadiusSearch(request.radius);
+  seg.setAngularThreshold(options.angle_threshold);
+  seg.setDistanceThreshold(options.plane_dist_threshold);
+  seg.setMinInliers(options.min_inliers);
 
-  seg.setInitialInterval(request.interval_0);
-  seg.setIntervalFactor(request.interval_factor);
+  seg.setRadiusSearch(options.radius);
+
+  seg.setInitialInterval(options.interval_0);
+  seg.setIntervalFactor(options.interval_factor);
 
   ReUseX::core::trace("Initialize labels and copy xyzrgb data to labels");
   CloudLPtr labels(new CloudL);
-  pcl::copyPointCloud(*request.cloud, *labels);
+  pcl::copyPointCloud(*cloud, *labels);
 
   ReUseX::core::trace("Call the segmentation algorithm");
   seg.segment(labels);
@@ -84,8 +87,9 @@ auto segment_planes_impl(const SegmentPlanesRequest &request)
   return std::make_tuple(labels, centroids_cloud, plane_normals);
 }
 
-auto segment_planes(const SegmentPlanesRequest &request)
+auto segment_planes(CloudConstPtr cloud, CloudNConstPtr normals,
+                    const SegmentPlanesOptions &options)
     -> std::tuple<CloudLPtr, CloudLocPtr, CloudNPtr> {
-  return segment_planes_impl(request);
+  return segment_planes_impl(cloud, normals, options);
 }
 } // namespace ReUseX::geometry

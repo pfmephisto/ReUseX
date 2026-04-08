@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "create/planes.hpp"
+#include "filter_utils.hpp"
 #include "validation.hpp"
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/geometry/segment_planes.hpp>
@@ -64,10 +65,20 @@ void setup_subcommand_create_planes(CLI::App &app) {
       ->default_val(opt->interval_0)
       ->check(CLI::Range(1.0, 10000.0));
 
-  sub->add_option("-f, --interval-factor", opt->interval_factor,
+  sub->add_option("--interval-factor", opt->interval_factor,
                   "Factor for interval update")
       ->default_val(opt->interval_factor)
       ->check(CLI::Range(1.0, 10.0));
+
+  sub->add_option("-f, --filter", opt->filter_expr,
+                  "Filter expression to limit processing to specific labeled points.\n"
+                  "Syntax: <cloud_name> <op> <value(s)>\n"
+                  "Examples:\n"
+                  "  -f 'planes in [1, 2, 5]'        # Filter to labels 1, 2, 5 from planes cloud\n"
+                  "  -f 'rooms == 3'                 # Only process room 3\n"
+                  "  -f 'planes in [1,2] || rooms == 5'  # Combine multiple clouds\n"
+                  "  -f 'planes >= 10 && planes <= 20'   # Range filter")
+      ->default_val("");
 
   sub->callback([opt]() {
     spdlog::trace("calling seg-planes subcommand");
@@ -109,19 +120,28 @@ int run_subcommand_segment_planes(SubcommandSegPlanesOptions const &opt) {
 
     using namespace ReUseX::geometry;
 
-    ReUseX::geometry::SegmentPlanesRequest request;
-    request.cloud = cloud;
-    request.normals = normals;
-    request.angle_threshold = opt.angle_threshold;
-    request.plane_dist_threshold = opt.plane_dist_threshold;
-    request.min_inliers = opt.minInliers;
-    request.radius = opt.radius;
-    request.interval_0 = opt.interval_0;
-    request.interval_factor = opt.interval_factor;
+    // Build options struct
+    ReUseX::geometry::SegmentPlanesOptions options;
+    options.angle_threshold = opt.angle_threshold;
+    options.plane_dist_threshold = opt.plane_dist_threshold;
+    options.min_inliers = opt.minInliers;
+    options.radius = opt.radius;
+    options.interval_0 = opt.interval_0;
+    options.interval_factor = opt.interval_factor;
+
+    // Evaluate filter if provided
+    if (!opt.filter_expr.empty()) {
+      try {
+        options.filter = rux::filters::evaluate_filter(opt.filter_expr, db, cloud->size());
+      } catch (const std::exception &e) {
+        spdlog::error("Filter evaluation failed: {}", e.what());
+        return RuxError::INVALID_ARGUMENT;
+      }
+    }
 
     spdlog::trace("Running plane segmentation algorithm");
     auto [labels, centroids, plane_normals] =
-        ReUseX::geometry::segment_planes(request);
+        ReUseX::geometry::segment_planes(cloud, normals, options);
 
     spdlog::trace("Saving results to ProjectDB");
     db.save_point_cloud("planes", *labels, "segment_planes");

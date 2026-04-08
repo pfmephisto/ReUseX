@@ -23,6 +23,7 @@ namespace ReUseX::geometry {
 struct MeshOptions {
   float search_threshold = 10.0f; ///< Search threshold for mesh generation
   float new_plane_offset = 0.05f; ///< Offset for new plane creation
+  IndicesConstPtr filter = nullptr; ///< Optional filter to limit processing
 };
 
 /**
@@ -34,8 +35,7 @@ struct MeshOptions {
  * @param centroids Plane centroids.
  * @param inliers Indices of points belonging to each plane.
  * @param rooms Room labels for points.
- * @param opt Mesh generation options.
- * @param viewer Optional visualizer for debugging.
+ * @param opt Mesh generation options (includes optional filter).
  * @return Generated polygon mesh.
  */
 pcl::PolygonMeshPtr mesh(CloudConstPtr cloud, CloudNConstPtr normals,

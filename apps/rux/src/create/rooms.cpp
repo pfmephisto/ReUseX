@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "create/rooms.hpp"
+#include "filter_utils.hpp"
 #include "pcl/markov_clustering.hpp"
 #include "spdmon.hpp"
 #include "validation.hpp"
@@ -85,6 +86,16 @@ void setup_subcommand_create_rooms(CLI::App &app) {
       ->default_val(opt->grid_size)
       ->check(CLI::Range(0.01, 10.0));
 
+  sub->add_option("-f, --filter", opt->filter_expr,
+                  "Filter expression to limit processing to specific labeled points.\n"
+                  "Syntax: <cloud_name> <op> <value(s)>\n"
+                  "Examples:\n"
+                  "  -f 'planes in [1, 2, 5]'        # Filter to labels 1, 2, 5 from planes cloud\n"
+                  "  -f 'rooms == 3'                 # Only process room 3\n"
+                  "  -f 'planes in [1,2] || rooms == 5'  # Combine multiple clouds\n"
+                  "  -f 'planes >= 10 && planes <= 20'   # Range filter")
+      ->default_val("");
+
   sub->callback([opt]() {
     spdlog::trace("calling seg-rooms subcommand");
     return run_subcommand_segment_rooms(*opt);
@@ -160,18 +171,27 @@ int run_subcommand_segment_rooms(SubcommandSegRoomsOptions const &opt) {
 
     spdlog::trace("Running room segmentation algorithm");
     using namespace ReUseX::geometry;
-    ReUseX::geometry::SegmentRoomsRequest request;
-    request.cloud = cloud;
-    request.normals = normals;
-    request.planes = planes;
-    request.grid_size = opt.grid_size;
-    request.inflation = opt.inflation;
-    request.expansion = opt.expansion;
-    request.pruning_threshold = opt.pruning_threshold;
-    request.convergence_threshold = opt.convergence_threshold;
-    request.max_iter = opt.max_iter;
 
-    auto labels = ReUseX::geometry::segment_rooms(request);
+    // Build options struct
+    ReUseX::geometry::SegmentRoomsOptions options;
+    options.grid_size = opt.grid_size;
+    options.inflation = opt.inflation;
+    options.expansion = opt.expansion;
+    options.pruning_threshold = opt.pruning_threshold;
+    options.convergence_threshold = opt.convergence_threshold;
+    options.max_iter = opt.max_iter;
+
+    // Evaluate filter if provided
+    if (!opt.filter_expr.empty()) {
+      try {
+        options.filter = rux::filters::evaluate_filter(opt.filter_expr, db, cloud->size());
+      } catch (const std::exception &e) {
+        spdlog::error("Filter evaluation failed: {}", e.what());
+        return RuxError::INVALID_ARGUMENT;
+      }
+    }
+
+    auto labels = ReUseX::geometry::segment_rooms(cloud, normals, planes, options);
 
     spdlog::trace("Saving room labels to ProjectDB");
     db.save_point_cloud("rooms", *labels, "segment_rooms");

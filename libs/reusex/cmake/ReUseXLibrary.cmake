@@ -25,31 +25,11 @@ file(GLOB_RECURSE REUSEX_HEADERS CONFIGURE_DEPENDS
 list(FILTER REUSEX_SOURCES EXCLUDE REGEX ".*/visualize/.*\\.cpp$")
 list(FILTER REUSEX_HEADERS EXCLUDE REGEX ".*/visualize/.*\\.hpp$")
 
-# Exclude disabled ML backend files
-if(NOT "TensorRT" IN_LIST ENABLED_ML_BACKENDS)
-    list(FILTER REUSEX_SOURCES EXCLUDE REGEX ".*/vision/tensor_rt/.*\\.(cpp|cu)$")
-    list(FILTER REUSEX_HEADERS EXCLUDE REGEX ".*/vision/tensor_rt/.*\\.hpp$")
-    message(STATUS "Excluding TensorRT source files from build")
-endif()
-
-if(NOT "LibTorch" IN_LIST ENABLED_ML_BACKENDS)
-    list(FILTER REUSEX_SOURCES EXCLUDE REGEX ".*/vision/libtorch/.*\\.cpp$")
-    list(FILTER REUSEX_HEADERS EXCLUDE REGEX ".*/vision/libtorch/.*\\.hpp$")
-    # Exclude LibTorch-specific utility files (NMS uses torch::Tensor)
-    list(FILTER REUSEX_SOURCES EXCLUDE REGEX ".*/vision/nms\\.cpp$")
-    list(FILTER REUSEX_HEADERS EXCLUDE REGEX ".*/vision/nms\\.hpp$")
-    message(STATUS "Excluding LibTorch source files from build")
-endif()
-
-if(NOT "ONNX" IN_LIST ENABLED_ML_BACKENDS)
-    list(FILTER REUSEX_SOURCES EXCLUDE REGEX ".*/vision/onnx/.*\\.cpp$")
-    list(FILTER REUSEX_HEADERS EXCLUDE REGEX ".*/vision/onnx/.*\\.hpp$")
-endif()
-
-if(NOT "OpenVINO" IN_LIST ENABLED_ML_BACKENDS)
-    list(FILTER REUSEX_SOURCES EXCLUDE REGEX ".*/vision/openvino/.*\\.cpp$")
-    list(FILTER REUSEX_HEADERS EXCLUDE REGEX ".*/vision/openvino/.*\\.hpp$")
-endif()
+# -----------------------------------------------
+# ML Backend Configuration
+# -----------------------------------------------
+# Include ML backend configuration and filter source files
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/MLBackendConfig.cmake)
 
 list(LENGTH REUSEX_SOURCES REUSEX_SOURCE_COUNT)
 message(STATUS "Found ${REUSEX_SOURCE_COUNT} ReUseX source files")
@@ -162,31 +142,8 @@ target_link_libraries(ReUseX
 # -----------------------------------------------
 # ML Backend Configuration
 # -----------------------------------------------
-foreach(backend IN LISTS ENABLED_ML_BACKENDS)
-    if(backend STREQUAL "TensorRT")
-        target_compile_definitions(ReUseX PRIVATE REUSEX_USE_TENSORRT)
-        target_link_libraries(ReUseX PRIVATE
-            trtsam3::trtsam_core
-            tokenizers_cpp::tokenizers_cpp
-        )
-        message(STATUS "Linking TensorRT backend libraries")
-
-    elseif(backend STREQUAL "LibTorch")
-        target_compile_definitions(ReUseX PRIVATE REUSEX_USE_LIBTORCH)
-        target_link_libraries(ReUseX PRIVATE torch)
-        message(STATUS "Linking LibTorch backend libraries")
-
-    elseif(backend STREQUAL "ONNX")
-        target_compile_definitions(ReUseX PRIVATE REUSEX_USE_ONNX)
-        target_link_libraries(ReUseX PRIVATE onnxruntime::onnxruntime)
-        message(STATUS "Linking ONNX Runtime backend libraries")
-
-    elseif(backend STREQUAL "OpenVINO")
-        target_compile_definitions(ReUseX PRIVATE REUSEX_USE_OPENVINO)
-        target_link_libraries(ReUseX PRIVATE openvino::openvino)
-        message(STATUS "Linking OpenVINO backend libraries")
-    endif()
-endforeach()
+# Configure ML backends (compile definitions and libraries)
+configure_ml_backends(ReUseX)
 
 # -----------------------------------------------
 # Compiler options
@@ -201,48 +158,9 @@ target_compile_options(ReUseX PUBLIC
 # -----------------------------------------------
 # MIP Solver Selection
 # -----------------------------------------------
-# Priority: cuOpt (GPU) > HiGHS > SCIP
-set(MIP_SOLVER "AUTO" CACHE STRING "MIP solver to use (AUTO, CUOPT, HIGHS, SCIP)")
-set_property(CACHE MIP_SOLVER PROPERTY STRINGS AUTO CUOPT HIGHS SCIP)
-
-# Determine which solver to enable
-if(MIP_SOLVER STREQUAL "AUTO")
-  if(cuOpt_FOUND)
-    set(USE_MIP_SOLVER "CUOPT")
-  elseif(highs_FOUND)
-    set(USE_MIP_SOLVER "HIGHS")
-  elseif(SCIP_FOUND)
-    set(USE_MIP_SOLVER "SCIP")
-  else()
-    message(FATAL_ERROR "No MIP solver found. Please install cuOpt, HiGHS, or SCIP.")
-  endif()
-else()
-  set(USE_MIP_SOLVER ${MIP_SOLVER})
-endif()
-
-# Set compile definition and link library
-if(USE_MIP_SOLVER STREQUAL "CUOPT")
-  if(NOT cuOpt_FOUND)
-    message(FATAL_ERROR "cuOpt solver requested but not found")
-  endif()
-  target_compile_definitions(ReUseX PUBLIC USE_CUOPT)
-  target_link_libraries(ReUseX PUBLIC cuOpt::cuOpt)
-  message(STATUS "MIP Solver: cuOpt (GPU-accelerated)")
-elseif(USE_MIP_SOLVER STREQUAL "HIGHS")
-  if(NOT highs_FOUND)
-    message(FATAL_ERROR "HiGHS solver requested but not found")
-  endif()
-  target_compile_definitions(ReUseX PUBLIC USE_HIGHS)
-  message(STATUS "MIP Solver: HiGHS (CPU)")
-elseif(USE_MIP_SOLVER STREQUAL "SCIP")
-  if(NOT SCIP_FOUND)
-    message(FATAL_ERROR "SCIP solver requested but not found")
-  endif()
-  target_compile_definitions(ReUseX PUBLIC CGAL_USE_SCIP)
-  message(STATUS "MIP Solver: SCIP (CPU)")
-else()
-  message(FATAL_ERROR "Unknown MIP solver: ${USE_MIP_SOLVER}")
-endif()
+# Include MIP solver configuration and configure the solver
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/MIPSolverConfig.cmake)
+configure_mip_solver(ReUseX)
 
 # -----------------------------------------------
 # Export library information

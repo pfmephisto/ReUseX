@@ -25,6 +25,23 @@ find_package(range-v3 CONFIG REQUIRED)
 find_package(nlohmann_json 3.11 REQUIRED)
 
 # -----------------------------------------------
+# Protobuf dependencies (for ML backends)
+# -----------------------------------------------
+# Both TensorRT (via tokenizers_cpp) and LibTorch depend on protobuf.
+# Protobuf requires abseil and utf8_range to load successfully.
+# Finding all three explicitly here prevents target redefinition errors when
+# multiple backends try to find protobuf independently.
+#
+# Root cause: tokenizers_cpp calls find_package(Protobuf QUIET), creating
+# partial targets. When LibTorch calls find_package(Protobuf CONFIG QUIET),
+# CMake detects some targets exist but not all, triggering an error.
+#
+# Solution: Find protobuf once with all dependencies satisfied.
+find_package(absl CONFIG REQUIRED)
+find_package(utf8_range CONFIG REQUIRED)
+find_package(Protobuf CONFIG REQUIRED)
+
+# -----------------------------------------------
 # ML Backends (Optional)
 # -----------------------------------------------
 # User can specify which backends to enable via:
@@ -53,6 +70,7 @@ endif()
 # Find each backend
 set(ENABLED_ML_BACKENDS "")
 foreach(backend IN LISTS BACKENDS_TO_FIND)
+    message(STATUS "Searching for ${backend} backend...")
     set(all_found TRUE)
     foreach(pkg IN LISTS ML_BACKEND_${backend}_PACKAGES)
         # Parse package name and version (e.g., "Torch 2.9.0" -> "Torch" + "2.9.0")

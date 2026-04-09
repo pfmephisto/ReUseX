@@ -8,6 +8,8 @@
 #include "core/materialepas_serialization.hpp"
 #include "core/materialepas_traits.hpp"
 #include "core/logging.hpp"
+#include "geometry/BuildingComponent.hpp"
+#include "geometry/CoplanarPolygon.hpp"
 
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
@@ -173,7 +175,7 @@ class ProjectDB::Impl {
   bool readOnly;
   sqlite3 *db = nullptr;
 
-  static constexpr int LATEST_SCHEMA_VERSION = 3;
+  static constexpr int LATEST_SCHEMA_VERSION = 4;
 
   void execOrThrow(const char *sql) {
     char *errMsg = nullptr;
@@ -302,6 +304,10 @@ class ProjectDB::Impl {
 
     if (current < 3) {
       migrateToV3();
+    }
+
+    if (current < 4) {
+      migrateToV4();
     }
 
     ReUseX::core::trace("Schema version: {}", getCurrentSchemaVersion());
@@ -438,6 +444,36 @@ class ProjectDB::Impl {
 
     insertSchemaVersion(3, "Add camera_model column to sensor_frames");
     ReUseX::core::info("Migration to schema version 3 complete");
+  }
+
+  void migrateToV4() {
+    ReUseX::core::info("Migrating database to schema version 4");
+
+    const char *v4_schema = R"(
+      CREATE TABLE IF NOT EXISTS building_components (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        name          TEXT NOT NULL UNIQUE,
+        type          TEXT NOT NULL,
+        vertex_data   BLOB NOT NULL,
+        vertex_count  INTEGER NOT NULL,
+        plane         BLOB NOT NULL,
+        parent_id     INTEGER DEFAULT -1,
+        confidence    REAL DEFAULT -1.0,
+        metadata      TEXT,
+        notes         TEXT,
+        created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+    )";
+
+    char *errMsg = nullptr;
+    if (sqlite3_exec(db, v4_schema, nullptr, nullptr, &errMsg) != SQLITE_OK) {
+      std::string error = errMsg;
+      sqlite3_free(errMsg);
+      throw std::runtime_error("Migration to v4 failed: " + error);
+    }
+
+    insertSchemaVersion(4, "Add building_components table");
+    ReUseX::core::info("Migration to schema version 4 complete");
   }
 
   // ── Sensor frame CRUD ─────────────────────────────────────────────
@@ -2076,6 +2112,193 @@ class ProjectDB::Impl {
 
   // ── Project Summary ────────────────────────────────────────────────
 
+  // ── Building component CRUD ──────────────────────────────────────
+
+  void saveBuildingComponent(const geometry::BuildingComponent &c) {
+    auto vertexBlob = c.boundary.serialize_vertices();
+    std::string typeStr(geometry::to_string(c.type));
+    std::string metadataJson = geometry::component_data_to_json(c);
+
+    const char *upsert = R"(
+      INSERT INTO building_components
+        (name, type, vertex_data, vertex_count, plane, parent_id, confidence, metadata, notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(name) DO UPDATE SET
+        type = excluded.type,
+        vertex_data = excluded.vertex_data,
+        vertex_count = excluded.vertex_count,
+        plane = excluded.plane,
+        parent_id = excluded.parent_id,
+        confidence = excluded.confidence,
+        metadata = excluded.metadata,
+        notes = excluded.notes,
+        created_at = datetime('now');
+    )";
+
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, upsert, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error(
+          "Failed to prepare building component upsert: " +
+          std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+
+    sqlite3_bind_text(stmt, 1, c.name.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, typeStr.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_blob(stmt, 3, vertexBlob.data(),
+                      static_cast<int>(vertexBlob.size()), SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 4,
+                     static_cast<int>(c.boundary.vertices.size()));
+
+    // Plane: 4 * sizeof(double) = 32 bytes
+    sqlite3_bind_blob(stmt, 5, c.boundary.plane.data(),
+                      static_cast<int>(4 * sizeof(double)), SQLITE_TRANSIENT);
+
+    sqlite3_bind_int(stmt, 6, c.parent_id);
+    sqlite3_bind_double(stmt, 7, c.confidence);
+
+    if (!metadataJson.empty())
+      sqlite3_bind_text(stmt, 8, metadataJson.c_str(), -1, SQLITE_TRANSIENT);
+    else
+      sqlite3_bind_null(stmt, 8);
+
+    if (!c.notes.empty())
+      sqlite3_bind_text(stmt, 9, c.notes.c_str(), -1, SQLITE_TRANSIENT);
+    else
+      sqlite3_bind_null(stmt, 9);
+
+    if (sqlite3_step(stmt) != SQLITE_DONE)
+      throw std::runtime_error("Failed to upsert building component: " +
+                               std::string(sqlite3_errmsg(db)));
+  }
+
+  geometry::BuildingComponent getBuildingComponent(std::string_view name) const {
+    const char *sql = R"(
+      SELECT name, type, vertex_data, vertex_count, plane,
+             parent_id, confidence, metadata, notes
+      FROM building_components WHERE name = ?;
+    )";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to prepare building component query: " +
+                               std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+    sqlite3_bind_text(stmt, 1, name.data(), static_cast<int>(name.size()),
+                      SQLITE_TRANSIENT);
+
+    if (sqlite3_step(stmt) != SQLITE_ROW)
+      throw std::runtime_error("Building component not found: " +
+                               std::string(name));
+
+    geometry::BuildingComponent c;
+    c.name = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
+
+    const char *typeStr =
+        reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1));
+    c.type = geometry::component_type_from_string(typeStr);
+
+    // Vertex data
+    const void *vertBlob = sqlite3_column_blob(stmt, 2);
+    int vertSize = sqlite3_column_bytes(stmt, 2);
+    if (vertBlob && vertSize > 0)
+      c.boundary.vertices = geometry::CoplanarPolygon::deserialize_vertices(
+          vertBlob, static_cast<size_t>(vertSize));
+
+    // Plane
+    const void *planeBlob = sqlite3_column_blob(stmt, 4);
+    int planeSize = sqlite3_column_bytes(stmt, 4);
+    if (planeBlob && planeSize == static_cast<int>(4 * sizeof(double)))
+      std::memcpy(c.boundary.plane.data(), planeBlob, 4 * sizeof(double));
+
+    c.parent_id = sqlite3_column_int(stmt, 5);
+    c.confidence = sqlite3_column_double(stmt, 6);
+
+    // Metadata JSON
+    const char *metaText =
+        reinterpret_cast<const char *>(sqlite3_column_text(stmt, 7));
+    if (metaText)
+      geometry::component_data_from_json(c, metaText);
+
+    // Notes
+    const char *notesText =
+        reinterpret_cast<const char *>(sqlite3_column_text(stmt, 8));
+    if (notesText)
+      c.notes = notesText;
+
+    return c;
+  }
+
+  bool hasBuildingComponent(std::string_view name) const {
+    const char *sql =
+        "SELECT 1 FROM building_components WHERE name = ? LIMIT 1;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      return false;
+    StmtGuard guard(stmt);
+    sqlite3_bind_text(stmt, 1, name.data(), static_cast<int>(name.size()),
+                      SQLITE_TRANSIENT);
+    return sqlite3_step(stmt) == SQLITE_ROW;
+  }
+
+  void deleteBuildingComponent(std::string_view name) {
+    const char *sql = "DELETE FROM building_components WHERE name = ?;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error(
+          "Failed to prepare building component delete: " +
+          std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+    sqlite3_bind_text(stmt, 1, name.data(), static_cast<int>(name.size()),
+                      SQLITE_TRANSIENT);
+    if (sqlite3_step(stmt) != SQLITE_DONE)
+      throw std::runtime_error("Failed to delete building component: " +
+                               std::string(sqlite3_errmsg(db)));
+  }
+
+  std::vector<std::string> listBuildingComponents() const {
+    const char *sql = "SELECT name FROM building_components ORDER BY id;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to list building components");
+    StmtGuard guard(stmt);
+
+    std::vector<std::string> names;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+      names.emplace_back(
+          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0)));
+    }
+    return names;
+  }
+
+  std::vector<std::string>
+  listBuildingComponents(geometry::ComponentType type) const {
+    const char *sql =
+        "SELECT name FROM building_components WHERE type = ? ORDER BY id;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to list building components by type");
+    StmtGuard guard(stmt);
+    std::string typeStr(geometry::to_string(type));
+    sqlite3_bind_text(stmt, 1, typeStr.c_str(), -1, SQLITE_TRANSIENT);
+
+    std::vector<std::string> names;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+      names.emplace_back(
+          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0)));
+    }
+    return names;
+  }
+
+  int buildingComponentCount() const {
+    const char *sql = "SELECT COUNT(*) FROM building_components;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      return 0;
+    StmtGuard guard(stmt);
+    if (sqlite3_step(stmt) == SQLITE_ROW)
+      return sqlite3_column_int(stmt, 0);
+    return 0;
+  }
+
   ProjectDB::ProjectSummary getProjectSummary() const {
     ProjectDB::ProjectSummary summary;
     summary.path = dbPath;
@@ -2205,6 +2428,25 @@ class ProjectDB::Impl {
         summary.material_passport_count = sqlite3_column_int(stmt, 0);
       } else {
         summary.material_passport_count = 0;
+      }
+    }
+
+    // Query building components
+    {
+      const char *sql =
+          "SELECT type, COUNT(*) FROM building_components GROUP BY type;";
+      sqlite3_stmt *stmt;
+      if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        StmtGuard guard(stmt);
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+          const char *type_str = reinterpret_cast<const char *>(
+              sqlite3_column_text(stmt, 0));
+          int count = sqlite3_column_int(stmt, 1);
+          if (type_str) {
+            summary.components.count_by_type[type_str] = count;
+            summary.components.total_count += count;
+          }
+        }
       }
     }
 
@@ -2648,6 +2890,39 @@ std::vector<std::string> ProjectDB::list_project_ids() const {
   }
 
   return project_ids;
+}
+
+// --- Building Component Operations ---
+
+void ProjectDB::save_building_component(
+    const geometry::BuildingComponent &component) {
+  impl_->saveBuildingComponent(component);
+}
+
+geometry::BuildingComponent
+ProjectDB::building_component(std::string_view name) const {
+  return impl_->getBuildingComponent(name);
+}
+
+bool ProjectDB::has_building_component(std::string_view name) const {
+  return impl_->hasBuildingComponent(name);
+}
+
+void ProjectDB::delete_building_component(std::string_view name) {
+  impl_->deleteBuildingComponent(name);
+}
+
+std::vector<std::string> ProjectDB::list_building_components() const {
+  return impl_->listBuildingComponents();
+}
+
+std::vector<std::string>
+ProjectDB::list_building_components(geometry::ComponentType type) const {
+  return impl_->listBuildingComponents(type);
+}
+
+int ProjectDB::building_component_count() const {
+  return impl_->buildingComponentCount();
 }
 
 // --- Project Summary ---

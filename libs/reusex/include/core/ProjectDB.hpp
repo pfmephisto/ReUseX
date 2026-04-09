@@ -21,6 +21,10 @@ namespace core {
 struct MaterialPassport;
 struct SensorIntrinsics;
 }
+namespace geometry {
+struct BuildingComponent;
+enum class ComponentType;
+}
 
 class ProjectDB {
     public:
@@ -143,6 +147,17 @@ class ProjectDB {
   bool has_mesh(std::string_view name) const;
   std::vector<std::string> list_meshes() const;
 
+  // --- Building Component Operations ---
+
+  void save_building_component(const geometry::BuildingComponent &component);
+  geometry::BuildingComponent building_component(std::string_view name) const;
+  bool has_building_component(std::string_view name) const;
+  void delete_building_component(std::string_view name);
+  std::vector<std::string> list_building_components() const;
+  std::vector<std::string>
+  list_building_components(geometry::ComponentType type) const;
+  int building_component_count() const;
+
   // --- Pipeline Log ---
 
   int log_pipeline_start(std::string_view stage,
@@ -189,12 +204,18 @@ class ProjectDB {
       int segmented_count;        // frames with segmentation
     };
 
+    struct ComponentInfo {
+      int total_count = 0;
+      std::map<std::string, int> count_by_type;
+    };
+
     std::filesystem::path path;
     int schema_version;
     std::vector<CloudInfo> clouds;
     std::vector<MeshInfo> meshes;
     SensorFrameInfo sensor_frames;
     int material_passport_count;
+    ComponentInfo components;
   };
 
   ProjectSummary project_summary() const;

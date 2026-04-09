@@ -21,10 +21,6 @@ file(GLOB_RECURSE REUSEX_HEADERS CONFIGURE_DEPENDS
      "${CMAKE_CURRENT_SOURCE_DIR}/include/**/*.hpp"
      "${CMAKE_CURRENT_SOURCE_DIR}/include/**/*.cuh")
 
-# Exclude visualization files from main library
-list(FILTER REUSEX_SOURCES EXCLUDE REGEX ".*/visualize/.*\\.cpp$")
-list(FILTER REUSEX_HEADERS EXCLUDE REGEX ".*/visualize/.*\\.hpp$")
-
 # -----------------------------------------------
 # ML Backend Configuration
 # -----------------------------------------------

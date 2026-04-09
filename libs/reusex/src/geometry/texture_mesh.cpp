@@ -354,30 +354,13 @@ texture_mesh(pcl::PolygonMesh::Ptr mesh,
     }
   }
 
-  // pcl::visualization::PCLVisualizer::Ptr viewer(
-  //     new pcl::visualization::PCLVisualizer("Textured Mesh Viewer"));
-  // ReUseX::visualize::addCameraFrustums(viewer, cameras);
-  // viewer->addPointCloud<pcl::PointXYZ>(cloud, "cloud");
-  //// viewer->addPolygonMesh(*mesh, "original mesh");
-  //// viewer->setPointCloudRenderingProperties(
-  ////    pcl::visualization::PCL_VISUALIZER_OPACITY, 0.3, "original mesh");
-  //// viewer->addTextureMesh(*textured_mesh, "textured mesh");
-  // viewer->setBackgroundColor(0.1, 0.1, 0.1);
-  // viewer->addCoordinateSystem(1.0f);
-  // viewer->resetCamera();
-
-  // while (!viewer->wasStopped()) {
-  //   viewer->spinOnce(100);
-  //   std::this_thread::sleep_for(std::chrono::milliseconds(100));
-  // }
-
   return textured_mesh;
 }
 
-pcl::TextureMesh::Ptr
-texture_mesh(pcl::PolygonMesh::Ptr mesh,
-             std::map<int, CameraData> const &cameras) {
-  ReUseX::core::trace("Entering ReUseX::geometry::texture_mesh (ProjectDB API)");
+pcl::TextureMesh::Ptr texture_mesh(pcl::PolygonMesh::Ptr mesh,
+                                   std::map<int, CameraData> const &cameras) {
+  ReUseX::core::trace(
+      "Entering ReUseX::geometry::texture_mesh (ProjectDB API)");
 
   // Copy cloud and polygons
   pcl::TextureMesh::Ptr textured_mesh(new pcl::TextureMesh);
@@ -412,7 +395,8 @@ texture_mesh(pcl::PolygonMesh::Ptr mesh,
   pcl::concatenateFields(*cloud, *normals, cloud_with_normals);
   pcl::toPCLPointCloud2(cloud_with_normals, textured_mesh->cloud);
 
-  ReUseX::core::debug("Number of polygons: {}", textured_mesh->tex_polygons.size());
+  ReUseX::core::debug("Number of polygons: {}",
+                      textured_mesh->tex_polygons.size());
   size_t num_faces = 0;
   for (const auto &poly_group : textured_mesh->tex_polygons)
     num_faces += poly_group.size();
@@ -488,18 +472,21 @@ texture_mesh(pcl::PolygonMesh::Ptr mesh,
   }
 
   ReUseX::core::debug("Number of cameras: {}", pcl_cameras.size());
-  ReUseX::core::debug("Number of materials: {}", textured_mesh->tex_materials.size());
+  ReUseX::core::debug("Number of materials: {}",
+                      textured_mesh->tex_materials.size());
 
   pcl::TextureMapping<pcl::PointXYZ> tm;
   tm.textureMeshwithMultipleCameras(*textured_mesh, pcl_cameras);
 
-  if (textured_mesh->tex_polygons.size() > textured_mesh->tex_materials.size()) {
+  if (textured_mesh->tex_polygons.size() >
+      textured_mesh->tex_materials.size()) {
     pcl::TexMaterial material;
     material.tex_name = "texture-unassigned";
     material.tex_file = textured_mesh->tex_materials[0].tex_file;
-    ReUseX::core::warn(
-        "Number of texture polygons ({}) > materials ({}). Adding default material.",
-        textured_mesh->tex_polygons.size(), textured_mesh->tex_materials.size());
+    ReUseX::core::warn("Number of texture polygons ({}) > materials ({}). "
+                       "Adding default material.",
+                       textured_mesh->tex_polygons.size(),
+                       textured_mesh->tex_materials.size());
     textured_mesh->tex_materials.push_back(material);
   }
 
@@ -508,10 +495,12 @@ texture_mesh(pcl::PolygonMesh::Ptr mesh,
                       textured_mesh->tex_polygons.size(),
                       textured_mesh->tex_coordinates.size());
 
-  if (textured_mesh->tex_coord_indices.size() != textured_mesh->tex_polygons.size()) {
+  if (textured_mesh->tex_coord_indices.size() !=
+      textured_mesh->tex_polygons.size()) {
     textured_mesh->tex_coord_indices.resize(textured_mesh->tex_polygons.size());
     for (size_t i = 0; i < textured_mesh->tex_polygons.size(); ++i) {
-      textured_mesh->tex_coord_indices[i].resize(textured_mesh->tex_polygons[i].size());
+      textured_mesh->tex_coord_indices[i].resize(
+          textured_mesh->tex_polygons[i].size());
     }
   }
 

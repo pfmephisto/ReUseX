@@ -10,19 +10,14 @@
 
 #include <memory>
 
-// Forward declaration to avoid dependency on visualization library
-namespace ReUseX::visualize {
-class Visualizer;
-}
-
 namespace ReUseX::geometry {
 
 /**
  * @brief Options for mesh generation.
  */
 struct MeshOptions {
-  float search_threshold = 10.0f; ///< Search threshold for mesh generation
-  float new_plane_offset = 0.05f; ///< Offset for new plane creation
+  float search_threshold = 10.0f;   ///< Search threshold for mesh generation
+  float new_plane_offset = 0.05f;   ///< Offset for new plane creation
   IndicesConstPtr filter = nullptr; ///< Optional filter to limit processing
 };
 

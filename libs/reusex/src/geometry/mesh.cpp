@@ -32,33 +32,33 @@ namespace {
  */
 pcl::PolygonMeshPtr eigen_to_polygon_mesh(const Eigen::MatrixXd &vertices,
                                           const Eigen::MatrixXi &faces) {
-    auto mesh = pcl::PolygonMeshPtr(new pcl::PolygonMesh());
+  auto mesh = pcl::PolygonMeshPtr(new pcl::PolygonMesh());
 
-    // Convert vertices: Eigen::MatrixXd → CloudLoc → PCLPointCloud2
-    CloudLocPtr mesh_vertices(new CloudLoc);
-    mesh_vertices->points.resize(vertices.rows());
-    mesh_vertices->width = static_cast<uint32_t>(vertices.rows());
-    mesh_vertices->height = 1;
+  // Convert vertices: Eigen::MatrixXd → CloudLoc → PCLPointCloud2
+  CloudLocPtr mesh_vertices(new CloudLoc);
+  mesh_vertices->points.resize(vertices.rows());
+  mesh_vertices->width = static_cast<uint32_t>(vertices.rows());
+  mesh_vertices->height = 1;
 
-    for (int i = 0; i < vertices.rows(); ++i) {
-        mesh_vertices->points[i].x = static_cast<float>(vertices(i, 0));
-        mesh_vertices->points[i].y = static_cast<float>(vertices(i, 1));
-        mesh_vertices->points[i].z = static_cast<float>(vertices(i, 2));
+  for (int i = 0; i < vertices.rows(); ++i) {
+    mesh_vertices->points[i].x = static_cast<float>(vertices(i, 0));
+    mesh_vertices->points[i].y = static_cast<float>(vertices(i, 1));
+    mesh_vertices->points[i].z = static_cast<float>(vertices(i, 2));
+  }
+  pcl::toPCLPointCloud2(*mesh_vertices, mesh->cloud);
+
+  // Convert faces: Eigen::MatrixXi → pcl::Vertices
+  mesh->polygons.resize(faces.rows());
+  for (int i = 0; i < faces.rows(); ++i) {
+    pcl::Vertices polygon;
+    polygon.vertices.reserve(faces.cols());
+    for (int j = 0; j < faces.cols(); ++j) {
+      polygon.vertices.push_back(faces(i, j));
     }
-    pcl::toPCLPointCloud2(*mesh_vertices, mesh->cloud);
+    mesh->polygons[i] = polygon;
+  }
 
-    // Convert faces: Eigen::MatrixXi → pcl::Vertices
-    mesh->polygons.resize(faces.rows());
-    for (int i = 0; i < faces.rows(); ++i) {
-        pcl::Vertices polygon;
-        polygon.vertices.reserve(faces.cols());
-        for (int j = 0; j < faces.cols(); ++j) {
-            polygon.vertices.push_back(faces(i, j));
-        }
-        mesh->polygons[i] = polygon;
-    }
-
-    return mesh;
+  return mesh;
 }
 
 } // anonymous namespace
@@ -71,7 +71,8 @@ pcl::PolygonMeshPtr mesh(CloudConstPtr cloud, CloudNConstPtr normals,
 
   // If filter is provided in options, filter the inliers lists
   if (opt.filter) {
-    std::unordered_set<int> filtered_set(opt.filter->begin(), opt.filter->end());
+    std::unordered_set<int> filtered_set(opt.filter->begin(),
+                                         opt.filter->end());
     ReUseX::core::debug("Mesh generation using {} filtered points",
                         opt.filter->size());
 
@@ -144,45 +145,6 @@ pcl::PolygonMeshPtr mesh(CloudConstPtr cloud, CloudNConstPtr normals,
 
   PointT min, max;
   pcl::getMinMax3D(*cloud, min, max);
-
-  // Floors are visualized via the "horizontal_planes" observer call above.
-  // The rux VizualizationObserver renders horizontal planes as floor quads.
-
-  // // auto viz_callback = [&queue_mutex, &task_queue,
-  // //                      vp_2](size_t idx,
-  // //                            std::vector<std::array<double, 3>> const
-  // &pts,
-  // //                            std::vector<int> const &indices) {
-  // //   std::lock_guard<std::mutex> lock(queue_mutex);
-  // //   task_queue.push([idx, vp_2, &pts, &indices](VisualizerPtr viewer) {
-  // //     auto points = CloudPtr(new Cloud);
-  // //     for (const auto &p : pts) {
-  // //       PointT pt;
-  // //       pt.x = static_cast<float>(p[0]);
-  // //       pt.y = static_cast<float>(p[1]);
-  // //       pt.z = static_cast<float>(p[2]);
-  // //       pt.r = 0;
-  // //       pt.g = 0;
-  // //       pt.b = 0;
-  // //       points->push_back(pt);
-  // //     }
-
-  // //    pcl::Vertices face;
-  // //    face.vertices = indices;
-  // //    auto color = pcl::GlasbeyLUT::at(idx);
-
-  // //    // Add polygon to viewer
-  // //    const std::string name = fmt::format("temp_{}", idx);
-  // //    viewer->addPolygonMesh<PointT>(points, {face}, name, vp_2);
-  // //    viewer->setPointCloudRenderingProperties(
-  // //        pcl::visualization::PCL_VISUALIZER_COLOR,
-  // //        static_cast<double>(color.r) / 255.0,
-  // //        static_cast<double>(color.g) / 255.0,
-  // //        static_cast<double>(color.b) / 255.0, name, vp_2);
-  // //    // viewer->setPointCloudRenderingProperties(
-  // //    //     pcl::visualization::PCL_VISUALIZER_OPACITY, 0.5, name, vp_2);
-  // //  });
-  // //};
 
   std::shared_ptr<CellComplex> cc = std::make_shared<CellComplex>(
       planes, vertical, horizontal, pairs,

@@ -3,14 +3,89 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "set.hpp"
-#include "set/project.hpp"
+
+#include "database/input_handler.hpp"
+#include "database/path_parser.hpp"
+#include "database/resource_router.hpp"
+
+#include <reusex/core/ProjectDB.hpp>
+
+#include <spdlog/spdlog.h>
 
 void setup_subcommand_set(CLI::App &app) {
+  auto opt = std::make_shared<DatabaseSetOptions>();
+
   auto *sub = app.add_subcommand(
-      "set", "Update project database properties");
+      "set", "Set data in project database using path-based access");
 
-  // Register all subcommands
-  setup_subcommand_set_project(*sub);
+  sub->add_option("project_file", opt->project_file,
+                  "Path to the ReUseX project database (.rux)")
+      ->required()
+      ->check(CLI::ExistingFile);
 
-  sub->require_subcommand(1);
+  sub->add_option("path", opt->path,
+                  "Resource path (e.g., clouds.newscan, project.name)")
+      ->required();
+
+  sub->add_option("value", opt->value,
+                  "Inline value (optional, can also use stdin)")
+      ->expected(0, 1); // Optional positional argument
+
+  sub->callback([opt]() {
+    spdlog::trace("calling run_subcommand_set");
+    return run_subcommand_set(*opt);
+  });
+}
+
+int run_subcommand_set(const DatabaseSetOptions &opt) {
+  try {
+    spdlog::info("Opening project: {}", opt.project_file.string());
+    auto db = std::make_shared<ReUseX::ProjectDB>(opt.project_file,
+                                                  /* readOnly */ false);
+
+    // Parse path
+    spdlog::debug("Parsing path: {}", opt.path);
+    auto components = rux::database::parse_path(opt.path);
+
+    if (components.empty()) {
+      spdlog::error("Invalid empty path");
+      return 1;
+    }
+
+    // Get collection name
+    const auto &collection = components[0].value;
+    spdlog::debug("Collection: {}", collection);
+
+    // Read input
+    auto input_data = rux::database::InputHandler::read_input(opt.value);
+
+    // Create router registry
+    rux::database::RouterRegistry registry(db);
+    auto &router = registry.get_router(collection);
+
+    // Remove collection from components
+    std::vector<rux::database::PathComponent> relative_components(
+        components.begin() + 1, components.end());
+
+    // Check for wildcards (not allowed in set)
+    for (const auto &comp : relative_components) {
+      if (comp.has_wildcard()) {
+        spdlog::error("Wildcards not allowed in set operation: {}", comp.value);
+        return 1;
+      }
+    }
+
+    // Perform set operation
+    router.set(relative_components, input_data);
+
+    spdlog::info("Successfully set data at path: {}", opt.path);
+    return 0;
+
+  } catch (const rux::database::PathError &e) {
+    spdlog::error("Path error: {}", e.what());
+    return 1;
+  } catch (const std::exception &e) {
+    spdlog::error("Failed to set data: {}", e.what());
+    return 1;
+  }
 }

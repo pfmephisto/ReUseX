@@ -23,7 +23,7 @@ void setup_subcommand_export_materialepas(CLI::App &parent) {
       "\"Materialepas for genbrugte byggevarer\" interchange format.\n\n"
       "Examples:\n"
       "  rux export materialepas project.db\n"
-      "  rux export materialepas project.db -o passports.json");
+      "  rux export materialepas project.db -o materials.json");
 
   sub->add_option("input", opt->input_path, "Input project database (.db)")
       ->required()
@@ -32,6 +32,11 @@ void setup_subcommand_export_materialepas(CLI::App &parent) {
   sub->add_option("-o,--output", opt->output_path,
                   "Output JSON file path (default: materialepas.json)")
       ->default_val(opt->output_path);
+
+  sub->add_flag("--exact", opt->exact,
+                "Export exact values without populating defaults\n"
+                "(by default, unset optional booleans are exported as false)")
+      ->default_val(false);
 
   sub->callback([opt]() {
     spdlog::trace("calling export materialepas subcommand");
@@ -54,9 +59,21 @@ int run_subcommand_export_materialepas(
     }
     spdlog::info("Found {} material passport(s)", passports.size());
 
-    // 3. Serialize to JSON
-    std::string json_str =
-        ReUseX::core::json_export::to_json_string(passports);
+    // 3. Serialize to JSON (with or without defaults)
+    nlohmann::json json_data;
+    if (opt.exact) {
+      // Exact export (no defaults)
+      json_data = ReUseX::core::json_export::to_json(passports);
+    } else {
+      // Export with defaults (user-friendly)
+      nlohmann::json::array_t passports_with_defaults;
+      for (const auto &passport : passports) {
+        passports_with_defaults.push_back(
+            ReUseX::core::json_export::to_json_with_defaults(passport));
+      }
+      json_data = passports_with_defaults;
+    }
+    std::string json_str = json_data.dump(4);
 
     // 4. Write to output file
     std::ofstream ofs(opt.output_path);

@@ -207,6 +207,46 @@ class ProjectDB {
   void add_material_passport(const core::MaterialPassport &passport,
                              std::string_view projectId);
 
+  /**
+   * @brief Delete a material passport by GUID
+   * @param documentGuid Document GUID to delete
+   * @throws std::runtime_error if passport does not exist
+   */
+  void delete_material_passport(std::string_view documentGuid);
+
+  // --- Project Metadata Operations ---
+
+  struct ProjectMetadata {
+    std::string id;
+    std::string name;
+    std::string building_address;
+    int year_of_construction = 0;  // 0 = not set
+    std::string survey_date;
+    std::string survey_organisation;
+    std::string notes;
+  };
+
+  /**
+   * @brief Get project metadata by project ID
+   * @param projectId Project identifier (default: "default")
+   * @return Project metadata
+   * @throws std::runtime_error if project does not exist
+   */
+  ProjectMetadata get_project_metadata(std::string_view projectId = "default") const;
+
+  /**
+   * @brief Update project metadata
+   * @param metadata Project metadata to update
+   * Creates project if it doesn't exist
+   */
+  void update_project_metadata(const ProjectMetadata &metadata);
+
+  /**
+   * @brief List all project IDs in the database
+   * @return Vector of project IDs
+   */
+  std::vector<std::string> list_project_ids() const;
+
     private:
   class Impl;
   std::unique_ptr<Impl> impl_;

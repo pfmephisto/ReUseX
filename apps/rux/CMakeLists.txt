@@ -3,6 +3,7 @@ project(RuxCLI)
 
 find_package(CLI11 CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
+find_package(nlohmann_json REQUIRED)
 
 # Collect sources
 file(GLOB_RECURSE rux_SOURCES CONFIGURE_DEPENDS "src/*.cpp")
@@ -13,6 +14,7 @@ target_link_libraries(rux PRIVATE
     ReUseX
     CLI11::CLI11
     spdlog::spdlog
+    nlohmann_json::nlohmann_json
     pcl_visualization
 )
 

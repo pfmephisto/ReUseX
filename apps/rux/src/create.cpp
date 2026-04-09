@@ -6,6 +6,7 @@
 #include "create/annotate.hpp"
 #include "create/clouds.hpp"
 #include "create/instances.hpp"
+#include "create/material.hpp"
 #include "create/mesh.hpp"
 #include "create/planes.hpp"
 #include "create/project.hpp"
@@ -19,6 +20,7 @@ void setup_subcommand_create(CLI::App &app) {
   // Register all subcommands (ordered by pipeline flow)
   setup_subcommand_create_clouds(*sub);
   setup_subcommand_create_annotate(*sub);
+  setup_subcommand_create_material(*sub);
   setup_subcommand_create_project(*sub);
   setup_subcommand_create_planes(*sub);
   setup_subcommand_create_rooms(*sub);

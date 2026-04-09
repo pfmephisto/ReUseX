@@ -2,16 +2,15 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include <add.hpp>
 #include <assemble.hpp>
 #include <create.hpp>
+#include <del.hpp>
 #include <export.hpp>
 #include <get.hpp>
 #include <import.hpp>
 #include <info.hpp>
 #include <log.hpp>
 #include <processing_observer.hpp>
-#include <remove.hpp>
 #include <set.hpp>
 #include <view.hpp>
 
@@ -119,10 +118,12 @@ int main(int argc, char **argv) {
   setup_subcommand_create(app);
   setup_subcommand_import(app);
   setup_subcommand_export(app);
+
+  // Unified path-based database commands (replaces old get/add/set/remove)
   setup_subcommand_get(app);
-  setup_subcommand_add(app);
   setup_subcommand_set(app);
-  setup_subcommand_remove(app);
+  setup_subcommand_del(app);
+
   setup_subcommand_info(app);
   setup_subcommand_log(app);
   setup_subcommand_view(app);

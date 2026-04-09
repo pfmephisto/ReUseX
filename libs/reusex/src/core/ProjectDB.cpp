@@ -1862,7 +1862,43 @@ class ProjectDB::Impl {
         sqlite3_finalize(proj_stmt);
       }
 
-      // 1. Insert material_passports row
+      // 1. Delete existing passport if it exists (for updates)
+      std::string passport_id = passport.metadata.document_guid;
+
+      // Delete related data (property values and log entries)
+      const char *delete_values_query =
+          "DELETE FROM passport_property_values WHERE passport_id = "
+          "(SELECT id FROM material_passports WHERE document_guid = ?);";
+      const char *delete_log_query =
+          "DELETE FROM passport_log WHERE passport_id = "
+          "(SELECT id FROM material_passports WHERE document_guid = ?);";
+      const char *delete_passport_query =
+          "DELETE FROM material_passports WHERE document_guid = ?;";
+
+      sqlite3_stmt *del_stmt;
+      // Delete property values
+      if (sqlite3_prepare_v2(db, delete_values_query, -1, &del_stmt, nullptr) ==
+          SQLITE_OK) {
+        sqlite3_bind_text(del_stmt, 1, passport_id.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_step(del_stmt);
+        sqlite3_finalize(del_stmt);
+      }
+      // Delete log entries
+      if (sqlite3_prepare_v2(db, delete_log_query, -1, &del_stmt, nullptr) ==
+          SQLITE_OK) {
+        sqlite3_bind_text(del_stmt, 1, passport_id.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_step(del_stmt);
+        sqlite3_finalize(del_stmt);
+      }
+      // Delete passport
+      if (sqlite3_prepare_v2(db, delete_passport_query, -1, &del_stmt, nullptr) ==
+          SQLITE_OK) {
+        sqlite3_bind_text(del_stmt, 1, passport_id.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_step(del_stmt);
+        sqlite3_finalize(del_stmt);
+      }
+
+      // 2. Insert material_passports row
       const char *insert_passport_query =
           "INSERT INTO material_passports (id, project_id, document_guid, "
           "created_at, revised_at, version_number, version_date) "
@@ -1875,7 +1911,6 @@ class ProjectDB::Impl {
                                  std::string(sqlite3_errmsg(db)));
       }
 
-      std::string passport_id = passport.metadata.document_guid;
       sqlite3_bind_text(stmt, 1, passport_id.c_str(), -1, SQLITE_TRANSIENT);
       sqlite3_bind_text(stmt, 2, projectId.data(), projectId.size(), SQLITE_TRANSIENT);
       sqlite3_bind_text(stmt, 3, passport.metadata.document_guid.c_str(), -1,
@@ -2436,6 +2471,183 @@ ProjectDB::all_material_passports() const {
 void ProjectDB::add_material_passport(const ReUseX::core::MaterialPassport &passport,
                                       std::string_view projectId) {
   impl_->addMaterialPassport(passport, projectId);
+}
+
+void ProjectDB::delete_material_passport(std::string_view documentGuid) {
+  // Delete related data (property values, log entries, then passport)
+  const char *delete_values_query =
+      "DELETE FROM passport_property_values WHERE passport_id = "
+      "(SELECT id FROM material_passports WHERE document_guid = ?);";
+  const char *delete_log_query =
+      "DELETE FROM passport_log WHERE passport_id = "
+      "(SELECT id FROM material_passports WHERE document_guid = ?);";
+  const char *delete_passport_query =
+      "DELETE FROM material_passports WHERE document_guid = ?;";
+
+  sqlite3_stmt *stmt;
+
+  // Delete property values
+  if (sqlite3_prepare_v2(impl_->db, delete_values_query, -1, &stmt, nullptr) ==
+      SQLITE_OK) {
+    sqlite3_bind_text(stmt, 1, documentGuid.data(), documentGuid.size(),
+                      SQLITE_STATIC);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+  }
+
+  // Delete log entries
+  if (sqlite3_prepare_v2(impl_->db, delete_log_query, -1, &stmt, nullptr) ==
+      SQLITE_OK) {
+    sqlite3_bind_text(stmt, 1, documentGuid.data(), documentGuid.size(),
+                      SQLITE_STATIC);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+  }
+
+  // Delete passport
+  if (sqlite3_prepare_v2(impl_->db, delete_passport_query, -1, &stmt, nullptr) !=
+      SQLITE_OK) {
+    throw std::runtime_error("Failed to prepare delete passport statement: " +
+                             std::string(sqlite3_errmsg(impl_->db)));
+  }
+
+  sqlite3_bind_text(stmt, 1, documentGuid.data(), documentGuid.size(),
+                    SQLITE_STATIC);
+
+  int rc = sqlite3_step(stmt);
+  int changes = sqlite3_changes(impl_->db);
+  sqlite3_finalize(stmt);
+
+  if (rc != SQLITE_DONE) {
+    throw std::runtime_error("Failed to delete passport: " +
+                             std::string(sqlite3_errmsg(impl_->db)));
+  }
+
+  if (changes == 0) {
+    throw std::runtime_error("Passport not found: " + std::string(documentGuid));
+  }
+}
+
+// --- Project Metadata ---
+
+ProjectDB::ProjectMetadata ProjectDB::get_project_metadata(std::string_view projectId) const {
+  const char *query =
+      "SELECT id, name, building_address, year_of_construction, "
+      "survey_date, survey_organisation, notes "
+      "FROM projects WHERE id = ?;";
+
+  sqlite3_stmt *stmt;
+  int rc = sqlite3_prepare_v2(impl_->db, query, -1, &stmt, nullptr);
+  if (rc != SQLITE_OK) {
+    throw std::runtime_error("Failed to prepare project metadata query: " +
+                             std::string(sqlite3_errmsg(impl_->db)));
+  }
+
+  sqlite3_bind_text(stmt, 1, projectId.data(), projectId.size(), SQLITE_STATIC);
+
+  ProjectMetadata metadata;
+  if (sqlite3_step(stmt) == SQLITE_ROW) {
+    metadata.id = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
+
+    if (sqlite3_column_type(stmt, 1) != SQLITE_NULL) {
+      metadata.name = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1));
+    }
+
+    if (sqlite3_column_type(stmt, 2) != SQLITE_NULL) {
+      metadata.building_address = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 2));
+    }
+
+    if (sqlite3_column_type(stmt, 3) != SQLITE_NULL) {
+      metadata.year_of_construction = sqlite3_column_int(stmt, 3);
+    }
+
+    if (sqlite3_column_type(stmt, 4) != SQLITE_NULL) {
+      metadata.survey_date = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 4));
+    }
+
+    if (sqlite3_column_type(stmt, 5) != SQLITE_NULL) {
+      metadata.survey_organisation = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 5));
+    }
+
+    if (sqlite3_column_type(stmt, 6) != SQLITE_NULL) {
+      metadata.notes = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 6));
+    }
+  } else {
+    sqlite3_finalize(stmt);
+    throw std::runtime_error("Project not found: " + std::string(projectId));
+  }
+
+  sqlite3_finalize(stmt);
+  return metadata;
+}
+
+void ProjectDB::update_project_metadata(const ProjectMetadata &metadata) {
+  const char *query =
+      "INSERT INTO projects (id, name, building_address, year_of_construction, "
+      "survey_date, survey_organisation, notes) "
+      "VALUES (?, ?, ?, ?, ?, ?, ?) "
+      "ON CONFLICT(id) DO UPDATE SET "
+      "name = excluded.name, "
+      "building_address = excluded.building_address, "
+      "year_of_construction = excluded.year_of_construction, "
+      "survey_date = excluded.survey_date, "
+      "survey_organisation = excluded.survey_organisation, "
+      "notes = excluded.notes;";
+
+  sqlite3_stmt *stmt;
+  int rc = sqlite3_prepare_v2(impl_->db, query, -1, &stmt, nullptr);
+  if (rc != SQLITE_OK) {
+    throw std::runtime_error("Failed to prepare project metadata update: " +
+                             std::string(sqlite3_errmsg(impl_->db)));
+  }
+
+  sqlite3_bind_text(stmt, 1, metadata.id.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmt, 2, metadata.name.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmt, 3, metadata.building_address.c_str(), -1, SQLITE_TRANSIENT);
+
+  if (metadata.year_of_construction > 0) {
+    sqlite3_bind_int(stmt, 4, metadata.year_of_construction);
+  } else {
+    sqlite3_bind_null(stmt, 4);
+  }
+
+  sqlite3_bind_text(stmt, 5, metadata.survey_date.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmt, 6, metadata.survey_organisation.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmt, 7, metadata.notes.c_str(), -1, SQLITE_TRANSIENT);
+
+  rc = sqlite3_step(stmt);
+  sqlite3_finalize(stmt);
+
+  if (rc != SQLITE_DONE) {
+    throw std::runtime_error("Failed to update project metadata: " +
+                             std::string(sqlite3_errmsg(impl_->db)));
+  }
+}
+
+std::vector<std::string> ProjectDB::list_project_ids() const {
+  const char *query = "SELECT id FROM projects ORDER BY id;";
+
+  sqlite3_stmt *stmt;
+  int rc = sqlite3_prepare_v2(impl_->db, query, -1, &stmt, nullptr);
+  if (rc != SQLITE_OK) {
+    throw std::runtime_error("Failed to prepare project list query: " +
+                             std::string(sqlite3_errmsg(impl_->db)));
+  }
+
+  std::vector<std::string> project_ids;
+  while (sqlite3_step(stmt) == SQLITE_ROW) {
+    project_ids.emplace_back(
+        reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0)));
+  }
+
+  sqlite3_finalize(stmt);
+
+  // If no projects exist, return default project
+  if (project_ids.empty()) {
+    project_ids.push_back("default");
+  }
+
+  return project_ids;
 }
 
 // --- Project Summary ---

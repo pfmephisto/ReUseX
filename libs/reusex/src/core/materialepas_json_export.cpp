@@ -6,7 +6,11 @@
 #include "core/materialepas_enums.hpp"
 
 #include <array>
+#include <chrono>
 #include <cstring>
+#include <iomanip>
+#include <random>
+#include <sstream>
 #include <string>
 
 using json = nlohmann::json;
@@ -490,6 +494,58 @@ json to_json(const std::vector<MaterialPassport> &passports) {
   return result;
 }
 
+json to_json_with_defaults(const MaterialPassport &passport) {
+  // Create a copy of the passport to populate with defaults
+  MaterialPassport p = passport;
+
+  // Section 2: ConstructionItemDescription - populate optional booleans
+  if (!p.description.has_qr_code.has_value()) {
+    p.description.has_qr_code = false;
+  }
+  if (!p.description.has_rfid_tag.has_value()) {
+    p.description.has_rfid_tag = false;
+  }
+
+  // Section 4: Certifications - populate optional booleans
+  if (!p.certifications.has_epd.has_value()) {
+    p.certifications.has_epd = false;
+  }
+  if (!p.certifications.has_safety_data_sheet.has_value()) {
+    p.certifications.has_safety_data_sheet = false;
+  }
+
+  // Section 6: Condition - populate optional booleans
+  if (!p.condition.visual_inspection_performed.has_value()) {
+    p.condition.visual_inspection_performed = false;
+  }
+  if (!p.condition.has_signs_of_damage.has_value()) {
+    p.condition.has_signs_of_damage = false;
+  }
+  if (!p.condition.is_deformed.has_value()) {
+    p.condition.is_deformed = false;
+  }
+  if (!p.condition.is_scratched.has_value()) {
+    p.condition.is_scratched = false;
+  }
+  if (!p.condition.is_surface_intact.has_value()) {
+    p.condition.is_surface_intact = false;
+  }
+  if (!p.condition.has_intact_edges.has_value()) {
+    p.condition.has_intact_edges = false;
+  }
+  if (!p.condition.has_signs_of_degradation.has_value()) {
+    p.condition.has_signs_of_degradation = false;
+  }
+
+  // Note: We keep numeric optionals (int, double) as-is because empty string
+  // is ambiguous (does 0 mean "zero" or "unknown"?)
+  // Note: We keep TriState as-is (unknown, yes, no are all valid states)
+  // Note: Empty vectors stay empty (will export as [] not with template entry)
+
+  // Use the existing to_json() function on the populated passport
+  return to_json(p);
+}
+
 std::string to_json_string(const MaterialPassport &passport, int indent) {
   return to_json(passport).dump(indent);
 }
@@ -497,6 +553,61 @@ std::string to_json_string(const MaterialPassport &passport, int indent) {
 std::string to_json_string(const std::vector<MaterialPassport> &passports,
                            int indent) {
   return to_json(passports).dump(indent);
+}
+
+json generate_blank_template() {
+  // Helper: Generate a simple GUID (UUID v4-like format)
+  auto generate_guid = []() -> std::string {
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<> dis(0, 15);
+    std::uniform_int_distribution<> dis2(8, 11);
+
+    std::stringstream ss;
+    ss << std::hex;
+    for (int i = 0; i < 8; i++) ss << dis(gen);
+    ss << "-";
+    for (int i = 0; i < 4; i++) ss << dis(gen);
+    ss << "-4"; // Version 4
+    for (int i = 0; i < 3; i++) ss << dis(gen);
+    ss << "-";
+    ss << dis2(gen); // Variant
+    for (int i = 0; i < 3; i++) ss << dis(gen);
+    ss << "-";
+    for (int i = 0; i < 12; i++) ss << dis(gen);
+    return ss.str();
+  };
+
+  // Helper: Get current date in ISO 8601 format (YYYY-MM-DD)
+  auto get_current_date = []() -> std::string {
+    auto now = std::chrono::system_clock::now();
+    auto time_t_now = std::chrono::system_clock::to_time_t(now);
+    std::tm tm_now;
+    #ifdef _WIN32
+      localtime_s(&tm_now, &time_t_now);
+    #else
+      localtime_r(&time_t_now, &tm_now);
+    #endif
+    std::stringstream ss;
+    ss << std::put_time(&tm_now, "%Y-%m-%d");
+    return ss.str();
+  };
+
+  // Create a blank MaterialPassport with all sections empty
+  MaterialPassport blank;
+
+  // Metadata: Auto-generate GUID and dates
+  blank.metadata.document_guid = generate_guid();
+  blank.metadata.creation_date = get_current_date();
+  blank.metadata.revision_date = get_current_date();
+  blank.metadata.version_number = "0.1.0";
+  blank.metadata.version_date = get_current_date();
+
+  // All sections remain default-initialized (empty strings, empty vectors, nullopt)
+  // Transaction log remains empty
+
+  // Export the blank passport to JSON
+  return to_json(blank);
 }
 
 } // namespace ReUseX::core::json_export

@@ -22,9 +22,9 @@ void setup_subcommand_import_materialepas(CLI::App &parent) {
       "\"Materialepas for genbrugte byggevarer\" interchange format\n"
       "and stores the material passports in a ReUseX project database.\n\n"
       "Examples:\n"
-      "  rux import materialepas passports.json\n"
-      "  rux import materialepas passports.json -d project.db\n"
-      "  rux import materialepas passports.json --project-id my_project");
+      "  rux import materialepas materials.json\n"
+      "  rux import materialepas materials.json -d project.db\n"
+      "  rux import materialepas materials.json --project-id my_project");
 
   sub->add_option("input", opt->input_path, "Input JSON file (.json)")
       ->required()

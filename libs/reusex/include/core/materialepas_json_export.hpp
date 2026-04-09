@@ -62,6 +62,42 @@ std::span<const SectionDescriptor> section_descriptors();
 [[nodiscard]] nlohmann::json to_json(const MaterialPassport &passport);
 
 /**
+ * @brief Export a single MaterialPassport to JSON with sensible defaults.
+ *
+ * Similar to to_json(), but populates missing optional fields with sensible
+ * defaults to improve readability:
+ * - optional<bool> fields → false (explicit "no")
+ * - Empty vectors → [] (truly empty, no template entries)
+ * - TriState → unchanged (unknown, yes, no)
+ * - Numeric optionals → "" (ambiguous whether 0 means zero or unknown)
+ *
+ * This is useful for exporting partial passports in a user-friendly format.
+ *
+ * @param passport The passport to export
+ * @return JSON object with defaults populated
+ */
+[[nodiscard]] nlohmann::json to_json_with_defaults(const MaterialPassport &passport);
+
+/**
+ * @brief Generate a blank MaterialPassport template as JSON.
+ *
+ * Creates a complete template with all 10 sections and all properties present,
+ * with empty values for user to fill in. Useful for creating new material
+ * passports from scratch.
+ *
+ * Template characteristics:
+ * - All sections present with all properties
+ * - All string fields: "" (empty for user to fill)
+ * - All vectors: [] (empty arrays)
+ * - All optionals: unset (will show as "")
+ * - Metadata: Auto-generated GUID, current date, version "0.1.0"
+ * - Transaction log: [] (empty)
+ *
+ * @return JSON template object
+ */
+[[nodiscard]] nlohmann::json generate_blank_template();
+
+/**
  * @brief Export multiple MaterialPassports to a JSON array.
  *
  * Each element in the array is a full passport JSON object.

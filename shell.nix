@@ -43,7 +43,6 @@ pkgs.mkShell {
     libnotify # Send notification when build finishes
     sqlite
     ffmpeg
-    mcl
     openusd
     jq # JSON processor for scripts
     ripgrep # Fast code search (faster than grep)

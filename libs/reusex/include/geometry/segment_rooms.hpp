@@ -9,13 +9,7 @@
 #include "reusex/types.hpp"
 #include "reusex/utils/fmt_formatter.hpp"
 
-#include <pcl/markov_clustering.hpp>
-
-// GraphBLAS imports complex.h which defines a macro named 'I' that conflicts
-// with the type in CLI11
-#ifdef I
-#undef I
-#endif
+#include <pcl/community_clustering.hpp>
 
 #include <fmt/format.h>
 
@@ -35,11 +29,9 @@ struct SegmentRoomsOptions {
   IndicesConstPtr filter = nullptr; // Optional filter to limit processing
 
   float grid_size = 0.5F;
-  float inflation = 2.0F;
-  int expansion = 2;
-  float pruning_threshold = 0.0001F;
-  float convergence_threshold = 1e-8F;
-  int max_iter = 100;
+  float resolution = 1.0F;
+  float beta = 0.01F;
+  int max_iter = -1; // negative = iterate until convergence
 
   // Optional cancellation flag. Caller retains ownership and must keep this
   // alive for the full duration of the segment_rooms(...) call.

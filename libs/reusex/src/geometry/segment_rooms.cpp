@@ -10,15 +10,16 @@
 
 namespace ReUseX::geometry {
 /**
- * @brief Implementation of room segmentation using Markov clustering.
+ * @brief Implementation of room segmentation using community detection.
  *
- * Segments a point cloud into rooms using Markov clustering based on
- * visual relations between points. Uses uniform sampling and MCL algorithm.
+ * Segments a point cloud into rooms using the Leiden community detection
+ * algorithm based on visual relations between points. Uses uniform sampling
+ * and Embree ray tracing to build a visibility graph.
  *
  * @param cloud Input point cloud.
  * @param normals Point cloud normals.
  * @param planes Labeled point cloud with plane IDs.
- * @param options Segmentation options (MCL parameters, filter, etc.).
+ * @param options Segmentation options (Leiden parameters, filter, etc.).
  * @return Labeled point cloud with room assignments.
  */
 auto segment_rooms_impl(CloudConstPtr cloud, CloudNConstPtr normals,
@@ -71,17 +72,15 @@ auto segment_rooms_impl(CloudConstPtr cloud, CloudNConstPtr normals,
                     local_indices->end());
   }
 
-  pcl::MarkovClustering<PointT, NormalT, LabelT> mcl;
-  mcl.setInflationFactor(options.inflation);
-  mcl.setExpansionFactor(options.expansion);
-  mcl.setPruningThreshold(options.pruning_threshold);
-  mcl.setConvergenceThreshold(options.convergence_threshold);
-  mcl.setMaxIterations(options.max_iter);
+  pcl::CommunityClustering<PointT, NormalT, LabelT> cc;
+  cc.setResolution(options.resolution);
+  cc.setBeta(options.beta);
+  cc.setMaxIterations(options.max_iter);
 
-  mcl.setGridSize(options.grid_size);
-  mcl.setInputCloud(cloud);
-  mcl.setInputNormals(normals);
-  mcl.setIndices(indices);
+  cc.setGridSize(options.grid_size);
+  cc.setInputCloud(cloud);
+  cc.setInputNormals(normals);
+  cc.setIndices(indices);
 
   ReUseX::core::trace("Initialize labels and copy xyzrgb data to labels");
   CloudLPtr labels(new CloudL);
@@ -89,7 +88,7 @@ auto segment_rooms_impl(CloudConstPtr cloud, CloudNConstPtr normals,
   for (size_t i = 0; i < labels->points.size(); ++i)
     labels->points[i].label = -1;
 
-  mcl.cluster(*labels);
+  cc.cluster(*labels);
   ReUseX::core::trace("Done clustering");
 
   // Assign the label to all points
@@ -123,7 +122,7 @@ auto segment_rooms_impl(CloudConstPtr cloud, CloudNConstPtr normals,
     }
   }
 
-  ReUseX::core::info("Number of clusters found: {}", mcl.getNumClusters());
+  ReUseX::core::info("Number of clusters found: {}", cc.getNumClusters());
 
   return labels;
 }

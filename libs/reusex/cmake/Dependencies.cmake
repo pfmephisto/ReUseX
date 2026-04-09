@@ -134,8 +134,7 @@ include(CGAL_TBB_support)
 # -----------------------------------------------
 # Graph Algorithms
 # -----------------------------------------------
-find_package(GraphBLAS REQUIRED)
-find_package(LAGraph REQUIRED)
+find_package(igraph REQUIRED)
 
 # -----------------------------------------------
 # I/O Formats

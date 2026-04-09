@@ -11,11 +11,9 @@ namespace fs = std::filesystem;
 struct SubcommandSegRoomsOptions {
   fs::path project;  ///< Path to .rux project file (required, positional)
 
-  int expansion = 2;  ///< Cell expansion factor
-  float inflation = 2.0F;  ///< Inflation factor for room boundaries
-  float pruning_threshold = 0.0001F;  ///< Threshold for pruning small regions
-  float convergence_threshold = 1e-8F;  ///< Convergence threshold for optimization
-  int max_iter = 100;  ///< Maximum number of iterations
+  float resolution = 1.0F;  ///< Leiden resolution parameter (cluster granularity)
+  float beta = 0.01F;  ///< Leiden beta (refinement randomness)
+  int max_iter = -1;  ///< Maximum iterations (-1 = until convergence)
 
   float grid_size = GlobalParams::grid_size;  ///< Grid cell size
 

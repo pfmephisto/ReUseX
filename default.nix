@@ -27,8 +27,9 @@
   librealsense,
   octomap,
   # suitesparse,
-  suitesparse-graphblas,
-  LAGraph,
+  # suitesparse-graphblas,
+  # LAGraph,
+  igraph,
   mpfr,
   opencv,
   # glfw,
@@ -103,8 +104,9 @@ in
         xercesc
 
         # suitesparse
-        suitesparse-graphblas
-        LAGraph
+        # suitesparse-graphblas
+        # LAGraph
+        igraph
 
         mpfr
 

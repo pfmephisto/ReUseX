@@ -113,9 +113,7 @@ target_link_libraries(ReUseX
         nlohmann_json::nlohmann_json
 
         # Graph algorithms
-        SuiteSparse::GraphBLAS
-        SuiteSparse::LAGraph
-        SuiteSparse::LAGraphX
+        igraph::igraph
 
         # Computer Vision
         opencv_core

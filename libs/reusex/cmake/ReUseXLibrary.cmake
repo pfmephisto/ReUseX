@@ -25,6 +25,32 @@ file(GLOB_RECURSE REUSEX_HEADERS CONFIGURE_DEPENDS
 list(FILTER REUSEX_SOURCES EXCLUDE REGEX ".*/visualize/.*\\.cpp$")
 list(FILTER REUSEX_HEADERS EXCLUDE REGEX ".*/visualize/.*\\.hpp$")
 
+# Exclude disabled ML backend files
+if(NOT "TensorRT" IN_LIST ENABLED_ML_BACKENDS)
+    list(FILTER REUSEX_SOURCES EXCLUDE REGEX ".*/vision/tensor_rt/.*\\.(cpp|cu)$")
+    list(FILTER REUSEX_HEADERS EXCLUDE REGEX ".*/vision/tensor_rt/.*\\.hpp$")
+    message(STATUS "Excluding TensorRT source files from build")
+endif()
+
+if(NOT "LibTorch" IN_LIST ENABLED_ML_BACKENDS)
+    list(FILTER REUSEX_SOURCES EXCLUDE REGEX ".*/vision/libtorch/.*\\.cpp$")
+    list(FILTER REUSEX_HEADERS EXCLUDE REGEX ".*/vision/libtorch/.*\\.hpp$")
+    # Exclude LibTorch-specific utility files (NMS uses torch::Tensor)
+    list(FILTER REUSEX_SOURCES EXCLUDE REGEX ".*/vision/nms\\.cpp$")
+    list(FILTER REUSEX_HEADERS EXCLUDE REGEX ".*/vision/nms\\.hpp$")
+    message(STATUS "Excluding LibTorch source files from build")
+endif()
+
+if(NOT "ONNX" IN_LIST ENABLED_ML_BACKENDS)
+    list(FILTER REUSEX_SOURCES EXCLUDE REGEX ".*/vision/onnx/.*\\.cpp$")
+    list(FILTER REUSEX_HEADERS EXCLUDE REGEX ".*/vision/onnx/.*\\.hpp$")
+endif()
+
+if(NOT "OpenVINO" IN_LIST ENABLED_ML_BACKENDS)
+    list(FILTER REUSEX_SOURCES EXCLUDE REGEX ".*/vision/openvino/.*\\.cpp$")
+    list(FILTER REUSEX_HEADERS EXCLUDE REGEX ".*/vision/openvino/.*\\.hpp$")
+endif()
+
 list(LENGTH REUSEX_SOURCES REUSEX_SOURCE_COUNT)
 message(STATUS "Found ${REUSEX_SOURCE_COUNT} ReUseX source files")
 
@@ -124,20 +150,43 @@ target_link_libraries(ReUseX
         rtabmap::rtabmap
 
     PRIVATE
-        # Deep Learning (keep internal to avoid exposing torch ABI)
-        torch
-
         # Ranges
         range-v3::range-v3
-	      trtsam3::trtsam_core
-
-	      tokenizers_cpp::tokenizers_cpp
 
         # Speckle upload support
         CURL::libcurl
         nlohmann_json::nlohmann_json
         OpenSSL::Crypto
 )
+
+# -----------------------------------------------
+# ML Backend Configuration
+# -----------------------------------------------
+foreach(backend IN LISTS ENABLED_ML_BACKENDS)
+    if(backend STREQUAL "TensorRT")
+        target_compile_definitions(ReUseX PRIVATE REUSEX_USE_TENSORRT)
+        target_link_libraries(ReUseX PRIVATE
+            trtsam3::trtsam_core
+            tokenizers_cpp::tokenizers_cpp
+        )
+        message(STATUS "Linking TensorRT backend libraries")
+
+    elseif(backend STREQUAL "LibTorch")
+        target_compile_definitions(ReUseX PRIVATE REUSEX_USE_LIBTORCH)
+        target_link_libraries(ReUseX PRIVATE torch)
+        message(STATUS "Linking LibTorch backend libraries")
+
+    elseif(backend STREQUAL "ONNX")
+        target_compile_definitions(ReUseX PRIVATE REUSEX_USE_ONNX)
+        target_link_libraries(ReUseX PRIVATE onnxruntime::onnxruntime)
+        message(STATUS "Linking ONNX Runtime backend libraries")
+
+    elseif(backend STREQUAL "OpenVINO")
+        target_compile_definitions(ReUseX PRIVATE REUSEX_USE_OPENVINO)
+        target_link_libraries(ReUseX PRIVATE openvino::openvino)
+        message(STATUS "Linking OpenVINO backend libraries")
+    endif()
+endforeach()
 
 # -----------------------------------------------
 # Compiler options
@@ -200,4 +249,6 @@ endif()
 # -----------------------------------------------
 if(NOT CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
     set(REUSEX_LIBRARY_TARGET ReUseX PARENT_SCOPE)
+    set(USE_MIP_SOLVER ${USE_MIP_SOLVER} PARENT_SCOPE)
+    set(ENABLED_ML_BACKENDS ${ENABLED_ML_BACKENDS} PARENT_SCOPE)
 endif()

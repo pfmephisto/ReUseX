@@ -12,15 +12,13 @@ namespace rux::validation {
 /// Result of validation with error message and resolution hint
 struct ValidationResult {
   bool success;
-  std::string error_message;           // What's missing/wrong
-  std::string resolution_hint;         // Command to run to fix it
+  std::string error_message;             // What's missing/wrong
+  std::string resolution_hint;           // Command to run to fix it
   std::vector<std::string> missing_data; // Specific missing items
 
   explicit operator bool() const { return success; }
 
-  static ValidationResult ok() {
-    return ValidationResult{true, "", "", {}};
-  }
+  static ValidationResult ok() { return ValidationResult{true, "", "", {}}; }
 
   static ValidationResult error(std::string msg, std::string hint,
                                 std::vector<std::string> missing = {}) {
@@ -37,7 +35,11 @@ ValidationResult validate_mesh_prerequisites(const ReUseX::ProjectDB &db);
 ValidationResult validate_texture_prerequisites(const ReUseX::ProjectDB &db);
 ValidationResult validate_project_prerequisites(const ReUseX::ProjectDB &db);
 ValidationResult validate_annotate_prerequisites(const ReUseX::ProjectDB &db);
-ValidationResult validate_instances_prerequisites(const ReUseX::ProjectDB &db,
-                                                    const std::string &semantic_cloud_name);
+ValidationResult
+validate_instances_prerequisites(const ReUseX::ProjectDB &db,
+                                 const std::string &semantic_cloud_name);
+ValidationResult
+validate_window_prerequisites(const ReUseX::ProjectDB &db,
+                              const std::string &semantic_cloud_name);
 
 } // namespace rux::validation

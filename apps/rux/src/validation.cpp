@@ -61,8 +61,7 @@ ValidationResult validate_rooms_prerequisites(const ReUseX::ProjectDB &db) {
       resolution =
           "Run 'rux create planes project.rux' to segment planar surfaces";
     } else {
-      resolution =
-          "Run 'rux create planes project.rux' to generate plane data";
+      resolution = "Run 'rux create planes project.rux' to generate plane data";
     }
 
     return ValidationResult::error(
@@ -103,9 +102,9 @@ ValidationResult validate_mesh_prerequisites(const ReUseX::ProjectDB &db) {
       steps.push_back("rux create rooms project.rux");
     }
 
-    std::string resolution = fmt::format(
-        "Run the following commands in order:\n    {}",
-        fmt::join(steps, "\n    "));
+    std::string resolution =
+        fmt::format("Run the following commands in order:\n    {}",
+                    fmt::join(steps, "\n    "));
 
     return ValidationResult::error(
         fmt::format("Missing required data: {}", fmt::join(missing, ", ")),
@@ -221,8 +220,9 @@ ValidationResult validate_annotate_prerequisites(const ReUseX::ProjectDB &db) {
   return ValidationResult::ok();
 }
 
-ValidationResult validate_instances_prerequisites(
-    const ReUseX::ProjectDB &db, const std::string &semantic_cloud_name) {
+ValidationResult
+validate_instances_prerequisites(const ReUseX::ProjectDB &db,
+                                 const std::string &semantic_cloud_name) {
 
   std::vector<std::string> missing;
 
@@ -240,9 +240,60 @@ ValidationResult validate_instances_prerequisites(
       resolution = "Run 'rux create clouds project.rux' first";
     } else {
       auto available = db.list_point_clouds();
-      resolution = fmt::format(
-          "Semantic cloud '{}' not found. Available: {}", semantic_cloud_name,
-          fmt::join(available, ", "));
+      resolution = fmt::format("Semantic cloud '{}' not found. Available: {}",
+                               semantic_cloud_name, fmt::join(available, ", "));
+    }
+
+    return ValidationResult::error(
+        fmt::format("Missing required data: {}", fmt::join(missing, ", ")),
+        resolution, missing);
+  }
+
+  // Size validation
+  try {
+    auto cloud = db.point_cloud_xyzrgb("cloud");
+    auto semantic = db.point_cloud_label(semantic_cloud_name);
+
+    if (cloud->size() != semantic->size()) {
+      return ValidationResult::error(
+          fmt::format("Size mismatch: cloud={}, {}={}", cloud->size(),
+                      semantic_cloud_name, semantic->size()),
+          "Regenerate point clouds with 'rux create clouds project.rux'", {});
+    }
+  } catch (const std::exception &e) {
+    return ValidationResult::error(
+        fmt::format("Failed to load data: {}", e.what()),
+        "Check database with 'rux info project.rux'", {});
+  }
+
+  return ValidationResult::ok();
+}
+ValidationResult
+validate_window_prerequisites(const ReUseX::ProjectDB &db,
+                              const std::string &semantic_cloud_name) {
+  std::vector<std::string> missing;
+
+  // Check cloud exists
+  if (!db.has_point_cloud("cloud"))
+    missing.push_back("cloud");
+
+  // Check semantic labels exist
+  if (!db.has_point_cloud(semantic_cloud_name))
+    missing.push_back(semantic_cloud_name);
+
+  if (!db.has_point_cloud("instances"))
+    missing.push_back("instances");
+
+  // planes
+
+  if (!missing.empty()) {
+    std::string resolution;
+    if (!db.has_point_cloud("cloud")) {
+      resolution = "Run 'rux create clouds project.rux' first";
+    } else {
+      auto available = db.list_point_clouds();
+      resolution = fmt::format("Semantic cloud '{}' not found. Available: {}",
+                               semantic_cloud_name, fmt::join(available, ", "));
     }
 
     return ValidationResult::error(

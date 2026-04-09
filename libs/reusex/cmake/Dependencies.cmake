@@ -25,11 +25,71 @@ find_package(range-v3 CONFIG REQUIRED)
 find_package(nlohmann_json 3.11 REQUIRED)
 
 # -----------------------------------------------
-# Deep Learning
+# ML Backends (Optional)
 # -----------------------------------------------
-find_package(Torch 2.9.0 CONFIG REQUIRED)
-find_package(trtsam3 CONFIG REQUIRED)
-find_package(tokenizers_cpp CONFIG REQUIRED)
+# User can specify which backends to enable via:
+#   -DML_BACKENDS="AUTO" (default - find all available)
+#   -DML_BACKENDS="TensorRT;LibTorch" (explicit list)
+#   -DML_BACKENDS="NONE" (disable all)
+
+set(ML_BACKENDS "AUTO" CACHE STRING "ML backends to enable (AUTO, NONE, or list: TensorRT;LibTorch;ONNX;OpenVINO)")
+
+# Define available backends and their dependencies
+set(ML_BACKEND_TensorRT_PACKAGES "trtsam3;tokenizers_cpp")
+set(ML_BACKEND_LibTorch_PACKAGES "Torch 2.9.0")
+set(ML_BACKEND_ONNX_PACKAGES "onnxruntime")  # Future
+set(ML_BACKEND_OpenVINO_PACKAGES "openvino")  # Future
+
+# Determine which backends to search for
+if(ML_BACKENDS STREQUAL "AUTO")
+    set(BACKENDS_TO_FIND TensorRT LibTorch ONNX OpenVINO)
+elseif(ML_BACKENDS STREQUAL "NONE")
+    set(BACKENDS_TO_FIND "")
+    message(STATUS "All ML backends disabled")
+else()
+    set(BACKENDS_TO_FIND ${ML_BACKENDS})
+endif()
+
+# Find each backend
+set(ENABLED_ML_BACKENDS "")
+foreach(backend IN LISTS BACKENDS_TO_FIND)
+    set(all_found TRUE)
+    foreach(pkg IN LISTS ML_BACKEND_${backend}_PACKAGES)
+        # Parse package name and version (e.g., "Torch 2.9.0" -> "Torch" + "2.9.0")
+        string(REPLACE " " ";" pkg_parts ${pkg})
+        list(GET pkg_parts 0 pkg_name)
+        list(LENGTH pkg_parts pkg_parts_len)
+        if(pkg_parts_len GREATER 1)
+            list(GET pkg_parts 1 pkg_version)
+            find_package(${pkg_name} ${pkg_version} CONFIG QUIET)
+        else()
+            find_package(${pkg_name} CONFIG QUIET)
+        endif()
+
+        if(NOT ${pkg_name}_FOUND)
+            set(all_found FALSE)
+            if(NOT ML_BACKENDS STREQUAL "AUTO")
+                message(FATAL_ERROR "${backend} backend requested but ${pkg_name} not found")
+            endif()
+            break()
+        endif()
+    endforeach()
+
+    if(all_found)
+        list(APPEND ENABLED_ML_BACKENDS ${backend})
+        message(STATUS "ML Backend ${backend}: ENABLED")
+    else()
+        message(STATUS "ML Backend ${backend}: DISABLED (dependencies not found)")
+    endif()
+endforeach()
+
+# At least one backend must be enabled (unless explicitly NONE)
+if(NOT ML_BACKENDS STREQUAL "NONE" AND NOT ENABLED_ML_BACKENDS)
+    message(FATAL_ERROR "No ML backends available. Install at least one: LibTorch, TensorRT, ONNX Runtime, or OpenVINO")
+endif()
+
+# Export for use in library CMakeLists and root summary
+set(ENABLED_ML_BACKENDS ${ENABLED_ML_BACKENDS} PARENT_SCOPE)
 
 # -----------------------------------------------
 # Computer Vision & Point Cloud Processing

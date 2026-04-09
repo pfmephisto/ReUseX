@@ -166,7 +166,7 @@ void ProjectRouter::set(const std::vector<PathComponent> &components,
   spdlog::info("Updated project '{}' property '{}'", project_id, prop);
 }
 
-void ProjectRouter::del(const std::vector<PathComponent> &components) {
+void ProjectRouter::del([[maybe_unused]] const std::vector<PathComponent> &components) {
   throw std::runtime_error("Cannot delete project metadata.");
 }
 

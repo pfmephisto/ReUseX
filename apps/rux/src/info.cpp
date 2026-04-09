@@ -151,9 +151,9 @@ void setup_subcommand_info(CLI::App &app) {
   sub->add_flag("-j,--json", opt.json_output, "Output in JSON format")
       ->default_val(false);
 
-  sub->callback([&opt]() {
+  sub->callback([opt_ptr = &opt]() {
     spdlog::trace("Running info subcommand");
-    return run_subcommand_info(opt);
+    return run_subcommand_info(*opt_ptr);
   });
 }
 

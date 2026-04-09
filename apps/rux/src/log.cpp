@@ -154,9 +154,9 @@ void setup_subcommand_log(CLI::App &app) {
       ->default_val(0)
       ->check(CLI::NonNegativeNumber);
 
-  sub->callback([&opt]() {
+  sub->callback([opt_ptr = &opt]() {
     spdlog::trace("Running log subcommand");
-    return run_subcommand_log(opt);
+    return run_subcommand_log(*opt_ptr);
   });
 }
 

@@ -142,7 +142,7 @@ TEST_CASE("read handles non-existent file", "[io][reusex]") {
 
   // Try to read a file that doesn't exist
   // Note: Current implementation may return true but leave vectors empty
-  ReUseX::io::read("/tmp/nonexistent_planes_file_12345.planes",
+  [[maybe_unused]] auto success = ReUseX::io::read("/tmp/nonexistent_planes_file_12345.planes",
                    model_coefficients, centroids, inlier_indices);
 
   // Verify vectors are empty (no data loaded)

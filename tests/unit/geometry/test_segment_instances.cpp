@@ -83,7 +83,7 @@ TEST_CASE("segment_instances: Basic clustering",
 
   SECTION("Instance sizes are approximately equal") {
     for (const auto &[instance_id, size] : result.instance_sizes) {
-      REQUIRE(size == points_per_cluster);
+      REQUIRE(size == static_cast<size_t>(points_per_cluster));
     }
   }
 
@@ -166,7 +166,7 @@ TEST_CASE("segment_instances: Cluster tolerance sensitivity",
 
     auto result = segment_instances(request);
     REQUIRE(result.instance_to_semantic.size() == 1);
-    REQUIRE(result.instance_sizes.begin()->second == 2 * points_per_cluster);
+    REQUIRE(result.instance_sizes.begin()->second == static_cast<size_t>(2 * points_per_cluster));
   }
 }
 
@@ -262,7 +262,7 @@ TEST_CASE("segment_instances: Label filtering",
       if (label.label > 0)
         ++labeled;
     }
-    REQUIRE(labeled == 2 * points_per_cluster);
+    REQUIRE(labeled == static_cast<size_t>(2 * points_per_cluster));
   }
 }
 

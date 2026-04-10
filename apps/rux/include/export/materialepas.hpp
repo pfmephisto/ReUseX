@@ -12,7 +12,6 @@ namespace fs = std::filesystem;
 struct SubcommandExportMaterialepasOptions {
   fs::path input_path;
   fs::path output_path = fs::current_path() / "materialepas.json";
-  bool exact = false; // If true, export exact values (no defaults)
 };
 
 void setup_subcommand_export_materialepas(CLI::App &parent);

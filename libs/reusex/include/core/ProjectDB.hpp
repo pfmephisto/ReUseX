@@ -19,6 +19,7 @@ namespace ReUseX {
 // Forward declarations
 namespace core {
 struct MaterialPassport;
+struct MaterialPassportMetadata;
 struct SensorIntrinsics;
 }
 namespace geometry {
@@ -235,6 +236,83 @@ class ProjectDB {
    */
   void delete_material_passport(std::string_view documentGuid);
 
+  /**
+   * @brief List document GUIDs ordered by created_at
+   * @return Vector of document GUID strings
+   */
+  std::vector<std::string> list_passport_guids() const;
+
+  /**
+   * @brief Get stored property field_name→string pairs for a passport
+   *
+   * Only includes properties that actually have rows in passport_property_values.
+   * Values are returned as human-readable strings (BLOB decoded via as_string()).
+   *
+   * @param documentGuid Document GUID
+   * @return Map of name_en → string value
+   * @throws std::runtime_error if passport does not exist
+   */
+  std::map<std::string, std::string>
+  passport_stored_properties(std::string_view documentGuid) const;
+
+  /**
+   * @brief Get a single passport property value by field name
+   * @param documentGuid Document GUID
+   * @param fieldName Property field name (name_en in property_definitions)
+   * @return String value of the property
+   * @throws std::runtime_error if passport or property not found
+   */
+  std::string passport_property_value(std::string_view documentGuid,
+                                      std::string_view fieldName) const;
+
+  /**
+   * @brief Get passport metadata without loading all properties
+   * @param documentGuid Document GUID
+   * @return MaterialPassportMetadata struct
+   * @throws std::runtime_error if passport not found
+   */
+  core::MaterialPassportMetadata
+  passport_metadata(std::string_view documentGuid) const;
+
+  /**
+   * @brief Set a metadata column on a material passport
+   *
+   * Supported columns: created_at, revised_at, version_number, version_date.
+   * document_guid cannot be changed (it is the primary key).
+   *
+   * @param documentGuid Document GUID (must exist)
+   * @param column Metadata column name
+   * @param value New value
+   * @throws std::runtime_error if passport not found or column not allowed
+   */
+  void set_passport_metadata_field(std::string_view documentGuid,
+                                   std::string_view column,
+                                   std::string_view value);
+
+  /**
+   * @brief Set a single property value by field name (upsert)
+   *
+   * Looks up the property_definitions entry by name_en, then upserts
+   * into passport_property_values. Creates property_definitions entry if needed.
+   *
+   * @param documentGuid Document GUID (must exist)
+   * @param fieldName Property field name (name_en)
+   * @param value String value to store
+   * @throws std::runtime_error if passport does not exist
+   */
+  void set_passport_property(std::string_view documentGuid,
+                             std::string_view fieldName,
+                             std::string_view value);
+
+  /**
+   * @brief Delete a single property value by field name
+   * @param documentGuid Document GUID
+   * @param fieldName Property field name (name_en)
+   * @throws std::runtime_error if passport or property not found
+   */
+  void delete_passport_property(std::string_view documentGuid,
+                                std::string_view fieldName);
+
   // --- Project Metadata Operations ---
 
   struct ProjectMetadata {
@@ -249,11 +327,11 @@ class ProjectDB {
 
   /**
    * @brief Get project metadata by project ID
-   * @param projectId Project identifier (default: "default")
+   * @param projectId Project identifier
    * @return Project metadata
    * @throws std::runtime_error if project does not exist
    */
-  ProjectMetadata get_project_metadata(std::string_view projectId = "default") const;
+  ProjectMetadata get_project_metadata(std::string_view projectId) const;
 
   /**
    * @brief Update project metadata

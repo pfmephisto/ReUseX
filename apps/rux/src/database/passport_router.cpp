@@ -15,104 +15,117 @@
 
 namespace rux::database {
 
-std::vector<std::string> PassportRouter::list() const {
-  auto passports = db_->all_material_passports();
-  std::vector<std::string> guids;
-  guids.reserve(passports.size());
+namespace {
 
-  for (const auto &passport : passports) {
-    guids.push_back(passport.metadata.document_guid);
-  }
-
-  // Sort alphabetically for deterministic ordering
-  std::sort(guids.begin(), guids.end());
-  return guids;
+/// Collapse a stored value string for summary display.
+/// JSON objects → "{...}", JSON arrays → "[...]", scalars as-is.
+std::string collapse_value(const std::string &value) {
+  if (value.empty())
+    return value;
+  // Quick heuristic: check first non-whitespace character
+  auto first = value.front();
+  if (first == '{') return "{...}";
+  if (first == '[') return "[...]";
+  return value;
 }
 
-nlohmann::json
-PassportRouter::get_passport_json(std::string_view guid) const {
-  auto passport = db_->material_passport(guid);
-  return ReUseX::core::json_export::to_json(passport);
+/// Resolve GUID from first path component (index or direct access)
+std::string resolve_guid(const PathComponent &comp,
+                         const ResourceRouter &router) {
+  if (comp.is_index()) {
+    auto resolved = router.resolve_index(*comp.index);
+    if (!resolved) {
+      throw std::runtime_error("Array index out of range: " +
+                               std::to_string(*comp.index));
+    }
+    return *resolved;
+  }
+  if (comp.is_item()) {
+    return comp.value;
+  }
+  throw std::runtime_error("Expected item or index after collection");
+}
+
+} // anonymous namespace
+
+std::vector<std::string> PassportRouter::list() const {
+  return db_->list_passport_guids();
 }
 
 DataPayload PassportRouter::get(const std::vector<PathComponent> &components) {
   if (components.empty()) {
     // Collection level: return list of passport GUIDs
-    auto guids = list();
-    return nlohmann::json(guids);
+    return nlohmann::json(list());
   }
 
-  // Resolve item (GUID)
-  std::string guid;
+  auto guid = resolve_guid(components[0], *this);
 
-  if (components[0].is_index()) {
-    // Array indexing: passports[0]
-    auto resolved = resolve_index(*components[0].index);
-    if (!resolved) {
-      throw std::runtime_error("Array index out of range: " +
-                               std::to_string(*components[0].index));
-    }
-    guid = *resolved;
-  } else if (components[0].is_item()) {
-    // Direct GUID access: passports.guid-1234
-    guid = components[0].value;
-  } else {
-    throw std::runtime_error("Expected item or index after collection");
-  }
-
-  // Check if wildcard (should have been expanded before calling this)
   if (guid.find('*') != std::string::npos) {
     throw std::runtime_error("Wildcard not expanded: " + guid);
   }
 
-  // Get passport as JSON
-  nlohmann::json passport_json;
-  try {
-    passport_json = get_passport_json(guid);
-  } catch (const std::exception &e) {
-    throw std::runtime_error("Failed to get passport '" + guid +
-                             "': " + e.what());
-  }
-
-  // If no property specified, return full passport
+  // Item level: return metadata + stored property name→value pairs
   if (components.size() == 1) {
-    return passport_json;
+    auto metadata = db_->passport_metadata(guid);
+    auto properties = db_->passport_stored_properties(guid);
+
+    nlohmann::json result;
+    result["document_guid"] = metadata.document_guid;
+    result["created_at"] = metadata.creation_date;
+    result["version_number"] = metadata.version_number;
+
+    nlohmann::json props = nlohmann::json::object();
+    for (const auto &[name, value] : properties) {
+      props[name] = collapse_value(value);
+    }
+    result["properties"] = std::move(props);
+
+    return result;
   }
 
-  // Property access: materials.guid.metadata or materials.guid.sections
-  const auto &prop = components[1].value;
+  // Property level: dispatch by field name
+  const auto &field_name = components[1].value;
 
-  if (!passport_json.contains(prop)) {
-    throw std::runtime_error(
-        "Unknown property: " + prop +
-        "\nAvailable properties: metadata, sections, log");
+  // Metadata fields
+  if (field_name == "document_guid" || field_name == "created_at" ||
+      field_name == "version_number") {
+    auto metadata = db_->passport_metadata(guid);
+    if (field_name == "document_guid") return std::string(metadata.document_guid);
+    if (field_name == "created_at")    return std::string(metadata.creation_date);
+    return std::string(metadata.version_number);
   }
 
-  auto property_value = passport_json[prop];
+  // "properties" → return full stored properties map (collapsed or drilled)
+  if (field_name == "properties") {
+    auto properties = db_->passport_stored_properties(guid);
 
-  // Handle nested property access (e.g., materials.guid.metadata.document_guid)
-  for (size_t i = 2; i < components.size(); ++i) {
-    const auto &nested_prop = components[i].value;
-
-    if (!property_value.contains(nested_prop)) {
-      // Build path for error message
-      std::string path = prop;
-      for (size_t j = 2; j <= i; ++j) {
-        path += "." + components[j].value;
+    // Drill into a specific property: materials[0].properties.contact_email
+    if (components.size() >= 3) {
+      const auto &prop_name = components[2].value;
+      auto it = properties.find(prop_name);
+      if (it == properties.end()) {
+        throw std::runtime_error("Property '" + prop_name +
+                                 "' not found for passport '" + guid + "'");
       }
-      throw std::runtime_error("Unknown nested property: " + path);
+      return it->second;
     }
 
-    property_value = property_value[nested_prop];
+    // Return collapsed summary
+    nlohmann::json props = nlohmann::json::object();
+    for (const auto &[name, value] : properties) {
+      props[name] = collapse_value(value);
+    }
+    return props;
   }
 
-  // Return as text if it's a scalar value, otherwise JSON
-  if (property_value.is_string() || property_value.is_number() ||
-      property_value.is_boolean() || property_value.is_null()) {
-    return json_to_text(property_value);
+  // Direct property access: materials[0].contact_email
+  try {
+    auto value = db_->passport_property_value(guid, field_name);
+    return value;
+  } catch (const std::exception &e) {
+    throw std::runtime_error("Failed to get property '" + field_name +
+                             "' for passport '" + guid + "': " + e.what());
   }
-
-  return property_value;
 }
 
 void PassportRouter::set(const std::vector<PathComponent> &components,
@@ -123,20 +136,7 @@ void PassportRouter::set(const std::vector<PathComponent> &components,
         "materials.<guid>");
   }
 
-  // Resolve item (GUID) - support both index and direct access
-  std::string guid;
-  if (components[0].is_index()) {
-    auto resolved = resolve_index(*components[0].index);
-    if (!resolved) {
-      throw std::runtime_error("Array index out of range: " +
-                               std::to_string(*components[0].index));
-    }
-    guid = *resolved;
-  } else if (components[0].is_item()) {
-    guid = components[0].value;
-  } else {
-    throw std::runtime_error("Expected GUID or index after collection");
-  }
+  auto guid = resolve_guid(components[0], *this);
 
   // Extract string value from payload
   std::string value;
@@ -149,108 +149,68 @@ void PassportRouter::set(const std::vector<PathComponent> &components,
     } else if (j.is_number()) {
       value = std::to_string(j.get<int>());
     } else {
-      // For complex JSON, treat as full passport replacement
       value = j.dump();
     }
   } else {
     throw std::runtime_error("Invalid data type for passport property");
   }
 
-  // Case 1: Setting entire passport (no property specified)
+  // Case 1: Setting entire passport via JSON import (no property specified)
   if (components.size() == 1) {
     nlohmann::json json_data;
     try {
       json_data = nlohmann::json::parse(value);
     } catch (const std::exception &e) {
-      throw std::runtime_error("Failed to parse JSON: " + std::string(e.what()));
+      throw std::runtime_error("Failed to parse JSON: " +
+                               std::string(e.what()));
     }
 
     auto passport = ReUseX::core::json_import::from_json(json_data);
     passport.metadata.document_guid = guid;
-    db_->add_material_passport(passport, "default");
+    db_->add_material_passport(passport, "");
     spdlog::info("Saved material passport '{}'", guid);
     return;
   }
 
-  // Case 2: Setting individual property
-  // Get existing passport and modify the property in JSON
-  nlohmann::json passport_json;
-  try {
-    passport_json = get_passport_json(guid);
-  } catch (const std::exception &e) {
-    throw std::runtime_error("Failed to get existing passport '" + guid +
-                             "': " + e.what());
+  // Case 2: Setting individual field
+  const auto &field_name = components[1].value;
+
+  // Metadata fields → update material_passports columns directly
+  if (field_name == "created_at" || field_name == "version_number" ||
+      field_name == "revised_at" || field_name == "version_date") {
+    try {
+      db_->set_passport_metadata_field(guid, field_name, value);
+      spdlog::info("Updated passport '{}' metadata '{}'", guid, field_name);
+    } catch (const std::exception &e) {
+      throw std::runtime_error("Failed to set metadata '" + field_name +
+                               "' for passport '" + guid + "': " + e.what());
+    }
+    return;
   }
 
-  // Navigate to the property and set it
-  nlohmann::json *current = &passport_json;
-
-  for (size_t i = 1; i < components.size(); ++i) {
-    const auto &prop = components[i].value;
-
-    // Block modification of document_guid (it's the primary key)
-    if (i == 2 && components[1].value == "metadata" && prop == "document guid") {
-      throw std::runtime_error(
-          "Cannot modify document guid (it's the primary key). "
-          "Create a new passport with a different GUID instead.");
-    }
-
-    if (i == components.size() - 1) {
-      // Last component: set the value
-      if (!current->contains(prop)) {
-        throw std::runtime_error("Unknown property: " + prop);
-      }
-
-      // Try to preserve the original type if possible
-      auto &target = (*current)[prop];
-      if (target.is_number_integer()) {
-        try {
-          target = std::stoi(value);
-        } catch (...) {
-          target = value;  // Fallback to string
-        }
-      } else if (target.is_number_float()) {
-        try {
-          target = std::stod(value);
-        } catch (...) {
-          target = value;
-        }
-      } else if (target.is_boolean()) {
-        if (value == "true" || value == "1" || value == "yes") {
-          target = true;
-        } else if (value == "false" || value == "0" || value == "no") {
-          target = false;
-        } else {
-          target = value;
-        }
-      } else {
-        // String or other type
-        target = value;
-      }
-    } else {
-      // Intermediate component: navigate deeper
-      if (!current->contains(prop)) {
-        throw std::runtime_error("Unknown property path");
-      }
-      current = &(*current)[prop];
-    }
+  if (field_name == "document_guid") {
+    throw std::runtime_error(
+        "Cannot modify document_guid (it's the primary key). "
+        "Create a new passport with a different GUID instead.");
   }
 
-  // Convert back to MaterialPassport and save
+  // "properties.X" → resolve the actual property name
+  std::string prop_name = field_name;
+  if (field_name == "properties" && components.size() >= 3) {
+    prop_name = components[2].value;
+  } else if (field_name == "properties") {
+    throw std::runtime_error(
+        "Cannot set 'properties' directly. Specify a property name: "
+        "materials[N].properties.<name> or materials[N].<name>");
+  }
+
+  // Property value upsert
   try {
-    auto passport = ReUseX::core::json_import::from_json(passport_json);
-    db_->add_material_passport(passport, "default");
-
-    // Build property path for log message
-    std::string prop_path = components[1].value;
-    for (size_t i = 2; i < components.size(); ++i) {
-      prop_path += "." + components[i].value;
-    }
-    spdlog::info("Updated material passport '{}' property '{}'", guid, prop_path);
-
+    db_->set_passport_property(guid, prop_name, value);
+    spdlog::info("Updated passport '{}' property '{}'", guid, prop_name);
   } catch (const std::exception &e) {
-    throw std::runtime_error("Failed to save updated passport: " +
-                             std::string(e.what()));
+    throw std::runtime_error("Failed to set property '" + prop_name +
+                             "' for passport '" + guid + "': " + e.what());
   }
 }
 
@@ -260,32 +220,59 @@ void PassportRouter::del(const std::vector<PathComponent> &components) {
         "Cannot delete collection. Specify a passport GUID: materials.<guid>");
   }
 
-  // Resolve item (GUID)
-  std::string guid;
-  if (components[0].is_index()) {
-    auto resolved = resolve_index(*components[0].index);
-    if (!resolved) {
-      throw std::runtime_error("Array index out of range");
+  auto guid = resolve_guid(components[0], *this);
+
+  // Delete entire passport
+  if (components.size() == 1) {
+    try {
+      db_->delete_material_passport(guid);
+      spdlog::info("Deleted material passport '{}'", guid);
+    } catch (const std::exception &e) {
+      throw std::runtime_error("Failed to delete passport '" + guid +
+                               "': " + e.what());
     }
-    guid = *resolved;
-  } else if (components[0].is_item()) {
-    guid = components[0].value;
-  } else {
-    throw std::runtime_error("Expected GUID or index after collection");
+    return;
   }
 
-  if (components.size() > 1) {
+  // Delete single field
+  const auto &field_name = components[1].value;
+
+  if (field_name == "document_guid") {
     throw std::runtime_error(
-        "Cannot delete individual properties. Delete the entire passport.");
+        "Cannot delete document_guid (it's the primary key).");
   }
 
-  // Delete the passport
+  // Metadata fields → set to NULL
+  if (field_name == "created_at" || field_name == "version_number" ||
+      field_name == "revised_at" || field_name == "version_date") {
+    try {
+      db_->set_passport_metadata_field(guid, field_name, "");
+      spdlog::info("Cleared metadata '{}' from passport '{}'", field_name,
+                   guid);
+    } catch (const std::exception &e) {
+      throw std::runtime_error("Failed to clear metadata '" + field_name +
+                               "' from passport '" + guid + "': " + e.what());
+    }
+    return;
+  }
+
+  // "properties.X" → resolve the actual property name
+  std::string prop_name = field_name;
+  if (field_name == "properties" && components.size() >= 3) {
+    prop_name = components[2].value;
+  } else if (field_name == "properties") {
+    throw std::runtime_error(
+        "Cannot delete 'properties' directly. Specify a property name: "
+        "materials[N].properties.<name> or materials[N].<name>");
+  }
+
+  // Delete property value row
   try {
-    db_->delete_material_passport(guid);
-    spdlog::info("Deleted material passport '{}'", guid);
+    db_->delete_passport_property(guid, prop_name);
+    spdlog::info("Deleted property '{}' from passport '{}'", prop_name, guid);
   } catch (const std::exception &e) {
-    throw std::runtime_error("Failed to delete passport '" + guid +
-                             "': " + e.what());
+    throw std::runtime_error("Failed to delete property '" + prop_name +
+                             "' from passport '" + guid + "': " + e.what());
   }
 }
 

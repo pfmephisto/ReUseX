@@ -69,7 +69,7 @@ int run_subcommand_create_material(SubcommandCreateMaterialOptions const &opt) {
 
       // Open database (will create if doesn't exist) and save
       ReUseX::ProjectDB db(opt.project, /*readOnly=*/false);
-      db.add_material_passport(passport, "default");
+      db.add_material_passport(passport, "");
 
       spdlog::info("Created material passport '{}' in project: {}",
                    generated_guid, opt.project.string());

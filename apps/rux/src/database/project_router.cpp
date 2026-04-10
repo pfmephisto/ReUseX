@@ -10,6 +10,17 @@
 
 namespace rux::database {
 
+namespace {
+
+/// Check if value is a known project property (not a project ID)
+bool is_known_property(std::string_view value) {
+  return value == "id" || value == "name" || value == "building_address" ||
+         value == "year_of_construction" || value == "survey_date" ||
+         value == "survey_organisation" || value == "notes";
+}
+
+} // anonymous namespace
+
 std::vector<std::string> ProjectRouter::list() const {
   return db_->list_project_ids();
 }
@@ -44,37 +55,53 @@ DataPayload ProjectRouter::get(const std::vector<PathComponent> &components) {
     return result;
   }
 
-  // projects[0] or projects.default
+  // Resolve project ID and optional property name
   std::string item_id;
+  std::string prop;
+
   if (components[0].is_index()) {
     auto resolved = resolve_index(*components[0].index);
     if (!resolved) {
       throw std::runtime_error("Array index out of range");
     }
     item_id = *resolved;
+    if (components.size() >= 2) {
+      prop = components[1].value;
+    }
   } else if (components[0].is_item()) {
-    item_id = components[0].value;
+    // Check if this is a property name on the singleton project
+    // (e.g., "projects.building_address" instead of "projects[0].building_address")
+    if (is_known_property(components[0].value)) {
+      auto projects_list = list();
+      if (projects_list.empty()) {
+        throw std::runtime_error("No projects in database");
+      }
+      item_id = projects_list[0];
+      prop = components[0].value;
+    } else {
+      item_id = components[0].value;
+      if (components.size() >= 2) {
+        prop = components[1].value;
+      }
+    }
   } else {
     throw std::runtime_error("Expected item or index after collection");
   }
 
-  if (components.size() == 1) {
-    // Return full project object
-    return get_project_json(item_id);
-  }
-
-  // Property access: projects[0].name
-  const auto &prop = components[1].value;
   auto project_json = get_project_json(item_id);
+
+  if (prop.empty()) {
+    return project_json;
+  }
 
   if (project_json.contains(prop)) {
     return json_to_text(project_json[prop]);
-  } else {
-    throw std::runtime_error(
-        "Unknown property: " + prop +
-        "\nAvailable properties: id, name, building_address, "
-        "year_of_construction, survey_date, survey_organisation, notes");
   }
+
+  throw std::runtime_error(
+      "Unknown property: " + prop +
+      "\nAvailable properties: id, name, building_address, "
+      "year_of_construction, survey_date, survey_organisation, notes");
 }
 
 void ProjectRouter::set(const std::vector<PathComponent> &components,
@@ -84,18 +111,40 @@ void ProjectRouter::set(const std::vector<PathComponent> &components,
         "Cannot set collection directly. Specify a project: projects[0].name");
   }
 
-  // Get project ID
+  // Resolve project ID and property name
   std::string project_id;
+  std::string prop;
+
   if (components[0].is_index()) {
     auto resolved = resolve_index(*components[0].index);
     if (!resolved) {
       throw std::runtime_error("Array index out of range");
     }
     project_id = *resolved;
+    if (components.size() >= 2) {
+      prop = components[1].value;
+    }
   } else if (components[0].is_item()) {
-    project_id = components[0].value;
+    if (is_known_property(components[0].value)) {
+      auto projects_list = list();
+      if (projects_list.empty()) {
+        throw std::runtime_error("No projects in database");
+      }
+      project_id = projects_list[0];
+      prop = components[0].value;
+    } else {
+      project_id = components[0].value;
+      if (components.size() >= 2) {
+        prop = components[1].value;
+      }
+    }
   } else {
     throw std::runtime_error("Expected item or index after collection");
+  }
+
+  if (prop.empty()) {
+    throw std::runtime_error(
+        "Must specify a property to set: projects[0].name");
   }
 
   // Get current metadata (or create new if doesn't exist)
@@ -103,17 +152,8 @@ void ProjectRouter::set(const std::vector<PathComponent> &components,
   try {
     metadata = db_->get_project_metadata(project_id);
   } catch (const std::exception &) {
-    // Project doesn't exist, create new one
     metadata.id = project_id;
   }
-
-  // Set property
-  if (components.size() < 2) {
-    throw std::runtime_error(
-        "Must specify a property to set: projects[0].name");
-  }
-
-  const auto &prop = components[1].value;
 
   // Extract string value from payload
   std::string value;

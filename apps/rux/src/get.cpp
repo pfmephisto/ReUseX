@@ -48,32 +48,14 @@ int run_subcommand_get(const DatabaseGetOptions &opt) {
     auto db = std::make_shared<ReUseX::ProjectDB>(opt.project_file,
                                                   /* readOnly */ true);
 
-    // If no path provided, show all collections
+    // If no path provided, show available collection names
     if (opt.path.empty()) {
-      spdlog::debug("No path provided, listing all collections");
+      spdlog::debug("No path provided, listing collection names");
 
-      // Create router registry
-      rux::database::RouterRegistry registry(db);
+      nlohmann::json collections =
+          nlohmann::json::array({"clouds", "materials", "meshes", "projects"});
 
-      nlohmann::json all_collections;
-
-      // List all available collections (alphabetically)
-      const std::vector<std::string> collections = {
-          "clouds", "materials", "meshes", "projects"};
-
-      for (const auto &collection : collections) {
-        try {
-          auto &router = registry.get_router(collection);
-          auto items = router.list();
-          all_collections[collection] = items;
-        } catch (const std::exception &e) {
-          spdlog::debug("Collection '{}' not available: {}", collection,
-                        e.what());
-          // Collection not available, skip it
-        }
-      }
-
-      rux::database::DataPayload payload = all_collections;
+      rux::database::DataPayload payload = collections;
 
       if (opt.output_file.empty()) {
         rux::database::write_output(payload, opt.pretty);

@@ -35,8 +35,7 @@ void setup_subcommand_import_materialepas(CLI::App &parent) {
       ->default_val(opt->db_path);
 
   sub->add_option("--project-id", opt->project_id,
-                  "Project identifier (default: default)")
-      ->default_val(opt->project_id);
+                  "Project identifier (optional, passport stored without project if omitted)");
 
   sub->callback([opt]() {
     spdlog::trace("calling import materialepas subcommand");

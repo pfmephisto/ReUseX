@@ -1877,8 +1877,8 @@ class ProjectDB::Impl {
       // 0. Ensure property_definitions are populated
       ensureAllPropertyDefinitions();
 
-      // 0b. Ensure project row exists
-      {
+      // 0b. Ensure project row exists (skip if projectId is empty → NULL)
+      if (!projectId.empty()) {
         const char *upsert_project =
             "INSERT OR IGNORE INTO projects (id) VALUES (?);";
         sqlite3_stmt *proj_stmt;
@@ -1948,7 +1948,11 @@ class ProjectDB::Impl {
       }
 
       sqlite3_bind_text(stmt, 1, passport_id.c_str(), -1, SQLITE_TRANSIENT);
-      sqlite3_bind_text(stmt, 2, projectId.data(), projectId.size(), SQLITE_TRANSIENT);
+      if (projectId.empty()) {
+        sqlite3_bind_null(stmt, 2);
+      } else {
+        sqlite3_bind_text(stmt, 2, projectId.data(), projectId.size(), SQLITE_TRANSIENT);
+      }
       sqlite3_bind_text(stmt, 3, passport.metadata.document_guid.c_str(), -1,
                         SQLITE_TRANSIENT);
       sqlite3_bind_text(stmt, 4, passport.metadata.creation_date.c_str(), -1,
@@ -2770,6 +2774,288 @@ void ProjectDB::delete_material_passport(std::string_view documentGuid) {
   }
 }
 
+std::vector<std::string> ProjectDB::list_passport_guids() const {
+  const char *query =
+      "SELECT document_guid FROM material_passports ORDER BY created_at;";
+
+  sqlite3_stmt *stmt;
+  if (sqlite3_prepare_v2(impl_->db, query, -1, &stmt, nullptr) != SQLITE_OK) {
+    throw std::runtime_error("Failed to prepare list passport guids query: " +
+                             std::string(sqlite3_errmsg(impl_->db)));
+  }
+  StmtGuard guard(stmt);
+
+  std::vector<std::string> guids;
+  while (sqlite3_step(stmt) == SQLITE_ROW) {
+    const char *guid =
+        reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
+    if (guid) {
+      guids.emplace_back(guid);
+    }
+  }
+  return guids;
+}
+
+std::map<std::string, std::string>
+ProjectDB::passport_stored_properties(std::string_view documentGuid) const {
+  const char *query =
+      "SELECT pd.name_en, ppv.value "
+      "FROM passport_property_values ppv "
+      "JOIN property_definitions pd ON pd.id = ppv.property_id "
+      "JOIN material_passports mp ON ppv.passport_id = mp.id "
+      "WHERE mp.document_guid = ? "
+      "ORDER BY ppv.sort_order;";
+
+  sqlite3_stmt *stmt;
+  if (sqlite3_prepare_v2(impl_->db, query, -1, &stmt, nullptr) != SQLITE_OK) {
+    throw std::runtime_error(
+        "Failed to prepare passport stored properties query: " +
+        std::string(sqlite3_errmsg(impl_->db)));
+  }
+  StmtGuard guard(stmt);
+
+  sqlite3_bind_text(stmt, 1, documentGuid.data(),
+                    static_cast<int>(documentGuid.size()), SQLITE_STATIC);
+
+  std::map<std::string, std::string> properties;
+  while (sqlite3_step(stmt) == SQLITE_ROW) {
+    const char *name =
+        reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
+    const void *blob_data = sqlite3_column_blob(stmt, 1);
+    int blob_size = sqlite3_column_bytes(stmt, 1);
+
+    if (name && blob_data && blob_size > 0) {
+      properties.emplace(name,
+                         std::string(static_cast<const char *>(blob_data),
+                                     static_cast<size_t>(blob_size)));
+    } else if (name) {
+      properties.emplace(name, std::string{});
+    }
+  }
+  return properties;
+}
+
+std::string
+ProjectDB::passport_property_value(std::string_view documentGuid,
+                                   std::string_view fieldName) const {
+  const char *query =
+      "SELECT ppv.value "
+      "FROM passport_property_values ppv "
+      "JOIN property_definitions pd ON pd.id = ppv.property_id "
+      "JOIN material_passports mp ON ppv.passport_id = mp.id "
+      "WHERE mp.document_guid = ? AND pd.name_en = ?;";
+
+  sqlite3_stmt *stmt;
+  if (sqlite3_prepare_v2(impl_->db, query, -1, &stmt, nullptr) != SQLITE_OK) {
+    throw std::runtime_error(
+        "Failed to prepare passport property value query: " +
+        std::string(sqlite3_errmsg(impl_->db)));
+  }
+  StmtGuard guard(stmt);
+
+  sqlite3_bind_text(stmt, 1, documentGuid.data(),
+                    static_cast<int>(documentGuid.size()), SQLITE_STATIC);
+  sqlite3_bind_text(stmt, 2, fieldName.data(),
+                    static_cast<int>(fieldName.size()), SQLITE_STATIC);
+
+  if (sqlite3_step(stmt) == SQLITE_ROW) {
+    const void *blob_data = sqlite3_column_blob(stmt, 0);
+    int blob_size = sqlite3_column_bytes(stmt, 0);
+    if (blob_data && blob_size > 0) {
+      return std::string(static_cast<const char *>(blob_data),
+                         static_cast<size_t>(blob_size));
+    }
+    return {};
+  }
+
+  throw std::runtime_error("Property '" + std::string(fieldName) +
+                           "' not found for passport '" +
+                           std::string(documentGuid) + "'");
+}
+
+ReUseX::core::MaterialPassportMetadata
+ProjectDB::passport_metadata(std::string_view documentGuid) const {
+  return impl_->fetchPassportMetadata(documentGuid);
+}
+
+void ProjectDB::set_passport_metadata_field(std::string_view documentGuid,
+                                            std::string_view column,
+                                            std::string_view value) {
+  // Only allow known safe columns (prevent SQL injection via column name)
+  static const std::map<std::string_view, const char *> allowed = {
+      {"created_at", "UPDATE material_passports SET created_at = ? WHERE document_guid = ?;"},
+      {"revised_at", "UPDATE material_passports SET revised_at = ? WHERE document_guid = ?;"},
+      {"version_number", "UPDATE material_passports SET version_number = ? WHERE document_guid = ?;"},
+      {"version_date", "UPDATE material_passports SET version_date = ? WHERE document_guid = ?;"},
+  };
+
+  auto it = allowed.find(column);
+  if (it == allowed.end()) {
+    throw std::runtime_error(
+        "Cannot set metadata field '" + std::string(column) +
+        "'. Allowed fields: created_at, revised_at, version_number, version_date");
+  }
+
+  sqlite3_stmt *stmt;
+  if (sqlite3_prepare_v2(impl_->db, it->second, -1, &stmt, nullptr) !=
+      SQLITE_OK) {
+    throw std::runtime_error(
+        "Failed to prepare metadata update: " +
+        std::string(sqlite3_errmsg(impl_->db)));
+  }
+  StmtGuard guard(stmt);
+
+  if (value.empty()) {
+    sqlite3_bind_null(stmt, 1);
+  } else {
+    sqlite3_bind_text(stmt, 1, value.data(), static_cast<int>(value.size()),
+                      SQLITE_STATIC);
+  }
+  sqlite3_bind_text(stmt, 2, documentGuid.data(),
+                    static_cast<int>(documentGuid.size()), SQLITE_STATIC);
+
+  int rc = sqlite3_step(stmt);
+  int changes = sqlite3_changes(impl_->db);
+
+  if (rc != SQLITE_DONE) {
+    throw std::runtime_error(
+        "Failed to update metadata: " +
+        std::string(sqlite3_errmsg(impl_->db)));
+  }
+  if (changes == 0) {
+    throw std::runtime_error("Passport not found: " +
+                             std::string(documentGuid));
+  }
+}
+
+void ProjectDB::set_passport_property(std::string_view documentGuid,
+                                      std::string_view fieldName,
+                                      std::string_view value) {
+  // Verify passport exists
+  const char *check_query =
+      "SELECT id FROM material_passports WHERE document_guid = ?;";
+  sqlite3_stmt *check_stmt;
+  if (sqlite3_prepare_v2(impl_->db, check_query, -1, &check_stmt, nullptr) !=
+      SQLITE_OK) {
+    throw std::runtime_error(
+        "Failed to prepare passport check: " +
+        std::string(sqlite3_errmsg(impl_->db)));
+  }
+  StmtGuard check_guard(check_stmt);
+
+  sqlite3_bind_text(check_stmt, 1, documentGuid.data(),
+                    static_cast<int>(documentGuid.size()), SQLITE_STATIC);
+
+  std::string passport_internal_id;
+  if (sqlite3_step(check_stmt) == SQLITE_ROW) {
+    passport_internal_id = reinterpret_cast<const char *>(
+        sqlite3_column_text(check_stmt, 0));
+  } else {
+    throw std::runtime_error("Passport not found: " +
+                             std::string(documentGuid));
+  }
+
+  // Look up property definition by name_en
+  const char *prop_query =
+      "SELECT id, leksikon_guid FROM property_definitions WHERE name_en = ?;";
+  sqlite3_stmt *prop_stmt;
+  if (sqlite3_prepare_v2(impl_->db, prop_query, -1, &prop_stmt, nullptr) !=
+      SQLITE_OK) {
+    throw std::runtime_error(
+        "Failed to prepare property lookup: " +
+        std::string(sqlite3_errmsg(impl_->db)));
+  }
+  StmtGuard prop_guard(prop_stmt);
+
+  sqlite3_bind_text(prop_stmt, 1, fieldName.data(),
+                    static_cast<int>(fieldName.size()), SQLITE_STATIC);
+
+  std::string property_id;
+  std::string leksikon_guid;
+  if (sqlite3_step(prop_stmt) == SQLITE_ROW) {
+    property_id = reinterpret_cast<const char *>(
+        sqlite3_column_text(prop_stmt, 0));
+    leksikon_guid = reinterpret_cast<const char *>(
+        sqlite3_column_text(prop_stmt, 1));
+  } else {
+    throw std::runtime_error("Unknown property: " + std::string(fieldName));
+  }
+
+  // Upsert the property value
+  const char *upsert_query =
+      "INSERT INTO passport_property_values "
+      "(id, passport_id, property_id, leksikon_guid, sort_order, value) "
+      "VALUES (?, ?, ?, ?, "
+      "(SELECT COALESCE(MAX(sort_order), 0) + 1 "
+      " FROM passport_property_values WHERE passport_id = ?), ?) "
+      "ON CONFLICT(passport_id, leksikon_guid) DO UPDATE SET value = excluded.value;";
+
+  sqlite3_stmt *upsert_stmt;
+  if (sqlite3_prepare_v2(impl_->db, upsert_query, -1, &upsert_stmt,
+                          nullptr) != SQLITE_OK) {
+    throw std::runtime_error(
+        "Failed to prepare property upsert: " +
+        std::string(sqlite3_errmsg(impl_->db)));
+  }
+  StmtGuard upsert_guard(upsert_stmt);
+
+  std::string value_id = passport_internal_id + "_" + leksikon_guid;
+
+  sqlite3_bind_text(upsert_stmt, 1, value_id.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(upsert_stmt, 2, passport_internal_id.c_str(), -1,
+                    SQLITE_TRANSIENT);
+  sqlite3_bind_text(upsert_stmt, 3, property_id.c_str(), -1,
+                    SQLITE_TRANSIENT);
+  sqlite3_bind_text(upsert_stmt, 4, leksikon_guid.c_str(), -1,
+                    SQLITE_TRANSIENT);
+  sqlite3_bind_text(upsert_stmt, 5, passport_internal_id.c_str(), -1,
+                    SQLITE_TRANSIENT);
+  sqlite3_bind_blob(upsert_stmt, 6, value.data(),
+                    static_cast<int>(value.size()), SQLITE_STATIC);
+
+  if (sqlite3_step(upsert_stmt) != SQLITE_DONE) {
+    throw std::runtime_error(
+        "Failed to upsert property value: " +
+        std::string(sqlite3_errmsg(impl_->db)));
+  }
+}
+
+void ProjectDB::delete_passport_property(std::string_view documentGuid,
+                                         std::string_view fieldName) {
+  const char *query =
+      "DELETE FROM passport_property_values "
+      "WHERE passport_id = (SELECT id FROM material_passports WHERE document_guid = ?) "
+      "AND property_id = (SELECT id FROM property_definitions WHERE name_en = ?);";
+
+  sqlite3_stmt *stmt;
+  if (sqlite3_prepare_v2(impl_->db, query, -1, &stmt, nullptr) != SQLITE_OK) {
+    throw std::runtime_error(
+        "Failed to prepare delete property: " +
+        std::string(sqlite3_errmsg(impl_->db)));
+  }
+  StmtGuard guard(stmt);
+
+  sqlite3_bind_text(stmt, 1, documentGuid.data(),
+                    static_cast<int>(documentGuid.size()), SQLITE_STATIC);
+  sqlite3_bind_text(stmt, 2, fieldName.data(),
+                    static_cast<int>(fieldName.size()), SQLITE_STATIC);
+
+  int rc = sqlite3_step(stmt);
+  int changes = sqlite3_changes(impl_->db);
+
+  if (rc != SQLITE_DONE) {
+    throw std::runtime_error(
+        "Failed to delete property: " +
+        std::string(sqlite3_errmsg(impl_->db)));
+  }
+
+  if (changes == 0) {
+    throw std::runtime_error("Property '" + std::string(fieldName) +
+                             "' not found for passport '" +
+                             std::string(documentGuid) + "'");
+  }
+}
+
 // --- Project Metadata ---
 
 ProjectDB::ProjectMetadata ProjectDB::get_project_metadata(std::string_view projectId) const {
@@ -2883,12 +3169,6 @@ std::vector<std::string> ProjectDB::list_project_ids() const {
   }
 
   sqlite3_finalize(stmt);
-
-  // If no projects exist, return default project
-  if (project_ids.empty()) {
-    project_ids.push_back("default");
-  }
-
   return project_ids;
 }
 

@@ -13,8 +13,8 @@ namespace rux::database {
  *
  * Handles paths like:
  * - materials → list all passports (JSON array of GUIDs)
- * - materials.guid-1234 → get passport data (JSON)
- * - materials[0] → get first passport (JSON)
+ * - materials[0] → get passport metadata + stored properties
+ * - materials[0].contact_email → get single property value
  */
 class PassportRouter : public ResourceRouter {
 public:
@@ -25,12 +25,6 @@ public:
            const DataPayload &data) override;
   void del(const std::vector<PathComponent> &components) override;
   std::vector<std::string> list() const override;
-
-private:
-  /**
-   * @brief Get passport as JSON
-   */
-  nlohmann::json get_passport_json(std::string_view guid) const;
 };
 
 } // namespace rux::database

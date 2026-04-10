@@ -12,7 +12,7 @@ namespace fs = std::filesystem;
 struct SubcommandImportMaterialepasOptions {
   fs::path input_path;
   fs::path db_path = fs::current_path() / "project.db";
-  std::string project_id = "default";
+  std::string project_id;
 };
 
 void setup_subcommand_import_materialepas(CLI::App &parent);

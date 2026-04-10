@@ -33,11 +33,6 @@ void setup_subcommand_export_materialepas(CLI::App &parent) {
                   "Output JSON file path (default: materialepas.json)")
       ->default_val(opt->output_path);
 
-  sub->add_flag("--exact", opt->exact,
-                "Export exact values without populating defaults\n"
-                "(by default, unset optional booleans are exported as false)")
-      ->default_val(false);
-
   sub->callback([opt]() {
     spdlog::trace("calling export materialepas subcommand");
     return run_subcommand_export_materialepas(*opt);
@@ -59,20 +54,13 @@ int run_subcommand_export_materialepas(
     }
     spdlog::info("Found {} material passport(s)", passports.size());
 
-    // 3. Serialize to JSON (with or without defaults)
-    nlohmann::json json_data;
-    if (opt.exact) {
-      // Exact export (no defaults)
-      json_data = ReUseX::core::json_export::to_json(passports);
-    } else {
-      // Export with defaults (user-friendly)
-      nlohmann::json::array_t passports_with_defaults;
-      for (const auto &passport : passports) {
-        passports_with_defaults.push_back(
-            ReUseX::core::json_export::to_json_with_defaults(passport));
-      }
-      json_data = passports_with_defaults;
+    // 3. Serialize to JSON with defaults (full ~75-field interchange format)
+    nlohmann::json::array_t passports_json;
+    for (const auto &passport : passports) {
+      passports_json.push_back(
+          ReUseX::core::json_export::to_json_with_defaults(passport));
     }
+    nlohmann::json json_data = passports_json;
     std::string json_str = json_data.dump(4);
 
     // 4. Write to output file

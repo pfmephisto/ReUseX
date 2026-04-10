@@ -17,7 +17,38 @@ void setup_subcommand_get(CLI::App &app, std::shared_ptr<RuxOptions> global_opt)
   auto opt = std::make_shared<DatabaseGetOptions>();
 
   auto *sub = app.add_subcommand(
-      "get", "Get data from project database using path-based access");
+      "get", "Get data from project database");
+
+  sub->footer(R"(
+DESCRIPTION:
+  Retrieves data from ReUseX project database using hierarchical path
+  notation. Query point clouds, meshes, components, metadata, and material
+  passports with dot-separated paths. Outputs JSON for piping and scripting.
+
+EXAMPLES:
+  rux get                              # List all collections
+  rux get clouds                       # List all point clouds
+  rux get clouds.scan1                 # Get scan1 metadata
+  rux get clouds.scan1.type            # Get specific property
+  rux get components --pretty          # Pretty-print JSON
+  rux get passports -o data.json       # Save to file
+
+PATH SYNTAX:
+  collections              List available collections (clouds, meshes, etc.)
+  clouds                   List all cloud names
+  clouds.NAME              Get cloud metadata
+  clouds.NAME.PROPERTY     Get specific property (type, size, source)
+  meshes.NAME              Get mesh metadata
+  components               List all building components
+  passports                List all material passports
+
+NOTES:
+  - Default output: compact JSON to stdout
+  - Use --pretty for human-readable formatting
+  - Use -o/--output to save to file instead of stdout
+  - Empty path lists all top-level collections
+  - Paths are case-sensitive
+)");
 
   sub->add_option("path", opt->path,
                   "Resource path (e.g., clouds, clouds.scan1, "

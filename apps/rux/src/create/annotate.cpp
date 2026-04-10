@@ -26,8 +26,34 @@ void setup_subcommand_create_annotate(CLI::App &app,
   // Create the option and subcommand objects.
   auto opt = std::make_shared<SubcommandAnnotateOptions>();
   auto *sub = app.add_subcommand("annotate",
-                                 "Run semantic segmentation inference on "
-                                 "sensor frames using ML models (YOLO/SAM2)");
+                                 "Run ML inference on sensor frames");
+
+  sub->footer(R"(
+DESCRIPTION:
+  Performs semantic segmentation on RGB images from sensor frames using
+  deep learning models (YOLO, SAM2). Detects and segments objects, walls,
+  floors, ceilings, and other architectural elements. Results are saved
+  as per-pixel segmentation labels aligned with sensor frames.
+
+EXAMPLES:
+  rux create annotate --net yolo11l.pt        # YOLO PyTorch model
+  rux create annotate --net model.engine      # TensorRT optimized
+  rux create annotate --net model.pt --cuda   # Force CUDA backend
+  rux -p project.rux create annotate          # Custom project path
+
+WORKFLOW:
+  1. rux import rtabmap scan.db        # Import sensor frames with RGB
+  2. rux create annotate --net model   # Run ML inference
+  3. rux create clouds                 # Reconstruct with labels
+  4. rux view                          # Visualize segmented cloud
+
+NOTES:
+  - Requires sensor frames with color images (run 'rux import rtabmap' first)
+  - Supported formats: .pt (PyTorch), .engine (TensorRT), .onnx (ONNX)
+  - Backend auto-detected from file extension
+  - CUDA flag forces GPU acceleration (enabled by default for .engine)
+  - Output saved as segmentation images per sensor frame in project DB
+)");
 
   sub->add_option("-n, --net", opt->net_path,
                   "Path to the YOLOv8 model file (ONNX or PT format)")

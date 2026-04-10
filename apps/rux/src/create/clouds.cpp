@@ -13,8 +13,35 @@
 void setup_subcommand_create_clouds(CLI::App &app, std::shared_ptr<RuxOptions> global_opt) {
   auto opt = std::make_shared<SubcommandCreateCloudsOptions>();
   auto *sub =
-      app.add_subcommand("clouds", "Generate 3D point clouds by reconstructing "
-                                   "depth data from sensor frames");
+      app.add_subcommand("clouds", "Reconstruct 3D point clouds from depth");
+
+  sub->footer(R"(
+DESCRIPTION:
+  Generates 3D point clouds by back-projecting depth images from sensor
+  frames using camera intrinsics. Applies configurable depth filtering,
+  per-pixel subsampling, and voxel grid downsampling to control output
+  size and quality. Merges all sensor frames into unified world coordinate.
+
+EXAMPLES:
+  rux create clouds                    # Defaults: 5cm grid, 0.2-10m
+  rux create clouds -g 0.02            # High detail: 2cm voxel
+  rux create clouds --min-distance 0.5 # Filter close noise
+  rux create clouds --sampling-factor 2  # Skip every 2nd pixel
+
+WORKFLOW:
+  1. rux import rtabmap scan.db        # Import sensor frames
+  2. rux create clouds                 # Reconstruct point clouds
+  3. rux create planes                 # Segment planar surfaces
+  4. rux view                          # Visualize results
+
+NOTES:
+  - Requires sensor frames with depth data (run 'rux import rtabmap' first)
+  - Grid resolution affects output size: 0.05m is typical balance
+  - Use --confidence to filter low-quality depth measurements
+  - Sampling factor reduces per-frame points (1=all, 2=half, etc.)
+  - Output saved as 'cloud' and 'normals' in project database
+  - Depth range filters invalid measurements and distant noise
+)");
 
   sub->add_option("-g,--grid", opt->resolution,
                   "Voxel grid resolution for downsampling")

@@ -18,7 +18,33 @@
 void setup_subcommand_create_windows(CLI::App &app, std::shared_ptr<RuxOptions> global_opt) {
   auto opt = std::make_shared<SubcommandWindowOptions>();
   auto *sub = app.add_subcommand(
-      "windows", "Create windows based on a semantic lable and instances.");
+      "windows", "Create window building components");
+
+  sub->footer(R"(
+DESCRIPTION:
+  Generates window building components from semantic segmentation labels
+  and instance data. Identifies window instances, computes bounding boxes,
+  and creates structured component records suitable for BIM export and
+  material passport generation.
+
+EXAMPLES:
+  rux create windows                   # Create from 'labels' cloud
+  rux -p scan.rux create windows       # Custom project path
+
+WORKFLOW:
+  1. rux create annotate --net model   # Semantic segmentation
+  2. rux create clouds                 # Reconstruct labeled cloud
+  3. rux create instances -l 5         # Instance segment windows (label 5)
+  4. rux create windows                # Generate window components
+  5. rux get components                # View component data
+
+NOTES:
+  - Requires 'labels' semantic cloud with window instances
+  - Automatically computes component geometry and metadata
+  - Output stored in project database components table
+  - Integrates with material passport system
+  - Use 'rux create instances' first to separate individual windows
+)");
 
   // sub->add_option("-m, --mesh-name", opt->mesh_name,
   //                 "Name of the input mesh in ProjectDB")

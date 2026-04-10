@@ -24,28 +24,49 @@ using namespace ReUseX;
 void setup_subcommand_export_speckle(CLI::App &parent,
                                      std::shared_ptr<RuxOptions> global_opt) {
   auto opt = std::make_shared<SubcommandExportSpeckleOptions>();
-  auto *sub = parent.add_subcommand(
-      "speckle",
-      "Export a point cloud or mesh from ProjectDB to Speckle\n\n"
-      "Authentication: Set SPECKLE_TOKEN environment variable.\n"
-      "Find your token at: https://app.speckle.systems/profile\n\n"
-      "How to find your Project ID:\n"
-      "  1. Open your project in Speckle web UI\n"
-      "  2. Copy the project ID from the URL: /projects/{PROJECT_ID}\n\n"
-      "Examples:\n"
-      "  export SPECKLE_TOKEN=your_token_here\n"
-      "  rux export speckle \\\n"
-      "    -s https://app.speckle.systems \\\n"
-      "    -p abc123def456 \\\n"
-      "    -d cloud \\\n"
-      "    -M \"Point cloud from ReUseX\"\n"
-      "  rux export speckle \\\n"
-      "    -s https://app.speckle.systems \\\n"
-      "    -p abc123def456 \\\n"
-      "    -d mesh --mesh \\\n"
-      "    -M \"Mesh from ReUseX\"");
+  auto *sub =
+      parent.add_subcommand("speckle", "Export point cloud or mesh to Speckle");
 
-  // sub->footer("This is the footer");
+  sub->footer(R"(
+DESCRIPTION:
+  Uploads point clouds or meshes from ReUseX ProjectDB to Speckle platform
+  for web-based 3D visualization, collaboration, and BIM integration.
+  Supports both cloud and mesh data with metadata preservation.
+
+AUTHENTICATION:
+  Set SPECKLE_TOKEN environment variable with your personal access token.
+  Get token at: https://app.speckle.systems/profile
+
+PROJECT ID:
+  Find in Speckle web UI URL: /projects/{PROJECT_ID}
+
+EXAMPLES:
+  export SPECKLE_TOKEN=your_token_here
+  rux export speckle \
+    -s https://app.speckle.systems \
+    -p abc123def456 \
+    -d cloud \
+    -M "Point cloud from ReUseX"
+
+  rux export speckle \
+    -s https://app.speckle.systems \
+    -p abc123def456 \
+    -d mesh --mesh \
+    -M "Textured mesh export"
+
+WORKFLOW:
+  1. Create Speckle project at app.speckle.systems
+  2. Copy project ID from URL
+  3. export SPECKLE_TOKEN=your_token
+  4. rux export speckle -p PROJECT_ID -d data_name
+
+NOTES:
+  - Requires network connection to Speckle server
+  - Default server: https://app.speckle.systems
+  - Supports point clouds (XYZRGB) and polygon meshes
+  - Use -M/--message to annotate commit with description
+  - Data name must exist in ProjectDB (e.g., 'cloud', 'mesh')
+)");
 
   sub->add_option("-d,--data-name", opt->data_name,
                   "Name of the cloud or mesh in ProjectDB")

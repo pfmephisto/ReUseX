@@ -17,23 +17,35 @@ void setup_subcommand_create_material(CLI::App &parent, std::shared_ptr<RuxOptio
   auto opt = std::make_shared<SubcommandCreateMaterialOptions>();
   auto *sub = parent.add_subcommand(
       "material",
-      "Create a new blank material passport.\n\n"
-      "Generates a new material passport with all fields present but empty,\n"
-      "ready for manual or programmatic population. Metadata fields (GUID,\n"
-      "dates, version) are auto-generated.\n\n"
-      "Usage modes:\n"
-      "  1. Output JSON to stdout (default):\n"
-      "     rux create material\n"
-      "  2. Save to project database:\n"
-      "     rux create material\n"
-      "  3. Save to both database and file:\n"
-      "     rux create material -o template.json\n\n"
-      "Examples:\n"
-      "  rux create material                        # Output to stdout\n"
-      "  rux create material > blank.json           # Redirect to file\n"
-      "  rux create material                        # Save to database\n"
-      "  rux create material --guid my-guid         # Custom GUID\n"
-      "  rux create material -o out.json            # Save to both");
+      "Create blank material passport");
+
+  sub->footer(R"(
+DESCRIPTION:
+  Generates a new material passport following the Danish "Materialepas for
+  genbrugte byggevarer" schema. All fields are present but empty, ready
+  for manual or programmatic population. Metadata fields (GUID, dates,
+  version) are auto-generated. Output to stdout, file, or database.
+
+EXAMPLES:
+  rux create material                  # Output JSON to stdout
+  rux create material > blank.json     # Redirect to file
+  rux create material -o template.json # Save to file and database
+  rux create material --guid my-guid   # Custom GUID
+
+WORKFLOW:
+  1. rux create material > base.json   # Create template
+  2. # Edit base.json with material data
+  3. rux import materialepas base.json # Import to database
+  4. rux export materialepas -o out.json  # Export for sharing
+
+NOTES:
+  - Default: outputs to stdout for piping or redirection
+  - Use -o/--output to save JSON file alongside database entry
+  - GUID auto-generated (UUID v4) unless --guid specified
+  - Timestamps auto-populated with current date
+  - Schema version set to latest Danish standard
+  - Saved to project database by default
+)");
 
   sub->add_option("--guid", opt->guid,
                   "Custom GUID for the material passport (default: auto-generated)");

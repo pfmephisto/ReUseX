@@ -142,7 +142,37 @@ void setup_subcommand_log(CLI::App &app, std::shared_ptr<RuxOptions> global_opt)
   auto opt = std::make_shared<SubcommandLogOptions>();
 
   auto *sub = app.add_subcommand(
-      "log", "Display pipeline execution history from project database");
+      "log", "Display pipeline execution history");
+
+  sub->footer(R"(
+DESCRIPTION:
+  Displays pipeline execution history logged in the project database.
+  Shows command execution timeline with start times, durations, parameters,
+  status, and error messages. Useful for debugging, auditing, and tracking
+  processing workflows.
+
+EXAMPLES:
+  rux log                              # Terminal formatted table
+  rux log --json                       # JSON output for scripting
+  rux -p scan.rux log                  # Custom project path
+  rux log --json | jq '.[] | select(.status=="failed")'  # Filter
+
+OUTPUT COLUMNS:
+  ID          Unique log entry identifier
+  Stage       Pipeline stage (import, clouds, planes, mesh, etc.)
+  Started     Timestamp when command started
+  Duration    Execution time (e.g., "2m 34s", "running")
+  Status      success, failed, or running
+  Parameters  Command parameters (JSON)
+
+NOTES:
+  - Timeline ordered by ID (chronological)
+  - Parameters show algorithm settings used for each run
+  - Duration auto-calculated from start/end timestamps
+  - Running stages show "running" without duration
+  - JSON mode includes full error messages for failed stages
+  - Read-only operation (does not modify database)
+)");
 
   sub->add_flag("-j,--json", opt->json_output, "Output in JSON format")
       ->default_val(false);

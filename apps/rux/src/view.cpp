@@ -656,7 +656,40 @@ void setup_subcommand_view(CLI::App &app,
   auto opt = std::make_shared<SubcommandViewOptions>();
   auto *sub = app.add_subcommand(
       "view",
-      "Visualize 3D point clouds, meshes, and optional label overlays.");
+      "Visualize point clouds and meshes");
+
+  sub->footer(R"(
+DESCRIPTION:
+  Interactive 3D visualization of point clouds, meshes, and segmentation
+  labels stored in ProjectDB. Loads all available geometry and provides
+  keyboard controls for toggling visibility, switching label overlays,
+  and exploring multi-modal scan data.
+
+EXAMPLES:
+  rux view                             # View project at ./project.rux
+  rux -p scan.rux view                 # View custom project
+  rux -vv view                         # Debug mode with verbose output
+
+KEYBOARD CONTROLS:
+  c         Toggle all point clouds on/off
+  m         Toggle all meshes on/off
+  1-9       Toggle label overlay (planes, rooms, etc.)
+  h         Show help message
+  q         Quit viewer
+
+WORKFLOW:
+  1. rux import rtabmap scan.db        # Import sensor data
+  2. rux create clouds                 # Reconstruct geometry
+  3. rux create planes                 # Add segmentation
+  4. rux view                          # Visualize results
+
+NOTES:
+  - Loads all point clouds, meshes, and labels from ProjectDB automatically
+  - Label clouds mapped to first XYZRGB cloud for geometry
+  - Supports multiple viewports for simultaneous views
+  - PCL viewer based on VTK - standard camera controls apply
+  - Use global -p/--project flag to specify database path
+)");
 
   // View command loads data exclusively from the project database
   // Use global --project flag to specify database path

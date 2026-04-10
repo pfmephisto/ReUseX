@@ -10,7 +10,27 @@
 void setup_subcommand_import(CLI::App &app, std::shared_ptr<RuxOptions> global_opt) {
 
   auto *sub = app.add_subcommand(
-      "import", "Import data from various sources into point cloud format.");
+      "import", "Import data from external sources");
+
+  sub->footer(R"(
+DESCRIPTION:
+  Parent command for importing data from external sources into ReUseX
+  project databases. Supports RTABMap SLAM databases and material passport
+  JSON files following Danish building reuse standards.
+
+SUBCOMMANDS:
+  rtabmap       Import sensor data from RTABMap SLAM database
+  materialepas  Import material passports from JSON file
+
+EXAMPLES:
+  rux import rtabmap scan.db           # Import RTABMap scan
+  rux import materialepas data.json    # Import material passports
+
+NOTES:
+  - Use 'rux import <subcommand> --help' for detailed options
+  - Import is typically the first step in the processing pipeline
+  - Data imported into project database specified by -p/--project flag
+)");
 
   setup_subcommand_import_rtabmap(*sub, global_opt);
   setup_subcommand_import_materialepas(*sub, global_opt);

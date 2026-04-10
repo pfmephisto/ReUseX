@@ -143,7 +143,35 @@ void setup_subcommand_info(CLI::App &app, std::shared_ptr<RuxOptions> global_opt
   auto opt = std::make_shared<SubcommandInfoOptions>();
 
   auto *sub = app.add_subcommand(
-      "info", "Display summary information about a project database");
+      "info", "Display project database summary");
+
+  sub->footer(R"(
+DESCRIPTION:
+  Displays comprehensive summary information about a ReUseX project database
+  including sensor frames, point clouds, meshes, building components, and
+  material passports. Provides both human-readable terminal output and
+  machine-readable JSON for scripting.
+
+EXAMPLES:
+  rux info                             # Terminal formatted output
+  rux info --json                      # JSON output for scripting
+  rux -p scan.rux info                 # Custom project path
+  rux info --json | jq '.point_clouds'  # Query with jq
+
+OUTPUT INCLUDES:
+  - Project path and schema version
+  - Sensor frame count and dimensions
+  - Point clouds: name, type, size, organization
+  - Meshes: name, vertex count, face count
+  - Material passport count
+  - Label definitions for segmented clouds
+
+NOTES:
+  - Default output: human-readable terminal format with thousand separators
+  - JSON mode: structured output suitable for parsing and automation
+  - Use 'rux get' for detailed queries of specific resources
+  - Fast read-only operation (does not modify database)
+)");
 
   sub->add_flag("-j,--json", opt->json_output, "Output in JSON format")
       ->default_val(false);

@@ -19,7 +19,36 @@ void setup_subcommand_create_instances(CLI::App &app, std::shared_ptr<RuxOptions
 
   auto *sub = app.add_subcommand(
       "instances",
-      "Separate semantic labels into distinct spatial instances via Euclidean clustering");
+      "Separate labels into spatial instances");
+
+  sub->footer(R"(
+DESCRIPTION:
+  Separates semantic segmentation labels into distinct spatial instances
+  using Euclidean distance clustering. For example, multiple 'window'
+  labels become 'window_1', 'window_2', etc. based on spatial separation.
+  Essential for distinguishing individual objects of the same class.
+
+EXAMPLES:
+  rux create instances                 # Process all labels
+  rux create instances -t 0.3          # 30cm clustering tolerance
+  rux create instances -l 3,5,7        # Only labels 3, 5, 7
+  rux create instances -s labels -o inst  # Custom input/output
+
+WORKFLOW:
+  1. rux import rtabmap scan.db        # Import sensor data
+  2. rux create annotate --net model   # Semantic segmentation
+  3. rux create clouds                 # Reconstruct labeled cloud
+  4. rux create instances              # Instance segmentation
+  5. rux view                          # Visualize instances
+
+NOTES:
+  - Requires 'cloud' and semantic label cloud (default: 'labels')
+  - Tolerance: Euclidean distance threshold for clustering (meters)
+  - Min/max size filters noise and oversized clusters
+  - Use --labels to process specific semantic classes only
+  - Output includes per-instance metadata and statistics
+  - Saved as new label cloud with instance IDs
+)");
 
   sub->add_option("-t,--tolerance", opt->cluster_tolerance,
                   "Euclidean distance threshold for clustering (meters)")

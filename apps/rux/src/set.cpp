@@ -16,7 +16,38 @@ void setup_subcommand_set(CLI::App &app, std::shared_ptr<RuxOptions> global_opt)
   auto opt = std::make_shared<DatabaseSetOptions>();
 
   auto *sub = app.add_subcommand(
-      "set", "Set data in project database using path-based access");
+      "set", "Set data in project database");
+
+  sub->footer(R"(
+DESCRIPTION:
+  Writes data to ReUseX project database using hierarchical path notation.
+  Update metadata, properties, and configuration values. Accepts inline
+  values or JSON from stdin for bulk updates and scripting.
+
+EXAMPLES:
+  rux set project.name "Office Building"  # Set project name
+  rux set clouds.scan1.source rtabmap     # Set cloud metadata
+  echo '{"author":"Jane"}' | rux set project.metadata  # Stdin JSON
+  rux set passports.guid123.status "approved"  # Update passport
+
+PATH SYNTAX:
+  project.PROPERTY         Set project-level property (name, description)
+  clouds.NAME.PROPERTY     Set cloud metadata property
+  meshes.NAME.PROPERTY     Set mesh metadata property
+  passports.GUID.PROPERTY  Set passport field value
+
+VALUE INPUT:
+  - Positional argument: rux set path "value"
+  - Stdin (JSON): echo '{"key":"val"}' | rux set path
+  - Stdin preferred for complex JSON structures
+
+NOTES:
+  - Path must specify exact property to set
+  - JSON values auto-detected and parsed
+  - Use quotes for string values with spaces
+  - Stdin mode expects valid JSON
+  - Changes written immediately to database
+)");
 
   sub->add_option("path", opt->path,
                   "Resource path (e.g., clouds.newscan, project.name)")

@@ -34,7 +34,37 @@ void setup_subcommand_del(CLI::App &app, std::shared_ptr<RuxOptions> global_opt)
   auto opt = std::make_shared<DatabaseDelOptions>();
 
   auto *sub = app.add_subcommand(
-      "del", "Delete data from project database using path-based access");
+      "del", "Delete data from project database");
+
+  sub->footer(R"(
+DESCRIPTION:
+  Deletes point clouds, meshes, or other data from ReUseX project database
+  using hierarchical path notation. Supports wildcards for batch deletion
+  with safety confirmation prompts. Destructive operation - use with care.
+
+EXAMPLES:
+  rux del clouds.test                  # Delete specific cloud
+  rux del meshes.old_mesh              # Delete specific mesh
+  rux del clouds.test_* --force        # Delete with wildcard (preview + confirm)
+  rux del clouds.scan* --force --yes   # Scripting: skip confirmation
+
+WILDCARD PATTERNS:
+  clouds.test_*        Match all clouds starting with "test_"
+  meshes.*_backup      Match all meshes ending with "_backup"
+  clouds.scan[0-9]     Match clouds like "scan1", "scan2"
+
+SAFETY:
+  --force required     Wildcards require explicit --force flag
+  Confirmation prompt  Shows preview of items to be deleted
+  --yes to skip        Use for scripting (with --force)
+  Max 1000 items       Safety limit on wildcard expansion
+
+NOTES:
+  - Deletion is immediate and cannot be undone
+  - Use 'rux get' to list items before deleting
+  - Wildcard deletion shows preview before confirmation
+  - Non-existent paths return error (use get to verify first)
+)");
 
   sub->add_option("path", opt->path,
                   "Resource path (e.g., clouds.oldcloud, clouds.test_*)")

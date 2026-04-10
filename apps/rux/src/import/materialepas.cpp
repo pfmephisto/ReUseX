@@ -17,13 +17,33 @@ void setup_subcommand_import_materialepas(CLI::App &parent, std::shared_ptr<RuxO
   auto opt = std::make_shared<SubcommandImportMaterialepasOptions>();
   auto *sub = parent.add_subcommand(
       "materialepas",
-      "Import material passports from a JSON file into a project database.\n\n"
-      "Reads a JSON file following the Danish\n"
-      "\"Materialepas for genbrugte byggevarer\" interchange format\n"
-      "and stores the material passports in a ReUseX project database.\n\n"
-      "Examples:\n"
-      "  rux import materialepas materials.json\n"
-      "  rux import materialepas materials.json --project-id my_project");
+      "Import material passports from JSON");
+
+  sub->footer(R"(
+DESCRIPTION:
+  Imports material passports from JSON files following the Danish
+  "Materialepas for genbrugte byggevarer" standard into ReUseX project
+  database. Validates schema and stores passport data for integration
+  with 3D scan analysis and building component tracking.
+
+EXAMPLES:
+  rux import materialepas materials.json  # Import all passports
+  rux import materialepas data.json --project-id proj_123  # Link to project
+  rux -p scan.rux import materialepas existing.json  # Custom project
+
+WORKFLOW:
+  1. rux create material > template.json  # Create blank passport
+  2. # Edit template.json with material data
+  3. rux import materialepas template.json  # Import to database
+  4. rux get passports                   # Verify import
+
+NOTES:
+  - JSON must follow Danish materialepas schema
+  - --project-id links passports to specific project (optional)
+  - Multiple passports can be imported from single JSON file
+  - Validates required fields and data types on import
+  - Use 'rux create material' to generate valid template
+)");
 
   sub->add_option("input", opt->input_path, "Input JSON file (.json)")
       ->required()

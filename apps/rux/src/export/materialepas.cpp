@@ -17,13 +17,33 @@ void setup_subcommand_export_materialepas(CLI::App &parent, std::shared_ptr<RuxO
   auto opt = std::make_shared<SubcommandExportMaterialepasOptions>();
   auto *sub = parent.add_subcommand(
       "materialepas",
-      "Export material passports from a project database to JSON.\n\n"
-      "Reads all material passports stored in a ReUseX project database\n"
-      "and writes them as a JSON file following the Danish\n"
-      "\"Materialepas for genbrugte byggevarer\" interchange format.\n\n"
-      "Examples:\n"
-      "  rux export materialepas\n"
-      "  rux export materialepas -o materials.json");
+      "Export material passports to JSON");
+
+  sub->footer(R"(
+DESCRIPTION:
+  Exports all material passports from a ReUseX project database to JSON
+  following the Danish "Materialepas for genbrugte byggevarer" interchange
+  format. Enables data sharing, archival, and integration with external
+  building reuse and circular economy systems.
+
+EXAMPLES:
+  rux export materialepas              # Export to materialepas.json
+  rux export materialepas -o out.json  # Custom output file
+  rux -p scan.rux export materialepas  # Custom project path
+
+WORKFLOW:
+  1. rux create material               # Create passport template
+  2. rux import materialepas data.json # Import passport data
+  3. # Enrich with component data
+  4. rux export materialepas -o final.json  # Export for sharing
+
+NOTES:
+  - Default output: materialepas.json in current directory
+  - Exports all passports stored in project database
+  - JSON format compatible with Danish building reuse standard
+  - Warns if no passports found (not an error)
+  - Use 'rux get passports' to list available passports first
+)");
 
   sub->add_option("-o,--output", opt->output_path,
                   "Output JSON file path (default: materialepas.json)")

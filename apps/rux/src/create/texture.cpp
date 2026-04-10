@@ -19,7 +19,35 @@ void setup_subcommand_create_texture(CLI::App &app, std::shared_ptr<RuxOptions> 
   auto opt = std::make_shared<SubcommandTextureOptions>();
   auto *sub = app.add_subcommand(
       "texture",
-      "Apply textures to a mesh using sensor frames from ProjectDB.");
+      "Apply textures to mesh from sensor frames");
+
+  sub->footer(R"(
+DESCRIPTION:
+  Maps RGB textures from sensor frame images onto 3D mesh surfaces using
+  camera poses and intrinsics. Projects mesh vertices into image space,
+  selects best-view images per face, and generates UV-mapped textured mesh
+  suitable for photorealistic visualization and CAD export.
+
+EXAMPLES:
+  rux create texture                   # Default: mesh -> mesh_textured
+  rux create texture -m room1 -o room1_tex  # Custom names
+  rux -p scan.rux create texture       # Custom project path
+
+WORKFLOW:
+  1. rux import rtabmap scan.db        # Import sensor frames with RGB
+  2. rux create clouds                 # Reconstruct geometry
+  3. rux create planes && rooms        # Segment architecture
+  4. rux create mesh                   # Generate 3D mesh
+  5. rux create texture                # Apply textures to mesh
+  6. rux export rhino textured.3dm     # Export textured model
+
+NOTES:
+  - Requires mesh and sensor frames with RGB images in project database
+  - Best-view selection based on viewing angle and distance
+  - UV coordinates automatically generated for texture mapping
+  - Output mesh includes embedded texture atlas
+  - Default input: 'mesh', default output: 'mesh_textured'
+)");
 
   sub->add_option("-m, --mesh-name", opt->mesh_name,
                   "Name of the input mesh in ProjectDB")

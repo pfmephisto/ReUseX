@@ -40,7 +40,34 @@ void setup_subcommand_create_rooms(CLI::App &app, std::shared_ptr<RuxOptions> gl
   auto opt = std::make_shared<SubcommandSegRoomsOptions>();
   auto *sub = app.add_subcommand(
       "rooms",
-      "Segment rooms using community detection (Leiden algorithm) based on spatial relationships between planes");
+      "Segment rooms using Leiden clustering");
+
+  sub->footer(R"(
+DESCRIPTION:
+  Performs room segmentation using the Leiden community detection algorithm
+  based on spatial relationships and visual connections between planar surfaces.
+  Groups planes into distinct room volumes using graph-based clustering.
+
+EXAMPLES:
+  rux create rooms                     # Default settings (resolution=1.0)
+  rux create rooms -r 1.5              # More clusters (higher resolution)
+  rux create rooms -r 0.5 -g 0.1       # Fewer clusters, finer grid
+  rux create rooms -f 'planes >= 5'    # Filter to specific planes
+
+WORKFLOW:
+  1. rux import rtabmap scan.db        # Import sensor data
+  2. rux create clouds                 # Reconstruct point clouds
+  3. rux create planes                 # Segment planar surfaces
+  4. rux create rooms                  # Segment rooms from planes
+  5. rux create mesh                   # Generate 3D mesh
+
+NOTES:
+  - Requires 'cloud', 'planes', 'plane_centroids', 'plane_normals' in project
+  - Resolution parameter controls cluster granularity (higher = more rooms)
+  - Grid size affects spatial discretization (default: 0.2m)
+  - Filter syntax supports boolean expressions: 'planes in [1,2] || rooms == 5'
+  - Output saved as 'rooms' label cloud in project database
+)");
 
   sub->add_option("-r, --resolution", opt->resolution,
                   "Leiden resolution parameter. "

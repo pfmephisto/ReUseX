@@ -13,8 +13,34 @@ void setup_subcommand_import_rtabmap(CLI::App &app, std::shared_ptr<RuxOptions> 
 
   auto opt = std::make_shared<SubcommandImportRTABMapOptions>();
   auto *sub =
-      app.add_subcommand("rtabmap", "Import raw sensor data from an RTABMap "
-                                    "database into a ReUseX project.");
+      app.add_subcommand("rtabmap", "Import sensor data from RTABMap database");
+
+  sub->footer(R"(
+DESCRIPTION:
+  Extracts raw sensor data (RGB images, depth maps, camera poses, intrinsics)
+  from an RTABMap SLAM database and stores it in a ReUseX project for
+  further processing. This is the first step in the typical reconstruction
+  pipeline. No point cloud reconstruction is performed during import.
+
+EXAMPLES:
+  rux import rtabmap scan.db           # Import to ./project.rux
+  rux -p office.rux import rtabmap scan.db  # Custom project path
+  rux import rtabmap ~/scans/building.db    # Absolute path
+
+WORKFLOW:
+  1. rux import rtabmap scan.db        # Import sensor frames
+  2. rux create clouds                 # Reconstruct point clouds
+  3. rux create annotate --net model   # Optional: ML inference
+  4. rux view                          # Visualize results
+
+NOTES:
+  - Requires RTABMap database (.db) from RTABMap SLAM application
+  - Extracts: RGB images, depth maps, confidence maps, camera poses
+  - Camera intrinsics and local transforms preserved from RTABMap
+  - Images stored in original orientation (no preprocessing)
+  - Use global -p/--project flag to specify output project path
+  - After import, run 'rux create clouds' to generate point clouds
+)");
 
   sub->add_option("database", opt->database_path_in,
                   "Path to the RTABMap database file.")

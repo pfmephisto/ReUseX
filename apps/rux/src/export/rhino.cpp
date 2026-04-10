@@ -20,7 +20,32 @@ void setup_subcommand_export_rhino(CLI::App &parent, std::shared_ptr<RuxOptions>
   auto opt = std::make_shared<SubcommandExportRhinoOptions>();
   auto *sub = parent.add_subcommand(
       "rhino",
-      "Export a labeled point cloud from ProjectDB to Rhino 3DM format.");
+      "Export labeled point cloud to Rhino 3DM");
+
+  sub->footer(R"(
+DESCRIPTION:
+  Exports point clouds and optional label data from ProjectDB to Rhino 3DM
+  format using OpenNURBS. Preserves point colors and converts segmentation
+  labels to Rhino user data attributes for interoperability with CAD workflows.
+
+EXAMPLES:
+  rux export rhino -o output.3dm       # Export 'cloud' only
+  rux export rhino -l rooms -o out.3dm # Export with room labels
+  rux export rhino -c cloud -l planes  # Custom cloud + labels
+  rux -p project.rux export rhino      # Custom project path
+
+WORKFLOW:
+  1. rux create clouds                 # Generate point cloud
+  2. rux create planes                 # Optional: add labels
+  3. rux export rhino -o scan.3dm      # Export to Rhino
+
+NOTES:
+  - Default cloud name: 'cloud'
+  - Labels are optional; omit --labels-name for geometry only
+  - Output .3dm file compatible with Rhino 7+ and OpenNURBS readers
+  - Point colors preserved from RGB channels
+  - Labels stored as custom attributes on point objects
+)");
 
   sub->add_option("-c, --cloud-name", opt->cloud_name,
                   "Name of the point cloud in ProjectDB")

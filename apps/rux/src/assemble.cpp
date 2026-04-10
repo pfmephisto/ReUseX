@@ -28,7 +28,34 @@ void setup_subcommand_assemble(CLI::App &app, std::shared_ptr<RuxOptions> global
 
   auto opt = std::make_shared<SubcommandAssembleOptions>();
   auto *sub = app.add_subcommand(
-      "assemble", "Assemble multiple scans into a single RTAB-Map database.");
+      "assemble", "Assemble multiple scans into one database");
+
+  sub->footer(R"(
+DESCRIPTION:
+  Merges multiple RTABMap scan databases into a single unified database
+  for large-scale reconstruction projects. Combines sensor frames, poses,
+  and map data while preserving spatial relationships. Useful for multi-
+  session scanning or collaborative data collection.
+
+EXAMPLES:
+  rux assemble scan1.db scan2.db       # Merge to assembled.db
+  rux assemble *.db -o building.db     # Merge all scans
+  rux assemble floor1.db floor2.db floor3.db  # Multi-floor
+
+WORKFLOW:
+  1. Capture multiple RTABMap scans (separate sessions)
+  2. rux assemble scan*.db -o unified.db  # Merge databases
+  3. rux import rtabmap unified.db     # Import merged data
+  4. rux create clouds                 # Process unified scan
+
+NOTES:
+  - Input: multiple RTABMap .db files
+  - Output: single merged RTABMap database (default: assembled.db)
+  - Preserves all sensor data and SLAM graph structure
+  - Use for large buildings scanned in multiple sessions
+  - Requires RTABMap-compatible databases as input
+  - After assembly, use 'rux import rtabmap' for further processing
+)");
 
   sub->add_option("path", opt->paths_in, "Path(s) to the input scan file(s).")
       ->required()

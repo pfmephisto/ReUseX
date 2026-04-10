@@ -30,7 +30,36 @@ namespace fs = std::filesystem;
 void setup_subcommand_create_planes(CLI::App &app, std::shared_ptr<RuxOptions> global_opt) {
 
   auto opt = std::make_shared<SubcommandSegPlanesOptions>();
-  auto *sub = app.add_subcommand("planes", "Detect and segment planar surfaces (walls, floors, ceilings) in a point cloud");
+  auto *sub = app.add_subcommand("planes", "Detect and segment planar surfaces");
+
+  sub->footer(R"(
+DESCRIPTION:
+  Detects and segments planar surfaces (walls, floors, ceilings) in 3D
+  point clouds using multi-scale region growing. Identifies major structural
+  planes and assigns a unique label to each detected surface. Essential
+  preprocessing step for room segmentation and mesh generation.
+
+EXAMPLES:
+  rux create planes                    # Default settings
+  rux create planes -a 15 -d 0.05      # Tighter angle/distance
+  rux create planes -m 1000            # Larger minimum cluster
+  rux create planes -r 0.15            # Larger search radius
+
+WORKFLOW:
+  1. rux import rtabmap scan.db        # Import sensor data
+  2. rux create clouds                 # Reconstruct point clouds
+  3. rux create planes                 # Segment planar surfaces
+  4. rux create rooms                  # Segment rooms from planes
+  5. rux view                          # Visualize results
+
+NOTES:
+  - Requires 'cloud' and 'normals' in project database
+  - Angle threshold: surface normal similarity (degrees, default: 25°)
+  - Distance threshold: max point-to-plane distance (meters, default: 0.1m)
+  - Minimum cluster size affects noise filtering (default: ~2 sqm @ 2cm res)
+  - Output: 'planes', 'plane_centroids', 'plane_normals' saved to project
+  - Filter syntax supports expressions like 'rooms == 3'
+)");
 
   sub->get_formatter()->column_width(40);
 

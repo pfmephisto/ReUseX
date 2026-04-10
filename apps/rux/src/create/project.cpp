@@ -29,7 +29,34 @@ void setup_subcommand_create_project(CLI::App &app, std::shared_ptr<RuxOptions> 
 
   auto opt = std::make_shared<SubcommandProjectOptions>();
   auto *sub = app.add_subcommand(
-      "project", "Project 2D segmentation labels from sensor frames onto the 3D point cloud");
+      "project", "Project 2D labels onto 3D point cloud");
+
+  sub->footer(R"(
+DESCRIPTION:
+  Projects 2D semantic segmentation labels from sensor frame images onto
+  the 3D point cloud using camera poses and intrinsics. Maps per-pixel
+  labels to corresponding 3D points, enabling semantic analysis of the
+  reconstructed geometry. Essential bridge between 2D ML inference and 3D.
+
+EXAMPLES:
+  rux create project                   # Project all segmentation labels
+  rux -p scan.rux create project       # Custom project path
+  rux -vv create project               # Debug with verbose output
+
+WORKFLOW:
+  1. rux import rtabmap scan.db        # Import sensor frames
+  2. rux create annotate --net model   # Run ML inference on frames
+  3. rux create clouds                 # Reconstruct point clouds
+  4. rux create project                # Project labels to 3D
+  5. rux view                          # Visualize labeled cloud
+
+NOTES:
+  - Requires point cloud, sensor frames, and segmentation images
+  - Uses camera intrinsics and poses for accurate 3D-2D mapping
+  - Handles occlusions and multi-view label fusion
+  - Output saved as 'labels' label cloud in project database
+  - Run after 'rux create annotate' and 'rux create clouds'
+)");
 
   sub->callback([opt, global_opt]() {
     spdlog::trace("calling run_subcommand_project");

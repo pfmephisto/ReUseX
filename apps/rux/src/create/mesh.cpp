@@ -38,8 +38,37 @@ void setup_subcommand_create_mesh(CLI::App &app, std::shared_ptr<RuxOptions> glo
 
   auto opt = std::make_shared<SubcommandMeshOptions>();
   auto *sub =
-      app.add_subcommand("mesh", "Generate a watertight 3D mesh by computing "
-                                 "best-fit volumes from segmented planes");
+      app.add_subcommand("mesh", "Generate watertight mesh from planes");
+
+  sub->footer(R"(
+DESCRIPTION:
+  Generates a watertight 3D polygon mesh by computing best-fit volumes
+  from segmented planar surfaces. Uses mixed-integer programming (MIP)
+  to solve for optimal plane pairings and creates enclosed room geometries
+  suitable for CAD export and building information modeling.
+
+EXAMPLES:
+  rux create mesh                      # Default thresholds
+  rux create mesh -a 15 -l 0.3         # Custom angle/distance
+  rux create mesh -f 'rooms == 2'      # Mesh only room 2
+  rux create mesh --output-name room1  # Custom mesh name
+
+WORKFLOW:
+  1. rux import rtabmap scan.db        # Import sensor data
+  2. rux create clouds                 # Reconstruct point clouds
+  3. rux create planes                 # Segment planar surfaces
+  4. rux create rooms                  # Segment rooms (optional)
+  5. rux create mesh                   # Generate watertight mesh
+  6. rux export rhino mesh.3dm         # Export to Rhino
+
+NOTES:
+  - Requires 'cloud', 'normals', 'planes', 'rooms', plane centroids/normals
+  - Angle threshold controls plane pairing perpendicularity (degrees)
+  - Distance threshold sets maximum gap between paired planes
+  - Filter syntax: 'planes in [1,2,5]' or 'rooms == 3'
+  - Output saved to ProjectDB with name specified by --output-name
+  - Uses HiGHS MIP solver (CPU-based optimization)
+)");
 
   sub->add_option("--output-name", opt->output_mesh_name,
                   "Name for the output mesh in ProjectDB")

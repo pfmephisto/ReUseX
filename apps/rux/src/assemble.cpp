@@ -24,7 +24,7 @@ namespace fs = std::filesystem;
  *
  * @param app CLI application to add the subcommand to.
  */
-void setup_subcommand_assemble(CLI::App &app) {
+void setup_subcommand_assemble(CLI::App &app, std::shared_ptr<RuxOptions> global_opt) {
 
   auto opt = std::make_shared<SubcommandAssembleOptions>();
   auto *sub = app.add_subcommand(
@@ -38,9 +38,9 @@ void setup_subcommand_assemble(CLI::App &app) {
                   "Path to save the assembled database to.")
       ->default_val(opt->db_path_out);
 
-  sub->callback([opt]() {
+  sub->callback([opt, global_opt]() {
     spdlog::trace("calling assemble subcommand");
-    return run_subcommand_assemble(*opt);
+    return run_subcommand_assemble(*opt, *global_opt);
   });
 }
 
@@ -53,7 +53,7 @@ void setup_subcommand_assemble(CLI::App &app) {
  * @param opt Options containing input file paths and output database path.
  * @return Exit code (RuxError::NOT_IMPLEMENTED currently).
  */
-int run_subcommand_assemble(SubcommandAssembleOptions const &opt) {
+int run_subcommand_assemble(SubcommandAssembleOptions const &opt, const RuxOptions &global_opt) {
 
   spdlog::warn("The assemble command is not yet implemented.");
   spdlog::debug("Input files: {}", fmt::join(opt.paths_in, ", "));

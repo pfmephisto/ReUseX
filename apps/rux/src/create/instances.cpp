@@ -14,16 +14,12 @@
 #include <chrono>
 #include <set>
 
-void setup_subcommand_create_instances(CLI::App &app) {
+void setup_subcommand_create_instances(CLI::App &app, std::shared_ptr<RuxOptions> global_opt) {
   auto opt = std::make_shared<SubcommandSegInstancesOptions>();
 
   auto *sub = app.add_subcommand(
       "instances",
       "Separate semantic labels into distinct spatial instances via Euclidean clustering");
-
-  sub->add_option("project", opt->project, "Path to .rux project file")
-      ->required()
-      ->check(CLI::ExistingFile);
 
   sub->add_option("-t,--tolerance", opt->cluster_tolerance,
                   "Euclidean distance threshold for clustering (meters)")
@@ -52,18 +48,19 @@ void setup_subcommand_create_instances(CLI::App &app) {
                   "Comma-separated list of semantic labels to process (empty = all)")
       ->delimiter(',');
 
-  sub->callback([opt]() {
-    int exit_code = run_subcommand_segment_instances(*opt);
+  sub->callback([opt, global_opt]() {
+    int exit_code = run_subcommand_segment_instances(*opt, *global_opt);
     if (exit_code != RuxError::SUCCESS) {
       throw CLI::RuntimeError(exit_code);
     }
   });
 }
 
-int run_subcommand_segment_instances(const SubcommandSegInstancesOptions &opt) {
+int run_subcommand_segment_instances(const SubcommandSegInstancesOptions &opt, const RuxOptions &global_opt) {
   try {
-    spdlog::info("Opening project database: {}", opt.project.string());
-    ReUseX::ProjectDB db(opt.project);
+    fs::path project_path = global_opt.project_db;
+    spdlog::info("Opening project database: {}", project_path.string());
+    ReUseX::ProjectDB db(project_path);
 
     // Validate prerequisites
     spdlog::info("Validating prerequisites...");

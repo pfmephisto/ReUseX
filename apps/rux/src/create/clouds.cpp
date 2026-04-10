@@ -10,16 +10,11 @@
 
 #include <spdlog/spdlog.h>
 
-void setup_subcommand_create_clouds(CLI::App &app) {
+void setup_subcommand_create_clouds(CLI::App &app, std::shared_ptr<RuxOptions> global_opt) {
   auto opt = std::make_shared<SubcommandCreateCloudsOptions>();
   auto *sub =
       app.add_subcommand("clouds", "Generate 3D point clouds by reconstructing "
                                    "depth data from sensor frames");
-
-  sub->add_option("project", opt->project,
-                  "Path to the ReUseX project database (.rux).")
-      ->default_val(opt->project)
-      ->check(CLI::ExistingFile);
 
   sub->add_option("-g,--grid", opt->resolution,
                   "Voxel grid resolution for downsampling")
@@ -41,17 +36,18 @@ void setup_subcommand_create_clouds(CLI::App &app) {
                   "Minimum confidence threshold")
       ->default_val(opt->confidence_threshold);
 
-  sub->callback([opt]() {
+  sub->callback([opt, global_opt]() {
     spdlog::trace("calling run_subcommand_create_clouds");
-    return run_subcommand_create_clouds(*opt);
+    return run_subcommand_create_clouds(*opt, *global_opt);
   });
 }
 
-int run_subcommand_create_clouds(SubcommandCreateCloudsOptions const &opt) {
-  spdlog::info("Reconstructing point clouds from: {}", opt.project.string());
+int run_subcommand_create_clouds(SubcommandCreateCloudsOptions const &opt, const RuxOptions &global_opt) {
+  fs::path project_path = global_opt.project_db;
+  spdlog::info("Reconstructing point clouds from: {}", project_path.string());
 
   try {
-    ReUseX::ProjectDB db(opt.project);
+    ReUseX::ProjectDB db(project_path);
 
     // Pre-flight validation: check for sensor frames
     auto validation = rux::validation::validate_clouds_prerequisites(db);

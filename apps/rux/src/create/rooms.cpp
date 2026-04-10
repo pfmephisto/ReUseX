@@ -35,17 +35,12 @@ namespace fs = std::filesystem;
  *
  * @param app CLI application to add the subcommand to.
  */
-void setup_subcommand_create_rooms(CLI::App &app) {
+void setup_subcommand_create_rooms(CLI::App &app, std::shared_ptr<RuxOptions> global_opt) {
 
   auto opt = std::make_shared<SubcommandSegRoomsOptions>();
   auto *sub = app.add_subcommand(
       "rooms",
       "Segment rooms using community detection (Leiden algorithm) based on spatial relationships between planes");
-
-  sub->add_option("project", opt->project,
-                  "Path to the .rux project file.")
-      ->required()
-      ->check(CLI::ExistingFile);
 
   sub->add_option("-r, --resolution", opt->resolution,
                   "Leiden resolution parameter. "
@@ -81,9 +76,9 @@ void setup_subcommand_create_rooms(CLI::App &app) {
                   "  -f 'planes >= 10 && planes <= 20'   # Range filter")
       ->default_val("");
 
-  sub->callback([opt]() {
+  sub->callback([opt, global_opt]() {
     spdlog::trace("calling seg-rooms subcommand");
-    return run_subcommand_segment_rooms(*opt);
+    return run_subcommand_segment_rooms(*opt, *global_opt);
   });
 }
 
@@ -96,11 +91,12 @@ void setup_subcommand_create_rooms(CLI::App &app) {
  * @param opt Options containing project path and Leiden parameters.
  * @return Exit code (RuxError::SUCCESS on success).
  */
-int run_subcommand_segment_rooms(SubcommandSegRoomsOptions const &opt) {
-  spdlog::info("Segmenting rooms in project: {}", opt.project.string());
+int run_subcommand_segment_rooms(SubcommandSegRoomsOptions const &opt, const RuxOptions &global_opt) {
+  fs::path project_path = global_opt.project_db;
+  spdlog::info("Segmenting rooms in project: {}", project_path.string());
 
   try {
-    ReUseX::ProjectDB db(opt.project);
+    ReUseX::ProjectDB db(project_path);
 
     // Pre-flight validation: check for planes prerequisites
     auto validation = rux::validation::validate_rooms_prerequisites(db);

@@ -20,17 +20,14 @@
 
 namespace fs = std::filesystem;
 
-void setup_subcommand_create_annotate(CLI::App &app) {
+void setup_subcommand_create_annotate(CLI::App &app,
+                                      std::shared_ptr<RuxOptions> global_opt) {
 
   // Create the option and subcommand objects.
   auto opt = std::make_shared<SubcommandAnnotateOptions>();
-  auto *sub = app.add_subcommand(
-      "annotate", "Run semantic segmentation inference on sensor frames using ML models (YOLO/SAM2)");
-
-  sub->add_option("database", opt->database_path_in,
-                  "Path to the ReUseX project database file (.rux).")
-      ->required()
-      ->check(CLI::ExistingFile);
+  auto *sub = app.add_subcommand("annotate",
+                                 "Run semantic segmentation inference on "
+                                 "sensor frames using ML models (YOLO/SAM2)");
 
   sub->add_option("-n, --net", opt->net_path,
                   "Path to the YOLOv8 model file (ONNX or PT format)")
@@ -40,15 +37,17 @@ void setup_subcommand_create_annotate(CLI::App &app) {
   sub->add_flag("-c, --cuda", opt->isCuda, "Use CUDA for YOLOv8 inference")
       ->default_val(opt->isCuda);
 
-  sub->callback([opt]() {
+  sub->callback([opt, global_opt]() {
     spdlog::trace("calling run_subcommand_annotate");
-    return run_subcommand_annotate(*opt);
+    return run_subcommand_annotate(*opt, *global_opt);
   });
 }
 
-int run_subcommand_annotate(SubcommandAnnotateOptions const &opt) {
+int run_subcommand_annotate(SubcommandAnnotateOptions const &opt,
+                            const RuxOptions &global_opt) {
   try {
-    ReUseX::ProjectDB db(opt.database_path_in);
+    fs::path project_path = global_opt.project_db;
+    ReUseX::ProjectDB db(project_path);
 
     // Pre-flight validation: check for sensor frames
     auto validation = rux::validation::validate_annotate_prerequisites(db);
@@ -58,7 +57,8 @@ int run_subcommand_annotate(SubcommandAnnotateOptions const &opt) {
       return RuxError::INVALID_ARGUMENT;
     }
 
-    return ReUseX::vision::annotate(opt.database_path_in, opt.net_path, opt.isCuda);
+    return ReUseX::vision::annotate(project_path, opt.net_path,
+                                    opt.isCuda);
 
   } catch (const std::exception &e) {
     spdlog::error("Annotation failed: {}", e.what());

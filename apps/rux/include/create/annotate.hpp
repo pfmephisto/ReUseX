@@ -7,18 +7,18 @@
 
 #include <CLI/CLI.hpp>
 #include <filesystem>
+#include <memory>
 #include <string>
 
 namespace fs = std::filesystem;
 
 struct SubcommandAnnotateOptions {
 
-  fs::path database_path_in;
   fs::path net_path = fs::current_path() / "yolov8x-seg.torchscript";
 
   bool isCuda{false};
 };
 
 // Function declarations.
-void setup_subcommand_create_annotate(CLI::App &app);
-int run_subcommand_annotate(SubcommandAnnotateOptions const &opt);
+void setup_subcommand_create_annotate(CLI::App &app, std::shared_ptr<RuxOptions> global_opt);
+int run_subcommand_annotate(SubcommandAnnotateOptions const &opt, const RuxOptions &global_opt);

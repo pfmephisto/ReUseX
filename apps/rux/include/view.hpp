@@ -5,14 +5,17 @@
 #pragma once
 #include "global-params.hpp"
 #include <CLI/CLI.hpp>
+#include <memory>
 namespace fs = std::filesystem;
 
 /// Collection of all options of Subcommand A.
 struct SubcommandViewOptions {
-  std::vector<fs::path> input_paths;
-  std::vector<fs::path> label_paths_in = {};
+  // View command now exclusively uses global project database
+  // No additional options needed
 };
 
 // Function declarations.
-void setup_subcommand_view(CLI::App &app);
-int run_subcommand_view(SubcommandViewOptions const &opt);
+void setup_subcommand_view(CLI::App &app,
+                           std::shared_ptr<RuxOptions> global_opt);
+int run_subcommand_view(SubcommandViewOptions const &opt,
+                        const RuxOptions &global_opt);

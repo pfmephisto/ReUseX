@@ -13,16 +13,11 @@
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
 
-void setup_subcommand_get(CLI::App &app) {
+void setup_subcommand_get(CLI::App &app, std::shared_ptr<RuxOptions> global_opt) {
   auto opt = std::make_shared<DatabaseGetOptions>();
 
   auto *sub = app.add_subcommand(
       "get", "Get data from project database using path-based access");
-
-  sub->add_option("project_file", opt->project_file,
-                  "Path to the ReUseX project database (.rux)")
-      ->required()
-      ->check(CLI::ExistingFile);
 
   sub->add_option("path", opt->path,
                   "Resource path (e.g., clouds, clouds.scan1, "
@@ -36,16 +31,17 @@ void setup_subcommand_get(CLI::App &app) {
                 "Pretty-print JSON output (default: auto-detect from TTY)")
       ->default_val(false);
 
-  sub->callback([opt]() {
+  sub->callback([opt, global_opt]() {
     spdlog::trace("calling run_subcommand_get");
-    return run_subcommand_get(*opt);
+    return run_subcommand_get(*opt, *global_opt);
   });
 }
 
-int run_subcommand_get(const DatabaseGetOptions &opt) {
+int run_subcommand_get(const DatabaseGetOptions &opt, const RuxOptions &global_opt) {
   try {
-    spdlog::info("Opening project: {}", opt.project_file.string());
-    auto db = std::make_shared<ReUseX::ProjectDB>(opt.project_file,
+    fs::path project_path = global_opt.project_db;
+    spdlog::info("Opening project: {}", project_path.string());
+    auto db = std::make_shared<ReUseX::ProjectDB>(project_path,
                                                   /* readOnly */ true);
 
     // If no path provided, show available collection names

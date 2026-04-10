@@ -21,11 +21,12 @@
 namespace fs = std::filesystem;
 using namespace ReUseX;
 
-void setup_subcommand_export_speckle(CLI::App &parent) {
+void setup_subcommand_export_speckle(CLI::App &parent,
+                                     std::shared_ptr<RuxOptions> global_opt) {
   auto opt = std::make_shared<SubcommandExportSpeckleOptions>();
   auto *sub = parent.add_subcommand(
       "speckle",
-      "Export a point cloud or mesh from ProjectDB to Speckle (app.speckle.systems).\n\n"
+      "Export a point cloud or mesh from ProjectDB to Speckle\n\n"
       "Authentication: Set SPECKLE_TOKEN environment variable.\n"
       "Find your token at: https://app.speckle.systems/profile\n\n"
       "How to find your Project ID:\n"
@@ -33,28 +34,24 @@ void setup_subcommand_export_speckle(CLI::App &parent) {
       "  2. Copy the project ID from the URL: /projects/{PROJECT_ID}\n\n"
       "Examples:\n"
       "  export SPECKLE_TOKEN=your_token_here\n"
-      "  rux export speckle project.rux \\\n"
+      "  rux export speckle \\\n"
       "    -s https://app.speckle.systems \\\n"
       "    -p abc123def456 \\\n"
       "    -d cloud \\\n"
       "    -M \"Point cloud from ReUseX\"\n"
-      "  rux export speckle project.rux \\\n"
+      "  rux export speckle \\\n"
       "    -s https://app.speckle.systems \\\n"
       "    -p abc123def456 \\\n"
       "    -d mesh --mesh \\\n"
       "    -M \"Mesh from ReUseX\"");
 
-  sub->add_option("project", opt->project,
-                  "Path to the .rux project file.")
-      ->required()
-      ->check(CLI::ExistingFile);
+  // sub->footer("This is the footer");
 
   sub->add_option("-d,--data-name", opt->data_name,
                   "Name of the cloud or mesh in ProjectDB")
       ->default_val(opt->data_name);
 
-  sub->add_flag("--mesh", opt->is_mesh,
-                "Load as mesh instead of point cloud")
+  sub->add_flag("--mesh", opt->is_mesh, "Load as mesh instead of point cloud")
       ->default_val(opt->is_mesh);
 
   sub->add_option("-s,--server", opt->server_url,
@@ -76,14 +73,16 @@ void setup_subcommand_export_speckle(CLI::App &parent) {
                   "HTTP batch size in bytes (default: 25 MB)")
       ->default_val(opt->max_batch_bytes);
 
-  sub->callback([opt]() {
+  sub->callback([opt, global_opt]() {
     spdlog::trace("calling export speckle subcommand");
-    return run_subcommand_export_speckle(*opt);
+    return run_subcommand_export_speckle(*opt, *global_opt);
   });
 }
 
-int run_subcommand_export_speckle(SubcommandExportSpeckleOptions const &opt) {
-  spdlog::info("Exporting to Speckle from project: {}", opt.project.string());
+int run_subcommand_export_speckle(SubcommandExportSpeckleOptions const &opt,
+                                  const RuxOptions &global_opt) {
+  fs::path project_path = global_opt.project_db;
+  spdlog::info("Exporting to Speckle from project: {}", project_path.string());
 
   // 1. Validate environment
   const char *token_env = std::getenv("SPECKLE_TOKEN");
@@ -98,7 +97,7 @@ int run_subcommand_export_speckle(SubcommandExportSpeckleOptions const &opt) {
 
   try {
     // 2. Load data from ProjectDB
-    ProjectDB db(opt.project);
+    ProjectDB db(project_path);
 
     std::unique_ptr<io::speckle::Base> speckle_obj;
 
@@ -112,8 +111,8 @@ int run_subcommand_export_speckle(SubcommandExportSpeckleOptions const &opt) {
         return RuxError::INVALID_ARGUMENT;
       }
       spdlog::info("Loaded {} points", cloud->size());
-      speckle_obj =
-          std::make_unique<io::speckle::Pointcloud>(io::speckle::to_speckle(cloud));
+      speckle_obj = std::make_unique<io::speckle::Pointcloud>(
+          io::speckle::to_speckle(cloud));
 
     } else {
       // Mesh
@@ -131,8 +130,8 @@ int run_subcommand_export_speckle(SubcommandExportSpeckleOptions const &opt) {
       spdlog::info("Unwelded mesh: {} vertices",
                    unwelded->cloud.data.size() / unwelded->cloud.point_step);
 
-      speckle_obj =
-          std::make_unique<io::speckle::Mesh>(io::speckle::to_speckle(*unwelded));
+      speckle_obj = std::make_unique<io::speckle::Mesh>(
+          io::speckle::to_speckle(*unwelded));
     }
 
     // 3. Create Speckle client

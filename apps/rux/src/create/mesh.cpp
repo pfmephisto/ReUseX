@@ -34,16 +34,12 @@
 
 namespace fs = std::filesystem;
 
-void setup_subcommand_create_mesh(CLI::App &app) {
+void setup_subcommand_create_mesh(CLI::App &app, std::shared_ptr<RuxOptions> global_opt) {
 
   auto opt = std::make_shared<SubcommandMeshOptions>();
   auto *sub =
       app.add_subcommand("mesh", "Generate a watertight 3D mesh by computing "
                                  "best-fit volumes from segmented planes");
-
-  sub->add_option("project", opt->project, "Path to the .rux project file.")
-      ->required()
-      ->check(CLI::ExistingFile);
 
   sub->add_option("--output-name", opt->output_mesh_name,
                   "Name for the output mesh in ProjectDB")
@@ -79,21 +75,22 @@ void setup_subcommand_create_mesh(CLI::App &app) {
                   "  -f 'planes >= 10 && planes <= 20'   # Range filter")
       ->default_val("");
 
-  sub->callback([opt]() {
+  sub->callback([opt, global_opt]() {
     spdlog::trace("calling run_subcommand_mesh");
-    return run_subcommand_mesh(*opt);
+    return run_subcommand_mesh(*opt, *global_opt);
   });
 };
 
-int run_subcommand_mesh(SubcommandMeshOptions const &opt) {
-  spdlog::info("Generating mesh from project: {}", opt.project.string());
+int run_subcommand_mesh(SubcommandMeshOptions const &opt, const RuxOptions &global_opt) {
+  fs::path project_path = global_opt.project_db;
+  spdlog::info("Generating mesh from project: {}", project_path.string());
 
   // rux::VizualizationObserver
   auto &observer = rux::get_processing_observer();
   observer.viewer_request_viewports(4);
 
   try {
-    ReUseX::ProjectDB db(opt.project);
+    ReUseX::ProjectDB db(project_path);
 
     // Pre-flight validation: comprehensive check for all prerequisites
     // This resolves the TODO comment from lines 101-107

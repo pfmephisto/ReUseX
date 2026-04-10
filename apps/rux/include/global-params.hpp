@@ -41,14 +41,6 @@ enum RuxError {
 };
 
 namespace fs = std::filesystem;
-
-/// Collection of all options of Subcommand A.
-namespace GlobalParams {
-
-const fs::path project_db = fs::current_path() / "project.rux";
-// const fs::path db = fs::current_path() / "database.db";
-
-const double resulution = 0.05;
-const double grid_size = 0.5;
-
-}; // namespace GlobalParams
+struct RuxOptions {
+  fs::path project_db = fs::current_path() / "project.rux";
+};

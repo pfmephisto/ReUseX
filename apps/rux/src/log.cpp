@@ -138,32 +138,30 @@ void format_json_output(const std::vector<ReUseX::ProjectDB::PipelineLogEntry> &
 
 } // anonymous namespace
 
-void setup_subcommand_log(CLI::App &app) {
+void setup_subcommand_log(CLI::App &app, std::shared_ptr<RuxOptions> global_opt) {
+  auto opt = std::make_shared<SubcommandLogOptions>();
+
   auto *sub = app.add_subcommand(
       "log", "Display pipeline execution history from project database");
 
-  static SubcommandLogOptions opt;
-
-  sub->add_option("project", opt.project, "Path to project database file (.rux)")
-      ->default_val(GlobalParams::project_db);
-
-  sub->add_flag("-j,--json", opt.json_output, "Output in JSON format")
+  sub->add_flag("-j,--json", opt->json_output, "Output in JSON format")
       ->default_val(false);
 
-  sub->add_option("-n,--limit", opt.limit, "Limit number of entries (0 = all)")
+  sub->add_option("-n,--limit", opt->limit, "Limit number of entries (0 = all)")
       ->default_val(0)
       ->check(CLI::NonNegativeNumber);
 
-  sub->callback([opt_ptr = &opt]() {
+  sub->callback([opt, global_opt]() {
     spdlog::trace("Running log subcommand");
-    return run_subcommand_log(*opt_ptr);
+    return run_subcommand_log(*opt, *global_opt);
   });
 }
 
-int run_subcommand_log(SubcommandLogOptions const &opt) {
+int run_subcommand_log(SubcommandLogOptions const &opt, const RuxOptions &global_opt) {
   try {
+    fs::path project_path = global_opt.project_db;
     // Open project database in read-only mode
-    ReUseX::ProjectDB db(opt.project, /* readOnly */ true);
+    ReUseX::ProjectDB db(project_path, /* readOnly */ true);
 
     // Get pipeline log entries
     auto entries = db.pipeline_log(opt.limit);

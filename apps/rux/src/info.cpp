@@ -139,28 +139,26 @@ void format_json_output(const ReUseX::ProjectDB::ProjectSummary &summary) {
 
 } // anonymous namespace
 
-void setup_subcommand_info(CLI::App &app) {
+void setup_subcommand_info(CLI::App &app, std::shared_ptr<RuxOptions> global_opt) {
+  auto opt = std::make_shared<SubcommandInfoOptions>();
+
   auto *sub = app.add_subcommand(
       "info", "Display summary information about a project database");
 
-  static SubcommandInfoOptions opt;
-
-  sub->add_option("project", opt.project, "Path to project database file (.rux)")
-      ->default_val(GlobalParams::project_db);
-
-  sub->add_flag("-j,--json", opt.json_output, "Output in JSON format")
+  sub->add_flag("-j,--json", opt->json_output, "Output in JSON format")
       ->default_val(false);
 
-  sub->callback([opt_ptr = &opt]() {
+  sub->callback([opt, global_opt]() {
     spdlog::trace("Running info subcommand");
-    return run_subcommand_info(*opt_ptr);
+    return run_subcommand_info(*opt, *global_opt);
   });
 }
 
-int run_subcommand_info(SubcommandInfoOptions const &opt) {
+int run_subcommand_info(SubcommandInfoOptions const &opt, const RuxOptions &global_opt) {
   try {
+    fs::path project_path = global_opt.project_db;
     // Open project database in read-only mode
-    ReUseX::ProjectDB db(opt.project, /* readOnly */ true);
+    ReUseX::ProjectDB db(project_path, /* readOnly */ true);
 
     // Get project summary
     auto summary = db.project_summary();

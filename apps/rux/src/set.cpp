@@ -12,16 +12,11 @@
 
 #include <spdlog/spdlog.h>
 
-void setup_subcommand_set(CLI::App &app) {
+void setup_subcommand_set(CLI::App &app, std::shared_ptr<RuxOptions> global_opt) {
   auto opt = std::make_shared<DatabaseSetOptions>();
 
   auto *sub = app.add_subcommand(
       "set", "Set data in project database using path-based access");
-
-  sub->add_option("project_file", opt->project_file,
-                  "Path to the ReUseX project database (.rux)")
-      ->required()
-      ->check(CLI::ExistingFile);
 
   sub->add_option("path", opt->path,
                   "Resource path (e.g., clouds.newscan, project.name)")
@@ -31,16 +26,17 @@ void setup_subcommand_set(CLI::App &app) {
                   "Inline value (optional, can also use stdin)")
       ->expected(0, 1); // Optional positional argument
 
-  sub->callback([opt]() {
+  sub->callback([opt, global_opt]() {
     spdlog::trace("calling run_subcommand_set");
-    return run_subcommand_set(*opt);
+    return run_subcommand_set(*opt, *global_opt);
   });
 }
 
-int run_subcommand_set(const DatabaseSetOptions &opt) {
+int run_subcommand_set(const DatabaseSetOptions &opt, const RuxOptions &global_opt) {
   try {
-    spdlog::info("Opening project: {}", opt.project_file.string());
-    auto db = std::make_shared<ReUseX::ProjectDB>(opt.project_file,
+    fs::path project_path = global_opt.project_db;
+    spdlog::info("Opening project: {}", project_path.string());
+    auto db = std::make_shared<ReUseX::ProjectDB>(project_path,
                                                   /* readOnly */ false);
 
     // Parse path

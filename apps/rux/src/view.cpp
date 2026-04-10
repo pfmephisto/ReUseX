@@ -651,23 +651,19 @@ void register_help_callback(
 // SUBCOMMAND SETUP
 // ============================================================================
 
-void setup_subcommand_view(CLI::App &app) {
+void setup_subcommand_view(CLI::App &app,
+                           std::shared_ptr<RuxOptions> global_opt) {
   auto opt = std::make_shared<SubcommandViewOptions>();
   auto *sub = app.add_subcommand(
       "view",
       "Visualize 3D point clouds, meshes, and optional label overlays.");
 
-  sub->add_option("inputs", opt->input_paths,
-                  "Path(s) to input cloud/mesh file(s).")
-      ->required()
-      ->check(CLI::ExistingFile);
+  // View command loads data exclusively from the project database
+  // Use global --project flag to specify database path
 
-  sub->add_option("-l, --label", opt->label_paths_in,
-                  "Path(s) to the label file to overlay on point clouds.");
-
-  sub->callback([opt]() {
+  sub->callback([opt, global_opt]() {
     spdlog::trace("calling viewer subcommand");
-    return run_subcommand_view(*opt);
+    return run_subcommand_view(*opt, *global_opt);
   });
 }
 
@@ -675,7 +671,8 @@ void setup_subcommand_view(CLI::App &app) {
 // MAIN SUBCOMMAND FUNCTION
 // ============================================================================
 
-int run_subcommand_view(SubcommandViewOptions const &opt) {
+int run_subcommand_view(SubcommandViewOptions const &opt,
+                        const RuxOptions &global_opt) {
   spdlog::trace("Visualization thread started");
 
   // Start the viewer thread
@@ -687,19 +684,14 @@ int run_subcommand_view(SubcommandViewOptions const &opt) {
   std::vector<LoadedMesh> meshes;
   std::vector<pcl::PointCloud<pcl::PointXYZL>::Ptr> labels;
 
-  bool is_project = !opt.input_paths.empty() &&
-                    detect_file_type(opt.input_paths[0]) == FileType::Project;
+  // Load data from project database
+  fs::path project_path = global_opt.project_db;
+  spdlog::debug("Loading visualization data from project database: {}", project_path.string());
 
-  if (is_project) {
-    auto result = load_from_project_db(opt.input_paths[0], observer);
-    clouds = std::move(result.clouds);
-    meshes = std::move(result.meshes);
-    labels = std::move(result.labels);
-  } else {
-    clouds = load_all_clouds(opt.input_paths, observer);
-    meshes = load_all_meshes(opt.input_paths, observer);
-    labels = load_all_labels(opt.label_paths_in, clouds, observer);
-  }
+  auto result = load_from_project_db(project_path, observer);
+  clouds = std::move(result.clouds);
+  meshes = std::move(result.meshes);
+  labels = std::move(result.labels);
 
   // === Phase 2: Register Keyboard Callbacks ===
   register_individual_toggles(clouds, observer);

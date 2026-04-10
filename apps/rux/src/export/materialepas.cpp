@@ -13,7 +13,7 @@
 
 namespace fs = std::filesystem;
 
-void setup_subcommand_export_materialepas(CLI::App &parent) {
+void setup_subcommand_export_materialepas(CLI::App &parent, std::shared_ptr<RuxOptions> global_opt) {
   auto opt = std::make_shared<SubcommandExportMaterialepasOptions>();
   auto *sub = parent.add_subcommand(
       "materialepas",
@@ -22,29 +22,26 @@ void setup_subcommand_export_materialepas(CLI::App &parent) {
       "and writes them as a JSON file following the Danish\n"
       "\"Materialepas for genbrugte byggevarer\" interchange format.\n\n"
       "Examples:\n"
-      "  rux export materialepas project.db\n"
-      "  rux export materialepas project.db -o materials.json");
-
-  sub->add_option("input", opt->input_path, "Input project database (.db)")
-      ->required()
-      ->check(CLI::ExistingFile);
+      "  rux export materialepas\n"
+      "  rux export materialepas -o materials.json");
 
   sub->add_option("-o,--output", opt->output_path,
                   "Output JSON file path (default: materialepas.json)")
       ->default_val(opt->output_path);
 
-  sub->callback([opt]() {
+  sub->callback([opt, global_opt]() {
     spdlog::trace("calling export materialepas subcommand");
-    return run_subcommand_export_materialepas(*opt);
+    return run_subcommand_export_materialepas(*opt, *global_opt);
   });
 }
 
 int run_subcommand_export_materialepas(
-    SubcommandExportMaterialepasOptions const &opt) {
+    SubcommandExportMaterialepasOptions const &opt, const RuxOptions &global_opt) {
   try {
+    fs::path project_path = global_opt.project_db;
     // 1. Open database read-only
-    spdlog::info("Opening project database: {}", opt.input_path.string());
-    ReUseX::ProjectDB db(opt.input_path, /*readOnly=*/true);
+    spdlog::info("Opening project database: {}", project_path.string());
+    ReUseX::ProjectDB db(project_path, /*readOnly=*/true);
 
     // 2. Retrieve all material passports
     auto passports = db.all_material_passports();

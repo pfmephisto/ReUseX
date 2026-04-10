@@ -27,17 +27,12 @@ namespace fs = std::filesystem;
  * 
  * @param app CLI application to add the subcommand to.
  */
-void setup_subcommand_create_planes(CLI::App &app) {
+void setup_subcommand_create_planes(CLI::App &app, std::shared_ptr<RuxOptions> global_opt) {
 
   auto opt = std::make_shared<SubcommandSegPlanesOptions>();
   auto *sub = app.add_subcommand("planes", "Detect and segment planar surfaces (walls, floors, ceilings) in a point cloud");
 
   sub->get_formatter()->column_width(40);
-
-  sub->add_option("project", opt->project,
-                  "Path to the .rux project file.")
-      ->required()
-      ->check(CLI::ExistingFile);
 
   sub->add_option("-a, --angle-threshold", opt->angle_threshold,
                   "Angle threshold for plane fitting "
@@ -80,9 +75,9 @@ void setup_subcommand_create_planes(CLI::App &app) {
                   "  -f 'planes >= 10 && planes <= 20'   # Range filter")
       ->default_val("");
 
-  sub->callback([opt]() {
+  sub->callback([opt, global_opt]() {
     spdlog::trace("calling seg-planes subcommand");
-    return run_subcommand_segment_planes(*opt);
+    return run_subcommand_segment_planes(*opt, *global_opt);
   });
 }
 
@@ -95,11 +90,12 @@ void setup_subcommand_create_planes(CLI::App &app) {
  * @param opt Options containing project path and segmentation parameters.
  * @return Exit code (RuxError::SUCCESS on success).
  */
-int run_subcommand_segment_planes(SubcommandSegPlanesOptions const &opt) {
-  spdlog::info("Segmenting planes in project: {}", opt.project.string());
+int run_subcommand_segment_planes(SubcommandSegPlanesOptions const &opt, const RuxOptions &global_opt) {
+  fs::path project_path = global_opt.project_db;
+  spdlog::info("Segmenting planes in project: {}", project_path.string());
 
   try {
-    ReUseX::ProjectDB db(opt.project);
+    ReUseX::ProjectDB db(project_path);
 
     // Pre-flight validation: check for cloud and normals
     auto validation = rux::validation::validate_planes_prerequisites(db);

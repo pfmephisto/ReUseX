@@ -6,6 +6,7 @@
 #include "global-params.hpp"
 
 #include <CLI/CLI.hpp>
+#include <memory>
 #include <vector>
 namespace fs = std::filesystem;
 
@@ -19,11 +20,11 @@ struct SubcommandAssembleOptions {
  * @brief Setup the assemble subcommand in the CLI application.
  * @param app CLI application to add the subcommand to.
  */
-void setup_subcommand_assemble(CLI::App &app);
+void setup_subcommand_assemble(CLI::App &app, std::shared_ptr<RuxOptions> global_opt);
 
 /**
  * @brief Run the assemble subcommand with given options.
  * @param opt Options for the assemble operation.
  * @return Exit code (0 for success).
  */
-int run_subcommand_assemble(SubcommandAssembleOptions const &opt);
+int run_subcommand_assemble(SubcommandAssembleOptions const &opt, const RuxOptions &global_opt);

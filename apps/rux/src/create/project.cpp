@@ -25,28 +25,24 @@
 
 namespace fs = std::filesystem;
 
-void setup_subcommand_create_project(CLI::App &app) {
+void setup_subcommand_create_project(CLI::App &app, std::shared_ptr<RuxOptions> global_opt) {
 
   auto opt = std::make_shared<SubcommandProjectOptions>();
   auto *sub = app.add_subcommand(
       "project", "Project 2D segmentation labels from sensor frames onto the 3D point cloud");
 
-  sub->add_option("project", opt->project,
-                  "Path to the .rux project file.")
-      ->required()
-      ->check(CLI::ExistingFile);
-
-  sub->callback([opt]() {
+  sub->callback([opt, global_opt]() {
     spdlog::trace("calling run_subcommand_project");
-    return run_subcommand_project(*opt);
+    return run_subcommand_project(*opt, *global_opt);
   });
 };
 
-int run_subcommand_project(SubcommandProjectOptions const &opt) {
-  spdlog::info("Projecting labels in project: {}", opt.project.string());
+int run_subcommand_project(SubcommandProjectOptions const &opt, const RuxOptions &global_opt) {
+  fs::path project_path = global_opt.project_db;
+  spdlog::info("Projecting labels in project: {}", project_path.string());
 
   try {
-    ReUseX::ProjectDB db(opt.project);
+    ReUseX::ProjectDB db(project_path);
 
     // Pre-flight validation: check for cloud and segmentation images
     auto validation = rux::validation::validate_project_prerequisites(db);
@@ -62,7 +58,7 @@ int run_subcommand_project(SubcommandProjectOptions const &opt) {
     auto cloud = db.point_cloud_xyzrgb("cloud");
 
     spdlog::trace("Projecting labels from sensor frames");
-    CloudLPtr labels = ReUseX::vision::project(opt.project, cloud);
+    CloudLPtr labels = ReUseX::vision::project(project_path, cloud);
 
     spdlog::trace("Saving projected labels to ProjectDB");
     db.save_point_cloud("labels", *labels, "project_labels");

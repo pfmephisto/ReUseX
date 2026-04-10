@@ -6,6 +6,7 @@
 #include "global-params.hpp"
 
 #include <CLI/CLI.hpp>
+#include <memory>
 
 // Function declarations.
-void setup_subcommand_create(CLI::App &app);
+void setup_subcommand_create(CLI::App &app, std::shared_ptr<RuxOptions> global_opt);

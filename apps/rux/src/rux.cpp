@@ -78,6 +78,9 @@ int main(int argc, char **argv) {
 
   CLI::App app{"rux: ReUseX a tool for processing "
                "interior lidar scans of buildings."};
+
+  auto opt = std::make_shared<RuxOptions>();
+
   app.get_formatter()->column_width(40);
 
   app.add_flag(
@@ -114,19 +117,25 @@ int main(int argc, char **argv) {
          "Enable visualization of processing steps")
       ->default_val(false);
 
-  setup_subcommand_assemble(app);
-  setup_subcommand_create(app);
-  setup_subcommand_import(app);
-  setup_subcommand_export(app);
+  // Global project file flag (applied before subcommands)
+  // Note: No file existence check here - commands will validate when needed
+  app.add_option("-p,--project", opt->project_db,
+                 "Path to .rux project file (applies to all subcommands)")
+      ->default_val(fs::current_path() / "project.rux");
+
+  setup_subcommand_assemble(app, opt);
+  setup_subcommand_create(app, opt);
+  setup_subcommand_import(app, opt);
+  setup_subcommand_export(app, opt);
 
   // Unified path-based database commands (replaces old get/add/set/remove)
-  setup_subcommand_get(app);
-  setup_subcommand_set(app);
-  setup_subcommand_del(app);
+  setup_subcommand_get(app, opt);
+  setup_subcommand_set(app, opt);
+  setup_subcommand_del(app, opt);
 
-  setup_subcommand_info(app);
-  setup_subcommand_log(app);
-  setup_subcommand_view(app);
+  setup_subcommand_info(app, opt);
+  setup_subcommand_log(app, opt);
+  setup_subcommand_view(app, opt);
 
   app.require_subcommand(/* min */ 0, /* max */ 2);
 

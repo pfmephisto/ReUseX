@@ -7,12 +7,12 @@
 
 #include <CLI/CLI.hpp>
 #include <filesystem>
+#include <memory>
 
 namespace fs = std::filesystem;
 
 struct SubcommandCreateCloudsOptions {
-  fs::path project = GlobalParams::project_db;
-  float resolution = static_cast<float>(GlobalParams::resulution);
+  float resolution = 0.05f;
   float min_distance = 0.0f;
   float max_distance = 4.0f;
   int sampling_factor = 4;
@@ -20,5 +20,5 @@ struct SubcommandCreateCloudsOptions {
 };
 
 // Function declarations.
-void setup_subcommand_create_clouds(CLI::App &app);
-int run_subcommand_create_clouds(SubcommandCreateCloudsOptions const &opt);
+void setup_subcommand_create_clouds(CLI::App &app, std::shared_ptr<RuxOptions> global_opt);
+int run_subcommand_create_clouds(SubcommandCreateCloudsOptions const &opt, const RuxOptions &global_opt);

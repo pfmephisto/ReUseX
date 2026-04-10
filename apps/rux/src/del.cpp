@@ -30,16 +30,11 @@ bool prompt_confirmation() {
 
 } // namespace
 
-void setup_subcommand_del(CLI::App &app) {
+void setup_subcommand_del(CLI::App &app, std::shared_ptr<RuxOptions> global_opt) {
   auto opt = std::make_shared<DatabaseDelOptions>();
 
   auto *sub = app.add_subcommand(
       "del", "Delete data from project database using path-based access");
-
-  sub->add_option("project_file", opt->project_file,
-                  "Path to the ReUseX project database (.rux)")
-      ->required()
-      ->check(CLI::ExistingFile);
 
   sub->add_option("path", opt->path,
                   "Resource path (e.g., clouds.oldcloud, clouds.test_*)")
@@ -54,16 +49,17 @@ void setup_subcommand_del(CLI::App &app) {
                 "Skip confirmation prompt (use with --force for scripts)")
       ->default_val(false);
 
-  sub->callback([opt]() {
+  sub->callback([opt, global_opt]() {
     spdlog::trace("calling run_subcommand_del");
-    return run_subcommand_del(*opt);
+    return run_subcommand_del(*opt, *global_opt);
   });
 }
 
-int run_subcommand_del(const DatabaseDelOptions &opt) {
+int run_subcommand_del(const DatabaseDelOptions &opt, const RuxOptions &global_opt) {
   try {
-    spdlog::info("Opening project: {}", opt.project_file.string());
-    auto db = std::make_shared<ReUseX::ProjectDB>(opt.project_file,
+    fs::path project_path = global_opt.project_db;
+    spdlog::info("Opening project: {}", project_path.string());
+    auto db = std::make_shared<ReUseX::ProjectDB>(project_path,
                                                   /* readOnly */ false);
 
     // Parse path
@@ -99,8 +95,8 @@ int run_subcommand_del(const DatabaseDelOptions &opt) {
     if (has_wildcard && !opt.force) {
       spdlog::error(
           "Wildcard deletion requires --force flag to prevent accidents");
-      fmt::print("Hint: Use 'rux del {} {} --force' to proceed\n",
-                 opt.project_file.string(), opt.path);
+      fmt::print("Hint: Use 'rux del {} --force' to proceed\n",
+                 opt.path);
       return 1;
     }
 
@@ -123,7 +119,7 @@ int run_subcommand_del(const DatabaseDelOptions &opt) {
     // Show preview for multiple items
     if (expanded_paths.size() > 1) {
       fmt::print("This will delete {} item(s) from {}:\n",
-                 expanded_paths.size(), opt.project_file.string());
+                 expanded_paths.size(), project_path.string());
 
       for (const auto &path : expanded_paths) {
         if (!path.empty() && path[0].is_item()) {

@@ -2,9 +2,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #pragma once
+#include "global-params.hpp"
 
 #include <CLI/CLI.hpp>
 #include <filesystem>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -20,9 +22,6 @@ namespace fs = std::filesystem;
  * label into wall_1, wall_2, etc.
  */
 struct SubcommandSegInstancesOptions {
-  /// Path to .rux project file (required)
-  fs::path project;
-
   /// Euclidean distance threshold for clustering (meters)
   float cluster_tolerance = 0.5F;
 
@@ -45,9 +44,9 @@ struct SubcommandSegInstancesOptions {
 /**
  * @brief Setup CLI11 subcommand for instance segmentation
  */
-void setup_subcommand_create_instances(CLI::App &app);
+void setup_subcommand_create_instances(CLI::App &app, std::shared_ptr<RuxOptions> global_opt);
 
 /**
  * @brief Execute instance segmentation subcommand
  */
-int run_subcommand_segment_instances(const SubcommandSegInstancesOptions &opt);
+int run_subcommand_segment_instances(const SubcommandSegInstancesOptions &opt, const RuxOptions &global_opt);

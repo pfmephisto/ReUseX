@@ -9,7 +9,7 @@
 #include <spdlog/fmt/std.h>
 #include <spdlog/spdlog.h>
 
-void setup_subcommand_import_rtabmap(CLI::App &app) {
+void setup_subcommand_import_rtabmap(CLI::App &app, std::shared_ptr<RuxOptions> global_opt) {
 
   auto opt = std::make_shared<SubcommandImportRTABMapOptions>();
   auto *sub =
@@ -21,31 +21,27 @@ void setup_subcommand_import_rtabmap(CLI::App &app) {
       ->required()
       ->check(CLI::ExistingFile);
 
-  sub->add_option("project", opt->project_path_out,
-                  "Path to the output .rux project database.")
-      ->default_val(opt->project_path_out);
-
-  sub->callback([opt]() {
+  sub->callback([opt, global_opt]() {
     spdlog::trace("calling run_subcommand_import_rtabmap");
-    return run_subcommand_import_rtabmap(*opt);
+    return run_subcommand_import_rtabmap(*opt, *global_opt);
   });
 }
 
-int run_subcommand_import_rtabmap(SubcommandImportRTABMapOptions const &opt) {
+int run_subcommand_import_rtabmap(SubcommandImportRTABMapOptions const &opt, const RuxOptions &global_opt) {
 
+  fs::path project_path = global_opt.project_db;
   spdlog::info("Importing RTABMap database to project: {}",
-               opt.project_path_out.string());
+               project_path.string());
 
-  ReUseX::ProjectDB project_db(opt.project_path_out);
+  ReUseX::ProjectDB project_db(project_path);
   ReUseX::io::import_rtabmap(project_db, opt.database_path_in);
 
   int logId = project_db.log_pipeline_start(
       "import", fmt::format(R"({{"Import ":{}}})", opt.database_path_in));
   spdlog::trace("logId: {}", logId);
 
-  spdlog::info("Import complete. Use 'rux create clouds {}' to generate "
-               "point clouds.",
-               opt.project_path_out);
+  spdlog::info("Import complete. Use 'rux create clouds' to generate "
+               "point clouds.");
 
   return RuxError::SUCCESS;
 }

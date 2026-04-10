@@ -16,16 +16,11 @@
 namespace fs = std::filesystem;
 using namespace ReUseX;
 
-void setup_subcommand_export_rhino(CLI::App &parent) {
+void setup_subcommand_export_rhino(CLI::App &parent, std::shared_ptr<RuxOptions> global_opt) {
   auto opt = std::make_shared<SubcommandExportRhinoOptions>();
   auto *sub = parent.add_subcommand(
       "rhino",
       "Export a labeled point cloud from ProjectDB to Rhino 3DM format.");
-
-  sub->add_option("project", opt->project,
-                  "Path to the .rux project file.")
-      ->required()
-      ->check(CLI::ExistingFile);
 
   sub->add_option("-c, --cloud-name", opt->cloud_name,
                   "Name of the point cloud in ProjectDB")
@@ -38,17 +33,18 @@ void setup_subcommand_export_rhino(CLI::App &parent) {
                   "Path to the output Rhino 3DM file")
       ->default_val(opt->path_out);
 
-  sub->callback([opt]() {
+  sub->callback([opt, global_opt]() {
     spdlog::trace("calling export rhino subcommand");
-    return run_subcommand_export_rhino(*opt);
+    return run_subcommand_export_rhino(*opt, *global_opt);
   });
 }
 
-int run_subcommand_export_rhino(SubcommandExportRhinoOptions const &opt) {
-  spdlog::info("Exporting to Rhino from project: {}", opt.project.string());
+int run_subcommand_export_rhino(SubcommandExportRhinoOptions const &opt, const RuxOptions &global_opt) {
+  fs::path project_path = global_opt.project_db;
+  spdlog::info("Exporting to Rhino from project: {}", project_path.string());
 
   try {
-    ProjectDB db(opt.project);
+    ProjectDB db(project_path);
 
     spdlog::trace("Loading point cloud '{}' from ProjectDB", opt.cloud_name);
     CloudPtr pcl_cloud = db.point_cloud_xyzrgb(opt.cloud_name);

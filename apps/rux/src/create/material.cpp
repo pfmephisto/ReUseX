@@ -13,7 +13,7 @@
 #include <iostream>
 #include <spdlog/spdlog.h>
 
-void setup_subcommand_create_material(CLI::App &parent) {
+void setup_subcommand_create_material(CLI::App &parent, std::shared_ptr<RuxOptions> global_opt) {
   auto opt = std::make_shared<SubcommandCreateMaterialOptions>();
   auto *sub = parent.add_subcommand(
       "material",
@@ -25,33 +25,32 @@ void setup_subcommand_create_material(CLI::App &parent) {
       "  1. Output JSON to stdout (default):\n"
       "     rux create material\n"
       "  2. Save to project database:\n"
-      "     rux create material -p project.rux\n"
+      "     rux create material\n"
       "  3. Save to both database and file:\n"
-      "     rux create material -p project.rux -o template.json\n\n"
+      "     rux create material -o template.json\n\n"
       "Examples:\n"
       "  rux create material                        # Output to stdout\n"
       "  rux create material > blank.json           # Redirect to file\n"
-      "  rux create material -p project.rux         # Save to database\n"
+      "  rux create material                        # Save to database\n"
       "  rux create material --guid my-guid         # Custom GUID\n"
-      "  rux create material -p project.rux -o out.json  # Save to both");
+      "  rux create material -o out.json            # Save to both");
 
   sub->add_option("--guid", opt->guid,
                   "Custom GUID for the material passport (default: auto-generated)");
 
-  sub->add_option("-p,--project", opt->project,
-                  "Project database to save passport to (optional)");
-
   sub->add_option("-o,--output", opt->output_file,
-                  "Output JSON file path (optional, use with --project)");
+                  "Output JSON file path (optional)");
 
-  sub->callback([opt]() {
+  sub->callback([opt, global_opt]() {
     spdlog::trace("calling create material subcommand");
-    return run_subcommand_create_material(*opt);
+    return run_subcommand_create_material(*opt, *global_opt);
   });
 }
 
-int run_subcommand_create_material(SubcommandCreateMaterialOptions const &opt) {
+int run_subcommand_create_material(SubcommandCreateMaterialOptions const &opt, const RuxOptions &global_opt) {
   try {
+    fs::path project_path = global_opt.project_db;
+
     // 1. Generate blank template
     nlohmann::json template_json = ReUseX::core::json_export::generate_blank_template();
 
@@ -62,23 +61,20 @@ int run_subcommand_create_material(SubcommandCreateMaterialOptions const &opt) {
 
     std::string generated_guid = template_json["metadata"]["document guid"];
 
-    // 3. Save to project database if specified
-    if (!opt.project.empty()) {
-      // Parse JSON back to MaterialPassport
-      auto passport = ReUseX::core::json_import::from_json(template_json);
+    // 3. Save to project database
+    // Parse JSON back to MaterialPassport
+    auto passport = ReUseX::core::json_import::from_json(template_json);
 
-      // Open database (will create if doesn't exist) and save
-      ReUseX::ProjectDB db(opt.project, /*readOnly=*/false);
-      db.add_material_passport(passport, "");
+    // Open database (will create if doesn't exist) and save
+    ReUseX::ProjectDB db(project_path, /*readOnly=*/false);
+    db.add_material_passport(passport, "");
 
-      spdlog::info("Created material passport '{}' in project: {}",
-                   generated_guid, opt.project.string());
-    }
+    spdlog::info("Created material passport '{}' in project: {}",
+                 generated_guid, project_path.string());
 
-    // 4. Output JSON (to file or stdout)
-    std::string json_str = template_json.dump(4);
-
+    // 4. Output JSON (to file or stdout) if requested
     if (!opt.output_file.empty()) {
+      std::string json_str = template_json.dump(4);
       // Write to file
       std::ofstream ofs(opt.output_file);
       if (!ofs.is_open()) {
@@ -91,11 +87,7 @@ int run_subcommand_create_material(SubcommandCreateMaterialOptions const &opt) {
         return RuxError::IO;
       }
       spdlog::info("Wrote template to: {}", opt.output_file.string());
-    } else if (opt.project.empty()) {
-      // No project specified = output to stdout (default behavior)
-      std::cout << json_str << std::endl;
     }
-    // else: project specified but no output file = silent (just saved to DB)
 
     return RuxError::SUCCESS;
 

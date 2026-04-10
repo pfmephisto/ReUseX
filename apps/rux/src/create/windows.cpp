@@ -15,14 +15,10 @@
 
 #include <Eigen/Dense>
 
-void setup_subcommand_create_windows(CLI::App &app) {
+void setup_subcommand_create_windows(CLI::App &app, std::shared_ptr<RuxOptions> global_opt) {
   auto opt = std::make_shared<SubcommandWindowOptions>();
   auto *sub = app.add_subcommand(
       "windows", "Create windows based on a semantic lable and instances.");
-
-  sub->add_option("project", opt->project, "Path to the .rux project file.")
-      ->required()
-      ->check(CLI::ExistingFile);
 
   // sub->add_option("-m, --mesh-name", opt->mesh_name,
   //                 "Name of the input mesh in ProjectDB")
@@ -32,15 +28,16 @@ void setup_subcommand_create_windows(CLI::App &app) {
   //                 "Name for the output textured mesh in ProjectDB")
   //     ->default_val(opt->output_name);
 
-  sub->callback([opt]() {
+  sub->callback([opt, global_opt]() {
     spdlog::trace("calling run_subcommand_texture");
-    return run_subcommand_create_windows(*opt);
+    return run_subcommand_create_windows(*opt, *global_opt);
   });
 }
-int run_subcommand_create_windows(SubcommandWindowOptions const &opt) {
-  spdlog::info("Create windows in project: {}", opt.project.string());
+int run_subcommand_create_windows(SubcommandWindowOptions const &opt, const RuxOptions &global_opt) {
+  fs::path project_path = global_opt.project_db;
+  spdlog::info("Create windows in project: {}", project_path.string());
 
-  ReUseX::ProjectDB db(opt.project);
+  ReUseX::ProjectDB db(project_path);
 
   // Pre-flight validation: check for mesh and sensor frames
   auto validation =

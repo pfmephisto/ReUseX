@@ -7,13 +7,13 @@
 #include "import/rtabmap.hpp"
 #include <spdlog/spdlog.h>
 
-void setup_subcommand_import(CLI::App &app) {
+void setup_subcommand_import(CLI::App &app, std::shared_ptr<RuxOptions> global_opt) {
 
   auto *sub = app.add_subcommand(
       "import", "Import data from various sources into point cloud format.");
 
-  setup_subcommand_import_rtabmap(*sub);
-  setup_subcommand_import_materialepas(*sub);
+  setup_subcommand_import_rtabmap(*sub, global_opt);
+  setup_subcommand_import_materialepas(*sub, global_opt);
 
   sub->callback([]() {
     spdlog::trace("calling import subcommand");

@@ -13,7 +13,7 @@
 
 namespace fs = std::filesystem;
 
-void setup_subcommand_import_materialepas(CLI::App &parent) {
+void setup_subcommand_import_materialepas(CLI::App &parent, std::shared_ptr<RuxOptions> global_opt) {
   auto opt = std::make_shared<SubcommandImportMaterialepasOptions>();
   auto *sub = parent.add_subcommand(
       "materialepas",
@@ -23,28 +23,25 @@ void setup_subcommand_import_materialepas(CLI::App &parent) {
       "and stores the material passports in a ReUseX project database.\n\n"
       "Examples:\n"
       "  rux import materialepas materials.json\n"
-      "  rux import materialepas materials.json -d project.db\n"
       "  rux import materialepas materials.json --project-id my_project");
 
   sub->add_option("input", opt->input_path, "Input JSON file (.json)")
       ->required()
       ->check(CLI::ExistingFile);
 
-  sub->add_option("-d,--database", opt->db_path,
-                  "Output project database path (default: project.db)")
-      ->default_val(opt->db_path);
-
   sub->add_option("--project-id", opt->project_id,
                   "Project identifier (optional, passport stored without project if omitted)");
 
-  sub->callback([opt]() {
+  sub->callback([opt, global_opt]() {
     spdlog::trace("calling import materialepas subcommand");
-    return run_subcommand_import_materialepas(*opt);
+    return run_subcommand_import_materialepas(*opt, *global_opt);
   });
 }
 
 int run_subcommand_import_materialepas(
-    SubcommandImportMaterialepasOptions const &opt) {
+    SubcommandImportMaterialepasOptions const &opt, const RuxOptions &global_opt) {
+  fs::path project_path = global_opt.project_db;
+
   // 1. Read JSON file
   spdlog::info("Reading JSON file: {}", opt.input_path.string());
   std::ifstream ifs(opt.input_path);
@@ -74,8 +71,8 @@ int run_subcommand_import_materialepas(
 
   // 3. Open database and store passports
   try {
-    spdlog::info("Opening project database: {}", opt.db_path.string());
-    ReUseX::ProjectDB db(opt.db_path, /*readOnly=*/false);
+    spdlog::info("Opening project database: {}", project_path.string());
+    ReUseX::ProjectDB db(project_path, /*readOnly=*/false);
 
     for (const auto &passport : passports) {
       db.add_material_passport(passport, opt.project_id);

@@ -36,6 +36,8 @@ std::string_view to_string(Stage stage) {
     return "Region Growing";
   case Stage::instance_clustering:
     return "Instance Clustering";
+  case Stage::creating_windows:
+    return "Creating Windows";
   default:
     return "Unknown Stage";
   }

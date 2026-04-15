@@ -99,6 +99,7 @@ target_link_libraries(ReUseX
         pcl_filters
         pcl_segmentation
         pcl_registration
+        pcl_surface
 
         # Ray tracing
         embree

@@ -284,7 +284,8 @@ validate_window_prerequisites(const ReUseX::ProjectDB &db,
   if (!db.has_point_cloud("instances"))
     missing.push_back("instances");
 
-  // planes
+  if (!db.has_mesh("mesh"))
+    missing.push_back("mesh");
 
   if (!missing.empty()) {
     std::string resolution;

@@ -12,6 +12,7 @@
 #include "create/project.hpp"
 #include "create/rooms.hpp"
 #include "create/texture.hpp"
+#include "create/windows.hpp"
 
 void setup_subcommand_create(CLI::App &app, std::shared_ptr<RuxOptions> global_opt) {
   auto *sub = app.add_subcommand(
@@ -58,6 +59,7 @@ NOTES:
   setup_subcommand_create_instances(*sub, global_opt);
   setup_subcommand_create_mesh(*sub, global_opt);
   setup_subcommand_create_texture(*sub, global_opt);
+  setup_subcommand_create_windows(*sub, global_opt);
 
   sub->require_subcommand(1);
 }

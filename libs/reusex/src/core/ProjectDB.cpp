@@ -5,17 +5,17 @@
 #include "core/ProjectDB.hpp"
 #include "core/MaterialPassport.hpp"
 #include "core/SensorIntrinsics.hpp"
+#include "core/logging.hpp"
 #include "core/materialepas_serialization.hpp"
 #include "core/materialepas_traits.hpp"
-#include "core/logging.hpp"
 #include "geometry/BuildingComponent.hpp"
 #include "geometry/CoplanarPolygon.hpp"
 
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
-#include <pcl/io/ply_io.h>
-#include <pcl/io/obj_io.h>
 #include <pcl/TextureMesh.h>
+#include <pcl/io/obj_io.h>
+#include <pcl/io/ply_io.h>
 #include <sqlite3.h>
 
 #include <cstring>
@@ -26,21 +26,25 @@ namespace ReUseX {
 
 // ── RAII helper for sqlite3_stmt ────────────────────────────────────────
 class StmtGuard {
-    sqlite3_stmt *stmt_;
-  public:
-    explicit StmtGuard(sqlite3_stmt *s) : stmt_(s) {}
-    ~StmtGuard() { if (stmt_) sqlite3_finalize(stmt_); }
-    StmtGuard(const StmtGuard &) = delete;
-    StmtGuard &operator=(const StmtGuard &) = delete;
-    sqlite3_stmt *get() const { return stmt_; }
+  sqlite3_stmt *stmt_;
+
+    public:
+  explicit StmtGuard(sqlite3_stmt *s) : stmt_(s) {}
+  ~StmtGuard() {
+    if (stmt_)
+      sqlite3_finalize(stmt_);
+  }
+  StmtGuard(const StmtGuard &) = delete;
+  StmtGuard &operator=(const StmtGuard &) = delete;
+  sqlite3_stmt *get() const { return stmt_; }
 };
 
 // ── Compact point serialization helpers ─────────────────────────────────
 
 static constexpr int XYZRGB_STEP = 16; // 3 float + 1 uint32
 static constexpr int NORMAL_STEP = 16; // 3 float + curvature
-static constexpr int LABEL_STEP  = 4;  // 1 uint32
-static constexpr int XYZ_STEP    = 12; // 3 float
+static constexpr int LABEL_STEP = 4;   // 1 uint32
+static constexpr int XYZ_STEP = 12;    // 3 float
 
 static std::vector<uint8_t> serializeXYZRGB(const Cloud &cloud) {
   std::vector<uint8_t> buf(cloud.size() * XYZRGB_STEP);
@@ -55,8 +59,8 @@ static std::vector<uint8_t> serializeXYZRGB(const Cloud &cloud) {
   return buf;
 }
 
-static CloudPtr deserializeXYZRGB(const void *data, size_t size,
-                                  uint32_t width, uint32_t height) {
+static CloudPtr deserializeXYZRGB(const void *data, size_t size, uint32_t width,
+                                  uint32_t height) {
   auto cloud = std::make_shared<Cloud>();
   size_t count = size / XYZRGB_STEP;
   cloud->points.resize(count);
@@ -118,8 +122,8 @@ static std::vector<uint8_t> serializeLabel(const CloudL &cloud) {
   return buf;
 }
 
-static CloudLPtr deserializeLabel(const void *data, size_t size,
-                                  uint32_t width, uint32_t height) {
+static CloudLPtr deserializeLabel(const void *data, size_t size, uint32_t width,
+                                  uint32_t height) {
   auto cloud = std::make_shared<CloudL>();
   size_t count = size / LABEL_STEP;
   cloud->points.resize(count);
@@ -148,8 +152,7 @@ serializeXYZ(const pcl::PointCloud<pcl::PointXYZ> &cloud) {
 }
 
 static pcl::PointCloud<pcl::PointXYZ>::Ptr
-deserializeXYZ(const void *data, size_t size,
-               uint32_t width, uint32_t height) {
+deserializeXYZ(const void *data, size_t size, uint32_t width, uint32_t height) {
   auto cloud = std::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
   size_t count = size / XYZ_STEP;
   cloud->points.resize(count);
@@ -202,24 +205,21 @@ class ProjectDB::Impl {
 
     if (!readOnly) {
       // Performance pragmas for write mode
-      sqlite3_exec(db, "PRAGMA journal_mode = WAL;", nullptr, nullptr,
-                   nullptr);
+      sqlite3_exec(db, "PRAGMA journal_mode = WAL;", nullptr, nullptr, nullptr);
       sqlite3_exec(db, "PRAGMA synchronous = NORMAL;", nullptr, nullptr,
                    nullptr);
-      sqlite3_exec(db, "PRAGMA foreign_keys = ON;", nullptr, nullptr,
-                   nullptr);
+      sqlite3_exec(db, "PRAGMA foreign_keys = ON;", nullptr, nullptr, nullptr);
 
       // Capture legacy state BEFORE createTables() adds material_passports
-      bool isLegacyDb = !tableExists("schema_version") &&
-                         tableExists("material_passports");
+      bool isLegacyDb =
+          !tableExists("schema_version") && tableExists("material_passports");
 
       // Create legacy passport tables (always needed)
       createTables();
       // Run schema migrations
       runMigrations(isLegacyDb);
     } else {
-      sqlite3_exec(db, "PRAGMA foreign_keys = ON;", nullptr, nullptr,
-                   nullptr);
+      sqlite3_exec(db, "PRAGMA foreign_keys = ON;", nullptr, nullptr, nullptr);
     }
 
     ReUseX::core::info("Project database opened successfully");
@@ -257,8 +257,8 @@ class ProjectDB::Impl {
     if (sqlite3_exec(db, sql, nullptr, nullptr, &errMsg) != SQLITE_OK) {
       std::string error = errMsg;
       sqlite3_free(errMsg);
-      throw std::runtime_error(
-          "Failed to create schema_version table: " + error);
+      throw std::runtime_error("Failed to create schema_version table: " +
+                               error);
     }
   }
 
@@ -428,7 +428,8 @@ class ProjectDB::Impl {
 
     // sensor_frames already has depth, confidence, transform columns from v1.
     // Only need to add camera_model TEXT column.
-    const char *alter = "ALTER TABLE sensor_frames ADD COLUMN camera_model TEXT;";
+    const char *alter =
+        "ALTER TABLE sensor_frames ADD COLUMN camera_model TEXT;";
 
     char *errMsg = nullptr;
     if (sqlite3_exec(db, alter, nullptr, nullptr, &errMsg) != SQLITE_OK) {
@@ -516,8 +517,7 @@ class ProjectDB::Impl {
   }
 
   std::vector<int> getSensorFrameIds() const {
-    const char *sql =
-        "SELECT node_id FROM sensor_frames ORDER BY node_id;";
+    const char *sql = "SELECT node_id FROM sensor_frames ORDER BY node_id;";
     sqlite3_stmt *stmt;
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
       throw std::runtime_error("Failed to query sensor frame IDs: " +
@@ -532,8 +532,7 @@ class ProjectDB::Impl {
   }
 
   cv::Mat getSensorFrameImage(int nodeId) const {
-    const char *sql =
-        "SELECT color FROM sensor_frames WHERE node_id = ?;";
+    const char *sql = "SELECT color FROM sensor_frames WHERE node_id = ?;";
     sqlite3_stmt *stmt;
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
       throw std::runtime_error("Failed to prepare sensor frame query: " +
@@ -563,8 +562,7 @@ class ProjectDB::Impl {
 
     // Encode color as JPEG
     std::vector<unsigned char> jpegBytes;
-    if (!cv::imencode(".jpg", color, jpegBytes,
-                      {cv::IMWRITE_JPEG_QUALITY, 95}))
+    if (!cv::imencode(".jpg", color, jpegBytes, {cv::IMWRITE_JPEG_QUALITY, 95}))
       throw std::runtime_error("Failed to encode color image as JPEG");
 
     // Encode depth as PNG (CV_16UC1 millimeters)
@@ -649,8 +647,7 @@ class ProjectDB::Impl {
   }
 
   cv::Mat getSensorFrameDepth(int nodeId) const {
-    const char *sql =
-        "SELECT depth FROM sensor_frames WHERE node_id = ?;";
+    const char *sql = "SELECT depth FROM sensor_frames WHERE node_id = ?;";
     sqlite3_stmt *stmt;
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
       throw std::runtime_error("Failed to prepare depth query: " +
@@ -671,8 +668,7 @@ class ProjectDB::Impl {
   }
 
   cv::Mat getSensorFrameConfidence(int nodeId) const {
-    const char *sql =
-        "SELECT confidence FROM sensor_frames WHERE node_id = ?;";
+    const char *sql = "SELECT confidence FROM sensor_frames WHERE node_id = ?;";
     sqlite3_stmt *stmt;
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
       throw std::runtime_error("Failed to prepare confidence query: " +
@@ -693,8 +689,7 @@ class ProjectDB::Impl {
   }
 
   std::array<double, 16> getSensorFramePose(int nodeId) const {
-    const char *sql =
-        "SELECT transform FROM sensor_frames WHERE node_id = ?;";
+    const char *sql = "SELECT transform FROM sensor_frames WHERE node_id = ?;";
     sqlite3_stmt *stmt;
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
       throw std::runtime_error("Failed to prepare pose query: " +
@@ -728,8 +723,8 @@ class ProjectDB::Impl {
     if (sqlite3_step(stmt) != SQLITE_ROW)
       return {};
 
-    const char *text = reinterpret_cast<const char *>(
-        sqlite3_column_text(stmt, 0));
+    const char *text =
+        reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
     if (!text)
       return {};
 
@@ -737,8 +732,7 @@ class ProjectDB::Impl {
   }
 
   bool hasSensorFrame(int nodeId) const {
-    const char *sql =
-        "SELECT 1 FROM sensor_frames WHERE node_id = ? LIMIT 1;";
+    const char *sql = "SELECT 1 FROM sensor_frames WHERE node_id = ? LIMIT 1;";
     sqlite3_stmt *stmt;
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
       return false;
@@ -944,8 +938,7 @@ class ProjectDB::Impl {
   void savePointCloudMeta(std::string_view name, const char *pointType,
                           size_t pointCount, int pointStep, uint32_t width,
                           uint32_t height, const std::vector<uint8_t> &data,
-                          std::string_view stage,
-                          std::string_view paramsJson) {
+                          std::string_view stage, std::string_view paramsJson) {
     execOrThrow("BEGIN TRANSACTION;");
     try {
       // Upsert point_clouds row
@@ -969,16 +962,16 @@ class ProjectDB::Impl {
                                  std::string(sqlite3_errmsg(db)));
       StmtGuard guard(stmt);
 
-      sqlite3_bind_text(stmt, 1, name.data(),
-                        static_cast<int>(name.size()), SQLITE_TRANSIENT);
+      sqlite3_bind_text(stmt, 1, name.data(), static_cast<int>(name.size()),
+                        SQLITE_TRANSIENT);
       sqlite3_bind_text(stmt, 2, pointType, -1, SQLITE_STATIC);
       sqlite3_bind_int64(stmt, 3, static_cast<sqlite3_int64>(pointCount));
       sqlite3_bind_int(stmt, 4, pointStep);
       sqlite3_bind_int(stmt, 5, static_cast<int>(width));
       sqlite3_bind_int(stmt, 6, static_cast<int>(height));
       if (!stage.empty())
-        sqlite3_bind_text(stmt, 7, stage.data(),
-                          static_cast<int>(stage.size()), SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 7, stage.data(), static_cast<int>(stage.size()),
+                          SQLITE_TRANSIENT);
       else
         sqlite3_bind_null(stmt, 7);
       if (!paramsJson.empty())
@@ -1009,8 +1002,8 @@ class ProjectDB::Impl {
       StmtGuard dguard(dstmt);
 
       sqlite3_bind_int(dstmt, 1, cloudId);
-      sqlite3_bind_blob(dstmt, 2, data.data(),
-                        static_cast<int>(data.size()), SQLITE_TRANSIENT);
+      sqlite3_bind_blob(dstmt, 2, data.data(), static_cast<int>(data.size()),
+                        SQLITE_TRANSIENT);
       if (sqlite3_step(dstmt) != SQLITE_DONE)
         throw std::runtime_error("Failed to upsert point cloud data: " +
                                  std::string(sqlite3_errmsg(db)));
@@ -1028,11 +1021,10 @@ class ProjectDB::Impl {
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
       throw std::runtime_error("Failed to query cloud ID");
     StmtGuard guard(stmt);
-    sqlite3_bind_text(stmt, 1, name.data(),
-                      static_cast<int>(name.size()), SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 1, name.data(), static_cast<int>(name.size()),
+                      SQLITE_TRANSIENT);
     if (sqlite3_step(stmt) != SQLITE_ROW)
-      throw std::runtime_error("Point cloud not found: " +
-                               std::string(name));
+      throw std::runtime_error("Point cloud not found: " + std::string(name));
     return sqlite3_column_int(stmt, 0);
   }
 
@@ -1056,16 +1048,15 @@ class ProjectDB::Impl {
       throw std::runtime_error("Failed to prepare cloud load: " +
                                std::string(sqlite3_errmsg(db)));
     StmtGuard guard(stmt);
-    sqlite3_bind_text(stmt, 1, name.data(),
-                      static_cast<int>(name.size()), SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 1, name.data(), static_cast<int>(name.size()),
+                      SQLITE_TRANSIENT);
 
     if (sqlite3_step(stmt) != SQLITE_ROW)
-      throw std::runtime_error("Point cloud not found: " +
-                               std::string(name));
+      throw std::runtime_error("Point cloud not found: " + std::string(name));
 
     CloudMeta meta;
-    meta.point_type = reinterpret_cast<const char *>(
-        sqlite3_column_text(stmt, 0));
+    meta.point_type =
+        reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
     meta.width = static_cast<uint32_t>(sqlite3_column_int(stmt, 1));
     meta.height = static_cast<uint32_t>(sqlite3_column_int(stmt, 2));
 
@@ -1080,14 +1071,13 @@ class ProjectDB::Impl {
   }
 
   bool hasPointCloud(std::string_view name) const {
-    const char *sql =
-        "SELECT COUNT(*) FROM point_clouds WHERE name = ?;";
+    const char *sql = "SELECT COUNT(*) FROM point_clouds WHERE name = ?;";
     sqlite3_stmt *stmt;
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
       return false;
     StmtGuard guard(stmt);
-    sqlite3_bind_text(stmt, 1, name.data(),
-                      static_cast<int>(name.size()), SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 1, name.data(), static_cast<int>(name.size()),
+                      SQLITE_TRANSIENT);
     if (sqlite3_step(stmt) == SQLITE_ROW)
       return sqlite3_column_int(stmt, 0) > 0;
     return false;
@@ -1101,8 +1091,8 @@ class ProjectDB::Impl {
       throw std::runtime_error("Failed to prepare delete: " +
                                std::string(sqlite3_errmsg(db)));
     StmtGuard guard(stmt);
-    sqlite3_bind_text(stmt, 1, name.data(),
-                      static_cast<int>(name.size()), SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 1, name.data(), static_cast<int>(name.size()),
+                      SQLITE_TRANSIENT);
     if (sqlite3_step(stmt) != SQLITE_DONE)
       throw std::runtime_error("Failed to delete point cloud: " +
                                std::string(sqlite3_errmsg(db)));
@@ -1129,11 +1119,10 @@ class ProjectDB::Impl {
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
       throw std::runtime_error("Failed to query point cloud type");
     StmtGuard guard(stmt);
-    sqlite3_bind_text(stmt, 1, name.data(),
-                      static_cast<int>(name.size()), SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 1, name.data(), static_cast<int>(name.size()),
+                      SQLITE_TRANSIENT);
     if (sqlite3_step(stmt) != SQLITE_ROW)
-      throw std::runtime_error("Point cloud not found: " +
-                               std::string(name));
+      throw std::runtime_error("Point cloud not found: " + std::string(name));
     return reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
   }
 
@@ -1147,8 +1136,7 @@ class ProjectDB::Impl {
     try {
       // Delete existing definitions for this cloud
       {
-        const char *del =
-            "DELETE FROM label_definitions WHERE cloud_id = ?;";
+        const char *del = "DELETE FROM label_definitions WHERE cloud_id = ?;";
         sqlite3_stmt *stmt;
         if (sqlite3_prepare_v2(db, del, -1, &stmt, nullptr) != SQLITE_OK)
           throw std::runtime_error("Failed to prepare label delete");
@@ -1199,8 +1187,8 @@ class ProjectDB::Impl {
     std::map<int, std::string> result;
     while (sqlite3_step(stmt) == SQLITE_ROW) {
       int id = sqlite3_column_int(stmt, 0);
-      const char *name = reinterpret_cast<const char *>(
-          sqlite3_column_text(stmt, 1));
+      const char *name =
+          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1));
       result[id] = name;
     }
     return result;
@@ -1211,8 +1199,10 @@ class ProjectDB::Impl {
   void saveMesh(std::string_view name, const pcl::PolygonMesh &mesh,
                 std::string_view stage, std::string_view paramsJson) {
     // Serialize mesh to PLY binary via temp file
-    auto tmpPath = std::filesystem::temp_directory_path() /
-                   ("reusex_mesh_" + std::to_string(reinterpret_cast<uintptr_t>(&mesh)) + ".ply");
+    auto tmpPath =
+        std::filesystem::temp_directory_path() /
+        ("reusex_mesh_" + std::to_string(reinterpret_cast<uintptr_t>(&mesh)) +
+         ".ply");
     pcl::io::savePLYFileBinary(tmpPath.string(), mesh);
 
     // Read the file into a buffer
@@ -1251,21 +1241,20 @@ class ProjectDB::Impl {
                                std::string(sqlite3_errmsg(db)));
     StmtGuard guard(stmt);
 
-    sqlite3_bind_text(stmt, 1, name.data(),
-                      static_cast<int>(name.size()), SQLITE_TRANSIENT);
-    sqlite3_bind_blob(stmt, 2, plyData.data(),
-                      static_cast<int>(plyData.size()), SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 1, name.data(), static_cast<int>(name.size()),
+                      SQLITE_TRANSIENT);
+    sqlite3_bind_blob(stmt, 2, plyData.data(), static_cast<int>(plyData.size()),
+                      SQLITE_TRANSIENT);
     sqlite3_bind_int(stmt, 3, vertexCount);
     sqlite3_bind_int(stmt, 4, faceCount);
     if (!stage.empty())
-      sqlite3_bind_text(stmt, 5, stage.data(),
-                        static_cast<int>(stage.size()), SQLITE_TRANSIENT);
+      sqlite3_bind_text(stmt, 5, stage.data(), static_cast<int>(stage.size()),
+                        SQLITE_TRANSIENT);
     else
       sqlite3_bind_null(stmt, 5);
     if (!paramsJson.empty())
       sqlite3_bind_text(stmt, 6, paramsJson.data(),
-                        static_cast<int>(paramsJson.size()),
-                        SQLITE_TRANSIENT);
+                        static_cast<int>(paramsJson.size()), SQLITE_TRANSIENT);
     else
       sqlite3_bind_null(stmt, 6);
 
@@ -1277,8 +1266,10 @@ class ProjectDB::Impl {
   void saveMesh(std::string_view name, const pcl::TextureMesh &mesh,
                 std::string_view stage, std::string_view paramsJson) {
     // Serialize texture mesh to OBJ via temp file (preserves texture data)
-    auto tmpPath = std::filesystem::temp_directory_path() /
-                   ("reusex_texmesh_" + std::to_string(reinterpret_cast<uintptr_t>(&mesh)) + ".obj");
+    auto tmpPath =
+        std::filesystem::temp_directory_path() /
+        ("reusex_texmesh_" +
+         std::to_string(reinterpret_cast<uintptr_t>(&mesh)) + ".obj");
     pcl::io::saveOBJFile(tmpPath.string(), mesh);
 
     // Read OBJ file and associated MTL file into buffers
@@ -1344,21 +1335,20 @@ class ProjectDB::Impl {
                                std::string(sqlite3_errmsg(db)));
     StmtGuard guard(stmt);
 
-    sqlite3_bind_text(stmt, 1, name.data(),
-                      static_cast<int>(name.size()), SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 1, name.data(), static_cast<int>(name.size()),
+                      SQLITE_TRANSIENT);
     sqlite3_bind_blob(stmt, 2, combinedData.data(),
                       static_cast<int>(combinedData.size()), SQLITE_TRANSIENT);
     sqlite3_bind_int(stmt, 3, vertexCount);
     sqlite3_bind_int(stmt, 4, faceCount);
     if (!stage.empty())
-      sqlite3_bind_text(stmt, 5, stage.data(),
-                        static_cast<int>(stage.size()), SQLITE_TRANSIENT);
+      sqlite3_bind_text(stmt, 5, stage.data(), static_cast<int>(stage.size()),
+                        SQLITE_TRANSIENT);
     else
       sqlite3_bind_null(stmt, 5);
     if (!paramsJson.empty())
       sqlite3_bind_text(stmt, 6, paramsJson.data(),
-                        static_cast<int>(paramsJson.size()),
-                        SQLITE_TRANSIENT);
+                        static_cast<int>(paramsJson.size()), SQLITE_TRANSIENT);
     else
       sqlite3_bind_null(stmt, 6);
 
@@ -1373,8 +1363,8 @@ class ProjectDB::Impl {
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
       throw std::runtime_error("Failed to prepare mesh load");
     StmtGuard guard(stmt);
-    sqlite3_bind_text(stmt, 1, name.data(),
-                      static_cast<int>(name.size()), SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 1, name.data(), static_cast<int>(name.size()),
+                      SQLITE_TRANSIENT);
 
     if (sqlite3_step(stmt) != SQLITE_ROW)
       throw std::runtime_error("Mesh not found: " + std::string(name));
@@ -1383,10 +1373,10 @@ class ProjectDB::Impl {
     int blobSize = sqlite3_column_bytes(stmt, 0);
 
     // Write to temp file and load via PCL (use hash to avoid path traversal)
-    auto tmpPath = std::filesystem::temp_directory_path() /
-                   ("reusex_mesh_load_" +
-                    std::to_string(std::hash<std::string>{}(std::string(name))) +
-                    ".ply");
+    auto tmpPath =
+        std::filesystem::temp_directory_path() /
+        ("reusex_mesh_load_" +
+         std::to_string(std::hash<std::string>{}(std::string(name))) + ".ply");
     {
       std::ofstream ofs(tmpPath, std::ios::binary);
       ofs.write(static_cast<const char *>(blob), blobSize);
@@ -1407,15 +1397,18 @@ class ProjectDB::Impl {
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
       throw std::runtime_error("Failed to prepare texture mesh load");
     StmtGuard guard(stmt);
-    sqlite3_bind_text(stmt, 1, name.data(),
-                      static_cast<int>(name.size()), SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 1, name.data(), static_cast<int>(name.size()),
+                      SQLITE_TRANSIENT);
 
     if (sqlite3_step(stmt) != SQLITE_ROW)
       throw std::runtime_error("Texture mesh not found: " + std::string(name));
 
-    const char *format = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
+    const char *format =
+        reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
     if (std::string(format) != "obj_textured")
-      throw std::runtime_error("Mesh '" + std::string(name) + "' is not a texture mesh (format: " + std::string(format) + ")");
+      throw std::runtime_error(
+          "Mesh '" + std::string(name) +
+          "' is not a texture mesh (format: " + std::string(format) + ")");
 
     const void *blob = sqlite3_column_blob(stmt, 1);
     int blobSize = sqlite3_column_bytes(stmt, 1);
@@ -1426,17 +1419,18 @@ class ProjectDB::Impl {
     int objSize = static_cast<int>(separator - blobData);
 
     // Write OBJ file
-    auto tmpPath = std::filesystem::temp_directory_path() /
-                   ("reusex_texmesh_load_" +
-                    std::to_string(std::hash<std::string>{}(std::string(name))) +
-                    ".obj");
+    auto tmpPath =
+        std::filesystem::temp_directory_path() /
+        ("reusex_texmesh_load_" +
+         std::to_string(std::hash<std::string>{}(std::string(name))) + ".obj");
     {
       std::ofstream ofs(tmpPath, std::ios::binary);
       ofs.write(blobData, objSize);
     }
 
     // Write MTL file if present
-    if (separator != blobData + blobSize && separator + 1 < blobData + blobSize) {
+    if (separator != blobData + blobSize &&
+        separator + 1 < blobData + blobSize) {
       auto mtlPath = tmpPath;
       mtlPath.replace_extension(".mtl");
       std::ofstream ofs(mtlPath, std::ios::binary);
@@ -1469,8 +1463,8 @@ class ProjectDB::Impl {
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
       return false;
     StmtGuard guard(stmt);
-    sqlite3_bind_text(stmt, 1, name.data(),
-                      static_cast<int>(name.size()), SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 1, name.data(), static_cast<int>(name.size()),
+                      SQLITE_TRANSIENT);
     if (sqlite3_step(stmt) == SQLITE_ROW)
       return sqlite3_column_int(stmt, 0) > 0;
     return false;
@@ -1501,12 +1495,11 @@ class ProjectDB::Impl {
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
       throw std::runtime_error("Failed to prepare pipeline log insert");
     StmtGuard guard(stmt);
-    sqlite3_bind_text(stmt, 1, stage.data(),
-                      static_cast<int>(stage.size()), SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 1, stage.data(), static_cast<int>(stage.size()),
+                      SQLITE_TRANSIENT);
     if (!paramsJson.empty())
       sqlite3_bind_text(stmt, 2, paramsJson.data(),
-                        static_cast<int>(paramsJson.size()),
-                        SQLITE_TRANSIENT);
+                        static_cast<int>(paramsJson.size()), SQLITE_TRANSIENT);
     else
       sqlite3_bind_null(stmt, 2);
 
@@ -1530,8 +1523,7 @@ class ProjectDB::Impl {
                       SQLITE_STATIC);
     if (!errorMsg.empty())
       sqlite3_bind_text(stmt, 2, errorMsg.data(),
-                        static_cast<int>(errorMsg.size()),
-                        SQLITE_TRANSIENT);
+                        static_cast<int>(errorMsg.size()), SQLITE_TRANSIENT);
     else
       sqlite3_bind_null(stmt, 2);
     sqlite3_bind_int(stmt, 3, logId);
@@ -1566,11 +1558,13 @@ class ProjectDB::Impl {
       public:
     MaterialPassportIterator(const Impl &impl_ref) : impl(impl_ref) {
       // Fetch all document GUIDs (lightweight query)
-      const char *query = "SELECT document_guid FROM material_passports ORDER BY created_at;";
+      const char *query =
+          "SELECT document_guid FROM material_passports ORDER BY created_at;";
       sqlite3_stmt *stmt;
       if (sqlite3_prepare_v2(impl.db, query, -1, &stmt, nullptr) == SQLITE_OK) {
         while (sqlite3_step(stmt) == SQLITE_ROW) {
-          const char *guid = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+          const char *guid =
+              reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
           if (guid) {
             document_guids_.emplace_back(guid);
           }
@@ -1589,16 +1583,15 @@ class ProjectDB::Impl {
     }
   };
 
-  MaterialPassportIterator
-  getMaterialPassports() const {
+  MaterialPassportIterator getMaterialPassports() const {
     return MaterialPassportIterator(*this);
   }
 
   ReUseX::core::MaterialPassportMetadata
   fetchPassportMetadata(std::string_view documentGuid) const {
-    const char *query =
-        "SELECT document_guid, created_at, revised_at, version_number, version_date "
-        "FROM material_passports WHERE document_guid = ?;";
+    const char *query = "SELECT document_guid, created_at, revised_at, "
+                        "version_number, version_date "
+                        "FROM material_passports WHERE document_guid = ?;";
 
     sqlite3_stmt *stmt;
     if (sqlite3_prepare_v2(db, query, -1, &stmt, nullptr) != SQLITE_OK) {
@@ -1662,12 +1655,10 @@ class ProjectDB::Impl {
       int blob_size = sqlite3_column_bytes(stmt, 2);
 
       if (guid && data_type) {
-        auto type =
-            ReUseX::core::traits::property_type_from_string(data_type);
+        auto type = ReUseX::core::traits::property_type_from_string(data_type);
         if (type) {
-          property_map.emplace(
-              guid, ReUseX::core::serialization::PropertyValue(
-                        blob_data, blob_size, *type));
+          property_map.emplace(guid, ReUseX::core::serialization::PropertyValue(
+                                         blob_data, blob_size, *type));
         }
       }
     }
@@ -1678,12 +1669,12 @@ class ProjectDB::Impl {
 
   std::vector<ReUseX::core::TransactionLogEntry>
   fetchTransactionLog(std::string_view documentGuid) const {
-    const char *query =
-        "SELECT entry_type, target_guid, edited_by, edited_at, old_value, new_value "
-        "FROM passport_log pl "
-        "JOIN material_passports mp ON pl.passport_id = mp.id "
-        "WHERE mp.document_guid = ? "
-        "ORDER BY pl.edited_at;";
+    const char *query = "SELECT entry_type, target_guid, edited_by, edited_at, "
+                        "old_value, new_value "
+                        "FROM passport_log pl "
+                        "JOIN material_passports mp ON pl.passport_id = mp.id "
+                        "WHERE mp.document_guid = ? "
+                        "ORDER BY pl.edited_at;";
 
     sqlite3_stmt *stmt;
     if (sqlite3_prepare_v2(db, query, -1, &stmt, nullptr) != SQLITE_OK) {
@@ -1701,13 +1692,11 @@ class ProjectDB::Impl {
 
       const char *entry_type =
           reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
-      if (auto type =
-              ReUseX::core::transaction_type_from_string(entry_type)) {
+      if (auto type = ReUseX::core::transaction_type_from_string(entry_type)) {
         entry.type = *type;
       }
 
-      entry.guid =
-          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1));
+      entry.guid = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1));
       entry.edited_by =
           reinterpret_cast<const char *>(sqlite3_column_text(stmt, 2));
       entry.edited_date =
@@ -1766,8 +1755,7 @@ class ProjectDB::Impl {
       const auto &prop = props[i];
 
       if (prop.type == ReUseX::core::traits::PropertyType::ObjectArray) {
-        auto data_type =
-            ReUseX::core::traits::to_data_type_string(prop.type);
+        auto data_type = ReUseX::core::traits::to_data_type_string(prop.type);
 
         sqlite3_bind_text(stmt, 1, prop.field_name, -1, SQLITE_STATIC);
         sqlite3_bind_text(stmt, 2, prop.field_name, -1, SQLITE_STATIC);
@@ -1779,15 +1767,14 @@ class ProjectDB::Impl {
         if (sqlite3_step(stmt) != SQLITE_DONE) {
           std::string error = sqlite3_errmsg(db);
           sqlite3_finalize(stmt);
-          throw std::runtime_error(
-              "Failed to insert property definition: " + error);
+          throw std::runtime_error("Failed to insert property definition: " +
+                                   error);
         }
         sqlite3_reset(stmt);
         continue;
       }
 
-      auto data_type =
-          ReUseX::core::traits::to_data_type_string(prop.type);
+      auto data_type = ReUseX::core::traits::to_data_type_string(prop.type);
 
       sqlite3_bind_text(stmt, 1, prop.leksikon_guid, -1, SQLITE_STATIC);
       sqlite3_bind_text(stmt, 2, prop.leksikon_guid, -1, SQLITE_STATIC);
@@ -1799,18 +1786,17 @@ class ProjectDB::Impl {
       if (sqlite3_step(stmt) != SQLITE_DONE) {
         std::string error = sqlite3_errmsg(db);
         sqlite3_finalize(stmt);
-        throw std::runtime_error(
-            "Failed to insert property definition: " + error);
+        throw std::runtime_error("Failed to insert property definition: " +
+                                 error);
       }
       sqlite3_reset(stmt);
     }
   }
 
   void ensureAllPropertyDefinitions() {
-    const char *query =
-        "INSERT OR IGNORE INTO property_definitions "
-        "(id, leksikon_guid, name_en, category, data_type) "
-        "VALUES (?, ?, ?, ?, ?);";
+    const char *query = "INSERT OR IGNORE INTO property_definitions "
+                        "(id, leksikon_guid, name_en, category, data_type) "
+                        "VALUES (?, ?, ?, ?, ?);";
 
     sqlite3_stmt *stmt;
     if (sqlite3_prepare_v2(db, query, -1, &stmt, nullptr) != SQLITE_OK) {
@@ -1826,8 +1812,8 @@ class ProjectDB::Impl {
         PropertyTraits<ReUseX::core::Owner>::property_count(), "Owner", stmt);
     ensurePropertyDefinitions(
         PropertyTraits<ReUseX::core::ConstructionItemDescription>::properties(),
-        PropertyTraits<ReUseX::core::ConstructionItemDescription>::
-            property_count(),
+        PropertyTraits<
+            ReUseX::core::ConstructionItemDescription>::property_count(),
         "Description", stmt);
     ensurePropertyDefinitions(
         PropertyTraits<ReUseX::core::ProductInformation>::properties(),
@@ -1884,9 +1870,8 @@ class ProjectDB::Impl {
         sqlite3_stmt *proj_stmt;
         if (sqlite3_prepare_v2(db, upsert_project, -1, &proj_stmt, nullptr) !=
             SQLITE_OK) {
-          throw std::runtime_error(
-              "Failed to prepare project insert: " +
-              std::string(sqlite3_errmsg(db)));
+          throw std::runtime_error("Failed to prepare project insert: " +
+                                   std::string(sqlite3_errmsg(db)));
         }
         sqlite3_bind_text(proj_stmt, 1, projectId.data(), projectId.size(),
                           SQLITE_TRANSIENT);
@@ -1915,21 +1900,24 @@ class ProjectDB::Impl {
       // Delete property values
       if (sqlite3_prepare_v2(db, delete_values_query, -1, &del_stmt, nullptr) ==
           SQLITE_OK) {
-        sqlite3_bind_text(del_stmt, 1, passport_id.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(del_stmt, 1, passport_id.c_str(), -1,
+                          SQLITE_TRANSIENT);
         sqlite3_step(del_stmt);
         sqlite3_finalize(del_stmt);
       }
       // Delete log entries
       if (sqlite3_prepare_v2(db, delete_log_query, -1, &del_stmt, nullptr) ==
           SQLITE_OK) {
-        sqlite3_bind_text(del_stmt, 1, passport_id.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(del_stmt, 1, passport_id.c_str(), -1,
+                          SQLITE_TRANSIENT);
         sqlite3_step(del_stmt);
         sqlite3_finalize(del_stmt);
       }
       // Delete passport
-      if (sqlite3_prepare_v2(db, delete_passport_query, -1, &del_stmt, nullptr) ==
-          SQLITE_OK) {
-        sqlite3_bind_text(del_stmt, 1, passport_id.c_str(), -1, SQLITE_TRANSIENT);
+      if (sqlite3_prepare_v2(db, delete_passport_query, -1, &del_stmt,
+                             nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(del_stmt, 1, passport_id.c_str(), -1,
+                          SQLITE_TRANSIENT);
         sqlite3_step(del_stmt);
         sqlite3_finalize(del_stmt);
       }
@@ -1943,15 +1931,17 @@ class ProjectDB::Impl {
       sqlite3_stmt *stmt;
       if (sqlite3_prepare_v2(db, insert_passport_query, -1, &stmt, nullptr) !=
           SQLITE_OK) {
-        throw std::runtime_error("Failed to prepare insert passport statement: " +
-                                 std::string(sqlite3_errmsg(db)));
+        throw std::runtime_error(
+            "Failed to prepare insert passport statement: " +
+            std::string(sqlite3_errmsg(db)));
       }
 
       sqlite3_bind_text(stmt, 1, passport_id.c_str(), -1, SQLITE_TRANSIENT);
       if (projectId.empty()) {
         sqlite3_bind_null(stmt, 2);
       } else {
-        sqlite3_bind_text(stmt, 2, projectId.data(), projectId.size(), SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 2, projectId.data(), projectId.size(),
+                          SQLITE_TRANSIENT);
       }
       sqlite3_bind_text(stmt, 3, passport.metadata.document_guid.c_str(), -1,
                         SQLITE_TRANSIENT);
@@ -2026,7 +2016,8 @@ class ProjectDB::Impl {
       // 4. Insert transaction log entries
       const char *insert_log_query =
           "INSERT INTO passport_log (id, passport_id, entry_type, target_guid, "
-          "edited_by, edited_at, old_value, new_value) VALUES (?, ?, ?, ?, ?, ?, ?, ?);";
+          "edited_by, edited_at, old_value, new_value) VALUES (?, ?, ?, ?, ?, "
+          "?, ?, ?);";
 
       if (sqlite3_prepare_v2(db, insert_log_query, -1, &stmt, nullptr) !=
           SQLITE_OK) {
@@ -2044,10 +2035,14 @@ class ProjectDB::Impl {
         std::string type_str(ReUseX::core::to_string(entry.type));
         sqlite3_bind_text(stmt, 3, type_str.c_str(), -1, SQLITE_TRANSIENT);
         sqlite3_bind_text(stmt, 4, entry.guid.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_bind_text(stmt, 5, entry.edited_by.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_bind_text(stmt, 6, entry.edited_date.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_bind_text(stmt, 7, entry.old_value.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_bind_text(stmt, 8, entry.new_value.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 5, entry.edited_by.c_str(), -1,
+                          SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 6, entry.edited_date.c_str(), -1,
+                          SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 7, entry.old_value.c_str(), -1,
+                          SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 8, entry.new_value.c_str(), -1,
+                          SQLITE_TRANSIENT);
 
         if (sqlite3_step(stmt) != SQLITE_DONE) {
           std::string error = sqlite3_errmsg(db);
@@ -2074,7 +2069,8 @@ class ProjectDB::Impl {
   // ── Pipeline Log ───────────────────────────────────────────────────
 
   std::vector<ProjectDB::PipelineLogEntry> getPipelineLog(int limit) const {
-    std::string sql = "SELECT id, stage, started_at, finished_at, parameters, status, error_msg FROM pipeline_log ORDER BY id DESC";
+    std::string sql = "SELECT id, stage, started_at, finished_at, parameters, "
+                      "status, error_msg FROM pipeline_log ORDER BY id DESC";
     if (limit > 0) {
       sql += " LIMIT " + std::to_string(limit);
     }
@@ -2091,22 +2087,28 @@ class ProjectDB::Impl {
       ProjectDB::PipelineLogEntry entry;
       entry.id = sqlite3_column_int(stmt, 0);
 
-      const char *stage = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1));
+      const char *stage =
+          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1));
       entry.stage = stage ? stage : "";
 
-      const char *started = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 2));
+      const char *started =
+          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 2));
       entry.started_at = started ? started : "";
 
-      const char *finished = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 3));
+      const char *finished =
+          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 3));
       entry.finished_at = finished ? finished : "";
 
-      const char *params = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 4));
+      const char *params =
+          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 4));
       entry.parameters = params ? params : "";
 
-      const char *status = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 5));
+      const char *status =
+          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 5));
       entry.status = status ? status : "";
 
-      const char *error = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 6));
+      const char *error =
+          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 6));
       entry.error_msg = error ? error : "";
 
       entries.push_back(std::move(entry));
@@ -2141,17 +2143,15 @@ class ProjectDB::Impl {
 
     sqlite3_stmt *stmt;
     if (sqlite3_prepare_v2(db, upsert, -1, &stmt, nullptr) != SQLITE_OK)
-      throw std::runtime_error(
-          "Failed to prepare building component upsert: " +
-          std::string(sqlite3_errmsg(db)));
+      throw std::runtime_error("Failed to prepare building component upsert: " +
+                               std::string(sqlite3_errmsg(db)));
     StmtGuard guard(stmt);
 
     sqlite3_bind_text(stmt, 1, c.name.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 2, typeStr.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_blob(stmt, 3, vertexBlob.data(),
                       static_cast<int>(vertexBlob.size()), SQLITE_TRANSIENT);
-    sqlite3_bind_int(stmt, 4,
-                     static_cast<int>(c.boundary.vertices.size()));
+    sqlite3_bind_int(stmt, 4, static_cast<int>(c.boundary.vertices.size()));
 
     // Plane: 4 * sizeof(double) = 32 bytes
     sqlite3_bind_blob(stmt, 5, c.boundary.plane.data(),
@@ -2175,7 +2175,8 @@ class ProjectDB::Impl {
                                std::string(sqlite3_errmsg(db)));
   }
 
-  geometry::BuildingComponent getBuildingComponent(std::string_view name) const {
+  geometry::BuildingComponent
+  getBuildingComponent(std::string_view name) const {
     const char *sql = R"(
       SELECT name, type, vertex_data, vertex_count, plane,
              parent_id, confidence, metadata, notes
@@ -2247,9 +2248,8 @@ class ProjectDB::Impl {
     const char *sql = "DELETE FROM building_components WHERE name = ?;";
     sqlite3_stmt *stmt;
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
-      throw std::runtime_error(
-          "Failed to prepare building component delete: " +
-          std::string(sqlite3_errmsg(db)));
+      throw std::runtime_error("Failed to prepare building component delete: " +
+                               std::string(sqlite3_errmsg(db)));
     StmtGuard guard(stmt);
     sqlite3_bind_text(stmt, 1, name.data(), static_cast<int>(name.size()),
                       SQLITE_TRANSIENT);
@@ -2310,7 +2310,8 @@ class ProjectDB::Impl {
 
     // Query point clouds
     {
-      const char *sql = "SELECT name, point_type, point_count, width, height FROM point_clouds ORDER BY id;";
+      const char *sql = "SELECT name, point_type, point_count, width, height "
+                        "FROM point_clouds ORDER BY id;";
       sqlite3_stmt *stmt;
       if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
         throw std::runtime_error("Failed to query point clouds: " +
@@ -2319,8 +2320,10 @@ class ProjectDB::Impl {
 
       while (sqlite3_step(stmt) == SQLITE_ROW) {
         ProjectDB::ProjectSummary::CloudInfo cloud;
-        cloud.name = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
-        cloud.type = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1));
+        cloud.name =
+            reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
+        cloud.type =
+            reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1));
         cloud.point_count = static_cast<size_t>(sqlite3_column_int64(stmt, 2));
         cloud.width = static_cast<size_t>(sqlite3_column_int(stmt, 3));
         cloud.height = static_cast<size_t>(sqlite3_column_int(stmt, 4));
@@ -2337,7 +2340,8 @@ class ProjectDB::Impl {
 
     // Query meshes
     {
-      const char *sql = "SELECT name, vertex_count, face_count FROM meshes ORDER BY id;";
+      const char *sql =
+          "SELECT name, vertex_count, face_count FROM meshes ORDER BY id;";
       sqlite3_stmt *stmt;
       if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
         throw std::runtime_error("Failed to query meshes: " +
@@ -2346,7 +2350,8 @@ class ProjectDB::Impl {
 
       while (sqlite3_step(stmt) == SQLITE_ROW) {
         ProjectDB::ProjectSummary::MeshInfo mesh;
-        mesh.name = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
+        mesh.name =
+            reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
         mesh.vertex_count = sqlite3_column_int(stmt, 1);
         mesh.face_count = sqlite3_column_int(stmt, 2);
         summary.meshes.push_back(std::move(mesh));
@@ -2380,10 +2385,12 @@ class ProjectDB::Impl {
       StmtGuard dim_guard(stmt);
 
       if (sqlite3_step(stmt) == SQLITE_ROW) {
-        const char *json_text = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
+        const char *json_text =
+            reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
         if (json_text) {
           try {
-            auto intrinsics = ReUseX::core::SensorIntrinsics::from_json(json_text);
+            auto intrinsics =
+                ReUseX::core::SensorIntrinsics::from_json(json_text);
             summary.sensor_frames.width = intrinsics.width;
             summary.sensor_frames.height = intrinsics.height;
           } catch (...) {
@@ -2443,8 +2450,8 @@ class ProjectDB::Impl {
       if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
         StmtGuard guard(stmt);
         while (sqlite3_step(stmt) == SQLITE_ROW) {
-          const char *type_str = reinterpret_cast<const char *>(
-              sqlite3_column_text(stmt, 0));
+          const char *type_str =
+              reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
           int count = sqlite3_column_int(stmt, 1);
           if (type_str) {
             summary.components.count_by_type[type_str] = count;
@@ -2491,10 +2498,10 @@ void ProjectDB::save_sensor_frame(int nodeId, const cv::Mat &colorImage) {
 }
 
 void ProjectDB::save_sensor_frame(int nodeId, const cv::Mat &color,
-                                   const cv::Mat &depth,
-                                   const cv::Mat &confidence,
-                                   const std::array<double, 16> &worldPose,
-                                   const core::SensorIntrinsics &intrinsics) {
+                                  const cv::Mat &depth,
+                                  const cv::Mat &confidence,
+                                  const std::array<double, 16> &worldPose,
+                                  const core::SensorIntrinsics &intrinsics) {
   impl_->saveSensorFrameFull(nodeId, color, depth, confidence, worldPose,
                              intrinsics);
 }
@@ -2553,8 +2560,7 @@ void ProjectDB::save_point_cloud(std::string_view name, const Cloud &cloud,
                                  std::string_view paramsJson) {
   auto data = serializeXYZRGB(cloud);
   impl_->savePointCloudMeta(name, "PointXYZRGB", cloud.size(), XYZRGB_STEP,
-                            cloud.width, cloud.height, data, stage,
-                            paramsJson);
+                            cloud.width, cloud.height, data, stage, paramsJson);
 }
 
 void ProjectDB::save_point_cloud(std::string_view name, const CloudN &cloud,
@@ -2562,8 +2568,7 @@ void ProjectDB::save_point_cloud(std::string_view name, const CloudN &cloud,
                                  std::string_view paramsJson) {
   auto data = serializeNormal(cloud);
   impl_->savePointCloudMeta(name, "Normal", cloud.size(), NORMAL_STEP,
-                            cloud.width, cloud.height, data, stage,
-                            paramsJson);
+                            cloud.width, cloud.height, data, stage, paramsJson);
 }
 
 void ProjectDB::save_point_cloud(std::string_view name, const CloudL &cloud,
@@ -2571,8 +2576,7 @@ void ProjectDB::save_point_cloud(std::string_view name, const CloudL &cloud,
                                  std::string_view paramsJson) {
   auto data = serializeLabel(cloud);
   impl_->savePointCloudMeta(name, "Label", cloud.size(), LABEL_STEP,
-                            cloud.width, cloud.height, data, stage,
-                            paramsJson);
+                            cloud.width, cloud.height, data, stage, paramsJson);
 }
 
 void ProjectDB::save_point_cloud(std::string_view name,
@@ -2581,8 +2585,7 @@ void ProjectDB::save_point_cloud(std::string_view name,
                                  std::string_view paramsJson) {
   auto data = serializeXYZ(cloud);
   impl_->savePointCloudMeta(name, "PointXYZ", cloud.size(), XYZ_STEP,
-                            cloud.width, cloud.height, data, stage,
-                            paramsJson);
+                            cloud.width, cloud.height, data, stage, paramsJson);
 }
 
 CloudPtr ProjectDB::point_cloud_xyzrgb(std::string_view name) const {
@@ -2645,8 +2648,7 @@ std::string ProjectDB::point_cloud_type(std::string_view name) const {
 // --- Label Definitions ---
 
 void ProjectDB::save_label_definitions(
-    std::string_view cloudName,
-    const std::map<int, std::string> &labelMap) {
+    std::string_view cloudName, const std::map<int, std::string> &labelMap) {
   impl_->saveLabelDefinitions(cloudName, labelMap);
 }
 
@@ -2658,14 +2660,12 @@ ProjectDB::label_definitions(std::string_view cloudName) const {
 // --- Mesh Operations ---
 
 void ProjectDB::save_mesh(std::string_view name, const pcl::PolygonMesh &mesh,
-                           std::string_view stage,
-                           std::string_view paramsJson) {
+                          std::string_view stage, std::string_view paramsJson) {
   impl_->saveMesh(name, mesh, stage, paramsJson);
 }
 
 void ProjectDB::save_mesh(std::string_view name, const pcl::TextureMesh &mesh,
-                           std::string_view stage,
-                           std::string_view paramsJson) {
+                          std::string_view stage, std::string_view paramsJson) {
   impl_->saveMesh(name, mesh, stage, paramsJson);
 }
 
@@ -2714,8 +2714,9 @@ ProjectDB::all_material_passports() const {
   return result;
 }
 
-void ProjectDB::add_material_passport(const ReUseX::core::MaterialPassport &passport,
-                                      std::string_view projectId) {
+void ProjectDB::add_material_passport(
+    const ReUseX::core::MaterialPassport &passport,
+    std::string_view projectId) {
   impl_->addMaterialPassport(passport, projectId);
 }
 
@@ -2751,8 +2752,8 @@ void ProjectDB::delete_material_passport(std::string_view documentGuid) {
   }
 
   // Delete passport
-  if (sqlite3_prepare_v2(impl_->db, delete_passport_query, -1, &stmt, nullptr) !=
-      SQLITE_OK) {
+  if (sqlite3_prepare_v2(impl_->db, delete_passport_query, -1, &stmt,
+                         nullptr) != SQLITE_OK) {
     throw std::runtime_error("Failed to prepare delete passport statement: " +
                              std::string(sqlite3_errmsg(impl_->db)));
   }
@@ -2770,7 +2771,8 @@ void ProjectDB::delete_material_passport(std::string_view documentGuid) {
   }
 
   if (changes == 0) {
-    throw std::runtime_error("Passport not found: " + std::string(documentGuid));
+    throw std::runtime_error("Passport not found: " +
+                             std::string(documentGuid));
   }
 }
 
@@ -2798,13 +2800,12 @@ std::vector<std::string> ProjectDB::list_passport_guids() const {
 
 std::map<std::string, std::string>
 ProjectDB::passport_stored_properties(std::string_view documentGuid) const {
-  const char *query =
-      "SELECT pd.name_en, ppv.value "
-      "FROM passport_property_values ppv "
-      "JOIN property_definitions pd ON pd.id = ppv.property_id "
-      "JOIN material_passports mp ON ppv.passport_id = mp.id "
-      "WHERE mp.document_guid = ? "
-      "ORDER BY ppv.sort_order;";
+  const char *query = "SELECT pd.name_en, ppv.value "
+                      "FROM passport_property_values ppv "
+                      "JOIN property_definitions pd ON pd.id = ppv.property_id "
+                      "JOIN material_passports mp ON ppv.passport_id = mp.id "
+                      "WHERE mp.document_guid = ? "
+                      "ORDER BY ppv.sort_order;";
 
   sqlite3_stmt *stmt;
   if (sqlite3_prepare_v2(impl_->db, query, -1, &stmt, nullptr) != SQLITE_OK) {
@@ -2825,9 +2826,8 @@ ProjectDB::passport_stored_properties(std::string_view documentGuid) const {
     int blob_size = sqlite3_column_bytes(stmt, 1);
 
     if (name && blob_data && blob_size > 0) {
-      properties.emplace(name,
-                         std::string(static_cast<const char *>(blob_data),
-                                     static_cast<size_t>(blob_size)));
+      properties.emplace(name, std::string(static_cast<const char *>(blob_data),
+                                           static_cast<size_t>(blob_size)));
     } else if (name) {
       properties.emplace(name, std::string{});
     }
@@ -2838,12 +2838,11 @@ ProjectDB::passport_stored_properties(std::string_view documentGuid) const {
 std::string
 ProjectDB::passport_property_value(std::string_view documentGuid,
                                    std::string_view fieldName) const {
-  const char *query =
-      "SELECT ppv.value "
-      "FROM passport_property_values ppv "
-      "JOIN property_definitions pd ON pd.id = ppv.property_id "
-      "JOIN material_passports mp ON ppv.passport_id = mp.id "
-      "WHERE mp.document_guid = ? AND pd.name_en = ?;";
+  const char *query = "SELECT ppv.value "
+                      "FROM passport_property_values ppv "
+                      "JOIN property_definitions pd ON pd.id = ppv.property_id "
+                      "JOIN material_passports mp ON ppv.passport_id = mp.id "
+                      "WHERE mp.document_guid = ? AND pd.name_en = ?;";
 
   sqlite3_stmt *stmt;
   if (sqlite3_prepare_v2(impl_->db, query, -1, &stmt, nullptr) != SQLITE_OK) {
@@ -2883,25 +2882,29 @@ void ProjectDB::set_passport_metadata_field(std::string_view documentGuid,
                                             std::string_view value) {
   // Only allow known safe columns (prevent SQL injection via column name)
   static const std::map<std::string_view, const char *> allowed = {
-      {"created_at", "UPDATE material_passports SET created_at = ? WHERE document_guid = ?;"},
-      {"revised_at", "UPDATE material_passports SET revised_at = ? WHERE document_guid = ?;"},
-      {"version_number", "UPDATE material_passports SET version_number = ? WHERE document_guid = ?;"},
-      {"version_date", "UPDATE material_passports SET version_date = ? WHERE document_guid = ?;"},
+      {"created_at",
+       "UPDATE material_passports SET created_at = ? WHERE document_guid = ?;"},
+      {"revised_at",
+       "UPDATE material_passports SET revised_at = ? WHERE document_guid = ?;"},
+      {"version_number", "UPDATE material_passports SET version_number = ? "
+                         "WHERE document_guid = ?;"},
+      {"version_date", "UPDATE material_passports SET version_date = ? WHERE "
+                       "document_guid = ?;"},
   };
 
   auto it = allowed.find(column);
   if (it == allowed.end()) {
-    throw std::runtime_error(
-        "Cannot set metadata field '" + std::string(column) +
-        "'. Allowed fields: created_at, revised_at, version_number, version_date");
+    throw std::runtime_error("Cannot set metadata field '" +
+                             std::string(column) +
+                             "'. Allowed fields: created_at, revised_at, "
+                             "version_number, version_date");
   }
 
   sqlite3_stmt *stmt;
   if (sqlite3_prepare_v2(impl_->db, it->second, -1, &stmt, nullptr) !=
       SQLITE_OK) {
-    throw std::runtime_error(
-        "Failed to prepare metadata update: " +
-        std::string(sqlite3_errmsg(impl_->db)));
+    throw std::runtime_error("Failed to prepare metadata update: " +
+                             std::string(sqlite3_errmsg(impl_->db)));
   }
   StmtGuard guard(stmt);
 
@@ -2918,9 +2921,8 @@ void ProjectDB::set_passport_metadata_field(std::string_view documentGuid,
   int changes = sqlite3_changes(impl_->db);
 
   if (rc != SQLITE_DONE) {
-    throw std::runtime_error(
-        "Failed to update metadata: " +
-        std::string(sqlite3_errmsg(impl_->db)));
+    throw std::runtime_error("Failed to update metadata: " +
+                             std::string(sqlite3_errmsg(impl_->db)));
   }
   if (changes == 0) {
     throw std::runtime_error("Passport not found: " +
@@ -2937,9 +2939,8 @@ void ProjectDB::set_passport_property(std::string_view documentGuid,
   sqlite3_stmt *check_stmt;
   if (sqlite3_prepare_v2(impl_->db, check_query, -1, &check_stmt, nullptr) !=
       SQLITE_OK) {
-    throw std::runtime_error(
-        "Failed to prepare passport check: " +
-        std::string(sqlite3_errmsg(impl_->db)));
+    throw std::runtime_error("Failed to prepare passport check: " +
+                             std::string(sqlite3_errmsg(impl_->db)));
   }
   StmtGuard check_guard(check_stmt);
 
@@ -2948,8 +2949,8 @@ void ProjectDB::set_passport_property(std::string_view documentGuid,
 
   std::string passport_internal_id;
   if (sqlite3_step(check_stmt) == SQLITE_ROW) {
-    passport_internal_id = reinterpret_cast<const char *>(
-        sqlite3_column_text(check_stmt, 0));
+    passport_internal_id =
+        reinterpret_cast<const char *>(sqlite3_column_text(check_stmt, 0));
   } else {
     throw std::runtime_error("Passport not found: " +
                              std::string(documentGuid));
@@ -2961,9 +2962,8 @@ void ProjectDB::set_passport_property(std::string_view documentGuid,
   sqlite3_stmt *prop_stmt;
   if (sqlite3_prepare_v2(impl_->db, prop_query, -1, &prop_stmt, nullptr) !=
       SQLITE_OK) {
-    throw std::runtime_error(
-        "Failed to prepare property lookup: " +
-        std::string(sqlite3_errmsg(impl_->db)));
+    throw std::runtime_error("Failed to prepare property lookup: " +
+                             std::string(sqlite3_errmsg(impl_->db)));
   }
   StmtGuard prop_guard(prop_stmt);
 
@@ -2973,10 +2973,10 @@ void ProjectDB::set_passport_property(std::string_view documentGuid,
   std::string property_id;
   std::string leksikon_guid;
   if (sqlite3_step(prop_stmt) == SQLITE_ROW) {
-    property_id = reinterpret_cast<const char *>(
-        sqlite3_column_text(prop_stmt, 0));
-    leksikon_guid = reinterpret_cast<const char *>(
-        sqlite3_column_text(prop_stmt, 1));
+    property_id =
+        reinterpret_cast<const char *>(sqlite3_column_text(prop_stmt, 0));
+    leksikon_guid =
+        reinterpret_cast<const char *>(sqlite3_column_text(prop_stmt, 1));
   } else {
     // Auto-create property definition for custom/unknown fields
     property_id = "custom:" + std::string(fieldName);
@@ -2995,15 +2995,13 @@ void ProjectDB::set_passport_property(std::string_view documentGuid,
     }
     StmtGuard def_guard(def_stmt);
     sqlite3_bind_text(def_stmt, 1, property_id.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(def_stmt, 2, leksikon_guid.c_str(), -1,
-                      SQLITE_TRANSIENT);
+    sqlite3_bind_text(def_stmt, 2, leksikon_guid.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(def_stmt, 3, fieldName.data(),
                       static_cast<int>(fieldName.size()), SQLITE_STATIC);
 
     if (sqlite3_step(def_stmt) != SQLITE_DONE) {
-      throw std::runtime_error(
-          "Failed to create custom property definition: " +
-          std::string(sqlite3_errmsg(impl_->db)));
+      throw std::runtime_error("Failed to create custom property definition: " +
+                               std::string(sqlite3_errmsg(impl_->db)));
     }
   }
 
@@ -3014,14 +3012,14 @@ void ProjectDB::set_passport_property(std::string_view documentGuid,
       "VALUES (?, ?, ?, ?, "
       "(SELECT COALESCE(MAX(sort_order), 0) + 1 "
       " FROM passport_property_values WHERE passport_id = ?), ?) "
-      "ON CONFLICT(passport_id, leksikon_guid) DO UPDATE SET value = excluded.value;";
+      "ON CONFLICT(passport_id, leksikon_guid) DO UPDATE SET value = "
+      "excluded.value;";
 
   sqlite3_stmt *upsert_stmt;
-  if (sqlite3_prepare_v2(impl_->db, upsert_query, -1, &upsert_stmt,
-                          nullptr) != SQLITE_OK) {
-    throw std::runtime_error(
-        "Failed to prepare property upsert: " +
-        std::string(sqlite3_errmsg(impl_->db)));
+  if (sqlite3_prepare_v2(impl_->db, upsert_query, -1, &upsert_stmt, nullptr) !=
+      SQLITE_OK) {
+    throw std::runtime_error("Failed to prepare property upsert: " +
+                             std::string(sqlite3_errmsg(impl_->db)));
   }
   StmtGuard upsert_guard(upsert_stmt);
 
@@ -3030,8 +3028,7 @@ void ProjectDB::set_passport_property(std::string_view documentGuid,
   sqlite3_bind_text(upsert_stmt, 1, value_id.c_str(), -1, SQLITE_TRANSIENT);
   sqlite3_bind_text(upsert_stmt, 2, passport_internal_id.c_str(), -1,
                     SQLITE_TRANSIENT);
-  sqlite3_bind_text(upsert_stmt, 3, property_id.c_str(), -1,
-                    SQLITE_TRANSIENT);
+  sqlite3_bind_text(upsert_stmt, 3, property_id.c_str(), -1, SQLITE_TRANSIENT);
   sqlite3_bind_text(upsert_stmt, 4, leksikon_guid.c_str(), -1,
                     SQLITE_TRANSIENT);
   sqlite3_bind_text(upsert_stmt, 5, passport_internal_id.c_str(), -1,
@@ -3040,24 +3037,23 @@ void ProjectDB::set_passport_property(std::string_view documentGuid,
                     static_cast<int>(value.size()), SQLITE_STATIC);
 
   if (sqlite3_step(upsert_stmt) != SQLITE_DONE) {
-    throw std::runtime_error(
-        "Failed to upsert property value: " +
-        std::string(sqlite3_errmsg(impl_->db)));
+    throw std::runtime_error("Failed to upsert property value: " +
+                             std::string(sqlite3_errmsg(impl_->db)));
   }
 }
 
 void ProjectDB::delete_passport_property(std::string_view documentGuid,
                                          std::string_view fieldName) {
-  const char *query =
-      "DELETE FROM passport_property_values "
-      "WHERE passport_id = (SELECT id FROM material_passports WHERE document_guid = ?) "
-      "AND property_id = (SELECT id FROM property_definitions WHERE name_en = ?);";
+  const char *query = "DELETE FROM passport_property_values "
+                      "WHERE passport_id = (SELECT id FROM material_passports "
+                      "WHERE document_guid = ?) "
+                      "AND property_id = (SELECT id FROM property_definitions "
+                      "WHERE name_en = ?);";
 
   sqlite3_stmt *stmt;
   if (sqlite3_prepare_v2(impl_->db, query, -1, &stmt, nullptr) != SQLITE_OK) {
-    throw std::runtime_error(
-        "Failed to prepare delete property: " +
-        std::string(sqlite3_errmsg(impl_->db)));
+    throw std::runtime_error("Failed to prepare delete property: " +
+                             std::string(sqlite3_errmsg(impl_->db)));
   }
   StmtGuard guard(stmt);
 
@@ -3070,9 +3066,8 @@ void ProjectDB::delete_passport_property(std::string_view documentGuid,
   int changes = sqlite3_changes(impl_->db);
 
   if (rc != SQLITE_DONE) {
-    throw std::runtime_error(
-        "Failed to delete property: " +
-        std::string(sqlite3_errmsg(impl_->db)));
+    throw std::runtime_error("Failed to delete property: " +
+                             std::string(sqlite3_errmsg(impl_->db)));
   }
 
   if (changes == 0) {
@@ -3084,7 +3079,8 @@ void ProjectDB::delete_passport_property(std::string_view documentGuid,
 
 // --- Project Metadata ---
 
-ProjectDB::ProjectMetadata ProjectDB::get_project_metadata(std::string_view projectId) const {
+ProjectDB::ProjectMetadata
+ProjectDB::get_project_metadata(std::string_view projectId) const {
   const char *query =
       "SELECT id, name, building_address, year_of_construction, "
       "survey_date, survey_organisation, notes "
@@ -3104,11 +3100,13 @@ ProjectDB::ProjectMetadata ProjectDB::get_project_metadata(std::string_view proj
     metadata.id = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
 
     if (sqlite3_column_type(stmt, 1) != SQLITE_NULL) {
-      metadata.name = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1));
+      metadata.name =
+          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1));
     }
 
     if (sqlite3_column_type(stmt, 2) != SQLITE_NULL) {
-      metadata.building_address = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 2));
+      metadata.building_address =
+          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 2));
     }
 
     if (sqlite3_column_type(stmt, 3) != SQLITE_NULL) {
@@ -3116,15 +3114,18 @@ ProjectDB::ProjectMetadata ProjectDB::get_project_metadata(std::string_view proj
     }
 
     if (sqlite3_column_type(stmt, 4) != SQLITE_NULL) {
-      metadata.survey_date = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 4));
+      metadata.survey_date =
+          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 4));
     }
 
     if (sqlite3_column_type(stmt, 5) != SQLITE_NULL) {
-      metadata.survey_organisation = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 5));
+      metadata.survey_organisation =
+          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 5));
     }
 
     if (sqlite3_column_type(stmt, 6) != SQLITE_NULL) {
-      metadata.notes = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 6));
+      metadata.notes =
+          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 6));
     }
   } else {
     sqlite3_finalize(stmt);
@@ -3157,7 +3158,8 @@ void ProjectDB::update_project_metadata(const ProjectMetadata &metadata) {
 
   sqlite3_bind_text(stmt, 1, metadata.id.c_str(), -1, SQLITE_TRANSIENT);
   sqlite3_bind_text(stmt, 2, metadata.name.c_str(), -1, SQLITE_TRANSIENT);
-  sqlite3_bind_text(stmt, 3, metadata.building_address.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmt, 3, metadata.building_address.c_str(), -1,
+                    SQLITE_TRANSIENT);
 
   if (metadata.year_of_construction > 0) {
     sqlite3_bind_int(stmt, 4, metadata.year_of_construction);
@@ -3165,8 +3167,10 @@ void ProjectDB::update_project_metadata(const ProjectMetadata &metadata) {
     sqlite3_bind_null(stmt, 4);
   }
 
-  sqlite3_bind_text(stmt, 5, metadata.survey_date.c_str(), -1, SQLITE_TRANSIENT);
-  sqlite3_bind_text(stmt, 6, metadata.survey_organisation.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmt, 5, metadata.survey_date.c_str(), -1,
+                    SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmt, 6, metadata.survey_organisation.c_str(), -1,
+                    SQLITE_TRANSIENT);
   sqlite3_bind_text(stmt, 7, metadata.notes.c_str(), -1, SQLITE_TRANSIENT);
 
   rc = sqlite3_step(stmt);
@@ -3237,7 +3241,8 @@ ProjectDB::ProjectSummary ProjectDB::project_summary() const {
   return impl_->getProjectSummary();
 }
 
-std::vector<ProjectDB::PipelineLogEntry> ProjectDB::pipeline_log(int limit) const {
+std::vector<ProjectDB::PipelineLogEntry>
+ProjectDB::pipeline_log(int limit) const {
   return impl_->getPipelineLog(limit);
 }
 

@@ -7,14 +7,19 @@
 #include <CLI/CLI.hpp>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace fs = std::filesystem;
 
-/// Collection of all options of Subcommand A.
+/// Options for `rux create windows`.
 struct SubcommandWindowOptions {
-  // std::string mesh_name = "mesh"; ///< Mesh name in ProjectDB
-  // std::string output_name =
-  //     "textured_mesh"; ///< Output textured mesh name in ProjectDB
+  std::string mesh_name = "mesh";
+  std::string instance_cloud_name = "instances";
+  std::string semantic_cloud_name = "labels";
+  std::string mode = "rect";  ///< "rect" or "poly"
+  float wall_offset = 0.5f;   ///< Offset along outward wall normal (meters)
+  float alpha = 0.5f;         ///< ConcaveHull alpha for polyline mode
+  std::vector<uint32_t> labels_to_process; ///< Semantic labels to treat as windows
 };
 
 // Function declarations.

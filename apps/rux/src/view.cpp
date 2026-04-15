@@ -5,6 +5,7 @@
 #include "processing_observer.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
+#include <reusex/geometry/BuildingComponent.hpp>
 
 #include <fmt/format.h>
 #include <fmt/std.h>
@@ -96,6 +97,7 @@ struct ProjectLoadResult {
   std::vector<LoadedCloud> clouds;
   std::vector<LoadedMesh> meshes;
   std::vector<pcl::PointCloud<pcl::PointXYZL>::Ptr> labels;
+  std::vector<ReUseX::geometry::BuildingComponent> components;
 };
 
 /// Load all viewable geometry from a ReUseX project database.
@@ -252,6 +254,19 @@ ProjectLoadResult load_from_project_db(const fs::path &path,
     // } catch (const std::exception &e) {
     //   spdlog::error("Failed to load mesh '{}': {}", name, e.what());
     // }
+  }
+
+  // Load building components (windows, doors, etc.)
+  auto component_names = db.list_building_components();
+  for (const auto &name : component_names) {
+    try {
+      auto comp = db.building_component(name);
+      spdlog::info("Loaded component '{}' ({}, {} vertices)", name,
+                   to_string(comp.type), comp.boundary.vertices.size());
+      result.components.push_back(std::move(comp));
+    } catch (const std::exception &e) {
+      spdlog::error("Failed to load component '{}': {}", name, e.what());
+    }
   }
 
   return result;
@@ -480,6 +495,116 @@ void register_label_toggles(
   }
 }
 
+// ============================================================================
+// BUILDING COMPONENT RENDERING
+// ============================================================================
+
+/// Generate all line shape names for a set of building components.
+///
+/// @param components Vector of building components
+/// @return Vector of shape names (one per line segment across all components)
+std::vector<std::string> component_line_names(
+    const std::vector<ReUseX::geometry::BuildingComponent> &components) {
+  std::vector<std::string> names;
+  for (size_t ci = 0; ci < components.size(); ++ci) {
+    const auto &verts = components[ci].boundary.vertices;
+    if (verts.size() < 2)
+      continue;
+    for (size_t i = 0; i < verts.size(); ++i) {
+      names.push_back(fmt::format("comp_{}_{}", ci, i));
+    }
+  }
+  return names;
+}
+
+/// Enqueue line-drawing tasks to render building component boundaries.
+///
+/// Each component's CoplanarPolygon is drawn as a closed loop of lines.
+/// Windows are green, doors are cyan, walls are yellow.
+///
+/// @param components Vector of building components to render
+/// @param observer Visualization observer for enqueueing viewer tasks
+void add_component_lines(
+    const std::vector<ReUseX::geometry::BuildingComponent> &components,
+    rux::VizualizationObserver &observer) {
+  for (size_t ci = 0; ci < components.size(); ++ci) {
+    const auto &comp = components[ci];
+    const auto &verts = comp.boundary.vertices;
+    if (verts.size() < 2)
+      continue;
+
+    // Pick color based on component type
+    double r = 0.0, g = 1.0, b = 0.0; // green for windows
+    if (comp.type == ReUseX::geometry::ComponentType::door) {
+      r = 0.0; g = 1.0; b = 1.0; // cyan for doors
+    } else if (comp.type == ReUseX::geometry::ComponentType::wall) {
+      r = 1.0; g = 1.0; b = 0.0; // yellow for walls
+    }
+
+    for (size_t i = 0; i < verts.size(); ++i) {
+      size_t j = (i + 1) % verts.size();
+      auto line_name = fmt::format("comp_{}_{}", ci, i);
+      auto p1 = verts[i], p2 = verts[j];
+      observer.viewer_enqueue_task(
+          [p1, p2, line_name, r, g, b](
+              const rux::VizualizationObserver::ViewerPtr &viewer,
+              const std::vector<int> &viewports) {
+            pcl::PointXYZ a(static_cast<float>(p1.x()),
+                            static_cast<float>(p1.y()),
+                            static_cast<float>(p1.z()));
+            pcl::PointXYZ b_pt(static_cast<float>(p2.x()),
+                               static_cast<float>(p2.y()),
+                               static_cast<float>(p2.z()));
+            viewer->addLine(a, b_pt, r, g, b, line_name, viewports[0]);
+            viewer->setShapeRenderingProperties(
+                pcl::visualization::PCL_VISUALIZER_LINE_WIDTH, 3.0, line_name);
+          });
+    }
+  }
+}
+
+/// Register keyboard callback to toggle building component visibility (key 'w').
+///
+/// @param components Vector of building components
+/// @param components_visible Shared flag tracking visibility state
+/// @param observer Visualization observer for enqueueing viewer tasks
+void register_component_toggle(
+    const std::vector<ReUseX::geometry::BuildingComponent> &components,
+    std::shared_ptr<bool> components_visible,
+    rux::VizualizationObserver &observer) {
+  auto names = component_line_names(components);
+
+  observer.viewer_enqueue_task(
+      [&components, names, components_visible,
+       &observer](const rux::VizualizationObserver::ViewerPtr &viewer,
+                  const std::vector<int> &) {
+        viewer->registerKeyboardCallback(
+            [&components, names, components_visible,
+             &observer](const pcl::visualization::KeyboardEvent &event) {
+              if (event.getKeySym() == "w" && event.keyDown()) {
+                if (*components_visible) {
+                  // Remove all component lines
+                  for (const auto &name : names) {
+                    observer.viewer_enqueue_task(
+                        [name](
+                            const rux::VizualizationObserver::ViewerPtr &viewer,
+                            const std::vector<int> &) {
+                          viewer->removeShape(name);
+                        });
+                  }
+                  *components_visible = false;
+                  spdlog::info("Components hidden");
+                } else {
+                  // Re-add all component lines
+                  add_component_lines(components, observer);
+                  *components_visible = true;
+                  spdlog::info("Components shown");
+                }
+              }
+            });
+      });
+}
+
 /// Register help keyboard callback (key 'h').
 ///
 /// @param clouds Vector of loaded clouds (for help message)
@@ -490,14 +615,14 @@ void register_help_callback(
     const std::vector<LoadedCloud> &clouds,
     const std::vector<LoadedMesh> &meshes,
     const std::vector<pcl::PointCloud<pcl::PointXYZL>::Ptr> &label_clouds,
-    rux::VizualizationObserver &observer) {
+    bool has_components, rux::VizualizationObserver &observer) {
   observer.viewer_enqueue_task(
-      [&clouds, &meshes,
-       &label_clouds](const rux::VizualizationObserver::ViewerPtr &viewer,
-                      const std::vector<int> &) {
+      [&clouds, &meshes, &label_clouds,
+       has_components](const rux::VizualizationObserver::ViewerPtr &viewer,
+                       const std::vector<int> &) {
         viewer->registerKeyboardCallback(
-            [&clouds, &meshes,
-             &label_clouds](const pcl::visualization::KeyboardEvent &event) {
+            [&clouds, &meshes, &label_clouds,
+             has_components](const pcl::visualization::KeyboardEvent &event) {
               if (event.getKeySym() == "h" && event.keyDown()) {
                 spdlog::info("=== Viewer Keyboard Controls ===");
                 if (!clouds.empty()) {
@@ -508,6 +633,9 @@ void register_help_callback(
                 }
                 if (!label_clouds.empty()) {
                   spdlog::info("  1-9: Toggle label overlay");
+                }
+                if (has_components) {
+                  spdlog::info("  w: Toggle building components");
                 }
                 spdlog::info("  h: Show this help");
                 spdlog::info("  q: Quit viewer");
@@ -542,6 +670,7 @@ EXAMPLES:
 KEYBOARD CONTROLS:
   c         Toggle all point clouds on/off
   m         Toggle all meshes on/off
+  w         Toggle building components (windows, doors, etc.)
   1-9       Toggle label overlay (planes, rooms, etc.)
   h         Show help message
   q         Quit viewer
@@ -595,6 +724,7 @@ int run_subcommand_view([[maybe_unused]] SubcommandViewOptions const &opt,
   clouds = std::move(result.clouds);
   meshes = std::move(result.meshes);
   labels = std::move(result.labels);
+  auto components = std::move(result.components);
 
   // === Phase 2: Register Keyboard Callbacks ===
   register_individual_toggles(clouds, observer);
@@ -608,12 +738,19 @@ int run_subcommand_view([[maybe_unused]] SubcommandViewOptions const &opt,
     register_label_toggles(labels, state, observer);
   }
 
-  register_help_callback(clouds, meshes, labels, observer);
+  // Render building components as line loops and register 'w' toggle
+  if (!components.empty()) {
+    add_component_lines(components, observer);
+    auto components_visible = std::make_shared<bool>(true);
+    register_component_toggle(components, components_visible, observer);
+  }
+
+  register_help_callback(clouds, meshes, labels, !components.empty(), observer);
 
   // === Phase 3: Display Summary ===
   spdlog::info("Press 'h' for keyboard controls");
-  spdlog::info("Loaded: {} cloud(s), {} mesh(es), {} label(s)", clouds.size(),
-               meshes.size(), labels.size());
+  spdlog::info("Loaded: {} cloud(s), {} mesh(es), {} label(s), {} component(s)",
+               clouds.size(), meshes.size(), labels.size(), components.size());
 
   // We need to wait here otherwise the clouds go out of scope and get destroyed
   // and the viewer segfaults when it tries to access them.

@@ -6,14 +6,15 @@
 #include "validation.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
-#include <reusex/geometry/texture_mesh.hpp>
+#include <reusex/geometry/create_windows.hpp>
 
 #include <spdlog/spdlog.h>
-#include <spdlog/stopwatch.h>
 
 #include <fmt/format.h>
+#include <fmt/ranges.h>
 
-#include <Eigen/Dense>
+#include <regex>
+#include <set>
 
 void setup_subcommand_create_windows(CLI::App &app, std::shared_ptr<RuxOptions> global_opt) {
   auto opt = std::make_shared<SubcommandWindowOptions>();
@@ -22,57 +23,196 @@ void setup_subcommand_create_windows(CLI::App &app, std::shared_ptr<RuxOptions> 
 
   sub->footer(R"(
 DESCRIPTION:
-  Generates window building components from semantic segmentation labels
-  and instance data. Identifies window instances, computes bounding boxes,
-  and creates structured component records suitable for BIM export and
-  material passport generation.
+  Generates window building components from instance-segmented point clouds
+  and wall geometry from the mesh. For each window instance, projects points
+  onto the nearest wall, computes a boundary polygon (rectangle or concave
+  hull), and offsets it along the outward wall normal.
 
 EXAMPLES:
-  rux create windows                   # Create from 'labels' cloud
-  rux -p scan.rux create windows       # Custom project path
+  rux create windows                        # Defaults: rect mode, 0.5m offset
+  rux create windows --mode poly --alpha 0.3
+  rux create windows -l 5,8 --offset 0.3   # Only labels 5,8; 30cm offset
+  rux -p scan.rux create windows            # Custom project path
 
 WORKFLOW:
-  1. rux create annotate --net model   # Semantic segmentation
-  2. rux create clouds                 # Reconstruct labeled cloud
-  3. rux create instances -l 5         # Instance segment windows (label 5)
-  4. rux create windows                # Generate window components
-  5. rux get components                # View component data
+  1. rux create annotate --net model        # Semantic segmentation
+  2. rux create clouds                      # Reconstruct labeled cloud
+  3. rux create instances -l 5              # Instance segment windows (label 5)
+  4. rux create mesh                        # Generate wall mesh
+  5. rux create windows -l 5               # Generate window components
+  6. rux get components                     # View component data
 
 NOTES:
-  - Requires 'labels' semantic cloud with window instances
-  - Automatically computes component geometry and metadata
-  - Output stored in project database components table
-  - Integrates with material passport system
-  - Use 'rux create instances' first to separate individual windows
+  - Requires 'instances' label cloud, 'labels' semantic cloud, and 'mesh'
+  - Use --mode rect for axis-aligned bounding boxes (default)
+  - Use --mode poly for concave hull boundaries (--alpha controls tightness)
+  - Wall offset moves the polygon outward from the wall surface
+  - Output stored in project database building_components table
 )");
 
-  // sub->add_option("-m, --mesh-name", opt->mesh_name,
-  //                 "Name of the input mesh in ProjectDB")
-  //     ->default_val(opt->mesh_name);
+  sub->add_option("--mesh", opt->mesh_name,
+                  "Name of the wall mesh in ProjectDB")
+      ->default_val(opt->mesh_name);
 
-  // sub->add_option("-o, --output-name", opt->output_name,
-  //                 "Name for the output textured mesh in ProjectDB")
-  //     ->default_val(opt->output_name);
+  sub->add_option("--instances", opt->instance_cloud_name,
+                  "Name of instance label cloud")
+      ->default_val(opt->instance_cloud_name);
+
+  sub->add_option("-s,--semantic", opt->semantic_cloud_name,
+                  "Name of semantic label cloud")
+      ->default_val(opt->semantic_cloud_name);
+
+  sub->add_option("--mode", opt->mode,
+                  "Boundary mode: 'rect' (AABB) or 'poly' (concave hull)")
+      ->default_val(opt->mode)
+      ->check(CLI::IsMember({"rect", "poly"}));
+
+  sub->add_option("--offset", opt->wall_offset,
+                  "Offset along outward wall normal (meters)")
+      ->default_val(opt->wall_offset)
+      ->check(CLI::Range(0.0, 5.0));
+
+  sub->add_option("--alpha", opt->alpha,
+                  "ConcaveHull alpha for polyline mode")
+      ->default_val(opt->alpha)
+      ->check(CLI::Range(0.01, 10.0));
+
+  sub->add_option("-l,--labels", opt->labels_to_process,
+                  "Semantic labels to treat as windows (comma-separated)")
+      ->delimiter(',');
 
   sub->callback([opt, global_opt]() {
-    spdlog::trace("calling run_subcommand_texture");
-    return run_subcommand_create_windows(*opt, *global_opt);
+    int exit_code = run_subcommand_create_windows(*opt, *global_opt);
+    if (exit_code != RuxError::SUCCESS) {
+      throw CLI::RuntimeError(exit_code);
+    }
   });
 }
-int run_subcommand_create_windows([[maybe_unused]] SubcommandWindowOptions const &opt, const RuxOptions &global_opt) {
-  fs::path project_path = global_opt.project_db;
-  spdlog::info("Create windows in project: {}", project_path.string());
 
-  ReUseX::ProjectDB db(project_path);
+int run_subcommand_create_windows(SubcommandWindowOptions const &opt,
+                                  const RuxOptions &global_opt) {
+  try {
+    fs::path project_path = global_opt.project_db;
+    spdlog::info("Create windows in project: {}", project_path.string());
 
-  // Pre-flight validation: check for mesh and sensor frames
-  auto validation =
-      rux::validation::validate_window_prerequisites(db, "labels");
-  if (!validation) {
-    spdlog::error("{}", validation.error_message);
-    spdlog::info("Resolution: {}", validation.resolution_hint);
-    return RuxError::INVALID_ARGUMENT;
+    ReUseX::ProjectDB db(project_path);
+
+    // Pre-flight validation
+    auto validation =
+        rux::validation::validate_window_prerequisites(db, opt.semantic_cloud_name);
+    if (!validation) {
+      spdlog::error("{}", validation.error_message);
+      spdlog::info("Resolution: {}", validation.resolution_hint);
+      return RuxError::INVALID_ARGUMENT;
+    }
+
+    // Check mesh exists
+    if (!db.has_mesh(opt.mesh_name)) {
+      spdlog::error("Mesh '{}' not found in project", opt.mesh_name);
+      spdlog::info("Resolution: Run 'rux create mesh' to generate wall mesh");
+      return RuxError::INVALID_ARGUMENT;
+    }
+
+    // Log pipeline start
+    int logId = db.log_pipeline_start(
+        "create_windows",
+        fmt::format(R"({{"mode":"{}","offset":{},"alpha":{},"mesh":"{}"}})",
+                    opt.mode, opt.wall_offset, opt.alpha, opt.mesh_name));
+
+    // Load data
+    spdlog::info("Loading point cloud, instance labels, and mesh...");
+    auto cloud = db.point_cloud_xyzrgb("cloud");
+    auto instance_labels = db.point_cloud_label(opt.instance_cloud_name);
+    auto mesh = db.mesh(opt.mesh_name);
+
+    if (!cloud || !instance_labels || !mesh) {
+      spdlog::error("Failed to load required data");
+      db.log_pipeline_end(logId, false);
+      return RuxError::IO;
+    }
+
+    spdlog::info("Loaded {} points, {} instance labels, mesh with {} faces",
+                 cloud->size(), instance_labels->size(), mesh->polygons.size());
+
+    // Reconstruct instance_to_semantic map from label definitions
+    auto label_defs = db.label_definitions(opt.instance_cloud_name);
+    std::map<uint32_t, uint32_t> instance_to_semantic;
+
+    // Parse label definitions: "semantic_class_N_instance_M (P points)"
+    std::regex def_regex(R"(semantic_class_(\d+)_instance_(\d+))");
+    for (const auto &[inst_id, def_str] : label_defs) {
+      std::smatch match;
+      if (std::regex_search(def_str, match, def_regex)) {
+        uint32_t semantic_class = static_cast<uint32_t>(std::stoul(match[1].str()));
+        instance_to_semantic[static_cast<uint32_t>(inst_id)] = semantic_class;
+      }
+    }
+
+    spdlog::info("Parsed {} instance-to-semantic mappings",
+                 instance_to_semantic.size());
+
+    if (instance_to_semantic.empty()) {
+      spdlog::error("No instance-to-semantic mappings found in label definitions");
+      spdlog::info("Resolution: Run 'rux create instances' first");
+      db.log_pipeline_end(logId, false);
+      return RuxError::INVALID_ARGUMENT;
+    }
+
+    // Determine which semantic labels to treat as windows
+    std::vector<uint32_t> window_labels = opt.labels_to_process;
+    if (window_labels.empty()) {
+      // Collect all unique semantic labels
+      std::set<uint32_t> unique_labels;
+      for (const auto &[_, sem] : instance_to_semantic)
+        unique_labels.insert(sem);
+      window_labels.assign(unique_labels.begin(), unique_labels.end());
+      spdlog::info("No --labels specified, processing all semantic labels: [{}]",
+                   fmt::join(window_labels, ", "));
+    } else {
+      spdlog::info("Processing semantic labels: [{}]",
+                   fmt::join(window_labels, ", "));
+    }
+
+    // Extract wall candidates from mesh
+    spdlog::info("Extracting wall candidates from mesh...");
+    auto walls = ReUseX::geometry::extract_wall_candidates(*mesh);
+    spdlog::info("Found {} wall candidates", walls.size());
+
+    // Configure options
+    ReUseX::geometry::CreateWindowsOptions create_opts;
+    create_opts.mode = (opt.mode == "poly")
+                           ? ReUseX::geometry::WindowBoundaryMode::polyline
+                           : ReUseX::geometry::WindowBoundaryMode::rectangle;
+    create_opts.wall_offset = opt.wall_offset;
+    create_opts.alpha = opt.alpha;
+
+    // Create windows
+    spdlog::info("Creating window components...");
+    auto result = ReUseX::geometry::create_windows(
+        cloud, instance_labels, instance_to_semantic, walls, window_labels,
+        create_opts);
+
+    // Save components
+    for (const auto &comp : result.components) {
+      db.save_building_component(comp);
+      spdlog::debug("Saved component '{}' ({} vertices)", comp.name,
+                    comp.boundary.vertices.size());
+    }
+
+    // Summary
+    spdlog::info("Summary:");
+    spdlog::info("  Window components created: {}", result.components.size());
+    spdlog::info("  Unmatched instances: {}", result.unmatched_instances.size());
+    if (!result.unmatched_instances.empty()) {
+      spdlog::warn("  Unmatched instance IDs: [{}]",
+                   fmt::join(result.unmatched_instances, ", "));
+    }
+
+    db.log_pipeline_end(logId, true);
+    return RuxError::SUCCESS;
+
+  } catch (const std::exception &e) {
+    spdlog::error("Window creation failed: {}", e.what());
+    return RuxError::GENERIC;
   }
-
-  return RuxError::NOT_IMPLEMENTED;
 }

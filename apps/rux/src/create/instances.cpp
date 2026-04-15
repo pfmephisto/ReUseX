@@ -156,13 +156,14 @@ int run_subcommand_segment_instances(const SubcommandSegInstancesOptions &opt, c
                         "segment_instances");
 
     // Save metadata as label definitions
-    // Format: instance_id -> "semantic_class_N (M points)"
+    // Format: instance_id -> "semantic_class_N_instance_M (P points)"
     std::map<int, std::string> label_definitions;
     for (const auto &[instance_id, semantic_class] :
          result.instance_to_semantic) {
       size_t size = result.instance_sizes.at(instance_id);
       label_definitions[static_cast<int>(instance_id)] = fmt::format(
-          "semantic_class_{} ({} points)", semantic_class, size);
+          "semantic_class_{}_instance_{} ({} points)", semantic_class,
+          instance_id, size);
     }
     db.save_label_definitions(opt.output_cloud_name, label_definitions);
 

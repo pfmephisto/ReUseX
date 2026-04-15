@@ -3,13 +3,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "log.hpp"
-#include <reusex/core/ProjectDB.hpp>
 #include <nlohmann/json.hpp>
+#include <reusex/core/ProjectDB.hpp>
 #include <spdlog/spdlog.h>
 
-#include <iostream>
-#include <iomanip>
+#include <fmt/color.h>
+#include <fmt/format.h>
+
 #include <chrono>
+#include <iomanip>
+#include <iostream>
 #include <sstream>
 
 using json = nlohmann::json;
@@ -17,7 +20,8 @@ using json = nlohmann::json;
 namespace {
 
 // Calculate duration between two ISO timestamps
-std::string calculate_duration(const std::string &start, const std::string &end) {
+std::string calculate_duration(const std::string &start,
+                               const std::string &end) {
   if (end.empty()) {
     return "running";
   }
@@ -55,66 +59,82 @@ std::string calculate_duration(const std::string &start, const std::string &end)
 }
 
 // Format terminal output with execution history
-void format_terminal_output(const std::vector<ReUseX::ProjectDB::PipelineLogEntry> &entries) {
+void format_terminal_output(
+    const std::vector<ReUseX::ProjectDB::PipelineLogEntry> &entries) {
   if (entries.empty()) {
-    std::cout << "No pipeline executions recorded.\n";
+    fmt::print("No pipeline executions recorded.\n");
     return;
   }
 
-  std::cout << fmt::format("Pipeline Execution History ({} entries)\n", entries.size());
-  std::cout << fmt::format("{}\n\n", std::string(80, '='));
+  fmt::print("Pipeline Execution History ({} entries)\n", entries.size());
+  fmt::print("{}\n\n", std::string(80, '='));
 
   for (const auto &entry : entries) {
-    // Status indicator
+    // Status indicator with color
     std::string status_icon;
     if (entry.status == "success") {
-      status_icon = "✓";
+      status_icon =
+          fmt::format("{}", fmt::styled("✓", fmt::fg(fmt::color::green)));
     } else if (entry.status == "failed") {
-      status_icon = "✗";
+      status_icon =
+          fmt::format("{}", fmt::styled("✗", fmt::fg(fmt::color::red)));
     } else {
-      status_icon = "⋯";
+      status_icon =
+          fmt::format("{}", fmt::styled("⋯", fmt::fg(fmt::color::yellow)));
     }
 
-    std::cout << fmt::format("{} [{}] {}\n", status_icon, entry.id, entry.stage);
-    std::cout << fmt::format("  Started:  {}\n", entry.started_at);
+    // Calculate duration
+    std::string duration =
+        calculate_duration(entry.started_at, entry.finished_at);
 
+    // Build main line: [ID] stage_name   STATUS duration  start -> end
+    std::string main_line;
     if (!entry.finished_at.empty()) {
-      std::cout << fmt::format("  Finished: {}\n", entry.finished_at);
-      std::cout << fmt::format("  Duration: {}\n",
-                               calculate_duration(entry.started_at, entry.finished_at));
+      // Finished: show full timestamp range and duration
+      main_line = fmt::format("[{:>3}]{} {:<20}  {:>6}  {} -> {}", entry.id,
+                              status_icon, entry.stage, duration,
+                              entry.started_at, entry.finished_at);
     } else {
-      std::cout << "  Status:   Running...\n";
+      // Running: show start time only with arrow
+      main_line = fmt::format("[{:>3}] {:<20} {}        {} ->", entry.id,
+                              entry.stage, status_icon, entry.started_at);
     }
 
-    std::cout << fmt::format("  Status:   {}\n", entry.status);
+    fmt::print("{}\n", main_line);
 
+    // Parameters on second line (indented)
     if (!entry.parameters.empty() && entry.parameters != "{}") {
-      std::cout << fmt::format("  Parameters: {}\n", entry.parameters);
+      // std::cout << fmt::styled(
+      //     fmt::format("     Parameters: {}\n", entry.parameters),
+      //     fmt::fg(fmt::color::light_slate_gray));
+      fmt::print("{}", fmt::styled(fmt::format("     Parameters: {}\n",
+                                               entry.parameters),
+                                   fmt::fg(fmt::color::light_slate_gray)));
     }
 
+    // Error message on third line (indented, red text)
     if (!entry.error_msg.empty()) {
-      std::cout << fmt::format("  Error: {}\n", entry.error_msg);
+      fmt::print("{}", fmt::styled(fmt::format("     Error: {}\n", entry.error_msg),
+                                   fmt::fg(fmt::color::red)));
     }
-
-    std::cout << "\n";
   }
 }
 
 // Format JSON output
-void format_json_output(const std::vector<ReUseX::ProjectDB::PipelineLogEntry> &entries) {
+void format_json_output(
+    const std::vector<ReUseX::ProjectDB::PipelineLogEntry> &entries) {
   json j = json::array();
 
   for (const auto &entry : entries) {
-    json entry_json = {
-      {"id", entry.id},
-      {"stage", entry.stage},
-      {"started_at", entry.started_at},
-      {"status", entry.status}
-    };
+    json entry_json = {{"id", entry.id},
+                       {"stage", entry.stage},
+                       {"started_at", entry.started_at},
+                       {"status", entry.status}};
 
     if (!entry.finished_at.empty()) {
       entry_json["finished_at"] = entry.finished_at;
-      entry_json["duration_seconds"] = calculate_duration(entry.started_at, entry.finished_at);
+      entry_json["duration_seconds"] =
+          calculate_duration(entry.started_at, entry.finished_at);
     }
 
     if (!entry.parameters.empty()) {
@@ -133,16 +153,16 @@ void format_json_output(const std::vector<ReUseX::ProjectDB::PipelineLogEntry> &
     j.push_back(entry_json);
   }
 
-  std::cout << j.dump(2) << std::endl;
+  fmt::print("{}\n", j.dump(2));
 }
 
 } // anonymous namespace
 
-void setup_subcommand_log(CLI::App &app, std::shared_ptr<RuxOptions> global_opt) {
+void setup_subcommand_log(CLI::App &app,
+                          std::shared_ptr<RuxOptions> global_opt) {
   auto opt = std::make_shared<SubcommandLogOptions>();
 
-  auto *sub = app.add_subcommand(
-      "log", "Display pipeline execution history");
+  auto *sub = app.add_subcommand("log", "Display pipeline execution history");
 
   sub->footer(R"(
 DESCRIPTION:
@@ -187,7 +207,8 @@ NOTES:
   });
 }
 
-int run_subcommand_log(SubcommandLogOptions const &opt, const RuxOptions &global_opt) {
+int run_subcommand_log(SubcommandLogOptions const &opt,
+                       const RuxOptions &global_opt) {
   try {
     fs::path project_path = global_opt.project_db;
     // Open project database in read-only mode

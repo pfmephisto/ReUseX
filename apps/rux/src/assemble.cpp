@@ -80,7 +80,7 @@ NOTES:
  * @param opt Options containing input file paths and output database path.
  * @return Exit code (RuxError::NOT_IMPLEMENTED currently).
  */
-int run_subcommand_assemble(SubcommandAssembleOptions const &opt, const RuxOptions &global_opt) {
+int run_subcommand_assemble(SubcommandAssembleOptions const &opt, [[maybe_unused]] const RuxOptions &global_opt) {
 
   spdlog::warn("The assemble command is not yet implemented.");
   spdlog::debug("Input files: {}", fmt::join(opt.paths_in, ", "));

@@ -59,7 +59,7 @@ NOTES:
     return run_subcommand_create_windows(*opt, *global_opt);
   });
 }
-int run_subcommand_create_windows(SubcommandWindowOptions const &opt, const RuxOptions &global_opt) {
+int run_subcommand_create_windows([[maybe_unused]] SubcommandWindowOptions const &opt, const RuxOptions &global_opt) {
   fs::path project_path = global_opt.project_db;
   spdlog::info("Create windows in project: {}", project_path.string());
 

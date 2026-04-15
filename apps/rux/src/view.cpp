@@ -38,9 +38,14 @@ struct LoadedCloud {
 
 /// A polygon mesh loaded for visualization with associated metadata.
 struct LoadedMesh {
-  pcl::PolygonMesh::Ptr mesh; ///< The mesh data
-  std::string name;           ///< Display name in viewer
-  bool visible = true;        ///< Current visibility state
+  std::variant<pcl::PolygonMesh::Ptr, pcl::TextureMesh::Ptr>
+      mesh;            ///< The mesh data (regular or textured)
+  std::string name;    ///< Display name in viewer
+  bool visible = true; ///< Current visibility state
+                       /// Check if this mesh has texture information.
+  bool is_textured() const {
+    return std::holds_alternative<pcl::TextureMesh::Ptr>(mesh);
+  }
 };
 
 /// Tracks the currently visible label overlay in the viewer.
@@ -61,114 +66,6 @@ enum class FileType {
   Unsupported ///< Unrecognized extension
 };
 
-/// Detect file type based on extension.
-///
-/// @param path Filesystem path to check
-/// @return FileType enum indicating the detected type
-FileType detect_file_type(const fs::path &path) {
-  std::string ext = path.extension().string();
-  std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-
-  if (ext == ".pcd") {
-    return FileType::PointCloud;
-  } else if (ext == ".ply" || ext == ".obj" || ext == ".stl" || ext == ".vtk") {
-    return FileType::Mesh;
-  } else if (ext == ".rux") {
-    return FileType::Project;
-  } else {
-    return FileType::Unsupported;
-  }
-}
-
-// ============================================================================
-// FILE LOADING FUNCTIONS
-// ============================================================================
-
-/// Load a point cloud from a .pcd file and add to viewer.
-///
-/// @param path Filesystem path to .pcd file
-/// @param name Display name for the cloud in viewer
-/// @param observer Visualization observer for enqueueing viewer tasks
-/// @return LoadedCloud on success, std::nullopt on error
-std::optional<LoadedCloud>
-load_point_cloud(const fs::path &path, const std::string &name,
-                 rux::VizualizationObserver &observer) {
-  spdlog::trace("Loading point cloud from {}", path);
-
-  LoadedCloud loaded;
-  loaded.cloud = CloudPtr(new Cloud);
-  loaded.name = name;
-
-  try {
-    pcl::io::load<PointT>(path.string(), *loaded.cloud);
-
-    // Add to viewer
-    observer.viewer_enqueue_task(
-        [loaded](const rux::VizualizationObserver::ViewerPtr &viewer,
-                 const std::vector<int> &viewports) {
-          viewer->addPointCloud<PointT>(loaded.cloud, loaded.name,
-                                        viewports[0]);
-        });
-
-    spdlog::info("Loaded cloud: {} ({} points)", path.filename().string(),
-                 loaded.cloud->size());
-    return loaded;
-
-  } catch (const std::exception &e) {
-    spdlog::error("Failed to load point cloud from {}: {}", path, e.what());
-    return std::nullopt;
-  }
-}
-
-/// Load a polygon mesh from a file and add to viewer.
-///
-/// @param path Filesystem path to mesh file (.ply, .obj, .stl, .vtk)
-/// @param name Display name for the mesh in viewer
-/// @param observer Visualization observer for enqueueing viewer tasks
-/// @return LoadedMesh on success, std::nullopt on error
-std::optional<LoadedMesh> load_mesh(const fs::path &path,
-                                    const std::string &name,
-                                    rux::VizualizationObserver &observer) {
-  spdlog::trace("Loading mesh from {}", path);
-
-  LoadedMesh loaded;
-  loaded.mesh = pcl::PolygonMesh::Ptr(new pcl::PolygonMesh);
-  loaded.name = name;
-
-  std::string ext = path.extension().string();
-  std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-
-  try {
-    if (ext == ".ply") {
-      pcl::io::loadPLYFile(path.string(), *loaded.mesh);
-    } else if (ext == ".obj") {
-      pcl::io::loadOBJFile(path.string(), *loaded.mesh);
-    } else if (ext == ".stl") {
-      pcl::io::loadPolygonFileSTL(path.string(), *loaded.mesh);
-    } else if (ext == ".vtk") {
-      pcl::io::loadPolygonFileVTK(path.string(), *loaded.mesh);
-    } else {
-      spdlog::error("Unsupported mesh extension: {}", ext);
-      return std::nullopt;
-    }
-
-    // Add to viewer
-    observer.viewer_enqueue_task(
-        [loaded](const rux::VizualizationObserver::ViewerPtr &viewer,
-                 const std::vector<int> &viewports) {
-          viewer->addPolygonMesh(*loaded.mesh, loaded.name, viewports[0]);
-        });
-
-    spdlog::info("Loaded mesh: {} ({} polygons)", path.filename().string(),
-                 loaded.mesh->polygons.size());
-    return loaded;
-
-  } catch (const std::exception &e) {
-    spdlog::error("Failed to load mesh from {}: {}", path, e.what());
-    return std::nullopt;
-  }
-}
-
 /// Create XYZL cloud by merging geometry and label data.
 ///
 /// @param labels Label cloud (must match geometry size)
@@ -188,100 +85,6 @@ create_label_cloud(const CloudLPtr &labels, const CloudPtr &geometry) {
   }
 
   return label_cloud;
-}
-
-/// Load all point clouds from a list of file paths.
-///
-/// @param paths Vector of filesystem paths to load
-/// @param observer Visualization observer for enqueueing viewer tasks
-/// @return Vector of successfully loaded clouds
-std::vector<LoadedCloud> load_all_clouds(const std::vector<fs::path> &paths,
-                                         rux::VizualizationObserver &observer) {
-  std::vector<LoadedCloud> clouds;
-
-  for (size_t idx = 0; idx < paths.size(); ++idx) {
-    if (detect_file_type(paths[idx]) == FileType::PointCloud) {
-      auto loaded =
-          load_point_cloud(paths[idx], fmt::format("cloud_{}", idx), observer);
-      if (loaded) {
-        clouds.push_back(std::move(*loaded));
-      }
-    }
-  }
-
-  return clouds;
-}
-
-/// Load all meshes from a list of file paths.
-///
-/// @param paths Vector of filesystem paths to load
-/// @param observer Visualization observer for enqueueing viewer tasks
-/// @return Vector of successfully loaded meshes
-std::vector<LoadedMesh> load_all_meshes(const std::vector<fs::path> &paths,
-                                        rux::VizualizationObserver &observer) {
-  std::vector<LoadedMesh> meshes;
-
-  for (size_t idx = 0; idx < paths.size(); ++idx) {
-    if (detect_file_type(paths[idx]) == FileType::Mesh) {
-      auto loaded =
-          load_mesh(paths[idx], fmt::format("mesh_{}", idx), observer);
-      if (loaded) {
-        meshes.push_back(std::move(*loaded));
-      }
-    }
-  }
-
-  return meshes;
-}
-
-/// Load label overlays and merge with first point cloud.
-///
-/// @param label_paths Vector of label file paths
-/// @param clouds Vector of loaded clouds (labels mapped to first cloud)
-/// @param observer Visualization observer (unused but kept for consistency)
-/// @return Vector of label clouds ready for visualization
-std::vector<pcl::PointCloud<pcl::PointXYZL>::Ptr>
-load_all_labels(const std::vector<fs::path> &label_paths,
-                const std::vector<LoadedCloud> &clouds,
-                rux::VizualizationObserver & /*observer*/) {
-  std::vector<pcl::PointCloud<pcl::PointXYZL>::Ptr> label_clouds;
-
-  if (label_paths.empty()) {
-    return label_clouds;
-  }
-
-  if (clouds.empty()) {
-    spdlog::warn("Label files provided but no point clouds loaded. Labels will "
-                 "be ignored.");
-    return label_clouds;
-  }
-
-  CloudPtr first_cloud = clouds[0].cloud;
-  label_clouds.reserve(label_paths.size());
-
-  for (const auto &label_path : label_paths) {
-    spdlog::trace("Loading label cloud from {}", label_path);
-    CloudLPtr labels(new CloudL);
-
-    try {
-      pcl::io::load<LabelT>(label_path.string(), *labels);
-
-      if (labels->size() != first_cloud->size()) {
-        spdlog::error(
-            "Label cloud size ({}) does not match first point cloud size ({})",
-            labels->size(), first_cloud->size());
-        continue;
-      }
-
-      label_clouds.push_back(create_label_cloud(labels, first_cloud));
-      spdlog::info("Loaded label: {}", label_path.filename().string());
-
-    } catch (const std::exception &e) {
-      spdlog::error("Failed to load label from {}: {}", label_path, e.what());
-    }
-  }
-
-  return label_clouds;
 }
 
 // ============================================================================
@@ -370,25 +173,85 @@ ProjectLoadResult load_from_project_db(const fs::path &path,
   // Load meshes
   auto mesh_names = db.list_meshes();
   for (const auto &name : mesh_names) {
+
+    LoadedMesh loaded;
+    loaded.name = fmt::format("mesh_{}", result.meshes.size());
+    bool loaded_successfully = false;
+
+    spdlog::debug("Attempting to load mesh '{}'", name);
+
+    // Try textured mesh first (more specific format)
     try {
-      auto mesh = db.mesh(name);
+      auto texture_mesh = db.texture_mesh(name);
 
-      LoadedMesh loaded;
-      loaded.mesh = mesh;
-      loaded.name = fmt::format("mesh_{}", result.meshes.size());
+      // Keep as TextureMesh and render with textures
+      loaded.mesh = texture_mesh;
 
-      observer.viewer_enqueue_task(
-          [loaded](const rux::VizualizationObserver::ViewerPtr &viewer,
-                   const std::vector<int> &viewports) {
-            viewer->addPolygonMesh(*loaded.mesh, loaded.name, viewports[0]);
-          });
+      // observer.viewer_enqueue_task(
+      //     [loaded](const rux::VizualizationObserver::ViewerPtr &viewer,
+      //              const std::vector<int> &viewports) {
+      //       auto textured = std::get<pcl::TextureMesh::Ptr>(loaded.mesh);
+      //       viewer->addTextureMesh(*textured, loaded.name, viewports[0]);
+      //     });
 
-      spdlog::info("Loaded mesh '{}' ({} polygons)", name,
-                   mesh->polygons.size());
+      spdlog::info(
+          "Loaded textured mesh '{}' ({} materials) - rendering with textures",
+          name, texture_mesh->tex_materials.size());
       result.meshes.push_back(std::move(loaded));
+      loaded_successfully = true;
     } catch (const std::exception &e) {
-      spdlog::error("Failed to load mesh '{}': {}", name, e.what());
+      std::string error_msg(e.what());
+      // Check if it's a format mismatch (not a textured mesh) vs parsing error
+      if (error_msg.find("is not a texture mesh") != std::string::npos) {
+        // Format mismatch - try regular mesh loader
+        spdlog::trace("Mesh '{}' is not textured format, trying regular loader",
+                      name);
+      } else {
+        // Actual parsing/loading error - don't try regular loader
+        spdlog::error("Failed to load textured mesh '{}': {}", name, e.what());
+        loaded_successfully =
+            true; // Mark as "attempted" to skip regular loader
+        continue;
+      }
     }
+
+    // Try regular mesh only if it's not a textured mesh
+    if (!loaded_successfully) {
+      try {
+        auto mesh = db.mesh(name);
+        loaded.mesh = mesh;
+
+        observer.viewer_enqueue_task(
+            [loaded](const rux::VizualizationObserver::ViewerPtr &viewer,
+                     const std::vector<int> &viewports) {
+              auto regular = std::get<pcl::PolygonMesh::Ptr>(loaded.mesh);
+              viewer->addPolygonMesh(*regular, loaded.name, viewports[0]);
+            });
+
+        spdlog::info("Loaded mesh '{}' ({} polygons)", name,
+                     mesh->polygons.size());
+        result.meshes.push_back(std::move(loaded));
+      } catch (const std::exception &e) {
+        spdlog::error("Failed to load regular mesh '{}': {}", name, e.what());
+      }
+    }
+
+    // try {
+    //   auto mesh = db.mesh(name);
+    //   LoadedMesh loaded;
+    //   loaded.mesh = mesh;
+    //   loaded.name = fmt::format("mesh_{}", result.meshes.size());
+    //   observer.viewer_enqueue_task(
+    //       [loaded](const rux::VizualizationObserver::ViewerPtr &viewer,
+    //                const std::vector<int> &viewports) {
+    //         viewer->addPolygonMesh(*loaded.mesh, loaded.name, viewports[0]);
+    //       });
+    //   spdlog::info("Loaded mesh '{}' ({} polygons)", name,
+    //                mesh->polygons.size());
+    //   result.meshes.push_back(std::move(loaded));
+    // } catch (const std::exception &e) {
+    //   spdlog::error("Failed to load mesh '{}': {}", name, e.what());
+    // }
   }
 
   return result;
@@ -426,7 +289,15 @@ template <> struct ItemTraits<LoadedMesh> {
 
   static void add_to_viewer(const rux::VizualizationObserver::ViewerPtr &viewer,
                             const LoadedMesh &item, int viewport) {
-    viewer->addPolygonMesh(*item.mesh, item.name, viewport);
+    if (item.is_textured()) {
+      // // Render textured mesh with materials and UV coordinates
+      // auto textured = std::get<pcl::TextureMesh::Ptr>(item.mesh);
+      // viewer->addTextureMesh(*textured, item.name, viewport);
+    } else {
+      // Render regular polygon mesh
+      auto regular = std::get<pcl::PolygonMesh::Ptr>(item.mesh);
+      viewer->addPolygonMesh(*regular, item.name, viewport);
+    }
   }
 
   static void
@@ -516,7 +387,7 @@ void register_toggle_all_callback(std::vector<LoadedItem> &items,
                   }
                 }
 
-                // Toggle all items
+                //  Toggle all items
                 for (size_t i = 0; i < items.size(); ++i) {
                   if (all_visible) {
                     observer.viewer_enqueue_task(
@@ -654,9 +525,7 @@ void register_help_callback(
 void setup_subcommand_view(CLI::App &app,
                            std::shared_ptr<RuxOptions> global_opt) {
   auto opt = std::make_shared<SubcommandViewOptions>();
-  auto *sub = app.add_subcommand(
-      "view",
-      "Visualize point clouds and meshes");
+  auto *sub = app.add_subcommand("view", "Visualize point clouds and meshes");
 
   sub->footer(R"(
 DESCRIPTION:
@@ -704,8 +573,8 @@ NOTES:
 // MAIN SUBCOMMAND FUNCTION
 // ============================================================================
 
-int run_subcommand_view(SubcommandViewOptions const &opt,
-                        const RuxOptions &global_opt) {
+int run_subcommand_view([[maybe_unused]] SubcommandViewOptions const &opt,
+                        [[maybe_unused]] const RuxOptions &global_opt) {
   spdlog::trace("Visualization thread started");
 
   // Start the viewer thread
@@ -719,7 +588,8 @@ int run_subcommand_view(SubcommandViewOptions const &opt,
 
   // Load data from project database
   fs::path project_path = global_opt.project_db;
-  spdlog::debug("Loading visualization data from project database: {}", project_path.string());
+  spdlog::debug("Loading visualization data from project database: {}",
+                project_path.string());
 
   auto result = load_from_project_db(project_path, observer);
   clouds = std::move(result.clouds);

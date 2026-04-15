@@ -64,7 +64,7 @@ NOTES:
   });
 };
 
-int run_subcommand_project(SubcommandProjectOptions const &opt, const RuxOptions &global_opt) {
+int run_subcommand_project([[maybe_unused]] SubcommandProjectOptions const &opt, const RuxOptions &global_opt) {
   fs::path project_path = global_opt.project_db;
   spdlog::info("Projecting labels in project: {}", project_path.string());
 

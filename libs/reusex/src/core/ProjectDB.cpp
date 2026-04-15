@@ -2978,7 +2978,33 @@ void ProjectDB::set_passport_property(std::string_view documentGuid,
     leksikon_guid = reinterpret_cast<const char *>(
         sqlite3_column_text(prop_stmt, 1));
   } else {
-    throw std::runtime_error("Unknown property: " + std::string(fieldName));
+    // Auto-create property definition for custom/unknown fields
+    property_id = "custom:" + std::string(fieldName);
+    leksikon_guid = property_id;
+
+    const char *insert_def =
+        "INSERT INTO property_definitions "
+        "(id, leksikon_guid, name_en, category, data_type) "
+        "VALUES (?, ?, ?, 'Custom', 'string');";
+    sqlite3_stmt *def_stmt;
+    if (sqlite3_prepare_v2(impl_->db, insert_def, -1, &def_stmt, nullptr) !=
+        SQLITE_OK) {
+      throw std::runtime_error(
+          "Failed to prepare custom property definition: " +
+          std::string(sqlite3_errmsg(impl_->db)));
+    }
+    StmtGuard def_guard(def_stmt);
+    sqlite3_bind_text(def_stmt, 1, property_id.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(def_stmt, 2, leksikon_guid.c_str(), -1,
+                      SQLITE_TRANSIENT);
+    sqlite3_bind_text(def_stmt, 3, fieldName.data(),
+                      static_cast<int>(fieldName.size()), SQLITE_STATIC);
+
+    if (sqlite3_step(def_stmt) != SQLITE_DONE) {
+      throw std::runtime_error(
+          "Failed to create custom property definition: " +
+          std::string(sqlite3_errmsg(impl_->db)));
+    }
   }
 
   // Upsert the property value

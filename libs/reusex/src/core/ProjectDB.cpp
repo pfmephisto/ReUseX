@@ -2308,6 +2308,53 @@ class ProjectDB::Impl {
     summary.path = dbPath;
     summary.schema_version = getCurrentSchemaVersion();
 
+    // Query projects
+    {
+      const char *sql =
+          "SELECT id, name, building_address, year_of_construction, "
+          "survey_date, survey_organisation, notes "
+          "FROM projects ORDER BY id;";
+      sqlite3_stmt *stmt;
+      if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+        throw std::runtime_error("Failed to query projects: " +
+                                 std::string(sqlite3_errmsg(db)));
+      StmtGuard guard(stmt);
+
+      while (sqlite3_step(stmt) == SQLITE_ROW) {
+        ProjectDB::ProjectSummary::ProjectInfo project;
+
+        // ID is required, should never be NULL
+        const char *id_str =
+            reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
+        project.id = id_str ? id_str : "";
+
+        // Optional text fields - check for NULL
+        const char *name_str =
+            reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1));
+        project.name = name_str ? name_str : "";
+
+        const char *address_str =
+            reinterpret_cast<const char *>(sqlite3_column_text(stmt, 2));
+        project.building_address = address_str ? address_str : "";
+
+        project.year_of_construction = sqlite3_column_int(stmt, 3);
+
+        const char *survey_date_str =
+            reinterpret_cast<const char *>(sqlite3_column_text(stmt, 4));
+        project.survey_date = survey_date_str ? survey_date_str : "";
+
+        const char *survey_org_str =
+            reinterpret_cast<const char *>(sqlite3_column_text(stmt, 5));
+        project.survey_organisation = survey_org_str ? survey_org_str : "";
+
+        const char *notes_str =
+            reinterpret_cast<const char *>(sqlite3_column_text(stmt, 6));
+        project.notes = notes_str ? notes_str : "";
+
+        summary.projects.push_back(std::move(project));
+      }
+    }
+
     // Query point clouds
     {
       const char *sql = "SELECT name, point_type, point_count, width, height "
@@ -2428,17 +2475,49 @@ class ProjectDB::Impl {
 
     // Query material passports
     {
-      const char *sql = "SELECT COUNT(*) FROM material_passports;";
+      const char *sql = "SELECT "
+                        "  mp.id, "
+                        "  mp.document_guid, "
+                        "  mp.created_at, "
+                        "  mp.version_number, "
+                        "  (SELECT COUNT(*) FROM passport_property_values ppv "
+                        "   WHERE ppv.passport_id = mp.id) as property_count "
+                        "FROM material_passports mp "
+                        "ORDER BY mp.created_at;";
+
       sqlite3_stmt *stmt;
       if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
-        throw std::runtime_error("Failed to count material passports: " +
+        throw std::runtime_error("Failed to query material passports: " +
                                  std::string(sqlite3_errmsg(db)));
       StmtGuard guard(stmt);
 
-      if (sqlite3_step(stmt) == SQLITE_ROW) {
-        summary.material_passport_count = sqlite3_column_int(stmt, 0);
-      } else {
-        summary.material_passport_count = 0;
+      while (sqlite3_step(stmt) == SQLITE_ROW) {
+        ProjectSummary::MaterialInfo info;
+
+        // Extract ID (column 0)
+        const char *id_str =
+            reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
+        info.id = id_str ? id_str : "";
+
+        // Extract GUID (column 1)
+        const char *guid_str =
+            reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1));
+        info.guid = guid_str ? guid_str : "";
+
+        // Extract created_at (column 2)
+        const char *created_str =
+            reinterpret_cast<const char *>(sqlite3_column_text(stmt, 2));
+        info.created_at = created_str ? created_str : "";
+
+        // Extract version_number (column 3)
+        const char *version_str =
+            reinterpret_cast<const char *>(sqlite3_column_text(stmt, 3));
+        info.version_number = version_str ? version_str : "";
+
+        // Extract property_count (column 4)
+        info.property_count = sqlite3_column_int(stmt, 4);
+
+        summary.materials.push_back(std::move(info));
       }
     }
 

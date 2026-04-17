@@ -9,6 +9,7 @@
 
 #include <fmt/color.h>
 #include <fmt/format.h>
+#include <fmt/ranges.h>
 #include <range/v3/all.hpp>
 
 #include <iostream>
@@ -26,24 +27,62 @@ void format_terminal_output(const ReUseX::ProjectDB::ProjectSummary &summary) {
   constexpr std::string_view indent = "  ";
 
   fmt::print("Project: {}\n", summary.path.string());
-  fmt::print("Schema Version: {}\n\n", summary.schema_version);
+  fmt::print(
+      "Schema Version: {}\n\n",
+      fmt::styled(summary.schema_version, fmt::fg(fmt::terminal_color::red)));
+
+  // Projects section
+  if (!summary.projects.empty()) {
+    fmt::print("{}",
+               fmt::format(loc, "Projects: {:L}\n", summary.projects.size()));
+
+    for (const auto &project : summary.projects) {
+      // Build main project line with available fields
+      std::vector<std::string> parts;
+
+      if (!project.name.empty()) {
+        parts.push_back(fmt::format("\"{}\"", project.name));
+      }
+
+      if (!project.building_address.empty()) {
+        parts.push_back(project.building_address);
+      }
+
+      if (project.year_of_construction > 0) {
+        parts.push_back(fmt::format("Built: {}", project.year_of_construction));
+      }
+
+      if (!project.survey_date.empty()) {
+        parts.push_back(fmt::format("Survey: {}", project.survey_date));
+      }
+
+      if (!project.survey_organisation.empty()) {
+        parts.push_back(fmt::format("Org: {}", project.survey_organisation));
+      }
+
+      // Display ID and main info on one line
+      fmt::print("{}{}  {}\n", indent,
+                 fmt::styled(project.id, fmt::fg(fmt::terminal_color::cyan)),
+                 fmt::join(parts, " | "));
+
+      // Display notes on indented line if present
+      if (!project.notes.empty()) {
+        fmt::print("{}  Note: {}\n", indent, project.notes);
+      }
+    }
+
+    fmt::print("\n");
+  }
 
   // Sensor frames section
-  if (summary.sensor_frames.total_count > 0) {
-    if (summary.sensor_frames.width > 0 && summary.sensor_frames.height > 0) {
-      fmt::print("{}", fmt::format(loc, "Sensor Frames: {:L} frames ({}x{})\n",
-                                   summary.sensor_frames.total_count,
-                                   summary.sensor_frames.width,
-                                   summary.sensor_frames.height));
-    } else {
-      fmt::print("{}", fmt::format(loc, "Sensor Frames: {:L} frames\n",
-                                   summary.sensor_frames.total_count));
-    }
-    fmt::print("{}", fmt::format(loc, "{}Segmented: {:L} frames\n", indent,
-                                 summary.sensor_frames.segmented_count));
-  } else {
-    fmt::print("{}", fmt::format(loc, "Sensor Frames: 0 frames\n"));
-  }
+  auto sensor_frame_shape =
+      summary.sensor_frames.total_count > 0
+          ? fmt::format(loc, "({}x{})", summary.sensor_frames.width,
+                        summary.sensor_frames.height)
+          : "";
+  fmt::print("{}", fmt::format(loc, "Sensor Frames: {:L} frames {}\n",
+                               summary.sensor_frames.total_count,
+                               sensor_frame_shape));
   fmt::print("\n");
 
   // Point clouds section
@@ -56,29 +95,29 @@ void format_terminal_output(const ReUseX::ProjectDB::ProjectSummary &summary) {
       })->name.size();
 
   for (const auto &cloud : summary.clouds) {
-    std::string org = cloud.organized ? "org" : "unorg";
-    auto org_color = cloud.organized ? fmt::color::green : fmt::color::red;
+    std::string org = cloud.organized ? "O" : "U";
+    auto org_color = cloud.organized ? fmt::terminal_color::green
+                                     : fmt::terminal_color::yellow;
 
-    auto dims = fmt::format(loc, "{:>8L}x{:L} {}", cloud.width, cloud.height,
-                            fmt::styled(org, fmt::fg(org_color)));
+    auto dims = fmt::format(
+        loc, "[{:>8L}{}{:L}]{}", cloud.width,
+        fmt::styled("x", fmt::fg(fmt::terminal_color::bright_black)),
+        cloud.height, fmt::styled(org, fmt::fg(org_color)));
 
-    fmt::print("{}", fmt::format(loc, "{}{:<{}}  {:<13} {:>8L} {}\n", indent,
-                                 cloud.name, clouds_max_length, cloud.type,
-                                 cloud.point_count, dims));
+    auto labels =
+        cloud.type == "Label" && !cloud.labels.empty()
+            ? fmt::format(loc, "({:L} labels) {} {}", cloud.labels.size(),
+                          fmt::join(cloud.labels | ranges::views::take(5) |
+                                        ranges::views::values,
+                                    " "),
+                          cloud.labels.size() > 5 ? "..." : "")
+            : "";
+    auto type = fmt::format(
+        "{:<13}",
+        fmt::styled(cloud.type, fmt::fg(fmt::terminal_color::bright_blue)));
 
-    // Show labels for Label clouds
-    if (cloud.type == "Label" && !cloud.labels.empty()) {
-      std::string label_list;
-      bool first = true;
-      for (const auto &[id, name] : cloud.labels) {
-        if (!first)
-          label_list += ", ";
-        label_list += name;
-        first = false;
-      }
-      fmt::print("{}", fmt::format(loc, "{}Labels: {} ({:L} classes)\n", indent,
-                                   label_list, cloud.labels.size()));
-    }
+    fmt::print("{}", fmt::format(loc, "{}{:<{}} {} {} {}\n", indent, cloud.name,
+                                 clouds_max_length, type, dims, labels));
   }
   fmt::print("\n");
 
@@ -93,10 +132,29 @@ void format_terminal_output(const ReUseX::ProjectDB::ProjectSummary &summary) {
                                  mesh.name, mesh_max_length, mesh.vertex_count,
                                  mesh.face_count));
   }
+  fmt::print("\n");
 
   // Material passports section
-  fmt::print("{}", fmt::format(loc, "Materials: {:L}\n",
-                               summary.material_passport_count));
+  fmt::print("{}",
+             fmt::format(loc, "Materials: {:L}\n", summary.materials.size()));
+
+  int material_max_length = 0;
+  if (!summary.materials.empty()) {
+    material_max_length =
+        ranges::max_element(summary.materials, std::less<>{}, [](auto &item) {
+          return item.id.size();
+        })->id.size();
+  }
+
+  for (const auto &material : summary.materials) {
+    fmt::print(
+        "{}",
+        fmt::format(loc, "{}{:<{}} {:>8} - Ver:{:<8} Props:{:<4L}\n", indent,
+                    fmt::styled(material.id,
+                                fmt::fg(fmt::terminal_color::bright_black)),
+                    material_max_length, material.guid, material.version_number,
+                    material.property_count));
+  }
 }
 
 // Format JSON output
@@ -105,6 +163,26 @@ void format_json_output(const ReUseX::ProjectDB::ProjectSummary &summary) {
 
   j["project_path"] = summary.path.string();
   j["schema_version"] = summary.schema_version;
+
+  // Projects
+  j["projects"] = json::array();
+  for (const auto &project : summary.projects) {
+    json project_json = {{"id", project.id},
+                         {"name", project.name},
+                         {"building_address", project.building_address},
+                         {"survey_date", project.survey_date},
+                         {"survey_organisation", project.survey_organisation},
+                         {"notes", project.notes}};
+
+    // Use null for unset year (JSON best practice)
+    if (project.year_of_construction > 0) {
+      project_json["year_of_construction"] = project.year_of_construction;
+    } else {
+      project_json["year_of_construction"] = nullptr;
+    }
+
+    j["projects"].push_back(project_json);
+  }
 
   // Sensor frames
   j["sensor_frames"] = {{"total", summary.sensor_frames.total_count},
@@ -143,7 +221,15 @@ void format_json_output(const ReUseX::ProjectDB::ProjectSummary &summary) {
   }
 
   // Material passports
-  j["material_passports"] = {{"count", summary.material_passport_count}};
+  j["material_passports"] = json::array();
+  for (const auto &material : summary.materials) {
+    j["material_passports"].push_back(
+        {{"id", material.id},
+         {"guid", material.guid},
+         {"property_count", material.property_count},
+         {"created_at", material.created_at},
+         {"version_number", material.version_number}});
+  }
 
   // Output pretty-printed JSON to stdout
   fmt::print("{}\n", j.dump(2));

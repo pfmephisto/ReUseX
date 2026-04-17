@@ -9,17 +9,17 @@
 #include <reusex/geometry/segment_instances.hpp>
 #include <spdlog/spdlog.h>
 
-#include <fmt/ranges.h>
 #include <algorithm>
 #include <chrono>
+#include <fmt/ranges.h>
 #include <set>
 
-void setup_subcommand_create_instances(CLI::App &app, std::shared_ptr<RuxOptions> global_opt) {
+void setup_subcommand_create_instances(CLI::App &app,
+                                       std::shared_ptr<RuxOptions> global_opt) {
   auto opt = std::make_shared<SubcommandSegInstancesOptions>();
 
-  auto *sub = app.add_subcommand(
-      "instances",
-      "Separate labels into spatial instances");
+  auto *sub =
+      app.add_subcommand("instances", "Separate labels into spatial instances");
 
   sub->footer(R"(
 DESCRIPTION:
@@ -73,8 +73,9 @@ NOTES:
                   "Output instance labels cloud name")
       ->default_val("instances");
 
-  sub->add_option("-l,--labels", opt->labels_to_process,
-                  "Comma-separated list of semantic labels to process (empty = all)")
+  sub->add_option(
+         "-l,--labels", opt->labels_to_process,
+         "Comma-separated list of semantic labels to process (empty = all)")
       ->delimiter(',');
 
   sub->callback([opt, global_opt]() {
@@ -85,7 +86,8 @@ NOTES:
   });
 }
 
-int run_subcommand_segment_instances(const SubcommandSegInstancesOptions &opt, const RuxOptions &global_opt) {
+int run_subcommand_segment_instances(const SubcommandSegInstancesOptions &opt,
+                                     const RuxOptions &global_opt) {
   try {
     fs::path project_path = global_opt.project_db;
     spdlog::info("Opening project database: {}", project_path.string());
@@ -161,9 +163,8 @@ int run_subcommand_segment_instances(const SubcommandSegInstancesOptions &opt, c
     for (const auto &[instance_id, semantic_class] :
          result.instance_to_semantic) {
       size_t size = result.instance_sizes.at(instance_id);
-      label_definitions[static_cast<int>(instance_id)] = fmt::format(
-          "semantic_class_{}_instance_{} ({} points)", semantic_class,
-          instance_id, size);
+      label_definitions[static_cast<int>(instance_id)] =
+          fmt::format("SM{}-{} ({}p)", semantic_class, instance_id, size);
     }
     db.save_label_definitions(opt.output_cloud_name, label_definitions);
 

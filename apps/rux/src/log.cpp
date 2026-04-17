@@ -73,14 +73,14 @@ void format_terminal_output(
     // Status indicator with color
     std::string status_icon;
     if (entry.status == "success") {
-      status_icon =
-          fmt::format("{}", fmt::styled("✓", fmt::fg(fmt::color::green)));
+      status_icon = fmt::format(
+          "{}", fmt::styled("✓", fmt::fg(fmt::terminal_color::green)));
     } else if (entry.status == "failed") {
-      status_icon =
-          fmt::format("{}", fmt::styled("✗", fmt::fg(fmt::color::red)));
+      status_icon = fmt::format(
+          "{}", fmt::styled("✗", fmt::fg(fmt::terminal_color::red)));
     } else {
-      status_icon =
-          fmt::format("{}", fmt::styled("⋯", fmt::fg(fmt::color::yellow)));
+      status_icon = fmt::format(
+          "{}", fmt::styled("⋯", fmt::fg(fmt::terminal_color::yellow)));
     }
 
     // Calculate duration
@@ -109,13 +109,14 @@ void format_terminal_output(
       //     fmt::fg(fmt::color::light_slate_gray));
       fmt::print("{}", fmt::styled(fmt::format("     Parameters: {}\n",
                                                entry.parameters),
-                                   fmt::fg(fmt::color::light_slate_gray)));
+                                   fmt::fg(fmt::terminal_color::bright_black)));
     }
 
     // Error message on third line (indented, red text)
     if (!entry.error_msg.empty()) {
-      fmt::print("{}", fmt::styled(fmt::format("     Error: {}\n", entry.error_msg),
-                                   fmt::fg(fmt::color::red)));
+      fmt::print("{}",
+                 fmt::styled(fmt::format("     Error: {}\n", entry.error_msg),
+                             fmt::fg(fmt::terminal_color::red)));
     }
   }
 }

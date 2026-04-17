@@ -21,11 +21,11 @@ namespace core {
 struct MaterialPassport;
 struct MaterialPassportMetadata;
 struct SensorIntrinsics;
-}
+} // namespace core
 namespace geometry {
 struct BuildingComponent;
 enum class ComponentType;
-}
+} // namespace geometry
 
 class ProjectDB {
     public:
@@ -76,8 +76,8 @@ class ProjectDB {
 
   void save_sensor_frame(int nodeId, const cv::Mat &colorImage);
 
-  void save_sensor_frame(int nodeId, const cv::Mat &color,
-                         const cv::Mat &depth, const cv::Mat &confidence,
+  void save_sensor_frame(int nodeId, const cv::Mat &color, const cv::Mat &depth,
+                         const cv::Mat &confidence,
                          const std::array<double, 16> &worldPose,
                          const core::SensorIntrinsics &intrinsics);
 
@@ -171,10 +171,10 @@ class ProjectDB {
     int id;
     std::string stage;
     std::string started_at;
-    std::string finished_at;  // Empty if still running
-    std::string parameters;   // JSON string
-    std::string status;       // "running", "success", "failed"
-    std::string error_msg;    // Empty if no error
+    std::string finished_at; // Empty if still running
+    std::string parameters;  // JSON string
+    std::string status;      // "running", "success", "failed"
+    std::string error_msg;   // Empty if no error
   };
 
   std::vector<PipelineLogEntry> pipeline_log(int limit = 0) const;
@@ -184,12 +184,12 @@ class ProjectDB {
   struct ProjectSummary {
     struct CloudInfo {
       std::string name;
-      std::string type;           // "PointXYZRGB", "Normal", "Label", "PointXYZ"
+      std::string type; // "PointXYZRGB", "Normal", "Label", "PointXYZ"
       size_t point_count;
       size_t width;
       size_t height;
-      bool organized;             // height > 1
-      std::map<int, std::string> labels;  // Only for Label clouds
+      bool organized;                    // height > 1
+      std::map<int, std::string> labels; // Only for Label clouds
     };
 
     struct MeshInfo {
@@ -200,9 +200,9 @@ class ProjectDB {
 
     struct SensorFrameInfo {
       int total_count;
-      int width;                  // 0 if no frames
-      int height;                 // 0 if no frames
-      int segmented_count;        // frames with segmentation
+      int width;           // 0 if no frames
+      int height;          // 0 if no frames
+      int segmented_count; // frames with segmentation
     };
 
     struct ComponentInfo {
@@ -210,13 +210,32 @@ class ProjectDB {
       std::map<std::string, int> count_by_type;
     };
 
+    struct MaterialInfo {
+      std::string id;
+      std::string guid;
+      int property_count = 0;
+      std::string created_at;     // ISO 8601 timestamp
+      std::string version_number; // Semver (e.g., "0.1.1")
+    };
+
+    struct ProjectInfo {
+      std::string id;
+      std::string name;
+      std::string building_address;
+      int year_of_construction = 0; // 0 = not set
+      std::string survey_date;
+      std::string survey_organisation;
+      std::string notes;
+    };
+
     std::filesystem::path path;
     int schema_version;
+    std::vector<ProjectInfo> projects;
     std::vector<CloudInfo> clouds;
     std::vector<MeshInfo> meshes;
     SensorFrameInfo sensor_frames;
-    int material_passport_count;
     ComponentInfo components;
+    std::vector<MaterialInfo> materials;
   };
 
   ProjectSummary project_summary() const;
@@ -245,8 +264,9 @@ class ProjectDB {
   /**
    * @brief Get stored property field_name→string pairs for a passport
    *
-   * Only includes properties that actually have rows in passport_property_values.
-   * Values are returned as human-readable strings (BLOB decoded via as_string()).
+   * Only includes properties that actually have rows in
+   * passport_property_values. Values are returned as human-readable strings
+   * (BLOB decoded via as_string()).
    *
    * @param documentGuid Document GUID
    * @return Map of name_en → string value
@@ -293,7 +313,8 @@ class ProjectDB {
    * @brief Set a single property value by field name (upsert)
    *
    * Looks up the property_definitions entry by name_en, then upserts
-   * into passport_property_values. Creates property_definitions entry if needed.
+   * into passport_property_values. Creates property_definitions entry if
+   * needed.
    *
    * @param documentGuid Document GUID (must exist)
    * @param fieldName Property field name (name_en)
@@ -319,7 +340,7 @@ class ProjectDB {
     std::string id;
     std::string name;
     std::string building_address;
-    int year_of_construction = 0;  // 0 = not set
+    int year_of_construction = 0; // 0 = not set
     std::string survey_date;
     std::string survey_organisation;
     std::string notes;

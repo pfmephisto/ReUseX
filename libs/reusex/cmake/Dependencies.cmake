@@ -57,6 +57,36 @@ set(ML_BACKEND_LibTorch_PACKAGES "Torch 2.9.0")
 set(ML_BACKEND_ONNX_PACKAGES "onnxruntime")  # Future
 set(ML_BACKEND_OpenVINO_PACKAGES "openvino")  # Future
 
+# -----------------------------------------------
+# Workaround: OpenCV 4.13.0 + LibTorch legacy FindCUDA cache pollution
+# -----------------------------------------------
+# LibTorch's Caffe2Config.cmake calls a bundled legacy find_package(CUDA) which
+# caches CUDA_FOUND and CUDA_VERSION. On reconfiguration, when trtsam3 triggers
+# find_dependency(OpenCV) before LibTorch is processed, OpenCV sees the cached
+# CUDA_FOUND=TRUE and calls the legacy find_cuda_helper_libs() macro -- which
+# does not exist yet (macros are not cached). Two mitigations:
+#
+# 1. Unset legacy FindCUDA cache variables so OpenCV uses modern CUDAToolkit.
+# 2. Define a find_cuda_helper_libs shim as a safety net.
+
+# Mitigation 1: Clear stale legacy FindCUDA cache entries
+unset(CUDA_FOUND CACHE)
+unset(CUDA_VERSION CACHE)
+unset(CUDA_VERSION_STRING CACHE)
+
+# Mitigation 2: Provide find_cuda_helper_libs if not already defined
+if(NOT COMMAND find_cuda_helper_libs)
+  macro(find_cuda_helper_libs _name)
+    find_library(CUDA_${_name}_LIBRARY
+      NAMES ${_name}
+      PATHS "${CUDAToolkit_LIBRARY_DIR}" "${CUDA_TOOLKIT_ROOT_DIR}"
+      PATH_SUFFIXES lib64 lib/x64 lib
+      NO_DEFAULT_PATH
+    )
+    mark_as_advanced(CUDA_${_name}_LIBRARY)
+  endmacro()
+endif()
+
 # Determine which backends to search for
 if(ML_BACKENDS STREQUAL "AUTO")
     set(BACKENDS_TO_FIND TensorRT LibTorch ONNX OpenVINO)

@@ -25,9 +25,8 @@
 namespace ReUseX::vision {
 
 auto annotate(const std::filesystem::path &dbPath,
-              const std::filesystem::path &modelPath,
-              bool use_cuda) -> int {
-  ReUseX::core::trace("calling annotateRT-RTABMap");
+              const std::filesystem::path &modelPath, bool use_cuda) -> int {
+  ReUseX::core::trace("calling annotate");
 
   // Create backend, model, and dataset
   auto backendType = BackendFactory::detect_backend(modelPath);
@@ -39,10 +38,10 @@ auto annotate(const std::filesystem::path &dbPath,
 
   // Create dataloader with multi-threaded prefetching
   // Parameters: dataset, batch_size, shuffle, num_workers, prefetch_batches
-  constexpr size_t batch_size = 1; // 4;
+  constexpr size_t batch_size = 4;
   constexpr bool shuffle = false;
-  constexpr size_t num_workers = 1;      // 4;
-  constexpr size_t prefetch_batches = 1; // 2;
+  constexpr size_t num_workers = 4;
+  constexpr size_t prefetch_batches = 2;
 
   Dataloader loader(*dataset, batch_size, shuffle, num_workers,
                     prefetch_batches);

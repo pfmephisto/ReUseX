@@ -148,7 +148,7 @@ When `shuffle=true`, the DataLoader shuffles indices at the start of each epoch 
 
 ## Example Integration
 
-See `src/ReUseX/vision/annotateRT.cpp` for a complete integration example with the vision pipeline.
+See `libs/reusex/src/vision/annotate.cpp` for a complete integration example with the vision pipeline.
 
 ## API Reference
 

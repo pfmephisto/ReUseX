@@ -16,10 +16,11 @@
 #include <regex>
 #include <set>
 
-void setup_subcommand_create_windows(CLI::App &app, std::shared_ptr<RuxOptions> global_opt) {
+void setup_subcommand_create_windows(CLI::App &app,
+                                     std::shared_ptr<RuxOptions> global_opt) {
   auto opt = std::make_shared<SubcommandWindowOptions>();
-  auto *sub = app.add_subcommand(
-      "windows", "Create window building components");
+  auto *sub =
+      app.add_subcommand("windows", "Create window building components");
 
   sub->footer(R"(
 DESCRIPTION:
@@ -72,8 +73,7 @@ NOTES:
       ->default_val(opt->wall_offset)
       ->check(CLI::Range(0.0, 5.0));
 
-  sub->add_option("--alpha", opt->alpha,
-                  "ConcaveHull alpha for polyline mode")
+  sub->add_option("--alpha", opt->alpha, "ConcaveHull alpha for polyline mode")
       ->default_val(opt->alpha)
       ->check(CLI::Range(0.01, 10.0));
 
@@ -98,8 +98,8 @@ int run_subcommand_create_windows(SubcommandWindowOptions const &opt,
     ReUseX::ProjectDB db(project_path);
 
     // Pre-flight validation
-    auto validation =
-        rux::validation::validate_window_prerequisites(db, opt.semantic_cloud_name);
+    auto validation = rux::validation::validate_window_prerequisites(
+        db, opt.semantic_cloud_name);
     if (!validation) {
       spdlog::error("{}", validation.error_message);
       spdlog::info("Resolution: {}", validation.resolution_hint);
@@ -139,11 +139,12 @@ int run_subcommand_create_windows(SubcommandWindowOptions const &opt,
     std::map<uint32_t, uint32_t> instance_to_semantic;
 
     // Parse label definitions: "semantic_class_N_instance_M (P points)"
-    std::regex def_regex(R"(semantic_class_(\d+)_instance_(\d+))");
+    std::regex def_regex(R"(SM(\d+)-(\d+))");
     for (const auto &[inst_id, def_str] : label_defs) {
       std::smatch match;
       if (std::regex_search(def_str, match, def_regex)) {
-        uint32_t semantic_class = static_cast<uint32_t>(std::stoul(match[1].str()));
+        uint32_t semantic_class =
+            static_cast<uint32_t>(std::stoul(match[1].str()));
         instance_to_semantic[static_cast<uint32_t>(inst_id)] = semantic_class;
       }
     }
@@ -152,7 +153,8 @@ int run_subcommand_create_windows(SubcommandWindowOptions const &opt,
                  instance_to_semantic.size());
 
     if (instance_to_semantic.empty()) {
-      spdlog::error("No instance-to-semantic mappings found in label definitions");
+      spdlog::error(
+          "No instance-to-semantic mappings found in label definitions");
       spdlog::info("Resolution: Run 'rux create instances' first");
       db.log_pipeline_end(logId, false);
       return RuxError::INVALID_ARGUMENT;
@@ -166,8 +168,9 @@ int run_subcommand_create_windows(SubcommandWindowOptions const &opt,
       for (const auto &[_, sem] : instance_to_semantic)
         unique_labels.insert(sem);
       window_labels.assign(unique_labels.begin(), unique_labels.end());
-      spdlog::info("No --labels specified, processing all semantic labels: [{}]",
-                   fmt::join(window_labels, ", "));
+      spdlog::info(
+          "No --labels specified, processing all semantic labels: [{}]",
+          fmt::join(window_labels, ", "));
     } else {
       spdlog::info("Processing semantic labels: [{}]",
                    fmt::join(window_labels, ", "));
@@ -188,9 +191,9 @@ int run_subcommand_create_windows(SubcommandWindowOptions const &opt,
 
     // Create windows
     spdlog::info("Creating window components...");
-    auto result = ReUseX::geometry::create_windows(
-        cloud, instance_labels, instance_to_semantic, walls, window_labels,
-        create_opts);
+    auto result = ReUseX::geometry::create_windows(cloud, instance_labels,
+                                                   instance_to_semantic, walls,
+                                                   window_labels, create_opts);
 
     // Save components
     for (const auto &comp : result.components) {
@@ -202,7 +205,8 @@ int run_subcommand_create_windows(SubcommandWindowOptions const &opt,
     // Summary
     spdlog::info("Summary:");
     spdlog::info("  Window components created: {}", result.components.size());
-    spdlog::info("  Unmatched instances: {}", result.unmatched_instances.size());
+    spdlog::info("  Unmatched instances: {}",
+                 result.unmatched_instances.size());
     if (!result.unmatched_instances.empty()) {
       spdlog::warn("  Unmatched instance IDs: [{}]",
                    fmt::join(result.unmatched_instances, ", "));

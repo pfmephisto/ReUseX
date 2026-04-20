@@ -25,6 +25,9 @@ class ONNXSam3Dataset : public IDataset {
   /// @param data Span of pairs containing ONNXSam3Data with label images.
   /// @return true if all saves succeeded.
   bool save(const std::span<Pair> &data) override;
+
+    private:
+  bool class_map_saved_ = false;
 };
 
 } // namespace ReUseX::vision::onnx

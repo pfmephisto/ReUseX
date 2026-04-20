@@ -2,9 +2,12 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include "core/ProjectDB.hpp"
 #include "core/logging.hpp"
 #include "vision/onnx/Sam3Data.hpp"
 #include "vision/onnx/Sam3Dataset.hpp"
+
+#include <sstream>
 
 namespace ReUseX::vision::onnx {
 
@@ -31,6 +34,21 @@ bool ONNXSam3Dataset::save(const std::span<IDataset::Pair> &data) {
     }
 
     success &= save_image(index, sam3_data->image);
+
+    if (!class_map_saved_) {
+      std::ostringstream json;
+      json << '{';
+      for (size_t i = 0; i < sam3_data->prompts.size(); ++i) {
+        if (i > 0)
+          json << ',';
+        json << '"' << i << "\":\"" << sam3_data->prompts[i].text << '"';
+      }
+      json << '}';
+      database()->log_pipeline_start("annotate_class_map", json.str());
+      class_map_saved_ = true;
+      ReUseX::core::info("Saved segmentation class map ({} classes)",
+                         sam3_data->prompts.size());
+    }
   }
 
   ReUseX::core::debug("Save operation completed with success={}", success);

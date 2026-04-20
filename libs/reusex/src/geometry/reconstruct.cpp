@@ -27,6 +27,8 @@
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/kdtree/kdtree_flann.h>
 
+#include <nlohmann/json.hpp>
+
 #include <cstring>
 #include <unordered_map>
 
@@ -339,8 +341,26 @@ void reconstruct_point_clouds(ProjectDB &db,
   if (!out_normals->empty())
     db.save_point_cloud("normals", *out_normals, "reconstruct", paramsJson);
 
-  if (!out_labels->empty())
+  if (!out_labels->empty()) {
     db.save_point_cloud("labels", *out_labels, "reconstruct", paramsJson);
+
+    // Copy class names from annotation pipeline log to label_definitions
+    for (const auto &entry : db.pipeline_log()) {
+      if (entry.stage == "annotate_class_map" && !entry.parameters.empty()) {
+        try {
+          auto j = nlohmann::json::parse(entry.parameters);
+          std::map<int, std::string> class_map;
+          for (auto &[key, val] : j.items())
+            class_map[std::stoi(key)] = val.get<std::string>();
+          if (!class_map.empty())
+            db.save_label_definitions("labels", class_map);
+        } catch (const std::exception &e) {
+          core::warn("Failed to parse annotation class map: {}", e.what());
+        }
+        break;
+      }
+    }
+  }
 
   core::info("Reconstruction complete: {} points, {} normals, {} labels",
              out_cloud->size(), out_normals->size(), out_labels->size());

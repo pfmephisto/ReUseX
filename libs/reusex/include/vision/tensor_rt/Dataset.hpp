@@ -27,5 +27,8 @@ class TensorRTDataset : public IDataset {
    * @return A boolean value indicating whether the save operation was
    * successful. */
   bool save(const std::span<Pair> &data) override;
+
+    private:
+  bool class_map_saved_ = false;
 };
 } // namespace ReUseX::vision::tensor_rt

@@ -100,7 +100,10 @@ function(configure_ml_backends TARGET_NAME)
 
         elseif(backend STREQUAL "ONNX")
             target_compile_definitions(${TARGET_NAME} PRIVATE REUSEX_USE_ONNX)
-            target_link_libraries(${TARGET_NAME} PRIVATE onnxruntime::onnxruntime)
+            target_link_libraries(${TARGET_NAME} PRIVATE
+                onnxruntime::onnxruntime
+                tokenizers_cpp::tokenizers_cpp
+            )
             message(STATUS "Enabled ML backend: ONNX Runtime")
 
         elseif(backend STREQUAL "OpenVINO")

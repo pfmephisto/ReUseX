@@ -20,6 +20,8 @@
 
 #include <fmt/std.h>
 
+#include <algorithm>
+#include <cctype>
 #include <filesystem>
 
 namespace ReUseX::vision {
@@ -35,6 +37,50 @@ enum class Backend {
 
 class BackendFactory {
     public:
+  /* Detects the model type from the model path.
+   *
+   * Inspects the path stem and, for directories, contained file names.
+   * Detection is case-insensitive:
+   *   - "sam3" or "sam2" in the name  -> Model::sam3
+   *   - directory containing "vision-encoder.*" -> Model::sam3
+   *   - otherwise                     -> Model::yolo
+   *
+   * @param model_path: The file or directory path of the model.
+   * @return The detected model type.
+   */
+  static Model detect_model(const std::filesystem::path &model_path) {
+    auto to_lower = [](std::string s) {
+      std::transform(s.begin(), s.end(), s.begin(),
+                     [](unsigned char c) { return std::tolower(c); });
+      return s;
+    };
+
+    // Check directory/file name itself
+    auto name = to_lower(model_path.stem().string());
+    if (name.find("sam3") != std::string::npos ||
+        name.find("sam2") != std::string::npos) {
+      ReUseX::core::info("Detected SAM3 model from path name: {}", model_path);
+      return Model::sam3;
+    }
+
+    // For directories, check contained filenames for SAM3 sub-models
+    if (std::filesystem::is_directory(model_path)) {
+      for (const auto &entry :
+           std::filesystem::directory_iterator(model_path)) {
+        auto stem = to_lower(entry.path().stem().string());
+        if (stem.find("vision-encoder") != std::string::npos) {
+          ReUseX::core::info(
+              "Detected SAM3 model from sub-model file: {}", entry.path());
+          return Model::sam3;
+        }
+      }
+    }
+
+    ReUseX::core::info("Defaulting to YOLO model type for path: {}",
+                       model_path);
+    return Model::yolo;
+  }
+
   /* Detects the appropriate backend based on the model path.
    * @param model_path: The file or directory path of the model.
    * @return The detected backend type.

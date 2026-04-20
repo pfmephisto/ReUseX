@@ -54,7 +54,7 @@ set(ML_BACKENDS "AUTO" CACHE STRING "ML backends to enable (AUTO, NONE, or list:
 # Define available backends and their dependencies
 set(ML_BACKEND_TensorRT_PACKAGES "trtsam3;tokenizers_cpp")
 set(ML_BACKEND_LibTorch_PACKAGES "Torch 2.9.0")
-set(ML_BACKEND_ONNX_PACKAGES "onnxruntime")  # Future
+set(ML_BACKEND_ONNX_PACKAGES "onnxruntime;tokenizers_cpp")
 set(ML_BACKEND_OpenVINO_PACKAGES "openvino")  # Future
 
 # -----------------------------------------------

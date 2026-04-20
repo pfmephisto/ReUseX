@@ -33,7 +33,7 @@ auto annotate(const std::filesystem::path &dbPath,
   auto backendType = BackendFactory::detect_backend(modelPath);
   auto backend = BackendFactory::create(backendType);
 
-  auto modelType = (backendType == Backend::libtorch) ? Model::yolo : Model::sam3;
+  auto modelType = BackendFactory::detect_model(modelPath);
   auto model = backend->create_model(modelType, modelPath, use_cuda);
   auto dataset = backend->create_dataset(dbPath);
 

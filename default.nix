@@ -53,6 +53,7 @@
   libpng,
   trtsam3,
   tokenizers-cpp,
+  onnxruntime,
   # cuOpt,
 }: let
   effectiveStdenv =
@@ -119,6 +120,7 @@ in
         libtorch
         oneDNN
         protobuf # should be in libtorch?
+        onnxruntime
 
         catch2_3
         tokenizers-cpp

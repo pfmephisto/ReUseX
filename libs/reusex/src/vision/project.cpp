@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "vision/project.hpp"
+#include "core/ProjectDB.hpp"
+#include "core/SensorIntrinsics.hpp"
 #include "core/logging.hpp"
 #include "core/processing_observer.hpp"
 #include "types.hpp"
@@ -11,9 +13,8 @@
 
 #include <fmt/std.h>
 
-#include <rtabmap/core/DBDriver.h>
-#include <rtabmap/core/Graph.h>
-#include <rtabmap/core/Rtabmap.h>
+#include <rtabmap/core/CameraModel.h>
+#include <rtabmap/core/Transform.h>
 #include <rtabmap/core/util2d.h>
 #include <rtabmap/core/util3d.h>
 
@@ -22,13 +23,8 @@
 #include <cmath>
 #include <limits>
 #include <opencv2/opencv.hpp>
-#include <sqlite3.h>
 #include <stdexcept>
 #include <vector>
-
-#include <rtabmap/core/CameraModel.h>
-#include <rtabmap/core/SensorData.h>
-#include <rtabmap/core/Transform.h>
 
 #include <Eigen/Core>
 
@@ -43,111 +39,57 @@ namespace ReUseX::vision {
 
 namespace {
 
-inline rtabmap::CameraModel scaledCameraModel(const rtabmap::CameraModel &cm,
-                                              const cv::Size &targetSize) {
-  const double scaleX =
-      static_cast<double>(targetSize.width) / cm.imageSize().width;
-  const double scaleY =
-      static_cast<double>(targetSize.height) / cm.imageSize().height;
+/// @brief Create an rtabmap::CameraModel from ProjectDB SensorIntrinsics
+inline rtabmap::CameraModel
+createCameraModelFromIntrinsics(const ReUseX::core::SensorIntrinsics &intrinsics,
+                                 const cv::Size &targetSize) {
+  // Build 3x3 intrinsic matrix K
+  cv::Mat K = cv::Mat::eye(3, 3, CV_64F);
+  K.at<double>(0, 0) = intrinsics.fx;
+  K.at<double>(1, 1) = intrinsics.fy;
+  K.at<double>(0, 2) = intrinsics.cx;
+  K.at<double>(1, 2) = intrinsics.cy;
 
-  if (!cm.isValidForProjection()) {
-    ReUseX::core::warn(
-        "CameraModel is not valid for projection, returning unscaled model.");
-    return cm;
-  }
-  // has only effect on K and P
-  cv::Mat K = cm.K_raw().clone();
-  if (!K.empty()) {
-    // Scale K
-    K.at<double>(0, 0) *= scaleX; // fx
-    K.at<double>(1, 1) *= scaleY; // fy
-    K.at<double>(0, 2) *= scaleX; // cx
-    K.at<double>(1, 2) *= scaleY; // cy
-  }
+  // Convert local_transform to rtabmap::Transform (expects 3x4 matrix)
+  // NOTE: Data is stored row-major, so we must use RowMajor mapping
+  using Matrix4dRM = Eigen::Matrix<double, 4, 4, Eigen::RowMajor>;
+  Matrix4dRM local_eigen = Eigen::Map<const Matrix4dRM>(
+      intrinsics.local_transform.data());
+  Eigen::Matrix4f local_float = local_eigen.cast<float>();
+  cv::Mat local_mat_4x4;
+  cv::eigen2cv(local_float, local_mat_4x4);
+  // Extract first 3 rows for rtabmap::Transform (3x4 format)
+  cv::Mat local_mat = local_mat_4x4(cv::Rect(0, 0, 4, 3));
+  rtabmap::Transform localTransform(local_mat);
 
-  cv::Mat P = cm.P().clone();
-  if (!P.empty()) {
-    P.at<double>(0, 0) *= scaleX; // fx
-    P.at<double>(1, 1) *= scaleY; // fy
-    P.at<double>(0, 2) *= scaleX; // cx
-    P.at<double>(1, 2) *= scaleY; // cy
-    P.at<double>(0, 3) *= scaleX; // Tx
-    P.at<double>(1, 3) *= scaleY; // Ty
-  }
+  // Create CameraModel (no distortion, no rectification)
+  cv::Mat D;  // Empty distortion
+  cv::Mat R = cv::Mat::eye(3, 3, CV_64F);  // No rotation
+  cv::Mat P;  // Empty projection matrix (will be computed from K)
 
-  return CameraModel(cm.name(), targetSize, K, cm.D_raw(), cm.R(), P,
-                     cm.localTransform());
-}
+  cv::Size imageSize(intrinsics.width, intrinsics.height);
+  rtabmap::CameraModel cm("ProjectDB", imageSize, K, D, R, P, localTransform);
 
-inline std::pair<double, double>
-fovsFromCameraModel(const rtabmap::CameraModel &cm) {
+  // Scale to target size if needed
+  if (targetSize != imageSize) {
+    const double scaleX = static_cast<double>(targetSize.width) / imageSize.width;
+    const double scaleY = static_cast<double>(targetSize.height) / imageSize.height;
 
-  cv::Mat K = cm.K_raw(); // 3x3 intrinsic matrix
-  double fx = K.at<double>(0, 0);
-  double fy = K.at<double>(1, 1);
-  double width = static_cast<double>(cm.imageSize().width);
-  double height = static_cast<double>(cm.imageSize().height);
+    cv::Mat K_scaled = K.clone();
+    K_scaled.at<double>(0, 0) *= scaleX;  // fx
+    K_scaled.at<double>(1, 1) *= scaleY;  // fy
+    K_scaled.at<double>(0, 2) *= scaleX;  // cx
+    K_scaled.at<double>(1, 2) *= scaleY;  // cy
 
-  double fov_x = 2.0 * std::atan(width / (2.0 * fx)) * 180.0 / CV_PI;
-  double fov_y = 2.0 * std::atan(height / (2.0 * fy)) * 180.0 / CV_PI;
-
-  return {fov_y, fov_x}; // (vertical, horizontal)
-}
-
-auto getLabeledImage(sqlite3_stmt *stmt, int id) -> cv::Mat {
-  ReUseX::core::trace("Fetching label image for id {} from database", id);
-
-  cv::Mat labledImage;
-  sqlite3_bind_int(stmt, 1, id);
-  if (sqlite3_step(stmt) != SQLITE_ROW) {
-    ReUseX::core::error("No label image found for id {} in database", id);
-    sqlite3_clear_bindings(stmt);
-    sqlite3_reset(stmt);
-    return labledImage;
+    return rtabmap::CameraModel("ProjectDB", targetSize, K_scaled, D, R, P, localTransform);
   }
 
-  ReUseX::core::trace("Reading blob data for label image id {} from database",
-                      id);
-
-  int idx = 0;
-  const void *data = sqlite3_column_blob(stmt, idx);
-  ReUseX::core::trace("Blob data pointer: {}", fmt::ptr((void *)data));
-  int datasize = sqlite3_column_bytes(stmt, idx++);
-
-  ReUseX::core::trace("Decoding label image from database");
-  // imgMat = cv::imdecode(imgMat, cv::IMREAD_UNCHANGED);
-
-  // The blob is just a stream of bytes (compressed PNG)
-  std::vector<uchar> buffer((uchar *)data, (uchar *)data + datasize);
-
-  // Decode the PNG into a cv::Mat
-  labledImage = cv::imdecode(buffer, cv::IMREAD_UNCHANGED);
-
-  if (labledImage.empty()) {
-    ReUseX::core::error("Failed to decode image {} from database", id);
-    sqlite3_clear_bindings(stmt);
-    sqlite3_reset(stmt);
-    return labledImage;
-  }
-
-  ReUseX::core::debug("Decoded image: {}x{}, channels={}", labledImage.cols,
-                      labledImage.rows, labledImage.channels());
-
-  ReUseX::core::trace("Convert label image to CV_32S");
-  labledImage.convertTo(labledImage, CV_32S);
-  labledImage -= 1; // Move 0 to -1 so that it can be stored as signed
-                    // 32-bit integer
-
-  // sqlite3_finalize(stmt);
-  sqlite3_clear_bindings(stmt);
-  sqlite3_reset(stmt);
-  return labledImage;
+  return cm;
 }
 
 } // namespace
 
-auto project(const std::filesystem::path &dbPath, CloudConstPtr cloud)
-    -> CloudLPtr {
+auto project(ProjectDB &db, CloudConstPtr cloud) -> CloudLPtr {
   ReUseX::core::trace("calling project");
 
   // auto viewer =
@@ -163,71 +105,11 @@ auto project(const std::filesystem::path &dbPath, CloudConstPtr cloud)
   labels->height = cloud->height;
   labels->is_dense = cloud->is_dense;
 
-  ReUseX::core::info("Initializing RTAB-Map ...");
+  ReUseX::core::info("Loading sensor frames from ProjectDB ...");
   ReUseX::core::stopwatch timer;
-  ParametersMap params;
-  Rtabmap rtabmap;
-  ReUseX::core::debug("Database path: {}", dbPath);
-  rtabmap.init(params, dbPath.c_str());
-  rtabmap.setWorkingDirectory("./");
-  ReUseX::core::debug("RTAB-Map initialized in {:.3f}s", timer);
-
-  // Save 3D map
-  ReUseX::core::info("Loading Graph");
+  auto frameIds = db.sensor_frame_ids();
+  ReUseX::core::debug("Loaded {} sensor frames in {:.3f}s", frameIds.size(), timer);
   timer.reset();
-
-  std::map<int, Transform> poses;
-  std::multimap<int, Link> links;
-  std::map<int, Signature> nodes;
-  rtabmap.getGraph(poses /*poses*/, links /*constraints*/,
-                   true
-                   /*optimized*/,
-                   true /*global*/, &nodes /*signatures*/,
-                   true
-                   /*withImages*/,
-                   true /*withScan*/, true /*withUserData*/,
-                   true /*withGrid*/ /*withWords*/
-                   /*withGlobalDescriptors*/);
-  ReUseX::core::debug("Graph loaded in {:.3f}s", timer);
-  timer.reset();
-
-  // Open database connection for reading segmentation results
-  sqlite3 *db_ = nullptr;
-  if (sqlite3_open(dbPath.string().c_str(), &db_) != SQLITE_OK) {
-    ReUseX::core::error("Cannot open database: {}", sqlite3_errmsg(db_));
-    sqlite3_close(db_);
-    throw std::runtime_error("Cannot open database");
-  }
-
-  // Ceck if Segmentation table exists
-  sqlite3_stmt *stmt;
-  if (sqlite3_prepare_v2(db_,
-                         "SELECT name FROM sqlite_master WHERE type='table' "
-                         "AND name='Segmentation';",
-                         -1, &stmt, nullptr) != SQLITE_OK) {
-    ReUseX::core::error("No Segmentation table found in database: {}",
-                        sqlite3_errmsg(db_));
-    sqlite3_close(db_);
-    return labels;
-  }
-
-  sqlite3_exec(db_, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
-  if (sqlite3_prepare_v2(db_,
-                         "SELECT label_image FROM Segmentation WHERE id=?;", -1,
-                         &stmt, nullptr) != SQLITE_OK) {
-    ReUseX::core::error(
-        "Failed to prepare statement for Segmentation table: {}",
-        sqlite3_errmsg(db_));
-    sqlite3_close(db_);
-    return labels;
-  }
-
-  // INFO: Create vector of poses for openMP parallel processing
-  std::vector<std::pair<int, Transform>> poseVector;
-  for (std::map<int, Transform>::iterator iter = poses.begin();
-       iter != poses.end(); ++iter) {
-    poseVector.push_back(*iter);
-  }
 
   // viewer->addPointCloud<Cloud::PointType>(cloud, "input_cloud");
   // viewer->spinOnce();
@@ -253,46 +135,54 @@ auto project(const std::filesystem::path &dbPath, CloudConstPtr cloud)
 
   {
     auto observer = std::make_shared<ReUseX::core::ProgressObserver>(
-        ReUseX::core::Stage::projecting_labels, poseVector.size());
-    for (size_t i = 0; i < poseVector.size(); ++i) {
-      ReUseX::core::trace("Processing node {}/{}", i + 1, poseVector.size());
+        ReUseX::core::Stage::projecting_labels, frameIds.size());
+    for (size_t i = 0; i < frameIds.size(); ++i) {
+      int id = frameIds[i];
+      ReUseX::core::trace("Processing node {}/{}", i + 1, frameIds.size());
 
-      auto [id, pose] = poseVector[i];
+      // --- Fetch label image
+      cv::Mat labeledImage = db.segmentation_image(id); // CV_32S
+      if (labeledImage.empty()) {
+        ReUseX::core::warn("No segmentation for node {}, skipping", id);
+        ++(*observer);
+        continue;
+      }
 
-      // --- Load sensor data for this node
-      Signature node = nodes.find(id)->second;
-      SensorData data = node.sensorData();
-      data.uncompressData();
+      // --- Fetch sensor data from ProjectDB
+      auto pose_array = db.sensor_frame_pose(id);  // std::array<double, 16>
+      auto intrinsics = db.sensor_frame_intrinsics(id);  // SensorIntrinsics
+
+      // Convert pose to rtabmap::Transform (expects 3x4 matrix)
+      // NOTE: Data is stored row-major (see MEMORY.md), so we must use RowMajor mapping
+      using Matrix4dRM = Eigen::Matrix<double, 4, 4, Eigen::RowMajor>;
+      Matrix4dRM pose_eigen = Eigen::Map<const Matrix4dRM>(pose_array.data());
+      Eigen::Matrix4f pose_float = pose_eigen.cast<float>();
+      cv::Mat pose_mat_4x4;
+      cv::eigen2cv(pose_float, pose_mat_4x4);
+      // Extract first 3 rows for rtabmap::Transform (3x4 format)
+      cv::Mat pose_mat = pose_mat_4x4(cv::Rect(0, 0, 4, 3));
+      rtabmap::Transform pose(pose_mat);
+
+      // Convert local_transform to rtabmap::Transform (expects 3x4 matrix)
+      // NOTE: Data is stored row-major, so we must use RowMajor mapping
+      Matrix4dRM local_eigen = Eigen::Map<const Matrix4dRM>(
+          intrinsics.local_transform.data());
+      Eigen::Matrix4f local_float = local_eigen.cast<float>();
+      cv::Mat local_mat_4x4;
+      cv::eigen2cv(local_float, local_mat_4x4);
+      // Extract first 3 rows for rtabmap::Transform (3x4 format)
+      cv::Mat local_mat = local_mat_4x4(cv::Rect(0, 0, 4, 3));
+      rtabmap::Transform t_cam(local_mat);
 
       std::filesystem::path tmpPath = "./debth_debug";
       if (!std::filesystem::exists(tmpPath))
         std::filesystem::create_directory(tmpPath);
 
-      // cv::imwrite(tmpPath / fmt::format("img_node_{}.png", id),
-      //             data.imageRaw());
-
-      // cv::imwrite(tmpPath / fmt::format("depth_node_{}.png", id),
-      //             /*normalizeDepthImage(*/
-      //             data.depthOrRightRaw());
-
-      // --- Fetch label image
-      cv::Mat labeledImage = getLabeledImage(stmt, id); // CV_32S
-      // cv::imwrite(tmpPath / fmt::format("labeled_img_{}.png", id),
-      //             colorizeLabels(labeledImage));
-      if (labeledImage.empty()) {
-        ReUseX::core::warn("No label image for node {}, skipping projection",
-                           id);
-        ++(*observer);
-        continue;
-      }
-
-      rtabmap::CameraModel cm = data.cameraModels().back();
-
-      // cm = scaledCameraModel(cm, labeledImage.size());
-      cm = scaledCameraModel(cm, cm.imageSize() / 16);
+      // Create scaled camera model for projection
+      rtabmap::CameraModel cm = createCameraModelFromIntrinsics(
+          intrinsics, cv::Size(intrinsics.width / 16, intrinsics.height / 16));
 
       auto t_local = pose.inverse();
-      auto t_cam = cm.localTransform();
 
       // Frustum culling setup
       // pcl::FrustumCulling<Cloud::PointType> fc;
@@ -382,7 +272,8 @@ auto project(const std::filesystem::path &dbPath, CloudConstPtr cloud)
       cv::Mat temp(labeledImage.size(), CV_8UC3);
       temp.setTo(cv::Vec3b(0, 0, 0));
 
-      cm = scaledCameraModel(cm, labeledImage.size());
+      // Scale camera model to match label image resolution
+      cm = createCameraModelFromIntrinsics(intrinsics, labeledImage.size());
       {
         ReUseX::core::trace("Assigning labels for node {}", id);
         // Assign labels to the points in the point cloud
@@ -437,12 +328,6 @@ auto project(const std::filesystem::path &dbPath, CloudConstPtr cloud)
   }
 
   ReUseX::core::info("Projection completed in {:.3f}s", timer);
-  sqlite3_finalize(stmt);
-
-  ReUseX::core::trace("closing database");
-  sqlite3_exec(db_, "END TRANSACTION;", nullptr, nullptr, nullptr);
-  sqlite3_close(db_);
-  ReUseX::core::trace("database closed");
 
   return labels;
 }

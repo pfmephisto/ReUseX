@@ -5,7 +5,9 @@
 #pragma once
 #include "reusex/types.hpp"
 
-#include <filesystem>
+namespace ReUseX {
+class ProjectDB;
+}
 
 namespace ReUseX::vision {
 /**
@@ -16,6 +18,5 @@ namespace ReUseX::vision {
  * a z-buffer and the assigns the precomputed labels to the closses point in the
  * point cloud.
  */
-auto project(const std::filesystem::path &dbPath, CloudConstPtr cloud)
-    -> CloudLPtr;
+auto project(ProjectDB &db, CloudConstPtr cloud) -> CloudLPtr;
 } // namespace ReUseX::vision

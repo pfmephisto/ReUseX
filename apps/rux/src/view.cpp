@@ -10,6 +10,7 @@
 #include <fmt/format.h>
 #include <fmt/std.h>
 #include <pcl/PolygonMesh.h>
+#include <pcl/common/colors.h>
 #include <pcl/common/common.h>
 #include <pcl/io/auto_io.h>
 #include <pcl/io/obj_io.h>
@@ -22,6 +23,7 @@
 #include <latch>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <thread>
 
 namespace {
@@ -53,6 +55,22 @@ struct LoadedMesh {
 struct ViewerState {
   int current_label =
       -1; ///< Index of currently shown label (-1 = none, 0-8 = label index)
+  bool legend_visible = false;           ///< Whether the label legend is shown
+  std::vector<std::string> legend_ids;   ///< Shape IDs for legend text elements
+};
+
+/// A single entry in the label legend overlay.
+struct LabelLegendEntry {
+  int label_id;
+  std::string name;
+  pcl::RGB color;
+};
+
+/// A label cloud with its associated metadata for legend display.
+struct LabelCloudInfo {
+  pcl::PointCloud<pcl::PointXYZL>::Ptr cloud;
+  std::string db_name;                          ///< Original cloud name in DB
+  std::vector<LabelLegendEntry> legend_entries;  ///< Pre-computed at load time
 };
 
 // ============================================================================
@@ -96,7 +114,7 @@ create_label_cloud(const CloudLPtr &labels, const CloudPtr &geometry) {
 struct ProjectLoadResult {
   std::vector<LoadedCloud> clouds;
   std::vector<LoadedMesh> meshes;
-  std::vector<pcl::PointCloud<pcl::PointXYZL>::Ptr> labels;
+  std::vector<LabelCloudInfo> labels;
   std::vector<ReUseX::geometry::BuildingComponent> components;
 };
 
@@ -164,8 +182,29 @@ ProjectLoadResult load_from_project_db(const fs::path &path,
               name, labels->size(), first_xyzrgb->size());
           continue;
         }
-        result.labels.push_back(create_label_cloud(labels, first_xyzrgb));
-        spdlog::info("Loaded label cloud '{}'", name);
+        auto cloud = create_label_cloud(labels, first_xyzrgb);
+
+        // Build legend entries from unique labels in the cloud
+        auto defs = db.label_definitions(name);
+        std::set<uint32_t> unique_labels;
+        for (const auto &pt : cloud->points)
+          unique_labels.insert(pt.label);
+
+        std::vector<LabelLegendEntry> legend;
+        for (uint32_t lbl : unique_labels) {
+          auto it = defs.find(static_cast<int>(lbl));
+          std::string lbl_name = it != defs.end()
+                                     ? it->second
+                                     : fmt::format("Label {}", lbl);
+          pcl::RGB color =
+              pcl::GlasbeyLUT::at(lbl % pcl::GlasbeyLUT::size());
+          legend.push_back({static_cast<int>(lbl), std::move(lbl_name), color});
+        }
+
+        result.labels.push_back(
+            LabelCloudInfo{cloud, std::string(name), std::move(legend)});
+        spdlog::info("Loaded label cloud '{}' ({} unique labels)", name,
+                     unique_labels.size());
       } catch (const std::exception &e) {
         spdlog::error("Failed to load label cloud '{}': {}", name, e.what());
       }
@@ -429,13 +468,127 @@ void register_toggle_all_callback(std::vector<LoadedItem> &items,
       });
 }
 
+/// Remove the label legend overlay from the viewer.
+void remove_label_legend(std::shared_ptr<ViewerState> state,
+                         rux::VizualizationObserver &observer) {
+  if (state->legend_ids.empty())
+    return;
+  auto ids = state->legend_ids;
+  state->legend_ids.clear();
+  observer.viewer_enqueue_task(
+      [ids](const rux::VizualizationObserver::ViewerPtr &viewer,
+            const std::vector<int> &) {
+        for (const auto &id : ids)
+          viewer->removeShape(id);
+      });
+}
+
+/// Add a label legend overlay to the viewer for the given label cloud info.
+void add_label_legend(const LabelCloudInfo &info,
+                      std::shared_ptr<ViewerState> state,
+                      rux::VizualizationObserver &observer) {
+  remove_label_legend(state, observer);
+
+  std::vector<std::string> ids;
+  constexpr int max_entries = 25;
+  int count =
+      std::min(static_cast<int>(info.legend_entries.size()), max_entries);
+
+  // Title row
+  std::string title_id = "legend_title";
+  ids.push_back(title_id);
+
+  // Legend entries
+  for (int i = 0; i < count; ++i) {
+    ids.push_back(fmt::format("legend_swatch_{}", i));
+    ids.push_back(fmt::format("legend_text_{}", i));
+  }
+
+  // Overflow trailer
+  int overflow =
+      static_cast<int>(info.legend_entries.size()) - max_entries;
+  std::string trailer_id;
+  if (overflow > 0) {
+    trailer_id = "legend_overflow";
+    ids.push_back(trailer_id);
+  }
+
+  state->legend_ids = ids;
+
+  auto legend = info.legend_entries;
+  auto db_name = info.db_name;
+  observer.viewer_enqueue_task(
+      [legend, db_name, count, overflow, trailer_id](
+          const rux::VizualizationObserver::ViewerPtr &viewer,
+          const std::vector<int> &) {
+        // Title
+        viewer->addText(db_name, 10, 30, 16, 0.1, 0.1, 0.1, "legend_title");
+
+        // Entries
+        for (int i = 0; i < count; ++i) {
+          const auto &e = legend[static_cast<size_t>(i)];
+          int y = 55 + i * 22;
+          viewer->addText(
+              "##", 10, y, 16,
+              static_cast<double>(e.color.r) / 255.0,
+              static_cast<double>(e.color.g) / 255.0,
+              static_cast<double>(e.color.b) / 255.0,
+              fmt::format("legend_swatch_{}", i));
+          viewer->addText(
+              fmt::format("{}: {}", e.label_id, e.name), 40, y, 14,
+              0.1, 0.1, 0.1,
+              fmt::format("legend_text_{}", i));
+        }
+
+        // Overflow
+        if (overflow > 0) {
+          int y = 55 + count * 22;
+          viewer->addText(
+              fmt::format("... and {} more", overflow), 10, y, 12,
+              0.3, 0.3, 0.3, trailer_id);
+        }
+      });
+}
+
+/// Register keyboard callback for toggling label legend (key 'l').
+void register_legend_toggle(
+    const std::vector<LabelCloudInfo> &label_clouds,
+    std::shared_ptr<ViewerState> state, rux::VizualizationObserver &observer) {
+  observer.viewer_enqueue_task(
+      [&label_clouds, state,
+       &observer](const rux::VizualizationObserver::ViewerPtr &viewer,
+                  const std::vector<int> &) {
+        viewer->registerKeyboardCallback(
+            [&label_clouds, state,
+             &observer](const pcl::visualization::KeyboardEvent &event) {
+              if (event.getKeySym() != "l" || !event.keyDown())
+                return;
+              if (state->legend_visible) {
+                remove_label_legend(state, observer);
+                state->legend_visible = false;
+                spdlog::info("Label legend hidden");
+              } else if (state->current_label >= 0 &&
+                         state->current_label <
+                             static_cast<int>(label_clouds.size())) {
+                add_label_legend(
+                    label_clouds[static_cast<size_t>(state->current_label)],
+                    state, observer);
+                state->legend_visible = true;
+                spdlog::info("Label legend shown");
+              } else {
+                spdlog::info("No label overlay active — press 1-9 first");
+              }
+            });
+      });
+}
+
 /// Register keyboard callbacks for toggling label overlays (keys '1'-'9').
 ///
-/// @param label_clouds Vector of label clouds to register toggles for
+/// @param label_clouds Vector of label cloud info to register toggles for
 /// @param state Shared viewer state tracking currently visible label
 /// @param observer Visualization observer for enqueueing viewer tasks
 void register_label_toggles(
-    const std::vector<pcl::PointCloud<pcl::PointXYZL>::Ptr> &label_clouds,
+    const std::vector<LabelCloudInfo> &label_clouds,
     std::shared_ptr<ViewerState> state, rux::VizualizationObserver &observer) {
   for (size_t i = 0; i < label_clouds.size() && i < 9; ++i) {
     observer.viewer_enqueue_task([i, &observer, &label_clouds, state](
@@ -458,6 +611,11 @@ void register_label_toggles(
                       viewer->removePointCloud(cloud_name);
                       state->current_label = -1;
                     });
+                // Remove legend if visible
+                if (state->legend_visible) {
+                  remove_label_legend(state, observer);
+                  state->legend_visible = false;
+                }
                 spdlog::info("Label {} hidden", i + 1);
               } else {
                 // Remove previous label if any
@@ -478,15 +636,18 @@ void register_label_toggles(
                             const std::vector<int> &viewports) {
                       pcl::visualization::PointCloudColorHandlerLabelField<
                           pcl::PointXYZL>
-                          color_handler(label_clouds[i]);
+                          color_handler(label_clouds[i].cloud);
                       viewer->addPointCloud<pcl::PointXYZL>(
-                          label_clouds[i], color_handler, cloud_name,
+                          label_clouds[i].cloud, color_handler, cloud_name,
                           viewports[0]);
                       viewer->setPointCloudRenderingProperties(
                           pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3,
                           cloud_name);
                       state->current_label = static_cast<int>(i);
                     });
+                // Update legend if visible
+                if (state->legend_visible)
+                  add_label_legend(label_clouds[i], state, observer);
                 spdlog::info("Showing label {}", i + 1);
               }
             }
@@ -614,7 +775,7 @@ void register_component_toggle(
 void register_help_callback(
     const std::vector<LoadedCloud> &clouds,
     const std::vector<LoadedMesh> &meshes,
-    const std::vector<pcl::PointCloud<pcl::PointXYZL>::Ptr> &label_clouds,
+    const std::vector<LabelCloudInfo> &label_clouds,
     bool has_components, rux::VizualizationObserver &observer) {
   observer.viewer_enqueue_task(
       [&clouds, &meshes, &label_clouds,
@@ -633,6 +794,7 @@ void register_help_callback(
                 }
                 if (!label_clouds.empty()) {
                   spdlog::info("  1-9: Toggle label overlay");
+                  spdlog::info("  l: Toggle label color legend");
                 }
                 if (has_components) {
                   spdlog::info("  w: Toggle building components");
@@ -672,6 +834,7 @@ KEYBOARD CONTROLS:
   m         Toggle all meshes on/off
   w         Toggle building components (windows, doors, etc.)
   1-9       Toggle label overlay (planes, rooms, etc.)
+  l         Toggle label color legend
   h         Show help message
   q         Quit viewer
 
@@ -713,7 +876,7 @@ int run_subcommand_view([[maybe_unused]] SubcommandViewOptions const &opt,
   // === Phase 1: Load Data ===
   std::vector<LoadedCloud> clouds;
   std::vector<LoadedMesh> meshes;
-  std::vector<pcl::PointCloud<pcl::PointXYZL>::Ptr> labels;
+  std::vector<LabelCloudInfo> labels;
 
   // Load data from project database
   fs::path project_path = global_opt.project_db;
@@ -736,6 +899,7 @@ int run_subcommand_view([[maybe_unused]] SubcommandViewOptions const &opt,
   if (!labels.empty()) {
     auto state = std::make_shared<ViewerState>();
     register_label_toggles(labels, state, observer);
+    register_legend_toggle(labels, state, observer);
   }
 
   // Render building components as line loops and register 'w' toggle

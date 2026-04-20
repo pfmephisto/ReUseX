@@ -36,9 +36,8 @@ TEST_CASE("ProjectDB::project_summary() includes project information",
 
   SECTION("Empty database initially has no projects in summary") {
     auto summary = db.project_summary();
-    // New database may have default project or be empty depending on init
-    // Just check that projects vector is accessible
-    REQUIRE(summary.projects.size() >= 0);
+    // New database should have no projects initially
+    REQUIRE(summary.projects.empty());
   }
 
   SECTION("Database with project metadata populates projects vector") {
@@ -57,8 +56,8 @@ TEST_CASE("ProjectDB::project_summary() includes project information",
     // Get summary
     auto summary = db.project_summary();
 
-    // Verify projects vector contains our project
-    REQUIRE(summary.projects.size() >= 1);
+    // Verify projects vector contains exactly one project
+    REQUIRE(summary.projects.size() == 1);
 
     // Find our test project
     bool found = false;
@@ -88,7 +87,7 @@ TEST_CASE("ProjectDB::project_summary() includes project information",
     db.update_project_metadata(metadata);
 
     auto summary = db.project_summary();
-    REQUIRE(summary.projects.size() >= 1);
+    REQUIRE(summary.projects.size() == 1);
 
     // Find our partial project
     bool found = false;
@@ -124,7 +123,7 @@ TEST_CASE("ProjectDB::project_summary() includes project information",
     db.update_project_metadata(metadata2);
 
     auto summary = db.project_summary();
-    REQUIRE(summary.projects.size() >= 2);
+    REQUIRE(summary.projects.size() == 2);
 
     // Find and verify both projects
     bool found_first = false;

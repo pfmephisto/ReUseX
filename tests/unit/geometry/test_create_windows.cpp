@@ -14,6 +14,40 @@
 using namespace ReUseX;
 using namespace ReUseX::geometry;
 
+// Helper: Create a planar cluster aligned with a given normal direction.
+// This is useful for testing window detection on walls with specific orientations.
+static CloudPtr make_planar_cluster(const Eigen::Vector3f &center,
+                                     const Eigen::Vector3f &normal,
+                                     int count, float spread = 0.2f) {
+  CloudPtr cloud(new Cloud);
+  std::mt19937 gen(42);
+  std::normal_distribution<float> dist(0.0f, spread);
+
+  // Create orthonormal basis: normal + two in-plane directions
+  Eigen::Vector3f n = normal.normalized();
+  Eigen::Vector3f u = (std::abs(n.z()) < 0.9f) ? Eigen::Vector3f(0, 0, 1)
+                                                 : Eigen::Vector3f(1, 0, 0);
+  Eigen::Vector3f v1 = n.cross(u).normalized();
+  Eigen::Vector3f v2 = n.cross(v1).normalized();
+
+  // Generate points in the plane with small normal offset
+  for (int i = 0; i < count; ++i) {
+    PointT p;
+    float u1 = dist(gen);
+    float u2 = dist(gen);
+    float offset = dist(gen) * 0.02f;  // Small offset perpendicular to plane
+    Eigen::Vector3f pos = center + u1 * v1 + u2 * v2 + offset * n;
+    p.x = pos.x();
+    p.y = pos.y();
+    p.z = pos.z();
+    p.r = 255;
+    p.g = 255;
+    p.b = 255;
+    cloud->push_back(p);
+  }
+  return cloud;
+}
+
 // Helper: Build a simple box PolygonMesh (6 faces, 8 vertices)
 // The box spans [0,W] x [0,D] x [0,H].
 // 4 vertical walls + floor + ceiling.
@@ -82,14 +116,14 @@ TEST_CASE("extract_wall_candidates: box mesh", "[geometry][create_windows]") {
   auto mesh = make_box_mesh();
   auto walls = extract_wall_candidates(mesh);
 
-  SECTION("Finds 4 vertical walls from box mesh") {
-    // Floor and ceiling should be filtered (|normal.z| >= threshold)
-    REQUIRE(walls.size() == 4);
+  SECTION("Finds all 6 walls from box mesh") {
+    // With orientation-agnostic detection: 4 vertical + floor + ceiling
+    REQUIRE(walls.size() == 6);
   }
 
-  SECTION("Wall normals are approximately horizontal") {
+  SECTION("Wall normals are unit vectors") {
     for (const auto &w : walls) {
-      REQUIRE(std::abs(w.normal.z()) < 0.3);
+      // All walls should have normalized normals
       REQUIRE_THAT(w.normal.norm(),
                    Catch::Matchers::WithinAbs(1.0, 1e-6));
     }
@@ -128,8 +162,12 @@ TEST_CASE("create_windows: rectangle mode", "[geometry][create_windows]") {
   wall.boundary_vertices = {
       {0, 0, 0}, {0, 4, 0}, {0, 4, 3}, {0, 0, 3}};
 
-  // Create a window instance: cluster of points near (0.1, 2, 1.5)
-  auto cloud = make_cluster({0.1f, 2.0f, 1.5f}, 200, 0.2f);
+  // Create a window instance: planar cluster aligned with wall normal (+X)
+  auto cloud = make_planar_cluster(
+      {0.1f, 2.0f, 1.5f},           // Center near wall
+      {1.0f, 0.0f, 0.0f},           // Normal matches wall
+      200,                           // Point count
+      0.2f);                         // Spread in plane
 
   // Instance labels: all label=1
   CloudLPtr labels(new CloudL);
@@ -215,9 +253,10 @@ TEST_CASE("create_windows: multiple instances", "[geometry][create_windows]") {
   wall.plane = Eigen::Vector4d(1.0, 0.0, 0.0, 0.0);
   wall.boundary_vertices = {{0, 0, 0}, {0, 10, 0}, {0, 10, 3}, {0, 0, 3}};
 
-  // Two window clusters at different positions on the wall
-  auto cluster1 = make_cluster({0.1f, 2.0f, 1.5f}, 100);
-  auto cluster2 = make_cluster({0.1f, 7.0f, 1.5f}, 100);
+  // Two window clusters at different positions on the wall (planar, aligned with wall)
+  Eigen::Vector3f wall_normal(1.0f, 0.0f, 0.0f);
+  auto cluster1 = make_planar_cluster({0.1f, 2.0f, 1.5f}, wall_normal, 100);
+  auto cluster2 = make_planar_cluster({0.1f, 7.0f, 1.5f}, wall_normal, 100);
 
   CloudPtr cloud(new Cloud);
   CloudLPtr labels(new CloudL);

@@ -27,7 +27,8 @@ DESCRIPTION:
   Generates window building components from instance-segmented point clouds
   and wall geometry from the mesh. For each window instance, projects points
   onto the nearest wall, computes a boundary polygon (rectangle or concave
-  hull), and offsets it along the outward wall normal.
+  hull), and offsets it along the outward wall normal. Detects windows on all
+  surface orientations (vertical walls, horizontal skylights, tilted roofs).
 
 EXAMPLES:
   rux create windows                        # Defaults: rect mode, 0.5m offset
@@ -48,6 +49,7 @@ NOTES:
   - Use --mode rect for axis-aligned bounding boxes (default)
   - Use --mode poly for concave hull boundaries (--alpha controls tightness)
   - Wall offset moves the polygon outward from the wall surface
+  - Use --clear to replace all existing windows (default: update/append via UPSERT)
   - Output stored in project database building_components table
 )");
 
@@ -80,6 +82,10 @@ NOTES:
   sub->add_option("-l,--labels", opt->labels_to_process,
                   "Semantic labels to treat as windows (comma-separated)")
       ->delimiter(',');
+
+  sub->add_flag("--clear", opt->clear_existing,
+                "Delete all existing window components before creating new ones")
+      ->default_val(false);
 
   sub->callback([opt, global_opt]() {
     int exit_code = run_subcommand_create_windows(*opt, *global_opt);
@@ -176,6 +182,23 @@ int run_subcommand_create_windows(SubcommandWindowOptions const &opt,
                    fmt::join(window_labels, ", "));
     }
 
+    // Clear existing windows if requested
+    if (opt.clear_existing) {
+      auto existing_windows = db.list_building_components(
+          ReUseX::geometry::ComponentType::window);
+
+      if (!existing_windows.empty()) {
+        spdlog::info("Clearing {} existing window components",
+                     existing_windows.size());
+        for (const auto &name : existing_windows) {
+          db.delete_building_component(name);
+          spdlog::debug("Deleted component '{}'", name);
+        }
+      } else {
+        spdlog::debug("No existing windows to clear");
+      }
+    }
+
     // Extract wall candidates from mesh
     spdlog::info("Extracting wall candidates from mesh...");
     auto walls = ReUseX::geometry::extract_wall_candidates(*mesh);
@@ -204,6 +227,9 @@ int run_subcommand_create_windows(SubcommandWindowOptions const &opt,
 
     // Summary
     spdlog::info("Summary:");
+    if (opt.clear_existing) {
+      spdlog::info("  Existing windows cleared");
+    }
     spdlog::info("  Window components created: {}", result.components.size());
     spdlog::info("  Unmatched instances: {}",
                  result.unmatched_instances.size());

@@ -10,6 +10,8 @@
 #include <fmt/ranges.h>
 #include <spdlog/spdlog.h>
 
+#include <Eigen/Eigenvalues>
+
 #include <algorithm>
 #include <cmath>
 #include <map>
@@ -55,6 +57,41 @@ double triangle_area(const Eigen::Vector3d &v0, const Eigen::Vector3d &v1,
 using Edge = std::pair<int, int>;
 Edge make_edge(int a, int b) {
   return a < b ? Edge{a, b} : Edge{b, a};
+}
+
+/// Compute the dominant plane normal for a set of 3D points using PCA.
+/// Returns the normal vector corresponding to the smallest eigenvalue.
+Eigen::Vector3d compute_instance_orientation(
+    const std::vector<Eigen::Vector3d> &points) {
+
+  if (points.size() < 3) {
+    return Eigen::Vector3d::Zero();
+  }
+
+  // Compute centroid
+  Eigen::Vector3d centroid = Eigen::Vector3d::Zero();
+  for (const auto &p : points) centroid += p;
+  centroid /= static_cast<double>(points.size());
+
+  // Build covariance matrix (3x3)
+  Eigen::Matrix3d cov = Eigen::Matrix3d::Zero();
+  for (const auto &p : points) {
+    Eigen::Vector3d delta = p - centroid;
+    cov += delta * delta.transpose();
+  }
+  cov /= static_cast<double>(points.size());
+
+  // Eigendecomposition: eigenvectors are principal components
+  Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> solver(cov);
+  if (solver.info() != Eigen::Success) {
+    spdlog::warn("PCA eigendecomposition failed");
+    return Eigen::Vector3d::Zero();
+  }
+
+  // Smallest eigenvalue → plane normal (sorted ascending)
+  Eigen::Vector3d normal = solver.eigenvectors().col(0);
+  normal.normalize();
+  return normal;
 }
 
 } // namespace
@@ -116,11 +153,8 @@ extract_wall_candidates(const pcl::PolygonMesh &mesh, float normal_z_threshold,
     if (visited[seed])
       continue;
 
-    // Skip non-vertical faces
-    if (std::abs(face_normals[seed].z()) >= normal_z_threshold) {
-      visited[seed] = true;
-      continue;
-    }
+    // NOTE: Vertical-only filter removed to support all orientations
+    // (skylights, tilted windows, etc.)
 
     // Skip degenerate faces
     if (face_normals[seed].squaredNorm() < 1e-12) {
@@ -144,9 +178,6 @@ extract_wall_candidates(const pcl::PolygonMesh &mesh, float normal_z_threshold,
 
       for (int ni : face_adj[fi]) {
         if (visited[ni])
-          continue;
-        // Must be vertical
-        if (std::abs(face_normals[ni].z()) >= normal_z_threshold)
           continue;
         // Must be approximately coplanar with seed
         double dot = face_normals[ni].dot(seed_normal);
@@ -320,61 +351,93 @@ create_windows(CloudConstPtr cloud, CloudLConstPtr instance_labels,
       inst_centroid += p;
     inst_centroid /= static_cast<double>(inst_points.size());
 
-    // Find nearest wall: minimize |distance from centroid to wall plane|
-    // among walls whose bounding box contains the centroid
+    // Compute instance plane normal via PCA
+    Eigen::Vector3d inst_normal = compute_instance_orientation(inst_points);
+
+    if (inst_normal.norm() < 1e-6) {
+      spdlog::warn("Instance {} has degenerate geometry, skipping", inst_id);
+      result.unmatched_instances.push_back(static_cast<int>(inst_id));
+      continue;
+    }
+
+    // Find best matching wall: minimize cost = w_angle * angle + w_dist * distance
     int best_wall = -1;
-    double best_dist = std::numeric_limits<double>::max();
+    double best_cost = std::numeric_limits<double>::max();
+    const double w_angle = 1.0;      // Weight for angular difference (radians)
+    const double w_dist = 0.5;       // Weight for spatial distance (meters)
+    const double max_angle = 30.0 * M_PI / 180.0;  // 30-degree tolerance
 
     for (size_t wi = 0; wi < walls.size(); ++wi) {
-      // Quick bbox rejection
-      const auto &bb = wall_bboxes[wi];
-      if ((inst_centroid.array() < bb.min_pt.array()).any() ||
-          (inst_centroid.array() > bb.max_pt.array()).any())
-        continue;
+      // Angular alignment: dot product → angle
+      double dot = std::abs(inst_normal.dot(walls[wi].normal));
+      dot = std::clamp(dot, -1.0, 1.0);
+      double angle_diff = std::acos(dot);
 
-      // Signed distance from centroid to wall plane
+      // Skip walls with poor angular alignment
+      if (angle_diff > max_angle) continue;
+
+      // Spatial distance: centroid to wall plane
       double dist = std::abs(walls[wi].plane.head<3>().dot(inst_centroid) +
                              walls[wi].plane[3]);
-      if (dist < best_dist) {
-        best_dist = dist;
+
+      // Bounding box check (penalize out-of-bbox)
+      const auto &bb = wall_bboxes[wi];
+      if ((inst_centroid.array() < bb.min_pt.array()).any() ||
+          (inst_centroid.array() > bb.max_pt.array()).any()) {
+        dist += 1.0;  // 1m penalty
+      }
+
+      // Combined cost
+      double cost = w_angle * angle_diff + w_dist * dist;
+
+      if (cost < best_cost) {
+        best_cost = cost;
         best_wall = static_cast<int>(wi);
       }
     }
 
     if (best_wall < 0) {
-      // Fallback: try all walls without bbox filter
-      for (size_t wi = 0; wi < walls.size(); ++wi) {
-        double dist = std::abs(walls[wi].plane.head<3>().dot(inst_centroid) +
-                               walls[wi].plane[3]);
-        if (dist < best_dist) {
-          best_dist = dist;
-          best_wall = static_cast<int>(wi);
-        }
-      }
-    }
-
-    if (best_wall < 0) {
-      spdlog::warn("No wall found for instance {}", inst_id);
+      spdlog::warn("No suitable wall found for instance {} "
+                   "(orientation mismatch or too far)", inst_id);
       result.unmatched_instances.push_back(static_cast<int>(inst_id));
       continue;
     }
 
     const auto &wall = walls[best_wall];
 
-    // Define wall-local 2D frame (gravity-aligned)
-    // u = normalize(wall_normal × Z_up) — horizontal axis on wall
-    // v = normalize(u × wall_normal)    — vertical axis (approx Z-up)
+    // Construct intrinsic frame without Z-up assumption
+    Eigen::Vector3d wall_normal = wall.normal;
+    Eigen::Vector3d u_axis;
     Eigen::Vector3d z_up(0.0, 0.0, 1.0);
-    Eigen::Vector3d u_axis = wall.normal.cross(z_up);
-    double u_len = u_axis.norm();
-    if (u_len < 1e-6) {
-      // Wall normal is nearly vertical — skip (not a vertical wall)
-      spdlog::debug("Skipping instance {} — wall normal too vertical", inst_id);
-      result.unmatched_instances.push_back(static_cast<int>(inst_id));
-      continue;
+
+    // Check if wall is approximately vertical (|normal.z| < 0.3)
+    if (std::abs(wall_normal.z()) < 0.3) {
+      // Vertical wall: u-axis = normal × Z_up (horizontal)
+      u_axis = wall_normal.cross(z_up);
+      double u_len = u_axis.norm();
+      if (u_len < 1e-6) {
+        // Fallback: use arbitrary horizontal direction
+        u_axis = Eigen::Vector3d(1.0, 0.0, 0.0);
+      } else {
+        u_axis /= u_len;
+      }
+    } else {
+      // Horizontal or tilted wall: project normal to XY, rotate 90°
+      Eigen::Vector2d normal_xy(wall_normal.x(), wall_normal.y());
+      double xy_len = normal_xy.norm();
+
+      if (xy_len > 1e-6) {
+        normal_xy /= xy_len;
+        u_axis = Eigen::Vector3d(-normal_xy.y(), normal_xy.x(), 0.0);
+        u_axis.normalize();
+      } else {
+        // Horizontal ceiling/floor: arbitrary X-axis
+        u_axis = Eigen::Vector3d(1.0, 0.0, 0.0);
+      }
     }
-    u_axis /= u_len;
-    Eigen::Vector3d v_axis = u_axis.cross(wall.normal);
+
+    // v-axis = u × wall_normal (completes right-handed frame)
+    Eigen::Vector3d v_axis = u_axis.cross(wall_normal);
     v_axis.normalize();
 
     // Project instance points onto wall plane → 2D (u, v)
@@ -462,8 +525,8 @@ create_windows(CloudConstPtr cloud, CloudLConstPtr instance_labels,
     comp.confidence = -1.0; // auto-detected, no ML confidence
     comp.data = WindowData{};
 
-    spdlog::debug("Created {} from instance {} ({} vertices, wall dist {:.3f}m)",
-                  comp.name, inst_id, comp.boundary.vertices.size(), best_dist);
+    spdlog::debug("Created {} from instance {} ({} vertices, match cost {:.3f})",
+                  comp.name, inst_id, comp.boundary.vertices.size(), best_cost);
 
     result.components.push_back(std::move(comp));
   }

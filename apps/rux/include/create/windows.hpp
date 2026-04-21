@@ -20,6 +20,7 @@ struct SubcommandWindowOptions {
   float wall_offset = 0.5f;   ///< Offset along outward wall normal (meters)
   float alpha = 0.5f;         ///< ConcaveHull alpha for polyline mode
   std::vector<uint32_t> labels_to_process; ///< Semantic labels to treat as windows
+  bool clear_existing = false; ///< Delete all existing windows before creating new ones
 };
 
 // Function declarations.

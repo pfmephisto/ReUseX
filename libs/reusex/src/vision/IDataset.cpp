@@ -49,12 +49,26 @@ bool IDataset::save_image(const size_t index, const cv::Mat &image) {
     db_->save_segmentation_image(node_id, image);
 
 #ifndef NDEBUG
+    // Colorize label image
     cv::Mat temp = image.clone();
     temp = temp & 255;
     temp.convertTo(temp, CV_8U);
     cv::cvtColor(temp, temp, cv::COLOR_GRAY2BGR);
     cv::LUT(temp, lut, temp);
-    cv::imshow("Annotation", temp);
+
+    // Blend with RGB for overlay
+    cv::Mat rgb = db_->sensor_frame_image(node_id);
+    if (!rgb.empty()) {
+      if (rgb.channels() == 1)
+        cv::cvtColor(rgb, rgb, cv::COLOR_GRAY2BGR);
+      if (rgb.size() != temp.size())
+        cv::resize(temp, temp, rgb.size());
+      cv::Mat blended;
+      cv::addWeighted(rgb, 0.6, temp, 0.4, 0, blended);
+      cv::imshow("Annotation", blended);
+    } else {
+      cv::imshow("Annotation", temp);
+    }
     cv::waitKey(1);
 #endif
 

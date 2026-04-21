@@ -14,7 +14,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
-#include <queue>
+#include <map>
 #include <random>
 #include <span>
 #include <thread>
@@ -129,6 +129,7 @@ void Dataloader::stop() {
     epoch_finished_ = true;
   }
   queue_cv_.notify_all();
+  ready_cv_.notify_all();
 
   for (auto &worker : workers_) {
     if (worker.joinable()) {
@@ -137,8 +138,7 @@ void Dataloader::stop() {
   }
   workers_.clear();
 
-  std::queue<std::pair<size_t, Batch>> empty;
-  std::swap(batch_queue_, empty);
+  batch_queue_.clear();
   ReUseX::core::debug("All workers stopped");
 }
 
@@ -201,23 +201,21 @@ std::optional<Dataloader::Batch> Dataloader::get_batch(size_t batch_idx) {
   std::unique_lock<std::mutex> lock(queue_mutex_);
 
   ready_cv_.wait(lock, [this, batch_idx] {
-    return epoch_finished_ ||
-           (!batch_queue_.empty() && batch_queue_.front().first == batch_idx);
+    return epoch_finished_ || batch_queue_.count(batch_idx);
   });
 
-  if (epoch_finished_ && batch_queue_.empty()) {
-    ReUseX::core::debug("Epoch finished, no more batches available");
-    return std::nullopt;
-  }
-
-  if (!batch_queue_.empty() && batch_queue_.front().first == batch_idx) {
-    auto batch = std::move(batch_queue_.front().second);
-    batch_queue_.pop();
+  auto it = batch_queue_.find(batch_idx);
+  if (it != batch_queue_.end()) {
+    auto batch = std::move(it->second);
+    batch_queue_.erase(it);
     queue_cv_.notify_one();
     ReUseX::core::trace("Batch {} retrieved from queue", batch_idx);
     return batch;
   }
 
+  if (epoch_finished_) {
+    ReUseX::core::debug("Epoch finished, no more batches available");
+  }
   return std::nullopt;
 }
 

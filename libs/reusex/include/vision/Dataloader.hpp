@@ -10,7 +10,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
-#include <queue>
+#include <map>
 #include <span>
 #include <thread>
 #include <vector>
@@ -331,7 +331,7 @@ class Dataloader {
    * batches from this queue when requested. The batch queue is synchronized
    * using mutexes and condition variables to ensure thread safety.
    * */
-  std::queue<std::pair<size_t, Batch>> batch_queue_;
+  std::map<size_t, Batch> batch_queue_;
 
   /* * Mutex and condition variables for synchronizing access to the batch queue
    * and signaling the worker threads. The queue_mutex is used to protect access

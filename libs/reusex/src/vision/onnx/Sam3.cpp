@@ -374,24 +374,33 @@ cv::Mat ONNXSam3::infer_single(const ONNXSam3Data &sam3_data) {
     float *pred_masks = dec_outputs[0].GetTensorMutableData<float>();
     float *pred_boxes = dec_outputs[1].GetTensorMutableData<float>();
     float *pred_logits = dec_outputs[2].GetTensorMutableData<float>();
+    float *presence_logits = dec_outputs[3].GetTensorMutableData<float>();
+
+    float presence_score = 1.0f / (1.0f + std::exp(-presence_logits[0]));
+
+    // Precompute box transform: normalized [0,1] input-canvas coords → image
+    // coords. The inv_affine maps mask pixels to image pixels; since boxes are
+    // normalized to input canvas (same space as mask), multiply by mask dims
+    // first, then apply the affine.
+    float box_sx = inv_affine.at<float>(0, 0) * static_cast<float>(mask_width_);
+    float box_sy = inv_affine.at<float>(1, 1) * static_cast<float>(mask_height_);
+    float box_tx = inv_affine.at<float>(0, 2);
+    float box_ty = inv_affine.at<float>(1, 2);
 
     // Apply sigmoid to logits and filter by confidence
     for (int q = 0; q < num_queries_; ++q) {
       float logit = pred_logits[q];
-      float score = 1.0f / (1.0f + std::exp(-logit)); // sigmoid
+      float score =
+          (1.0f / (1.0f + std::exp(-logit))) * presence_score; // sigmoid
       if (score < conf_threshold)
         continue;
 
-      // Extract box: pred_boxes are [cx, cy, w, h] normalized
-      float cx = pred_boxes[q * 4 + 0] * static_cast<float>(image.cols);
-      float cy = pred_boxes[q * 4 + 1] * static_cast<float>(image.rows);
-      float w = pred_boxes[q * 4 + 2] * static_cast<float>(image.cols);
-      float h = pred_boxes[q * 4 + 3] * static_cast<float>(image.rows);
-
-      float left = cx - w * 0.5f;
-      float top = cy - h * 0.5f;
-      float right = cx + w * 0.5f;
-      float bottom = cy + h * 0.5f;
+      // Extract box: pred_boxes are [x1, y1, x2, y2] normalized to input
+      // canvas. Transform through mask→image affine to undo letterbox.
+      float left = box_sx * pred_boxes[q * 4 + 0] + box_tx;
+      float top = box_sy * pred_boxes[q * 4 + 1] + box_ty;
+      float right = box_sx * pred_boxes[q * 4 + 2] + box_tx;
+      float bottom = box_sy * pred_boxes[q * 4 + 3] + box_ty;
 
       // Clip to image bounds
       left = std::max(0.0f, left);

@@ -107,7 +107,7 @@ pcl::PolygonMeshPtr unweld_mesh(const pcl::PolygonMesh &mesh,
       face_normals[i] = compute_polygon_normal(mesh.polygons[i], cloud);
     } catch (const std::runtime_error &) {
       face_normals[i] = Eigen::Vector3f::Zero();
-      ReUseX::core::warn("Degenerate face {} assigned zero normal", i);
+      ReUseX::warn("Degenerate face {} assigned zero normal", i);
     }
   }
 
@@ -184,7 +184,7 @@ pcl::PolygonMeshPtr unweld_mesh(const pcl::PolygonMesh &mesh,
   pcl::toPCLPointCloud2(*new_cloud, result->cloud);
   result->polygons = std::move(new_polygons);
 
-  ReUseX::core::debug("Unweld: {} -> {} vertices ({} faces)",
+  ReUseX::debug("Unweld: {} -> {} vertices ({} faces)",
                        cloud->points.size(), new_cloud->points.size(),
                        result->polygons.size());
 

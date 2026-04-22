@@ -59,9 +59,9 @@ auto segment_instances_impl(const SegmentInstancesRequest &request)
         request.max_cluster_size, request.min_cluster_size));
   }
 
-  ReUseX::core::info("Starting instance segmentation on {} points",
+  ReUseX::info("Starting instance segmentation on {} points",
                      request.cloud->size());
-  ReUseX::core::debug("Parameters: tolerance={:.3f}m, min_size={}, max_size={}",
+  ReUseX::debug("Parameters: tolerance={:.3f}m, min_size={}, max_size={}",
                       request.cluster_tolerance, request.min_cluster_size,
                       request.max_cluster_size);
 
@@ -88,15 +88,15 @@ auto segment_instances_impl(const SegmentInstancesRequest &request)
                           request.labels_to_process.end(),
                           std::inserter(filtered_labels, filtered_labels.end()));
     unique_labels = filtered_labels;
-    ReUseX::core::debug("Filtered to {} semantic labels", unique_labels.size());
+    ReUseX::debug("Filtered to {} semantic labels", unique_labels.size());
   }
 
   if (unique_labels.empty()) {
-    ReUseX::core::warn("No semantic labels found (all points are label 0)");
+    ReUseX::warn("No semantic labels found (all points are label 0)");
     return result;
   }
 
-  ReUseX::core::info("Processing {} semantic classes", unique_labels.size());
+  ReUseX::info("Processing {} semantic classes", unique_labels.size());
 
   // Convert set to vector for indexed access in parallel loop
   std::vector<uint32_t> labels_vec(unique_labels.begin(), unique_labels.end());
@@ -126,7 +126,7 @@ auto segment_instances_impl(const SegmentInstancesRequest &request)
 #pragma omp critical
       {
         if (!cancelled) {
-          ReUseX::core::warn("Instance segmentation cancelled by user");
+          ReUseX::warn("Instance segmentation cancelled by user");
           cancelled = true;
         }
       }
@@ -136,7 +136,7 @@ auto segment_instances_impl(const SegmentInstancesRequest &request)
     uint32_t semantic_label = labels_vec[class_idx];
     const auto &indices = label_to_indices[semantic_label];
 
-    ReUseX::core::debug("Processing semantic label {} with {} points",
+    ReUseX::debug("Processing semantic label {} with {} points",
                         semantic_label, indices.size());
 
     // Build KdTree for this semantic class
@@ -149,7 +149,7 @@ auto segment_instances_impl(const SegmentInstancesRequest &request)
         *request.cloud, indices, tree, request.cluster_tolerance,
         cluster_indices, request.min_cluster_size, request.max_cluster_size);
 
-    ReUseX::core::debug("Found {} clusters for semantic label {}",
+    ReUseX::debug("Found {} clusters for semantic label {}",
                         cluster_indices.size(), semantic_label);
 
     // Assign instance IDs to clusters
@@ -186,7 +186,7 @@ auto segment_instances_impl(const SegmentInstancesRequest &request)
     throw std::runtime_error("Instance segmentation cancelled by user");
   }
 
-  ReUseX::core::info(
+  ReUseX::info(
       "Instance segmentation complete: {} instances, {}/{} points "
       "labeled ({:.1f}%)",
       result.instance_to_semantic.size(), labeled_points,

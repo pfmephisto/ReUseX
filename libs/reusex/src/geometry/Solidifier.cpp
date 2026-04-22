@@ -44,7 +44,7 @@ class Solidifier::Impl {
   static constexpr double alpha = 0.04;
 
   explicit Impl(std::shared_ptr<const CellComplex> cc) : _cc(cc) {
-    ReUseX::core::trace("Solidifier created");
+    ReUseX::trace("Solidifier created");
   }
 
   void _configureSolver();
@@ -76,8 +76,8 @@ std::optional<std::pair<std::unordered_map<Solidifier::Cd, int>,
                         std::unordered_map<Solidifier::Cd, std::set<int>>>>
 Solidifier::solve() {
 
-  ReUseX::core::info("Using MIP solver: {}", typeid(pimpl_->solver).name());
-  ReUseX::core::trace("Start solving MIP");
+  ReUseX::info("Using MIP solver: {}", typeid(pimpl_->solver).name());
+  ReUseX::trace("Start solving MIP");
 
   pimpl_->_configureSolver();
   pimpl_->_setupVariables();
@@ -85,24 +85,24 @@ Solidifier::solve() {
   pimpl_->_setupConstraints();
 
   // Log problem statistics
-  ReUseX::core::debug(
+  ReUseX::debug(
       "Problem size: {} cells, {} rooms, {} walls",
       std::distance(pimpl_->_cc->cells_begin(), pimpl_->_cc->cells_end()),
       pimpl_->_cc->n_rooms, pimpl_->_cc->n_walls);
-  ReUseX::core::debug("Total variables: {}, Total constraints: {}",
+  ReUseX::debug("Total variables: {}, Total constraints: {}",
                       pimpl_->solver.number_of_variables(),
                       pimpl_->solver.number_of_constraints());
 
-  ReUseX::core::trace("Start solving");
+  ReUseX::trace("Start solving");
   auto sw = ReUseX::core::stopwatch{};
 
   // INFO: Solve
   if (!pimpl_->solver.solve()) {
-    ReUseX::core::error("MIP solver failed to find solution");
+    ReUseX::error("MIP solver failed to find solution");
     return {};
   }
 
-  ReUseX::core::info("MIP solver succeeded");
+  ReUseX::info("MIP solver succeeded");
 
   auto room_label = std::unordered_map<Cd, int>{};
   auto wall_label = std::unordered_map<Cd, std::set<int>>{};
@@ -118,7 +118,7 @@ Solidifier::solve() {
         wall_label[*cit].insert(static_cast<int>(i));
     }
   }
-  ReUseX::core::info("Solved MIP in {:>.3f} seconds", sw);
+  ReUseX::info("Solved MIP in {:>.3f} seconds", sw);
 
   return std::make_pair(room_label, wall_label);
 }
@@ -197,7 +197,7 @@ SCIPsetIntParam(scip, "separating/maxcuts", 50);
  * $$x_{c,l} \in {0, 1}, c \in C, l \in R_0 U \cup W$$
  */
 void Solidifier::Impl::_setupVariables() {
-  ReUseX::core::trace("Create variables");
+  ReUseX::trace("Create variables");
   for (auto cit = _cc->cells_begin(); cit != _cc->cells_end(); ++cit) {
     _room_variables[*cit] = std::vector<Variable *>(_cc->n_rooms + 1);
     _wall_variables[*cit] = std::vector<Variable *>(_cc->n_walls);
@@ -226,7 +226,7 @@ void Solidifier::Impl::_setupVariables() {
  * (x_{c_a,w} - x_{c_a,w})(1-P_F(f_{c_a,c_b})) area(f_{c_a,c_b})$$
  */
 void Solidifier::Impl::_setupObjective() {
-  ReUseX::core::trace("Create objective");
+  ReUseX::trace("Create objective");
 
   auto area = _cc->property_map<Fd, double>("f:area");
   auto volume = _cc->property_map<Cd, double>("c:volume");
@@ -240,7 +240,7 @@ void Solidifier::Impl::_setupObjective() {
     for (size_t l = 0; l < _cc->n_rooms + 1; ++l) {
       const double weight = c_rp[*cit][l] * volume[*cit];
 #if SolverDebug
-      ReUseX::core::trace(
+      ReUseX::trace(
           "Cell: {}, Label: {}, P_C: {:.3f}, volume: {:.3f} => weight: {:.3f}",
           std::get<CellData>((*_cc)[*cit].data).id, l, c_rp[*cit][l],
           volume[*cit], weight);
@@ -258,7 +258,7 @@ void Solidifier::Impl::_setupObjective() {
     auto [Wa, Wb] = getWallIds(cit_a, cit_b);
 
 #if SolverDebug
-    ReUseX::core::trace("Face {} A:{} B:{} Wa: [{}], Wb [{}]",
+    ReUseX::trace("Face {} A:{} B:{} Wa: [{}], Wb [{}]",
                         std::get<FaceData>((*_cc)[*fit].data).id,
                         std::get<CellData>((*_cc)[cit_a].data).id,
                         std::get<CellData>((*_cc)[cit_b].data).id,
@@ -269,32 +269,32 @@ void Solidifier::Impl::_setupObjective() {
 
     // W_{F_b}: walls in cb but not in ca
 #if SolverDebug
-    ReUseX::core::trace("W_Fb");
+    ReUseX::trace("W_Fb");
 #endif
     for (auto id : Wb - Wa) {
       Variable *Xcbw = _wall_variables[cit_b][id];
       obj->add_coefficient(Xcbw, alpha * weight);
 #if SolverDebug
-      ReUseX::core::trace("Var {:<8}, alpha {:.3f}, weight: {:.3f}",
+      ReUseX::trace("Var {:<8}, alpha {:.3f}, weight: {:.3f}",
                           Xcbw->name(), alpha, weight);
 #endif
     }
 
     // W_{F_i}: walls in both ca and cb
 #if SolverDebug
-    ReUseX::core::trace("W_Fi");
+    ReUseX::trace("W_Fi");
 #endif
     for (auto id : Wa + Wb) {
       Variable *Xcbw = _wall_variables[cit_b][id];
       obj->add_coefficient(Xcbw, alpha * weight);
 #if SolverDebug
-      ReUseX::core::trace("Var {:<8}, alpha {:.3f}, weight: {:.3f}",
+      ReUseX::trace("Var {:<8}, alpha {:.3f}, weight: {:.3f}",
                           Xcbw->name(), alpha, weight);
 #endif
       Variable *Xcaw = _wall_variables[cit_a][id];
       obj->add_coefficient(Xcaw, -alpha * weight);
 #if SolverDebug
-      ReUseX::core::trace("Var {:<8}, alpha {:.3f}, weight: {:.3f}",
+      ReUseX::trace("Var {:<8}, alpha {:.3f}, weight: {:.3f}",
                           Xcaw->name(), alpha, weight);
 #endif
     }
@@ -304,7 +304,7 @@ void Solidifier::Impl::_setupObjective() {
 /** Setup all the MIP constraints
  */
 void Solidifier::Impl::_setupConstraints() {
-  ReUseX::core::trace("Create constraints");
+  ReUseX::trace("Create constraints");
   _c_1();
   _c_2();
   _c_3();
@@ -319,14 +319,14 @@ void Solidifier::Impl::_setupConstraints() {
  * $$\forall c \in C: \sum_{r \in R_0} x_{c,r} = 1$$
  */
 void Solidifier::Impl::_c_1() {
-  ReUseX::core::trace("Create constraint 1");
+  ReUseX::trace("Create constraint 1");
   for (auto cit = _cc->cells_begin(); cit != _cc->cells_end(); ++cit) {
     Linear_constraint *c1 = solver.create_constraint(1, 1, "c1");
     for (size_t l = 0; l < _cc->n_rooms + 1; ++l) {
       Variable *Xcr = _room_variables[*cit][l];
       c1->add_coefficient(Xcr, 1);
 #if SolverDebug
-      ReUseX::core::trace("Cell: {}, Label: {}, 1",
+      ReUseX::trace("Cell: {}, Label: {}, 1",
                           std::get<CellData>((*_cc)[*cit].data).id, l);
 #endif
     }
@@ -340,7 +340,7 @@ void Solidifier::Impl::_c_1() {
  * 0$$
  */
 void Solidifier::Impl::_c_2() {
-  ReUseX::core::trace("Create constraint 2");
+  ReUseX::trace("Create constraint 2");
   for (auto fit = _cc->faces_between_cells_begin();
        fit != _cc->faces_between_cells_end(); ++fit) {
     for (size_t r = 1; r < _cc->n_rooms + 1; ++r) {
@@ -351,7 +351,7 @@ void Solidifier::Impl::_c_2() {
       c2->add_coefficient(x_car, 1);
       c2->add_coefficient(x_cbr, -1);
 #if SolverDebug
-      ReUseX::core::trace("Face: {}, Room: {}, A:{} - B:{}",
+      ReUseX::trace("Face: {}, Room: {}, A:{} - B:{}",
                           std::get<FaceData>((*_cc)[*fit].data).id, r,
                           x_car->name(), x_cbr->name());
 #endif
@@ -365,7 +365,7 @@ void Solidifier::Impl::_c_2() {
  * $$\forall c \in C \forall \forall w \in W_c: x_{c,w} \leqslant x_{c,o}$$
  */
 void Solidifier::Impl::_c_3() {
-  ReUseX::core::trace("Create constraint 3");
+  ReUseX::trace("Create constraint 3");
   for (auto cit = _cc->cells_begin(); cit != _cc->cells_end(); ++cit) {
     for (size_t w = 0; w < _cc->n_walls; ++w) {
       Variable *Xcw = _wall_variables[*cit][w];
@@ -375,7 +375,7 @@ void Solidifier::Impl::_c_3() {
       c3->add_coefficient(Xcw, 1);
       c3->add_coefficient(Xco, -1);
 #if SolverDebug
-      ReUseX::core::trace("Cell: {}, Wall: {} - {} <= 0",
+      ReUseX::trace("Cell: {}, Wall: {} - {} <= 0",
                           std::get<CellData>((*_cc)[*cit].data).id, Xcw->name(),
                           Xco->name());
 #endif
@@ -389,7 +389,7 @@ void Solidifier::Impl::_c_3() {
  * \geqslant x_{c_b,o} - x_{c_a,o}$$
  */
 void Solidifier::Impl::_c_4() {
-  ReUseX::core::trace("Create constraint 4");
+  ReUseX::trace("Create constraint 4");
   for (auto fit = _cc->faces_between_cells_begin();
        fit != _cc->faces_between_cells_end(); ++fit) {
     auto cit_a = _cc->get_a(*fit);
@@ -412,7 +412,7 @@ void Solidifier::Impl::_c_4() {
     c4->add_coefficient(Xcao, 1);
 
 #if SolverDebug
-    ReUseX::core::trace("Face: {}, (Wb - Wa) x_cb[{}] - {} + {} >= 0",
+    ReUseX::trace("Face: {}, (Wb - Wa) x_cb[{}] - {} + {} >= 0",
                         std::get<FaceData>((*_cc)[*fit].data).id,
                         fmt::join(W_b - W_a, ", "), Xcbo->name(), Xcao->name());
 #endif
@@ -426,7 +426,7 @@ void Solidifier::Impl::_c_4() {
  * x_{c_a,w} \geqslant 0$$
  */
 void Solidifier::Impl::_c_5() {
-  ReUseX::core::trace("Create constraint 5");
+  ReUseX::trace("Create constraint 5");
   for (auto fit = _cc->faces_between_cells_begin();
        fit != _cc->faces_between_cells_end(); ++fit) {
     auto cit_a = _cc->get_a(*fit);
@@ -442,7 +442,7 @@ void Solidifier::Impl::_c_5() {
       c5->add_coefficient(Xcbw, 1);
       c5->add_coefficient(Xcaw, -1);
 #if SolverDebug
-      ReUseX::core::trace("Face: {}, Wall: {}, {} - {} >= 0",
+      ReUseX::trace("Face: {}, Wall: {}, {} - {} >= 0",
                           std::get<FaceData>((*_cc)[*fit].data).id, id,
                           Xcbw->name(), Xcaw->name());
 #endif
@@ -457,7 +457,7 @@ void Solidifier::Impl::_c_5() {
  * W_{\bar{c_a},c_b}} x_{c_b,w'} \geqslant x_{c_b,w}-x_{c_a,w}$$
  */
 void Solidifier::Impl::_c_6() {
-  ReUseX::core::trace("Create constraint 6");
+  ReUseX::trace("Create constraint 6");
   for (auto fit = _cc->faces_between_cells_begin();
        fit != _cc->faces_between_cells_end(); ++fit) {
     auto cit_a = _cc->get_a(*fit);
@@ -481,7 +481,7 @@ void Solidifier::Impl::_c_6() {
       }
 
 #if SolverDebug
-      ReUseX::core::trace(
+      ReUseX::trace(
           "Face: {}, Wall: {}, sum(Wb - Wa) x_cb[{}] - {} + {} >= 0 ",
           std::get<FaceData>((*_cc)[*fit].data).id, fmt::join(W_b - W_a, ", "),
           id, Xcbw->name(), Xcaw->name());
@@ -496,7 +496,7 @@ void Solidifier::Impl::_c_6() {
  * $$\forall f_{c_a,c_b} \in F : x_{c_a,o} - x_{c_b,o} \leqslant 0$$
  */
 void Solidifier::Impl::_c_7() {
-  ReUseX::core::trace("Create constraint 7");
+  ReUseX::trace("Create constraint 7");
   for (auto fit = _cc->faces_between_cells_begin();
        fit != _cc->faces_between_cells_end(); ++fit) {
     auto cit_a = _cc->get_a(*fit);
@@ -510,7 +510,7 @@ void Solidifier::Impl::_c_7() {
     c7->add_coefficient(Xcao, 1);
     c7->add_coefficient(Xcbo, -1);
 #if SolverDebug
-    ReUseX::core::trace("Face: {}, {} - {} <= 0",
+    ReUseX::trace("Face: {}, {} - {} <= 0",
                         std::get<FaceData>((*_cc)[*fit].data).id, Xcao->name(),
                         Xcbo->name());
 #endif

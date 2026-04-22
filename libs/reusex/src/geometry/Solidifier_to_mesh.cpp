@@ -70,18 +70,18 @@ toMesh_impl(const std::shared_ptr<const CellComplex> &_cc,
  }
 
  // INFO: Merge volumes using boolean union
- ReUseX::core::trace("Corefining and computing union");
+ ReUseX::trace("Corefining and computing union");
 
  // mesh.collect_garbage();
  PMP::triangulate_faces(mesh);
 
  // if (!PMP::corefine_and_compute_union(mesh, mesh, mesh))
- //   ReUseX::core::error("Boolean union failed");
+ //   ReUseX::error("Boolean union failed");
 
  // PMP::triangulate_faces(mesh);
  // PMP::remove_isolated_vertices(mesh);
 
- ReUseX::core::debug("Mesh is triangulated: {}",
+ ReUseX::debug("Mesh is triangulated: {}",
                CGAL::is_triangle_mesh(mesh) ? "yes" : "no");
  */
 
@@ -113,7 +113,7 @@ toMesh_impl(const std::shared_ptr<const CellComplex> &_cc,
       }
 
       if (neighbor_cells.size() > 2)
-        ReUseX::core::warn("Face {} has more than two adjacent cells",
+        ReUseX::warn("Face {} has more than two adjacent cells",
                            (*_cc)[*fit].id);
 
       if (neighbor_cells.size() == 2) {
@@ -156,7 +156,7 @@ toMesh_impl(const std::shared_ptr<const CellComplex> &_cc,
 
       // INFO: Create face
       if (verts.size() < 3) {
-        ReUseX::core::error("Face {} has less than 3 vertices",
+        ReUseX::error("Face {} has less than 3 vertices",
                             (*_cc)[*fit].id);
         continue;
       }
@@ -185,12 +185,12 @@ toMesh_impl(const std::shared_ptr<const CellComplex> &_cc,
   const size_t nV = vertex_indices.size();
   const size_t nF = faces.size();
 
-  ReUseX::core::trace("Converted mesh has {} vertices and {} faces", nV, nF);
+  ReUseX::trace("Converted mesh has {} vertices and {} faces", nV, nF);
   V.resize(nV, 3);
   F.resize(nF, 3);
 
   // Map vertex indices
-  ReUseX::core::trace("Mapping {} vertices", nV);
+  ReUseX::trace("Mapping {} vertices", nV);
   std::unordered_map<int, int> vmap;
   vmap.reserve(nV);
 
@@ -201,12 +201,12 @@ toMesh_impl(const std::shared_ptr<const CellComplex> &_cc,
   }
 
   // Convert faces
-  ReUseX::core::trace("Mapping {} faces", nF);
+  ReUseX::trace("Mapping {} faces", nF);
   for (size_t i = 0; i < faces.size(); ++i)
     F.row(i) = faces[i];
   F = F.unaryExpr([&](int x) { return vmap[x]; });
 
-  ReUseX::core::trace("Converted mesh to Eigen matrices");
+  ReUseX::trace("Converted mesh to Eigen matrices");
 
   /*
   // INFO: Old section
@@ -218,7 +218,7 @@ toMesh_impl(const std::shared_ptr<const CellComplex> &_cc,
   const size_t nV = mesh.number_of_vertices();
   const size_t nF = mesh.number_of_faces();
 
-  ReUseX::core::trace("Converted mesh has {} vertices and {} faces", nV, nF);
+  ReUseX::trace("Converted mesh has {} vertices and {} faces", nV, nF);
 
   V.resize(nV, 3);
   F.resize(nF, 3);
@@ -255,7 +255,7 @@ toMesh_impl(const std::shared_ptr<const CellComplex> &_cc,
     size_t idx = 0;
     do {
       if (idx >= 3) {
-        ReUseX::core::error("Non-triangular Face ID: {}|{}", f_id, idx++);
+        ReUseX::error("Non-triangular Face ID: {}|{}", f_id, idx++);
       } else {
         Mesh::Vertex_index v = *vc;
         F(f_id, idx++) = vmap[v];
@@ -263,7 +263,7 @@ toMesh_impl(const std::shared_ptr<const CellComplex> &_cc,
     } while (++vc != end);
     ++f_id;
   }
-  ReUseX::core::trace("Converted mesh to Eigen matrices");
+  ReUseX::trace("Converted mesh to Eigen matrices");
   */
 
   return {V, F};

@@ -14,20 +14,20 @@ TensorRTBackend::create_model(const Model type,
                               bool use_cuda) {
   // TensorRT always uses GPU, so use_cuda parameter is ignored
   (void)use_cuda; // Suppress unused parameter warning
-  ReUseX::core::info("Creating TensorRT model type {} from path: {}",
+  ReUseX::info("Creating TensorRT model type {} from path: {}",
                      static_cast<int>(type), modelPath);
   switch (type) {
   case Model::sam3:
     return TensorRTSam3::create(modelPath);
   default:
-    ReUseX::core::error("Unsupported model type: {}", static_cast<int>(type));
+    ReUseX::error("Unsupported model type: {}", static_cast<int>(type));
     throw std::runtime_error("Unsupported model type");
   }
 }
 
 std::unique_ptr<IDataset>
 TensorRTBackend::create_dataset(const std::filesystem::path &datasetPath) {
-  ReUseX::core::info("Creating TensorRT dataset from path: {}", datasetPath);
+  ReUseX::info("Creating TensorRT dataset from path: {}", datasetPath);
   return std::make_unique<TensorRTDataset>(datasetPath);
 }
 

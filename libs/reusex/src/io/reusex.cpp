@@ -29,9 +29,9 @@ auto getPlanes(CloudLConstPtr planes, CloudNConstPtr normals,
   centroids.resize(locations->size());
   inlier_indices.resize(normals->size());
 
-  ReUseX::core::debug("Number of planes: {}", planes->size());
-  ReUseX::core::debug("Number of normals: {}", normals->size());
-  ReUseX::core::debug("Number of locations: {}", locations->size());
+  ReUseX::debug("Number of planes: {}", planes->size());
+  ReUseX::debug("Number of normals: {}", normals->size());
+  ReUseX::debug("Number of locations: {}", locations->size());
 
   assert(normals->size() == locations->size() &&
          "Normals and locations size mismatch");
@@ -57,7 +57,7 @@ auto getPlanes(CloudLConstPtr planes, CloudNConstPtr normals,
   if (unique_labels.find(0) != unique_labels.end())
     unique_labels.erase(0);
 
-  ReUseX::core::debug("Found {} unique plane labels: {}", unique_labels.size(),
+  ReUseX::debug("Found {} unique plane labels: {}", unique_labels.size(),
                       fmt::join(unique_labels, ", "));
 
   std::unordered_map<uint32_t, size_t> label_to_index{};

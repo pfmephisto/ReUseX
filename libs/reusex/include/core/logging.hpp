@@ -114,6 +114,20 @@ inline void critical(std::string_view message) {
 
 } // namespace ReUseX::core
 
+// Promote logging functions to ReUseX namespace for convenience
+// Only promotes logging functions, avoiding conflicts with external libraries
+namespace ReUseX {
+using core::trace;
+using core::debug;
+using core::info;
+using core::warn;
+using core::error;
+using core::critical;
+using core::log;
+using core::LogLevel;
+using core::stopwatch;
+} // namespace ReUseX
+
 namespace fmt {
 template <> struct formatter<ReUseX::core::stopwatch> : formatter<double> {
   template <typename FormatContext>

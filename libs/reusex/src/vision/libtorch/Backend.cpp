@@ -16,13 +16,13 @@ std::unique_ptr<IModel>
 LibTorchBackend::create_model(const Model type,
                               const std::filesystem::path &modelPath,
                               bool use_cuda) {
-  ReUseX::core::info("Creating LibTorch model type {} from path: {}",
+  ReUseX::info("Creating LibTorch model type {} from path: {}",
                      static_cast<int>(type), modelPath);
   switch (type) {
   case Model::yolo:
     return LibTorchYolo::create(modelPath, use_cuda);
   default:
-    ReUseX::core::error("Unsupported model type for LibTorch backend: {}",
+    ReUseX::error("Unsupported model type for LibTorch backend: {}",
                         static_cast<int>(type));
     throw std::runtime_error("Unsupported model type for LibTorch backend");
   }
@@ -30,7 +30,7 @@ LibTorchBackend::create_model(const Model type,
 
 std::unique_ptr<IDataset>
 LibTorchBackend::create_dataset(const std::filesystem::path &datasetPath) {
-  ReUseX::core::info("Creating LibTorch dataset from path: {}", datasetPath);
+  ReUseX::info("Creating LibTorch dataset from path: {}", datasetPath);
   return std::make_unique<LibTorchDataset>(datasetPath);
 }
 

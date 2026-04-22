@@ -73,7 +73,7 @@ pcl::PolygonMeshPtr mesh(CloudConstPtr cloud, CloudNConstPtr normals,
   if (opt.filter) {
     std::unordered_set<int> filtered_set(opt.filter->begin(),
                                          opt.filter->end());
-    ReUseX::core::debug("Mesh generation using {} filtered points",
+    ReUseX::debug("Mesh generation using {} filtered points",
                         opt.filter->size());
 
     // Filter each inlier list to only include filtered indices
@@ -98,27 +98,27 @@ pcl::PolygonMeshPtr mesh(CloudConstPtr cloud, CloudNConstPtr normals,
 
   std::tie(planes, inliers, centroids) =
       merge_planes(planes, inliers, centroids, cloud);
-  ReUseX::core::debug("Number of planes after merging: {}", planes.size());
+  ReUseX::debug("Number of planes after merging: {}", planes.size());
 
   planes = force_orthogonal_planes(planes);
-  ReUseX::core::debug("Number of planes after forcing orthogonality: {}",
+  ReUseX::debug("Number of planes after forcing orthogonality: {}",
                       planes.size());
 
   auto pairs = make_pairs(planes, inliers, centroids, opt.search_threshold,
                           opt.new_plane_offset);
-  ReUseX::core::debug("Number of plane pairs: {}", pairs.size());
+  ReUseX::debug("Number of plane pairs: {}", pairs.size());
 
   auto [vertical, horizontal] = separate_planes(planes);
-  ReUseX::core::debug(
+  ReUseX::debug(
       "Number indices in inliers [{}]",
       fmt::join(inliers | ranges::views::transform(
                               [](auto const &i) { return i->size(); }),
                 ", "));
-  ReUseX::core::debug("Number of horizonal planes: {}", horizontal.size());
-  ReUseX::core::debug("Number of vertical planes: {}", vertical.size());
+  ReUseX::debug("Number of horizonal planes: {}", horizontal.size());
+  ReUseX::debug("Number of vertical planes: {}", vertical.size());
 
-  ReUseX::core::debug("Vertical planes [{}]", fmt::join(vertical, ", "));
-  ReUseX::core::debug("Horizontal planes [{}]", fmt::join(horizontal, ", "));
+  ReUseX::debug("Vertical planes [{}]", fmt::join(vertical, ", "));
+  ReUseX::debug("Horizontal planes [{}]", fmt::join(horizontal, ", "));
 
   auto sel = [&](size_t idx) {
     return std::make_pair(planes[idx], centroids[idx]);
@@ -151,7 +151,7 @@ pcl::PolygonMeshPtr mesh(CloudConstPtr cloud, CloudNConstPtr normals,
       std::array<double, 2>{min.x - 1, min.y - 1},
       std::array<double, 2>{max.x + 1, max.y + 1}, std::nullopt);
 
-  ReUseX::core::debug("Cell complex: {}", *cc);
+  ReUseX::debug("Cell complex: {}", *cc);
 
   // INFO: Display cell complex
   // if (viewer)
@@ -169,14 +169,14 @@ pcl::PolygonMeshPtr mesh(CloudConstPtr cloud, CloudNConstPtr normals,
   observer->viewer_add_geometry("cell_complex", *cc, stage);
   //   viewer->addRoomProbabilities(cc, "room_probablilites", vps->at(2));
 
-  ReUseX::core::debug("Cell complex: {}", *cc);
+  ReUseX::debug("Cell complex: {}", *cc);
 
-  ReUseX::core::trace("Initializing Solidifier");
+  ReUseX::trace("Initializing Solidifier");
   ReUseX::geometry::Solidifier solidifier(cc);
   auto results = solidifier.solve();
 
   if (!results)
-    ReUseX::core::warn("Solidification failed to find a solution");
+    ReUseX::warn("Solidification failed to find a solution");
 
   // INFO: Display results
   if (results.has_value())

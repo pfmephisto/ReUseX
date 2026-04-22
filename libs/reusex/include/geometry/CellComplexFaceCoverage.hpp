@@ -80,7 +80,7 @@ auto CellComplex::compute_face_coverage(pcl::PointCloud<PointT>::ConstPtr cloud,
   using Point_2 = Polygon_2::Point_2;
 
   // INFO: Compute face probabilities
-  ReUseX::core::trace("calling compute_face_coverage");
+  ReUseX::trace("calling compute_face_coverage");
   auto f_sp =
       this->add_property_map<Vertex, double>("f:support_probability").first;
 
@@ -104,7 +104,7 @@ auto CellComplex::compute_face_coverage(pcl::PointCloud<PointT>::ConstPtr cloud,
 
       auto get_comverage = [&](const int id) {
         // if (id < 0) {
-        //   ReUseX::core::warn("Face {} has no associated plane",
+        //   ReUseX::warn("Face {} has no associated plane",
         //   (*this)[*fit].id); f_sp[*fit] = -1.0;
         //   ++observer;
         //   continue;
@@ -127,7 +127,7 @@ auto CellComplex::compute_face_coverage(pcl::PointCloud<PointT>::ConstPtr cloud,
                        });
 
         // if (!polygon.is_simple()) {
-        //   ReUseX::core::warn("Face {} polygon not is simple",
+        //   ReUseX::warn("Face {} polygon not is simple",
         //   (*this)[fit].id); f_sp[fit] = -1.0;
         //   ++observer;
         //   continue;

@@ -24,25 +24,25 @@ IDataset::IDataset(std::shared_ptr<ProjectDB> database)
     throw std::runtime_error("Database pointer is null");
   }
 
-  ReUseX::core::info("Initializing IDataset with database: {}", db_->path());
+  ReUseX::info("Initializing IDataset with database: {}", db_->path());
 
   // Cache sensor frame IDs from database
   ids_ = db_->sensor_frame_ids();
 
-  ReUseX::core::info("Dataset initialized with {} entries", ids_.size());
+  ReUseX::info("Dataset initialized with {} entries", ids_.size());
 }
 
 IDataset::IDataset(std::filesystem::path dbPath)
     : IDataset(std::make_shared<ProjectDB>(std::move(dbPath), false)) {}
 
 cv::Mat IDataset::image(const size_t index) const {
-  ReUseX::core::trace("Getting image at index {}", index);
+  ReUseX::trace("Getting image at index {}", index);
   int node_id = ids_.at(index);
   return db_->sensor_frame_image(node_id);
 }
 
 bool IDataset::save_image(const size_t index, const cv::Mat &image) {
-  ReUseX::core::trace("Saving image at index {}", index);
+  ReUseX::trace("Saving image at index {}", index);
 
   try {
     int node_id = ids_.at(index);
@@ -74,7 +74,7 @@ bool IDataset::save_image(const size_t index, const cv::Mat &image) {
 
     return true;
   } catch (const std::exception &e) {
-    ReUseX::core::error("Failed to save image at index {}: {}", index,
+    ReUseX::error("Failed to save image at index {}: {}", index,
                         e.what());
     return false;
   }

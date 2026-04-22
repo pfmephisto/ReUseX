@@ -27,7 +27,7 @@ auto segment_rooms_impl(CloudConstPtr cloud, CloudNConstPtr normals,
                         const SegmentRoomsOptions &options) -> CloudLPtr {
 
   if (options.cancel_token != nullptr && options.cancel_token->load()) {
-    ReUseX::core::warn(
+    ReUseX::warn(
         "segment_rooms: cancellation requested before execution.");
     throw std::runtime_error("Room segmentation cancelled.");
   }
@@ -36,7 +36,7 @@ auto segment_rooms_impl(CloudConstPtr cloud, CloudNConstPtr normals,
   std::unordered_set<int> filtered_indices_set;
   if (options.filter) {
     filtered_indices_set.insert(options.filter->begin(), options.filter->end());
-    ReUseX::core::debug("Room segmentation using {} filtered points",
+    ReUseX::debug("Room segmentation using {} filtered points",
                         options.filter->size());
   }
 
@@ -82,20 +82,20 @@ auto segment_rooms_impl(CloudConstPtr cloud, CloudNConstPtr normals,
   cc.setInputNormals(normals);
   cc.setIndices(indices);
 
-  ReUseX::core::trace("Initialize labels and copy xyzrgb data to labels");
+  ReUseX::trace("Initialize labels and copy xyzrgb data to labels");
   CloudLPtr labels(new CloudL);
   pcl::copyPointCloud(*cloud, *labels);
   for (size_t i = 0; i < labels->points.size(); ++i)
     labels->points[i].label = -1;
 
   cc.cluster(*labels);
-  ReUseX::core::trace("Done clustering");
+  ReUseX::trace("Done clustering");
 
   // Assign the label to all points
   pcl::KdTreeFLANN<PointT> kdtree;
   kdtree.setInputCloud(cloud, indices);
   IndicesPtr missing_indices(new Indices);
-  ReUseX::core::trace("Resizing missing indices to size {}, cloud size: {}, "
+  ReUseX::trace("Resizing missing indices to size {}, cloud size: {}, "
                       "indices size: {}",
                       cloud->points.size() - indices->size(),
                       cloud->points.size(), indices->size());
@@ -122,7 +122,7 @@ auto segment_rooms_impl(CloudConstPtr cloud, CloudNConstPtr normals,
     }
   }
 
-  ReUseX::core::info("Number of clusters found: {}", cc.getNumClusters());
+  ReUseX::info("Number of clusters found: {}", cc.getNumClusters());
 
   return labels;
 }

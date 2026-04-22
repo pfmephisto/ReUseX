@@ -12,7 +12,7 @@
 namespace ReUseX::vision::libtorch {
 
 IDataset::Pair LibTorchDataset::get(const std::size_t index) const {
-  ReUseX::core::trace("LibTorchDataset getting data at index {}", index);
+  ReUseX::trace("LibTorchDataset getting data at index {}", index);
 
   auto data = std::make_unique<LibTorchData>();
   data->image = image(index);
@@ -24,13 +24,13 @@ IDataset::Pair LibTorchDataset::get(const std::size_t index) const {
 }
 
 bool LibTorchDataset::save(const std::span<IDataset::Pair> &data) {
-  ReUseX::core::info("Saving {} LibTorch dataset items", data.size());
+  ReUseX::info("Saving {} LibTorch dataset items", data.size());
 
   bool success = true;
   for (const auto &[item, index] : data) {
     auto *lt_data = dynamic_cast<LibTorchData *>(item.get());
     if (!lt_data) {
-      ReUseX::core::error("Failed to cast IData to LibTorchData at index {}", index);
+      ReUseX::error("Failed to cast IData to LibTorchData at index {}", index);
       success = false;
       continue;
     }
@@ -42,7 +42,7 @@ bool LibTorchDataset::save(const std::span<IDataset::Pair> &data) {
     success &= save_image(index, cropped);
   }
 
-  ReUseX::core::debug("Save operation completed with success={}", success);
+  ReUseX::debug("Save operation completed with success={}", success);
   return success;
 }
 

@@ -26,7 +26,7 @@ namespace ReUseX::vision {
 
 auto annotate(const std::filesystem::path &dbPath,
               const std::filesystem::path &modelPath, bool use_cuda) -> int {
-  ReUseX::core::trace("calling annotate");
+  ReUseX::trace("calling annotate");
 
   // Create backend, model, and dataset
   auto backendType = BackendFactory::detect_backend(modelPath);
@@ -52,7 +52,7 @@ auto annotate(const std::filesystem::path &dbPath,
   cv::namedWindow("Annotation", cv::WINDOW_AUTOSIZE);
 #endif
 
-  ReUseX::core::info(
+  ReUseX::info(
       "Starting annotation with {} batches using {} worker threads",
       loader.size(), loader.get_num_workers());
 
@@ -62,7 +62,7 @@ auto annotate(const std::filesystem::path &dbPath,
         ReUseX::core::Stage::annotating_batches, loader.size());
     for (auto batch : loader) {
       // for (auto [logger, batch] : spdmon::LogProgress(loader)) {
-      ReUseX::core::trace("Processing batch {}/{} with {} items", ++batch_count,
+      ReUseX::trace("Processing batch {}/{} with {} items", ++batch_count,
                           loader.size(), batch.size());
       auto results = model->forward(batch);
       dataset->save(results);
@@ -77,7 +77,7 @@ auto annotate(const std::filesystem::path &dbPath,
   // cv::destroyAllWindows();
 #endif
 
-  ReUseX::core::info("Annotation completed");
+  ReUseX::info("Annotation completed");
   return 0;
 }
 

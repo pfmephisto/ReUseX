@@ -28,7 +28,7 @@ size_t CellComplex::num_faces() const { return _count<CellNodeType::face>(this);
 size_t CellComplex::num_cells() const { return _count<CellNodeType::cell>(this); }
 
 std::ostream &operator<<(std::ostream &os, const CellComplex &cc) {
-  ReUseX::core::warn("This << operator might change in the future");
+  ReUseX::warn("This << operator might change in the future");
   os << fmt::format("[{}c {}f {}v {}r  {}w]", cc.num_cells(), cc.num_faces(),
                     cc.num_vertices(), cc.n_rooms, cc.n_walls);
   return os;

@@ -139,23 +139,23 @@ ONNXSam3::ONNXSam3(const std::filesystem::path &model_dir, bool use_cuda)
       OrtCUDAProviderOptions cuda_options;
       cuda_options.device_id = 0;
       session_options_.AppendExecutionProvider_CUDA(cuda_options);
-      ReUseX::core::info("ONNX Runtime using CUDA execution provider");
+      ReUseX::info("ONNX Runtime using CUDA execution provider");
     } catch (const Ort::Exception &e) {
-      ReUseX::core::warn("CUDA EP not available, falling back to CPU: {}",
+      ReUseX::warn("CUDA EP not available, falling back to CPU: {}",
                          e.what());
     }
   } else {
-    ReUseX::core::info("ONNX Runtime using CPU execution provider");
+    ReUseX::info("ONNX Runtime using CPU execution provider");
   }
 
   // Load sub-models
   auto load_session = [&](const std::string &name)
       -> std::unique_ptr<Ort::Session> {
     auto path = model_dir / (name + ".onnx");
-    ReUseX::core::debug("Loading ONNX model {} from {}", name, path.string());
+    ReUseX::debug("Loading ONNX model {} from {}", name, path.string());
     auto session =
         std::make_unique<Ort::Session>(env_, path.c_str(), session_options_);
-    ReUseX::core::debug("Loaded {} successfully", name);
+    ReUseX::debug("Loaded {} successfully", name);
     return session;
   };
 
@@ -166,12 +166,12 @@ ONNXSam3::ONNXSam3(const std::filesystem::path &model_dir, bool use_cuda)
   // Load tokenizer
   auto tokenizer_path = model_dir / "tokenizer.json";
   auto blob = load_file_bytes(tokenizer_path);
-  ReUseX::core::debug("Tokenizer blob loaded, {} bytes", blob.size());
+  ReUseX::debug("Tokenizer blob loaded, {} bytes", blob.size());
   tokenizer_ = tokenizers::Tokenizer::FromBlobJSON(blob);
-  ReUseX::core::debug("Tokenizer initialized, vocab size: {}",
+  ReUseX::debug("Tokenizer initialized, vocab size: {}",
                        tokenizer_->GetVocabSize());
 
-  ReUseX::core::info("Loaded ONNX SAM3 model from {}", model_dir);
+  ReUseX::info("Loaded ONNX SAM3 model from {}", model_dir);
 }
 
 std::unique_ptr<ONNXSam3>
@@ -438,7 +438,7 @@ cv::Mat ONNXSam3::infer_single(const ONNXSam3Data &sam3_data) {
 
       int label_id = static_cast<int>(prompt_idx);
 
-      ReUseX::core::trace(
+      ReUseX::trace(
           "Detection: prompt='{}' ({}), score={:.3f}, box=[{:.0f}, "
           "{:.0f}, {:.0f}, {:.0f}]",
           prompt.text, label_id, score, left, top, right, bottom);
@@ -449,7 +449,7 @@ cv::Mat ONNXSam3::infer_single(const ONNXSam3Data &sam3_data) {
     }
   }
 
-  ReUseX::core::debug("Total detections for image: {}", all_detections.size());
+  ReUseX::debug("Total detections for image: {}", all_detections.size());
 
   // Assemble final label image
   osd::make_labled_image(label_image, all_detections);
@@ -464,7 +464,7 @@ ONNXSam3::forward(const std::span<IDataset::Pair> &input) {
   if (input.empty())
     return {};
 
-  ReUseX::core::debug("ONNXSam3 forward pass with {} inputs", input.size());
+  ReUseX::debug("ONNXSam3 forward pass with {} inputs", input.size());
 
   std::vector<IDataset::Pair> results(input.size());
 
@@ -472,7 +472,7 @@ ONNXSam3::forward(const std::span<IDataset::Pair> &input) {
     auto *sam3_data =
         dynamic_cast<const ONNXSam3Data *>(input[i].first.get());
     if (!sam3_data) {
-      ReUseX::core::error(
+      ReUseX::error(
           "ONNXSam3::forward: input {} is not ONNXSam3Data", i);
       throw std::runtime_error(
           "ONNXSam3::forward: input is not ONNXSam3Data");
@@ -485,7 +485,7 @@ ONNXSam3::forward(const std::span<IDataset::Pair> &input) {
     results[i].second = input[i].second;
   }
 
-  ReUseX::core::debug("ONNXSam3 forward pass completed");
+  ReUseX::debug("ONNXSam3 forward pass completed");
   return results;
 }
 

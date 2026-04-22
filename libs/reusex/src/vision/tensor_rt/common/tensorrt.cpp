@@ -129,12 +129,12 @@ class __native_engine_context {
     destroy();
 
     if (pdata == nullptr || size == 0) {
-      ReUseX::core::error("Construct for empty data found.");
+      ReUseX::error("Construct for empty data found.");
       return false;
     }
 
     if (!initLibNvInferPlugins(&gLogger_, "")) {
-      ReUseX::core::error("Failed to initialize TensorRT's plugin library.");
+      ReUseX::error("Failed to initialize TensorRT's plugin library.");
       return false;
     }
 
@@ -142,7 +142,7 @@ class __native_engine_context {
         nvinfer1::createInferRuntime(gLogger_),
         destroy_pointer<nvinfer1::IRuntime>);
     if (runtime_ == nullptr) {
-      ReUseX::core::error("Failed to create tensorRT runtime: {}.",
+      ReUseX::error("Failed to create tensorRT runtime: {}.",
                           message_name);
       return false;
     }
@@ -152,7 +152,7 @@ class __native_engine_context {
         destroy_pointer<nvinfer1::ICudaEngine>);
 
     if (engine_ == nullptr) {
-      ReUseX::core::error("Failed to deserialize engine: {}.", message_name);
+      ReUseX::error("Failed to deserialize engine: {}.", message_name);
       return false;
     }
 
@@ -160,7 +160,7 @@ class __native_engine_context {
         engine_->createExecutionContext(),
         destroy_pointer<nvinfer1::IExecutionContext>);
     if (context_ == nullptr) {
-      ReUseX::core::error("Failed to create execution context: {}.",
+      ReUseX::error("Failed to create execution context: {}.",
                           message_name);
       return false;
     }
@@ -200,7 +200,7 @@ class EngineImplement : public Engine {
   bool load(const std::string &file) {
     auto data = load_file(file);
     if (data.empty()) {
-      ReUseX::core::error(
+      ReUseX::error(
           "An empty file has been loaded. Please confirm your file path: {}.",
           file);
       return false;
@@ -236,7 +236,7 @@ class EngineImplement : public Engine {
       auto tensor_name = engine->getIOTensorName(ibinding);
       auto binding_iter = bindings.find(tensor_name);
       if (binding_iter == bindings.end()) {
-        ReUseX::core::error(
+        ReUseX::error(
             "Failed to set the tensor address, can not found tensor "
             "{} in bindings provided.",
             tensor_name);
@@ -245,7 +245,7 @@ class EngineImplement : public Engine {
 
       if (!context->setTensorAddress(tensor_name,
                                      (void *)binding_iter->second)) {
-        ReUseX::core::error("Failed to set tensor address for tensor {}.",
+        ReUseX::error("Failed to set tensor address for tensor {}.",
                             tensor_name);
         return false;
       }
@@ -371,10 +371,10 @@ class EngineImplement : public Engine {
   }
 
   virtual void print(const char *name) override {
-    ReUseX::core::info(
+    ReUseX::info(
         "-------------------------------------------------------");
 
-    ReUseX::core::info("{} 🌱 is {} model", name,
+    ReUseX::info("{} 🌱 is {} model", name,
                        has_dynamic_dim() ? "Dynamic Shape" : "Static Shape");
 
     int num_input = 0;
@@ -387,24 +387,24 @@ class EngineImplement : public Engine {
         num_output++;
     }
 
-    ReUseX::core::info("Inputs: {}", num_input);
+    ReUseX::info("Inputs: {}", num_input);
     for (int i = 0; i < num_input; ++i) {
       auto name = engine->getIOTensorName(i);
       auto dim = engine->getTensorShape(name);
       auto dtype = engine->getTensorDataType(name);
-      ReUseX::core::info("\t{}.{} : {{{}}} [{}]", i, name, format_shape(dim),
+      ReUseX::info("\t{}.{} : {{{}}} [{}]", i, name, format_shape(dim),
                          data_type_string(dtype));
     }
 
-    ReUseX::core::info("Outputs: {}", num_output);
+    ReUseX::info("Outputs: {}", num_output);
     for (int i = 0; i < num_output; ++i) {
       auto name = engine->getIOTensorName(i + num_input);
       auto dim = engine->getTensorShape(name);
       auto dtype = engine->getTensorDataType(name);
-      ReUseX::core::info("\t{}.{} : {{{}}} [{}]", i, name, format_shape(dim),
+      ReUseX::info("\t{}.{} : {{{}}} [{}]", i, name, format_shape(dim),
                          data_type_string(dtype));
     }
-    ReUseX::core::info(
+    ReUseX::info(
         "-------------------------------------------------------");
   }
 };

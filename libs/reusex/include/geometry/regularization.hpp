@@ -79,7 +79,7 @@ auto regularizePlanes(PlaneVector<Scalar> &planes,
                       std::vector<pcl::IndicesPtr> &inliers,
                       double angle_threshold = 25.0,
                       double distance_threshold = 0.01) {
-  ReUseX::core::trace(
+  ReUseX::trace(
       "Regularizing planes with threshold: {} degrees and {} distance",
       angle_threshold, distance_threshold);
 

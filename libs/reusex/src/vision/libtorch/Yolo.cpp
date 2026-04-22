@@ -103,18 +103,18 @@ LibTorchYolo::LibTorchYolo(const std::filesystem::path &model_path,
     : device_(torch::kCPU) {
   if (use_cuda && torch::cuda::is_available()) {
     device_ = torch::Device(torch::kCUDA);
-    ReUseX::core::debug("LibTorchYolo using CUDA device");
+    ReUseX::debug("LibTorchYolo using CUDA device");
   } else {
     if (use_cuda && !torch::cuda::is_available())
-      ReUseX::core::warn("CUDA not available, falling back to CPU");
-    ReUseX::core::debug("LibTorchYolo using CPU device");
+      ReUseX::warn("CUDA not available, falling back to CPU");
+    ReUseX::debug("LibTorchYolo using CPU device");
   }
 
   model_ = torch::jit::load(model_path.string(), device_);
   model_.eval();
   model_.to(device_, torch::kFloat32);
 
-  ReUseX::core::info("Loaded LibTorch YOLO model from {}", model_path);
+  ReUseX::info("Loaded LibTorch YOLO model from {}", model_path);
 }
 
 std::unique_ptr<LibTorchYolo>

@@ -345,7 +345,7 @@ static int calculateDynamicFontSize(int img_w, int img_h,
 
 void make_labled_image(cv::Mat &img,
                        const common::object::DetectionBoxArray &boxes) {
-  ReUseX::core::debug("OSD called with {} boxes", boxes.size());
+  ReUseX::debug("OSD called with {} boxes", boxes.size());
   for (const auto &box : boxes) {
     if (!box.segmentation || box.segmentation->mask.empty())
       return;
@@ -360,7 +360,7 @@ void make_labled_image(cv::Mat &img,
     cv::Mat image_roi = img(roi);
     cv::Mat resized_mask;
     cv::resize(box.segmentation->mask, resized_mask, roi.size());
-    ReUseX::core::debug("Class Id: {}, Class Name: {}", box.class_id,
+    ReUseX::debug("Class Id: {}, Class Name: {}", box.class_id,
                         box.class_name);
     cv::Mat color_patch(roi.size(), img.type(), box.class_id);
     color_patch.copyTo(image_roi, resized_mask);
@@ -369,7 +369,7 @@ void make_labled_image(cv::Mat &img,
 
 void osd(cv::Mat &img, const common::object::DetectionBoxArray &boxes,
          bool osd_rect, double font_scale_ratio) {
-  ReUseX::core::debug(
+  ReUseX::debug(
       "OSD called with {} boxes, osd_rect={}, font_scale_ratio={}",
       boxes.size(), osd_rect, font_scale_ratio);
 

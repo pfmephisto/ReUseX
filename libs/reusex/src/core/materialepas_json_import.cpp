@@ -168,7 +168,7 @@ parse_dangerous_substance(const json &properties_array) {
           try {
             write_opt_double(&sub, desc.offset, std::stod(val));
           } catch (const std::exception &e) {
-            ReUseX::core::warn("Failed to parse double for '{}': {}", name,
+            ReUseX::warn("Failed to parse double for '{}': {}", name,
                                e.what());
           }
         }
@@ -219,7 +219,7 @@ Emission parse_emission(const json &properties_array) {
           try {
             write_opt_double(&em, desc.offset, std::stod(val));
           } catch (const std::exception &e) {
-            ReUseX::core::warn("Failed to parse double for '{}': {}", name,
+            ReUseX::warn("Failed to parse double for '{}': {}", name,
                                e.what());
           }
         }
@@ -258,7 +258,7 @@ void deserialize_simple_property(void *section,
       try {
         write_opt_int(section, desc.offset, std::stoi(value));
       } catch (const std::exception &e) {
-        ReUseX::core::warn("Failed to parse integer for '{}': {}", desc.json_name,
+        ReUseX::warn("Failed to parse integer for '{}': {}", desc.json_name,
                            e.what());
       }
     }
@@ -272,7 +272,7 @@ void deserialize_simple_property(void *section,
       try {
         write_opt_double(section, desc.offset, std::stod(value));
       } catch (const std::exception &e) {
-        ReUseX::core::warn("Failed to parse double for '{}': {}", desc.json_name,
+        ReUseX::warn("Failed to parse double for '{}': {}", desc.json_name,
                            e.what());
       }
     }

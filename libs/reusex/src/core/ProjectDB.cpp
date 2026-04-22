@@ -191,7 +191,7 @@ class ProjectDB::Impl {
 
   Impl(std::filesystem::path path, bool ro)
       : dbPath(std::move(path)), readOnly(ro) {
-    ReUseX::core::info("Opening ReUseX database: {}", dbPath);
+    ReUseX::info("Opening ReUseX database: {}", dbPath);
 
     // Open sqlite3 connection for project database
     int flags = readOnly ? SQLITE_OPEN_READONLY
@@ -222,11 +222,11 @@ class ProjectDB::Impl {
       sqlite3_exec(db, "PRAGMA foreign_keys = ON;", nullptr, nullptr, nullptr);
     }
 
-    ReUseX::core::info("Project database opened successfully");
+    ReUseX::info("Project database opened successfully");
   }
 
   ~Impl() {
-    ReUseX::core::trace("Closing project database connection");
+    ReUseX::trace("Closing project database connection");
     if (db) {
       sqlite3_close(db);
     }
@@ -310,7 +310,7 @@ class ProjectDB::Impl {
       migrateToV4();
     }
 
-    ReUseX::core::trace("Schema version: {}", getCurrentSchemaVersion());
+    ReUseX::trace("Schema version: {}", getCurrentSchemaVersion());
   }
 
   void insertSchemaVersion(int version, const char *description) {
@@ -328,7 +328,7 @@ class ProjectDB::Impl {
   }
 
   void migrateToV1() {
-    ReUseX::core::info("Migrating database to schema version 1");
+    ReUseX::info("Migrating database to schema version 1");
 
     const char *v1_schema = R"(
       CREATE TABLE IF NOT EXISTS point_clouds (
@@ -399,11 +399,11 @@ class ProjectDB::Impl {
 
     insertSchemaVersion(1, "Add point clouds, meshes, sensor frames, "
                            "pipeline log");
-    ReUseX::core::info("Migration to schema version 1 complete");
+    ReUseX::info("Migration to schema version 1 complete");
   }
 
   void migrateToV2() {
-    ReUseX::core::info("Migrating database to schema version 2");
+    ReUseX::info("Migrating database to schema version 2");
 
     const char *v2_schema = R"(
       CREATE TABLE IF NOT EXISTS segmentation_images (
@@ -420,11 +420,11 @@ class ProjectDB::Impl {
     }
 
     insertSchemaVersion(2, "Add segmentation_images table");
-    ReUseX::core::info("Migration to schema version 2 complete");
+    ReUseX::info("Migration to schema version 2 complete");
   }
 
   void migrateToV3() {
-    ReUseX::core::info("Migrating database to schema version 3");
+    ReUseX::info("Migrating database to schema version 3");
 
     // sensor_frames already has depth, confidence, transform columns from v1.
     // Only need to add camera_model TEXT column.
@@ -444,11 +444,11 @@ class ProjectDB::Impl {
     }
 
     insertSchemaVersion(3, "Add camera_model column to sensor_frames");
-    ReUseX::core::info("Migration to schema version 3 complete");
+    ReUseX::info("Migration to schema version 3 complete");
   }
 
   void migrateToV4() {
-    ReUseX::core::info("Migrating database to schema version 4");
+    ReUseX::info("Migrating database to schema version 4");
 
     const char *v4_schema = R"(
       CREATE TABLE IF NOT EXISTS building_components (
@@ -474,7 +474,7 @@ class ProjectDB::Impl {
     }
 
     insertSchemaVersion(4, "Add building_components table");
-    ReUseX::core::info("Migration to schema version 4 complete");
+    ReUseX::info("Migration to schema version 4 complete");
   }
 
   // ── Sensor frame CRUD ─────────────────────────────────────────────
@@ -901,7 +901,7 @@ class ProjectDB::Impl {
       throw std::runtime_error("Failed to create schema: " + error);
     }
 
-    ReUseX::core::trace("Database schema created successfully");
+    ReUseX::trace("Database schema created successfully");
   }
 
   void validateSchema() const {
@@ -930,7 +930,7 @@ class ProjectDB::Impl {
                                  "' not found in database");
       }
     }
-    ReUseX::core::trace("Database schema validation passed");
+    ReUseX::trace("Database schema validation passed");
   }
 
   // ── Point cloud CRUD ───────────────────────────────────────────────
@@ -1715,7 +1715,7 @@ class ProjectDB::Impl {
 
   ReUseX::core::MaterialPassport
   getMaterialPassport(std::string_view documentGuid) const {
-    ReUseX::core::info("Fetching MaterialPassport: {}", documentGuid);
+    ReUseX::info("Fetching MaterialPassport: {}", documentGuid);
 
     // 1. Fetch metadata
     auto metadata = fetchPassportMetadata(documentGuid);
@@ -1742,7 +1742,7 @@ class ProjectDB::Impl {
     // 4. Fetch transaction log
     passport.transaction_log = fetchTransactionLog(documentGuid);
 
-    ReUseX::core::trace("MaterialPassport fetched successfully: {} properties",
+    ReUseX::trace("MaterialPassport fetched successfully: {} properties",
                         property_map.size());
 
     return passport;
@@ -1853,7 +1853,7 @@ class ProjectDB::Impl {
 
   void addMaterialPassport(const ReUseX::core::MaterialPassport &passport,
                            std::string_view projectId) {
-    ReUseX::core::info("Adding MaterialPassport: {}",
+    ReUseX::info("Adding MaterialPassport: {}",
                        passport.metadata.document_guid);
 
     // Begin transaction for atomicity
@@ -2057,7 +2057,7 @@ class ProjectDB::Impl {
       // Commit transaction
       sqlite3_exec(db, "COMMIT;", nullptr, nullptr, nullptr);
 
-      ReUseX::core::info("MaterialPassport added successfully: {} properties",
+      ReUseX::info("MaterialPassport added successfully: {} properties",
                          all_values.size());
 
     } catch (...) {

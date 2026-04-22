@@ -104,7 +104,7 @@ class MeshRayTracer {
         device_,
         [](void *, RTCError err, const char *str) {
           if (err != RTC_ERROR_NONE) {
-            ReUseX::core::error("Embree error: {}", str ? str : "unknown");
+            ReUseX::error("Embree error: {}", str ? str : "unknown");
           }
         },
         nullptr);
@@ -158,7 +158,7 @@ class MeshRayTracer {
     rtcReleaseGeometry(geom);
     rtcCommitScene(scene_);
 
-    ReUseX::core::debug(
+    ReUseX::debug(
         "Embree scene initialized with {} vertices, {} triangles",
         pcl_cloud.size(), mesh.polygons.size());
   }
@@ -253,7 +253,7 @@ class MeshRayTracer {
     rtcOccluded1(scene_, &ray, &oargs);
 
     // Inside if more back-face hits (rays from inside hit back faces on exit)
-    ReUseX::core::trace(
+    ReUseX::trace(
         "Point-in-mesh test: {} back hits vs. {} front hits → {}",
         ray_ctx.back_hits, ray_ctx.front_hits,
         (ray_ctx.back_hits > ray_ctx.front_hits ? "INSIDE" : "OUTSIDE"));
@@ -283,19 +283,19 @@ Placement classify_window_placement(const CoplanarPolygon &window_boundary,
 
   if (inside_count == total) {
     // All vertices inside → internal window
-    ReUseX::core::trace(
+    ReUseX::trace(
         "Window classification: internal ({}/{} vertices inside)", inside_count,
         total);
     return Placement::Inside;
   } else if (outside_count == total) {
     // All vertices outside → valid exterior window
-    ReUseX::core::trace(
+    ReUseX::trace(
         "Window classification: exterior ({}/{} vertices outside)",
         outside_count, total);
     return Placement::Outside;
   } else {
     // Mixed → window intersects mesh boundary
-    ReUseX::core::debug(
+    ReUseX::debug(
         "Window classification: intersection ({} inside, {} outside)",
         inside_count, outside_count);
     return Placement::Mixed;
@@ -637,7 +637,7 @@ extract_wall_candidates(const pcl::PolygonMesh &mesh, float normal_z_threshold,
 
         if (it == next_from.end()) {
           // Non-closed loop (shouldn't happen on manifold mesh)
-          ReUseX::core::warn(
+          ReUseX::warn(
               "Non-closed boundary loop detected in wall region");
           break;
         }
@@ -666,7 +666,7 @@ extract_wall_candidates(const pcl::PolygonMesh &mesh, float normal_z_threshold,
     candidates.push_back(std::move(wc));
   }
 
-  ReUseX::core::debug("Extracted {} wall candidates from {} mesh faces using "
+  ReUseX::debug("Extracted {} wall candidates from {} mesh faces using "
                       "CGAL region growing",
                       candidates.size(), num_faces);
   return candidates;
@@ -682,18 +682,18 @@ create_windows(CloudConstPtr cloud, CloudLConstPtr instance_labels,
   CreateWindowsResult result;
 
   if (!cloud || !instance_labels || cloud->size() != instance_labels->size()) {
-    ReUseX::core::error(
+    ReUseX::error(
         "create_windows: invalid input (null or size mismatch)");
     return result;
   }
 
   // Extract wall candidates from mesh
-  ReUseX::core::info("Extracting wall candidates from mesh...");
+  ReUseX::info("Extracting wall candidates from mesh...");
   auto walls = ReUseX::geometry::extract_wall_candidates(mesh);
-  ReUseX::core::info("Found {} wall candidates", walls.size());
+  ReUseX::info("Found {} wall candidates", walls.size());
 
   if (walls.empty()) {
-    ReUseX::core::warn("create_windows: no wall candidates provided");
+    ReUseX::warn("create_windows: no wall candidates provided");
     return result;
   }
 
@@ -709,18 +709,18 @@ create_windows(CloudConstPtr cloud, CloudLConstPtr instance_labels,
   }
 
   if (window_instance_ids.empty()) {
-    ReUseX::core::info(
+    ReUseX::info(
         "create_windows: no window instances found for labels [{}]",
         fmt::join(window_semantic_labels, ", "));
     return result;
   }
 
-  ReUseX::core::info(
+  ReUseX::info(
       "Processing {} window instances against {} wall candidates",
       window_instance_ids.size(), walls.size());
 
   // Initialize Embree ray tracer for mesh intersection tests
-  ReUseX::core::debug("Initializing Embree ray tracer for mesh validation...");
+  ReUseX::debug("Initializing Embree ray tracer for mesh validation...");
   MeshRayTracer tracer(mesh);
 
   int window_counter = 0;
@@ -748,7 +748,7 @@ create_windows(CloudConstPtr cloud, CloudLConstPtr instance_labels,
     Eigen::Vector3d inst_centroid = pca.getMean().head<3>().cast<double>();
     Eigen::Vector3d inst_normal = pca.getEigenVectors().col(2).cast<double>();
 
-    ReUseX::core::debug(
+    ReUseX::debug(
         "Instance {}: {} points, centroid ({:.2f},{:.2f},{:.2f})", inst_id,
         indices->indices.size(), inst_centroid.x(), inst_centroid.y(),
         inst_centroid.z());
@@ -772,7 +772,7 @@ create_windows(CloudConstPtr cloud, CloudLConstPtr instance_labels,
       max_angle =
           std::min(base_tolerance * scale, 60.0 * M_PI / 180.0); // Max 60°
 
-      ReUseX::core::debug("Instance {} ({} points): using tolerance {:.1f}°",
+      ReUseX::debug("Instance {} ({} points): using tolerance {:.1f}°",
                           inst_id, indices->indices.size(),
                           max_angle * 180.0 / M_PI);
     }
@@ -809,7 +809,7 @@ create_windows(CloudConstPtr cloud, CloudLConstPtr instance_labels,
       // Combined cost
       double cost = w_angle * angle_diff + w_dist * dist;
 
-      ReUseX::core::trace("  Wall {}: angle={:.1f}°, dist={:.2f}m, cost={:.3f}",
+      ReUseX::trace("  Wall {}: angle={:.1f}°, dist={:.2f}m, cost={:.3f}",
                           wi, angle_diff * 180.0 / M_PI, dist, cost);
 
       if (cost < best_cost) {
@@ -819,7 +819,7 @@ create_windows(CloudConstPtr cloud, CloudLConstPtr instance_labels,
     }
 
     // if (best_wall < 0) {
-    //   ReUseX::core::warn(
+    //   ReUseX::warn(
     //       "No suitable wall found for instance {} (checked {} walls, "
     //       "{} rejected by angle, min angle {:.1f}°, tolerance {:.1f}°)",
     //       inst_id, candidates_checked, candidates_angle_rejected,
@@ -925,7 +925,7 @@ create_windows(CloudConstPtr cloud, CloudLConstPtr instance_labels,
     }
 
     if (boundary_3d.size() < 3) {
-      ReUseX::core::warn(
+      ReUseX::warn(
           "Instance {} produced degenerate boundary ({} vertices)", inst_id,
           boundary_3d.size());
       // result.unmatched_instances.push_back(static_cast<int>(inst_id));
@@ -950,14 +950,14 @@ create_windows(CloudConstPtr cloud, CloudLConstPtr instance_labels,
     switch (placement) {
     case Placement::Mixed:
       if (options.include_internal) {
-        ReUseX::core::debug("Window instance {} is internal but "
+        ReUseX::debug("Window instance {} is internal but "
                             "include_internal is true, keeping",
                             inst_id);
         break;
       }
       [[fallthrough]];
     case Placement::Inside:
-      ReUseX::core::debug(
+      ReUseX::debug(
           "Window instance   {} is internal or mixed, dropping ", inst_id);
       // result.unmatched_instances.push_back(static_cast<int>(inst_id));
       continue;
@@ -970,7 +970,7 @@ create_windows(CloudConstPtr cloud, CloudLConstPtr instance_labels,
     // TODO:: Add more check if window  candidate boundary is fully withing the
     // wall boundary
     if (intersects_wallboundary(polygon, wall)) {
-      ReUseX::core::trace(
+      ReUseX::trace(
           "Window instance {} rejected, intersects wall boundary", inst_id);
       continue;
     }
@@ -985,13 +985,13 @@ create_windows(CloudConstPtr cloud, CloudLConstPtr instance_labels,
     comp.confidence = -1.0; // auto-detected, no ML confidence
     comp.data = WindowData{};
 
-    ReUseX::core::debug("Created {} from instance {}, match cost {:.3f})", comp,
+    ReUseX::debug("Created {} from instance {}, match cost {:.3f})", comp,
                         inst_id, best_cost);
 
     result.components.push_back(std::move(comp));
   }
 
-  ReUseX::core::info("Created {} window components ({} unmatched instances)",
+  ReUseX::info("Created {} window components ({} unmatched instances)",
                      result.components.size(),
                      result.unmatched_instances.size());
   return result;

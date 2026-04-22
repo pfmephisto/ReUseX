@@ -90,7 +90,7 @@ createCameraModelFromIntrinsics(const ReUseX::core::SensorIntrinsics &intrinsics
 } // namespace
 
 auto project(ProjectDB &db, CloudConstPtr cloud) -> CloudLPtr {
-  ReUseX::core::trace("calling project");
+  ReUseX::trace("calling project");
 
   // auto viewer =
   //     std::make_shared<pcl::visualization::PCLVisualizer>("3D Viewer");
@@ -105,10 +105,10 @@ auto project(ProjectDB &db, CloudConstPtr cloud) -> CloudLPtr {
   labels->height = cloud->height;
   labels->is_dense = cloud->is_dense;
 
-  ReUseX::core::info("Loading sensor frames from ProjectDB ...");
+  ReUseX::info("Loading sensor frames from ProjectDB ...");
   ReUseX::core::stopwatch timer;
   auto frameIds = db.sensor_frame_ids();
-  ReUseX::core::debug("Loaded {} sensor frames in {:.3f}s", frameIds.size(), timer);
+  ReUseX::debug("Loaded {} sensor frames in {:.3f}s", frameIds.size(), timer);
   timer.reset();
 
   // viewer->addPointCloud<Cloud::PointType>(cloud, "input_cloud");
@@ -138,12 +138,12 @@ auto project(ProjectDB &db, CloudConstPtr cloud) -> CloudLPtr {
         ReUseX::core::Stage::projecting_labels, frameIds.size());
     for (size_t i = 0; i < frameIds.size(); ++i) {
       int id = frameIds[i];
-      ReUseX::core::trace("Processing node {}/{}", i + 1, frameIds.size());
+      ReUseX::trace("Processing node {}/{}", i + 1, frameIds.size());
 
       // --- Fetch label image
       cv::Mat labeledImage = db.segmentation_image(id); // CV_32S
       if (labeledImage.empty()) {
-        ReUseX::core::warn("No segmentation for node {}, skipping", id);
+        ReUseX::warn("No segmentation for node {}, skipping", id);
         ++(*observer);
         continue;
       }
@@ -238,7 +238,7 @@ auto project(ProjectDB &db, CloudConstPtr cloud) -> CloudLPtr {
       cv::Mat zbuffer = rtabmap::util3d::projectCloudToCamera(
           cm.imageSize() /*labeledImage.size()*/, cm.K_raw(), cloud_lf, t_cam);
 
-      ReUseX::core::trace("Filling Z-buffer holes for node {}", id);
+      ReUseX::trace("Filling Z-buffer holes for node {}", id);
       // rtabmap::util2d::fillDepthHoles(zbuffer, 1, 0.50f);
       // rtabmap::util2d::fillRegisteredDepthHoles(zbuffer, true, false, false);
       rtabmap::util3d::fillProjectedCloudHoles(zbuffer, true, true);
@@ -275,7 +275,7 @@ auto project(ProjectDB &db, CloudConstPtr cloud) -> CloudLPtr {
       // Scale camera model to match label image resolution
       cm = createCameraModelFromIntrinsics(intrinsics, labeledImage.size());
       {
-        ReUseX::core::trace("Assigning labels for node {}", id);
+        ReUseX::trace("Assigning labels for node {}", id);
         // Assign labels to the points in the point cloud
         auto fx = cm.fx();
         auto fy = cm.fy();
@@ -327,7 +327,7 @@ auto project(ProjectDB &db, CloudConstPtr cloud) -> CloudLPtr {
     }
   }
 
-  ReUseX::core::info("Projection completed in {:.3f}s", timer);
+  ReUseX::info("Projection completed in {:.3f}s", timer);
 
   return labels;
 }

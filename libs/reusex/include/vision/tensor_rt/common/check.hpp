@@ -97,7 +97,7 @@ inline void Assertf(bool cond, const char *fmt, Args &&...args) {
   if (!cond) {
     const auto formattedMessage =
         fmt::format(fmt::runtime(fmt), std::forward<Args>(args)...);
-    ReUseX::core::error(
+    ReUseX::error(
         "Assert failed 💀. in file {}:{}, message: {}",
         __FILE__, __LINE__, formattedMessage);
     abort();
@@ -106,7 +106,7 @@ inline void Assertf(bool cond, const char *fmt, Args &&...args) {
 
 constexpr void Asserts(bool cond, const char *s) {
   if (!cond) {
-    ReUseX::core::error("Assert failed 💀. in file {}:{}, message: {}",
+    ReUseX::error("Assert failed 💀. in file {}:{}, message: {}",
                         __FILE__, __LINE__, s);
     abort();
   }
@@ -114,7 +114,7 @@ constexpr void Asserts(bool cond, const char *s) {
 
 constexpr void Assert(bool cond) {
   if (!cond) {
-    ReUseX::core::error("Assert failed 💀. in file {}:{}", __FILE__, __LINE__);
+    ReUseX::error("Assert failed 💀. in file {}:{}", __FILE__, __LINE__);
     abort();
   }
 }

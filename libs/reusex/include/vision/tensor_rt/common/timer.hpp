@@ -26,7 +26,7 @@ class EventTimer {
     checkRuntime(cudaEventRecord(end_, stream_));
     checkRuntime(cudaEventSynchronize(end_));
     checkRuntime(cudaEventElapsedTime(&times, begin_, end_));
-    ReUseX::core::info("[⏰ {}] : {:.5f} ms", prefix, times);
+    ReUseX::info("[⏰ {}] : {:.5f} ms", prefix, times);
     return times;
   }
 

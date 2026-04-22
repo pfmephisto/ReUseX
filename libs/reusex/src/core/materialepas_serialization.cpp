@@ -105,7 +105,7 @@ void Deserializer::deserialize_tristate(void *ptr, const PropertyValue &value) {
   if (auto result = tri_state_from_string(str)) {
     *field = *result;
   } else {
-    ReUseX::core::warn("Unknown TriState value '{}', defaulting to 'unknown'", str);
+    ReUseX::warn("Unknown TriState value '{}', defaulting to 'unknown'", str);
     *field = TriState::unknown;
   }
 }

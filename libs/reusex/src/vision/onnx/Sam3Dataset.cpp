@@ -12,7 +12,7 @@
 namespace ReUseX::vision::onnx {
 
 IDataset::Pair ONNXSam3Dataset::get(const std::size_t index) const {
-  ReUseX::core::trace("ONNXSam3Dataset getting data at index {}", index);
+  ReUseX::trace("ONNXSam3Dataset getting data at index {}", index);
 
   auto data = std::make_unique<ONNXSam3Data>();
   data->image = image(index);
@@ -21,13 +21,13 @@ IDataset::Pair ONNXSam3Dataset::get(const std::size_t index) const {
 }
 
 bool ONNXSam3Dataset::save(const std::span<IDataset::Pair> &data) {
-  ReUseX::core::info("Saving {} ONNX SAM3 dataset items", data.size());
+  ReUseX::info("Saving {} ONNX SAM3 dataset items", data.size());
 
   bool success = true;
   for (const auto &[item, index] : data) {
     auto *sam3_data = dynamic_cast<ONNXSam3Data *>(item.get());
     if (!sam3_data) {
-      ReUseX::core::error(
+      ReUseX::error(
           "Failed to cast IData to ONNXSam3Data at index {}", index);
       success = false;
       continue;
@@ -46,12 +46,12 @@ bool ONNXSam3Dataset::save(const std::span<IDataset::Pair> &data) {
       json << '}';
       database()->log_pipeline_start("annotate_class_map", json.str());
       class_map_saved_ = true;
-      ReUseX::core::info("Saved segmentation class map ({} classes)",
+      ReUseX::info("Saved segmentation class map ({} classes)",
                          sam3_data->prompts.size());
     }
   }
 
-  ReUseX::core::debug("Save operation completed with success={}", success);
+  ReUseX::debug("Save operation completed with success={}", success);
   return success;
 }
 

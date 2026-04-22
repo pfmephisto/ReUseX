@@ -249,11 +249,29 @@ Just add your file in the correct location and rebuild.
 - Point clouds use `pcl::PointXYZRGB` (XYZ + RGB color)
 - Use `pcl::Indices` for index vectors, not `std::vector<int>`
 
+### Logging
+
+**Library code** uses the ReUseX logging API (defined in `core/logging.hpp`):
+- **Syntax**: `ReUseX::debug()`, `ReUseX::info()`, `ReUseX::warn()`, `ReUseX::error()`, etc.
+- **Levels**: trace, debug, info, warn, error, critical
+- **Formatting**: Uses `fmt` library syntax — `ReUseX::debug("Value: {}", x)`
+- **Legacy syntax**: `ReUseX::core::debug()` still works for backward compatibility
+
+**CLI applications** (apps/rux) use `spdlog` directly:
+- Syntax: `spdlog::debug()`, `spdlog::info()`, etc.
+- The rux CLI configures spdlog as the library's log handler
+
+**Implementation details**:
+- Logging functions are defined in `ReUseX::core` namespace
+- Explicit `using` declarations promote them to `ReUseX::` for convenience
+- This avoids namespace conflicts with external libraries (e.g., CGAL's `debug` parameter)
+- Handler configured via `ReUseX::core::set_log_handler()` (defaults to no-op in library)
+
 ### Error Handling
 
-- Use `spdlog` for logging (trace, debug, info, warn, error, critical)
-- Throw `std::runtime_error` for recoverable errors
+- Throw `std::runtime_error` for recoverable errors with descriptive messages
 - Use RAII for resource management (smart pointers, custom destructors)
+- Validate inputs early and fail fast with clear error messages
 
 ### RTABMap API Gotchas (from MEMORY.md)
 

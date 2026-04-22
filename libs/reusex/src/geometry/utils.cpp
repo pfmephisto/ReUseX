@@ -84,7 +84,7 @@ auto make_pairs(EigenVectorContainer<double, 4> &planes,
 auto force_orthogonal_planes(EigenVectorContainer<double, 4> &planes,
                              const double threshold, const Eigen::Vector3d &up)
     -> EigenVectorContainer<double, 4> {
-  ReUseX::core::trace("Force planes to be orthogonal");
+  ReUseX::trace("Force planes to be orthogonal");
 
   for (auto &plane : planes) {
     auto normal = plane.head<3>(); // This is a block, no copy
@@ -101,7 +101,7 @@ auto force_orthogonal_planes(EigenVectorContainer<double, 4> &planes,
       // Ceiling
       normal = -up;
     } else {
-      ReUseX::core::warn(
+      ReUseX::warn(
           "Plane with normal ({:3f}, {:3f}, {:3f}) is not vertical or "
           "horizontal",
           normal.x(), normal.y(), normal.z());
@@ -136,7 +136,7 @@ auto merge_planes(EigenVectorContainer<double, 4> const &planes_,
                   const double distance_threshold, const double min_overlap)
     -> std::tuple<EigenVectorContainer<double, 4>, std::vector<IndicesPtr>,
                   EigenVectorContainer<double, 3>> {
-  ReUseX::core::trace(
+  ReUseX::trace(
       "Merge planes with angle threshold {} and distance threshold"
       "{} and min overlap {}",
       angle_threshold, distance_threshold, min_overlap);
@@ -220,7 +220,7 @@ auto separate_planes(const EigenVectorContainer<double, 4> &planes,
                      const Eigen::Vector3d &up, const double epsilon)
     -> std::tuple<std::vector<size_t>, std::vector<size_t>> {
 
-  ReUseX::core::trace("Separate planes into vertical and horizontal planes");
+  ReUseX::trace("Separate planes into vertical and horizontal planes");
 
   std::vector<size_t> vertical{};
   std::vector<size_t> horizontal{};
@@ -236,7 +236,7 @@ auto separate_planes(const EigenVectorContainer<double, 4> &planes,
     else if (std::abs(dot_prod + 1.0) < epsilon) // Ceiling
       horizontal.push_back(i);
     else
-      ReUseX::core::warn("Plane {} is not vertical or horizontal", i);
+      ReUseX::warn("Plane {} is not vertical or horizontal", i);
   }
   return std::make_tuple(vertical, horizontal);
 }

@@ -25,12 +25,12 @@ auto segment_planes_impl(CloudConstPtr cloud, CloudNConstPtr normals,
     -> std::tuple<CloudLPtr, CloudLocPtr, CloudNPtr> {
 
   if (options.cancel_token != nullptr && options.cancel_token->load()) {
-    ReUseX::core::warn(
+    ReUseX::warn(
         "segment_planes: cancellation requested before execution.");
     throw std::runtime_error("Plane segmentation cancelled.");
   }
 
-  ReUseX::core::trace("Initialize the segmentation algorithm");
+  ReUseX::trace("Initialize the segmentation algorithm");
   pcl::PlanarRegionGrowing<PointT, NormalT, LabelT> seg;
   seg.setInputCloud(cloud);
   seg.setInputNormals(normals);
@@ -38,7 +38,7 @@ auto segment_planes_impl(CloudConstPtr cloud, CloudNConstPtr normals,
   // Apply filter if provided
   if (options.filter) {
     seg.setIndices(options.filter);
-    ReUseX::core::debug("Plane segmentation using {} filtered points",
+    ReUseX::debug("Plane segmentation using {} filtered points",
                         options.filter->size());
   }
 
@@ -51,14 +51,14 @@ auto segment_planes_impl(CloudConstPtr cloud, CloudNConstPtr normals,
   seg.setInitialInterval(options.interval_0);
   seg.setIntervalFactor(options.interval_factor);
 
-  ReUseX::core::trace("Initialize labels and copy xyzrgb data to labels");
+  ReUseX::trace("Initialize labels and copy xyzrgb data to labels");
   CloudLPtr labels(new CloudL);
   pcl::copyPointCloud(*cloud, *labels);
 
-  ReUseX::core::trace("Call the segmentation algorithm");
+  ReUseX::trace("Call the segmentation algorithm");
   seg.segment(labels);
 
-  ReUseX::core::info("Found {} clusters", seg.getCentroids().size());
+  ReUseX::info("Found {} clusters", seg.getCentroids().size());
 
   std::vector<pcl::ModelCoefficients> model_coefficients =
       seg.getModelCoefficients();

@@ -77,18 +77,18 @@ static pcl::PolygonMesh make_box_mesh(float W = 4.0f, float D = 3.0f,
     mesh.polygons.push_back(tri2);
   };
 
-  // Front wall (y=0): 0,1,5,4
-  quad(0, 1, 5, 4);
-  // Back wall (y=D): 2,3,7,6
-  quad(2, 3, 7, 6);
-  // Left wall (x=0): 3,0,4,7
-  quad(3, 0, 4, 7);
-  // Right wall (x=W): 1,2,6,5
-  quad(1, 2, 6, 5);
-  // Floor (z=0): 0,3,2,1
-  quad(0, 3, 2, 1);
-  // Ceiling (z=H): 4,5,6,7
-  quad(4, 5, 6, 7);
+  // Front wall (y=0): 0,1,5,4 → normal points into room (+Y)
+  quad(0, 4, 5, 1);
+  // Back wall (y=D): 2,3,7,6 → normal points into room (-Y)
+  quad(2, 6, 7, 3);
+  // Left wall (x=0): 3,0,4,7 → normal points into room (+X)
+  quad(0, 3, 7, 4);
+  // Right wall (x=W): 1,2,6,5 → normal points into room (-X)
+  quad(1, 5, 6, 2);
+  // Floor (z=0): 0,3,2,1 → normal points into room (+Z)
+  quad(0, 1, 2, 3);
+  // Ceiling (z=H): 4,5,6,7 → normal points into room (-Z)
+  quad(4, 7, 6, 5);
 
   return mesh;
 }
@@ -153,18 +153,12 @@ TEST_CASE("extract_wall_candidates: empty mesh", "[geometry][create_windows]") {
 }
 
 TEST_CASE("create_windows: rectangle mode", "[geometry][create_windows]") {
-  // Create a flat wall along Y-Z plane at x=0 (normal in +X direction)
-  WallCandidate wall;
-  wall.normal = Eigen::Vector3d(1.0, 0.0, 0.0);
-  wall.centroid = Eigen::Vector3d(0.0, 2.0, 1.5);
-  wall.plane = Eigen::Vector4d(1.0, 0.0, 0.0, 0.0); // x=0 plane
-  // Boundary covers y=[0,4], z=[0,3]
-  wall.boundary_vertices = {
-      {0, 0, 0}, {0, 4, 0}, {0, 4, 3}, {0, 0, 3}};
+  // Create a box mesh with a wall at x=0
+  auto mesh = make_box_mesh(4.0f, 3.0f, 2.5f);
 
   // Create a window instance: planar cluster aligned with wall normal (+X)
   auto cloud = make_planar_cluster(
-      {0.1f, 2.0f, 1.5f},           // Center near wall
+      {0.1f, 2.0f, 1.5f},           // Center near wall at x=0
       {1.0f, 0.0f, 0.0f},           // Normal matches wall
       200,                           // Point count
       0.2f);                         // Spread in plane
@@ -185,7 +179,7 @@ TEST_CASE("create_windows: rectangle mode", "[geometry][create_windows]") {
   opts.wall_offset = 0.5f;
 
   auto result =
-      create_windows(cloud, labels, inst_to_sem, {wall}, window_labels, opts);
+      create_windows(cloud, labels, inst_to_sem, mesh, window_labels, opts);
 
   SECTION("Creates exactly one window component") {
     REQUIRE(result.components.size() == 1);
@@ -225,11 +219,7 @@ TEST_CASE("create_windows: rectangle mode", "[geometry][create_windows]") {
 
 TEST_CASE("create_windows: no matching semantic labels",
           "[geometry][create_windows]") {
-  WallCandidate wall;
-  wall.normal = Eigen::Vector3d(1.0, 0.0, 0.0);
-  wall.centroid = Eigen::Vector3d(0.0, 2.0, 1.5);
-  wall.plane = Eigen::Vector4d(1.0, 0.0, 0.0, 0.0);
-  wall.boundary_vertices = {{0, 0, 0}, {0, 4, 0}, {0, 4, 3}, {0, 0, 3}};
+  auto mesh = make_box_mesh(4.0f, 3.0f, 2.5f);
 
   auto cloud = make_cluster({0.1f, 2.0f, 1.5f}, 100);
   CloudLPtr labels(new CloudL);
@@ -239,19 +229,15 @@ TEST_CASE("create_windows: no matching semantic labels",
   std::map<uint32_t, uint32_t> inst_to_sem = {{1, 3}}; // semantic 3
   std::vector<uint32_t> window_labels = {5};            // looking for semantic 5
 
-  auto result = create_windows(cloud, labels, inst_to_sem, {wall}, window_labels);
+  auto result = create_windows(cloud, labels, inst_to_sem, mesh, window_labels);
 
   REQUIRE(result.components.empty());
   REQUIRE(result.unmatched_instances.empty());
 }
 
 TEST_CASE("create_windows: multiple instances", "[geometry][create_windows]") {
-  // Wall along Y-Z plane at x=0
-  WallCandidate wall;
-  wall.normal = Eigen::Vector3d(1.0, 0.0, 0.0);
-  wall.centroid = Eigen::Vector3d(0.0, 5.0, 1.5);
-  wall.plane = Eigen::Vector4d(1.0, 0.0, 0.0, 0.0);
-  wall.boundary_vertices = {{0, 0, 0}, {0, 10, 0}, {0, 10, 3}, {0, 0, 3}};
+  // Create a larger box mesh to accommodate two windows
+  auto mesh = make_box_mesh(4.0f, 10.0f, 3.0f);
 
   // Two window clusters at different positions on the wall (planar, aligned with wall)
   Eigen::Vector3f wall_normal(1.0f, 0.0f, 0.0f);
@@ -273,7 +259,7 @@ TEST_CASE("create_windows: multiple instances", "[geometry][create_windows]") {
   std::map<uint32_t, uint32_t> inst_to_sem = {{1, 5}, {2, 5}};
   std::vector<uint32_t> window_labels = {5};
 
-  auto result = create_windows(cloud, labels, inst_to_sem, {wall}, window_labels);
+  auto result = create_windows(cloud, labels, inst_to_sem, mesh, window_labels);
 
   REQUIRE(result.components.size() == 2);
   REQUIRE(result.components[0].name == "window_1");
@@ -288,19 +274,23 @@ TEST_CASE("create_windows: no walls", "[geometry][create_windows]") {
 
   std::map<uint32_t, uint32_t> inst_to_sem = {{1, 5}};
   std::vector<uint32_t> window_labels = {5};
-  std::vector<WallCandidate> no_walls;
 
-  auto result = create_windows(cloud, labels, inst_to_sem, no_walls, window_labels);
+  // Empty mesh (no walls)
+  pcl::PolygonMesh empty_mesh;
+
+  auto result = create_windows(cloud, labels, inst_to_sem, empty_mesh, window_labels);
 
   REQUIRE(result.components.empty());
 }
 
 TEST_CASE("create_windows: null inputs", "[geometry][create_windows]") {
-  std::vector<WallCandidate> walls;
   std::map<uint32_t, uint32_t> inst_to_sem;
   std::vector<uint32_t> window_labels = {5};
 
+  // Empty mesh
+  pcl::PolygonMesh empty_mesh;
+
   auto result =
-      create_windows(nullptr, nullptr, inst_to_sem, walls, window_labels);
+      create_windows(nullptr, nullptr, inst_to_sem, empty_mesh, window_labels);
   REQUIRE(result.components.empty());
 }

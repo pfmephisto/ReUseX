@@ -83,8 +83,14 @@ NOTES:
                   "Semantic labels to treat as windows (comma-separated)")
       ->delimiter(',');
 
-  sub->add_flag("--clear", opt->clear_existing,
-                "Delete all existing window components before creating new ones")
+  sub->add_flag(
+         "--clear", opt->clear_existing,
+         "Delete all existing window components before creating new ones")
+      ->default_val(false);
+
+  sub->add_flag(
+         "--include-internal", opt->include_internal,
+         "Include windows fully inside mesh volume (default: only exterior)")
       ->default_val(false);
 
   sub->callback([opt, global_opt]() {
@@ -184,8 +190,8 @@ int run_subcommand_create_windows(SubcommandWindowOptions const &opt,
 
     // Clear existing windows if requested
     if (opt.clear_existing) {
-      auto existing_windows = db.list_building_components(
-          ReUseX::geometry::ComponentType::window);
+      auto existing_windows =
+          db.list_building_components(ReUseX::geometry::ComponentType::window);
 
       if (!existing_windows.empty()) {
         spdlog::info("Clearing {} existing window components",
@@ -199,11 +205,6 @@ int run_subcommand_create_windows(SubcommandWindowOptions const &opt,
       }
     }
 
-    // Extract wall candidates from mesh
-    spdlog::info("Extracting wall candidates from mesh...");
-    auto walls = ReUseX::geometry::extract_wall_candidates(*mesh);
-    spdlog::info("Found {} wall candidates", walls.size());
-
     // Configure options
     ReUseX::geometry::CreateWindowsOptions create_opts;
     create_opts.mode = (opt.mode == "poly")
@@ -211,11 +212,12 @@ int run_subcommand_create_windows(SubcommandWindowOptions const &opt,
                            : ReUseX::geometry::WindowBoundaryMode::rectangle;
     create_opts.wall_offset = opt.wall_offset;
     create_opts.alpha = opt.alpha;
+    create_opts.include_internal = opt.include_internal;
 
     // Create windows
     spdlog::info("Creating window components...");
     auto result = ReUseX::geometry::create_windows(cloud, instance_labels,
-                                                   instance_to_semantic, walls,
+                                                   instance_to_semantic, *mesh,
                                                    window_labels, create_opts);
 
     // Save components

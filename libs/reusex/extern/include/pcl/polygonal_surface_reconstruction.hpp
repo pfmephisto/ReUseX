@@ -159,7 +159,8 @@ class PCL_EXPORTS PolygonalSurfaceReconstruction : public PCLBase<PointT> {
    */
   inline double getComplexityParam() const { return (complexity_); }
 
-  /** \brief Performs polygonal surface reconstruction from labeled planar regions.
+  /** \brief Performs polygonal surface reconstruction from labeled planar
+   * regions.
    *
    * Converts input point clouds with labeled planar regions into a watertight
    * polygonal mesh using CGAL's Polygonal Surface Reconstruction algorithm.
@@ -184,7 +185,6 @@ class PCL_EXPORTS PolygonalSurfaceReconstruction : public PCLBase<PointT> {
    */
   void segment(pcl::PolygonMesh &output) {
 
-    spdlog::trace("Solid Model Construction: segment() called");
     if (!initCompute()) {
       deinitCompute();
       return;

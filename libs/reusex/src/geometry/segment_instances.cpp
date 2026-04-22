@@ -4,10 +4,10 @@
 #include "reusex/geometry/segment_instances.hpp"
 #include "reusex/core/processing_observer.hpp"
 #include "reusex/core/stages.hpp"
+#include "reusex/core/logging.hpp"
 
 #include <pcl/kdtree/kdtree.h>
 #include <pcl/segmentation/extract_clusters.h>
-#include <spdlog/spdlog.h>
 
 #include <algorithm>
 #include <stdexcept>
@@ -59,11 +59,11 @@ auto segment_instances_impl(const SegmentInstancesRequest &request)
         request.max_cluster_size, request.min_cluster_size));
   }
 
-  spdlog::info("Starting instance segmentation on {} points",
-               request.cloud->size());
-  spdlog::debug("Parameters: tolerance={:.3f}m, min_size={}, max_size={}",
-                request.cluster_tolerance, request.min_cluster_size,
-                request.max_cluster_size);
+  ReUseX::core::info("Starting instance segmentation on {} points",
+                     request.cloud->size());
+  ReUseX::core::debug("Parameters: tolerance={:.3f}m, min_size={}, max_size={}",
+                      request.cluster_tolerance, request.min_cluster_size,
+                      request.max_cluster_size);
 
   // Initialize result
   SegmentInstancesResult result;
@@ -88,15 +88,15 @@ auto segment_instances_impl(const SegmentInstancesRequest &request)
                           request.labels_to_process.end(),
                           std::inserter(filtered_labels, filtered_labels.end()));
     unique_labels = filtered_labels;
-    spdlog::debug("Filtered to {} semantic labels", unique_labels.size());
+    ReUseX::core::debug("Filtered to {} semantic labels", unique_labels.size());
   }
 
   if (unique_labels.empty()) {
-    spdlog::warn("No semantic labels found (all points are label 0)");
+    ReUseX::core::warn("No semantic labels found (all points are label 0)");
     return result;
   }
 
-  spdlog::info("Processing {} semantic classes", unique_labels.size());
+  ReUseX::core::info("Processing {} semantic classes", unique_labels.size());
 
   // Convert set to vector for indexed access in parallel loop
   std::vector<uint32_t> labels_vec(unique_labels.begin(), unique_labels.end());
@@ -126,7 +126,7 @@ auto segment_instances_impl(const SegmentInstancesRequest &request)
 #pragma omp critical
       {
         if (!cancelled) {
-          spdlog::warn("Instance segmentation cancelled by user");
+          ReUseX::core::warn("Instance segmentation cancelled by user");
           cancelled = true;
         }
       }
@@ -136,8 +136,8 @@ auto segment_instances_impl(const SegmentInstancesRequest &request)
     uint32_t semantic_label = labels_vec[class_idx];
     const auto &indices = label_to_indices[semantic_label];
 
-    spdlog::debug("Processing semantic label {} with {} points", semantic_label,
-                  indices.size());
+    ReUseX::core::debug("Processing semantic label {} with {} points",
+                        semantic_label, indices.size());
 
     // Build KdTree for this semantic class
     auto tree = pcl::search::KdTree<PointT>::Ptr(new pcl::search::KdTree<PointT>);
@@ -149,8 +149,8 @@ auto segment_instances_impl(const SegmentInstancesRequest &request)
         *request.cloud, indices, tree, request.cluster_tolerance,
         cluster_indices, request.min_cluster_size, request.max_cluster_size);
 
-    spdlog::debug("Found {} clusters for semantic label {}", cluster_indices.size(),
-                  semantic_label);
+    ReUseX::core::debug("Found {} clusters for semantic label {}",
+                        cluster_indices.size(), semantic_label);
 
     // Assign instance IDs to clusters
 #pragma omp critical
@@ -186,11 +186,11 @@ auto segment_instances_impl(const SegmentInstancesRequest &request)
     throw std::runtime_error("Instance segmentation cancelled by user");
   }
 
-  spdlog::info("Instance segmentation complete: {} instances, {}/{} points "
-               "labeled ({:.1f}%)",
-               result.instance_to_semantic.size(), labeled_points,
-               request.cloud->size(),
-               100.0 * labeled_points / request.cloud->size());
+  ReUseX::core::info(
+      "Instance segmentation complete: {} instances, {}/{} points "
+      "labeled ({:.1f}%)",
+      result.instance_to_semantic.size(), labeled_points,
+      request.cloud->size(), 100.0 * labeled_points / request.cloud->size());
 
   return result;
 }

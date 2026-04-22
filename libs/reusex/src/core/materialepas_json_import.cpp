@@ -5,8 +5,7 @@
 #include "core/materialepas_json_import.hpp"
 #include "core/materialepas_enums.hpp"
 #include "core/materialepas_json_export.hpp"
-
-#include <spdlog/spdlog.h>
+#include "core/logging.hpp"
 
 #include <cstring>
 #include <stdexcept>
@@ -169,8 +168,8 @@ parse_dangerous_substance(const json &properties_array) {
           try {
             write_opt_double(&sub, desc.offset, std::stod(val));
           } catch (const std::exception &e) {
-            spdlog::warn("Failed to parse double for '{}': {}", name,
-                         e.what());
+            ReUseX::core::warn("Failed to parse double for '{}': {}", name,
+                               e.what());
           }
         }
         break;
@@ -220,8 +219,8 @@ Emission parse_emission(const json &properties_array) {
           try {
             write_opt_double(&em, desc.offset, std::stod(val));
           } catch (const std::exception &e) {
-            spdlog::warn("Failed to parse double for '{}': {}", name,
-                         e.what());
+            ReUseX::core::warn("Failed to parse double for '{}': {}", name,
+                               e.what());
           }
         }
         break;
@@ -259,8 +258,8 @@ void deserialize_simple_property(void *section,
       try {
         write_opt_int(section, desc.offset, std::stoi(value));
       } catch (const std::exception &e) {
-        spdlog::warn("Failed to parse integer for '{}': {}", desc.json_name,
-                     e.what());
+        ReUseX::core::warn("Failed to parse integer for '{}': {}", desc.json_name,
+                           e.what());
       }
     }
     break;
@@ -273,8 +272,8 @@ void deserialize_simple_property(void *section,
       try {
         write_opt_double(section, desc.offset, std::stod(value));
       } catch (const std::exception &e) {
-        spdlog::warn("Failed to parse double for '{}': {}", desc.json_name,
-                     e.what());
+        ReUseX::core::warn("Failed to parse double for '{}': {}", desc.json_name,
+                           e.what());
       }
     }
     break;

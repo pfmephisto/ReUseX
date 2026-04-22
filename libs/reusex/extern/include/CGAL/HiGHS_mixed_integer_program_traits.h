@@ -55,21 +55,6 @@ class HiGHS_mixed_integer_program_traits
     highs.setOptionValue("log_to_console", verbose);
     highs.setOptionValue("log_dev_level", verbose ? 2 : 0);
 
-    // Optionally write logs to file for detailed analysis
-    // highs.openLogFile("highs_solver.log");
-
-    // EXPERIMENTAL: Try to force PDLP solver (will likely fail for MIP)
-    // ReUseX::core::warn("EXPERIMENTAL: Attempting to enable PDLP solver for
-    // MIP (will "
-    //              "likely fail)");
-    // HighsStatus pdlp_status = highs.setOptionValue("solver", "pdlp");
-    // if (pdlp_status == HighsStatus::kOk) {
-    //   spdlog::info("PDLP solver enabled (may be ignored for MIP problems)");
-    // } else {
-    //   ReUseX::core::warn("Failed to enable PDLP solver (status: {})",
-    //                static_cast<int>(pdlp_status));
-    // }
-
     // Set the objective sense using the proper API
     bool minimize =
         (Base_class::objective_->sense() == Linear_objective::MINIMIZE);

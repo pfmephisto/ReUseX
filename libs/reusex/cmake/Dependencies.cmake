@@ -17,10 +17,7 @@ find_package(TBB REQUIRED)
 
 # Logging and formatting
 find_package(fmt CONFIG REQUIRED)
-#find_package(spdlog CONFIG REQUIRED)
-#set_target_properties(spdlog::spdlog PROPERTIES
-#    POSITION_INDEPENDENT_CODE ON
-#)
+
 find_package(range-v3 CONFIG REQUIRED)
 find_package(nlohmann_json 3.11 REQUIRED)
 

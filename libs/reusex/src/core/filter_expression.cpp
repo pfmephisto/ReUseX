@@ -3,9 +3,9 @@
 
 #include "core/ProjectDB.hpp"
 #include "core/filter_expression.hpp"
+#include "core/logging.hpp"
 #include <algorithm>
 #include <cctype>
-#include <spdlog/spdlog.h>
 #include <stdexcept>
 
 namespace ReUseX::core {

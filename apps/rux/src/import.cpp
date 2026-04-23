@@ -4,6 +4,7 @@
 
 #include "import.hpp"
 #include "import/materialepas.hpp"
+#include "import/panorama.hpp"
 #include "import/rtabmap.hpp"
 #include <spdlog/spdlog.h>
 
@@ -21,10 +22,12 @@ DESCRIPTION:
 SUBCOMMANDS:
   rtabmap       Import sensor data from RTABMap SLAM database
   materialepas  Import material passports from JSON file
+  360           Import 360 panoramic images
 
 EXAMPLES:
   rux import rtabmap scan.db           # Import RTABMap scan
   rux import materialepas data.json    # Import material passports
+  rux import 360 /path/to/photos/     # Import 360 panoramic images
 
 NOTES:
   - Use 'rux import <subcommand> --help' for detailed options
@@ -34,6 +37,7 @@ NOTES:
 
   setup_subcommand_import_rtabmap(*sub, global_opt);
   setup_subcommand_import_materialepas(*sub, global_opt);
+  setup_subcommand_import_panorama(*sub, global_opt);
 
   sub->callback([]() {
     spdlog::trace("calling import subcommand");

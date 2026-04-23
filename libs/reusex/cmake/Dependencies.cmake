@@ -169,6 +169,9 @@ find_package(igraph REQUIRED)
 find_package(E57Format REQUIRED)
 find_package(opennurbs REQUIRED)
 
+# EXIF metadata reading (for 360 panoramic image import)
+find_package(exiv2 REQUIRED CONFIG)
+
 # -----------------------------------------------
 # Speckle upload support (HTTP, JSON, hashing)
 # -----------------------------------------------

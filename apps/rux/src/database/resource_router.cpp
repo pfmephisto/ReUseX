@@ -6,6 +6,7 @@
 
 #include "database/cloud_router.hpp"
 #include "database/mesh_router.hpp"
+#include "database/panorama_router.hpp"
 #include "database/passport_router.hpp"
 #include "database/project_router.hpp"
 
@@ -20,6 +21,7 @@ RouterRegistry::RouterRegistry(std::shared_ptr<reusex::ProjectDB> db)
   routers_["meshes"] = std::make_unique<MeshRouter>(db);
   routers_["projects"] = std::make_unique<ProjectRouter>(db);
   routers_["materials"] = std::make_unique<PassportRouter>(db);
+  routers_["panoramas"] = std::make_unique<PanoramaRouter>(db);
 
   // TODO: Add routers for frames, labels, log
   // routers_["frames"] = std::make_unique<FrameRouter>(db);
@@ -34,7 +36,7 @@ ResourceRouter &RouterRegistry::get_router(std::string_view collection) {
   if (it == routers_.end()) {
     throw std::runtime_error(
         "No router for collection: " + std::string(collection) +
-        "\nSupported collections: clouds, materials, meshes, projects");
+        "\nSupported collections: clouds, materials, meshes, panoramas, projects");
   }
   return *it->second;
 }

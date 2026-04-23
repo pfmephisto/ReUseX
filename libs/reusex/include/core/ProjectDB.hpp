@@ -79,7 +79,8 @@ class ProjectDB {
   void save_sensor_frame(int nodeId, const cv::Mat &color, const cv::Mat &depth,
                          const cv::Mat &confidence,
                          const std::array<double, 16> &worldPose,
-                         const core::SensorIntrinsics &intrinsics);
+                         const core::SensorIntrinsics &intrinsics,
+                         double timestamp = -1.0);
 
   std::vector<int> sensor_frame_ids() const;
   cv::Mat sensor_frame_image(int nodeId) const;
@@ -88,6 +89,34 @@ class ProjectDB {
   std::array<double, 16> sensor_frame_pose(int nodeId) const;
   core::SensorIntrinsics sensor_frame_intrinsics(int nodeId) const;
   bool has_sensor_frame(int nodeId) const;
+
+  /// Get the timestamp (epoch seconds) of a sensor frame. Returns -1.0 if not set.
+  double sensor_frame_timestamp(int nodeId) const;
+
+  /// Find the sensor frame with the closest timestamp to the given value.
+  /// Returns -1 if no sensor frames have timestamps.
+  int nearest_sensor_frame_by_timestamp(double timestamp) const;
+
+  // --- Panoramic Image Operations ---
+
+  struct PanoramicImage {
+    int id;
+    std::string filename;
+    double timestamp;  // -1.0 if unknown
+    int node_id;       // -1 if unmatched
+  };
+
+  void save_panoramic_image(const std::string &filename,
+                            const std::vector<uint8_t> &jpeg_data,
+                            double timestamp = -1.0, int nodeId = -1);
+
+  cv::Mat panoramic_image(int id) const;
+  cv::Mat panoramic_image(std::string_view filename) const;
+  bool has_panoramic_image(std::string_view filename) const;
+  void delete_panoramic_image(int id);
+  void delete_panoramic_image(std::string_view filename);
+  std::vector<PanoramicImage> list_panoramic_images() const;
+  int panoramic_image_count() const;
 
   // --- Segmentation Image Operations ---
 
@@ -205,6 +234,11 @@ class ProjectDB {
       int segmented_count; // frames with segmentation
     };
 
+    struct PanoramicInfo {
+      int total_count = 0;
+      int matched_count = 0; // images linked to a sensor frame
+    };
+
     struct ComponentInfo {
       int total_count = 0;
       std::map<std::string, int> count_by_type;
@@ -234,6 +268,7 @@ class ProjectDB {
     std::vector<CloudInfo> clouds;
     std::vector<MeshInfo> meshes;
     SensorFrameInfo sensor_frames;
+    PanoramicInfo panoramic_images;
     ComponentInfo components;
     std::vector<MaterialInfo> materials;
   };

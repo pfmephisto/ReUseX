@@ -119,8 +119,17 @@ void import_rtabmap(ProjectDB &db,
         worldPose = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
       }
 
+      // ── Timestamp ────────────────────────────────────────────────
+      // Try SensorData stamp first, fall back to Signature stamp.
+      // RTABMap returns 0.0 when no timestamp is set; treat as "unknown".
+      double rawStamp = data.stamp();
+      if (rawStamp <= 0.0)
+        rawStamp = nodeIt->second.getStamp();
+      double stamp = rawStamp > 0.0 ? rawStamp : -1.0;
+
       // ── Store in ProjectDB ───────────────────────────────────────
-      db.save_sensor_frame(id, color, depth, confidence, worldPose, intrinsics);
+      db.save_sensor_frame(id, color, depth, confidence, worldPose, intrinsics,
+                           stamp);
 
       core::trace("Imported node {} ({}x{}, depth {}x{})", id, color.cols,
                   color.rows, depth.cols, depth.rows);

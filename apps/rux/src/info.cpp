@@ -83,6 +83,14 @@ void format_terminal_output(const reusex::ProjectDB::ProjectSummary &summary) {
   fmt::print("{}", fmt::format(loc, "Sensor Frames: {:L} frames {}\n",
                                summary.sensor_frames.total_count,
                                sensor_frame_shape));
+
+  // Panoramic images section
+  if (summary.panoramic_images.total_count > 0) {
+    fmt::print("{}", fmt::format(loc, "Panoramic Images: {:L} ({:L} matched)\n",
+                                 summary.panoramic_images.total_count,
+                                 summary.panoramic_images.matched_count));
+  }
+
   fmt::print("\n");
 
   // Point clouds section
@@ -189,6 +197,10 @@ void format_json_output(const reusex::ProjectDB::ProjectSummary &summary) {
                         {"width", summary.sensor_frames.width},
                         {"height", summary.sensor_frames.height},
                         {"segmented", summary.sensor_frames.segmented_count}};
+
+  // Panoramic images
+  j["panoramic_images"] = {{"total", summary.panoramic_images.total_count},
+                           {"matched", summary.panoramic_images.matched_count}};
 
   // Point clouds
   j["point_clouds"] = json::array();

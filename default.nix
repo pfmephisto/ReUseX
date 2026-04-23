@@ -54,6 +54,7 @@
   trtsam3,
   tokenizers-cpp,
   onnxruntime,
+  exiv2,
   # cuOpt,
 }: let
   effectiveStdenv =
@@ -128,6 +129,7 @@ in
         curl
         nlohmann_json
         openssl
+        exiv2
       ]
       ++ (
         if cudaSupport

@@ -132,6 +132,9 @@ target_link_libraries(reusex
         CURL::libcurl
         nlohmann_json::nlohmann_json
         OpenSSL::Crypto
+
+        # EXIF metadata reading
+        Exiv2::exiv2lib
 )
 
 # -----------------------------------------------

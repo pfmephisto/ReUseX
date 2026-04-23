@@ -178,7 +178,7 @@ class ProjectDB::Impl {
   bool readOnly;
   sqlite3 *db = nullptr;
 
-  static constexpr int LATEST_SCHEMA_VERSION = 4;
+  static constexpr int LATEST_SCHEMA_VERSION = 5;
 
   void execOrThrow(const char *sql) {
     char *errMsg = nullptr;
@@ -308,6 +308,10 @@ class ProjectDB::Impl {
 
     if (current < 4) {
       migrateToV4();
+    }
+
+    if (current < 5) {
+      migrateToV5();
     }
 
     reusex::trace("Schema version: {}", getCurrentSchemaVersion());
@@ -477,6 +481,49 @@ class ProjectDB::Impl {
     reusex::info("Migration to schema version 4 complete");
   }
 
+  void migrateToV5() {
+    reusex::info("Migrating database to schema version 5");
+
+    // Add timestamp column to sensor_frames
+    {
+      const char *alter =
+          "ALTER TABLE sensor_frames ADD COLUMN timestamp REAL;";
+      char *errMsg = nullptr;
+      if (sqlite3_exec(db, alter, nullptr, nullptr, &errMsg) != SQLITE_OK) {
+        std::string error = errMsg;
+        sqlite3_free(errMsg);
+        if (error.find("duplicate column") == std::string::npos) {
+          throw std::runtime_error("Migration to v5 failed: " + error);
+        }
+      }
+    }
+
+    // Create panoramic_images table
+    {
+      const char *v5_schema = R"(
+        CREATE TABLE IF NOT EXISTS panoramic_images (
+          id         INTEGER PRIMARY KEY AUTOINCREMENT,
+          filename   TEXT NOT NULL,
+          image      BLOB NOT NULL,
+          timestamp  REAL,
+          node_id    INTEGER REFERENCES sensor_frames(node_id) ON DELETE SET NULL,
+          created_at TEXT DEFAULT (datetime('now'))
+        );
+      )";
+
+      char *errMsg = nullptr;
+      if (sqlite3_exec(db, v5_schema, nullptr, nullptr, &errMsg) != SQLITE_OK) {
+        std::string error = errMsg;
+        sqlite3_free(errMsg);
+        throw std::runtime_error("Migration to v5 failed: " + error);
+      }
+    }
+
+    insertSchemaVersion(5, "Add timestamp to sensor_frames, "
+                           "add panoramic_images table");
+    reusex::info("Migration to schema version 5 complete");
+  }
+
   // ── Sensor frame CRUD ─────────────────────────────────────────────
 
   void saveSensorFrame(int nodeId, const cv::Mat &colorImage) {
@@ -556,7 +603,8 @@ class ProjectDB::Impl {
   void saveSensorFrameFull(int nodeId, const cv::Mat &color,
                            const cv::Mat &depth, const cv::Mat &confidence,
                            const std::array<double, 16> &worldPose,
-                           const reusex::core::SensorIntrinsics &intrinsics) {
+                           const reusex::core::SensorIntrinsics &intrinsics,
+                           double timestamp) {
     if (color.empty())
       throw std::runtime_error("Cannot save empty color image");
 
@@ -599,8 +647,8 @@ class ProjectDB::Impl {
     std::string cameraJson = intrinsics.to_json();
 
     const char *upsert = R"(
-      INSERT INTO sensor_frames (node_id, color, depth, confidence, transform, width, height, camera_model)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO sensor_frames (node_id, color, depth, confidence, transform, width, height, camera_model, timestamp)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(node_id) DO UPDATE SET
         color = excluded.color,
         depth = excluded.depth,
@@ -608,7 +656,8 @@ class ProjectDB::Impl {
         transform = excluded.transform,
         width = excluded.width,
         height = excluded.height,
-        camera_model = excluded.camera_model;
+        camera_model = excluded.camera_model,
+        timestamp = excluded.timestamp;
     )";
 
     sqlite3_stmt *stmt;
@@ -640,6 +689,11 @@ class ProjectDB::Impl {
     sqlite3_bind_int(stmt, 6, color.cols);
     sqlite3_bind_int(stmt, 7, color.rows);
     sqlite3_bind_text(stmt, 8, cameraJson.c_str(), -1, SQLITE_TRANSIENT);
+
+    if (timestamp >= 0.0)
+      sqlite3_bind_double(stmt, 9, timestamp);
+    else
+      sqlite3_bind_null(stmt, 9);
 
     if (sqlite3_step(stmt) != SQLITE_DONE)
       throw std::runtime_error("Failed to upsert sensor frame: " +
@@ -739,6 +793,202 @@ class ProjectDB::Impl {
     StmtGuard guard(stmt);
     sqlite3_bind_int(stmt, 1, nodeId);
     return sqlite3_step(stmt) == SQLITE_ROW;
+  }
+
+  double getSensorFrameTimestamp(int nodeId) const {
+    const char *sql =
+        "SELECT timestamp FROM sensor_frames WHERE node_id = ?;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      return -1.0;
+    StmtGuard guard(stmt);
+    sqlite3_bind_int(stmt, 1, nodeId);
+
+    if (sqlite3_step(stmt) != SQLITE_ROW)
+      return -1.0;
+    if (sqlite3_column_type(stmt, 0) == SQLITE_NULL)
+      return -1.0;
+    return sqlite3_column_double(stmt, 0);
+  }
+
+  int nearestSensorFrameByTimestamp(double timestamp) const {
+    const char *sql = R"(
+      SELECT node_id FROM sensor_frames
+      WHERE timestamp IS NOT NULL
+      ORDER BY ABS(timestamp - ?) LIMIT 1;
+    )";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      return -1;
+    StmtGuard guard(stmt);
+    sqlite3_bind_double(stmt, 1, timestamp);
+
+    if (sqlite3_step(stmt) != SQLITE_ROW)
+      return -1;
+    return sqlite3_column_int(stmt, 0);
+  }
+
+  // ── Panoramic image CRUD ────────────────────────────────────────
+
+  void savePanoramicImage(const std::string &filename,
+                          const std::vector<uint8_t> &jpegData,
+                          double timestamp, int nodeId) {
+    const char *upsert = R"(
+      INSERT INTO panoramic_images (filename, image, timestamp, node_id)
+      VALUES (?, ?, ?, ?);
+    )";
+
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, upsert, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error(
+          "Failed to prepare panoramic image insert: " +
+          std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+
+    sqlite3_bind_text(stmt, 1, filename.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_blob(stmt, 2, jpegData.data(),
+                      static_cast<int>(jpegData.size()), SQLITE_TRANSIENT);
+
+    if (timestamp >= 0.0)
+      sqlite3_bind_double(stmt, 3, timestamp);
+    else
+      sqlite3_bind_null(stmt, 3);
+
+    if (nodeId >= 0)
+      sqlite3_bind_int(stmt, 4, nodeId);
+    else
+      sqlite3_bind_null(stmt, 4);
+
+    if (sqlite3_step(stmt) != SQLITE_DONE)
+      throw std::runtime_error(
+          "Failed to insert panoramic image: " +
+          std::string(sqlite3_errmsg(db)));
+  }
+
+  cv::Mat getPanoramicImageById(int id) const {
+    const char *sql = "SELECT image FROM panoramic_images WHERE id = ?;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error(
+          "Failed to prepare panoramic image query: " +
+          std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+    sqlite3_bind_int(stmt, 1, id);
+
+    if (sqlite3_step(stmt) != SQLITE_ROW)
+      return cv::Mat();
+
+    const void *blob = sqlite3_column_blob(stmt, 0);
+    int blobSize = sqlite3_column_bytes(stmt, 0);
+    if (!blob || blobSize == 0)
+      return cv::Mat();
+
+    cv::Mat encoded(1, blobSize, CV_8UC1, const_cast<void *>(blob));
+    return cv::imdecode(encoded, cv::IMREAD_UNCHANGED);
+  }
+
+  cv::Mat getPanoramicImageByFilename(std::string_view filename) const {
+    const char *sql =
+        "SELECT image FROM panoramic_images WHERE filename = ?;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error(
+          "Failed to prepare panoramic image query: " +
+          std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+    sqlite3_bind_text(stmt, 1, filename.data(),
+                      static_cast<int>(filename.size()), SQLITE_TRANSIENT);
+
+    if (sqlite3_step(stmt) != SQLITE_ROW)
+      return cv::Mat();
+
+    const void *blob = sqlite3_column_blob(stmt, 0);
+    int blobSize = sqlite3_column_bytes(stmt, 0);
+    if (!blob || blobSize == 0)
+      return cv::Mat();
+
+    cv::Mat encoded(1, blobSize, CV_8UC1, const_cast<void *>(blob));
+    return cv::imdecode(encoded, cv::IMREAD_UNCHANGED);
+  }
+
+  bool hasPanoramicImage(std::string_view filename) const {
+    const char *sql =
+        "SELECT 1 FROM panoramic_images WHERE filename = ? LIMIT 1;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      return false;
+    StmtGuard guard(stmt);
+    sqlite3_bind_text(stmt, 1, filename.data(),
+                      static_cast<int>(filename.size()), SQLITE_TRANSIENT);
+    return sqlite3_step(stmt) == SQLITE_ROW;
+  }
+
+  void deletePanoramicImageById(int id) {
+    const char *sql = "DELETE FROM panoramic_images WHERE id = ?;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error(
+          "Failed to prepare panoramic image delete: " +
+          std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+    sqlite3_bind_int(stmt, 1, id);
+    if (sqlite3_step(stmt) != SQLITE_DONE)
+      throw std::runtime_error("Failed to delete panoramic image");
+  }
+
+  void deletePanoramicImageByFilename(std::string_view filename) {
+    const char *sql = "DELETE FROM panoramic_images WHERE filename = ?;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error(
+          "Failed to prepare panoramic image delete: " +
+          std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+    sqlite3_bind_text(stmt, 1, filename.data(),
+                      static_cast<int>(filename.size()), SQLITE_TRANSIENT);
+    if (sqlite3_step(stmt) != SQLITE_DONE)
+      throw std::runtime_error("Failed to delete panoramic image");
+  }
+
+  std::vector<ProjectDB::PanoramicImage> listPanoramicImages() const {
+    const char *sql = R"(
+      SELECT id, filename, timestamp, node_id
+      FROM panoramic_images ORDER BY filename;
+    )";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error(
+          "Failed to query panoramic images: " +
+          std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+
+    std::vector<ProjectDB::PanoramicImage> images;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+      ProjectDB::PanoramicImage img;
+      img.id = sqlite3_column_int(stmt, 0);
+      const char *fn =
+          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1));
+      img.filename = fn ? fn : "";
+      img.timestamp = (sqlite3_column_type(stmt, 2) == SQLITE_NULL)
+                          ? -1.0
+                          : sqlite3_column_double(stmt, 2);
+      img.node_id = (sqlite3_column_type(stmt, 3) == SQLITE_NULL)
+                        ? -1
+                        : sqlite3_column_int(stmt, 3);
+      images.push_back(std::move(img));
+    }
+    return images;
+  }
+
+  int panoramicImageCount() const {
+    const char *sql = "SELECT COUNT(*) FROM panoramic_images;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      return 0;
+    StmtGuard guard(stmt);
+    if (sqlite3_step(stmt) == SQLITE_ROW)
+      return sqlite3_column_int(stmt, 0);
+    return 0;
   }
 
   // ── Segmentation image CRUD ───────────────────────────────────────
@@ -2473,6 +2723,28 @@ class ProjectDB::Impl {
       }
     }
 
+    // Query panoramic images
+    if (tableExists("panoramic_images")) {
+      const char *count_sql = "SELECT COUNT(*) FROM panoramic_images;";
+      sqlite3_stmt *stmt;
+      if (sqlite3_prepare_v2(db, count_sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        StmtGuard guard(stmt);
+        if (sqlite3_step(stmt) == SQLITE_ROW)
+          summary.panoramic_images.total_count = sqlite3_column_int(stmt, 0);
+      }
+
+      const char *matched_sql =
+          "SELECT COUNT(*) FROM panoramic_images WHERE node_id IS NOT NULL;";
+      sqlite3_stmt *mstmt;
+      if (sqlite3_prepare_v2(db, matched_sql, -1, &mstmt, nullptr) ==
+          SQLITE_OK) {
+        StmtGuard guard(mstmt);
+        if (sqlite3_step(mstmt) == SQLITE_ROW)
+          summary.panoramic_images.matched_count =
+              sqlite3_column_int(mstmt, 0);
+      }
+    }
+
     // Query material passports
     {
       const char *sql = "SELECT "
@@ -2580,9 +2852,10 @@ void ProjectDB::save_sensor_frame(int nodeId, const cv::Mat &color,
                                   const cv::Mat &depth,
                                   const cv::Mat &confidence,
                                   const std::array<double, 16> &worldPose,
-                                  const core::SensorIntrinsics &intrinsics) {
+                                  const core::SensorIntrinsics &intrinsics,
+                                  double timestamp) {
   impl_->saveSensorFrameFull(nodeId, color, depth, confidence, worldPose,
-                             intrinsics);
+                             intrinsics, timestamp);
 }
 
 std::vector<int> ProjectDB::sensor_frame_ids() const {
@@ -2611,6 +2884,51 @@ core::SensorIntrinsics ProjectDB::sensor_frame_intrinsics(int nodeId) const {
 
 bool ProjectDB::has_sensor_frame(int nodeId) const {
   return impl_->hasSensorFrame(nodeId);
+}
+
+double ProjectDB::sensor_frame_timestamp(int nodeId) const {
+  return impl_->getSensorFrameTimestamp(nodeId);
+}
+
+int ProjectDB::nearest_sensor_frame_by_timestamp(double timestamp) const {
+  return impl_->nearestSensorFrameByTimestamp(timestamp);
+}
+
+// --- Panoramic Image Operations ---
+
+void ProjectDB::save_panoramic_image(const std::string &filename,
+                                     const std::vector<uint8_t> &jpeg_data,
+                                     double timestamp, int nodeId) {
+  impl_->savePanoramicImage(filename, jpeg_data, timestamp, nodeId);
+}
+
+cv::Mat ProjectDB::panoramic_image(int id) const {
+  return impl_->getPanoramicImageById(id);
+}
+
+cv::Mat ProjectDB::panoramic_image(std::string_view filename) const {
+  return impl_->getPanoramicImageByFilename(filename);
+}
+
+bool ProjectDB::has_panoramic_image(std::string_view filename) const {
+  return impl_->hasPanoramicImage(filename);
+}
+
+void ProjectDB::delete_panoramic_image(int id) {
+  impl_->deletePanoramicImageById(id);
+}
+
+void ProjectDB::delete_panoramic_image(std::string_view filename) {
+  impl_->deletePanoramicImageByFilename(filename);
+}
+
+std::vector<ProjectDB::PanoramicImage>
+ProjectDB::list_panoramic_images() const {
+  return impl_->listPanoramicImages();
+}
+
+int ProjectDB::panoramic_image_count() const {
+  return impl_->panoramicImageCount();
 }
 
 // --- Segmentation Image Operations ---

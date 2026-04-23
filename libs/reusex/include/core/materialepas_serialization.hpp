@@ -13,7 +13,7 @@
 #include <string_view>
 #include <vector>
 
-namespace ReUseX::core::serialization {
+namespace reusex::core::serialization {
 
 /**
  * @brief Type-erased property value holder
@@ -243,4 +243,4 @@ std::map<std::string, PropertyValue> Serializer::serialize(const T &obj) {
   return values;
 }
 
-} // namespace ReUseX::core::serialization
+} // namespace reusex::core::serialization

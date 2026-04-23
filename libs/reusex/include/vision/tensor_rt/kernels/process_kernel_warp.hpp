@@ -4,7 +4,7 @@
 #include "reusex/vision/tensor_rt/kernels/postprocess.cuh"
 #include "reusex/vision/tensor_rt/kernels/preprocess.cuh"
 
-namespace ReUseX::vision::tensor_rt {
+namespace reusex::vision::tensor_rt {
 void warp_affine_bilinear_and_normalize_plane(
     uint8_t *src, int src_line_size, int src_width, int src_height, float *dst,
     int dst_width, int dst_height, float *matrix_2_3, uint8_t const_value,
@@ -27,4 +27,4 @@ void sam3_postprocess_plane(
     float *filtered_scores_gpu, int *filtered_count_gpu, int num_queries,
     int mask_height, int mask_width, int original_image_width,
     int original_image_height, float confidence_threshold, cudaStream_t stream);
-} // namespace ReUseX::vision::tensor_rt
+} // namespace reusex::vision::tensor_rt

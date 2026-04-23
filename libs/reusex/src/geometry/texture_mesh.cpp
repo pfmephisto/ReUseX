@@ -16,16 +16,16 @@
 
 #include <filesystem>
 
-namespace ReUseX::geometry {
+namespace reusex::geometry {
 pcl::TextureMesh::Ptr texture_mesh_with_cloud(pcl::PolygonMesh::Ptr mesh,
                                               CloudConstPtr /*cloud*/) {
-  ReUseX::trace("Entering ReUseX::geometry::texture_mesh_with_cloud");
+  reusex::trace("Entering ReUseX::geometry::texture_mesh_with_cloud");
 
   // Copy cloud and polygons
   pcl::TextureMesh::Ptr textured_mesh(new pcl::TextureMesh);
   textured_mesh->cloud = mesh->cloud;
 
-  ReUseX::trace("Converting mesh cloud to PointXYZ");
+  reusex::trace("Converting mesh cloud to PointXYZ");
   CloudLocPtr cloud_xyz(new CloudLoc);
   pcl::fromPCLPointCloud2(mesh->cloud, *cloud_xyz);
   CloudNPtr normals(new CloudN);
@@ -60,12 +60,12 @@ pcl::TextureMesh::Ptr texture_mesh_with_cloud(pcl::PolygonMesh::Ptr mesh,
   for (auto &p : normals->points)
     p.getNormalVector3fMap().normalize();
 
-  ReUseX::trace("Concatenateing fields normals to the mesh cloud");
+  reusex::trace("Concatenateing fields normals to the mesh cloud");
   pcl::PointCloud<pcl::PointNormal> cloud_with_normals;
   pcl::concatenateFields(*cloud_xyz, *normals, cloud_with_normals);
   pcl::toPCLPointCloud2(cloud_with_normals, textured_mesh->cloud);
 
-  ReUseX::trace("Create directory for textures");
+  reusex::trace("Create directory for textures");
   static constexpr char texture_dir[] = "./mesh_textures";
   if (std::filesystem::exists(texture_dir)) {
     std::filesystem::remove_all(texture_dir);
@@ -73,7 +73,7 @@ pcl::TextureMesh::Ptr texture_mesh_with_cloud(pcl::PolygonMesh::Ptr mesh,
   std::filesystem::create_directory(texture_dir);
   std::filesystem::path base_path = std::filesystem::path(texture_dir);
 
-  ReUseX::trace("Resizing texture mesh structures");
+  reusex::trace("Resizing texture mesh structures");
   const size_t nr_polygons = textured_mesh->tex_polygons.size();
   textured_mesh->tex_materials.resize(nr_polygons);
   textured_mesh->tex_coordinates.resize(nr_polygons);
@@ -82,7 +82,7 @@ pcl::TextureMesh::Ptr texture_mesh_with_cloud(pcl::PolygonMesh::Ptr mesh,
     textured_mesh->tex_coord_indices[i].resize(
         textured_mesh->tex_polygons[i].size());
 
-  ReUseX::trace("Create materials");
+  reusex::trace("Create materials");
   for (auto &&[idx, mat] :
        textured_mesh->tex_materials | ranges::views::enumerate) {
 
@@ -110,10 +110,10 @@ pcl::TextureMesh::Ptr texture_mesh_with_cloud(pcl::PolygonMesh::Ptr mesh,
     mat.tex_illum = 2;
   }
 
-  ReUseX::trace("Create textutes form points in the cloud");
+  reusex::trace("Create textutes form points in the cloud");
   {
-    auto observer = ReUseX::core::ProgressObserver(
-        ReUseX::core::Stage::creating_material, nr_polygons);
+    auto observer = reusex::core::ProgressObserver(
+        reusex::core::Stage::creating_material, nr_polygons);
 
     for (auto &&[idx, mat] :
          textured_mesh->tex_materials | ranges::views::enumerate) {
@@ -149,18 +149,18 @@ pcl::TextureMesh::Ptr texture_mesh_with_cloud(pcl::PolygonMesh::Ptr mesh,
     }
   }
 
-  ReUseX::debug("Number of materials: {}",
+  reusex::debug("Number of materials: {}",
                       textured_mesh->tex_materials.size());
-  ReUseX::debug("Number of texture polygons: {}",
+  reusex::debug("Number of texture polygons: {}",
                       textured_mesh->tex_polygons.size());
-  ReUseX::debug("Number of texture coordinates: {}",
+  reusex::debug("Number of texture coordinates: {}",
                       textured_mesh->tex_coordinates.size());
   for (auto [idx, poly_group] :
        textured_mesh->tex_polygons | ranges::views::enumerate) {
-    ReUseX::debug("  Number of polygons in group {}: {}", idx,
+    reusex::debug("  Number of polygons in group {}: {}", idx,
                         poly_group.size());
   }
-  ReUseX::trace("Nuber of coordinates {}",
+  reusex::trace("Nuber of coordinates {}",
                       textured_mesh->tex_coord_indices.size());
 
   return textured_mesh;
@@ -170,13 +170,13 @@ pcl::TextureMesh::Ptr
 texture_mesh(pcl::PolygonMesh::Ptr mesh,
              std::map<int, rtabmap::Transform> const &poses,
              std::map<int, rtabmap::Signature> const &nodes) {
-  ReUseX::trace("Entering ReUseX::geometry::texture_mesh");
+  reusex::trace("Entering ReUseX::geometry::texture_mesh");
 
   // Copy cloud and polygons
   pcl::TextureMesh::Ptr textured_mesh(new pcl::TextureMesh);
   textured_mesh->cloud = mesh->cloud;
 
-  ReUseX::trace("Converting mesh cloud to PointXYZ");
+  reusex::trace("Converting mesh cloud to PointXYZ");
   CloudLocPtr cloud(new CloudLoc);
   pcl::fromPCLPointCloud2(mesh->cloud, *cloud);
   CloudNPtr normals(new CloudN);
@@ -206,20 +206,20 @@ texture_mesh(pcl::PolygonMesh::Ptr mesh,
   for (auto &p : normals->points)
     p.getNormalVector3fMap().normalize();
 
-  ReUseX::trace("Concatenateing fields normals to the mesh cloud");
+  reusex::trace("Concatenateing fields normals to the mesh cloud");
   pcl::PointCloud<pcl::PointNormal> cloud_with_normals;
   pcl::concatenateFields(*cloud, *normals, cloud_with_normals);
   pcl::toPCLPointCloud2(cloud_with_normals, textured_mesh->cloud);
 
-  ReUseX::debug("Number of polygons: {}",
+  reusex::debug("Number of polygons: {}",
                       textured_mesh->tex_polygons.size());
   size_t num_faces = 0;
   for (const auto &poly_group : textured_mesh->tex_polygons)
     num_faces += poly_group.size();
-  ReUseX::debug("Total number of faces: {}", num_faces);
-  ReUseX::debug("Number of vertices: {}", cloud->size());
+  reusex::debug("Total number of faces: {}", num_faces);
+  reusex::debug("Number of vertices: {}", cloud->size());
 
-  ReUseX::trace("Create directory for textures");
+  reusex::trace("Create directory for textures");
   static constexpr char texture_dir[] = "./mesh_textures";
   if (std::filesystem::exists(texture_dir)) {
     std::filesystem::remove_all(texture_dir);
@@ -227,7 +227,7 @@ texture_mesh(pcl::PolygonMesh::Ptr mesh,
   std::filesystem::create_directory(texture_dir);
   std::filesystem::path base_path = std::filesystem::path(texture_dir);
 
-  ReUseX::trace("Retrive all cameras and textures from the database");
+  reusex::trace("Retrive all cameras and textures from the database");
   // TODO: Implement camera/texture retrieval from ProjectDB
   // category=Geometry estimate=1d
   // Need to extract camera poses and images from ProjectDB for texturing:
@@ -240,8 +240,8 @@ texture_mesh(pcl::PolygonMesh::Ptr mesh,
   pcl::texture_mapping::CameraVector cameras{};
   cameras.resize(poses.size());
   {
-    auto observer = ReUseX::core::ProgressObserver(
-        ReUseX::core::Stage::retrieving_textures, poses.size());
+    auto observer = reusex::core::ProgressObserver(
+        reusex::core::Stage::retrieving_textures, poses.size());
 
     // TODO: Extract camera intrinsics and image data for each node
     // category=Geometry estimate=4h
@@ -259,7 +259,7 @@ texture_mesh(pcl::PolygonMesh::Ptr mesh,
 
       cv::Mat image = data.imageRaw();
       if (image.empty()) {
-        ReUseX::warn("Empty image for node id {}", id);
+        reusex::warn("Empty image for node id {}", id);
         ++observer;
         continue;
       }
@@ -303,12 +303,12 @@ texture_mesh(pcl::PolygonMesh::Ptr mesh,
     }
   }
 
-  ReUseX::debug("Number of cameras: {}", cameras.size());
-  ReUseX::debug("Number of materials: {}",
+  reusex::debug("Number of cameras: {}", cameras.size());
+  reusex::debug("Number of materials: {}",
                       textured_mesh->tex_materials.size());
-  ReUseX::debug("Number of texture polygons: {}",
+  reusex::debug("Number of texture polygons: {}",
                       textured_mesh->tex_polygons.size());
-  ReUseX::debug("Number of texture coordinates: {}",
+  reusex::debug("Number of texture coordinates: {}",
                       textured_mesh->tex_coordinates.size());
 
   pcl::TextureMapping<pcl::PointXYZ> tm;
@@ -319,7 +319,7 @@ texture_mesh(pcl::PolygonMesh::Ptr mesh,
     pcl::TexMaterial material;
     material.tex_name = "texture-unassigned";
     material.tex_file = textured_mesh->tex_materials[0].tex_file;
-    ReUseX::warn(
+    reusex::warn(
         "Number of texture polygons ({}) is greater than number of "
         "materials ({}). Adding default material '{}' at {}.",
         textured_mesh->tex_polygons.size(), textured_mesh->tex_materials.size(),
@@ -327,22 +327,22 @@ texture_mesh(pcl::PolygonMesh::Ptr mesh,
     textured_mesh->tex_materials.push_back(material);
   }
 
-  ReUseX::debug("Number of materials: {}",
+  reusex::debug("Number of materials: {}",
                       textured_mesh->tex_materials.size());
-  ReUseX::debug("Number of texture polygons: {}",
+  reusex::debug("Number of texture polygons: {}",
                       textured_mesh->tex_polygons.size());
-  ReUseX::debug("Number of texture coordinates: {}",
+  reusex::debug("Number of texture coordinates: {}",
                       textured_mesh->tex_coordinates.size());
   for (auto [idx, poly_group] :
        textured_mesh->tex_polygons | ranges::views::enumerate) {
-    ReUseX::debug("  Number of polygons in group {}: {}", idx,
+    reusex::debug("  Number of polygons in group {}: {}", idx,
                         poly_group.size());
   }
-  ReUseX::trace("Nuber of coordinates {}",
+  reusex::trace("Nuber of coordinates {}",
                       textured_mesh->tex_coord_indices.size());
   if (textured_mesh->tex_coord_indices.size() !=
       textured_mesh->tex_polygons.size()) {
-    ReUseX::warn(
+    reusex::warn(
         "Number of texture coordinate indices ({}) does not match "
         "number of texture polygons ({}).",
         textured_mesh->tex_coord_indices.size(),
@@ -359,14 +359,14 @@ texture_mesh(pcl::PolygonMesh::Ptr mesh,
 
 pcl::TextureMesh::Ptr texture_mesh(pcl::PolygonMesh::Ptr mesh,
                                    std::map<int, CameraData> const &cameras) {
-  ReUseX::trace(
+  reusex::trace(
       "Entering ReUseX::geometry::texture_mesh (ProjectDB API)");
 
   // Copy cloud and polygons
   pcl::TextureMesh::Ptr textured_mesh(new pcl::TextureMesh);
   textured_mesh->cloud = mesh->cloud;
 
-  ReUseX::trace("Converting mesh cloud to PointXYZ");
+  reusex::trace("Converting mesh cloud to PointXYZ");
   CloudLocPtr cloud(new CloudLoc);
   pcl::fromPCLPointCloud2(mesh->cloud, *cloud);
   CloudNPtr normals(new CloudN);
@@ -390,20 +390,20 @@ pcl::TextureMesh::Ptr texture_mesh(pcl::PolygonMesh::Ptr mesh,
   for (auto &p : normals->points)
     p.getNormalVector3fMap().normalize();
 
-  ReUseX::trace("Concatenating normals to mesh cloud");
+  reusex::trace("Concatenating normals to mesh cloud");
   pcl::PointCloud<pcl::PointNormal> cloud_with_normals;
   pcl::concatenateFields(*cloud, *normals, cloud_with_normals);
   pcl::toPCLPointCloud2(cloud_with_normals, textured_mesh->cloud);
 
-  ReUseX::debug("Number of polygons: {}",
+  reusex::debug("Number of polygons: {}",
                       textured_mesh->tex_polygons.size());
   size_t num_faces = 0;
   for (const auto &poly_group : textured_mesh->tex_polygons)
     num_faces += poly_group.size();
-  ReUseX::debug("Total number of faces: {}", num_faces);
-  ReUseX::debug("Number of vertices: {}", cloud->size());
+  reusex::debug("Total number of faces: {}", num_faces);
+  reusex::debug("Number of vertices: {}", cloud->size());
 
-  ReUseX::trace("Creating directory for textures");
+  reusex::trace("Creating directory for textures");
   static constexpr char texture_dir[] = "./mesh_textures";
   if (std::filesystem::exists(texture_dir)) {
     std::filesystem::remove_all(texture_dir);
@@ -411,19 +411,19 @@ pcl::TextureMesh::Ptr texture_mesh(pcl::PolygonMesh::Ptr mesh,
   std::filesystem::create_directory(texture_dir);
   std::filesystem::path base_path = std::filesystem::path(texture_dir);
 
-  ReUseX::trace("Extracting cameras and textures from ProjectDB data");
+  reusex::trace("Extracting cameras and textures from ProjectDB data");
   pcl::texture_mapping::CameraVector pcl_cameras{};
   pcl_cameras.resize(cameras.size());
   {
-    auto observer = ReUseX::core::ProgressObserver(
-        ReUseX::core::Stage::retrieving_textures, cameras.size());
+    auto observer = reusex::core::ProgressObserver(
+        reusex::core::Stage::retrieving_textures, cameras.size());
 
     for (auto &&[i, inner] : cameras | ranges::views::enumerate) {
       auto &[id, cam_data] = inner;
 
       const cv::Mat &image = cam_data.image;
       if (image.empty()) {
-        ReUseX::warn("Empty image for camera id {}", id);
+        reusex::warn("Empty image for camera id {}", id);
         ++observer;
         continue;
       }
@@ -471,8 +471,8 @@ pcl::TextureMesh::Ptr texture_mesh(pcl::PolygonMesh::Ptr mesh,
     }
   }
 
-  ReUseX::debug("Number of cameras: {}", pcl_cameras.size());
-  ReUseX::debug("Number of materials: {}",
+  reusex::debug("Number of cameras: {}", pcl_cameras.size());
+  reusex::debug("Number of materials: {}",
                       textured_mesh->tex_materials.size());
 
   pcl::TextureMapping<pcl::PointXYZ> tm;
@@ -483,14 +483,14 @@ pcl::TextureMesh::Ptr texture_mesh(pcl::PolygonMesh::Ptr mesh,
     pcl::TexMaterial material;
     material.tex_name = "texture-unassigned";
     material.tex_file = textured_mesh->tex_materials[0].tex_file;
-    ReUseX::warn("Number of texture polygons ({}) > materials ({}). "
+    reusex::warn("Number of texture polygons ({}) > materials ({}). "
                        "Adding default material.",
                        textured_mesh->tex_polygons.size(),
                        textured_mesh->tex_materials.size());
     textured_mesh->tex_materials.push_back(material);
   }
 
-  ReUseX::debug("Final - Materials: {}, Polygons: {}, Coordinates: {}",
+  reusex::debug("Final - Materials: {}, Polygons: {}, Coordinates: {}",
                       textured_mesh->tex_materials.size(),
                       textured_mesh->tex_polygons.size(),
                       textured_mesh->tex_coordinates.size());
@@ -506,4 +506,4 @@ pcl::TextureMesh::Ptr texture_mesh(pcl::PolygonMesh::Ptr mesh,
 
   return textured_mesh;
 }
-} // namespace ReUseX::geometry
+} // namespace reusex::geometry

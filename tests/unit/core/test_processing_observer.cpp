@@ -7,24 +7,24 @@
 #include <catch2/catch_test_macros.hpp>
 
 namespace {
-class TestObserver final : public ReUseX::core::IProgressObserver {};
+class TestObserver final : public reusex::core::IProgressObserver {};
 } // namespace
 
 TEST_CASE("Global processing observer can be registered", "[core][observer]") {
   TestObserver observer;
-  ReUseX::core::set_progress_observer(&observer);
+  reusex::core::set_progress_observer(&observer);
 
-  REQUIRE(ReUseX::core::get_progress_observer() == &observer);
+  REQUIRE(reusex::core::get_progress_observer() == &observer);
 
-  ReUseX::core::reset_progress_observer();
-  REQUIRE(ReUseX::core::get_progress_observer() == nullptr);
+  reusex::core::reset_progress_observer();
+  REQUIRE(reusex::core::get_progress_observer() == nullptr);
 }
 
 TEST_CASE("Global processing observer reset clears registration",
           "[core][observer]") {
   TestObserver observer;
-  ReUseX::core::set_progress_observer(&observer);
-  ReUseX::core::reset_progress_observer();
+  reusex::core::set_progress_observer(&observer);
+  reusex::core::reset_progress_observer();
 
-  REQUIRE(ReUseX::core::get_progress_observer() == nullptr);
+  REQUIRE(reusex::core::get_progress_observer() == nullptr);
 }

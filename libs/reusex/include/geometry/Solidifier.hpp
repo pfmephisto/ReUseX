@@ -12,7 +12,7 @@
 #include <unordered_map>
 #include <utility>
 
-namespace ReUseX::geometry {
+namespace reusex::geometry {
 
 /**
  * @brief Solidifier solves room segmentation using Mixed Integer Programming
@@ -63,4 +63,4 @@ class Solidifier {
   std::unique_ptr<Impl> pimpl_;
 };
 
-} // namespace ReUseX::geometry
+} // namespace reusex::geometry

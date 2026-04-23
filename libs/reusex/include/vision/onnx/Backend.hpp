@@ -5,7 +5,7 @@
 #pragma once
 #include "reusex/vision/IMLBackend.hpp"
 
-namespace ReUseX::vision::onnx {
+namespace reusex::vision::onnx {
 
 /// @brief ONNX Runtime backend implementation of the IMLBackend interface.
 ///
@@ -33,4 +33,4 @@ class ONNXBackend : public IMLBackend {
   create_dataset(const std::filesystem::path &datasetPath) override;
 };
 
-} // namespace ReUseX::vision::onnx
+} // namespace reusex::vision::onnx

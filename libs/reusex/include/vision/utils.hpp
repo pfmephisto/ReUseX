@@ -7,11 +7,11 @@
 #include <opencv2/core/mat.hpp>
 #include <opencv2/core/types.hpp>
 
-namespace ReUseX::vision {
+namespace reusex::vision {
 float generate_scale(cv::Mat &image, const cv::Size &target_size,
                      bool scale_up = false);
 float letterbox(cv::Mat &input_image, cv::Mat &output_image,
                 const cv::Size &target_size);
 float cropbox(cv::Mat &input_image, cv::Mat &output_image,
               const cv::Size &target_size);
-} // namespace ReUseX::vision
+} // namespace reusex::vision

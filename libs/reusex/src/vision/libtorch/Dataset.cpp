@@ -9,10 +9,10 @@
 
 #include <opencv2/core.hpp>
 
-namespace ReUseX::vision::libtorch {
+namespace reusex::vision::libtorch {
 
 IDataset::Pair LibTorchDataset::get(const std::size_t index) const {
-  ReUseX::trace("LibTorchDataset getting data at index {}", index);
+  reusex::trace("LibTorchDataset getting data at index {}", index);
 
   auto data = std::make_unique<LibTorchData>();
   data->image = image(index);
@@ -24,13 +24,13 @@ IDataset::Pair LibTorchDataset::get(const std::size_t index) const {
 }
 
 bool LibTorchDataset::save(const std::span<IDataset::Pair> &data) {
-  ReUseX::info("Saving {} LibTorch dataset items", data.size());
+  reusex::info("Saving {} LibTorch dataset items", data.size());
 
   bool success = true;
   for (const auto &[item, index] : data) {
     auto *lt_data = dynamic_cast<LibTorchData *>(item.get());
     if (!lt_data) {
-      ReUseX::error("Failed to cast IData to LibTorchData at index {}", index);
+      reusex::error("Failed to cast IData to LibTorchData at index {}", index);
       success = false;
       continue;
     }
@@ -42,8 +42,8 @@ bool LibTorchDataset::save(const std::span<IDataset::Pair> &data) {
     success &= save_image(index, cropped);
   }
 
-  ReUseX::debug("Save operation completed with success={}", success);
+  reusex::debug("Save operation completed with success={}", success);
   return success;
 }
 
-} // namespace ReUseX::vision::libtorch
+} // namespace reusex::vision::libtorch

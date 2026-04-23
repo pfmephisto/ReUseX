@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-namespace ReUseX::core {
+namespace reusex::core {
 constexpr const char *VERSION = "@PROJECT_VERSION@";
 constexpr const char *LICENSE_TEXT = R"(@LICENSE_TEXT@)";
-} // namespace ReUseX::core
+} // namespace reusex::core

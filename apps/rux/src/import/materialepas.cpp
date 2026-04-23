@@ -75,9 +75,9 @@ int run_subcommand_import_materialepas(
   ifs.close();
 
   // 2. Parse JSON → MaterialPassport(s)
-  std::vector<ReUseX::core::MaterialPassport> passports;
+  std::vector<reusex::core::MaterialPassport> passports;
   try {
-    passports = ReUseX::core::json_import::from_json_string(json_str);
+    passports = reusex::core::json_import::from_json_string(json_str);
   } catch (const std::exception &e) {
     spdlog::error("Failed to parse JSON: {}", e.what());
     return RuxError::INVALID_ARGUMENT;
@@ -92,7 +92,7 @@ int run_subcommand_import_materialepas(
   // 3. Open database and store passports
   try {
     spdlog::info("Opening project database: {}", project_path.string());
-    ReUseX::ProjectDB db(project_path, /*readOnly=*/false);
+    reusex::ProjectDB db(project_path, /*readOnly=*/false);
 
     for (const auto &passport : passports) {
       db.add_material_passport(passport, opt.project_id);

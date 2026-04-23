@@ -20,7 +20,7 @@
 #include <thread>
 #include <vector>
 
-namespace ReUseX::vision {
+namespace reusex::vision {
 
 Dataloader::Dataloader(IDataset &dataset, size_t batch_size, bool shuffle,
                        size_t num_workers, size_t prefetch_batches)
@@ -29,7 +29,7 @@ Dataloader::Dataloader(IDataset &dataset, size_t batch_size, bool shuffle,
       dataset_size_(dataset.size()),
       num_batches_((dataset_size_ + batch_size - 1) / batch_size),
       stop_workers_(false), epoch_finished_(false) {
-  ReUseX::info(
+  reusex::info(
       "Initializing Dataloader: dataset_size={}, batch_size={}, "
       "num_batches={}, shuffle={}, num_workers={}, prefetch_batches={}",
       dataset_size_, batch_size_, num_batches_, shuffle_, num_workers_,
@@ -41,7 +41,7 @@ Dataloader::Dataloader(IDataset &dataset, size_t batch_size, bool shuffle,
 }
 
 Dataloader::~Dataloader() {
-  ReUseX::debug("Destroying Dataloader");
+  reusex::debug("Destroying Dataloader");
   stop();
 }
 
@@ -86,13 +86,13 @@ Dataloader::Iterator Dataloader::end() { return Iterator(this, num_batches_); }
 size_t Dataloader::size() const { return num_batches_; }
 
 void Dataloader::set_num_workers(size_t num_workers) {
-  ReUseX::info("Setting num_workers to {}", num_workers);
+  reusex::info("Setting num_workers to {}", num_workers);
   stop();
   num_workers_ = num_workers;
 }
 
 void Dataloader::set_prefetch_batches(size_t prefetch_batches) {
-  ReUseX::info("Setting prefetch_batches to {}", prefetch_batches);
+  reusex::info("Setting prefetch_batches to {}", prefetch_batches);
   stop();
   prefetch_batches_ = prefetch_batches;
 }
@@ -101,11 +101,11 @@ size_t Dataloader::get_num_workers() const { return num_workers_; }
 size_t Dataloader::get_prefetch_batches() const { return prefetch_batches_; }
 
 void Dataloader::start_epoch() {
-  ReUseX::info("Starting new epoch with {} workers", num_workers_);
+  reusex::info("Starting new epoch with {} workers", num_workers_);
   stop();
 
   if (shuffle_) {
-    ReUseX::debug("Shuffling dataset indices");
+    reusex::debug("Shuffling dataset indices");
     std::random_device rd;
     std::mt19937 g(rd());
     std::shuffle(indices_.begin(), indices_.end(), g);
@@ -118,11 +118,11 @@ void Dataloader::start_epoch() {
   for (size_t i = 0; i < num_workers_; ++i) {
     workers_.emplace_back(&Dataloader::worker_thread, this);
   }
-  ReUseX::debug("Started {} worker threads", num_workers_);
+  reusex::debug("Started {} worker threads", num_workers_);
 }
 
 void Dataloader::stop() {
-  ReUseX::debug("Stopping dataloader workers");
+  reusex::debug("Stopping dataloader workers");
   {
     std::unique_lock<std::mutex> lock(queue_mutex_);
     stop_workers_ = true;
@@ -139,7 +139,7 @@ void Dataloader::stop() {
   workers_.clear();
 
   batch_queue_.clear();
-  ReUseX::debug("All workers stopped");
+  reusex::debug("All workers stopped");
 }
 
 void Dataloader::worker_thread() {
@@ -181,7 +181,7 @@ void Dataloader::worker_thread() {
 }
 
 Dataloader::Batch Dataloader::load_batch(size_t batch_idx) {
-  ReUseX::trace(
+  reusex::trace(
       "Loading batch {} (indices {} to {})", batch_idx, batch_idx * batch_size_,
       std::min((batch_idx + 1) * batch_size_, dataset_size_) - 1);
   Batch batch;
@@ -197,7 +197,7 @@ Dataloader::Batch Dataloader::load_batch(size_t batch_idx) {
 }
 
 std::optional<Dataloader::Batch> Dataloader::get_batch(size_t batch_idx) {
-  ReUseX::trace("Requesting batch {}", batch_idx);
+  reusex::trace("Requesting batch {}", batch_idx);
   std::unique_lock<std::mutex> lock(queue_mutex_);
 
   ready_cv_.wait(lock, [this, batch_idx] {
@@ -209,14 +209,14 @@ std::optional<Dataloader::Batch> Dataloader::get_batch(size_t batch_idx) {
     auto batch = std::move(it->second);
     batch_queue_.erase(it);
     queue_cv_.notify_one();
-    ReUseX::trace("Batch {} retrieved from queue", batch_idx);
+    reusex::trace("Batch {} retrieved from queue", batch_idx);
     return batch;
   }
 
   if (epoch_finished_) {
-    ReUseX::debug("Epoch finished, no more batches available");
+    reusex::debug("Epoch finished, no more batches available");
   }
   return std::nullopt;
 }
 
-} // namespace ReUseX::vision
+} // namespace reusex::vision

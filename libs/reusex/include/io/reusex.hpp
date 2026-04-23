@@ -12,7 +12,7 @@
 
 #include <filesystem>
 
-namespace ReUseX::io {
+namespace reusex::io {
 
 /**
  * @brief Extract plane data from labeled point clouds.
@@ -59,4 +59,4 @@ bool read(std::filesystem::path const &input_path,
           std::vector<Eigen::Vector4f,
                       Eigen::aligned_allocator<Eigen::Vector4f>> &centroids,
           std::vector<std::shared_ptr<pcl::Indices>> &inlier_indices);
-} // namespace ReUseX::io
+} // namespace reusex::io

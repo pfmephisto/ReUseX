@@ -6,7 +6,7 @@
 
 #include <numbers>
 
-namespace ReUseX::utils {
+namespace reusex::utils {
 
 /** @brief Convert degrees to radians. */
 template <typename T>
@@ -27,4 +27,4 @@ inline T remap(const T value, const T min_in, const T max_in,
     static_cast<double>(max_out - min_out) + static_cast<double>(min_out)
   );
 }
-} // namespace ReUseX::utils
+} // namespace reusex::utils

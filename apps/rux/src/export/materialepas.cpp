@@ -61,7 +61,7 @@ int run_subcommand_export_materialepas(
     fs::path project_path = global_opt.project_db;
     // 1. Open database read-only
     spdlog::info("Opening project database: {}", project_path.string());
-    ReUseX::ProjectDB db(project_path, /*readOnly=*/true);
+    reusex::ProjectDB db(project_path, /*readOnly=*/true);
 
     // 2. Retrieve all material passports
     auto passports = db.all_material_passports();
@@ -75,7 +75,7 @@ int run_subcommand_export_materialepas(
     nlohmann::json::array_t passports_json;
     for (const auto &passport : passports) {
       passports_json.push_back(
-          ReUseX::core::json_export::to_json_with_defaults(passport));
+          reusex::core::json_export::to_json_with_defaults(passport));
     }
     nlohmann::json json_data = passports_json;
     std::string json_str = json_data.dump(4);

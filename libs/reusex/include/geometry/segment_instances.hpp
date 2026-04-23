@@ -8,7 +8,7 @@
 #include <map>
 #include <set>
 
-namespace ReUseX::geometry {
+namespace reusex::geometry {
 
 /**
  * @brief Request structure for instance segmentation via Euclidean clustering
@@ -90,4 +90,4 @@ auto segment_instances(const SegmentInstancesRequest &request)
 auto segment_instances_impl(const SegmentInstancesRequest &request)
     -> SegmentInstancesResult;
 
-} // namespace ReUseX::geometry
+} // namespace reusex::geometry

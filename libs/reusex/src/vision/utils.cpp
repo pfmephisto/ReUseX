@@ -8,7 +8,7 @@
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
 
-namespace ReUseX::vision {
+namespace reusex::vision {
 
 float generate_scale(cv::Mat &image, const cv::Size &target_size,
                      bool scale_up) {
@@ -87,4 +87,4 @@ float cropbox(cv::Mat &input_image, cv::Mat &output_image,
   return resize_scale;
 };
 
-} // namespace ReUseX::vision
+} // namespace reusex::vision

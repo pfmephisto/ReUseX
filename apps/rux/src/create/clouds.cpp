@@ -74,7 +74,7 @@ int run_subcommand_create_clouds(SubcommandCreateCloudsOptions const &opt, const
   spdlog::info("Reconstructing point clouds from: {}", project_path.string());
 
   try {
-    ReUseX::ProjectDB db(project_path);
+    reusex::ProjectDB db(project_path);
 
     // Pre-flight validation: check for sensor frames
     auto validation = rux::validation::validate_clouds_prerequisites(db);
@@ -91,14 +91,14 @@ int run_subcommand_create_clouds(SubcommandCreateCloudsOptions const &opt, const
             opt.resolution, opt.min_distance, opt.max_distance,
             opt.sampling_factor, opt.confidence_threshold));
 
-    ReUseX::geometry::ReconstructionParams params;
+    reusex::geometry::ReconstructionParams params;
     params.resolution = opt.resolution;
     params.min_distance = opt.min_distance;
     params.max_distance = opt.max_distance;
     params.sampling_factor = opt.sampling_factor;
     params.confidence_threshold = opt.confidence_threshold;
 
-    ReUseX::geometry::reconstruct_point_clouds(db, params);
+    reusex::geometry::reconstruct_point_clouds(db, params);
 
     db.log_pipeline_end(logId, true);
 

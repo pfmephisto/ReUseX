@@ -14,7 +14,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace ReUseX::geometry {
+namespace reusex::geometry {
 
 namespace {
 
@@ -107,7 +107,7 @@ pcl::PolygonMeshPtr unweld_mesh(const pcl::PolygonMesh &mesh,
       face_normals[i] = compute_polygon_normal(mesh.polygons[i], cloud);
     } catch (const std::runtime_error &) {
       face_normals[i] = Eigen::Vector3f::Zero();
-      ReUseX::warn("Degenerate face {} assigned zero normal", i);
+      reusex::warn("Degenerate face {} assigned zero normal", i);
     }
   }
 
@@ -184,11 +184,11 @@ pcl::PolygonMeshPtr unweld_mesh(const pcl::PolygonMesh &mesh,
   pcl::toPCLPointCloud2(*new_cloud, result->cloud);
   result->polygons = std::move(new_polygons);
 
-  ReUseX::debug("Unweld: {} -> {} vertices ({} faces)",
+  reusex::debug("Unweld: {} -> {} vertices ({} faces)",
                        cloud->points.size(), new_cloud->points.size(),
                        result->polygons.size());
 
   return result;
 }
 
-} // namespace ReUseX::geometry
+} // namespace reusex::geometry

@@ -22,7 +22,7 @@
 #include <string>
 #include <vector>
 
-namespace ReUseX::geometry {
+namespace reusex::geometry {
 
 // Tags to distinguish node types in CellComplex
 enum class CellNodeType { cell, face, vertex };
@@ -236,9 +236,9 @@ class CellComplex
   auto get_a(Vertex f) const -> Vertex;
   auto get_b(Vertex f) const -> Vertex;
 };
-} // namespace ReUseX::geometry
+} // namespace reusex::geometry
 
-template <> struct fmt::formatter<ReUseX::geometry::CellComplex> {
+template <> struct fmt::formatter<reusex::geometry::CellComplex> {
   // Parse function (optional)
   template <typename ParseContext> constexpr auto parse(ParseContext &ctx) {
     return ctx.begin();
@@ -246,7 +246,7 @@ template <> struct fmt::formatter<ReUseX::geometry::CellComplex> {
 
   // Format function
   template <typename FormatContext>
-  auto format(const ReUseX::geometry::CellComplex &obj,
+  auto format(const reusex::geometry::CellComplex &obj,
               FormatContext &ctx) const {
     return fmt::format_to(ctx.out(), "[{}c {}f {}v {}r  {}w]", obj.num_cells(),
                           obj.num_faces(), obj.num_vertices(), obj.n_rooms,

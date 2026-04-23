@@ -32,10 +32,10 @@ TEST_CASE("HiGHS PDLP solver with continuous LP", "[highs][pdlp][gpu]") {
 
   SECTION("PDLP solver availability") {
     if (pdlp_status == HighsStatus::kOk) {
-      ReUseX::core::info("✓ HiGHS built with PDLP support (GPU acceleration available)");
+      reusex::core::info("✓ HiGHS built with PDLP support (GPU acceleration available)");
     } else {
-      ReUseX::core::warn("✗ HiGHS built without PDLP support (GPU acceleration not available)");
-      ReUseX::core::warn("  This is expected if CUPDLP_GPU=OFF in overlays/highs.nix");
+      reusex::core::warn("✗ HiGHS built without PDLP support (GPU acceleration not available)");
+      reusex::core::warn("  This is expected if CUPDLP_GPU=OFF in overlays/highs.nix");
     }
 
     // Test should pass regardless - we're just checking availability
@@ -45,7 +45,7 @@ TEST_CASE("HiGHS PDLP solver with continuous LP", "[highs][pdlp][gpu]") {
   SECTION("Solve simple continuous LP") {
     // Skip if PDLP not available
     if (pdlp_status != HighsStatus::kOk) {
-      ReUseX::core::info("Skipping LP solve test - PDLP not available");
+      reusex::core::info("Skipping LP solve test - PDLP not available");
       REQUIRE(true);
       return;
     }
@@ -103,7 +103,7 @@ TEST_CASE("HiGHS PDLP solver with continuous LP", "[highs][pdlp][gpu]") {
     double x = solution.col_value[0];
     double y = solution.col_value[1];
 
-    ReUseX::core::info("PDLP solution: x = {}, y = {}, objective = {}", x, y, obj_value);
+    reusex::core::info("PDLP solution: x = {}, y = {}, objective = {}", x, y, obj_value);
 
     // Verify solution satisfies constraint: x + y >= 1
     REQUIRE(x + y >= 0.999);  // Allow small numerical error
@@ -126,7 +126,7 @@ TEST_CASE("HiGHS PDLP incompatible with binary variables", "[highs][pdlp][mip]")
   HighsStatus pdlp_status = highs.setOptionValue("solver", "pdlp");
 
   if (pdlp_status != HighsStatus::kOk) {
-    ReUseX::core::info("Skipping MIP incompatibility test - PDLP not available");
+    reusex::core::info("Skipping MIP incompatibility test - PDLP not available");
     REQUIRE(true);
     return;
   }
@@ -161,12 +161,12 @@ TEST_CASE("HiGHS PDLP incompatible with binary variables", "[highs][pdlp][mip]")
   const HighsSolution& solution = highs.getSolution();
   double x = solution.col_value[0];
 
-  ReUseX::core::info("MIP solution with binary variable: x = {}", x);
+  reusex::core::info("MIP solution with binary variable: x = {}", x);
 
   // Verify x is either 0 or 1 (within numerical tolerance)
   bool is_zero = std::abs(x) < 1e-6;
   bool is_one = std::abs(x - 1.0) < 1e-6;
   REQUIRE((is_zero || is_one));
 
-  ReUseX::core::info("✓ HiGHS correctly handled binary variable (PDLP not used for MIP)");
+  reusex::core::info("✓ HiGHS correctly handled binary variable (PDLP not used for MIP)");
 }

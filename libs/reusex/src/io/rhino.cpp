@@ -9,13 +9,13 @@
 #include <range/v3/view/common.hpp>
 #include <range/v3/view/transform.hpp>
 
-namespace ReUseX::io {
+namespace reusex::io {
 
 auto configure_rhino_model() -> std::unique_ptr<ONX_Model> {
 
   auto model = std::make_unique<ONX_Model>();
   // Properties
-  ReUseX::trace("setting up model properties");
+  reusex::trace("setting up model properties");
   model->m_properties.m_RevisionHistory.NewRevision();
   model->m_properties.m_Application.m_application_name = "ReUseX";
   model->m_properties.m_Application.m_application_URL =
@@ -28,7 +28,7 @@ auto configure_rhino_model() -> std::unique_ptr<ONX_Model> {
   // model.m_sStartSectionComments = "ReUseX Export";
 
   // Settings
-  ReUseX::trace("setting up model settings");
+  reusex::trace("setting up model settings");
   model->m_settings.m_ModelUnitsAndTolerances.m_unit_system =
       ON::LengthUnitSystem::Meters;
   model->m_settings.m_ModelUnitsAndTolerances.m_absolute_tolerance = 0.01;
@@ -73,7 +73,7 @@ auto create_rhino_layers(ONX_Model &model,
                          const std::vector<std::string> &layer_names,
                          std::optional<std::vector<ON_Color>> layer_colors,
                          const ON_Layer *base_layer) -> std::vector<int> {
-  ReUseX::trace("creating rhino layers: {}",
+  reusex::trace("creating rhino layers: {}",
                       fmt::join(layer_names, ", "));
 
   std::vector<int> layer_map(layer_names.size(), ON_UNSET_INT_INDEX);
@@ -83,8 +83,8 @@ auto create_rhino_layers(ONX_Model &model,
     colors = *layer_colors;
 
   for (size_t i = 0; i < layer_names.size(); i++) {
-    ReUseX::trace("  creating layer: {}", layer_names[i]);
-    ReUseX::trace("    color: R={}, G={}, B={}", colors[i].Red(),
+    reusex::trace("  creating layer: {}", layer_names[i]);
+    reusex::trace("    color: R={}, G={}, B={}", colors[i].Red(),
                         colors[i].Green(), colors[i].Blue());
     ON_wString name(layer_names[i].c_str());
     layer_map[i] = model.AddLayer(name, colors[i]);
@@ -104,28 +104,28 @@ auto save_rhino_pointcloud(CloudConstPtr pcl_cloud, CloudLConstPtr pcl_labels)
   auto model = configure_rhino_model();
 
   if (pcl_cloud->size() != pcl_labels->size()) {
-    ReUseX::error(
+    reusex::error(
         "Point cloud and labels have different sizes (cloud: {}, labels: "
         "{})",
         pcl_cloud->size(), pcl_labels->size());
     return model;
   }
 
-  ReUseX::trace("creating set of labels");
+  reusex::trace("creating set of labels");
   std::set<uint32_t> labels_set{};
   for (const auto &point : pcl_labels->points)
     labels_set.insert(point.label);
 
-  ReUseX::trace("creating sorted vector of labels");
+  reusex::trace("creating sorted vector of labels");
   std::vector<uint32_t> labels(labels_set.begin(), labels_set.end());
   std::sort(labels.begin(), labels.end());
 
-  ReUseX::debug("Found {} unique labels [{}]", labels.size(),
+  reusex::debug("Found {} unique labels [{}]", labels.size(),
                       fmt::join(labels, ", "));
 
   std::vector<CloudPtr, Eigen::aligned_allocator<CloudPtr>> clouds(
       labels.size());
-  ReUseX::trace("filter points by labels");
+  reusex::trace("filter points by labels");
   for (int i = 0; i < (int)labels.size(); i++) {
     clouds[i] = CloudPtr(new Cloud());
     for (int j = 0; j < (int)pcl_cloud->points.size(); j++) {
@@ -136,42 +136,42 @@ auto save_rhino_pointcloud(CloudConstPtr pcl_cloud, CloudLConstPtr pcl_labels)
   std::vector<size_t> sizes(clouds.size());
   std::transform(clouds.begin(), clouds.end(), sizes.begin(),
                  [](const CloudPtr &c) { return c->size(); });
-  ReUseX::debug("Filtered {} clouds of sizes [{}]", clouds.size(),
+  reusex::debug("Filtered {} clouds of sizes [{}]", clouds.size(),
                       fmt::join(sizes, ", "));
 
-  ReUseX::trace("creating document layers");
+  reusex::trace("creating document layers");
   // model.AddDefaultLayer(nullptr, ON_Color::UnsetColor);
   ON_wString base_layer_name = L"ReUseX Export";
   auto base_layer_id = model->AddLayer(base_layer_name, ON_Color::Black);
-  ReUseX::trace("base layer id: {}", base_layer_id);
+  reusex::trace("base layer id: {}", base_layer_id);
   const ON_Layer *base_layer =
       ON_Layer::Cast(model->LayerFromIndex(base_layer_id).ModelComponent());
-  ReUseX::trace("base layer pointer: {}", (void *)base_layer);
+  reusex::trace("base layer pointer: {}", (void *)base_layer);
 
   auto layer_names =
       labels | ranges::views::transform([](uint32_t label) {
-        ReUseX::trace("label: {}", label);
+        reusex::trace("label: {}", label);
         return label == static_cast<uint32_t>(-1)
                    ? "Semantic class: 0 (unlabeled)"
                    : fmt::format("Semantic class: {} ({})", label,
-                                 ReUseX::vision::Yolov8_className[label]);
+                                 reusex::vision::Yolov8_className[label]);
       }) |
       ranges::to<std::vector<std::string>>();
-  ReUseX::trace("layer names: {}", fmt::join(layer_names, ", "));
+  reusex::trace("layer names: {}", fmt::join(layer_names, ", "));
   auto colors = labels | ranges::views::transform([](uint32_t label) {
                   auto c = pcl::GlasbeyLUT::at(label % pcl::GlasbeyLUT::size());
                   return ON_Color(c.r, c.g, c.b);
                 }) |
                 ranges::to<std::vector<ON_Color>>();
-  ReUseX::trace("layer colors:");
+  reusex::trace("layer colors:");
   for (const auto &color : colors) {
-    ReUseX::trace("  R={}, G={}, B={}", color.Red(), color.Green(),
+    reusex::trace("  R={}, G={}, B={}", color.Red(), color.Green(),
                         color.Blue());
   }
 
   auto layer_map = create_rhino_layers(*model, layer_names, colors, base_layer);
 
-  ReUseX::trace("creating rhino point clouds");
+  reusex::trace("creating rhino point clouds");
   for (int i = 0; i < (int)clouds.size(); i++) {
 
     auto rhino_cloud = make_rhino_pointcloud(clouds[i]);
@@ -197,4 +197,4 @@ auto save_rhino_pointcloud(CloudConstPtr pcl_cloud, CloudLConstPtr pcl_labels)
 
   return model;
 }
-} // namespace ReUseX::io
+} // namespace reusex::io

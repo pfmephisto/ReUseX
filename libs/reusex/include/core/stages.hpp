@@ -2,7 +2,7 @@
 
 #include <string_view>
 
-namespace ReUseX::core {
+namespace reusex::core {
 
 enum class Stage {
   idle,
@@ -25,4 +25,4 @@ enum class Stage {
 // Convert Stage enum to human-readable string for logging/display
 std::string_view to_string(Stage stage);
 
-} // namespace ReUseX::core
+} // namespace reusex::core

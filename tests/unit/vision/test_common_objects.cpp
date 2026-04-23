@@ -8,7 +8,7 @@
 #include <vision/common/object.hpp>
 #include <opencv2/opencv.hpp>
 
-using namespace ReUseX::vision::common::object;
+using namespace reusex::vision::common::object;
 using Catch::Matchers::WithinAbs;
 
 TEST_CASE("Box geometric calculations", "[vision][box]") {

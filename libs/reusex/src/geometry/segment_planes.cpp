@@ -7,7 +7,7 @@
 
 #include <stdexcept>
 
-namespace ReUseX::geometry {
+namespace reusex::geometry {
 
 /**
  * @brief Implementation of plane segmentation using multi-scale region growing.
@@ -25,12 +25,12 @@ auto segment_planes_impl(CloudConstPtr cloud, CloudNConstPtr normals,
     -> std::tuple<CloudLPtr, CloudLocPtr, CloudNPtr> {
 
   if (options.cancel_token != nullptr && options.cancel_token->load()) {
-    ReUseX::warn(
+    reusex::warn(
         "segment_planes: cancellation requested before execution.");
     throw std::runtime_error("Plane segmentation cancelled.");
   }
 
-  ReUseX::trace("Initialize the segmentation algorithm");
+  reusex::trace("Initialize the segmentation algorithm");
   pcl::PlanarRegionGrowing<PointT, NormalT, LabelT> seg;
   seg.setInputCloud(cloud);
   seg.setInputNormals(normals);
@@ -38,7 +38,7 @@ auto segment_planes_impl(CloudConstPtr cloud, CloudNConstPtr normals,
   // Apply filter if provided
   if (options.filter) {
     seg.setIndices(options.filter);
-    ReUseX::debug("Plane segmentation using {} filtered points",
+    reusex::debug("Plane segmentation using {} filtered points",
                         options.filter->size());
   }
 
@@ -51,14 +51,14 @@ auto segment_planes_impl(CloudConstPtr cloud, CloudNConstPtr normals,
   seg.setInitialInterval(options.interval_0);
   seg.setIntervalFactor(options.interval_factor);
 
-  ReUseX::trace("Initialize labels and copy xyzrgb data to labels");
+  reusex::trace("Initialize labels and copy xyzrgb data to labels");
   CloudLPtr labels(new CloudL);
   pcl::copyPointCloud(*cloud, *labels);
 
-  ReUseX::trace("Call the segmentation algorithm");
+  reusex::trace("Call the segmentation algorithm");
   seg.segment(labels);
 
-  ReUseX::info("Found {} clusters", seg.getCentroids().size());
+  reusex::info("Found {} clusters", seg.getCentroids().size());
 
   std::vector<pcl::ModelCoefficients> model_coefficients =
       seg.getModelCoefficients();
@@ -92,4 +92,4 @@ auto segment_planes(CloudConstPtr cloud, CloudNConstPtr normals,
     -> std::tuple<CloudLPtr, CloudLocPtr, CloudNPtr> {
   return segment_planes_impl(cloud, normals, options);
 }
-} // namespace ReUseX::geometry
+} // namespace reusex::geometry

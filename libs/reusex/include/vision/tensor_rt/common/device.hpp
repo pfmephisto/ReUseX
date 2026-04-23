@@ -1,7 +1,7 @@
 #pragma once
 #include <cuda_runtime.h>
 
-namespace ReUseX::vision::tensor_rt {
+namespace reusex::vision::tensor_rt {
 class AutoDevice {
     public:
   explicit AutoDevice(int device_id) {
@@ -26,4 +26,4 @@ class AutoDevice {
   int prev_device_ = 0;
   bool switched_ = false;
 };
-} // namespace ReUseX::vision::tensor_rt
+} // namespace reusex::vision::tensor_rt

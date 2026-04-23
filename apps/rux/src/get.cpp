@@ -72,7 +72,7 @@ int run_subcommand_get(const DatabaseGetOptions &opt, const RuxOptions &global_o
   try {
     fs::path project_path = global_opt.project_db;
     spdlog::info("Opening project: {}", project_path.string());
-    auto db = std::make_shared<ReUseX::ProjectDB>(project_path,
+    auto db = std::make_shared<reusex::ProjectDB>(project_path,
                                                   /* readOnly */ true);
 
     // If no path provided, show available collection names

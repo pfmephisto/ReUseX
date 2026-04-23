@@ -8,7 +8,7 @@
 
 #include <stdexcept>
 
-namespace ReUseX::geometry {
+namespace reusex::geometry {
 
 std::string_view to_string(ComponentType type) {
   switch (type) {
@@ -94,4 +94,4 @@ void component_data_from_json(BuildingComponent &c, const std::string &json) {
   }
 }
 
-} // namespace ReUseX::geometry
+} // namespace reusex::geometry

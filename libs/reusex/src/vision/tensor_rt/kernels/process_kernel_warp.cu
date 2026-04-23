@@ -2,7 +2,7 @@
 #include "vision/tensor_rt/kernels/postprocess.cuh"
 #include "vision/tensor_rt/kernels/process_kernel_warp.hpp"
 
-namespace ReUseX::vision::tensor_rt {
+namespace reusex::vision::tensor_rt {
 #define GPU_BLOCK_THREADS 512
 
 static dim3 grid_dims(int numJobs) {
@@ -75,4 +75,4 @@ void sam3_postprocess_plane(const float *pred_masks_gpu,
       filtered_count_gpu, num_queries, mask_height, mask_width,
       original_image_width, original_image_height, confidence_threshold);
 }
-} // namespace ReUseX::vision::tensor_rt
+} // namespace reusex::vision::tensor_rt

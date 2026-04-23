@@ -14,7 +14,7 @@
 #include <string_view>
 #include <vector>
 
-namespace ReUseX {
+namespace reusex {
 
 // Forward declarations
 namespace core {
@@ -371,4 +371,4 @@ class ProjectDB {
   class Impl;
   std::unique_ptr<Impl> impl_;
 };
-} // namespace ReUseX
+} // namespace reusex

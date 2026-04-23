@@ -13,11 +13,11 @@
 #include <typeinfo>
 
 // Forward declaration to avoid circular dependency
-namespace ReUseX::geometry {
+namespace reusex::geometry {
 class CellComplex;
-} // namespace ReUseX::geometry
+} // namespace reusex::geometry
 
-namespace ReUseX::core {
+namespace reusex::core {
 
 enum class EventType {
   process,
@@ -117,7 +117,7 @@ class IVisualObserver : IObserver {
 
   virtual void viewer_add_cell_complex(
       std::string_view name,
-      [[maybe_unused]] const std::shared_ptr<ReUseX::geometry::CellComplex> &cc,
+      [[maybe_unused]] const std::shared_ptr<reusex::geometry::CellComplex> &cc,
       Stage stage, int /*idx*/ = 0) {
     // Default: log that geometry type is not handled
     core::debug("viewer_add_cell_complex called for '{}' at stage '{}' "
@@ -171,4 +171,4 @@ void reset_progress_observer();
 auto get_visual_observer() -> IVisualObserver *;
 auto get_progress_observer() -> IProgressObserver *;
 
-} // namespace ReUseX::core
+} // namespace reusex::core

@@ -13,7 +13,7 @@
 #include <torch/script.h>
 #include <torch/torch.h>
 
-namespace ReUseX::vision::libtorch {
+namespace reusex::vision::libtorch {
 
 namespace {
 
@@ -103,18 +103,18 @@ LibTorchYolo::LibTorchYolo(const std::filesystem::path &model_path,
     : device_(torch::kCPU) {
   if (use_cuda && torch::cuda::is_available()) {
     device_ = torch::Device(torch::kCUDA);
-    ReUseX::debug("LibTorchYolo using CUDA device");
+    reusex::debug("LibTorchYolo using CUDA device");
   } else {
     if (use_cuda && !torch::cuda::is_available())
-      ReUseX::warn("CUDA not available, falling back to CPU");
-    ReUseX::debug("LibTorchYolo using CPU device");
+      reusex::warn("CUDA not available, falling back to CPU");
+    reusex::debug("LibTorchYolo using CPU device");
   }
 
   model_ = torch::jit::load(model_path.string(), device_);
   model_.eval();
   model_.to(device_, torch::kFloat32);
 
-  ReUseX::info("Loaded LibTorch YOLO model from {}", model_path);
+  reusex::info("Loaded LibTorch YOLO model from {}", model_path);
 }
 
 std::unique_ptr<LibTorchYolo>
@@ -221,4 +221,4 @@ LibTorchYolo::forward(const std::span<IDataset::Pair> &input) {
   return results;
 }
 
-} // namespace ReUseX::vision::libtorch
+} // namespace reusex::vision::libtorch

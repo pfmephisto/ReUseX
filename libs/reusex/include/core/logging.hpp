@@ -12,7 +12,7 @@
 #include <string_view>
 #include <utility>
 
-namespace ReUseX::core {
+namespace reusex::core {
 
 enum class LogLevel {
   trace = 0,
@@ -112,11 +112,11 @@ inline void critical(std::string_view message) {
   log(LogLevel::critical, message);
 }
 
-} // namespace ReUseX::core
+} // namespace reusex::core
 
 // Promote logging functions to ReUseX namespace for convenience
 // Only promotes logging functions, avoiding conflicts with external libraries
-namespace ReUseX {
+namespace reusex {
 using core::trace;
 using core::debug;
 using core::info;
@@ -126,12 +126,12 @@ using core::critical;
 using core::log;
 using core::LogLevel;
 using core::stopwatch;
-} // namespace ReUseX
+} // namespace reusex
 
 namespace fmt {
-template <> struct formatter<ReUseX::core::stopwatch> : formatter<double> {
+template <> struct formatter<reusex::core::stopwatch> : formatter<double> {
   template <typename FormatContext>
-  auto format(const ReUseX::core::stopwatch &sw, FormatContext &ctx) const {
+  auto format(const reusex::core::stopwatch &sw, FormatContext &ctx) const {
     return formatter<double>::format(sw.elapsed(), ctx);
   }
 };

@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-namespace ReUseX::vision::tensor_rt::tensor {
+namespace reusex::vision::tensor_rt::tensor {
 
 class BaseMemory {
     public:
@@ -73,4 +73,4 @@ template <typename _DT> class Memory : public BaseMemory {
   virtual inline _DT *cpu() const { return (_DT *)cpu_; }
 };
 
-} // namespace ReUseX::vision::tensor_rt::tensor
+} // namespace reusex::vision::tensor_rt::tensor

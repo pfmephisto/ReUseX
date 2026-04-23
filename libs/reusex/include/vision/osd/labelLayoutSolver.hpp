@@ -8,7 +8,7 @@
 #include <random>
 #include <vector>
 
-namespace ReUseX::vision::osd {
+namespace reusex::vision::osd {
 
 /// @brief Axis-aligned 2-D bounding box used internally by the label layout
 /// solver.
@@ -572,4 +572,4 @@ class LabelLayoutSolver {
   }
 };
 
-} // namespace ReUseX::vision::osd
+} // namespace reusex::vision::osd

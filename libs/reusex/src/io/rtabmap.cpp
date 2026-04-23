@@ -18,7 +18,7 @@
 
 #include <map>
 
-namespace ReUseX::io {
+namespace reusex::io {
 
 void import_rtabmap(ProjectDB &db,
                     const std::filesystem::path &rtabmap_db_path) {
@@ -139,4 +139,4 @@ void import_rtabmap(ProjectDB &db,
              db.sensor_frame_ids().size());
 }
 
-} // namespace ReUseX::io
+} // namespace reusex::io

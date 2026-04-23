@@ -12,11 +12,11 @@
 #ifndef NDEBUG
 #include "utils/cv.hpp"
 namespace {
-auto lut = ReUseX::utils::get_glasbey_lut();
+auto lut = reusex::utils::get_glasbey_lut();
 }
 #endif
 
-namespace ReUseX::vision {
+namespace reusex::vision {
 
 IDataset::IDataset(std::shared_ptr<ProjectDB> database)
     : db_(std::move(database)) {
@@ -24,25 +24,25 @@ IDataset::IDataset(std::shared_ptr<ProjectDB> database)
     throw std::runtime_error("Database pointer is null");
   }
 
-  ReUseX::info("Initializing IDataset with database: {}", db_->path());
+  reusex::info("Initializing IDataset with database: {}", db_->path());
 
   // Cache sensor frame IDs from database
   ids_ = db_->sensor_frame_ids();
 
-  ReUseX::info("Dataset initialized with {} entries", ids_.size());
+  reusex::info("Dataset initialized with {} entries", ids_.size());
 }
 
 IDataset::IDataset(std::filesystem::path dbPath)
     : IDataset(std::make_shared<ProjectDB>(std::move(dbPath), false)) {}
 
 cv::Mat IDataset::image(const size_t index) const {
-  ReUseX::trace("Getting image at index {}", index);
+  reusex::trace("Getting image at index {}", index);
   int node_id = ids_.at(index);
   return db_->sensor_frame_image(node_id);
 }
 
 bool IDataset::save_image(const size_t index, const cv::Mat &image) {
-  ReUseX::trace("Saving image at index {}", index);
+  reusex::trace("Saving image at index {}", index);
 
   try {
     int node_id = ids_.at(index);
@@ -74,7 +74,7 @@ bool IDataset::save_image(const size_t index, const cv::Mat &image) {
 
     return true;
   } catch (const std::exception &e) {
-    ReUseX::error("Failed to save image at index {}: {}", index,
+    reusex::error("Failed to save image at index {}: {}", index,
                         e.what());
     return false;
   }
@@ -84,4 +84,4 @@ std::shared_ptr<ProjectDB> IDataset::database() const { return db_; }
 
 size_t IDataset::size() const { return ids_.size(); }
 
-} // namespace ReUseX::vision
+} // namespace reusex::vision

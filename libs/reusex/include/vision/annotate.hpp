@@ -5,8 +5,8 @@
 #pragma once
 #include <filesystem>
 
-namespace ReUseX::vision {
+namespace reusex::vision {
 auto annotate(const std::filesystem::path &dbPath,
               const std::filesystem::path &modelPath,
               bool use_cuda = false) -> int;
-} // namespace ReUseX::vision
+} // namespace reusex::vision

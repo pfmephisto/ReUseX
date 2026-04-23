@@ -59,8 +59,8 @@ int run_subcommand_import_rtabmap(SubcommandImportRTABMapOptions const &opt, con
   spdlog::info("Importing RTABMap database to project: {}",
                project_path.string());
 
-  ReUseX::ProjectDB project_db(project_path);
-  ReUseX::io::import_rtabmap(project_db, opt.database_path_in);
+  reusex::ProjectDB project_db(project_path);
+  reusex::io::import_rtabmap(project_db, opt.database_path_in);
 
   int logId = project_db.log_pipeline_start(
       "import", fmt::format(R"({{"Import ":{}}})", opt.database_path_in));

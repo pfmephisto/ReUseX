@@ -9,7 +9,7 @@
 #include <boost/archive/text_oarchive.hpp>
 #include <boost/graph/adj_list_serialize.hpp>
 
-namespace ReUseX::geometry {
+namespace reusex::geometry {
 
 template <CellNodeType P> size_t _count(CellComplex const *c) {
   size_t count = 0;
@@ -28,7 +28,7 @@ size_t CellComplex::num_faces() const { return _count<CellNodeType::face>(this);
 size_t CellComplex::num_cells() const { return _count<CellNodeType::cell>(this); }
 
 std::ostream &operator<<(std::ostream &os, const CellComplex &cc) {
-  ReUseX::warn("This << operator might change in the future");
+  reusex::warn("This << operator might change in the future");
   os << fmt::format("[{}c {}f {}v {}r  {}w]", cc.num_cells(), cc.num_faces(),
                     cc.num_vertices(), cc.n_rooms, cc.n_walls);
   return os;
@@ -144,4 +144,4 @@ auto CellComplex::get_b(Vertex f) const -> CellComplex::Vertex {
       fmt::format("Face {} does not have an adjacent cell on side B", id));
 }
 
-} // namespace ReUseX::geometry
+} // namespace reusex::geometry

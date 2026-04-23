@@ -12,7 +12,7 @@
 #include <string>
 #include <vector>
 
-namespace ReUseX::core {
+namespace reusex::core {
 
 /** @brief A single entry in the material passport transaction log.
  *
@@ -117,65 +117,65 @@ struct MaterialPassport {
   MaterialPassportMetadata metadata;
 };
 
-} // namespace ReUseX::core
+} // namespace reusex::core
 
 // ===========================================================================
 // fmt formatters
 // ===========================================================================
 
 template <>
-struct fmt::formatter<ReUseX::core::Material> : fmt::formatter<std::string_view> {
-  auto format(ReUseX::core::Material value, format_context &ctx) const
+struct fmt::formatter<reusex::core::Material> : fmt::formatter<std::string_view> {
+  auto format(reusex::core::Material value, format_context &ctx) const
       -> format_context::iterator {
     return fmt::formatter<std::string_view>::format(
-        ReUseX::core::to_string(value), ctx);
+        reusex::core::to_string(value), ctx);
   }
 };
 
 template <>
-struct fmt::formatter<ReUseX::core::TriState>
+struct fmt::formatter<reusex::core::TriState>
     : fmt::formatter<std::string_view> {
-  auto format(ReUseX::core::TriState value, format_context &ctx) const
+  auto format(reusex::core::TriState value, format_context &ctx) const
       -> format_context::iterator {
     return fmt::formatter<std::string_view>::format(
-        ReUseX::core::to_string(value), ctx);
+        reusex::core::to_string(value), ctx);
   }
 };
 
 template <>
-struct fmt::formatter<ReUseX::core::EmissionQuantityType>
+struct fmt::formatter<reusex::core::EmissionQuantityType>
     : fmt::formatter<std::string_view> {
-  auto format(ReUseX::core::EmissionQuantityType value,
+  auto format(reusex::core::EmissionQuantityType value,
               format_context &ctx) const -> format_context::iterator {
     return fmt::formatter<std::string_view>::format(
-        ReUseX::core::to_string(value), ctx);
+        reusex::core::to_string(value), ctx);
   }
 };
 
 template <>
-struct fmt::formatter<ReUseX::core::SubstanceContentMethod>
+struct fmt::formatter<reusex::core::SubstanceContentMethod>
     : fmt::formatter<std::string_view> {
-  auto format(ReUseX::core::SubstanceContentMethod value,
+  auto format(reusex::core::SubstanceContentMethod value,
               format_context &ctx) const -> format_context::iterator {
     return fmt::formatter<std::string_view>::format(
-        ReUseX::core::to_string(value), ctx);
+        reusex::core::to_string(value), ctx);
   }
 };
 
 template <>
-struct fmt::formatter<ReUseX::core::TransactionType>
+struct fmt::formatter<reusex::core::TransactionType>
     : fmt::formatter<std::string_view> {
-  auto format(ReUseX::core::TransactionType value, format_context &ctx) const
+  auto format(reusex::core::TransactionType value, format_context &ctx) const
       -> format_context::iterator {
     return fmt::formatter<std::string_view>::format(
-        ReUseX::core::to_string(value), ctx);
+        reusex::core::to_string(value), ctx);
   }
 };
 
 template <>
-struct fmt::formatter<ReUseX::core::MaterialPassport>
+struct fmt::formatter<reusex::core::MaterialPassport>
     : fmt::formatter<std::string_view> {
-  auto format(const ReUseX::core::MaterialPassport &mp,
+  auto format(const reusex::core::MaterialPassport &mp,
               format_context &ctx) const -> format_context::iterator {
     return fmt::format_to(
         ctx.out(),

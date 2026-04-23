@@ -7,7 +7,7 @@
 #include "reusex/vision/libtorch/Dataset.hpp"
 #include "reusex/vision/libtorch/Yolo.hpp"
 
-namespace ReUseX::vision::libtorch {
+namespace reusex::vision::libtorch {
 
 /** @brief LibTorch backend implementation of the IMLBackend interface.
  *
@@ -38,4 +38,4 @@ class LibTorchBackend : public IMLBackend {
   create_dataset(const std::filesystem::path &datasetPath) override;
 };
 
-} // namespace ReUseX::vision::libtorch
+} // namespace reusex::vision::libtorch

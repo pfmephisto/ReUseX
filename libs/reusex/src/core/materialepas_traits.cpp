@@ -9,8 +9,8 @@
 // This file is kept for consistency with the build system but contains no
 // implementation.
 
-namespace ReUseX::core::traits {
+namespace reusex::core::traits {
 
 // Intentionally empty - all specializations moved to header
 
-} // namespace ReUseX::core::traits
+} // namespace reusex::core::traits

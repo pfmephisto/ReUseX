@@ -9,7 +9,7 @@
 #include <cstdio>
 #include <memory>
 
-namespace ReUseX::core {
+namespace reusex::core {
 namespace {
 std::atomic<LogLevel> g_level{LogLevel::info};
 
@@ -116,4 +116,4 @@ void log_message(LogLevel level, std::string_view message) {
   }
 }
 
-} // namespace ReUseX::core
+} // namespace reusex::core

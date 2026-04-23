@@ -67,7 +67,7 @@ int run_subcommand_texture(SubcommandTextureOptions const &opt, const RuxOptions
   spdlog::info("Texturing mesh from project: {}", project_path.string());
 
   try {
-    ReUseX::ProjectDB db(project_path);
+    reusex::ProjectDB db(project_path);
 
     // Pre-flight validation: check for mesh and sensor frames
     auto validation = rux::validation::validate_texture_prerequisites(db);
@@ -89,9 +89,9 @@ int run_subcommand_texture(SubcommandTextureOptions const &opt, const RuxOptions
     spdlog::info("Found {} sensor frames for texturing", frame_ids.size());
 
     // Build camera data map from ProjectDB
-    std::map<int, ReUseX::geometry::CameraData> cameras;
+    std::map<int, reusex::geometry::CameraData> cameras;
     for (int nodeId : frame_ids) {
-      ReUseX::geometry::CameraData cam_data;
+      reusex::geometry::CameraData cam_data;
 
       cam_data.image = db.sensor_frame_image(nodeId);
       if (cam_data.image.empty()) {
@@ -113,7 +113,7 @@ int run_subcommand_texture(SubcommandTextureOptions const &opt, const RuxOptions
     spdlog::info("Loaded {} camera frames for texturing", cameras.size());
 
     spdlog::trace("Generating textured mesh");
-    auto textured_mesh = ReUseX::geometry::texture_mesh(mesh, cameras);
+    auto textured_mesh = reusex::geometry::texture_mesh(mesh, cameras);
 
     spdlog::trace("Saving textured mesh to ProjectDB as '{}'", opt.output_name);
     db.save_mesh(opt.output_name, *textured_mesh, "texture_mesh");

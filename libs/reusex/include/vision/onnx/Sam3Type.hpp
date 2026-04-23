@@ -9,7 +9,7 @@
 #include <utility>
 #include <vector>
 
-namespace ReUseX::vision::onnx {
+namespace reusex::vision::onnx {
 
 /// @brief A bounding-box prompt: label ("pos"/"neg") and [x1, y1, x2, y2].
 using BoxPrompt = std::pair<std::string, std::array<float, 4>>;
@@ -23,4 +23,4 @@ struct Sam3PromptUnit {
       : text(t), boxes(b) {}
 };
 
-} // namespace ReUseX::vision::onnx
+} // namespace reusex::vision::onnx

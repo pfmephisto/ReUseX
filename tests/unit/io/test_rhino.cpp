@@ -10,7 +10,7 @@
 using Catch::Matchers::WithinAbs;
 
 TEST_CASE("configure_rhino_model creates valid model", "[io][rhino]") {
-  using namespace ReUseX;
+  using namespace reusex;
 
   auto model = io::configure_rhino_model();
 
@@ -25,7 +25,7 @@ TEST_CASE("configure_rhino_model creates valid model", "[io][rhino]") {
 }
 
 TEST_CASE("make_rhino_pointcloud converts PCL cloud", "[io][rhino]") {
-  using namespace ReUseX;
+  using namespace reusex;
 
   // Create minimal PCL cloud
   CloudPtr cloud(new Cloud);
@@ -62,7 +62,7 @@ TEST_CASE("make_rhino_pointcloud converts PCL cloud", "[io][rhino]") {
 }
 
 TEST_CASE("make_rhino_pointcloud handles empty cloud", "[io][rhino]") {
-  using namespace ReUseX;
+  using namespace reusex;
 
   CloudPtr cloud(new Cloud);
   // Empty cloud

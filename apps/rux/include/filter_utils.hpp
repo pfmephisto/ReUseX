@@ -6,9 +6,9 @@
 #include <reusex/types.hpp>
 #include <string>
 
-namespace ReUseX {
+namespace reusex {
 class ProjectDB;
-} // namespace ReUseX
+} // namespace reusex
 
 namespace rux::filters {
 
@@ -27,8 +27,8 @@ struct ValidationResult {
 /// @param expected_size Expected point cloud size for validation
 /// @return Indices of matching points, or nullptr if filter_expr is empty
 /// @throws std::runtime_error on parse error or cloud not found
-auto evaluate_filter(const std::string &filter_expr, ReUseX::ProjectDB &db,
-                     size_t expected_size) -> ReUseX::IndicesPtr;
+auto evaluate_filter(const std::string &filter_expr, reusex::ProjectDB &db,
+                     size_t expected_size) -> reusex::IndicesPtr;
 
 /// Validate that filter expression is syntactically correct
 /// @param filter_expr Expression to validate
@@ -36,11 +36,11 @@ auto evaluate_filter(const std::string &filter_expr, ReUseX::ProjectDB &db,
 auto validate_expression_syntax(const std::string &expr) -> ValidationResult;
 
 /// Validate that all referenced clouds exist in database
-auto validate_clouds_exist(const std::string &expr, ReUseX::ProjectDB &db)
+auto validate_clouds_exist(const std::string &expr, reusex::ProjectDB &db)
     -> ValidationResult;
 
 /// Validate that all referenced clouds have matching sizes
-auto validate_cloud_sizes(const std::string &expr, ReUseX::ProjectDB &db)
+auto validate_cloud_sizes(const std::string &expr, reusex::ProjectDB &db)
     -> ValidationResult;
 
 } // namespace rux::filters

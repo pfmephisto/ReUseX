@@ -6,7 +6,7 @@
 #include <span>
 #include <vector>
 
-namespace ReUseX::vision {
+namespace reusex::vision {
 class IModel {
     public:
   // virtual IModel(const std::filesystem::path &path) = 0;
@@ -54,4 +54,4 @@ class IModel {
   // virtual void save(const std::string &path) const = 0;
   // virtual std::vector<float> predict(const std::vector<float> &input) = 0;
 };
-} // namespace ReUseX::vision
+} // namespace reusex::vision

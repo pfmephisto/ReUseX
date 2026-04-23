@@ -6,11 +6,11 @@
 
 #include <filesystem>
 
-namespace ReUseX {
+namespace reusex {
 class ProjectDB;
 }
 
-namespace ReUseX::io {
+namespace reusex::io {
 
 /// Import raw sensor data from an RTABMap database into a ProjectDB.
 ///
@@ -21,10 +21,10 @@ namespace ReUseX::io {
 ///
 /// No heavy processing (voxelization, normal estimation, etc.) is performed.
 /// Point cloud generation is handled separately by
-/// ReUseX::geometry::reconstruct_point_clouds().
+/// reusex::geometry::reconstruct_point_clouds().
 ///
 /// @param db  Target project database (must be open in write mode).
 /// @param rtabmap_db_path  Path to the source RTABMap .db file.
 void import_rtabmap(ProjectDB &db,
                     const std::filesystem::path &rtabmap_db_path);
-} // namespace ReUseX::io
+} // namespace reusex::io

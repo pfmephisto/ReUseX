@@ -14,7 +14,7 @@
 
 #include <filesystem>
 namespace fs = std::filesystem;
-using namespace ReUseX;
+using namespace reusex;
 
 void setup_subcommand_export_rhino(CLI::App &parent, std::shared_ptr<RuxOptions> global_opt) {
   auto opt = std::make_shared<SubcommandExportRhinoOptions>();
@@ -85,7 +85,7 @@ int run_subcommand_export_rhino(SubcommandExportRhinoOptions const &opt, const R
     }
 
     spdlog::trace("Converting to Rhino format");
-    auto model = ReUseX::io::save_rhino_pointcloud(pcl_cloud, pcl_labels);
+    auto model = reusex::io::save_rhino_pointcloud(pcl_cloud, pcl_labels);
 
     spdlog::trace("Writing Rhino model to: {}", opt.path_out.string());
     int version = 0;

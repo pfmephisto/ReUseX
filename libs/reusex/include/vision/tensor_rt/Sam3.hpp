@@ -13,7 +13,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace ReUseX::vision::tensor_rt {
+namespace reusex::vision::tensor_rt {
 
 /* TensorRTSam3 is an implementation of the SAM3 model using TensorRT for
 efficient inference. It supports batch processing of images and prompts, with
@@ -28,9 +28,9 @@ geometry) and is optimized for use in real-time applications where latency is a
 concern. */
 class TensorRTSam3 : public IModel {
     private:
-  using InferResult = ::ReUseX::vision::common::object::DetectionBoxArray;
+  using InferResult = ::reusex::vision::common::object::DetectionBoxArray;
   using InferResultArray =
-      std::vector<::ReUseX::vision::common::object::DetectionBoxArray>;
+      std::vector<::reusex::vision::common::object::DetectionBoxArray>;
 
     public:
   /* Constructor for TensorRTSam3 without geometry encoder. Initializes the
@@ -255,4 +255,4 @@ class TensorRTSam3 : public IModel {
   // Tokenizer
   std::unique_ptr<tokenizers::Tokenizer> tokenizer_;
 };
-} // namespace ReUseX::vision::tensor_rt
+} // namespace reusex::vision::tensor_rt

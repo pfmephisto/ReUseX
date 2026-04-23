@@ -8,7 +8,7 @@
 #include <cmath>
 #include <vector>
 
-namespace ReUseX::vision {
+namespace reusex::vision {
 
 torch::Tensor xyxy_to_xywh(const torch::Tensor &x) {
   auto y = torch::empty_like(x);
@@ -153,4 +153,4 @@ torch::Tensor non_max_suppression(torch::Tensor predictions,
   return output;
 }
 
-} // namespace ReUseX::vision
+} // namespace reusex::vision

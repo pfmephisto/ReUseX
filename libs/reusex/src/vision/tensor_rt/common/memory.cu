@@ -2,7 +2,7 @@
 #include "vision/tensor_rt/common/check.hpp"
 #include "vision/tensor_rt/common/memory.hpp" // Assume the file name is memory.hpp
 
-namespace ReUseX::vision::tensor_rt::tensor {
+namespace reusex::vision::tensor_rt::tensor {
 
 static size_t upbound(size_t n, size_t align) {
   return (n + align - 1) / align * align;
@@ -128,4 +128,4 @@ void BaseMemory::release() {
   release_gpu();
 }
 
-} // namespace ReUseX::vision::tensor_rt::tensor
+} // namespace reusex::vision::tensor_rt::tensor

@@ -24,7 +24,7 @@
 
 #include <atomic>
 
-namespace ReUseX::geometry {
+namespace reusex::geometry {
 struct SegmentRoomsOptions {
   IndicesConstPtr filter = nullptr; // Optional filter to limit processing
 
@@ -46,4 +46,4 @@ auto segment_rooms(CloudConstPtr cloud, CloudNConstPtr normals,
                    const SegmentRoomsOptions &options = SegmentRoomsOptions{})
     -> CloudLPtr;
 
-} // namespace ReUseX::geometry
+} // namespace reusex::geometry

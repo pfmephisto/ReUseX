@@ -26,7 +26,7 @@
 
 namespace fs = std::filesystem;
 
-namespace ReUseX::io {
+namespace reusex::io {
 auto configure_rhino_model() -> std::unique_ptr<ONX_Model>;
 
 auto create_rhino_layers(ONX_Model &model,
@@ -41,4 +41,4 @@ auto make_rhino_pointcloud(CloudConstPtr cloud)
 [[nodiscard]]
 auto save_rhino_pointcloud(CloudConstPtr pcl_cloud, CloudLConstPtr pcl_labels)
     -> std::unique_ptr<ONX_Model>;
-} // namespace ReUseX::io
+} // namespace reusex::io

@@ -1,7 +1,7 @@
 #include <iostream>
 #include "vision/osd/cvx_text.hpp"
 
-namespace ReUseX::vision::osd {
+namespace reusex::vision::osd {
 
 CvxText::CvxText(const char *font_path) {
   if (FT_Init_FreeType(&m_library)) {
@@ -155,4 +155,4 @@ void CvxText::utf8_to_ucs4(const std::string &str, std::vector<long> &ucs4) {
   }
 }
 
-} // namespace ReUseX::vision::osd
+} // namespace reusex::vision::osd

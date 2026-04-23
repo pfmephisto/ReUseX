@@ -7,7 +7,7 @@
 #include <vision/common/image.hpp>
 #include <opencv2/opencv.hpp>
 
-using namespace ReUseX::vision::common::tensor;
+using namespace reusex::vision::common::tensor;
 
 TEST_CASE("cvimg creates Image view from cv::Mat", "[vision][image]") {
   // Create test Mat (3x3 BGR image)

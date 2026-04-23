@@ -14,8 +14,8 @@
 #include <cmath>
 #include <numbers>
 
-using namespace ReUseX;
-using namespace ReUseX::geometry;
+using namespace reusex;
+using namespace reusex::geometry;
 using Catch::Approx;
 
 namespace {

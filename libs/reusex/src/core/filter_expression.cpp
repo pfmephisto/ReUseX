@@ -8,7 +8,7 @@
 #include <cctype>
 #include <stdexcept>
 
-namespace ReUseX::core {
+namespace reusex::core {
 
 namespace {
 
@@ -429,4 +429,4 @@ auto evaluate_filter(const FilterExpression &expr, size_t cloud_size)
   return indices;
 }
 
-} // namespace ReUseX::core
+} // namespace reusex::core

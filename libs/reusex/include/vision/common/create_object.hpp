@@ -8,7 +8,7 @@ namespace cv {
 class Mat;
 }
 
-namespace ReUseX::vision::common::object {
+namespace reusex::vision::common::object {
 
 /// @brief Create a standard detection box.
 /// @param left   Left edge of the bounding box.
@@ -124,4 +124,4 @@ DetectionBox create_depth_pro_box(const cv::Mat &depth, float fog_data);
 /// @return A DetectionBox with type DEPTH_ANYTHING.
 DetectionBox create_depth_anything_box(const cv::Mat &depth);
 
-} // namespace ReUseX::vision::common::object
+} // namespace reusex::vision::common::object

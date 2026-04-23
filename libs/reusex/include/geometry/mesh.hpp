@@ -10,7 +10,7 @@
 
 #include <memory>
 
-namespace ReUseX::geometry {
+namespace reusex::geometry {
 
 /**
  * @brief Options for mesh generation.
@@ -38,4 +38,4 @@ pcl::PolygonMeshPtr mesh(CloudConstPtr cloud, CloudNConstPtr normals,
                          EigenVectorContainer<double, 3> &centroids,
                          std::vector<IndicesPtr> &inliers, CloudLConstPtr rooms,
                          MeshOptions const opt = MeshOptions{});
-} // namespace ReUseX::geometry
+} // namespace reusex::geometry

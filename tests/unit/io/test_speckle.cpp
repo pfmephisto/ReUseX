@@ -15,7 +15,7 @@
 #include <algorithm>
 #include <string>
 
-using namespace ReUseX::io::speckle;
+using namespace reusex::io::speckle;
 
 // ---- Helper: compute MD5 the same way the implementation does ----
 static std::string test_md5(const std::string &data) {
@@ -124,7 +124,7 @@ TEST_CASE("MD5 hash is 32 hex characters", "[speckle]") {
 // ============================================================
 
 TEST_CASE("to_speckle(CloudConstPtr) converts point cloud", "[speckle]") {
-    auto cloud = std::make_shared<ReUseX::Cloud>();
+    auto cloud = std::make_shared<reusex::Cloud>();
     cloud->resize(3);
 
     cloud->points[0] = {1.0f, 2.0f, 3.0f};
@@ -167,12 +167,12 @@ TEST_CASE("to_speckle(CloudConstPtr) converts point cloud", "[speckle]") {
 }
 
 TEST_CASE("to_speckle(CloudConstPtr) throws on null cloud", "[speckle]") {
-    ReUseX::CloudConstPtr null_cloud;
+    reusex::CloudConstPtr null_cloud;
     REQUIRE_THROWS_AS(to_speckle(null_cloud), std::invalid_argument);
 }
 
 TEST_CASE("to_speckle(CloudConstPtr) throws on empty cloud", "[speckle]") {
-    auto empty_cloud = std::make_shared<ReUseX::Cloud>();
+    auto empty_cloud = std::make_shared<reusex::Cloud>();
     REQUIRE_THROWS_AS(to_speckle(empty_cloud), std::invalid_argument);
 }
 
@@ -208,7 +208,7 @@ TEST_CASE("to_speckle(PolygonMesh) converts PCL mesh", "[speckle]") {
     pcl::PolygonMesh polygon_mesh;
 
     // Create a simple cloud with 3 points
-    ReUseX::Cloud cloud;
+    reusex::Cloud cloud;
     cloud.resize(3);
     cloud.points[0] = {0.0f, 0.0f, 0.0f};
     cloud.points[0].r = 128;

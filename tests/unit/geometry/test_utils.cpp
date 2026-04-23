@@ -10,10 +10,10 @@
 
 #include <Eigen/Core>
 
-using namespace ReUseX::geometry;
+using namespace reusex::geometry;
 using Catch::Approx;
 
-using namespace ReUseX;
+using namespace reusex;
 
 TEST_CASE("compute_polygon_normal - triangle", "[geometry][utils]") {
   // Create a simple triangle in the XY plane with normal pointing in +Z

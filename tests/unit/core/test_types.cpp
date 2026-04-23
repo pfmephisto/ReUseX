@@ -6,7 +6,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <reusex/types.hpp>
 
-using namespace ReUseX;
+using namespace reusex;
 using Catch::Approx;
 
 TEST_CASE("Point cloud creation and basic operations", "[pointcloud]") {

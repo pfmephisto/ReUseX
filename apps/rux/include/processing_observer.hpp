@@ -16,8 +16,8 @@
 
 namespace rux {
 
-class VizualizationObserver final : public ReUseX::core::IVisualObserver,
-                                    public ReUseX::core::IProgressObserver {
+class VizualizationObserver final : public reusex::core::IVisualObserver,
+                                    public reusex::core::IProgressObserver {
     public:
   using ViewerPtr = std::shared_ptr<pcl::visualization::PCLVisualizer>;
   using VizTask =
@@ -38,30 +38,30 @@ class VizualizationObserver final : public ReUseX::core::IVisualObserver,
 
   // Override virtual method for planes
   void viewer_add_plane(std::string_view name, const Eigen::Vector4d &plane,
-                        ReUseX::core::Stage stage, int idx) override;
+                        reusex::core::Stage stage, int idx) override;
   void viewer_add_plane(std::string_view name, const Pair &plane,
-                        ReUseX::core::Stage stage, int idx) override;
+                        reusex::core::Stage stage, int idx) override;
   void viewer_add_plane_pair(std::string_view name, const PlanePair &pair,
-                             ReUseX::core::Stage stage, int idx) override;
+                             reusex::core::Stage stage, int idx) override;
   void viewer_add_cell_complex(
       std::string_view name,
-      const std::shared_ptr<ReUseX::geometry::CellComplex> &cc,
-      ReUseX::core::Stage stage, int idx) override;
+      const std::shared_ptr<reusex::geometry::CellComplex> &cc,
+      reusex::core::Stage stage, int idx) override;
 
   void viewer_add_cloud(std::string_view name,
-                        const ReUseX::CloudConstPtr &cloud,
-                        ReUseX::core::Stage stage, int idx) override;
+                        const reusex::CloudConstPtr &cloud,
+                        reusex::core::Stage stage, int idx) override;
 
   void viewer_add_camera_frustum(std::string_view name, double focal_x,
                                  double focal_y, int image_width,
                                  int image_height,
                                  const Eigen::Affine3f &pose,
-                                 ReUseX::core::Stage stage, int idx) override;
+                                 reusex::core::Stage stage, int idx) override;
 
   // Progress bar callbacks
-  void on_process_started(ReUseX::core::Stage stage, size_t total) override;
-  void on_process_finished(ReUseX::core::Stage stage) override;
-  void on_process_updated(ReUseX::core::Stage stage, size_t increment) override;
+  void on_process_started(reusex::core::Stage stage, size_t total) override;
+  void on_process_finished(reusex::core::Stage stage) override;
+  void on_process_updated(reusex::core::Stage stage, size_t increment) override;
 
   // Viewer control methods
   void viewer_start();

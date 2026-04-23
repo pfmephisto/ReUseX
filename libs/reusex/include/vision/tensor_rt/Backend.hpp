@@ -3,7 +3,7 @@
 #include "reusex/vision/tensor_rt/Dataset.hpp"
 #include "reusex/vision/tensor_rt/Sam3.hpp"
 
-namespace ReUseX::vision::tensor_rt {
+namespace reusex::vision::tensor_rt {
 /* TensorRTBackend is a concrete implementation of the IMLBackend interface for
  * TensorRT. It provides methods to create TensorRT-based models and datasets.
  */
@@ -41,4 +41,4 @@ class TensorRTBackend : public IMLBackend {
   std::unique_ptr<IDataset>
   create_dataset(const std::filesystem::path &datasetPath) override;
 };
-} // namespace ReUseX::vision::tensor_rt
+} // namespace reusex::vision::tensor_rt

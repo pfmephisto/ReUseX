@@ -18,7 +18,7 @@
 
 #include <atomic>
 
-namespace ReUseX::geometry {
+namespace reusex::geometry {
 
 struct SegmentPlanesOptions {
   IndicesConstPtr filter = nullptr; // Optional filter to limit processing
@@ -43,4 +43,4 @@ auto segment_planes(CloudConstPtr cloud, CloudNConstPtr normals,
                     const SegmentPlanesOptions &options = SegmentPlanesOptions{})
     -> std::tuple<CloudLPtr, CloudLocPtr, CloudNPtr>;
 
-} // namespace ReUseX::geometry
+} // namespace reusex::geometry

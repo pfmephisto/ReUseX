@@ -18,7 +18,7 @@
 #include <filesystem>
 #include <iostream>
 
-using namespace ReUseX;
+using namespace reusex;
 using namespace Catch::Matchers;
 
 namespace fs = std::filesystem;

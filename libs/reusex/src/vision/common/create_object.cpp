@@ -28,7 +28,7 @@ getAABBFromObb(float cx, float cy, float w, float h, float angle_degrees) {
 }
 } // namespace
 
-namespace ReUseX::vision::common::object {
+namespace reusex::vision::common::object {
 
 DetectionBox create_box(float left, float top, float right, float bottom,
                         float score, int class_id,
@@ -186,4 +186,4 @@ DetectionBox create_depth_anything_box(const cv::Mat &depth) {
   return box;
 }
 
-} // namespace ReUseX::vision::common::object
+} // namespace reusex::vision::common::object

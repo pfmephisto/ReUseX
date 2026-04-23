@@ -11,7 +11,7 @@
 #include <utility>
 #include <vector>
 
-namespace ReUseX::geometry {
+namespace reusex::geometry {
 
 /// A closed 3D polygon whose vertices are coplanar.
 ///
@@ -44,4 +44,4 @@ struct CoplanarPolygon {
                                                            size_t size);
 };
 
-} // namespace ReUseX::geometry
+} // namespace reusex::geometry

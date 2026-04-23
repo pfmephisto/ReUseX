@@ -6,7 +6,7 @@
 #include <utility>
 #include <vector>
 
-namespace ReUseX::vision::tensor_rt {
+namespace reusex::vision::tensor_rt {
 
 // Define BoxPrompt: <Label("pos"/"neg"), {x1, y1, x2, y2}>
 using BoxPrompt = std::pair<std::string, std::array<float, 4>>;
@@ -32,4 +32,4 @@ struct Sam3Input {
             float conf)
       : image(img), prompts(p), confidence_threshold(conf) {}
 };
-} // namespace ReUseX::vision::tensor_rt
+} // namespace reusex::vision::tensor_rt

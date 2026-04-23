@@ -22,7 +22,7 @@
 #include <fstream>
 #include <sstream>
 
-namespace ReUseX {
+namespace reusex {
 
 // ── RAII helper for sqlite3_stmt ────────────────────────────────────────
 class StmtGuard {
@@ -191,7 +191,7 @@ class ProjectDB::Impl {
 
   Impl(std::filesystem::path path, bool ro)
       : dbPath(std::move(path)), readOnly(ro) {
-    ReUseX::info("Opening ReUseX database: {}", dbPath);
+    reusex::info("Opening ReUseX database: {}", dbPath);
 
     // Open sqlite3 connection for project database
     int flags = readOnly ? SQLITE_OPEN_READONLY
@@ -222,11 +222,11 @@ class ProjectDB::Impl {
       sqlite3_exec(db, "PRAGMA foreign_keys = ON;", nullptr, nullptr, nullptr);
     }
 
-    ReUseX::info("Project database opened successfully");
+    reusex::info("Project database opened successfully");
   }
 
   ~Impl() {
-    ReUseX::trace("Closing project database connection");
+    reusex::trace("Closing project database connection");
     if (db) {
       sqlite3_close(db);
     }
@@ -310,7 +310,7 @@ class ProjectDB::Impl {
       migrateToV4();
     }
 
-    ReUseX::trace("Schema version: {}", getCurrentSchemaVersion());
+    reusex::trace("Schema version: {}", getCurrentSchemaVersion());
   }
 
   void insertSchemaVersion(int version, const char *description) {
@@ -328,7 +328,7 @@ class ProjectDB::Impl {
   }
 
   void migrateToV1() {
-    ReUseX::info("Migrating database to schema version 1");
+    reusex::info("Migrating database to schema version 1");
 
     const char *v1_schema = R"(
       CREATE TABLE IF NOT EXISTS point_clouds (
@@ -399,11 +399,11 @@ class ProjectDB::Impl {
 
     insertSchemaVersion(1, "Add point clouds, meshes, sensor frames, "
                            "pipeline log");
-    ReUseX::info("Migration to schema version 1 complete");
+    reusex::info("Migration to schema version 1 complete");
   }
 
   void migrateToV2() {
-    ReUseX::info("Migrating database to schema version 2");
+    reusex::info("Migrating database to schema version 2");
 
     const char *v2_schema = R"(
       CREATE TABLE IF NOT EXISTS segmentation_images (
@@ -420,11 +420,11 @@ class ProjectDB::Impl {
     }
 
     insertSchemaVersion(2, "Add segmentation_images table");
-    ReUseX::info("Migration to schema version 2 complete");
+    reusex::info("Migration to schema version 2 complete");
   }
 
   void migrateToV3() {
-    ReUseX::info("Migrating database to schema version 3");
+    reusex::info("Migrating database to schema version 3");
 
     // sensor_frames already has depth, confidence, transform columns from v1.
     // Only need to add camera_model TEXT column.
@@ -444,11 +444,11 @@ class ProjectDB::Impl {
     }
 
     insertSchemaVersion(3, "Add camera_model column to sensor_frames");
-    ReUseX::info("Migration to schema version 3 complete");
+    reusex::info("Migration to schema version 3 complete");
   }
 
   void migrateToV4() {
-    ReUseX::info("Migrating database to schema version 4");
+    reusex::info("Migrating database to schema version 4");
 
     const char *v4_schema = R"(
       CREATE TABLE IF NOT EXISTS building_components (
@@ -474,7 +474,7 @@ class ProjectDB::Impl {
     }
 
     insertSchemaVersion(4, "Add building_components table");
-    ReUseX::info("Migration to schema version 4 complete");
+    reusex::info("Migration to schema version 4 complete");
   }
 
   // ── Sensor frame CRUD ─────────────────────────────────────────────
@@ -556,7 +556,7 @@ class ProjectDB::Impl {
   void saveSensorFrameFull(int nodeId, const cv::Mat &color,
                            const cv::Mat &depth, const cv::Mat &confidence,
                            const std::array<double, 16> &worldPose,
-                           const ReUseX::core::SensorIntrinsics &intrinsics) {
+                           const reusex::core::SensorIntrinsics &intrinsics) {
     if (color.empty())
       throw std::runtime_error("Cannot save empty color image");
 
@@ -710,7 +710,7 @@ class ProjectDB::Impl {
     return pose;
   }
 
-  ReUseX::core::SensorIntrinsics getSensorFrameIntrinsics(int nodeId) const {
+  reusex::core::SensorIntrinsics getSensorFrameIntrinsics(int nodeId) const {
     const char *sql =
         "SELECT camera_model FROM sensor_frames WHERE node_id = ?;";
     sqlite3_stmt *stmt;
@@ -728,7 +728,7 @@ class ProjectDB::Impl {
     if (!text)
       return {};
 
-    return ReUseX::core::SensorIntrinsics::from_json(text);
+    return reusex::core::SensorIntrinsics::from_json(text);
   }
 
   bool hasSensorFrame(int nodeId) const {
@@ -901,7 +901,7 @@ class ProjectDB::Impl {
       throw std::runtime_error("Failed to create schema: " + error);
     }
 
-    ReUseX::trace("Database schema created successfully");
+    reusex::trace("Database schema created successfully");
   }
 
   void validateSchema() const {
@@ -930,7 +930,7 @@ class ProjectDB::Impl {
                                  "' not found in database");
       }
     }
-    ReUseX::trace("Database schema validation passed");
+    reusex::trace("Database schema validation passed");
   }
 
   // ── Point cloud CRUD ───────────────────────────────────────────────
@@ -1575,7 +1575,7 @@ class ProjectDB::Impl {
 
     bool hasNext() const { return index < document_guids_.size(); }
 
-    ReUseX::core::MaterialPassport next() {
+    reusex::core::MaterialPassport next() {
       if (!hasNext()) {
         throw std::out_of_range("No more material passports available");
       }
@@ -1587,7 +1587,7 @@ class ProjectDB::Impl {
     return MaterialPassportIterator(*this);
   }
 
-  ReUseX::core::MaterialPassportMetadata
+  reusex::core::MaterialPassportMetadata
   fetchPassportMetadata(std::string_view documentGuid) const {
     const char *query = "SELECT document_guid, created_at, revised_at, "
                         "version_number, version_date "
@@ -1602,7 +1602,7 @@ class ProjectDB::Impl {
     sqlite3_bind_text(stmt, 1, documentGuid.data(), documentGuid.size(),
                       SQLITE_TRANSIENT);
 
-    ReUseX::core::MaterialPassportMetadata metadata;
+    reusex::core::MaterialPassportMetadata metadata;
     if (sqlite3_step(stmt) == SQLITE_ROW) {
       metadata.document_guid =
           reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
@@ -1624,7 +1624,7 @@ class ProjectDB::Impl {
     return metadata;
   }
 
-  std::map<std::string, ReUseX::core::serialization::PropertyValue>
+  std::map<std::string, reusex::core::serialization::PropertyValue>
   fetchPropertyValues(std::string_view documentGuid) const {
     const char *query =
         "SELECT pd.leksikon_guid, pd.data_type, ppv.value "
@@ -1643,7 +1643,7 @@ class ProjectDB::Impl {
     sqlite3_bind_text(stmt, 1, documentGuid.data(), documentGuid.size(),
                       SQLITE_TRANSIENT);
 
-    std::map<std::string, ReUseX::core::serialization::PropertyValue>
+    std::map<std::string, reusex::core::serialization::PropertyValue>
         property_map;
 
     while (sqlite3_step(stmt) == SQLITE_ROW) {
@@ -1655,9 +1655,9 @@ class ProjectDB::Impl {
       int blob_size = sqlite3_column_bytes(stmt, 2);
 
       if (guid && data_type) {
-        auto type = ReUseX::core::traits::property_type_from_string(data_type);
+        auto type = reusex::core::traits::property_type_from_string(data_type);
         if (type) {
-          property_map.emplace(guid, ReUseX::core::serialization::PropertyValue(
+          property_map.emplace(guid, reusex::core::serialization::PropertyValue(
                                          blob_data, blob_size, *type));
         }
       }
@@ -1667,7 +1667,7 @@ class ProjectDB::Impl {
     return property_map;
   }
 
-  std::vector<ReUseX::core::TransactionLogEntry>
+  std::vector<reusex::core::TransactionLogEntry>
   fetchTransactionLog(std::string_view documentGuid) const {
     const char *query = "SELECT entry_type, target_guid, edited_by, edited_at, "
                         "old_value, new_value "
@@ -1685,14 +1685,14 @@ class ProjectDB::Impl {
     sqlite3_bind_text(stmt, 1, documentGuid.data(), documentGuid.size(),
                       SQLITE_TRANSIENT);
 
-    std::vector<ReUseX::core::TransactionLogEntry> log;
+    std::vector<reusex::core::TransactionLogEntry> log;
 
     while (sqlite3_step(stmt) == SQLITE_ROW) {
-      ReUseX::core::TransactionLogEntry entry;
+      reusex::core::TransactionLogEntry entry;
 
       const char *entry_type =
           reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
-      if (auto type = ReUseX::core::transaction_type_from_string(entry_type)) {
+      if (auto type = reusex::core::transaction_type_from_string(entry_type)) {
         entry.type = *type;
       }
 
@@ -1713,9 +1713,9 @@ class ProjectDB::Impl {
     return log;
   }
 
-  ReUseX::core::MaterialPassport
+  reusex::core::MaterialPassport
   getMaterialPassport(std::string_view documentGuid) const {
-    ReUseX::info("Fetching MaterialPassport: {}", documentGuid);
+    reusex::info("Fetching MaterialPassport: {}", documentGuid);
 
     // 1. Fetch metadata
     auto metadata = fetchPassportMetadata(documentGuid);
@@ -1724,10 +1724,10 @@ class ProjectDB::Impl {
     auto property_map = fetchPropertyValues(documentGuid);
 
     // 3. Deserialize into MaterialPassport sections
-    ReUseX::core::MaterialPassport passport;
+    reusex::core::MaterialPassport passport;
     passport.metadata = std::move(metadata);
 
-    using namespace ReUseX::core::serialization;
+    using namespace reusex::core::serialization;
     Deserializer::deserialize(passport.owner, property_map);
     Deserializer::deserialize(passport.description, property_map);
     Deserializer::deserialize(passport.product, property_map);
@@ -1742,20 +1742,20 @@ class ProjectDB::Impl {
     // 4. Fetch transaction log
     passport.transaction_log = fetchTransactionLog(documentGuid);
 
-    ReUseX::trace("MaterialPassport fetched successfully: {} properties",
+    reusex::trace("MaterialPassport fetched successfully: {} properties",
                         property_map.size());
 
     return passport;
   }
 
   void ensurePropertyDefinitions(
-      const ReUseX::core::traits::PropertyDescriptor *props, size_t count,
+      const reusex::core::traits::PropertyDescriptor *props, size_t count,
       const char *category, sqlite3_stmt *stmt) {
     for (size_t i = 0; i < count; ++i) {
       const auto &prop = props[i];
 
-      if (prop.type == ReUseX::core::traits::PropertyType::ObjectArray) {
-        auto data_type = ReUseX::core::traits::to_data_type_string(prop.type);
+      if (prop.type == reusex::core::traits::PropertyType::ObjectArray) {
+        auto data_type = reusex::core::traits::to_data_type_string(prop.type);
 
         sqlite3_bind_text(stmt, 1, prop.field_name, -1, SQLITE_STATIC);
         sqlite3_bind_text(stmt, 2, prop.field_name, -1, SQLITE_STATIC);
@@ -1774,7 +1774,7 @@ class ProjectDB::Impl {
         continue;
       }
 
-      auto data_type = ReUseX::core::traits::to_data_type_string(prop.type);
+      auto data_type = reusex::core::traits::to_data_type_string(prop.type);
 
       sqlite3_bind_text(stmt, 1, prop.leksikon_guid, -1, SQLITE_STATIC);
       sqlite3_bind_text(stmt, 2, prop.leksikon_guid, -1, SQLITE_STATIC);
@@ -1805,55 +1805,55 @@ class ProjectDB::Impl {
           std::string(sqlite3_errmsg(db)));
     }
 
-    using namespace ReUseX::core::traits;
+    using namespace reusex::core::traits;
 
     ensurePropertyDefinitions(
-        PropertyTraits<ReUseX::core::Owner>::properties(),
-        PropertyTraits<ReUseX::core::Owner>::property_count(), "Owner", stmt);
+        PropertyTraits<reusex::core::Owner>::properties(),
+        PropertyTraits<reusex::core::Owner>::property_count(), "Owner", stmt);
     ensurePropertyDefinitions(
-        PropertyTraits<ReUseX::core::ConstructionItemDescription>::properties(),
+        PropertyTraits<reusex::core::ConstructionItemDescription>::properties(),
         PropertyTraits<
-            ReUseX::core::ConstructionItemDescription>::property_count(),
+            reusex::core::ConstructionItemDescription>::property_count(),
         "Description", stmt);
     ensurePropertyDefinitions(
-        PropertyTraits<ReUseX::core::ProductInformation>::properties(),
-        PropertyTraits<ReUseX::core::ProductInformation>::property_count(),
+        PropertyTraits<reusex::core::ProductInformation>::properties(),
+        PropertyTraits<reusex::core::ProductInformation>::property_count(),
         "Product", stmt);
     ensurePropertyDefinitions(
-        PropertyTraits<ReUseX::core::Certifications>::properties(),
-        PropertyTraits<ReUseX::core::Certifications>::property_count(),
+        PropertyTraits<reusex::core::Certifications>::properties(),
+        PropertyTraits<reusex::core::Certifications>::property_count(),
         "Certifications", stmt);
     ensurePropertyDefinitions(
-        PropertyTraits<ReUseX::core::Dimensions>::properties(),
-        PropertyTraits<ReUseX::core::Dimensions>::property_count(),
+        PropertyTraits<reusex::core::Dimensions>::properties(),
+        PropertyTraits<reusex::core::Dimensions>::property_count(),
         "Dimensions", stmt);
     ensurePropertyDefinitions(
-        PropertyTraits<ReUseX::core::Condition>::properties(),
-        PropertyTraits<ReUseX::core::Condition>::property_count(), "Condition",
+        PropertyTraits<reusex::core::Condition>::properties(),
+        PropertyTraits<reusex::core::Condition>::property_count(), "Condition",
         stmt);
     ensurePropertyDefinitions(
-        PropertyTraits<ReUseX::core::Pollution>::properties(),
-        PropertyTraits<ReUseX::core::Pollution>::property_count(), "Pollution",
+        PropertyTraits<reusex::core::Pollution>::properties(),
+        PropertyTraits<reusex::core::Pollution>::property_count(), "Pollution",
         stmt);
     ensurePropertyDefinitions(
-        PropertyTraits<ReUseX::core::EnvironmentalPotential>::properties(),
-        PropertyTraits<ReUseX::core::EnvironmentalPotential>::property_count(),
+        PropertyTraits<reusex::core::EnvironmentalPotential>::properties(),
+        PropertyTraits<reusex::core::EnvironmentalPotential>::property_count(),
         "Environmental", stmt);
     ensurePropertyDefinitions(
-        PropertyTraits<ReUseX::core::FireProperties>::properties(),
-        PropertyTraits<ReUseX::core::FireProperties>::property_count(), "Fire",
+        PropertyTraits<reusex::core::FireProperties>::properties(),
+        PropertyTraits<reusex::core::FireProperties>::property_count(), "Fire",
         stmt);
     ensurePropertyDefinitions(
-        PropertyTraits<ReUseX::core::History>::properties(),
-        PropertyTraits<ReUseX::core::History>::property_count(), "History",
+        PropertyTraits<reusex::core::History>::properties(),
+        PropertyTraits<reusex::core::History>::property_count(), "History",
         stmt);
 
     sqlite3_finalize(stmt);
   }
 
-  void addMaterialPassport(const ReUseX::core::MaterialPassport &passport,
+  void addMaterialPassport(const reusex::core::MaterialPassport &passport,
                            std::string_view projectId) {
-    ReUseX::info("Adding MaterialPassport: {}",
+    reusex::info("Adding MaterialPassport: {}",
                        passport.metadata.document_guid);
 
     // Begin transaction for atomicity
@@ -1962,7 +1962,7 @@ class ProjectDB::Impl {
       sqlite3_finalize(stmt);
 
       // 2. Serialize all sections to property values
-      using namespace ReUseX::core::serialization;
+      using namespace reusex::core::serialization;
       std::map<std::string, PropertyValue> all_values;
 
       auto merge_values = [&all_values](auto &&values) {
@@ -2032,7 +2032,7 @@ class ProjectDB::Impl {
         sqlite3_bind_text(stmt, 1, log_id.c_str(), -1, SQLITE_TRANSIENT);
         sqlite3_bind_text(stmt, 2, passport_id.c_str(), -1, SQLITE_TRANSIENT);
 
-        std::string type_str(ReUseX::core::to_string(entry.type));
+        std::string type_str(reusex::core::to_string(entry.type));
         sqlite3_bind_text(stmt, 3, type_str.c_str(), -1, SQLITE_TRANSIENT);
         sqlite3_bind_text(stmt, 4, entry.guid.c_str(), -1, SQLITE_TRANSIENT);
         sqlite3_bind_text(stmt, 5, entry.edited_by.c_str(), -1,
@@ -2057,7 +2057,7 @@ class ProjectDB::Impl {
       // Commit transaction
       sqlite3_exec(db, "COMMIT;", nullptr, nullptr, nullptr);
 
-      ReUseX::info("MaterialPassport added successfully: {} properties",
+      reusex::info("MaterialPassport added successfully: {} properties",
                          all_values.size());
 
     } catch (...) {
@@ -2437,7 +2437,7 @@ class ProjectDB::Impl {
         if (json_text) {
           try {
             auto intrinsics =
-                ReUseX::core::SensorIntrinsics::from_json(json_text);
+                reusex::core::SensorIntrinsics::from_json(json_text);
             summary.sensor_frames.width = intrinsics.width;
             summary.sensor_frames.height = intrinsics.height;
           } catch (...) {
@@ -2778,15 +2778,15 @@ void ProjectDB::log_pipeline_end(int logId, bool success,
 
 // --- Material Passport Operations ---
 
-ReUseX::core::MaterialPassport
+reusex::core::MaterialPassport
 ProjectDB::material_passport(std::string_view documentGuid) const {
   return impl_->getMaterialPassport(documentGuid);
 }
 
-std::vector<ReUseX::core::MaterialPassport>
+std::vector<reusex::core::MaterialPassport>
 ProjectDB::all_material_passports() const {
   auto iter = impl_->getMaterialPassports();
-  std::vector<ReUseX::core::MaterialPassport> result;
+  std::vector<reusex::core::MaterialPassport> result;
   while (iter.hasNext()) {
     result.push_back(iter.next());
   }
@@ -2794,7 +2794,7 @@ ProjectDB::all_material_passports() const {
 }
 
 void ProjectDB::add_material_passport(
-    const ReUseX::core::MaterialPassport &passport,
+    const reusex::core::MaterialPassport &passport,
     std::string_view projectId) {
   impl_->addMaterialPassport(passport, projectId);
 }
@@ -2951,7 +2951,7 @@ ProjectDB::passport_property_value(std::string_view documentGuid,
                            std::string(documentGuid) + "'");
 }
 
-ReUseX::core::MaterialPassportMetadata
+reusex::core::MaterialPassportMetadata
 ProjectDB::passport_metadata(std::string_view documentGuid) const {
   return impl_->fetchPassportMetadata(documentGuid);
 }
@@ -3325,4 +3325,4 @@ ProjectDB::pipeline_log(int limit) const {
   return impl_->getPipelineLog(limit);
 }
 
-} // namespace ReUseX
+} // namespace reusex

@@ -8,7 +8,7 @@
 #include <opencv2/core/mat.hpp>
 #include <opencv2/core/types.hpp>
 
-namespace ReUseX::vision::libtorch {
+namespace reusex::vision::libtorch {
 
 /** @brief Data carrier for LibTorch YOLO inference pipeline.
  *
@@ -26,4 +26,4 @@ struct LibTorchData : IData {
   int max_detections = 300;           ///< Maximum detections per image
 };
 
-} // namespace ReUseX::vision::libtorch
+} // namespace reusex::vision::libtorch

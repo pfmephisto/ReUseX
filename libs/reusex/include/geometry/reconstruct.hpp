@@ -4,11 +4,11 @@
 
 #pragma once
 
-namespace ReUseX {
+namespace reusex {
 class ProjectDB;
 }
 
-namespace ReUseX::geometry {
+namespace reusex::geometry {
 
 /// Parameters for point cloud reconstruction from stored sensor frames.
 struct ReconstructionParams {
@@ -34,4 +34,4 @@ struct ReconstructionParams {
 void reconstruct_point_clouds(ProjectDB &db,
                               const ReconstructionParams &params);
 
-} // namespace ReUseX::geometry
+} // namespace reusex::geometry

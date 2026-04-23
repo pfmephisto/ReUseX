@@ -69,7 +69,7 @@ int run_subcommand_project([[maybe_unused]] SubcommandProjectOptions const &opt,
   spdlog::info("Projecting labels in project: {}", project_path.string());
 
   try {
-    ReUseX::ProjectDB db(project_path);
+    reusex::ProjectDB db(project_path);
 
     // Pre-flight validation: check for cloud and segmentation images
     auto validation = rux::validation::validate_project_prerequisites(db);
@@ -85,7 +85,7 @@ int run_subcommand_project([[maybe_unused]] SubcommandProjectOptions const &opt,
     auto cloud = db.point_cloud_xyzrgb("cloud");
 
     spdlog::trace("Projecting labels from sensor frames");
-    CloudLPtr labels = ReUseX::vision::project(db, cloud);
+    CloudLPtr labels = reusex::vision::project(db, cloud);
 
     spdlog::trace("Saving projected labels to ProjectDB");
     db.save_point_cloud("labels", *labels, "project_labels");

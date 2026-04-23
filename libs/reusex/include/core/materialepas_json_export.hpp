@@ -13,7 +13,7 @@
 #include <string>
 #include <vector>
 
-namespace ReUseX::core::json_export {
+namespace reusex::core::json_export {
 
 /**
  * @brief Describes a section in the JSON export template.
@@ -129,4 +129,4 @@ to_json(const std::vector<MaterialPassport> &passports);
 to_json_string(const std::vector<MaterialPassport> &passports,
                int indent = 4);
 
-} // namespace ReUseX::core::json_export
+} // namespace reusex::core::json_export

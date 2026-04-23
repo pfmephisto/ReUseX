@@ -14,7 +14,7 @@
 #include <filesystem>
 #include <ranges>
 namespace fs = std::filesystem;
-// using namespace ReUseX;
+// using namespace reusex;
 
 /**
  * @brief Setup CLI options for the assemble subcommand.

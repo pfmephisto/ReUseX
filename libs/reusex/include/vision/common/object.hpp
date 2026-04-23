@@ -7,7 +7,7 @@
 #include <tuple>
 #include <vector>
 
-namespace ReUseX::vision::common::object {
+namespace reusex::vision::common::object {
 
 /// @brief Enumeration of supported detection object types.
 /// Identifies the kind of data stored in a DetectionBox.
@@ -211,4 +211,4 @@ cv::Mat segment_map_to_mat(const std::shared_ptr<SegmentMap> &map);
 /// @brief Convenience alias for a collection of DetectionBox results.
 using DetectionBoxArray = std::vector<DetectionBox>;
 
-} // namespace ReUseX::vision::common::object
+} // namespace reusex::vision::common::object

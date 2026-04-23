@@ -13,7 +13,7 @@
 #include <typeindex>
 #include <utility>
 
-namespace ReUseX::geometry {
+namespace reusex::geometry {
 class Registry {
     private:
   // Keyed by name and type_index
@@ -46,11 +46,11 @@ class Registry {
     auto key = std::make_pair(name, std::type_index(typeid(T)));
     auto it = registry.find(key);
     if (it == registry.end()) {
-      ReUseX::error("Property map not found: {}", name);
+      reusex::error("Property map not found: {}", name);
       throw std::runtime_error("Property map not found");
     }
     auto map_ptr = std::static_pointer_cast<std::map<Key, T>>(it->second);
     return boost::associative_property_map<std::map<Key, T>>(*map_ptr);
   }
 };
-} // namespace ReUseX::geometry
+} // namespace reusex::geometry

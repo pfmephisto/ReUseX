@@ -9,7 +9,7 @@
 #include <ft2build.h>
 #include FT_FREETYPE_H
 
-namespace ReUseX::vision::osd {
+namespace reusex::vision::osd {
 
 /// @brief FreeType-based text renderer for OpenCV images.
 ///
@@ -62,4 +62,4 @@ class CvxText {
   std::map<std::string, FT_Face> m_faces;
 };
 
-} // namespace ReUseX::vision::osd
+} // namespace reusex::vision::osd

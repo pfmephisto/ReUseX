@@ -148,7 +148,7 @@ void ProjectRouter::set(const std::vector<PathComponent> &components,
   }
 
   // Get current metadata (or create new if doesn't exist)
-  ReUseX::ProjectDB::ProjectMetadata metadata;
+  reusex::ProjectDB::ProjectMetadata metadata;
   try {
     metadata = db_->get_project_metadata(project_id);
   } catch (const std::exception &) {

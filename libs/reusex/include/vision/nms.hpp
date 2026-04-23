@@ -5,7 +5,7 @@
 #pragma once
 #include <torch/torch.h>
 
-namespace ReUseX::vision {
+namespace reusex::vision {
 
 /** @brief Convert bounding boxes from (x1,y1,x2,y2) to (cx,cy,w,h) format. */
 torch::Tensor xyxy_to_xywh(const torch::Tensor &x);
@@ -44,4 +44,4 @@ torch::Tensor non_max_suppression(torch::Tensor predictions,
                                   float iouThreshold = 0.45,
                                   int maxDetections = 300);
 
-} // namespace ReUseX::vision
+} // namespace reusex::vision

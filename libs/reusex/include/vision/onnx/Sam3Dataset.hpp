@@ -6,7 +6,7 @@
 #include "reusex/vision/IDataset.hpp"
 #include "reusex/vision/onnx/Sam3Data.hpp"
 
-namespace ReUseX::vision::onnx {
+namespace reusex::vision::onnx {
 
 /// @brief Dataset for ONNX Runtime SAM3 model inference.
 ///
@@ -30,4 +30,4 @@ class ONNXSam3Dataset : public IDataset {
   bool class_map_saved_ = false;
 };
 
-} // namespace ReUseX::vision::onnx
+} // namespace reusex::vision::onnx

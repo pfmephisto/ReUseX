@@ -125,7 +125,7 @@ class PCL_EXPORTS CommunityClustering : public PCLBase<PointT> {
    */
   void cluster(PointCloudL &labels) {
 
-    ReUseX::core::trace("Initializing segmentation class");
+    reusex::core::trace("Initializing segmentation class");
     if (!initCompute()) {
       deinitCompute();
       return;
@@ -138,10 +138,10 @@ class PCL_EXPORTS CommunityClustering : public PCLBase<PointT> {
     rayTracing(triplets);
 
     if (triplets.empty())
-      ReUseX::core::warn("No triplets found during ray tracing. Exiting.");
+      reusex::core::warn("No triplets found during ray tracing. Exiting.");
 
     if (visualization_callback_) {
-      ReUseX::core::trace("Creating visualization context");
+      reusex::core::trace("Creating visualization context");
       using CloudV = pcl::PointCloud<pcl::PointXYZ>;
       using CloudVPtr = CloudV::Ptr;
       using Vertices = std::vector<pcl::Vertices>;
@@ -190,8 +190,8 @@ class PCL_EXPORTS CommunityClustering : public PCLBase<PointT> {
     igraph_int_t nb_clusters = 0;
     igraph_real_t quality = 0.0;
 
-    ReUseX::core::trace("Running Leiden community detection");
-    ReUseX::core::stopwatch sw;
+    reusex::core::trace("Running Leiden community detection");
+    reusex::core::stopwatch sw;
 
     igraph_int_t n_iter = (max_iter_ < 0) ? -1 : static_cast<igraph_int_t>(max_iter_);
 
@@ -208,16 +208,16 @@ class PCL_EXPORTS CommunityClustering : public PCLBase<PointT> {
         &quality);
 
     if (err != IGRAPH_SUCCESS) {
-      ReUseX::core::error("igraph_community_leiden failed with error code {}", static_cast<int>(err));
+      reusex::core::error("igraph_community_leiden failed with error code {}", static_cast<int>(err));
     }
 
-    ReUseX::core::info("Leiden community detection completed in {:.3f} seconds", sw);
+    reusex::core::info("Leiden community detection completed in {:.3f} seconds", sw);
 
     // Compute modularity for reporting
     igraph_real_t modularity = 0.0;
     igraph_modularity(&graph, &membership, &weights, resolution_,
                       IGRAPH_UNDIRECTED, &modularity);
-    ReUseX::core::info("Leiden results: {} clusters, quality: {:.4f}, modularity: {:.4f}",
+    reusex::core::info("Leiden results: {} clusters, quality: {:.4f}, modularity: {:.4f}",
                        nb_clusters, quality, modularity);
 
     // Extract membership into labels
@@ -238,12 +238,12 @@ class PCL_EXPORTS CommunityClustering : public PCLBase<PointT> {
 
   void rayTracing(std::vector<std::tuple<IT, IT, NT>> &triplets) {
 
-    ReUseX::core::trace("Running ray tracing");
-    ReUseX::core::stopwatch sw;
+    reusex::core::trace("Running ray tracing");
+    reusex::core::stopwatch sw;
 
     const size_t N = indices_->size();
-    auto observer = ReUseX::core::ProgressObserver(
-        ReUseX::core::Stage::ray_tracing, N * (N - 1) / 2);
+    auto observer = reusex::core::ProgressObserver(
+        reusex::core::Stage::ray_tracing, N * (N - 1) / 2);
 
 #pragma omp parallel for reduction(mergeTriplets : triplets)                   \
     schedule(dynamic, 4)
@@ -296,17 +296,17 @@ class PCL_EXPORTS CommunityClustering : public PCLBase<PointT> {
         triplets.emplace_back(i, j, 1.0);
       }
     }
-    ReUseX::core::debug("Ray tracing completed in {} seconds", sw);
+    reusex::core::debug("Ray tracing completed in {} seconds", sw);
   }
 
     protected:
   bool initCompute() {
-    ReUseX::core::trace("Initializing CommunityClustering");
+    reusex::core::trace("Initializing CommunityClustering");
 
     _MM_SET_FLUSH_ZERO_MODE(_MM_FLUSH_ZERO_ON);
     _MM_SET_DENORMALS_ZERO_MODE(_MM_DENORMALS_ZERO_ON);
 
-    ReUseX::core::trace("Creating device and scene for ray tracing");
+    reusex::core::trace("Creating device and scene for ray tracing");
     device_ = rtcNewDevice("verbose=0"); // 0-3
     scene_ = rtcNewScene(device_);
     rtcSetSceneFlags(scene_, RTC_SCENE_FLAG_ROBUST);
@@ -315,7 +315,7 @@ class PCL_EXPORTS CommunityClustering : public PCLBase<PointT> {
     assert(scene_ != nullptr && "Error creating Embree scene");
     rtcSetDeviceErrorFunction(device_, rtcCheckError, nullptr);
 
-    ReUseX::core::trace("Checking if input cloud is set");
+    reusex::core::trace("Checking if input cloud is set");
     if (!PCLBase<PointT>::initCompute()) {
       PCL_ERROR("[pcl::%s::initCompute] Init failed.\n",
                 getClassName().c_str());
@@ -323,7 +323,7 @@ class PCL_EXPORTS CommunityClustering : public PCLBase<PointT> {
       return (false);
     }
 
-    ReUseX::core::trace("Checking if input normals are set");
+    reusex::core::trace("Checking if input normals are set");
     if (!normals_) {
       PCL_ERROR("[pcl::%s::segment] Must specify normals.\n",
                 getClassName().c_str());
@@ -331,7 +331,7 @@ class PCL_EXPORTS CommunityClustering : public PCLBase<PointT> {
       return (false);
     }
 
-    ReUseX::core::trace(
+    reusex::core::trace(
         "Checking if input normals size matches input cloud size");
     if (normals_->size() != input_->size()) {
       PCL_ERROR("[pcl::%s::segment] Number of points in input cloud "
@@ -344,7 +344,7 @@ class PCL_EXPORTS CommunityClustering : public PCLBase<PointT> {
       return (false);
     }
 
-    ReUseX::core::trace("Checking if input normals are normalized");
+    reusex::core::trace("Checking if input normals are normalized");
     for (const auto &point : normals_->points) {
       if ((point.getNormalVector3fMap().norm() - 1.0f) > epsilon_) {
         PCL_WARN("[pcl::%s::initCompute] Input normals are not normalized.\n",
@@ -353,7 +353,7 @@ class PCL_EXPORTS CommunityClustering : public PCLBase<PointT> {
       }
     }
 
-    ReUseX::core::trace("Checking if input normals contain NaN values");
+    reusex::core::trace("Checking if input normals contain NaN values");
     for (const auto &point : normals_->points) {
       if (std::isnan(point.normal_x) || std::isnan(point.normal_y) ||
           std::isnan(point.normal_z)) {
@@ -363,19 +363,19 @@ class PCL_EXPORTS CommunityClustering : public PCLBase<PointT> {
       }
     }
 
-    ReUseX::core::debug("Initialized with:");
-    ReUseX::core::debug("resolution: {:.3}", resolution_);
-    ReUseX::core::debug("beta: {:.3}", beta_);
-    ReUseX::core::debug("max_iter: {}", max_iter_);
-    ReUseX::core::debug("radius: {:.3f}", radius_);
+    reusex::core::debug("Initialized with:");
+    reusex::core::debug("resolution: {:.3}", resolution_);
+    reusex::core::debug("beta: {:.3}", beta_);
+    reusex::core::debug("max_iter: {}", max_iter_);
+    reusex::core::debug("radius: {:.3f}", radius_);
 
     return (true);
   }
 
   void deinitCompute() {
-    ReUseX::core::trace("Deinitializing CommunityClustering");
+    reusex::core::trace("Deinitializing CommunityClustering");
     pcl::PCLBase<PointT>::deinitCompute();
-    ReUseX::core::trace("Releasing scene and device");
+    reusex::core::trace("Releasing scene and device");
     rtcReleaseScene(scene_);
     rtcReleaseDevice(device_);
 
@@ -383,7 +383,7 @@ class PCL_EXPORTS CommunityClustering : public PCLBase<PointT> {
   }
 
   void createScene() {
-    ReUseX::core::trace("Creating scene geometry for ray tracing");
+    reusex::core::trace("Creating scene geometry for ray tracing");
 
     geometry_ = rtcNewGeometry(device_, RTC_GEOMETRY_TYPE_ORIENTED_DISC_POINT);
 
@@ -416,12 +416,12 @@ class PCL_EXPORTS CommunityClustering : public PCLBase<PointT> {
     rtcAttachGeometry(scene_, geometry_);
     rtcReleaseGeometry(geometry_);
 
-    ReUseX::core::trace("Committing scene");
+    reusex::core::trace("Committing scene");
     rtcCommitScene(scene_);
   }
 
   static void rtcCheckError(void *, RTCError err, const char *str) {
-    ReUseX::core::error("Embree error {}:", str);
+    reusex::core::error("Embree error {}:", str);
     switch (err) {
     case RTC_ERROR_NONE:
       break;

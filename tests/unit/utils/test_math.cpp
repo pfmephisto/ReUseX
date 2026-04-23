@@ -8,7 +8,7 @@
 
 #include <numbers>
 
-using namespace ReUseX::utils;
+using namespace reusex::utils;
 using Catch::Approx;
 
 TEST_CASE("Remap function basic tests", "[math][remap]") {

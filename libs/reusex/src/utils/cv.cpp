@@ -1,7 +1,7 @@
 #include "reusex/utils/cv.hpp"
 #include <pcl/common/colors.h>
 
-namespace ReUseX::utils {
+namespace reusex::utils {
 const cv::Mat &get_glasbey_lut() {
   static cv::Mat lut = [] {
     cv::Mat m(1, 256, CV_8UC3);
@@ -16,4 +16,4 @@ const cv::Mat &get_glasbey_lut() {
   }();
   return lut;
 }
-} // namespace ReUseX::utils
+} // namespace reusex::utils

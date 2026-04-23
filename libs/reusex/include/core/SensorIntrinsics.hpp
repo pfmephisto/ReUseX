@@ -7,7 +7,7 @@
 #include <array>
 #include <string>
 
-namespace ReUseX::core {
+namespace reusex::core {
 
 /// Lightweight camera intrinsics replacing rtabmap::CameraModel in downstream
 /// code. Stores pinhole parameters plus the 4x4 camera-to-base transform.
@@ -25,4 +25,4 @@ struct SensorIntrinsics {
   static SensorIntrinsics from_json(const std::string &json);
 };
 
-} // namespace ReUseX::core
+} // namespace reusex::core

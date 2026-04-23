@@ -8,7 +8,7 @@
 #include <Eigen/Core>
 #include <pcl/PolygonMesh.h>
 
-namespace ReUseX::geometry::cgal {
+namespace reusex::geometry::cgal {
 
 /// CGAL kernel for geometric computations
 using K = CGAL::Simple_cartesian<double>;
@@ -57,4 +57,4 @@ inline Eigen::Vector3d cgal_to_eigen(const Vector_3& v) {
                           CGAL::to_double(v.z()));
 }
 
-} // namespace ReUseX::geometry::cgal
+} // namespace reusex::geometry::cgal

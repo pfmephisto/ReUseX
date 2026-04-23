@@ -12,8 +12,8 @@
 #include <filesystem>
 #include <iostream>
 
-using namespace ReUseX;
-using namespace ReUseX::geometry;
+using namespace reusex;
+using namespace reusex::geometry;
 using Catch::Approx;
 
 namespace fs = std::filesystem;

@@ -9,12 +9,12 @@
 #include <unordered_set>
 #include <vector>
 
-namespace ReUseX {
+namespace reusex {
 // Forward declaration
 class ProjectDB;
-} // namespace ReUseX
+} // namespace reusex
 
-namespace ReUseX::core {
+namespace reusex::core {
 
 /// Base AST node for filter expressions
 class FilterNode {
@@ -153,4 +153,4 @@ auto parse_filter_expression(const std::string &expression, ProjectDB &db)
 auto evaluate_filter(const FilterExpression &expr, size_t cloud_size)
     -> IndicesPtr;
 
-} // namespace ReUseX::core
+} // namespace reusex::core

@@ -4,7 +4,7 @@
 
 #include "reusex/core/stages.hpp"
 
-namespace ReUseX::core {
+namespace reusex::core {
 
 std::string_view to_string(Stage stage) {
   switch (stage) {
@@ -43,4 +43,4 @@ std::string_view to_string(Stage stage) {
   }
 }
 
-} // namespace ReUseX::core
+} // namespace reusex::core

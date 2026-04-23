@@ -18,7 +18,7 @@
 
 #include <reusex/types.hpp>
 
-using namespace ReUseX;
+using namespace reusex;
 using Catch::Approx;
 using Catch::Matchers::WithinAbs;
 

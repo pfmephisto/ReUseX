@@ -11,7 +11,7 @@
 #include <sstream>
 #include <string>
 
-namespace ReUseX::core {
+namespace reusex::core {
 
 std::string SensorIntrinsics::to_json() const {
   std::string lt = "[";
@@ -80,4 +80,4 @@ SensorIntrinsics SensorIntrinsics::from_json(const std::string &json) {
   return si;
 }
 
-} // namespace ReUseX::core
+} // namespace reusex::core

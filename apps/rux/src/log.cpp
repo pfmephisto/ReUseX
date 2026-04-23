@@ -60,7 +60,7 @@ std::string calculate_duration(const std::string &start,
 
 // Format terminal output with execution history
 void format_terminal_output(
-    const std::vector<ReUseX::ProjectDB::PipelineLogEntry> &entries) {
+    const std::vector<reusex::ProjectDB::PipelineLogEntry> &entries) {
   if (entries.empty()) {
     fmt::print("No pipeline executions recorded.\n");
     return;
@@ -123,7 +123,7 @@ void format_terminal_output(
 
 // Format JSON output
 void format_json_output(
-    const std::vector<ReUseX::ProjectDB::PipelineLogEntry> &entries) {
+    const std::vector<reusex::ProjectDB::PipelineLogEntry> &entries) {
   json j = json::array();
 
   for (const auto &entry : entries) {
@@ -213,7 +213,7 @@ int run_subcommand_log(SubcommandLogOptions const &opt,
   try {
     fs::path project_path = global_opt.project_db;
     // Open project database in read-only mode
-    ReUseX::ProjectDB db(project_path, /* readOnly */ true);
+    reusex::ProjectDB db(project_path, /* readOnly */ true);
 
     // Get pipeline log entries
     auto entries = db.pipeline_log(opt.limit);

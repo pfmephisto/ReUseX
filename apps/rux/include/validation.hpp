@@ -28,18 +28,18 @@ struct ValidationResult {
 };
 
 // Validation functions for each create command
-ValidationResult validate_clouds_prerequisites(const ReUseX::ProjectDB &db);
-ValidationResult validate_planes_prerequisites(const ReUseX::ProjectDB &db);
-ValidationResult validate_rooms_prerequisites(const ReUseX::ProjectDB &db);
-ValidationResult validate_mesh_prerequisites(const ReUseX::ProjectDB &db);
-ValidationResult validate_texture_prerequisites(const ReUseX::ProjectDB &db);
-ValidationResult validate_project_prerequisites(const ReUseX::ProjectDB &db);
-ValidationResult validate_annotate_prerequisites(const ReUseX::ProjectDB &db);
+ValidationResult validate_clouds_prerequisites(const reusex::ProjectDB &db);
+ValidationResult validate_planes_prerequisites(const reusex::ProjectDB &db);
+ValidationResult validate_rooms_prerequisites(const reusex::ProjectDB &db);
+ValidationResult validate_mesh_prerequisites(const reusex::ProjectDB &db);
+ValidationResult validate_texture_prerequisites(const reusex::ProjectDB &db);
+ValidationResult validate_project_prerequisites(const reusex::ProjectDB &db);
+ValidationResult validate_annotate_prerequisites(const reusex::ProjectDB &db);
 ValidationResult
-validate_instances_prerequisites(const ReUseX::ProjectDB &db,
+validate_instances_prerequisites(const reusex::ProjectDB &db,
                                  const std::string &semantic_cloud_name);
 ValidationResult
-validate_window_prerequisites(const ReUseX::ProjectDB &db,
+validate_window_prerequisites(const reusex::ProjectDB &db,
                               const std::string &semantic_cloud_name);
 
 } // namespace rux::validation

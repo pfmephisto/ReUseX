@@ -240,13 +240,13 @@ class PCL_EXPORTS PlanarRegionGrowing : public PCLBase<PointT> {
    */
   void segment(const typename pcl::PointCloud<PointLT>::Ptr &labels) {
 
-    ReUseX::core::trace("Initializing segmentation class");
+    reusex::core::trace("Initializing segmentation class");
     if (!initCompute()) {
       deinitCompute();
       return;
     }
 
-    ReUseX::core::trace("Setting up the labels point cloud");
+    reusex::core::trace("Setting up the labels point cloud");
     // Check if the labels point cloud is empty
     if (labels->size() != input_->size())
       labels->resize(input_->size());
@@ -257,7 +257,7 @@ class PCL_EXPORTS PlanarRegionGrowing : public PCLBase<PointT> {
 
     labels_ = labels;
 
-    ReUseX::core::trace("Sorting indices");
+    reusex::core::trace("Sorting indices");
     std::sort(indices_->begin(), indices_->end(), [&](int i, int j) {
       return normals_->at(i).curvature < normals_->at(j).curvature;
     });
@@ -398,14 +398,14 @@ class PCL_EXPORTS PlanarRegionGrowing : public PCLBase<PointT> {
     inlier_indices_.clear();
     centroids_.clear();
 
-    ReUseX::core::debug("angular_threshold_: {}", angular_threshold_);
-    ReUseX::core::debug("distance_threshold_: {}", distance_threshold_);
-    ReUseX::core::debug(
+    reusex::core::debug("angular_threshold_: {}", angular_threshold_);
+    reusex::core::debug("distance_threshold_: {}", distance_threshold_);
+    reusex::core::debug(
         "search_parameter_: {} {}", search_parameter_,
         (search_parameter_ == k_ ? "k-nearest neighbors" : "radius"));
-    ReUseX::core::debug("initial_interval_: {}", initial_interval_);
-    ReUseX::core::debug("interval_factor_: {}", interval_factor_);
-    ReUseX::core::debug("min_inliers_: {}", min_inliers_);
+    reusex::core::debug("initial_interval_: {}", initial_interval_);
+    reusex::core::debug("interval_factor_: {}", interval_factor_);
+    reusex::core::debug("min_inliers_: {}", min_inliers_);
 
     return (true);
   }
@@ -414,8 +414,8 @@ class PCL_EXPORTS PlanarRegionGrowing : public PCLBase<PointT> {
    * them in point_neighbours_.
    */
   void findPointNeighbours() {
-    ReUseX::core::trace("findPointNeighbours() called");
-    ReUseX::core::stopwatch sw;
+    reusex::core::trace("findPointNeighbours() called");
+    reusex::core::stopwatch sw;
 
     point_neighbours_.clear();
     // BUG FIX: Resize to input_->size() not indices_->size() because we index
@@ -431,7 +431,7 @@ class PCL_EXPORTS PlanarRegionGrowing : public PCLBase<PointT> {
       std::swap(k_indices, point_neighbours_[index]);
     }
 
-    ReUseX::core::debug("Precompute neighbor indices took {}s", sw);
+    reusex::core::debug("Precompute neighbor indices took {}s", sw);
   }
 
   /** \brief Apply the region growing algorithm to segment the input cloud.
@@ -446,8 +446,8 @@ class PCL_EXPORTS PlanarRegionGrowing : public PCLBase<PointT> {
     size_t number_of_segments = 0;
 
     {
-      auto observer = ReUseX::core::ProgressObserver(
-          ReUseX::core::Stage::region_growing, indices_->size());
+      auto observer = reusex::core::ProgressObserver(
+          reusex::core::Stage::region_growing, indices_->size());
 
       while (segmented_pts_num < indices_->size()) {
         size_t pts_in_segment = 0;
@@ -549,24 +549,24 @@ class PCL_EXPORTS PlanarRegionGrowing : public PCLBase<PointT> {
    * This method will create a vector of inlier indices for each segment.
    */
   void assembleRegions() {
-    ReUseX::core::trace("assembleRegions() called");
+    reusex::core::trace("assembleRegions() called");
 
     const size_t number_of_segments = num_pts_in_segment_.size();
     const auto number_of_points = input_->size();
 
-    ReUseX::core::trace("Resizing inlier indices vector");
+    reusex::core::trace("Resizing inlier indices vector");
     inlier_indices_.resize(number_of_segments);
 
-    ReUseX::core::trace("Resizing inlier indices for each segment");
+    reusex::core::trace("Resizing inlier indices for each segment");
     for (std::size_t i_seg = 0; i_seg < number_of_segments; i_seg++) {
       inlier_indices_[i_seg] = IndicesPtr(new Indices);
       inlier_indices_[i_seg]->resize(num_pts_in_segment_[i_seg], 0);
     }
 
-    ReUseX::core::trace("Resizing counter vector");
+    reusex::core::trace("Resizing counter vector");
     std::vector<int> counter(number_of_segments, 0);
 
-    ReUseX::core::trace("Set inlier indices for each segment");
+    reusex::core::trace("Set inlier indices for each segment");
     for (std::size_t i_point = 0; i_point < number_of_points; i_point++) {
       if (labels_->points[i_point].label != 0) {
         const size_t seg_id =
@@ -584,8 +584,8 @@ class PCL_EXPORTS PlanarRegionGrowing : public PCLBase<PointT> {
    */
   void filterRegions() {
     // INFO: Filtering
-    ReUseX::core::trace("Filtering segments with minimum inliers");
-    ReUseX::core::debug("Number of segments before filtering: {}",
+    reusex::core::trace("Filtering segments with minimum inliers");
+    reusex::core::debug("Number of segments before filtering: {}",
                         inlier_indices_.size());
     std::vector<IndicesPtr> tmp_inlier_indices;
     tmp_inlier_indices.reserve(inlier_indices_.size());
@@ -593,12 +593,12 @@ class PCL_EXPORTS PlanarRegionGrowing : public PCLBase<PointT> {
       if (inlier_indices_[i]->size() >= min_inliers_)
         tmp_inlier_indices.push_back(inlier_indices_[i]);
     std::swap(inlier_indices_, tmp_inlier_indices);
-    ReUseX::core::debug("Number of segments after filtering: {}",
+    reusex::core::debug("Number of segments after filtering: {}",
                         inlier_indices_.size());
     // Clear num_pts_in_segment_ vector as it is no longer valid
     num_pts_in_segment_.clear();
 
-    // ReUseX::core::trace("Filter num_pts_in_segment_ based on min_inliers");
+    // reusex::core::trace("Filter num_pts_in_segment_ based on min_inliers");
     // std::vector<pcl::uindex_t> tmp_num_pts_in_segment;
     // tmp_num_pts_in_segment.reserve(num_pts_in_segment_.size());
     // for (size_t i = 0; i < num_pts_in_segment_.size(); ++i)
@@ -606,11 +606,11 @@ class PCL_EXPORTS PlanarRegionGrowing : public PCLBase<PointT> {
     //     tmp_num_pts_in_segment.push_back(num_pts_in_segment_[i]);
     // std::swap(num_pts_in_segment_, tmp_num_pts_in_segment);
 
-    ReUseX::core::trace("Reset all labels to 0");
+    reusex::core::trace("Reset all labels to 0");
     for (size_t i = 0; i < labels_->size(); ++i)
       labels_->points[i].label = 0;
 
-    ReUseX::core::trace("Renumbering segments");
+    reusex::core::trace("Renumbering segments");
     for (size_t i = 0; i < inlier_indices_.size(); ++i) {
       for (size_t j = 0; j < inlier_indices_[i]->size(); ++j) {
         labels_->points[inlier_indices_[i]->at(j)].label = i + 1;
@@ -622,7 +622,7 @@ class PCL_EXPORTS PlanarRegionGrowing : public PCLBase<PointT> {
    */
   void computeCentroidsAndCoefficients() {
     // INFO: Compute the centroids and model coefficients for each segment
-    ReUseX::core::trace(
+    reusex::core::trace(
         "Computing centroid and model coefficients for each segment");
     centroids_.resize(inlier_indices_.size(), Eigen::Vector4f::Zero());
     ModelCoefficients model_coefficients;

@@ -64,7 +64,7 @@ compute_grid_coverage(typename CGAL::Polygon_2<Kernel> const &polygon,
 
   return static_cast<double>(covered_cells) / total_cells;
 }
-namespace ReUseX::geometry {
+namespace reusex::geometry {
 template <typename PointT>
 auto CellComplex::compute_face_coverage(pcl::PointCloud<PointT>::ConstPtr cloud,
                                         EigenVectorContainer<double, 4> &planes,
@@ -80,15 +80,15 @@ auto CellComplex::compute_face_coverage(pcl::PointCloud<PointT>::ConstPtr cloud,
   using Point_2 = Polygon_2::Point_2;
 
   // INFO: Compute face probabilities
-  ReUseX::trace("calling compute_face_coverage");
+  reusex::trace("calling compute_face_coverage");
   auto f_sp =
       this->add_property_map<Vertex, double>("f:support_probability").first;
 
   {
-    auto observer = ReUseX::core::ProgressObserver(
-        ReUseX::core::Stage::computing_face_coverage, this->num_faces());
+    auto observer = reusex::core::ProgressObserver(
+        reusex::core::Stage::computing_face_coverage, this->num_faces());
 
-    std::vector<ReUseX::geometry::CellComplex::Vertex> face_list;
+    std::vector<reusex::geometry::CellComplex::Vertex> face_list;
     face_list.reserve(this->num_faces());
     for (auto fit = this->faces_begin(); fit != this->faces_end(); ++fit)
       face_list.push_back(*fit);
@@ -104,7 +104,7 @@ auto CellComplex::compute_face_coverage(pcl::PointCloud<PointT>::ConstPtr cloud,
 
       auto get_comverage = [&](const int id) {
         // if (id < 0) {
-        //   ReUseX::warn("Face {} has no associated plane",
+        //   reusex::warn("Face {} has no associated plane",
         //   (*this)[*fit].id); f_sp[*fit] = -1.0;
         //   ++observer;
         //   continue;
@@ -127,7 +127,7 @@ auto CellComplex::compute_face_coverage(pcl::PointCloud<PointT>::ConstPtr cloud,
                        });
 
         // if (!polygon.is_simple()) {
-        //   ReUseX::warn("Face {} polygon not is simple",
+        //   reusex::warn("Face {} polygon not is simple",
         //   (*this)[fit].id); f_sp[fit] = -1.0;
         //   ++observer;
         //   continue;
@@ -155,4 +155,4 @@ auto CellComplex::compute_face_coverage(pcl::PointCloud<PointT>::ConstPtr cloud,
     }
   }
 }
-} // namespace ReUseX::geometry
+} // namespace reusex::geometry

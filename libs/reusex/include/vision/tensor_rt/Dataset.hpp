@@ -3,7 +3,7 @@
 #include "reusex/vision/IDataset.hpp"
 #include "reusex/vision/tensor_rt/Data.hpp"
 
-namespace ReUseX::vision::tensor_rt {
+namespace reusex::vision::tensor_rt {
 /* TensorRTDataset is a dataset class that manages TensorRTData objects. It
  * inherits from IDataset and implements the get and save methods to handle
  * TensorRTData instances. This class allows for efficient storage and retrieval
@@ -31,4 +31,4 @@ class TensorRTDataset : public IDataset {
     private:
   bool class_map_saved_ = false;
 };
-} // namespace ReUseX::vision::tensor_rt
+} // namespace reusex::vision::tensor_rt

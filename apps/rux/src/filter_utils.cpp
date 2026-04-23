@@ -38,14 +38,14 @@ auto extract_cloud_names(const std::string &expr) -> std::vector<std::string> {
 
 } // anonymous namespace
 
-auto evaluate_filter(const std::string &filter_expr, ReUseX::ProjectDB &db,
-                     size_t expected_size) -> ReUseX::IndicesPtr {
+auto evaluate_filter(const std::string &filter_expr, reusex::ProjectDB &db,
+                     size_t expected_size) -> reusex::IndicesPtr {
   if (filter_expr.empty()) {
     return nullptr;
   }
 
   // Parse expression
-  auto expr = ReUseX::core::parse_filter_expression(filter_expr, db);
+  auto expr = reusex::core::parse_filter_expression(filter_expr, db);
 
   // Validate cloud size matches expected
   if (!expr->clouds.empty()) {
@@ -59,7 +59,7 @@ auto evaluate_filter(const std::string &filter_expr, ReUseX::ProjectDB &db,
   }
 
   // Evaluate filter
-  auto indices = ReUseX::core::evaluate_filter(*expr, expected_size);
+  auto indices = reusex::core::evaluate_filter(*expr, expected_size);
 
   // Log results
   spdlog::info("Filter '{}' matched {} points ({:.1f}% of cloud)", filter_expr,
@@ -124,7 +124,7 @@ auto validate_expression_syntax(const std::string &expr) -> ValidationResult {
   }
 }
 
-auto validate_clouds_exist(const std::string &expr, ReUseX::ProjectDB &db)
+auto validate_clouds_exist(const std::string &expr, reusex::ProjectDB &db)
     -> ValidationResult {
   auto cloud_names = extract_cloud_names(expr);
 
@@ -158,7 +158,7 @@ auto validate_clouds_exist(const std::string &expr, ReUseX::ProjectDB &db)
   return {true, "", ""};
 }
 
-auto validate_cloud_sizes(const std::string &expr, ReUseX::ProjectDB &db)
+auto validate_cloud_sizes(const std::string &expr, reusex::ProjectDB &db)
     -> ValidationResult {
   auto cloud_names = extract_cloud_names(expr);
 

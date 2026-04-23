@@ -4,7 +4,7 @@
 #include "vision/common/object.hpp"
 #include "vision/tensor_rt/common/check.hpp"
 
-namespace ReUseX::vision::common::object {
+namespace reusex::vision::common::object {
 
 static std::string ObjectTypeToString(ObjectType type) {
   switch (type) {
@@ -257,4 +257,4 @@ cv::Mat segment_map_to_mat(const std::shared_ptr<SegmentMap> &map) {
   return cv::Mat(map->height, map->width, CV_8UC1, map->data);
 }
 
-} // namespace ReUseX::vision::common::object
+} // namespace reusex::vision::common::object

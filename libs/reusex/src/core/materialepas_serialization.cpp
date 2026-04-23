@@ -13,7 +13,7 @@
 
 using json = nlohmann::json;
 
-namespace ReUseX::core::serialization {
+namespace reusex::core::serialization {
 
 // ===========================================================================
 // PropertyValue Implementation
@@ -105,7 +105,7 @@ void Deserializer::deserialize_tristate(void *ptr, const PropertyValue &value) {
   if (auto result = tri_state_from_string(str)) {
     *field = *result;
   } else {
-    ReUseX::warn("Unknown TriState value '{}', defaulting to 'unknown'", str);
+    reusex::warn("Unknown TriState value '{}', defaulting to 'unknown'", str);
     *field = TriState::unknown;
   }
 }
@@ -405,4 +405,4 @@ PropertyValue Serializer::serialize_object_array(
   throw std::runtime_error("Unknown nested object type for serialization");
 }
 
-} // namespace ReUseX::core::serialization
+} // namespace reusex::core::serialization

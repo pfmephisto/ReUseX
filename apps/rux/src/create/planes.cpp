@@ -124,7 +124,7 @@ int run_subcommand_segment_planes(SubcommandSegPlanesOptions const &opt, const R
   spdlog::info("Segmenting planes in project: {}", project_path.string());
 
   try {
-    ReUseX::ProjectDB db(project_path);
+    reusex::ProjectDB db(project_path);
 
     // Pre-flight validation: check for cloud and normals
     auto validation = rux::validation::validate_planes_prerequisites(db);
@@ -143,10 +143,10 @@ int run_subcommand_segment_planes(SubcommandSegPlanesOptions const &opt, const R
     auto cloud = db.point_cloud_xyzrgb("cloud");
     auto normals = db.point_cloud_normal("normals");
 
-    using namespace ReUseX::geometry;
+    using namespace reusex::geometry;
 
     // Build options struct
-    ReUseX::geometry::SegmentPlanesOptions options;
+    reusex::geometry::SegmentPlanesOptions options;
     options.angle_threshold = opt.angle_threshold;
     options.plane_dist_threshold = opt.plane_dist_threshold;
     options.min_inliers = opt.minInliers;
@@ -166,7 +166,7 @@ int run_subcommand_segment_planes(SubcommandSegPlanesOptions const &opt, const R
 
     spdlog::trace("Running plane segmentation algorithm");
     auto [labels, centroids, plane_normals] =
-        ReUseX::geometry::segment_planes(cloud, normals, options);
+        reusex::geometry::segment_planes(cloud, normals, options);
 
     spdlog::trace("Saving results to ProjectDB");
     db.save_point_cloud("planes", *labels, "segment_planes");

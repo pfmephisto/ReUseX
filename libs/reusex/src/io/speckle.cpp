@@ -17,7 +17,7 @@
 #include <sstream>
 #include <stdexcept>
 
-namespace ReUseX::io::speckle {
+namespace reusex::io::speckle {
 
 // ============================================================
 // Internal helpers
@@ -545,4 +545,4 @@ Mesh to_speckle(const Eigen::MatrixXd &vertices,
     return speckle_mesh;
 }
 
-} // namespace ReUseX::io::speckle
+} // namespace reusex::io::speckle

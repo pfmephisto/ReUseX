@@ -6,7 +6,7 @@
 
 #include <geometry/BuildingComponent.hpp>
 
-using namespace ReUseX::geometry;
+using namespace reusex::geometry;
 
 TEST_CASE("ComponentType to_string and from_string round-trip",
           "[geometry][building_component]") {

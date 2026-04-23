@@ -29,10 +29,10 @@ file(GLOB_RECURSE UNIT_TEST_SOURCES CONFIGURE_DEPENDS
 # -----------------------------------------------
 add_executable(reusex_unit_tests ${UNIT_TEST_SOURCES})
 
-# Link against ReUseX library and Catch2
+# Link against reusex library and Catch2
 target_link_libraries(reusex_unit_tests
     PRIVATE
-        ReUseX
+        reusex
         Catch2::Catch2WithMain
         fmt::fmt
         OpenSSL::Crypto
@@ -54,7 +54,7 @@ if(INTEGRATION_TEST_SOURCES)
     add_executable(reusex_integration_tests ${INTEGRATION_TEST_SOURCES})
     target_link_libraries(reusex_integration_tests
         PRIVATE
-            ReUseX
+            reusex
             Catch2::Catch2WithMain
             fmt::fmt
     )

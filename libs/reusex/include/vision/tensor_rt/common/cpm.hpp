@@ -9,7 +9,7 @@
 
 // Comsumer Producer Model
 
-namespace ReUseX::vision::tensor_rt::cpm {
+namespace reusex::vision::tensor_rt::cpm {
 
 template <typename Result, typename Input, typename Model> class Instance {
     protected:
@@ -153,4 +153,4 @@ template <typename Result, typename Input, typename Model> class Instance {
     return true;
   }
 };
-}; // namespace ReUseX::vision::tensor_rt::cpm
+}; // namespace reusex::vision::tensor_rt::cpm

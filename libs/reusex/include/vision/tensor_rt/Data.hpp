@@ -9,7 +9,7 @@
 #include <utility>
 #include <vector>
 
-namespace ReUseX::vision::tensor_rt {
+namespace reusex::vision::tensor_rt {
 
 /* TensorRTData is a struct that implements the IData interface and contains a
  * cv::Mat image. This struct is used to store the image data that will be
@@ -40,4 +40,4 @@ struct TensorRTData : IData {
 
   float confidence_threshold = 0.5f;
 };
-} // namespace ReUseX::vision::tensor_rt
+} // namespace reusex::vision::tensor_rt

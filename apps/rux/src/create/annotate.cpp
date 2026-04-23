@@ -73,7 +73,7 @@ int run_subcommand_annotate(SubcommandAnnotateOptions const &opt,
                             const RuxOptions &global_opt) {
   try {
     fs::path project_path = global_opt.project_db;
-    ReUseX::ProjectDB db(project_path);
+    reusex::ProjectDB db(project_path);
 
     // Pre-flight validation: check for sensor frames
     auto validation = rux::validation::validate_annotate_prerequisites(db);
@@ -83,7 +83,7 @@ int run_subcommand_annotate(SubcommandAnnotateOptions const &opt,
       return RuxError::INVALID_ARGUMENT;
     }
 
-    return ReUseX::vision::annotate(project_path, opt.net_path,
+    return reusex::vision::annotate(project_path, opt.net_path,
                                     opt.isCuda);
 
   } catch (const std::exception &e) {

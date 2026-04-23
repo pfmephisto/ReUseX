@@ -13,7 +13,7 @@
 #include <string>
 #include <vector>
 
-using namespace ReUseX::core;
+using namespace reusex::core;
 using json = nlohmann::json;
 
 // Helper: Create a fully-populated MaterialPassport for testing

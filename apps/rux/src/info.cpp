@@ -20,7 +20,7 @@ using json = nlohmann::json;
 namespace {
 
 // Format terminal output with detailed information
-void format_terminal_output(const ReUseX::ProjectDB::ProjectSummary &summary) {
+void format_terminal_output(const reusex::ProjectDB::ProjectSummary &summary) {
   // Enable thousand separators for numbers
   std::locale loc("");
 
@@ -158,7 +158,7 @@ void format_terminal_output(const ReUseX::ProjectDB::ProjectSummary &summary) {
 }
 
 // Format JSON output
-void format_json_output(const ReUseX::ProjectDB::ProjectSummary &summary) {
+void format_json_output(const reusex::ProjectDB::ProjectSummary &summary) {
   json j;
 
   j["project_path"] = summary.path.string();
@@ -285,7 +285,7 @@ int run_subcommand_info(SubcommandInfoOptions const &opt,
   try {
     fs::path project_path = global_opt.project_db;
     // Open project database in read-only mode
-    ReUseX::ProjectDB db(project_path, /* readOnly */ true);
+    reusex::ProjectDB db(project_path, /* readOnly */ true);
 
     // Get project summary
     auto summary = db.project_summary();

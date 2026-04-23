@@ -16,7 +16,7 @@
 
 #include <stdexcept>
 
-namespace ReUseX::geometry {
+namespace reusex::geometry {
 
 /**
  * @brief Calculate distance from a point to a plane.
@@ -152,4 +152,4 @@ auto compute_polygon_normal(const pcl::Vertices &poly, const CloudPtr &cloud)
   return normal;
 }
 
-} // namespace ReUseX::geometry
+} // namespace reusex::geometry

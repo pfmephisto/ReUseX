@@ -64,7 +64,7 @@ int run_subcommand_create_material(SubcommandCreateMaterialOptions const &opt, c
     fs::path project_path = global_opt.project_db;
 
     // 1. Generate blank template
-    nlohmann::json template_json = ReUseX::core::json_export::generate_blank_template();
+    nlohmann::json template_json = reusex::core::json_export::generate_blank_template();
 
     // 2. Override GUID if custom one was provided
     if (!opt.guid.empty()) {
@@ -75,10 +75,10 @@ int run_subcommand_create_material(SubcommandCreateMaterialOptions const &opt, c
 
     // 3. Save to project database
     // Parse JSON back to MaterialPassport
-    auto passport = ReUseX::core::json_import::from_json(template_json);
+    auto passport = reusex::core::json_import::from_json(template_json);
 
     // Open database (will create if doesn't exist) and save
-    ReUseX::ProjectDB db(project_path, /*readOnly=*/false);
+    reusex::ProjectDB db(project_path, /*readOnly=*/false);
     db.add_material_passport(passport, "");
 
     spdlog::info("Created material passport '{}' in project: {}",

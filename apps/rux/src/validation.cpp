@@ -7,7 +7,7 @@
 
 namespace rux::validation {
 
-ValidationResult validate_clouds_prerequisites(const ReUseX::ProjectDB &db) {
+ValidationResult validate_clouds_prerequisites(const reusex::ProjectDB &db) {
   auto frame_ids = db.sensor_frame_ids();
   if (frame_ids.empty()) {
     return ValidationResult::error(
@@ -19,7 +19,7 @@ ValidationResult validate_clouds_prerequisites(const ReUseX::ProjectDB &db) {
   return ValidationResult::ok();
 }
 
-ValidationResult validate_planes_prerequisites(const ReUseX::ProjectDB &db) {
+ValidationResult validate_planes_prerequisites(const reusex::ProjectDB &db) {
   std::vector<std::string> missing;
 
   if (!db.has_point_cloud("cloud"))
@@ -39,7 +39,7 @@ ValidationResult validate_planes_prerequisites(const ReUseX::ProjectDB &db) {
   return ValidationResult::ok();
 }
 
-ValidationResult validate_rooms_prerequisites(const ReUseX::ProjectDB &db) {
+ValidationResult validate_rooms_prerequisites(const reusex::ProjectDB &db) {
   std::vector<std::string> missing;
 
   if (!db.has_point_cloud("cloud"))
@@ -72,7 +72,7 @@ ValidationResult validate_rooms_prerequisites(const ReUseX::ProjectDB &db) {
   return ValidationResult::ok();
 }
 
-ValidationResult validate_mesh_prerequisites(const ReUseX::ProjectDB &db) {
+ValidationResult validate_mesh_prerequisites(const reusex::ProjectDB &db) {
   std::vector<std::string> missing;
 
   if (!db.has_point_cloud("cloud"))
@@ -140,7 +140,7 @@ ValidationResult validate_mesh_prerequisites(const ReUseX::ProjectDB &db) {
   return ValidationResult::ok();
 }
 
-ValidationResult validate_texture_prerequisites(const ReUseX::ProjectDB &db) {
+ValidationResult validate_texture_prerequisites(const reusex::ProjectDB &db) {
   std::vector<std::string> missing;
 
   if (!db.has_mesh("mesh"))
@@ -169,7 +169,7 @@ ValidationResult validate_texture_prerequisites(const ReUseX::ProjectDB &db) {
   return ValidationResult::ok();
 }
 
-ValidationResult validate_project_prerequisites(const ReUseX::ProjectDB &db) {
+ValidationResult validate_project_prerequisites(const reusex::ProjectDB &db) {
   std::vector<std::string> missing;
 
   if (!db.has_point_cloud("cloud"))
@@ -208,7 +208,7 @@ ValidationResult validate_project_prerequisites(const ReUseX::ProjectDB &db) {
   return ValidationResult::ok();
 }
 
-ValidationResult validate_annotate_prerequisites(const ReUseX::ProjectDB &db) {
+ValidationResult validate_annotate_prerequisites(const reusex::ProjectDB &db) {
   auto frame_ids = db.sensor_frame_ids();
   if (frame_ids.empty()) {
     return ValidationResult::error(
@@ -221,7 +221,7 @@ ValidationResult validate_annotate_prerequisites(const ReUseX::ProjectDB &db) {
 }
 
 ValidationResult
-validate_instances_prerequisites(const ReUseX::ProjectDB &db,
+validate_instances_prerequisites(const reusex::ProjectDB &db,
                                  const std::string &semantic_cloud_name) {
 
   std::vector<std::string> missing;
@@ -269,7 +269,7 @@ validate_instances_prerequisites(const ReUseX::ProjectDB &db,
   return ValidationResult::ok();
 }
 ValidationResult
-validate_window_prerequisites(const ReUseX::ProjectDB &db,
+validate_window_prerequisites(const reusex::ProjectDB &db,
                               const std::string &semantic_cloud_name) {
   std::vector<std::string> missing;
 

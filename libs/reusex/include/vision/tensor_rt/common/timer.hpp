@@ -2,7 +2,7 @@
 #include "reusex/core/logging.hpp"
 #include "reusex/vision/tensor_rt/common/check.hpp"
 
-namespace ReUseX::vision::tensor_rt::nv {
+namespace reusex::vision::tensor_rt::nv {
 
 class EventTimer {
     public:
@@ -26,7 +26,7 @@ class EventTimer {
     checkRuntime(cudaEventRecord(end_, stream_));
     checkRuntime(cudaEventSynchronize(end_));
     checkRuntime(cudaEventElapsedTime(&times, begin_, end_));
-    ReUseX::info("[⏰ {}] : {:.5f} ms", prefix, times);
+    reusex::info("[⏰ {}] : {:.5f} ms", prefix, times);
     return times;
   }
 
@@ -35,4 +35,4 @@ class EventTimer {
   cudaEvent_t begin_ = nullptr, end_ = nullptr;
 };
 
-}; // namespace ReUseX::vision::tensor_rt::nv
+}; // namespace reusex::vision::tensor_rt::nv

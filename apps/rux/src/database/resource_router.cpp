@@ -13,7 +13,7 @@
 
 namespace rux::database {
 
-RouterRegistry::RouterRegistry(std::shared_ptr<ReUseX::ProjectDB> db)
+RouterRegistry::RouterRegistry(std::shared_ptr<reusex::ProjectDB> db)
     : db_(db) {
   // Register routers for each collection type
   routers_["clouds"] = std::make_unique<CloudRouter>(db);

@@ -20,7 +20,7 @@
 #include <fmt/color.h>
 #include <fmt/std.h>
 
-namespace ReUseX::geometry {
+namespace reusex::geometry {
 
 namespace {
 
@@ -73,7 +73,7 @@ pcl::PolygonMeshPtr mesh(CloudConstPtr cloud, CloudNConstPtr normals,
   if (opt.filter) {
     std::unordered_set<int> filtered_set(opt.filter->begin(),
                                          opt.filter->end());
-    ReUseX::debug("Mesh generation using {} filtered points",
+    reusex::debug("Mesh generation using {} filtered points",
                         opt.filter->size());
 
     // Filter each inlier list to only include filtered indices
@@ -89,8 +89,8 @@ pcl::PolygonMeshPtr mesh(CloudConstPtr cloud, CloudNConstPtr normals,
     }
   }
 
-  auto observer = ReUseX::core::get_visual_observer();
-  constexpr auto stage = ReUseX::core::Stage::mesh_generation;
+  auto observer = reusex::core::get_visual_observer();
+  constexpr auto stage = reusex::core::Stage::mesh_generation;
 
   observer->viewer_add_geometry("input_cloud", cloud, stage);
 
@@ -98,27 +98,27 @@ pcl::PolygonMeshPtr mesh(CloudConstPtr cloud, CloudNConstPtr normals,
 
   std::tie(planes, inliers, centroids) =
       merge_planes(planes, inliers, centroids, cloud);
-  ReUseX::debug("Number of planes after merging: {}", planes.size());
+  reusex::debug("Number of planes after merging: {}", planes.size());
 
   planes = force_orthogonal_planes(planes);
-  ReUseX::debug("Number of planes after forcing orthogonality: {}",
+  reusex::debug("Number of planes after forcing orthogonality: {}",
                       planes.size());
 
   auto pairs = make_pairs(planes, inliers, centroids, opt.search_threshold,
                           opt.new_plane_offset);
-  ReUseX::debug("Number of plane pairs: {}", pairs.size());
+  reusex::debug("Number of plane pairs: {}", pairs.size());
 
   auto [vertical, horizontal] = separate_planes(planes);
-  ReUseX::debug(
+  reusex::debug(
       "Number indices in inliers [{}]",
       fmt::join(inliers | ranges::views::transform(
                               [](auto const &i) { return i->size(); }),
                 ", "));
-  ReUseX::debug("Number of horizonal planes: {}", horizontal.size());
-  ReUseX::debug("Number of vertical planes: {}", vertical.size());
+  reusex::debug("Number of horizonal planes: {}", horizontal.size());
+  reusex::debug("Number of vertical planes: {}", vertical.size());
 
-  ReUseX::debug("Vertical planes [{}]", fmt::join(vertical, ", "));
-  ReUseX::debug("Horizontal planes [{}]", fmt::join(horizontal, ", "));
+  reusex::debug("Vertical planes [{}]", fmt::join(vertical, ", "));
+  reusex::debug("Horizontal planes [{}]", fmt::join(horizontal, ", "));
 
   auto sel = [&](size_t idx) {
     return std::make_pair(planes[idx], centroids[idx]);
@@ -151,7 +151,7 @@ pcl::PolygonMeshPtr mesh(CloudConstPtr cloud, CloudNConstPtr normals,
       std::array<double, 2>{min.x - 1, min.y - 1},
       std::array<double, 2>{max.x + 1, max.y + 1}, std::nullopt);
 
-  ReUseX::debug("Cell complex: {}", *cc);
+  reusex::debug("Cell complex: {}", *cc);
 
   // INFO: Display cell complex
   // if (viewer)
@@ -169,14 +169,14 @@ pcl::PolygonMeshPtr mesh(CloudConstPtr cloud, CloudNConstPtr normals,
   observer->viewer_add_geometry("cell_complex", *cc, stage);
   //   viewer->addRoomProbabilities(cc, "room_probablilites", vps->at(2));
 
-  ReUseX::debug("Cell complex: {}", *cc);
+  reusex::debug("Cell complex: {}", *cc);
 
-  ReUseX::trace("Initializing Solidifier");
-  ReUseX::geometry::Solidifier solidifier(cc);
+  reusex::trace("Initializing Solidifier");
+  reusex::geometry::Solidifier solidifier(cc);
   auto results = solidifier.solve();
 
   if (!results)
-    ReUseX::warn("Solidification failed to find a solution");
+    reusex::warn("Solidification failed to find a solution");
 
   // INFO: Display results
   if (results.has_value())
@@ -193,4 +193,4 @@ pcl::PolygonMeshPtr mesh(CloudConstPtr cloud, CloudNConstPtr normals,
   // Fallback: return empty mesh when solidification fails
   return pcl::PolygonMeshPtr(new pcl::PolygonMesh());
 }
-} // namespace ReUseX::geometry
+} // namespace reusex::geometry

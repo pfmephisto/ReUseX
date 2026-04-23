@@ -12,7 +12,7 @@
 using Catch::Matchers::WithinAbs;
 
 TEST_CASE("getPlanes extracts plane data from point clouds", "[io][reusex]") {
-  using namespace ReUseX;
+  using namespace reusex;
 
   // Create minimal test clouds - getPlanes expects per-plane data, not per-point labels
   CloudLPtr planes(new CloudL);
@@ -39,7 +39,7 @@ TEST_CASE("getPlanes extracts plane data from point clouds", "[io][reusex]") {
   planes->points[1].label = 2;
 
   auto [plane_normals, plane_centroids, plane_indices] =
-      ReUseX::io::getPlanes(planes, normals, locations);
+      reusex::io::getPlanes(planes, normals, locations);
 
   // Should have 2 planes
   REQUIRE(plane_normals.size() == 2);
@@ -56,7 +56,7 @@ TEST_CASE("getPlanes extracts plane data from point clouds", "[io][reusex]") {
 }
 
 TEST_CASE("save and read plane data round-trip", "[io][reusex]") {
-  using namespace ReUseX;
+  using namespace reusex;
 
   // Create test data in the format expected by save()
   std::vector<pcl::ModelCoefficients> model_coefficients;
@@ -80,7 +80,7 @@ TEST_CASE("save and read plane data round-trip", "[io][reusex]") {
 
   // Save to temp file
   std::filesystem::path temp_path = std::filesystem::temp_directory_path() / "test_planes.planes";
-  bool save_result = ReUseX::io::save(temp_path, model_coefficients, centroids, inlier_indices);
+  bool save_result = reusex::io::save(temp_path, model_coefficients, centroids, inlier_indices);
   REQUIRE(save_result);
 
   // Verify file exists
@@ -91,7 +91,7 @@ TEST_CASE("save and read plane data round-trip", "[io][reusex]") {
   std::vector<Eigen::Vector4f, Eigen::aligned_allocator<Eigen::Vector4f>> read_centroids;
   std::vector<IndicesPtr> read_indices;
 
-  bool read_result = ReUseX::io::read(temp_path, read_model_coefficients, read_centroids, read_indices);
+  bool read_result = reusex::io::read(temp_path, read_model_coefficients, read_centroids, read_indices);
   REQUIRE(read_result);
 
   // Verify round-trip
@@ -118,7 +118,7 @@ TEST_CASE("save and read plane data round-trip", "[io][reusex]") {
 }
 
 TEST_CASE("getPlanes handles empty cloud", "[io][reusex]") {
-  using namespace ReUseX;
+  using namespace reusex;
 
   CloudLPtr planes(new CloudL);
   CloudNPtr normals(new CloudN);
@@ -126,7 +126,7 @@ TEST_CASE("getPlanes handles empty cloud", "[io][reusex]") {
 
   // Empty clouds
   auto [plane_normals, plane_centroids, plane_indices] =
-      ReUseX::io::getPlanes(planes, normals, locations);
+      reusex::io::getPlanes(planes, normals, locations);
 
   REQUIRE(plane_normals.empty());
   REQUIRE(plane_centroids.empty());
@@ -134,7 +134,7 @@ TEST_CASE("getPlanes handles empty cloud", "[io][reusex]") {
 }
 
 TEST_CASE("read handles non-existent file", "[io][reusex]") {
-  using namespace ReUseX;
+  using namespace reusex;
 
   std::vector<pcl::ModelCoefficients> model_coefficients;
   std::vector<Eigen::Vector4f, Eigen::aligned_allocator<Eigen::Vector4f>> centroids;
@@ -142,7 +142,7 @@ TEST_CASE("read handles non-existent file", "[io][reusex]") {
 
   // Try to read a file that doesn't exist
   // Note: Current implementation may return true but leave vectors empty
-  [[maybe_unused]] auto success = ReUseX::io::read("/tmp/nonexistent_planes_file_12345.planes",
+  [[maybe_unused]] auto success = reusex::io::read("/tmp/nonexistent_planes_file_12345.planes",
                    model_coefficients, centroids, inlier_indices);
 
   // Verify vectors are empty (no data loaded)

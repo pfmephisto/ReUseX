@@ -9,7 +9,7 @@
 #include <string_view>
 #include <utility>
 
-namespace ReUseX::core {
+namespace reusex::core {
 
 // ===========================================================================
 // Material
@@ -248,4 +248,4 @@ auto transaction_type_from_string(std::string_view str)
   return std::nullopt;
 }
 
-} // namespace ReUseX::core
+} // namespace reusex::core

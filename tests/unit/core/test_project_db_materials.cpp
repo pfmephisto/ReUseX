@@ -10,8 +10,8 @@
 #include <filesystem>
 #include <iostream>
 
-using namespace ReUseX;
-using ReUseX::core::MaterialPassport;
+using namespace reusex;
+using reusex::core::MaterialPassport;
 
 namespace fs = std::filesystem;
 

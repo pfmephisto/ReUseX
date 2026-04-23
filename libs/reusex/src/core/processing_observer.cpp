@@ -7,7 +7,7 @@
 
 #include <atomic>
 
-namespace ReUseX::core {
+namespace reusex::core {
 namespace {
 // Global observer pointer. ReUseX does not own this object; callers must ensure
 // the observer outlives all in-flight processing that may read it. Acquire/
@@ -53,4 +53,4 @@ void ProgressObserver::update(size_t progress) {
     observer->on_process_updated(stage_, progress);
 };
 
-} // namespace ReUseX::core
+} // namespace reusex::core

@@ -7,7 +7,7 @@
 #include <pcl/point_types.h>
 #include <pcl/conversions.h>
 
-namespace ReUseX::geometry::cgal {
+namespace reusex::geometry::cgal {
 
 Mesh pcl_to_cgal_mesh(const pcl::PolygonMesh& pcl_mesh) {
     Mesh mesh;
@@ -72,4 +72,4 @@ pcl::PolygonMesh cgal_to_pcl_mesh(const Mesh& cgal_mesh) {
     return pcl_mesh;
 }
 
-} // namespace ReUseX::geometry::cgal
+} // namespace reusex::geometry::cgal

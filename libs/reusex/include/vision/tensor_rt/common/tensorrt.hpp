@@ -4,7 +4,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace ReUseX::vision::tensor_rt::TensorRT {
+namespace reusex::vision::tensor_rt::TensorRT {
 
 enum class DType : int {
   FLOAT = 0,
@@ -46,4 +46,4 @@ class Engine {
 };
 
 std::shared_ptr<Engine> load(const std::string &file);
-}; // namespace ReUseX::vision::tensor_rt::TensorRT
+}; // namespace reusex::vision::tensor_rt::TensorRT

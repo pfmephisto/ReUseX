@@ -14,9 +14,9 @@
 #include <string>
 
 using json = nlohmann::json;
-using namespace ReUseX::core::traits;
+using namespace reusex::core::traits;
 
-namespace ReUseX::core::json_export {
+namespace reusex::core::json_export {
 
 // ===========================================================================
 // Section Registry (JSON template order)
@@ -610,4 +610,4 @@ json generate_blank_template() {
   return to_json(blank);
 }
 
-} // namespace ReUseX::core::json_export
+} // namespace reusex::core::json_export

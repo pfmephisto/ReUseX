@@ -13,7 +13,7 @@
 
 #include <map>
 
-namespace ReUseX::geometry {
+namespace reusex::geometry {
 
 /// Camera data for texture mapping
 struct CameraData {
@@ -35,4 +35,4 @@ texture_mesh(pcl::PolygonMesh::Ptr mesh,
 pcl::TextureMesh::Ptr
 texture_mesh(pcl::PolygonMesh::Ptr mesh,
              std::map<int, CameraData> const &cameras);
-} // namespace ReUseX::geometry
+} // namespace reusex::geometry

@@ -4,7 +4,7 @@
 
 #include <filesystem>
 
-namespace ReUseX::vision {
+namespace reusex::vision {
 
 enum class Model { yolo, sam3 };
 
@@ -36,4 +36,4 @@ class IMLBackend {
   virtual std::unique_ptr<IDataset>
   create_dataset(const std::filesystem::path &datasetPath) = 0;
 };
-} // namespace ReUseX::vision
+} // namespace reusex::vision

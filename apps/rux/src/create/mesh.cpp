@@ -119,7 +119,7 @@ int run_subcommand_mesh(SubcommandMeshOptions const &opt, const RuxOptions &glob
   observer.viewer_request_viewports(4);
 
   try {
-    ReUseX::ProjectDB db(project_path);
+    reusex::ProjectDB db(project_path);
 
     // Pre-flight validation: comprehensive check for all prerequisites
     // This resolves the TODO comment from lines 101-107
@@ -147,9 +147,9 @@ int run_subcommand_mesh(SubcommandMeshOptions const &opt, const RuxOptions &glob
 
     spdlog::trace("Processing plane data");
     auto [planes, centroids, inliers] =
-        ReUseX::io::getPlanes(plane_labels, plane_normals, plane_centroids);
+        reusex::io::getPlanes(plane_labels, plane_normals, plane_centroids);
 
-    ReUseX::geometry::MeshOptions options;
+    reusex::geometry::MeshOptions options;
     options.search_threshold = opt.search_threshold;
     options.new_plane_offset = opt.new_plane_offset;
 
@@ -164,7 +164,7 @@ int run_subcommand_mesh(SubcommandMeshOptions const &opt, const RuxOptions &glob
     }
 
     spdlog::trace("Generating mesh geometry");
-    pcl::PolygonMeshPtr mesh = ReUseX::geometry::mesh(
+    pcl::PolygonMeshPtr mesh = reusex::geometry::mesh(
         cloud, normals, planes, centroids, inliers, rooms, options);
 
     spdlog::trace("Saving mesh to ProjectDB");

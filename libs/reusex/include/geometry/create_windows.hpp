@@ -13,7 +13,7 @@
 #include <map>
 #include <vector>
 
-namespace ReUseX::geometry {
+namespace reusex::geometry {
 
 /// A connected component of approximately-vertical, coplanar mesh faces.
 struct WallCandidate {
@@ -75,4 +75,4 @@ create_windows(CloudConstPtr cloud, CloudLConstPtr instance_labels,
                const std::vector<uint32_t> &window_semantic_labels,
                const CreateWindowsOptions &options = {});
 
-} // namespace ReUseX::geometry
+} // namespace reusex::geometry

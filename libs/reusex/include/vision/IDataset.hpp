@@ -12,11 +12,11 @@
 #include <vector>
 
 // Forward declaration
-namespace ReUseX {
+namespace reusex {
 class ProjectDB;
 }
 
-namespace ReUseX::vision {
+namespace reusex::vision {
 /* Interface for datasets. A dataset is a collection of data samples, where each
  * sample consists of an image and a label. The dataset is stored in a SQLite
  * database, where each sample is stored as a row in a table. The table has the
@@ -154,4 +154,4 @@ class IDataset {
    */
   std::vector<int> ids_;
 };
-} // namespace ReUseX::vision
+} // namespace reusex::vision

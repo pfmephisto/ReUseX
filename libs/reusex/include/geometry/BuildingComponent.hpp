@@ -11,7 +11,7 @@
 #include <string_view>
 #include <variant>
 
-namespace ReUseX::geometry {
+namespace reusex::geometry {
 
 /// Discriminator for building component types.
 enum class ComponentType { window, door, wall };
@@ -49,12 +49,12 @@ std::string component_data_to_json(const BuildingComponent &c);
 /// Deserialize JSON TEXT into the variant data on a BuildingComponent.
 void component_data_from_json(BuildingComponent &c, const std::string &json);
 
-} // namespace ReUseX::geometry
+} // namespace reusex::geometry
 
 template <>
-struct fmt::formatter<ReUseX::geometry::BuildingComponent>
+struct fmt::formatter<reusex::geometry::BuildingComponent>
     : fmt::formatter<std::string_view> {
-  auto format(ReUseX::geometry::BuildingComponent value,
+  auto format(reusex::geometry::BuildingComponent value,
               format_context &ctx) const -> format_context::iterator {
     return fmt::format_to(ctx.out(), "{} ({} vertices)", value.name,
                           value.boundary.vertices.size());

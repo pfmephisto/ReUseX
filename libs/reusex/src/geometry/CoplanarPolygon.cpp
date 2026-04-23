@@ -8,7 +8,7 @@
 #include <limits>
 #include <stdexcept>
 
-namespace ReUseX::geometry {
+namespace reusex::geometry {
 
 double CoplanarPolygon::area() const {
   if (vertices.size() < 3)
@@ -95,4 +95,4 @@ CoplanarPolygon::deserialize_vertices(const void *data, size_t size) {
   return verts;
 }
 
-} // namespace ReUseX::geometry
+} // namespace reusex::geometry

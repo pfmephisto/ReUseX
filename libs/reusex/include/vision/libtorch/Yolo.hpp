@@ -14,7 +14,7 @@
 #include <span>
 #include <vector>
 
-namespace ReUseX::vision::libtorch {
+namespace reusex::vision::libtorch {
 
 /** @brief YOLO instance segmentation model using LibTorch (TorchScript).
  *
@@ -61,4 +61,4 @@ class LibTorchYolo : public IModel {
   torch::Device device_;
 };
 
-} // namespace ReUseX::vision::libtorch
+} // namespace reusex::vision::libtorch

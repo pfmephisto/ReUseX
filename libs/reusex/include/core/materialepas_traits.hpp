@@ -8,7 +8,7 @@
 #include <array>
 #include <cstddef>
 
-namespace ReUseX::core::traits {
+namespace reusex::core::traits {
 
 /**
  * @brief Property metadata descriptor
@@ -140,7 +140,7 @@ constexpr PropertyDescriptor make_nested_property(
 
 } // namespace detail
 
-} // namespace ReUseX::core::traits
+} // namespace reusex::core::traits
 
 // ===========================================================================
 // Include types before specializations
@@ -148,21 +148,21 @@ constexpr PropertyDescriptor make_nested_property(
 
 #include "materialepas_types.hpp"
 
-namespace ReUseX::core::traits {
+namespace reusex::core::traits {
 
 // Bring types into scope for convenience
-using ::ReUseX::core::Owner;
-using ::ReUseX::core::ConstructionItemDescription;
-using ::ReUseX::core::ProductInformation;
-using ::ReUseX::core::Certifications;
-using ::ReUseX::core::Dimensions;
-using ::ReUseX::core::Condition;
-using ::ReUseX::core::DangerousSubstance;
-using ::ReUseX::core::Emission;
-using ::ReUseX::core::Pollution;
-using ::ReUseX::core::EnvironmentalPotential;
-using ::ReUseX::core::FireProperties;
-using ::ReUseX::core::History;
+using ::reusex::core::Owner;
+using ::reusex::core::ConstructionItemDescription;
+using ::reusex::core::ProductInformation;
+using ::reusex::core::Certifications;
+using ::reusex::core::Dimensions;
+using ::reusex::core::Condition;
+using ::reusex::core::DangerousSubstance;
+using ::reusex::core::Emission;
+using ::reusex::core::Pollution;
+using ::reusex::core::EnvironmentalPotential;
+using ::reusex::core::FireProperties;
+using ::reusex::core::History;
 
 // ===========================================================================
 // Template Specializations
@@ -729,4 +729,4 @@ struct PropertyTraits<History> {
   }
 };
 
-} // namespace ReUseX::core::traits
+} // namespace reusex::core::traits

@@ -35,13 +35,13 @@
 
 using namespace rtabmap;
 
-namespace ReUseX::vision {
+namespace reusex::vision {
 
 namespace {
 
 /// @brief Create an rtabmap::CameraModel from ProjectDB SensorIntrinsics
 inline rtabmap::CameraModel
-createCameraModelFromIntrinsics(const ReUseX::core::SensorIntrinsics &intrinsics,
+createCameraModelFromIntrinsics(const reusex::core::SensorIntrinsics &intrinsics,
                                  const cv::Size &targetSize) {
   // Build 3x3 intrinsic matrix K
   cv::Mat K = cv::Mat::eye(3, 3, CV_64F);
@@ -90,7 +90,7 @@ createCameraModelFromIntrinsics(const ReUseX::core::SensorIntrinsics &intrinsics
 } // namespace
 
 auto project(ProjectDB &db, CloudConstPtr cloud) -> CloudLPtr {
-  ReUseX::trace("calling project");
+  reusex::trace("calling project");
 
   // auto viewer =
   //     std::make_shared<pcl::visualization::PCLVisualizer>("3D Viewer");
@@ -105,10 +105,10 @@ auto project(ProjectDB &db, CloudConstPtr cloud) -> CloudLPtr {
   labels->height = cloud->height;
   labels->is_dense = cloud->is_dense;
 
-  ReUseX::info("Loading sensor frames from ProjectDB ...");
-  ReUseX::core::stopwatch timer;
+  reusex::info("Loading sensor frames from ProjectDB ...");
+  reusex::core::stopwatch timer;
   auto frameIds = db.sensor_frame_ids();
-  ReUseX::debug("Loaded {} sensor frames in {:.3f}s", frameIds.size(), timer);
+  reusex::debug("Loaded {} sensor frames in {:.3f}s", frameIds.size(), timer);
   timer.reset();
 
   // viewer->addPointCloud<Cloud::PointType>(cloud, "input_cloud");
@@ -134,16 +134,16 @@ auto project(ProjectDB &db, CloudConstPtr cloud) -> CloudLPtr {
    */
 
   {
-    auto observer = std::make_shared<ReUseX::core::ProgressObserver>(
-        ReUseX::core::Stage::projecting_labels, frameIds.size());
+    auto observer = std::make_shared<reusex::core::ProgressObserver>(
+        reusex::core::Stage::projecting_labels, frameIds.size());
     for (size_t i = 0; i < frameIds.size(); ++i) {
       int id = frameIds[i];
-      ReUseX::trace("Processing node {}/{}", i + 1, frameIds.size());
+      reusex::trace("Processing node {}/{}", i + 1, frameIds.size());
 
       // --- Fetch label image
       cv::Mat labeledImage = db.segmentation_image(id); // CV_32S
       if (labeledImage.empty()) {
-        ReUseX::warn("No segmentation for node {}, skipping", id);
+        reusex::warn("No segmentation for node {}, skipping", id);
         ++(*observer);
         continue;
       }
@@ -197,14 +197,14 @@ auto project(ProjectDB &db, CloudConstPtr cloud) -> CloudLPtr {
       // fc.setHorizontalFOV(static_cast<float>(fovXdeg));
 
       {
-        auto visual_observer = ReUseX::core::get_visual_observer();
+        auto visual_observer = reusex::core::get_visual_observer();
         auto camera_pose =
             (pose * cm.localTransform().inverse()).toEigen3f();
         visual_observer->viewer_add_camera_frustum(
             fmt::format("camera_{}", id), cm.fx(), cm.fy(),
             cm.imageSize().width, cm.imageSize().height,
             Eigen::Affine3f(camera_pose),
-            ReUseX::core::Stage::projecting_labels, static_cast<int>(i));
+            reusex::core::Stage::projecting_labels, static_cast<int>(i));
       }
 
       pcl::Indices indices;
@@ -238,7 +238,7 @@ auto project(ProjectDB &db, CloudConstPtr cloud) -> CloudLPtr {
       cv::Mat zbuffer = rtabmap::util3d::projectCloudToCamera(
           cm.imageSize() /*labeledImage.size()*/, cm.K_raw(), cloud_lf, t_cam);
 
-      ReUseX::trace("Filling Z-buffer holes for node {}", id);
+      reusex::trace("Filling Z-buffer holes for node {}", id);
       // rtabmap::util2d::fillDepthHoles(zbuffer, 1, 0.50f);
       // rtabmap::util2d::fillRegisteredDepthHoles(zbuffer, true, false, false);
       rtabmap::util3d::fillProjectedCloudHoles(zbuffer, true, true);
@@ -275,7 +275,7 @@ auto project(ProjectDB &db, CloudConstPtr cloud) -> CloudLPtr {
       // Scale camera model to match label image resolution
       cm = createCameraModelFromIntrinsics(intrinsics, labeledImage.size());
       {
-        ReUseX::trace("Assigning labels for node {}", id);
+        reusex::trace("Assigning labels for node {}", id);
         // Assign labels to the points in the point cloud
         auto fx = cm.fx();
         auto fy = cm.fy();
@@ -327,9 +327,9 @@ auto project(ProjectDB &db, CloudConstPtr cloud) -> CloudLPtr {
     }
   }
 
-  ReUseX::info("Projection completed in {:.3f}s", timer);
+  reusex::info("Projection completed in {:.3f}s", timer);
 
   return labels;
 }
 
-} // namespace ReUseX::vision
+} // namespace reusex::vision

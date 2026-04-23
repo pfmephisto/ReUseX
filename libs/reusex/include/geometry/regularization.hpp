@@ -66,7 +66,7 @@ template <typename Kernel, typename PointT> struct point_map {
   };
 };
 
-namespace ReUseX::geometry {
+namespace reusex::geometry {
 template <typename Scalar> using Plane = Eigen::Matrix<Scalar, 4, 1>;
 
 template <typename Scalar>
@@ -79,7 +79,7 @@ auto regularizePlanes(PlaneVector<Scalar> &planes,
                       std::vector<pcl::IndicesPtr> &inliers,
                       double angle_threshold = 25.0,
                       double distance_threshold = 0.01) {
-  ReUseX::trace(
+  reusex::trace(
       "Regularizing planes with threshold: {} degrees and {} distance",
       angle_threshold, distance_threshold);
 
@@ -120,4 +120,4 @@ auto regularizePlanes(PlaneVector<Scalar> &planes,
 
   return planes;
 }
-} // namespace ReUseX::geometry
+} // namespace reusex::geometry

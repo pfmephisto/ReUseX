@@ -11,9 +11,9 @@ include(GNUInstallDirs)
 # -----------------------------------------------
 # Install library (if target exists)
 # -----------------------------------------------
-if(TARGET ReUseX)
-    install(TARGETS ReUseX
-        EXPORT ReUseXTargets
+if(TARGET reusex)
+    install(TARGETS reusex
+        EXPORT reusexTargets
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -55,10 +55,10 @@ install(DIRECTORY ${CMAKE_BINARY_DIR}/generated/
 # -----------------------------------------------
 # Export targets
 # -----------------------------------------------
-install(EXPORT ReUseXTargets
-    FILE ReUseXTargets.cmake
-    NAMESPACE ReUseX::
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/ReUseX
+install(EXPORT reusexTargets
+    FILE reusexTargets.cmake
+    NAMESPACE reusex::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/reusex
 )
 
 # -----------------------------------------------
@@ -67,21 +67,21 @@ install(EXPORT ReUseXTargets
 include(CMakePackageConfigHelpers)
 
 write_basic_package_version_file(
-    ${CMAKE_CURRENT_BINARY_DIR}/ReUseXConfigVersion.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/reusexConfigVersion.cmake
     VERSION ${PROJECT_VERSION}
     COMPATIBILITY SameMajorVersion
 )
 
 configure_package_config_file(
-    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/ReUseXConfig.cmake.in
-    ${CMAKE_CURRENT_BINARY_DIR}/ReUseXConfig.cmake
-    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/ReUseX
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/reusexConfig.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/reusexConfig.cmake
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/reusex
 )
 
 install(FILES
-    ${CMAKE_CURRENT_BINARY_DIR}/ReUseXConfig.cmake
-    ${CMAKE_CURRENT_BINARY_DIR}/ReUseXConfigVersion.cmake
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/ReUseX
+    ${CMAKE_CURRENT_BINARY_DIR}/reusexConfig.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/reusexConfigVersion.cmake
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/reusex
 )
 
 message(STATUS "Installation configured to ${CMAKE_INSTALL_PREFIX}")

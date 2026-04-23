@@ -7,7 +7,7 @@
 #include <optional>
 #include <string_view>
 
-namespace ReUseX::core::traits {
+namespace reusex::core::traits {
 
 /**
  * @brief Property type enumeration for MaterialPassport serialization
@@ -103,4 +103,4 @@ property_type_from_string(std::string_view str) noexcept {
   return std::nullopt;
 }
 
-} // namespace ReUseX::core::traits
+} // namespace reusex::core::traits

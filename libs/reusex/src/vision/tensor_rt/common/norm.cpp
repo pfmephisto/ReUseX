@@ -2,7 +2,7 @@
 #include <memory>
 #include "vision/tensor_rt/common/norm.hpp"
 
-namespace ReUseX::vision::tensor_rt::norm_image {
+namespace reusex::vision::tensor_rt::norm_image {
 
 Norm Norm::mean_std(const float mean[3], const float std[3], float alpha,
                     ChannelType channel_type) {
@@ -26,4 +26,4 @@ Norm Norm::alpha_beta(float alpha, float beta, ChannelType channel_type) {
 
 Norm Norm::None() { return Norm(); }
 
-} // namespace ReUseX::vision::tensor_rt::norm_image
+} // namespace reusex::vision::tensor_rt::norm_image

@@ -8,7 +8,7 @@
 #include <stdexcept>
 #include <unordered_set>
 
-namespace ReUseX::geometry {
+namespace reusex::geometry {
 /**
  * @brief Implementation of room segmentation using community detection.
  *
@@ -27,7 +27,7 @@ auto segment_rooms_impl(CloudConstPtr cloud, CloudNConstPtr normals,
                         const SegmentRoomsOptions &options) -> CloudLPtr {
 
   if (options.cancel_token != nullptr && options.cancel_token->load()) {
-    ReUseX::warn(
+    reusex::warn(
         "segment_rooms: cancellation requested before execution.");
     throw std::runtime_error("Room segmentation cancelled.");
   }
@@ -36,7 +36,7 @@ auto segment_rooms_impl(CloudConstPtr cloud, CloudNConstPtr normals,
   std::unordered_set<int> filtered_indices_set;
   if (options.filter) {
     filtered_indices_set.insert(options.filter->begin(), options.filter->end());
-    ReUseX::debug("Room segmentation using {} filtered points",
+    reusex::debug("Room segmentation using {} filtered points",
                         options.filter->size());
   }
 
@@ -82,20 +82,20 @@ auto segment_rooms_impl(CloudConstPtr cloud, CloudNConstPtr normals,
   cc.setInputNormals(normals);
   cc.setIndices(indices);
 
-  ReUseX::trace("Initialize labels and copy xyzrgb data to labels");
+  reusex::trace("Initialize labels and copy xyzrgb data to labels");
   CloudLPtr labels(new CloudL);
   pcl::copyPointCloud(*cloud, *labels);
   for (size_t i = 0; i < labels->points.size(); ++i)
     labels->points[i].label = -1;
 
   cc.cluster(*labels);
-  ReUseX::trace("Done clustering");
+  reusex::trace("Done clustering");
 
   // Assign the label to all points
   pcl::KdTreeFLANN<PointT> kdtree;
   kdtree.setInputCloud(cloud, indices);
   IndicesPtr missing_indices(new Indices);
-  ReUseX::trace("Resizing missing indices to size {}, cloud size: {}, "
+  reusex::trace("Resizing missing indices to size {}, cloud size: {}, "
                       "indices size: {}",
                       cloud->points.size() - indices->size(),
                       cloud->points.size(), indices->size());
@@ -122,7 +122,7 @@ auto segment_rooms_impl(CloudConstPtr cloud, CloudNConstPtr normals,
     }
   }
 
-  ReUseX::info("Number of clusters found: {}", cc.getNumClusters());
+  reusex::info("Number of clusters found: {}", cc.getNumClusters());
 
   return labels;
 }
@@ -132,4 +132,4 @@ auto segment_rooms(CloudConstPtr cloud, CloudNConstPtr normals,
     -> CloudLPtr {
   return segment_rooms_impl(cloud, normals, planes, options);
 }
-} // namespace ReUseX::geometry
+} // namespace reusex::geometry

@@ -5,11 +5,11 @@
 #pragma once
 #include "reusex/types.hpp"
 
-namespace ReUseX {
+namespace reusex {
 class ProjectDB;
 }
 
-namespace ReUseX::vision {
+namespace reusex::vision {
 /**
  * @brief Project the labels stored in the database on tho the assebled point
  * cloud.
@@ -19,4 +19,4 @@ namespace ReUseX::vision {
  * point cloud.
  */
 auto project(ProjectDB &db, CloudConstPtr cloud) -> CloudLPtr;
-} // namespace ReUseX::vision
+} // namespace reusex::vision

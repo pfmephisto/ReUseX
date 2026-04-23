@@ -9,7 +9,7 @@
 #include <string>
 #include <fmt/format.h>
 
-namespace ReUseX::vision::tensor_rt::nv {
+namespace reusex::vision::tensor_rt::nv {
 
 #define NVUNUSED2(a, b)                                                        \
   {                                                                            \
@@ -23,22 +23,22 @@ namespace ReUseX::vision::tensor_rt::nv {
 
 #if DEBUG
 #define checkRuntime(call)                                                     \
-  ReUseX::vision::tensor_rt::nv::check_runtime(call, #call, __LINE__, __FILE__)
+  reusex::vision::tensor_rt::nv::check_runtime(call, #call, __LINE__, __FILE__)
 #define checkKernel(...)                                                       \
   [&] {                                                                        \
     __VA_ARGS__;                                                               \
     checkRuntime(cudaStreamSynchronize(nullptr));                              \
-    return ReUseX::vision::tensor_rt::nv::check_runtime(                       \
+    return reusex::vision::tensor_rt::nv::check_runtime(                       \
         cudaGetLastError(), #__VA_ARGS__, __LINE__, __FILE__);                 \
   }()
 #define dprintf printf
 #else
 #define checkRuntime(call)                                                     \
-  ReUseX::vision::tensor_rt::nv::check_runtime(call, #call, __LINE__, __FILE__)
+  reusex::vision::tensor_rt::nv::check_runtime(call, #call, __LINE__, __FILE__)
 #define checkKernel(...)                                                       \
   do {                                                                         \
     __VA_ARGS__;                                                               \
-    ReUseX::vision::tensor_rt::nv::check_runtime(                              \
+    reusex::vision::tensor_rt::nv::check_runtime(                              \
         cudaPeekAtLastError(), #__VA_ARGS__, __LINE__, __FILE__);              \
   } while (false)
 #define dprintf(...)
@@ -88,16 +88,16 @@ static inline bool check_runtime(cudaError_t e, const char *call, int line,
   return true;
 }
 
-}; // namespace ReUseX::vision::tensor_rt::nv
+}; // namespace reusex::vision::tensor_rt::nv
 
-namespace ReUseX::vision::tensor_rt {
+namespace reusex::vision::tensor_rt {
 
 template <typename... Args>
 inline void Assertf(bool cond, const char *fmt, Args &&...args) {
   if (!cond) {
     const auto formattedMessage =
         fmt::format(fmt::runtime(fmt), std::forward<Args>(args)...);
-    ReUseX::error(
+    reusex::error(
         "Assert failed 💀. in file {}:{}, message: {}",
         __FILE__, __LINE__, formattedMessage);
     abort();
@@ -106,7 +106,7 @@ inline void Assertf(bool cond, const char *fmt, Args &&...args) {
 
 constexpr void Asserts(bool cond, const char *s) {
   if (!cond) {
-    ReUseX::error("Assert failed 💀. in file {}:{}, message: {}",
+    reusex::error("Assert failed 💀. in file {}:{}, message: {}",
                         __FILE__, __LINE__, s);
     abort();
   }
@@ -114,8 +114,8 @@ constexpr void Asserts(bool cond, const char *s) {
 
 constexpr void Assert(bool cond) {
   if (!cond) {
-    ReUseX::error("Assert failed 💀. in file {}:{}", __FILE__, __LINE__);
+    reusex::error("Assert failed 💀. in file {}:{}", __FILE__, __LINE__);
     abort();
   }
 }
-} // namespace ReUseX::vision::tensor_rt
+} // namespace reusex::vision::tensor_rt

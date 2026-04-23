@@ -165,7 +165,7 @@ void PassportRouter::set(const std::vector<PathComponent> &components,
                                std::string(e.what()));
     }
 
-    auto passport = ReUseX::core::json_import::from_json(json_data);
+    auto passport = reusex::core::json_import::from_json(json_data);
     passport.metadata.document_guid = guid;
     db_->add_material_passport(passport, "");
     spdlog::info("Saved material passport '{}'", guid);

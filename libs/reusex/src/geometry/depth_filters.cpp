@@ -7,14 +7,14 @@
 
 #include <opencv2/imgproc.hpp>
 
-namespace ReUseX::geometry {
+namespace reusex::geometry {
 
 void apply_depth_discontinuity_filter(cv::Mat &depth, cv::Mat &confidence,
                                       float gradient_threshold) {
   if (depth.empty() || depth.channels() != 1)
     return;
 
-  ReUseX::trace("Applying depth discontinuity filter (threshold={})",
+  reusex::trace("Applying depth discontinuity filter (threshold={})",
                        gradient_threshold);
 
   cv::Mat depth_float;
@@ -35,7 +35,7 @@ void apply_depth_discontinuity_filter(cv::Mat &depth, cv::Mat &confidence,
     confidence.setTo(0, ~valid_mask);
 
   int removed = cv::countNonZero(~valid_mask);
-  ReUseX::debug(
+  reusex::debug(
       "Depth discontinuity filter removed {} / {} pixels ({:.1f}%)", removed,
       depth.total(), 100.0 * removed / depth.total());
 }
@@ -45,7 +45,7 @@ void apply_ray_consistency_filter(cv::Mat &depth, cv::Mat &confidence,
   if (depth.empty() || depth.channels() != 1)
     return;
 
-  ReUseX::trace("Applying ray consistency filter (threshold={})",
+  reusex::trace("Applying ray consistency filter (threshold={})",
                        consistency_threshold);
 
   cv::Mat depth_float;
@@ -71,9 +71,9 @@ void apply_ray_consistency_filter(cv::Mat &depth, cv::Mat &confidence,
     confidence.setTo(0, ~valid_mask);
 
   int removed = cv::countNonZero(~valid_mask);
-  ReUseX::debug(
+  reusex::debug(
       "Ray consistency filter removed {} / {} pixels ({:.1f}%)", removed,
       depth.total(), 100.0 * removed / depth.total());
 }
 
-} // namespace ReUseX::geometry
+} // namespace reusex::geometry

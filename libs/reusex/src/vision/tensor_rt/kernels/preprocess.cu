@@ -6,7 +6,7 @@ __global__ void warp_affine_bilinear_and_normalize_plane_kernel(
     uint8_t *src, int src_line_size, int src_width, int src_height, float *dst,
     int dst_width, int dst_height, uint8_t const_value_st,
     float *warp_affine_matrix_2_3,
-    ReUseX::vision::tensor_rt::norm_image::Norm norm) {
+    reusex::vision::tensor_rt::norm_image::Norm norm) {
   int dx = blockDim.x * blockIdx.x + threadIdx.x;
   int dy = blockDim.y * blockIdx.y + threadIdx.y;
   if (dx >= dst_width || dy >= dst_height)
@@ -67,18 +67,18 @@ __global__ void warp_affine_bilinear_and_normalize_plane_kernel(
   }
 
   if (norm.channel_type ==
-      ReUseX::vision::tensor_rt::norm_image::ChannelType::SwapRB) {
+      reusex::vision::tensor_rt::norm_image::ChannelType::SwapRB) {
     float t = c2;
     c2 = c0;
     c0 = t;
   }
 
-  if (norm.type == ReUseX::vision::tensor_rt::norm_image::NormType::MeanStd) {
+  if (norm.type == reusex::vision::tensor_rt::norm_image::NormType::MeanStd) {
     c0 = (c0 * norm.alpha - norm.mean[0]) / norm.std[0];
     c1 = (c1 * norm.alpha - norm.mean[1]) / norm.std[1];
     c2 = (c2 * norm.alpha - norm.mean[2]) / norm.std[2];
   } else if (norm.type ==
-             ReUseX::vision::tensor_rt::norm_image::NormType::AlphaBeta) {
+             reusex::vision::tensor_rt::norm_image::NormType::AlphaBeta) {
     c0 = c0 * norm.alpha + norm.beta;
     c1 = c1 * norm.alpha + norm.beta;
     c2 = c2 * norm.alpha + norm.beta;

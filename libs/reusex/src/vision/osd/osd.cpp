@@ -91,7 +91,7 @@ std::tuple<uint8_t, uint8_t, uint8_t> random_color(const std::string &label) {
 }
 
 void overlay_mask(cv::Mat &image, const cv::Mat &mask,
-                  const ::ReUseX::vision::common::object::Box &box,
+                  const ::reusex::vision::common::object::Box &box,
                   const cv::Scalar &color, double alpha) {
   if (image.empty() || mask.empty())
     return;
@@ -191,15 +191,15 @@ std::filesystem::path getFontPath() {
 }
 
 // Lazy initialization - only create text renderer when first used
-static ReUseX::vision::osd::CvxText &getTextRenderer() {
-  static std::unique_ptr<ReUseX::vision::osd::CvxText> text_renderer;
+static reusex::vision::osd::CvxText &getTextRenderer() {
+  static std::unique_ptr<reusex::vision::osd::CvxText> text_renderer;
   static std::once_flag init_flag;
 
   std::call_once(init_flag, []() {
     try {
       auto font_path = getFontPath();
       if (!font_path.empty()) {
-        text_renderer = std::make_unique<ReUseX::vision::osd::CvxText>(
+        text_renderer = std::make_unique<reusex::vision::osd::CvxText>(
             font_path.string().c_str());
       }
     } catch (const std::exception &e) {
@@ -220,7 +220,7 @@ static ReUseX::vision::osd::CvxText &getTextRenderer() {
 
 } // namespace
 
-namespace ReUseX::vision::osd {
+namespace reusex::vision::osd {
 
 void drawBaseInfoGeometry(cv::Mat &img, const common::object::DetectionBox &box,
                           const cv::Scalar &color, int thickness) {
@@ -345,7 +345,7 @@ static int calculateDynamicFontSize(int img_w, int img_h,
 
 void make_labled_image(cv::Mat &img,
                        const common::object::DetectionBoxArray &boxes) {
-  ReUseX::debug("OSD called with {} boxes", boxes.size());
+  reusex::debug("OSD called with {} boxes", boxes.size());
   for (const auto &box : boxes) {
     if (!box.segmentation || box.segmentation->mask.empty())
       return;
@@ -360,7 +360,7 @@ void make_labled_image(cv::Mat &img,
     cv::Mat image_roi = img(roi);
     cv::Mat resized_mask;
     cv::resize(box.segmentation->mask, resized_mask, roi.size());
-    ReUseX::debug("Class Id: {}, Class Name: {}", box.class_id,
+    reusex::debug("Class Id: {}, Class Name: {}", box.class_id,
                         box.class_name);
     cv::Mat color_patch(roi.size(), img.type(), box.class_id);
     color_patch.copyTo(image_roi, resized_mask);
@@ -369,7 +369,7 @@ void make_labled_image(cv::Mat &img,
 
 void osd(cv::Mat &img, const common::object::DetectionBoxArray &boxes,
          bool osd_rect, double font_scale_ratio) {
-  ReUseX::debug(
+  reusex::debug(
       "OSD called with {} boxes, osd_rect={}, font_scale_ratio={}",
       boxes.size(), osd_rect, font_scale_ratio);
 
@@ -491,4 +491,4 @@ void osd(cv::Mat &img, const std::tuple<float, float> &position,
       font_size);
 }
 
-} // namespace ReUseX::vision::osd
+} // namespace reusex::vision::osd

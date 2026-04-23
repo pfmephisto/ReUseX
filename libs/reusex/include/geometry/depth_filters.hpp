@@ -6,7 +6,7 @@
 
 #include <opencv2/core/mat.hpp>
 
-namespace ReUseX::geometry {
+namespace reusex::geometry {
 
 /// Remove "flying pixels" at depth discontinuity edges.
 ///
@@ -33,4 +33,4 @@ void apply_depth_discontinuity_filter(cv::Mat &depth, cv::Mat &confidence,
 void apply_ray_consistency_filter(cv::Mat &depth, cv::Mat &confidence,
                                   float consistency_threshold = 0.2f);
 
-} // namespace ReUseX::geometry
+} // namespace reusex::geometry

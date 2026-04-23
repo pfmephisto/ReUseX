@@ -8,8 +8,8 @@
 
 #include <random>
 
-using namespace ReUseX;
-using namespace ReUseX::geometry;
+using namespace reusex;
+using namespace reusex::geometry;
 
 // Helper: Create a cloud with points clustered around specified centers
 static CloudPtr create_clustered_cloud(

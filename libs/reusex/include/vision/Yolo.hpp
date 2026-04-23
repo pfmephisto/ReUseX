@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-namespace ReUseX::vision {
+namespace reusex::vision {
 
 /**
  * @brief YOLO v8 class names for object detection.
@@ -15,4 +15,4 @@ namespace ReUseX::vision {
  */
 extern std::vector<std::string> Yolov8_className;
 
-} // namespace ReUseX::vision
+} // namespace reusex::vision

@@ -1,7 +1,7 @@
 #pragma once
 #include "opencv2/opencv.hpp"
 
-namespace ReUseX::vision::common::tensor {
+namespace reusex::vision::common::tensor {
 
 /// @brief Lightweight, non-owning view of a BGR image buffer.
 ///
@@ -28,4 +28,4 @@ struct Image {
 /// @return An Image pointing at the Mat's data buffer.
 Image cvimg(const cv::Mat &image);
 
-} // namespace ReUseX::vision::common::tensor
+} // namespace reusex::vision::common::tensor

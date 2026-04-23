@@ -11,7 +11,7 @@
 #include <filesystem>
 #include <string>
 
-using namespace ReUseX::core;
+using namespace reusex::core;
 using namespace Catch::Matchers;
 
 // Helper function: Create a fully-populated MaterialPassport for testing
@@ -293,7 +293,7 @@ TEST_CASE("MaterialPassport database round-trip", "[core][serialization][databas
     SECTION("Write and read back passport") {
         // 3. Create database and write passport
         {
-            ReUseX::ProjectDB db(temp_db, false);  // false = write mode
+            reusex::ProjectDB db(temp_db, false);  // false = write mode
             REQUIRE(db.is_open());
 
             db.add_material_passport(original, "test-project-001");
@@ -306,7 +306,7 @@ TEST_CASE("MaterialPassport database round-trip", "[core][serialization][databas
         // 4. Reopen database and read passport back
         MaterialPassport retrieved;
         {
-            ReUseX::ProjectDB db(temp_db, true);  // true = read-only mode
+            reusex::ProjectDB db(temp_db, true);  // true = read-only mode
             REQUIRE(db.is_open());
 
             retrieved = db.material_passport(original.metadata.document_guid);
@@ -332,12 +332,12 @@ TEST_CASE("ProjectDB handles empty passport", "[core][serialization][database]")
     empty_passport.metadata.document_guid = "empty-guid-001";
 
     {
-        ReUseX::ProjectDB db(temp_db, false);
+        reusex::ProjectDB db(temp_db, false);
         db.add_material_passport(empty_passport, "test-project");
     }
 
     {
-        ReUseX::ProjectDB db(temp_db, true);
+        reusex::ProjectDB db(temp_db, true);
         auto retrieved = db.material_passport("empty-guid-001");
 
         // Verify default/empty values preserved
@@ -358,12 +358,12 @@ TEST_CASE("ProjectDB read non-existent passport throws", "[core][serialization][
     }
 
     {
-        ReUseX::ProjectDB db(temp_db, false);
+        reusex::ProjectDB db(temp_db, false);
         // Create empty database
     }
 
     {
-        ReUseX::ProjectDB db(temp_db, true);
+        reusex::ProjectDB db(temp_db, true);
         REQUIRE_THROWS_AS(
             db.material_passport("non-existent-guid"),
             std::runtime_error
@@ -396,7 +396,7 @@ TEST_CASE("ProjectDB handles multiple passports", "[core][serialization][databas
 
     // Write all three passports
     {
-        ReUseX::ProjectDB db(temp_db, false);
+        reusex::ProjectDB db(temp_db, false);
 
         db.add_material_passport(passport1, "project-A");
         db.add_material_passport(passport2, "project-B");
@@ -405,7 +405,7 @@ TEST_CASE("ProjectDB handles multiple passports", "[core][serialization][databas
 
     // Read them back and verify
     {
-        ReUseX::ProjectDB db(temp_db, true);
+        reusex::ProjectDB db(temp_db, true);
 
         auto retrieved1 = db.material_passport("passport-001");
         auto retrieved2 = db.material_passport("passport-002");

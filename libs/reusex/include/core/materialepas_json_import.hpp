@@ -11,7 +11,7 @@
 #include <string_view>
 #include <vector>
 
-namespace ReUseX::core::json_import {
+namespace reusex::core::json_import {
 
 /**
  * @brief Import a single MaterialPassport from a JSON object.
@@ -51,4 +51,4 @@ from_json_array(const nlohmann::json &j);
 [[nodiscard]] std::vector<MaterialPassport>
 from_json_string(std::string_view json_str);
 
-} // namespace ReUseX::core::json_import
+} // namespace reusex::core::json_import

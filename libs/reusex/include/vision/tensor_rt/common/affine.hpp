@@ -2,7 +2,7 @@
 #include <algorithm>
 #include <tuple>
 
-namespace ReUseX::vision::tensor_rt::affine {
+namespace reusex::vision::tensor_rt::affine {
 
 struct CropResizeMatrix {
   float i2d[6]; // image to dst(network), 2x3 matrix
@@ -123,4 +123,4 @@ struct LetterBoxMatrix {
   }
 };
 
-} // namespace ReUseX::vision::tensor_rt::affine
+} // namespace reusex::vision::tensor_rt::affine

@@ -12,7 +12,7 @@
 #include <utility>
 #include <vector>
 
-namespace ReUseX {
+namespace reusex {
 
 using PointT = pcl::PointXYZRGB;
 using NormalT = pcl::Normal;
@@ -47,4 +47,4 @@ using EigenVectorContainer =
 using Pair = std::pair<Eigen::Vector4d, Eigen::Vector3d>;
 using PlanePair = std::pair<Pair, Pair>;
 
-} // namespace ReUseX
+} // namespace reusex

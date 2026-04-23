@@ -26,7 +26,7 @@
 #include <string>
 #include <vector>
 
-namespace ReUseX::geometry {
+namespace reusex::geometry {
 
 enum class SceneNodeType { point_cluster, plane, object };
 
@@ -189,9 +189,9 @@ class SceneGraph
    */
   void segment_rooms();
 };
-} // namespace ReUseX::geometry
+} // namespace reusex::geometry
 
-template <> struct fmt::formatter<ReUseX::geometry::SceneGraph> {
+template <> struct fmt::formatter<reusex::geometry::SceneGraph> {
   // Parse function (optional)
   template <typename ParseContext> constexpr auto parse(ParseContext &ctx) {
     return ctx.begin();
@@ -199,7 +199,7 @@ template <> struct fmt::formatter<ReUseX::geometry::SceneGraph> {
 
   // Format function
   template <typename FormatContext>
-  auto format(const ReUseX::geometry::SceneGraph &obj,
+  auto format(const reusex::geometry::SceneGraph &obj,
               FormatContext &ctx) const {
     return fmt::format_to(ctx.out(), "SceneGraph");
   }

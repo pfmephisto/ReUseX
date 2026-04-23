@@ -107,7 +107,7 @@ int run_subcommand_create_windows(SubcommandWindowOptions const &opt,
     fs::path project_path = global_opt.project_db;
     spdlog::info("Create windows in project: {}", project_path.string());
 
-    ReUseX::ProjectDB db(project_path);
+    reusex::ProjectDB db(project_path);
 
     // Pre-flight validation
     auto validation = rux::validation::validate_window_prerequisites(
@@ -191,7 +191,7 @@ int run_subcommand_create_windows(SubcommandWindowOptions const &opt,
     // Clear existing windows if requested
     if (opt.clear_existing) {
       auto existing_windows =
-          db.list_building_components(ReUseX::geometry::ComponentType::window);
+          db.list_building_components(reusex::geometry::ComponentType::window);
 
       if (!existing_windows.empty()) {
         spdlog::info("Clearing {} existing window components",
@@ -206,17 +206,17 @@ int run_subcommand_create_windows(SubcommandWindowOptions const &opt,
     }
 
     // Configure options
-    ReUseX::geometry::CreateWindowsOptions create_opts;
+    reusex::geometry::CreateWindowsOptions create_opts;
     create_opts.mode = (opt.mode == "poly")
-                           ? ReUseX::geometry::WindowBoundaryMode::polyline
-                           : ReUseX::geometry::WindowBoundaryMode::rectangle;
+                           ? reusex::geometry::WindowBoundaryMode::polyline
+                           : reusex::geometry::WindowBoundaryMode::rectangle;
     create_opts.wall_offset = opt.wall_offset;
     create_opts.alpha = opt.alpha;
     create_opts.include_internal = opt.include_internal;
 
     // Create windows
     spdlog::info("Creating window components...");
-    auto result = ReUseX::geometry::create_windows(cloud, instance_labels,
+    auto result = reusex::geometry::create_windows(cloud, instance_labels,
                                                    instance_to_semantic, *mesh,
                                                    window_labels, create_opts);
 

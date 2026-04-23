@@ -17,7 +17,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace ReUseX::vision::onnx {
+namespace reusex::vision::onnx {
 
 /// @brief SAM3 segmentation model using ONNX Runtime for CPU/GPU inference.
 ///
@@ -103,4 +103,4 @@ class ONNXSam3 : public IModel {
   Ort::MemoryInfo memory_info_;
 };
 
-} // namespace ReUseX::vision::onnx
+} // namespace reusex::vision::onnx

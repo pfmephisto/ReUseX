@@ -10,19 +10,19 @@
 
 #include <memory>
 
-namespace ReUseX::vision::onnx {
+namespace reusex::vision::onnx {
 
 std::unique_ptr<IModel>
 ONNXBackend::create_model(const Model type,
                           const std::filesystem::path &modelPath,
                           bool use_cuda) {
-  ReUseX::info("Creating ONNX Runtime model type {} from path: {}",
+  reusex::info("Creating ONNX Runtime model type {} from path: {}",
                      static_cast<int>(type), modelPath);
   switch (type) {
   case Model::sam3:
     return ONNXSam3::create(modelPath, use_cuda);
   default:
-    ReUseX::error("Unsupported model type for ONNX backend: {}",
+    reusex::error("Unsupported model type for ONNX backend: {}",
                         static_cast<int>(type));
     throw std::runtime_error("Unsupported model type for ONNX backend");
   }
@@ -30,8 +30,8 @@ ONNXBackend::create_model(const Model type,
 
 std::unique_ptr<IDataset>
 ONNXBackend::create_dataset(const std::filesystem::path &datasetPath) {
-  ReUseX::info("Creating ONNX dataset from path: {}", datasetPath);
+  reusex::info("Creating ONNX dataset from path: {}", datasetPath);
   return std::make_unique<ONNXSam3Dataset>(datasetPath);
 }
 
-} // namespace ReUseX::vision::onnx
+} // namespace reusex::vision::onnx

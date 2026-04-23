@@ -8,7 +8,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace ReUseX::vision::osd {
+namespace reusex::vision::osd {
 
 /// @brief Draw the base detection rectangle and label background for a single
 /// box.
@@ -127,4 +127,4 @@ void osd(cv::Mat &img, const std::tuple<float, float> &position,
          const std::string &text,
          const cv::Scalar &color = cv::Scalar(0, 255, 0), int font_size = 40);
 
-} // namespace ReUseX::vision::osd
+} // namespace reusex::vision::osd

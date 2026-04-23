@@ -15,7 +15,7 @@
 #include <string>
 #include <vector>
 
-namespace ReUseX::io::speckle {
+namespace reusex::io::speckle {
 
 // --- Speckle Object Model ---
 
@@ -126,4 +126,4 @@ Mesh to_speckle(const pcl::PolygonMesh &mesh);
 /// Convert Eigen vertex/face matrices (from Solidifier::toMesh) to a Speckle Mesh.
 Mesh to_speckle(const Eigen::MatrixXd &vertices, const Eigen::MatrixXi &faces);
 
-} // namespace ReUseX::io::speckle
+} // namespace reusex::io::speckle

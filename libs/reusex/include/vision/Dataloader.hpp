@@ -15,7 +15,7 @@
 #include <thread>
 #include <vector>
 
-namespace ReUseX::vision {
+namespace reusex::vision {
 
 /* * Dataloader is a class that provides an iterable interface to a dataset.
  * It loads batches of data from the dataset in a separate thread and provides
@@ -383,4 +383,4 @@ class Dataloader {
   size_t current_batch_idx_;
 };
 
-} // namespace ReUseX::vision
+} // namespace reusex::vision

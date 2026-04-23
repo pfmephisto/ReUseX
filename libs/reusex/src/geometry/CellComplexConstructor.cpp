@@ -19,11 +19,11 @@
 
 #include <map>
 
-using Vd = ReUseX::geometry::CellComplex::Vertex;
-using Fd = ReUseX::geometry::CellComplex::Vertex;
-using Cd = ReUseX::geometry::CellComplex::Vertex;
+using Vd = reusex::geometry::CellComplex::Vertex;
+using Fd = reusex::geometry::CellComplex::Vertex;
+using Cd = reusex::geometry::CellComplex::Vertex;
 
-namespace ReUseX::geometry {
+namespace reusex::geometry {
 CellComplex::CellComplex(
     std::vector<Eigen::Vector4d, Eigen::aligned_allocator<Eigen::Vector4d>>
         &planes_vec,
@@ -64,7 +64,7 @@ CellComplex::CellComplex(
   auto volumes = this->add_property_map<Cd, double>("c:volume").first;
   auto areas = this->add_property_map<Fd, double>("f:area").first;
 
-  ReUseX::trace("Constructing arrangement with {} vertical planes and "
+  reusex::trace("Constructing arrangement with {} vertical planes and "
                       "[({:.3f}),({:.3f})] bounding box",
                       verticals.size(), fmt::join(min_xy, ","),
                       fmt::join(max_xy, ","));
@@ -110,7 +110,7 @@ CellComplex::CellComplex(
 
   // Visualize arrangement
   if (viz_func) {
-    ReUseX::trace("Visualizing arrangement");
+    reusex::trace("Visualizing arrangement");
     size_t count = 0;
     for (auto fit = arr.faces_begin(); fit != arr.faces_end(); ++fit, ++count) {
       if (fit->is_unbounded())
@@ -148,18 +148,18 @@ CellComplex::CellComplex(
   //  const auto id = sorted_floors[i];
   //  const auto plane = planes[id];
   //  auto height = -plane.d() * plane.c();
-  //  ReUseX::trace("Horizontal plane {} at height {:.3f} ", i, height);
+  //  reusex::trace("Horizontal plane {} at height {:.3f} ", i, height);
   //}
 
   VertexMap point_map{};
-  ReUseX::trace("Initialize vertex map for {} floors",
+  reusex::trace("Initialize vertex map for {} floors",
                       sorted_floors.size());
   for (auto vit = arr.vertices_begin(); vit != arr.vertices_end(); ++vit) {
     point_map[vit] = std::vector<Vd>(sorted_floors.size());
   }
   // Initialize face map
   FaceMap face_map{};
-  ReUseX::trace("Initialize face map for {} floors",
+  reusex::trace("Initialize face map for {} floors",
                       sorted_floors.size());
   for (auto fit = arr.faces_begin(); fit != arr.faces_end(); ++fit) {
     if (fit->is_unbounded())
@@ -167,7 +167,7 @@ CellComplex::CellComplex(
     face_map[fit] = std::vector<Fd>(sorted_floors.size());
   }
 
-  ReUseX::trace("Create vertices");
+  reusex::trace("Create vertices");
   for (size_t i = 0; i < sorted_floors.size(); ++i) {
     const auto id = sorted_floors[i];
     const auto plane = planes[id];
@@ -180,7 +180,7 @@ CellComplex::CellComplex(
   }
 
   // Construct planar faces for each floor
-  ReUseX::trace("Create  horizontal faces");
+  reusex::trace("Create  horizontal faces");
   for (auto fit = arr.faces_begin(); fit != arr.faces_end(); ++fit) {
     if (fit->is_unbounded())
       continue;
@@ -224,7 +224,7 @@ CellComplex::CellComplex(
     }
   }
 
-  ReUseX::trace("Creating cells");
+  reusex::trace("Creating cells");
   for (size_t i = 0; i < sorted_floors.size() - 1; ++i) {
     const auto id1 = sorted_floors[i];
     const auto id2 = sorted_floors[i + 1];
@@ -234,7 +234,7 @@ CellComplex::CellComplex(
     const double h2 = CGAL::to_double(-plane2.d() * plane2.c());
     const double dist = h2 - h1;
     const double h = (h1 + h2) / 2.0;
-    ReUseX::trace("Horizontal section thickness is {:.3}", dist);
+    reusex::trace("Horizontal section thickness is {:.3}", dist);
 
     std::unordered_map<Arrangement::Halfedge_handle, Fd> face_cache{};
 
@@ -313,7 +313,7 @@ CellComplex::CellComplex(
   }
 
   // INFO: Assign wall ids to each cell
-  ReUseX::info("Assigning wall ids to each cell");
+  reusex::info("Assigning wall ids to each cell");
 
   auto toEigenPlane = [](const Plane_3 &plane) {
     return Eigen::Vector4d(
@@ -340,13 +340,13 @@ CellComplex::CellComplex(
   }
 
   // INFO: Set main cell for each face
-  ReUseX::info("Setting main cell for each face");
+  reusex::info("Setting main cell for each face");
   for (auto fit = this->faces_begin(); fit != this->faces_end(); ++fit) {
     // const auto face_id = (*this)[*fit].id;
     const auto plane_id = std::get<FaceData>((*this)[*fit].data).plane_id;
 
     if (plane_id < 0) {
-      ReUseX::warn("Face {} has no associated plane", (*this)[*fit].id);
+      reusex::warn("Face {} has no associated plane", (*this)[*fit].id);
       continue;
     }
 
@@ -365,7 +365,7 @@ CellComplex::CellComplex(
       if ((*this)[c].type != CellNodeType::cell)
         continue;
 
-      // ReUseX::trace("Face {} is adjacent to cell {}",
+      // reusex::trace("Face {} is adjacent to cell {}",
       //               (*this)[*fit].id,
       //               (*this)[c].id);
 
@@ -379,10 +379,10 @@ CellComplex::CellComplex(
       //                   ? fmt::format(fmt::fg(fmt::rgb(0, 255, 0)), "true")
       //                   : fmt::format(fmt::fg(fmt::rgb(255, 0, 0)),
       //                   "false");
-      // ReUseX::trace("Face {:<3} cell {:>3} is main {}",
+      // reusex::trace("Face {:<3} cell {:>3} is main {}",
       //               (*this)[*fit].id,
       //               (*this)[c].id, status);
     }
   }
 }
-} // namespace ReUseX::geometry
+} // namespace reusex::geometry

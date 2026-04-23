@@ -32,7 +32,7 @@
 #include <cstring>
 #include <unordered_map>
 
-namespace ReUseX::geometry {
+namespace reusex::geometry {
 
 namespace {
 
@@ -366,4 +366,4 @@ void reconstruct_point_clouds(ProjectDB &db,
              out_cloud->size(), out_normals->size(), out_labels->size());
 }
 
-} // namespace ReUseX::geometry
+} // namespace reusex::geometry

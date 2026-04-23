@@ -7,7 +7,7 @@
 #include <optional>
 #include <string_view>
 
-namespace ReUseX::core {
+namespace reusex::core {
 
 /** @brief Material types from the Danish material passport standard (v1.0).
  *
@@ -250,4 +250,4 @@ enum class TransactionType {
 [[nodiscard]] auto transaction_type_from_string(std::string_view str)
     -> std::optional<TransactionType>;
 
-} // namespace ReUseX::core
+} // namespace reusex::core

@@ -123,7 +123,7 @@ int run_subcommand_segment_rooms(SubcommandSegRoomsOptions const &opt, const Rux
   spdlog::info("Segmenting rooms in project: {}", project_path.string());
 
   try {
-    ReUseX::ProjectDB db(project_path);
+    reusex::ProjectDB db(project_path);
 
     // Pre-flight validation: check for planes prerequisites
     auto validation = rux::validation::validate_rooms_prerequisites(db);
@@ -177,10 +177,10 @@ int run_subcommand_segment_rooms(SubcommandSegRoomsOptions const &opt, const Rux
     }
 
     spdlog::trace("Running room segmentation algorithm");
-    using namespace ReUseX::geometry;
+    using namespace reusex::geometry;
 
     // Build options struct
-    ReUseX::geometry::SegmentRoomsOptions options;
+    reusex::geometry::SegmentRoomsOptions options;
     options.grid_size = opt.grid_size;
     options.resolution = opt.resolution;
     options.beta = opt.beta;
@@ -196,7 +196,7 @@ int run_subcommand_segment_rooms(SubcommandSegRoomsOptions const &opt, const Rux
       }
     }
 
-    auto labels = ReUseX::geometry::segment_rooms(cloud, normals, planes, options);
+    auto labels = reusex::geometry::segment_rooms(cloud, normals, planes, options);
 
     spdlog::trace("Saving room labels to ProjectDB");
     db.save_point_cloud("rooms", *labels, "segment_rooms");

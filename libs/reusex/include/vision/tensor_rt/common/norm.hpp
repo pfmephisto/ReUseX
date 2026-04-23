@@ -1,5 +1,5 @@
 #pragma once
-namespace ReUseX::vision::tensor_rt::norm_image {
+namespace reusex::vision::tensor_rt::norm_image {
 
 enum class NormType : int { None = 0, MeanStd = 1, AlphaBeta = 2 };
 
@@ -25,4 +25,4 @@ struct Norm {
   static Norm None();
 };
 
-} // namespace ReUseX::vision::tensor_rt::norm_image
+} // namespace reusex::vision::tensor_rt::norm_image

@@ -16,18 +16,18 @@ template <typename R> auto enumerate(R &&r) {
                             std::forward<R>(r));
 }
 
-namespace ReUseX::vision::tensor_rt {
+namespace reusex::vision::tensor_rt {
 
-ReUseX::vision::IDataset::Pair
+reusex::vision::IDataset::Pair
 TensorRTDataset::get(const std::size_t index) const {
-  ReUseX::trace("TensorRTDataset getting data at index {}", index);
+  reusex::trace("TensorRTDataset getting data at index {}", index);
   auto data = std::make_pair(std::make_unique<TensorRTData>(), index);
   data.first->image = image(index);
   return data;
 }
 
 bool TensorRTDataset::save(const std::span<IDataset::Pair> &data) {
-  ReUseX::info("Saving {} TensorRT dataset items", data.size());
+  reusex::info("Saving {} TensorRT dataset items", data.size());
 
   bool success = true;
   for (const auto &[item, index] : data) {
@@ -47,12 +47,12 @@ bool TensorRTDataset::save(const std::span<IDataset::Pair> &data) {
                               ","));
       database()->log_pipeline_start("annotate_class_map", json);
       class_map_saved_ = true;
-      ReUseX::info("Saved segmentation class map ({} classes)",
+      reusex::info("Saved segmentation class map ({} classes)",
                          trt_data->prompts.size());
     }
   }
 
-  ReUseX::debug("Save operation completed with success={}", success);
+  reusex::debug("Save operation completed with success={}", success);
   return success;
 }
-} // namespace ReUseX::vision::tensor_rt
+} // namespace reusex::vision::tensor_rt

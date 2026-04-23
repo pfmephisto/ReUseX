@@ -25,7 +25,7 @@ namespace rux::database {
  */
 class ResourceRouter {
 public:
-  explicit ResourceRouter(std::shared_ptr<ReUseX::ProjectDB> db) : db_(db) {}
+  explicit ResourceRouter(std::shared_ptr<reusex::ProjectDB> db) : db_(db) {}
   virtual ~ResourceRouter() = default;
 
   /**
@@ -80,7 +80,7 @@ public:
   }
 
 protected:
-  std::shared_ptr<ReUseX::ProjectDB> db_;
+  std::shared_ptr<reusex::ProjectDB> db_;
 };
 
 /**
@@ -91,7 +91,7 @@ public:
   /**
    * @brief Create routers for all resource types
    */
-  explicit RouterRegistry(std::shared_ptr<ReUseX::ProjectDB> db);
+  explicit RouterRegistry(std::shared_ptr<reusex::ProjectDB> db);
 
   /**
    * @brief Get router for a collection
@@ -103,7 +103,7 @@ public:
   ResourceRouter &get_router(std::string_view collection);
 
 private:
-  std::shared_ptr<ReUseX::ProjectDB> db_;
+  std::shared_ptr<reusex::ProjectDB> db_;
   std::map<std::string, std::unique_ptr<ResourceRouter>> routers_;
 };
 

@@ -6,7 +6,7 @@
 
 #include <pcl/PolygonMesh.h>
 
-namespace ReUseX::geometry {
+namespace reusex::geometry {
 
 /**
  * @brief Unweld (split) mesh vertices along sharp edges.
@@ -25,4 +25,4 @@ namespace ReUseX::geometry {
 pcl::PolygonMeshPtr unweld_mesh(const pcl::PolygonMesh &mesh,
                                 float threshold_radians);
 
-} // namespace ReUseX::geometry
+} // namespace reusex::geometry

@@ -4,7 +4,7 @@
 
 #include "vision/Yolo.hpp"
 
-namespace ReUseX::vision {
+namespace reusex::vision {
 std::vector<std::string> Yolov8_className = {
     "person",         // 0
     "bicycle",        // 1
@@ -88,4 +88,4 @@ std::vector<std::string> Yolov8_className = {
     "toothbrush"      // 79
 };
 
-} // namespace ReUseX::vision
+} // namespace reusex::vision

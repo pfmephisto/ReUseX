@@ -7,7 +7,7 @@
 #include "reusex/vision/IDataset.hpp"
 #include "reusex/vision/libtorch/Data.hpp"
 
-namespace ReUseX::vision::libtorch {
+namespace reusex::vision::libtorch {
 
 /** @brief LibTorch dataset for RTABMap databases.
  *
@@ -32,4 +32,4 @@ class LibTorchDataset : public IDataset {
   bool save(const std::span<Pair> &data) override;
 };
 
-} // namespace ReUseX::vision::libtorch
+} // namespace reusex::vision::libtorch

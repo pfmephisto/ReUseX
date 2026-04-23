@@ -8,7 +8,7 @@
 #include <filesystem>
 #include <iostream>
 
-using namespace ReUseX;
+using namespace reusex;
 
 namespace fs = std::filesystem;
 

@@ -10,7 +10,7 @@
 #include <string>
 #include <vector>
 
-namespace ReUseX::core {
+namespace reusex::core {
 
 // ===========================================================================
 // Section 1: Owner
@@ -527,4 +527,4 @@ struct History {
   std::string leksikon_guid_previous_usage_environments = "3BiwSSLEz9l8YLgoWcixHq";
 };
 
-} // namespace ReUseX::core
+} // namespace reusex::core

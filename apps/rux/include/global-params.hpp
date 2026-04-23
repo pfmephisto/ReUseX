@@ -7,26 +7,26 @@
 
 #include <filesystem>
 
-using PointT = ReUseX::PointT;
-using NormalT = ReUseX::NormalT;
-using LabelT = ReUseX::LabelT;
+using PointT = reusex::PointT;
+using NormalT = reusex::NormalT;
+using LabelT = reusex::LabelT;
 using LocT = pcl::PointXYZ;
 
-using Indices = ReUseX::Indices;
-using IndicesPtr = ReUseX::IndicesPtr;
-using IndicesConstPtr = ReUseX::IndicesConstPtr;
+using Indices = reusex::Indices;
+using IndicesPtr = reusex::IndicesPtr;
+using IndicesConstPtr = reusex::IndicesConstPtr;
 
-using Cloud = ReUseX::Cloud;
-using CloudPtr = ReUseX::CloudPtr;
-using CloudConstPtr = ReUseX::CloudConstPtr;
+using Cloud = reusex::Cloud;
+using CloudPtr = reusex::CloudPtr;
+using CloudConstPtr = reusex::CloudConstPtr;
 
-using CloudN = ReUseX::CloudN;
-using CloudNPtr = ReUseX::CloudNPtr;
-using CloudNConstPtr = ReUseX::CloudNConstPtr;
+using CloudN = reusex::CloudN;
+using CloudNPtr = reusex::CloudNPtr;
+using CloudNConstPtr = reusex::CloudNConstPtr;
 
-using CloudL = ReUseX::CloudL;
-using CloudLPtr = ReUseX::CloudLPtr;
-using CloudLConstPtr = ReUseX::CloudLConstPtr;
+using CloudL = reusex::CloudL;
+using CloudLPtr = reusex::CloudLPtr;
+using CloudLConstPtr = reusex::CloudLConstPtr;
 
 using CloudLoc = pcl::PointCloud<LocT>;
 using CloudLocPtr = typename CloudLoc::Ptr;

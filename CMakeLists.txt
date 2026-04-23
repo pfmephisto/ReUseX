@@ -8,7 +8,7 @@
 
 cmake_minimum_required(VERSION 3.17)
 
-project(ReUseX
+project(reusex
     VERSION 0.0.4
     LANGUAGES CXX CUDA
     DESCRIPTION "Tool for processing interior lidar scans of buildings"
@@ -123,7 +123,7 @@ include(Installation)
 # ===============================================
 message(STATUS "")
 message(STATUS "========================================")
-message(STATUS "ReUseX Configuration Summary")
+message(STATUS "reusex Configuration Summary")
 message(STATUS "========================================")
 message(STATUS "Version:           ${PROJECT_VERSION}")
 message(STATUS "Build Type:        ${CMAKE_BUILD_TYPE}")

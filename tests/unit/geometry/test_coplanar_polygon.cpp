@@ -7,7 +7,7 @@
 
 #include <geometry/CoplanarPolygon.hpp>
 
-using namespace ReUseX::geometry;
+using namespace reusex::geometry;
 using Catch::Approx;
 
 // Helper: build a unit square in the XY plane (z=0)

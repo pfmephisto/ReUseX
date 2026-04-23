@@ -11,8 +11,8 @@
 
 #include <random>
 
-using namespace ReUseX;
-using namespace ReUseX::geometry;
+using namespace reusex;
+using namespace reusex::geometry;
 
 // Helper: Create a planar cluster aligned with a given normal direction.
 // This is useful for testing window detection on walls with specific orientations.

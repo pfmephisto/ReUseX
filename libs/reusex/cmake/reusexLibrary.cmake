@@ -28,7 +28,7 @@ file(GLOB_RECURSE REUSEX_HEADERS CONFIGURE_DEPENDS
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/MLBackendConfig.cmake)
 
 list(LENGTH REUSEX_SOURCES REUSEX_SOURCE_COUNT)
-message(STATUS "Found ${REUSEX_SOURCE_COUNT} ReUseX source files")
+message(STATUS "Found ${REUSEX_SOURCE_COUNT} reusex source files")
 
 # -----------------------------------------------
 # Create symlink for prefixed includes
@@ -59,11 +59,11 @@ configure_file(
 # -----------------------------------------------
 # Create library target
 # -----------------------------------------------
-# Note: Target name is "ReUseX" regardless of project name for consistency
-add_library(ReUseX SHARED ${REUSEX_SOURCES} ${REUSEX_HEADERS})
+# Note: Target name is "reusex" regardless of project name for consistency
+add_library(reusex SHARED ${REUSEX_SOURCES} ${REUSEX_HEADERS})
 
 # Include directories
-target_include_directories(ReUseX
+target_include_directories(reusex
     PUBLIC
         # For consumers (rux, external): see headers as reusex/core/...
         $<BUILD_INTERFACE:${CMAKE_BINARY_DIR}/include>
@@ -78,7 +78,7 @@ target_include_directories(ReUseX
 # -----------------------------------------------
 # Link dependencies
 # -----------------------------------------------
-target_link_libraries(ReUseX
+target_link_libraries(reusex
     PUBLIC
         # Geometry & CGAL
         CGAL::CGAL
@@ -138,14 +138,14 @@ target_link_libraries(ReUseX
 # ML Backend Configuration
 # -----------------------------------------------
 # Configure ML backends (compile definitions and libraries)
-configure_ml_backends(ReUseX)
+configure_ml_backends(reusex)
 
 # -----------------------------------------------
 # Compiler options
 # -----------------------------------------------
-target_link_libraries(ReUseX PUBLIC ${COMMON_LINKER_FLAGS})
+target_link_libraries(reusex PUBLIC ${COMMON_LINKER_FLAGS})
 # Apply compiler flags only to C/C++, not CUDA (CUDA has its own flags)
-target_compile_options(ReUseX PUBLIC
+target_compile_options(reusex PUBLIC
     $<$<COMPILE_LANGUAGE:CXX>:${COMMON_COMPILER_FLAGS}>
     $<$<COMPILE_LANGUAGE:C>:${COMMON_COMPILER_FLAGS}>
 )
@@ -155,13 +155,13 @@ target_compile_options(ReUseX PUBLIC
 # -----------------------------------------------
 # Include MIP solver configuration and configure the solver
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/MIPSolverConfig.cmake)
-configure_mip_solver(ReUseX)
+configure_mip_solver(reusex)
 
 # -----------------------------------------------
 # Export library information
 # -----------------------------------------------
 if(NOT CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
-    set(REUSEX_LIBRARY_TARGET ReUseX PARENT_SCOPE)
+    set(REUSEX_LIBRARY_TARGET reusex PARENT_SCOPE)
     set(USE_MIP_SOLVER ${USE_MIP_SOLVER} PARENT_SCOPE)
     set(ENABLED_ML_BACKENDS ${ENABLED_ML_BACKENDS} PARENT_SCOPE)
 endif()

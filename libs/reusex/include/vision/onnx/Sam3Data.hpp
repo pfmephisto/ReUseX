@@ -10,7 +10,7 @@
 
 #include <vector>
 
-namespace ReUseX::vision::onnx {
+namespace reusex::vision::onnx {
 
 /// @brief Data carrier for ONNX Runtime SAM3 inference pipeline.
 ///
@@ -39,4 +39,4 @@ struct ONNXSam3Data : IData {
   float confidence_threshold = 0.5f; ///< Minimum confidence for detections
 };
 
-} // namespace ReUseX::vision::onnx
+} // namespace reusex::vision::onnx

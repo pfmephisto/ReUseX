@@ -111,7 +111,7 @@ VizualizationObserver::~VizualizationObserver() { viewer_stop(); }
 
 void VizualizationObserver::viewer_add_plane(std::string_view name,
                                              const Eigen::Vector4d &plane,
-                                             ReUseX::core::Stage /*stage*/,
+                                             reusex::core::Stage /*stage*/,
                                              int /*idx*/) {
   if (!viewer_is_active())
     return;
@@ -148,7 +148,7 @@ void VizualizationObserver::viewer_add_plane(std::string_view name,
 
 void VizualizationObserver::viewer_add_plane(std::string_view name,
                                              const Pair &plane,
-                                             ReUseX::core::Stage stage,
+                                             reusex::core::Stage stage,
                                              int idx) {
   // Check if viewer is active before proceeding
   if (!viewer_is_active())
@@ -157,7 +157,7 @@ void VizualizationObserver::viewer_add_plane(std::string_view name,
   // Check if we want this to be added to a specific viewport based on stage and
   // index
   int vp = viewports_.empty() ? 0 : viewports_[0];
-  if (stage == ReUseX::core::Stage::idle) {
+  if (stage == reusex::core::Stage::idle) {
     if (viewports_.size() == 4)
       vp = viewports_[0];
   }
@@ -223,14 +223,14 @@ void VizualizationObserver::viewer_add_plane(std::string_view name,
 
 void VizualizationObserver::viewer_add_plane_pair(std::string_view name,
                                                   const PlanePair &pair,
-                                                  ReUseX::core::Stage stage,
+                                                  reusex::core::Stage stage,
                                                   int /*idx*/) {
   if (!viewer_is_active())
     return;
 
   // Viewport selection logic (same as viewer_add_plane(Pair))
   int vp = viewports_.empty() ? 0 : viewports_[0];
-  if (stage == ReUseX::core::Stage::idle) {
+  if (stage == reusex::core::Stage::idle) {
     if (viewports_.size() == 4)
       vp = viewports_[0];
   }
@@ -242,24 +242,24 @@ void VizualizationObserver::viewer_add_plane_pair(std::string_view name,
         auto [plane_i, origin_i] = pair.first;
         auto [plane_j, origin_j] = pair.second;
 
-        ReUseX::PointT p1, p2;
+        reusex::PointT p1, p2;
         p1.getVector3fMap() = origin_i.head<3>().cast<float>();
         p2.getVector3fMap() = origin_j.head<3>().cast<float>();
-        viewer->addLine<ReUseX::PointT>(p1, p2, 0.0, 0.0, 1.0,
+        viewer->addLine<reusex::PointT>(p1, p2, 0.0, 0.0, 1.0,
                                         fmt::format("{}_line", name), vp);
       });
 }
 
 void VizualizationObserver::viewer_add_cell_complex(
     std::string_view name,
-    const std::shared_ptr<ReUseX::geometry::CellComplex> &cc,
-    ReUseX::core::Stage stage, int /*idx*/) {
+    const std::shared_ptr<reusex::geometry::CellComplex> &cc,
+    reusex::core::Stage stage, int /*idx*/) {
   if (!viewer_is_active())
     return;
 
   // Viewport selection logic
   int vp = viewports_.empty() ? 0 : viewports_[0];
-  if (stage == ReUseX::core::Stage::idle) {
+  if (stage == reusex::core::Stage::idle) {
     if (viewports_.size() == 4)
       vp = viewports_[0];
   }
@@ -271,7 +271,7 @@ void VizualizationObserver::viewer_add_cell_complex(
     if (name.find("room_prob") != std::string::npos) {
       // Copy of addRoomProbabilities()
       spdlog::trace("Displaying room probabilities");
-      auto c_rp = cc->property_map<ReUseX::geometry::CellComplex::Vertex,
+      auto c_rp = cc->property_map<reusex::geometry::CellComplex::Vertex,
                                    std::vector<double>>("c:room_probabilities");
       // Create a Lut for the room labels
       std::vector<pcl::RGB> lut(cc->n_rooms + 1);
@@ -292,7 +292,7 @@ void VizualizationObserver::viewer_add_cell_complex(
         }
 
         std::string name_ = fmt::format("{}_cell_{}-prob", name, id);
-        ReUseX::PointT p;
+        reusex::PointT p;
         p.x = (*cc)[*cit].pos[0];
         p.y = (*cc)[*cit].pos[1];
         p.z = (*cc)[*cit].pos[2];
@@ -312,7 +312,7 @@ void VizualizationObserver::viewer_add_cell_complex(
     } else if (name.find("support_prob") != std::string::npos) {
       // Copy of addSupportProbabilities()
       spdlog::trace("Displaying face support probabilities");
-      auto vertices = ReUseX::CloudPtr(new ReUseX::Cloud);
+      auto vertices = reusex::CloudPtr(new reusex::Cloud);
       vertices->points.resize(cc->num_vertices());
       for (auto vit = cc->vertices_begin(); vit != cc->vertices_end(); ++vit) {
         const auto id = (*cc)[*vit].id;
@@ -323,7 +323,7 @@ void VizualizationObserver::viewer_add_cell_complex(
       }
 
       auto f_sp =
-          cc->property_map<ReUseX::geometry::CellComplex::Vertex, double>(
+          cc->property_map<reusex::geometry::CellComplex::Vertex, double>(
               "f:support_probability");
       for (auto fit = cc->faces_begin(); fit != cc->faces_end(); ++fit) {
         const auto id = (*cc)[*fit].id;
@@ -348,7 +348,7 @@ void VizualizationObserver::viewer_add_cell_complex(
         else
           continue;
 
-        viewer->addPolygonMesh<ReUseX::PointT>(vertices, {face}, name_, vp);
+        viewer->addPolygonMesh<reusex::PointT>(vertices, {face}, name_, vp);
         viewer->setPointCloudRenderingProperties(
             pcl::visualization::PCL_VISUALIZER_COLOR,
             static_cast<double>(c.r) / 255.0, static_cast<double>(c.g) / 255.0,
@@ -361,11 +361,11 @@ void VizualizationObserver::viewer_add_cell_complex(
         if (f_sp[*fit] != -1.0)
           continue; // Only display text for unsupported faces
 
-        auto plane_id = std::get<ReUseX::geometry::FaceData>((*cc)[*fit].data).plane_id;
+        auto plane_id = std::get<reusex::geometry::FaceData>((*cc)[*fit].data).plane_id;
 
         viewer->addText3D(
             fmt::format("P{}", plane_id),
-            ReUseX::PointT{static_cast<float>((*cc)[*fit].pos[0]),
+            reusex::PointT{static_cast<float>((*cc)[*fit].pos[0]),
                            static_cast<float>((*cc)[*fit].pos[1]),
                            static_cast<float>((*cc)[*fit].pos[2])},
             0.3, 1.0, 1.0, 1.0, fmt::format("text_face_{}", id), vp);
@@ -386,7 +386,7 @@ void VizualizationObserver::viewer_add_cell_complex(
         name.find("support_prob") == std::string::npos) {
       spdlog::trace("Displaying cell complex vertices");
       // INFO: Display vertices
-      auto vertices = ReUseX::CloudPtr(new ReUseX::Cloud);
+      auto vertices = reusex::CloudPtr(new reusex::Cloud);
       vertices->points.resize(cc->num_vertices());
       for (auto vit = cc->vertices_begin(); vit != cc->vertices_end(); ++vit) {
         const auto id = (*cc)[*vit].id;
@@ -396,16 +396,16 @@ void VizualizationObserver::viewer_add_cell_complex(
         vertices->points[id].z = pos[2];
       }
       const std::string v_name = fmt::format("{}_vertices", name);
-      pcl::visualization::PointCloudColorHandlerCustom<ReUseX::PointT>
+      pcl::visualization::PointCloudColorHandlerCustom<reusex::PointT>
           v_color_handler(vertices, 0, 0, 255);
-      viewer->addPointCloud<ReUseX::PointT>(vertices, v_color_handler, v_name,
+      viewer->addPointCloud<reusex::PointT>(vertices, v_color_handler, v_name,
                                             vp);
       viewer->setPointCloudRenderingProperties(
           pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, v_name, vp);
 
       // INFO: Display faces
       spdlog::trace("Displaying cell complex faces");
-      auto faces = ReUseX::CloudPtr(new ReUseX::Cloud);
+      auto faces = reusex::CloudPtr(new reusex::Cloud);
       faces->points.resize(cc->num_faces());
       for (auto fit = cc->faces_begin(); fit != cc->faces_end(); ++fit) {
         const auto id = (*cc)[*fit].id;
@@ -415,15 +415,15 @@ void VizualizationObserver::viewer_add_cell_complex(
         faces->points[id].z = pos[2];
       }
       const std::string f_name = fmt::format("{}_faces", name);
-      pcl::visualization::PointCloudColorHandlerCustom<ReUseX::PointT>
+      pcl::visualization::PointCloudColorHandlerCustom<reusex::PointT>
           f_color_handler(faces, 0, 255, 0);
-      viewer->addPointCloud<ReUseX::PointT>(faces, f_color_handler, f_name, vp);
+      viewer->addPointCloud<reusex::PointT>(faces, f_color_handler, f_name, vp);
       viewer->setPointCloudRenderingProperties(
           pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, f_name, vp);
 
       // INFO: Display cell centers
       spdlog::trace("Displaying cell complex cell centers");
-      auto cells = ReUseX::CloudPtr(new ReUseX::Cloud);
+      auto cells = reusex::CloudPtr(new reusex::Cloud);
       cells->points.resize(cc->num_cells());
       for (auto cit = cc->cells_begin(); cit != cc->cells_end(); ++cit) {
         const auto id = (*cc)[*cit].id;
@@ -432,10 +432,10 @@ void VizualizationObserver::viewer_add_cell_complex(
         cells->points[id].y = pos[1];
         cells->points[id].z = pos[2];
       }
-      pcl::visualization::PointCloudColorHandlerCustom<ReUseX::PointT>
+      pcl::visualization::PointCloudColorHandlerCustom<reusex::PointT>
           c_color_handler(cells, 255, 0, 0);
       const std::string c_name = fmt::format("{}_centers", name);
-      viewer->addPointCloud<ReUseX::PointT>(cells, c_color_handler, c_name, vp);
+      viewer->addPointCloud<reusex::PointT>(cells, c_color_handler, c_name, vp);
       viewer->setPointCloudRenderingProperties(
           pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, c_name, vp);
 
@@ -451,7 +451,7 @@ void VizualizationObserver::viewer_add_cell_complex(
           cf->emplace_back(static_cast<int>(cid), static_cast<int>(fid), 0.0);
         }
       }
-      viewer->addCorrespondences<ReUseX::PointT>(cells, faces, *cf, cf_name,
+      viewer->addCorrespondences<reusex::PointT>(cells, faces, *cf, cf_name,
                                                  vp);
       viewer->setShapeRenderingProperties(
           pcl::visualization::PCL_VISUALIZER_COLOR, 1.0, 1.0, 1.0, cf_name, vp);
@@ -468,7 +468,7 @@ void VizualizationObserver::viewer_add_cell_complex(
           fv->emplace_back(static_cast<int>(fid), static_cast<int>(vid), 0.0);
         }
       }
-      viewer->addCorrespondences<ReUseX::PointT>(faces, vertices, *fv, fv_name,
+      viewer->addCorrespondences<reusex::PointT>(faces, vertices, *fv, fv_name,
                                                  vp);
       viewer->setShapeRenderingProperties(
           pcl::visualization::PCL_VISUALIZER_COLOR, 0.5, 0.5, 0.5, fv_name, vp);
@@ -477,8 +477,8 @@ void VizualizationObserver::viewer_add_cell_complex(
 }
 
 void VizualizationObserver::viewer_add_cloud(
-    std::string_view name, const ReUseX::CloudConstPtr &cloud,
-    ReUseX::core::Stage /*stage*/, int /*idx*/) {
+    std::string_view name, const reusex::CloudConstPtr &cloud,
+    reusex::core::Stage /*stage*/, int /*idx*/) {
   if (!viewer_is_active())
     return;
 
@@ -493,7 +493,7 @@ void VizualizationObserver::viewer_add_cloud(
 void VizualizationObserver::viewer_add_camera_frustum(
     std::string_view name, double focal_x, double focal_y, int image_width,
     int image_height, const Eigen::Affine3f &pose,
-    ReUseX::core::Stage /*stage*/, int /*idx*/) {
+    reusex::core::Stage /*stage*/, int /*idx*/) {
   if (!viewer_is_active())
     return;
 
@@ -550,17 +550,17 @@ void VizualizationObserver::viewer_add_camera_frustum(
 // ============================================================================
 // Progress Bar Callbacks
 // ===========================================================================
-void VizualizationObserver::on_process_started(ReUseX::core::Stage stage,
+void VizualizationObserver::on_process_started(reusex::core::Stage stage,
                                                size_t total) {
   progress_logger_ = std::make_unique<spdmon::LoggerProgress>(
-      fmt::format("Processing: {}", ReUseX::core::to_string(stage)), total);
+      fmt::format("Processing: {}", reusex::core::to_string(stage)), total);
 }
 
-void VizualizationObserver::on_process_finished(ReUseX::core::Stage) {
+void VizualizationObserver::on_process_finished(reusex::core::Stage) {
   progress_logger_.reset();
 }
 
-void VizualizationObserver::on_process_updated(ReUseX::core::Stage,
+void VizualizationObserver::on_process_updated(reusex::core::Stage,
                                                size_t increment) {
   *progress_logger_ += increment;
 }
@@ -687,8 +687,8 @@ void VizualizationObserver::viewer_loop(std::latch &initialized) {
 }
 
 void setup_processing_observer() {
-  ReUseX::core::set_visual_observer(&g_processing_observer);
-  ReUseX::core::set_progress_observer(&g_processing_observer);
+  reusex::core::set_visual_observer(&g_processing_observer);
+  reusex::core::set_progress_observer(&g_processing_observer);
 }
 void start_viewer() { g_processing_observer.viewer_start(); }
 void wait_for_viewer() {

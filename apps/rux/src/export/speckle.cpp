@@ -19,7 +19,7 @@
 #include <stdexcept>
 
 namespace fs = std::filesystem;
-using namespace ReUseX;
+using namespace reusex;
 
 void setup_subcommand_export_speckle(CLI::App &parent,
                                      std::shared_ptr<RuxOptions> global_opt) {

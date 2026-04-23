@@ -115,7 +115,7 @@ struct ProjectLoadResult {
   std::vector<LoadedCloud> clouds;
   std::vector<LoadedMesh> meshes;
   std::vector<LabelCloudInfo> labels;
-  std::vector<ReUseX::geometry::BuildingComponent> components;
+  std::vector<reusex::geometry::BuildingComponent> components;
 };
 
 /// Load all viewable geometry from a ReUseX project database.
@@ -126,7 +126,7 @@ struct ProjectLoadResult {
 ProjectLoadResult load_from_project_db(const fs::path &path,
                                        rux::VizualizationObserver &observer) {
   spdlog::info("Opening project database: {}", path);
-  ReUseX::ProjectDB db(path, /*readOnly=*/true);
+  reusex::ProjectDB db(path, /*readOnly=*/true);
 
   ProjectLoadResult result;
   CloudPtr first_xyzrgb;
@@ -665,7 +665,7 @@ void register_label_toggles(
 /// @param components Vector of building components
 /// @return Vector of shape names (one per line segment across all components)
 std::vector<std::string> component_line_names(
-    const std::vector<ReUseX::geometry::BuildingComponent> &components) {
+    const std::vector<reusex::geometry::BuildingComponent> &components) {
   std::vector<std::string> names;
   for (size_t ci = 0; ci < components.size(); ++ci) {
     const auto &verts = components[ci].boundary.vertices;
@@ -686,7 +686,7 @@ std::vector<std::string> component_line_names(
 /// @param components Vector of building components to render
 /// @param observer Visualization observer for enqueueing viewer tasks
 void add_component_lines(
-    const std::vector<ReUseX::geometry::BuildingComponent> &components,
+    const std::vector<reusex::geometry::BuildingComponent> &components,
     rux::VizualizationObserver &observer) {
   for (size_t ci = 0; ci < components.size(); ++ci) {
     const auto &comp = components[ci];
@@ -696,9 +696,9 @@ void add_component_lines(
 
     // Pick color based on component type
     double r = 0.0, g = 1.0, b = 0.0; // green for windows
-    if (comp.type == ReUseX::geometry::ComponentType::door) {
+    if (comp.type == reusex::geometry::ComponentType::door) {
       r = 0.0; g = 1.0; b = 1.0; // cyan for doors
-    } else if (comp.type == ReUseX::geometry::ComponentType::wall) {
+    } else if (comp.type == reusex::geometry::ComponentType::wall) {
       r = 1.0; g = 1.0; b = 0.0; // yellow for walls
     }
 
@@ -730,7 +730,7 @@ void add_component_lines(
 /// @param components_visible Shared flag tracking visibility state
 /// @param observer Visualization observer for enqueueing viewer tasks
 void register_component_toggle(
-    const std::vector<ReUseX::geometry::BuildingComponent> &components,
+    const std::vector<reusex::geometry::BuildingComponent> &components,
     std::shared_ptr<bool> components_visible,
     rux::VizualizationObserver &observer) {
   auto names = component_line_names(components);

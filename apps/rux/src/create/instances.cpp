@@ -91,7 +91,7 @@ int run_subcommand_segment_instances(const SubcommandSegInstancesOptions &opt,
   try {
     fs::path project_path = global_opt.project_db;
     spdlog::info("Opening project database: {}", project_path.string());
-    ReUseX::ProjectDB db(project_path);
+    reusex::ProjectDB db(project_path);
 
     // Validate prerequisites
     spdlog::info("Validating prerequisites...");
@@ -125,7 +125,7 @@ int run_subcommand_segment_instances(const SubcommandSegInstancesOptions &opt,
     spdlog::info("Loaded {} points with semantic labels", cloud->size());
 
     // Build request
-    ReUseX::geometry::SegmentInstancesRequest request;
+    reusex::geometry::SegmentInstancesRequest request;
     request.cloud = cloud;
     request.semantic_labels = semantic_labels;
     request.cluster_tolerance = opt.cluster_tolerance;
@@ -143,7 +143,7 @@ int run_subcommand_segment_instances(const SubcommandSegInstancesOptions &opt,
     // Run segmentation
     auto start_time = std::chrono::steady_clock::now();
     spdlog::info("Starting instance segmentation...");
-    auto result = ReUseX::geometry::segment_instances(request);
+    auto result = reusex::geometry::segment_instances(request);
     auto end_time = std::chrono::steady_clock::now();
 
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(

@@ -1,6 +1,6 @@
 #pragma once
 #include <opencv2/highgui.hpp>
 
-namespace ReUseX::utils {
+namespace reusex::utils {
 const cv::Mat &get_glasbey_lut();
-} // namespace ReUseX::utils
+} // namespace reusex::utils

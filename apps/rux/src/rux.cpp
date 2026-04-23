@@ -49,32 +49,32 @@ int main(int argc, char **argv) {
   spdlog::set_level(spdlog::level::warn); // Default level
   spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%n] [%^%=7l%$] %v");
 
-  ReUseX::core::set_log_handler(
-      [](ReUseX::core::LogLevel level, std::string_view message) {
+  reusex::core::set_log_handler(
+      [](reusex::core::LogLevel level, std::string_view message) {
         switch (level) {
-        case ReUseX::core::LogLevel::trace:
+        case reusex::core::LogLevel::trace:
           spdlog::trace("{}", message);
           break;
-        case ReUseX::core::LogLevel::debug:
+        case reusex::core::LogLevel::debug:
           spdlog::debug("{}", message);
           break;
-        case ReUseX::core::LogLevel::info:
+        case reusex::core::LogLevel::info:
           spdlog::info("{}", message);
           break;
-        case ReUseX::core::LogLevel::warn:
+        case reusex::core::LogLevel::warn:
           spdlog::warn("{}", message);
           break;
-        case ReUseX::core::LogLevel::error:
+        case reusex::core::LogLevel::error:
           spdlog::error("{}", message);
           break;
-        case ReUseX::core::LogLevel::critical:
+        case reusex::core::LogLevel::critical:
           spdlog::critical("{}", message);
           break;
-        case ReUseX::core::LogLevel::off:
+        case reusex::core::LogLevel::off:
           break;
         }
       });
-  ReUseX::core::set_log_level(ReUseX::core::LogLevel::warn);
+  reusex::core::set_log_level(reusex::core::LogLevel::warn);
 
   CLI::App app{"rux: ReUseX a tool for processing "
                "interior lidar scans of buildings."};
@@ -90,8 +90,8 @@ int main(int argc, char **argv) {
            const auto level = static_cast<spdlog::level::level_enum>(
                kMaxVerbosity - safe_count);
            spdlog::set_level(level);
-           ReUseX::core::set_log_level(
-               static_cast<ReUseX::core::LogLevel>(kMaxVerbosity - safe_count));
+           reusex::core::set_log_level(
+               static_cast<reusex::core::LogLevel>(kMaxVerbosity - safe_count));
            spdlog::info("Verbosity level: {}",
                         spdlog::level::to_string_view(spdlog::get_level()));
          },
@@ -101,14 +101,14 @@ int main(int argc, char **argv) {
   app.add_flag(
       "-V, --version",
       [](bool /*count*/) {
-        std::cout << "rux version: " << ReUseX::core::VERSION << std::endl;
+        std::cout << "rux version: " << reusex::core::VERSION << std::endl;
         exit(0);
       },
       "Show version information");
   app.add_flag(
       "-L, --license",
       [](bool /*count*/) {
-        std::cout << ReUseX::core::LICENSE_TEXT << std::endl;
+        std::cout << reusex::core::LICENSE_TEXT << std::endl;
         exit(0);
       },
       "Show license information");
@@ -149,8 +149,8 @@ int main(int argc, char **argv) {
   }
 
   rux::wait_for_viewer();
-  ReUseX::core::reset_visual_observer();
-  ReUseX::core::reset_progress_observer();
+  reusex::core::reset_visual_observer();
+  reusex::core::reset_progress_observer();
   // g_processing_observer.stop();
 
   // Flush async queue to ensure all logs are written before exit

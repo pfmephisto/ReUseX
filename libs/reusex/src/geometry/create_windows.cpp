@@ -158,9 +158,8 @@ class MeshRayTracer {
     rtcReleaseGeometry(geom);
     rtcCommitScene(scene_);
 
-    reusex::debug(
-        "Embree scene initialized with {} vertices, {} triangles",
-        pcl_cloud.size(), mesh.polygons.size());
+    reusex::debug("Embree scene initialized with {} vertices, {} triangles",
+                  pcl_cloud.size(), mesh.polygons.size());
   }
 
   ~MeshRayTracer() {
@@ -283,21 +282,18 @@ Placement classify_window_placement(const CoplanarPolygon &window_boundary,
 
   if (inside_count == total) {
     // All vertices inside → internal window
-    reusex::trace(
-        "Window classification: internal ({}/{} vertices inside)", inside_count,
-        total);
+    reusex::trace("Window classification: internal ({}/{} vertices inside)",
+                  inside_count, total);
     return Placement::Inside;
   } else if (outside_count == total) {
     // All vertices outside → valid exterior window
-    reusex::trace(
-        "Window classification: exterior ({}/{} vertices outside)",
-        outside_count, total);
+    reusex::trace("Window classification: exterior ({}/{} vertices outside)",
+                  outside_count, total);
     return Placement::Outside;
   } else {
     // Mixed → window intersects mesh boundary
-    reusex::debug(
-        "Window classification: intersection ({} inside, {} outside)",
-        inside_count, outside_count);
+    reusex::debug("Window classification: intersection ({} inside, {} outside)",
+                  inside_count, outside_count);
     return Placement::Mixed;
   }
 }
@@ -637,8 +633,7 @@ extract_wall_candidates(const pcl::PolygonMesh &mesh, float normal_z_threshold,
 
         if (it == next_from.end()) {
           // Non-closed loop (shouldn't happen on manifold mesh)
-          reusex::warn(
-              "Non-closed boundary loop detected in wall region");
+          reusex::warn("Non-closed boundary loop detected in wall region");
           break;
         }
 
@@ -667,8 +662,8 @@ extract_wall_candidates(const pcl::PolygonMesh &mesh, float normal_z_threshold,
   }
 
   reusex::debug("Extracted {} wall candidates from {} mesh faces using "
-                      "CGAL region growing",
-                      candidates.size(), num_faces);
+                "CGAL region growing",
+                candidates.size(), num_faces);
   return candidates;
 }
 
@@ -682,8 +677,7 @@ create_windows(CloudConstPtr cloud, CloudLConstPtr instance_labels,
   CreateWindowsResult result;
 
   if (!cloud || !instance_labels || cloud->size() != instance_labels->size()) {
-    reusex::error(
-        "create_windows: invalid input (null or size mismatch)");
+    reusex::error("create_windows: invalid input (null or size mismatch)");
     return result;
   }
 
@@ -709,15 +703,13 @@ create_windows(CloudConstPtr cloud, CloudLConstPtr instance_labels,
   }
 
   if (window_instance_ids.empty()) {
-    reusex::info(
-        "create_windows: no window instances found for labels [{}]",
-        fmt::join(window_semantic_labels, ", "));
+    reusex::info("create_windows: no window instances found for labels [{}]",
+                 fmt::join(window_semantic_labels, ", "));
     return result;
   }
 
-  reusex::info(
-      "Processing {} window instances against {} wall candidates",
-      window_instance_ids.size(), walls.size());
+  reusex::info("Processing {} window instances against {} wall candidates",
+               window_instance_ids.size(), walls.size());
 
   // Initialize Embree ray tracer for mesh intersection tests
   reusex::debug("Initializing Embree ray tracer for mesh validation...");
@@ -742,16 +734,12 @@ create_windows(CloudConstPtr cloud, CloudLConstPtr instance_labels,
     Eigen::Vector3f eigenvalues = pca.getEigenValues();
     Eigen::Matrix3f eigenvectors = pca.getEigenVectors();
 
-    // TODO:: Step that need to be done
-    // 3. Compare to plane normals
-
     Eigen::Vector3d inst_centroid = pca.getMean().head<3>().cast<double>();
     Eigen::Vector3d inst_normal = pca.getEigenVectors().col(2).cast<double>();
 
-    reusex::debug(
-        "Instance {}: {} points, centroid ({:.2f},{:.2f},{:.2f})", inst_id,
-        indices->indices.size(), inst_centroid.x(), inst_centroid.y(),
-        inst_centroid.z());
+    reusex::debug("Instance {}: {} points, centroid ({:.2f},{:.2f},{:.2f})",
+                  inst_id, indices->indices.size(), inst_centroid.x(),
+                  inst_centroid.y(), inst_centroid.z());
 
     // Find best matching wall: minimize cost = w_angle * angle + w_dist *
     // distance
@@ -772,9 +760,8 @@ create_windows(CloudConstPtr cloud, CloudLConstPtr instance_labels,
       max_angle =
           std::min(base_tolerance * scale, 60.0 * M_PI / 180.0); // Max 60°
 
-      reusex::debug("Instance {} ({} points): using tolerance {:.1f}°",
-                          inst_id, indices->indices.size(),
-                          max_angle * 180.0 / M_PI);
+      reusex::debug("Instance {} ({} points): using tolerance {:.1f}°", inst_id,
+                    indices->indices.size(), max_angle * 180.0 / M_PI);
     }
 
     int candidates_checked = 0;
@@ -809,8 +796,8 @@ create_windows(CloudConstPtr cloud, CloudLConstPtr instance_labels,
       // Combined cost
       double cost = w_angle * angle_diff + w_dist * dist;
 
-      reusex::trace("  Wall {}: angle={:.1f}°, dist={:.2f}m, cost={:.3f}",
-                          wi, angle_diff * 180.0 / M_PI, dist, cost);
+      reusex::trace("  Wall {}: angle={:.1f}°, dist={:.2f}m, cost={:.3f}", wi,
+                    angle_diff * 180.0 / M_PI, dist, cost);
 
       if (cost < best_cost) {
         best_cost = cost;
@@ -925,9 +912,8 @@ create_windows(CloudConstPtr cloud, CloudLConstPtr instance_labels,
     }
 
     if (boundary_3d.size() < 3) {
-      reusex::warn(
-          "Instance {} produced degenerate boundary ({} vertices)", inst_id,
-          boundary_3d.size());
+      reusex::warn("Instance {} produced degenerate boundary ({} vertices)",
+                   inst_id, boundary_3d.size());
       // result.unmatched_instances.push_back(static_cast<int>(inst_id));
       continue;
     }
@@ -951,14 +937,14 @@ create_windows(CloudConstPtr cloud, CloudLConstPtr instance_labels,
     case Placement::Mixed:
       if (options.include_internal) {
         reusex::debug("Window instance {} is internal but "
-                            "include_internal is true, keeping",
-                            inst_id);
+                      "include_internal is true, keeping",
+                      inst_id);
         break;
       }
       [[fallthrough]];
     case Placement::Inside:
-      reusex::debug(
-          "Window instance   {} is internal or mixed, dropping ", inst_id);
+      reusex::debug("Window instance   {} is internal or mixed, dropping ",
+                    inst_id);
       // result.unmatched_instances.push_back(static_cast<int>(inst_id));
       continue;
 
@@ -967,11 +953,9 @@ create_windows(CloudConstPtr cloud, CloudLConstPtr instance_labels,
       break;
     }
 
-    // TODO:: Add more check if window  candidate boundary is fully withing the
-    // wall boundary
     if (intersects_wallboundary(polygon, wall)) {
-      reusex::trace(
-          "Window instance {} rejected, intersects wall boundary", inst_id);
+      reusex::trace("Window instance {} rejected, intersects wall boundary",
+                    inst_id);
       continue;
     }
 
@@ -986,14 +970,13 @@ create_windows(CloudConstPtr cloud, CloudLConstPtr instance_labels,
     comp.data = WindowData{};
 
     reusex::debug("Created {} from instance {}, match cost {:.3f})", comp,
-                        inst_id, best_cost);
+                  inst_id, best_cost);
 
     result.components.push_back(std::move(comp));
   }
 
   reusex::info("Created {} window components ({} unmatched instances)",
-                     result.components.size(),
-                     result.unmatched_instances.size());
+               result.components.size(), result.unmatched_instances.size());
   return result;
 }
 

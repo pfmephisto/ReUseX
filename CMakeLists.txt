@@ -9,7 +9,7 @@
 cmake_minimum_required(VERSION 3.17)
 
 project(reusex
-    VERSION 0.0.4
+    VERSION 0.0.5
     LANGUAGES CXX CUDA
     DESCRIPTION "Tool for processing interior lidar scans of buildings"
 )

@@ -39,6 +39,8 @@ PATH SYNTAX:
   clouds.NAME              Get cloud metadata
   clouds.NAME.PROPERTY     Get specific property (type, size, source)
   meshes.NAME              Get mesh metadata
+  panoramas                List all panoramic images
+  panoramas.NAME.metadata  Get panoramic image metadata
   components               List all building components
   passports                List all material passports
 
@@ -80,7 +82,7 @@ int run_subcommand_get(const DatabaseGetOptions &opt, const RuxOptions &global_o
       spdlog::debug("No path provided, listing collection names");
 
       nlohmann::json collections =
-          nlohmann::json::array({"clouds", "materials", "meshes", "projects"});
+          nlohmann::json::array({"clouds", "materials", "meshes", "panoramas", "projects"});
 
       rux::database::DataPayload payload = collections;
 

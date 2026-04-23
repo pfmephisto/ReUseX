@@ -284,6 +284,21 @@ class ProjectDB {
                              std::string_view projectId);
 
   /**
+   * @brief Add a material passport with a custom row ID
+   *
+   * The id parameter overrides the material_passports.id column value
+   * (normally set to document_guid). Use this to link a passport to a
+   * sensor frame by setting id to the frame's node_id.
+   *
+   * @param passport Material passport data
+   * @param projectId Project identifier (may be empty)
+   * @param id Custom row ID for the material_passports.id column
+   */
+  void add_material_passport(const core::MaterialPassport &passport,
+                             std::string_view projectId,
+                             std::string_view id);
+
+  /**
    * @brief Delete a material passport by GUID
    * @param documentGuid Document GUID to delete
    * @throws std::runtime_error if passport does not exist

@@ -2103,6 +2103,12 @@ class ProjectDB::Impl {
 
   void addMaterialPassport(const reusex::core::MaterialPassport &passport,
                            std::string_view projectId) {
+    addMaterialPassport(passport, projectId, passport.metadata.document_guid);
+  }
+
+  void addMaterialPassport(const reusex::core::MaterialPassport &passport,
+                           std::string_view projectId,
+                           std::string_view id) {
     reusex::info("Adding MaterialPassport: {}",
                        passport.metadata.document_guid);
 
@@ -2134,7 +2140,7 @@ class ProjectDB::Impl {
       }
 
       // 1. Delete existing passport if it exists (for updates)
-      std::string passport_id = passport.metadata.document_guid;
+      std::string passport_id{id};
 
       // Delete related data (property values and log entries)
       const char *delete_values_query =
@@ -3115,6 +3121,12 @@ void ProjectDB::add_material_passport(
     const reusex::core::MaterialPassport &passport,
     std::string_view projectId) {
   impl_->addMaterialPassport(passport, projectId);
+}
+
+void ProjectDB::add_material_passport(
+    const reusex::core::MaterialPassport &passport,
+    std::string_view projectId, std::string_view id) {
+  impl_->addMaterialPassport(passport, projectId, id);
 }
 
 void ProjectDB::delete_material_passport(std::string_view documentGuid) {

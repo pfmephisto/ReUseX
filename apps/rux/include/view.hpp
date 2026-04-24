@@ -11,7 +11,7 @@ namespace fs = std::filesystem;
 /// Collection of all options of Subcommand A.
 struct SubcommandViewOptions {
   // View command now exclusively uses global project database
-  // No additional options needed
+  std::string filter_expr; ///< Filter expression for limiting visualization
 };
 
 // Function declarations.

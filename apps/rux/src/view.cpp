@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "view.hpp"
+#include "filter_utils.hpp"
 #include "processing_observer.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
@@ -12,6 +13,7 @@
 #include <pcl/PolygonMesh.h>
 #include <pcl/common/colors.h>
 #include <pcl/common/common.h>
+#include <pcl/filters/extract_indices.h>
 #include <pcl/io/auto_io.h>
 #include <pcl/io/obj_io.h>
 #include <pcl/io/ply_io.h>
@@ -122,14 +124,52 @@ struct ProjectLoadResult {
 ///
 /// @param path Filesystem path to .rux file
 /// @param observer Visualization observer for enqueueing viewer tasks
+/// @param filter_expr Optional filter expression to limit visualization
 /// @return ProjectLoadResult containing loaded clouds, meshes, and labels
 ProjectLoadResult load_from_project_db(const fs::path &path,
-                                       rux::VizualizationObserver &observer) {
+                                       rux::VizualizationObserver &observer,
+                                       const std::string &filter_expr) {
   spdlog::info("Opening project database: {}", path);
   reusex::ProjectDB db(path, /*readOnly=*/true);
 
   ProjectLoadResult result;
   CloudPtr first_xyzrgb;
+
+  // Evaluate filter expression if provided
+  reusex::IndicesPtr filter_indices;
+  if (!filter_expr.empty()) {
+    spdlog::info("Evaluating filter expression: '{}'", filter_expr);
+    try {
+      // Determine expected cloud size - load first XYZRGB cloud temporarily
+      auto cloud_names = db.list_point_clouds();
+      size_t expected_size = 0;
+      for (const auto &name : cloud_names) {
+        if (db.point_cloud_type(name) == "PointXYZRGB") {
+          auto temp_cloud = db.point_cloud_xyzrgb(name);
+          expected_size = temp_cloud->size();
+          break;
+        }
+      }
+
+      if (expected_size == 0) {
+        spdlog::error("No XYZRGB clouds found for filtering");
+        return result;
+      }
+
+      filter_indices = rux::filters::evaluate_filter(filter_expr, db, expected_size);
+
+      if (filter_indices->empty()) {
+        spdlog::warn("Filter matched 0 points - viewer will be empty");
+      } else {
+        double pct = 100.0 * filter_indices->size() / expected_size;
+        spdlog::info("Filter matched {}/{} points ({:.1f}%)",
+                     filter_indices->size(), expected_size, pct);
+      }
+    } catch (const std::exception &e) {
+      spdlog::error("Filter evaluation failed: {}", e.what());
+      return result;
+    }
+  }
 
   // Load point clouds
   auto cloud_names = db.list_point_clouds();
@@ -139,6 +179,22 @@ ProjectLoadResult load_from_project_db(const fs::path &path,
     if (type == "PointXYZRGB") {
       try {
         auto cloud = db.point_cloud_xyzrgb(name);
+
+        // Apply filter if provided
+        if (filter_indices && !filter_indices->empty()) {
+          pcl::ExtractIndices<PointT> extract;
+          extract.setInputCloud(cloud);
+          extract.setIndices(filter_indices);
+          extract.setNegative(false);
+
+          auto filtered_cloud = std::make_shared<Cloud>();
+          extract.filter(*filtered_cloud);
+
+          spdlog::debug("Filtered cloud '{}': {} -> {} points",
+                        name, cloud->size(), filtered_cloud->size());
+          cloud = filtered_cloud;
+        }
+
         if (!first_xyzrgb)
           first_xyzrgb = cloud;
 
@@ -175,6 +231,19 @@ ProjectLoadResult load_from_project_db(const fs::path &path,
 
       try {
         auto labels = db.point_cloud_label(name);
+
+        // Apply filter if provided (before size check)
+        if (filter_indices && !filter_indices->empty()) {
+          pcl::ExtractIndices<LabelT> extract;
+          extract.setInputCloud(labels);
+          extract.setIndices(filter_indices);
+          extract.setNegative(false);
+
+          auto filtered_labels = std::make_shared<CloudL>();
+          extract.filter(*filtered_labels);
+          labels = filtered_labels;
+        }
+
         if (labels->size() != first_xyzrgb->size()) {
           spdlog::error(
               "Label cloud '{}' size ({}) does not match first point cloud "
@@ -213,6 +282,9 @@ ProjectLoadResult load_from_project_db(const fs::path &path,
 
   // Load meshes
   auto mesh_names = db.list_meshes();
+  if (!mesh_names.empty() && filter_indices && !filter_indices->empty()) {
+    spdlog::warn("Filter is active but meshes cannot be filtered - showing full meshes");
+  }
   for (const auto &name : mesh_names) {
 
     LoadedMesh loaded;
@@ -817,6 +889,17 @@ void setup_subcommand_view(CLI::App &app,
   auto opt = std::make_shared<SubcommandViewOptions>();
   auto *sub = app.add_subcommand("view", "Visualize point clouds and meshes");
 
+  sub->add_option(
+         "-f, --filter", opt->filter_expr,
+         "Filter expression to limit visualization to specific labeled points.\n"
+         "Syntax: <cloud_name> <op> <value(s)>\n"
+         "Examples:\n"
+         "  -f 'planes in [1, 2, 5]'        # Show only labels 1, 2, 5 from planes cloud\n"
+         "  -f 'rooms == 3'                 # Show only room 3\n"
+         "  -f 'planes in [1,2] || rooms == 5'  # Combine multiple clouds\n"
+         "  -f 'planes >= 10 && planes <= 20'   # Range filter")
+      ->default_val("");
+
   sub->footer(R"(
 DESCRIPTION:
   Interactive 3D visualization of point clouds, meshes, and segmentation
@@ -827,6 +910,8 @@ DESCRIPTION:
 EXAMPLES:
   rux view                             # View project at ./project.rux
   rux -p scan.rux view                 # View custom project
+  rux view -f 'planes == 3'            # View only plane 3
+  rux view -f 'rooms in [1,2]'         # View only rooms 1 and 2
   rux -vv view                         # Debug mode with verbose output
 
 KEYBOARD CONTROLS:
@@ -846,6 +931,8 @@ WORKFLOW:
 
 NOTES:
   - Loads all point clouds, meshes, and labels from ProjectDB automatically
+  - Filter applies uniformly to all XYZRGB clouds with corresponding label filtering
+  - Meshes and building components are not filtered (shown in full)
   - Label clouds mapped to first XYZRGB cloud for geometry
   - Supports multiple viewports for simultaneous views
   - PCL viewer based on VTK - standard camera controls apply
@@ -883,7 +970,7 @@ int run_subcommand_view([[maybe_unused]] SubcommandViewOptions const &opt,
   spdlog::debug("Loading visualization data from project database: {}",
                 project_path.string());
 
-  auto result = load_from_project_db(project_path, observer);
+  auto result = load_from_project_db(project_path, observer, opt.filter_expr);
   clouds = std::move(result.clouds);
   meshes = std::move(result.meshes);
   labels = std::move(result.labels);

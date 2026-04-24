@@ -84,6 +84,29 @@ void reconstruct_point_clouds(ProjectDB &db,
       continue;
     }
 
+    // ── Dimension validation ──────────────────────────────────────
+    if (intr.width <= 0 || intr.height <= 0) {
+      core::warn("Node {}: intrinsics have invalid dimensions {}x{}, skipping",
+                 nodeId, intr.width, intr.height);
+      ++observer;
+      continue;
+    }
+
+    if (!confidence.empty() &&
+        (confidence.cols != depth16.cols || confidence.rows != depth16.rows)) {
+      core::warn("Node {}: confidence {}x{} differs from depth {}x{}", nodeId,
+                 confidence.cols, confidence.rows, depth16.cols, depth16.rows);
+    }
+
+    core::debug("Node {}: depth={}x{}, color={}x{}, intrinsics={}x{}", nodeId,
+                depth16.cols, depth16.rows, color.cols, color.rows, intr.width,
+                intr.height);
+    if (depth16.cols != intr.width || depth16.rows != intr.height) {
+      core::debug("Node {}: depth/intrinsics dimension mismatch — will scale "
+                  "intrinsics to depth size",
+                  nodeId);
+    }
+
     // Convert depth to float meters for filtering
     cv::Mat depth_f;
     depth16.convertTo(depth_f, CV_32FC1, 1.0 / 1000.0);
@@ -98,17 +121,33 @@ void reconstruct_point_clouds(ProjectDB &db,
 
     // Debug logging for first frame to verify transform correctness
     if (nodeId == frameIds[0]) {
-      core::debug("=== First frame transform verification (nodeId={}) ===", nodeId);
-      core::debug("localTf rotation:\n{}", localTf.rotation().format(OctaveFmt));
+      core::debug("=== First frame transform verification (nodeId={}) ===",
+                  nodeId);
+      core::debug("localTf matrix:\n{}", localTf.matrix().format(OctaveFmt));
+      core::debug("worldTf matrix:\n{}", worldTf.matrix().format(OctaveFmt));
       core::debug("worldTf translation: [{:.3f}, {:.3f}, {:.3f}]",
                   worldTf.translation().x(), worldTf.translation().y(),
                   worldTf.translation().z());
+
+      // Warn if localTf is approximately identity (likely wrong for phone/tablet
+      // scanners)
+      if (localTf.matrix().isApprox(Eigen::Matrix4f::Identity(), 1e-4f)) {
+        core::warn("Node {}: localTransform is identity — per-frame "
+                   "orientation may be incorrect if sensor has a non-trivial "
+                   "camera-to-base transform",
+                   nodeId);
+      }
     }
 
-    const float fx = static_cast<float>(intr.fx);
-    const float fy = static_cast<float>(intr.fy);
-    const float cx_cam = static_cast<float>(intr.cx);
-    const float cy_cam = static_cast<float>(intr.cy);
+    // ── Scale intrinsics to depth resolution ──────────────────────
+    const double scale_x =
+        static_cast<double>(depth_f.cols) / std::max(1, intr.width);
+    const double scale_y =
+        static_cast<double>(depth_f.rows) / std::max(1, intr.height);
+    const float fx = static_cast<float>(intr.fx * scale_x);
+    const float fy = static_cast<float>(intr.fy * scale_y);
+    const float cx_cam = static_cast<float>(intr.cx * scale_x);
+    const float cy_cam = static_cast<float>(intr.cy * scale_y);
     const int step = params.sampling_factor;
     const float min_d = params.min_distance;
     const float max_d = params.max_distance;
@@ -150,8 +189,12 @@ void reconstruct_point_clouds(ProjectDB &db,
         // Apply local transform (optical → sensor) then world transform (sensor → world)
         Eigen::Vector3f world_pt = worldTf * (localTf * cam_pt);
 
-        // Get color from the color image
-        const auto &pixel = color.at<cv::Vec3b>(v, u);
+        // Map depth pixel (v, u) to color coordinates (may differ in resolution)
+        int col_u = u * color.cols / depth_f.cols;
+        int col_v = v * color.rows / depth_f.rows;
+        col_u = std::clamp(col_u, 0, color.cols - 1);
+        col_v = std::clamp(col_v, 0, color.rows - 1);
+        const auto &pixel = color.at<cv::Vec3b>(col_v, col_u);
 
         PointT pt;
         pt.x = world_pt.x();
@@ -162,10 +205,15 @@ void reconstruct_point_clouds(ProjectDB &db,
         pt.r = pixel[2];
         frame_cloud->push_back(pt);
 
-        // Label
+        // Label (map depth coords to segmentation image coords)
         LabelT lbl;
-        if (!seg_labels.empty() && v < seg_labels.rows && u < seg_labels.cols)
-          lbl.label = static_cast<uint32_t>(seg_labels.at<int>(v, u));
+        if (!seg_labels.empty()) {
+          int su = u * seg_labels.cols / depth_f.cols;
+          int sv = v * seg_labels.rows / depth_f.rows;
+          su = std::clamp(su, 0, seg_labels.cols - 1);
+          sv = std::clamp(sv, 0, seg_labels.rows - 1);
+          lbl.label = static_cast<uint32_t>(seg_labels.at<int>(sv, su));
+        }
         else
           lbl.label = static_cast<uint32_t>(-1);
         frame_labels->push_back(lbl);

@@ -91,6 +91,11 @@ void import_rtabmap(ProjectDB &db,
 
         // Convert local transform to row-major array
         const auto &lt = cm.localTransform();
+        if (lt.isNull()) {
+          core::warn("Node {}: localTransform is null, using identity. "
+                     "Per-frame orientation may be incorrect.",
+                     id);
+        }
         if (!lt.isNull()) {
           const float *d = lt.data();
           for (int r = 0; r < 3; ++r)

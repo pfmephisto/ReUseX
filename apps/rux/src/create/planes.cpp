@@ -21,16 +21,18 @@ namespace fs = std::filesystem;
 
 /**
  * @brief Setup CLI options for the plane segmentation subcommand.
- * 
+ *
  * Configures command-line arguments including cloud paths, thresholds,
  * and segmentation options for plane segmentation.
- * 
+ *
  * @param app CLI application to add the subcommand to.
  */
-void setup_subcommand_create_planes(CLI::App &app, std::shared_ptr<RuxOptions> global_opt) {
+void setup_subcommand_create_planes(CLI::App &app,
+                                    std::shared_ptr<RuxOptions> global_opt) {
 
   auto opt = std::make_shared<SubcommandSegPlanesOptions>();
-  auto *sub = app.add_subcommand("planes", "Detect and segment planar surfaces");
+  auto *sub =
+      app.add_subcommand("planes", "Detect and segment planar surfaces");
 
   sub->footer(R"(
 DESCRIPTION:
@@ -82,7 +84,7 @@ NOTES:
 
   sub->add_option("-r, --radius", opt->radius, "Radius for region growing")
       ->default_val(opt->radius)
-      ->check(CLI::Range(0.0, 1.0));
+      ->check(CLI::Range(0.0, 5.0));
 
   sub->add_option("-i, --interval-0", opt->interval_0,
                   "Initial interval for plane update")
@@ -94,14 +96,16 @@ NOTES:
       ->default_val(opt->interval_factor)
       ->check(CLI::Range(1.0, 10.0));
 
-  sub->add_option("-f, --filter", opt->filter_expr,
-                  "Filter expression to limit processing to specific labeled points.\n"
-                  "Syntax: <cloud_name> <op> <value(s)>\n"
-                  "Examples:\n"
-                  "  -f 'planes in [1, 2, 5]'        # Filter to labels 1, 2, 5 from planes cloud\n"
-                  "  -f 'rooms == 3'                 # Only process room 3\n"
-                  "  -f 'planes in [1,2] || rooms == 5'  # Combine multiple clouds\n"
-                  "  -f 'planes >= 10 && planes <= 20'   # Range filter")
+  sub->add_option(
+         "-f, --filter", opt->filter_expr,
+         "Filter expression to limit processing to specific labeled points.\n"
+         "Syntax: <cloud_name> <op> <value(s)>\n"
+         "Examples:\n"
+         "  -f 'planes in [1, 2, 5]'        # Filter to labels 1, 2, 5 from "
+         "planes cloud\n"
+         "  -f 'rooms == 3'                 # Only process room 3\n"
+         "  -f 'planes in [1,2] || rooms == 5'  # Combine multiple clouds\n"
+         "  -f 'planes >= 10 && planes <= 20'   # Range filter")
       ->default_val("");
 
   sub->callback([opt, global_opt]() {
@@ -119,7 +123,8 @@ NOTES:
  * @param opt Options containing project path and segmentation parameters.
  * @return Exit code (RuxError::SUCCESS on success).
  */
-int run_subcommand_segment_planes(SubcommandSegPlanesOptions const &opt, const RuxOptions &global_opt) {
+int run_subcommand_segment_planes(SubcommandSegPlanesOptions const &opt,
+                                  const RuxOptions &global_opt) {
   fs::path project_path = global_opt.project_db;
   spdlog::info("Segmenting planes in project: {}", project_path.string());
 
@@ -134,10 +139,12 @@ int run_subcommand_segment_planes(SubcommandSegPlanesOptions const &opt, const R
       return RuxError::INVALID_ARGUMENT;
     }
 
-    int logId = db.log_pipeline_start("segment_planes",
-        fmt::format(R"({{"angle_threshold":{},"plane_dist_threshold":{},"min_inliers":{},"radius":{},"interval_0":{},"interval_factor":{}}})",
-                    opt.angle_threshold, opt.plane_dist_threshold, opt.minInliers,
-                    opt.radius, opt.interval_0, opt.interval_factor));
+    int logId = db.log_pipeline_start(
+        "segment_planes",
+        fmt::format(
+            R"({{"angle_threshold":{},"plane_dist_threshold":{},"min_inliers":{},"radius":{},"interval_0":{},"interval_factor":{}}})",
+            opt.angle_threshold, opt.plane_dist_threshold, opt.minInliers,
+            opt.radius, opt.interval_0, opt.interval_factor));
 
     spdlog::trace("Loading point cloud and normals from ProjectDB");
     auto cloud = db.point_cloud_xyzrgb("cloud");
@@ -157,7 +164,8 @@ int run_subcommand_segment_planes(SubcommandSegPlanesOptions const &opt, const R
     // Evaluate filter if provided
     if (!opt.filter_expr.empty()) {
       try {
-        options.filter = rux::filters::evaluate_filter(opt.filter_expr, db, cloud->size());
+        options.filter =
+            rux::filters::evaluate_filter(opt.filter_expr, db, cloud->size());
       } catch (const std::exception &e) {
         spdlog::error("Filter evaluation failed: {}", e.what());
         return RuxError::INVALID_ARGUMENT;
@@ -173,7 +181,8 @@ int run_subcommand_segment_planes(SubcommandSegPlanesOptions const &opt, const R
     db.save_point_cloud("plane_centroids", *centroids, "segment_planes");
     db.save_point_cloud("plane_normals", *plane_normals, "segment_planes");
 
-    spdlog::info("Plane segmentation complete: {} planes detected", centroids->size());
+    spdlog::info("Plane segmentation complete: {} planes detected",
+                 centroids->size());
 
     db.log_pipeline_end(logId, true);
     return RuxError::SUCCESS;

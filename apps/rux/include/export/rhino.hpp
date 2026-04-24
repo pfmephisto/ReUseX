@@ -12,9 +12,7 @@
 namespace fs = std::filesystem;
 
 struct SubcommandExportRhinoOptions {
-  std::string cloud_name = "cloud"; ///< Cloud name in ProjectDB
-  std::string labels_name = "";     ///< Optional label name in ProjectDB
-  fs::path path_out = fs::current_path() / "cloud.3dm"; ///< Output .3dm file
+  fs::path path_out = fs::current_path() / "export.3dm"; ///< Output .3dm file
 };
 
 void setup_subcommand_export_rhino(CLI::App &parent, std::shared_ptr<RuxOptions> global_opt);

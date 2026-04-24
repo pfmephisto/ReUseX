@@ -13,12 +13,8 @@
 namespace fs = std::filesystem;
 
 struct SubcommandExportSpeckleOptions {
-  std::string data_name = "cloud"; ///< Cloud or mesh name in ProjectDB
-  bool is_mesh = false;            ///< Load as mesh instead of cloud
-
   std::string server_url;
   std::string project_id;
-  std::string model_name = "main";
   std::string commit_message = "ReUseX export";
   std::size_t max_batch_bytes = 25 * 1024 * 1024; // 25 MB
 };

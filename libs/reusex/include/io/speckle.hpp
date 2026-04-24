@@ -15,6 +15,10 @@
 #include <string>
 #include <vector>
 
+namespace reusex::io {
+struct ExportScene;
+}
+
 namespace reusex::io::speckle {
 
 // --- Speckle Object Model ---
@@ -125,5 +129,17 @@ Mesh to_speckle(const pcl::PolygonMesh &mesh);
 
 /// Convert Eigen vertex/face matrices (from Solidifier::toMesh) to a Speckle Mesh.
 Mesh to_speckle(const Eigen::MatrixXd &vertices, const Eigen::MatrixXi &faces);
+
+// --- Scene Export ---
+
+/// One model (branch) to upload to Speckle.
+struct SpeckleModel {
+    std::string model_name;           ///< branch name (e.g., "cloud", "semantic")
+    std::shared_ptr<Base> root;       ///< root object for this model's version
+};
+
+/// Build per-model Speckle objects from an ExportScene.
+/// Returns one SpeckleModel per non-empty category.
+auto export_to_speckle(const ExportScene &scene) -> std::vector<SpeckleModel>;
 
 } // namespace reusex::io::speckle

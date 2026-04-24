@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include <reusex/io/speckle.hpp>
+#include <reusex/io/export_scene.hpp>
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -157,11 +158,9 @@ TEST_CASE("to_speckle(CloudConstPtr) converts point cloud", "[speckle]") {
     REQUIRE(pc.points[7] == Approx(8.0));
 
     // Check ARGB color encoding
-    // Point 0: R=255, G=0, B=0 -> ARGB = 0xFF_FF_00_00
     int expected_red = (255 << 24) | (255 << 16) | (0 << 8) | 0;
     REQUIRE(pc.colors[0] == expected_red);
 
-    // Point 2: R=0, G=0, B=255 -> ARGB = 0xFF_00_00_FF
     int expected_blue = (255 << 24) | (0 << 16) | (0 << 8) | 255;
     REQUIRE(pc.colors[2] == expected_blue);
 }
@@ -265,14 +264,11 @@ TEST_CASE("Collection can hold child elements", "[speckle]") {
 }
 
 TEST_CASE("SpeckleClient constructor handles empty token", "[speckle]") {
-    // Should not throw even without a token
     SpeckleClient client("https://example.com", "test_project_id", "");
-    // Just verify construction succeeds (no crash)
     REQUIRE(true);
 }
 
 TEST_CASE("SpeckleClient constructor strips trailing slash", "[speckle]") {
-    // Verify it doesn't throw; actual URL stripping is tested indirectly
     SpeckleClient client("https://example.com/", "project_id", "dummy_token");
     REQUIRE(true);
 }
@@ -345,7 +341,6 @@ TEST_CASE("Base properties support various JSON types", "[speckle]") {
         b.properties["area_m2"] = 42.5;
         b.properties["is_exterior"] = false;
 
-        // Build JSON the same way serialize_base does
         nlohmann::json j;
         j["speckle_type"] = b.speckle_type;
         for (const auto &[key, value] : b.properties)
@@ -357,4 +352,103 @@ TEST_CASE("Base properties support various JSON types", "[speckle]") {
         REQUIRE(j["is_exterior"] == false);
         REQUIRE(j["speckle_type"] == "Base");
     }
+}
+
+// ============================================================
+// export_to_speckle tests
+// ============================================================
+
+TEST_CASE("export_to_speckle with empty scene returns empty vector", "[speckle]") {
+    reusex::io::ExportScene scene;
+    auto models = export_to_speckle(scene);
+    REQUIRE(models.empty());
+}
+
+TEST_CASE("export_to_speckle with cloud produces cloud model", "[speckle]") {
+    reusex::io::ExportScene scene;
+
+    auto cloud = std::make_shared<reusex::Cloud>();
+    cloud->resize(3);
+    cloud->points[0] = {1.0f, 2.0f, 3.0f};
+    cloud->points[0].r = 255;
+    cloud->points[0].g = 0;
+    cloud->points[0].b = 0;
+    cloud->points[1] = {4.0f, 5.0f, 6.0f};
+    cloud->points[1].r = 0;
+    cloud->points[1].g = 255;
+    cloud->points[1].b = 0;
+    cloud->points[2] = {7.0f, 8.0f, 9.0f};
+    cloud->points[2].r = 0;
+    cloud->points[2].g = 0;
+    cloud->points[2].b = 255;
+
+    scene.cloud = reusex::io::ExportScene::CloudLayer{cloud, nullptr};
+
+    auto models = export_to_speckle(scene);
+    REQUIRE(models.size() == 1);
+    REQUIRE(models[0].model_name == "cloud");
+    REQUIRE(models[0].root->speckle_type == "Objects.Geometry.Pointcloud");
+}
+
+TEST_CASE("export_to_speckle with semantic data produces semantic model", "[speckle]") {
+    reusex::io::ExportScene scene;
+
+    auto cloud = std::make_shared<reusex::Cloud>();
+    cloud->resize(2);
+    cloud->points[0] = {1.0f, 0.0f, 0.0f};
+    cloud->points[0].r = 255;
+    cloud->points[0].g = 0;
+    cloud->points[0].b = 0;
+    cloud->points[1] = {0.0f, 1.0f, 0.0f};
+    cloud->points[1].r = 0;
+    cloud->points[1].g = 255;
+    cloud->points[1].b = 0;
+
+    reusex::io::ExportScene::SemanticCategory cat;
+    cat.name = "wall";
+    cat.label_id = 1;
+    cat.color = {200, 100, 50};
+    cat.instances.push_back({0, cloud});
+
+    scene.semantic.push_back(std::move(cat));
+
+    auto models = export_to_speckle(scene);
+    REQUIRE(models.size() == 1);
+    REQUIRE(models[0].model_name == "semantic");
+    REQUIRE(models[0].root->speckle_type == "Speckle.Core.Models.Collection");
+    REQUIRE(models[0].root->elements.size() == 1);
+}
+
+TEST_CASE("export_to_speckle with panoramas produces 360 model", "[speckle]") {
+    reusex::io::ExportScene scene;
+
+    scene.panoramas.push_back({"photo_001.jpg", "", 1.0, 2.0, 3.0});
+
+    auto models = export_to_speckle(scene);
+    REQUIRE(models.size() == 1);
+    REQUIRE(models[0].model_name == "360");
+    REQUIRE(models[0].root->elements.size() == 1);
+}
+
+TEST_CASE("export_to_speckle with materials produces materials model", "[speckle]") {
+    reusex::io::ExportScene scene;
+
+    reusex::io::ExportScene::MaterialEntry mat;
+    mat.name = "Concrete Beam";
+    mat.x = 1.0;
+    mat.y = 2.0;
+    mat.z = 3.0;
+    mat.properties["Designation"] = "CB-001";
+    scene.materials.push_back(std::move(mat));
+
+    auto models = export_to_speckle(scene);
+    REQUIRE(models.size() == 1);
+    REQUIRE(models[0].model_name == "materials");
+    REQUIRE(models[0].root->elements.size() == 1);
+
+    // Verify properties are set on the point
+    auto *pt = dynamic_cast<Point *>(models[0].root->elements[0].get());
+    REQUIRE(pt != nullptr);
+    REQUIRE(pt->properties["name"] == "Concrete Beam");
+    REQUIRE(pt->properties["Designation"] == "CB-001");
 }

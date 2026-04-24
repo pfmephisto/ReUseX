@@ -3,11 +3,18 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "io/rhino.hpp"
+#include "io/export_scene.hpp"
 #include "core/logging.hpp"
 
-#include <range/v3/to_container.hpp>
-#include <range/v3/view/common.hpp>
-#include <range/v3/view/transform.hpp>
+#include <fmt/format.h>
+#include <pcl/common/colors.h>
+#include <pcl/common/io.h>
+
+#include <chrono>
+#include <cmath>
+#include <ctime>
+#include <iomanip>
+#include <sstream>
 
 namespace reusex::io {
 
@@ -21,11 +28,10 @@ auto configure_rhino_model() -> std::unique_ptr<ONX_Model> {
   model->m_properties.m_Application.m_application_URL =
       L"https://github.com/pfmephisto/ReUseX";
   model->m_properties.m_Application.m_application_details =
-      "ReUseX Export annotated pcl point cloud to Rhino 3dm file";
+      "ReUseX Export to Rhino 3dm file";
   model->m_properties.m_Notes.m_notes =
       "This file was made with the ReUseX Export tool";
   model->m_properties.m_Notes.m_bVisible = true;
-  // model.m_sStartSectionComments = "ReUseX Export";
 
   // Settings
   reusex::trace("setting up model settings");
@@ -44,157 +50,345 @@ auto make_rhino_pointcloud(CloudConstPtr cloud)
   const size_t num_points = cloud->points.size();
   auto rhino_cloud = std::make_unique<ON_PointCloud>();
 
-  // INFO: Reserve the memory for the point cloud
   rhino_cloud->m_P.Reserve(num_points);
   rhino_cloud->m_C.Reserve(num_points);
   rhino_cloud->m_N.Reserve(num_points);
 
-  // INFO: Set the point cloud properties
   rhino_cloud->m_P.SetCount(num_points);
   rhino_cloud->m_C.SetCount(num_points);
   rhino_cloud->m_N.SetCount(num_points);
 
-  // INFO: Adding points to the rhino point cloud
 #pragma omp parallel for shared(rhino_cloud, cloud)
   for (int j = 0; j < (int)num_points; j++) {
     ON_3dPoint pt(cloud->points[j].x, cloud->points[j].y, cloud->points[j].z);
     ON_Color color(cloud->points[j].r, cloud->points[j].g, cloud->points[j].b);
-    ON_3dVector dir(0.0, 0.0, 1.0); // Default normal direction
+    ON_3dVector dir(0.0, 0.0, 1.0);
 
     rhino_cloud->m_P[j] = pt;
     rhino_cloud->m_C[j] = color;
-    rhino_cloud->m_N[j] = dir; // Default normal direction
+    rhino_cloud->m_N[j] = dir;
   }
 
   return rhino_cloud;
 }
 
-auto create_rhino_layers(ONX_Model &model,
-                         const std::vector<std::string> &layer_names,
-                         std::optional<std::vector<ON_Color>> layer_colors,
-                         const ON_Layer *base_layer) -> std::vector<int> {
-  reusex::trace("creating rhino layers: {}",
-                      fmt::join(layer_names, ", "));
+auto make_rhino_pointcloud(CloudConstPtr cloud, CloudNConstPtr normals)
+    -> std::unique_ptr<ON_PointCloud> {
 
-  std::vector<int> layer_map(layer_names.size(), ON_UNSET_INT_INDEX);
+  if (!normals || normals->size() != cloud->size())
+    return make_rhino_pointcloud(cloud);
 
-  std::vector<ON_Color> colors(layer_names.size(), ON_Color::Black);
-  if (layer_colors)
-    colors = *layer_colors;
+  const size_t num_points = cloud->points.size();
+  auto rhino_cloud = std::make_unique<ON_PointCloud>();
 
-  for (size_t i = 0; i < layer_names.size(); i++) {
-    reusex::trace("  creating layer: {}", layer_names[i]);
-    reusex::trace("    color: R={}, G={}, B={}", colors[i].Red(),
-                        colors[i].Green(), colors[i].Blue());
-    ON_wString name(layer_names[i].c_str());
-    layer_map[i] = model.AddLayer(name, colors[i]);
+  rhino_cloud->m_P.Reserve(num_points);
+  rhino_cloud->m_C.Reserve(num_points);
+  rhino_cloud->m_N.Reserve(num_points);
 
-    ON_Layer *layer = const_cast<ON_Layer *>(
-        ON_Layer::Cast(model.LayerFromIndex(layer_map[i]).ModelComponent()));
+  rhino_cloud->m_P.SetCount(num_points);
+  rhino_cloud->m_C.SetCount(num_points);
+  rhino_cloud->m_N.SetCount(num_points);
 
-    if (base_layer)
-      layer->SetParentLayerId(base_layer->Id());
+#pragma omp parallel for shared(rhino_cloud, cloud, normals)
+  for (int j = 0; j < (int)num_points; j++) {
+    rhino_cloud->m_P[j] =
+        ON_3dPoint(cloud->points[j].x, cloud->points[j].y, cloud->points[j].z);
+    rhino_cloud->m_C[j] =
+        ON_Color(cloud->points[j].r, cloud->points[j].g, cloud->points[j].b);
+    rhino_cloud->m_N[j] = ON_3dVector(normals->points[j].normal_x,
+                                       normals->points[j].normal_y,
+                                       normals->points[j].normal_z);
   }
-  return layer_map;
+
+  return rhino_cloud;
 }
 
-auto save_rhino_pointcloud(CloudConstPtr pcl_cloud, CloudLConstPtr pcl_labels)
-    -> std::unique_ptr<ONX_Model> {
-
-  auto model = configure_rhino_model();
-
-  if (pcl_cloud->size() != pcl_labels->size()) {
-    reusex::error(
-        "Point cloud and labels have different sizes (cloud: {}, labels: "
-        "{})",
-        pcl_cloud->size(), pcl_labels->size());
-    return model;
-  }
-
-  reusex::trace("creating set of labels");
-  std::set<uint32_t> labels_set{};
-  for (const auto &point : pcl_labels->points)
-    labels_set.insert(point.label);
-
-  reusex::trace("creating sorted vector of labels");
-  std::vector<uint32_t> labels(labels_set.begin(), labels_set.end());
-  std::sort(labels.begin(), labels.end());
-
-  reusex::debug("Found {} unique labels [{}]", labels.size(),
-                      fmt::join(labels, ", "));
-
-  std::vector<CloudPtr, Eigen::aligned_allocator<CloudPtr>> clouds(
-      labels.size());
-  reusex::trace("filter points by labels");
-  for (int i = 0; i < (int)labels.size(); i++) {
-    clouds[i] = CloudPtr(new Cloud());
-    for (int j = 0; j < (int)pcl_cloud->points.size(); j++) {
-      if (pcl_labels->points[j].label == labels[i])
-        clouds[i]->points.push_back(pcl_cloud->points[j]);
+auto make_rhino_mesh(const pcl::PolygonMesh &mesh) -> std::unique_ptr<ON_Mesh> {
+  // Check for color data
+  bool has_color = false;
+  for (const auto &field : mesh.cloud.fields) {
+    if (field.name == "rgb" || field.name == "rgba") {
+      has_color = true;
+      break;
     }
   }
-  std::vector<size_t> sizes(clouds.size());
-  std::transform(clouds.begin(), clouds.end(), sizes.begin(),
-                 [](const CloudPtr &c) { return c->size(); });
-  reusex::debug("Filtered {} clouds of sizes [{}]", clouds.size(),
-                      fmt::join(sizes, ", "));
 
-  reusex::trace("creating document layers");
-  // model.AddDefaultLayer(nullptr, ON_Color::UnsetColor);
-  ON_wString base_layer_name = L"ReUseX Export";
-  auto base_layer_id = model->AddLayer(base_layer_name, ON_Color::Black);
-  reusex::trace("base layer id: {}", base_layer_id);
-  const ON_Layer *base_layer =
-      ON_Layer::Cast(model->LayerFromIndex(base_layer_id).ModelComponent());
-  reusex::trace("base layer pointer: {}", (void *)base_layer);
+  int vertex_count = mesh.cloud.width * mesh.cloud.height;
+  int face_count = static_cast<int>(mesh.polygons.size());
 
-  auto layer_names =
-      labels | ranges::views::transform([](uint32_t label) {
-        reusex::trace("label: {}", label);
-        return label == static_cast<uint32_t>(-1)
-                   ? "Semantic class: 0 (unlabeled)"
-                   : fmt::format("Semantic class: {} ({})", label,
-                                 reusex::vision::Yolov8_className[label]);
-      }) |
-      ranges::to<std::vector<std::string>>();
-  reusex::trace("layer names: {}", fmt::join(layer_names, ", "));
-  auto colors = labels | ranges::views::transform([](uint32_t label) {
-                  auto c = pcl::GlasbeyLUT::at(label % pcl::GlasbeyLUT::size());
-                  return ON_Color(c.r, c.g, c.b);
-                }) |
-                ranges::to<std::vector<ON_Color>>();
-  reusex::trace("layer colors:");
-  for (const auto &color : colors) {
-    reusex::trace("  R={}, G={}, B={}", color.Red(), color.Green(),
-                        color.Blue());
+  auto rhino_mesh =
+      std::make_unique<ON_Mesh>(face_count, vertex_count, true, false);
+
+  if (has_color) {
+    Cloud cloud;
+    pcl::fromPCLPointCloud2(mesh.cloud, cloud);
+
+    for (size_t i = 0; i < cloud.size(); ++i) {
+      rhino_mesh->SetVertex(static_cast<int>(i),
+                            ON_3dPoint(cloud.points[i].x, cloud.points[i].y,
+                                       cloud.points[i].z));
+    }
+
+    rhino_mesh->m_C.Reserve(cloud.size());
+    rhino_mesh->m_C.SetCount(cloud.size());
+    for (size_t i = 0; i < cloud.size(); ++i) {
+      rhino_mesh->m_C[static_cast<int>(i)] =
+          ON_Color(cloud.points[i].r, cloud.points[i].g, cloud.points[i].b);
+    }
+  } else {
+    pcl::PointCloud<pcl::PointXYZ> cloud;
+    pcl::fromPCLPointCloud2(mesh.cloud, cloud);
+
+    for (size_t i = 0; i < cloud.size(); ++i) {
+      rhino_mesh->SetVertex(static_cast<int>(i),
+                            ON_3dPoint(cloud.points[i].x, cloud.points[i].y,
+                                       cloud.points[i].z));
+    }
   }
 
-  auto layer_map = create_rhino_layers(*model, layer_names, colors, base_layer);
+  // Faces
+  for (int fi = 0; fi < face_count; ++fi) {
+    const auto &poly = mesh.polygons[fi];
+    if (poly.vertices.size() == 3) {
+      rhino_mesh->SetTriangle(fi, poly.vertices[0], poly.vertices[1],
+                              poly.vertices[2]);
+    } else if (poly.vertices.size() == 4) {
+      rhino_mesh->SetQuad(fi, poly.vertices[0], poly.vertices[1],
+                          poly.vertices[2], poly.vertices[3]);
+    }
+  }
 
-  reusex::trace("creating rhino point clouds");
-  for (int i = 0; i < (int)clouds.size(); i++) {
+  rhino_mesh->ComputeVertexNormals();
+  return rhino_mesh;
+}
 
-    auto rhino_cloud = make_rhino_pointcloud(clouds[i]);
+auto make_sphere_mesh(double cx, double cy, double cz, double radius,
+                      int resolution) -> std::unique_ptr<ON_Mesh> {
+  int lat_segments = resolution;
+  int lon_segments = resolution * 2;
 
-    // INFO: Creating attributes for the point cloud
-    ON_3dmObjectAttributes *attribute = new ON_3dmObjectAttributes();
-    // TODO: Include semantic label names in Rhino object attributes
-    // category=I/O estimate=1h
-    // Currently hardcoded to generic "ReUseX Point Cloud Semantic" name.
-    // Should append actual class label (e.g., "Wall", "Floor", "Ceiling") to
-    // attribute:
-    // 1. Look up label name from labels[i] using class ID mapping
-    // 2. Convert to wide string for ON_wString compatibility
-    // 3. Follow same pattern as layer naming (already implemented above)
-    // Makes exported .3dm files easier to navigate in Rhino UI
-    attribute->m_name = L"ReUseX Point Cloud Semantic"; // + labels[i];
-    attribute->m_layer_index = layer_map[i];
-    attribute->m_color = ON_Color::UnsetColor;
+  int vertex_count = (lat_segments - 1) * lon_segments + 2; // poles
+  int face_count = lon_segments * 2 +
+                   (lat_segments - 2) * lon_segments * 2; // cap tris + band quads as tris
 
-    // INFO: Adding the point cloud to the model
-    model->AddManagedModelGeometryComponent(rhino_cloud.release(), attribute);
+  auto mesh = std::make_unique<ON_Mesh>(face_count, vertex_count, false, false);
+
+  // Top pole (index 0)
+  mesh->SetVertex(0, ON_3dPoint(cx, cy, cz + radius));
+
+  // Latitude rings
+  int idx = 1;
+  for (int lat = 1; lat < lat_segments; ++lat) {
+    double phi = M_PI * lat / lat_segments;
+    double sp = std::sin(phi);
+    double cp = std::cos(phi);
+    for (int lon = 0; lon < lon_segments; ++lon) {
+      double theta = 2.0 * M_PI * lon / lon_segments;
+      double x = cx + radius * sp * std::cos(theta);
+      double y = cy + radius * sp * std::sin(theta);
+      double z = cz + radius * cp;
+      mesh->SetVertex(idx++, ON_3dPoint(x, y, z));
+    }
+  }
+
+  // Bottom pole
+  int bottom_pole = idx;
+  mesh->SetVertex(bottom_pole, ON_3dPoint(cx, cy, cz - radius));
+
+  // Faces
+  int fi = 0;
+
+  // Top cap (triangles from pole to first ring)
+  for (int lon = 0; lon < lon_segments; ++lon) {
+    int next = (lon + 1) % lon_segments;
+    mesh->SetTriangle(fi++, 0, 1 + lon, 1 + next);
+  }
+
+  // Middle bands (two triangles per quad)
+  for (int lat = 0; lat < lat_segments - 2; ++lat) {
+    int ring_start = 1 + lat * lon_segments;
+    int next_ring_start = ring_start + lon_segments;
+    for (int lon = 0; lon < lon_segments; ++lon) {
+      int next = (lon + 1) % lon_segments;
+      int a = ring_start + lon;
+      int b = ring_start + next;
+      int c = next_ring_start + next;
+      int d = next_ring_start + lon;
+      mesh->SetTriangle(fi++, a, d, c);
+      mesh->SetTriangle(fi++, a, c, b);
+    }
+  }
+
+  // Bottom cap
+  int last_ring = 1 + (lat_segments - 2) * lon_segments;
+  for (int lon = 0; lon < lon_segments; ++lon) {
+    int next = (lon + 1) % lon_segments;
+    mesh->SetTriangle(fi++, bottom_pole, last_ring + next, last_ring + lon);
+  }
+
+  mesh->ComputeVertexNormals();
+
+  // Set a neutral semi-transparent color
+  mesh->m_C.Reserve(vertex_count);
+  mesh->m_C.SetCount(vertex_count);
+  ON_Color sphere_color(100, 150, 200); // Semi-neutral blue
+  for (int i = 0; i < vertex_count; ++i)
+    mesh->m_C[i] = sphere_color;
+
+  return mesh;
+}
+
+namespace {
+
+/// Create a sublayer under a parent layer, returning its index.
+int add_sublayer(ONX_Model &model, const std::string &name,
+                 const ON_Layer *parent, ON_Color color = ON_Color::Black) {
+  ON_wString wname(name.c_str());
+  int idx = model.AddLayer(wname, color);
+  auto *layer = const_cast<ON_Layer *>(
+      ON_Layer::Cast(model.LayerFromIndex(idx).ModelComponent()));
+  if (parent)
+    layer->SetParentLayerId(parent->Id());
+  return idx;
+}
+
+/// Get the current timestamp as "YYYYMMDD-HHmmss".
+std::string timestamp_string() {
+  auto now = std::chrono::system_clock::now();
+  auto time = std::chrono::system_clock::to_time_t(now);
+  std::tm tm{};
+  localtime_r(&time, &tm);
+  std::ostringstream oss;
+  oss << std::put_time(&tm, "%Y%m%d-%H%M%S");
+  return oss.str();
+}
+
+} // namespace
+
+auto export_to_rhino(const ExportScene &scene) -> std::unique_ptr<ONX_Model> {
+  auto model = configure_rhino_model();
+
+  // Root layer
+  std::string root_name = "ReUseX-" + timestamp_string();
+  ON_wString wroot(root_name.c_str());
+  int root_idx = model->AddLayer(wroot, ON_Color::Black);
+  const ON_Layer *root_layer =
+      ON_Layer::Cast(model->LayerFromIndex(root_idx).ModelComponent());
+
+  // --- Cloud ---
+  if (scene.cloud) {
+    int cloud_layer_idx = add_sublayer(*model, "cloud", root_layer);
+
+    std::unique_ptr<ON_PointCloud> rhino_cloud;
+    if (scene.cloud->normals)
+      rhino_cloud =
+          make_rhino_pointcloud(scene.cloud->cloud, scene.cloud->normals);
+    else
+      rhino_cloud = make_rhino_pointcloud(scene.cloud->cloud);
+
+    auto *attr = new ON_3dmObjectAttributes();
+    attr->m_name = L"cloud";
+    attr->m_layer_index = cloud_layer_idx;
+    model->AddManagedModelGeometryComponent(rhino_cloud.release(), attr);
+    reusex::debug("Rhino: added cloud layer ({} points)",
+                  scene.cloud->cloud->size());
+  }
+
+  // --- Semantic ---
+  if (!scene.semantic.empty()) {
+    int sem_layer_idx = add_sublayer(*model, "semantic", root_layer);
+    const ON_Layer *sem_layer =
+        ON_Layer::Cast(model->LayerFromIndex(sem_layer_idx).ModelComponent());
+
+    for (const auto &cat : scene.semantic) {
+      ON_Color cat_color(cat.color[0], cat.color[1], cat.color[2]);
+      int cat_layer_idx =
+          add_sublayer(*model, cat.name, sem_layer, cat_color);
+
+      for (const auto &inst : cat.instances) {
+        auto rhino_cloud = make_rhino_pointcloud(inst.points);
+
+        auto *attr = new ON_3dmObjectAttributes();
+        if (cat.instances.size() > 1)
+          attr->m_name = ON_wString(
+              fmt::format("{}_{}", cat.name, inst.instance_id).c_str());
+        else
+          attr->m_name = ON_wString(cat.name.c_str());
+        attr->m_layer_index = cat_layer_idx;
+        attr->m_color = ON_Color::UnsetColor;
+
+        model->AddManagedModelGeometryComponent(rhino_cloud.release(), attr);
+      }
+    }
+    reusex::debug("Rhino: added semantic layer ({} categories)",
+                  scene.semantic.size());
+  }
+
+  // --- Meshes ---
+  if (!scene.meshes.empty()) {
+    int mesh_layer_idx = add_sublayer(*model, "mesh", root_layer);
+
+    for (const auto &entry : scene.meshes) {
+      auto rhino_mesh = make_rhino_mesh(*entry.mesh);
+
+      auto *attr = new ON_3dmObjectAttributes();
+      attr->m_name = ON_wString(entry.name.c_str());
+      attr->m_layer_index = mesh_layer_idx;
+
+      model->AddManagedModelGeometryComponent(rhino_mesh.release(), attr);
+    }
+    reusex::debug("Rhino: added mesh layer ({} meshes)", scene.meshes.size());
+  }
+
+  // --- 360 Panoramas ---
+  if (!scene.panoramas.empty()) {
+    int pano_layer_idx = add_sublayer(*model, "360", root_layer);
+
+    for (const auto &entry : scene.panoramas) {
+      auto sphere = make_sphere_mesh(entry.x, entry.y, entry.z, 0.15);
+
+      auto *attr = new ON_3dmObjectAttributes();
+      attr->m_name = ON_wString(entry.image_name.c_str());
+      attr->m_layer_index = pano_layer_idx;
+
+      // User strings on attributes (per McNeel guidance)
+      attr->SetUserString(L"Image Name",
+                          ON_wString(entry.image_name.c_str()));
+      if (!entry.image_url.empty())
+        attr->SetUserString(L"imageUrl",
+                            ON_wString(entry.image_url.c_str()));
+
+      model->AddManagedModelGeometryComponent(sphere.release(), attr);
+    }
+    reusex::debug("Rhino: added 360 layer ({} panoramas)",
+                  scene.panoramas.size());
+  }
+
+  // --- Materials ---
+  if (!scene.materials.empty()) {
+    int mat_layer_idx = add_sublayer(*model, "materials", root_layer);
+
+    for (const auto &entry : scene.materials) {
+      auto *dot = new ON_TextDot();
+      dot->SetCenterPoint(ON_3dPoint(entry.x, entry.y, entry.z));
+      dot->SetPrimaryText(ON_wString(entry.name.c_str()));
+
+      auto *attr = new ON_3dmObjectAttributes();
+      attr->m_name = ON_wString(entry.name.c_str());
+      attr->m_layer_index = mat_layer_idx;
+
+      // Store all properties as user strings
+      for (const auto &[key, value] : entry.properties)
+        attr->SetUserString(ON_wString(key.c_str()),
+                            ON_wString(value.c_str()));
+
+      model->AddManagedModelGeometryComponent(dot, attr);
+    }
+    reusex::debug("Rhino: added materials layer ({} passports)",
+                  scene.materials.size());
   }
 
   return model;
 }
+
 } // namespace reusex::io

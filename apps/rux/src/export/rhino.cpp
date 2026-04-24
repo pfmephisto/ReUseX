@@ -6,10 +6,8 @@
 #include "global-params.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
-#include <reusex/types.hpp>
+#include <reusex/io/export_scene.hpp>
 #include <reusex/io/rhino.hpp>
-#include <fmt/format.h>
-#include <pcl/common/io.h>
 #include <spdlog/spdlog.h>
 
 #include <filesystem>
@@ -20,39 +18,43 @@ void setup_subcommand_export_rhino(CLI::App &parent, std::shared_ptr<RuxOptions>
   auto opt = std::make_shared<SubcommandExportRhinoOptions>();
   auto *sub = parent.add_subcommand(
       "rhino",
-      "Export labeled point cloud to Rhino 3DM");
+      "Export project data to Rhino 3DM");
 
   sub->footer(R"(
 DESCRIPTION:
-  Exports point clouds and optional label data from ProjectDB to Rhino 3DM
-  format using OpenNURBS. Preserves point colors and converts segmentation
-  labels to Rhino user data attributes for interoperability with CAD workflows.
+  Exports all available project data from ProjectDB to Rhino 3DM format
+  using OpenNURBS. Automatically includes point clouds, semantic labels,
+  meshes, 360 panoramas, and material passports in a structured layer
+  hierarchy.
+
+LAYER STRUCTURE:
+  ReUseX-<timestamp>/
+  ├── cloud          # XYZRGB point cloud + normals if available
+  ├── semantic/      # Per-category sublayers with Glasbey colors
+  │   ├── wall       # One cloud per instance (or single blob)
+  │   ├── ceiling
+  │   └── ...
+  ├── mesh/          # All meshes as individual ON_Mesh objects
+  ├── 360/           # Sphere per panoramic image with user strings
+  └── materials/     # TextDots per passport with user strings
 
 EXAMPLES:
-  rux export rhino -o output.3dm       # Export 'cloud' only
-  rux export rhino -l rooms -o out.3dm # Export with room labels
-  rux export rhino -c cloud -l planes  # Custom cloud + labels
+  rux export rhino -o output.3dm       # Export everything
   rux -p project.rux export rhino      # Custom project path
 
 WORKFLOW:
-  1. rux create clouds                 # Generate point cloud
-  2. rux create planes                 # Optional: add labels
+  1. rux import rtabmap scan.db        # Import sensor data
+  2. rux create clouds                 # Generate point cloud
   3. rux export rhino -o scan.3dm      # Export to Rhino
 
 NOTES:
-  - Default cloud name: 'cloud'
-  - Labels are optional; omit --labels-name for geometry only
+  - Only layers with data are created (empty layers are omitted)
   - Output .3dm file compatible with Rhino 7+ and OpenNURBS readers
   - Point colors preserved from RGB channels
-  - Labels stored as custom attributes on point objects
+  - Semantic labels use Glasbey LUT for distinct category colors
+  - 360 panoramas stored as sphere meshes with metadata in user strings
+  - Material passport properties stored as user strings on TextDots
 )");
-
-  sub->add_option("-c, --cloud-name", opt->cloud_name,
-                  "Name of the point cloud in ProjectDB")
-      ->default_val(opt->cloud_name);
-
-  sub->add_option("-l, --labels-name", opt->labels_name,
-                  "Name of the labels in ProjectDB (optional)");
 
   sub->add_option("-o, --output", opt->path_out,
                   "Path to the output Rhino 3DM file")
@@ -69,23 +71,13 @@ int run_subcommand_export_rhino(SubcommandExportRhinoOptions const &opt, const R
   spdlog::info("Exporting to Rhino from project: {}", project_path.string());
 
   try {
-    ProjectDB db(project_path);
+    ProjectDB db(project_path, true);
 
-    spdlog::trace("Loading point cloud '{}' from ProjectDB", opt.cloud_name);
-    CloudPtr pcl_cloud = db.point_cloud_xyzrgb(opt.cloud_name);
+    spdlog::info("Gathering export data...");
+    auto scene = io::gather_export_scene(db);
 
-    CloudLPtr pcl_labels;
-    if (!opt.labels_name.empty()) {
-      spdlog::trace("Loading labels '{}' from ProjectDB", opt.labels_name);
-      pcl_labels = db.point_cloud_label(opt.labels_name);
-    } else {
-      spdlog::trace("No labels specified, creating empty label cloud");
-      pcl_labels = CloudLPtr(new CloudL);
-      pcl_labels->resize(pcl_cloud->size());
-    }
-
-    spdlog::trace("Converting to Rhino format");
-    auto model = reusex::io::save_rhino_pointcloud(pcl_cloud, pcl_labels);
+    spdlog::info("Building Rhino model...");
+    auto model = io::export_to_rhino(scene);
 
     spdlog::trace("Writing Rhino model to: {}", opt.path_out.string());
     int version = 0;

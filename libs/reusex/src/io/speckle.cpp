@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "io/speckle.hpp"
+#include "io/export_scene.hpp"
 
 #include <curl/curl.h>
 #include <nlohmann/json.hpp>
@@ -11,7 +12,10 @@
 
 #include <pcl/common/io.h>
 
+#include <fmt/format.h>
+
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <numeric>
 #include <sstream>
@@ -543,6 +547,204 @@ Mesh to_speckle(const Eigen::MatrixXd &vertices,
     }
 
     return speckle_mesh;
+}
+
+// ============================================================
+// Sphere mesh generation (shared UV sphere algorithm)
+// ============================================================
+
+namespace {
+
+Mesh make_speckle_sphere(double cx, double cy, double cz, double radius,
+                         int resolution = 16) {
+    Mesh mesh;
+    int lat_segments = resolution;
+    int lon_segments = resolution * 2;
+
+    // Vertices
+    // Top pole
+    mesh.vertices.push_back(cx);
+    mesh.vertices.push_back(cy);
+    mesh.vertices.push_back(cz + radius);
+
+    // Latitude rings
+    for (int lat = 1; lat < lat_segments; ++lat) {
+        double phi = M_PI * lat / lat_segments;
+        double sp = std::sin(phi);
+        double cp = std::cos(phi);
+        for (int lon = 0; lon < lon_segments; ++lon) {
+            double theta = 2.0 * M_PI * lon / lon_segments;
+            mesh.vertices.push_back(cx + radius * sp * std::cos(theta));
+            mesh.vertices.push_back(cy + radius * sp * std::sin(theta));
+            mesh.vertices.push_back(cz + radius * cp);
+        }
+    }
+
+    // Bottom pole
+    mesh.vertices.push_back(cx);
+    mesh.vertices.push_back(cy);
+    mesh.vertices.push_back(cz - radius);
+
+    int bottom_pole = (lat_segments - 1) * lon_segments + 1;
+
+    // Faces (Speckle format: 0=tri indicator, then 3 indices)
+    // Top cap
+    for (int lon = 0; lon < lon_segments; ++lon) {
+        int next = (lon + 1) % lon_segments;
+        mesh.faces.push_back(0);
+        mesh.faces.push_back(0);
+        mesh.faces.push_back(1 + lon);
+        mesh.faces.push_back(1 + next);
+    }
+
+    // Middle bands
+    for (int lat = 0; lat < lat_segments - 2; ++lat) {
+        int ring = 1 + lat * lon_segments;
+        int next_ring = ring + lon_segments;
+        for (int lon = 0; lon < lon_segments; ++lon) {
+            int next = (lon + 1) % lon_segments;
+            int a = ring + lon;
+            int b = ring + next;
+            int c = next_ring + next;
+            int d = next_ring + lon;
+
+            mesh.faces.push_back(0);
+            mesh.faces.push_back(a);
+            mesh.faces.push_back(d);
+            mesh.faces.push_back(c);
+
+            mesh.faces.push_back(0);
+            mesh.faces.push_back(a);
+            mesh.faces.push_back(c);
+            mesh.faces.push_back(b);
+        }
+    }
+
+    // Bottom cap
+    int last_ring = 1 + (lat_segments - 2) * lon_segments;
+    for (int lon = 0; lon < lon_segments; ++lon) {
+        int next = (lon + 1) % lon_segments;
+        mesh.faces.push_back(0);
+        mesh.faces.push_back(bottom_pole);
+        mesh.faces.push_back(last_ring + next);
+        mesh.faces.push_back(last_ring + lon);
+    }
+
+    // Neutral color for all vertices
+    int vertex_count = static_cast<int>(mesh.vertices.size() / 3);
+    int argb = (200 << 24) | (100 << 16) | (150 << 8) | 200; // Semi-transparent blue
+    mesh.colors.assign(vertex_count, argb);
+
+    return mesh;
+}
+
+} // namespace
+
+// ============================================================
+// Scene Export
+// ============================================================
+
+auto export_to_speckle(const ExportScene &scene) -> std::vector<SpeckleModel> {
+    std::vector<SpeckleModel> models;
+
+    // --- "cloud" model ---
+    if (scene.cloud) {
+        auto pc = std::make_shared<Pointcloud>(to_speckle(scene.cloud->cloud));
+        models.push_back({"cloud", pc});
+        core::debug("Speckle: prepared 'cloud' model ({} points)",
+                     scene.cloud->cloud->size());
+    }
+
+    // --- "semantic" model ---
+    if (!scene.semantic.empty()) {
+        auto root = std::make_shared<Collection>();
+        root->name = "semantic";
+
+        for (const auto &cat : scene.semantic) {
+            auto cat_col = std::make_shared<Collection>();
+            cat_col->name = cat.name;
+
+            // Store label metadata as properties
+            std::string hex_color =
+                fmt::format("#{:02x}{:02x}{:02x}", cat.color[0], cat.color[1],
+                            cat.color[2]);
+            cat_col->properties["label_id"] = cat.label_id;
+            cat_col->properties["color"] = hex_color;
+
+            for (const auto &inst : cat.instances) {
+                auto pc =
+                    std::make_shared<Pointcloud>(to_speckle(inst.points));
+                pc->properties["label_id"] = cat.label_id;
+                pc->properties["color"] = hex_color;
+                if (inst.instance_id > 0)
+                    pc->properties["instance_id"] =
+                        static_cast<int>(inst.instance_id);
+                cat_col->elements.push_back(pc);
+            }
+
+            root->elements.push_back(cat_col);
+        }
+
+        models.push_back({"semantic", root});
+        core::debug("Speckle: prepared 'semantic' model ({} categories)",
+                     scene.semantic.size());
+    }
+
+    // --- "mesh" model ---
+    if (!scene.meshes.empty()) {
+        auto root = std::make_shared<Collection>();
+        root->name = "mesh";
+
+        for (const auto &entry : scene.meshes) {
+            auto speckle_mesh =
+                std::make_shared<Mesh>(to_speckle(*entry.mesh));
+            speckle_mesh->properties["name"] = entry.name;
+            root->elements.push_back(speckle_mesh);
+        }
+
+        models.push_back({"mesh", root});
+        core::debug("Speckle: prepared 'mesh' model ({} meshes)",
+                     scene.meshes.size());
+    }
+
+    // --- "360" model ---
+    if (!scene.panoramas.empty()) {
+        auto root = std::make_shared<Collection>();
+        root->name = "360";
+
+        for (const auto &entry : scene.panoramas) {
+            auto sphere = std::make_shared<Mesh>(
+                make_speckle_sphere(entry.x, entry.y, entry.z, 0.15));
+            sphere->properties["Image Name"] = entry.image_name;
+            if (!entry.image_url.empty())
+                sphere->properties["imageUrl"] = entry.image_url;
+            root->elements.push_back(sphere);
+        }
+
+        models.push_back({"360", root});
+        core::debug("Speckle: prepared '360' model ({} panoramas)",
+                     scene.panoramas.size());
+    }
+
+    // --- "materials" model ---
+    if (!scene.materials.empty()) {
+        auto root = std::make_shared<Collection>();
+        root->name = "materials";
+
+        for (const auto &entry : scene.materials) {
+            auto pt = std::make_shared<Point>(entry.x, entry.y, entry.z);
+            pt->properties["name"] = entry.name;
+            for (const auto &[key, value] : entry.properties)
+                pt->properties[key] = value;
+            root->elements.push_back(pt);
+        }
+
+        models.push_back({"materials", root});
+        core::debug("Speckle: prepared 'materials' model ({} passports)",
+                     scene.materials.size());
+    }
+
+    return models;
 }
 
 } // namespace reusex::io::speckle

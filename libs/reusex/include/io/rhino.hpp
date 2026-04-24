@@ -4,41 +4,39 @@
 //
 
 #pragma once
-#include "reusex/core/logging.hpp"
 #include "reusex/types.hpp"
-#include "reusex/utils/fmt_formatter.hpp"
-#include "reusex/vision/Yolo.hpp"
 
-// OpenNURBS public needs to be included first
+// OpenNURBS public needs to be included first (pulls in all ON_* types)
 #include <opennurbs_public.h>
 
-#include <fmt/format.h>
-#include <opennurbs_layer.h>
-#include <opennurbs_pointcloud.h>
-#include <pcl/common/colors.h>
-#include <pcl/common/io.h>
-#include <pcl/io/pcd_io.h>
+#include <pcl/PolygonMesh.h>
 
-#include <filesystem>
-#include <optional>
-#include <ranges>
-#include <set>
-
-namespace fs = std::filesystem;
+#include <memory>
 
 namespace reusex::io {
+
+// Forward declaration
+struct ExportScene;
+
+/// Create a configured ONX_Model with ReUseX metadata, units, and tolerances.
 auto configure_rhino_model() -> std::unique_ptr<ONX_Model>;
 
-auto create_rhino_layers(ONX_Model &model,
-                         const std::set<std::string> &layer_names,
-                         std::optional<std::vector<ON_Color>> layer_colors = {},
-                         const ON_Layer *base_layer = nullptr)
-    -> std::vector<int>;
+/// Export a full ExportScene to a Rhino ONX_Model with layer hierarchy.
+auto export_to_rhino(const ExportScene &scene) -> std::unique_ptr<ONX_Model>;
 
+/// Convert a PCL XYZRGB point cloud to an ON_PointCloud.
 auto make_rhino_pointcloud(CloudConstPtr cloud)
     -> std::unique_ptr<ON_PointCloud>;
 
-[[nodiscard]]
-auto save_rhino_pointcloud(CloudConstPtr pcl_cloud, CloudLConstPtr pcl_labels)
-    -> std::unique_ptr<ONX_Model>;
+/// Convert a PCL XYZRGB point cloud with normals to an ON_PointCloud.
+auto make_rhino_pointcloud(CloudConstPtr cloud, CloudNConstPtr normals)
+    -> std::unique_ptr<ON_PointCloud>;
+
+/// Convert a PCL PolygonMesh to an ON_Mesh.
+auto make_rhino_mesh(const pcl::PolygonMesh &mesh) -> std::unique_ptr<ON_Mesh>;
+
+/// Create a UV sphere mesh.
+auto make_sphere_mesh(double cx, double cy, double cz, double radius,
+                      int resolution = 16) -> std::unique_ptr<ON_Mesh>;
+
 } // namespace reusex::io

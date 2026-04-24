@@ -12,6 +12,7 @@
 #include "vision/utils.hpp"
 
 #include <opencv2/core.hpp>
+#include <thread>
 
 #ifdef NDEBUG
 // For visualization/debugging purposes
@@ -25,7 +26,8 @@
 namespace reusex::vision {
 
 auto annotate(const std::filesystem::path &dbPath,
-              const std::filesystem::path &modelPath, bool use_cuda) -> int {
+              const std::filesystem::path &modelPath,
+              const AnnotationConfig &config) -> int {
   reusex::trace("calling annotate");
 
   // Create backend, model, and dataset
@@ -33,18 +35,32 @@ auto annotate(const std::filesystem::path &dbPath,
   auto backend = BackendFactory::create(backendType);
 
   auto modelType = BackendFactory::detect_model(modelPath);
-  auto model = backend->create_model(modelType, modelPath, use_cuda);
+  auto model = backend->create_model(modelType, modelPath, config.use_cuda);
   auto dataset = backend->create_dataset(dbPath);
 
-  // Create dataloader with multi-threaded prefetching
-  // Parameters: dataset, batch_size, shuffle, num_workers, prefetch_batches
-  constexpr size_t batch_size = 4;
-  constexpr bool shuffle = false;
-  constexpr size_t num_workers = 4;
-  constexpr size_t prefetch_batches = 2;
+  // Log dataloader configuration
+  reusex::info("Dataloader config: batch_size={}, shuffle={}, num_workers={}, prefetch={}",
+               config.batch_size, config.shuffle, config.num_workers, config.prefetch_batches);
 
-  Dataloader loader(*dataset, batch_size, shuffle, num_workers,
-                    prefetch_batches);
+  // Warn about potentially problematic configurations
+  if (config.batch_size > 64) {
+    reusex::warn("Batch size {} exceeds recommended maximum (64). May cause GPU OOM.", config.batch_size);
+  }
+
+  const auto hw_threads = std::thread::hardware_concurrency();
+  if (config.num_workers > hw_threads) {
+    reusex::warn("Workers ({}) exceed hardware threads ({}). May cause over-subscription.",
+                 config.num_workers, hw_threads);
+  }
+
+  if (config.prefetch_batches < config.num_workers) {
+    reusex::warn("Prefetch ({}) < workers ({}). May cause GPU starvation. Recommended: 2-3x workers.",
+                 config.prefetch_batches, config.num_workers);
+  }
+
+  // Create dataloader with multi-threaded prefetching
+  Dataloader loader(*dataset, config.batch_size, config.shuffle, config.num_workers,
+                    config.prefetch_batches);
 
 #ifndef NDEBUG
   // INFO: Create and OpenCV window for visualizing the results during

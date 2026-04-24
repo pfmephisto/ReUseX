@@ -53,6 +53,16 @@ NOTES:
   - Backend auto-detected from file extension
   - CUDA flag forces GPU acceleration (enabled by default for .engine)
   - Output saved as segmentation images per sensor frame in project DB
+
+PERFORMANCE TUNING:
+  For GPU memory-constrained systems:
+    --batch-size 8 --workers 2-4 --prefetch 4-8
+
+  For CPU-limited systems:
+    --workers 1-2 --prefetch 2-4
+
+  For high-end systems (16+ cores, high VRAM):
+    --batch-size 32-64 --workers 8-16 --prefetch 16-48
 )");
 
   sub->add_option("-n, --net", opt->net_path,
@@ -62,6 +72,25 @@ NOTES:
 
   sub->add_flag("-c, --cuda", opt->isCuda, "Use CUDA for YOLOv8 inference")
       ->default_val(opt->isCuda);
+
+  sub->add_option("-b, --batch-size", opt->batch_size,
+                  "Batch size for inference (recommended: 8-64 based on GPU memory)")
+      ->check(CLI::Range(1, 1024))
+      ->default_val(opt->batch_size);
+
+  sub->add_option("-w, --workers", opt->num_workers,
+                  "Number of worker threads for data loading (recommended: 2-4)")
+      ->check(CLI::Range(1, 64))
+      ->default_val(opt->num_workers);
+
+  sub->add_option("-p, --prefetch", opt->prefetch_batches,
+                  "Number of batches to prefetch (recommended: 2-3x workers)")
+      ->check(CLI::Range(1, 256))
+      ->default_val(opt->prefetch_batches);
+
+  sub->add_flag("--shuffle", opt->shuffle,
+                "Shuffle dataset before processing (default: false)")
+      ->default_val(opt->shuffle);
 
   sub->callback([opt, global_opt]() {
     spdlog::trace("calling run_subcommand_annotate");
@@ -83,8 +112,16 @@ int run_subcommand_annotate(SubcommandAnnotateOptions const &opt,
       return RuxError::INVALID_ARGUMENT;
     }
 
-    return reusex::vision::annotate(project_path, opt.net_path,
-                                    opt.isCuda);
+    // Build config from CLI options
+    reusex::vision::AnnotationConfig config{
+      .use_cuda = opt.isCuda,
+      .batch_size = opt.batch_size,
+      .shuffle = opt.shuffle,
+      .num_workers = opt.num_workers,
+      .prefetch_batches = opt.prefetch_batches
+    };
+
+    return reusex::vision::annotate(project_path, opt.net_path, config);
 
   } catch (const std::exception &e) {
     spdlog::error("Annotation failed: {}", e.what());

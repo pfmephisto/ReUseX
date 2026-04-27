@@ -113,6 +113,9 @@ class SpeckleClient {
     void set_max_batch_size(std::size_t bytes);
 
   private:
+    /// Create the branch if it does not already exist (no-op when it does).
+    void ensure_branch(const std::string &branch);
+
     std::string server_url_;
     std::string project_id_;
     std::string token_;

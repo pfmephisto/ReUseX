@@ -3,9 +3,14 @@
 
 #include "geometry/cgal_utils.hpp"
 
+#include <CGAL/Polygon_mesh_processing/connected_components.h>
+
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 #include <pcl/conversions.h>
+
+#include <map>
+#include <vector>
 
 namespace reusex::geometry::cgal {
 
@@ -70,6 +75,100 @@ pcl::PolygonMesh cgal_to_pcl_mesh(const Mesh& cgal_mesh) {
     }
 
     return pcl_mesh;
+}
+
+std::vector<pcl::PolygonMeshPtr>
+decompose_mesh(const pcl::PolygonMesh &pcl_mesh) {
+    if (pcl_mesh.polygons.empty())
+        return {};
+
+    // 1. Convert to CGAL mesh for connected component analysis
+    Mesh cgal_mesh = pcl_to_cgal_mesh(pcl_mesh);
+
+    // 2. Compute connected components
+    auto fccmap = cgal_mesh.add_property_map<Mesh::Face_index, std::size_t>(
+        "f:component", 0).first;
+    std::size_t num_components =
+        CGAL::Polygon_mesh_processing::connected_components(cgal_mesh, fccmap);
+
+    if (num_components <= 1) {
+        // Single component — return a copy of the original
+        auto copy = pcl::PolygonMeshPtr(new pcl::PolygonMesh(pcl_mesh));
+        return {copy};
+    }
+
+    // 3. Build CGAL face index → PCL face index mapping.
+    //    pcl_to_cgal_mesh adds faces in order, so CGAL face indices
+    //    correspond 1:1 to PCL polygon indices.
+    //    Group PCL face indices by component.
+    std::vector<std::vector<std::size_t>> comp_faces(num_components);
+    {
+        std::size_t fi = 0;
+        for (auto f : cgal_mesh.faces()) {
+            comp_faces[fccmap[f]].push_back(fi);
+            ++fi;
+        }
+    }
+
+    // 4. For each component, extract faces and vertices from the ORIGINAL
+    //    PCL mesh to preserve full point cloud data (including RGB).
+    std::vector<pcl::PolygonMeshPtr> result;
+    result.reserve(num_components);
+
+    // Determine point step and field layout from original cloud
+    const auto &src_cloud = pcl_mesh.cloud;
+    std::size_t point_step = src_cloud.point_step;
+    std::size_t num_src_points = src_cloud.width * src_cloud.height;
+
+    for (std::size_t c = 0; c < num_components; ++c) {
+        const auto &faces = comp_faces[c];
+        if (faces.empty())
+            continue;
+
+        // Collect unique vertex indices used by this component
+        std::map<uint32_t, uint32_t> old_to_new;
+        for (std::size_t fi : faces) {
+            for (uint32_t vi : pcl_mesh.polygons[fi].vertices) {
+                if (old_to_new.find(vi) == old_to_new.end()) {
+                    auto new_idx = static_cast<uint32_t>(old_to_new.size());
+                    old_to_new[vi] = new_idx;
+                }
+            }
+        }
+
+        // Build new cloud by copying raw point data (preserves all fields)
+        auto out = pcl::PolygonMeshPtr(new pcl::PolygonMesh());
+        out->cloud.fields = src_cloud.fields;
+        out->cloud.point_step = point_step;
+        out->cloud.height = 1;
+        out->cloud.width = static_cast<uint32_t>(old_to_new.size());
+        out->cloud.row_step = out->cloud.width * point_step;
+        out->cloud.is_dense = src_cloud.is_dense;
+        out->cloud.is_bigendian = src_cloud.is_bigendian;
+        out->cloud.data.resize(out->cloud.width * point_step);
+
+        for (const auto &[old_idx, new_idx] : old_to_new) {
+            if (old_idx < num_src_points) {
+                std::memcpy(out->cloud.data.data() + new_idx * point_step,
+                            src_cloud.data.data() + old_idx * point_step,
+                            point_step);
+            }
+        }
+
+        // Build remapped faces
+        out->polygons.reserve(faces.size());
+        for (std::size_t fi : faces) {
+            pcl::Vertices poly;
+            poly.vertices.reserve(pcl_mesh.polygons[fi].vertices.size());
+            for (uint32_t vi : pcl_mesh.polygons[fi].vertices)
+                poly.vertices.push_back(old_to_new[vi]);
+            out->polygons.push_back(std::move(poly));
+        }
+
+        result.push_back(std::move(out));
+    }
+
+    return result;
 }
 
 } // namespace reusex::geometry::cgal

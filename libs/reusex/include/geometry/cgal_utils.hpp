@@ -57,4 +57,9 @@ inline Eigen::Vector3d cgal_to_eigen(const Vector_3& v) {
                           CGAL::to_double(v.z()));
 }
 
+/// Split a mesh into its connected components.
+/// Returns one PolygonMesh per disjoint piece, preserving vertex colors.
+std::vector<pcl::PolygonMeshPtr>
+decompose_mesh(const pcl::PolygonMesh &mesh);
+
 } // namespace reusex::geometry::cgal

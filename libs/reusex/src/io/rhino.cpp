@@ -316,6 +316,7 @@ auto export_to_rhino(const ExportScene &scene) -> std::unique_ptr<ONX_Model> {
           attr->m_name = ON_wString(cat.name.c_str());
         attr->m_layer_index = cat_layer_idx;
         attr->m_color = ON_Color::UnsetColor;
+        attr->SetUserString(L"type", ON_wString(cat.name.c_str()));
 
         model->AddManagedModelGeometryComponent(rhino_cloud.release(), attr);
       }
@@ -386,6 +387,47 @@ auto export_to_rhino(const ExportScene &scene) -> std::unique_ptr<ONX_Model> {
     }
     reusex::debug("Rhino: added materials layer ({} passports)",
                   scene.materials.size());
+  }
+
+  // --- Building Components ---
+  if (!scene.components.empty()) {
+    int comp_layer_idx = add_sublayer(*model, "components", root_layer);
+    const ON_Layer *comp_layer =
+        ON_Layer::Cast(model->LayerFromIndex(comp_layer_idx).ModelComponent());
+
+    std::map<std::string, int> type_layers;
+    for (const auto &entry : scene.components) {
+      std::string type_name = entry.properties.count("type")
+                                  ? entry.properties.at("type")
+                                  : "unknown";
+      if (type_layers.find(type_name) == type_layers.end())
+        type_layers[type_name] =
+            add_sublayer(*model, type_name, comp_layer);
+
+      const auto &verts = entry.boundary.vertices;
+      if (verts.size() < 3)
+        continue;
+
+      int vc = static_cast<int>(verts.size());
+      int fc = vc - 2; // triangle fan
+      auto rhino_mesh = std::make_unique<ON_Mesh>(fc, vc, false, false);
+      for (int i = 0; i < vc; ++i)
+        rhino_mesh->SetVertex(i, ON_3dPoint(verts[i].x(), verts[i].y(),
+                                            verts[i].z()));
+      for (int i = 0; i < fc; ++i)
+        rhino_mesh->SetTriangle(i, 0, i + 1, i + 2);
+      rhino_mesh->ComputeVertexNormals();
+
+      auto *attr = new ON_3dmObjectAttributes();
+      attr->m_name = ON_wString(entry.name.c_str());
+      attr->m_layer_index = type_layers[type_name];
+      for (const auto &[k, v] : entry.properties)
+        attr->SetUserString(ON_wString(k.c_str()), ON_wString(v.c_str()));
+
+      model->AddManagedModelGeometryComponent(rhino_mesh.release(), attr);
+    }
+    reusex::debug("Rhino: added components layer ({} components)",
+                  scene.components.size());
   }
 
   return model;

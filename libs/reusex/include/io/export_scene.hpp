@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include "reusex/geometry/BuildingComponent.hpp"
 #include "reusex/types.hpp"
 
 #include <pcl/PolygonMesh.h>
@@ -67,6 +68,17 @@ struct ExportScene {
     std::map<std::string, std::string> properties;
   };
   std::vector<MaterialEntry> materials;
+
+  // --- Building Components ---
+  struct ComponentEntry {
+    std::string name;
+    geometry::ComponentType type;
+    geometry::CoplanarPolygon boundary;
+    double confidence = -1.0;
+    std::string notes;
+    std::map<std::string, std::string> properties;
+  };
+  std::vector<ComponentEntry> components;
 };
 
 /// Gather all exportable data from a ProjectDB.

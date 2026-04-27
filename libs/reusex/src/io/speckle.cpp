@@ -406,9 +406,35 @@ std::string SpeckleClient::send(const Base &root) {
     return root_id;
 }
 
+void SpeckleClient::ensure_branch(const std::string &branch) {
+    nlohmann::json mutation = {
+        {"query",
+         "mutation branchCreate($input: BranchCreateInput!) { "
+         "branchCreate(branch: $input) }"},
+        {"variables",
+         {{"input",
+           {{"streamId", project_id_},
+            {"name", branch},
+            {"description", "Created by ReUseX"}}}}}};
+
+    std::string url = server_url_ + "/graphql";
+    std::string response = http_post_json(url, token_, mutation.dump());
+    auto resp_json = nlohmann::json::parse(response);
+
+    if (resp_json.contains("errors") && !resp_json["errors"].empty()) {
+        // Branch already exists — not an error for our purposes.
+        core::debug("Speckle: branch '{}' creation note: {}", branch,
+                     resp_json["errors"][0]["message"].get<std::string>());
+    } else {
+        core::info("Speckle: created branch '{}'", branch);
+    }
+}
+
 std::string SpeckleClient::commit(const std::string &object_id,
                                   const std::string &branch,
                                   const std::string &message) {
+    ensure_branch(branch);
+
     nlohmann::json mutation = {
         {"query",
          "mutation commitCreate($input: CommitCreateInput!) { "
@@ -674,6 +700,7 @@ auto export_to_speckle(const ExportScene &scene) -> std::vector<SpeckleModel> {
             for (const auto &inst : cat.instances) {
                 auto pc =
                     std::make_shared<Pointcloud>(to_speckle(inst.points));
+                pc->properties["type"] = cat.name;
                 pc->properties["label_id"] = cat.label_id;
                 pc->properties["color"] = hex_color;
                 if (inst.instance_id > 0)
@@ -742,6 +769,54 @@ auto export_to_speckle(const ExportScene &scene) -> std::vector<SpeckleModel> {
         models.push_back({"materials", root});
         core::debug("Speckle: prepared 'materials' model ({} passports)",
                      scene.materials.size());
+    }
+
+    // --- "components" model ---
+    if (!scene.components.empty()) {
+        auto root = std::make_shared<Collection>();
+        root->name = "components";
+
+        // Group by type
+        std::map<std::string, std::shared_ptr<Collection>> type_collections;
+        for (const auto &entry : scene.components) {
+            std::string type_name = entry.properties.count("type")
+                                        ? entry.properties.at("type")
+                                        : "unknown";
+            auto &col = type_collections[type_name];
+            if (!col) {
+                col = std::make_shared<Collection>();
+                col->name = type_name;
+            }
+
+            auto mesh = std::make_shared<Mesh>();
+            const auto &verts = entry.boundary.vertices;
+            if (verts.size() >= 3) {
+                for (const auto &v : verts) {
+                    mesh->vertices.push_back(v.x());
+                    mesh->vertices.push_back(v.y());
+                    mesh->vertices.push_back(v.z());
+                }
+                // Triangle fan from vertex 0
+                for (size_t i = 1; i + 1 < verts.size(); ++i) {
+                    mesh->faces.push_back(0); // triangle indicator
+                    mesh->faces.push_back(0);
+                    mesh->faces.push_back(static_cast<int>(i));
+                    mesh->faces.push_back(static_cast<int>(i + 1));
+                }
+            }
+            mesh->properties["name"] = entry.name;
+            for (const auto &[k, v] : entry.properties)
+                mesh->properties[k] = v;
+
+            col->elements.push_back(mesh);
+        }
+
+        for (auto &[type_name, col] : type_collections)
+            root->elements.push_back(col);
+
+        models.push_back({"components", root});
+        core::debug("Speckle: prepared 'components' model ({} components)",
+                     scene.components.size());
     }
 
     return models;

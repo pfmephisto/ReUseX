@@ -7,10 +7,16 @@
 
 #include <reusex/core/MaterialPassport.hpp>
 #include <reusex/core/ProjectDB.hpp>
+#include <reusex/geometry/BuildingComponent.hpp>
+#include <reusex/geometry/cgal_utils.hpp>
+#include <reusex/geometry/unweld.hpp>
 
 #include <pcl/common/colors.h>
 
+#include <fmt/format.h>
+
 #include <cstdlib>
+#include <limits>
 #include <regex>
 
 namespace reusex::io {
@@ -24,8 +30,12 @@ int parse_instance_semantic_class(const std::string &def) {
   // Match "SM<digits>-<digits> (<digits>p)"
   static const std::regex re(R"(SM(\d+)-\d+\s+\(\d+p\))");
   std::smatch match;
-  if (std::regex_match(def, match, re))
-    return std::stoi(match[1].str());
+  if (std::regex_match(def, match, re)) {
+    auto val = std::stoul(match[1].str());
+    if (val > static_cast<unsigned long>(std::numeric_limits<int>::max()))
+      return -1;
+    return static_cast<int>(val);
+  }
   return -1;
 }
 
@@ -178,8 +188,21 @@ ExportScene gather_export_scene(const ProjectDB &db) {
   for (const auto &name : db.list_meshes()) {
     reusex::debug("ExportScene: loading mesh '{}'", name);
     auto mesh = db.mesh(name);
-    if (mesh && !mesh->polygons.empty())
-      scene.meshes.push_back({name, mesh});
+    if (!mesh || mesh->polygons.empty())
+      continue;
+
+    auto components = geometry::cgal::decompose_mesh(*mesh);
+    if (components.size() == 1) {
+      auto unwelded = geometry::unweld_mesh(*components[0], 0.7854f);
+      scene.meshes.push_back({name, unwelded});
+    } else {
+      for (size_t i = 0; i < components.size(); ++i) {
+        auto unwelded = geometry::unweld_mesh(*components[i], 0.7854f);
+        scene.meshes.push_back({fmt::format("{}_{}", name, i), unwelded});
+      }
+    }
+    reusex::debug("ExportScene: mesh '{}' -> {} components", name,
+                  components.size());
   }
 
   // --- 360 Panoramas ---
@@ -218,6 +241,42 @@ ExportScene gather_export_scene(const ProjectDB &db) {
 
   if (!scene.materials.empty())
     reusex::debug("ExportScene: {} material passports", scene.materials.size());
+
+  // --- Building Components ---
+  for (const auto &name : db.list_building_components()) {
+    auto comp = db.building_component(name);
+    ExportScene::ComponentEntry entry;
+    entry.name = comp.name;
+    entry.type = comp.type;
+    entry.boundary = comp.boundary;
+    entry.confidence = comp.confidence;
+    entry.notes = comp.notes;
+
+    entry.properties["type"] = std::string(geometry::to_string(comp.type));
+    if (comp.confidence >= 0)
+      entry.properties["confidence"] = std::to_string(comp.confidence);
+    if (!comp.notes.empty())
+      entry.properties["notes"] = comp.notes;
+
+    if (auto *w = std::get_if<geometry::WindowData>(&comp.data)) {
+      if (!w->style.empty())
+        entry.properties["style"] = w->style;
+      if (w->pane_count > 0)
+        entry.properties["pane_count"] = std::to_string(w->pane_count);
+      entry.properties["operable"] = w->operable ? "true" : "false";
+    } else if (auto *d = std::get_if<geometry::DoorData>(&comp.data)) {
+      if (!d->style.empty())
+        entry.properties["style"] = d->style;
+      if (!d->swing.empty())
+        entry.properties["swing"] = d->swing;
+    }
+
+    scene.components.push_back(std::move(entry));
+  }
+
+  if (!scene.components.empty())
+    reusex::debug("ExportScene: {} building components",
+                  scene.components.size());
 
   return scene;
 }

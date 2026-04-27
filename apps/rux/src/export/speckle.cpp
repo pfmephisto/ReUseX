@@ -43,7 +43,14 @@ MODEL STRUCTURE:
   ├── Model "semantic"    # Collection with per-category sub-collections
   ├── Model "mesh"        # Collection with individual meshes
   ├── Model "360"         # Collection with sphere meshes + properties
-  └── Model "materials"   # Collection with Points + properties
+  ├── Model "materials"   # Collection with Points + properties
+  └── Model "components"  # Collection with building component boundaries
+
+  With --root scan1:
+  Project/
+  ├── Model "scan1/cloud"
+  ├── Model "scan1/semantic"
+  └── ...
 
 EXAMPLES:
   export SPECKLE_TOKEN=your_token_here
@@ -79,6 +86,9 @@ NOTES:
 
   sub->add_option("-M,--message", opt->commit_message, "Version commit message")
       ->default_val(opt->commit_message);
+
+  sub->add_option("-r,--root", opt->root_folder,
+                  "Root folder prefix for model names (e.g., 'scan1' -> scan1/cloud)");
 
   sub->add_option("--max-batch", opt->max_batch_bytes,
                   "HTTP batch size in bytes (default: 25 MB)")
@@ -130,10 +140,13 @@ int run_subcommand_export_speckle(SubcommandExportSpeckleOptions const &opt,
 
     // Upload each model to its own branch
     for (const auto &m : models) {
-      spdlog::info("Uploading model '{}'...", m.model_name);
+      std::string branch = opt.root_folder.empty()
+                               ? m.model_name
+                               : fmt::format("{}/{}", opt.root_folder, m.model_name);
+      spdlog::info("Uploading model '{}'...", branch);
       std::string commit_id =
-          client.upload(*m.root, m.model_name, opt.commit_message);
-      spdlog::info("Uploaded model '{}' (commit: {})", m.model_name, commit_id);
+          client.upload(*m.root, branch, opt.commit_message);
+      spdlog::info("Uploaded model '{}' (commit: {})", branch, commit_id);
     }
 
     spdlog::info("Upload complete! {} models exported.", models.size());

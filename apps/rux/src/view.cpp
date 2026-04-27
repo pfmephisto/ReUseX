@@ -21,6 +21,18 @@
 #include <pcl/visualization/pcl_visualizer.h>
 #include <spdlog/spdlog.h>
 
+#include <opencv2/imgproc.hpp>
+
+#include <vtkCamera.h>
+#include <vtkImageData.h>
+#include <vtkImageImport.h>
+#include <vtkRenderer.h>
+#include <vtkRendererCollection.h>
+#include <vtkPropCollection.h>
+#include <vtkSkybox.h>
+#include <vtkSmartPointer.h>
+#include <vtkTexture.h>
+
 #include <filesystem>
 #include <latch>
 #include <mutex>
@@ -75,6 +87,30 @@ struct LabelCloudInfo {
   std::vector<LabelLegendEntry> legend_entries;  ///< Pre-computed at load time
 };
 
+/// Metadata for a panoramic image (pixel data loaded on-demand).
+struct PanoramaInfo {
+  int id;                        ///< Database row ID
+  std::string filename;          ///< Original filename
+  int node_id;                   ///< Linked sensor frame (-1 if unmatched)
+  bool pose_valid = false;       ///< Whether a 3D pose is available
+  double px, py, pz;             ///< Position from sensor frame pose
+  std::array<double, 16> pose;   ///< Full 4x4 SE(3) row-major world pose
+};
+
+/// State for immersive panorama viewing.
+struct PanoramaState {
+  bool immersive = false;                   ///< Currently in panorama mode
+  int active_index = -1;                    ///< Which panorama is displayed
+  std::vector<PanoramaInfo> infos;          ///< All panorama metadata
+  vtkSmartPointer<vtkSkybox> skybox;        ///< Reusable skybox actor
+
+  /// Saved viewer state for restoration on exit.
+  struct SavedView {
+    double cam_pos[3], cam_focal[3], cam_up[3];
+    std::vector<vtkSmartPointer<vtkProp>> hidden_props; ///< All props hidden on enter
+  } saved;
+};
+
 // ============================================================================
 // FILE TYPE DETECTION
 // ============================================================================
@@ -109,6 +145,190 @@ create_label_cloud(const CloudLPtr &labels, const CloudPtr &geometry) {
 }
 
 // ============================================================================
+// PANORAMA HELPERS
+// ============================================================================
+
+/// Get the VTK renderer for a PCL viewport index.
+///
+/// PCL creates a default renderer (index 0) in the PCLVisualizer constructor,
+/// then createViewPort() adds additional renderers. Geometry is added to the
+/// viewport renderer, NOT the default one. GetFirstRenderer() returns the
+/// wrong renderer — use this helper instead.
+vtkRenderer *
+viewport_renderer(const rux::VizualizationObserver::ViewerPtr &viewer,
+                  int viewport) {
+  auto renderers = viewer->getRendererCollection();
+  renderers->InitTraversal();
+  vtkRenderer *renderer = nullptr;
+  for (int i = 0; i <= viewport; ++i)
+    renderer = renderers->GetNextItem();
+  return renderer;
+}
+
+/// Convert a BGR cv::Mat to vtkImageData (RGB, bottom-up for VTK).
+vtkSmartPointer<vtkImageData> cv_mat_to_vtk_image(const cv::Mat &bgr) {
+  cv::Mat rgb;
+  cv::cvtColor(bgr, rgb, cv::COLOR_BGR2RGB);
+  cv::flip(rgb, rgb, 0); // VTK expects bottom-up
+
+  auto importer = vtkSmartPointer<vtkImageImport>::New();
+  importer->SetDataSpacing(1, 1, 1);
+  importer->SetDataOrigin(0, 0, 0);
+  importer->SetWholeExtent(0, rgb.cols - 1, 0, rgb.rows - 1, 0, 0);
+  importer->SetDataExtentToWholeExtent();
+  importer->SetDataScalarTypeToUnsignedChar();
+  importer->SetNumberOfScalarComponents(3);
+  importer->SetImportVoidPointer(rgb.data, /*save=*/1);
+  importer->Update();
+
+  auto image = vtkSmartPointer<vtkImageData>::New();
+  image->DeepCopy(importer->GetOutput());
+  return image;
+}
+
+/// Activate the panorama skybox in the VTK renderer.
+///
+/// Loads the image from the database, converts to cubemap, and adds the
+/// skybox actor to the renderer.
+///
+/// @param db_path Path to the project database
+/// @param info Panorama metadata (used for id)
+/// @param skybox Reusable skybox actor
+/// @param viewer PCL visualizer (used to access VTK renderer)
+void activate_panorama_skybox(
+    const fs::path &db_path, const PanoramaInfo &info,
+    vtkSmartPointer<vtkSkybox> &skybox,
+    const rux::VizualizationObserver::ViewerPtr &viewer, int viewport) {
+  reusex::ProjectDB db(db_path, /*readOnly=*/true);
+  cv::Mat pano = db.panoramic_image(info.id);
+
+  if (pano.empty()) {
+    spdlog::error("Panorama image {} is empty", info.id);
+    return;
+  }
+  spdlog::debug("Panorama image: {}x{} type={}", pano.cols, pano.rows,
+                pano.type());
+
+  auto vtk_img = cv_mat_to_vtk_image(pano);
+
+  // Use Sphere projection — the skybox fragment shader samples the 2D
+  // equirectangular texture directly via spherical-coordinate mapping,
+  // avoiding the GPU-based cubemap conversion which requires a fully
+  // connected VTK pipeline (SetInputConnection) to work reliably.
+  auto texture = vtkSmartPointer<vtkTexture>::New();
+  texture->SetInputData(vtk_img);
+  texture->InterpolateOn();
+  texture->MipmapOn();
+
+  if (!skybox)
+    skybox = vtkSmartPointer<vtkSkybox>::New();
+  skybox->SetTexture(texture);
+  skybox->SetProjectionToSphere();
+  skybox->GammaCorrectOff(); // JPEG is sRGB, not linear
+
+  auto *renderer = viewport_renderer(viewer, viewport);
+  renderer->AddActor(skybox);
+
+  // Skybox returns zero bounds, so VTK's auto clipping range calculation
+  // produces a degenerate range that clips the skybox geometry away.
+  renderer->GetActiveCamera()->SetClippingRange(0.01, 100.0);
+}
+
+/// Remove the skybox actor from the VTK renderer.
+void deactivate_panorama_skybox(
+    const vtkSmartPointer<vtkSkybox> &skybox,
+    const rux::VizualizationObserver::ViewerPtr &viewer, int viewport) {
+  if (!skybox)
+    return;
+  auto *renderer = viewport_renderer(viewer, viewport);
+  renderer->RemoveActor(skybox);
+}
+
+// ============================================================================
+// PANORAMA MODE ENTER / EXIT
+// ============================================================================
+
+/// Enter immersive panorama mode: hide all scene geometry, show skybox.
+///
+/// Uses VTK prop visibility to hide everything in the viewport renderer
+/// (clouds, meshes, components, coordinate axes, spheres, text — all of it).
+/// The skybox is added after hiding, so it remains visible.
+void enter_panorama_mode(
+    std::shared_ptr<PanoramaState> state, int pano_index,
+    const fs::path &project_path,
+    const rux::VizualizationObserver::ViewerPtr &viewer,
+    const std::vector<int> &viewports) {
+
+  const auto &info = state->infos[static_cast<size_t>(pano_index)];
+
+  // Save camera state — use the viewport renderer, not the default one
+  auto *renderer = viewport_renderer(viewer, viewports[0]);
+  auto *cam = renderer->GetActiveCamera();
+  cam->GetPosition(state->saved.cam_pos);
+  cam->GetFocalPoint(state->saved.cam_focal);
+  cam->GetViewUp(state->saved.cam_up);
+
+  // Hide all currently visible props in the renderer
+  state->saved.hidden_props.clear();
+  auto *props = renderer->GetViewProps();
+  props->InitTraversal();
+  while (auto *prop = props->GetNextProp()) {
+    if (prop->GetVisibility()) {
+      state->saved.hidden_props.emplace_back(prop);
+      prop->VisibilityOff();
+    }
+  }
+
+  // Activate skybox (added after hiding, so it stays visible)
+  activate_panorama_skybox(project_path, info, state->skybox, viewer,
+                           viewports[0]);
+
+  // Position camera at panorama origin
+  if (info.pose_valid) {
+    cam->SetPosition(info.px, info.py, info.pz);
+    // Row-major 4x4: column 2 is the Z-axis (forward in camera frame)
+    double fx = info.pose[2];
+    double fy = info.pose[6];
+    double fz = info.pose[10];
+    cam->SetFocalPoint(info.px + fx, info.py + fy, info.pz + fz);
+    // Up is negative Y-axis of the pose (camera convention)
+    cam->SetViewUp(-info.pose[1], -info.pose[5], -info.pose[9]);
+    // Keep clipping range valid for skybox rendering
+    cam->SetClippingRange(0.01, 100.0);
+  }
+
+  state->immersive = true;
+  state->active_index = pano_index;
+  spdlog::info("Entered panorama mode: {} [{}]", info.filename, pano_index + 1);
+}
+
+/// Exit immersive panorama mode: restore scene and camera.
+void exit_panorama_mode(
+    std::shared_ptr<PanoramaState> state,
+    const rux::VizualizationObserver::ViewerPtr &viewer,
+    const std::vector<int> &viewports) {
+
+  // Remove skybox
+  deactivate_panorama_skybox(state->skybox, viewer, viewports[0]);
+
+  // Restore visibility of all previously visible props
+  for (auto &prop : state->saved.hidden_props)
+    prop->VisibilityOn();
+  state->saved.hidden_props.clear();
+
+  // Restore camera
+  auto *renderer = viewport_renderer(viewer, viewports[0]);
+  auto *cam = renderer->GetActiveCamera();
+  cam->SetPosition(state->saved.cam_pos);
+  cam->SetFocalPoint(state->saved.cam_focal);
+  cam->SetViewUp(state->saved.cam_up);
+
+  state->immersive = false;
+  state->active_index = -1;
+  spdlog::info("Exited panorama mode");
+}
+
+// ============================================================================
 // PROJECT DATABASE LOADING
 // ============================================================================
 
@@ -118,6 +338,7 @@ struct ProjectLoadResult {
   std::vector<LoadedMesh> meshes;
   std::vector<LabelCloudInfo> labels;
   std::vector<reusex::geometry::BuildingComponent> components;
+  std::vector<PanoramaInfo> panoramas;
 };
 
 /// Load all viewable geometry from a ReUseX project database.
@@ -378,6 +599,35 @@ ProjectLoadResult load_from_project_db(const fs::path &path,
     } catch (const std::exception &e) {
       spdlog::error("Failed to load component '{}': {}", name, e.what());
     }
+  }
+
+  // Load panoramic image metadata (images loaded on-demand)
+  auto pano_list = db.list_panoramic_images();
+  for (const auto &pano : pano_list) {
+    PanoramaInfo pi;
+    pi.id = pano.id;
+    pi.filename = pano.filename;
+    pi.node_id = pano.node_id;
+
+    if (pano.node_id >= 0 && db.has_sensor_frame(pano.node_id)) {
+      try {
+        pi.pose = db.sensor_frame_pose(pano.node_id);
+        pi.px = pi.pose[3];  // row-major: translation is [3], [7], [11]
+        pi.py = pi.pose[7];
+        pi.pz = pi.pose[11];
+        pi.pose_valid = true;
+        spdlog::debug("Panorama '{}' at ({:.2f}, {:.2f}, {:.2f})",
+                       pi.filename, pi.px, pi.py, pi.pz);
+      } catch (const std::exception &e) {
+        spdlog::warn("Could not load pose for panorama '{}': {}",
+                      pi.filename, e.what());
+      }
+    } else {
+      spdlog::debug("Panorama '{}' has no linked sensor frame, skipping sphere",
+                     pi.filename);
+    }
+
+    result.panoramas.push_back(std::move(pi));
   }
 
   return result;
@@ -848,14 +1098,15 @@ void register_help_callback(
     const std::vector<LoadedCloud> &clouds,
     const std::vector<LoadedMesh> &meshes,
     const std::vector<LabelCloudInfo> &label_clouds,
-    bool has_components, rux::VizualizationObserver &observer) {
+    bool has_components, bool has_panoramas,
+    rux::VizualizationObserver &observer) {
   observer.viewer_enqueue_task(
-      [&clouds, &meshes, &label_clouds,
-       has_components](const rux::VizualizationObserver::ViewerPtr &viewer,
-                       const std::vector<int> &) {
+      [&clouds, &meshes, &label_clouds, has_components,
+       has_panoramas](const rux::VizualizationObserver::ViewerPtr &viewer,
+                      const std::vector<int> &) {
         viewer->registerKeyboardCallback(
-            [&clouds, &meshes, &label_clouds,
-             has_components](const pcl::visualization::KeyboardEvent &event) {
+            [&clouds, &meshes, &label_clouds, has_components,
+             has_panoramas](const pcl::visualization::KeyboardEvent &event) {
               if (event.getKeySym() == "h" && event.keyDown()) {
                 spdlog::info("=== Viewer Keyboard Controls ===");
                 if (!clouds.empty()) {
@@ -870,6 +1121,11 @@ void register_help_callback(
                 }
                 if (has_components) {
                   spdlog::info("  w: Toggle building components");
+                }
+                if (has_panoramas) {
+                  spdlog::info("  Shift+Click: Enter 360 panorama (on orange sphere)");
+                  spdlog::info("  Escape: Exit panorama mode");
+                  spdlog::info("  [/]: Previous/Next panorama (in panorama mode)");
                 }
                 spdlog::info("  h: Show this help");
                 spdlog::info("  q: Quit viewer");
@@ -915,13 +1171,16 @@ EXAMPLES:
   rux -vv view                         # Debug mode with verbose output
 
 KEYBOARD CONTROLS:
-  c         Toggle all point clouds on/off
-  m         Toggle all meshes on/off
-  w         Toggle building components (windows, doors, etc.)
-  1-9       Toggle label overlay (planes, rooms, etc.)
-  l         Toggle label color legend
-  h         Show help message
-  q         Quit viewer
+  c           Toggle all point clouds on/off
+  m           Toggle all meshes on/off
+  w           Toggle building components (windows, doors, etc.)
+  1-9         Toggle label overlay (planes, rooms, etc.)
+  l           Toggle label color legend
+  Shift+Click Enter 360 panorama (click on orange sphere)
+  Escape      Exit panorama mode
+  [/]         Previous/Next panorama (in panorama mode)
+  h           Show help message
+  q           Quit viewer
 
 WORKFLOW:
   1. rux import rtabmap scan.db        # Import sensor data
@@ -976,6 +1235,10 @@ int run_subcommand_view([[maybe_unused]] SubcommandViewOptions const &opt,
   labels = std::move(result.labels);
   auto components = std::move(result.components);
 
+  // Setup panorama state
+  auto pano_state = std::make_shared<PanoramaState>();
+  pano_state->infos = std::move(result.panoramas);
+
   // === Phase 2: Register Keyboard Callbacks ===
   register_individual_toggles(clouds, observer);
   register_toggle_all_callback(clouds, observer);
@@ -996,12 +1259,167 @@ int run_subcommand_view([[maybe_unused]] SubcommandViewOptions const &opt,
     register_component_toggle(components, components_visible, observer);
   }
 
-  register_help_callback(clouds, meshes, labels, !components.empty(), observer);
+  // Render panorama position spheres and register callbacks
+  bool has_panoramas = false;
+  if (!pano_state->infos.empty()) {
+    // Add orange spheres at panorama positions
+    for (size_t i = 0; i < pano_state->infos.size(); ++i) {
+      const auto &pi = pano_state->infos[i];
+      if (!pi.pose_valid)
+        continue;
+      has_panoramas = true;
+      auto sphere_name = fmt::format("pano_sphere_{}", i);
+      float px = static_cast<float>(pi.px);
+      float py = static_cast<float>(pi.py);
+      float pz = static_cast<float>(pi.pz);
+      observer.viewer_enqueue_task(
+          [px, py, pz,
+           sphere_name](const rux::VizualizationObserver::ViewerPtr &viewer,
+                        const std::vector<int> &viewports) {
+            viewer->addSphere(pcl::PointXYZ(px, py, pz), 0.15, 1.0, 0.5, 0.0,
+                              sphere_name, viewports[0]);
+          });
+    }
+
+    // Register Shift+Click point picking callback for panorama entry
+    observer.viewer_enqueue_task(
+        [pano_state, project_path,
+         &observer](const rux::VizualizationObserver::ViewerPtr &viewer,
+                    const std::vector<int> &) {
+          viewer->registerPointPickingCallback(
+              [pano_state, project_path, &observer](
+                  const pcl::visualization::PointPickingEvent &event) {
+                if (pano_state->immersive)
+                  return;
+                if (event.getPointIndex() == -1)
+                  return;
+
+                float x, y, z;
+                event.getPoint(x, y, z);
+
+                // Find nearest panorama sphere
+                int best_idx = -1;
+                double best_dist = 0.5; // threshold in meters
+                for (size_t i = 0; i < pano_state->infos.size(); ++i) {
+                  const auto &pi = pano_state->infos[i];
+                  if (!pi.pose_valid)
+                    continue;
+                  double dx = x - pi.px;
+                  double dy = y - pi.py;
+                  double dz = z - pi.pz;
+                  double d = std::sqrt(dx * dx + dy * dy + dz * dz);
+                  if (d < best_dist) {
+                    best_dist = d;
+                    best_idx = static_cast<int>(i);
+                  }
+                }
+
+                if (best_idx >= 0) {
+                  observer.viewer_enqueue_task(
+                      [pano_state, best_idx, project_path](
+                          const rux::VizualizationObserver::ViewerPtr &v,
+                          const std::vector<int> &vp) {
+                        enter_panorama_mode(pano_state, best_idx, project_path,
+                                            v, vp);
+                      });
+                }
+              });
+        });
+
+    // Register Escape key to exit panorama mode
+    observer.viewer_enqueue_task(
+        [pano_state,
+         &observer](const rux::VizualizationObserver::ViewerPtr &viewer,
+                    const std::vector<int> &) {
+          viewer->registerKeyboardCallback(
+              [pano_state,
+               &observer](const pcl::visualization::KeyboardEvent &event) {
+                if (event.getKeySym() == "Escape" && event.keyDown() &&
+                    pano_state->immersive) {
+                  observer.viewer_enqueue_task(
+                      [pano_state](
+                          const rux::VizualizationObserver::ViewerPtr &v,
+                          const std::vector<int> &vp) {
+                        exit_panorama_mode(pano_state, v, vp);
+                      });
+                }
+              });
+        });
+
+    // Register [ / ] keys for cycling panoramas in immersive mode
+    observer.viewer_enqueue_task(
+        [pano_state, project_path, &clouds, &meshes,
+         &observer](const rux::VizualizationObserver::ViewerPtr &viewer,
+                    const std::vector<int> &) {
+          viewer->registerKeyboardCallback(
+              [pano_state, project_path, &clouds, &meshes,
+               &observer](const pcl::visualization::KeyboardEvent &event) {
+                if (!pano_state->immersive || !event.keyDown())
+                  return;
+
+                int delta = 0;
+                if (event.getKeySym() == "bracketright")
+                  delta = 1;
+                else if (event.getKeySym() == "bracketleft")
+                  delta = -1;
+                else
+                  return;
+
+                // Find next panorama with a valid pose
+                int count = static_cast<int>(pano_state->infos.size());
+                int cur = pano_state->active_index;
+                for (int step = 1; step < count; ++step) {
+                  int idx = ((cur + delta * step) % count + count) % count;
+                  if (pano_state->infos[static_cast<size_t>(idx)].pose_valid) {
+                    observer.viewer_enqueue_task(
+                        [pano_state, idx, project_path, &clouds,
+                         &meshes](
+                            const rux::VizualizationObserver::ViewerPtr &v,
+                            const std::vector<int> &vp) {
+                          deactivate_panorama_skybox(pano_state->skybox, v,
+                                                     vp[0]);
+                          const auto &info =
+                              pano_state->infos[static_cast<size_t>(idx)];
+                          activate_panorama_skybox(project_path, info,
+                                                   pano_state->skybox, v,
+                                                   vp[0]);
+                          // Update camera to new panorama position
+                          if (info.pose_valid) {
+                            auto *renderer = viewport_renderer(v, vp[0]);
+                            auto *cam = renderer->GetActiveCamera();
+                            cam->SetPosition(info.px, info.py, info.pz);
+                            cam->SetFocalPoint(info.px + info.pose[2],
+                                               info.py + info.pose[6],
+                                               info.pz + info.pose[10]);
+                            cam->SetViewUp(-info.pose[1], -info.pose[5],
+                                           -info.pose[9]);
+                            cam->SetClippingRange(0.01, 100.0);
+                          }
+                          pano_state->active_index = idx;
+                          spdlog::info("Panorama: {} [{}]", info.filename,
+                                       idx + 1);
+                        });
+                    break;
+                  }
+                }
+              });
+        });
+  }
+
+  register_help_callback(clouds, meshes, labels, !components.empty(),
+                         has_panoramas, observer);
 
   // === Phase 3: Display Summary ===
   spdlog::info("Press 'h' for keyboard controls");
-  spdlog::info("Loaded: {} cloud(s), {} mesh(es), {} label(s), {} component(s)",
-               clouds.size(), meshes.size(), labels.size(), components.size());
+  int pano_count = 0;
+  for (const auto &pi : pano_state->infos)
+    if (pi.pose_valid)
+      ++pano_count;
+  spdlog::info(
+      "Loaded: {} cloud(s), {} mesh(es), {} label(s), {} component(s), {} "
+      "panorama(s)",
+      clouds.size(), meshes.size(), labels.size(), components.size(),
+      pano_count);
 
   // We need to wait here otherwise the clouds go out of scope and get destroyed
   // and the viewer segfaults when it tries to access them.

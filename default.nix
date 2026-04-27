@@ -64,7 +64,7 @@
 in
   effectiveStdenv.mkDerivation rec {
     pname = "ReUseX";
-    version = "0.0.2";
+    version = "0.0.5";
 
     src = ./.;
 

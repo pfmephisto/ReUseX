@@ -9,7 +9,7 @@
 cmake_minimum_required(VERSION 3.17)
 
 # Check if building as part of main project or standalone
-if(NOT TARGET ReUseX)
+if(NOT TARGET reusex)
     # Building Python bindings standalone via scikit-build-core
     project(ReUseXPython)
 
@@ -51,22 +51,19 @@ install(
 )
 
 # ===============================================
-# Future: pybind11 module
+# pybind11 module
 # ===============================================
-# When implementing actual bindings, add:
-#
-# find_package(pybind11 CONFIG REQUIRED)
-#
-# pybind11_add_module(_reusex
-#     src/bindings.cpp
-#     # ... other source files
-# )
-#
-# target_link_libraries(_reusex PRIVATE ReUseX)
-#
-# install(TARGETS _reusex
-#     LIBRARY DESTINATION reusex
-# )
 
-message(STATUS "Python bindings: Version file generation configured")
-message(STATUS "Python bindings: pybind11 module not yet implemented")
+find_package(pybind11 CONFIG REQUIRED)
+
+pybind11_add_module(_reusex
+    src/bindings.cpp
+)
+
+target_link_libraries(_reusex PRIVATE reusex)
+
+install(TARGETS _reusex
+    LIBRARY DESTINATION reusex
+)
+
+message(STATUS "Python bindings: pybind11 module configured")

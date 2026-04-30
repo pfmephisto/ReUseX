@@ -1,16 +1,28 @@
 """
 ReUseX Python Bindings
 
-Status: Not yet implemented
-
-This is a placeholder package structure for future pybind11-based Python bindings
+Read-only access to .rux project databases via pybind11 bindings
 to the ReUseX C++ library.
-
-See bindings/python/README.md for roadmap and implementation status.
 """
 
 from ._version import __version__
 
-__status__ = "Planning"
+try:
+    from ._reusex import (
+        CloudInfo,
+        ComponentInfo,
+        MaterialInfo,
+        MeshInfo,
+        PanoramicInfo,
+        PipelineLogEntry,
+        ProjectDB,
+        ProjectInfo,
+        ProjectSummary,
+        SensorFrameInfo,
+    )
+
+    __status__ = "Active"
+except ImportError:
+    __status__ = "Native module not available"
 
 __all__ = ["__version__", "__status__"]

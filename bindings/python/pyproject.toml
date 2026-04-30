@@ -31,7 +31,7 @@ repository = "https://github.com/pfmephisto/ReUseX"
 [build-system]
 requires = [
     "scikit-build-core",
-    "pybind11",
+    "pybind11>=2.11",
     "wheel",
     ]
 build-backend = "scikit_build_core.build"
@@ -41,7 +41,7 @@ build-backend = "scikit_build_core.build"
 cmake.source-dir = "../.."              # Point to repository root
 cmake.build-type = "Release"
 cmake.version = true                     # Use CMake project version
-cmake.targets = []                       # No compiled targets yet (only pure Python for now)
+cmake.targets = ["_reusex"]
 wheel.install-dir = "reusex"            # Install to reusex/ in wheel
 wheel.license-files = ["../../LICENSE"]
 wheel.py-api = "cp39"

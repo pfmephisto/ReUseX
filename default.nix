@@ -33,7 +33,7 @@
   mpfr,
   opencv,
   # glfw,
-  # python3Packages.pybind11,
+  blender,
   # python,
   # imgui,
   # glm,
@@ -78,6 +78,7 @@ in
       # qt6Packages.wrapQtAppsHook
       # qt6.wrapQtAppsHook
       qt6.wrapQtAppsNoGuiHook
+      blender.pythonPackages.python # Pin Python version to Blender's (3.11)
     ];
 
     buildInputs =
@@ -125,6 +126,7 @@ in
 
         catch2_3
         tokenizers-cpp
+        blender.pythonPackages.pybind11
 
         curl
         nlohmann_json

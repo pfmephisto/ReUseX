@@ -72,7 +72,7 @@ pkgs.mkShell {
     lcov
     gcovr # Alternative coverage report generator
 
-    # Python development (for Python bindings)
+    # Python development
     python3Packages.black # Python code formatter
     python3Packages.pytest # Testing framework
     python3Packages.mypy # Type checking

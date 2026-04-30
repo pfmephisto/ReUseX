@@ -1,0 +1,196 @@
+# SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+import bpy
+
+
+class REUSEX_PT_main_panel(bpy.types.Panel):
+    bl_label = "ReUseX"
+    bl_idname = "REUSEX_PT_main_panel"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "ReUseX"
+
+    def draw(self, context):
+        layout = self.layout
+        props = context.scene.reusex
+
+        if not props.is_loaded:
+            layout.operator("reusex.open_project", icon="FILE_FOLDER")
+            return
+
+        layout.label(text=props.file_path, icon="FILE_3D")
+        row = layout.row(align=True)
+        row.operator("reusex.close_project", icon="X")
+        row.operator("reusex.open_project", text="Reload", icon="FILE_REFRESH")
+        layout.label(text=f"Schema version: {props.schema_version}")
+
+
+class REUSEX_PT_projects_panel(bpy.types.Panel):
+    bl_label = "Projects"
+    bl_idname = "REUSEX_PT_projects_panel"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "ReUseX"
+    bl_parent_id = "REUSEX_PT_main_panel"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    @classmethod
+    def poll(cls, context):
+        return context.scene.reusex.is_loaded
+
+    def draw(self, context):
+        layout = self.layout
+        props = context.scene.reusex
+
+        if not props.projects:
+            layout.label(text="No project metadata", icon="INFO")
+            return
+
+        for p in props.projects:
+            box = layout.box()
+            if p.project_name:
+                box.label(text=p.project_name, icon="HOME")
+            if p.building_address:
+                box.label(text=p.building_address)
+            if p.year_of_construction > 0:
+                box.label(text=f"Built: {p.year_of_construction}")
+            if p.survey_date:
+                box.label(text=f"Surveyed: {p.survey_date}")
+            if p.survey_organisation:
+                box.label(text=f"By: {p.survey_organisation}")
+            if p.notes:
+                box.label(text=p.notes)
+
+
+class REUSEX_PT_sensor_frames_panel(bpy.types.Panel):
+    bl_label = "Sensor Frames"
+    bl_idname = "REUSEX_PT_sensor_frames_panel"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "ReUseX"
+    bl_parent_id = "REUSEX_PT_main_panel"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    @classmethod
+    def poll(cls, context):
+        return context.scene.reusex.is_loaded
+
+    def draw(self, context):
+        layout = self.layout
+        props = context.scene.reusex
+
+        col = layout.column(align=True)
+        col.label(text=f"Frames: {props.sensor_frame_count}")
+        if props.sensor_frame_width > 0:
+            col.label(text=f"Resolution: {props.sensor_frame_width} x {props.sensor_frame_height}")
+        col.label(text=f"Segmented: {props.segmented_frame_count}")
+
+        if props.panoramic_count > 0:
+            col.separator()
+            col.label(text=f"Panoramics: {props.panoramic_count}")
+            col.label(text=f"Matched: {props.panoramic_matched}")
+
+
+class REUSEX_PT_clouds_panel(bpy.types.Panel):
+    bl_label = "Point Clouds"
+    bl_idname = "REUSEX_PT_clouds_panel"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "ReUseX"
+    bl_parent_id = "REUSEX_PT_main_panel"
+
+    @classmethod
+    def poll(cls, context):
+        return context.scene.reusex.is_loaded
+
+    def draw(self, context):
+        layout = self.layout
+        props = context.scene.reusex
+
+        if not props.clouds:
+            layout.label(text="No point clouds", icon="INFO")
+            return
+
+        for c in props.clouds:
+            row = layout.row()
+            row.label(text=c.name, icon="OUTLINER_OB_POINTCLOUD")
+            row.label(text=c.cloud_type)
+            row.label(text=f"{c.point_count:,}")
+
+
+class REUSEX_PT_meshes_panel(bpy.types.Panel):
+    bl_label = "Meshes"
+    bl_idname = "REUSEX_PT_meshes_panel"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "ReUseX"
+    bl_parent_id = "REUSEX_PT_main_panel"
+
+    @classmethod
+    def poll(cls, context):
+        return context.scene.reusex.is_loaded
+
+    def draw(self, context):
+        layout = self.layout
+        props = context.scene.reusex
+
+        if not props.meshes:
+            layout.label(text="No meshes", icon="INFO")
+            return
+
+        for m in props.meshes:
+            row = layout.row()
+            row.label(text=m.name, icon="MESH_DATA")
+            row.label(text=f"V:{m.vertex_count:,}")
+            row.label(text=f"F:{m.face_count:,}")
+
+
+class REUSEX_PT_materials_panel(bpy.types.Panel):
+    bl_label = "Materials"
+    bl_idname = "REUSEX_PT_materials_panel"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "ReUseX"
+    bl_parent_id = "REUSEX_PT_main_panel"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    @classmethod
+    def poll(cls, context):
+        return context.scene.reusex.is_loaded
+
+    def draw(self, context):
+        layout = self.layout
+        props = context.scene.reusex
+
+        if not props.materials:
+            layout.label(text="No material passports", icon="INFO")
+            return
+
+        for mat in props.materials:
+            box = layout.box()
+            box.label(text=mat.name, icon="MATERIAL")
+            row = box.row()
+            row.label(text=f"v{mat.version_number}" if mat.version_number else "No version")
+            row.label(text=f"{mat.property_count} props")
+
+
+_classes = (
+    REUSEX_PT_main_panel,
+    REUSEX_PT_projects_panel,
+    REUSEX_PT_sensor_frames_panel,
+    REUSEX_PT_clouds_panel,
+    REUSEX_PT_meshes_panel,
+    REUSEX_PT_materials_panel,
+)
+
+
+def register():
+    for cls in _classes:
+        bpy.utils.register_class(cls)
+
+
+def unregister():
+    for cls in reversed(_classes):
+        bpy.utils.unregister_class(cls)

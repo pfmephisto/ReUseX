@@ -38,7 +38,12 @@ PATH SYNTAX:
   clouds                   List all cloud names
   clouds.NAME              Get cloud metadata
   clouds.NAME.PROPERTY     Get specific property (type, size, source)
-  meshes.NAME              Get mesh metadata
+  meshes                   List all mesh names
+  meshes.NAME              Get mesh metadata (JSON)
+  meshes.NAME.data         Get mesh geometry (binary PLY or OBJ)
+  meshes.NAME.material     Get MTL text (textured meshes only)
+  meshes.NAME.texture      Get JPEG texture (textured meshes only)
+  meshes.NAME.format       Get mesh format string
   panoramas                List all panoramic images
   panoramas.NAME.metadata  Get panoramic image metadata
   components               List all building components
@@ -50,6 +55,8 @@ NOTES:
   - Use -o/--output to save to file instead of stdout
   - Empty path lists all top-level collections
   - Paths are case-sensitive
+  - Binary data (meshes.NAME.data, .texture) outputs raw bytes to stdout
+  - Redirect to file: rux get meshes.room1.data > room1.ply
 )");
 
   sub->add_option("path", opt->path,
@@ -66,7 +73,7 @@ NOTES:
 
   sub->callback([opt, global_opt]() {
     spdlog::trace("calling run_subcommand_get");
-    return run_subcommand_get(*opt, *global_opt);
+    run_subcommand_get(*opt, *global_opt);
   });
 }
 

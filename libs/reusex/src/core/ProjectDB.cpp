@@ -178,7 +178,7 @@ class ProjectDB::Impl {
   bool readOnly;
   sqlite3 *db = nullptr;
 
-  static constexpr int LATEST_SCHEMA_VERSION = 5;
+  static constexpr int LATEST_SCHEMA_VERSION = 6;
 
   void execOrThrow(const char *sql) {
     char *errMsg = nullptr;
@@ -312,6 +312,10 @@ class ProjectDB::Impl {
 
     if (current < 5) {
       migrateToV5();
+    }
+
+    if (current < 6) {
+      migrateToV6();
     }
 
     reusex::trace("Schema version: {}", getCurrentSchemaVersion());
@@ -522,6 +526,96 @@ class ProjectDB::Impl {
     insertSchemaVersion(5, "Add timestamp to sensor_frames, "
                            "add panoramic_images table");
     reusex::info("Migration to schema version 5 complete");
+  }
+
+  void migrateToV6() {
+    reusex::info("Migrating database to schema version 6");
+
+    const char *v6_schema = R"(
+      CREATE TABLE IF NOT EXISTS mesh_texture_data (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        mesh_id     INTEGER NOT NULL REFERENCES meshes(id) ON DELETE CASCADE,
+        tex_name    TEXT NOT NULL,
+        image_data  BLOB NOT NULL,
+        width       INTEGER NOT NULL,
+        height      INTEGER NOT NULL,
+        format      TEXT DEFAULT 'jpg',
+        UNIQUE(mesh_id, tex_name)
+      );
+    )";
+
+    char *errMsg = nullptr;
+    if (sqlite3_exec(db, v6_schema, nullptr, nullptr, &errMsg) != SQLITE_OK) {
+      std::string error = errMsg;
+      sqlite3_free(errMsg);
+      throw std::runtime_error("Migration to v6 failed: " + error);
+    }
+
+    insertSchemaVersion(6, "Add mesh_texture_data table");
+    reusex::info("Migration to schema version 6 complete");
+  }
+
+  // ── MTL parsing helpers ─────────────────────────────────────────────
+
+  /// Parse an MTL file to extract material name -> texture file path mappings
+  static std::map<std::string, std::string>
+  parseMtlTextures(const std::string &mtlContent) {
+    std::map<std::string, std::string> result;
+    std::istringstream stream(mtlContent);
+    std::string line;
+    std::string currentMaterial;
+
+    while (std::getline(stream, line)) {
+      // Trim leading whitespace
+      size_t start = line.find_first_not_of(" \t");
+      if (start == std::string::npos)
+        continue;
+      line = line.substr(start);
+
+      if (line.rfind("newmtl ", 0) == 0) {
+        currentMaterial = line.substr(7);
+      } else if (line.rfind("map_Kd ", 0) == 0 && !currentMaterial.empty()) {
+        result[currentMaterial] = line.substr(7);
+      }
+    }
+    return result;
+  }
+
+  /// Regenerate MTL content with updated texture paths.
+  /// Materials whose names are NOT in newPaths have their map_Kd lines
+  /// stripped (original paths are from the save-time filesystem and are
+  /// no longer valid).
+  static std::string
+  regenerateMtl(const std::string &originalMtl,
+                const std::map<std::string, std::string> &newPaths) {
+    std::istringstream stream(originalMtl);
+    std::ostringstream output;
+    std::string line;
+    std::string currentMaterial;
+
+    while (std::getline(stream, line)) {
+      // Trim for comparison but write original line
+      std::string trimmed = line;
+      size_t start = trimmed.find_first_not_of(" \t");
+      if (start != std::string::npos)
+        trimmed = trimmed.substr(start);
+
+      if (trimmed.rfind("newmtl ", 0) == 0) {
+        currentMaterial = trimmed.substr(7);
+        output << line << "\n";
+      } else if (trimmed.rfind("map_Kd ", 0) == 0 &&
+                 !currentMaterial.empty()) {
+        auto it = newPaths.find(currentMaterial);
+        if (it != newPaths.end()) {
+          // Replace with path to the blob we extracted to temp dir
+          output << "map_Kd " << it->second << "\n";
+        }
+        // else: strip the map_Kd line — original path is invalid
+      } else {
+        output << line << "\n";
+      }
+    }
+    return output.str();
   }
 
   // ── Sensor frame CRUD ─────────────────────────────────────────────
@@ -992,6 +1086,23 @@ class ProjectDB::Impl {
   }
 
   // ── Segmentation image CRUD ───────────────────────────────────────
+
+  std::vector<int> getSegmentationImageIds() const {
+    const char *sql =
+        "SELECT node_id FROM segmentation_images ORDER BY node_id;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error(
+          "Failed to query segmentation image IDs: " +
+          std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+
+    std::vector<int> ids;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+      ids.push_back(sqlite3_column_int(stmt, 0));
+    }
+    return ids;
+  }
 
   bool hasSegmentationImage(int nodeId) const {
     const char *sql =
@@ -1515,6 +1626,9 @@ class ProjectDB::Impl {
 
   void saveMesh(std::string_view name, const pcl::TextureMesh &mesh,
                 std::string_view stage, std::string_view paramsJson) {
+    // Save CWD so we can find texture files referenced by the MTL
+    auto savedCwd = std::filesystem::current_path();
+
     // Serialize texture mesh to OBJ via temp file (preserves texture data)
     auto tmpPath =
         std::filesystem::temp_directory_path() /
@@ -1605,6 +1719,93 @@ class ProjectDB::Impl {
     if (sqlite3_step(stmt) != SQLITE_DONE)
       throw std::runtime_error("Failed to upsert texture mesh: " +
                                std::string(sqlite3_errmsg(db)));
+
+    // Store texture image blobs in mesh_texture_data table
+    if (!mtlData.empty()) {
+      std::string mtlStr(mtlData.data(), mtlData.size());
+      auto texPaths = parseMtlTextures(mtlStr);
+
+      // Get the mesh id we just inserted
+      const char *idSql = "SELECT id FROM meshes WHERE name = ?;";
+      sqlite3_stmt *idStmt;
+      if (sqlite3_prepare_v2(db, idSql, -1, &idStmt, nullptr) != SQLITE_OK)
+        throw std::runtime_error("Failed to query mesh id");
+      StmtGuard idGuard(idStmt);
+      sqlite3_bind_text(idStmt, 1, name.data(),
+                        static_cast<int>(name.size()), SQLITE_TRANSIENT);
+      if (sqlite3_step(idStmt) != SQLITE_ROW)
+        throw std::runtime_error("Mesh not found after insert");
+      int meshId = sqlite3_column_int(idStmt, 0);
+
+      // Delete old texture data for this mesh
+      const char *delSql =
+          "DELETE FROM mesh_texture_data WHERE mesh_id = ?;";
+      sqlite3_stmt *delStmt;
+      if (sqlite3_prepare_v2(db, delSql, -1, &delStmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_int(delStmt, 1, meshId);
+        sqlite3_step(delStmt);
+        sqlite3_finalize(delStmt);
+      }
+
+      for (const auto &[matName, texPath] : texPaths) {
+        // Resolve texture path relative to saved CWD
+        std::filesystem::path fullPath = texPath;
+        if (!fullPath.is_absolute())
+          fullPath = savedCwd / fullPath;
+
+        if (!std::filesystem::exists(fullPath)) {
+          reusex::warn("Texture file not found: {}", fullPath.string());
+          continue;
+        }
+
+        cv::Mat texImg = cv::imread(fullPath.string(), cv::IMREAD_COLOR);
+        if (texImg.empty()) {
+          reusex::warn("Failed to read texture: {}", fullPath.string());
+          continue;
+        }
+
+        // Compress as JPEG
+        std::vector<unsigned char> jpegBuf;
+        if (!cv::imencode(".jpg", texImg, jpegBuf,
+                          {cv::IMWRITE_JPEG_QUALITY, 95})) {
+          reusex::warn("Failed to encode texture as JPEG: {}", matName);
+          continue;
+        }
+
+        const char *texInsert = R"(
+          INSERT INTO mesh_texture_data (mesh_id, tex_name, image_data, width, height, format)
+          VALUES (?, ?, ?, ?, ?, 'jpg')
+          ON CONFLICT(mesh_id, tex_name) DO UPDATE SET
+            image_data = excluded.image_data,
+            width = excluded.width,
+            height = excluded.height;
+        )";
+
+        sqlite3_stmt *texStmt;
+        if (sqlite3_prepare_v2(db, texInsert, -1, &texStmt, nullptr) !=
+            SQLITE_OK) {
+          reusex::warn("Failed to prepare texture insert: {}",
+                       sqlite3_errmsg(db));
+          continue;
+        }
+        StmtGuard texGuard(texStmt);
+
+        sqlite3_bind_int(texStmt, 1, meshId);
+        sqlite3_bind_text(texStmt, 2, matName.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_blob(texStmt, 3, jpegBuf.data(),
+                          static_cast<int>(jpegBuf.size()), SQLITE_TRANSIENT);
+        sqlite3_bind_int(texStmt, 4, texImg.cols);
+        sqlite3_bind_int(texStmt, 5, texImg.rows);
+
+        if (sqlite3_step(texStmt) != SQLITE_DONE) {
+          reusex::warn("Failed to store texture {}: {}", matName,
+                       sqlite3_errmsg(db));
+        } else {
+          reusex::debug("Stored texture '{}' ({} x {} px, {:.1f} KB)", matName,
+                        texImg.cols, texImg.rows, jpegBuf.size() / 1024.0);
+        }
+      }
+    }
   }
 
   pcl::PolygonMesh::Ptr getMesh(std::string_view name) const {
@@ -1642,7 +1843,7 @@ class ProjectDB::Impl {
   }
 
   pcl::TextureMesh::Ptr getTextureMesh(std::string_view name) const {
-    const char *sql = "SELECT format, data FROM meshes WHERE name = ?;";
+    const char *sql = "SELECT id, format, data FROM meshes WHERE name = ?;";
     sqlite3_stmt *stmt;
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
       throw std::runtime_error("Failed to prepare texture mesh load");
@@ -1653,58 +1854,190 @@ class ProjectDB::Impl {
     if (sqlite3_step(stmt) != SQLITE_ROW)
       throw std::runtime_error("Texture mesh not found: " + std::string(name));
 
+    int meshId = sqlite3_column_int(stmt, 0);
     const char *format =
-        reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
+        reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1));
     if (std::string(format) != "obj_textured")
       throw std::runtime_error(
           "Mesh '" + std::string(name) +
           "' is not a texture mesh (format: " + std::string(format) + ")");
 
-    const void *blob = sqlite3_column_blob(stmt, 1);
-    int blobSize = sqlite3_column_bytes(stmt, 1);
+    const void *blob = sqlite3_column_blob(stmt, 2);
+    int blobSize = sqlite3_column_bytes(stmt, 2);
 
     // Find null separator between OBJ and MTL data
     const char *blobData = static_cast<const char *>(blob);
     const char *separator = std::find(blobData, blobData + blobSize, '\0');
     int objSize = static_cast<int>(separator - blobData);
 
-    // Write OBJ file
-    auto tmpPath =
+    // Create temp directory for this mesh's textures
+    auto texDir =
         std::filesystem::temp_directory_path() /
-        ("reusex_texmesh_load_" +
-         std::to_string(std::hash<std::string>{}(std::string(name))) + ".obj");
+        ("reusex_textures_" + std::to_string(meshId));
+    std::filesystem::create_directories(texDir);
+
+    // Query texture blobs from mesh_texture_data
+    std::map<std::string, std::string> newTexPaths;  // material -> temp file path
     {
-      std::ofstream ofs(tmpPath, std::ios::binary);
-      ofs.write(blobData, objSize);
+      const char *texSql =
+          "SELECT tex_name, image_data, width, height FROM mesh_texture_data "
+          "WHERE mesh_id = ?;";
+      sqlite3_stmt *texStmt;
+      if (sqlite3_prepare_v2(db, texSql, -1, &texStmt, nullptr) == SQLITE_OK) {
+        StmtGuard texGuard(texStmt);
+        sqlite3_bind_int(texStmt, 1, meshId);
+
+        while (sqlite3_step(texStmt) == SQLITE_ROW) {
+          const char *texName =
+              reinterpret_cast<const char *>(sqlite3_column_text(texStmt, 0));
+          const void *imgBlob = sqlite3_column_blob(texStmt, 1);
+          int imgSize = sqlite3_column_bytes(texStmt, 1);
+
+          if (!texName || !imgBlob || imgSize == 0)
+            continue;
+
+          // Decode JPEG blob
+          cv::Mat encoded(1, imgSize, CV_8UC1, const_cast<void *>(imgBlob));
+          cv::Mat texImg = cv::imdecode(encoded, cv::IMREAD_COLOR);
+          if (texImg.empty())
+            continue;
+
+          // Write to temp file
+          auto texFilePath = texDir / (std::string(texName) + ".jpg");
+          cv::imwrite(texFilePath.string(), texImg);
+          newTexPaths[texName] = texFilePath.string();
+        }
+      }
     }
 
-    // Write MTL file if present
+    // Read original MTL content
+    std::string mtlStr;
     if (separator != blobData + blobSize &&
         separator + 1 < blobData + blobSize) {
-      auto mtlPath = tmpPath;
-      mtlPath.replace_extension(".mtl");
-      std::ofstream ofs(mtlPath, std::ios::binary);
-      ofs.write(separator + 1, blobSize - objSize - 1);
+      mtlStr.assign(separator + 1, blobData + blobSize);
+    }
+
+    // Check for material name mismatch (e.g. pre-atlas MTL + atlas blob)
+    if (!mtlStr.empty() && !newTexPaths.empty()) {
+      auto mtlMaterials = parseMtlTextures(mtlStr);
+      size_t matched = 0;
+      for (const auto &[matName, _] : mtlMaterials) {
+        if (newTexPaths.count(matName))
+          ++matched;
+      }
+      if (matched == 0 && !mtlMaterials.empty()) {
+        reusex::warn(
+            "Textured mesh '{}': stored MTL has {} materials but none match "
+            "the {} texture blob(s) in the database. The mesh was likely "
+            "saved before atlas support. Re-create with 'rux create texture' "
+            "for proper texturing.",
+            name, mtlMaterials.size(), newTexPaths.size());
+      }
+    }
+
+    // Write OBJ and MTL to temp dir
+    auto tmpObjPath = texDir / "mesh.obj";
+    auto tmpMtlPath = texDir / "mesh.mtl";
+
+    if (!mtlStr.empty() && !newTexPaths.empty()) {
+      // Regenerate MTL with updated texture paths
+      std::string updatedMtl = regenerateMtl(mtlStr, newTexPaths);
+      {
+        std::ofstream ofs(tmpMtlPath, std::ios::binary);
+        ofs.write(updatedMtl.data(),
+                  static_cast<std::streamsize>(updatedMtl.size()));
+      }
+
+      // Update OBJ to reference mesh.mtl in same directory
+      std::string objStr(blobData, objSize);
+      // Replace mtllib line to point to local file
+      std::istringstream objStream(objStr);
+      std::ostringstream objOut;
+      std::string line;
+      while (std::getline(objStream, line)) {
+        if (line.rfind("mtllib ", 0) == 0) {
+          objOut << "mtllib mesh.mtl\n";
+        } else {
+          objOut << line << "\n";
+        }
+      }
+      std::string updatedObj = objOut.str();
+      {
+        std::ofstream ofs(tmpObjPath, std::ios::binary);
+        ofs.write(updatedObj.data(),
+                  static_cast<std::streamsize>(updatedObj.size()));
+      }
+    } else {
+      // No texture blobs available - write OBJ and MTL without texture refs
+      {
+        std::ofstream ofs(tmpObjPath, std::ios::binary);
+        ofs.write(blobData, objSize);
+      }
+      if (!mtlStr.empty()) {
+        // Strip map_Kd lines since texture files aren't in the database
+        std::istringstream stream(mtlStr);
+        std::ostringstream out;
+        std::string line;
+        while (std::getline(stream, line)) {
+          std::string trimmed = line;
+          size_t start = trimmed.find_first_not_of(" \t");
+          if (start != std::string::npos)
+            trimmed = trimmed.substr(start);
+          if (trimmed.rfind("map_Kd ", 0) == 0)
+            continue;
+          out << line << "\n";
+        }
+        std::string stripped = out.str();
+        std::ofstream ofs(tmpMtlPath, std::ios::binary);
+        ofs.write(stripped.data(),
+                  static_cast<std::streamsize>(stripped.size()));
+      }
     }
 
     auto mesh = std::make_shared<pcl::TextureMesh>();
-    if (pcl::io::loadOBJFile(tmpPath.string(), *mesh) < 0) {
-      std::filesystem::remove(tmpPath);
-      auto mtlPath = tmpPath;
-      mtlPath.replace_extension(".mtl");
-      if (std::filesystem::exists(mtlPath))
-        std::filesystem::remove(mtlPath);
+    if (pcl::io::loadOBJFile(tmpObjPath.string(), *mesh) < 0) {
+      std::filesystem::remove_all(texDir);
       throw std::runtime_error("Failed to parse OBJ texture mesh data");
     }
 
-    // Clean up temp files
-    std::filesystem::remove(tmpPath);
-    auto mtlPath = tmpPath;
-    mtlPath.replace_extension(".mtl");
-    if (std::filesystem::exists(mtlPath))
-      std::filesystem::remove(mtlPath);
+    // Fix texture paths: loadOBJFile may resolve relative paths from the
+    // original MTL against the temp OBJ directory, producing invalid paths
+    // like /tmp/..././mesh_textures/file.jpg. Remap to actual temp files.
+    for (auto &mat : mesh->tex_materials) {
+      if (mat.tex_file.empty())
+        continue;
+      std::filesystem::path p(mat.tex_file);
+      if (!std::filesystem::exists(p)) {
+        // Try finding the texture by filename in our temp dir
+        auto candidate = texDir / p.filename();
+        if (std::filesystem::exists(candidate)) {
+          mat.tex_file = candidate.string();
+        } else {
+          // No texture available — clear to prevent PCL load errors
+          mat.tex_file.clear();
+        }
+      }
+    }
 
+    // Leave temp files for viewer access (cleaned on next load)
     return mesh;
+  }
+
+  std::string getMeshFormat(std::string_view name) const {
+    const char *sql = "SELECT format FROM meshes WHERE name = ?;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to prepare mesh format query");
+    StmtGuard guard(stmt);
+    sqlite3_bind_text(stmt, 1, name.data(), static_cast<int>(name.size()),
+                      SQLITE_TRANSIENT);
+
+    if (sqlite3_step(stmt) != SQLITE_ROW)
+      throw std::runtime_error("Mesh not found: " + std::string(name));
+
+    const char *fmt =
+        reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
+    return std::string(fmt ? fmt : "");
   }
 
   bool hasMesh(std::string_view name) const {
@@ -1733,6 +2066,133 @@ class ProjectDB::Impl {
           reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0)));
     }
     return names;
+  }
+
+  ProjectDB::MeshMetadata getMeshMetadata(std::string_view name) const {
+    const char *sql =
+        "SELECT name, format, vertex_count, face_count, stage, parameters, "
+        "created_at FROM meshes WHERE name = ?;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to prepare mesh metadata query");
+    StmtGuard guard(stmt);
+    sqlite3_bind_text(stmt, 1, name.data(), static_cast<int>(name.size()),
+                      SQLITE_TRANSIENT);
+    if (sqlite3_step(stmt) != SQLITE_ROW)
+      throw std::runtime_error("Mesh not found: " + std::string(name));
+
+    ProjectDB::MeshMetadata meta;
+    auto col_text = [&](int col) -> std::string {
+      auto *p = reinterpret_cast<const char *>(sqlite3_column_text(stmt, col));
+      return p ? std::string(p) : std::string();
+    };
+    meta.name = col_text(0);
+    meta.format = col_text(1);
+    meta.vertex_count = sqlite3_column_int(stmt, 2);
+    meta.face_count = sqlite3_column_int(stmt, 3);
+    meta.stage = col_text(4);
+    meta.parameters = col_text(5);
+    meta.created_at = col_text(6);
+    return meta;
+  }
+
+  std::vector<uint8_t> getMeshDataBlob(std::string_view name) const {
+    const char *sql = "SELECT data FROM meshes WHERE name = ?;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to prepare mesh data blob query");
+    StmtGuard guard(stmt);
+    sqlite3_bind_text(stmt, 1, name.data(), static_cast<int>(name.size()),
+                      SQLITE_TRANSIENT);
+    if (sqlite3_step(stmt) != SQLITE_ROW)
+      throw std::runtime_error("Mesh not found: " + std::string(name));
+
+    const auto *blob =
+        static_cast<const uint8_t *>(sqlite3_column_blob(stmt, 0));
+    int blobSize = sqlite3_column_bytes(stmt, 0);
+    return std::vector<uint8_t>(blob, blob + blobSize);
+  }
+
+  std::vector<ProjectDB::MeshTextureInfo>
+  getMeshTextureBlobs(std::string_view name) const {
+    // Look up mesh id
+    const char *idSql = "SELECT id FROM meshes WHERE name = ?;";
+    sqlite3_stmt *idStmt;
+    if (sqlite3_prepare_v2(db, idSql, -1, &idStmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to prepare mesh id query");
+    StmtGuard idGuard(idStmt);
+    sqlite3_bind_text(idStmt, 1, name.data(), static_cast<int>(name.size()),
+                      SQLITE_TRANSIENT);
+    if (sqlite3_step(idStmt) != SQLITE_ROW)
+      throw std::runtime_error("Mesh not found: " + std::string(name));
+    int meshId = sqlite3_column_int(idStmt, 0);
+
+    const char *sql =
+        "SELECT tex_name, image_data, width, height, format "
+        "FROM mesh_texture_data WHERE mesh_id = ?;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to prepare texture blob query");
+    StmtGuard guard(stmt);
+    sqlite3_bind_int(stmt, 1, meshId);
+
+    std::vector<ProjectDB::MeshTextureInfo> result;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+      ProjectDB::MeshTextureInfo info;
+      auto *tn =
+          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
+      info.tex_name = tn ? std::string(tn) : "";
+      const auto *imgBlob =
+          static_cast<const uint8_t *>(sqlite3_column_blob(stmt, 1));
+      int imgSize = sqlite3_column_bytes(stmt, 1);
+      if (imgBlob && imgSize > 0)
+        info.image_data.assign(imgBlob, imgBlob + imgSize);
+      info.width = sqlite3_column_int(stmt, 2);
+      info.height = sqlite3_column_int(stmt, 3);
+      auto *fmt =
+          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 4));
+      info.format = fmt ? std::string(fmt) : "jpg";
+      result.push_back(std::move(info));
+    }
+    return result;
+  }
+
+  std::vector<ProjectDB::MeshTextureMetadata>
+  getMeshTextureMetadata(std::string_view name) const {
+    const char *idSql = "SELECT id FROM meshes WHERE name = ?;";
+    sqlite3_stmt *idStmt;
+    if (sqlite3_prepare_v2(db, idSql, -1, &idStmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to prepare mesh id query");
+    StmtGuard idGuard(idStmt);
+    sqlite3_bind_text(idStmt, 1, name.data(), static_cast<int>(name.size()),
+                      SQLITE_TRANSIENT);
+    if (sqlite3_step(idStmt) != SQLITE_ROW)
+      throw std::runtime_error("Mesh not found: " + std::string(name));
+    int meshId = sqlite3_column_int(idStmt, 0);
+
+    const char *sql =
+        "SELECT tex_name, width, height, format "
+        "FROM mesh_texture_data WHERE mesh_id = ?;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to prepare texture metadata query");
+    StmtGuard guard(stmt);
+    sqlite3_bind_int(stmt, 1, meshId);
+
+    std::vector<ProjectDB::MeshTextureMetadata> result;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+      ProjectDB::MeshTextureMetadata info;
+      auto *tn =
+          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
+      info.tex_name = tn ? std::string(tn) : "";
+      info.width = sqlite3_column_int(stmt, 1);
+      info.height = sqlite3_column_int(stmt, 2);
+      auto *fmt =
+          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 3));
+      info.format = fmt ? std::string(fmt) : "jpg";
+      result.push_back(std::move(info));
+    }
+    return result;
   }
 
   // ── Pipeline log ───────────────────────────────────────────────────
@@ -2141,6 +2601,7 @@ class ProjectDB::Impl {
 
       // 1. Delete existing passport if it exists (for updates)
       std::string passport_id{id};
+      const auto &doc_guid = passport.metadata.document_guid;
 
       // Delete related data (property values and log entries)
       const char *delete_values_query =
@@ -2156,7 +2617,7 @@ class ProjectDB::Impl {
       // Delete property values
       if (sqlite3_prepare_v2(db, delete_values_query, -1, &del_stmt, nullptr) ==
           SQLITE_OK) {
-        sqlite3_bind_text(del_stmt, 1, passport_id.c_str(), -1,
+        sqlite3_bind_text(del_stmt, 1, doc_guid.c_str(), -1,
                           SQLITE_TRANSIENT);
         sqlite3_step(del_stmt);
         sqlite3_finalize(del_stmt);
@@ -2164,7 +2625,7 @@ class ProjectDB::Impl {
       // Delete log entries
       if (sqlite3_prepare_v2(db, delete_log_query, -1, &del_stmt, nullptr) ==
           SQLITE_OK) {
-        sqlite3_bind_text(del_stmt, 1, passport_id.c_str(), -1,
+        sqlite3_bind_text(del_stmt, 1, doc_guid.c_str(), -1,
                           SQLITE_TRANSIENT);
         sqlite3_step(del_stmt);
         sqlite3_finalize(del_stmt);
@@ -2172,7 +2633,7 @@ class ProjectDB::Impl {
       // Delete passport
       if (sqlite3_prepare_v2(db, delete_passport_query, -1, &del_stmt,
                              nullptr) == SQLITE_OK) {
-        sqlite3_bind_text(del_stmt, 1, passport_id.c_str(), -1,
+        sqlite3_bind_text(del_stmt, 1, doc_guid.c_str(), -1,
                           SQLITE_TRANSIENT);
         sqlite3_step(del_stmt);
         sqlite3_finalize(del_stmt);
@@ -2947,6 +3408,10 @@ cv::Mat ProjectDB::segmentation_image(int nodeId) const {
   return impl_->getSegmentationImage(nodeId);
 }
 
+std::vector<int> ProjectDB::segmentation_image_ids() const {
+  return impl_->getSegmentationImageIds();
+}
+
 void ProjectDB::save_segmentation_image(int nodeId, const cv::Mat &labels) {
   impl_->saveSegmentationImage(nodeId, labels);
 }
@@ -3086,6 +3551,29 @@ bool ProjectDB::has_mesh(std::string_view name) const {
 
 std::vector<std::string> ProjectDB::list_meshes() const {
   return impl_->listMeshes();
+}
+
+std::string ProjectDB::mesh_format(std::string_view name) const {
+  return impl_->getMeshFormat(name);
+}
+
+ProjectDB::MeshMetadata
+ProjectDB::mesh_metadata(std::string_view name) const {
+  return impl_->getMeshMetadata(name);
+}
+
+std::vector<uint8_t> ProjectDB::mesh_data_blob(std::string_view name) const {
+  return impl_->getMeshDataBlob(name);
+}
+
+std::vector<ProjectDB::MeshTextureInfo>
+ProjectDB::mesh_texture_blobs(std::string_view name) const {
+  return impl_->getMeshTextureBlobs(name);
+}
+
+std::vector<ProjectDB::MeshTextureMetadata>
+ProjectDB::mesh_texture_metadata(std::string_view name) const {
+  return impl_->getMeshTextureMetadata(name);
 }
 
 // --- Pipeline Log ---

@@ -122,6 +122,7 @@ class ProjectDB {
 
   bool has_segmentation_image(int nodeId) const;
   cv::Mat segmentation_image(int nodeId) const;
+  std::vector<int> segmentation_image_ids() const;
   void save_segmentation_image(int nodeId, const cv::Mat &labels);
   void save_segmentation_images(const std::vector<int> &nodeIds,
                                 const std::vector<cv::Mat> &labels);
@@ -176,6 +177,29 @@ class ProjectDB {
   pcl::TextureMesh::Ptr texture_mesh(std::string_view name) const;
   bool has_mesh(std::string_view name) const;
   std::vector<std::string> list_meshes() const;
+  std::string mesh_format(std::string_view name) const;
+
+  struct MeshMetadata {
+    std::string name, format, stage, parameters, created_at;
+    int vertex_count = 0, face_count = 0;
+  };
+  MeshMetadata mesh_metadata(std::string_view name) const;
+
+  std::vector<uint8_t> mesh_data_blob(std::string_view name) const;
+
+  struct MeshTextureInfo {
+    std::string tex_name, format;
+    std::vector<uint8_t> image_data;
+    int width, height;
+  };
+  std::vector<MeshTextureInfo> mesh_texture_blobs(std::string_view name) const;
+
+  struct MeshTextureMetadata {
+    std::string tex_name, format;
+    int width, height;
+  };
+  std::vector<MeshTextureMetadata>
+  mesh_texture_metadata(std::string_view name) const;
 
   // --- Building Component Operations ---
 

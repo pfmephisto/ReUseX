@@ -9,6 +9,9 @@
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
 
+#include <algorithm>
+#include <unordered_set>
+
 #ifndef NDEBUG
 #include "utils/cv.hpp"
 namespace {
@@ -83,5 +86,19 @@ bool IDataset::save_image(const size_t index, const cv::Mat &image) {
 std::shared_ptr<ProjectDB> IDataset::database() const { return db_; }
 
 size_t IDataset::size() const { return ids_.size(); }
+
+size_t IDataset::filter_annotated() {
+  auto annotated_ids = db_->segmentation_image_ids();
+  std::unordered_set<int> annotated_set(annotated_ids.begin(),
+                                        annotated_ids.end());
+
+  auto original_size = ids_.size();
+  std::erase_if(ids_, [&](int id) { return annotated_set.contains(id); });
+
+  auto removed = original_size - ids_.size();
+  reusex::info("Filtered out {} already-annotated frames, {} remaining",
+               removed, ids_.size());
+  return removed;
+}
 
 } // namespace reusex::vision

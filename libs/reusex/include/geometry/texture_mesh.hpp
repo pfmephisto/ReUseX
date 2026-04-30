@@ -22,8 +22,24 @@ struct CameraData {
   Eigen::Matrix4d pose;  ///< World pose (SE(3))
 };
 
-pcl::TextureMesh::Ptr texture_mesh_with_cloud(pcl::PolygonMesh::Ptr mesh,
-                                              CloudConstPtr cloud);
+/// Quality parameters for texture projection
+struct TextureQualityParams {
+  float texels_per_meter = 400.0f;  ///< Target texture detail (pixels per meter) - adaptive resolution
+  int min_resolution = 256;      ///< Minimum texture size (small surfaces)
+  int max_resolution = 4096;     ///< Maximum texture size (large surfaces)
+  int atlas_tile_size = 2048;    ///< Atlas tile size for PCL visualization (lower = less memory)
+  float distance_threshold = 0.02f;  ///< Max distance from point to surface (meters) - smaller = sharper
+  float search_radius = 0.04f;   ///< K-d tree search radius (meters)
+  int max_neighbors = 100;       ///< Max points to check per pixel
+  bool use_quadratic_falloff = true;  ///< Use 1/d^2 instead of 1/d for sharper detail
+};
+
+pcl::TextureMesh::Ptr texture_mesh_with_cloud(
+    pcl::PolygonMesh::Ptr mesh,
+    CloudConstPtr cloud,
+    CloudNConstPtr normals = nullptr,
+    bool debug_distinct_colors = false,
+    const TextureQualityParams& quality = TextureQualityParams());
 
 /// Texture mesh using RTABMap signatures (legacy API)
 pcl::TextureMesh::Ptr

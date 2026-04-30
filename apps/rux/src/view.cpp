@@ -518,19 +518,46 @@ ProjectLoadResult load_from_project_db(const fs::path &path,
     try {
       auto texture_mesh = db.texture_mesh(name);
 
-      // Keep as TextureMesh and render with textures
-      loaded.mesh = texture_mesh;
+      // Check if any material actually has a texture file
+      bool has_textures = false;
+      for (const auto &mat : texture_mesh->tex_materials) {
+        if (!mat.tex_file.empty()) {
+          has_textures = true;
+          break;
+        }
+      }
 
-      // observer.viewer_enqueue_task(
-      //     [loaded](const rux::VizualizationObserver::ViewerPtr &viewer,
-      //              const std::vector<int> &viewports) {
-      //       auto textured = std::get<pcl::TextureMesh::Ptr>(loaded.mesh);
-      //       viewer->addTextureMesh(*textured, loaded.name, viewports[0]);
-      //     });
+      if (has_textures) {
+        // Render as textured mesh
+        loaded.mesh = texture_mesh;
+        observer.viewer_enqueue_task(
+            [loaded](const rux::VizualizationObserver::ViewerPtr &viewer,
+                     const std::vector<int> &viewports) {
+              auto textured = std::get<pcl::TextureMesh::Ptr>(loaded.mesh);
+              viewer->addTextureMesh(*textured, loaded.name, viewports[0]);
+            });
+        spdlog::info(
+            "Loaded textured mesh '{}' ({} materials) - rendering with textures",
+            name, texture_mesh->tex_materials.size());
+      } else {
+        // No valid textures — render as plain polygon mesh
+        auto plain = std::make_shared<pcl::PolygonMesh>();
+        plain->cloud = texture_mesh->cloud;
+        for (const auto &group : texture_mesh->tex_polygons)
+          plain->polygons.insert(plain->polygons.end(), group.begin(),
+                                 group.end());
+        loaded.mesh = plain;
+        observer.viewer_enqueue_task(
+            [loaded](const rux::VizualizationObserver::ViewerPtr &viewer,
+                     const std::vector<int> &viewports) {
+              auto regular = std::get<pcl::PolygonMesh::Ptr>(loaded.mesh);
+              viewer->addPolygonMesh(*regular, loaded.name, viewports[0]);
+            });
+        spdlog::info(
+            "Loaded mesh '{}' (no valid textures, rendering as plain mesh)",
+            name);
+      }
 
-      spdlog::info(
-          "Loaded textured mesh '{}' ({} materials) - rendering with textures",
-          name, texture_mesh->tex_materials.size());
       result.meshes.push_back(std::move(loaded));
       loaded_successfully = true;
     } catch (const std::exception &e) {
@@ -602,32 +629,36 @@ ProjectLoadResult load_from_project_db(const fs::path &path,
   }
 
   // Load panoramic image metadata (images loaded on-demand)
-  auto pano_list = db.list_panoramic_images();
-  for (const auto &pano : pano_list) {
-    PanoramaInfo pi;
-    pi.id = pano.id;
-    pi.filename = pano.filename;
-    pi.node_id = pano.node_id;
+  try {
+    auto pano_list = db.list_panoramic_images();
+    for (const auto &pano : pano_list) {
+      PanoramaInfo pi;
+      pi.id = pano.id;
+      pi.filename = pano.filename;
+      pi.node_id = pano.node_id;
 
-    if (pano.node_id >= 0 && db.has_sensor_frame(pano.node_id)) {
-      try {
-        pi.pose = db.sensor_frame_pose(pano.node_id);
-        pi.px = pi.pose[3];  // row-major: translation is [3], [7], [11]
-        pi.py = pi.pose[7];
-        pi.pz = pi.pose[11];
-        pi.pose_valid = true;
-        spdlog::debug("Panorama '{}' at ({:.2f}, {:.2f}, {:.2f})",
-                       pi.filename, pi.px, pi.py, pi.pz);
-      } catch (const std::exception &e) {
-        spdlog::warn("Could not load pose for panorama '{}': {}",
-                      pi.filename, e.what());
+      if (pano.node_id >= 0 && db.has_sensor_frame(pano.node_id)) {
+        try {
+          pi.pose = db.sensor_frame_pose(pano.node_id);
+          pi.px = pi.pose[3];  // row-major: translation is [3], [7], [11]
+          pi.py = pi.pose[7];
+          pi.pz = pi.pose[11];
+          pi.pose_valid = true;
+          spdlog::debug("Panorama '{}' at ({:.2f}, {:.2f}, {:.2f})",
+                         pi.filename, pi.px, pi.py, pi.pz);
+        } catch (const std::exception &e) {
+          spdlog::warn("Could not load pose for panorama '{}': {}",
+                        pi.filename, e.what());
+        }
+      } else {
+        spdlog::debug("Panorama '{}' has no linked sensor frame, skipping sphere",
+                       pi.filename);
       }
-    } else {
-      spdlog::debug("Panorama '{}' has no linked sensor frame, skipping sphere",
-                     pi.filename);
-    }
 
-    result.panoramas.push_back(std::move(pi));
+      result.panoramas.push_back(std::move(pi));
+    }
+  } catch (const std::exception &e) {
+    spdlog::debug("Panoramic images not available: {}", e.what());
   }
 
   return result;
@@ -666,11 +697,10 @@ template <> struct ItemTraits<LoadedMesh> {
   static void add_to_viewer(const rux::VizualizationObserver::ViewerPtr &viewer,
                             const LoadedMesh &item, int viewport) {
     if (item.is_textured()) {
-      // // Render textured mesh with materials and UV coordinates
-      // auto textured = std::get<pcl::TextureMesh::Ptr>(item.mesh);
-      // viewer->addTextureMesh(*textured, item.name, viewport);
+      viewer->removePolygonMesh(item.name);
+      auto textured = std::get<pcl::TextureMesh::Ptr>(item.mesh);
+      viewer->addTextureMesh(*textured, item.name, viewport);
     } else {
-      // Render regular polygon mesh
       auto regular = std::get<pcl::PolygonMesh::Ptr>(item.mesh);
       viewer->addPolygonMesh(*regular, item.name, viewport);
     }

@@ -23,6 +23,7 @@ struct SubcommandAnnotateOptions {
   bool shuffle = false;          // Shuffle dataset (rarely needed for inference)
   size_t num_workers = 4;        // Number of worker threads (recommended: 2-4)
   size_t prefetch_batches = 8;   // Batches to prefetch (recommended: 2-3x workers)
+  bool skip_annotated = false;   // Skip already-annotated frames (resume mode)
 };
 
 // Function declarations.

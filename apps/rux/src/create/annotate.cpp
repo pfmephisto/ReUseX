@@ -92,6 +92,10 @@ PERFORMANCE TUNING:
                 "Shuffle dataset before processing (default: false)")
       ->default_val(opt->shuffle);
 
+  sub->add_flag("--skip-annotated", opt->skip_annotated,
+                "Skip frames that already have segmentation labels (resume interrupted runs)")
+      ->default_val(opt->skip_annotated);
+
   sub->callback([opt, global_opt]() {
     spdlog::trace("calling run_subcommand_annotate");
     return run_subcommand_annotate(*opt, *global_opt);
@@ -118,7 +122,8 @@ int run_subcommand_annotate(SubcommandAnnotateOptions const &opt,
       .batch_size = opt.batch_size,
       .shuffle = opt.shuffle,
       .num_workers = opt.num_workers,
-      .prefetch_batches = opt.prefetch_batches
+      .prefetch_batches = opt.prefetch_batches,
+      .skip_annotated = opt.skip_annotated
     };
 
     return reusex::vision::annotate(project_path, opt.net_path, config);

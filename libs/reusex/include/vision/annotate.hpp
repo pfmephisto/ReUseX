@@ -14,6 +14,7 @@ struct AnnotationConfig {
   bool shuffle = false;            ///< Shuffle dataset before processing
   size_t num_workers = 4;          ///< Number of worker threads (recommended: 2-4)
   size_t prefetch_batches = 8;     ///< Batches to prefetch (recommended: 2-3x workers)
+  bool skip_annotated = false;     ///< Skip frames that already have segmentation
 };
 
 /**

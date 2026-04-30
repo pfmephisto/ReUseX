@@ -75,6 +75,16 @@ class IDataset {
    */
   size_t size() const;
 
+  /**
+   * @brief Remove already-annotated frames from the dataset
+   *
+   * Queries the database for frames that already have segmentation images
+   * and removes them from this dataset's ID list so they won't be processed.
+   *
+   * @return Number of frames removed
+   */
+  size_t filter_annotated();
+
   /* Retrieves a sample by its index. The get method takes an index as input,
    * which is used to look up the corresponding sample ID in the ids_ vector.
    * The get method then retrieves the image and label for the sample from the

@@ -15,6 +15,12 @@ struct SubcommandTextureOptions {
   std::string mesh_name = "mesh"; ///< Mesh name in ProjectDB
   std::string output_name =
       "textured_mesh"; ///< Output textured mesh name in ProjectDB
+  std::string cloud_name = "cloud"; ///< Point cloud name in ProjectDB
+  bool debug_colors = false; ///< Use distinct colors for UV mapping verification
+  float texels_per_meter = 400.0f; ///< Target texture resolution
+  int max_resolution = 4096; ///< Maximum texture size
+  int atlas_tile_size = 2048; ///< Atlas tile size for PCL visualization
+  float distance_threshold = 0.02f; ///< Max distance from point to surface
 };
 
 // Function declarations.

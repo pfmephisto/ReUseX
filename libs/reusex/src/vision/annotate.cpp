@@ -38,6 +38,15 @@ auto annotate(const std::filesystem::path &dbPath,
   auto model = backend->create_model(modelType, modelPath, config.use_cuda);
   auto dataset = backend->create_dataset(dbPath);
 
+  // Filter out already-annotated frames if requested
+  if (config.skip_annotated) {
+    auto skipped = dataset->filter_annotated();
+    if (dataset->size() == 0) {
+      reusex::info("All {} frames already annotated, nothing to do", skipped);
+      return 0;
+    }
+  }
+
   // Log dataloader configuration
   reusex::info("Dataloader config: batch_size={}, shuffle={}, num_workers={}, prefetch={}",
                config.batch_size, config.shuffle, config.num_workers, config.prefetch_batches);

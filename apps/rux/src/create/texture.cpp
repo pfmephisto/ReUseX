@@ -7,6 +7,7 @@
 
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/geometry/texture_mesh.hpp>
+#include <reusex/geometry/unweld.hpp>
 
 #include <spdlog/spdlog.h>
 #include <spdlog/stopwatch.h>
@@ -19,18 +20,20 @@ void setup_subcommand_create_texture(CLI::App &app, std::shared_ptr<RuxOptions> 
   auto opt = std::make_shared<SubcommandTextureOptions>();
   auto *sub = app.add_subcommand(
       "texture",
-      "Apply textures to mesh from sensor frames");
+      "Apply textures to mesh from point cloud colors");
 
   sub->footer(R"(
 DESCRIPTION:
-  Maps RGB textures from sensor frame images onto 3D mesh surfaces using
-  camera poses and intrinsics. Projects mesh vertices into image space,
-  selects best-view images per face, and generates UV-mapped textured mesh
-  suitable for photorealistic visualization and CAD export.
+  Projects point cloud RGB colors onto 3D mesh surfaces using spatial
+  proximity and normal filtering. Generates UV-mapped textured mesh with
+  adaptive resolution textures suitable for photorealistic visualization
+  and CAD export.
 
 EXAMPLES:
-  rux create texture                   # Default: mesh -> mesh_textured
+  rux create texture                   # Default: mesh -> textured_mesh
   rux create texture -m room1 -o room1_tex  # Custom names
+  rux create texture --debug-colors    # Distinct colors for UV debugging
+  rux create texture --texels-per-meter 800  # Higher texture resolution
   rux -p scan.rux create texture       # Custom project path
 
 WORKFLOW:
@@ -42,11 +45,11 @@ WORKFLOW:
   6. rux export rhino textured.3dm     # Export textured model
 
 NOTES:
-  - Requires mesh and sensor frames with RGB images in project database
-  - Best-view selection based on viewing angle and distance
-  - UV coordinates automatically generated for texture mapping
+  - Requires mesh and point cloud with RGB in project database
+  - Mesh is automatically unwelded before texturing for PCL compatibility
+  - Adaptive texture resolution based on polygon physical size
   - Output mesh includes embedded texture atlas
-  - Default input: 'mesh', default output: 'mesh_textured'
+  - Default input: 'mesh', default output: 'textured_mesh'
 )");
 
   sub->add_option("-m, --mesh-name", opt->mesh_name,
@@ -56,6 +59,29 @@ NOTES:
   sub->add_option("-o, --output-name", opt->output_name,
                   "Name for the output textured mesh in ProjectDB")
       ->default_val(opt->output_name);
+
+  sub->add_option("-c, --cloud-name", opt->cloud_name,
+                  "Name of the point cloud in ProjectDB")
+      ->default_val(opt->cloud_name);
+
+  sub->add_flag("--debug-colors", opt->debug_colors,
+                "Use distinct colors per polygon for UV mapping verification");
+
+  sub->add_option("--texels-per-meter", opt->texels_per_meter,
+                  "Target texture resolution in pixels per meter")
+      ->default_val(opt->texels_per_meter);
+
+  sub->add_option("--max-resolution", opt->max_resolution,
+                  "Maximum texture size in pixels")
+      ->default_val(opt->max_resolution);
+
+  sub->add_option("--atlas-tile-size", opt->atlas_tile_size,
+                  "Atlas tile size for PCL visualization")
+      ->default_val(opt->atlas_tile_size);
+
+  sub->add_option("--distance-threshold", opt->distance_threshold,
+                  "Max distance from point to surface in meters")
+      ->default_val(opt->distance_threshold);
 
   sub->callback([opt, global_opt]() {
     spdlog::trace("calling run_subcommand_texture");
@@ -69,51 +95,51 @@ int run_subcommand_texture(SubcommandTextureOptions const &opt, const RuxOptions
   try {
     reusex::ProjectDB db(project_path);
 
-    // Pre-flight validation: check for mesh and sensor frames
-    auto validation = rux::validation::validate_texture_prerequisites(db);
-    if (!validation) {
-      spdlog::error("{}", validation.error_message);
-      spdlog::info("Resolution: {}", validation.resolution_hint);
+    // Pre-flight validation: check for mesh and point cloud
+    if (!db.has_mesh(opt.mesh_name)) {
+      spdlog::error("Mesh '{}' not found in project database", opt.mesh_name);
+      return RuxError::INVALID_ARGUMENT;
+    }
+
+    if (!db.has_point_cloud(opt.cloud_name)) {
+      spdlog::error("Point cloud '{}' not found in project database", opt.cloud_name);
       return RuxError::INVALID_ARGUMENT;
     }
 
     int logId = db.log_pipeline_start("texture_mesh",
-        fmt::format(R"({{"mesh_name":"{}","output_name":"{}"}})",
-                    opt.mesh_name, opt.output_name));
+        fmt::format(R"({{"mesh_name":"{}","output_name":"{}","cloud_name":"{}","debug_colors":{}}})",
+                    opt.mesh_name, opt.output_name, opt.cloud_name, opt.debug_colors));
 
     spdlog::trace("Loading mesh '{}' from ProjectDB", opt.mesh_name);
     auto mesh = db.mesh(opt.mesh_name);
 
-    spdlog::trace("Loading sensor frames from ProjectDB");
-    auto frame_ids = db.sensor_frame_ids();
-    spdlog::info("Found {} sensor frames for texturing", frame_ids.size());
+    spdlog::trace("Loading point cloud '{}' from ProjectDB", opt.cloud_name);
+    auto cloud = db.point_cloud_xyzrgb(opt.cloud_name);
+    spdlog::info("Loaded point cloud with {} points", cloud->size());
 
-    // Build camera data map from ProjectDB
-    std::map<int, reusex::geometry::CameraData> cameras;
-    for (int nodeId : frame_ids) {
-      reusex::geometry::CameraData cam_data;
-
-      cam_data.image = db.sensor_frame_image(nodeId);
-      if (cam_data.image.empty()) {
-        spdlog::warn("Skipping node {} - empty image", nodeId);
-        continue;
-      }
-
-      cam_data.intrinsics = db.sensor_frame_intrinsics(nodeId);
-
-      // Get pose as 4x4 SE(3) matrix
-      auto pose_array = db.sensor_frame_pose(nodeId);
-      for (int i = 0; i < 16; ++i) {
-        cam_data.pose(i / 4, i % 4) = pose_array[i];
-      }
-
-      cameras[nodeId] = std::move(cam_data);
+    // Optionally load normals
+    CloudNConstPtr normals;
+    std::string normals_name = opt.cloud_name + "_normals";
+    if (db.has_point_cloud(normals_name)) {
+      normals = db.point_cloud_normal(normals_name);
+      spdlog::info("Loaded normals cloud '{}' ({} normals)", normals_name, normals->size());
     }
 
-    spdlog::info("Loaded {} camera frames for texturing", cameras.size());
+    // Unweld mesh for PCL texture compatibility
+    spdlog::info("Unwelding mesh ({} polygons)", mesh->polygons.size());
+    auto unwelded = reusex::geometry::unweld_mesh(*mesh, 0.0f);
+    spdlog::info("Unwelded mesh: {} polygons", unwelded->polygons.size());
+
+    // Configure quality parameters
+    reusex::geometry::TextureQualityParams quality;
+    quality.texels_per_meter = opt.texels_per_meter;
+    quality.max_resolution = opt.max_resolution;
+    quality.atlas_tile_size = opt.atlas_tile_size;
+    quality.distance_threshold = opt.distance_threshold;
 
     spdlog::trace("Generating textured mesh");
-    auto textured_mesh = reusex::geometry::texture_mesh(mesh, cameras);
+    auto textured_mesh = reusex::geometry::texture_mesh_with_cloud(
+        unwelded, cloud, normals, opt.debug_colors, quality);
 
     spdlog::trace("Saving textured mesh to ProjectDB as '{}'", opt.output_name);
     db.save_mesh(opt.output_name, *textured_mesh, "texture_mesh");

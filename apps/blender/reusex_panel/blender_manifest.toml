@@ -1,0 +1,18 @@
+# SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+schema_version = "1.0.0"
+
+id = "reusex_panel"
+version = "0.1.0"
+name = "ReUseX Project Panel"
+tagline = "Open and inspect ReUseX .rux project databases"
+maintainer = "Povl Filip Sonne-Frederiksen <22501790+pfmephisto@users.noreply.github.com>"
+type = "add-on"
+
+blender_version_min = "4.2.0"
+license = ["SPDX:GPL-3.0-or-later"]
+
+[permissions]
+files = "Read .rux project database files from disk"

@@ -91,7 +91,7 @@ add_subdirectory(libs/reusex)
 add_subdirectory(apps/rux)
 
 # Optional Python bindings
-option(BUILD_PYTHON_BINDINGS "Build Python bindings" OFF)
+option(BUILD_PYTHON_BINDINGS "Build Python bindings" ON)
 if(BUILD_PYTHON_BINDINGS)
     add_subdirectory(bindings/python)
 endif()

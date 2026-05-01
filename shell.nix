@@ -12,6 +12,9 @@ pkgs.mkShell {
   buildInputs = self.checks.${system}.pre-commit-check.enabledPackages;
 
   packages = with pkgs; [
+    # Python 3.11 (matches Blender) - must come first to take precedence
+    blender.pythonPackages.python
+
     # Documentation tools
     help2man # For generating man pages from --help output
     pandoc
@@ -81,6 +84,7 @@ pkgs.mkShell {
   shellHook =
     ''
       echo "Entering dev shell"
+      echo "Python: $(python3 --version)"
       export VIRTUAL_ENV_PROMPT="ReUseX Environment"
       # ./tmux_session
     ''

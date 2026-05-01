@@ -22,7 +22,7 @@ try:
     )
 
     __status__ = "Active"
-except ImportError:
-    __status__ = "Native module not available"
+except ImportError as exc:
+    __status__ = f"Native module not available: {exc}"
 
 __all__ = ["__version__", "__status__"]

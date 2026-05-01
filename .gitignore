@@ -40,7 +40,7 @@ CMakeLists.txt.user
 
 # binary dir
 bin/
-build/
+build*/
 
 # Generated documentation
 docs/api/

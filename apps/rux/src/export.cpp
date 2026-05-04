@@ -5,6 +5,7 @@
 #include "export.hpp"
 #include "export/materialepas.hpp"
 #include "export/rhino.hpp"
+#include "export/semantic_images.hpp"
 #include "export/speckle.hpp"
 
 void setup_subcommand_export(CLI::App &app, std::shared_ptr<RuxOptions> global_opt) {
@@ -19,14 +20,16 @@ DESCRIPTION:
   and Danish material passport interchange format (JSON).
 
 SUBCOMMANDS:
-  rhino         Export labeled point cloud to Rhino 3DM format
-  speckle       Export point cloud or mesh to Speckle platform
-  materialepas  Export material passports to JSON file
+  rhino            Export labeled point cloud to Rhino 3DM format
+  speckle          Export point cloud or mesh to Speckle platform
+  materialepas     Export material passports to JSON file
+  semantic-images  Export segmentation images as Glasbey-colored PNGs
 
 EXAMPLES:
-  rux export rhino -o model.3dm        # Export to Rhino CAD
-  rux export speckle -p PROJECT_ID     # Upload to Speckle
-  rux export materialepas -o data.json # Export passports
+  rux export rhino -o model.3dm              # Export to Rhino CAD
+  rux export speckle -p PROJECT_ID           # Upload to Speckle
+  rux export materialepas -o data.json       # Export passports
+  rux export semantic-images -o ./labels     # Export colored label images
 
 NOTES:
   - Use 'rux export <subcommand> --help' for detailed options
@@ -36,6 +39,7 @@ NOTES:
 
   setup_subcommand_export_materialepas(*sub, global_opt);
   setup_subcommand_export_rhino(*sub, global_opt);
+  setup_subcommand_export_semantic_images(*sub, global_opt);
   setup_subcommand_export_speckle(*sub, global_opt);
 
   sub->require_subcommand(1);

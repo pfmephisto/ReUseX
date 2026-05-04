@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <pcl/conversions.h>
 #include <pcl/io/pcd_io.h>
 #include <spdlog/spdlog.h>
 
@@ -170,30 +171,43 @@ void CloudRouter::set_cloud_from_binary(std::string_view name,
   file.write(reinterpret_cast<const char *>(data.data()), data.size());
   file.close();
 
-  // Try to load as PointXYZRGB (most common)
-  pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(
-      new pcl::PointCloud<pcl::PointXYZRGB>);
+  // Load generically to inspect field names before typed conversion
+  pcl::PCLPointCloud2 cloud2;
+  if (pcl::io::loadPCDFile(temp_file.string(), cloud2) != 0) {
+    std::filesystem::remove(temp_file);
+    throw std::runtime_error("Failed to parse PCD data for cloud: " +
+                             std::string(name));
+  }
+  std::filesystem::remove(temp_file);
 
-  if (pcl::io::loadPCDFile(temp_file.string(), *cloud) == 0) {
+  auto has_field = [&](std::string_view field_name) {
+    return std::any_of(cloud2.fields.begin(), cloud2.fields.end(),
+                       [&](const auto &f) { return f.name == field_name; });
+  };
+
+  if (has_field("label")) {
+    pcl::PointCloud<pcl::Label>::Ptr cloud_l(new pcl::PointCloud<pcl::Label>);
+    pcl::fromPCLPointCloud2(cloud2, *cloud_l);
+    db_->save_point_cloud(name, *cloud_l);
+    spdlog::info("Saved label cloud '{}' ({} points)", name, cloud_l->size());
+  } else if (has_field("normal_x")) {
+    pcl::PointCloud<pcl::Normal>::Ptr cloud_n(new pcl::PointCloud<pcl::Normal>);
+    pcl::fromPCLPointCloud2(cloud2, *cloud_n);
+    db_->save_point_cloud(name, *cloud_n);
+    spdlog::info("Saved normal cloud '{}' ({} points)", name, cloud_n->size());
+  } else if (has_field("rgb") || has_field("rgba")) {
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(
+        new pcl::PointCloud<pcl::PointXYZRGB>);
+    pcl::fromPCLPointCloud2(cloud2, *cloud);
     db_->save_point_cloud(name, *cloud);
     spdlog::info("Saved point cloud '{}' ({} points)", name, cloud->size());
-    std::filesystem::remove(temp_file);
-    return;
-  }
-
-  // Try other types if PointXYZRGB fails
-  pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_xyz(
-      new pcl::PointCloud<pcl::PointXYZ>);
-  if (pcl::io::loadPCDFile(temp_file.string(), *cloud_xyz) == 0) {
+  } else {
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_xyz(
+        new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::fromPCLPointCloud2(cloud2, *cloud_xyz);
     db_->save_point_cloud(name, *cloud_xyz);
-    spdlog::info("Saved point cloud '{}' ({} points)", name, cloud_xyz->size());
-    std::filesystem::remove(temp_file);
-    return;
+    spdlog::info("Saved XYZ cloud '{}' ({} points)", name, cloud_xyz->size());
   }
-
-  std::filesystem::remove(temp_file);
-  throw std::runtime_error("Failed to parse PCD data for cloud: " +
-                           std::string(name));
 }
 
 void CloudRouter::set_cloud_from_text(std::string_view name,

@@ -55,10 +55,10 @@ stdenvNoCC.mkDerivation rec {
     cups
     speechd
     python3
-    libsForQt5.qt5.qtwebengine
-    libsForQt5.qt5.qtwebview
-    libsForQt5.qt5.qtwebsockets
-    libsForQt5.qt5.qttools
+    libsForQt5.qtwebengine
+    libsForQt5.qtwebview
+    libsForQt5.qtwebsockets
+    libsForQt5.qttools
     gtk3
     atk
     gdk-pixbuf
@@ -97,5 +97,11 @@ stdenvNoCC.mkDerivation rec {
       "$out/opt/meshroom/Meshroom"
   '';
 
-  meta.mainProgram = "meshroom";
+  meta = {
+    mainProgram = "meshroom";
+    # TODO: Fix Qt5 package dependencies for nixpkgs compatibility
+    # category=I/O estimate=2h
+    # Needs libsForQt5.callPackage or proper Qt5 scope handling
+    broken = true;
+  };
 }

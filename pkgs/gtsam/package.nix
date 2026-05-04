@@ -15,14 +15,17 @@
 }:
 stdenv.mkDerivation rec {
   pname = "gtsam";
-  version = "4.2";
+  version = "4.2.1";
 
   src = fetchFromGitHub {
     owner = "borglab";
     repo = "${pname}";
     rev = "${version}";
-    sha256 = "sha256-HjpGrHclpm2XsicZty/rX/RM/762wzmj4AAoEfni8es=";
+    sha256 = "sha256-POuU6u7v9ElprjBuAggtpW+7hPgKmsmQtAsfcEUuRok=";
   };
+
+  # Note: GTSAM 4.2.1 has already fixed Boost 1.69+ compatibility
+  # No patches needed for modern Boost versions
 
   nativeBuildInputs = [
     cmake

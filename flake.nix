@@ -107,16 +107,26 @@
           };
         };
 
-        packages =
+        packages = let
+          # Get all custom packages
+          allPackages = pkgs.lib.packagesFromDirectoryRecursive {
+            callPackage = pkgs.lib.callPackageWith pkgs;
+            directory = ./pkgs;
+          };
+          # Filter out broken packages from exports
+          nonBrokenPackages =
+            lib.filterAttrs (
+              name: pkg:
+                !(pkg.meta.broken or false)
+            )
+            allPackages;
+        in
           {
             default = pkgs.callPackage ./default.nix {}; # ReUseX
             rtabmap = pkgs.rtabmap;
           }
-          # All custom packages
-          // (pkgs.lib.packagesFromDirectoryRecursive {
-            callPackage = pkgs.lib.callPackageWith pkgs;
-            directory = ./pkgs;
-          }); # end of packages
+          # All custom packages (excluding broken ones)
+          // nonBrokenPackages; # end of packages
 
         devShells =
           {

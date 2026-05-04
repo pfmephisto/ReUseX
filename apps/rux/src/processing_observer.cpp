@@ -8,12 +8,14 @@
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
 #include <atomic>
 #include <pcl/common/transforms.h>
 
 #include <cmath>
 #include <functional>
 #include <memory>
+#include <random>
 #include <string>
 #include <thread>
 
@@ -545,6 +547,79 @@ void VizualizationObserver::viewer_add_camera_frustum(
     viewer->addLine(p4, p3, fmt::format("{}_line7", name), vp);
     viewer->addLine(p3, p2, fmt::format("{}_line8", name), vp);
   });
+}
+
+void VizualizationObserver::viewer_add_visibility_graph(
+    std::string_view name, const reusex::CloudLocPtr &disc_points,
+    const std::shared_ptr<std::vector<pcl::Vertices>> & /*disc_outlines*/,
+    const pcl::CorrespondencesPtr &edges, reusex::core::Stage /*stage*/,
+    int /*idx*/) {
+  if (!viewer_is_active())
+    return;
+
+  viewer_enqueue_task([name = std::string(name), disc_points,
+                       edges](const ViewerPtr &viewer,
+                              const std::vector<int> &viewports) {
+    int vp = viewports.empty() ? 0 : viewports[0];
+
+    constexpr size_t kMaxEdges = 5000;
+    pcl::CorrespondencesPtr display_edges = edges;
+    if (edges->size() > kMaxEdges) {
+      // Shuffle so the cap gives a spatially representative sample rather than
+      // all edges from the first OMP thread's work.
+      pcl::Correspondences shuffled(*edges);
+      std::shuffle(shuffled.begin(), shuffled.end(),
+                   std::mt19937{std::random_device{}()});
+      display_edges = std::make_shared<pcl::Correspondences>(
+          shuffled.begin(), std::next(shuffled.begin(), kMaxEdges));
+      spdlog::debug("Visibility graph: showing {} of {} edges", kMaxEdges,
+                    edges->size());
+    }
+    std::string edges_name = fmt::format("{}_edges", name);
+    viewer->addCorrespondences<pcl::PointXYZ>(disc_points, disc_points,
+                                              *display_edges, edges_name, vp);
+    viewer->setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_COLOR,
+                                        0.1, 0.3, 0.9, edges_name, vp);
+  });
+}
+
+void VizualizationObserver::viewer_add_labeled_cloud(
+    std::string_view name, const reusex::CloudConstPtr &cloud,
+    const reusex::CloudLConstPtr &labels, reusex::core::Stage /*stage*/,
+    int /*idx*/) {
+  if (!viewer_is_active())
+    return;
+  if (cloud->size() != labels->size())
+    return;
+
+  viewer_enqueue_task(
+      [name = std::string(name), cloud,
+       labels](const ViewerPtr &viewer, const std::vector<int> &viewports) {
+        int vp = viewports.empty() ? 0 : viewports[0];
+
+        auto colored = std::make_shared<pcl::PointCloud<pcl::PointXYZRGB>>();
+        colored->reserve(cloud->size());
+        for (size_t i = 0; i < cloud->size(); ++i) {
+          const uint32_t lbl = labels->points[i].label;
+          pcl::PointXYZRGB pt;
+          pt.x = cloud->points[i].x;
+          pt.y = cloud->points[i].y;
+          pt.z = cloud->points[i].z;
+          if (lbl == std::numeric_limits<uint32_t>::max()) {
+            pt.r = pt.g = pt.b = 60;
+          } else {
+            const auto c = pcl::GlasbeyLUT::at(lbl % pcl::GlasbeyLUT::size());
+            pt.r = c.r;
+            pt.g = c.g;
+            pt.b = c.b;
+          }
+          colored->push_back(pt);
+        }
+        std::string cloud_name = fmt::format("{}_labeled", name);
+        viewer->addPointCloud<pcl::PointXYZRGB>(colored, cloud_name, vp);
+        viewer->setPointCloudRenderingProperties(
+            pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 6, cloud_name, vp);
+      });
 }
 
 // ============================================================================

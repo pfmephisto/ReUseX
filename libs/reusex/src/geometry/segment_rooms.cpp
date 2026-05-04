@@ -82,6 +82,30 @@ auto segment_rooms_impl(CloudConstPtr cloud, CloudNConstPtr normals,
   cc.setInputNormals(normals);
   cc.setIndices(indices);
 
+  if (auto *obs = reusex::core::get_visual_observer()) {
+    cc.registerVisualizationCallback(
+        [obs](pcl::PointCloud<pcl::PointXYZ>::Ptr points,
+              std::shared_ptr<std::vector<pcl::Vertices>> vertices,
+              pcl::CorrespondencesPtr correspondences) {
+          obs->viewer_add_visibility_graph(
+              "visibility_graph", points, vertices, correspondences,
+              reusex::core::Stage::room_segmentation);
+        });
+  }
+
+  if (auto *obs = reusex::core::get_visual_observer()) {
+    CloudPtr sampled(new Cloud);
+    CloudLPtr sampled_planes(new CloudL);
+    sampled->reserve(indices->size());
+    sampled_planes->reserve(indices->size());
+    for (const auto idx : *indices) {
+      sampled->push_back(cloud->points[idx]);
+      sampled_planes->push_back(planes->points[idx]);
+    }
+    obs->viewer_add_labeled_cloud("planes", sampled, sampled_planes,
+                                  reusex::core::Stage::room_segmentation);
+  }
+
   reusex::trace("Initialize labels and copy xyzrgb data to labels");
   CloudLPtr labels(new CloudL);
   pcl::copyPointCloud(*cloud, *labels);
@@ -90,6 +114,19 @@ auto segment_rooms_impl(CloudConstPtr cloud, CloudNConstPtr normals,
 
   cc.cluster(*labels);
   reusex::trace("Done clustering");
+
+  if (auto *obs = reusex::core::get_visual_observer()) {
+    CloudPtr sampled(new Cloud);
+    CloudLPtr sampled_rooms(new CloudL);
+    sampled->reserve(indices->size());
+    sampled_rooms->reserve(indices->size());
+    for (const auto idx : *indices) {
+      sampled->push_back(cloud->points[idx]);
+      sampled_rooms->push_back(labels->points[idx]);
+    }
+    obs->viewer_add_labeled_cloud("rooms", sampled, sampled_rooms,
+                                  reusex::core::Stage::room_segmentation);
+  }
 
   // Assign the label to all points
   pcl::KdTreeFLANN<PointT> kdtree;

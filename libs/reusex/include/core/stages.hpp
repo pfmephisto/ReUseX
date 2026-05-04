@@ -20,6 +20,7 @@ enum class Stage {
   region_growing,
   instance_clustering,
   creating_windows,
+  room_segmentation,
 };
 
 // Convert Stage enum to human-readable string for logging/display

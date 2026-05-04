@@ -38,6 +38,8 @@ std::string_view to_string(Stage stage) {
     return "Instance Clustering";
   case Stage::creating_windows:
     return "Creating Windows";
+  case Stage::room_segmentation:
+    return "Room Segmentation";
   default:
     return "Unknown Stage";
   }

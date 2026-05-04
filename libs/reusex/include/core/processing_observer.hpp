@@ -6,6 +6,9 @@
 #include "reusex/core/logging.hpp"
 #include "reusex/types.hpp"
 
+#include <pcl/Vertices.h>
+#include <pcl/correspondence.h>
+
 #include <Eigen/Geometry>
 #include <fmt/format.h>
 #include <string_view>
@@ -140,8 +143,28 @@ class IVisualObserver : IObserver {
       [[maybe_unused]] int image_height,
       [[maybe_unused]] const Eigen::Affine3f &pose, Stage stage,
       int /*idx*/ = 0) {
-    // Default: log that geometry type is not handled
     core::debug("viewer_add_camera_frustum called for '{}' at stage '{}' "
+                "(no handler registered)",
+                name, to_string(stage));
+  }
+
+  virtual void viewer_add_visibility_graph(
+      std::string_view name,
+      [[maybe_unused]] const CloudLocPtr &disc_points,
+      [[maybe_unused]] const std::shared_ptr<std::vector<pcl::Vertices>> &disc_outlines,
+      [[maybe_unused]] const pcl::CorrespondencesPtr &edges,
+      Stage stage, int /*idx*/ = 0) {
+    core::debug("viewer_add_visibility_graph called for '{}' at stage '{}' "
+                "(no handler registered)",
+                name, to_string(stage));
+  }
+
+  virtual void viewer_add_labeled_cloud(
+      std::string_view name,
+      [[maybe_unused]] const CloudConstPtr &cloud,
+      [[maybe_unused]] const CloudLConstPtr &labels,
+      Stage stage, int /*idx*/ = 0) {
+    core::debug("viewer_add_labeled_cloud called for '{}' at stage '{}' "
                 "(no handler registered)",
                 name, to_string(stage));
   }

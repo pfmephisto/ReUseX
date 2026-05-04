@@ -58,6 +58,17 @@ class VizualizationObserver final : public reusex::core::IVisualObserver,
                                  const Eigen::Affine3f &pose,
                                  reusex::core::Stage stage, int idx) override;
 
+  void viewer_add_visibility_graph(std::string_view name,
+                                   const reusex::CloudLocPtr &disc_points,
+                                   const std::shared_ptr<std::vector<pcl::Vertices>> &disc_outlines,
+                                   const pcl::CorrespondencesPtr &edges,
+                                   reusex::core::Stage stage, int idx) override;
+
+  void viewer_add_labeled_cloud(std::string_view name,
+                                const reusex::CloudConstPtr &cloud,
+                                const reusex::CloudLConstPtr &labels,
+                                reusex::core::Stage stage, int idx) override;
+
   // Progress bar callbacks
   void on_process_started(reusex::core::Stage stage, size_t total) override;
   void on_process_finished(reusex::core::Stage stage) override;

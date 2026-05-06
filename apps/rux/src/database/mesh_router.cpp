@@ -5,6 +5,9 @@
 #include "database/mesh_router.hpp"
 
 #include <algorithm>
+#include <filesystem>
+#include <fstream>
+#include <pcl/io/ply_io.h>
 #include <spdlog/spdlog.h>
 #include <sstream>
 #include <string>
@@ -211,10 +214,87 @@ DataPayload MeshRouter::get(const std::vector<PathComponent> &components) {
   }
 }
 
-void MeshRouter::set(const std::vector<PathComponent> & /*components*/,
-                     const DataPayload & /*data*/) {
-  throw std::runtime_error(
-      "Mesh set operation not yet implemented. Use 'rux create mesh' instead.");
+bool MeshRouter::is_ply_data(const std::vector<uint8_t> &data) {
+  return data.size() >= 3 && data[0] == 'p' && data[1] == 'l' && data[2] == 'y';
+}
+
+void MeshRouter::set_mesh_from_binary(std::string_view name,
+                                      const std::vector<uint8_t> &data) {
+  if (!is_ply_data(data)) {
+    throw std::runtime_error(
+        "Unsupported mesh format. Expected PLY (starts with 'ply'). "
+        "For textured OBJ meshes use 'rux create mesh'.");
+  }
+
+  auto temp_file = std::filesystem::temp_directory_path() /
+                   ("rux_mesh_import_" + std::string(name) + ".ply");
+
+  {
+    std::ofstream file(temp_file, std::ios::binary);
+    if (!file)
+      throw std::runtime_error("Failed to create temp file: " +
+                               temp_file.string());
+    file.write(reinterpret_cast<const char *>(data.data()), data.size());
+  }
+
+  pcl::PolygonMesh mesh;
+  int rc = pcl::io::loadPLYFile(temp_file.string(), mesh);
+  std::filesystem::remove(temp_file);
+
+  if (rc != 0)
+    throw std::runtime_error("Failed to parse PLY data for mesh: " +
+                             std::string(name));
+
+  size_t vertex_count = mesh.cloud.width * mesh.cloud.height;
+  db_->save_mesh(name, mesh);
+  spdlog::info("Saved mesh '{}' ({} vertices, {} polygons)", name, vertex_count,
+               mesh.polygons.size());
+}
+
+void MeshRouter::set(const std::vector<PathComponent> &components,
+                     const DataPayload &data) {
+  if (components.empty()) {
+    throw std::runtime_error(
+        "Cannot set collection directly. Specify a mesh name: meshes.<name>");
+  }
+
+  // Resolve item name (support both named and index-based for overwrite)
+  std::string item_name;
+  if (components[0].is_index()) {
+    auto resolved = resolve_index(*components[0].index);
+    if (!resolved) {
+      throw std::runtime_error(
+          "Array index out of range: " + std::to_string(*components[0].index) +
+          ". Use a named path to create a new mesh: meshes.<name>");
+    }
+    item_name = *resolved;
+  } else if (components[0].is_item()) {
+    item_name = components[0].value;
+  } else {
+    throw std::runtime_error("Expected item name or index after 'meshes'");
+  }
+
+  // Accept: meshes.<name>  or  meshes.<name>.data
+  bool set_data =
+      components.size() == 1 ||
+      (components.size() == 2 && components[1].value == "data");
+
+  if (!set_data) {
+    throw std::runtime_error(
+        "Cannot set individual mesh properties. "
+        "Set the entire mesh via meshes.<name> or meshes.<name>.data");
+  }
+
+  if (std::holds_alternative<std::vector<uint8_t>>(data)) {
+    set_mesh_from_binary(item_name, std::get<std::vector<uint8_t>>(data));
+  } else if (std::holds_alternative<std::string>(data)) {
+    const auto &s = std::get<std::string>(data);
+    set_mesh_from_binary(item_name,
+                         std::vector<uint8_t>(s.begin(), s.end()));
+  } else {
+    throw std::runtime_error(
+        "Invalid data type for mesh. Expected binary PLY data via stdin.");
+  }
 }
 
 void MeshRouter::del(const std::vector<PathComponent> & /*components*/) {

@@ -39,6 +39,11 @@ private:
   std::vector<uint8_t> get_material(std::string_view name) const;
   std::vector<uint8_t> get_texture(std::string_view name) const;
 
+  void set_mesh_from_binary(std::string_view name,
+                            const std::vector<uint8_t> &data);
+
+  static bool is_ply_data(const std::vector<uint8_t> &data);
+
   static std::pair<std::vector<uint8_t>, std::vector<uint8_t>>
   split_obj_mtl_blob(const std::vector<uint8_t> &combined);
 

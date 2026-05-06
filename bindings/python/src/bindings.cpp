@@ -153,6 +153,101 @@ PYBIND11_MODULE(_reusex, m) {
            "Get pipeline execution log entries.\n\n"
            "Args:\n"
            "    limit: Max entries to return (0 = all)")
+
+      // --- Point cloud geometry loading (returns numpy arrays) ---
+
+      .def(
+          "point_cloud_xyzrgb",
+          [](const PDB &db, const std::string &name) {
+            auto cloud = db.point_cloud_xyzrgb(name);
+            const ssize_t n =
+                cloud ? static_cast<ssize_t>(cloud->size()) : 0;
+
+            auto positions = py::array_t<float>({n, ssize_t{3}});
+            auto colors = py::array_t<uint8_t>({n, ssize_t{3}});
+
+            if (n > 0) {
+              auto pos = positions.mutable_unchecked<2>();
+              auto col = colors.mutable_unchecked<2>();
+              for (ssize_t i = 0; i < n; ++i) {
+                const auto &pt = (*cloud)[static_cast<size_t>(i)];
+                pos(i, 0) = pt.x;
+                pos(i, 1) = pt.y;
+                pos(i, 2) = pt.z;
+                col(i, 0) = pt.r;
+                col(i, 1) = pt.g;
+                col(i, 2) = pt.b;
+              }
+            }
+
+            py::dict result;
+            result["positions"] = positions;
+            result["colors"] = colors;
+            return result;
+          },
+          py::arg("name"),
+          "Load a PointXYZRGB cloud as numpy arrays.\n\n"
+          "Returns dict with:\n"
+          "    'positions': (N, 3) float32\n"
+          "    'colors':    (N, 3) uint8 (RGB)")
+
+      .def(
+          "point_cloud_xyz",
+          [](const PDB &db, const std::string &name) {
+            auto cloud = db.point_cloud_xyz(name);
+            const ssize_t n =
+                cloud ? static_cast<ssize_t>(cloud->size()) : 0;
+
+            auto positions = py::array_t<float>({n, ssize_t{3}});
+
+            if (n > 0) {
+              auto pos = positions.mutable_unchecked<2>();
+              for (ssize_t i = 0; i < n; ++i) {
+                const auto &pt = (*cloud)[static_cast<size_t>(i)];
+                pos(i, 0) = pt.x;
+                pos(i, 1) = pt.y;
+                pos(i, 2) = pt.z;
+              }
+            }
+
+            py::dict result;
+            result["positions"] = positions;
+            return result;
+          },
+          py::arg("name"),
+          "Load a PointXYZ cloud as numpy arrays.\n\n"
+          "Returns dict with:\n"
+          "    'positions': (N, 3) float32")
+
+      .def(
+          "point_cloud_label",
+          [](const PDB &db, const std::string &name) {
+            auto cloud = db.point_cloud_label(name);
+            const ssize_t n =
+                cloud ? static_cast<ssize_t>(cloud->size()) : 0;
+
+            auto labels = py::array_t<int32_t>(n);
+
+            if (n > 0) {
+              auto lbl = labels.mutable_unchecked<1>();
+              for (ssize_t i = 0; i < n; ++i)
+                lbl(i) =
+                    static_cast<int32_t>((*cloud)[static_cast<size_t>(i)].label);
+            }
+
+            py::dict result;
+            result["labels"] = labels;
+            return result;
+          },
+          py::arg("name"),
+          "Load a Label cloud as numpy arrays.\n\n"
+          "Returns dict with:\n"
+          "    'labels': (N,) int32 (label IDs per point)")
+
+      .def("label_definitions", &PDB::label_definitions, py::arg("name"),
+           "Get label ID → name definitions for a cloud.\n\n"
+           "Returns dict mapping int label_id to str label_name.")
+
       .def("__repr__", [](const PDB &db) {
         return "<ProjectDB path='" + db.path().string() +
                "' open=" + (db.is_open() ? "True" : "False") + ">";

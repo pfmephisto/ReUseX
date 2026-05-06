@@ -12,11 +12,18 @@ from bpy.props import (
 from bpy.types import PropertyGroup
 
 
+class REUSEX_LabelItem(PropertyGroup):
+    label_id: IntProperty(name="Label ID")
+    label_name: StringProperty(name="Label Name")
+
+
 class REUSEX_CloudItem(PropertyGroup):
     name: StringProperty(name="Name")
     cloud_type: StringProperty(name="Type")
     point_count: IntProperty(name="Points")
     organized: BoolProperty(name="Organized")
+    loaded_object_name: StringProperty(name="Loaded Object")
+    labels: CollectionProperty(type=REUSEX_LabelItem)
 
 
 class REUSEX_MeshItem(PropertyGroup):
@@ -67,7 +74,9 @@ class REUSEX_ProjectProperties(PropertyGroup):
     projects: CollectionProperty(type=REUSEX_ProjectItem)
 
 
+# REUSEX_LabelItem must be registered before REUSEX_CloudItem (it is a member type)
 _classes = (
+    REUSEX_LabelItem,
     REUSEX_CloudItem,
     REUSEX_MeshItem,
     REUSEX_MaterialItem,

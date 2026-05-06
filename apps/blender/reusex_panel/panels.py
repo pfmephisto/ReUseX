@@ -114,10 +114,45 @@ class REUSEX_PT_clouds_panel(bpy.types.Panel):
             return
 
         for c in props.clouds:
-            row = layout.row()
+            box = layout.box()
+
+            # Header: name · type · point count
+            row = box.row(align=True)
             row.label(text=c.name, icon="OUTLINER_OB_POINTCLOUD")
             row.label(text=c.cloud_type)
-            row.label(text=f"{c.point_count:,}")
+            row.label(text=f"{c.point_count:,} pts")
+
+            # Load / reload button and loaded-object indicator
+            action_row = box.row(align=True)
+            op = action_row.operator(
+                "reusex.load_point_cloud",
+                text="Reload" if c.loaded_object_name else "Load",
+                icon="IMPORT",
+            )
+            op.cloud_name = c.name
+
+            if c.loaded_object_name:
+                obj = bpy.data.objects.get(c.loaded_object_name)
+                if obj is not None:
+                    action_row.label(text="Loaded", icon="CHECKMARK")
+                    sel = action_row.operator(
+                        "reusex.select_cloud_object",
+                        text="",
+                        icon="RESTRICT_SELECT_OFF",
+                    )
+                    sel.object_name = c.loaded_object_name
+                else:
+                    # Object was deleted from the scene — clear stale reference
+                    action_row.label(text="Removed", icon="ERROR")
+                    c.loaded_object_name = ""
+
+            # Label definitions (shown when available)
+            if c.labels:
+                lbl_box = box.box()
+                lbl_box.label(text=f"Labels ({len(c.labels)}):", icon="BOOKMARKS")
+                col = lbl_box.column(align=True)
+                for lbl in c.labels:
+                    col.label(text=f"[{lbl.label_id}]  {lbl.label_name}")
 
 
 class REUSEX_PT_meshes_panel(bpy.types.Panel):

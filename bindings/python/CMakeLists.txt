@@ -55,12 +55,13 @@ install(
 # ===============================================
 
 find_package(pybind11 CONFIG REQUIRED)
+find_package(Threads REQUIRED)
 
 pybind11_add_module(_reusex
     src/bindings.cpp
 )
 
-target_link_libraries(_reusex PRIVATE reusex)
+target_link_libraries(_reusex PRIVATE reusex Threads::Threads)
 
 install(TARGETS _reusex
     LIBRARY DESTINATION reusex

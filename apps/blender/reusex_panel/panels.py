@@ -92,6 +92,31 @@ class REUSEX_PT_sensor_frames_panel(bpy.types.Panel):
             col.label(text=f"Panoramics: {props.panoramic_count}")
             col.label(text=f"Matched: {props.panoramic_matched}")
 
+        layout.separator()
+        if props.pose_graph_loaded:
+            layout.label(text=f"Pose graph: {len(props.frames)} nodes", icon="EMPTY_ARROWS")
+        layout.operator(
+            "reusex.load_pose_graph",
+            text="Reload Pose Graph" if props.pose_graph_loaded else "Load Pose Graph",
+            icon="EMPTY_ARROWS",
+        )
+
+        # Per-node cloud loader — shown when a frame empty is selected
+        obj = context.object
+        if (
+            obj is not None
+            and obj.name.startswith("RUX_Frame_")
+            and "rux_frame_id" in obj
+        ):
+            fid = obj["rux_frame_id"]
+            cloud_loaded = bpy.data.objects.get(f"RUX_Cloud_{fid}") is not None
+            layout.separator()
+            layout.operator(
+                "reusex.load_frame_cloud",
+                text=f"Reload Cloud  (frame {fid})" if cloud_loaded else f"Load Cloud  (frame {fid})",
+                icon="OUTLINER_OB_POINTCLOUD",
+            )
+
 
 class REUSEX_PT_clouds_panel(bpy.types.Panel):
     bl_label = "Point Clouds"
@@ -142,9 +167,10 @@ class REUSEX_PT_clouds_panel(bpy.types.Panel):
                     )
                     sel.object_name = c.loaded_object_name
                 else:
-                    # Object was deleted from the scene — clear stale reference
+                    # Object was deleted from the scene — queue stale-ref clear
                     action_row.label(text="Removed", icon="ERROR")
-                    c.loaded_object_name = ""
+                    op = action_row.operator("reusex.clear_stale_cloud", text="", icon="X")
+                    op.cloud_name = c.name
 
             # Label definitions (shown when available)
             if c.labels:

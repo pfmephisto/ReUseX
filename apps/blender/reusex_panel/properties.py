@@ -17,6 +17,11 @@ class REUSEX_LabelItem(PropertyGroup):
     label_name: StringProperty(name="Label Name")
 
 
+class REUSEX_FrameItem(PropertyGroup):
+    frame_id: IntProperty(name="Frame ID")
+    object_name: StringProperty(name="Object Name")
+
+
 class REUSEX_CloudItem(PropertyGroup):
     name: StringProperty(name="Name")
     cloud_type: StringProperty(name="Type")
@@ -67,16 +72,21 @@ class REUSEX_ProjectProperties(PropertyGroup):
     # Component count
     component_count: IntProperty(name="Components")
 
+    # Pose graph state
+    pose_graph_loaded: BoolProperty(name="Pose Graph Loaded", default=False)
+
     # Collection properties
     clouds: CollectionProperty(type=REUSEX_CloudItem)
     meshes: CollectionProperty(type=REUSEX_MeshItem)
     materials: CollectionProperty(type=REUSEX_MaterialItem)
     projects: CollectionProperty(type=REUSEX_ProjectItem)
+    frames: CollectionProperty(type=REUSEX_FrameItem)
 
 
-# REUSEX_LabelItem must be registered before REUSEX_CloudItem (it is a member type)
+# Registration order: inner types before outer types that reference them
 _classes = (
     REUSEX_LabelItem,
+    REUSEX_FrameItem,
     REUSEX_CloudItem,
     REUSEX_MeshItem,
     REUSEX_MaterialItem,

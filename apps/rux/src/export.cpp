@@ -3,7 +3,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "export.hpp"
+#include "export/e57.hpp"
 #include "export/materialepas.hpp"
+#include "export/ply.hpp"
 #include "export/rhino.hpp"
 #include "export/semantic_images.hpp"
 #include "export/speckle.hpp"
@@ -16,20 +18,25 @@ void setup_subcommand_export(CLI::App &app, std::shared_ptr<RuxOptions> global_o
   sub->footer(R"(
 DESCRIPTION:
   Parent command for exporting data from ReUseX project databases to
-  external formats. Supports CAD (Rhino 3DM), web platforms (Speckle),
-  and Danish material passport interchange format (JSON).
+  external formats. Supports point cloud formats (PLY, E57), CAD (Rhino 3DM),
+  web platforms (Speckle), and material passport interchange format (JSON).
 
 SUBCOMMANDS:
+  ply              Export point cloud to PLY format (with optional filter)
+  e57              Export point cloud to E57 format (with optional filter)
   rhino            Export labeled point cloud to Rhino 3DM format
   speckle          Export point cloud or mesh to Speckle platform
   materialepas     Export material passports to JSON file
   semantic-images  Export segmentation images as Glasbey-colored PNGs
 
 EXAMPLES:
-  rux export rhino -o model.3dm              # Export to Rhino CAD
-  rux export speckle -p PROJECT_ID           # Upload to Speckle
-  rux export materialepas -o data.json       # Export passports
-  rux export semantic-images -o ./labels     # Export colored label images
+  rux export ply -o cloud.ply                # Export point cloud to PLY
+  rux export ply -f 'room_labels in [1]'     # Export filtered points
+  rux export e57 -o cloud.e57               # Export point cloud to E57
+  rux export rhino -o model.3dm             # Export to Rhino CAD
+  rux export speckle -p PROJECT_ID          # Upload to Speckle
+  rux export materialepas -o data.json      # Export passports
+  rux export semantic-images -o ./labels    # Export colored label images
 
 NOTES:
   - Use 'rux export <subcommand> --help' for detailed options
@@ -37,6 +44,8 @@ NOTES:
   - Multiple export formats can be used for different workflows
 )");
 
+  setup_subcommand_export_ply(*sub, global_opt);
+  setup_subcommand_export_e57(*sub, global_opt);
   setup_subcommand_export_materialepas(*sub, global_opt);
   setup_subcommand_export_rhino(*sub, global_opt);
   setup_subcommand_export_semantic_images(*sub, global_opt);

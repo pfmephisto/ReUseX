@@ -83,10 +83,9 @@ target_link_libraries(reusex
         # Geometry & CGAL
         CGAL::CGAL
         CGAL::Eigen3_support
-        CGAL::SCIP_support
         CGAL::TBB_support
 
-        # MIP Solver (HiGHS primary, SCIP fallback)
+        # MIP Solver
         highs::highs
 
         # 3D Formats

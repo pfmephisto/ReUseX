@@ -19,7 +19,7 @@
     echo ""
   '';
   generate-completions = pkgs.writeShellScriptBin "generate-completions" ''
-    python3 "$PWD/scripts/generate_fish_completions.py" \
+    python3 "$PWD/tools/generate_fish_completions.py" \
       -o "$PWD/completions/rux.fish" \
       --rux-binary "$PWD/build/apps/rux/rux"
     echo "Written: completions/rux.fish"

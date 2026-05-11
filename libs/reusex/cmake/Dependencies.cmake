@@ -148,14 +148,12 @@ find_package(PCL REQUIRED)
 # -----------------------------------------------
 find_package(Eigen3 REQUIRED)
 find_package(highs REQUIRED)
-find_package(SCIP REQUIRED)
 find_package(cuOpt)  # Optional - requires NVIDIA GPU
 find_package(embree REQUIRED)
 
 # CGAL with support modules
 find_package(CGAL REQUIRED Core)
 include(CGAL_Eigen3_support)
-include(CGAL_SCIP_support)
 include(CGAL_TBB_support)
 
 # -----------------------------------------------

@@ -45,7 +45,6 @@ in
           ]
       ))
       # Top-level Python packages not in python3Packages
-      pkgs.onnx2torch
       pkgs.sam3
       (pkgs.writeShellScriptBin "menu" motd)
     ];

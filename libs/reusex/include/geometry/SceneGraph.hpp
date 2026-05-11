@@ -180,9 +180,9 @@ class SceneGraph
   /** @brief Segment the scene into rooms
    *
    * This method segments the scene into rooms based on spatial visibility
-   * relations. It uses raytracing to determine which parts of the scene are
-   * visible from any other part and uses markov clustering to group the parts
-   * into rooms based on visibility.
+   * relations. It uses raytracing to build a visibility graph between scene
+   * parts, then applies the Leiden community detection algorithm (igraph) to
+   * cluster them into rooms.
    *
    * The result are Room nodes in the scene graph that connect to
    * the semantic label nodes.

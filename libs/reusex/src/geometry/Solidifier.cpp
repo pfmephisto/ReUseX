@@ -12,13 +12,6 @@ using MIP_Solver = CGAL::cuOpt_mixed_integer_program_traits<double>;
 #elif defined(USE_HIGHS)
 #include <CGAL/HiGHS_mixed_integer_program_traits.h>
 using MIP_Solver = CGAL::HiGHS_mixed_integer_program_traits<double>;
-#elif defined(CGAL_USE_SCIP)
-#include <CGAL/SCIP_mixed_integer_program_traits.h>
-#include <scip/scip.h>
-using MIP_Solver = CGAL::SCIP_mixed_integer_program_traits<double>;
-#elif defined(CGAL_USE_GLPK)
-#include <CGAL/GLPK_mixed_integer_program_traits.h>
-using MIP_Solver = CGAL::GLPK_mixed_integer_program_traits<double>;
 #endif
 
 #define SolverDebug 0
@@ -144,53 +137,7 @@ std::set<T> operator+(const std::set<T> &a, const std::set<T> &b) {
   return result;
 }
 
-/** Configure the MIP solver with parameters to improve performance and reduce
- * memory usage. The specific parameters depend on the solver being used (e.g.,
- * SCIP, Gurobi, CPLEX). Below are example configurations for SCIP, which is a
- * popular open-source MIP solver. Adjust the parameters as needed for other
- * solvers.
- */
-void Solidifier::Impl::_configureSolver() {
-
-#ifdef CGAL_USE_SCIP
-  /*
-SCIP *scip = solver.scip();
-
-// --- Overall solver emphasis: minimize memory usage ---
-// SCIPsetEmphasis(scip, SCIP_PARAMEMPHASIS_MEMORY, TRUE);
-
-// --- Hard memory limit (MB) ---
-SCIPsetRealParam(scip, "limits/memory", 50000.0); // 50 GB
-
-// --- Limit search tree growth ---
-SCIPsetLongintParam(scip, "limits/nodes", 500000);
-
-// --- Store fewer feasible solutions ---
-SCIPsetIntParam(scip, "limits/maxsol", 5);
-
-// --- Reduce presolve rounds ---
-SCIPsetIntParam(scip, "presolving/maxrounds", 3);
-
-// --- Reduce cutting plane generation ---
-SCIPsetIntParam(scip, "separating/maxrounds", 5);
-
-// --- Disable conflict analysis (large memory consumer) ---
-SCIPsetBoolParam(scip, "conflict/enable", FALSE);
-
-// --- Reduce heuristic memory usage ---
-SCIPsetHeuristics(scip, SCIP_PARAMSETTING_FAST, TRUE);
-
-// --- Depth-first node exploration (stores fewer nodes) ---
-SCIPsetCharParam(scip, "nodeselection/childsel", 'd');
-
-// --- Encourage node compression / disk usage ---
-SCIPsetRealParam(scip, "memory/savefac", 0.1);
-
-// If your model has tons of binary variables, also add:
-SCIPsetIntParam(scip, "separating/maxcuts", 50);
-*/
-#endif
-}
+void Solidifier::Impl::_configureSolver() {}
 
 /** Setup the MIP variables
  *

@@ -12,7 +12,6 @@
   pkg-config,
   cudatoolkit,
   opennurbs,
-  scip-solver,
   highs,
   boost,
   # fmt,
@@ -26,9 +25,6 @@
   rtabmap,
   librealsense,
   octomap,
-  # suitesparse,
-  # suitesparse-graphblas,
-  # LAGraph,
   igraph,
   mpfr,
   opencv,
@@ -40,7 +36,6 @@
   # libGLU,
   catch2_3,
   libe57format,
-  xercesc,
   cli11,
   curl,
   nlohmann_json,
@@ -84,7 +79,6 @@ in
     buildInputs =
       [
         opennurbs
-        scip-solver
         highs
         boost
 
@@ -104,11 +98,7 @@ in
         octomap
 
         libe57format
-        xercesc
 
-        # suitesparse
-        # suitesparse-graphblas
-        # LAGraph
         igraph
 
         mpfr

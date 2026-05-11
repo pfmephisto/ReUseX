@@ -33,7 +33,7 @@ nix develop .#completions
 generate-completions
 
 # Or run script directly
-python3 scripts/generate_fish_completions.py \
+python3 tools/generate_fish_completions.py \
   -o completions/rux.fish \
   --rux-binary build/apps/rux/rux
 ```

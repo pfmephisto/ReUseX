@@ -124,7 +124,8 @@ struct MaterialPassport {
 // ===========================================================================
 
 template <>
-struct fmt::formatter<reusex::core::Material> : fmt::formatter<std::string_view> {
+struct fmt::formatter<reusex::core::Material>
+    : fmt::formatter<std::string_view> {
   auto format(reusex::core::Material value, format_context &ctx) const
       -> format_context::iterator {
     return fmt::formatter<std::string_view>::format(

@@ -13,5 +13,6 @@ namespace fs = std::filesystem;
 // struct SubcommandImportOptions {};
 
 // Function declarations.
-void setup_subcommand_import(CLI::App &app, std::shared_ptr<RuxOptions> global_opt);
+void setup_subcommand_import(CLI::App &app,
+                             std::shared_ptr<RuxOptions> global_opt);
 int run_subcommand_import(/*SubcommandImportOptions const &opt*/);

@@ -16,7 +16,7 @@ struct SensorIntrinsics {
   int width = 0, height = 0;
   /// 4x4 row-major local transform (camera frame to robot/sensor base frame).
   std::array<double, 16> local_transform = {1, 0, 0, 0, 0, 1, 0, 0,
-                                             0, 0, 1, 0, 0, 0, 0, 1};
+                                            0, 0, 1, 0, 0, 0, 0, 1};
 
   /// Serialize to JSON string for storage in ProjectDB.
   std::string to_json() const;

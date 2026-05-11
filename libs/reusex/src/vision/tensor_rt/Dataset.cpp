@@ -48,7 +48,7 @@ bool TensorRTDataset::save(const std::span<IDataset::Pair> &data) {
       database()->log_pipeline_start("annotate_class_map", json);
       class_map_saved_ = true;
       reusex::info("Saved segmentation class map ({} classes)",
-                         trt_data->prompts.size());
+                   trt_data->prompts.size());
     }
   }
 

@@ -11,10 +11,10 @@
 #include "import/rtabmap.hpp"
 #include <spdlog/spdlog.h>
 
-void setup_subcommand_import(CLI::App &app, std::shared_ptr<RuxOptions> global_opt) {
+void setup_subcommand_import(CLI::App &app,
+                             std::shared_ptr<RuxOptions> global_opt) {
 
-  auto *sub = app.add_subcommand(
-      "import", "Import data from external sources");
+  auto *sub = app.add_subcommand("import", "Import data from external sources");
 
   sub->footer(R"(
 DESCRIPTION:

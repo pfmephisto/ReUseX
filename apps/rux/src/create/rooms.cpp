@@ -35,12 +35,12 @@ namespace fs = std::filesystem;
  *
  * @param app CLI application to add the subcommand to.
  */
-void setup_subcommand_create_rooms(CLI::App &app, std::shared_ptr<RuxOptions> global_opt) {
+void setup_subcommand_create_rooms(CLI::App &app,
+                                   std::shared_ptr<RuxOptions> global_opt) {
 
   auto opt = std::make_shared<SubcommandSegRoomsOptions>();
-  auto *sub = app.add_subcommand(
-      "rooms",
-      "Segment rooms using Leiden clustering");
+  auto *sub =
+      app.add_subcommand("rooms", "Segment rooms using Leiden clustering");
 
   sub->footer(R"(
 DESCRIPTION:
@@ -93,14 +93,16 @@ NOTES:
       ->default_val(opt->grid_size)
       ->check(CLI::Range(0.01, 10.0));
 
-  sub->add_option("-f, --filter", opt->filter_expr,
-                  "Filter expression to limit processing to specific labeled points.\n"
-                  "Syntax: <cloud_name> <op> <value(s)>\n"
-                  "Examples:\n"
-                  "  -f 'planes in [1, 2, 5]'        # Filter to labels 1, 2, 5 from planes cloud\n"
-                  "  -f 'rooms == 3'                 # Only process room 3\n"
-                  "  -f 'planes in [1,2] || rooms == 5'  # Combine multiple clouds\n"
-                  "  -f 'planes >= 10 && planes <= 20'   # Range filter")
+  sub->add_option(
+         "-f, --filter", opt->filter_expr,
+         "Filter expression to limit processing to specific labeled points.\n"
+         "Syntax: <cloud_name> <op> <value(s)>\n"
+         "Examples:\n"
+         "  -f 'planes in [1, 2, 5]'        # Filter to labels 1, 2, 5 from "
+         "planes cloud\n"
+         "  -f 'rooms == 3'                 # Only process room 3\n"
+         "  -f 'planes in [1,2] || rooms == 5'  # Combine multiple clouds\n"
+         "  -f 'planes >= 10 && planes <= 20'   # Range filter")
       ->default_val("");
 
   sub->callback([opt, global_opt]() {
@@ -118,7 +120,8 @@ NOTES:
  * @param opt Options containing project path and Leiden parameters.
  * @return Exit code (RuxError::SUCCESS on success).
  */
-int run_subcommand_segment_rooms(SubcommandSegRoomsOptions const &opt, const RuxOptions &global_opt) {
+int run_subcommand_segment_rooms(SubcommandSegRoomsOptions const &opt,
+                                 const RuxOptions &global_opt) {
   fs::path project_path = global_opt.project_db;
   spdlog::info("Segmenting rooms in project: {}", project_path.string());
 
@@ -133,9 +136,11 @@ int run_subcommand_segment_rooms(SubcommandSegRoomsOptions const &opt, const Rux
       return RuxError::INVALID_ARGUMENT;
     }
 
-    int logId = db.log_pipeline_start("segment_rooms",
-        fmt::format(R"({{"grid_size":{},"resolution":{},"beta":{},"max_iter":{}}})",
-                    opt.grid_size, opt.resolution, opt.beta, opt.max_iter));
+    int logId = db.log_pipeline_start(
+        "segment_rooms",
+        fmt::format(
+            R"({{"grid_size":{},"resolution":{},"beta":{},"max_iter":{}}})",
+            opt.grid_size, opt.resolution, opt.beta, opt.max_iter));
 
     spdlog::trace("Loading point cloud and plane data from ProjectDB");
     auto cloud = db.point_cloud_xyzrgb("cloud");
@@ -156,11 +161,11 @@ int run_subcommand_segment_rooms(SubcommandSegRoomsOptions const &opt, const Rux
     spdlog::debug("Unique plane labels found: {}",
                   fmt::join(unique_labels, ", "));
 
-    // FIXME: Label encoding offset may cause indexing errors for unlabeled points
-    // category=Geometry estimate=2h
-    // Current code uses label-1 as index into plane_normals vector (line below).
-    // If unlabeled points (label < 1) exist and are not skipped properly, this
-    // could cause off-by-one indexing errors. Need to verify that:
+    // FIXME: Label encoding offset may cause indexing errors for unlabeled
+    // points category=Geometry estimate=2h Current code uses label-1 as index
+    // into plane_normals vector (line below). If unlabeled points (label < 1)
+    // exist and are not skipped properly, this could cause off-by-one indexing
+    // errors. Need to verify that:
     // 1. All unlabeled points have label < 1 (currently checking this)
     // 2. Plane labels start at 1 (not 0) consistently throughout pipeline
     // 3. plane_normals vector size matches max(label) not unique label count
@@ -189,14 +194,16 @@ int run_subcommand_segment_rooms(SubcommandSegRoomsOptions const &opt, const Rux
     // Evaluate filter if provided
     if (!opt.filter_expr.empty()) {
       try {
-        options.filter = rux::filters::evaluate_filter(opt.filter_expr, db, cloud->size());
+        options.filter =
+            rux::filters::evaluate_filter(opt.filter_expr, db, cloud->size());
       } catch (const std::exception &e) {
         spdlog::error("Filter evaluation failed: {}", e.what());
         return RuxError::INVALID_ARGUMENT;
       }
     }
 
-    auto labels = reusex::geometry::segment_rooms(cloud, normals, planes, options);
+    auto labels =
+        reusex::geometry::segment_rooms(cloud, normals, planes, options);
 
     spdlog::trace("Saving room labels to ProjectDB");
     db.save_point_cloud("rooms", *labels, "segment_rooms");

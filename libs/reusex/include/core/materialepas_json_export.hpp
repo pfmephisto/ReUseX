@@ -76,7 +76,8 @@ std::span<const SectionDescriptor> section_descriptors();
  * @param passport The passport to export
  * @return JSON object with defaults populated
  */
-[[nodiscard]] nlohmann::json to_json_with_defaults(const MaterialPassport &passport);
+[[nodiscard]] nlohmann::json
+to_json_with_defaults(const MaterialPassport &passport);
 
 /**
  * @brief Generate a blank MaterialPassport template as JSON.
@@ -126,7 +127,6 @@ to_json(const std::vector<MaterialPassport> &passports);
  * @return Formatted JSON string
  */
 [[nodiscard]] std::string
-to_json_string(const std::vector<MaterialPassport> &passports,
-               int indent = 4);
+to_json_string(const std::vector<MaterialPassport> &passports, int indent = 4);
 
 } // namespace reusex::core::json_export

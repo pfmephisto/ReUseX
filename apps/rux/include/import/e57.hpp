@@ -15,5 +15,7 @@ struct SubcommandImportE57Options {
   fs::path input_path;
 };
 
-void setup_subcommand_import_e57(CLI::App &app, std::shared_ptr<RuxOptions> global_opt);
-int run_subcommand_import_e57(SubcommandImportE57Options const &opt, const RuxOptions &global_opt);
+void setup_subcommand_import_e57(CLI::App &app,
+                                 std::shared_ptr<RuxOptions> global_opt);
+int run_subcommand_import_e57(SubcommandImportE57Options const &opt,
+                              const RuxOptions &global_opt);

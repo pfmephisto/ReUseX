@@ -9,4 +9,5 @@
 #include <memory>
 
 // Function declaration for parent export command.
-void setup_subcommand_export(CLI::App &app, std::shared_ptr<RuxOptions> global_opt);
+void setup_subcommand_export(CLI::App &app,
+                             std::shared_ptr<RuxOptions> global_opt);

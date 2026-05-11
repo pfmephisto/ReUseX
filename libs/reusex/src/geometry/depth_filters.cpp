@@ -15,7 +15,7 @@ void apply_depth_discontinuity_filter(cv::Mat &depth, cv::Mat &confidence,
     return;
 
   reusex::trace("Applying depth discontinuity filter (threshold={})",
-                       gradient_threshold);
+                gradient_threshold);
 
   cv::Mat depth_float;
   if (depth.type() != CV_32F)
@@ -35,9 +35,8 @@ void apply_depth_discontinuity_filter(cv::Mat &depth, cv::Mat &confidence,
     confidence.setTo(0, ~valid_mask);
 
   int removed = cv::countNonZero(~valid_mask);
-  reusex::debug(
-      "Depth discontinuity filter removed {} / {} pixels ({:.1f}%)", removed,
-      depth.total(), 100.0 * removed / depth.total());
+  reusex::debug("Depth discontinuity filter removed {} / {} pixels ({:.1f}%)",
+                removed, depth.total(), 100.0 * removed / depth.total());
 }
 
 void apply_ray_consistency_filter(cv::Mat &depth, cv::Mat &confidence,
@@ -46,7 +45,7 @@ void apply_ray_consistency_filter(cv::Mat &depth, cv::Mat &confidence,
     return;
 
   reusex::trace("Applying ray consistency filter (threshold={})",
-                       consistency_threshold);
+                consistency_threshold);
 
   cv::Mat depth_float;
   if (depth.type() != CV_32F)
@@ -62,8 +61,7 @@ void apply_ray_consistency_filter(cv::Mat &depth, cv::Mat &confidence,
 
   cv::Mat valid_mask = deviation < consistency_threshold;
 
-  cv::Mat kernel =
-      cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(3, 3));
+  cv::Mat kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(3, 3));
   cv::morphologyEx(valid_mask, valid_mask, cv::MORPH_OPEN, kernel);
 
   depth.setTo(0, ~valid_mask);
@@ -71,9 +69,8 @@ void apply_ray_consistency_filter(cv::Mat &depth, cv::Mat &confidence,
     confidence.setTo(0, ~valid_mask);
 
   int removed = cv::countNonZero(~valid_mask);
-  reusex::debug(
-      "Ray consistency filter removed {} / {} pixels ({:.1f}%)", removed,
-      depth.total(), 100.0 * removed / depth.total());
+  reusex::debug("Ray consistency filter removed {} / {} pixels ({:.1f}%)",
+                removed, depth.total(), 100.0 * removed / depth.total());
 }
 
 } // namespace reusex::geometry

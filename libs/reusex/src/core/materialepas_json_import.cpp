@@ -3,9 +3,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "core/materialepas_json_import.hpp"
+#include "core/logging.hpp"
 #include "core/materialepas_enums.hpp"
 #include "core/materialepas_json_export.hpp"
-#include "core/logging.hpp"
 
 #include <cstring>
 #include <stdexcept>
@@ -98,8 +98,7 @@ void write_emissions(void *section, size_t offset,
 
 /// Determine struct_name for a section descriptor based on its properties
 /// pointer
-const char *
-section_struct_name(const json_export::SectionDescriptor &sd) {
+const char *section_struct_name(const json_export::SectionDescriptor &sd) {
   if (sd.properties == PropertyTraits<Owner>::properties())
     return "Owner";
   if (sd.properties ==
@@ -137,8 +136,7 @@ bool is_empty_template(const json &properties_array) {
 }
 
 /// Parse a single nested DangerousSubstance from a JSON properties array
-DangerousSubstance
-parse_dangerous_substance(const json &properties_array) {
+DangerousSubstance parse_dangerous_substance(const json &properties_array) {
   DangerousSubstance sub;
 
   // Build a name→value lookup for the nested properties
@@ -168,8 +166,7 @@ parse_dangerous_substance(const json &properties_array) {
           try {
             write_opt_double(&sub, desc.offset, std::stod(val));
           } catch (const std::exception &e) {
-            reusex::warn("Failed to parse double for '{}': {}", name,
-                               e.what());
+            reusex::warn("Failed to parse double for '{}': {}", name, e.what());
           }
         }
         break;
@@ -219,8 +216,7 @@ Emission parse_emission(const json &properties_array) {
           try {
             write_opt_double(&em, desc.offset, std::stod(val));
           } catch (const std::exception &e) {
-            reusex::warn("Failed to parse double for '{}': {}", name,
-                               e.what());
+            reusex::warn("Failed to parse double for '{}': {}", name, e.what());
           }
         }
         break;
@@ -242,8 +238,7 @@ Emission parse_emission(const json &properties_array) {
 }
 
 /// Deserialize a single simple property value from JSON into its struct field
-void deserialize_simple_property(void *section,
-                                 const PropertyDescriptor &desc,
+void deserialize_simple_property(void *section, const PropertyDescriptor &desc,
                                  const std::string &value,
                                  const char *struct_name) {
   switch (desc.type) {
@@ -259,7 +254,7 @@ void deserialize_simple_property(void *section,
         write_opt_int(section, desc.offset, std::stoi(value));
       } catch (const std::exception &e) {
         reusex::warn("Failed to parse integer for '{}': {}", desc.json_name,
-                           e.what());
+                     e.what());
       }
     }
     break;
@@ -273,7 +268,7 @@ void deserialize_simple_property(void *section,
         write_opt_double(section, desc.offset, std::stod(value));
       } catch (const std::exception &e) {
         reusex::warn("Failed to parse double for '{}': {}", desc.json_name,
-                           e.what());
+                     e.what());
       }
     }
     break;
@@ -292,8 +287,7 @@ void deserialize_simple_property(void *section,
 
   case PropertyType::TriState: {
     auto parsed = tri_state_from_string(value);
-    write_tristate(section, desc.offset,
-                   parsed.value_or(TriState::unknown));
+    write_tristate(section, desc.offset, parsed.value_or(TriState::unknown));
     break;
   }
 
@@ -523,8 +517,7 @@ MaterialPassport from_json(const json &j) {
       passport.metadata.version_number =
           meta["version number"].get<std::string>();
     if (meta.contains("version date"))
-      passport.metadata.version_date =
-          meta["version date"].get<std::string>();
+      passport.metadata.version_date = meta["version date"].get<std::string>();
   }
 
   return passport;
@@ -532,9 +525,8 @@ MaterialPassport from_json(const json &j) {
 
 std::vector<MaterialPassport> from_json_array(const json &j) {
   if (!j.is_array()) {
-    throw std::runtime_error(
-        "Expected JSON array for from_json_array, got " +
-        std::string(j.type_name()));
+    throw std::runtime_error("Expected JSON array for from_json_array, got " +
+                             std::string(j.type_name()));
   }
   std::vector<MaterialPassport> result;
   result.reserve(j.size());

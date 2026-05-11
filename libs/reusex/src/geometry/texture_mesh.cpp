@@ -15,8 +15,8 @@
 #include <pcl/surface/texture_mapping.h>
 #include <range/v3/view/enumerate.hpp>
 
-#include <filesystem>
 #include <cmath>
+#include <filesystem>
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -27,18 +27,19 @@ namespace reusex::geometry {
 /**
  * @brief Verify polygon-to-atlas-tile mapping is correct (debug mode)
  *
- * For each polygon, check that its UV coordinates map to the expected atlas tile.
- * Reports any polygons that sample wrong tiles (UV mapping bugs).
+ * For each polygon, check that its UV coordinates map to the expected atlas
+ * tile. Reports any polygons that sample wrong tiles (UV mapping bugs).
  *
  * @param textured_mesh Mesh with merged atlas texture
  * @param tile_size Size of each texture tile in atlas
  * @param grid_size Grid dimensions (e.g., 8 for 8x8 grid)
- * @param polygon_to_material Mapping of polygon index to original material/tile ID
+ * @param polygon_to_material Mapping of polygon index to original material/tile
+ * ID
  */
-static void verify_atlas_mapping(const pcl::TextureMesh::Ptr &textured_mesh,
-                                  int tile_size,
-                                  int grid_size,
-                                  const std::vector<size_t> &polygon_to_material) {
+static void
+verify_atlas_mapping(const pcl::TextureMesh::Ptr &textured_mesh, int tile_size,
+                     int grid_size,
+                     const std::vector<size_t> &polygon_to_material) {
   if (textured_mesh->tex_polygons.size() != 1) {
     reusex::core::warn("Atlas verification requires merged structure");
     return;
@@ -54,10 +55,12 @@ static void verify_atlas_mapping(const pcl::TextureMesh::Ptr &textured_mesh,
     return;
   }
 
-  reusex::core::debug("Verifying atlas mapping for {} polygons...", polygons.size());
+  reusex::core::debug("Verifying atlas mapping for {} polygons...",
+                      polygons.size());
 
-  std::map<int, int> tile_usage_count;  // tile_id -> polygon count
-  std::map<int, std::vector<size_t>> tile_to_polygons;  // tile_id -> list of polygon indices
+  std::map<int, int> tile_usage_count; // tile_id -> polygon count
+  std::map<int, std::vector<size_t>>
+      tile_to_polygons; // tile_id -> list of polygon indices
   int out_of_bounds_count = 0;
   int mismatched_count = 0;
 
@@ -71,8 +74,8 @@ static void verify_atlas_mapping(const pcl::TextureMesh::Ptr &textured_mesh,
 
     // Get expected tile based on original material assignment
     const size_t expected_tile = poly_idx < polygon_to_material.size()
-                                  ? polygon_to_material[poly_idx]
-                                  : 9999;  // Invalid marker
+                                     ? polygon_to_material[poly_idx]
+                                     : 9999; // Invalid marker
 
     // Get first UV coordinate for this polygon
     const uint32_t first_uv_idx = uv_idx.vertices[0];
@@ -86,7 +89,7 @@ static void verify_atlas_mapping(const pcl::TextureMesh::Ptr &textured_mesh,
 
     // Check if UV is out of bounds
     if (uv[0] < 0.0f || uv[0] > 1.0f || uv[1] < 0.0f || uv[1] > 1.0f) {
-      if (out_of_bounds_count < 5) {  // Only log first few to avoid spam
+      if (out_of_bounds_count < 5) { // Only log first few to avoid spam
         reusex::core::warn("Polygon {} has out-of-bounds UV ({:.3f}, {:.3f})",
                            poly_idx, uv[0], uv[1]);
       }
@@ -96,8 +99,10 @@ static void verify_atlas_mapping(const pcl::TextureMesh::Ptr &textured_mesh,
 
     // Determine which atlas tile this UV points to
     // Clamp to valid range to avoid edge cases
-    const int atlas_grid_x = std::min(static_cast<int>(uv[0] * grid_size), grid_size - 1);
-    const int atlas_grid_y = std::min(static_cast<int>(uv[1] * grid_size), grid_size - 1);
+    const int atlas_grid_x =
+        std::min(static_cast<int>(uv[0] * grid_size), grid_size - 1);
+    const int atlas_grid_y =
+        std::min(static_cast<int>(uv[1] * grid_size), grid_size - 1);
     const int actual_tile = atlas_grid_y * grid_size + atlas_grid_x;
 
     tile_usage_count[actual_tile]++;
@@ -105,23 +110,27 @@ static void verify_atlas_mapping(const pcl::TextureMesh::Ptr &textured_mesh,
 
     // Check if actual tile matches expected tile
     if (static_cast<size_t>(actual_tile) != expected_tile) {
-      if (mismatched_count < 10) {  // Log first 10 mismatches
-        reusex::core::warn("MISMATCH! Polygon {} expected tile {} but uses tile {} (UV index {} -> UV {:.4f}, {:.4f})",
-                           poly_idx, expected_tile, actual_tile, first_uv_idx, uv[0], uv[1]);
+      if (mismatched_count < 10) { // Log first 10 mismatches
+        reusex::core::warn("MISMATCH! Polygon {} expected tile {} but uses "
+                           "tile {} (UV index {} -> UV {:.4f}, {:.4f})",
+                           poly_idx, expected_tile, actual_tile, first_uv_idx,
+                           uv[0], uv[1]);
       }
       mismatched_count++;
     } else {
       // Log first few correct mappings for verification
       if (poly_idx < 10) {
-        reusex::core::trace("Polygon {} correctly uses tile {} (UV index {} -> UV {:.4f}, {:.4f})",
+        reusex::core::trace("Polygon {} correctly uses tile {} (UV index {} -> "
+                            "UV {:.4f}, {:.4f})",
                             poly_idx, actual_tile, first_uv_idx, uv[0], uv[1]);
       }
     }
   }
 
   if (mismatched_count > 0) {
-    reusex::core::error("CRITICAL BUG: {} polygons use WRONG tiles (expected != actual)",
-                        mismatched_count);
+    reusex::core::error(
+        "CRITICAL BUG: {} polygons use WRONG tiles (expected != actual)",
+        mismatched_count);
   }
 
   if (out_of_bounds_count > 0) {
@@ -137,7 +146,8 @@ static void verify_atlas_mapping(const pcl::TextureMesh::Ptr &textured_mesh,
                        tile_id, grid_x, grid_y, count);
   }
 
-  // Check for unused tiles (would appear as black in atlas or indicate wrong mapping)
+  // Check for unused tiles (would appear as black in atlas or indicate wrong
+  // mapping)
   const int total_tiles = grid_size * grid_size;
   std::vector<int> unused_tiles;
   for (int tile_id = 0; tile_id < total_tiles; ++tile_id) {
@@ -150,7 +160,8 @@ static void verify_atlas_mapping(const pcl::TextureMesh::Ptr &textured_mesh,
     // Format tile list manually since fmt::join may not be available
     std::string tile_list;
     for (size_t i = 0; i < unused_tiles.size(); ++i) {
-      if (i > 0) tile_list += ", ";
+      if (i > 0)
+        tile_list += ", ";
       tile_list += std::to_string(unused_tiles[i]);
     }
     reusex::core::warn("{} unused tiles (will appear black on mesh): {}",
@@ -160,15 +171,18 @@ static void verify_atlas_mapping(const pcl::TextureMesh::Ptr &textured_mesh,
   // Check for tiles used by multiple polygons (potential repetition bug)
   std::vector<int> multi_use_tiles;
   for (const auto &[tile_id, count] : tile_usage_count) {
-    if (count > 10) {  // Arbitrary threshold - normal is 1-2 polygons per material
+    if (count >
+        10) { // Arbitrary threshold - normal is 1-2 polygons per material
       multi_use_tiles.push_back(tile_id);
     }
   }
 
   if (!multi_use_tiles.empty()) {
-    reusex::core::warn("Tiles with unexpectedly high polygon counts (possible UV mapping bug):");
+    reusex::core::warn("Tiles with unexpectedly high polygon counts (possible "
+                       "UV mapping bug):");
     for (int tile_id : multi_use_tiles) {
-      reusex::core::warn("  Tile {} -> {} polygons", tile_id, tile_usage_count[tile_id]);
+      reusex::core::warn("  Tile {} -> {} polygons", tile_id,
+                         tile_usage_count[tile_id]);
     }
   }
 }
@@ -186,9 +200,9 @@ static void verify_atlas_mapping(const pcl::TextureMesh::Ptr &textured_mesh,
  * @return Number of textures that were atlased
  */
 static size_t create_texture_atlas(pcl::TextureMesh::Ptr textured_mesh,
-                                    int tile_size,
-                                    const std::filesystem::path &output_path,
-                                    bool debug_distinct_colors = false) {
+                                   int tile_size,
+                                   const std::filesystem::path &output_path,
+                                   bool debug_distinct_colors = false) {
   const size_t num_materials = textured_mesh->tex_materials.size();
 
   if (num_materials == 0) {
@@ -202,18 +216,22 @@ static size_t create_texture_atlas(pcl::TextureMesh::Ptr textured_mesh,
   }
 
   // Calculate atlas dimensions: arrange tiles in a grid
-  // Use ceiling of square root to get grid dimensions (e.g., 364 tiles = 20x20 grid)
-  const int grid_size = static_cast<int>(std::ceil(std::sqrt(static_cast<double>(num_materials))));
+  // Use ceiling of square root to get grid dimensions (e.g., 364 tiles = 20x20
+  // grid)
+  const int grid_size = static_cast<int>(
+      std::ceil(std::sqrt(static_cast<double>(num_materials))));
   const int atlas_width = grid_size * tile_size;
   const int atlas_height = grid_size * tile_size;
 
-  reusex::core::info("Creating texture atlas: {} textures -> {}x{} atlas ({} grid)",
-                     num_materials, atlas_width, atlas_height, grid_size);
+  reusex::core::info(
+      "Creating texture atlas: {} textures -> {}x{} atlas ({} grid)",
+      num_materials, atlas_width, atlas_height, grid_size);
 
   // DEBUG: Check UV coordinates BEFORE remapping
   if (debug_distinct_colors) {
     reusex::core::debug("Checking UV coordinates BEFORE atlas remapping:");
-    for (size_t mat_idx = 0; mat_idx < std::min(size_t(5), num_materials); ++mat_idx) {
+    for (size_t mat_idx = 0; mat_idx < std::min(size_t(5), num_materials);
+         ++mat_idx) {
       if (mat_idx < textured_mesh->tex_coordinates.size() &&
           !textured_mesh->tex_coordinates[mat_idx].empty()) {
         const auto &first_uv = textured_mesh->tex_coordinates[mat_idx][0];
@@ -257,7 +275,8 @@ static size_t create_texture_atlas(pcl::TextureMesh::Ptr textured_mesh,
     // UV coords are in [0,1] range for the tile, need to remap to atlas region
     if (mat_idx < textured_mesh->tex_coordinates.size()) {
       if (debug_distinct_colors && mat_idx < 5) {
-        const auto &first_uv_before = textured_mesh->tex_coordinates[mat_idx][0];
+        const auto &first_uv_before =
+            textured_mesh->tex_coordinates[mat_idx][0];
         reusex::core::trace("  Material {} BEFORE remap: UV ({:.4f}, {:.4f})",
                             mat_idx, first_uv_before[0], first_uv_before[1]);
       }
@@ -271,20 +290,21 @@ static size_t create_texture_atlas(pcl::TextureMesh::Ptr textured_mesh,
 
       if (debug_distinct_colors && mat_idx < 5) {
         const auto &first_uv_after = textured_mesh->tex_coordinates[mat_idx][0];
-        reusex::core::trace("  Material {} AFTER remap to tile ({},{}): UV ({:.4f}, {:.4f})",
-                            mat_idx, grid_x, grid_y, first_uv_after[0], first_uv_after[1]);
+        reusex::core::trace(
+            "  Material {} AFTER remap to tile ({},{}): UV ({:.4f}, {:.4f})",
+            mat_idx, grid_x, grid_y, first_uv_after[0], first_uv_after[1]);
       }
     }
   }
 
   // Write atlas to disk
   if (!cv::imwrite(output_path.string(), atlas)) {
-    throw std::runtime_error("Failed to write texture atlas: " + output_path.string());
+    throw std::runtime_error("Failed to write texture atlas: " +
+                             output_path.string());
   }
 
   reusex::core::info("Texture atlas saved: {} ({}x{} px, {:.1f} MB)",
-                     output_path.filename().string(),
-                     atlas_width, atlas_height,
+                     output_path.filename().string(), atlas_width, atlas_height,
                      (atlas_width * atlas_height * 3) / 1024.0 / 1024.0);
 
   // Replace all materials with single atlas material
@@ -313,20 +333,20 @@ static size_t create_texture_atlas(pcl::TextureMesh::Ptr textured_mesh,
 
   if (textured_mesh->tex_polygons.size() != num_materials) {
     throw std::runtime_error(fmt::format(
-      "Material count mismatch: {} materials but {} polygon groups",
-      num_materials, textured_mesh->tex_polygons.size()));
+        "Material count mismatch: {} materials but {} polygon groups",
+        num_materials, textured_mesh->tex_polygons.size()));
   }
 
   if (textured_mesh->tex_coordinates.size() != num_materials) {
     throw std::runtime_error(fmt::format(
-      "Material count mismatch: {} materials but {} UV coordinate groups",
-      num_materials, textured_mesh->tex_coordinates.size()));
+        "Material count mismatch: {} materials but {} UV coordinate groups",
+        num_materials, textured_mesh->tex_coordinates.size()));
   }
 
   if (textured_mesh->tex_coord_indices.size() != num_materials) {
     throw std::runtime_error(fmt::format(
-      "Material count mismatch: {} materials but {} UV index groups",
-      num_materials, textured_mesh->tex_coord_indices.size()));
+        "Material count mismatch: {} materials but {} UV index groups",
+        num_materials, textured_mesh->tex_coord_indices.size()));
   }
 
   // Validate polygon counts match UV index counts for each material
@@ -335,42 +355,49 @@ static size_t create_texture_atlas(pcl::TextureMesh::Ptr textured_mesh,
 
   for (size_t mat_idx = 0; mat_idx < num_materials; ++mat_idx) {
     const size_t num_polys = textured_mesh->tex_polygons[mat_idx].size();
-    const size_t num_uv_indices = textured_mesh->tex_coord_indices[mat_idx].size();
+    const size_t num_uv_indices =
+        textured_mesh->tex_coord_indices[mat_idx].size();
     const size_t num_uvs = textured_mesh->tex_coordinates[mat_idx].size();
 
     if (num_polys != num_uv_indices) {
-      throw std::runtime_error(fmt::format(
-        "Material {} has {} polygons but {} UV index sets",
-        mat_idx, num_polys, num_uv_indices));
+      throw std::runtime_error(
+          fmt::format("Material {} has {} polygons but {} UV index sets",
+                      mat_idx, num_polys, num_uv_indices));
     }
 
     if (num_polys == 0) {
       materials_with_no_polygons++;
-      reusex::core::warn("Material {} (tile {}) has NO polygons - will create unused tile",
-                         mat_idx, mat_idx);
+      reusex::core::warn(
+          "Material {} (tile {}) has NO polygons - will create unused tile",
+          mat_idx, mat_idx);
     }
 
     total_polys_pre_merge += num_polys;
 
-    reusex::core::trace("Material {} (tile {}): {} polygons, {} UVs, {} UV indices",
-                        mat_idx, mat_idx, num_polys, num_uvs, num_uv_indices);
+    reusex::core::trace(
+        "Material {} (tile {}): {} polygons, {} UVs, {} UV indices", mat_idx,
+        mat_idx, num_polys, num_uvs, num_uv_indices);
   }
 
   if (materials_with_no_polygons > 0) {
-    reusex::core::warn("{} materials have no polygons (will create {} unused tiles)",
-                       materials_with_no_polygons, materials_with_no_polygons);
+    reusex::core::warn(
+        "{} materials have no polygons (will create {} unused tiles)",
+        materials_with_no_polygons, materials_with_no_polygons);
   }
 
   reusex::core::debug("Total polygons before merge: {}", total_polys_pre_merge);
 
   // Merge all polygon groups into single group (all use same material now)
   std::vector<pcl::Vertices> merged_polygons;
-  std::vector<size_t> polygon_to_original_material;  // Track which material each polygon came from
+  std::vector<size_t> polygon_to_original_material; // Track which material each
+                                                    // polygon came from
   size_t total_polygons = 0;
 
-  for (size_t mat_idx = 0; mat_idx < textured_mesh->tex_polygons.size(); ++mat_idx) {
+  for (size_t mat_idx = 0; mat_idx < textured_mesh->tex_polygons.size();
+       ++mat_idx) {
     const auto &poly_group = textured_mesh->tex_polygons[mat_idx];
-    merged_polygons.insert(merged_polygons.end(), poly_group.begin(), poly_group.end());
+    merged_polygons.insert(merged_polygons.end(), poly_group.begin(),
+                           poly_group.end());
 
     // Track original material for each polygon
     for (size_t i = 0; i < poly_group.size(); ++i) {
@@ -381,18 +408,21 @@ static size_t create_texture_atlas(pcl::TextureMesh::Ptr textured_mesh,
   }
 
   reusex::core::debug("Merged {} polygons from {} groups",
-                      merged_polygons.size(), textured_mesh->tex_polygons.size());
+                      merged_polygons.size(),
+                      textured_mesh->tex_polygons.size());
 
   textured_mesh->tex_polygons.clear();
   textured_mesh->tex_polygons.push_back(merged_polygons);
 
   // Merge all UV coordinates into single group with proper index offsetting
-  std::vector<Eigen::Vector2f, Eigen::aligned_allocator<Eigen::Vector2f>> merged_uvs;
+  std::vector<Eigen::Vector2f, Eigen::aligned_allocator<Eigen::Vector2f>>
+      merged_uvs;
   std::vector<pcl::Vertices> merged_uv_indices;
 
-  uint32_t uv_offset = 0;  // Track current offset into merged UV array
+  uint32_t uv_offset = 0; // Track current offset into merged UV array
 
-  for (size_t mat_idx = 0; mat_idx < textured_mesh->tex_coordinates.size(); ++mat_idx) {
+  for (size_t mat_idx = 0; mat_idx < textured_mesh->tex_coordinates.size();
+       ++mat_idx) {
     const auto &uv_group = textured_mesh->tex_coordinates[mat_idx];
     const auto &idx_group = textured_mesh->tex_coord_indices[mat_idx];
 
@@ -422,9 +452,10 @@ static size_t create_texture_atlas(pcl::TextureMesh::Ptr textured_mesh,
 
   // Validate polygon/UV index correspondence before finalizing
   if (merged_uv_indices.size() != total_polygons) {
-    throw std::runtime_error(fmt::format(
-      "Polygon/UV index count mismatch after merge: {} polygons, {} UV indices",
-      total_polygons, merged_uv_indices.size()));
+    throw std::runtime_error(
+        fmt::format("Polygon/UV index count mismatch after merge: {} polygons, "
+                    "{} UV indices",
+                    total_polygons, merged_uv_indices.size()));
   }
 
   textured_mesh->tex_coordinates.clear();
@@ -436,9 +467,12 @@ static size_t create_texture_atlas(pcl::TextureMesh::Ptr textured_mesh,
   // ===== POST-MERGE VALIDATION =====
   reusex::core::debug("Post-merge validation:");
   reusex::core::debug("  Materials: {}", textured_mesh->tex_materials.size());
-  reusex::core::debug("  Polygon groups: {}", textured_mesh->tex_polygons.size());
-  reusex::core::debug("  UV coord groups: {}", textured_mesh->tex_coordinates.size());
-  reusex::core::debug("  UV index groups: {}", textured_mesh->tex_coord_indices.size());
+  reusex::core::debug("  Polygon groups: {}",
+                      textured_mesh->tex_polygons.size());
+  reusex::core::debug("  UV coord groups: {}",
+                      textured_mesh->tex_coordinates.size());
+  reusex::core::debug("  UV index groups: {}",
+                      textured_mesh->tex_coord_indices.size());
 
   if (textured_mesh->tex_materials.size() != 1) {
     throw std::runtime_error("Expected 1 atlas material after merge");
@@ -461,8 +495,8 @@ static size_t create_texture_atlas(pcl::TextureMesh::Ptr textured_mesh,
 
   if (num_polygons != num_uv_indices) {
     throw std::runtime_error(fmt::format(
-      "Final polygon/UV index mismatch: {} polygons, {} UV indices",
-      num_polygons, num_uv_indices));
+        "Final polygon/UV index mismatch: {} polygons, {} UV indices",
+        num_polygons, num_uv_indices));
   }
 
   reusex::core::info("Atlas merge successful: {} polygons with {} UV indices",
@@ -470,7 +504,8 @@ static size_t create_texture_atlas(pcl::TextureMesh::Ptr textured_mesh,
 
   // Verify atlas mapping in debug mode
   if (debug_distinct_colors) {
-    verify_atlas_mapping(textured_mesh, tile_size, grid_size, polygon_to_original_material);
+    verify_atlas_mapping(textured_mesh, tile_size, grid_size,
+                         polygon_to_original_material);
   }
 
   return num_materials;
@@ -487,14 +522,14 @@ static size_t create_texture_atlas(pcl::TextureMesh::Ptr textured_mesh,
 static cv::Vec3b get_distinct_color(size_t index) {
   // Glasby-style LUT: use distinct hues with high saturation and value
   const int num_base_colors = 12;
-  const int hue = (index * 360 / num_base_colors) % 360;  // Evenly spaced hues
+  const int hue = (index * 360 / num_base_colors) % 360; // Evenly spaced hues
 
   // Vary saturation and value slightly for more colors
   const int sat_level = (index / num_base_colors) % 3;
   const int val_level = (index / (num_base_colors * 3)) % 3;
 
-  const float saturation = 0.7f + (sat_level * 0.15f);  // 0.7, 0.85, 1.0
-  const float value = 0.7f + (val_level * 0.15f);       // 0.7, 0.85, 1.0
+  const float saturation = 0.7f + (sat_level * 0.15f); // 0.7, 0.85, 1.0
+  const float value = 0.7f + (val_level * 0.15f);      // 0.7, 0.85, 1.0
 
   // Convert HSV to RGB
   const float h = hue / 60.0f;
@@ -503,19 +538,36 @@ static cv::Vec3b get_distinct_color(size_t index) {
   const float m = value - c;
 
   float r, g, b;
-  if (h < 1.0f)      { r = c; g = x; b = 0; }
-  else if (h < 2.0f) { r = x; g = c; b = 0; }
-  else if (h < 3.0f) { r = 0; g = c; b = x; }
-  else if (h < 4.0f) { r = 0; g = x; b = c; }
-  else if (h < 5.0f) { r = x; g = 0; b = c; }
-  else               { r = c; g = 0; b = x; }
+  if (h < 1.0f) {
+    r = c;
+    g = x;
+    b = 0;
+  } else if (h < 2.0f) {
+    r = x;
+    g = c;
+    b = 0;
+  } else if (h < 3.0f) {
+    r = 0;
+    g = c;
+    b = x;
+  } else if (h < 4.0f) {
+    r = 0;
+    g = x;
+    b = c;
+  } else if (h < 5.0f) {
+    r = x;
+    g = 0;
+    b = c;
+  } else {
+    r = c;
+    g = 0;
+    b = x;
+  }
 
   // Convert to 0-255 range and BGR format (OpenCV)
-  return cv::Vec3b(
-    static_cast<uint8_t>((b + m) * 255),
-    static_cast<uint8_t>((g + m) * 255),
-    static_cast<uint8_t>((r + m) * 255)
-  );
+  return cv::Vec3b(static_cast<uint8_t>((b + m) * 255),
+                   static_cast<uint8_t>((g + m) * 255),
+                   static_cast<uint8_t>((r + m) * 255));
 }
 
 /**
@@ -524,7 +576,8 @@ static cv::Vec3b get_distinct_color(size_t index) {
  * @param image Output texture image to fill
  * @param material_idx Index of this material/polygon group
  */
-static void fill_texture_with_distinct_color(cv::Mat &image, size_t material_idx) {
+static void fill_texture_with_distinct_color(cv::Mat &image,
+                                             size_t material_idx) {
   const cv::Vec3b color = get_distinct_color(material_idx);
   image.setTo(cv::Scalar(color[0], color[1], color[2]));
 
@@ -536,19 +589,21 @@ static void fill_texture_with_distinct_color(cv::Mat &image, size_t material_idx
 
   // Get text size for centering
   int baseline = 0;
-  cv::Size text_size = cv::getTextSize(text, font, font_scale, thickness, &baseline);
-  cv::Point text_pos(
-    (image.cols - text_size.width) / 2,
-    (image.rows + text_size.height) / 2
-  );
+  cv::Size text_size =
+      cv::getTextSize(text, font, font_scale, thickness, &baseline);
+  cv::Point text_pos((image.cols - text_size.width) / 2,
+                     (image.rows + text_size.height) / 2);
 
   // Draw text with black outline for visibility
-  cv::putText(image, text, text_pos, font, font_scale, cv::Scalar(0, 0, 0), thickness + 2);
-  cv::putText(image, text, text_pos, font, font_scale, cv::Scalar(255, 255, 255), thickness);
+  cv::putText(image, text, text_pos, font, font_scale, cv::Scalar(0, 0, 0),
+              thickness + 2);
+  cv::putText(image, text, text_pos, font, font_scale,
+              cv::Scalar(255, 255, 255), thickness);
 }
 
 /**
- * @brief Project full point cloud onto mesh surface for photo-realistic textures
+ * @brief Project full point cloud onto mesh surface for photo-realistic
+ * textures
  *
  * Algorithm:
  * 1. For each texture pixel, compute 3D position on mesh surface
@@ -565,7 +620,8 @@ static void fill_texture_with_distinct_color(cv::Mat &image, size_t material_idx
  * @param poly_group Polygons sharing this material/texture
  * @param cloud_xyz Mesh vertices in 3D space
  * @param cloud_rgb Full point cloud with RGB colors to project
- * @param cloud_normals Optional point cloud normals for filtering (can be nullptr)
+ * @param cloud_normals Optional point cloud normals for filtering (can be
+ * nullptr)
  * @param u_axis Local U axis for 2D coordinate system
  * @param v_axis Local V axis for 2D coordinate system
  * @param poly_normal Normal vector of the polygon plane
@@ -574,18 +630,15 @@ static void fill_texture_with_distinct_color(cv::Mat &image, size_t material_idx
  * @param uv_indices UV index mapping for polygons
  */
 static void project_pointcloud_to_mesh_texture(
-    cv::Mat &image,
-    const std::vector<pcl::Vertices> &poly_group,
-    const CloudLocConstPtr &cloud_xyz,
-    const CloudConstPtr &cloud_rgb,
-    const CloudNConstPtr &cloud_normals,
-    const Eigen::Vector3f &u_axis,
-    const Eigen::Vector3f &v_axis,
-    const Eigen::Vector3f &poly_normal,
+    cv::Mat &image, const std::vector<pcl::Vertices> &poly_group,
+    const CloudLocConstPtr &cloud_xyz, const CloudConstPtr &cloud_rgb,
+    const CloudNConstPtr &cloud_normals, const Eigen::Vector3f &u_axis,
+    const Eigen::Vector3f &v_axis, const Eigen::Vector3f &poly_normal,
     const Eigen::Vector3f &poly_centroid,
-    const std::vector<Eigen::Vector2f, Eigen::aligned_allocator<Eigen::Vector2f>> &uv_coords,
+    const std::vector<Eigen::Vector2f,
+                      Eigen::aligned_allocator<Eigen::Vector2f>> &uv_coords,
     const std::vector<pcl::Vertices> &uv_indices,
-    const TextureQualityParams& quality) {
+    const TextureQualityParams &quality) {
 
   const int tex_size = image.rows;
 
@@ -604,14 +657,17 @@ static void project_pointcloud_to_mesh_texture(
   int total_points_accepted = 0;
 
   // Process each pixel in texture (parallelized with OpenMP)
-#pragma omp parallel for collapse(2) reduction(+:pixels_processed,pixels_colored,total_points_found,total_points_accepted)
+#pragma omp parallel for collapse(2)                                           \
+    reduction(+ : pixels_processed, pixels_colored, total_points_found,        \
+                  total_points_accepted)
   for (int py = 0; py < tex_size; ++py) {
     for (int px = 0; px < tex_size; ++px) {
       pixels_processed++;
 
       // Convert pixel to normalized UV [0,1]
       const float u_norm = static_cast<float>(px) / (tex_size - 1);
-      const float v_norm = 1.0f - (static_cast<float>(py) / (tex_size - 1));  // Flip V
+      const float v_norm =
+          1.0f - (static_cast<float>(py) / (tex_size - 1)); // Flip V
 
       // Find which polygon contains this pixel and compute 3D position
       Eigen::Vector3f point_3d;
@@ -627,7 +683,8 @@ static void project_pointcloud_to_mesh_texture(
         }
 
         // Check all triangles in this polygon (triangle fan)
-        for (size_t tri_idx = 0; tri_idx + 2 < poly.vertices.size(); ++tri_idx) {
+        for (size_t tri_idx = 0; tri_idx + 2 < poly.vertices.size();
+             ++tri_idx) {
           const Eigen::Vector2f &uv0 = uv_coords[uv_idx.vertices[0]];
           const Eigen::Vector2f &uv1 = uv_coords[uv_idx.vertices[tri_idx + 1]];
           const Eigen::Vector2f &uv2 = uv_coords[uv_idx.vertices[tri_idx + 2]];
@@ -636,20 +693,26 @@ static void project_pointcloud_to_mesh_texture(
           const float area = (uv1 - uv0).x() * (uv2 - uv0).y() -
                              (uv2 - uv0).x() * (uv1 - uv0).y();
 
-          if (std::abs(area) < 1e-6f) continue;
+          if (std::abs(area) < 1e-6f)
+            continue;
 
           const float w0 = ((uv1 - pixel_uv).x() * (uv2 - pixel_uv).y() -
-                            (uv2 - pixel_uv).x() * (uv1 - pixel_uv).y()) / area;
+                            (uv2 - pixel_uv).x() * (uv1 - pixel_uv).y()) /
+                           area;
           const float w1 = ((uv2 - pixel_uv).x() * (uv0 - pixel_uv).y() -
-                            (uv0 - pixel_uv).x() * (uv2 - pixel_uv).y()) / area;
+                            (uv0 - pixel_uv).x() * (uv2 - pixel_uv).y()) /
+                           area;
           const float w2 = 1.0f - w0 - w1;
 
           // Check if inside triangle
           if (w0 >= -0.01f && w1 >= -0.01f && w2 >= -0.01f) {
             // Compute 3D position via barycentric interpolation
-            const Eigen::Vector3f &p0 = cloud_xyz->points[poly.vertices[0]].getVector3fMap();
-            const Eigen::Vector3f &p1 = cloud_xyz->points[poly.vertices[tri_idx + 1]].getVector3fMap();
-            const Eigen::Vector3f &p2 = cloud_xyz->points[poly.vertices[tri_idx + 2]].getVector3fMap();
+            const Eigen::Vector3f &p0 =
+                cloud_xyz->points[poly.vertices[0]].getVector3fMap();
+            const Eigen::Vector3f &p1 =
+                cloud_xyz->points[poly.vertices[tri_idx + 1]].getVector3fMap();
+            const Eigen::Vector3f &p2 =
+                cloud_xyz->points[poly.vertices[tri_idx + 2]].getVector3fMap();
 
             point_3d = w0 * p0 + w1 * p1 + w2 * p2;
             inside_polygon = true;
@@ -657,7 +720,8 @@ static void project_pointcloud_to_mesh_texture(
             break;
           }
         }
-        if (inside_polygon) break;
+        if (inside_polygon)
+          break;
       }
 
       if (!inside_polygon) {
@@ -673,9 +737,9 @@ static void project_pointcloud_to_mesh_texture(
       std::vector<int> neighbor_indices;
       std::vector<float> neighbor_distances;
 
-      const int num_found = kdtree.radiusSearch(search_point, search_radius,
-                                                 neighbor_indices, neighbor_distances,
-                                                 max_neighbors);
+      const int num_found =
+          kdtree.radiusSearch(search_point, search_radius, neighbor_indices,
+                              neighbor_distances, max_neighbors);
       if (num_found == 0) {
         continue;
       }
@@ -692,7 +756,8 @@ static void project_pointcloud_to_mesh_texture(
         const Eigen::Vector3f pt_pos(pt.x, pt.y, pt.z);
 
         // Compute distance from point to polygon plane
-        const float plane_distance = std::abs(poly_normal.dot(pt_pos - poly_centroid));
+        const float plane_distance =
+            std::abs(poly_normal.dot(pt_pos - poly_centroid));
 
         // Filter by distance threshold (10cm)
         if (plane_distance > distance_threshold) {
@@ -700,26 +765,31 @@ static void project_pointcloud_to_mesh_texture(
         }
 
         // Project point onto plane
-        const Eigen::Vector3f projected = pt_pos - poly_normal * poly_normal.dot(pt_pos - poly_centroid);
+        const Eigen::Vector3f projected =
+            pt_pos - poly_normal * poly_normal.dot(pt_pos - poly_centroid);
 
         // Convert projected 3D point to 2D plane coordinates
         const float u_proj = (projected - poly_centroid).dot(u_axis);
         const float v_proj = (projected - poly_centroid).dot(v_axis);
         const Eigen::Vector2f proj_2d(u_proj, v_proj);
 
-        // Check if projection falls within polygon bounds (simple bounding box check)
+        // Check if projection falls within polygon bounds (simple bounding box
+        // check)
         // TODO: Could use more precise polygon containment test if needed
         // For now, we accept all points that passed distance filter
 
         // Optional: Normal filtering if normals are available
         bool normal_ok = true;
-        if (cloud_normals != nullptr && neighbor_indices[i] < cloud_normals->size()) {
+        if (cloud_normals != nullptr &&
+            neighbor_indices[i] < cloud_normals->size()) {
           const auto &pt_normal = cloud_normals->points[neighbor_indices[i]];
-          const Eigen::Vector3f pt_normal_vec = pt_normal.getNormalVector3fMap();
+          const Eigen::Vector3f pt_normal_vec =
+              pt_normal.getNormalVector3fMap();
 
           // Check if point normal is roughly aligned with polygon normal
-          const float normal_similarity = std::abs(poly_normal.dot(pt_normal_vec));
-          if (normal_similarity < 0.5f) {  // ~60° tolerance
+          const float normal_similarity =
+              std::abs(poly_normal.dot(pt_normal_vec));
+          if (normal_similarity < 0.5f) { // ~60° tolerance
             normal_ok = false;
           }
         }
@@ -729,11 +799,13 @@ static void project_pointcloud_to_mesh_texture(
         }
 
         // Weight by inverse distance (closer points have more influence)
-        // Use quadratic falloff for sharper detail, linear for smoother blending
+        // Use quadratic falloff for sharper detail, linear for smoother
+        // blending
         const float dist_3d = (pt_pos - point_3d).norm();
-        const float weight = quality.use_quadratic_falloff
-                              ? 1.0f / (dist_3d * dist_3d + 1e-6f)  // 1/d² - sharper
-                              : 1.0f / (dist_3d + 1e-4f);           // 1/d - smoother
+        const float weight =
+            quality.use_quadratic_falloff
+                ? 1.0f / (dist_3d * dist_3d + 1e-6f) // 1/d² - sharper
+                : 1.0f / (dist_3d + 1e-4f);          // 1/d - smoother
 
         r_sum += pt.r * weight;
         g_sum += pt.g * weight;
@@ -746,11 +818,14 @@ static void project_pointcloud_to_mesh_texture(
 
       // Set pixel color if we found valid points
       if (total_weight > 0.0f) {
-        const int r = std::clamp(static_cast<int>(r_sum / total_weight), 0, 255);
-        const int g = std::clamp(static_cast<int>(g_sum / total_weight), 0, 255);
-        const int b = std::clamp(static_cast<int>(b_sum / total_weight), 0, 255);
+        const int r =
+            std::clamp(static_cast<int>(r_sum / total_weight), 0, 255);
+        const int g =
+            std::clamp(static_cast<int>(g_sum / total_weight), 0, 255);
+        const int b =
+            std::clamp(static_cast<int>(b_sum / total_weight), 0, 255);
 
-        image.at<cv::Vec3b>(py, px) = cv::Vec3b(b, g, r);  // OpenCV uses BGR
+        image.at<cv::Vec3b>(py, px) = cv::Vec3b(b, g, r); // OpenCV uses BGR
         pixels_colored++;
       }
     }
@@ -758,28 +833,34 @@ static void project_pointcloud_to_mesh_texture(
 
   reusex::core::debug("Point cloud projection: {}/{} pixels colored, "
                       "{} points found, {} points accepted ({}% pass rate)",
-                      pixels_colored, pixels_processed, total_points_found, total_points_accepted,
-                      total_points_found > 0 ? (100 * total_points_accepted / total_points_found) : 0);
+                      pixels_colored, pixels_processed, total_points_found,
+                      total_points_accepted,
+                      total_points_found > 0
+                          ? (100 * total_points_accepted / total_points_found)
+                          : 0);
 }
 
-pcl::TextureMesh::Ptr texture_mesh_with_cloud(pcl::PolygonMesh::Ptr mesh,
-                                              CloudConstPtr cloud,
-                                              CloudNConstPtr normals,
-                                              bool debug_distinct_colors,
-                                              const TextureQualityParams& quality) {
+pcl::TextureMesh::Ptr
+texture_mesh_with_cloud(pcl::PolygonMesh::Ptr mesh, CloudConstPtr cloud,
+                        CloudNConstPtr normals, bool debug_distinct_colors,
+                        const TextureQualityParams &quality) {
   reusex::core::trace("Entering reusex::geometry::texture_mesh_with_cloud");
 
   reusex::core::info("Texture quality settings:");
-  reusex::core::info("  Adaptive resolution: {:.0f} px/m ({}x{} to {}x{} pixels)",
-                     quality.texels_per_meter,
-                     quality.min_resolution, quality.min_resolution,
-                     quality.max_resolution, quality.max_resolution);
-  reusex::core::info("  Distance threshold: {:.1f} cm (smaller = sharper)", quality.distance_threshold * 100);
+  reusex::core::info(
+      "  Adaptive resolution: {:.0f} px/m ({}x{} to {}x{} pixels)",
+      quality.texels_per_meter, quality.min_resolution, quality.min_resolution,
+      quality.max_resolution, quality.max_resolution);
+  reusex::core::info("  Distance threshold: {:.1f} cm (smaller = sharper)",
+                     quality.distance_threshold * 100);
   reusex::core::info("  Search radius: {:.1f} cm", quality.search_radius * 100);
-  reusex::core::info("  Falloff: {}", quality.use_quadratic_falloff ? "quadratic (1/d²)" : "linear (1/d)");
+  reusex::core::info("  Falloff: {}", quality.use_quadratic_falloff
+                                          ? "quadratic (1/d²)"
+                                          : "linear (1/d)");
 
   if (debug_distinct_colors) {
-    reusex::core::warn("DEBUG MODE: Using distinct colors (Glasby LUT) for UV mapping verification");
+    reusex::core::warn("DEBUG MODE: Using distinct colors (Glasby LUT) for UV "
+                       "mapping verification");
   } else {
     if (normals) {
       reusex::core::info("Using point cloud normals for texture filtering");
@@ -894,7 +975,8 @@ pcl::TextureMesh::Ptr texture_mesh_with_cloud(pcl::PolygonMesh::Ptr mesh,
 
       if (poly_group.empty()) {
         // Empty polygon group - create minimal texture
-        cv::Mat image(quality.min_resolution, quality.min_resolution, CV_8UC3, cv::Scalar(0, 0, 0));
+        cv::Mat image(quality.min_resolution, quality.min_resolution, CV_8UC3,
+                      cv::Scalar(0, 0, 0));
         cv::imwrite(mat.tex_file, image);
         ++observer;
         continue;
@@ -917,7 +999,8 @@ pcl::TextureMesh::Ptr texture_mesh_with_cloud(pcl::PolygonMesh::Ptr mesh,
       }
 
       // Compute polygon normal (use first polygon's normal)
-      Eigen::Vector3f poly_normal = compute_polygon_normal(poly_group[0], cloud_xyz);
+      Eigen::Vector3f poly_normal =
+          compute_polygon_normal(poly_group[0], cloud_xyz);
       poly_normal.normalize();
 
       // Compute polygon centroid (average of all vertices in group)
@@ -950,7 +1033,8 @@ pcl::TextureMesh::Ptr texture_mesh_with_cloud(pcl::PolygonMesh::Ptr mesh,
 
       for (const auto &poly : poly_group) {
         for (const auto &vertex_idx : poly.vertices) {
-          const Eigen::Vector3f pt = cloud_xyz->points[vertex_idx].getVector3fMap();
+          const Eigen::Vector3f pt =
+              cloud_xyz->points[vertex_idx].getVector3fMap();
           float u = pt.dot(u_axis);
           float v = pt.dot(v_axis);
           min_u = std::min(min_u, u);
@@ -962,11 +1046,13 @@ pcl::TextureMesh::Ptr texture_mesh_with_cloud(pcl::PolygonMesh::Ptr mesh,
 
       float u_range = max_u - min_u;
       float v_range = max_v - min_v;
-      if (u_range < 1e-6f) u_range = 1.0f;
-      if (v_range < 1e-6f) v_range = 1.0f;
+      if (u_range < 1e-6f)
+        u_range = 1.0f;
+      if (v_range < 1e-6f)
+        v_range = 1.0f;
 
-      // ADAPTIVE RESOLUTION: Calculate texture size based on polygon physical size
-      // Use the larger dimension to ensure square texture covers full area
+      // ADAPTIVE RESOLUTION: Calculate texture size based on polygon physical
+      // size Use the larger dimension to ensure square texture covers full area
       const float max_dimension = std::max(u_range, v_range);
 
       // Calculate target resolution: physical_size * texels_per_meter
@@ -976,17 +1062,19 @@ pcl::TextureMesh::Ptr texture_mesh_with_cloud(pcl::PolygonMesh::Ptr mesh,
       tex_size = std::pow(2, std::round(std::log2(tex_size)));
 
       // Clamp to min/max bounds
-      tex_size = std::clamp(tex_size, quality.min_resolution, quality.max_resolution);
+      tex_size =
+          std::clamp(tex_size, quality.min_resolution, quality.max_resolution);
 
-      reusex::core::debug("Polygon group {}: {:.2f}m x {:.2f}m -> {}x{} texture ({:.0f} px/m)",
-                          idx, u_range, v_range, tex_size, tex_size,
-                          tex_size / max_dimension);
+      reusex::core::debug(
+          "Polygon group {}: {:.2f}m x {:.2f}m -> {}x{} texture ({:.0f} px/m)",
+          idx, u_range, v_range, tex_size, tex_size, tex_size / max_dimension);
 
       // Create texture image with adaptive resolution
       cv::Mat image(tex_size, tex_size, CV_8UC3, cv::Scalar(0, 0, 0));
 
       // Create UV coordinates for all vertices in this polygon group
-      std::vector<Eigen::Vector2f, Eigen::aligned_allocator<Eigen::Vector2f>> uv_coords;
+      std::vector<Eigen::Vector2f, Eigen::aligned_allocator<Eigen::Vector2f>>
+          uv_coords;
       std::vector<pcl::Vertices> uv_indices;
 
       for (const auto &poly : poly_group) {
@@ -994,7 +1082,8 @@ pcl::TextureMesh::Ptr texture_mesh_with_cloud(pcl::PolygonMesh::Ptr mesh,
         uv_idx.vertices.reserve(poly.vertices.size());
 
         for (const auto &vertex_idx : poly.vertices) {
-          const Eigen::Vector3f pt_3d = cloud_xyz->points[vertex_idx].getVector3fMap();
+          const Eigen::Vector3f pt_3d =
+              cloud_xyz->points[vertex_idx].getVector3fMap();
 
           // Project to 2D local coordinates
           float u = pt_3d.dot(u_axis);
@@ -1006,34 +1095,31 @@ pcl::TextureMesh::Ptr texture_mesh_with_cloud(pcl::PolygonMesh::Ptr mesh,
 
           // Store UV coordinate
           uv_coords.emplace_back(u_norm, v_norm);
-          uv_idx.vertices.push_back(static_cast<uint32_t>(uv_coords.size() - 1));
+          uv_idx.vertices.push_back(
+              static_cast<uint32_t>(uv_coords.size() - 1));
         }
 
         uv_indices.push_back(uv_idx);
       }
 
       if (debug_distinct_colors) {
-        // Debug mode: Fill with distinct solid color for UV mapping verification
-        reusex::core::debug("Filling texture {} with distinct color (debug mode)", idx);
+        // Debug mode: Fill with distinct solid color for UV mapping
+        // verification
+        reusex::core::debug(
+            "Filling texture {} with distinct color (debug mode)", idx);
         fill_texture_with_distinct_color(image, idx);
       } else {
         // Normal mode: Project full point cloud onto mesh surface
-        reusex::core::debug("Projecting point cloud onto texture {} ({}x{} px, {} polygons, {:.0f}cm threshold)",
+        reusex::core::debug("Projecting point cloud onto texture {} ({}x{} px, "
+                            "{} polygons, {:.0f}cm threshold)",
                             idx, tex_size, tex_size, poly_group.size(),
                             quality.distance_threshold * 100);
         project_pointcloud_to_mesh_texture(
-            image,
-            poly_group,
-            cloud_xyz,
-            mesh_cloud,  // Full point cloud with RGB colors
-            normals,     // Optional point cloud normals for filtering
-            u_axis,
-            v_axis,
-            poly_normal,
-            poly_centroid,
-            uv_coords,
-            uv_indices,
-            quality  // Quality parameters for sharp textures
+            image, poly_group, cloud_xyz,
+            mesh_cloud, // Full point cloud with RGB colors
+            normals,    // Optional point cloud normals for filtering
+            u_axis, v_axis, poly_normal, poly_centroid, uv_coords, uv_indices,
+            quality // Quality parameters for sharp textures
         );
       }
 
@@ -1041,8 +1127,8 @@ pcl::TextureMesh::Ptr texture_mesh_with_cloud(pcl::PolygonMesh::Ptr mesh,
       textured_mesh->tex_coordinates[idx] = uv_coords;
       textured_mesh->tex_coord_indices[idx] = uv_indices;
 
-      reusex::core::debug("Texture {}: {} UV coords, {} UV indices",
-                          idx, uv_coords.size(), uv_indices.size());
+      reusex::core::debug("Texture {}: {} UV coords, {} UV indices", idx,
+                          uv_coords.size(), uv_indices.size());
 
       cv::imwrite(mat.tex_file, image);
       ++observer;
@@ -1064,44 +1150,51 @@ pcl::TextureMesh::Ptr texture_mesh_with_cloud(pcl::PolygonMesh::Ptr mesh,
                       textured_mesh->tex_coord_indices.size());
 
   // Merge all textures into a single atlas for PCL visualization compatibility
-  // Auto-scale atlas tile size based on number of textures to stay within OpenCV limits
+  // Auto-scale atlas tile size based on number of textures to stay within
+  // OpenCV limits
   const size_t num_materials = textured_mesh->tex_materials.size();
-  const int grid_size = static_cast<int>(std::ceil(std::sqrt(static_cast<double>(num_materials))));
+  const int grid_size = static_cast<int>(
+      std::ceil(std::sqrt(static_cast<double>(num_materials))));
 
   // OpenCV limit: CV_IO_MAX_IMAGE_PIXELS = 1e9 (1 billion pixels)
   // Leave 10% safety margin
   constexpr int64_t max_pixels = static_cast<int64_t>(1e9 * 0.9);
-  const int max_safe_tile_size = static_cast<int>(std::sqrt(max_pixels) / grid_size);
+  const int max_safe_tile_size =
+      static_cast<int>(std::sqrt(max_pixels) / grid_size);
 
   int actual_tile_size = std::min(quality.atlas_tile_size, max_safe_tile_size);
 
   // Round down to nearest power of 2 for efficiency
   actual_tile_size = std::pow(2, std::floor(std::log2(actual_tile_size)));
 
-  const int64_t atlas_pixels = static_cast<int64_t>(grid_size * actual_tile_size) *
-                                static_cast<int64_t>(grid_size * actual_tile_size);
+  const int64_t atlas_pixels =
+      static_cast<int64_t>(grid_size * actual_tile_size) *
+      static_cast<int64_t>(grid_size * actual_tile_size);
 
   if (actual_tile_size < quality.atlas_tile_size) {
-    reusex::core::warn("Reducing atlas tile size from {}x{} to {}x{} for {} textures (OpenCV limit)",
+    reusex::core::warn("Reducing atlas tile size from {}x{} to {}x{} for {} "
+                       "textures (OpenCV limit)",
                        quality.atlas_tile_size, quality.atlas_tile_size,
                        actual_tile_size, actual_tile_size, num_materials);
   }
 
-  reusex::core::info("Atlas: {}x{} grid, {}x{} tiles = {}x{} total ({:.1f}M pixels)",
-                     grid_size, grid_size,
-                     actual_tile_size, actual_tile_size,
-                     grid_size * actual_tile_size, grid_size * actual_tile_size,
-                     atlas_pixels / 1e6);
+  reusex::core::info(
+      "Atlas: {}x{} grid, {}x{} tiles = {}x{} total ({:.1f}M pixels)",
+      grid_size, grid_size, actual_tile_size, actual_tile_size,
+      grid_size * actual_tile_size, grid_size * actual_tile_size,
+      atlas_pixels / 1e6);
 
   std::filesystem::path atlas_path = base_path / "texture_atlas.jpg";
-  size_t atlased_count = create_texture_atlas(textured_mesh, actual_tile_size, atlas_path, debug_distinct_colors);
+  size_t atlased_count = create_texture_atlas(
+      textured_mesh, actual_tile_size, atlas_path, debug_distinct_colors);
 
-  reusex::core::info("Texture atlas created from {} textures -> 1 atlas material",
-                     atlased_count);
-  reusex::core::debug("After atlasing - Materials: {}, Polygons: {}, Coordinates: {}",
-                      textured_mesh->tex_materials.size(),
-                      textured_mesh->tex_polygons.size(),
-                      textured_mesh->tex_coordinates.size());
+  reusex::core::info(
+      "Texture atlas created from {} textures -> 1 atlas material",
+      atlased_count);
+  reusex::core::debug(
+      "After atlasing - Materials: {}, Polygons: {}, Coordinates: {}",
+      textured_mesh->tex_materials.size(), textured_mesh->tex_polygons.size(),
+      textured_mesh->tex_coordinates.size());
 
   return textured_mesh;
 }

@@ -3,12 +3,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "core/materialepas_serialization.hpp"
+#include "core/logging.hpp"
 #include "core/materialepas_enums.hpp"
 #include "core/materialepas_types.hpp"
-#include "core/logging.hpp"
 
-#include <nlohmann/json.hpp>
 #include <charconv>
+#include <nlohmann/json.hpp>
 #include <stdexcept>
 
 using json = nlohmann::json;
@@ -20,7 +20,7 @@ namespace reusex::core::serialization {
 // ===========================================================================
 
 PropertyValue::PropertyValue(const void *blob_data, size_t blob_size,
-                              traits::PropertyType type)
+                             traits::PropertyType type)
     : type_(type) {
   if (blob_data && blob_size > 0) {
     const uint8_t *bytes = static_cast<const uint8_t *>(blob_data);
@@ -111,7 +111,7 @@ void Deserializer::deserialize_tristate(void *ptr, const PropertyValue &value) {
 }
 
 void Deserializer::deserialize_string_array(void *ptr,
-                                             const PropertyValue &value) {
+                                            const PropertyValue &value) {
   auto *field = static_cast<std::vector<std::string> *>(ptr);
 
   std::string_view str = value.as_string();
@@ -133,13 +133,13 @@ void Deserializer::deserialize_string_array(void *ptr,
       }
     }
   } catch (const json::exception &e) {
-    throw std::runtime_error("Failed to parse JSON array: " + std::string(e.what()));
+    throw std::runtime_error("Failed to parse JSON array: " +
+                             std::string(e.what()));
   }
 }
 
-void Deserializer::deserialize_enum_value(void *ptr,
-                                           const PropertyValue &value,
-                                           std::string_view enum_type) {
+void Deserializer::deserialize_enum_value(void *ptr, const PropertyValue &value,
+                                          std::string_view enum_type) {
   std::string_view str = value.as_string();
 
   // Dispatch based on struct context to use the correct enum type
@@ -148,7 +148,8 @@ void Deserializer::deserialize_enum_value(void *ptr,
       *static_cast<SubstanceContentMethod *>(ptr) = *result;
       return;
     }
-    throw std::runtime_error("Failed to parse SubstanceContentMethod: " + std::string(str));
+    throw std::runtime_error("Failed to parse SubstanceContentMethod: " +
+                             std::string(str));
   }
 
   if (enum_type == "Emission") {
@@ -156,7 +157,8 @@ void Deserializer::deserialize_enum_value(void *ptr,
       *static_cast<EmissionQuantityType *>(ptr) = *result;
       return;
     }
-    throw std::runtime_error("Failed to parse EmissionQuantityType: " + std::string(str));
+    throw std::runtime_error("Failed to parse EmissionQuantityType: " +
+                             std::string(str));
   }
 
   // Default: Material enum
@@ -168,9 +170,8 @@ void Deserializer::deserialize_enum_value(void *ptr,
   throw std::runtime_error("Failed to parse enum value: " + std::string(str));
 }
 
-void Deserializer::deserialize_enum_array(void *ptr,
-                                           const PropertyValue &value,
-                                           std::string_view enum_type) {
+void Deserializer::deserialize_enum_array(void *ptr, const PropertyValue &value,
+                                          std::string_view enum_type) {
   auto *field = static_cast<std::vector<Material> *>(ptr);
 
   std::string_view str = value.as_string();
@@ -194,7 +195,8 @@ void Deserializer::deserialize_enum_array(void *ptr,
       }
     }
   } catch (const json::exception &e) {
-    throw std::runtime_error("Failed to parse enum array: " + std::string(e.what()));
+    throw std::runtime_error("Failed to parse enum array: " +
+                             std::string(e.what()));
   }
 }
 
@@ -222,7 +224,8 @@ void Deserializer::deserialize_object_array(
     };
 
     // Handle DangerousSubstance array
-    if (desc.nested_properties == traits::PropertyTraits<DangerousSubstance>::properties()) {
+    if (desc.nested_properties ==
+        traits::PropertyTraits<DangerousSubstance>::properties()) {
       auto *field = static_cast<std::vector<DangerousSubstance> *>(ptr);
       field->clear();
 
@@ -247,7 +250,8 @@ void Deserializer::deserialize_object_array(
     }
 
     // Handle Emission array
-    if (desc.nested_properties == traits::PropertyTraits<Emission>::properties()) {
+    if (desc.nested_properties ==
+        traits::PropertyTraits<Emission>::properties()) {
       auto *field = static_cast<std::vector<Emission> *>(ptr);
       field->clear();
 
@@ -273,7 +277,8 @@ void Deserializer::deserialize_object_array(
     throw std::runtime_error("Unknown nested object type for object_array");
 
   } catch (const json::exception &e) {
-    throw std::runtime_error("Failed to parse object array: " + std::string(e.what()));
+    throw std::runtime_error("Failed to parse object array: " +
+                             std::string(e.what()));
   }
 }
 
@@ -326,7 +331,7 @@ PropertyValue Serializer::serialize_string_array(const void *ptr) {
 }
 
 PropertyValue Serializer::serialize_enum_value(const void *ptr,
-                                                 std::string_view enum_type) {
+                                               std::string_view enum_type) {
   // Dispatch based on struct context to avoid misinterpreting enum values
   if (enum_type == "DangerousSubstance") {
     const auto *sub = static_cast<const SubstanceContentMethod *>(ptr);
@@ -344,7 +349,7 @@ PropertyValue Serializer::serialize_enum_value(const void *ptr,
 }
 
 PropertyValue Serializer::serialize_enum_array(const void *ptr,
-                                                 std::string_view enum_type) {
+                                               std::string_view enum_type) {
   const auto *field = static_cast<const std::vector<Material> *>(ptr);
   json j = json::array();
   for (const auto &mat : *field) {
@@ -353,14 +358,17 @@ PropertyValue Serializer::serialize_enum_array(const void *ptr,
   return PropertyValue(j.dump(), traits::PropertyType::EnumArray);
 }
 
-PropertyValue Serializer::serialize_object_array(
-    const void *ptr, const traits::PropertyDescriptor &desc) {
+PropertyValue
+Serializer::serialize_object_array(const void *ptr,
+                                   const traits::PropertyDescriptor &desc) {
 
   json j = json::array();
 
   // Handle DangerousSubstance array
-  if (desc.nested_properties == traits::PropertyTraits<DangerousSubstance>::properties()) {
-    const auto *field = static_cast<const std::vector<DangerousSubstance> *>(ptr);
+  if (desc.nested_properties ==
+      traits::PropertyTraits<DangerousSubstance>::properties()) {
+    const auto *field =
+        static_cast<const std::vector<DangerousSubstance> *>(ptr);
 
     for (const auto &item : *field) {
       json obj = json::object();
@@ -381,7 +389,8 @@ PropertyValue Serializer::serialize_object_array(
   }
 
   // Handle Emission array
-  if (desc.nested_properties == traits::PropertyTraits<Emission>::properties()) {
+  if (desc.nested_properties ==
+      traits::PropertyTraits<Emission>::properties()) {
     const auto *field = static_cast<const std::vector<Emission> *>(ptr);
 
     for (const auto &item : *field) {

@@ -90,8 +90,8 @@ Solidifier::solve() {
       std::distance(pimpl_->_cc->cells_begin(), pimpl_->_cc->cells_end()),
       pimpl_->_cc->n_rooms, pimpl_->_cc->n_walls);
   reusex::debug("Total variables: {}, Total constraints: {}",
-                      pimpl_->solver.number_of_variables(),
-                      pimpl_->solver.number_of_constraints());
+                pimpl_->solver.number_of_variables(),
+                pimpl_->solver.number_of_constraints());
 
   reusex::trace("Start solving");
   auto sw = reusex::core::stopwatch{};
@@ -259,10 +259,10 @@ void Solidifier::Impl::_setupObjective() {
 
 #if SolverDebug
     reusex::trace("Face {} A:{} B:{} Wa: [{}], Wb [{}]",
-                        std::get<FaceData>((*_cc)[*fit].data).id,
-                        std::get<CellData>((*_cc)[cit_a].data).id,
-                        std::get<CellData>((*_cc)[cit_b].data).id,
-                        fmt::join(Wa, ","), fmt::join(Wb, ","));
+                  std::get<FaceData>((*_cc)[*fit].data).id,
+                  std::get<CellData>((*_cc)[cit_a].data).id,
+                  std::get<CellData>((*_cc)[cit_b].data).id, fmt::join(Wa, ","),
+                  fmt::join(Wb, ","));
 #endif
 
     const double weight = (1 - f_sp[*fit]) * area[*fit];
@@ -275,8 +275,8 @@ void Solidifier::Impl::_setupObjective() {
       Variable *Xcbw = _wall_variables[cit_b][id];
       obj->add_coefficient(Xcbw, alpha * weight);
 #if SolverDebug
-      reusex::trace("Var {:<8}, alpha {:.3f}, weight: {:.3f}",
-                          Xcbw->name(), alpha, weight);
+      reusex::trace("Var {:<8}, alpha {:.3f}, weight: {:.3f}", Xcbw->name(),
+                    alpha, weight);
 #endif
     }
 
@@ -288,14 +288,14 @@ void Solidifier::Impl::_setupObjective() {
       Variable *Xcbw = _wall_variables[cit_b][id];
       obj->add_coefficient(Xcbw, alpha * weight);
 #if SolverDebug
-      reusex::trace("Var {:<8}, alpha {:.3f}, weight: {:.3f}",
-                          Xcbw->name(), alpha, weight);
+      reusex::trace("Var {:<8}, alpha {:.3f}, weight: {:.3f}", Xcbw->name(),
+                    alpha, weight);
 #endif
       Variable *Xcaw = _wall_variables[cit_a][id];
       obj->add_coefficient(Xcaw, -alpha * weight);
 #if SolverDebug
-      reusex::trace("Var {:<8}, alpha {:.3f}, weight: {:.3f}",
-                          Xcaw->name(), alpha, weight);
+      reusex::trace("Var {:<8}, alpha {:.3f}, weight: {:.3f}", Xcaw->name(),
+                    alpha, weight);
 #endif
     }
   }
@@ -327,7 +327,7 @@ void Solidifier::Impl::_c_1() {
       c1->add_coefficient(Xcr, 1);
 #if SolverDebug
       reusex::trace("Cell: {}, Label: {}, 1",
-                          std::get<CellData>((*_cc)[*cit].data).id, l);
+                    std::get<CellData>((*_cc)[*cit].data).id, l);
 #endif
     }
   }
@@ -352,8 +352,8 @@ void Solidifier::Impl::_c_2() {
       c2->add_coefficient(x_cbr, -1);
 #if SolverDebug
       reusex::trace("Face: {}, Room: {}, A:{} - B:{}",
-                          std::get<FaceData>((*_cc)[*fit].data).id, r,
-                          x_car->name(), x_cbr->name());
+                    std::get<FaceData>((*_cc)[*fit].data).id, r, x_car->name(),
+                    x_cbr->name());
 #endif
     }
   }
@@ -376,8 +376,8 @@ void Solidifier::Impl::_c_3() {
       c3->add_coefficient(Xco, -1);
 #if SolverDebug
       reusex::trace("Cell: {}, Wall: {} - {} <= 0",
-                          std::get<CellData>((*_cc)[*cit].data).id, Xcw->name(),
-                          Xco->name());
+                    std::get<CellData>((*_cc)[*cit].data).id, Xcw->name(),
+                    Xco->name());
 #endif
     }
   }
@@ -413,8 +413,8 @@ void Solidifier::Impl::_c_4() {
 
 #if SolverDebug
     reusex::trace("Face: {}, (Wb - Wa) x_cb[{}] - {} + {} >= 0",
-                        std::get<FaceData>((*_cc)[*fit].data).id,
-                        fmt::join(W_b - W_a, ", "), Xcbo->name(), Xcao->name());
+                  std::get<FaceData>((*_cc)[*fit].data).id,
+                  fmt::join(W_b - W_a, ", "), Xcbo->name(), Xcao->name());
 #endif
   }
 }
@@ -443,8 +443,8 @@ void Solidifier::Impl::_c_5() {
       c5->add_coefficient(Xcaw, -1);
 #if SolverDebug
       reusex::trace("Face: {}, Wall: {}, {} - {} >= 0",
-                          std::get<FaceData>((*_cc)[*fit].data).id, id,
-                          Xcbw->name(), Xcaw->name());
+                    std::get<FaceData>((*_cc)[*fit].data).id, id, Xcbw->name(),
+                    Xcaw->name());
 #endif
     }
   }
@@ -481,10 +481,9 @@ void Solidifier::Impl::_c_6() {
       }
 
 #if SolverDebug
-      reusex::trace(
-          "Face: {}, Wall: {}, sum(Wb - Wa) x_cb[{}] - {} + {} >= 0 ",
-          std::get<FaceData>((*_cc)[*fit].data).id, fmt::join(W_b - W_a, ", "),
-          id, Xcbw->name(), Xcaw->name());
+      reusex::trace("Face: {}, Wall: {}, sum(Wb - Wa) x_cb[{}] - {} + {} >= 0 ",
+                    std::get<FaceData>((*_cc)[*fit].data).id,
+                    fmt::join(W_b - W_a, ", "), id, Xcbw->name(), Xcaw->name());
 #endif
     }
   }
@@ -511,8 +510,8 @@ void Solidifier::Impl::_c_7() {
     c7->add_coefficient(Xcbo, -1);
 #if SolverDebug
     reusex::trace("Face: {}, {} - {} <= 0",
-                        std::get<FaceData>((*_cc)[*fit].data).id, Xcao->name(),
-                        Xcbo->name());
+                  std::get<FaceData>((*_cc)[*fit].data).id, Xcao->name(),
+                  Xcbo->name());
 #endif
   }
 }

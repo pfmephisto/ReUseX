@@ -199,8 +199,7 @@ NOTES:
 int run_subcommand_import_photos(SubcommandImportPhotosOptions const &opt,
                                  const RuxOptions &global_opt) {
   fs::path project_path = global_opt.project_db;
-  spdlog::info("Importing survey photos to project: {}",
-               project_path.string());
+  spdlog::info("Importing survey photos to project: {}", project_path.string());
 
   reusex::ProjectDB db(project_path);
 
@@ -233,8 +232,7 @@ int run_subcommand_import_photos(SubcommandImportPhotosOptions const &opt,
   }
 
   int log_id = db.log_pipeline_start(
-      "import_photos",
-      fmt::format(R"({{"file_count":{}}})", files.size()));
+      "import_photos", fmt::format(R"({{"file_count":{}}})", files.size()));
 
   int imported = 0;
   int matched = 0;

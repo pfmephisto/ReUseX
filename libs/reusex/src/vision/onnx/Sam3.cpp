@@ -2,9 +2,9 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include "vision/onnx/Sam3.hpp"
 #include "core/logging.hpp"
 #include "vision/common/create_object.hpp"
-#include "vision/onnx/Sam3.hpp"
 #include "vision/onnx/Sam3Data.hpp"
 #include "vision/osd/osd.hpp"
 
@@ -49,7 +49,7 @@ std::string load_file_bytes(const std::filesystem::path &path) {
 /// @param dst_h Target canvas height.
 /// @return Tuple of (scale, pad_left, pad_top) in pixels.
 std::tuple<float, int, int> compute_resize_params(int src_w, int src_h,
-                                                   int dst_w, int dst_h) {
+                                                  int dst_w, int dst_h) {
   float scale_x = static_cast<float>(dst_w) / static_cast<float>(src_w);
   float scale_y = static_cast<float>(dst_h) / static_cast<float>(src_h);
   float scale = std::min(scale_x, scale_y);
@@ -125,8 +125,8 @@ make_ids(const std::vector<int32_t> &ids) {
 
 ONNXSam3::ONNXSam3(const std::filesystem::path &model_dir, bool use_cuda)
     : env_(ORT_LOGGING_LEVEL_WARNING, "ONNXSam3"),
-      memory_info_(Ort::MemoryInfo::CreateCpu(OrtArenaAllocator,
-                                              OrtMemTypeDefault)) {
+      memory_info_(
+          Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault)) {
   // 0 = use all available cores
   session_options_.SetIntraOpNumThreads(0);
   session_options_.SetInterOpNumThreads(0);
@@ -141,16 +141,15 @@ ONNXSam3::ONNXSam3(const std::filesystem::path &model_dir, bool use_cuda)
       session_options_.AppendExecutionProvider_CUDA(cuda_options);
       reusex::info("ONNX Runtime using CUDA execution provider");
     } catch (const Ort::Exception &e) {
-      reusex::warn("CUDA EP not available, falling back to CPU: {}",
-                         e.what());
+      reusex::warn("CUDA EP not available, falling back to CPU: {}", e.what());
     }
   } else {
     reusex::info("ONNX Runtime using CPU execution provider");
   }
 
   // Load sub-models
-  auto load_session = [&](const std::string &name)
-      -> std::unique_ptr<Ort::Session> {
+  auto load_session =
+      [&](const std::string &name) -> std::unique_ptr<Ort::Session> {
     auto path = model_dir / (name + ".onnx");
     reusex::debug("Loading ONNX model {} from {}", name, path.string());
     auto session =
@@ -169,7 +168,7 @@ ONNXSam3::ONNXSam3(const std::filesystem::path &model_dir, bool use_cuda)
   reusex::debug("Tokenizer blob loaded, {} bytes", blob.size());
   tokenizer_ = tokenizers::Tokenizer::FromBlobJSON(blob);
   reusex::debug("Tokenizer initialized, vocab size: {}",
-                       tokenizer_->GetVocabSize());
+                tokenizer_->GetVocabSize());
 
   reusex::info("Loaded ONNX SAM3 model from {}", model_dir);
 }
@@ -220,9 +219,8 @@ ONNXSam3::preprocess(const cv::Mat &image) const {
   }
 
   // Build mask -> original affine
-  cv::Mat inv_affine =
-      build_mask_to_image_affine(src_w, src_h, input_size_, mask_width_,
-                                 mask_height_);
+  cv::Mat inv_affine = build_mask_to_image_affine(src_w, src_h, input_size_,
+                                                  mask_width_, mask_height_);
 
   return {std::move(chw), inv_affine};
 }
@@ -268,9 +266,9 @@ cv::Mat ONNXSam3::infer_single(const ONNXSam3Data &sam3_data) {
   const char *vision_output_names[] = {"fpn_feat_0", "fpn_feat_1", "fpn_feat_2",
                                        "fpn_pos_2"};
 
-  auto vision_outputs = vision_encoder_->Run(
-      Ort::RunOptions{nullptr}, vision_input_names, &vision_input, 1,
-      vision_output_names, 4);
+  auto vision_outputs =
+      vision_encoder_->Run(Ort::RunOptions{nullptr}, vision_input_names,
+                           &vision_input, 1, vision_output_names, 4);
 
   // Extract FPN feature shapes and data pointers (reused across prompts)
   auto get_tensor_info = [](const Ort::Value &val) {
@@ -316,17 +314,17 @@ cv::Mat ONNXSam3::infer_single(const ONNXSam3Data &sam3_data) {
         Ort::Value::CreateTensor<int64_t>(memory_info_, input_ids.data(),
                                           input_ids.size(), text_shape.data(),
                                           text_shape.size()),
-        Ort::Value::CreateTensor<int64_t>(
-            memory_info_, attention_mask.data(), attention_mask.size(),
-            text_shape.data(), text_shape.size()),
+        Ort::Value::CreateTensor<int64_t>(memory_info_, attention_mask.data(),
+                                          attention_mask.size(),
+                                          text_shape.data(), text_shape.size()),
     };
 
     const char *text_input_names[] = {"input_ids", "attention_mask"};
     const char *text_output_names[] = {"text_features", "text_mask"};
 
-    auto text_outputs = text_encoder_->Run(
-        Ort::RunOptions{nullptr}, text_input_names, text_inputs, 2,
-        text_output_names, 2);
+    auto text_outputs =
+        text_encoder_->Run(Ort::RunOptions{nullptr}, text_input_names,
+                           text_inputs, 2, text_output_names, 2);
 
     // Get text feature data (prompt_features = text_features for text-only)
     auto text_feat_shape = get_tensor_info(text_outputs[0]);
@@ -352,23 +350,23 @@ cv::Mat ONNXSam3::infer_single(const ONNXSam3Data &sam3_data) {
                                         fpn2_shape.data(), fpn2_shape.size()),
         Ort::Value::CreateTensor<float>(memory_info_, pos2_data, pos2_size,
                                         pos2_shape.data(), pos2_shape.size()),
-        Ort::Value::CreateTensor<float>(
-            memory_info_, text_feat_data, text_feat_size,
-            text_feat_shape.data(), text_feat_shape.size()),
+        Ort::Value::CreateTensor<float>(memory_info_, text_feat_data,
+                                        text_feat_size, text_feat_shape.data(),
+                                        text_feat_shape.size()),
         Ort::Value::CreateTensor<bool>(memory_info_, text_mask_data,
                                        text_mask_size, text_mask_shape.data(),
                                        text_mask_shape.size()),
     };
 
-    const char *decoder_input_names[] = {"fpn_feat_0", "fpn_feat_1",
-                                         "fpn_feat_2", "fpn_pos_2",
+    const char *decoder_input_names[] = {"fpn_feat_0",      "fpn_feat_1",
+                                         "fpn_feat_2",      "fpn_pos_2",
                                          "prompt_features", "prompt_mask"};
     const char *decoder_output_names[] = {"pred_masks", "pred_boxes",
                                           "pred_logits", "presence_logits"};
 
-    auto dec_outputs = decoder_->Run(
-        Ort::RunOptions{nullptr}, decoder_input_names, decoder_inputs, 6,
-        decoder_output_names, 4);
+    auto dec_outputs =
+        decoder_->Run(Ort::RunOptions{nullptr}, decoder_input_names,
+                      decoder_inputs, 6, decoder_output_names, 4);
 
     // Postprocess
     float *pred_masks = dec_outputs[0].GetTensorMutableData<float>();
@@ -383,7 +381,8 @@ cv::Mat ONNXSam3::infer_single(const ONNXSam3Data &sam3_data) {
     // normalized to input canvas (same space as mask), multiply by mask dims
     // first, then apply the affine.
     float box_sx = inv_affine.at<float>(0, 0) * static_cast<float>(mask_width_);
-    float box_sy = inv_affine.at<float>(1, 1) * static_cast<float>(mask_height_);
+    float box_sy =
+        inv_affine.at<float>(1, 1) * static_cast<float>(mask_height_);
     float box_tx = inv_affine.at<float>(0, 2);
     float box_ty = inv_affine.at<float>(1, 2);
 
@@ -428,8 +427,7 @@ cv::Mat ONNXSam3::infer_single(const ONNXSam3Data &sam3_data) {
       bin_mask.convertTo(bin_mask, CV_8U);
 
       // Crop to bounding box
-      cv::Rect roi(static_cast<int>(left), static_cast<int>(top), box_w,
-                   box_h);
+      cv::Rect roi(static_cast<int>(left), static_cast<int>(top), box_w, box_h);
       roi &= cv::Rect(0, 0, image.cols, image.rows);
       if (roi.area() <= 0)
         continue;
@@ -438,10 +436,9 @@ cv::Mat ONNXSam3::infer_single(const ONNXSam3Data &sam3_data) {
 
       int label_id = static_cast<int>(prompt_idx);
 
-      reusex::trace(
-          "Detection: prompt='{}' ({}), score={:.3f}, box=[{:.0f}, "
-          "{:.0f}, {:.0f}, {:.0f}]",
-          prompt.text, label_id, score, left, top, right, bottom);
+      reusex::trace("Detection: prompt='{}' ({}), score={:.3f}, box=[{:.0f}, "
+                    "{:.0f}, {:.0f}, {:.0f}]",
+                    prompt.text, label_id, score, left, top, right, bottom);
 
       all_detections.push_back(object::create_segmentation_box(
           left, top, right, bottom, cropped_mask, score, label_id,
@@ -469,13 +466,10 @@ ONNXSam3::forward(const std::span<IDataset::Pair> &input) {
   std::vector<IDataset::Pair> results(input.size());
 
   for (size_t i = 0; i < input.size(); ++i) {
-    auto *sam3_data =
-        dynamic_cast<const ONNXSam3Data *>(input[i].first.get());
+    auto *sam3_data = dynamic_cast<const ONNXSam3Data *>(input[i].first.get());
     if (!sam3_data) {
-      reusex::error(
-          "ONNXSam3::forward: input {} is not ONNXSam3Data", i);
-      throw std::runtime_error(
-          "ONNXSam3::forward: input is not ONNXSam3Data");
+      reusex::error("ONNXSam3::forward: input {} is not ONNXSam3Data", i);
+      throw std::runtime_error("ONNXSam3::forward: input is not ONNXSam3Data");
     }
 
     auto res_ptr = std::make_unique<ONNXSam3Data>();

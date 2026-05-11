@@ -16,6 +16,8 @@ struct SubcommandImportMaterialepasOptions {
   std::string project_id;
 };
 
-void setup_subcommand_import_materialepas(CLI::App &parent, std::shared_ptr<RuxOptions> global_opt);
+void setup_subcommand_import_materialepas(
+    CLI::App &parent, std::shared_ptr<RuxOptions> global_opt);
 int run_subcommand_import_materialepas(
-    SubcommandImportMaterialepasOptions const &opt, const RuxOptions &global_opt);
+    SubcommandImportMaterialepasOptions const &opt,
+    const RuxOptions &global_opt);

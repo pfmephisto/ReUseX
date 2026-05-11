@@ -11,7 +11,8 @@
 #include <pcl/common/io.h>
 #include <spdlog/spdlog.h>
 
-void setup_subcommand_export_ply(CLI::App &parent, std::shared_ptr<RuxOptions> global_opt) {
+void setup_subcommand_export_ply(CLI::App &parent,
+                                 std::shared_ptr<RuxOptions> global_opt) {
 
   auto opt = std::make_shared<SubcommandExportPLYOptions>();
   auto *sub = parent.add_subcommand("ply", "Export point cloud to a PLY file");
@@ -63,9 +64,11 @@ NOTES:
   });
 }
 
-int run_subcommand_export_ply(SubcommandExportPLYOptions const &opt, const RuxOptions &global_opt) {
+int run_subcommand_export_ply(SubcommandExportPLYOptions const &opt,
+                              const RuxOptions &global_opt) {
   try {
-    spdlog::info("Exporting PLY from project: {}", global_opt.project_db.string());
+    spdlog::info("Exporting PLY from project: {}",
+                 global_opt.project_db.string());
 
     reusex::ProjectDB db(global_opt.project_db);
 
@@ -74,22 +77,28 @@ int run_subcommand_export_ply(SubcommandExportPLYOptions const &opt, const RuxOp
       auto names = db.list_point_clouds();
       if (!names.empty()) {
         std::string list;
-        for (const auto &n : names) { if (!list.empty()) list += ", "; list += n; }
+        for (const auto &n : names) {
+          if (!list.empty())
+            list += ", ";
+          list += n;
+        }
         spdlog::info("Available clouds: {}", list);
       }
       return RuxError::INVALID_ARGUMENT;
     }
 
-    auto cloud   = db.point_cloud_xyzrgb(opt.cloud_name);
+    auto cloud = db.point_cloud_xyzrgb(opt.cloud_name);
     std::string normals_name = opt.cloud_name + "_normals";
     auto normals = db.has_point_cloud(normals_name)
-                 ? db.point_cloud_normal(normals_name) : nullptr;
+                       ? db.point_cloud_normal(normals_name)
+                       : nullptr;
 
     // Apply filter if provided
     reusex::IndicesPtr indices;
     if (!opt.filter_expr.empty()) {
       try {
-        indices = rux::filters::evaluate_filter(opt.filter_expr, db, cloud->size());
+        indices =
+            rux::filters::evaluate_filter(opt.filter_expr, db, cloud->size());
       } catch (const std::exception &e) {
         spdlog::error("Filter evaluation failed: {}", e.what());
         return RuxError::INVALID_ARGUMENT;
@@ -109,13 +118,13 @@ int run_subcommand_export_ply(SubcommandExportPLYOptions const &opt, const RuxOp
       }
     } else {
       export_cloud = *cloud;
-      if (normals) normals_ptr = normals.get();
+      if (normals)
+        normals_ptr = normals.get();
     }
 
     // Resolve output path
-    fs::path out = opt.output_path.empty()
-                 ? fs::path(opt.cloud_name + ".ply")
-                 : opt.output_path;
+    fs::path out = opt.output_path.empty() ? fs::path(opt.cloud_name + ".ply")
+                                           : opt.output_path;
 
     reusex::io::export_ply(out, export_cloud, normals_ptr);
 

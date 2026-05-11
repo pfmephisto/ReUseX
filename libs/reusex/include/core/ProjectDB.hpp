@@ -90,7 +90,8 @@ class ProjectDB {
   core::SensorIntrinsics sensor_frame_intrinsics(int nodeId) const;
   bool has_sensor_frame(int nodeId) const;
 
-  /// Get the timestamp (epoch seconds) of a sensor frame. Returns -1.0 if not set.
+  /// Get the timestamp (epoch seconds) of a sensor frame. Returns -1.0 if not
+  /// set.
   double sensor_frame_timestamp(int nodeId) const;
 
   /// Find the sensor frame with the closest timestamp to the given value.
@@ -102,8 +103,8 @@ class ProjectDB {
   struct PanoramicImage {
     int id;
     std::string filename;
-    double timestamp;  // -1.0 if unknown
-    int node_id;       // -1 if unmatched
+    double timestamp; // -1.0 if unknown
+    int node_id;      // -1 if unmatched
   };
 
   void save_panoramic_image(const std::string &filename,
@@ -319,8 +320,7 @@ class ProjectDB {
    * @param id Custom row ID for the material_passports.id column
    */
   void add_material_passport(const core::MaterialPassport &passport,
-                             std::string_view projectId,
-                             std::string_view id);
+                             std::string_view projectId, std::string_view id);
 
   /**
    * @brief Delete a material passport by GUID

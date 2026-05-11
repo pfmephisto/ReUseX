@@ -166,7 +166,8 @@ struct Certifications {
   /// @note Danish: 'Ydeevnedeklaration'
   /// @note Open value list of document references.
   std::vector<std::string> declaration_of_performance;
-  std::string leksikon_guid_declaration_of_performance = "1tqCmrJwn3yvF$k2lU2fFa";
+  std::string leksikon_guid_declaration_of_performance =
+      "1tqCmrJwn3yvF$k2lU2fFa";
 
   /// @brief Technical documentation references
   /// @note Danish: 'Teknisk dokumentation'
@@ -193,12 +194,14 @@ struct Certifications {
   /// @brief Remaining service life (RSL) in years
   /// @note Danish: 'Restlevetid (RSL)'
   std::optional<double> remaining_service_life_rsl;
-  std::string leksikon_guid_remaining_service_life_rsl = "2id4UZ8ynAF9DEzV0NC_wT";
+  std::string leksikon_guid_remaining_service_life_rsl =
+      "2id4UZ8ynAF9DEzV0NC_wT";
 
   /// @brief Remaining service life according to BUILD methodology (years)
   /// @note Danish: 'Restlevetid (BUILD)'
   std::optional<double> remaining_service_life_build;
-  std::string leksikon_guid_remaining_service_life_build = "27gXAA5Iz7lgcOytMRqOBv";
+  std::string leksikon_guid_remaining_service_life_build =
+      "27gXAA5Iz7lgcOytMRqOBv";
 };
 
 // ===========================================================================
@@ -281,7 +284,8 @@ struct Condition {
   /// @brief Whether a visual inspection has been performed
   /// @note Danish: 'Visuel inspektion udført'
   std::optional<bool> visual_inspection_performed;
-  std::string leksikon_guid_visual_inspection_performed = "2jB20LC_nEzBN4_j2ypip8";
+  std::string leksikon_guid_visual_inspection_performed =
+      "2jB20LC_nEzBN4_j2ypip8";
 
   /// @brief Whether the item has signs of damage
   /// @note Danish: 'Har tegn på skade'
@@ -408,7 +412,8 @@ struct Pollution {
   /// @brief Whether the item contains substances on REACH candidate list
   /// @note Danish: 'Indeholder stoffer på REACHs kandidatliste'
   TriState contains_reach_substances = TriState::unknown;
-  std::string leksikon_guid_contains_reach_substances = "2E6_MQ4Cn36f0s6CVYxQOR";
+  std::string leksikon_guid_contains_reach_substances =
+      "2E6_MQ4Cn36f0s6CVYxQOR";
 
   /// @brief Whether the item has been chemically treated
   /// @note Danish: 'Er byggevaren kemisk behandlet'
@@ -467,12 +472,14 @@ struct EnvironmentalPotential {
   /// @brief Whether a take-back scheme is available
   /// @note Danish: 'Tilbagetagningsordning tilgængelig'
   std::optional<bool> takeback_scheme_available;
-  std::string leksikon_guid_takeback_scheme_available = "2__I$nkL94YRI_YCBy0ou8";
+  std::string leksikon_guid_takeback_scheme_available =
+      "2__I$nkL94YRI_YCBy0ou8";
 
   /// @brief Whether the item consists of naturally separate parts
   /// @note Danish: 'Byggevaren består naturligt af separate dele'
   std::optional<bool> consists_of_separate_parts;
-  std::string leksikon_guid_consists_of_separate_parts = "2nZqcaXkz7YPHhKI$FMowg";
+  std::string leksikon_guid_consists_of_separate_parts =
+      "2nZqcaXkz7YPHhKI$FMowg";
 };
 
 // ===========================================================================
@@ -502,7 +509,8 @@ struct FireProperties {
   /// @note Closed value list. Examples: test report, classification report,
   ///       EXAP (extended application), tabulated data, etc.
   std::string documentation_of_fire_classification;
-  std::string leksikon_guid_documentation_of_fire_classification = "1DdkDjj1H7POQtnzDtu7CC";
+  std::string leksikon_guid_documentation_of_fire_classification =
+      "1DdkDjj1H7POQtnzDtu7CC";
 
   /// @brief Field of application in relation to fire
   /// @note Danish: 'Anvendelsesområde i relation til brand'
@@ -524,7 +532,8 @@ struct History {
   ///       underground, marine, industrial, residential, commercial,
   ///       agricultural, etc.
   std::vector<std::string> previous_usage_environments;
-  std::string leksikon_guid_previous_usage_environments = "3BiwSSLEz9l8YLgoWcixHq";
+  std::string leksikon_guid_previous_usage_environments =
+      "3BiwSSLEz9l8YLgoWcixHq";
 };
 
 } // namespace reusex::core

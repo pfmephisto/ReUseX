@@ -2,9 +2,9 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include "vision/libtorch/Backend.hpp"
 #include "core/logging.hpp"
 #include "vision/IMLBackend.hpp"
-#include "vision/libtorch/Backend.hpp"
 #include "vision/libtorch/Dataset.hpp"
 #include "vision/libtorch/Yolo.hpp"
 
@@ -12,18 +12,16 @@
 
 namespace reusex::vision::libtorch {
 
-std::unique_ptr<IModel>
-LibTorchBackend::create_model(const Model type,
-                              const std::filesystem::path &modelPath,
-                              bool use_cuda) {
+std::unique_ptr<IModel> LibTorchBackend::create_model(
+    const Model type, const std::filesystem::path &modelPath, bool use_cuda) {
   reusex::info("Creating LibTorch model type {} from path: {}",
-                     static_cast<int>(type), modelPath);
+               static_cast<int>(type), modelPath);
   switch (type) {
   case Model::yolo:
     return LibTorchYolo::create(modelPath, use_cuda);
   default:
     reusex::error("Unsupported model type for LibTorch backend: {}",
-                        static_cast<int>(type));
+                  static_cast<int>(type));
     throw std::runtime_error("Unsupported model type for LibTorch backend");
   }
 }

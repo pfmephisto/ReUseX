@@ -20,7 +20,7 @@ namespace rux::database {
  * - panoramas[0].metadata → get first panorama metadata (JSON)
  */
 class PanoramaRouter : public ResourceRouter {
-public:
+    public:
   using ResourceRouter::ResourceRouter;
 
   DataPayload get(const std::vector<PathComponent> &components) override;
@@ -29,7 +29,7 @@ public:
   void del(const std::vector<PathComponent> &components) override;
   std::vector<std::string> list() const override;
 
-private:
+    private:
   nlohmann::json get_metadata(std::string_view filename) const;
   std::vector<uint8_t> get_image_data(std::string_view filename) const;
 };

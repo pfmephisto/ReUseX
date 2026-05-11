@@ -51,8 +51,7 @@ std::optional<int> parse_array_index(std::string_view str) {
   }
 
   auto digits = str.substr(1, str.length() - 2);
-  if (digits.empty() ||
-      !std::all_of(digits.begin(), digits.end(), ::isdigit)) {
+  if (digits.empty() || !std::all_of(digits.begin(), digits.end(), ::isdigit)) {
     return std::nullopt;
   }
 
@@ -125,7 +124,8 @@ std::vector<PathComponent> parse_path(std::string_view path) {
         // First component is always a collection
         if (!is_valid_collection(part)) {
           throw PathError("Invalid collection name: " + part +
-                          "\nValid collections: clouds, materials, meshes, panoramas, projects");
+                          "\nValid collections: clouds, materials, meshes, "
+                          "panoramas, projects");
         }
         components.emplace_back(ComponentType::Collection, part);
       } else if (i == 1) {
@@ -138,8 +138,7 @@ std::vector<PathComponent> parse_path(std::string_view path) {
     }
   }
 
-  spdlog::trace("Parsed path '{}' into {} components", path,
-                components.size());
+  spdlog::trace("Parsed path '{}' into {} components", path, components.size());
   return components;
 }
 
@@ -152,10 +151,9 @@ bool matches_wildcard(std::string_view str, std::string_view pattern) {
   for (char ch : pattern) {
     if (ch == '*') {
       regex_pattern += ".*";
-    } else if (ch == '.' || ch == '+' || ch == '?' || ch == '[' ||
-               ch == ']' || ch == '(' || ch == ')' || ch == '{' ||
-               ch == '}' || ch == '^' || ch == '$' || ch == '|' ||
-               ch == '\\') {
+    } else if (ch == '.' || ch == '+' || ch == '?' || ch == '[' || ch == ']' ||
+               ch == '(' || ch == ')' || ch == '{' || ch == '}' || ch == '^' ||
+               ch == '$' || ch == '|' || ch == '\\') {
       regex_pattern += '\\';
       regex_pattern += ch;
     } else {

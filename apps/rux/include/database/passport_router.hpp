@@ -17,7 +17,7 @@ namespace rux::database {
  * - materials[0].contact_email → get single property value
  */
 class PassportRouter : public ResourceRouter {
-public:
+    public:
   using ResourceRouter::ResourceRouter;
 
   DataPayload get(const std::vector<PathComponent> &components) override;

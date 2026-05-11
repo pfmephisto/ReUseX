@@ -149,21 +149,21 @@ class IVisualObserver : IObserver {
   }
 
   virtual void viewer_add_visibility_graph(
-      std::string_view name,
-      [[maybe_unused]] const CloudLocPtr &disc_points,
-      [[maybe_unused]] const std::shared_ptr<std::vector<pcl::Vertices>> &disc_outlines,
-      [[maybe_unused]] const pcl::CorrespondencesPtr &edges,
-      Stage stage, int /*idx*/ = 0) {
+      std::string_view name, [[maybe_unused]] const CloudLocPtr &disc_points,
+      [[maybe_unused]] const std::shared_ptr<std::vector<pcl::Vertices>>
+          &disc_outlines,
+      [[maybe_unused]] const pcl::CorrespondencesPtr &edges, Stage stage,
+      int /*idx*/ = 0) {
     core::debug("viewer_add_visibility_graph called for '{}' at stage '{}' "
                 "(no handler registered)",
                 name, to_string(stage));
   }
 
-  virtual void viewer_add_labeled_cloud(
-      std::string_view name,
-      [[maybe_unused]] const CloudConstPtr &cloud,
-      [[maybe_unused]] const CloudLConstPtr &labels,
-      Stage stage, int /*idx*/ = 0) {
+  virtual void
+  viewer_add_labeled_cloud(std::string_view name,
+                           [[maybe_unused]] const CloudConstPtr &cloud,
+                           [[maybe_unused]] const CloudLConstPtr &labels,
+                           Stage stage, int /*idx*/ = 0) {
     core::debug("viewer_add_labeled_cloud called for '{}' at stage '{}' "
                 "(no handler registered)",
                 name, to_string(stage));

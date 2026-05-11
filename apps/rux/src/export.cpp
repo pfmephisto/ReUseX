@@ -10,10 +10,9 @@
 #include "export/semantic_images.hpp"
 #include "export/speckle.hpp"
 
-void setup_subcommand_export(CLI::App &app, std::shared_ptr<RuxOptions> global_opt) {
-  auto *sub = app.add_subcommand(
-      "export",
-      "Export data to external formats");
+void setup_subcommand_export(CLI::App &app,
+                             std::shared_ptr<RuxOptions> global_opt) {
+  auto *sub = app.add_subcommand("export", "Export data to external formats");
 
   sub->footer(R"(
 DESCRIPTION:

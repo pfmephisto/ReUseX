@@ -15,5 +15,7 @@ struct SubcommandExportRhinoOptions {
   fs::path path_out = fs::current_path() / "export.3dm"; ///< Output .3dm file
 };
 
-void setup_subcommand_export_rhino(CLI::App &parent, std::shared_ptr<RuxOptions> global_opt);
-int run_subcommand_export_rhino(SubcommandExportRhinoOptions const &opt, const RuxOptions &global_opt);
+void setup_subcommand_export_rhino(CLI::App &parent,
+                                   std::shared_ptr<RuxOptions> global_opt);
+int run_subcommand_export_rhino(SubcommandExportRhinoOptions const &opt,
+                                const RuxOptions &global_opt);

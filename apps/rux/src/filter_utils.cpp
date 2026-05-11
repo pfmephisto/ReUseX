@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "filter_utils.hpp"
-#include <reusex/core/ProjectDB.hpp>
-#include <reusex/core/filter_expression.hpp>
 #include <algorithm>
 #include <fmt/format.h>
 #include <fmt/ranges.h>
 #include <regex>
+#include <reusex/core/ProjectDB.hpp>
+#include <reusex/core/filter_expression.hpp>
 #include <spdlog/spdlog.h>
 
 namespace rux::filters {

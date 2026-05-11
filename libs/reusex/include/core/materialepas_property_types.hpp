@@ -12,7 +12,8 @@ namespace reusex::core::traits {
 /**
  * @brief Property type enumeration for MaterialPassport serialization
  *
- * Maps C++ types to database storage types for the MaterialPassport trait system.
+ * Maps C++ types to database storage types for the MaterialPassport trait
+ * system.
  */
 enum class PropertyType {
   /// std::string

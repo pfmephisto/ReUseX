@@ -9,7 +9,8 @@
 #include <spdlog/fmt/std.h>
 #include <spdlog/spdlog.h>
 
-void setup_subcommand_import_ply(CLI::App &app, std::shared_ptr<RuxOptions> global_opt) {
+void setup_subcommand_import_ply(CLI::App &app,
+                                 std::shared_ptr<RuxOptions> global_opt) {
 
   auto opt = std::make_shared<SubcommandImportPLYOptions>();
   auto *sub = app.add_subcommand("ply", "Import point cloud from a PLY file");
@@ -44,7 +45,8 @@ NOTES:
   });
 }
 
-int run_subcommand_import_ply(SubcommandImportPLYOptions const &opt, const RuxOptions &global_opt) {
+int run_subcommand_import_ply(SubcommandImportPLYOptions const &opt,
+                              const RuxOptions &global_opt) {
 
   fs::path project_path = global_opt.project_db;
   spdlog::info("Importing PLY file to project: {}", project_path.string());

@@ -3,8 +3,8 @@
 
 #pragma once
 
-#include <reusex/types.hpp>
 #include <memory>
+#include <reusex/types.hpp>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -18,7 +18,7 @@ namespace reusex::core {
 
 /// Base AST node for filter expressions
 class FilterNode {
-public:
+    public:
   virtual ~FilterNode() = default;
 
   /// Evaluate this node for a specific point's label value
@@ -32,7 +32,7 @@ class CloudReferenceNode {
   std::string cloud_name_;
   CloudLConstPtr label_cloud_;
 
-public:
+    public:
   CloudReferenceNode(std::string name, CloudLConstPtr labels)
       : cloud_name_(std::move(name)), label_cloud_(std::move(labels)) {}
 
@@ -45,7 +45,7 @@ public:
 class EqualNode : public FilterNode {
   int32_t value_;
 
-public:
+    public:
   explicit EqualNode(int32_t value) : value_(value) {}
   auto evaluate(int32_t label) const -> bool override {
     return label == value_;
@@ -56,7 +56,7 @@ public:
 class NotEqualNode : public FilterNode {
   int32_t value_;
 
-public:
+    public:
   explicit NotEqualNode(int32_t value) : value_(value) {}
   auto evaluate(int32_t label) const -> bool override {
     return label != value_;
@@ -67,7 +67,7 @@ public:
 class InNode : public FilterNode {
   std::unordered_set<int32_t> values_;
 
-public:
+    public:
   explicit InNode(std::vector<int32_t> values)
       : values_(values.begin(), values.end()) {}
   auto evaluate(int32_t label) const -> bool override {
@@ -77,14 +77,14 @@ public:
 
 /// Comparison operators: <cloud> >= value, etc.
 class CompareNode : public FilterNode {
-public:
+    public:
   enum class Op { GT, GE, LT, LE };
 
-private:
+    private:
   Op op_;
   int32_t value_;
 
-public:
+    public:
   CompareNode(Op op, int32_t value) : op_(op), value_(value) {}
   auto evaluate(int32_t label) const -> bool override {
     switch (op_) {
@@ -106,7 +106,7 @@ class AndNode : public FilterNode {
   std::unique_ptr<FilterNode> left_;
   std::unique_ptr<FilterNode> right_;
 
-public:
+    public:
   AndNode(std::unique_ptr<FilterNode> left, std::unique_ptr<FilterNode> right)
       : left_(std::move(left)), right_(std::move(right)) {}
   auto evaluate(int32_t label) const -> bool override {
@@ -119,7 +119,7 @@ class OrNode : public FilterNode {
   std::unique_ptr<FilterNode> left_;
   std::unique_ptr<FilterNode> right_;
 
-public:
+    public:
   OrNode(std::unique_ptr<FilterNode> left, std::unique_ptr<FilterNode> right)
       : left_(std::move(left)), right_(std::move(right)) {}
   auto evaluate(int32_t label) const -> bool override {
@@ -129,7 +129,7 @@ public:
 
 /// Parsed filter expression with resolved label cloud references
 struct FilterExpression {
-  std::unique_ptr<FilterNode> root; ///< AST root
+  std::unique_ptr<FilterNode> root;       ///< AST root
   std::vector<CloudReferenceNode> clouds; ///< Referenced label clouds
 
   /// Evaluate filter for a point index

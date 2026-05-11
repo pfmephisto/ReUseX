@@ -25,10 +25,9 @@ class TensorRTBackend : public IMLBackend {
    * @return: A unique pointer to an IModel instance representing the created
    * model.
    */
-  std::unique_ptr<IModel>
-  create_model(const Model type,
-               const std::filesystem::path &modelPath,
-               bool use_cuda = false) override;
+  std::unique_ptr<IModel> create_model(const Model type,
+                                       const std::filesystem::path &modelPath,
+                                       bool use_cuda = false) override;
 
   /* Creates a dataset based on the provided dataset path. This method is
    * responsible for initializing and returning a dataset that can be used for

@@ -50,7 +50,8 @@ nlohmann::json CloudRouter::get_metadata(std::string_view name) const {
   return meta;
 }
 
-std::vector<uint8_t> CloudRouter::get_cloud_binary(std::string_view name) const {
+std::vector<uint8_t>
+CloudRouter::get_cloud_binary(std::string_view name) const {
   if (!db_->has_point_cloud(name)) {
     throw std::runtime_error("Point cloud not found: " + std::string(name));
   }
@@ -153,8 +154,9 @@ DataPayload CloudRouter::get(const std::vector<PathComponent> &components) {
     auto meta = get_metadata(item_name);
     return std::to_string(meta["point_count"].get<size_t>());
   } else {
-    throw std::runtime_error("Unknown property: " + prop +
-                             "\nAvailable properties: metadata, type, point_count");
+    throw std::runtime_error(
+        "Unknown property: " + prop +
+        "\nAvailable properties: metadata, type, point_count");
   }
 }
 

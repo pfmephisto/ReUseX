@@ -1,11 +1,11 @@
 #pragma once
 #include <algorithm>
+#include <atomic>
 #include <condition_variable>
 #include <future>
 #include <memory>
 #include <queue>
 #include <thread>
-#include <atomic>
 
 // Comsumer Producer Model
 

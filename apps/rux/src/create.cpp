@@ -14,9 +14,9 @@
 #include "create/texture.hpp"
 #include "create/windows.hpp"
 
-void setup_subcommand_create(CLI::App &app, std::shared_ptr<RuxOptions> global_opt) {
-  auto *sub = app.add_subcommand(
-      "create", "Create derived data from project");
+void setup_subcommand_create(CLI::App &app,
+                             std::shared_ptr<RuxOptions> global_opt) {
+  auto *sub = app.add_subcommand("create", "Create derived data from project");
 
   sub->footer(R"(
 DESCRIPTION:

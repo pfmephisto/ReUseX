@@ -25,7 +25,8 @@ std::vector<std::string> ProjectRouter::list() const {
   return db_->list_project_ids();
 }
 
-nlohmann::json ProjectRouter::get_project_json(std::string_view project_id) const {
+nlohmann::json
+ProjectRouter::get_project_json(std::string_view project_id) const {
   auto metadata = db_->get_project_metadata(project_id);
   nlohmann::json project;
   project["id"] = metadata.id;
@@ -70,7 +71,8 @@ DataPayload ProjectRouter::get(const std::vector<PathComponent> &components) {
     }
   } else if (components[0].is_item()) {
     // Check if this is a property name on the singleton project
-    // (e.g., "projects.building_address" instead of "projects[0].building_address")
+    // (e.g., "projects.building_address" instead of
+    // "projects[0].building_address")
     if (is_known_property(components[0].value)) {
       auto projects_list = list();
       if (projects_list.empty()) {
@@ -206,7 +208,8 @@ void ProjectRouter::set(const std::vector<PathComponent> &components,
   spdlog::info("Updated project '{}' property '{}'", project_id, prop);
 }
 
-void ProjectRouter::del([[maybe_unused]] const std::vector<PathComponent> &components) {
+void ProjectRouter::del(
+    [[maybe_unused]] const std::vector<PathComponent> &components) {
   throw std::runtime_error("Cannot delete project metadata.");
 }
 

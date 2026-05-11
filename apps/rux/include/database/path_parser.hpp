@@ -16,7 +16,7 @@ namespace rux::database {
  * @brief Exception thrown when path parsing fails
  */
 class PathError : public std::runtime_error {
-public:
+    public:
   explicit PathError(const std::string &message)
       : std::runtime_error(message) {}
 };
@@ -105,9 +105,8 @@ bool is_valid_collection(std::string_view name);
  * @param items Available items to match against
  * @return Vector of matching item names
  */
-std::vector<std::string>
-expand_wildcard(std::string_view pattern,
-                const std::vector<std::string> &items);
+std::vector<std::string> expand_wildcard(std::string_view pattern,
+                                         const std::vector<std::string> &items);
 
 /**
  * @brief Check if a string matches a wildcard pattern

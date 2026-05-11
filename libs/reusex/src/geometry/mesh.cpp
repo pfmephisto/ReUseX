@@ -74,7 +74,7 @@ pcl::PolygonMeshPtr mesh(CloudConstPtr cloud, CloudNConstPtr normals,
     std::unordered_set<int> filtered_set(opt.filter->begin(),
                                          opt.filter->end());
     reusex::debug("Mesh generation using {} filtered points",
-                        opt.filter->size());
+                  opt.filter->size());
 
     // Filter each inlier list to only include filtered indices
     for (auto &inlier_list : inliers) {
@@ -102,18 +102,18 @@ pcl::PolygonMeshPtr mesh(CloudConstPtr cloud, CloudNConstPtr normals,
 
   planes = force_orthogonal_planes(planes);
   reusex::debug("Number of planes after forcing orthogonality: {}",
-                      planes.size());
+                planes.size());
 
   auto pairs = make_pairs(planes, inliers, centroids, opt.search_threshold,
                           opt.new_plane_offset);
   reusex::debug("Number of plane pairs: {}", pairs.size());
 
   auto [vertical, horizontal] = separate_planes(planes);
-  reusex::debug(
-      "Number indices in inliers [{}]",
-      fmt::join(inliers | ranges::views::transform(
-                              [](auto const &i) { return i->size(); }),
-                ", "));
+  reusex::debug("Number indices in inliers [{}]",
+                fmt::join(inliers | ranges::views::transform([](auto const &i) {
+                            return i->size();
+                          }),
+                          ", "));
   reusex::debug("Number of horizonal planes: {}", horizontal.size());
   reusex::debug("Number of vertical planes: {}", vertical.size());
 

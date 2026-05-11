@@ -114,19 +114,18 @@ ExportScene gather_export_scene(const ProjectDB &db) {
 
       // Look up name from "labels" label_definitions
       auto it = semantic_names.find(sem_class);
-      cat.name = (it != semantic_names.end()) ? it->second
-                                              : "class_" + std::to_string(sem_class);
+      cat.name = (it != semantic_names.end())
+                     ? it->second
+                     : "class_" + std::to_string(sem_class);
 
       // Glasbey color
-      auto c =
-          pcl::GlasbeyLUT::at(sem_class % pcl::GlasbeyLUT::size());
+      auto c = pcl::GlasbeyLUT::at(sem_class % pcl::GlasbeyLUT::size());
       cat.color = {c.r, c.g, c.b};
 
       // Add instances
       for (uint32_t inst_id : inst_ids) {
         auto cloud_it = instance_clouds.find(inst_id);
-        if (cloud_it == instance_clouds.end() ||
-            cloud_it->second->empty())
+        if (cloud_it == instance_clouds.end() || cloud_it->second->empty())
           continue;
 
         ExportScene::SemanticInstance si;

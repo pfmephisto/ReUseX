@@ -14,11 +14,11 @@
 namespace fs = std::filesystem;
 using namespace reusex;
 
-void setup_subcommand_export_rhino(CLI::App &parent, std::shared_ptr<RuxOptions> global_opt) {
+void setup_subcommand_export_rhino(CLI::App &parent,
+                                   std::shared_ptr<RuxOptions> global_opt) {
   auto opt = std::make_shared<SubcommandExportRhinoOptions>();
-  auto *sub = parent.add_subcommand(
-      "rhino",
-      "Export project data to Rhino 3DM");
+  auto *sub =
+      parent.add_subcommand("rhino", "Export project data to Rhino 3DM");
 
   sub->footer(R"(
 DESCRIPTION:
@@ -66,7 +66,8 @@ NOTES:
   });
 }
 
-int run_subcommand_export_rhino(SubcommandExportRhinoOptions const &opt, const RuxOptions &global_opt) {
+int run_subcommand_export_rhino(SubcommandExportRhinoOptions const &opt,
+                                const RuxOptions &global_opt) {
   fs::path project_path = global_opt.project_db;
   spdlog::info("Exporting to Rhino from project: {}", project_path.string());
 
@@ -82,11 +83,13 @@ int run_subcommand_export_rhino(SubcommandExportRhinoOptions const &opt, const R
     spdlog::trace("Writing Rhino model to: {}", opt.path_out.string());
     int version = 0;
     if (!model->Write(opt.path_out.c_str(), version)) {
-      spdlog::error("Failed to write Rhino model to: {}", opt.path_out.string());
+      spdlog::error("Failed to write Rhino model to: {}",
+                    opt.path_out.string());
       return RuxError::IO;
     }
 
-    spdlog::info("Rhino model successfully written to: {}", opt.path_out.string());
+    spdlog::info("Rhino model successfully written to: {}",
+                 opt.path_out.string());
     return RuxError::SUCCESS;
 
   } catch (const std::exception &e) {

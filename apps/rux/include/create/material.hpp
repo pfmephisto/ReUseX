@@ -13,11 +13,13 @@
 namespace fs = std::filesystem;
 
 struct SubcommandCreateMaterialOptions {
-  std::string guid;            // Optional custom GUID
-  fs::path project;            // Project database (empty = output to stdout only)
-  fs::path output_file;        // Optional output file
-  bool stdout_output = false;  // Output JSON to stdout
+  std::string guid;     // Optional custom GUID
+  fs::path project;     // Project database (empty = output to stdout only)
+  fs::path output_file; // Optional output file
+  bool stdout_output = false; // Output JSON to stdout
 };
 
-void setup_subcommand_create_material(CLI::App &parent, std::shared_ptr<RuxOptions> global_opt);
-int run_subcommand_create_material(SubcommandCreateMaterialOptions const &opt, const RuxOptions &global_opt);
+void setup_subcommand_create_material(CLI::App &parent,
+                                      std::shared_ptr<RuxOptions> global_opt);
+int run_subcommand_create_material(SubcommandCreateMaterialOptions const &opt,
+                                   const RuxOptions &global_opt);

@@ -39,8 +39,9 @@ auto segment_planes_impl(CloudConstPtr cloud, CloudNConstPtr normals,
                          const SegmentPlanesOptions &options)
     -> std::tuple<CloudLPtr, CloudLocPtr, CloudNPtr>;
 
-auto segment_planes(CloudConstPtr cloud, CloudNConstPtr normals,
-                    const SegmentPlanesOptions &options = SegmentPlanesOptions{})
+auto segment_planes(
+    CloudConstPtr cloud, CloudNConstPtr normals,
+    const SegmentPlanesOptions &options = SegmentPlanesOptions{})
     -> std::tuple<CloudLPtr, CloudLocPtr, CloudNPtr>;
 
 } // namespace reusex::geometry

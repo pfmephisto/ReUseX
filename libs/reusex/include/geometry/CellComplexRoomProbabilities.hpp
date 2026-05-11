@@ -299,7 +299,6 @@ auto CellComplex::compute_room_probabilities(
   for (auto cit = this->cells_begin(); cit != this->cells_end(); ++cit)
     for (size_t i = 0; i < c_rp[*cit].size(); ++i)
       sum_results[i] += c_rp[*cit][i];
-  reusex::trace("Sum probabilities => [{:.3f}]",
-                      fmt::join(sum_results, ", "));
+  reusex::trace("Sum probabilities => [{:.3f}]", fmt::join(sum_results, ", "));
 }
 } // namespace reusex::geometry

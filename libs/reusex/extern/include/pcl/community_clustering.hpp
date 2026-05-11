@@ -168,7 +168,8 @@ class PCL_EXPORTS CommunityClustering : public PCLBase<PointT> {
     // Build edge list and weights from triplets
     igraph_vector_int_t edges;
     igraph_vector_t weights;
-    igraph_vector_int_init(&edges, 2 * static_cast<igraph_int_t>(triplets.size()));
+    igraph_vector_int_init(&edges,
+                           2 * static_cast<igraph_int_t>(triplets.size()));
     igraph_vector_init(&weights, static_cast<igraph_int_t>(triplets.size()));
 
     for (size_t i = 0; i < triplets.size(); ++i) {
@@ -193,32 +194,34 @@ class PCL_EXPORTS CommunityClustering : public PCLBase<PointT> {
     reusex::core::trace("Running Leiden community detection");
     reusex::core::stopwatch sw;
 
-    igraph_int_t n_iter = (max_iter_ < 0) ? -1 : static_cast<igraph_int_t>(max_iter_);
+    igraph_int_t n_iter =
+        (max_iter_ < 0) ? -1 : static_cast<igraph_int_t>(max_iter_);
 
     igraph_error_t err = igraph_community_leiden_simple(
         &graph,
-        &weights,        // edge_weights
+        &weights, // edge_weights
         IGRAPH_LEIDEN_OBJECTIVE_MODULARITY,
-        resolution_,     // resolution parameter
-        beta_,           // randomness in refinement phase
-        false,           // start: false = fresh partition
-        n_iter,          // n_iterations (-1 = until convergence)
-        &membership,
-        &nb_clusters,
-        &quality);
+        resolution_, // resolution parameter
+        beta_,       // randomness in refinement phase
+        false,       // start: false = fresh partition
+        n_iter,      // n_iterations (-1 = until convergence)
+        &membership, &nb_clusters, &quality);
 
     if (err != IGRAPH_SUCCESS) {
-      reusex::core::error("igraph_community_leiden failed with error code {}", static_cast<int>(err));
+      reusex::core::error("igraph_community_leiden failed with error code {}",
+                          static_cast<int>(err));
     }
 
-    reusex::core::info("Leiden community detection completed in {:.3f} seconds", sw);
+    reusex::core::info("Leiden community detection completed in {:.3f} seconds",
+                       sw);
 
     // Compute modularity for reporting
     igraph_real_t modularity = 0.0;
     igraph_modularity(&graph, &membership, &weights, resolution_,
                       IGRAPH_UNDIRECTED, &modularity);
-    reusex::core::info("Leiden results: {} clusters, quality: {:.4f}, modularity: {:.4f}",
-                       nb_clusters, quality, modularity);
+    reusex::core::info(
+        "Leiden results: {} clusters, quality: {:.4f}, modularity: {:.4f}",
+        nb_clusters, quality, modularity);
 
     // Extract membership into labels
     labels.resize(input_->size());
@@ -502,7 +505,9 @@ class PCL_EXPORTS CommunityClustering : public PCLBase<PointT> {
     };
   }
 
-  inline const std::string getClassName() const { return ("CommunityClustering"); }
+  inline const std::string getClassName() const {
+    return ("CommunityClustering");
+  }
 
     protected:
   PointCloudNConstPtr normals_{nullptr};

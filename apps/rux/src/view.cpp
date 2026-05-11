@@ -26,9 +26,9 @@
 #include <vtkCamera.h>
 #include <vtkImageData.h>
 #include <vtkImageImport.h>
+#include <vtkPropCollection.h>
 #include <vtkRenderer.h>
 #include <vtkRendererCollection.h>
-#include <vtkPropCollection.h>
 #include <vtkSkybox.h>
 #include <vtkSmartPointer.h>
 #include <vtkTexture.h>
@@ -69,8 +69,8 @@ struct LoadedMesh {
 struct ViewerState {
   int current_label =
       -1; ///< Index of currently shown label (-1 = none, 0-8 = label index)
-  bool legend_visible = false;           ///< Whether the label legend is shown
-  std::vector<std::string> legend_ids;   ///< Shape IDs for legend text elements
+  bool legend_visible = false;         ///< Whether the label legend is shown
+  std::vector<std::string> legend_ids; ///< Shape IDs for legend text elements
 };
 
 /// A single entry in the label legend overlay.
@@ -84,30 +84,31 @@ struct LabelLegendEntry {
 struct LabelCloudInfo {
   pcl::PointCloud<pcl::PointXYZL>::Ptr cloud;
   std::string db_name;                          ///< Original cloud name in DB
-  std::vector<LabelLegendEntry> legend_entries;  ///< Pre-computed at load time
+  std::vector<LabelLegendEntry> legend_entries; ///< Pre-computed at load time
 };
 
 /// Metadata for a panoramic image (pixel data loaded on-demand).
 struct PanoramaInfo {
-  int id;                        ///< Database row ID
-  std::string filename;          ///< Original filename
-  int node_id;                   ///< Linked sensor frame (-1 if unmatched)
-  bool pose_valid = false;       ///< Whether a 3D pose is available
-  double px, py, pz;             ///< Position from sensor frame pose
-  std::array<double, 16> pose;   ///< Full 4x4 SE(3) row-major world pose
+  int id;                      ///< Database row ID
+  std::string filename;        ///< Original filename
+  int node_id;                 ///< Linked sensor frame (-1 if unmatched)
+  bool pose_valid = false;     ///< Whether a 3D pose is available
+  double px, py, pz;           ///< Position from sensor frame pose
+  std::array<double, 16> pose; ///< Full 4x4 SE(3) row-major world pose
 };
 
 /// State for immersive panorama viewing.
 struct PanoramaState {
-  bool immersive = false;                   ///< Currently in panorama mode
-  int active_index = -1;                    ///< Which panorama is displayed
-  std::vector<PanoramaInfo> infos;          ///< All panorama metadata
-  vtkSmartPointer<vtkSkybox> skybox;        ///< Reusable skybox actor
+  bool immersive = false;            ///< Currently in panorama mode
+  int active_index = -1;             ///< Which panorama is displayed
+  std::vector<PanoramaInfo> infos;   ///< All panorama metadata
+  vtkSmartPointer<vtkSkybox> skybox; ///< Reusable skybox actor
 
   /// Saved viewer state for restoration on exit.
   struct SavedView {
     double cam_pos[3], cam_focal[3], cam_up[3];
-    std::vector<vtkSmartPointer<vtkProp>> hidden_props; ///< All props hidden on enter
+    std::vector<vtkSmartPointer<vtkProp>>
+        hidden_props; ///< All props hidden on enter
   } saved;
 };
 
@@ -253,11 +254,10 @@ void deactivate_panorama_skybox(
 /// Uses VTK prop visibility to hide everything in the viewport renderer
 /// (clouds, meshes, components, coordinate axes, spheres, text — all of it).
 /// The skybox is added after hiding, so it remains visible.
-void enter_panorama_mode(
-    std::shared_ptr<PanoramaState> state, int pano_index,
-    const fs::path &project_path,
-    const rux::VizualizationObserver::ViewerPtr &viewer,
-    const std::vector<int> &viewports) {
+void enter_panorama_mode(std::shared_ptr<PanoramaState> state, int pano_index,
+                         const fs::path &project_path,
+                         const rux::VizualizationObserver::ViewerPtr &viewer,
+                         const std::vector<int> &viewports) {
 
   const auto &info = state->infos[static_cast<size_t>(pano_index)];
 
@@ -303,10 +303,9 @@ void enter_panorama_mode(
 }
 
 /// Exit immersive panorama mode: restore scene and camera.
-void exit_panorama_mode(
-    std::shared_ptr<PanoramaState> state,
-    const rux::VizualizationObserver::ViewerPtr &viewer,
-    const std::vector<int> &viewports) {
+void exit_panorama_mode(std::shared_ptr<PanoramaState> state,
+                        const rux::VizualizationObserver::ViewerPtr &viewer,
+                        const std::vector<int> &viewports) {
 
   // Remove skybox
   deactivate_panorama_skybox(state->skybox, viewer, viewports[0]);
@@ -377,7 +376,8 @@ ProjectLoadResult load_from_project_db(const fs::path &path,
         return result;
       }
 
-      filter_indices = rux::filters::evaluate_filter(filter_expr, db, expected_size);
+      filter_indices =
+          rux::filters::evaluate_filter(filter_expr, db, expected_size);
 
       if (filter_indices->empty()) {
         spdlog::warn("Filter matched 0 points - viewer will be empty");
@@ -411,8 +411,8 @@ ProjectLoadResult load_from_project_db(const fs::path &path,
           auto filtered_cloud = std::make_shared<Cloud>();
           extract.filter(*filtered_cloud);
 
-          spdlog::debug("Filtered cloud '{}': {} -> {} points",
-                        name, cloud->size(), filtered_cloud->size());
+          spdlog::debug("Filtered cloud '{}': {} -> {} points", name,
+                        cloud->size(), filtered_cloud->size());
           cloud = filtered_cloud;
         }
 
@@ -483,11 +483,9 @@ ProjectLoadResult load_from_project_db(const fs::path &path,
         std::vector<LabelLegendEntry> legend;
         for (uint32_t lbl : unique_labels) {
           auto it = defs.find(static_cast<int>(lbl));
-          std::string lbl_name = it != defs.end()
-                                     ? it->second
-                                     : fmt::format("Label {}", lbl);
-          pcl::RGB color =
-              pcl::GlasbeyLUT::at(lbl % pcl::GlasbeyLUT::size());
+          std::string lbl_name =
+              it != defs.end() ? it->second : fmt::format("Label {}", lbl);
+          pcl::RGB color = pcl::GlasbeyLUT::at(lbl % pcl::GlasbeyLUT::size());
           legend.push_back({static_cast<int>(lbl), std::move(lbl_name), color});
         }
 
@@ -504,7 +502,8 @@ ProjectLoadResult load_from_project_db(const fs::path &path,
   // Load meshes
   auto mesh_names = db.list_meshes();
   if (!mesh_names.empty() && filter_indices && !filter_indices->empty()) {
-    spdlog::warn("Filter is active but meshes cannot be filtered - showing full meshes");
+    spdlog::warn(
+        "Filter is active but meshes cannot be filtered - showing full meshes");
   }
   for (const auto &name : mesh_names) {
 
@@ -536,9 +535,9 @@ ProjectLoadResult load_from_project_db(const fs::path &path,
               auto textured = std::get<pcl::TextureMesh::Ptr>(loaded.mesh);
               viewer->addTextureMesh(*textured, loaded.name, viewports[0]);
             });
-        spdlog::info(
-            "Loaded textured mesh '{}' ({} materials) - rendering with textures",
-            name, texture_mesh->tex_materials.size());
+        spdlog::info("Loaded textured mesh '{}' ({} materials) - rendering "
+                     "with textures",
+                     name, texture_mesh->tex_materials.size());
       } else {
         // No valid textures — render as plain polygon mesh
         auto plain = std::make_shared<pcl::PolygonMesh>();
@@ -640,19 +639,20 @@ ProjectLoadResult load_from_project_db(const fs::path &path,
       if (pano.node_id >= 0 && db.has_sensor_frame(pano.node_id)) {
         try {
           pi.pose = db.sensor_frame_pose(pano.node_id);
-          pi.px = pi.pose[3];  // row-major: translation is [3], [7], [11]
+          pi.px = pi.pose[3]; // row-major: translation is [3], [7], [11]
           pi.py = pi.pose[7];
           pi.pz = pi.pose[11];
           pi.pose_valid = true;
           spdlog::debug("Panorama '{}' at ({:.2f}, {:.2f}, {:.2f})",
-                         pi.filename, pi.px, pi.py, pi.pz);
+                        pi.filename, pi.px, pi.py, pi.pz);
         } catch (const std::exception &e) {
-          spdlog::warn("Could not load pose for panorama '{}': {}",
-                        pi.filename, e.what());
+          spdlog::warn("Could not load pose for panorama '{}': {}", pi.filename,
+                       e.what());
         }
       } else {
-        spdlog::debug("Panorama '{}' has no linked sensor frame, skipping sphere",
-                       pi.filename);
+        spdlog::debug(
+            "Panorama '{}' has no linked sensor frame, skipping sphere",
+            pi.filename);
       }
 
       result.panoramas.push_back(std::move(pi));
@@ -857,8 +857,7 @@ void add_label_legend(const LabelCloudInfo &info,
   }
 
   // Overflow trailer
-  int overflow =
-      static_cast<int>(info.legend_entries.size()) - max_entries;
+  int overflow = static_cast<int>(info.legend_entries.size()) - max_entries;
   std::string trailer_id;
   if (overflow > 0) {
     trailer_id = "legend_overflow";
@@ -870,9 +869,9 @@ void add_label_legend(const LabelCloudInfo &info,
   auto legend = info.legend_entries;
   auto db_name = info.db_name;
   observer.viewer_enqueue_task(
-      [legend, db_name, count, overflow, trailer_id](
-          const rux::VizualizationObserver::ViewerPtr &viewer,
-          const std::vector<int> &) {
+      [legend, db_name, count, overflow,
+       trailer_id](const rux::VizualizationObserver::ViewerPtr &viewer,
+                   const std::vector<int> &) {
         // Title
         viewer->addText(db_name, 10, 30, 16, 0.1, 0.1, 0.1, "legend_title");
 
@@ -880,32 +879,28 @@ void add_label_legend(const LabelCloudInfo &info,
         for (int i = 0; i < count; ++i) {
           const auto &e = legend[static_cast<size_t>(i)];
           int y = 55 + i * 22;
-          viewer->addText(
-              "##", 10, y, 16,
-              static_cast<double>(e.color.r) / 255.0,
-              static_cast<double>(e.color.g) / 255.0,
-              static_cast<double>(e.color.b) / 255.0,
-              fmt::format("legend_swatch_{}", i));
-          viewer->addText(
-              fmt::format("{}: {}", e.label_id, e.name), 40, y, 14,
-              0.1, 0.1, 0.1,
-              fmt::format("legend_text_{}", i));
+          viewer->addText("##", 10, y, 16,
+                          static_cast<double>(e.color.r) / 255.0,
+                          static_cast<double>(e.color.g) / 255.0,
+                          static_cast<double>(e.color.b) / 255.0,
+                          fmt::format("legend_swatch_{}", i));
+          viewer->addText(fmt::format("{}: {}", e.label_id, e.name), 40, y, 14,
+                          0.1, 0.1, 0.1, fmt::format("legend_text_{}", i));
         }
 
         // Overflow
         if (overflow > 0) {
           int y = 55 + count * 22;
-          viewer->addText(
-              fmt::format("... and {} more", overflow), 10, y, 12,
-              0.3, 0.3, 0.3, trailer_id);
+          viewer->addText(fmt::format("... and {} more", overflow), 10, y, 12,
+                          0.3, 0.3, 0.3, trailer_id);
         }
       });
 }
 
 /// Register keyboard callback for toggling label legend (key 'l').
-void register_legend_toggle(
-    const std::vector<LabelCloudInfo> &label_clouds,
-    std::shared_ptr<ViewerState> state, rux::VizualizationObserver &observer) {
+void register_legend_toggle(const std::vector<LabelCloudInfo> &label_clouds,
+                            std::shared_ptr<ViewerState> state,
+                            rux::VizualizationObserver &observer) {
   observer.viewer_enqueue_task(
       [&label_clouds, state,
        &observer](const rux::VizualizationObserver::ViewerPtr &viewer,
@@ -939,9 +934,9 @@ void register_legend_toggle(
 /// @param label_clouds Vector of label cloud info to register toggles for
 /// @param state Shared viewer state tracking currently visible label
 /// @param observer Visualization observer for enqueueing viewer tasks
-void register_label_toggles(
-    const std::vector<LabelCloudInfo> &label_clouds,
-    std::shared_ptr<ViewerState> state, rux::VizualizationObserver &observer) {
+void register_label_toggles(const std::vector<LabelCloudInfo> &label_clouds,
+                            std::shared_ptr<ViewerState> state,
+                            rux::VizualizationObserver &observer) {
   for (size_t i = 0; i < label_clouds.size() && i < 9; ++i) {
     observer.viewer_enqueue_task([i, &observer, &label_clouds, state](
                                      const rux::VizualizationObserver::ViewerPtr
@@ -1049,9 +1044,13 @@ void add_component_lines(
     // Pick color based on component type
     double r = 0.0, g = 1.0, b = 0.0; // green for windows
     if (comp.type == reusex::geometry::ComponentType::door) {
-      r = 0.0; g = 1.0; b = 1.0; // cyan for doors
+      r = 0.0;
+      g = 1.0;
+      b = 1.0; // cyan for doors
     } else if (comp.type == reusex::geometry::ComponentType::wall) {
-      r = 1.0; g = 1.0; b = 0.0; // yellow for walls
+      r = 1.0;
+      g = 1.0;
+      b = 0.0; // yellow for walls
     }
 
     for (size_t i = 0; i < verts.size(); ++i) {
@@ -1059,8 +1058,8 @@ void add_component_lines(
       auto line_name = fmt::format("comp_{}_{}", ci, i);
       auto p1 = verts[i], p2 = verts[j];
       observer.viewer_enqueue_task(
-          [p1, p2, line_name, r, g, b](
-              const rux::VizualizationObserver::ViewerPtr &viewer,
+          [p1, p2, line_name, r, g,
+           b](const rux::VizualizationObserver::ViewerPtr &viewer,
               const std::vector<int> &viewports) {
             pcl::PointXYZ a(static_cast<float>(p1.x()),
                             static_cast<float>(p1.y()),
@@ -1076,7 +1075,8 @@ void add_component_lines(
   }
 }
 
-/// Register keyboard callback to toggle building component visibility (key 'w').
+/// Register keyboard callback to toggle building component visibility (key
+/// 'w').
 ///
 /// @param components Vector of building components
 /// @param components_visible Shared flag tracking visibility state
@@ -1124,12 +1124,11 @@ void register_component_toggle(
 /// @param meshes Vector of loaded meshes (for help message)
 /// @param label_clouds Vector of label clouds (for help message)
 /// @param observer Visualization observer for enqueueing viewer tasks
-void register_help_callback(
-    const std::vector<LoadedCloud> &clouds,
-    const std::vector<LoadedMesh> &meshes,
-    const std::vector<LabelCloudInfo> &label_clouds,
-    bool has_components, bool has_panoramas,
-    rux::VizualizationObserver &observer) {
+void register_help_callback(const std::vector<LoadedCloud> &clouds,
+                            const std::vector<LoadedMesh> &meshes,
+                            const std::vector<LabelCloudInfo> &label_clouds,
+                            bool has_components, bool has_panoramas,
+                            rux::VizualizationObserver &observer) {
   observer.viewer_enqueue_task(
       [&clouds, &meshes, &label_clouds, has_components,
        has_panoramas](const rux::VizualizationObserver::ViewerPtr &viewer,
@@ -1153,9 +1152,11 @@ void register_help_callback(
                   spdlog::info("  w: Toggle building components");
                 }
                 if (has_panoramas) {
-                  spdlog::info("  Shift+Click: Enter 360 panorama (on orange sphere)");
+                  spdlog::info(
+                      "  Shift+Click: Enter 360 panorama (on orange sphere)");
                   spdlog::info("  Escape: Exit panorama mode");
-                  spdlog::info("  [/]: Previous/Next panorama (in panorama mode)");
+                  spdlog::info(
+                      "  [/]: Previous/Next panorama (in panorama mode)");
                 }
                 spdlog::info("  h: Show this help");
                 spdlog::info("  q: Quit viewer");
@@ -1177,10 +1178,12 @@ void setup_subcommand_view(CLI::App &app,
 
   sub->add_option(
          "-f, --filter", opt->filter_expr,
-         "Filter expression to limit visualization to specific labeled points.\n"
+         "Filter expression to limit visualization to specific labeled "
+         "points.\n"
          "Syntax: <cloud_name> <op> <value(s)>\n"
          "Examples:\n"
-         "  -f 'planes in [1, 2, 5]'        # Show only labels 1, 2, 5 from planes cloud\n"
+         "  -f 'planes in [1, 2, 5]'        # Show only labels 1, 2, 5 from "
+         "planes cloud\n"
          "  -f 'rooms == 3'                 # Show only room 3\n"
          "  -f 'planes in [1,2] || rooms == 5'  # Combine multiple clouds\n"
          "  -f 'planes >= 10 && planes <= 20'   # Range filter")
@@ -1317,8 +1320,8 @@ int run_subcommand_view([[maybe_unused]] SubcommandViewOptions const &opt,
          &observer](const rux::VizualizationObserver::ViewerPtr &viewer,
                     const std::vector<int> &) {
           viewer->registerPointPickingCallback(
-              [pano_state, project_path, &observer](
-                  const pcl::visualization::PointPickingEvent &event) {
+              [pano_state, project_path,
+               &observer](const pcl::visualization::PointPickingEvent &event) {
                 if (pano_state->immersive)
                   return;
                 if (event.getPointIndex() == -1)
@@ -1402,17 +1405,15 @@ int run_subcommand_view([[maybe_unused]] SubcommandViewOptions const &opt,
                   int idx = ((cur + delta * step) % count + count) % count;
                   if (pano_state->infos[static_cast<size_t>(idx)].pose_valid) {
                     observer.viewer_enqueue_task(
-                        [pano_state, idx, project_path, &clouds,
-                         &meshes](
+                        [pano_state, idx, project_path, &clouds, &meshes](
                             const rux::VizualizationObserver::ViewerPtr &v,
                             const std::vector<int> &vp) {
                           deactivate_panorama_skybox(pano_state->skybox, v,
                                                      vp[0]);
                           const auto &info =
                               pano_state->infos[static_cast<size_t>(idx)];
-                          activate_panorama_skybox(project_path, info,
-                                                   pano_state->skybox, v,
-                                                   vp[0]);
+                          activate_panorama_skybox(
+                              project_path, info, pano_state->skybox, v, vp[0]);
                           // Update camera to new panorama position
                           if (info.pose_valid) {
                             auto *renderer = viewport_renderer(v, vp[0]);

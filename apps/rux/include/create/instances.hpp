@@ -44,9 +44,11 @@ struct SubcommandSegInstancesOptions {
 /**
  * @brief Setup CLI11 subcommand for instance segmentation
  */
-void setup_subcommand_create_instances(CLI::App &app, std::shared_ptr<RuxOptions> global_opt);
+void setup_subcommand_create_instances(CLI::App &app,
+                                       std::shared_ptr<RuxOptions> global_opt);
 
 /**
  * @brief Execute instance segmentation subcommand
  */
-int run_subcommand_segment_instances(const SubcommandSegInstancesOptions &opt, const RuxOptions &global_opt);
+int run_subcommand_segment_instances(const SubcommandSegInstancesOptions &opt,
+                                     const RuxOptions &global_opt);

@@ -25,7 +25,7 @@ namespace rux::database {
  * - point_count: Number of points
  */
 class CloudRouter : public ResourceRouter {
-public:
+    public:
   using ResourceRouter::ResourceRouter;
 
   DataPayload get(const std::vector<PathComponent> &components) override;
@@ -34,7 +34,7 @@ public:
   void del(const std::vector<PathComponent> &components) override;
   std::vector<std::string> list() const override;
 
-private:
+    private:
   /**
    * @brief Get cloud metadata as JSON
    */

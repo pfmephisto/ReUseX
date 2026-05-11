@@ -22,7 +22,7 @@ namespace reusex::core::serialization {
  * Used for deserializing MaterialPassport properties from database.
  */
 class PropertyValue {
-public:
+    public:
   /**
    * @brief Construct from raw BLOB data
    * @param blob_data Pointer to BLOB data from database
@@ -57,7 +57,7 @@ public:
    */
   traits::PropertyType type() const noexcept { return type_; }
 
-private:
+    private:
   std::vector<uint8_t> data_;
   traits::PropertyType type_;
 };
@@ -70,7 +70,7 @@ private:
  * for arrays, and nested object deserialization.
  */
 class Deserializer {
-public:
+    public:
   /**
    * @brief Deserialize a struct from property value map
    *
@@ -85,7 +85,7 @@ public:
   static void deserialize(T &obj,
                           const std::map<std::string, PropertyValue> &values);
 
-private:
+    private:
   // Type-specific deserializers (throws on type mismatch/parse error)
   static void deserialize_string(void *ptr, const PropertyValue &value);
   static void deserialize_integer(void *ptr, const PropertyValue &value);
@@ -94,11 +94,11 @@ private:
   static void deserialize_tristate(void *ptr, const PropertyValue &value);
   static void deserialize_string_array(void *ptr, const PropertyValue &value);
   static void deserialize_enum_value(void *ptr, const PropertyValue &value,
-                                      std::string_view enum_type);
+                                     std::string_view enum_type);
   static void deserialize_enum_array(void *ptr, const PropertyValue &value,
-                                      std::string_view enum_type);
+                                     std::string_view enum_type);
   static void deserialize_object_array(void *ptr, const PropertyValue &value,
-                                        const traits::PropertyDescriptor &desc);
+                                       const traits::PropertyDescriptor &desc);
 };
 
 /**
@@ -108,7 +108,7 @@ private:
  * that can be stored in the database.
  */
 class Serializer {
-public:
+    public:
   /**
    * @brief Serialize a struct to property value map
    *
@@ -117,10 +117,9 @@ public:
    * @return Map of leksikon_guid → PropertyValue for database storage
    */
   template <typename T>
-  static std::map<std::string, PropertyValue>
-  serialize(const T &obj);
+  static std::map<std::string, PropertyValue> serialize(const T &obj);
 
-private:
+    private:
   // Type-specific serializers
   static PropertyValue serialize_string(const void *ptr);
   static PropertyValue serialize_integer(const void *ptr);
@@ -129,11 +128,12 @@ private:
   static PropertyValue serialize_tristate(const void *ptr);
   static PropertyValue serialize_string_array(const void *ptr);
   static PropertyValue serialize_enum_value(const void *ptr,
-                                             std::string_view enum_type);
+                                            std::string_view enum_type);
   static PropertyValue serialize_enum_array(const void *ptr,
-                                             std::string_view enum_type);
-  static PropertyValue serialize_object_array(
-      const void *ptr, const traits::PropertyDescriptor &desc);
+                                            std::string_view enum_type);
+  static PropertyValue
+  serialize_object_array(const void *ptr,
+                         const traits::PropertyDescriptor &desc);
 };
 
 // Template implementation must be in header for visibility
@@ -197,8 +197,7 @@ std::map<std::string, PropertyValue> Serializer::serialize(const T &obj) {
 
   for (size_t i = 0; i < Traits::property_count(); ++i) {
     const auto &desc = Traits::properties()[i];
-    const void *field_ptr =
-        reinterpret_cast<const char *>(&obj) + desc.offset;
+    const void *field_ptr = reinterpret_cast<const char *>(&obj) + desc.offset;
 
     // Dispatch to type-specific serializer
     PropertyValue value("", traits::PropertyType::String); // placeholder

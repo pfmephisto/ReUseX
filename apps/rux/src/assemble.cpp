@@ -24,11 +24,12 @@ namespace fs = std::filesystem;
  *
  * @param app CLI application to add the subcommand to.
  */
-void setup_subcommand_assemble(CLI::App &app, std::shared_ptr<RuxOptions> global_opt) {
+void setup_subcommand_assemble(CLI::App &app,
+                               std::shared_ptr<RuxOptions> global_opt) {
 
   auto opt = std::make_shared<SubcommandAssembleOptions>();
-  auto *sub = app.add_subcommand(
-      "assemble", "Assemble multiple scans into one database");
+  auto *sub = app.add_subcommand("assemble",
+                                 "Assemble multiple scans into one database");
 
   sub->footer(R"(
 DESCRIPTION:
@@ -80,7 +81,8 @@ NOTES:
  * @param opt Options containing input file paths and output database path.
  * @return Exit code (RuxError::NOT_IMPLEMENTED currently).
  */
-int run_subcommand_assemble(SubcommandAssembleOptions const &opt, [[maybe_unused]] const RuxOptions &global_opt) {
+int run_subcommand_assemble(SubcommandAssembleOptions const &opt,
+                            [[maybe_unused]] const RuxOptions &global_opt) {
 
   spdlog::warn("The assemble command is not yet implemented.");
   spdlog::debug("Input files: {}", fmt::join(opt.paths_in, ", "));

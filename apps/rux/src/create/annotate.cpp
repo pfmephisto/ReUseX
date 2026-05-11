@@ -25,8 +25,8 @@ void setup_subcommand_create_annotate(CLI::App &app,
 
   // Create the option and subcommand objects.
   auto opt = std::make_shared<SubcommandAnnotateOptions>();
-  auto *sub = app.add_subcommand("annotate",
-                                 "Run ML inference on sensor frames");
+  auto *sub =
+      app.add_subcommand("annotate", "Run ML inference on sensor frames");
 
   sub->footer(R"(
 DESCRIPTION:
@@ -73,13 +73,15 @@ PERFORMANCE TUNING:
   sub->add_flag("-c, --cuda", opt->isCuda, "Use CUDA for YOLOv8 inference")
       ->default_val(opt->isCuda);
 
-  sub->add_option("-b, --batch-size", opt->batch_size,
-                  "Batch size for inference (recommended: 8-64 based on GPU memory)")
+  sub->add_option(
+         "-b, --batch-size", opt->batch_size,
+         "Batch size for inference (recommended: 8-64 based on GPU memory)")
       ->check(CLI::Range(1, 1024))
       ->default_val(opt->batch_size);
 
-  sub->add_option("-w, --workers", opt->num_workers,
-                  "Number of worker threads for data loading (recommended: 2-4)")
+  sub->add_option(
+         "-w, --workers", opt->num_workers,
+         "Number of worker threads for data loading (recommended: 2-4)")
       ->check(CLI::Range(1, 64))
       ->default_val(opt->num_workers);
 
@@ -93,7 +95,8 @@ PERFORMANCE TUNING:
       ->default_val(opt->shuffle);
 
   sub->add_flag("--skip-annotated", opt->skip_annotated,
-                "Skip frames that already have segmentation labels (resume interrupted runs)")
+                "Skip frames that already have segmentation labels (resume "
+                "interrupted runs)")
       ->default_val(opt->skip_annotated);
 
   sub->callback([opt, global_opt]() {
@@ -118,13 +121,12 @@ int run_subcommand_annotate(SubcommandAnnotateOptions const &opt,
 
     // Build config from CLI options
     reusex::vision::AnnotationConfig config{
-      .use_cuda = opt.isCuda,
-      .batch_size = opt.batch_size,
-      .shuffle = opt.shuffle,
-      .num_workers = opt.num_workers,
-      .prefetch_batches = opt.prefetch_batches,
-      .skip_annotated = opt.skip_annotated
-    };
+        .use_cuda = opt.isCuda,
+        .batch_size = opt.batch_size,
+        .shuffle = opt.shuffle,
+        .num_workers = opt.num_workers,
+        .prefetch_batches = opt.prefetch_batches,
+        .skip_annotated = opt.skip_annotated};
 
     return reusex::vision::annotate(project_path, opt.net_path, config);
 

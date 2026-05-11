@@ -25,10 +25,9 @@ class LibTorchBackend : public IMLBackend {
    * @return Unique pointer to the created model.
    * @throws std::runtime_error if model type is not supported.
    */
-  std::unique_ptr<IModel>
-  create_model(const Model type,
-               const std::filesystem::path &modelPath,
-               bool use_cuda = false) override;
+  std::unique_ptr<IModel> create_model(const Model type,
+                                       const std::filesystem::path &modelPath,
+                                       bool use_cuda = false) override;
 
   /** @brief Create a LibTorch dataset from a database path.
    * @param datasetPath Path to the RTABMap database file.

@@ -117,15 +117,15 @@ inline void critical(std::string_view message) {
 // Promote logging functions to ReUseX namespace for convenience
 // Only promotes logging functions, avoiding conflicts with external libraries
 namespace reusex {
-using core::trace;
-using core::debug;
-using core::info;
-using core::warn;
-using core::error;
 using core::critical;
+using core::debug;
+using core::error;
+using core::info;
 using core::log;
 using core::LogLevel;
 using core::stopwatch;
+using core::trace;
+using core::warn;
 } // namespace reusex
 
 namespace fmt {

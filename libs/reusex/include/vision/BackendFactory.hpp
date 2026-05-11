@@ -69,15 +69,14 @@ class BackendFactory {
            std::filesystem::directory_iterator(model_path)) {
         auto stem = to_lower(entry.path().stem().string());
         if (stem.find("vision-encoder") != std::string::npos) {
-          reusex::info(
-              "Detected SAM3 model from sub-model file: {}", entry.path());
+          reusex::info("Detected SAM3 model from sub-model file: {}",
+                       entry.path());
           return Model::sam3;
         }
       }
     }
 
-    reusex::info("Defaulting to YOLO model type for path: {}",
-                       model_path);
+    reusex::info("Defaulting to YOLO model type for path: {}", model_path);
     return Model::yolo;
   }
 
@@ -118,7 +117,7 @@ class BackendFactory {
       return std::make_unique<reusex::vision::tensor_rt::TensorRTBackend>();
 #else
       reusex::error("TensorRT backend not compiled in this build. "
-                          "Rebuild with -DML_BACKENDS=TensorRT or AUTO.");
+                    "Rebuild with -DML_BACKENDS=TensorRT or AUTO.");
       throw std::runtime_error("TensorRT backend not available");
 #endif
 
@@ -127,7 +126,7 @@ class BackendFactory {
       return std::make_unique<reusex::vision::libtorch::LibTorchBackend>();
 #else
       reusex::error("LibTorch backend not compiled in this build. "
-                          "Rebuild with -DML_BACKENDS=LibTorch or AUTO.");
+                    "Rebuild with -DML_BACKENDS=LibTorch or AUTO.");
       throw std::runtime_error("LibTorch backend not available");
 #endif
 
@@ -152,8 +151,7 @@ class BackendFactory {
 #endif
 
     default:
-      reusex::error("Unsupported backend type: {}",
-                          static_cast<int>(type));
+      reusex::error("Unsupported backend type: {}", static_cast<int>(type));
       throw std::runtime_error("Unsupported backend");
     }
   }
@@ -171,39 +169,43 @@ class BackendFactory {
 
     if (ext.empty()) {
       reusex::warn("File {} has no extension. Unable to detect backend.",
-                         file_path);
+                   file_path);
       return Backend::unknown;
     }
 
     else if (ext == ".engine") {
       reusex::info("Detected TensorRT engine file: {}", file_path);
 #ifndef REUSEX_USE_TENSORRT
-      reusex::warn("TensorRT detected but not compiled in this build. Backend unavailable.");
+      reusex::warn("TensorRT detected but not compiled in this build. Backend "
+                   "unavailable.");
 #endif
       return Backend::tensor_rt;
     } else if (ext == ".pt" || ext == ".pth" || ext == ".torchscript") {
       reusex::info("Detected PyTorch model file: {}", file_path);
 #ifndef REUSEX_USE_LIBTORCH
-      reusex::warn("LibTorch detected but not compiled in this build. Backend unavailable.");
+      reusex::warn("LibTorch detected but not compiled in this build. Backend "
+                   "unavailable.");
 #endif
       return Backend::libtorch;
     } else if (ext == ".onnx") {
       reusex::info("Detected ONNX model file: {}", file_path);
 #ifndef REUSEX_USE_ONNX
-      reusex::warn("ONNX Runtime detected but not compiled in this build. Backend unavailable.");
+      reusex::warn("ONNX Runtime detected but not compiled in this build. "
+                   "Backend unavailable.");
 #endif
       return Backend::onnx_runtime;
     } else if (ext == ".xml" || ext == ".bin") {
       reusex::info("Detected OpenVINO model files: {}", file_path);
 #ifndef REUSEX_USE_OPENVINO
-      reusex::warn("OpenVINO detected but not compiled in this build. Backend unavailable.");
+      reusex::warn("OpenVINO detected but not compiled in this build. Backend "
+                   "unavailable.");
 #endif
       return Backend::openvino;
     }
 
-    reusex::warn(
-        "Unknown model file extension: {}. Unable to detect backend; returning Backend::unknown.",
-        ext);
+    reusex::warn("Unknown model file extension: {}. Unable to detect backend; "
+                 "returning Backend::unknown.",
+                 ext);
     return Backend::unknown;
   }
 };

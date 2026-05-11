@@ -73,7 +73,7 @@ void reconstruct_point_clouds(ProjectDB &db,
   for (int nodeId : frameIds) {
     // ── Read from ProjectDB ──────────────────────────────────────
     cv::Mat color = db.sensor_frame_image(nodeId);
-    cv::Mat depth16 = db.sensor_frame_depth(nodeId);   // CV_16UC1 mm
+    cv::Mat depth16 = db.sensor_frame_depth(nodeId);         // CV_16UC1 mm
     cv::Mat confidence = db.sensor_frame_confidence(nodeId); // CV_8UC1
     auto pose = db.sensor_frame_pose(nodeId);
     auto intr = db.sensor_frame_intrinsics(nodeId);
@@ -129,8 +129,8 @@ void reconstruct_point_clouds(ProjectDB &db,
                   worldTf.translation().x(), worldTf.translation().y(),
                   worldTf.translation().z());
 
-      // Warn if localTf is approximately identity (likely wrong for phone/tablet
-      // scanners)
+      // Warn if localTf is approximately identity (likely wrong for
+      // phone/tablet scanners)
       if (localTf.matrix().isApprox(Eigen::Matrix4f::Identity(), 1e-4f)) {
         core::warn("Node {}: localTransform is identity — per-frame "
                    "orientation may be incorrect if sensor has a non-trivial "
@@ -186,10 +186,12 @@ void reconstruct_point_clouds(ProjectDB &db,
         float y = (static_cast<float>(v) - cy_cam) * z / fy;
 
         Eigen::Vector3f cam_pt(x, y, z);
-        // Apply local transform (optical → sensor) then world transform (sensor → world)
+        // Apply local transform (optical → sensor) then world transform (sensor
+        // → world)
         Eigen::Vector3f world_pt = worldTf * (localTf * cam_pt);
 
-        // Map depth pixel (v, u) to color coordinates (may differ in resolution)
+        // Map depth pixel (v, u) to color coordinates (may differ in
+        // resolution)
         int col_u = u * color.cols / depth_f.cols;
         int col_v = v * color.rows / depth_f.rows;
         col_u = std::clamp(col_u, 0, color.cols - 1);
@@ -213,8 +215,7 @@ void reconstruct_point_clouds(ProjectDB &db,
           su = std::clamp(su, 0, seg_labels.cols - 1);
           sv = std::clamp(sv, 0, seg_labels.rows - 1);
           lbl.label = static_cast<uint32_t>(seg_labels.at<int>(sv, su));
-        }
-        else
+        } else
           lbl.label = static_cast<uint32_t>(-1);
         frame_labels->push_back(lbl);
       }
@@ -350,8 +351,7 @@ void reconstruct_point_clouds(ProjectDB &db,
   ror.setMinNeighborsInRadius(5);
   auto filtered_indices = std::make_shared<pcl::Indices>();
   ror.filter(*filtered_indices);
-  core::debug("ROR kept {}/{}", filtered_indices->size(),
-              stat_inliers->size());
+  core::debug("ROR kept {}/{}", filtered_indices->size(), stat_inliers->size());
 
   // Extract filtered results
   auto out_cloud = std::make_shared<Cloud>();

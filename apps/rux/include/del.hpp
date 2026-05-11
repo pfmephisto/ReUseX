@@ -30,9 +30,11 @@ struct DatabaseDelOptions {
  *   rux del project.rux clouds.old_* --force
  *   rux del project.rux clouds.test_* --force --yes
  */
-void setup_subcommand_del(CLI::App &app, std::shared_ptr<RuxOptions> global_opt);
+void setup_subcommand_del(CLI::App &app,
+                          std::shared_ptr<RuxOptions> global_opt);
 
 /**
  * @brief Execute unified database del command
  */
-int run_subcommand_del(const DatabaseDelOptions &opt, const RuxOptions &global_opt);
+int run_subcommand_del(const DatabaseDelOptions &opt,
+                       const RuxOptions &global_opt);

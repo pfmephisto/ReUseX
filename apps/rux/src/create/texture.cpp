@@ -16,11 +16,11 @@
 
 #include <Eigen/Dense>
 
-void setup_subcommand_create_texture(CLI::App &app, std::shared_ptr<RuxOptions> global_opt) {
+void setup_subcommand_create_texture(CLI::App &app,
+                                     std::shared_ptr<RuxOptions> global_opt) {
   auto opt = std::make_shared<SubcommandTextureOptions>();
   auto *sub = app.add_subcommand(
-      "texture",
-      "Apply textures to mesh from point cloud colors");
+      "texture", "Apply textures to mesh from point cloud colors");
 
   sub->footer(R"(
 DESCRIPTION:
@@ -88,7 +88,8 @@ NOTES:
     return run_subcommand_texture(*opt, *global_opt);
   });
 }
-int run_subcommand_texture(SubcommandTextureOptions const &opt, const RuxOptions &global_opt) {
+int run_subcommand_texture(SubcommandTextureOptions const &opt,
+                           const RuxOptions &global_opt) {
   fs::path project_path = global_opt.project_db;
   spdlog::info("Texturing mesh from project: {}", project_path.string());
 
@@ -102,13 +103,16 @@ int run_subcommand_texture(SubcommandTextureOptions const &opt, const RuxOptions
     }
 
     if (!db.has_point_cloud(opt.cloud_name)) {
-      spdlog::error("Point cloud '{}' not found in project database", opt.cloud_name);
+      spdlog::error("Point cloud '{}' not found in project database",
+                    opt.cloud_name);
       return RuxError::INVALID_ARGUMENT;
     }
 
-    int logId = db.log_pipeline_start("texture_mesh",
-        fmt::format(R"({{"mesh_name":"{}","output_name":"{}","cloud_name":"{}","debug_colors":{}}})",
-                    opt.mesh_name, opt.output_name, opt.cloud_name, opt.debug_colors));
+    int logId = db.log_pipeline_start(
+        "texture_mesh",
+        fmt::format(
+            R"({{"mesh_name":"{}","output_name":"{}","cloud_name":"{}","debug_colors":{}}})",
+            opt.mesh_name, opt.output_name, opt.cloud_name, opt.debug_colors));
 
     spdlog::trace("Loading mesh '{}' from ProjectDB", opt.mesh_name);
     auto mesh = db.mesh(opt.mesh_name);
@@ -122,7 +126,8 @@ int run_subcommand_texture(SubcommandTextureOptions const &opt, const RuxOptions
     std::string normals_name = opt.cloud_name + "_normals";
     if (db.has_point_cloud(normals_name)) {
       normals = db.point_cloud_normal(normals_name);
-      spdlog::info("Loaded normals cloud '{}' ({} normals)", normals_name, normals->size());
+      spdlog::info("Loaded normals cloud '{}' ({} normals)", normals_name,
+                   normals->size());
     }
 
     // Unweld mesh for PCL texture compatibility

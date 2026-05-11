@@ -31,9 +31,11 @@ struct DatabaseGetOptions {
  *   rux get project.rux clouds.scan1.metadata --pretty
  *   rux get project.rux clouds[0].point_count
  */
-void setup_subcommand_get(CLI::App &app, std::shared_ptr<RuxOptions> global_opt);
+void setup_subcommand_get(CLI::App &app,
+                          std::shared_ptr<RuxOptions> global_opt);
 
 /**
  * @brief Execute unified database get command
  */
-int run_subcommand_get(const DatabaseGetOptions &opt, const RuxOptions &global_opt);
+int run_subcommand_get(const DatabaseGetOptions &opt,
+                       const RuxOptions &global_opt);

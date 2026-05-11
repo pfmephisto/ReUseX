@@ -9,4 +9,5 @@
 #include <memory>
 
 // Function declarations.
-void setup_subcommand_create(CLI::App &app, std::shared_ptr<RuxOptions> global_opt);
+void setup_subcommand_create(CLI::App &app,
+                             std::shared_ptr<RuxOptions> global_opt);

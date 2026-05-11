@@ -1,10 +1,10 @@
+#include "vision/tensor_rt/Sam3.hpp"
 #include "core/logging.hpp"
 #include "vision/IDataset.hpp"
 #include "vision/common/create_object.hpp"
 #include "vision/common/image.hpp"
 #include "vision/osd/osd.hpp"
 #include "vision/tensor_rt/Data.hpp"
-#include "vision/tensor_rt/Sam3.hpp"
 #include "vision/tensor_rt/common/affine.hpp"
 #include "vision/tensor_rt/common/device.hpp"
 #include "vision/tensor_rt/kernels/postprocess.cuh"
@@ -80,11 +80,11 @@ TensorRTSam3::create(const std::filesystem::path &model_path) {
     // reusex::error("Failed to load TensorRTSam3 engines from path: {}",
     //               model_path);
     reusex::error("Failed to load TensorRTSam3 engines with "
-                        "vision_encoder_path : {}, "
-                        "text_encoder_path : {}, geometry_encoder_path : {}, "
-                        "decoder_path : {} ",
-                        vision_encoder_path, text_encoder_path,
-                        geometry_encoder_path, decoder_path);
+                  "vision_encoder_path : {}, "
+                  "text_encoder_path : {}, geometry_encoder_path : {}, "
+                  "decoder_path : {} ",
+                  vision_encoder_path, text_encoder_path, geometry_encoder_path,
+                  decoder_path);
     return nullptr;
   }
   reusex::info("TensorRTSam3 created successfully");
@@ -100,10 +100,9 @@ TensorRTSam3::TensorRTSam3(const std::string vision_encoder_path,
       text_encoder_path_(text_encoder_path),
       geometry_encoder_path_(geometry_encoder_path),
       decoder_path_(decoder_path), gpu_id_(gpu_id) {
-  reusex::debug(
-      "Initializing TensorRTSam3 with gpu_id={}, max_image_batch={}, "
-      "max_prompt_batch={}",
-      gpu_id_, max_image_batch_, max_prompt_batch_);
+  reusex::debug("Initializing TensorRTSam3 with gpu_id={}, max_image_batch={}, "
+                "max_prompt_batch={}",
+                gpu_id_, max_image_batch_, max_prompt_batch_);
 
   // Initialize reserved Image Buffer
   original_images_buf_.resize(max_image_batch_);
@@ -120,7 +119,7 @@ TensorRTSam3::TensorRTSam3(const std::string vision_encoder_path,
   reusex::debug("Tokenizer blob loaded, size: {} bytes", blob.size());
   tokenizer_ = tokenizers::Tokenizer::FromBlobJSON(blob);
   reusex::debug("Tokenizer initialized successfully with vocab size: {}",
-                      tokenizer_->GetVocabSize());
+                tokenizer_->GetVocabSize());
 }
 
 std::vector<IDataset::Pair>
@@ -140,8 +139,8 @@ TensorRTSam3::forward(const std::span<IDataset::Pair> &input) {
     tensor_inputs[i] = dynamic_cast<const TensorRTData *>(input[i].first.get());
     if (!tensor_inputs[i]) {
       reusex::error("Input at index {} is not of type TensorRTData. "
-                          "Returning empty results.",
-                          i);
+                    "Returning empty results.",
+                    i);
       return results_img;
     }
   }
@@ -160,9 +159,9 @@ TensorRTSam3::forward(const std::span<IDataset::Pair> &input) {
       int idx = (int)text_input_map_.size();
       text_input_map_[prompt.text] = std::make_tuple(ids, mask, idx);
       reusex::trace("Tokenized text: '{}' ({}), IDs: [{}], Mask: [{}]",
-                          prompt.text, idx,
-                          fmt::join(ids | ranges::views::take(5), ", "),
-                          fmt::join(mask | ranges::views::take(5), ", "));
+                    prompt.text, idx,
+                    fmt::join(ids | ranges::views::take(5), ", "),
+                    fmt::join(mask | ranges::views::take(5), ", "));
     }
   }
 
@@ -171,8 +170,7 @@ TensorRTSam3::forward(const std::span<IDataset::Pair> &input) {
   // void *stream = nullptr;
   cudaStream_t stream = nullptr;
   if (auto s = cudaStreamCreate(&stream); s != cudaSuccess)
-    reusex::error("Failed to create CUDA stream: {}",
-                        cudaGetErrorString(s));
+    reusex::error("Failed to create CUDA stream: {}", cudaGetErrorString(s));
 
   AutoDevice device_guard(gpu_id_);
 
@@ -735,7 +733,7 @@ bool TensorRTSam3::encode_boxes(const std::vector<PromptMeta> &batch_prompts,
 
 bool TensorRTSam3::decode(int batch_size, int prompt_len, void *stream) {
   reusex::debug("Decoding with batch_size={}, prompt_len={}", batch_size,
-                      prompt_len);
+                prompt_len);
   int text_len = text_ids_shape_[1];
   int feat_dim = 256;
   size_t feat_sz = feat_dim * sizeof(float);
@@ -805,9 +803,8 @@ void TensorRTSam3::postprocess(InferResult &image_result, int batch_idx,
                                int image_idx, const std::string &label,
                                const int label_id, float confidence_threshold,
                                bool return_mask, void *stream) {
-  reusex::trace(
-      "Postprocessing results for image index {}, batch index {}", image_idx,
-      batch_idx);
+  reusex::trace("Postprocessing results for image index {}, batch index {}",
+                image_idx, batch_idx);
   cudaStream_t s = (cudaStream_t)stream;
 
   // Pointer offset (based on index in current Batch: batch_idx)
@@ -850,12 +847,12 @@ void TensorRTSam3::postprocess(InferResult &image_result, int batch_idx,
     if (!return_mask) {
       for (int i = 0; i < count; ++i) {
         float *b = h_boxes.data() + i * 4;
-        reusex::trace(
-            "Creating Box for Image {}, Box {}: [{}, {}, {}, {}], "
-            "Score: {}, Label: '{}' ({})",
-            image_idx, i, b[0], b[1], b[2], b[3], h_scores[i], label, label_id);
-        image_result.push_back(object::create_box(b[0], b[1], b[2], b[3],
-                                                  h_scores[i], label_id, label));
+        reusex::trace("Creating Box for Image {}, Box {}: [{}, {}, {}, {}], "
+                      "Score: {}, Label: '{}' ({})",
+                      image_idx, i, b[0], b[1], b[2], b[3], h_scores[i], label,
+                      label_id);
+        image_result.push_back(object::create_box(
+            b[0], b[1], b[2], b[3], h_scores[i], label_id, label));
       }
       return;
     }

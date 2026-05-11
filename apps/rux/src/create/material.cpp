@@ -5,19 +5,19 @@
 #include "create/material.hpp"
 #include "global-params.hpp"
 
+#include <reusex/core/ProjectDB.hpp>
 #include <reusex/core/materialepas_json_export.hpp>
 #include <reusex/core/materialepas_json_import.hpp>
-#include <reusex/core/ProjectDB.hpp>
 
 #include <fstream>
 #include <iostream>
 #include <spdlog/spdlog.h>
 
-void setup_subcommand_create_material(CLI::App &parent, std::shared_ptr<RuxOptions> global_opt) {
+void setup_subcommand_create_material(CLI::App &parent,
+                                      std::shared_ptr<RuxOptions> global_opt) {
   auto opt = std::make_shared<SubcommandCreateMaterialOptions>();
-  auto *sub = parent.add_subcommand(
-      "material",
-      "Create blank material passport");
+  auto *sub =
+      parent.add_subcommand("material", "Create blank material passport");
 
   sub->footer(R"(
 DESCRIPTION:
@@ -47,8 +47,9 @@ NOTES:
   - Saved to project database by default
 )");
 
-  sub->add_option("--guid", opt->guid,
-                  "Custom GUID for the material passport (default: auto-generated)");
+  sub->add_option(
+      "--guid", opt->guid,
+      "Custom GUID for the material passport (default: auto-generated)");
 
   sub->add_option("-o,--output", opt->output_file,
                   "Output JSON file path (optional)");
@@ -59,12 +60,14 @@ NOTES:
   });
 }
 
-int run_subcommand_create_material(SubcommandCreateMaterialOptions const &opt, const RuxOptions &global_opt) {
+int run_subcommand_create_material(SubcommandCreateMaterialOptions const &opt,
+                                   const RuxOptions &global_opt) {
   try {
     fs::path project_path = global_opt.project_db;
 
     // 1. Generate blank template
-    nlohmann::json template_json = reusex::core::json_export::generate_blank_template();
+    nlohmann::json template_json =
+        reusex::core::json_export::generate_blank_template();
 
     // 2. Override GUID if custom one was provided
     if (!opt.guid.empty()) {
@@ -90,12 +93,14 @@ int run_subcommand_create_material(SubcommandCreateMaterialOptions const &opt, c
       // Write to file
       std::ofstream ofs(opt.output_file);
       if (!ofs.is_open()) {
-        spdlog::error("Failed to open output file: {}", opt.output_file.string());
+        spdlog::error("Failed to open output file: {}",
+                      opt.output_file.string());
         return RuxError::IO;
       }
       ofs << json_str << std::endl;
       if (!ofs) {
-        spdlog::error("Failed to write output file: {}", opt.output_file.string());
+        spdlog::error("Failed to write output file: {}",
+                      opt.output_file.string());
         return RuxError::IO;
       }
       spdlog::info("Wrote template to: {}", opt.output_file.string());

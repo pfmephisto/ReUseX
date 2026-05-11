@@ -2,9 +2,9 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include "vision/libtorch/Dataset.hpp"
 #include "core/logging.hpp"
 #include "vision/libtorch/Data.hpp"
-#include "vision/libtorch/Dataset.hpp"
 #include "vision/utils.hpp"
 
 #include <opencv2/core.hpp>
@@ -17,8 +17,8 @@ IDataset::Pair LibTorchDataset::get(const std::size_t index) const {
   auto data = std::make_unique<LibTorchData>();
   data->image = image(index);
   data->original_size = data->image.size();
-  data->letterbox_scale =
-      letterbox(data->image, data->image, cv::Size(data->target_size, data->target_size));
+  data->letterbox_scale = letterbox(
+      data->image, data->image, cv::Size(data->target_size, data->target_size));
 
   return std::make_pair(std::move(data), index);
 }

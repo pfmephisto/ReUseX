@@ -2,9 +2,9 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include "vision/libtorch/Yolo.hpp"
 #include "core/logging.hpp"
 #include "vision/libtorch/Data.hpp"
-#include "vision/libtorch/Yolo.hpp"
 #include "vision/nms.hpp"
 
 #include <opencv2/core.hpp>
@@ -45,16 +45,16 @@ cv::Mat resizeMask(torch::Tensor maskTensor, cv::Size targetSize) {
 }
 
 std::pair<torch::Tensor, torch::Tensor> processMasks(torch::Tensor keep,
-                                                      torch::Tensor p2) {
+                                                     torch::Tensor p2) {
   using torch::indexing::None;
   using torch::indexing::Slice;
 
   auto const batch_size = keep.size(0);
   auto max_num_detections = keep.size(1);
 
-  auto const nm = p2.size(1);   // number of prototype masks
-  auto const ph = p2.size(2);   // prototype height
-  auto const pw = p2.size(3);   // prototype width
+  auto const nm = p2.size(1); // number of prototype masks
+  auto const ph = p2.size(2); // prototype height
+  auto const pw = p2.size(3); // prototype width
 
   auto p2_flat = p2.view({batch_size, nm, -1});
   auto mask_weights = keep.index({Slice(), Slice(), Slice(6, None)});
@@ -67,8 +67,7 @@ std::pair<torch::Tensor, torch::Tensor> processMasks(torch::Tensor keep,
 }
 
 cv::Mat createLabelImage(torch::Tensor keep, torch::Tensor masks,
-                          size_t batchIndex, int imgSize,
-                          float confThreshold) {
+                         size_t batchIndex, int imgSize, float confThreshold) {
   using torch::indexing::None;
   using torch::indexing::Slice;
 
@@ -135,7 +134,7 @@ torch::Tensor LibTorchYolo::images_to_tensor(
     t = t.toType(torch::kFloat32).div(255);
     t = t.index({torch::indexing::Slice(), torch::indexing::Slice(),
                  torch::tensor({2, 1, 0})}); // BGR -> RGB
-    t = t.permute({2, 0, 1}); // HWC -> CHW
+    t = t.permute({2, 0, 1});                // HWC -> CHW
     tensors.push_back(t);
   }
 
@@ -163,7 +162,8 @@ LibTorchYolo::forward(const std::span<IDataset::Pair> &input) {
   for (const auto &[data, idx] : input) {
     auto *lt_data = dynamic_cast<const LibTorchData *>(data.get());
     if (!lt_data)
-      throw std::runtime_error("LibTorchYolo::forward: input is not LibTorchData");
+      throw std::runtime_error(
+          "LibTorchYolo::forward: input is not LibTorchData");
     lt_inputs.push_back(lt_data);
   }
 
@@ -197,8 +197,8 @@ LibTorchYolo::forward(const std::span<IDataset::Pair> &input) {
   float iou_threshold = lt_inputs[0]->iou_threshold;
   int max_detections = lt_inputs[0]->max_detections;
 
-  auto keep = non_max_suppression(p1, conf_threshold, iou_threshold,
-                                  max_detections);
+  auto keep =
+      non_max_suppression(p1, conf_threshold, iou_threshold, max_detections);
 
   auto actual_batch_size = static_cast<size_t>(keep.size(0));
   auto [masks, processed_keep] = processMasks(keep, p2);

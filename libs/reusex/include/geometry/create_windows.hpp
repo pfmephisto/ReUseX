@@ -21,10 +21,10 @@ struct WallCandidate {
   Eigen::Vector3d centroid; ///< Area-weighted centroid of component faces
   Eigen::Vector3d normal;   ///< Unit outward normal (approximately horizontal)
 
-  /// Boundary loops ordered by half-edge traversal (outer loop first, then holes)
-  /// Each loop is a sequence of vertices forming a closed polygon.
-  /// First loop (boundary_loops[0]) is the outer boundary.
-  /// Additional loops represent holes (e.g., embedded windows/doors).
+  /// Boundary loops ordered by half-edge traversal (outer loop first, then
+  /// holes) Each loop is a sequence of vertices forming a closed polygon. First
+  /// loop (boundary_loops[0]) is the outer boundary. Additional loops represent
+  /// holes (e.g., embedded windows/doors).
   std::vector<std::vector<Eigen::Vector3d>> boundary_loops;
 
   std::vector<int> face_indices; ///< Mesh face indices in this component

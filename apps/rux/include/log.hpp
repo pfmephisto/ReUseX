@@ -17,5 +17,7 @@ struct SubcommandLogOptions {
 };
 
 // Function declarations
-void setup_subcommand_log(CLI::App &app, std::shared_ptr<RuxOptions> global_opt);
-int run_subcommand_log(SubcommandLogOptions const &opt, const RuxOptions &global_opt);
+void setup_subcommand_log(CLI::App &app,
+                          std::shared_ptr<RuxOptions> global_opt);
+int run_subcommand_log(SubcommandLogOptions const &opt,
+                       const RuxOptions &global_opt);

@@ -65,9 +65,9 @@ CellComplex::CellComplex(
   auto areas = this->add_property_map<Fd, double>("f:area").first;
 
   reusex::trace("Constructing arrangement with {} vertical planes and "
-                      "[({:.3f}),({:.3f})] bounding box",
-                      verticals.size(), fmt::join(min_xy, ","),
-                      fmt::join(max_xy, ","));
+                "[({:.3f}),({:.3f})] bounding box",
+                verticals.size(), fmt::join(min_xy, ","),
+                fmt::join(max_xy, ","));
 
   Iso_rectangle rect(Point_2(min_xy[0], min_xy[1]),
                      Point_2(max_xy[0], max_xy[1]));
@@ -152,15 +152,13 @@ CellComplex::CellComplex(
   //}
 
   VertexMap point_map{};
-  reusex::trace("Initialize vertex map for {} floors",
-                      sorted_floors.size());
+  reusex::trace("Initialize vertex map for {} floors", sorted_floors.size());
   for (auto vit = arr.vertices_begin(); vit != arr.vertices_end(); ++vit) {
     point_map[vit] = std::vector<Vd>(sorted_floors.size());
   }
   // Initialize face map
   FaceMap face_map{};
-  reusex::trace("Initialize face map for {} floors",
-                      sorted_floors.size());
+  reusex::trace("Initialize face map for {} floors", sorted_floors.size());
   for (auto fit = arr.faces_begin(); fit != arr.faces_end(); ++fit) {
     if (fit->is_unbounded())
       continue;

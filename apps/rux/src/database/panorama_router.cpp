@@ -19,19 +19,17 @@ std::vector<std::string> PanoramaRouter::list() const {
   return names; // Already sorted by filename from DB query
 }
 
-nlohmann::json
-PanoramaRouter::get_metadata(std::string_view filename) const {
+nlohmann::json PanoramaRouter::get_metadata(std::string_view filename) const {
   auto images = db_->list_panoramic_images();
   for (const auto &img : images) {
     if (img.filename == filename) {
       nlohmann::json meta;
       meta["id"] = img.id;
       meta["filename"] = img.filename;
-      meta["timestamp"] = img.timestamp >= 0.0
-                              ? nlohmann::json(img.timestamp)
-                              : nlohmann::json(nullptr);
+      meta["timestamp"] = img.timestamp >= 0.0 ? nlohmann::json(img.timestamp)
+                                               : nlohmann::json(nullptr);
       meta["node_id"] = img.node_id >= 0 ? nlohmann::json(img.node_id)
-                                          : nlohmann::json(nullptr);
+                                         : nlohmann::json(nullptr);
       return meta;
     }
   }
@@ -52,8 +50,7 @@ PanoramaRouter::get_image_data(std::string_view filename) const {
   return buf;
 }
 
-DataPayload
-PanoramaRouter::get(const std::vector<PathComponent> &components) {
+DataPayload PanoramaRouter::get(const std::vector<PathComponent> &components) {
   if (components.empty()) {
     // Collection level: return list with metadata
     auto images = db_->list_panoramic_images();
@@ -63,9 +60,9 @@ PanoramaRouter::get(const std::vector<PathComponent> &components) {
       j["id"] = img.id;
       j["filename"] = img.filename;
       j["timestamp"] = img.timestamp >= 0.0 ? nlohmann::json(img.timestamp)
-                                             : nlohmann::json(nullptr);
+                                            : nlohmann::json(nullptr);
       j["node_id"] = img.node_id >= 0 ? nlohmann::json(img.node_id)
-                                       : nlohmann::json(nullptr);
+                                      : nlohmann::json(nullptr);
       arr.push_back(std::move(j));
     }
     return arr;
@@ -104,9 +101,8 @@ PanoramaRouter::get(const std::vector<PathComponent> &components) {
   } else if (prop == "image") {
     return get_image_data(item_name);
   } else {
-    throw std::runtime_error(
-        "Unknown property: " + prop +
-        "\nAvailable properties: metadata, image");
+    throw std::runtime_error("Unknown property: " + prop +
+                             "\nAvailable properties: metadata, image");
   }
 }
 

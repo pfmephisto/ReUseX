@@ -68,8 +68,7 @@ std::vector<uint8_t> read_file_bytes(const fs::path &path) {
 void setup_subcommand_import_panorama(CLI::App &app,
                                       std::shared_ptr<RuxOptions> global_opt) {
   auto opt = std::make_shared<SubcommandImportPanoramaOptions>();
-  auto *sub =
-      app.add_subcommand("360", "Import 360 panoramic images");
+  auto *sub = app.add_subcommand("360", "Import 360 panoramic images");
 
   sub->footer(R"(
 DESCRIPTION:
@@ -145,8 +144,7 @@ int run_subcommand_import_panorama(SubcommandImportPanoramaOptions const &opt,
   }
 
   int log_id = db.log_pipeline_start(
-      "import_360",
-      fmt::format(R"({{"file_count":{}}})", files.size()));
+      "import_360", fmt::format(R"({{"file_count":{}}})", files.size()));
 
   int imported = 0;
   int matched = 0;
@@ -171,8 +169,8 @@ int run_subcommand_import_panorama(SubcommandImportPanoramaOptions const &opt,
         if (node_id >= 0) {
           double frame_ts = db.sensor_frame_timestamp(node_id);
           double dt = std::abs(timestamp - frame_ts);
-          spdlog::info("Imported {} -> node {} (dt={:.1f}s)", filename,
-                       node_id, dt);
+          spdlog::info("Imported {} -> node {} (dt={:.1f}s)", filename, node_id,
+                       dt);
           ++matched;
         } else {
           spdlog::info("Imported {} (no matching sensor frame)", filename);

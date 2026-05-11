@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "curand_globals.h"
 #include "create/project.hpp"
+#include "curand_globals.h"
 #include "validation.hpp"
 
 #include <CLI/CLI.hpp>
@@ -25,11 +25,12 @@
 
 namespace fs = std::filesystem;
 
-void setup_subcommand_create_project(CLI::App &app, std::shared_ptr<RuxOptions> global_opt) {
+void setup_subcommand_create_project(CLI::App &app,
+                                     std::shared_ptr<RuxOptions> global_opt) {
 
   auto opt = std::make_shared<SubcommandProjectOptions>();
-  auto *sub = app.add_subcommand(
-      "project", "Project 2D labels onto 3D point cloud");
+  auto *sub =
+      app.add_subcommand("project", "Project 2D labels onto 3D point cloud");
 
   sub->footer(R"(
 DESCRIPTION:
@@ -64,7 +65,8 @@ NOTES:
   });
 };
 
-int run_subcommand_project([[maybe_unused]] SubcommandProjectOptions const &opt, const RuxOptions &global_opt) {
+int run_subcommand_project([[maybe_unused]] SubcommandProjectOptions const &opt,
+                           const RuxOptions &global_opt) {
   fs::path project_path = global_opt.project_db;
   spdlog::info("Projecting labels in project: {}", project_path.string());
 

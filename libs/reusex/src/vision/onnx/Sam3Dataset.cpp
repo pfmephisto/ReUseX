@@ -2,10 +2,10 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include "vision/onnx/Sam3Dataset.hpp"
 #include "core/ProjectDB.hpp"
 #include "core/logging.hpp"
 #include "vision/onnx/Sam3Data.hpp"
-#include "vision/onnx/Sam3Dataset.hpp"
 
 #include <sstream>
 
@@ -27,8 +27,7 @@ bool ONNXSam3Dataset::save(const std::span<IDataset::Pair> &data) {
   for (const auto &[item, index] : data) {
     auto *sam3_data = dynamic_cast<ONNXSam3Data *>(item.get());
     if (!sam3_data) {
-      reusex::error(
-          "Failed to cast IData to ONNXSam3Data at index {}", index);
+      reusex::error("Failed to cast IData to ONNXSam3Data at index {}", index);
       success = false;
       continue;
     }
@@ -47,7 +46,7 @@ bool ONNXSam3Dataset::save(const std::span<IDataset::Pair> &data) {
       database()->log_pipeline_start("annotate_class_map", json.str());
       class_map_saved_ = true;
       reusex::info("Saved segmentation class map ({} classes)",
-                         sam3_data->prompts.size());
+                   sam3_data->prompts.size());
     }
   }
 

@@ -5,19 +5,19 @@
 #include "import/materialepas.hpp"
 #include "global-params.hpp"
 
-#include <reusex/core/materialepas_json_import.hpp>
 #include <reusex/core/ProjectDB.hpp>
+#include <reusex/core/materialepas_json_import.hpp>
 
 #include <fstream>
 #include <spdlog/spdlog.h>
 
 namespace fs = std::filesystem;
 
-void setup_subcommand_import_materialepas(CLI::App &parent, std::shared_ptr<RuxOptions> global_opt) {
+void setup_subcommand_import_materialepas(
+    CLI::App &parent, std::shared_ptr<RuxOptions> global_opt) {
   auto opt = std::make_shared<SubcommandImportMaterialepasOptions>();
-  auto *sub = parent.add_subcommand(
-      "materialepas",
-      "Import material passports from JSON");
+  auto *sub = parent.add_subcommand("materialepas",
+                                    "Import material passports from JSON");
 
   sub->footer(R"(
 DESCRIPTION:
@@ -50,7 +50,8 @@ NOTES:
       ->check(CLI::ExistingFile);
 
   sub->add_option("--project-id", opt->project_id,
-                  "Project identifier (optional, passport stored without project if omitted)");
+                  "Project identifier (optional, passport stored without "
+                  "project if omitted)");
 
   sub->callback([opt, global_opt]() {
     spdlog::trace("calling import materialepas subcommand");
@@ -59,7 +60,8 @@ NOTES:
 }
 
 int run_subcommand_import_materialepas(
-    SubcommandImportMaterialepasOptions const &opt, const RuxOptions &global_opt) {
+    SubcommandImportMaterialepasOptions const &opt,
+    const RuxOptions &global_opt) {
   fs::path project_path = global_opt.project_db;
 
   // 1. Read JSON file
@@ -71,7 +73,7 @@ int run_subcommand_import_materialepas(
   }
 
   std::string json_str((std::istreambuf_iterator<char>(ifs)),
-                        std::istreambuf_iterator<char>());
+                       std::istreambuf_iterator<char>());
   ifs.close();
 
   // 2. Parse JSON → MaterialPassport(s)

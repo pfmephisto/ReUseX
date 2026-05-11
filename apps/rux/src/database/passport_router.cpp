@@ -24,8 +24,10 @@ std::string collapse_value(const std::string &value) {
     return value;
   // Quick heuristic: check first non-whitespace character
   auto first = value.front();
-  if (first == '{') return "{...}";
-  if (first == '[') return "[...]";
+  if (first == '{')
+    return "{...}";
+  if (first == '[')
+    return "[...]";
   return value;
 }
 
@@ -90,8 +92,10 @@ DataPayload PassportRouter::get(const std::vector<PathComponent> &components) {
   if (field_name == "document_guid" || field_name == "created_at" ||
       field_name == "version_number") {
     auto metadata = db_->passport_metadata(guid);
-    if (field_name == "document_guid") return std::string(metadata.document_guid);
-    if (field_name == "created_at")    return std::string(metadata.creation_date);
+    if (field_name == "document_guid")
+      return std::string(metadata.document_guid);
+    if (field_name == "created_at")
+      return std::string(metadata.creation_date);
     return std::string(metadata.version_number);
   }
 

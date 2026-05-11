@@ -20,5 +20,7 @@ struct SubcommandExportSpeckleOptions {
   std::size_t max_batch_bytes = 25 * 1024 * 1024; // 25 MB
 };
 
-void setup_subcommand_export_speckle(CLI::App &parent, std::shared_ptr<RuxOptions> global_opt);
-int run_subcommand_export_speckle(SubcommandExportSpeckleOptions const &opt, const RuxOptions &global_opt);
+void setup_subcommand_export_speckle(CLI::App &parent,
+                                     std::shared_ptr<RuxOptions> global_opt);
+int run_subcommand_export_speckle(SubcommandExportSpeckleOptions const &opt,
+                                  const RuxOptions &global_opt);

@@ -39,8 +39,7 @@ bool faces_share_edge_through(const pcl::Vertices &face_a,
 /// in the same group share edges through v and have normals within threshold.
 /// Returns a vector of group labels, one per entry in @p face_indices.
 std::vector<uint32_t>
-group_faces_around_vertex(uint32_t v,
-                          const std::vector<uint32_t> &face_indices,
+group_faces_around_vertex(uint32_t v, const std::vector<uint32_t> &face_indices,
                           const std::vector<pcl::Vertices> &polygons,
                           const std::vector<Eigen::Vector3f> &face_normals,
                           float threshold_radians) {
@@ -184,9 +183,8 @@ pcl::PolygonMeshPtr unweld_mesh(const pcl::PolygonMesh &mesh,
   pcl::toPCLPointCloud2(*new_cloud, result->cloud);
   result->polygons = std::move(new_polygons);
 
-  reusex::debug("Unweld: {} -> {} vertices ({} faces)",
-                       cloud->points.size(), new_cloud->points.size(),
-                       result->polygons.size());
+  reusex::debug("Unweld: {} -> {} vertices ({} faces)", cloud->points.size(),
+                new_cloud->points.size(), result->polygons.size());
 
   return result;
 }

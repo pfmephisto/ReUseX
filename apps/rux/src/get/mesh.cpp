@@ -3,20 +3,21 @@
 
 #include "get/mesh.hpp"
 
-#include <reusex/core/ProjectDB.hpp>
-#include <reusex/core/logging.hpp>
 #include <fmt/core.h>
 #include <fmt/ranges.h>
 #include <pcl/io/obj_io.h>
 #include <pcl/io/ply_io.h>
+#include <reusex/core/ProjectDB.hpp>
+#include <reusex/core/logging.hpp>
 #include <spdlog/spdlog.h>
 
-#include <fstream>
 #include <filesystem>
+#include <fstream>
 
 namespace {
 /**
- * @brief Copy texture files and update TextureMesh material paths to be relative.
+ * @brief Copy texture files and update TextureMesh material paths to be
+ * relative.
  *
  * PCL's loadOBJFile sets absolute paths to texture files. This function:
  * 1. Copies all texture images to the output directory
@@ -25,7 +26,7 @@ namespace {
  * @param mesh TextureMesh to update
  * @param output_dir Directory where OBJ/MTL files will be saved
  */
-void prepare_texture_paths(pcl::TextureMesh& mesh, const fs::path& output_dir) {
+void prepare_texture_paths(pcl::TextureMesh &mesh, const fs::path &output_dir) {
   // Ensure output directory exists
   if (!fs::exists(output_dir)) {
     fs::create_directories(output_dir);
@@ -34,10 +35,10 @@ void prepare_texture_paths(pcl::TextureMesh& mesh, const fs::path& output_dir) {
   spdlog::info("Preparing {} texture(s) for export", mesh.tex_materials.size());
 
   for (size_t i = 0; i < mesh.tex_materials.size(); ++i) {
-    auto& material = mesh.tex_materials[i];
+    auto &material = mesh.tex_materials[i];
 
-    spdlog::debug("Material {}: name='{}', tex_file='{}'",
-                  i, material.tex_name, material.tex_file);
+    spdlog::debug("Material {}: name='{}', tex_file='{}'", i, material.tex_name,
+                  material.tex_file);
 
     // Get the texture file path (might be absolute path to temp directory)
     fs::path texture_path(material.tex_file);
@@ -59,7 +60,8 @@ void prepare_texture_paths(pcl::TextureMesh& mesh, const fs::path& output_dir) {
     try {
       // Copy the texture file
       if (texture_path != dest_path) {
-        fs::copy_file(texture_path, dest_path, fs::copy_options::overwrite_existing);
+        fs::copy_file(texture_path, dest_path,
+                      fs::copy_options::overwrite_existing);
         spdlog::info("Copied texture: {}", texture_filename.string());
       }
 
@@ -67,14 +69,16 @@ void prepare_texture_paths(pcl::TextureMesh& mesh, const fs::path& output_dir) {
       material.tex_file = texture_filename.string();
       spdlog::debug("Updated material texture path to: {}", material.tex_file);
 
-    } catch (const std::exception& e) {
-      spdlog::error("Failed to copy texture {}: {}", texture_path.string(), e.what());
+    } catch (const std::exception &e) {
+      spdlog::error("Failed to copy texture {}: {}", texture_path.string(),
+                    e.what());
     }
   }
 }
-}  // anonymous namespace
+} // anonymous namespace
 
-int run_subcommand_get_mesh(SubcommandGetMeshOptions const &opt, const RuxOptions &global_opt) {
+int run_subcommand_get_mesh(SubcommandGetMeshOptions const &opt,
+                            const RuxOptions &global_opt) {
   spdlog::info("Exporting mesh '{}' from project: {}", opt.mesh_name,
                global_opt.project_db.string());
 
@@ -98,18 +102,20 @@ int run_subcommand_get_mesh(SubcommandGetMeshOptions const &opt, const RuxOption
     bool is_ply = (db_format == "ply_binary");
 
     // Determine output format
-    // Priority: 1) explicit --format flag, 2) output file extension, 3) database format
+    // Priority: 1) explicit --format flag, 2) output file extension, 3)
+    // database format
     std::string output_format;
     std::string file_extension;
 
     if (!opt.format.empty()) {
       // User explicitly set format
       output_format = opt.format;
-    } else if (!opt.output_path.empty() && !opt.output_path.extension().empty()) {
+    } else if (!opt.output_path.empty() &&
+               !opt.output_path.extension().empty()) {
       // Output path has extension
       file_extension = opt.output_path.extension().string();
       if (file_extension.size() > 1) {
-        output_format = file_extension.substr(1);  // Remove leading '.'
+        output_format = file_extension.substr(1); // Remove leading '.'
       }
     } else {
       // Use database format
@@ -118,12 +124,13 @@ int run_subcommand_get_mesh(SubcommandGetMeshOptions const &opt, const RuxOption
       } else if (is_ply) {
         output_format = "ply";
       } else {
-        output_format = "ply";  // Default fallback
+        output_format = "ply"; // Default fallback
       }
     }
 
     // Convert format to lowercase
-    std::transform(output_format.begin(), output_format.end(), output_format.begin(),
+    std::transform(output_format.begin(), output_format.end(),
+                   output_format.begin(),
                    [](unsigned char c) { return std::tolower(c); });
 
     // Determine output path
@@ -132,7 +139,8 @@ int run_subcommand_get_mesh(SubcommandGetMeshOptions const &opt, const RuxOption
       output = fs::current_path() / (opt.mesh_name + "." + output_format);
     }
 
-    spdlog::debug("Mesh database format: {}, output format: {}", db_format, output_format);
+    spdlog::debug("Mesh database format: {}, output format: {}", db_format,
+                  output_format);
 
     // Load and export mesh
     if (is_textured) {
@@ -141,13 +149,15 @@ int run_subcommand_get_mesh(SubcommandGetMeshOptions const &opt, const RuxOption
                    texture_mesh->tex_materials.size());
 
       if (output_format == "obj") {
-        // Prepare textures: copy to output directory and update paths to be relative
+        // Prepare textures: copy to output directory and update paths to be
+        // relative
         fs::path output_dir = output.parent_path();
         if (output_dir.empty()) {
           output_dir = fs::current_path();
         }
 
-        spdlog::debug("Preparing textures in directory: {}", output_dir.string());
+        spdlog::debug("Preparing textures in directory: {}",
+                      output_dir.string());
         prepare_texture_paths(*texture_mesh, output_dir);
 
         // Now save the OBJ with updated relative paths
@@ -158,13 +168,14 @@ int run_subcommand_get_mesh(SubcommandGetMeshOptions const &opt, const RuxOption
         spdlog::info("Textured mesh exported to: {}", output.string());
 
         // Check if .mtl and textures were created
-        fs::path mtl_file = output.parent_path() / (output.stem().string() + ".mtl");
+        fs::path mtl_file =
+            output.parent_path() / (output.stem().string() + ".mtl");
         if (fs::exists(mtl_file)) {
           spdlog::info("Material file created: {}", mtl_file.string());
 
           // Log texture files that were copied
           int texture_count = 0;
-          for (const auto& material : texture_mesh->tex_materials) {
+          for (const auto &material : texture_mesh->tex_materials) {
             if (!material.tex_file.empty()) {
               fs::path tex_path = output_dir / material.tex_file;
               if (fs::exists(tex_path)) {
@@ -174,12 +185,13 @@ int run_subcommand_get_mesh(SubcommandGetMeshOptions const &opt, const RuxOption
             }
           }
           if (texture_count > 0) {
-            spdlog::info("Copied {} texture file(s) to output directory", texture_count);
+            spdlog::info("Copied {} texture file(s) to output directory",
+                         texture_count);
           }
         }
       } else if (output_format == "ply") {
-        spdlog::warn(
-            "Converting textured mesh to PLY - texture information will be lost");
+        spdlog::warn("Converting textured mesh to PLY - texture information "
+                     "will be lost");
         pcl::PolygonMesh poly_mesh;
         poly_mesh.cloud = texture_mesh->cloud;
         if (!texture_mesh->tex_polygons.empty()) {
@@ -191,8 +203,10 @@ int run_subcommand_get_mesh(SubcommandGetMeshOptions const &opt, const RuxOption
         }
         spdlog::info("Mesh exported to: {}", output.string());
       } else {
-        spdlog::error("Unsupported format '{}' for textured mesh", output_format);
-        spdlog::info("Textured meshes support: obj (with textures), ply (textures discarded)");
+        spdlog::error("Unsupported format '{}' for textured mesh",
+                      output_format);
+        spdlog::info("Textured meshes support: obj (with textures), ply "
+                     "(textures discarded)");
         return RuxError::INVALID_ARGUMENT;
       }
     } else {
@@ -228,7 +242,8 @@ int run_subcommand_get_mesh(SubcommandGetMeshOptions const &opt, const RuxOption
   }
 }
 
-void setup_subcommand_get_mesh(CLI::App &app, std::shared_ptr<RuxOptions> global_opt) {
+void setup_subcommand_get_mesh(CLI::App &app,
+                               std::shared_ptr<RuxOptions> global_opt) {
   auto opt = std::make_shared<SubcommandGetMeshOptions>();
   auto *sub = app.add_subcommand(
       "mesh", "Export a specific mesh from ProjectDB to file");
@@ -239,8 +254,9 @@ void setup_subcommand_get_mesh(CLI::App &app, std::shared_ptr<RuxOptions> global
   sub->add_option("-o,--output", opt->output_path,
                   "Output file path (default: ./{mesh_name}.{ext})");
 
-  sub->add_option("-f,--format", opt->format,
-                  "Output format override: obj, ply (default: auto-detect from database)");
+  sub->add_option(
+      "-f,--format", opt->format,
+      "Output format override: obj, ply (default: auto-detect from database)");
 
   sub->callback([opt, global_opt]() {
     spdlog::trace("calling run_subcommand_get_mesh");

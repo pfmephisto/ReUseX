@@ -19,13 +19,16 @@ struct SubcommandAnnotateOptions {
   bool isCuda{false};
 
   // Dataloader configuration
-  size_t batch_size = 16;        // Batch size for inference (recommended: 8-64)
-  bool shuffle = false;          // Shuffle dataset (rarely needed for inference)
-  size_t num_workers = 4;        // Number of worker threads (recommended: 2-4)
-  size_t prefetch_batches = 8;   // Batches to prefetch (recommended: 2-3x workers)
-  bool skip_annotated = false;   // Skip already-annotated frames (resume mode)
+  size_t batch_size = 16; // Batch size for inference (recommended: 8-64)
+  bool shuffle = false;   // Shuffle dataset (rarely needed for inference)
+  size_t num_workers = 4; // Number of worker threads (recommended: 2-4)
+  size_t prefetch_batches =
+      8; // Batches to prefetch (recommended: 2-3x workers)
+  bool skip_annotated = false; // Skip already-annotated frames (resume mode)
 };
 
 // Function declarations.
-void setup_subcommand_create_annotate(CLI::App &app, std::shared_ptr<RuxOptions> global_opt);
-int run_subcommand_annotate(SubcommandAnnotateOptions const &opt, const RuxOptions &global_opt);
+void setup_subcommand_create_annotate(CLI::App &app,
+                                      std::shared_ptr<RuxOptions> global_opt);
+int run_subcommand_annotate(SubcommandAnnotateOptions const &opt,
+                            const RuxOptions &global_opt);

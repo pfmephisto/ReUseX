@@ -14,7 +14,8 @@ class ProjectDB;
 
 namespace reusex::io {
 
-// ── Import ────────────────────────────────────────────────────────────────────
+// ── Import
+// ────────────────────────────────────────────────────────────────────
 
 /// Import a point cloud from a PLY file into a ProjectDB.
 ///
@@ -30,7 +31,8 @@ namespace reusex::io {
 /// @param ply_path Path to the source .ply file.
 void import_ply(ProjectDB &db, const std::filesystem::path &ply_path);
 
-// ── Export ────────────────────────────────────────────────────────────────────
+// ── Export
+// ────────────────────────────────────────────────────────────────────
 
 /// Export a point cloud to a binary PLY file.
 ///
@@ -41,8 +43,7 @@ void import_ply(ProjectDB &db, const std::filesystem::path &ply_path);
 /// @param path    Output .ply file path (created or overwritten).
 /// @param cloud   XYZRGB point cloud to export.
 /// @param normals Surface normals to merge into the output (nullptr = skip).
-void export_ply(const std::filesystem::path &path,
-                const Cloud &cloud,
+void export_ply(const std::filesystem::path &path, const Cloud &cloud,
                 const CloudN *normals = nullptr);
 
 } // namespace reusex::io

@@ -36,7 +36,8 @@ ResourceRouter &RouterRegistry::get_router(std::string_view collection) {
   if (it == routers_.end()) {
     throw std::runtime_error(
         "No router for collection: " + std::string(collection) +
-        "\nSupported collections: clouds, materials, meshes, panoramas, projects");
+        "\nSupported collections: clouds, materials, meshes, panoramas, "
+        "projects");
   }
   return *it->second;
 }

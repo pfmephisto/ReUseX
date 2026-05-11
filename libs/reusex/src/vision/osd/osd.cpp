@@ -1,4 +1,7 @@
+#include "vision/osd/osd.hpp"
 #include "core/logging.hpp"
+#include "vision/osd/cvx_text.hpp"
+#include "vision/osd/labelLayoutSolver.hpp"
 #include <filesystem>
 #include <functional>
 #include <iomanip>
@@ -11,9 +14,6 @@
 #include <tuple>
 #include <unordered_map>
 #include <vector>
-#include "vision/osd/cvx_text.hpp"
-#include "vision/osd/labelLayoutSolver.hpp"
-#include "vision/osd/osd.hpp"
 
 #include <pcl/common/colors.h>
 
@@ -360,8 +360,7 @@ void make_labled_image(cv::Mat &img,
     cv::Mat image_roi = img(roi);
     cv::Mat resized_mask;
     cv::resize(box.segmentation->mask, resized_mask, roi.size());
-    reusex::debug("Class Id: {}, Class Name: {}", box.class_id,
-                        box.class_name);
+    reusex::debug("Class Id: {}, Class Name: {}", box.class_id, box.class_name);
     cv::Mat color_patch(roi.size(), img.type(), box.class_id);
     color_patch.copyTo(image_roi, resized_mask);
   }
@@ -369,9 +368,8 @@ void make_labled_image(cv::Mat &img,
 
 void osd(cv::Mat &img, const common::object::DetectionBoxArray &boxes,
          bool osd_rect, double font_scale_ratio) {
-  reusex::debug(
-      "OSD called with {} boxes, osd_rect={}, font_scale_ratio={}",
-      boxes.size(), osd_rect, font_scale_ratio);
+  reusex::debug("OSD called with {} boxes, osd_rect={}, font_scale_ratio={}",
+                boxes.size(), osd_rect, font_scale_ratio);
 
   int height = img.rows, width = img.cols;
   const int PAD_X = 2;

@@ -87,8 +87,9 @@ NOTES:
   sub->add_option("-M,--message", opt->commit_message, "Version commit message")
       ->default_val(opt->commit_message);
 
-  sub->add_option("-r,--root", opt->root_folder,
-                  "Root folder prefix for model names (e.g., 'scan1' -> scan1/cloud)");
+  sub->add_option(
+      "-r,--root", opt->root_folder,
+      "Root folder prefix for model names (e.g., 'scan1' -> scan1/cloud)");
 
   sub->add_option("--max-batch", opt->max_batch_bytes,
                   "HTTP batch size in bytes (default: 25 MB)")
@@ -140,9 +141,10 @@ int run_subcommand_export_speckle(SubcommandExportSpeckleOptions const &opt,
 
     // Upload each model to its own branch
     for (const auto &m : models) {
-      std::string branch = opt.root_folder.empty()
-                               ? m.model_name
-                               : fmt::format("{}/{}", opt.root_folder, m.model_name);
+      std::string branch =
+          opt.root_folder.empty()
+              ? m.model_name
+              : fmt::format("{}/{}", opt.root_folder, m.model_name);
       spdlog::info("Uploading model '{}'...", branch);
       std::string commit_id =
           client.upload(*m.root, branch, opt.commit_message);

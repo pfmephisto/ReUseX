@@ -12,11 +12,11 @@
 
 #include <spdlog/spdlog.h>
 
-void setup_subcommand_set(CLI::App &app, std::shared_ptr<RuxOptions> global_opt) {
+void setup_subcommand_set(CLI::App &app,
+                          std::shared_ptr<RuxOptions> global_opt) {
   auto opt = std::make_shared<DatabaseSetOptions>();
 
-  auto *sub = app.add_subcommand(
-      "set", "Set data in project database");
+  auto *sub = app.add_subcommand("set", "Set data in project database");
 
   sub->footer(R"(
 DESCRIPTION:
@@ -63,7 +63,8 @@ NOTES:
   });
 }
 
-int run_subcommand_set(const DatabaseSetOptions &opt, const RuxOptions &global_opt) {
+int run_subcommand_set(const DatabaseSetOptions &opt,
+                       const RuxOptions &global_opt) {
   try {
     fs::path project_path = global_opt.project_db;
     spdlog::info("Opening project: {}", project_path.string());

@@ -12,15 +12,15 @@ namespace reusex::vision::common::object {
 /// @brief Enumeration of supported detection object types.
 /// Identifies the kind of data stored in a DetectionBox.
 enum class ObjectType {
-  unknown = -1,        ///< Unknown or unclassified object type.
-  position = 0,        ///< Simple position/region of interest.
-  pose = 1,            ///< Human pose estimation result.
-  obb = 2,             ///< Oriented bounding box.
-  segmentation = 3,    ///< Instance segmentation mask.
-  depth_anything = 4,  ///< Depth map from DepthAnything model.
-  depth_pro = 5,       ///< Depth map from DepthPro model.
-  track = 6,           ///< Multi-object tracking result.
-  detection = 7,       ///< Standard bounding box detection.
+  unknown = -1,       ///< Unknown or unclassified object type.
+  position = 0,       ///< Simple position/region of interest.
+  pose = 1,           ///< Human pose estimation result.
+  obb = 2,            ///< Oriented bounding box.
+  segmentation = 3,   ///< Instance segmentation mask.
+  depth_anything = 4, ///< Depth map from DepthAnything model.
+  depth_pro = 5,      ///< Depth map from DepthPro model.
+  track = 6,          ///< Multi-object tracking result.
+  detection = 7,      ///< Standard bounding box detection.
 };
 
 /// @brief Axis-aligned bounding box defined by (left, top, right, bottom)
@@ -188,10 +188,10 @@ struct Track {
 /// optional enriched data (pose, OBB, segmentation, depth, tracking).
 struct DetectionBox {
   ObjectType type = ObjectType::unknown; ///< Type of this detection.
-  Box box;                              ///< Axis-aligned bounding box.
-  float score = 0.0f;                   ///< Confidence score in [0, 1].
-  int class_id = -1;                    ///< Class index.
-  std::string class_name;               ///< Human-readable class label.
+  Box box;                               ///< Axis-aligned bounding box.
+  float score = 0.0f;                    ///< Confidence score in [0, 1].
+  int class_id = -1;                     ///< Class index.
+  std::string class_name;                ///< Human-readable class label.
 
   std::optional<Pose> pose; ///< Populated for POSE detections.
   std::optional<Obb> obb;   ///< Populated for OBB detections.

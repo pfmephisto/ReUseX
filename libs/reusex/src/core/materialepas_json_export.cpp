@@ -23,8 +23,7 @@ namespace reusex::core::json_export {
 // ===========================================================================
 
 static const std::array<SectionDescriptor, 10> k_sections = {{
-    {"Owner", "Ejer",
-     PropertyTraits<Owner>::properties(),
+    {"Owner", "Ejer", PropertyTraits<Owner>::properties(),
      PropertyTraits<Owner>::property_count(),
      offsetof(MaterialPassport, owner)},
 
@@ -49,18 +48,15 @@ static const std::array<SectionDescriptor, 10> k_sections = {{
      PropertyTraits<Dimensions>::property_count(),
      offsetof(MaterialPassport, dimensions)},
 
-    {"History", "Historik",
-     PropertyTraits<History>::properties(),
+    {"History", "Historik", PropertyTraits<History>::properties(),
      PropertyTraits<History>::property_count(),
      offsetof(MaterialPassport, history)},
 
-    {"Condition", "Tilstand",
-     PropertyTraits<Condition>::properties(),
+    {"Condition", "Tilstand", PropertyTraits<Condition>::properties(),
      PropertyTraits<Condition>::property_count(),
      offsetof(MaterialPassport, condition)},
 
-    {"Pollution - content and emissions",
-     "Forurening - indhold og afgasning",
+    {"Pollution - content and emissions", "Forurening - indhold og afgasning",
      PropertyTraits<Pollution>::properties(),
      PropertyTraits<Pollution>::property_count(),
      offsetof(MaterialPassport, pollution)},
@@ -73,8 +69,7 @@ static const std::array<SectionDescriptor, 10> k_sections = {{
      PropertyTraits<EnvironmentalPotential>::property_count(),
      offsetof(MaterialPassport, environmental)},
 
-    {"Other essential properties",
-     "\xc3\x98vrige v\xc3\xa6sentlige egenskaber",
+    {"Other essential properties", "\xc3\x98vrige v\xc3\xa6sentlige egenskaber",
      PropertyTraits<FireProperties>::properties(),
      PropertyTraits<FireProperties>::property_count(),
      offsetof(MaterialPassport, fire)},
@@ -102,7 +97,7 @@ const std::optional<int> &read_opt_int(const void *section, size_t offset) {
 
 /// Read std::optional<double> field
 const std::optional<double> &read_opt_double(const void *section,
-                                              size_t offset) {
+                                             size_t offset) {
   return *reinterpret_cast<const std::optional<double> *>(
       static_cast<const char *>(section) + offset);
 }
@@ -121,28 +116,28 @@ const TriState &read_tristate(const void *section, size_t offset) {
 
 /// Read std::vector<std::string> field
 const std::vector<std::string> &read_string_array(const void *section,
-                                                    size_t offset) {
+                                                  size_t offset) {
   return *reinterpret_cast<const std::vector<std::string> *>(
       static_cast<const char *>(section) + offset);
 }
 
 /// Read std::vector<Material> field
 const std::vector<Material> &read_material_array(const void *section,
-                                                   size_t offset) {
+                                                 size_t offset) {
   return *reinterpret_cast<const std::vector<Material> *>(
       static_cast<const char *>(section) + offset);
 }
 
 /// Read SubstanceContentMethod enum field
 const SubstanceContentMethod &read_substance_method(const void *section,
-                                                      size_t offset) {
+                                                    size_t offset) {
   return *reinterpret_cast<const SubstanceContentMethod *>(
       static_cast<const char *>(section) + offset);
 }
 
 /// Read EmissionQuantityType enum field
 const EmissionQuantityType &read_emission_qty_type(const void *section,
-                                                     size_t offset) {
+                                                   size_t offset) {
   return *reinterpret_cast<const EmissionQuantityType *>(
       static_cast<const char *>(section) + offset);
 }
@@ -156,7 +151,7 @@ read_dangerous_substances(const void *section, size_t offset) {
 
 /// Read std::vector<Emission> field
 const std::vector<Emission> &read_emissions(const void *section,
-                                              size_t offset) {
+                                            size_t offset) {
   return *reinterpret_cast<const std::vector<Emission> *>(
       static_cast<const char *>(section) + offset);
 }
@@ -180,8 +175,8 @@ std::string format_double(double val) {
 
 /// Convert a simple property to its JSON value string
 std::string property_value_string(const void *section,
-                                   const PropertyDescriptor &desc,
-                                   const char *struct_name) {
+                                  const PropertyDescriptor &desc,
+                                  const char *struct_name) {
   switch (desc.type) {
   case PropertyType::String:
     return read_string(section, desc.offset);
@@ -226,9 +221,8 @@ std::string property_value_string(const void *section,
 /// Convert a single nested object (DangerousSubstance or Emission) to JSON
 /// properties array
 json nested_object_properties(const void *obj,
-                               const PropertyDescriptor *nested_props,
-                               size_t nested_count,
-                               const char *struct_name) {
+                              const PropertyDescriptor *nested_props,
+                              size_t nested_count, const char *struct_name) {
   json props = json::array();
   for (size_t i = 0; i < nested_count; ++i) {
     const auto &nd = nested_props[i];
@@ -302,13 +296,11 @@ void serialize_property(json &properties_array, const void *section,
     // Determine which type of nested object
     if (desc.nested_properties ==
         PropertyTraits<DangerousSubstance>::properties()) {
-      const auto &substances =
-          read_dangerous_substances(section, desc.offset);
+      const auto &substances = read_dangerous_substances(section, desc.offset);
       if (substances.empty()) {
         // Empty template: one entry with empty nested properties
-        prop["properties"] =
-            nested_object_properties(nullptr, desc.nested_properties,
-                                      0, "DangerousSubstance");
+        prop["properties"] = nested_object_properties(
+            nullptr, desc.nested_properties, 0, "DangerousSubstance");
         // Actually, show the empty template with all fields
         json nested = json::array();
         for (size_t i = 0; i < desc.nested_count; ++i) {
@@ -328,9 +320,9 @@ void serialize_property(json &properties_array, const void *section,
           json entry;
           entry["name"] = desc.json_name;
           entry["guid"] = desc.leksikon_guid;
-          entry["properties"] = nested_object_properties(
-              &sub, desc.nested_properties, desc.nested_count,
-              "DangerousSubstance");
+          entry["properties"] =
+              nested_object_properties(&sub, desc.nested_properties,
+                                       desc.nested_count, "DangerousSubstance");
           properties_array.push_back(std::move(entry));
         }
       }
@@ -378,11 +370,13 @@ void serialize_property(json &properties_array, const void *section,
   properties_array.push_back(std::move(prop));
 }
 
-/// Determine struct_name for a section descriptor based on its properties pointer
+/// Determine struct_name for a section descriptor based on its properties
+/// pointer
 const char *section_struct_name(const SectionDescriptor &sd) {
   if (sd.properties == PropertyTraits<Owner>::properties())
     return "Owner";
-  if (sd.properties == PropertyTraits<ConstructionItemDescription>::properties())
+  if (sd.properties ==
+      PropertyTraits<ConstructionItemDescription>::properties())
     return "ConstructionItemDescription";
   if (sd.properties == PropertyTraits<ProductInformation>::properties())
     return "ProductInformation";
@@ -565,16 +559,21 @@ json generate_blank_template() {
 
     std::stringstream ss;
     ss << std::hex;
-    for (int i = 0; i < 8; i++) ss << dis(gen);
+    for (int i = 0; i < 8; i++)
+      ss << dis(gen);
     ss << "-";
-    for (int i = 0; i < 4; i++) ss << dis(gen);
+    for (int i = 0; i < 4; i++)
+      ss << dis(gen);
     ss << "-4"; // Version 4
-    for (int i = 0; i < 3; i++) ss << dis(gen);
+    for (int i = 0; i < 3; i++)
+      ss << dis(gen);
     ss << "-";
     ss << dis2(gen); // Variant
-    for (int i = 0; i < 3; i++) ss << dis(gen);
+    for (int i = 0; i < 3; i++)
+      ss << dis(gen);
     ss << "-";
-    for (int i = 0; i < 12; i++) ss << dis(gen);
+    for (int i = 0; i < 12; i++)
+      ss << dis(gen);
     return ss.str();
   };
 
@@ -583,11 +582,11 @@ json generate_blank_template() {
     auto now = std::chrono::system_clock::now();
     auto time_t_now = std::chrono::system_clock::to_time_t(now);
     std::tm tm_now;
-    #ifdef _WIN32
-      localtime_s(&tm_now, &time_t_now);
-    #else
-      localtime_r(&time_t_now, &tm_now);
-    #endif
+#ifdef _WIN32
+    localtime_s(&tm_now, &time_t_now);
+#else
+    localtime_r(&time_t_now, &tm_now);
+#endif
     std::stringstream ss;
     ss << std::put_time(&tm_now, "%Y-%m-%d");
     return ss.str();
@@ -603,8 +602,8 @@ json generate_blank_template() {
   blank.metadata.version_number = "0.1.0";
   blank.metadata.version_date = get_current_date();
 
-  // All sections remain default-initialized (empty strings, empty vectors, nullopt)
-  // Transaction log remains empty
+  // All sections remain default-initialized (empty strings, empty vectors,
+  // nullopt) Transaction log remains empty
 
   // Export the blank passport to JSON
   return to_json(blank);

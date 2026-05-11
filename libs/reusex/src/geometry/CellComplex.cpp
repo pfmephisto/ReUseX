@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "core/logging.hpp"
 #include "geometry/CellComplex.hpp"
+#include "core/logging.hpp"
 
 #include <boost/archive/text_iarchive.hpp>
 #include <boost/archive/text_oarchive.hpp>
@@ -24,8 +24,12 @@ template <CellNodeType P> size_t _count(CellComplex const *c) {
 size_t CellComplex::num_vertices() const {
   return _count<CellNodeType::vertex>(this);
 }
-size_t CellComplex::num_faces() const { return _count<CellNodeType::face>(this); }
-size_t CellComplex::num_cells() const { return _count<CellNodeType::cell>(this); }
+size_t CellComplex::num_faces() const {
+  return _count<CellNodeType::face>(this);
+}
+size_t CellComplex::num_cells() const {
+  return _count<CellNodeType::cell>(this);
+}
 
 std::ostream &operator<<(std::ostream &os, const CellComplex &cc) {
   reusex::warn("This << operator might change in the future");
@@ -118,7 +122,7 @@ auto CellComplex::get_a(Vertex f) const -> CellComplex::Vertex {
     if ((*this)[*it].is_main) { // in front of the plane
       auto u = boost::source(*it, *this);
       auto v = boost::target(*it, *this);
-      auto c = (f == u) ? v : u;             // opposite vertex
+      auto c = (f == u) ? v : u;                 // opposite vertex
       if ((*this)[c].type != CellNodeType::cell) // skip if not a cell
         continue;
       return c;
@@ -134,7 +138,7 @@ auto CellComplex::get_b(Vertex f) const -> CellComplex::Vertex {
     if (!(*this)[*it].is_main) { // behind of the plane
       auto u = boost::source(*it, *this);
       auto v = boost::target(*it, *this);
-      auto c = (f == u) ? v : u;             // opposite vertex
+      auto c = (f == u) ? v : u;                 // opposite vertex
       if ((*this)[c].type != CellNodeType::cell) // skip if not a cell
         continue;
       return c;

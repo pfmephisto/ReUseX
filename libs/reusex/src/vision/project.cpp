@@ -40,9 +40,9 @@ namespace reusex::vision {
 namespace {
 
 /// @brief Create an rtabmap::CameraModel from ProjectDB SensorIntrinsics
-inline rtabmap::CameraModel
-createCameraModelFromIntrinsics(const reusex::core::SensorIntrinsics &intrinsics,
-                                 const cv::Size &targetSize) {
+inline rtabmap::CameraModel createCameraModelFromIntrinsics(
+    const reusex::core::SensorIntrinsics &intrinsics,
+    const cv::Size &targetSize) {
   // Build 3x3 intrinsic matrix K
   cv::Mat K = cv::Mat::eye(3, 3, CV_64F);
   K.at<double>(0, 0) = intrinsics.fx;
@@ -53,8 +53,8 @@ createCameraModelFromIntrinsics(const reusex::core::SensorIntrinsics &intrinsics
   // Convert local_transform to rtabmap::Transform (expects 3x4 matrix)
   // NOTE: Data is stored row-major, so we must use RowMajor mapping
   using Matrix4dRM = Eigen::Matrix<double, 4, 4, Eigen::RowMajor>;
-  Matrix4dRM local_eigen = Eigen::Map<const Matrix4dRM>(
-      intrinsics.local_transform.data());
+  Matrix4dRM local_eigen =
+      Eigen::Map<const Matrix4dRM>(intrinsics.local_transform.data());
   Eigen::Matrix4f local_float = local_eigen.cast<float>();
   cv::Mat local_mat_4x4;
   cv::eigen2cv(local_float, local_mat_4x4);
@@ -63,25 +63,28 @@ createCameraModelFromIntrinsics(const reusex::core::SensorIntrinsics &intrinsics
   rtabmap::Transform localTransform(local_mat);
 
   // Create CameraModel (no distortion, no rectification)
-  cv::Mat D;  // Empty distortion
-  cv::Mat R = cv::Mat::eye(3, 3, CV_64F);  // No rotation
-  cv::Mat P;  // Empty projection matrix (will be computed from K)
+  cv::Mat D;                              // Empty distortion
+  cv::Mat R = cv::Mat::eye(3, 3, CV_64F); // No rotation
+  cv::Mat P; // Empty projection matrix (will be computed from K)
 
   cv::Size imageSize(intrinsics.width, intrinsics.height);
   rtabmap::CameraModel cm("ProjectDB", imageSize, K, D, R, P, localTransform);
 
   // Scale to target size if needed
   if (targetSize != imageSize) {
-    const double scaleX = static_cast<double>(targetSize.width) / imageSize.width;
-    const double scaleY = static_cast<double>(targetSize.height) / imageSize.height;
+    const double scaleX =
+        static_cast<double>(targetSize.width) / imageSize.width;
+    const double scaleY =
+        static_cast<double>(targetSize.height) / imageSize.height;
 
     cv::Mat K_scaled = K.clone();
-    K_scaled.at<double>(0, 0) *= scaleX;  // fx
-    K_scaled.at<double>(1, 1) *= scaleY;  // fy
-    K_scaled.at<double>(0, 2) *= scaleX;  // cx
-    K_scaled.at<double>(1, 2) *= scaleY;  // cy
+    K_scaled.at<double>(0, 0) *= scaleX; // fx
+    K_scaled.at<double>(1, 1) *= scaleY; // fy
+    K_scaled.at<double>(0, 2) *= scaleX; // cx
+    K_scaled.at<double>(1, 2) *= scaleY; // cy
 
-    return rtabmap::CameraModel("ProjectDB", targetSize, K_scaled, D, R, P, localTransform);
+    return rtabmap::CameraModel("ProjectDB", targetSize, K_scaled, D, R, P,
+                                localTransform);
   }
 
   return cm;
@@ -149,11 +152,12 @@ auto project(ProjectDB &db, CloudConstPtr cloud) -> CloudLPtr {
       }
 
       // --- Fetch sensor data from ProjectDB
-      auto pose_array = db.sensor_frame_pose(id);  // std::array<double, 16>
-      auto intrinsics = db.sensor_frame_intrinsics(id);  // SensorIntrinsics
+      auto pose_array = db.sensor_frame_pose(id); // std::array<double, 16>
+      auto intrinsics = db.sensor_frame_intrinsics(id); // SensorIntrinsics
 
       // Convert pose to rtabmap::Transform (expects 3x4 matrix)
-      // NOTE: Data is stored row-major (see MEMORY.md), so we must use RowMajor mapping
+      // NOTE: Data is stored row-major (see MEMORY.md), so we must use RowMajor
+      // mapping
       using Matrix4dRM = Eigen::Matrix<double, 4, 4, Eigen::RowMajor>;
       Matrix4dRM pose_eigen = Eigen::Map<const Matrix4dRM>(pose_array.data());
       Eigen::Matrix4f pose_float = pose_eigen.cast<float>();
@@ -165,8 +169,8 @@ auto project(ProjectDB &db, CloudConstPtr cloud) -> CloudLPtr {
 
       // Convert local_transform to rtabmap::Transform (expects 3x4 matrix)
       // NOTE: Data is stored row-major, so we must use RowMajor mapping
-      Matrix4dRM local_eigen = Eigen::Map<const Matrix4dRM>(
-          intrinsics.local_transform.data());
+      Matrix4dRM local_eigen =
+          Eigen::Map<const Matrix4dRM>(intrinsics.local_transform.data());
       Eigen::Matrix4f local_float = local_eigen.cast<float>();
       cv::Mat local_mat_4x4;
       cv::eigen2cv(local_float, local_mat_4x4);
@@ -198,8 +202,7 @@ auto project(ProjectDB &db, CloudConstPtr cloud) -> CloudLPtr {
 
       {
         auto visual_observer = reusex::core::get_visual_observer();
-        auto camera_pose =
-            (pose * cm.localTransform().inverse()).toEigen3f();
+        auto camera_pose = (pose * cm.localTransform().inverse()).toEigen3f();
         visual_observer->viewer_add_camera_frustum(
             fmt::format("camera_{}", id), cm.fx(), cm.fy(),
             cm.imageSize().width, cm.imageSize().height,

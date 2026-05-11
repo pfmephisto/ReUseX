@@ -57,11 +57,11 @@ struct TextSize {
 
 /// @brief Final placement result for a single label.
 struct LayoutResult {
-  float x;       ///< Left edge of the placed label box.
-  float y;       ///< Top edge of the placed label box.
-  int fontSize;  ///< Font size chosen for this label (may be scaled down).
-  int width;     ///< Width of the label box in pixels.
-  int height;    ///< Height of the label box in pixels.
+  float x;        ///< Left edge of the placed label box.
+  float y;        ///< Top edge of the placed label box.
+  int fontSize;   ///< Font size chosen for this label (may be scaled down).
+  int width;      ///< Width of the label box in pixels.
+  int height;     ///< Height of the label box in pixels.
   int textAscent; ///< Ascent value to use when calling putText.
 };
 
@@ -101,7 +101,7 @@ struct LayoutConfig {
 /// candidate overlap checks only need to visit a small neighbourhood rather
 /// than the full item list.
 class FlatUniformGrid {
-  public:
+    public:
   int rows = 0, cols = 0;
   float cellW = 100.0f, cellH = 100.0f;
   float invCellW = 0.01f, invCellH = 0.01f;
@@ -189,9 +189,9 @@ class FlatUniformGrid {
 
 /// @brief Greedy iterative label placement solver.
 ///
-/// Given a set of object bounding boxes and their text labels, LabelLayoutSolver
-/// finds a non-overlapping placement for each label by minimising a cost
-/// function that penalises:
+/// Given a set of object bounding boxes and their text labels,
+/// LabelLayoutSolver finds a non-overlapping placement for each label by
+/// minimising a cost function that penalises:
 ///   - departure from the preferred anchor position (top of the object),
 ///   - overlap with other object boxes, and
 ///   - overlap with other already-placed labels.
@@ -212,21 +212,21 @@ class FlatUniformGrid {
 ///   for (const auto &res : solver.getResults()) { /* draw */ }
 /// @endcode
 class LabelLayoutSolver {
-  public:
+    public:
   /// @brief Internal representation of a single placement candidate for a
   /// label.
   struct Candidate {
-    LayoutBox box;        ///< Candidate label box on the canvas.
-    float geometricCost;  ///< Cost based on anchor preference and font scale.
-    float staticCost;     ///< Cost from overlap with object boxes (computed
-                          ///< once).
-    float area;           ///< Box area (cached for performance).
-    float invArea;        ///< Reciprocal of area (cached for performance).
-    int16_t fontSize;     ///< Font size for this candidate.
-    int16_t textAscent;   ///< Text ascent (for putText offset calculation).
+    LayoutBox box;       ///< Candidate label box on the canvas.
+    float geometricCost; ///< Cost based on anchor preference and font scale.
+    float staticCost;    ///< Cost from overlap with object boxes (computed
+                         ///< once).
+    float area;          ///< Box area (cached for performance).
+    float invArea;       ///< Reciprocal of area (cached for performance).
+    int16_t fontSize;    ///< Font size for this candidate.
+    int16_t textAscent;  ///< Text ascent (for putText offset calculation).
   };
 
-  private:
+    private:
   struct LayoutItem {
     int id;
     LayoutBox objectBox;
@@ -250,7 +250,7 @@ class LabelLayoutSolver {
   int currentCookie = 0;
   std::mt19937 rng;
 
-  public:
+    public:
   /// @brief Construct a solver for a canvas of the given dimensions.
   /// @param w    Canvas width in pixels.
   /// @param h    Canvas height in pixels.
@@ -492,7 +492,7 @@ class LabelLayoutSolver {
     return results;
   }
 
-  private:
+    private:
   void generateCandidatesInternal(LayoutItem &item, const std::string &text,
                                   int baseFontSize) {
     static const struct {

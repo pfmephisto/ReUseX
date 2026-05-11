@@ -15,6 +15,8 @@ struct SubcommandExportMaterialepasOptions {
   fs::path output_path = fs::current_path() / "materialepas.json";
 };
 
-void setup_subcommand_export_materialepas(CLI::App &parent, std::shared_ptr<RuxOptions> global_opt);
+void setup_subcommand_export_materialepas(
+    CLI::App &parent, std::shared_ptr<RuxOptions> global_opt);
 int run_subcommand_export_materialepas(
-    SubcommandExportMaterialepasOptions const &opt, const RuxOptions &global_opt);
+    SubcommandExportMaterialepasOptions const &opt,
+    const RuxOptions &global_opt);

@@ -13,11 +13,11 @@
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
 
-void setup_subcommand_get(CLI::App &app, std::shared_ptr<RuxOptions> global_opt) {
+void setup_subcommand_get(CLI::App &app,
+                          std::shared_ptr<RuxOptions> global_opt) {
   auto opt = std::make_shared<DatabaseGetOptions>();
 
-  auto *sub = app.add_subcommand(
-      "get", "Get data from project database");
+  auto *sub = app.add_subcommand("get", "Get data from project database");
 
   sub->footer(R"(
 DESCRIPTION:
@@ -77,7 +77,8 @@ NOTES:
   });
 }
 
-int run_subcommand_get(const DatabaseGetOptions &opt, const RuxOptions &global_opt) {
+int run_subcommand_get(const DatabaseGetOptions &opt,
+                       const RuxOptions &global_opt) {
   try {
     fs::path project_path = global_opt.project_db;
     spdlog::info("Opening project: {}", project_path.string());
@@ -88,8 +89,8 @@ int run_subcommand_get(const DatabaseGetOptions &opt, const RuxOptions &global_o
     if (opt.path.empty()) {
       spdlog::debug("No path provided, listing collection names");
 
-      nlohmann::json collections =
-          nlohmann::json::array({"clouds", "materials", "meshes", "panoramas", "projects"});
+      nlohmann::json collections = nlohmann::json::array(
+          {"clouds", "materials", "meshes", "panoramas", "projects"});
 
       rux::database::DataPayload payload = collections;
 

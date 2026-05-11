@@ -12,19 +12,22 @@ namespace fs = std::filesystem;
 
 /// Collection of all options for the assemble subcommand.
 struct SubcommandAssembleOptions {
-  std::vector<fs::path> paths_in;  ///< Input file paths to assemble
-  fs::path db_path_out = fs::current_path() / "assembled.db";  ///< Output database path
+  std::vector<fs::path> paths_in; ///< Input file paths to assemble
+  fs::path db_path_out =
+      fs::current_path() / "assembled.db"; ///< Output database path
 };
 
 /**
  * @brief Setup the assemble subcommand in the CLI application.
  * @param app CLI application to add the subcommand to.
  */
-void setup_subcommand_assemble(CLI::App &app, std::shared_ptr<RuxOptions> global_opt);
+void setup_subcommand_assemble(CLI::App &app,
+                               std::shared_ptr<RuxOptions> global_opt);
 
 /**
  * @brief Run the assemble subcommand with given options.
  * @param opt Options for the assemble operation.
  * @return Exit code (0 for success).
  */
-int run_subcommand_assemble(SubcommandAssembleOptions const &opt, const RuxOptions &global_opt);
+int run_subcommand_assemble(SubcommandAssembleOptions const &opt,
+                            const RuxOptions &global_opt);

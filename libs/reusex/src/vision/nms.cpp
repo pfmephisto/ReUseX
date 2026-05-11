@@ -104,13 +104,13 @@ torch::Tensor non_max_suppression(torch::Tensor predictions,
   using torch::indexing::None;
   using torch::indexing::Slice;
 
-  auto bs = predictions.size(0);          // batch size
+  auto bs = predictions.size(0); // batch size
   // YOLO-seg output: 4 bbox + nc classes + nm mask coefficients
   // nm=32 is the YOLO-seg default; nc is derived from the tensor shape
   constexpr int64_t kYoloMaskCoeffs = 32;
   auto nc = predictions.size(1) - 4 - kYoloMaskCoeffs; // num classes
-  auto nm = kYoloMaskCoeffs;                            // num masks
-  auto mi = 4 + nc;                       // mask start index
+  auto nm = kYoloMaskCoeffs;                           // num masks
+  auto mi = 4 + nc;                                    // mask start index
 
   auto xc = predictions.index({Slice(), Slice(4, mi)}).amax(1) > confThreshold;
 

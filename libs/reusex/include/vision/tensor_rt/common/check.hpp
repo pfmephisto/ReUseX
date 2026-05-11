@@ -4,10 +4,10 @@
 #include <cuda_runtime.h>
 
 #include <assert.h>
+#include <fmt/format.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <string>
-#include <fmt/format.h>
 
 namespace reusex::vision::tensor_rt::nv {
 
@@ -97,17 +97,16 @@ inline void Assertf(bool cond, const char *fmt, Args &&...args) {
   if (!cond) {
     const auto formattedMessage =
         fmt::format(fmt::runtime(fmt), std::forward<Args>(args)...);
-    reusex::error(
-        "Assert failed 💀. in file {}:{}, message: {}",
-        __FILE__, __LINE__, formattedMessage);
+    reusex::error("Assert failed 💀. in file {}:{}, message: {}", __FILE__,
+                  __LINE__, formattedMessage);
     abort();
   }
 }
 
 constexpr void Asserts(bool cond, const char *s) {
   if (!cond) {
-    reusex::error("Assert failed 💀. in file {}:{}, message: {}",
-                        __FILE__, __LINE__, s);
+    reusex::error("Assert failed 💀. in file {}:{}, message: {}", __FILE__,
+                  __LINE__, s);
     abort();
   }
 }

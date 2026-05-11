@@ -77,8 +77,7 @@ bool IDataset::save_image(const size_t index, const cv::Mat &image) {
 
     return true;
   } catch (const std::exception &e) {
-    reusex::error("Failed to save image at index {}: {}", index,
-                        e.what());
+    reusex::error("Failed to save image at index {}: {}", index, e.what());
     return false;
   }
 }

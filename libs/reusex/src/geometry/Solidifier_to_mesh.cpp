@@ -114,7 +114,7 @@ toMesh_impl(const std::shared_ptr<const CellComplex> &_cc,
 
       if (neighbor_cells.size() > 2)
         reusex::warn("Face {} has more than two adjacent cells",
-                           (*_cc)[*fit].id);
+                     (*_cc)[*fit].id);
 
       if (neighbor_cells.size() == 2) {
         const auto a = neighbor_cells[0];
@@ -156,8 +156,7 @@ toMesh_impl(const std::shared_ptr<const CellComplex> &_cc,
 
       // INFO: Create face
       if (verts.size() < 3) {
-        reusex::error("Face {} has less than 3 vertices",
-                            (*_cc)[*fit].id);
+        reusex::error("Face {} has less than 3 vertices", (*_cc)[*fit].id);
         continue;
       }
 

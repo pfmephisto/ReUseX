@@ -22,7 +22,7 @@ namespace rux::database {
  * convenience alias for the first/only project.
  */
 class ProjectRouter : public ResourceRouter {
-public:
+    public:
   using ResourceRouter::ResourceRouter;
 
   DataPayload get(const std::vector<PathComponent> &components) override;
@@ -31,7 +31,7 @@ public:
   void del(const std::vector<PathComponent> &components) override;
   std::vector<std::string> list() const override;
 
-private:
+    private:
   nlohmann::json get_project_json(std::string_view project_id) const;
 };
 

@@ -1,7 +1,7 @@
-#include <cmath>
-#include <tuple>
 #include "vision/common/create_object.hpp"
 #include "vision/common/object.hpp"
+#include <cmath>
+#include <tuple>
 
 namespace {
 /// @brief Compute the axis-aligned bounding box that tightly encloses an OBB.
@@ -55,8 +55,8 @@ DetectionBox create_position_box(float left, float top, float right,
 }
 
 DetectionBox create_track_box(float left, float top, float right, float bottom,
-                            float score, int track_id,
-                            const std::string &class_name) {
+                              float score, int track_id,
+                              const std::string &class_name) {
   DetectionBox box;
   box.type = ObjectType::track;
   box.box = Box(left, top, right, bottom);
@@ -68,9 +68,9 @@ DetectionBox create_track_box(float left, float top, float right, float bottom,
 }
 
 DetectionBox create_track_box(float left, float top, float right, float bottom,
-                            float score, int track_id,
-                            const std::string &class_name,
-                            const object::Pose &pose) {
+                              float score, int track_id,
+                              const std::string &class_name,
+                              const object::Pose &pose) {
   DetectionBox box;
   box.type = ObjectType::track;
   box.box = Box(left, top, right, bottom);
@@ -84,9 +84,9 @@ DetectionBox create_track_box(float left, float top, float right, float bottom,
 }
 
 DetectionBox create_track_box(float left, float top, float right, float bottom,
-                            float score, int track_id,
-                            const std::string &class_name,
-                            const object::Obb &obb) {
+                              float score, int track_id,
+                              const std::string &class_name,
+                              const object::Obb &obb) {
   DetectionBox box;
   box.type = ObjectType::track;
   box.box = Box(left, top, right, bottom);
@@ -100,9 +100,9 @@ DetectionBox create_track_box(float left, float top, float right, float bottom,
 }
 
 DetectionBox create_track_box(float left, float top, float right, float bottom,
-                            float score, int track_id,
-                            const std::string &class_name,
-                            const object::Segmentation &seg) {
+                              float score, int track_id,
+                              const std::string &class_name,
+                              const object::Segmentation &seg) {
   DetectionBox box;
   box.type = ObjectType::track;
   box.box = Box(left, top, right, bottom);

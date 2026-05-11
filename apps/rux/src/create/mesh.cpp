@@ -34,7 +34,8 @@
 
 namespace fs = std::filesystem;
 
-void setup_subcommand_create_mesh(CLI::App &app, std::shared_ptr<RuxOptions> global_opt) {
+void setup_subcommand_create_mesh(CLI::App &app,
+                                  std::shared_ptr<RuxOptions> global_opt) {
 
   auto opt = std::make_shared<SubcommandMeshOptions>();
   auto *sub =
@@ -94,14 +95,16 @@ NOTES:
       ->default_val(opt->new_plane_offset)
       ->check(CLI::Range(0.01, 1.0));
 
-  sub->add_option("-f, --filter", opt->filter_expr,
-                  "Filter expression to limit processing to specific labeled points.\n"
-                  "Syntax: <cloud_name> <op> <value(s)>\n"
-                  "Examples:\n"
-                  "  -f 'planes in [1, 2, 5]'        # Filter to labels 1, 2, 5 from planes cloud\n"
-                  "  -f 'rooms == 3'                 # Only process room 3\n"
-                  "  -f 'planes in [1,2] || rooms == 5'  # Combine multiple clouds\n"
-                  "  -f 'planes >= 10 && planes <= 20'   # Range filter")
+  sub->add_option(
+         "-f, --filter", opt->filter_expr,
+         "Filter expression to limit processing to specific labeled points.\n"
+         "Syntax: <cloud_name> <op> <value(s)>\n"
+         "Examples:\n"
+         "  -f 'planes in [1, 2, 5]'        # Filter to labels 1, 2, 5 from "
+         "planes cloud\n"
+         "  -f 'rooms == 3'                 # Only process room 3\n"
+         "  -f 'planes in [1,2] || rooms == 5'  # Combine multiple clouds\n"
+         "  -f 'planes >= 10 && planes <= 20'   # Range filter")
       ->default_val("");
 
   sub->callback([opt, global_opt]() {
@@ -110,7 +113,8 @@ NOTES:
   });
 };
 
-int run_subcommand_mesh(SubcommandMeshOptions const &opt, const RuxOptions &global_opt) {
+int run_subcommand_mesh(SubcommandMeshOptions const &opt,
+                        const RuxOptions &global_opt) {
   fs::path project_path = global_opt.project_db;
   spdlog::info("Generating mesh from project: {}", project_path.string());
 
@@ -156,7 +160,8 @@ int run_subcommand_mesh(SubcommandMeshOptions const &opt, const RuxOptions &glob
     // Evaluate filter if provided and set in options
     if (!opt.filter_expr.empty()) {
       try {
-        options.filter = rux::filters::evaluate_filter(opt.filter_expr, db, cloud->size());
+        options.filter =
+            rux::filters::evaluate_filter(opt.filter_expr, db, cloud->size());
       } catch (const std::exception &e) {
         spdlog::error("Filter evaluation failed: {}", e.what());
         return RuxError::INVALID_ARGUMENT;

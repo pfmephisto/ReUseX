@@ -17,9 +17,9 @@ namespace fs = std::filesystem;
  * Exports a specific mesh from ProjectDB to a file in various formats.
  */
 struct SubcommandGetMeshOptions {
-  std::string mesh_name;  ///< Name of mesh in ProjectDB
-  fs::path output_path;   ///< Output file path (optional)
-  std::string format;     ///< Output format (optional, defaults to database format)
+  std::string mesh_name; ///< Name of mesh in ProjectDB
+  fs::path output_path;  ///< Output file path (optional)
+  std::string format; ///< Output format (optional, defaults to database format)
 };
 
 /**
@@ -32,7 +32,8 @@ struct SubcommandGetMeshOptions {
  * @param global_opt Global options (contains project DB path)
  * @return Exit code (0 for success)
  */
-int run_subcommand_get_mesh(SubcommandGetMeshOptions const &opt, const RuxOptions &global_opt);
+int run_subcommand_get_mesh(SubcommandGetMeshOptions const &opt,
+                            const RuxOptions &global_opt);
 
 /**
  * @brief Setup the 'get mesh' subcommand.
@@ -40,4 +41,5 @@ int run_subcommand_get_mesh(SubcommandGetMeshOptions const &opt, const RuxOption
  * @param app CLI11 app to add the subcommand to
  * @param global_opt Global options shared pointer
  */
-void setup_subcommand_get_mesh(CLI::App &app, std::shared_ptr<RuxOptions> global_opt);
+void setup_subcommand_get_mesh(CLI::App &app,
+                               std::shared_ptr<RuxOptions> global_opt);

@@ -1,8 +1,8 @@
+#include "vision/common/object.hpp"
+#include "vision/tensor_rt/common/check.hpp"
 #include <iostream>
 #include <string>
 #include <vector>
-#include "vision/common/object.hpp"
-#include "vision/tensor_rt/common/check.hpp"
 
 namespace reusex::vision::common::object {
 

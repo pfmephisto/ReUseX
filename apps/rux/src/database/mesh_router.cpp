@@ -275,9 +275,8 @@ void MeshRouter::set(const std::vector<PathComponent> &components,
   }
 
   // Accept: meshes.<name>  or  meshes.<name>.data
-  bool set_data =
-      components.size() == 1 ||
-      (components.size() == 2 && components[1].value == "data");
+  bool set_data = components.size() == 1 ||
+                  (components.size() == 2 && components[1].value == "data");
 
   if (!set_data) {
     throw std::runtime_error(
@@ -289,8 +288,7 @@ void MeshRouter::set(const std::vector<PathComponent> &components,
     set_mesh_from_binary(item_name, std::get<std::vector<uint8_t>>(data));
   } else if (std::holds_alternative<std::string>(data)) {
     const auto &s = std::get<std::string>(data);
-    set_mesh_from_binary(item_name,
-                         std::vector<uint8_t>(s.begin(), s.end()));
+    set_mesh_from_binary(item_name, std::vector<uint8_t>(s.begin(), s.end()));
   } else {
     throw std::runtime_error(
         "Invalid data type for mesh. Expected binary PLY data via stdin.");

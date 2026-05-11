@@ -9,7 +9,8 @@
 #include <spdlog/fmt/std.h>
 #include <spdlog/spdlog.h>
 
-void setup_subcommand_import_rtabmap(CLI::App &app, std::shared_ptr<RuxOptions> global_opt) {
+void setup_subcommand_import_rtabmap(CLI::App &app,
+                                     std::shared_ptr<RuxOptions> global_opt) {
 
   auto opt = std::make_shared<SubcommandImportRTABMapOptions>();
   auto *sub =
@@ -53,7 +54,8 @@ NOTES:
   });
 }
 
-int run_subcommand_import_rtabmap(SubcommandImportRTABMapOptions const &opt, const RuxOptions &global_opt) {
+int run_subcommand_import_rtabmap(SubcommandImportRTABMapOptions const &opt,
+                                  const RuxOptions &global_opt) {
 
   fs::path project_path = global_opt.project_db;
   spdlog::info("Importing RTABMap database to project: {}",

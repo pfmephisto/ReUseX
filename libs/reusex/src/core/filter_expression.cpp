@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "core/ProjectDB.hpp"
 #include "core/filter_expression.hpp"
+#include "core/ProjectDB.hpp"
 #include "core/logging.hpp"
 #include <algorithm>
 #include <cctype>
@@ -58,7 +58,7 @@ class Tokenizer {
     return pos_ < input_.size() ? input_[pos_++] : '\0';
   }
 
-public:
+    public:
   explicit Tokenizer(std::string input) : input_(std::move(input)) {}
 
   auto next_token() -> Token {
@@ -166,7 +166,7 @@ public:
         fmt::format("Invalid character '{}' at position {}", ch, start_pos));
   }
 
-private:
+    private:
   auto peek_ahead(size_t offset) const -> char {
     size_t target = pos_ + offset;
     return target < input_.size() ? input_[target] : '\0';
@@ -334,7 +334,7 @@ class Parser {
                     cloud_name, current().position));
   }
 
-public:
+    public:
   Parser(std::vector<Token> tokens, ProjectDB &db)
       : tokens_(std::move(tokens)), db_(db) {
     // Add END token if not present

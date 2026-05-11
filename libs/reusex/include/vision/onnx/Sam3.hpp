@@ -30,7 +30,8 @@ namespace reusex::vision::onnx {
 class ONNXSam3 : public IModel {
     public:
   /// @brief Construct and load a SAM3 model from a directory.
-  /// @param model_dir Directory containing vision-encoder.onnx, text-encoder.onnx,
+  /// @param model_dir Directory containing vision-encoder.onnx,
+  /// text-encoder.onnx,
   ///                  decoder.onnx, and tokenizer.json.
   /// @param use_cuda Whether to attempt CUDA execution provider.
   explicit ONNXSam3(const std::filesystem::path &model_dir,
@@ -95,8 +96,8 @@ class ONNXSam3 : public IModel {
   int mask_width_ = 288;
 
   // Tokenizer cache: text -> (input_ids, attention_mask)
-  std::unordered_map<std::string,
-                     std::pair<std::array<int64_t, 32>, std::array<int64_t, 32>>>
+  std::unordered_map<
+      std::string, std::pair<std::array<int64_t, 32>, std::array<int64_t, 32>>>
       text_cache_;
 
   // Memory allocator

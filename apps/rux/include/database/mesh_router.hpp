@@ -24,7 +24,7 @@ namespace rux::database {
  * - meshes[0] → get first mesh metadata (JSON)
  */
 class MeshRouter : public ResourceRouter {
-public:
+    public:
   using ResourceRouter::ResourceRouter;
 
   DataPayload get(const std::vector<PathComponent> &components) override;
@@ -33,7 +33,7 @@ public:
   void del(const std::vector<PathComponent> &components) override;
   std::vector<std::string> list() const override;
 
-private:
+    private:
   nlohmann::json get_metadata(std::string_view name) const;
   std::vector<uint8_t> get_data(std::string_view name) const;
   std::vector<uint8_t> get_material(std::string_view name) const;

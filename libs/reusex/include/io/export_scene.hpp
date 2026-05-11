@@ -28,8 +28,8 @@ struct ExportScene {
 
   // --- Cloud ---
   struct CloudLayer {
-    CloudConstPtr cloud;      ///< XYZRGB (always present if layer exists)
-    CloudNConstPtr normals;   ///< may be nullptr
+    CloudConstPtr cloud;    ///< XYZRGB (always present if layer exists)
+    CloudNConstPtr normals; ///< may be nullptr
   };
   std::optional<CloudLayer> cloud;
 
@@ -55,16 +55,16 @@ struct ExportScene {
 
   // --- 360 Panoramas ---
   struct PanoEntry {
-    std::string image_name;         ///< filename
-    std::string image_url;          ///< empty placeholder for future
-    double x = 0, y = 0, z = 0;    ///< position from sensor frame pose
+    std::string image_name;     ///< filename
+    std::string image_url;      ///< empty placeholder for future
+    double x = 0, y = 0, z = 0; ///< position from sensor frame pose
   };
   std::vector<PanoEntry> panoramas;
 
   // --- Materials ---
   struct MaterialEntry {
-    std::string name;               ///< designation or GUID
-    double x = 0, y = 0, z = 0;    ///< position from linked sensor frame
+    std::string name;           ///< designation or GUID
+    double x = 0, y = 0, z = 0; ///< position from linked sensor frame
     std::map<std::string, std::string> properties;
   };
   std::vector<MaterialEntry> materials;

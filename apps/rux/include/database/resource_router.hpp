@@ -24,7 +24,7 @@ namespace rux::database {
  * to handle get/set/del operations for its specific resource type.
  */
 class ResourceRouter {
-public:
+    public:
   explicit ResourceRouter(std::shared_ptr<reusex::ProjectDB> db) : db_(db) {}
   virtual ~ResourceRouter() = default;
 
@@ -79,7 +79,7 @@ public:
     return items[index];
   }
 
-protected:
+    protected:
   std::shared_ptr<reusex::ProjectDB> db_;
 };
 
@@ -87,7 +87,7 @@ protected:
  * @brief Router registry for dispatching paths to appropriate routers
  */
 class RouterRegistry {
-public:
+    public:
   /**
    * @brief Create routers for all resource types
    */
@@ -102,7 +102,7 @@ public:
    */
   ResourceRouter &get_router(std::string_view collection);
 
-private:
+    private:
   std::shared_ptr<reusex::ProjectDB> db_;
   std::map<std::string, std::unique_ptr<ResourceRouter>> routers_;
 };

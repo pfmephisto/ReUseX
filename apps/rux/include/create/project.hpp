@@ -14,5 +14,7 @@ namespace fs = std::filesystem;
 struct SubcommandProjectOptions {};
 
 // Function declarations.
-void setup_subcommand_create_project(CLI::App &app, std::shared_ptr<RuxOptions> global_opt);
-int run_subcommand_project(SubcommandProjectOptions const &opt, const RuxOptions &global_opt);
+void setup_subcommand_create_project(CLI::App &app,
+                                     std::shared_ptr<RuxOptions> global_opt);
+int run_subcommand_project(SubcommandProjectOptions const &opt,
+                           const RuxOptions &global_opt);

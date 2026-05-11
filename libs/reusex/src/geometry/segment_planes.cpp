@@ -25,8 +25,7 @@ auto segment_planes_impl(CloudConstPtr cloud, CloudNConstPtr normals,
     -> std::tuple<CloudLPtr, CloudLocPtr, CloudNPtr> {
 
   if (options.cancel_token != nullptr && options.cancel_token->load()) {
-    reusex::warn(
-        "segment_planes: cancellation requested before execution.");
+    reusex::warn("segment_planes: cancellation requested before execution.");
     throw std::runtime_error("Plane segmentation cancelled.");
   }
 
@@ -39,7 +38,7 @@ auto segment_planes_impl(CloudConstPtr cloud, CloudNConstPtr normals,
   if (options.filter) {
     seg.setIndices(options.filter);
     reusex::debug("Plane segmentation using {} filtered points",
-                        options.filter->size());
+                  options.filter->size());
   }
 
   seg.setAngularThreshold(options.angle_threshold);

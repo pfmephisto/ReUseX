@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "io/rhino.hpp"
-#include "io/export_scene.hpp"
 #include "core/logging.hpp"
+#include "io/export_scene.hpp"
 
 #include <fmt/format.h>
 #include <pcl/common/colors.h>
@@ -95,9 +95,9 @@ auto make_rhino_pointcloud(CloudConstPtr cloud, CloudNConstPtr normals)
         ON_3dPoint(cloud->points[j].x, cloud->points[j].y, cloud->points[j].z);
     rhino_cloud->m_C[j] =
         ON_Color(cloud->points[j].r, cloud->points[j].g, cloud->points[j].b);
-    rhino_cloud->m_N[j] = ON_3dVector(normals->points[j].normal_x,
-                                       normals->points[j].normal_y,
-                                       normals->points[j].normal_z);
+    rhino_cloud->m_N[j] =
+        ON_3dVector(normals->points[j].normal_x, normals->points[j].normal_y,
+                    normals->points[j].normal_z);
   }
 
   return rhino_cloud;
@@ -124,9 +124,9 @@ auto make_rhino_mesh(const pcl::PolygonMesh &mesh) -> std::unique_ptr<ON_Mesh> {
     pcl::fromPCLPointCloud2(mesh.cloud, cloud);
 
     for (size_t i = 0; i < cloud.size(); ++i) {
-      rhino_mesh->SetVertex(static_cast<int>(i),
-                            ON_3dPoint(cloud.points[i].x, cloud.points[i].y,
-                                       cloud.points[i].z));
+      rhino_mesh->SetVertex(
+          static_cast<int>(i),
+          ON_3dPoint(cloud.points[i].x, cloud.points[i].y, cloud.points[i].z));
     }
 
     rhino_mesh->m_C.Reserve(cloud.size());
@@ -140,9 +140,9 @@ auto make_rhino_mesh(const pcl::PolygonMesh &mesh) -> std::unique_ptr<ON_Mesh> {
     pcl::fromPCLPointCloud2(mesh.cloud, cloud);
 
     for (size_t i = 0; i < cloud.size(); ++i) {
-      rhino_mesh->SetVertex(static_cast<int>(i),
-                            ON_3dPoint(cloud.points[i].x, cloud.points[i].y,
-                                       cloud.points[i].z));
+      rhino_mesh->SetVertex(
+          static_cast<int>(i),
+          ON_3dPoint(cloud.points[i].x, cloud.points[i].y, cloud.points[i].z));
     }
   }
 
@@ -168,8 +168,8 @@ auto make_sphere_mesh(double cx, double cy, double cz, double radius,
   int lon_segments = resolution * 2;
 
   int vertex_count = (lat_segments - 1) * lon_segments + 2; // poles
-  int face_count = lon_segments * 2 +
-                   (lat_segments - 2) * lon_segments * 2; // cap tris + band quads as tris
+  int face_count = lon_segments * 2 + (lat_segments - 2) * lon_segments *
+                                          2; // cap tris + band quads as tris
 
   auto mesh = std::make_unique<ON_Mesh>(face_count, vertex_count, false, false);
 
@@ -302,8 +302,7 @@ auto export_to_rhino(const ExportScene &scene) -> std::unique_ptr<ONX_Model> {
 
     for (const auto &cat : scene.semantic) {
       ON_Color cat_color(cat.color[0], cat.color[1], cat.color[2]);
-      int cat_layer_idx =
-          add_sublayer(*model, cat.name, sem_layer, cat_color);
+      int cat_layer_idx = add_sublayer(*model, cat.name, sem_layer, cat_color);
 
       for (const auto &inst : cat.instances) {
         auto rhino_cloud = make_rhino_pointcloud(inst.points);
@@ -353,11 +352,9 @@ auto export_to_rhino(const ExportScene &scene) -> std::unique_ptr<ONX_Model> {
       attr->m_layer_index = pano_layer_idx;
 
       // User strings on attributes (per McNeel guidance)
-      attr->SetUserString(L"Image Name",
-                          ON_wString(entry.image_name.c_str()));
+      attr->SetUserString(L"Image Name", ON_wString(entry.image_name.c_str()));
       if (!entry.image_url.empty())
-        attr->SetUserString(L"imageUrl",
-                            ON_wString(entry.image_url.c_str()));
+        attr->SetUserString(L"imageUrl", ON_wString(entry.image_url.c_str()));
 
       model->AddManagedModelGeometryComponent(sphere.release(), attr);
     }
@@ -380,8 +377,7 @@ auto export_to_rhino(const ExportScene &scene) -> std::unique_ptr<ONX_Model> {
 
       // Store all properties as user strings
       for (const auto &[key, value] : entry.properties)
-        attr->SetUserString(ON_wString(key.c_str()),
-                            ON_wString(value.c_str()));
+        attr->SetUserString(ON_wString(key.c_str()), ON_wString(value.c_str()));
 
       model->AddManagedModelGeometryComponent(dot, attr);
     }
@@ -401,8 +397,7 @@ auto export_to_rhino(const ExportScene &scene) -> std::unique_ptr<ONX_Model> {
                                   ? entry.properties.at("type")
                                   : "unknown";
       if (type_layers.find(type_name) == type_layers.end())
-        type_layers[type_name] =
-            add_sublayer(*model, type_name, comp_layer);
+        type_layers[type_name] = add_sublayer(*model, type_name, comp_layer);
 
       const auto &verts = entry.boundary.vertices;
       if (verts.size() < 3)
@@ -412,8 +407,8 @@ auto export_to_rhino(const ExportScene &scene) -> std::unique_ptr<ONX_Model> {
       int fc = vc - 2; // triangle fan
       auto rhino_mesh = std::make_unique<ON_Mesh>(fc, vc, false, false);
       for (int i = 0; i < vc; ++i)
-        rhino_mesh->SetVertex(i, ON_3dPoint(verts[i].x(), verts[i].y(),
-                                            verts[i].z()));
+        rhino_mesh->SetVertex(
+            i, ON_3dPoint(verts[i].x(), verts[i].y(), verts[i].z()));
       for (int i = 0; i < fc; ++i)
         rhino_mesh->SetTriangle(i, 0, i + 1, i + 2);
       rhino_mesh->ComputeVertexNormals();

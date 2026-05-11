@@ -17,9 +17,9 @@ namespace rux::database {
  * @brief Input source for set operations
  */
 enum class InputSource {
-  Stdin,     // Read from stdin (pipe or redirection)
-  Inline,    // Inline value from command line argument
-  None       // No input provided (error condition)
+  Stdin,  // Read from stdin (pipe or redirection)
+  Inline, // Inline value from command line argument
+  None    // No input provided (error condition)
 };
 
 /**
@@ -31,7 +31,7 @@ enum class InputSource {
  * 3. Error (no input provided)
  */
 class InputHandler {
-public:
+    public:
   /**
    * @brief Detect and read input
    *

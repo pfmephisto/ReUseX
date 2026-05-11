@@ -603,8 +603,7 @@ class ProjectDB::Impl {
       if (trimmed.rfind("newmtl ", 0) == 0) {
         currentMaterial = trimmed.substr(7);
         output << line << "\n";
-      } else if (trimmed.rfind("map_Kd ", 0) == 0 &&
-                 !currentMaterial.empty()) {
+      } else if (trimmed.rfind("map_Kd ", 0) == 0 && !currentMaterial.empty()) {
         auto it = newPaths.find(currentMaterial);
         if (it != newPaths.end()) {
           // Replace with path to the blob we extracted to temp dir
@@ -890,8 +889,7 @@ class ProjectDB::Impl {
   }
 
   double getSensorFrameTimestamp(int nodeId) const {
-    const char *sql =
-        "SELECT timestamp FROM sensor_frames WHERE node_id = ?;";
+    const char *sql = "SELECT timestamp FROM sensor_frames WHERE node_id = ?;";
     sqlite3_stmt *stmt;
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
       return -1.0;
@@ -934,9 +932,8 @@ class ProjectDB::Impl {
 
     sqlite3_stmt *stmt;
     if (sqlite3_prepare_v2(db, upsert, -1, &stmt, nullptr) != SQLITE_OK)
-      throw std::runtime_error(
-          "Failed to prepare panoramic image insert: " +
-          std::string(sqlite3_errmsg(db)));
+      throw std::runtime_error("Failed to prepare panoramic image insert: " +
+                               std::string(sqlite3_errmsg(db)));
     StmtGuard guard(stmt);
 
     sqlite3_bind_text(stmt, 1, filename.c_str(), -1, SQLITE_TRANSIENT);
@@ -954,18 +951,16 @@ class ProjectDB::Impl {
       sqlite3_bind_null(stmt, 4);
 
     if (sqlite3_step(stmt) != SQLITE_DONE)
-      throw std::runtime_error(
-          "Failed to insert panoramic image: " +
-          std::string(sqlite3_errmsg(db)));
+      throw std::runtime_error("Failed to insert panoramic image: " +
+                               std::string(sqlite3_errmsg(db)));
   }
 
   cv::Mat getPanoramicImageById(int id) const {
     const char *sql = "SELECT image FROM panoramic_images WHERE id = ?;";
     sqlite3_stmt *stmt;
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
-      throw std::runtime_error(
-          "Failed to prepare panoramic image query: " +
-          std::string(sqlite3_errmsg(db)));
+      throw std::runtime_error("Failed to prepare panoramic image query: " +
+                               std::string(sqlite3_errmsg(db)));
     StmtGuard guard(stmt);
     sqlite3_bind_int(stmt, 1, id);
 
@@ -982,13 +977,11 @@ class ProjectDB::Impl {
   }
 
   cv::Mat getPanoramicImageByFilename(std::string_view filename) const {
-    const char *sql =
-        "SELECT image FROM panoramic_images WHERE filename = ?;";
+    const char *sql = "SELECT image FROM panoramic_images WHERE filename = ?;";
     sqlite3_stmt *stmt;
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
-      throw std::runtime_error(
-          "Failed to prepare panoramic image query: " +
-          std::string(sqlite3_errmsg(db)));
+      throw std::runtime_error("Failed to prepare panoramic image query: " +
+                               std::string(sqlite3_errmsg(db)));
     StmtGuard guard(stmt);
     sqlite3_bind_text(stmt, 1, filename.data(),
                       static_cast<int>(filename.size()), SQLITE_TRANSIENT);
@@ -1021,9 +1014,8 @@ class ProjectDB::Impl {
     const char *sql = "DELETE FROM panoramic_images WHERE id = ?;";
     sqlite3_stmt *stmt;
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
-      throw std::runtime_error(
-          "Failed to prepare panoramic image delete: " +
-          std::string(sqlite3_errmsg(db)));
+      throw std::runtime_error("Failed to prepare panoramic image delete: " +
+                               std::string(sqlite3_errmsg(db)));
     StmtGuard guard(stmt);
     sqlite3_bind_int(stmt, 1, id);
     if (sqlite3_step(stmt) != SQLITE_DONE)
@@ -1034,9 +1026,8 @@ class ProjectDB::Impl {
     const char *sql = "DELETE FROM panoramic_images WHERE filename = ?;";
     sqlite3_stmt *stmt;
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
-      throw std::runtime_error(
-          "Failed to prepare panoramic image delete: " +
-          std::string(sqlite3_errmsg(db)));
+      throw std::runtime_error("Failed to prepare panoramic image delete: " +
+                               std::string(sqlite3_errmsg(db)));
     StmtGuard guard(stmt);
     sqlite3_bind_text(stmt, 1, filename.data(),
                       static_cast<int>(filename.size()), SQLITE_TRANSIENT);
@@ -1051,9 +1042,8 @@ class ProjectDB::Impl {
     )";
     sqlite3_stmt *stmt;
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
-      throw std::runtime_error(
-          "Failed to query panoramic images: " +
-          std::string(sqlite3_errmsg(db)));
+      throw std::runtime_error("Failed to query panoramic images: " +
+                               std::string(sqlite3_errmsg(db)));
     StmtGuard guard(stmt);
 
     std::vector<ProjectDB::PanoramicImage> images;
@@ -1092,9 +1082,8 @@ class ProjectDB::Impl {
         "SELECT node_id FROM segmentation_images ORDER BY node_id;";
     sqlite3_stmt *stmt;
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
-      throw std::runtime_error(
-          "Failed to query segmentation image IDs: " +
-          std::string(sqlite3_errmsg(db)));
+      throw std::runtime_error("Failed to query segmentation image IDs: " +
+                               std::string(sqlite3_errmsg(db)));
     StmtGuard guard(stmt);
 
     std::vector<int> ids;
@@ -1731,15 +1720,14 @@ class ProjectDB::Impl {
       if (sqlite3_prepare_v2(db, idSql, -1, &idStmt, nullptr) != SQLITE_OK)
         throw std::runtime_error("Failed to query mesh id");
       StmtGuard idGuard(idStmt);
-      sqlite3_bind_text(idStmt, 1, name.data(),
-                        static_cast<int>(name.size()), SQLITE_TRANSIENT);
+      sqlite3_bind_text(idStmt, 1, name.data(), static_cast<int>(name.size()),
+                        SQLITE_TRANSIENT);
       if (sqlite3_step(idStmt) != SQLITE_ROW)
         throw std::runtime_error("Mesh not found after insert");
       int meshId = sqlite3_column_int(idStmt, 0);
 
       // Delete old texture data for this mesh
-      const char *delSql =
-          "DELETE FROM mesh_texture_data WHERE mesh_id = ?;";
+      const char *delSql = "DELETE FROM mesh_texture_data WHERE mesh_id = ?;";
       sqlite3_stmt *delStmt;
       if (sqlite3_prepare_v2(db, delSql, -1, &delStmt, nullptr) == SQLITE_OK) {
         sqlite3_bind_int(delStmt, 1, meshId);
@@ -1871,13 +1859,13 @@ class ProjectDB::Impl {
     int objSize = static_cast<int>(separator - blobData);
 
     // Create temp directory for this mesh's textures
-    auto texDir =
-        std::filesystem::temp_directory_path() /
-        ("reusex_textures_" + std::to_string(meshId));
+    auto texDir = std::filesystem::temp_directory_path() /
+                  ("reusex_textures_" + std::to_string(meshId));
     std::filesystem::create_directories(texDir);
 
     // Query texture blobs from mesh_texture_data
-    std::map<std::string, std::string> newTexPaths;  // material -> temp file path
+    std::map<std::string, std::string>
+        newTexPaths; // material -> temp file path
     {
       const char *texSql =
           "SELECT tex_name, image_data, width, height FROM mesh_texture_data "
@@ -2127,9 +2115,8 @@ class ProjectDB::Impl {
       throw std::runtime_error("Mesh not found: " + std::string(name));
     int meshId = sqlite3_column_int(idStmt, 0);
 
-    const char *sql =
-        "SELECT tex_name, image_data, width, height, format "
-        "FROM mesh_texture_data WHERE mesh_id = ?;";
+    const char *sql = "SELECT tex_name, image_data, width, height, format "
+                      "FROM mesh_texture_data WHERE mesh_id = ?;";
     sqlite3_stmt *stmt;
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
       throw std::runtime_error("Failed to prepare texture blob query");
@@ -2139,8 +2126,7 @@ class ProjectDB::Impl {
     std::vector<ProjectDB::MeshTextureInfo> result;
     while (sqlite3_step(stmt) == SQLITE_ROW) {
       ProjectDB::MeshTextureInfo info;
-      auto *tn =
-          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
+      auto *tn = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
       info.tex_name = tn ? std::string(tn) : "";
       const auto *imgBlob =
           static_cast<const uint8_t *>(sqlite3_column_blob(stmt, 1));
@@ -2149,8 +2135,7 @@ class ProjectDB::Impl {
         info.image_data.assign(imgBlob, imgBlob + imgSize);
       info.width = sqlite3_column_int(stmt, 2);
       info.height = sqlite3_column_int(stmt, 3);
-      auto *fmt =
-          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 4));
+      auto *fmt = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 4));
       info.format = fmt ? std::string(fmt) : "jpg";
       result.push_back(std::move(info));
     }
@@ -2170,9 +2155,8 @@ class ProjectDB::Impl {
       throw std::runtime_error("Mesh not found: " + std::string(name));
     int meshId = sqlite3_column_int(idStmt, 0);
 
-    const char *sql =
-        "SELECT tex_name, width, height, format "
-        "FROM mesh_texture_data WHERE mesh_id = ?;";
+    const char *sql = "SELECT tex_name, width, height, format "
+                      "FROM mesh_texture_data WHERE mesh_id = ?;";
     sqlite3_stmt *stmt;
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
       throw std::runtime_error("Failed to prepare texture metadata query");
@@ -2182,13 +2166,11 @@ class ProjectDB::Impl {
     std::vector<ProjectDB::MeshTextureMetadata> result;
     while (sqlite3_step(stmt) == SQLITE_ROW) {
       ProjectDB::MeshTextureMetadata info;
-      auto *tn =
-          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
+      auto *tn = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
       info.tex_name = tn ? std::string(tn) : "";
       info.width = sqlite3_column_int(stmt, 1);
       info.height = sqlite3_column_int(stmt, 2);
-      auto *fmt =
-          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 3));
+      auto *fmt = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 3));
       info.format = fmt ? std::string(fmt) : "jpg";
       result.push_back(std::move(info));
     }
@@ -2453,7 +2435,7 @@ class ProjectDB::Impl {
     passport.transaction_log = fetchTransactionLog(documentGuid);
 
     reusex::trace("MaterialPassport fetched successfully: {} properties",
-                        property_map.size());
+                  property_map.size());
 
     return passport;
   }
@@ -2567,10 +2549,9 @@ class ProjectDB::Impl {
   }
 
   void addMaterialPassport(const reusex::core::MaterialPassport &passport,
-                           std::string_view projectId,
-                           std::string_view id) {
+                           std::string_view projectId, std::string_view id) {
     reusex::info("Adding MaterialPassport: {}",
-                       passport.metadata.document_guid);
+                 passport.metadata.document_guid);
 
     // Begin transaction for atomicity
     execOrThrow("BEGIN TRANSACTION;");
@@ -2617,24 +2598,21 @@ class ProjectDB::Impl {
       // Delete property values
       if (sqlite3_prepare_v2(db, delete_values_query, -1, &del_stmt, nullptr) ==
           SQLITE_OK) {
-        sqlite3_bind_text(del_stmt, 1, doc_guid.c_str(), -1,
-                          SQLITE_TRANSIENT);
+        sqlite3_bind_text(del_stmt, 1, doc_guid.c_str(), -1, SQLITE_TRANSIENT);
         sqlite3_step(del_stmt);
         sqlite3_finalize(del_stmt);
       }
       // Delete log entries
       if (sqlite3_prepare_v2(db, delete_log_query, -1, &del_stmt, nullptr) ==
           SQLITE_OK) {
-        sqlite3_bind_text(del_stmt, 1, doc_guid.c_str(), -1,
-                          SQLITE_TRANSIENT);
+        sqlite3_bind_text(del_stmt, 1, doc_guid.c_str(), -1, SQLITE_TRANSIENT);
         sqlite3_step(del_stmt);
         sqlite3_finalize(del_stmt);
       }
       // Delete passport
       if (sqlite3_prepare_v2(db, delete_passport_query, -1, &del_stmt,
                              nullptr) == SQLITE_OK) {
-        sqlite3_bind_text(del_stmt, 1, doc_guid.c_str(), -1,
-                          SQLITE_TRANSIENT);
+        sqlite3_bind_text(del_stmt, 1, doc_guid.c_str(), -1, SQLITE_TRANSIENT);
         sqlite3_step(del_stmt);
         sqlite3_finalize(del_stmt);
       }
@@ -2775,7 +2753,7 @@ class ProjectDB::Impl {
       sqlite3_exec(db, "COMMIT;", nullptr, nullptr, nullptr);
 
       reusex::info("MaterialPassport added successfully: {} properties",
-                         all_values.size());
+                   all_values.size());
 
     } catch (...) {
       sqlite3_exec(db, "ROLLBACK;", nullptr, nullptr, nullptr);
@@ -3207,8 +3185,7 @@ class ProjectDB::Impl {
           SQLITE_OK) {
         StmtGuard guard(mstmt);
         if (sqlite3_step(mstmt) == SQLITE_ROW)
-          summary.panoramic_images.matched_count =
-              sqlite3_column_int(mstmt, 0);
+          summary.panoramic_images.matched_count = sqlite3_column_int(mstmt, 0);
       }
     }
 
@@ -3557,8 +3534,7 @@ std::string ProjectDB::mesh_format(std::string_view name) const {
   return impl_->getMeshFormat(name);
 }
 
-ProjectDB::MeshMetadata
-ProjectDB::mesh_metadata(std::string_view name) const {
+ProjectDB::MeshMetadata ProjectDB::mesh_metadata(std::string_view name) const {
   return impl_->getMeshMetadata(name);
 }
 
@@ -3612,8 +3588,8 @@ void ProjectDB::add_material_passport(
 }
 
 void ProjectDB::add_material_passport(
-    const reusex::core::MaterialPassport &passport,
-    std::string_view projectId, std::string_view id) {
+    const reusex::core::MaterialPassport &passport, std::string_view projectId,
+    std::string_view id) {
   impl_->addMaterialPassport(passport, projectId, id);
 }
 

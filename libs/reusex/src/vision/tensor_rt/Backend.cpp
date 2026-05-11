@@ -1,6 +1,6 @@
+#include "vision/tensor_rt/Backend.hpp"
 #include "core/logging.hpp"
 #include "vision/IMLBackend.hpp"
-#include "vision/tensor_rt/Backend.hpp"
 #include "vision/tensor_rt/Dataset.hpp"
 #include "vision/tensor_rt/Sam3.hpp"
 
@@ -8,14 +8,12 @@
 
 namespace reusex::vision::tensor_rt {
 
-std::unique_ptr<IModel>
-TensorRTBackend::create_model(const Model type,
-                              const std::filesystem::path &modelPath,
-                              bool use_cuda) {
+std::unique_ptr<IModel> TensorRTBackend::create_model(
+    const Model type, const std::filesystem::path &modelPath, bool use_cuda) {
   // TensorRT always uses GPU, so use_cuda parameter is ignored
   (void)use_cuda; // Suppress unused parameter warning
   reusex::info("Creating TensorRT model type {} from path: {}",
-                     static_cast<int>(type), modelPath);
+               static_cast<int>(type), modelPath);
   switch (type) {
   case Model::sam3:
     return TensorRTSam3::create(modelPath);

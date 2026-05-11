@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "core/logging.hpp"
 #include "geometry/utils.hpp"
+#include "core/logging.hpp"
 
 namespace reusex::geometry {
 auto dist_plane_point(const Eigen::Vector4d &plane,
@@ -101,10 +101,9 @@ auto force_orthogonal_planes(EigenVectorContainer<double, 4> &planes,
       // Ceiling
       normal = -up;
     } else {
-      reusex::warn(
-          "Plane with normal ({:3f}, {:3f}, {:3f}) is not vertical or "
-          "horizontal",
-          normal.x(), normal.y(), normal.z());
+      reusex::warn("Plane with normal ({:3f}, {:3f}, {:3f}) is not vertical or "
+                   "horizontal",
+                   normal.x(), normal.y(), normal.z());
     }
   }
 
@@ -136,10 +135,9 @@ auto merge_planes(EigenVectorContainer<double, 4> const &planes_,
                   const double distance_threshold, const double min_overlap)
     -> std::tuple<EigenVectorContainer<double, 4>, std::vector<IndicesPtr>,
                   EigenVectorContainer<double, 3>> {
-  reusex::trace(
-      "Merge planes with angle threshold {} and distance threshold"
-      "{} and min overlap {}",
-      angle_threshold, distance_threshold, min_overlap);
+  reusex::trace("Merge planes with angle threshold {} and distance threshold"
+                "{} and min overlap {}",
+                angle_threshold, distance_threshold, min_overlap);
 
   assert(planes_.size() == inliers_.size() &&
          "Planes and inliers must have the same size");

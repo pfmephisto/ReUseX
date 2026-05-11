@@ -3,18 +3,18 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #pragma once
-#include "core/logging.hpp"
 #include "vision/Dataloader.hpp"
+#include "core/logging.hpp"
 #include "vision/IData.hpp"
 #include "vision/IDataset.hpp"
 
 #include <algorithm>
 #include <atomic>
 #include <condition_variable>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
-#include <map>
 #include <random>
 #include <span>
 #include <thread>
@@ -181,9 +181,9 @@ void Dataloader::worker_thread() {
 }
 
 Dataloader::Batch Dataloader::load_batch(size_t batch_idx) {
-  reusex::trace(
-      "Loading batch {} (indices {} to {})", batch_idx, batch_idx * batch_size_,
-      std::min((batch_idx + 1) * batch_size_, dataset_size_) - 1);
+  reusex::trace("Loading batch {} (indices {} to {})", batch_idx,
+                batch_idx * batch_size_,
+                std::min((batch_idx + 1) * batch_size_, dataset_size_) - 1);
   Batch batch;
   size_t start_idx = batch_idx * batch_size_;
   size_t end_idx = std::min(start_idx + batch_size_, dataset_size_);

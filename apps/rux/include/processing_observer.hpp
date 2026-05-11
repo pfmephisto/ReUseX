@@ -54,15 +54,14 @@ class VizualizationObserver final : public reusex::core::IVisualObserver,
 
   void viewer_add_camera_frustum(std::string_view name, double focal_x,
                                  double focal_y, int image_width,
-                                 int image_height,
-                                 const Eigen::Affine3f &pose,
+                                 int image_height, const Eigen::Affine3f &pose,
                                  reusex::core::Stage stage, int idx) override;
 
-  void viewer_add_visibility_graph(std::string_view name,
-                                   const reusex::CloudLocPtr &disc_points,
-                                   const std::shared_ptr<std::vector<pcl::Vertices>> &disc_outlines,
-                                   const pcl::CorrespondencesPtr &edges,
-                                   reusex::core::Stage stage, int idx) override;
+  void viewer_add_visibility_graph(
+      std::string_view name, const reusex::CloudLocPtr &disc_points,
+      const std::shared_ptr<std::vector<pcl::Vertices>> &disc_outlines,
+      const pcl::CorrespondencesPtr &edges, reusex::core::Stage stage,
+      int idx) override;
 
   void viewer_add_labeled_cloud(std::string_view name,
                                 const reusex::CloudConstPtr &cloud,

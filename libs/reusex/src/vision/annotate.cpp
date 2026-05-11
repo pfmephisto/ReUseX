@@ -48,28 +48,34 @@ auto annotate(const std::filesystem::path &dbPath,
   }
 
   // Log dataloader configuration
-  reusex::info("Dataloader config: batch_size={}, shuffle={}, num_workers={}, prefetch={}",
-               config.batch_size, config.shuffle, config.num_workers, config.prefetch_batches);
+  reusex::info("Dataloader config: batch_size={}, shuffle={}, num_workers={}, "
+               "prefetch={}",
+               config.batch_size, config.shuffle, config.num_workers,
+               config.prefetch_batches);
 
   // Warn about potentially problematic configurations
   if (config.batch_size > 64) {
-    reusex::warn("Batch size {} exceeds recommended maximum (64). May cause GPU OOM.", config.batch_size);
+    reusex::warn(
+        "Batch size {} exceeds recommended maximum (64). May cause GPU OOM.",
+        config.batch_size);
   }
 
   const auto hw_threads = std::thread::hardware_concurrency();
   if (config.num_workers > hw_threads) {
-    reusex::warn("Workers ({}) exceed hardware threads ({}). May cause over-subscription.",
+    reusex::warn("Workers ({}) exceed hardware threads ({}). May cause "
+                 "over-subscription.",
                  config.num_workers, hw_threads);
   }
 
   if (config.prefetch_batches < config.num_workers) {
-    reusex::warn("Prefetch ({}) < workers ({}). May cause GPU starvation. Recommended: 2-3x workers.",
+    reusex::warn("Prefetch ({}) < workers ({}). May cause GPU starvation. "
+                 "Recommended: 2-3x workers.",
                  config.prefetch_batches, config.num_workers);
   }
 
   // Create dataloader with multi-threaded prefetching
-  Dataloader loader(*dataset, config.batch_size, config.shuffle, config.num_workers,
-                    config.prefetch_batches);
+  Dataloader loader(*dataset, config.batch_size, config.shuffle,
+                    config.num_workers, config.prefetch_batches);
 
 #ifndef NDEBUG
   // INFO: Create and OpenCV window for visualizing the results during
@@ -77,9 +83,8 @@ auto annotate(const std::filesystem::path &dbPath,
   cv::namedWindow("Annotation", cv::WINDOW_AUTOSIZE);
 #endif
 
-  reusex::info(
-      "Starting annotation with {} batches using {} worker threads",
-      loader.size(), loader.get_num_workers());
+  reusex::info("Starting annotation with {} batches using {} worker threads",
+               loader.size(), loader.get_num_workers());
 
   size_t batch_count = 0;
   {
@@ -88,7 +93,7 @@ auto annotate(const std::filesystem::path &dbPath,
     for (auto batch : loader) {
       // for (auto [logger, batch] : spdmon::LogProgress(loader)) {
       reusex::trace("Processing batch {}/{} with {} items", ++batch_count,
-                          loader.size(), batch.size());
+                    loader.size(), batch.size());
       auto results = model->forward(batch);
       dataset->save(results);
       ++observer;

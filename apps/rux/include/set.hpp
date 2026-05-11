@@ -32,9 +32,11 @@ struct DatabaseSetOptions {
  *   cat scan.pcd | rux set project.rux clouds.newscan
  *   rux set project.rux project.name "Historic Building"
  */
-void setup_subcommand_set(CLI::App &app, std::shared_ptr<RuxOptions> global_opt);
+void setup_subcommand_set(CLI::App &app,
+                          std::shared_ptr<RuxOptions> global_opt);
 
 /**
  * @brief Execute unified database set command
  */
-int run_subcommand_set(const DatabaseSetOptions &opt, const RuxOptions &global_opt);
+int run_subcommand_set(const DatabaseSetOptions &opt,
+                       const RuxOptions &global_opt);

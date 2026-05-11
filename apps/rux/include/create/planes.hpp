@@ -27,11 +27,13 @@ struct SubcommandSegPlanesOptions {
  * @brief Setup the segment planes subcommand in the CLI application.
  * @param app CLI application to add the subcommand to.
  */
-void setup_subcommand_create_planes(CLI::App &app, std::shared_ptr<RuxOptions> global_opt);
+void setup_subcommand_create_planes(CLI::App &app,
+                                    std::shared_ptr<RuxOptions> global_opt);
 
 /**
  * @brief Run the segment planes subcommand with given options.
  * @param opt Options for plane segmentation.
  * @return Exit code (0 for success).
  */
-int run_subcommand_segment_planes(SubcommandSegPlanesOptions const &opt, const RuxOptions &global_opt);
+int run_subcommand_segment_planes(SubcommandSegPlanesOptions const &opt,
+                                  const RuxOptions &global_opt);

@@ -13,9 +13,11 @@ namespace fs = std::filesystem;
 
 struct SubcommandExportSemanticImagesOptions {
   fs::path output_dir = fs::current_path(); ///< Directory to write PNG files
-  std::string prefix = "semantic";          ///< Filename prefix: <prefix>_<id>.png
+  std::string prefix = "semantic"; ///< Filename prefix: <prefix>_<id>.png
 };
 
-void setup_subcommand_export_semantic_images(CLI::App &parent, std::shared_ptr<RuxOptions> global_opt);
-int run_subcommand_export_semantic_images(SubcommandExportSemanticImagesOptions const &opt,
-                                          const RuxOptions &global_opt);
+void setup_subcommand_export_semantic_images(
+    CLI::App &parent, std::shared_ptr<RuxOptions> global_opt);
+int run_subcommand_export_semantic_images(
+    SubcommandExportSemanticImagesOptions const &opt,
+    const RuxOptions &global_opt);

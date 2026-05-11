@@ -30,11 +30,11 @@ bool prompt_confirmation() {
 
 } // namespace
 
-void setup_subcommand_del(CLI::App &app, std::shared_ptr<RuxOptions> global_opt) {
+void setup_subcommand_del(CLI::App &app,
+                          std::shared_ptr<RuxOptions> global_opt) {
   auto opt = std::make_shared<DatabaseDelOptions>();
 
-  auto *sub = app.add_subcommand(
-      "del", "Delete data from project database");
+  auto *sub = app.add_subcommand("del", "Delete data from project database");
 
   sub->footer(R"(
 DESCRIPTION:
@@ -85,7 +85,8 @@ NOTES:
   });
 }
 
-int run_subcommand_del(const DatabaseDelOptions &opt, const RuxOptions &global_opt) {
+int run_subcommand_del(const DatabaseDelOptions &opt,
+                       const RuxOptions &global_opt) {
   try {
     fs::path project_path = global_opt.project_db;
     spdlog::info("Opening project: {}", project_path.string());
@@ -125,8 +126,7 @@ int run_subcommand_del(const DatabaseDelOptions &opt, const RuxOptions &global_o
     if (has_wildcard && !opt.force) {
       spdlog::error(
           "Wildcard deletion requires --force flag to prevent accidents");
-      fmt::print("Hint: Use 'rux del {} --force' to proceed\n",
-                 opt.path);
+      fmt::print("Hint: Use 'rux del {} --force' to proceed\n", opt.path);
       return 1;
     }
 

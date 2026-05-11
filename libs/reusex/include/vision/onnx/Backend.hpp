@@ -18,13 +18,13 @@ class ONNXBackend : public IMLBackend {
   /// @brief Create an ONNX Runtime model.
   /// @param type Model type (currently Sam3).
   /// @param modelPath Path to directory containing ONNX model files.
-  /// @param use_cuda Whether to use CUDA execution provider (defaults to false).
+  /// @param use_cuda Whether to use CUDA execution provider (defaults to
+  /// false).
   /// @return Unique pointer to the created model.
   /// @throws std::runtime_error if model type is not supported.
-  std::unique_ptr<IModel>
-  create_model(const Model type,
-               const std::filesystem::path &modelPath,
-               bool use_cuda = false) override;
+  std::unique_ptr<IModel> create_model(const Model type,
+                                       const std::filesystem::path &modelPath,
+                                       bool use_cuda = false) override;
 
   /// @brief Create an ONNX dataset from a database path.
   /// @param datasetPath Path to the ReUseX project database file.

@@ -5,19 +5,19 @@
 #include "export/materialepas.hpp"
 #include "global-params.hpp"
 
-#include <reusex/core/materialepas_json_export.hpp>
 #include <reusex/core/ProjectDB.hpp>
+#include <reusex/core/materialepas_json_export.hpp>
 
 #include <fstream>
 #include <spdlog/spdlog.h>
 
 namespace fs = std::filesystem;
 
-void setup_subcommand_export_materialepas(CLI::App &parent, std::shared_ptr<RuxOptions> global_opt) {
+void setup_subcommand_export_materialepas(
+    CLI::App &parent, std::shared_ptr<RuxOptions> global_opt) {
   auto opt = std::make_shared<SubcommandExportMaterialepasOptions>();
-  auto *sub = parent.add_subcommand(
-      "materialepas",
-      "Export material passports to JSON");
+  auto *sub = parent.add_subcommand("materialepas",
+                                    "Export material passports to JSON");
 
   sub->footer(R"(
 DESCRIPTION:
@@ -56,7 +56,8 @@ NOTES:
 }
 
 int run_subcommand_export_materialepas(
-    SubcommandExportMaterialepasOptions const &opt, const RuxOptions &global_opt) {
+    SubcommandExportMaterialepasOptions const &opt,
+    const RuxOptions &global_opt) {
   try {
     fs::path project_path = global_opt.project_db;
     // 1. Open database read-only
@@ -83,15 +84,14 @@ int run_subcommand_export_materialepas(
     // 4. Write to output file
     std::ofstream ofs(opt.output_path);
     if (!ofs.is_open()) {
-      spdlog::error("Failed to open output file: {}",
-                     opt.output_path.string());
+      spdlog::error("Failed to open output file: {}", opt.output_path.string());
       return RuxError::IO;
     }
 
     ofs << json_str;
     if (!ofs) {
       spdlog::error("Failed to write output file: {}",
-                     opt.output_path.string());
+                    opt.output_path.string());
       return RuxError::IO;
     }
 

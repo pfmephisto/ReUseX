@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "core/logging.hpp"
 #include "io/reusex.hpp"
+#include "core/logging.hpp"
 
 #include <range/v3/action.hpp>
 #include <range/v3/view.hpp>
@@ -58,7 +58,7 @@ auto getPlanes(CloudLConstPtr planes, CloudNConstPtr normals,
     unique_labels.erase(0);
 
   reusex::debug("Found {} unique plane labels: {}", unique_labels.size(),
-                      fmt::join(unique_labels, ", "));
+                fmt::join(unique_labels, ", "));
 
   std::unordered_map<uint32_t, size_t> label_to_index{};
   for (auto [idx, label] : unique_labels | ranges::views::enumerate)

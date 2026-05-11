@@ -16,5 +16,7 @@ struct SubcommandInfoOptions {
 };
 
 // Function declarations
-void setup_subcommand_info(CLI::App &app, std::shared_ptr<RuxOptions> global_opt);
-int run_subcommand_info(SubcommandInfoOptions const &opt, const RuxOptions &global_opt);
+void setup_subcommand_info(CLI::App &app,
+                           std::shared_ptr<RuxOptions> global_opt);
+int run_subcommand_info(SubcommandInfoOptions const &opt,
+                        const RuxOptions &global_opt);

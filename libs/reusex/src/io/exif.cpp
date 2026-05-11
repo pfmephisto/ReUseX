@@ -51,8 +51,9 @@ double read_exif_timestamp(const std::filesystem::path &jpeg_path) {
       if (epoch == -1)
         continue;
 
-      core::debug("EXIF timestamp from {}: {} -> {:.0f}", jpeg_path.filename().string(),
-                  dateStr, static_cast<double>(epoch));
+      core::debug("EXIF timestamp from {}: {} -> {:.0f}",
+                  jpeg_path.filename().string(), dateStr,
+                  static_cast<double>(epoch));
       return static_cast<double>(epoch);
     }
 
@@ -60,8 +61,7 @@ double read_exif_timestamp(const std::filesystem::path &jpeg_path) {
     return -1.0;
 
   } catch (const Exiv2::Error &e) {
-    core::warn("Failed to read EXIF from {}: {}", jpeg_path.string(),
-               e.what());
+    core::warn("Failed to read EXIF from {}: {}", jpeg_path.string(), e.what());
     return -1.0;
   }
 }

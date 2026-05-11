@@ -27,8 +27,7 @@ auto segment_rooms_impl(CloudConstPtr cloud, CloudNConstPtr normals,
                         const SegmentRoomsOptions &options) -> CloudLPtr {
 
   if (options.cancel_token != nullptr && options.cancel_token->load()) {
-    reusex::warn(
-        "segment_rooms: cancellation requested before execution.");
+    reusex::warn("segment_rooms: cancellation requested before execution.");
     throw std::runtime_error("Room segmentation cancelled.");
   }
 
@@ -37,7 +36,7 @@ auto segment_rooms_impl(CloudConstPtr cloud, CloudNConstPtr normals,
   if (options.filter) {
     filtered_indices_set.insert(options.filter->begin(), options.filter->end());
     reusex::debug("Room segmentation using {} filtered points",
-                        options.filter->size());
+                  options.filter->size());
   }
 
   std::unordered_map<int, IndicesPtr> plane_inlier_map;
@@ -133,9 +132,9 @@ auto segment_rooms_impl(CloudConstPtr cloud, CloudNConstPtr normals,
   kdtree.setInputCloud(cloud, indices);
   IndicesPtr missing_indices(new Indices);
   reusex::trace("Resizing missing indices to size {}, cloud size: {}, "
-                      "indices size: {}",
-                      cloud->points.size() - indices->size(),
-                      cloud->points.size(), indices->size());
+                "indices size: {}",
+                cloud->points.size() - indices->size(), cloud->points.size(),
+                indices->size());
   missing_indices->reserve(cloud->points.size() - indices->size());
 
   std::sort(indices->begin(), indices->end());
@@ -153,8 +152,8 @@ auto segment_rooms_impl(CloudConstPtr cloud, CloudNConstPtr normals,
     const size_t idx = missing_indices->at(i);
     std::vector<int> nn_indices(1);
     std::vector<float> nn_sqr_dists(1);
-    if (kdtree.nearestKSearch(cloud->points[idx], 1, nn_indices,
-                              nn_sqr_dists) > 0) {
+    if (kdtree.nearestKSearch(cloud->points[idx], 1, nn_indices, nn_sqr_dists) >
+        0) {
       labels->points[idx].label = labels->points[nn_indices[0]].label;
     }
   }

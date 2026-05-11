@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "reusex/geometry/segment_instances.hpp"
+#include "reusex/core/logging.hpp"
 #include "reusex/core/processing_observer.hpp"
 #include "reusex/core/stages.hpp"
-#include "reusex/core/logging.hpp"
 
 #include <pcl/kdtree/kdtree.h>
 #include <pcl/segmentation/extract_clusters.h>
@@ -49,21 +49,20 @@ auto segment_instances_impl(const SegmentInstancesRequest &request)
                     request.cluster_tolerance));
   }
   if (request.min_cluster_size <= 0) {
-    throw std::invalid_argument(
-        fmt::format("min_cluster_size must be positive, got {}",
-                    request.min_cluster_size));
+    throw std::invalid_argument(fmt::format(
+        "min_cluster_size must be positive, got {}", request.min_cluster_size));
   }
   if (request.max_cluster_size < request.min_cluster_size) {
-    throw std::invalid_argument(fmt::format(
-        "max_cluster_size ({}) must be >= min_cluster_size ({})",
-        request.max_cluster_size, request.min_cluster_size));
+    throw std::invalid_argument(
+        fmt::format("max_cluster_size ({}) must be >= min_cluster_size ({})",
+                    request.max_cluster_size, request.min_cluster_size));
   }
 
   reusex::info("Starting instance segmentation on {} points",
-                     request.cloud->size());
+               request.cloud->size());
   reusex::debug("Parameters: tolerance={:.3f}m, min_size={}, max_size={}",
-                      request.cluster_tolerance, request.min_cluster_size,
-                      request.max_cluster_size);
+                request.cluster_tolerance, request.min_cluster_size,
+                request.max_cluster_size);
 
   // Initialize result
   SegmentInstancesResult result;
@@ -83,10 +82,10 @@ auto segment_instances_impl(const SegmentInstancesRequest &request)
   // Apply optional label filtering
   if (!request.labels_to_process.empty()) {
     std::set<uint32_t> filtered_labels;
-    std::set_intersection(unique_labels.begin(), unique_labels.end(),
-                          request.labels_to_process.begin(),
-                          request.labels_to_process.end(),
-                          std::inserter(filtered_labels, filtered_labels.end()));
+    std::set_intersection(
+        unique_labels.begin(), unique_labels.end(),
+        request.labels_to_process.begin(), request.labels_to_process.end(),
+        std::inserter(filtered_labels, filtered_labels.end()));
     unique_labels = filtered_labels;
     reusex::debug("Filtered to {} semantic labels", unique_labels.size());
   }
@@ -136,12 +135,14 @@ auto segment_instances_impl(const SegmentInstancesRequest &request)
     uint32_t semantic_label = labels_vec[class_idx];
     const auto &indices = label_to_indices[semantic_label];
 
-    reusex::debug("Processing semantic label {} with {} points",
-                        semantic_label, indices.size());
+    reusex::debug("Processing semantic label {} with {} points", semantic_label,
+                  indices.size());
 
     // Build KdTree for this semantic class
-    auto tree = pcl::search::KdTree<PointT>::Ptr(new pcl::search::KdTree<PointT>);
-    tree->setInputCloud(request.cloud, pcl::IndicesPtr(new pcl::Indices(indices)));
+    auto tree =
+        pcl::search::KdTree<PointT>::Ptr(new pcl::search::KdTree<PointT>);
+    tree->setInputCloud(request.cloud,
+                        pcl::IndicesPtr(new pcl::Indices(indices)));
 
     // Extract Euclidean clusters
     std::vector<pcl::PointIndices> cluster_indices;
@@ -150,7 +151,7 @@ auto segment_instances_impl(const SegmentInstancesRequest &request)
         cluster_indices, request.min_cluster_size, request.max_cluster_size);
 
     reusex::debug("Found {} clusters for semantic label {}",
-                        cluster_indices.size(), semantic_label);
+                  cluster_indices.size(), semantic_label);
 
     // Assign instance IDs to clusters
 #pragma omp critical
@@ -186,11 +187,11 @@ auto segment_instances_impl(const SegmentInstancesRequest &request)
     throw std::runtime_error("Instance segmentation cancelled by user");
   }
 
-  reusex::info(
-      "Instance segmentation complete: {} instances, {}/{} points "
-      "labeled ({:.1f}%)",
-      result.instance_to_semantic.size(), labeled_points,
-      request.cloud->size(), 100.0 * labeled_points / request.cloud->size());
+  reusex::info("Instance segmentation complete: {} instances, {}/{} points "
+               "labeled ({:.1f}%)",
+               result.instance_to_semantic.size(), labeled_points,
+               request.cloud->size(),
+               100.0 * labeled_points / request.cloud->size());
 
   return result;
 }

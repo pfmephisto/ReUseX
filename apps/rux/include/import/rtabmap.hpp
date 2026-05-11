@@ -16,5 +16,7 @@ struct SubcommandImportRTABMapOptions {
 };
 
 // Function declarations.
-void setup_subcommand_import_rtabmap(CLI::App &app, std::shared_ptr<RuxOptions> global_opt);
-int run_subcommand_import_rtabmap(SubcommandImportRTABMapOptions const &opt, const RuxOptions &global_opt);
+void setup_subcommand_import_rtabmap(CLI::App &app,
+                                     std::shared_ptr<RuxOptions> global_opt);
+int run_subcommand_import_rtabmap(SubcommandImportRTABMapOptions const &opt,
+                                  const RuxOptions &global_opt);

@@ -9,7 +9,8 @@
 #include <spdlog/fmt/std.h>
 #include <spdlog/spdlog.h>
 
-void setup_subcommand_import_e57(CLI::App &app, std::shared_ptr<RuxOptions> global_opt) {
+void setup_subcommand_import_e57(CLI::App &app,
+                                 std::shared_ptr<RuxOptions> global_opt) {
 
   auto opt = std::make_shared<SubcommandImportE57Options>();
   auto *sub = app.add_subcommand("e57", "Import point cloud from an E57 file");
@@ -46,7 +47,8 @@ NOTES:
   });
 }
 
-int run_subcommand_import_e57(SubcommandImportE57Options const &opt, const RuxOptions &global_opt) {
+int run_subcommand_import_e57(SubcommandImportE57Options const &opt,
+                              const RuxOptions &global_opt) {
 
   fs::path project_path = global_opt.project_db;
   spdlog::info("Importing E57 file to project: {}", project_path.string());

@@ -6,26 +6,34 @@
   self,
   system,
   ...
-}:
-pkgs.mkShell {
-  inputsFrom = [self.packages.${system}.default];
-
-  packages = with pkgs; [
-    python3
-    fish
-  ];
-
-  shellHook = ''
-    echo "Shell completions generation environment"
-    echo "  Generate completions:  generate-completions"
+}: let
+  motd = ''
     echo ""
-
-    # Create wrapper function for completion generation
-    generate-completions() {
-      python3 scripts/generate_fish_completions.py \
-        -o completions/rux.fish \
-        --rux-binary "build/apps/rux/rux"
-    }
-    export -f generate-completions
+    echo "  ┌─────────────────────────────────────────────┐"
+    echo "  │       ReUseX  •  Completions  shell         │"
+    echo "  └─────────────────────────────────────────────┘"
+    echo "  generate-completions   generate fish completions from rux binary"
+    echo "  menu                   show this message"
+    echo ""
+    echo "  Build rux first (from default shell): build --target rux"
+    echo ""
   '';
-}
+  generate-completions = pkgs.writeShellScriptBin "generate-completions" ''
+    python3 "$PWD/scripts/generate_fish_completions.py" \
+      -o "$PWD/completions/rux.fish" \
+      --rux-binary "$PWD/build/apps/rux/rux"
+    echo "Written: completions/rux.fish"
+  '';
+in
+  pkgs.mkShell {
+    inputsFrom = [self.packages.${system}.default];
+
+    packages = [
+      pkgs.python3
+      pkgs.fish
+      generate-completions
+      (pkgs.writeShellScriptBin "menu" motd)
+    ];
+
+    shellHook = motd;
+  }

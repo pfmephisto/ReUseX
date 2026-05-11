@@ -15,18 +15,24 @@
         reportlab
       ]
   );
+  motd = ''
+    echo ""
+    echo "  ┌─────────────────────────────────────────────┐"
+    echo "  │         ReUseX  •  AprilTag  shell          │"
+    echo "  └─────────────────────────────────────────────┘"
+    echo "  python tools/april/generate_apriltags.py --help"
+    echo "  python tools/april/create_apriltag_pdf.py --help"
+    echo "  menu   show this message"
+    echo ""
+  '';
 in
   pkgs.mkShell {
     packages = with pkgs; [
       pythonEnv
       imagemagickBig
       img2pdf
+      (pkgs.writeShellScriptBin "menu" motd)
     ];
 
-    shellHook = ''
-      echo "AprilTag tooling environment"
-      echo "  Generate tags:  python tools/april/generate_apriltags.py --help"
-      echo "  Create PDF:     python tools/april/create_apriltag_pdf.py --help"
-      echo "  ImageMagick:    magick --version"
-    '';
+    shellHook = motd;
   }

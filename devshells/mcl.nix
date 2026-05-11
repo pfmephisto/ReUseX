@@ -42,14 +42,21 @@
         mcl
       ]
   );
+  motd = ''
+    echo ""
+    echo "  ┌─────────────────────────────────────────────┐"
+    echo "  │          ReUseX  •  MCL  shell              │"
+    echo "  └─────────────────────────────────────────────┘"
+    echo "  python   MCL clustering available (import markov_clustering)"
+    echo "  menu     show this message"
+    echo ""
+  '';
 in
   pkgs.mkShell {
-    #inputsFrom = [ self.packages.${system}.default ];
-    #buildInputs = self.checks.${system}.pre-commit-check.enabledPackages;
-
-    packages = with pkgs; [
+    packages = [
       pythonEnv
+      (pkgs.writeShellScriptBin "menu" motd)
     ];
 
-    shellHook = ''echo "Welcome to the MCL development environment!"'';
+    shellHook = motd;
   }

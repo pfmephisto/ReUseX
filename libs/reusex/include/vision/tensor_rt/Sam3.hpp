@@ -43,11 +43,11 @@ class TensorRTSam3 : public IModel {
    * @param decoder_path: Path to the TensorRT engine file for the decoder.
    * @param gpu_id: ID of the GPU to use for inference.
    */
-  TensorRTSam3(const std::string vision_encoder_path,
-               const std::string text_encoder_path,
-               const std::string geometry_encoder_path,
-               const std::string decoder_path, const std::string tokenizer_path,
-               int gpu_id);
+  TensorRTSam3(const std::string &vision_encoder_path,
+               const std::string &text_encoder_path,
+               const std::string &geometry_encoder_path,
+               const std::string &decoder_path,
+               const std::string &tokenizer_path, int gpu_id);
 
   /* Destructor for TensorRTSam3. Cleans up any resources used by the model.
    * @param model_path: Path to the model files (not used in this

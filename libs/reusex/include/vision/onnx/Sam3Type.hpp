@@ -19,7 +19,8 @@ struct Sam3PromptUnit {
   std::string text;
   std::vector<BoxPrompt> boxes;
   Sam3PromptUnit() = default;
-  Sam3PromptUnit(const std::string &t, const std::vector<BoxPrompt> &b = {})
+  explicit Sam3PromptUnit(const std::string &t,
+                          const std::vector<BoxPrompt> &b = {})
       : text(t), boxes(b) {}
 };
 

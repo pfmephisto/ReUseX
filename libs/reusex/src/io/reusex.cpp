@@ -54,8 +54,7 @@ auto getPlanes(CloudLConstPtr planes, CloudNConstPtr normals,
     unique_labels.insert(pt.label);
 
   // Remove the unlabeled points (label == 0)
-  if (unique_labels.find(0) != unique_labels.end())
-    unique_labels.erase(0);
+  unique_labels.erase(0);
 
   reusex::debug("Found {} unique plane labels: {}", unique_labels.size(),
                 fmt::join(unique_labels, ", "));
@@ -102,16 +101,14 @@ bool save(
       ? std::filesystem::remove(p)
       : std::filesystem::create_directories(p.parent_path());
 
-  const char *version = "# ReUseX file v0.0.1\n";
-  const char *header =
-      "# N coefficients c_1 ... c_n N Indices i_1 ... i_n Centroid(x y z)\n";
-
   assert(model_coefficients.size() == centroids.size());
   assert(model_coefficients.size() == inlier_indices.size());
 
   std::ofstream planes_file(p);
   if (planes_file.is_open()) {
-
+    const char *version = "# ReUseX file v0.0.1\n";
+    const char *header =
+        "# N coefficients c_1 ... c_n N Indices i_1 ... i_n Centroid(x y z)\n";
     planes_file << version;
     planes_file << header;
 

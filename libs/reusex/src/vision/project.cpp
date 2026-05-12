@@ -92,7 +92,7 @@ inline rtabmap::CameraModel createCameraModelFromIntrinsics(
 
 } // namespace
 
-auto project(ProjectDB &db, CloudConstPtr cloud) -> CloudLPtr {
+auto project(const ProjectDB &db, CloudConstPtr cloud) -> CloudLPtr {
   reusex::trace("calling project");
 
   // auto viewer =
@@ -290,9 +290,9 @@ auto project(ProjectDB &db, CloudConstPtr cloud) -> CloudLPtr {
                                     temp)                                      \
     firstprivate(t_cam, fx, fy, cx, cy, w, h, tmpPath)
         for (int j = 0; j < static_cast<int>(indices.size()); ++j) {
-          auto i = indices[j];
+          auto idx = indices[j];
 
-          auto pt_cam = rtabmap::util3d::transformPoint(cloud_lf->points[i],
+          auto pt_cam = rtabmap::util3d::transformPoint(cloud_lf->points[idx],
                                                         t_cam.inverse());
           if (pt_cam.z <= 0.0f ||
               pt_cam.z >
@@ -318,10 +318,10 @@ auto project(ProjectDB &db, CloudConstPtr cloud) -> CloudLPtr {
           if (!std::isfinite(zb) || std::abs(z - zb) > 0.15f)
             continue;
 
-          labels->points[i].label = labeledImage.at<int>(py, px);
+          labels->points[idx].label = labeledImage.at<int>(py, px);
 
           temp.at<cv::Vec3b>(py, px) = cv::Vec3b(
-              cloud->points[i].b, cloud->points[i].g, cloud->points[i].r);
+              cloud->points[idx].b, cloud->points[idx].g, cloud->points[idx].r);
         }
       } // end assign labels
 

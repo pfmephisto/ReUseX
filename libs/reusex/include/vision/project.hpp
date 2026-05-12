@@ -18,5 +18,5 @@ namespace reusex::vision {
  * a z-buffer and the assigns the precomputed labels to the closses point in the
  * point cloud.
  */
-auto project(ProjectDB &db, CloudConstPtr cloud) -> CloudLPtr;
+auto project(const ProjectDB &db, CloudConstPtr cloud) -> CloudLPtr;
 } // namespace reusex::vision

@@ -36,11 +36,11 @@ auto evaluate_filter(const std::string &filter_expr, reusex::ProjectDB &db,
 auto validate_expression_syntax(const std::string &expr) -> ValidationResult;
 
 /// Validate that all referenced clouds exist in database
-auto validate_clouds_exist(const std::string &expr, reusex::ProjectDB &db)
-    -> ValidationResult;
+auto validate_clouds_exist(const std::string &expr,
+                           const reusex::ProjectDB &db) -> ValidationResult;
 
 /// Validate that all referenced clouds have matching sizes
-auto validate_cloud_sizes(const std::string &expr, reusex::ProjectDB &db)
+auto validate_cloud_sizes(const std::string &expr, const reusex::ProjectDB &db)
     -> ValidationResult;
 
 } // namespace rux::filters

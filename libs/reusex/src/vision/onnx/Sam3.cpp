@@ -75,15 +75,14 @@ cv::Mat build_mask_to_image_affine(int src_w, int src_h, int input_size,
   float m2i_sx = static_cast<float>(input_size) / static_cast<float>(mask_w);
   float m2i_sy = static_cast<float>(input_size) / static_cast<float>(mask_h);
 
-  // input -> original (reverse of the resize+pad)
-  float i2o_sx = 1.0f / scale;
-  float i2o_sy = 1.0f / scale;
+  // input -> original (reverse of the resize+pad; uniform scale)
+  float i2o_s = 1.0f / scale;
   float i2o_tx = -static_cast<float>(pad_left) / scale;
   float i2o_ty = -static_cast<float>(pad_top) / scale;
 
   // Combined: mask -> original
-  cv::Mat M = (cv::Mat_<float>(2, 3) << i2o_sx * m2i_sx, 0.0f, i2o_tx, 0.0f,
-               i2o_sy * m2i_sy, i2o_ty);
+  cv::Mat M = (cv::Mat_<float>(2, 3) << i2o_s * m2i_sx, 0.0f, i2o_tx, 0.0f,
+               i2o_s * m2i_sy, i2o_ty);
   return M;
 }
 
@@ -370,9 +369,10 @@ cv::Mat ONNXSam3::infer_single(const ONNXSam3Data &sam3_data) {
 
     // Postprocess
     float *pred_masks = dec_outputs[0].GetTensorMutableData<float>();
-    float *pred_boxes = dec_outputs[1].GetTensorMutableData<float>();
-    float *pred_logits = dec_outputs[2].GetTensorMutableData<float>();
-    float *presence_logits = dec_outputs[3].GetTensorMutableData<float>();
+    const float *pred_boxes = dec_outputs[1].GetTensorMutableData<float>();
+    const float *pred_logits = dec_outputs[2].GetTensorMutableData<float>();
+    const float *presence_logits =
+        dec_outputs[3].GetTensorMutableData<float>();
 
     float presence_score = 1.0f / (1.0f + std::exp(-presence_logits[0]));
 

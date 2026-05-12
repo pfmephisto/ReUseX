@@ -44,7 +44,7 @@ ResourceRouter &RouterRegistry::get_router(std::string_view collection) {
 
 std::vector<std::vector<PathComponent>>
 expand_wildcards(const std::vector<PathComponent> &components,
-                 ResourceRouter &router) {
+                 const ResourceRouter &router) {
   // Check if there are wildcards to expand
   bool has_wildcard = false;
   for (const auto &comp : components) {

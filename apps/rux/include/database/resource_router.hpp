@@ -116,6 +116,6 @@ class RouterRegistry {
  */
 std::vector<std::vector<PathComponent>>
 expand_wildcards(const std::vector<PathComponent> &components,
-                 ResourceRouter &router);
+                 const ResourceRouter &router);
 
 } // namespace rux::database

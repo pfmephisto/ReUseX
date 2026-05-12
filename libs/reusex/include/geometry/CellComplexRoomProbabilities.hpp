@@ -43,15 +43,15 @@ auto CellComplex::compute_room_probabilities(
     pcl::PointCloud<PointN>::ConstPtr normals_,
     pcl::PointCloud<PointL>::ConstPtr labels_, const double grid_size) -> void {
 
-  using RTCVertex = struct RTCVertex {
+  struct RTCVertex {
     float x, y, z, r; // x, y, z coordinates and radius
   };
 
-  using RTCNormal = struct RTCNormal {
+  struct RTCNormal {
     float x, y, z; // x, y, z components of the normal vector
   };
 
-  using RTCData = struct RTCData {
+  struct RTCData {
     size_t label_index;
   };
 
@@ -166,26 +166,26 @@ auto CellComplex::compute_room_probabilities(
     RTCGeometry geometry_ =
         rtcNewGeometry(device_, RTC_GEOMETRY_TYPE_ORIENTED_DISC_POINT);
 
-    RTCVertex *vb = (RTCVertex *)rtcSetNewGeometryBuffer(
+    auto *vb = static_cast<RTCVertex *>(rtcSetNewGeometryBuffer(
         geometry_, RTC_BUFFER_TYPE_VERTEX, 0, RTC_FORMAT_FLOAT4,
-        sizeof(RTCVertex), indices->size());
+        sizeof(RTCVertex), indices->size()));
 
-    RTCNormal *nb = (RTCNormal *)rtcSetNewGeometryBuffer(
+    auto *nb = static_cast<RTCNormal *>(rtcSetNewGeometryBuffer(
         geometry_, RTC_BUFFER_TYPE_NORMAL, 0, RTC_FORMAT_FLOAT3,
-        sizeof(RTCNormal), indices->size());
+        sizeof(RTCNormal), indices->size()));
 
-    for (size_t i = 0; i < indices->size(); ++i) {
-      const auto &p = cloud_->points[indices->at(i)];
-      const auto &n = normals_->points[indices->at(i)];
+    for (size_t k = 0; k < indices->size(); ++k) {
+      const auto &p = cloud_->points[indices->at(k)];
+      const auto &n = normals_->points[indices->at(k)];
 
-      vb[i].x = static_cast<float>(p.x);
-      vb[i].y = static_cast<float>(p.y);
-      vb[i].z = static_cast<float>(p.z);
-      vb[i].r = static_cast<float>(radius_) * 1.05f;
+      vb[k].x = static_cast<float>(p.x);
+      vb[k].y = static_cast<float>(p.y);
+      vb[k].z = static_cast<float>(p.z);
+      vb[k].r = static_cast<float>(radius_) * 1.05f;
 
-      nb[i].x = static_cast<float>(n.normal_x);
-      nb[i].y = static_cast<float>(n.normal_y);
-      nb[i].z = static_cast<float>(n.normal_z);
+      nb[k].x = static_cast<float>(n.normal_x);
+      nb[k].y = static_cast<float>(n.normal_y);
+      nb[k].z = static_cast<float>(n.normal_z);
     }
 
     rtc_data_vec.emplace_back(new RTCData{i});
@@ -215,6 +215,7 @@ auto CellComplex::compute_room_probabilities(
 
       std::vector<double> local_accum(c_rp[*cit].size(), 0.0);
       double *accum_ptr = local_accum.data();
+      // cppcheck-suppress unreadVariable
       const int N = static_cast<int>(c_rp[*cit].size());
 
 #pragma omp parallel for reduction(+ : accum_ptr[ : N])
@@ -262,8 +263,8 @@ auto CellComplex::compute_room_probabilities(
         // "Frontside hit"));
 
         auto geometry = rtcGetGeometry(scene_, rayhit.hit.geomID);
-        rtcGetGeometryUserData(geometry);
-        RTCData *data = (RTCData *)rtcGetGeometryUserData(geometry);
+        auto *data =
+            static_cast<RTCData *>(rtcGetGeometryUserData(geometry));
 
         // const auto label = labels[data->label_index];
         // reusex::trace("Cell {:>3} ray {} hit label {} (index {})",

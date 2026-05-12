@@ -27,7 +27,7 @@ namespace reusex::geometry {
 CellComplex::CellComplex(
     std::vector<Eigen::Vector4d, Eigen::aligned_allocator<Eigen::Vector4d>>
         &planes_vec,
-    std::vector<size_t> &verticals, std::vector<size_t> &horizontals,
+    std::vector<size_t> &verticals, const std::vector<size_t> &horizontals,
     std::vector<std::pair<size_t, size_t>> &pairs, std::array<double, 2> min_xy,
     std::array<double, 2> max_xy,
     std::optional<

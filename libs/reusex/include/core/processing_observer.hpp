@@ -33,7 +33,7 @@ class IObserver {};
 
 class ProgressObserver {
     public:
-  ProgressObserver(Stage stage, size_t total = 0);
+  explicit ProgressObserver(Stage stage, size_t total = 0);
   ~ProgressObserver();
 
   void update(size_t progress = 1);

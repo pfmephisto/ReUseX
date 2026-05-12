@@ -43,12 +43,6 @@ struct RayContext {
   int back_hits;
 };
 
-/// Result of a ray cast with face orientation information.
-struct RayHitResult {
-  double distance;   // Distance to hit (infinity if no hit)
-  bool is_back_face; // True if hit back face, false if front face
-};
-
 enum class Placement {
   Outside,
   Inside,
@@ -66,8 +60,8 @@ void count_all_hits_filter(const RTCFilterFunctionNArguments *args) {
   auto *ctx = reinterpret_cast<RayContext *>(args->context);
 
   // For N=1, access ray and hit via C-style cast (Embree uses RTCRayN/RTCHitN)
-  auto *ray = reinterpret_cast<RTCRay *>(args->ray);
-  auto *hit = reinterpret_cast<RTCHit *>(args->hit);
+  const auto *ray = reinterpret_cast<const RTCRay *>(args->ray);
+  const auto *hit = reinterpret_cast<const RTCHit *>(args->hit);
 
   // Compute dot product of ray direction with geometric normal
   // Negative = front face (normal points back toward origin)
@@ -92,9 +86,8 @@ class MeshRayTracer {
   RTCScene scene_;
 
     public:
-  explicit MeshRayTracer(const pcl::PolygonMesh &mesh) {
-    // Initialize Embree device and scene
-    device_ = rtcNewDevice("verbose=0");
+  explicit MeshRayTracer(const pcl::PolygonMesh &mesh)
+      : device_(rtcNewDevice("verbose=0")), scene_(nullptr) {
     if (!device_) {
       throw std::runtime_error("Failed to create Embree device");
     }
@@ -126,9 +119,9 @@ class MeshRayTracer {
     pcl::fromPCLPointCloud2(mesh.cloud, pcl_cloud);
 
     // Set vertices
-    float *vertices = (float *)rtcSetNewGeometryBuffer(
+    auto *vertices = static_cast<float *>(rtcSetNewGeometryBuffer(
         geom, RTC_BUFFER_TYPE_VERTEX, 0, RTC_FORMAT_FLOAT3, 3 * sizeof(float),
-        pcl_cloud.size());
+        pcl_cloud.size()));
 
     for (size_t i = 0; i < pcl_cloud.size(); ++i) {
       vertices[3 * i + 0] = pcl_cloud[i].x;
@@ -137,9 +130,9 @@ class MeshRayTracer {
     }
 
     // Set triangles
-    uint32_t *indices = (uint32_t *)rtcSetNewGeometryBuffer(
+    auto *indices = static_cast<uint32_t *>(rtcSetNewGeometryBuffer(
         geom, RTC_BUFFER_TYPE_INDEX, 0, RTC_FORMAT_UINT3, 3 * sizeof(uint32_t),
-        mesh.polygons.size());
+        mesh.polygons.size()));
 
     for (size_t i = 0; i < mesh.polygons.size(); ++i) {
       const auto &poly = mesh.polygons[i];
@@ -172,48 +165,6 @@ class MeshRayTracer {
   // Non-copyable
   MeshRayTracer(const MeshRayTracer &) = delete;
   MeshRayTracer &operator=(const MeshRayTracer &) = delete;
-
-  /// Cast a ray and return hit information including face orientation.
-  /// Face orientation is determined by the dot product of the ray direction
-  /// with the geometric normal: positive dot = back face, negative = front
-  /// face.
-  RayHitResult cast_ray(const Eigen::Vector3d &origin,
-                        const Eigen::Vector3d &direction) const {
-    RTCRayHit rayhit;
-    rayhit.ray.org_x = static_cast<float>(origin.x());
-    rayhit.ray.org_y = static_cast<float>(origin.y());
-    rayhit.ray.org_z = static_cast<float>(origin.z());
-    rayhit.ray.dir_x = static_cast<float>(direction.x());
-    rayhit.ray.dir_y = static_cast<float>(direction.y());
-    rayhit.ray.dir_z = static_cast<float>(direction.z());
-    rayhit.ray.tnear = 0.0f;
-    rayhit.ray.tfar = std::numeric_limits<float>::infinity();
-    rayhit.ray.mask = 0xFFFFFFFF;
-    rayhit.ray.flags = 0;
-    rayhit.hit.geomID = RTC_INVALID_GEOMETRY_ID;
-    rayhit.hit.primID = RTC_INVALID_GEOMETRY_ID;
-
-    rtcIntersect1(scene_, &rayhit);
-
-    if (rayhit.hit.geomID != RTC_INVALID_GEOMETRY_ID) {
-      // Extract and normalize geometric normal from Embree
-      Eigen::Vector3f normal(rayhit.hit.Ng_x, rayhit.hit.Ng_y, rayhit.hit.Ng_z);
-      normal.normalize();
-
-      // Check face orientation: back face if normal points in same direction as
-      // ray
-      Eigen::Vector3f dir_vec(direction.x(), direction.y(), direction.z());
-      bool is_back = normal.dot(dir_vec) > 0;
-
-      return RayHitResult{static_cast<double>(rayhit.ray.tfar), is_back};
-    }
-
-    // No hit
-    return RayHitResult{
-        std::numeric_limits<double>::infinity(),
-        false // Face orientation irrelevant when no hit
-    };
-  }
 
   /// Test if a point is inside the mesh using all-hit ray tracing.
   /// Based on DreamWorks method: casts a single ray and counts all

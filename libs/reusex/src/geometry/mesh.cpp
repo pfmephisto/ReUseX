@@ -32,7 +32,7 @@ namespace {
  */
 pcl::PolygonMeshPtr eigen_to_polygon_mesh(const Eigen::MatrixXd &vertices,
                                           const Eigen::MatrixXi &faces) {
-  auto mesh = pcl::PolygonMeshPtr(new pcl::PolygonMesh());
+  auto result = pcl::PolygonMeshPtr(new pcl::PolygonMesh());
 
   // Convert vertices: Eigen::MatrixXd → CloudLoc → PCLPointCloud2
   CloudLocPtr mesh_vertices(new CloudLoc);
@@ -45,20 +45,20 @@ pcl::PolygonMeshPtr eigen_to_polygon_mesh(const Eigen::MatrixXd &vertices,
     mesh_vertices->points[i].y = static_cast<float>(vertices(i, 1));
     mesh_vertices->points[i].z = static_cast<float>(vertices(i, 2));
   }
-  pcl::toPCLPointCloud2(*mesh_vertices, mesh->cloud);
+  pcl::toPCLPointCloud2(*mesh_vertices, result->cloud);
 
   // Convert faces: Eigen::MatrixXi → pcl::Vertices
-  mesh->polygons.resize(faces.rows());
+  result->polygons.resize(faces.rows());
   for (int i = 0; i < faces.rows(); ++i) {
     pcl::Vertices polygon;
     polygon.vertices.reserve(faces.cols());
     for (int j = 0; j < faces.cols(); ++j) {
       polygon.vertices.push_back(faces(i, j));
     }
-    mesh->polygons[i] = polygon;
+    result->polygons[i] = polygon;
   }
 
-  return mesh;
+  return result;
 }
 
 } // anonymous namespace

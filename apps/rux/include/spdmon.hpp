@@ -107,7 +107,7 @@ class BaseProgress {
 
   virtual ~BaseProgress() = default;
 
-  void Restart(std::string desc = "", unsigned int total = 0) {
+  void Restart(const std::string &desc = "", unsigned int total = 0) {
     n_ = 0;
     total_ = total;
     desc_ = desc;
@@ -256,7 +256,7 @@ class BaseProgress {
 /* Progress monitor writing directly to a file */
 class Progress final : public BaseProgress {
     public:
-  explicit Progress(std::string desc = "", unsigned int total = 0,
+  explicit Progress(const std::string &desc = "", unsigned int total = 0,
                     bool ascii = false, FILE *file = stderr,
                     unsigned int width = 0)
       : BaseProgress(desc, total, ascii), width_(width), file_(file)
@@ -607,12 +607,12 @@ class LoggerProgress final : public BaseProgress, StatusLine {
     StatusLine::RegisterSinks(custom_logger_);
   }
 
-  explicit LoggerProgress(std::string desc = "", unsigned int total = 0,
+  explicit LoggerProgress(const std::string &desc = "", unsigned int total = 0,
                           bool ascii = false, unsigned int /*width*/ = 0,
                           spdlog::level::level_enum level = spdlog::level::warn)
-      : BaseProgress(desc, total, ascii), StatusLine(level) {
-    default_logger_ = spdlog::default_logger();
-    custom_logger_ = spdmon::stdout_terminal_mt(desc);
+      : BaseProgress(desc, total, ascii), StatusLine(level),
+        default_logger_(spdlog::default_logger()),
+        custom_logger_(spdmon::stdout_terminal_mt(desc)) {
     custom_logger_->set_pattern(
         "[%Y-%m-%d %H:%M:%S.%e] [%n] [%=8t] [%^%=7l%$] %v");
     custom_logger_->set_level(spdlog::get_level());
@@ -620,7 +620,7 @@ class LoggerProgress final : public BaseProgress, StatusLine {
     StatusLine::RegisterSinks(custom_logger_);
   }
 
-  ~LoggerProgress() {
+  ~LoggerProgress() override {
     spdlog::set_default_logger(default_logger_);
     spdlog::drop(custom_logger_->name());
   };
@@ -666,7 +666,8 @@ template <typename Iterable> class IterableProgressMonitor {
   const decltype(std::end(iter_)) end_;
 
     public:
-  IterableProgressMonitor(Iterable iter, std::string name = "Progress logger")
+  explicit IterableProgressMonitor(Iterable iter,
+                                   const std::string &name = "Progress logger")
       : iter_(iter), size_(0), begin_(std::begin(iter)), end_(std::end(iter)) {
     progress_logger_ =
         std::make_shared<LoggerProgress>(name, std::distance(begin_, end_));

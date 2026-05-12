@@ -124,8 +124,8 @@ auto validate_expression_syntax(const std::string &expr) -> ValidationResult {
   }
 }
 
-auto validate_clouds_exist(const std::string &expr, reusex::ProjectDB &db)
-    -> ValidationResult {
+auto validate_clouds_exist(const std::string &expr,
+                           const reusex::ProjectDB &db) -> ValidationResult {
   auto cloud_names = extract_cloud_names(expr);
 
   for (const auto &name : cloud_names) {
@@ -158,7 +158,7 @@ auto validate_clouds_exist(const std::string &expr, reusex::ProjectDB &db)
   return {true, "", ""};
 }
 
-auto validate_cloud_sizes(const std::string &expr, reusex::ProjectDB &db)
+auto validate_cloud_sizes(const std::string &expr, const reusex::ProjectDB &db)
     -> ValidationResult {
   auto cloud_names = extract_cloud_names(expr);
 

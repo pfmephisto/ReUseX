@@ -53,10 +53,11 @@ auto segment_rooms_impl(CloudConstPtr cloud, CloudNConstPtr normals,
     if (label < 1)
       continue;
 
-    if (plane_inlier_map.find(label) == plane_inlier_map.end()) {
-      plane_inlier_map[label] = IndicesPtr(new Indices);
+    auto [it, inserted] = plane_inlier_map.try_emplace(label);
+    if (inserted) {
+      it->second = IndicesPtr(new Indices);
     }
-    plane_inlier_map[label]->push_back(i);
+    it->second->push_back(i);
   }
 
   IndicesPtr indices(new Indices);

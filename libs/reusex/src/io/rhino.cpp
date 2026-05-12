@@ -396,8 +396,8 @@ auto export_to_rhino(const ExportScene &scene) -> std::unique_ptr<ONX_Model> {
       std::string type_name = entry.properties.count("type")
                                   ? entry.properties.at("type")
                                   : "unknown";
-      if (type_layers.find(type_name) == type_layers.end())
-        type_layers[type_name] = add_sublayer(*model, type_name, comp_layer);
+      if (auto [it, inserted] = type_layers.try_emplace(type_name); inserted)
+        it->second = add_sublayer(*model, type_name, comp_layer);
 
       const auto &verts = entry.boundary.vertices;
       if (verts.size() < 3)

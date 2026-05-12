@@ -8,7 +8,7 @@
 #include <opencv2/core/types.hpp>
 
 namespace reusex::vision {
-float generate_scale(cv::Mat &image, const cv::Size &target_size,
+float generate_scale(const cv::Mat &image, const cv::Size &target_size,
                      bool scale_up = false);
 float letterbox(cv::Mat &input_image, cv::Mat &output_image,
                 const cv::Size &target_size);

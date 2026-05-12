@@ -32,11 +32,17 @@ bool TensorRTDataset::save(const std::span<IDataset::Pair> &data) {
   bool success = true;
   for (const auto &[item, index] : data) {
     TensorRTData *trt_data = dynamic_cast<TensorRTData *>(item.get());
-    cv::Mat &img = trt_data->image;
+    if (!trt_data) {
+      reusex::warn("TensorRTDataset::save skipping non-TensorRTData item at "
+                   "index {}",
+                   index);
+      success = false;
+      continue;
+    }
 
-    success &= save_image(index, img);
+    success &= save_image(index, trt_data->image);
 
-    if (!class_map_saved_ && trt_data) {
+    if (!class_map_saved_) {
       auto json = fmt::format(
           "{{{}}}", fmt::join(enumerate(trt_data->prompts) |
                                   ranges::views::transform([](auto pair) {

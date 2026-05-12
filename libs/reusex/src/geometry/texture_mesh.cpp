@@ -672,7 +672,6 @@ static void project_pointcloud_to_mesh_texture(
       // Find which polygon contains this pixel and compute 3D position
       Eigen::Vector3f point_3d;
       bool inside_polygon = false;
-      size_t containing_poly_idx = 0;
 
       for (size_t poly_idx = 0; poly_idx < poly_group.size(); ++poly_idx) {
         const auto &poly = poly_group[poly_idx];
@@ -716,7 +715,6 @@ static void project_pointcloud_to_mesh_texture(
 
             point_3d = w0 * p0 + w1 * p1 + w2 * p2;
             inside_polygon = true;
-            containing_poly_idx = poly_idx;
             break;
           }
         }

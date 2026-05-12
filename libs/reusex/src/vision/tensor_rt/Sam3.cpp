@@ -91,11 +91,11 @@ TensorRTSam3::create(const std::filesystem::path &model_path) {
   return instance;
 }
 
-TensorRTSam3::TensorRTSam3(const std::string vision_encoder_path,
-                           const std::string text_encoder_path,
-                           const std::string geometry_encoder_path,
-                           const std::string decoder_path,
-                           const std::string tokenizer_path, int gpu_id)
+TensorRTSam3::TensorRTSam3(const std::string &vision_encoder_path,
+                           const std::string &text_encoder_path,
+                           const std::string &geometry_encoder_path,
+                           const std::string &decoder_path,
+                           const std::string &tokenizer_path, int gpu_id)
     : IModel(), vision_encoder_path_(vision_encoder_path),
       text_encoder_path_(text_encoder_path),
       geometry_encoder_path_(geometry_encoder_path),

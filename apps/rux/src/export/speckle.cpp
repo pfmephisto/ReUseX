@@ -115,9 +115,8 @@ int run_subcommand_export_speckle(SubcommandExportSpeckleOptions const &opt,
     spdlog::error("Find your token at: https://app.speckle.systems/profile");
     return RuxError::INVALID_ARGUMENT;
   }
-  std::string token(token_env);
-
   try {
+    std::string token(token_env);
     ProjectDB db(project_path, true);
 
     spdlog::info("Gathering export data...");

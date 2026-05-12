@@ -103,13 +103,13 @@ toMesh_impl(const std::shared_ptr<const CellComplex> &_cc,
       neighbor_cells.reserve(2);
 
       auto [start, end] = boost::adjacent_vertices(*fit, *_cc);
-      for (auto fit = start; fit != end; ++fit) {
+      for (auto vit = start; vit != end; ++vit) {
         // Get neighboring cells
-        if ((*_cc)[*fit].type == CellNodeType::cell)
-          neighbor_cells.push_back(*fit);
+        if ((*_cc)[*vit].type == CellNodeType::cell)
+          neighbor_cells.push_back(*vit);
         // Get face vertices
-        else if ((*_cc)[*fit].type == CellNodeType::vertex)
-          verts.push_back(*fit);
+        else if ((*_cc)[*vit].type == CellNodeType::vertex)
+          verts.push_back(*vit);
       }
 
       if (neighbor_cells.size() > 2)

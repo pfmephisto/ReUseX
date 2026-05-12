@@ -178,6 +178,7 @@ class ProjectDB::Impl {
   bool readOnly;
   sqlite3 *db = nullptr;
 
+  // cppcheck-suppress unusedStructMember
   static constexpr int LATEST_SCHEMA_VERSION = 6;
 
   void execOrThrow(const char *sql) {
@@ -1821,13 +1822,13 @@ class ProjectDB::Impl {
       ofs.write(static_cast<const char *>(blob), blobSize);
     }
 
-    auto mesh = std::make_shared<pcl::PolygonMesh>();
-    if (pcl::io::loadPLYFile(tmpPath.string(), *mesh) < 0) {
+    auto result = std::make_shared<pcl::PolygonMesh>();
+    if (pcl::io::loadPLYFile(tmpPath.string(), *result) < 0) {
       std::filesystem::remove(tmpPath);
       throw std::runtime_error("Failed to parse PLY mesh data");
     }
     std::filesystem::remove(tmpPath);
-    return mesh;
+    return result;
   }
 
   pcl::TextureMesh::Ptr getTextureMesh(std::string_view name) const {
@@ -1982,8 +1983,8 @@ class ProjectDB::Impl {
       }
     }
 
-    auto mesh = std::make_shared<pcl::TextureMesh>();
-    if (pcl::io::loadOBJFile(tmpObjPath.string(), *mesh) < 0) {
+    auto result = std::make_shared<pcl::TextureMesh>();
+    if (pcl::io::loadOBJFile(tmpObjPath.string(), *result) < 0) {
       std::filesystem::remove_all(texDir);
       throw std::runtime_error("Failed to parse OBJ texture mesh data");
     }
@@ -1991,7 +1992,7 @@ class ProjectDB::Impl {
     // Fix texture paths: loadOBJFile may resolve relative paths from the
     // original MTL against the temp OBJ directory, producing invalid paths
     // like /tmp/..././mesh_textures/file.jpg. Remap to actual temp files.
-    for (auto &mat : mesh->tex_materials) {
+    for (auto &mat : result->tex_materials) {
       if (mat.tex_file.empty())
         continue;
       std::filesystem::path p(mat.tex_file);
@@ -2008,7 +2009,7 @@ class ProjectDB::Impl {
     }
 
     // Leave temp files for viewer access (cleaned on next load)
-    return mesh;
+    return result;
   }
 
   std::string getMeshFormat(std::string_view name) const {
@@ -2248,7 +2249,7 @@ class ProjectDB::Impl {
     size_t index = 0;
 
       public:
-    MaterialPassportIterator(const Impl &impl_ref) : impl(impl_ref) {
+    explicit MaterialPassportIterator(const Impl &impl_ref) : impl(impl_ref) {
       // Fetch all document GUIDs (lightweight query)
       const char *query =
           "SELECT document_guid FROM material_passports ORDER BY created_at;";
@@ -2377,7 +2378,7 @@ class ProjectDB::Impl {
     sqlite3_bind_text(stmt, 1, documentGuid.data(), documentGuid.size(),
                       SQLITE_TRANSIENT);
 
-    std::vector<reusex::core::TransactionLogEntry> log;
+    std::vector<reusex::core::TransactionLogEntry> entries;
 
     while (sqlite3_step(stmt) == SQLITE_ROW) {
       reusex::core::TransactionLogEntry entry;
@@ -2398,11 +2399,11 @@ class ProjectDB::Impl {
       entry.new_value =
           reinterpret_cast<const char *>(sqlite3_column_text(stmt, 5));
 
-      log.push_back(std::move(entry));
+      entries.push_back(std::move(entry));
     }
 
     sqlite3_finalize(stmt);
-    return log;
+    return entries;
   }
 
   reusex::core::MaterialPassport
@@ -3091,12 +3092,12 @@ class ProjectDB::Impl {
       StmtGuard guard(stmt);
 
       while (sqlite3_step(stmt) == SQLITE_ROW) {
-        ProjectDB::ProjectSummary::MeshInfo mesh;
-        mesh.name =
+        ProjectDB::ProjectSummary::MeshInfo info;
+        info.name =
             reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
-        mesh.vertex_count = sqlite3_column_int(stmt, 1);
-        mesh.face_count = sqlite3_column_int(stmt, 2);
-        summary.meshes.push_back(std::move(mesh));
+        info.vertex_count = sqlite3_column_int(stmt, 1);
+        info.face_count = sqlite3_column_int(stmt, 2);
+        summary.meshes.push_back(std::move(info));
       }
     }
 

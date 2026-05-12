@@ -16,18 +16,19 @@ struct Sam3PromptUnit {
   std::string text;
   std::vector<BoxPrompt> boxes;
   Sam3PromptUnit() = default;
-  Sam3PromptUnit(const std::string &t, const std::vector<BoxPrompt> &b = {})
+  explicit Sam3PromptUnit(const std::string &t,
+                          const std::vector<BoxPrompt> &b = {})
       : text(t), boxes(b) {}
 };
 
 // Unified input struct
 struct Sam3Input {
-  float confidence_threshold;
+  float confidence_threshold = 0.0f;
   cv::Mat image; // Required: input image
   std::vector<Sam3PromptUnit>
       prompts; // Required: all prompt words list corresponding to this image
   Sam3Input() = default;
-  Sam3Input(const cv::Mat &img) : image(img) {}
+  explicit Sam3Input(const cv::Mat &img) : image(img) {}
   Sam3Input(const cv::Mat &img, const std::vector<Sam3PromptUnit> &p,
             float conf)
       : image(img), prompts(p), confidence_threshold(conf) {}

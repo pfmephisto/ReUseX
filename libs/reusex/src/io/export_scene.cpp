@@ -102,9 +102,10 @@ ExportScene gather_export_scene(const ProjectDB &db) {
       uint32_t inst = instance_labels->points[i].label;
       if (inst == 0)
         continue; // skip unlabeled
-      if (instance_clouds.find(inst) == instance_clouds.end())
-        instance_clouds[inst] = CloudPtr(new Cloud());
-      instance_clouds[inst]->points.push_back(cloud->points[i]);
+      auto [it, inserted] = instance_clouds.try_emplace(inst);
+      if (inserted)
+        it->second = CloudPtr(new Cloud());
+      it->second->points.push_back(cloud->points[i]);
     }
 
     // Build SemanticCategory entries
@@ -155,9 +156,10 @@ ExportScene gather_export_scene(const ProjectDB &db) {
       uint32_t lbl = labels->points[i].label;
       if (lbl == 0)
         continue; // skip unlabeled/background
-      if (label_clouds.find(lbl) == label_clouds.end())
-        label_clouds[lbl] = CloudPtr(new Cloud());
-      label_clouds[lbl]->points.push_back(cloud->points[i]);
+      auto [it, inserted] = label_clouds.try_emplace(lbl);
+      if (inserted)
+        it->second = CloudPtr(new Cloud());
+      it->second->points.push_back(cloud->points[i]);
     }
 
     for (const auto &[lbl, lbl_cloud] : label_clouds) {

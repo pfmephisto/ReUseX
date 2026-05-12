@@ -25,9 +25,9 @@ static double
 compute_grid_coverage(typename CGAL::Polygon_2<Kernel> const &polygon,
                       std::vector<typename Kernel::Point_2> const &points,
                       const double cell_size = 0.2) {
-  // Bounding box
-  double min_x = polygon[0].x(), max_x = polygon[0].x();
-  double min_y = polygon[0].y(), max_y = polygon[0].y();
+  // Bounding box (seeded from first vertex, expanded over all)
+  double min_x = polygon[0].x(), max_x = min_x;
+  double min_y = polygon[0].y(), max_y = min_y;
   for (auto &p : polygon) {
     min_x = std::min(min_x, p.x());
     max_x = std::max(max_x, p.x());

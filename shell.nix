@@ -49,7 +49,13 @@
     '';
     lint = pkgs.writeShellScriptBin "lint" ''
       cppcheck --enable=all --suppress=missingIncludeSystem \
-        -I "$PWD/libs/reusex/include" "$PWD/libs/" "$PWD/apps/"
+        --suppress=unmatchedSuppression --inline-suppr \
+        --check-level=exhaustive \
+        -I "$PWD/libs/reusex/include" \
+        -I "$PWD/build/include" \
+        -I "$PWD/build/generated" \
+        -I "$PWD/apps/rux/include" \
+        "$PWD/libs/" "$PWD/apps/"
     '';
     docs = pkgs.writeShellScriptBin "docs" ''
       cmake --build "$PWD/build" --target doc "$@"

@@ -380,7 +380,7 @@ class Dataloader {
    * iterator as it advances through the batches, and it is used to retrieve the
    * correct batch from the dataloader when requested.
    * */
-  size_t current_batch_idx_;
+  size_t current_batch_idx_ = 0;
 };
 
 } // namespace reusex::vision

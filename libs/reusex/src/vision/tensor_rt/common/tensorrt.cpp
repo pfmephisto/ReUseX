@@ -79,7 +79,7 @@ static std::vector<uint8_t> load_file(const std::string &file) {
     in.seekg(0, std::ios::beg);
     data.resize(length);
 
-    in.read((char *)&data[0], length);
+    in.read(reinterpret_cast<char *>(data.data()), length);
   }
   in.close();
   return data;
@@ -162,7 +162,7 @@ class __native_engine_context {
       reusex::error("Failed to create execution context: {}.", message_name);
       return false;
     }
-    return context_ != nullptr;
+    return true;
   }
 
     private:
@@ -183,7 +183,7 @@ class EngineImplement : public Engine {
   std::shared_ptr<__native_engine_context> context_;
   std::unordered_map<std::string, int> binding_name_to_index_;
 
-  virtual ~EngineImplement() = default;
+  ~EngineImplement() override = default;
 
   bool construct(const void *data, size_t size, const char *message_name) {
     context_ = std::make_shared<__native_engine_context>();
@@ -240,8 +240,8 @@ class EngineImplement : public Engine {
         return false;
       }
 
-      if (!context->setTensorAddress(tensor_name,
-                                     (void *)binding_iter->second)) {
+      if (!context->setTensorAddress(
+              tensor_name, const_cast<void *>(binding_iter->second))) {
         reusex::error("Failed to set tensor address for tensor {}.",
                       tensor_name);
         return false;
@@ -385,20 +385,20 @@ class EngineImplement : public Engine {
 
     reusex::info("Inputs: {}", num_input);
     for (int i = 0; i < num_input; ++i) {
-      auto name = engine->getIOTensorName(i);
-      auto dim = engine->getTensorShape(name);
-      auto dtype = engine->getTensorDataType(name);
-      reusex::info("\t{}.{} : {{{}}} [{}]", i, name, format_shape(dim),
-                   data_type_string(dtype));
+      auto tensor_name = engine->getIOTensorName(i);
+      auto tensor_dim = engine->getTensorShape(tensor_name);
+      auto tensor_dtype = engine->getTensorDataType(tensor_name);
+      reusex::info("\t{}.{} : {{{}}} [{}]", i, tensor_name,
+                   format_shape(tensor_dim), data_type_string(tensor_dtype));
     }
 
     reusex::info("Outputs: {}", num_output);
     for (int i = 0; i < num_output; ++i) {
-      auto name = engine->getIOTensorName(i + num_input);
-      auto dim = engine->getTensorShape(name);
-      auto dtype = engine->getTensorDataType(name);
-      reusex::info("\t{}.{} : {{{}}} [{}]", i, name, format_shape(dim),
-                   data_type_string(dtype));
+      auto tensor_name = engine->getIOTensorName(i + num_input);
+      auto tensor_dim = engine->getTensorShape(tensor_name);
+      auto tensor_dtype = engine->getTensorDataType(tensor_name);
+      reusex::info("\t{}.{} : {{{}}} [{}]", i, tensor_name,
+                   format_shape(tensor_dim), data_type_string(tensor_dtype));
     }
     reusex::info("-------------------------------------------------------");
   }

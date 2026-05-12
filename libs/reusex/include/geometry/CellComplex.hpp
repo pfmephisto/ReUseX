@@ -79,7 +79,7 @@ class CellComplex
   template <CellNodeType T> struct Is_Type {
     const CellComplex *g;
     Is_Type() = delete;
-    Is_Type(const CellComplex *g) : g(g) {}
+    explicit Is_Type(const CellComplex *graph) : g(graph) {}
     bool operator()(CellComplex::vertex_descriptor vd) const {
       auto const &prop = (*g)[vd];
       return prop.type == T;
@@ -91,7 +91,8 @@ class CellComplex
   struct IsFaceBetweenCells {
     const CellComplex *g;
     IsFaceBetweenCells() = delete;
-    IsFaceBetweenCells(const CellComplex *g) : g(g) {}
+    // cppcheck-suppress uninitMemberVar
+    explicit IsFaceBetweenCells(const CellComplex *graph) : g(graph) {}
     bool operator()(CellComplex::vertex_descriptor vd) const {
       auto const &prop = (*g)[vd];
       int n_adj = 0;
@@ -125,7 +126,8 @@ class CellComplex
   CellComplex(
       std::vector<Eigen::Vector4d, Eigen::aligned_allocator<Eigen::Vector4d>>
           &planes,
-      std::vector<size_t> &verticals, std::vector<size_t> &horizontals,
+      std::vector<size_t> &verticals,
+      const std::vector<size_t> &horizontals,
       std::vector<std::pair<size_t, size_t>> &pairs,
       std::array<double, 2> min_xy, std::array<double, 2> max_xy,
       std::optional<

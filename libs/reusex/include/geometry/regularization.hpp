@@ -37,6 +37,7 @@ template <typename Kernel, typename Scalar> struct plane_map {
     return value_type(FT(p(0)), FT(p(1)), FT(p(2)), FT(p(3)));
   };
 
+  // cppcheck-suppress constParameterReference
   friend void put(const plane_map &, key_type &p, const value_type &val) {
     p(0) = static_cast<Scalar>(CGAL::to_double(val.a()));
     p(1) = static_cast<Scalar>(CGAL::to_double(val.b()));

@@ -287,6 +287,7 @@ void drawSegmentationMask(cv::Mat &img,
       0.5);
 }
 
+// cppcheck-suppress constParameterReference
 void drawTrackHistoryPose(cv::Mat &img, const common::object::DetectionBox &box,
                           int thickness) {
   // Implementation reserved for future use
@@ -346,23 +347,31 @@ static int calculateDynamicFontSize(int img_w, int img_h,
 void make_labled_image(cv::Mat &img,
                        const common::object::DetectionBoxArray &boxes) {
   reusex::debug("OSD called with {} boxes", boxes.size());
+  if (img.empty())
+    return;
+  constexpr double alpha = 0.5;
   for (const auto &box : boxes) {
     if (!box.segmentation || box.segmentation->mask.empty())
-      return;
-    if (img.empty() || box.segmentation->mask.empty())
-      return;
+      continue;
     cv::Rect roi(cv::Point(box.box.left, box.box.top),
                  cv::Point(box.box.right, box.box.bottom));
     roi &= cv::Rect(0, 0, img.cols, img.rows);
     if (roi.area() <= 0)
-      return;
-    double alpha = 0.5;
+      continue;
+
     cv::Mat image_roi = img(roi);
     cv::Mat resized_mask;
     cv::resize(box.segmentation->mask, resized_mask, roi.size());
     reusex::debug("Class Id: {}, Class Name: {}", box.class_id, box.class_name);
-    cv::Mat color_patch(roi.size(), img.type(), box.class_id);
-    color_patch.copyTo(image_roi, resized_mask);
+
+    // Per-class color via Glasbey LUT (matches export/visualization elsewhere)
+    auto c = pcl::GlasbeyLUT::at(box.class_id % pcl::GlasbeyLUT::size());
+    cv::Mat color_patch(roi.size(), img.type(), cv::Scalar(c.b, c.g, c.r));
+
+    // Alpha-blend the colored patch into the image where mask is set
+    cv::Mat blended;
+    cv::addWeighted(image_roi, 1.0 - alpha, color_patch, alpha, 0.0, blended);
+    blended.copyTo(image_roi, resized_mask);
   }
 }
 

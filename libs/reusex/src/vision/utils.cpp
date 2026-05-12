@@ -10,7 +10,7 @@
 
 namespace reusex::vision {
 
-float generate_scale(cv::Mat &image, const cv::Size &target_size,
+float generate_scale(const cv::Mat &image, const cv::Size &target_size,
                      bool scale_up) {
   int origin_w = image.cols;
   int origin_h = image.rows;

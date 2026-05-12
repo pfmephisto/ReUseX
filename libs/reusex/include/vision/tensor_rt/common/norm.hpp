@@ -1,14 +1,17 @@
 #pragma once
 namespace reusex::vision::tensor_rt::norm_image {
 
+// cppcheck-suppress syntaxError
 enum class NormType : int { None = 0, MeanStd = 1, AlphaBeta = 2 };
 
+// cppcheck-suppress syntaxError
 enum class ChannelType : int { None = 0, SwapRB = 1 };
 
 struct Norm {
-  float mean[3];
-  float std[3];
-  float alpha, beta;
+  float mean[3] = {};
+  float std[3] = {};
+  float alpha = 0.f;
+  float beta = 0.f;
   NormType type = NormType::None;
   ChannelType channel_type = ChannelType::None;
 

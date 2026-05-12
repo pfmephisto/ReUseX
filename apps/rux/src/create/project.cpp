@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "create/project.hpp"
-#include "curand_globals.h"
 #include "validation.hpp"
 
 #include <CLI/CLI.hpp>

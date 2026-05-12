@@ -6,6 +6,9 @@ name: Epics workflow
 on:
   schedule:
     - cron:  '0 5 * * *'
+permissions:
+  contents: read
+  issues: write
 jobs:
   build:
     runs-on: ubuntu-latest

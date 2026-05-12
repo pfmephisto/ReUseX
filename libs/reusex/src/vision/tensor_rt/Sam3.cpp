@@ -368,8 +368,8 @@ void TensorRTSam3::allocate_memory_once() {
                            input_image_width_);
 
   // Vision Encoder Outputs
-  size_t feat_0_sz_one =
-      fpn_feat_0_shape_[1] * fpn_feat_0_shape_[2] * fpn_feat_0_shape_[3];
+  size_t feat_0_sz_one = static_cast<size_t>(fpn_feat_0_shape_[1]) *
+                         fpn_feat_0_shape_[2] * fpn_feat_0_shape_[3];
   size_t feat_0_sz_max_img = max_image_batch_ * feat_0_sz_one;
 
   fpn_feat_0_.gpu(feat_0_sz_max_img);
@@ -385,7 +385,8 @@ void TensorRTSam3::allocate_memory_once() {
   fpn_pos_2_gather_.gpu(feat_0_sz_max_pmt / 16);
 
   // Text Input
-  size_t text_in_sz = max_prompt_batch_ * text_ids_shape_[1];
+  size_t text_in_sz =
+      static_cast<size_t>(max_prompt_batch_) * text_ids_shape_[1];
   text_input_ids_.cpu(text_in_sz);
   text_input_ids_.gpu(text_in_sz);
   text_attention_mask_.cpu(text_in_sz);
@@ -398,13 +399,16 @@ void TensorRTSam3::allocate_memory_once() {
   // Geometry (allocated by max_prompt_batch_ * max_boxes)
   bool use_geom = (!geometry_encoder_path_.empty());
   if (use_geom) {
-    size_t box_sz = max_prompt_batch_ * max_boxes_per_prompt_ * 4;
+    size_t box_sz =
+        static_cast<size_t>(max_prompt_batch_) * max_boxes_per_prompt_ * 4;
     geom_boxes_.cpu(box_sz);
     geom_boxes_.gpu(box_sz);
     geom_labels_.cpu(max_prompt_batch_ * max_boxes_per_prompt_);
     geom_labels_.gpu(max_prompt_batch_ * max_boxes_per_prompt_);
 
-    size_t geom_feat_sz = max_prompt_batch_ * (max_boxes_per_prompt_ + 1) * 256;
+    size_t geom_feat_sz =
+        static_cast<size_t>(max_prompt_batch_) * (max_boxes_per_prompt_ + 1) *
+        256;
     geom_features_.gpu(geom_feat_sz);
     geom_mask_.gpu(max_prompt_batch_ * (max_boxes_per_prompt_ + 1));
   }
@@ -424,7 +428,7 @@ void TensorRTSam3::allocate_memory_once() {
   presence_logits_.gpu(max_prompt_batch_ * 1);
 
   // Postprocess Buffers
-  size_t post_sz = max_prompt_batch_ * num_queries_;
+  size_t post_sz = static_cast<size_t>(max_prompt_batch_) * num_queries_;
   filter_boxes_.cpu(post_sz * 4);
   filter_boxes_.gpu(post_sz * 4);
   filter_scores_.cpu(post_sz);
@@ -581,8 +585,8 @@ void TensorRTSam3::gather_vision_features(
     void *stream) {
   cudaStream_t s = (cudaStream_t)stream;
 
-  size_t sz_0 =
-      fpn_feat_0_shape_[1] * fpn_feat_0_shape_[2] * fpn_feat_0_shape_[3];
+  size_t sz_0 = static_cast<size_t>(fpn_feat_0_shape_[1]) *
+                fpn_feat_0_shape_[2] * fpn_feat_0_shape_[3];
   size_t sz_1 = sz_0 / 4;
   size_t sz_2 = sz_0 / 16;
 
@@ -697,7 +701,7 @@ bool TensorRTSam3::encode_boxes(const std::vector<PromptMeta> &batch_prompts,
         float w = (x2 - x1) / iw;
         float h = (y2 - y1) / ih;
 
-        int idx_base = i * max_boxes + k;
+        size_t idx_base = static_cast<size_t>(i) * max_boxes + k;
         h_labels[idx_base] = label;
         h_boxes[idx_base * 4 + 0] = cx;
         h_boxes[idx_base * 4 + 1] = cy;
@@ -750,8 +754,8 @@ bool TensorRTSam3::decode(int batch_size, int prompt_len, void *stream) {
 
   // Concatenate Prompt Features
   for (int i = 0; i < batch_size; ++i) {
-    size_t prompt_off = i * prompt_len * feat_sz;
-    size_t prompt_m_off = i * prompt_len * mask_sz;
+    size_t prompt_off = static_cast<size_t>(i) * prompt_len * feat_sz;
+    size_t prompt_m_off = static_cast<size_t>(i) * prompt_len * mask_sz;
 
     cudaMemcpyAsync(d_prompt + prompt_off, d_text + i * text_len * feat_sz,
                     text_len * feat_sz, cudaMemcpyDeviceToDevice, s);

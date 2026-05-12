@@ -4,6 +4,9 @@
 
 name: TODO workflow
 on: [push, pull_request]
+permissions:
+  contents: read
+  issues: write
 jobs:
   build:
     runs-on: ubuntu-latest

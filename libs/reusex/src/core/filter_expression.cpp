@@ -245,23 +245,22 @@ class Parser {
     const Token &cloud_tok = expect(TokenType::IDENTIFIER);
     std::string cloud_name = cloud_tok.value;
 
-    // Load cloud if not already loaded
-    CloudLConstPtr cloud_ptr = nullptr;
-    for (const auto &ref : clouds_) {
-      if (ref.name() == cloud_name) {
-        cloud_ptr = ref.labels();
+    // Resolve cloud name to an index into clouds_, loading from the database
+    // on first encounter.
+    size_t cloud_idx = clouds_.size();
+    for (size_t i = 0; i < clouds_.size(); ++i) {
+      if (clouds_[i].name() == cloud_name) {
+        cloud_idx = i;
         break;
       }
     }
 
-    if (!cloud_ptr) {
-      // Load from database
+    if (cloud_idx == clouds_.size()) {
       if (!db_.has_point_cloud(cloud_name)) {
         throw std::runtime_error(
             fmt::format("Label cloud '{}' not found in database", cloud_name));
       }
-      cloud_ptr = db_.point_cloud_label(cloud_name);
-      clouds_.emplace_back(cloud_name, cloud_ptr);
+      clouds_.emplace_back(cloud_name, db_.point_cloud_label(cloud_name));
     }
 
     // Parse operator
@@ -286,46 +285,46 @@ class Parser {
       }
 
       expect(TokenType::RBRACKET);
-      return std::make_unique<InNode>(std::move(values));
+      return std::make_unique<InNode>(cloud_idx, std::move(values));
     }
 
     if (op == TokenType::EQ) {
       advance();
       const Token &val = expect(TokenType::NUMBER);
-      return std::make_unique<EqualNode>(std::stoi(val.value));
+      return std::make_unique<EqualNode>(cloud_idx, std::stoi(val.value));
     }
 
     if (op == TokenType::NE) {
       advance();
       const Token &val = expect(TokenType::NUMBER);
-      return std::make_unique<NotEqualNode>(std::stoi(val.value));
+      return std::make_unique<NotEqualNode>(cloud_idx, std::stoi(val.value));
     }
 
     if (op == TokenType::GT) {
       advance();
       const Token &val = expect(TokenType::NUMBER);
-      return std::make_unique<CompareNode>(CompareNode::Op::GT,
+      return std::make_unique<CompareNode>(cloud_idx, CompareNode::Op::GT,
                                            std::stoi(val.value));
     }
 
     if (op == TokenType::GE) {
       advance();
       const Token &val = expect(TokenType::NUMBER);
-      return std::make_unique<CompareNode>(CompareNode::Op::GE,
+      return std::make_unique<CompareNode>(cloud_idx, CompareNode::Op::GE,
                                            std::stoi(val.value));
     }
 
     if (op == TokenType::LT) {
       advance();
       const Token &val = expect(TokenType::NUMBER);
-      return std::make_unique<CompareNode>(CompareNode::Op::LT,
+      return std::make_unique<CompareNode>(cloud_idx, CompareNode::Op::LT,
                                            std::stoi(val.value));
     }
 
     if (op == TokenType::LE) {
       advance();
       const Token &val = expect(TokenType::NUMBER);
-      return std::make_unique<CompareNode>(CompareNode::Op::LE,
+      return std::make_unique<CompareNode>(cloud_idx, CompareNode::Op::LE,
                                            std::stoi(val.value));
     }
 
@@ -373,25 +372,10 @@ class Parser {
 } // anonymous namespace
 
 auto FilterExpression::evaluate_point(size_t idx) const -> bool {
-  // For single-cloud expressions, evaluate directly
-  if (clouds.size() == 1) {
-    if (idx >= clouds[0].size()) {
-      return false;
-    }
-    int32_t label = clouds[0].labels()->points[idx].label;
-    return root->evaluate(label);
-  }
-
-  // For multi-cloud expressions, we need to handle per-cloud evaluation
-  // This is a simplified implementation - for full support, we'd need to
-  // track which cloud each node refers to in the AST
-  // For now, we evaluate using the first cloud's label
-  // TODO: Implement proper multi-cloud evaluation with cloud context in AST
-  if (idx >= clouds[0].size()) {
+  if (!root || clouds.empty()) {
     return false;
   }
-  int32_t label = clouds[0].labels()->points[idx].label;
-  return root->evaluate(label);
+  return root->evaluate(clouds, idx);
 }
 
 auto parse_filter_expression(const std::string &expression, ProjectDB &db)

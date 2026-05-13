@@ -131,14 +131,39 @@ TEST_CASE("Multi-cloud filter expressions", "[filter][multi-cloud]") {
   }
   db.save_point_cloud("rooms", *rooms);
 
-  SECTION("Multi-cloud expression with OR") {
-    // Note: Current implementation has simplified multi-cloud support
-    // It evaluates using the first cloud's labels
-    // Full multi-cloud support would require AST nodes to track which cloud
-    // This test documents current behavior
+  SECTION("Multi-cloud expression with OR — same support sets") {
+    // planes==1 for i<50, rooms==10 for i<50. OR keeps the first 50.
     auto expr =
         reusex::core::parse_filter_expression("planes == 1 || rooms == 10", db);
     REQUIRE(expr->clouds.size() == 2);
+    auto indices = reusex::core::evaluate_filter(*expr, 100);
+    REQUIRE(indices->size() == 50);
+    REQUIRE(indices->front() == 0);
+    REQUIRE(indices->back() == 49);
+  }
+
+  SECTION("Multi-cloud expression with OR — disjoint sets cover everything") {
+    // planes==2 for i>=50, rooms==10 for i<50. OR keeps all 100.
+    auto expr =
+        reusex::core::parse_filter_expression("planes == 2 || rooms == 10", db);
+    auto indices = reusex::core::evaluate_filter(*expr, 100);
+    REQUIRE(indices->size() == 100);
+  }
+
+  SECTION("Multi-cloud expression with AND — disjoint sets are empty") {
+    // planes==1 only on i<50, rooms==11 only on i>=50. AND has no overlap.
+    auto expr = reusex::core::parse_filter_expression(
+        "planes == 1 && rooms == 11", db);
+    auto indices = reusex::core::evaluate_filter(*expr, 100);
+    REQUIRE(indices->empty());
+  }
+
+  SECTION("Multi-cloud expression with AND — overlapping sets") {
+    // planes==1 on i<50, rooms==10 on i<50. AND keeps the first 50.
+    auto expr = reusex::core::parse_filter_expression(
+        "planes == 1 && rooms == 10", db);
+    auto indices = reusex::core::evaluate_filter(*expr, 100);
+    REQUIRE(indices->size() == 50);
   }
 
   SECTION("Cloud size mismatch throws") {

@@ -16,18 +16,9 @@ class ProjectDB;
 
 namespace reusex::core {
 
-/// Base AST node for filter expressions
-class FilterNode {
-    public:
-  virtual ~FilterNode() = default;
-
-  /// Evaluate this node for a specific point's label value
-  /// @param label_value The label value to test
-  /// @return True if point matches filter condition
-  virtual auto evaluate(int32_t label_value) const -> bool = 0;
-};
-
-/// Cloud reference node: references a label cloud by name
+/// Cloud reference: a label cloud loaded from ProjectDB by name. The
+/// position of an entry in FilterExpression::clouds is the cloud index
+/// that leaf nodes use to look up the per-point label during evaluation.
 class CloudReferenceNode {
   std::string cloud_name_;
   CloudLConstPtr label_cloud_;
@@ -41,37 +32,75 @@ class CloudReferenceNode {
   auto size() const -> size_t { return label_cloud_->size(); }
 };
 
+/// Base AST node for filter expressions.
+///
+/// Evaluation receives the full clouds table plus a point index so that
+/// each leaf can look up the right label in its own referenced cloud.
+class FilterNode {
+    public:
+  virtual ~FilterNode() = default;
+
+  /// Evaluate this node for a specific point.
+  /// @param clouds The label clouds referenced by the expression
+  /// @param point_idx The point index to test
+  /// @return True if the point matches this node's condition
+  virtual auto evaluate(const std::vector<CloudReferenceNode> &clouds,
+                        size_t point_idx) const -> bool = 0;
+};
+
+/// Helper for leaf nodes: read the label for `point_idx` from cloud
+/// `cloud_idx`, returning -1 if the index is out of range.
+inline int32_t cloud_label_at(const std::vector<CloudReferenceNode> &clouds,
+                              size_t cloud_idx, size_t point_idx) {
+  if (cloud_idx >= clouds.size()) {
+    return -1;
+  }
+  const auto &cloud = clouds[cloud_idx];
+  if (point_idx >= cloud.size()) {
+    return -1;
+  }
+  return cloud.labels()->points[point_idx].label;
+}
+
 /// Equality: <cloud> == value
 class EqualNode : public FilterNode {
+  size_t cloud_idx_;
   int32_t value_;
 
     public:
-  explicit EqualNode(int32_t value) : value_(value) {}
-  auto evaluate(int32_t label) const -> bool override {
-    return label == value_;
+  EqualNode(size_t cloud_idx, int32_t value)
+      : cloud_idx_(cloud_idx), value_(value) {}
+  auto evaluate(const std::vector<CloudReferenceNode> &clouds,
+                size_t point_idx) const -> bool override {
+    return cloud_label_at(clouds, cloud_idx_, point_idx) == value_;
   }
 };
 
 /// Not equal: <cloud> != value
 class NotEqualNode : public FilterNode {
+  size_t cloud_idx_;
   int32_t value_;
 
     public:
-  explicit NotEqualNode(int32_t value) : value_(value) {}
-  auto evaluate(int32_t label) const -> bool override {
-    return label != value_;
+  NotEqualNode(size_t cloud_idx, int32_t value)
+      : cloud_idx_(cloud_idx), value_(value) {}
+  auto evaluate(const std::vector<CloudReferenceNode> &clouds,
+                size_t point_idx) const -> bool override {
+    return cloud_label_at(clouds, cloud_idx_, point_idx) != value_;
   }
 };
 
 /// In-set: <cloud> in [v1, v2, v3]
 class InNode : public FilterNode {
+  size_t cloud_idx_;
   std::unordered_set<int32_t> values_;
 
     public:
-  explicit InNode(std::vector<int32_t> values)
-      : values_(values.begin(), values.end()) {}
-  auto evaluate(int32_t label) const -> bool override {
-    return values_.count(label) > 0;
+  InNode(size_t cloud_idx, std::vector<int32_t> values)
+      : cloud_idx_(cloud_idx), values_(values.begin(), values.end()) {}
+  auto evaluate(const std::vector<CloudReferenceNode> &clouds,
+                size_t point_idx) const -> bool override {
+    return values_.count(cloud_label_at(clouds, cloud_idx_, point_idx)) > 0;
   }
 };
 
@@ -81,12 +110,16 @@ class CompareNode : public FilterNode {
   enum class Op { GT, GE, LT, LE };
 
     private:
+  size_t cloud_idx_;
   Op op_;
   int32_t value_;
 
     public:
-  CompareNode(Op op, int32_t value) : op_(op), value_(value) {}
-  auto evaluate(int32_t label) const -> bool override {
+  CompareNode(size_t cloud_idx, Op op, int32_t value)
+      : cloud_idx_(cloud_idx), op_(op), value_(value) {}
+  auto evaluate(const std::vector<CloudReferenceNode> &clouds,
+                size_t point_idx) const -> bool override {
+    const int32_t label = cloud_label_at(clouds, cloud_idx_, point_idx);
     switch (op_) {
     case Op::GT:
       return label > value_;
@@ -109,8 +142,10 @@ class AndNode : public FilterNode {
     public:
   AndNode(std::unique_ptr<FilterNode> left, std::unique_ptr<FilterNode> right)
       : left_(std::move(left)), right_(std::move(right)) {}
-  auto evaluate(int32_t label) const -> bool override {
-    return left_->evaluate(label) && right_->evaluate(label);
+  auto evaluate(const std::vector<CloudReferenceNode> &clouds,
+                size_t point_idx) const -> bool override {
+    return left_->evaluate(clouds, point_idx) &&
+           right_->evaluate(clouds, point_idx);
   }
 };
 
@@ -122,8 +157,10 @@ class OrNode : public FilterNode {
     public:
   OrNode(std::unique_ptr<FilterNode> left, std::unique_ptr<FilterNode> right)
       : left_(std::move(left)), right_(std::move(right)) {}
-  auto evaluate(int32_t label) const -> bool override {
-    return left_->evaluate(label) || right_->evaluate(label);
+  auto evaluate(const std::vector<CloudReferenceNode> &clouds,
+                size_t point_idx) const -> bool override {
+    return left_->evaluate(clouds, point_idx) ||
+           right_->evaluate(clouds, point_idx);
   }
 };
 

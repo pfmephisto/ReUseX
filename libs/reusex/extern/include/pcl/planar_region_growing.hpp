@@ -746,14 +746,13 @@ class PCL_EXPORTS PlanarRegionGrowing : public PCLBase<PointT> {
   PCL_MAKE_ALIGNED_OPERATOR_NEW
 };
 
-// TODO: Refactor to inherit from pcl::Comparator base class
-// category=Geometry estimate=4h
-// Though I am not sure what the benefits would be apart from overall
-// legibility and integration in to PCL ecosystem. Benefits would include:
-// 1. Consistent API with other PCL comparators (normal, intensity, etc.)
-// 2. Easier integration with pcl::OrganizedConnectedComponentSegmentation
-// 3. Better polymorphism and testability
-// 4. Alignment with PCL design patterns for upstream contribution
+// Design note: PlanarRegionGrowingComparator does not currently inherit from
+// pcl::Comparator. Doing so would align the API with other PCL comparators
+// (normal, intensity, ...) and let it slot into
+// pcl::OrganizedConnectedComponentSegmentation, which would matter if we
+// ever upstream the algorithm. The current standalone form has no
+// downstream consumers that need the base interface, so the refactor is
+// deferred until that need arises.
 template <typename PointT, typename PointNT>
 class PlanarRegionGrowingComparator : public PCLBase<PointT> {
     public:

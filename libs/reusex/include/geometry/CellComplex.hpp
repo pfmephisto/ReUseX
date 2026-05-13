@@ -35,16 +35,12 @@ struct CellData {
   std::set<int> wall_ids{};
 };
 
-// Generic vertex bundle
+// Generic vertex bundle. `id` is shared across all node types; it is treated
+// as a per-type counter (vertex/face/cell) by the construction code. Moving
+// it into CellVertexData/FaceData/CellData and accessing through std::visit
+// would be more type-safe but would force every existing `(*this)[v].id`
+// call site to thread a visitor — not currently worth the churn.
 struct VertexProperties {
-  // TODO: Refactor ID field to be type-specific instead of generic
-  // category=Geometry estimate=3h
-  // Current design stores ID at VertexProperties level, but IDs may have
-  // different semantics for different node types (vertex/face/cell). Consider:
-  // 1. Move ID into CellVertexData/FaceData/CellData variant members
-  // 2. Use std::optional<int> for types that don't need IDs
-  // 3. Update all access patterns to use std::visit for type-safe ID retrieval
-  // Trade-off: More type-safe but requires more boilerplate for access
   CellNodeType type;
   int id;
   Eigen::Vector3d pos;

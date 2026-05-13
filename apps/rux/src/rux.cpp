@@ -6,6 +6,7 @@
 #include <create.hpp>
 #include <del.hpp>
 #include <export.hpp>
+#include <filter.hpp>
 #include <get.hpp>
 #include <import.hpp>
 #include <info.hpp>
@@ -125,6 +126,7 @@ int main(int argc, char **argv) {
 
   setup_subcommand_assemble(app, opt);
   setup_subcommand_create(app, opt);
+  setup_subcommand_filter(app, opt);
   setup_subcommand_import(app, opt);
   setup_subcommand_export(app, opt);
 

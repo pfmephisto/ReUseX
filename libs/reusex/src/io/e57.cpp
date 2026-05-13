@@ -59,7 +59,13 @@ void import_e57(ProjectDB &db, const std::filesystem::path &e57_path) {
     int64_t scanCount = reader.GetData3DCount();
     core::info("E57 file contains {} scan(s)", scanCount);
 
-    std::string stem = e57_path.stem().string();
+    // All scans are merged into a single "cloud" (and "normals" if every
+    // scan has normals), matching the naming used by the RTABMap import
+    // pipeline. Per-scan pose transforms are applied so points share a
+    // common coordinate system.
+    Cloud merged_cloud;
+    CloudN merged_normals;
+    bool allHaveNormals = true;
 
     for (int64_t scanIdx = 0; scanIdx < scanCount; ++scanIdx) {
       e57::Data3D header;
@@ -92,19 +98,15 @@ void import_e57(ProjectDB &db, const std::filesystem::path &e57_path) {
           fields.normalXField && fields.normalYField && fields.normalZField;
       bool hasIntensity = fields.intensityField;
 
-      // Derive cloud name from E57 header or file stem
-      std::string cloudName;
-      if (!header.name.empty()) {
-        cloudName = header.name;
-      } else if (scanCount == 1) {
-        cloudName = stem;
-      } else {
-        cloudName = fmt::format("{}_scan_{}", stem, scanIdx);
-      }
+      std::string scanLabel =
+          !header.name.empty() ? header.name : fmt::format("scan_{}", scanIdx);
 
       core::info("Scan {} '{}': {} points  color={} normals={} intensity={}",
-                 scanIdx, cloudName, pointsSize, hasColor, hasNormals,
+                 scanIdx, scanLabel, pointsSize, hasColor, hasNormals,
                  hasIntensity);
+
+      if (!hasNormals)
+        allHaveNormals = false;
 
       // Color normalization scales
       double scaleR = 1.0, scaleG = 1.0, scaleB = 1.0;
@@ -159,11 +161,15 @@ void import_e57(ProjectDB &db, const std::filesystem::path &e57_path) {
         bufs.normalZ = nzs.data();
       }
 
-      Cloud cloud;
-      cloud.reserve(static_cast<size_t>(pointsSize));
-      CloudN normals_cloud;
+      // Reserve capacity for this scan's points on top of what we already
+      // have. reserve() is a no-op when capacity is already sufficient.
+      merged_cloud.reserve(merged_cloud.size() +
+                           static_cast<size_t>(pointsSize));
       if (hasNormals)
-        normals_cloud.reserve(static_cast<size_t>(pointsSize));
+        merged_normals.reserve(merged_normals.size() +
+                               static_cast<size_t>(pointsSize));
+
+      size_t scanStart = merged_cloud.size();
 
       auto cvReader = reader.SetUpData3DPointsData(scanIdx, chunkSize, bufs);
       unsigned nRead = 0;
@@ -193,31 +199,47 @@ void import_e57(ProjectDB &db, const std::filesystem::path &e57_path) {
             pt.r = pt.g = pt.b = 128;
           }
 
-          cloud.push_back(pt);
+          merged_cloud.push_back(pt);
 
           if (hasNormals) {
             NormalT n;
             n.normal_x = nxs[i];
             n.normal_y = nys[i];
             n.normal_z = nzs[i];
-            normals_cloud.push_back(n);
+            merged_normals.push_back(n);
           }
         }
       }
       cvReader.close();
 
-      core::info("Scan {}: {} valid points stored as '{}'", scanIdx,
-                 cloud.size(), cloudName);
+      core::info("Scan {} '{}': {} valid points merged", scanIdx, scanLabel,
+                 merged_cloud.size() - scanStart);
+    }
 
-      std::string params = fmt::format(R"({{"source":"{}","scan_index":{}}})",
-                                       e57_path.string(), scanIdx);
+    if (merged_cloud.empty())
+      throw std::runtime_error("E57 import produced no points");
 
-      db.save_point_cloud(cloudName, cloud, "import_e57", params);
+    merged_cloud.width = static_cast<uint32_t>(merged_cloud.size());
+    merged_cloud.height = 1;
+    merged_cloud.is_dense = true;
 
-      if (hasNormals && !normals_cloud.empty()) {
-        db.save_point_cloud(cloudName + "_normals", normals_cloud, "import_e57",
-                            params);
-      }
+    std::string params =
+        fmt::format(R"({{"source":"{}","scans":{}}})", e57_path.string(),
+                    scanCount);
+
+    db.save_point_cloud("cloud", merged_cloud, "import_e57", params);
+    core::info("Saved 'cloud' with {} points", merged_cloud.size());
+
+    if (allHaveNormals && merged_normals.size() == merged_cloud.size()) {
+      merged_normals.width = static_cast<uint32_t>(merged_normals.size());
+      merged_normals.height = 1;
+      merged_normals.is_dense = true;
+      db.save_point_cloud("normals", merged_normals, "import_e57", params);
+      core::info("Saved 'normals' with {} entries", merged_normals.size());
+    } else if (!merged_normals.empty()) {
+      core::warn(
+          "Skipping 'normals': not all scans had normals (cloud={}, normals={})",
+          merged_cloud.size(), merged_normals.size());
     }
 
     db.log_pipeline_end(logId, true);

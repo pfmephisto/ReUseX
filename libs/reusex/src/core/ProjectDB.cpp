@@ -18,9 +18,11 @@
 #include <pcl/io/ply_io.h>
 #include <sqlite3.h>
 
+#include <algorithm>
 #include <cstring>
 #include <fstream>
 #include <sstream>
+#include <string>
 
 namespace reusex {
 
@@ -179,7 +181,12 @@ class ProjectDB::Impl {
   sqlite3 *db = nullptr;
 
   // cppcheck-suppress unusedStructMember
-  static constexpr int LATEST_SCHEMA_VERSION = 6;
+  static constexpr int LATEST_SCHEMA_VERSION = 7;
+
+  // Maximum bytes per point_cloud_data row. SQLite's default SQLITE_MAX_LENGTH
+  // is 1 GB and the hard compile-time max is 2 GB-1. We chunk large clouds
+  // into multiple rows so a single cloud can exceed those per-row limits.
+  static constexpr size_t POINT_CLOUD_CHUNK_BYTES = 256ull * 1024 * 1024;
 
   void execOrThrow(const char *sql) {
     char *errMsg = nullptr;
@@ -319,6 +326,10 @@ class ProjectDB::Impl {
       migrateToV6();
     }
 
+    if (current < 7) {
+      migrateToV7();
+    }
+
     reusex::trace("Schema version: {}", getCurrentSchemaVersion());
   }
 
@@ -354,8 +365,10 @@ class ProjectDB::Impl {
       );
 
       CREATE TABLE IF NOT EXISTS point_cloud_data (
-        cloud_id    INTEGER PRIMARY KEY REFERENCES point_clouds(id) ON DELETE CASCADE,
-        data        BLOB NOT NULL
+        cloud_id    INTEGER NOT NULL REFERENCES point_clouds(id) ON DELETE CASCADE,
+        chunk_index INTEGER NOT NULL DEFAULT 0,
+        data        BLOB NOT NULL,
+        PRIMARY KEY (cloud_id, chunk_index)
       );
 
       CREATE TABLE IF NOT EXISTS label_definitions (
@@ -554,6 +567,39 @@ class ProjectDB::Impl {
 
     insertSchemaVersion(6, "Add mesh_texture_data table");
     reusex::info("Migration to schema version 6 complete");
+  }
+
+  void migrateToV7() {
+    reusex::info("Migrating database to schema version 7");
+
+    // Rewrite point_cloud_data with a composite primary key
+    // (cloud_id, chunk_index) so a single cloud can be split across multiple
+    // rows. This lifts the per-row SQLite blob size limit (max 2 GB) for
+    // very large point clouds.
+    const char *v7_schema = R"(
+      CREATE TABLE point_cloud_data_new (
+        cloud_id    INTEGER NOT NULL REFERENCES point_clouds(id) ON DELETE CASCADE,
+        chunk_index INTEGER NOT NULL DEFAULT 0,
+        data        BLOB NOT NULL,
+        PRIMARY KEY (cloud_id, chunk_index)
+      );
+
+      INSERT INTO point_cloud_data_new (cloud_id, chunk_index, data)
+        SELECT cloud_id, 0, data FROM point_cloud_data;
+
+      DROP TABLE point_cloud_data;
+      ALTER TABLE point_cloud_data_new RENAME TO point_cloud_data;
+    )";
+
+    char *errMsg = nullptr;
+    if (sqlite3_exec(db, v7_schema, nullptr, nullptr, &errMsg) != SQLITE_OK) {
+      std::string error = errMsg;
+      sqlite3_free(errMsg);
+      throw std::runtime_error("Migration to v7 failed: " + error);
+    }
+
+    insertSchemaVersion(7, "Chunked point_cloud_data for large clouds");
+    reusex::info("Migration to schema version 7 complete");
   }
 
   // ── MTL parsing helpers ─────────────────────────────────────────────
@@ -1339,25 +1385,72 @@ class ProjectDB::Impl {
       // Get the cloud_id (might be new or existing)
       int cloudId = getCloudId(name);
 
-      // Upsert point_cloud_data
-      const char *dataUpsert = R"(
-        INSERT INTO point_cloud_data (cloud_id, data)
-        VALUES (?, ?)
-        ON CONFLICT(cloud_id) DO UPDATE SET data = excluded.data;
-      )";
+      // Replace any existing chunks for this cloud, then insert the new
+      // payload as one or more rows. Chunking keeps each row under SQLite's
+      // per-blob size limit (max 2 GB; default 1 GB).
+      {
+        const char *deleteSql =
+            "DELETE FROM point_cloud_data WHERE cloud_id = ?;";
+        sqlite3_stmt *delStmt;
+        if (sqlite3_prepare_v2(db, deleteSql, -1, &delStmt, nullptr) !=
+            SQLITE_OK)
+          throw std::runtime_error("Failed to prepare data delete: " +
+                                   std::string(sqlite3_errmsg(db)));
+        StmtGuard delGuard(delStmt);
+        sqlite3_bind_int(delStmt, 1, cloudId);
+        if (sqlite3_step(delStmt) != SQLITE_DONE)
+          throw std::runtime_error("Failed to clear point cloud data: " +
+                                   std::string(sqlite3_errmsg(db)));
+      }
+
+      const char *dataInsert =
+          "INSERT INTO point_cloud_data (cloud_id, chunk_index, data) "
+          "VALUES (?, ?, ?);";
 
       sqlite3_stmt *dstmt;
-      if (sqlite3_prepare_v2(db, dataUpsert, -1, &dstmt, nullptr) != SQLITE_OK)
-        throw std::runtime_error("Failed to prepare data upsert: " +
+      if (sqlite3_prepare_v2(db, dataInsert, -1, &dstmt, nullptr) != SQLITE_OK)
+        throw std::runtime_error("Failed to prepare data insert: " +
                                  std::string(sqlite3_errmsg(db)));
       StmtGuard dguard(dstmt);
 
-      sqlite3_bind_int(dstmt, 1, cloudId);
-      sqlite3_bind_blob(dstmt, 2, data.data(), static_cast<int>(data.size()),
-                        SQLITE_TRANSIENT);
-      if (sqlite3_step(dstmt) != SQLITE_DONE)
-        throw std::runtime_error("Failed to upsert point cloud data: " +
-                                 std::string(sqlite3_errmsg(db)));
+      const size_t total = data.size();
+      const size_t chunkBytes = POINT_CLOUD_CHUNK_BYTES;
+      size_t offset = 0;
+      int chunkIndex = 0;
+      // Ensure at least one chunk row even for empty payloads (the schema
+      // requires NOT NULL, so use a zero-length blob).
+      do {
+        size_t len = std::min(chunkBytes, total - offset);
+        sqlite3_reset(dstmt);
+        sqlite3_clear_bindings(dstmt);
+
+        if (sqlite3_bind_int(dstmt, 1, cloudId) != SQLITE_OK)
+          throw std::runtime_error("Failed to bind cloud_id: " +
+                                   std::string(sqlite3_errmsg(db)));
+        if (sqlite3_bind_int(dstmt, 2, chunkIndex) != SQLITE_OK)
+          throw std::runtime_error("Failed to bind chunk_index: " +
+                                   std::string(sqlite3_errmsg(db)));
+        static constexpr uint8_t emptyByte = 0;
+        const void *blobPtr =
+            len ? static_cast<const void *>(data.data() + offset)
+                : static_cast<const void *>(&emptyByte);
+        int rc = sqlite3_bind_blob64(dstmt, 3, blobPtr,
+                                     static_cast<sqlite3_uint64>(len),
+                                     SQLITE_STATIC);
+        if (rc != SQLITE_OK)
+          throw std::runtime_error(
+              "Failed to bind point cloud chunk " + std::to_string(chunkIndex) +
+              " (" + std::to_string(len) +
+              " bytes): " + std::string(sqlite3_errmsg(db)));
+
+        if (sqlite3_step(dstmt) != SQLITE_DONE)
+          throw std::runtime_error("Failed to insert point cloud chunk " +
+                                   std::to_string(chunkIndex) + ": " +
+                                   std::string(sqlite3_errmsg(db)));
+
+        offset += len;
+        ++chunkIndex;
+      } while (offset < total);
 
       sqlite3_exec(db, "COMMIT;", nullptr, nullptr, nullptr);
     } catch (...) {
@@ -1388,36 +1481,59 @@ class ProjectDB::Impl {
   };
 
   CloudMeta loadCloudRaw(std::string_view name) const {
-    const char *sql = R"(
-      SELECT pc.point_type, pc.width, pc.height, pcd.data
-      FROM point_clouds pc
-      JOIN point_cloud_data pcd ON pcd.cloud_id = pc.id
-      WHERE pc.name = ?;
-    )";
-    sqlite3_stmt *stmt;
-    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+    // Read point cloud metadata.
+    const char *metaSql =
+        "SELECT id, point_type, width, height FROM point_clouds WHERE name = ?;";
+    sqlite3_stmt *mstmt;
+    if (sqlite3_prepare_v2(db, metaSql, -1, &mstmt, nullptr) != SQLITE_OK)
       throw std::runtime_error("Failed to prepare cloud load: " +
                                std::string(sqlite3_errmsg(db)));
-    StmtGuard guard(stmt);
-    sqlite3_bind_text(stmt, 1, name.data(), static_cast<int>(name.size()),
+    StmtGuard mguard(mstmt);
+    sqlite3_bind_text(mstmt, 1, name.data(), static_cast<int>(name.size()),
                       SQLITE_TRANSIENT);
 
-    if (sqlite3_step(stmt) != SQLITE_ROW)
+    if (sqlite3_step(mstmt) != SQLITE_ROW)
       throw std::runtime_error("Point cloud not found: " + std::string(name));
 
     CloudMeta meta;
+    int cloudId = sqlite3_column_int(mstmt, 0);
     meta.point_type =
-        reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
-    meta.width = static_cast<uint32_t>(sqlite3_column_int(stmt, 1));
-    meta.height = static_cast<uint32_t>(sqlite3_column_int(stmt, 2));
+        reinterpret_cast<const char *>(sqlite3_column_text(mstmt, 1));
+    meta.width = static_cast<uint32_t>(sqlite3_column_int(mstmt, 2));
+    meta.height = static_cast<uint32_t>(sqlite3_column_int(mstmt, 3));
 
-    const void *blob = sqlite3_column_blob(stmt, 3);
-    int blobSize = sqlite3_column_bytes(stmt, 3);
-    if (!blob || blobSize <= 0)
-      throw std::runtime_error("Point cloud data is NULL or empty for: " +
+    // Read all chunks in order and concatenate.
+    const char *chunkSql = "SELECT data FROM point_cloud_data "
+                           "WHERE cloud_id = ? ORDER BY chunk_index;";
+    sqlite3_stmt *cstmt;
+    if (sqlite3_prepare_v2(db, chunkSql, -1, &cstmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to prepare cloud chunk load: " +
+                               std::string(sqlite3_errmsg(db)));
+    StmtGuard cguard(cstmt);
+    sqlite3_bind_int(cstmt, 1, cloudId);
+
+    bool anyChunks = false;
+    int rc;
+    while ((rc = sqlite3_step(cstmt)) == SQLITE_ROW) {
+      anyChunks = true;
+      const void *blob = sqlite3_column_blob(cstmt, 0);
+      int blobSize = sqlite3_column_bytes(cstmt, 0);
+      if (blobSize < 0)
+        throw std::runtime_error("Negative chunk size for point cloud: " +
+                                 std::string(name));
+      if (blobSize > 0 && blob) {
+        const auto *src = static_cast<const uint8_t *>(blob);
+        meta.data.insert(meta.data.end(), src, src + blobSize);
+      }
+    }
+    if (rc != SQLITE_DONE)
+      throw std::runtime_error("Failed to read point cloud chunks: " +
+                               std::string(sqlite3_errmsg(db)));
+
+    if (!anyChunks)
+      throw std::runtime_error("Point cloud has no data rows: " +
                                std::string(name));
-    meta.data.assign(static_cast<const uint8_t *>(blob),
-                     static_cast<const uint8_t *>(blob) + blobSize);
+
     return meta;
   }
 

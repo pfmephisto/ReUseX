@@ -17,15 +17,14 @@ void setup_subcommand_import_e57(CLI::App &app,
 
   sub->footer(R"(
 DESCRIPTION:
-  Reads all scan positions from an E57 file and stores them as XYZRGB point
-  clouds in the ReUseX project database. Color, normals, and intensity data
-  are extracted when present. Each scan position becomes a separately named
-  point cloud. Normals are saved alongside the main cloud with a "_normals"
-  suffix.
+  Reads all scan positions from an E57 file and stores them as a single
+  merged XYZRGB point cloud in the ReUseX project database. Color, normals,
+  and intensity data are extracted when present.
 
 CLOUD NAMING:
-  Single scan  : uses the file stem (e.g. "building" from "building.e57")
-  Multiple scans: "{stem}_scan_{N}" or the E57 header name when set
+  Saved as "cloud" (and "normals" when every scan provides normals), matching
+  the canonical names produced by the RTABMap import pipeline. Re-importing
+  overwrites the existing entries.
 
 EXAMPLES:
   rux import e57 scan.e57                      # Import to ./project.rux

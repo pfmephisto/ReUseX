@@ -5,6 +5,9 @@
 #include "database/resource_router.hpp"
 
 #include "database/cloud_router.hpp"
+#include "database/frame_router.hpp"
+#include "database/label_router.hpp"
+#include "database/log_router.hpp"
 #include "database/mesh_router.hpp"
 #include "database/panorama_router.hpp"
 #include "database/passport_router.hpp"
@@ -22,11 +25,9 @@ RouterRegistry::RouterRegistry(std::shared_ptr<reusex::ProjectDB> db)
   routers_["projects"] = std::make_unique<ProjectRouter>(db);
   routers_["materials"] = std::make_unique<PassportRouter>(db);
   routers_["panoramas"] = std::make_unique<PanoramaRouter>(db);
-
-  // TODO: Add routers for frames, labels, log
-  // routers_["frames"] = std::make_unique<FrameRouter>(db);
-  // routers_["labels"] = std::make_unique<LabelRouter>(db);
-  // routers_["log"] = std::make_unique<LogRouter>(db);
+  routers_["frames"] = std::make_unique<FrameRouter>(db);
+  routers_["labels"] = std::make_unique<LabelRouter>(db);
+  routers_["log"] = std::make_unique<LogRouter>(db);
 
   spdlog::trace("Initialized router registry with {} routers", routers_.size());
 }
@@ -36,8 +37,8 @@ ResourceRouter &RouterRegistry::get_router(std::string_view collection) {
   if (it == routers_.end()) {
     throw std::runtime_error(
         "No router for collection: " + std::string(collection) +
-        "\nSupported collections: clouds, materials, meshes, panoramas, "
-        "projects");
+        "\nSupported collections: clouds, frames, labels, log, materials, "
+        "meshes, panoramas, projects");
   }
   return *it->second;
 }

@@ -46,6 +46,19 @@ PATH SYNTAX:
   meshes.NAME.format       Get mesh format string
   panoramas                List all panoramic images
   panoramas.NAME.metadata  Get panoramic image metadata
+  frames                   List all sensor frame node_ids
+  frames.ID                Get frame metadata (JSON)
+  frames.ID.color          Get JPEG color image (binary)
+  frames.ID.depth          Get PNG depth image, CV_16U mm (binary)
+  frames.ID.confidence     Get PNG confidence image, CV_8U (binary)
+  frames.ID.pose           Get 4x4 world pose (JSON, row-major)
+  frames.ID.intrinsics     Get camera intrinsics (JSON)
+  labels                   List all label image node_ids
+  labels.ID                Get PNG label raster, CV_16U +1 offset
+  labels.ID.metadata       Get label image metadata (JSON)
+  log                      List all pipeline log entries
+  log.ID                   Get a single log entry (JSON)
+  log.ID.PROPERTY          stage, status, parameters, started_at, ...
   components               List all building components
   passports                List all material passports
 
@@ -90,7 +103,8 @@ int run_subcommand_get(const DatabaseGetOptions &opt,
       spdlog::debug("No path provided, listing collection names");
 
       nlohmann::json collections = nlohmann::json::array(
-          {"clouds", "materials", "meshes", "panoramas", "projects"});
+          {"clouds", "frames", "labels", "log", "materials", "meshes",
+           "panoramas", "projects"});
 
       rux::database::DataPayload payload = collections;
 

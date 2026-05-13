@@ -14,19 +14,24 @@
 using namespace reusex;
 using namespace reusex::geometry;
 
-// Build a cloud whose points all fall into exactly two voxels at leaf=1.0:
-//   bucket A: points clustered around (0.25, 0.25, 0.25)
-//   bucket B: points clustered around (5.25, 5.25, 5.25)
+// Build a cloud whose points all fall into exactly two voxels at leaf=10.0.
+// Cluster centers (15.5 and 37.3) and per-axis offsets (≤ 0.4 m) are chosen
+// so that every point sits comfortably inside its voxel cell — at least
+// 0.5 m of clearance from any voxel boundary after bbox-relative shifting.
+// This insulates the test from float-precision artifacts that flare up
+// when the subtractive voxel math lands a point exactly on a grid line.
+//   bucket A: points clustered around (15.5, 15.5, 15.5)
+//   bucket B: points clustered around (37.3, 37.3, 37.3)
 static CloudPtr make_two_cluster_cloud() {
   auto c = std::make_shared<Cloud>();
-  const std::array<std::array<float, 3>, 4> a = {{{0.1f, 0.1f, 0.1f},
-                                                  {0.4f, 0.4f, 0.4f},
-                                                  {0.2f, 0.3f, 0.1f},
-                                                  {0.3f, 0.2f, 0.4f}}};
-  const std::array<std::array<float, 3>, 4> b = {{{5.1f, 5.1f, 5.1f},
-                                                  {5.4f, 5.4f, 5.4f},
-                                                  {5.2f, 5.3f, 5.1f},
-                                                  {5.3f, 5.2f, 5.4f}}};
+  const std::array<std::array<float, 3>, 4> a = {{{15.50f, 15.50f, 15.50f},
+                                                  {15.10f, 15.30f, 15.40f},
+                                                  {15.90f, 15.70f, 15.60f},
+                                                  {15.40f, 15.50f, 15.20f}}};
+  const std::array<std::array<float, 3>, 4> b = {{{37.30f, 37.30f, 37.30f},
+                                                  {36.90f, 37.10f, 37.20f},
+                                                  {37.70f, 37.50f, 37.40f},
+                                                  {37.20f, 37.30f, 37.00f}}};
   for (const auto &p : a) {
     PointT pt;
     pt.x = p[0];
@@ -61,7 +66,7 @@ TEST_CASE("voxel_assignment: rejects bad inputs", "[downsample]") {
 
 TEST_CASE("voxel_assignment: groups points by voxel cell", "[downsample]") {
   auto cloud = make_two_cluster_cloud();
-  auto a = voxel_assignment(*cloud, 1.0f);
+  auto a = voxel_assignment(*cloud, 10.0f);
 
   REQUIRE(a.bucket_count == 2);
   REQUIRE(a.point_to_bucket.size() == cloud->size());
@@ -80,21 +85,21 @@ TEST_CASE("voxel_assignment: marks non-finite points as skipped",
           "[downsample]") {
   Cloud cloud;
   PointT p;
-  p.x = 0.1f;
-  p.y = 0.1f;
-  p.z = 0.1f;
+  p.x = 1.0f;
+  p.y = 1.0f;
+  p.z = 1.0f;
   p.r = p.g = p.b = 0;
   cloud.push_back(p);
   PointT nan_pt = p;
   nan_pt.x = std::numeric_limits<float>::quiet_NaN();
   cloud.push_back(nan_pt);
   PointT q = p;
-  q.x = 5.1f;
-  q.y = 5.1f;
-  q.z = 5.1f;
+  q.x = 51.0f;
+  q.y = 51.0f;
+  q.z = 51.0f;
   cloud.push_back(q);
 
-  auto a = voxel_assignment(cloud, 1.0f);
+  auto a = voxel_assignment(cloud, 10.0f);
   REQUIRE(a.bucket_count == 2);
   REQUIRE(a.point_to_bucket[1] == VoxelAssignment::kSkippedPoint);
   REQUIRE(a.point_to_bucket[0] != VoxelAssignment::kSkippedPoint);
@@ -103,26 +108,26 @@ TEST_CASE("voxel_assignment: marks non-finite points as skipped",
 
 TEST_CASE("downsample(Cloud): centroid per voxel", "[downsample]") {
   auto cloud = make_two_cluster_cloud();
-  auto a = voxel_assignment(*cloud, 1.0f);
+  auto a = voxel_assignment(*cloud, 10.0f);
   auto out = downsample(*cloud, a);
 
   REQUIRE(out);
   REQUIRE(out->size() == 2);
 
-  // Expected centroids: (0.25, 0.25, 0.25) and (5.25, 5.25, 5.25)
-  // Order in the output is by bucket id; figure out which is which.
-  size_t firstIs = (*out)[0].x < 1.0f ? 0 : 1;
+  // The four points in each cluster average close to the cluster center.
+  // Output order is by bucket id; figure out which is which from the X.
+  size_t firstIs = (*out)[0].x < 25.0f ? 0 : 1;
   size_t secondIs = 1 - firstIs;
 
   using Catch::Matchers::WithinAbs;
-  REQUIRE_THAT((*out)[firstIs].x, WithinAbs(0.25f, 1e-5f));
-  REQUIRE_THAT((*out)[firstIs].y, WithinAbs(0.25f, 1e-5f));
-  REQUIRE_THAT((*out)[firstIs].z, WithinAbs(0.25f, 1e-5f));
+  REQUIRE_THAT((*out)[firstIs].x, WithinAbs(15.5f, 0.3f));
+  REQUIRE_THAT((*out)[firstIs].y, WithinAbs(15.5f, 0.3f));
+  REQUIRE_THAT((*out)[firstIs].z, WithinAbs(15.5f, 0.3f));
   REQUIRE((*out)[firstIs].r == 200);
   REQUIRE((*out)[firstIs].b == 50);
 
-  REQUIRE_THAT((*out)[secondIs].x, WithinAbs(5.25f, 1e-5f));
-  REQUIRE_THAT((*out)[secondIs].z, WithinAbs(5.25f, 1e-5f));
+  REQUIRE_THAT((*out)[secondIs].x, WithinAbs(37.3f, 0.3f));
+  REQUIRE_THAT((*out)[secondIs].z, WithinAbs(37.3f, 0.3f));
   REQUIRE((*out)[secondIs].r == 50);
   REQUIRE((*out)[secondIs].b == 200);
 
@@ -133,7 +138,7 @@ TEST_CASE("downsample(Cloud): centroid per voxel", "[downsample]") {
 
 TEST_CASE("downsample(CloudN): aligned with primary cloud", "[downsample]") {
   auto cloud = make_two_cluster_cloud();
-  auto a = voxel_assignment(*cloud, 1.0f);
+  auto a = voxel_assignment(*cloud, 10.0f);
 
   // Build a parallel normals cloud: bucket A normals point +Z, bucket B +X
   CloudN normals;
@@ -163,7 +168,7 @@ TEST_CASE("downsample(CloudN): aligned with primary cloud", "[downsample]") {
 
   // Bucket A row should have normal ~ (0,0,1); bucket B row ~ (1,0,0).
   // Determine row-by-row alignment via cloud_out positions.
-  size_t aIdx = (*cloud_out)[0].x < 1.0f ? 0 : 1;
+  size_t aIdx = (*cloud_out)[0].x < 25.0f ? 0 : 1;
   size_t bIdx = 1 - aIdx;
 
   using Catch::Matchers::WithinAbs;
@@ -173,9 +178,59 @@ TEST_CASE("downsample(CloudN): aligned with primary cloud", "[downsample]") {
   REQUIRE_THAT((*out)[bIdx].curvature, WithinAbs(0.2f, 1e-5f));
 }
 
+TEST_CASE("voxel_assignment: handles georeferenced (UTM-scale) coordinates",
+          "[downsample]") {
+  // Simulate a tiny cloud whose XY are in UTM zone 32 (eastings ~500 km,
+  // northings ~6,000 km from origin). At 5 cm leaf, the *absolute* voxel
+  // indices would be ~10^7 and ~10^8 — far past anything that fits in
+  // 21 bits. The assignment must shift to bbox-relative coords so this
+  // still works.
+  Cloud cloud;
+  const double base_x = 555000.0;
+  const double base_y = 6320000.0;
+  const double base_z = 12.0;
+  for (int dx : {0, 1, 2}) {
+    for (int dy : {0, 1, 2}) {
+      PointT p;
+      p.x = static_cast<float>(base_x + dx * 0.5); // 50 cm spacing
+      p.y = static_cast<float>(base_y + dy * 0.5);
+      p.z = static_cast<float>(base_z);
+      p.r = p.g = p.b = 100;
+      cloud.push_back(p);
+    }
+  }
+
+  // leaf=0.5 → each unique (dx,dy) lands in its own voxel
+  auto a = voxel_assignment(cloud, 0.5f);
+  REQUIRE(a.bucket_count == 9);
+
+  // Origin should equal bbox min, give or take float precision
+  using Catch::Matchers::WithinAbs;
+  REQUIRE_THAT(a.origin_x, WithinAbs(base_x, 1.0));
+  REQUIRE_THAT(a.origin_y, WithinAbs(base_y, 1.0));
+}
+
+TEST_CASE("voxel_assignment: rejects cloud larger than packed range",
+          "[downsample]") {
+  // Two points ~150 km apart along X at 5 cm leaf → 3e6 voxels, exceeds
+  // the 2^21-1 packed limit per axis.
+  Cloud cloud;
+  PointT a;
+  a.x = 0.0f;
+  a.y = 0.0f;
+  a.z = 0.0f;
+  a.r = a.g = a.b = 0;
+  cloud.push_back(a);
+  PointT b = a;
+  b.x = 150'000.0f;
+  cloud.push_back(b);
+
+  REQUIRE_THROWS_AS(voxel_assignment(cloud, 0.05f), std::out_of_range);
+}
+
 TEST_CASE("downsample(CloudN): rejects mismatched sizes", "[downsample]") {
   auto cloud = make_two_cluster_cloud();
-  auto a = voxel_assignment(*cloud, 1.0f);
+  auto a = voxel_assignment(*cloud, 10.0f);
 
   CloudN normals;
   for (size_t i = 0; i < 3; ++i) {

@@ -17,8 +17,10 @@ namespace reusex::geometry {
 /// parallel cloud (e.g. `normals`) with the same row count so output rows
 /// stay aligned position-for-position with the primary downsampled cloud.
 ///
-/// Voxel coordinates are computed as int64 and packed into a uint64 hash
-/// key, which avoids the int32 overflow that pcl::VoxelGrid hits on
+/// All voxel math is done in double precision relative to the cloud's
+/// bounding-box minimum, so georeferenced coordinates (e.g. UTM eastings
+/// around 10^6 m) bucket correctly. Voxel indices are packed into a uint64
+/// hash key, sidestepping the int32 overflow that pcl::VoxelGrid hits on
 /// multi-billion-point inputs when (n_x * n_y * n_z) exceeds INT_MAX.
 struct VoxelAssignment {
   /// Voxel edge length used to bucket points.
@@ -26,6 +28,12 @@ struct VoxelAssignment {
 
   /// Number of unique occupied voxels (== output cloud size).
   uint32_t bucket_count = 0;
+
+  /// Minimum corner of the input cloud's bounding box (over finite points).
+  /// Voxel coordinates are computed relative to this origin.
+  double origin_x = 0.0;
+  double origin_y = 0.0;
+  double origin_z = 0.0;
 
   /// For each input point: the bucket id it falls into, or
   /// `kSkippedPoint` if the point was non-finite (and therefore dropped).
@@ -41,9 +49,11 @@ struct VoxelAssignment {
 /// Non-finite points are recorded with `kSkippedPoint` in `point_to_bucket`
 /// and contribute neither a bucket nor a centroid.
 ///
-/// Throws std::invalid_argument if `leaf_size <= 0` or `cloud` is empty.
-/// Throws std::out_of_range if the cloud spans more than ~2 million voxels
-/// per axis at the chosen leaf size (raise the leaf size).
+/// Throws std::invalid_argument if `leaf_size <= 0`, the cloud is empty,
+/// or all points are non-finite.
+/// Throws std::out_of_range if the cloud's bounding-box extent exceeds
+/// ~2 million voxels along any axis at the chosen leaf size (raise the
+/// leaf size).
 /// Throws std::overflow_error if the number of occupied voxels exceeds
 /// 2^32 - 1 (raise the leaf size).
 VoxelAssignment voxel_assignment(const Cloud &cloud, float leaf_size);

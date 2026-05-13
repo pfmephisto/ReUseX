@@ -10,7 +10,7 @@
 #include <string>
 #include <vector>
 
-struct SubcommandFilterDownsampleOptions {
+struct SubcommandEditDownsampleOptions {
   /// Source cloud name in the project DB. Defaults to "cloud" (the
   /// canonical name produced by import / reconstruct).
   std::string input = "cloud";
@@ -27,7 +27,7 @@ struct SubcommandFilterDownsampleOptions {
   std::vector<std::string> with;
 };
 
-void setup_subcommand_filter_downsample(
+void setup_subcommand_edit_downsample(
     CLI::App &app, std::shared_ptr<RuxOptions> global_opt);
-int run_subcommand_filter_downsample(
-    SubcommandFilterDownsampleOptions const &opt, const RuxOptions &global_opt);
+int run_subcommand_edit_downsample(
+    SubcommandEditDownsampleOptions const &opt, const RuxOptions &global_opt);

@@ -5,6 +5,7 @@
 #include "geometry/downsample.hpp"
 #include "core/logging.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -15,23 +16,19 @@ namespace reusex::geometry {
 
 namespace {
 
-// Pack signed 21-bit (ix, iy, iz) into a uint64_t. With 21 bits per axis
-// the per-axis index range is ±2^20 = ±1,048,576 voxels, i.e. ±52 km at a
-// 5 cm leaf — far beyond any realistic single-building scan extent.
+// Voxel indices are computed relative to the cloud's bounding-box minimum
+// in double precision, so they are non-negative and not subject to the
+// float precision loss that hits coordinates with magnitudes around 10^6+
+// (e.g. UTM eastings/northings). With 21 unsigned bits per axis we get up
+// to 2^21 - 1 = 2,097,151 voxels per axis ≈ 100 km at a 5 cm leaf.
 constexpr int kVoxelBits = 21;
-constexpr int64_t kVoxelMax = (int64_t{1} << (kVoxelBits - 1)) - 1;
-constexpr int64_t kVoxelMin = -(int64_t{1} << (kVoxelBits - 1));
-constexpr uint64_t kVoxelMask = (uint64_t{1} << kVoxelBits) - 1;
+constexpr uint64_t kVoxelMax = (uint64_t{1} << kVoxelBits) - 1;
 
-inline uint64_t pack_voxel(int64_t ix, int64_t iy, int64_t iz) {
-  if (ix < kVoxelMin || ix > kVoxelMax || iy < kVoxelMin || iy > kVoxelMax ||
-      iz < kVoxelMin || iz > kVoxelMax)
+inline uint64_t pack_voxel(uint64_t ix, uint64_t iy, uint64_t iz) {
+  if (ix > kVoxelMax || iy > kVoxelMax || iz > kVoxelMax)
     throw std::out_of_range(
         "Voxel index exceeds packed range — increase leaf size");
-  uint64_t kx = static_cast<uint64_t>(ix - kVoxelMin) & kVoxelMask;
-  uint64_t ky = static_cast<uint64_t>(iy - kVoxelMin) & kVoxelMask;
-  uint64_t kz = static_cast<uint64_t>(iz - kVoxelMin) & kVoxelMask;
-  return kx | (ky << kVoxelBits) | (kz << (2 * kVoxelBits));
+  return ix | (iy << kVoxelBits) | (iz << (2 * kVoxelBits));
 }
 
 } // namespace
@@ -42,11 +39,63 @@ VoxelAssignment voxel_assignment(const Cloud &cloud, float leaf_size) {
   if (cloud.empty())
     throw std::invalid_argument("Cannot voxelize an empty cloud");
 
+  // ── Pass 1: bounding-box minimum over finite points ───────────────
+  double min_x = std::numeric_limits<double>::infinity();
+  double min_y = std::numeric_limits<double>::infinity();
+  double min_z = std::numeric_limits<double>::infinity();
+  double max_x = -std::numeric_limits<double>::infinity();
+  double max_y = -std::numeric_limits<double>::infinity();
+  double max_z = -std::numeric_limits<double>::infinity();
+  size_t finite_count = 0;
+
+  for (size_t i = 0; i < cloud.size(); ++i) {
+    const auto &p = cloud[i];
+    if (!std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z))
+      continue;
+    min_x = std::min(min_x, static_cast<double>(p.x));
+    min_y = std::min(min_y, static_cast<double>(p.y));
+    min_z = std::min(min_z, static_cast<double>(p.z));
+    max_x = std::max(max_x, static_cast<double>(p.x));
+    max_y = std::max(max_y, static_cast<double>(p.y));
+    max_z = std::max(max_z, static_cast<double>(p.z));
+    ++finite_count;
+  }
+
+  if (finite_count == 0)
+    throw std::invalid_argument(
+        "Cannot voxelize: cloud contains no finite points");
+
+  const double inv_leaf = 1.0 / static_cast<double>(leaf_size);
+  core::info(
+      "voxel_assignment: bbox=[{:.3f},{:.3f},{:.3f}]→[{:.3f},{:.3f},{:.3f}], "
+      "extent=({:.3f},{:.3f},{:.3f}) m",
+      min_x, min_y, min_z, max_x, max_y, max_z, max_x - min_x, max_y - min_y,
+      max_z - min_z);
+
+  // Pre-validate extent so we fail with a clear message before the hash
+  // map starts filling up.
+  auto check_axis = [&](double lo, double hi, const char *axis) {
+    auto span = static_cast<uint64_t>(
+        std::floor((hi - lo) * inv_leaf)) + 1;
+    if (span > kVoxelMax)
+      throw std::out_of_range(
+          std::string("Cloud extent along ") + axis + " (" +
+          std::to_string(hi - lo) + " m) needs " + std::to_string(span) +
+          " voxels at leaf=" + std::to_string(leaf_size) +
+          " m, which exceeds the packed limit (" + std::to_string(kVoxelMax) +
+          "). Increase leaf size.");
+  };
+  check_axis(min_x, max_x, "X");
+  check_axis(min_y, max_y, "Y");
+  check_axis(min_z, max_z, "Z");
+
+  // ── Pass 2: assign every point to a bucket ────────────────────────
   VoxelAssignment a;
   a.leaf_size = leaf_size;
+  a.origin_x = min_x;
+  a.origin_y = min_y;
+  a.origin_z = min_z;
   a.point_to_bucket.resize(cloud.size());
-
-  const float inv_leaf = 1.0f / leaf_size;
 
   // Reserve based on a rough density heuristic; saves a lot of rehashing
   // on large inputs. Most occupancy ratios for indoor scans land in the
@@ -64,10 +113,13 @@ VoxelAssignment voxel_assignment(const Cloud &cloud, float leaf_size) {
       ++skipped_nan;
       continue;
     }
-    int64_t ix = static_cast<int64_t>(std::floor(p.x * inv_leaf));
-    int64_t iy = static_cast<int64_t>(std::floor(p.y * inv_leaf));
-    int64_t iz = static_cast<int64_t>(std::floor(p.z * inv_leaf));
-    uint64_t key = pack_voxel(ix, iy, iz);
+    const double rx = (static_cast<double>(p.x) - min_x) * inv_leaf;
+    const double ry = (static_cast<double>(p.y) - min_y) * inv_leaf;
+    const double rz = (static_cast<double>(p.z) - min_z) * inv_leaf;
+    const uint64_t ix = static_cast<uint64_t>(std::floor(rx));
+    const uint64_t iy = static_cast<uint64_t>(std::floor(ry));
+    const uint64_t iz = static_cast<uint64_t>(std::floor(rz));
+    const uint64_t key = pack_voxel(ix, iy, iz);
 
     auto [it, inserted] = key_to_bucket.emplace(key, next_bucket);
     if (inserted) {

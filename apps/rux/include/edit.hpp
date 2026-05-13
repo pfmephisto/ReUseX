@@ -8,5 +8,5 @@
 #include <CLI/CLI.hpp>
 #include <memory>
 
-void setup_subcommand_filter(CLI::App &app,
-                             std::shared_ptr<RuxOptions> global_opt);
+void setup_subcommand_edit(CLI::App &app,
+                           std::shared_ptr<RuxOptions> global_opt);

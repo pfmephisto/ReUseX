@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "filter/downsample.hpp"
+#include "edit/downsample.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/geometry/downsample.hpp>
@@ -35,9 +35,9 @@ parse_with_entry(const std::string &entry) {
 
 } // namespace
 
-void setup_subcommand_filter_downsample(
+void setup_subcommand_edit_downsample(
     CLI::App &app, std::shared_ptr<RuxOptions> global_opt) {
-  auto opt = std::make_shared<SubcommandFilterDownsampleOptions>();
+  auto opt = std::make_shared<SubcommandEditDownsampleOptions>();
   auto *sub =
       app.add_subcommand("downsample", "Voxel-grid downsample a project cloud");
 
@@ -55,17 +55,17 @@ DESCRIPTION:
   outputs stay row-aligned with the primary cloud.
 
 EXAMPLES:
-  rux filter downsample -r 0.05
+  rux edit downsample -r 0.05
       Overwrite 'cloud' with a 5 cm voxel-downsampled version.
 
-  rux filter downsample -r 0.05 --with normals
+  rux edit downsample -r 0.05 --with normals
       Also overwrite 'normals' using the same partition.
 
-  rux filter downsample -i cloud -o cloud_5cm -r 0.05 --with normals:normals_5cm
+  rux edit downsample -i cloud -o cloud_5cm -r 0.05 --with normals:normals_5cm
       Write to new names 'cloud_5cm' and 'normals_5cm', leaving the
       originals untouched.
 
-  rux filter downsample -r 0.02 --with normals --with labels
+  rux edit downsample -r 0.02 --with normals --with labels
       (--with is repeatable.)
 
 NOTES:
@@ -96,13 +96,13 @@ NOTES:
       ->take_all();
 
   sub->callback([opt, global_opt]() {
-    spdlog::trace("calling run_subcommand_filter_downsample");
-    return run_subcommand_filter_downsample(*opt, *global_opt);
+    spdlog::trace("calling run_subcommand_edit_downsample");
+    return run_subcommand_edit_downsample(*opt, *global_opt);
   });
 }
 
-int run_subcommand_filter_downsample(
-    SubcommandFilterDownsampleOptions const &opt,
+int run_subcommand_edit_downsample(
+    SubcommandEditDownsampleOptions const &opt,
     const RuxOptions &global_opt) {
   fs::path project_path = global_opt.project_db;
   const std::string output_name = opt.output.empty() ? opt.input : opt.output;
@@ -163,7 +163,7 @@ int run_subcommand_filter_downsample(
         R"({{"input":"{}","resolution":{},"source_points":{}}})", opt.input,
         opt.resolution, cloud->size());
 
-    int logId = db.log_pipeline_start("filter_downsample", params_json);
+    int logId = db.log_pipeline_start("edit_downsample", params_json);
 
     try {
       spdlog::info("Building voxel assignment (leaf={} m)", opt.resolution);
@@ -174,7 +174,7 @@ int run_subcommand_filter_downsample(
                    assignment.bucket_count);
       auto down = reusex::geometry::downsample(*cloud, assignment);
       spdlog::info("Saving '{}' ({} points)", output_name, down->size());
-      db.save_point_cloud(output_name, *down, "filter_downsample", params_json);
+      db.save_point_cloud(output_name, *down, "edit_downsample", params_json);
 
       // Free the primary input cloud as early as possible — for large
       // inputs holding both in memory while filtering 'with' clouds risks
@@ -198,7 +198,7 @@ int run_subcommand_filter_downsample(
           }
           auto ds = reusex::geometry::downsample(*normals, assignment);
           spdlog::info("Saving '{}' ({} entries)", w.output, ds->size());
-          db.save_point_cloud(w.output, *ds, "filter_downsample", params_json);
+          db.save_point_cloud(w.output, *ds, "edit_downsample", params_json);
         } else { // "PointXYZRGB" — already validated
           auto par = db.point_cloud_xyzrgb(w.input);
           if (!par)
@@ -212,13 +212,13 @@ int run_subcommand_filter_downsample(
           }
           auto ds = reusex::geometry::downsample(*par, assignment);
           spdlog::info("Saving '{}' ({} entries)", w.output, ds->size());
-          db.save_point_cloud(w.output, *ds, "filter_downsample", params_json);
+          db.save_point_cloud(w.output, *ds, "edit_downsample", params_json);
         }
       }
 
       db.log_pipeline_end(logId, true);
     } catch (...) {
-      db.log_pipeline_end(logId, false, "filter_downsample failed");
+      db.log_pipeline_end(logId, false, "edit_downsample failed");
       throw;
     }
 

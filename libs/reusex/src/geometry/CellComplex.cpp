@@ -80,38 +80,40 @@ auto CellComplex::cells_end() const -> CellComplex::CellIterator {
   return boost::make_filter_iterator(IsCell{this}, end, end);
 }
 
-auto CellComplex::vertices_begin(Vertex f) const
+auto CellComplex::vertices_of_face_begin(Vertex f) const
     -> CellComplex::VertexOnFaceIterator {
   auto [begin, end] = boost::adjacent_vertices(f, *this);
   return boost::make_filter_iterator(IsVertex{this}, begin, end);
 }
 
-auto CellComplex::vertices_end(Vertex f) const
+auto CellComplex::vertices_of_face_end(Vertex f) const
     -> CellComplex::VertexOnFaceIterator {
   auto end = boost::adjacent_vertices(f, *this).second;
   return boost::make_filter_iterator(IsVertex{this}, end, end);
 }
 
 /*
-auto CellComplex::cells_begin(Vertex f) const
+auto CellComplex::cells_of_face_begin(Vertex f) const
     -> CellComplex::CellOnFaceIterator {
   auto [begin, end] = boost::adjacent_vertices(f, *this);
   return boost::make_filter_iterator(IsCell{this}, begin, end);
 }
 
-auto CellComplex::cells_end(Vertex f) const -> CellComplex::CellOnFaceIterator {
+auto CellComplex::cells_of_face_end(Vertex f) const
+    -> CellComplex::CellOnFaceIterator {
   auto end = boost::adjacent_vertices(f, *this).second;
   return boost::make_filter_iterator(IsCell{this}, end, end);
 }
 */
 
-auto CellComplex::faces_begin(Vertex c) const
+auto CellComplex::faces_of_cell_begin(Vertex c) const
     -> CellComplex::FaceOnCellIterator {
   auto [begin, end] = boost::adjacent_vertices(c, *this);
   return boost::make_filter_iterator(IsFace{this}, begin, end);
 }
 
-auto CellComplex::faces_end(Vertex c) const -> CellComplex::FaceOnCellIterator {
+auto CellComplex::faces_of_cell_end(Vertex c) const
+    -> CellComplex::FaceOnCellIterator {
   auto end = boost::adjacent_vertices(c, *this).second;
   return boost::make_filter_iterator(IsFace{this}, end, end);
 }

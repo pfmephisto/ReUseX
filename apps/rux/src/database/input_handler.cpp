@@ -4,6 +4,7 @@
 
 #include "database/input_handler.hpp"
 
+#include <algorithm>
 #include <iostream>
 #include <spdlog/spdlog.h>
 #include <sstream>
@@ -74,11 +75,23 @@ InputHandler::read_input(const std::optional<std::string> &inline_value) {
   switch (source) {
   case InputSource::Stdin: {
     spdlog::debug("Reading input from stdin");
-    // Try to detect if it's binary or text
-    // For now, read as text and let the router decide
-    // TODO: Add better binary detection
-    auto text = read_text_from_stdin();
-    return text;
+    auto data = read_binary_from_stdin();
+
+    // Heuristic: treat as binary if it contains any NUL byte, otherwise text.
+    // NUL is forbidden in UTF-8 / ASCII / common text formats (incl. JSON)
+    // and is reliably present in nearly every binary container (PNG, JPEG,
+    // PLY, OBJ binary, HDF5, ...). False positives are rare and the caller
+    // can always force text by using an inline value.
+    const bool is_binary =
+        std::find(data.begin(), data.end(), '\0') != data.end();
+
+    if (is_binary) {
+      spdlog::debug("Stdin contains NUL bytes — treating as binary");
+      return data;
+    }
+
+    spdlog::debug("Stdin has no NUL bytes — treating as text");
+    return std::string(data.begin(), data.end());
   }
 
   case InputSource::Inline: {

@@ -94,8 +94,8 @@ toMesh_impl(const std::shared_ptr<const CellComplex> &_cc,
       continue; // Skip cells that do not pass the filter
 
     auto cell = *cit;
-    for (auto fit = _cc->faces_begin(*cit); fit != _cc->faces_end(*cit);
-         ++fit) {
+    for (auto fit = _cc->faces_of_cell_begin(*cit);
+         fit != _cc->faces_of_cell_end(*cit); ++fit) {
 
       std::vector<CellComplex::Vertex> verts{};
 

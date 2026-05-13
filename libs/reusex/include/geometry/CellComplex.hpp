@@ -217,23 +217,15 @@ class CellComplex
   auto cells_begin() const -> CellIterator;
   auto cells_end() const -> CellIterator;
 
-  // TODO: Rename adjacency iterators to follow CGAL naming convention
-  // category=Geometry estimate=2h
-  // Current names are unclear about what they iterate over. Adopt CGAL-style:
-  // - vertices_of_face_begin/end instead of face_vertices_begin/end
-  // - faces_of_cell_begin/end instead of cell_faces_begin/end
-  // - cells_of_face_begin/end instead of face_cells_begin/end
-  // Pattern: "elements_of_container" reads more naturally than
-  // "container_elements" Requires updating all call sites but improves API
-  // consistency
-  auto vertices_begin(Vertex f) const -> VertexOnFaceIterator;
-  auto vertices_end(Vertex f) const -> VertexOnFaceIterator;
+  // CGAL-style adjacency iterators: "<elements>_of_<container>".
+  auto vertices_of_face_begin(Vertex f) const -> VertexOnFaceIterator;
+  auto vertices_of_face_end(Vertex f) const -> VertexOnFaceIterator;
 
-  // auto cells_begin(Vertex f) const -> CellOnFaceIterator;
-  // auto cells_end(Vertex f) const -> CellOnFaceIterator;
+  // auto cells_of_face_begin(Vertex f) const -> CellOnFaceIterator;
+  // auto cells_of_face_end(Vertex f) const -> CellOnFaceIterator;
 
-  auto faces_begin(Vertex c) const -> FaceOnCellIterator;
-  auto faces_end(Vertex c) const -> FaceOnCellIterator;
+  auto faces_of_cell_begin(Vertex c) const -> FaceOnCellIterator;
+  auto faces_of_cell_end(Vertex c) const -> FaceOnCellIterator;
 
   auto get_a(Vertex f) const -> Vertex;
   auto get_b(Vertex f) const -> Vertex;

@@ -340,8 +340,8 @@ void VizualizationObserver::viewer_add_cell_complex(
 
         // Create face
         pcl::Vertices face{};
-        for (auto vit = cc->vertices_begin(*fit); vit != cc->vertices_end(*fit);
-             ++vit)
+        for (auto vit = cc->vertices_of_face_begin(*fit);
+             vit != cc->vertices_of_face_end(*fit); ++vit)
           face.vertices.push_back(static_cast<int>((*cc)[*vit].id));
 
         // Close the face
@@ -448,8 +448,8 @@ void VizualizationObserver::viewer_add_cell_complex(
       pcl::CorrespondencesPtr cf(new pcl::Correspondences);
       for (auto cit = cc->cells_begin(); cit != cc->cells_end(); ++cit) {
         const auto cid = (*cc)[*cit].id;
-        for (auto fit = cc->faces_begin(*cit); fit != cc->faces_end(*cit);
-             ++fit) {
+        for (auto fit = cc->faces_of_cell_begin(*cit);
+             fit != cc->faces_of_cell_end(*cit); ++fit) {
           const auto fid = (*cc)[*fit].id;
           cf->emplace_back(static_cast<int>(cid), static_cast<int>(fid), 0.0);
         }
@@ -465,8 +465,8 @@ void VizualizationObserver::viewer_add_cell_complex(
       pcl::CorrespondencesPtr fv(new pcl::Correspondences);
       for (auto fit = cc->faces_begin(); fit != cc->faces_end(); ++fit) {
         const auto fid = (*cc)[*fit].id;
-        for (auto vit = cc->vertices_begin(*fit); vit != cc->vertices_end(*fit);
-             ++vit) {
+        for (auto vit = cc->vertices_of_face_begin(*fit);
+             vit != cc->vertices_of_face_end(*fit); ++vit) {
           const auto vid = (*cc)[*vit].id;
           fv->emplace_back(static_cast<int>(fid), static_cast<int>(vid), 0.0);
         }

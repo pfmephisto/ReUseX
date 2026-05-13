@@ -120,7 +120,8 @@ auto CellComplex::compute_face_coverage(pcl::PointCloud<PointT>::ConstPtr cloud,
           return 0.0;
 
         Polygon_2 polygon{};
-        std::transform(this->vertices_begin(fit), this->vertices_end(fit),
+        std::transform(this->vertices_of_face_begin(fit),
+                       this->vertices_of_face_end(fit),
                        std::back_inserter(polygon), [&](Vertex v) {
                          const auto pos = (*this)[v].pos;
                          return plane.to_2d(Point_3(pos[0], pos[1], pos[2]));

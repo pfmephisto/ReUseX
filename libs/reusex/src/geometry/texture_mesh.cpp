@@ -1312,13 +1312,6 @@ texture_mesh(pcl::PolygonMesh::Ptr mesh,
     auto observer = reusex::core::ProgressObserver(
         reusex::core::Stage::retrieving_textures, poses.size());
 
-    // TODO: Extract camera intrinsics and image data for each node
-    // category=Geometry estimate=4h
-    // Loop retrieves nodes but needs to extract camera parameters:
-    // 1. Parse calibration data from SensorData for fx, fy, cx, cy
-    // 2. Convert rtabmap::Transform pose to PCL camera format
-    // 3. Decompress and store image data for texture projection
-    // Part of larger texture mapping pipeline (see TODO at line 233)
     for (auto &&[i, inner] : poses | ranges::views::enumerate) {
       auto &[id, pose] = inner;
 

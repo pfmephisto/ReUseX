@@ -672,6 +672,7 @@ static void project_pointcloud_to_mesh_texture(
       // Find which polygon contains this pixel and compute 3D position
       Eigen::Vector3f point_3d;
       bool inside_polygon = false;
+      size_t matched_poly_idx = 0;
 
       for (size_t poly_idx = 0; poly_idx < poly_group.size(); ++poly_idx) {
         const auto &poly = poly_group[poly_idx];
@@ -714,6 +715,7 @@ static void project_pointcloud_to_mesh_texture(
                 cloud_xyz->points[poly.vertices[tri_idx + 2]].getVector3fMap();
 
             point_3d = w0 * p0 + w1 * p1 + w2 * p2;
+            matched_poly_idx = poly_idx;
             inside_polygon = true;
             break;
           }
@@ -724,6 +726,17 @@ static void project_pointcloud_to_mesh_texture(
 
       if (!inside_polygon) {
         continue;
+      }
+
+      // Precompute the matched polygon's vertices in the (u_axis, v_axis)
+      // plane frame so we can test projected-point containment below.
+      const auto &matched_poly = poly_group[matched_poly_idx];
+      std::vector<Eigen::Vector2f> poly_2d;
+      poly_2d.reserve(matched_poly.vertices.size());
+      for (auto v_idx : matched_poly.vertices) {
+        const Eigen::Vector3f vp =
+            cloud_xyz->points[v_idx].getVector3fMap() - poly_centroid;
+        poly_2d.emplace_back(vp.dot(u_axis), vp.dot(v_axis));
       }
 
       // Query k-d tree for nearby point cloud points
@@ -771,10 +784,35 @@ static void project_pointcloud_to_mesh_texture(
         const float v_proj = (projected - poly_centroid).dot(v_axis);
         const Eigen::Vector2f proj_2d(u_proj, v_proj);
 
-        // Check if projection falls within polygon bounds (simple bounding box
-        // check)
-        // TODO: Could use more precise polygon containment test if needed
-        // For now, we accept all points that passed distance filter
+        // Check if the projection falls inside the matched polygon's 2D
+        // footprint (triangle-fan barycentric test, same tolerance as the
+        // pixel-in-polygon test above). Skips contributions from points that
+        // project outside the polygon — important for concave shapes and
+        // along boundaries shared with neighbouring polygons.
+        bool inside_poly_2d = false;
+        for (size_t tri_idx = 0; tri_idx + 2 < poly_2d.size(); ++tri_idx) {
+          const Eigen::Vector2f &q0 = poly_2d[0];
+          const Eigen::Vector2f &q1 = poly_2d[tri_idx + 1];
+          const Eigen::Vector2f &q2 = poly_2d[tri_idx + 2];
+          const float tri_area = (q1 - q0).x() * (q2 - q0).y() -
+                                 (q2 - q0).x() * (q1 - q0).y();
+          if (std::abs(tri_area) < 1e-6f)
+            continue;
+          const float b0 = ((q1 - proj_2d).x() * (q2 - proj_2d).y() -
+                            (q2 - proj_2d).x() * (q1 - proj_2d).y()) /
+                           tri_area;
+          const float b1 = ((q2 - proj_2d).x() * (q0 - proj_2d).y() -
+                            (q0 - proj_2d).x() * (q2 - proj_2d).y()) /
+                           tri_area;
+          const float b2 = 1.0f - b0 - b1;
+          if (b0 >= -0.01f && b1 >= -0.01f && b2 >= -0.01f) {
+            inside_poly_2d = true;
+            break;
+          }
+        }
+        if (!inside_poly_2d) {
+          continue;
+        }
 
         // Optional: Normal filtering if normals are available
         bool normal_ok = true;

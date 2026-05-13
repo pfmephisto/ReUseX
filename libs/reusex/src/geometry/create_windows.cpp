@@ -249,10 +249,50 @@ Placement classify_window_placement(const CoplanarPolygon &window_boundary,
   }
 }
 
+/// Winding-number point-in-polygon test for a single closed 2D loop.
+static bool point_in_loop_2d(const Eigen::Vector2d &p,
+                             const std::vector<Eigen::Vector2d> &loop) {
+  if (loop.size() < 3) {
+    return false;
+  }
+  int winding_number = 0;
+  for (size_t i = 0; i < loop.size(); ++i) {
+    const auto &v1 = loop[i];
+    const auto &v2 = loop[(i + 1) % loop.size()];
+
+    if (v1.y() <= p.y()) {
+      if (v2.y() > p.y()) {
+        // Upward crossing
+        double cross = (v2.x() - v1.x()) * (p.y() - v1.y()) -
+                       (p.x() - v1.x()) * (v2.y() - v1.y());
+        if (cross > 0) {
+          ++winding_number;
+        }
+      }
+    } else {
+      if (v2.y() <= p.y()) {
+        // Downward crossing
+        double cross = (v2.x() - v1.x()) * (p.y() - v1.y()) -
+                       (p.x() - v1.x()) * (v2.y() - v1.y());
+        if (cross < 0) {
+          --winding_number;
+        }
+      }
+    }
+  }
+  return winding_number != 0;
+}
+
 /// Test if a point lies within a wall's boundary polygon.
 /// Uses winding number algorithm for robust point-in-polygon test.
+/// Honors holes: a point inside an inner loop (boundary_loops[1..]) is NOT
+/// considered inside the wall.
 bool point_in_wall_boundary(const Eigen::Vector3d &point,
                             const WallCandidate &wall) {
+  if (wall.boundary_loops.empty()) {
+    return false;
+  }
+
   // Project point onto wall plane
   double signed_dist = wall.normal.dot(point) + wall.plane[3];
   Eigen::Vector3d on_plane = point - signed_dist * wall.normal;
@@ -277,53 +317,28 @@ bool point_in_wall_boundary(const Eigen::Vector3d &point,
   Eigen::Vector3d delta = on_plane - wall.centroid;
   Eigen::Vector2d point_2d(delta.dot(u_axis), delta.dot(v_axis));
 
-  // Use first (outer) boundary loop
-  // TODO: Handle holes properly by checking all loops
-  if (wall.boundary_loops.empty()) {
+  auto project_loop_2d = [&](const std::vector<Eigen::Vector3d> &loop) {
+    std::vector<Eigen::Vector2d> loop_2d;
+    loop_2d.reserve(loop.size());
+    for (const auto &v : loop) {
+      Eigen::Vector3d v_delta = v - wall.centroid;
+      loop_2d.emplace_back(v_delta.dot(u_axis), v_delta.dot(v_axis));
+    }
+    return loop_2d;
+  };
+
+  // Must be inside the outer loop.
+  if (!point_in_loop_2d(point_2d, project_loop_2d(wall.boundary_loops[0]))) {
     return false;
   }
 
-  const auto &boundary = wall.boundary_loops[0]; // Outer loop
-
-  std::vector<Eigen::Vector2d> boundary_2d;
-  boundary_2d.reserve(boundary.size());
-  for (const auto &v : boundary) {
-    Eigen::Vector3d v_delta = v - wall.centroid;
-    boundary_2d.emplace_back(v_delta.dot(u_axis), v_delta.dot(v_axis));
-  }
-
-  if (boundary_2d.size() < 3) {
-    return false; // Degenerate polygon
-  }
-
-  // Winding number algorithm (counts how many times polygon winds around point)
-  int winding_number = 0;
-  for (size_t i = 0; i < boundary_2d.size(); ++i) {
-    const auto &v1 = boundary_2d[i];
-    const auto &v2 = boundary_2d[(i + 1) % boundary_2d.size()];
-
-    if (v1.y() <= point_2d.y()) {
-      if (v2.y() > point_2d.y()) {
-        // Upward crossing
-        double cross = (v2.x() - v1.x()) * (point_2d.y() - v1.y()) -
-                       (point_2d.x() - v1.x()) * (v2.y() - v1.y());
-        if (cross > 0) {
-          winding_number++;
-        }
-      }
-    } else {
-      if (v2.y() <= point_2d.y()) {
-        // Downward crossing
-        double cross = (v2.x() - v1.x()) * (point_2d.y() - v1.y()) -
-                       (point_2d.x() - v1.x()) * (v2.y() - v1.y());
-        if (cross < 0) {
-          winding_number--;
-        }
-      }
+  // ... and outside every hole loop.
+  for (size_t i = 1; i < wall.boundary_loops.size(); ++i) {
+    if (point_in_loop_2d(point_2d, project_loop_2d(wall.boundary_loops[i]))) {
+      return false;
     }
   }
-
-  return winding_number != 0;
+  return true;
 }
 
 Eigen::Vector3d projectPointOnPlane(const Eigen::Vector3d &p,

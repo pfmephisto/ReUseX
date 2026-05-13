@@ -161,15 +161,9 @@ int run_subcommand_segment_rooms(SubcommandSegRoomsOptions const &opt,
     spdlog::debug("Unique plane labels found: {}",
                   fmt::join(unique_labels, ", "));
 
-    // FIXME: Label encoding offset may cause indexing errors for unlabeled
-    // points category=Geometry estimate=2h Current code uses label-1 as index
-    // into plane_normals vector (line below). If unlabeled points (label < 1)
-    // exist and are not skipped properly, this could cause off-by-one indexing
-    // errors. Need to verify that:
-    // 1. All unlabeled points have label < 1 (currently checking this)
-    // 2. Plane labels start at 1 (not 0) consistently throughout pipeline
-    // 3. plane_normals vector size matches max(label) not unique label count
-    // See MEMORY.md for label encoding conventions: -1 for background in API
+    // Plane label convention: 0 = unlabeled, 1..N = plane id (PCL
+    // PlanarRegionGrowing). plane_normals/plane_centroids are sized N and
+    // indexed by (label - 1).
     spdlog::trace("Creating per-point normals from plane labels");
     CloudNPtr normals(new CloudN);
     normals->resize(planes->size());

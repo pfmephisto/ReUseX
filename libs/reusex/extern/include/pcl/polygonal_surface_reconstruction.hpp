@@ -190,13 +190,35 @@ class PCL_EXPORTS PolygonalSurfaceReconstruction : public PCLBase<PointT> {
       return;
     }
 
-    // TODO: Implement plane membership filtering for input point indices
-    // category=Geometry estimate=3h
-    // Currently processes all input indices without filtering. Should add:
-    // 1. Check if points belong to detected planar regions (via label_map_)
-    // 2. Optionally filter out points not assigned to any plane
-    // 3. Add threshold parameter for minimum points per plane
-    // Reduces noise in reconstruction and improves mesh quality
+    // Drop unlabeled points (raw label == 0) from indices_ before the MIP
+    // solve. Reconstruction only consumes points that belong to a detected
+    // planar region, so unlabeled points are noise that inflates the
+    // optimization without contributing to any candidate plane.
+    if (labels_) {
+      const auto before = indices_->size();
+      pcl::Indices filtered;
+      filtered.reserve(before);
+      for (int idx : *indices_) {
+        if (static_cast<size_t>(idx) >= labels_->points.size())
+          continue;
+        if (labels_->points[idx].label == 0)
+          continue;
+        filtered.push_back(idx);
+      }
+      *indices_ = std::move(filtered);
+      if (indices_->size() != before) {
+        PCL_DEBUG("[pcl::%s::segment] Plane-membership filter: %zu/%zu points "
+                  "kept.\n",
+                  getClassName().c_str(), indices_->size(), before);
+      }
+      if (indices_->empty()) {
+        PCL_ERROR("[pcl::%s::segment] No labeled points remain after "
+                  "plane-membership filtering — nothing to reconstruct.\n",
+                  getClassName().c_str());
+        deinitCompute();
+        return;
+      }
+    }
 
     Polygonal_surface_reconstruction algo(*indices_, *point_map_, *normal_map_,
                                           *label_map_);

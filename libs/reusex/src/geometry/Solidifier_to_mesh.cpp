@@ -124,14 +124,10 @@ toMesh_impl(const std::shared_ptr<const CellComplex> &_cc,
           continue; // Skip faces between two valid cells
       }
 
-      // TODO: Validate face orientation for correct normal direction
-      // category=Geometry estimate=2h
-      // Current flip detection may produce inconsistent face normals leading to
-      // rendering artifacts. Should verify that:
-      // 1. Face normal points outward from the valid cell (not inward)
-      // 2. Vertex winding order follows right-hand rule consistently
-      // 3. Handle edge cases with single-neighbor faces (boundary faces)
-      // Test with mesh visualization to check for inside-out faces
+      // Orient the face so its normal points OUTWARD from `cell`: compute a
+      // Newell-style normal as the sum of edge cross products around the
+      // face centroid, then flip the winding if it points toward the cell
+      // interior. Degenerate (near-zero) normals fall through unflipped.
       bool flip = false;
       if (neighbor_cells.size() >= 1) {
 
@@ -143,15 +139,22 @@ toMesh_impl(const std::shared_ptr<const CellComplex> &_cc,
                              .cross(v1 - (*_cc)[*fit].pos)
                              .template head<3>();
         }
-        face_normal.normalize();
-
-        Eigen::Vector3d cell_dir =
-            ((*_cc)[cell].pos - (*_cc)[*fit].pos).template head<3>();
-        cell_dir.normalize();
-
-        const double dot = face_normal.dot(cell_dir);
-        if (dot > 0)
-          flip = true;
+        const double normal_norm = face_normal.norm();
+        if (normal_norm < 1e-9) {
+          reusex::warn("Face {} has degenerate normal (norm={:g}); leaving "
+                       "winding unchanged",
+                       (*_cc)[*fit].id, normal_norm);
+        } else {
+          face_normal /= normal_norm;
+          Eigen::Vector3d cell_dir =
+              ((*_cc)[cell].pos - (*_cc)[*fit].pos).template head<3>();
+          const double cell_norm = cell_dir.norm();
+          if (cell_norm > 1e-9) {
+            cell_dir /= cell_norm;
+            if (face_normal.dot(cell_dir) > 0)
+              flip = true;
+          }
+        }
       }
 
       // INFO: Create face
@@ -206,64 +209,6 @@ toMesh_impl(const std::shared_ptr<const CellComplex> &_cc,
   F = F.unaryExpr([&](int x) { return vmap[x]; });
 
   reusex::trace("Converted mesh to Eigen matrices");
-
-  /*
-  // INFO: Old section
-
-  Eigen::MatrixXd V;
-  Eigen::MatrixXi F;
-
-  // Number of vertices and faces
-  const size_t nV = mesh.number_of_vertices();
-  const size_t nF = mesh.number_of_faces();
-
-  reusex::trace("Converted mesh has {} vertices and {} faces", nV, nF);
-
-  V.resize(nV, 3);
-  F.resize(nF, 3);
-
-  // TODO: Refactor to modern C++ using CGAL containers and ranges
-  // category=Geometry estimate=3h
-  // Replace manual index mapping with CGAL property maps and range adaptors.
-  // Benefits:
-  // 1. Use CGAL::vertices(mesh) | ranges::to<std::vector> instead of manual
-  loops
-  // 2. Leverage CGAL vertex/face property maps for cleaner indexing
-  // 3. Replace std::unordered_map with CGAL::dynamic_vertex_property_t
-  // 4. Use structured bindings for iterator pairs
-  // Improves readability and reduces boilerplate code
-
-  // Map vertex indices
-  std::unordered_map<Mesh::Vertex_index, int> vmap;
-  vmap.reserve(nV);
-
-  int id = 0;
-  for (Mesh::Vertex_index v : mesh.vertices()) {
-    const Point &p = mesh.point(v);
-    V.row(id) << p.x(), p.y(), p.z();
-    vmap[v] = id++;
-  }
-
-  // Convert faces
-  int f_id = 0;
-  for (Mesh::Face_index f : mesh.faces()) {
-
-    CGAL::Vertex_around_face_circulator<Mesh> vc(mesh.halfedge(f), mesh), end;
-    end = vc;
-
-    size_t idx = 0;
-    do {
-      if (idx >= 3) {
-        reusex::error("Non-triangular Face ID: {}|{}", f_id, idx++);
-      } else {
-        Mesh::Vertex_index v = *vc;
-        F(f_id, idx++) = vmap[v];
-      }
-    } while (++vc != end);
-    ++f_id;
-  }
-  reusex::trace("Converted mesh to Eigen matrices");
-  */
 
   return {V, F};
 }

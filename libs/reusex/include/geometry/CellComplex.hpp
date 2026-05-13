@@ -135,14 +135,8 @@ class CellComplex
                              std::vector<int> const &)>>
           viz_func = std::nullopt);
 
-  // TODO: Consider returning coverage metrics instead of void
-  // category=Geometry estimate=2h
-  // compute_face_coverage() currently returns void but computes useful metrics.
-  // Could return coverage data structure:
-  // 1. Per-face coverage percentage (points/area)
-  // 2. Grid occupancy map for each face
-  // 3. Confidence metrics for plane fitting
-  // Enables downstream quality assessment and filtering of low-coverage faces
+  // Per-face coverage values are written to the "f:support_probability"
+  // vertex property map and queried from there by downstream code.
   template <typename PointT = pcl::PointXYZ>
   auto compute_face_coverage(pcl::PointCloud<PointT>::ConstPtr cloud,
                              EigenVectorContainer<double, 4> &planes,

@@ -114,37 +114,28 @@ VizualizationObserver::~VizualizationObserver() { viewer_stop(); }
 void VizualizationObserver::viewer_add_plane(std::string_view name,
                                              const Eigen::Vector4d &plane,
                                              reusex::core::Stage /*stage*/,
-                                             int /*idx*/) {
+                                             int idx) {
   if (!viewer_is_active())
     return;
 
-  viewer_enqueue_task([name = std::string(name),
-                       plane](const ViewerPtr & /*viewer*/,
-                              const std::vector<int> & /*viewports*/) {
-    // int vp = viewports.empty() ? 0 : viewports[0];
+  const int vp = viewports_.empty() ? 0 : viewports_[0];
+  const size_t n_colors = pcl::GlasbeyLUT::size();
+  auto color = pcl::GlasbeyLUT::at(static_cast<size_t>(idx) % n_colors);
 
-    // TODO: Implement plane visualization
+  pcl::ModelCoefficients coeffs;
+  coeffs.values = {
+      static_cast<float>(plane[0]), static_cast<float>(plane[1]),
+      static_cast<float>(plane[2]), static_cast<float>(plane[3])};
 
-    // auto sel = [&](size_t idx) {
-    //   return std::make_pair(planes[idx], centroids[idx]);
-    // };
-
-    // auto vertical_planes = vertical | ranges::views::transform(sel) |
-    //                        ranges::to<std::vector>();
-    // viewer->addPlanes(vertical_planes, "vertical_planes", vps->at(0));
-
-    // auto horizontal_planes = horizontal | ranges::views::transform(sel) |
-    //                          ranges::to<std::vector>();
-    // viewer->addPlanes(horizontal_planes, "horizontal_planes",
-    // vps->at(0));
-
-    // auto plane_pairs = pairs | ranges::views::transform([&](auto const
-    // &p) {
-    //                      return std::make_pair(sel(p.first),
-    //                      sel(p.second));
-    //                    }) |
-    //                    ranges::to<std::vector>();
-    // viewer->addPlanePairs(plane_pairs, "plain_pairs", vps->at(0));
+  viewer_enqueue_task([name = std::string(name), coeffs, color,
+                       vp](const ViewerPtr &viewer, const std::vector<int> &) {
+    const std::string shape_name = fmt::format("{}_plane", name);
+    viewer->addPlane(coeffs, shape_name, vp);
+    viewer->setShapeRenderingProperties(
+        pcl::visualization::PCL_VISUALIZER_COLOR,
+        static_cast<double>(color.r) / 255.0,
+        static_cast<double>(color.g) / 255.0,
+        static_cast<double>(color.b) / 255.0, shape_name, vp);
   });
 }
 

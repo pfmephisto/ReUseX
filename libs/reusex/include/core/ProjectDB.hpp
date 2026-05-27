@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <map>
 #include <memory>
+#include <optional>
 #include <opencv2/core/mat.hpp>
 #include <pcl/PolygonMesh.h>
 #include <pcl/TextureMesh.h>
@@ -358,6 +359,23 @@ class ProjectDB {
    */
   std::string passport_property_value(std::string_view documentGuid,
                                       std::string_view fieldName) const;
+
+  /**
+   * @brief Return the sensor frame node_id this passport was linked to
+   *
+   * When a passport is imported via "rux import photos" and matched to a
+   * sensor frame, material_passports.id is set to the frame's node_id
+   * (as decimal text). This helper returns that id parsed as an integer,
+   * or std::nullopt when the passport was stored without a link (id falls
+   * back to the document_guid).
+   *
+   * @param documentGuid Document GUID
+   * @return Node id when the row id is a non-negative integer, else
+   *         std::nullopt
+   * @throws std::runtime_error if passport not found
+   */
+  std::optional<int>
+  passport_linked_node_id(std::string_view documentGuid) const;
 
   /**
    * @brief Get passport metadata without loading all properties

@@ -94,9 +94,11 @@ TEST_CASE("Speckle object model defaults", "[speckle]") {
 
     SECTION("Collection defaults") {
         Collection c;
-        REQUIRE(c.speckle_type == "Speckle.Core.Models.Collection");
+        REQUIRE(c.speckle_type == "Speckle.Core.Models.Collections.Collection");
         REQUIRE(c.name.empty());
-        REQUIRE(c.collectionType == "Container");
+        REQUIRE(c.collectionType.empty());
+        REQUIRE(c.version == 0);
+        REQUIRE(c.instanceDefinitionProxies.empty());
     }
 }
 
@@ -360,7 +362,7 @@ TEST_CASE("Base properties support various JSON types", "[speckle]") {
 
 TEST_CASE("export_to_speckle with empty scene returns empty vector", "[speckle]") {
     reusex::io::ExportScene scene;
-    auto models = export_to_speckle(scene);
+    auto models = export_to_speckle(scene, ExportConfig{});
     REQUIRE(models.empty());
 }
 
@@ -384,7 +386,7 @@ TEST_CASE("export_to_speckle with cloud produces cloud model", "[speckle]") {
 
     scene.cloud = reusex::io::ExportScene::CloudLayer{cloud, nullptr};
 
-    auto models = export_to_speckle(scene);
+    auto models = export_to_speckle(scene, ExportConfig{});
     REQUIRE(models.size() == 1);
     REQUIRE(models[0].model_name == "cloud");
     REQUIRE(models[0].root->speckle_type == "Objects.Geometry.Pointcloud");
@@ -412,10 +414,10 @@ TEST_CASE("export_to_speckle with semantic data produces semantic model", "[spec
 
     scene.semantic.push_back(std::move(cat));
 
-    auto models = export_to_speckle(scene);
+    auto models = export_to_speckle(scene, ExportConfig{});
     REQUIRE(models.size() == 1);
     REQUIRE(models[0].model_name == "semantic");
-    REQUIRE(models[0].root->speckle_type == "Speckle.Core.Models.Collection");
+    REQUIRE(models[0].root->speckle_type == "Speckle.Core.Models.Collections.Collection");
     REQUIRE(models[0].root->elements.size() == 1);
 }
 
@@ -424,7 +426,7 @@ TEST_CASE("export_to_speckle with panoramas produces 360 model", "[speckle]") {
 
     scene.panoramas.push_back({"photo_001.jpg", "", 1.0, 2.0, 3.0});
 
-    auto models = export_to_speckle(scene);
+    auto models = export_to_speckle(scene, ExportConfig{});
     REQUIRE(models.size() == 1);
     REQUIRE(models[0].model_name == "360");
     REQUIRE(models[0].root->elements.size() == 1);
@@ -438,17 +440,57 @@ TEST_CASE("export_to_speckle with materials produces materials model", "[speckle
     mat.x = 1.0;
     mat.y = 2.0;
     mat.z = 3.0;
+    // Row-major 4x4 with rotation set + translation (1,2,3).
+    mat.transform = {0, -1, 0, 1, 1, 0, 0, 2, 0, 0, 1, 3, 0, 0, 0, 1};
+    mat.image_filename = "concrete_beam.jpg";
     mat.properties["Designation"] = "CB-001";
     scene.materials.push_back(std::move(mat));
 
-    auto models = export_to_speckle(scene);
+    auto models = export_to_speckle(scene, ExportConfig{});
     REQUIRE(models.size() == 1);
     REQUIRE(models[0].model_name == "materials");
-    REQUIRE(models[0].root->elements.size() == 1);
 
-    // Verify properties are set on the point
-    auto *pt = dynamic_cast<Point *>(models[0].root->elements[0].get());
-    REQUIRE(pt != nullptr);
-    REQUIRE(pt->properties["name"] == "Concrete Beam");
-    REQUIRE(pt->properties["Designation"] == "CB-001");
+    auto *root = dynamic_cast<Collection *>(models[0].root.get());
+    REQUIRE(root != nullptr);
+    REQUIRE(root->version == 3);
+
+    // Definition lives on the root's instanceDefinitionProxies list (v3
+    // proxy convention), NOT mixed into elements. Its `objects` array
+    // references the 8 frustum lines by applicationId.
+    REQUIRE(root->instanceDefinitionProxies.size() == 1);
+    auto &def = root->instanceDefinitionProxies[0];
+    REQUIRE(!def->definitionAppId.empty());
+    REQUIRE(def->objects.size() == 8);
+
+    // Materials live inside a "Cameras" sub-collection so the reuse-x
+    // webapp can discover them (legacy structure compatibility — see HACK
+    // in libs/reusex/src/io/speckle.cpp materials block).
+    REQUIRE(root->elements.size() == 1);
+    auto *cameras = dynamic_cast<Collection *>(root->elements[0].get());
+    REQUIRE(cameras != nullptr);
+    REQUIRE(cameras->name == "Cameras");
+    // cameras->elements: 8 frustum lines + 1 InstanceProxy per material.
+    REQUIRE(cameras->elements.size() == 9);
+    auto *first_line = dynamic_cast<Line *>(cameras->elements[0].get());
+    REQUIRE(first_line != nullptr);
+    REQUIRE(first_line->applicationId == def->objects[0]);
+
+    auto *inst = dynamic_cast<InstanceProxy *>(cameras->elements[8].get());
+    REQUIRE(inst != nullptr);
+    // Name is the legacy "Camera N" form; real name preserved in Base.id.
+    REQUIRE(inst->name == "Camera 1");
+    REQUIRE(inst->properties["Base"]["id"] == "Concrete Beam");
+    REQUIRE(inst->properties["Base"]["Index"] == 1);
+    REQUIRE(inst->definitionId == def->definitionAppId);
+    // Transform is the entry's pose verbatim: rotation + translation.
+    REQUIRE(inst->transform[0] == 0.0);
+    REQUIRE(inst->transform[1] == -1.0);
+    REQUIRE(inst->transform[3] == 1.0);
+    REQUIRE(inst->transform[7] == 2.0);
+    REQUIRE(inst->transform[11] == 3.0);
+    REQUIRE(inst->properties.count("Base") == 1);
+    REQUIRE(inst->properties.count("Location") == 1);
+    REQUIRE(inst->properties.count("Reuse") == 1);
+    REQUIRE(inst->properties["Base"]["fileName"] == "concrete_beam.jpg");
+    REQUIRE(inst->properties["Reuse"]["Designation"] == "CB-001");
 }

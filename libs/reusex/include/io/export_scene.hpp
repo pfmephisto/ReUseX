@@ -64,7 +64,13 @@ struct ExportScene {
   // --- Materials ---
   struct MaterialEntry {
     std::string name;           ///< designation or GUID
-    double x = 0, y = 0, z = 0; ///< position from linked sensor frame
+    std::string image_filename; ///< original photo filename, empty if unknown
+    double x = 0, y = 0, z = 0; ///< translation from linked sensor frame
+    /// Row-major 4x4 world pose of the linked sensor frame (identity if
+    /// no frame is linked). Translation also mirrored to x/y/z for the
+    /// translation-only Rhino exporter.
+    std::array<double, 16> transform{1, 0, 0, 0, 0, 1, 0, 0,
+                                     0, 0, 1, 0, 0, 0, 0, 1};
     std::map<std::string, std::string> properties;
   };
   std::vector<MaterialEntry> materials;

@@ -56,6 +56,14 @@ std::string md5_hash(const std::string &data) {
   return result;
 }
 
+// Stable UUID-shaped identifier derived from an arbitrary identity string.
+// Same input → same output, so re-uploads keep applicationId consistent.
+std::string uuid_from_identity(std::string_view identity) {
+  std::string h = md5_hash(std::string(identity));
+  return fmt::format("{}-{}-{}-{}-{}", h.substr(0, 8), h.substr(8, 4),
+                     h.substr(12, 4), h.substr(16, 4), h.substr(20, 12));
+}
+
 // ---- Chunking ----
 
 template <typename T>
@@ -120,12 +128,17 @@ nlohmann::json serialize_base(const Base &obj,
   nlohmann::json j;
   j["speckle_type"] = obj.speckle_type;
 
-  if (!obj.applicationId.empty())
-    j["applicationId"] = obj.applicationId;
+  if (!obj.name.empty())
+    j["name"] = obj.name;
 
-  // Add custom properties
-  for (const auto &[key, value] : obj.properties)
-    j[key] = value;
+  // applicationId is mandatory in the project convention — fall back to a
+  // deterministic UUID derived from the object's identity when not set.
+  if (!obj.applicationId.empty()) {
+    j["applicationId"] = obj.applicationId;
+  } else {
+    std::string identity = obj.speckle_type + "|" + obj.name;
+    j["applicationId"] = uuid_from_identity(identity);
+  }
 
   // Helper: embed small arrays directly, chunk large ones.
   // chunk_size is per-property, matching official Speckle SDK conventions:
@@ -170,14 +183,70 @@ nlohmann::json serialize_base(const Base &obj,
     j["y"] = pt->y;
     j["z"] = pt->z;
     j["units"] = pt->units;
+  } else if (auto *inst = dynamic_cast<const InstanceProxy *>(&obj)) {
+    j["units"] = inst->units;
+    j["maxDepth"] = inst->maxDepth;
+    j["definitionId"] = inst->definitionId;
+    j["transform"] = inst->transform;
+  } else if (auto *def = dynamic_cast<const InstanceDefinitionProxy *>(&obj)) {
+    j["units"] = def->units;
+    j["maxDepth"] = def->maxDepth;
+    j["objects"] = def->objects;
+    // Speckle matches InstanceProxy.definitionId against the proxy's own
+    // applicationId. Override the auto-derived UUID with the explicit one
+    // so the link is stable across uploads.
+    if (!def->definitionAppId.empty())
+      j["applicationId"] = def->definitionAppId;
   } else if (auto *col = dynamic_cast<const Collection *>(&obj)) {
-    j["name"] = col->name;
-    j["collectionType"] = col->collectionType;
+    if (!col->collectionType.empty())
+      j["collectionType"] = col->collectionType;
+    // Emit version as a STRING ("3") — the @link-io/speckle SDK's
+    // isRootCollection() does a strict-equality check against the string
+    // literals "2"/"3", so a numeric 3 fails to be recognised as a root.
+    if (col->version > 0)
+      j["version"] = std::to_string(col->version);
+    if (!col->instanceDefinitionProxies.empty()) {
+      // Embed each definition inline (not detached): Speckle's v3 viewer
+      // expects to find them on the parent collection's
+      // `instanceDefinitionProxies` field, with their geometry resolved via
+      // applicationId against the same collection's elements.
+      nlohmann::json defs = nlohmann::json::array();
+      for (const auto &def : col->instanceDefinitionProxies) {
+        ClosureMap unused;
+        nlohmann::json def_json =
+            serialize_base(*def, all_objects, unused);
+        std::string canonical = def_json.dump(
+            -1, ' ', false, nlohmann::json::error_handler_t::replace);
+        def_json["id"] = md5_hash(canonical);
+        def_json["totalChildrenCount"] = nullptr;
+        defs.push_back(std::move(def_json));
+      }
+      j["instanceDefinitionProxies"] = std::move(defs);
+    }
   }
 
-  // Detached children (@elements)
+  // Custom user properties go under a "properties" sub-path (Speckle v3
+  // DataObject convention). Standard fields (id, name, speckle_type,
+  // applicationId) stay at the top level.
+  if (!obj.properties.empty()) {
+    nlohmann::json props = nlohmann::json::object();
+    for (const auto &[key, value] : obj.properties)
+      props[key] = value;
+    j["properties"] = std::move(props);
+  }
+
+  // Children (`elements`): two encodings —
+  //   - Inline (`elements`): full child JSON embedded; required by clients
+  //     that don't resolve Speckle's detached `@`-prefixed references.
+  //   - Detached (`@elements`): children stored as separate objects with
+  //     reference stubs; Speckle's default and more efficient for large
+  //     trees.
+  // The choice is per-Collection via Collection::embed_elements.
   if (!obj.elements.empty()) {
-    nlohmann::json element_refs = nlohmann::json::array();
+    const auto *col_for_embed = dynamic_cast<const Collection *>(&obj);
+    const bool embed = col_for_embed && col_for_embed->embed_elements;
+
+    nlohmann::json children = nlohmann::json::array();
     for (const auto &child : obj.elements) {
       ClosureMap child_closure;
       nlohmann::json child_json =
@@ -198,17 +267,24 @@ nlohmann::json serialize_base(const Base &obj,
         child_json["__closure"] = std::move(cc);
       }
 
-      // Track in parent closure: child at depth 1, its children at depth+1
-      closure[child_id] = 1;
+      // Closure: detached descendants of this child bubble up to the
+      // grandparent's closure (incremented depth). The child itself is
+      // tracked only when it is detached — inline-embedded children carry
+      // no closure entry of their own.
       for (const auto &[id, d] : child_closure)
         closure[id] = d + 1;
 
-      element_refs.push_back(nlohmann::json({{"referencedId", child_id},
-                                             {"speckle_type", "reference"},
-                                             {"__closure", nullptr}}));
-      all_objects.push_back(std::move(child_json));
+      if (embed) {
+        children.push_back(std::move(child_json));
+      } else {
+        closure[child_id] = 1;
+        children.push_back(nlohmann::json({{"referencedId", child_id},
+                                           {"speckle_type", "reference"},
+                                           {"__closure", nullptr}}));
+        all_objects.push_back(std::move(child_json));
+      }
     }
-    j["@elements"] = std::move(element_refs);
+    j[embed ? "elements" : "@elements"] = std::move(children);
   }
 
   return j;
@@ -662,12 +738,60 @@ Mesh make_speckle_sphere(double cx, double cy, double cz, double radius,
 // Scene Export
 // ============================================================
 
-auto export_to_speckle(const ExportScene &scene) -> std::vector<SpeckleModel> {
+namespace {
+
+// Build the 8 lines that form a small camera frustum, pointing along +Z
+// from the local origin (apex at origin, image plane at z = 0.35).
+// Coordinates match the reference Grasshopper model so the orientation of
+// each InstanceProxy is visually unambiguous (a sphere looks the same from
+// every angle, a frustum doesn't).
+struct FrustumLine {
+  std::string app_id;
+  Point start;
+  Point end;
+};
+
+std::vector<FrustumLine> camera_frustum_lines() {
+  constexpr double half_w = 0.158;
+  constexpr double half_h = 0.2107;
+  constexpr double depth = 0.35;
+  const Point apex(0.0, 0.0, 0.0);
+  const Point tl(-half_w, half_h, depth);
+  const Point tr(half_w, half_h, depth);
+  const Point bl(-half_w, -half_h, depth);
+  const Point br(half_w, -half_h, depth);
+  return {
+      {"reusex.material.marker.frustum.L0", apex, bl},
+      {"reusex.material.marker.frustum.L1", apex, br},
+      {"reusex.material.marker.frustum.L2", apex, tr},
+      {"reusex.material.marker.frustum.L3", apex, tl},
+      {"reusex.material.marker.frustum.L4", bl, tl},
+      {"reusex.material.marker.frustum.L5", tl, tr},
+      {"reusex.material.marker.frustum.L6", tr, br},
+      {"reusex.material.marker.frustum.L7", br, bl},
+  };
+}
+
+// Mirror a row-major 4x4 transform into a nested {M00..M33} JSON object,
+// matching the project's Location sub-property convention.
+nlohmann::json transform_to_location_json(const std::array<double, 16> &t) {
+  nlohmann::json loc = nlohmann::json::object();
+  for (int row = 0; row < 4; ++row)
+    for (int col = 0; col < 4; ++col)
+      loc[fmt::format("M{}{}", row, col)] = t[row * 4 + col];
+  return loc;
+}
+
+} // namespace
+
+auto export_to_speckle(const ExportScene &scene, const ExportConfig &cfg)
+    -> std::vector<SpeckleModel> {
   std::vector<SpeckleModel> models;
 
   // --- "cloud" model ---
   if (scene.cloud) {
     auto pc = std::make_shared<Pointcloud>(to_speckle(scene.cloud->cloud));
+    pc->name = "cloud";
     models.push_back({"cloud", pc});
     core::debug("Speckle: prepared 'cloud' model ({} points)",
                 scene.cloud->cloud->size());
@@ -713,7 +837,7 @@ auto export_to_speckle(const ExportScene &scene) -> std::vector<SpeckleModel> {
 
     for (const auto &entry : scene.meshes) {
       auto speckle_mesh = std::make_shared<Mesh>(to_speckle(*entry.mesh));
-      speckle_mesh->properties["name"] = entry.name;
+      speckle_mesh->name = entry.name;
       root->elements.push_back(speckle_mesh);
     }
 
@@ -730,9 +854,14 @@ auto export_to_speckle(const ExportScene &scene) -> std::vector<SpeckleModel> {
     for (const auto &entry : scene.panoramas) {
       auto sphere = std::make_shared<Mesh>(
           make_speckle_sphere(entry.x, entry.y, entry.z, 0.15));
+
+      sphere->name = entry.image_name;
+      sphere->applicationId = uuid_from_identity("panorama:" + entry.image_name);
       sphere->properties["Image Name"] = entry.image_name;
-      if (!entry.image_url.empty())
-        sphere->properties["imageUrl"] = entry.image_url;
+      sphere->properties["imageUrl"] =
+          fmt::format("{}/{}/{}", cfg.image_url_base, cfg.project_id,
+                      entry.image_name);
+
       root->elements.push_back(sphere);
     }
 
@@ -745,14 +874,115 @@ auto export_to_speckle(const ExportScene &scene) -> std::vector<SpeckleModel> {
   if (!scene.materials.empty()) {
     auto root = std::make_shared<Collection>();
     root->name = "materials";
+    root->version = 3;  // Speckle v3 root marker — enables proxy resolution.
+    // Embed `elements` inline so the reuse-x webapp (which reads
+    // speckleRoot.elements directly without resolving "@" references) can
+    // walk down to the InstanceProxies.
+    root->embed_elements = true;
 
-    for (const auto &entry : scene.materials) {
-      auto pt = std::make_shared<Point>(entry.x, entry.y, entry.z);
-      pt->properties["name"] = entry.name;
-      for (const auto &[key, value] : entry.properties)
-        pt->properties[key] = value;
-      root->elements.push_back(pt);
+    // HACK: Wrap material InstanceProxies in a "Cameras" sub-collection and
+    // rename each one "Camera N" to match the legacy Grasshopper layout.
+    // category=I/O estimate=2h
+    // The reuse-x webapp's loadImages composable hardcodes
+    //     speckleRoot.elements.find(c => c.name === 'Cameras')
+    //         .elements.filter(e => e.name.startsWith('Camera'))
+    // so without this wrapper our material tags never get discovered and
+    // no image icons render in the viewer. The naming is misleading
+    // (material passports, not cameras) and the wrapper adds a useless
+    // level of nesting — keep this only until the webapp is fixed and
+    // redeployed.
+    //
+    // To remove this workaround:
+    //   1. In the webapp at
+    //      /home/mephisto/repos/MC_Group_IO/apps/reuse-x/src/composables/
+    //          images.ts (loadImages, ~line 94), drop both the
+    //      `collection.name === 'Cameras'` lookup and the
+    //      `name.startsWith('Camera')` filter. Walk speckleRoot.elements
+    //      (descending into sub-collections) and pick anything with
+    //      speckle_type === "Speckle.Core.Models.Instances.InstanceProxy"
+    //      (or, more loosely, anything with properties.Base.imageURL).
+    //   2. Redeploy the webapp.
+    //   3. Here, undo this block: push marker + InstanceProxies back onto
+    //      root->elements directly, set inst->name = entry.name, and drop
+    //      the Base["id"] / Base["Index"] forwarding fields below — the
+    //      webapp will then read the real material name straight off
+    //      inst.name.
+    auto cameras = std::make_shared<Collection>();
+    cameras->name = "Cameras";
+    cameras->embed_elements = true; // same reason as the parent root above
+
+    // Shared definition geometry: a small camera-frustum (8 line
+    // segments) stored as siblings of every InstanceProxy. A frustum,
+    // unlike a sphere, makes the rotation part of each InstanceProxy
+    // transform visible — useful for sanity-checking orientation.
+    // The InstanceDefinitionProxy (held on `instanceDefinitionProxies` on
+    // the root) references each line by applicationId — Speckle's
+    // resolver walks the tree, so the geometry can live inside the
+    // "Cameras" sub-collection alongside the instances.
+    const std::string definition_app_id = "reusex.material.marker.v1";
+
+    auto definition = std::make_shared<InstanceDefinitionProxy>();
+    definition->definitionAppId = definition_app_id;
+    definition->name = "Material Marker";
+    definition->units = "m";
+    definition->maxDepth = 0;
+
+    for (const auto &fl : camera_frustum_lines()) {
+      auto line = std::make_shared<Line>();
+      line->start = fl.start;
+      line->end = fl.end;
+      line->applicationId = fl.app_id;
+      cameras->elements.push_back(line);
+      definition->objects.push_back(fl.app_id);
     }
+
+    root->instanceDefinitionProxies.push_back(definition);
+
+    int camera_index = 0;
+    for (const auto &entry : scene.materials) {
+      ++camera_index;
+      auto inst = std::make_shared<InstanceProxy>();
+      // HACK: rename to "Camera N" so the webapp's startsWith('Camera')
+      // filter accepts us. Real material name is preserved in Base["id"].
+      inst->name = fmt::format("Camera {}", camera_index);
+      inst->units = "m";
+      inst->maxDepth = 0;
+      inst->definitionId = definition_app_id;
+      inst->applicationId = uuid_from_identity("material:" + entry.name);
+      inst->transform = entry.transform;
+
+      // Base: minimal identification block. Use the original image filename
+      // (stored on import via "rux import photos") when available, falling
+      // back to the entry name so the URL is still resolvable.
+      const std::string &filename =
+          entry.image_filename.empty() ? entry.name : entry.image_filename;
+      nlohmann::json base = nlohmann::json::object();
+      base["id"] = entry.name;          // original material name/guid (HACK)
+      base["Index"] = camera_index;     // matches "Camera N" (HACK)
+      base["fileName"] = filename;
+      base["imageURL"] = fmt::format("{}/{}/{}", cfg.image_url_base,
+                                     cfg.project_id, filename);
+      inst->properties["Base"] = std::move(base);
+
+      // Location: mirror the transform as a M00..M33 sub-object.
+      inst->properties["Location"] = transform_to_location_json(inst->transform);
+
+      // Reuse: every stored passport property carried over as-is.
+      // Skip "images" — that's the base64 JPEG blob (kept on the passport
+      // for archival), already surfaced via Base.imageURL above, and big
+      // enough to bloat the inline JSON past Speckle object size limits.
+      nlohmann::json reuse = nlohmann::json::object();
+      for (const auto &[key, value] : entry.properties) {
+        if (key == "images")
+          continue;
+        reuse[key] = value;
+      }
+      inst->properties["Reuse"] = std::move(reuse);
+
+      cameras->elements.push_back(inst);
+    }
+
+    root->elements.push_back(cameras);
 
     models.push_back({"materials", root});
     core::debug("Speckle: prepared 'materials' model ({} passports)",
@@ -792,7 +1022,7 @@ auto export_to_speckle(const ExportScene &scene) -> std::vector<SpeckleModel> {
           mesh->faces.push_back(static_cast<int>(i + 1));
         }
       }
-      mesh->properties["name"] = entry.name;
+      mesh->name = entry.name;
       for (const auto &[k, v] : entry.properties)
         mesh->properties[k] = v;
 

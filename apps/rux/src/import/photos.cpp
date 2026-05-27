@@ -321,6 +321,10 @@ int run_subcommand_import_photos(SubcommandImportPhotosOptions const &opt,
       } else {
         db.add_material_passport(passport, opt.project_id);
       }
+
+      // Persist the original filename so downstream exporters can resolve
+      // the externally hosted image (MinIO etc.) for this passport.
+      db.set_passport_property(photo_id, "fileName", filename);
       ++imported;
     }
 

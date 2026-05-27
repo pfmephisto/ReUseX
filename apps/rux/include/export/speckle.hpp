@@ -17,6 +17,7 @@ struct SubcommandExportSpeckleOptions {
   std::string project_id;
   std::string commit_message = "ReUseX export";
   std::string root_folder;
+  std::string image_url_base = "https://minio.chrk.site/files/reusex";
   std::size_t max_batch_bytes = 25 * 1024 * 1024; // 25 MB
 };
 

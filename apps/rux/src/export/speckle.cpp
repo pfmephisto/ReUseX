@@ -91,6 +91,12 @@ NOTES:
       "-r,--root", opt->root_folder,
       "Root folder prefix for model names (e.g., 'scan1' -> scan1/cloud)");
 
+  sub->add_option("--image-url-base", opt->image_url_base,
+                  "Base URL for externally hosted image assets "
+                  "(panoramas, materials). Final URL is "
+                  "'{base}/{project-id}/{filename}'.")
+      ->default_val(opt->image_url_base);
+
   sub->add_option("--max-batch", opt->max_batch_bytes,
                   "HTTP batch size in bytes (default: 25 MB)")
       ->default_val(opt->max_batch_bytes);
@@ -123,7 +129,8 @@ int run_subcommand_export_speckle(SubcommandExportSpeckleOptions const &opt,
     auto scene = io::gather_export_scene(db);
 
     spdlog::info("Building Speckle objects...");
-    auto models = io::speckle::export_to_speckle(scene);
+    io::speckle::ExportConfig cfg{opt.project_id, opt.image_url_base};
+    auto models = io::speckle::export_to_speckle(scene, cfg);
 
     if (models.empty()) {
       spdlog::warn("No data to export — project database is empty");

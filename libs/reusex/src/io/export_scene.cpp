@@ -7,6 +7,7 @@
 
 #include <reusex/core/MaterialPassport.hpp>
 #include <reusex/core/ProjectDB.hpp>
+#include <reusex/core/SensorIntrinsics.hpp>
 #include <reusex/geometry/BuildingComponent.hpp>
 #include <reusex/geometry/cgal_utils.hpp>
 #include <reusex/geometry/unweld.hpp>
@@ -45,6 +46,20 @@ void extract_position(const std::array<double, 16> &pose, double &x, double &y,
   x = pose[3];
   y = pose[7];
   z = pose[11];
+}
+
+/// Multiply two row-major 4x4 matrices: result = a * b.
+std::array<double, 16> matmul4x4(const std::array<double, 16> &a,
+                                 const std::array<double, 16> &b) {
+  std::array<double, 16> r{};
+  for (int i = 0; i < 4; ++i)
+    for (int j = 0; j < 4; ++j) {
+      double s = 0.0;
+      for (int k = 0; k < 4; ++k)
+        s += a[i * 4 + k] * b[k * 4 + j];
+      r[i * 4 + j] = s;
+    }
+  return r;
 }
 
 } // namespace
@@ -235,6 +250,40 @@ ExportScene gather_export_scene(const ProjectDB &db) {
           db.passport_stored_properties(passport.metadata.document_guid);
     } catch (...) {
       // No stored properties - that's OK
+    }
+
+    // Pull the original filename out of properties (set by "rux import
+    // photos") and onto a dedicated field so exporters don't have to peek
+    // into the property bag.
+    if (auto it = entry.properties.find("fileName");
+        it != entry.properties.end()) {
+      entry.image_filename = it->second;
+      entry.properties.erase(it);
+    }
+
+    // Position + orientation: photo imports link the passport to the
+    // nearest sensor frame via material_passports.id == node_id, so look
+    // that up and pull the frame's world pose. The pose stored on the
+    // frame is the sensor BODY pose (RTABMap convention); compose it with
+    // the camera→base local_transform to get the optical frame's world
+    // pose so the camera-frustum marker points along the actual viewing
+    // direction.
+    try {
+      auto node_id =
+          db.passport_linked_node_id(passport.metadata.document_guid);
+      if (node_id && db.has_sensor_frame(*node_id)) {
+        auto pose = db.sensor_frame_pose(*node_id);
+        try {
+          auto intr = db.sensor_frame_intrinsics(*node_id);
+          entry.transform = matmul4x4(pose, intr.local_transform);
+        } catch (...) {
+          // No intrinsics stored — fall back to the body pose.
+          entry.transform = pose;
+        }
+        extract_position(entry.transform, entry.x, entry.y, entry.z);
+      }
+    } catch (...) {
+      // No linked frame -> keep identity transform / origin.
     }
 
     scene.materials.push_back(std::move(entry));

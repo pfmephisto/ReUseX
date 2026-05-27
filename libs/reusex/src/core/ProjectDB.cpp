@@ -3920,6 +3920,40 @@ void ProjectDB::set_passport_metadata_field(std::string_view documentGuid,
   }
 }
 
+std::optional<int>
+ProjectDB::passport_linked_node_id(std::string_view documentGuid) const {
+  const char *query =
+      "SELECT id FROM material_passports WHERE document_guid = ?;";
+  sqlite3_stmt *stmt;
+  if (sqlite3_prepare_v2(impl_->db, query, -1, &stmt, nullptr) != SQLITE_OK) {
+    throw std::runtime_error("Failed to prepare passport id lookup: " +
+                             std::string(sqlite3_errmsg(impl_->db)));
+  }
+  StmtGuard guard(stmt);
+
+  sqlite3_bind_text(stmt, 1, documentGuid.data(),
+                    static_cast<int>(documentGuid.size()), SQLITE_STATIC);
+
+  if (sqlite3_step(stmt) != SQLITE_ROW)
+    throw std::runtime_error("Passport not found: " +
+                             std::string(documentGuid));
+
+  const unsigned char *raw = sqlite3_column_text(stmt, 0);
+  if (!raw)
+    return std::nullopt;
+
+  std::string id_str(reinterpret_cast<const char *>(raw));
+  try {
+    size_t pos = 0;
+    int value = std::stoi(id_str, &pos);
+    if (pos != id_str.size() || value < 0)
+      return std::nullopt;
+    return value;
+  } catch (const std::exception &) {
+    return std::nullopt;
+  }
+}
+
 void ProjectDB::set_passport_property(std::string_view documentGuid,
                                       std::string_view fieldName,
                                       std::string_view value) {

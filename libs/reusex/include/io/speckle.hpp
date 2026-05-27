@@ -10,6 +10,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <array>
 #include <map>
 #include <memory>
 #include <string>
@@ -27,6 +28,9 @@ namespace reusex::io::speckle {
 struct Base {
   std::string speckle_type = "Base";
   std::string applicationId;
+  std::string name;
+  /// Custom properties — serialized nested under a "properties" sub-path
+  /// (Speckle v3 DataObject convention). Values may themselves be objects.
   std::map<std::string, nlohmann::json> properties;
 
   /// Child objects (serialized as detached @elements).
@@ -74,12 +78,60 @@ struct Pointcloud : Base {
   Pointcloud() { speckle_type = "Objects.Geometry.Pointcloud"; }
 };
 
-/// Collection / container for grouping objects.
-struct Collection : Base {
-  std::string name;
-  std::string collectionType = "Container";
+/// Shared definition for instance proxies. The `definitionAppId` is what
+/// InstanceProxy.definitionId must match. The `objects` list holds the
+/// `applicationId` of every geometry object that participates in the
+/// definition; those objects live as siblings of the InstanceProxy entries
+/// in the host collection's `elements` (Speckle v3 proxy pattern).
+struct InstanceDefinitionProxy : Base {
+  std::string definitionAppId;
+  int maxDepth = 0;
+  std::string units = "m";
+  std::vector<std::string> objects;
 
-  Collection() { speckle_type = "Speckle.Core.Models.Collection"; }
+  InstanceDefinitionProxy() {
+    speckle_type = "Speckle.Core.Models.Instances.InstanceDefinitionProxy";
+  }
+};
+
+/// Positioned reference to an InstanceDefinitionProxy. Holds a 4x4 transform
+/// (row-major) and points at the definition via `definitionId`.
+struct InstanceProxy : Base {
+  std::string definitionId;
+  std::array<double, 16> transform{1, 0, 0, 0, 0, 1, 0, 0,
+                                   0, 0, 1, 0, 0, 0, 0, 1};
+  int maxDepth = 0;
+  std::string units = "m";
+
+  InstanceProxy() {
+    speckle_type = "Speckle.Core.Models.Instances.InstanceProxy";
+  }
+};
+
+/// Collection / container for grouping objects. Speckle SDK v3 keeps proxy
+/// lists (instance definitions, render materials, color proxies) as
+/// top-level siblings of `@elements` on the root collection, so they live
+/// here rather than being mixed into the elements list.
+struct Collection : Base {
+  std::string collectionType;
+  /// Speckle SDK version marker. Set to 3 on the root collection of a
+  /// v3-style model; leave at 0 elsewhere (the field is then omitted).
+  int version = 0;
+  /// When true, child `elements` are serialized inline (under the key
+  /// `elements`, no `@` prefix) instead of as detached references under
+  /// `@elements`. Required for clients (e.g. the reuse-x webapp) that read
+  /// `speckleRoot.elements` directly without resolving Speckle-style
+  /// detached references — the JS SDK Traverser keeps the `@elements` key
+  /// verbatim, so the webapp never sees the data when it's detached. Only
+  /// enable for collections small enough to fit comfortably in a single
+  /// Speckle object payload.
+  bool embed_elements = false;
+  std::vector<std::shared_ptr<InstanceDefinitionProxy>>
+      instanceDefinitionProxies;
+
+  Collection() {
+    speckle_type = "Speckle.Core.Models.Collections.Collection";
+  }
 };
 
 // --- Client ---
@@ -142,8 +194,16 @@ struct SpeckleModel {
   std::shared_ptr<Base> root; ///< root object for this model's version
 };
 
+/// Configuration for building Speckle objects from an ExportScene.
+/// Currently controls how external image URLs are constructed.
+struct ExportConfig {
+  std::string project_id;
+  std::string image_url_base = "https://minio.chrk.site/files/reusex";
+};
+
 /// Build per-model Speckle objects from an ExportScene.
 /// Returns one SpeckleModel per non-empty category.
-auto export_to_speckle(const ExportScene &scene) -> std::vector<SpeckleModel>;
+auto export_to_speckle(const ExportScene &scene, const ExportConfig &cfg)
+    -> std::vector<SpeckleModel>;
 
 } // namespace reusex::io::speckle

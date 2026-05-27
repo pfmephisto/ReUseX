@@ -977,6 +977,34 @@ auto export_to_speckle(const ExportScene &scene, const ExportConfig &cfg)
           continue;
         reuse[key] = value;
       }
+
+      // HACK: seed the fields the reuse-x webapp's ImageClassificationDialog
+      // (apps/reuse-x/src/components/dialogs/ImageClassificationDialog.vue)
+      // reads with safe defaults so it doesn't crash on undefined property
+      // access. The dialog does e.g.
+      //     localReuse.value?.Investigations.replace(/'/g, '"')
+      // — the `?.` only short-circuits localReuse.value itself, so a
+      // missing `Investigations` makes `.replace` throw. Until the
+      // webapp adds proper null-checks (then redeploys), pre-populate the
+      // fields its v-model bindings expect. Real values from the
+      // passport override these via the loop above; only-defaults-missing
+      // fields get the placeholder. `Investigations` must be a string
+      // that parses as JSON after `'`→`"` (an empty array literal works).
+      auto default_if_missing = [&](const std::string &key, auto value) {
+        if (!reuse.contains(key))
+          reuse[key] = value;
+      };
+      default_if_missing("Risk", "");
+      default_if_missing("Unit", "");
+      default_if_missing("Level", "");
+      default_if_missing("Material", "");
+      default_if_missing("Quantity", 0);
+      default_if_missing("Condition", "");
+      default_if_missing("Circularity", "");
+      default_if_missing("Lacation / ID", ""); // sic — webapp typo
+      default_if_missing("Investigations", "[]");
+      default_if_missing("Remarks / Notes", "");
+
       inst->properties["Reuse"] = std::move(reuse);
 
       cameras->elements.push_back(inst);

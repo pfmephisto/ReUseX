@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "export.hpp"
+#include "export/colmap.hpp"
 #include "export/e57.hpp"
 #include "export/materialepas.hpp"
 #include "export/ply.hpp"
@@ -27,6 +28,7 @@ SUBCOMMANDS:
   speckle          Export point cloud or mesh to Speckle platform
   materialepas     Export material passports to JSON file
   semantic-images  Export segmentation images as Glasbey-colored PNGs
+  colmap           Export sensor frames as a COLMAP sparse model (MVS/3DGS)
 
 EXAMPLES:
   rux export ply -o cloud.ply                # Export point cloud to PLY
@@ -49,6 +51,7 @@ NOTES:
   setup_subcommand_export_rhino(*sub, global_opt);
   setup_subcommand_export_semantic_images(*sub, global_opt);
   setup_subcommand_export_speckle(*sub, global_opt);
+  setup_subcommand_export_colmap(*sub, global_opt);
 
   sub->require_subcommand(1);
 }

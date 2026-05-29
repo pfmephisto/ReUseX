@@ -156,6 +156,20 @@ find_package(CGAL REQUIRED Core)
 include(CGAL_Eigen3_support)
 include(CGAL_TBB_support)
 
+# OpenMVS — library-linked Multi-View Stereo. Exposes OpenMVS::MVS plus
+# transitive OpenMVS::{Common,Math,IO}. AGPL-3.0-or-later — combined work
+# is therefore AGPL.
+#
+# The OpenMVSTargets.cmake config eagerly validates every imported target's
+# INTERFACE_LINK_LIBRARIES, so we must materialise the named targets it
+# references before find_package(OpenMVS): Boost::program_options (used by
+# OpenMVS::Common's CLI helpers) and JsonCpp::JsonCpp (pulled in via
+# VTK::jsoncpp from the opencv_viz dependency).
+find_package(Boost REQUIRED COMPONENTS iostreams program_options serialization)
+find_package(jsoncpp REQUIRED)
+find_package(nanoflann REQUIRED)
+find_package(OpenMVS REQUIRED)
+
 # -----------------------------------------------
 # Graph Algorithms
 # -----------------------------------------------

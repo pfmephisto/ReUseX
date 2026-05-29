@@ -40,6 +40,8 @@ std::string_view to_string(Stage stage) {
     return "Creating Windows";
   case Stage::room_segmentation:
     return "Room Segmentation";
+  case Stage::dense_reconstruction:
+    return "Dense Reconstruction";
   default:
     return "Unknown Stage";
   }

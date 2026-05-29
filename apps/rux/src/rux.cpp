@@ -21,15 +21,51 @@
 #include <CLI/CLI.hpp>
 #include <algorithm>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <csignal>
+#include <execinfo.h>
 #include <spdlog/async.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
+#include <unistd.h>
 
 namespace {
 constexpr int kMaxVerbosity = 3;
+
+// Signal handler that dumps a backtrace to stderr on fatal signals
+// (SIGABRT / SIGSEGV / SIGBUS / SIGFPE). Async-signal-safe: only uses
+// write(), backtrace(), and backtrace_symbols_fd(). The default handler
+// re-raises the signal afterwards so we still get the usual crash exit
+// code + a core file if ulimit permits.
+void fatal_signal_handler(int sig) {
+  const char *msg = "\n\n=== rux fatal signal — backtrace follows ===\n";
+  ssize_t r = write(STDERR_FILENO, msg, std::strlen(msg));
+  (void)r;
+  void *frames[128];
+  const int n = backtrace(frames, 128);
+  backtrace_symbols_fd(frames, n, STDERR_FILENO);
+  const char *tail = "=== end backtrace ===\n";
+  r = write(STDERR_FILENO, tail, std::strlen(tail));
+  (void)r;
+  // Re-raise with the default handler so the process actually dies with
+  // the right signal (and produces a core file if enabled).
+  std::signal(sig, SIG_DFL);
+  std::raise(sig);
+}
+
+void install_fatal_signal_handlers() {
+  std::signal(SIGABRT, fatal_signal_handler);
+  std::signal(SIGSEGV, fatal_signal_handler);
+  std::signal(SIGBUS, fatal_signal_handler);
+  std::signal(SIGFPE, fatal_signal_handler);
+}
 } // namespace
 
 int main(int argc, char **argv) {
+  install_fatal_signal_handlers();
+
   // Initialize async logger thread pool (lock-free queue, background writer
   // thread) Queue size: 8192 messages, 1 background thread
   spdlog::init_thread_pool(8192, 1);

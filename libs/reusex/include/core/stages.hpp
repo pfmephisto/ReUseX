@@ -21,6 +21,7 @@ enum class Stage {
   instance_clustering,
   creating_windows,
   room_segmentation,
+  dense_reconstruction,
 };
 
 // Convert Stage enum to human-readable string for logging/display

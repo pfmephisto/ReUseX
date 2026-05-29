@@ -50,6 +50,9 @@
   tokenizers-cpp,
   onnxruntime,
   exiv2,
+  openmvs,
+  nanoflann,
+  libjxl,
   # cuOpt,
 }: let
   effectiveStdenv =
@@ -122,6 +125,17 @@ in
         nlohmann_json
         openssl
         exiv2
+
+        # OpenMVS — library-linked Multi-View Stereo for `rux create dense`.
+        # AGPL-3.0-or-later; combined work is therefore AGPL.
+        openmvs
+        # nanoflann is exposed in OpenMVS::Common's link interface; CMake
+        # validates it at consumer configure time, so it must be findable.
+        nanoflann
+        # OpenMVS::IO link interface contains a bare `jxl` library name
+        # (rather than an absolute path or imported target), so libjxl
+        # must be on the linker search path at consumer link time.
+        libjxl
       ]
       ++ (
         if cudaSupport

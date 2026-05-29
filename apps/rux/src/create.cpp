@@ -5,6 +5,7 @@
 #include "create.hpp"
 #include "create/annotate.hpp"
 #include "create/clouds.hpp"
+#include "create/dense.hpp"
 #include "create/instances.hpp"
 #include "create/material.hpp"
 #include "create/mesh.hpp"
@@ -26,6 +27,7 @@ DESCRIPTION:
 
 SUBCOMMANDS:
   clouds       Reconstruct 3D point clouds from depth images
+  dense        Generate dense point cloud via OpenMVS Multi-View Stereo
   annotate     Run ML inference on sensor frames
   planes       Detect and segment planar surfaces
   rooms        Segment rooms using Leiden clustering
@@ -51,6 +53,7 @@ NOTES:
 
   // Register all subcommands (ordered by pipeline flow)
   setup_subcommand_create_clouds(*sub, global_opt);
+  setup_subcommand_create_dense(*sub, global_opt);
   setup_subcommand_create_annotate(*sub, global_opt);
   setup_subcommand_create_material(*sub, global_opt);
   setup_subcommand_create_project(*sub, global_opt);

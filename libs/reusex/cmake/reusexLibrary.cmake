@@ -134,6 +134,10 @@ target_link_libraries(reusex
 
         # EXIF metadata reading
         Exiv2::exiv2lib
+
+        # OpenMVS — Multi-View Stereo (AGPL-3.0-or-later)
+        # Kept PRIVATE so consumers don't transitively get its headers/defines.
+        OpenMVS::MVS
 )
 
 # -----------------------------------------------

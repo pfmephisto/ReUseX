@@ -172,10 +172,27 @@ int run_subcommand_mesh(SubcommandMeshOptions const &opt,
     pcl::PolygonMeshPtr mesh = reusex::geometry::mesh(
         cloud, normals, planes, centroids, inliers, rooms, options);
 
+    const size_t vertex_count =
+        static_cast<size_t>(mesh->cloud.width) * mesh->cloud.height;
+    const size_t face_count = mesh->polygons.size();
+    if (vertex_count == 0 || face_count == 0) {
+      spdlog::error("Mesh generation produced an empty mesh ({} vertices, {} "
+                    "faces); not saving.",
+                    vertex_count, face_count);
+      spdlog::info(
+          "Resolution: the MIP solver reported optimal but selected zero "
+          "cells. This usually means the filter excluded too many planes or "
+          "the cell complex had no viable interior. Try widening --filter, "
+          "lowering --threshold, or rerunning 'rux create planes/rooms'.");
+      db.log_pipeline_end(logId, false, "Empty mesh, save skipped");
+      return RuxError::GENERIC;
+    }
+
     spdlog::trace("Saving mesh to ProjectDB");
     db.save_mesh(opt.output_mesh_name, *mesh, "mesh_generation");
 
-    spdlog::info("Mesh '{}' saved to ProjectDB", opt.output_mesh_name);
+    spdlog::info("Mesh '{}' saved to ProjectDB ({} vertices, {} faces)",
+                 opt.output_mesh_name, vertex_count, face_count);
 
     db.log_pipeline_end(logId, true);
     return RuxError::SUCCESS;

@@ -132,21 +132,42 @@ auto segment_rooms_impl(CloudConstPtr cloud, CloudNConstPtr normals,
   pcl::KdTreeFLANN<PointT> kdtree;
   kdtree.setInputCloud(cloud, indices);
   IndicesPtr missing_indices(new Indices);
-  reusex::trace("Resizing missing indices to size {}, cloud size: {}, "
-                "indices size: {}",
-                cloud->points.size() - indices->size(), cloud->points.size(),
-                indices->size());
-  missing_indices->reserve(cloud->points.size() - indices->size());
 
   std::sort(indices->begin(), indices->end());
 
-  int j = 0;
-  for (int i = 0; i < static_cast<int>(cloud->size()); ++i) {
-    if (j < static_cast<int>(indices->size()) && indices->at(j) == i) {
-      ++j; // skip
-    } else {
-      missing_indices->push_back(i);
+  // When a filter is provided, propagate labels only to filtered points that
+  // were not sampled. Points outside the filter must keep their initial -1
+  // label so --filter actually narrows the labeled region.
+  if (options.filter) {
+    missing_indices->reserve(options.filter->size());
+    IndicesPtr filter_sorted(new Indices(*options.filter));
+    std::sort(filter_sorted->begin(), filter_sorted->end());
+    size_t j = 0;
+    for (int idx : *filter_sorted) {
+      while (j < indices->size() && indices->at(j) < idx)
+        ++j;
+      if (j < indices->size() && indices->at(j) == idx)
+        continue; // already labeled by clustering
+      missing_indices->push_back(idx);
     }
+    reusex::trace("Propagating to {} filtered points (cloud size: {}, "
+                  "sampled: {}, filter: {})",
+                  missing_indices->size(), cloud->points.size(),
+                  indices->size(), options.filter->size());
+  } else {
+    missing_indices->reserve(cloud->points.size() - indices->size());
+    int j = 0;
+    for (int i = 0; i < static_cast<int>(cloud->size()); ++i) {
+      if (j < static_cast<int>(indices->size()) && indices->at(j) == i) {
+        ++j; // skip
+      } else {
+        missing_indices->push_back(i);
+      }
+    }
+    reusex::trace("Propagating to {} missing points (cloud size: {}, "
+                  "sampled: {})",
+                  missing_indices->size(), cloud->points.size(),
+                  indices->size());
   }
 
   for (size_t i = 0; i < missing_indices->size(); ++i) {

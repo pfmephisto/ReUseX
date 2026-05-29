@@ -1665,6 +1665,20 @@ class ProjectDB::Impl {
 
   void saveMesh(std::string_view name, const pcl::PolygonMesh &mesh,
                 std::string_view stage, std::string_view paramsJson) {
+    // Refuse to persist empty meshes: pcl::io::savePLYFileBinary silently
+    // writes a header-only or zero-byte file, which then fails to read back
+    // with a misleading error. Caller should handle the empty result.
+    {
+      const size_t v =
+          static_cast<size_t>(mesh.cloud.width) * mesh.cloud.height;
+      if (v == 0 || mesh.polygons.empty())
+        throw std::runtime_error("Refusing to save empty mesh '" +
+                                 std::string(name) + "' (" +
+                                 std::to_string(v) + " vertices, " +
+                                 std::to_string(mesh.polygons.size()) +
+                                 " faces)");
+    }
+
     // Serialize mesh to PLY binary via temp file
     auto tmpPath =
         std::filesystem::temp_directory_path() /
@@ -1732,6 +1746,19 @@ class ProjectDB::Impl {
 
   void saveMesh(std::string_view name, const pcl::TextureMesh &mesh,
                 std::string_view stage, std::string_view paramsJson) {
+    {
+      const size_t v =
+          static_cast<size_t>(mesh.cloud.width) * mesh.cloud.height;
+      size_t f = 0;
+      for (const auto &polys : mesh.tex_polygons)
+        f += polys.size();
+      if (v == 0 || f == 0)
+        throw std::runtime_error("Refusing to save empty texture mesh '" +
+                                 std::string(name) + "' (" +
+                                 std::to_string(v) + " vertices, " +
+                                 std::to_string(f) + " faces)");
+    }
+
     // Save CWD so we can find texture files referenced by the MTL
     auto savedCwd = std::filesystem::current_path();
 

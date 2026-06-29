@@ -19,6 +19,32 @@ ValidationResult validate_clouds_prerequisites(const reusex::ProjectDB &db) {
   return ValidationResult::ok();
 }
 
+ValidationResult validate_register_prerequisites(const reusex::ProjectDB &db) {
+  auto frame_ids = db.sensor_frame_ids();
+  if (frame_ids.size() < 2) {
+    return ValidationResult::error(
+        fmt::format("Pose refinement needs at least 2 sensor frames, found {}",
+                    frame_ids.size()),
+        "Run 'rux import rtabmap scan.db --project project.rux' to import "
+        "sensor data",
+        {"sensor_frames"});
+  }
+
+  // Need at least 2 frames carrying depth (registration is depth-driven).
+  int with_depth = 0;
+  for (int id : frame_ids) {
+    if (!db.sensor_frame_depth(id).empty() && ++with_depth >= 2)
+      break;
+  }
+  if (with_depth < 2) {
+    return ValidationResult::error(
+        "Fewer than 2 sensor frames have depth data",
+        "Re-import the scan with depth (RTABMap database with depth frames)",
+        {"depth"});
+  }
+  return ValidationResult::ok();
+}
+
 ValidationResult validate_planes_prerequisites(const reusex::ProjectDB &db) {
   std::vector<std::string> missing;
 

@@ -29,6 +29,7 @@ struct ValidationResult {
 
 // Validation functions for each create command
 ValidationResult validate_clouds_prerequisites(const reusex::ProjectDB &db);
+ValidationResult validate_register_prerequisites(const reusex::ProjectDB &db);
 ValidationResult validate_planes_prerequisites(const reusex::ProjectDB &db);
 ValidationResult validate_rooms_prerequisites(const reusex::ProjectDB &db);
 ValidationResult validate_mesh_prerequisites(const reusex::ProjectDB &db);

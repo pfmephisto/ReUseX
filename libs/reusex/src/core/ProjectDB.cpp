@@ -840,6 +840,31 @@ class ProjectDB::Impl {
                                std::string(sqlite3_errmsg(db)));
   }
 
+  void updateSensorFramePose(int nodeId,
+                             const std::array<double, 16> &worldPose) {
+    const char *sql =
+        "UPDATE sensor_frames SET transform = ? WHERE node_id = ?;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to prepare pose update: " +
+                               std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+
+    // Transform: 16 x float64 = 128 bytes, row-major (matches saveSensorFrameFull).
+    sqlite3_bind_blob(stmt, 1, worldPose.data(),
+                      static_cast<int>(worldPose.size() * sizeof(double)),
+                      SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 2, nodeId);
+
+    if (sqlite3_step(stmt) != SQLITE_DONE)
+      throw std::runtime_error("Failed to update sensor frame pose: " +
+                               std::string(sqlite3_errmsg(db)));
+    if (sqlite3_changes(db) == 0)
+      throw std::runtime_error(
+          "update_sensor_frame_pose: no sensor frame with node_id " +
+          std::to_string(nodeId));
+  }
+
   cv::Mat getSensorFrameDepth(int nodeId) const {
     const char *sql = "SELECT depth FROM sensor_frames WHERE node_id = ?;";
     sqlite3_stmt *stmt;
@@ -3444,6 +3469,11 @@ void ProjectDB::save_sensor_frame(int nodeId, const cv::Mat &color,
                                   double timestamp) {
   impl_->saveSensorFrameFull(nodeId, color, depth, confidence, worldPose,
                              intrinsics, timestamp);
+}
+
+void ProjectDB::update_sensor_frame_pose(
+    int nodeId, const std::array<double, 16> &worldPose) {
+  impl_->updateSensorFramePose(nodeId, worldPose);
 }
 
 std::vector<int> ProjectDB::sensor_frame_ids() const {

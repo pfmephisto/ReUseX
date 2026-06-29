@@ -8,6 +8,7 @@
 #include "core/logging.hpp"
 #include "core/processing_observer.hpp"
 #include "geometry/depth_filters.hpp"
+#include "geometry/transform_utils.hpp"
 #include "utils/fmt_formatter.hpp"
 
 #include <Eigen/Core>
@@ -34,20 +35,7 @@
 
 namespace reusex::geometry {
 
-namespace {
-
-/// Build a 4x4 Eigen affine from a row-major double[16] array.
-Eigen::Affine3f to_affine(const std::array<double, 16> &m) {
-  Eigen::Matrix4f mat;
-  for (int r = 0; r < 4; ++r)
-    for (int c = 0; c < 4; ++c)
-      mat(r, c) = static_cast<float>(m[r * 4 + c]);
-  Eigen::Affine3f aff;
-  aff.matrix() = mat;
-  return aff;
-}
-
-} // anonymous namespace
+// to_affine() is shared via geometry/transform_utils.hpp.
 
 void reconstruct_point_clouds(ProjectDB &db,
                               const ReconstructionParams &params) {

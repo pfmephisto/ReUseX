@@ -83,6 +83,13 @@ class ProjectDB {
                          const core::SensorIntrinsics &intrinsics,
                          double timestamp = -1.0);
 
+  /// Update only the stored world pose (transform) of an existing sensor frame.
+  /// Leaves color/depth/confidence/intrinsics blobs untouched. Throws if no
+  /// sensor frame with the given node_id exists.
+  /// @param worldPose Row-major 4x4 SE(3) world pose (16 doubles).
+  void update_sensor_frame_pose(int nodeId,
+                                const std::array<double, 16> &worldPose);
+
   std::vector<int> sensor_frame_ids() const;
   cv::Mat sensor_frame_image(int nodeId) const;
   cv::Mat sensor_frame_depth(int nodeId) const;

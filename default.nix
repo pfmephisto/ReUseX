@@ -54,6 +54,7 @@
   nanoflann,
   libjxl,
   cuOpt,
+  addDriverRunpath,
 }: let
   effectiveStdenv =
     if cudaSupport
@@ -68,16 +69,22 @@ in
 
     # Native dependencies
     # programs and libraries used at build-time
-    nativeBuildInputs = [
-      cmake
-      pkg-config
-      cudatoolkit
-      qt6.qtbase
-      # qt6Packages.wrapQtAppsHook
-      # qt6.wrapQtAppsHook
-      qt6.wrapQtAppsNoGuiHook
-      blender.pythonPackages.python # Pin Python version to Blender's (3.11)
-    ];
+    nativeBuildInputs =
+      [
+        cmake
+        pkg-config
+        cudatoolkit
+        qt6.qtbase
+        # qt6Packages.wrapQtAppsHook
+        # qt6.wrapQtAppsHook
+        qt6.wrapQtAppsNoGuiHook
+        blender.pythonPackages.python # Pin Python version to Blender's (3.11)
+      ]
+      # addDriverRunpath ships an `addDriverRunpath` shell helper that patches a
+      # binary's RUNPATH to include /run/opengl-driver/lib. On NixOS the real
+      # libcuda.so lives there, not in any Nix store path — without this any
+      # CUDA-using binary fails at runtime with cudaErrorStubLibrary.
+      ++ lib.optional cudaSupport addDriverRunpath;
 
     buildInputs =
       [
@@ -151,6 +158,19 @@ in
       );
 
     dontWrapQtApps = true;
+
+    # Patch the installed binaries and shared libraries so the dynamic loader
+    # finds the host NVIDIA driver (libcuda.so) at /run/opengl-driver/lib.
+    # Without this, `nix run .#default` would die with cudaErrorStubLibrary.
+    postFixup = lib.optionalString cudaSupport ''
+      for f in $(find $out/bin $out/lib -type f \
+                      \( -executable -o -name '*.so' -o -name '*.so.*' \) \
+                      2>/dev/null); do
+        if isELF "$f"; then
+          addDriverRunpath "$f"
+        fi
+      done
+    '';
 
     meta = with lib; {
       description = "ReUseX: A tool for processing lidar scans with the aim to facilitate reuse in the construction industry";

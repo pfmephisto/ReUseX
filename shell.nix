@@ -142,6 +142,14 @@ in
       ''
         export VIRTUAL_ENV_PROMPT="ReUseX"
 
+        # NixOS keeps the real libcuda.so outside Nix, at /run/opengl-driver/lib.
+        # Binaries built in this shell (./build/apps/rux/rux, ctest binaries) are
+        # not wrapped with addDriverRunpath, so without this they load the stub
+        # libcuda.so from cuda_cudart and crash with cudaErrorStubLibrary.
+        if [ -d /run/opengl-driver/lib ]; then
+          export LD_LIBRARY_PATH="/run/opengl-driver/lib''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+        fi
+
         ${motd}
       ''
       + self.checks.${system}.pre-commit-check.shellHook;

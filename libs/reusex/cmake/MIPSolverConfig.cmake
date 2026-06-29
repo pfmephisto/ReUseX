@@ -70,7 +70,7 @@ function(configure_mip_solver TARGET_NAME)
                 "Please install cuOpt or use -DMIP_SOLVER=AUTO to auto-detect.")
         endif()
         target_compile_definitions(${TARGET_NAME} PUBLIC USE_CUOPT)
-        target_link_libraries(${TARGET_NAME} PUBLIC cuOpt::cuOpt)
+        target_link_libraries(${TARGET_NAME} PUBLIC cuopt::cuopt)
         message(STATUS "MIP Solver: cuOpt (GPU-accelerated)")
 
     elseif(USE_MIP_SOLVER STREQUAL "HIGHS")

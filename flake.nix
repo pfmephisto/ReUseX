@@ -42,6 +42,11 @@
             cudaSupport = true;
             hardware.nvidia.open = false;
             allowUnfree = true;
+            # Project-specific override for CVE-2026-24188 (TensorRT OOB write)
+            # Acknowledged and accepted for ML inference backend in development context
+            permittedInsecurePackages = [
+              "cuda12.9-tensorrt-10.14.1.48"
+            ];
           };
 
           # Set overlays and custom fixes for broken packages

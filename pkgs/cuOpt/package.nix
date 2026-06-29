@@ -12,202 +12,210 @@
   tbb,
   argparse,
   rapids-cmake,
+  cpm-cmake,
+  rapids-logger,
   cccl,
   rmm,
   raft,
+  cudss,
+  nvtx3,
+  spdlog,
+  fmt,
   ...
-}:
-cudaPackages.backendStdenv.mkDerivation rec {
-  pname = "cuOpt";
-  version = "25.10.00";
+}: let
+  rapids_cmake_dir = "${rapids-cmake}/share/cmake/rapids-cmake";
 
-  src = fetchFromGitHub {
-    owner = "NVIDIA";
-    repo = "cuopt";
-    rev = "v${version}";
-    hash = "sha256-fXnfxMYW0KPwI3mI+71jy7aEVQHtJxdQyGjOkJV2+/M=";
+  # Pre-fetch PaPILO (cuOpt fetches this via FetchContent)
+  papilo-src = fetchFromGitHub {
+    owner = "scipopt";
+    repo = "papilo";
+    rev = "741a2b9c8155b249d6df574d758b4d97d4417520";
+    hash = "sha256-iIZWPozQ/yLfdr+v4HpENMcsSW6Zrb/KR7tx5mN0NOc=";
   };
 
-  postPatch = ''
-        # Patch CMakeLists.txt to skip FetchContent for rapids-cmake
-        substituteInPlace cpp/CMakeLists.txt \
-          --replace-fail 'include(../cmake/rapids_config.cmake)' \
-                         '# Nix: Skip rapids_config.cmake which uses FetchContent' \
-          --replace-fail 'include(rapids-cmake)' \
-                         'list(APPEND CMAKE_MODULE_PATH "$ENV{RAPIDS_CMAKE_DIR}")
-    include($ENV{RAPIDS_CMAKE_DIR}/rapids-cmake.cmake)' \
-          --replace-fail 'rapids_cpm_init()' \
-                         '# Nix: Skip rapids_cpm_init() which tries to download CPM
-    # rapids_cpm_init()' \
-          --replace-fail 'rapids_cpm_rapids_logger' \
-                         '# Nix: Skip rapids_cpm_rapids_logger which uses CPM
-    # rapids_cpm_rapids_logger'
-  '';
+  # Pre-fetch spdlog and fmt sources for CPM (rapids_cpm_rapids_logger)
+  spdlog-src = fetchFromGitHub {
+    owner = "gabime";
+    repo = "spdlog";
+    rev = "27cb4c76708608465c413f6d0e6b8d99a4d84302";
+    hash = "sha256-F7khXbMilbh5b+eKnzcB0fPPWQqUHqAYPWJb83OnUKQ=";
+  };
 
-  preConfigure = ''
-    cd cpp
+  fmt-src = fetchFromGitHub {
+    owner = "fmtlib";
+    repo = "fmt";
+    rev = "0c9fce2ffefecfdce794e1859584e25877b7b592";
+    hash = "sha256-IKNt4xUoVi750zBti5iJJcCk3zivTt7nU12RIf8pM+0=";
+  };
+in
+  cudaPackages.backendStdenv.mkDerivation rec {
+    pname = "cuOpt";
+    version = "25.10.00";
 
-    # Create VERSION and RAPIDS files that rapids_config.cmake expects
-    echo "${version}" > ../VERSION
-    echo "${version}" > ../RAPIDS_VERSION
-    echo "branch-25.10" > ../RAPIDS_BRANCH
+    src = fetchFromGitHub {
+      owner = "NVIDIA";
+      repo = "cuopt";
+      rev = "v${version}";
+      hash = "sha256-fXnfxMYW0KPwI3mI+71jy7aEVQHtJxdQyGjOkJV2+/M=";
+    };
 
-    # Set RAPIDS_CMAKE_DIR for patched CMakeLists.txt
-    export RAPIDS_CMAKE_DIR="${rapids-cmake}/share/cmake/rapids-cmake"
+    postPatch = ''
+      # Replace the RAPIDS.cmake FetchContent include with local rapids-cmake setup
+      substituteInPlace cmake/rapids_config.cmake \
+        --replace-fail \
+          'include("''${CMAKE_CURRENT_LIST_DIR}/RAPIDS.cmake")' \
+          '# Nix: Use local rapids-cmake instead of FetchContent
+      set(rapids-cmake-dir "${rapids_cmake_dir}" CACHE INTERNAL "" FORCE)
+      if(NOT "''${rapids-cmake-dir}" IN_LIST CMAKE_MODULE_PATH)
+        list(APPEND CMAKE_MODULE_PATH "''${rapids-cmake-dir}")
+      endif()
+      include("''${rapids-cmake-dir}/rapids-version.cmake")'
+    '';
 
-    # Point CMake to RAPIDS dependencies
-    export CMAKE_PREFIX_PATH="${cccl}:${rmm}:${raft}:$CMAKE_PREFIX_PATH"
-  '';
+    preConfigure = ''
+      cd cpp
 
-  nativeBuildInputs = [
-    cmake
-    cudaPackages.cuda_nvcc
-  ];
+      # Point CMake to Nix-provided dependencies
+      export CMAKE_PREFIX_PATH="${cccl}:${nvtx3}:${rmm}:${raft}:${rapids-logger}:${cudss}:$CMAKE_PREFIX_PATH"
 
-  buildInputs =
-    [
+      # Set CUDSS_DIR for FindCUDSS.cmake fallback path
+      export CUDSS_DIR="${cudss}"
+    '';
+
+    nativeBuildInputs = [
+      cmake
+      cudaPackages.cuda_nvcc
+    ];
+
+    buildInputs = [
       boost
       bzip2
       zlib
       tbb
       argparse
       rapids-cmake
-      cccl
-      rmm
-      raft
-    ]
-    ++ (with cudaPackages; [
-      cuda_cudart
-      libcublas
-      libcusolver
-      libcusparse
-    ]);
+      cpm-cmake
+      cudaPackages.cuda_profiler_api
+    ];
 
-  cmakeFlags = [
-    # RAPIDS version variables (normally set by rapids_config.cmake)
-    "-DRAPIDS_VERSION=25.10.00"
-    "-DRAPIDS_VERSION_MAJOR=25"
-    "-DRAPIDS_VERSION_MINOR=10"
-    "-DRAPIDS_VERSION_PATCH=00"
-    "-DRAPIDS_VERSION_MAJOR_MINOR=25.10"
-    "-Drapids-cmake-dir=${rapids-cmake}/share/cmake/rapids-cmake"
+    # Transitive cmake deps: cuopt's cmake config references these as
+    # INTERFACE_LINK_LIBRARIES, so consumers need them on CMAKE_PREFIX_PATH
+    propagatedBuildInputs =
+      [
+        cccl
+        nvtx3
+        rmm
+        raft
+        rapids-logger
+        cudss
+        spdlog
+        fmt
+      ]
+      ++ (with cudaPackages; [
+        cuda_cudart
+        libcublas
+        libcusolver
+        libcusparse
+        libcurand
+      ]);
 
-    # Use specific CUDA architectures instead of "all"
-    # 75=Turing, 80=Ampere, 86=Ampere(Gaming), 89=Ada, 90=Hopper
-    "-DCMAKE_CUDA_ARCHITECTURES=75;80;86;89;90"
+    cmakeFlags = [
+      # Provide CPM.cmake locally so rapids_cpm_init() works offline
+      "-DCPM_DOWNLOAD_LOCATION=${cpm-cmake}/CPM.cmake"
 
-    # Disable tests and benchmarks (require GPU runtime)
-    "-DBUILD_TESTS=OFF"
-    "-DBUILD_BENCHMARKS=OFF"
+      # Let CPM find Nix-provided packages first
+      "-DCPM_USE_LOCAL_PACKAGES=ON"
 
-    # Build only LP/MIP solver, not routing engine
-    "-DBUILD_LP_ONLY=ON"
+      # Provide exact source for deps that CPM must build from source
+      "-DCPM_spdlog_SOURCE=${spdlog-src}"
+      "-DCPM_fmt_SOURCE=${fmt-src}"
 
-    # Standard install directories
-    "-DCMAKE_INSTALL_INCLUDEDIR=include"
-    "-DCMAKE_INSTALL_LIBDIR=lib"
+      # Skip RAPIDS fetching — use Nix-provided CCCL, RMM, RAFT via find_package
+      "-DFETCH_RAPIDS=OFF"
 
-    # Don't fetch RAPIDS dependencies - use Nix-provided packages
-    "-DCPM_DOWNLOAD_ALL=OFF"
-  ];
+      # Provide PaPILO source locally (avoids FetchContent git clone)
+      "-DFETCHCONTENT_SOURCE_DIR_PAPILO=${papilo-src}"
 
-  # Ensure libraries are installed correctly
-  installPhase = ''
-    runHook preInstall
+      # Use specific CUDA architectures instead of "all"
+      # cuOpt requires Volta (sm_70) or newer
+      # 75=Turing, 80=Ampere, 86=Ampere(Gaming), 89=Ada, 90=Hopper
+      "-DCMAKE_CUDA_ARCHITECTURES=75;80;86;89;90"
 
-    # Use CMake's native install
-    cmake --install .
+      # Build LP and MIP solver (not routing engine).
+      # OFF is needed because solve_mip template instantiation in
+      # src/mip/solve.cu is only compiled when BUILD_LP_ONLY=OFF.
+      "-DBUILD_LP_ONLY=OFF"
 
-    # Create lib directory if it doesn't exist
-    mkdir -p $out/lib
+      # Disable tests and benchmarks (require GPU runtime)
+      "-DBUILD_TESTS=OFF"
+      "-DBUILD_BENCHMARKS=OFF"
 
-    # Handle lib64 → lib migration if needed
-    if [ -d "$out/lib64" ] && [ "$(ls -A $out/lib64)" ]; then
-      cp -r $out/lib64/* $out/lib/
-      rm -rf $out/lib64
-    fi
+      # Work around format string bug in dual_simplex/basis_updates.hpp
+      # (upstream has %\n instead of %%\n in printf)
+      "-DCMAKE_CXX_FLAGS=-Wno-error=format"
 
-    # Create include directory if headers weren't installed
-    if [ ! -d "$out/include/cuopt" ]; then
-      mkdir -p $out/include
-      cp -r ../include/cuopt $out/include/
-    fi
+      # Standard install directories
+      "-DCMAKE_INSTALL_INCLUDEDIR=include"
+      "-DCMAKE_INSTALL_LIBDIR=lib"
+    ];
 
-    runHook postInstall
-  '';
+    # Ensure libraries are installed correctly
+    installPhase = ''
+      runHook preInstall
 
-  postInstall = ''
-        # If native CMake config doesn't exist, create it
-        if [ ! -f "$out/lib/cmake/cuOpt/cuOptConfig.cmake" ]; then
-          mkdir -p $out/lib/cmake/cuOpt
+      # Use CMake's native install
+      cmake --install .
 
-          cat > $out/lib/cmake/cuOpt/cuOptConfig.cmake <<'EOF'
-    # cuOpt CMake Config File (Nix fallback)
-    if(NOT TARGET cuopt::cuopt)
-      # Try to find the library
-      find_library(CUOPT_LIBRARY
-        NAMES cuopt
-        PATHS "''${CMAKE_CURRENT_LIST_DIR}/../.."
-        PATH_SUFFIXES lib
-        NO_DEFAULT_PATH
-      )
+      # Create lib directory if it doesn't exist
+      mkdir -p $out/lib
 
-      if(NOT CUOPT_LIBRARY)
-        message(FATAL_ERROR "cuOpt library not found in ''${CMAKE_CURRENT_LIST_DIR}/../..")
-      endif()
+      # Handle lib64 → lib migration if needed
+      if [ -d "$out/lib64" ] && [ "$(ls -A $out/lib64)" ]; then
+        cp -r $out/lib64/* $out/lib/
+        rm -rf $out/lib64
+      fi
 
-      # Create imported target
-      add_library(cuopt::cuopt SHARED IMPORTED)
-      set_target_properties(cuopt::cuopt PROPERTIES
-        IMPORTED_LOCATION "''${CUOPT_LIBRARY}"
-        INTERFACE_INCLUDE_DIRECTORIES "''${CMAKE_CURRENT_LIST_DIR}/../../include"
-      )
+      # Create include directory if headers weren't installed
+      if [ ! -d "$out/include/cuopt" ]; then
+        mkdir -p $out/include
+        cp -r ../include/cuopt $out/include/
+      fi
 
-      # Mark as found
-      set(cuOpt_FOUND TRUE)
+      runHook postInstall
+    '';
 
-      # Version info
-      set(cuOpt_VERSION "${version}")
-      set(cuOpt_VERSION_MAJOR "25")
-      set(cuOpt_VERSION_MINOR "10")
-    endif()
-    EOF
+    postInstall = ''
+            # Patch cuopt-dependencies.cmake to find all interface dependencies.
+            # The upstream file only finds CUDAToolkit and rapids_logger, but
+            # cuopt-targets.cmake references rmm::rmm, CCCL::CCCL, raft::raft
+            # as INTERFACE_LINK_LIBRARIES.
+            local deps_file="$out/lib/cmake/cuopt/cuopt-dependencies.cmake"
+            if [ -f "$deps_file" ]; then
+              cat >> "$deps_file" <<'NIXEOF'
 
-          # Create version file
-          cat > $out/lib/cmake/cuOpt/cuOptConfigVersion.cmake <<'EOF'
-    set(PACKAGE_VERSION "${version}")
-    if("''${PACKAGE_FIND_VERSION}" VERSION_EQUAL "''${PACKAGE_VERSION}")
-      set(PACKAGE_VERSION_EXACT TRUE)
-    endif()
-    if("''${PACKAGE_FIND_VERSION}" VERSION_LESS_EQUAL "''${PACKAGE_VERSION}")
-      set(PACKAGE_VERSION_COMPATIBLE TRUE)
-    endif()
-    EOF
-        fi
+      # Nix: find transitive dependencies referenced in cuopt-targets.cmake
+      find_dependency(rmm)
+      find_dependency(CCCL)
+      find_dependency(raft)
+      NIXEOF
+            fi
 
-        # Validate installation
-        if [ ! -f "$out/lib/libcuopt.so" ] && [ ! -f "$out/lib/libcuopt.dylib" ]; then
-          echo "ERROR: cuOpt library not found after installation"
-          ls -R $out/
-          exit 1
-        fi
-  '';
+            # Validate installation
+            if [ ! -f "$out/lib/libcuopt.so" ] && [ ! -f "$out/lib/libcuopt.dylib" ]; then
+              echo "ERROR: cuOpt library not found after installation"
+              ls -R $out/
+              exit 1
+            fi
+    '';
 
-  # Skip tests (require GPU runtime)
-  doCheck = false;
+    # Skip tests (require GPU runtime)
+    doCheck = false;
 
-  meta = with lib; {
-    description = "NVIDIA GPU-accelerated optimization engine";
-    homepage = "https://github.com/NVIDIA/cuopt";
-    license = licenses.unfree;
-    platforms = platforms.linux;
-    maintainers = [];
-
-    # TODO: Complete RAPIDS CPM integration for Nix builds
-    # category=I/O estimate=1w
-    # Depends on RMM and RAFT, which require CPM integration resolution.
-    # See pkgs/rmm/package.nix and docs/CUOPT_NIX_IMPLEMENTATION.md
-    # All package structure and configuration is complete.
-    broken = true;
-  };
-}
+    meta = with lib; {
+      description = "NVIDIA GPU-accelerated optimization engine";
+      homepage = "https://github.com/NVIDIA/cuopt";
+      license = licenses.unfree;
+      platforms = platforms.linux;
+      maintainers = [];
+    };
+  }

@@ -34,9 +34,21 @@
     echo ""
   '';
 
+  # Wrapper around process-compose pinned to this repo's files. It uses a unix
+  # domain socket (under .dev/) rather than the default TCP API port (8080),
+  # which avoids collisions with anything already bound to 8080 (e.g. a running
+  # ruxd) and keeps up/attach/down agreeing on the same socket across shells.
+  # The -f config flag is only valid on `up`; other subcommands (down, attach,
+  # list, ...) reach the running daemon via the socket alone.
   services = pkgs.writeShellScriptBin "services" ''
-    exec ${pkgs.process-compose}/bin/process-compose \
-      -f "''${PWD}/process-compose.yaml" "$@"
+    mkdir -p "''${PWD}/.dev"
+    pc=(${pkgs.process-compose}/bin/process-compose \
+      --use-uds --unix-socket "''${PWD}/.dev/pc.sock")
+    if [ "$1" = "up" ]; then
+      shift
+      exec "''${pc[@]}" up -f "''${PWD}/process-compose.yaml" "$@"
+    fi
+    exec "''${pc[@]}" "$@"
   '';
 in
   pkgs.mkShell {

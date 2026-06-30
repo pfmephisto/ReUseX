@@ -17,18 +17,24 @@ void register_health_routes(App &app, EndpointRegistry &reg,
               return json_response(crow::status::OK, {{"status", "ok"}});
             });
 
-  // Health — overview of every configured backend. Pings each and reports its
-  // status; returns 200 only when all are reachable, otherwise 503 with
-  // per-backend detail.
+  // Health — public, but the response depends on authentication:
+  //   - unauthenticated: just {"status":"ok"} (no backend detail leaked).
+  //   - authenticated:   per-backend overview, 200 when all reachable else 503.
   add_route(
       app, reg,
       {"GET",
        "/health",
-       "Overview of configured backends",
+       "Service status (per-backend detail when authenticated)",
        false,
-       {{200, "All backends reachable"},
-        {503, "One or more backends unreachable"}}},
-      [&clients](const crow::request &) {
+       {{200, "OK (always for unauthenticated; all backends reachable)"},
+        {503, "One or more backends unreachable (authenticated only)"}}},
+      [&app, &clients](const crow::request &req) {
+        const bool authed =
+            app.get_context<BearerAuthMiddleware>(req).authenticated;
+        if (!authed) {
+          return json_response(crow::status::OK, {{"status", "ok"}});
+        }
+
         const PingResult pg = clients.postgres.ping();
         const PingResult rd = clients.redis.ping();
         const PingResult s3 = clients.s3.ping();

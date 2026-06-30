@@ -24,7 +24,13 @@
 namespace ruxd {
 
 struct BearerAuthMiddleware {
-  struct context {};
+  // Per-request state. `authenticated` is true when a valid bearer token was
+  // presented (or auth is disabled — a trusted/open environment). Handlers can
+  // read it via app.get_context<BearerAuthMiddleware>(req) to vary their output
+  // by authentication, e.g. /health returns detail only when authenticated.
+  struct context {
+    bool authenticated = false;
+  };
 
   // Configured once at startup (after routes are registered).
   const EndpointRegistry *registry = nullptr;
@@ -35,20 +41,29 @@ struct BearerAuthMiddleware {
     token = std::move(tok);
   }
 
-  void before_handle(crow::request &req, crow::response &res, context &) {
+  [[nodiscard]] bool has_valid_token(const crow::request &req) const {
+    const std::string &header = req.get_header_value("Authorization");
+    constexpr std::string_view prefix = "Bearer ";
+    const std::string_view value(header);
+    return value.size() > prefix.size() &&
+           value.substr(0, prefix.size()) == prefix &&
+           value.substr(prefix.size()) == token;
+  }
+
+  void before_handle(crow::request &req, crow::response &res, context &ctx) {
+    // Record auth status for every request (public routes included) so
+    // handlers can vary output. With no token configured, auth is disabled and
+    // the environment is treated as trusted.
+    ctx.authenticated = token.empty() || has_valid_token(req);
+
     if (token.empty() || registry == nullptr) {
       return; // auth disabled
     }
     if (!registry->requires_auth(crow::method_name(req.method), req.url)) {
-      return; // public route
+      return; // public route — flag set above, no enforcement
     }
-
-    const std::string &header = req.get_header_value("Authorization");
-    constexpr std::string_view prefix = "Bearer ";
-    const std::string_view value(header);
-    if (value.size() > prefix.size() && value.substr(0, prefix.size()) == prefix &&
-        value.substr(prefix.size()) == token) {
-      return; // authorized
+    if (ctx.authenticated) {
+      return; // valid token on a protected route
     }
 
     res.code = 401;

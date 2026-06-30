@@ -120,6 +120,12 @@ int main(int argc, char **argv) {
   cli.add_flag("--s3-path-style,!--s3-virtual-style", cfg.s3_path_style,
                "Use path-style S3 addressing (required by MinIO/Ceph)");
 
+  // --- Auth ---
+  cli.add_option("--auth-token", cfg.auth_token,
+                 "Bearer token required for authenticated routes "
+                 "(empty = auth disabled)")
+      ->envname("RUXD_AUTH_TOKEN");
+
   // Verbosity: -v, -vv, -vvv raise both spdlog and the ReUseX library logger
   // from the default warn level to info/debug/trace, mirroring rux.
   cli.add_flag(
@@ -155,7 +161,7 @@ int main(int argc, char **argv) {
   // guard aside). Must outlive app.run().
   ruxd::Clients clients(cfg);
 
-  crow::SimpleApp app;
+  ruxd::App app;
 
   // Routes register through the endpoint registry, which backs /endpoints and
   // /openapi.json.
@@ -164,6 +170,16 @@ int main(int argc, char **argv) {
   ruxd::register_segment_routes(app, registry);
   ruxd::register_meta_routes(app, registry);
   ruxd::register_not_found_handler(app);
+
+  // Wire the auth middleware to the populated registry. With no token set, auth
+  // is disabled — warn if any route nonetheless declares it requires auth.
+  app.get_middleware<ruxd::BearerAuthMiddleware>().configure(&registry,
+                                                             cfg.auth_token);
+  if (cfg.auth_token.empty()) {
+    reusex::core::warn("auth: DISABLED (no --auth-token / RUXD_AUTH_TOKEN set)");
+  } else {
+    reusex::core::info("auth: enabled (Bearer)");
+  }
 
   // Fail fast if any registered route is missing a handler, and log the route
   // table so the configured surface is reviewable at startup (-v).

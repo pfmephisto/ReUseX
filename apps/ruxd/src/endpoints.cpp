@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include <endpoints.hpp>
+#include <handlers.hpp> // App + add_route
 
 #include <reusex/core/version.hpp>
 
@@ -27,23 +27,54 @@ crow::HTTPMethod to_method(const std::string &m) {
   throw std::invalid_argument(
       fmt::format("ruxd: unsupported HTTP method '{}'", m));
 }
+
+// The response codes an endpoint can actually return: those it declared, plus
+// 401 for authenticated endpoints (added by the auth middleware), with a 200
+// fallback when nothing was declared.
+std::vector<Response> effective_responses(const Endpoint &e) {
+  std::vector<Response> r = e.responses;
+  if (r.empty()) {
+    r.push_back({200, "Success"});
+  }
+  if (e.requires_auth &&
+      std::none_of(r.begin(), r.end(),
+                   [](const Response &x) { return x.code == 401; })) {
+    r.push_back({401, "Missing or invalid bearer token"});
+  }
+  return r;
+}
 } // namespace
 
-void add_route(crow::SimpleApp &app, EndpointRegistry &reg, Endpoint meta,
+void add_route(App &app, EndpointRegistry &reg, Endpoint meta,
                RouteHandler handler) {
   const crow::HTTPMethod method = to_method(meta.method);
   reg.add(meta);
   app.route_dynamic(meta.path).methods(method)(std::move(handler));
 }
 
+bool EndpointRegistry::requires_auth(const std::string &method,
+                                     const std::string &path) const {
+  for (const Endpoint &e : endpoints_) {
+    if (e.method == method && e.path == path) {
+      return e.requires_auth;
+    }
+  }
+  return false;
+}
+
 nlohmann::json EndpointRegistry::to_json() const {
   nlohmann::json arr = nlohmann::json::array();
   for (const Endpoint &e : endpoints_) {
+    nlohmann::json responses = nlohmann::json::array();
+    for (const Response &r : effective_responses(e)) {
+      responses.push_back({{"code", r.code}, {"description", r.description}});
+    }
     arr.push_back({
         {"method", e.method},
         {"path", e.path},
         {"summary", e.summary},
         {"requires_auth", e.requires_auth},
+        {"responses", responses},
     });
   }
   return {{"endpoints", arr}};
@@ -56,9 +87,14 @@ nlohmann::json EndpointRegistry::to_openapi() const {
     std::transform(verb.begin(), verb.end(), verb.begin(),
                    [](unsigned char c) { return std::tolower(c); });
 
+    nlohmann::json responses = nlohmann::json::object();
+    for (const Response &r : effective_responses(e)) {
+      responses[std::to_string(r.code)] = {{"description", r.description}};
+    }
+
     nlohmann::json operation{
         {"summary", e.summary},
-        {"responses", {{"200", {{"description", "Success"}}}}},
+        {"responses", responses},
     };
     if (e.requires_auth) {
       operation["security"] =

@@ -6,7 +6,7 @@
 
 namespace ruxd {
 
-void register_not_found_handler(crow::SimpleApp &app) {
+void register_not_found_handler(App &app) {
   // Catchall for any route/method that no handler matched.
   CROW_CATCHALL_ROUTE(app)
   ([](const crow::request &req, crow::response &res) {

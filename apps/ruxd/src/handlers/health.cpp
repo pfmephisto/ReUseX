@@ -8,10 +8,11 @@
 
 namespace ruxd {
 
-void register_health_routes(crow::SimpleApp &app, EndpointRegistry &reg,
+void register_health_routes(App &app, EndpointRegistry &reg,
                             Clients &clients) {
   // Root — lightweight liveness, reports only that the process is up.
-  add_route(app, reg, {"GET", "/", "Liveness probe", false},
+  add_route(app, reg,
+            {"GET", "/", "Liveness probe", false, {{200, "Service is up"}}},
             [](const crow::request &) {
               return json_response(crow::status::OK, {{"status", "ok"}});
             });
@@ -20,7 +21,13 @@ void register_health_routes(crow::SimpleApp &app, EndpointRegistry &reg,
   // status; returns 200 only when all are reachable, otherwise 503 with
   // per-backend detail.
   add_route(
-      app, reg, {"GET", "/health", "Overview of configured backends", false},
+      app, reg,
+      {"GET",
+       "/health",
+       "Overview of configured backends",
+       false,
+       {{200, "All backends reachable"},
+        {503, "One or more backends unreachable"}}},
       [&clients](const crow::request &) {
         const PingResult pg = clients.postgres.ping();
         const PingResult rd = clients.redis.ping();

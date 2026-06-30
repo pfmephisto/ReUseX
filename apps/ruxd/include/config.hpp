@@ -32,6 +32,9 @@ struct Config {
   std::string s3_access_key;        // secret
   std::string s3_secret_key;        // secret
   bool s3_path_style = true;        // path-style addressing (MinIO/Ceph need it)
+
+  // Auth — Bearer token required for authenticated routes. Empty disables auth.
+  std::string auth_token;           // secret
 };
 
 } // namespace ruxd

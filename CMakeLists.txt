@@ -10,20 +10,30 @@ cmake_minimum_required(VERSION 3.17)
 
 project(reusex
     VERSION 0.0.5
-    LANGUAGES CXX CUDA
+    LANGUAGES CXX
     DESCRIPTION "Tool for processing interior lidar scans of buildings"
 )
 
 # ===============================================
-# CUDA Flags (must be set early to avoid conflicts)
+# CUDA support (optional)
 # ===============================================
-# Prevent "incompatible redefinition for option 'optimize'" warning from nvcc
-# PyTorch adds -O2 via INTERFACE_COMPILE_OPTIONS, so we match it to avoid conflicts
-# Using -O2 instead of -O3 to prevent "incompatible redefinition" warning
-set(CMAKE_CUDA_FLAGS "" CACHE STRING "Base CUDA compiler flags" FORCE)
-set(CMAKE_CUDA_FLAGS_RELEASE "-DNDEBUG" CACHE STRING "CUDA Release flags (no -O flag, let deps handle it)" FORCE)
-set(CMAKE_CUDA_FLAGS_RELWITHDEBINFO "-g -DNDEBUG" CACHE STRING "CUDA RelWithDebInfo flags" FORCE)
-set(CMAKE_CUDA_FLAGS_DEBUG "-g" CACHE STRING "CUDA Debug flags" FORCE)
+# CUDA is optional so the project can target CPU-only or non-NVIDIA (ROCm)
+# builds. When OFF, the CUDA language is never enabled (no nvcc required) and
+# the CUDA-only paths are excluded by auto-detection: the TensorRT backend and
+# its .cu kernels (trtsam3 not found) and the cuOpt GPU solver (falls back to
+# the HiGHS CPU MIP solver).
+option(WITH_CUDA "Build with CUDA / NVIDIA GPU support" ON)
+
+if(WITH_CUDA)
+    # CUDA flags must be set before enable_language(CUDA) to avoid an
+    # "incompatible redefinition for option 'optimize'" warning from nvcc
+    # (PyTorch adds -O2 via INTERFACE_COMPILE_OPTIONS, so we match it).
+    set(CMAKE_CUDA_FLAGS "" CACHE STRING "Base CUDA compiler flags" FORCE)
+    set(CMAKE_CUDA_FLAGS_RELEASE "-DNDEBUG" CACHE STRING "CUDA Release flags (no -O flag, let deps handle it)" FORCE)
+    set(CMAKE_CUDA_FLAGS_RELWITHDEBINFO "-g -DNDEBUG" CACHE STRING "CUDA RelWithDebInfo flags" FORCE)
+    set(CMAKE_CUDA_FLAGS_DEBUG "-g" CACHE STRING "CUDA Debug flags" FORCE)
+    enable_language(CUDA)
+endif()
 
 # ===============================================
 # Global Settings
@@ -132,7 +142,11 @@ message(STATUS "Version:           ${PROJECT_VERSION}")
 message(STATUS "Build Type:        ${CMAKE_BUILD_TYPE}")
 message(STATUS "Install Prefix:    ${CMAKE_INSTALL_PREFIX}")
 message(STATUS "C++ Compiler:      ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
-message(STATUS "CUDA Support:      ${CMAKE_CUDA_COMPILER_ID} ${CMAKE_CUDA_COMPILER_VERSION}")
+if(WITH_CUDA)
+    message(STATUS "CUDA Support:      ON (${CMAKE_CUDA_COMPILER_ID} ${CMAKE_CUDA_COMPILER_VERSION})")
+else()
+    message(STATUS "CUDA Support:      OFF")
+endif()
 message(STATUS "MIP Solver:        ${USE_MIP_SOLVER}")
 # Convert list to comma-separated string for display
 if(ENABLED_ML_BACKENDS)

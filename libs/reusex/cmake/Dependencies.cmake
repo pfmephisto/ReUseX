@@ -87,6 +87,10 @@ endif()
 # Determine which backends to search for
 if(ML_BACKENDS STREQUAL "AUTO")
     set(BACKENDS_TO_FIND TensorRT LibTorch ONNX OpenVINO)
+    # TensorRT is NVIDIA/CUDA-only; don't search for it in a non-CUDA build.
+    if(NOT WITH_CUDA)
+        list(REMOVE_ITEM BACKENDS_TO_FIND TensorRT)
+    endif()
 elseif(ML_BACKENDS STREQUAL "NONE")
     set(BACKENDS_TO_FIND "")
     message(STATUS "All ML backends disabled")
@@ -148,7 +152,9 @@ find_package(PCL REQUIRED)
 # -----------------------------------------------
 find_package(Eigen3 REQUIRED)
 find_package(highs REQUIRED)
-find_package(cuOpt)  # Optional - requires NVIDIA GPU
+if(WITH_CUDA)
+    find_package(cuOpt)  # Optional - requires NVIDIA GPU; else HiGHS CPU solver
+endif()
 find_package(embree REQUIRED)
 
 # CGAL with support modules

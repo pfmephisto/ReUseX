@@ -119,41 +119,86 @@
             directory = ./pkgs;
           };
           # Filter out broken packages from exports
-          nonBrokenPackages =
-            lib.filterAttrs (
-              name: pkg:
-                !(pkg.meta.broken or false)
-            )
-            allPackages;
+          nonBrokenPackages = lib.filterAttrs (name: pkg: !(pkg.meta.broken or false)) allPackages;
 
-          reusex = pkgs.callPackage ./default.nix {}; # ReUseX (provides bin/ruxd)
+          # ReUseX build variants. The default/CUDA build reuses the top-level
+          # (CUDA-configured) nixpkgs; the cpu and rocm builds use a fresh
+          # nixpkgs with the matching GPU config. cudaSupport drives the
+          # WITH_CUDA CMake option, which gates the CUDA language, the TensorRT
+          # backend (+ its .cu kernels) and the cuOpt solver.
+          reusex = pkgs.callPackage ./default.nix {}; # CUDA (default)
+
+          mkReusex = {
+            cudaSupport ? false,
+            rocmSupport ? false,
+          }:
+            (import nixpkgs {
+              inherit system;
+              config = {
+                inherit cudaSupport rocmSupport;
+                allowUnfree = true;
+              };
+              overlays = import ./overlays {inherit lib;};
+            })
+            .callPackage
+            ./default.nix {inherit cudaSupport;};
+
+          reusexCpu = mkReusex {};
+          reusexRocm = mkReusex {rocmSupport = true;};
+
+          # Shared OCI image builder: ruxd as PID 1 for a given ReUseX variant.
+          mkImage = {
+            package,
+            tag,
+            extraEnv ? [],
+          }:
+            pkgs.dockerTools.buildLayeredImage {
+              name = "ruxd";
+              inherit tag;
+              contents = [
+                package
+                pkgs.cacert
+              ];
+              config = {
+                Entrypoint = ["${package}/bin/ruxd"];
+                ExposedPorts = {"8080/tcp" = {};};
+                Env =
+                  [
+                    "RUXD_PORT=8080"
+                    "SSL_CERT_FILE=/etc/ssl/certs/ca-bundle.crt"
+                  ]
+                  ++ extraEnv;
+              };
+            };
         in
           {
-            default = reusex;
+            # ReUseX build variants (each provides bin/ruxd and bin/rux).
+            default = reusex; # CUDA / NVIDIA GPU
+            cuda = reusex;
+            cpu = reusexCpu;
+            rocm = reusexRocm;
+
             rtabmap = pkgs.rtabmap;
 
-            # OCI image running ruxd as PID 1, for Docker/Podman/RunPod GPU
-            # workers. This is a CUDA image (multi-GB): ruxd links the full
-            # reusex stack (libtorch/TensorRT/CUDA/PCL/...). Run it with the
-            # nvidia container runtime on a GPU host; libcuda is provided by the
-            # host driver, never bundled. Build + load with:
+            # OCI image running ruxd as PID 1. The default image is the CUDA
+            # build (multi-GB): run with the nvidia container runtime on a GPU
+            # host; libcuda comes from the host driver, never bundled.
             #   nix build .#ruxd-container && docker load < result
-            ruxd-container = pkgs.dockerTools.buildLayeredImage {
-              name = "ruxd";
+            ruxd-container = mkImage {
+              package = reusex;
               tag = "latest";
-              contents = [reusex pkgs.cacert];
-              config = {
-                Entrypoint = ["${reusex}/bin/ruxd"];
-                ExposedPorts = {"8080/tcp" = {};};
-                Env = [
-                  "RUXD_PORT=8080"
-                  "SSL_CERT_FILE=/etc/ssl/certs/ca-bundle.crt"
-                  # Consumed by the nvidia container runtime to inject the host
-                  # GPU + driver (libcuda) at runtime.
-                  "NVIDIA_VISIBLE_DEVICES=all"
-                  "NVIDIA_DRIVER_CAPABILITIES=compute,utility"
-                ];
-              };
+              # Consumed by the nvidia container runtime to inject the host GPU
+              # + driver (libcuda) at runtime.
+              extraEnv = [
+                "NVIDIA_VISIBLE_DEVICES=all"
+                "NVIDIA_DRIVER_CAPABILITIES=compute,utility"
+              ];
+            };
+
+            # CPU-only image — no CUDA in the closure.
+            ruxd-container-cpu = mkImage {
+              package = reusexCpu;
+              tag = "cpu";
             };
           }
           # All custom packages (excluding broken ones)

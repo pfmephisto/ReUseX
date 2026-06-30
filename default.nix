@@ -181,6 +181,15 @@ in
         ])
       );
 
+    # Drive the project's WITH_CUDA option from cudaSupport. For CPU and ROCm
+    # builds (cudaSupport = false) this keeps CMake from enabling the CUDA
+    # language (no nvcc required) and auto-excludes the CUDA-only code paths
+    # (TensorRT backend + .cu kernels, cuOpt solver). ROCm-ness itself comes
+    # from libtorch/onnxruntime being built under a rocmSupport nixpkgs.
+    cmakeFlags = [
+      (lib.cmakeBool "WITH_CUDA" cudaSupport)
+    ];
+
     dontWrapQtApps = true;
 
     # Patch the installed binaries and shared libraries so the dynamic loader

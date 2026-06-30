@@ -42,6 +42,10 @@ CMakeLists.txt.user
 bin/
 build*/
 
+# local dev service state (process-compose: postgres/redis/minio data)
+.dev/
+.pc.log
+
 # Generated documentation
 docs/api/
 ReUseX.tag

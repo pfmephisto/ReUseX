@@ -1,0 +1,93 @@
+# SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Local backend stack for testing the ruxd service worker. Start it from the
+# services devshell:
+#
+#   nix develop .#services
+#   services up            # or: services up -D  (detached)
+#
+# Then point ruxd at it (these match ruxd's defaults / the values printed by
+# the devshell):
+#
+#   DATABASE_URL=postgresql://ruxd@127.0.0.1:5432/ruxd \
+#   REDIS_URL=tcp://127.0.0.1:6379 \
+#   AWS_ENDPOINT_URL=http://127.0.0.1:9000 \
+#   AWS_ACCESS_KEY_ID=ruxadmin AWS_SECRET_ACCESS_KEY=ruxadmin123 \
+#   ruxd --s3-bucket reusex -v
+#
+# All state lives under .dev/ (git-ignored); delete it to reset.
+version: "0.5"
+
+environment:
+  - "PGDATA=.dev/postgres"
+
+processes:
+  postgres:
+    command: |
+      set -e
+      if [ ! -s "$PGDATA/PG_VERSION" ]; then
+        initdb -D "$PGDATA" -U ruxd --auth=trust >/dev/null
+      fi
+      exec postgres -D "$PGDATA" -k /tmp -c listen_addresses=127.0.0.1 -p 5432
+    readiness_probe:
+      exec:
+        command: "pg_isready -h 127.0.0.1 -p 5432 -U ruxd"
+      initial_delay_seconds: 1
+      period_seconds: 2
+      failure_threshold: 15
+
+  pg-createdb:
+    command: "createdb -h 127.0.0.1 -p 5432 -U ruxd ruxd || true"
+    depends_on:
+      postgres:
+        condition: process_healthy
+    availability:
+      restart: "no"
+
+  redis:
+    command: "redis-server --port 6379 --save '' --appendonly no"
+    readiness_probe:
+      exec:
+        command: "redis-cli -p 6379 ping"
+      initial_delay_seconds: 1
+      period_seconds: 2
+
+  # SeaweedFS provides the S3-compatible endpoint (we avoid MinIO, which
+  # nixpkgs flags insecure and whose community future is uncertain). The S3
+  # client (aws-sdk-cpp) is server-agnostic, so this is purely a test fixture.
+  seaweed:
+    command: |
+      set -e
+      mkdir -p .dev/seaweed
+      cat > .dev/seaweed/s3.json <<'JSON'
+      {
+        "identities": [
+          {
+            "name": "ruxadmin",
+            "credentials": [
+              {"accessKey": "ruxadmin", "secretKey": "ruxadmin123"}
+            ],
+            "actions": ["Admin", "Read", "Write", "List", "Tagging"]
+          }
+        ]
+      }
+      JSON
+      exec weed server -ip=127.0.0.1 -dir=.dev/seaweed -filer -s3 \
+        -master.port=9333 -volume.port=9433 -filer.port=9533 \
+        -s3.port=9000 -s3.config=.dev/seaweed/s3.json
+    readiness_probe:
+      exec:
+        command: "curl -s -o /dev/null http://127.0.0.1:9000/"
+      initial_delay_seconds: 2
+      period_seconds: 2
+      failure_threshold: 15
+
+  seaweed-createbucket:
+    command: "echo 's3.bucket.create -name reusex' | weed shell -master 127.0.0.1:9333 || true"
+    depends_on:
+      seaweed:
+        condition: process_healthy
+    availability:
+      restart: "no"

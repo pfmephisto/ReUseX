@@ -38,6 +38,8 @@
   libe57format,
   cli11,
   curl,
+  crow,
+  asio,
   nlohmann_json,
   openssl,
   #libtorch-bin,
@@ -129,6 +131,9 @@ in
         blender.pythonPackages.pybind11
 
         curl
+        # Crow HTTP server (+ asio backend) for the `ruxd` service worker
+        crow
+        asio
         nlohmann_json
         openssl
         exiv2

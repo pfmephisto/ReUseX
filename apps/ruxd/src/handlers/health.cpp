@@ -10,6 +10,9 @@ void register_health_routes(crow::SimpleApp &app) {
   // Liveness probe.
   CROW_ROUTE(app, "/health")
   ([] { return json_response(crow::status::OK, {{"status", "ok"}}); });
+
+  CROW_ROUTE(app, "")
+  ([] { return json_response(crow::status::OK, {{"status", "ok"}}); });
 }
 
 } // namespace ruxd

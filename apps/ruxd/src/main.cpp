@@ -25,10 +25,13 @@
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <string>
 
 namespace {
+
+constexpr int kMaxVerbosity = 3;
 
 // Bridge the ReUseX library logger into spdlog, mirroring the setup in
 // apps/rux/src/rux.cpp so library log output is rendered the same way.
@@ -40,7 +43,7 @@ void setup_logging() {
       spdlog::async_overflow_policy::block);
   spdlog::set_default_logger(console_logger);
 
-  spdlog::set_level(spdlog::level::info);
+  spdlog::set_level(spdlog::level::warn); // Default level (raise with -v)
   spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%n] [%^%=7l%$] %v");
 
   reusex::core::set_log_handler(
@@ -68,12 +71,14 @@ void setup_logging() {
           break;
         }
       });
-  reusex::core::set_log_level(reusex::core::LogLevel::info);
+  reusex::core::set_log_level(reusex::core::LogLevel::warn);
 }
 
 } // namespace
 
 int main(int argc, char **argv) {
+  setup_logging();
+
   CLI::App cli{"ruxd: ReUseX HTTP service worker."};
 
   std::uint16_t port = 8080;
@@ -88,9 +93,23 @@ int main(int argc, char **argv) {
       ->envname("RUXD_THREADS")
       ->capture_default_str();
 
-  CLI11_PARSE(cli, argc, argv);
+  // Verbosity: -v, -vv, -vvv raise both spdlog and the ReUseX library logger
+  // from the default warn level to info/debug/trace, mirroring rux.
+  cli.add_flag(
+         "-v,--verbose",
+         [](int count) {
+           const int safe_count = std::clamp(count, 0, kMaxVerbosity);
+           const auto level = static_cast<spdlog::level::level_enum>(
+               kMaxVerbosity - safe_count);
+           spdlog::set_level(level);
+           reusex::core::set_log_level(
+               static_cast<reusex::core::LogLevel>(kMaxVerbosity - safe_count));
+         },
+         "Increase verbosity, use -vv & -vvv for more details.")
+      ->multi_option_policy(CLI::MultiOptionPolicy::Sum)
+      ->check(CLI::Range(0, 3));
 
-  setup_logging();
+  CLI11_PARSE(cli, argc, argv);
 
   // Prove the reusex library is linked and callable.
   reusex::core::info("ReUseX library linked, version {}",

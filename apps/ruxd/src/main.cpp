@@ -10,12 +10,16 @@
 // iteration is to prove that the server links against the `reusex` library and
 // stands up correctly. Real work (calling reusex::geometry::segment_planes,
 // etc.) will be wired into the handlers later.
+//
+// Routes are organized per feature under src/handlers/ and registered here via
+// the register_* functions declared in handlers.hpp.
+
+#include <handlers.hpp>
 
 #include <reusex/core/logging.hpp>
 #include <reusex/core/version.hpp>
 
 #include <crow.h>
-#include <nlohmann/json.hpp>
 #include <spdlog/async.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
@@ -68,17 +72,19 @@ void setup_logging() {
   reusex::core::set_log_level(reusex::core::LogLevel::info);
 }
 
-// Resolve the listen port from --port <n>, $RUXD_PORT, or the default 8080.
-std::uint16_t resolve_port(int argc, char **argv) {
+// Read an unsigned setting from --<flag> <n> or $<env>, falling back to
+// fallback when neither is present.
+unsigned resolve_uint(int argc, char **argv, std::string_view flag,
+                      const char *env, unsigned fallback) {
   for (int i = 1; i + 1 < argc; ++i) {
-    if (std::string_view(argv[i]) == "--port") {
-      return static_cast<std::uint16_t>(std::stoi(argv[i + 1]));
+    if (std::string_view(argv[i]) == flag) {
+      return static_cast<unsigned>(std::stoul(argv[i + 1]));
     }
   }
-  if (const char *env = std::getenv("RUXD_PORT")) {
-    return static_cast<std::uint16_t>(std::stoi(env));
+  if (const char *value = std::getenv(env)) {
+    return static_cast<unsigned>(std::stoul(value));
   }
-  return 8080;
+  return fallback;
 }
 
 } // namespace
@@ -90,40 +96,30 @@ int main(int argc, char **argv) {
   reusex::core::info("ReUseX library linked, version {}",
                      reusex::core::VERSION);
 
-  const std::uint16_t port = resolve_port(argc, argv);
+  const auto port =
+      static_cast<std::uint16_t>(resolve_uint(argc, argv, "--port", "RUXD_PORT",
+                                              8080));
+  // 0 lets Crow pick a sensible default (hardware concurrency).
+  const unsigned threads =
+      resolve_uint(argc, argv, "--threads", "RUXD_THREADS", 0);
 
   crow::SimpleApp app;
 
-  // Liveness probe.
-  CROW_ROUTE(app, "/health")
-  ([] {
-    nlohmann::json body{{"status", "ok"}};
-    crow::response res(crow::status::OK, body.dump());
-    res.set_header("Content-Type", "application/json");
-    return res;
-  });
+  ruxd::register_health_routes(app);
+  ruxd::register_segment_routes(app);
+  ruxd::register_not_found_handler(app);
 
-  // Point cloud plane segmentation. Not yet implemented — logs the request and
-  // returns a stub response. The future implementation will deserialize the
-  // request payload and call reusex::geometry::segment_planes(...).
-  CROW_ROUTE(app, "/segment/planes")
-      .methods(crow::HTTPMethod::POST)([](const crow::request &req) {
-        reusex::core::info(
-            "POST /segment/planes — received segmentation request "
-            "(not yet implemented), body size = {} bytes",
-            req.body.size());
-        nlohmann::json body{
-            {"status", "not_implemented"},
-            {"message", "segmentation not yet wired up"}};
-        crow::response res(crow::status::NOT_IMPLEMENTED, body.dump());
-        res.set_header("Content-Type", "application/json");
-        return res;
-      });
+  app.port(port).multithreaded();
+  if (threads > 0) {
+    app.concurrency(threads);
+  }
 
-  reusex::core::info("ruxd listening on port {}", port);
+  reusex::core::info("ruxd listening on port {} (threads: {})", port,
+                     threads > 0 ? std::to_string(threads)
+                                 : std::string("auto"));
 
   // Crow installs its own SIGINT/SIGTERM handler and stops gracefully.
-  app.port(port).multithreaded().run();
+  app.run();
 
   reusex::core::info("ruxd shutting down");
   return 0;

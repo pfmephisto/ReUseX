@@ -8,7 +8,10 @@
     enableVtk = true;
     enableTbb = true;
     # tbb = prev.tbb_2022;
-    enableCudnn = true;
+    # cuDNN (and thus CUDA) only when the nixpkgs instance has CUDA enabled.
+    # OpenCV's own enableCuda already follows config.cudaSupport; enableCudnn is
+    # the one that would otherwise force CUDA into a cudaSupport=false build.
+    enableCudnn = prev.config.cudaSupport or false;
     enablePython = true;
     enableUnfree = true;
   };

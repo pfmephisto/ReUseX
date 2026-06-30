@@ -13,22 +13,26 @@
 #    preserve the original layout (and just drop the Tests binary, which
 #    is what upstream's last line removes).
 #
-# 2. ReUseX's OpenCV overlay enables CUDA, and OpenCV's installed cmake
-#    config eagerly runs `find_package(CUDAToolkit)` in *any* consumer.
-#    The upstream openmvs derivation doesn't pull in cudatoolkit, so the
-#    rebuild fails with "Could not find nvcc". We add CUDA to
-#    nativeBuildInputs/buildInputs so OpenCV's config can satisfy itself
-#    (OpenMVS itself does not use CUDA in this build — its own CUDA
-#    detection still reports "Can't find CUDA. Continuing without it.",
-#    which is fine).
-{...}: final: prev: {
+# 2. When CUDA is enabled, ReUseX's OpenCV overlay builds OpenCV with CUDA, and
+#    OpenCV's installed cmake config eagerly runs `find_package(CUDAToolkit)` in
+#    *any* consumer. The upstream openmvs derivation doesn't pull in
+#    cudatoolkit, so the rebuild fails with "Could not find nvcc". We add CUDA
+#    to nativeBuildInputs/buildInputs so OpenCV's config can satisfy itself
+#    (OpenMVS itself does not use CUDA in this build — its own CUDA detection
+#    still reports "Can't find CUDA. Continuing without it.", which is fine).
+#    This is gated on cudaSupport: in a cudaSupport=false build OpenCV is CPU,
+#    so consumers don't trigger find_package(CUDAToolkit) and pulling CUDA here
+#    would needlessly drag it back into the closure.
+{...}: final: prev: let
+  cudaSupport = prev.config.cudaSupport or false;
+in {
   openmvs = prev.openmvs.overrideAttrs (old: {
     nativeBuildInputs =
       (old.nativeBuildInputs or [])
-      ++ [prev.cudaPackages.cuda_nvcc];
+      ++ prev.lib.optionals cudaSupport [prev.cudaPackages.cuda_nvcc];
     buildInputs =
       (old.buildInputs or [])
-      ++ [
+      ++ prev.lib.optionals cudaSupport [
         prev.cudaPackages.cuda_cudart
         prev.cudaPackages.cuda_cccl
         # OpenMVS's Common library auto-links CUDA::curand whenever CUDA is

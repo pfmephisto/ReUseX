@@ -1,8 +1,15 @@
 #include "vision/common/object.hpp"
-#include "vision/tensor_rt/common/check.hpp"
+#include <cstdlib>
 #include <iostream>
 #include <string>
 #include <vector>
+
+// SegmentMap uses CUDA pinned host memory only when the TensorRT backend is
+// built (the pinned buffer feeds GPU transfers); otherwise it falls back to a
+// plain host allocation so the type works in CPU/ROCm builds.
+#ifdef REUSEX_USE_TENSORRT
+#include "vision/tensor_rt/common/check.hpp"
+#endif
 
 namespace reusex::vision::common::object {
 
@@ -94,15 +101,36 @@ std::ostream &operator<<(std::ostream &os, const Obb &obb) {
   return os;
 }
 
+// Allocate/free the mask buffer: pinned CUDA host memory with TensorRT,
+// plain host memory otherwise.
+namespace {
+inline unsigned char *alloc_segment_buffer(int bytes) {
+#ifdef REUSEX_USE_TENSORRT
+  unsigned char *ptr = nullptr;
+  checkRuntime(cudaMallocHost(&ptr, bytes));
+  return ptr;
+#else
+  return static_cast<unsigned char *>(std::malloc(bytes));
+#endif
+}
+inline void free_segment_buffer(unsigned char *ptr) {
+#ifdef REUSEX_USE_TENSORRT
+  checkRuntime(cudaFreeHost(ptr));
+#else
+  std::free(ptr);
+#endif
+}
+} // namespace
+
 SegmentMap::SegmentMap(int width, int height) {
   this->width = width;
   this->height = height;
-  checkRuntime(cudaMallocHost(&this->data, width * height));
+  this->data = alloc_segment_buffer(width * height);
 }
 
 SegmentMap::~SegmentMap() {
   if (this->data) {
-    checkRuntime(cudaFreeHost(this->data));
+    free_segment_buffer(this->data);
     this->data = nullptr;
   }
   this->width = 0;
@@ -112,7 +140,7 @@ SegmentMap::~SegmentMap() {
 SegmentMap &SegmentMap::operator=(SegmentMap &&other) noexcept {
   if (this != &other) {
     if (this->data) {
-      checkRuntime(cudaFreeHost(this->data));
+      free_segment_buffer(this->data);
     }
     width = std::exchange(other.width, 0);
     height = std::exchange(other.height, 0);

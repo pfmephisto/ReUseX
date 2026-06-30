@@ -313,8 +313,14 @@ void densify_from_images(ProjectDB &db, const DensifyParams &p) {
   attachOpenMVSLog();
 
   // -2 = CPU PatchMatch, -1 = best GPU, >=0 = specific CUDA device.
-  // Surfaced via the --gpu-index flag in rux create dense.
+  // Surfaced via the --gpu-index flag in rux create dense. SEACAVE::CUDA only
+  // exists when OpenMVS was built with CUDA (_USE_CUDA, set by its headers);
+  // a CPU/ROCm OpenMVS always runs the CPU PatchMatch.
+#ifdef _USE_CUDA
   SEACAVE::CUDA::desiredDeviceID = p.gpu_index;
+#else
+  (void)p.gpu_index;
+#endif
 
   reusex::info("OpenMVS densify workspace: {}", workspace.string());
 

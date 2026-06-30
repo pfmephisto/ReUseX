@@ -51,13 +51,15 @@ struct BearerAuthMiddleware {
   }
 
   void before_handle(crow::request &req, crow::response &res, context &ctx) {
-    // Record auth status for every request (public routes included) so
-    // handlers can vary output. With no token configured, auth is disabled and
-    // the environment is treated as trusted.
-    ctx.authenticated = token.empty() || has_valid_token(req);
+    // Record auth status for every request (public routes included) so handlers
+    // can vary output. Authenticated means a *valid* bearer token was
+    // presented — disabled auth (no token configured) is NOT authenticated, so
+    // privileged detail (e.g. /health) is never exposed without a correct
+    // token, even to requests carrying a wrong one.
+    ctx.authenticated = !token.empty() && has_valid_token(req);
 
     if (token.empty() || registry == nullptr) {
-      return; // auth disabled
+      return; // auth disabled — no enforcement
     }
     if (!registry->requires_auth(crow::method_name(req.method), req.url)) {
       return; // public route — flag set above, no enforcement

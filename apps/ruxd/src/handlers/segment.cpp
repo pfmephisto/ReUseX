@@ -8,12 +8,15 @@
 
 namespace ruxd {
 
-void register_segment_routes(crow::SimpleApp &app) {
+void register_segment_routes(crow::SimpleApp &app, EndpointRegistry &reg) {
   // Point cloud plane segmentation. Not yet implemented — logs the request and
   // returns a stub response. The future implementation will deserialize the
-  // request payload and call reusex::geometry::segment_planes(...).
-  CROW_ROUTE(app, "/segment/planes")
-      .methods(crow::HTTPMethod::POST)([](const crow::request &req) {
+  // request payload and call reusex::geometry::segment_planes(...). Marked as
+  // requiring authentication so the auth requirement is captured in the docs.
+  add_route(
+      app, reg,
+      {"POST", "/segment/planes", "Run point cloud plane segmentation", true},
+      [](const crow::request &req) {
         reusex::core::info(
             "POST /segment/planes — received segmentation request "
             "(not yet implemented), body size = {} bytes",

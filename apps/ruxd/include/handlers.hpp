@@ -12,6 +12,8 @@
 // handler file + a declaration here as the API grows — this keeps the route
 // surface discoverable without one giant main().
 
+#include <endpoints.hpp>
+
 #include <crow.h>
 #include <nlohmann/json.hpp>
 
@@ -28,10 +30,14 @@ inline crow::response json_response(crow::status code,
 }
 
 // GET / (liveness) and GET /health (overview of every configured backend).
-void register_health_routes(crow::SimpleApp &app, Clients &clients);
+void register_health_routes(crow::SimpleApp &app, EndpointRegistry &reg,
+                            Clients &clients);
 
 // Point cloud segmentation — POST /segment/planes (stub for now).
-void register_segment_routes(crow::SimpleApp &app);
+void register_segment_routes(crow::SimpleApp &app, EndpointRegistry &reg);
+
+// GET /endpoints and GET /openapi.json — generated from the registry.
+void register_meta_routes(crow::SimpleApp &app, EndpointRegistry &reg);
 
 // Catchall handler returning a JSON 404 for unmatched routes.
 void register_not_found_handler(crow::SimpleApp &app);

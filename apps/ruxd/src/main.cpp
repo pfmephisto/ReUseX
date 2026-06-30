@@ -157,9 +157,21 @@ int main(int argc, char **argv) {
 
   crow::SimpleApp app;
 
-  ruxd::register_health_routes(app, clients);
-  ruxd::register_segment_routes(app);
+  // Routes register through the endpoint registry, which backs /endpoints and
+  // /openapi.json.
+  ruxd::EndpointRegistry registry;
+  ruxd::register_health_routes(app, registry, clients);
+  ruxd::register_segment_routes(app, registry);
+  ruxd::register_meta_routes(app, registry);
   ruxd::register_not_found_handler(app);
+
+  // Fail fast if any registered route is missing a handler, and log the route
+  // table so the configured surface is reviewable at startup (-v).
+  app.validate();
+  for (const auto &e : registry.endpoints()) {
+    reusex::core::info("route: {:<5} {}{}", e.method, e.path,
+                       e.requires_auth ? "  [auth]" : "");
+  }
 
   app.port(cfg.port).multithreaded();
   if (cfg.threads > 0) {

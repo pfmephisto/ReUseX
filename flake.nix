@@ -27,7 +27,7 @@
     pyproject-nix,
     pre-commit-hooks,
   }:
-    flake-utils.lib.eachSystem ["x86_64-linux"] (
+    (flake-utils.lib.eachSystem ["x86_64-linux"] (
       system:
       # flake-utils.lib.eachDefaultSystem (system:
       let
@@ -125,10 +125,36 @@
                 !(pkg.meta.broken or false)
             )
             allPackages;
+
+          reusex = pkgs.callPackage ./default.nix {}; # ReUseX (provides bin/ruxd)
         in
           {
-            default = pkgs.callPackage ./default.nix {}; # ReUseX
+            default = reusex;
             rtabmap = pkgs.rtabmap;
+
+            # OCI image running ruxd as PID 1, for Docker/Podman/RunPod GPU
+            # workers. This is a CUDA image (multi-GB): ruxd links the full
+            # reusex stack (libtorch/TensorRT/CUDA/PCL/...). Run it with the
+            # nvidia container runtime on a GPU host; libcuda is provided by the
+            # host driver, never bundled. Build + load with:
+            #   nix build .#ruxd-container && docker load < result
+            ruxd-container = pkgs.dockerTools.buildLayeredImage {
+              name = "ruxd";
+              tag = "latest";
+              contents = [reusex pkgs.cacert];
+              config = {
+                Entrypoint = ["${reusex}/bin/ruxd"];
+                ExposedPorts = {"8080/tcp" = {};};
+                Env = [
+                  "RUXD_PORT=8080"
+                  "SSL_CERT_FILE=/etc/ssl/certs/ca-bundle.crt"
+                  # Consumed by the nvidia container runtime to inject the host
+                  # GPU + driver (libcuda) at runtime.
+                  "NVIDIA_VISIBLE_DEVICES=all"
+                  "NVIDIA_DRIVER_CAPABILITIES=compute,utility"
+                ];
+              };
+            };
           }
           # All custom packages (excluding broken ones)
           // nonBrokenPackages; # end of packages
@@ -154,5 +180,13 @@
               builtins.listToAttrs (builtins.map toShellAttr shellNames)
           ); # end of devShells
       }
-    ); # end of outputs
+    ))
+    # System-independent outputs (merged with the per-system set above).
+    // {
+      # NixOS module for deploying ruxd as a systemd service (e.g. using a
+      # local NixOS host as an on-demand worker). Import and set
+      # `services.ruxd.enable = true`.
+      nixosModules.ruxd = import ./modules/ruxd.nix {inherit self;};
+      nixosModules.default = self.nixosModules.ruxd;
+    }; # end of outputs
 }

@@ -6,9 +6,10 @@
 # for testing the ruxd service worker, orchestrated by process-compose. Enter
 # with `nix develop .#services` and run `services up`.
 #
-# The backend connection env vars that ruxd reads (DATABASE_URL, REDIS_URL,
-# AWS_*, RUXD_S3_BUCKET) are exported here, so once the stack is up you can run
-# `ruxd` with no extra flags and it will connect to the local services.
+# The env vars that ruxd reads (DATABASE_URL, REDIS_URL, AWS_*, RUXD_S3_BUCKET
+# and a static dev RUXD_AUTH_TOKEN) are exported here, so once the stack is up
+# you can run `ruxd` with no extra flags and it connects to the local services
+# with auth enabled.
 {
   pkgs,
   self,
@@ -28,7 +29,9 @@
     echo "    DATABASE_URL=$DATABASE_URL"
     echo "    REDIS_URL=$REDIS_URL"
     echo "    AWS_ENDPOINT_URL=$AWS_ENDPOINT_URL  bucket=$RUXD_S3_BUCKET"
+    echo "    RUXD_AUTH_TOKEN=$RUXD_AUTH_TOKEN  (dev token)"
     echo "  Just run:  ruxd -v        (no backend flags needed)"
+    echo "  Authenticated routes:  curl -H \"Authorization: Bearer $RUXD_AUTH_TOKEN\" ..."
     echo ""
     echo "  State lives under .dev/ (git-ignored); delete it to reset."
     echo ""
@@ -71,6 +74,10 @@ in
     AWS_SECRET_ACCESS_KEY = "ruxadmin123";
     AWS_REGION = "us-east-1";
     RUXD_S3_BUCKET = "reusex";
+
+    # Static dev Bearer token (nil UUID). Enables auth locally without a DB.
+    # In production, valid tokens will be looked up in PostgreSQL instead.
+    RUXD_AUTH_TOKEN = "00000000-0000-0000-0000-000000000000";
 
     shellHook = motd;
   }

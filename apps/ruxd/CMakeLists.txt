@@ -6,6 +6,7 @@ cmake_minimum_required(VERSION 3.17)
 project(RuxDaemon)
 
 find_package(Crow CONFIG REQUIRED)
+find_package(CLI11 CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
 find_package(nlohmann_json REQUIRED)
 find_package(Threads REQUIRED)
@@ -18,6 +19,7 @@ target_include_directories(ruxd PRIVATE include)
 target_link_libraries(ruxd PRIVATE
     reusex
     Crow::Crow
+    CLI11::CLI11
     spdlog::spdlog
     nlohmann_json::nlohmann_json
     Threads::Threads

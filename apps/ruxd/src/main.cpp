@@ -19,15 +19,14 @@
 #include <reusex/core/logging.hpp>
 #include <reusex/core/version.hpp>
 
+#include <CLI/CLI.hpp>
 #include <crow.h>
 #include <spdlog/async.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
 
 #include <cstdint>
-#include <cstdlib>
 #include <string>
-#include <string_view>
 
 namespace {
 
@@ -72,36 +71,30 @@ void setup_logging() {
   reusex::core::set_log_level(reusex::core::LogLevel::info);
 }
 
-// Read an unsigned setting from --<flag> <n> or $<env>, falling back to
-// fallback when neither is present.
-unsigned resolve_uint(int argc, char **argv, std::string_view flag,
-                      const char *env, unsigned fallback) {
-  for (int i = 1; i + 1 < argc; ++i) {
-    if (std::string_view(argv[i]) == flag) {
-      return static_cast<unsigned>(std::stoul(argv[i + 1]));
-    }
-  }
-  if (const char *value = std::getenv(env)) {
-    return static_cast<unsigned>(std::stoul(value));
-  }
-  return fallback;
-}
-
 } // namespace
 
 int main(int argc, char **argv) {
+  CLI::App cli{"ruxd: ReUseX HTTP service worker."};
+
+  std::uint16_t port = 8080;
+  // 0 lets Crow pick a sensible default (hardware concurrency).
+  unsigned threads = 0;
+
+  cli.add_option("-p,--port", port, "Port to listen on")
+      ->envname("RUXD_PORT")
+      ->capture_default_str();
+  cli.add_option("-t,--threads", threads,
+                 "Number of worker threads (0 = auto)")
+      ->envname("RUXD_THREADS")
+      ->capture_default_str();
+
+  CLI11_PARSE(cli, argc, argv);
+
   setup_logging();
 
   // Prove the reusex library is linked and callable.
   reusex::core::info("ReUseX library linked, version {}",
                      reusex::core::VERSION);
-
-  const auto port =
-      static_cast<std::uint16_t>(resolve_uint(argc, argv, "--port", "RUXD_PORT",
-                                              8080));
-  // 0 lets Crow pick a sensible default (hardware concurrency).
-  const unsigned threads =
-      resolve_uint(argc, argv, "--threads", "RUXD_THREADS", 0);
 
   crow::SimpleApp app;
 

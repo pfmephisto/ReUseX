@@ -80,18 +80,23 @@ in
       [
         cmake
         pkg-config
-        cudatoolkit
         qt6.qtbase
         # qt6Packages.wrapQtAppsHook
         # qt6.wrapQtAppsHook
         qt6.wrapQtAppsNoGuiHook
         blender.pythonPackages.python # Pin Python version to Blender's (3.11)
       ]
-      # addDriverRunpath ships an `addDriverRunpath` shell helper that patches a
-      # binary's RUNPATH to include /run/opengl-driver/lib. On NixOS the real
-      # libcuda.so lives there, not in any Nix store path — without this any
-      # CUDA-using binary fails at runtime with cudaErrorStubLibrary.
-      ++ lib.optional cudaSupport addDriverRunpath;
+      # CUDA-only build tools:
+      # - cudatoolkit provides nvcc, required to compile the .cu sources and for
+      #   CMake's `enable_language(CUDA)`.
+      # - addDriverRunpath ships a helper that patches a binary's RUNPATH to
+      #   include /run/opengl-driver/lib. On NixOS the real libcuda.so lives
+      #   there, not in any Nix store path — without this any CUDA-using binary
+      #   fails at runtime with cudaErrorStubLibrary.
+      ++ lib.optionals cudaSupport [
+        cudatoolkit
+        addDriverRunpath
+      ];
 
     buildInputs =
       [
@@ -122,8 +127,6 @@ in
 
         opencv
         cli11
-
-        trtsam3
 
         #libtorch-bin
         libtorch
@@ -163,17 +166,19 @@ in
         # must be on the linker search path at consumer link time.
         libjxl
       ]
-      ++ (
-        if cudaSupport
-        then
-          with cudaPackages;
-            [
-              cuda_cudart
-              cudnn
-            ]
-            # cuOpt is optional GPU solver
-            ++ [cuOpt]
-        else []
+      # CUDA-only runtime dependencies. trtsam3 is the TensorRT-based SAM
+      # backend and cuOpt is the GPU MIP/LP solver — both are inherently CUDA;
+      # the vision/solver code paths that use them are gated out by CMake when
+      # the backends aren't found.
+      ++ lib.optionals cudaSupport (
+        [
+          trtsam3
+          cuOpt
+        ]
+        ++ (with cudaPackages; [
+          cuda_cudart
+          cudnn
+        ])
       );
 
     dontWrapQtApps = true;

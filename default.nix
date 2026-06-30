@@ -40,6 +40,11 @@
   curl,
   crow,
   asio,
+  libpqxx,
+  libpq,
+  redis-plus-plus,
+  hiredis,
+  aws-sdk-cpp-s3,
   nlohmann_json,
   openssl,
   #libtorch-bin,
@@ -134,6 +139,15 @@ in
         # Crow HTTP server (+ asio backend) for the `ruxd` service worker
         crow
         asio
+        # Backend clients for the `ruxd` service worker:
+        #   libpqxx        — PostgreSQL (job/metadata store)
+        #   redis-plus-plus — Redis (cache / queue), built on hiredis
+        #   aws-sdk-cpp-s3  — S3 object storage (s3-only build, see overlay)
+        libpqxx
+        libpq
+        redis-plus-plus
+        hiredis
+        aws-sdk-cpp-s3
         nlohmann_json
         openssl
         exiv2

@@ -17,6 +17,8 @@
 
 namespace ruxd {
 
+struct Clients;
+
 // Build a JSON crow::response with the Content-Type header set.
 inline crow::response json_response(crow::status code,
                                     const nlohmann::json &body) {
@@ -33,5 +35,8 @@ void register_segment_routes(crow::SimpleApp &app);
 
 // Catchall handler returning a JSON 404 for unmatched routes.
 void register_not_found_handler(crow::SimpleApp &app);
+
+// Readiness probe — GET /ready, pings every configured backend.
+void register_ready_routes(crow::SimpleApp &app, Clients &clients);
 
 } // namespace ruxd

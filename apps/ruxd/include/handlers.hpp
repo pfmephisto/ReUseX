@@ -27,16 +27,13 @@ inline crow::response json_response(crow::status code,
   return res;
 }
 
-// Liveness probe — GET /health.
-void register_health_routes(crow::SimpleApp &app);
+// GET / (liveness) and GET /health (overview of every configured backend).
+void register_health_routes(crow::SimpleApp &app, Clients &clients);
 
 // Point cloud segmentation — POST /segment/planes (stub for now).
 void register_segment_routes(crow::SimpleApp &app);
 
 // Catchall handler returning a JSON 404 for unmatched routes.
 void register_not_found_handler(crow::SimpleApp &app);
-
-// Readiness probe — GET /ready, pings every configured backend.
-void register_ready_routes(crow::SimpleApp &app, Clients &clients);
 
 } // namespace ruxd

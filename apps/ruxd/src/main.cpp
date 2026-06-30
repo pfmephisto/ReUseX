@@ -157,8 +157,7 @@ int main(int argc, char **argv) {
 
   crow::SimpleApp app;
 
-  ruxd::register_health_routes(app);
-  ruxd::register_ready_routes(app, clients);
+  ruxd::register_health_routes(app, clients);
   ruxd::register_segment_routes(app);
   ruxd::register_not_found_handler(app);
 

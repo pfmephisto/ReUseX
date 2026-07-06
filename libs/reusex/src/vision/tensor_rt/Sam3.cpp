@@ -174,92 +174,106 @@ TensorRTSam3::forward(const std::span<IDataset::Pair> &input) {
 
   AutoDevice device_guard(gpu_id_);
 
-  std::vector<PromptMeta> all_prompts;
-  int max_boxes_input = 0;
-
-  // Loop over all inputs and prompts to construct a list of all operations
-  for (size_t i = 0; i < tensor_inputs.size(); ++i) {
-
-    if (tensor_inputs[i]->prompts.empty()) {
-      all_prompts.push_back({(int)i, -1, nullptr});
-      continue;
-    }
-
-    for (size_t j = 0; j < tensor_inputs[i]->prompts.size(); ++j) {
-      all_prompts.push_back({(int)i, (int)j, &tensor_inputs[i]->prompts[j]});
-
-      // Track max box count across all prompts for current batch
-      // (for geometry encoder input allocation)
-      if ((int)tensor_inputs[i]->prompts[j].boxes.size() > max_boxes_input)
-        max_boxes_input = (int)tensor_inputs[i]->prompts[j].boxes.size();
-    }
-  }
-
-  // 3. Vision Encoder (process all images at once)
-  int num_images = tensor_inputs.size();
-  for (int i = 0; i < num_images; ++i)
-    preprocess(*tensor_inputs[i], i, stream);
-
-  if (!encode_image(num_images, stream)) {
-    return results_img;
-    // return InferResultArray(num_images);
-  }
-
-  // 4. Decoder batch loop (Batch Splitting)
+  const int num_images = (int)tensor_inputs.size();
   InferResultArray results(num_images);
-  int total_prompts = all_prompts.size();
 
-  bool use_geom = !geometry_encoder_path_.empty() && max_boxes_input > 0;
+  // The vision-encoder buffers (preprocessed images, FPN features, per-image
+  // sizes/affine matrices) are all sized to max_image_batch_. To support an
+  // arbitrary input batch we process images in chunks of max_image_batch_.
+  // Within a chunk, image indices are chunk-local (0..chunk_images-1) — which
+  // is what preprocess/encode_image/gather_vision_features/postprocess expect —
+  // while results and inputs are addressed by the global image index
+  // (img_chunk_start + local).
+  for (int img_chunk_start = 0; img_chunk_start < num_images;
+       img_chunk_start += max_image_batch_) {
+    const int img_chunk_end =
+        std::min(img_chunk_start + max_image_batch_, num_images);
+    const int chunk_images = img_chunk_end - img_chunk_start;
 
-  // If actual Box count exceeds preset GPU memory allocation, truncate
-  // (prevent overflow)
-  if (max_boxes_input > max_boxes_per_prompt_)
-    max_boxes_input = max_boxes_per_prompt_;
+    // 3. Vision Encoder — preprocess + encode this image chunk (local indices).
+    for (int li = 0; li < chunk_images; ++li)
+      preprocess(*tensor_inputs[img_chunk_start + li], li, stream);
 
-  int prompt_len = text_ids_shape_[1] + (use_geom ? (max_boxes_input + 1) : 0);
-
-  for (int chunk_start = 0; chunk_start < total_prompts;
-       chunk_start += max_prompt_batch_) {
-    int chunk_end = std::min(chunk_start + max_prompt_batch_, total_prompts);
-    int current_batch_size = chunk_end - chunk_start;
-
-    // Construct Prompt list for current Batch
-    std::vector<PromptMeta> batch_prompts(all_prompts.begin() + chunk_start,
-                                          all_prompts.begin() + chunk_end);
-
-    // a. Gather Vision Features (gather from N images' features to M
-    // Prompts in current batch Prompt features)
-    gather_vision_features(batch_prompts, current_batch_size, stream);
-
-    // b. Encode Text
-    if (!encode_text(batch_prompts, current_batch_size, stream))
+    if (!encode_image(chunk_images, stream)) {
+      reusex::error("Vision encoder failed for image chunk [{}, {}); skipping",
+                    img_chunk_start, img_chunk_end);
       continue;
-
-    // c. Encode Geometry
-    if (use_geom) {
-      if (!encode_boxes(batch_prompts, current_batch_size, max_boxes_input,
-                        stream))
-        continue;
     }
 
-    // d. Decode
-    if (!decode(current_batch_size, prompt_len, stream))
-      continue;
+    // Build this chunk's prompt list, tagged with chunk-local image indices.
+    std::vector<PromptMeta> chunk_prompts;
+    int max_boxes_input = 0;
+    for (int li = 0; li < chunk_images; ++li) {
+      const int gi = img_chunk_start + li;
+      if (tensor_inputs[gi]->prompts.empty()) {
+        chunk_prompts.push_back({li, -1, nullptr});
+        continue;
+      }
+      for (size_t j = 0; j < tensor_inputs[gi]->prompts.size(); ++j) {
+        chunk_prompts.push_back({li, (int)j, &tensor_inputs[gi]->prompts[j]});
+        // Track max box count for geometry-encoder input allocation.
+        if ((int)tensor_inputs[gi]->prompts[j].boxes.size() > max_boxes_input)
+          max_boxes_input = (int)tensor_inputs[gi]->prompts[j].boxes.size();
+      }
+    }
 
-    // e. Postprocess & Collect Results
-    for (int k = 0; k < current_batch_size; ++k) {
-      const auto &meta = batch_prompts[k];
-      std::string label = "object";
-      if (meta.ptr && !meta.ptr->text.empty())
-        label = meta.ptr->text;
+    const bool use_geom =
+        !geometry_encoder_path_.empty() && max_boxes_input > 0;
+    // Truncate box count to the preset GPU allocation to prevent overflow.
+    if (max_boxes_input > max_boxes_per_prompt_)
+      max_boxes_input = max_boxes_per_prompt_;
+    const int prompt_len =
+        text_ids_shape_[1] + (use_geom ? (max_boxes_input + 1) : 0);
 
-      // float conf = 0.05;
-      float conf = tensor_inputs[meta.image_idx]->confidence_threshold;
-      const int label_idx = std::get<2>(text_input_map_[label]);
+    // 4. Decoder batch loop — split this chunk's prompts by max_prompt_batch_.
+    const int total_prompts = (int)chunk_prompts.size();
+    for (int chunk_start = 0; chunk_start < total_prompts;
+         chunk_start += max_prompt_batch_) {
+      const int chunk_end =
+          std::min(chunk_start + max_prompt_batch_, total_prompts);
+      const int current_batch_size = chunk_end - chunk_start;
 
-      // Write result to corresponding image_idx
-      postprocess(results[meta.image_idx], k, meta.image_idx, label, label_idx,
-                  conf, return_mask, stream);
+      // Construct Prompt list for current Batch
+      std::vector<PromptMeta> batch_prompts(
+          chunk_prompts.begin() + chunk_start,
+          chunk_prompts.begin() + chunk_end);
+
+      // a. Gather Vision Features (chunk-local image_idx -> prompt slots)
+      gather_vision_features(batch_prompts, current_batch_size, stream);
+
+      // b. Encode Text
+      if (!encode_text(batch_prompts, current_batch_size, stream))
+        continue;
+
+      // c. Encode Geometry
+      if (use_geom) {
+        if (!encode_boxes(batch_prompts, current_batch_size, max_boxes_input,
+                          stream))
+          continue;
+      }
+
+      // d. Decode
+      if (!decode(current_batch_size, prompt_len, stream))
+        continue;
+
+      // e. Postprocess & Collect Results. meta.image_idx is chunk-local (used
+      // by postprocess for the per-chunk buffers); results/inputs use the
+      // global image index.
+      for (int k = 0; k < current_batch_size; ++k) {
+        const auto &meta = batch_prompts[k];
+        const int global_idx = img_chunk_start + meta.image_idx;
+
+        std::string label = "object";
+        if (meta.ptr && !meta.ptr->text.empty())
+          label = meta.ptr->text;
+
+        const float conf = tensor_inputs[global_idx]->confidence_threshold;
+        const int label_idx = std::get<2>(text_input_map_[label]);
+
+        // Write result to the corresponding global image index.
+        postprocess(results[global_idx], k, meta.image_idx, label, label_idx,
+                    conf, return_mask, stream);
+      }
     }
   }
 

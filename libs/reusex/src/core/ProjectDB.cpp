@@ -21,10 +21,36 @@
 #include <algorithm>
 #include <cstring>
 #include <fstream>
+#include <random>
 #include <sstream>
 #include <string>
 
 namespace reusex {
+
+// Generate a UUID-v4-like identifier for building components.
+static std::string generate_component_guid() {
+  std::random_device rd;
+  std::mt19937 gen(rd());
+  std::uniform_int_distribution<> dis(0, 15);
+  std::uniform_int_distribution<> dis2(8, 11);
+  std::stringstream ss;
+  ss << std::hex;
+  for (int i = 0; i < 8; i++)
+    ss << dis(gen);
+  ss << "-";
+  for (int i = 0; i < 4; i++)
+    ss << dis(gen);
+  ss << "-4";
+  for (int i = 0; i < 3; i++)
+    ss << dis(gen);
+  ss << "-" << dis2(gen);
+  for (int i = 0; i < 3; i++)
+    ss << dis(gen);
+  ss << "-";
+  for (int i = 0; i < 12; i++)
+    ss << dis(gen);
+  return ss.str();
+}
 
 // ── RAII helper for sqlite3_stmt ────────────────────────────────────────
 class StmtGuard {
@@ -181,7 +207,7 @@ class ProjectDB::Impl {
   sqlite3 *db = nullptr;
 
   // cppcheck-suppress unusedStructMember
-  static constexpr int LATEST_SCHEMA_VERSION = 7;
+  static constexpr int LATEST_SCHEMA_VERSION = 9;
 
   // Maximum bytes per point_cloud_data row. SQLite's default SQLITE_MAX_LENGTH
   // is 1 GB and the hard compile-time max is 2 GB-1. We chunk large clouds
@@ -328,6 +354,14 @@ class ProjectDB::Impl {
 
     if (current < 7) {
       migrateToV7();
+    }
+
+    if (current < 8) {
+      migrateToV8();
+    }
+
+    if (current < 9) {
+      migrateToV9();
     }
 
     reusex::trace("Schema version: {}", getCurrentSchemaVersion());
@@ -600,6 +634,96 @@ class ProjectDB::Impl {
 
     insertSchemaVersion(7, "Chunked point_cloud_data for large clouds");
     reusex::info("Migration to schema version 7 complete");
+  }
+
+  void migrateToV8() {
+    reusex::info("Migrating database to schema version 8");
+
+    // Add a stable, immutable guid to building components so CSV rows can be
+    // edited (including renames) and reimported by matching on the guid.
+    // SQLite can't add a UNIQUE column via ALTER, so we add the column,
+    // backfill unique guids per row, then create a UNIQUE index.
+    if (tableExists("building_components")) {
+      char *errMsg = nullptr;
+      if (sqlite3_exec(db,
+                       "ALTER TABLE building_components ADD COLUMN guid TEXT;",
+                       nullptr, nullptr, &errMsg) != SQLITE_OK) {
+        std::string error = errMsg ? errMsg : "unknown error";
+        sqlite3_free(errMsg);
+        throw std::runtime_error("Migration to v8 failed (add column): " +
+                                 error);
+      }
+
+      // Backfill existing rows with generated guids.
+      std::vector<int> ids;
+      {
+        const char *sel = "SELECT id FROM building_components "
+                          "WHERE guid IS NULL OR guid = '';";
+        sqlite3_stmt *stmt;
+        if (sqlite3_prepare_v2(db, sel, -1, &stmt, nullptr) != SQLITE_OK)
+          throw std::runtime_error("Migration to v8 failed (select ids): " +
+                                   std::string(sqlite3_errmsg(db)));
+        StmtGuard guard(stmt);
+        while (sqlite3_step(stmt) == SQLITE_ROW)
+          ids.push_back(sqlite3_column_int(stmt, 0));
+      }
+      for (int id : ids) {
+        std::string guid = generate_component_guid();
+        const char *upd =
+            "UPDATE building_components SET guid = ? WHERE id = ?;";
+        sqlite3_stmt *stmt;
+        if (sqlite3_prepare_v2(db, upd, -1, &stmt, nullptr) != SQLITE_OK)
+          throw std::runtime_error("Migration to v8 failed (backfill): " +
+                                   std::string(sqlite3_errmsg(db)));
+        StmtGuard guard(stmt);
+        sqlite3_bind_text(stmt, 1, guid.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int(stmt, 2, id);
+        if (sqlite3_step(stmt) != SQLITE_DONE)
+          throw std::runtime_error("Migration to v8 failed (backfill step): " +
+                                   std::string(sqlite3_errmsg(db)));
+      }
+
+      if (sqlite3_exec(db,
+                       "CREATE UNIQUE INDEX IF NOT EXISTS "
+                       "idx_building_components_guid "
+                       "ON building_components(guid);",
+                       nullptr, nullptr, &errMsg) != SQLITE_OK) {
+        std::string error = errMsg ? errMsg : "unknown error";
+        sqlite3_free(errMsg);
+        throw std::runtime_error("Migration to v8 failed (index): " + error);
+      }
+    }
+
+    insertSchemaVersion(8, "Add guid to building_components");
+    reusex::info("Migration to schema version 8 complete");
+  }
+
+  void migrateToV9() {
+    reusex::info("Migrating database to schema version 9");
+
+    // Link table: one material passport guid per instance (a label value in an
+    // instance-label cloud). Stores only a reference — points/labels stay in
+    // the cloud, material data stays in the passport tables.
+    const char *v9_schema = R"(
+      CREATE TABLE IF NOT EXISTS instance_materials (
+        cloud_id      INTEGER NOT NULL REFERENCES point_clouds(id) ON DELETE CASCADE,
+        instance_id   INTEGER NOT NULL,
+        material_guid TEXT NOT NULL,
+        PRIMARY KEY (cloud_id, instance_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_instance_materials_guid
+        ON instance_materials(material_guid);
+    )";
+
+    char *errMsg = nullptr;
+    if (sqlite3_exec(db, v9_schema, nullptr, nullptr, &errMsg) != SQLITE_OK) {
+      std::string error = errMsg ? errMsg : "unknown error";
+      sqlite3_free(errMsg);
+      throw std::runtime_error("Migration to v9 failed: " + error);
+    }
+
+    insertSchemaVersion(9, "Add instance_materials link table");
+    reusex::info("Migration to schema version 9 complete");
   }
 
   // ── MTL parsing helpers ─────────────────────────────────────────────
@@ -1682,6 +1806,74 @@ class ProjectDB::Impl {
       const char *name =
           reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1));
       result[id] = name;
+    }
+    return result;
+  }
+
+  // ── Instance ↔ material links ──────────────────────────────────────
+
+  void setInstanceMaterial(std::string_view cloudName, int instanceId,
+                           std::string_view materialGuid) {
+    int cloudId = getCloudId(cloudName);
+    const char *sql = R"(
+      INSERT INTO instance_materials (cloud_id, instance_id, material_guid)
+      VALUES (?, ?, ?)
+      ON CONFLICT(cloud_id, instance_id)
+        DO UPDATE SET material_guid = excluded.material_guid;
+    )";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to prepare instance material upsert: " +
+                               std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+    sqlite3_bind_int(stmt, 1, cloudId);
+    sqlite3_bind_int(stmt, 2, instanceId);
+    sqlite3_bind_text(stmt, 3, materialGuid.data(),
+                      static_cast<int>(materialGuid.size()), SQLITE_TRANSIENT);
+    if (sqlite3_step(stmt) != SQLITE_DONE)
+      throw std::runtime_error("Failed to set instance material: " +
+                               std::string(sqlite3_errmsg(db)));
+  }
+
+  std::optional<std::string> instanceMaterialGuid(std::string_view cloudName,
+                                                  int instanceId) const {
+    int cloudId = getCloudId(cloudName);
+    const char *sql = "SELECT material_guid FROM instance_materials "
+                      "WHERE cloud_id = ? AND instance_id = ?;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to query instance material: " +
+                               std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+    sqlite3_bind_int(stmt, 1, cloudId);
+    sqlite3_bind_int(stmt, 2, instanceId);
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+      const char *g =
+          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
+      if (g)
+        return std::string(g);
+    }
+    return std::nullopt;
+  }
+
+  std::map<int, std::string>
+  getInstanceMaterials(std::string_view cloudName) const {
+    int cloudId = getCloudId(cloudName);
+    const char *sql = "SELECT instance_id, material_guid FROM instance_materials "
+                      "WHERE cloud_id = ? ORDER BY instance_id;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to query instance materials: " +
+                               std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+    sqlite3_bind_int(stmt, 1, cloudId);
+    std::map<int, std::string> result;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+      int id = sqlite3_column_int(stmt, 0);
+      const char *g =
+          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1));
+      if (g)
+        result[id] = g;
     }
     return result;
   }
@@ -2989,10 +3181,14 @@ class ProjectDB::Impl {
     std::string typeStr(geometry::to_string(c.type));
     std::string metadataJson = geometry::component_data_to_json(c);
 
+    // Generate a stable guid on first save; preserved across updates because
+    // guid is intentionally omitted from the ON CONFLICT update clause.
+    std::string guid = c.guid.empty() ? generate_component_guid() : c.guid;
+
     const char *upsert = R"(
       INSERT INTO building_components
-        (name, type, vertex_data, vertex_count, plane, parent_id, confidence, metadata, notes)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (name, guid, type, vertex_data, vertex_count, plane, parent_id, confidence, metadata, notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(name) DO UPDATE SET
         type = excluded.type,
         vertex_data = excluded.vertex_data,
@@ -3012,38 +3208,77 @@ class ProjectDB::Impl {
     StmtGuard guard(stmt);
 
     sqlite3_bind_text(stmt, 1, c.name.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 2, typeStr.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_blob(stmt, 3, vertexBlob.data(),
+    sqlite3_bind_text(stmt, 2, guid.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 3, typeStr.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_blob(stmt, 4, vertexBlob.data(),
                       static_cast<int>(vertexBlob.size()), SQLITE_TRANSIENT);
-    sqlite3_bind_int(stmt, 4, static_cast<int>(c.boundary.vertices.size()));
+    sqlite3_bind_int(stmt, 5, static_cast<int>(c.boundary.vertices.size()));
 
     // Plane: 4 * sizeof(double) = 32 bytes
-    sqlite3_bind_blob(stmt, 5, c.boundary.plane.data(),
+    sqlite3_bind_blob(stmt, 6, c.boundary.plane.data(),
                       static_cast<int>(4 * sizeof(double)), SQLITE_TRANSIENT);
 
-    sqlite3_bind_int(stmt, 6, c.parent_id);
-    sqlite3_bind_double(stmt, 7, c.confidence);
+    sqlite3_bind_int(stmt, 7, c.parent_id);
+    sqlite3_bind_double(stmt, 8, c.confidence);
 
     if (!metadataJson.empty())
-      sqlite3_bind_text(stmt, 8, metadataJson.c_str(), -1, SQLITE_TRANSIENT);
-    else
-      sqlite3_bind_null(stmt, 8);
-
-    if (!c.notes.empty())
-      sqlite3_bind_text(stmt, 9, c.notes.c_str(), -1, SQLITE_TRANSIENT);
+      sqlite3_bind_text(stmt, 9, metadataJson.c_str(), -1, SQLITE_TRANSIENT);
     else
       sqlite3_bind_null(stmt, 9);
+
+    if (!c.notes.empty())
+      sqlite3_bind_text(stmt, 10, c.notes.c_str(), -1, SQLITE_TRANSIENT);
+    else
+      sqlite3_bind_null(stmt, 10);
 
     if (sqlite3_step(stmt) != SQLITE_DONE)
       throw std::runtime_error("Failed to upsert building component: " +
                                std::string(sqlite3_errmsg(db)));
   }
 
+  // Update an existing component's mutable fields, matched by its immutable
+  // guid (so renames don't create a new row). Geometry is left untouched.
+  void updateBuildingComponentByGuid(const geometry::BuildingComponent &c) {
+    std::string typeStr(geometry::to_string(c.type));
+    std::string metadataJson = geometry::component_data_to_json(c);
+
+    const char *sql = R"(
+      UPDATE building_components SET
+        name = ?, type = ?, parent_id = ?, confidence = ?,
+        metadata = ?, notes = ?
+      WHERE guid = ?;
+    )";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to prepare component update: " +
+                               std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+    sqlite3_bind_text(stmt, 1, c.name.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, typeStr.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 3, c.parent_id);
+    sqlite3_bind_double(stmt, 4, c.confidence);
+    if (!metadataJson.empty())
+      sqlite3_bind_text(stmt, 5, metadataJson.c_str(), -1, SQLITE_TRANSIENT);
+    else
+      sqlite3_bind_null(stmt, 5);
+    if (!c.notes.empty())
+      sqlite3_bind_text(stmt, 6, c.notes.c_str(), -1, SQLITE_TRANSIENT);
+    else
+      sqlite3_bind_null(stmt, 6);
+    sqlite3_bind_text(stmt, 7, c.guid.c_str(), -1, SQLITE_TRANSIENT);
+
+    if (sqlite3_step(stmt) != SQLITE_DONE)
+      throw std::runtime_error("Failed to update building component: " +
+                               std::string(sqlite3_errmsg(db)));
+    if (sqlite3_changes(db) == 0)
+      throw std::runtime_error("No building component with guid: " + c.guid);
+  }
+
   geometry::BuildingComponent
   getBuildingComponent(std::string_view name) const {
     const char *sql = R"(
       SELECT name, type, vertex_data, vertex_count, plane,
-             parent_id, confidence, metadata, notes
+             parent_id, confidence, metadata, notes, guid
       FROM building_components WHERE name = ?;
     )";
     sqlite3_stmt *stmt;
@@ -3092,6 +3327,12 @@ class ProjectDB::Impl {
         reinterpret_cast<const char *>(sqlite3_column_text(stmt, 8));
     if (notesText)
       c.notes = notesText;
+
+    // Guid
+    const char *guidText =
+        reinterpret_cast<const char *>(sqlite3_column_text(stmt, 9));
+    if (guidText)
+      c.guid = guidText;
 
     return c;
   }
@@ -3674,6 +3915,23 @@ void ProjectDB::save_label_definitions(
 std::map<int, std::string>
 ProjectDB::label_definitions(std::string_view cloudName) const {
   return impl_->getLabelDefinitions(cloudName);
+}
+
+void ProjectDB::set_instance_material(std::string_view cloudName,
+                                      int instanceId,
+                                      std::string_view materialGuid) {
+  impl_->setInstanceMaterial(cloudName, instanceId, materialGuid);
+}
+
+std::optional<std::string>
+ProjectDB::instance_material_guid(std::string_view cloudName,
+                                  int instanceId) const {
+  return impl_->instanceMaterialGuid(cloudName, instanceId);
+}
+
+std::map<int, std::string>
+ProjectDB::instance_materials(std::string_view cloudName) const {
+  return impl_->getInstanceMaterials(cloudName);
 }
 
 // --- Mesh Operations ---
@@ -4288,6 +4546,11 @@ std::vector<std::string> ProjectDB::list_project_ids() const {
 void ProjectDB::save_building_component(
     const geometry::BuildingComponent &component) {
   impl_->saveBuildingComponent(component);
+}
+
+void ProjectDB::update_building_component_by_guid(
+    const geometry::BuildingComponent &component) {
+  impl_->updateBuildingComponentByGuid(component);
 }
 
 geometry::BuildingComponent

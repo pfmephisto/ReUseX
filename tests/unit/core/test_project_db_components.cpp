@@ -58,11 +58,11 @@ static BuildingComponent make_door(const std::string &name) {
   return c;
 }
 
-TEST_CASE("ProjectDB schema version 4 on fresh DB",
+TEST_CASE("ProjectDB latest schema version on fresh DB",
           "[projectdb][components]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
-  REQUIRE(db.schema_version() == 7);
+  REQUIRE(db.schema_version() == 9);
 }
 
 TEST_CASE("ProjectDB building component save/load round-trip",
@@ -231,4 +231,87 @@ TEST_CASE("ProjectDB door data round-trip with all fields",
   auto &dd = std::get<DoorData>(loaded.data);
   REQUIRE(dd.style == "single");
   REQUIRE(dd.swing == "left");
+}
+
+TEST_CASE("ProjectDB auto-generates a guid on save",
+          "[projectdb][components][guid]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+
+  auto c = make_window("win1"); // guid empty
+  REQUIRE(c.guid.empty());
+  db.save_building_component(c);
+
+  auto loaded = db.building_component("win1");
+  REQUIRE_FALSE(loaded.guid.empty());
+  // UUID-v4-like: contains hyphens.
+  REQUIRE(loaded.guid.find('-') != std::string::npos);
+}
+
+TEST_CASE("ProjectDB honours a caller-supplied guid",
+          "[projectdb][components][guid]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+
+  auto c = make_window("win1");
+  c.guid = "my-fixed-guid";
+  db.save_building_component(c);
+
+  REQUIRE(db.building_component("win1").guid == "my-fixed-guid");
+}
+
+TEST_CASE("ProjectDB guid is stable across upsert",
+          "[projectdb][components][guid]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+
+  db.save_building_component(make_window("win1"));
+  std::string g1 = db.building_component("win1").guid;
+
+  // Re-save under the same name with different fields.
+  auto c2 = make_window("win1");
+  c2.confidence = 0.10;
+  db.save_building_component(c2);
+
+  std::string g2 = db.building_component("win1").guid;
+  REQUIRE(g1 == g2);
+}
+
+TEST_CASE("ProjectDB update_building_component_by_guid renames and edits",
+          "[projectdb][components][guid]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+
+  db.save_building_component(make_window("win1"));
+  auto c = db.building_component("win1");
+  std::string guid = c.guid;
+
+  // Edit mutable fields, including a rename.
+  c.name = "renamed_window";
+  c.notes = "edited via csv";
+  c.confidence = 0.42;
+  c.parent_id = 7;
+  std::get<WindowData>(c.data).pane_count = 4;
+  db.update_building_component_by_guid(c);
+
+  REQUIRE_FALSE(db.has_building_component("win1")); // old name gone
+  REQUIRE(db.has_building_component("renamed_window"));
+
+  auto loaded = db.building_component("renamed_window");
+  REQUIRE(loaded.guid == guid); // guid preserved
+  REQUIRE(loaded.notes == "edited via csv");
+  REQUIRE(loaded.confidence == Approx(0.42));
+  REQUIRE(loaded.parent_id == 7);
+  REQUIRE(std::get<WindowData>(loaded.data).pane_count == 4);
+}
+
+TEST_CASE("ProjectDB update_building_component_by_guid throws for unknown guid",
+          "[projectdb][components][guid]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+
+  auto c = make_window("win1");
+  c.guid = "does-not-exist";
+  REQUIRE_THROWS_AS(db.update_building_component_by_guid(c),
+                    std::runtime_error);
 }

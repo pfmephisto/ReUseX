@@ -174,6 +174,21 @@ class ProjectDB {
   std::map<int, std::string>
   label_definitions(std::string_view cloudName) const;
 
+  // --- Instance ↔ Material Links ---
+
+  /// Link an instance (a label value in an instance-label cloud) to a material
+  /// passport by its document guid. Upserts on (cloud, instance_id).
+  void set_instance_material(std::string_view cloudName, int instanceId,
+                             std::string_view materialGuid);
+
+  /// Material passport guid linked to an instance, or nullopt if unlinked.
+  std::optional<std::string>
+  instance_material_guid(std::string_view cloudName, int instanceId) const;
+
+  /// All instance_id → material_guid links for a cloud.
+  std::map<int, std::string>
+  instance_materials(std::string_view cloudName) const;
+
   // --- Mesh Operations ---
 
   void save_mesh(std::string_view name, const pcl::PolygonMesh &mesh,
@@ -213,6 +228,11 @@ class ProjectDB {
   // --- Building Component Operations ---
 
   void save_building_component(const geometry::BuildingComponent &component);
+  /// Update an existing component's mutable fields (name, type, parent_id,
+  /// confidence, metadata, notes), matched by its immutable guid. Geometry is
+  /// left untouched. Throws if no component has the given guid.
+  void
+  update_building_component_by_guid(const geometry::BuildingComponent &component);
   geometry::BuildingComponent building_component(std::string_view name) const;
   bool has_building_component(std::string_view name) const;
   void delete_building_component(std::string_view name);

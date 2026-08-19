@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "import.hpp"
+#include "import/csv.hpp"
 #include "import/e57.hpp"
 #include "import/materialepas.hpp"
 #include "import/panorama.hpp"
@@ -27,6 +28,7 @@ SUBCOMMANDS:
   e57           Import point cloud from an E57 file
   ply           Import point cloud from a PLY file
   materialepas  Import material passports from JSON file
+  csv           Reimport an edited element CSV (from 'rux export csv')
   360           Import 360 panoramic images
   photos        Import manual survey photos as material passports
 
@@ -35,6 +37,7 @@ EXAMPLES:
   rux import e57 scan.e57              # Import E57 point cloud
   rux import ply cloud.ply             # Import PLY point cloud
   rux import materialepas data.json    # Import material passports
+  rux import csv elements.csv          # Reimport edited element CSV
   rux import 360 /path/to/photos/     # Import 360 panoramic images
   rux import photos ./manual_photos/  # Import survey photos
 
@@ -48,6 +51,7 @@ NOTES:
   setup_subcommand_import_e57(*sub, global_opt);
   setup_subcommand_import_ply(*sub, global_opt);
   setup_subcommand_import_materialepas(*sub, global_opt);
+  setup_subcommand_import_csv(*sub, global_opt);
   setup_subcommand_import_panorama(*sub, global_opt);
   setup_subcommand_import_photos(*sub, global_opt);
 

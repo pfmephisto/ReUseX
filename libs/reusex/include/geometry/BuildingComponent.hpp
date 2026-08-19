@@ -35,6 +35,9 @@ struct WallData {}; // stub for future use
 /// A detected or manual building component (window, door, wall, ...).
 struct BuildingComponent {
   std::string name;
+  /// Stable, immutable identifier. Auto-generated on first save if empty.
+  /// Survives renames, so it is the match key for CSV round-trip editing.
+  std::string guid;
   ComponentType type = ComponentType::window;
   CoplanarPolygon boundary;
   int parent_id = -1;       // optional link to parent component

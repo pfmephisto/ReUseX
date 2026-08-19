@@ -8,6 +8,7 @@
 #include "create/dense.hpp"
 #include "create/instances.hpp"
 #include "create/material.hpp"
+#include "create/materials.hpp"
 #include "create/mesh.hpp"
 #include "create/planes.hpp"
 #include "create/project.hpp"
@@ -32,6 +33,7 @@ SUBCOMMANDS:
   planes       Detect and segment planar surfaces
   rooms        Segment rooms using Leiden clustering
   instances    Separate labels into spatial instances
+  materials    Create a material passport per instance
   mesh         Generate watertight mesh from planes
   texture      Apply textures to mesh from sensor frames
   project      Project 2D labels onto 3D point cloud
@@ -60,6 +62,7 @@ NOTES:
   setup_subcommand_create_planes(*sub, global_opt);
   setup_subcommand_create_rooms(*sub, global_opt);
   setup_subcommand_create_instances(*sub, global_opt);
+  setup_subcommand_create_materials(*sub, global_opt);
   setup_subcommand_create_mesh(*sub, global_opt);
   setup_subcommand_create_texture(*sub, global_opt);
   setup_subcommand_create_windows(*sub, global_opt);

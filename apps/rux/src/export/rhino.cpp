@@ -39,7 +39,8 @@ LAYER STRUCTURE:
   └── materials/     # TextDots per passport with user strings
 
 EXAMPLES:
-  rux export rhino -o output.3dm       # Export everything
+  rux export rhino -o output.3dm       # Export everything (latest version)
+  rux export rhino -o output.3dm -r 6  # Save for Rhino 6
   rux -p project.rux export rhino      # Custom project path
 
 WORKFLOW:
@@ -49,7 +50,8 @@ WORKFLOW:
 
 NOTES:
   - Only layers with data are created (empty layers are omitted)
-  - Output .3dm file compatible with Rhino 7+ and OpenNURBS readers
+  - Use -r/--rhino-version to target an older Rhino (6, 7, 8, ...)
+  - Output .3dm file compatible with Rhino 7+ and OpenNURBS readers by default
   - Point colors preserved from RGB channels
   - Semantic labels use Glasbey LUT for distinct category colors
   - 360 panoramas stored as sphere meshes with metadata in user strings
@@ -59,6 +61,12 @@ NOTES:
   sub->add_option("-o, --output", opt->path_out,
                   "Path to the output Rhino 3DM file")
       ->default_val(opt->path_out);
+
+  sub->add_option("-r, --rhino-version", opt->rhino_version,
+                  "Target Rhino major version to save for (e.g. 6, 7, 8). "
+                  "0 uses the latest version supported by OpenNURBS.")
+      ->default_val(opt->rhino_version)
+      ->check(CLI::IsMember({0, 2, 3, 4, 5, 6, 7, 8}));
 
   sub->callback([opt, global_opt]() {
     spdlog::trace("calling export rhino subcommand");
@@ -80,8 +88,20 @@ int run_subcommand_export_rhino(SubcommandExportRhinoOptions const &opt,
     spdlog::info("Building Rhino model...");
     auto model = io::export_to_rhino(scene);
 
-    spdlog::trace("Writing Rhino model to: {}", opt.path_out.string());
-    int version = 0;
+    // OpenNURBS archive versions are 10x the Rhino major version for V6+
+    // (Rhino 6 -> 60, 7 -> 70, 8 -> 80), while pre-V6 use the single-digit
+    // version directly (2, 3, 4, 5). 0 lets OpenNURBS pick the latest.
+    int version = opt.rhino_version;
+    if (version >= 6)
+      version *= 10;
+
+    if (version == 0)
+      spdlog::trace("Writing Rhino model to: {} (latest version)",
+                    opt.path_out.string());
+    else
+      spdlog::trace("Writing Rhino model to: {} (Rhino {}, archive v{})",
+                    opt.path_out.string(), opt.rhino_version, version);
+
     if (!model->Write(opt.path_out.c_str(), version)) {
       spdlog::error("Failed to write Rhino model to: {}",
                     opt.path_out.string());

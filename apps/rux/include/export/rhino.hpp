@@ -13,6 +13,7 @@ namespace fs = std::filesystem;
 
 struct SubcommandExportRhinoOptions {
   fs::path path_out = fs::current_path() / "export.3dm"; ///< Output .3dm file
+  int rhino_version = 0; ///< Target Rhino major version (6, 7, 8, ...); 0 = latest
 };
 
 void setup_subcommand_export_rhino(CLI::App &parent,

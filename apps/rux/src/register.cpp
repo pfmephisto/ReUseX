@@ -64,6 +64,10 @@ NOTES:
                   "beyond this dot product (-1 disables the check)")
       ->default_val(opt->min_view_dot)
       ->check(CLI::Range(-1.0, 1.0));
+  sub->add_option("--pair-gate", opt->pair_gate,
+                  "Ignore spatial pairs whose median |residual| exceeds "
+                  "this per iteration (m, <=0 disables)")
+      ->default_val(opt->pair_gate);
   sub->add_option("--max-corr-distance", opt->max_corr_distance,
                   "Reject correspondences beyond this distance (m)")
       ->default_val(opt->max_corr_distance);
@@ -125,6 +129,7 @@ int run_subcommand_register(SubcommandRegisterOptions const &opt,
     params.spatial_radius = opt.spatial_radius;
     params.max_spatial_pairs = opt.max_spatial_pairs;
     params.min_view_dot = opt.min_view_dot;
+    params.pair_gate_residual = opt.pair_gate;
     params.max_corr_distance = opt.max_corr_distance;
     params.normal_angle_threshold = opt.normal_angle;
     params.robust_width = opt.robust_width;

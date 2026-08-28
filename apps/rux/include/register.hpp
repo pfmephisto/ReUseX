@@ -19,6 +19,7 @@ struct SubcommandRegisterOptions {
   float spatial_radius = 1.5f;
   int max_spatial_pairs = 8;
   float min_view_dot = 0.0f;
+  float pair_gate = 0.05f;
   float max_corr_distance = 0.10f;
   float normal_angle = 45.0f;
   float robust_width = 0.05f;

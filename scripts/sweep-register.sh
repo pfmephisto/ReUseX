@@ -42,11 +42,15 @@ run() {
 #   no refinement:               flatness_rms 21.6mm  p90 33.8mm
 #   temporal-only defaults:      flatness_rms 18.0mm  p90 28.7mm
 #   best knob combo (phase 1):   flatness_rms 17.7mm  p90 27.4mm
-# Phase 2: scene-centroid spatial pairing (feat/jpr-spatial-pairing).
-run sp0        --spatial-radius 0
-run spdef      # spatial defaults: radius 1.5, max 8 pairs/frame
-run sp25       --spatial-radius 2.5
-run sp15combo  --prior-weight 0.1 --neighbor-window 10 --iterations 50
-run sp25loose  --spatial-radius 2.5 --prior-weight 0.1 --neighbor-window 10 --iterations 50
+# Phase 4: per-pair residual gating (pair_gate_residual). Phases 2-3 showed
+# ungated spatial pairs hurt in proportion to their count — loop-closure
+# pairs start outside the correspondence basin. The gate drops pairs whose
+# median |residual| exceeds the threshold, re-checking every iteration.
+# gate2 repeats gate1 exactly to measure run-to-run variance of the metric.
+run gate1     # defaults: radius 1.5, cap 8, dot 0, gate 0.05
+run gate2     # identical to gate1 — variance probe
+run gatewide  --spatial-radius 2.5 --max-spatial-pairs 16
+run gatecombo --prior-weight 0.1 --neighbor-window 10 --iterations 50
+run gatetight --pair-gate 0.03
 
 echo "SWEEP-DONE"

@@ -201,6 +201,13 @@ JointPairwiseRegistration::refine(std::vector<FrameSurfels> &frames) const {
       }
     }
   }
+  // Remember which pairs are spatial: they are gated on alignment quality in
+  // build_corrs (temporal neighbors are trusted unconditionally).
+  std::set<std::pair<int, int>> spatial_set;
+  for (const auto &pr : pair_set)
+    if (pr.second - pr.first > win)
+      spatial_set.insert(pr);
+
   std::vector<std::pair<int, int>> pairs(pair_set.begin(), pair_set.end());
   core::info("JPR: {} frames, {} candidate pairs ({} temporal, {} spatial)", N,
              pairs.size(), n_temporal, n_spatial);
@@ -219,10 +226,20 @@ JointPairwiseRegistration::refine(std::vector<FrameSurfels> &frames) const {
   for (int i = 0; i < N; ++i)
     Tcur[i] = frames[i].world_pose.matrix().cast<double>();
 
+  // A spatial pair must contribute at least this many correspondences to be
+  // treated as a genuine loop closure — a handful of lucky NN matches must
+  // not constrain two distant frames against each other.
+  constexpr std::size_t kMinSpatialPairSupport = 30;
+
   // Build correspondences for the given poses (NN search in world space).
   // Stores point indices so residuals can be re-evaluated at any trial pose.
+  // Spatial pairs are gated on their median |residual| (see JprParams::
+  // pair_gate_residual); the gate is re-evaluated on every call.
   auto build_corrs = [&](const std::vector<FrameCache> &cache) {
     std::vector<Corr> corrs;
+    std::vector<Corr> pair_corrs;
+    std::vector<double> abs_res;
+    std::size_t gated = 0;
     std::vector<int> nn_idx(1);
     std::vector<float> nn_dist(1);
     for (const auto &pr : pairs) {
@@ -230,6 +247,8 @@ JointPairwiseRegistration::refine(std::vector<FrameSurfels> &frames) const {
       const FrameCache &cb = cache[pr.second];
       if (cb.xyz->empty())
         continue;
+      pair_corrs.clear();
+      abs_res.clear();
       for (size_t si = 0; si < ca.world_pts.size(); ++si) {
         const Eigen::Vector3d &na = ca.world_normals[si];
         if (na.squaredNorm() < 0.5)
@@ -252,11 +271,32 @@ JointPairwiseRegistration::refine(std::vector<FrameSurfels> &frames) const {
 
         const double r = nb.dot(Pa - cb.world_pts[ti]);
         const double w = robust_weight(r, params_) * std::max(0.0, na.dot(nb));
-        if (w > 0.0)
-          corrs.push_back(
+        if (w > 0.0) {
+          pair_corrs.push_back(
               Corr{pr.first, pr.second, static_cast<int>(si), ti, w});
+          abs_res.push_back(std::abs(r));
+        }
       }
+
+      if (params_.pair_gate_residual > 0.0f && spatial_set.count(pr) != 0) {
+        if (pair_corrs.size() < kMinSpatialPairSupport) {
+          ++gated;
+          continue;
+        }
+        auto mid =
+            abs_res.begin() + static_cast<std::ptrdiff_t>(abs_res.size() / 2);
+        std::nth_element(abs_res.begin(), mid, abs_res.end());
+        if (*mid > params_.pair_gate_residual) {
+          ++gated;
+          continue;
+        }
+      }
+      corrs.insert(corrs.end(), pair_corrs.begin(), pair_corrs.end());
     }
+    if (gated > 0)
+      core::debug("JPR: gated {} / {} spatial pairs (outside correspondence "
+                  "basin at current poses)",
+                  gated, spatial_set.size());
     return corrs;
   };
 

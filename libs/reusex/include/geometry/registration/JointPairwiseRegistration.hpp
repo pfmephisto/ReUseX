@@ -53,6 +53,14 @@ struct JprParams {
   float min_view_dot = 0.0f; ///< reject pairs whose view directions disagree
                              ///< beyond this dot product (-1 disables)
 
+  // Spatial pairs whose median |point-to-plane residual| exceeds this gate
+  // are ignored for the current outer iteration: their initial misalignment
+  // is outside the correspondence basin, so their NN matches land on wrong
+  // surfaces and inject noise instead of constraints. Gating is re-evaluated
+  // every iteration, so gated pairs re-enter once the temporal chain has
+  // pulled the poses close enough. <=0 disables the gate.
+  float pair_gate_residual = 0.05f; ///< basin gate for spatial pairs (m)
+
   float max_corr_distance = 0.10f; ///< reject correspondences beyond this (m)
   float normal_angle_threshold =
       45.f; ///< reject if normals disagree beyond (deg)

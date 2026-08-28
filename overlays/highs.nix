@@ -4,8 +4,8 @@
 #
 # NOTE: CUDA support disabled - HiGHS GPU acceleration (PDLP solver) is not used
 # by Solidifier which requires MIP solver. See MEMORY.md for details.
-{...}: final: prev: {
-  highs = prev.highs.overrideAttrs (self: super: {
+_: _final: prev: {
+  highs = prev.highs.overrideAttrs (_self: super: {
     cmakeFlags =
       (super.cmakeFlags or [])
       ++ [

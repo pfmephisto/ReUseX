@@ -24,8 +24,8 @@
     self,
     nixpkgs,
     flake-utils,
-    pyproject-nix,
     pre-commit-hooks,
+    ...
   }:
     (flake-utils.lib.eachSystem ["x86_64-linux"] (
       system:
@@ -65,6 +65,18 @@
             check-shebang-scripts-are-executable.enable = true;
             check-merge-conflicts.enable = true;
             alejandra.enable = true;
+            # Nix static analysis (anti-patterns + dead code). statix runs
+            # repo-wide, so skip .direnv (cached flake-input sources).
+            statix = {
+              enable = true;
+              settings.ignore = [".direnv"];
+            };
+            deadnix.enable = true;
+            # C++/CUDA formatting per .clang-format (docs/STANDARDS.md §9).
+            clang-format = {
+              enable = true;
+              types_or = ["c++" "c" "cuda"];
+            };
             # reuse = {
             #   enable = true;
             # };
@@ -112,6 +124,21 @@
           };
         };
 
+        # Hermetic build-and-test gate: builds the CPU variant with the unit
+        # tests enabled and runs ctest inside the sandbox. The CPU variant is
+        # used so the check needs no GPU (works in CI and on any machine).
+        # Run with: nix build .#checks.x86_64-linux.tests  (or nix flake check)
+        # For the fast incremental dev loop use scripts/check.sh instead.
+        checks.tests = self.packages.${system}.cpu.overrideAttrs (old: {
+          pname = old.pname + "-tests";
+          doCheck = true;
+          checkPhase = ''
+            runHook preCheck
+            ctest --output-on-failure
+            runHook postCheck
+          '';
+        });
+
         packages = let
           # Get all custom packages
           allPackages = pkgs.lib.packagesFromDirectoryRecursive {
@@ -119,7 +146,7 @@
             directory = ./pkgs;
           };
           # Filter out broken packages from exports
-          nonBrokenPackages = lib.filterAttrs (name: pkg: !(pkg.meta.broken or false)) allPackages;
+          nonBrokenPackages = lib.filterAttrs (_name: pkg: !(pkg.meta.broken or false)) allPackages;
 
           # ReUseX build variants. The default/CUDA build reuses the top-level
           # (CUDA-configured) nixpkgs; the cpu and rocm builds use a fresh
@@ -178,7 +205,7 @@
             cpu = reusexCpu;
             rocm = reusexRocm;
 
-            rtabmap = pkgs.rtabmap;
+            inherit (pkgs) rtabmap;
 
             # OCI image running ruxd as PID 1. The default image is the CUDA
             # build (multi-GB): run with the nvidia container runtime on a GPU

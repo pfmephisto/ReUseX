@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
 #
 # SPDX-License-Identifier: MIT
-{...}: final: prev: {
+_: _final: prev: {
   rtabmap = prev.rtabmap.overrideAttrs (old: {
     buildInputs =
       (old.buildInputs or [])

@@ -23,7 +23,7 @@
 #    This is gated on cudaSupport: in a cudaSupport=false build OpenCV is CPU,
 #    so consumers don't trigger find_package(CUDAToolkit) and pulling CUDA here
 #    would needlessly drag it back into the closure.
-{...}: final: prev: let
+_: _final: prev: let
   cudaSupport = prev.config.cudaSupport or false;
 in {
   openmvs = prev.openmvs.overrideAttrs (old: {

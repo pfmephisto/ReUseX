@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
 #
 # SPDX-License-Identifier: MIT
-{...}: final: prev: {
+_: _final: prev: {
   opencv = prev.opencv.override {
     enableGtk2 = true;
     enableGtk3 = true;

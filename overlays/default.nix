@@ -8,6 +8,6 @@
 
   overlayFiles = builtins.filter valid (builtins.attrNames allFiles);
 
-  overlaysList = builtins.map (file: import (builtins.toPath ./. + "/" + file) {}) overlayFiles;
+  overlaysList = builtins.map (file: import (./. + "/${file}") {}) overlayFiles;
 in
   overlaysList

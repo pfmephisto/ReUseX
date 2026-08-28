@@ -6,7 +6,7 @@
 # upstream package builds ~300 service clients; restricting `apis` to s3 keeps
 # the closure and build small while still speaking plain S3 against any
 # S3-compatible endpoint (MinIO/Ceph/etc.) via an endpoint override.
-{...}: final: prev: {
+_: _final: prev: {
   aws-sdk-cpp-s3 = prev.aws-sdk-cpp.override {
     apis = ["s3"];
   };

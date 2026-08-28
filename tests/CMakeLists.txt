@@ -65,6 +65,26 @@ if(INTEGRATION_TEST_SOURCES)
 endif()
 
 # -----------------------------------------------
+# Benchmarks (Catch2 BENCHMARK; run via scripts/bench.sh, not ctest)
+# -----------------------------------------------
+file(GLOB_RECURSE BENCHMARK_SOURCES CONFIGURE_DEPENDS
+     "${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/*.cpp")
+
+if(BENCHMARK_SOURCES)
+    add_executable(reusex_benchmarks ${BENCHMARK_SOURCES})
+    target_link_libraries(reusex_benchmarks
+        PRIVATE
+            reusex
+            Catch2::Catch2WithMain
+            fmt::fmt
+    )
+    target_include_directories(reusex_benchmarks PRIVATE
+        ${CMAKE_SOURCE_DIR}/libs/reusex/include
+        ${CMAKE_BINARY_DIR}/generated
+    )
+endif()
+
+# -----------------------------------------------
 # Enable CTest and discover tests
 # -----------------------------------------------
 include(CTest)

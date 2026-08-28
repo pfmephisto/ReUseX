@@ -1,0 +1,66 @@
+# SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Build-and-test CI (drafted, not yet enabled on push/PR).
+#
+# Status: manual trigger only. The dependency closure (PCL, OpenCV, RTABMap,
+# OpenMVS, libtorch — several rebuilt by our overlays) is too large to build
+# from scratch on GitHub-hosted runners without a binary cache.
+#
+# To enable:
+#   1. Create a Cachix cache (free for OSS): https://app.cachix.org
+#   2. Add repo secret CACHIX_AUTH_TOKEN.
+#   3. Seed the cache from a machine that has already built the CPU variant:
+#        nix build .#cpu && nix build .#checks.x86_64-linux.tests
+#        nix path-info --recursive .#cpu | cachix push reusex
+#   4. Replace `workflow_dispatch` below with push/pull_request triggers.
+#
+# Until then, the equivalent local gates are:
+#   scripts/check.sh                          (fast incremental build + ctest)
+#   nix build .#checks.x86_64-linux.tests     (hermetic build + ctest)
+
+name: CI
+
+on:
+  workflow_dispatch:
+  # push:
+  #   branches: [main]
+  # pull_request:
+
+jobs:
+  build-and-test:
+    name: Build + ctest (CPU variant)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            accept-flake-config = true
+
+      - uses: cachix/cachix-action@v16
+        with:
+          name: reusex
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          # Only push when the token is available (not on forks).
+          skipPush: ${{ secrets.CACHIX_AUTH_TOKEN == '' }}
+
+      # Builds the CPU variant with BUILD_TESTS=ON and runs ctest inside the
+      # sandbox. Fails the job on any test failure.
+      - name: Build and run tests
+        run: nix build .#checks.x86_64-linux.tests --print-build-logs
+
+  format-check:
+    name: clang-format check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run clang-format (dry run)
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q clang-format
+          git ls-files '*.cpp' '*.hpp' '*.cu' '*.cuh' \
+            | xargs clang-format --dry-run --Werror

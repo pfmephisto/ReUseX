@@ -1,0 +1,64 @@
+# SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Static analysis + naming enforcement (see CLAUDE.md "Naming Conventions"
+# and docs/STANDARDS.md). Deliberately conservative: a curated check set so
+# that warnings are actionable, not noise. Extend over time.
+#
+# Run locally:  clang-tidy -p build <file>
+#   (requires CMAKE_EXPORT_COMPILE_COMMANDS=ON)
+
+Checks: >
+  -*,
+  bugprone-use-after-move,
+  bugprone-dangling-handle,
+  bugprone-infinite-loop,
+  bugprone-integer-division,
+  bugprone-narrowing-conversions,
+  bugprone-sizeof-expression,
+  bugprone-unchecked-optional-access,
+  bugprone-unused-return-value,
+  cppcoreguidelines-slicing,
+  misc-unused-using-decls,
+  performance-for-range-copy,
+  performance-unnecessary-copy-initialization,
+  performance-unnecessary-value-param,
+  performance-move-const-arg,
+  modernize-use-nullptr,
+  modernize-use-override,
+  modernize-make-shared,
+  modernize-make-unique,
+  readability-identifier-naming
+
+WarningsAsErrors: 'readability-identifier-naming'
+
+HeaderFilterRegex: '(libs/reusex|apps/rux)/.*\.(hpp|h)$'
+
+CheckOptions:
+  # Classes/structs: PascalCase (CellComplex, ProjectDB, DetectionBox)
+  readability-identifier-naming.ClassCase: CamelCase
+  readability-identifier-naming.StructCase: CamelCase
+  readability-identifier-naming.EnumCase: CamelCase
+  # Enum values: snake_case (Stage::mesh_generation)
+  readability-identifier-naming.EnumConstantCase: lower_case
+  # Functions/methods: snake_case (save_point_cloud, is_open)
+  readability-identifier-naming.FunctionCase: lower_case
+  readability-identifier-naming.MethodCase: lower_case
+  # Namespaces: snake_case (reusex::geometry)
+  readability-identifier-naming.NamespaceCase: lower_case
+  # Member variables: snake_case with trailing underscore (impl_, cloud_)
+  readability-identifier-naming.PrivateMemberCase: lower_case
+  readability-identifier-naming.PrivateMemberSuffix: '_'
+  readability-identifier-naming.ProtectedMemberCase: lower_case
+  readability-identifier-naming.ProtectedMemberSuffix: '_'
+  # Public members (plain structs): snake_case, no suffix required
+  readability-identifier-naming.PublicMemberCase: lower_case
+  # Parameters and locals: snake_case
+  readability-identifier-naming.ParameterCase: lower_case
+  readability-identifier-naming.VariableCase: lower_case
+  # Type aliases: PascalCase (CloudPtr, CloudNConstPtr)
+  readability-identifier-naming.TypeAliasCase: CamelCase
+  readability-identifier-naming.TypedefCase: CamelCase
+  # Constants / constexpr: allow snake_case or UPPER_CASE
+  readability-identifier-naming.ConstexprVariableCase: aNy_CasE
+  readability-identifier-naming.GlobalConstantCase: aNy_CasE

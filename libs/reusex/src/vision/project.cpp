@@ -200,8 +200,8 @@ auto project(const ProjectDB &db, CloudConstPtr cloud) -> CloudLPtr {
       // fc.setVerticalFOV(static_cast<float>(fovYdeg));
       // fc.setHorizontalFOV(static_cast<float>(fovXdeg));
 
-      {
-        auto visual_observer = reusex::core::get_visual_observer();
+      // Observer may be null when running headless — guard before use.
+      if (auto *visual_observer = reusex::core::get_visual_observer()) {
         auto camera_pose = (pose * cm.localTransform().inverse()).toEigen3f();
         visual_observer->viewer_add_camera_frustum(
             fmt::format("camera_{}", id), cm.fx(), cm.fy(),

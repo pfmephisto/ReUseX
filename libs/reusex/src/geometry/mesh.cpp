@@ -89,10 +89,13 @@ pcl::PolygonMeshPtr mesh(CloudConstPtr cloud, CloudNConstPtr normals,
     }
   }
 
-  auto observer = reusex::core::get_visual_observer();
+  // May be null when running headless (no observer registered) — every use
+  // below must be guarded.
+  auto *observer = reusex::core::get_visual_observer();
   constexpr auto stage = reusex::core::Stage::mesh_generation;
 
-  observer->viewer_add_geometry("input_cloud", cloud, stage);
+  if (observer)
+    observer->viewer_add_geometry("input_cloud", cloud, stage);
 
   planes = regularizePlanes<double, PointT>(planes, cloud, inliers, 10.0);
 
@@ -135,9 +138,11 @@ pcl::PolygonMeshPtr mesh(CloudConstPtr cloud, CloudNConstPtr normals,
                 }) |
                 ranges::to<std::vector>();
 
-  observer->viewer_add_geometries("vertical_planes", vPlanes, stage);
-  observer->viewer_add_geometries("horizontal_planes", hPlanes, stage);
-  observer->viewer_add_geometries("plane_pairs", pPairs, stage);
+  if (observer) {
+    observer->viewer_add_geometries("vertical_planes", vPlanes, stage);
+    observer->viewer_add_geometries("horizontal_planes", hPlanes, stage);
+    observer->viewer_add_geometries("plane_pairs", pPairs, stage);
+  }
 
   // viewer->addPlanes(vertical_planes, "vertical_planes", vps->at(0));
   // viewer->addPlanes(horizontal_planes, "horizontal_planes", vps->at(0));
@@ -166,7 +171,8 @@ pcl::PolygonMeshPtr mesh(CloudConstPtr cloud, CloudNConstPtr normals,
 
   cc->compute_face_coverage<PointT>(cloud, planes, inliers);
   // INFO: Display room probabilities
-  observer->viewer_add_geometry("cell_complex", *cc, stage);
+  if (observer)
+    observer->viewer_add_geometry("cell_complex", *cc, stage);
   //   viewer->addRoomProbabilities(cc, "room_probablilites", vps->at(2));
 
   reusex::debug("Cell complex: {}", *cc);
@@ -179,7 +185,7 @@ pcl::PolygonMeshPtr mesh(CloudConstPtr cloud, CloudNConstPtr normals,
     reusex::warn("Solidification failed to find a solution");
 
   // INFO: Display results
-  if (results.has_value())
+  if (observer && results.has_value())
     observer->viewer_add_geometry("rooms", results.value(), stage);
   // viewer->addRooms(cc, results.value(), "rooms", vps->at(3));
 

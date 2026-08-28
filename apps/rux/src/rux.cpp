@@ -2,11 +2,12 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include <analyze.hpp>
 #include <assemble.hpp>
 #include <create.hpp>
 #include <del.hpp>
-#include <export.hpp>
 #include <edit.hpp>
+#include <export.hpp>
 #include <get.hpp>
 #include <import.hpp>
 #include <info.hpp>
@@ -21,11 +22,11 @@
 
 #include <CLI/CLI.hpp>
 #include <algorithm>
+#include <csignal>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <csignal>
 #include <execinfo.h>
 #include <spdlog/async.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
@@ -161,6 +162,7 @@ int main(int argc, char **argv) {
                  "Path to .rux project file (applies to all subcommands)")
       ->default_val(fs::current_path() / "project.rux");
 
+  setup_subcommand_analyze(app, opt);
   setup_subcommand_assemble(app, opt);
   setup_subcommand_create(app, opt);
   setup_subcommand_edit(app, opt);

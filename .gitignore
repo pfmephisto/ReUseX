@@ -166,3 +166,6 @@ models/cache/
 
 # Blender development shell
 .blender-dev/
+
+# Local benchmark reports (scripts/bench.sh)
+bench-results/

@@ -39,17 +39,32 @@ namespace reusex::geometry {
 
 /// Parameters for joint pairwise pose refinement.
 struct JprParams {
-  int max_iterations = 20;             ///< maximum Gauss-Newton outer iterations
-  int neighbor_window = 5;             ///< temporal pairing half-window
-  float max_corr_distance = 0.10f;     ///< reject correspondences beyond this (m)
-  float normal_angle_threshold = 45.f; ///< reject if normals disagree beyond (deg)
-  float robust_width = 0.05f;          ///< robust kernel width (m): Welsch sigma / Huber delta
+  int max_iterations = 20; ///< maximum Gauss-Newton outer iterations
+  int neighbor_window = 5; ///< temporal pairing half-window
+
+  // Spatial (loop-closure) pairing. Frames whose *scene centroids* — the
+  // mean surfel position in world coordinates — lie within spatial_radius
+  // are paired regardless of temporal distance. Scene centroids localize
+  // what a frame sees; camera centers do not (two passes along the same
+  // wall from 3 m apart overlap heavily, yet their cameras never meet).
+  float spatial_radius =
+      1.5f; ///< scene-centroid pairing radius (m); <=0 disables
+  int max_spatial_pairs = 8; ///< cap on spatial pairs added per frame
+  float min_view_dot = 0.0f; ///< reject pairs whose view directions disagree
+                             ///< beyond this dot product (-1 disables)
+
+  float max_corr_distance = 0.10f; ///< reject correspondences beyond this (m)
+  float normal_angle_threshold =
+      45.f; ///< reject if normals disagree beyond (deg)
+  float robust_width =
+      0.05f; ///< robust kernel width (m): Welsch sigma / Huber delta
 
   enum class Kernel { welsch, huber };
   Kernel kernel = Kernel::welsch;
 
-  float prior_weight = 1.0f;   ///< soft prior pulling poses toward seeds (0 disables)
-  int anchor_frame = -1;       ///< frame index (not node_id) to hard-fix; -1 = none
+  float prior_weight =
+      1.0f;              ///< soft prior pulling poses toward seeds (0 disables)
+  int anchor_frame = -1; ///< frame index (not node_id) to hard-fix; -1 = none
   float convergence_eps = 1e-4f; ///< stop when max per-frame ||dxi|| below this
 
   SurfelExtractionParams surfel; ///< surfel extraction settings
@@ -57,8 +72,8 @@ struct JprParams {
 
 /// Summary statistics from a registration run.
 struct JprResult {
-  int frames = 0;          ///< number of frames that participated
-  int iterations = 0;      ///< outer iterations performed
+  int frames = 0;           ///< number of frames that participated
+  int iterations = 0;       ///< outer iterations performed
   double initial_rms = 0.0; ///< mean point-to-plane residual before (m)
   double final_rms = 0.0;   ///< mean point-to-plane residual after (m)
 };

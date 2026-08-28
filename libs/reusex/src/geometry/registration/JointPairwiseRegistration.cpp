@@ -13,6 +13,7 @@
 #include <Eigen/Sparse>
 #include <Eigen/SparseCholesky>
 
+#include <pcl/common/point_tests.h>
 #include <pcl/kdtree/kdtree_flann.h>
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
@@ -103,8 +104,8 @@ double robust_weight(double r, const JprParams &p) {
 JointPairwiseRegistration::JointPairwiseRegistration(JprParams params)
     : params_(std::move(params)) {}
 
-JprResult JointPairwiseRegistration::refine(
-    std::vector<FrameSurfels> &frames) const {
+JprResult
+JointPairwiseRegistration::refine(std::vector<FrameSurfels> &frames) const {
   JprResult result;
   const int N = static_cast<int>(frames.size());
   result.frames = N;
@@ -141,43 +142,73 @@ JprResult JointPairwiseRegistration::refine(
     for (int d = 1; d <= win && i + d < N; ++d)
       pair_set.emplace(i, i + d);
 
-  // Spatial pairs: camera centers within a radius with agreeing view dirs.
-  {
-    auto centers = std::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
-    centers->resize(N);
+  // Spatial pairs (loop closures): frames whose scene centroids — the mean
+  // surfel position in world coordinates at the seed pose — lie within
+  // spatial_radius are paired regardless of temporal distance. This targets
+  // what a frame *sees* rather than where the camera *is*, so revisits of
+  // the same surface from different positions are aligned against each
+  // other, which temporal pairing alone can never do.
+  std::size_t n_spatial = 0;
+  const std::size_t n_temporal = pair_set.size();
+  if (params_.spatial_radius > 0.0f) {
+    auto centroids = std::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
+    centroids->resize(N);
     std::vector<Eigen::Vector3d> views(N);
+    std::vector<bool> valid(N, false);
     for (int i = 0; i < N; ++i) {
-      const Eigen::Vector3d t =
-          frames[i].world_pose.translation().cast<double>();
-      (*centers)[i].x = static_cast<float>(t.x());
-      (*centers)[i].y = static_cast<float>(t.y());
-      (*centers)[i].z = static_cast<float>(t.z());
-      views[i] = frames[i].world_pose.rotation().cast<double>() *
-                 Eigen::Vector3d(0.0, 0.0, 1.0);
+      const Eigen::Affine3d T = frames[i].world_pose.cast<double>();
+      Eigen::Vector3d sum = Eigen::Vector3d::Zero();
+      std::size_t n = 0;
+      for (const auto &p : frames[i].points->points) {
+        if (!pcl::isFinite(p))
+          continue;
+        sum += Eigen::Vector3d(p.x, p.y, p.z);
+        ++n;
+      }
+      if (n == 0)
+        continue; // stays invalid; excluded from pairing below
+      const Eigen::Vector3d c = T * (sum / static_cast<double>(n));
+      (*centroids)[i].x = static_cast<float>(c.x());
+      (*centroids)[i].y = static_cast<float>(c.y());
+      (*centroids)[i].z = static_cast<float>(c.z());
+      views[i] = T.rotation() * Eigen::Vector3d(0.0, 0.0, 1.0);
+      valid[i] = true;
     }
     pcl::KdTreeFLANN<pcl::PointXYZ> ctree;
-    ctree.setInputCloud(centers);
-    const float spatial_radius = 1.0f; // meters; interior handheld scale
+    ctree.setInputCloud(centroids);
     std::vector<int> idx;
     std::vector<float> dist;
     for (int i = 0; i < N; ++i) {
-      ctree.radiusSearch((*centers)[i], spatial_radius, idx, dist);
+      if (!valid[i])
+        continue;
+      // radiusSearch returns neighbors sorted by distance, so the per-frame
+      // cap keeps the closest (most-overlapping) candidates.
+      ctree.radiusSearch((*centroids)[i], params_.spatial_radius, idx, dist);
+      int added = 0;
       for (int j : idx) {
-        if (j <= i)
+        if (added >= params_.max_spatial_pairs)
+          break;
+        if (j <= i || !valid[j])
           continue;
-        if (views[i].dot(views[j]) < 0.5) // > 60 deg apart
+        if (j - i <= win)
+          continue; // already covered by temporal pairing
+        if (views[i].dot(views[j]) < params_.min_view_dot)
           continue;
-        pair_set.emplace(i, j);
+        if (pair_set.emplace(i, j).second) {
+          ++n_spatial;
+          ++added;
+        }
       }
     }
   }
   std::vector<std::pair<int, int>> pairs(pair_set.begin(), pair_set.end());
-  core::info("JPR: {} frames, {} candidate pairs", N, pairs.size());
+  core::info("JPR: {} frames, {} candidate pairs ({} temporal, {} spatial)", N,
+             pairs.size(), n_temporal, n_spatial);
 
   const double cos_thresh =
       std::cos(params_.normal_angle_threshold * M_PI / 180.0);
-  const double max_d2 =
-      static_cast<double>(params_.max_corr_distance) * params_.max_corr_distance;
+  const double max_d2 = static_cast<double>(params_.max_corr_distance) *
+                        params_.max_corr_distance;
 
   const double lambda2 =
       static_cast<double>(params_.prior_weight) * params_.prior_weight;
@@ -222,7 +253,8 @@ JprResult JointPairwiseRegistration::refine(
         const double r = nb.dot(Pa - cb.world_pts[ti]);
         const double w = robust_weight(r, params_) * std::max(0.0, na.dot(nb));
         if (w > 0.0)
-          corrs.push_back(Corr{pr.first, pr.second, static_cast<int>(si), ti, w});
+          corrs.push_back(
+              Corr{pr.first, pr.second, static_cast<int>(si), ti, w});
       }
     }
     return corrs;
@@ -314,8 +346,8 @@ JprResult JointPairwiseRegistration::refine(
       for (const auto &c : corrs) {
         const double r = geom(c, Tcur, P, Q, n);
         Vector6d Ja, Jb;
-        Ja << P.cross(n), n;       // d r / d xi_a
-        Jb << -(Q.cross(n)), -n;   // d r / d xi_b
+        Ja << P.cross(n), n;     // d r / d xi_a
+        Jb << -(Q.cross(n)), -n; // d r / d xi_b
         add_self(c.fa, Ja, c.w, r);
         add_self(c.fb, Jb, c.w, r);
         const int ia = free_index[c.fa];

@@ -16,6 +16,9 @@ namespace fs = std::filesystem;
 struct SubcommandRegisterOptions {
   int iterations = 20;
   int neighbor_window = 5;
+  float spatial_radius = 1.5f;
+  int max_spatial_pairs = 8;
+  float min_view_dot = 0.0f;
   float max_corr_distance = 0.10f;
   float normal_angle = 45.0f;
   float robust_width = 0.05f;

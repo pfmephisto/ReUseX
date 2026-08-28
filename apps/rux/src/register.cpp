@@ -15,7 +15,8 @@ void setup_subcommand_register(CLI::App &app,
                                std::shared_ptr<RuxOptions> global_opt) {
   auto opt = std::make_shared<SubcommandRegisterOptions>();
   auto *sub = app.add_subcommand(
-      "register", "Refine per-frame sensor poses (joint pairwise registration)");
+      "register",
+      "Refine per-frame sensor poses (joint pairwise registration)");
 
   sub->footer(R"(
 DESCRIPTION:
@@ -51,6 +52,18 @@ NOTES:
   sub->add_option("--neighbor-window", opt->neighbor_window,
                   "Temporal pairing half-window (frames each side)")
       ->default_val(opt->neighbor_window);
+  sub->add_option("--spatial-radius", opt->spatial_radius,
+                  "Scene-centroid pairing radius for loop closures "
+                  "(m, <=0 disables spatial pairing)")
+      ->default_val(opt->spatial_radius);
+  sub->add_option("--max-spatial-pairs", opt->max_spatial_pairs,
+                  "Maximum spatial (loop-closure) pairs added per frame")
+      ->default_val(opt->max_spatial_pairs);
+  sub->add_option("--min-view-dot", opt->min_view_dot,
+                  "Reject spatial pairs whose view directions disagree "
+                  "beyond this dot product (-1 disables the check)")
+      ->default_val(opt->min_view_dot)
+      ->check(CLI::Range(-1.0, 1.0));
   sub->add_option("--max-corr-distance", opt->max_corr_distance,
                   "Reject correspondences beyond this distance (m)")
       ->default_val(opt->max_corr_distance);
@@ -109,6 +122,9 @@ int run_subcommand_register(SubcommandRegisterOptions const &opt,
     reusex::geometry::JprParams params;
     params.max_iterations = opt.iterations;
     params.neighbor_window = opt.neighbor_window;
+    params.spatial_radius = opt.spatial_radius;
+    params.max_spatial_pairs = opt.max_spatial_pairs;
+    params.min_view_dot = opt.min_view_dot;
     params.max_corr_distance = opt.max_corr_distance;
     params.normal_angle_threshold = opt.normal_angle;
     params.robust_width = opt.robust_width;
@@ -126,8 +142,9 @@ int run_subcommand_register(SubcommandRegisterOptions const &opt,
     int logId = db.log_pipeline_start(
         "pose_refinement_jpr",
         fmt::format(
-            R"({{"iterations":{},"neighbor_window":{},"max_corr_distance":{},"normal_angle":{},"robust_width":{},"kernel":"{}","prior_weight":{},"anchor_frame":{},"dry_run":{}}})",
-            opt.iterations, opt.neighbor_window, opt.max_corr_distance,
+            R"({{"iterations":{},"neighbor_window":{},"spatial_radius":{},"max_spatial_pairs":{},"min_view_dot":{},"max_corr_distance":{},"normal_angle":{},"robust_width":{},"kernel":"{}","prior_weight":{},"anchor_frame":{},"dry_run":{}}})",
+            opt.iterations, opt.neighbor_window, opt.spatial_radius,
+            opt.max_spatial_pairs, opt.min_view_dot, opt.max_corr_distance,
             opt.normal_angle, opt.robust_width, opt.kernel, opt.prior_weight,
             opt.anchor_frame, opt.dry_run));
 

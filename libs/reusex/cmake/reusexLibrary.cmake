@@ -63,17 +63,9 @@ file(GLOB_RECURSE REUSEX_SEGMENTATION_SOURCES CONFIGURE_DEPENDS
      "${SRC}/segmentation/*.cpp")
 
 # Layer 3 — reconstruction (cell complex, solidifier, mesh, texture, windows)
-set(REUSEX_RECONSTRUCTION_SOURCES
-    ${SRC}/geometry/CellComplex.cpp
-    ${SRC}/geometry/CellComplexConstructor.cpp
-    ${SRC}/geometry/Solidifier.cpp
-    ${SRC}/geometry/Solidifier_to_mesh.cpp
-    ${SRC}/geometry/mesh.cpp
-    ${SRC}/geometry/texture_mesh.cpp
-    ${SRC}/geometry/create_windows.cpp
-    ${SRC}/geometry/unweld.cpp
-    ${SRC}/geometry/accuracy_metrics.cpp
-    ${SRC}/geometry/quality_metrics.cpp)
+# Relocated to src/reconstruction/ in #222 (Phase B).
+file(GLOB_RECURSE REUSEX_RECONSTRUCTION_SOURCES CONFIGURE_DEPENDS
+     "${SRC}/reconstruction/*.cpp")
 
 # Layer 3 — slam (registration / pose-graph optimization)
 file(GLOB_RECURSE REUSEX_SLAM_SOURCES CONFIGURE_DEPENDS

@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "core/logging.hpp"
-#include "geometry/CellComplex.hpp"
 #include "geometry/utils.hpp"
+#include "reconstruction/CellComplex.hpp"
 #include "types.hpp"
 
 // #include <CGAL/Arr_linear_traits_2.h>

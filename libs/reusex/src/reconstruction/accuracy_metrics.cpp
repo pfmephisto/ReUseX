@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "reusex/geometry/accuracy_metrics.hpp"
+#include "reusex/reconstruction/accuracy_metrics.hpp"
 #include "reusex/core/logging.hpp"
 
 #include <pcl/filters/voxel_grid.h>

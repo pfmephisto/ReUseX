@@ -2,13 +2,13 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "geometry/mesh.hpp"
+#include "reconstruction/mesh.hpp"
 #include "core/logging.hpp"
 #include "core/processing_observer.hpp"
 #include "core/visual_observer.hpp"
-#include "geometry/CellComplex.hpp"
-#include "geometry/Solidifier.hpp"
-#include "geometry/regularization.hpp"
+#include "reconstruction/CellComplex.hpp"
+#include "reconstruction/Solidifier.hpp"
+#include "reconstruction/regularization.hpp"
 // #include "geometry/utils.hpp"
 // #include "io/reusex.hpp"
 

@@ -19,8 +19,13 @@
 // which is reached via MVS.h. Including UtilCUDA.h first sets its header
 // guard with an empty body, then Mesh.h (pulled in by MVS.h) references
 // SEACAVE::CUDA::* types that were never declared.
-#include <OpenMVS/Common/UtilCUDA.h>
+// clang-format off
+// Order is load-bearing (see comment above): MVS.h defines _USE_CUDA (via
+// ConfigLocal.h) which UtilCUDA.h's body is gated on. Do NOT let clang-format
+// alphabetize these two lines.
 #include <OpenMVS/MVS.h>
+#include <OpenMVS/Common/UtilCUDA.h>
+// clang-format on
 
 #include <Eigen/Core>
 #include <Eigen/Geometry>

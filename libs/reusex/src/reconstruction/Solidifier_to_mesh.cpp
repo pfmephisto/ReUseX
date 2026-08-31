@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "core/logging.hpp"
-#include "geometry/Solidifier.hpp"
+#include "reconstruction/Solidifier.hpp"
 #include "utils/tolerances.hpp"
 
 /*

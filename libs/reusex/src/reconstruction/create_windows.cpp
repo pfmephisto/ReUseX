@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "geometry/create_windows.hpp"
+#include "reconstruction/create_windows.hpp"
 #include "core/logging.hpp"
 #include "geometry/cgal_utils.hpp"
 

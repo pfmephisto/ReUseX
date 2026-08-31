@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "geometry/CellComplex.hpp"
+#include "reconstruction/CellComplex.hpp"
 #include "core/logging.hpp"
 
 #include <boost/archive/text_iarchive.hpp>

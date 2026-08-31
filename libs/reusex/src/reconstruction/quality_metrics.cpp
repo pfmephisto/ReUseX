@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "reusex/geometry/quality_metrics.hpp"
+#include "reusex/reconstruction/quality_metrics.hpp"
 #include "reusex/core/logging.hpp"
 
 #include <Eigen/Eigenvalues>

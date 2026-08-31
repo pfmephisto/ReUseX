@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "geometry/texture_mesh.hpp"
+#include "reconstruction/texture_mesh.hpp"
 #include "core/logging.hpp"
 #include "core/processing_observer.hpp"
 #include "geometry/utils.hpp"
@@ -794,8 +794,8 @@ static void project_pointcloud_to_mesh_texture(
           const Eigen::Vector2f &q0 = poly_2d[0];
           const Eigen::Vector2f &q1 = poly_2d[tri_idx + 1];
           const Eigen::Vector2f &q2 = poly_2d[tri_idx + 2];
-          const float tri_area = (q1 - q0).x() * (q2 - q0).y() -
-                                 (q2 - q0).x() * (q1 - q0).y();
+          const float tri_area =
+              (q1 - q0).x() * (q2 - q0).y() - (q2 - q0).x() * (q1 - q0).y();
           if (std::abs(tri_area) < 1e-6f)
             continue;
           const float b0 = ((q1 - proj_2d).x() * (q2 - proj_2d).y() -

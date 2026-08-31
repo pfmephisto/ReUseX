@@ -16,8 +16,13 @@ namespace reusex::geometry {
  * @brief Options for mesh generation.
  */
 struct MeshOptions {
-  float search_threshold = 10.0f;   ///< Search threshold for mesh generation
-  float new_plane_offset = 0.05f;   ///< Offset for new plane creation
+  // Defaults reconciled with the CLI in issue #217. The `rux create mesh` CLI
+  // shipped with the tuned production values 0.60 / 0.25 (its footer examples
+  // and workflow assume them); the old library defaults 10.0 / 0.05 were never
+  // exercised through the CLI. Per docs/STANDARDS.md §4 the library is the
+  // single source of truth, so the better CLI values were promoted here.
+  float search_threshold = 0.60f;   ///< Search threshold for mesh generation
+  float new_plane_offset = 0.25f;   ///< Offset for new plane creation
   IndicesConstPtr filter = nullptr; ///< Optional filter to limit processing
 };
 

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "reusex/geometry/segment_instances.hpp"
+#include "reusex/core/label_semantics.hpp"
 #include "reusex/core/logging.hpp"
 #include "reusex/core/processing_observer.hpp"
 #include "reusex/core/stages.hpp"
@@ -74,7 +75,7 @@ auto segment_instances_impl(const SegmentInstancesRequest &request)
   // Extract unique semantic labels (skip label 0 = unlabeled/background)
   std::set<uint32_t> unique_labels;
   for (const auto &label : *request.semantic_labels) {
-    if (label.label > 0) {
+    if (reusex::core::is_valid_label(label.label)) {
       unique_labels.insert(label.label);
     }
   }
@@ -104,7 +105,7 @@ auto segment_instances_impl(const SegmentInstancesRequest &request)
   std::unordered_map<uint32_t, pcl::Indices> label_to_indices;
   for (size_t i = 0; i < request.semantic_labels->size(); ++i) {
     uint32_t label = (*request.semantic_labels)[i].label;
-    if (label > 0 && unique_labels.count(label) > 0) {
+    if (reusex::core::is_valid_label(label) && unique_labels.count(label) > 0) {
       label_to_indices[label].push_back(static_cast<int>(i));
     }
   }
@@ -177,7 +178,7 @@ auto segment_instances_impl(const SegmentInstancesRequest &request)
   // Log final statistics
   size_t labeled_points = 0;
   for (const auto &label : *result.instance_labels) {
-    if (label.label > 0) {
+    if (reusex::core::is_valid_label(label.label)) {
       ++labeled_points;
     }
   }

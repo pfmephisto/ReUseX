@@ -5,6 +5,8 @@
 #include "core/ProjectDB.hpp"
 #include "core/MaterialPassport.hpp"
 #include "core/SensorIntrinsics.hpp"
+#include "core/guid.hpp"
+#include "core/label_semantics.hpp"
 #include "core/logging.hpp"
 #include "core/materialepas_serialization.hpp"
 #include "core/materialepas_traits.hpp"
@@ -22,35 +24,15 @@
 #include <cstring>
 #include <fstream>
 #include <random>
+#include <set>
 #include <sstream>
 #include <string>
+#include <vector>
 
 namespace reusex {
 
-// Generate a UUID-v4-like identifier for building components.
-static std::string generate_component_guid() {
-  std::random_device rd;
-  std::mt19937 gen(rd());
-  std::uniform_int_distribution<> dis(0, 15);
-  std::uniform_int_distribution<> dis2(8, 11);
-  std::stringstream ss;
-  ss << std::hex;
-  for (int i = 0; i < 8; i++)
-    ss << dis(gen);
-  ss << "-";
-  for (int i = 0; i < 4; i++)
-    ss << dis(gen);
-  ss << "-4";
-  for (int i = 0; i < 3; i++)
-    ss << dis(gen);
-  ss << "-" << dis2(gen);
-  for (int i = 0; i < 3; i++)
-    ss << dis(gen);
-  ss << "-";
-  for (int i = 0; i < 12; i++)
-    ss << dis(gen);
-  return ss.str();
-}
+// Generate a UUID-v4-like identifier for building components / instances.
+static std::string generate_component_guid() { return core::generate_guid(); }
 
 // ── RAII helper for sqlite3_stmt ────────────────────────────────────────
 class StmtGuard {
@@ -207,7 +189,7 @@ class ProjectDB::Impl {
   sqlite3 *db = nullptr;
 
   // cppcheck-suppress unusedStructMember
-  static constexpr int LATEST_SCHEMA_VERSION = 9;
+  static constexpr int LATEST_SCHEMA_VERSION = 10;
 
   // Maximum bytes per point_cloud_data row. SQLite's default SQLITE_MAX_LENGTH
   // is 1 GB and the hard compile-time max is 2 GB-1. We chunk large clouds
@@ -362,6 +344,10 @@ class ProjectDB::Impl {
 
     if (current < 9) {
       migrateToV9();
+    }
+
+    if (current < 10) {
+      migrateToV10();
     }
 
     reusex::trace("Schema version: {}", getCurrentSchemaVersion());
@@ -726,6 +712,204 @@ class ProjectDB::Impl {
     reusex::info("Migration to schema version 9 complete");
   }
 
+  void migrateToV10() {
+    reusex::info("Migrating database to schema version 10");
+
+    // Stable per-instance identity: the new `instances` table gives every
+    // spatially-distinct object a GUID that survives regeneration. The
+    // `instance_materials` link table is rebuilt with foreign keys onto both
+    // `instances` and `material_passports` so dangling links become
+    // impossible. SQLite cannot add foreign keys via ALTER, so the link table
+    // is rebuilt from scratch; orphaned rows are dropped with a warning.
+    execOrThrow("BEGIN TRANSACTION;");
+    try {
+      // 1. Create the instances table.
+      execOrThrow(R"(
+        CREATE TABLE IF NOT EXISTS instances (
+          cloud_id       INTEGER NOT NULL REFERENCES point_clouds(id) ON DELETE CASCADE,
+          instance_id    INTEGER NOT NULL,
+          guid           TEXT NOT NULL UNIQUE,
+          semantic_class INTEGER NOT NULL DEFAULT -1,
+          point_count    INTEGER NOT NULL DEFAULT 0,
+          PRIMARY KEY (cloud_id, instance_id)
+        );
+      )");
+
+      // 2. Backfill `instances` from existing instance-label clouds so that
+      //    v9 instance_materials links can be preserved. We derive rows from
+      //    label_definitions of any cloud that currently has material links,
+      //    parsing the semantic class from the "SM{class}-{id} (...)" naming
+      //    convention (falling back to -1). Each backfilled row gets a fresh
+      //    GUID.
+      if (tableExists("instance_materials") &&
+          tableExists("label_definitions")) {
+        // Distinct cloud_ids that have links.
+        std::vector<int> linkedClouds;
+        {
+          const char *sel = "SELECT DISTINCT cloud_id FROM instance_materials;";
+          sqlite3_stmt *stmt;
+          if (sqlite3_prepare_v2(db, sel, -1, &stmt, nullptr) != SQLITE_OK)
+            throw std::runtime_error(
+                "Migration to v10 failed (select linked clouds): " +
+                std::string(sqlite3_errmsg(db)));
+          StmtGuard guard(stmt);
+          while (sqlite3_step(stmt) == SQLITE_ROW)
+            linkedClouds.push_back(sqlite3_column_int(stmt, 0));
+        }
+
+        for (int cloudId : linkedClouds) {
+          // Read label definitions for this cloud: label_id -> name.
+          std::vector<std::pair<int, std::string>> defs;
+          {
+            const char *sel = "SELECT label_id, name FROM label_definitions "
+                              "WHERE cloud_id = ?;";
+            sqlite3_stmt *stmt;
+            if (sqlite3_prepare_v2(db, sel, -1, &stmt, nullptr) != SQLITE_OK)
+              throw std::runtime_error(
+                  "Migration to v10 failed (select label defs): " +
+                  std::string(sqlite3_errmsg(db)));
+            StmtGuard guard(stmt);
+            sqlite3_bind_int(stmt, 1, cloudId);
+            while (sqlite3_step(stmt) == SQLITE_ROW) {
+              int lid = sqlite3_column_int(stmt, 0);
+              const char *nm =
+                  reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1));
+              defs.emplace_back(lid, nm ? nm : "");
+            }
+          }
+
+          for (const auto &[labelId, name] : defs) {
+            int semClass = parseSemanticClassFromDef(name);
+            std::string guid = generate_component_guid();
+            const char *ins = R"(
+              INSERT OR IGNORE INTO instances
+                (cloud_id, instance_id, guid, semantic_class, point_count)
+              VALUES (?, ?, ?, ?, 0);
+            )";
+            sqlite3_stmt *stmt;
+            if (sqlite3_prepare_v2(db, ins, -1, &stmt, nullptr) != SQLITE_OK)
+              throw std::runtime_error(
+                  "Migration to v10 failed (backfill instance): " +
+                  std::string(sqlite3_errmsg(db)));
+            StmtGuard guard(stmt);
+            sqlite3_bind_int(stmt, 1, cloudId);
+            sqlite3_bind_int(stmt, 2, labelId);
+            sqlite3_bind_text(stmt, 3, guid.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_int(stmt, 4, semClass);
+            if (sqlite3_step(stmt) != SQLITE_DONE)
+              throw std::runtime_error(
+                  "Migration to v10 failed (backfill step): " +
+                  std::string(sqlite3_errmsg(db)));
+          }
+        }
+      }
+
+      // 3. Identify orphaned instance_materials rows (link whose instance was
+      //    not backfilled, or whose passport does not exist) and log them
+      //    before dropping. Then rebuild the table with FKs and copy only the
+      //    valid rows.
+      if (tableExists("instance_materials")) {
+        std::vector<std::string> orphans;
+        {
+          const char *sel = R"(
+            SELECT im.cloud_id, im.instance_id, im.material_guid
+            FROM instance_materials im
+            WHERE NOT EXISTS (
+              SELECT 1 FROM instances i
+              WHERE i.cloud_id = im.cloud_id
+                AND i.instance_id = im.instance_id)
+               OR NOT EXISTS (
+              SELECT 1 FROM material_passports mp
+              WHERE mp.document_guid = im.material_guid);
+          )";
+          sqlite3_stmt *stmt;
+          if (sqlite3_prepare_v2(db, sel, -1, &stmt, nullptr) != SQLITE_OK)
+            throw std::runtime_error(
+                "Migration to v10 failed (select orphans): " +
+                std::string(sqlite3_errmsg(db)));
+          StmtGuard guard(stmt);
+          while (sqlite3_step(stmt) == SQLITE_ROW) {
+            int cid = sqlite3_column_int(stmt, 0);
+            int iid = sqlite3_column_int(stmt, 1);
+            const char *g =
+                reinterpret_cast<const char *>(sqlite3_column_text(stmt, 2));
+            orphans.push_back(fmt::format("cloud_id={} instance_id={} guid={}",
+                                          cid, iid, g ? g : "(null)"));
+          }
+        }
+        if (!orphans.empty()) {
+          reusex::warn("Migration to v10: dropping {} orphaned "
+                       "instance_materials link(s) with no matching instance "
+                       "or passport:",
+                       orphans.size());
+          for (const auto &o : orphans)
+            reusex::warn("  - {}", o);
+        }
+      }
+
+      // Rebuild instance_materials with foreign keys onto instances and
+      // material_passports.
+      execOrThrow(R"(
+        CREATE TABLE instance_materials_new (
+          cloud_id      INTEGER NOT NULL REFERENCES point_clouds(id) ON DELETE CASCADE,
+          instance_id   INTEGER NOT NULL,
+          material_guid TEXT NOT NULL REFERENCES material_passports(document_guid) ON DELETE CASCADE,
+          PRIMARY KEY (cloud_id, instance_id),
+          FOREIGN KEY (cloud_id, instance_id)
+            REFERENCES instances(cloud_id, instance_id) ON DELETE CASCADE
+        );
+      )");
+
+      if (tableExists("instance_materials")) {
+        // Copy only valid rows (instance + passport both exist).
+        execOrThrow(R"(
+          INSERT INTO instance_materials_new (cloud_id, instance_id, material_guid)
+          SELECT im.cloud_id, im.instance_id, im.material_guid
+          FROM instance_materials im
+          WHERE EXISTS (
+            SELECT 1 FROM instances i
+            WHERE i.cloud_id = im.cloud_id
+              AND i.instance_id = im.instance_id)
+            AND EXISTS (
+            SELECT 1 FROM material_passports mp
+            WHERE mp.document_guid = im.material_guid);
+        )");
+        execOrThrow("DROP TABLE instance_materials;");
+      }
+      execOrThrow(
+          "ALTER TABLE instance_materials_new RENAME TO instance_materials;");
+      execOrThrow("CREATE INDEX IF NOT EXISTS idx_instance_materials_guid "
+                  "ON instance_materials(material_guid);");
+
+      insertSchemaVersion(10, "Add instances table; FK-enforced "
+                              "instance_materials");
+      execOrThrow("COMMIT;");
+    } catch (...) {
+      sqlite3_exec(db, "ROLLBACK;", nullptr, nullptr, nullptr);
+      throw;
+    }
+    reusex::info("Migration to schema version 10 complete");
+  }
+
+  // Parse the semantic class id from an instance definition name of the form
+  // "SM{class}-{id} (...)". Returns -1 if it doesn't match.
+  static int parseSemanticClassFromDef(const std::string &def) {
+    // Match a leading "SM" followed by digits and a '-'.
+    if (def.size() < 4 || def[0] != 'S' || def[1] != 'M')
+      return -1;
+    size_t i = 2;
+    int value = 0;
+    bool any = false;
+    while (i < def.size() && def[i] >= '0' && def[i] <= '9') {
+      value = value * 10 + (def[i] - '0');
+      any = true;
+      ++i;
+    }
+    if (!any || i >= def.size() || def[i] != '-')
+      return -1;
+    return value;
+  }
+
   // ── MTL parsing helpers ─────────────────────────────────────────────
 
   /// Parse an MTL file to extract material name -> texture file path mappings
@@ -974,7 +1158,8 @@ class ProjectDB::Impl {
                                std::string(sqlite3_errmsg(db)));
     StmtGuard guard(stmt);
 
-    // Transform: 16 x float64 = 128 bytes, row-major (matches saveSensorFrameFull).
+    // Transform: 16 x float64 = 128 bytes, row-major (matches
+    // saveSensorFrameFull).
     sqlite3_bind_blob(stmt, 1, worldPose.data(),
                       static_cast<int>(worldPose.size() * sizeof(double)),
                       SQLITE_TRANSIENT);
@@ -1322,11 +1507,8 @@ class ProjectDB::Impl {
     if (labels16U.empty())
       return cv::Mat();
 
-    // Convert CV_16U to CV_32S and apply -1 offset (0 -> -1 for background)
-    cv::Mat labels;
-    labels16U.convertTo(labels, CV_32S);
-    labels -= 1;
-    return labels;
+    // Storage CV_16U (0 = bg, label+1) -> API CV_32S (-1 = background).
+    return reusex::core::storage_mat_to_api(labels16U);
   }
 
   void saveSegmentationImage(int nodeId, const cv::Mat &labels) {
@@ -1334,10 +1516,9 @@ class ProjectDB::Impl {
       throw std::runtime_error("Cannot save empty segmentation labels");
     }
 
-    // Apply +1 offset and convert to CV_16U for storage (0 = background)
-    cv::Mat toSave;
-    cv::Mat offset = labels + 1;
-    offset.convertTo(toSave, CV_16U);
+    // API CV_32S (-1 = background) -> storage CV_16U (0 = bg, label+1).
+    // Throws std::out_of_range on labels >= 65535 instead of wrapping.
+    cv::Mat toSave = reusex::core::api_mat_to_storage(labels);
 
     std::vector<unsigned char> pngBytes;
     if (!cv::imencode(".png", toSave, pngBytes)) {
@@ -1583,9 +1764,8 @@ class ProjectDB::Impl {
         const void *blobPtr =
             len ? static_cast<const void *>(data.data() + offset)
                 : static_cast<const void *>(&emptyByte);
-        int rc = sqlite3_bind_blob64(dstmt, 3, blobPtr,
-                                     static_cast<sqlite3_uint64>(len),
-                                     SQLITE_STATIC);
+        int rc = sqlite3_bind_blob64(
+            dstmt, 3, blobPtr, static_cast<sqlite3_uint64>(len), SQLITE_STATIC);
         if (rc != SQLITE_OK)
           throw std::runtime_error(
               "Failed to bind point cloud chunk " + std::to_string(chunkIndex) +
@@ -1631,8 +1811,8 @@ class ProjectDB::Impl {
 
   CloudMeta loadCloudRaw(std::string_view name) const {
     // Read point cloud metadata.
-    const char *metaSql =
-        "SELECT id, point_type, width, height FROM point_clouds WHERE name = ?;";
+    const char *metaSql = "SELECT id, point_type, width, height FROM "
+                          "point_clouds WHERE name = ?;";
     sqlite3_stmt *mstmt;
     if (sqlite3_prepare_v2(db, metaSql, -1, &mstmt, nullptr) != SQLITE_OK)
       throw std::runtime_error("Failed to prepare cloud load: " +
@@ -1810,11 +1990,160 @@ class ProjectDB::Impl {
     return result;
   }
 
+  // ── Instances (stable identity) ────────────────────────────────────
+
+  void saveInstances(const std::string &cloudName,
+                     const std::vector<ProjectDB::InstanceRecord> &records) {
+    int cloudId = getCloudId(cloudName);
+
+    // Validate GUIDs up-front: non-empty, and unique within the batch.
+    std::set<std::string> seen;
+    for (const auto &r : records) {
+      if (r.guid.empty())
+        throw std::runtime_error(fmt::format(
+            "save_instances: instance {} in cloud '{}' has an empty guid",
+            r.instance_id, cloudName));
+      if (!seen.insert(r.guid).second)
+        throw std::runtime_error(
+            fmt::format("save_instances: duplicate guid '{}' within batch for "
+                        "cloud '{}'",
+                        r.guid, cloudName));
+    }
+
+    execOrThrow("BEGIN TRANSACTION;");
+    try {
+      {
+        const char *del = "DELETE FROM instances WHERE cloud_id = ?;";
+        sqlite3_stmt *stmt;
+        if (sqlite3_prepare_v2(db, del, -1, &stmt, nullptr) != SQLITE_OK)
+          throw std::runtime_error("Failed to prepare instances delete: " +
+                                   std::string(sqlite3_errmsg(db)));
+        StmtGuard guard(stmt);
+        sqlite3_bind_int(stmt, 1, cloudId);
+        if (sqlite3_step(stmt) != SQLITE_DONE)
+          throw std::runtime_error("Failed to clear instances: " +
+                                   std::string(sqlite3_errmsg(db)));
+      }
+
+      const char *ins = R"(
+        INSERT INTO instances
+          (cloud_id, instance_id, guid, semantic_class, point_count)
+        VALUES (?, ?, ?, ?, ?);
+      )";
+      sqlite3_stmt *stmt;
+      if (sqlite3_prepare_v2(db, ins, -1, &stmt, nullptr) != SQLITE_OK)
+        throw std::runtime_error("Failed to prepare instance insert: " +
+                                 std::string(sqlite3_errmsg(db)));
+      StmtGuard guard(stmt);
+      for (const auto &r : records) {
+        sqlite3_bind_int(stmt, 1, cloudId);
+        sqlite3_bind_int(stmt, 2, static_cast<int>(r.instance_id));
+        sqlite3_bind_text(stmt, 3, r.guid.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int(stmt, 4, r.semantic_class);
+        sqlite3_bind_int(stmt, 5, r.point_count);
+        if (sqlite3_step(stmt) != SQLITE_DONE)
+          throw std::runtime_error(
+              fmt::format("Failed to insert instance {} (guid {}): {}",
+                          r.instance_id, r.guid, sqlite3_errmsg(db)));
+        sqlite3_reset(stmt);
+      }
+
+      execOrThrow("COMMIT;");
+    } catch (...) {
+      sqlite3_exec(db, "ROLLBACK;", nullptr, nullptr, nullptr);
+      throw;
+    }
+  }
+
+  std::vector<ProjectDB::InstanceRecord>
+  getInstances(const std::string &cloudName) const {
+    int cloudId = getCloudId(cloudName);
+    const char *sql = "SELECT instance_id, guid, semantic_class, point_count "
+                      "FROM instances WHERE cloud_id = ? ORDER BY instance_id;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to query instances: " +
+                               std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+    sqlite3_bind_int(stmt, 1, cloudId);
+    std::vector<ProjectDB::InstanceRecord> result;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+      ProjectDB::InstanceRecord r;
+      r.instance_id = static_cast<uint32_t>(sqlite3_column_int(stmt, 0));
+      const char *g =
+          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1));
+      r.guid = g ? g : "";
+      r.semantic_class = sqlite3_column_int(stmt, 2);
+      r.point_count = sqlite3_column_int(stmt, 3);
+      result.push_back(std::move(r));
+    }
+    return result;
+  }
+
+  std::string instanceGuid(const std::string &cloudName,
+                           uint32_t instanceId) const {
+    int cloudId = getCloudId(cloudName);
+    const char *sql = "SELECT guid FROM instances "
+                      "WHERE cloud_id = ? AND instance_id = ?;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to query instance guid: " +
+                               std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+    sqlite3_bind_int(stmt, 1, cloudId);
+    sqlite3_bind_int(stmt, 2, static_cast<int>(instanceId));
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+      const char *g =
+          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
+      if (g)
+        return std::string(g);
+    }
+    throw std::runtime_error(fmt::format("Instance {} not found in cloud '{}'",
+                                         instanceId, cloudName));
+  }
+
+  bool instanceExists(int cloudId, int instanceId) const {
+    const char *sql = "SELECT 1 FROM instances "
+                      "WHERE cloud_id = ? AND instance_id = ? LIMIT 1;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      return false;
+    StmtGuard guard(stmt);
+    sqlite3_bind_int(stmt, 1, cloudId);
+    sqlite3_bind_int(stmt, 2, instanceId);
+    return sqlite3_step(stmt) == SQLITE_ROW;
+  }
+
+  bool passportExists(std::string_view documentGuid) const {
+    const char *sql = "SELECT 1 FROM material_passports "
+                      "WHERE document_guid = ? LIMIT 1;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      return false;
+    StmtGuard guard(stmt);
+    sqlite3_bind_text(stmt, 1, documentGuid.data(),
+                      static_cast<int>(documentGuid.size()), SQLITE_TRANSIENT);
+    return sqlite3_step(stmt) == SQLITE_ROW;
+  }
+
   // ── Instance ↔ material links ──────────────────────────────────────
 
   void setInstanceMaterial(std::string_view cloudName, int instanceId,
                            std::string_view materialGuid) {
     int cloudId = getCloudId(cloudName);
+
+    // Referential integrity: the instance and passport must both exist so we
+    // can never create a dangling link (STANDARDS §3.2, §5).
+    if (!instanceExists(cloudId, instanceId))
+      throw std::runtime_error(fmt::format(
+          "set_instance_material: instance {} does not exist in cloud '{}' "
+          "(run 'rux create instances' first)",
+          instanceId, cloudName));
+    if (!passportExists(materialGuid))
+      throw std::runtime_error(fmt::format(
+          "set_instance_material: material passport '{}' does not exist",
+          materialGuid));
+
     const char *sql = R"(
       INSERT INTO instance_materials (cloud_id, instance_id, material_guid)
       VALUES (?, ?, ?)
@@ -1859,8 +2188,9 @@ class ProjectDB::Impl {
   std::map<int, std::string>
   getInstanceMaterials(std::string_view cloudName) const {
     int cloudId = getCloudId(cloudName);
-    const char *sql = "SELECT instance_id, material_guid FROM instance_materials "
-                      "WHERE cloud_id = ? ORDER BY instance_id;";
+    const char *sql =
+        "SELECT instance_id, material_guid FROM instance_materials "
+        "WHERE cloud_id = ? ORDER BY instance_id;";
     sqlite3_stmt *stmt;
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
       throw std::runtime_error("Failed to query instance materials: " +
@@ -1889,11 +2219,10 @@ class ProjectDB::Impl {
       const size_t v =
           static_cast<size_t>(mesh.cloud.width) * mesh.cloud.height;
       if (v == 0 || mesh.polygons.empty())
-        throw std::runtime_error("Refusing to save empty mesh '" +
-                                 std::string(name) + "' (" +
-                                 std::to_string(v) + " vertices, " +
-                                 std::to_string(mesh.polygons.size()) +
-                                 " faces)");
+        throw std::runtime_error(
+            "Refusing to save empty mesh '" + std::string(name) + "' (" +
+            std::to_string(v) + " vertices, " +
+            std::to_string(mesh.polygons.size()) + " faces)");
     }
 
     // Serialize mesh to PLY binary via temp file
@@ -1971,9 +2300,8 @@ class ProjectDB::Impl {
         f += polys.size();
       if (v == 0 || f == 0)
         throw std::runtime_error("Refusing to save empty texture mesh '" +
-                                 std::string(name) + "' (" +
-                                 std::to_string(v) + " vertices, " +
-                                 std::to_string(f) + " faces)");
+                                 std::string(name) + "' (" + std::to_string(v) +
+                                 " vertices, " + std::to_string(f) + " faces)");
     }
 
     // Save CWD so we can find texture files referenced by the MTL
@@ -3915,6 +4243,24 @@ void ProjectDB::save_label_definitions(
 std::map<int, std::string>
 ProjectDB::label_definitions(std::string_view cloudName) const {
   return impl_->getLabelDefinitions(cloudName);
+}
+
+// --- Instances (stable identity) ---
+
+void ProjectDB::save_instances(
+    const std::string &cloud_name,
+    const std::vector<ProjectDB::InstanceRecord> &records) {
+  impl_->saveInstances(cloud_name, records);
+}
+
+std::vector<ProjectDB::InstanceRecord>
+ProjectDB::instances(const std::string &cloud_name) const {
+  return impl_->getInstances(cloud_name);
+}
+
+std::string ProjectDB::instance_guid(const std::string &cloud_name,
+                                     uint32_t instance_id) const {
+  return impl_->instanceGuid(cloud_name, instance_id);
 }
 
 void ProjectDB::set_instance_material(std::string_view cloudName,

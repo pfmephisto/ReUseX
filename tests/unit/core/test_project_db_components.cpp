@@ -62,7 +62,7 @@ TEST_CASE("ProjectDB latest schema version on fresh DB",
           "[projectdb][components]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
-  REQUIRE(db.schema_version() == 9);
+  REQUIRE(db.schema_version() == 10);
 }
 
 TEST_CASE("ProjectDB building component save/load round-trip",
@@ -83,8 +83,7 @@ TEST_CASE("ProjectDB building component save/load round-trip",
   REQUIRE(loaded.notes == "detected by YOLO");
 
   // Verify vertices match exactly
-  REQUIRE(loaded.boundary.vertices.size() ==
-          original.boundary.vertices.size());
+  REQUIRE(loaded.boundary.vertices.size() == original.boundary.vertices.size());
   for (size_t i = 0; i < original.boundary.vertices.size(); ++i) {
     REQUIRE(loaded.boundary.vertices[i].x() ==
             Approx(original.boundary.vertices[i].x()));
@@ -314,4 +313,33 @@ TEST_CASE("ProjectDB update_building_component_by_guid throws for unknown guid",
   c.guid = "does-not-exist";
   REQUIRE_THROWS_AS(db.update_building_component_by_guid(c),
                     std::runtime_error);
+}
+
+TEST_CASE("ProjectDB persists source_instance_guid provenance (issue #211)",
+          "[projectdb][components][provenance]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+
+  // Save with provenance set (as create_windows would).
+  auto c = make_window("win1");
+  c.source_instance_guid = "instances-guid-42";
+  db.save_building_component(c);
+
+  auto loaded = db.building_component("win1");
+  REQUIRE(loaded.source_instance_guid == "instances-guid-42");
+
+  // The guid-update path (used by CSV import) must also round-trip it.
+  loaded.source_instance_guid = "instances-guid-99";
+  db.update_building_component_by_guid(loaded);
+  REQUIRE(db.building_component("win1").source_instance_guid ==
+          "instances-guid-99");
+}
+
+TEST_CASE("ProjectDB leaves source_instance_guid empty when unset",
+          "[projectdb][components][provenance]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+
+  db.save_building_component(make_window("win1")); // no provenance
+  REQUIRE(db.building_component("win1").source_instance_guid.empty());
 }

@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
+#include "reusex/core/label_semantics.hpp"
 #include "reusex/core/logging.hpp"
 #include "reusex/core/processing_observer.hpp"
 
@@ -76,8 +77,9 @@ auto CellComplex::compute_room_probabilities(
   std::vector<unsigned int> labels;
   labels.reserve(labels_->points.size());
 
+  // Rooms follow the point-label convention: 0 = unlabeled, valid rooms 1..N.
   for (const auto &p : labels_->points)
-    if (p.label != static_cast<unsigned int>(-1))
+    if (reusex::core::is_valid_label(p.label))
       labels.push_back(p.label);
 
   std::sort(labels.begin(), labels.end());
@@ -263,8 +265,7 @@ auto CellComplex::compute_room_probabilities(
         // "Frontside hit"));
 
         auto geometry = rtcGetGeometry(scene_, rayhit.hit.geomID);
-        auto *data =
-            static_cast<RTCData *>(rtcGetGeometryUserData(geometry));
+        auto *data = static_cast<RTCData *>(rtcGetGeometryUserData(geometry));
 
         // const auto label = labels[data->label_index];
         // reusex::trace("Cell {:>3} ray {} hit label {} (index {})",

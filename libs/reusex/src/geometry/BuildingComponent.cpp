@@ -36,6 +36,11 @@ std::string component_data_to_json(const BuildingComponent &c) {
   nlohmann::json j;
   j["component_type"] = to_string(c.type);
 
+  // Provenance link to the source instance (issue #211). Only emitted when
+  // populated so that older components (and their JSON) stay byte-compatible.
+  if (!c.source_instance_guid.empty())
+    j["source_instance_guid"] = c.source_instance_guid;
+
   std::visit(
       [&](const auto &d) {
         using T = std::decay_t<decltype(d)>;
@@ -65,6 +70,10 @@ void component_data_from_json(BuildingComponent &c, const std::string &json) {
   if (j.contains("component_type")) {
     c.type = component_type_from_string(j["component_type"].get<std::string>());
   }
+
+  // Provenance link (issue #211). Absent in legacy JSON — left untouched.
+  if (j.contains("source_instance_guid"))
+    c.source_instance_guid = j["source_instance_guid"].get<std::string>();
 
   switch (c.type) {
   case ComponentType::window: {

@@ -10,6 +10,8 @@
 #include <string>
 #include <vector>
 
+#include <reusex/geometry/segment_instances.hpp>
+
 namespace fs = std::filesystem;
 
 /**
@@ -22,14 +24,18 @@ namespace fs = std::filesystem;
  * label into wall_1, wall_2, etc.
  */
 struct SubcommandSegInstancesOptions {
-  /// Euclidean distance threshold for clustering (meters)
-  float cluster_tolerance = 0.5F;
+  /// Euclidean distance threshold for clustering (meters). Derived from the
+  /// library request struct (docs/STANDARDS.md §4).
+  float cluster_tolerance =
+      reusex::geometry::SegmentInstancesRequest{}.cluster_tolerance;
 
   /// Minimum points per instance cluster
-  int min_cluster_size = 50;
+  int min_cluster_size =
+      reusex::geometry::SegmentInstancesRequest{}.min_cluster_size;
 
   /// Maximum points per instance cluster
-  int max_cluster_size = 1000000;
+  int max_cluster_size =
+      reusex::geometry::SegmentInstancesRequest{}.max_cluster_size;
 
   /// Name of input semantic labels cloud in ProjectDB
   std::string semantic_cloud_name = "labels";

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "geometry/CoplanarPolygon.hpp"
+#include "utils/tolerances.hpp"
 
 #include <cstring>
 #include <limits>
@@ -25,7 +26,9 @@ double CoplanarPolygon::area() const {
 
   Eigen::Vector3d n_vec = plane.head<3>();
   double n_len = n_vec.norm();
-  if (n_len < 1e-15)
+  // Normal magnitude is a dimensionless/normalized quantity (unit normals have
+  // |n| = 1); below the relative epsilon the plane is degenerate.
+  if (n_len < reusex::kEpsilonRelative)
     return 0.0;
 
   return 0.5 * std::abs(cross_sum.dot(n_vec) / n_len);
@@ -44,13 +47,15 @@ Eigen::Vector3d CoplanarPolygon::centroid() const {
 Eigen::Vector3d CoplanarPolygon::normal() const {
   Eigen::Vector3d n = plane.head<3>();
   double len = n.norm();
-  if (len < 1e-15)
+  if (len < reusex::kEpsilonRelative)
     return Eigen::Vector3d::Zero();
   return n / len;
 }
 
 bool CoplanarPolygon::is_valid() const {
-  return vertices.size() >= 3 && plane.head<3>().squaredNorm() > 1e-30;
+  return vertices.size() >= 3 &&
+         plane.head<3>().squaredNorm() >
+             reusex::kEpsilonRelative * reusex::kEpsilonRelative;
 }
 
 std::pair<Eigen::Vector3d, Eigen::Vector3d>

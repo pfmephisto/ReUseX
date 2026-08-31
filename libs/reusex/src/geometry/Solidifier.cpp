@@ -6,6 +6,10 @@
 #include "core/logging.hpp"
 #include <tbb/concurrent_unordered_map.h>
 
+#include <cmath>
+#include <string>
+#include <vector>
+
 #ifdef USE_CUOPT
 #include <CGAL/cuOpt_mixed_integer_program_traits.h>
 using MIP_Solver = CGAL::cuOpt_mixed_integer_program_traits<double>;
@@ -17,6 +21,57 @@ using MIP_Solver = CGAL::HiGHS_mixed_integer_program_traits<double>;
 #define SolverDebug 0
 
 namespace reusex::geometry {
+
+namespace {
+/// Map the solver-backend status enum to the public Solidifier SolveStatus.
+SolveStatus map_status(CGAL::MIP_solve_status s) {
+  switch (s) {
+  case CGAL::MIP_solve_status::not_solved:
+    return SolveStatus::not_solved;
+  case CGAL::MIP_solve_status::optimal:
+    return SolveStatus::optimal;
+  case CGAL::MIP_solve_status::feasible:
+    return SolveStatus::feasible;
+  case CGAL::MIP_solve_status::infeasible:
+    return SolveStatus::infeasible;
+  case CGAL::MIP_solve_status::unbounded:
+    return SolveStatus::unbounded;
+  case CGAL::MIP_solve_status::time_limit:
+    return SolveStatus::time_limit;
+  case CGAL::MIP_solve_status::iteration_limit:
+    return SolveStatus::iteration_limit;
+  case CGAL::MIP_solve_status::numerical_error:
+    return SolveStatus::numerical_error;
+  case CGAL::MIP_solve_status::error:
+    return SolveStatus::error;
+  }
+  return SolveStatus::error;
+}
+} // namespace
+
+const char *to_string(SolveStatus status) {
+  switch (status) {
+  case SolveStatus::not_solved:
+    return "not_solved";
+  case SolveStatus::optimal:
+    return "optimal";
+  case SolveStatus::feasible:
+    return "feasible";
+  case SolveStatus::infeasible:
+    return "infeasible";
+  case SolveStatus::unbounded:
+    return "unbounded";
+  case SolveStatus::time_limit:
+    return "time_limit";
+  case SolveStatus::iteration_limit:
+    return "iteration_limit";
+  case SolveStatus::numerical_error:
+    return "numerical_error";
+  case SolveStatus::error:
+    return "error";
+  }
+  return "unknown";
+}
 
 // PIMPL Implementation class
 class Solidifier::Impl {
@@ -30,15 +85,24 @@ class Solidifier::Impl {
 
   MIP_Solver solver;
   std::shared_ptr<const CellComplex> _cc;
+  SolidifierOptions _options;
 
   std::unordered_map<Cd, std::vector<Variable *>> _room_variables{};
   std::unordered_map<Cd, std::vector<Variable *>> _wall_variables{};
 
-  static constexpr double alpha = 0.04;
+  double alpha; ///< objective wall-weight (from options)
 
-  explicit Impl(std::shared_ptr<const CellComplex> cc) : _cc(cc) {
-    reusex::trace("Solidifier created");
+  explicit Impl(std::shared_ptr<const CellComplex> cc,
+                SolidifierOptions options)
+      : _cc(cc), _options(options), alpha(options.alpha) {
+    reusex::trace("Solidifier created (alpha={}, time_limit={}s)", alpha,
+                  options.time_limit_seconds);
   }
+
+  /// Validate the property maps the objective/coverage terms require before
+  /// building the MIP. Throws std::runtime_error naming what is missing or
+  /// wrongly sized (docs/STANDARDS.md §5).
+  void _validatePropertyMaps() const;
 
   void _configureSolver();
   void _setupVariables();
@@ -60,10 +124,83 @@ class Solidifier::Impl {
 };
 
 // Solidifier public interface implementation
-Solidifier::Solidifier(std::shared_ptr<const CellComplex> cc)
-    : pimpl_(std::make_unique<Impl>(cc)) {}
+Solidifier::Solidifier(std::shared_ptr<const CellComplex> cc,
+                       SolidifierOptions options)
+    : pimpl_(std::make_unique<Impl>(cc, options)) {}
 
 Solidifier::~Solidifier() = default;
+
+SolveStatus Solidifier::last_solve_status() const {
+  return map_status(pimpl_->solver.solve_status());
+}
+
+void Solidifier::Impl::_validatePropertyMaps() const {
+  std::vector<std::string> missing;
+
+  // Scalar double maps (existence probe by value type).
+  auto probe_double = [&](const char *name) {
+    try {
+      (void)_cc->property_map<Fd, double>(name);
+    } catch (const std::exception &) {
+      missing.emplace_back(name);
+    }
+  };
+  probe_double("f:area");
+  probe_double("f:support_probability");
+  probe_double("c:volume");
+
+  // Vector<double> map: room probabilities.
+  try {
+    (void)_cc->property_map<Cd, std::vector<double>>("c:room_probabilities");
+  } catch (const std::exception &) {
+    missing.emplace_back("c:room_probabilities");
+  }
+
+  if (!missing.empty()) {
+    throw std::runtime_error(fmt::format(
+        "Solidifier: required cell-complex property map(s) missing before "
+        "building the MIP: [{}]. These are populated by "
+        "compute_face_coverage() and compute_room_probabilities(); ensure "
+        "both run before Solidifier::solve().",
+        fmt::join(missing, ", ")));
+  }
+
+  // Size checks: every cell must carry a room-probability vector of length
+  // n_rooms+1 (index 0 == outside), and every face-between-cells needs a
+  // finite area and support probability.
+  auto area = _cc->property_map<Fd, double>("f:area");
+  auto volume = _cc->property_map<Cd, double>("c:volume");
+  auto f_sp = _cc->property_map<Fd, double>("f:support_probability");
+  auto c_rp =
+      _cc->property_map<Cd, std::vector<double>>("c:room_probabilities");
+
+  const size_t expected = _cc->n_rooms + 1;
+  for (auto cit = _cc->cells_begin(); cit != _cc->cells_end(); ++cit) {
+    const auto &probs = c_rp[*cit];
+    if (probs.size() != expected)
+      throw std::runtime_error(fmt::format(
+          "Solidifier: 'c:room_probabilities' for cell {} has size {} but "
+          "expected {} (= n_rooms+1). The cell complex and room-probability "
+          "computation are out of sync.",
+          (*_cc)[*cit].id, probs.size(), expected));
+    if (!std::isfinite(volume[*cit]))
+      throw std::runtime_error(
+          fmt::format("Solidifier: 'c:volume' for cell {} is not finite.",
+                      (*_cc)[*cit].id));
+  }
+
+  for (auto fit = _cc->faces_between_cells_begin();
+       fit != _cc->faces_between_cells_end(); ++fit) {
+    if (!std::isfinite(area[*fit]))
+      throw std::runtime_error(fmt::format(
+          "Solidifier: 'f:area' for face {} is not finite.", (*_cc)[*fit].id));
+    if (!std::isfinite(f_sp[*fit]))
+      throw std::runtime_error(
+          fmt::format("Solidifier: 'f:support_probability' for face {} is not "
+                      "finite.",
+                      (*_cc)[*fit].id));
+  }
+}
 
 std::optional<std::pair<std::unordered_map<Solidifier::Cd, int>,
                         std::unordered_map<Solidifier::Cd, std::set<int>>>>
@@ -72,30 +209,68 @@ Solidifier::solve() {
   reusex::info("Using MIP solver: {}", typeid(pimpl_->solver).name());
   reusex::trace("Start solving MIP");
 
+  // Fail fast with a descriptive error if the inputs the MIP needs are not
+  // present/consistent (docs/STANDARDS.md §5).
+  pimpl_->_validatePropertyMaps();
+
   pimpl_->_configureSolver();
   pimpl_->_setupVariables();
   pimpl_->_setupObjective();
   pimpl_->_setupConstraints();
 
-  // Log problem statistics
-  reusex::debug(
-      "Problem size: {} cells, {} rooms, {} walls",
-      std::distance(pimpl_->_cc->cells_begin(), pimpl_->_cc->cells_end()),
-      pimpl_->_cc->n_rooms, pimpl_->_cc->n_walls);
-  reusex::debug("Total variables: {}, Total constraints: {}",
-                pimpl_->solver.number_of_variables(),
-                pimpl_->solver.number_of_constraints());
+  // Problem statistics (info level per §5 so failures are diagnosable).
+  const auto n_cells =
+      std::distance(pimpl_->_cc->cells_begin(), pimpl_->_cc->cells_end());
+  const auto n_faces = std::distance(pimpl_->_cc->faces_between_cells_begin(),
+                                     pimpl_->_cc->faces_between_cells_end());
+  const auto n_vars = pimpl_->solver.number_of_variables();
+  const auto n_constraints = pimpl_->solver.number_of_constraints();
+  reusex::info("MIP problem: {} cells, {} inter-cell faces, {} rooms, {} walls "
+               "=> {} variables, {} constraints (time limit {}s)",
+               n_cells, n_faces, pimpl_->_cc->n_rooms, pimpl_->_cc->n_walls,
+               n_vars, n_constraints, pimpl_->_options.time_limit_seconds);
 
   reusex::trace("Start solving");
   auto sw = reusex::core::stopwatch{};
 
   // INFO: Solve
   if (!pimpl_->solver.solve()) {
-    reusex::error("MIP solver failed to find solution");
+    const auto status = map_status(pimpl_->solver.solve_status());
+    // Actionable hint tailored to the failure mode.
+    std::string hint;
+    switch (status) {
+    case SolveStatus::time_limit:
+    case SolveStatus::iteration_limit:
+      hint = fmt::format(
+          "solver hit its {} after {}s with {} cells — increase --time-limit, "
+          "or reduce complexity via stronger plane merging / --filter",
+          to_string(status), pimpl_->_options.time_limit_seconds, n_cells);
+      break;
+    case SolveStatus::infeasible:
+      hint = fmt::format(
+          "model is infeasible ({} cells, {} faces) — the plane arrangement "
+          "likely has no consistent room labelling; check plane segmentation "
+          "and room probabilities",
+          n_cells, n_faces);
+      break;
+    case SolveStatus::unbounded:
+      hint = "model is unbounded — objective weights are likely malformed";
+      break;
+    default:
+      hint = fmt::format("solver reported '{}' with {} cells / {} variables — "
+                         "consider stronger plane merging or --filter",
+                         to_string(status), n_cells, n_vars);
+      break;
+    }
+    reusex::error("MIP solver failed to find a solution [status={}, {} cells, "
+                  "{} faces, {} variables, {} constraints]: {}",
+                  to_string(status), n_cells, n_faces, n_vars, n_constraints,
+                  hint);
     return {};
   }
 
-  reusex::info("MIP solver succeeded");
+  reusex::info("MIP solver succeeded (status={})",
+               to_string(map_status(pimpl_->solver.solve_status())));
 
   auto room_label = std::unordered_map<Cd, int>{};
   auto wall_label = std::unordered_map<Cd, std::set<int>>{};
@@ -137,7 +312,12 @@ std::set<T> operator+(const std::set<T> &a, const std::set<T> &b) {
   return result;
 }
 
-void Solidifier::Impl::_configureSolver() {}
+void Solidifier::Impl::_configureSolver() {
+  // Wire the configurable termination controls into the backend solver
+  // (issue #212). A finite time limit guarantees solve() cannot hang.
+  solver.set_time_limit(_options.time_limit_seconds);
+  solver.set_mip_gap(_options.mip_gap);
+}
 
 /** Setup the MIP variables
  *

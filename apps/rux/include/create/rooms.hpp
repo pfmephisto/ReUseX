@@ -6,17 +6,28 @@
 #include "../global-params.hpp"
 #include <CLI/CLI.hpp>
 #include <memory>
+
+#include <reusex/geometry/segment_rooms.hpp>
+
 namespace fs = std::filesystem;
 
 /// Collection of all options for room segmentation subcommand.
+///
+/// Defaults are derived from reusex::geometry::SegmentRoomsOptions so the CLI
+/// and library never disagree on a parameter's default (docs/STANDARDS.md §4).
 struct SubcommandSegRoomsOptions {
+  /// Leiden resolution parameter (cluster granularity).
+  float resolution = reusex::geometry::SegmentRoomsOptions{}.resolution;
+  /// Leiden beta (refinement randomness).
+  float beta = reusex::geometry::SegmentRoomsOptions{}.beta;
+  /// Maximum Leiden iterations (finite bound, see library default).
+  int max_iter = reusex::geometry::SegmentRoomsOptions{}.max_iter;
 
-  float resolution =
-      1.0F;           ///< Leiden resolution parameter (cluster granularity)
-  float beta = 0.01F; ///< Leiden beta (refinement randomness)
-  int max_iter = -1;  ///< Maximum iterations (-1 = until convergence)
+  float grid_size = reusex::geometry::SegmentRoomsOptions{}.grid_size;
 
-  float grid_size = 0.5;
+  /// Distance-bounded k-NN label propagation to non-sampled points.
+  float propagate_max_radius =
+      reusex::geometry::SegmentRoomsOptions{}.propagate_max_radius;
 
   std::string filter_expr; ///< Filter expression to limit processing
 };

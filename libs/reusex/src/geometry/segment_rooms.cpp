@@ -6,10 +6,76 @@
 #include "core/label_semantics.hpp"
 #include "core/logging.hpp"
 
+#include <algorithm>
+#include <map>
 #include <stdexcept>
 #include <unordered_set>
 
 namespace reusex::geometry {
+
+auto propagate_room_labels(CloudConstPtr cloud, CloudLPtr labels,
+                           IndicesConstPtr sampled_indices,
+                           IndicesConstPtr missing_indices, int k,
+                           float max_radius) -> size_t {
+  // Distance-bounded k-NN majority propagation. For each non-sampled point we
+  // poll up to k sampled neighbours, discard any beyond max_radius, and assign
+  // the majority room label among those that remain. Points with no labelled
+  // neighbour inside the radius keep their current (unlabeled) label and are
+  // counted so the failure is visible (STANDARDS §5: no silent failure).
+  pcl::KdTreeFLANN<PointT> kdtree;
+  kdtree.setInputCloud(cloud, sampled_indices);
+
+  const int kk = std::max(1, k);
+  const float max_sqr_dist = max_radius * max_radius;
+  size_t unpropagated = 0;
+  std::vector<int> nn_indices(kk);
+  std::vector<float> nn_sqr_dists(kk);
+
+  for (size_t i = 0; i < missing_indices->size(); ++i) {
+    const size_t idx = missing_indices->at(i);
+    const int found =
+        kdtree.nearestKSearch(cloud->points[idx], kk, nn_indices, nn_sqr_dists);
+    if (found <= 0) {
+      // Guard against nearestKSearch returning 0 (empty tree / no neighbour).
+      ++unpropagated;
+      continue;
+    }
+
+    // Majority vote over the in-radius labelled neighbours. Ties break
+    // deterministically towards the smallest room label so identical inputs
+    // always produce identical output (STANDARDS §6).
+    std::map<uint32_t, int> votes;
+    for (int n = 0; n < found; ++n) {
+      if (nn_sqr_dists[n] > max_sqr_dist)
+        continue; // neighbour too far away
+      const uint32_t neighbour_label = labels->points[nn_indices[n]].label;
+      if (neighbour_label == core::kUnlabeled)
+        continue; // never propagate the unlabeled sentinel
+      ++votes[neighbour_label];
+    }
+
+    if (votes.empty()) {
+      // No labelled neighbour within the radius: leave unlabeled and count it.
+      ++unpropagated;
+      continue;
+    }
+
+    uint32_t best_label = core::kUnlabeled;
+    int best_count = 0;
+    for (const auto &[label, count] : votes) {
+      // std::map iterates in ascending key order, so the first label reaching
+      // the max wins ties -> smallest room id, deterministic.
+      if (count > best_count) {
+        best_count = count;
+        best_label = label;
+      }
+    }
+    labels->points[idx].label = best_label;
+  }
+
+  return unpropagated;
+}
+
 /**
  * @brief Implementation of room segmentation using community detection.
  *
@@ -137,8 +203,6 @@ auto segment_rooms_impl(CloudConstPtr cloud, CloudNConstPtr normals,
   }
 
   // Assign the label to all points
-  pcl::KdTreeFLANN<PointT> kdtree;
-  kdtree.setInputCloud(cloud, indices);
   IndicesPtr missing_indices(new Indices);
 
   std::sort(indices->begin(), indices->end());
@@ -178,13 +242,22 @@ auto segment_rooms_impl(CloudConstPtr cloud, CloudNConstPtr normals,
                   indices->size());
   }
 
-  for (size_t i = 0; i < missing_indices->size(); ++i) {
-    const size_t idx = missing_indices->at(i);
-    std::vector<int> nn_indices(1);
-    std::vector<float> nn_sqr_dists(1);
-    if (kdtree.nearestKSearch(cloud->points[idx], 1, nn_indices, nn_sqr_dists) >
-        0) {
-      labels->points[idx].label = labels->points[nn_indices[0]].label;
+  const size_t unpropagated =
+      propagate_room_labels(cloud, labels, indices, missing_indices,
+                            options.propagate_k, options.propagate_max_radius);
+
+  if (!missing_indices->empty()) {
+    const double pct = 100.0 * static_cast<double>(unpropagated) /
+                       static_cast<double>(cloud->points.size());
+    if (pct > 1.0) {
+      reusex::warn("Room propagation: {} of {} points ({:.1f}%) had no room "
+                   "label within {:.2f} m and remain unlabeled.",
+                   unpropagated, cloud->points.size(), pct,
+                   options.propagate_max_radius);
+    } else if (unpropagated > 0) {
+      reusex::debug("Room propagation: {} of {} points ({:.2f}%) remain "
+                    "unlabeled (within tolerance).",
+                    unpropagated, cloud->points.size(), pct);
     }
   }
 

@@ -6,19 +6,34 @@
 #include "../global-params.hpp"
 #include <CLI/CLI.hpp>
 #include <memory>
+
+#include <reusex/geometry/segment_planes.hpp>
+
 namespace fs = std::filesystem;
 
 /// Collection of all options for plane segmentation subcommand.
+///
+/// Defaults are derived from reusex::geometry::SegmentPlanesOptions so the CLI
+/// and library never disagree on a parameter's default (docs/STANDARDS.md §4).
 struct SubcommandSegPlanesOptions {
 
+  /// Angular threshold for plane detection (degrees).
   float angle_threshold =
-      25.0f; ///< Angular threshold for plane detection (degrees)
-  float plane_dist_threshold = 0.07; ///< Distance threshold for plane detection
-  int minInliers = 1000; ///< Minimum number of inliers for a valid plane
-  // 2 * (1 / 0.02) * (1 / 0.02); // ca 2sqm in 2cm resolution of point cloud
-  float radius = 0.5;          ///< Search radius for region growing
-  float interval_0 = 16;       ///< Initial interval for multi-scale processing
-  float interval_factor = 1.5; ///< Factor for interval scaling
+      reusex::geometry::SegmentPlanesOptions{}.angle_threshold;
+  /// Distance threshold for plane detection.
+  float plane_dist_threshold =
+      reusex::geometry::SegmentPlanesOptions{}.plane_dist_threshold;
+  /// Minimum number of inliers for a valid plane.
+  int minInliers = reusex::geometry::SegmentPlanesOptions{}.min_inliers;
+  float radius = reusex::geometry::SegmentPlanesOptions{}.radius;
+  float interval_0 = reusex::geometry::SegmentPlanesOptions{}.interval_0;
+  float interval_factor =
+      reusex::geometry::SegmentPlanesOptions{}.interval_factor;
+
+  bool adaptive = true; ///< Derive thresholds from measured cloud noise (#214)
+  unsigned noise_seed = 42;   ///< Deterministic seed for the noise estimator
+  bool dist_explicit = false; ///< User passed -d (pins distance threshold)
+  bool min_explicit = false;  ///< User passed -m (pins min_inliers)
 
   std::string filter_expr; ///< Filter expression to limit processing
 };

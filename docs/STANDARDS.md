@@ -97,9 +97,28 @@ writes labels MUST follow it; any deviation is a bug.
   defaults — never define a second default in `apps/rux`. **[target]**
 - No new magic numbers in algorithm code. Thresholds, epsilons, and limits go
   into the options struct or a named `constexpr`.
-- Geometric epsilon policy **[target]**: use the named constants in
-  `utils/` (planned) rather than ad-hoc `1e-6`/`1e-9`/`1e-15` literals.
-  Absolute tolerances must state their unit (meters) in the name or comment.
+- Geometric epsilon policy: use the named constants in
+  `utils/tolerances.hpp` (`#include "utils/tolerances.hpp"` internally, or
+  `<reusex/utils/tolerances.hpp>` from consumers) rather than ad-hoc
+  `1e-6`/`1e-9`/`1e-15` literals. Absolute tolerances state their unit (meters)
+  in the name (`...M`) or a comment. The constants and their intended use:
+
+  | Constant | Value | Unit | Use for |
+  |----------|-------|------|---------|
+  | `kEpsilonLengthM` | `1e-9` | meters | Absolute length zero-check: is a distance / edge length / vector norm effectively zero? Only meaningful on quantities in the scene's metric frame — recenter georeferenced coordinates first (see §4 recentering). |
+  | `kEpsilonAngleRad` | `1e-6` | radians | Absolute angular zero-check / parallelism when the quantity is an angle (e.g. `acos(dot)`). |
+  | `kEpsilonRelative` | `1e-12` | — | Dimensionless / normalized comparisons: dot products of unit vectors, squared norms of unit normals, ratios. This is the guard for divisions by a squared norm. |
+  | `kToleranceCoplanarM` | `0.01` | meters | Coplanarity / spatial-adjacency tolerance: planes whose parallel offsets differ by less than this are the same surface; inlier patches with a gap below this are adjacent. |
+
+  When comparing two vectors for parallelism, convert to an angle and use
+  `kEpsilonAngleRad`, or compare `1 - |dot|` against `kEpsilonRelative`; do not
+  invent a per-call-site literal.
+
+- **Coordinate normalization before CGAL**: georeferenced (UTM / 500 km-scale)
+  coordinates fed to CGAL's inexact-construction kernel lose precision.
+  Recenter geometry to its bounding-box centroid before cell-complex /
+  arrangement construction and restore the offset on output. `CellComplex`'s
+  constructor does this internally.
 
 ## 5. Error handling & diagnostics
 

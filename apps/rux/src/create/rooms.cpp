@@ -84,7 +84,7 @@ NOTES:
       ->check(CLI::Range(0.0, 1.0));
 
   sub->add_option("-m, --max-iter", opt->max_iter,
-                  "Maximum number of Leiden iterations. "
+                  "Maximum number of Leiden iterations (finite bound). "
                   "Negative value = iterate until convergence.")
       ->default_val(opt->max_iter)
       ->check(CLI::Range(-1, 1000));
@@ -93,6 +93,13 @@ NOTES:
                   "Grid size for spatial discretization.")
       ->default_val(opt->grid_size)
       ->check(CLI::Range(0.01, 10.0));
+
+  sub->add_option("--propagate-radius", opt->propagate_max_radius,
+                  "Max search radius (meters) for propagating room labels to "
+                  "non-sampled points. Points with no room label within this "
+                  "radius stay unlabeled.")
+      ->default_val(opt->propagate_max_radius)
+      ->check(CLI::Range(0.0, 10.0));
 
   sub->add_option(
          "-f, --filter", opt->filter_expr,
@@ -187,6 +194,7 @@ int run_subcommand_segment_rooms(SubcommandSegRoomsOptions const &opt,
     options.resolution = opt.resolution;
     options.beta = opt.beta;
     options.max_iter = opt.max_iter;
+    options.propagate_max_radius = opt.propagate_max_radius;
 
     // Evaluate filter if provided
     if (!opt.filter_expr.empty()) {

@@ -95,6 +95,24 @@ NOTES:
       ->default_val(opt->new_plane_offset)
       ->check(CLI::Range(0.01, 1.0));
 
+  sub->add_option("--time-limit", opt->time_limit_seconds,
+                  "MIP solver wall-clock time limit in seconds. Guards against "
+                  "the solver hanging on complex buildings (issue #212).")
+      ->default_val(opt->time_limit_seconds)
+      ->check(CLI::Range(1.0, 36000.0));
+
+  sub->add_option("--alpha", opt->alpha,
+                  "Weight on the wall/complexity term of the MIP objective "
+                  "(issue #212).")
+      ->default_val(opt->alpha)
+      ->check(CLI::Range(0.0, 100.0));
+
+  sub->add_option("--max-cells", opt->max_cells,
+                  "Maximum number of cell-complex cells before failing fast "
+                  "with a diagnostic (issue #213).")
+      ->default_val(opt->max_cells)
+      ->check(CLI::Range(size_t{1}, size_t{1000000}));
+
   sub->add_option(
          "-f, --filter", opt->filter_expr,
          "Filter expression to limit processing to specific labeled points.\n"
@@ -156,6 +174,9 @@ int run_subcommand_mesh(SubcommandMeshOptions const &opt,
     reusex::geometry::MeshOptions options;
     options.search_threshold = opt.search_threshold;
     options.new_plane_offset = opt.new_plane_offset;
+    options.time_limit_seconds = opt.time_limit_seconds;
+    options.alpha = opt.alpha;
+    options.max_cells = opt.max_cells;
 
     // Evaluate filter if provided and set in options
     if (!opt.filter_expr.empty()) {

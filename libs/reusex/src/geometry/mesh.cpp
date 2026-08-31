@@ -154,7 +154,7 @@ pcl::PolygonMeshPtr mesh(CloudConstPtr cloud, CloudNConstPtr normals,
   std::shared_ptr<CellComplex> cc = std::make_shared<CellComplex>(
       planes, vertical, horizontal, pairs,
       std::array<double, 2>{min.x - 1, min.y - 1},
-      std::array<double, 2>{max.x + 1, max.y + 1}, std::nullopt);
+      std::array<double, 2>{max.x + 1, max.y + 1}, std::nullopt, opt.max_cells);
 
   reusex::debug("Cell complex: {}", *cc);
 
@@ -178,11 +178,15 @@ pcl::PolygonMeshPtr mesh(CloudConstPtr cloud, CloudNConstPtr normals,
   reusex::debug("Cell complex: {}", *cc);
 
   reusex::trace("Initializing Solidifier");
-  reusex::geometry::Solidifier solidifier(cc);
+  reusex::geometry::SolidifierOptions solidifier_opts;
+  solidifier_opts.time_limit_seconds = opt.time_limit_seconds;
+  solidifier_opts.alpha = opt.alpha;
+  reusex::geometry::Solidifier solidifier(cc, solidifier_opts);
   auto results = solidifier.solve();
 
   if (!results)
-    reusex::warn("Solidification failed to find a solution");
+    reusex::warn("Solidification failed to find a solution (status={})",
+                 reusex::geometry::to_string(solidifier.last_solve_status()));
 
   // INFO: Display results
   if (observer && results.has_value())

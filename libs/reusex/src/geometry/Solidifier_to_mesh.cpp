@@ -4,6 +4,7 @@
 
 #include "core/logging.hpp"
 #include "geometry/Solidifier.hpp"
+#include "utils/tolerances.hpp"
 
 /*
 #include <CGAL/Polygon_mesh_processing/corefinement.h>
@@ -140,7 +141,7 @@ toMesh_impl(const std::shared_ptr<const CellComplex> &_cc,
                              .template head<3>();
         }
         const double normal_norm = face_normal.norm();
-        if (normal_norm < 1e-9) {
+        if (normal_norm < reusex::kEpsilonLengthM) {
           reusex::warn("Face {} has degenerate normal (norm={:g}); leaving "
                        "winding unchanged",
                        (*_cc)[*fit].id, normal_norm);
@@ -149,7 +150,7 @@ toMesh_impl(const std::shared_ptr<const CellComplex> &_cc,
           Eigen::Vector3d cell_dir =
               ((*_cc)[cell].pos - (*_cc)[*fit].pos).template head<3>();
           const double cell_norm = cell_dir.norm();
-          if (cell_norm > 1e-9) {
+          if (cell_norm > reusex::kEpsilonLengthM) {
             cell_dir /= cell_norm;
             if (face_normal.dot(cell_dir) > 0)
               flip = true;

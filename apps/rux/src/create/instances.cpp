@@ -54,17 +54,17 @@ NOTES:
 
   sub->add_option("-t,--tolerance", opt->cluster_tolerance,
                   "Euclidean distance threshold for clustering (meters)")
-      ->default_val(0.5F)
+      ->default_val(opt->cluster_tolerance)
       ->check(CLI::Range(0.01, 5.0));
 
   sub->add_option("-m,--min-size", opt->min_cluster_size,
                   "Minimum points per instance cluster")
-      ->default_val(50)
+      ->default_val(opt->min_cluster_size)
       ->check(CLI::Range(1, 100000));
 
   sub->add_option("-M,--max-size", opt->max_cluster_size,
                   "Maximum points per instance cluster")
-      ->default_val(1000000)
+      ->default_val(opt->max_cluster_size)
       ->check(CLI::Range(10, 10000000));
 
   sub->add_option("-s,--semantic", opt->semantic_cloud_name,

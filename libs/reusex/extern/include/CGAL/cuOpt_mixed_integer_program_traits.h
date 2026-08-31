@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #pragma once
+#include <CGAL/MIP_solve_status.h>
 #include <CGAL/Mixed_integer_program_traits.h>
 
 #if defined(USE_CUOPT) || defined(DOXYGEN_RUNNING)
@@ -41,9 +42,20 @@ class cuOpt_mixed_integer_program_traits
   typedef typename Variable::Variable_type Variable_type;
 
     public:
+  /// Wall-clock time limit in seconds. <= 0 means "no limit" (solver default).
+  void set_time_limit(double seconds) { time_limit_seconds_ = seconds; }
+
+  /// Relative MIP gap tolerance. < 0 means "use solver default".
+  void set_mip_gap(double gap) { mip_gap_ = gap; }
+
+  /// Classification of the most recent solve() call.
+  MIP_solve_status solve_status() const { return solve_status_; }
+
+    public:
   /// Solves the program. Returns `false` if fails.
   virtual bool solve() {
     Base_class::error_message_.clear();
+    solve_status_ = MIP_solve_status::not_solved;
 
     const std::size_t num_vars = Base_class::variables_.size();
     const std::size_t num_constraints = Base_class::constraints_.size();
@@ -53,8 +65,10 @@ class cuOpt_mixed_integer_program_traits
     // bound vectors.
     const double cgal_inf = static_cast<double>(Variable::infinity());
     auto to_cuopt_bound = [cgal_inf](double v) -> cuopt_float_t {
-      if (v >= cgal_inf) return CUOPT_INFINITY;
-      if (v <= -cgal_inf) return -CUOPT_INFINITY;
+      if (v >= cgal_inf)
+        return CUOPT_INFINITY;
+      if (v <= -cgal_inf)
+        return -CUOPT_INFINITY;
       return static_cast<cuopt_float_t>(v);
     };
 
@@ -127,10 +141,9 @@ class cuOpt_mixed_integer_program_traits
             row_entries.emplace_back(static_cast<cuopt_int_t>(var->index()),
                                      static_cast<cuopt_float_t>(coeff));
           }
-          std::sort(row_entries.begin(), row_entries.end(),
-                    [](const auto &a, const auto &b) {
-                      return a.first < b.first;
-                    });
+          std::sort(
+              row_entries.begin(), row_entries.end(),
+              [](const auto &a, const auto &b) { return a.first < b.first; });
           for (const auto &[col, val] : row_entries) {
             col_indices.push_back(col);
             values.push_back(val);
@@ -184,6 +197,7 @@ class cuOpt_mixed_integer_program_traits
       Base_class::error_message_ =
           "cuOpt: failed to create problem (error code: " +
           std::to_string(status) + ")";
+      solve_status_ = MIP_solve_status::error;
       return false;
     }
 
@@ -193,6 +207,7 @@ class cuOpt_mixed_integer_program_traits
     if (status != CUOPT_SUCCESS) {
       cuOptDestroyProblem(&problem);
       Base_class::error_message_ = "cuOpt: failed to create solver settings";
+      solve_status_ = MIP_solve_status::error;
       return false;
     }
 
@@ -200,8 +215,11 @@ class cuOpt_mixed_integer_program_traits
     // Disable console output
     cuOptSetParameter(settings, CUOPT_LOG_TO_CONSOLE, "false");
 
-    // Set time limit (5 minutes)
-    cuOptSetFloatParameter(settings, CUOPT_TIME_LIMIT, 300.0);
+    // Set time limit (configurable, issue #212). Default to 300s when no
+    // explicit limit is requested so the solve cannot hang indefinitely.
+    const double time_limit =
+        (time_limit_seconds_ > 0.0) ? time_limit_seconds_ : 300.0;
+    cuOptSetFloatParameter(settings, CUOPT_TIME_LIMIT, time_limit);
 
     // Enable presolve
     cuOptSetParameter(settings, CUOPT_PRESOLVE, "true");
@@ -210,7 +228,8 @@ class cuOpt_mixed_integer_program_traits
     cuopt_int_t is_mip = 0;
     cuOptIsMIP(problem, &is_mip);
     if (is_mip) {
-      cuOptSetFloatParameter(settings, CUOPT_MIP_RELATIVE_GAP, 0.01); // 1% gap
+      const double rel_gap = (mip_gap_ >= 0.0) ? mip_gap_ : 0.01; // 1% default
+      cuOptSetFloatParameter(settings, CUOPT_MIP_RELATIVE_GAP, rel_gap);
       cuOptSetFloatParameter(settings, CUOPT_MIP_ABSOLUTE_GAP, 1e-6);
       cuOptSetParameter(settings, CUOPT_MIP_PRESOLVE, "true");
     }
@@ -238,6 +257,7 @@ class cuOpt_mixed_integer_program_traits
 
       cuOptDestroySolverSettings(&settings);
       cuOptDestroyProblem(&problem);
+      solve_status_ = MIP_solve_status::error;
       return false;
     }
 
@@ -247,6 +267,7 @@ class cuOpt_mixed_integer_program_traits
 
     if (status != CUOPT_SUCCESS) {
       Base_class::error_message_ = "cuOpt: failed to get termination status";
+      solve_status_ = MIP_solve_status::error;
       cuOptDestroySolution(&solution);
       cuOptDestroySolverSettings(&settings);
       cuOptDestroyProblem(&problem);
@@ -257,6 +278,7 @@ class cuOpt_mixed_integer_program_traits
 
     switch (termination_status) {
     case CUOPT_TERIMINATION_STATUS_OPTIMAL:
+      solve_status_ = MIP_solve_status::optimal;
       success = true;
       break;
 
@@ -264,37 +286,51 @@ class cuOpt_mixed_integer_program_traits
     case CUOPT_TERIMINATION_STATUS_FEASIBLE_FOUND:
       // Feasible solution found but not proven optimal
       success = true;
+      solve_status_ = MIP_solve_status::feasible;
       Base_class::error_message_ =
           "cuOpt: feasible solution found (not optimal)";
       break;
 
     case CUOPT_TERIMINATION_STATUS_INFEASIBLE:
       Base_class::error_message_ = "cuOpt: problem is infeasible";
+      solve_status_ = MIP_solve_status::infeasible;
       break;
 
     case CUOPT_TERIMINATION_STATUS_UNBOUNDED:
       Base_class::error_message_ = "cuOpt: problem is unbounded";
+      solve_status_ = MIP_solve_status::unbounded;
       break;
 
     case CUOPT_TERIMINATION_STATUS_TIME_LIMIT:
       Base_class::error_message_ = "cuOpt: time limit reached";
       // Check if we have a feasible solution anyway
       success = true; // Try to extract solution
+      solve_status_ = MIP_solve_status::time_limit;
       break;
 
     case CUOPT_TERIMINATION_STATUS_ITERATION_LIMIT:
       Base_class::error_message_ = "cuOpt: iteration limit reached";
       success = true; // Try to extract solution
+      solve_status_ = MIP_solve_status::iteration_limit;
       break;
 
     case CUOPT_TERIMINATION_STATUS_NUMERICAL_ERROR:
       Base_class::error_message_ = "cuOpt: numerical error";
+      solve_status_ = MIP_solve_status::numerical_error;
       break;
 
     default:
       Base_class::error_message_ = "cuOpt: unknown termination status: " +
                                    std::to_string(termination_status);
+      solve_status_ = MIP_solve_status::error;
       break;
+    }
+
+    // If a time/iteration-limited run actually produced a usable solution,
+    // report it as feasible rather than as a bare limit hit.
+    if (success && (solve_status_ == MIP_solve_status::time_limit ||
+                    solve_status_ == MIP_solve_status::iteration_limit)) {
+      solve_status_ = MIP_solve_status::feasible;
     }
 
     // Extract solution if we have one
@@ -331,6 +367,11 @@ class cuOpt_mixed_integer_program_traits
     return success;
   }
   /// \endcond
+
+    private:
+  double time_limit_seconds_ = 0.0; ///< <= 0 => default (300s)
+  double mip_gap_ = -1.0;           ///< < 0 => solver default
+  MIP_solve_status solve_status_ = MIP_solve_status::not_solved;
 };
 
 } // namespace CGAL

@@ -24,6 +24,16 @@ struct MeshOptions {
   float search_threshold = 0.60f;   ///< Search threshold for mesh generation
   float new_plane_offset = 0.25f;   ///< Offset for new plane creation
   IndicesConstPtr filter = nullptr; ///< Optional filter to limit processing
+
+  /// MIP solver wall-clock time limit in seconds (issue #212). Guards against
+  /// the solver hanging indefinitely on complex buildings.
+  double time_limit_seconds = 120.0;
+
+  /// Objective wall-weight passed to the Solidifier (was hardcoded, #212).
+  double alpha = 0.04;
+
+  /// Maximum cells the cell complex may generate before failing fast (#213).
+  size_t max_cells = 500;
 };
 
 /**

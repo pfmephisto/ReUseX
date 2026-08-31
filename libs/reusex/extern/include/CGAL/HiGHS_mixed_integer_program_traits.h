@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #pragma once
+#include <CGAL/MIP_solve_status.h>
 #include <CGAL/Mixed_integer_program_traits.h>
 
 #if defined(USE_HIGHS) || defined(DOXYGEN_RUNNING)
@@ -43,9 +44,20 @@ class HiGHS_mixed_integer_program_traits
   typedef typename Variable::Variable_type Variable_type;
 
     public:
+  /// Wall-clock time limit in seconds. <= 0 means "no limit" (solver default).
+  void set_time_limit(double seconds) { time_limit_seconds_ = seconds; }
+
+  /// Relative MIP gap tolerance. < 0 means "use solver default".
+  void set_mip_gap(double gap) { mip_gap_ = gap; }
+
+  /// Classification of the most recent solve() call.
+  MIP_solve_status solve_status() const { return solve_status_; }
+
+    public:
   /// Solves the program. Returns `false` if fails.
   virtual bool solve() {
     Base_class::error_message_.clear();
+    solve_status_ = MIP_solve_status::not_solved;
 
     Highs highs;
 
@@ -266,6 +278,18 @@ class HiGHS_mixed_integer_program_traits
     bool presolve = true;
     highs.setOptionValue("presolve", presolve ? "on" : "off");
 
+    // Configurable termination controls (issue #212). A finite time limit
+    // guarantees the solve cannot hang indefinitely on complex buildings.
+    if (time_limit_seconds_ > 0.0) {
+      highs.setOptionValue("time_limit", time_limit_seconds_);
+      reusex::core::debug("HiGHS: time_limit set to {:.1f}s",
+                          time_limit_seconds_);
+    }
+    if (mip_gap_ >= 0.0) {
+      highs.setOptionValue("mip_rel_gap", mip_gap_);
+      reusex::core::debug("HiGHS: mip_rel_gap set to {}", mip_gap_);
+    }
+
     // Log problem dimensions for debugging
     reusex::core::debug(
         "HiGHS MIP problem: {} variables, {} constraints, {} non-zeros",
@@ -277,6 +301,7 @@ class HiGHS_mixed_integer_program_traits
     if (status != HighsStatus::kOk) {
       Base_class::error_message_ = "HiGHS solver failed with status: " +
                                    std::to_string(static_cast<int>(status));
+      solve_status_ = MIP_solve_status::error;
       return false;
     }
 
@@ -299,18 +324,21 @@ class HiGHS_mixed_integer_program_traits
     switch (model_status) {
     case HighsModelStatus::kOptimal:
       reusex::core::debug("HiGHS found optimal solution");
+      solve_status_ = MIP_solve_status::optimal;
       success = true;
       break;
 
     case HighsModelStatus::kInfeasible:
       reusex::core::warn("HiGHS: model was infeasible");
       Base_class::error_message_ = "model was infeasible";
+      solve_status_ = MIP_solve_status::infeasible;
       break;
 
     case HighsModelStatus::kUnbounded:
     case HighsModelStatus::kUnboundedOrInfeasible:
       reusex::core::warn("HiGHS: model was unbounded");
       Base_class::error_message_ = "model was unbounded";
+      solve_status_ = MIP_solve_status::unbounded;
       break;
 
     case HighsModelStatus::kTimeLimit:
@@ -330,11 +358,13 @@ class HiGHS_mixed_integer_program_traits
             static_cast<HighsInt>(SolutionStatus::kSolutionStatusFeasible)) {
           reusex::core::debug(
               "HiGHS: feasible solution found despite time limit");
+          solve_status_ = MIP_solve_status::feasible;
           success = true;
         } else {
           reusex::core::debug(
               "HiGHS: no feasible solution at time limit (primal_status={})",
               primal_status);
+          solve_status_ = MIP_solve_status::time_limit;
         }
       }
       break;
@@ -352,11 +382,13 @@ class HiGHS_mixed_integer_program_traits
             static_cast<HighsInt>(SolutionStatus::kSolutionStatusFeasible)) {
           reusex::core::debug(
               "HiGHS: feasible solution found despite iteration limit");
+          solve_status_ = MIP_solve_status::feasible;
           success = true;
         } else {
           reusex::core::debug("HiGHS: no feasible solution at iteration limit "
                               "(primal_status={})",
                               primal_status);
+          solve_status_ = MIP_solve_status::iteration_limit;
         }
       }
       break;
@@ -367,6 +399,7 @@ class HiGHS_mixed_integer_program_traits
       Base_class::error_message_ =
           "solver terminated with status: " +
           std::to_string(static_cast<int>(model_status));
+      solve_status_ = MIP_solve_status::error;
       break;
     }
 
@@ -408,6 +441,11 @@ class HiGHS_mixed_integer_program_traits
     return success;
   }
   /// \endcond
+
+    private:
+  double time_limit_seconds_ = 0.0; ///< <= 0 => no limit
+  double mip_gap_ = -1.0;           ///< < 0 => solver default
+  MIP_solve_status solve_status_ = MIP_solve_status::not_solved;
 };
 
 } // namespace CGAL

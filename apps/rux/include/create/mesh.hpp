@@ -34,6 +34,12 @@ struct SubcommandMeshOptions {
   double alpha = 0.04;               ///< MIP objective wall-weight, issue #212
   size_t max_cells = 5000;           ///< Cell complex guard, issue #213
 
+  /// Sectioned MIP solve controls (issue #226). Defaults mirror MeshOptions.
+  bool sectioned = reusex::geometry::MeshOptions{}.sectioned;
+  size_t sectioned_threshold =
+      reusex::geometry::MeshOptions{}.sectioned_threshold;
+  std::string solver = "auto"; ///< MIP backend: auto | cuopt | highs.
+
   std::string filter_expr; ///< Filter expression to limit processing
 };
 

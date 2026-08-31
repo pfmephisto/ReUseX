@@ -117,6 +117,12 @@ class CellComplex
     public:
   size_t n_rooms, n_walls;
 
+  /// Number of horizontal sections (storeys) in the arrangement, i.e.
+  /// (# horizontal planes - 1). Cells are partitioned into these sections by
+  /// the "c:section" property map; the Solidifier can solve the MIP per
+  /// section to keep multi-room buildings tractable (issue #226).
+  size_t n_sections = 0;
+
   CellComplex() = delete;
 
   /// Upper bound on the number of cells the arrangement may generate before

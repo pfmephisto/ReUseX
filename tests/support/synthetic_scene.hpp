@@ -100,6 +100,55 @@ inline SyntheticScene make_room(float sx = 4.0F, float sy = 3.0F,
   return scene;
 }
 
+/// Two rectangular rooms stacked vertically, sharing a common floor/ceiling
+/// slab at z=sz. Produces THREE horizontal levels (z=0, z=sz, z=2*sz) so the
+/// cell-complex constructor sees two horizontal sections (storeys) — the input
+/// that exercises the sectioned MIP solve (issue #226).
+///
+/// Ground-truth labels:
+///   1 = ground floor (z=0, up)      2 = mid slab seen from below (z=sz, down)
+///   3 = mid slab seen from above (z=sz, up)   4 = roof (z=2sz, down)
+///   5..8  = lower-storey walls      9..12 = upper-storey walls
+inline SyntheticScene make_two_storey_room(float sx = 4.0F, float sy = 3.0F,
+                                           float sz = 2.5F,
+                                           float spacing = 0.05F,
+                                           float sigma = 0.005F,
+                                           unsigned seed = 42) {
+  std::mt19937 gen(seed);
+  SyntheticScene scene{std::make_shared<Cloud>(), std::make_shared<CloudN>(),
+                       std::make_shared<CloudL>()};
+
+  const Eigen::Vector3f ex(sx, 0, 0), ey(0, sy, 0), ez(0, 0, sz);
+  const Eigen::Vector3f o(0, 0, 0);
+
+  // Horizontal slabs at the three levels.
+  add_patch(scene, o, ex, ey, {0, 0, 1}, spacing, sigma, 1, gen);       // z=0
+  add_patch(scene, o + ez, ex, ey, {0, 0, -1}, spacing, sigma, 2, gen); // z=sz⌄
+  add_patch(scene, o + ez, ex, ey, {0, 0, 1}, spacing, sigma, 3, gen);  // z=sz⌃
+  add_patch(scene, o + 2.0F * ez, ex, ey, {0, 0, -1}, spacing, sigma, 4,
+            gen); // z=2sz
+
+  // Lower-storey walls (z in [0, sz]).
+  add_patch(scene, o, ey, ez, {1, 0, 0}, spacing, sigma, 5, gen);
+  add_patch(scene, o + ex, ey, ez, {-1, 0, 0}, spacing, sigma, 6, gen);
+  add_patch(scene, o, ex, ez, {0, 1, 0}, spacing, sigma, 7, gen);
+  add_patch(scene, o + ey, ex, ez, {0, -1, 0}, spacing, sigma, 8, gen);
+
+  // Upper-storey walls (z in [sz, 2sz]).
+  add_patch(scene, o + ez, ey, ez, {1, 0, 0}, spacing, sigma, 9, gen);
+  add_patch(scene, o + ex + ez, ey, ez, {-1, 0, 0}, spacing, sigma, 10, gen);
+  add_patch(scene, o + ez, ex, ez, {0, 1, 0}, spacing, sigma, 11, gen);
+  add_patch(scene, o + ey + ez, ex, ez, {0, -1, 0}, spacing, sigma, 12, gen);
+
+  scene.cloud->width = static_cast<uint32_t>(scene.cloud->size());
+  scene.cloud->height = 1;
+  scene.normals->width = static_cast<uint32_t>(scene.normals->size());
+  scene.normals->height = 1;
+  scene.labels->width = static_cast<uint32_t>(scene.labels->size());
+  scene.labels->height = 1;
+  return scene;
+}
+
 /// Simulate SLAM pose error: apply an independent small rigid transform to
 /// each contiguous chunk of @p chunk_size points (points are appended in
 /// scan order, so a chunk approximates the points of one sensor frame).

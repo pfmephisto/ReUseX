@@ -107,6 +107,10 @@ CellComplex::CellComplex(
 
   auto volumes = this->add_property_map<Cd, double>("c:volume").first;
   auto areas = this->add_property_map<Fd, double>("f:area").first;
+  // Section (storey) index for each cell, written in the cell-creation loop
+  // below. Lets the Solidifier partition the MIP per horizontal section
+  // (issue #226) without re-deriving sections from cell z-positions.
+  auto sections = this->add_property_map<Cd, int>("c:section").first;
 
   reusex::trace("Constructing arrangement with {} vertical planes and "
                 "[({:.3f}),({:.3f})] bounding box",
@@ -410,8 +414,14 @@ CellComplex::CellComplex(
       // Create the cell
       auto c = this->add_cell(center, fc);
       volumes[c] = dist * areas[face_map[fit][i]];
+      sections[c] = static_cast<int>(i);
     }
   }
+
+  // Record the number of horizontal sections (storeys). Each section i spans
+  // sorted_floors[i]..sorted_floors[i+1]; cells carry their section in
+  // "c:section" (issue #226).
+  this->n_sections = sorted_floors.empty() ? 0 : sorted_floors.size() - 1;
 
   // INFO: Assign wall ids to each cell
   reusex::info("Assigning wall ids to each cell");

@@ -113,6 +113,24 @@ NOTES:
       ->default_val(opt->max_cells)
       ->check(CLI::Range(size_t{1}, size_t{1000000}));
 
+  sub->add_flag("!--no-sectioned", opt->sectioned,
+                "Disable the per-section (per-storey) MIP solve and force the "
+                "monolithic one-shot solve, even on large multi-room buildings "
+                "(issue #226). Sectioned solve is on by default.");
+
+  sub->add_option("--sectioned-threshold", opt->sectioned_threshold,
+                  "Engage the sectioned solve only when the cell complex has "
+                  "at least this many cells (issue #226).")
+      ->default_val(opt->sectioned_threshold)
+      ->check(CLI::Range(size_t{1}, size_t{1000000}));
+
+  sub->add_option("--solver", opt->solver,
+                  "MIP backend: 'auto' (primary backend with HiGHS CPU "
+                  "fallback on GPU error/OOM), 'cuopt' (force GPU), or 'highs' "
+                  "(force CPU) (issue #226).")
+      ->default_val(opt->solver)
+      ->check(CLI::IsMember({"auto", "cuopt", "highs"}));
+
   sub->add_option(
          "-f, --filter", opt->filter_expr,
          "Filter expression to limit processing to specific labeled points.\n"
@@ -177,6 +195,14 @@ int run_subcommand_mesh(SubcommandMeshOptions const &opt,
     options.time_limit_seconds = opt.time_limit_seconds;
     options.alpha = opt.alpha;
     options.max_cells = opt.max_cells;
+    options.sectioned = opt.sectioned;
+    options.sectioned_threshold = opt.sectioned_threshold;
+    try {
+      options.solver = reusex::geometry::parse_solver_choice(opt.solver);
+    } catch (const std::exception &e) {
+      spdlog::error("{}", e.what());
+      return RuxError::INVALID_ARGUMENT;
+    }
 
     // Evaluate filter if provided and set in options
     if (!opt.filter_expr.empty()) {

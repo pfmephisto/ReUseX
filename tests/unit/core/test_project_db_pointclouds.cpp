@@ -106,7 +106,7 @@ static pcl::PointCloud<pcl::PointXYZ>::Ptr makeXYZCloud(size_t n) {
 TEST_CASE("ProjectDB schema version on fresh DB", "[projectdb]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
-  REQUIRE(db.schema_version() == 9);
+  REQUIRE(db.schema_version() == 10);
 }
 
 TEST_CASE("ProjectDB point cloud XYZRGB round-trip", "[projectdb]") {
@@ -318,7 +318,7 @@ TEST_CASE("ProjectDB fresh DB includes all v1 tables", "[projectdb]") {
 
   // Fresh DB should create passport tables + v1 tables in one pass
   ProjectDB db(tmp.path);
-  REQUIRE(db.schema_version() == 9);
+  REQUIRE(db.schema_version() == 10);
 
   // V1 tables should work
   REQUIRE_FALSE(db.has_point_cloud("anything"));
@@ -499,7 +499,8 @@ TEST_CASE("ProjectDB point_cloud_type returns correct types", "[projectdb]") {
   REQUIRE(db.point_cloud_type("xyz_cloud") == "PointXYZ");
 }
 
-TEST_CASE("ProjectDB point_cloud_type throws for missing cloud", "[projectdb]") {
+TEST_CASE("ProjectDB point_cloud_type throws for missing cloud",
+          "[projectdb]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
 
@@ -541,7 +542,7 @@ TEST_CASE("ProjectDB fresh DB has schema version 3", "[projectdb]") {
   TempDB tmp;
 
   ProjectDB db(tmp.path);
-  REQUIRE(db.schema_version() == 9);
+  REQUIRE(db.schema_version() == 10);
 
   // V2 tables should work
   REQUIRE_FALSE(db.has_segmentation_image(1));

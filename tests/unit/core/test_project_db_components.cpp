@@ -62,7 +62,7 @@ TEST_CASE("ProjectDB latest schema version on fresh DB",
           "[projectdb][components]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
-  REQUIRE(db.schema_version() == 9);
+  REQUIRE(db.schema_version() == 10);
 }
 
 TEST_CASE("ProjectDB building component save/load round-trip",
@@ -83,8 +83,7 @@ TEST_CASE("ProjectDB building component save/load round-trip",
   REQUIRE(loaded.notes == "detected by YOLO");
 
   // Verify vertices match exactly
-  REQUIRE(loaded.boundary.vertices.size() ==
-          original.boundary.vertices.size());
+  REQUIRE(loaded.boundary.vertices.size() == original.boundary.vertices.size());
   for (size_t i = 0; i < original.boundary.vertices.size(); ++i) {
     REQUIRE(loaded.boundary.vertices[i].x() ==
             Approx(original.boundary.vertices[i].x()));

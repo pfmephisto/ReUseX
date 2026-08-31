@@ -33,7 +33,7 @@ struct MeshOptions {
   double alpha = 0.04;
 
   /// Maximum cells the cell complex may generate before failing fast (#213).
-  size_t max_cells = 500;
+  size_t max_cells = 5000;
 };
 
 /**

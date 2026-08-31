@@ -124,7 +124,7 @@ class CellComplex
   /// arrangement grows ~quadratically with the vertical-plane count, so
   /// over-fragmented input can explode the downstream MIP. A run that would
   /// exceed this fails fast instead of hanging in the solver.
-  static constexpr size_t default_max_cells = 500;
+  static constexpr size_t default_max_cells = 5000;
 
   CellComplex(
       std::vector<Eigen::Vector4d, Eigen::aligned_allocator<Eigen::Vector4d>>

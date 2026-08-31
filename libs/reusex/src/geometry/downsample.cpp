@@ -75,8 +75,7 @@ VoxelAssignment voxel_assignment(const Cloud &cloud, float leaf_size) {
   // Pre-validate extent so we fail with a clear message before the hash
   // map starts filling up.
   auto check_axis = [&](double lo, double hi, const char *axis) {
-    auto span = static_cast<uint64_t>(
-        std::floor((hi - lo) * inv_leaf)) + 1;
+    auto span = static_cast<uint64_t>(std::floor((hi - lo) * inv_leaf)) + 1;
     if (span > kVoxelMax)
       throw std::out_of_range(
           std::string("Cloud extent along ") + axis + " (" +
@@ -253,6 +252,55 @@ CloudNPtr downsample(const CloudN &cloud, const VoxelAssignment &a) {
     }
     n.curvature = static_cast<float>(acc.sc * inv);
     out->push_back(n);
+  }
+  out->width = static_cast<uint32_t>(out->size());
+  out->height = 1;
+  out->is_dense = true;
+  return out;
+}
+
+CloudLPtr downsample(const CloudL &cloud, const VoxelAssignment &a) {
+  if (cloud.size() != a.point_to_bucket.size())
+    throw std::invalid_argument(
+        "Labels size does not match voxel assignment size");
+
+  // Per bucket, count how many input points carry each label, then pick the
+  // most frequent one (majority vote). Ties resolve to the lowest label value
+  // for determinism (docs/STANDARDS.md §6).
+  std::vector<std::unordered_map<uint32_t, uint32_t>> votes(a.bucket_count);
+
+  for (size_t i = 0; i < cloud.size(); ++i) {
+    uint32_t b = a.point_to_bucket[i];
+    if (b == VoxelAssignment::kSkippedPoint)
+      continue;
+    ++votes[b][cloud[i].label];
+  }
+
+  auto out = std::make_shared<CloudL>();
+  out->reserve(a.bucket_count);
+  // Walk every bucket so output rows stay aligned with the primary cloud,
+  // emitting label 0 (unlabeled) for buckets with no input points.
+  for (const auto &counts : votes) {
+    LabelT l;
+    if (counts.empty()) {
+      l.label = 0;
+      out->push_back(l);
+      continue;
+    }
+    uint32_t best_label = 0;
+    uint32_t best_count = 0;
+    bool have_best = false;
+    for (const auto &[label, count] : counts) {
+      // Strictly-greater count wins; on an exact tie keep the lower label.
+      if (!have_best || count > best_count ||
+          (count == best_count && label < best_label)) {
+        best_label = label;
+        best_count = count;
+        have_best = true;
+      }
+    }
+    l.label = best_label;
+    out->push_back(l);
   }
   out->width = static_cast<uint32_t>(out->size());
   out->height = 1;

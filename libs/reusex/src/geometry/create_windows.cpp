@@ -638,7 +638,8 @@ create_windows(CloudConstPtr cloud, CloudLConstPtr instance_labels,
                const std::map<uint32_t, uint32_t> &instance_to_semantic,
                const pcl::PolygonMesh &mesh,
                const std::vector<uint32_t> &window_semantic_labels,
-               const CreateWindowsOptions &options) {
+               const CreateWindowsOptions &options,
+               const ResolveInstanceGuidFn &resolve_instance_guid) {
 
   CreateWindowsResult result;
 
@@ -934,6 +935,15 @@ create_windows(CloudConstPtr cloud, CloudLConstPtr instance_labels,
     comp.boundary = std::move(polygon);
     comp.confidence = -1.0; // auto-detected, no ML confidence
     comp.data = WindowData{};
+
+    // Provenance: record which instance this component came from (issue #211).
+    // Empty when the caller supplies no resolver or the instance has no GUID.
+    if (resolve_instance_guid) {
+      comp.source_instance_guid = resolve_instance_guid(inst_id);
+      if (!comp.source_instance_guid.empty())
+        reusex::debug("Component {} linked to instance guid {}", comp.name,
+                      comp.source_instance_guid);
+    }
 
     reusex::debug("Created {} from instance {}, match cost {:.3f})", comp,
                   inst_id, best_cost);

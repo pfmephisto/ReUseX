@@ -10,7 +10,10 @@
 #include <Eigen/Core>
 #include <pcl/PolygonMesh.h>
 
+#include <cstdint>
+#include <functional>
 #include <map>
+#include <string>
 #include <vector>
 
 namespace reusex::geometry {
@@ -61,6 +64,12 @@ extract_wall_candidates(const pcl::PolygonMesh &mesh,
                         float normal_z_threshold = 0.3f,
                         float coplanarity_angle_deg = 10.0f);
 
+/// Resolves the stable GUID of an instance from its integer label id.
+/// Returns an empty string when no GUID is available (unknown/legacy). The
+/// caller (CLI) wires this to ProjectDB::instance_guid once per-instance
+/// identity exists; the library keeps no dependency on the database. See #211.
+using ResolveInstanceGuidFn = std::function<std::string(uint32_t)>;
+
 /// Create window BuildingComponents from instance-labeled points and wall
 /// geometry.
 ///
@@ -68,11 +77,17 @@ extract_wall_candidates(const pcl::PolygonMesh &mesh,
 /// computes a boundary polygon (AABB or concave hull), and offsets it along
 /// the outward wall normal. Performs validation to filter out windows that
 /// intersect the mesh, are out of bounds, or are internal (optional).
+///
+/// \param resolve_instance_guid Optional callback mapping an instance label id
+///        to its stable GUID; the result is stored on each component's
+///        source_instance_guid for provenance (issue #211). Defaults to a
+///        function returning empty (no provenance).
 CreateWindowsResult
 create_windows(CloudConstPtr cloud, CloudLConstPtr instance_labels,
                const std::map<uint32_t, uint32_t> &instance_to_semantic,
                const pcl::PolygonMesh &mesh,
                const std::vector<uint32_t> &window_semantic_labels,
-               const CreateWindowsOptions &options = {});
+               const CreateWindowsOptions &options = {},
+               const ResolveInstanceGuidFn &resolve_instance_guid = {});
 
 } // namespace reusex::geometry

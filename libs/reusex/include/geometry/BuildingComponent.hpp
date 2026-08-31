@@ -38,6 +38,11 @@ struct BuildingComponent {
   /// Stable, immutable identifier. Auto-generated on first save if empty.
   /// Survives renames, so it is the match key for CSV round-trip editing.
   std::string guid;
+  /// GUID of the point-cloud instance this component was derived from.
+  /// Empty when unknown (manual components, or legacy data created before
+  /// per-instance identity existed). Provides component -> instance -> material
+  /// passport provenance. See issue #211.
+  std::string source_instance_guid;
   ComponentType type = ComponentType::window;
   CoplanarPolygon boundary;
   int parent_id = -1;       // optional link to parent component

@@ -127,6 +127,11 @@ void apply_component_row(reusex::geometry::BuildingComponent &c,
     std::string v = trim(row.get("parent_id"));
     c.parent_id = v.empty() ? -1 : std::stoi(v);
   }
+  // Provenance link (issue #211). Present only in newer exports; tolerate its
+  // absence for CSVs produced before the column existed. A non-empty value
+  // overwrites; a blank cell clears the link.
+  if (row.has("source_instance"))
+    c.source_instance_guid = trim(row.get("source_instance"));
 
   std::visit(
       [&](auto &&d) {

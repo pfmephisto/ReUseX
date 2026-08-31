@@ -7,11 +7,11 @@
 // Kept separate from JointPairwiseRegistration.cpp so the solver core stays
 // free of any database dependency.
 
-#include "geometry/registration/JointPairwiseRegistration.hpp"
 #include "core/ProjectDB.hpp"
 #include "core/SensorIntrinsics.hpp"
 #include "core/logging.hpp"
 #include "geometry/transform_utils.hpp"
+#include "slam/JointPairwiseRegistration.hpp"
 
 #include <Eigen/Geometry>
 

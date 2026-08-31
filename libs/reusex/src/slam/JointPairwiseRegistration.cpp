@@ -4,7 +4,7 @@
 //
 // See JointPairwiseRegistration.hpp for the method overview and attribution.
 
-#include "geometry/registration/JointPairwiseRegistration.hpp"
+#include "slam/JointPairwiseRegistration.hpp"
 #include "core/logging.hpp"
 #include "geometry/transform_utils.hpp"
 
@@ -103,8 +103,8 @@ double robust_weight(double r, const JprParams &p) {
 JointPairwiseRegistration::JointPairwiseRegistration(JprParams params)
     : params_(std::move(params)) {}
 
-JprResult JointPairwiseRegistration::refine(
-    std::vector<FrameSurfels> &frames) const {
+JprResult
+JointPairwiseRegistration::refine(std::vector<FrameSurfels> &frames) const {
   JprResult result;
   const int N = static_cast<int>(frames.size());
   result.frames = N;
@@ -176,8 +176,8 @@ JprResult JointPairwiseRegistration::refine(
 
   const double cos_thresh =
       std::cos(params_.normal_angle_threshold * M_PI / 180.0);
-  const double max_d2 =
-      static_cast<double>(params_.max_corr_distance) * params_.max_corr_distance;
+  const double max_d2 = static_cast<double>(params_.max_corr_distance) *
+                        params_.max_corr_distance;
 
   const double lambda2 =
       static_cast<double>(params_.prior_weight) * params_.prior_weight;
@@ -222,7 +222,8 @@ JprResult JointPairwiseRegistration::refine(
         const double r = nb.dot(Pa - cb.world_pts[ti]);
         const double w = robust_weight(r, params_) * std::max(0.0, na.dot(nb));
         if (w > 0.0)
-          corrs.push_back(Corr{pr.first, pr.second, static_cast<int>(si), ti, w});
+          corrs.push_back(
+              Corr{pr.first, pr.second, static_cast<int>(si), ti, w});
       }
     }
     return corrs;
@@ -314,8 +315,8 @@ JprResult JointPairwiseRegistration::refine(
       for (const auto &c : corrs) {
         const double r = geom(c, Tcur, P, Q, n);
         Vector6d Ja, Jb;
-        Ja << P.cross(n), n;       // d r / d xi_a
-        Jb << -(Q.cross(n)), -n;   // d r / d xi_b
+        Ja << P.cross(n), n;     // d r / d xi_a
+        Jb << -(Q.cross(n)), -n; // d r / d xi_b
         add_self(c.fa, Ja, c.w, r);
         add_self(c.fb, Jb, c.w, r);
         const int ia = free_index[c.fa];

@@ -4,7 +4,7 @@
 //
 // See PlaneGraphOptimizer.hpp for the method overview and attribution.
 
-#include "geometry/registration/PlaneGraphOptimizer.hpp"
+#include "slam/PlaneGraphOptimizer.hpp"
 #include "core/logging.hpp"
 
 #include <Eigen/Core>

@@ -10,8 +10,8 @@
 #include "core/ProjectDB.hpp"
 #include "core/SensorIntrinsics.hpp"
 #include "core/logging.hpp"
-#include "geometry/registration/PlaneGraphOptimizer.hpp"
 #include "geometry/transform_utils.hpp"
+#include "slam/PlaneGraphOptimizer.hpp"
 
 #include <Eigen/Geometry>
 

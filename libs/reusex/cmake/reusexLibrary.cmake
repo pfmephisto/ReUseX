@@ -30,8 +30,9 @@
 # -----------------------------------------------
 # Per-module source discovery
 # -----------------------------------------------
-# Files still physically live under src/geometry/ in Phase A; they are assigned
-# to modules by explicit lists here. Phase B relocates them to per-module dirs.
+# Phase B (#222) relocated segmentation/reconstruction/slam into their own
+# src/<module>/ dirs. The shared CGAL/PCL helpers (reusex_geometry_common) still
+# live under src/geometry/ and are listed explicitly below.
 set(SRC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 # Layer 1 — utils (no internal dependencies)
@@ -68,8 +69,9 @@ file(GLOB_RECURSE REUSEX_RECONSTRUCTION_SOURCES CONFIGURE_DEPENDS
      "${SRC}/reconstruction/*.cpp")
 
 # Layer 3 — slam (registration / pose-graph optimization)
+# Relocated to src/slam/ in #222 (Phase B).
 file(GLOB_RECURSE REUSEX_SLAM_SOURCES CONFIGURE_DEPENDS
-     "${SRC}/geometry/registration/*.cpp")
+     "${SRC}/slam/*.cpp")
 
 # Layer 4 — visualize (optional PCL/Qt/VTK)
 file(GLOB_RECURSE REUSEX_VISUALIZE_SOURCES CONFIGURE_DEPENDS

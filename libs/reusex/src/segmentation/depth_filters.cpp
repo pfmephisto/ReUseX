@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "geometry/depth_filters.hpp"
+#include "segmentation/depth_filters.hpp"
 #include "core/logging.hpp"
 
 #include <opencv2/imgproc.hpp>

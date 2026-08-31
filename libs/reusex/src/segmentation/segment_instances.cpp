@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "reusex/geometry/segment_instances.hpp"
+#include "reusex/segmentation/segment_instances.hpp"
 #include "reusex/core/label_semantics.hpp"
 #include "reusex/core/logging.hpp"
 #include "reusex/core/processing_observer.hpp"

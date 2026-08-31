@@ -2,14 +2,14 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "geometry/reconstruct.hpp"
+#include "segmentation/reconstruct.hpp"
 #include "core/ProjectDB.hpp"
 #include "core/SensorIntrinsics.hpp"
 #include "core/label_semantics.hpp"
 #include "core/logging.hpp"
 #include "core/processing_observer.hpp"
-#include "geometry/depth_filters.hpp"
 #include "geometry/transform_utils.hpp"
+#include "segmentation/depth_filters.hpp"
 #include "utils/fmt_formatter.hpp"
 
 #include <Eigen/Core>

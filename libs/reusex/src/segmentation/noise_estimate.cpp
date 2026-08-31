@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "geometry/noise_estimate.hpp"
+#include "segmentation/noise_estimate.hpp"
 #include "core/logging.hpp"
 
 #include <pcl/kdtree/kdtree_flann.h>

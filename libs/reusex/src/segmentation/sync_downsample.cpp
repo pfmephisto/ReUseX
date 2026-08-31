@@ -2,10 +2,10 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "geometry/sync_downsample.hpp"
+#include "segmentation/sync_downsample.hpp"
 
 #include "core/logging.hpp"
-#include "geometry/downsample.hpp"
+#include "segmentation/downsample.hpp"
 
 #include <fmt/format.h>
 #include <fmt/ranges.h>

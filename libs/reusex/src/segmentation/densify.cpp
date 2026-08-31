@@ -6,7 +6,7 @@
 // combined work effectively AGPL-3.0-or-later (compatible with our
 // GPL-3.0-or-later upgrade clause).
 
-#include "geometry/densify.hpp"
+#include "segmentation/densify.hpp"
 #include "core/ProjectDB.hpp"
 #include "core/SensorIntrinsics.hpp"
 #include "core/logging.hpp"
@@ -19,8 +19,8 @@
 // which is reached via MVS.h. Including UtilCUDA.h first sets its header
 // guard with an empty body, then Mesh.h (pulled in by MVS.h) references
 // SEACAVE::CUDA::* types that were never declared.
-#include <OpenMVS/MVS.h>
 #include <OpenMVS/Common/UtilCUDA.h>
+#include <OpenMVS/MVS.h>
 
 #include <Eigen/Core>
 #include <Eigen/Geometry>
@@ -155,7 +155,7 @@ void initOpenMVSDefaults(const DensifyParams &p, unsigned numThreads) {
   // count than FUSE_DENSEFILTER on indoor LiDAR-seeded scans and now
   // has bounded RAM with the upstream OPTDENSE limits we set above.
   OPTDENSE::nFuseFilter = OPTDENSE::FUSE_FILTER;
-  OPTDENSE::nEstimateColors = 2;  // estimate colors during fusion
+  OPTDENSE::nEstimateColors = 2; // estimate colors during fusion
   // OpenMVS upstream default for nEstimateNormals is 2 ("estimate
   // normals"). Leaving it at 0 caused DenseFuseDepthMaps to filter out
   // every candidate and return 0 points (because the fusion graph
@@ -334,7 +334,8 @@ void densify_from_images(ProjectDB &db, const DensifyParams &p) {
 
   const std::size_t total_frames = effective_frames.size();
   const std::size_t chunk_size =
-      (p.chunk_size > 0 && static_cast<std::size_t>(p.chunk_size) < total_frames)
+      (p.chunk_size > 0 &&
+       static_cast<std::size_t>(p.chunk_size) < total_frames)
           ? static_cast<std::size_t>(p.chunk_size)
           : total_frames;
   std::vector<std::vector<int>> chunks;
@@ -344,8 +345,8 @@ void densify_from_images(ProjectDB &db, const DensifyParams &p) {
                             std::min(i + chunk_size, total_frames));
   }
   if (chunks.size() > 1) {
-    reusex::info("Processing {} frames in {} chunks of up to {}",
-                 total_frames, chunks.size(), chunk_size);
+    reusex::info("Processing {} frames in {} chunks of up to {}", total_frames,
+                 chunks.size(), chunk_size);
   } else if (total_frames > 500) {
     // SelectNeighborViews scales as O(N²) per image pair. Above a few
     // hundred frames it dominates wall-clock and gives no progress
@@ -406,8 +407,7 @@ void densify_from_images(ProjectDB &db, const DensifyParams &p) {
     // Pass the user's thread cap into the Scene ctor; 0 means "let
     // OpenMVS pick" (= all CPU threads, the default). Limiting threads
     // is the single largest RAM lever on depth-map estimation.
-    Scene scene(p.max_threads > 0 ? static_cast<unsigned>(p.max_threads)
-                                  : 0u);
+    Scene scene(p.max_threads > 0 ? static_cast<unsigned>(p.max_threads) : 0u);
     initOpenMVSDefaults(p, scene.nMaxThreads);
     if (ci == 0)
       reusex::info("OpenMVS using up to {} threads", scene.nMaxThreads);
@@ -427,109 +427,110 @@ void densify_from_images(ProjectDB &db, const DensifyParams &p) {
         continue;
       }
 
-    cv::Mat color = db.sensor_frame_image(node_id);
-    if (color.empty()) {
-      ++skipped;
-      continue;
+      cv::Mat color = db.sensor_frame_image(node_id);
+      if (color.empty()) {
+        ++skipped;
+        continue;
+      }
+      auto intr = db.sensor_frame_intrinsics(node_id);
+      if (intr.width <= 0 || intr.height <= 0 || intr.fx <= 0 || intr.fy <= 0) {
+        reusex::warn("Node {}: invalid intrinsics, skipping", node_id);
+        ++skipped;
+        continue;
+      }
+      if (!debug_intrinsics_printed) {
+        reusex::info("[densify-debug] raw intrinsics for node {}:", node_id);
+        reusex::info("[densify-debug]   fx={:.3f} fy={:.3f} cx={:.3f} "
+                     "cy={:.3f} w={} h={}",
+                     intr.fx, intr.fy, intr.cx, intr.cy, intr.width,
+                     intr.height);
+        reusex::info("[densify-debug]   image actual size = {}×{}", color.cols,
+                     color.rows);
+        debug_intrinsics_printed = true;
+      }
+      // If stored intrinsics dimensions disagree with the image, scale them
+      // to the actual image — same heuristic as reconstruct_point_clouds().
+      if (color.cols != intr.width || color.rows != intr.height) {
+        const double sx = static_cast<double>(color.cols) / intr.width;
+        const double sy = static_cast<double>(color.rows) / intr.height;
+        intr.fx *= sx;
+        intr.fy *= sy;
+        intr.cx *= sx;
+        intr.cy *= sy;
+        intr.width = color.cols;
+        intr.height = color.rows;
+      }
+
+      if (!platform_initialized) {
+        Platform platform;
+        platform.name = "platform_0";
+        Platform::Camera cam;
+        // OpenMVS stores intrinsics on a platform camera in NORMALIZED form
+        // with the pixel-center-at-integer convention (see Util.inl:ScaleK).
+        // Image::UpdateCamera() runs ScaleK(K, max(w,h)) to restore pixel
+        // coords, which means:
+        //   fx_pixel = fx_norm * s
+        //   cx_pixel = (cx_norm + 0.5) * s - 0.5
+        // We invert this so the round-trip recovers the raw intrinsics.
+        const double norm =
+            static_cast<double>(std::max(intr.width, intr.height));
+        cam.K = KMatrix::IDENTITY;
+        cam.K(0, 0) = intr.fx / norm;
+        cam.K(1, 1) = intr.fy / norm;
+        cam.K(0, 2) = (intr.cx + 0.5) / norm - 0.5;
+        cam.K(1, 2) = (intr.cy + 0.5) / norm - 0.5;
+        cam.R = RMatrix::IDENTITY;
+        cam.C = CMatrix(0, 0, 0);
+        platform.cameras.emplace_back(cam);
+        scene.platforms.emplace_back(platform);
+        platform_initialized = true;
+      }
+      const uint32_t platform_id = 0;
+
+      // Compose T_wc = T_wb * T_bc, then split into Pose::R (world→camera)
+      // and Pose::C (camera center in world). Matches the convention in
+      // reconstruct.cpp: world_pt = worldTf * (localTf * cam_pt).
+      Eigen::Matrix4d T_wb = to_matrix4d(db.sensor_frame_pose(node_id));
+      Eigen::Matrix4d T_bc = to_matrix4d(intr.local_transform);
+      Eigen::Matrix4d T_wc = T_wb * T_bc;
+      Eigen::Matrix3d R_wc = T_wc.block<3, 3>(0, 0);
+      Eigen::Vector3d C_w = T_wc.block<3, 1>(0, 3);
+      Eigen::Matrix3d R_cw = R_wc.transpose();
+
+      Platform::Pose mvspose;
+      for (int r = 0; r < 3; ++r)
+        for (int c = 0; c < 3; ++c)
+          mvspose.R(r, c) = R_cw(r, c);
+      mvspose.C = CMatrix(C_w.x(), C_w.y(), C_w.z());
+
+      Platform &platform = scene.platforms[platform_id];
+      const uint32_t pose_id = static_cast<uint32_t>(platform.poses.size());
+      platform.poses.emplace_back(mvspose);
+
+      // Stage the JPEG. OpenMVS opens images by path through cv::imread;
+      // pass an absolute path to skip its (fragile) WORKING_FOLDER lookup.
+      const fs::path abs_path = images_dir / fmt::format("{:08d}.jpg", node_id);
+      if (!cv::imwrite(abs_path.string(), color))
+        throw std::runtime_error("Failed to stage image " + abs_path.string());
+
+      Image image;
+      image.platformID = platform_id;
+      image.cameraID = 0;
+      image.poseID = pose_id;
+      image.ID = static_cast<uint32_t>(node_id);
+      image.name = SEACAVE::String(abs_path.string());
+      image.width = static_cast<uint32_t>(color.cols);
+      image.height = static_cast<uint32_t>(color.rows);
+      image.scale = 1.f;
+      image.UpdateCamera(scene.platforms);
+      scene.images.emplace_back(image);
+      ++used;
     }
-    auto intr = db.sensor_frame_intrinsics(node_id);
-    if (intr.width <= 0 || intr.height <= 0 || intr.fx <= 0 || intr.fy <= 0) {
-      reusex::warn("Node {}: invalid intrinsics, skipping", node_id);
-      ++skipped;
-      continue;
-    }
-    if (!debug_intrinsics_printed) {
-      reusex::info("[densify-debug] raw intrinsics for node {}:", node_id);
-      reusex::info(
-          "[densify-debug]   fx={:.3f} fy={:.3f} cx={:.3f} cy={:.3f} w={} h={}",
-          intr.fx, intr.fy, intr.cx, intr.cy, intr.width, intr.height);
-      reusex::info("[densify-debug]   image actual size = {}×{}", color.cols,
-                   color.rows);
-      debug_intrinsics_printed = true;
-    }
-    // If stored intrinsics dimensions disagree with the image, scale them
-    // to the actual image — same heuristic as reconstruct_point_clouds().
-    if (color.cols != intr.width || color.rows != intr.height) {
-      const double sx = static_cast<double>(color.cols) / intr.width;
-      const double sy = static_cast<double>(color.rows) / intr.height;
-      intr.fx *= sx;
-      intr.fy *= sy;
-      intr.cx *= sx;
-      intr.cy *= sy;
-      intr.width = color.cols;
-      intr.height = color.rows;
-    }
-
-    if (!platform_initialized) {
-      Platform platform;
-      platform.name = "platform_0";
-      Platform::Camera cam;
-      // OpenMVS stores intrinsics on a platform camera in NORMALIZED form
-      // with the pixel-center-at-integer convention (see Util.inl:ScaleK).
-      // Image::UpdateCamera() runs ScaleK(K, max(w,h)) to restore pixel
-      // coords, which means:
-      //   fx_pixel = fx_norm * s
-      //   cx_pixel = (cx_norm + 0.5) * s - 0.5
-      // We invert this so the round-trip recovers the raw intrinsics.
-      const double norm =
-          static_cast<double>(std::max(intr.width, intr.height));
-      cam.K = KMatrix::IDENTITY;
-      cam.K(0, 0) = intr.fx / norm;
-      cam.K(1, 1) = intr.fy / norm;
-      cam.K(0, 2) = (intr.cx + 0.5) / norm - 0.5;
-      cam.K(1, 2) = (intr.cy + 0.5) / norm - 0.5;
-      cam.R = RMatrix::IDENTITY;
-      cam.C = CMatrix(0, 0, 0);
-      platform.cameras.emplace_back(cam);
-      scene.platforms.emplace_back(platform);
-      platform_initialized = true;
-    }
-    const uint32_t platform_id = 0;
-
-    // Compose T_wc = T_wb * T_bc, then split into Pose::R (world→camera)
-    // and Pose::C (camera center in world). Matches the convention in
-    // reconstruct.cpp: world_pt = worldTf * (localTf * cam_pt).
-    Eigen::Matrix4d T_wb = to_matrix4d(db.sensor_frame_pose(node_id));
-    Eigen::Matrix4d T_bc = to_matrix4d(intr.local_transform);
-    Eigen::Matrix4d T_wc = T_wb * T_bc;
-    Eigen::Matrix3d R_wc = T_wc.block<3, 3>(0, 0);
-    Eigen::Vector3d C_w = T_wc.block<3, 1>(0, 3);
-    Eigen::Matrix3d R_cw = R_wc.transpose();
-
-    Platform::Pose mvspose;
-    for (int r = 0; r < 3; ++r)
-      for (int c = 0; c < 3; ++c)
-        mvspose.R(r, c) = R_cw(r, c);
-    mvspose.C = CMatrix(C_w.x(), C_w.y(), C_w.z());
-
-    Platform &platform = scene.platforms[platform_id];
-    const uint32_t pose_id = static_cast<uint32_t>(platform.poses.size());
-    platform.poses.emplace_back(mvspose);
-
-    // Stage the JPEG. OpenMVS opens images by path through cv::imread;
-    // pass an absolute path to skip its (fragile) WORKING_FOLDER lookup.
-    const fs::path abs_path = images_dir / fmt::format("{:08d}.jpg", node_id);
-    if (!cv::imwrite(abs_path.string(), color))
-      throw std::runtime_error("Failed to stage image " + abs_path.string());
-
-    Image image;
-    image.platformID = platform_id;
-    image.cameraID = 0;
-    image.poseID = pose_id;
-    image.ID = static_cast<uint32_t>(node_id);
-    image.name = SEACAVE::String(abs_path.string());
-    image.width = static_cast<uint32_t>(color.cols);
-    image.height = static_cast<uint32_t>(color.rows);
-    image.scale = 1.f;
-    image.UpdateCamera(scene.platforms);
-    scene.images.emplace_back(image);
-    ++used;
-  }
 
     if (scene.images.empty()) {
       if (chunked) {
-        reusex::warn("Chunk {}/{} had no usable frames — skipping",
-                     ci + 1, chunks.size());
+        reusex::warn("Chunk {}/{} had no usable frames — skipping", ci + 1,
+                     chunks.size());
         std::error_code ec;
         fs::remove_all(chunk_ws, ec);
         continue;
@@ -542,139 +543,142 @@ void densify_from_images(ProjectDB &db, const DensifyParams &p) {
     reusex::info("Built MVS scene: {} images, {} cameras (skipped {})", used,
                  scene.platforms.size(), skipped);
 
-  // ── Optional LiDAR seed point cloud ─────────────────────────────────
-  // OpenMVS's SelectNeighborViews uses point→image co-visibility to score
-  // candidate neighbor images. With no SfM step we have to compute this
-  // ourselves: project each LiDAR point into every camera and record
-  // which views actually see it. A point with empty pointViews is
-  // discarded; one with bogus pointViews wrecks neighbor selection.
-  if (!p.seed_cloud_name.empty() && db.has_point_cloud(p.seed_cloud_name)) {
-    try {
-      auto seed = db.point_cloud_xyzrgb(p.seed_cloud_name);
-      if (seed && !seed->empty()) {
-        // Pre-compute world→camera transform per image (R_cw, t_cw, K).
-        struct CamInfo {
-          Eigen::Matrix3d R_cw;
-          Eigen::Vector3d t_cw;
-          double fx, fy, cx, cy;
-          int w, h;
-        };
-        std::vector<CamInfo> cams;
-        cams.reserve(scene.images.size());
-        for (const Image &img : scene.images) {
-          CamInfo c;
-          // img.camera.R is already world→camera (set up earlier via
-          // UpdateCamera). img.camera.C is camera centre in world.
-          for (int r = 0; r < 3; ++r)
-            for (int cc = 0; cc < 3; ++cc)
-              c.R_cw(r, cc) = img.camera.R(r, cc);
-          Eigen::Vector3d C(img.camera.C.x, img.camera.C.y, img.camera.C.z);
-          c.t_cw = -c.R_cw * C;
-          c.fx = img.camera.K(0, 0);
-          c.fy = img.camera.K(1, 1);
-          c.cx = img.camera.K(0, 2);
-          c.cy = img.camera.K(1, 2);
-          c.w = static_cast<int>(img.width);
-          c.h = static_cast<int>(img.height);
-          cams.emplace_back(c);
-        }
-        if (!debug_camera_printed) {
-          const auto &c0 = cams.front();
-          reusex::info("[densify-debug] camera 0:");
-          reusex::info(
-              "[densify-debug]   K = "
-              "[[{:.2f},0,{:.2f}],[0,{:.2f},{:.2f}],[0,0,1]]  w×h={}×{}",
-              c0.fx, c0.cx, c0.fy, c0.cy, c0.w, c0.h);
-          reusex::info("[densify-debug]   C_w (cam centre in world) = [{:.3f}, "
-                       "{:.3f}, {:.3f}]",
-                       -(c0.R_cw.transpose() * c0.t_cw).x(),
-                       -(c0.R_cw.transpose() * c0.t_cw).y(),
-                       -(c0.R_cw.transpose() * c0.t_cw).z());
-          reusex::info("[densify-debug]   forward axis (R_cw row 2) = [{:.3f}, "
-                       "{:.3f}, {:.3f}]",
-                       c0.R_cw(2, 0), c0.R_cw(2, 1), c0.R_cw(2, 2));
-          const auto &p0 = (*seed)[0];
-          reusex::info(
-              "[densify-debug] LiDAR pt 0 (world) = [{:.3f}, {:.3f}, {:.3f}]",
-              p0.x, p0.y, p0.z);
-          Eigen::Vector3d Pw(p0.x, p0.y, p0.z);
-          Eigen::Vector3d Pc = c0.R_cw * Pw + c0.t_cw;
-          reusex::info(
-              "[densify-debug]   in camera 0 frame = [{:.3f}, {:.3f}, {:.3f}]",
-              Pc.x(), Pc.y(), Pc.z());
-          debug_camera_printed = true;
-        }
-
-        const std::size_t total = seed->size();
-        const std::size_t cap =
-            p.seed_max_points > 0 ? static_cast<std::size_t>(p.seed_max_points)
-                                  : total;
-        const std::size_t seed_stride =
-            total <= cap ? 1 : (total + cap - 1) / cap;
-
-        std::size_t seeded = 0;
-        std::size_t orphaned = 0;
-        for (std::size_t i = 0; i < total; i += seed_stride) {
-          const auto &pt = (*seed)[i];
-          if (!std::isfinite(pt.x) || !std::isfinite(pt.y) ||
-              !std::isfinite(pt.z))
-            continue;
-          Eigen::Vector3d Pw(pt.x, pt.y, pt.z);
-
-          PointCloud::ViewArr views;
-          for (PointCloud::View vi = 0;
-               vi < static_cast<PointCloud::View>(cams.size()); ++vi) {
-            const CamInfo &c = cams[vi];
-            Eigen::Vector3d Pc = c.R_cw * Pw + c.t_cw;
-            if (Pc.z() <= 0.01) // behind camera or right on it
-              continue;
-            const double u = c.fx * Pc.x() / Pc.z() + c.cx;
-            const double v = c.fy * Pc.y() / Pc.z() + c.cy;
-            if (u < 0.0 || u >= c.w || v < 0.0 || v >= c.h)
-              continue;
-            views.emplace_back(vi);
+    // ── Optional LiDAR seed point cloud ─────────────────────────────────
+    // OpenMVS's SelectNeighborViews uses point→image co-visibility to score
+    // candidate neighbor images. With no SfM step we have to compute this
+    // ourselves: project each LiDAR point into every camera and record
+    // which views actually see it. A point with empty pointViews is
+    // discarded; one with bogus pointViews wrecks neighbor selection.
+    if (!p.seed_cloud_name.empty() && db.has_point_cloud(p.seed_cloud_name)) {
+      try {
+        auto seed = db.point_cloud_xyzrgb(p.seed_cloud_name);
+        if (seed && !seed->empty()) {
+          // Pre-compute world→camera transform per image (R_cw, t_cw, K).
+          struct CamInfo {
+            Eigen::Matrix3d R_cw;
+            Eigen::Vector3d t_cw;
+            double fx, fy, cx, cy;
+            int w, h;
+          };
+          std::vector<CamInfo> cams;
+          cams.reserve(scene.images.size());
+          for (const Image &img : scene.images) {
+            CamInfo c;
+            // img.camera.R is already world→camera (set up earlier via
+            // UpdateCamera). img.camera.C is camera centre in world.
+            for (int r = 0; r < 3; ++r)
+              for (int cc = 0; cc < 3; ++cc)
+                c.R_cw(r, cc) = img.camera.R(r, cc);
+            Eigen::Vector3d C(img.camera.C.x, img.camera.C.y, img.camera.C.z);
+            c.t_cw = -c.R_cw * C;
+            c.fx = img.camera.K(0, 0);
+            c.fy = img.camera.K(1, 1);
+            c.cx = img.camera.K(0, 2);
+            c.cy = img.camera.K(1, 2);
+            c.w = static_cast<int>(img.width);
+            c.h = static_cast<int>(img.height);
+            cams.emplace_back(c);
           }
-          if (views.empty()) {
-            ++orphaned;
-            continue;
+          if (!debug_camera_printed) {
+            const auto &c0 = cams.front();
+            reusex::info("[densify-debug] camera 0:");
+            reusex::info(
+                "[densify-debug]   K = "
+                "[[{:.2f},0,{:.2f}],[0,{:.2f},{:.2f}],[0,0,1]]  w×h={}×{}",
+                c0.fx, c0.cx, c0.fy, c0.cy, c0.w, c0.h);
+            reusex::info(
+                "[densify-debug]   C_w (cam centre in world) = [{:.3f}, "
+                "{:.3f}, {:.3f}]",
+                -(c0.R_cw.transpose() * c0.t_cw).x(),
+                -(c0.R_cw.transpose() * c0.t_cw).y(),
+                -(c0.R_cw.transpose() * c0.t_cw).z());
+            reusex::info(
+                "[densify-debug]   forward axis (R_cw row 2) = [{:.3f}, "
+                "{:.3f}, {:.3f}]",
+                c0.R_cw(2, 0), c0.R_cw(2, 1), c0.R_cw(2, 2));
+            const auto &p0 = (*seed)[0];
+            reusex::info(
+                "[densify-debug] LiDAR pt 0 (world) = [{:.3f}, {:.3f}, {:.3f}]",
+                p0.x, p0.y, p0.z);
+            Eigen::Vector3d Pw(p0.x, p0.y, p0.z);
+            Eigen::Vector3d Pc = c0.R_cw * Pw + c0.t_cw;
+            reusex::info("[densify-debug]   in camera 0 frame = [{:.3f}, "
+                         "{:.3f}, {:.3f}]",
+                         Pc.x(), Pc.y(), Pc.z());
+            debug_camera_printed = true;
           }
 
-          scene.pointcloud.points.emplace_back(
-              PointCloud::Point(pt.x, pt.y, pt.z));
-          PointCloud::Color col;
-          col.r = pt.r;
-          col.g = pt.g;
-          col.b = pt.b;
-          scene.pointcloud.colors.emplace_back(col);
-          scene.pointcloud.pointViews.emplace_back(views);
-          ++seeded;
+          const std::size_t total = seed->size();
+          const std::size_t cap =
+              p.seed_max_points > 0
+                  ? static_cast<std::size_t>(p.seed_max_points)
+                  : total;
+          const std::size_t seed_stride =
+              total <= cap ? 1 : (total + cap - 1) / cap;
+
+          std::size_t seeded = 0;
+          std::size_t orphaned = 0;
+          for (std::size_t i = 0; i < total; i += seed_stride) {
+            const auto &pt = (*seed)[i];
+            if (!std::isfinite(pt.x) || !std::isfinite(pt.y) ||
+                !std::isfinite(pt.z))
+              continue;
+            Eigen::Vector3d Pw(pt.x, pt.y, pt.z);
+
+            PointCloud::ViewArr views;
+            for (PointCloud::View vi = 0;
+                 vi < static_cast<PointCloud::View>(cams.size()); ++vi) {
+              const CamInfo &c = cams[vi];
+              Eigen::Vector3d Pc = c.R_cw * Pw + c.t_cw;
+              if (Pc.z() <= 0.01) // behind camera or right on it
+                continue;
+              const double u = c.fx * Pc.x() / Pc.z() + c.cx;
+              const double v = c.fy * Pc.y() / Pc.z() + c.cy;
+              if (u < 0.0 || u >= c.w || v < 0.0 || v >= c.h)
+                continue;
+              views.emplace_back(vi);
+            }
+            if (views.empty()) {
+              ++orphaned;
+              continue;
+            }
+
+            scene.pointcloud.points.emplace_back(
+                PointCloud::Point(pt.x, pt.y, pt.z));
+            PointCloud::Color col;
+            col.r = pt.r;
+            col.g = pt.g;
+            col.b = pt.b;
+            scene.pointcloud.colors.emplace_back(col);
+            scene.pointcloud.pointViews.emplace_back(views);
+            ++seeded;
+          }
+          reusex::info("Seeded {} LiDAR points with real visibility "
+                       "(dropped {} with no visible camera)",
+                       seeded, orphaned);
         }
-        reusex::info("Seeded {} LiDAR points with real visibility "
-                     "(dropped {} with no visible camera)",
-                     seeded, orphaned);
+      } catch (const std::exception &e) {
+        reusex::warn("Could not load LiDAR seed cloud '{}': {} (continuing "
+                     "without seed)",
+                     p.seed_cloud_name, e.what());
       }
-    } catch (const std::exception &e) {
-      reusex::warn("Could not load LiDAR seed cloud '{}': {} (continuing "
-                   "without seed)",
-                   p.seed_cloud_name, e.what());
     }
-  }
 
-  // ── Pick view neighbors and run dense reconstruction ────────────────
-  reusex::info("Selecting view neighbors");
-  scene.SelectNeighborViews();
+    // ── Pick view neighbors and run dense reconstruction ────────────────
+    reusex::info("Selecting view neighbors");
+    scene.SelectNeighborViews();
 
-  // The seed pointcloud was only there to bootstrap SelectNeighborViews
-  // with realistic point→image visibility. Once each image has its
-  // `neighbors` list populated, DenseReconstruction expects the
-  // pointcloud to start empty so it can be filled from depth-map fusion.
-  // Leaving the seed in place crashes the fusion stage after depth maps
-  // reach 100%.
-  if (!scene.pointcloud.IsEmpty()) {
-    reusex::debug("Releasing {} seed points before dense reconstruction",
-                  scene.pointcloud.points.size());
-    scene.pointcloud.Release();
-  }
+    // The seed pointcloud was only there to bootstrap SelectNeighborViews
+    // with realistic point→image visibility. Once each image has its
+    // `neighbors` list populated, DenseReconstruction expects the
+    // pointcloud to start empty so it can be filled from depth-map fusion.
+    // Leaving the seed in place crashes the fusion stage after depth maps
+    // reach 100%.
+    if (!scene.pointcloud.IsEmpty()) {
+      reusex::debug("Releasing {} seed points before dense reconstruction",
+                    scene.pointcloud.points.size());
+      scene.pointcloud.Release();
+    }
 
     if (ci == 0)
       reusex::info("Running OpenMVS dense reconstruction "
@@ -790,8 +794,8 @@ void densify_from_images(ProjectDB &db, const DensifyParams &p) {
     sor.setStddevMulThresh(p.outlier_stddev_thresh);
     Cloud filtered;
     sor.filter(filtered);
-    reusex::info("SOR filter kept {} of {} points ({:.1f}%)",
-                 filtered.size(), in_cloud->size(),
+    reusex::info("SOR filter kept {} of {} points ({:.1f}%)", filtered.size(),
+                 in_cloud->size(),
                  100.0 * filtered.size() /
                      std::max<std::size_t>(1, in_cloud->size()));
     out = std::move(filtered);

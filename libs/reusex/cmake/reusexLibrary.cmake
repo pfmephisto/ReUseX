@@ -58,18 +58,9 @@ file(GLOB_RECURSE REUSEX_VISION_CUDA_SOURCES CONFIGURE_DEPENDS "${SRC}/vision/*.
 list(APPEND REUSEX_VISION_SOURCES ${REUSEX_VISION_CUDA_SOURCES})
 
 # Layer 3 — segmentation (planes, rooms, instances, cloud creation/refinement)
-set(REUSEX_SEGMENTATION_SOURCES
-    ${SRC}/geometry/segment_planes.cpp
-    ${SRC}/geometry/segment_rooms.cpp
-    ${SRC}/geometry/segment_instances.cpp
-    ${SRC}/geometry/reconcile_instances.cpp
-    ${SRC}/geometry/noise_estimate.cpp
-    ${SRC}/geometry/downsample.cpp
-    ${SRC}/geometry/sync_downsample.cpp
-    ${SRC}/geometry/depth_filters.cpp
-    ${SRC}/geometry/reconstruct.cpp
-    ${SRC}/geometry/densify.cpp
-    ${SRC}/geometry/surfel_extraction.cpp)
+# Relocated to src/segmentation/ in #222 (Phase B).
+file(GLOB_RECURSE REUSEX_SEGMENTATION_SOURCES CONFIGURE_DEPENDS
+     "${SRC}/segmentation/*.cpp")
 
 # Layer 3 — reconstruction (cell complex, solidifier, mesh, texture, windows)
 set(REUSEX_RECONSTRUCTION_SOURCES

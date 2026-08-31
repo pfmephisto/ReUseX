@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "geometry/downsample.hpp"
+#include "segmentation/downsample.hpp"
 #include "core/logging.hpp"
 
 #include <algorithm>

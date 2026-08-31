@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "geometry/segment_rooms.hpp"
+#include "segmentation/segment_rooms.hpp"
 #include "core/label_semantics.hpp"
 #include "core/logging.hpp"
 #include "core/visual_observer.hpp"

@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "reusex/geometry/reconcile_instances.hpp"
+#include "reusex/segmentation/reconcile_instances.hpp"
 #include "reusex/core/logging.hpp"
 
 #include <algorithm>

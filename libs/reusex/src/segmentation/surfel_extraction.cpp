@@ -2,12 +2,12 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "geometry/surfel_extraction.hpp"
+#include "segmentation/surfel_extraction.hpp"
 #include "core/ProjectDB.hpp"
 #include "core/SensorIntrinsics.hpp"
 #include "core/logging.hpp"
-#include "geometry/depth_filters.hpp"
 #include "geometry/transform_utils.hpp"
+#include "segmentation/depth_filters.hpp"
 
 #include <opencv2/core.hpp>
 

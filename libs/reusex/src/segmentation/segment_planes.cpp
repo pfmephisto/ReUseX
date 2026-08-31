@@ -2,9 +2,9 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "geometry/segment_planes.hpp"
+#include "segmentation/segment_planes.hpp"
 #include "core/logging.hpp"
-#include "geometry/noise_estimate.hpp"
+#include "segmentation/noise_estimate.hpp"
 
 #include <algorithm>
 #include <cmath>

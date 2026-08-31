@@ -5,7 +5,6 @@
 #pragma once
 #include "reusex/core/logging.hpp"
 #include "reusex/core/processing_observer.hpp"
-#include "reusex/io/reusex.hpp"
 #include "reusex/types/point_types.hpp"
 #include "reusex/utils/fmt_formatter.hpp"
 

@@ -10,6 +10,17 @@
 #include "core/logging.hpp"
 #include "core/materialepas_serialization.hpp"
 #include "core/materialepas_traits.hpp"
+// TODO: Remove core -> geometry dependency in BuildingComponent persistence
+// category=I/O estimate=1d issue=222
+// ProjectDB (Layer 2, core) persists geometry::BuildingComponent and calls
+// geometry::CoplanarPolygon (de)serialization — a Layer-3 type. This is a
+// documented layering exception enforced via an explicit reusex_core ->
+// reusex_geometry_common link in cmake/reusexLibrary.cmake. Proper fix:
+// 1. Define a core-owned POD (plain vertices + plane coeffs blob) as the
+//    persistence contract, and map BuildingComponent <-> POD in the geometry
+//    layer, keeping core free of geometry types.
+// 2. Or move BuildingComponent's serialization primitives into core.
+// See docs/STANDARDS.md §1 (module boundaries).
 #include "geometry/BuildingComponent.hpp"
 #include "geometry/CoplanarPolygon.hpp"
 

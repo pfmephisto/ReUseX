@@ -6,6 +6,7 @@
 #include "import/csv.hpp"
 #include "import/e57.hpp"
 #include "import/materialepas.hpp"
+#include "import/mushroom.hpp"
 #include "import/panorama.hpp"
 #include "import/photos.hpp"
 #include "import/ply.hpp"
@@ -25,6 +26,7 @@ DESCRIPTION:
 
 SUBCOMMANDS:
   rtabmap       Import sensor data from RTABMap SLAM database
+  mushroom      Import a MuSHRoom benchmark capture (RGB-D + GT mesh)
   e57           Import point cloud from an E57 file
   ply           Import point cloud from a PLY file
   materialepas  Import material passports from JSON file
@@ -48,6 +50,7 @@ NOTES:
 )");
 
   setup_subcommand_import_rtabmap(*sub, global_opt);
+  setup_subcommand_import_mushroom(*sub, global_opt);
   setup_subcommand_import_e57(*sub, global_opt);
   setup_subcommand_import_ply(*sub, global_opt);
   setup_subcommand_import_materialepas(*sub, global_opt);

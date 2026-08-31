@@ -3,7 +3,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #pragma once
+#include <cstdint>
 #include <filesystem>
+#include <optional>
 
 namespace reusex::vision {
 
@@ -16,6 +18,8 @@ struct AnnotationConfig {
   size_t prefetch_batches =
       8; ///< Batches to prefetch (recommended: 2-3x workers)
   bool skip_annotated = false; ///< Skip frames that already have segmentation
+  std::optional<uint32_t> seed =
+      42; ///< Shuffle RNG seed (fixed=deterministic, nullopt=entropy)
 };
 
 /**

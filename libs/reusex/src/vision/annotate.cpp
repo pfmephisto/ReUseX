@@ -12,6 +12,7 @@
 #include "vision/utils.hpp"
 
 #include <opencv2/core.hpp>
+#include <string>
 #include <thread>
 
 #ifdef NDEBUG
@@ -48,10 +49,12 @@ auto annotate(const std::filesystem::path &dbPath,
   }
 
   // Log dataloader configuration
-  reusex::info("Dataloader config: batch_size={}, shuffle={}, num_workers={}, "
-               "prefetch={}",
-               config.batch_size, config.shuffle, config.num_workers,
-               config.prefetch_batches);
+  reusex::info("Dataloader config: batch_size={}, shuffle={}, seed={}, "
+               "num_workers={}, prefetch={}",
+               config.batch_size, config.shuffle,
+               config.seed ? std::to_string(*config.seed)
+                           : std::string("random_device"),
+               config.num_workers, config.prefetch_batches);
 
   // Warn about potentially problematic configurations
   if (config.batch_size > 64) {
@@ -75,7 +78,7 @@ auto annotate(const std::filesystem::path &dbPath,
 
   // Create dataloader with multi-threaded prefetching
   Dataloader loader(*dataset, config.batch_size, config.shuffle,
-                    config.num_workers, config.prefetch_batches);
+                    config.num_workers, config.prefetch_batches, config.seed);
 
 #ifndef NDEBUG
   // INFO: Create and OpenCV window for visualizing the results during

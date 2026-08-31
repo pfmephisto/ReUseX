@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "analyze.hpp"
+#include "analyze/accuracy.hpp"
 #include "analyze/quality.hpp"
 
 void setup_subcommand_analyze(CLI::App &app,
@@ -13,12 +14,14 @@ void setup_subcommand_analyze(CLI::App &app,
   sub->footer(R"(
 DESCRIPTION:
   Parent command for computing quality metrics on reconstructed data.
-  Metrics are ground-truth-free: they measure internal-consistency
-  properties (plane flatness, surface thickness) that pose error destroys,
-  enabling before/after comparison of SLAM and registration changes.
+  Ground-truth-free metrics measure internal-consistency properties (plane
+  flatness, surface thickness) that pose error destroys; ground-truth metrics
+  score the reconstruction against an external reference cloud. Both enable
+  before/after comparison of SLAM and registration changes.
 
 SUBCOMMANDS:
   quality      Plane flatness / surface thickness report (JSON)
+  accuracy     Ground-truth accuracy / completeness / F-score (JSON)
 
 TYPICAL WORKFLOW:
   1. rux import rtabmap scan.db        # Import sensor data
@@ -33,6 +36,7 @@ NOTES:
 )");
 
   setup_subcommand_analyze_quality(*sub, global_opt);
+  setup_subcommand_analyze_accuracy(*sub, global_opt);
 
   sub->require_subcommand(1);
 }

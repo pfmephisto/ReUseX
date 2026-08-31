@@ -90,6 +90,34 @@ cv::Mat load_npy_f32(const std::filesystem::path &path) {
   return depth;
 }
 
+/// Locate the room-level ICP alignment (icp_iphone.json / icp_kinect.json)
+/// by walking up from the capture directory. MuSHRoom's worldtogt maps only
+/// into the capture's own reference frame; gt_transformation is the final
+/// ICP similarity into the laser-scanned GT mesh frame. Returns identity
+/// (and warns) if no file is found.
+Eigen::Matrix4d find_icp_to_gt(const std::filesystem::path &capture_dir) {
+  const bool is_kinect =
+      capture_dir.string().find("kinect") != std::string::npos;
+  const std::string name = is_kinect ? "icp_kinect.json" : "icp_iphone.json";
+
+  for (auto dir = capture_dir; dir.has_parent_path() && dir != dir.root_path();
+       dir = dir.parent_path()) {
+    const auto candidate = dir / name;
+    if (std::filesystem::exists(candidate)) {
+      std::ifstream in(candidate);
+      nlohmann::json j;
+      in >> j;
+      reusex::info("import_mushroom: applying GT alignment from {}",
+                   candidate.string());
+      return read_matrix<4, 4>(j.at("gt_transformation"));
+    }
+  }
+  reusex::warn("import_mushroom: no {} found above {} — poses will be in "
+               "the capture frame, NOT the GT mesh frame",
+               name, capture_dir.string());
+  return Eigen::Matrix4d::Identity();
+}
+
 /// Locate the frame directory: either @p dir itself holds meta_data.json or
 /// a known MuSHRoom subdirectory does (long_capture layout).
 std::filesystem::path resolve_frames_dir(const std::filesystem::path &dir) {
@@ -139,6 +167,15 @@ std::size_t import_mushroom(ProjectDB &db,
   if (scale <= 0.0)
     throw std::runtime_error("import_mushroom: degenerate worldtogt scale");
 
+  // Final alignment into the laser-scan GT frame: gt_transformation is a
+  // near-rigid ICP similarity. Decompose like worldtogt so stored rotations
+  // stay orthonormal; its (tiny) scale also multiplies depth.
+  const Eigen::Matrix4d icp = find_icp_to_gt(capture_dir);
+  const double icp_scale = icp.block<3, 3>(0, 0).col(0).norm();
+  const Eigen::Matrix3d icp_rot = icp.block<3, 3>(0, 0) / icp_scale;
+  const Eigen::Vector3d icp_t = icp.block<3, 1>(0, 3);
+  const double depth_scale = scale * icp_scale;
+
   std::size_t imported = 0;
   int node_id = 1;
   for (const auto &frame : meta.at("frames")) {
@@ -156,7 +193,7 @@ std::size_t import_mushroom(ProjectDB &db,
     // Depth: normalized float32 .npy -> metric meters -> CV_16UC1 mm.
     cv::Mat depth_norm = load_npy_f32(depth_path);
     cv::Mat depth_mm;
-    depth_norm.convertTo(depth_mm, CV_16UC1, scale * 1000.0);
+    depth_norm.convertTo(depth_mm, CV_16UC1, depth_scale * 1000.0);
 
     // Intrinsics: per-frame 3x3 pixel matrix.
     const Eigen::Matrix3d K = read_matrix<3, 3>(frame.at("intrinsics"));
@@ -173,8 +210,12 @@ std::size_t import_mushroom(ProjectDB &db,
     // above. Stored world pose is optical-to-world (identity local).
     const Eigen::Matrix4d c2w_norm = read_matrix<4, 4>(frame.at("camtoworld"));
     Eigen::Matrix4d c2w = Eigen::Matrix4d::Identity();
-    c2w.block<3, 3>(0, 0) = c2w_norm.block<3, 3>(0, 0);
-    c2w.block<3, 1>(0, 3) = scale * c2w_norm.block<3, 1>(0, 3) + t_gt;
+    // cam -> capture-metric frame (worldtogt, scale removed from rotation)...
+    const Eigen::Matrix3d r_cap = c2w_norm.block<3, 3>(0, 0);
+    const Eigen::Vector3d t_cap = scale * c2w_norm.block<3, 1>(0, 3) + t_gt;
+    // ...then capture frame -> laser GT frame (icp similarity).
+    c2w.block<3, 3>(0, 0) = icp_rot * r_cap;
+    c2w.block<3, 1>(0, 3) = icp_scale * (icp_rot * t_cap) + icp_t;
 
     std::array<double, 16> pose{};
     for (int r = 0; r < 4; ++r)

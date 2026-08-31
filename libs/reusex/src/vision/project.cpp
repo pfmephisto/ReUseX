@@ -5,6 +5,7 @@
 #include "vision/project.hpp"
 #include "core/ProjectDB.hpp"
 #include "core/SensorIntrinsics.hpp"
+#include "core/label_semantics.hpp"
 #include "core/logging.hpp"
 #include "core/processing_observer.hpp"
 #include "types.hpp"
@@ -318,7 +319,9 @@ auto project(const ProjectDB &db, CloudConstPtr cloud) -> CloudLPtr {
           if (!std::isfinite(zb) || std::abs(z - zb) > 0.15f)
             continue;
 
-          labels->points[idx].label = labeledImage.at<int>(py, px);
+          // labeledImage is API CV_32S (-1 = bg) -> point label (0 = unlabeled)
+          labels->points[idx].label =
+              reusex::core::api_to_point_label(labeledImage.at<int>(py, px));
 
           temp.at<cv::Vec3b>(py, px) = cv::Vec3b(
               cloud->points[idx].b, cloud->points[idx].g, cloud->points[idx].r);

@@ -6,6 +6,8 @@
 #include "validation.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
+#include <reusex/core/guid.hpp>
+#include <reusex/geometry/reconcile_instances.hpp>
 #include <reusex/geometry/segment_instances.hpp>
 #include <spdlog/spdlog.h>
 
@@ -152,13 +154,49 @@ int run_subcommand_segment_instances(const SubcommandSegInstancesOptions &opt,
     spdlog::info("Instance segmentation completed in {:.2f}s",
                  duration / 1000.0);
 
+    // --- Stable identity: carry GUIDs across regeneration (issue #207) ---
+    // Load the previous instance state (label cloud + instances rows) BEFORE
+    // overwriting the output cloud, so we can match new instances to old ones
+    // and preserve their GUIDs and material links.
+    reusex::CloudLPtr old_labels;
+    std::vector<reusex::ProjectDB::InstanceRecord> old_instances;
+    std::map<int, std::string> old_links; // old instance_id -> material_guid
+    if (db.has_point_cloud(opt.output_cloud_name)) {
+      try {
+        old_labels = db.point_cloud_label(opt.output_cloud_name);
+        old_instances = db.instances(opt.output_cloud_name);
+        old_links = db.instance_materials(opt.output_cloud_name);
+      } catch (const std::exception &e) {
+        spdlog::warn("Could not load previous instance state for '{}': {}",
+                     opt.output_cloud_name, e.what());
+      }
+    }
+
+    std::vector<reusex::geometry::PriorInstance> prior;
+    prior.reserve(old_instances.size());
+    for (const auto &oi : old_instances)
+      prior.push_back({oi.instance_id, oi.semantic_class, oi.guid});
+
+    auto reconcile = reusex::geometry::reconcile_instance_identities(
+        old_labels.get(), *result.instance_labels, prior,
+        result.instance_to_semantic, result.instance_sizes,
+        []() { return reusex::core::generate_guid(); });
+
     // Save results
     spdlog::info("Saving instance labels as '{}'...", opt.output_cloud_name);
     db.save_point_cloud(opt.output_cloud_name, *result.instance_labels,
                         "segment_instances");
 
+    // Persist stable instance identities (instances table).
+    std::vector<reusex::ProjectDB::InstanceRecord> records;
+    records.reserve(reconcile.instances.size());
+    for (const auto &ri : reconcile.instances)
+      records.push_back(
+          {ri.instance_id, ri.guid, ri.semantic_class, ri.point_count});
+    db.save_instances(opt.output_cloud_name, records);
+
     // Save metadata as label definitions
-    // Format: instance_id -> "semantic_class_N_instance_M (P points)"
+    // Format: instance_id -> "SM{semantic_class}-{instance_id} ({points}p)"
     std::map<int, std::string> label_definitions;
     for (const auto &[instance_id, semantic_class] :
          result.instance_to_semantic) {
@@ -169,6 +207,59 @@ int run_subcommand_segment_instances(const SubcommandSegInstancesOptions &opt,
     db.save_label_definitions(opt.output_cloud_name, label_definitions);
 
     spdlog::info("Saved {} instance definitions", label_definitions.size());
+
+    // --- Migrate material links across regeneration ---
+    // Build a reverse map: old instance_id -> new instance_id (matched only).
+    std::map<uint32_t, uint32_t> old_to_new;
+    for (const auto &ri : reconcile.instances)
+      if (ri.carried_over)
+        old_to_new[ri.matched_old_id] = ri.instance_id;
+
+    size_t links_carried = 0, links_dropped = 0;
+    if (!old_links.empty()) {
+      // The DELETE of instances rows above cascaded away the old
+      // instance_materials rows; re-create them for matched instances.
+      for (const auto &[old_id, material_guid] : old_links) {
+        auto it = old_to_new.find(static_cast<uint32_t>(old_id));
+        if (it != old_to_new.end()) {
+          try {
+            db.set_instance_material(opt.output_cloud_name,
+                                     static_cast<int>(it->second),
+                                     material_guid);
+            ++links_carried;
+          } catch (const std::exception &e) {
+            spdlog::warn("Could not re-link material {} to instance {}: {}",
+                         material_guid, it->second, e.what());
+            ++links_dropped;
+          }
+        } else {
+          ++links_dropped;
+          spdlog::warn(
+              "Dropping material link: old instance {} has no match in "
+              "the regenerated cloud; passport {} kept but unlinked",
+              old_id, material_guid);
+        }
+      }
+    }
+
+    // Loud reconciliation report (STANDARDS §3.2, §5).
+    if (old_labels && !old_instances.empty()) {
+      spdlog::info("Instance identity: {} carried over, {} fresh GUID(s)",
+                   reconcile.matched_count, reconcile.fresh_count);
+      if (!reconcile.orphaned_old.empty()) {
+        spdlog::warn("{} previous instance(s) had no match in the regenerated "
+                     "cloud:",
+                     reconcile.orphaned_old.size());
+        for (const auto &o : reconcile.orphaned_old)
+          spdlog::warn("  - old instance {} (class {}, guid {}, best overlap "
+                       "{:.0f}%)",
+                       o.instance_id, o.semantic_class, o.guid,
+                       o.best_overlap * 100.0);
+      }
+      if (!old_links.empty())
+        spdlog::info("Material links: {} carried over, {} dropped",
+                     links_carried, links_dropped);
+    }
 
     // Log statistics
     size_t labeled_points = 0;

@@ -214,11 +214,33 @@ int run_subcommand_create_windows(SubcommandWindowOptions const &opt,
     create_opts.alpha = opt.alpha;
     create_opts.include_internal = opt.include_internal;
 
+    // Provenance resolver: map an instance label id to its stable GUID so each
+    // created component records the instance it came from (issue #211).
+    // Guarded by schema_version >= 10 (the instances table) so populated
+    // projects work and older projects keep an empty source_instance_guid.
+    const std::string instance_cloud = opt.instance_cloud_name;
+    reusex::geometry::ResolveInstanceGuidFn resolve_instance_guid =
+        [&db, instance_cloud](uint32_t inst_id) -> std::string {
+      if (db.schema_version() < 10) {
+        spdlog::debug("schema v{} < 10: instance provenance unavailable, "
+                      "leaving source_instance_guid empty for instance {}",
+                      db.schema_version(), inst_id);
+        return {};
+      }
+      try {
+        return db.instance_guid(instance_cloud, inst_id);
+      } catch (const std::exception &e) {
+        spdlog::debug("No instance guid for {}#{}: {}", instance_cloud, inst_id,
+                      e.what());
+        return {};
+      }
+    };
+
     // Create windows
     spdlog::info("Creating window components...");
-    auto result = reusex::geometry::create_windows(cloud, instance_labels,
-                                                   instance_to_semantic, *mesh,
-                                                   window_labels, create_opts);
+    auto result = reusex::geometry::create_windows(
+        cloud, instance_labels, instance_to_semantic, *mesh, window_labels,
+        create_opts, resolve_instance_guid);
 
     // Save components
     for (const auto &comp : result.components) {

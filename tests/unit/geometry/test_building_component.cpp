@@ -104,3 +104,59 @@ TEST_CASE("component_data_from_json with empty string is no-op",
   REQUIRE(wd.style == "fixed");
   REQUIRE(wd.pane_count == 1);
 }
+
+TEST_CASE("source_instance_guid JSON round-trip when set",
+          "[geometry][building_component][provenance]") {
+  BuildingComponent c;
+  c.type = ComponentType::window;
+  c.data = WindowData{"casement", 2, true};
+  c.source_instance_guid = "inst-guid-1234";
+
+  std::string json = component_data_to_json(c);
+  // The provenance guid must be present in the serialized JSON.
+  REQUIRE(json.find("source_instance_guid") != std::string::npos);
+  REQUIRE(json.find("inst-guid-1234") != std::string::npos);
+
+  BuildingComponent c2;
+  c2.type = ComponentType::window;
+  component_data_from_json(c2, json);
+  REQUIRE(c2.source_instance_guid == "inst-guid-1234");
+}
+
+TEST_CASE("source_instance_guid omitted from JSON when empty (backward compat)",
+          "[geometry][building_component][provenance]") {
+  BuildingComponent c;
+  c.type = ComponentType::window;
+  c.data = WindowData{"fixed", 1, false};
+  REQUIRE(c.source_instance_guid.empty());
+
+  std::string json = component_data_to_json(c);
+  // No provenance key emitted → byte-compatible with pre-#211 exports.
+  REQUIRE(json.find("source_instance_guid") == std::string::npos);
+
+  BuildingComponent c2;
+  c2.type = ComponentType::window;
+  component_data_from_json(c2, json);
+  REQUIRE(c2.source_instance_guid.empty());
+}
+
+TEST_CASE("legacy JSON without source_instance_guid still parses",
+          "[geometry][building_component][provenance]") {
+  // JSON as produced before the provenance field existed.
+  const std::string legacy =
+      R"({"component_type":"window","style":"awning","pane_count":3,)"
+      R"("operable":false})";
+
+  BuildingComponent c;
+  c.type = ComponentType::window;
+  // Pre-seed a value to prove absence leaves it untouched (no clobber).
+  c.source_instance_guid = "pre-existing";
+  component_data_from_json(c, legacy);
+
+  auto &wd = std::get<WindowData>(c.data);
+  REQUIRE(wd.style == "awning");
+  REQUIRE(wd.pane_count == 3);
+  REQUIRE(wd.operable == false);
+  // Absent key must not overwrite the in-memory value.
+  REQUIRE(c.source_instance_guid == "pre-existing");
+}

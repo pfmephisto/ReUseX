@@ -28,19 +28,19 @@ namespace {
 // Fixed columns describing a geometry instance (building component). These stay
 // blank on passport rows. The 'id' column holds the immutable guid (the match
 // key for reimport); 'component_name' is the editable, human-facing name.
+// 'source_instance' holds the guid of the point-cloud instance the component
+// was derived from (issue #211); blank for manual/legacy components.
 const std::vector<std::string> k_component_cols = {
-    "component_name",  "component_type",    "confidence",
-    "parent_id",       "notes",             "window_style",
-    "window_pane_count", "window_operable", "door_style",
-    "door_swing"};
+    "component_name",  "component_type",  "confidence",   "parent_id",
+    "notes",           "source_instance", "window_style", "window_pane_count",
+    "window_operable", "door_style",      "door_swing"};
 
 // Fixed metadata columns for a material passport. Blank on component rows.
 // 'linked_instance' shows the instance a passport was generated from, e.g.
 // "instances#7" (see 'rux create materials').
 const std::vector<std::string> k_passport_meta_cols = {
-    "linked_instance",         "passport_version_number",
-    "passport_creation_date",  "passport_revision_date",
-    "passport_version_date"};
+    "linked_instance", "passport_version_number", "passport_creation_date",
+    "passport_revision_date", "passport_version_date"};
 
 /// Escape a field for RFC-4180 CSV output.
 std::string csv_escape(const std::string &field) {
@@ -143,8 +143,8 @@ int run_subcommand_export_csv(SubcommandExportCSVOptions const &opt,
     spdlog::info("Opening project database: {}", project_path.string());
     reusex::ProjectDB db(project_path, /*readOnly=*/true);
 
-    // Derive the passport property columns from a blank standard template so the
-    // schema is stable regardless of how many passports (if any) exist.
+    // Derive the passport property columns from a blank standard template so
+    // the schema is stable regardless of how many passports (if any) exist.
     json blank = reusex::core::json_export::generate_blank_template();
     std::vector<std::string> passport_cols =
         passport_property_columns(blank.at("sections"));
@@ -180,13 +180,13 @@ int run_subcommand_export_csv(SubcommandExportCSVOptions const &opt,
       row["kind"] = "component";
       row["id"] = c.guid;
       row["component_name"] = c.name;
-      row["component_type"] =
-          std::string(reusex::geometry::to_string(c.type));
+      row["component_type"] = std::string(reusex::geometry::to_string(c.type));
       if (c.confidence >= 0.0)
         row["confidence"] = std::to_string(c.confidence);
       if (c.parent_id >= 0)
         row["parent_id"] = std::to_string(c.parent_id);
       row["notes"] = c.notes;
+      row["source_instance"] = c.source_instance_guid;
 
       std::visit(
           [&](auto &&d) {
@@ -195,8 +195,8 @@ int run_subcommand_export_csv(SubcommandExportCSVOptions const &opt,
               row["window_style"] = d.style;
               row["window_pane_count"] = std::to_string(d.pane_count);
               row["window_operable"] = d.operable ? "true" : "false";
-            } else if constexpr (std::is_same_v<
-                                     T, reusex::geometry::DoorData>) {
+            } else if constexpr (std::is_same_v<T,
+                                                reusex::geometry::DoorData>) {
               row["door_style"] = d.style;
               row["door_swing"] = d.swing;
             }
@@ -268,9 +268,9 @@ int run_subcommand_export_csv(SubcommandExportCSVOptions const &opt,
     size_t total = component_names.size() + passports.size();
     if (total == 0)
       spdlog::warn("No elements found in database (wrote header only)");
-    spdlog::info("Exported {} element(s) ({} component(s), {} passport(s)) to {}",
-                 total, component_names.size(), passports.size(),
-                 opt.output_path.string());
+    spdlog::info(
+        "Exported {} element(s) ({} component(s), {} passport(s)) to {}", total,
+        component_names.size(), passports.size(), opt.output_path.string());
     return RuxError::SUCCESS;
   } catch (const std::exception &e) {
     spdlog::error("Export failed: {}", e.what());

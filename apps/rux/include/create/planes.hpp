@@ -30,6 +30,11 @@ struct SubcommandSegPlanesOptions {
   float interval_factor =
       reusex::geometry::SegmentPlanesOptions{}.interval_factor;
 
+  bool adaptive = true; ///< Derive thresholds from measured cloud noise (#214)
+  unsigned noise_seed = 42;   ///< Deterministic seed for the noise estimator
+  bool dist_explicit = false; ///< User passed -d (pins distance threshold)
+  bool min_explicit = false;  ///< User passed -m (pins min_inliers)
+
   std::string filter_expr; ///< Filter expression to limit processing
 };
 

@@ -55,12 +55,45 @@ struct PlaneGraphOptions {
   float assoc_distance = 0.10f;    ///< max plane-offset difference to merge (m)
   int min_landmark_observations =
       5; ///< landmark must be seen by >= this many frames
+  /// Overlap gate: two observations may only merge into the same landmark if
+  /// their in-plane footprints overlap. The in-plane gap between their inlier
+  /// centroids must be below (sum of the two footprint radii + this margin).
+  /// This is what stops two distinct offset/disjoint parallel walls that happen
+  /// to agree in normal+offset (aliasing) from collapsing into one landmark.
+  /// <= 0 disables the overlap check (pure normal+offset gating, legacy).
+  float assoc_overlap_margin = 0.30f;
+  /// Reject landmarks whose observation inlier-centroids are near-collinear: if
+  /// the second singular value of the centroid scatter is below this fraction
+  /// of the first, the observations pin only a line, leaving a rotational DoF
+  /// about that line unconstrained. Such landmarks are dropped from the graph.
+  /// <= 0 disables the degeneracy check.
+  float min_landmark_spread_ratio = 0.05f;
+
+  // --- Alternating association/optimization rounds --------------------------
+  /// Number of (associate at current poses -> optimize -> refit) rounds. One
+  /// round reproduces the original one-shot behaviour; 2-3 rounds let landmarks
+  /// re-form on the improved poses (EM-style), which recovers drift the greedy
+  /// one-shot association aliases away. Rounds stop early once the pose update
+  /// of a round falls below assoc_round_tol. Two rounds is the tuned default
+  /// (best office flatness at cm-level shift without regressing MuSHRoom GT).
+  int assoc_rounds = 2;
+  float assoc_round_tol = 0.02f; ///< stop rounds when max pose shift < this (m)
 
   // --- Factor graph noise (std-devs) ----------------------------------------
-  float odometry_sigma_rot = 0.05f;   ///< odometry rotation std (rad)
-  float odometry_sigma_trans = 0.10f; ///< odometry translation std (m)
-  float plane_sigma_normal = 0.05f;   ///< plane-normal measurement std (rad)
-  float plane_sigma_distance = 0.03f; ///< plane-distance measurement std (m)
+  // The seed trajectory (RTABMap SLAM) is already good, so odometry is trusted
+  // tightly and the plane factors act as a gentle global regularizer: this is
+  // what keeps corrections at cm scale and beats the no-op baseline instead of
+  // degrading it (the #225 P1 defaults over-trusted the fragile plane factors).
+  float odometry_sigma_rot = 0.005f;  ///< odometry rotation std (rad)
+  float odometry_sigma_trans = 0.01f; ///< odometry translation std (m)
+  /// Observability guard: a frame whose landmark observations span fewer than
+  /// two independent normal directions is under-constrained by planes along the
+  /// missing directions. Its two odometry factors (to prev/next frame) get
+  /// their sigmas multiplied by this factor (< 1 tightens them) so the trusted
+  /// odometry holds the trajectory where planes cannot. 1.0 disables the guard.
+  float underconstrained_odom_scale = 0.25f;
+  float plane_sigma_normal = 0.24f;   ///< plane-normal measurement std (rad)
+  float plane_sigma_distance = 0.19f; ///< plane-distance measurement std (m)
   float prior_sigma_rot = 0.001f; ///< first-pose gauge prior rotation std (rad)
   float prior_sigma_trans =
       0.001f; ///< first-pose gauge prior translation std (m)
@@ -90,6 +123,11 @@ struct PlaneGraphResult {
   double initial_error = 0.0;  ///< factor-graph error before optimization
   double final_error = 0.0;    ///< factor-graph error after optimization
   double max_pose_shift = 0.0; ///< largest per-frame translation change (m)
+  int rounds = 0; ///< association/optimization rounds actually performed
+  int landmarks_rejected_overlap = 0; ///< merges blocked by the overlap gate
+  int landmarks_rejected_degenerate =
+      0;                           ///< landmarks dropped as near-collinear
+  int underconstrained_frames = 0; ///< frames whose odometry was tightened
 };
 
 /// Plane-landmark pose-graph optimizer operating purely in memory.

@@ -90,6 +90,39 @@ FrameSurfels make_corner_frame(int node_id) {
   return f;
 }
 
+// A single dense square planar patch with normal +z, centred in world at
+// (cx, cy, cz), sampled as optical-frame surfels of an identity-pose frame (so
+// optical == world here). `half` is the half-side of the patch. Enough points
+// to clear the default --min-plane-inliers threshold.
+FrameSurfels make_patch_frame(int node_id, float cx, float cy, float cz,
+                              float half) {
+  auto pts = std::make_shared<Cloud>();
+  auto nrm = std::make_shared<CloudN>();
+  const float step = 0.03f;
+  for (float a = -half; a <= half; a += step) {
+    for (float b = -half; b <= half; b += step) {
+      PointT p;
+      p.x = cx + a;
+      p.y = cy + b;
+      p.z = cz;
+      p.r = p.g = p.b = 200;
+      pts->push_back(p);
+      NormalT n;
+      n.normal_x = 0.0f;
+      n.normal_y = 0.0f;
+      n.normal_z = 1.0f;
+      n.curvature = 0.0f;
+      nrm->push_back(n);
+    }
+  }
+  FrameSurfels f;
+  f.node_id = node_id;
+  f.points = pts;
+  f.normals = nrm;
+  f.world_pose = Eigen::Affine3f::Identity();
+  return f;
+}
+
 // Small rigid drift used to corrupt a seed pose.
 Eigen::Affine3f drift(float angle, const Eigen::Vector3f &axis,
                       const Eigen::Vector3f &t) {
@@ -109,11 +142,22 @@ PlaneGraphOptions test_options() {
   o.assoc_normal_angle = 15.0f;
   o.assoc_distance = 0.20f; // roomy: drift shifts world offsets a little
   o.min_landmark_observations = 2;
-  // Odometry in this test comes from the *drifted* seed poses and is therefore
-  // wrong; loosen it so the equilibrium is dominated by the plane landmarks
-  // (the objective under test) rather than by the corrupted odometry chain.
+  // These synthetic tests probe the plane-landmark objective directly (a shared
+  // corner), so they pin the noise knobs the library ships weaker-by-default
+  // for real scans: TIGHT plane factors (the objective under test) and LOOSE
+  // odometry (which here comes from the *drifted* seed poses and is wrong), so
+  // the equilibrium is dominated by the landmarks rather than the seed chain.
+  o.plane_sigma_normal = 0.05f;
+  o.plane_sigma_distance = 0.03f;
   o.odometry_sigma_rot = 0.25f;
   o.odometry_sigma_trans = 0.5f;
+  // Corner geometry: three big perpendicular planes shared by all frames. The
+  // overlap/degeneracy hygiene is exercised by dedicated tests below; here it
+  // is set permissive so it never interferes with the recovery objective.
+  o.assoc_overlap_margin = 2.0f;
+  o.min_landmark_spread_ratio = 0.0f;
+  o.assoc_rounds = 1;
+  o.underconstrained_odom_scale = 1.0f;
   o.max_iterations = 100;
   o.seed = 42;
   return o;
@@ -207,6 +251,145 @@ TEST_CASE("PlaneGraph is a near no-op on already-consistent poses",
                  WithinAbs(0.0, 5e-3));
     REQUIRE(pose_rot_error(frames[i].world_pose, before[i]) < 5e-3f);
   }
+}
+
+// ---------------------------------------------------------------------------
+// #225 follow-up: landmark hygiene.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("PlaneGraph does NOT alias two offset parallel walls",
+          "[plane_graph][optimize][hygiene]") {
+  // Two frames each see a co-normal (normal +z, offset d=0) patch, but the two
+  // patches are far apart IN-PLANE (centres 10 m apart along x). They agree in
+  // normal AND offset — the old greedy front-end would merge them into a single
+  // landmark, aliasing two distinct surfaces. The overlap gate must keep them
+  // separate: with min_observations=1 that means TWO kept landmarks, not one.
+  std::vector<FrameSurfels> frames;
+  frames.push_back(make_patch_frame(0, 0.0f, 0.0f, 0.0f, 1.0f));
+  frames.push_back(make_patch_frame(1, 10.0f, 0.0f, 0.0f, 1.0f));
+
+  PlaneGraphOptions o = test_options();
+  o.min_landmark_observations = 1;    // each patch seen by exactly one frame
+  o.assoc_normal_angle = 15.0f;       // normals are identical anyway
+  o.assoc_distance = 0.5f;            // offsets are identical (both d=0)
+  o.assoc_overlap_margin = 0.30f;     // patches are 10 m apart -> no overlap
+  o.min_landmark_spread_ratio = 0.0f; // disable degeneracy check here
+  o.assoc_rounds = 1;
+
+  PlaneGraphOptimizer optimizer(o);
+  PlaneGraphResult res = optimizer.optimize(frames);
+
+  INFO("landmarks=" << res.landmarks
+                    << " rejected_overlap=" << res.landmarks_rejected_overlap);
+  REQUIRE(res.landmarks == 2);                  // NOT merged
+  REQUIRE(res.landmarks_rejected_overlap >= 1); // the overlap gate fired
+
+  // Sanity: with the overlap gate OFF the SAME geometry collapses to one
+  // landmark (proves the gate, not the geometry, is doing the separating).
+  o.assoc_overlap_margin = 0.0f; // disable overlap gate
+  std::vector<FrameSurfels> frames2;
+  frames2.push_back(make_patch_frame(0, 0.0f, 0.0f, 0.0f, 1.0f));
+  frames2.push_back(make_patch_frame(1, 10.0f, 0.0f, 0.0f, 1.0f));
+  PlaneGraphOptimizer optimizer2(o);
+  PlaneGraphResult res2 = optimizer2.optimize(frames2);
+  REQUIRE(res2.landmarks == 1); // aliased when the gate is off
+}
+
+TEST_CASE("PlaneGraph rejects a degenerate (near-collinear) landmark",
+          "[plane_graph][optimize][hygiene]") {
+  // Four frames see adjacent strips of the SAME z=0 plane whose centroids lie
+  // on a straight line (along x). Merged into one landmark, those centroids are
+  // near-collinear: a rotation about that line is unobservable, so the landmark
+  // must be rejected (kept landmarks == 0). The generous overlap margin lets
+  // the adjacent strips merge so the degeneracy test is what does the work.
+  std::vector<FrameSurfels> collinear;
+  for (int i = 0; i < 4; ++i)
+    collinear.push_back(
+        make_patch_frame(i, static_cast<float>(i) * 0.8f, 0.0f, 0.0f, 0.6f));
+
+  PlaneGraphOptions o = test_options();
+  o.min_landmark_observations = 3;
+  o.assoc_normal_angle = 15.0f;
+  o.assoc_distance = 0.5f;
+  o.assoc_overlap_margin = 1.0f; // adjacent strips overlap -> one landmark
+  o.min_landmark_spread_ratio = 0.15f; // require a genuine 2D patch
+  o.assoc_rounds = 1;
+
+  PlaneGraphOptimizer opt_c(o);
+  PlaneGraphResult res_c = opt_c.optimize(collinear);
+  INFO("collinear landmarks=" << res_c.landmarks << " degenerate_rejected="
+                              << res_c.landmarks_rejected_degenerate);
+  REQUIRE(res_c.landmarks == 0);
+  REQUIRE(res_c.landmarks_rejected_degenerate >= 1);
+
+  // Control: the same strips arranged in a 2x2 GRID (centroids span a plane)
+  // form a well-conditioned landmark that is kept.
+  std::vector<FrameSurfels> grid;
+  int id = 0;
+  for (int gx = 0; gx < 2; ++gx)
+    for (int gy = 0; gy < 2; ++gy)
+      grid.push_back(make_patch_frame(id++, static_cast<float>(gx) * 0.8f,
+                                      static_cast<float>(gy) * 0.8f, 0.0f,
+                                      0.6f));
+  PlaneGraphOptimizer opt_g(o);
+  PlaneGraphResult res_g = opt_g.optimize(grid);
+  INFO("grid landmarks=" << res_g.landmarks);
+  REQUIRE(res_g.landmarks >= 1);
+}
+
+TEST_CASE("PlaneGraph alternating rounds beat a single round on heavy drift",
+          "[plane_graph][optimize][hygiene]") {
+  // A larger drift than the basic recovery test: one association+optimize pass
+  // under-corrects because the landmarks are formed on badly-drifted poses;
+  // re-associating on the improved poses (EM-style) recovers more. Assert the
+  // 3-round run ends strictly closer to truth than the 1-round run.
+  const Eigen::Affine3f truth = Eigen::Affine3f::Identity();
+
+  auto build = [&]() {
+    std::vector<FrameSurfels> frames;
+    for (int i = 0; i < 4; ++i)
+      frames.push_back(make_corner_frame(i));
+    frames[0].world_pose = truth; // gauge anchor at truth
+    frames[1].world_pose =
+        drift(0.10f, {1, 1, 1}, {0.08f, -0.06f, 0.05f}) * truth;
+    frames[2].world_pose =
+        drift(0.12f, {0, 1, 0}, {-0.07f, 0.09f, -0.05f}) * truth;
+    frames[3].world_pose =
+        drift(0.09f, {1, 0, 1}, {0.06f, 0.06f, 0.07f}) * truth;
+    return frames;
+  };
+
+  auto total_error = [&](const std::vector<FrameSurfels> &frames) {
+    float e = 0.0f;
+    for (int i = 1; i < 4; ++i)
+      e += pose_trans_error(frames[i].world_pose, truth) +
+           pose_rot_error(frames[i].world_pose, truth);
+    return e;
+  };
+
+  PlaneGraphOptions base = test_options();
+  base.min_landmark_observations = 2;
+  base.assoc_overlap_margin = 2.0f;      // corner planes are large & shared
+  base.min_landmark_spread_ratio = 0.0f; // corner geometry, not under test here
+  base.underconstrained_odom_scale = 1.0f; // isolate the rounds effect
+
+  PlaneGraphOptions one = base;
+  one.assoc_rounds = 1;
+  std::vector<FrameSurfels> f1 = build();
+  PlaneGraphOptimizer(one).optimize(f1);
+  const float e1 = total_error(f1);
+
+  PlaneGraphOptions many = base;
+  many.assoc_rounds = 3;
+  many.assoc_round_tol = 1e-5f; // do not stop early
+  std::vector<FrameSurfels> f3 = build();
+  PlaneGraphResult r3 = PlaneGraphOptimizer(many).optimize(f3);
+  const float e3 = total_error(f3);
+
+  INFO("1-round total err " << e1 << " vs 3-round " << e3
+                            << " (rounds=" << r3.rounds << ")");
+  REQUIRE(r3.rounds >= 2);
+  REQUIRE(e3 < e1);
 }
 
 TEST_CASE("PlaneGraph leaves poses unchanged when no landmark is shared",

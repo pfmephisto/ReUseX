@@ -26,12 +26,19 @@ struct SubcommandOptimizeOptions {
   float assoc_normal_angle = 10.0f;
   float assoc_distance = 0.10f;
   int min_observations = 5;
+  float assoc_overlap_margin = 0.30f;
+  float min_landmark_spread_ratio = 0.05f;
+
+  // Alternating rounds.
+  int assoc_rounds = 2;
+  float assoc_round_tol = 0.02f;
 
   // Factor-graph noise.
-  float odometry_sigma_rot = 0.05f;
-  float odometry_sigma_trans = 0.10f;
-  float plane_sigma_normal = 0.05f;
-  float plane_sigma_distance = 0.03f;
+  float odometry_sigma_rot = 0.005f;
+  float odometry_sigma_trans = 0.01f;
+  float underconstrained_odom_scale = 0.25f;
+  float plane_sigma_normal = 0.24f;
+  float plane_sigma_distance = 0.19f;
   float prior_sigma_rot = 0.001f;
   float prior_sigma_trans = 0.001f;
 

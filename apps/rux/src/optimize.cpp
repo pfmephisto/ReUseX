@@ -83,6 +83,22 @@ NOTES:
   sub->add_option("--min-observations", opt->min_observations,
                   "Landmark must be seen by at least this many frames")
       ->default_val(opt->min_observations);
+  sub->add_option("--assoc-overlap-margin", opt->assoc_overlap_margin,
+                  "In-plane overlap slack for merging observations (m, <=0 "
+                  "disables the overlap gate)")
+      ->default_val(opt->assoc_overlap_margin);
+  sub->add_option("--min-landmark-spread-ratio", opt->min_landmark_spread_ratio,
+                  "Reject landmarks whose observation centroids are more "
+                  "collinear than this SV ratio (<=0 disables)")
+      ->default_val(opt->min_landmark_spread_ratio);
+
+  // --- Alternating rounds ---
+  sub->add_option("--assoc-rounds", opt->assoc_rounds,
+                  "Associate/optimize/refit rounds (1 = one-shot)")
+      ->default_val(opt->assoc_rounds);
+  sub->add_option("--assoc-round-tol", opt->assoc_round_tol,
+                  "Stop rounds when the round's max pose shift drops below (m)")
+      ->default_val(opt->assoc_round_tol);
 
   // --- Factor-graph noise ---
   sub->add_option("--odometry-sigma-rot", opt->odometry_sigma_rot,
@@ -91,6 +107,11 @@ NOTES:
   sub->add_option("--odometry-sigma-trans", opt->odometry_sigma_trans,
                   "Odometry translation std (m)")
       ->default_val(opt->odometry_sigma_trans);
+  sub->add_option("--underconstrained-odom-scale",
+                  opt->underconstrained_odom_scale,
+                  "Odometry sigma multiplier for frames that span < 2 plane "
+                  "normal directions (<1 tightens; 1 disables the guard)")
+      ->default_val(opt->underconstrained_odom_scale);
   sub->add_option("--plane-sigma-normal", opt->plane_sigma_normal,
                   "Plane-normal measurement std (rad)")
       ->default_val(opt->plane_sigma_normal);
@@ -165,8 +186,13 @@ int run_subcommand_optimize(SubcommandOptimizeOptions const &opt,
     options.assoc_normal_angle = opt.assoc_normal_angle;
     options.assoc_distance = opt.assoc_distance;
     options.min_landmark_observations = opt.min_observations;
+    options.assoc_overlap_margin = opt.assoc_overlap_margin;
+    options.min_landmark_spread_ratio = opt.min_landmark_spread_ratio;
+    options.assoc_rounds = opt.assoc_rounds;
+    options.assoc_round_tol = opt.assoc_round_tol;
     options.odometry_sigma_rot = opt.odometry_sigma_rot;
     options.odometry_sigma_trans = opt.odometry_sigma_trans;
+    options.underconstrained_odom_scale = opt.underconstrained_odom_scale;
     options.plane_sigma_normal = opt.plane_sigma_normal;
     options.plane_sigma_distance = opt.plane_sigma_distance;
     options.prior_sigma_rot = opt.prior_sigma_rot;

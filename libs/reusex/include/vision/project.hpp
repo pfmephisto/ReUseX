@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #pragma once
-#include "reusex/types.hpp"
+#include "reusex/types/point_types.hpp"
 
 namespace reusex {
 class ProjectDB;

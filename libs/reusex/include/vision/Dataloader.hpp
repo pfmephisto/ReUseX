@@ -7,6 +7,7 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -31,6 +32,13 @@ class Dataloader {
   using Batch = std::vector<Pair>;
   using BatchView = std::span<Pair>;
 
+  /* * The default seed used for deterministic shuffling when the caller does
+   * not request entropy. Per docs/STANDARDS.md §6, algorithms with randomness
+   * default to a fixed seed (42) so runs are reproducible; pass
+   * std::nullopt to opt into non-determinism via std::random_device.
+   * */
+  static constexpr uint32_t default_seed = 42;
+
   /* * Constructs a Dataloader for the given dataset with the specified batch
    * size, shuffle option, number of worker threads, and number of prefetch
    * batches.
@@ -41,11 +49,28 @@ class Dataloader {
    * @param num_workers The number of worker threads to use for loading batches.
    * @param prefetch_batches The number of batches to prefetch in the
    * background.
+   * @param seed Seed for the shuffle RNG. Defaults to a fixed value
+   * (default_seed) so shuffling is deterministic and runs are reproducible.
+   * Pass std::nullopt to seed from std::random_device (non-deterministic).
+   * Ignored when shuffle is false.
    * */
   Dataloader(IDataset &dataset, size_t batch_size, bool shuffle = false,
-             size_t num_workers = 4, size_t prefetch_batches = 2);
+             size_t num_workers = 4, size_t prefetch_batches = 2,
+             std::optional<uint32_t> seed = default_seed);
 
   ~Dataloader();
+
+  /* * Produces the (optionally shuffled) index order for a dataset of the given
+   * size. When seed holds a value, the shuffle is deterministic and repeatable;
+   * when seed is std::nullopt, entropy is drawn from std::random_device. This
+   * is the single source of truth for shuffle ordering, exposed as a static
+   * helper so the ordering can be unit-tested without a live dataset.
+   * @param count The number of indices to produce (0..count-1).
+   * @param seed Optional RNG seed; std::nullopt draws entropy from the device.
+   * @return A vector of size count containing a permutation of [0, count).
+   * */
+  static std::vector<size_t> shuffled_indices(size_t count,
+                                              std::optional<uint32_t> seed);
 
   /* * Iterator is a class that provides an input iterator interface to the
    * Dataloader. It allows the user to iterate over the batches of data in the
@@ -279,6 +304,13 @@ class Dataloader {
    * order based on the original order of the samples in the dataset.
    * */
   bool shuffle_;
+
+  /* * The seed used for the shuffle RNG. When it holds a value the shuffle is
+   * deterministic (repeatable across epochs and runs); when it is std::nullopt
+   * the RNG is seeded from std::random_device for non-deterministic ordering.
+   * Only consulted when shuffle_ is true.
+   * */
+  std::optional<uint32_t> seed_;
 
   /* * The number of worker threads to use for loading batches. This determines
    * how many threads will be running in the background to load batches of data

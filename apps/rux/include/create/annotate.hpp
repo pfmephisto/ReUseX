@@ -6,6 +6,7 @@
 #include "../global-params.hpp"
 
 #include <CLI/CLI.hpp>
+#include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -25,6 +26,11 @@ struct SubcommandAnnotateOptions {
   size_t prefetch_batches =
       8; // Batches to prefetch (recommended: 2-3x workers)
   bool skip_annotated = false; // Skip already-annotated frames (resume mode)
+
+  // Shuffle RNG seed. Fixed by default so shuffled runs are reproducible
+  // (docs/STANDARDS.md §6). --random-seed opts into entropy instead.
+  uint32_t seed = 42;
+  bool random_seed = false; // Seed from std::random_device (non-deterministic)
 };
 
 // Function declarations.

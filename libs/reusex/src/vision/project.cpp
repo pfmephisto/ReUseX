@@ -8,6 +8,7 @@
 #include "core/label_semantics.hpp"
 #include "core/logging.hpp"
 #include "core/processing_observer.hpp"
+#include "core/visual_observer.hpp"
 #include "types.hpp"
 
 #include <range/v3/view/iota.hpp>

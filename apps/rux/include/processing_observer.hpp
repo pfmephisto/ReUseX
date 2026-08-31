@@ -7,6 +7,7 @@
 
 #include <pcl/visualization/pcl_visualizer.h>
 #include <reusex/core/processing_observer.hpp>
+#include <reusex/core/visual_observer.hpp>
 #include <reusex/geometry/CellComplex.hpp>
 #include <reusex/types.hpp>
 

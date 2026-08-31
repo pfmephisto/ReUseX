@@ -30,7 +30,9 @@ External: apps/rux                       (may use everything; keeps logic thin)
 **Rules:**
 
 - `core/` MUST NOT include PCL visualization, CGAL, RTABMap, or ML headers.
-  **[target]** — `processing_observer.hpp` currently pulls PCL into core.
+  The PCL/Eigen-typed visualization payloads live in `core/visual_observer.hpp`,
+  which core headers never include; `core/processing_observer.hpp` is PCL-free
+  and exposes the visual observer only as an opaque forward-declared pointer.
 - `geometry/`, `io/`, and `vision/` are peers. Cross-peer data exchange goes
   through types defined in `core/` or `types.hpp`, not through peer headers.
   **[target]** — `io/export_scene.hpp` currently includes
@@ -48,6 +50,13 @@ External: apps/rux                       (may use everything; keeps logic thin)
   already do).
 - Do not add new includes of PCL, CGAL, Boost.Graph, or OpenCV to a public
   header if a forward declaration or a `.cpp`-local include suffices.
+  `core/ProjectDB.hpp` forward-declares `cv::Mat` and the PCL mesh types
+  (`pcl::PolygonMesh`/`pcl::TextureMesh`) rather than including their headers.
+- The `types.hpp` aliases are split so a TU pulls in only what it uses:
+  `types/point_types.hpp` (PCL point-cloud aliases) and
+  `types/eigen_types.hpp` (Eigen helpers). `types.hpp` remains a
+  backward-compatible umbrella re-exporting both; prefer the narrower headers
+  in new/touched code.
 - Public headers include siblings via the `reusex/` prefix
   (e.g. `#include "reusex/core/logging.hpp"`).
 - `#pragma once` everywhere; SPDX header on every file.

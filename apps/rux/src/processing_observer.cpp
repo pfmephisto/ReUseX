@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <atomic>
 #include <pcl/common/transforms.h>
+#include <reusex/visualize/viewport_layout.hpp>
 
 #include <cmath>
 #include <functional>
@@ -24,86 +25,6 @@ namespace {
 constexpr int kViewerSpinTimeoutMs = 100;
 rux::VizualizationObserver g_processing_observer;
 }; // namespace
-
-/* Utility function to calculate viewport bounds for a given index and total
- * count. Uses recursive binary space partitioning to split the viewport area.
- *
- * @param index Index of the viewport (0-based)
- * @param total Total number of viewports
- * @param left Left bound of the current area (default 0.0)
- * @param top Top bound of the current area (default 0.0)
- * @param right Right bound of the current area (default 1.0)
- * @param bottom Bottom bound of the current area (default 1.0)
- * @param split_horizontal Whether to split horizontally first (default true)
- * @return Tuple of (left, top, right, bottom) bounds for the specified viewport
- */
-std::tuple<float, float, float, float>
-get_viewport_bounds(size_t index, size_t total, float left = 0.0f,
-                    float top = 0.0f, float right = 1.0f, float bottom = 1.0f,
-                    bool split_horizontal = true) {
-
-  // Ratio used for odd viewport counts: first viewport gets this much space
-  constexpr float ODD_VIEWPORT_RATIO = 0.6f;
-
-  // Base case: single viewport gets full bounds
-  if (total == 1) {
-    return {left, top, right, bottom};
-  }
-
-  // Even count: binary split
-  if (total % 2 == 0) {
-    size_t half = total / 2;
-
-    if (split_horizontal) {
-      // Split horizontally (left/right regions)
-      float mid = left + (right - left) * 0.5f;
-
-      if (index < half) {
-        // First half: left region, recurse with vertical split
-        return get_viewport_bounds(index, half, left, top, mid, bottom, false);
-      } else {
-        // Second half: right region, recurse with vertical split
-        return get_viewport_bounds(index - half, half, mid, top, right, bottom,
-                                   false);
-      }
-    } else {
-      // Split vertically (top/bottom regions)
-      float mid = top + (bottom - top) * 0.5f;
-
-      if (index < half) {
-        // First half: top region, recurse with horizontal split
-        return get_viewport_bounds(index, half, left, top, right, mid, true);
-      } else {
-        // Second half: bottom region, recurse with horizontal split
-        return get_viewport_bounds(index - half, half, left, mid, right, bottom,
-                                   true);
-      }
-    }
-  }
-
-  // Odd count: first viewport larger (60%), rest split recursively
-  if (index == 0) {
-    // First viewport gets the larger portion
-    if (split_horizontal) {
-      float mid = left + (right - left) * ODD_VIEWPORT_RATIO;
-      return {left, top, mid, bottom};
-    } else {
-      float mid = top + (bottom - top) * ODD_VIEWPORT_RATIO;
-      return {left, top, right, mid};
-    }
-  }
-
-  // Remaining viewports recursively split the smaller region
-  if (split_horizontal) {
-    float mid = left + (right - left) * ODD_VIEWPORT_RATIO;
-    return get_viewport_bounds(index - 1, total - 1, mid, top, right, bottom,
-                               false);
-  } else {
-    float mid = top + (bottom - top) * ODD_VIEWPORT_RATIO;
-    return get_viewport_bounds(index - 1, total - 1, left, mid, right, bottom,
-                               true);
-  }
-}
 
 VizualizationObserver::~VizualizationObserver() { viewer_stop(); }
 
@@ -123,9 +44,8 @@ void VizualizationObserver::viewer_add_plane(std::string_view name,
   auto color = pcl::GlasbeyLUT::at(static_cast<size_t>(idx) % n_colors);
 
   pcl::ModelCoefficients coeffs;
-  coeffs.values = {
-      static_cast<float>(plane[0]), static_cast<float>(plane[1]),
-      static_cast<float>(plane[2]), static_cast<float>(plane[3])};
+  coeffs.values = {static_cast<float>(plane[0]), static_cast<float>(plane[1]),
+                   static_cast<float>(plane[2]), static_cast<float>(plane[3])};
 
   viewer_enqueue_task([name = std::string(name), coeffs, color,
                        vp](const ViewerPtr &viewer, const std::vector<int> &) {
@@ -728,7 +648,8 @@ void VizualizationObserver::viewer_loop(std::latch &initialized) {
 
   // Create viewport
   for (size_t i = 0; i < viewports_.size(); ++i) {
-    auto const [l, t, r, b] = get_viewport_bounds(i, viewports_.size());
+    auto const [l, t, r, b] =
+        reusex::visualize::viewport_bounds(i, viewports_.size());
     viewer->createViewPort(l, t, r, b, viewports_[i]);
     viewer->setBackgroundColor(255, 255, 255, viewports_[i]);
     viewer->addCoordinateSystem(1.0, fmt::format("vp{}", i), viewports_[i]);

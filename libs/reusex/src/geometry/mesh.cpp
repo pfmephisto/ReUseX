@@ -5,6 +5,7 @@
 #include "geometry/mesh.hpp"
 #include "core/logging.hpp"
 #include "core/processing_observer.hpp"
+#include "core/visual_observer.hpp"
 #include "geometry/CellComplex.hpp"
 #include "geometry/Solidifier.hpp"
 #include "geometry/regularization.hpp"

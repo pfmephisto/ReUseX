@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include "reusex/types.hpp"
+#include "reusex/types/point_types.hpp"
 
 #include <filesystem>
 #include <string>

@@ -56,6 +56,28 @@ set(CMAKE_POSITION_INDEPENDENT_CODE TRUE)  # Required for shared libraries
 # Suppress CGAL warnings
 set(CGAL_DO_NOT_WARN_ABOUT_CMAKE_BUILD_TYPE ON)
 
+# ===============================================
+# Compiler cache (ccache)
+# ===============================================
+# Use ccache as a compiler launcher when available to make rebuilds after a
+# clean/reconfigure (or across worktrees) hit the cache instead of recompiling.
+# Guarded by find_program so builds without ccache installed are unaffected.
+# Can be disabled with -DUSE_CCACHE=OFF.
+option(USE_CCACHE "Use ccache to speed up (re)compilation when available" ON)
+if(USE_CCACHE)
+    find_program(CCACHE_PROGRAM ccache)
+    if(CCACHE_PROGRAM)
+        message(STATUS "ccache found: ${CCACHE_PROGRAM} (enabling compiler launcher)")
+        set(CMAKE_C_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
+        set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
+        if(WITH_CUDA)
+            set(CMAKE_CUDA_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
+        endif()
+    else()
+        message(STATUS "ccache not found; building without compiler cache")
+    endif()
+endif()
+
 enable_language(CXX)
 enable_language(C)
 

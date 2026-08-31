@@ -5,7 +5,7 @@
 #pragma once
 
 #include "reusex/geometry/BuildingComponent.hpp"
-#include "reusex/types.hpp"
+#include "reusex/types/point_types.hpp"
 
 #include <pcl/PolygonMesh.h>
 

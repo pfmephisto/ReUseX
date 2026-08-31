@@ -3,48 +3,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #pragma once
+
+// Backward-compatible umbrella header. Historically every TU included
+// <reusex/types.hpp> to get both the PCL point-cloud aliases and the Eigen
+// helpers. Those two groups now live in separate headers so a TU can pull in
+// only what it uses (see issue #218). This umbrella keeps existing includers
+// working by re-exporting both; new code should prefer the narrower headers:
+//   - <reusex/types/point_types.hpp> for PCL point-cloud aliases
+//   - <reusex/types/eigen_types.hpp> for the Eigen helpers
 #include "reusex/core/stages.hpp"
-
-#include <Eigen/Core>
-#include <pcl/pcl_base.h>
-#include <pcl/point_cloud.h>
-#include <pcl/point_types.h>
-#include <utility>
-#include <vector>
-
-namespace reusex {
-
-using PointT = pcl::PointXYZRGB;
-using NormalT = pcl::Normal;
-using LabelT = pcl::Label;
-using LocT = pcl::PointXYZ;
-
-using Indices = pcl::Indices;
-using IndicesPtr = pcl::IndicesPtr;
-using IndicesConstPtr = pcl::IndicesConstPtr;
-
-using Cloud = pcl::PointCloud<PointT>;
-using CloudPtr = typename Cloud::Ptr;
-using CloudConstPtr = typename Cloud::ConstPtr;
-
-using CloudN = pcl::PointCloud<NormalT>;
-using CloudNPtr = typename CloudN::Ptr;
-using CloudNConstPtr = typename CloudN::ConstPtr;
-
-using CloudL = pcl::PointCloud<LabelT>;
-using CloudLPtr = typename CloudL::Ptr;
-using CloudLConstPtr = typename CloudL::ConstPtr;
-
-using CloudLoc = pcl::PointCloud<LocT>;
-using CloudLocPtr = typename CloudLoc::Ptr;
-using CloudLocConstPtr = typename CloudLoc::ConstPtr;
-
-template <typename Scalar, int Rows>
-using EigenVectorContainer =
-    std::vector<Eigen::Matrix<Scalar, Rows, 1>,
-                Eigen::aligned_allocator<Eigen::Matrix<Scalar, Rows, 1>>>;
-
-using Pair = std::pair<Eigen::Vector4d, Eigen::Vector3d>;
-using PlanePair = std::pair<Pair, Pair>;
-
-} // namespace reusex
+#include "reusex/types/eigen_types.hpp"
+#include "reusex/types/point_types.hpp"

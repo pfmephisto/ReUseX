@@ -9,6 +9,7 @@
 #include <opencv2/core.hpp>
 #include <opencv2/imgcodecs.hpp>
 
+#include <pcl/PolygonMesh.h>
 #include <pcl/common/generate.h>
 #include <pcl/conversions.h>
 #include <pcl/point_cloud.h>

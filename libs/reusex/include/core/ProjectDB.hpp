@@ -1,19 +1,29 @@
 #pragma once
-#include "reusex/types.hpp"
+// Point-cloud aliases (Cloud/CloudN/CloudL and pcl::PointCloud<pcl::PointXYZ>)
+// are part of the public signatures below, so the point-type header stays.
+// The heavier OpenCV and PCL mesh headers are only needed by the .cpp: they
+// are forward-declared here (cv::Mat by value/reference, mesh types via
+// std::shared_ptr) to keep DB clients from transitively compiling them.
+#include "reusex/types/point_types.hpp"
 
 #include <array>
 #include <filesystem>
 #include <map>
 #include <memory>
-#include <opencv2/core/mat.hpp>
 #include <optional>
-#include <pcl/PolygonMesh.h>
-#include <pcl/TextureMesh.h>
-#include <pcl/point_cloud.h>
-#include <pcl/point_types.h>
 #include <string>
 #include <string_view>
 #include <vector>
+
+// Forward declarations for heavy third-party types used only by-value or via
+// shared_ptr in the public API (definitions pulled in by ProjectDB.cpp).
+namespace cv {
+class Mat;
+} // namespace cv
+namespace pcl {
+struct PolygonMesh;
+struct TextureMesh;
+} // namespace pcl
 
 namespace reusex {
 
@@ -226,8 +236,8 @@ class ProjectDB {
   void save_mesh(std::string_view name, const pcl::TextureMesh &mesh,
                  std::string_view stage = "", std::string_view paramsJson = "");
 
-  pcl::PolygonMesh::Ptr mesh(std::string_view name) const;
-  pcl::TextureMesh::Ptr texture_mesh(std::string_view name) const;
+  std::shared_ptr<pcl::PolygonMesh> mesh(std::string_view name) const;
+  std::shared_ptr<pcl::TextureMesh> texture_mesh(std::string_view name) const;
   bool has_mesh(std::string_view name) const;
   std::vector<std::string> list_meshes() const;
   std::string mesh_format(std::string_view name) const;

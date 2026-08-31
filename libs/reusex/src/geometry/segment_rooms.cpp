@@ -5,6 +5,7 @@
 #include "geometry/segment_rooms.hpp"
 #include "core/label_semantics.hpp"
 #include "core/logging.hpp"
+#include "core/visual_observer.hpp"
 
 #include <algorithm>
 #include <map>

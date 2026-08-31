@@ -4,7 +4,7 @@
 #pragma once
 
 #include <memory>
-#include <reusex/types.hpp>
+#include <reusex/types/point_types.hpp>
 #include <string>
 #include <unordered_set>
 #include <vector>

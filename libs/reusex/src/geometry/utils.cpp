@@ -4,12 +4,54 @@
 
 #include "geometry/utils.hpp"
 #include "core/logging.hpp"
+#include "utils/tolerances.hpp"
+
+#include <algorithm>
+#include <cmath>
+#include <limits>
+#include <numbers>
+#include <numeric>
 
 namespace reusex::geometry {
+
+namespace {
+
+/// Ensure a plane's normal is unit length. Plane coefficients (n, d) may drift
+/// from |n| = 1 through repeated arithmetic; downstream distance/overlap tests
+/// assume a normalized normal. Renormalizes in place (scaling d with n so the
+/// plane is geometrically unchanged) and debug-logs when the drift exceeds
+/// `1e-6` (STANDARDS §4: validate normals at module boundaries).
+void validate_normalized(Eigen::Vector4d &plane, const char *where,
+                         size_t index) {
+  const double norm = plane.head<3>().norm();
+  if (norm < reusex::kEpsilonLengthM) {
+    reusex::warn("{}: plane {} has a degenerate (near-zero) normal (|n|={:g})",
+                 where, index, norm);
+    return;
+  }
+  if (std::abs(norm - 1.0) > 1e-6) {
+    reusex::debug("{}: normalizing plane {} normal (|n|={:g})", where, index,
+                  norm);
+    plane /= norm;
+  }
+}
+
+} // namespace
+
 auto dist_plane_point(const Eigen::Vector4d &plane,
                       const Eigen::Vector3d &point) -> double {
-  return (plane.head<3>().dot(point) + plane[3]) /
-         plane.head<3>().squaredNorm();
+  const double sq_norm = plane.head<3>().squaredNorm();
+  // A normalized normal has squared norm ~1; a value below the relative
+  // (dimensionless) epsilon means the "plane" is degenerate. Return +inf so
+  // callers that compare against a finite threshold treat it as "infinitely
+  // far" rather than dividing by ~0 and producing NaN/inf silently.
+  if (sq_norm < reusex::kEpsilonRelative) {
+    reusex::warn("dist_plane_point: degenerate plane normal (|n|^2={:g}); "
+                 "returning +inf",
+                 sq_norm);
+    return std::numeric_limits<double>::infinity();
+  }
+  return (plane.head<3>().dot(point) + plane[3]) / sq_norm;
 }
 
 auto make_pairs(EigenVectorContainer<double, 4> &planes,
@@ -42,8 +84,12 @@ auto make_pairs(EigenVectorContainer<double, 4> &planes,
       auto &plane_j = planes[j];
       auto &centroid_j = centroids[j];
 
-      const double dot = plane_i.head<3>().dot(plane_j.head<3>());
-      if (std::abs(dot + 1.0) >= 0.1)
+      // Opposite normals: dot ≈ -1. Compare via the subtended angle so the
+      // tolerance is an actual angle (radians), not a hand-tuned dot slack.
+      const double dot =
+          std::clamp(plane_i.head<3>().dot(plane_j.head<3>()), -1.0, 1.0);
+      constexpr double kOppositeAngleTol = 0.1; // rad (~5.7°), pairing slack
+      if (std::abs(std::numbers::pi - std::acos(dot)) >= kOppositeAngleTol)
         continue; // not opposite normals
 
       const double dist_i = dist_plane_point(plane_i, centroid_j.head<3>());
@@ -85,6 +131,10 @@ auto force_orthogonal_planes(EigenVectorContainer<double, 4> &planes,
                              const double threshold, const Eigen::Vector3d &up)
     -> EigenVectorContainer<double, 4> {
   reusex::trace("Force planes to be orthogonal");
+
+  // Validate normals are unit length at this module boundary (STANDARDS §4).
+  for (size_t i = 0; i < planes.size(); ++i)
+    validate_normalized(planes[i], "force_orthogonal_planes", i);
 
   for (auto &plane : planes) {
     auto normal = plane.head<3>(); // This is a block, no copy
@@ -128,6 +178,76 @@ auto compute_number_of_inliers(CloudConstPtr cloud,
   });
 }
 
+namespace {
+
+/// Axis-aligned bounding box of a plane's inlier points.
+struct InlierBBox {
+  Eigen::Vector3d lo{
+      Eigen::Vector3d::Constant(std::numeric_limits<double>::infinity())};
+  Eigen::Vector3d hi{
+      Eigen::Vector3d::Constant(-std::numeric_limits<double>::infinity())};
+  bool empty{true};
+};
+
+InlierBBox inlier_bbox(CloudConstPtr cloud, const Indices &idx) {
+  InlierBBox b;
+  for (int i : idx) {
+    const Eigen::Vector3d p = cloud->points[i].getVector3fMap().cast<double>();
+    b.lo = b.lo.cwiseMin(p);
+    b.hi = b.hi.cwiseMax(p);
+    b.empty = false;
+  }
+  return b;
+}
+
+/// Signed per-axis gap between two AABBs: negative on an axis means the boxes
+/// overlap on that axis. The largest component is the separation distance
+/// (0 or negative = boxes touch/overlap). Used to decide spatial adjacency of
+/// two coplanar inlier patches (issue #215: split walls scanned as disjoint
+/// halves must still merge).
+double bbox_gap(const InlierBBox &a, const InlierBBox &b) {
+  if (a.empty || b.empty)
+    return std::numeric_limits<double>::infinity();
+  const Eigen::Vector3d gap =
+      (a.lo - b.hi).cwiseMax(b.lo - a.hi); // per-axis separation
+  return gap.maxCoeff();
+}
+
+/// Pairwise plane distance used by the agglomerative clustering: a weighted
+/// combination of the normal-angle disagreement (normalized by the angle
+/// tolerance) and the offset difference along the average normal (normalized by
+/// the coplanarity tolerance). Both terms are dimensionless after
+/// normalization, so a value < 1 means "within tolerance on both axes".
+double plane_distance(const Eigen::Vector4d &Pi, const Eigen::Vector3d &Ci,
+                      const Eigen::Vector4d &Pj, const Eigen::Vector3d &Cj,
+                      double angle_tol_rad, double coplanar_tol_m) {
+  const Eigen::Vector3d ni = Pi.head<3>();
+  const Eigen::Vector3d nj = Pj.head<3>();
+  const double dot = std::clamp(ni.dot(nj), -1.0, 1.0);
+  const double angle = std::acos(std::abs(dot)); // unsigned; treat ±n as equal
+
+  // Offset difference along the (orientation-agnostic) average normal: the
+  // perpendicular distance between the two planes at their shared centroid.
+  Eigen::Vector3d n_avg = ni + (dot < 0 ? -nj : nj);
+  const double n_avg_norm = n_avg.norm();
+  double offset_diff;
+  if (n_avg_norm < reusex::kEpsilonRelative) {
+    offset_diff = std::numeric_limits<double>::infinity();
+  } else {
+    n_avg /= n_avg_norm;
+    const Eigen::Vector3d midpoint = 0.5 * (Ci + Cj);
+    const double di = n_avg.dot(midpoint - Ci);
+    const double dj = n_avg.dot(midpoint - Cj);
+    offset_diff = std::abs(di - dj);
+  }
+
+  const double a = angle / angle_tol_rad;
+  const double o = offset_diff / coplanar_tol_m;
+  return std::sqrt(a * a + o * o);
+}
+
+} // namespace
+
 auto merge_planes(EigenVectorContainer<double, 4> const &planes_,
                   std::vector<IndicesPtr> const &inliers_,
                   EigenVectorContainer<double, 3> const &centroids_,
@@ -135,82 +255,184 @@ auto merge_planes(EigenVectorContainer<double, 4> const &planes_,
                   const double distance_threshold, const double min_overlap)
     -> std::tuple<EigenVectorContainer<double, 4>, std::vector<IndicesPtr>,
                   EigenVectorContainer<double, 3>> {
-  reusex::trace("Merge planes with angle threshold {} and distance threshold"
-                "{} and min overlap {}",
-                angle_threshold, distance_threshold, min_overlap);
+  reusex::trace("Merge planes (agglomerative) with angle threshold {} and "
+                "distance threshold {}",
+                angle_threshold, distance_threshold);
 
-  assert(planes_.size() == inliers_.size() &&
-         "Planes and inliers must have the same size");
-  assert(planes_.size() == centroids_.size() &&
-         "Planes and centroids must have the same size");
+  if (planes_.size() != inliers_.size() || planes_.size() != centroids_.size())
+    throw std::runtime_error(fmt::format(
+        "merge_planes: input sizes disagree (planes={}, inliers={}, "
+        "centroids={})",
+        planes_.size(), inliers_.size(), centroids_.size()));
 
-  // Set up output containers
-  auto Pm = EigenVectorContainer<double, 4>();
-  auto Im = std::vector<IndicesPtr>();
-  auto Cm = EigenVectorContainer<double, 3>();
+  const size_t n = planes_.size();
+
+  // ── Tolerances (issue #215/#216) ─────────────────────────────────────────
+  // `angle_threshold` historically expresses the allowable `1 - cos(theta)`
+  // slack; convert it to an angle so the distance metric works in radians. The
+  // offset/adjacency tolerances derive from the shared coplanarity constant and
+  // the caller-provided distance threshold (both in meters).
+  const double angle_tol_rad =
+      std::max(std::acos(std::clamp(1.0 - angle_threshold, -1.0, 1.0)),
+               reusex::kEpsilonAngleRad);
+  const double coplanar_tol_m =
+      std::max(distance_threshold, reusex::kToleranceCoplanarM);
+  // Two patches are spatially adjacent if their inlier boxes overlap or the gap
+  // between them is below this. Split-wall halves scanned from two viewpoints
+  // sit within a plane thickness of each other.
+  const double adjacency_gap_m = coplanar_tol_m;
+  // A pair may merge only when its (dimensionless) plane distance is below
+  // this.
+  constexpr double kMergeDistanceThreshold = 1.0;
+
+  // ── Mutable working clusters ─────────────────────────────────────────────
+  struct Cluster {
+    Eigen::Vector4d plane;
+    IndicesPtr inliers;
+    Eigen::Vector3d centroid;
+    size_t weight; // inlier count, drives weighted centroid updates
+    InlierBBox bbox;
+    size_t origin; // smallest original index in the cluster (stable ordering)
+    bool alive;
+  };
+
+  std::vector<Cluster> clusters;
+  clusters.reserve(n);
+  for (size_t i = 0; i < n; ++i) {
+    Eigen::Vector4d plane = planes_[i];
+    validate_normalized(plane, "merge_planes", i);
+    Cluster c;
+    c.plane = plane;
+    c.inliers = std::make_shared<Indices>(*inliers_[i]);
+    c.centroid = centroids_[i];
+    c.weight = std::max<size_t>(inliers_[i]->size(), 1);
+    c.bbox = inlier_bbox(cloud, *c.inliers);
+    c.origin = i;
+    c.alive = true;
+    clusters.push_back(std::move(c));
+  }
+
+  // A pair is mergeable iff it is coplanar (plane distance below threshold) AND
+  // spatially adjacent (inlier boxes overlap or gap below adjacency). This
+  // replaces the old 0.8 inlier-overlap gate that kept split walls apart.
+  auto mergeable = [&](const Cluster &a, const Cluster &b, double &dist) {
+    dist = plane_distance(a.plane, a.centroid, b.plane, b.centroid,
+                          angle_tol_rad, coplanar_tol_m);
+    if (dist >= kMergeDistanceThreshold)
+      return false;
+    return bbox_gap(a.bbox, b.bbox) <= adjacency_gap_m;
+  };
 
   pcl::PCA<PointT> pca;
   pca.setInputCloud(cloud);
 
-  for (size_t i = 0; i < planes_.size(); ++i) {
-    bool match = false;
+  // ── Agglomerative loop: repeatedly merge the globally closest valid pair ──
+  // O(n^3) worst case, but plane counts here are tens, not thousands.
+  while (true) {
+    double best_dist = kMergeDistanceThreshold;
+    size_t best_a = n, best_b = n;
 
-    // Get current plane data
-    auto const Pi = planes_[i];
-    auto const Ii = inliers_[i];
-    auto const Ci = centroids_[i];
-
-    for (size_t j = 0; j < Pm.size(); ++j) {
-
-      // Get next plane data
-      auto const Pj = Pm[j];
-      auto const Ij = Im[j];
-
-      // Check orientation
-      if (std::abs(Pi.head<3>().dot(Pj.head<3>()) - 1.0) > angle_threshold)
-        continue; // Not same orientation
-
-      // Overlap
-      size_t Oj = compute_number_of_inliers(cloud, Pi, Ij, distance_threshold);
-
-      size_t Oi = compute_number_of_inliers(cloud, Pj, Ii, distance_threshold);
-
-      const double overlap = static_cast<double>(Oi + Oj) /
-                             static_cast<double>(Ii->size() + Ij->size());
-
-      if (overlap < min_overlap)
-        continue; // Not enough inlier overlap
-
-      // Merge planes
-      IndicesPtr inliers(new Indices);
-      inliers->reserve(Ii->size() + Ij->size());
-      inliers->insert(inliers->end(), Ii->begin(), Ii->end());
-      inliers->insert(inliers->end(), Ij->begin(), Ij->end());
-
-      pca.setIndices(inliers);
-
-      auto normal = pca.getEigenVectors().col(2);
-      auto centroid = pca.getMean().head<3>().cast<double>();
-
-      if (normal.cast<double>().dot(Pi.head<3>()) < 0)
-        normal = -normal;
-
-      // Set values
-      Pm[j].head<3>() = normal.cast<double>();
-      Pm[j][3] = -normal.cast<double>().dot(centroid.head<3>());
-
-      Im[j] = inliers;
-      Cm[j] = centroid;
-
-      match = true;
-      break;
+    for (size_t i = 0; i < clusters.size(); ++i) {
+      if (!clusters[i].alive)
+        continue;
+      for (size_t j = i + 1; j < clusters.size(); ++j) {
+        if (!clusters[j].alive)
+          continue;
+        double dist;
+        if (!mergeable(clusters[i], clusters[j], dist))
+          continue;
+        // Deterministic tie-break: lower origin indices win.
+        const bool better =
+            dist < best_dist - 1e-15 ||
+            (std::abs(dist - best_dist) <= 1e-15 &&
+             (best_a == n ||
+              std::tie(clusters[i].origin, clusters[j].origin) <
+                  std::tie(clusters[best_a].origin, clusters[best_b].origin)));
+        if (better) {
+          best_dist = dist;
+          best_a = i;
+          best_b = j;
+        }
+      }
     }
-    if (!match) {
-      Pm.push_back(Pi);
-      Im.push_back(Ii);
-      Cm.push_back(Ci);
+
+    if (best_a == n)
+      break; // no pair under threshold — done
+
+    Cluster &a = clusters[best_a];
+    Cluster &b = clusters[best_b];
+
+    // Merge inliers.
+    IndicesPtr merged(new Indices);
+    merged->reserve(a.inliers->size() + b.inliers->size());
+    merged->insert(merged->end(), a.inliers->begin(), a.inliers->end());
+    merged->insert(merged->end(), b.inliers->begin(), b.inliers->end());
+
+    // Refit the plane from the combined inliers via PCA (least-squares plane).
+    // Fall back to an inlier-count-weighted blend if PCA is unavailable (too
+    // few points).
+    Eigen::Vector3d normal;
+    Eigen::Vector3d centroid;
+    if (merged->size() >= 3) {
+      pca.setIndices(merged);
+      normal = pca.getEigenVectors().col(2).cast<double>();
+      centroid = pca.getMean().head<3>().cast<double>();
+    } else {
+      // Inlier-count-weighted centroid + normal (weights = cluster sizes).
+      const double wa = static_cast<double>(a.weight);
+      const double wb = static_cast<double>(b.weight);
+      centroid = (wa * a.centroid + wb * b.centroid) / (wa + wb);
+      Eigen::Vector3d nb = b.plane.head<3>();
+      if (a.plane.head<3>().dot(nb) < 0)
+        nb = -nb;
+      normal = (wa * a.plane.head<3>() + wb * nb);
     }
+
+    const double nnorm = normal.norm();
+    if (nnorm < reusex::kEpsilonLengthM) {
+      // Degenerate refit: keep the heavier cluster's plane.
+      normal = (a.weight >= b.weight ? a.plane : b.plane).head<3>();
+    } else {
+      normal /= nnorm;
+    }
+    // Keep orientation consistent with the heavier cluster.
+    const Eigen::Vector3d ref =
+        (a.weight >= b.weight ? a.plane : b.plane).head<3>();
+    if (normal.dot(ref) < 0)
+      normal = -normal;
+
+    a.plane.head<3>() = normal;
+    a.plane[3] = -normal.dot(centroid);
+    a.inliers = merged;
+    a.centroid = centroid;
+    a.weight = a.weight + b.weight;
+    a.bbox = inlier_bbox(cloud, *merged);
+    a.origin = std::min(a.origin, b.origin);
+    b.alive = false;
   }
+
+  // ── Collect surviving clusters, ordered deterministically by origin ──────
+  std::vector<size_t> order;
+  for (size_t i = 0; i < clusters.size(); ++i)
+    if (clusters[i].alive)
+      order.push_back(i);
+  std::sort(order.begin(), order.end(), [&](size_t l, size_t r) {
+    return clusters[l].origin < clusters[r].origin;
+  });
+
+  auto Pm = EigenVectorContainer<double, 4>();
+  auto Im = std::vector<IndicesPtr>();
+  auto Cm = EigenVectorContainer<double, 3>();
+  Pm.reserve(order.size());
+  Im.reserve(order.size());
+  Cm.reserve(order.size());
+  for (size_t i : order) {
+    Pm.push_back(clusters[i].plane);
+    Im.push_back(clusters[i].inliers);
+    Cm.push_back(clusters[i].centroid);
+  }
+
+  reusex::debug("merge_planes: {} planes -> {} clusters", n, Pm.size());
   return std::make_tuple(Pm, Im, Cm);
 }
 

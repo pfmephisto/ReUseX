@@ -56,6 +56,48 @@ CellComplex::CellComplex(
       std::unordered_map<Arrangement::Vertex_handle, std::vector<Vd>>;
   using FaceMap = std::unordered_map<Arrangement::Face_handle, std::vector<Fd>>;
 
+  // ── BEGIN coordinate recentering (issue #216) ───────────────────────────
+  // CGAL's inexact-construction predicates lose precision on georeferenced
+  // (UTM / 500 km-scale) coordinates. Translate all input geometry by
+  // `-recenter` into a frame near the origin before building the arrangement,
+  // then translate every output vertex/face/cell position back by `+recenter`
+  // at the end of the constructor. `planes_vec`, `min_xy`, `max_xy` are shifted
+  // here; `recenter` is restored on output. This block is self-contained: it
+  // introduces `recenter`, rebinds the plane/bounds locals, and is undone only
+  // by the matching restore block below.
+  Eigen::Vector3d recenter = Eigen::Vector3d::Zero();
+  {
+    // XY: bounding-box center. Z: mean height of the horizontal planes, so the
+    // whole model straddles the origin on every axis.
+    recenter.x() = 0.5 * (min_xy[0] + max_xy[0]);
+    recenter.y() = 0.5 * (min_xy[1] + max_xy[1]);
+    double z_sum = 0.0;
+    size_t z_cnt = 0;
+    for (size_t id : horizontals) {
+      const auto &p = planes_vec[id]; // (a,b,c,d), height = -d/c for a z-plane
+      if (std::abs(p[2]) > 1e-9) {
+        z_sum += -p[3] / p[2];
+        ++z_cnt;
+      }
+    }
+    recenter.z() = z_cnt ? z_sum / static_cast<double>(z_cnt) : 0.0;
+
+    // Shift each plane: a point x satisfies n·x + d = 0; in the recentered
+    // frame x' = x - recenter, so d' = d + n·recenter.
+    for (auto &p : planes_vec)
+      p[3] += p.template head<3>().dot(recenter);
+
+    min_xy[0] -= recenter.x();
+    max_xy[0] -= recenter.x();
+    min_xy[1] -= recenter.y();
+    max_xy[1] -= recenter.y();
+
+    reusex::debug("CellComplex: recentering geometry by (-{:.3f}, -{:.3f}, "
+                  "-{:.3f}) before CGAL arrangement",
+                  recenter.x(), recenter.y(), recenter.z());
+  }
+  // ── END coordinate recentering ──────────────────────────────────────────
+
   auto planes = planes_vec | ranges::views::transform([](auto const &p) {
                   return Plane_3(p[0], p[1], p[2], p[3]);
                 }) |
@@ -382,5 +424,18 @@ CellComplex::CellComplex(
       //               (*this)[c].id, status);
     }
   }
+
+  // ── BEGIN coordinate recentering restore (issue #216) ────────────────────
+  // Undo the up-front translation: every node position (vertex, face center,
+  // cell center) was constructed in the recentered frame; add `recenter` back
+  // so outputs are in the original (georeferenced) coordinate system. All
+  // orientation-only quantities (`is_main`, wall ids, areas, volumes) are
+  // translation-invariant and need no adjustment.
+  if (!recenter.isZero()) {
+    auto [vb, ve] = boost::vertices(*this);
+    for (auto vit = vb; vit != ve; ++vit)
+      (*this)[*vit].pos += recenter;
+  }
+  // ── END coordinate recentering restore ───────────────────────────────────
 }
 } // namespace reusex::geometry

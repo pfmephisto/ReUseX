@@ -2,6 +2,22 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Agent Model Selection
+
+The main session model is for **orchestration, guidance, review, and
+synthesis only** — delegate substantial work to subagents, and always set
+the `model:` parameter explicitly (never let an agent inherit the expensive
+session default):
+
+- **`model: "sonnet"`** — simple/mechanical execution: downloads, running
+  scripts/benchmarks/test suites, file conversions, data collection,
+  formatting fixes, report extraction.
+- **`model: "opus"`** — reasoning-heavy work: debugging, root-cause
+  analysis, design, code review, non-trivial implementation.
+
+Pick by task complexity; when unsure whether a task needs judgment,
+prefer sonnet for gathering and opus for deciding.
+
 ## Project Overview
 
 ReUseX is a C++20/CUDA project for processing 3D point cloud scans of building interiors. It combines geometric processing, deep learning, and computational geometry to create semantic 3D models for building reuse and renovation projects.

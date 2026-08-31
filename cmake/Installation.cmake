@@ -11,8 +11,26 @@ include(GNUInstallDirs)
 # -----------------------------------------------
 # Install library (if target exists)
 # -----------------------------------------------
+# `reusex` is an INTERFACE umbrella (#222) whose INTERFACE_LINK_LIBRARIES point
+# at the per-module static libraries; every referenced target must be part of
+# the same export set or install(EXPORT) fails at generate time.
 if(TARGET reusex)
-    install(TARGETS reusex
+    set(_reusex_install_targets
+        reusex
+        reusex_common
+        reusex_private_deps
+        reusex_utils
+        reusex_geometry_common
+        reusex_core
+        reusex_io
+        reusex_vision
+        reusex_segmentation
+        reusex_reconstruction
+        reusex_slam)
+    if(TARGET reusex_visualize)
+        list(APPEND _reusex_install_targets reusex_visualize)
+    endif()
+    install(TARGETS ${_reusex_install_targets}
         EXPORT reusexTargets
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}

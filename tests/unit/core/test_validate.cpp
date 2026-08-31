@@ -53,6 +53,37 @@ CloudPtr makeRgbCloud(size_t n) {
   return c;
 }
 
+CloudNPtr makeNormalCloud(size_t n) {
+  auto c = std::make_shared<CloudN>();
+  c->width = static_cast<uint32_t>(n);
+  c->height = 1;
+  c->is_dense = false;
+  c->points.resize(n);
+  return c;
+}
+
+std::shared_ptr<pcl::PointCloud<pcl::PointXYZ>> makeXyzCloud(size_t n) {
+  auto c = std::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
+  c->width = static_cast<uint32_t>(n);
+  c->height = 1;
+  c->is_dense = false;
+  c->points.resize(n);
+  return c;
+}
+
+// Populate a project with the per-point and per-plane clouds the mesh stage
+// consumes, all consistently sized so the stage contract is satisfied.
+void seedMeshInputs(ProjectDB &db, size_t points, size_t planes) {
+  db.save_point_cloud("cloud", *makeRgbCloud(points), "create_clouds");
+  db.save_point_cloud("normals", *makeNormalCloud(points), "create_clouds");
+  db.save_point_cloud("planes", *makeLabelCloud(points), "segment_planes");
+  db.save_point_cloud("rooms", *makeLabelCloud(points), "segment_rooms");
+  db.save_point_cloud("plane_centroids", *makeXyzCloud(planes),
+                      "segment_planes");
+  db.save_point_cloud("plane_normals", *makeNormalCloud(planes),
+                      "segment_planes");
+}
+
 void makePassport(ProjectDB &db, const std::string &guid) {
   MaterialPassport p;
   p.metadata.document_guid = guid;
@@ -148,4 +179,87 @@ TEST_CASE("validate: matching sibling clouds pass size check",
   std::vector<reusex::core::ValidationIssue> issues;
   reusex::core::check_sibling_cloud_sizes(db, issues);
   REQUIRE_FALSE(hasCheck(issues, "sibling_size_mismatch"));
+}
+
+// ── Stage input contracts (#222) ───────────────────────────────────────────
+
+using reusex::core::PipelineStage;
+
+TEST_CASE("validate --stage: stage name parsing round-trips",
+          "[core][validate][stage]") {
+  using reusex::core::parse_pipeline_stage;
+  using reusex::core::to_string;
+  REQUIRE(parse_pipeline_stage("mesh") == PipelineStage::mesh);
+  REQUIRE(parse_pipeline_stage("planes") == PipelineStage::planes);
+  // "register" is an alias for "optimize".
+  REQUIRE(parse_pipeline_stage("register") == PipelineStage::optimize);
+  REQUIRE(parse_pipeline_stage("optimize") == PipelineStage::optimize);
+  REQUIRE_FALSE(parse_pipeline_stage("bogus").has_value());
+  REQUIRE(to_string(PipelineStage::mesh) == "mesh");
+}
+
+TEST_CASE("validate --stage planes: missing inputs are errors",
+          "[core][validate][stage]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path); // empty project
+
+  auto report = reusex::core::validate_stage(db, PipelineStage::planes);
+  REQUIRE_FALSE(report.ok());
+  REQUIRE(hasCheck(report.issues, "missing_stage_input"));
+}
+
+TEST_CASE("validate --stage planes: present + aligned inputs pass",
+          "[core][validate][stage]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  db.save_point_cloud("cloud", *makeRgbCloud(16), "create_clouds");
+  db.save_point_cloud("normals", *makeNormalCloud(16), "create_clouds");
+
+  auto report = reusex::core::validate_stage(db, PipelineStage::planes);
+  REQUIRE(report.ok());
+  REQUIRE(report.error_count() == 0);
+}
+
+TEST_CASE("validate --stage planes: misaligned inputs are an error",
+          "[core][validate][stage]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  db.save_point_cloud("cloud", *makeRgbCloud(16), "create_clouds");
+  db.save_point_cloud("normals", *makeNormalCloud(15), "create_clouds");
+
+  auto report = reusex::core::validate_stage(db, PipelineStage::planes);
+  REQUIRE_FALSE(report.ok());
+  REQUIRE(hasCheck(report.issues, "stage_input_size_mismatch"));
+}
+
+TEST_CASE("validate --stage mesh: full input set passes",
+          "[core][validate][stage]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  seedMeshInputs(db, /*points=*/32, /*planes=*/5);
+
+  auto report = reusex::core::validate_stage(db, PipelineStage::mesh);
+  REQUIRE(report.ok());
+  REQUIRE(report.error_count() == 0);
+}
+
+TEST_CASE("validate --stage mesh: missing rooms flagged",
+          "[core][validate][stage]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  seedMeshInputs(db, 32, 5);
+  // Remove one required sibling to break the contract.
+  db.delete_point_cloud("rooms");
+
+  auto report = reusex::core::validate_stage(db, PipelineStage::mesh);
+  REQUIRE_FALSE(report.ok());
+  REQUIRE(hasCheck(report.issues, "missing_stage_input"));
+}
+
+TEST_CASE("validate --stage import: no in-project prerequisites",
+          "[core][validate][stage]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path); // empty project
+  auto report = reusex::core::validate_stage(db, PipelineStage::import);
+  REQUIRE(report.ok());
 }

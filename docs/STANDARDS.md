@@ -16,16 +16,25 @@ comply. New code must comply; touched code should be migrated opportunistically.
 
 ## 1. Module boundaries
 
-The library (`libs/reusex/`) is layered. A module may only depend on modules
-in lower layers:
+The library (`libs/reusex/`) is layered into one CMake target per module
+(`reusex_<module>`, see `libs/reusex/cmake/reusexLibrary.cmake`). A module may
+only depend on modules in lower layers, and this is **link-enforced** (#222):
+an illegal dependency is a link error, not just a convention.
 
 ```
-Layer 4:  visualize                      (optional, PCL/Qt/VTK)
-Layer 3:  geometry   io   vision         (peers — MUST NOT include each other) [target]
-Layer 2:  core                           (ProjectDB, logging, materials, stages)
-Layer 1:  utils, types.hpp               (no internal dependencies)
-External: apps/rux                       (may use everything; keeps logic thin)
+Layer 4:  visualize                            (optional, PCL/Qt/VTK)
+Layer 3:  segmentation  reconstruction  slam  io  vision   (peers — MUST NOT link each other)
+Layer 2:  core                                 (ProjectDB, logging, materials, stages)
+Layer 1½: geometry_common                      (shared CGAL/PCL helpers: utils, cgal_utils,
+                                                CoplanarPolygon, BuildingComponent)
+Layer 1:  utils, types.hpp                     (no internal dependencies)
+External: apps/rux, apps/ruxd                  (may use everything; keeps logic thin)
 ```
+
+The former single `geometry` module was split into the pipeline-stage peers
+`segmentation`, `reconstruction`, and `slam`; the CGAL/PCL primitives they and
+`core` share live in `geometry_common` (just above `utils`) so no peer or upward
+dependency is needed to reach them.
 
 **Rules:**
 
@@ -33,14 +42,23 @@ External: apps/rux                       (may use everything; keeps logic thin)
   The PCL/Eigen-typed visualization payloads live in `core/visual_observer.hpp`,
   which core headers never include; `core/processing_observer.hpp` is PCL-free
   and exposes the visual observer only as an opaque forward-declared pointer.
-- `geometry/`, `io/`, and `vision/` are peers. Cross-peer data exchange goes
-  through types defined in `core/` or `types.hpp`, not through peer headers.
-  **[target]** — `io/export_scene.hpp` currently includes
-  `geometry/BuildingComponent.hpp`.
+- `segmentation`, `reconstruction`, `slam`, `io`, and `vision` are peers.
+  Cross-peer data exchange goes through types defined in `core/`,
+  `geometry_common`, or `types.hpp`, not through peer headers. Documented
+  exceptions (explicit, commented links in `reusexLibrary.cmake`): `io ->
+  reconstruction` (export_scene serializes a reconstructed scene) and `slam ->
+  segmentation` (registration reuses surfel extraction). `core ->
+  geometry_common` (ProjectDB persists `BuildingComponent`) is a tracked upward
+  dependency — see the tdg TODO in `src/core/ProjectDB.cpp`.
 - `apps/rux/` subcommands are thin wrappers: parse arguments, validate, call
   one library entry point, report. Business logic lives in the library.
 - New heavyweight dependencies (anything that adds > 30 s to a clean build)
   require an issue discussing alternatives before being added.
+
+**Pipeline data contract:** the *data* dependencies between stages (which named
+clouds/tables each stage consumes and produces) are specified in
+[`CONTRACTS.md`](CONTRACTS.md) and enforced at runtime by
+`rux validate --stage <name>`.
 
 ## 2. Header hygiene
 

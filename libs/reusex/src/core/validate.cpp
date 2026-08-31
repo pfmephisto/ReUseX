@@ -179,4 +179,188 @@ ValidationReport validate_project(const ProjectDB &db) {
   return report;
 }
 
+// ── Stage input contracts (#222) ───────────────────────────────────────────
+
+std::optional<PipelineStage> parse_pipeline_stage(std::string_view name) {
+  if (name == "import")
+    return PipelineStage::import;
+  if (name == "optimize" || name == "register")
+    return PipelineStage::optimize;
+  if (name == "clouds")
+    return PipelineStage::clouds;
+  if (name == "planes")
+    return PipelineStage::planes;
+  if (name == "rooms")
+    return PipelineStage::rooms;
+  if (name == "instances")
+    return PipelineStage::instances;
+  if (name == "mesh")
+    return PipelineStage::mesh;
+  return std::nullopt;
+}
+
+std::string_view to_string(PipelineStage stage) {
+  switch (stage) {
+  case PipelineStage::import:
+    return "import";
+  case PipelineStage::optimize:
+    return "optimize";
+  case PipelineStage::clouds:
+    return "clouds";
+  case PipelineStage::planes:
+    return "planes";
+  case PipelineStage::rooms:
+    return "rooms";
+  case PipelineStage::instances:
+    return "instances";
+  case PipelineStage::mesh:
+    return "mesh";
+  }
+  return "unknown";
+}
+
+std::vector<std::string> pipeline_stage_names() {
+  return {"import", "optimize", "register",  "clouds",
+          "planes", "rooms",    "instances", "mesh"};
+}
+
+namespace {
+
+// point_count per named cloud from a single project_summary() call.
+std::map<std::string, size_t> cloud_point_counts(const ProjectDB &db) {
+  std::map<std::string, size_t> counts;
+  auto summary = db.project_summary();
+  for (const auto &c : summary.clouds)
+    counts[c.name] = c.point_count;
+  return counts;
+}
+
+// Require that a named cloud exists; append an error if not. Returns its point
+// count when present (via out-param), leaving `size` untouched when absent.
+bool require_cloud(const std::map<std::string, size_t> &counts,
+                   const std::string &name, const char *stage,
+                   std::vector<ValidationIssue> &out, size_t *size = nullptr) {
+  auto it = counts.find(name);
+  if (it == counts.end()) {
+    out.push_back({"missing_stage_input",
+                   fmt::format("stage '{}' requires cloud '{}' which is not "
+                               "present in the project",
+                               stage, name),
+                   ValidationSeverity::error});
+    return false;
+  }
+  if (size)
+    *size = it->second;
+  return true;
+}
+
+// Assert every present cloud in `names` has the same point count as the first
+// present one; append an error per mismatch. Missing clouds are ignored here
+// (require_cloud handles required presence).
+void require_aligned(const std::map<std::string, size_t> &counts,
+                     const std::vector<std::string> &names, const char *stage,
+                     std::vector<ValidationIssue> &out) {
+  std::string ref_name;
+  size_t ref_size = 0;
+  for (const auto &n : names) {
+    auto it = counts.find(n);
+    if (it == counts.end())
+      continue;
+    if (ref_name.empty()) {
+      ref_name = n;
+      ref_size = it->second;
+      continue;
+    }
+    if (it->second != ref_size)
+      out.push_back(
+          {"stage_input_size_mismatch",
+           fmt::format("stage '{}': cloud '{}' has {} points but '{}' has {} — "
+                       "index-aligned inputs must match",
+                       stage, n, it->second, ref_name, ref_size),
+           ValidationSeverity::error});
+  }
+}
+
+} // namespace
+
+void check_stage_inputs(const ProjectDB &db, PipelineStage stage,
+                        std::vector<ValidationIssue> &out) {
+  const char *name = to_string(stage).data();
+
+  switch (stage) {
+  case PipelineStage::import:
+    // import has no cloud/table prerequisites (it reads an external scan).
+    break;
+
+  case PipelineStage::optimize:
+  case PipelineStage::clouds: {
+    // Both consume stored sensor frames.
+    auto summary = db.project_summary();
+    if (summary.sensor_frames.total_count <= 0)
+      out.push_back({"missing_stage_input",
+                     fmt::format("stage '{}' requires stored sensor frames "
+                                 "(run 'rux import' first)",
+                                 name),
+                     ValidationSeverity::error});
+    break;
+  }
+
+  case PipelineStage::planes: {
+    auto counts = cloud_point_counts(db);
+    require_cloud(counts, "cloud", name, out);
+    require_cloud(counts, "normals", name, out);
+    require_aligned(counts, {"cloud", "normals"}, name, out);
+    break;
+  }
+
+  case PipelineStage::rooms: {
+    auto counts = cloud_point_counts(db);
+    require_cloud(counts, "cloud", name, out);
+    require_cloud(counts, "planes", name, out);
+    require_cloud(counts, "plane_centroids", name, out);
+    require_cloud(counts, "plane_normals", name, out);
+    // cloud and planes are per-point and must be index-aligned; plane_centroids
+    // / plane_normals are per-plane and intentionally shorter.
+    require_aligned(counts, {"cloud", "planes"}, name, out);
+    require_aligned(counts, {"plane_centroids", "plane_normals"}, name, out);
+    break;
+  }
+
+  case PipelineStage::instances: {
+    auto counts = cloud_point_counts(db);
+    require_cloud(counts, "cloud", name, out);
+    // Semantic labels: the default input cloud is "labels"; accept "planes" as
+    // a fallback so the check is useful even when only geometric labels exist.
+    if (counts.find("labels") == counts.end() &&
+        counts.find("planes") == counts.end())
+      out.push_back({"missing_stage_input",
+                     fmt::format("stage '{}' requires a semantic label cloud "
+                                 "('labels') to cluster into instances",
+                                 name),
+                     ValidationSeverity::error});
+    require_aligned(counts, {"cloud", "labels"}, name, out);
+    break;
+  }
+
+  case PipelineStage::mesh: {
+    auto counts = cloud_point_counts(db);
+    require_cloud(counts, "cloud", name, out);
+    require_cloud(counts, "normals", name, out);
+    require_cloud(counts, "rooms", name, out);
+    require_cloud(counts, "planes", name, out);
+    require_cloud(counts, "plane_centroids", name, out);
+    require_cloud(counts, "plane_normals", name, out);
+    require_aligned(counts, {"cloud", "normals", "rooms", "planes"}, name, out);
+    require_aligned(counts, {"plane_centroids", "plane_normals"}, name, out);
+    break;
+  }
+  }
+}
+
+ValidationReport validate_stage(const ProjectDB &db, PipelineStage stage) {
+  ValidationReport report;
+  check_stage_inputs(db, stage, report.issues);
+  return report;
+}
+
 } // namespace reusex::core

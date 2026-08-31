@@ -40,8 +40,7 @@ struct VoxelAssignment {
   std::vector<uint32_t> point_to_bucket;
 
   /// Sentinel marking input points that were skipped during assignment.
-  static constexpr uint32_t kSkippedPoint =
-      static_cast<uint32_t>(-1);
+  static constexpr uint32_t kSkippedPoint = static_cast<uint32_t>(-1);
 };
 
 /// Build a voxel assignment for `cloud` at the given leaf size.
@@ -71,5 +70,19 @@ CloudPtr downsample(const Cloud &cloud, const VoxelAssignment &a);
 ///
 /// `cloud.size()` must equal `a.point_to_bucket.size()`.
 CloudNPtr downsample(const CloudN &cloud, const VoxelAssignment &a);
+
+/// Downsample a parallel label cloud (labels, planes, rooms, instances) using
+/// the same assignment that was built from a sibling XYZRGB cloud. The output
+/// label in bucket `b` is the majority label among all input points that fell
+/// into `b`. Ties are broken deterministically by choosing the lowest label
+/// value, so results are reproducible (docs/STANDARDS.md §6).
+///
+/// Output rows stay aligned position-for-position with the primary downsampled
+/// cloud: every bucket produces exactly one row, and buckets with no input
+/// points (which cannot happen for the primary cloud) emit label `0`
+/// (unlabeled, per the label contract in docs/STANDARDS.md §3.1).
+///
+/// `cloud.size()` must equal `a.point_to_bucket.size()`.
+CloudLPtr downsample(const CloudL &cloud, const VoxelAssignment &a);
 
 } // namespace reusex::geometry

@@ -157,6 +157,10 @@ if(WITH_CUDA)
 endif()
 find_package(embree REQUIRED)
 
+# GTSAM — factor-graph optimization for the `rux optimize` pose-graph back-end
+# (OrientedPlane3 plane-landmark factors + GncOptimizer). MIT.
+find_package(GTSAM REQUIRED)
+
 # CGAL with support modules
 find_package(CGAL REQUIRED Core)
 include(CGAL_Eigen3_support)

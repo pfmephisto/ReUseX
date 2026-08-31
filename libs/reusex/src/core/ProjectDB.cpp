@@ -5,6 +5,7 @@
 #include "core/ProjectDB.hpp"
 #include "core/MaterialPassport.hpp"
 #include "core/SensorIntrinsics.hpp"
+#include "core/label_semantics.hpp"
 #include "core/logging.hpp"
 #include "core/materialepas_serialization.hpp"
 #include "core/materialepas_traits.hpp"
@@ -974,7 +975,8 @@ class ProjectDB::Impl {
                                std::string(sqlite3_errmsg(db)));
     StmtGuard guard(stmt);
 
-    // Transform: 16 x float64 = 128 bytes, row-major (matches saveSensorFrameFull).
+    // Transform: 16 x float64 = 128 bytes, row-major (matches
+    // saveSensorFrameFull).
     sqlite3_bind_blob(stmt, 1, worldPose.data(),
                       static_cast<int>(worldPose.size() * sizeof(double)),
                       SQLITE_TRANSIENT);
@@ -1322,11 +1324,8 @@ class ProjectDB::Impl {
     if (labels16U.empty())
       return cv::Mat();
 
-    // Convert CV_16U to CV_32S and apply -1 offset (0 -> -1 for background)
-    cv::Mat labels;
-    labels16U.convertTo(labels, CV_32S);
-    labels -= 1;
-    return labels;
+    // Storage CV_16U (0 = bg, label+1) -> API CV_32S (-1 = background).
+    return reusex::core::storage_mat_to_api(labels16U);
   }
 
   void saveSegmentationImage(int nodeId, const cv::Mat &labels) {
@@ -1334,10 +1333,9 @@ class ProjectDB::Impl {
       throw std::runtime_error("Cannot save empty segmentation labels");
     }
 
-    // Apply +1 offset and convert to CV_16U for storage (0 = background)
-    cv::Mat toSave;
-    cv::Mat offset = labels + 1;
-    offset.convertTo(toSave, CV_16U);
+    // API CV_32S (-1 = background) -> storage CV_16U (0 = bg, label+1).
+    // Throws std::out_of_range on labels >= 65535 instead of wrapping.
+    cv::Mat toSave = reusex::core::api_mat_to_storage(labels);
 
     std::vector<unsigned char> pngBytes;
     if (!cv::imencode(".png", toSave, pngBytes)) {
@@ -1583,9 +1581,8 @@ class ProjectDB::Impl {
         const void *blobPtr =
             len ? static_cast<const void *>(data.data() + offset)
                 : static_cast<const void *>(&emptyByte);
-        int rc = sqlite3_bind_blob64(dstmt, 3, blobPtr,
-                                     static_cast<sqlite3_uint64>(len),
-                                     SQLITE_STATIC);
+        int rc = sqlite3_bind_blob64(
+            dstmt, 3, blobPtr, static_cast<sqlite3_uint64>(len), SQLITE_STATIC);
         if (rc != SQLITE_OK)
           throw std::runtime_error(
               "Failed to bind point cloud chunk " + std::to_string(chunkIndex) +
@@ -1631,8 +1628,8 @@ class ProjectDB::Impl {
 
   CloudMeta loadCloudRaw(std::string_view name) const {
     // Read point cloud metadata.
-    const char *metaSql =
-        "SELECT id, point_type, width, height FROM point_clouds WHERE name = ?;";
+    const char *metaSql = "SELECT id, point_type, width, height FROM "
+                          "point_clouds WHERE name = ?;";
     sqlite3_stmt *mstmt;
     if (sqlite3_prepare_v2(db, metaSql, -1, &mstmt, nullptr) != SQLITE_OK)
       throw std::runtime_error("Failed to prepare cloud load: " +
@@ -1859,8 +1856,9 @@ class ProjectDB::Impl {
   std::map<int, std::string>
   getInstanceMaterials(std::string_view cloudName) const {
     int cloudId = getCloudId(cloudName);
-    const char *sql = "SELECT instance_id, material_guid FROM instance_materials "
-                      "WHERE cloud_id = ? ORDER BY instance_id;";
+    const char *sql =
+        "SELECT instance_id, material_guid FROM instance_materials "
+        "WHERE cloud_id = ? ORDER BY instance_id;";
     sqlite3_stmt *stmt;
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
       throw std::runtime_error("Failed to query instance materials: " +
@@ -1889,11 +1887,10 @@ class ProjectDB::Impl {
       const size_t v =
           static_cast<size_t>(mesh.cloud.width) * mesh.cloud.height;
       if (v == 0 || mesh.polygons.empty())
-        throw std::runtime_error("Refusing to save empty mesh '" +
-                                 std::string(name) + "' (" +
-                                 std::to_string(v) + " vertices, " +
-                                 std::to_string(mesh.polygons.size()) +
-                                 " faces)");
+        throw std::runtime_error(
+            "Refusing to save empty mesh '" + std::string(name) + "' (" +
+            std::to_string(v) + " vertices, " +
+            std::to_string(mesh.polygons.size()) + " faces)");
     }
 
     // Serialize mesh to PLY binary via temp file
@@ -1971,9 +1968,8 @@ class ProjectDB::Impl {
         f += polys.size();
       if (v == 0 || f == 0)
         throw std::runtime_error("Refusing to save empty texture mesh '" +
-                                 std::string(name) + "' (" +
-                                 std::to_string(v) + " vertices, " +
-                                 std::to_string(f) + " faces)");
+                                 std::string(name) + "' (" + std::to_string(v) +
+                                 " vertices, " + std::to_string(f) + " faces)");
     }
 
     // Save CWD so we can find texture files referenced by the MTL

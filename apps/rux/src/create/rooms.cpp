@@ -7,6 +7,7 @@
 #include "spdmon.hpp"
 #include "validation.hpp"
 #include <reusex/core/ProjectDB.hpp>
+#include <reusex/core/label_semantics.hpp>
 #include <reusex/utils/fmt_formatter.hpp>
 
 #include <reusex/geometry/segment_rooms.hpp>
@@ -163,16 +164,18 @@ int run_subcommand_segment_rooms(SubcommandSegRoomsOptions const &opt,
 
     // Plane label convention: 0 = unlabeled, 1..N = plane id (PCL
     // PlanarRegionGrowing). plane_normals/plane_centroids are sized N and
-    // indexed by (label - 1).
+    // indexed via reusex::core::label_to_index (label - 1, checked).
     spdlog::trace("Creating per-point normals from plane labels");
     CloudNPtr normals(new CloudN);
     normals->resize(planes->size());
     normals->width = planes->width;
     normals->height = planes->height;
     for (size_t i = 0; i < planes->points.size(); ++i) {
-      if (planes->points[i].label < 1)
+      const uint32_t label = planes->points[i].label;
+      if (!reusex::core::is_valid_label(label))
         continue;
-      normals->points[i] = plane_normals->points[planes->points[i].label - 1];
+      normals->points[i] =
+          plane_normals->points[reusex::core::label_to_index(label)];
     }
 
     spdlog::trace("Running room segmentation algorithm");

@@ -5,6 +5,7 @@
 #include "geometry/reconstruct.hpp"
 #include "core/ProjectDB.hpp"
 #include "core/SensorIntrinsics.hpp"
+#include "core/label_semantics.hpp"
 #include "core/logging.hpp"
 #include "core/processing_observer.hpp"
 #include "geometry/depth_filters.hpp"
@@ -195,16 +196,17 @@ void reconstruct_point_clouds(ProjectDB &db,
         pt.r = pixel[2];
         frame_cloud->push_back(pt);
 
-        // Label (map depth coords to segmentation image coords)
+        // Label (map depth coords to segmentation image coords). API CV_32S
+        // (-1 = bg) is translated to point labels (0 = unlabeled).
         LabelT lbl;
         if (!seg_labels.empty()) {
           int su = u * seg_labels.cols / depth_f.cols;
           int sv = v * seg_labels.rows / depth_f.rows;
           su = std::clamp(su, 0, seg_labels.cols - 1);
           sv = std::clamp(sv, 0, seg_labels.rows - 1);
-          lbl.label = static_cast<uint32_t>(seg_labels.at<int>(sv, su));
+          lbl.label = core::api_to_point_label(seg_labels.at<int>(sv, su));
         } else
-          lbl.label = static_cast<uint32_t>(-1);
+          lbl.label = core::kUnlabeled;
         frame_labels->push_back(lbl);
       }
     }
@@ -301,13 +303,12 @@ void reconstruct_point_clouds(ProjectDB &db,
     std::vector<float> distances;
     kdtree.radiusSearch((*ds_cloud)[i], half_res, indices, distances);
 
-    std::unordered_map<int, int> counts;
+    std::unordered_map<uint32_t, int> counts;
     for (int idx : indices) {
-      int label = static_cast<int>((*merged_labels)[idx].label);
-      counts[label]++;
+      counts[(*merged_labels)[idx].label]++;
     }
 
-    int best_label = -1;
+    uint32_t best_label = core::kUnlabeled;
     int best_count = 0;
     for (const auto &[label, count] : counts) {
       if (count > best_count) {
@@ -315,7 +316,7 @@ void reconstruct_point_clouds(ProjectDB &db,
         best_label = label;
       }
     }
-    (*ds_labels)[i].label = static_cast<uint32_t>(best_label);
+    (*ds_labels)[i].label = best_label;
   }
 
   // ── Outlier removal ──────────────────────────────────────────────

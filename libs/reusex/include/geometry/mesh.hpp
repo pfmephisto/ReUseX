@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #pragma once
+#include "reusex/geometry/Solidifier.hpp"
 #include "reusex/types.hpp"
 
 #include <pcl/PolygonMesh.h>
@@ -34,6 +35,17 @@ struct MeshOptions {
 
   /// Maximum cells the cell complex may generate before failing fast (#213).
   size_t max_cells = 5000;
+
+  /// Solve the MIP per horizontal section when the arrangement is multi-storey
+  /// and large enough, keeping multi-room buildings tractable (issue #226).
+  bool sectioned = true;
+
+  /// Cell-count threshold above which the sectioned solve engages (issue #226).
+  size_t sectioned_threshold = 2000;
+
+  /// MIP backend + fallback policy: auto (primary with HiGHS fallback), cuopt,
+  /// or highs (issue #226).
+  SolverChoice solver = SolverChoice::automatic;
 };
 
 /**

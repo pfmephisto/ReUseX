@@ -4,19 +4,33 @@
 
 #include "geometry/Solidifier.hpp"
 #include "core/logging.hpp"
-#include <tbb/concurrent_unordered_map.h>
 
-#include <cmath>
-#include <string>
-#include <vector>
-
+// Both traits headers are always available (both are vendored in
+// extern/include/CGAL and HiGHS is always linked). The HiGHS traits class body
+// is guarded by USE_HIGHS, so force-enable it here even in a cuOpt build to
+// make the CPU fallback backend usable (mirrors test_solver_comparison.cpp).
+// Including both lets the Solidifier use cuOpt as the primary GPU backend and
+// fall back to the CPU HiGHS backend on a solver error/OOM (issue #226).
+#ifndef USE_HIGHS
+#define USE_HIGHS
+#endif
+#include <CGAL/HiGHS_mixed_integer_program_traits.h>
 #ifdef USE_CUOPT
 #include <CGAL/cuOpt_mixed_integer_program_traits.h>
-using MIP_Solver = CGAL::cuOpt_mixed_integer_program_traits<double>;
-#elif defined(USE_HIGHS)
-#include <CGAL/HiGHS_mixed_integer_program_traits.h>
-using MIP_Solver = CGAL::HiGHS_mixed_integer_program_traits<double>;
+using PrimarySolver = CGAL::cuOpt_mixed_integer_program_traits<double>;
+#else
+using PrimarySolver = CGAL::HiGHS_mixed_integer_program_traits<double>;
 #endif
+using HighsSolver = CGAL::HiGHS_mixed_integer_program_traits<double>;
+
+#include <algorithm>
+#include <cmath>
+#include <set>
+#include <string>
+#include <type_traits>
+#include <typeinfo>
+#include <unordered_map>
+#include <vector>
 
 #define SolverDebug 0
 
@@ -47,6 +61,22 @@ SolveStatus map_status(CGAL::MIP_solve_status s) {
   }
   return SolveStatus::error;
 }
+
+// Set operators used by the wall-consistency constraints.
+template <typename T>
+std::set<T> operator-(const std::set<T> &a, const std::set<T> &b) {
+  std::set<T> result;
+  std::set_difference(a.begin(), a.end(), b.begin(), b.end(),
+                      std::inserter(result, result.begin()));
+  return result;
+}
+template <typename T>
+std::set<T> operator+(const std::set<T> &a, const std::set<T> &b) {
+  std::set<T> result;
+  std::set_union(a.begin(), a.end(), b.begin(), b.end(),
+                 std::inserter(result, result.begin()));
+  return result;
+}
 } // namespace
 
 const char *to_string(SolveStatus status) {
@@ -73,57 +103,264 @@ const char *to_string(SolveStatus status) {
   return "unknown";
 }
 
-// PIMPL Implementation class
-class Solidifier::Impl {
-    public:
-  using Variable = typename MIP_Solver::Variable;
-  using Linear_objective = typename MIP_Solver::Linear_objective;
-  using Linear_constraint = typename MIP_Solver::Linear_constraint;
+SolverChoice parse_solver_choice(const std::string &s) {
+  if (s == "auto")
+    return SolverChoice::automatic;
+  if (s == "cuopt")
+    return SolverChoice::cuopt;
+  if (s == "highs")
+    return SolverChoice::highs;
+  throw std::runtime_error(fmt::format(
+      "invalid --solver '{}': expected one of auto, cuopt, highs", s));
+}
 
-  using Fd = CellComplex::Vertex;
-  using Cd = CellComplex::Vertex;
+namespace {
 
-  MIP_Solver solver;
-  std::shared_ptr<const CellComplex> _cc;
-  SolidifierOptions _options;
+using Cd = CellComplex::Vertex;
+using Fd = CellComplex::Vertex;
 
-  std::unordered_map<Cd, std::vector<Variable *>> _room_variables{};
-  std::unordered_map<Cd, std::vector<Variable *>> _wall_variables{};
-
-  double alpha; ///< objective wall-weight (from options)
-
-  explicit Impl(std::shared_ptr<const CellComplex> cc,
-                SolidifierOptions options)
-      : _cc(cc), _options(options), alpha(options.alpha) {
-    reusex::trace("Solidifier created (alpha={}, time_limit={}s)", alpha,
-                  options.time_limit_seconds);
-  }
-
-  /// Validate the property maps the objective/coverage terms require before
-  /// building the MIP. Throws std::runtime_error naming what is missing or
-  /// wrongly sized (docs/STANDARDS.md §5).
-  void _validatePropertyMaps() const;
-
-  void _configureSolver();
-  void _setupVariables();
-  void _setupObjective();
-  void _setupConstraints();
-  void _c_1();
-  void _c_2();
-  void _c_3();
-  void _c_4();
-  void _c_5();
-  void _c_6();
-  void _c_7();
-
-  std::pair<std::set<int>, std::set<int>> getWallIds(Cd cit_a, Cd cit_b) const {
-    auto W_a = std::get<CellData>((*_cc)[cit_a].data).wall_ids;
-    auto W_b = std::get<CellData>((*_cc)[cit_b].data).wall_ids;
-    return {W_a, W_b};
-  }
+/// Outcome of solving one (sub)problem on a single solver instance.
+struct SubResult {
+  bool solved = false;
+  SolveStatus status = SolveStatus::not_solved;
+  std::unordered_map<Cd, int> room_label{};
+  std::unordered_map<Cd, std::set<int>> wall_label{};
+  size_t variables = 0;
+  size_t constraints = 0;
 };
 
-// Solidifier public interface implementation
+std::pair<std::set<int>, std::set<int>> getWallIds(const CellComplex &cc,
+                                                   Cd cit_a, Cd cit_b) {
+  auto W_a = std::get<CellData>(cc[cit_a].data).wall_ids;
+  auto W_b = std::get<CellData>(cc[cit_b].data).wall_ids;
+  return {W_a, W_b};
+}
+
+/// Build and solve the MIP for the subset of cells selected by @p in_subset,
+/// restricted to inter-cell faces whose *both* adjacent cells are in the
+/// subset. Templated on the solver type so the same formulation runs on cuOpt
+/// (primary) or HiGHS (fallback). Returns the room/wall labels for the subset
+/// cells and the resulting status (issue #226).
+///
+/// This is the original monolithic formulation (7 constraints) with two
+/// changes: (1) cells and faces are filtered by @p in_subset; (2) the model is
+/// self-contained in a local solver so it can be retried on another backend.
+template <typename Solver>
+SubResult solve_subset(const CellComplex &cc, const SolidifierOptions &options,
+                       const std::function<bool(Cd)> &in_subset) {
+  using Variable = typename Solver::Variable;
+  using Linear_objective = typename Solver::Linear_objective;
+  using Linear_constraint = typename Solver::Linear_constraint;
+
+  Solver solver;
+  solver.set_time_limit(options.time_limit_seconds);
+  solver.set_mip_gap(options.mip_gap);
+
+  const double alpha = options.alpha;
+
+  auto area = cc.property_map<Fd, double>("f:area");
+  auto volume = cc.property_map<Cd, double>("c:volume");
+  auto f_sp = cc.property_map<Fd, double>("f:support_probability");
+  auto c_rp = cc.property_map<Cd, std::vector<double>>("c:room_probabilities");
+
+  std::unordered_map<Cd, std::vector<Variable *>> room_variables;
+  std::unordered_map<Cd, std::vector<Variable *>> wall_variables;
+
+  // ── Variables ──────────────────────────────────────────────────────────
+  for (auto cit = cc.cells_begin(); cit != cc.cells_end(); ++cit) {
+    if (!in_subset(*cit))
+      continue;
+    room_variables[*cit] = std::vector<Variable *>(cc.n_rooms + 1);
+    wall_variables[*cit] = std::vector<Variable *>(cc.n_walls);
+    const int c_id = cc[*cit].id;
+    for (size_t l = 0; l < cc.n_rooms + 1; ++l)
+      room_variables[*cit][l] = solver.create_variable(
+          Variable::BINARY, 0, 1, fmt::format("x_{},r{}", c_id, l));
+    for (size_t w = 0; w < cc.n_walls; ++w)
+      wall_variables[*cit][w] = solver.create_variable(
+          Variable::BINARY, 0, 1, fmt::format("x_{},w{}", c_id, w));
+  }
+
+  // A face participates in the subproblem only if both its cells are inside.
+  auto face_in_subset = [&](Fd f) {
+    return in_subset(cc.get_a(f)) && in_subset(cc.get_b(f));
+  };
+
+  // ── Objective ──────────────────────────────────────────────────────────
+  Linear_objective *obj = solver.create_objective(Linear_objective::MINIMIZE);
+  for (auto cit = cc.cells_begin(); cit != cc.cells_end(); ++cit) {
+    if (!in_subset(*cit))
+      continue;
+    for (size_t l = 0; l < cc.n_rooms + 1; ++l) {
+      const double weight = c_rp[*cit][l] * volume[*cit];
+      obj->add_coefficient(room_variables[*cit][l], -weight);
+    }
+  }
+  for (auto fit = cc.faces_between_cells_begin();
+       fit != cc.faces_between_cells_end(); ++fit) {
+    if (!face_in_subset(*fit))
+      continue;
+    auto cit_a = cc.get_a(*fit);
+    auto cit_b = cc.get_b(*fit);
+    auto [Wa, Wb] = getWallIds(cc, cit_a, cit_b);
+    const double weight = (1 - f_sp[*fit]) * area[*fit];
+    for (auto id : Wb - Wa)
+      obj->add_coefficient(wall_variables[cit_b][id], alpha * weight);
+    for (auto id : Wa + Wb) {
+      obj->add_coefficient(wall_variables[cit_b][id], alpha * weight);
+      obj->add_coefficient(wall_variables[cit_a][id], -alpha * weight);
+    }
+  }
+
+  // ── Constraints ────────────────────────────────────────────────────────
+  // c1: each cell gets exactly one room label.
+  for (auto cit = cc.cells_begin(); cit != cc.cells_end(); ++cit) {
+    if (!in_subset(*cit))
+      continue;
+    Linear_constraint *c1 = solver.create_constraint(1, 1, "c1");
+    for (size_t l = 0; l < cc.n_rooms + 1; ++l)
+      c1->add_coefficient(room_variables[*cit][l], 1);
+  }
+  // c3: wall labels only on outside cells.
+  for (auto cit = cc.cells_begin(); cit != cc.cells_end(); ++cit) {
+    if (!in_subset(*cit))
+      continue;
+    for (size_t w = 0; w < cc.n_walls; ++w) {
+      Linear_constraint *c3 =
+          solver.create_constraint(-Linear_constraint::infinity(), 0, "c3");
+      c3->add_coefficient(wall_variables[*cit][w], 1);
+      c3->add_coefficient(room_variables[*cit][0], -1);
+    }
+  }
+  // Face-based constraints c2, c4, c5, c6, c7 over internal faces only.
+  for (auto fit = cc.faces_between_cells_begin();
+       fit != cc.faces_between_cells_end(); ++fit) {
+    if (!face_in_subset(*fit))
+      continue;
+    auto cit_a = cc.get_a(*fit);
+    auto cit_b = cc.get_b(*fit);
+    auto [W_a, W_b] = getWallIds(cc, cit_a, cit_b);
+
+    // c2: room label may only occur on the positive side.
+    for (size_t r = 1; r < cc.n_rooms + 1; ++r) {
+      Linear_constraint *c2 =
+          solver.create_constraint(0, Linear_constraint::infinity(), "c2");
+      c2->add_coefficient(room_variables[cit_a][r], 1);
+      c2->add_coefficient(room_variables[cit_b][r], -1);
+    }
+
+    // c4: room boundary faces must be active-wall boundary faces.
+    {
+      Linear_constraint *c4 =
+          solver.create_constraint(0, Linear_constraint::infinity(), "c4");
+      for (auto id : W_b - W_a)
+        c4->add_coefficient(wall_variables[cit_b][id], 1);
+      c4->add_coefficient(room_variables[cit_b][0], -1);
+      c4->add_coefficient(room_variables[cit_a][0], 1);
+    }
+
+    // c5: wall label on the negative side at inner faces.
+    for (auto id : W_a + W_b) {
+      Linear_constraint *c5 =
+          solver.create_constraint(0, Linear_constraint::infinity(), "c5");
+      c5->add_coefficient(wall_variables[cit_b][id], 1);
+      c5->add_coefficient(wall_variables[cit_a][id], -1);
+    }
+
+    // c6: a wall may end at an inner face only if another wall is active there.
+    for (auto id : W_a + W_b) {
+      Linear_constraint *c6 =
+          solver.create_constraint(0, Linear_constraint::infinity(), "c6");
+      c6->add_coefficient(wall_variables[cit_b][id], -1);
+      c6->add_coefficient(wall_variables[cit_a][id], 1);
+      for (auto id2 : W_b - W_a)
+        c6->add_coefficient(wall_variables[cit_b][id2], 1);
+    }
+
+    // c7: outside label only on the negative side.
+    {
+      Linear_constraint *c7 =
+          solver.create_constraint(-Linear_constraint::infinity(), 0, "c7");
+      c7->add_coefficient(room_variables[cit_a][0], 1);
+      c7->add_coefficient(room_variables[cit_b][0], -1);
+    }
+  }
+
+  SubResult res;
+  res.variables = solver.number_of_variables();
+  res.constraints = solver.number_of_constraints();
+
+  const bool ok = solver.solve();
+  res.status = map_status(solver.solve_status());
+  res.solved = ok;
+  if (!ok)
+    return res;
+
+  for (auto cit = cc.cells_begin(); cit != cc.cells_end(); ++cit) {
+    if (!in_subset(*cit))
+      continue;
+    for (size_t i = 0; i < room_variables[*cit].size(); ++i)
+      if (room_variables[*cit][i]->solution_value() > 0.5)
+        res.room_label[*cit] = static_cast<int>(i);
+    res.wall_label[*cit] = std::set<int>{};
+    for (size_t i = 0; i < wall_variables[*cit].size(); ++i)
+      if (wall_variables[*cit][i]->solution_value() > 0.5)
+        res.wall_label[*cit].insert(static_cast<int>(i));
+  }
+  return res;
+}
+
+/// Solve one subproblem honoring the SolverChoice + fallback policy: run the
+/// requested primary backend, and if it returns a hard error/numerical-error
+/// (e.g. cuOpt GPU OOM), retry with HiGHS on the CPU before giving up
+/// (issue #226). @p used_highs_fallback reports whether the retry fired.
+SubResult solve_subset_with_fallback(const CellComplex &cc,
+                                     const SolidifierOptions &options,
+                                     const std::function<bool(Cd)> &in_subset,
+                                     bool &used_highs_fallback) {
+  used_highs_fallback = false;
+
+  if (options.solver == SolverChoice::highs)
+    return solve_subset<HighsSolver>(cc, options, in_subset);
+
+  // auto or cuopt: try the compiled-in primary backend first.
+  SubResult res = solve_subset<PrimarySolver>(cc, options, in_subset);
+
+  const bool primary_is_highs = std::is_same_v<PrimarySolver, HighsSolver>;
+  const bool hard_error = res.status == SolveStatus::error ||
+                          res.status == SolveStatus::numerical_error;
+  // Only auto retries on the CPU; an explicit --solver cuopt fails loudly.
+  if (!primary_is_highs && hard_error &&
+      options.solver == SolverChoice::automatic) {
+    reusex::warn("Primary MIP backend returned '{}'; retrying this problem "
+                 "with HiGHS (CPU) as fallback (issue #226)",
+                 to_string(res.status));
+    SubResult highs_res = solve_subset<HighsSolver>(cc, options, in_subset);
+    used_highs_fallback = true;
+    return highs_res;
+  }
+  return res;
+}
+
+} // namespace
+
+// ── PIMPL ────────────────────────────────────────────────────────────────
+class Solidifier::Impl {
+    public:
+  std::shared_ptr<const CellComplex> _cc;
+  SolidifierOptions _options;
+  SolveStatus _last_status = SolveStatus::not_solved;
+  std::vector<SectionSolveStats> _section_stats;
+
+  Impl(std::shared_ptr<const CellComplex> cc, SolidifierOptions options)
+      : _cc(cc), _options(options) {
+    reusex::trace("Solidifier created (alpha={}, time_limit={}s, sectioned={})",
+                  options.alpha, options.time_limit_seconds, options.sectioned);
+  }
+
+  void _validatePropertyMaps() const;
+};
+
 Solidifier::Solidifier(std::shared_ptr<const CellComplex> cc,
                        SolidifierOptions options)
     : pimpl_(std::make_unique<Impl>(cc, options)) {}
@@ -131,13 +368,15 @@ Solidifier::Solidifier(std::shared_ptr<const CellComplex> cc,
 Solidifier::~Solidifier() = default;
 
 SolveStatus Solidifier::last_solve_status() const {
-  return map_status(pimpl_->solver.solve_status());
+  return pimpl_->_last_status;
+}
+
+const std::vector<SectionSolveStats> &Solidifier::section_stats() const {
+  return pimpl_->_section_stats;
 }
 
 void Solidifier::Impl::_validatePropertyMaps() const {
   std::vector<std::string> missing;
-
-  // Scalar double maps (existence probe by value type).
   auto probe_double = [&](const char *name) {
     try {
       (void)_cc->property_map<Fd, double>(name);
@@ -148,14 +387,11 @@ void Solidifier::Impl::_validatePropertyMaps() const {
   probe_double("f:area");
   probe_double("f:support_probability");
   probe_double("c:volume");
-
-  // Vector<double> map: room probabilities.
   try {
     (void)_cc->property_map<Cd, std::vector<double>>("c:room_probabilities");
   } catch (const std::exception &) {
     missing.emplace_back("c:room_probabilities");
   }
-
   if (!missing.empty()) {
     throw std::runtime_error(fmt::format(
         "Solidifier: required cell-complex property map(s) missing before "
@@ -165,15 +401,11 @@ void Solidifier::Impl::_validatePropertyMaps() const {
         fmt::join(missing, ", ")));
   }
 
-  // Size checks: every cell must carry a room-probability vector of length
-  // n_rooms+1 (index 0 == outside), and every face-between-cells needs a
-  // finite area and support probability.
-  auto area = _cc->property_map<Fd, double>("f:area");
   auto volume = _cc->property_map<Cd, double>("c:volume");
+  auto area = _cc->property_map<Fd, double>("f:area");
   auto f_sp = _cc->property_map<Fd, double>("f:support_probability");
   auto c_rp =
       _cc->property_map<Cd, std::vector<double>>("c:room_probabilities");
-
   const size_t expected = _cc->n_rooms + 1;
   for (auto cit = _cc->cells_begin(); cit != _cc->cells_end(); ++cit) {
     const auto &probs = c_rp[*cit];
@@ -188,7 +420,6 @@ void Solidifier::Impl::_validatePropertyMaps() const {
           fmt::format("Solidifier: 'c:volume' for cell {} is not finite.",
                       (*_cc)[*cit].id));
   }
-
   for (auto fit = _cc->faces_between_cells_begin();
        fit != _cc->faces_between_cells_end(); ++fit) {
     if (!std::isfinite(area[*fit]))
@@ -205,442 +436,157 @@ void Solidifier::Impl::_validatePropertyMaps() const {
 std::optional<std::pair<std::unordered_map<Solidifier::Cd, int>,
                         std::unordered_map<Solidifier::Cd, std::set<int>>>>
 Solidifier::solve() {
+  const auto &cc = *pimpl_->_cc;
+  const auto &opt = pimpl_->_options;
+  pimpl_->_section_stats.clear();
 
-  reusex::info("Using MIP solver: {}", typeid(pimpl_->solver).name());
-  reusex::trace("Start solving MIP");
-
-  // Fail fast with a descriptive error if the inputs the MIP needs are not
-  // present/consistent (docs/STANDARDS.md §5).
   pimpl_->_validatePropertyMaps();
 
-  pimpl_->_configureSolver();
-  pimpl_->_setupVariables();
-  pimpl_->_setupObjective();
-  pimpl_->_setupConstraints();
-
-  // Problem statistics (info level per §5 so failures are diagnosable).
   const auto n_cells =
-      std::distance(pimpl_->_cc->cells_begin(), pimpl_->_cc->cells_end());
-  const auto n_faces = std::distance(pimpl_->_cc->faces_between_cells_begin(),
-                                     pimpl_->_cc->faces_between_cells_end());
-  const auto n_vars = pimpl_->solver.number_of_variables();
-  const auto n_constraints = pimpl_->solver.number_of_constraints();
-  reusex::info("MIP problem: {} cells, {} inter-cell faces, {} rooms, {} walls "
-               "=> {} variables, {} constraints (time limit {}s)",
-               n_cells, n_faces, pimpl_->_cc->n_rooms, pimpl_->_cc->n_walls,
-               n_vars, n_constraints, pimpl_->_options.time_limit_seconds);
+      static_cast<size_t>(std::distance(cc.cells_begin(), cc.cells_end()));
 
-  reusex::trace("Start solving");
+  reusex::info("Using MIP solver: {} (primary '{}', fallback HiGHS)",
+#ifdef USE_CUOPT
+               "cuOpt",
+#else
+               "HiGHS",
+#endif
+               typeid(PrimarySolver).name());
+
+  // Decide monolithic vs sectioned (issue #226): only section when enabled,
+  // there is more than one storey, and the problem is large enough to warrant
+  // it. Below the threshold the original one-shot path is used unchanged.
+  const bool do_sectioned =
+      opt.sectioned && cc.n_sections > 1 && n_cells >= opt.sectioned_threshold;
+
+  reusex::info("Solidifier: {} cells, {} rooms, {} walls, {} sections => "
+               "{} solve (threshold {} cells)",
+               n_cells, cc.n_rooms, cc.n_walls, cc.n_sections,
+               do_sectioned ? "SECTIONED" : "monolithic",
+               opt.sectioned_threshold);
+
   auto sw = reusex::core::stopwatch{};
 
-  // INFO: Solve
-  if (!pimpl_->solver.solve()) {
-    const auto status = map_status(pimpl_->solver.solve_status());
-    // Actionable hint tailored to the failure mode.
-    std::string hint;
-    switch (status) {
-    case SolveStatus::time_limit:
-    case SolveStatus::iteration_limit:
-      hint = fmt::format(
-          "solver hit its {} after {}s with {} cells — increase --time-limit, "
-          "or reduce complexity via stronger plane merging / --filter",
-          to_string(status), pimpl_->_options.time_limit_seconds, n_cells);
-      break;
-    case SolveStatus::infeasible:
-      hint = fmt::format(
-          "model is infeasible ({} cells, {} faces) — the plane arrangement "
-          "likely has no consistent room labelling; check plane segmentation "
-          "and room probabilities",
-          n_cells, n_faces);
-      break;
-    case SolveStatus::unbounded:
-      hint = "model is unbounded — objective weights are likely malformed";
-      break;
-    default:
-      hint = fmt::format("solver reported '{}' with {} cells / {} variables — "
-                         "consider stronger plane merging or --filter",
-                         to_string(status), n_cells, n_vars);
-      break;
+  if (!do_sectioned) {
+    // Monolithic: single subproblem over all cells.
+    bool used_fallback = false;
+    auto all = [](Cd) { return true; };
+    SubResult res = solve_subset_with_fallback(cc, opt, all, used_fallback);
+    pimpl_->_last_status = res.status;
+    if (!res.solved) {
+      reusex::error("MIP solver failed to find a solution [status={}, "
+                    "{} cells]: increase --time-limit, use --solver highs, or "
+                    "reduce complexity via stronger plane merging / --filter",
+                    to_string(res.status), n_cells);
+      return {};
     }
-    reusex::error("MIP solver failed to find a solution [status={}, {} cells, "
-                  "{} faces, {} variables, {} constraints]: {}",
-                  to_string(status), n_cells, n_faces, n_vars, n_constraints,
-                  hint);
+    reusex::info("Solved monolithic MIP in {:>.3f} seconds (status={}{})", sw,
+                 to_string(res.status),
+                 used_fallback ? ", HiGHS fallback" : "");
+    return std::make_pair(std::move(res.room_label), std::move(res.wall_label));
+  }
+
+  // ── Sectioned solve ──────────────────────────────────────────────────────
+  // Partition cells by their "c:section" property. Each section is solved
+  // independently; a failing section is reported and skipped, but the others
+  // still contribute to the mesh (docs/STANDARDS.md §5). Shared horizontal
+  // faces between sections are excluded from every section's constraints and
+  // are emitted at most once by toMesh() because they separate interior from
+  // exterior cells.
+  auto section_of = cc.property_map<Cd, int>("c:section");
+
+  std::unordered_map<Cd, int> room_label;
+  std::unordered_map<Cd, std::set<int>> wall_label;
+
+  size_t solved_sections = 0;
+  size_t failed_sections = 0;
+  size_t interior_cells = 0;
+
+  for (int s = 0; s < static_cast<int>(cc.n_sections); ++s) {
+    auto in_section = [&, s](Cd c) { return section_of[c] == s; };
+
+    const size_t section_cells = static_cast<size_t>(
+        std::count_if(cc.cells_begin(), cc.cells_end(),
+                      [&](Cd c) { return section_of[c] == s; }));
+    if (section_cells == 0)
+      continue;
+
+    auto sec_sw = reusex::core::stopwatch{};
+    bool used_fallback = false;
+    SubResult res =
+        solve_subset_with_fallback(cc, opt, in_section, used_fallback);
+
+    SectionSolveStats st;
+    st.section = s;
+    st.cells = section_cells;
+    st.variables = res.variables;
+    st.constraints = res.constraints;
+    st.seconds = sec_sw.elapsed();
+    st.status = res.status;
+    st.used_highs_fallback = used_fallback;
+    pimpl_->_section_stats.push_back(st);
+
+    if (!res.solved) {
+      ++failed_sections;
+      reusex::error(
+          "Section {} FAILED to solve [status={}, {} cells, {} vars, {} "
+          "constraints, {:.3f}s]{} — skipping this storey; other sections "
+          "still meshed",
+          s, to_string(res.status), section_cells, res.variables,
+          res.constraints, st.seconds,
+          used_fallback ? " (after HiGHS fallback)" : "");
+      continue;
+    }
+
+    ++solved_sections;
+    size_t sec_interior = 0;
+    for (auto &[c, r] : res.room_label) {
+      room_label[c] = r;
+      if (r > 0)
+        ++sec_interior;
+    }
+    for (auto &[c, w] : res.wall_label)
+      wall_label[c] = std::move(w);
+    interior_cells += sec_interior;
+
+    reusex::info("Section {} solved [status={}, {} cells, {} vars, {} "
+                 "constraints, {:.3f}s, {} interior cells]{}",
+                 s, to_string(res.status), section_cells, res.variables,
+                 res.constraints, st.seconds, sec_interior,
+                 used_fallback ? " (HiGHS fallback)" : "");
+  }
+
+  // Any cell without a label (unsolved section) defaults to outside so the
+  // mesh filter (room_label > 0) simply drops it.
+  for (auto cit = cc.cells_begin(); cit != cc.cells_end(); ++cit) {
+    if (!room_label.contains(*cit))
+      room_label[*cit] = 0;
+    if (!wall_label.contains(*cit))
+      wall_label[*cit] = std::set<int>{};
+  }
+
+  pimpl_->_last_status =
+      failed_sections == 0 ? SolveStatus::optimal : SolveStatus::feasible;
+
+  reusex::info("Sectioned solve complete in {:>.3f}s: {}/{} sections solved "
+               "({} failed), {} interior cells total",
+               sw, solved_sections, solved_sections + failed_sections,
+               failed_sections, interior_cells);
+
+  if (solved_sections == 0) {
+    reusex::error("All {} sections failed to solve; no mesh can be produced. "
+                  "Try --solver highs, a larger --time-limit, or stronger "
+                  "plane merging.",
+                  failed_sections);
+    pimpl_->_last_status = SolveStatus::error;
     return {};
   }
 
-  reusex::info("MIP solver succeeded (status={})",
-               to_string(map_status(pimpl_->solver.solve_status())));
-
-  auto room_label = std::unordered_map<Cd, int>{};
-  auto wall_label = std::unordered_map<Cd, std::set<int>>{};
-  for (auto cit = pimpl_->_cc->cells_begin(); cit != pimpl_->_cc->cells_end();
-       ++cit) {
-    for (size_t i = 0; i < pimpl_->_room_variables[*cit].size(); ++i) {
-      if (pimpl_->_room_variables[*cit][i]->solution_value() > 0.5)
-        room_label[*cit] = static_cast<int>(i);
-    }
-    wall_label[*cit] = std::set<int>{};
-    for (size_t i = 0; i < pimpl_->_wall_variables[*cit].size(); ++i) {
-      if (pimpl_->_wall_variables[*cit][i]->solution_value() > 0.5)
-        wall_label[*cit].insert(static_cast<int>(i));
-    }
-  }
-  reusex::info("Solved MIP in {:>.3f} seconds", sw);
-
-  return std::make_pair(room_label, wall_label);
+  return std::make_pair(std::move(room_label), std::move(wall_label));
 }
 
 std::shared_ptr<const CellComplex> Solidifier::get_cell_complex() const {
   return pimpl_->_cc;
-}
-
-// Overload operator- for std::set
-template <typename T>
-std::set<T> operator-(const std::set<T> &a, const std::set<T> &b) {
-  std::set<T> result;
-  std::set_difference(a.begin(), a.end(), b.begin(), b.end(),
-                      std::inserter(result, result.begin()));
-  return result;
-}
-
-template <typename T>
-std::set<T> operator+(const std::set<T> &a, const std::set<T> &b) {
-  std::set<T> result;
-  std::set_union(a.begin(), a.end(), b.begin(), b.end(),
-                 std::inserter(result, result.begin()));
-  return result;
-}
-
-void Solidifier::Impl::_configureSolver() {
-  // Wire the configurable termination controls into the backend solver
-  // (issue #212). A finite time limit guarantees solve() cannot hang.
-  solver.set_time_limit(_options.time_limit_seconds);
-  solver.set_mip_gap(_options.mip_gap);
-}
-
-/** Setup the MIP variables
- *
- * $$x_{c,l} \in {0, 1}, c \in C, l \in R_0 U \cup W$$
- */
-void Solidifier::Impl::_setupVariables() {
-  reusex::trace("Create variables");
-  for (auto cit = _cc->cells_begin(); cit != _cc->cells_end(); ++cit) {
-    _room_variables[*cit] = std::vector<Variable *>(_cc->n_rooms + 1);
-    _wall_variables[*cit] = std::vector<Variable *>(_cc->n_walls);
-
-    const int c_id = (*_cc)[*cit].id;
-
-    for (size_t l = 0; l < _cc->n_rooms + 1; ++l)
-      _room_variables[*cit][l] = solver.create_variable(
-          Variable::BINARY, 0, 1, fmt::format("x_{},r{}", c_id, l));
-    for (size_t w = 0; w < _cc->n_walls; ++w)
-      _wall_variables[*cit][w] = solver.create_variable(
-          Variable::BINARY, 0, 1, fmt::format("x_{},w{}", c_id, w));
-  }
-}
-
-/** Setup the MIP objective
- *
- * Minimize the cost function
- * $$F_c := -R_c + a(W_{F_b} + W_{F_i} )$$
- * where
- * $$R_c \coloneq \sum_{c \in C} \sum_{r \in R_o} x_{c,r} P_C(c,r)
- * volume(c)$$
- * $$W_{F_b} \coloneq \sum_{f_{c_a,c_b} \in F} \sum_{w \in W_{\bar{c_a},
- * c_b}} c_{c_b,w} (1-P_F(f_{c_a,c_b})) area(f_{c_a,c_b})$$ and
- * $$W_{F_i} \coloneq \sum_{f_{c_a,c_b} \in F} \sum_{w \in W_{c_a, c_b}}
- * (x_{c_a,w} - x_{c_a,w})(1-P_F(f_{c_a,c_b})) area(f_{c_a,c_b})$$
- */
-void Solidifier::Impl::_setupObjective() {
-  reusex::trace("Create objective");
-
-  auto area = _cc->property_map<Fd, double>("f:area");
-  auto volume = _cc->property_map<Cd, double>("c:volume");
-  auto f_sp = _cc->property_map<Fd, double>("f:support_probability");
-  auto c_rp =
-      _cc->property_map<Cd, std::vector<double>>("c:room_probabilities");
-
-  Linear_objective *obj = solver.create_objective(Linear_objective::MINIMIZE);
-  for (auto cit = _cc->cells_begin(); cit != _cc->cells_end(); ++cit) {
-    // R_c
-    for (size_t l = 0; l < _cc->n_rooms + 1; ++l) {
-      const double weight = c_rp[*cit][l] * volume[*cit];
-#if SolverDebug
-      reusex::trace(
-          "Cell: {}, Label: {}, P_C: {:.3f}, volume: {:.3f} => weight: {:.3f}",
-          std::get<CellData>((*_cc)[*cit].data).id, l, c_rp[*cit][l],
-          volume[*cit], weight);
-#endif
-      Variable *x_cr = _room_variables[*cit][l];
-      obj->add_coefficient(x_cr, -weight);
-    }
-  }
-
-  for (auto fit = _cc->faces_between_cells_begin();
-       fit != _cc->faces_between_cells_end(); ++fit) {
-    auto cit_a = _cc->get_a(*fit);
-    auto cit_b = _cc->get_b(*fit);
-
-    auto [Wa, Wb] = getWallIds(cit_a, cit_b);
-
-#if SolverDebug
-    reusex::trace("Face {} A:{} B:{} Wa: [{}], Wb [{}]",
-                  std::get<FaceData>((*_cc)[*fit].data).id,
-                  std::get<CellData>((*_cc)[cit_a].data).id,
-                  std::get<CellData>((*_cc)[cit_b].data).id, fmt::join(Wa, ","),
-                  fmt::join(Wb, ","));
-#endif
-
-    const double weight = (1 - f_sp[*fit]) * area[*fit];
-
-    // W_{F_b}: walls in cb but not in ca
-#if SolverDebug
-    reusex::trace("W_Fb");
-#endif
-    for (auto id : Wb - Wa) {
-      Variable *Xcbw = _wall_variables[cit_b][id];
-      obj->add_coefficient(Xcbw, alpha * weight);
-#if SolverDebug
-      reusex::trace("Var {:<8}, alpha {:.3f}, weight: {:.3f}", Xcbw->name(),
-                    alpha, weight);
-#endif
-    }
-
-    // W_{F_i}: walls in both ca and cb
-#if SolverDebug
-    reusex::trace("W_Fi");
-#endif
-    for (auto id : Wa + Wb) {
-      Variable *Xcbw = _wall_variables[cit_b][id];
-      obj->add_coefficient(Xcbw, alpha * weight);
-#if SolverDebug
-      reusex::trace("Var {:<8}, alpha {:.3f}, weight: {:.3f}", Xcbw->name(),
-                    alpha, weight);
-#endif
-      Variable *Xcaw = _wall_variables[cit_a][id];
-      obj->add_coefficient(Xcaw, -alpha * weight);
-#if SolverDebug
-      reusex::trace("Var {:<8}, alpha {:.3f}, weight: {:.3f}", Xcaw->name(),
-                    alpha, weight);
-#endif
-    }
-  }
-}
-
-/** Setup all the MIP constraints
- */
-void Solidifier::Impl::_setupConstraints() {
-  reusex::trace("Create constraints");
-  _c_1();
-  _c_2();
-  _c_3();
-  _c_4();
-  _c_5();
-  _c_6();
-  _c_7();
-}
-
-/** Constraint 1: Each cell must be assigned exactly one label from Ro
- *
- * $$\forall c \in C: \sum_{r \in R_0} x_{c,r} = 1$$
- */
-void Solidifier::Impl::_c_1() {
-  reusex::trace("Create constraint 1");
-  for (auto cit = _cc->cells_begin(); cit != _cc->cells_end(); ++cit) {
-    Linear_constraint *c1 = solver.create_constraint(1, 1, "c1");
-    for (size_t l = 0; l < _cc->n_rooms + 1; ++l) {
-      Variable *Xcr = _room_variables[*cit][l];
-      c1->add_coefficient(Xcr, 1);
-#if SolverDebug
-      reusex::trace("Cell: {}, Label: {}, 1",
-                    std::get<CellData>((*_cc)[*cit].data).id, l);
-#endif
-    }
-  }
-}
-
-/** Constraint 2: At boundary faces of room interiors, the room label
- * may only occur on the positive side of the face
- *
- * $$\forall f_{c_a,c_b} \in F \forall r \in R: x_{c_a,r} - x_{c_b,r} \geqslant
- * 0$$
- */
-void Solidifier::Impl::_c_2() {
-  reusex::trace("Create constraint 2");
-  for (auto fit = _cc->faces_between_cells_begin();
-       fit != _cc->faces_between_cells_end(); ++fit) {
-    for (size_t r = 1; r < _cc->n_rooms + 1; ++r) {
-      Variable *x_car = _room_variables[_cc->get_a(*fit)][r];
-      Variable *x_cbr = _room_variables[_cc->get_b(*fit)][r];
-      Linear_constraint *c2 =
-          solver.create_constraint(0, Linear_constraint::infinity(), "c2");
-      c2->add_coefficient(x_car, 1);
-      c2->add_coefficient(x_cbr, -1);
-#if SolverDebug
-      reusex::trace("Face: {}, Room: {}, A:{} - B:{}",
-                    std::get<FaceData>((*_cc)[*fit].data).id, r, x_car->name(),
-                    x_cbr->name());
-#endif
-    }
-  }
-}
-
-/** Constraint 3: Wall labels may only occur in cells which are assigned
- * the outside label
- *
- * $$\forall c \in C \forall \forall w \in W_c: x_{c,w} \leqslant x_{c,o}$$
- */
-void Solidifier::Impl::_c_3() {
-  reusex::trace("Create constraint 3");
-  for (auto cit = _cc->cells_begin(); cit != _cc->cells_end(); ++cit) {
-    for (size_t w = 0; w < _cc->n_walls; ++w) {
-      Variable *Xcw = _wall_variables[*cit][w];
-      Variable *Xco = _room_variables[*cit][0];
-      Linear_constraint *c3 =
-          solver.create_constraint(-Linear_constraint::infinity(), 0, "c3");
-      c3->add_coefficient(Xcw, 1);
-      c3->add_coefficient(Xco, -1);
-#if SolverDebug
-      reusex::trace("Cell: {}, Wall: {} - {} <= 0",
-                    std::get<CellData>((*_cc)[*cit].data).id, Xcw->name(),
-                    Xco->name());
-#endif
-    }
-  }
-}
-
-/** Constraint 4: The boundary faces of room interiors must also be the boundary
- * faces of an active wall
- * $$\forall f_{c_a,c_b} \in F : \sum_{w \in W_{\bar{c_a}, c_b} x_{c_b,w}
- * \geqslant x_{c_b,o} - x_{c_a,o}$$
- */
-void Solidifier::Impl::_c_4() {
-  reusex::trace("Create constraint 4");
-  for (auto fit = _cc->faces_between_cells_begin();
-       fit != _cc->faces_between_cells_end(); ++fit) {
-    auto cit_a = _cc->get_a(*fit);
-    auto cit_b = _cc->get_b(*fit);
-
-    auto [W_a, W_b] = getWallIds(cit_a, cit_b);
-
-    Linear_constraint *c4 =
-        solver.create_constraint(0, Linear_constraint::infinity(), "c4");
-
-    for (auto id : W_b - W_a) {
-      Variable *Xcbw = _wall_variables[cit_b][id];
-      c4->add_coefficient(Xcbw, 1);
-    }
-
-    Variable *Xcao = _room_variables[cit_a][0];
-    Variable *Xcbo = _room_variables[cit_b][0];
-
-    c4->add_coefficient(Xcbo, -1);
-    c4->add_coefficient(Xcao, 1);
-
-#if SolverDebug
-    reusex::trace("Face: {}, (Wb - Wa) x_cb[{}] - {} + {} >= 0",
-                  std::get<FaceData>((*_cc)[*fit].data).id,
-                  fmt::join(W_b - W_a, ", "), Xcbo->name(), Xcao->name());
-#endif
-  }
-}
-
-/** Constraint 5: At wall boundaries that are inner faces, the wall label
- * must be on the negative side of the respective faces
- *
- * $$\forall f_{c_a,c_b} \in F \forall w \in W_{c_a, c_b}: x_{sb,w} -
- * x_{c_a,w} \geqslant 0$$
- */
-void Solidifier::Impl::_c_5() {
-  reusex::trace("Create constraint 5");
-  for (auto fit = _cc->faces_between_cells_begin();
-       fit != _cc->faces_between_cells_end(); ++fit) {
-    auto cit_a = _cc->get_a(*fit);
-    auto cit_b = _cc->get_b(*fit);
-
-    auto [W_a, W_b] = getWallIds(cit_a, cit_b);
-
-    for (auto id : W_a + W_b) {
-      Variable *Xcaw = _wall_variables[cit_a][id];
-      Variable *Xcbw = _wall_variables[cit_b][id];
-      Linear_constraint *c5 =
-          solver.create_constraint(0, Linear_constraint::infinity(), "c5");
-      c5->add_coefficient(Xcbw, 1);
-      c5->add_coefficient(Xcaw, -1);
-#if SolverDebug
-      reusex::trace("Face: {}, Wall: {}, {} - {} >= 0",
-                    std::get<FaceData>((*_cc)[*fit].data).id, id, Xcbw->name(),
-                    Xcaw->name());
-#endif
-    }
-  }
-}
-
-/** Constraint 6: A wall may end at an inner face only if this face is a
- * boundary face of at least one other active wall
- *
- * $$\forall f_{c_a,c_b} \in F \forall w \in W_{c_a, c_b}: \sum_{w' \in
- * W_{\bar{c_a},c_b}} x_{c_b,w'} \geqslant x_{c_b,w}-x_{c_a,w}$$
- */
-void Solidifier::Impl::_c_6() {
-  reusex::trace("Create constraint 6");
-  for (auto fit = _cc->faces_between_cells_begin();
-       fit != _cc->faces_between_cells_end(); ++fit) {
-    auto cit_a = _cc->get_a(*fit);
-    auto cit_b = _cc->get_b(*fit);
-
-    auto [W_a, W_b] = getWallIds(cit_a, cit_b);
-
-    for (auto id : W_a + W_b) {
-      Linear_constraint *c6 =
-          solver.create_constraint(0, Linear_constraint::infinity(), "c6");
-
-      Variable *Xcaw = _wall_variables[cit_a][id];
-      Variable *Xcbw = _wall_variables[cit_b][id];
-
-      c6->add_coefficient(Xcbw, -1);
-      c6->add_coefficient(Xcaw, 1);
-
-      for (auto id2 : W_b - W_a) {
-        Variable *Xcbw_ = _wall_variables[cit_b][id2];
-        c6->add_coefficient(Xcbw_, 1);
-      }
-
-#if SolverDebug
-      reusex::trace("Face: {}, Wall: {}, sum(Wb - Wa) x_cb[{}] - {} + {} >= 0 ",
-                    std::get<FaceData>((*_cc)[*fit].data).id,
-                    fmt::join(W_b - W_a, ", "), id, Xcbw->name(), Xcaw->name());
-#endif
-    }
-  }
-}
-
-/** Constraint 7: At boundary faces of outside area, the outside label
- * may only occur on the negative side of the separating face
- *
- * $$\forall f_{c_a,c_b} \in F : x_{c_a,o} - x_{c_b,o} \leqslant 0$$
- */
-void Solidifier::Impl::_c_7() {
-  reusex::trace("Create constraint 7");
-  for (auto fit = _cc->faces_between_cells_begin();
-       fit != _cc->faces_between_cells_end(); ++fit) {
-    auto cit_a = _cc->get_a(*fit);
-    auto cit_b = _cc->get_b(*fit);
-
-    Variable *Xcao = _room_variables[cit_a][0];
-    Variable *Xcbo = _room_variables[cit_b][0];
-
-    Linear_constraint *c7 =
-        solver.create_constraint(-Linear_constraint::infinity(), 0, "c7");
-    c7->add_coefficient(Xcao, 1);
-    c7->add_coefficient(Xcbo, -1);
-#if SolverDebug
-    reusex::trace("Face: {}, {} - {} <= 0",
-                  std::get<FaceData>((*_cc)[*fit].data).id, Xcao->name(),
-                  Xcbo->name());
-#endif
-  }
 }
 
 } // namespace reusex::geometry

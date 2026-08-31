@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "geometry/segment_rooms.hpp"
+#include "core/label_semantics.hpp"
 #include "core/logging.hpp"
 
 #include <stdexcept>
@@ -109,11 +110,18 @@ auto segment_rooms_impl(CloudConstPtr cloud, CloudNConstPtr normals,
   reusex::trace("Initialize labels and copy xyzrgb data to labels");
   CloudLPtr labels(new CloudL);
   pcl::copyPointCloud(*cloud, *labels);
+  // Point-cloud convention (docs/STANDARDS.md §3.1): 0 = unlabeled, rooms
+  // start at 1. Points not touched by clustering stay unlabeled.
   for (size_t i = 0; i < labels->points.size(); ++i)
-    labels->points[i].label = -1;
+    labels->points[i].label = core::kUnlabeled;
 
   cc.cluster(*labels);
   reusex::trace("Done clustering");
+
+  // CommunityClustering assigns 0-based cluster ids to the sampled points.
+  // Shift them to the 1-based room convention so that 0 remains "unlabeled".
+  for (const int idx : *indices)
+    labels->points[idx].label += 1;
 
   if (auto *obs = reusex::core::get_visual_observer()) {
     CloudPtr sampled(new Cloud);
@@ -136,8 +144,8 @@ auto segment_rooms_impl(CloudConstPtr cloud, CloudNConstPtr normals,
   std::sort(indices->begin(), indices->end());
 
   // When a filter is provided, propagate labels only to filtered points that
-  // were not sampled. Points outside the filter must keep their initial -1
-  // label so --filter actually narrows the labeled region.
+  // were not sampled. Points outside the filter must keep their initial
+  // unlabeled (0) label so --filter actually narrows the labeled region.
   if (options.filter) {
     missing_indices->reserve(options.filter->size());
     IndicesPtr filter_sorted(new Indices(*options.filter));

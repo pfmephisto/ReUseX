@@ -1,0 +1,168 @@
+// SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#pragma once
+
+#include <cstdint>
+#include <stdexcept>
+#include <string>
+
+#include <opencv2/core.hpp>
+
+/// @file label_semantics.hpp
+/// @brief Single source of truth for label encodings across the pipeline.
+///
+/// Three layers encode labels differently (see docs/STANDARDS.md §3.1):
+///
+/// | Layer                              | Type       | Unlabeled/bg          |
+/// Valid    |
+/// |------------------------------------|------------|-----------------------|----------|
+/// | segmentation_images storage (PNG)  | `CV_16U`   | `0` (stored label+1)  |
+/// `1..65535` (label ≤ 65534) | | ProjectDB segmentation API         | `CV_32S`
+/// | `-1`                  | `0..N`   | | In-memory point labels (pcl::Label)|
+/// `uint32_t` | `0`                   | `1..N`   |
+///
+/// Conversions between layers MUST go through the helpers here; no inline
+/// offset arithmetic (`label + 1`, `label - 1`) or raw casts are allowed at
+/// call sites. Writing a label ≥ 65535 to storage throws instead of wrapping.
+
+namespace reusex::core {
+
+/// Point-cloud convention: `0` means "unlabeled" in every CloudL (labels,
+/// planes, rooms, instances). Valid point labels start at `1`.
+inline constexpr uint32_t kUnlabeled = 0;
+
+/// ProjectDB segmentation API convention: `-1` marks background/unlabeled in
+/// the CV_32S label images returned by ProjectDB.
+inline constexpr int kBackgroundApi = -1;
+
+/// Largest label that can be stored in the CV_16U PNG layer. Storage encodes
+/// `label + 1`, so the maximum encodable value before wrapping 16 bits is
+/// `65535 - 1 = 65534`.
+inline constexpr uint16_t kMaxStorableLabel = 65534;
+
+/// @return true if @p label denotes a valid (non-unlabeled) point label.
+inline constexpr bool is_valid_label(uint32_t label) noexcept {
+  return label != kUnlabeled;
+}
+
+/// Convert a point label to a zero-based vector index, replacing the
+/// error-prone bare `label - 1` idiom used to index parallel arrays such as
+/// `plane_normals`.
+///
+/// @throws std::out_of_range if @p label is `kUnlabeled` (0), which has no
+/// associated index.
+inline size_t label_to_index(uint32_t label) {
+  if (!is_valid_label(label))
+    throw std::out_of_range(
+        "label_to_index: label 0 is unlabeled and has no index");
+  return static_cast<size_t>(label) - 1;
+}
+
+// ── Scalar conversions ────────────────────────────────────────────────────
+
+/// API (CV_32S, -1 = background) → point label (uint32_t, 0 = unlabeled).
+///
+/// Background (`kBackgroundApi`) maps to `kUnlabeled`. Valid class ids pass
+/// through unchanged (the semantic-class layer keeps its own numbering; only
+/// the background sentinel is translated).
+///
+/// @throws std::out_of_range if @p api_label is negative but not the
+/// background sentinel.
+inline uint32_t api_to_point_label(int api_label) {
+  if (api_label == kBackgroundApi)
+    return kUnlabeled;
+  if (api_label < 0)
+    throw std::out_of_range("api_to_point_label: negative label " +
+                            std::to_string(api_label) +
+                            " is not the background sentinel (-1)");
+  return static_cast<uint32_t>(api_label);
+}
+
+/// Point label (uint32_t, 0 = unlabeled) → API (CV_32S, -1 = background).
+/// Inverse of api_to_point_label(): `kUnlabeled` maps to `kBackgroundApi`.
+inline int point_label_to_api(uint32_t point_label) {
+  if (point_label == kUnlabeled)
+    return kBackgroundApi;
+  return static_cast<int>(point_label);
+}
+
+/// API label (CV_32S, -1 = background) → storage value (CV_16U, 0 = bg,
+/// `label + 1`).
+///
+/// @throws std::out_of_range if @p api_label < -1, or if @p api_label exceeds
+/// kMaxStorableLabel (would wrap the 16-bit storage layer).
+inline uint16_t api_to_storage(int api_label) {
+  if (api_label < kBackgroundApi)
+    throw std::out_of_range("api_to_storage: label " +
+                            std::to_string(api_label) + " is below -1");
+  if (api_label > static_cast<int>(kMaxStorableLabel))
+    throw std::out_of_range(
+        "api_to_storage: label " + std::to_string(api_label) +
+        " exceeds maximum storable label " +
+        std::to_string(static_cast<int>(kMaxStorableLabel)) +
+        " (would wrap CV_16U storage)");
+  return static_cast<uint16_t>(api_label + 1);
+}
+
+/// Storage value (CV_16U, 0 = bg, `label + 1`) → API label (CV_32S,
+/// -1 = background).
+inline int storage_to_api(uint16_t storage_value) {
+  return static_cast<int>(storage_value) - 1;
+}
+
+// ── Whole-cv::Mat converters ──────────────────────────────────────────────
+
+/// Convert a storage label image (CV_16U, 0 = bg) to an API label image
+/// (CV_32S, -1 = background) by subtracting the +1 offset.
+///
+/// @throws std::invalid_argument if @p storage is not CV_16U (empty is
+/// passed through as empty).
+inline cv::Mat storage_mat_to_api(const cv::Mat &storage) {
+  if (storage.empty())
+    return cv::Mat();
+  if (storage.type() != CV_16UC1)
+    throw std::invalid_argument(
+        "storage_mat_to_api: expected CV_16UC1 storage image");
+  cv::Mat api;
+  storage.convertTo(api, CV_32S);
+  api -= 1;
+  return api;
+}
+
+/// Convert an API label image (CV_32S, -1 = background) to a storage label
+/// image (CV_16U, 0 = bg) by adding the +1 offset.
+///
+/// @throws std::invalid_argument if @p api is not CV_32S.
+/// @throws std::out_of_range if any label is < -1 or > kMaxStorableLabel
+/// (would wrap the CV_16U storage layer).
+inline cv::Mat api_mat_to_storage(const cv::Mat &api) {
+  if (api.empty())
+    throw std::invalid_argument("api_mat_to_storage: empty label image");
+  if (api.type() != CV_32SC1)
+    throw std::invalid_argument(
+        "api_mat_to_storage: expected CV_32SC1 API image");
+
+  double min_val = 0.0;
+  double max_val = 0.0;
+  cv::minMaxLoc(api, &min_val, &max_val);
+  if (min_val < static_cast<double>(kBackgroundApi))
+    throw std::out_of_range("api_mat_to_storage: label " +
+                            std::to_string(static_cast<int>(min_val)) +
+                            " is below -1");
+  if (max_val > static_cast<double>(kMaxStorableLabel))
+    throw std::out_of_range(
+        "api_mat_to_storage: label " +
+        std::to_string(static_cast<int>(max_val)) +
+        " exceeds maximum storable label " +
+        std::to_string(static_cast<int>(kMaxStorableLabel)) +
+        " (would wrap CV_16U storage)");
+
+  cv::Mat offset = api + 1;
+  cv::Mat storage;
+  offset.convertTo(storage, CV_16U);
+  return storage;
+}
+
+} // namespace reusex::core

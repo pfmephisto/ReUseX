@@ -71,16 +71,30 @@ NOTES:
       ->default_val(opt->angle_threshold)
       ->check(CLI::Range(0.0, 365.0));
 
-  sub->add_option("-d, --plane-dist-threshold", opt->plane_dist_threshold,
-                  "Distance threshold for plane fitting (default: 0.1m)")
-      ->default_val(opt->plane_dist_threshold)
-      ->check(CLI::Range(0.0, 1.0));
+  auto *dist_opt =
+      sub->add_option("-d, --plane-dist-threshold", opt->plane_dist_threshold,
+                      "Distance threshold for plane fitting [m]. When set "
+                      "explicitly, bypasses adaptive derivation for this "
+                      "parameter (default: adaptive ~3*sigma).")
+          ->default_val(opt->plane_dist_threshold)
+          ->check(CLI::Range(0.0, 1.0));
 
-  sub->add_option("-m, --min-cluster-size", opt->minInliers,
-                  "Minimum cluster size for plane fitting "
-                  "(default: 2sqm in 2cm resolution)")
-      ->default_val(opt->minInliers)
-      ->check(CLI::Range(3, 1000000));
+  auto *min_opt =
+      sub->add_option("-m, --min-cluster-size", opt->minInliers,
+                      "Minimum cluster size for plane fitting. When set "
+                      "explicitly, bypasses adaptive derivation for this "
+                      "parameter (default: adaptive by density).")
+          ->default_val(opt->minInliers)
+          ->check(CLI::Range(3, 1000000));
+
+  sub->add_flag("--adaptive,!--no-adaptive", opt->adaptive,
+                "Derive plane_dist_threshold (~3*sigma) and min_inliers (by "
+                "point density) from measured cloud noise (default: on). "
+                "Explicit -d/-m still win per-parameter.");
+
+  sub->add_option("--noise-seed", opt->noise_seed,
+                  "Deterministic seed for the noise estimator")
+      ->default_val(opt->noise_seed);
 
   sub->add_option("-r, --radius", opt->radius, "Radius for region growing")
       ->default_val(opt->radius)
@@ -108,8 +122,12 @@ NOTES:
          "  -f 'planes >= 10 && planes <= 20'   # Range filter")
       ->default_val("");
 
-  sub->callback([opt, global_opt]() {
+  sub->callback([opt, global_opt, dist_opt, min_opt]() {
     spdlog::trace("calling seg-planes subcommand");
+    // Record which thresholds the user pinned so adaptivity is bypassed only
+    // for those (issue #214).
+    opt->dist_explicit = dist_opt->count() > 0;
+    opt->min_explicit = min_opt->count() > 0;
     return run_subcommand_segment_planes(*opt, *global_opt);
   });
 }
@@ -160,6 +178,15 @@ int run_subcommand_segment_planes(SubcommandSegPlanesOptions const &opt,
     options.radius = opt.radius;
     options.interval_0 = opt.interval_0;
     options.interval_factor = opt.interval_factor;
+
+    // Noise-adaptive thresholds (issue #214). Explicit -d/-m pin the
+    // corresponding parameter; adaptivity applies to the rest.
+    options.adaptive = opt.adaptive;
+    options.noise_seed = opt.noise_seed;
+    if (opt.dist_explicit)
+      options.plane_dist_threshold_override = opt.plane_dist_threshold;
+    if (opt.min_explicit)
+      options.min_inliers_override = opt.minInliers;
 
     // Evaluate filter if provided
     if (!opt.filter_expr.empty()) {

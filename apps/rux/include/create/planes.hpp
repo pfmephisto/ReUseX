@@ -20,6 +20,11 @@ struct SubcommandSegPlanesOptions {
   float interval_0 = 16;       ///< Initial interval for multi-scale processing
   float interval_factor = 1.5; ///< Factor for interval scaling
 
+  bool adaptive = true; ///< Derive thresholds from measured cloud noise (#214)
+  unsigned noise_seed = 42;   ///< Deterministic seed for the noise estimator
+  bool dist_explicit = false; ///< User passed -d (pins distance threshold)
+  bool min_explicit = false;  ///< User passed -m (pins min_inliers)
+
   std::string filter_expr; ///< Filter expression to limit processing
 };
 

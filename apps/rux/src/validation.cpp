@@ -4,6 +4,7 @@
 #include "validation.hpp"
 #include <fmt/format.h>
 #include <fmt/ranges.h>
+#include <opencv2/core/mat.hpp>
 
 namespace rux::validation {
 

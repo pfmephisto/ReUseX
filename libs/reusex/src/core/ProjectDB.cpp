@@ -13,8 +13,10 @@
 #include "geometry/BuildingComponent.hpp"
 #include "geometry/CoplanarPolygon.hpp"
 
+#include <opencv2/core/mat.hpp>
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
+#include <pcl/PolygonMesh.h>
 #include <pcl/TextureMesh.h>
 #include <pcl/io/obj_io.h>
 #include <pcl/io/ply_io.h>

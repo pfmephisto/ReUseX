@@ -4,7 +4,7 @@
 //
 
 #pragma once
-#include "reusex/types.hpp"
+#include "reusex/types/point_types.hpp"
 
 // OpenNURBS public needs to be included first (pulls in all ON_* types)
 #include <opennurbs_public.h>

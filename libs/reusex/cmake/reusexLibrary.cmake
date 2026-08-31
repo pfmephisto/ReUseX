@@ -127,6 +127,10 @@ target_link_libraries(reusex
         # Ranges
         range-v3::range-v3
 
+        # GTSAM — factor-graph pose-graph optimization (rux optimize back-end).
+        # PRIVATE: only used inside PlaneGraphOptimizer.cpp; not in public headers.
+        gtsam
+
         # Speckle upload support
         CURL::libcurl
         nlohmann_json::nlohmann_json

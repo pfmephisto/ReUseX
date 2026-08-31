@@ -22,6 +22,7 @@
   embree,
   eigen,
   cgal,
+  gtsam,
   rtabmap,
   librealsense,
   octomap,
@@ -114,6 +115,10 @@ in
         embree
         eigen
         cgal
+
+        # GTSAM — factor-graph optimization for the `rux optimize` pose-graph
+        # back-end (plane-landmark factors + GNC). MIT.
+        gtsam
 
         rtabmap
         librealsense

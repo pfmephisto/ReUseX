@@ -12,6 +12,7 @@
 
 #include <fmt/color.h>
 #include <fmt/format.h>
+#include <fmt/ranges.h>
 
 #include <iostream>
 
@@ -79,9 +80,15 @@ DESCRIPTION:
   Exits non-zero when any error-severity problem is found (warnings do not
   affect the exit code).
 
+  With --stage <name> it instead asserts that the named pipeline stage's input
+  contract is satisfied — the clouds/tables it consumes exist and are
+  index-aligned (see docs/CONTRACTS.md). Stages:
+  import, optimize (alias register), clouds, planes, rooms, instances, mesh.
+
 EXAMPLES:
-  rux validate                         # Human-readable report
+  rux validate                         # Whole-project integrity report
   rux validate --json                  # JSON report for scripting
+  rux validate --stage mesh            # Check mesh-stage prerequisites
   rux -p scan.rux validate             # Custom project path
 
 NOTES:
@@ -91,6 +98,11 @@ NOTES:
 
   sub->add_flag("-j,--json", opt->json_output, "Output in JSON format")
       ->default_val(false);
+
+  sub->add_option("-s,--stage", opt->stage,
+                  "Validate one pipeline stage's input contract "
+                  "(import|optimize|register|clouds|planes|rooms|instances|"
+                  "mesh)");
 
   sub->callback([opt, global_opt]() {
     int exit_code = run_subcommand_validate(*opt, *global_opt);
@@ -105,7 +117,18 @@ int run_subcommand_validate(SubcommandValidateOptions const &opt,
     fs::path project_path = global_opt.project_db;
     reusex::ProjectDB db(project_path, /* readOnly */ true);
 
-    auto report = reusex::core::validate_project(db);
+    reusex::core::ValidationReport report;
+    if (!opt.stage.empty()) {
+      auto stage = reusex::core::parse_pipeline_stage(opt.stage);
+      if (!stage) {
+        spdlog::error("Unknown stage '{}'. Valid stages: {}", opt.stage,
+                      fmt::join(reusex::core::pipeline_stage_names(), ", "));
+        return RuxError::GENERIC;
+      }
+      report = reusex::core::validate_stage(db, *stage);
+    } else {
+      report = reusex::core::validate_project(db);
+    }
 
     if (opt.json_output)
       print_json(report, project_path.string());

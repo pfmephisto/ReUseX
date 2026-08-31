@@ -3,7 +3,9 @@
 
 #pragma once
 
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace reusex {
@@ -55,5 +57,42 @@ void check_sibling_cloud_sizes(const ProjectDB &db,
 
 /// Run every check and aggregate the findings.
 ValidationReport validate_project(const ProjectDB &db);
+
+// ── Stage input contracts (#222) ───────────────────────────────────────────
+// Each pipeline stage consumes a known set of named clouds/tables and produces
+// another (documented in docs/CONTRACTS.md). `rux validate --stage <name>`
+// asserts a stage's *inputs* exist and are mutually consistent before the stage
+// runs, so a missing/misaligned prerequisite fails loudly instead of crashing
+// deep inside the algorithm.
+
+/// Pipeline stages that have an input contract. Ordered by pipeline position.
+enum class PipelineStage {
+  import,    ///< extract raw sensor frames from a scan
+  optimize,  ///< refine per-frame sensor poses (a.k.a. register)
+  clouds,    ///< back-project sensor frames into "cloud" + "normals"
+  planes,    ///< detect planar surfaces
+  rooms,     ///< partition into rooms
+  instances, ///< separate semantic labels into spatial instances
+  mesh,      ///< generate the reconstructed mesh
+};
+
+/// Parse a stage name (e.g. "mesh", "register") to a PipelineStage.
+/// Returns std::nullopt for an unknown name. "register" is an alias for
+/// "optimize".
+std::optional<PipelineStage> parse_pipeline_stage(std::string_view name);
+
+/// Canonical lower-case name of a stage (the primary CLI token).
+std::string_view to_string(PipelineStage stage);
+
+/// All stage names accepted by parse_pipeline_stage(), for help text.
+std::vector<std::string> pipeline_stage_names();
+
+/// Assert that @p stage's input clouds/tables exist in @p db and are
+/// index-aligned. Appends an issue per missing input or size mismatch.
+void check_stage_inputs(const ProjectDB &db, PipelineStage stage,
+                        std::vector<ValidationIssue> &out);
+
+/// Run check_stage_inputs for a single stage and aggregate the findings.
+ValidationReport validate_stage(const ProjectDB &db, PipelineStage stage);
 
 } // namespace reusex::core

@@ -7,12 +7,17 @@
 
 #include <CLI/CLI.hpp>
 #include <memory>
+#include <string>
 
 namespace fs = std::filesystem;
 
 /// Options for the validate subcommand
 struct SubcommandValidateOptions {
   bool json_output = false;
+  /// When non-empty, validate the input contract of this pipeline stage
+  /// (import/optimize/register/clouds/planes/rooms/instances/mesh) instead of
+  /// the whole-project integrity checks.
+  std::string stage;
 };
 
 // Function declarations

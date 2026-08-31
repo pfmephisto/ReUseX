@@ -12,6 +12,9 @@
 
 #include <fmt/format.h>
 
+#include <cstdint>
+#include <optional>
+
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
 #include <spdlog/stopwatch.h>
@@ -94,6 +97,16 @@ PERFORMANCE TUNING:
                 "Shuffle dataset before processing (default: false)")
       ->default_val(opt->shuffle);
 
+  sub->add_option("--seed", opt->seed,
+                  "Seed for deterministic shuffle order (default: 42). "
+                  "Ignored unless --shuffle is set.")
+      ->default_val(opt->seed);
+
+  sub->add_flag("--random-seed", opt->random_seed,
+                "Seed the shuffle from entropy (non-deterministic); "
+                "overrides --seed")
+      ->default_val(opt->random_seed);
+
   sub->add_flag("--skip-annotated", opt->skip_annotated,
                 "Skip frames that already have segmentation labels (resume "
                 "interrupted runs)")
@@ -119,14 +132,17 @@ int run_subcommand_annotate(SubcommandAnnotateOptions const &opt,
       return RuxError::INVALID_ARGUMENT;
     }
 
-    // Build config from CLI options
+    // Build config from CLI options. --random-seed opts into entropy;
+    // otherwise the (default 42) fixed seed keeps shuffled runs reproducible.
     reusex::vision::AnnotationConfig config{
         .use_cuda = opt.isCuda,
         .batch_size = opt.batch_size,
         .shuffle = opt.shuffle,
         .num_workers = opt.num_workers,
         .prefetch_batches = opt.prefetch_batches,
-        .skip_annotated = opt.skip_annotated};
+        .skip_annotated = opt.skip_annotated,
+        .seed =
+            opt.random_seed ? std::nullopt : std::optional<uint32_t>(opt.seed)};
 
     return reusex::vision::annotate(project_path, opt.net_path, config);
 

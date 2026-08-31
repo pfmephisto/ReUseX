@@ -11,29 +11,33 @@
 #include <algorithm>
 #include <atomic>
 #include <condition_variable>
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <random>
 #include <span>
+#include <string>
 #include <thread>
 #include <vector>
 
 namespace reusex::vision {
 
 Dataloader::Dataloader(IDataset &dataset, size_t batch_size, bool shuffle,
-                       size_t num_workers, size_t prefetch_batches)
+                       size_t num_workers, size_t prefetch_batches,
+                       std::optional<uint32_t> seed)
     : dataset_(dataset), batch_size_(batch_size), shuffle_(shuffle),
-      num_workers_(num_workers), prefetch_batches_(prefetch_batches),
-      dataset_size_(dataset.size()),
+      seed_(seed), num_workers_(num_workers),
+      prefetch_batches_(prefetch_batches), dataset_size_(dataset.size()),
       num_batches_((dataset_size_ + batch_size - 1) / batch_size),
       stop_workers_(false), epoch_finished_(false) {
-  reusex::info(
-      "Initializing Dataloader: dataset_size={}, batch_size={}, "
-      "num_batches={}, shuffle={}, num_workers={}, prefetch_batches={}",
-      dataset_size_, batch_size_, num_batches_, shuffle_, num_workers_,
-      prefetch_batches_);
+  reusex::info("Initializing Dataloader: dataset_size={}, batch_size={}, "
+               "num_batches={}, shuffle={}, seed={}, num_workers={}, "
+               "prefetch_batches={}",
+               dataset_size_, batch_size_, num_batches_, shuffle_,
+               seed_ ? std::to_string(*seed_) : std::string("random_device"),
+               num_workers_, prefetch_batches_);
   indices_.reserve(dataset_size_);
   for (size_t i = 0; i < dataset_size_; ++i) {
     indices_.push_back(i);
@@ -43,6 +47,19 @@ Dataloader::Dataloader(IDataset &dataset, size_t batch_size, bool shuffle,
 Dataloader::~Dataloader() {
   reusex::debug("Destroying Dataloader");
   stop();
+}
+
+std::vector<size_t> Dataloader::shuffled_indices(size_t count,
+                                                 std::optional<uint32_t> seed) {
+  std::vector<size_t> indices;
+  indices.reserve(count);
+  for (size_t i = 0; i < count; ++i) {
+    indices.push_back(i);
+  }
+
+  std::mt19937 g(seed ? *seed : std::random_device{}());
+  std::shuffle(indices.begin(), indices.end(), g);
+  return indices;
 }
 
 Dataloader::Iterator::Iterator(Dataloader *loader, size_t batch_idx)
@@ -105,10 +122,10 @@ void Dataloader::start_epoch() {
   stop();
 
   if (shuffle_) {
-    reusex::debug("Shuffling dataset indices");
-    std::random_device rd;
-    std::mt19937 g(rd());
-    std::shuffle(indices_.begin(), indices_.end(), g);
+    reusex::debug("Shuffling dataset indices (seed={})",
+                  seed_ ? std::to_string(*seed_)
+                        : std::string("random_device"));
+    indices_ = shuffled_indices(dataset_size_, seed_);
   }
 
   stop_workers_ = false;

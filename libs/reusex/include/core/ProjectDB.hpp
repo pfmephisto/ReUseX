@@ -5,8 +5,8 @@
 #include <filesystem>
 #include <map>
 #include <memory>
-#include <optional>
 #include <opencv2/core/mat.hpp>
+#include <optional>
 #include <pcl/PolygonMesh.h>
 #include <pcl/TextureMesh.h>
 #include <pcl/point_cloud.h>
@@ -174,16 +174,45 @@ class ProjectDB {
   std::map<int, std::string>
   label_definitions(std::string_view cloudName) const;
 
+  // --- Instances (stable identity) ---
+
+  /// One row of the `instances` table: a spatially-distinct object within an
+  /// instance-label cloud, carrying a stable GUID that survives regeneration.
+  struct InstanceRecord {
+    uint32_t instance_id = 0; ///< Label value in the instance cloud (>= 1).
+    std::string guid;         ///< Stable identity (UUID-v4-like).
+    int semantic_class = -1;  ///< Semantic class this instance belongs to.
+    int point_count = 0;      ///< Number of points in the instance.
+  };
+
+  /// Replace the full set of instance rows for a cloud (transactional).
+  /// Existing rows for the cloud are deleted first; each record's GUID must be
+  /// non-empty and unique across the DB. Throws on empty/duplicate GUID.
+  void save_instances(const std::string &cloud_name,
+                      const std::vector<InstanceRecord> &records);
+
+  /// All instance rows for a cloud, ordered by instance_id.
+  std::vector<InstanceRecord> instances(const std::string &cloud_name) const;
+
+  /// Stable GUID of a single instance.
+  /// @throws std::runtime_error if the cloud or instance does not exist.
+  std::string instance_guid(const std::string &cloud_name,
+                            uint32_t instance_id) const;
+
   // --- Instance ↔ Material Links ---
 
-  /// Link an instance (a label value in an instance-label cloud) to a material
-  /// passport by its document guid. Upserts on (cloud, instance_id).
+  /// Link an instance (a row in the `instances` table) to a material passport
+  /// by its document guid. Upserts on (cloud, instance_id).
+  ///
+  /// Validates referential integrity: the instance must exist in the target
+  /// cloud's `instances` rows and the passport GUID must exist in
+  /// `material_passports`. Throws std::runtime_error otherwise (STANDARDS §5).
   void set_instance_material(std::string_view cloudName, int instanceId,
                              std::string_view materialGuid);
 
   /// Material passport guid linked to an instance, or nullopt if unlinked.
-  std::optional<std::string>
-  instance_material_guid(std::string_view cloudName, int instanceId) const;
+  std::optional<std::string> instance_material_guid(std::string_view cloudName,
+                                                    int instanceId) const;
 
   /// All instance_id → material_guid links for a cloud.
   std::map<int, std::string>
@@ -231,8 +260,8 @@ class ProjectDB {
   /// Update an existing component's mutable fields (name, type, parent_id,
   /// confidence, metadata, notes), matched by its immutable guid. Geometry is
   /// left untouched. Throws if no component has the given guid.
-  void
-  update_building_component_by_guid(const geometry::BuildingComponent &component);
+  void update_building_component_by_guid(
+      const geometry::BuildingComponent &component);
   geometry::BuildingComponent building_component(std::string_view name) const;
   bool has_building_component(std::string_view name) const;
   void delete_building_component(std::string_view name);

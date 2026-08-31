@@ -15,6 +15,7 @@
 #include <processing_observer.hpp>
 #include <register.hpp>
 #include <set.hpp>
+#include <validate.hpp>
 #include <view.hpp>
 
 #include <reusex/core/logging.hpp>
@@ -177,6 +178,7 @@ int main(int argc, char **argv) {
 
   setup_subcommand_info(app, opt);
   setup_subcommand_log(app, opt);
+  setup_subcommand_validate(app, opt);
   setup_subcommand_view(app, opt);
 
   app.require_subcommand(/* min */ 0, /* max */ 2);

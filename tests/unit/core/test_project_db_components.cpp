@@ -62,7 +62,7 @@ TEST_CASE("ProjectDB latest schema version on fresh DB",
           "[projectdb][components]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
-  REQUIRE(db.schema_version() == 9);
+  REQUIRE(db.schema_version() == 10);
 }
 
 TEST_CASE("ProjectDB building component save/load round-trip",

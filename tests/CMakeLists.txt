@@ -14,6 +14,7 @@ message(STATUS "Configuring unit tests...")
 find_package(Catch2 3 REQUIRED)
 find_package(fmt CONFIG REQUIRED)
 find_package(OpenSSL REQUIRED)
+find_package(SQLite3 REQUIRED)
 
 # Note: ENABLE_COVERAGE option is now set in main CMakeLists.txt
 # Coverage flags are automatically inherited from parent scope
@@ -36,6 +37,7 @@ target_link_libraries(reusex_unit_tests
         Catch2::Catch2WithMain
         fmt::fmt
         OpenSSL::Crypto
+        SQLite::SQLite3
 )
 
 # Include ReUseX headers from new location

@@ -22,6 +22,10 @@ struct SubcommandMeshOptions {
   double search_threshold = 0.60;
   double new_plane_offset = 0.25;
 
+  double time_limit_seconds = 120.0; ///< MIP solver time limit (s), issue #212
+  double alpha = 0.04;               ///< MIP objective wall-weight, issue #212
+  size_t max_cells = 500;            ///< Cell complex guard, issue #213
+
   std::string filter_expr; ///< Filter expression to limit processing
 };
 

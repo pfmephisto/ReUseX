@@ -18,6 +18,7 @@
 #include <range/v3/view/zip.hpp>
 
 #include <map>
+#include <optional>
 
 using Vd = reusex::geometry::CellComplex::Vertex;
 using Fd = reusex::geometry::CellComplex::Vertex;
@@ -33,7 +34,8 @@ CellComplex::CellComplex(
     std::optional<
         std::function<void(size_t, std::vector<std::array<double, 3>> const &,
                            std::vector<int> const &)>>
-        viz_func)
+        viz_func,
+    size_t max_cells)
     : n_rooms(0), n_walls(pairs.size()) {
 
   using EPECK = CGAL::Exact_predicates_exact_constructions_kernel;
@@ -72,16 +74,24 @@ CellComplex::CellComplex(
   Iso_rectangle rect(Point_2(min_xy[0], min_xy[1]),
                      Point_2(max_xy[0], max_xy[1]));
 
-  auto make_segment = ranges::views::transform([&rect](auto const &v4d) {
+  // Attempt to build the clipped ground-plane segment for one plane. Returns
+  // nullopt when the plane does not behave as a vertical wall (does not
+  // intersect z=0, or clips to nothing) so the caller can drop it and report
+  // a summary instead of aborting on the first bad plane (issue #213).
+  auto try_make_segment =
+      [&rect](Eigen::Vector4d const &v4d) -> std::optional<Segment> {
     auto const plane = Plane_3(v4d[0], v4d[1], v4d[2], v4d[3]);
 
-    // Intersect with groud plane z=0
+    // Intersect with ground plane z=0
     const Plane_3 ground_plane(0, 0, 1, 0);
     auto intersection = CGAL::intersection(ground_plane, plane);
     if (!intersection)
-      throw std::runtime_error("Wall plane does not intersect ground plane");
+      return std::nullopt; // horizontal / non-vertical plane
 
-    const auto line_3d = std::get<Line_3>(intersection.value());
+    const auto *line_3d_ptr = std::get_if<Line_3>(&intersection.value());
+    if (!line_3d_ptr)
+      return std::nullopt;
+    const auto line_3d = *line_3d_ptr;
     const Point_2 p(line_3d.point().x(), line_3d.point().y());
     const Direction_2 d(line_3d.direction().dx(), line_3d.direction().dy());
     const Line_2 line_2d(p, d);
@@ -89,23 +99,42 @@ CellComplex::CellComplex(
     // Clip line to bounding rectangle
     auto clipped = CGAL::intersection(rect, line_2d);
     if (!clipped)
-      throw std::runtime_error("Clipping line resulted in empty intersection");
+      return std::nullopt;
 
     if (!std::holds_alternative<Segment>(clipped.value()))
-      throw std::runtime_error("Clipped line is not a segment");
+      return std::nullopt;
 
     return std::get<Segment>(clipped.value());
-  });
-
-  auto select = ranges::views::transform(
-      [&planes_vec](auto const &id) { return planes_vec[id]; });
-
-  auto segments = verticals | select | make_segment;
+  };
 
   Arrangement arr;
   std::unordered_map<Curve_handle, int> ch_map{};
-  for (auto const &[seg, id] : ranges::view::zip(segments, verticals)) {
-    ch_map[insert(arr, seg)] = id;
+  size_t dropped_non_vertical = 0;
+  int example_dropped_plane = -1;
+  size_t inserted_verticals = 0;
+  for (auto const &id : verticals) {
+    auto seg = try_make_segment(planes_vec[id]);
+    if (!seg) {
+      ++dropped_non_vertical;
+      if (example_dropped_plane < 0)
+        example_dropped_plane = static_cast<int>(id);
+      continue;
+    }
+    ch_map[insert(arr, *seg)] = static_cast<int>(id);
+    ++inserted_verticals;
+  }
+
+  // Report dropped non-vertical planes once, with a count and an example
+  // (issue #213). This is loud (§5) because dropping planes silently changes
+  // the reconstruction.
+  if (dropped_non_vertical > 0) {
+    const auto &ex = planes_vec[example_dropped_plane];
+    reusex::warn(
+        "CellComplex: dropped {} plane(s) tagged vertical that did not "
+        "intersect the ground plane (kept {} of {}). Example plane {}: "
+        "[{:.3f}, {:.3f}, {:.3f}, {:.3f}].",
+        dropped_non_vertical, inserted_verticals, verticals.size(),
+        example_dropped_plane, ex[0], ex[1], ex[2], ex[3]);
   }
 
   // Visualize arrangement
@@ -222,6 +251,30 @@ CellComplex::CellComplex(
     }
   }
 
+  // Cell-count guard (issue #213). The number of volumetric cells is
+  // (# bounded 2D arrangement faces) x (# horizontal sections). Fail fast
+  // with an actionable message before the ~quadratic cell construction and
+  // the intractable MIP that would follow.
+  const size_t bounded_faces = face_map.size();
+  const size_t n_sections =
+      sorted_floors.empty() ? 0 : sorted_floors.size() - 1;
+  const size_t projected_cells = bounded_faces * n_sections;
+  reusex::info("Arrangement statistics: {} vertical planes in ({} kept), "
+               "{} horizontal planes, {} bounded faces, {} sections => "
+               "{} projected cells",
+               verticals.size(), inserted_verticals, sorted_floors.size(),
+               bounded_faces, n_sections, projected_cells);
+  if (projected_cells > max_cells) {
+    throw std::runtime_error(fmt::format(
+        "CellComplex: projected cell count {} exceeds max_cells {} "
+        "({} bounded arrangement faces x {} horizontal sections; "
+        "{} vertical planes). The plane arrangement is over-fragmented; "
+        "consider stronger plane merging, --filter to a subregion, or "
+        "raising the limit.",
+        projected_cells, max_cells, bounded_faces, n_sections,
+        inserted_verticals));
+  }
+
   reusex::trace("Creating cells");
   for (size_t i = 0; i < sorted_floors.size() - 1; ++i) {
     const auto id1 = sorted_floors[i];
@@ -254,7 +307,15 @@ CellComplex::CellComplex(
 
         auto self = he.twin()->twin();
         auto twin = he.twin();
-        assert(twin != self);
+        // Runtime check (was assert, which vanishes in Release, issue #213).
+        // A halfedge equal to its own twin signals corrupt / non-manifold
+        // arrangement topology that would produce degenerate vertical faces.
+        if (twin == self)
+          throw std::runtime_error(fmt::format(
+              "CellComplex: non-manifold topology in horizontal section {} "
+              "(halfedge equals its own twin). The plane arrangement is "
+              "degenerate; check for duplicate or near-coincident planes.",
+              i));
 
         cx += he.source()->point().x();
         cy += he.source()->point().y();

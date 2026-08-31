@@ -119,17 +119,24 @@ class CellComplex
 
   CellComplex() = delete;
 
+  /// Upper bound on the number of cells the arrangement may generate before
+  /// construction aborts with a descriptive error (issue #213). The 2D
+  /// arrangement grows ~quadratically with the vertical-plane count, so
+  /// over-fragmented input can explode the downstream MIP. A run that would
+  /// exceed this fails fast instead of hanging in the solver.
+  static constexpr size_t default_max_cells = 500;
+
   CellComplex(
       std::vector<Eigen::Vector4d, Eigen::aligned_allocator<Eigen::Vector4d>>
           &planes,
-      std::vector<size_t> &verticals,
-      const std::vector<size_t> &horizontals,
+      std::vector<size_t> &verticals, const std::vector<size_t> &horizontals,
       std::vector<std::pair<size_t, size_t>> &pairs,
       std::array<double, 2> min_xy, std::array<double, 2> max_xy,
       std::optional<
           std::function<void(size_t, std::vector<std::array<double, 3>> const &,
                              std::vector<int> const &)>>
-          viz_func = std::nullopt);
+          viz_func = std::nullopt,
+      size_t max_cells = default_max_cells);
 
   // Per-face coverage values are written to the "f:support_probability"
   // vertex property map and queried from there by downstream code.

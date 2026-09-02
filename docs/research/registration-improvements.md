@@ -374,3 +374,130 @@ before/after deltas stay real; every phase reports `flatness_rms`/`thickness_p90
   https://github.com/rising-turtle/graph_slam/blob/master/gtsam/test/testOrientedPlane3Factor.cpp
 - Efficient/Adaptive GNC for PGO: https://arxiv.org/abs/2310.06765 ·
   https://arxiv.org/pdf/2308.11444
+
+---
+
+## 6. Measured results (2026-09-02, current pipeline)
+
+Everything above was written against the #221 sweep numbers. Re-running the
+whole matrix on the **current** pipeline (after the #218–#222 reconstruction /
+segmentation work) changes the baselines materially, so the numbers below
+supersede the "17.7 mm" targets in the executive summary and in issue #225.
+
+All configs measured identically (fresh copy → pose stage → `create clouds` →
+`create planes` → `analyze quality` / `analyze accuracy`), deterministic seeds.
+
+### Office scan `afb3234950` (238 frames) — GT-free flatness
+
+| pose stage | flatness_rms | thickness_p90 |
+|---|---|---|
+| none (baseline) | 12.50 mm | 20.42 mm |
+| `register` (JPR: `--prior-weight 0.1 --neighbor-window 10 --iterations 50`) | **8.68 mm** | 14.42 mm |
+| `optimize` (old defaults, unweighted) | 12.60 mm | 20.47 mm |
+| `optimize` (new defaults, inlier-weighted) | 11.72 mm | 19.12 mm |
+| `optimize` (old) → `register` | 9.24 mm | 15.16 mm |
+| `optimize` (dense) → `register` | 10.00 mm | 16.17 mm |
+
+### MuSHRoom honka (1596 frames) — laser GT F-score @ 50 mm + flatness
+
+| pose stage | GT F-score | flatness_rms |
+|---|---|---|
+| none (baseline) | 0.7950 | 27.98 mm |
+| `register` (JPR) | 0.7556 | (flatness improves, **GT worsens**) |
+| `optimize` (old defaults, unweighted) | 0.7925 | 27.82 mm |
+| `optimize` dense, **un**weighted | 0.7591 | 29.44 mm |
+| `optimize` dense, inlier-**weighted** | 0.7922 | 27.09 mm |
+| `optimize` (new defaults, weighted) | **0.7958** | **24.91 mm** |
+| `optimize --loop-closure` (aggressive) | 0.7701 | 29.61 mm |
+| `optimize --loop-closure` (conservative) | 0.7889 | 27.36 mm |
+
+### Findings
+
+1. **The 17.7 mm target is obsolete.** The pipeline improvements moved JPR from
+   17.7 mm → 8.68 mm on the office scan. JPR (local point-to-plane) now
+   dominates *GT-free flatness* — the "pairwise energy provably saturates"
+   premise no longer holds at these magnitudes.
+
+2. **JPR trades laser GT accuracy for flatness.** On honka (which has good input
+   poses and a Faro reference) JPR *lowers* the GT F-score 0.795 → 0.756 while
+   improving flatness. Optimising the pairwise objective warps global geometry.
+
+3. **"Denser plane extraction" (the #225 next-lever) is counterproductive on its
+   own** — measured, not assumed: naive dense extraction dropped honka GT
+   0.795 → 0.759. Root cause: every `OrientedPlane3Factor` carried equal
+   authority, so the many small/weak planes dense extraction adds warped the
+   trajectory. The bottleneck was landmark *reliability*, not count.
+
+4. **Fix — per-observation inlier weighting (shipped, B).** Scaling each plane
+   factor's sigma by `sqrt(ref/inliers)` (self-calibrating on the median inlier
+   count) turns dense extraction from harmful into helpful: honka dense goes
+   0.759 → 0.792, and the new mid-density weighted defaults reach 0.7958 GT
+   (> baseline 0.7950, > JPR 0.756) **and** 24.91 mm flatness (< baseline
+   27.98). `optimize` is now the only pose stage that improves GT-free flatness
+   *without* degrading laser GT.
+
+5. **`optimize` → `register` chaining does not beat JPR alone** on office
+   (9.24 / 10.00 vs 8.68). On already-globally-consistent scans, prepending the
+   global stage only gives JPR a worse local starting point. Not shipped as a
+   default; both stages remain independently invocable.
+
+6. **P2 loop edges (shipped infrastructure, C) do not help the current benchmark
+   scans** — because those scans have no wide-baseline drift to fix. Detection
+   is fast and correct (honka: ~4k candidate edges in ~20 s), but on honka the
+   edges are ~neutral-to-slightly-negative on GT (0.795 → ~0.789), and
+   over-confident edge sigmas actively hurt (0.770). Loop closure is OFF by
+   default with conservative defaults. Its payoff requires (a) a genuinely
+   loopy/drifting scan with GT — see #221 Tier 2 (ARKitScenes / TLS importer) —
+   and/or (b) the learned-matcher upgrade (EfficientLoFTR / LightGlue+ALIKED)
+   the `LoopClosure` matcher interface is built to accept.
+
+### Loop-closure detection follow-up (2026-09-02)
+
+Prompted by the office scan actually having start→end drift that no loop closure
+would align. Findings, all measured:
+
+1. **Spatial (pose-based) proposal is structurally blind to drift loops.** It
+   shortlists pairs by camera-centre proximity *in the seed poses*, but drift
+   pulls the true start/end partners far apart there, so that pair is never
+   proposed. Fixed with pose-INDEPENDENT proposal: an appearance bag-of-words
+   over the frames' ORB descriptors, plus an `exhaustive` all-pairs mode, plus
+   `auto` (exhaustive on small scans, appearance on large). On the office scan
+   the BoW shortlist *still* misses the loop under indoor perceptual aliasing,
+   so `auto` correctly falls back to exhaustive there.
+
+2. **Detection was the wrong suspect; verification was the bottleneck.**
+   Exhaustive proposal tried all 17k office pairs and accepted 0 edges at the
+   old thresholds. Loosening ORB verification (3000 features, 0.10 m 3D-3D
+   threshold — iPad depth is noisy) surfaced a genuine start/end loop:
+   frame-gap ~215, ~90 RANSAC inliers, ~12 m disagreement with the drifted seed.
+
+3. **GNC discards drift-correcting loop edges by construction.** A loop edge
+   that corrects large drift has a huge residual at the drifted seed, which
+   GNC-TLS classifies as an outlier and zeros — so `--loop-closure` alone (GNC)
+   detects but does not apply big corrections. `--loop-trust` (GNC known-inlier
+   + Huber) + a looser `--odometry-sigma-trans` lets it flow.
+
+4. **Two safeguards make detection usable:** PCM (keep the largest mutually
+   consistent edge set — rejects aliasing false positives) and a LOWER
+   seed-disagreement gate (drop edges that already agree with the seed, so loop
+   closure is a no-op on well-aligned scans — recovered honka GT 0.73 → 0.79).
+
+5. **Open limit:** on a GT-less scan with repeated structure, applying the
+   detected loop (`--loop-trust`) currently *degrades* the GT-free flatness/
+   thickness metrics on the office scan (17.9 / 29.0 mm vs 12.5 / 20.4) with a
+   ~16 m correction. Whether that is overshoot/aliasing or a globally-correct
+   alignment the *local* metric penalises is unknowable without absolute GT.
+   Safe automatic application needs (a) GT to validate (#221 Tier 2) and (b) a
+   discriminative learned matcher (EfficientLoFTR / LightGlue+ALIKED) to cut the
+   aliasing false-positive rate the ORB front-end suffers on repetitive interiors.
+
+### Recommended next steps (revised)
+
+- **#221 Tier 2 GT importer** is now the critical path: every back-end lever
+  (P2 loop edges, aggressive plane weighting) is only measurable on a scan that
+  actually drifts *and* has absolute GT. The current fixtures are already
+  near the sensor floor, so they cannot show the wins these levers target.
+- **Learned matcher** for `LoopClosure` (commercial-safe EfficientLoFTR or
+  LightGlue+ALIKED via the TensorRT backend) once (1) is in place.
+- Keep `register` for flatness-only work and `optimize` for GT-safe global
+  refinement; document the trade-off (done in the CLI help).

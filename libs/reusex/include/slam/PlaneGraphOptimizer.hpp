@@ -31,6 +31,7 @@
 
 #include "reusex/segmentation/Surfel.hpp"
 #include "reusex/segmentation/surfel_extraction.hpp"
+#include "reusex/slam/LoopClosure.hpp"
 
 #include <vector>
 
@@ -44,8 +45,11 @@ namespace reusex::geometry {
 /// here (STANDARDS.md §4); CLI flags mirror them.
 struct PlaneGraphOptions {
   // --- Per-frame plane detection (sequential RANSAC on frame surfels) -------
-  int max_planes_per_frame = 4;     ///< keep at most this many planes per frame
-  int min_plane_inliers = 200;      ///< reject planes with fewer inliers
+  // "Mid-density" defaults: measured to beat the old conservative values
+  // (4 / 200 / obs 5) on both office flatness and honka laser GT once
+  // per-observation inlier weighting (plane_weight_by_inliers) is on.
+  int max_planes_per_frame = 6;     ///< keep at most this many planes per frame
+  int min_plane_inliers = 120;      ///< reject planes with fewer inliers
   float ransac_distance = 0.02f;    ///< inlier point-to-plane distance (m)
   float ransac_normal_angle = 20.f; ///< inlier normal agreement threshold (deg)
   int ransac_iterations = 200;      ///< RANSAC hypotheses per plane
@@ -54,7 +58,7 @@ struct PlaneGraphOptions {
   float assoc_normal_angle = 10.f; ///< max normal angle to merge (deg)
   float assoc_distance = 0.10f;    ///< max plane-offset difference to merge (m)
   int min_landmark_observations =
-      5; ///< landmark must be seen by >= this many frames
+      4; ///< landmark must be seen by >= this many frames
   /// Overlap gate: two observations may only merge into the same landmark if
   /// their in-plane footprints overlap. The in-plane gap between their inlier
   /// centroids must be below (sum of the two footprint radii + this margin).
@@ -94,6 +98,18 @@ struct PlaneGraphOptions {
   float underconstrained_odom_scale = 0.25f;
   float plane_sigma_normal = 0.24f;   ///< plane-normal measurement std (rad)
   float plane_sigma_distance = 0.19f; ///< plane-distance measurement std (m)
+  /// Per-observation inlier weighting of the plane factors. A plane fit from
+  /// few surfels is far less reliable than one fit from thousands, yet both
+  /// entered the graph with identical noise — so denser extraction (which adds
+  /// mostly small, weak planes) previously WARPED poses instead of helping
+  /// (measured: honka GT 0.795 -> 0.759). When enabled, each factor's sigmas
+  /// are scaled by sqrt(ref / inliers), where `ref` is the median detection
+  /// inlier count (self-calibrating across sampling settings), clamped to
+  /// [plane_weight_min, plane_weight_max]. Well-supported planes pull harder;
+  /// weak ones are down-weighted rather than trusted equally.
+  bool plane_weight_by_inliers = true;
+  float plane_weight_min = 0.5f;  ///< min sigma scale (strongest planes)
+  float plane_weight_max = 3.0f;  ///< max sigma scale (weakest planes)
   float prior_sigma_rot = 0.001f; ///< first-pose gauge prior rotation std (rad)
   float prior_sigma_trans =
       0.001f; ///< first-pose gauge prior translation std (m)
@@ -110,6 +126,22 @@ struct PlaneGraphOptions {
   unsigned seed = 42;       ///< RANSAC seed (STANDARDS.md §6)
 
   SurfelExtractionParams surfel; ///< surfel extraction settings
+
+  /// P2 wide-baseline loop closure (off by default). When enabled,
+  /// optimize_sensor_poses detects loop edges from the RGB-D frames and feeds
+  /// them into the same GNC graph as robust BetweenFactor<Pose3> constraints.
+  LoopClosureOptions loop_closure;
+  /// How loop-edge factors are treated by the solver:
+  ///   false (default, SAFE): loop edges are GNC candidates — a wrong edge is
+  ///     down-weighted. But GNC also zeros a genuine LARGE-drift edge (its
+  ///     residual at the drifted seed looks like an outlier), so this rarely
+  ///     applies big corrections. Good when loops are near the seed estimate.
+  ///   true (AGGRESSIVE): loop edges are GNC known-inliers with a Huber kernel,
+  ///     so large-drift corrections actually flow — but a perceptual-aliasing
+  ///     false positive can then warp the trajectory. Only safe with a
+  ///     discriminative matcher / consistency filtering. Also loosen odometry
+  ///     (--odometry-sigma-trans) so the drift can redistribute.
+  bool loop_edges_trusted = false;
 };
 
 /// Summary statistics from a plane-graph optimization run.
@@ -128,6 +160,7 @@ struct PlaneGraphResult {
   int landmarks_rejected_degenerate =
       0;                           ///< landmarks dropped as near-collinear
   int underconstrained_frames = 0; ///< frames whose odometry was tightened
+  int loop_edges = 0;              ///< wide-baseline loop BetweenFactors added
 };
 
 /// Plane-landmark pose-graph optimizer operating purely in memory.
@@ -138,7 +171,14 @@ class PlaneGraphOptimizer {
   /// Globally optimize the world poses of the given frames in place (each
   /// FrameSurfels::world_pose is updated). Does not touch any database. When
   /// too few plane landmarks are found the poses are left unchanged.
-  PlaneGraphResult optimize(std::vector<FrameSurfels> &frames) const;
+  ///
+  /// @param frames      per-frame surfels + seed poses (mutated in place)
+  /// @param loop_edges  optional wide-baseline relative-pose constraints (P2);
+  ///                    added as robust BetweenFactor<Pose3> edges the GNC
+  ///                    solver can down-weight. Indices must refer to @p
+  ///                    frames.
+  PlaneGraphResult optimize(std::vector<FrameSurfels> &frames,
+                            const std::vector<LoopEdge> &loop_edges = {}) const;
 
     private:
   PlaneGraphOptions options_;

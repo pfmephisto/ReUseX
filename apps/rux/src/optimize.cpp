@@ -38,9 +38,16 @@ DESCRIPTION:
   Optimized poses overwrite the stored transforms in place — re-import the
   RTABMap database to recover the originals, or use --dry-run to preview.
 
+  Plane factors are weighted by their inlier support (a wall fit from thousands
+  of surfels pulls harder than a small patch); disable with
+  --no-plane-inlier-weight. Optionally, wide-baseline loop-closure edges (P2)
+  can be detected from the RGB-D frames (ORB matches + stored depth -> RANSAC
+  relative pose) and added as robust factors via --loop-closure.
+
 EXAMPLES:
-  rux optimize                        # Defaults (GNC on, 100 LM iters)
+  rux optimize                        # Defaults (GNC on, inlier-weighted planes)
   rux optimize --dry-run              # Report statistics without writing
+  rux optimize --loop-closure         # Add wide-baseline loop edges (P2)
   rux optimize --min-observations 3 --assoc-distance 0.15
   rux optimize --no-gnc               # Plain Levenberg-Marquardt (no robustness)
 
@@ -118,6 +125,17 @@ NOTES:
   sub->add_option("--plane-sigma-distance", opt->plane_sigma_distance,
                   "Plane-distance measurement std (m)")
       ->default_val(opt->plane_sigma_distance);
+  sub->add_flag("--no-plane-inlier-weight", opt->no_plane_inlier_weight,
+                "Disable per-observation inlier weighting of plane factors "
+                "(weight all planes equally regardless of support)");
+  sub->add_option("--plane-weight-min", opt->plane_weight_min,
+                  "Min plane-factor sigma scale (strongest, best-supported "
+                  "planes)")
+      ->default_val(opt->plane_weight_min);
+  sub->add_option("--plane-weight-max", opt->plane_weight_max,
+                  "Max plane-factor sigma scale (weakest, least-supported "
+                  "planes)")
+      ->default_val(opt->plane_weight_max);
   sub->add_option("--prior-sigma-rot", opt->prior_sigma_rot,
                   "First-pose gauge prior rotation std (rad)")
       ->default_val(opt->prior_sigma_rot);
@@ -136,6 +154,61 @@ NOTES:
       ->default_val(opt->iterations);
   sub->add_option("--seed", opt->seed, "RANSAC seed (determinism)")
       ->default_val(opt->seed);
+
+  // --- Wide-baseline loop closure (P2) ---
+  sub->add_flag("--loop-closure", opt->loop_closure,
+                "Detect wide-baseline loop edges (ORB + depth -> RANSAC "
+                "relative pose) and add them as robust factors to the graph");
+  sub->add_option(
+         "--loop-proposal", opt->loop_proposal,
+         "Loop-candidate proposal: auto (exhaustive on small scans, "
+         "else appearance), appearance (pose-independent bag-of-words), "
+         "spatial (seed-pose proximity; only for good poses), or "
+         "exhaustive (all pairs; small scans)")
+      ->default_val(opt->loop_proposal)
+      ->check(CLI::IsMember({"auto", "appearance", "spatial", "exhaustive"}));
+  sub->add_option("--loop-min-frame-gap", opt->loop_min_frame_gap,
+                  "Only pair frames at least this far apart in index")
+      ->default_val(opt->loop_min_frame_gap);
+  sub->add_option("--loop-max-distance", opt->loop_max_distance,
+                  "Max seed camera-centre distance to propose a loop pair (m)")
+      ->default_val(opt->loop_max_distance);
+  sub->add_option("--loop-max-view-angle", opt->loop_max_view_angle,
+                  "Max viewing-direction angle to propose a loop pair (deg)")
+      ->default_val(opt->loop_max_view_angle);
+  sub->add_option("--loop-max-candidates", opt->loop_max_candidates,
+                  "Max loop candidates per frame (nearest first)")
+      ->default_val(opt->loop_max_candidates);
+  sub->add_option("--loop-min-inliers", opt->loop_min_inliers,
+                  "Reject a loop edge below this many RANSAC inliers")
+      ->default_val(opt->loop_min_inliers);
+  sub->add_option("--loop-max-features", opt->loop_max_features,
+                  "ORB features per frame for loop matching")
+      ->default_val(opt->loop_max_features);
+  sub->add_option("--loop-ratio-test", opt->loop_ratio_test,
+                  "Lowe ratio threshold for loop descriptor matches")
+      ->default_val(opt->loop_ratio_test);
+  sub->add_option("--loop-ransac-inlier-dist", opt->loop_ransac_inlier_dist,
+                  "3D-3D RANSAC inlier threshold for loop relative pose (m)")
+      ->default_val(opt->loop_ransac_inlier_dist);
+  sub->add_option(
+         "--loop-max-seed-disagreement", opt->loop_max_seed_disagreement,
+         "Reject a loop edge whose translation disagrees with the seed "
+         "poses by more than this (m; <=0 disables)")
+      ->default_val(opt->loop_max_seed_disagreement);
+  sub->add_option(
+         "--loop-min-seed-disagreement", opt->loop_min_seed_disagreement,
+         "Keep only loop edges that disagree with the seed poses by at "
+         "least this (m) — drops redundant edges that would just add "
+         "noise to already-good poses (0 keeps all)")
+      ->default_val(opt->loop_min_seed_disagreement);
+  sub->add_flag(
+      "--loop-trust", opt->loop_trust,
+      "Trust loop edges as GNC known-inliers (+ Huber) so large-drift "
+      "corrections actually apply. Needs PCM / a discriminative "
+      "matcher to be safe, and looser --odometry-sigma-trans");
+  sub->add_flag("--loop-no-pcm", opt->loop_no_pcm,
+                "Disable pairwise-consistency (PCM) filtering of loop edges");
 
   // --- Surfel extraction ---
   sub->add_option("--surfel-voxel", opt->surfel_voxel,
@@ -195,6 +268,9 @@ int run_subcommand_optimize(SubcommandOptimizeOptions const &opt,
     options.underconstrained_odom_scale = opt.underconstrained_odom_scale;
     options.plane_sigma_normal = opt.plane_sigma_normal;
     options.plane_sigma_distance = opt.plane_sigma_distance;
+    options.plane_weight_by_inliers = !opt.no_plane_inlier_weight;
+    options.plane_weight_min = opt.plane_weight_min;
+    options.plane_weight_max = opt.plane_weight_max;
     options.prior_sigma_rot = opt.prior_sigma_rot;
     options.prior_sigma_trans = opt.prior_sigma_trans;
     options.use_gnc = !opt.no_gnc;
@@ -206,6 +282,28 @@ int run_subcommand_optimize(SubcommandOptimizeOptions const &opt,
     options.surfel.sampling_factor = opt.sampling_factor;
     options.surfel.confidence_threshold = opt.confidence_threshold;
     options.surfel.voxel_size = opt.surfel_voxel;
+    options.loop_closure.enable = opt.loop_closure;
+    options.loop_closure.proposal =
+        opt.loop_proposal == "spatial"
+            ? reusex::geometry::LoopProposal::spatial
+            : (opt.loop_proposal == "exhaustive"
+                   ? reusex::geometry::LoopProposal::exhaustive
+                   : (opt.loop_proposal == "appearance"
+                          ? reusex::geometry::LoopProposal::appearance
+                          : reusex::geometry::LoopProposal::automatic));
+    options.loop_closure.min_frame_gap = opt.loop_min_frame_gap;
+    options.loop_closure.max_candidate_distance = opt.loop_max_distance;
+    options.loop_closure.max_view_angle = opt.loop_max_view_angle;
+    options.loop_closure.max_candidates_per_frame = opt.loop_max_candidates;
+    options.loop_closure.min_match_inliers = opt.loop_min_inliers;
+    options.loop_closure.max_features = opt.loop_max_features;
+    options.loop_closure.ratio_test = opt.loop_ratio_test;
+    options.loop_closure.ransac_inlier_dist = opt.loop_ransac_inlier_dist;
+    options.loop_closure.max_seed_disagreement = opt.loop_max_seed_disagreement;
+    options.loop_closure.min_seed_disagreement = opt.loop_min_seed_disagreement;
+    options.loop_closure.pcm = !opt.loop_no_pcm;
+    options.loop_edges_trusted = opt.loop_trust;
+    options.loop_closure.seed = opt.seed;
 
     int logId = db.log_pipeline_start(
         "pose_optimization_plane_graph",
@@ -227,6 +325,9 @@ int run_subcommand_optimize(SubcommandOptimizeOptions const &opt,
     spdlog::info("Factor-graph error {:.4f} -> {:.4f}, max pose shift {:.4f} m",
                  result.initial_error, result.final_error,
                  result.max_pose_shift);
+    if (opt.loop_closure)
+      spdlog::info("Loop closure: {} wide-baseline edges added to the graph",
+                   result.loop_edges);
 
     if (result.landmarks == 0) {
       spdlog::warn("No plane landmarks reached the minimum observation count; "

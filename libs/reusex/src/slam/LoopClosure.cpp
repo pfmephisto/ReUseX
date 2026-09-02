@@ -23,9 +23,13 @@
 #include <Eigen/Geometry>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstdint>
 #include <limits>
 #include <random>
+#include <set>
+#include <utility>
 
 namespace reusex::geometry {
 
@@ -160,6 +164,221 @@ std::vector<int> ransac_rigid(const Eigen::Matrix3Xd &src,
   return best_inliers;
 }
 
+// Hamming distance between two 32-byte (256-bit) ORB descriptors.
+inline int hamming32(const uchar *a, const uchar *b) {
+  const auto *x = reinterpret_cast<const std::uint64_t *>(a);
+  const auto *y = reinterpret_cast<const std::uint64_t *>(b);
+  int d = 0;
+  for (int k = 0; k < 4; ++k)
+    d += __builtin_popcountll(x[k] ^ y[k]);
+  return d;
+}
+
+/// Build a binary visual vocabulary (k-majority, the Hamming-space analogue of
+/// k-means) from a random sample of the frames' ORB descriptors. Returns a
+/// K x 32 CV_8U matrix of word centres. K may shrink if too few samples exist.
+cv::Mat build_vocabulary(const std::vector<FrameFeatures> &feats,
+                         const LoopClosureOptions &opt, std::mt19937 &rng) {
+  std::vector<cv::Mat> sample; // each row a 1x32 descriptor
+  for (const auto &f : feats) {
+    if (f.descriptors.empty())
+      continue;
+    const int rows = f.descriptors.rows;
+    const int take = std::min(rows, opt.vocab_sample_per_frame);
+    std::vector<int> idx(rows);
+    for (int r = 0; r < rows; ++r)
+      idx[r] = r;
+    std::shuffle(idx.begin(), idx.end(), rng);
+    for (int t = 0; t < take; ++t)
+      sample.push_back(f.descriptors.row(idx[t]));
+  }
+  int K = std::min<int>(opt.vocab_size, static_cast<int>(sample.size()));
+  if (K < 2)
+    return cv::Mat();
+  cv::Mat samples(static_cast<int>(sample.size()), 32, CV_8U);
+  for (size_t s = 0; s < sample.size(); ++s)
+    sample[s].copyTo(samples.row(static_cast<int>(s)));
+
+  // Init centres from distinct random samples.
+  std::vector<int> order(samples.rows);
+  for (int r = 0; r < samples.rows; ++r)
+    order[r] = r;
+  std::shuffle(order.begin(), order.end(), rng);
+  cv::Mat vocab(K, 32, CV_8U);
+  for (int c = 0; c < K; ++c)
+    samples.row(order[c]).copyTo(vocab.row(c));
+
+  std::vector<int> assign(samples.rows, 0);
+  for (int it = 0; it < std::max(1, opt.vocab_iterations); ++it) {
+    // Assign each sample to the nearest word.
+    for (int s = 0; s < samples.rows; ++s) {
+      const uchar *sp = samples.ptr<uchar>(s);
+      int best = 0, bestd = 1 << 30;
+      for (int c = 0; c < K; ++c) {
+        const int d = hamming32(sp, vocab.ptr<uchar>(c));
+        if (d < bestd) {
+          bestd = d;
+          best = c;
+        }
+      }
+      assign[s] = best;
+    }
+    // Recompute each word by per-bit majority vote of its members.
+    std::vector<std::array<int, 256>> ones(K);
+    std::vector<int> cnt(K, 0);
+    for (auto &a : ones)
+      a.fill(0);
+    for (int s = 0; s < samples.rows; ++s) {
+      const int c = assign[s];
+      ++cnt[c];
+      const uchar *sp = samples.ptr<uchar>(s);
+      for (int byte = 0; byte < 32; ++byte)
+        for (int bit = 0; bit < 8; ++bit)
+          if (sp[byte] & (1 << bit))
+            ++ones[c][byte * 8 + bit];
+    }
+    for (int c = 0; c < K; ++c) {
+      if (cnt[c] == 0)
+        continue; // keep an empty word as-is
+      uchar *vp = vocab.ptr<uchar>(c);
+      for (int byte = 0; byte < 32; ++byte) {
+        uchar v = 0;
+        for (int bit = 0; bit < 8; ++bit)
+          if (2 * ones[c][byte * 8 + bit] > cnt[c])
+            v |= (1 << bit);
+        vp[byte] = v;
+      }
+    }
+  }
+  return vocab;
+}
+
+/// TF-IDF, L2-normalised bag-of-words histogram per frame over `vocab`.
+std::vector<std::vector<float>>
+bow_histograms(const std::vector<FrameFeatures> &feats, const cv::Mat &vocab) {
+  const int N = static_cast<int>(feats.size());
+  const int K = vocab.rows;
+  std::vector<std::vector<float>> hist(N, std::vector<float>(K, 0.0f));
+  std::vector<int> df(K, 0); // document frequency per word
+  for (int i = 0; i < N; ++i) {
+    const auto &d = feats[i].descriptors;
+    std::vector<char> seen(K, 0);
+    for (int r = 0; r < d.rows; ++r) {
+      const uchar *dp = d.ptr<uchar>(r);
+      int best = 0, bestd = 1 << 30;
+      for (int c = 0; c < K; ++c) {
+        const int hd = hamming32(dp, vocab.ptr<uchar>(c));
+        if (hd < bestd) {
+          bestd = hd;
+          best = c;
+        }
+      }
+      hist[i][best] += 1.0f;
+      seen[best] = 1;
+    }
+    for (int c = 0; c < K; ++c)
+      if (seen[c])
+        ++df[c];
+  }
+  std::vector<float> idf(K, 0.0f);
+  for (int c = 0; c < K; ++c)
+    idf[c] = std::log((static_cast<float>(N) + 1.0f) /
+                      (static_cast<float>(df[c]) + 1.0f));
+  for (int i = 0; i < N; ++i) {
+    double norm = 0.0;
+    for (int c = 0; c < K; ++c) {
+      hist[i][c] *= idf[c];
+      norm += static_cast<double>(hist[i][c]) * hist[i][c];
+    }
+    norm = std::sqrt(norm);
+    if (norm > 1e-9)
+      for (int c = 0; c < K; ++c)
+        hist[i][c] /= static_cast<float>(norm);
+  }
+  return hist;
+}
+
+/// Pairwise Consistency Maximization (Mangelson et al. 2018). Two loop edges
+/// are "consistent" if chaining edge A, the seed odometry between the two
+/// edges' endpoints, edge B (inverse), and the odometry back forms a
+/// near-identity cycle — true loops satisfy this even under drift; aliasing
+/// false positives do not. Returns the largest mutually-consistent subset via a
+/// greedy max-clique on the consistency graph (exact max-clique is NP-hard;
+/// greedy from the highest-degree seeds is the standard RPGO approximation).
+std::vector<LoopEdge> pcm_filter(std::vector<LoopEdge> edges,
+                                 const std::vector<Eigen::Matrix4d> &seed,
+                                 const LoopClosureOptions &opt) {
+  // Cap to the strongest edges before the O(M^2) test.
+  if (opt.pcm_max_edges > 0 &&
+      static_cast<int>(edges.size()) > opt.pcm_max_edges) {
+    std::sort(edges.begin(), edges.end(),
+              [](const LoopEdge &a, const LoopEdge &b) {
+                return a.inliers > b.inliers;
+              });
+    edges.resize(opt.pcm_max_edges);
+  }
+  const int M = static_cast<int>(edges.size());
+  if (M <= 2)
+    return edges;
+
+  auto consistent = [&](const LoopEdge &a, const LoopEdge &b) {
+    // Cycle: pose(a.i) --T_a--> pose(a.j) --seed odom--> pose(b.j) --T_b^-1-->
+    //        pose(b.i) --seed odom--> pose(a.i). Identity if consistent.
+    const Eigen::Matrix4d C = a.T_ij * (seed[a.j].inverse() * seed[b.j]) *
+                              b.T_ij.inverse() *
+                              (seed[b.i].inverse() * seed[a.i]);
+    const double t = C.block<3, 1>(0, 3).norm();
+    const double c = (C.block<3, 3>(0, 0).trace() - 1.0) / 2.0;
+    const double r = std::acos(std::clamp(c, -1.0, 1.0));
+    return t < opt.pcm_trans_threshold && r < opt.pcm_rot_threshold;
+  };
+
+  std::vector<std::vector<char>> adj(M, std::vector<char>(M, 0));
+  std::vector<int> deg(M, 0);
+  for (int a = 0; a < M; ++a)
+    for (int b = a + 1; b < M; ++b)
+      if (consistent(edges[a], edges[b])) {
+        adj[a][b] = adj[b][a] = 1;
+        ++deg[a];
+        ++deg[b];
+      }
+
+  std::vector<int> order(M);
+  for (int i = 0; i < M; ++i)
+    order[i] = i;
+  std::sort(order.begin(), order.end(),
+            [&](int a, int b) { return deg[a] > deg[b]; });
+
+  // Greedy max-clique from the top-degree seeds.
+  std::vector<int> best;
+  const int seeds = std::min(M, 64);
+  for (int s = 0; s < seeds; ++s) {
+    const int seed_v = order[s];
+    std::vector<int> clique{seed_v};
+    for (int idx = 0; idx < M; ++idx) {
+      const int v = order[idx];
+      if (v == seed_v)
+        continue;
+      bool ok = true;
+      for (int u : clique)
+        if (!adj[v][u]) {
+          ok = false;
+          break;
+        }
+      if (ok)
+        clique.push_back(v);
+    }
+    if (clique.size() > best.size())
+      best = std::move(clique);
+  }
+
+  std::vector<LoopEdge> kept;
+  kept.reserve(best.size());
+  for (int v : best)
+    kept.push_back(edges[v]);
+  return kept;
+}
+
 } // namespace
 
 std::vector<LoopEdge>
@@ -179,41 +398,99 @@ detect_loop_edges(ProjectDB &db, const std::vector<int> &node_ids,
     feats[i] = extract_features(db, node_ids[i], opt, orb);
   core::info("LoopClosure: extracted ORB features for {} frames", N);
 
-  // --- 2. Spatial candidate proposal from the seed poses ------------------
-  std::vector<Eigen::Vector3d> center(N), viewdir(N);
-  for (int i = 0; i < N; ++i) {
-    center[i] = seed_poses[i].block<3, 1>(0, 3);
-    viewdir[i] = seed_poses[i].block<3, 3>(0, 0) * Eigen::Vector3d(0, 0, 1);
-  }
-  const double cos_view = std::cos(opt.max_view_angle * M_PI / 180.0);
-  const double max_d2 = static_cast<double>(opt.max_candidate_distance) *
-                        static_cast<double>(opt.max_candidate_distance);
+  // --- 2. Candidate proposal --------------------------------------------
+  // Dedup as ordered (i<j) pairs regardless of proposal mode.
+  std::mt19937 rng(opt.seed);
+  std::set<std::pair<int, int>> candidate_set;
+  const int gap = std::max(1, opt.min_frame_gap);
+  const int K = std::max(1, opt.max_candidates_per_frame);
 
-  // Collect candidate (j, dist2) per i, keep the K nearest, dedup as i<j.
-  std::vector<std::pair<int, int>> candidates;
-  for (int i = 0; i < N; ++i) {
-    std::vector<std::pair<double, int>> near;
-    for (int j = i + opt.min_frame_gap; j < N; ++j) {
-      const double d2 = (center[i] - center[j]).squaredNorm();
-      if (d2 > max_d2)
-        continue;
-      if (viewdir[i].dot(viewdir[j]) < cos_view)
-        continue;
-      near.emplace_back(d2, j);
-    }
-    std::sort(near.begin(), near.end());
-    const int keep =
-        std::min<int>(near.size(), std::max(0, opt.max_candidates_per_frame));
-    for (int k = 0; k < keep; ++k)
-      candidates.emplace_back(i, near[k].second);
+  // Resolve `automatic`: exhaustive when the temporally-distant pair count fits
+  // the budget (small scans; the reliable choice), else appearance retrieval.
+  LoopProposal mode = opt.proposal;
+  if (mode == LoopProposal::automatic) {
+    long pairs = 0;
+    for (int i = 0; i < N; ++i)
+      pairs += std::max(0, N - (i + gap));
+    mode = (pairs <= opt.exhaustive_budget) ? LoopProposal::exhaustive
+                                            : LoopProposal::appearance;
+    core::info("LoopClosure: automatic proposal -> {} ({} candidate pairs vs "
+               "budget {})",
+               mode == LoopProposal::exhaustive ? "exhaustive" : "appearance",
+               pairs, opt.exhaustive_budget);
   }
-  core::info("LoopClosure: {} spatial loop candidates proposed",
-             candidates.size());
+
+  if (mode == LoopProposal::spatial) {
+    // Spatial shortlist from the seed poses (nearest K per frame). Blind to
+    // drift-separated loops — see LoopProposal::spatial.
+    std::vector<Eigen::Vector3d> center(N), viewdir(N);
+    for (int i = 0; i < N; ++i) {
+      center[i] = seed_poses[i].block<3, 1>(0, 3);
+      viewdir[i] = seed_poses[i].block<3, 3>(0, 0) * Eigen::Vector3d(0, 0, 1);
+    }
+    const double cos_view = std::cos(opt.max_view_angle * M_PI / 180.0);
+    const double max_d2 = static_cast<double>(opt.max_candidate_distance) *
+                          static_cast<double>(opt.max_candidate_distance);
+    for (int i = 0; i < N; ++i) {
+      std::vector<std::pair<double, int>> near;
+      for (int j = 0; j < N; ++j) {
+        if (std::abs(i - j) < gap)
+          continue;
+        const double d2 = (center[i] - center[j]).squaredNorm();
+        if (d2 > max_d2 || viewdir[i].dot(viewdir[j]) < cos_view)
+          continue;
+        near.emplace_back(d2, j);
+      }
+      std::sort(near.begin(), near.end());
+      for (int k = 0; k < std::min<int>(near.size(), K); ++k)
+        candidate_set.emplace(std::min(i, near[k].second),
+                              std::max(i, near[k].second));
+    }
+    core::info("LoopClosure: {} spatial candidates proposed",
+               candidate_set.size());
+  } else if (mode == LoopProposal::exhaustive) {
+    for (int i = 0; i < N; ++i)
+      for (int j = i + gap; j < N; ++j)
+        candidate_set.emplace(i, j);
+    core::info("LoopClosure: {} exhaustive candidates proposed (all pairs with "
+               "index gap > {})",
+               candidate_set.size(), gap);
+  } else {
+    // Appearance shortlist: pose-INDEPENDENT bag-of-words retrieval. This is
+    // what finds the start/end revisit that trajectory drift has pulled apart.
+    const cv::Mat vocab = build_vocabulary(feats, opt, rng);
+    if (vocab.empty()) {
+      core::warn("LoopClosure: could not build a visual vocabulary (too few "
+                 "features); no appearance candidates");
+    } else {
+      const auto hist = bow_histograms(feats, vocab);
+      for (int i = 0; i < N; ++i) {
+        std::vector<std::pair<float, int>> best; // (-similarity, j)
+        for (int j = 0; j < N; ++j) {
+          if (std::abs(i - j) < gap || feats[j].descriptors.empty())
+            continue;
+          float sim = 0.0f;
+          for (int c = 0; c < vocab.rows; ++c)
+            sim += hist[i][c] * hist[j][c];
+          best.emplace_back(-sim, j);
+        }
+        std::sort(best.begin(), best.end());
+        for (int k = 0; k < std::min<int>(best.size(), K); ++k)
+          candidate_set.emplace(std::min(i, best[k].second),
+                                std::max(i, best[k].second));
+      }
+      core::info("LoopClosure: {} appearance candidates proposed "
+                 "(bag-of-words, {} words)",
+                 candidate_set.size(), vocab.rows);
+    }
+  }
+  std::vector<std::pair<int, int>> candidates(candidate_set.begin(),
+                                              candidate_set.end());
 
   // --- 3. Match + robust relative pose per candidate ----------------------
   cv::BFMatcher matcher(cv::NORM_HAMMING);
-  std::mt19937 rng(opt.seed);
   int matched = 0, total_inliers = 0;
+  int best_putative_seen = 0, best_inliers_seen = 0; // loop-strength ceiling
 
   for (const auto &cand : candidates) {
     const int i = cand.first, j = cand.second;
@@ -243,8 +520,10 @@ detect_loop_edges(ProjectDB &db, const std::vector<int> &node_ids,
       ps.push_back(fj.pts3d[qj]);
       pd.push_back(fi.pts3d[ti]);
     }
-    if (static_cast<int>(ps.size()) < opt.min_match_inliers)
-      continue;
+    best_putative_seen =
+        std::max(best_putative_seen, static_cast<int>(ps.size()));
+    if (static_cast<int>(ps.size()) < 4)
+      continue; // too few even to fit a rigid transform
 
     Eigen::Matrix3Xd src(3, ps.size()), dst(3, pd.size());
     for (size_t k = 0; k < ps.size(); ++k) {
@@ -253,18 +532,23 @@ detect_loop_edges(ProjectDB &db, const std::vector<int> &node_ids,
     }
     Eigen::Matrix4d T = Eigen::Matrix4d::Identity();
     const std::vector<int> inliers = ransac_rigid(src, dst, opt, rng, T);
+    best_inliers_seen =
+        std::max(best_inliers_seen, static_cast<int>(inliers.size()));
     if (static_cast<int>(inliers.size()) < opt.min_match_inliers)
       continue;
 
-    // Sanity gate against the seed relative pose (reject gross mismatches;
-    // GNC handles the merely-imperfect ones).
+    // Gates against the seed relative pose.
     const Eigen::Matrix4d seed_rel = seed_poses[i].inverse() * seed_poses[j];
-    if (opt.max_seed_disagreement > 0.0f) {
-      const double dt =
-          (T.block<3, 1>(0, 3) - seed_rel.block<3, 1>(0, 3)).norm();
-      if (dt > opt.max_seed_disagreement)
-        continue;
-    }
+    const double dt = (T.block<3, 1>(0, 3) - seed_rel.block<3, 1>(0, 3)).norm();
+    // LOWER gate: drop edges that already agree with the seed — they carry no
+    // drift-correction information and only re-impose ORB+depth noise on
+    // already-correct poses (keeps loop closure a no-op on well-aligned scans).
+    if (dt < opt.min_seed_disagreement)
+      continue;
+    // Optional UPPER gate: coarse guard against gross mismatches (off by
+    // default; GNC/PCM handle outliers).
+    if (opt.max_seed_disagreement > 0.0f && dt > opt.max_seed_disagreement)
+      continue;
 
     LoopEdge e;
     e.i = i;
@@ -281,9 +565,43 @@ detect_loop_edges(ProjectDB &db, const std::vector<int> &node_ids,
     total_inliers += static_cast<int>(inliers.size());
   }
 
+  // Reject perceptual-aliasing false positives: keep only the largest mutually
+  // consistent set of loop edges (PCM). This is what makes the edges safe to
+  // trust on scans with repeated structure.
+  if (opt.pcm && edges.size() > 2) {
+    const size_t before = edges.size();
+    edges = pcm_filter(std::move(edges), seed_poses, opt);
+    total_inliers = 0;
+    for (const auto &e : edges)
+      total_inliers += e.inliers;
+    core::info("LoopClosure: PCM kept {} of {} edges as mutually consistent",
+               edges.size(), before);
+  }
+
+  // Diagnostics: how far do accepted edges reach (frame gap), and how much do
+  // they disagree with the seed poses (the drift-correction signal)?
+  int max_gap = 0, drift_edges = 0;
+  double max_disagreement = 0.0;
+  for (const auto &e : edges) {
+    max_gap = std::max(max_gap, std::abs(e.j - e.i));
+    const Eigen::Matrix4d seed_rel =
+        seed_poses[e.i].inverse() * seed_poses[e.j];
+    const double dt =
+        (e.T_ij.block<3, 1>(0, 3) - seed_rel.block<3, 1>(0, 3)).norm();
+    max_disagreement = std::max(max_disagreement, dt);
+    if (dt > 0.15)
+      ++drift_edges;
+  }
+
   core::info("LoopClosure: {} candidates matched, {} loop edges accepted "
              "({} total inliers)",
              matched, edges.size(), total_inliers);
+  core::info("LoopClosure: strongest pair seen had {} putative depth-valid "
+             "matches and {} RANSAC inliers (acceptance threshold {})",
+             best_putative_seen, best_inliers_seen, opt.min_match_inliers);
+  core::info("LoopClosure: accepted edges span max frame-gap {}, max seed "
+             "disagreement {:.3f} m, {} edges correct >0.15 m of drift",
+             max_gap, max_disagreement, drift_edges);
   if (out_result) {
     out_result->candidates = matched;
     out_result->edges = static_cast<int>(edges.size());

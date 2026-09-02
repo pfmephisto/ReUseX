@@ -15,6 +15,7 @@
 #include <gtsam/geometry/Pose3.h>
 #include <gtsam/geometry/Rot3.h>
 #include <gtsam/inference/Symbol.h>
+#include <gtsam/linear/NoiseModel.h>
 #include <gtsam/nonlinear/GncOptimizer.h>
 #include <gtsam/nonlinear/LevenbergMarquardtOptimizer.h>
 #include <gtsam/nonlinear/NonlinearFactorGraph.h>
@@ -560,22 +561,38 @@ PlaneGraphOptimizer::optimize(std::vector<FrameSurfels> &frames,
 
     // Wide-baseline loop edges (P2). Each is a relative-pose BetweenFactor
     // between two temporally distant frames, derived from feature matching +
-    // depth (see LoopClosure). They are deliberately NOT added to
-    // trusted_factors, so GNC can down-weight a wrong loop edge instead of
-    // letting it corrupt the trajectory (the basin problem's blast radius is
-    // neutralised by construction). Endpoints out of range are skipped.
+    // depth (see LoopClosure). A loop edge that CORRECTS drift has, by
+    // construction, a large residual at the (drifted) seed poses — which is
+    // exactly what GNC-TLS classifies as an outlier and zeros, discarding the
+    // constraint we need. So loop edges are added as GNC KNOWN INLIERS (they
+    // are already geometrically verified by RANSAC) and instead wrapped in a
+    // robust Huber kernel: a genuine large-drift edge keeps pulling (Huber
+    // stays linear, not zeroed), while a single grossly-wrong edge has bounded
+    // influence. Endpoints out of range are skipped.
     int loop_edge_count = 0;
     for (const auto &e : loop_edges) {
       if (e.i < 0 || e.j < 0 || e.i >= N || e.j >= N || e.i == e.j)
         continue;
-      auto loop_noise = gtsam::noiseModel::Diagonal::Sigmas(
+      auto base_noise = gtsam::noiseModel::Diagonal::Sigmas(
           (gtsam::Vector(6) << e.sigma_rot, e.sigma_rot, e.sigma_rot,
            e.sigma_trans, e.sigma_trans, e.sigma_trans)
               .finished());
       const gtsam::Pose3 rel(gtsam::Rot3(e.T_ij.block<3, 3>(0, 0)),
                              gtsam::Point3(e.T_ij.block<3, 1>(0, 3)));
-      graph.emplace_shared<gtsam::BetweenFactor<gtsam::Pose3>>(X(e.i), X(e.j),
-                                                               rel, loop_noise);
+      if (options_.loop_edges_trusted) {
+        // Known inlier + Huber: large-drift corrections flow; a gross outlier
+        // is bounded (but not rejected — needs a discriminative front-end).
+        auto robust = gtsam::noiseModel::Robust::Create(
+            gtsam::noiseModel::mEstimator::Huber::Create(1.345), base_noise);
+        graph.emplace_shared<gtsam::BetweenFactor<gtsam::Pose3>>(X(e.i), X(e.j),
+                                                                 rel, robust);
+        trusted_factors.push_back(graph.size() - 1);
+      } else {
+        // GNC candidate: a wrong edge is down-weighted, but GNC also zeros a
+        // genuine large-drift edge, so big corrections rarely apply.
+        graph.emplace_shared<gtsam::BetweenFactor<gtsam::Pose3>>(
+            X(e.i), X(e.j), rel, base_noise);
+      }
       ++loop_edge_count;
     }
     result.loop_edges = loop_edge_count;

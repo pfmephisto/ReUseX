@@ -131,6 +131,17 @@ struct PlaneGraphOptions {
   /// optimize_sensor_poses detects loop edges from the RGB-D frames and feeds
   /// them into the same GNC graph as robust BetweenFactor<Pose3> constraints.
   LoopClosureOptions loop_closure;
+  /// How loop-edge factors are treated by the solver:
+  ///   false (default, SAFE): loop edges are GNC candidates — a wrong edge is
+  ///     down-weighted. But GNC also zeros a genuine LARGE-drift edge (its
+  ///     residual at the drifted seed looks like an outlier), so this rarely
+  ///     applies big corrections. Good when loops are near the seed estimate.
+  ///   true (AGGRESSIVE): loop edges are GNC known-inliers with a Huber kernel,
+  ///     so large-drift corrections actually flow — but a perceptual-aliasing
+  ///     false positive can then warp the trajectory. Only safe with a
+  ///     discriminative matcher / consistency filtering. Also loosen odometry
+  ///     (--odometry-sigma-trans) so the drift can redistribute.
+  bool loop_edges_trusted = false;
 };
 
 /// Summary statistics from a plane-graph optimization run.

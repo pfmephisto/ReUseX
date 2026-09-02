@@ -8,6 +8,7 @@
 #include <CLI/CLI.hpp>
 #include <filesystem>
 #include <memory>
+#include <string>
 
 namespace fs = std::filesystem;
 
@@ -57,14 +58,23 @@ struct SubcommandOptimizeOptions {
   unsigned seed = 42;
 
   // Wide-baseline loop closure (P2; off by default). Defaults mirror the
-  // conservative LoopClosureOptions in the library header.
+  // LoopClosureOptions in the library header.
   bool loop_closure = false;
+  std::string loop_proposal =
+      "auto"; // auto | spatial | appearance | exhaustive
   int loop_min_frame_gap = 50;
   float loop_max_distance = 2.5f;
   float loop_max_view_angle = 45.0f;
-  int loop_max_candidates = 3;
+  int loop_max_candidates = 5;
   int loop_min_inliers = 60;
-  float loop_max_seed_disagreement = 0.75f;
+  int loop_max_features = 3000;
+  float loop_ratio_test = 0.85f;
+  float loop_ransac_inlier_dist = 0.10f;
+  float loop_max_seed_disagreement = 0.0f; // 0 = disabled (correct drift)
+  float loop_min_seed_disagreement =
+      0.10f;                // drop redundant near-agreement edges
+  bool loop_trust = false;  // trust loop edges (GNC known-inlier) vs GNC-robust
+  bool loop_no_pcm = false; // disable pairwise-consistency filtering
 
   // Surfel extraction (shared with `rux register`).
   float surfel_voxel = 0.03f;

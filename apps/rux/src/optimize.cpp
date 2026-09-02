@@ -159,6 +159,14 @@ NOTES:
   sub->add_flag("--loop-closure", opt->loop_closure,
                 "Detect wide-baseline loop edges (ORB + depth -> RANSAC "
                 "relative pose) and add them as robust factors to the graph");
+  sub->add_option(
+         "--loop-proposal", opt->loop_proposal,
+         "Loop-candidate proposal: auto (exhaustive on small scans, "
+         "else appearance), appearance (pose-independent bag-of-words), "
+         "spatial (seed-pose proximity; only for good poses), or "
+         "exhaustive (all pairs; small scans)")
+      ->default_val(opt->loop_proposal)
+      ->check(CLI::IsMember({"auto", "appearance", "spatial", "exhaustive"}));
   sub->add_option("--loop-min-frame-gap", opt->loop_min_frame_gap,
                   "Only pair frames at least this far apart in index")
       ->default_val(opt->loop_min_frame_gap);
@@ -174,11 +182,33 @@ NOTES:
   sub->add_option("--loop-min-inliers", opt->loop_min_inliers,
                   "Reject a loop edge below this many RANSAC inliers")
       ->default_val(opt->loop_min_inliers);
+  sub->add_option("--loop-max-features", opt->loop_max_features,
+                  "ORB features per frame for loop matching")
+      ->default_val(opt->loop_max_features);
+  sub->add_option("--loop-ratio-test", opt->loop_ratio_test,
+                  "Lowe ratio threshold for loop descriptor matches")
+      ->default_val(opt->loop_ratio_test);
+  sub->add_option("--loop-ransac-inlier-dist", opt->loop_ransac_inlier_dist,
+                  "3D-3D RANSAC inlier threshold for loop relative pose (m)")
+      ->default_val(opt->loop_ransac_inlier_dist);
   sub->add_option(
          "--loop-max-seed-disagreement", opt->loop_max_seed_disagreement,
          "Reject a loop edge whose translation disagrees with the seed "
          "poses by more than this (m; <=0 disables)")
       ->default_val(opt->loop_max_seed_disagreement);
+  sub->add_option(
+         "--loop-min-seed-disagreement", opt->loop_min_seed_disagreement,
+         "Keep only loop edges that disagree with the seed poses by at "
+         "least this (m) — drops redundant edges that would just add "
+         "noise to already-good poses (0 keeps all)")
+      ->default_val(opt->loop_min_seed_disagreement);
+  sub->add_flag(
+      "--loop-trust", opt->loop_trust,
+      "Trust loop edges as GNC known-inliers (+ Huber) so large-drift "
+      "corrections actually apply. Needs PCM / a discriminative "
+      "matcher to be safe, and looser --odometry-sigma-trans");
+  sub->add_flag("--loop-no-pcm", opt->loop_no_pcm,
+                "Disable pairwise-consistency (PCM) filtering of loop edges");
 
   // --- Surfel extraction ---
   sub->add_option("--surfel-voxel", opt->surfel_voxel,
@@ -253,12 +283,26 @@ int run_subcommand_optimize(SubcommandOptimizeOptions const &opt,
     options.surfel.confidence_threshold = opt.confidence_threshold;
     options.surfel.voxel_size = opt.surfel_voxel;
     options.loop_closure.enable = opt.loop_closure;
+    options.loop_closure.proposal =
+        opt.loop_proposal == "spatial"
+            ? reusex::geometry::LoopProposal::spatial
+            : (opt.loop_proposal == "exhaustive"
+                   ? reusex::geometry::LoopProposal::exhaustive
+                   : (opt.loop_proposal == "appearance"
+                          ? reusex::geometry::LoopProposal::appearance
+                          : reusex::geometry::LoopProposal::automatic));
     options.loop_closure.min_frame_gap = opt.loop_min_frame_gap;
     options.loop_closure.max_candidate_distance = opt.loop_max_distance;
     options.loop_closure.max_view_angle = opt.loop_max_view_angle;
     options.loop_closure.max_candidates_per_frame = opt.loop_max_candidates;
     options.loop_closure.min_match_inliers = opt.loop_min_inliers;
+    options.loop_closure.max_features = opt.loop_max_features;
+    options.loop_closure.ratio_test = opt.loop_ratio_test;
+    options.loop_closure.ransac_inlier_dist = opt.loop_ransac_inlier_dist;
     options.loop_closure.max_seed_disagreement = opt.loop_max_seed_disagreement;
+    options.loop_closure.min_seed_disagreement = opt.loop_min_seed_disagreement;
+    options.loop_closure.pcm = !opt.loop_no_pcm;
+    options.loop_edges_trusted = opt.loop_trust;
     options.loop_closure.seed = opt.seed;
 
     int logId = db.log_pipeline_start(

@@ -416,3 +416,76 @@ TEST_CASE("PlaneGraph leaves poses unchanged when no landmark is shared",
     REQUIRE((frames[i].world_pose.matrix() - before[i].matrix()).norm() ==
             0.0f);
 }
+
+TEST_CASE("PlaneGraph loop edge pulls a drifted frame toward truth",
+          "[plane_graph][optimize][loop_closure]") {
+  // Isolate the P2 loop-edge machinery from the plane objective: require more
+  // observations than any landmark can get (so NO plane factors form), leaving
+  // only the gauge prior, the (wrong, drift-encoding) odometry, and one correct
+  // wide-baseline loop edge. Both frames' truth pose is identity, so the
+  // correct relative pose X_0^-1 X_1 is the identity — a loop edge that must
+  // pull the drifted frame 1 back toward its true pose.
+  std::vector<FrameSurfels> frames;
+  for (int i = 0; i < 2; ++i)
+    frames.push_back(make_corner_frame(i));
+  const Eigen::Affine3f truth = Eigen::Affine3f::Identity();
+  frames[1].world_pose = drift(0.05f, {1, 0, 0}, {0.05f, 0.0f, 0.0f});
+  const float seed_err = pose_trans_error(frames[1].world_pose, truth);
+
+  PlaneGraphOptions o = test_options();
+  o.min_landmark_observations = 10; // impossible with 2 frames -> 0 landmarks
+  // Plain LM: this test probes the loop-edge factor mechanics directly. GNC
+  // would see the single edge's drift-sized initial residual as an outlier and
+  // down-weight it (the same informative-residual effect gnc_inlier_cost tunes
+  // for plane factors); robustness of loop edges under GNC is a system concern,
+  // not what this unit isolates.
+  o.use_gnc = false;
+
+  // A correct, tightly-trusted loop edge: pose(1) = pose(0) * I.
+  LoopEdge e;
+  e.i = 0;
+  e.j = 1;
+  e.T_ij = Eigen::Matrix4d::Identity();
+  e.sigma_rot = 0.01;
+  e.sigma_trans = 0.01;
+  e.inliers = 100;
+
+  PlaneGraphOptimizer optimizer(o);
+  PlaneGraphResult res = optimizer.optimize(frames, {e});
+
+  REQUIRE(res.landmarks == 0);  // no plane factors: the loop edge did the work
+  REQUIRE(res.loop_edges == 1); // the edge entered the graph
+  REQUIRE(res.converged);
+  // Frame 1 must land much closer to truth than the drifted seed.
+  const float after_err = pose_trans_error(frames[1].world_pose, truth);
+  REQUIRE(after_err < 0.5f * seed_err);
+}
+
+TEST_CASE("PlaneGraph ignores out-of-range loop edges",
+          "[plane_graph][optimize][loop_closure]") {
+  // A loop edge whose endpoints do not exist must be skipped, not crash, and
+  // leave poses untouched when there is nothing else to constrain them.
+  std::vector<FrameSurfels> frames;
+  for (int i = 0; i < 2; ++i)
+    frames.push_back(make_corner_frame(i));
+  frames[1].world_pose = drift(0.05f, {1, 0, 0}, {0.05f, 0.0f, 0.0f});
+  std::vector<Eigen::Affine3f> before;
+  for (auto &f : frames)
+    before.push_back(f.world_pose);
+
+  PlaneGraphOptions o = test_options();
+  o.min_landmark_observations = 10; // no landmarks
+
+  LoopEdge bad;
+  bad.i = 0;
+  bad.j = 7; // out of range (only 2 frames)
+  bad.T_ij = Eigen::Matrix4d::Identity();
+
+  PlaneGraphOptimizer optimizer(o);
+  PlaneGraphResult res = optimizer.optimize(frames, {bad});
+
+  REQUIRE(res.loop_edges == 0); // the invalid edge was skipped
+  for (size_t i = 0; i < frames.size(); ++i)
+    REQUIRE((frames[i].world_pose.matrix() - before[i].matrix()).norm() ==
+            0.0f);
+}

@@ -31,6 +31,7 @@
 
 #include "reusex/segmentation/Surfel.hpp"
 #include "reusex/segmentation/surfel_extraction.hpp"
+#include "reusex/slam/LoopClosure.hpp"
 
 #include <vector>
 
@@ -125,6 +126,11 @@ struct PlaneGraphOptions {
   unsigned seed = 42;       ///< RANSAC seed (STANDARDS.md §6)
 
   SurfelExtractionParams surfel; ///< surfel extraction settings
+
+  /// P2 wide-baseline loop closure (off by default). When enabled,
+  /// optimize_sensor_poses detects loop edges from the RGB-D frames and feeds
+  /// them into the same GNC graph as robust BetweenFactor<Pose3> constraints.
+  LoopClosureOptions loop_closure;
 };
 
 /// Summary statistics from a plane-graph optimization run.
@@ -143,6 +149,7 @@ struct PlaneGraphResult {
   int landmarks_rejected_degenerate =
       0;                           ///< landmarks dropped as near-collinear
   int underconstrained_frames = 0; ///< frames whose odometry was tightened
+  int loop_edges = 0;              ///< wide-baseline loop BetweenFactors added
 };
 
 /// Plane-landmark pose-graph optimizer operating purely in memory.
@@ -153,7 +160,14 @@ class PlaneGraphOptimizer {
   /// Globally optimize the world poses of the given frames in place (each
   /// FrameSurfels::world_pose is updated). Does not touch any database. When
   /// too few plane landmarks are found the poses are left unchanged.
-  PlaneGraphResult optimize(std::vector<FrameSurfels> &frames) const;
+  ///
+  /// @param frames      per-frame surfels + seed poses (mutated in place)
+  /// @param loop_edges  optional wide-baseline relative-pose constraints (P2);
+  ///                    added as robust BetweenFactor<Pose3> edges the GNC
+  ///                    solver can down-weight. Indices must refer to @p
+  ///                    frames.
+  PlaneGraphResult optimize(std::vector<FrameSurfels> &frames,
+                            const std::vector<LoopEdge> &loop_edges = {}) const;
 
     private:
   PlaneGraphOptions options_;

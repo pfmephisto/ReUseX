@@ -38,9 +38,16 @@ DESCRIPTION:
   Optimized poses overwrite the stored transforms in place — re-import the
   RTABMap database to recover the originals, or use --dry-run to preview.
 
+  Plane factors are weighted by their inlier support (a wall fit from thousands
+  of surfels pulls harder than a small patch); disable with
+  --no-plane-inlier-weight. Optionally, wide-baseline loop-closure edges (P2)
+  can be detected from the RGB-D frames (ORB matches + stored depth -> RANSAC
+  relative pose) and added as robust factors via --loop-closure.
+
 EXAMPLES:
-  rux optimize                        # Defaults (GNC on, 100 LM iters)
+  rux optimize                        # Defaults (GNC on, inlier-weighted planes)
   rux optimize --dry-run              # Report statistics without writing
+  rux optimize --loop-closure         # Add wide-baseline loop edges (P2)
   rux optimize --min-observations 3 --assoc-distance 0.15
   rux optimize --no-gnc               # Plain Levenberg-Marquardt (no robustness)
 
@@ -148,6 +155,31 @@ NOTES:
   sub->add_option("--seed", opt->seed, "RANSAC seed (determinism)")
       ->default_val(opt->seed);
 
+  // --- Wide-baseline loop closure (P2) ---
+  sub->add_flag("--loop-closure", opt->loop_closure,
+                "Detect wide-baseline loop edges (ORB + depth -> RANSAC "
+                "relative pose) and add them as robust factors to the graph");
+  sub->add_option("--loop-min-frame-gap", opt->loop_min_frame_gap,
+                  "Only pair frames at least this far apart in index")
+      ->default_val(opt->loop_min_frame_gap);
+  sub->add_option("--loop-max-distance", opt->loop_max_distance,
+                  "Max seed camera-centre distance to propose a loop pair (m)")
+      ->default_val(opt->loop_max_distance);
+  sub->add_option("--loop-max-view-angle", opt->loop_max_view_angle,
+                  "Max viewing-direction angle to propose a loop pair (deg)")
+      ->default_val(opt->loop_max_view_angle);
+  sub->add_option("--loop-max-candidates", opt->loop_max_candidates,
+                  "Max loop candidates per frame (nearest first)")
+      ->default_val(opt->loop_max_candidates);
+  sub->add_option("--loop-min-inliers", opt->loop_min_inliers,
+                  "Reject a loop edge below this many RANSAC inliers")
+      ->default_val(opt->loop_min_inliers);
+  sub->add_option(
+         "--loop-max-seed-disagreement", opt->loop_max_seed_disagreement,
+         "Reject a loop edge whose translation disagrees with the seed "
+         "poses by more than this (m; <=0 disables)")
+      ->default_val(opt->loop_max_seed_disagreement);
+
   // --- Surfel extraction ---
   sub->add_option("--surfel-voxel", opt->surfel_voxel,
                   "Per-frame voxel downsample for surfels (m, <=0 disables)")
@@ -220,6 +252,14 @@ int run_subcommand_optimize(SubcommandOptimizeOptions const &opt,
     options.surfel.sampling_factor = opt.sampling_factor;
     options.surfel.confidence_threshold = opt.confidence_threshold;
     options.surfel.voxel_size = opt.surfel_voxel;
+    options.loop_closure.enable = opt.loop_closure;
+    options.loop_closure.min_frame_gap = opt.loop_min_frame_gap;
+    options.loop_closure.max_candidate_distance = opt.loop_max_distance;
+    options.loop_closure.max_view_angle = opt.loop_max_view_angle;
+    options.loop_closure.max_candidates_per_frame = opt.loop_max_candidates;
+    options.loop_closure.min_match_inliers = opt.loop_min_inliers;
+    options.loop_closure.max_seed_disagreement = opt.loop_max_seed_disagreement;
+    options.loop_closure.seed = opt.seed;
 
     int logId = db.log_pipeline_start(
         "pose_optimization_plane_graph",
@@ -241,6 +281,9 @@ int run_subcommand_optimize(SubcommandOptimizeOptions const &opt,
     spdlog::info("Factor-graph error {:.4f} -> {:.4f}, max pose shift {:.4f} m",
                  result.initial_error, result.final_error,
                  result.max_pose_shift);
+    if (opt.loop_closure)
+      spdlog::info("Loop closure: {} wide-baseline edges added to the graph",
+                   result.loop_edges);
 
     if (result.landmarks == 0) {
       spdlog::warn("No plane landmarks reached the minimum observation count; "

@@ -303,7 +303,8 @@ PlaneGraphOptimizer::PlaneGraphOptimizer(PlaneGraphOptions options)
     : options_(std::move(options)) {}
 
 PlaneGraphResult
-PlaneGraphOptimizer::optimize(std::vector<FrameSurfels> &frames) const {
+PlaneGraphOptimizer::optimize(std::vector<FrameSurfels> &frames,
+                              const std::vector<LoopEdge> &loop_edges) const {
   using gtsam::symbol_shorthand::P; // plane landmarks
   using gtsam::symbol_shorthand::X; // poses
 
@@ -469,7 +470,10 @@ PlaneGraphOptimizer::optimize(std::vector<FrameSurfels> &frames) const {
                options_.min_landmark_observations, rejected_overlap,
                rejected_degenerate);
 
-    if (kept == 0) {
+    // No plane landmarks: only bail out if there are ALSO no loop edges. When
+    // loop edges are present the graph (gauge + odometry + loop factors) is
+    // still well-posed and worth solving, so fall through to build it.
+    if (kept == 0 && loop_edges.empty()) {
       if (round == 0) {
         core::warn("PlaneGraph: no landmark passed the hygiene checks; poses "
                    "unchanged. Lower --min-observations or relax association / "
@@ -553,6 +557,28 @@ PlaneGraphOptimizer::optimize(std::vector<FrameSurfels> &frames) const {
         trusted_factors.push_back(graph.size() - 1);
       }
     }
+
+    // Wide-baseline loop edges (P2). Each is a relative-pose BetweenFactor
+    // between two temporally distant frames, derived from feature matching +
+    // depth (see LoopClosure). They are deliberately NOT added to
+    // trusted_factors, so GNC can down-weight a wrong loop edge instead of
+    // letting it corrupt the trajectory (the basin problem's blast radius is
+    // neutralised by construction). Endpoints out of range are skipped.
+    int loop_edge_count = 0;
+    for (const auto &e : loop_edges) {
+      if (e.i < 0 || e.j < 0 || e.i >= N || e.j >= N || e.i == e.j)
+        continue;
+      auto loop_noise = gtsam::noiseModel::Diagonal::Sigmas(
+          (gtsam::Vector(6) << e.sigma_rot, e.sigma_rot, e.sigma_rot,
+           e.sigma_trans, e.sigma_trans, e.sigma_trans)
+              .finished());
+      const gtsam::Pose3 rel(gtsam::Rot3(e.T_ij.block<3, 3>(0, 0)),
+                             gtsam::Point3(e.T_ij.block<3, 1>(0, 3)));
+      graph.emplace_shared<gtsam::BetweenFactor<gtsam::Pose3>>(X(e.i), X(e.j),
+                                                               rel, loop_noise);
+      ++loop_edge_count;
+    }
+    result.loop_edges = loop_edge_count;
 
     // Plane landmark variables + one OrientedPlane3Factor per observation.
     // Each factor's noise is (optionally) scaled by the reliability of its

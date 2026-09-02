@@ -451,6 +451,46 @@ All configs measured identically (fresh copy → pose stage → `create clouds` 
    and/or (b) the learned-matcher upgrade (EfficientLoFTR / LightGlue+ALIKED)
    the `LoopClosure` matcher interface is built to accept.
 
+### Loop-closure detection follow-up (2026-09-02)
+
+Prompted by the office scan actually having start→end drift that no loop closure
+would align. Findings, all measured:
+
+1. **Spatial (pose-based) proposal is structurally blind to drift loops.** It
+   shortlists pairs by camera-centre proximity *in the seed poses*, but drift
+   pulls the true start/end partners far apart there, so that pair is never
+   proposed. Fixed with pose-INDEPENDENT proposal: an appearance bag-of-words
+   over the frames' ORB descriptors, plus an `exhaustive` all-pairs mode, plus
+   `auto` (exhaustive on small scans, appearance on large). On the office scan
+   the BoW shortlist *still* misses the loop under indoor perceptual aliasing,
+   so `auto` correctly falls back to exhaustive there.
+
+2. **Detection was the wrong suspect; verification was the bottleneck.**
+   Exhaustive proposal tried all 17k office pairs and accepted 0 edges at the
+   old thresholds. Loosening ORB verification (3000 features, 0.10 m 3D-3D
+   threshold — iPad depth is noisy) surfaced a genuine start/end loop:
+   frame-gap ~215, ~90 RANSAC inliers, ~12 m disagreement with the drifted seed.
+
+3. **GNC discards drift-correcting loop edges by construction.** A loop edge
+   that corrects large drift has a huge residual at the drifted seed, which
+   GNC-TLS classifies as an outlier and zeros — so `--loop-closure` alone (GNC)
+   detects but does not apply big corrections. `--loop-trust` (GNC known-inlier
+   + Huber) + a looser `--odometry-sigma-trans` lets it flow.
+
+4. **Two safeguards make detection usable:** PCM (keep the largest mutually
+   consistent edge set — rejects aliasing false positives) and a LOWER
+   seed-disagreement gate (drop edges that already agree with the seed, so loop
+   closure is a no-op on well-aligned scans — recovered honka GT 0.73 → 0.79).
+
+5. **Open limit:** on a GT-less scan with repeated structure, applying the
+   detected loop (`--loop-trust`) currently *degrades* the GT-free flatness/
+   thickness metrics on the office scan (17.9 / 29.0 mm vs 12.5 / 20.4) with a
+   ~16 m correction. Whether that is overshoot/aliasing or a globally-correct
+   alignment the *local* metric penalises is unknowable without absolute GT.
+   Safe automatic application needs (a) GT to validate (#221 Tier 2) and (b) a
+   discriminative learned matcher (EfficientLoFTR / LightGlue+ALIKED) to cut the
+   aliasing false-positive rate the ORB front-end suffers on repetitive interiors.
+
 ### Recommended next steps (revised)
 
 - **#221 Tier 2 GT importer** is now the critical path: every back-end lever

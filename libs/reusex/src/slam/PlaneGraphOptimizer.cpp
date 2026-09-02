@@ -344,6 +344,20 @@ PlaneGraphOptimizer::optimize(std::vector<FrameSurfels> &frames) const {
   const double assoc_cos = std::cos(options_.assoc_normal_angle * M_PI / 180.0);
   using GncParamsLM = gtsam::GncParams<gtsam::LevenbergMarquardtParams>;
 
+  // Self-calibrating reference for per-observation inlier weighting: the median
+  // detection inlier count. Using the median (not a fixed constant) keeps the
+  // weighting invariant to --sampling-factor, which scales all inlier counts.
+  double ref_inliers = 1.0;
+  if (options_.plane_weight_by_inliers) {
+    std::vector<int> counts;
+    counts.reserve(all_planes.size());
+    for (const auto &p : all_planes)
+      counts.push_back(std::max(1, p.inliers));
+    std::nth_element(counts.begin(), counts.begin() + counts.size() / 2,
+                     counts.end());
+    ref_inliers = std::max(1.0, static_cast<double>(counts[counts.size() / 2]));
+  }
+
   double round_max_shift = 0.0;
 
   // --- Alternating rounds: associate at cur poses -> optimize -> refit ------
@@ -541,10 +555,14 @@ PlaneGraphOptimizer::optimize(std::vector<FrameSurfels> &frames) const {
     }
 
     // Plane landmark variables + one OrientedPlane3Factor per observation.
-    auto plane_noise = gtsam::noiseModel::Diagonal::Sigmas(
-        (gtsam::Vector(3) << options_.plane_sigma_normal,
-         options_.plane_sigma_normal, options_.plane_sigma_distance)
-            .finished());
+    // Each factor's noise is (optionally) scaled by the reliability of its
+    // supporting fit: sigma *= clamp(sqrt(ref / inliers), min, max). A plane
+    // backed by many surfels earns a tighter sigma (pulls harder); a small,
+    // weak plane is loosened so it cannot warp the trajectory. This is the fix
+    // for the measured "denser extraction hurts" regression — the extra planes
+    // are mostly small, and equal weighting let them dominate wrongly.
+    const double base_sig_n = options_.plane_sigma_normal;
+    const double base_sig_d = options_.plane_sigma_distance;
 
     int plane_factors = 0;
     for (size_t l = 0; l < landmarks.size(); ++l) {
@@ -560,6 +578,17 @@ PlaneGraphOptimizer::optimize(std::vector<FrameSurfels> &frames) const {
 
       for (int idx : landmarks[l].obs) {
         const auto &fp = all_planes[idx];
+        double scale = 1.0;
+        if (options_.plane_weight_by_inliers) {
+          scale = std::sqrt(ref_inliers / std::max(1, fp.inliers));
+          scale =
+              std::clamp(scale, static_cast<double>(options_.plane_weight_min),
+                         static_cast<double>(options_.plane_weight_max));
+        }
+        auto plane_noise = gtsam::noiseModel::Diagonal::Sigmas(
+            (gtsam::Vector(3) << base_sig_n * scale, base_sig_n * scale,
+             base_sig_d * scale)
+                .finished());
         const gtsam::Vector4 measured(fp.normal.x(), fp.normal.y(),
                                       fp.normal.z(), fp.d);
         graph.emplace_shared<ClonableOrientedPlane3Factor>(

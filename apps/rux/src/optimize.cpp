@@ -118,6 +118,17 @@ NOTES:
   sub->add_option("--plane-sigma-distance", opt->plane_sigma_distance,
                   "Plane-distance measurement std (m)")
       ->default_val(opt->plane_sigma_distance);
+  sub->add_flag("--no-plane-inlier-weight", opt->no_plane_inlier_weight,
+                "Disable per-observation inlier weighting of plane factors "
+                "(weight all planes equally regardless of support)");
+  sub->add_option("--plane-weight-min", opt->plane_weight_min,
+                  "Min plane-factor sigma scale (strongest, best-supported "
+                  "planes)")
+      ->default_val(opt->plane_weight_min);
+  sub->add_option("--plane-weight-max", opt->plane_weight_max,
+                  "Max plane-factor sigma scale (weakest, least-supported "
+                  "planes)")
+      ->default_val(opt->plane_weight_max);
   sub->add_option("--prior-sigma-rot", opt->prior_sigma_rot,
                   "First-pose gauge prior rotation std (rad)")
       ->default_val(opt->prior_sigma_rot);
@@ -195,6 +206,9 @@ int run_subcommand_optimize(SubcommandOptimizeOptions const &opt,
     options.underconstrained_odom_scale = opt.underconstrained_odom_scale;
     options.plane_sigma_normal = opt.plane_sigma_normal;
     options.plane_sigma_distance = opt.plane_sigma_distance;
+    options.plane_weight_by_inliers = !opt.no_plane_inlier_weight;
+    options.plane_weight_min = opt.plane_weight_min;
+    options.plane_weight_max = opt.plane_weight_max;
     options.prior_sigma_rot = opt.prior_sigma_rot;
     options.prior_sigma_trans = opt.prior_sigma_trans;
     options.use_gnc = !opt.no_gnc;

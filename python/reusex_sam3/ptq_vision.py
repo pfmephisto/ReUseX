@@ -43,27 +43,88 @@ from __future__ import annotations
 
 import argparse
 
+import numpy as np
+
+INPUT_SIZE = 1008
+
+
+def build_calibration_set(project_db: str, out_npz: str, n: int = 200) -> tuple:
+    """Sample ``n`` color frames from a ReUseX project DB and preprocess them to
+    the vision-encoder input ([N,3,1008,1008] fp32, RGB, x/127.5 - 1), matching
+    the C++ preprocess (norm alpha=1/127.5 beta=-1, SwapRB). Saved as .npz with
+    key ``images``."""
+    import sqlite3
+
+    import cv2
+
+    con = sqlite3.connect(project_db)
+    rows = con.execute(
+        "SELECT color FROM sensor_frames WHERE color IS NOT NULL"
+    ).fetchall()
+    if not rows:
+        raise RuntimeError(f"no color frames in {project_db}")
+    idx = np.unique(np.linspace(0, len(rows) - 1, min(n, len(rows))).astype(int))
+    imgs = []
+    for i in idx:
+        img = cv2.imdecode(np.frombuffer(rows[i][0], np.uint8), cv2.IMREAD_COLOR)
+        r = cv2.resize(img, (INPUT_SIZE, INPUT_SIZE))
+        r = cv2.cvtColor(r, cv2.COLOR_BGR2RGB).astype(np.float32) / 127.5 - 1.0
+        imgs.append(np.transpose(r, (2, 0, 1)))
+    arr = np.ascontiguousarray(np.stack(imgs).astype(np.float32))
+    np.savez(out_npz, images=arr)
+    print(f"[calib] wrote {out_npz} with {arr.shape}")
+    return arr.shape
+
 
 def quantize_vision_encoder(
     onnx_path: str,
     calibration_data: str,
     output_path: str,
     method: str = "entropy",
-) -> str:  # pragma: no cover - stub
-    raise NotImplementedError(
-        "ptq_vision.quantize_vision_encoder is a documented stub. See module "
-        "docstring for the nvidia-modelopt ONNX PTQ recipe. Provide a calibration "
-        "set and wire in modelopt.onnx.quantization.quantize before use."
+) -> str:
+    """Insert INT8 Q/DQ into the FP32 vision-encoder ONNX via NVIDIA
+    Model-Optimizer, calibrated on ``calibration_data`` (.npz with key
+    ``images``). trtexec then builds it with ``--int8 --fp16``."""
+    from modelopt.onnx.quantization import quantize
+
+    data = np.load(calibration_data)
+    calib = {"images": data["images"]}
+    print(
+        f"[ptq] quantizing {onnx_path} (int8/{method}) with "
+        f"{calib['images'].shape[0]} calibration frames"
     )
+    quantize(
+        onnx_path=onnx_path,
+        quantize_mode="int8",
+        calibration_data=calib,
+        calibration_method=method,
+        output_path=output_path,
+    )
+    print(f"[ptq] wrote {output_path}")
+    return output_path
 
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--onnx", default="onnx/vision-encoder.onnx")
-    ap.add_argument("--calib", required=False, help="Calibration data (.npz).")
+    ap.add_argument("--calib", help="Calibration data (.npz with key 'images').")
     ap.add_argument("--out", default="onnx/vision-encoder.int8.onnx")
     ap.add_argument("--method", default="entropy", choices=["entropy", "minmax"])
+    ap.add_argument(
+        "--gen-calib",
+        metavar="PROJECT.rux",
+        help="Build a calibration .npz from a project DB (writes --calib), then exit.",
+    )
+    ap.add_argument("--n", type=int, default=200, help="Calibration frame count.")
     args = ap.parse_args(argv)
+
+    if args.gen_calib:
+        out = args.calib or "checkpoints/calib.npz"
+        build_calibration_set(args.gen_calib, out, n=args.n)
+        return 0
+
+    if not args.calib:
+        ap.error("--calib is required (or use --gen-calib to build one)")
     quantize_vision_encoder(args.onnx, args.calib, args.out, method=args.method)
     return 0
 

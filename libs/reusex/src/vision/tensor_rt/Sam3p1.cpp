@@ -974,8 +974,11 @@ IDataset::Pair TensorRTSam3p1::step(const IDataset::Pair &in) {
     if (!decode(stream))
       continue;
 
+    // Per-prompt threshold overrides the frame/global one when set (>= 0).
+    const float conf = prompt.confidence >= 0.0f ? prompt.confidence
+                                                 : frame->confidence_threshold;
     size_t before = results.size();
-    postprocess(results, label, label_id, frame->confidence_threshold, stream);
+    postprocess(results, label, label_id, conf, stream);
     // Track the best detection score across concepts for object_score_logits.
     for (size_t i = before; i < results.size(); ++i)
       best_score = std::max(best_score, results[i].score);

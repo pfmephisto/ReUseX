@@ -266,7 +266,11 @@ TensorRTSam3::forward(const std::span<IDataset::Pair> &input) {
         if (meta.ptr && !meta.ptr->text.empty())
           label = meta.ptr->text;
 
-        const float conf = tensor_inputs[global_idx]->confidence_threshold;
+        // Per-prompt threshold overrides the frame/global one when set (>= 0).
+        const float conf =
+            (meta.ptr && meta.ptr->confidence >= 0.0f)
+                ? meta.ptr->confidence
+                : tensor_inputs[global_idx]->confidence_threshold;
         const int label_idx = std::get<2>(text_input_map_[label]);
 
         // Write result to the corresponding global image index.

@@ -126,7 +126,9 @@ PERFORMANCE TUNING:
   sub->add_option("--prompts", opt->prompts,
                   "Comma-separated concept prompts = the classes to detect "
                   "(open-vocabulary). Overrides the model's built-in default "
-                  "list. Example: --prompts \"wall,floor,pipe,duct,beam\".");
+                  "list. An optional per-concept threshold may be appended as "
+                  "':<0..1>' (else --confidence applies). Example: "
+                  "--prompts \"wall,floor,electrical outlet:0.3,person:0.6\".");
 
   sub->add_option("--prompts-file", opt->prompts_file,
                   "Path to a file with one concept prompt per line (lines "

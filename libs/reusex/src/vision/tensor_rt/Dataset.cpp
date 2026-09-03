@@ -29,8 +29,27 @@ TensorRTDataset::get(const std::size_t index) const {
   if (!prompts_.empty()) {
     data.first->prompts.clear();
     data.first->prompts.reserve(prompts_.size());
-    for (const auto &p : prompts_)
-      data.first->prompts.emplace_back(p);
+    for (const auto &p : prompts_) {
+      // Optional per-prompt threshold: "concept:0.4". Split on the LAST ':' and
+      // only treat the suffix as a threshold if it parses to a float in [0,1]
+      // (so concept names may still contain ':').
+      float conf = -1.0f;
+      std::string text = p;
+      if (auto pos = p.rfind(':');
+          pos != std::string::npos && pos + 1 < p.size()) {
+        try {
+          size_t used = 0;
+          float v = std::stof(p.substr(pos + 1), &used);
+          if (used == p.size() - pos - 1 && v >= 0.0f && v <= 1.0f) {
+            conf = v;
+            text = p.substr(0, pos);
+          }
+        } catch (const std::exception &) {
+          // not a threshold suffix; keep the whole string as the concept text
+        }
+      }
+      data.first->prompts.emplace_back(text, std::vector<BoxPrompt>{}, conf);
+    }
   }
   return data;
 }

@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <memory>
 #include <span>
+#include <string>
 #include <vector>
 
 // Forward declaration
@@ -75,6 +76,20 @@ class IDataset {
    */
   size_t size() const;
 
+  /* Returns the RTABMap node id backing the sample at @p index.
+   *
+   * The dataset maps contiguous dataset indices (0, 1, 2, ...) onto the
+   * ascending list of sensor-frame node ids cached at construction. Exposing
+   * the mapping lets ordered/stateful consumers (e.g. the video-tracker
+   * annotation path) detect sequence boundaries: within a single scan node ids
+   * increase monotonically, so a non-increasing delta between consecutive
+   * indices signals the start of a new concatenated sequence.
+   *
+   * @param index The dataset index whose node id to return.
+   * @return The node id at @p index (throws std::out_of_range if invalid).
+   */
+  int node_id(const std::size_t index) const;
+
   /**
    * @brief Remove already-annotated frames from the dataset
    *
@@ -84,6 +99,23 @@ class IDataset {
    * @return Number of frames removed
    */
   size_t filter_annotated();
+
+  /**
+   * @brief Remove only the leading contiguous run of already-annotated frames
+   *
+   * Unlike filter_annotated(), which drops every already-annotated frame
+   * regardless of position, this removes only the maximal prefix of the ordered
+   * id list whose frames all already have segmentation images, stopping at the
+   * first unannotated frame. This is the correct resume behaviour for the
+   * stateful video-tracker path: dropping mid-sequence frames would leave gaps
+   * in the temporal memory bank, so we skip only the already-completed prefix
+   * and re-process everything from the first gap onward (rebuilding memory from
+   * that boundary). For the stateless default path it degrades gracefully to
+   * the same "skip completed leading frames" behaviour.
+   *
+   * @return Number of leading frames removed
+   */
+  size_t filter_annotated_prefix();
 
   /* Retrieves a sample by its index. The get method takes an index as input,
    * which is used to look up the corresponding sample ID in the ids_ vector.
@@ -114,7 +146,24 @@ class IDataset {
    */
   virtual bool save(const std::span<Pair> &data) = 0;
 
+  /* Set the detection confidence threshold applied to samples produced by
+   * get(). Concrete datasets stamp this onto the IData they create so the model
+   * filters detections at the caller-chosen threshold. Default 0.5. */
+  void set_confidence(float confidence) { confidence_ = confidence; }
+
+  /* Set the concept/class prompts applied to samples produced by get().
+   * Concrete datasets stamp these onto the IData they create (open-vocabulary
+   * models treat the prompt list as the class set). Empty leaves the IData's
+   * built-in default. */
+  void set_prompts(std::vector<std::string> prompts) {
+    prompts_ = std::move(prompts);
+  }
+
     protected:
+  float confidence_ = 0.5f; ///< Detection confidence threshold for get().
+  std::vector<std::string>
+      prompts_; ///< Concept prompts for get() (empty=default).
+
   /* Retrieves the image data for a sample from the database. The getImage
    * method takes an index as input, which is used to look up the corresponding
    * sample ID in the ids_ vector. The getImage method then retrieves the image

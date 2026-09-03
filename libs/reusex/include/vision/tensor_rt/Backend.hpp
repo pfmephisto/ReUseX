@@ -2,6 +2,7 @@
 #include "reusex/vision/IMLBackend.hpp"
 #include "reusex/vision/tensor_rt/Dataset.hpp"
 #include "reusex/vision/tensor_rt/Sam3.hpp"
+#include "reusex/vision/tensor_rt/Sam3p1.hpp"
 
 namespace reusex::vision::tensor_rt {
 /* TensorRTBackend is a concrete implementation of the IMLBackend interface for
@@ -28,6 +29,17 @@ class TensorRTBackend : public IMLBackend {
   std::unique_ptr<IModel> create_model(const Model type,
                                        const std::filesystem::path &modelPath,
                                        bool use_cuda = false) override;
+
+  /* Creates a stateful video model (IVideoModel). Currently supports
+   * Model::sam3p1 (the SAM 3.1 video tracker). See IMLBackend::create_video_model.
+   * @param: type - The type of video model to create.
+   * @param: modelPath - The directory containing the model engines.
+   * @param: use_cuda - Ignored for TensorRT (always uses GPU).
+   * @return: A unique pointer to the created IVideoModel instance.
+   */
+  std::unique_ptr<IVideoModel>
+  create_video_model(const Model type, const std::filesystem::path &modelPath,
+                     bool use_cuda = false) override;
 
   /* Creates a dataset based on the provided dataset path. This method is
    * responsible for initializing and returning a dataset that can be used for

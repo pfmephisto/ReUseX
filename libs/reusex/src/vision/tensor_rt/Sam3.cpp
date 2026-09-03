@@ -234,9 +234,8 @@ TensorRTSam3::forward(const std::span<IDataset::Pair> &input) {
       const int current_batch_size = chunk_end - chunk_start;
 
       // Construct Prompt list for current Batch
-      std::vector<PromptMeta> batch_prompts(
-          chunk_prompts.begin() + chunk_start,
-          chunk_prompts.begin() + chunk_end);
+      std::vector<PromptMeta> batch_prompts(chunk_prompts.begin() + chunk_start,
+                                            chunk_prompts.begin() + chunk_end);
 
       // a. Gather Vision Features (chunk-local image_idx -> prompt slots)
       gather_vision_features(batch_prompts, current_batch_size, stream);
@@ -420,9 +419,8 @@ void TensorRTSam3::allocate_memory_once() {
     geom_labels_.cpu(max_prompt_batch_ * max_boxes_per_prompt_);
     geom_labels_.gpu(max_prompt_batch_ * max_boxes_per_prompt_);
 
-    size_t geom_feat_sz =
-        static_cast<size_t>(max_prompt_batch_) * (max_boxes_per_prompt_ + 1) *
-        256;
+    size_t geom_feat_sz = static_cast<size_t>(max_prompt_batch_) *
+                          (max_boxes_per_prompt_ + 1) * 256;
     geom_features_.gpu(geom_feat_sz);
     geom_mask_.gpu(max_prompt_batch_ * (max_boxes_per_prompt_ + 1));
   }
@@ -518,7 +516,12 @@ bool TensorRTSam3::setup_geometry_input(
 
 void TensorRTSam3::set_binding_dim(std::shared_ptr<TensorRT::Engine> &engine,
                                    int idx, const std::vector<int> &dims) {
-  if (engine && isdynamic_model_)
+  // Gate on the ENGINE's own dynamic flag, not the model-wide AND
+  // (isdynamic_model_). A statically-shaped engine (e.g. a vision encoder
+  // built with a fixed batch) must not suppress run-dim setting on the other,
+  // dynamically-shaped engines (text/decoder), which would otherwise fail with
+  // "input shapes not specified".
+  if (engine && engine->has_dynamic_dim())
     engine->set_run_dims(idx, dims);
 }
 

@@ -122,7 +122,9 @@ ENGINE_IO_CONTRACT = {
         "inputs": {
             # current top-level vision feature, BCHW (C=256, 72x72)
             "vision_feat": {"shape": ["B", 256, 72, 72], "dtype": "float32"},
-            # per-object predicted mask logits at high res (K object channels, 1008x1008)
+            # per-object predicted mask logits at high res (K == multiplex_count
+            # object channels, 1008x1008). The extra conditioning channels the
+            # 32-in-chan mask downsampler needs are derived internally.
             "pred_mask": {"shape": ["K", 1, 1008, 1008], "dtype": "float32"},
             "object_score_logits": {"shape": ["K", 1], "dtype": "float32"},
         },

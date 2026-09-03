@@ -40,28 +40,43 @@ class MemoryEncoderWrapper(nn.Module):
     """vision_feat[B,256,72,72], pred_mask[K,1,1008,1008], object_score_logits[K,1]
     -> maskmem_features[B,256,72,72], maskmem_pos_enc[B,256,72,72].
 
-    Reproduces the SimpleMaskEncoder branch of ``_encode_new_memory``
-    (video_tracking_multiplex.py:1616) for a *fixed* number K of object mask
-    channels, dropping the MultiplexState mux/demux bookkeeping:
+    Reproduces the SimpleMaskEncoder branch of the multiplex
+    ``_encode_new_memory`` (video_tracking_multiplex.py:1616) for the fixed
+    export case ``num_buckets == 1`` and ``multiplex_count == K == 16``, dropping
+    the runtime ``MultiplexState`` bookkeeping (which only reshapes tensors when
+    num_buckets==1). Verified against native config on the real checkpoint:
 
-      * mask_for_mem = sigmoid(pred_mask) * scale + bias
-      * maskmem = maskmem_backbone(vision_feat, mask_for_mem, skip_mask_sigmoid=True)
-      * add no_obj_embed_spatial for objects whose score <= threshold.
+      * apply_sigmoid_to_mask_logits_for_mem_enc=True, sigmoid_scale=2.0,
+        sigmoid_bias=-1.0 → ``mask_for_mem = sigmoid(pred_mask)*2 - 1``.
+      * mux (num_buckets=1): ``[K,1,H,W] -> [1,K,H,W]``.
+      * condition_as_mask_input=True (fg=1.0, bg=0.0): with no conditioning
+        objects on this frame, all conditioning channels are ``bg`` (0.0), so we
+        concat a zeros ``[1,K,H,W]`` block → ``[1,2K,H,W]`` (== the downsampler's
+        32 in-channels: multiplex_count*input_channel_multiplier).
+      * maskmem = maskmem_backbone(vision_feat, mux_mask, skip_mask_sigmoid=True).
+      * no_obj_embed_spatial is ``[K,256]`` (multiplex override, NOT the base
+        class ``[1,256]``); object_score_logits ``[K,1]`` mux → ``[1,K,1]``;
+        ``no_obj = ((1-is_obj)*no_obj_embed_spatial).sum(dim=1)`` → ``[1,256]``,
+        broadcast-added to features. Threshold = object_score_logit_threshold=0.
 
-    The multiplex mask downsampler is built with multiplex_count=16 and
-    input_channel_multiplier=2 → it expects 32 mask channels. We stack the K
-    object masks into the leading channel dim (the C++ side must present exactly
-    ``multiplex_count * input_channel_multiplier`` channels; here K plays that
-    role). ``sigmoid_scale=2.0``, ``sigmoid_bias=-1.0`` from the builder.
+    K is ``multiplex_count`` (16); the extra 16 conditioning channels are derived
+    internally, so the C++ side supplies exactly 16 per-object mask logits.
     """
 
     def __init__(self, handles):
         super().__init__()
         trk = handles.tracker
         self.maskmem_backbone = trk.maskmem_backbone  # SimpleMaskEncoder
+        self.apply_sigmoid = bool(
+            getattr(trk, "apply_sigmoid_to_mask_logits_for_mem_enc", True)
+        )
         self.sigmoid_scale = float(getattr(trk, "sigmoid_scale_for_mem_enc", 2.0))
         self.sigmoid_bias = float(getattr(trk, "sigmoid_bias_for_mem_enc", -1.0))
-        self.no_obj_embed_spatial = getattr(trk, "no_obj_embed_spatial", None)
+        self.condition_as_mask_input = bool(
+            getattr(trk, "condition_as_mask_input", True)
+        )
+        self.cond_bg = float(getattr(trk, "condition_as_mask_input_bg", 0.0))
+        self.no_obj_embed_spatial = getattr(trk, "no_obj_embed_spatial", None)  # [K,256]
         self.obj_score_thresh = float(getattr(trk, "object_score_logit_threshold", 0.0))
 
     def forward(
@@ -71,24 +86,37 @@ class MemoryEncoderWrapper(nn.Module):
         object_score_logits: torch.Tensor,  # [K,1]
     ):
         # sigmoid + scale/bias (apply_sigmoid_to_mask_logits_for_mem_enc=True)
-        mask_for_mem = torch.sigmoid(pred_mask)
-        if self.sigmoid_scale != 1.0:
-            mask_for_mem = mask_for_mem * self.sigmoid_scale
-        if self.sigmoid_bias != 0.0:
-            mask_for_mem = mask_for_mem + self.sigmoid_bias
+        if self.apply_sigmoid:
+            mask_for_mem = torch.sigmoid(pred_mask)
+            if self.sigmoid_scale != 1.0:
+                mask_for_mem = mask_for_mem * self.sigmoid_scale
+            if self.sigmoid_bias != 0.0:
+                mask_for_mem = mask_for_mem + self.sigmoid_bias
+        else:
+            mask_for_mem = pred_mask
 
-        # [K,1,H,W] -> [B, K, H, W] mask channels (B==1 for tracking)
+        # mux with num_buckets==1: [K,1,H,W] -> [1,K,H,W]
         mux_mask = mask_for_mem.squeeze(1).unsqueeze(0)  # [1, K, 1008, 1008]
+
+        # condition_as_mask_input: append K conditioning channels. No conditioning
+        # objects on an export frame → all bg (cond_bg, typically 0.0).
+        if self.condition_as_mask_input:
+            cond = torch.full_like(mux_mask, self.cond_bg)
+            mux_mask = torch.cat([mux_mask, cond], dim=1)  # [1, 2K, H, W]
 
         out = self.maskmem_backbone(vision_feat, mux_mask, skip_mask_sigmoid=True)
         maskmem_features = out["vision_features"]      # [B,256,72,72]
         maskmem_pos_enc = out["vision_pos_enc"][0]     # [B,256,72,72]
 
         if self.no_obj_embed_spatial is not None:
-            is_obj = (object_score_logits > self.obj_score_thresh).float()  # [K,1]
-            # sum of no_obj embeddings for absent objects, broadcast over space
-            no_obj = ((1.0 - is_obj).squeeze(-1)[:, None] * self.no_obj_embed_spatial).sum(0)
-            maskmem_features = maskmem_features + no_obj[None, :, None, None]
+            # no_obj_embed_spatial: [K,256]; object_score_logits [K,1] mux -> [1,K,1]
+            no_obj_embed = self.no_obj_embed_spatial.unsqueeze(0)  # [1,K,256]
+            osl = object_score_logits.unsqueeze(0)                 # [1,K,1]
+            is_obj = (osl > self.obj_score_thresh).float()         # [1,K,1]
+            no_obj = ((1.0 - is_obj) * no_obj_embed).sum(dim=1)    # [1,256]
+            maskmem_features = maskmem_features + no_obj[..., None, None].expand_as(
+                maskmem_features
+            )
 
         return maskmem_features, maskmem_pos_enc
 
@@ -151,6 +179,14 @@ class MemoryAttentionWrapper(nn.Module):
         )
         mem = encoder_out["memory"]  # [HW,B,C]
         pix_feat_with_mem = mem.permute(1, 2, 0).reshape(B, C, self.feat_h, self.feat_w)
+        # The decoupled RoPE encoder does not consume a key-padding mask (it
+        # relies on RoPE + fixed lengths — see class docstring), so ``memory_mask``
+        # is functionally unused. But the shared C++/engine contract binds a
+        # ``memory_mask`` input, and ONNX prunes trace-unused inputs. Tie it into
+        # the output as an exact zero so the input survives to the graph without
+        # altering any value: 0 * sum(mask) broadcasts to a scalar 0.
+        keep = (memory_mask.to(pix_feat_with_mem.dtype).sum() * 0.0)
+        pix_feat_with_mem = pix_feat_with_mem + keep
         return pix_feat_with_mem
 
 

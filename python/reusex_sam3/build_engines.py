@@ -50,13 +50,18 @@ SHAPE_PROFILES = {
         "fpn_feat_1": ((1, 256, 144, 144), (1, 256, 144, 144), (4, 256, 144, 144)),
         "fpn_feat_2": ((1, 256, 72, 72), (1, 256, 72, 72), (4, 256, 72, 72)),
         "fpn_pos_2": ((1, 256, 72, 72), (1, 256, 72, 72), (4, 256, 72, 72)),
-        "prompt_features": ((1, 1, 256), (1, 40, 256), (4, 300, 256)),
-        "prompt_mask": ((1, 1), (1, 40), (4, 300)),
+        # prompt_len is fixed at 32 (the text encoder emits 32 tokens and the
+        # attention head-reshape bakes this constant); only batch is dynamic.
+        "prompt_features": ((1, 32, 256), (1, 32, 256), (4, 32, 256)),
+        "prompt_mask": ((1, 32), (1, 32), (4, 32)),
     },
     "tracker-memory-encoder": {
+        # num_objects is dynamic (1..32): the C++ tracker encodes a single
+        # aggregate-foreground memory token per frame (K=1); the multiplex
+        # trainer used up to 32. opt=1 matches the C++ runtime.
         "vision_feat": ((1, 256, 72, 72), (1, 256, 72, 72), (1, 256, 72, 72)),
-        "pred_mask": ((32, 1, 1008, 1008), (32, 1, 1008, 1008), (32, 1, 1008, 1008)),
-        "object_score_logits": ((32, 1), (32, 1), (32, 1)),
+        "pred_mask": ((1, 1, 1008, 1008), (1, 1, 1008, 1008), (32, 1, 1008, 1008)),
+        "object_score_logits": ((1, 1), (1, 1), (32, 1)),
     },
     "tracker-memory-attention": {
         "current_feat": ((_MEM_TOKENS, 1, 256),) * 3,

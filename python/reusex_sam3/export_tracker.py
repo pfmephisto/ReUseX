@@ -82,7 +82,10 @@ def _example_inputs(engine: str):
 
     if engine == "tracker-memory-encoder":
         vision_feat = torch.randn(1, 256, 72, 72)
-        K = MULTIPLEX * 2  # multiplex_count * input_channel_multiplier mask channels
+        # K == multiplex_count (16) per-object mask logits. The extra 16
+        # conditioning channels the SimpleMaskEncoder's 32-in-chan downsampler
+        # wants are derived internally (condition_as_mask_input=True).
+        K = MULTIPLEX
         pred_mask = torch.randn(K, 1, 1008, 1008)
         obj_scores = torch.randn(K, 1)
         return (vision_feat, pred_mask, obj_scores)

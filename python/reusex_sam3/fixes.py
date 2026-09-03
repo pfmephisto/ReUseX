@@ -79,6 +79,46 @@ def concat_padded_right(seq1, mask1, seq2, mask2):
 # ---------------------------------------------------------------------------
 
 
+def _patch_fused_addmm_act(handles, stack: contextlib.ExitStack):
+    """Fix (0): replace the fused ``addmm_act`` with a plain fp32 linear+act.
+
+    Native ``sam3.perflib.fused.addmm_act`` (``perflib/fused.py:10``) calls
+    ``torch.ops.aten._addmm_activation`` after unconditionally casting the bias,
+    weight and activation to ``bfloat16``. Two problems for ONNX export:
+
+      1. It returns a *bf16* tensor which then hits the fp32 ``fc2`` linear →
+         ``RuntimeError: mat1 and mat2 must have the same dtype`` (BFloat16 vs
+         Float) — even in plain eval on CPU.
+      2. ``aten._addmm_activation`` is a fused perf kernel that does not lower to
+         a clean ONNX subgraph.
+
+    We replace it with a mathematically-equivalent fp32 ``Linear`` + GELU/ReLU
+    (the fused op's ``use_gelu`` maps to ``F.gelu``). ``vitdet.py`` binds the
+    symbol at import time (``from sam3.perflib.fused import addmm_act``), so we
+    must patch the name in *both* ``sam3.model.vitdet`` and ``sam3.perflib.fused``.
+    """
+    import torch
+    import torch.nn.functional as F
+
+    import sam3.model.vitdet as vitdet
+    import sam3.perflib.fused as fused
+
+    def addmm_act(activation, linear, mat1):
+        y = F.linear(mat1, linear.weight, linear.bias)
+        if activation in (torch.nn.functional.relu, torch.nn.ReLU):
+            return F.relu(y)
+        if activation in (torch.nn.functional.gelu, torch.nn.GELU):
+            return F.gelu(y)
+        raise ValueError(f"Unexpected activation {activation}")
+
+    orig_fused = fused.addmm_act
+    orig_vitdet = vitdet.addmm_act
+    fused.addmm_act = addmm_act
+    vitdet.addmm_act = addmm_act
+    stack.callback(setattr, fused, "addmm_act", orig_fused)
+    stack.callback(setattr, vitdet, "addmm_act", orig_vitdet)
+
+
 def _patch_position_encoding(handles, stack: contextlib.ExitStack):
     """Fix (1): make PositionEmbeddingSine cache-free & device-agnostic."""
     from sam3.model.position_encoding import PositionEmbeddingSine
@@ -106,15 +146,32 @@ def _patch_simple_rope(handles, stack: contextlib.ExitStack):
     and recomputes it when ``freqs_cis.shape[0] != q.shape[-2]``. For a fixed
     5184-token grid this branch is never taken at runtime, but the trace still
     records the mutation. We replace forward with a variant that reads the
-    pre-registered real/imag buffers directly and never mutates state.
+    pre-registered real/imag freqs directly and never mutates state.
+
+    Device note: ``SimpleRoPEAttention.__init__`` (``decoder.py:1048-1057``)
+    builds ``freqs_cis``/``freqs_cis_real``/``freqs_cis_imag`` on
+    ``cuda if is_available() else None`` and stores them as *plain attributes*
+    (not buffers), so ``model.cpu()`` never moves them. On our CPU export the
+    cuda freqs collide with cpu q/k → ``Expected all tensors on the same
+    device``. We therefore move the freqs to ``q.device`` at call time (matching
+    the native ``self.freqs_cis.to(q.device)`` at ``decoder.py:1069``) without
+    mutating ``self``.
     """
-    from sam3.model.decoder import SimpleRoPEAttention
-    from sam3.sam.transformer import functional_attention
+    from sam3.model.decoder import SimpleRoPEAttention, functional_attention
 
     orig_forward = SimpleRoPEAttention.forward
 
     def forward(self, q, k, v, num_k_exclude_rope: int = 0):
         dropout_p = 0.0  # eval
+        freqs_cis = self.freqs_cis
+        freqs_cis_real = getattr(self, "freqs_cis_real", None)
+        freqs_cis_imag = getattr(self, "freqs_cis_imag", None)
+        if freqs_cis is not None:
+            freqs_cis = freqs_cis.to(q.device)
+        if freqs_cis_real is not None:
+            freqs_cis_real = freqs_cis_real.to(q.device)
+        if freqs_cis_imag is not None:
+            freqs_cis_imag = freqs_cis_imag.to(q.device)
         return functional_attention(
             q,
             k,
@@ -122,9 +179,9 @@ def _patch_simple_rope(handles, stack: contextlib.ExitStack):
             dropout=dropout_p,
             num_heads=self.num_heads,
             num_k_exclude_rope=num_k_exclude_rope,
-            freqs_cis=self.freqs_cis,
-            freqs_cis_real=getattr(self, "freqs_cis_real", None),
-            freqs_cis_imag=getattr(self, "freqs_cis_imag", None),
+            freqs_cis=freqs_cis,
+            freqs_cis_real=freqs_cis_real,
+            freqs_cis_imag=freqs_cis_imag,
             use_fa3=False,
             use_rope_real=self.use_rope_real,
             rope_k_repeat=self.rope_k_repeat,
@@ -132,6 +189,71 @@ def _patch_simple_rope(handles, stack: contextlib.ExitStack):
 
     SimpleRoPEAttention.forward = forward
     stack.callback(setattr, SimpleRoPEAttention, "forward", orig_forward)
+
+
+def _patch_decoder_coord_cache(handles, stack: contextlib.ExitStack):
+    """Fix (1b): drop the cuda-pinned boxRPB coord cache in the DETR decoder.
+
+    ``TransformerDecoder.__init__`` (``decoder.py:280-286``) pre-builds
+    ``compilable_cord_cache`` via ``_get_coords(..., device="cuda")`` when
+    ``resolution``/``stride`` are set (they are: 1008/14 → feat_size 72). Because
+    ``compilable_stored_size == (H, W)`` matches at runtime, ``_get_rpb_matrix``
+    (``decoder.py:341-346``) uses that *cuda* cache, so on our CPU export the
+    coords collide with cpu ``reference_boxes`` →
+    ``Expected all tensors to be on the same device, cuda:0 and cpu``.
+
+    We wrap ``_get_rpb_matrix`` to null the compilable cache on entry, which
+    routes to the device-correct recompute branch (``decoder.py:337-338`` /
+    ``350-354``) that builds coords on ``reference_boxes.device``. Pure
+    device-consistency fix; the math is identical.
+    """
+    from sam3.model.decoder import TransformerDecoder
+
+    orig = TransformerDecoder._get_rpb_matrix
+
+    def _get_rpb_matrix(self, reference_boxes, feat_size):
+        self.compilable_cord_cache = None
+        self.compilable_stored_size = None
+        self.coord_cache = {}
+        return orig(self, reference_boxes, feat_size)
+
+    TransformerDecoder._get_rpb_matrix = _get_rpb_matrix
+    stack.callback(setattr, TransformerDecoder, "_get_rpb_matrix", orig)
+
+
+def _patch_mask_downsampler_antialias(handles, stack: contextlib.ExitStack):
+    """Fix (6): drop antialias in the maskmem mask downsampler's resize.
+
+    ``SimpleMaskDownSampler.forward`` (``memory.py:77-86``) resizes the input
+    masks with ``F.interpolate(..., mode="bilinear", antialias=True)``. The
+    antialiased path lowers to ``aten::_upsample_bilinear2d_aa``, which ONNX
+    opset 17 does not support (``UnsupportedOperatorError``).
+
+    For this checkpoint the resize is 1008→1152 (``interpol_size=[1152,1152]``),
+    i.e. an *upsample* — and antialiasing is a no-op when upsampling (it only
+    band-limits when downscaling). So we re-run the same bilinear interpolate
+    with ``antialias=False``: numerically equivalent here, and a plain
+    ``Resize`` op that ONNX/TensorRT support.
+    """
+    import torch.nn.functional as F
+
+    from sam3.model.memory import SimpleMaskDownSampler
+
+    orig_forward = SimpleMaskDownSampler.forward
+
+    def forward(self, x):
+        if self.interpol_size is not None and self.interpol_size != list(x.shape[-2:]):
+            x = F.interpolate(
+                x.float(),
+                size=self.interpol_size,
+                align_corners=False,
+                mode="bilinear",
+                antialias=False,  # no-op vs True for upsampling; ONNX-exportable
+            )
+        return self.encoder(x)
+
+    SimpleMaskDownSampler.forward = forward
+    stack.callback(setattr, SimpleMaskDownSampler, "forward", orig_forward)
 
 
 def _patch_geometry_concat(handles, stack: contextlib.ExitStack):
@@ -226,7 +348,10 @@ def apply_all(handles=None):
     """
     stack = contextlib.ExitStack()
     try:
+        _patch_fused_addmm_act(handles, stack)
         _patch_position_encoding(handles, stack)
+        _patch_decoder_coord_cache(handles, stack)
+        _patch_mask_downsampler_antialias(handles, stack)
         _patch_simple_rope(handles, stack)
         _patch_geometry_concat(handles, stack)
         _patch_geometry_roi_align(handles, stack)

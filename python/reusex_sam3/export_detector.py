@@ -81,7 +81,11 @@ def _example_inputs(engine: str):
         f1 = torch.randn(1, 256, 144, 144)
         f2 = torch.randn(1, 256, 72, 72)
         p2 = torch.randn(1, 256, 72, 72)
-        L = 40
+        # L is baked as a constant into the attention head-reshape by the
+        # TorchScript ONNX exporter, so it must match what the C++ sends: the
+        # text encoder emits exactly 32 tokens (make_ids pads to 32), and the
+        # text-prompted path uses no geometry, so prompt_len is always 32.
+        L = 32
         prompt = torch.randn(1, L, 256)
         pmask = torch.zeros(1, L, dtype=torch.bool)
         return (f0, f1, f2, p2, prompt, pmask)

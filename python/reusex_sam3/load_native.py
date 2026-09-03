@@ -396,7 +396,10 @@ class NativeHandles:
 
     @property
     def trk_prompt_encoder(self):
-        return self.tracker.sam_prompt_encoder  # PromptEncoder
+        # The multiplex tracker exposes its SAM1-style prompt encoder as
+        # ``interactive_sam_prompt_encoder`` (a PromptEncoder); there is no plain
+        # ``sam_prompt_encoder`` attribute on Sam3VideoTrackingMultiplexDemo.
+        return self.tracker.interactive_sam_prompt_encoder  # PromptEncoder
 
     @property
     def trk_mask_decoder(self):

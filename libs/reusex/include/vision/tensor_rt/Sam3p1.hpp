@@ -49,8 +49,8 @@ class TensorRTSam3p1 : public IVideoModel {
 
     public:
   /* Constructor. Mirrors TensorRTSam3's constructor (Sam3.cpp) but additionally
-   * takes the two tracker engine paths. Engine paths may be empty to indicate an
-   * absent (optional) engine, matching the Sam3.cpp convention for geometry.
+   * takes the two tracker engine paths. Engine paths may be empty to indicate
+   * an absent (optional) engine, matching the Sam3.cpp convention for geometry.
    */
   TensorRTSam3p1(const std::string &vision_encoder_path,
                  const std::string &text_encoder_path,
@@ -63,8 +63,9 @@ class TensorRTSam3p1 : public IVideoModel {
 
   /* Factory. Discovers the 4 detector engines + tokenizer.json + the 2 tracker
    * engines (memory-encoder, memory-attention) + optional tracker-meta.json in
-   * model_path. Returns nullptr if any REQUIRED engine is missing (vision, text,
-   * decoder, memory-encoder, memory-attention are required; geometry optional).
+   * model_path. Returns nullptr if any REQUIRED engine is missing (vision,
+   * text, decoder, memory-encoder, memory-attention are required; geometry
+   * optional).
    * @param model_path: Directory containing the SAM 3.1 engine set.
    * @return A unique pointer to a TensorRTSam3p1, or nullptr on failure.
    */
@@ -105,7 +106,8 @@ class TensorRTSam3p1 : public IVideoModel {
   // batch=1, geometry omitted for the video path — text prompts only).
   bool decode(void *stream);
 
-  // Postprocess decoder outputs into DetectionBoxArray (Sam3.cpp postprocess()).
+  // Postprocess decoder outputs into DetectionBoxArray (Sam3.cpp
+  // postprocess()).
   void postprocess(InferResult &image_result, const std::string &label,
                    int label_id, float confidence_threshold, void *stream);
 
@@ -113,17 +115,18 @@ class TensorRTSam3p1 : public IVideoModel {
 
   // Run tracker-memory-encoder(vision_feat, pred_mask, object_score_logits) →
   // maskmem_features + maskmem_pos_enc, then append into the ring, evicting the
-  // oldest slot. object_score_logits is derived from the fused detection scores.
-  // The encoder outputs are spatial [C,H,W]; before storing them in a ring slot
-  // they are rearranged to seq-major [H*W,C] so that pack_memory() is a plain
-  // contiguous copy (see rearrange_chw_to_hwc()).
+  // oldest slot. object_score_logits is derived from the fused detection
+  // scores. The encoder outputs are spatial [C,H,W]; before storing them in a
+  // ring slot they are rearranged to seq-major [H*W,C] so that pack_memory() is
+  // a plain contiguous copy (see rearrange_chw_to_hwc()).
   void append_memory(float object_score_logits, void *stream);
 
   // Pack the currently-valid memory slots contiguously into mem_feat_concat_ /
   // mem_pos_concat_ and fill memory_mask_ (true for valid rows). Slots are
   // stored already in seq-major [H*W,C], so packing M slots yields the
-  // [M*H*W, 1, C] `memory` tensor via straight D2D copies. Returns the number of
-  // valid memory tokens packed (M * mem_tokens_per_frame_; 0 if bank is empty).
+  // [M*H*W, 1, C] `memory` tensor via straight D2D copies. Returns the number
+  // of valid memory tokens packed (M * mem_tokens_per_frame_; 0 if bank is
+  // empty).
   int pack_memory(void *stream);
 
   // Run tracker-memory-attention(current_feat, current_pos, memory, memory_pos,
@@ -138,12 +141,13 @@ class TensorRTSam3p1 : public IVideoModel {
   // input frame (union), then convert to logits. Uploads into mem_pred_mask_.
   void build_aggregate_mask(const InferResult &results, void *stream);
 
-  // Rearrange a device buffer from spatial [C,H,W] (row-major, the vision-encoder
-  // / memory-encoder layout) to seq-major [H*W,C] (the memory-attention token
-  // layout). Implemented as a host round-trip transpose (D2H → CPU transpose →
-  // H2D) because no transpose kernel exists in this module and the task forbids
-  // adding one; the element count (C*H*W ≈ 1.3M floats) makes this cheap enough
-  // for the per-frame memory path. Uses transpose_scratch_ as staging.
+  // Rearrange a device buffer from spatial [C,H,W] (row-major, the
+  // vision-encoder / memory-encoder layout) to seq-major [H*W,C] (the
+  // memory-attention token layout). Implemented as a host round-trip transpose
+  // (D2H → CPU transpose → H2D) because no transpose kernel exists in this
+  // module and the task forbids adding one; the element count (C*H*W ≈ 1.3M
+  // floats) makes this cheap enough for the per-frame memory path. Uses
+  // transpose_scratch_ as staging.
   void rearrange_chw_to_hwc(float *d_src, float *d_dst, int c, int h, int w,
                             void *stream);
 
@@ -175,12 +179,20 @@ class TensorRTSam3p1 : public IVideoModel {
   // mem_dim_ = feat_c_ = 256. Conditioning is at the fpn_feat_2 (72x72) level.
   int mem_bank_max_ = 7;         // number of frames retained in the ring
   int mem_tokens_per_frame_ = 0; // H*W spatial tokens per stored memory frame
-  int mem_dim_ = 0;              // channel dim of each memory token (== feat_c_)
-  int feat_c_ = 0;               // current-feat channel dim (fpn_feat_2 == 256)
-  int feat_h_ = 0;               // current-feat height (72)
-  int feat_w_ = 0;               // current-feat width  (72)
-  int multiplex_count_ = 1;      // reserved (SAM 3.1 multiplex heads)
+  int mem_dim_ = 0;         // channel dim of each memory token (== feat_c_)
+  int feat_c_ = 0;          // current-feat channel dim (fpn_feat_2 == 256)
+  int feat_h_ = 0;          // current-feat height (72)
+  int feat_w_ = 0;          // current-feat width  (72)
+  int multiplex_count_ = 1; // reserved (SAM 3.1 multiplex heads)
   int frame_counter_ = 0;
+
+  // EXPERIMENTAL. When true, the memory-attention output conditions the
+  // detector's fpn_feat_2 before decoding. Off by default: SAM 3.1's tracker
+  // memory-attention is built to propagate the SAM2-style mask tracker, not to
+  // condition the open-vocab detector's FPN features, and enabling it collapses
+  // detections (validated: coverage 31% -> 0.1%). The memory bank is still
+  // maintained per frame so a future detect-then-associate design can use it.
+  bool use_memory_conditioning_ = false;
 
   // Model paths
   std::string vision_encoder_path_;
@@ -220,8 +232,9 @@ class TensorRTSam3p1 : public IVideoModel {
   tensor::Memory<float> mask_affine_matrix_;
 
   // Vision encoder outputs. fpn_feat_2_ (the 72x72 top level) is overwritten in
-  // place by apply_memory_attention() to carry the memory-conditioned embedding;
-  // fpn_feat_0_/fpn_feat_1_/fpn_pos_2_ are passed to the decoder unchanged.
+  // place by apply_memory_attention() to carry the memory-conditioned
+  // embedding; fpn_feat_0_/fpn_feat_1_/fpn_pos_2_ are passed to the decoder
+  // unchanged.
   tensor::Memory<float> fpn_feat_0_;
   tensor::Memory<float> fpn_feat_1_;
   tensor::Memory<float> fpn_feat_2_;
@@ -267,10 +280,10 @@ class TensorRTSam3p1 : public IVideoModel {
   tensor::Memory<float> maskmem_features_;
   tensor::Memory<float> maskmem_pos_enc_;
 
-  // Ring of pre-allocated slots. Each slot holds one frame's maskmem feature and
-  // pos buffers, both stored in SEQ-MAJOR [H*W, C] = [mem_tokens_per_frame_,
-  // mem_dim_] layout so pack_memory() is a plain contiguous D2D copy into the
-  // [M,1,C] memory tensor.
+  // Ring of pre-allocated slots. Each slot holds one frame's maskmem feature
+  // and pos buffers, both stored in SEQ-MAJOR [H*W, C] =
+  // [mem_tokens_per_frame_, mem_dim_] layout so pack_memory() is a plain
+  // contiguous D2D copy into the [M,1,C] memory tensor.
   struct MemorySlot {
     tensor::Memory<float> feature;
     tensor::Memory<float> pos;
@@ -291,11 +304,11 @@ class TensorRTSam3p1 : public IVideoModel {
   // holds one src and one dst plane = 2*C*H*W). See rearrange_chw_to_hwc().
   tensor::Memory<float> transpose_scratch_;
 
-  // Contiguous packing of the valid slots consumed by memory-attention, plus the
-  // bool key-padding mask. `memory`/`memory_pos` are seq-major [M,1,C] with
+  // Contiguous packing of the valid slots consumed by memory-attention, plus
+  // the bool key-padding mask. `memory`/`memory_pos` are seq-major [M,1,C] with
   // M = mem_bank_max_ * mem_tokens_per_frame_ rows max; memory_mask_ is [1,M].
-  // NOTE: the RoPE encoder ignores memory_mask (no key-padding path), so we pack
-  // exactly the valid slots contiguously and pass an all-true mask.
+  // NOTE: the RoPE encoder ignores memory_mask (no key-padding path), so we
+  // pack exactly the valid slots contiguously and pass an all-true mask.
   tensor::Memory<float> mem_feat_concat_;
   tensor::Memory<float> mem_pos_concat_;
   tensor::Memory<bool> memory_mask_;

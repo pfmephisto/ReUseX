@@ -113,6 +113,12 @@ PERFORMANCE TUNING:
                 "interrupted runs)")
       ->default_val(opt->skip_annotated);
 
+  sub->add_option("--confidence", opt->confidence,
+                  "Detection confidence threshold in [0,1]. Lower keeps more "
+                  "(higher recall), higher keeps fewer (higher precision).")
+      ->check(CLI::Range(0.0f, 1.0f))
+      ->default_val(opt->confidence);
+
   sub->add_flag("--video", opt->video,
                 "Use the stateful video-tracker path (SAM 3.1). Processes "
                 "frames in temporal order on a single thread (forces "
@@ -145,8 +151,8 @@ int run_subcommand_annotate(SubcommandAnnotateOptions const &opt,
         reusex::vision::BackendFactory::detect_model(opt.net_path);
     const bool is_sam3p1 = (model_type == reusex::vision::Model::sam3p1);
 
-    // A SAM 3.1 directory always routes to the video path (annotate.cpp does the
-    // same automatically); --video with a non-SAM-3.1 model is an error.
+    // A SAM 3.1 directory always routes to the video path (annotate.cpp does
+    // the same automatically); --video with a non-SAM-3.1 model is an error.
     bool video = opt.video || is_sam3p1;
     if (opt.video && !is_sam3p1) {
       spdlog::error("--video requires a SAM 3.1 model directory (with "
@@ -160,8 +166,8 @@ int run_subcommand_annotate(SubcommandAnnotateOptions const &opt,
                    "path (implicit --video).");
     }
 
-    // Video mode forces ordered single-threaded processing. Warn if the user set
-    // conflicting dataloader options, then override them.
+    // Video mode forces ordered single-threaded processing. Warn if the user
+    // set conflicting dataloader options, then override them.
     size_t batch_size = opt.batch_size;
     size_t num_workers = opt.num_workers;
     bool shuffle = opt.shuffle;
@@ -191,6 +197,7 @@ int run_subcommand_annotate(SubcommandAnnotateOptions const &opt,
         .num_workers = num_workers,
         .prefetch_batches = opt.prefetch_batches,
         .skip_annotated = opt.skip_annotated,
+        .confidence = opt.confidence,
         .seed =
             opt.random_seed ? std::nullopt : std::optional<uint32_t>(opt.seed),
         .video = video};

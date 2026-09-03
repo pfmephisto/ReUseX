@@ -23,6 +23,7 @@ TensorRTDataset::get(const std::size_t index) const {
   reusex::trace("TensorRTDataset getting data at index {}", index);
   auto data = std::make_pair(std::make_unique<TensorRTData>(), index);
   data.first->image = image(index);
+  data.first->confidence_threshold = confidence_;
   return data;
 }
 

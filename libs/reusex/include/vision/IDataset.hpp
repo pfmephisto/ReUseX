@@ -114,7 +114,14 @@ class IDataset {
    */
   virtual bool save(const std::span<Pair> &data) = 0;
 
+  /* Set the detection confidence threshold applied to samples produced by
+   * get(). Concrete datasets stamp this onto the IData they create so the model
+   * filters detections at the caller-chosen threshold. Default 0.5. */
+  void set_confidence(float confidence) { confidence_ = confidence; }
+
     protected:
+  float confidence_ = 0.5f; ///< Detection confidence threshold for get().
+
   /* Retrieves the image data for a sample from the database. The getImage
    * method takes an index as input, which is used to look up the corresponding
    * sample ID in the ids_ vector. The getImage method then retrieves the image

@@ -31,6 +31,11 @@ from .wrappers_detector import (
 OPSET = 17
 DEFAULT_ONNX_DIR = Path(__file__).resolve().parent.parent / "onnx"
 
+# Fixed number of geometry (box) prompts baked into the geometry-encoder graph.
+# The attention head-reshape constant-folds this value, so the engine is built
+# at exactly this count (see build_engines.SHAPE_PROFILES["geometry-encoder"]).
+GEOM_NUM_BOXES = 8
+
 
 def _names_axes(engine: str):
     c = ENGINE_IO_CONTRACT[engine]
@@ -71,8 +76,14 @@ def _example_inputs(engine: str):
         mask = torch.ones(1, 32, dtype=torch.long)
         return (ids, mask)
     if engine == "geometry-encoder":
-        boxes = torch.rand(1, 3, 4)          # N=3 boxes cxcywh in [0,1]
-        labels = torch.ones(1, 3, dtype=torch.long)
+        # num_boxes is baked as a constant into the attention head-reshape by the
+        # TorchScript exporter (same failure mode as the decoder prompt_len), so
+        # it must be fixed. We use GEOM_NUM_BOXES; a geometry-prompted decoder
+        # must then be built with prompt_len = 32 + GEOM_NUM_BOXES + 1 (the
+        # text-only path here uses prompt_len=32 and does not invoke geometry).
+        n = GEOM_NUM_BOXES
+        boxes = torch.rand(1, n, 4)          # N boxes cxcywh in [0,1]
+        labels = torch.ones(1, n, dtype=torch.long)
         fpn2 = torch.randn(1, 256, 72, 72)
         pos2 = torch.randn(1, 256, 72, 72)
         return (boxes, labels, fpn2, pos2)

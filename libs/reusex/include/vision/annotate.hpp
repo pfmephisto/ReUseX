@@ -18,11 +18,12 @@ struct AnnotationConfig {
   size_t prefetch_batches =
       8; ///< Batches to prefetch (recommended: 2-3x workers)
   bool skip_annotated = false; ///< Skip frames that already have segmentation
+  float confidence = 0.5f;     ///< Detection confidence threshold [0,1]
   std::optional<uint32_t> seed =
-      42;              ///< Shuffle RNG seed (fixed=deterministic, nullopt=entropy)
-  bool video = false;  ///< Use the stateful video-tracker path (SAM 3.1). Frames
-                       ///< are processed in temporal order on a single thread;
-                       ///< the shuffled Dataloader is bypassed.
+      42; ///< Shuffle RNG seed (fixed=deterministic, nullopt=entropy)
+  bool video = false; ///< Use the stateful video-tracker path (SAM 3.1). Frames
+                      ///< are processed in temporal order on a single thread;
+                      ///< the shuffled Dataloader is bypassed.
 };
 
 /**

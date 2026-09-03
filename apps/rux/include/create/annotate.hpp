@@ -26,6 +26,7 @@ struct SubcommandAnnotateOptions {
   size_t prefetch_batches =
       8; // Batches to prefetch (recommended: 2-3x workers)
   bool skip_annotated = false; // Skip already-annotated frames (resume mode)
+  float confidence = 0.5f;     // Detection confidence threshold [0,1]
   bool video = false; // Use stateful video-tracker path (SAM 3.1). Forces
                       // ordered single-threaded processing.
 

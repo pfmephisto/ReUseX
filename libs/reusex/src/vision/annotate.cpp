@@ -11,8 +11,8 @@
 // #include "vision/infer/sam3infer.hpp"
 #include "vision/utils.hpp"
 
-#include <opencv2/core.hpp>
 #include <array>
+#include <opencv2/core.hpp>
 #include <string>
 #include <thread>
 
@@ -107,6 +107,7 @@ auto annotate(const std::filesystem::path &dbPath,
 
   auto modelType = BackendFactory::detect_model(modelPath);
   auto dataset = backend->create_dataset(dbPath);
+  dataset->set_confidence(config.confidence);
 
   // Video-tracker path: stateful, ordered, single-threaded. Triggered by the
   // explicit --video flag or automatically when a SAM 3.1 model is detected.

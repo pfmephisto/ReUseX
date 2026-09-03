@@ -40,8 +40,11 @@ SHAPE_PROFILES = {
         "attention_mask": ((1, 32), (1, 32), (4, 32)),
     },
     "geometry-encoder": {
-        "input_boxes": ((1, 1, 4), (1, 8, 4), (4, 64, 4)),
-        "input_boxes_labels": ((1, 1), (1, 8), (4, 64)),
+        # num_boxes is baked (constant-folded) into the attention head-reshape,
+        # so it is fixed at GEOM_NUM_BOXES=8 (matches export_detector). Only the
+        # image batch is dynamic.
+        "input_boxes": ((1, 8, 4), (1, 8, 4), (4, 8, 4)),
+        "input_boxes_labels": ((1, 8), (1, 8), (4, 8)),
         "fpn_feat_2": ((1, 256, 72, 72), (1, 256, 72, 72), (4, 256, 72, 72)),
         "fpn_pos_2": ((1, 256, 72, 72), (1, 256, 72, 72), (4, 256, 72, 72)),
     },
@@ -56,12 +59,12 @@ SHAPE_PROFILES = {
         "prompt_mask": ((1, 32), (1, 32), (4, 32)),
     },
     "tracker-memory-encoder": {
-        # num_objects is dynamic (1..32): the C++ tracker encodes a single
-        # aggregate-foreground memory token per frame (K=1); the multiplex
-        # trainer used up to 32. opt=1 matches the C++ runtime.
+        # num_objects is baked to multiplex_count(16) by the SimpleMaskEncoder's
+        # 32-in-channel downsampler, so the engine is fixed at 16 objects. The
+        # C++ feeds 16 mask channels (aggregate mask in channel 0, rest zero).
         "vision_feat": ((1, 256, 72, 72), (1, 256, 72, 72), (1, 256, 72, 72)),
-        "pred_mask": ((1, 1, 1008, 1008), (1, 1, 1008, 1008), (32, 1, 1008, 1008)),
-        "object_score_logits": ((1, 1), (1, 1), (32, 1)),
+        "pred_mask": ((16, 1, 1008, 1008), (16, 1, 1008, 1008), (16, 1, 1008, 1008)),
+        "object_score_logits": ((16, 1), (16, 1), (16, 1)),
     },
     "tracker-memory-attention": {
         "current_feat": ((_MEM_TOKENS, 1, 256),) * 3,

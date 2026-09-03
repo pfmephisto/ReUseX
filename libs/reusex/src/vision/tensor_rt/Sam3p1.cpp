@@ -146,7 +146,8 @@ TensorRTSam3p1::TensorRTSam3p1(const std::string &vision_encoder_path,
                    e.what());
     }
   } else {
-    reusex::debug("No tracker-meta.json found; relying on engine probed shapes");
+    reusex::debug(
+        "No tracker-meta.json found; relying on engine probed shapes");
   }
 }
 
@@ -224,8 +225,8 @@ bool TensorRTSam3p1::load_engines() {
   // Probe current-feat shape from the memory-attention output pix_feat_with_mem
   // [B, C=256, H=72, W=72] — conditioning is at the fpn_feat_2 (72x72) level.
   // Prefer engine-reported values over tracker-meta.json fallbacks. We use the
-  // memory-encoder/attention spatial output (NOT fpn_feat_0_shape_, which is the
-  // 288x288 level) so feat_h_/feat_w_ describe the 72x72 memory grid.
+  // memory-encoder/attention spatial output (NOT fpn_feat_0_shape_, which is
+  // the 288x288 level) so feat_h_/feat_w_ describe the 72x72 memory grid.
   {
     int me_out_idx = memory_encoder_trt_->index("maskmem_features");
     std::vector<int> mm;
@@ -279,7 +280,8 @@ bool TensorRTSam3p1::load_engines() {
 void TensorRTSam3p1::allocate_memory_once() {
   reusex::debug("Allocating GPU memory for TensorRTSam3p1");
 
-  // --- Image buffers (batch=1), sized as in Sam3.cpp::allocate_memory_once. ---
+  // --- Image buffers (batch=1), sized as in Sam3.cpp::allocate_memory_once.
+  // ---
   affine_matrix_.cpu(6);
   affine_matrix_.gpu(6);
   mask_affine_matrix_.cpu(6);
@@ -338,13 +340,16 @@ void TensorRTSam3p1::allocate_memory_once() {
   size_t spatial = static_cast<size_t>(std::max(1, feat_c_)) *
                    std::max(1, feat_h_) * std::max(1, feat_w_);
 
-  // Memory-encoder inputs. pred_mask is the aggregate foreground mask at the
-  // FULL tracker input resolution [K=1,1,input_h,input_w] (1008x1008).
-  size_t mask_px = static_cast<size_t>(input_image_height_) * input_image_width_;
-  mem_pred_mask_.gpu(mask_px);
-  mem_pred_mask_host_.cpu(mask_px);
-  mem_obj_score_.cpu(1);
-  mem_obj_score_.gpu(1);
+  // Memory-encoder inputs. The SimpleMaskEncoder is a MULTIPLEX encoder with a
+  // fixed K=multiplex_count object-mask channels [K,1,input_h,input_w]
+  // (1008x1008); we place the aggregate foreground mask in channel 0 and leave
+  // channels 1..K-1 empty (background). object_score_logits is [K,1].
+  size_t mask_px =
+      static_cast<size_t>(input_image_height_) * input_image_width_;
+  mem_pred_mask_.gpu(mask_px * multiplex_count_);
+  mem_pred_mask_host_.cpu(mask_px * multiplex_count_);
+  mem_obj_score_.cpu(multiplex_count_);
+  mem_obj_score_.gpu(multiplex_count_);
 
   // Per-frame memory-encoder outputs, spatial [C,H,W].
   maskmem_features_.gpu(spatial);
@@ -381,7 +386,11 @@ void TensorRTSam3p1::allocate_memory_once() {
 
 void TensorRTSam3p1::set_binding_dim(std::shared_ptr<TensorRT::Engine> &engine,
                                      int idx, const std::vector<int> &dims) {
-  if (engine && isdynamic_model_)
+  // Gate on the ENGINE's own dynamic flag, not the model-wide AND
+  // (isdynamic_model_): the static tracker engines (memory-encoder is fixed at
+  // K=16) must not suppress run-dim setting on the dynamic vision/text/decoder
+  // engines, which would fail with "input shapes not specified".
+  if (engine && engine->has_dynamic_dim())
     engine->set_run_dims(idx, dims);
 }
 
@@ -406,8 +415,8 @@ void TensorRTSam3p1::preprocess(const TensorRTData &input, void *stream) {
   matrix.compute(std::make_tuple(img_tensor.width, img_tensor.height),
                  std::make_tuple(input_image_width_, input_image_height_));
 
-  size_t size_image = static_cast<size_t>(img_tensor.width) * img_tensor.height *
-                      3;
+  size_t size_image =
+      static_cast<size_t>(img_tensor.width) * img_tensor.height * 3;
   uint8_t *h_buf = original_image_buf_->cpu(size_image);
 
   if (img.isContinuous()) {
@@ -507,9 +516,9 @@ bool TensorRTSam3p1::decode(void *stream) {
   cudaMemcpyAsync(prompt_mask_.gpu(), text_mask_.gpu(), text_len * mask_sz,
                   cudaMemcpyDeviceToDevice, s);
 
-  set_binding_dim(decoder_trt_, 0,
-                  {1, fpn_feat_0_shape_[1], fpn_feat_0_shape_[2],
-                   fpn_feat_0_shape_[3]});
+  set_binding_dim(
+      decoder_trt_, 0,
+      {1, fpn_feat_0_shape_[1], fpn_feat_0_shape_[2], fpn_feat_0_shape_[3]});
   set_binding_dim(decoder_trt_, 1,
                   {1, fpn_feat_0_shape_[1], fpn_feat_0_shape_[2] / 2,
                    fpn_feat_0_shape_[3] / 2});
@@ -653,7 +662,7 @@ void TensorRTSam3p1::rearrange_chw_to_hwc(float *d_src, float *d_dst, int c,
   const size_t n = static_cast<size_t>(c) * hw;
 
   float *h_src = transpose_scratch_.cpu(); // [0, n)  = source [C,HW]
-  float *h_dst = h_src + n;                 // [n, 2n) = dest   [HW,C]
+  float *h_dst = h_src + n;                // [n, 2n) = dest   [HW,C]
 
   cudaMemcpyAsync(h_src, d_src, n * sizeof(float), cudaMemcpyDeviceToHost, s);
   cudaStreamSynchronize(s); // need the data on host before transposing
@@ -748,11 +757,16 @@ bool TensorRTSam3p1::apply_memory_attention(void *stream) {
     return false;
   }
 
-  // pix_feat_with_mem is spatial [1,C,H,W] — overwrite fpn_feat_2_ in place so
-  // the decoder consumes the conditioned 72x72 feature transparently.
-  size_t spatial = static_cast<size_t>(feat_c_) * feat_h_ * feat_w_;
-  cudaMemcpyAsync(fpn_feat_2_.gpu(), pix_feat_with_mem_.gpu(),
-                  spatial * sizeof(float), cudaMemcpyDeviceToDevice, s);
+  // pix_feat_with_mem is spatial [1,C,H,W]. Overwriting fpn_feat_2_ with it
+  // lets the decoder consume the conditioned feature — but this collapses the
+  // open-vocab detector (see use_memory_conditioning_), so it is gated off by
+  // default. When off we keep the raw fpn_feat_2_ for detection; the memory
+  // bank is still updated so future detect-then-associate work can use it.
+  if (use_memory_conditioning_) {
+    size_t spatial = static_cast<size_t>(feat_c_) * feat_h_ * feat_w_;
+    cudaMemcpyAsync(fpn_feat_2_.gpu(), pix_feat_with_mem_.gpu(),
+                    spatial * sizeof(float), cudaMemcpyDeviceToDevice, s);
+  }
   return true;
 }
 
@@ -766,10 +780,11 @@ void TensorRTSam3p1::build_aggregate_mask(const InferResult &results,
   //   mask_for_mem = sigmoid(pred_mask) * scale + bias
   // so pred_mask is expected to be per-pixel logits. We build a binary
   // foreground union from the detector's per-object masks (which postprocess
-  // has already thresholded at confidence_threshold) and map foreground->+kLogit
-  // / background->-kLogit so sigmoid saturates near 1/0. This is an aggregate
-  // (open-vocabulary, all-objects) foreground mask, not a per-object mask; see
-  // the step() note on the per-object-vs-aggregate design choice.
+  // has already thresholded at confidence_threshold) and map
+  // foreground->+kLogit / background->-kLogit so sigmoid saturates near 1/0.
+  // This is an aggregate (open-vocabulary, all-objects) foreground mask, not a
+  // per-object mask; see the step() note on the per-object-vs-aggregate design
+  // choice.
   constexpr float kLogit = 10.0f;
 
   // Original-image -> 1008x1008 mapping is the vision-encoder ResizeMatrix, a
@@ -788,7 +803,8 @@ void TensorRTSam3p1::build_aggregate_mask(const InferResult &results,
     const cv::Mat &m = det.segmentation->mask; // CV_8U at box resolution
 
     // Destination box in the 1008x1008 frame.
-    int dx1 = std::clamp(static_cast<int>(std::lround(det.box.left * sx)), 0, W);
+    int dx1 =
+        std::clamp(static_cast<int>(std::lround(det.box.left * sx)), 0, W);
     int dy1 = std::clamp(static_cast<int>(std::lround(det.box.top * sy)), 0, H);
     int dx2 =
         std::clamp(static_cast<int>(std::lround(det.box.right * sx)), 0, W);
@@ -806,41 +822,52 @@ void TensorRTSam3p1::build_aggregate_mask(const InferResult &results,
   }
 
   // Convert the binary union to logits into the host staging buffer, then H2D.
+  // Channel 0 carries the aggregate foreground; channels 1..K-1 are all
+  // background (empty object slots) so the multiplex encoder sees one object.
   float *h_mask = mem_pred_mask_host_.cpu();
   const size_t px = static_cast<size_t>(H) * W;
   const uint8_t *fgp = fg.ptr<uint8_t>(0);
   for (size_t i = 0; i < px; ++i)
     h_mask[i] = fgp[i] ? kLogit : -kLogit;
+  for (int c = 1; c < multiplex_count_; ++c)
+    std::fill_n(h_mask + static_cast<size_t>(c) * px, px, -kLogit);
 
-  cudaMemcpyAsync(mem_pred_mask_.gpu(), h_mask, px * sizeof(float),
+  cudaMemcpyAsync(mem_pred_mask_.gpu(), h_mask,
+                  static_cast<size_t>(multiplex_count_) * px * sizeof(float),
                   cudaMemcpyHostToDevice, s);
 }
 
 void TensorRTSam3p1::append_memory(float object_score_logits, void *stream) {
   cudaStream_t s = (cudaStream_t)stream;
 
-  // Upload the object score scalar [K=1,1].
+  // Upload object score logits [K,1]: channel 0 = this frame's max detection
+  // score, channels 1..K-1 = strongly-negative (empty object slots).
   float *h_score = mem_obj_score_.cpu();
   h_score[0] = object_score_logits;
-  cudaMemcpyAsync(mem_obj_score_.gpu(), h_score, sizeof(float),
+  for (int c = 1; c < multiplex_count_; ++c)
+    h_score[c] = -10.0f;
+  cudaMemcpyAsync(mem_obj_score_.gpu(), h_score,
+                  static_cast<size_t>(multiplex_count_) * sizeof(float),
                   cudaMemcpyHostToDevice, s);
 
   // Contract (tracker-memory-encoder):
   //   vision_feat         = current top-level feature [B=1,C=256,H=72,W=72].
   //                         We pass fpn_feat_2_, which apply_memory_attention()
-  //                         has overwritten in place with the memory-conditioned
-  //                         embedding when the bank was non-empty (raw fpn_feat_2
-  //                         on the first frame). This mirrors SAM2's
-  //                         _encode_new_memory, which encodes memory from the
-  //                         conditioned pix_feat.
+  //                         has overwritten in place with the
+  //                         memory-conditioned embedding when the bank was
+  //                         non-empty (raw fpn_feat_2 on the first frame). This
+  //                         mirrors SAM2's _encode_new_memory, which encodes
+  //                         memory from the conditioned pix_feat.
   //   pred_mask           = aggregate foreground mask [K=1,1,1008,1008]
   //   object_score_logits = [K=1,1] (max detection score this frame)
   // Outputs maskmem_features / maskmem_pos_enc are spatial [B,256,72,72].
   set_binding_dim(memory_encoder_trt_, 0,
                   {1, feat_c_, feat_h_, feat_w_}); // vision_feat
   set_binding_dim(memory_encoder_trt_, 1,
-                  {1, 1, input_image_height_, input_image_width_}); // pred_mask
-  set_binding_dim(memory_encoder_trt_, 2, {1, 1}); // object_score_logits
+                  {multiplex_count_, 1, input_image_height_,
+                   input_image_width_}); // pred_mask
+  set_binding_dim(memory_encoder_trt_, 2,
+                  {multiplex_count_, 1}); // object_score_logits
 
   bool ok = memory_encoder_trt_->forward(
       {{"vision_feat", fpn_feat_2_.gpu()},
@@ -923,8 +950,8 @@ IDataset::Pair TensorRTSam3p1::step(const IDataset::Pair &in) {
   InferResult results;
   float best_score = 0.0f;
   for (const auto &prompt : frame->prompts) {
-    std::string label = prompt.text.empty() ? std::string("object")
-                                            : prompt.text;
+    std::string label =
+        prompt.text.empty() ? std::string("object") : prompt.text;
     const int label_id = std::get<2>(text_input_map_[label]);
 
     if (!encode_text(&prompt, stream))
@@ -942,14 +969,15 @@ IDataset::Pair TensorRTSam3p1::step(const IDataset::Pair &in) {
   // (4) Memory encoder: build this frame's aggregate foreground mask and append
   // to the ring. Per the resolved contract (K=1 open-vocab aggregate case), the
   // memory encoder ingests a single [1,1,1008,1008] union-of-objects mask plus
-  // the max detection score as object_score_logits; memory then carries both the
-  // conditioned appearance (vision_feat = conditioned fpn_feat_2) and the frame's
-  // aggregate foreground.
+  // the max detection score as object_score_logits; memory then carries both
+  // the conditioned appearance (vision_feat = conditioned fpn_feat_2) and the
+  // frame's aggregate foreground.
   // TODO: verify against exported engine I/O
   // category=Vision estimate=4h
   // Two residual unknowns to confirm against a real exported engine:
   // (a) exact logit scale the memory encoder's sigmoid*scale+bias expects — we
-  //     approximate the binary union as +/-10 logits (see build_aggregate_mask);
+  //     approximate the binary union as +/-10 logits (see
+  //     build_aggregate_mask);
   // (b) whether open-vocab annotation should instead run a per-object ring
   //     (K>1 pred_mask channels) rather than the K=1 aggregate used here.
   build_aggregate_mask(results, stream);

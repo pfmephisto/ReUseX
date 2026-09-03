@@ -12,6 +12,7 @@
 #include "vision/tensor_rt/common/device.hpp"
 #include "vision/tensor_rt/kernels/postprocess.cuh"
 #include "vision/tensor_rt/kernels/process_kernel_warp.hpp"
+#include <cstdlib>
 
 #include <fmt/ranges.h>
 #include <nlohmann/json.hpp>
@@ -109,6 +110,16 @@ TensorRTSam3p1::TensorRTSam3p1(const std::string &vision_encoder_path,
       decoder_path_(decoder_path), memory_encoder_path_(memory_encoder_path),
       memory_attention_path_(memory_attention_path), gpu_id_(gpu_id) {
   reusex::debug("Initializing TensorRTSam3p1 with gpu_id={}", gpu_id_);
+
+  // Experimental: enable memory-attention feature-conditioning of the detector
+  // via env var (off by default because it collapses the open-vocab detector —
+  // see use_memory_conditioning_). Lets A/B testing without a rebuild.
+  if (const char *e = std::getenv("REUSEX_SAM3P1_MEMORY_COND");
+      e && std::string(e) != "0") {
+    use_memory_conditioning_ = true;
+    reusex::warn("SAM3.1 memory-conditioning ENABLED (experimental; degrades "
+                 "the open-vocab detector)");
+  }
 
   original_image_buf_ = std::make_shared<tensor::Memory<uint8_t>>();
 
@@ -942,7 +953,11 @@ IDataset::Pair TensorRTSam3p1::step(const IDataset::Pair &in) {
   // memory bank (no-op on the first frame). fpn_feat_2_ is overwritten in place
   // with the memory-conditioned embedding on success; fpn_feat_0/1 + fpn_pos_2
   // pass through to the decoder unchanged.
-  apply_memory_attention(stream);
+  // Skipped entirely unless conditioning is enabled — the memory-attention
+  // forward + its host-side transpose add ~50ms/frame of pure overhead when the
+  // (unused, off-by-default) conditioning is disabled.
+  if (use_memory_conditioning_)
+    apply_memory_attention(stream);
 
   // (3) Detector (text-encode + decode + postprocess) on the conditioned feats.
   // The detector runs EVERY frame for open-vocabulary all-classes annotation;
@@ -980,8 +995,12 @@ IDataset::Pair TensorRTSam3p1::step(const IDataset::Pair &in) {
   //     build_aggregate_mask);
   // (b) whether open-vocab annotation should instead run a per-object ring
   //     (K>1 pred_mask channels) rather than the K=1 aggregate used here.
-  build_aggregate_mask(results, stream);
-  append_memory(best_score, stream);
+  // Only maintain the memory bank when conditioning consumes it — otherwise the
+  // memory-encoder forward + aggregate-mask build are wasted work.
+  if (use_memory_conditioning_) {
+    build_aggregate_mask(results, stream);
+    append_memory(best_score, stream);
+  }
 
   cudaStreamSynchronize(stream);
   cudaStreamDestroy(stream);

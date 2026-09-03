@@ -233,6 +233,41 @@ bool TensorRTSam3p1::load_engines() {
                    "MemoryAttention"))
     return false;
 
+  // Verify the exported memory-encoder I/O contract matches what
+  // append_memory() and build_aggregate_mask() assume (see
+  // python/reusex_sam3/__init__.py). This catches export drift early instead of
+  // at forward() time; dynamic axes report as <= 0 and are skipped. Non-fatal
+  // (warn) so an updated export can still be exercised, but a mismatch means
+  // the memory path would feed the engine wrong data.
+  auto verify_binding = [&](TensorRT::Engine *eng, const char *tensor,
+                            std::initializer_list<int> expect) {
+    int idx = eng->index(tensor);
+    if (idx < 0 || !eng->is_input(tensor)) {
+      reusex::warn("memory-encoder: expected input binding '{}' not found",
+                   tensor);
+      return;
+    }
+    auto dims = eng->static_dims(tensor);
+    if (dims.size() != expect.size()) {
+      reusex::warn("memory-encoder '{}' rank {} != expected {}", tensor,
+                   dims.size(), expect.size());
+      return;
+    }
+    int axis = 0;
+    for (int e : expect) {
+      if (e > 0 && dims[axis] > 0 && dims[axis] != e)
+        reusex::warn("memory-encoder '{}' axis {} = {} != expected {}", tensor,
+                     axis, dims[axis], e);
+      ++axis;
+    }
+  };
+  // pred_mask [K,1,1008,1008] raw logits; vision_feat [1,C,H,W]; scores [K,1].
+  // K (num_objects) is dynamic → pass 0 to skip that axis.
+  verify_binding(memory_encoder_trt_.get(), "pred_mask",
+                 {0, 1, input_image_height_, input_image_width_});
+  verify_binding(memory_encoder_trt_.get(), "vision_feat", {1, 0, 0, 0});
+  verify_binding(memory_encoder_trt_.get(), "object_score_logits", {0, 1});
+
   // Probe current-feat shape from the memory-attention output pix_feat_with_mem
   // [B, C=256, H=72, W=72] — conditioning is at the fpn_feat_2 (72x72) level.
   // Prefer engine-reported values over tracker-meta.json fallbacks. We use the
@@ -787,15 +822,19 @@ void TensorRTSam3p1::build_aggregate_mask(const InferResult &results,
   const int H = input_image_height_; // 1008
   const int W = input_image_width_;  // 1008
 
-  // APPROXIMATION (documented): the memory encoder applies
-  //   mask_for_mem = sigmoid(pred_mask) * scale + bias
-  // so pred_mask is expected to be per-pixel logits. We build a binary
-  // foreground union from the detector's per-object masks (which postprocess
+  // VERIFIED against the exported engine
+  // (python/reusex_sam3/wrappers_tracker.py MemoryEncoderWrapper.forward,
+  // contract in python/reusex_sam3/__init__.py): the `pred_mask` binding is RAW
+  // pre-sigmoid logits [K,1,1008,1008,f32] — the encoder applies mask_for_mem =
+  // sigmoid(pred_mask)*scale+bias (scale=2.0, bias=-1.0) INSIDE the engine
+  // graph. So we only need to supply logits that saturate the sigmoid: we build
+  // a binary foreground union from the detector's per-object masks (postprocess
   // has already thresholded at confidence_threshold) and map
-  // foreground->+kLogit / background->-kLogit so sigmoid saturates near 1/0.
-  // This is an aggregate (open-vocabulary, all-objects) foreground mask, not a
-  // per-object mask; see the step() note on the per-object-vs-aggregate design
-  // choice.
+  // foreground->+kLogit / background->-kLogit. sigmoid(+/-10) ~= 1/0, which the
+  // internal *2-1 maps to ~[-1,+1]; the exact scale/bias never has to be
+  // replicated here. This is an aggregate (open-vocabulary, all-objects)
+  // foreground mask, not a per-object mask; see the step() note on the
+  // per-object-vs-aggregate design choice.
   constexpr float kLogit = 10.0f;
 
   // Original-image -> 1008x1008 mapping is the vision-encoder ResizeMatrix, a
@@ -869,8 +908,11 @@ void TensorRTSam3p1::append_memory(float object_score_logits, void *stream) {
   //                         non-empty (raw fpn_feat_2 on the first frame). This
   //                         mirrors SAM2's _encode_new_memory, which encodes
   //                         memory from the conditioned pix_feat.
-  //   pred_mask           = aggregate foreground mask [K=1,1,1008,1008]
-  //   object_score_logits = [K=1,1] (max detection score this frame)
+  //   pred_mask           = aggregate foreground logits
+  //                         [K=multiplex_count,1,1008,1008] (fg in channel 0)
+  //   object_score_logits = [K=multiplex_count,1] (channel 0 = max detection
+  //                         score this frame; channels 1..K-1 strongly
+  //                         negative)
   // Outputs maskmem_features / maskmem_pos_enc are spatial [B,256,72,72].
   set_binding_dim(memory_encoder_trt_, 0,
                   {1, feat_c_, feat_h_, feat_w_}); // vision_feat
@@ -992,8 +1034,17 @@ IDataset::Pair TensorRTSam3p1::step(const IDataset::Pair &in) {
   // tracker's memory into the DETR detector's features, which is the wrong head
   // (see use_memory_conditioning_ / apply_memory_attention). It is retained
   // only for experimentation and would be replaced by a proper temporal design
-  // (detect-then-associate), so the exact aggregate-mask logit scale is not
-  // tuned here. Skipping it entirely when off also avoids wasted work.
+  // (detect-then-associate). Skipping it entirely when off also avoids wasted
+  // work.
+  //
+  // Design note (aggregate vs per-object): the multiplex memory encoder accepts
+  // K=multiplex_count per-object mask channels, but this open-vocab path has no
+  // stable per-object identity across frames, so we encode a single AGGREGATE
+  // foreground (all detections unioned into channel 0, channels 1..K-1 left
+  // background). A true per-object ring (one live mask per channel) would need
+  // a detect-then-associate tracker to assign identities before encoding; that
+  // is the same redesign that would revive memory-conditioning, so it is
+  // intentionally deferred rather than approximated here.
   if (use_memory_conditioning_) {
     build_aggregate_mask(results, stream);
     append_memory(best_score, stream);

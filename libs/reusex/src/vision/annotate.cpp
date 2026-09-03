@@ -48,31 +48,35 @@ static int annotate_video(IMLBackend &backend, IDataset &dataset,
   }
 
   if (config.skip_annotated) {
-    // The default video path (memory-conditioning off, see TensorRTSam3p1) is
-    // stateless per frame and order-preserving, so already-annotated frames can
-    // simply be dropped and the remainder processed in ascending node-id order.
-    // (If the experimental memory-conditioning is enabled, dropping
-    // mid-sequence frames leaves gaps in the memory bank; that path is opt-in
-    // only.)
-    auto skipped = dataset.filter_annotated();
-    reusex::info("Skipping {} already-annotated frames", skipped);
+    // Resume only across the already-done PREFIX. A stateful tracker must warm
+    // its memory bank from the first processed frame, so we skip only the
+    // maximal leading run of already-annotated frames and re-process everything
+    // from the first gap onward; dropping non-contiguous frames (as
+    // filter_annotated() does) would leave holes in the temporal memory. For
+    // the stateless default path this is simply "skip completed leading
+    // frames".
+    auto skipped = dataset.filter_annotated_prefix();
+    reusex::info("Skipping {} already-annotated leading frames", skipped);
     if (dataset.size() == 0) {
       reusex::info("All frames already annotated, nothing to do");
       return 0;
     }
   }
 
-  // A ReUseX project DB holds a single ordered scan (sensor frames keyed by
-  // ascending node id), so one reset() before the first frame is the correct
-  // and only sequence boundary.
+  // Reset the tracker at every sequence boundary: the first frame, and any
+  // point where the node id fails to increase (a new concatenated sequence). A
+  // ReUseX project DB normally holds a single ordered scan, so this fires once
+  // — but multi-sequence datasets are now handled correctly (see
+  // is_sequence_boundary).
   const size_t total = dataset.size();
   size_t frame_count = 0;
   {
     auto observer = reusex::core::ProgressObserver(
         reusex::core::Stage::annotating_batches, total);
     for (size_t i = 0; i < total; ++i) {
-      if (i == 0)
-        tracker->reset(); // start of the (single) scan
+      if (is_sequence_boundary(i, dataset.node_id(i),
+                               i == 0 ? 0 : dataset.node_id(i - 1)))
+        tracker->reset(); // start of a sequence
 
       auto in = dataset.get(i);
       auto out = tracker->step(in);

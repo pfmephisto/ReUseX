@@ -41,7 +41,9 @@ class BackendFactory {
    *
    * Inspects the path stem and, for directories, contained file names.
    * Detection is case-insensitive:
+   *   - name containing "sam3.1"/"sam3p1" -> Model::sam3p1
    *   - "sam3" or "sam2" in the name  -> Model::sam3
+   *   - directory with vision-encoder + tracker engines -> Model::sam3p1
    *   - directory containing "vision-encoder.*" -> Model::sam3
    *   - otherwise                     -> Model::yolo
    *
@@ -55,24 +57,43 @@ class BackendFactory {
       return s;
     };
 
-    // Check directory/file name itself
+    // Check directory/file name itself. A "sam3.1"/"sam3p1" stem shortcut selects
+    // the video tracker; check it BEFORE the plain sam3/sam2 shortcut.
     auto name = to_lower(model_path.stem().string());
+    if (name.find("sam3.1") != std::string::npos ||
+        name.find("sam3p1") != std::string::npos) {
+      reusex::info("Detected SAM3.1 model from path name: {}", model_path);
+      return Model::sam3p1;
+    }
     if (name.find("sam3") != std::string::npos ||
         name.find("sam2") != std::string::npos) {
       reusex::info("Detected SAM3 model from path name: {}", model_path);
       return Model::sam3;
     }
 
-    // For directories, check contained filenames for SAM3 sub-models
+    // For directories, inspect contained filenames. SAM 3.1 additionally ships
+    // the tracker engines; require vision-encoder + memory-encoder +
+    // memory-attention and return sam3p1 BEFORE the plain-sam3 return.
     if (std::filesystem::is_directory(model_path)) {
+      bool has_vision = false, has_mem_encoder = false, has_mem_attention = false;
       for (const auto &entry :
            std::filesystem::directory_iterator(model_path)) {
         auto stem = to_lower(entry.path().stem().string());
-        if (stem.find("vision-encoder") != std::string::npos) {
-          reusex::info("Detected SAM3 model from sub-model file: {}",
-                       entry.path());
-          return Model::sam3;
-        }
+        if (stem.find("vision-encoder") != std::string::npos)
+          has_vision = true;
+        if (stem.find("tracker-memory-encoder") != std::string::npos)
+          has_mem_encoder = true;
+        if (stem.find("tracker-memory-attention") != std::string::npos)
+          has_mem_attention = true;
+      }
+      if (has_vision && has_mem_encoder && has_mem_attention) {
+        reusex::info("Detected SAM3.1 video model (tracker engines present): {}",
+                     model_path);
+        return Model::sam3p1;
+      }
+      if (has_vision) {
+        reusex::info("Detected SAM3 model from sub-model files: {}", model_path);
+        return Model::sam3;
       }
     }
 

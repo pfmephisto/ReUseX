@@ -26,6 +26,8 @@ struct SubcommandAnnotateOptions {
   size_t prefetch_batches =
       8; // Batches to prefetch (recommended: 2-3x workers)
   bool skip_annotated = false; // Skip already-annotated frames (resume mode)
+  bool video = false; // Use stateful video-tracker path (SAM 3.1). Forces
+                      // ordered single-threaded processing.
 
   // Shuffle RNG seed. Fixed by default so shuffled runs are reproducible
   // (docs/STANDARDS.md §6). --random-seed opts into entropy instead.

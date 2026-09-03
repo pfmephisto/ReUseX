@@ -8,6 +8,7 @@
 #include "spdmon.hpp"
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/utils/fmt_formatter.hpp>
+#include <reusex/vision/BackendFactory.hpp>
 #include <reusex/vision/annotate.hpp>
 
 #include <fmt/format.h>
@@ -112,6 +113,13 @@ PERFORMANCE TUNING:
                 "interrupted runs)")
       ->default_val(opt->skip_annotated);
 
+  sub->add_flag("--video", opt->video,
+                "Use the stateful video-tracker path (SAM 3.1). Processes "
+                "frames in temporal order on a single thread (forces "
+                "--shuffle off, --workers 1, --batch-size 1). Requires a "
+                "SAM 3.1 model directory.")
+      ->default_val(opt->video);
+
   sub->callback([opt, global_opt]() {
     spdlog::trace("calling run_subcommand_annotate");
     return run_subcommand_annotate(*opt, *global_opt);
@@ -132,17 +140,60 @@ int run_subcommand_annotate(SubcommandAnnotateOptions const &opt,
       return RuxError::INVALID_ARGUMENT;
     }
 
+    // Detect the model type up-front so we can validate/route the video path.
+    const auto model_type =
+        reusex::vision::BackendFactory::detect_model(opt.net_path);
+    const bool is_sam3p1 = (model_type == reusex::vision::Model::sam3p1);
+
+    // A SAM 3.1 directory always routes to the video path (annotate.cpp does the
+    // same automatically); --video with a non-SAM-3.1 model is an error.
+    bool video = opt.video || is_sam3p1;
+    if (opt.video && !is_sam3p1) {
+      spdlog::error("--video requires a SAM 3.1 model directory (with "
+                    "tracker-memory-encoder + tracker-memory-attention "
+                    "engines); '{}' is not one.",
+                    opt.net_path.string());
+      return RuxError::INVALID_ARGUMENT;
+    }
+    if (is_sam3p1 && !opt.video) {
+      spdlog::info("SAM 3.1 model detected; using the stateful video-tracker "
+                   "path (implicit --video).");
+    }
+
+    // Video mode forces ordered single-threaded processing. Warn if the user set
+    // conflicting dataloader options, then override them.
+    size_t batch_size = opt.batch_size;
+    size_t num_workers = opt.num_workers;
+    bool shuffle = opt.shuffle;
+    if (video) {
+      if (opt.shuffle)
+        spdlog::warn("--shuffle is incompatible with --video (frames must be "
+                     "processed in order); disabling shuffle.");
+      if (opt.batch_size != 1)
+        spdlog::warn("--batch-size {} is ignored in --video mode; forcing "
+                     "batch size 1.",
+                     opt.batch_size);
+      if (opt.num_workers != 1)
+        spdlog::warn("--workers {} is ignored in --video mode; forcing a "
+                     "single worker.",
+                     opt.num_workers);
+      shuffle = false;
+      batch_size = 1;
+      num_workers = 1;
+    }
+
     // Build config from CLI options. --random-seed opts into entropy;
     // otherwise the (default 42) fixed seed keeps shuffled runs reproducible.
     reusex::vision::AnnotationConfig config{
         .use_cuda = opt.isCuda,
-        .batch_size = opt.batch_size,
-        .shuffle = opt.shuffle,
-        .num_workers = opt.num_workers,
+        .batch_size = batch_size,
+        .shuffle = shuffle,
+        .num_workers = num_workers,
         .prefetch_batches = opt.prefetch_batches,
         .skip_annotated = opt.skip_annotated,
         .seed =
-            opt.random_seed ? std::nullopt : std::optional<uint32_t>(opt.seed)};
+            opt.random_seed ? std::nullopt : std::optional<uint32_t>(opt.seed),
+        .video = video};
 
     return reusex::vision::annotate(project_path, opt.net_path, config);
 

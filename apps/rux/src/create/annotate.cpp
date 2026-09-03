@@ -14,7 +14,11 @@
 #include <fmt/format.h>
 
 #include <cstdint>
+#include <fstream>
 #include <optional>
+#include <sstream>
+#include <string>
+#include <vector>
 
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
@@ -119,6 +123,17 @@ PERFORMANCE TUNING:
       ->check(CLI::Range(0.0f, 1.0f))
       ->default_val(opt->confidence);
 
+  sub->add_option("--prompts", opt->prompts,
+                  "Comma-separated concept prompts = the classes to detect "
+                  "(open-vocabulary). Overrides the model's built-in default "
+                  "list. Example: --prompts \"wall,floor,pipe,duct,beam\".");
+
+  sub->add_option("--prompts-file", opt->prompts_file,
+                  "Path to a file with one concept prompt per line (lines "
+                  "starting with # and blank lines are ignored). Takes "
+                  "precedence over --prompts.")
+      ->check(CLI::ExistingFile);
+
   sub->add_flag("--video", opt->video,
                 "Use the stateful video-tracker path (SAM 3.1). Processes "
                 "frames in temporal order on a single thread (forces "
@@ -188,6 +203,32 @@ int run_subcommand_annotate(SubcommandAnnotateOptions const &opt,
       num_workers = 1;
     }
 
+    // Resolve concept prompts: --prompts-file (one per line, # comments) takes
+    // precedence over --prompts (comma-separated). Empty => model default list.
+    std::vector<std::string> prompts;
+    auto trim = [](std::string s) {
+      const char *ws = " \t\r\n";
+      s.erase(0, s.find_first_not_of(ws));
+      auto end = s.find_last_not_of(ws);
+      s.erase(end == std::string::npos ? 0 : end + 1);
+      return s;
+    };
+    if (!opt.prompts_file.empty()) {
+      std::ifstream pf(opt.prompts_file);
+      for (std::string line; std::getline(pf, line);) {
+        auto t = trim(line);
+        if (!t.empty() && t.front() != '#')
+          prompts.push_back(t);
+      }
+    } else if (!opt.prompts.empty()) {
+      std::stringstream ss(opt.prompts);
+      for (std::string item; std::getline(ss, item, ',');) {
+        auto t = trim(item);
+        if (!t.empty())
+          prompts.push_back(t);
+      }
+    }
+
     // Build config from CLI options. --random-seed opts into entropy;
     // otherwise the (default 42) fixed seed keeps shuffled runs reproducible.
     reusex::vision::AnnotationConfig config{
@@ -198,6 +239,7 @@ int run_subcommand_annotate(SubcommandAnnotateOptions const &opt,
         .prefetch_batches = opt.prefetch_batches,
         .skip_annotated = opt.skip_annotated,
         .confidence = opt.confidence,
+        .prompts = std::move(prompts),
         .seed =
             opt.random_seed ? std::nullopt : std::optional<uint32_t>(opt.seed),
         .video = video};

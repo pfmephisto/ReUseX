@@ -108,6 +108,10 @@ auto annotate(const std::filesystem::path &dbPath,
   auto modelType = BackendFactory::detect_model(modelPath);
   auto dataset = backend->create_dataset(dbPath);
   dataset->set_confidence(config.confidence);
+  if (!config.prompts.empty()) {
+    reusex::info("Using {} custom concept prompts", config.prompts.size());
+    dataset->set_prompts(config.prompts);
+  }
 
   // Video-tracker path: stateful, ordered, single-threaded. Triggered by the
   // explicit --video flag or automatically when a SAM 3.1 model is detected.

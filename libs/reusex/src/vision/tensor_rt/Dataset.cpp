@@ -24,6 +24,14 @@ TensorRTDataset::get(const std::size_t index) const {
   auto data = std::make_pair(std::make_unique<TensorRTData>(), index);
   data.first->image = image(index);
   data.first->confidence_threshold = confidence_;
+  // Override the built-in default class list with caller-supplied prompts
+  // (open-vocabulary: the prompt list IS the set of classes to detect).
+  if (!prompts_.empty()) {
+    data.first->prompts.clear();
+    data.first->prompts.reserve(prompts_.size());
+    for (const auto &p : prompts_)
+      data.first->prompts.emplace_back(p);
+  }
   return data;
 }
 

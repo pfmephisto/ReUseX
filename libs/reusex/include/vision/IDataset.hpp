@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <memory>
 #include <span>
+#include <string>
 #include <vector>
 
 // Forward declaration
@@ -119,8 +120,18 @@ class IDataset {
    * filters detections at the caller-chosen threshold. Default 0.5. */
   void set_confidence(float confidence) { confidence_ = confidence; }
 
+  /* Set the concept/class prompts applied to samples produced by get().
+   * Concrete datasets stamp these onto the IData they create (open-vocabulary
+   * models treat the prompt list as the class set). Empty leaves the IData's
+   * built-in default. */
+  void set_prompts(std::vector<std::string> prompts) {
+    prompts_ = std::move(prompts);
+  }
+
     protected:
   float confidence_ = 0.5f; ///< Detection confidence threshold for get().
+  std::vector<std::string>
+      prompts_; ///< Concept prompts for get() (empty=default).
 
   /* Retrieves the image data for a sample from the database. The getImage
    * method takes an index as input, which is used to look up the corresponding

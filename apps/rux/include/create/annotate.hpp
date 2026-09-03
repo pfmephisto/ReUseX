@@ -27,8 +27,13 @@ struct SubcommandAnnotateOptions {
       8; // Batches to prefetch (recommended: 2-3x workers)
   bool skip_annotated = false; // Skip already-annotated frames (resume mode)
   float confidence = 0.5f;     // Detection confidence threshold [0,1]
-  bool video = false; // Use stateful video-tracker path (SAM 3.1). Forces
-                      // ordered single-threaded processing.
+  // Open-vocabulary concept prompts = the classes to detect. --prompts is a
+  // comma-separated list; --prompts-file is one concept per line (# comments
+  // allowed). Empty leaves the model's built-in default class list.
+  std::string prompts;      // comma-separated concept list
+  std::string prompts_file; // path to a file with one concept per line
+  bool video = false;       // Use stateful video-tracker path (SAM 3.1). Forces
+                            // ordered single-threaded processing.
 
   // Shuffle RNG seed. Fixed by default so shuffled runs are reproducible
   // (docs/STANDARDS.md §6). --random-seed opts into entropy instead.

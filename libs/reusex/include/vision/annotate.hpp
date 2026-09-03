@@ -6,6 +6,8 @@
 #include <cstdint>
 #include <filesystem>
 #include <optional>
+#include <string>
+#include <vector>
 
 namespace reusex::vision {
 
@@ -19,6 +21,8 @@ struct AnnotationConfig {
       8; ///< Batches to prefetch (recommended: 2-3x workers)
   bool skip_annotated = false; ///< Skip frames that already have segmentation
   float confidence = 0.5f;     ///< Detection confidence threshold [0,1]
+  std::vector<std::string>
+      prompts; ///< Concept/class prompts (empty = model default)
   std::optional<uint32_t> seed =
       42; ///< Shuffle RNG seed (fixed=deterministic, nullopt=entropy)
   bool video = false; ///< Use the stateful video-tracker path (SAM 3.1). Frames

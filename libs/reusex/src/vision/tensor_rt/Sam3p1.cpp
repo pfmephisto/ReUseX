@@ -984,22 +984,16 @@ IDataset::Pair TensorRTSam3p1::step(const IDataset::Pair &in) {
       best_score = std::max(best_score, results[i].score);
   }
 
-  // (4) Memory encoder: build this frame's aggregate foreground mask and append
-  // to the ring. Per the resolved contract (K=1 open-vocab aggregate case), the
-  // memory encoder ingests a single [1,1,1008,1008] union-of-objects mask plus
-  // the max detection score as object_score_logits; memory then carries both
-  // the conditioned appearance (vision_feat = conditioned fpn_feat_2) and the
-  // frame's aggregate foreground.
-  // TODO: verify against exported engine I/O
-  // category=Vision estimate=4h
-  // Two residual unknowns to confirm against a real exported engine:
-  // (a) exact logit scale the memory encoder's sigmoid*scale+bias expects — we
-  //     approximate the binary union as +/-10 logits (see
-  //     build_aggregate_mask);
-  // (b) whether open-vocab annotation should instead run a per-object ring
-  //     (K>1 pred_mask channels) rather than the K=1 aggregate used here.
-  // Only maintain the memory bank when conditioning consumes it — otherwise the
-  // memory-encoder forward + aggregate-mask build are wasted work.
+  // (4) Memory encoder (EXPERIMENTAL — only runs when memory-conditioning is
+  // enabled). Builds this frame's aggregate foreground mask in channel 0 of the
+  // multiplex_count-wide pred_mask (the rest empty) and appends the encoded
+  // maskmem to the ring. NOTE: the memory-conditioning path is off by default
+  // and empirically collapses the open-vocab detector — it feeds the SAM2-style
+  // tracker's memory into the DETR detector's features, which is the wrong head
+  // (see use_memory_conditioning_ / apply_memory_attention). It is retained
+  // only for experimentation and would be replaced by a proper temporal design
+  // (detect-then-associate), so the exact aggregate-mask logit scale is not
+  // tuned here. Skipping it entirely when off also avoids wasted work.
   if (use_memory_conditioning_) {
     build_aggregate_mask(results, stream);
     append_memory(best_score, stream);

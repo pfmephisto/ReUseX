@@ -99,6 +99,19 @@ def quantize_vision_encoder(
         calibration_data=calib,
         calibration_method=method,
         output_path=output_path,
+        # Calibrate on the GPU — the default ['cpu', ...] runs the ViT forward on
+        # CPU at 1008x1008 and is orders of magnitude slower.
+        calibration_eps=["cuda:0", "cpu"],
+        # Keep the non-INT8 remainder in FP32, NOT the default fp16 autocast:
+        # this ViT is bf16-native and fp16 corrupts it (cosine 0.33), and the
+        # fp16 autocast pass also crashes on this graph. INT8 handles Conv/MatMul;
+        # everything else stays fp32.
+        high_precision_dtype="fp32",
+        mha_accumulation_dtype="fp32",
+        # Keep the RoPE attention in fp32: its fused node has no int8 TRT tactic
+        # (the same Myelin ForeignNode that blocks fp16/bf16). Only Conv + MLP
+        # MatMul/Gemm get int8.
+        nodes_to_exclude=[".*attn.*", ".*rope.*", ".*Rope.*"],
     )
     print(f"[ptq] wrote {output_path}")
     return output_path

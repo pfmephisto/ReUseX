@@ -84,8 +84,8 @@ struct SubcommandOptimizeOptions {
   std::string loop_edges_file;
   // Seed-disagreement gate for external edges (drop edges agreeing with the
   // seed within this many m; keeps the bridge a no-op on a well-posed scan). 0
-  // = off.
-  double loop_edges_min_disagreement = 0.10;
+  // = off. 0.5 m sits above the depth-noise floor, below any real drift.
+  double loop_edges_min_disagreement = 0.50;
 
   // Surfel extraction (shared with `rux register`).
   float surfel_voxel = 0.03f;

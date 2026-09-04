@@ -161,8 +161,15 @@ struct PlaneGraphOptions {
   /// 0.7958 -> 0.62 when 1336 redundant edges were applied ungated). Dropping
   /// them makes the bridge a no-op on a well-posed scan while keeping every
   /// large-drift edge.
-  /// <= 0 disables the gate (apply every external edge). Default 0.10 m.
-  double loop_edges_min_seed_disagreement = 0.10;
+  /// <= 0 disables the gate (apply every external edge). Default 0.50 m —
+  /// measured: this sits ABOVE the iPad-LiDAR depth-noise floor (a well-posed
+  /// scan's wide-baseline matcher+depth estimates disagree with the seed by
+  /// ~0.1-0.4 m of pure noise) yet FAR below any real drift (office 16.66 m,
+  /// NewOffice >20 m). At 0.5 m the honka non-drift guard's max pose shift
+  /// collapses 0.26 m -> 0.06 m (near no-op) while office keeps all 163 drift
+  /// edges. A lower 0.1 m gate lets honka's depth-noise edges through and still
+  /// regresses laser-GT (F 0.7958 -> 0.55); 0.5 m does not.
+  double loop_edges_min_seed_disagreement = 0.50;
 };
 
 /// Summary statistics from a plane-graph optimization run.

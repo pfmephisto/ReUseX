@@ -263,15 +263,50 @@ is exactly what #221 Tier 2 (a drifting scan **with** GT) unblocks. What this PR
 establishes is the mechanism and the front-end quality; final validation of the
 *applied* correction on a drifting scan remains GT-gated.
 
-### 5.4 honka Faro-GT no-regression guard
+### 5.4 honka Faro-GT no-regression guard — and a footgun it exposed
 
-honka (1596 frames) orbits a single room — good input poses, minimal drift, but
-**many genuine revisits** (XFeat found 1336 loop edges). It is the guard: adding
-loop edges must not degrade the laser-GT F-score.
+honka (1596 frames) orbits a single room: good input poses, **minimal drift**,
+but many revisits (XFeat found 1336 wide-baseline edges). It is the guard —
+adding loop edges to a well-posed scan must not degrade the laser-GT F-score.
 
-<!-- RESULTS-HONKA-GUARD -->
-_Populated by `~/loop-edges-work/honka-guard` (base F=0.7958): optimize vs
-optimize+XFeat (GNC-robust) vs optimize+XFeat (--loop-trust)._
+The first guard run **failed loudly**, which was the most valuable result of the
+whole exercise:
+
+| honka variant | laser-GT F@50mm | vs baseline |
+|---|---:|---|
+| optimize (no loop edges) | **0.7958** | — |
+| optimize + XFeat, ungated, GNC-robust | 0.6215 | ↓↓ |
+| optimize + XFeat, ungated, `--loop-trust` | 0.1741 | ↓↓↓ catastrophic |
+
+**Root cause.** The external-edge path bypassed the `min_seed_disagreement` gate
+the internal ORB path applies. On a scan with *no drift*, every wide-baseline
+matcher+depth relative pose is **noise** (iPad-LiDAR depth error at range makes
+even a correct pose "disagree" with the seed by 0.1–0.4 m), so imposing 1336 of
+them on already-correct poses wrecks the trajectory.
+
+**Fix + the key measured lesson.** A seed-disagreement gate on the external edges
+(drop any edge whose relative translation agrees with the seed within a
+threshold) — but the threshold must sit **above the depth-noise floor**. Swept:
+
+| gate | honka edges kept | honka max shift | honka GT F | office drift edges kept |
+|---:|---:|---:|---:|---:|
+| 0.10 m | 791 | 0.19 m | 0.5452 ↓ | 163 (all) |
+| 0.30 m | 667 | 0.26 m | — | — |
+| **0.50 m** (default) | 625 | **0.06 m** | **0.7958** ✓ | **163 (all)** |
+| 1.00 m | 445 | 0.06 m | — | — |
+
+At the **0.50 m default**, honka's correction collapses to a 0.06 m no-op and its
+GT F returns to the baseline **0.7958 — zero regression** — while the office
+drift edges (which disagree with the seed by 5–16 m) are **all** kept and apply
+the full 16.66 m correction. The gate cleanly separates *drift* (metres) from
+*noise* (sub-0.5 m) because on our scans those live on opposite sides of 0.5 m.
+
+**The deeper truth this surfaces:** loop closure corrects **drift**. On a scan
+that does not drift it can only add noise — no gate makes it *beneficial*, only
+*harmless*. So the guidance is unchanged and now measured: keep loop closure OFF
+by default; only feed `--loop-edges` to a scan that actually drifts (office,
+NewOffice) — exactly where XFeat's 32×-denser edges pay off. The gate is the
+safety rail that makes a mistaken invocation harmless instead of catastrophic.
 
 ---
 

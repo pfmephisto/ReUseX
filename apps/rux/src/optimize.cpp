@@ -219,6 +219,15 @@ NOTES:
          "license-clean way to feed a learned matcher without linking it into "
          "the binary. Pair with --loop-trust to apply large-drift corrections.")
       ->check(CLI::ExistingFile);
+  sub->add_option(
+         "--loop-edges-min-disagreement", opt->loop_edges_min_disagreement,
+         "Drop external (--loop-edges) edges whose relative translation agrees "
+         "with the seed poses within this (m) — non-informative redundant "
+         "edges "
+         "that would only add matcher noise to already-correct poses (keeps "
+         "the "
+         "bridge a no-op on a well-posed scan). 0 disables the gate.")
+      ->default_val(opt->loop_edges_min_disagreement);
 
   // --- Surfel extraction ---
   sub->add_option("--surfel-voxel", opt->surfel_voxel,
@@ -315,6 +324,7 @@ int run_subcommand_optimize(SubcommandOptimizeOptions const &opt,
     options.loop_edges_trusted = opt.loop_trust;
     options.loop_closure.seed = opt.seed;
     options.loop_edges_file = opt.loop_edges_file;
+    options.loop_edges_min_seed_disagreement = opt.loop_edges_min_disagreement;
 
     int logId = db.log_pipeline_start(
         "pose_optimization_plane_graph",

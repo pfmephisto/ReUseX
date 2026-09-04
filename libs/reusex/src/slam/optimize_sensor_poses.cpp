@@ -79,9 +79,37 @@ PlaneGraphResult optimize_sensor_poses(ProjectDB &db,
           load_loop_edges(options.loop_edges_file, node_ids, &ext);
       core::info("PlaneGraph: {} external loop edges loaded from '{}'",
                  ext.edges, options.loop_edges_file);
-      loop_edges.insert(loop_edges.end(),
-                        std::make_move_iterator(file_edges.begin()),
-                        std::make_move_iterator(file_edges.end()));
+
+      // Seed-disagreement gate for EXTERNAL edges (the internal
+      // detect_loop_edges path already applies this via
+      // LoopClosureOptions::min_seed_disagreement; the file path must too or it
+      // is a footgun). An edge whose relative translation already AGREES with
+      // the seed carries no drift-correction information — imposing its noisier
+      // matcher+depth estimate on already-correct poses only adds noise
+      // (measured: honka laser-GT F 0.7958 -> 0.62 when 1336 redundant edges
+      // were applied ungated). Dropping them makes the bridge a no-op on a
+      // well-posed scan while keeping every large-disagreement
+      // (drift-correcting) edge. <= 0 disables the gate.
+      const double gate = options.loop_edges_min_seed_disagreement;
+      int dropped = 0;
+      for (auto &e : file_edges) {
+        if (gate > 0.0 && e.i >= 0 && e.j >= 0) {
+          const Eigen::Matrix4d rel_seed =
+              seed_poses[e.i].inverse() * seed_poses[e.j];
+          const double disagreement =
+              (rel_seed.block<3, 1>(0, 3) - e.T_ij.block<3, 1>(0, 3)).norm();
+          if (disagreement < gate) {
+            ++dropped;
+            continue;
+          }
+        }
+        loop_edges.push_back(std::move(e));
+      }
+      if (dropped > 0)
+        core::info("PlaneGraph: dropped {} external loop edges that agree with "
+                   "the seed within {:.3f} m (non-informative); {} kept",
+                   dropped, gate,
+                   static_cast<int>(file_edges.size()) - dropped);
     }
   }
 

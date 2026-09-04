@@ -82,6 +82,10 @@ struct SubcommandOptimizeOptions {
   // oracle). Unioned with any internally-detected --loop-closure edges. Empty =
   // none.
   std::string loop_edges_file;
+  // Seed-disagreement gate for external edges (drop edges agreeing with the
+  // seed within this many m; keeps the bridge a no-op on a well-posed scan). 0
+  // = off.
+  double loop_edges_min_disagreement = 0.10;
 
   // Surfel extraction (shared with `rux register`).
   float surfel_voxel = 0.03f;

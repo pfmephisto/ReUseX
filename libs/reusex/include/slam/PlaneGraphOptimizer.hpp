@@ -152,6 +152,17 @@ struct PlaneGraphOptions {
   /// robustness (GNC / PCM / seed gating) as an ORB one. Works independently of
   /// loop_closure.enable. loop_edges_trusted applies to these too.
   std::string loop_edges_file;
+  /// Seed-disagreement gate for the external (`loop_edges_file`) edges,
+  /// mirroring LoopClosureOptions::min_seed_disagreement for the internal path:
+  /// keep an external edge only if its relative translation disagrees with the
+  /// seed poses by at least this (m). Redundant edges that already agree with
+  /// the seed carry no drift-correction information and only inject
+  /// matcher+depth noise into already-correct poses (measured: honka laser-GT F
+  /// 0.7958 -> 0.62 when 1336 redundant edges were applied ungated). Dropping
+  /// them makes the bridge a no-op on a well-posed scan while keeping every
+  /// large-drift edge.
+  /// <= 0 disables the gate (apply every external edge). Default 0.10 m.
+  double loop_edges_min_seed_disagreement = 0.10;
 };
 
 /// Summary statistics from a plane-graph optimization run.

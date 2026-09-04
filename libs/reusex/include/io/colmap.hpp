@@ -28,6 +28,15 @@ struct ColmapExportOptions {
   /// stored frame is re-encoded; if the JPEG blob can be written verbatim we
   /// prefer that and ignore this knob.
   int jpeg_quality = 95;
+
+  /// Also emit perspective slices of content-aligned 360 panoramas as extra
+  /// pinhole cameras (each aligned panorama is diced into overlapping tangent
+  /// views via geometry::overlapping_views). Adds wide-FOV coverage for 3DGS.
+  /// Only panoramas with a refined pose (`pose_source == "aligned"`) are used.
+  bool include_panorama_slices = false;
+  int pano_n_yaw = 8;         ///< equator slices per panorama
+  double pano_fov_deg = 90.0; ///< per-slice horizontal FOV (deg)
+  int pano_tile = 1024;       ///< slice size (px, square)
 };
 
 /// Export a COLMAP sparse model directory from a ProjectDB.

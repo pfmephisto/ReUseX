@@ -47,7 +47,8 @@ DESCRIPTION:
 EXAMPLES:
   rux optimize                        # Defaults (GNC on, inlier-weighted planes)
   rux optimize --dry-run              # Report statistics without writing
-  rux optimize --loop-closure         # Add wide-baseline loop edges (P2)
+  rux optimize --loop-closure         # Add wide-baseline loop edges (P2, ORB)
+  rux optimize --loop-edges edges.json --loop-trust  # External learned-matcher edges
   rux optimize --min-observations 3 --assoc-distance 0.15
   rux optimize --no-gnc               # Plain Levenberg-Marquardt (no robustness)
 
@@ -209,6 +210,15 @@ NOTES:
       "matcher to be safe, and looser --odometry-sigma-trans");
   sub->add_flag("--loop-no-pcm", opt->loop_no_pcm,
                 "Disable pairwise-consistency (PCM) filtering of loop edges");
+  sub->add_option(
+         "--loop-edges", opt->loop_edges_file,
+         "Load externally-computed loop edges from a JSON file (schema "
+         "reusex.loop_edges.v1) produced by an out-of-process matcher "
+         "(XFeat / EfficientLoFTR / MapAnything, or an offline MASt3R oracle) "
+         "and add them to the graph. Unioned with --loop-closure edges; the "
+         "license-clean way to feed a learned matcher without linking it into "
+         "the binary. Pair with --loop-trust to apply large-drift corrections.")
+      ->check(CLI::ExistingFile);
 
   // --- Surfel extraction ---
   sub->add_option("--surfel-voxel", opt->surfel_voxel,
@@ -304,6 +314,7 @@ int run_subcommand_optimize(SubcommandOptimizeOptions const &opt,
     options.loop_closure.pcm = !opt.loop_no_pcm;
     options.loop_edges_trusted = opt.loop_trust;
     options.loop_closure.seed = opt.seed;
+    options.loop_edges_file = opt.loop_edges_file;
 
     int logId = db.log_pipeline_start(
         "pose_optimization_plane_graph",
@@ -325,7 +336,7 @@ int run_subcommand_optimize(SubcommandOptimizeOptions const &opt,
     spdlog::info("Factor-graph error {:.4f} -> {:.4f}, max pose shift {:.4f} m",
                  result.initial_error, result.final_error,
                  result.max_pose_shift);
-    if (opt.loop_closure)
+    if (opt.loop_closure || !opt.loop_edges_file.empty())
       spdlog::info("Loop closure: {} wide-baseline edges added to the graph",
                    result.loop_edges);
 

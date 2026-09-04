@@ -33,6 +33,7 @@
 #include "reusex/segmentation/surfel_extraction.hpp"
 #include "reusex/slam/LoopClosure.hpp"
 
+#include <string>
 #include <vector>
 
 namespace reusex {
@@ -142,6 +143,15 @@ struct PlaneGraphOptions {
   ///     discriminative matcher / consistency filtering. Also loosen odometry
   ///     (--odometry-sigma-trans) so the drift can redistribute.
   bool loop_edges_trusted = false;
+  /// Optional path to a JSON file of externally-computed loop edges (schema
+  /// "reusex.loop_edges.v1"; see load_loop_edges). Empty = none. These are the
+  /// license-clean bridge for learned matchers (XFeat / EfficientLoFTR /
+  /// MapAnything, or an offline MASt3R ceiling oracle): the external edges are
+  /// UNIONED with any internally-detected ORB edges (--loop-closure) and fed
+  /// into the SAME GNC graph, so a wrong external edge is handled by the same
+  /// robustness (GNC / PCM / seed gating) as an ORB one. Works independently of
+  /// loop_closure.enable. loop_edges_trusted applies to these too.
+  std::string loop_edges_file;
 };
 
 /// Summary statistics from a plane-graph optimization run.

@@ -32,6 +32,7 @@
 #include <Eigen/Geometry>
 
 #include <array>
+#include <string>
 #include <vector>
 
 namespace reusex {
@@ -194,5 +195,45 @@ detect_loop_edges(ProjectDB &db, const std::vector<int> &node_ids,
                   const std::vector<Eigen::Matrix4d> &seed_poses,
                   const LoopClosureOptions &options,
                   LoopClosureResult *out_result = nullptr);
+
+/// Load externally-computed loop edges from a JSON file and map them onto the
+/// optimizer's frame indices. This is the license-clean bridge for learned
+/// matchers: any external producer — a commercial-safe matcher (XFeat /
+/// EfficientLoFTR / LightGlue+ALIKED / MapAnything-apache) or an offline
+/// research oracle (MASt3R / MapAnything-NC — non-commercial, run in Python
+/// only for accuracy-ceiling probes) — writes a file of relative-pose
+/// constraints, and the GPL C++ consumes it as DATA. No non-commercial or
+/// non-GPL model ever links into the binary; see
+/// docs/research/loop-closure-learned-matchers.md.
+///
+/// File schema "reusex.loop_edges.v1" (JSON):
+///   {
+///     "schema": "reusex.loop_edges.v1",
+///     "producer": "<free-text tag, e.g. mast3r@<sha> or xfeat>",
+///     "edges": [
+///       { "node_i": <int>, "node_j": <int>,
+///         "T_ij": [16 doubles, row-major 4x4 = pose(i)^-1 * pose(j) in the
+///                  optical->world convention the graph uses],
+///         "sigma_rot": <double, rad>, "sigma_trans": <double, m>,
+///         "inliers": <int> }
+///     ]
+///   }
+/// `node_i`/`node_j` are DB sensor_frame node ids; they are mapped to frame
+/// indices via @p node_ids (node_ids[k] is the DB id of frame k). Edges that
+/// reference a node id absent from @p node_ids, self-loops, duplicate the same
+/// (i,j), or are malformed are skipped with a warning (never silently dropped —
+/// docs/STANDARDS.md §5). Missing sigma/inliers fall back to the LoopEdge
+/// defaults.
+///
+/// @param path       JSON file path
+/// @param node_ids   DB node id of each frame, in frame-index order
+/// @param out_result optional statistics (edges accepted, summed inliers)
+/// @returns          accepted loop edges with i/j as frame indices
+/// @throws std::runtime_error if the file cannot be opened or is not valid JSON
+///         of the expected schema (a bad edge file must fail loudly, not run a
+///         silently-unconstrained optimization).
+std::vector<LoopEdge> load_loop_edges(const std::string &path,
+                                      const std::vector<int> &node_ids,
+                                      LoopClosureResult *out_result = nullptr);
 
 } // namespace reusex::geometry

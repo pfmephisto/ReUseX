@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "import.hpp"
+#include "import/arkitscenes.hpp"
 #include "import/csv.hpp"
 #include "import/e57.hpp"
 #include "import/materialepas.hpp"
@@ -27,6 +28,7 @@ DESCRIPTION:
 SUBCOMMANDS:
   rtabmap       Import sensor data from RTABMap SLAM database
   mushroom      Import a MuSHRoom benchmark capture (RGB-D + GT mesh)
+  arkitscenes   Import an ARKitScenes scene (lowres iPad-LiDAR RGB-D)
   e57           Import point cloud from an E57 file
   ply           Import point cloud from a PLY file
   materialepas  Import material passports from JSON file
@@ -36,6 +38,7 @@ SUBCOMMANDS:
 
 EXAMPLES:
   rux import rtabmap scan.db           # Import RTABMap scan
+  rux import arkitscenes <scene_dir>   # Import ARKitScenes scene
   rux import e57 scan.e57              # Import E57 point cloud
   rux import ply cloud.ply             # Import PLY point cloud
   rux import materialepas data.json    # Import material passports
@@ -51,6 +54,7 @@ NOTES:
 
   setup_subcommand_import_rtabmap(*sub, global_opt);
   setup_subcommand_import_mushroom(*sub, global_opt);
+  setup_subcommand_import_arkitscenes(*sub, global_opt);
   setup_subcommand_import_e57(*sub, global_opt);
   setup_subcommand_import_ply(*sub, global_opt);
   setup_subcommand_import_materialepas(*sub, global_opt);

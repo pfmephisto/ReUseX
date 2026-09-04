@@ -18,6 +18,11 @@ struct SubcommandExportColmapOptions {
   std::size_t max_lidar_points = 100'000;
   std::string lidar_cloud_name = "cloud";
   int jpeg_quality = 95;
+  bool with_panoramas =
+      false; ///< add aligned-360 perspective slices as cameras
+  int pano_n_yaw = 8;
+  double pano_fov = 90.0;
+  int pano_tile = 1024;
 };
 
 void setup_subcommand_export_colmap(CLI::App &parent,

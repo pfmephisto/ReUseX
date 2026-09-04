@@ -44,7 +44,8 @@ NOTES:
     head start; subsample is uniform across the cloud.
 )");
 
-  sub->add_option("output_dir", opt->output_dir, "COLMAP scene output directory")
+  sub->add_option("output_dir", opt->output_dir,
+                  "COLMAP scene output directory")
       ->required();
 
   sub->add_flag("--no-lidar-seed", opt->no_lidar_seed,
@@ -62,6 +63,17 @@ NOTES:
                   "JPEG quality for exported images (1..100)")
       ->default_val(opt->jpeg_quality)
       ->check(CLI::Range(1, 100));
+
+  sub->add_flag("--with-panoramas", opt->with_panoramas,
+                "Also emit perspective slices of content-aligned 360 panoramas "
+                "as extra pinhole cameras (run 'rux align 360' first)");
+  sub->add_option("--pano-n-yaw", opt->pano_n_yaw,
+                  "Equator slices per panorama")
+      ->default_val(opt->pano_n_yaw);
+  sub->add_option("--pano-fov", opt->pano_fov, "Per-slice horizontal FOV (deg)")
+      ->default_val(opt->pano_fov);
+  sub->add_option("--pano-tile", opt->pano_tile, "Panorama slice size (px)")
+      ->default_val(opt->pano_tile);
 
   sub->callback([opt, global_opt]() {
     spdlog::trace("calling run_subcommand_export_colmap");
@@ -83,6 +95,10 @@ int run_subcommand_export_colmap(SubcommandExportColmapOptions const &opt,
     cmopt.max_lidar_points = opt.max_lidar_points;
     cmopt.lidar_cloud_name = opt.lidar_cloud_name;
     cmopt.jpeg_quality = opt.jpeg_quality;
+    cmopt.include_panorama_slices = opt.with_panoramas;
+    cmopt.pano_n_yaw = opt.pano_n_yaw;
+    cmopt.pano_fov_deg = opt.pano_fov;
+    cmopt.pano_tile = opt.pano_tile;
 
     reusex::io::export_colmap_scene(db, opt.output_dir, cmopt);
 

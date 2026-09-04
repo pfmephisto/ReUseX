@@ -6,6 +6,7 @@
 #include "core/ProjectDB.hpp"
 #include "core/SensorIntrinsics.hpp"
 #include "core/logging.hpp"
+#include "geometry/EquirectProjection.hpp"
 
 #include <Eigen/Core>
 #include <Eigen/Geometry>
@@ -35,6 +36,15 @@ Eigen::Matrix4d to_matrix4d(const std::array<double, 16> &m) {
     for (int c = 0; c < 4; ++c)
       out(r, c) = m[r * 4 + c];
   return out;
+}
+
+/// Eigen::Matrix4d → row-major double[16].
+std::array<double, 16> to_array16(const Eigen::Matrix4d &M) {
+  std::array<double, 16> a{};
+  for (int r = 0; r < 4; ++r)
+    for (int c = 0; c < 4; ++c)
+      a[r * 4 + c] = M(r, c);
+  return a;
 }
 
 /// Hash key for grouping cameras by identical intrinsics. Pose is excluded;
@@ -98,9 +108,9 @@ ColmapPose to_colmap_pose(const std::array<double, 16> &worldPose,
   return ColmapPose{q.w(), q.x(), q.y(), q.z(), t_cw.x(), t_cw.y(), t_cw.z()};
 }
 
-void write_cameras_txt(const std::filesystem::path &path,
-                       const std::vector<std::tuple<int, core::SensorIntrinsics>>
-                           &cameras_by_id) {
+void write_cameras_txt(
+    const std::filesystem::path &path,
+    const std::vector<std::tuple<int, core::SensorIntrinsics>> &cameras_by_id) {
   std::ofstream out(path);
   if (!out)
     throw std::runtime_error("Failed to open " + path.string() +
@@ -135,8 +145,8 @@ void write_images_txt(const std::filesystem::path &path,
   out << "# Number of images: " << frames.size() << "\n";
   for (const auto &f : frames) {
     out << f.image_id << " "
-        << fmt::format("{:.17g} {:.17g} {:.17g} {:.17g} ", f.pose.qw,
-                       f.pose.qx, f.pose.qy, f.pose.qz)
+        << fmt::format("{:.17g} {:.17g} {:.17g} {:.17g} ", f.pose.qw, f.pose.qx,
+                       f.pose.qy, f.pose.qz)
         << fmt::format("{:.10g} {:.10g} {:.10g} ", f.pose.tx, f.pose.ty,
                        f.pose.tz)
         << f.camera_id << " " << f.image_name << "\n";
@@ -145,8 +155,7 @@ void write_images_txt(const std::filesystem::path &path,
   }
 }
 
-void write_points3D_txt(const std::filesystem::path &path,
-                        const ProjectDB &db,
+void write_points3D_txt(const std::filesystem::path &path, const ProjectDB &db,
                         const ColmapExportOptions &opt) {
   std::ofstream out(path);
   if (!out)
@@ -223,6 +232,17 @@ void export_colmap_scene(const ProjectDB &db,
   std::vector<FrameRecord> frame_records;
   frame_records.reserve(frame_ids.size());
 
+  // Assign (or reuse) a COLMAP camera id for a given set of intrinsics.
+  auto get_camera_id = [&](const core::SensorIntrinsics &intr) -> int {
+    IntrinsicsKey key = to_key(intr);
+    if (auto it = camera_ids.find(key); it != camera_ids.end())
+      return it->second;
+    int cam_id = next_cam_id++;
+    camera_ids.emplace(key, cam_id);
+    cameras_in_order.emplace_back(cam_id, intr);
+    return cam_id;
+  };
+
   for (int node_id : frame_ids) {
     if (!db.has_sensor_frame(node_id))
       continue;
@@ -253,15 +273,7 @@ void export_colmap_scene(const ProjectDB &db,
       intr.height = img.rows;
     }
 
-    IntrinsicsKey key = to_key(intr);
-    int cam_id;
-    if (auto it = camera_ids.find(key); it != camera_ids.end()) {
-      cam_id = it->second;
-    } else {
-      cam_id = next_cam_id++;
-      camera_ids.emplace(key, cam_id);
-      cameras_in_order.emplace_back(cam_id, intr);
-    }
+    int cam_id = get_camera_id(intr);
 
     std::array<double, 16> pose = db.sensor_frame_pose(node_id);
     ColmapPose cpose = to_colmap_pose(pose, intr.local_transform);
@@ -272,13 +284,68 @@ void export_colmap_scene(const ProjectDB &db,
     if (!cv::imwrite(image_path.string(), img, jpeg_params))
       throw std::runtime_error("Failed to write " + image_path.string());
 
-    frame_records.push_back(
-        FrameRecord{node_id, cam_id, cpose, image_name});
+    frame_records.push_back(FrameRecord{node_id, cam_id, cpose, image_name});
   }
 
   if (frame_records.empty())
     throw std::runtime_error(
         "export_colmap_scene: no usable sensor frames after filtering");
+
+  // Content-aligned 360 panoramas as extra pinhole cameras: dice each into
+  // overlapping tangent (perspective) views and emit one COLMAP image per
+  // slice. The slice's world pose is T_w_slice = T_w_pano *
+  // [R_pano_from_view|0] (panorama optical frame -> slice optical frame is a
+  // pure rotation, sharing the panorama's centre), and its intrinsics come from
+  // the virtual pinhole.
+  if (opt.include_panorama_slices) {
+    const std::array<double, 16> identity_local = {1, 0, 0, 0, 0, 1, 0, 0,
+                                                   0, 0, 1, 0, 0, 0, 0, 1};
+    int slice_image_id = 100'000'000; // avoids colliding with node ids
+    int pano_used = 0, slices_written = 0;
+    for (const auto &pano : db.list_panoramic_images()) {
+      if (!pano.has_pose || pano.pose_source != "aligned")
+        continue; // only content-aligned panoramas have a trustworthy pose
+      cv::Mat equirect = db.panoramic_image(pano.id);
+      if (equirect.empty())
+        continue;
+      const Eigen::Matrix4d T_w_pano = to_matrix4d(pano.pose);
+      auto views = geometry::overlapping_views(equirect, opt.pano_n_yaw,
+                                               opt.pano_fov_deg, opt.pano_tile);
+      for (std::size_t k = 0; k < views.size(); ++k) {
+        const auto &v = views[k];
+        Eigen::Matrix4d T_w_slice = Eigen::Matrix4d::Identity();
+        T_w_slice.block<3, 3>(0, 0) =
+            T_w_pano.block<3, 3>(0, 0) * v.R_pano_from_view;
+        T_w_slice.block<3, 1>(0, 3) = T_w_pano.block<3, 1>(0, 3);
+
+        core::SensorIntrinsics si;
+        si.fx = v.K(0, 0);
+        si.fy = v.K(1, 1);
+        si.cx = v.K(0, 2);
+        si.cy = v.K(1, 2);
+        si.width = v.image.cols;
+        si.height = v.image.rows;
+        si.local_transform = identity_local;
+
+        const int cam_id = get_camera_id(si);
+        const ColmapPose cpose =
+            to_colmap_pose(to_array16(T_w_slice), identity_local);
+        const std::string image_name =
+            fmt::format("pano_{:04d}_{:02d}.jpg", pano.id, k);
+        std::vector<int> jpeg_params{cv::IMWRITE_JPEG_QUALITY,
+                                     opt.jpeg_quality};
+        if (!cv::imwrite((images_dir / image_name).string(), v.image,
+                         jpeg_params))
+          throw std::runtime_error("Failed to write " + image_name);
+        frame_records.push_back(
+            FrameRecord{slice_image_id++, cam_id, cpose, image_name});
+        ++slices_written;
+      }
+      ++pano_used;
+    }
+    core::info("Added {} panorama slices from {} aligned panoramas",
+               slices_written, pano_used);
+  }
 
   write_cameras_txt(sparse_dir / "cameras.txt", cameras_in_order);
   write_images_txt(sparse_dir / "images.txt", frame_records);

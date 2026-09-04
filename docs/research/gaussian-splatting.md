@@ -84,9 +84,34 @@ novel views for the PR. Report held-out **PSNR**.
   NewOffice) with figures, quality below tuned nerfstudio; 2DGS-for-surfaces and
   MCMC densification as follow-ups.
 
-## 5. Verification
+## 5. Pipeline validation (Apache-2.0 gsplat, done)
 
-Copy `/home/mephisto/repos/NewOffice/project.rux` (3876 frames, 6 aligned
-panoramas). `rux create gsplat --iterations 7000 --use-panoramas --render-dir figs/`.
-Confirm `.ply` opens in a standard splat viewer; report held-out PSNR; include
-rendered novel-view images (incl. a with/without-360 coverage comparison) in the PR.
+Before building the native trainer, the **data pipeline** was validated end-to-end
+with the Apache-2.0 gsplat rasterizer (a throwaway Python harness, not the shipped
+trainer) on NewOffice:
+
+1. `rux align 360` → `rux export colmap --with-panoramas` produced **3936 posed
+   images (3876 iPad frames + 60 aligned-panorama slices from 6 panoramas × 10
+   tangent views) + 173,225 point-cloud seed points** in `points3D.txt` — one
+   self-contained 3DGS input.
+2. gsplat ingested it, **initialized Gaussians from our point-cloud seed**,
+   densified, and reconstructed the office. Held-out novel view (GT | render):
+
+   ![gsplat reconstruction from the ReUseX export](figures/gsplat/validation_gt_vs_render.jpg)
+
+**Takeaways that de-risk the native build:**
+- The export (frames + 360 slices + seed) is a correct, trainable 3DGS input —
+  camera math (incl. the panorama-slice pose composition) and the seed align.
+- 3DGS needs **dense multi-view overlap**: a building-wide sparse sample renders
+  black; a contiguous capture segment reconstructs cleanly. The native trainer/CLI
+  should train per-region (or the user selects a region), not the whole building at once.
+- The throwaway harness under-tunes densification (over-grows, stays soft); the
+  native trainer will use gsplat's `DefaultStrategy`/`MCMCStrategy` with tuned
+  thresholds for quality.
+
+## 6. Verification (native, once built)
+
+`rux create gsplat -p scene.rux --iterations 7000 --use-panoramas --region <frames>
+--out model.ply --render-dir figs/`. Confirm `.ply` opens in a standard splat
+viewer; report held-out PSNR; include rendered novel-view images (incl. a
+with/without-360 coverage comparison) in the PR.

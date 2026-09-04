@@ -4,6 +4,7 @@
 
 #include "create.hpp"
 #include "create/annotate.hpp"
+#include "create/annotate_panorama.hpp"
 #include "create/clouds.hpp"
 #include "create/dense.hpp"
 #include "create/instances.hpp"
@@ -57,6 +58,7 @@ NOTES:
   setup_subcommand_create_clouds(*sub, global_opt);
   setup_subcommand_create_dense(*sub, global_opt);
   setup_subcommand_create_annotate(*sub, global_opt);
+  setup_subcommand_create_annotate_panorama(*sub, global_opt);
   setup_subcommand_create_material(*sub, global_opt);
   setup_subcommand_create_project(*sub, global_opt);
   setup_subcommand_create_planes(*sub, global_opt);

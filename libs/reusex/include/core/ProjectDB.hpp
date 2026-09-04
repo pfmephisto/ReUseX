@@ -123,6 +123,14 @@ class ProjectDB {
     std::string filename;
     double timestamp; // -1.0 if unknown
     int node_id;      // -1 if unmatched
+    // Refined 6-DoF pose from content-based alignment (`rux align 360`). When
+    // has_pose is false the panorama has only its timestamp-matched frame pose.
+    bool has_pose = false;
+    std::array<double, 16> pose = {1, 0, 0, 0, 0, 1, 0, 0,
+                                   0, 0, 1, 0, 0, 0, 0, 1}; // row-major world
+    std::string pose_source = "timestamp"; // "timestamp" | "aligned"
+    int align_inliers = -1;                // RANSAC inliers, -1 if not aligned
+    double align_rms = -1.0;               // reprojection RMS (px), -1 if n/a
   };
 
   void save_panoramic_image(const std::string &filename,
@@ -136,6 +144,16 @@ class ProjectDB {
   void delete_panoramic_image(std::string_view filename);
   std::vector<PanoramicImage> list_panoramic_images() const;
   int panoramic_image_count() const;
+
+  /// Store a content-aligned pose (row-major 4x4 world) for a panorama.
+  void save_panorama_pose(int id, const std::array<double, 16> &pose,
+                          int inliers, double rms);
+
+  // --- Panorama Segmentation Operations ---
+
+  bool has_panorama_segmentation(int panoId) const;
+  cv::Mat panorama_segmentation(int panoId) const;
+  void save_panorama_segmentation(int panoId, const cv::Mat &labels);
 
   // --- Segmentation Image Operations ---
 

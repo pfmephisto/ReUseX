@@ -226,7 +226,11 @@ ExportScene gather_export_scene(const ProjectDB &db) {
     ExportScene::PanoEntry entry;
     entry.image_name = pano.filename;
 
-    if (pano.node_id >= 0 && db.has_sensor_frame(pano.node_id)) {
+    // Prefer the content-aligned pose (`rux align 360`) when present; fall
+    // back to the timestamp-matched sensor frame's pose.
+    if (pano.has_pose) {
+      extract_position(pano.pose, entry.x, entry.y, entry.z);
+    } else if (pano.node_id >= 0 && db.has_sensor_frame(pano.node_id)) {
       auto pose = db.sensor_frame_pose(pano.node_id);
       extract_position(pose, entry.x, entry.y, entry.z);
     }

@@ -202,7 +202,7 @@ class ProjectDB::Impl {
   sqlite3 *db = nullptr;
 
   // cppcheck-suppress unusedStructMember
-  static constexpr int LATEST_SCHEMA_VERSION = 10;
+  static constexpr int LATEST_SCHEMA_VERSION = 11;
 
   // Maximum bytes per point_cloud_data row. SQLite's default SQLITE_MAX_LENGTH
   // is 1 GB and the hard compile-time max is 2 GB-1. We chunk large clouds
@@ -361,6 +361,10 @@ class ProjectDB::Impl {
 
     if (current < 10) {
       migrateToV10();
+    }
+
+    if (current < 11) {
+      migrateToV11();
     }
 
     reusex::trace("Schema version: {}", getCurrentSchemaVersion());
@@ -904,6 +908,49 @@ class ProjectDB::Impl {
     reusex::info("Migration to schema version 10 complete");
   }
 
+  void migrateToV11() {
+    reusex::info("Migrating database to schema version 11");
+
+    // Content-based 360 alignment: a panorama can now carry its OWN refined
+    // 6-DoF pose (from PanoramaAlignment / `rux align 360`) instead of only
+    // inheriting the timestamp-matched sensor frame's pose. Columns are added
+    // to panoramic_images; each is nullable so timestamp-only panoramas stay
+    // valid. panorama_segmentation stores an equirect SAM3 label image per
+    // panorama (same CV_16U +1-offset PNG convention as segmentation_images).
+    const char *alters[] = {
+        "ALTER TABLE panoramic_images ADD COLUMN pose BLOB;",
+        "ALTER TABLE panoramic_images ADD COLUMN pose_source TEXT;",
+        "ALTER TABLE panoramic_images ADD COLUMN align_inliers INTEGER;",
+        "ALTER TABLE panoramic_images ADD COLUMN align_rms REAL;",
+    };
+    for (const char *alter : alters) {
+      char *errMsg = nullptr;
+      if (sqlite3_exec(db, alter, nullptr, nullptr, &errMsg) != SQLITE_OK) {
+        std::string error = errMsg ? errMsg : "unknown error";
+        sqlite3_free(errMsg);
+        if (error.find("duplicate column") == std::string::npos)
+          throw std::runtime_error("Migration to v11 failed: " + error);
+      }
+    }
+
+    const char *v11_schema = R"(
+      CREATE TABLE IF NOT EXISTS panorama_segmentation (
+        pano_id     INTEGER PRIMARY KEY REFERENCES panoramic_images(id) ON DELETE CASCADE,
+        label_image BLOB NOT NULL
+      );
+    )";
+    char *errMsg = nullptr;
+    if (sqlite3_exec(db, v11_schema, nullptr, nullptr, &errMsg) != SQLITE_OK) {
+      std::string error = errMsg ? errMsg : "unknown error";
+      sqlite3_free(errMsg);
+      throw std::runtime_error("Migration to v11 failed: " + error);
+    }
+
+    insertSchemaVersion(11,
+                        "Add panorama pose columns + panorama_segmentation");
+    reusex::info("Migration to schema version 11 complete");
+  }
+
   // Parse the semantic class id from an instance definition name of the form
   // "SM{class}-{id} (...)". Returns -1 if it doesn't match.
   static int parseSemanticClassFromDef(const std::string &def) {
@@ -1431,7 +1478,8 @@ class ProjectDB::Impl {
 
   std::vector<ProjectDB::PanoramicImage> listPanoramicImages() const {
     const char *sql = R"(
-      SELECT id, filename, timestamp, node_id
+      SELECT id, filename, timestamp, node_id,
+             pose, pose_source, align_inliers, align_rms
       FROM panoramic_images ORDER BY filename;
     )";
     sqlite3_stmt *stmt;
@@ -1453,9 +1501,113 @@ class ProjectDB::Impl {
       img.node_id = (sqlite3_column_type(stmt, 3) == SQLITE_NULL)
                         ? -1
                         : sqlite3_column_int(stmt, 3);
+      // Refined alignment pose (v11+); absent -> keep identity + "timestamp".
+      const void *poseBlob = sqlite3_column_blob(stmt, 4);
+      const int poseBytes = sqlite3_column_bytes(stmt, 4);
+      if (poseBlob && poseBytes == static_cast<int>(16 * sizeof(double))) {
+        std::memcpy(img.pose.data(), poseBlob, 16 * sizeof(double));
+        img.has_pose = true;
+      }
+      if (sqlite3_column_type(stmt, 5) != SQLITE_NULL) {
+        const char *src =
+            reinterpret_cast<const char *>(sqlite3_column_text(stmt, 5));
+        if (src)
+          img.pose_source = src;
+      }
+      if (sqlite3_column_type(stmt, 6) != SQLITE_NULL)
+        img.align_inliers = sqlite3_column_int(stmt, 6);
+      if (sqlite3_column_type(stmt, 7) != SQLITE_NULL)
+        img.align_rms = sqlite3_column_double(stmt, 7);
       images.push_back(std::move(img));
     }
     return images;
+  }
+
+  void savePanoramaPose(int id, const std::array<double, 16> &pose, int inliers,
+                        double rms) {
+    const char *sql = R"(
+      UPDATE panoramic_images
+      SET pose = ?, pose_source = 'aligned', align_inliers = ?, align_rms = ?
+      WHERE id = ?;
+    )";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to prepare panorama pose update: " +
+                               std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+    sqlite3_bind_blob(stmt, 1, pose.data(),
+                      static_cast<int>(pose.size() * sizeof(double)),
+                      SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 2, inliers);
+    sqlite3_bind_double(stmt, 3, rms);
+    sqlite3_bind_int(stmt, 4, id);
+    if (sqlite3_step(stmt) != SQLITE_DONE)
+      throw std::runtime_error("Failed to update panorama pose: " +
+                               std::string(sqlite3_errmsg(db)));
+  }
+
+  // ── Panorama segmentation CRUD (equirect label maps) ───────────────
+
+  bool hasPanoramaSegmentation(int panoId) const {
+    const char *sql =
+        "SELECT 1 FROM panorama_segmentation WHERE pano_id = ? LIMIT 1;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      return false;
+    StmtGuard guard(stmt);
+    sqlite3_bind_int(stmt, 1, panoId);
+    return sqlite3_step(stmt) == SQLITE_ROW;
+  }
+
+  cv::Mat getPanoramaSegmentation(int panoId) const {
+    const char *sql =
+        "SELECT label_image FROM panorama_segmentation WHERE pano_id = ?;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to prepare panorama seg query: " +
+                               std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+    sqlite3_bind_int(stmt, 1, panoId);
+    if (sqlite3_step(stmt) != SQLITE_ROW)
+      return cv::Mat();
+
+    const void *blob = sqlite3_column_blob(stmt, 0);
+    int blobSize = sqlite3_column_bytes(stmt, 0);
+    if (!blob || blobSize == 0)
+      return cv::Mat();
+    cv::Mat encoded(1, blobSize, CV_8UC1, const_cast<void *>(blob));
+    cv::Mat labels16U = cv::imdecode(encoded, cv::IMREAD_UNCHANGED);
+    if (labels16U.empty())
+      return cv::Mat();
+    // Storage CV_16U (0 = bg, label+1) -> API CV_32S (-1 = background).
+    return reusex::core::storage_mat_to_api(labels16U);
+  }
+
+  void savePanoramaSegmentation(int panoId, const cv::Mat &labels) {
+    if (labels.empty())
+      throw std::runtime_error("Cannot save empty panorama segmentation");
+    // API CV_32S (-1 = background) -> storage CV_16U (0 = bg, label+1).
+    cv::Mat toSave = reusex::core::api_mat_to_storage(labels);
+    std::vector<unsigned char> pngBytes;
+    if (!cv::imencode(".png", toSave, pngBytes))
+      throw std::runtime_error("Failed to encode panorama segmentation as PNG");
+
+    const char *upsert = R"(
+      INSERT INTO panorama_segmentation (pano_id, label_image)
+      VALUES (?, ?)
+      ON CONFLICT(pano_id) DO UPDATE SET label_image = excluded.label_image;
+    )";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, upsert, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to prepare panorama seg upsert: " +
+                               std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+    sqlite3_bind_int(stmt, 1, panoId);
+    sqlite3_bind_blob(stmt, 2, pngBytes.data(),
+                      static_cast<int>(pngBytes.size()), SQLITE_TRANSIENT);
+    if (sqlite3_step(stmt) != SQLITE_DONE)
+      throw std::runtime_error("Failed to upsert panorama segmentation: " +
+                               std::string(sqlite3_errmsg(db)));
   }
 
   int panoramicImageCount() const {
@@ -4129,6 +4281,23 @@ ProjectDB::list_panoramic_images() const {
 
 int ProjectDB::panoramic_image_count() const {
   return impl_->panoramicImageCount();
+}
+
+void ProjectDB::save_panorama_pose(int id, const std::array<double, 16> &pose,
+                                   int inliers, double rms) {
+  impl_->savePanoramaPose(id, pose, inliers, rms);
+}
+
+bool ProjectDB::has_panorama_segmentation(int panoId) const {
+  return impl_->hasPanoramaSegmentation(panoId);
+}
+
+cv::Mat ProjectDB::panorama_segmentation(int panoId) const {
+  return impl_->getPanoramaSegmentation(panoId);
+}
+
+void ProjectDB::save_panorama_segmentation(int panoId, const cv::Mat &labels) {
+  impl_->savePanoramaSegmentation(panoId, labels);
 }
 
 // --- Segmentation Image Operations ---

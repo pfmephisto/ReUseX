@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include <align.hpp>
 #include <analyze.hpp>
 #include <assemble.hpp>
 #include <create.hpp>
@@ -164,6 +165,7 @@ int main(int argc, char **argv) {
                  "Path to .rux project file (applies to all subcommands)")
       ->default_val(fs::current_path() / "project.rux");
 
+  setup_subcommand_align(app, opt);
   setup_subcommand_analyze(app, opt);
   setup_subcommand_assemble(app, opt);
   setup_subcommand_create(app, opt);

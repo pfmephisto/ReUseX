@@ -48,7 +48,11 @@ set(REUSEX_GEOMETRY_COMMON_SOURCES
     ${SRC}/geometry/utils.cpp
     ${SRC}/geometry/cgal_utils.cpp
     ${SRC}/geometry/CoplanarPolygon.cpp
-    ${SRC}/geometry/BuildingComponent.cpp)
+    ${SRC}/geometry/BuildingComponent.cpp
+    # Equirectangular<->perspective reprojection: a low-level OpenCV/Eigen
+    # primitive shared by slam (panorama alignment) and vision (SAM3-on-360),
+    # so it lives in the common geometry layer both reach via core.
+    ${SRC}/geometry/EquirectProjection.cpp)
 
 # Layer 3 — io (format conversion only)
 file(GLOB_RECURSE REUSEX_IO_SOURCES CONFIGURE_DEPENDS "${SRC}/io/*.cpp")
@@ -272,6 +276,9 @@ target_link_libraries(reusex_slam PRIVATE gtsam)
 # (LoopClosure.cpp). PRIVATE: not part of any public header. opencv_core /
 # opencv_imgproc already arrive via reusex_common.
 target_link_libraries(reusex_slam PRIVATE opencv_features2d)
+# solvePnPRansac (panorama alignment resection) lives in opencv_calib3d;
+# opencv_imgcodecs backs the optional ORB-correspondence debug figure.
+target_link_libraries(reusex_slam PRIVATE opencv_calib3d opencv_imgcodecs)
 # NARROW EXCEPTION (#222): slam registration reuses segmentation's Surfel /
 # surfel_extraction (PlaneGraphOptimizer, JointPairwiseRegistration operate on
 # extracted surfels). Explicit peer edge slam -> segmentation, kept narrow.

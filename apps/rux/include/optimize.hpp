@@ -76,6 +76,17 @@ struct SubcommandOptimizeOptions {
   bool loop_trust = false;  // trust loop edges (GNC known-inlier) vs GNC-robust
   bool loop_no_pcm = false; // disable pairwise-consistency filtering
 
+  // External loop edges (license-clean learned-matcher bridge). Path to a JSON
+  // file (schema "reusex.loop_edges.v1") produced by an out-of-process matcher
+  // (XFeat / EfficientLoFTR / MapAnything, or an offline MASt3R ceiling
+  // oracle). Unioned with any internally-detected --loop-closure edges. Empty =
+  // none.
+  std::string loop_edges_file;
+  // Seed-disagreement gate for external edges (drop edges agreeing with the
+  // seed within this many m; keeps the bridge a no-op on a well-posed scan). 0
+  // = off. 0.5 m sits above the depth-noise floor, below any real drift.
+  double loop_edges_min_disagreement = 0.50;
+
   // Surfel extraction (shared with `rux register`).
   float surfel_voxel = 0.03f;
   float min_distance = 0.0f;

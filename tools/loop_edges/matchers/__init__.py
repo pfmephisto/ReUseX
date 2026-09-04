@@ -105,22 +105,27 @@ class XFeatMatcher:
 
         self.torch = torch
         self.device = device
-        # accelerated_features / kornia both ship XFeat; prefer torch.hub.
+        # Weights (xfeat.pt, ~6 MB, Apache-2.0) download from the
+        # verlab/accelerated_features repo on first use and cache under
+        # ~/.cache/torch/hub. trust_repo=True avoids the interactive prompt in
+        # non-TTY contexts (subprocess / CI).
         self.model = torch.hub.load(
-            "verlab/accelerated_features", "XFeat", pretrained=True, top_k=4096
+            "verlab/accelerated_features",
+            "XFeat",
+            pretrained=True,
+            top_k=4096,
+            trust_repo=True,
         )
         self.model = self.model.to(device).eval()
 
     def match(self, fi, fj, max_matches=4000):
         import numpy as np
-        import torch
 
-        def prep(gray):
-            t = torch.from_numpy(gray).float()[None, None].to(self.device)
-            return t.repeat(1, 3, 1, 1)  # XFeat expects 3ch
-
-        with torch.inference_mode():
-            mkpts_0, mkpts_1 = self.model.match_xfeat(prep(fi.gray), prep(fj.gray))
+        # match_xfeat accepts HxWx3 uint8 numpy directly and returns two Nx2
+        # float arrays of pixel coords in the ORIGINAL image resolution; its
+        # parse_input() handles /255 + BCHW internally. Pass colour (BGR) — XFeat
+        # is colour-channel-agnostic and this avoids a needless channel expand.
+        mkpts_0, mkpts_1 = self.model.match_xfeat(fi.color, fj.color)
         if mkpts_0 is None or len(mkpts_0) < 3:
             return None
         xy_i = np.asarray(mkpts_0, np.float64)[:max_matches]
@@ -171,6 +176,9 @@ class Mast3rMatcher:
     metric 3D with our own depth (so MASt3R's metric pointmap is not relied on),
     keeping the pipeline identical across backends. Research/eval only."""
 
+    _LONG_EDGE = 512  # model's expected long-edge size
+    _PATCH_SIZE = 16  # ViT patch size; crop must be a multiple of this
+
     def __init__(self, device="cuda", weights=None):
         import torch
 
@@ -179,47 +187,58 @@ class Mast3rMatcher:
         self.device = device
         from mast3r.model import AsymmetricMASt3R
 
-        ckpt = weights or (
-            "naver/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric"
-        )
+        ckpt = weights or "naver/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric"
         self.model = AsymmetricMASt3R.from_pretrained(ckpt).to(device).eval()
+
+    def _prep(self, color_bgr, idx=0):
+        """Prepare a BGR frame for MASt3R: resize long edge to 512, centre-crop
+        to a multiple of patch_size (dust3r load_images() logic), ImgNorm. Return
+        (view, (sx, sy)) where sx/sy scale descriptor-map (x, y) back to the
+        original image resolution."""
+        import numpy as np
+        from dust3r.utils.image import ImgNorm, _resize_pil_image
+        from PIL import Image
+
+        pil = Image.fromarray(cv2_to_rgb(color_bgr))
+        orig_W, orig_H = pil.size
+        resized = _resize_pil_image(pil, self._LONG_EDGE)
+        W_r, H_r = resized.size
+        cx, cy = W_r // 2, H_r // 2
+        halfw = ((2 * cx) // self._PATCH_SIZE) * self._PATCH_SIZE // 2
+        halfh = ((2 * cy) // self._PATCH_SIZE) * self._PATCH_SIZE // 2
+        cropped = resized.crop((cx - halfw, cy - halfh, cx + halfw, cy + halfh))
+        W2, H2 = cropped.size
+        img_t = ImgNorm(cropped)[None].to(self.device)
+        view = {
+            "img": img_t,
+            "true_shape": np.int32([cropped.size[::-1]]),  # [H2, W2]
+            "idx": idx,
+            "instance": str(idx),
+        }
+        return view, (orig_W / W2, orig_H / H2)
 
     def match(self, fi, fj, max_matches=4000):
         import numpy as np
         import torch
-        from mast3r.fast_nn import fast_reciprocal_NNs
         from dust3r.inference import inference
-        from dust3r.utils.image import _resize_pil_image
-        from PIL import Image
-
-        def prep(color):
-            rgb = cv2_to_rgb(color)
-            img = Image.fromarray(rgb)
-            img = _resize_pil_image(img, 512)
-            arr = np.asarray(img).astype(np.float32) / 255.0
-            t = torch.from_numpy(arr).permute(2, 0, 1)[None]
-            t = (t - 0.5) / 0.5
-            return {
-                "img": t.to(self.device),
-                "true_shape": np.int32([img.size[::-1]]),
-                "idx": 0,
-                "instance": "0",
-            }, (color.shape[1] / img.size[0], color.shape[0] / img.size[1])
+        from mast3r.fast_nn import fast_reciprocal_NNs
 
         with torch.inference_mode():
-            v0, s0 = prep(fi.color)
-            v1, s1 = prep(fj.color)
-            out = inference([(v0, v1)], self.model, self.device, batch_size=1, verbose=False)
+            v0, s0 = self._prep(fi.color, idx=0)
+            v1, s1 = self._prep(fj.color, idx=1)
+            out = inference(
+                [(v0, v1)], self.model, self.device, batch_size=1, verbose=False
+            )
             d0 = out["pred1"]["desc"].squeeze(0).detach()
             d1 = out["pred2"]["desc"].squeeze(0).detach()
-            idx0, idx1 = fast_reciprocal_NNs(
+            # fast_reciprocal_NNs returns (Nx2, Nx2) int64 (x, y) in crop space.
+            xy0, xy1 = fast_reciprocal_NNs(
                 d0, d1, subsample_or_initxy1=8, device=self.device
             )
-        if len(idx0) < 3:
+        if len(xy0) < 3:
             return None
-        H0, W0 = v0["true_shape"][0]
-        xy_i = idx0.astype(np.float64) * np.array(s0)
-        xy_j = idx1.astype(np.float64) * np.array(s1)
+        xy_i = xy0.astype(np.float64) * np.array([[s0[0], s0[1]]])
+        xy_j = xy1.astype(np.float64) * np.array([[s1[0], s1[1]]])
         return xy_i[:max_matches], xy_j[:max_matches]
 
 

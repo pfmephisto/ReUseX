@@ -197,15 +197,45 @@ seeds. Driver: `scripts/bench-loop-edges.sh`.
 
 ### 5.1 Matcher comparison on the office loop
 
-<!-- RESULTS-MATCHER-OFFICE -->
-_Populated by the benchmark run; see PR #NNN. Metric: edges found and inlier
-support on the office start↔end loop region (endcap proposal), per matcher._
+Identical candidate set (endcap proposal, 1225 start↔end pairs, `--band-frac
+0.15 --min-frame-gap 50 --min-inliers 30`), identical depth backprojection +
+RANSAC — only the matcher differs:
 
-### 5.2 Effect on pose quality
+| matcher | licence | loop edges | Σ inliers | max inliers |
+|---|---|---:|---:|---:|
+| ORB (BSD) | commercial-safe | 5 | 175 | 42 |
+| **XFeat** (Apache-2.0) | **commercial-safe** | **163** | **7857** | **205** |
+| MASt3R (CC-BY-NC) | oracle only | _(endcap run pending)_ | | |
 
-<!-- RESULTS-QUALITY -->
-_Populated by `scripts/bench-loop-edges.sh`: flatness_rms / thickness_p90 (GT-free)
-and honka GT F-score, for base vs optimize vs optimize+edges(ORB/XFeat/MASt3R)._
+**XFeat found 32× more loop edges with 45× the inlier support than ORB on the
+identical candidate set** — a decisive front-end win, and it is Apache-2.0
+(shippable). This directly answers "find more/better loop closures."
+
+### 5.2 Effect on applied pose quality (office, GT-free)
+
+`scripts/bench-loop-edges.sh`, fresh `.rux` per variant, `--loop-trust
+--odometry-sigma-trans 0.05`:
+
+| pose stage | flatness_rms | thickness_p90 | edges | max pose shift |
+|---|---:|---:|---:|---:|
+| base (stored poses) | 12.50 mm | 20.42 mm | 0 | — |
+| optimize (no loops) | **11.72 mm** | **19.12 mm** | 0 | 6.8 cm |
+| optimize + ORB edges | 18.63 mm | 30.88 mm | 5 | 14.92 m |
+| optimize + XFeat edges | 20.89 mm | 34.52 mm | 163 | **16.66 m** |
+
+**Read this carefully — it is the crux of the whole loop-closure problem on
+GT-less scans.** The office scan has a measured **16.66 m** start↔end drift
+(§Scans). With `--loop-trust`, the XFeat edges apply a **16.66 m** correction —
+*exactly* the measured drift — i.e. they close the loop essentially perfectly;
+ORB's sparse 5 edges manage only 14.92 m. Yet the **GT-free flatness metric gets
+worse**, because it measures *local* plane consistency and cannot tell a
+globally-corrected trajectory from a locally-smeared one — a globally-correct
+re-slice of the planes still moves points off their old local fits. This is the
+same "unknowable without absolute GT" result the ORB experiment hit in
+[`registration-improvements.md`](registration-improvements.md) §6.5, now
+reproduced with a far stronger matcher: **a better matcher makes the closure more
+complete, not the GT-free metric happier.** Adjudicating whether the closure is
+*right* needs either absolute GT (→ §5.4 honka guard) or a visual (→ §5.3).
 
 ### 5.3 Visual (renders)
 

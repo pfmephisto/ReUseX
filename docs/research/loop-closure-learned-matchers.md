@@ -204,12 +204,21 @@ RANSAC — only the matcher differs:
 | matcher | licence | loop edges | Σ inliers | max inliers |
 |---|---|---:|---:|---:|
 | ORB (BSD) | commercial-safe | 5 | 175 | 42 |
-| **XFeat** (Apache-2.0) | **commercial-safe** | **163** | **7857** | **205** |
-| MASt3R (CC-BY-NC) | oracle only | _(endcap run pending)_ | | |
+| **XFeat** (Apache-2.0) | **commercial-safe** | **163** | **7857** | 205 |
+| MASt3R (CC-BY-NC) | oracle only | 86 | 6725 | — |
 
-**XFeat found 32× more loop edges with 45× the inlier support than ORB on the
-identical candidate set** — a decisive front-end win, and it is Apache-2.0
-(shippable). This directly answers "find more/better loop closures."
+Two results, both important:
+
+1. **XFeat found 32× more loop edges with 45× the inlier support than ORB on the
+   identical candidate set** — a decisive front-end win, and XFeat is Apache-2.0
+   (shippable). This directly answers "find more/better loop closures."
+2. **The commercial-safe matcher matches — even exceeds — the non-commercial
+   oracle here.** XFeat (163 edges / 7857 inliers) is on par with MASt3R
+   (86 edges / 6725 inliers) on this indoor RGB-D loop. The reason is structural:
+   MASt3R's headline advantage is metric scale from raw RGB, which our depth
+   already provides, so its edge over a plain Apache matcher collapses. **This is
+   the empirical basis for not shipping MASt3R at all** — the oracle sets a
+   ceiling the commercial-safe path already reaches.
 
 ### 5.2 Effect on applied pose quality (office, GT-free)
 
@@ -237,11 +246,32 @@ reproduced with a far stronger matcher: **a better matcher makes the closure mor
 complete, not the GT-free metric happier.** Adjudicating whether the closure is
 *right* needs either absolute GT (→ §5.4 honka guard) or a visual (→ §5.3).
 
-### 5.3 Visual (renders)
+### 5.3 Visual — NewOffice drift closure
 
-<!-- RESULTS-RENDERS -->
-_Before/after trajectory + merged-cloud renders of the NewOffice start↔end
-overlap region, showing drift closure (or its absence) per matcher._
+![NewOffice trajectory: XFeat loop closure vs drifted seed](img/traj-newoffice-loopclosed.png)
+
+NewOffice (3876 frames, 816 m path) has a visible start↔end drift no odometry
+closes. 7 XFeat endcap loop edges fed through `optimize --loop-trust` apply a
+**22.6 m** global correction, pulling the start↔end gap from **23.44 m → 14.58 m**
+(red = drifted seed, blue = after loop closure; grey lines = the loop edges).
+
+**Honest read:** the bridge demonstrably applies a large, real drift correction
+(this is the capability that was missing), and the gap shrinks — but a 14.58 m
+residual remains, and without absolute GT for this scan we cannot certify the
+corrected trajectory is globally *right* vs. merely *closer*. That certification
+is exactly what #221 Tier 2 (a drifting scan **with** GT) unblocks. What this PR
+establishes is the mechanism and the front-end quality; final validation of the
+*applied* correction on a drifting scan remains GT-gated.
+
+### 5.4 honka Faro-GT no-regression guard
+
+honka (1596 frames) orbits a single room — good input poses, minimal drift, but
+**many genuine revisits** (XFeat found 1336 loop edges). It is the guard: adding
+loop edges must not degrade the laser-GT F-score.
+
+<!-- RESULTS-HONKA-GUARD -->
+_Populated by `~/loop-edges-work/honka-guard` (base F=0.7958): optimize vs
+optimize+XFeat (GNC-robust) vs optimize+XFeat (--loop-trust)._
 
 ---
 

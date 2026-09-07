@@ -43,16 +43,39 @@ PlaneGraphResult optimize_sensor_poses(ProjectDB &db,
     throw std::runtime_error(
         "PlaneGraph: fewer than 2 usable sensor frames with depth/pose");
 
+  // P2: detect wide-baseline loop edges from the RGB-D frames (before the
+  // optimizer mutates the poses) and feed them into the same GNC graph. Indices
+  // returned by detect_loop_edges refer to positions in `frames`, so the
+  // parallel node-id and seed-pose vectors are built in the same order.
+  std::vector<LoopEdge> loop_edges;
+  if (options.loop_closure.enable) {
+    std::vector<int> node_ids;
+    std::vector<Eigen::Matrix4d> seed_poses;
+    node_ids.reserve(frames.size());
+    seed_poses.reserve(frames.size());
+    for (const auto &f : frames) {
+      node_ids.push_back(f.node_id);
+      seed_poses.push_back(f.world_pose.matrix().cast<double>());
+    }
+    LoopClosureResult lc;
+    loop_edges =
+        detect_loop_edges(db, node_ids, seed_poses, options.loop_closure, &lc);
+    core::info("PlaneGraph: loop closure proposed {} edges from {} matched "
+               "candidates",
+               lc.edges, lc.candidates);
+  }
+
   PlaneGraphOptimizer optimizer(options);
-  PlaneGraphResult result = optimizer.optimize(frames);
+  PlaneGraphResult result = optimizer.optimize(frames, loop_edges);
 
   if (dry_run) {
     core::info("PlaneGraph dry-run: poses NOT written back");
     return result;
   }
 
-  if (result.landmarks == 0) {
-    core::warn("PlaneGraph: no landmarks — poses NOT written back");
+  if (result.landmarks == 0 && result.loop_edges == 0) {
+    core::warn(
+        "PlaneGraph: no landmarks or loop edges — poses NOT written back");
     return result;
   }
 

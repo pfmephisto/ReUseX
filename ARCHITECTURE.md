@@ -1,183 +1,198 @@
+<!--
+SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+SPDX-License-Identifier: GPL-3.0-or-later
+-->
+
 # ReUseX Architecture Overview
 
-This document provides a quick reference to the ReUseX repository structure and architecture.
+A map of the repository. This document is deliberately thin: the **normative**
+detail lives elsewhere and is kept current there.
 
-For detailed architectural documentation, see `docs/design/`.
+| Question | Authoritative document |
+|---|---|
+| What may depend on what? Layers, header hygiene, label contract, Definition of Done | [`docs/STANDARDS.md`](docs/STANDARDS.md) |
+| What does each pipeline stage read and write in a `.rux` project? | [`docs/CONTRACTS.md`](docs/CONTRACTS.md) |
+| Naming conventions, build options, CLI surface, TODO format | [`CLAUDE.md`](CLAUDE.md) |
+| Per-symbol API reference | Doxygen: `cmake --build build --target docs` → `docs/api/html/index.html` |
 
 ## Repository Structure
 
 ```
 ReUseX/
-├── libs/                       # Library subprojects
-│   └── reusex/                # Core C++ library
-│       ├── include/ReUseX/    # Public API headers
-│       ├── src/ReUseX/        # Implementation
-│       └── cmake/             # Library-specific CMake
-├── apps/                      # Application subprojects
-│   └── rux/                   # CLI tool
-│       ├── include/rux/       # CLI headers
-│       └── src/rux/           # CLI implementation
-├── bindings/                  # Language bindings
-│   └── python/                # Python bindings (future)
-├── tests/                     # Test suite
-│   ├── unit/                  # Unit tests by module
-│   ├── integration/           # Integration tests
-│   └── fixtures/              # Test data
-├── docs/                      # Documentation
-│   ├── api/                   # Doxygen output
-│   ├── guides/                # User guides
-│   └── design/                # Architecture docs
-├── cmake/                     # Shared CMake utilities
-└── tools/                     # Development tools
+├── libs/reusex/                # The library
+│   ├── include/                # Public headers, consumed as <reusex/...>
+│   │   ├── core/               # ProjectDB, logging, stages, materials, validate
+│   │   ├── geometry/           # geometry_common + forwarding shims from #222
+│   │   ├── segmentation/       # planes, rooms, instances, reconstruct, filters
+│   │   ├── reconstruction/     # CellComplex, Solidifier, mesh, texture, metrics
+│   │   ├── slam/               # PlaneGraphOptimizer, JointPairwiseRegistration
+│   │   ├── io/                 # rtabmap, e57, ply, rhino, colmap, speckle, ...
+│   │   ├── vision/             # ML models/backends/datasets (tensor_rt, onnx, ...)
+│   │   ├── visualize/          # Optional PCL/Qt visualization
+│   │   ├── utils/              # math, cv, tolerances, formatters
+│   │   ├── types/              # point_types.hpp, eigen_types.hpp
+│   │   └── types.hpp           # Umbrella over types/
+│   ├── src/                    # Implementation, mirrors include/
+│   ├── cmake/                  # reusexLibrary.cmake, Dependencies.cmake, ...
+│   └── extern/                 # Vendored headers
+├── apps/
+│   ├── rux/                    # CLI tool (include/ + src/, grouped by command)
+│   ├── ruxd/                   # HTTP service worker
+│   └── blender/reusex_panel/   # Blender add-on (standalone)
+├── bindings/python/            # pybind11 bindings (read-only ProjectDB access)
+├── tests/                      # unit/ integration/ benchmarks/ support/ fixtures/
+├── docs/                       # STANDARDS, CONTRACTS, guides/, design/, api/ (generated)
+├── cmake/                      # Shared CMake utilities
+├── overlays/ pkgs/ devshells/  # Nix packaging
+└── tools/ scripts/ completions/
 ```
 
-## Core Modules
+## Modules and layering
 
-### libs/reusex - Core Library
-
-Six main modules:
-
-- **core**: Fundamental types, logging, constants
-- **geometry**: Point cloud processing, CGAL/PCL integration
-- **io**: Database access (RTABMapDatabase), file I/O
-- **utils**: Math, string utilities, helpers
-- **vision**: Deep learning (YOLO, SAM), datasets, TensorRT
-- **visualize**: GUI components (optional)
-
-### apps/rux - CLI Tool
-
-Command-line interface for:
-- Database import and management
-- Segmentation and inference
-- Visualization (if enabled)
-
-### bindings/python - Python Bindings
-
-Status: Not yet implemented (see `bindings/python/README.md`)
-
-## Key Design Patterns
-
-### Subproject Isolation
-Following LLVM/Boost conventions:
-- Each component has own CMakeLists.txt
-- Clear dependency graph: apps/bindings → libs
-- Independent build configuration
-
-See: `docs/design/subproject-structure.md`
-
-### Pimpl Idiom (RTABMapDatabase)
-Hide implementation details:
-- Public headers don't expose RTABMap
-- Faster compilation
-- ABI stability
-
-See: `docs/design/database-design.md`
-
-### Dataset Composition
-Different patterns for different needs:
-- IDataset: Lightweight wrapper (delegates to RTABMapDatabase)
-- TorchDataset: Composition (PyTorch interface requirements)
-- TensorRTDataset: Inheritance (extends IDataset)
-
-## Data Flow
+`libs/reusex/` builds **one static library per module** — `reusex_<module>` —
+declared in `libs/reusex/cmake/reusexLibrary.cmake`. The layer graph is
+**link-enforced** (#222): an illegal dependency is a link error, not a
+convention.
 
 ```
-RTABMapDatabase (Storage)
-    │
-    ├─→ IDataset (Interface)
-    │       └─→ TensorRTDataset → Inference
-    │
-    └─→ TorchDataset → Training
+Layer 4:  visualize                                    (optional, PCL/Qt/VTK)
+Layer 3:  segmentation  reconstruction  slam  io  vision  (peers — MUST NOT link each other)
+Layer 2:  core                                         (ProjectDB, logging, materials, stages)
+Layer 1½: geometry_common                              (shared CGAL/PCL primitives)
+Layer 1:  utils, types.hpp                             (no internal dependencies)
+External: apps/rux, apps/ruxd                          (may use everything; keep logic thin)
 ```
+
+See [`STANDARDS.md` §1](docs/STANDARDS.md#1-module-boundaries) for the rules and
+the two documented cross-peer exceptions (`io -> reconstruction`,
+`slam -> segmentation`) plus the tracked `core -> geometry_common` upward edge.
+
+### Targets
+
+| Target | Kind | Notes |
+|---|---|---|
+| `reusex_common` | INTERFACE | Public/external dependencies shared by all modules |
+| `reusex_private_deps` | INTERFACE | Dependencies kept out of the public interface |
+| `reusex_utils`, `reusex_geometry_common`, `reusex_core`, `reusex_io`, `reusex_vision`, `reusex_segmentation`, `reusex_reconstruction`, `reusex_slam` | STATIC | One per module |
+| `reusex_visualize` | STATIC | Only when `src/visualize/` has sources |
+| `reusex` | INTERFACE | Umbrella linking every module, for backward compatibility |
+| `rux`, `ruxd` | executables | `apps/rux`, `apps/ruxd` |
+
+The historical `ReUseX` and `ReUseX_visualization` target names no longer exist.
+
+## Data flow
+
+`ProjectDB` (`libs/reusex/include/core/ProjectDB.hpp`) is the single project
+store — one sqlite3 file per project, conventionally `*.rux`. It replaced the
+retired `RTABMapDatabase`; RTABMap is now only an *import* source in
+`libs/reusex/src/io/rtabmap.cpp`.
+
+```
+external scan (RTABMap .db, MuSHRoom, E57/PLY, panoramas, photos)
+        │  rux import …
+        ▼
+    ProjectDB  (sensor_frames, point_clouds, meshes, segmentation_images,
+        │       building_components, material_passports, pipeline_log, …)
+        ├──→ rux optimize / register        pose refinement, writes poses back
+        ├──→ rux create clouds              → cloud, normals
+        ├──→ rux create planes              → planes, plane_centroids, plane_normals
+        ├──→ rux create rooms               → rooms
+        ├──→ rux create annotate → project  → segmentation_images → labels
+        ├──→ rux create instances           → instances (+ instances table)
+        ├──→ rux create mesh                → meshes
+        └──→ rux export …                   PLY, E57, Rhino, COLMAP, Speckle, CSV
+```
+
+Vision datasets (`IDataset` and its implementations `TensorRTDataset`,
+`LibTorchDataset`, `ONNXSam3Dataset`) read
+frames from `ProjectDB` rather than owning storage.
+
+The exact named clouds/tables per stage, and the checks behind
+`rux validate --stage <name>`, are in [`docs/CONTRACTS.md`](docs/CONTRACTS.md).
+
+## Key design patterns
+
+**Subproject isolation** — each component has its own `CMakeLists.txt`; the
+dependency direction is `apps`/`bindings` → `libs`.
+See `docs/design/subproject-structure.md`.
+
+**Pimpl** — `ProjectDB` and `Solidifier` hide sqlite3 / CGAL / solver headers
+behind an opaque implementation pointer, so public headers stay light
+(STANDARDS §2).
+
+**Options structs** — every tunable parameter is defined once in a library
+options struct (`SegmentPlanesOptions`, `SegmentRoomsOptions`,
+`ReconstructionParams`, `SolidifierOptions`, `PlaneGraphOptions`, `JprParams`);
+CLI flags mirror those
+defaults rather than redefining them (STANDARDS §4).
+
+**Named geometric tolerances** — `utils/tolerances.hpp` instead of ad-hoc
+epsilon literals (STANDARDS §4).
 
 ## Build System
 
-### Quick Start
 ```bash
-cmake -B build
+cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ```
 
-### Key Options
-- `BUILD_VISUALIZATION`: Enable GUI (default: ON)
-- `BUILD_TESTS`: Build test suite (default: ON)
-- `BUILD_PYTHON_BINDINGS`: Build Python bindings (default: OFF)
-- `ENABLE_COVERAGE`: Code coverage (default: OFF)
-
-### Subproject Targets
-- `ReUseX`: Core library
-- `ReUseX_visualization`: Visualization library
-- `rux`: CLI executable
-- `reusex_unit_tests`: Unit test executable
+Options (defaults in parentheses): `WITH_CUDA` (ON), `USE_CCACHE` (ON),
+`BUILD_TESTS` (ON), `BUILD_DOCUMENTATION` (ON), `BUILD_PYTHON_BINDINGS` (ON),
+`GUI_ENABLED` (OFF), `ENABLE_COVERAGE` (OFF), `ML_BACKENDS` (`AUTO`), and the
+`LIN_ENABLE_*` sanitizer switches. See the table in [`CLAUDE.md`](CLAUDE.md) for
+where each is defined. There is no `BUILD_VISUALIZATION` option.
 
 ## Version Management
 
-### Single Source of Truth
-Version is defined **once** in the root `CMakeLists.txt`:
+The version is defined **once**, in the root `CMakeLists.txt`:
 
 ```cmake
-project(ReUseX VERSION 0.0.1 ...)
+project(reusex VERSION 0.0.5 ...)
 ```
 
-All subprojects and bindings inherit this version automatically:
-- **C++ library**: Uses `PROJECT_VERSION` in CMake
-- **CLI app**: Inherits from parent project
-- **Python bindings**: CMake generates `_version.py` from template
-
-### Version Propagation
-
-**C++ (libs/reusex)**:
-- `include/ReUseX/core/version.hpp.in` template
-- CMake substitutes `@PROJECT_VERSION@`
-- Accessible via `ReUseX::version::VERSION`
-
-**Python (bindings/python)**:
-- `_version.py.in` template configured by CMake
-- Generates `reusex/_version.py`
-- Imported in `__init__.py` as `__version__`
-- `pyproject.toml` uses `dynamic = ["version"]`
-
-### Package Structure
-
-**Python bindings** live in `bindings/python/` with their own `pyproject.toml`:
-- Package name: `reusex` (lowercase, Python convention)
-- Built via: `pip install bindings/python/`
-- scikit-build-core bridges Python packaging with CMake
-- Treats Python as optional binding to C++ library (not primary interface)
+- **C++**: `libs/reusex/include/core/version.hpp.in` is configured with
+  `@PROJECT_VERSION@`; read it as `reusex::core::VERSION` (also
+  `reusex::core::LICENSE_TEXT`). `rux --version` / `rux --license` print them.
+- **Doxygen**: `PROJECT_NUMBER` in `docs/Doxyfile`.
+- **Python**: `bindings/python/_version.py.in` is configured into the built package as `reusex/_version.py`, exposed as
+  `__version__`; `pyproject.toml` uses `dynamic = ["version"]`.
 
 ## Conventions
 
-### Label Encoding
-- **Storage**: CV_16U with +1 offset (0 = unlabeled)
-- **API**: CV_32S with -1 for unlabeled
-- **Rotation**: 90° clockwise on read
+**Namespaces** — root namespace is lowercase `reusex` (`reusex::core`,
+`reusex::segmentation`, `reusex::vision::tensor_rt`). Keep nesting to three
+levels or fewer; internal helpers go in a `detail` namespace.
 
-### Image Rotation
-All images and labels rotated 90° clockwise from RTABMap storage
+**Labels** — storage `CV_16U` with a +1 offset (`0` = unlabeled), `ProjectDB`
+API `CV_32S` with `-1`, in-memory `CloudL` uses `0` for unlabeled and valid
+labels from `1`. Helpers in `core/label_semantics.hpp`. The full table is
+[`STANDARDS.md` §3](docs/STANDARDS.md#3-label--identity-contract).
 
-### Namespaces
-- Maximum 3 levels: `ReUseX::vision::object`
-- No redundant layers (no `common`)
-- Internal utilities: `detail` namespace
+**Image orientation** — images, depth maps and label images are stored in their
+original sensor orientation. The 90°-clockwise rotation applied by the old
+RTABMap reader is gone; do not reintroduce it.
+
+**Parallel clouds** — `cloud`, `normals`, `planes`, `rooms`, `instances`,
+`labels` for one scan are index-aligned and must be filtered, downsampled or
+reordered together (STANDARDS §3.2).
 
 ## Documentation
 
-- **User Guides**: `docs/guides/`
-- **Design Docs**: `docs/design/`
-- **API Reference**: `docs/api/` (Doxygen)
-- **Contributing**: `CONTRIBUTING.md`
-
-## Getting Started
-
-1. **Using the library**: See `docs/guides/getting-started.md`
-2. **Contributing**: See `CONTRIBUTING.md`
-3. **Testing**: See `tests/README.md`
-4. **Architecture deep dive**: See `docs/design/architecture.md`
+- **Engineering standards**: [`docs/STANDARDS.md`](docs/STANDARDS.md)
+- **Pipeline stage contracts**: [`docs/CONTRACTS.md`](docs/CONTRACTS.md)
+- **Docs index**: [`docs/README.md`](docs/README.md)
+- **User guides**: [`docs/guides/`](docs/guides/)
+- **Design notes** (historical in places): [`docs/design/`](docs/design/)
+- **API reference**: `docs/api/` after `cmake --build build --target docs`
+- **Contributing**: [`CONTRIBUTING.md`](CONTRIBUTING.md),
+  [`CONTRIBUTING_AI.md`](CONTRIBUTING_AI.md)
+- **Testing**: [`docs/guides/TESTING.md`](docs/guides/TESTING.md),
+  [`tests/README.md`](tests/README.md)
 
 ## Questions?
 
-- **Build issues**: Check `docs/design/subproject-structure.md`
-- **Database questions**: See `docs/design/database-design.md`
-- **General architecture**: See `docs/design/architecture.md`
-- **Testing**: See `tests/README.md`
-- **Report issues**: https://github.com/anthropics/ReUseX/issues
+- **Build issues**: [`docs/design/subproject-structure.md`](docs/design/subproject-structure.md)
+- **Project database**: `libs/reusex/include/core/ProjectDB.hpp` (the design note
+  in [`docs/design/database-design.md`](docs/design/database-design.md) documents
+  the retired predecessor)
+- **Report issues**: https://github.com/pfmephisto/ReUseX/issues

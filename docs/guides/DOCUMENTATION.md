@@ -55,7 +55,7 @@ From your build directory:
 cmake -B build -DBUILD_DOCUMENTATION=ON
 
 # Generate the documentation
-cmake --build build --target doc
+cmake --build build --target docs
 ```
 
 ### Method 2: Using Doxygen Directly
@@ -63,13 +63,14 @@ cmake --build build --target doc
 From the project root:
 
 ```bash
-doxygen Doxyfile
+doxygen docs/Doxyfile
 ```
 
 ## Output Location
 
-Generated documentation is placed in the `doc/` directory:
-- **HTML**: `doc/html/index.html` - Main entry point for the HTML documentation
+Generated documentation is placed in the `docs/api/` directory
+(`OUTPUT_DIRECTORY` in `docs/Doxyfile`):
+- **HTML**: `docs/api/html/index.html` - Main entry point for the HTML documentation
 - **Search**: Full-text search available in the HTML output
 
 ## Viewing Documentation
@@ -78,13 +79,13 @@ Open the documentation in your web browser:
 
 ```bash
 # Linux
-xdg-open doc/html/index.html
+xdg-open docs/api/html/index.html
 
 # macOS
-open doc/html/index.html
+open docs/api/html/index.html
 
 # Windows
-start doc/html/index.html
+start docs/api/html/index.html
 ```
 
 ## Documentation Structure
@@ -99,9 +100,15 @@ The generated documentation is organized into several sections:
 
 ### Key Namespaces
 
-- **ReUseX**: Core library functionality
-  - **ReUseX::io**: Input/output operations
-  - **ReUseX::core**: Core data structures and algorithms
+- **reusex**: Core library functionality (the root namespace is lowercase)
+  - **reusex::core**: `ProjectDB`, logging, stages, material passports
+  - **reusex::io**: External format import/export
+  - **reusex::segmentation** / **reusex::reconstruction** / **reusex::slam**:
+    pipeline stages
+  - **reusex::geometry**: shared CGAL/PCL primitives (`geometry_common`)
+  - **reusex::vision**: ML models, backends and datasets
+    (`::tensor_rt`, `::onnx`, `::libtorch`, `::osd`)
+  - **reusex::utils**, **reusex::visualize**
 - **rux**: Command-line interface utilities
 - **pcl**: PCL extensions (custom implementations)
 - **spdmon**: Monitoring utilities
@@ -122,11 +129,12 @@ cmake -B build -DBUILD_DOCUMENTATION=ON
 
 ### Doxyfile Configuration
 
-The `Doxyfile` in the project root contains all Doxygen settings. Key configurations:
+`docs/Doxyfile` contains all Doxygen settings. Key configurations:
 
 - **PROJECT_NAME**: ReUseX
-- **INPUT**: Source directories (include/ReUseX, include/rux, etc.)
-- **OUTPUT_DIRECTORY**: doc/
+- **PROJECT_NUMBER**: the project version (kept in step with `CMakeLists.txt`)
+- **INPUT**: `libs/reusex/include/`, `apps/rux/include/`, `docs/guides`, `README.md`
+- **OUTPUT_DIRECTORY**: `docs/api`
 - **GENERATE_HTML**: YES (HTML output enabled)
 - **GENERATE_LATEX**: NO (LaTeX output disabled by default)
 - **RECURSIVE**: YES (recurse into subdirectories)
@@ -212,7 +220,7 @@ When adding new code:
 2. Include brief descriptions for all functions and classes
 3. Document parameters, return values, and exceptions
 4. Provide usage examples for complex functionality
-5. Regenerate documentation to verify: `cmake --build build --target doc`
+5. Regenerate documentation to verify: `cmake --build build --target docs`
 
 ## Additional Resources
 
@@ -222,5 +230,5 @@ When adding new code:
 
 ## Version Control
 
-The `doc/` output directory is excluded from version control (.gitignore).
+The `docs/api/` output directory is excluded from version control (.gitignore).
 Only the Doxyfile configuration and this guide are tracked in the repository.

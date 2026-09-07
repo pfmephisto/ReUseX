@@ -17,15 +17,28 @@ Welcome to the ReUseX documentation! This directory contains comprehensive docum
 
 ## For Developers
 
+### Normative
+- [Engineering Standards](STANDARDS.md) - The bar every change must meet:
+  module boundaries, header hygiene, label contract, parameters, error handling,
+  determinism, testing, performance, Definition of Done
+- [Pipeline Stage Contracts](CONTRACTS.md) - What each `rux` stage consumes and
+  produces in a `.rux` project, enforced by `rux validate --stage`
+
 ### Architecture
 - [Architecture Overview](../ARCHITECTURE.md) - High-level repository structure
-- [Detailed Architecture](design/architecture.md) - Module organization and data flow
-- [API Design Review](design/api-design-review.md) - Public API audit and refactoring recommendations
 - [Subproject Structure](design/subproject-structure.md) - Build system organization
-- [Database Design](design/database-design.md) - RTABMapDatabase detailed design
+- [cuOpt Integration](CUOPT_INTEGRATION.md) - GPU MIP solver backend
+
+### Historical design notes
+These record earlier designs and are **not** kept in sync with the code:
+- [Detailed Architecture](design/architecture.md) - Predates the #222 module split
+- [API Design Review](design/api-design-review.md) - Public API audit and refactoring recommendations
+- [Database Design](design/database-design.md) - The **retired** `RTABMapDatabase`; the current store is `core/ProjectDB.hpp`
 
 ### Contributing
 - [Contributing Guide](../CONTRIBUTING.md) - Code standards and workflow
+- [AI Assistant Guide](../CONTRIBUTING_AI.md) - Guidance for AI coding assistants
+- [CLAUDE.md](../CLAUDE.md) - Naming conventions, build/CLI orientation, TODO format
 - [Testing Guide](../tests/README.md) - Writing and running tests
 - Coverage tools: `./tools/coverage/generate_coverage.sh`
 
@@ -37,30 +50,37 @@ cmake --build build --target docs
 xdg-open docs/api/html/index.html
 ```
 
-Or view online: [GitHub Pages](https://your-org.github.io/ReUseX/) (if deployed)
+Or view online: [GitHub Pages](https://pfmephisto.github.io/ReUseX/) (published by
+`.github/workflows/doxy.yml`)
 
 ## Repository Structure
 
 ```
 ReUseX/
-├── libs/reusex/        # Core C++ library
+├── libs/reusex/        # The library (one target per module)
 ├── apps/rux/           # CLI application
-├── bindings/python/    # Python bindings (future)
-├── tests/              # Test suite
+├── apps/ruxd/          # HTTP service worker
+├── apps/blender/       # Blender add-on
+├── bindings/python/    # pybind11 bindings (read-only ProjectDB access)
+├── tests/              # unit/ integration/ benchmarks/ support/ fixtures/
 ├── docs/               # This directory
 │   ├── api/           # Doxygen output (generated)
 │   ├── guides/        # User guides
-│   └── design/        # Architecture docs
-└── tools/             # Development tools
+│   └── design/        # Historical design notes
+├── cmake/             # Shared CMake utilities
+├── overlays/ pkgs/    # Nix packaging
+└── tools/ scripts/    # Development tools
 ```
 
 ## Quick Links
 
 - **Main README**: [../README.md](../README.md)
 - **Architecture**: [../ARCHITECTURE.md](../ARCHITECTURE.md)
+- **Engineering Standards**: [STANDARDS.md](STANDARDS.md)
+- **Pipeline Contracts**: [CONTRACTS.md](CONTRACTS.md)
 - **Contributing**: [../CONTRIBUTING.md](../CONTRIBUTING.md)
 - **Test Documentation**: [../tests/README.md](../tests/README.md)
-- **Python Bindings Status**: [../bindings/python/README.md](../bindings/python/README.md)
+- **Python Bindings**: [../bindings/python/README.md](../bindings/python/README.md)
 
 ## Building Documentation
 
@@ -78,8 +98,8 @@ User guides are written in Markdown and located in `docs/guides/`. They are huma
 
 ## Getting Help
 
-- **Issues**: [GitHub Issues](https://github.com/your-org/ReUseX/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/your-org/ReUseX/discussions)
+- **Issues**: [GitHub Issues](https://github.com/pfmephisto/ReUseX/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/pfmephisto/ReUseX/discussions)
 - **Questions**: Open an issue with the `question` label
 
 ## Documentation Standards

@@ -1,4 +1,11 @@
-# ReUseX Library API/Architecture Design Review
+# ReUseX Library API/Architecture Design Review (historical audit)
+
+> ⚠️ **Point-in-time audit, not kept in sync with the code.** It predates the
+> #222 module split and the replacement of `io::RTABMapDatabase` by
+> `core::ProjectDB`, and it uses the retired `ReUseX::` namespace and
+> `include/ReUseX/` layout. Several recommendations here have since been adopted
+> and codified in [`docs/STANDARDS.md`](../STANDARDS.md) — treat that as
+> normative and this as background.
 
 ## 1. Executive Summary
 

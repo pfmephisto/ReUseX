@@ -18,17 +18,34 @@ session default):
 Pick by task complexity; when unsure whether a task needs judgment,
 prefer sonnet for gathering and opus for deciding.
 
+## Normative Documents
+
+This file is the orientation/guidance layer. The **normative** rules live in:
+
+- [`docs/STANDARDS.md`](docs/STANDARDS.md) — module boundaries (§1), header
+  hygiene (§2), label & identity contract (§3), parameters (§4), error handling
+  (§5), determinism (§6), testing (§7), performance (§8), Definition of Done (§9).
+- [`docs/CONTRACTS.md`](docs/CONTRACTS.md) — what each pipeline stage consumes
+  and produces in a `.rux` project database, enforced by `rux validate --stage`.
+
+If this file and those two disagree, **they win** — and the disagreement is a bug
+worth fixing here.
+
 ## Project Overview
 
 ReUseX is a C++20/CUDA project for processing 3D point cloud scans of building interiors. It combines geometric processing, deep learning, and computational geometry to create semantic 3D models for building reuse and renovation projects.
 
 **Key capabilities:**
-- Point cloud processing from RTABMap SLAM databases
-- Planar and room segmentation using CGAL and GraphBLAS
-- Semantic segmentation via YOLO/SAM2 models (PyTorch/TensorRT)
-- Cell complex 3D reconstruction
-- Mesh generation with texture mapping
-- Support for E57, PCD, OpenNURBS, and HDF5 formats
+- Sensor-frame import from RTABMap SLAM databases, MuSHRoom captures, E57/PLY
+  clouds, 360° panoramas and survey photos
+- Pose refinement: plane-landmark pose-graph optimization (GTSAM) and joint
+  pairwise registration
+- Planar segmentation (noise-adaptive region growing) and room segmentation
+  (Leiden clustering over a plane graph, via igraph)
+- Semantic segmentation via YOLO / SAM3 models (TensorRT, ONNX Runtime, LibTorch)
+- Cell complex 3D reconstruction with a MIP solve (HiGHS CPU / cuOpt GPU)
+- Mesh generation with texture mapping; dense MVS clouds via OpenMVS
+- Export to PLY, E57, OpenNURBS (.3dm), COLMAP, Speckle, CSV, MaterialEPAS
 
 ## Naming Conventions
 
@@ -38,7 +55,9 @@ ReUseX is a C++20/CUDA project for processing 3D point cloud scans of building i
 - **Setters**: `set_` prefix — `set_log_level()`, `set_database_path()`
 - **Classes/structs**: PascalCase — `CellComplex`, `ProjectDB`, `DetectionBox`
 - **Enum classes**: PascalCase name, snake_case values — `Stage::mesh_generation`
-- **Namespaces**: snake_case — `ReUseX::geometry`, `ReUseX::vision::tensor_rt`
+- **Namespaces**: snake_case, root namespace is `reusex` (lowercase — `ReUseX::`
+  appears nowhere in the source) — `reusex::core`, `reusex::segmentation`,
+  `reusex::vision::tensor_rt`
 - **Type aliases**: PascalCase — `CloudPtr`, `CloudNConstPtr`
 - **Member variables**: snake_case with trailing `_` — `impl_`, `cloud_`
 - **File naming**: PascalCase for class files, snake_case for function/algorithm files
@@ -65,8 +84,8 @@ cmake --build build
 cmake -B build -DCMAKE_BUILD_TYPE=Debug
 cmake --build build
 
-# Build without visualization (reduces dependencies)
-cmake -B build -DBUILD_VISUALIZATION=OFF
+# CPU-only build (no CUDA, no TensorRT)
+cmake -B build -DWITH_CUDA=OFF
 cmake --build build
 
 # Build without tests
@@ -74,13 +93,26 @@ cmake -B build -DBUILD_TESTS=OFF
 cmake --build build
 ```
 
-**Important build options:**
-- `-DBUILD_VISUALIZATION=ON/OFF` - Visualization library (default: ON)
-- `-DBUILD_TESTS=ON/OFF` - Unit tests (default: ON)
-- `-DBUILD_DOCUMENTATION=ON/OFF` - Doxygen docs (default: ON)
-- `-DBUILD_PYTHON_BINDINGS=ON/OFF` - Python bindings (default: OFF, currently disabled)
-- `-DGUI_ENABLED=ON/OFF` - CGAL GUI features (default: OFF)
-- `-DENABLE_COVERAGE=ON/OFF` - Code coverage (default: OFF)
+**Build options that actually exist** (grep `option(` in `CMakeLists.txt`,
+`cmake/`, `libs/reusex/cmake/`):
+
+| Option | Default | Defined in | Effect |
+|---|---|---|---|
+| `WITH_CUDA` | `ON` | `CMakeLists.txt:25` | CUDA / NVIDIA GPU support. Also gates the TensorRT backend search and `cuOpt`. |
+| `USE_CCACHE` | `ON` | `CMakeLists.txt:66` | Use ccache when available |
+| `ENABLE_COVERAGE` | `OFF` | `CMakeLists.txt:103` | Code coverage instrumentation |
+| `BUILD_PYTHON_BINDINGS` | `ON` | `CMakeLists.txt:129` | Adds `bindings/python` |
+| `BUILD_TESTS` | `ON` | `CMakeLists.txt:137` | Adds `tests/` and `enable_testing()` |
+| `BUILD_DOCUMENTATION` | `ON` | `CMakeLists.txt:146`, `cmake/Documentation.cmake:9` | Defines the `docs` target |
+| `GUI_ENABLED` | `OFF` | `libs/reusex/cmake/Dependencies.cmake:207` | CGAL Qt6 GUI components |
+| `ML_BACKENDS` | `AUTO` | `libs/reusex/cmake/Dependencies.cmake:49` | Cache string, not a bool: `AUTO`, `NONE`, or a list like `TensorRT;LibTorch;ONNX;OpenVINO` |
+| `LIN_ENABLE_ASAN` / `MSAN` / `UBSAN` / `TSAN` | `OFF` | `libs/reusex/cmake/CompilerOptions.cmake` | Sanitizers |
+| `LIN_ENABLE_WERROR` | `OFF` | `libs/reusex/cmake/CompilerOptions.cmake:23` | `-Werror` |
+
+There is **no** `BUILD_VISUALIZATION` option. The `visualize` module is built
+whenever `libs/reusex/src/visualize/**` has sources (see
+`libs/reusex/cmake/reusexLibrary.cmake`), and the umbrella `reusex` target picks
+it up only `if(TARGET reusex_visualize)`.
 
 **CMake auto-detection:** The build system uses `GLOB_RECURSE` with `CONFIGURE_DEPENDS`, so new .cpp/.cu files are automatically detected. No need to manually update CMakeLists.txt when adding source files.
 
@@ -99,17 +131,21 @@ ctest --verbose
 ctest -R test_name_pattern
 ```
 
-Tests are located in `tests/unit/` organized by module (core, geometry, io, vision, utils). Uses Catch2 v3 framework.
+Tests live in `tests/`: `unit/` (per-module: `core`, `geometry`, `io`, `utils`,
+`vision`), `integration/`, `benchmarks/`, `support/`, `fixtures/`. Catch2 v3.
 
 ### Documentation
+
+The Doxygen target is named `docs` (not `doc`) and writes to `docs/api`
+(`OUTPUT_DIRECTORY` in `docs/Doxyfile`).
 
 ```bash
 # Generate Doxygen documentation
 cmake -B build -DBUILD_DOCUMENTATION=ON
-cmake --build build --target doc
+cmake --build build --target docs
 
 # View generated docs
-xdg-open doc/html/index.html
+xdg-open docs/api/html/index.html
 ```
 
 ## Architecture
@@ -118,182 +154,318 @@ xdg-open doc/html/index.html
 
 ```
 ReUseX/
-├── libs/reusex/               # Core C++ library
-│   ├── include/ReUseX/        # Public headers
-│   │   ├── core/              # Logging, version
-│   │   ├── geometry/          # Point cloud processing, segmentation
-│   │   ├── io/                # RTABMap, E57, Rhino I/O
-│   │   ├── vision/            # ML models, backends, datasets
-│   │   ├── visualize/         # PCL visualization (optional)
-│   │   ├── utils/             # Math, formatters
-│   │   └── types.hpp          # Core PCL type aliases
-│   ├── src/                   # Implementation files
-│   └── extern/                # Vendored dependencies
-├── apps/rux/                  # CLI application
-│   └── src/                   # Subcommand implementations
-├── tests/                     # Unit and integration tests
-│   ├── unit/                  # Per-module unit tests
-│   └── fixtures/              # Test data
-├── python/                    # Python utilities (standalone scripts)
-└── models/                    # Pre-trained models (not in repo)
+├── libs/reusex/                    # The library (one CMake target per module)
+│   ├── include/                    # Public headers; consumers use <reusex/...>
+│   │   ├── core/                   # ProjectDB, logging, stages, validate,
+│   │   │                           #   MaterialPassport, guid, label_semantics
+│   │   ├── geometry/               # geometry_common + #222 forwarding shims
+│   │   ├── segmentation/           # planes, rooms, instances, reconstruct,
+│   │   │                           #   depth_filters, downsample, surfels
+│   │   ├── reconstruction/         # CellComplex, Solidifier, mesh, texture,
+│   │   │                           #   regularization, SceneGraph, Registry
+│   │   ├── slam/                   # PlaneGraphOptimizer, JointPairwiseRegistration
+│   │   ├── io/                     # rtabmap, e57, ply, rhino, colmap, speckle,
+│   │   │                           #   mushroom, exif, export_scene
+│   │   ├── vision/                 # ML models, backends, datasets (tensor_rt/, onnx/,
+│   │   │                           #   libtorch/, osd/, common/)
+│   │   ├── visualize/              # PCL/Qt visualization (optional)
+│   │   ├── utils/                  # math, cv, tolerances, fmt_formatter
+│   │   ├── types/                  # point_types.hpp, eigen_types.hpp
+│   │   └── types.hpp               # Umbrella re-exporting types/*
+│   ├── src/                        # Implementation, mirrors include/
+│   ├── cmake/                      # reusexLibrary.cmake, Dependencies.cmake, ...
+│   └── extern/                     # Vendored headers
+├── apps/rux/                       # CLI application
+│   ├── include/ + src/             # Subcommands, grouped in subdirs
+│   └── cmake/RuxExecutable.cmake
+├── apps/ruxd/                      # HTTP service worker (ruxd)
+├── apps/blender/reusex_panel/      # Blender add-on
+├── bindings/python/                # Python bindings (scikit-build-core)
+├── tests/                          # unit/ integration/ benchmarks/ support/ fixtures/
+├── docs/                           # STANDARDS.md, CONTRACTS.md, guides/, design/
+├── cmake/                          # Shared CMake utilities
+├── overlays/ pkgs/ devshells/      # Nix packaging
+└── tools/ scripts/ completions/    # Dev tooling
 ```
 
-### Core Libraries and Two-Target Design
+There is no top-level `python/` directory; Python lives in `bindings/python/`
+and `apps/blender/`.
 
-**ReUseX Library** (`libs/reusex/`):
-- **Main target** (`ReUseX`): Core library excluding visualization components
-- **Visualization target** (`ReUseX_visualization`): Optional PCL/Qt visualization features
-- Visualization is excluded to reduce dependencies when only core processing is needed
-- Both targets export headers from `include/ReUseX/`
+### Module targets
 
-**RUX CLI** (`apps/rux/`):
-- Command-line interface with subcommands
-- Links against both `ReUseX` and optionally `ReUseX_visualization`
-- Uses CLI11 for argument parsing, spdlog for logging
+`libs/reusex/` builds **one static library per module**, named
+`reusex_<module>`, wired in `libs/reusex/cmake/reusexLibrary.cmake`. The layer
+graph is **link-enforced** — an illegal dependency is a link error, not a
+convention. See [`docs/STANDARDS.md` §1](docs/STANDARDS.md#1-module-boundaries)
+for the authoritative diagram and the documented exceptions.
+
+Targets: `reusex_utils`, `reusex_geometry_common`, `reusex_core`, `reusex_io`,
+`reusex_vision`, `reusex_segmentation`, `reusex_reconstruction`, `reusex_slam`,
+`reusex_visualize` (conditional), plus two interface targets
+(`reusex_common` = public deps, `reusex_private_deps`) and the umbrella
+INTERFACE target `reusex` that links everything for backward compatibility.
+
+The old `ReUseX` / `ReUseX_visualization` target names no longer exist.
+
+**Executables:** `rux` (`apps/rux`), `ruxd` (`apps/ruxd`, HTTP service worker).
+Both use CLI11 for argument parsing and spdlog as the log sink.
 
 ### Type System (types.hpp)
 
-Core PCL type aliases used throughout the codebase:
+Aliases are split so a TU pulls in only what it needs (STANDARDS §2):
+`types/point_types.hpp` (PCL) and `types/eigen_types.hpp` (Eigen).
+`types.hpp` is a backward-compatible umbrella over both — prefer the narrower
+header in new code.
+
 - `PointT` = `pcl::PointXYZRGB` - Point cloud points with color
 - `NormalT` = `pcl::Normal` - Surface normals
 - `LabelT` = `pcl::Label` - Segmentation labels
 - `Cloud` / `CloudPtr` - Point cloud containers
 - `CloudN` / `CloudL` / `CloudLoc` - Normals, labels, locations
 
-### Geometry Module
+### Segmentation / Reconstruction / SLAM modules
 
-**CellComplex** (`geometry/CellComplex.hpp`):
-- Graph-based 3D spatial representation using Boost.Graph
-- Node types: Cell (room), Face (wall/floor/ceiling), Vertex (corner)
-- Uses `boost::adjacency_list` with custom vertex/edge properties
-- Core abstraction for room segmentation and 3D reconstruction
+The former single `geometry` module was split by pipeline stage in #222.
+`include/geometry/*.hpp` still contains one-line forwarding shims (e.g.
+`geometry/CellComplex.hpp` includes `reusex/reconstruction/CellComplex.hpp`) —
+**include the new path in new code.**
 
-**Segmentation algorithms:**
-- `segment_planes.hpp`: Planar surface detection (RANSAC-based)
-- `segment_rooms.hpp`: Room partitioning via GraphBLAS/LAGraph
-- `Solidifier.hpp`: Converts segmented planes to watertight meshes
-- `regularization.hpp`: Geometric constraint enforcement
+**segmentation** (`include/segmentation/`):
+- `reconstruct.hpp`: pinhole back-projection of depth frames into clouds
+- `segment_planes.hpp`: planar detection (noise-adaptive region growing;
+  `noise_estimate.hpp` supplies the adaptive thresholds)
+- `segment_rooms.hpp`: room partitioning via Leiden clustering (igraph)
+- `segment_instances.hpp` / `reconcile_instances.hpp`: semantic → spatial instances
+- `depth_filters.hpp`, `downsample.hpp`, `sync_downsample.hpp`, `densify.hpp`
+- `Surfel.hpp` / `surfel_extraction.hpp`: surfels shared with `slam`
 
-**SceneGraph and Registry:**
-- Manage spatial relationships and object hierarchies
-- Used for tracking plane assignments and room boundaries
+**reconstruction** (`include/reconstruction/`):
+- `CellComplex.hpp`: Boost.Graph-based 3D spatial representation
+  (Cell / Face / Vertex nodes); recenters to its bbox centroid internally to
+  keep CGAL's inexact kernel usable on georeferenced input (STANDARDS §4)
+- `Solidifier.hpp`: cell selection via MIP (HiGHS CPU / cuOpt GPU) → watertight mesh
+- `mesh.hpp`, `texture_mesh.hpp`, `regularization.hpp`, `create_windows.hpp`
+- `SceneGraph.hpp` / `Registry.hpp`: spatial relationships and object hierarchies
+- `quality_metrics.hpp` / `accuracy_metrics.hpp`: backing `rux analyze`
+
+**slam** (`include/slam/`):
+- `PlaneGraphOptimizer.hpp`: plane-landmark pose graph (GTSAM), `rux optimize`
+- `JointPairwiseRegistration.hpp`: `rux register`
+
+**geometry_common** (`include/geometry/`, layer 1½): the real (non-shim) headers
+there — `utils.hpp`, `cgal_utils.hpp`, `transform_utils.hpp`,
+`CoplanarPolygon.hpp`, `BuildingComponent.hpp`, `unweld.hpp` — are the CGAL/PCL
+primitives shared by the peers above and by `core`. Sources are listed
+explicitly (not globbed) in `reusexLibrary.cmake`, so a new
+`src/geometry/*.cpp` **does** need a CMake edit; every other module is globbed.
 
 ### Vision/ML Module
 
-**Backend abstraction** (vision/IMLBackend.hpp, BackendFactory.hpp):
-- Pluggable backend system for ML inference
-- Currently supports: **TensorRT** (primary), libTorch (planned), ONNX (planned)
-- Backend detection based on file extension (.engine, .pt, .onnx)
-- Factory pattern: `BackendFactory::detect_backend()` → `BackendFactory::create()`
+**Backend abstraction** (`vision/IMLBackend.hpp`, `vision/BackendFactory.hpp`):
+- Pluggable backend system for ML inference. Which backends are compiled in is
+  decided at configure time by `ML_BACKENDS` (`AUTO` probes for
+  TensorRT / LibTorch / ONNX / OpenVINO; TensorRT is skipped unless
+  `WITH_CUDA=ON`). See `libs/reusex/cmake/MLBackendConfig.cmake` — it also
+  *excludes* the source files of disabled backends from the glob.
+- Implemented today: `vision/tensor_rt/` and `vision/onnx/` (Yolo + Sam3),
+  `vision/libtorch/` (dataset side).
+- `BackendFactory::detect_model()` sniffs the path — `sam3`/`sam2` in the name,
+  or a directory containing `vision-encoder.*`, means `Model::sam3`; otherwise
+  `Model::yolo`. `BackendFactory::detect_backend()` picks the backend from the
+  extension / directory contents.
+- `enum class Backend { opencv, tensor_rt, libtorch, dnn, onnx_runtime,
+  openvino, unknown }`.
 
 **Model interfaces:**
 - `IModel`: Base interface for all ML models
 - `Yolo`: YOLO object detection/segmentation
-- `Sam3`: SAM2 segmentation (TensorRT implementation)
+- `Sam3`: SAM3 segmentation (`tensor_rt/Sam3.hpp`, `onnx/Sam3.hpp`)
 - Models loaded from filesystem paths, backend auto-detected
 
 **Dataset interfaces:**
 - `IDataset`: Base dataset interface
-- `libtorch::Dataset`: PyTorch-compatible dataset
-- `tensor_rt::Dataset`: TensorRT-optimized dataset
-- All datasets provide `(image, label)` pairs via `forward()`
+- `LibTorchDataset` (`vision/libtorch/Dataset.hpp`): PyTorch-compatible dataset
+- `TensorRTDataset` (`vision/tensor_rt/Dataset.hpp`): TensorRT-optimized dataset
+- `ONNXSam3Dataset` (`vision/onnx/Sam3Dataset.hpp`): SAM3 under ONNX Runtime
+- Datasets read frames from `ProjectDB`, not from an RTABMap database
 
 **Key vision components:**
-- `annotate.hpp`: Semantic annotation pipeline
-- `project.hpp`: 3D-to-2D projection for annotation
+- `annotate.hpp`: Semantic annotation pipeline (`rux create annotate`)
+- `project.hpp`: 2D-label → 3D-cloud projection (`rux create project`)
 - `Dataloader.hpp`: Batch data loading
 - `osd/`: On-screen display for visualization
 
+### Core Module — ProjectDB
+
+`core/ProjectDB.hpp` is the single project store (`*.rux`, sqlite3). It
+**replaced** the old `RTABMapDatabase`, which no longer exists in the source
+tree — if a doc mentions `RTABMapDatabase`, that doc is stale.
+
+- Pimpl idiom keeps sqlite3 out of the public header; `cv::Mat` and the PCL mesh
+  types are forward-declared, not included (STANDARDS §2)
+- Stores point clouds (chunked), meshes + texture blobs, sensor frames
+  (color/depth/confidence/pose/intrinsics), panoramic images,
+  `segmentation_images`, building components, material passports,
+  instance↔material links, and the pipeline log
+- Migrating schema; `LATEST_SCHEMA_VERSION` is defined in
+  `src/core/ProjectDB.cpp` (currently 10) — read it there rather than trusting
+  a doc
+- **NOT thread-safe** (sqlite3): create a per-thread instance if needed
+- **No image rotation.** Images and labels are stored in their original
+  orientation; the 90°-clockwise rotation the old RTABMap reader applied is gone
+- Label encoding: `CV_16U` + 1 offset in storage (0 = unlabeled), `CV_32S` with
+  `-1` in the API. The full contract, including the in-memory `CloudL`
+  convention, is [`docs/STANDARDS.md` §3](docs/STANDARDS.md#3-label--identity-contract);
+  helpers live in `core/label_semantics.hpp`
+
+Other core pieces: `logging.hpp`, `stages.hpp` (`Stage` enum),
+`validate.hpp` (`check_stage_inputs`, backing `rux validate --stage`),
+`MaterialPassport.hpp` + `materialepas_*`, `guid.hpp`, `SensorIntrinsics.hpp`,
+`processing_observer.hpp` / `visual_observer.hpp`, `filter_expression.hpp`.
+
 ### I/O Module
 
-**RTABMapDatabase** (`io/RTABMapDatabase.hpp`):
-- Unified wrapper for RTABMap SLAM database access
-- Uses Pimpl idiom to hide RTABMap dependencies from public headers
-- Manages both RTABMap core tables (Node, Data, Link) and custom Segmentation table
-- **Important conventions:**
-  - Images are rotated 90° clockwise on read (RTABMap convention)
-  - Labels stored as CV_16U with +1 offset (0 = background)
-  - API returns CV_32S labels with -1 for background, 0+ for classes
-  - NOT thread-safe (sqlite3 limitation) - create per-thread instances if needed
+External-format adapters only — project state itself lives in `core/ProjectDB`.
 
-**Other I/O:**
-- `rtabmap.hpp`: RTABMap integration utilities
+- `rtabmap.hpp`: RTABMap SLAM database import (the only RTABMap consumer)
+- `mushroom.hpp`: MuSHRoom RGB-D benchmark captures
+- `e57.hpp`, `ply.hpp`: point cloud exchange
 - `rhino.hpp`: OpenNURBS (.3dm) import/export
-- `reusex.hpp`: Custom HDF5-based format
+- `colmap.hpp`: COLMAP sparse model export
+- `speckle.hpp`: Speckle export
+- `exif.hpp`: photo metadata (exiv2)
+- `export_scene.hpp`: serializes a reconstructed scene
+- `reusex.hpp`: legacy custom format
+
+There is no HDF5 dependency anywhere in the build.
 
 ### CLI Subcommands (apps/rux/src/)
 
-Organized by operation:
-- `import/rtabmap.cpp`: Import RTABMap SLAM databases
-- `segment.cpp`: Plane and room segmentation
-- `mesh.cpp`: 3D mesh generation
-- `texture.cpp`: Texture mapping
-- `annotate.cpp`: Semantic annotation with ML models
-- `view.cpp`: Point cloud visualization (requires BUILD_VISUALIZATION)
-- `export.cpp`: Export to various formats
-- `assemble.cpp`: Multi-scan assembly
-- `project.cpp`: 3D-to-2D projection
+Top-level commands, as registered in `apps/rux/src/rux.cpp`:
+
+| Command | Sub-commands | Source |
+|---|---|---|
+| `import` | `rtabmap`, `mushroom`, `e57`, `ply`, `materialepas`, `csv`, `360`, `photos` | `src/import/` |
+| `create` | `clouds`, `dense`, `annotate`, `material`, `project`, `planes`, `rooms`, `instances`, `materials`, `mesh`, `texture`, `windows` | `src/create/` |
+| `export` | `ply`, `e57`, `materialepas`, `csv`, `rhino`, `semantic-images`, `speckle`, `colmap` | `src/export/` |
+| `edit` | `downsample` | `src/edit/` |
+| `analyze` | `quality`, `accuracy` | `src/analyze/` |
+| `optimize` | — (plane-landmark pose graph) | `src/optimize.cpp` |
+| `register` | — (joint pairwise registration) | `src/register.cpp` |
+| `validate` | — (`--stage`, `--json`) | `src/validate.cpp` |
+| `get` / `set` / `del` | path-based DB access (`src/database/*_router.cpp`) | `src/get.cpp`, `src/set.cpp`, `src/del.cpp` |
+| `info` | — (project summary) | `src/info.cpp` |
+| `log` | — (pipeline execution history) | `src/log.cpp` |
+| `view` | — (viewer) | `src/view/` |
+| `assemble` | — (multi-scan assembly) | `src/assemble.cpp` |
+
+`create`, `import`, `export`, `edit`, `analyze` all `require_subcommand(1)`.
+Global flags: `-v/-vv/-vvv`, `-V/--version`, `-L/--license`, `-D/--visualize`,
+`-p/--project <path.rux>` (defaults to `./project.rux`).
+
+`ruxd` (`apps/ruxd/`) is a separate HTTP service worker binary with its own
+flags (`--port`, `--threads`, `--pg-url`, `--redis-url`, `--s3-*`,
+`--auth-token`).
 
 ## Development Patterns
 
 ### Adding New Source Files
 
-**No CMakeLists.txt updates required.** The build system automatically detects:
-- C++ sources: `libs/reusex/src/**/*.cpp`
-- CUDA sources: `libs/reusex/src/**/*.cu`
-- Headers: `libs/reusex/include/ReUseX/**/*.hpp`
+**Usually no CMakeLists.txt update is required.** `reusexLibrary.cmake` globs
+per module with `CONFIGURE_DEPENDS`:
+- C++ sources: `libs/reusex/src/<module>/**/*.cpp` — where `<module>` is
+  `utils`, `core`, `io`, `vision`, `segmentation`, `reconstruction`, `slam`,
+  `visualize`
+- CUDA sources: `libs/reusex/src/vision/**/*.cu`
+- Headers: `libs/reusex/include/**/*.hpp`
 - Tests: `tests/unit/**/*.cpp`
 
-Just add your file in the correct location and rebuild.
+**Exception:** `src/geometry/` (the `geometry_common` module) uses an explicit
+source list, so adding a `.cpp` there needs a `reusexLibrary.cmake` edit.
+
+Put the file in the module that matches its pipeline stage, and check
+[`STANDARDS.md` §1](docs/STANDARDS.md#1-module-boundaries) first — a
+cross-peer include will fail at link time.
 
 ### Creating New ML Backends
 
-1. Inherit from `IMLBackend` interface
-2. Implement `createModel()` and `createDataset()`
-3. Register file extension in `BackendFactory::detect_backend_from_file()`
-4. Add backend enum to `BackendFactory::Backend`
+1. Inherit from `IMLBackend` (`vision/IMLBackend.hpp`)
+2. Implement the model/dataset creation entry points
+3. Teach `BackendFactory::detect_backend()` about the new extension/layout
+4. Add the value to `reusex::vision::Backend`
+5. Register the backend's packages and source-exclusion rules in
+   `libs/reusex/cmake/Dependencies.cmake` (`ML_BACKEND_<name>_PACKAGES`) and
+   `libs/reusex/cmake/MLBackendConfig.cmake`
 
 ### Adding New CLI Subcommands
 
-1. Create `apps/rux/src/your_command.cpp`
-2. Add subcommand setup in `apps/rux/src/rux.cpp`
-3. Use existing commands as templates (e.g., `segment.cpp`)
+1. Create `apps/rux/src/<group>/<name>.cpp` with a
+   `setup_subcommand_<group>_<name>(CLI::App &parent, std::shared_ptr<RuxOptions>)`
+2. Call it from the group's `setup_subcommand_<group>()` (e.g. `src/create.cpp`),
+   or from `apps/rux/src/rux.cpp` for a new top-level command
+3. Keep it thin: parse, validate, call one library entry point, report
+   (STANDARDS §1). Templates: `src/create/planes.cpp`, `src/export/ply.cpp`
+4. CLI flag defaults must mirror the library options struct, never redefine it
+   (STANDARDS §4)
 
 ### Working with Point Clouds
 
-- Always use type aliases from `types.hpp` (PointT, Cloud, CloudPtr)
+- Always use the type aliases (PointT, Cloud, CloudPtr) — include
+  `reusex/types/point_types.hpp` in new code, not the `types.hpp` umbrella
 - Point clouds use `pcl::PointXYZRGB` (XYZ + RGB color)
 - Use `pcl::Indices` for index vectors, not `std::vector<int>`
+- `cloud` / `normals` / `planes` / `rooms` / `instances` / `labels` for one scan
+  are index-aligned and must be filtered/reordered together — see
+  [`docs/CONTRACTS.md`](docs/CONTRACTS.md) and STANDARDS §3.2
+- Labels: `0` means unlabeled in a `CloudL`; never index with `label - 1`
+  without checking `label >= 1`
 
 ### Logging
 
-**Library code** uses the ReUseX logging API (defined in `core/logging.hpp`):
-- **Syntax**: `ReUseX::debug()`, `ReUseX::info()`, `ReUseX::warn()`, `ReUseX::error()`, etc.
-- **Levels**: trace, debug, info, warn, error, critical
-- **Formatting**: Uses `fmt` library syntax — `ReUseX::debug("Value: {}", x)`
-- **Legacy syntax**: `ReUseX::core::debug()` still works for backward compatibility
+**Library code** uses the ReUseX logging API in
+`libs/reusex/include/core/logging.hpp`:
+- **Syntax**: `reusex::debug()`, `reusex::info()`, `reusex::warn()`,
+  `reusex::error()`, `reusex::trace()`, `reusex::critical()`
+- **Levels**: `reusex::core::LogLevel` — `trace, debug, info, warn, error,
+  critical, off`
+- **Formatting**: `fmt` compile-time format strings — `reusex::debug("Value: {}", x)`.
+  Each function also has a plain `std::string_view` overload.
+- **Filtering**: `should_log()` is checked before formatting, so a suppressed
+  message costs nothing
+- **Timing**: `reusex::stopwatch` (a `spdlog::stopwatch` replacement,
+  `elapsed()` → seconds as `double`; has an `fmt` formatter)
 
-**CLI applications** (apps/rux) use `spdlog` directly:
+**CLI applications** (`apps/rux`, `apps/ruxd`) use `spdlog` directly:
 - Syntax: `spdlog::debug()`, `spdlog::info()`, etc.
-- The rux CLI configures spdlog as the library's log handler
+- `rux` installs spdlog as the library's log handler and keeps both levels in
+  sync from `-v` (see `apps/rux/src/rux.cpp`)
 
 **Implementation details**:
-- Logging functions are defined in `ReUseX::core` namespace
-- Explicit `using` declarations promote them to `ReUseX::` for convenience
+- Logging functions are defined in namespace `reusex::core`
+- Explicit `using` declarations promote them into `reusex` for convenience
+  (`critical, debug, error, info, log, LogLevel, stopwatch, trace, warn`)
 - This avoids namespace conflicts with external libraries (e.g., CGAL's `debug` parameter)
-- Handler configured via `ReUseX::core::set_log_handler()` (defaults to no-op in library)
+- Handler configured via `reusex::core::set_log_handler()` (defaults to no-op in
+  the library); `reset_log_handler()`, `set_log_level()`, `get_log_level()`
+  are only reachable as `reusex::core::…`, not via the promoted names
 
 ### Error Handling
 
 - Throw `std::runtime_error` for recoverable errors with descriptive messages
 - Use RAII for resource management (smart pointers, custom destructors)
 - Validate inputs early and fail fast with clear error messages
+- **No silent failure**: a stage that produces empty/degenerate output must log
+  at `warn` or above *with the reason and the numbers*. Full rules:
+  [`docs/STANDARDS.md` §5](docs/STANDARDS.md#5-error-handling--diagnostics)
 
-### RTABMap API Gotchas (from MEMORY.md)
+### RTABMap API Gotchas
+
+RTABMap is now confined to `libs/reusex/src/io/rtabmap.cpp` (import only).
 
 - `rtabmap::Rtabmap::init()` returns void (use try-catch for errors)
 - `std::multimap` is in `<map>` header, not `<multimap>`
-- Segmentation table foreign key references `Node(id)` (singular)
+- Frames read out of RTABMap keep their original orientation — do **not**
+  reintroduce the old 90° rotation on the way into `ProjectDB`
 
 ## TODO Comment Conventions
 
@@ -382,9 +554,9 @@ Map your TODO to the appropriate module:
 | Category | Scope | Examples |
 |----------|-------|----------|
 | `CLI` | Command-line interface, argument parsing, rux subcommands | Argument validation, help text, new subcommand |
-| `I/O` | File I/O, database access, format conversions | RTABMap database, E57 import, Rhino export, HDF5 |
-| `Geometry` | Point cloud processing, segmentation, mesh generation | Plane detection, room segmentation, CGAL algorithms |
-| `Vision` | ML models, inference backends, semantic annotation | YOLO integration, TensorRT optimization, SAM2 |
+| `I/O` | File I/O, database access, format conversions | ProjectDB schema, RTABMap import, E57 import, Rhino/Speckle export |
+| `Geometry` | Point cloud processing, segmentation, reconstruction, SLAM, mesh generation — the `geometry_common` / `segmentation` / `reconstruction` / `slam` modules | Plane detection, room segmentation, CGAL algorithms, pose-graph optimization |
+| `Vision` | ML models, inference backends, semantic annotation | YOLO integration, TensorRT optimization, SAM3 |
 | `Visualization` | PCL visualization, on-screen display, rendering | Point cloud viewer, debug overlays, Qt widgets |
 | `Documentation` | Code comments, Doxygen, guides, examples | API docs, tutorials, inline comments |
 
@@ -421,40 +593,33 @@ Map your TODO to the appropriate module:
 
 ### Real Examples from Codebase
 
-**Simple TODO (mesh.cpp:160-166):**
+**Simple TODO with a reference (`libs/reusex/include/vision/nms.hpp:22`):**
 ```cpp
-// TODO: Add comprehensive input size validation with detailed error messages
-// category=CLI estimate=30m
-// Current validation only checks a subset of input files. Should validate all:
-// 1. Check cloud, rooms, normals, plane_labels all have same size
-// 2. Verify plane_normals and plane_centroids have expected dimensions
-// 3. Provide specific error message showing actual vs expected sizes
-// 4. Add early validation before heavy processing to fail fast
+// TODO: Replace custom NMS with torchvision library implementation
+// category=Vision estimate=4h
+// Current implementation is custom-written. Consider using official torchvision
+// NMS: Reference:
+// https://github.com/pytorch/vision/blob/main/torchvision/csrc/ops/cpu/nms_kernel.cpp
 ```
 
-**Critical BUG (rtabmap.cpp:516-523):**
+**Large TODO with an `issue=` link (`libs/reusex/src/core/ProjectDB.cpp:13`):**
 ```cpp
-// BUG: Segfault during KdTree initialization with empty/small clouds
-// category=I/O estimate=1d
-// Occurs when setInputCloud() is called on an empty or very small point cloud
-// after voxel downsampling. Need to add validation:
-// 1. Check if cloud->empty() before KdTree operations
-// 2. Check if cloud->size() < minimum threshold (e.g., 10 points)
-// 3. Handle gracefully by returning nullptr labels or logging error
-// Reproduction: Small scans with aggressive voxel grid settings
+// TODO: Remove core -> geometry dependency in BuildingComponent persistence
+// category=I/O estimate=1d issue=222
+// ProjectDB (Layer 2, core) persists geometry::BuildingComponent and calls
+// geometry::CoplanarPolygon (de)serialization — a Layer-3 type. This is a
+// documented layering exception enforced via an explicit reusex_core ->
+// ...
 ```
 
-**FIXME with cross-reference (rooms.cpp:160-168):**
+**HACK documenting a workaround (`libs/reusex/src/io/speckle.cpp:883`):**
 ```cpp
-// FIXME: Label encoding offset may cause indexing errors for unlabeled points
-// category=Geometry estimate=2h
-// Current code uses label-1 as index into plane_normals vector (line 169).
-// If unlabeled points (label < 1) exist and are not skipped properly, this
-// could cause off-by-one indexing errors. Need to verify that:
-// 1. All unlabeled points have label < 1 (currently checking this)
-// 2. Plane labels start at 1 (not 0) consistently throughout pipeline
-// 3. plane_normals vector size matches max(label) not unique label count
-// See MEMORY.md for label encoding conventions: -1 for background in API
+// HACK: Wrap material InstanceProxies in a "Cameras" sub-collection and
+// rename each one "Camera N" to match the legacy Grasshopper layout.
+// category=I/O estimate=2h
+// The reuse-x webapp's loadImages composable hardcodes
+//     speckleRoot.elements.find(c => c.name === 'Cameras')
+// so without this wrapper our material tags never get discovered.
 ```
 
 ### Workflow Integration
@@ -517,96 +682,144 @@ tdg --path libs/ --path apps/ --output TODO.json
 
 ## Key Dependencies
 
+Authoritative sources: `find_package` calls in
+`libs/reusex/cmake/Dependencies.cmake`, and the `buildInputs` in `default.nix`.
+Anything not found there is not a dependency.
+
 **Geometry & Processing:**
 - PCL (Point Cloud Library) - point cloud operations
-- CGAL - computational geometry algorithms
+- CGAL (`Core`, optionally `Qt6` under `GUI_ENABLED`) - computational geometry
 - Eigen3 - linear algebra
 - Embree - ray tracing
+- OpenMVS (+ nanoflann, jsoncpp, Boost iostreams/program_options/serialization)
+  - dense multi-view stereo for `rux create dense`
+- TBB - parallel processing
+- Boost (incl. Boost.Graph for `CellComplex`)
 
 **Deep Learning:**
-- PyTorch (LibTorch) 2.9.0+ - neural network inference
-- TensorRT - optimized GPU inference
+- LibTorch - neural network inference
+- ONNX Runtime - portable inference
+- TensorRT (via `trtsam3` + `tokenizers_cpp`) - optimized GPU inference; only
+  searched for when `WITH_CUDA=ON`
+- Protobuf / absl / utf8_range - pulled in by the above
 
 **Graph Processing:**
-- GraphBLAS, LAGraph - sparse graph algorithms for room segmentation
+- igraph - Leiden community detection for room segmentation
+  (there is **no** GraphBLAS or LAGraph in this build)
 
 **Optimization:**
-- HiGHS - Mixed Integer Programming (MIP) solver
-  - ✅ Built with CUDA/GPU support (`CUPDLP_GPU=ON` in `overlays/highs.nix`)
-  - ⚠️  GPU acceleration (PDLP solver) not used by Solidifier class
-  - **Reason**: Solidifier uses MIP with binary variables; PDLP only works for continuous LP
-  - See `docs/HIGHS_GPU_ACCELERATION.md` for details and alternatives
-- SCIP solver - constraint optimization (alternative to HiGHS)
-- TBB - parallel processing
+- HiGHS - Mixed Integer Programming (MIP) solver, the CPU path for `Solidifier`
+  - CUDA/GPU support is **disabled** (`CUPDLP_GPU=OFF` in `overlays/highs.nix`)
+  - Reason: `Solidifier` solves a MIP with binary variables; HiGHS's GPU PDLP
+    solver only handles continuous LP, so it would never be used
+- cuOpt - optional NVIDIA GPU MIP backend (`find_package(cuOpt)` under
+  `WITH_CUDA`); select with `rux create mesh --solver auto|cuopt|highs`
+  (`auto` falls back to HiGHS on GPU error/OOM)
+- GTSAM - factor-graph optimization for `slam` (pose-graph / registration)
+- There is **no** SCIP dependency (`pkgs/cuOpt/package.nix` only references
+  the `scipopt` GitHub org as an upstream source)
 
 **I/O:**
-- RTABMap - SLAM database access
+- SQLite3 - the `.rux` project database backing `ProjectDB`
+- RTABMap - SLAM database import
 - E57Format - point cloud exchange format
 - OpenNURBS - Rhino 3D (.3dm) files
-- OpenCV - image processing and computer vision
+- OpenCV (`core`, `imgproc`, `highgui`) - image processing
+- exiv2 - photo EXIF metadata
+- CURL + OpenSSL + nlohmann_json - Speckle / HTTP transport
+- No HDF5
 
 **Utilities:**
 - CLI11 - command-line parsing
-- spdlog - fast logging
-- fmt - string formatting
+- spdlog - logging sink used by the `rux`/`ruxd` apps
+- fmt - string formatting (the library's logging API is built on it)
 - range-v3 - modern C++ ranges
+- nlohmann_json - JSON
+- Qt6 (`Core Widgets Gui OpenGL`) - GUI components
+- Catch2 v3 - tests
 
 ## Pre-trained Models
 
-Models should be placed in the project root or specified via CLI:
-- **YOLO11**: `yolo11n.pt`, `yolo11l.pt`, `yolo11x.pt` (object detection)
-- **YOLO11-seg**: `yolo11n-seg.pt`, `yolo11l-seg.pt` (segmentation)
-- **SAM2**: `sam2.1_s.pt`, `sam2.1_b.pt`, `sam2_hiera_large.pt`
-- **SuperPoint**: `superpoint.pt` (feature detection)
-- **TensorRT engines**: `.engine` files for optimized inference
+Models are **not** in the repo. Pass a path with `rux create annotate -n/--net`;
+it accepts either a single file or a directory of sub-models.
+`BackendFactory::detect_model()` decides YOLO vs SAM3 from the path:
+
+- **SAM3/SAM2** — any path whose stem contains `sam3` or `sam2`, or a directory
+  containing a `vision-encoder.*` file
+- **YOLO** — everything else (e.g. `yolo11l.pt`, `yolo11l-seg.pt`)
+- **TensorRT engines**: `.engine` files (or a directory of them) for optimized
+  inference; `.onnx` selects the ONNX Runtime backend, `.pt` LibTorch
 
 ## Common Tasks
 
 ### Import and process a scan
 
+Every command reads/writes one `.rux` project; select it with the global
+`-p/--project` flag (default `./project.rux`). The named clouds and tables each
+stage consumes and produces are specified in
+[`docs/CONTRACTS.md`](docs/CONTRACTS.md).
+
 ```bash
-# Import RTABMap database
-rux import rtabmap path/to/database.db
+# 1. Import raw sensor frames from an RTABMap SLAM database
+rux -p scan.rux import rtabmap path/to/database.db
 
-# Segment planes
-rux segment planes <options>
+# 2. (optional) Refine the stored per-frame poses
+rux -p scan.rux optimize                   # plane-landmark pose graph
+rux -p scan.rux register                   # joint pairwise registration
 
-# Segment rooms
-rux segment rooms <options>
+# 3. Back-project depth frames into a fused cloud (-g = voxel size in m)
+rux -p scan.rux create clouds -g 0.05
 
-# Generate mesh
-rux mesh <options>
+# 4. Geometry pipeline
+rux -p scan.rux create planes
+rux -p scan.rux create rooms
+rux -p scan.rux create mesh --solver auto
 
-# View results
-rux view <options>
+# Check a stage's inputs before running it
+rux -p scan.rux validate --stage mesh
+
+# Inspect / view
+rux -p scan.rux info
+rux -p scan.rux log
+rux -p scan.rux view
 ```
 
 ### Run semantic annotation
 
 ```bash
-# Annotate with YOLO
-rux annotate --model yolo11l.pt --input scan.db
+# ML inference over the stored sensor frames
+rux -p scan.rux create annotate -n models/sam3 --cuda
 
-# View annotated results
-rux view --labels <options>
+# Project the 2D labels onto the 3D cloud, then split into instances
+rux -p scan.rux create project
+rux -p scan.rux create instances
 ```
 
 ### Debug with verbosity
 
 ```bash
-# Use -v, -vv, or -vvv for increasing detail
-rux -vvv segment planes <options>
+# Use -v, -vv, or -vvv for increasing detail (max 3)
+rux -vvv -p scan.rux create planes
 ```
 
 ## Python Integration
 
-**Status:** Python bindings are currently DISABLED and being refactored.
+Python bindings live in `bindings/python/` (pybind11 + scikit-build-core,
+package name `reusex`). `BUILD_PYTHON_BINDINGS` defaults to **ON** in
+`CMakeLists.txt:129`, so they are part of a default build — they are **not**
+disabled.
 
-The `python/` directory contains standalone Python utilities for:
-- Pose graph manipulation (`python/ReUseX/pose_graph/`)
-- PyTorch model interfaces (`python/ReUseX/torch/`)
+Current scope is **read-only `.rux` inspection**, implemented in
+`bindings/python/src/bindings.cpp` (~490 lines): `ProjectDB` plus the
+`ProjectSummary` / `ProjectInfo` / `CloudInfo` / `MeshInfo` /
+`SensorFrameInfo` / `PanoramicInfo` / `ComponentInfo` / `MaterialInfo` /
+`PipelineLogEntry` value types. The native module is `reusex._reusex`;
+`reusex/__init__.py` re-exports it and degrades to `__status__ = "Native module
+not available: …"` if it is missing.
 
-These are NOT integrated with the C++ library yet. Do not attempt to build with `-DBUILD_PYTHON_BINDINGS=ON`.
+Writing/pipeline APIs are not exposed. There is no top-level `python/`
+directory. `apps/blender/reusex_panel/` is a separate, standalone Blender
+add-on.
 
 ## License and Copyright
 

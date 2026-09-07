@@ -1,4 +1,15 @@
-# ReUseX Architecture
+# ReUseX Architecture (historical design note)
+
+> ⚠️ **Not kept in sync with the code.** This note predates the #222 module
+> split and still uses the retired `ReUseX::` namespace, the `include/ReUseX/`
+> layout, and `io::RTABMapDatabase` — none of which exist in the source tree.
+>
+> For the current picture use:
+> - [`ARCHITECTURE.md`](../../ARCHITECTURE.md) — repository map and targets
+> - [`docs/STANDARDS.md` §1](../STANDARDS.md#1-module-boundaries) — the
+>   link-enforced module layering (normative)
+> - [`docs/CONTRACTS.md`](../CONTRACTS.md) — pipeline stage inputs/outputs
+>   (normative)
 
 This document provides an architectural overview of the ReUseX library and its components.
 

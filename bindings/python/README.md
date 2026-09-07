@@ -1,82 +1,90 @@
 # ReUseX Python Bindings
 
+pybind11 bindings that give Python read access to a ReUseX project database
+(`*.rux`). Implemented in `src/bindings.cpp`; the native module is
+`reusex._reusex`, re-exported by `reusex/__init__.py`.
+
 ## Status
 
-**Not yet implemented**
+**Implemented, read-oriented.** `ProjectDB` opens `read_only=True` by default
+and the exposed surface is inspection plus geometry retrieval — there are no
+write or pipeline-driving APIs yet.
 
-The Python bindings are currently under development. This directory provides a stub structure for future pybind11-based bindings.
+`reusex.__status__` is `"Active"` when the native module imported successfully,
+otherwise `"Native module not available: <reason>"`.
+
+## API
+
+`reusex.ProjectDB(path, read_only=True)`:
+
+| Method | Returns |
+|---|---|
+| `is_open()`, `path()`, `schema_version()` | basic state |
+| `project_summary()` | `ProjectSummary` |
+| `list_point_clouds()`, `list_meshes()` | names of stored clouds / meshes |
+| `list_building_components()`, `building_component_count()` | building components |
+| `label_definitions()` | semantic label definitions |
+| `pipeline_log(limit=0)` | `list[PipelineLogEntry]` |
+| `point_cloud_xyzrgb(name)` | `dict` with `positions` (N,3) float32 and `colors` (N,3) uint8 |
+| `point_cloud_xyz(name)`, `point_cloud_label(name)` | numpy arrays |
+| `sensor_frame_ids()`, `sensor_frame_pose(id)`, `sensor_frame_intrinsics(id)` | frame metadata |
+| `reconstruct_frame(...)`, `reconstruct_frames_parallel(...)` | back-projected frame geometry |
+
+Value types re-exported from the package: `ProjectSummary`, `ProjectInfo`,
+`CloudInfo`, `MeshInfo`, `SensorFrameInfo`, `PanoramicInfo`, `ComponentInfo`,
+`MaterialInfo`, `PipelineLogEntry`.
+
+## Requirements
+
+- Python 3.9+ (`requires-python = ">=3.9"`)
+- NumPy (runtime dependency)
+- pybind11 2.11+ and scikit-build-core (build dependencies)
+- `torch` for the optional `ml` extra
+
+## Building
+
+`BUILD_PYTHON_BINDINGS` defaults to **ON** in the root `CMakeLists.txt`, so a
+normal project build configures this module.
+
+```bash
+# Editable install
+pip install -e bindings/python/
+
+# Or build a wheel
+pip install bindings/python/
+```
+
+The version is not declared in `pyproject.toml` (`dynamic = ["version"]`); CMake
+configures `_version.py.in` from `PROJECT_VERSION` and it surfaces as
+`reusex.__version__`.
 
 ## Previous Implementation
 
-A previous Python package existed but has been removed due to broken imports and outdated API. The last commit containing the old Python code was:
+An older, unrelated Python package lived in a top-level `python/` directory and
+was removed (broken imports, outdated API). Last commit containing it:
 
 ```
 24b1dab00508722a5d1c0b4d416b41c09ff9608e Add docstrings to nested helper functions in pose graph (#110)
 ```
 
-To retrieve the old Python code for reference:
 ```bash
 git show 24b1dab00508722a5d1c0b4d416b41c09ff9608e:python/
 ```
 
-## Planned Roadmap
+## Possible Extensions
 
-The new Python bindings will focus on core functionality:
+Not implemented — filed here as ideas, not commitments:
 
-1. **Database Access** (`reusex.io`)
-   - RTABMapDatabase wrapper
-   - Image and label retrieval
-   - Graph access
-
-2. **Dataset API** (`reusex.vision`)
-   - IDataset interface
-   - PyTorch integration (Dataset class)
-   - TensorRT integration
-
-3. **Vision Utilities** (`reusex.vision`)
-   - Object detection types (DetectionBox, etc.)
-   - Image preprocessing
-
-4. **Geometry** (`reusex.geometry`)
-   - Point cloud utilities
-   - Segmentation algorithms
-
-## Requirements
-
-When implemented, the bindings will require:
-- Python 3.8+
-- pybind11 2.10+
-- NumPy
-- OpenCV (cv2)
-- PyTorch (optional, for Dataset)
-
-## Building (Future)
-
-When pybind11 bindings are implemented, you can install the Python package using:
-
-```bash
-# Install in development mode (editable)
-pip install -e bindings/python/
-
-# Or build and install a wheel
-pip install bindings/python/
-```
-
-Alternatively, build the entire project with Python bindings:
-
-```bash
-cmake -B build -DBUILD_PYTHON_BINDINGS=ON
-cmake --build build
-pip install build/bindings/python/
-```
+- Mesh retrieval as numpy arrays
+- Material passport read/write
+- Dataset API mirroring `reusex::vision::IDataset`
+- Write paths (saving clouds / labels back into the project)
 
 ## Contributing
 
-If you're interested in contributing to Python bindings development, please:
-1. Check existing issues tagged with `python-bindings`
-2. Review the C++ API in `libs/reusex/include/ReUseX/`
-3. Follow pybind11 best practices for modern C++ binding
+- The C++ API being wrapped lives in `libs/reusex/include/` (notably
+  `core/ProjectDB.hpp`); consume it as `<reusex/core/ProjectDB.hpp>`
+- Read [`docs/STANDARDS.md`](../../docs/STANDARDS.md) before adding surface area
+- Follow pybind11 best practices for modern C++ binding
 
-## Questions?
-
-For questions about Python binding development, please open an issue on the main repository.
+Questions: open an issue at https://github.com/pfmephisto/ReUseX/issues

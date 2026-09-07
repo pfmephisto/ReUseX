@@ -82,6 +82,39 @@ TEST_CASE("Description", "[tag1][tag2]") {
 }
 ```
 
+## Code Coverage
+
+One command builds a coverage-instrumented tree, runs the suite, and renders
+a report (#206):
+
+```bash
+nix develop --command scripts/coverage.sh
+```
+
+This configures a dedicated `build-coverage/` tree (Debug + `-DENABLE_COVERAGE=ON`,
+kept separate from the shared `build/`), runs `ctest` serially (the suite has
+known flaky ProjectDB tests under high parallelism — #262), and uses `gcovr`
+to produce:
+
+- `coverage/html/index.html` — browsable HTML report with annotated source
+- `coverage/gcovr.json` — full machine-readable report
+- a per-module summary table (grouped by `libs/reusex/src/<module>`) printed
+  to stdout
+
+`tests/`, `extern/`, `bindings/`, and build directories are excluded from the
+report. See the header of `scripts/coverage.sh` for environment overrides
+(`COVERAGE_BUILD_DIR`, `COVERAGE_JOBS`, `COVERAGE_CTEST_JOBS`).
+
+Coverage instrumentation (`-DENABLE_COVERAGE=ON`, wired in
+`cmake/Coverage.cmake`) only produces trustworthy line/branch counts on a
+Debug build — Release optimizations inline and eliminate code, distorting the
+report. Configuring with `-DCMAKE_BUILD_TYPE=Release -DENABLE_COVERAGE=ON`
+directly still works but prints a CMake warning.
+
+Reporting coverage from hosted CI is deferred until hosted CI itself is
+enabled (see `.github/workflows/ci.yml`); `scripts/coverage.sh` is what a
+future CI job would call.
+
 ## Configuration Files
 
 ### tests/CMakeLists.txt
@@ -138,7 +171,8 @@ The testing strategy aims for:
 - [ ] Add integration tests for end-to-end workflows
 - [ ] Increase coverage for complex geometry functions
 - [ ] Add performance benchmarks
-- [ ] Set up automated coverage reporting
+- [x] Set up automated coverage reporting (`scripts/coverage.sh`, #206) — CI
+      hookup still pending until hosted CI is enabled
 - [ ] Add mock objects for testing components with heavy dependencies
 - [ ] Create fixtures for common test data
 

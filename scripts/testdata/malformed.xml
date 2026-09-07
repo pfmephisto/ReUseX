@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Catch2TestRun name="reusex_benchmarks">
+  <TestCase name="Benchmark: broken">
+    <BenchmarkResults name="broken">
+      <mean value="1.0"/>
+    <!-- unclosed BenchmarkResults / TestCase on purpose -->

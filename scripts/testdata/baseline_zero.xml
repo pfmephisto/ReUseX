@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Catch2TestRun name="reusex_benchmarks" rng-seed="4" xml-format-version="3" catch2-version="3.14.0">
+  <TestCase name="Benchmark: noop" tags="[!benchmark][.][geometry]" filename="tests/benchmarks/bench_geometry.cpp" line="70">
+    <BenchmarkResults name="noop" samples="5" resamples="100000" iterations="1" clockResolution="29.4991" estimatedDuration="1">
+      <!-- All values in nano seconds -->
+      <mean value="0" lowerBound="0" upperBound="0" ci="0.95"/>
+      <standardDeviation value="0" lowerBound="0" upperBound="0" ci="0.95"/>
+      <outliers variance="0" lowMild="0" lowSevere="0" highMild="0" highSevere="0"/>
+    </BenchmarkResults>
+    <OverallResult success="true" skips="0"/>
+  </TestCase>
+  <OverallResults successes="0" failures="0" expectedFailures="0" skips="0"/>
+  <OverallResultsCases successes="1" failures="0" expectedFailures="0" skips="0"/>
+</Catch2TestRun>

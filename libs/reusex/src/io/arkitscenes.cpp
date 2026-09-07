@@ -18,7 +18,9 @@
 #include <cmath>
 #include <cstdint>
 #include <fstream>
+#include <iterator>
 #include <limits>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -40,34 +42,29 @@ Eigen::Matrix3d rodrigues_to_matrix(double rx, double ry, double rz) {
   return Eigen::AngleAxisd(angle, axis).toRotationMatrix();
 }
 
-/// Extract the floating-point timestamp encoded in a stream filename such as
-/// `41069021_452.395.png`: strip the extension, then take everything after the
-/// last underscore. Returns false if the substring is not a number.
-bool parse_frame_timestamp(const std::filesystem::path &file, double &ts) {
-  std::string stem = file.stem().string(); // drops ".png"
-  const auto us = stem.find_last_of('_');
-  const std::string tok =
-      (us == std::string::npos) ? stem : stem.substr(us + 1);
-  try {
-    std::size_t consumed = 0;
-    ts = std::stod(tok, &consumed);
-    return consumed == tok.size();
-  } catch (const std::exception &) {
-    return false;
-  }
-}
-
 /// Locate the frames directory: either @p dir itself holds `lowres_wide.traj`
 /// or a single-level subdirectory does (some downloads nest under
-/// `<video_id>/` or `<video_id>_frames/`).
+/// `<video_id>/` or `<video_id>_frames/`). If several subdirectories qualify
+/// the lexicographically smallest is chosen, so the result never depends on
+/// directory-iteration order.
 std::filesystem::path resolve_frames_dir(const std::filesystem::path &dir) {
   if (std::filesystem::exists(dir / "lowres_wide.traj"))
     return dir;
   if (std::filesystem::is_directory(dir)) {
+    std::vector<std::filesystem::path> candidates;
     for (const auto &entry : std::filesystem::directory_iterator(dir)) {
       if (entry.is_directory() &&
           std::filesystem::exists(entry.path() / "lowres_wide.traj"))
-        return entry.path();
+        candidates.push_back(entry.path());
+    }
+    if (!candidates.empty()) {
+      std::sort(candidates.begin(), candidates.end());
+      if (candidates.size() > 1)
+        reusex::warn("import_arkitscenes: {} subdirectories of {} contain "
+                     "lowres_wide.traj; using {}",
+                     candidates.size(), dir.string(),
+                     candidates.front().filename().string());
+      return candidates.front();
     }
   }
   throw std::runtime_error(fmt::format(
@@ -97,9 +94,107 @@ std::pair<std::size_t, double> nearest(const std::vector<double> &sorted_keys,
   return {best, best_dt};
 }
 
-constexpr double kTsTolerance = 0.02; // 20 ms
+/// Tolerance for the `.pincam` nearest-timestamp fallback. Intrinsics come one
+/// per RGB frame (same ~60 Hz cadence), so the exact-name lookup almost always
+/// hits; this only covers the odd missing file, and intrinsics drift far more
+/// slowly than pose.
+constexpr double kIntrinsicsTsTolerance = 0.02; // 20 ms
 
 } // namespace
+
+bool parse_frame_timestamp(const std::filesystem::path &file, double &ts) {
+  std::string stem = file.stem().string(); // drops ".png"
+  const auto us = stem.find_last_of('_');
+  const std::string tok =
+      (us == std::string::npos) ? stem : stem.substr(us + 1);
+  try {
+    std::size_t consumed = 0;
+    ts = std::stod(tok, &consumed);
+    return consumed == tok.size();
+  } catch (const std::exception &) {
+    return false;
+  }
+}
+
+ArkitTrajectory load_arkit_trajectory(const std::filesystem::path &traj_path) {
+  ArkitTrajectory traj;
+  {
+    std::ifstream in(traj_path);
+    std::string line;
+    while (std::getline(in, line)) {
+      if (line.empty())
+        continue;
+      std::istringstream ss(line);
+      double ts, rx, ry, rz, tx, ty, tz;
+      if (!(ss >> ts >> rx >> ry >> rz >> tx >> ty >> tz))
+        continue;
+      traj.push_back({ts, arkit_traj_to_optical_world(rx, ry, rz, tx, ty, tz)});
+    }
+  }
+  if (traj.empty())
+    throw std::runtime_error(fmt::format(
+        "load_arkit_trajectory: no poses parsed from {}", traj_path.string()));
+
+  std::sort(traj.begin(), traj.end(),
+            [](const ArkitPoseSample &a, const ArkitPoseSample &b) {
+              return a.ts < b.ts;
+            });
+  return traj;
+}
+
+std::optional<std::array<double, 16>>
+interpolate_pose(const ArkitTrajectory &traj, double ts, double max_gap) {
+  if (traj.empty())
+    return std::nullopt;
+  // No extrapolation: a query outside the captured span has no bracketing pair.
+  if (ts < traj.front().ts || ts > traj.back().ts)
+    return std::nullopt;
+
+  const auto hi = std::lower_bound(
+      traj.begin(), traj.end(), ts,
+      [](const ArkitPoseSample &s, double t) { return s.ts < t; });
+  // ts <= back().ts guarantees hi != end().
+  if (hi->ts == ts)
+    return hi->pose;
+  // ts > front().ts and hi->ts > ts guarantee hi != begin().
+  const auto lo = std::prev(hi);
+
+  const double gap = hi->ts - lo->ts;
+  if (gap > max_gap)
+    return std::nullopt;
+  if (gap <= 0.0) // duplicate timestamps: nothing to interpolate across
+    return lo->pose;
+  const double u = (ts - lo->ts) / gap;
+
+  auto to_affine = [](const std::array<double, 16> &m) {
+    Eigen::Matrix4d M;
+    for (int r = 0; r < 4; ++r)
+      for (int c = 0; c < 4; ++c)
+        M(r, c) = m[static_cast<std::size_t>(r * 4 + c)];
+    return M;
+  };
+  const Eigen::Matrix4d A = to_affine(lo->pose);
+  const Eigen::Matrix4d B = to_affine(hi->pose);
+
+  // SLERP the rotation, lerp the camera position — both are components of the
+  // camera->world pose, so the interpolant is again a valid camera->world pose.
+  const Eigen::Quaterniond qa(Eigen::Matrix3d(A.block<3, 3>(0, 0)));
+  const Eigen::Quaterniond qb(Eigen::Matrix3d(B.block<3, 3>(0, 0)));
+  const Eigen::Quaterniond q =
+      qa.normalized().slerp(u, qb.normalized()); // shortest arc
+  const Eigen::Vector3d p =
+      (1.0 - u) * A.block<3, 1>(0, 3) + u * B.block<3, 1>(0, 3);
+
+  Eigen::Matrix4d out = Eigen::Matrix4d::Identity();
+  out.block<3, 3>(0, 0) = q.toRotationMatrix();
+  out.block<3, 1>(0, 3) = p;
+
+  std::array<double, 16> pose{};
+  for (int r = 0; r < 4; ++r)
+    for (int c = 0; c < 4; ++c)
+      pose[static_cast<std::size_t>(r * 4 + c)] = out(r, c);
+  return pose;
+}
 
 ArkitPincam parse_pincam(const std::string &line) {
   std::istringstream ss(line);
@@ -157,45 +252,7 @@ std::size_t import_arkitscenes(ProjectDB &db,
                     frames_dir.string()));
 
   // ── Load trajectory: sorted camera->world poses by timestamp ──────
-  std::vector<double> traj_ts;
-  std::vector<std::array<double, 16>> traj_pose;
-  {
-    std::ifstream in(traj_path);
-    std::string line;
-    while (std::getline(in, line)) {
-      if (line.empty())
-        continue;
-      std::istringstream ss(line);
-      double ts, rx, ry, rz, tx, ty, tz;
-      if (!(ss >> ts >> rx >> ry >> rz >> tx >> ty >> tz))
-        continue;
-      traj_ts.push_back(ts);
-      traj_pose.push_back(arkit_traj_to_optical_world(rx, ry, rz, tx, ty, tz));
-    }
-  }
-  if (traj_ts.empty())
-    throw std::runtime_error(fmt::format(
-        "import_arkitscenes: no poses parsed from {}", traj_path.string()));
-
-  // Sort trajectory by timestamp (keeping poses aligned).
-  {
-    std::vector<std::size_t> order(traj_ts.size());
-    for (std::size_t i = 0; i < order.size(); ++i)
-      order[i] = i;
-    std::sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) {
-      return traj_ts[a] < traj_ts[b];
-    });
-    std::vector<double> sorted_ts;
-    std::vector<std::array<double, 16>> sorted_pose;
-    sorted_ts.reserve(traj_ts.size());
-    sorted_pose.reserve(traj_pose.size());
-    for (std::size_t idx : order) {
-      sorted_ts.push_back(traj_ts[idx]);
-      sorted_pose.push_back(traj_pose[idx]);
-    }
-    traj_ts = std::move(sorted_ts);
-    traj_pose = std::move(sorted_pose);
-  }
+  const ArkitTrajectory traj = load_arkit_trajectory(traj_path);
 
   // ── Enumerate .pincam intrinsics for nearest-match fallback ───────
   std::vector<double> pincam_ts;
@@ -243,17 +300,24 @@ std::size_t import_arkitscenes(ProjectDB &db,
         "import_arkitscenes: no depth PNGs found in {}", depth_dir.string()));
 
   std::size_t imported = 0;
+  std::size_t no_pose = 0;
   int node_id = 1;
   for (const auto &[ts, depth_path] : depth_frames) {
-    // ── Nearest pose ──────────────────────────────────────────────
-    const auto [pose_idx, pose_dt] = nearest(traj_ts, ts);
-    if (pose_dt > kTsTolerance) {
-      reusex::debug("import_arkitscenes: no pose within {:.0f} ms of frame "
-                    "ts {:.3f} (nearest {:.0f} ms); skipping",
-                    kTsTolerance * 1000.0, ts, pose_dt * 1000.0);
+    // ── Pose interpolated to this frame's own timestamp ───────────
+    // The trajectory is ~10 Hz against ~60 Hz depth, so nearest-pose matching
+    // would give five frames in six a pose up to ~17 ms stale. SLERP/lerp
+    // between the bracketing samples removes that temporal error; frames
+    // outside the trajectory span (or across a tracking-loss gap) are skipped.
+    const auto interpolated = interpolate_pose(traj, ts);
+    if (!interpolated) {
+      reusex::debug("import_arkitscenes: frame ts {:.3f} has no bracketing "
+                    "trajectory pair (span {:.3f}..{:.3f}, max gap {:.2f} s); "
+                    "skipping",
+                    ts, traj.front().ts, traj.back().ts, kArkitMaxPoseGap);
+      ++no_pose;
       continue;
     }
-    const std::array<double, 16> &pose = traj_pose[pose_idx];
+    const std::array<double, 16> &pose = *interpolated;
 
     // ── RGB ───────────────────────────────────────────────────────
     const std::string frame_name = depth_path.stem().string(); // <vid>_<ts>
@@ -266,8 +330,7 @@ std::size_t import_arkitscenes(ProjectDB &db,
     }
 
     // ── Depth (already CV_16UC1 millimeters) ──────────────────────
-    cv::Mat depth = cv::imread(depth_path.string(),
-                               cv::IMREAD_UNCHANGED | cv::IMREAD_ANYDEPTH);
+    cv::Mat depth = cv::imread(depth_path.string(), cv::IMREAD_UNCHANGED);
     if (depth.empty()) {
       reusex::warn(
           "import_arkitscenes: skipping frame {} — unreadable depth {}",
@@ -307,7 +370,7 @@ std::size_t import_arkitscenes(ProjectDB &db,
         in.open(exact);
       } else if (!pincam_ts.empty()) {
         const auto [pi, pdt] = nearest(pincam_ts, ts);
-        if (pdt <= kTsTolerance)
+        if (pdt <= kIntrinsicsTsTolerance)
           in.open(pincam_path[pi]);
       }
       if (in.is_open()) {
@@ -354,8 +417,9 @@ std::size_t import_arkitscenes(ProjectDB &db,
         fmt::format("import_arkitscenes: no frames could be imported from {}",
                     frames_dir.string()));
 
-  reusex::info("import_arkitscenes: imported {} sensor frames from {}",
-               imported, frames_dir.string());
+  reusex::info("import_arkitscenes: imported {} of {} depth frames from {} "
+               "(interpolated poses; {} outside the trajectory span)",
+               imported, depth_frames.size(), frames_dir.string(), no_pose);
   return imported;
 }
 

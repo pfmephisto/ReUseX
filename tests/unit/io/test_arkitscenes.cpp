@@ -7,13 +7,20 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
+#include <Eigen/Core>
+#include <Eigen/Geometry>
+
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <string>
 
 using Catch::Matchers::WithinAbs;
 using reusex::io::arkit_traj_to_optical_world;
 using reusex::io::ArkitPincam;
+using reusex::io::ArkitTrajectory;
+using reusex::io::interpolate_pose;
+using reusex::io::parse_frame_timestamp;
 using reusex::io::parse_pincam;
 
 TEST_CASE("parse_pincam parses width/height/fx/fy/cx/cy", "[io][arkitscenes]") {
@@ -105,4 +112,172 @@ TEST_CASE("arkit_traj_to_optical_world rotation columns stay orthonormal",
   CHECK_THAT(pose[13], WithinAbs(0.0, 1e-12));
   CHECK_THAT(pose[14], WithinAbs(0.0, 1e-12));
   CHECK_THAT(pose[15], WithinAbs(1.0, 1e-12));
+}
+
+// ─── Pose interpolation (10 Hz trajectory vs 60 Hz depth) ──────────────────
+//
+// Ground truth: a camera whose position moves linearly and whose orientation
+// rotates at a constant rate about a fixed axis. Both SLERP (constant-rate
+// rotation about a fixed axis is a quaternion geodesic) and lerp (linear
+// translation) are *exact* for such motion, so the interpolated pose must
+// reproduce the analytic pose to numerical precision.
+namespace {
+
+/// Analytic camera->world pose at device-relative time `t_ref + tau`.
+struct Motion {
+  Eigen::Vector3d axis = Eigen::Vector3d(0.3, -0.5, 0.81).normalized();
+  double omega = 0.7;                   // rad/s
+  Eigen::Vector3d p0{0.2, -1.0, 3.0};   // m
+  Eigen::Vector3d v{0.25, 0.10, -0.40}; // m/s
+
+  Eigen::Matrix4d c2w(double tau) const {
+    Eigen::Matrix4d M = Eigen::Matrix4d::Identity();
+    M.block<3, 3>(0, 0) =
+        Eigen::AngleAxisd(omega * tau, axis).toRotationMatrix();
+    M.block<3, 1>(0, 3) = p0 + v * tau;
+    return M;
+  }
+};
+
+/// Reference timestamp: ARKit timestamps are device uptime, not epoch, so use a
+/// realistically large base value to catch any absolute-time assumptions.
+constexpr double kTRef = 5045.333;
+
+Eigen::Matrix4d to_mat(const std::array<double, 16> &a) {
+  Eigen::Matrix4d M;
+  for (int r = 0; r < 4; ++r)
+    for (int c = 0; c < 4; ++c)
+      M(r, c) = a[static_cast<std::size_t>(r * 4 + c)];
+  return M;
+}
+
+/// Build a trajectory sample by the same route the importer does: turn the
+/// desired camera->world pose back into the world->camera (rodrigues,
+/// translation) pair a `.traj` line stores, then run it through
+/// arkit_traj_to_optical_world.
+reusex::io::ArkitPoseSample sample_at(const Motion &m, double tau) {
+  const Eigen::Matrix4d w2c = m.c2w(tau).inverse();
+  const Eigen::AngleAxisd aa(Eigen::Matrix3d(w2c.block<3, 3>(0, 0)));
+  const Eigen::Vector3d rv = aa.axis() * aa.angle();
+  const Eigen::Vector3d tr = w2c.block<3, 1>(0, 3);
+  return {kTRef + tau, arkit_traj_to_optical_world(rv.x(), rv.y(), rv.z(),
+                                                   tr.x(), tr.y(), tr.z())};
+}
+
+/// `n` samples at `dt` spacing starting at tau=0 (10 Hz => dt=0.1).
+ArkitTrajectory make_traj(const Motion &m, double dt, int n) {
+  ArkitTrajectory traj;
+  for (int i = 0; i < n; ++i)
+    traj.push_back(sample_at(m, i * dt));
+  return traj;
+}
+
+} // namespace
+
+TEST_CASE("interpolate_pose reproduces analytic motion at 60 Hz",
+          "[io][arkitscenes]") {
+  const Motion m;
+  const ArkitTrajectory traj = make_traj(m, 0.1, 11); // 10 Hz, 1.0 s span
+
+  const double kDepthDt = 1.0 / 60.0; // ~16.7 ms
+  int checked = 0;
+  for (int i = 0; i <= 60; ++i) {
+    const double tau = i * kDepthDt;
+    const double t = kTRef + tau;
+    if (t > traj.back().ts) // last sample may land a rounding hair past the end
+      break;
+    const auto pose = interpolate_pose(traj, t);
+    REQUIRE(pose.has_value());
+    const Eigen::Matrix4d got = to_mat(*pose);
+    const Eigen::Matrix4d want = m.c2w(tau);
+    for (int r = 0; r < 4; ++r)
+      for (int c = 0; c < 4; ++c)
+        CHECK_THAT(got(r, c), WithinAbs(want(r, c), 1e-9));
+    ++checked;
+  }
+  // ~61 queries over the 1 s span: six depth frames per trajectory sample.
+  CHECK(checked >= 58);
+}
+
+TEST_CASE("interpolate_pose returns sample poses unchanged at their own "
+          "timestamps",
+          "[io][arkitscenes]") {
+  const Motion m;
+  const ArkitTrajectory traj = make_traj(m, 0.1, 11);
+  for (const auto &s : traj) {
+    const auto pose = interpolate_pose(traj, s.ts);
+    REQUIRE(pose.has_value());
+    for (std::size_t i = 0; i < 16; ++i)
+      CHECK_THAT((*pose)[i], WithinAbs(s.pose[i], 1e-12));
+  }
+}
+
+TEST_CASE("interpolate_pose removes the stale-pose error of nearest matching",
+          "[io][arkitscenes]") {
+  // The defect this replaces: with a 20 ms tolerance every 10 Hz pose was
+  // reused for three 60 Hz frames, so a frame could sit ~16.7 ms away from the
+  // pose it was given. At the motion above that is a real position error.
+  const Motion m;
+  const ArkitTrajectory traj = make_traj(m, 0.1, 11);
+
+  const double tau = 0.1 + 1.0 / 60.0; // one depth frame past a sample
+  const auto pose = interpolate_pose(traj, kTRef + tau);
+  REQUIRE(pose.has_value());
+
+  const Eigen::Vector3d want = m.c2w(tau).block<3, 1>(0, 3);
+  const Eigen::Vector3d interp = to_mat(*pose).block<3, 1>(0, 3);
+  const Eigen::Vector3d nearest = to_mat(traj[1].pose).block<3, 1>(0, 3);
+
+  CHECK_THAT((interp - want).norm(), WithinAbs(0.0, 1e-9));
+  // The nearest sample is off by |v| * 16.7 ms ~ 8 mm of camera translation
+  // alone (the rotation error adds more at depth).
+  CHECK((nearest - want).norm() > 5e-3);
+}
+
+TEST_CASE("interpolate_pose rejects timestamps outside the trajectory span",
+          "[io][arkitscenes]") {
+  const Motion m;
+  const ArkitTrajectory traj = make_traj(m, 0.1, 11); // spans kTRef .. kTRef+1
+
+  CHECK_FALSE(interpolate_pose(traj, kTRef - 0.001).has_value()); // just before
+  CHECK_FALSE(interpolate_pose(traj, kTRef - 5.0).has_value());
+  CHECK_FALSE(interpolate_pose(traj, kTRef + 1.001).has_value()); // just after
+  CHECK_FALSE(interpolate_pose(traj, 0.0).has_value());
+  // Endpoints themselves are valid (they need no extrapolation).
+  CHECK(interpolate_pose(traj, traj.front().ts).has_value());
+  CHECK(interpolate_pose(traj, traj.back().ts).has_value());
+  // Empty trajectory.
+  CHECK_FALSE(interpolate_pose(ArkitTrajectory{}, kTRef).has_value());
+}
+
+TEST_CASE("interpolate_pose rejects an anomalously large bracketing gap",
+          "[io][arkitscenes]") {
+  // Tracking loss: a 1 s hole in an otherwise 10 Hz trajectory.
+  const Motion m;
+  ArkitTrajectory traj;
+  traj.push_back(sample_at(m, 0.0));
+  traj.push_back(sample_at(m, 0.1));
+  traj.push_back(sample_at(m, 1.1)); // 1.0 s gap > kArkitMaxPoseGap (0.5 s)
+  traj.push_back(sample_at(m, 1.2));
+
+  CHECK_FALSE(interpolate_pose(traj, kTRef + 0.6).has_value()); // in the hole
+  CHECK(interpolate_pose(traj, kTRef + 0.05).has_value());      // normal gap
+  CHECK(interpolate_pose(traj, kTRef + 1.15).has_value());      // normal gap
+  // A caller willing to bridge the hole can raise the limit.
+  CHECK(interpolate_pose(traj, kTRef + 0.6, 2.0).has_value());
+}
+
+TEST_CASE("parse_frame_timestamp reads the timestamp after the last underscore",
+          "[io][arkitscenes]") {
+  double ts = 0;
+  REQUIRE(parse_frame_timestamp("lowres_depth/41069050_5045.334.png", ts));
+  CHECK_THAT(ts, WithinAbs(5045.334, 1e-9));
+
+  REQUIRE(parse_frame_timestamp("41069050_452.395.pincam", ts));
+  CHECK_THAT(ts, WithinAbs(452.395, 1e-9));
+
+  // Not a number / trailing junk / no digits at all.
+  CHECK_FALSE(parse_frame_timestamp("41069050_abc.png", ts));
+  CHECK_FALSE(parse_frame_timestamp("41069050_12ab.png", ts));
+  CHECK_FALSE(parse_frame_timestamp("notimestamp.png", ts));
 }

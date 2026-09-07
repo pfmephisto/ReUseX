@@ -31,7 +31,9 @@
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 
+#include <array>
 #include <random>
+#include <string>
 #include <vector>
 
 namespace reusex {
@@ -195,6 +197,84 @@ detect_loop_edges(ProjectDB &db, const std::vector<int> &node_ids,
                   const std::vector<Eigen::Matrix4d> &seed_poses,
                   const LoopClosureOptions &options,
                   LoopClosureResult *out_result = nullptr);
+
+/// Load externally-computed loop edges from a JSON file and map them onto the
+/// optimizer's frame indices. This is the license-clean bridge for learned
+/// matchers: any external producer — a commercial-safe matcher (XFeat /
+/// EfficientLoFTR / LightGlue+ALIKED / MapAnything-apache) or an offline
+/// research oracle (MASt3R / MapAnything-NC — non-commercial, run in Python
+/// only for accuracy-ceiling probes) — writes a file of relative-pose
+/// constraints, and the GPL C++ consumes it as DATA. No non-commercial or
+/// non-GPL model ever links into the binary; see
+/// docs/research/loop-closure-learned-matchers.md.
+///
+/// File schema "reusex.loop_edges.v1" (JSON):
+///   {
+///     "schema": "reusex.loop_edges.v1",
+///     "producer": "<free-text tag, e.g. mast3r@<sha> or xfeat>",
+///     "edges": [
+///       { "node_i": <int>, "node_j": <int>,
+///         "T_ij": [16 doubles, row-major 4x4 = pose(i)^-1 * pose(j) in the
+///                  optical->world convention the graph uses],
+///         "sigma_rot": <double, rad>, "sigma_trans": <double, m>,
+///         "inliers": <int> }
+///     ]
+///   }
+/// `node_i`/`node_j` are DB sensor_frame node ids; they are mapped to frame
+/// indices via @p node_ids (node_ids[k] is the DB id of frame k). Edges that
+/// reference a node id absent from @p node_ids, self-loops, or duplicate the
+/// same (i,j) are skipped with a warning (never silently dropped —
+/// docs/STANDARDS.md §5). Missing sigma/inliers fall back to the LoopEdge
+/// defaults.
+///
+/// The numeric payload is validated, not merely shape-checked: an edge is
+/// rejected as malformed when `T_ij` is not finite, its 3x3 block is not a
+/// proper rotation (`R^T R != I` beyond 1e-3, or `det(R) < 0` — a reflection
+/// would corrupt the solve), its bottom row is not `[0,0,0,1]` (beyond 1e-6),
+/// or a supplied sigma is non-finite or <= 0. A zero sigma is specifically
+/// dangerous: it becomes a gtsam Constrained (hard-equality) noise model, so
+/// one bad producer line would nail two poses together.
+///
+/// This loader does NOT apply consistency filtering. PCM and the
+/// seed-disagreement gate are applied by the caller over the UNION of the
+/// external and internally-detected edges — see
+/// `filter_consistent_loop_edges` and optimize_sensor_poses().
+///
+/// @param path       JSON file path
+/// @param node_ids   DB node id of each frame, in frame-index order
+/// @param out_result optional statistics (edges accepted, summed inliers)
+/// @returns          accepted loop edges with i/j as frame indices
+/// @throws std::runtime_error if the file cannot be opened or is not valid JSON
+///         of the expected schema (a bad edge file must fail loudly, not run a
+///         silently-unconstrained optimization).
+std::vector<LoopEdge> load_loop_edges(const std::string &path,
+                                      const std::vector<int> &node_ids,
+                                      LoopClosureResult *out_result = nullptr);
+
+/// Keep only the largest mutually consistent subset of @p edges (Pairwise
+/// Consistency Maximization, Mangelson et al. 2018): two edges are consistent
+/// when chaining them through the @p seed odometry between their endpoints
+/// closes a near-identity cycle. True loops satisfy this even under heavy
+/// drift; a perceptual-aliasing false positive does not.
+///
+/// Public because loop edges reach the graph from TWO sources — internal
+/// detection (detect_loop_edges, which PCM-filters its own output) and the
+/// external `--loop-edges` file — and consistency is a property of the UNION,
+/// not of either source alone. Callers that union the two must run this over
+/// the combined set, otherwise an aliasing false positive in the file has no
+/// consistency filter at all (which is exactly the case `--loop-trust` makes
+/// dangerous). Honour `options.pcm` (CLI `--loop-no-pcm`) at the call site so
+/// one switch governs both sources.
+///
+/// @param edges   candidate edges; indices must address @p seed
+/// @param seed    seed (pre-optimization) pose of every frame
+/// @param options `pcm_trans_threshold` / `pcm_rot_threshold` / `pcm_max_edges`
+/// @returns       the retained subset (sets of <= 2 edges are returned
+///                unchanged — a pair cannot outvote itself)
+std::vector<LoopEdge>
+filter_consistent_loop_edges(std::vector<LoopEdge> edges,
+                             const std::vector<Eigen::Matrix4d> &seed,
+                             const LoopClosureOptions &options);
 
 /// Internals of detect_loop_edges, exposed ONLY so the geometry stages of the
 /// pipeline can be regression-tested without a database and without RGB-D

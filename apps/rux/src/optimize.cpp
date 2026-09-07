@@ -47,7 +47,8 @@ DESCRIPTION:
 EXAMPLES:
   rux optimize                        # Defaults (GNC on, inlier-weighted planes)
   rux optimize --dry-run              # Report statistics without writing
-  rux optimize --loop-closure         # Add wide-baseline loop edges (P2)
+  rux optimize --loop-closure         # Add wide-baseline loop edges (P2, ORB)
+  rux optimize --loop-edges edges.json --loop-trust  # External learned-matcher edges
   rux optimize --min-observations 3 --assoc-distance 0.15
   rux optimize --no-gnc               # Plain Levenberg-Marquardt (no robustness)
 
@@ -215,7 +216,28 @@ NOTES:
                   "still down-weighted to zero)")
       ->default_val(opt->loop_trust_inlier_cost);
   sub->add_flag("--loop-no-pcm", opt->loop_no_pcm,
-                "Disable pairwise-consistency (PCM) filtering of loop edges");
+                "Disable pairwise-consistency (PCM) filtering of loop edges "
+                "(governs BOTH internally-detected and --loop-edges edges)");
+  sub->add_option(
+         "--loop-edges", opt->loop_edges_file,
+         "Load externally-computed loop edges from a JSON file (schema "
+         "reusex.loop_edges.v1) produced by an out-of-process matcher "
+         "(XFeat / EfficientLoFTR / MapAnything, or an offline MASt3R oracle) "
+         "and add them to the graph. Unioned with --loop-closure edges, "
+         "de-duplicated per frame pair, then PCM-filtered as one set (unless "
+         "--loop-no-pcm); the license-clean way to feed a learned matcher "
+         "without linking it into the binary. Pair with --loop-trust to apply "
+         "large-drift corrections.")
+      ->check(CLI::ExistingFile);
+  sub->add_option(
+         "--loop-edges-min-disagreement", opt->loop_edges_min_disagreement,
+         "Drop external (--loop-edges) edges whose relative translation agrees "
+         "with the seed poses within this (m) — non-informative redundant "
+         "edges "
+         "that would only add matcher noise to already-correct poses (keeps "
+         "the "
+         "bridge a no-op on a well-posed scan). 0 disables the gate.")
+      ->default_val(opt->loop_edges_min_disagreement);
 
   // --- Surfel extraction ---
   sub->add_option("--surfel-voxel", opt->surfel_voxel,
@@ -324,14 +346,18 @@ int run_subcommand_optimize(SubcommandOptimizeOptions const &opt,
     options.loop_edges_trusted = opt.loop_trust;
     options.loop_trust_inlier_cost = opt.loop_trust_inlier_cost;
     options.loop_closure.seed = opt.seed;
+    options.loop_edges_file = opt.loop_edges_file;
+    options.loop_edges_min_seed_disagreement = opt.loop_edges_min_disagreement;
 
     int logId = db.log_pipeline_start(
         "pose_optimization_plane_graph",
         fmt::format(
-            R"({{"min_observations":{},"assoc_normal_angle":{},"assoc_distance":{},"max_planes_per_frame":{},"min_plane_inliers":{},"use_gnc":{},"iterations":{},"seed":{},"dry_run":{}}})",
+            R"({{"min_observations":{},"assoc_normal_angle":{},"assoc_distance":{},"max_planes_per_frame":{},"min_plane_inliers":{},"use_gnc":{},"iterations":{},"seed":{},"dry_run":{},"loop_closure":{},"loop_trust":{},"pcm":{},"loop_edges_file":"{}","loop_edges_min_disagreement":{}}})",
             opt.min_observations, opt.assoc_normal_angle, opt.assoc_distance,
             opt.max_planes_per_frame, opt.min_plane_inliers, !opt.no_gnc,
-            opt.iterations, opt.seed, opt.dry_run));
+            opt.iterations, opt.seed, opt.dry_run, opt.loop_closure,
+            opt.loop_trust, !opt.loop_no_pcm, opt.loop_edges_file,
+            opt.loop_edges_min_disagreement));
 
     auto result =
         reusex::geometry::optimize_sensor_poses(db, options, opt.dry_run);
@@ -345,7 +371,7 @@ int run_subcommand_optimize(SubcommandOptimizeOptions const &opt,
     spdlog::info("Factor-graph error {:.4f} -> {:.4f}, max pose shift {:.4f} m",
                  result.initial_error, result.final_error,
                  result.max_pose_shift);
-    if (opt.loop_closure)
+    if (opt.loop_closure || !opt.loop_edges_file.empty())
       spdlog::info("Loop closure: {} wide-baseline edges added to the graph",
                    result.loop_edges);
 

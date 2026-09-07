@@ -10,19 +10,6 @@
 #include "core/logging.hpp"
 #include "core/materialepas_serialization.hpp"
 #include "core/materialepas_traits.hpp"
-// TODO: Remove core -> geometry dependency in BuildingComponent persistence
-// category=I/O estimate=1d issue=222
-// ProjectDB (Layer 2, core) persists geometry::BuildingComponent and calls
-// geometry::CoplanarPolygon (de)serialization — a Layer-3 type. This is a
-// documented layering exception enforced via an explicit reusex_core ->
-// reusex_geometry_common link in cmake/reusexLibrary.cmake. Proper fix:
-// 1. Define a core-owned POD (plain vertices + plane coeffs blob) as the
-//    persistence contract, and map BuildingComponent <-> POD in the geometry
-//    layer, keeping core free of geometry types.
-// 2. Or move BuildingComponent's serialization primitives into core.
-// See docs/STANDARDS.md §1 (module boundaries).
-#include "geometry/BuildingComponent.hpp"
-#include "geometry/CoplanarPolygon.hpp"
 
 #include <opencv2/core/mat.hpp>
 #include <opencv2/imgcodecs.hpp>
@@ -3743,11 +3730,7 @@ class ProjectDB::Impl {
 
   // ── Building component CRUD ──────────────────────────────────────
 
-  void saveBuildingComponent(const geometry::BuildingComponent &c) {
-    auto vertexBlob = c.boundary.serialize_vertices();
-    std::string typeStr(geometry::to_string(c.type));
-    std::string metadataJson = geometry::component_data_to_json(c);
-
+  void saveComponentRecord(const core::ComponentRecord &c) {
     // Generate a stable guid on first save; preserved across updates because
     // guid is intentionally omitted from the ON CONFLICT update clause.
     std::string guid = c.guid.empty() ? generate_component_guid() : c.guid;
@@ -3776,20 +3759,22 @@ class ProjectDB::Impl {
 
     sqlite3_bind_text(stmt, 1, c.name.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 2, guid.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 3, typeStr.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_blob(stmt, 4, vertexBlob.data(),
-                      static_cast<int>(vertexBlob.size()), SQLITE_TRANSIENT);
-    sqlite3_bind_int(stmt, 5, static_cast<int>(c.boundary.vertices.size()));
+    sqlite3_bind_text(stmt, 3, c.type.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_blob(stmt, 4, c.vertex_data.data(),
+                      static_cast<int>(c.vertex_data.size()), SQLITE_TRANSIENT);
+    // vertex_count is derived: the blob holds packed float64 xyz triples.
+    sqlite3_bind_int(
+        stmt, 5, static_cast<int>(c.vertex_data.size() / (3 * sizeof(double))));
 
     // Plane: 4 * sizeof(double) = 32 bytes
-    sqlite3_bind_blob(stmt, 6, c.boundary.plane.data(),
+    sqlite3_bind_blob(stmt, 6, c.plane.data(),
                       static_cast<int>(4 * sizeof(double)), SQLITE_TRANSIENT);
 
     sqlite3_bind_int(stmt, 7, c.parent_id);
     sqlite3_bind_double(stmt, 8, c.confidence);
 
-    if (!metadataJson.empty())
-      sqlite3_bind_text(stmt, 9, metadataJson.c_str(), -1, SQLITE_TRANSIENT);
+    if (!c.metadata.empty())
+      sqlite3_bind_text(stmt, 9, c.metadata.c_str(), -1, SQLITE_TRANSIENT);
     else
       sqlite3_bind_null(stmt, 9);
 
@@ -3805,10 +3790,7 @@ class ProjectDB::Impl {
 
   // Update an existing component's mutable fields, matched by its immutable
   // guid (so renames don't create a new row). Geometry is left untouched.
-  void updateBuildingComponentByGuid(const geometry::BuildingComponent &c) {
-    std::string typeStr(geometry::to_string(c.type));
-    std::string metadataJson = geometry::component_data_to_json(c);
-
+  void updateComponentRecordByGuid(const core::ComponentRecord &c) {
     const char *sql = R"(
       UPDATE building_components SET
         name = ?, type = ?, parent_id = ?, confidence = ?,
@@ -3821,11 +3803,11 @@ class ProjectDB::Impl {
                                std::string(sqlite3_errmsg(db)));
     StmtGuard guard(stmt);
     sqlite3_bind_text(stmt, 1, c.name.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 2, typeStr.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, c.type.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_int(stmt, 3, c.parent_id);
     sqlite3_bind_double(stmt, 4, c.confidence);
-    if (!metadataJson.empty())
-      sqlite3_bind_text(stmt, 5, metadataJson.c_str(), -1, SQLITE_TRANSIENT);
+    if (!c.metadata.empty())
+      sqlite3_bind_text(stmt, 5, c.metadata.c_str(), -1, SQLITE_TRANSIENT);
     else
       sqlite3_bind_null(stmt, 5);
     if (!c.notes.empty())
@@ -3841,8 +3823,7 @@ class ProjectDB::Impl {
       throw std::runtime_error("No building component with guid: " + c.guid);
   }
 
-  geometry::BuildingComponent
-  getBuildingComponent(std::string_view name) const {
+  core::ComponentRecord getComponentRecord(std::string_view name) const {
     const char *sql = R"(
       SELECT name, type, vertex_data, vertex_count, plane,
              parent_id, confidence, metadata, notes, guid
@@ -3860,34 +3841,36 @@ class ProjectDB::Impl {
       throw std::runtime_error("Building component not found: " +
                                std::string(name));
 
-    geometry::BuildingComponent c;
+    core::ComponentRecord c;
     c.name = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
 
     const char *typeStr =
         reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1));
-    c.type = geometry::component_type_from_string(typeStr);
+    if (typeStr)
+      c.type = typeStr;
 
-    // Vertex data
+    // Vertex data (the vertex_count column is redundant with the blob size)
     const void *vertBlob = sqlite3_column_blob(stmt, 2);
     int vertSize = sqlite3_column_bytes(stmt, 2);
-    if (vertBlob && vertSize > 0)
-      c.boundary.vertices = geometry::CoplanarPolygon::deserialize_vertices(
-          vertBlob, static_cast<size_t>(vertSize));
+    if (vertBlob && vertSize > 0) {
+      const auto *bytes = static_cast<const uint8_t *>(vertBlob);
+      c.vertex_data.assign(bytes, bytes + vertSize);
+    }
 
     // Plane
     const void *planeBlob = sqlite3_column_blob(stmt, 4);
     int planeSize = sqlite3_column_bytes(stmt, 4);
     if (planeBlob && planeSize == static_cast<int>(4 * sizeof(double)))
-      std::memcpy(c.boundary.plane.data(), planeBlob, 4 * sizeof(double));
+      std::memcpy(c.plane.data(), planeBlob, 4 * sizeof(double));
 
     c.parent_id = sqlite3_column_int(stmt, 5);
     c.confidence = sqlite3_column_double(stmt, 6);
 
-    // Metadata JSON
+    // Metadata JSON (opaque to core — interpreted by the geometry layer)
     const char *metaText =
         reinterpret_cast<const char *>(sqlite3_column_text(stmt, 7));
     if (metaText)
-      geometry::component_data_from_json(c, metaText);
+      c.metadata = metaText;
 
     // Notes
     const char *notesText =
@@ -3945,16 +3928,15 @@ class ProjectDB::Impl {
     return names;
   }
 
-  std::vector<std::string>
-  listBuildingComponents(geometry::ComponentType type) const {
+  std::vector<std::string> listBuildingComponents(std::string_view type) const {
     const char *sql =
         "SELECT name FROM building_components WHERE type = ? ORDER BY id;";
     sqlite3_stmt *stmt;
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
       throw std::runtime_error("Failed to list building components by type");
     StmtGuard guard(stmt);
-    std::string typeStr(geometry::to_string(type));
-    sqlite3_bind_text(stmt, 1, typeStr.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 1, type.data(), static_cast<int>(type.size()),
+                      SQLITE_TRANSIENT);
 
     std::vector<std::string> names;
     while (sqlite3_step(stmt) == SQLITE_ROW) {
@@ -5145,19 +5127,17 @@ std::vector<std::string> ProjectDB::list_project_ids() const {
 
 // --- Building Component Operations ---
 
-void ProjectDB::save_building_component(
-    const geometry::BuildingComponent &component) {
-  impl_->saveBuildingComponent(component);
+void ProjectDB::save_component_record(const core::ComponentRecord &record) {
+  impl_->saveComponentRecord(record);
 }
 
-void ProjectDB::update_building_component_by_guid(
-    const geometry::BuildingComponent &component) {
-  impl_->updateBuildingComponentByGuid(component);
+void ProjectDB::update_component_record_by_guid(
+    const core::ComponentRecord &record) {
+  impl_->updateComponentRecordByGuid(record);
 }
 
-geometry::BuildingComponent
-ProjectDB::building_component(std::string_view name) const {
-  return impl_->getBuildingComponent(name);
+core::ComponentRecord ProjectDB::component_record(std::string_view name) const {
+  return impl_->getComponentRecord(name);
 }
 
 bool ProjectDB::has_building_component(std::string_view name) const {
@@ -5173,7 +5153,7 @@ std::vector<std::string> ProjectDB::list_building_components() const {
 }
 
 std::vector<std::string>
-ProjectDB::list_building_components(geometry::ComponentType type) const {
+ProjectDB::list_building_components(std::string_view type) const {
   return impl_->listBuildingComponents(type);
 }
 

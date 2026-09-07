@@ -6,6 +6,7 @@
 #include "filter_utils.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
+#include <reusex/geometry/component_persistence.hpp>
 
 #include <fmt/format.h>
 #include <fmt/std.h>
@@ -313,7 +314,7 @@ ProjectLoadResult load_from_project_db(const fs::path &path,
   auto component_names = db.list_building_components();
   for (const auto &name : component_names) {
     try {
-      auto comp = db.building_component(name);
+      auto comp = reusex::geometry::building_component(db, name);
       spdlog::info("Loaded component '{}' ({}, {} vertices)", name,
                    to_string(comp.type), comp.boundary.vertices.size());
       result.components.push_back(std::move(comp));

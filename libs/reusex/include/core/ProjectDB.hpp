@@ -4,6 +4,7 @@
 // The heavier OpenCV and PCL mesh headers are only needed by the .cpp: they
 // are forward-declared here (cv::Mat by value/reference, mesh types via
 // std::shared_ptr) to keep DB clients from transitively compiling them.
+#include "reusex/core/component_record.hpp"
 #include "reusex/types/point_types.hpp"
 
 #include <array>
@@ -33,10 +34,6 @@ struct MaterialPassport;
 struct MaterialPassportMetadata;
 struct SensorIntrinsics;
 } // namespace core
-namespace geometry {
-struct BuildingComponent;
-enum class ComponentType;
-} // namespace geometry
 
 class ProjectDB {
     public:
@@ -285,19 +282,28 @@ class ProjectDB {
   mesh_texture_metadata(std::string_view name) const;
 
   // --- Building Component Operations ---
+  //
+  // Persistence speaks only core::ComponentRecord (see
+  // reusex/core/component_record.hpp), so core stays free of geometry types
+  // (#227). To store/load a geometry::BuildingComponent, use the mapping and
+  // convenience free functions in reusex/geometry/component_persistence.hpp.
 
-  void save_building_component(const geometry::BuildingComponent &component);
+  /// Insert or replace the component row identified by `record.name`.
+  /// A guid is generated when `record.guid` is empty; an existing row's guid
+  /// is never overwritten.
+  void save_component_record(const core::ComponentRecord &record);
   /// Update an existing component's mutable fields (name, type, parent_id,
   /// confidence, metadata, notes), matched by its immutable guid. Geometry is
   /// left untouched. Throws if no component has the given guid.
-  void update_building_component_by_guid(
-      const geometry::BuildingComponent &component);
-  geometry::BuildingComponent building_component(std::string_view name) const;
+  void update_component_record_by_guid(const core::ComponentRecord &record);
+  /// Load the component row with the given name. Throws if absent.
+  core::ComponentRecord component_record(std::string_view name) const;
   bool has_building_component(std::string_view name) const;
   void delete_building_component(std::string_view name);
   std::vector<std::string> list_building_components() const;
+  /// Names of the components whose stored `type` discriminator equals `type`.
   std::vector<std::string>
-  list_building_components(geometry::ComponentType type) const;
+  list_building_components(std::string_view type) const;
   int building_component_count() const;
 
   // --- Pipeline Log ---

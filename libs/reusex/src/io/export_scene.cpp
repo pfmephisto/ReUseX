@@ -10,6 +10,7 @@
 #include <reusex/core/SensorIntrinsics.hpp>
 #include <reusex/geometry/BuildingComponent.hpp>
 #include <reusex/geometry/cgal_utils.hpp>
+#include <reusex/geometry/component_persistence.hpp>
 #include <reusex/geometry/unweld.hpp>
 
 #include <pcl/common/colors.h>
@@ -298,7 +299,7 @@ ExportScene gather_export_scene(const ProjectDB &db) {
 
   // --- Building Components ---
   for (const auto &name : db.list_building_components()) {
-    auto comp = db.building_component(name);
+    auto comp = geometry::building_component(db, name);
     ExportScene::ComponentEntry entry;
     entry.name = comp.name;
     entry.type = comp.type;

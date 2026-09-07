@@ -67,7 +67,7 @@ Back-project depth frames into a fused point cloud.
 |---|---|
 | Consumes | `sensor_frames` |
 | Produces | `cloud` (`PointXYZRGB`), `normals` (`Normal`) |
-| Options  | `ReconstructParams` (`libs/reusex/include/segmentation/reconstruct.hpp`) |
+| Options  | `ReconstructionParams` (`libs/reusex/include/segmentation/reconstruct.hpp`) |
 | `--stage clouds` checks | ≥1 stored sensor frame |
 
 ### `planes` (`rux create planes`)
@@ -100,7 +100,7 @@ Separate semantic labels into spatial instances (connected-component clustering)
 |---|---|
 | Consumes | `cloud`, a semantic label cloud (default `labels`) |
 | Produces | instance-label cloud (default `instances`) + `instances` table |
-| Options  | `SegmentInstancesOptions` (`libs/reusex/include/segmentation/segment_instances.hpp`) |
+| Options  | `SegmentInstancesRequest` (`libs/reusex/include/segmentation/segment_instances.hpp`) |
 | `--stage instances` checks | `cloud` present; a `labels` (or `planes`) label cloud present; `cloud`/`labels` aligned |
 
 ### `mesh` (`rux create mesh`)
@@ -111,7 +111,7 @@ Solidify the cell complex into a room-partitioned mesh.
 |---|---|
 | Consumes | `cloud`, `normals`, `rooms`, `planes`, `plane_centroids`, `plane_normals` |
 | Produces | `mesh` (`meshes` table) |
-| Options  | mesh CLI options → `Solidifier` / `mesh()` (`libs/reusex/include/reconstruction/`) |
+| Options  | `SolidifierOptions` → `Solidifier` / `mesh()` (`libs/reusex/include/reconstruction/`) |
 | `--stage mesh` checks | `cloud`/`normals`/`rooms`/`planes` present + aligned; `plane_centroids`/`plane_normals` present + aligned |
 
 ## Typical pipeline order

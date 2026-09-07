@@ -695,7 +695,8 @@ C++ side — drop the eight `.engine` files, `tokenizer.json`, and
 `tracker-meta.json` into one directory and run:
 
 ```bash
-rux annotate <project.rux> --net <model_dir> --video
+rux -p <project.rux> create annotate --net <model_dir> --video
+# --project is a global flag and must precede the subcommand.
 # --video is implicit when a SAM 3.1 directory is detected; it forces ordered,
 # single-threaded processing (shuffle/batch/workers are disabled).
 ```

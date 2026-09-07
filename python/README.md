@@ -27,7 +27,7 @@ names match the shared engine-I/O contract the ReUseX C++ side binds to.
   `tracker-multiplex-decoder`.
 
 Drop the `.engine` files + `tokenizer.json` + `tracker-meta.json` into one
-directory and point `rux annotate` at it (see "Feeding the engines to rux").
+directory and point `rux create annotate` at it (see "Feeding the engines to rux").
 
 ## Setup (venv, prebuilt wheels — NOT nix source builds)
 
@@ -130,8 +130,9 @@ Presence of the two `tracker-*` engines is what selects the SAM 3.1 stateful
 video path over the plain SAM 3 detector. Then:
 
 ```bash
-rux annotate <project.rux> --net <model_dir> --video
+rux -p <project.rux> create annotate --net <model_dir> --video
 # (--video is implicit when a SAM 3.1 directory is detected)
+# Note: --project is a GLOBAL flag, so it must precede the subcommand.
 ```
 
 ## Engine I/O contract

@@ -98,8 +98,11 @@ writes labels MUST follow it; any deviation is a bug.
   instances). Valid labels start at `1`. **[target]** — room segmentation
   currently initializes to `-1` (wraps to `0xFFFFFFFF`).
 - Never index a vector with `label - 1` without first checking `label >= 1`.
-- Conversions between the layers above happen ONLY through dedicated helpers
-  **[target]** (planned: `core/label_semantics.hpp`), never inline casts.
+- Conversions between the layers above happen ONLY through the helpers in
+  `core/label_semantics.hpp` (`is_valid_label`, `label_to_index`,
+  `kUnlabeled`, `kBackgroundApi`, `kMaxStorableLabel`, …), never inline
+  `label ± 1` arithmetic or raw casts at call sites. **[target]** — existing
+  call sites are still being migrated.
 - Writing a label ≥ 65535 to segmentation storage MUST throw, not wrap.
 
 ### 3.2 Identity & referential integrity
@@ -228,6 +231,14 @@ A change is done when ALL of the following hold:
 7. SPDX header present on new files; TODO comments follow the tdg format
    (see `CLAUDE.md`).
 8. Pipeline-stage failures introduced or touched by the change are loud (§5).
+9. **Docs touched by the change are updated in the same PR.** If the change adds,
+   renames or removes a namespace, path, CMake option, `rux` command/flag,
+   library target, dependency, or a stage's inputs/outputs, then the documents
+   that name it are corrected — at minimum check `CLAUDE.md`, `README.md`,
+   `ARCHITECTURE.md`, `docs/README.md`, `CONTRACTS.md` and this file. The bar is
+   the one from #243: *no doc names a namespace, path, CMake option, command or
+   dependency that `grep` cannot find in the source tree.* Historical design
+   notes under `docs/design/` are exempt provided they say so at the top.
 
 ## 10. Process notes for AI agents
 

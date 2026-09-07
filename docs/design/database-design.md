@@ -1,6 +1,44 @@
-# RTABMapDatabase Design
+# RTABMapDatabase Design (RETIRED — historical)
 
-This document details the design and implementation of the `RTABMapDatabase` class, which provides unified access to RTABMap databases with custom segmentation label storage.
+> ## ⚠️ This document describes a class that no longer exists
+>
+> `RTABMapDatabase` was **removed** from the codebase. `grep -r RTABMapDatabase
+> libs/ apps/` returns nothing. It is kept here as a design record of the
+> approach that preceded the current one; **do not** use it as a reference for
+> how ReUseX stores data today.
+>
+> **The current project store is `ProjectDB`:**
+>
+> - Header: `libs/reusex/include/core/ProjectDB.hpp`
+> - Implementation: `libs/reusex/src/core/ProjectDB.cpp`
+> - One migrating sqlite3 file per project (`*.rux`), holding sensor frames,
+>   point clouds (chunked), meshes and texture blobs, panoramic images,
+>   `segmentation_images`, building components, material passports,
+>   instance↔material links and the pipeline log.
+> - `LATEST_SCHEMA_VERSION` is defined in `src/core/ProjectDB.cpp` — read it
+>   there rather than trusting any document.
+>
+> **What changed relative to the design below:**
+>
+> | Below (retired) | Today |
+> |---|---|
+> | Reads an RTABMap `.db` directly, in place | RTABMap is an *import* source only (`libs/reusex/src/io/rtabmap.cpp`); everything downstream reads `ProjectDB` |
+> | Adds a `Segmentation` table to the RTABMap schema | `segmentation_images` in the project database |
+> | Images rotated 90° clockwise on read | **No rotation** — frames are stored in their original sensor orientation |
+> | Namespace `ReUseX::` | Namespace `reusex::core` |
+>
+> Still accurate and carried over: the Pimpl idiom (see
+> [`docs/STANDARDS.md` §2](../STANDARDS.md#2-header-hygiene)), the sqlite3
+> single-thread constraint, and the `CV_16U`+1 storage / `CV_32S`−1 API label
+> encoding — whose authoritative statement is now
+> [`docs/STANDARDS.md` §3](../STANDARDS.md#3-label--identity-contract).
+>
+> For the data each pipeline stage reads and writes, see
+> [`docs/CONTRACTS.md`](../CONTRACTS.md).
+
+---
+
+This document details the design and implementation of the `RTABMapDatabase` class, which provided unified access to RTABMap databases with custom segmentation label storage.
 
 ## Purpose
 

@@ -2,7 +2,7 @@
 
 ## Overview
 
-The `ReUseX::vision::Dataloader` class provides efficient multi-threaded data loading similar to PyTorch's DataLoader. It uses worker threads to preload batches in parallel, maximizing GPU/model utilization by minimizing data loading bottlenecks.
+The `reusex::vision::Dataloader` class provides efficient multi-threaded data loading similar to PyTorch's DataLoader. It uses worker threads to preload batches in parallel, maximizing GPU/model utilization by minimizing data loading bottlenecks.
 
 ## Features
 
@@ -24,7 +24,7 @@ MyDataset dataset("path/to/data.db");
 
 // Create DataLoader
 // Parameters: dataset, batch_size, shuffle, num_workers, prefetch_batches
-ReUseX::vision::Dataloader loader(dataset, 
+reusex::vision::Dataloader loader(dataset, 
                                    /* batch_size */ 16,
                                    /* shuffle */ true,
                                    /* num_workers */ 4,

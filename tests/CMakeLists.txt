@@ -30,10 +30,13 @@ file(GLOB_RECURSE UNIT_TEST_SOURCES CONFIGURE_DEPENDS
 # -----------------------------------------------
 add_executable(reusex_unit_tests ${UNIT_TEST_SOURCES})
 
-# Link against reusex library and Catch2
+# Link against reusex library and Catch2. ruxd_lib carries the ruxd HTTP
+# routing/auth logic (everything but main()), so tests/unit/ruxd can exercise
+# it directly.
 target_link_libraries(reusex_unit_tests
     PRIVATE
         reusex
+        ruxd_lib
         Catch2::Catch2WithMain
         fmt::fmt
         OpenSSL::Crypto

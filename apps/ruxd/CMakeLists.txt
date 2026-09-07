@@ -21,21 +21,34 @@ pkg_check_modules(LIBPQXX REQUIRED IMPORTED_TARGET libpqxx)
 pkg_check_modules(REDISPP REQUIRED IMPORTED_TARGET redis++)
 find_package(AWSSDK REQUIRED COMPONENTS s3)
 
-# Collect sources
+# Collect sources. Everything except main() goes into a static library so the
+# routing/auth logic is reachable from the unit tests (tests/unit/ruxd/); the
+# executable is then just the CLI entry point on top of it.
 file(GLOB_RECURSE ruxd_SOURCES CONFIGURE_DEPENDS "src/*.cpp")
+list(REMOVE_ITEM ruxd_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp")
 
-add_executable(ruxd ${ruxd_SOURCES})
-target_include_directories(ruxd PRIVATE include)
+add_library(ruxd_lib STATIC ${ruxd_SOURCES})
+# PUBLIC: consumers (ruxd, tests) include auth.hpp/endpoints.hpp, which pull in
+# Crow and nlohmann_json headers.
+target_include_directories(ruxd_lib PUBLIC include)
+target_link_libraries(ruxd_lib
+    PUBLIC
+        Crow::Crow
+        nlohmann_json::nlohmann_json
+        Threads::Threads
+    PRIVATE
+        reusex
+        PkgConfig::LIBPQXX
+        PkgConfig::REDISPP
+        ${AWSSDK_LINK_LIBRARIES}
+)
+
+add_executable(ruxd src/main.cpp)
 target_link_libraries(ruxd PRIVATE
+    ruxd_lib
     reusex
-    Crow::Crow
     CLI11::CLI11
     spdlog::spdlog
-    nlohmann_json::nlohmann_json
-    Threads::Threads
-    PkgConfig::LIBPQXX
-    PkgConfig::REDISPP
-    ${AWSSDK_LINK_LIBRARIES}
 )
 
 install(TARGETS ruxd DESTINATION bin)

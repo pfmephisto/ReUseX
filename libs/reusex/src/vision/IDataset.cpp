@@ -86,6 +86,8 @@ std::shared_ptr<ProjectDB> IDataset::database() const { return db_; }
 
 size_t IDataset::size() const { return ids_.size(); }
 
+int IDataset::node_id(const size_t index) const { return ids_.at(index); }
+
 size_t IDataset::filter_annotated() {
   auto annotated_ids = db_->segmentation_image_ids();
   std::unordered_set<int> annotated_set(annotated_ids.begin(),
@@ -98,6 +100,25 @@ size_t IDataset::filter_annotated() {
   reusex::info("Filtered out {} already-annotated frames, {} remaining",
                removed, ids_.size());
   return removed;
+}
+
+size_t IDataset::filter_annotated_prefix() {
+  auto annotated_ids = db_->segmentation_image_ids();
+  std::unordered_set<int> annotated_set(annotated_ids.begin(),
+                                        annotated_ids.end());
+
+  // Count the maximal leading run of ids that are all already annotated. Stop
+  // at the first unannotated frame so the remainder (and its memory bank)
+  // starts from a clean boundary.
+  size_t prefix = 0;
+  while (prefix < ids_.size() && annotated_set.contains(ids_[prefix]))
+    ++prefix;
+
+  ids_.erase(ids_.begin(), ids_.begin() + prefix);
+
+  reusex::info("Skipped {} already-annotated leading frames, {} remaining",
+               prefix, ids_.size());
+  return prefix;
 }
 
 } // namespace reusex::vision

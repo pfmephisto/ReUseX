@@ -6,6 +6,7 @@
 #include "validation.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
+#include <reusex/geometry/component_persistence.hpp>
 #include <reusex/geometry/create_windows.hpp>
 
 #include <spdlog/spdlog.h>
@@ -190,8 +191,8 @@ int run_subcommand_create_windows(SubcommandWindowOptions const &opt,
 
     // Clear existing windows if requested
     if (opt.clear_existing) {
-      auto existing_windows =
-          db.list_building_components(reusex::geometry::ComponentType::window);
+      auto existing_windows = reusex::geometry::list_building_components(
+          db, reusex::geometry::ComponentType::window);
 
       if (!existing_windows.empty()) {
         spdlog::info("Clearing {} existing window components",
@@ -244,7 +245,7 @@ int run_subcommand_create_windows(SubcommandWindowOptions const &opt,
 
     // Save components
     for (const auto &comp : result.components) {
-      db.save_building_component(comp);
+      reusex::geometry::save_building_component(db, comp);
       spdlog::debug("Saved component '{}' ({} vertices)", comp.name,
                     comp.boundary.vertices.size());
     }

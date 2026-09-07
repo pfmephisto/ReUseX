@@ -9,6 +9,7 @@
 #include <reusex/core/materialepas_json_export.hpp>
 #include <reusex/core/materialepas_json_import.hpp>
 #include <reusex/geometry/BuildingComponent.hpp>
+#include <reusex/geometry/component_persistence.hpp>
 
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
@@ -266,7 +267,7 @@ int run_subcommand_import_csv(SubcommandImportCSVOptions const &opt,
     // Pre-load existing components indexed by guid.
     std::map<std::string, reusex::geometry::BuildingComponent> by_guid;
     for (const auto &name : db.list_building_components()) {
-      auto c = db.building_component(name);
+      auto c = reusex::geometry::building_component(db, name);
       if (!c.guid.empty())
         by_guid.emplace(c.guid, std::move(c));
     }
@@ -296,7 +297,7 @@ int run_subcommand_import_csv(SubcommandImportCSVOptions const &opt,
         }
         reusex::geometry::BuildingComponent c = it->second;
         apply_component_row(c, row);
-        db.update_building_component_by_guid(c);
+        reusex::geometry::update_building_component_by_guid(db, c);
         ++comp_updated;
       } else if (kind == "passport") {
         if (id.empty()) {

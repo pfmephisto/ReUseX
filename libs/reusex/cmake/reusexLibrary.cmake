@@ -19,9 +19,9 @@
 #   Layer 1:  utils, types.hpp
 #
 # `reusex_geometry_common` holds the CGAL/PCL geometry helpers (`geometry/utils`,
-# `cgal_utils`, `CoplanarPolygon`, `BuildingComponent`) that both reconstruction
-# and the core persistence layer need; it sits just above utils so those
-# consumers can share it without linking each other.
+# `cgal_utils`, `CoplanarPolygon`, `BuildingComponent`) shared by several
+# Layer-3 peers; it sits just above utils so those consumers can share it
+# without linking each other.
 #
 # The `reusex` target remains a backward-compatible INTERFACE umbrella that
 # links every module, so apps/rux, apps/ruxd, tests and bindings build
@@ -42,8 +42,7 @@ file(GLOB_RECURSE REUSEX_UTILS_SOURCES CONFIGURE_DEPENDS "${SRC}/utils/*.cpp")
 file(GLOB_RECURSE REUSEX_CORE_SOURCES CONFIGURE_DEPENDS "${SRC}/core/*.cpp")
 
 # Layer 1.5 — shared geometry helpers (CGAL/PCL primitives). Kept separate so
-# core (persistence of BuildingComponent) and the geometry peers can depend on
-# it without depending on each other.
+# the Layer-3 peers can depend on it without depending on each other.
 set(REUSEX_GEOMETRY_COMMON_SOURCES
     ${SRC}/geometry/utils.cpp
     ${SRC}/geometry/cgal_utils.cpp
@@ -227,8 +226,8 @@ endfunction()
 reusex_add_module(reusex_utils ${REUSEX_UTILS_SOURCES})
 
 # --- Layer 1.5 — shared geometry helpers -----------------------------------
-# geometry_common uses core/logging only; it must NOT depend on core to avoid a
-# cycle (core -> geometry_common). It links utils + the shared config.
+# geometry_common uses core/logging only; it must NOT depend on core, so it
+# stays usable from every higher layer. It links utils + the shared config.
 reusex_add_module(reusex_geometry_common ${REUSEX_GEOMETRY_COMMON_SOURCES})
 target_link_libraries(reusex_geometry_common PUBLIC reusex_utils)
 
@@ -240,12 +239,11 @@ target_link_libraries(reusex_core PUBLIC reusex_utils)
 # on the final link line (DSO-missing-from-command-line otherwise).
 find_package(SQLite3 REQUIRED)
 target_link_libraries(reusex_core PUBLIC SQLite::SQLite3)
-# LAYERING EXCEPTION (#222): core/ProjectDB persists geometry::BuildingComponent
-# (a Layer-3 reconstruction type) and calls CoplanarPolygon (de)serialization.
-# Those definitions live in reusex_geometry_common. Documented upward dependency
-# (core -> geometry helper). See docs/STANDARDS.md §1 and the tdg TODO in
-# src/core/ProjectDB.cpp.
-target_link_libraries(reusex_core PUBLIC reusex_geometry_common)
+# NOTE (#227): core deliberately does NOT link reusex_geometry_common.
+# ProjectDB persists the core-owned POD `core::ComponentRecord`; the
+# BuildingComponent <-> record mapping lives in the header-only adapter
+# geometry/component_persistence.hpp, compiled into its consumers (io, rux,
+# tests) rather than into either module. See docs/STANDARDS.md §1.
 
 # --- Layer 3 (peers — MUST NOT link each other) ----------------------------
 reusex_add_module(reusex_io ${REUSEX_IO_SOURCES})

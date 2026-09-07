@@ -8,6 +8,7 @@
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/core/materialepas_json_export.hpp>
 #include <reusex/geometry/BuildingComponent.hpp>
+#include <reusex/geometry/component_persistence.hpp>
 
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
@@ -175,7 +176,7 @@ int run_subcommand_export_csv(SubcommandExportCSVOptions const &opt,
     // --- Geometry instances (building components) ---
     auto component_names = db.list_building_components();
     for (const auto &name : component_names) {
-      auto c = db.building_component(name);
+      auto c = reusex::geometry::building_component(db, name);
       std::map<std::string, std::string> row;
       row["kind"] = "component";
       row["id"] = c.guid;

@@ -32,9 +32,9 @@ External: apps/rux, apps/ruxd                  (may use everything; keeps logic 
 ```
 
 The former single `geometry` module was split into the pipeline-stage peers
-`segmentation`, `reconstruction`, and `slam`; the CGAL/PCL primitives they and
-`core` share live in `geometry_common` (just above `utils`) so no peer or upward
-dependency is needed to reach them.
+`segmentation`, `reconstruction`, and `slam`; the CGAL/PCL primitives they share
+live in `geometry_common` (just above `utils`) so no peer or upward dependency
+is needed to reach them. `geometry_common` links neither `core` nor any peer.
 
 **Rules:**
 
@@ -47,9 +47,15 @@ dependency is needed to reach them.
   `geometry_common`, or `types.hpp`, not through peer headers. Documented
   exceptions (explicit, commented links in `reusexLibrary.cmake`): `io ->
   reconstruction` (export_scene serializes a reconstructed scene) and `slam ->
-  segmentation` (registration reuses surfel extraction). `core ->
-  geometry_common` (ProjectDB persists `BuildingComponent`) is a tracked upward
-  dependency — see the tdg TODO in `src/core/ProjectDB.cpp`.
+  segmentation` (registration reuses surfel extraction).
+- Persistence contracts are core-owned PODs. `ProjectDB` stores building
+  components as `core::ComponentRecord` (`core/component_record.hpp`) — plain
+  strings, blobs and scalars mirroring the table columns — so core needs no
+  geometry types. The `BuildingComponent <-> ComponentRecord` mapping lives on
+  the geometry side, in the header-only adapter
+  `geometry/component_persistence.hpp`, which is compiled into its consumers
+  (`io`, `apps/rux`, tests) and deliberately not into `reusex_geometry_common`,
+  so that module keeps its Layer-1½ position (#227).
 - `apps/rux/` subcommands are thin wrappers: parse arguments, validate, call
   one library entry point, report. Business logic lives in the library.
 - New heavyweight dependencies (anything that adds > 30 s to a clean build)

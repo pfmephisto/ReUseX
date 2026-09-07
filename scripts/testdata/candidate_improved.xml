@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Catch2TestRun name="reusex_benchmarks" rng-seed="3" xml-format-version="3" catch2-version="3.14.0" filters="[geometry]">
+  <TestCase name="Benchmark: voxel downsample" tags="[!benchmark][.][geometry]" filename="tests/benchmarks/bench_geometry.cpp" line="21">
+    <BenchmarkResults name="voxel_assignment 5cm" samples="5" resamples="100000" iterations="1" clockResolution="29.4991" estimatedDuration="1.5e+07">
+      <!-- All values in nano seconds -->
+      <mean value="3.9e+06" lowerBound="3.85e+06" upperBound="3.95e+06" ci="0.95"/>
+      <standardDeviation value="30000" lowerBound="4000" upperBound="45000" ci="0.95"/>
+      <outliers variance="0.16" lowMild="0" lowSevere="0" highMild="0" highSevere="0"/>
+    </BenchmarkResults>
+    <OverallResult success="true" skips="0"/>
+  </TestCase>
+  <TestCase name="Benchmark: room segmentation" tags="[!benchmark][.][geometry]" filename="tests/benchmarks/bench_geometry.cpp" line="38">
+    <BenchmarkResults name="segment_rooms (synthetic room, ~25k pts)" samples="5" resamples="100000" iterations="1" clockResolution="29.4991" estimatedDuration="2.7e+08">
+      <!-- All values in nano seconds -->
+      <mean value="5.5e+07" lowerBound="5.4e+07" upperBound="5.6e+07" ci="0.95"/>
+      <standardDeviation value="1.5e+06" lowerBound="4e+05" upperBound="2.2e+06" ci="0.95"/>
+      <outliers variance="0.16" lowMild="0" lowSevere="0" highMild="0" highSevere="1"/>
+    </BenchmarkResults>
+    <OverallResult success="true" skips="0"/>
+  </TestCase>
+  <TestCase name="Benchmark: plane segmentation" tags="[!benchmark][.][geometry]" filename="tests/benchmarks/bench_geometry.cpp" line="30">
+    <BenchmarkResults name="segment_planes (synthetic room, ~25k pts)" samples="5" resamples="100000" iterations="1" clockResolution="29.4991" estimatedDuration="2.05e+08">
+      <!-- All values in nano seconds -->
+      <mean value="4.2e+07" lowerBound="4.1e+07" upperBound="4.3e+07" ci="0.95"/>
+      <standardDeviation value="9.5e+05" lowerBound="5e+05" upperBound="1.3e+06" ci="0.95"/>
+      <outliers variance="0.16" lowMild="0" lowSevere="0" highMild="0" highSevere="0"/>
+    </BenchmarkResults>
+    <OverallResult success="true" skips="0"/>
+  </TestCase>
+  <TestCase name="Benchmark: legacy op" tags="[!benchmark][.][geometry]" filename="tests/benchmarks/bench_geometry.cpp" line="50">
+    <BenchmarkResults name="legacy_op (removed in candidate)" samples="5" resamples="100000" iterations="1" clockResolution="29.4991" estimatedDuration="9e+06">
+      <!-- All values in nano seconds -->
+      <mean value="9.5e+05" lowerBound="9e+05" upperBound="1e+06" ci="0.95"/>
+      <standardDeviation value="9000" lowerBound="4000" upperBound="14000" ci="0.95"/>
+      <outliers variance="0.16" lowMild="0" lowSevere="0" highMild="0" highSevere="0"/>
+    </BenchmarkResults>
+    <OverallResult success="true" skips="0"/>
+  </TestCase>
+  <OverallResults successes="0" failures="0" expectedFailures="0" skips="0"/>
+  <OverallResultsCases successes="4" failures="0" expectedFailures="0" skips="0"/>
+</Catch2TestRun>

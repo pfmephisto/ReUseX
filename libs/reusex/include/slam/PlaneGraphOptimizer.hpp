@@ -171,8 +171,15 @@ struct PlaneGraphOptions {
   /// MapAnything, or an offline MASt3R ceiling oracle): the external edges are
   /// UNIONED with any internally-detected ORB edges (--loop-closure) and fed
   /// into the SAME GNC graph, so a wrong external edge is handled by the same
-  /// robustness (GNC / PCM / seed gating) as an ORB one. Works independently of
-  /// loop_closure.enable. loop_edges_trusted applies to these too.
+  /// robustness as an ORB one. Concretely, optimize_sensor_poses() applies to
+  /// the file's edges: the `loop_edges_min_seed_disagreement` gate, a (i,j)
+  /// dedup against the internal edges (one pair, one factor), PCM over the
+  /// UNION when `loop_closure.pcm` is set (`--loop-no-pcm` turns it off for
+  /// BOTH sources), and finally GNC in the solver. Works independently of
+  /// loop_closure.enable. loop_edges_trusted applies to these too — which is
+  /// precisely why the PCM step is not optional in practice: a trusted edge
+  /// gets the generous `loop_trust_inlier_cost` threshold, so consistency
+  /// filtering is the main defence left against a matcher false positive.
   std::string loop_edges_file;
   /// Seed-disagreement gate for the external (`loop_edges_file`) edges,
   /// mirroring LoopClosureOptions::min_seed_disagreement for the internal path:

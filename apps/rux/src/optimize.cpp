@@ -216,15 +216,18 @@ NOTES:
                   "still down-weighted to zero)")
       ->default_val(opt->loop_trust_inlier_cost);
   sub->add_flag("--loop-no-pcm", opt->loop_no_pcm,
-                "Disable pairwise-consistency (PCM) filtering of loop edges");
+                "Disable pairwise-consistency (PCM) filtering of loop edges "
+                "(governs BOTH internally-detected and --loop-edges edges)");
   sub->add_option(
          "--loop-edges", opt->loop_edges_file,
          "Load externally-computed loop edges from a JSON file (schema "
          "reusex.loop_edges.v1) produced by an out-of-process matcher "
          "(XFeat / EfficientLoFTR / MapAnything, or an offline MASt3R oracle) "
-         "and add them to the graph. Unioned with --loop-closure edges; the "
-         "license-clean way to feed a learned matcher without linking it into "
-         "the binary. Pair with --loop-trust to apply large-drift corrections.")
+         "and add them to the graph. Unioned with --loop-closure edges, "
+         "de-duplicated per frame pair, then PCM-filtered as one set (unless "
+         "--loop-no-pcm); the license-clean way to feed a learned matcher "
+         "without linking it into the binary. Pair with --loop-trust to apply "
+         "large-drift corrections.")
       ->check(CLI::ExistingFile);
   sub->add_option(
          "--loop-edges-min-disagreement", opt->loop_edges_min_disagreement,
@@ -349,10 +352,12 @@ int run_subcommand_optimize(SubcommandOptimizeOptions const &opt,
     int logId = db.log_pipeline_start(
         "pose_optimization_plane_graph",
         fmt::format(
-            R"({{"min_observations":{},"assoc_normal_angle":{},"assoc_distance":{},"max_planes_per_frame":{},"min_plane_inliers":{},"use_gnc":{},"iterations":{},"seed":{},"dry_run":{}}})",
+            R"({{"min_observations":{},"assoc_normal_angle":{},"assoc_distance":{},"max_planes_per_frame":{},"min_plane_inliers":{},"use_gnc":{},"iterations":{},"seed":{},"dry_run":{},"loop_closure":{},"loop_trust":{},"pcm":{},"loop_edges_file":"{}","loop_edges_min_disagreement":{}}})",
             opt.min_observations, opt.assoc_normal_angle, opt.assoc_distance,
             opt.max_planes_per_frame, opt.min_plane_inliers, !opt.no_gnc,
-            opt.iterations, opt.seed, opt.dry_run));
+            opt.iterations, opt.seed, opt.dry_run, opt.loop_closure,
+            opt.loop_trust, !opt.loop_no_pcm, opt.loop_edges_file,
+            opt.loop_edges_min_disagreement));
 
     auto result =
         reusex::geometry::optimize_sensor_poses(db, options, opt.dry_run);

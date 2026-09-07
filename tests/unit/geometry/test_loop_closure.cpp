@@ -266,6 +266,53 @@ TEST_CASE("LoopClosure pcm_filter keeps consistent edges and drops an "
 }
 
 // ---------------------------------------------------------------------------
+// filter_consistent_loop_edges — the public entry point optimize_sensor_poses
+// uses to PCM-filter the UNION of internally-detected and external
+// (--loop-edges) edges. Before this existed, external edges reached the graph
+// with no consistency filter at all, which is what made --loop-trust unsafe.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("filter_consistent_loop_edges rejects an inconsistent external edge "
+          "from a mixed set",
+          "[loop_closure][slam][pcm]") {
+  std::vector<Eigen::Matrix4d> seed;
+  for (int k = 0; k < 6; ++k)
+    seed.push_back(planar_pose(k * 1.0, 0.2 * k, 0.15 * k));
+
+  auto seed_rel = [&](int i, int j) {
+    return Eigen::Matrix4d(seed[i].inverse() * seed[j]);
+  };
+
+  // Three "internal" edges that agree with the seed, plus one "external" edge
+  // whose measurement is 1 m off — the aliasing false positive the review
+  // flagged as unfiltered.
+  std::vector<LoopEdge> unioned{
+      make_edge(0, 3, seed_rel(0, 3), 100),
+      make_edge(1, 4, seed_rel(1, 4), 95),
+      make_edge(2, 5, seed_rel(2, 5), 90),
+  };
+  Eigen::Matrix4d bogus = seed_rel(0, 5);
+  bogus.block<3, 1>(0, 3) += Eigen::Vector3d(1.0, 0.0, 0.0);
+  unioned.push_back(make_edge(0, 5, bogus, 85));
+
+  LoopClosureOptions opt;
+  opt.pcm_max_edges = 0;
+
+  const std::vector<LoopEdge> kept =
+      filter_consistent_loop_edges(unioned, seed, opt);
+
+  REQUIRE(kept.size() == 3);
+  for (const auto &e : kept)
+    REQUIRE_FALSE((e.i == 0 && e.j == 5));
+
+  // The public wrapper must be exactly the detail:: implementation, not a
+  // second copy that could drift from it.
+  const std::vector<LoopEdge> via_detail =
+      detail::pcm_filter(unioned, seed, opt);
+  REQUIRE(kept.size() == via_detail.size());
+}
+
+// ---------------------------------------------------------------------------
 // detect_loop_edges degenerate inputs
 // ---------------------------------------------------------------------------
 

@@ -157,9 +157,22 @@ exchanging **data**, not code.
 - **Schema `reusex.loop_edges.v1`** (JSON) referencing stable DB `node_id`s, so
   the producer never needs to know the optimizer's internal frame ordering.
 - **Robustness is unchanged**: external edges enter the *same* GNC graph as ORB
-  edges, so PCM false-positive rejection, GNC down-weighting, and the
-  seed-disagreement gates all apply. `--loop-trust` promotes them to GNC
-  known-inliers when a large-drift correction must actually flow.
+  edges and pass the same filters, applied by `optimize_sensor_poses()` over the
+  **union** of both sources — a seed-disagreement gate
+  (`--loop-edges-min-disagreement`), a per-frame-pair dedup against the internal
+  edges (one pair, one factor), PCM false-positive rejection over the unioned
+  set (`--loop-no-pcm` disables it for **both** sources), and GNC down-weighting
+  in the solver. Note the filters live in `optimize_sensor_poses()`, not in
+  `load_loop_edges()`: PCM needs the seed poses and the internal edges, which
+  the loader never sees. The loader's own job is validating the untrusted
+  payload — non-SE(3) `T_ij`, non-finite values and non-positive sigmas are
+  rejected as malformed.
+  `--loop-trust` gives them a relaxed per-factor GNC-TLS threshold
+  (`--loop-trust-inlier-cost`, default 200) when a large-drift correction must
+  actually flow — generous but finite, so a grossly-wrong edge is still
+  truncated to zero weight. Because that relaxation is exactly what makes a
+  matcher false positive dangerous, PCM is the defence that matters most on the
+  `--loop-edges --loop-trust` path.
 - **Licence boundary is explicit**: the NC backends (`mast3r`, `mapanything`-NC)
   are gated behind `--allow-noncommercial`, print a banner, and their output is
   labelled an evaluation artefact. Nothing in `tools/loop_edges/` is compiled
@@ -167,8 +180,12 @@ exchanging **data**, not code.
 
 ### C++ changes (this PR)
 - `load_loop_edges()` (`libs/reusex/src/slam/load_loop_edges.cpp`) — parse +
-  node-id mapping + loud failure on bad files; 3 unit tests.
-- `PlaneGraphOptions::loop_edges_file` + union in `optimize_sensor_poses.cpp`.
+  node-id mapping + SE(3)/sigma payload validation + loud failure on bad files.
+- `filter_consistent_loop_edges()` (`slam/LoopClosure.hpp`) — public PCM entry
+  point, so the union of internal and external edges can be consistency-filtered
+  as one set.
+- `PlaneGraphOptions::loop_edges_file` + union, dedup and PCM in
+  `optimize_sensor_poses.cpp`.
 - `rux optimize --loop-edges <file>` CLI flag.
 
 ### Python tool (this PR)
@@ -233,10 +250,14 @@ Two results, both important:
 | optimize + XFeat edges | 20.89 mm | 34.52 mm | 163 | **16.66 m** |
 
 **Read this carefully — it is the crux of the whole loop-closure problem on
-GT-less scans.** The office scan has a measured **16.66 m** start↔end drift
-(§Scans). With `--loop-trust`, the XFeat edges apply a **16.66 m** correction —
-*exactly* the measured drift — i.e. they close the loop essentially perfectly;
-ORB's sparse 5 edges manage only 14.92 m. Yet the **GT-free flatness metric gets
+GT-less scans.** The office scan's start↔end drift is **~16 m** (§Scans). With
+`--loop-trust`, the XFeat edges move the worst-displaced pose by **16.66 m** —
+the same order as the drift, i.e. a correction of the magnitude the loop needs;
+ORB's sparse 5 edges manage only 14.92 m. (Note the 16.66 m is the *max pose
+shift* column, a measure of how much correction was **applied**, not an
+independent measure of how much drift **remains** — it cannot by itself show the
+loop closed correctly. §5.3's visual is what shows the residual gap.) Yet the
+**GT-free flatness metric gets
 worse**, because it measures *local* plane consistency and cannot tell a
 globally-corrected trajectory from a locally-smeared one — a globally-correct
 re-slice of the planes still moves points off their old local fits. This is the
@@ -248,7 +269,7 @@ complete, not the GT-free metric happier.** Adjudicating whether the closure is
 
 ### 5.3 Visual — NewOffice drift closure
 
-![NewOffice trajectory: XFeat loop closure vs drifted seed](img/traj-newoffice-loopclosed.png)
+![NewOffice trajectory: XFeat loop closure vs drifted seed](images/traj-newoffice-loopclosed.png)
 
 NewOffice (3876 frames, 816 m path) has a visible start↔end drift no odometry
 closes. 7 XFeat endcap loop edges fed through `optimize --loop-trust` apply a

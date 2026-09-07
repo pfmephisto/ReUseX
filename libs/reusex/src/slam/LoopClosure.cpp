@@ -433,6 +433,13 @@ std::vector<LoopEdge> pcm_filter(std::vector<LoopEdge> edges,
 } // namespace detail
 
 std::vector<LoopEdge>
+filter_consistent_loop_edges(std::vector<LoopEdge> edges,
+                             const std::vector<Eigen::Matrix4d> &seed,
+                             const LoopClosureOptions &options) {
+  return detail::pcm_filter(std::move(edges), seed, options);
+}
+
+std::vector<LoopEdge>
 detect_loop_edges(ProjectDB &db, const std::vector<int> &node_ids,
                   const std::vector<Eigen::Matrix4d> &seed_poses,
                   const LoopClosureOptions &opt,

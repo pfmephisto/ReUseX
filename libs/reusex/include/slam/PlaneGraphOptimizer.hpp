@@ -126,23 +126,45 @@ struct PlaneGraphOptions {
   int max_iterations = 100; ///< LM (inner) iteration cap
   unsigned seed = 42;       ///< RANSAC seed (STANDARDS.md §6)
 
-  SurfelExtractionParams surfel; ///< surfel extraction settings
+  /// Surfel extraction settings. `sampling_factor` is overridden to 6 (denser
+  /// than the shared SurfelExtractionParams default of 8, which `rux register`
+  /// relies on): the "mid-density" surfels this stage was tuned on. Overriding
+  /// it here — rather than in SurfelExtractionParams or in apps/rux — keeps a
+  /// single source of truth for the plane-graph default (STANDARDS.md §4)
+  /// without changing what the registration stage extracts.
+  SurfelExtractionParams surfel{.sampling_factor = 6};
 
   /// P2 wide-baseline loop closure (off by default). When enabled,
   /// optimize_sensor_poses detects loop edges from the RGB-D frames and feeds
   /// them into the same GNC graph as robust BetweenFactor<Pose3> constraints.
   LoopClosureOptions loop_closure;
   /// How loop-edge factors are treated by the solver:
-  ///   false (default, SAFE): loop edges are GNC candidates — a wrong edge is
-  ///     down-weighted. But GNC also zeros a genuine LARGE-drift edge (its
-  ///     residual at the drifted seed looks like an outlier), so this rarely
-  ///     applies big corrections. Good when loops are near the seed estimate.
-  ///   true (AGGRESSIVE): loop edges are GNC known-inliers with a Huber kernel,
-  ///     so large-drift corrections actually flow — but a perceptual-aliasing
-  ///     false positive can then warp the trajectory. Only safe with a
-  ///     discriminative matcher / consistency filtering. Also loosen odometry
-  ///     (--odometry-sigma-trans) so the drift can redistribute.
+  ///   false (default, SAFE): loop edges are ordinary GNC candidates under the
+  ///     shared `gnc_inlier_cost` threshold — a wrong edge is down-weighted.
+  ///     But GNC also zeros a genuine LARGE-drift edge (its residual at the
+  ///     drifted seed looks like an outlier), so this rarely applies big
+  ///     corrections. Good when loops are near the seed estimate.
+  ///   true (AGGRESSIVE): loop edges keep their own, far more generous GNC
+  ///     inlier threshold (`loop_trust_inlier_cost`) instead of the shared
+  ///     `gnc_inlier_cost`, so a genuine large-drift correction stays an inlier
+  ///     and actually flows — while an edge whose residual exceeds even that
+  ///     generous threshold is still truncated by GNC-TLS, bounding a
+  ///     grossly-wrong edge's influence. Under `use_gnc == false` (plain LM)
+  ///     there is no GNC machinery, so trusted loop edges instead get a Huber
+  ///     kernel for the same bounded-influence effect. Still needs a
+  ///     discriminative matcher / PCM to be safe, and looser odometry
+  ///     (`odometry_sigma_trans`) so the drift can redistribute.
   bool loop_edges_trusted = false;
+  /// GNC-TLS inlier threshold applied ONLY to loop-edge factors when
+  /// `loop_edges_trusted` is set (same units as `gnc_inlier_cost`: 0.5 *
+  /// whitened squared residual). Deliberately generous — at the default
+  /// LoopClosureOptions sigmas (0.10 m / 0.05 rad) this admits roughly 2 m of
+  /// translational drift correction as an inlier — but FINITE, which is the
+  /// point: a 10x-worse edge lands far above it and is truncated to zero
+  /// weight. Note that GTSAM's GncOptimizer strips `noiseModel::Robust`
+  /// wrappers from every factor it is given, so a per-factor threshold is the
+  /// only way to bound a loop edge under GNC.
+  float loop_trust_inlier_cost = 200.0f;
   /// Optional path to a JSON file of externally-computed loop edges (schema
   /// "reusex.loop_edges.v1"; see load_loop_edges). Empty = none. These are the
   /// license-clean bridge for learned matchers (XFeat / EfficientLoFTR /

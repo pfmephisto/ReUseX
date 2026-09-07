@@ -205,9 +205,16 @@ NOTES:
       ->default_val(opt->loop_min_seed_disagreement);
   sub->add_flag(
       "--loop-trust", opt->loop_trust,
-      "Trust loop edges as GNC known-inliers (+ Huber) so large-drift "
-      "corrections actually apply. Needs PCM / a discriminative "
-      "matcher to be safe, and looser --odometry-sigma-trans");
+      "Trust loop edges: give them their own relaxed GNC-TLS inlier "
+      "threshold (--loop-trust-inlier-cost) instead of --gnc-inlier-cost, so "
+      "large-drift corrections actually apply while a grossly-wrong edge is "
+      "still truncated (a Huber kernel under --no-gnc). Needs PCM / a "
+      "discriminative matcher to be safe, and looser --odometry-sigma-trans");
+  sub->add_option("--loop-trust-inlier-cost", opt->loop_trust_inlier_cost,
+                  "GNC-TLS inlier threshold for --loop-trust loop edges "
+                  "(0.5*chi^2; generous but finite — an edge above it is "
+                  "still down-weighted to zero)")
+      ->default_val(opt->loop_trust_inlier_cost);
   sub->add_flag("--loop-no-pcm", opt->loop_no_pcm,
                 "Disable pairwise-consistency (PCM) filtering of loop edges");
   sub->add_option(
@@ -259,6 +266,18 @@ int run_subcommand_optimize(SubcommandOptimizeOptions const &opt,
   spdlog::info("Optimizing sensor poses in: {}", project_path.string());
 
   try {
+    // std::clamp is UB when lo > hi, and the plane-factor weighting clamps
+    // into [plane_weight_min, plane_weight_max]. Reject the inverted range
+    // here instead of letting it reach the library.
+    if (opt.plane_weight_min > opt.plane_weight_max) {
+      spdlog::error("--plane-weight-min ({}) must be <= --plane-weight-max "
+                    "({})",
+                    opt.plane_weight_min, opt.plane_weight_max);
+      spdlog::info("Resolution: pass a non-inverted range, e.g. "
+                   "--plane-weight-min 0.5 --plane-weight-max 3.0");
+      return RuxError::INVALID_ARGUMENT;
+    }
+
     reusex::ProjectDB db(project_path);
 
     // Reuse the register prerequisites (>= 2 sensor frames carrying depth).
@@ -322,6 +341,7 @@ int run_subcommand_optimize(SubcommandOptimizeOptions const &opt,
     options.loop_closure.min_seed_disagreement = opt.loop_min_seed_disagreement;
     options.loop_closure.pcm = !opt.loop_no_pcm;
     options.loop_edges_trusted = opt.loop_trust;
+    options.loop_trust_inlier_cost = opt.loop_trust_inlier_cost;
     options.loop_closure.seed = opt.seed;
     options.loop_edges_file = opt.loop_edges_file;
     options.loop_edges_min_seed_disagreement = opt.loop_edges_min_disagreement;
@@ -350,10 +370,15 @@ int run_subcommand_optimize(SubcommandOptimizeOptions const &opt,
       spdlog::info("Loop closure: {} wide-baseline edges added to the graph",
                    result.loop_edges);
 
-    if (result.landmarks == 0) {
-      spdlog::warn("No plane landmarks reached the minimum observation count; "
-                   "poses were left unchanged. Try lowering --min-observations "
-                   "or relaxing --assoc-distance / --assoc-normal-angle.");
+    // Mirrors the library guard (PlaneGraphOptimizer::optimize): the poses are
+    // only left untouched when there is NEITHER a landmark NOR a loop edge to
+    // constrain them. With loop edges but no landmarks the graph was solved and
+    // the poses WERE written, so this must not short-circuit.
+    if (result.landmarks == 0 && result.loop_edges == 0) {
+      spdlog::warn("No plane landmarks reached the minimum observation count "
+                   "and no loop edges were added; poses were left unchanged. "
+                   "Try lowering --min-observations or relaxing "
+                   "--assoc-distance / --assoc-normal-angle.");
       return RuxError::SUCCESS;
     }
 

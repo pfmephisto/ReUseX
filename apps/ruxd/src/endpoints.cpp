@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include <handlers.hpp> // App + add_route
+#include <route_match.hpp>
 
 #include <reusex/core/version.hpp>
 
@@ -54,12 +55,22 @@ void add_route(App &app, EndpointRegistry &reg, Endpoint meta,
 
 bool EndpointRegistry::requires_auth(const std::string &method,
                                      const std::string &path) const {
+  bool matched = false;
   for (const Endpoint &e : endpoints_) {
-    if (e.method == method && e.path == path) {
-      return e.requires_auth;
+    if (!http_method_equals(e.method, method)) {
+      continue;
+    }
+    if (!route_pattern_matches(e.path, path)) {
+      continue;
+    }
+    matched = true;
+    if (e.requires_auth) {
+      return true; // any protected rule that matches wins
     }
   }
-  return false;
+  // Fail closed: a request that matches no registered rule (typo, probe, a
+  // route added without metadata, the 404 catchall) must present a token.
+  return !matched;
 }
 
 nlohmann::json EndpointRegistry::to_json() const {

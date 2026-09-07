@@ -5,18 +5,23 @@
 #pragma once
 
 // Bearer-token authentication middleware. For every request it consults the
-// endpoint registry: if the matched route is flagged requires_auth, it demands
-// an `Authorization: Bearer <token>` header matching the configured token and
-// short-circuits with 401 otherwise. Routes that don't require auth pass
-// through untouched.
+// endpoint registry: unless the request matches a route explicitly flagged
+// public, it demands an `Authorization: Bearer <token>` header matching the
+// configured token and short-circuits with 401 otherwise. Matching is
+// fail-closed — unknown paths are treated as protected — and the token
+// comparison is constant-time (see route_match.hpp).
 //
 // If no token is configured, auth is disabled (every route passes) — convenient
-// for local development; main() logs a warning in that case.
+// for local development; main() logs a warning in that case. A *missing*
+// registry, by contrast, is a programming error: configure() throws rather than
+// letting the server come up with enforcement silently switched off.
 
 #include "endpoints.hpp"
+#include "route_match.hpp"
 
 #include <crow.h>
 
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -36,7 +41,14 @@ struct BearerAuthMiddleware {
   const EndpointRegistry *registry = nullptr;
   std::string token; // expected bearer token; empty disables auth
 
+  // Throws if `reg` is null: without a registry the middleware cannot tell
+  // protected routes from public ones, and serving anyway would mean serving
+  // everything unauthenticated.
   void configure(const EndpointRegistry *reg, std::string tok) {
+    if (reg == nullptr) {
+      throw std::runtime_error("ruxd: BearerAuthMiddleware::configure() "
+                               "requires a non-null endpoint registry");
+    }
     registry = reg;
     token = std::move(tok);
   }
@@ -45,9 +57,11 @@ struct BearerAuthMiddleware {
     const std::string &header = req.get_header_value("Authorization");
     constexpr std::string_view prefix = "Bearer ";
     const std::string_view value(header);
+    // The scheme prefix is not a secret, so comparing it directly is fine;
+    // only the token itself needs a constant-time compare.
     return value.size() > prefix.size() &&
            value.substr(0, prefix.size()) == prefix &&
-           value.substr(prefix.size()) == token;
+           constant_time_equals(value.substr(prefix.size()), token);
   }
 
   void before_handle(crow::request &req, crow::response &res, context &ctx) {
@@ -58,7 +72,17 @@ struct BearerAuthMiddleware {
     // token, even to requests carrying a wrong one.
     ctx.authenticated = !token.empty() && has_valid_token(req);
 
-    if (token.empty() || registry == nullptr) {
+    if (registry == nullptr) {
+      // configure() was never called (it rejects null registries), so we have
+      // no route metadata. Refuse to serve rather than fail open.
+      res.code = 503;
+      res.set_header("Content-Type", "application/json");
+      res.body =
+          R"({"status":"unavailable","message":"auth middleware not configured"})";
+      res.end();
+      return;
+    }
+    if (token.empty()) {
       return; // auth disabled — no enforcement
     }
     if (!registry->requires_auth(crow::method_name(req.method), req.url)) {

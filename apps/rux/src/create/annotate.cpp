@@ -8,12 +8,17 @@
 #include "spdmon.hpp"
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/utils/fmt_formatter.hpp>
+#include <reusex/vision/BackendFactory.hpp>
 #include <reusex/vision/annotate.hpp>
 
 #include <fmt/format.h>
 
 #include <cstdint>
+#include <fstream>
 #include <optional>
+#include <sstream>
+#include <string>
+#include <vector>
 
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
@@ -112,6 +117,32 @@ PERFORMANCE TUNING:
                 "interrupted runs)")
       ->default_val(opt->skip_annotated);
 
+  sub->add_option("--confidence", opt->confidence,
+                  "Detection confidence threshold in [0,1]. Lower keeps more "
+                  "(higher recall), higher keeps fewer (higher precision).")
+      ->check(CLI::Range(0.0f, 1.0f))
+      ->default_val(opt->confidence);
+
+  sub->add_option("--prompts", opt->prompts,
+                  "Comma-separated concept prompts = the classes to detect "
+                  "(open-vocabulary). Overrides the model's built-in default "
+                  "list. An optional per-concept threshold may be appended as "
+                  "':<0..1>' (else --confidence applies). Example: "
+                  "--prompts \"wall,floor,electrical outlet:0.3,person:0.6\".");
+
+  sub->add_option("--prompts-file", opt->prompts_file,
+                  "Path to a file with one concept prompt per line (lines "
+                  "starting with # and blank lines are ignored). Takes "
+                  "precedence over --prompts.")
+      ->check(CLI::ExistingFile);
+
+  sub->add_flag("--video", opt->video,
+                "Use the stateful video-tracker path (SAM 3.1). Processes "
+                "frames in temporal order on a single thread (forces "
+                "--shuffle off, --workers 1, --batch-size 1). Requires a "
+                "SAM 3.1 model directory.")
+      ->default_val(opt->video);
+
   sub->callback([opt, global_opt]() {
     spdlog::trace("calling run_subcommand_annotate");
     return run_subcommand_annotate(*opt, *global_opt);
@@ -132,17 +163,88 @@ int run_subcommand_annotate(SubcommandAnnotateOptions const &opt,
       return RuxError::INVALID_ARGUMENT;
     }
 
+    // Detect the model type up-front so we can validate/route the video path.
+    const auto model_type =
+        reusex::vision::BackendFactory::detect_model(opt.net_path);
+    const bool is_sam3p1 = (model_type == reusex::vision::Model::sam3p1);
+
+    // A SAM 3.1 directory always routes to the video path (annotate.cpp does
+    // the same automatically); --video with a non-SAM-3.1 model is an error.
+    bool video = opt.video || is_sam3p1;
+    if (opt.video && !is_sam3p1) {
+      spdlog::error("--video requires a SAM 3.1 model directory (with "
+                    "tracker-memory-encoder + tracker-memory-attention "
+                    "engines); '{}' is not one.",
+                    opt.net_path.string());
+      return RuxError::INVALID_ARGUMENT;
+    }
+    if (is_sam3p1 && !opt.video) {
+      spdlog::info("SAM 3.1 model detected; using the stateful video-tracker "
+                   "path (implicit --video).");
+    }
+
+    // Video mode forces ordered single-threaded processing. Warn if the user
+    // set conflicting dataloader options, then override them.
+    size_t batch_size = opt.batch_size;
+    size_t num_workers = opt.num_workers;
+    bool shuffle = opt.shuffle;
+    if (video) {
+      if (opt.shuffle)
+        spdlog::warn("--shuffle is incompatible with --video (frames must be "
+                     "processed in order); disabling shuffle.");
+      if (opt.batch_size != 1)
+        spdlog::warn("--batch-size {} is ignored in --video mode; forcing "
+                     "batch size 1.",
+                     opt.batch_size);
+      if (opt.num_workers != 1)
+        spdlog::warn("--workers {} is ignored in --video mode; forcing a "
+                     "single worker.",
+                     opt.num_workers);
+      shuffle = false;
+      batch_size = 1;
+      num_workers = 1;
+    }
+
+    // Resolve concept prompts: --prompts-file (one per line, # comments) takes
+    // precedence over --prompts (comma-separated). Empty => model default list.
+    std::vector<std::string> prompts;
+    auto trim = [](std::string s) {
+      const char *ws = " \t\r\n";
+      s.erase(0, s.find_first_not_of(ws));
+      auto end = s.find_last_not_of(ws);
+      s.erase(end == std::string::npos ? 0 : end + 1);
+      return s;
+    };
+    if (!opt.prompts_file.empty()) {
+      std::ifstream pf(opt.prompts_file);
+      for (std::string line; std::getline(pf, line);) {
+        auto t = trim(line);
+        if (!t.empty() && t.front() != '#')
+          prompts.push_back(t);
+      }
+    } else if (!opt.prompts.empty()) {
+      std::stringstream ss(opt.prompts);
+      for (std::string item; std::getline(ss, item, ',');) {
+        auto t = trim(item);
+        if (!t.empty())
+          prompts.push_back(t);
+      }
+    }
+
     // Build config from CLI options. --random-seed opts into entropy;
     // otherwise the (default 42) fixed seed keeps shuffled runs reproducible.
     reusex::vision::AnnotationConfig config{
         .use_cuda = opt.isCuda,
-        .batch_size = opt.batch_size,
-        .shuffle = opt.shuffle,
-        .num_workers = opt.num_workers,
+        .batch_size = batch_size,
+        .shuffle = shuffle,
+        .num_workers = num_workers,
         .prefetch_batches = opt.prefetch_batches,
         .skip_annotated = opt.skip_annotated,
+        .confidence = opt.confidence,
+        .prompts = std::move(prompts),
         .seed =
-            opt.random_seed ? std::nullopt : std::optional<uint32_t>(opt.seed)};
+            opt.random_seed ? std::nullopt : std::optional<uint32_t>(opt.seed),
+        .video = video};
 
     return reusex::vision::annotate(project_path, opt.net_path, config);
 

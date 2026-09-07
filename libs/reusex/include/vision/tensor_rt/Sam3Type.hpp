@@ -15,10 +15,16 @@ using BoxPrompt = std::pair<std::string, std::array<float, 4>>;
 struct Sam3PromptUnit {
   std::string text;
   std::vector<BoxPrompt> boxes;
+  // Per-prompt detection confidence threshold. Negative => use the frame/global
+  // threshold (TensorRTData::confidence_threshold). Lets each concept be tuned
+  // independently (e.g. a low threshold for a hard-to-see "electrical outlet",
+  // a high one for a noisy "person").
+  float confidence = -1.0f;
   Sam3PromptUnit() = default;
   explicit Sam3PromptUnit(const std::string &t,
-                          const std::vector<BoxPrompt> &b = {})
-      : text(t), boxes(b) {}
+                          const std::vector<BoxPrompt> &b = {},
+                          float conf = -1.0f)
+      : text(t), boxes(b), confidence(conf) {}
 };
 
 // Unified input struct

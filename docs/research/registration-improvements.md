@@ -474,8 +474,16 @@ would align. Findings, all measured:
 3. **GNC discards drift-correcting loop edges by construction.** A loop edge
    that corrects large drift has a huge residual at the drifted seed, which
    GNC-TLS classifies as an outlier and zeros — so `--loop-closure` alone (GNC)
-   detects but does not apply big corrections. `--loop-trust` (GNC known-inlier
-   + Huber) + a looser `--odometry-sigma-trans` lets it flow.
+   detects but does not apply big corrections. `--loop-trust` + a looser
+   `--odometry-sigma-trans` lets it flow: loop edges get their own, far more
+   generous GNC-TLS inlier threshold (`--loop-trust-inlier-cost`) instead of the
+   shared `--gnc-inlier-cost`, so a genuine large-drift correction stays an
+   inlier while an edge above even that threshold is still truncated to zero
+   weight. (A `noiseModel::Robust` wrapper cannot be used for this: GTSAM's
+   `GncOptimizer` constructor strips robust kernels from every factor it is
+   given, which would silently leave a "trusted" edge as an unbounded Gaussian.
+   Under `--no-gnc` there is no GNC machinery, so a Huber kernel provides the
+   bound instead.)
 
 4. **Two safeguards make detection usable:** PCM (keep the largest mutually
    consistent edge set — rejects aliasing false positives) and a LOWER

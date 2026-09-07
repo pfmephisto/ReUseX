@@ -32,6 +32,7 @@
 #include <Eigen/Geometry>
 
 #include <array>
+#include <random>
 #include <string>
 #include <vector>
 
@@ -47,9 +48,10 @@ namespace reusex::geometry {
 /// pose T such that pose(j) = pose(i) * T, i.e. T = pose(i)^-1 * pose(j),
 /// expressed in the same optical->world convention the graph uses.
 struct LoopEdge {
-  int i = -1;                ///< first frame (index into the frames vector)
-  int j = -1;                ///< second frame (index into the frames vector)
-  Eigen::Matrix4d T_ij;      ///< relative pose pose(i)^-1 * pose(j)
+  int i = -1; ///< first frame (index into the frames vector)
+  int j = -1; ///< second frame (index into the frames vector)
+  /// relative pose pose(i)^-1 * pose(j)
+  Eigen::Matrix4d T_ij = Eigen::Matrix4d::Identity();
   double sigma_rot = 0.05;   ///< rotational std of the edge (rad)
   double sigma_trans = 0.05; ///< translational std of the edge (m)
   int inliers = 0;           ///< RANSAC inlier correspondences supporting it
@@ -71,12 +73,12 @@ enum class LoopProposal {
   /// Appearance shortlist from a pose-INDEPENDENT bag-of-words over the frames'
   /// own ORB descriptors. Finds revisits by how the images LOOK, not where the
   /// (possibly drifted) poses say the camera was — this is what detects the
-  /// start/end loop that fixes accumulated drift. Default.
+  /// start/end loop that fixes accumulated drift. What `automatic` falls back
+  /// to once the exhaustive pair count exceeds `exhaustive_budget`.
   appearance,
-  /// Every temporally distant pair (i, j) with j - i > min_frame_gap. Pose- and
-  /// appearance-independent; the ground-truth proposer for small scans where
-  /// the
-  /// O(N^2) matcher cost is affordable (a few hundred frames).
+  /// Every temporally distant pair (i, j) with j - i >= min_frame_gap. Pose-
+  /// and appearance-independent; the ground-truth proposer for small scans
+  /// where the O(N^2) matcher cost is affordable (a few hundred frames).
   exhaustive
 };
 
@@ -235,5 +237,34 @@ detect_loop_edges(ProjectDB &db, const std::vector<int> &node_ids,
 std::vector<LoopEdge> load_loop_edges(const std::string &path,
                                       const std::vector<int> &node_ids,
                                       LoopClosureResult *out_result = nullptr);
+
+/// Internals of detect_loop_edges, exposed ONLY so the geometry stages of the
+/// pipeline can be regression-tested without a database and without RGB-D
+/// fixtures (docs/STANDARDS.md §7; same rationale as
+/// `plane_factor_consistent_residual()` in PlaneGraphOptimizer.cpp). Not part
+/// of the stable API — do not call from application code.
+namespace detail {
+
+/// RANSAC 3D-3D rigid fit: estimate @p best_T with `dst ~= best_T * src` from
+/// putative correspondences (both 3xN, column k of `src` matching column k of
+/// `dst`). Uses `opt.ransac_iterations` hypotheses and `opt.ransac_inlier_dist`
+/// as the inlier distance, refits on the full inlier set, and returns the
+/// inlier column indices (empty when fewer than 3 correspondences are given or
+/// no hypothesis was finite).
+std::vector<int> ransac_rigid(const Eigen::Matrix3Xd &src,
+                              const Eigen::Matrix3Xd &dst,
+                              const LoopClosureOptions &opt, std::mt19937 &rng,
+                              Eigen::Matrix4d &best_T);
+
+/// Pairwise Consistency Maximization (Mangelson et al. 2018): return the
+/// largest mutually consistent subset of @p edges, where two edges are
+/// consistent when chaining them through the @p seed odometry closes a cycle
+/// within `opt.pcm_trans_threshold` / `opt.pcm_rot_threshold`. Sets of two or
+/// fewer edges are returned unchanged (a pair cannot outvote itself).
+std::vector<LoopEdge> pcm_filter(std::vector<LoopEdge> edges,
+                                 const std::vector<Eigen::Matrix4d> &seed,
+                                 const LoopClosureOptions &opt);
+
+} // namespace detail
 
 } // namespace reusex::geometry

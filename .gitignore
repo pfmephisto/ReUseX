@@ -158,14 +158,27 @@ _deps/
 Testing/
 CTestTestfile.cmake
 
-# Temporary model artifacts
+# Temporary model artifacts (checkpoints can appear anywhere in the tree)
 *.ckpt
 *.pth
-models/tmp/
-models/cache/
+
+# Model weights: downloaded or exported locally, never committed (multi-GB
+# .pt/.engine files). Only the layout documentation is tracked.
+models/*
+!models/README.md
 
 # Blender development shell
 .blender-dev/
 
 # Local benchmark reports (scripts/bench.sh)
 bench-results/
+
+# Fixtures, assets and doc images are committed on purpose even though the
+# extension-based rules above (*.png, *.pcd, *.db, *.db3, *.e57, *.h5, *.onnx,
+# *.pt, *.off, ...) blanket-ignore those formats everywhere else in the repo.
+# These negations must stay below the patterns they re-include, and none of
+# tests/fixtures/, assets/, or docs/**/images/ are excluded at the directory
+# level above, so the re-inclusion takes effect (see `git check-ignore -v`).
+!tests/fixtures/**
+!assets/**
+!docs/**/images/**

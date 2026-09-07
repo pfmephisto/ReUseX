@@ -189,11 +189,31 @@ writes labels MUST follow it; any deviation is a bug.
 
 - Changes to hot paths (reconstruction, segmentation, cell complex, MIP,
   inference) must run the benchmark suite before and after; report the delta
-  in the PR. **[target]** — benchmark harness in progress.
+  in the PR (see §8.1 for the one-command workflow).
 - A change may not regress a benchmark by more than 5 % without an explicit
   justification in the PR description.
 - Prefer measuring to guessing: use `reusex::core::stopwatch` for coarse
   timing; profile before optimizing.
+
+### 8.1 Baseline vs candidate workflow
+
+`scripts/bench-compare.py` turns the "run before/after and eyeball it"
+step into a one-command answer, matching benchmarks by test-case + benchmark
+name and flagging any mean regression beyond `--threshold` percent (default
+5, matching the threshold above):
+
+```bash
+git checkout main   && scripts/bench.sh              # -> bench-results/bench-<stamp>-<sha>.xml (baseline)
+git checkout <branch> && scripts/bench.sh             # -> bench-results/bench-<stamp>-<sha>.xml (candidate)
+scripts/bench-compare.py bench-results/bench-<baseline>.xml bench-results/bench-<candidate>.xml
+```
+
+The script prints a per-benchmark table (baseline mean, candidate mean,
+delta %, both stddevs) and exits non-zero if any benchmark regressed beyond
+the threshold — paste the table into the PR description as the "report the
+delta" evidence required above. Benchmarks present in only one report are
+reported as `ADDED`/`REMOVED` rather than causing a crash. Python 3 stdlib
+only, no build step required.
 
 ## 9. Definition of Done
 

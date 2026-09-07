@@ -83,11 +83,11 @@ void buildV9Fixture(const fs::path &path) {
 
 } // namespace
 
-TEST_CASE("Fresh database is created at schema version 10",
+TEST_CASE("Fresh database is created at the latest schema version",
           "[projectdb][migration]") {
   TempPath tmp;
   ProjectDB db(tmp.path);
-  REQUIRE(db.schema_version() == 10);
+  REQUIRE(db.schema_version() == 11);
 }
 
 TEST_CASE("Migration v9 -> v10 drops orphan links and preserves valid ones",
@@ -95,9 +95,9 @@ TEST_CASE("Migration v9 -> v10 drops orphan links and preserves valid ones",
   TempPath tmp;
   buildV9Fixture(tmp.path);
 
-  // Opening triggers migrateToV10.
+  // Opening triggers migrateToV10 (and every later migration).
   ProjectDB db(tmp.path);
-  REQUIRE(db.schema_version() == 10);
+  REQUIRE(db.schema_version() >= 10);
 
   // Instances were backfilled from label_definitions.
   auto instances = db.instances("instances");

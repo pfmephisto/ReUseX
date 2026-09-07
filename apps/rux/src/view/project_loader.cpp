@@ -331,7 +331,17 @@ ProjectLoadResult load_from_project_db(const fs::path &path,
       pi.filename = pano.filename;
       pi.node_id = pano.node_id;
 
-      if (pano.node_id >= 0 && db.has_sensor_frame(pano.node_id)) {
+      // Prefer the content-aligned pose (`rux align 360`) when present; fall
+      // back to the timestamp-matched sensor frame's pose.
+      if (pano.has_pose) {
+        pi.pose = pano.pose;
+        pi.px = pi.pose[3]; // row-major: translation is [3], [7], [11]
+        pi.py = pi.pose[7];
+        pi.pz = pi.pose[11];
+        pi.pose_valid = true;
+        spdlog::debug("Panorama '{}' (aligned) at ({:.2f}, {:.2f}, {:.2f})",
+                      pi.filename, pi.px, pi.py, pi.pz);
+      } else if (pano.node_id >= 0 && db.has_sensor_frame(pano.node_id)) {
         try {
           pi.pose = db.sensor_frame_pose(pano.node_id);
           pi.px = pi.pose[3]; // row-major: translation is [3], [7], [11]

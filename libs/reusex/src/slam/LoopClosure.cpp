@@ -26,6 +26,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <random>
 #include <set>
@@ -43,6 +44,16 @@ struct FrameFeatures {
   std::vector<Eigen::Vector3d> pts3d; ///< optical-frame 3D point per keypoint
   std::vector<char> valid;            ///< depth was in range
 };
+
+/// Descriptor width every routine here assumes: OpenCV ORB always describes
+/// with 32 bytes / 256 bits. hamming32() reads exactly this many bytes per
+/// descriptor, so a block of any other width must be rejected, not trusted.
+constexpr int kOrbDescriptorBytes = 32;
+
+/// True when `m` is an empty or a usable (32-column CV_8U) descriptor block.
+bool is_orb_descriptor_block(const cv::Mat &m) {
+  return m.empty() || (m.type() == CV_8U && m.cols == kOrbDescriptorBytes);
+}
 
 FrameFeatures extract_features(ProjectDB &db, int node_id,
                                const LoopClosureOptions &opt,
@@ -65,18 +76,38 @@ FrameFeatures extract_features(ProjectDB &db, int node_id,
   depth16.convertTo(depth_f, CV_32FC1, 1.0 / 1000.0); // mm -> m
 
   const core::SensorIntrinsics intr = db.sensor_frame_intrinsics(node_id);
+  // Missing/blank intrinsics must fail loudly, not be papered over with a
+  // width of 1 (which silently produces a garbage focal scale). Mirrors the
+  // explicit guard in extract_frame_surfels (surfel_extraction.cpp).
+  if (intr.width <= 0 || intr.height <= 0) {
+    core::warn("LoopClosure: node {} has invalid intrinsic dimensions {}x{}; "
+               "skipping frame",
+               node_id, intr.width, intr.height);
+    return out;
+  }
   // Intrinsics scaled to the DEPTH resolution (mirrors surfel_extraction).
-  const double sx = static_cast<double>(depth_f.cols) / std::max(1, intr.width);
-  const double sy =
-      static_cast<double>(depth_f.rows) / std::max(1, intr.height);
+  const double sx = static_cast<double>(depth_f.cols) / intr.width;
+  const double sy = static_cast<double>(depth_f.rows) / intr.height;
   const double fx = intr.fx * sx, fy = intr.fy * sy;
   const double cx = intr.cx * sx, cy = intr.cy * sy;
-  if (fx <= 0.0 || fy <= 0.0)
+  if (fx <= 0.0 || fy <= 0.0) {
+    core::warn("LoopClosure: node {} has non-positive focal length "
+               "({:.3f}, {:.3f}); skipping frame",
+               node_id, fx, fy);
     return out;
+  }
 
   std::vector<cv::KeyPoint> kps;
   orb->detectAndCompute(gray, cv::noArray(), kps, out.descriptors);
   if (kps.empty()) {
+    out.descriptors.release();
+    return out;
+  }
+  if (!is_orb_descriptor_block(out.descriptors)) {
+    core::warn("LoopClosure: node {} produced {}x{} descriptors of type {} "
+               "(expected Nx{} CV_8U); skipping frame",
+               node_id, out.descriptors.rows, out.descriptors.cols,
+               out.descriptors.type(), kOrbDescriptorBytes);
     out.descriptors.release();
     return out;
   }
@@ -106,6 +137,12 @@ Eigen::Matrix4d rigid_fit(const Eigen::Matrix3Xd &src,
                           const Eigen::Matrix3Xd &dst) {
   return Eigen::umeyama(src, dst, false);
 }
+
+} // namespace
+
+// --- Test-visible internals (declared in LoopClosure.hpp, `detail`) --------
+
+namespace detail {
 
 /// RANSAC 3D-3D: estimate T with dst ~= T*src from putative correspondences.
 /// Returns inlier indices (empty if the fit is too weak).
@@ -163,11 +200,20 @@ std::vector<int> ransac_rigid(const Eigen::Matrix3Xd &src,
   }
   return best_inliers;
 }
+} // namespace detail
 
-// Hamming distance between two 32-byte (256-bit) ORB descriptors.
+namespace {
+
+// Hamming distance between two kOrbDescriptorBytes-byte ORB descriptors.
+// std::memcpy (not reinterpret_cast) is what makes the 64-bit popcount
+// well-defined: cv::Mat rows carry no uint64_t alignment guarantee and
+// type-punning through a pointer cast is UB.
 inline int hamming32(const uchar *a, const uchar *b) {
-  const auto *x = reinterpret_cast<const std::uint64_t *>(a);
-  const auto *y = reinterpret_cast<const std::uint64_t *>(b);
+  std::uint64_t x[4], y[4];
+  std::memcpy(x, a, sizeof(x));
+  std::memcpy(y, b, sizeof(y));
+  static_assert(sizeof(x) == kOrbDescriptorBytes,
+                "hamming32 assumes 32-byte descriptors");
   int d = 0;
   for (int k = 0; k < 4; ++k)
     d += __builtin_popcountll(x[k] ^ y[k]);
@@ -176,10 +222,11 @@ inline int hamming32(const uchar *a, const uchar *b) {
 
 /// Build a binary visual vocabulary (k-majority, the Hamming-space analogue of
 /// k-means) from a random sample of the frames' ORB descriptors. Returns a
-/// K x 32 CV_8U matrix of word centres. K may shrink if too few samples exist.
+/// K x kOrbDescriptorBytes CV_8U matrix of word centres. K may shrink if too
+/// few samples exist.
 cv::Mat build_vocabulary(const std::vector<FrameFeatures> &feats,
                          const LoopClosureOptions &opt, std::mt19937 &rng) {
-  std::vector<cv::Mat> sample; // each row a 1x32 descriptor
+  std::vector<cv::Mat> sample; // each row one descriptor (1 x 32 CV_8U)
   for (const auto &f : feats) {
     if (f.descriptors.empty())
       continue;
@@ -195,7 +242,7 @@ cv::Mat build_vocabulary(const std::vector<FrameFeatures> &feats,
   int K = std::min<int>(opt.vocab_size, static_cast<int>(sample.size()));
   if (K < 2)
     return cv::Mat();
-  cv::Mat samples(static_cast<int>(sample.size()), 32, CV_8U);
+  cv::Mat samples(static_cast<int>(sample.size()), kOrbDescriptorBytes, CV_8U);
   for (size_t s = 0; s < sample.size(); ++s)
     sample[s].copyTo(samples.row(static_cast<int>(s)));
 
@@ -204,7 +251,7 @@ cv::Mat build_vocabulary(const std::vector<FrameFeatures> &feats,
   for (int r = 0; r < samples.rows; ++r)
     order[r] = r;
   std::shuffle(order.begin(), order.end(), rng);
-  cv::Mat vocab(K, 32, CV_8U);
+  cv::Mat vocab(K, kOrbDescriptorBytes, CV_8U);
   for (int c = 0; c < K; ++c)
     samples.row(order[c]).copyTo(vocab.row(c));
 
@@ -232,7 +279,7 @@ cv::Mat build_vocabulary(const std::vector<FrameFeatures> &feats,
       const int c = assign[s];
       ++cnt[c];
       const uchar *sp = samples.ptr<uchar>(s);
-      for (int byte = 0; byte < 32; ++byte)
+      for (int byte = 0; byte < kOrbDescriptorBytes; ++byte)
         for (int bit = 0; bit < 8; ++bit)
           if (sp[byte] & (1 << bit))
             ++ones[c][byte * 8 + bit];
@@ -241,7 +288,7 @@ cv::Mat build_vocabulary(const std::vector<FrameFeatures> &feats,
       if (cnt[c] == 0)
         continue; // keep an empty word as-is
       uchar *vp = vocab.ptr<uchar>(c);
-      for (int byte = 0; byte < 32; ++byte) {
+      for (int byte = 0; byte < kOrbDescriptorBytes; ++byte) {
         uchar v = 0;
         for (int bit = 0; bit < 8; ++bit)
           if (2 * ones[c][byte * 8 + bit] > cnt[c])
@@ -297,6 +344,10 @@ bow_histograms(const std::vector<FrameFeatures> &feats, const cv::Mat &vocab) {
   }
   return hist;
 }
+
+} // namespace
+
+namespace detail {
 
 /// Pairwise Consistency Maximization (Mangelson et al. 2018). Two loop edges
 /// are "consistent" if chaining edge A, the seed odometry between the two
@@ -379,7 +430,7 @@ std::vector<LoopEdge> pcm_filter(std::vector<LoopEdge> edges,
   return kept;
 }
 
-} // namespace
+} // namespace detail
 
 std::vector<LoopEdge>
 detect_loop_edges(ProjectDB &db, const std::vector<int> &node_ids,
@@ -453,7 +504,7 @@ detect_loop_edges(ProjectDB &db, const std::vector<int> &node_ids,
       for (int j = i + gap; j < N; ++j)
         candidate_set.emplace(i, j);
     core::info("LoopClosure: {} exhaustive candidates proposed (all pairs with "
-               "index gap > {})",
+               "index gap >= {})",
                candidate_set.size(), gap);
   } else {
     // Appearance shortlist: pose-INDEPENDENT bag-of-words retrieval. This is
@@ -531,7 +582,8 @@ detect_loop_edges(ProjectDB &db, const std::vector<int> &node_ids,
       dst.col(k) = pd[k];
     }
     Eigen::Matrix4d T = Eigen::Matrix4d::Identity();
-    const std::vector<int> inliers = ransac_rigid(src, dst, opt, rng, T);
+    const std::vector<int> inliers =
+        detail::ransac_rigid(src, dst, opt, rng, T);
     best_inliers_seen =
         std::max(best_inliers_seen, static_cast<int>(inliers.size()));
     if (static_cast<int>(inliers.size()) < opt.min_match_inliers)
@@ -570,7 +622,7 @@ detect_loop_edges(ProjectDB &db, const std::vector<int> &node_ids,
   // trust on scans with repeated structure.
   if (opt.pcm && edges.size() > 2) {
     const size_t before = edges.size();
-    edges = pcm_filter(std::move(edges), seed_poses, opt);
+    edges = detail::pcm_filter(std::move(edges), seed_poses, opt);
     total_inliers = 0;
     for (const auto &e : edges)
       total_inliers += e.inliers;

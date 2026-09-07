@@ -5,6 +5,11 @@
 #pragma once
 #include "global-params.hpp"
 
+// Included for the sole purpose of MIRRORING the library defaults below
+// (docs/STANDARDS.md §4): a CLI default that references the library's own
+// value cannot silently drift away from it.
+#include <reusex/slam/PlaneGraphOptimizer.hpp>
+
 #include <CLI/CLI.hpp>
 #include <filesystem>
 #include <memory>
@@ -72,15 +77,21 @@ struct SubcommandOptimizeOptions {
   float loop_ransac_inlier_dist = 0.10f;
   float loop_max_seed_disagreement = 0.0f; // 0 = disabled (correct drift)
   float loop_min_seed_disagreement =
-      0.10f;                // drop redundant near-agreement edges
-  bool loop_trust = false;  // trust loop edges (GNC known-inlier) vs GNC-robust
+      0.10f; // drop redundant near-agreement edges
+  // Trust loop edges: give them their own generous-but-finite GNC-TLS inlier
+  // threshold (Huber under --no-gnc) instead of the shared --gnc-inlier-cost.
+  bool loop_trust = false;
+  float loop_trust_inlier_cost =
+      reusex::geometry::PlaneGraphOptions{}.loop_trust_inlier_cost;
   bool loop_no_pcm = false; // disable pairwise-consistency filtering
 
   // Surfel extraction (shared with `rux register`).
   float surfel_voxel = 0.03f;
   float min_distance = 0.0f;
   float max_distance = 4.0f;
-  int sampling_factor = 6;
+  // Mirrors the plane-graph override of the shared surfel default (8 -> 6).
+  int sampling_factor =
+      reusex::geometry::PlaneGraphOptions{}.surfel.sampling_factor;
   int confidence_threshold = 2;
 
   bool dry_run = false;

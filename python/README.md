@@ -61,7 +61,7 @@ make download          # gated HF download of sam3.1_multiplex.pt (+ bpe) → ch
 make load              # inspect checkpoint + write checkpoints/remap_report.json
 make export-detector   # → onnx/{vision,text,geometry}-encoder.onnx, decoder.onnx
 make export-tracker    # → onnx/tracker-*.onnx + onnx/tracker-meta.json
-make engines           # trtexec → engines/*.engine (FP16, dynamic shapes)
+make engines           # trtexec → engines/*.engine (FP16 + fp32 vision-encoder)
 make verify            # torch vs onnxruntime vs tensorrt parity (per engine)
 make drift             # 30-frame recurrent tracker drift test (optional)
 # or the whole chain:
@@ -72,6 +72,27 @@ Parameterise with `CHECKPOINT=`, `ONNX_DIR=`, `ENGINE_DIR=` (e.g.
 `make engines ENGINE_DIR=/models/sam3.1`). `make engines --dry-run`-equivalent:
 run `python -m reusex_sam3.build_engines --dry-run` to print the `trtexec`
 commands without building.
+
+### Precision: fp16 everywhere except the vision encoder
+
+`make engines` builds seven of the eight engines with `--fp16` and the
+`vision-encoder` in **pure fp32**. That exception is not tunable and not
+optional: the ViT-L trunk is bf16-native, and fp16's 5-bit exponent overflows it
+— features collapse to cosine ~0.33 against the fp32 reference and `rux
+annotate` then returns **all-background** segmentation with no error anywhere in
+the pipeline. bf16 and int8 don't build at all (the fused RoPE node has no
+tactic), and neither does fp32 at a max batch > 1.
+
+`build_engines.FP32_ENGINES` encodes this, so the run order above needs **no
+separate manual pass** — the builder prints an `[fp32] vision-encoder …` line
+when the override applies. Verify before a long build with:
+
+```bash
+python -m reusex_sam3.build_engines --dry-run --engines vision-encoder
+```
+
+Full rationale (including why `--layerPrecisions=…:fp32` does not help) is in
+[`../docs/sam3.1-export-guide.md`](../docs/sam3.1-export-guide.md) §6.3.
 
 ### First run after weights land
 
@@ -135,7 +156,7 @@ The full contract is reproduced and explained in
 | `wrappers_detector.py` | 4 detector engine wrappers |
 | `wrappers_tracker.py` | 4 tracker engine wrappers |
 | `export_detector.py` / `export_tracker.py` | torch.onnx.export drivers |
-| `build_engines.py` | trtexec driver (FP16, dynamic shapes, `--int8-vision` stub) |
+| `build_engines.py` | trtexec driver (FP16 + forced-fp32 `vision-encoder`, dynamic shapes, `--int8-vision` stub) |
 | `ptq_vision.py` | INT8 vision PTQ recipe (documented stub) |
 | `verify.py` | 3-way parity + 30-frame drift harness |
 

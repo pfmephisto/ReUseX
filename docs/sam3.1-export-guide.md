@@ -17,9 +17,9 @@ If you want the theory, read the other doc. If you have a checkpoint and a task
 ("re-export the decoder", "add a new tracker engine", "torch.onnx.export just
 threw an error I've never seen"), you're in the right place.
 
-All paths below are relative to the `python/` directory of this worktree
-(`.worktrees/sam3.1-tensorrt/python/`) unless stated otherwise. Every code
-reference is `file:function` so you can open the source alongside.
+All paths below are relative to the repository's `python/` directory unless
+stated otherwise. Every code reference is `file:function` so you can open the
+source alongside.
 
 ## Table of contents
 
@@ -513,8 +513,8 @@ DETR decoder's cuda-pinned coord cache (`_patch_decoder_coord_cache` nulls
 *numerical* one at fp16 engine runtime: `-inf` in a fused attention softmax
 produces NaNs. `additive_mask_from_bool` clamps to the finite sentinel
 `NEG_INF_FP16 = -1e4` (`exp(-1e4) ≈ 0` in softmax, no fp16 overflow).
-`build_engines.FP16_MASK_CLAMP_ENGINES = {"tracker-memory-attention", "decoder"}`
-flags where this matters.
+This matters for the fp16 engines that consume an additive attention mask —
+`tracker-memory-attention` and `decoder`.
 
 > **A native-path gotcha you *will* hit while writing patches:** an import that
 > "should" work fails because the symbol moved. Example we hit:
@@ -566,8 +566,9 @@ $SAM3_PY -m reusex_sam3.export_tracker  --checkpoint "$CKPT" --onnx-dir onnx
 
 `build_engines.py` shells out to `trtexec`, one invocation per engine, deriving
 `--minShapes/--optShapes/--maxShapes` from `SHAPE_PROFILES` and adding `--fp16`
-by default plus `--memPoolSize=workspace:8192`. Preview the commands without
-building:
+by default plus `--memPoolSize=workspace:8192`. Engines listed in
+`FP32_ENGINES` (the `vision-encoder`) override all three — see §6.3. Preview the
+commands without building:
 
 ```bash
 $SAM3_PY -m reusex_sam3.build_engines --dry-run
@@ -593,16 +594,29 @@ currently raises until a calibration set is wired in.
 > - The ViT is **Myelin-fused** inside TensorRT, so per-layer fp16→fp32
 >   precision constraints don't help — TensorRT fuses across the layers you tried
 >   to pin.
-> - **bf16 won't build** either.
-> - So the vision encoder must be built **fp32**. Pass `--no-fp16` for it:
->   ```bash
->   env -u LD_LIBRARY_PATH $SAM3_PY -m reusex_sam3.build_engines \
->       --engines vision-encoder --no-fp16
->   ```
+> - **bf16 won't build** either, and neither does **int8** (`ptq_vision.py`) —
+>   the same fused RoPE node has no tactic for any of them.
+> - fp32 with a **max batch > 1** also fails on that node.
 >
-> The **text encoder, decoder, and all tracker engines are fp16-fine** — build
-> those with the default `--fp16`. (Selective-precision fp16 vision is tracked as
-> an open experiment, not yet working.)
+> **This is now enforced in code, so you do not need a separate manual pass.**
+> `build_engines.FP32_ENGINES = {"vision-encoder"}` makes the builder ignore
+> `--fp16` for that engine and apply the only configuration that builds: pure
+> fp32, `FP32_WORKSPACE_MB = 4096`, and a fixed batch of 1
+> (`FP32_SHAPE_OVERRIDES`). Plain `make engines` therefore produces a correct
+> engine set, and the run prints an `[fp32] vision-encoder ...` line when the
+> override kicks in. Confirm with:
+>
+> ```bash
+> $SAM3_PY -m reusex_sam3.build_engines --dry-run --engines vision-encoder
+> ```
+>
+> The fixed batch costs nothing at inference: the C++ probes each engine's max
+> image batch and chunks its input to match (`Sam3::forward`), and the SAM 3.1
+> video path is batch-1 by construction.
+>
+> The **text encoder, decoder, and all tracker engines are fp16-fine** — those
+> keep the default `--fp16`. (Selective-precision fp16 vision is tracked as an
+> open experiment, not yet working.)
 
 ---
 
@@ -659,14 +673,14 @@ sides for the tensor name after any rename.
 
 | symptom | cause | fix |
 |---|---|---|
-| Annotation output is **all background** | `vision-encoder` built fp16 → ViT bf16 corruption (cosine ~0.33) | Rebuild vision-encoder **fp32** (`--no-fp16`, §6.3). Other engines stay fp16. |
+| Annotation output is **all background** | `vision-encoder` built fp16 → ViT bf16 corruption (cosine ~0.33) | Rebuild vision-encoder with current `build_engines.py`, which forces fp32 via `FP32_ENGINES` (§6.3). Other engines stay fp16. |
 | `torch.onnx.export`: **"mat1 and mat2 must have the same dtype"** (BFloat16 vs Float) | fused `addmm_act` casts to bf16, hits fp32 `fc2` | `_patch_fused_addmm_act` (fp32 linear+act); confirm it's in `apply_all()`. Patch **both** import sites. |
 | enqueue: **"reshape would change the total number of elements ... 2304 to 1024"** | baked `prompt_len`/`num_boxes` constant ≠ runtime shape | Fix the value at export (`GEOM_NUM_BOXES=8`, decoder `L=32`) and set `SHAPE_PROFILES` `min==opt==max` for that dim (§5b). |
 | `torch.onnx.export`: **"cannot import name `functional_attention` from `sam3.sam.transformer`"** | symbol moved | It's in `sam3.model.decoder` — grep `/tmp/sam3-inspect` for the real home (§5 gotcha). |
 | `UnsupportedOperatorError` on `_upsample_bilinear2d_aa` | `F.interpolate(antialias=True)` | `_patch_mask_downsampler_antialias` (antialias=False; no-op on upsample). |
 | **"Expected all tensors to be on the same device, cuda:0 and cpu"** during CPU export | RoPE freqs / coord cache built on cuda as plain attributes | `_patch_simple_rope` / `_patch_decoder_coord_cache` move to `q.device` / recompute on input device. |
 | TensorRT: **"input shapes not specified"** at runtime | static engine needs explicit run dims | Per-engine `set_binding_dim` / `set_run_dims` on the C++ side within the built profile (see `Sam3p1.cpp`). |
-| fp16 attention output is **NaN** | `-inf` additive mask overflows fused fp16 softmax | Clamp to `-1e4` (`additive_mask_from_bool` / `NEG_INF_FP16`); engine listed in `FP16_MASK_CLAMP_ENGINES`. |
+| fp16 attention output is **NaN** | `-inf` additive mask overflows fused fp16 softmax | Clamp to `-1e4` (`additive_mask_from_bool` / `NEG_INF_FP16`); affects the fp16 mask-consuming engines (`tracker-memory-attention`, `decoder`). |
 | `make load` **AssertionError**: non-allowlisted residual keys | checkpoint key drift vs built model | Run `inspect_checkpoint.py`, read residuals, extend `_REGEX_TRANSFORMS` / `_ALLOWLIST_PREFIXES` (§3.3). |
 | `trtexec` fails with library/symbol errors | venv torch nvidia libs collide with system TensorRT | Run `trtexec` (and `build_engines`) under `env -u LD_LIBRARY_PATH` (§1.2). |
 | import errors on `import torch` / driver symbols | `LD_LIBRARY_PATH` missing gcc-lib / driver / torch nvidia libs | `source /tmp/sam3env.sh` before running (§1.2). |

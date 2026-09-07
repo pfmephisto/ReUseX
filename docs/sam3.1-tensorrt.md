@@ -337,8 +337,9 @@ poison the whole output.
 `masked_fill(bool_mask, -1e4)` — a **finite fp16-safe sentinel** (`NEG_INF_FP16
 = -1.0e4`) instead of `-inf`. `-1e4` is small enough that `exp(-1e4) ≈ 0` in the
 softmax (the padded key still gets ~zero weight) but large enough not to
-overflow fp16. `build_engines.FP16_MASK_CLAMP_ENGINES = {"tracker-memory-attention",
-"decoder"}` flags the engines where this matters most.
+overflow fp16. The engines where this matters most are
+`tracker-memory-attention` and `decoder` — the two fp16 engines that consume an
+additive attention mask.
 
 > Nuance for the tracker: the exported `tracker-memory-attention` graph carries
 > **no** mask-add at all — the decoupled RoPE encoder relies on RoPE + fixed
@@ -356,11 +357,20 @@ overflow fp16. `build_engines.FP16_MASK_CLAMP_ENGINES = {"tracker-memory-attenti
 command-line engine builder), one invocation per engine. TensorRT reads the ONNX
 graph, picks fast kernels for the target GPU, and serialises a `.engine`.
 
-### FP16 by default
+### FP16 by default — except the vision encoder
 
 Every engine builds with `--fp16` by default (half precision). This roughly
 halves memory bandwidth and lights up tensor cores; the fp16-mask clamp (§4.5)
 is what keeps fp16 numerically safe.
+
+**The `vision-encoder` is the one exception and is always built fp32.** Its
+ViT-L trunk is bf16-native, and fp16's 5-bit exponent overflows it — cosine
+collapses to ~0.33 and annotation output goes all-background with no error.
+`build_engines.FP32_ENGINES = {"vision-encoder"}` forces fp32 (plus the smaller
+`FP32_WORKSPACE_MB` pool and a fixed batch of 1, the only configuration that
+builds), so `make engines` yields a correct set with no manual second pass. See
+`docs/sam3.1-export-guide.md` §6.3 for why per-layer precision constraints don't
+help.
 
 ### Dynamic shapes (min / opt / max)
 
@@ -394,9 +404,10 @@ IoU ≥ 0.95; fall back to fp16 if the first/last blocks regress).
 
 ### The fp16 mask-clamp caveat for memory-attention
 
-As noted in §4.5, `tracker-memory-attention` and `decoder` are in
-`FP16_MASK_CLAMP_ENGINES`. Keep the `-1e4` clamp in place for those if a float
-mask is ever reintroduced; the current memory-attention graph is mask-free.
+As noted in §4.5, `tracker-memory-attention` and `decoder` are the fp16 engines
+that would consume an additive attention mask. Keep the `-1e4` clamp in place
+for those if a float mask is ever reintroduced; the current memory-attention
+graph is mask-free.
 
 ### Verifying the engines
 
@@ -533,7 +544,8 @@ This table is the source of truth reproduced from
 `python/reusex_sam3/__init__.py` (`ENGINE_IO_CONTRACT`). The C++ side binds to
 these exact tensor names. Shapes use symbolic dims for dynamic axes: `B` batch,
 `N` boxes, `L` prompt length, `M` memory length, `K` objects, `P` points,
-`S` sparse. All float tensors are fp32 in ONNX (TensorRT builds fp16); mask
+`S` sparse. All float tensors are fp32 in ONNX (TensorRT builds fp16, except the
+always-fp32 `vision-encoder` — see §5); mask
 tensors are `bool`; token-id tensors are `int64` (opset-17 `Gather` wants int64
 indices).
 
@@ -733,7 +745,7 @@ several points can only be finalised against the real gated weights:
 | Detector engine wrappers | `python/reusex_sam3/wrappers_detector.py` |
 | Tracker engine wrappers | `python/reusex_sam3/wrappers_tracker.py` |
 | ONNX export drivers | `python/reusex_sam3/export_{detector,tracker}.py` |
-| trtexec driver (fp16, dynamic shapes, int8 stub) | `python/reusex_sam3/build_engines.py` |
+| trtexec driver (fp16 + forced-fp32 vision encoder, dynamic shapes, int8 stub) | `python/reusex_sam3/build_engines.py` |
 | INT8 vision PTQ recipe (stub) | `python/reusex_sam3/ptq_vision.py` |
 | 3-way parity + drift harness | `python/reusex_sam3/verify.py` |
 | Run order + quickstart | `python/README.md` |

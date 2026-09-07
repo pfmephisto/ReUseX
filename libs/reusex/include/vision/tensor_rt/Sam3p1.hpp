@@ -145,9 +145,19 @@ class TensorRTSam3p1 : public IVideoModel {
   // vision-encoder / memory-encoder layout) to seq-major [H*W,C] (the
   // memory-attention token layout). Implemented as a host round-trip transpose
   // (D2H → CPU transpose → H2D) because no transpose kernel exists in this
-  // module and the task forbids adding one; the element count (C*H*W ≈ 1.3M
-  // floats) makes this cheap enough for the per-frame memory path. Uses
-  // transpose_scratch_ as staging.
+  // module; the element count (C*H*W ≈ 1.3M floats) makes this cheap enough for
+  // the per-frame memory path, which only runs when memory conditioning is
+  // enabled (off by default). Uses transpose_scratch_ as staging.
+  //
+  // TODO: Replace host round-trip CHW->HWC transpose with a CUDA kernel
+  // category=Vision estimate=2h
+  // The transpose currently costs a D2H copy, a CPU pass over ~1.3M floats and
+  // an H2D copy per call, plus a stream sync that serialises the frame.
+  // Only the (off-by-default) memory-conditioning path hits it, so it is not on
+  // the hot path today; it must be a device kernel before that path is revived.
+  // 1. Add a tiled transpose kernel alongside the other .cu sources
+  // 2. Drop transpose_scratch_'s host staging and the cudaStreamSynchronize
+  // 3. Verify against the host implementation on a fixed fixture
   void rearrange_chw_to_hwc(float *d_src, float *d_dst, int c, int h, int w,
                             void *stream);
 

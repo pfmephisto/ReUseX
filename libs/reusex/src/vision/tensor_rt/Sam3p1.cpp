@@ -700,9 +700,10 @@ void TensorRTSam3p1::postprocess(InferResult &image_result,
 void TensorRTSam3p1::rearrange_chw_to_hwc(float *d_src, float *d_dst, int c,
                                           int h, int w, void *stream) {
   // Convert spatial [C,H,W] (index c*H*W + h*W + w) to seq-major [H*W,C]
-  // (index (h*W+w)*C + c). No transpose kernel exists in this module and the
-  // task forbids adding one, so we do a host round-trip: D2H the source plane,
-  // transpose on the CPU into a second host plane, then H2D into the dst.
+  // (index (h*W+w)*C + c). No transpose kernel exists in this module, so we
+  // do a host round-trip: D2H the source plane, transpose on the CPU into a
+  // second host plane, then H2D into the dst. See the TODO on the declaration
+  // in Sam3p1.hpp for replacing this with a device kernel.
   cudaStream_t s = (cudaStream_t)stream;
   const size_t hw = static_cast<size_t>(h) * w;
   const size_t n = static_cast<size_t>(c) * hw;

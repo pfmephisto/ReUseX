@@ -37,7 +37,7 @@ export-tracker:
 
 export: export-detector export-tracker
 
-## build all TensorRT engines (FP16) via trtexec
+## build all TensorRT engines via trtexec (FP16, except the fp32-forced vision-encoder)
 engines:
 	$(PY) -m reusex_sam3.build_engines --onnx-dir $(ONNX_DIR) --engine-dir $(MODEL_DIR)
 

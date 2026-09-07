@@ -6,9 +6,14 @@
 Build TensorRT engines from the exported ONNX graphs by shelling out to
 ``trtexec`` (one invocation per engine).
 
-Defaults to FP16. Dynamic-shape engines get concrete ``--minShapes`` /
-``--optShapes`` / ``--maxShapes`` derived from the contract. Engines land in the
-output model dir (default ``engines/``) as ``<engine>.engine``.
+Defaults to FP16, **except** for the engines listed in ``FP32_ENGINES`` (the
+bf16-native ``vision-encoder``), which are always forced to a pure fp32 build —
+fp16 silently corrupts the ViT trunk into all-background output. No separate
+manual pass is needed: ``make engines`` produces a correct set.
+
+Dynamic-shape engines get concrete ``--minShapes`` / ``--optShapes`` /
+``--maxShapes`` derived from the contract. Engines land in the output model dir
+(default ``engines/``) as ``<engine>.engine``.
 
 ``--int8-vision`` is a documented stub: true INT8 for the vision encoder should
 go through NVIDIA TensorRT Model-Optimizer ONNX PTQ (see ``ptq_vision.py``),
@@ -89,9 +94,33 @@ SHAPE_PROFILES = {
     },
 }
 
-# Engines that benefit from stronger fp16 mask-overflow protection. For
-# memory-attention keep additive masks clamped (-1e4) in the graph (fixes.py).
-FP16_MASK_CLAMP_ENGINES = {"tracker-memory-attention", "decoder"}
+# Engines that MUST be built in pure fp32 — never fp16 (nor bf16/int8).
+#
+# The SAM 3.1 ViT-L trunk is bf16-native (the native model runs it under
+# autocast). bf16 keeps fp32's 8-bit exponent; TensorRT fp16 has only 5 exponent
+# bits, so the ViT activations overflow and the features become garbage —
+# cosine ~0.33 against the fp32 reference (which scores 1.000). Downstream that
+# surfaces as *all-background* annotation output with no error anywhere.
+#
+# It is not fixable with trtexec flags: the trunk is Myelin-fused into
+# ForeignNodes, so `--precisionConstraints=obey --layerPrecisions=...:fp32` does
+# not penetrate the fusion, and the fused RoPE node has no bf16 or int8 tactic.
+# See docs/sam3.1-export-guide.md section 6.3.
+FP32_ENGINES = {"vision-encoder"}
+
+# The fp32 ViT only builds with a modest workspace; the default 8 GiB pool makes
+# the builder pick tactics that fail on the fused RoPE node.
+FP32_WORKSPACE_MB = 4096
+
+# ...and it only builds at a fixed batch of 1 — a max batch > 1 fails on that
+# same fused RoPE node. Harmless for inference: the C++ probes the engine's max
+# image batch and chunks its input to match (Sam3::forward), and the SAM 3.1
+# video path is batch-1 by construction.
+FP32_SHAPE_OVERRIDES = {
+    "vision-encoder": {
+        "images": ((1, 3, 1008, 1008), (1, 3, 1008, 1008), (1, 3, 1008, 1008)),
+    },
+}
 
 
 def _fmt(shapes: dict, which: int) -> str:
@@ -122,6 +151,23 @@ def build_engine(
     engine_path = engine_dir / f"{engine}.engine"
     engine_dir.mkdir(parents=True, exist_ok=True)
 
+    # Engines in FP32_ENGINES override the caller's precision/workspace/shape
+    # choices: fp16 does not merely lose accuracy there, it silently produces a
+    # broken engine (see the FP32_ENGINES comment). --int8-vision still wins for
+    # the vision encoder, since that path is an explicit opt-in experiment.
+    force_fp32 = engine in FP32_ENGINES and not (
+        int8_vision and engine == "vision-encoder"
+    )
+    if force_fp32:
+        if fp16:
+            print(
+                f"[fp32] {engine} is bf16-native; forcing a pure fp32 build "
+                f"(fp16 corrupts it to all-background output) with "
+                f"workspace:{FP32_WORKSPACE_MB}"
+            )
+        fp16 = False
+        workspace_mb = min(workspace_mb, FP32_WORKSPACE_MB)
+
     cmd = [
         trtexec or "trtexec",
         f"--onnx={onnx_path}",
@@ -129,6 +175,8 @@ def build_engine(
         f"--memPoolSize=workspace:{workspace_mb}",
     ]
     shapes = SHAPE_PROFILES.get(engine)
+    if force_fp32 and engine in FP32_SHAPE_OVERRIDES:
+        shapes = {**(shapes or {}), **FP32_SHAPE_OVERRIDES[engine]}
     if shapes:
         cmd += [
             f"--minShapes={_fmt(shapes, 0)}",
@@ -163,7 +211,12 @@ def main(argv=None) -> int:
     ap.add_argument("--onnx-dir", default=str(DEFAULT_ONNX_DIR))
     ap.add_argument("--engine-dir", default=str(DEFAULT_ENGINE_DIR))
     ap.add_argument("--engines", nargs="*", default=ALL_ENGINES)
-    ap.add_argument("--no-fp16", action="store_true")
+    ap.add_argument(
+        "--no-fp16",
+        action="store_true",
+        help="Build every engine in fp32. Engines in FP32_ENGINES are fp32 "
+        "regardless of this flag.",
+    )
     ap.add_argument(
         "--int8-vision",
         action="store_true",

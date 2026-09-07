@@ -5,8 +5,8 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # Models
 
-This directory holds pre-trained model weights used by `rux annotate` and
-related vision commands. **Model files are never committed to this repo** —
+This directory holds pre-trained model weights used by `rux create annotate`
+and related vision commands. **Model files are never committed to this repo** —
 `.gitignore` ignores everything under `models/` except this README (`models/*`
 + `!models/README.md`). Weights are downloaded or exported locally by each
 developer/CI runner as needed.
@@ -14,7 +14,7 @@ developer/CI runner as needed.
 ## Expected layout
 
 Place files directly in this directory (or point the CLI at another path
-with `--model`/`--net`):
+with `-n`/`--net`):
 
 | File | Purpose |
 |---|---|
@@ -32,6 +32,6 @@ with `--model`/`--net`):
   for your target GPU (engines are not portable across GPU architectures /
   TensorRT versions, so they must be built per machine, not shared).
 
-See `CLAUDE.md` ("Pre-trained Models" section) and `rux annotate --help` for
+See `CLAUDE.md` ("Pre-trained Models" section) and `rux create annotate --help` for
 how the CLI locates and selects model backends
 (`vision/BackendFactory.hpp` picks a backend from the file extension).

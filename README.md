@@ -11,8 +11,8 @@ ReUseX is a comprehensive tool for processing 3D point cloud scans of building i
 
 ## Features
 
-- **Point Cloud Processing**: Import sensor frames from RTABMap SLAM databases, MuSHRoom captures, E57/PLY clouds, 360° panoramas and survey photos
-- **Pose Refinement**: Plane-landmark pose-graph optimization and joint pairwise registration (GTSAM)
+- **Point Cloud Processing**: Import sensor frames from RTABMap SLAM databases, MuSHRoom and ARKitScenes captures, E57/PLY clouds, 360° panoramas and survey photos
+- **Pose Refinement**: Plane-landmark pose-graph optimization with optional wide-baseline loop closure, joint pairwise registration (GTSAM), and content-based 360° panorama alignment
 - **Planar Segmentation**: Extract and segment planar surfaces (walls, floors, ceilings) via noise-adaptive region growing
 - **Room Segmentation**: Automatically partition point clouds into individual rooms with Leiden community detection over the plane graph (igraph)
 - **Semantic Segmentation**: Deep learning-based identification of architectural elements using YOLO and SAM3 models
@@ -148,6 +148,7 @@ rux -vv <subcommand>
 # Import scan data from various sources
 rux import rtabmap <path>              # RTABMap SLAM database
 rux import mushroom <path>             # MuSHRoom RGB-D benchmark capture
+rux import arkitscenes <path>          # ARKitScenes iPad-LiDAR RGB-D capture
 rux import e57|ply <path>              # Point cloud files
 rux import 360 <path>                  # 360° panoramic images
 rux import photos <path>               # Manual survey photos
@@ -155,12 +156,15 @@ rux import csv|materialepas <path>     # Element / material passport data
 
 # Refine the stored per-frame sensor poses
 rux optimize                           # Plane-landmark pose graph
+rux optimize --loop-closure            # ...plus wide-baseline loop edges
 rux register                           # Joint pairwise registration
+rux align 360                          # Content-based 360 panorama alignment
 
 # Create derived data products (all creation operations)
 rux create clouds                      # Back-project depth frames into a cloud
 rux create dense                       # Dense cloud via OpenMVS MVS
 rux create annotate -n <model>         # ML inference on sensor frames
+rux create annotate-360 -n <model>     # SAM3 on 360 panoramas (perspective-tiled)
 rux create project                     # Project 2D labels onto the 3D cloud
 rux create planes                      # Detect and segment planar surfaces
 rux create rooms                       # Segment into rooms (Leiden clustering)
@@ -244,16 +248,22 @@ the `find_package` calls in `libs/reusex/cmake/Dependencies.cmake` and the
 
 ## Pre-trained Models
 
-Models are not distributed with the repository. Pass a path with
-`rux create annotate -n/--net <path>` — either a single model file or a
-directory of sub-models. The model family and inference backend are detected
-from the path (`libs/reusex/include/vision/BackendFactory.hpp`):
+Model weights are never committed. See [models/README.md](models/README.md) for
+the expected layout and where each file comes from.
+
+Pass a path with `rux create annotate -n/--net <path>` — either a single model
+file or a directory of sub-models. The model family and inference backend are
+detected from the path (`libs/reusex/include/vision/BackendFactory.hpp`):
 
 - **SAM3 / SAM2** (Segment Anything): any path whose name contains `sam3` or
   `sam2`, or a directory containing a `vision-encoder.*` file
 - **YOLO**: anything else, e.g. `yolo11l.pt` or `yolo11l-seg.pt`
 - Backend by extension/layout: `.engine` → TensorRT, `.onnx` → ONNX Runtime,
   `.pt` → LibTorch
+
+SAM 3.1 TensorRT engines are exported by the standalone `reusex_sam3` pipeline
+in [python/](python/README.md); the full write-up is in
+[docs/sam3.1-tensorrt.md](docs/sam3.1-tensorrt.md).
 
 ## License
 

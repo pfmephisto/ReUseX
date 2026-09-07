@@ -36,13 +36,14 @@ worth fixing here.
 ReUseX is a C++20/CUDA project for processing 3D point cloud scans of building interiors. It combines geometric processing, deep learning, and computational geometry to create semantic 3D models for building reuse and renovation projects.
 
 **Key capabilities:**
-- Sensor-frame import from RTABMap SLAM databases, MuSHRoom captures, E57/PLY
-  clouds, 360° panoramas and survey photos
+- Sensor-frame import from RTABMap SLAM databases, MuSHRoom and ARKitScenes
+  captures, E57/PLY clouds, 360° panoramas and survey photos
 - Pose refinement: plane-landmark pose-graph optimization (GTSAM) and joint
   pairwise registration
 - Planar segmentation (noise-adaptive region growing) and room segmentation
   (Leiden clustering over a plane graph, via igraph)
-- Semantic segmentation via YOLO / SAM3 models (TensorRT, ONNX Runtime, LibTorch)
+- Semantic segmentation via YOLO / SAM3 models (TensorRT, ONNX Runtime, LibTorch),
+  including SAM3 on 360° panoramas via perspective tiling
 - Cell complex 3D reconstruction with a MIP solve (HiGHS CPU / cuOpt GPU)
 - Mesh generation with texture mapping; dense MVS clouds via OpenMVS
 - Export to PLY, E57, OpenNURBS (.3dm), COLMAP, Speckle, CSV, MaterialEPAS
@@ -131,8 +132,16 @@ ctest --verbose
 ctest -R test_name_pattern
 ```
 
-Tests live in `tests/`: `unit/` (per-module: `core`, `geometry`, `io`, `utils`,
-`vision`), `integration/`, `benchmarks/`, `support/`, `fixtures/`. Catch2 v3.
+Tests live in `tests/`: `unit/` (per-module: `core`, `geometry`, `io`, `ruxd`,
+`utils`, `vision`), `integration/`, `benchmarks/`, `support/`, `fixtures/`.
+Catch2 v3.
+
+Benchmarks: `scripts/bench.sh` produces an XML report and
+`scripts/bench-compare.py` diffs a baseline against a candidate, failing on a
+regression beyond `--threshold` percent. The required before/after workflow is
+[`docs/STANDARDS.md` §8.1](docs/STANDARDS.md#81-baseline-vs-candidate-workflow);
+`scripts/bench-arkitscenes.sh` and `scripts/bench-mushroom.sh` drive
+dataset-level runs.
 
 ### Documentation
 
@@ -180,16 +189,20 @@ ReUseX/
 │   └── cmake/RuxExecutable.cmake
 ├── apps/ruxd/                      # HTTP service worker (ruxd)
 ├── apps/blender/reusex_panel/      # Blender add-on
-├── bindings/python/                # Python bindings (scikit-build-core)
+├── bindings/python/                # pybind11 bindings (read-only ProjectDB access)
+├── python/                         # reusex_sam3: SAM 3.1 -> ONNX -> TensorRT export
+├── models/                         # Model weights (gitignored; see models/README.md)
 ├── tests/                          # unit/ integration/ benchmarks/ support/ fixtures/
-├── docs/                           # STANDARDS.md, CONTRACTS.md, guides/, design/
+├── docs/                           # STANDARDS.md, CONTRACTS.md, guides/, design/, research/
 ├── cmake/                          # Shared CMake utilities
 ├── overlays/ pkgs/ devshells/      # Nix packaging
-└── tools/ scripts/ completions/    # Dev tooling
+└── tools/ scripts/ completions/    # Dev tooling (bench.sh, bench-compare.py, check.sh)
 ```
 
-There is no top-level `python/` directory; Python lives in `bindings/python/`
-and `apps/blender/`.
+Three distinct Python trees, easy to confuse:
+`bindings/python/` (C++ bindings, built by CMake), `python/` (the standalone
+`reusex_sam3` model-export pipeline, run in its own venv — **not** built by
+CMake), and `apps/blender/reusex_panel/` (Blender add-on).
 
 ### Module targets
 
@@ -249,15 +262,22 @@ The former single `geometry` module was split by pipeline stage in #222.
 - `quality_metrics.hpp` / `accuracy_metrics.hpp`: backing `rux analyze`
 
 **slam** (`include/slam/`):
-- `PlaneGraphOptimizer.hpp`: plane-landmark pose graph (GTSAM), `rux optimize`
+- `PlaneGraphOptimizer.hpp`: plane-landmark pose graph (GTSAM), `rux optimize`.
+  Also hosts the optional wide-baseline loop-closure front-end (ORB + depth →
+  RANSAC), enabled with `--loop-closure`; run `rux optimize --help` for the
+  current flag list rather than trusting a doc.
 - `JointPairwiseRegistration.hpp`: `rux register`
+- `PanoramaAlignment.hpp`: content-based 360 pose refinement, `rux align 360`
 
 **geometry_common** (`include/geometry/`, layer 1½): the real (non-shim) headers
 there — `utils.hpp`, `cgal_utils.hpp`, `transform_utils.hpp`,
-`CoplanarPolygon.hpp`, `BuildingComponent.hpp`, `unweld.hpp` — are the CGAL/PCL
-primitives shared by the peers above and by `core`. Sources are listed
-explicitly (not globbed) in `reusexLibrary.cmake`, so a new
-`src/geometry/*.cpp` **does** need a CMake edit; every other module is globbed.
+`CoplanarPolygon.hpp`, `BuildingComponent.hpp`, `unweld.hpp`,
+`EquirectProjection.hpp` — are the CGAL/PCL/OpenCV primitives shared by the
+peers above and by `core`. (`EquirectProjection` sits here because both `slam`
+and `vision` need equirect↔perspective reprojection and peers may not link each
+other.) Sources are listed **explicitly** (not globbed) in
+`reusexLibrary.cmake`, so a new `src/geometry/*.cpp` **does** need a CMake edit;
+every other module is globbed.
 
 ### Vision/ML Module
 
@@ -273,6 +293,10 @@ explicitly (not globbed) in `reusexLibrary.cmake`, so a new
   or a directory containing `vision-encoder.*`, means `Model::sam3`; otherwise
   `Model::yolo`. `BackendFactory::detect_backend()` picks the backend from the
   extension / directory contents.
+- **Construct models via `reusex::vision::create_model_from_path()`**
+  (`vision/model_factory.hpp`), not by reaching for a backend class directly:
+  the `REUSEX_USE_*` backend defines are attached to `reusex_vision` by
+  `configure_ml_backends()`, so they are not visible from the app layer.
 - `enum class Backend { opencv, tensor_rt, libtorch, dnn, onnx_runtime,
   openvino, unknown }`.
 
@@ -308,8 +332,8 @@ tree — if a doc mentions `RTABMapDatabase`, that doc is stale.
   `segmentation_images`, building components, material passports,
   instance↔material links, and the pipeline log
 - Migrating schema; `LATEST_SCHEMA_VERSION` is defined in
-  `src/core/ProjectDB.cpp` (currently 10) — read it there rather than trusting
-  a doc
+  `src/core/ProjectDB.cpp` — read it there rather than trusting a doc (it moves
+  most releases)
 - **NOT thread-safe** (sqlite3): create a per-thread instance if needed
 - **No image rotation.** Images and labels are stored in their original
   orientation; the 90°-clockwise rotation the old RTABMap reader applied is gone
@@ -345,9 +369,10 @@ Top-level commands, as registered in `apps/rux/src/rux.cpp`:
 
 | Command | Sub-commands | Source |
 |---|---|---|
-| `import` | `rtabmap`, `mushroom`, `e57`, `ply`, `materialepas`, `csv`, `360`, `photos` | `src/import/` |
-| `create` | `clouds`, `dense`, `annotate`, `material`, `project`, `planes`, `rooms`, `instances`, `materials`, `mesh`, `texture`, `windows` | `src/create/` |
+| `import` | `rtabmap`, `mushroom`, `arkitscenes`, `e57`, `ply`, `materialepas`, `csv`, `360`, `photos` | `src/import/` |
+| `create` | `clouds`, `dense`, `annotate`, `annotate-360`, `material`, `project`, `planes`, `rooms`, `instances`, `materials`, `mesh`, `texture`, `windows` | `src/create/` |
 | `export` | `ply`, `e57`, `materialepas`, `csv`, `rhino`, `semantic-images`, `speckle`, `colmap` | `src/export/` |
+| `align` | `360` (content-based panorama pose refinement) | `src/align/` |
 | `edit` | `downsample` | `src/edit/` |
 | `analyze` | `quality`, `accuracy` | `src/analyze/` |
 | `optimize` | — (plane-landmark pose graph) | `src/optimize.cpp` |
@@ -359,7 +384,8 @@ Top-level commands, as registered in `apps/rux/src/rux.cpp`:
 | `view` | — (viewer) | `src/view/` |
 | `assemble` | — (multi-scan assembly) | `src/assemble.cpp` |
 
-`create`, `import`, `export`, `edit`, `analyze` all `require_subcommand(1)`.
+`create`, `import`, `export`, `edit`, `analyze`, `align` all
+`require_subcommand(1)`.
 Global flags: `-v/-vv/-vvv`, `-V/--version`, `-L/--license`, `-D/--visualize`,
 `-p/--project <path.rux>` (defaults to `./project.rux`).
 
@@ -740,15 +766,26 @@ Anything not found there is not a dependency.
 
 ## Pre-trained Models
 
-Models are **not** in the repo. Pass a path with `rux create annotate -n/--net`;
-it accepts either a single file or a directory of sub-models.
-`BackendFactory::detect_model()` decides YOLO vs SAM3 from the path:
+Weights are **never committed**. `models/` is gitignored except for its README
+— [`models/README.md`](models/README.md) is the reference for the expected
+layout and where each file comes from.
+
+Pass a path with `rux create annotate -n/--net`; it accepts either a single file
+or a directory of sub-models. `BackendFactory::detect_model()` decides YOLO vs
+SAM3 from the path:
 
 - **SAM3/SAM2** — any path whose stem contains `sam3` or `sam2`, or a directory
   containing a `vision-encoder.*` file
 - **YOLO** — everything else (e.g. `yolo11l.pt`, `yolo11l-seg.pt`)
 - **TensorRT engines**: `.engine` files (or a directory of them) for optimized
   inference; `.onnx` selects the ONNX Runtime backend, `.pt` LibTorch
+
+**SAM 3.1 engines** are produced by the `reusex_sam3` pipeline in `python/`
+(eight engines + `tokenizer.json` + `tracker-meta.json` in one directory):
+- [`python/README.md`](python/README.md) — run order / quickstart
+- [`docs/sam3.1-tensorrt.md`](docs/sam3.1-tensorrt.md) — full write-up of the
+  export, the engine-I/O contract, and how the C++ tracker consumes the engines
+- [`docs/sam3.1-export-guide.md`](docs/sam3.1-export-guide.md) — export guide
 
 ## Common Tasks
 
@@ -817,9 +854,14 @@ Current scope is **read-only `.rux` inspection**, implemented in
 `reusex/__init__.py` re-exports it and degrades to `__status__ = "Native module
 not available: …"` if it is missing.
 
-Writing/pipeline APIs are not exposed. There is no top-level `python/`
-directory. `apps/blender/reusex_panel/` is a separate, standalone Blender
-add-on.
+Writing/pipeline APIs are not exposed.
+
+The top-level `python/` directory is **unrelated** to these bindings: it is the
+standalone `reusex_sam3` package that exports Meta's SAM 3.1 checkpoint to ONNX
+and then to TensorRT engines. It is not built by CMake — run it in its own venv
+with prebuilt wheels (see [`python/README.md`](python/README.md); do not
+nix-compile torch). `apps/blender/reusex_panel/` is a separate, standalone
+Blender add-on.
 
 ## License and Copyright
 

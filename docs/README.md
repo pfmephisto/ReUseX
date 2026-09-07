@@ -14,6 +14,22 @@ Welcome to the ReUseX documentation! This directory contains comprehensive docum
 - [OpenCV Integration](guides/OpenCV.md) - Computer vision operations
 - [Testing Guide](guides/TESTING.md) - Running and writing tests
 - [Documentation Guide](guides/DOCUMENTATION.md) - Building API docs
+- [AprilTag 36h11 Printing](guides/apriltag-36h11-printing.md) - Fiducial targets
+
+### Vision / ML
+- [SAM 3.1 TensorRT](sam3.1-tensorrt.md) - Full write-up: model teardown, ONNX
+  export blockers, engine-I/O contract, how the C++ tracker consumes the engines
+- [SAM 3.1 Export Guide](sam3.1-export-guide.md) - Export walkthrough
+- [python/README.md](../python/README.md) - Run order / quickstart for the
+  standalone `reusex_sam3` export pipeline
+- [models/README.md](../models/README.md) - Expected model-weight layout
+
+### Research & benchmarks
+- [ARKitScenes Benchmark](research/arkitscenes-benchmark.md)
+- [Registration Improvements](research/registration-improvements.md)
+- [360 Panorama Integration](research/panorama-integration.md)
+- Benchmark workflow: [STANDARDS.md §8.1](STANDARDS.md#81-baseline-vs-candidate-workflow)
+  (`scripts/bench.sh` + `scripts/bench-compare.py`)
 
 ## For Developers
 
@@ -62,10 +78,13 @@ ReUseX/
 ├── apps/ruxd/          # HTTP service worker
 ├── apps/blender/       # Blender add-on
 ├── bindings/python/    # pybind11 bindings (read-only ProjectDB access)
+├── python/             # reusex_sam3 SAM 3.1 export pipeline (standalone)
+├── models/             # Model weights (gitignored)
 ├── tests/              # unit/ integration/ benchmarks/ support/ fixtures/
 ├── docs/               # This directory
 │   ├── api/           # Doxygen output (generated)
 │   ├── guides/        # User guides
+│   ├── research/      # Benchmark / research notes
 │   └── design/        # Historical design notes
 ├── cmake/             # Shared CMake utilities
 ├── overlays/ pkgs/    # Nix packaging

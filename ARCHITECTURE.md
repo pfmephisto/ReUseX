@@ -25,7 +25,8 @@ ReUseX/
 │   │   ├── geometry/           # geometry_common + forwarding shims from #222
 │   │   ├── segmentation/       # planes, rooms, instances, reconstruct, filters
 │   │   ├── reconstruction/     # CellComplex, Solidifier, mesh, texture, metrics
-│   │   ├── slam/               # PlaneGraphOptimizer, JointPairwiseRegistration
+│   │   ├── slam/               # PlaneGraphOptimizer, JointPairwiseRegistration,
+│   │   │                       #   PanoramaAlignment, loop closure
 │   │   ├── io/                 # rtabmap, e57, ply, rhino, colmap, speckle, ...
 │   │   ├── vision/             # ML models/backends/datasets (tensor_rt, onnx, ...)
 │   │   ├── visualize/          # Optional PCL/Qt visualization
@@ -40,8 +41,11 @@ ReUseX/
 │   ├── ruxd/                   # HTTP service worker
 │   └── blender/reusex_panel/   # Blender add-on (standalone)
 ├── bindings/python/            # pybind11 bindings (read-only ProjectDB access)
+├── python/                     # reusex_sam3: SAM 3.1 -> ONNX -> TensorRT export
+│                               #   (standalone, not built by CMake)
+├── models/                     # Model weights (gitignored; see models/README.md)
 ├── tests/                      # unit/ integration/ benchmarks/ support/ fixtures/
-├── docs/                       # STANDARDS, CONTRACTS, guides/, design/, api/ (generated)
+├── docs/                       # STANDARDS, CONTRACTS, guides/, design/, research/, api/
 ├── cmake/                      # Shared CMake utilities
 ├── overlays/ pkgs/ devshells/  # Nix packaging
 └── tools/ scripts/ completions/
@@ -88,16 +92,18 @@ retired `RTABMapDatabase`; RTABMap is now only an *import* source in
 `libs/reusex/src/io/rtabmap.cpp`.
 
 ```
-external scan (RTABMap .db, MuSHRoom, E57/PLY, panoramas, photos)
+external scan (RTABMap .db, MuSHRoom, ARKitScenes, E57/PLY, panoramas, photos)
         │  rux import …
         ▼
     ProjectDB  (sensor_frames, point_clouds, meshes, segmentation_images,
         │       building_components, material_passports, pipeline_log, …)
         ├──→ rux optimize / register        pose refinement, writes poses back
+        ├──→ rux align 360                  360 panorama pose refinement
         ├──→ rux create clouds              → cloud, normals
         ├──→ rux create planes              → planes, plane_centroids, plane_normals
         ├──→ rux create rooms               → rooms
         ├──→ rux create annotate → project  → segmentation_images → labels
+        ├──→ rux create annotate-360        SAM3 on panoramas (perspective-tiled)
         ├──→ rux create instances           → instances (+ instances table)
         ├──→ rux create mesh                → meshes
         └──→ rux export …                   PLY, E57, Rhino, COLMAP, Speckle, CSV
@@ -183,6 +189,9 @@ reordered together (STANDARDS §3.2).
 - **Docs index**: [`docs/README.md`](docs/README.md)
 - **User guides**: [`docs/guides/`](docs/guides/)
 - **Design notes** (historical in places): [`docs/design/`](docs/design/)
+- **Research / benchmark notes**: [`docs/research/`](docs/research/)
+- **SAM 3.1 export pipeline**: [`python/README.md`](python/README.md) and
+  [`docs/sam3.1-tensorrt.md`](docs/sam3.1-tensorrt.md)
 - **API reference**: `docs/api/` after `cmake --build build --target docs`
 - **Contributing**: [`CONTRIBUTING.md`](CONTRIBUTING.md),
   [`CONTRIBUTING_AI.md`](CONTRIBUTING_AI.md)

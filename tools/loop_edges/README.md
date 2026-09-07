@@ -33,7 +33,7 @@ commercial-safe matcher writes the identical file for production.
 | `xfeat` | Apache-2.0 | commercial-safe learned features |
 | `lightglue` | Apache-2.0 | commercial-safe (LightGlue + ALIKED/DISK — **not** SuperPoint, which is NC) |
 | `mast3r` | **CC-BY-NC-SA** | **oracle only**; needs `--allow-noncommercial` |
-| `mapanything` | Apache-2.0 (`--variant apache`) or CC-BY-NC | apache checkpoint is shippable; NC checkpoint is oracle-only |
+| `mapanything` | Apache-2.0 (`--variant apache`) or CC-BY-NC | **planned, not implemented** — `match()` raises `NotImplementedError`; the licence split (apache checkpoint shippable, NC checkpoint oracle-only) is why the seam exists |
 
 **Commercial rule:** output from `mast3r` or `mapanything --variant nc` is an
 evaluation artefact. It must not be bundled into or shipped with a commercial
@@ -44,7 +44,7 @@ deliverable. The tool prints a banner and gates these behind
 
 Each learned backend has its own venv (dependency isolation). `orb` needs only
 `numpy` + `opencv-python` (already present in the dev shell). Setup for
-`xfeat` / `mast3r` / `mapanything` is documented in the PR; venvs live under
+`xfeat` / `mast3r` is documented in the PR; venvs live under
 `~/loop-edges-work/<backend>/` (outside the repo, not committed).
 
 ## Usage

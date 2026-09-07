@@ -264,14 +264,33 @@ class MapAnythingMatcher:
         self.model = MapAnything.from_pretrained(ckpt).to(device).eval()
 
     def match(self, fi, fj, max_matches=4000):
-        # MapAnything regresses per-view pointmaps in a shared frame; we convert
-        # its dense correspondence field (nearest 3D neighbours between the two
-        # pointmaps) into 2D matches, then re-lift with our own depth for a
-        # consistent metric pose across all backends.
+        # TODO: Implement MapAnything pointmap-to-2D correspondence extraction
+        # category=Vision estimate=1d
+        # This backend is a declared SEAM, not a working matcher: __init__ loads
+        # the checkpoint but match() raises, so `--matcher mapanything` fails
+        # immediately rather than silently producing no edges. The validated
+        # backends are orb / xfeat / lightglue / mast3r (see
+        # docs/research/loop-closure-learned-matchers.md §5).
+        # MapAnything regresses per-view pointmaps in a shared frame, so the
+        # implementation is not a descriptor match but a 3D one:
+        # 1. Run the model on the (fi, fj) pair to get both pointmaps.
+        # 2. Build mutual nearest-3D-neighbour pairs between the two pointmaps,
+        #    rejecting non-reciprocal pairs and pairs beyond a distance gate.
+        # 3. Project each accepted pointmap sample back to its own view's pixel
+        #    coordinates to emit (xy_i, xy_j) in FULL-RESOLUTION image space,
+        #    matching the contract the other backends' match() returns.
+        # 4. Return None below 3 matches, and cap at max_matches.
+        # Deliberately do NOT return MapAnything's own metric poses: every
+        # backend must re-lift through our stored depth so relative poses are
+        # comparable across matchers (see the class comment).
+        # Keep one code path for both the apache and NC checkpoints — the only
+        # difference is the checkpoint id resolved in __init__.
         raise NotImplementedError(
-            "MapAnything correspondence extraction is wired up in the env-setup "
-            "step (see tools/loop_edges/README.md); left as a clear seam so the "
-            "commercial-safe apache checkpoint and the NC one share one code path."
+            "MapAnything correspondence extraction is not implemented — this "
+            "backend is a planned seam so the commercial-safe apache checkpoint "
+            "and the NC one can share one code path. Use --matcher xfeat "
+            "(Apache-2.0) for a validated commercial-safe learned matcher, or "
+            "--matcher mast3r for the non-commercial oracle."
         )
 
 

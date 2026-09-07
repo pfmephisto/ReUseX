@@ -249,6 +249,18 @@ class ProjectDB::Impl {
       runMigrations(isLegacyDb);
     } else {
       sqlite3_exec(db, "PRAGMA foreign_keys = ON;", nullptr, nullptr, nullptr);
+
+      // Migrations require write access, so a read-only open leaves an older
+      // project on its on-disk schema. Readers degrade gracefully (newer
+      // columns are treated as absent), but tell the user how to upgrade.
+      const int onDisk = getCurrentSchemaVersion();
+      if (onDisk >= 0 && onDisk < LATEST_SCHEMA_VERSION) {
+        reusex::warn("Project schema is v{} but this build expects v{}. "
+                     "Opened read-only, so no migration was applied and "
+                     "newer fields are unavailable. Open the project "
+                     "read-write once to migrate: {}",
+                     onDisk, LATEST_SCHEMA_VERSION, dbPath);
+      }
     }
 
     reusex::info("Project database opened successfully");
@@ -272,6 +284,25 @@ class ProjectDB::Impl {
     StmtGuard guard(stmt);
     sqlite3_bind_text(stmt, 1, tableName, -1, SQLITE_STATIC);
     return sqlite3_step(stmt) == SQLITE_ROW;
+  }
+
+  /// True if `tableName` exists AND carries a column named `columnName`.
+  /// Used to keep read-only opens (which never migrate) working against
+  /// projects still on an older schema.
+  bool columnExists(const char *tableName, const char *columnName) const {
+    const std::string query =
+        std::string("PRAGMA table_info(") + tableName + ");";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, query.c_str(), -1, &stmt, nullptr) != SQLITE_OK)
+      return false;
+    StmtGuard guard(stmt);
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+      const char *name =
+          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1));
+      if (name && std::strcmp(name, columnName) == 0)
+        return true;
+    }
+    return false;
   }
 
   void createSchemaVersionTable() {
@@ -917,19 +948,45 @@ class ProjectDB::Impl {
     // to panoramic_images; each is nullable so timestamp-only panoramas stay
     // valid. panorama_segmentation stores an equirect SAM3 label image per
     // panorama (same CV_16U +1-offset PNG convention as segmentation_images).
-    const char *alters[] = {
-        "ALTER TABLE panoramic_images ADD COLUMN pose BLOB;",
-        "ALTER TABLE panoramic_images ADD COLUMN pose_source TEXT;",
-        "ALTER TABLE panoramic_images ADD COLUMN align_inliers INTEGER;",
-        "ALTER TABLE panoramic_images ADD COLUMN align_rms REAL;",
-    };
-    for (const char *alter : alters) {
+    if (!tableExists("panoramic_images")) {
+      // Nothing to ALTER — create the table already in its v11 shape so the
+      // schema stays consistent (a project that never imported panoramas can
+      // legitimately be missing it).
+      const char *create = R"(
+        CREATE TABLE IF NOT EXISTS panoramic_images (
+          id            INTEGER PRIMARY KEY AUTOINCREMENT,
+          filename      TEXT NOT NULL,
+          image         BLOB NOT NULL,
+          timestamp     REAL,
+          node_id       INTEGER REFERENCES sensor_frames(node_id) ON DELETE SET NULL,
+          created_at    TEXT DEFAULT (datetime('now')),
+          pose          BLOB,
+          pose_source   TEXT,
+          align_inliers INTEGER,
+          align_rms     REAL
+        );
+      )";
       char *errMsg = nullptr;
-      if (sqlite3_exec(db, alter, nullptr, nullptr, &errMsg) != SQLITE_OK) {
+      if (sqlite3_exec(db, create, nullptr, nullptr, &errMsg) != SQLITE_OK) {
         std::string error = errMsg ? errMsg : "unknown error";
         sqlite3_free(errMsg);
-        if (error.find("duplicate column") == std::string::npos)
-          throw std::runtime_error("Migration to v11 failed: " + error);
+        throw std::runtime_error("Migration to v11 failed: " + error);
+      }
+    } else {
+      const char *alters[] = {
+          "ALTER TABLE panoramic_images ADD COLUMN pose BLOB;",
+          "ALTER TABLE panoramic_images ADD COLUMN pose_source TEXT;",
+          "ALTER TABLE panoramic_images ADD COLUMN align_inliers INTEGER;",
+          "ALTER TABLE panoramic_images ADD COLUMN align_rms REAL;",
+      };
+      for (const char *alter : alters) {
+        char *errMsg = nullptr;
+        if (sqlite3_exec(db, alter, nullptr, nullptr, &errMsg) != SQLITE_OK) {
+          std::string error = errMsg ? errMsg : "unknown error";
+          sqlite3_free(errMsg);
+          if (error.find("duplicate column") == std::string::npos)
+            throw std::runtime_error("Migration to v11 failed: " + error);
+        }
       }
     }
 
@@ -1477,9 +1534,19 @@ class ProjectDB::Impl {
   }
 
   std::vector<ProjectDB::PanoramicImage> listPanoramicImages() const {
-    const char *sql = R"(
+    // The v11 pose columns only exist once migrateToV11() has run, and
+    // migrations are skipped on read-only opens (see the Impl constructor).
+    // Probe the schema instead of unconditionally selecting the new columns:
+    // a v10 project opened read-only must still list its panoramas.
+    const bool hasV11 = columnExists("panoramic_images", "pose");
+
+    const char *sql = hasV11 ? R"(
       SELECT id, filename, timestamp, node_id,
              pose, pose_source, align_inliers, align_rms
+      FROM panoramic_images ORDER BY filename;
+    )"
+                             : R"(
+      SELECT id, filename, timestamp, node_id
       FROM panoramic_images ORDER BY filename;
     )";
     sqlite3_stmt *stmt;
@@ -1501,23 +1568,26 @@ class ProjectDB::Impl {
       img.node_id = (sqlite3_column_type(stmt, 3) == SQLITE_NULL)
                         ? -1
                         : sqlite3_column_int(stmt, 3);
-      // Refined alignment pose (v11+); absent -> keep identity + "timestamp".
-      const void *poseBlob = sqlite3_column_blob(stmt, 4);
-      const int poseBytes = sqlite3_column_bytes(stmt, 4);
-      if (poseBlob && poseBytes == static_cast<int>(16 * sizeof(double))) {
-        std::memcpy(img.pose.data(), poseBlob, 16 * sizeof(double));
-        img.has_pose = true;
+      // Refined alignment pose (v11+); absent -> keep identity + "timestamp"
+      // defaults from PanoramicImage, i.e. has_pose stays false.
+      if (hasV11) {
+        const void *poseBlob = sqlite3_column_blob(stmt, 4);
+        const int poseBytes = sqlite3_column_bytes(stmt, 4);
+        if (poseBlob && poseBytes == static_cast<int>(16 * sizeof(double))) {
+          std::memcpy(img.pose.data(), poseBlob, 16 * sizeof(double));
+          img.has_pose = true;
+        }
+        if (sqlite3_column_type(stmt, 5) != SQLITE_NULL) {
+          const char *src =
+              reinterpret_cast<const char *>(sqlite3_column_text(stmt, 5));
+          if (src)
+            img.pose_source = src;
+        }
+        if (sqlite3_column_type(stmt, 6) != SQLITE_NULL)
+          img.align_inliers = sqlite3_column_int(stmt, 6);
+        if (sqlite3_column_type(stmt, 7) != SQLITE_NULL)
+          img.align_rms = sqlite3_column_double(stmt, 7);
       }
-      if (sqlite3_column_type(stmt, 5) != SQLITE_NULL) {
-        const char *src =
-            reinterpret_cast<const char *>(sqlite3_column_text(stmt, 5));
-        if (src)
-          img.pose_source = src;
-      }
-      if (sqlite3_column_type(stmt, 6) != SQLITE_NULL)
-        img.align_inliers = sqlite3_column_int(stmt, 6);
-      if (sqlite3_column_type(stmt, 7) != SQLITE_NULL)
-        img.align_rms = sqlite3_column_double(stmt, 7);
       images.push_back(std::move(img));
     }
     return images;
@@ -1560,6 +1630,10 @@ class ProjectDB::Impl {
   }
 
   cv::Mat getPanoramaSegmentation(int panoId) const {
+    // v11 table; a pre-v11 project opened read-only never gets migrated, so
+    // treat a missing table as "no segmentation" rather than an error.
+    if (!tableExists("panorama_segmentation"))
+      return cv::Mat();
     const char *sql =
         "SELECT label_image FROM panorama_segmentation WHERE pano_id = ?;";
     sqlite3_stmt *stmt;

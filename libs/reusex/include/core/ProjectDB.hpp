@@ -130,7 +130,9 @@ class ProjectDB {
                                    0, 0, 1, 0, 0, 0, 0, 1}; // row-major world
     std::string pose_source = "timestamp"; // "timestamp" | "aligned"
     int align_inliers = -1;                // RANSAC inliers, -1 if not aligned
-    double align_rms = -1.0;               // reprojection RMS (px), -1 if n/a
+    // Angular RMS of the inlier bearings after resection, in degrees
+    // (PanoramaAlignmentResult::rms_deg). -1 if not aligned.
+    double align_rms = -1.0;
   };
 
   void save_panoramic_image(const std::string &filename,

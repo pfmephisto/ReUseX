@@ -11,6 +11,7 @@
 #include <spdlog/spdlog.h>
 
 #include <cmath>
+#include <exception>
 #include <filesystem>
 
 void setup_subcommand_align_panorama(CLI::App &app,
@@ -56,8 +57,10 @@ NOTES:
       ->capture_default_str();
   sub->add_option("--n-yaw", opt->n_yaw,
                   "Perspective slices around the equator")
+      ->check(CLI::Range(1, 64))
       ->capture_default_str();
   sub->add_option("--fov", opt->fov, "Per-slice horizontal FOV (deg)")
+      ->check(CLI::Range(1.0, 179.0))
       ->capture_default_str();
   sub->add_option("--max-correction", opt->max_correction,
                   "Reject corrections beyond this distance in m (0 disables)")
@@ -76,84 +79,99 @@ NOTES:
 
 int run_subcommand_align_panorama(SubcommandAlignPanoramaOptions const &opt,
                                   const RuxOptions &global_opt) {
-  fs::path project_path = global_opt.project_db;
-  spdlog::info("Aligning 360 panoramas in project: {}", project_path.string());
-
-  reusex::ProjectDB db(project_path);
-
-  reusex::geometry::PanoramaAlignmentOptions ao;
-  ao.candidate_window = opt.window;
-  ao.max_candidates = opt.max_candidates;
-  ao.n_yaw = opt.n_yaw;
-  ao.fov_deg = opt.fov;
-  ao.min_inliers = opt.min_inliers;
-  ao.max_correction_m = opt.max_correction;
-
-  auto panos = db.list_panoramic_images();
-  if (panos.empty()) {
-    spdlog::warn("No panoramas in project. Nothing to align.");
-    return RuxError::SUCCESS;
-  }
-
-  int log_id = db.log_pipeline_start(
-      "align_360", fmt::format(R"({{"panoramas":{}}})", panos.size()));
-
-  int aligned = 0, skipped = 0, failed = 0, figured = 0;
-  double sum_delta = 0.0;
-
   try {
-    for (const auto &pano : panos) {
-      if (pano.node_id < 0) {
-        spdlog::info("{}: no linked sensor frame, skipping", pano.filename);
-        ++skipped;
-        continue;
-      }
-      if (pano.has_pose && !opt.overwrite) {
-        spdlog::info("{}: already aligned (use --overwrite to redo)",
-                     pano.filename);
-        ++skipped;
-        continue;
-      }
+    fs::path project_path = global_opt.project_db;
+    spdlog::info("Aligning 360 panoramas in project: {}",
+                 project_path.string());
 
-      // Enable the correspondence figure for the first N panoramas figured.
-      if (!opt.figures_dir.empty() && figured < opt.figures_limit) {
-        ao.debug_dir = opt.figures_dir;
-        ao.debug_name = fs::path(pano.filename).replace_extension().string();
-      } else {
-        ao.debug_dir.clear();
-      }
+    reusex::ProjectDB db(project_path);
 
-      auto r = reusex::geometry::align_panorama(db, pano.id, pano.node_id, ao);
-      if (!r.aligned) {
-        spdlog::warn("{}: alignment failed (insufficient matches)",
-                     pano.filename);
-        ++failed;
-        continue;
-      }
+    reusex::geometry::PanoramaAlignmentOptions ao;
+    ao.candidate_window = opt.window;
+    ao.max_candidates = opt.max_candidates;
+    ao.n_yaw = opt.n_yaw;
+    ao.fov_deg = opt.fov;
+    ao.min_inliers = opt.min_inliers;
+    ao.max_correction_m = opt.max_correction;
 
-      spdlog::info("{}: aligned — {} inliers, {:.3f} deg RMS, {:.3f} m "
-                   "correction{}",
-                   pano.filename, r.inliers, r.rms_deg, r.delta_from_seed_m,
-                   opt.dry_run ? " (dry-run)" : "");
-      sum_delta += r.delta_from_seed_m;
-      ++aligned;
-      if (!ao.debug_dir.empty())
-        ++figured;
+    // Slices are spread evenly over 360 deg; if their FOVs do not add up the
+    // equator is sampled with gaps and matchable features get dropped.
+    if (opt.n_yaw * opt.fov < 360.0)
+      spdlog::warn("--n-yaw {} x --fov {} deg covers only {:.0f} deg of the "
+                   "equator; slices leave gaps and matches will be missed",
+                   opt.n_yaw, opt.fov, opt.n_yaw * opt.fov);
 
-      if (!opt.dry_run)
-        db.save_panorama_pose(pano.id, r.pose, r.inliers, r.rms_deg);
+    auto panos = db.list_panoramic_images();
+    if (panos.empty()) {
+      spdlog::warn("No panoramas in project. Nothing to align.");
+      return RuxError::SUCCESS;
     }
-    db.log_pipeline_end(log_id, true);
-  } catch (...) {
-    db.log_pipeline_end(log_id, false, "align_360 failed");
-    throw;
+
+    int log_id = db.log_pipeline_start(
+        "align_360", fmt::format(R"({{"panoramas":{}}})", panos.size()));
+
+    int aligned = 0, skipped = 0, failed = 0, figured = 0;
+    double sum_delta = 0.0;
+
+    try {
+      for (const auto &pano : panos) {
+        if (pano.node_id < 0) {
+          spdlog::info("{}: no linked sensor frame, skipping", pano.filename);
+          ++skipped;
+          continue;
+        }
+        if (pano.has_pose && !opt.overwrite) {
+          spdlog::info("{}: already aligned (use --overwrite to redo)",
+                       pano.filename);
+          ++skipped;
+          continue;
+        }
+
+        // Enable the correspondence figure for the first N panoramas figured.
+        if (!opt.figures_dir.empty() && figured < opt.figures_limit) {
+          ao.debug_dir = opt.figures_dir;
+          ao.debug_name = fs::path(pano.filename).replace_extension().string();
+        } else {
+          ao.debug_dir.clear();
+        }
+
+        auto r =
+            reusex::geometry::align_panorama(db, pano.id, pano.node_id, ao);
+        if (!r.aligned) {
+          spdlog::warn("{}: alignment failed (insufficient matches)",
+                       pano.filename);
+          ++failed;
+          continue;
+        }
+
+        spdlog::info("{}: aligned — {} inliers, {:.3f} deg RMS, {:.3f} m "
+                     "correction{}",
+                     pano.filename, r.inliers, r.rms_deg, r.delta_from_seed_m,
+                     opt.dry_run ? " (dry-run)" : "");
+        sum_delta += r.delta_from_seed_m;
+        ++aligned;
+        if (!ao.debug_dir.empty())
+          ++figured;
+
+        if (!opt.dry_run)
+          db.save_panorama_pose(pano.id, r.pose, r.inliers, r.rms_deg);
+      }
+      db.log_pipeline_end(log_id, true);
+    } catch (...) {
+      db.log_pipeline_end(log_id, false, "align_360 failed");
+      throw;
+    }
+
+    spdlog::info("Alignment complete: {} aligned, {} skipped, {} failed"
+                 "{}. Mean correction {:.3f} m",
+                 aligned, skipped, failed,
+                 opt.dry_run ? " (dry-run, no poses written)" : "",
+                 aligned > 0 ? sum_delta / aligned : 0.0);
+
+    return RuxError::SUCCESS;
+
+  } catch (const std::exception &e) {
+    spdlog::error("Panorama alignment failed: {}", e.what());
+    return RuxError::GENERIC;
   }
-
-  spdlog::info("Alignment complete: {} aligned, {} skipped, {} failed"
-               "{}. Mean correction {:.3f} m",
-               aligned, skipped, failed,
-               opt.dry_run ? " (dry-run, no poses written)" : "",
-               aligned > 0 ? sum_delta / aligned : 0.0);
-
-  return RuxError::SUCCESS;
 }

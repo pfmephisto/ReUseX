@@ -416,3 +416,183 @@ TEST_CASE("PlaneGraph leaves poses unchanged when no landmark is shared",
     REQUIRE((frames[i].world_pose.matrix() - before[i].matrix()).norm() ==
             0.0f);
 }
+
+TEST_CASE("PlaneGraph loop edge pulls a drifted frame toward truth",
+          "[plane_graph][optimize][loop_closure]") {
+  // Isolate the P2 loop-edge machinery from the plane objective: require more
+  // observations than any landmark can get (so NO plane factors form), leaving
+  // only the gauge prior, the (wrong, drift-encoding) odometry, and one correct
+  // wide-baseline loop edge. Both frames' truth pose is identity, so the
+  // correct relative pose X_0^-1 X_1 is the identity — a loop edge that must
+  // pull the drifted frame 1 back toward its true pose.
+  std::vector<FrameSurfels> frames;
+  for (int i = 0; i < 2; ++i)
+    frames.push_back(make_corner_frame(i));
+  const Eigen::Affine3f truth = Eigen::Affine3f::Identity();
+  frames[1].world_pose = drift(0.05f, {1, 0, 0}, {0.05f, 0.0f, 0.0f});
+  const float seed_err = pose_trans_error(frames[1].world_pose, truth);
+
+  PlaneGraphOptions o = test_options();
+  o.min_landmark_observations = 10; // impossible with 2 frames -> 0 landmarks
+  // Plain LM: this test probes the loop-edge factor mechanics directly. GNC
+  // would see the single edge's drift-sized initial residual as an outlier and
+  // down-weight it (the same informative-residual effect gnc_inlier_cost tunes
+  // for plane factors); robustness of loop edges under GNC is a system concern,
+  // not what this unit isolates.
+  o.use_gnc = false;
+
+  // A correct, tightly-trusted loop edge: pose(1) = pose(0) * I.
+  LoopEdge e;
+  e.i = 0;
+  e.j = 1;
+  e.T_ij = Eigen::Matrix4d::Identity();
+  e.sigma_rot = 0.01;
+  e.sigma_trans = 0.01;
+  e.inliers = 100;
+
+  PlaneGraphOptimizer optimizer(o);
+  PlaneGraphResult res = optimizer.optimize(frames, {e});
+
+  REQUIRE(res.landmarks == 0);  // no plane factors: the loop edge did the work
+  REQUIRE(res.loop_edges == 1); // the edge entered the graph
+  REQUIRE(res.converged);
+  // Frame 1 must land much closer to truth than the drifted seed.
+  const float after_err = pose_trans_error(frames[1].world_pose, truth);
+  REQUIRE(after_err < 0.5f * seed_err);
+}
+
+TEST_CASE(
+    "PlaneGraph bounds a trusted loop edge instead of trusting it blindly",
+    "[plane_graph][optimize][loop_closure]") {
+  // Regression guard for the --loop-trust semantics (PR #228 review).
+  //
+  // The original implementation marked a trusted loop edge as a GNC KNOWN
+  // INLIER and wrapped it in a Huber kernel. GTSAM's GncOptimizer constructor
+  // strips noiseModel::Robust from every factor it is handed, so the Huber
+  // never existed: a trusted edge was an unbounded Gaussian known-inlier, and
+  // the documented outlier bound was fiction. The fix keeps trusted loop edges
+  // as GNC candidates and instead raises THEIR TLS inlier threshold to
+  // loop_trust_inlier_cost — generous enough that a genuine correction still
+  // applies, finite enough that a grossly-wrong edge is truncated.
+  //
+  // Setup: six frames whose true pose is identity, chained by TIGHT odometry.
+  // A loop edge between the first and last frame is the only thing that can
+  // disagree with that chain, so what GNC does to it is directly observable in
+  // max_pose_shift.
+  constexpr int kFrames = 6;
+
+  auto build = [&](const Eigen::Affine3f &last_pose) {
+    std::vector<FrameSurfels> frames;
+    for (int i = 0; i < kFrames; ++i)
+      frames.push_back(make_corner_frame(i));
+    frames[kFrames - 1].world_pose = last_pose;
+    return frames;
+  };
+
+  PlaneGraphOptions base = test_options();
+  base.min_landmark_observations = 10; // no plane factors: isolate the edge
+  base.use_gnc = true;
+  base.loop_edges_trusted = true;
+  // Tight odometry: the seed chain is what a bogus loop edge has to fight, and
+  // without it any edge trivially "wins" whatever GNC decides.
+  base.odometry_sigma_rot = 0.005f;
+  base.odometry_sigma_trans = 0.005f;
+
+  SECTION("a grossly-wrong trusted edge is truncated, not applied") {
+    // 20 m of nonsense. Its residual stays far above loop_trust_inlier_cost at
+    // every iterate (the odometry chain refuses to stretch that far), so
+    // GNC-TLS must drive its weight to ~0 and leave the trajectory on the seed.
+    LoopEdge gross;
+    gross.i = 0;
+    gross.j = kFrames - 1;
+    gross.T_ij = Eigen::Matrix4d::Identity();
+    gross.T_ij(0, 3) = 20.0;
+    gross.sigma_rot = 0.05;
+    gross.sigma_trans = 0.05;
+    gross.inliers = 100;
+
+    std::vector<FrameSurfels> frames = build(Eigen::Affine3f::Identity());
+    PlaneGraphResult res = PlaneGraphOptimizer(base).optimize(frames, {gross});
+    REQUIRE(res.converged);
+    REQUIRE(res.loop_edges == 1);
+    INFO("bounded max_pose_shift = " << res.max_pose_shift << " m");
+    REQUIRE(res.max_pose_shift < 0.05);
+
+    // Control: with an effectively INFINITE threshold — which is what the old
+    // known-inlier-plus-stripped-Huber path amounted to — the very same edge
+    // drags the trajectory by (tens of) centimetres. This is the behaviour the
+    // finite threshold is there to prevent, so it must be reproducible.
+    PlaneGraphOptions unbounded = base;
+    unbounded.loop_trust_inlier_cost = 1e12f;
+    std::vector<FrameSurfels> frames_u = build(Eigen::Affine3f::Identity());
+    PlaneGraphResult res_u =
+        PlaneGraphOptimizer(unbounded).optimize(frames_u, {gross});
+    REQUIRE(res_u.converged);
+    INFO("unbounded max_pose_shift = " << res_u.max_pose_shift << " m");
+    REQUIRE(res_u.max_pose_shift > 10.0 * res.max_pose_shift);
+    REQUIRE(res_u.max_pose_shift > 0.1);
+  }
+
+  SECTION("a correct trusted edge still applies its drift correction") {
+    // The point of --loop-trust: a genuine loop edge whose measurement matches
+    // the TRUTH (identity) must pull the drifted last frame back, not be
+    // discarded as an outlier.
+    const Eigen::Affine3f truth = Eigen::Affine3f::Identity();
+    const Eigen::Affine3f drifted =
+        drift(0.05f, {1, 0, 0}, {0.30f, 0.0f, 0.0f});
+    const float seed_err = pose_trans_error(drifted, truth);
+
+    LoopEdge good;
+    good.i = 0;
+    good.j = kFrames - 1;
+    good.T_ij = Eigen::Matrix4d::Identity();
+    good.sigma_rot = 0.02;
+    good.sigma_trans = 0.02;
+    good.inliers = 100;
+
+    PlaneGraphOptions o = base;
+    // Loosen odometry so the drift can redistribute (exactly what the CLI help
+    // tells the user to do alongside --loop-trust).
+    o.odometry_sigma_rot = 0.05f;
+    o.odometry_sigma_trans = 0.05f;
+
+    std::vector<FrameSurfels> frames = build(drifted);
+    PlaneGraphResult res = PlaneGraphOptimizer(o).optimize(frames, {good});
+    REQUIRE(res.converged);
+    REQUIRE(res.loop_edges == 1);
+    REQUIRE(res.landmarks == 0); // the loop edge did all the work
+
+    const float after = pose_trans_error(frames[kFrames - 1].world_pose, truth);
+    INFO("last frame " << seed_err << " m -> " << after << " m from truth");
+    REQUIRE(after < 0.3f * seed_err);
+  }
+}
+
+TEST_CASE("PlaneGraph ignores out-of-range loop edges",
+          "[plane_graph][optimize][loop_closure]") {
+  // A loop edge whose endpoints do not exist must be skipped, not crash, and
+  // leave poses untouched when there is nothing else to constrain them.
+  std::vector<FrameSurfels> frames;
+  for (int i = 0; i < 2; ++i)
+    frames.push_back(make_corner_frame(i));
+  frames[1].world_pose = drift(0.05f, {1, 0, 0}, {0.05f, 0.0f, 0.0f});
+  std::vector<Eigen::Affine3f> before;
+  for (auto &f : frames)
+    before.push_back(f.world_pose);
+
+  PlaneGraphOptions o = test_options();
+  o.min_landmark_observations = 10; // no landmarks
+
+  LoopEdge bad;
+  bad.i = 0;
+  bad.j = 7; // out of range (only 2 frames)
+  bad.T_ij = Eigen::Matrix4d::Identity();
+
+  PlaneGraphOptimizer optimizer(o);
+  PlaneGraphResult res = optimizer.optimize(frames, {bad});
+
+  REQUIRE(res.loop_edges == 0); // the invalid edge was skipped
+  for (size_t i = 0; i < frames.size(); ++i)
+    REQUIRE((frames[i].world_pose.matrix() - before[i].matrix()).norm() ==
+            0.0f);
+}

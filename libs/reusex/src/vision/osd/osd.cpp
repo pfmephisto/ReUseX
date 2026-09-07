@@ -2,6 +2,7 @@
 #include "core/logging.hpp"
 #include "vision/osd/cvx_text.hpp"
 #include "vision/osd/labelLayoutSolver.hpp"
+#include <algorithm>
 #include <filesystem>
 #include <functional>
 #include <iomanip>
@@ -346,32 +347,41 @@ static int calculateDynamicFontSize(int img_w, int img_h,
 
 void make_labled_image(cv::Mat &img,
                        const common::object::DetectionBoxArray &boxes) {
-  reusex::debug("OSD called with {} boxes", boxes.size());
+  reusex::debug("make_labled_image called with {} boxes", boxes.size());
   if (img.empty())
     return;
-  constexpr double alpha = 0.5;
-  for (const auto &box : boxes) {
-    if (!box.segmentation || box.segmentation->mask.empty())
-      continue;
-    cv::Rect roi(cv::Point(box.box.left, box.box.top),
-                 cv::Point(box.box.right, box.box.bottom));
+
+  // Produce a SEMANTIC label image: paint each detection's mask region with its
+  // integer class_id (NOT a color — colored overlays are osd()'s job). The
+  // result is a single-channel label map (e.g. CV_32S, background left as-is)
+  // that downstream stages (segmentation export, point-cloud labelling) read.
+  //
+  // Overlaps resolve in favour of the higher-confidence detection: paint in
+  // ascending score order so the highest score is written last and wins.
+  std::vector<const common::object::DetectionBox *> ordered;
+  ordered.reserve(boxes.size());
+  for (const auto &box : boxes)
+    if (box.segmentation && !box.segmentation->mask.empty())
+      ordered.push_back(&box);
+  std::sort(ordered.begin(), ordered.end(),
+            [](const auto *a, const auto *b) { return a->score < b->score; });
+
+  for (const auto *box : ordered) {
+    cv::Rect roi(cv::Point(box->box.left, box->box.top),
+                 cv::Point(box->box.right, box->box.bottom));
     roi &= cv::Rect(0, 0, img.cols, img.rows);
     if (roi.area() <= 0)
       continue;
 
-    cv::Mat image_roi = img(roi);
     cv::Mat resized_mask;
-    cv::resize(box.segmentation->mask, resized_mask, roi.size());
-    reusex::debug("Class Id: {}, Class Name: {}", box.class_id, box.class_name);
+    cv::resize(box->segmentation->mask, resized_mask, roi.size(), 0, 0,
+               cv::INTER_NEAREST);
+    reusex::trace("Painting label class_id={} name='{}' score={:.3f}",
+                  box->class_id, box->class_name, box->score);
 
-    // Per-class color via Glasbey LUT (matches export/visualization elsewhere)
-    auto c = pcl::GlasbeyLUT::at(box.class_id % pcl::GlasbeyLUT::size());
-    cv::Mat color_patch(roi.size(), img.type(), cv::Scalar(c.b, c.g, c.r));
-
-    // Alpha-blend the colored patch into the image where mask is set
-    cv::Mat blended;
-    cv::addWeighted(image_roi, 1.0 - alpha, color_patch, alpha, 0.0, blended);
-    blended.copyTo(image_roi, resized_mask);
+    // Set label pixels to class_id where the (binary) mask is set.
+    img(roi).setTo(cv::Scalar(static_cast<double>(box->class_id)),
+                   resized_mask > 0);
   }
 }
 

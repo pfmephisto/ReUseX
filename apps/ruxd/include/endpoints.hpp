@@ -45,7 +45,12 @@ public:
     return endpoints_;
   }
 
-  // Whether the route matching (method, path) requires authentication.
+  // Whether the route serving (method, path) requires authentication.
+  //
+  // `path` is a concrete request path; registered paths may be Crow rules with
+  // placeholder segments (see route_match.hpp). The answer is fail-closed: an
+  // unmatched method+path requires auth, and so does a path matched by several
+  // rules of which any one is protected.
   [[nodiscard]] bool requires_auth(const std::string &method,
                                    const std::string &path) const;
 

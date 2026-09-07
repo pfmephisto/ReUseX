@@ -1,12 +1,14 @@
 #pragma once
 #include "reusex/vision/IDataset.hpp"
 #include "reusex/vision/IModel.hpp"
+#include "reusex/vision/IVideoModel.hpp"
 
 #include <filesystem>
+#include <stdexcept>
 
 namespace reusex::vision {
 
-enum class Model { yolo, sam3 };
+enum class Model { yolo, sam3, sam3p1 };
 
 class IMLBackend {
     public:
@@ -28,6 +30,26 @@ class IMLBackend {
   virtual std::unique_ptr<IModel>
   create_model(const Model type, const std::filesystem::path &modelPath,
                bool use_cuda = false) = 0;
+
+  /* Creates a stateful video model (IVideoModel) of the given type. Unlike
+   * create_model, this returns a temporally-stateful tracker that MUST be driven
+   * in frame order (see IVideoModel). The default implementation throws, so
+   * backends without a video path compile unchanged; backends that support it
+   * (e.g. TensorRT/SAM 3.1) override this.
+   *
+   * @param type The type of video model to create.
+   * @param modelPath The filesystem path to the model directory.
+   * @param use_cuda Whether to use CUDA for inference (defaults to false).
+   * @return A unique pointer to the created IVideoModel object.
+   */
+  virtual std::unique_ptr<IVideoModel>
+  create_video_model(const Model type, const std::filesystem::path &modelPath,
+                     bool use_cuda = false) {
+    (void)type;
+    (void)modelPath;
+    (void)use_cuda;
+    throw std::runtime_error("backend has no video model");
+  }
 
   /* Creates a dataset from the specified path.
    * @param datasetPath The filesystem path to the dataset.

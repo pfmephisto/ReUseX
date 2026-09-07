@@ -11,6 +11,7 @@
 // #include "vision/infer/sam3infer.hpp"
 #include "vision/utils.hpp"
 
+#include <array>
 #include <opencv2/core.hpp>
 #include <string>
 #include <thread>
@@ -26,6 +27,72 @@
 #include <range/v3/all.hpp>
 namespace reusex::vision {
 
+// Ordered, single-threaded annotation for stateful video models (SAM 3.1).
+//
+// Unlike the default batch path, an IVideoModel carries a temporal memory bank
+// and MUST see frames in order (see IVideoModel contract). We therefore bypass
+// the shuffled Dataloader entirely and iterate the dataset indices in ascending
+// order, calling step() one frame at a time and saving each result.
+static int annotate_video(IMLBackend &backend, IDataset &dataset,
+                          Model modelType,
+                          const std::filesystem::path &modelPath,
+                          const AnnotationConfig &config) {
+  reusex::info("Running annotation in video-tracker mode (single-threaded, "
+               "ordered)");
+
+  auto tracker =
+      backend.create_video_model(modelType, modelPath, config.use_cuda);
+  if (!tracker) {
+    reusex::error("Failed to create video model from path: {}", modelPath);
+    return 1;
+  }
+
+  if (config.skip_annotated) {
+    // Resume only across the already-done PREFIX. A stateful tracker must warm
+    // its memory bank from the first processed frame, so we skip only the
+    // maximal leading run of already-annotated frames and re-process everything
+    // from the first gap onward; dropping non-contiguous frames (as
+    // filter_annotated() does) would leave holes in the temporal memory. For
+    // the stateless default path this is simply "skip completed leading
+    // frames".
+    auto skipped = dataset.filter_annotated_prefix();
+    reusex::info("Skipping {} already-annotated leading frames", skipped);
+    if (dataset.size() == 0) {
+      reusex::info("All frames already annotated, nothing to do");
+      return 0;
+    }
+  }
+
+  // Reset the tracker at every sequence boundary: the first frame, and any
+  // point where the node id fails to increase (a new concatenated sequence). A
+  // ReUseX project DB normally holds a single ordered scan, so this fires once
+  // — but multi-sequence datasets are now handled correctly (see
+  // is_sequence_boundary).
+  const size_t total = dataset.size();
+  size_t frame_count = 0;
+  {
+    auto observer = reusex::core::ProgressObserver(
+        reusex::core::Stage::annotating_batches, total);
+    for (size_t i = 0; i < total; ++i) {
+      if (is_sequence_boundary(i, dataset.node_id(i),
+                               i == 0 ? 0 : dataset.node_id(i - 1)))
+        tracker->reset(); // start of a sequence
+
+      auto in = dataset.get(i);
+      auto out = tracker->step(in);
+
+      std::array<IDataset::Pair, 1> one{std::move(out)};
+      dataset.save(one);
+
+      reusex::trace("Video frame {}/{} annotated", ++frame_count, total);
+      ++observer;
+    }
+  }
+
+  reusex::info("Video annotation completed ({} frames)", frame_count);
+  return 0;
+}
+
 auto annotate(const std::filesystem::path &dbPath,
               const std::filesystem::path &modelPath,
               const AnnotationConfig &config) -> int {
@@ -36,8 +103,20 @@ auto annotate(const std::filesystem::path &dbPath,
   auto backend = BackendFactory::create(backendType);
 
   auto modelType = BackendFactory::detect_model(modelPath);
-  auto model = backend->create_model(modelType, modelPath, config.use_cuda);
   auto dataset = backend->create_dataset(dbPath);
+  dataset->set_confidence(config.confidence);
+  if (!config.prompts.empty()) {
+    reusex::info("Using {} custom concept prompts", config.prompts.size());
+    dataset->set_prompts(config.prompts);
+  }
+
+  // Video-tracker path: stateful, ordered, single-threaded. Triggered by the
+  // explicit --video flag or automatically when a SAM 3.1 model is detected.
+  if (config.video || modelType == Model::sam3p1) {
+    return annotate_video(*backend, *dataset, modelType, modelPath, config);
+  }
+
+  auto model = backend->create_model(modelType, modelPath, config.use_cuda);
 
   // Filter out already-annotated frames if requested
   if (config.skip_annotated) {

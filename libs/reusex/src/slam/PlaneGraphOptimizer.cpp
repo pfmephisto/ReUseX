@@ -15,6 +15,7 @@
 #include <gtsam/geometry/Pose3.h>
 #include <gtsam/geometry/Rot3.h>
 #include <gtsam/inference/Symbol.h>
+#include <gtsam/linear/NoiseModel.h>
 #include <gtsam/nonlinear/GncOptimizer.h>
 #include <gtsam/nonlinear/LevenbergMarquardtOptimizer.h>
 #include <gtsam/nonlinear/NonlinearFactorGraph.h>
@@ -303,7 +304,8 @@ PlaneGraphOptimizer::PlaneGraphOptimizer(PlaneGraphOptions options)
     : options_(std::move(options)) {}
 
 PlaneGraphResult
-PlaneGraphOptimizer::optimize(std::vector<FrameSurfels> &frames) const {
+PlaneGraphOptimizer::optimize(std::vector<FrameSurfels> &frames,
+                              const std::vector<LoopEdge> &loop_edges) const {
   using gtsam::symbol_shorthand::P; // plane landmarks
   using gtsam::symbol_shorthand::X; // poses
 
@@ -343,6 +345,20 @@ PlaneGraphOptimizer::optimize(std::vector<FrameSurfels> &frames) const {
 
   const double assoc_cos = std::cos(options_.assoc_normal_angle * M_PI / 180.0);
   using GncParamsLM = gtsam::GncParams<gtsam::LevenbergMarquardtParams>;
+
+  // Self-calibrating reference for per-observation inlier weighting: the median
+  // detection inlier count. Using the median (not a fixed constant) keeps the
+  // weighting invariant to --sampling-factor, which scales all inlier counts.
+  double ref_inliers = 1.0;
+  if (options_.plane_weight_by_inliers) {
+    std::vector<int> counts;
+    counts.reserve(all_planes.size());
+    for (const auto &p : all_planes)
+      counts.push_back(std::max(1, p.inliers));
+    std::nth_element(counts.begin(), counts.begin() + counts.size() / 2,
+                     counts.end());
+    ref_inliers = std::max(1.0, static_cast<double>(counts[counts.size() / 2]));
+  }
 
   double round_max_shift = 0.0;
 
@@ -455,7 +471,10 @@ PlaneGraphOptimizer::optimize(std::vector<FrameSurfels> &frames) const {
                options_.min_landmark_observations, rejected_overlap,
                rejected_degenerate);
 
-    if (kept == 0) {
+    // No plane landmarks: only bail out if there are ALSO no loop edges. When
+    // loop edges are present the graph (gauge + odometry + loop factors) is
+    // still well-posed and worth solving, so fall through to build it.
+    if (kept == 0 && loop_edges.empty()) {
       if (round == 0) {
         core::warn("PlaneGraph: no landmark passed the hygiene checks; poses "
                    "unchanged. Lower --min-observations or relax association / "
@@ -495,6 +514,9 @@ PlaneGraphOptimizer::optimize(std::vector<FrameSurfels> &frames) const {
     gtsam::NonlinearFactorGraph graph;
     gtsam::Values initial;
     GncParamsLM::IndexVector trusted_factors;
+    // Graph positions of the loop-edge factors that get the relaxed GNC-TLS
+    // inlier threshold (only populated when loop_edges_trusted is set).
+    std::vector<size_t> loop_factors;
 
     for (int i = 0; i < N; ++i) {
       const gtsam::Rot3 R(cur[i].block<3, 3>(0, 0));
@@ -540,11 +562,62 @@ PlaneGraphOptimizer::optimize(std::vector<FrameSurfels> &frames) const {
       }
     }
 
+    // Wide-baseline loop edges (P2). Each is a relative-pose BetweenFactor
+    // between two temporally distant frames, derived from feature matching +
+    // depth (see LoopClosure). A loop edge that CORRECTS drift has, by
+    // construction, a large residual at the (drifted) seed poses — which is
+    // exactly what GNC-TLS classifies as an outlier and zeros, discarding the
+    // constraint we need.
+    //
+    // loop_edges_trusted resolves that WITHOUT surrendering the outlier bound,
+    // by raising the TLS inlier threshold for these factors only (see
+    // barcSq below): a genuine large-drift edge stays an inlier and pulls,
+    // while an edge whose residual exceeds even the generous
+    // loop_trust_inlier_cost is still truncated to zero weight.
+    //
+    // What we must NOT do is wrap them in noiseModel::Robust: GncOptimizer's
+    // constructor (GTSAM 4.2.1, GncOptimizer.h — `robust ?
+    // factor->cloneWithNewNoiseModel(robust->noise()) : factor`)
+    // unconditionally strips the robust kernel from every factor in the graph,
+    // so a Huber-wrapped known-inlier loop edge would silently become an
+    // unbounded Gaussian. Under --no-gnc there is no GNC machinery at all, so
+    // there the Huber kernel IS the bound and is applied instead.
+    //
+    // Endpoints out of range are skipped.
+    int loop_edge_count = 0;
+    for (const auto &e : loop_edges) {
+      if (e.i < 0 || e.j < 0 || e.i >= N || e.j >= N || e.i == e.j)
+        continue;
+      auto base_noise = gtsam::noiseModel::Diagonal::Sigmas(
+          (gtsam::Vector(6) << e.sigma_rot, e.sigma_rot, e.sigma_rot,
+           e.sigma_trans, e.sigma_trans, e.sigma_trans)
+              .finished());
+      const gtsam::Pose3 rel(gtsam::Rot3(e.T_ij.block<3, 3>(0, 0)),
+                             gtsam::Point3(e.T_ij.block<3, 1>(0, 3)));
+      gtsam::SharedNoiseModel noise = base_noise;
+      if (options_.loop_edges_trusted && !options_.use_gnc) {
+        // Plain LM: no per-factor TLS threshold exists, so bound the trusted
+        // edge with a Huber kernel (which LM does honour).
+        noise = gtsam::noiseModel::Robust::Create(
+            gtsam::noiseModel::mEstimator::Huber::Create(1.345), base_noise);
+      }
+      graph.emplace_shared<gtsam::BetweenFactor<gtsam::Pose3>>(X(e.i), X(e.j),
+                                                               rel, noise);
+      if (options_.loop_edges_trusted)
+        loop_factors.push_back(graph.size() - 1);
+      ++loop_edge_count;
+    }
+    result.loop_edges = loop_edge_count;
+
     // Plane landmark variables + one OrientedPlane3Factor per observation.
-    auto plane_noise = gtsam::noiseModel::Diagonal::Sigmas(
-        (gtsam::Vector(3) << options_.plane_sigma_normal,
-         options_.plane_sigma_normal, options_.plane_sigma_distance)
-            .finished());
+    // Each factor's noise is (optionally) scaled by the reliability of its
+    // supporting fit: sigma *= clamp(sqrt(ref / inliers), min, max). A plane
+    // backed by many surfels earns a tighter sigma (pulls harder); a small,
+    // weak plane is loosened so it cannot warp the trajectory. This is the fix
+    // for the measured "denser extraction hurts" regression — the extra planes
+    // are mostly small, and equal weighting let them dominate wrongly.
+    const double base_sig_n = options_.plane_sigma_normal;
+    const double base_sig_d = options_.plane_sigma_distance;
 
     int plane_factors = 0;
     for (size_t l = 0; l < landmarks.size(); ++l) {
@@ -560,6 +633,17 @@ PlaneGraphOptimizer::optimize(std::vector<FrameSurfels> &frames) const {
 
       for (int idx : landmarks[l].obs) {
         const auto &fp = all_planes[idx];
+        double scale = 1.0;
+        if (options_.plane_weight_by_inliers) {
+          scale = std::sqrt(ref_inliers / std::max(1, fp.inliers));
+          scale =
+              std::clamp(scale, static_cast<double>(options_.plane_weight_min),
+                         static_cast<double>(options_.plane_weight_max));
+        }
+        auto plane_noise = gtsam::noiseModel::Diagonal::Sigmas(
+            (gtsam::Vector(3) << base_sig_n * scale, base_sig_n * scale,
+             base_sig_d * scale)
+                .finished());
         const gtsam::Vector4 measured(fp.normal.x(), fp.normal.y(),
                                       fp.normal.z(), fp.d);
         graph.emplace_shared<ClonableOrientedPlane3Factor>(
@@ -584,8 +668,26 @@ PlaneGraphOptimizer::optimize(std::vector<FrameSurfels> &frames) const {
         GncParamsLM gnc_params(lm_params);
         gnc_params.setKnownInliers(trusted_factors);
         GncLM optimizer(graph, initial, gnc_params);
-        optimizer.setInlierCostThresholds(
-            static_cast<double>(options_.gnc_inlier_cost));
+        if (loop_factors.empty()) {
+          optimizer.setInlierCostThresholds(
+              static_cast<double>(options_.gnc_inlier_cost));
+        } else {
+          // Per-factor TLS thresholds: everything keeps gnc_inlier_cost, the
+          // trusted loop edges get the far more generous (but finite)
+          // loop_trust_inlier_cost so a genuine large-drift correction is not
+          // classified as an outlier — while a grossly-wrong edge still is.
+          gtsam::Vector barc = gtsam::Vector::Constant(
+              static_cast<Eigen::Index>(graph.size()),
+              static_cast<double>(options_.gnc_inlier_cost));
+          for (size_t k : loop_factors)
+            barc[static_cast<Eigen::Index>(k)] =
+                static_cast<double>(options_.loop_trust_inlier_cost);
+          optimizer.setInlierCostThresholds(barc);
+          core::info("PlaneGraph: {} trusted loop factors given a relaxed GNC "
+                     "inlier threshold of {:.2f} (others {:.2f})",
+                     loop_factors.size(), options_.loop_trust_inlier_cost,
+                     options_.gnc_inlier_cost);
+        }
         solution = optimizer.optimize();
       } else {
         gtsam::LevenbergMarquardtOptimizer optimizer(graph, initial, lm_params);

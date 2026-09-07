@@ -268,6 +268,10 @@ target_link_libraries(reusex_slam PUBLIC reusex_core)
 # PlaneGraphOptimizer.cpp. PRIVATE: not part of any public header. As a static
 # lib this still propagates for final linking.
 target_link_libraries(reusex_slam PRIVATE gtsam)
+# OpenCV feature matching (ORB + BFMatcher) backs the P2 loop-closure front-end
+# (LoopClosure.cpp). PRIVATE: not part of any public header. opencv_core /
+# opencv_imgproc already arrive via reusex_common.
+target_link_libraries(reusex_slam PRIVATE opencv_features2d)
 # NARROW EXCEPTION (#222): slam registration reuses segmentation's Surfel /
 # surfel_extraction (PlaneGraphOptimizer, JointPairwiseRegistration operate on
 # extracted surfels). Explicit peer edge slam -> segmentation, kept narrow.

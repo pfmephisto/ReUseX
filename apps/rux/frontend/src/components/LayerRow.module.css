@@ -1,0 +1,95 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+}
+
+.row:hover {
+  background: var(--color-surface-overlay);
+}
+
+.main {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+  min-width: 0;
+}
+
+.checkbox {
+  accent-color: var(--color-accent);
+  flex: none;
+}
+
+.name {
+  font-size: var(--font-size-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meta {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding-left: var(--space-5);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-faint);
+}
+
+.count {
+  font-variant-numeric: tabular-nums;
+}
+
+.track {
+  height: var(--space-1);
+  margin-left: var(--space-5);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-sunken);
+  overflow: hidden;
+}
+
+.fill {
+  height: 100%;
+  background: var(--color-status-running);
+  transition: width var(--duration-normal) var(--easing-standard);
+}
+
+.indeterminate {
+  width: 35%;
+  animation: sweep 1.2s var(--easing-standard) infinite;
+}
+
+.error {
+  margin-left: var(--space-5);
+  color: var(--color-status-failed);
+  font-size: var(--font-size-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@keyframes sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(300%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .indeterminate {
+    animation: none;
+    width: 100%;
+    opacity: 0.5;
+  }
+}

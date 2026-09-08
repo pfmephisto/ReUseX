@@ -1,0 +1,45 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+.legend {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.entry {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-sm);
+  flex: none;
+}
+
+.name {
+  flex: 1;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.id {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-faint);
+}
+
+.more {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-faint);
+  padding-left: calc(var(--space-2) + 10px);
+}

@@ -1,0 +1,151 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ * ============================================================================
+ * OWNED BY the Claude Design project "ReUseX GUI"
+ * (project id 19f0cf0f-1f7c-43a7-8311-1fd67e34bbb7).
+ *
+ * These are PLACEHOLDER VALUES until the first /design-sync. Do not hand-tune
+ * them beyond structure — re-sync instead. What this repo owns here is the set
+ * of token *names* and their roles; what the design project owns is every
+ * value on the right-hand side.
+ *
+ * Rule for everything else in src/: no colour, radius, spacing or type size is
+ * ever written literally in a component. Only var(--...). That is what makes
+ * the first real sync a value swap rather than a refactor.
+ * ============================================================================
+ *
+ * Palette notes for whoever authors the real values:
+ *
+ *  - The viewport canvas must stay near-black. Point clouds are additive light
+ *    on a dark field; a light canvas destroys the depth read entirely.
+ *  - --label-N is a CATEGORICAL scale for segmentation classes and must stay
+ *    colourblind-safe. The placeholders are the Okabe-Ito 8-colour set, which
+ *    is distinguishable under deuteranopia, protanopia and tritanopia. If the
+ *    design project replaces them, it must replace them with another set that
+ *    holds that property — this is a correctness constraint, not a taste one:
+ *    the user is reading semantic classes off these colours.
+ */
+
+:root {
+  /* ---------------------------------------------------------- surfaces -- */
+  /* Application chrome, from furthest back to nearest the user. */
+  --color-canvas: #0a0b0d; /* the 3D viewport background */
+  --color-surface: #131519; /* page background */
+  --color-surface-raised: #1a1d23; /* cards, panels */
+  --color-surface-overlay: #22262e; /* toasts, menus, hover */
+  --color-surface-sunken: #0e1014; /* wells, table headers */
+
+  /* ------------------------------------------------------------ border -- */
+  --color-border: #2a2f38;
+  --color-border-strong: #3b414c;
+  --color-border-focus: #6ea8fe;
+
+  /* -------------------------------------------------------------- text -- */
+  --color-text: #e6e9ef;
+  --color-text-muted: #9aa3b2;
+  --color-text-faint: #6b7382;
+  --color-text-inverse: #0a0b0d;
+
+  /* ------------------------------------------------------------ accent -- */
+  --color-accent: #6ea8fe;
+  --color-accent-hover: #8cbaff;
+  --color-accent-muted: #21344f;
+  --color-on-accent: #0a0b0d;
+
+  /* ------------------------------------------------------------ status -- */
+  /* Job/stage lifecycle. Kept distinct in luminance as well as hue, so the
+     status of a row is readable without relying on colour alone. */
+  --color-status-queued: #9aa3b2;
+  --color-status-running: #56b4e9;
+  --color-status-succeeded: #009e73;
+  --color-status-failed: #d55e00;
+  --color-status-cancelled: #7a828f;
+
+  /* --------------------------------------------- categorical: labels ---- */
+  /* Okabe-Ito. Consumed by the viewport's label colour mode and the legend. */
+  --label-0: #e69f00;
+  --label-1: #56b4e9;
+  --label-2: #009e73;
+  --label-3: #f0e442;
+  --label-4: #0072b2;
+  --label-5: #d55e00;
+  --label-6: #cc79a7;
+  --label-7: #999999;
+  --label-count: 8;
+  /* Points whose label is 0 (unlabeled, STANDARDS §3) render in this. */
+  --label-unlabeled: #4a505c;
+
+  /* ------------------------------------------------------------ typography */
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue',
+    Arial, sans-serif;
+  /* Data tables are monospace by design brief — figures must align. */
+  --font-mono:
+    ui-monospace, 'SF Mono', 'JetBrains Mono', 'Fira Code', Menlo, Consolas, monospace;
+
+  --font-size-xs: 0.6875rem;
+  --font-size-sm: 0.8125rem;
+  --font-size-md: 0.875rem;
+  --font-size-lg: 1rem;
+  --font-size-xl: 1.25rem;
+  --font-size-2xl: 1.75rem;
+
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-bold: 600;
+
+  --line-height-tight: 1.2;
+  --line-height-normal: 1.5;
+
+  /* -------------------------------------------------------------- space -- */
+  --space-0: 0;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+
+  /* ------------------------------------------------------------- radius -- */
+  --radius-sm: 3px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-pill: 999px;
+
+  /* ------------------------------------------------------------ shadow --- */
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 40%);
+  --shadow-md: 0 4px 12px rgb(0 0 0 / 45%);
+  --shadow-lg: 0 12px 32px rgb(0 0 0 / 55%);
+
+  /* ------------------------------------------------------------ layout --- */
+  --layout-titlebar-height: 44px;
+  --layout-nav-width: 180px;
+  --layout-panel-width: 280px;
+
+  /* ------------------------------------------------------------- motion -- */
+  --duration-fast: 120ms;
+  --duration-normal: 200ms;
+  --easing-standard: cubic-bezier(0.2, 0, 0.2, 1);
+
+  /* ------------------------------------------------------------ z-index -- */
+  --z-panel: 10;
+  --z-titlebar: 20;
+  --z-toast: 30;
+}
+
+/*
+ * The GUI is dark-first because the viewport is. A light theme is a design
+ * decision that has not been taken; when it is, it arrives as a
+ * [data-theme="light"] block here, synced from the design project — not as
+ * per-component overrides.
+ */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+    --duration-normal: 0ms;
+  }
+}

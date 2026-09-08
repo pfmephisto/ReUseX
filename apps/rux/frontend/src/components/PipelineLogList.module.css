@@ -1,0 +1,87 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.entry {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-left-width: 3px;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+}
+
+/* Second channel only — the status word is always rendered as text. */
+.running {
+  border-left-color: var(--color-status-running);
+}
+.success {
+  border-left-color: var(--color-status-succeeded);
+}
+.failed {
+  border-left-color: var(--color-status-failed);
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.stage {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+.status {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.running .status {
+  color: var(--color-status-running);
+}
+.success .status {
+  color: var(--color-status-succeeded);
+}
+.failed .status {
+  color: var(--color-status-failed);
+}
+
+.viaGui {
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--color-accent-muted);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+/* Pushed right so the timestamp column reads down the list. */
+.time {
+  margin-left: auto;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-faint);
+}
+
+.duration {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.error {
+  margin-top: var(--space-1);
+  font-size: var(--font-size-xs);
+  color: var(--color-status-failed);
+  word-break: break-word;
+}

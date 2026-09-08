@@ -15,6 +15,7 @@
     echo "  configure [Release|Debug]   cmake + compile_commands.json"
     echo "  build                       cmake --build --parallel"
     echo "  run-tests                   build, then ctest"
+    echo "  gui-dev                     Vite dev server for apps/rux/frontend"
     echo "  clean                       remove build/"
     echo "  format                      clang-format all C++ sources"
     echo "  lint                        cppcheck static analysis"
@@ -39,6 +40,9 @@
     run-tests = pkgs.writeShellScriptBin "run-tests" ''
       cmake --build "$PWD/build" --parallel \
         && ctest --test-dir "$PWD/build" --output-on-failure --parallel "$@"
+    '';
+    gui-dev = pkgs.writeShellScriptBin "gui-dev" ''
+      npm --prefix "$PWD/apps/rux/frontend" run dev "$@"
     '';
     clean = pkgs.writeShellScriptBin "clean" ''
       rm -rf "$PWD/build" && echo "Build directory removed."
@@ -89,6 +93,10 @@ in
         ccache # Cache C++ compilation to speed up rebuilds
         ninja # Faster build system alternative to Make
         bear # Generate compile_commands.json for LSP/clangd
+
+        # Frontend toolchain for apps/rux/frontend (`npm run dev` / `npm test`).
+        # Node 22 matches what package-lock.json and pkgs/reusex-gui-frontend use.
+        nodejs_22
 
         # C++ development tools
         clang-tools # Includes clang-format, clang-tidy, clang-rename

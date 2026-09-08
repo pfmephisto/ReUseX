@@ -1,0 +1,103 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  padding: var(--space-5);
+}
+
+/*
+ * auto-fit rather than a fixed column count: the shell already spends
+ * --layout-nav-width on the rail, and on a laptop six fixed tiles would each be
+ * narrower than the eight-digit figure they have to hold.
+ */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(calc(var(--space-7) * 4), 1fr));
+  gap: var(--space-3);
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.heading {
+  font-size: var(--font-size-lg);
+}
+
+.subheading {
+  margin-top: calc(var(--space-1) * -1);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-faint);
+}
+
+.metaGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(calc(var(--space-7) * 8), 1fr));
+  gap: var(--space-3);
+}
+
+.metaCard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  min-width: 0;
+}
+
+.metaName {
+  font-size: var(--font-size-md);
+}
+
+.metaNone {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-faint);
+}
+
+.metaList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+}
+
+.metaRow {
+  display: flex;
+  gap: var(--space-3);
+  align-items: baseline;
+}
+
+.metaLabel {
+  flex: none;
+  width: calc(var(--space-7) * 2);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.metaValue {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  min-width: 0;
+  word-break: break-word;
+}
+
+.metaNotes {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-2);
+}

@@ -1,0 +1,58 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+.scroll {
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: 60vh;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+}
+
+.table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  white-space: nowrap;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+  background: var(--color-surface-sunken);
+  /* border-collapse drops a sticky header's own border, so it is drawn as a
+     shadow instead — otherwise rows scroll flush into the header text. */
+  box-shadow: inset 0 -1px 0 var(--color-border);
+}
+
+.table td {
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--color-border);
+  color: var(--color-text);
+  white-space: nowrap;
+}
+
+.numeric {
+  text-align: right;
+}
+
+.clickable {
+  cursor: pointer;
+}
+
+.clickable:hover td,
+.clickable:focus-visible td {
+  background: var(--color-surface-overlay);
+}

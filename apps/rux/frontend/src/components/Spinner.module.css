@@ -1,0 +1,44 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+.wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.ring {
+  width: var(--space-4);
+  height: var(--space-4);
+  flex: none;
+  border: 2px solid var(--color-border-strong);
+  border-top-color: var(--color-accent);
+  border-radius: var(--radius-pill);
+  animation: spin 0.9s linear infinite;
+}
+
+.label {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/*
+ * tokens.css zeroes --duration-*, but those only govern transitions. A keyframe
+ * animation has to be stopped explicitly or it keeps spinning at full rate for
+ * a user who asked for no motion. The two-tone ring still reads as "busy" when
+ * static.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .ring {
+    animation: none;
+  }
+}

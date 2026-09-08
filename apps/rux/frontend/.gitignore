@@ -1,0 +1,19 @@
+# SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# npm install output
+node_modules/
+
+# `npm run build` output (packaged for Nix by pkgs/reusex-gui-frontend)
+dist/
+
+# Vite local overrides
+*.local
+.vite/
+
+# vitest / coverage output
+coverage/
+.vitest/
+vitest.config.ts.timestamp-*
+vite.config.ts.timestamp-*

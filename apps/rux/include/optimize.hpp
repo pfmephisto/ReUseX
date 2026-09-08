@@ -50,6 +50,7 @@ struct SubcommandOptimizeOptions {
   float underconstrained_odom_scale = 0.25f;
   float plane_sigma_normal = 0.24f;
   float plane_sigma_distance = 0.19f;
+  std::string plane_noise = "inliers"; // uniform | inliers | fit
   bool no_plane_inlier_weight = false;
   float plane_weight_min = 0.5f;
   float plane_weight_max = 3.0f;

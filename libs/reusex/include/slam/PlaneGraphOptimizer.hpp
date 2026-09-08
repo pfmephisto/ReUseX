@@ -42,13 +42,86 @@ class ProjectDB;
 
 namespace reusex::geometry {
 
+/// How the measurement noise of an individual plane observation is chosen.
+///
+/// Every observation enters the graph as an `OrientedPlane3Factor` whose 3-DoF
+/// residual is (two normal-tilt components [rad], one plane-offset component
+/// [m]). This enum selects how much authority a *particular* observation gets
+/// relative to the others; `plane_sigma_normal` / `plane_sigma_distance` always
+/// remain the sigmas of a **median-quality** observation, so switching models
+/// redistributes authority without changing the plane term's aggregate weight
+/// against odometry.
+enum class PlaneNoiseModel {
+  /// Every observation gets `plane_sigma_*` unscaled. A plane fit from 40
+  /// surfels on a cluttered shelf carries exactly as much authority as one fit
+  /// from 4000 surfels on a bare wall — measured to be actively harmful once
+  /// plane extraction gets dense (honka laser-GT F 0.795 -> 0.759).
+  uniform,
+  /// Legacy (pre-#225 round 4): `sigma *= clamp(sqrt(median_N / N), min, max)`,
+  /// the SAME scalar on both the normal and the distance channel. Retained so
+  /// the numbers recorded in #225 stay reproducible.
+  inlier_count,
+  /// Sigmas derived from the fit statistics of each detection — its inlier
+  /// count, its point-to-plane residual RMS and its in-plane extent — see
+  /// `plane_fit_sigmas`. Unlike `inlier_count` this weights the two channels
+  /// *separately*, which matters because extent affects only the normal.
+  fit_geometry,
+};
+
+/// Fit statistics of one per-frame plane detection: the inputs from which the
+/// measurement noise of its `OrientedPlane3Factor` is derived.
+struct PlaneFitQuality {
+  int inliers = 0;           ///< supporting surfel count of the fit
+  double residual_rms = 0.0; ///< RMS point-to-plane distance of the inliers (m)
+  /// RMS in-plane extent along the **weaker** of the two principal in-plane
+  /// axes (m). Deliberately the minor axis, not the mean footprint radius:
+  /// gtsam expresses the plane residual in the landmark `Unit3`'s tangent
+  /// basis, which is arbitrary with respect to the plane's principal axes, so a
+  /// `Diagonal` noise model cannot represent true anisotropy. Taking the axis
+  /// that constrains the normal *least* is the honest bound.
+  double extent_minor = 0.0;
+};
+
+/// Statistical standard deviations of a plane fit, in the units of the
+/// `OrientedPlane3Factor` residual.
+struct PlaneFitSigmas {
+  double normal = 0.0;   ///< normal-tilt std (rad)
+  double distance = 0.0; ///< plane-offset std (m)
+};
+
+/// Standard first-order uncertainty of a least-squares plane fit through @p q
+/// .inliers points with point noise `sigma = q.residual_rms` and in-plane RMS
+/// extent `r = q.extent_minor`:
+///
+///     sigma_distance = sigma / sqrt(N)
+///     sigma_normal   = sigma / (r * sqrt(N))
+///
+/// The offset is an average over the inliers, so it tightens as `1/sqrt(N)`.
+/// The tilt is a *lever-arm* estimate: the same point noise at the edge of a
+/// 3 m wall subtends a far smaller angle than at the edge of a 20 cm patch, so
+/// the normal additionally tightens as `1/r`. This factor of `r` is the whole
+/// reason the two channels must not share one scalar — two detections with
+/// identical `N` and `sigma` but 15x different extent are equally certain in
+/// offset and 15x apart in tilt.
+///
+/// The returned values are *relative* quality indicators, not absolute
+/// calibrated sigmas: the dominant real error is model error (surface
+/// roughness, depth bias, slight mis-association), not the fit's own
+/// statistical error. The optimizer therefore normalises them by their median
+/// across the run and applies the result as a scale on `plane_sigma_normal` /
+/// `plane_sigma_distance`.
+///
+/// Degenerate inputs are clamped rather than propagated, so the result is
+/// always finite and strictly positive.
+PlaneFitSigmas plane_fit_sigmas(const PlaneFitQuality &q);
+
 /// Parameters for plane-landmark pose-graph optimization. All defaults live
 /// here (STANDARDS.md §4); CLI flags mirror them.
 struct PlaneGraphOptions {
   // --- Per-frame plane detection (sequential RANSAC on frame surfels) -------
   // "Mid-density" defaults: measured to beat the old conservative values
   // (4 / 200 / obs 5) on both office flatness and honka laser GT once
-  // per-observation inlier weighting (plane_weight_by_inliers) is on.
+  // per-observation plane weighting (plane_noise_model) is on.
   int max_planes_per_frame = 6;     ///< keep at most this many planes per frame
   int min_plane_inliers = 120;      ///< reject planes with fewer inliers
   float ransac_distance = 0.02f;    ///< inlier point-to-plane distance (m)
@@ -99,16 +172,53 @@ struct PlaneGraphOptions {
   float underconstrained_odom_scale = 0.25f;
   float plane_sigma_normal = 0.24f;   ///< plane-normal measurement std (rad)
   float plane_sigma_distance = 0.19f; ///< plane-distance measurement std (m)
-  /// Per-observation inlier weighting of the plane factors. A plane fit from
-  /// few surfels is far less reliable than one fit from thousands, yet both
-  /// entered the graph with identical noise — so denser extraction (which adds
-  /// mostly small, weak planes) previously WARPED poses instead of helping
-  /// (measured: honka GT 0.795 -> 0.759). When enabled, each factor's sigmas
-  /// are scaled by sqrt(ref / inliers), where `ref` is the median detection
-  /// inlier count (self-calibrating across sampling settings), clamped to
-  /// [plane_weight_min, plane_weight_max]. Well-supported planes pull harder;
-  /// weak ones are down-weighted rather than trusted equally.
-  bool plane_weight_by_inliers = true;
+  /// Which per-observation noise model weights the plane factors.
+  ///
+  /// **The default is deliberately `inlier_count`, not the newer, physically
+  /// better-motivated `fit_geometry`** — because the measurement says so, and
+  /// the measurement says something more interesting than "one model wins":
+  ///
+  ///  - On scans whose seed poses genuinely DRIFT (ARKitScenes 41069048 /
+  ///    41069050 / 41069051, absolute `3dod_mesh` GT), `fit_geometry` beats
+  ///    `inlier_count` on every metric of every scan — GT F +0.8% / +1.9% /
+  ///    +5.2%, median accuracy error -5.6% / -12.7% / -7.8%.
+  ///  - On a scan that does NOT drift (MuSHRoom honka, Faro laser GT), it is
+  ///    worse, and worse than running no pose stage at all (F 0.7572 baseline,
+  ///    0.7595 `inlier_count`, 0.7523 `fit_geometry`).
+  ///
+  /// That is the same lesson the loop-closure front-end learned (#225, PR
+  /// #237):
+  /// **machinery that redistributes authority toward strong geometric evidence
+  /// pays off exactly when the seed trajectory is wrong, and costs when it is
+  /// already right.** So `fit_geometry` ships as an opt-in lever for drifting
+  /// captures rather than a new default, and the default remains bit-identical
+  /// to what shipped in #228 — zero regression on the guard scan.
+  PlaneNoiseModel plane_noise_model = PlaneNoiseModel::inlier_count;
+  /// Clamp on the per-observation sigma scale, applied to whichever model is
+  /// selected. Both models are normalised by their median over the run, so a
+  /// scale of 1.0 is a median-quality observation, `plane_weight_min` is the
+  /// most authority any single observation may earn and `plane_weight_max` the
+  /// least. The clamp is what stops one exceptionally clean (or exceptionally
+  /// bad) detection from dominating the solve.
+  ///
+  /// **The right range depends on the model**, because the two have very
+  /// different dynamic range, and the defaults below belong to the DEFAULT
+  /// model (`inlier_count`). Its scale varies only as `sqrt(N)`, spans roughly
+  /// one order of magnitude, and `[0.5, 3.0]` barely binds.
+  ///
+  /// `fit_geometry` additionally divides by the in-plane extent, which enters
+  /// *linearly* and varies far more across detections, so the same range is far
+  /// too narrow for it: measured, 62% of office-scan observations saturated
+  /// `[0.5, 3.0]`, degrading the model into a near-binary weighting that scored
+  /// WORSE than the legacy one (office flatness 13.03 mm vs 11.72 mm). Office
+  /// flatness improves monotonically as the range widens to about
+  /// `[0.10, 15]` (11.66 mm), turns back over past that, and the clamp stops
+  /// binding entirely near `[0.05, 30]`.
+  ///
+  /// So `--plane-noise fit` should be paired with `--plane-weight-min 0.10
+  /// --plane-weight-max 15`. Forgetting to is not silent: the optimizer warns
+  /// at run time, with the numbers, when the clamp rather than the fit quality
+  /// is setting most weights (STANDARDS §5).
   float plane_weight_min = 0.5f;  ///< min sigma scale (strongest planes)
   float plane_weight_max = 3.0f;  ///< max sigma scale (weakest planes)
   float prior_sigma_rot = 0.001f; ///< first-pose gauge prior rotation std (rad)
@@ -218,6 +328,17 @@ struct PlaneGraphResult {
       0;                           ///< landmarks dropped as near-collinear
   int underconstrained_frames = 0; ///< frames whose odometry was tightened
   int loop_edges = 0;              ///< wide-baseline loop BetweenFactors added
+  /// Observations whose noise scale hit `plane_weight_min` (trusted as hard as
+  /// the model allows) and `plane_weight_max` (distrusted as hard as it
+  /// allows). Both saturating for most detections means the clamp — not the
+  /// fit statistics — is deciding the weights, i.e. the range is too narrow.
+  int plane_noise_clamped_low = 0;
+  int plane_noise_clamped_high = 0;
+  /// Median fit sigmas across all detections, the values the scales are
+  /// normalised by (0 under PlaneNoiseModel::uniform). Reported because they
+  /// are the run's own estimate of what a typical plane observation is worth.
+  double median_fit_sigma_normal = 0.0;   ///< rad
+  double median_fit_sigma_distance = 0.0; ///< m
 };
 
 /// Plane-landmark pose-graph optimizer operating purely in memory.

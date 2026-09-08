@@ -509,3 +509,149 @@ would align. Findings, all measured:
   LightGlue+ALIKED via the TensorRT backend) once (1) is in place.
 - Keep `register` for flatness-only work and `optimize` for GT-safe global
   refinement; document the trade-off (done in the CLI help).
+
+---
+
+## 7. Plane-factor measurement noise, measured against absolute GT (2026-09-08, #225)
+
+The first measurement of `rux optimize` against the **ARKitScenes** ground-truth
+meshes. Everything before this section validated the stage on the office scan
+(no GT) and on MuSHRoom honka (laser GT, but a capture that does not drift).
+Adding a third fixture class — captures that *do* drift *and* have absolute GT —
+changes two conclusions.
+
+### 7.1 What was changed
+
+`PlaneNoiseModel`, selecting how the per-observation noise of each
+`OrientedPlane3Factor` is derived:
+
+| model | sigma of one observation |
+|---|---|
+| `uniform` | `plane_sigma_*`, unscaled |
+| `inlier_count` (shipped default, #228) | `plane_sigma_* × clamp(sqrt(median_N / N))` — one scalar on **both** channels |
+| `fit_geometry` (new, opt-in) | normal and distance scaled **separately** from the fit's own statistics |
+
+The `fit_geometry` sigmas are the standard first-order uncertainty of a
+least-squares plane through `N` points with point noise `σ` (the fit's
+point-to-plane residual RMS) and in-plane RMS extent `r`:
+
+```
+sigma_distance = σ / sqrt(N)
+sigma_normal   = σ / (r · sqrt(N))
+```
+
+Both are then normalised by their **median over the run**, so `plane_sigma_normal`
+/ `plane_sigma_distance` keep their meaning as the sigmas of a median-quality
+observation and the plane term's aggregate authority against odometry is
+unchanged — only its *distribution across observations* differs. This makes the
+model a strict generalisation of `inlier_count`, which it reproduces exactly when
+`σ` and `r` are uniform.
+
+Two things motivated it. First, `inlier_count` discards the two signals that
+actually distinguish a trustworthy plane: how planar the supporting surface is,
+and how large it is. Second, extent enters the *normal* channel and not the
+offset channel, so no single scalar can express it — a 20 cm patch and a 3 m wall
+at equal `N` and `σ` are equally certain about *where* the plane is and an order
+of magnitude apart on *how it is oriented*.
+
+### 7.2 Results
+
+Identical protocol for every row: fresh copy of the `.rux` → pose stage →
+`create clouds -g 0.05` → `create planes` → `analyze quality` + `analyze
+accuracy` against the scene's GT mesh. `fit` rows use
+`--plane-weight-min 0.10 --plane-weight-max 15` (see §7.3).
+
+![Plane-factor noise model vs absolute GT](images/plane-noise-model-gt.png)
+
+**ARKitScenes (raw ARKit poses — these drift — vs `<video_id>_3dod_mesh.ply`):**
+
+| scan | pose stage | GT F@50mm ↑ | chamfer ↓ | median acc. ↓ | flatness ↓ |
+|---|---|---|---|---|---|
+| 41069048 | none | **0.8917** | **37.00 mm** | **15.75 mm** | **17.49 mm** |
+| 41069048 | optimize `inliers` | 0.8512 | 42.17 mm | 23.20 mm | 19.43 mm |
+| 41069048 | optimize `fit` | 0.8576 | 41.88 mm | 21.89 mm | 19.02 mm |
+| 41069050 | none | **0.8934** | **34.52 mm** | **17.59 mm** | **17.63 mm** |
+| 41069050 | optimize `inliers` | 0.8015 | 43.15 mm | 27.58 mm | 21.17 mm |
+| 41069050 | optimize `fit` | 0.8171 | 39.55 mm | 24.07 mm | 21.05 mm |
+| 41069051 | none | **0.8893** | **35.47 mm** | **18.64 mm** | 24.84 mm |
+| 41069051 | optimize `inliers` | 0.8437 | 39.34 mm | 23.19 mm | 24.63 mm |
+| 41069051 | optimize `fit` | 0.8877 | 36.33 mm | 21.38 mm | **23.04 mm** |
+
+**MuSHRoom honka (1596 frames, Faro laser GT — this capture does *not* drift):**
+
+| pose stage | GT F@50mm ↑ | chamfer ↓ | median acc. ↓ | flatness ↓ |
+|---|---|---|---|---|
+| none | 0.7572 | 71.52 mm | 33.52 mm | 27.98 mm |
+| optimize `inliers` | **0.7595** | **69.46 mm** | **32.19 mm** | **24.91 mm** |
+| optimize `fit` | 0.7523 | 71.54 mm | 33.97 mm | 26.84 mm |
+
+**Office `afb3234950` (GT-free; flatness / thickness p90):** none 12.50 / 20.42 mm;
+`inliers` 11.72 / 19.12 mm; `fit` at the tuned clamp 11.66 / 18.99 mm. The office
+scan cannot separate the models — it is already near the sensor floor, and its
+stored poses have had JPR applied (pipeline log entry 248), so it is not a
+"no refinement" baseline in the strict sense. The numbers above reproduce the
+2026-09-02 re-baseline in §6 exactly, which is what validates the harness.
+
+### 7.3 The clamp is model-specific, and that is measurable
+
+`plane_weight_min` / `plane_weight_max` bound the per-observation sigma scale.
+The two models have very different dynamic range: `inlier_count` varies only as
+`sqrt(N)`, so `[0.5, 3.0]` barely binds, whereas `fit_geometry` divides by extent
+*linearly* and varies far more. At the inherited `[0.5, 3.0]`, **62% of office
+observations saturated the clamp**, collapsing the model into a near-binary
+weighting that scored *worse* than the legacy model:
+
+| clamp | office flatness | office p90 |
+|---|---|---|
+| `[0.5, 3]` (legacy range) | 13.03 mm | 20.95 mm |
+| `[0.25, 4]` | 12.39 mm | 20.17 mm |
+| `[0.15, 8]` | 11.98 mm | 19.52 mm |
+| **`[0.10, 15]`** | **11.66 mm** | **18.99 mm** |
+| `[0.05, 30]` | 12.06 mm | 19.62 mm |
+| `[0.02, 50]` | 12.06 mm | 19.62 mm (clamp no longer binds) |
+
+The optimizer now **warns at run time, with the counts**, when the clamp rather
+than the fit quality is setting most weights (STANDARDS §5) — that warning is
+what diagnosed this in the first run rather than after a blind sweep.
+
+### 7.4 Two conclusions
+
+1. **`fit_geometry` helps exactly where the poses are wrong.** It beats
+   `inlier_count` on every metric of all three drifting ARKitScenes scans
+   (12/12 comparisons; GT F +0.8% / +1.9% / +5.2%, median accuracy −5.6% /
+   −12.7% / −7.8%) and loses on the one capture that does not drift. This is the
+   *same* drift-dependence the loop-closure front-end showed in §6 —
+   "loop closure is for drifting scans; keep it OFF for well-posed ones". The
+   generalised statement is: **machinery that redistributes authority toward
+   strong geometric evidence pays when the seed trajectory is wrong and costs
+   when it is already right.** It therefore ships **opt-in**
+   (`--plane-noise fit`), leaving the default bit-identical to #228 and the honka
+   guard at zero regression.
+
+2. **`rux optimize` regresses ARKitScenes against absolute GT, in every
+   configuration.** On all three scans the best pose stage is *no pose stage*
+   (F 0.89 → 0.80–0.86). `fit_geometry` recovers 16–100% of that gap but does not
+   close it. This was invisible until now because the stage had only ever been
+   scored on a GT-free scan and on a non-drifting one. It is the first hard
+   evidence that the plane-landmark back-end is **not yet a net win on drifting
+   captures** — which is precisely the case it was built for.
+
+   The most likely mechanism, and the next thing to test: the odometry factors
+   are built from consecutive **seed** poses at tight sigmas (0.005 rad /
+   0.01 m). On a drifting capture that tightly trusts a trajectory which is
+   *known to be wrong*, so the solve cannot remove drift and the plane factors
+   can only add distortion on top. The fix is not more plane weighting — it is
+   making odometry trust reflect the seed's actual local reliability, or
+   supplying the global constraint the odometry chain lacks (loop edges, #236).
+
+### 7.5 Reproducing
+
+```bash
+rux -p scan.rux optimize --plane-noise fit --plane-weight-min 0.10 --plane-weight-max 15
+rux -p scan.rux create clouds -g 0.05 && rux -p scan.rux create planes
+rux -p scan.rux analyze quality  -o quality.json
+rux -p scan.rux analyze accuracy path/to/gt_mesh.ply -o accuracy.json
+```
+
+The figure is regenerated from the `*-accuracy.json` reports with
+`scripts/plot-plane-noise-figure.py` (`REPORT_DIR=<dir> OUT=<png>`).

@@ -50,14 +50,16 @@ class ClonableOrientedPlane3Factor : public gtsam::OrientedPlane3Factor {
 /// A plane detected in one frame, expressed in that frame's OPTICAL frame as a
 /// unit normal + signed offset d so that n.dot(p) + d = 0 for points on it.
 struct FramePlane {
-  int frame = -1;                 ///< index into the frames vector
-  Eigen::Vector3d normal;         ///< unit normal (optical frame)
-  double d = 0.0;                 ///< plane offset (optical frame)
-  int inliers = 0;                ///< supporting surfel count
-  Eigen::Vector3d centroid;       ///< inlier centroid (optical frame)
-  double radius = 0.0;            ///< in-plane RMS extent of inliers (m)
-  Eigen::Vector3d world_normal;   ///< normal in world (current pose)
-  double world_d = 0.0;           ///< offset in world (current pose)
+  int frame = -1;               ///< index into the frames vector
+  Eigen::Vector3d normal;       ///< unit normal (optical frame)
+  double d = 0.0;               ///< plane offset (optical frame)
+  int inliers = 0;              ///< supporting surfel count
+  Eigen::Vector3d centroid;     ///< inlier centroid (optical frame)
+  double radius = 0.0;          ///< in-plane RMS extent of inliers (m)
+  double residual_rms = 0.0;    ///< RMS point-to-plane distance of inliers (m)
+  double extent_minor = 0.0;    ///< in-plane RMS extent, weaker axis (m)
+  Eigen::Vector3d world_normal; ///< normal in world (current pose)
+  double world_d = 0.0;         ///< offset in world (current pose)
   Eigen::Vector3d world_centroid; ///< inlier centroid in world (current pose)
 };
 
@@ -268,19 +270,40 @@ std::vector<FramePlane> detect_frame_planes(const FrameSurfels &f, int frame,
       mean_normal = -mean_normal;
     const double d = -mean_normal.dot(centroid);
 
-    // In-plane RMS extent of the inliers about the centroid: the footprint
-    // "radius" used later by the overlap gate. Computed from the components of
-    // (p - centroid) orthogonal to the plane normal, so out-of-plane scatter
-    // (thickness) does not inflate it.
+    // One pass over the inliers yields all three fit statistics:
+    //   * `radius`       — total in-plane RMS extent about the centroid, the
+    //                      footprint used by the association overlap gate;
+    //   * `scatter`      — the in-plane second-moment matrix, whose principal
+    //                      axes give the MINOR extent (the direction along
+    //                      which the fit constrains the normal least);
+    //   * `residual_rms` — RMS out-of-plane distance, i.e. how planar the
+    //                      supporting surface actually is.
+    // All are computed from (p - centroid) split into its components parallel
+    // and orthogonal to the plane normal, so in-plane spread never inflates the
+    // residual and thickness never inflates the extent.
     double sum_sq = 0.0;
+    double off_sq = 0.0;
+    Eigen::Matrix3d scatter = Eigen::Matrix3d::Zero();
     for (size_t k : inlier_idx) {
       const auto &pk = pts[k];
       const Eigen::Vector3d rp = Eigen::Vector3d(pk.x, pk.y, pk.z) - centroid;
-      const Eigen::Vector3d in_plane = rp - mean_normal.dot(rp) * mean_normal;
+      // Signed point-to-plane distance: d = -n.centroid, so n.p + d = n.rp.
+      const double e = mean_normal.dot(rp);
+      const Eigen::Vector3d in_plane = rp - e * mean_normal;
       sum_sq += in_plane.squaredNorm();
+      off_sq += e * e;
+      scatter += in_plane * in_plane.transpose();
     }
-    const double radius =
-        std::sqrt(sum_sq / static_cast<double>(inlier_idx.size()));
+    const double m_inl = static_cast<double>(inlier_idx.size());
+    const double radius = std::sqrt(sum_sq / m_inl);
+    const double residual_rms = std::sqrt(off_sq / m_inl);
+    // `in_plane` vectors are all orthogonal to mean_normal, so the scatter has
+    // one structurally-zero eigenvalue along the normal. Eigenvalues come out
+    // ascending: index 0 is that null direction, 1 and 2 are the two in-plane
+    // principal variances. The minor extent is therefore sqrt of index 1.
+    Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> in_plane_es(scatter / m_inl);
+    const double extent_minor =
+        std::sqrt(std::max(0.0, in_plane_es.eigenvalues()(1)));
 
     for (size_t k : inlier_idx)
       used[k] = 1;
@@ -292,13 +315,43 @@ std::vector<FramePlane> detect_frame_planes(const FrameSurfels &f, int frame,
     fp.inliers = static_cast<int>(inlier_idx.size());
     fp.centroid = centroid;
     fp.radius = radius;
+    fp.residual_rms = residual_rms;
+    fp.extent_minor = extent_minor;
     planes.push_back(fp);
   }
 
   return planes;
 }
 
+/// Median of a vector, by value (the copy is the point: nth_element reorders).
+/// Returns 0 for an empty input.
+double median_of(std::vector<double> v) {
+  if (v.empty())
+    return 0.0;
+  const size_t mid = v.size() / 2;
+  std::nth_element(v.begin(), v.begin() + mid, v.end());
+  return v[mid];
+}
+
 } // namespace
+
+PlaneFitSigmas plane_fit_sigmas(const PlaneFitQuality &q) {
+  // Guards, not corrections: these clamps only bound the degenerate corners so
+  // the graph never sees an infinite or zero sigma. Real detections are far
+  // above both floors.
+  constexpr double kMinResidual = 1e-4; ///< 0.1 mm — under any real depth noise
+  constexpr double kMinExtent = 1e-3;   ///< 1 mm — a patch this small pins no
+                                        ///< normal at all, so cap the lever arm
+  const double n = static_cast<double>(std::max(1, q.inliers));
+  const double sigma = std::max(kMinResidual, q.residual_rms);
+  const double extent = std::max(kMinExtent, q.extent_minor);
+  const double sqrt_n = std::sqrt(n);
+
+  PlaneFitSigmas s;
+  s.distance = sigma / sqrt_n;
+  s.normal = sigma / (extent * sqrt_n);
+  return s;
+}
 
 PlaneGraphOptimizer::PlaneGraphOptimizer(PlaneGraphOptions options)
     : options_(std::move(options)) {}
@@ -346,18 +399,101 @@ PlaneGraphOptimizer::optimize(std::vector<FrameSurfels> &frames,
   const double assoc_cos = std::cos(options_.assoc_normal_angle * M_PI / 180.0);
   using GncParamsLM = gtsam::GncParams<gtsam::LevenbergMarquardtParams>;
 
-  // Self-calibrating reference for per-observation inlier weighting: the median
-  // detection inlier count. Using the median (not a fixed constant) keeps the
-  // weighting invariant to --sampling-factor, which scales all inlier counts.
-  double ref_inliers = 1.0;
-  if (options_.plane_weight_by_inliers) {
-    std::vector<int> counts;
-    counts.reserve(all_planes.size());
-    for (const auto &p : all_planes)
-      counts.push_back(std::max(1, p.inliers));
-    std::nth_element(counts.begin(), counts.begin() + counts.size() / 2,
-                     counts.end());
-    ref_inliers = std::max(1.0, static_cast<double>(counts[counts.size() / 2]));
+  // --- Per-observation plane-factor noise scales ---------------------------
+  // Computed ONCE, outside the round loop: they depend only on each detection's
+  // own fit statistics, which are pose-independent (the RANSAC runs in the
+  // optical frame), so re-association cannot change them.
+  //
+  // Both non-uniform models normalise by the MEDIAN over this run. That is what
+  // makes the models interchangeable without retuning: plane_sigma_normal /
+  // plane_sigma_distance keep their meaning as the sigmas of a median-quality
+  // observation, the plane term's aggregate authority against odometry is
+  // unchanged, and only the DISTRIBUTION of authority across observations
+  // differs. Normalising by the median (rather than a constant) additionally
+  // keeps the weighting invariant to --sampling-factor, which scales every
+  // inlier count at once.
+  const size_t n_obs = all_planes.size();
+  std::vector<double> scale_normal(n_obs, 1.0);
+  std::vector<double> scale_distance(n_obs, 1.0);
+  {
+    const double lo = static_cast<double>(options_.plane_weight_min);
+    const double hi = static_cast<double>(options_.plane_weight_max);
+    auto apply = [&](size_t i, double raw_n, double raw_d) {
+      const double cn = std::clamp(raw_n, lo, hi);
+      const double cd = std::clamp(raw_d, lo, hi);
+      if (cn != raw_n || cd != raw_d) {
+        if (cn > raw_n || cd > raw_d)
+          ++result
+                .plane_noise_clamped_low; // wanted MORE authority than allowed
+        else
+          ++result.plane_noise_clamped_high; // wanted LESS authority
+      }
+      scale_normal[i] = cn;
+      scale_distance[i] = cd;
+    };
+
+    switch (options_.plane_noise_model) {
+    case PlaneNoiseModel::uniform:
+      break; // scales stay 1.0
+
+    case PlaneNoiseModel::inlier_count: {
+      std::vector<double> counts(n_obs);
+      for (size_t i = 0; i < n_obs; ++i)
+        counts[i] = static_cast<double>(std::max(1, all_planes[i].inliers));
+      const double ref = std::max(1.0, median_of(counts));
+      for (size_t i = 0; i < n_obs; ++i) {
+        const double s = std::sqrt(ref / counts[i]);
+        apply(i, s, s); // one scalar on BOTH channels (the legacy behaviour)
+      }
+      core::info("PlaneGraph: inlier-count plane noise, median support {:.0f} "
+                 "surfels over {} detections",
+                 ref, n_obs);
+      break;
+    }
+
+    case PlaneNoiseModel::fit_geometry: {
+      std::vector<double> sig_n(n_obs), sig_d(n_obs);
+      for (size_t i = 0; i < n_obs; ++i) {
+        const auto s =
+            plane_fit_sigmas({all_planes[i].inliers, all_planes[i].residual_rms,
+                              all_planes[i].extent_minor});
+        sig_n[i] = s.normal;
+        sig_d[i] = s.distance;
+      }
+      // Guard a pathological all-zero median so the division below stays
+      // finite; plane_fit_sigmas already returns strictly positive values, so
+      // this only fires on an empty detection set (handled earlier) or a
+      // compiler bug.
+      const double ref_n = std::max(1e-12, median_of(sig_n));
+      const double ref_d = std::max(1e-12, median_of(sig_d));
+      result.median_fit_sigma_normal = ref_n;
+      result.median_fit_sigma_distance = ref_d;
+      for (size_t i = 0; i < n_obs; ++i)
+        apply(i, sig_n[i] / ref_n, sig_d[i] / ref_d);
+      core::info(
+          "PlaneGraph: fit-geometry plane noise over {} detections — median "
+          "fit "
+          "sigma {:.5f} rad / {:.5f} m; scales clamped to [{:.2f}, {:.2f}] for "
+          "{} strong and {} weak detections",
+          n_obs, ref_n, ref_d, lo, hi, result.plane_noise_clamped_low,
+          result.plane_noise_clamped_high);
+      break;
+    }
+    }
+
+    // STANDARDS §5: say so, with numbers, when the clamp rather than the fit
+    // statistics is deciding the weights — that means the range is too narrow
+    // and the model has been silently reduced back to a near-uniform one.
+    const int clamped =
+        result.plane_noise_clamped_low + result.plane_noise_clamped_high;
+    if (n_obs > 0 &&
+        static_cast<double>(clamped) > 0.5 * static_cast<double>(n_obs))
+      core::warn(
+          "PlaneGraph: {}/{} plane observations hit the [{:.2f}, {:.2f}] "
+          "sigma-scale clamp, so the clamp — not the fit quality — is "
+          "setting most weights. Widen --plane-weight-min/max to let the "
+          "noise model act.",
+          clamped, n_obs, lo, hi);
   }
 
   double round_max_shift = 0.0;
@@ -633,17 +769,14 @@ PlaneGraphOptimizer::optimize(std::vector<FrameSurfels> &frames,
 
       for (int idx : landmarks[l].obs) {
         const auto &fp = all_planes[idx];
-        double scale = 1.0;
-        if (options_.plane_weight_by_inliers) {
-          scale = std::sqrt(ref_inliers / std::max(1, fp.inliers));
-          scale =
-              std::clamp(scale, static_cast<double>(options_.plane_weight_min),
-                         static_cast<double>(options_.plane_weight_max));
-        }
+        // Two independent scales: the tilt channels and the offset channel are
+        // limited by different things (see plane_fit_sigmas), so a small patch
+        // can be trusted on WHERE it is while being distrusted on HOW it is
+        // oriented. Under the legacy models both scales are equal.
+        const double sig_n = base_sig_n * scale_normal[idx];
+        const double sig_d = base_sig_d * scale_distance[idx];
         auto plane_noise = gtsam::noiseModel::Diagonal::Sigmas(
-            (gtsam::Vector(3) << base_sig_n * scale, base_sig_n * scale,
-             base_sig_d * scale)
-                .finished());
+            (gtsam::Vector(3) << sig_n, sig_n, sig_d).finished());
         const gtsam::Vector4 measured(fp.normal.x(), fp.normal.y(),
                                       fp.normal.z(), fp.d);
         graph.emplace_shared<ClonableOrientedPlane3Factor>(

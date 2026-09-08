@@ -143,21 +143,9 @@ class TensorRTSam3p1 : public IVideoModel {
 
   // Rearrange a device buffer from spatial [C,H,W] (row-major, the
   // vision-encoder / memory-encoder layout) to seq-major [H*W,C] (the
-  // memory-attention token layout). Implemented as a host round-trip transpose
-  // (D2H → CPU transpose → H2D) because no transpose kernel exists in this
-  // module; the element count (C*H*W ≈ 1.3M floats) makes this cheap enough for
-  // the per-frame memory path, which only runs when memory conditioning is
-  // enabled (off by default). Uses transpose_scratch_ as staging.
-  //
-  // TODO: Replace host round-trip CHW->HWC transpose with a CUDA kernel
-  // category=Vision estimate=2h
-  // The transpose currently costs a D2H copy, a CPU pass over ~1.3M floats and
-  // an H2D copy per call, plus a stream sync that serialises the frame.
-  // Only the (off-by-default) memory-conditioning path hits it, so it is not on
-  // the hot path today; it must be a device kernel before that path is revived.
-  // 1. Add a tiled transpose kernel alongside the other .cu sources
-  // 2. Drop transpose_scratch_'s host staging and the cudaStreamSynchronize
-  // 3. Verify against the host implementation on a fixed fixture
+  // memory-attention token layout). Device-side: enqueues the tiled
+  // shared-memory transpose kernel (kernels/transpose.cuh) on `stream` and
+  // returns immediately — no host staging, no synchronisation (#254).
   void rearrange_chw_to_hwc(float *d_src, float *d_dst, int c, int h, int w,
                             void *stream);
 
@@ -309,10 +297,6 @@ class TensorRTSam3p1 : public IVideoModel {
   // [5184,1,256], derived by rearranging fpn_feat_2_ / fpn_pos_2_ from [C,H,W].
   tensor::Memory<float> current_feat_;
   tensor::Memory<float> current_pos_;
-
-  // Host scratch for the [C,H,W] <-> [H*W,C] transpose (sized C*H*W floats,
-  // holds one src and one dst plane = 2*C*H*W). See rearrange_chw_to_hwc().
-  tensor::Memory<float> transpose_scratch_;
 
   // Contiguous packing of the valid slots consumed by memory-attention, plus
   // the bool key-padding mask. `memory`/`memory_pos` are seq-major [M,1,C] with

@@ -500,10 +500,14 @@ Two different tensor **layouts** collide at the memory boundary:
 - `tracker-memory-attention` consumes **seq-major tokens** `[H*W, C]` (each
   spatial location is one token).
 
-`rearrange_chw_to_hwc()` converts between them. Notably it does a **host
-round-trip** (D2H → CPU transpose → H2D) because no transpose kernel exists in
-this module and the task forbade adding one; the element count (`C·H·W ≈ 1.3M`
-floats) makes this cheap enough for the per-frame path.
+`rearrange_chw_to_hwc()` converts between them. It is a **device kernel** since
+[#254](https://github.com/pfmephisto/ReUseX/issues/254): the
+`[C, H·W] → [H·W, C]` transpose runs as a tiled shared-memory transpose
+(`kernels/transpose.cuh`, 32×32 tiles staged by 32×8 threads, tile rows padded
+to 33 floats to avoid shared-memory bank conflicts), enqueued on the caller's
+stream. The data never leaves the GPU and nothing synchronises — the earlier
+implementation did a host round-trip (D2H → CPU transpose over `C·H·W ≈ 1.3M`
+floats → H2D) plus a `cudaStreamSynchronize` that serialised the frame.
 
 Memory tokens are stored **seq-major in the ring**, so `pack_memory()` is a
 plain contiguous D2D copy of the valid slots into the `[M, 1, C]` `memory`

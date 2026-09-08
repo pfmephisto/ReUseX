@@ -12,6 +12,7 @@
 #include "vision/tensor_rt/common/device.hpp"
 #include "vision/tensor_rt/kernels/postprocess.cuh"
 #include "vision/tensor_rt/kernels/process_kernel_warp.hpp"
+#include "vision/tensor_rt/kernels/transpose.hpp"
 #include <cstdlib>
 
 #include <fmt/ranges.h>
@@ -412,9 +413,6 @@ void TensorRTSam3p1::allocate_memory_once() {
   current_feat_.gpu(per_frame);
   current_pos_.gpu(per_frame);
 
-  // Host scratch for the [C,H,W] <-> [H*W,C] transpose (src + dst planes).
-  transpose_scratch_.cpu(2 * spatial);
-
   // Packed memory + key-padding mask consumed by memory-attention. memory /
   // memory_pos are seq-major [M,1,C]; memory_mask is [1,M] (bool, all-true —
   // ignored by the RoPE encoder but bound for API completeness).
@@ -700,27 +698,11 @@ void TensorRTSam3p1::postprocess(InferResult &image_result,
 void TensorRTSam3p1::rearrange_chw_to_hwc(float *d_src, float *d_dst, int c,
                                           int h, int w, void *stream) {
   // Convert spatial [C,H,W] (index c*H*W + h*W + w) to seq-major [H*W,C]
-  // (index (h*W+w)*C + c). No transpose kernel exists in this module, so we
-  // do a host round-trip: D2H the source plane, transpose on the CPU into a
-  // second host plane, then H2D into the dst. See the TODO on the declaration
-  // in Sam3p1.hpp for replacing this with a device kernel.
-  cudaStream_t s = (cudaStream_t)stream;
-  const size_t hw = static_cast<size_t>(h) * w;
-  const size_t n = static_cast<size_t>(c) * hw;
-
-  float *h_src = transpose_scratch_.cpu(); // [0, n)  = source [C,HW]
-  float *h_dst = h_src + n;                // [n, 2n) = dest   [HW,C]
-
-  cudaMemcpyAsync(h_src, d_src, n * sizeof(float), cudaMemcpyDeviceToHost, s);
-  cudaStreamSynchronize(s); // need the data on host before transposing
-
-  for (int ci = 0; ci < c; ++ci) {
-    const float *row = h_src + static_cast<size_t>(ci) * hw; // channel ci
-    for (size_t p = 0; p < hw; ++p)
-      h_dst[p * c + ci] = row[p];
-  }
-
-  cudaMemcpyAsync(d_dst, h_dst, n * sizeof(float), cudaMemcpyHostToDevice, s);
+  // (index (h*W+w)*C + c). This is a [C,H*W] -> [H*W,C] matrix transpose,
+  // done device-side by the tiled shared-memory kernel: the data never leaves
+  // the GPU and the launch is asynchronous on `stream` (#254). Launch errors
+  // are reported by the kernel launcher's checkKernel().
+  chw_to_hwc(d_src, d_dst, c, h, w, stream);
 }
 
 int TensorRTSam3p1::pack_memory(void *stream) {
@@ -997,8 +979,9 @@ IDataset::Pair TensorRTSam3p1::step(const IDataset::Pair &in) {
   // with the memory-conditioned embedding on success; fpn_feat_0/1 + fpn_pos_2
   // pass through to the decoder unchanged.
   // Skipped entirely unless conditioning is enabled — the memory-attention
-  // forward + its host-side transpose add ~50ms/frame of pure overhead when the
-  // (unused, off-by-default) conditioning is disabled.
+  // forward is pure overhead when the (unused, off-by-default) conditioning is
+  // disabled. (The CHW->HWC rearrange it needs is a device kernel since #254,
+  // so it no longer contributes a host round-trip of its own.)
   if (use_memory_conditioning_)
     apply_memory_attention(stream);
 

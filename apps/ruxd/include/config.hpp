@@ -21,20 +21,27 @@ struct Config {
   // e.g. "postgresql://user:pass@host:5432/dbname". Empty = not configured.
   std::string pg_url;
 
+  // PostgreSQL connection pool. Capacity 0 = one connection per worker thread
+  // (`threads`, or hardware concurrency when that is auto). The acquire
+  // timeout bounds how long a handler waits for a free connection before the
+  // request fails rather than piling up.
+  unsigned pg_pool_size = 0;
+  unsigned pg_acquire_timeout_ms = 5000;
+
   // Redis — redis-plus-plus URI, e.g. "tcp://127.0.0.1:6379".
   std::string redis_url = "tcp://127.0.0.1:6379";
 
   // S3 / object storage. Endpoint empty = real AWS (region-derived endpoint);
   // set it for self-hosted S3-compatible servers (MinIO/Ceph/...).
-  std::string s3_endpoint;          // e.g. "http://127.0.0.1:9000"
+  std::string s3_endpoint; // e.g. "http://127.0.0.1:9000"
   std::string s3_region = "us-east-1";
   std::string s3_bucket;
-  std::string s3_access_key;        // secret
-  std::string s3_secret_key;        // secret
-  bool s3_path_style = true;        // path-style addressing (MinIO/Ceph need it)
+  std::string s3_access_key; // secret
+  std::string s3_secret_key; // secret
+  bool s3_path_style = true; // path-style addressing (MinIO/Ceph need it)
 
   // Auth — Bearer token required for authenticated routes. Empty disables auth.
-  std::string auth_token;           // secret
+  std::string auth_token; // secret
 };
 
 } // namespace ruxd

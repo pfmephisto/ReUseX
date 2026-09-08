@@ -98,6 +98,15 @@ int main(int argc, char **argv) {
                  "PostgreSQL connection string "
                  "(postgresql://user:pass@host:5432/db)")
       ->envname("DATABASE_URL");
+  cli.add_option("--pg-pool-size", cfg.pg_pool_size,
+                 "PostgreSQL connection pool size (0 = one per worker thread)")
+      ->envname("RUXD_PG_POOL_SIZE")
+      ->capture_default_str();
+  cli.add_option("--pg-acquire-timeout-ms", cfg.pg_acquire_timeout_ms,
+                 "Milliseconds a request waits for a free PostgreSQL "
+                 "connection before failing")
+      ->envname("RUXD_PG_ACQUIRE_TIMEOUT_MS")
+      ->capture_default_str();
 
   // --- Redis ---
   cli.add_option("--redis-url", cfg.redis_url, "Redis URI (tcp://host:port)")
@@ -152,10 +161,10 @@ int main(int argc, char **argv) {
   reusex::core::info("postgres: {}",
                      cfg.pg_url.empty() ? "not configured" : "configured");
   reusex::core::info("redis: {}", cfg.redis_url);
-  reusex::core::info("s3: endpoint={} bucket={} path_style={}",
-                     cfg.s3_endpoint.empty() ? "(aws default)" : cfg.s3_endpoint,
-                     cfg.s3_bucket.empty() ? "(unset)" : cfg.s3_bucket,
-                     cfg.s3_path_style);
+  reusex::core::info(
+      "s3: endpoint={} bucket={} path_style={}",
+      cfg.s3_endpoint.empty() ? "(aws default)" : cfg.s3_endpoint,
+      cfg.s3_bucket.empty() ? "(unset)" : cfg.s3_bucket, cfg.s3_path_style);
 
   // Backend clients connect lazily; constructing them is cheap (the AWS SDK
   // guard aside). Must outlive app.run().
@@ -176,7 +185,8 @@ int main(int argc, char **argv) {
   app.get_middleware<ruxd::BearerAuthMiddleware>().configure(&registry,
                                                              cfg.auth_token);
   if (cfg.auth_token.empty()) {
-    reusex::core::warn("auth: DISABLED (no --auth-token / RUXD_AUTH_TOKEN set)");
+    reusex::core::warn(
+        "auth: DISABLED (no --auth-token / RUXD_AUTH_TOKEN set)");
   } else {
     reusex::core::info("auth: enabled (Bearer)");
   }

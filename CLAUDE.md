@@ -417,8 +417,11 @@ Global flags: `-v/-vv/-vvv`, `-V/--version`, `-L/--license`, `-D/--visualize`,
 `-p/--project <path.rux>` (defaults to `./project.rux`).
 
 `ruxd` (`apps/ruxd/`) is a separate HTTP service worker binary with its own
-flags (`--port`, `--threads`, `--pg-url`, `--redis-url`, `--s3-*`,
-`--auth-token`).
+flags (`--port`, `--threads`, `--pg-url`, `--pg-pool-size`,
+`--pg-acquire-timeout-ms`, `--redis-url`, `--s3-*`, `--auth-token`). Postgres
+query paths lease from a fixed-size connection pool
+(`apps/ruxd/include/connection_pool.hpp`) whose capacity defaults to the worker
+thread count; `/readyz` deliberately keeps its own short-lived connection.
 
 ## Development Patterns
 

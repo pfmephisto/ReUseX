@@ -7,6 +7,6 @@
 namespace ruxd {
 
 Clients::Clients(const Config &cfg)
-    : aws_guard(), postgres(cfg.pg_url), redis(cfg.redis_url), s3(cfg) {}
+    : aws_guard(), postgres(cfg), redis(cfg.redis_url), s3(cfg) {}
 
 } // namespace ruxd

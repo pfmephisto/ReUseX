@@ -48,16 +48,24 @@ PlaneGraphResult optimize_sensor_poses(ProjectDB &db,
   // P2: assemble wide-baseline loop edges (before the optimizer mutates the
   // poses) and feed them into the same GNC graph. Indices refer to positions in
   // `frames`, so the parallel node-id and seed-pose vectors are built in the
-  // same order. Two independent sources, unioned:
-  //   (a) internally-detected ORB edges (--loop-closure), and
-  //   (b) externally-computed edges from a JSON file (--loop-edges) produced by
+  // same order. Three independent sources, unioned:
+  //   (a) internally-detected ORB frame-pair edges (--loop-closure),
+  //   (b) panorama-derived edges (--use-panoramas, issue #236), where one 360
+  //       panorama is resected independently against each frame it matches, and
+  //   (c) externally-computed edges from a JSON file (--loop-edges) produced by
   //       a learned matcher / offline oracle — the license-clean bridge.
   // The union is then de-duplicated per (i,j) pair and, when PCM is enabled,
-  // consistency-filtered AS A WHOLE, so the file path gets the same
+  // consistency-filtered AS A WHOLE, so every source gets the same
   // false-positive rejection the internal path has.
   std::vector<LoopEdge> loop_edges;
-  const bool want_loops =
-      options.loop_closure.enable || !options.loop_edges_file.empty();
+  // Panorama edges (#236) are a THIRD source, unioned with the other two. They
+  // are counted separately so a run's panorama contribution stays auditable
+  // after PCM has filtered the union.
+  std::set<std::pair<int, int>> panorama_pairs;
+  bool pcm_done = false; // did a branch already PCM the union?
+  const bool want_loops = options.loop_closure.enable ||
+                          !options.loop_edges_file.empty() ||
+                          options.panorama_loops.enable;
   if (want_loops) {
     std::vector<int> node_ids;
     std::vector<Eigen::Matrix4d> seed_poses;
@@ -75,6 +83,62 @@ PlaneGraphResult optimize_sensor_poses(ProjectDB &db,
       core::info("PlaneGraph: loop closure proposed {} edges from {} matched "
                  "candidates",
                  lc.edges, lc.candidates);
+    }
+
+    // --- (c) panorama-derived edges (#236) ---------------------------------
+    // A 360 panorama matches frames in every direction at once, so ONE
+    // panorama ties a whole group of temporally distant frames together. The
+    // measurement is built from per-frame resections in each frame's own
+    // optical coordinates, so — unlike anything derived from the aligned
+    // panorama pose — it does not merely restate the drifted seed trajectory.
+    // The seed-disagreement and min_frame_gap gates are applied inside
+    // detect_panorama_loop_edges from these same LoopClosureOptions.
+    if (options.panorama_loops.enable) {
+      PanoramaLoopResult pl;
+      auto pano_edges = detect_panorama_loop_edges(
+          db, node_ids, seed_poses, options.panorama_loops,
+          options.loop_closure, &pl);
+
+      if (pl.panoramas == 0) {
+        // The user explicitly asked for panorama edges on a project that has
+        // none. Not fatal — the graph is still solvable from planes/odometry —
+        // but it must be loud, with the numbers (docs/STANDARDS.md §5).
+        core::warn("PlaneGraph: --use-panoramas requested but this project "
+                   "contains 0 panoramic images ({} sensor frames); no "
+                   "panorama loop edges will be added. Import 360 imagery "
+                   "with 'rux import 360' first.",
+                   frames.size());
+      }
+
+      // Cross-source dedup: a pair already constrained by an internally
+      // detected ORB edge must not receive a SECOND BetweenFactor (two factors
+      // on one pair multiply the information). The ORB edge wins: it is a
+      // direct frame-to-frame RANSAC on this scan's own depth, whereas a
+      // panorama edge chains two independent resections.
+      std::set<std::pair<int, int>> existing;
+      for (const auto &e : loop_edges)
+        existing.emplace(std::min(e.i, e.j), std::max(e.i, e.j));
+
+      int dropped_dup = 0;
+      for (auto &e : pano_edges) {
+        const auto key = std::make_pair(std::min(e.i, e.j), std::max(e.i, e.j));
+        if (existing.count(key) > 0) {
+          ++dropped_dup;
+          continue;
+        }
+        panorama_pairs.insert(key);
+        loop_edges.push_back(std::move(e));
+      }
+      if (dropped_dup > 0)
+        core::info("PlaneGraph: dropped {} panorama loop edges duplicating an "
+                   "internally-detected pair (avoids double factors)",
+                   dropped_dup);
+      core::info("PlaneGraph: {} panorama loop edges kept from {}/{} panoramas "
+                 "({} frame resections, {} pairs proposed; dropped {} gap / "
+                 "{} seed-gate / {} per-panorama cap)",
+                 panorama_pairs.size(), pl.panoramas_matched, pl.panoramas,
+                 pl.frames_resected, pl.proposed, pl.dropped_gap,
+                 pl.dropped_seed_gate, pl.dropped_cap);
     }
 
     if (!options.loop_edges_file.empty()) {
@@ -154,6 +218,7 @@ PlaneGraphResult optimize_sensor_poses(ProjectDB &db,
         const size_t before = loop_edges.size();
         loop_edges = filter_consistent_loop_edges(
             std::move(loop_edges), seed_poses, options.loop_closure);
+        pcm_done = true;
         size_t external_kept = 0;
         for (const auto &e : loop_edges)
           if (external_pairs.count({std::min(e.i, e.j), std::max(e.i, e.j)}) >
@@ -171,10 +236,46 @@ PlaneGraphResult optimize_sensor_poses(ProjectDB &db,
             external_pairs.size());
       }
     }
+
+    // Pairwise Consistency Maximization over the UNION for the panorama source.
+    // detect_loop_edges PCM-filters its own output and the file branch above
+    // PCMs the union when a file contributed, but consistency is a property of
+    // the WHOLE edge set: without this, panorama edges would reach the graph
+    // with no consistency filter whenever no --loop-edges file was given.
+    // Governed by the same options.pcm flag (`--loop-no-pcm`) as every other
+    // source, so one switch means one thing.
+    if (!panorama_pairs.empty() && !pcm_done && loop_edges.size() > 2) {
+      if (options.loop_closure.pcm) {
+        const size_t before = loop_edges.size();
+        loop_edges = filter_consistent_loop_edges(
+            std::move(loop_edges), seed_poses, options.loop_closure);
+        pcm_done = true;
+        size_t pano_kept = 0;
+        for (const auto &e : loop_edges)
+          if (panorama_pairs.count({std::min(e.i, e.j), std::max(e.i, e.j)}) >
+              0)
+            ++pano_kept;
+        core::info("PlaneGraph: PCM kept {} of {} unioned loop edges; "
+                   "{} of {} panorama edges rejected as inconsistent",
+                   loop_edges.size(), before,
+                   panorama_pairs.size() - pano_kept, panorama_pairs.size());
+      } else {
+        core::warn("PlaneGraph: PCM disabled (--loop-no-pcm) — {} panorama "
+                   "loop edges enter the graph WITHOUT a consistency filter",
+                   panorama_pairs.size());
+      }
+    }
   }
 
   PlaneGraphOptimizer optimizer(options);
   PlaneGraphResult result = optimizer.optimize(frames, loop_edges);
+
+  // Attribute the surviving edges back to the panorama source so a run's
+  // panorama contribution is auditable AFTER PCM (STANDARDS §5: report the
+  // numbers, do not leave "it did something" implicit).
+  for (const auto &e : loop_edges)
+    if (panorama_pairs.count({std::min(e.i, e.j), std::max(e.i, e.j)}) > 0)
+      ++result.panorama_loop_edges;
 
   if (dry_run) {
     core::info("PlaneGraph dry-run: poses NOT written back");

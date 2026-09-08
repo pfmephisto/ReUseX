@@ -49,6 +49,8 @@ EXAMPLES:
   rux optimize                        # Defaults (GNC on, inlier-weighted planes)
   rux optimize --dry-run              # Report statistics without writing
   rux optimize --loop-closure         # Add wide-baseline loop edges (P2, ORB)
+  rux optimize --loop-closure --use-panoramas   # ...plus 360-panorama loop edges (#236)
+  rux optimize --use-panoramas        # Panorama loop edges alone (no ORB pair search)
   rux optimize --loop-edges edges.json --loop-trust  # External learned-matcher edges
   rux optimize --min-observations 3 --assoc-distance 0.15
   rux optimize --no-gnc               # Plain Levenberg-Marquardt (no robustness)
@@ -239,7 +241,46 @@ NOTES:
       ->default_val(opt->loop_trust_inlier_cost);
   sub->add_flag("--loop-no-pcm", opt->loop_no_pcm,
                 "Disable pairwise-consistency (PCM) filtering of loop edges "
-                "(governs BOTH internally-detected and --loop-edges edges)");
+                "(governs ALL edge sources: --loop-closure, --use-panoramas "
+                "and --loop-edges)");
+
+  // --- Panorama-derived loop edges (#236) ---
+  sub->add_flag(
+      "--use-panoramas", opt->use_panoramas,
+      "Derive wide-baseline loop edges from the project's 360 panoramas "
+      "(issue #236). Each panorama is resected INDEPENDENTLY against every "
+      "frame it matches, in that frame's own optical coordinates, so the "
+      "relative pose it implies between two frames is a real measurement and "
+      "not a restatement of the drifted seed poses. One panorama sees all "
+      "directions at once, so it ties temporally distant frames that do not "
+      "overlap each other. Unioned with --loop-closure / --loop-edges and "
+      "gated by the same --loop-min-frame-gap / --loop-*-seed-disagreement / "
+      "PCM machinery. Does NOT require 'rux align 360' — panorama poses are "
+      "neither read nor written");
+  sub->add_option("--pano-max-frames", opt->pano_max_frames,
+                  "Frames swept across the whole trajectory and matched "
+                  "against each panorama (the dominant cost)")
+      ->default_val(opt->pano_max_frames);
+  sub->add_option("--pano-min-inliers", opt->pano_min_inliers,
+                  "Accept a panorama's per-frame resection above this many "
+                  "gated bearing inliers")
+      ->default_val(opt->pano_min_inliers);
+  sub->add_option("--pano-max-edges", opt->pano_max_edges,
+                  "Max loop edges contributed per panorama (highest joint "
+                  "support first); caps the O(F^2) edges one panorama would "
+                  "otherwise add from a single shared resection error")
+      ->default_val(opt->pano_max_edges);
+  sub->add_option("--pano-slices", opt->pano_n_yaw,
+                  "Perspective slices rendered around the panorama equator")
+      ->default_val(opt->pano_n_yaw);
+  sub->add_option("--pano-max-features", opt->pano_max_features,
+                  "ORB features per panorama slice / sensor frame")
+      ->default_val(opt->pano_max_features);
+  sub->add_option("--pano-max-distance", opt->pano_max_distance,
+                  "Reject a resection placing the panorama further than this "
+                  "from the frame (m; ill-conditioned bearing solve). <=0 "
+                  "disables")
+      ->default_val(opt->pano_max_distance);
   sub->add_option(
          "--loop-edges", opt->loop_edges_file,
          "Load externally-computed loop edges from a JSON file (schema "
@@ -375,17 +416,26 @@ int run_subcommand_optimize(SubcommandOptimizeOptions const &opt,
     options.loop_closure.seed = opt.seed;
     options.loop_edges_file = opt.loop_edges_file;
     options.loop_edges_min_seed_disagreement = opt.loop_edges_min_disagreement;
+    options.panorama_loops.enable = opt.use_panoramas;
+    options.panorama_loops.max_frames = opt.pano_max_frames;
+    options.panorama_loops.min_frame_inliers = opt.pano_min_inliers;
+    options.panorama_loops.max_edges_per_panorama = opt.pano_max_edges;
+    options.panorama_loops.n_yaw = opt.pano_n_yaw;
+    options.panorama_loops.max_features = opt.pano_max_features;
+    options.panorama_loops.max_pano_distance = opt.pano_max_distance;
+    options.panorama_loops.seed = opt.seed;
 
     int logId = db.log_pipeline_start(
         "pose_optimization_plane_graph",
         fmt::format(
-            R"({{"min_observations":{},"assoc_normal_angle":{},"assoc_distance":{},"max_planes_per_frame":{},"min_plane_inliers":{},"plane_noise":"{}","use_gnc":{},"iterations":{},"seed":{},"dry_run":{},"loop_closure":{},"loop_trust":{},"pcm":{},"loop_edges_file":"{}","loop_edges_min_disagreement":{}}})",
+            R"({{"min_observations":{},"assoc_normal_angle":{},"assoc_distance":{},"max_planes_per_frame":{},"min_plane_inliers":{},"plane_noise":"{}","use_gnc":{},"iterations":{},"seed":{},"dry_run":{},"loop_closure":{},"loop_trust":{},"pcm":{},"loop_edges_file":"{}","loop_edges_min_disagreement":{},"use_panoramas":{},"pano_max_frames":{},"pano_min_inliers":{}}})",
             opt.min_observations, opt.assoc_normal_angle, opt.assoc_distance,
             opt.max_planes_per_frame, opt.min_plane_inliers,
             opt.no_plane_inlier_weight ? "uniform" : opt.plane_noise,
             !opt.no_gnc, opt.iterations, opt.seed, opt.dry_run,
             opt.loop_closure, opt.loop_trust, !opt.loop_no_pcm,
-            opt.loop_edges_file, opt.loop_edges_min_disagreement));
+            opt.loop_edges_file, opt.loop_edges_min_disagreement,
+            opt.use_panoramas, opt.pano_max_frames, opt.pano_min_inliers));
 
     auto result =
         reusex::geometry::optimize_sensor_poses(db, options, opt.dry_run);
@@ -405,9 +455,10 @@ int run_subcommand_optimize(SubcommandOptimizeOptions const &opt,
           "{} strong and {} weak observations hit the sigma-scale clamp",
           result.median_fit_sigma_normal, result.median_fit_sigma_distance,
           result.plane_noise_clamped_low, result.plane_noise_clamped_high);
-    if (opt.loop_closure || !opt.loop_edges_file.empty())
-      spdlog::info("Loop closure: {} wide-baseline edges added to the graph",
-                   result.loop_edges);
+    if (opt.loop_closure || !opt.loop_edges_file.empty() || opt.use_panoramas)
+      spdlog::info("Loop closure: {} wide-baseline edges added to the graph "
+                   "({} of them panorama-derived)",
+                   result.loop_edges, result.panorama_loop_edges);
 
     // Mirrors the library guard (PlaneGraphOptimizer::optimize): the poses are
     // only left untouched when there is NEITHER a landmark NOR a loop edge to

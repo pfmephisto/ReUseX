@@ -101,7 +101,7 @@ a `workstream: *` label so alignment can be queried with
 | SLAM / reconstruction quality | `workstream: slam-quality` | #221, #225 | Reach ~10 mm plane flatness via an owned global pose-optimization stage (plane landmarks + GNC), measured against fixture scans — not by tuning RTABMap forever |
 | GUI application | `workstream: gui` | #265 | `rux gui` serving a designed web frontend locally; visual language authored in Claude Design, behaviour owned by the repo; `ruxd` stays headless and remote execution comes later over the same API contract |
 | Gaussian splatting | `workstream: gsplat` | #240 | Native C++/CUDA 3DGS trained from `ProjectDB` — point-cloud-seeded Gaussians, sensor frames and sliced 360 panoramas as views, Apache-licensed gsplat kernels under a GPL trainer |
-| 360 integration | `workstream: 360-integration` | #236 | Turn aligned panoramas into wide-baseline pose-graph constraints; a panorama that sees many temporally-distant frames supplies exactly the loop closures the plane-landmark back-end cannot |
+| 360 integration | `workstream: 360-integration` | #236 | Turn panoramas into wide-baseline pose-graph constraints; a panorama that sees many temporally-distant frames supplies exactly the loop closures the plane-landmark back-end cannot. Mechanism landed and tested (`rux optimize --use-panoramas`); **blocked on matcher quality** — cross-camera ORB resections are too weak to help, see [`research/panorama-loop-closure.md`](research/panorama-loop-closure.md) |
 | Agent-driven modeling | `workstream: agent-modeling` | #267 | Evaluate an agent + MCP gateway + Blender path to a simplified, tagged building model as a complement to the geometric pipeline; requires headless rendering so the agent has eyes |
 | Infrastructure & test health | `workstream: infra` | #268 | Keep the build, test and coverage loop fast and trustworthy so agents can iterate — includes #262 (parallel-ctest flakiness) and hosted CI (#202) |
 
@@ -202,6 +202,19 @@ changelog — that history is the point of keeping it in the repo.
 ---
 
 ## Direction changelog
+
+- **2026-09-08** — 360-driven pose-graph loop closure (#236) implemented and
+  measured on the NewOffice drifted scan: the mechanism, guardrails and CLI
+  landed, but the effect is negative (flatness_rms 25.15 → 27.08 mm vs the
+  `optimize` baseline) because cross-camera ORB resections between the 360
+  camera and the iPad are too weak — forcing the edges through `--loop-trust`
+  collapses quality to 35.03 mm, confirming they are genuinely wrong rather than
+  merely suppressed. The workstream's next step is therefore a **learned
+  matcher**, which moves it behind the #221/#225 matcher work rather than ahead
+  of it. Notably this does **not** settle the #225 odometry-trust hypothesis:
+  edge quality is a confound, and the clean test still needs accurate
+  wide-baseline edges. Full write-up:
+  [`research/panorama-loop-closure.md`](research/panorama-loop-closure.md).
 
 - **2026-09-08** — Document created (#266). Established the four-way priority
   ordering (SLAM/reconstruction quality → GUI → Gaussian splatting →

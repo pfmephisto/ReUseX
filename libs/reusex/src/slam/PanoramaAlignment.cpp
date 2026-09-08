@@ -13,6 +13,7 @@
 #include "core/SensorIntrinsics.hpp"
 #include "core/logging.hpp"
 #include "geometry/EquirectProjection.hpp"
+#include "panorama_features.hpp"
 
 #include <opencv2/calib3d.hpp>
 #include <opencv2/features2d.hpp>
@@ -32,107 +33,35 @@ namespace reusex::geometry {
 
 namespace {
 
-// Row-major std::array<16> (sensor_frame_pose convention) -> Eigen 4x4.
-Eigen::Matrix4d to_matrix4(const std::array<double, 16> &a) {
-  Eigen::Matrix4d M;
-  for (int r = 0; r < 4; ++r)
-    for (int c = 0; c < 4; ++c)
-      M(r, c) = a[r * 4 + c];
-  return M;
-}
+// Pose/rotation helpers, the frame feature extractor and the bearing-space
+// Gauss-Newton refinement now live in panorama_features.hpp, shared with the
+// panorama loop-edge front-end (issue #236).
+using pano_detail::bearing_angle;
+using pano_detail::from_matrix4;
+using pano_detail::to_matrix4;
 
-std::array<double, 16> from_matrix4(const Eigen::Matrix4d &M) {
-  std::array<double, 16> a{};
-  for (int r = 0; r < 4; ++r)
-    for (int c = 0; c < 4; ++c)
-      a[r * 4 + c] = M(r, c);
-  return a;
-}
-
-// so(3) exponential (Rodrigues) for a small rotation vector.
-Eigen::Matrix3d exp_so3(const Eigen::Vector3d &w) {
-  const double th = w.norm();
-  if (th < 1e-12)
-    return Eigen::Matrix3d::Identity();
-  const Eigen::Vector3d axis = w / th;
-  Eigen::Matrix3d K;
-  K << 0, -axis.z(), axis.y(), axis.z(), 0, -axis.x(), -axis.y(), axis.x(), 0;
-  return Eigen::Matrix3d::Identity() + std::sin(th) * K +
-         (1 - std::cos(th)) * K * K;
-}
-
-Eigen::Matrix3d skew(const Eigen::Vector3d &v) {
-  Eigen::Matrix3d S;
-  S << 0, -v.z(), v.y(), v.z(), 0, -v.x(), -v.y(), v.x(), 0;
-  return S;
-}
-
-// ORB features of a frame, lifted to metric 3D in WORLD coordinates via the
-// stored depth + pose. Mirrors LoopClosure::extract_features but transforms the
-// optical-frame points to world so slices from any orientation can PnP against
-// them.
+// ORB features of a frame with world-space 3D points. The extraction itself is
+// shared (pano_detail::extract_frame_features, which lifts to the frame's OWN
+// optical coordinates); alignment resects a single pooled pose in WORLD, so the
+// points are composed with the frame's seed pose here.
 struct FrameWorldFeatures {
-  cv::Mat descriptors;                 ///< Nx32 CV_8U
-  std::vector<cv::KeyPoint> keypoints; ///< unused downstream, kept for parity
-  std::vector<Eigen::Vector3d> world;  ///< world 3D point per keypoint
-  std::vector<char> valid;             ///< depth in range
+  pano_detail::FrameFeatures f;
+  std::vector<Eigen::Vector3d> world;
+
+  const cv::Mat &descriptors() const { return f.descriptors; }
+  bool valid(int k) const { return f.valid[k] != 0; }
 };
 
 FrameWorldFeatures extract_frame(ProjectDB &db, int node_id,
                                  const PanoramaAlignmentOptions &opt,
                                  const cv::Ptr<cv::ORB> &orb) {
   FrameWorldFeatures out;
-  cv::Mat color = db.sensor_frame_image(node_id);
-  cv::Mat depth16 = db.sensor_frame_depth(node_id);
-  if (color.empty() || depth16.empty())
-    return out;
-
-  cv::Mat gray;
-  if (color.channels() == 3)
-    cv::cvtColor(color, gray, cv::COLOR_BGR2GRAY);
-  else if (color.channels() == 4)
-    cv::cvtColor(color, gray, cv::COLOR_BGRA2GRAY);
-  else
-    gray = color;
-
-  cv::Mat depth_f;
-  depth16.convertTo(depth_f, CV_32FC1, 1.0 / 1000.0); // mm -> m
-
-  const core::SensorIntrinsics intr = db.sensor_frame_intrinsics(node_id);
-  const double sx = static_cast<double>(depth_f.cols) / std::max(1, intr.width);
-  const double sy =
-      static_cast<double>(depth_f.rows) / std::max(1, intr.height);
-  const double fx = intr.fx * sx, fy = intr.fy * sy;
-  const double cx = intr.cx * sx, cy = intr.cy * sy;
-  if (fx <= 0.0 || fy <= 0.0)
-    return out;
-
-  const Eigen::Matrix4d T_world_cam = to_matrix4(db.sensor_frame_pose(node_id));
-  const Eigen::Matrix3d R_wc = T_world_cam.block<3, 3>(0, 0);
-  const Eigen::Vector3d t_wc = T_world_cam.block<3, 1>(0, 3);
-
-  orb->detectAndCompute(gray, cv::noArray(), out.keypoints, out.descriptors);
-  if (out.keypoints.empty()) {
-    out.descriptors.release();
-    return out;
-  }
-
-  out.world.resize(out.keypoints.size());
-  out.valid.assign(out.keypoints.size(), 0);
-  for (size_t k = 0; k < out.keypoints.size(); ++k) {
-    const int ud = static_cast<int>(std::lround(
-        out.keypoints[k].pt.x * static_cast<double>(depth_f.cols) / gray.cols));
-    const int vd = static_cast<int>(std::lround(
-        out.keypoints[k].pt.y * static_cast<double>(depth_f.rows) / gray.rows));
-    if (ud < 0 || vd < 0 || ud >= depth_f.cols || vd >= depth_f.rows)
-      continue;
-    const float z = depth_f.at<float>(vd, ud);
-    if (!std::isfinite(z) || z < opt.min_depth || z > opt.max_depth)
-      continue;
-    const Eigen::Vector3d p_cam((ud - cx) * z / fx, (vd - cy) * z / fy, z);
-    out.world[k] = R_wc * p_cam + t_wc;
-    out.valid[k] = 1;
-  }
+  out.f = pano_detail::extract_frame_features(db, node_id, orb, opt.min_depth,
+                                              opt.max_depth);
+  out.world.resize(out.f.local.size());
+  for (size_t k = 0; k < out.f.local.size(); ++k)
+    if (out.f.valid[k])
+      out.world[k] = out.f.world(k);
   return out;
 }
 
@@ -189,17 +118,6 @@ void draw_correspondence_figure(ProjectDB &db, const cv::Mat &slice_img,
   std::filesystem::create_directories(
       std::filesystem::path(path).parent_path());
   cv::imwrite(path, canvas);
-}
-
-// Angular error (rad) of a world point under a pano_from_world (Q,t).
-double bearing_angle(const Eigen::Matrix3d &Q, const Eigen::Vector3d &t,
-                     const Eigen::Vector3d &X, const Eigen::Vector3d &b_obs) {
-  const Eigen::Vector3d m = Q * X + t;
-  const double n = m.norm();
-  if (n < 1e-9)
-    return M_PI;
-  const double c = std::clamp((m / n).dot(b_obs), -1.0, 1.0);
-  return std::acos(c);
 }
 
 } // namespace
@@ -277,10 +195,10 @@ PanoramaAlignmentResult align_panorama(ProjectDB &db, int pano_id,
 
     for (size_t fi = 0; fi < frames.size(); ++fi) {
       const auto &fr = frames[fi];
-      if (fr.descriptors.empty())
+      if (fr.descriptors().empty())
         continue;
       std::vector<std::vector<cv::DMatch>> knn;
-      matcher.knnMatch(sdesc, fr.descriptors, knn,
+      matcher.knnMatch(sdesc, fr.f.descriptors, knn,
                        2); // query=slice, train=frame
       for (const auto &m : knn) {
         if (m.size() < 2)
@@ -289,14 +207,14 @@ PanoramaAlignmentResult align_panorama(ProjectDB &db, int pano_id,
           continue;
         const int qs = m[0].queryIdx; // slice keypoint
         const int tf = m[0].trainIdx; // frame keypoint
-        if (!fr.valid[tf])
+        if (!fr.valid(tf))
           continue;
         Corr corr;
         corr.slice_px = skps[qs].pt;
         corr.world = fr.world[tf];
         corr.slice_idx = static_cast<int>(si);
         corr.frame_node = cand[fi];
-        corr.frame_px = fr.keypoints[tf].pt;
+        corr.frame_px = fr.f.keypoints[tf].pt;
         const Eigen::Vector3d ray_view((corr.slice_px.x - cx) / fx,
                                        (corr.slice_px.y - cy) / fy, 1.0);
         corr.bearing = (view.R_pano_from_view * ray_view).normalized();
@@ -367,64 +285,43 @@ PanoramaAlignmentResult align_panorama(ProjectDB &db, int pano_id,
   const double fx0 = slices.empty() ? 1.0 : slices[0].K(0, 0);
   const double ang_gate = 2.0 * std::atan(opt.ransac_reproj_px / fx0);
 
-  auto select_pool = [&](const Eigen::Matrix3d &Q, const Eigen::Vector3d &t) {
-    std::vector<const Corr *> sel;
-    for (const auto &c : pool)
-      if (bearing_angle(Q, t, c.world, c.bearing) < ang_gate)
-        sel.push_back(&c);
-    return sel;
-  };
-  std::vector<const Corr *> inl = select_pool(Q_best, t_best);
-  if (static_cast<int>(inl.size()) < opt.min_inliers) {
-    core::debug("PanoramaAlignment: panorama {} — {} pooled inliers < {}",
-                pano_id, inl.size(), opt.min_inliers);
-    return res;
+  // Parallel arrays for the shared bearing-space refinement: each pooled
+  // correspondence's WORLD point against the panorama bearing it was seen under.
+  std::vector<Eigen::Vector3d> pool_pts, pool_bearings;
+  pool_pts.reserve(pool.size());
+  pool_bearings.reserve(pool.size());
+  for (const auto &c : pool) {
+    pool_pts.push_back(c.world);
+    pool_bearings.push_back(c.bearing);
   }
 
   // --- Gauss-Newton refine pano_from_world (Q,t) over pooled inliers --------
-  // Left perturbation: T <- exp(xi) T. Residual e = b_hat - b_obs (3-vec),
-  // J = d b_hat/dm * [ -[m]x | I ].
+  // Shared with the loop-edge front-end (pano_detail::refine_bearing_pose):
+  // left perturbation T <- exp(xi) T, residual e = b_hat - b_obs, re-gating the
+  // inlier set as the pose improves.
   Eigen::Matrix3d Q = Q_best;
   Eigen::Vector3d t = t_best;
-  for (int it = 0; it < opt.refine_iterations; ++it) {
-    Eigen::Matrix<double, 6, 6> H = Eigen::Matrix<double, 6, 6>::Zero();
-    Eigen::Matrix<double, 6, 1> g = Eigen::Matrix<double, 6, 1>::Zero();
-    for (const Corr *c : inl) {
-      const Eigen::Vector3d m = Q * c->world + t;
-      const double n = m.norm();
-      if (n < 1e-9)
-        continue;
-      const Eigen::Vector3d bh = m / n;
-      const Eigen::Vector3d e = bh - c->bearing;
-      const Eigen::Matrix3d dbh_dm =
-          (Eigen::Matrix3d::Identity() - bh * bh.transpose()) / n;
-      Eigen::Matrix<double, 3, 6> Jm;
-      Jm.block<3, 3>(0, 0) = -skew(m);                    // wrt rotation
-      Jm.block<3, 3>(0, 3) = Eigen::Matrix3d::Identity(); // wrt translation
-      const Eigen::Matrix<double, 3, 6> J = dbh_dm * Jm;
-      H += J.transpose() * J;
-      g += J.transpose() * e;
-    }
-    H += 1e-9 * Eigen::Matrix<double, 6, 6>::Identity();
-    const Eigen::Matrix<double, 6, 1> dx = H.ldlt().solve(-g);
-    if (!dx.allFinite())
-      break;
-    const Eigen::Matrix3d dR = exp_so3(dx.head<3>());
-    Q = dR * Q;
-    t = dR * t + dx.tail<3>();
-    if (dx.norm() < 1e-8)
-      break;
-    // re-gate occasionally so the inlier set follows the improving pose
-    if (it + 1 < opt.refine_iterations)
-      inl = select_pool(Q, t);
-    if (static_cast<int>(inl.size()) < opt.min_inliers)
-      break;
+  int initial_inliers = 0;
+  const pano_detail::BearingRefineOptions ro{ang_gate, opt.refine_iterations,
+                                             opt.min_inliers};
+  const std::vector<int> inl_idx = pano_detail::refine_bearing_pose(
+      pool_pts, pool_bearings, ro, Q, t, &initial_inliers);
+  if (initial_inliers < opt.min_inliers) {
+    core::debug("PanoramaAlignment: panorama {} — {} pooled inliers < {}",
+                pano_id, initial_inliers, opt.min_inliers);
+    return res;
+  }
+  if (inl_idx.empty()) {
+    core::debug("PanoramaAlignment: panorama {} — refinement fell below {} "
+                "inliers (started at {})",
+                pano_id, opt.min_inliers, initial_inliers);
+    return res;
   }
 
-  // --- finalise -------------------------------------------------------------
-  inl = select_pool(Q, t);
-  if (static_cast<int>(inl.size()) < opt.min_inliers)
-    return res;
+  std::vector<const Corr *> inl;
+  inl.reserve(inl_idx.size());
+  for (int k : inl_idx)
+    inl.push_back(&pool[k]);
 
   double sq = 0.0;
   for (const Corr *c : inl) {

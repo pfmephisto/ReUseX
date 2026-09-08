@@ -118,7 +118,9 @@ Schema **v11** (auto-migrates): `panoramic_images` gains
 table stores an equirect label PNG per panorama (CV_16U +1-offset, the same
 convention as `segmentation_images`).
 
-## Out of scope (follow-up — issue #236)
-360-driven pose-graph loop closure. The alignment already produces
-panorama↔multi-frame correspondences; emitting inter-frame `LoopEdge`s into
-`PlaneGraphOptimizer` is a separate PR.
+## Follow-up — issue #236 (implemented, not yet effective)
+360-driven pose-graph loop closure: `rux optimize --use-panoramas`. Note that it
+does **not** reuse the aligned panorama pose — doing so would be circular — but
+resects each panorama independently against every frame it matches. Written up,
+with the measured result and why it does not yet help, in
+[`panorama-loop-closure.md`](panorama-loop-closure.md).

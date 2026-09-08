@@ -86,6 +86,22 @@ struct SubcommandOptimizeOptions {
       reusex::geometry::PlaneGraphOptions{}.loop_trust_inlier_cost;
   bool loop_no_pcm = false; // disable pairwise-consistency filtering
 
+  // Panorama-derived wide-baseline loop edges (#236; off by default). Defaults
+  // mirror reusex::geometry::PlaneGraphOptions::panorama_loops so the library
+  // stays the single source of truth (docs/STANDARDS.md §4).
+  bool use_panoramas = false;
+  int pano_max_frames =
+      reusex::geometry::PlaneGraphOptions{}.panorama_loops.max_frames;
+  int pano_min_inliers =
+      reusex::geometry::PlaneGraphOptions{}.panorama_loops.min_frame_inliers;
+  int pano_max_edges =
+      reusex::geometry::PlaneGraphOptions{}.panorama_loops.max_edges_per_panorama;
+  int pano_n_yaw = reusex::geometry::PlaneGraphOptions{}.panorama_loops.n_yaw;
+  int pano_max_features =
+      reusex::geometry::PlaneGraphOptions{}.panorama_loops.max_features;
+  double pano_max_distance =
+      reusex::geometry::PlaneGraphOptions{}.panorama_loops.max_pano_distance;
+
   // External loop edges (license-clean learned-matcher bridge). Path to a JSON
   // file (schema "reusex.loop_edges.v1") produced by an out-of-process matcher
   // (XFeat / EfficientLoFTR / MapAnything, or an offline MASt3R ceiling

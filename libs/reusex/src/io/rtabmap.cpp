@@ -29,7 +29,16 @@ void import_rtabmap(ProjectDB &db,
   rtabmap::ParametersMap params;
   rtabmap::Rtabmap rtabmap;
   rtabmap.init(params, rtabmap_db_path.c_str());
-  rtabmap.setWorkingDirectory("./");
+  // NOTE: RTABMap's working directory is deliberately left unset (issue #245).
+  // It is only ever used for optional side outputs — the LogF.txt/LogI.txt
+  // statistics logs, gated on `Rtabmap/StatisticLogged` (default false), and a
+  // debug-only global scan-map PCD dump from createGlobalScanMap(). This import
+  // passes an empty ParametersMap, never calls process(), and getGraph() does
+  // not touch it, so the previous setWorkingDirectory() call — which pointed
+  // at the process working directory — wrote nothing; it only implied a
+  // dependency we do not have. Do not reintroduce it: if statistics logging
+  // (or the scan-map dump) is ever enabled here,
+  // pass an explicit directory derived from the destination project instead.
   core::debug("RTABMap initialized in {:.3f}s", timer);
 
   timer.reset();

@@ -22,6 +22,11 @@ struct SubcommandTextureOptions {
   int max_resolution = 4096;        ///< Maximum texture size
   int atlas_tile_size = 2048;       ///< Atlas tile size for PCL visualization
   float distance_threshold = 0.02f; ///< Max distance from point to surface
+  /// Directory the generated texture images are staged in. Left empty to
+  /// mirror reusex::geometry::TextureQualityParams::texture_dir, whose empty
+  /// default means "a unique directory under the system temp directory".
+  /// Never the process working directory (issue #245).
+  fs::path texture_dir{};
 };
 
 // Function declarations.

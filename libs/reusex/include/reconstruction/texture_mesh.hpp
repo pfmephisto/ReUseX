@@ -11,9 +11,29 @@
 #include <pcl/TextureMesh.h>
 #include <rtabmap/core/DBDriver.h>
 
+#include <filesystem>
 #include <map>
 
 namespace reusex::geometry {
+
+/// Prepare the directory the generated texture images are staged in.
+///
+/// The library never writes to — or deletes from — the process working
+/// directory (issue #245):
+///
+/// - `requested` empty (the default): a fresh, uniquely named directory is
+///   created under `std::filesystem::temp_directory_path()`. Because it is
+///   created here it is guaranteed not to have existed before, so no caller
+///   data can be clobbered. Concurrent `rux create texture` runs therefore
+///   never collide.
+/// - `requested` non-empty: the path is made absolute and created if missing.
+///   Existing content is left **untouched** — a caller-supplied directory is
+///   never cleared, so the caller owns its lifetime.
+///
+/// @returns an absolute path to an existing, writable directory.
+/// @throws std::runtime_error if the directory cannot be created.
+std::filesystem::path
+prepare_texture_dir(const std::filesystem::path &requested = {});
 
 /// Camera data for texture mapping
 struct CameraData {
@@ -36,6 +56,11 @@ struct TextureQualityParams {
   int max_neighbors = 100;          ///< Max points to check per pixel
   bool use_quadratic_falloff =
       true; ///< Use 1/d^2 instead of 1/d for sharper detail
+  /// Directory the generated texture images are written to. Empty (the
+  /// default) means "stage into a unique directory under the system temp
+  /// directory" — see prepare_texture_dir(). A caller-supplied directory is
+  /// created if missing but never cleared, and the caller owns its lifetime.
+  std::filesystem::path texture_dir{};
 };
 
 pcl::TextureMesh::Ptr texture_mesh_with_cloud(
@@ -44,12 +69,19 @@ pcl::TextureMesh::Ptr texture_mesh_with_cloud(
     const TextureQualityParams &quality = TextureQualityParams());
 
 /// Texture mesh using RTABMap signatures (legacy API)
+/// @param texture_dir staging directory for the texture images; see
+///        prepare_texture_dir() for the empty-default semantics.
 pcl::TextureMesh::Ptr
 texture_mesh(pcl::PolygonMesh::Ptr mesh,
              std::map<int, rtabmap::Transform> const &poses,
-             std::map<int, rtabmap::Signature> const &nodes);
+             std::map<int, rtabmap::Signature> const &nodes,
+             const std::filesystem::path &texture_dir = {});
 
 /// Texture mesh using simple camera data (ProjectDB API)
-pcl::TextureMesh::Ptr texture_mesh(pcl::PolygonMesh::Ptr mesh,
-                                   std::map<int, CameraData> const &cameras);
+/// @param texture_dir staging directory for the texture images; see
+///        prepare_texture_dir() for the empty-default semantics.
+pcl::TextureMesh::Ptr
+texture_mesh(pcl::PolygonMesh::Ptr mesh,
+             std::map<int, CameraData> const &cameras,
+             const std::filesystem::path &texture_dir = {});
 } // namespace reusex::geometry

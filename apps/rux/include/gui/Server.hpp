@@ -18,6 +18,7 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace rux::gui {
 
@@ -37,6 +38,14 @@ struct ServerOptions {
 
   /// Crow worker threads. 0 means hardware concurrency.
   unsigned threads = 0;
+
+  /// Extra browser origins permitted to call the API, beyond loopback (which
+  /// is always allowed). Needed only when the frontend is served from
+  /// somewhere that is not localhost. Cross-origin requests from anything not
+  /// listed are refused with 403 — there is no authentication here, so a
+  /// wildcard would let any page the user visits read the project and start
+  /// pipeline stages.
+  std::vector<std::string> allowed_origins;
 
   /// Frontend bundle directory. Empty selects the search order in
   /// gui/assets.hpp, falling back to the built-in placeholder page.

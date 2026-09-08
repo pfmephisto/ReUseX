@@ -35,6 +35,10 @@ using json = nlohmann::json;
 struct StageName {
   JobStage stage;
   std::string_view name;
+  /// Value written to `pipeline_log.stage`. Matches what the CLI subcommands
+  /// have always written, so the GUI and CLI paths do not fill one column with
+  /// two different names for the same operation.
+  std::string_view log_name;
   core::PipelineStage contract;
   bool cancellable;
 };
@@ -43,10 +47,14 @@ struct StageName {
 // used in the HTTP contract (docs/gui/openapi.yaml) and `contract` selects the
 // input check run before the stage executes (docs/CONTRACTS.md).
 constexpr std::array<StageName, 4> kStages{{
-    {JobStage::clouds, "clouds", core::PipelineStage::clouds, false},
-    {JobStage::planes, "planes", core::PipelineStage::planes, true},
-    {JobStage::rooms, "rooms", core::PipelineStage::rooms, true},
-    {JobStage::instances, "instances", core::PipelineStage::instances, true},
+    {JobStage::clouds, "clouds", "cloud_reconstruction",
+     core::PipelineStage::clouds, false},
+    {JobStage::planes, "planes", "segment_planes", core::PipelineStage::planes,
+     true},
+    {JobStage::rooms, "rooms", "segment_rooms", core::PipelineStage::rooms,
+     true},
+    {JobStage::instances, "instances", "segment_instances",
+     core::PipelineStage::instances, true},
 }};
 
 const StageName &descriptor(JobStage stage) {
@@ -74,6 +82,16 @@ T param_or(const json &params, const char *key, T fallback) {
   if (it == params.end() || it->is_null())
     return fallback;
   return it->get<T>();
+}
+
+/// The parameter blob written to `pipeline_log`, with the driving job id
+/// folded in under "job_id" when there is one.
+std::string logged_parameters(const json &params, const std::string &job_id) {
+  if (job_id.empty())
+    return params.empty() ? std::string{} : params.dump();
+  json annotated = params;
+  annotated["job_id"] = job_id;
+  return annotated.dump();
 }
 
 /// Run the stage's documented input contract and fail before doing any work
@@ -115,15 +133,21 @@ StageResult run_clouds(ProjectDB &db, const StageContext &ctx,
 
   geometry::reconstruct_point_clouds(db, p);
 
-  if (ctx.is_cancelled())
-    return StageResult::cancel(
-        "cancel requested; the clouds stage does not support mid-run "
-        "cancellation and ran to completion");
-
   const auto cloud = db.point_cloud_xyzrgb("cloud");
-  return StageResult::success(
-      fmt::format("reconstructed {} points at {:.3f} m resolution",
-                  cloud ? cloud->size() : 0, p.resolution));
+  auto summary = fmt::format("reconstructed {} points at {:.3f} m resolution",
+                             cloud ? cloud->size() : 0, p.resolution);
+
+  // A cancel that arrived mid-run could not stop this stage, and the output IS
+  // written. Reporting "cancelled" would be a lie that makes the user think
+  // the project is untouched, so report the success that actually happened and
+  // say the cancel was too late.
+  if (ctx.is_cancelled()) {
+    warn("cancel requested, but the clouds stage cannot be interrupted; it ran "
+         "to completion and its output was saved");
+    summary += " (cancel requested too late; the stage cannot be interrupted, "
+               "so it completed and saved its output)";
+  }
+  return StageResult::success(std::move(summary));
 }
 
 StageResult run_planes(ProjectDB &db, const StageContext &ctx,
@@ -380,6 +404,10 @@ std::vector<std::string> job_stage_names() {
   return names;
 }
 
+std::string_view pipeline_log_name(JobStage stage) {
+  return descriptor(stage).log_name;
+}
+
 bool stage_supports_cancellation(JobStage stage) {
   return descriptor(stage).cancellable;
 }
@@ -398,7 +426,13 @@ StageResult run_stage(ProjectDB &db, const StageContext &ctx) {
     // its reason. `pipeline_log` is what the GUI's history view reads
     // (docs/gui/openapi.yaml), and a rejection that vanishes without trace is
     // exactly the silent failure STANDARDS §5 forbids.
-    log_id = db.log_pipeline_start(desc.name, ctx.parameters);
+    //
+    // The job id is folded into the logged parameters (rather than needing a
+    // schema migration) so the durable history can be joined back to the job
+    // that caused it — the recovery path the contract documents for a client
+    // that reconnects after a restart.
+    log_id = db.log_pipeline_start(desc.log_name,
+                                   logged_parameters(params, ctx.job_id));
 
     if (auto problem = check_inputs(db, desc.contract)) {
       error("stage '{}' refused: {}", desc.name, *problem);

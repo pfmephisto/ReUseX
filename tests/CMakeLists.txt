@@ -178,6 +178,22 @@ endfunction()
 
 reusex_discover_tests(reusex_unit_tests)
 
+# -----------------------------------------------
+# Contract documents (#265)
+# -----------------------------------------------
+# docs/gui/openapi.yaml is a deliverable other code is generated from, so a
+# parse failure there is a broken build, not a docs nit -- PR #274 shipped it
+# unparseable. The check is a script rather than a C++ test so pre-commit and
+# CI can run it without building anything.
+find_package(Python3 COMPONENTS Interpreter)
+if(Python3_Interpreter_FOUND)
+    add_test(NAME gui_api_contract_parses
+             COMMAND ${Python3_EXECUTABLE}
+                     ${CMAKE_SOURCE_DIR}/scripts/check-openapi.py)
+else()
+    message(STATUS "Python3 not found: skipping the GUI contract parse test")
+endif()
+
 if(HEAVY_TEST_SOURCES)
     reusex_discover_tests(reusex_unit_tests_vision)
 endif()

@@ -6,6 +6,7 @@
 
 #include <fmt/format.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <map>
 #include <stdexcept>
@@ -85,15 +86,65 @@ resolve_asset_dir(const std::filesystem::path &override_dir) {
   return {};
 }
 
+std::string percent_decode(std::string_view text) {
+  auto hex_value = [](char c) -> int {
+    if (c >= '0' && c <= '9')
+      return c - '0';
+    if (c >= 'a' && c <= 'f')
+      return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F')
+      return c - 'A' + 10;
+    return -1;
+  };
+
+  std::string out;
+  out.reserve(text.size());
+  for (size_t i = 0; i < text.size(); ++i) {
+    if (text[i] != '%' || i + 2 >= text.size()) {
+      out.push_back(text[i]);
+      continue;
+    }
+    const int hi = hex_value(text[i + 1]);
+    const int lo = hex_value(text[i + 2]);
+    if (hi < 0 || lo < 0) {
+      out.push_back(text[i]); // Malformed escape: leave it alone.
+      continue;
+    }
+    out.push_back(static_cast<char>(hi * 16 + lo));
+    i += 2;
+  }
+  return out;
+}
+
+bool looks_like_spa_route(std::string_view url_path) {
+  std::string path(url_path);
+  if (const auto query = path.find('?'); query != std::string::npos)
+    path.erase(query);
+  const auto slash = path.find_last_of('/');
+  const std::string last =
+      slash == std::string::npos ? path : path.substr(slash + 1);
+  // No final segment at all ("/", "/projects/") is a route; a segment with a
+  // dot in it ("app.js", "favicon.ico") is a file request.
+  if (last.empty())
+    return true;
+  return last.find('.') == std::string::npos;
+}
+
 std::filesystem::path resolve_asset(const std::filesystem::path &root,
                                     std::string_view url_path) {
   if (root.empty())
     return {};
 
   std::string relative(url_path);
-  // Strip the query string, then the leading slash.
+  // Strip the query string first, then decode: decoding first would let an
+  // encoded '?' change where the path ends.
   if (const auto query = relative.find('?'); query != std::string::npos)
     relative.erase(query);
+  relative = percent_decode(relative);
+  // A decoded backslash is a separator on some platforms and a plain character
+  // here; normalise it so the traversal check below sees the same components
+  // the filesystem would.
+  std::replace(relative.begin(), relative.end(), '\\', '/');
   while (!relative.empty() && relative.front() == '/')
     relative.erase(relative.begin());
   if (relative.empty())

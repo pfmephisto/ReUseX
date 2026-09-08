@@ -83,8 +83,9 @@ file(GLOB_RECURSE REUSEX_VISUALIZE_SOURCES CONFIGURE_DEPENDS
 # Layer 4 — pipeline (DB-level stage execution + the in-process job runner).
 # Added in #265 (GUI Phase 1). Unlike a Layer-3 peer it is ALLOWED to link
 # several peers at once, because "run stage X against a project" inherently
-# spans core (ProjectDB) + segmentation + reconstruction. Nothing may depend on
-# it except apps/tests, which keeps the peer layer clean.
+# spans core (ProjectDB) plus whichever peers implement that stage. Nothing may
+# depend on it except apps/tests, which keeps the peer layer clean.
+# See docs/STANDARDS.md section 1.
 file(GLOB_RECURSE REUSEX_PIPELINE_SOURCES CONFIGURE_DEPENDS
      "${SRC}/pipeline/*.cpp")
 
@@ -298,10 +299,12 @@ endif()
 
 # --- Layer 4 — pipeline (stage execution + job runner) ---------------------
 reusex_add_module(reusex_pipeline ${REUSEX_PIPELINE_SOURCES})
+# Only what the stage runners actually call today. reusex_reconstruction joins
+# this list when the mesh stage gets a runner (#265 Phase 3) -- linking it
+# ahead of time buys nothing and hides which peers are really in play.
 target_link_libraries(reusex_pipeline PUBLIC
     reusex_core
-    reusex_segmentation
-    reusex_reconstruction)
+    reusex_segmentation)
 
 # ===============================================
 # Umbrella target — backward compatible `reusex`

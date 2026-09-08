@@ -25,6 +25,7 @@
 #include "reusex/pipeline/stages.hpp"
 
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <memory>
@@ -82,6 +83,17 @@ struct JobRecord {
 /// One notification about a job. Carries the full record so a listener never
 /// has to call back into the runner (which would risk lock re-entrancy).
 struct JobEvent {
+  /// Monotonic emission order, starting at 1.
+  ///
+  /// Events are *published* without the runner lock held (a listener must never
+  /// run under it), so two events can reach a listener out of order — a
+  /// `job.submitted` raised on an HTTP thread can lose the race with the
+  /// `job.started` the worker raises microseconds later. The sequence number is
+  /// assigned under the lock at the moment the state actually changed, so it is
+  /// the authoritative ordering; clients must sort by it rather than by
+  /// arrival.
+  uint64_t sequence = 0;
+
   enum class Type {
     submitted, ///< Accepted onto the queue.
     started,   ///< Picked up by the worker.

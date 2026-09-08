@@ -109,6 +109,22 @@ class JobRunner::Impl {
       std::lock_guard<std::mutex> lock(mutex_);
       stopping_ = true;
       cancel_flag_.store(true, std::memory_order_release);
+
+      // Joining below can block for the whole remaining runtime of a stage
+      // that does not poll the cancel token. Say so, rather than looking hung.
+      if (running_) {
+        auto it = records_.find(current_id_);
+        if (it != records_.end()) {
+          const auto stage = it->second.stage;
+          if (stage_supports_cancellation(stage))
+            info("shutting down: asking job {} (stage '{}') to stop",
+                 current_id_, to_string(stage));
+          else
+            warn("shutting down: waiting for job {} (stage '{}') to finish — "
+                 "that stage cannot be interrupted",
+                 current_id_, to_string(stage));
+        }
+      }
     }
     queue_cv_.notify_all();
     if (worker_.joinable())
@@ -332,9 +348,11 @@ class JobRunner::Impl {
     return it == records_.end() ? nullptr : &it->second;
   }
 
-  /// Caller must hold mutex_ (the record is copied into the event).
-  static JobEvent make_event(JobEvent::Type type, const JobRecord &record) {
+  /// Caller must hold mutex_ (the record is copied into the event, and the
+  /// sequence number must be handed out in state-change order).
+  JobEvent make_event(JobEvent::Type type, const JobRecord &record) {
     JobEvent event;
+    event.sequence = ++sequence_;
     event.type = type;
     event.timestamp = iso8601_utc_now();
     event.job = record;
@@ -415,6 +433,7 @@ class JobRunner::Impl {
         ctx.stage = record.stage;
         ctx.parameters = record.parameters;
         ctx.cancel_token = &cancel_flag_;
+        ctx.job_id = record.id;
 
         started = make_event(JobEvent::Type::started, record);
       }
@@ -440,13 +459,23 @@ class JobRunner::Impl {
         auto it = records_.find(id);
         if (it != records_.end()) {
           JobRecord &record = it->second;
-          if (result.cancelled || record.cancel_requested)
+          // Only the stage's own report decides the outcome. A cancel REQUEST
+          // that the stage could not honour (it finished first, or it does not
+          // poll the token at all) must not be dressed up as a cancellation —
+          // the work was done and the output persisted, and telling the user
+          // otherwise would send them looking for results that are already
+          // there. `cancel_requested` stays visible on the record either way.
+          if (result.cancelled)
             record.status = JobStatus::cancelled;
           else
             record.status =
                 result.ok ? JobStatus::succeeded : JobStatus::failed;
           if (record.status != JobStatus::succeeded)
             record.error = result.message;
+          else if (record.cancel_requested)
+            info("job {} had a cancel request the stage could not honour; it "
+                 "completed normally",
+                 id);
           record.finished_at = iso8601_utc_now();
           finished = make_event(JobEvent::Type::finished, record);
         }
@@ -473,6 +502,7 @@ class JobRunner::Impl {
   bool running_ = false;
   bool stopping_ = false;
 
+  uint64_t sequence_ = 0; ///< Guarded by mutex_; see JobEvent::sequence.
   std::atomic_bool cancel_flag_{false};
   std::chrono::steady_clock::time_point last_progress_emit_{};
 

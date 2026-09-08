@@ -14,12 +14,15 @@
 #include <pipeline/JobRunner.hpp>
 #include <pipeline/stages.hpp>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <map>
 #include <mutex>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 using namespace reusex::pipeline;
@@ -476,4 +479,114 @@ TEST_CASE("StageContext cancellation reads the token safely",
   CHECK_FALSE(ctx.is_cancelled());
   token = true;
   CHECK(ctx.is_cancelled());
+}
+
+// ===========================================================================
+// Review follow-ups (#274)
+// ===========================================================================
+
+TEST_CASE("Event sequence numbers are monotonic and gapless",
+          "[pipeline][jobs]") {
+  // Events are published without the runner lock (a listener must never run
+  // under it), so arrival order is not emission order. The sequence number is
+  // assigned under the lock at the moment the state changed and is what a
+  // client must order by.
+  std::mutex mutex;
+  std::vector<JobEvent> events;
+
+  JobRunner runner("/nonexistent/project.rux", always_succeeds());
+  runner.add_listener([&](const JobEvent &event) {
+    std::lock_guard<std::mutex> lock(mutex);
+    events.push_back(event);
+  });
+
+  runner.submit(JobStage::clouds);
+  runner.submit(JobStage::planes);
+  runner.wait_idle();
+
+  REQUIRE(wait_for([&] {
+    std::lock_guard<std::mutex> lock(mutex);
+    return events.size() >= 6; // submitted+started+finished, twice
+  }));
+
+  std::lock_guard<std::mutex> lock(mutex);
+  std::vector<uint64_t> sequences;
+  for (const auto &event : events) {
+    CHECK(event.sequence > 0);
+    sequences.push_back(event.sequence);
+  }
+
+  // Sorting by seq must recover the true order, and no number is reused.
+  std::sort(sequences.begin(), sequences.end());
+  CHECK(std::adjacent_find(sequences.begin(), sequences.end()) ==
+        sequences.end());
+  for (size_t i = 1; i < sequences.size(); ++i)
+    CHECK(sequences[i] == sequences[i - 1] + 1);
+
+  // Ordering by seq puts each job's lifecycle in the right order, whatever
+  // order the callbacks happened to arrive in.
+  std::map<std::string, std::vector<std::pair<uint64_t, JobEvent::Type>>>
+      by_job;
+  for (const auto &event : events)
+    by_job[event.job.id].emplace_back(event.sequence, event.type);
+  for (auto &[id, timeline] : by_job) {
+    std::sort(timeline.begin(), timeline.end());
+    REQUIRE(timeline.size() >= 3);
+    CHECK(timeline.front().second == JobEvent::Type::submitted);
+    CHECK(timeline.back().second == JobEvent::Type::finished);
+  }
+}
+
+TEST_CASE("A cancel the stage could not honour is not reported as cancelled",
+          "[pipeline][jobs]") {
+  // The clouds stage cannot be interrupted: it writes its output and returns
+  // success. Marking the job "cancelled" because a cancel was *requested*
+  // would send the user looking for results that are already in the project.
+  std::atomic_bool entered{false};
+  std::atomic_bool release{false};
+
+  JobRunner runner("/nonexistent/project.rux", [&](const StageContext &) {
+    entered = true;
+    while (!release.load())
+      std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    // Ignores the cancel token entirely, exactly like reconstruct_point_clouds.
+    return StageResult::success("wrote its output anyway");
+  });
+
+  const auto id = runner.submit(JobStage::clouds);
+  REQUIRE(wait_for([&] { return entered.load(); }));
+  REQUIRE(runner.cancel(id));
+  release = true;
+  runner.wait_idle();
+
+  auto record = runner.job(id);
+  REQUIRE(record.has_value());
+  CHECK(record->status == JobStatus::succeeded);
+  CHECK(record->error.empty());
+  // The request is still visible, so a UI can explain why nothing stopped.
+  CHECK(record->cancel_requested);
+}
+
+TEST_CASE("A stage that honours the cancel token still reports cancelled",
+          "[pipeline][jobs]") {
+  std::atomic_bool entered{false};
+
+  JobRunner runner("/nonexistent/project.rux", [&](const StageContext &ctx) {
+    entered = true;
+    const auto deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (std::chrono::steady_clock::now() < deadline) {
+      if (ctx.is_cancelled())
+        return StageResult::cancel("stopped early");
+      std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    return StageResult::success();
+  });
+
+  const auto id = runner.submit(JobStage::planes);
+  REQUIRE(wait_for([&] { return entered.load(); }));
+  REQUIRE(runner.cancel(id));
+  runner.wait_idle();
+
+  CHECK(runner.job(id)->status == JobStatus::cancelled);
 }

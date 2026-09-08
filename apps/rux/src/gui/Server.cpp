@@ -13,15 +13,22 @@
 #include <crow.h>
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
+#include <array>
+#include <cctype>
 #include <cstdlib>
 #include <fstream>
 #include <mutex>
 #include <set>
 #include <sstream>
 #include <stdexcept>
+#include <string_view>
 #include <thread>
 #include <unordered_map>
 #include <utility>
+
+#include <sys/wait.h>
+#include <unistd.h>
 
 namespace rux::gui {
 namespace {
@@ -32,10 +39,6 @@ using json = nlohmann::json;
 crow::response json_response(int status, const json &body) {
   crow::response res(status, body.dump(2));
   res.set_header("Content-Type", "application/json");
-  // The frontend may be served from a Vite dev server on another port during
-  // Phase 2 development, so permit cross-origin reads. Safe here because the
-  // server is loopback-only by default and exposes no credentials.
-  res.set_header("Access-Control-Allow-Origin", "*");
   return res;
 }
 
@@ -44,7 +47,6 @@ crow::response blob_response(const Blob &blob) {
   res.body.assign(reinterpret_cast<const char *>(blob.data.data()),
                   blob.data.size());
   res.set_header("Content-Type", blob.content_type);
-  res.set_header("Access-Control-Allow-Origin", "*");
   return res;
 }
 
@@ -52,16 +54,212 @@ crow::response error_response(int status, std::string_view message) {
   return json_response(status, error_json(status, message));
 }
 
-/// Open the system browser without blocking or polluting stdout.
+std::string to_lower(std::string value) {
+  std::transform(
+      value.begin(), value.end(), value.begin(),
+      [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  return value;
+}
+
+/// The media type of a Content-Type header, without parameters or case.
+/// "application/json; charset=utf-8" -> "application/json".
+std::string media_type_of(std::string_view header) {
+  auto end = header.find(';');
+  std::string value(header.substr(0, end));
+  // Trim.
+  const auto first = value.find_first_not_of(" \t");
+  const auto last = value.find_last_not_of(" \t");
+  if (first == std::string::npos)
+    return {};
+  return to_lower(value.substr(first, last - first + 1));
+}
+
+/// True for an Origin that is some form of loopback, on any port.
+///
+/// The frontend is served by this same server in production and by a Vite dev
+/// server on another localhost port during development, so loopback is the
+/// origin set that has to work out of the box. Anything else must be named
+/// explicitly with --allow-origin.
+bool is_loopback_origin(std::string_view origin) {
+  static constexpr std::array<std::string_view, 6> kPrefixes{{
+      "http://localhost",
+      "http://127.0.0.1",
+      "http://[::1]",
+      "https://localhost",
+      "https://127.0.0.1",
+      "https://[::1]",
+  }};
+  for (std::string_view prefix : kPrefixes) {
+    if (origin.rfind(prefix, 0) != 0)
+      continue;
+    const auto rest = origin.substr(prefix.size());
+    // Either exactly the host, or the host followed by ":<port>".
+    if (rest.empty())
+      return true;
+    if (rest.front() != ':')
+      continue;
+    const auto port = rest.substr(1);
+    if (!port.empty() &&
+        std::all_of(port.begin(), port.end(),
+                    [](unsigned char c) { return std::isdigit(c) != 0; }))
+      return true;
+  }
+  return false;
+}
+
+/// Reject a bind address that is not a plain host/IP literal.
+///
+/// The value ends up in the URL handed to the browser launcher; keeping it to
+/// a conservative character set means nothing exotic can travel further even
+/// though the launcher no longer goes through a shell.
+bool is_plausible_host(std::string_view host) {
+  if (host.empty() || host.size() > 255)
+    return false;
+  return std::all_of(host.begin(), host.end(), [](unsigned char c) {
+    return std::isalnum(c) != 0 || c == '.' || c == ':' || c == '-' ||
+           c == '_' || c == '[' || c == ']';
+  });
+}
+
+/// Open the system browser.
+///
+/// fork + exec rather than std::system: the URL embeds --bind, and handing a
+/// caller-influenced string to /bin/sh is a command-injection waiting to
+/// happen. execlp takes the URL as one argv entry, so quoting never enters
+/// into it.
 void launch_browser(const std::string &url) {
   std::thread([url] {
-    const std::string command = "xdg-open '" + url + "' >/dev/null 2>&1";
-    if (std::system(command.c_str()) != 0)
+    const pid_t pid = ::fork();
+    if (pid < 0) {
+      spdlog::warn("Could not fork to open a browser; visit {} manually", url);
+      return;
+    }
+    if (pid == 0) {
+      ::execlp("xdg-open", "xdg-open", url.c_str(), nullptr);
+      ::_exit(127); // Only reached if exec failed.
+    }
+    int status = 0;
+    ::waitpid(pid, &status, 0);
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
       spdlog::warn("Could not open a browser; visit {} manually", url);
   }).detach();
 }
 
 } // namespace
+
+// ===========================================================================
+// SecurityMiddleware
+// ===========================================================================
+
+/// Cross-origin policy and content-type enforcement for the whole HTTP API.
+///
+/// WHY THIS EXISTS: this server has no authentication and `POST /jobs`
+/// executes pipeline stages. With `Access-Control-Allow-Origin: *` any page the
+/// user happened to be visiting could read the whole project — and because a
+/// `text/plain` POST is a CORS-*simple* request, it could also start a stage,
+/// since the browser dispatches such a request before it ever looks at the
+/// response headers. Binding to loopback does not help: the attacker's
+/// JavaScript runs inside the user's own machine.
+///
+/// The policy is therefore two-layered:
+///
+///  1. **Origin allowlist.** Loopback, plus anything named with
+///     --allow-origin. A request carrying any other Origin is refused with
+///     403 *before routing*, so no handler runs and nothing is disclosed.
+///     This is server-side enforcement, not a hint to the browser — it holds
+///     for simple requests, which are dispatched before CORS is consulted.
+///  2. **application/json required on mutating routes.** A form or simple POST
+///     cannot set that header without triggering a preflight, so this closes
+///     the CSRF-shaped hole that a `text/plain` POST would otherwise leave.
+///
+/// Responses to allowlisted origins echo that specific origin (never `*`) with
+/// `Vary: Origin`.
+///
+/// KNOWN LIMITATION — preflighted cross-origin requests are not supported.
+/// Crow 1.3 answers OPTIONS inside Router::handle_initial(), which runs from
+/// handle_url(): the request line has been parsed but the headers have not.
+/// The Origin is therefore unknowable at preflight time, there is no hook and
+/// no opt-out, and decorating the response afterwards proved unreliable (the
+/// first OPTIONS on a fresh connection loses the added headers). Rather than
+/// ship an intermittent header, the supported model is same-origin: in
+/// production this server serves the bundle itself, and in development the
+/// Vite dev server proxies /api to it (`server.proxy`), which makes the
+/// requests same-origin and removes CORS from the picture entirely. Simple
+/// cross-origin GETs from an allowlisted origin do work. See docs/gui/README.
+///
+/// Middleware rather than per-route code so it cannot be forgotten on a route
+/// added later.
+class SecurityMiddleware {
+    public:
+  struct context {};
+
+  void configure(std::vector<std::string> extra_origins) {
+    extra_origins_ = std::move(extra_origins);
+  }
+
+  void before_handle(crow::request &req, crow::response &res, context &) {
+    // WebSocket upgrades bypass this: Crow calls handle_upgrade regardless of
+    // whether middleware completed the response, so a rejection here would be
+    // ignored. The origin check for /events lives in its onaccept handler.
+    if (req.upgrade)
+      return;
+
+    // OPTIONS never reaches here — see the note in after_handle.
+    const std::string origin = req.get_header_value("Origin");
+    const bool cross_origin = !origin.empty() && !is_allowed(origin);
+
+    if (cross_origin) {
+      spdlog::warn("Refused a cross-origin request from '{}' to {}", origin,
+                   req.url);
+      res = error_response(403, "origin '" + origin +
+                                    "' is not allowed; pass --allow-origin to "
+                                    "permit it");
+      res.end();
+      return;
+    }
+
+    if (req.method == crow::HTTPMethod::Post) {
+      const auto media = media_type_of(req.get_header_value("Content-Type"));
+      if (media != "application/json") {
+        res = error_response(
+            415, "Content-Type must be application/json, got '" +
+                     (media.empty() ? std::string("(none)") : media) + "'");
+        res.end();
+        return;
+      }
+    }
+  }
+
+  void after_handle(crow::request &req, crow::response &res, context &) {
+    if (req.upgrade)
+      return;
+
+    apply_cors(req.get_header_value("Origin"), res);
+  }
+
+  bool is_allowed(const std::string &origin) const {
+    if (is_loopback_origin(origin))
+      return true;
+    return std::find(extra_origins_.begin(), extra_origins_.end(), origin) !=
+           extra_origins_.end();
+  }
+
+    private:
+  void apply_cors(const std::string &origin, crow::response &res) const {
+    if (origin.empty() || !is_allowed(origin))
+      return;
+    // Echo the specific origin, never "*": the allowlist is the policy, and
+    // Vary tells caches the response depends on who asked.
+    res.set_header("Access-Control-Allow-Origin", origin);
+    res.set_header("Vary", "Origin");
+  }
+
+  std::vector<std::string> extra_origins_;
+};
+
+/// The concrete Crow application type for `rux gui`, with the security
+/// middleware installed. Used everywhere instead of crow::SimpleApp.
+using App = crow::App<SecurityMiddleware>;
 
 // ===========================================================================
 // Server::Impl
@@ -87,6 +285,15 @@ class Server::Impl {
 
     options_.asset_dir = resolve_asset_dir(options_.asset_dir);
 
+    if (!is_plausible_host(options_.bind_address))
+      throw std::runtime_error("--bind '" + options_.bind_address +
+                               "' is not a valid host or IP literal");
+
+    app_.get_middleware<SecurityMiddleware>().configure(
+        options_.allowed_origins);
+    for (const auto &origin : options_.allowed_origins)
+      spdlog::info("Additional allowed origin: {}", origin);
+
     runner_ = std::make_unique<pipeline::JobRunner>(options_.project);
     listener_ = runner_->add_listener(
         [this](const pipeline::JobEvent &event) { broadcast(event); });
@@ -95,8 +302,18 @@ class Server::Impl {
   }
 
   ~Impl() {
-    if (runner_)
+    // Stop the producers before the things they touch go away. app_.stop()
+    // closes the WebSocket connections (running their close handlers, which
+    // take clients_mutex_), and resetting the runner joins its worker thread,
+    // which may be mid-broadcast. Doing this here — rather than relying on
+    // member destruction order alone — keeps the shutdown sequence explicit.
+    app_.stop();
+    if (runner_) {
       runner_->remove_listener(listener_);
+      runner_.reset();
+    }
+    std::lock_guard<std::mutex> lock(clients_mutex_);
+    clients_.clear();
   }
 
   const ServerOptions &options() const noexcept { return options_; }
@@ -127,10 +344,18 @@ class Server::Impl {
       spdlog::info("No frontend bundle found; serving the built-in "
                    "placeholder page (see docs/gui/README.md)");
 
-    if (options_.open_browser)
+    // Crow installs its own SIGINT/SIGTERM handling. run_async +
+    // wait_for_server_start lets the browser be launched only once the socket
+    // is actually listening — launching before bind raced the browser against
+    // the server and produced a spurious connection-refused page.
+    auto serving = app_.run_async();
+    if (app_.wait_for_server_start() != std::cv_status::no_timeout)
+      spdlog::warn("Server did not report started within the timeout; "
+                   "continuing anyway");
+    else if (options_.open_browser)
       launch_browser(url());
 
-    app_.run(); // Crow installs its own SIGINT/SIGTERM handling.
+    serving.wait();
     spdlog::info("rux gui shutting down");
     return 0;
   }
@@ -189,19 +414,26 @@ class Server::Impl {
   // --- WebSocket -----------------------------------------------------------
 
   void broadcast(const pipeline::JobEvent &event) {
-    const std::string payload = job_event_json(event).dump();
+    const std::string payload =
+        job_event_json(event, options_.project.filename().string()).dump();
 
-    std::vector<crow::websocket::connection *> targets;
-    {
-      std::lock_guard<std::mutex> lock(clients_mutex_);
-      targets.reserve(clients_.size());
-      for (const auto &[connection, subscription] : clients_)
-        if (event_matches_subscription(event, subscription))
-          targets.push_back(connection);
-    }
-    // Send outside the lock: a slow client must not stall the job worker's
-    // event emission, and send_text can re-enter Crow.
-    for (auto *connection : targets) {
+    // LOCKING INVARIANT — the sends happen INSIDE clients_mutex_ on purpose.
+    //
+    // crow::websocket::connection is a raw pointer we do not own, and Crow
+    // does not hand out a shared_ptr for it: check_destroy() invokes the close
+    // handler and then frees the object. The close handler registered below
+    // erases the entry while holding this same mutex, so a connection present
+    // in clients_ cannot be destroyed while we hold the lock. Snapshotting the
+    // pointers and sending after unlocking — the obvious-looking version —
+    // races a closing tab against the job worker and sends into freed memory.
+    //
+    // Holding the lock across the send is cheap and cannot deadlock:
+    // send_data() serialises the frame and posts it to the asio io_context, it
+    // never runs a handler inline, so nothing re-enters this mutex.
+    std::lock_guard<std::mutex> lock(clients_mutex_);
+    for (auto &[connection, subscription] : clients_) {
+      if (!event_matches_subscription(event, subscription))
+        continue;
       try {
         connection->send_text(payload);
       } catch (const std::exception &e) {
@@ -402,16 +634,18 @@ class Server::Impl {
         .methods(crow::HTTPMethod::GET,
                  crow::HTTPMethod::POST)([this](const crow::request &req) {
           return guarded([&] {
+            const auto project = options_.project.filename().string();
             if (req.method == crow::HTTPMethod::GET)
-              return json_response(200, jobs_json(runner_->jobs()));
+              return json_response(200, jobs_json(runner_->jobs(), project));
 
             const auto submission = parse_job_request(req.body);
+            check_job_project(submission, project);
             const auto id =
                 runner_->submit(submission.stage, submission.parameters);
             auto record = runner_->job(id);
             if (!record)
               throw HttpError(500, "job vanished immediately after submit");
-            return json_response(202, job_json(*record));
+            return json_response(202, job_json(*record, project));
           });
         });
 
@@ -420,22 +654,24 @@ class Server::Impl {
         auto record = runner_->job(id);
         if (!record)
           throw HttpError(404, "no such job '" + id + "'");
-        return json_response(200, job_json(*record));
+        return json_response(
+            200, job_json(*record, options_.project.filename().string()));
       });
     });
 
     app_.route_dynamic("/api/v1/jobs/<string>/cancel")
-        .methods(crow::HTTPMethod::POST)(
-            [this](const crow::request &, std::string id) {
-              return guarded([&] {
-                if (!runner_->cancel(id))
-                  throw HttpError(404, "no such job '" + id + "'");
-                auto record = runner_->job(id);
-                if (!record)
-                  throw HttpError(404, "no such job '" + id + "'");
-                return json_response(200, job_json(*record));
-              });
-            });
+        .methods(crow::HTTPMethod::POST)([this](const crow::request &,
+                                                std::string id) {
+          return guarded([&] {
+            if (!runner_->cancel(id))
+              throw HttpError(404, "no such job '" + id + "'");
+            auto record = runner_->job(id);
+            if (!record)
+              throw HttpError(404, "no such job '" + id + "'");
+            return json_response(
+                200, job_json(*record, options_.project.filename().string()));
+          });
+        });
 
     register_websocket();
     register_static();
@@ -443,6 +679,20 @@ class Server::Impl {
 
   void register_websocket() {
     CROW_WEBSOCKET_ROUTE(app_, "/api/v1/events")
+        .onaccept([this](const crow::request &req, void **) {
+          // WebSockets are NOT subject to CORS — a browser will happily open
+          // one cross-origin and hand the frames to the attacker's script. The
+          // handshake is therefore the only place this can be enforced, and
+          // Crow ignores a middleware response on the upgrade path, so the
+          // check lives here rather than in SecurityMiddleware.
+          const std::string origin = req.get_header_value("Origin");
+          if (origin.empty())
+            return true; // Non-browser client (curl, the CLI, a test).
+          if (app_.get_middleware<SecurityMiddleware>().is_allowed(origin))
+            return true;
+          spdlog::warn("Refused a WebSocket upgrade from origin '{}'", origin);
+          return false;
+        })
         .onopen([this](crow::websocket::connection &conn) {
           {
             std::lock_guard<std::mutex> lock(clients_mutex_);
@@ -498,6 +748,16 @@ class Server::Impl {
         return;
       }
 
+      // A request that names a file (has an extension) must never be answered
+      // with HTML, bundle or no bundle: handing back index.html where the
+      // browser expects JavaScript turns a missing file into an inscrutable
+      // syntax error.
+      if (!looks_like_spa_route(req.url) && !has_assets()) {
+        res = error_response(404, "no such asset " + req.url);
+        res.end();
+        return;
+      }
+
       if (has_assets()) {
         if (auto file = resolve_asset(options_.asset_dir, req.url);
             !file.empty()) {
@@ -509,8 +769,15 @@ class Server::Impl {
           res.end();
           return;
         }
-        // SPA fallback: an unknown non-asset path is a client-side route, so
-        // hand back index.html and let the router deal with it.
+        // SPA fallback, but ONLY for paths that look like client-side routes.
+        // A missing /assets/app.js must 404: answering it with index.html
+        // hands the browser HTML where it expects JavaScript, which surfaces
+        // as an inscrutable syntax error instead of the missing file it is.
+        if (!looks_like_spa_route(req.url)) {
+          res = error_response(404, "no such asset " + req.url);
+          res.end();
+          return;
+        }
         if (auto index = resolve_asset(options_.asset_dir, "/index.html");
             !index.empty()) {
           std::ifstream stream(index, std::ios::binary);
@@ -531,14 +798,20 @@ class Server::Impl {
   }
 
   ServerOptions options_;
-  crow::SimpleApp app_;
-  std::unique_ptr<pipeline::JobRunner> runner_;
-  size_t listener_ = 0;
 
+  // MEMBER ORDER IS LOAD-BEARING (destruction runs in reverse). The client
+  // table and its mutex are declared FIRST so they are destroyed LAST: the job
+  // worker inside runner_, and Crow's own threads inside app_, both touch them
+  // right up until they are stopped. ~Impl also tears those two down
+  // explicitly, so this ordering is the belt to that braces.
   std::mutex clients_mutex_;
   /// Connection -> its job filter (nullopt = receives every event).
   std::unordered_map<crow::websocket::connection *, std::optional<std::string>>
       clients_;
+
+  App app_;
+  std::unique_ptr<pipeline::JobRunner> runner_;
+  size_t listener_ = 0;
 };
 
 // ===========================================================================

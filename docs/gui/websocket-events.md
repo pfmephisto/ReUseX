@@ -45,10 +45,37 @@ Every server message:
 ```jsonc
 {
   "type": "job.progress",          // discriminator, see below
+  "seq": 17,                       // monotonic emission order (see below)
   "timestamp": "2026-09-08T11:22:33Z",  // ISO-8601 UTC, when the server emitted
+  "project": "scan.rux",           // which project this concerns
   "job": { /* the full Job object from openapi.yaml */ }
 }
 ```
+
+### `seq` — order by this, not by arrival
+
+Events are *published* without the server's job lock held, because a listener
+must never run under it. That means two events can reach a client out of the
+order in which they happened: a `job.submitted` raised on the HTTP thread that
+accepted the submission can lose the race with the `job.started` the worker
+raises microseconds later.
+
+`seq` is assigned **under the lock, at the moment the state actually changed**,
+and increases by one per event for the life of the server. It is the
+authoritative ordering. A client that renders state transitions must sort by
+`seq` (or simply ignore an event whose `seq` is lower than the highest it has
+already applied for that job); using arrival order will occasionally show a job
+snapping back from "running" to "queued".
+
+`seq` is per server, not per job, and resets when the server restarts — pair it
+with the `hello` snapshot rather than persisting it.
+
+### `project`
+
+Every envelope names the project it concerns, and so does the embedded `Job`.
+Against `rux gui` this is always the single open project and is therefore
+redundant; it is present anyway so that a client written today keeps working
+unchanged against a multi-project ruxd in Phase 6.
 
 The full `Job` object is embedded in **every** event rather than a delta. It is
 small, it makes each message self-contained, and it means a client that
@@ -59,7 +86,7 @@ should key on `job.id` and replace their local copy wholesale.
 
 | `type` | When | Notes |
 |---|---|---|
-| `job.submitted` | a job was accepted onto the queue | `job.status` is `queued` |
+| `job.submitted` | a job was accepted onto the queue | `job.status` is `queued`; may arrive after `job.started` — see `seq` |
 | `job.started` | the worker picked the job up | `job.status` is `running` |
 | `job.progress` | progress counters changed | **throttled to at most one per 100 ms per job** |
 | `job.finished` | the job reached a terminal status | `job.status` is `succeeded`, `failed` or `cancelled` |
@@ -92,9 +119,12 @@ sees an exact record.
 ```json
 {
   "type": "job.progress",
+  "seq": 17,
   "timestamp": "2026-09-08T11:22:34Z",
+  "project": "scan.rux",
   "job": {
     "id": "0a5b...",
+    "project": "scan.rux",
     "stage": "planes",
     "status": "running",
     "parameters": { "radius": 0.5 },
@@ -122,9 +152,12 @@ indeterminate indicator in that case; `fraction` is `null`.
 ```json
 {
   "type": "job.finished",
+  "seq": 31,
   "timestamp": "2026-09-08T11:24:02Z",
+  "project": "scan.rux",
   "job": {
     "id": "0a5b...",
+    "project": "scan.rux",
     "stage": "planes",
     "status": "failed",
     "error": "stage inputs not satisfied — missing_cloud: cloud 'normals' not found",
@@ -161,13 +194,26 @@ Any other message is answered with:
 Malformed JSON is answered the same way. The server never closes the connection
 because of a bad client message.
 
+## Origin checking
+
+CORS does **not** apply to WebSockets — a browser will open one cross-origin
+and hand the frames to the page's script without asking the server's
+permission. The handshake is therefore the only place this can be enforced, and
+`rux gui` does enforce it: an upgrade carrying an `Origin` header that is not
+loopback and not named with `--allow-origin` is refused at the handshake. A
+request with no `Origin` (curl, a CLI client, a test) is allowed.
+
 ## Reconnection
 
-There is no replay buffer and no sequence number. A client that drops should
-reconnect, take the `hello` snapshot as truth, and additionally `GET
-/api/v1/pipeline-log` if it needs history from before the server started —
-`/jobs` and this channel only cover the current server process, while
-`pipeline_log` is durable.
+There is no replay buffer. A client that drops should reconnect and take the
+`hello` snapshot as truth; `seq` orders what arrives afterwards but does not let
+you recover what was missed.
+
+For history from before the server started, `GET /api/v1/pipeline-log` is the
+durable record — `/jobs` and this channel only cover the current server
+process. Log rows written by a job carry that job's id under
+`parameters.job_id`, so a reconnecting client can join its old job ids back to
+what actually happened to them.
 
 ## Forward compatibility (Phase 6, ruxd)
 

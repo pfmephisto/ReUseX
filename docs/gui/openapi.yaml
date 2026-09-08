@@ -35,6 +35,13 @@ servers:
   - url: http://localhost:8420/api/v1
     description: Default `rux gui` bind address
 
+security: []
+# No authentication in v1: `rux gui` binds to loopback and is single-user.
+# Access control is an Origin allowlist enforced server-side (403 for a
+# non-allowlisted browser origin) plus `Content-Type: application/json` on
+# mutating routes. A remote implementation (ruxd, Phase 6) adds a bearer token
+# here; see docs/gui/README.md.
+
 tags:
   - name: meta
     description: Service health and self-description
@@ -579,8 +586,11 @@ paths:
       parameters:
         - name: limit
           in: query
-          description: Maximum rows to return; 0 means no limit.
-          schema: { type: integer, minimum: 0, default: 100 }
+          description: >-
+            Maximum rows to return. `0` means "as many as the server will
+            give", which is the server maximum (1000) -- never unbounded.
+            Values above the maximum are clamped rather than rejected.
+          schema: { type: integer, minimum: 0, default: 100, maximum: 1000 }
       responses:
         "200":
           description: Log entries
@@ -647,6 +657,16 @@ paths:
               schema: { $ref: "#/components/schemas/Job" }
         "400":
           description: Unknown stage, or parameters that are not a JSON object
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: Names a project this server does not have open
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "415":
+          description: Content-Type was not application/json
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -762,6 +782,18 @@ components:
   schemas:
 
     Error:
+      description: |
+        Returned for every non-2xx response. Notable statuses beyond the ones
+        listed per operation:
+
+        * `403` -- the request carried a browser `Origin` that is not
+          allowlisted. Cross-origin browser access is refused server-side, and
+          preflighted (JSON-bodied) cross-origin requests are unsupported --
+          serve the frontend same-origin. See docs/gui/README.md.
+        * `415` -- a mutating route was called without
+          `Content-Type: application/json`.
+        * `503` -- the project database was momentarily locked by a running
+          job; retry.
       type: object
       required: [error]
       properties:
@@ -1134,7 +1166,12 @@ components:
           description: Empty while still running.
         parameters:
           type: string
-          description: Stage parameters JSON, as stored.
+          description: >-
+            Stage parameters JSON, as stored. When the run was started through
+            `POST /jobs` this object also carries a `job_id` key holding that
+            job's id, so durable history can be joined back to the job that
+            caused it -- the recovery path for a client that reconnects after a
+            server restart, when `/jobs` no longer knows the job.
         error_msg:
           type: string
           description: Empty when there was no error.
@@ -1143,9 +1180,19 @@ components:
       type: object
       required: [stage]
       properties:
+        project:
+          type: string
+          description: >-
+            Project this job is meant for, as reported by `GET /health` under
+            `project.name`. Optional against a single-project server such as
+            `rux gui`, which answers 409 if it names anything other than the
+            project it has open. A multi-project backend (ruxd, Phase 6) will
+            require it. Send it: it costs nothing, and it is what stops a
+            client pointed at the wrong server from quietly running a stage
+            over the wrong data.
         stage:
           type: string
-          description: A stage with `runnable: true` in `/stages`.
+          description: "A stage with `runnable: true` in `/stages`."
           enum: [clouds, planes, rooms, instances]
         parameters:
           type: object
@@ -1157,9 +1204,15 @@ components:
 
     Job:
       type: object
-      required: [id, stage, status, submitted_at]
+      required: [id, project, stage, status, submitted_at]
       properties:
         id: { type: string }
+        project:
+          type: string
+          description: >-
+            The project this job belongs to. Always present, so a client can
+            key its state on it whether it is talking to a single-project
+            `rux gui` or a multi-project ruxd.
         stage: { type: string }
         status:
           type: string
@@ -1182,6 +1235,10 @@ components:
         progress: { $ref: "#/components/schemas/JobProgress" }
 
     JobProgress:
+      description: >-
+        Live progress of the phase the stage is currently in. The WebSocket
+        envelope additionally carries a monotonic `seq` -- order events by
+        that, not by arrival (docs/gui/websocket-events.md).
       type: object
       required: [stage, stage_label, current, total]
       properties:

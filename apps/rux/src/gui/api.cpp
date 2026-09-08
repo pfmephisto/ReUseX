@@ -764,12 +764,19 @@ json stages_json(const reusex::ProjectDB &db) {
 }
 
 json pipeline_log_json(const reusex::ProjectDB &db, const Params &params) {
-  const long long limit = params.integer("limit", 100);
-  if (limit < 0)
+  const long long requested = params.integer("limit", kDefaultLogEntries);
+  if (requested < 0)
     throw HttpError(400, "limit must be >= 0");
 
+  // 0 means "give me as many as you will", not "unbounded" — ProjectDB treats
+  // 0 as no limit, which would let one query materialize a project's entire
+  // history. Clamp both ends, exactly as the points endpoint does.
+  const int limit = (requested == 0 || requested > kMaxLogEntries)
+                        ? kMaxLogEntries
+                        : static_cast<int>(requested);
+
   json list = json::array();
-  for (const auto &entry : db.pipeline_log(static_cast<int>(limit)))
+  for (const auto &entry : db.pipeline_log(limit))
     list.push_back(json{{"id", entry.id},
                         {"stage", entry.stage},
                         {"status", entry.status},
@@ -784,7 +791,7 @@ json pipeline_log_json(const reusex::ProjectDB &db, const Params &params) {
 // jobs
 // ===========================================================================
 
-json job_json(const pipeline::JobRecord &record) {
+json job_json(const pipeline::JobRecord &record, std::string_view project) {
   json progress{{"stage", stage_token(record.progress_stage)},
                 {"stage_label",
                  std::string(reusex::core::to_string(record.progress_stage))},
@@ -797,6 +804,7 @@ json job_json(const pipeline::JobRecord &record) {
           : json(nullptr);
 
   return json{{"id", record.id},
+              {"project", std::string(project)},
               {"stage", std::string(pipeline::to_string(record.stage))},
               {"status", std::string(pipeline::to_string(record.status))},
               {"parameters", parameters_object(record.parameters)},
@@ -808,27 +816,31 @@ json job_json(const pipeline::JobRecord &record) {
               {"progress", std::move(progress)}};
 }
 
-json jobs_json(const std::vector<pipeline::JobRecord> &jobs) {
+json jobs_json(const std::vector<pipeline::JobRecord> &jobs,
+               std::string_view project) {
   json list = json::array();
   for (const auto &record : jobs)
-    list.push_back(job_json(record));
+    list.push_back(job_json(record, project));
   return json{{"jobs", std::move(list)}};
 }
 
-json job_event_json(const pipeline::JobEvent &event) {
+json job_event_json(const pipeline::JobEvent &event, std::string_view project) {
   return json{{"type", std::string(pipeline::to_string(event.type))},
+              {"seq", event.sequence},
               {"timestamp", event.timestamp},
-              {"job", job_json(event.job)}};
+              {"project", std::string(project)},
+              {"job", job_json(event.job, project)}};
 }
 
 json hello_json(const std::vector<pipeline::JobRecord> &jobs,
                 const std::filesystem::path &project) {
+  const auto name = project.filename().string();
   return json{{"type", "hello"},
               {"timestamp", pipeline::iso8601_utc_now()},
               {"api_version", std::string(kApiVersion)},
               {"implementation", std::string(kImplementation)},
-              {"project", project.filename().string()},
-              {"jobs", jobs_json(jobs).at("jobs")}};
+              {"project", name},
+              {"jobs", jobs_json(jobs, name).at("jobs")}};
 }
 
 JobSubmission parse_job_request(std::string_view body) {
@@ -859,7 +871,24 @@ JobSubmission parse_job_request(std::string_view body) {
       throw HttpError(400, "'parameters' must be a JSON object");
     submission.parameters = params_it->dump();
   }
+
+  auto project_it = parsed.find("project");
+  if (project_it != parsed.end() && !project_it->is_null()) {
+    if (!project_it->is_string())
+      throw HttpError(400, "'project' must be a string");
+    submission.project = project_it->get<std::string>();
+  }
   return submission;
+}
+
+void check_job_project(const JobSubmission &submission,
+                       std::string_view open_project) {
+  if (!submission.project || *submission.project == open_project)
+    return;
+  throw HttpError(409, "this server has '" + std::string(open_project) +
+                           "' open, not '" + *submission.project +
+                           "'; a job submitted here would run against the "
+                           "wrong project");
 }
 
 std::optional<json> handle_ws_message(

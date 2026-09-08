@@ -48,6 +48,15 @@ enum class JobStage {
 /// Canonical lower-case stage name (the token used on the wire and the CLI).
 std::string_view to_string(JobStage stage);
 
+/// The name this stage writes into `pipeline_log.stage`.
+///
+/// Deliberately NOT the same as to_string(): the CLI has been writing
+/// `segment_planes` / `cloud_reconstruction` into that column since long
+/// before the GUI existed, and existing project databases are full of those
+/// values. The wire token stays short (`planes`); the log name stays
+/// compatible, so one table does not end up with two names for one operation.
+std::string_view pipeline_log_name(JobStage stage);
+
 /// Parse a canonical stage name. Returns nullopt for an unknown name.
 std::optional<JobStage> parse_job_stage(std::string_view name);
 
@@ -81,6 +90,10 @@ struct StageContext {
   std::string parameters;
   /// Cooperative cancellation flag, owned by the caller. May be null.
   const std::atomic_bool *cancel_token = nullptr;
+  /// Identifier of the job driving this run, or empty for a direct call.
+  /// Recorded into the stage's `pipeline_log.parameters` under `"job_id"` so
+  /// the durable history can be joined back to the job that caused it (#265).
+  std::string job_id;
 
   /// True when a cancel token is present and set.
   bool is_cancelled() const noexcept;

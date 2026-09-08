@@ -39,6 +39,57 @@ same paths in Phase 6. Nothing in the contract assumes the client and server
 share a filesystem, and job identifiers are opaque server-generated strings, so
 a queued/remote implementation slots in without frontend changes.
 
+## Security model
+
+`rux gui` has **no authentication** and its `POST /jobs` endpoint executes
+pipeline stages. Two controls keep that from being reachable by any page the
+user happens to have open:
+
+1. **Loopback bind by default.** `--bind` changes it; that is a deliberate act.
+2. **A server-side origin allowlist.** A request carrying an `Origin` that is
+   not loopback and not named with `--allow-origin` is refused with `403`
+   before any handler runs. This is enforcement, not a CORS hint — CORS alone
+   would not help, because a `text/plain` POST is a *simple* request that the
+   browser dispatches before it reads any response header. Mutating routes
+   additionally require `Content-Type: application/json`, which a simple
+   request cannot set.
+
+WebSocket upgrades are checked the same way, in the handshake: CORS does not
+apply to WebSockets at all, so the server has to do it itself.
+
+### The frontend must be same-origin
+
+Preflighted cross-origin requests (i.e. anything with a JSON body) are **not
+supported**. Crow 1.3 answers `OPTIONS` from `Router::handle_initial()`, before
+the request headers are parsed, so the server cannot see the `Origin` at
+preflight time and cannot emit a correct preflight response. There is no hook
+and no opt-out.
+
+This costs nothing in practice, because the frontend is same-origin in both
+supported setups:
+
+- **Production** — `rux gui` serves the bundle itself, from the same origin as
+  the API.
+- **Development** — point the Vite dev server's proxy at it, which is the
+  normal arrangement anyway:
+
+  ```js
+  // vite.config.ts
+  export default {
+    server: {
+      proxy: {
+        '/api': { target: 'http://localhost:8420', ws: true },
+      },
+    },
+  };
+  ```
+
+  With the proxy in place the browser only ever talks to the Vite origin, and
+  CORS never enters into it.
+
+`--allow-origin` remains useful for simple cross-origin `GET`s and for
+non-browser clients. Proper preflight support is tracked as a follow-up.
+
 ## Versioning
 
 Everything is served under `/api/v1`. Breaking changes take a new prefix; the

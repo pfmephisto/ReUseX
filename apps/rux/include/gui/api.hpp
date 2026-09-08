@@ -48,6 +48,12 @@ inline constexpr std::string_view kImplementation = "rux-gui";
 inline constexpr size_t kMaxPointsPerPage = 1000000;
 inline constexpr size_t kDefaultPointsPerPage = 100000;
 
+/// Upper bound on `limit` for the pipeline-log endpoint. `limit=0` means "as
+/// many as the server will give", which is this — not "unbounded", which would
+/// let one query serialize an entire project's history into memory.
+inline constexpr int kMaxLogEntries = 1000;
+inline constexpr int kDefaultLogEntries = 100;
+
 /// Thrown by a handler to produce a non-200 JSON error response.
 class HttpError : public std::runtime_error {
     public:
@@ -163,9 +169,15 @@ nlohmann::json pipeline_log_json(const reusex::ProjectDB &db,
 
 // --- jobs -----------------------------------------------------------------
 
-nlohmann::json job_json(const reusex::pipeline::JobRecord &record);
-nlohmann::json jobs_json(const std::vector<reusex::pipeline::JobRecord> &jobs);
-nlohmann::json job_event_json(const reusex::pipeline::JobEvent &event);
+/// @param project  Name of the project the job belongs to. Present on every
+///                 job and event so a client that later talks to a multi-
+///                 project ruxd (Phase 6) does not need a new message shape.
+nlohmann::json job_json(const reusex::pipeline::JobRecord &record,
+                        std::string_view project);
+nlohmann::json jobs_json(const std::vector<reusex::pipeline::JobRecord> &jobs,
+                         std::string_view project);
+nlohmann::json job_event_json(const reusex::pipeline::JobEvent &event,
+                              std::string_view project);
 nlohmann::json hello_json(const std::vector<reusex::pipeline::JobRecord> &jobs,
                           const std::filesystem::path &project);
 
@@ -173,12 +185,23 @@ nlohmann::json hello_json(const std::vector<reusex::pipeline::JobRecord> &jobs,
 struct JobSubmission {
   reusex::pipeline::JobStage stage = reusex::pipeline::JobStage::clouds;
   std::string parameters; ///< Serialized JSON object, "" when omitted.
+  /// Project the client believes it is addressing. Optional; when present the
+  /// server checks it against the project it actually has open, so a client
+  /// pointed at the wrong server is told so instead of quietly running a stage
+  /// against the wrong data.
+  std::optional<std::string> project;
 };
 
 /// Parse and validate a job submission body.
 /// @throws HttpError(400) on malformed JSON, a missing/unknown stage, or a
 ///         `parameters` value that is not an object.
 JobSubmission parse_job_request(std::string_view body);
+
+/// Reject a submission aimed at a different project.
+/// @throws HttpError(409) when @p submission names a project that is not
+///         @p open_project.
+void check_job_project(const JobSubmission &submission,
+                       std::string_view open_project);
 
 /// Handle one client message on the WebSocket channel.
 /// @param body      the raw text frame

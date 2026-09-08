@@ -4,19 +4,20 @@
 
 #pragma once
 #include "global-params.hpp"
+#include "gui/Server.hpp"
 
 #include <CLI/CLI.hpp>
-#include <cstdint>
 #include <memory>
-#include <string>
 
-/// Options for the `rux gui` subcommand. Defaults mirror
-/// rux::gui::ServerOptions rather than redefining them (STANDARDS §4).
+/// Options for the `rux gui` subcommand.
+///
+/// Holds a rux::gui::ServerOptions rather than restating its fields, so the CLI
+/// cannot drift from the library defaults (STANDARDS §4). Only genuinely
+/// CLI-shaped state lives alongside it.
 struct SubcommandGuiOptions {
-  std::string bind_address = "127.0.0.1";
-  uint16_t port = 8420;
-  unsigned threads = 0;
-  fs::path asset_dir;
+  rux::gui::ServerOptions server;
+  /// The flag is negative (`--no-browser`) while the option it controls is
+  /// positive (`open_browser`), so it cannot simply bind to that field.
   bool no_browser = false;
 };
 

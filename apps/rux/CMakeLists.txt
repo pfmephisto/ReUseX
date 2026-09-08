@@ -23,9 +23,14 @@ add_library(rux_gui_lib STATIC ${rux_gui_SOURCES})
 # pipeline headers and nlohmann_json. Crow stays PRIVATE — gui/Server.hpp is
 # pimpl'd precisely so crow.h never leaks past this target.
 target_include_directories(rux_gui_lib PUBLIC include)
+# reusex_pipeline, NOT the `reusex` umbrella: the GUI server touches core
+# (ProjectDB) and pipeline (the job runner) only, and the umbrella would drag
+# reusex_vision -- libtorch, TensorRT -- into every consumer, including the
+# light unit-test binary (#268).
 target_link_libraries(rux_gui_lib
     PUBLIC
-        reusex
+        reusex_core
+        reusex_pipeline
         nlohmann_json::nlohmann_json
     PRIVATE
         Crow::Crow

@@ -13,6 +13,8 @@
 #include <gui/api.hpp>
 #include <gui/assets.hpp>
 
+#include "../../support/temp_path.hpp"
+
 #include <core/ProjectDB.hpp>
 #include <pipeline/JobRunner.hpp>
 
@@ -32,50 +34,18 @@ using namespace rux::gui;
 
 namespace {
 
-/// A temp-path name unique across both objects AND processes.
-///
-/// `ctest -j` runs every test case in its own process, and `this` lands at the
-/// same stack address in each of them — an address-only name collides. The pid
-/// is what makes concurrent runs disjoint.
-inline std::string unique_name(std::string_view prefix, const void *self) {
-  return std::string(prefix) + std::to_string(::getpid()) + "_" +
-         std::to_string(reinterpret_cast<uintptr_t>(self));
-}
-
-/// Temp project that cleans itself up, mirroring the pattern used across
-/// tests/unit/core/.
-struct TempProject {
-  fs::path path;
-  TempProject()
-      : path(fs::temp_directory_path() /
-             (unique_name("test_gui_api_", this) + ".rux")) {}
-  ~TempProject() noexcept {
-    std::error_code ec;
-    fs::remove(path, ec);
-    if (ec)
-      std::cerr << "Warning: could not remove " << path << ": " << ec.message()
-                << std::endl;
-  }
-};
-
-/// A scratch directory that cleans itself up.
-struct TempDir {
-  fs::path path;
-  TempDir()
-      : path(fs::temp_directory_path() /
-             unique_name("test_gui_assets_", this)) {
-    fs::create_directories(path);
-  }
-  ~TempDir() noexcept {
-    std::error_code ec;
-    fs::remove_all(path, ec);
-  }
-};
+using reusex::test_support::TempDir;
+using reusex::test_support::TempPath;
 
 void write_file(const fs::path &path, std::string_view content) {
   fs::create_directories(path.parent_path());
   std::ofstream out(path, std::ios::binary);
   out << content;
+}
+
+/// The project name the server would report for a temp project.
+std::string name_of(const fs::path &project) {
+  return project.filename().string();
 }
 
 } // namespace
@@ -201,7 +171,7 @@ TEST_CASE("error_json carries a message and the status", "[gui][errors]") {
 
 TEST_CASE("health_json reports the project without leaking its path",
           "[gui][project]") {
-  TempProject project;
+  TempPath project("test_gui_api");
   reusex::ProjectDB db(project.path);
 
   const auto body = health_json(&db, project.path);
@@ -228,7 +198,7 @@ TEST_CASE("health_json degrades gracefully when the project cannot be opened",
 
 TEST_CASE("An empty project serializes to well-formed, empty collections",
           "[gui][project]") {
-  TempProject project;
+  TempPath project("test_gui_api");
   reusex::ProjectDB db(project.path);
 
   const auto summary = project_summary_json(db);
@@ -252,7 +222,7 @@ TEST_CASE("An empty project serializes to well-formed, empty collections",
 }
 
 TEST_CASE("Project metadata is exposed under /projects", "[gui][project]") {
-  TempProject project;
+  TempPath project("test_gui_api");
   reusex::ProjectDB db(project.path);
 
   reusex::ProjectDB::ProjectMetadata metadata;
@@ -281,7 +251,7 @@ TEST_CASE("Project metadata is exposed under /projects", "[gui][project]") {
 }
 
 TEST_CASE("Clouds are listed with type and point count", "[gui][clouds]") {
-  TempProject project;
+  TempPath project("test_gui_api");
   reusex::ProjectDB db(project.path);
 
   reusex::Cloud cloud;
@@ -314,7 +284,7 @@ TEST_CASE("Clouds are listed with type and point count", "[gui][clouds]") {
 }
 
 TEST_CASE("Point pages honour offset, limit and field order", "[gui][clouds]") {
-  TempProject project;
+  TempPath project("test_gui_api");
   reusex::ProjectDB db(project.path);
 
   reusex::Cloud cloud;
@@ -379,7 +349,7 @@ TEST_CASE("Point pages honour offset, limit and field order", "[gui][clouds]") {
 }
 
 TEST_CASE("Label clouds expose their label definitions", "[gui][clouds]") {
-  TempProject project;
+  TempPath project("test_gui_api");
   reusex::ProjectDB db(project.path);
 
   reusex::CloudL labels;
@@ -409,7 +379,7 @@ TEST_CASE("Label clouds expose their label definitions", "[gui][clouds]") {
 
 TEST_CASE("The pipeline log round-trips through the API shape",
           "[gui][pipeline]") {
-  TempProject project;
+  TempPath project("test_gui_api");
   reusex::ProjectDB db(project.path);
 
   const int ok = db.log_pipeline_start("planes", R"({"radius":0.5})");
@@ -447,7 +417,7 @@ TEST_CASE("The pipeline log round-trips through the API shape",
 
 TEST_CASE("The stage catalogue separates runnability from readiness",
           "[gui][pipeline]") {
-  TempProject project;
+  TempPath project("test_gui_api");
   reusex::ProjectDB db(project.path);
 
   const auto body = stages_json(db);
@@ -481,7 +451,7 @@ TEST_CASE("The stage catalogue separates runnability from readiness",
 }
 
 TEST_CASE("Missing resources are 404s with a useful message", "[gui][errors]") {
-  TempProject project;
+  TempPath project("test_gui_api");
   reusex::ProjectDB db(project.path);
 
   auto expect_404 = [](auto &&callable) {
@@ -506,7 +476,7 @@ TEST_CASE("Missing resources are 404s with a useful message", "[gui][errors]") {
 
 TEST_CASE("Instance rows carry their stable GUID and material link",
           "[gui][instances]") {
-  TempProject project;
+  TempPath project("test_gui_api");
   reusex::ProjectDB db(project.path);
 
   reusex::CloudL labels;
@@ -606,7 +576,7 @@ TEST_CASE("A job serializes into the documented shape", "[gui][jobs]") {
   record.progress_current = 25;
   record.progress_total = 100;
 
-  const auto body = job_json(record);
+  const auto body = job_json(record, "scan.rux");
   CHECK(body.at("id") == "job-1");
   CHECK(body.at("stage") == "planes");
   CHECK(body.at("status") == "running");
@@ -630,7 +600,7 @@ TEST_CASE("Indeterminate progress reports a null fraction", "[gui][jobs]") {
   record.progress_total = 0;
   record.progress_current = 0;
 
-  const auto body = job_json(record);
+  const auto body = job_json(record, "scan.rux");
   CHECK(body.at("progress").at("total") == 0);
   CHECK(body.at("progress").at("fraction").is_null());
 }
@@ -641,7 +611,7 @@ TEST_CASE("Unparseable stored parameters degrade to an empty object",
   record.id = "job-3";
   record.parameters = "this is not json";
 
-  const auto body = job_json(record);
+  const auto body = job_json(record, "scan.rux");
   REQUIRE(body.at("parameters").is_object());
   CHECK(body.at("parameters").empty());
 }
@@ -654,7 +624,7 @@ TEST_CASE("Job events wrap the full record", "[gui][jobs]") {
   event.job.status = reusex::pipeline::JobStatus::failed;
   event.job.error = "inputs missing";
 
-  const auto body = job_event_json(event);
+  const auto body = job_event_json(event, "scan.rux");
   CHECK(body.at("type") == "job.finished");
   CHECK(body.at("timestamp") == "2026-09-08T11:24:02Z");
   CHECK(body.at("job").at("id") == "job-4");
@@ -752,7 +722,7 @@ TEST_CASE("The placeholder page is a complete, self-describing document",
 
 TEST_CASE("Asset resolution serves files under the root and nothing else",
           "[gui][assets]") {
-  TempDir root;
+  TempDir root("test_gui_assets");
   write_file(root.path / "index.html", "<h1>index</h1>");
   write_file(root.path / "assets" / "app.js", "console.log(1)");
 
@@ -810,4 +780,150 @@ TEST_CASE("An explicit --assets that is not a directory fails loudly",
           "[gui][assets]") {
   REQUIRE_THROWS_AS(resolve_asset_dir("/definitely/not/a/directory"),
                     std::runtime_error);
+}
+
+// ===========================================================================
+// Review follow-ups (#274): project identity, limit clamping, SPA fallback
+// ===========================================================================
+
+TEST_CASE("Every job and event names the project it belongs to",
+          "[gui][jobs][project]") {
+  // The contract has to survive Phase 6, where one ruxd serves many projects.
+  // Adding the field later would be a breaking change; adding it now costs a
+  // string and lets a client key its state on it from day one.
+  reusex::pipeline::JobRecord record;
+  record.id = "job-p";
+
+  CHECK(job_json(record, "scan.rux").at("project") == "scan.rux");
+  CHECK(jobs_json({record}, "scan.rux").at("jobs").at(0).at("project") ==
+        "scan.rux");
+
+  reusex::pipeline::JobEvent event;
+  event.job = record;
+  CHECK(job_event_json(event, "scan.rux").at("project") == "scan.rux");
+  CHECK(job_event_json(event, "scan.rux").at("job").at("project") ==
+        "scan.rux");
+}
+
+TEST_CASE("A job aimed at a different project is refused", "[gui][jobs]") {
+  SECTION("omitting project is fine — the server has only one open") {
+    const auto submission = parse_job_request(R"({"stage":"planes"})");
+    CHECK_FALSE(submission.project.has_value());
+    REQUIRE_NOTHROW(check_job_project(submission, "scan.rux"));
+  }
+
+  SECTION("naming the open project is fine") {
+    const auto submission =
+        parse_job_request(R"({"stage":"planes","project":"scan.rux"})");
+    REQUIRE(submission.project.has_value());
+    REQUIRE_NOTHROW(check_job_project(submission, "scan.rux"));
+  }
+
+  SECTION("naming a different project is a 409, not a silent wrong run") {
+    const auto submission =
+        parse_job_request(R"({"stage":"planes","project":"other.rux"})");
+    try {
+      check_job_project(submission, "scan.rux");
+      FAIL("expected HttpError");
+    } catch (const HttpError &e) {
+      CHECK(e.status() == 409);
+      const std::string message = e.what();
+      CHECK(message.find("other.rux") != std::string::npos);
+      CHECK(message.find("scan.rux") != std::string::npos);
+    }
+  }
+
+  SECTION("a non-string project is a 400") {
+    try {
+      parse_job_request(R"({"stage":"planes","project":7})");
+      FAIL("expected HttpError");
+    } catch (const HttpError &e) {
+      CHECK(e.status() == 400);
+    }
+  }
+}
+
+TEST_CASE("Events carry a monotonic sequence number", "[gui][websocket]") {
+  // Events are published without the runner lock, so arrival order is not
+  // emission order. `seq` is assigned under the lock and is the authority.
+  reusex::pipeline::JobEvent event;
+  event.sequence = 42;
+  CHECK(job_event_json(event, "scan.rux").at("seq") == 42);
+}
+
+TEST_CASE("pipeline-log limit is clamped at both ends", "[gui][pipeline]") {
+  TempPath project("test_gui_api");
+  reusex::ProjectDB db(project.path);
+
+  for (int i = 0; i < 5; ++i) {
+    const int id = db.log_pipeline_start("planes", "");
+    db.log_pipeline_end(id, true);
+  }
+
+  SECTION("an explicit small limit is honoured") {
+    Params params;
+    params.set("limit", "2");
+    CHECK(pipeline_log_json(db, params).at("entries").size() == 2);
+  }
+
+  SECTION("limit=0 means the server maximum, not unbounded") {
+    // ProjectDB treats 0 as "no limit"; passing it straight through would let
+    // one query serialize a whole project's history.
+    Params params;
+    params.set("limit", "0");
+    const auto entries = pipeline_log_json(db, params).at("entries");
+    CHECK(entries.size() == 5); // Fewer than the cap, so all of them.
+  }
+
+  SECTION("an absurd limit is clamped rather than honoured") {
+    Params params;
+    params.set("limit", "99999999");
+    CHECK(pipeline_log_json(db, params).at("entries").size() == 5);
+  }
+
+  SECTION("a negative limit is still a 400") {
+    Params params;
+    params.set("limit", "-5");
+    REQUIRE_THROWS_AS(pipeline_log_json(db, params), HttpError);
+  }
+}
+
+TEST_CASE("The SPA fallback applies to routes, not to missing files",
+          "[gui][assets]") {
+  // Answering a missing /assets/app.js with index.html hands the browser HTML
+  // where it expects JavaScript — the failure then surfaces as an inscrutable
+  // syntax error instead of the 404 it actually is.
+  CHECK(looks_like_spa_route("/"));
+  CHECK(looks_like_spa_route("/projects"));
+  CHECK(looks_like_spa_route("/projects/42"));
+  CHECK(looks_like_spa_route("/projects/42?tab=clouds"));
+  CHECK(looks_like_spa_route("/viewer/"));
+
+  CHECK_FALSE(looks_like_spa_route("/assets/app.js"));
+  CHECK_FALSE(looks_like_spa_route("/assets/app.4f2c.css"));
+  CHECK_FALSE(looks_like_spa_route("/favicon.ico"));
+  CHECK_FALSE(looks_like_spa_route("/assets/app.js?v=2"));
+}
+
+TEST_CASE("Percent-encoded traversal is decoded before it is judged",
+          "[gui][assets]") {
+  CHECK(percent_decode("/assets/app.js") == "/assets/app.js");
+  CHECK(percent_decode("%2e%2e/secret") == "../secret");
+  CHECK(percent_decode("%2E%2E%2Fsecret") == "../secret");
+  CHECK(percent_decode("a%20b") == "a b");
+  // Malformed escapes are left verbatim rather than silently dropped.
+  CHECK(percent_decode("100%") == "100%");
+  CHECK(percent_decode("%zz") == "%zz");
+  CHECK(percent_decode("%4") == "%4");
+
+  TempDir root("test_gui_assets");
+  write_file(root.path / "index.html", "<h1>index</h1>");
+
+  // The raw-text traversal check these encodings used to slip past.
+  for (const char *attack :
+       {"/%2e%2e/%2e%2e/etc/passwd", "/assets/%2E%2E/%2E%2E/etc/passwd",
+        "/..%2f..%2fetc/passwd", "/%2e%2e%5c%2e%2e%5cetc%5cpasswd"}) {
+    INFO("attack: " << attack);
+    CHECK(resolve_asset(root.path, attack).empty());
+  }
 }

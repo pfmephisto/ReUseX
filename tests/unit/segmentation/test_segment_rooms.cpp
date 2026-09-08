@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include <reusex/core/label_semantics.hpp>
-#include <reusex/geometry/mesh.hpp>
-#include <reusex/geometry/reconstruct.hpp>
-#include <reusex/geometry/segment_instances.hpp>
-#include <reusex/geometry/segment_planes.hpp>
-#include <reusex/geometry/segment_rooms.hpp>
+#include <reusex/reconstruction/mesh.hpp>
+#include <reusex/segmentation/reconstruct.hpp>
+#include <reusex/segmentation/segment_instances.hpp>
+#include <reusex/segmentation/segment_planes.hpp>
+#include <reusex/segmentation/segment_rooms.hpp>
 #include <reusex/types.hpp>
 
 #include <catch2/catch_test_macros.hpp>

@@ -5,7 +5,7 @@
 #include "edit/downsample.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
-#include <reusex/geometry/sync_downsample.hpp>
+#include <reusex/segmentation/sync_downsample.hpp>
 
 #include <fmt/format.h>
 #include <fmt/ranges.h>

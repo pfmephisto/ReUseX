@@ -6,7 +6,7 @@
 #include "validation.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
-#include <reusex/geometry/reconstruct.hpp>
+#include <reusex/segmentation/reconstruct.hpp>
 
 #include <spdlog/spdlog.h>
 

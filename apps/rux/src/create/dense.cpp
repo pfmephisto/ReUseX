@@ -5,7 +5,7 @@
 #include "create/dense.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
-#include <reusex/geometry/densify.hpp>
+#include <reusex/segmentation/densify.hpp>
 
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
@@ -161,7 +161,8 @@ int run_subcommand_create_dense(SubcommandCreateDenseOptions const &opt,
 
     reusex::geometry::DensifyParams params;
     params.output_name = opt.output_name;
-    params.seed_cloud_name = opt.no_lidar_seed ? std::string{} : opt.seed_cloud_name;
+    params.seed_cloud_name =
+        opt.no_lidar_seed ? std::string{} : opt.seed_cloud_name;
     params.seed_max_points = opt.seed_max_points;
     params.resolution_level = opt.resolution_level;
     params.max_resolution = opt.max_resolution;
@@ -178,9 +179,10 @@ int run_subcommand_create_dense(SubcommandCreateDenseOptions const &opt,
 
     int logId = db.log_pipeline_start(
         "create_dense",
-        fmt::format(R"({{"resolution_level":{},"max_resolution":{},"geom":{},"stride":{}}})",
-                    params.resolution_level, params.max_resolution,
-                    params.geometric_consistency, params.frame_stride));
+        fmt::format(
+            R"({{"resolution_level":{},"max_resolution":{},"geom":{},"stride":{}}})",
+            params.resolution_level, params.max_resolution,
+            params.geometric_consistency, params.frame_stride));
     try {
       reusex::geometry::densify_from_images(db, params);
       db.log_pipeline_end(logId, true);

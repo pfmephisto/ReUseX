@@ -4,7 +4,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <geometry/reconcile_instances.hpp>
+#include <reusex/segmentation/reconcile_instances.hpp>
 #include <types.hpp>
 
 #include <map>

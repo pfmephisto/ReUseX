@@ -142,7 +142,7 @@ rux get components --type window     # Verify: Still 2 windows
 
 ### Unit Test Opportunities
 
-Future unit tests (`tests/unit/geometry/test_create_windows.cpp`):
+Future unit tests (`tests/unit/reconstruction/test_create_windows.cpp`):
 - `compute_instance_orientation()` for vertical/horizontal/tilted planes
 - Intrinsic frame construction edge cases (degenerate normals)
 - Wall matching cost function

@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include <reusex/geometry/create_windows.hpp>
+#include <reusex/reconstruction/create_windows.hpp>
 #include <reusex/types.hpp>
 
 #include <catch2/catch_test_macros.hpp>
@@ -15,10 +15,11 @@ using namespace reusex;
 using namespace reusex::geometry;
 
 // Helper: Create a planar cluster aligned with a given normal direction.
-// This is useful for testing window detection on walls with specific orientations.
+// This is useful for testing window detection on walls with specific
+// orientations.
 static CloudPtr make_planar_cluster(const Eigen::Vector3f &center,
-                                     const Eigen::Vector3f &normal,
-                                     int count, float spread = 0.2f) {
+                                    const Eigen::Vector3f &normal, int count,
+                                    float spread = 0.2f) {
   CloudPtr cloud(new Cloud);
   std::mt19937 gen(42);
   std::normal_distribution<float> dist(0.0f, spread);
@@ -26,7 +27,7 @@ static CloudPtr make_planar_cluster(const Eigen::Vector3f &center,
   // Create orthonormal basis: normal + two in-plane directions
   Eigen::Vector3f n = normal.normalized();
   Eigen::Vector3f u = (std::abs(n.z()) < 0.9f) ? Eigen::Vector3f(0, 0, 1)
-                                                 : Eigen::Vector3f(1, 0, 0);
+                                               : Eigen::Vector3f(1, 0, 0);
   Eigen::Vector3f v1 = n.cross(u).normalized();
   Eigen::Vector3f v2 = n.cross(v1).normalized();
 
@@ -35,7 +36,7 @@ static CloudPtr make_planar_cluster(const Eigen::Vector3f &center,
     PointT p;
     float u1 = dist(gen);
     float u2 = dist(gen);
-    float offset = dist(gen) * 0.02f;  // Small offset perpendicular to plane
+    float offset = dist(gen) * 0.02f; // Small offset perpendicular to plane
     Eigen::Vector3f pos = center + u1 * v1 + u2 * v2 + offset * n;
     p.x = pos.x();
     p.y = pos.y();
@@ -52,17 +53,17 @@ static CloudPtr make_planar_cluster(const Eigen::Vector3f &center,
 // The box spans [0,W] x [0,D] x [0,H].
 // 4 vertical walls + floor + ceiling.
 static pcl::PolygonMesh make_box_mesh(float W = 4.0f, float D = 3.0f,
-                                       float H = 2.5f) {
+                                      float H = 2.5f) {
   pcl::PointCloud<pcl::PointXYZ> cloud;
   // 8 corners
-  cloud.push_back({0, 0, 0});     // 0: left-front-bottom
-  cloud.push_back({W, 0, 0});     // 1: right-front-bottom
-  cloud.push_back({W, D, 0});     // 2: right-back-bottom
-  cloud.push_back({0, D, 0});     // 3: left-back-bottom
-  cloud.push_back({0, 0, H});     // 4: left-front-top
-  cloud.push_back({W, 0, H});     // 5: right-front-top
-  cloud.push_back({W, D, H});     // 6: right-back-top
-  cloud.push_back({0, D, H});     // 7: left-back-top
+  cloud.push_back({0, 0, 0}); // 0: left-front-bottom
+  cloud.push_back({W, 0, 0}); // 1: right-front-bottom
+  cloud.push_back({W, D, 0}); // 2: right-back-bottom
+  cloud.push_back({0, D, 0}); // 3: left-back-bottom
+  cloud.push_back({0, 0, H}); // 4: left-front-top
+  cloud.push_back({W, 0, H}); // 5: right-front-top
+  cloud.push_back({W, D, H}); // 6: right-back-top
+  cloud.push_back({0, D, H}); // 7: left-back-top
 
   pcl::PolygonMesh mesh;
   pcl::toPCLPointCloud2(cloud, mesh.cloud);
@@ -95,7 +96,7 @@ static pcl::PolygonMesh make_box_mesh(float W = 4.0f, float D = 3.0f,
 
 // Helper: Create a point cloud with points clustered around a center
 static CloudPtr make_cluster(const Eigen::Vector3f &center, int count,
-                              float spread = 0.05f) {
+                             float spread = 0.05f) {
   CloudPtr cloud(new Cloud);
   std::mt19937 gen(42);
   std::normal_distribution<float> dist(0.0f, spread);
@@ -124,8 +125,7 @@ TEST_CASE("extract_wall_candidates: box mesh", "[geometry][create_windows]") {
   SECTION("Wall normals are unit vectors") {
     for (const auto &w : walls) {
       // All walls should have normalized normals
-      REQUIRE_THAT(w.normal.norm(),
-                   Catch::Matchers::WithinAbs(1.0, 1e-6));
+      REQUIRE_THAT(w.normal.norm(), Catch::Matchers::WithinAbs(1.0, 1e-6));
     }
   }
 
@@ -157,11 +157,11 @@ TEST_CASE("create_windows: rectangle mode", "[geometry][create_windows]") {
   auto mesh = make_box_mesh(4.0f, 3.0f, 2.5f);
 
   // Create a window instance: planar cluster aligned with wall normal (+X)
-  auto cloud = make_planar_cluster(
-      {0.1f, 2.0f, 1.5f},           // Center near wall at x=0
-      {1.0f, 0.0f, 0.0f},           // Normal matches wall
-      200,                           // Point count
-      0.2f);                         // Spread in plane
+  auto cloud =
+      make_planar_cluster({0.1f, 2.0f, 1.5f}, // Center near wall at x=0
+                          {1.0f, 0.0f, 0.0f}, // Normal matches wall
+                          200,                // Point count
+                          0.2f);              // Spread in plane
 
   // Instance labels: all label=1
   CloudLPtr labels(new CloudL);
@@ -171,7 +171,8 @@ TEST_CASE("create_windows: rectangle mode", "[geometry][create_windows]") {
     labels->push_back(l);
   }
 
-  std::map<uint32_t, uint32_t> inst_to_sem = {{1, 5}}; // instance 1 → semantic 5
+  std::map<uint32_t, uint32_t> inst_to_sem = {
+      {1, 5}}; // instance 1 → semantic 5
   std::vector<uint32_t> window_labels = {5};
 
   CreateWindowsOptions opts;
@@ -227,7 +228,7 @@ TEST_CASE("create_windows: no matching semantic labels",
     labels->push_back(pcl::Label{1});
 
   std::map<uint32_t, uint32_t> inst_to_sem = {{1, 3}}; // semantic 3
-  std::vector<uint32_t> window_labels = {5};            // looking for semantic 5
+  std::vector<uint32_t> window_labels = {5};           // looking for semantic 5
 
   auto result = create_windows(cloud, labels, inst_to_sem, mesh, window_labels);
 
@@ -239,7 +240,8 @@ TEST_CASE("create_windows: multiple instances", "[geometry][create_windows]") {
   // Create a larger box mesh to accommodate two windows
   auto mesh = make_box_mesh(4.0f, 10.0f, 3.0f);
 
-  // Two window clusters at different positions on the wall (planar, aligned with wall)
+  // Two window clusters at different positions on the wall (planar, aligned
+  // with wall)
   Eigen::Vector3f wall_normal(1.0f, 0.0f, 0.0f);
   auto cluster1 = make_planar_cluster({0.1f, 2.0f, 1.5f}, wall_normal, 100);
   auto cluster2 = make_planar_cluster({0.1f, 7.0f, 1.5f}, wall_normal, 100);
@@ -278,7 +280,8 @@ TEST_CASE("create_windows: no walls", "[geometry][create_windows]") {
   // Empty mesh (no walls)
   pcl::PolygonMesh empty_mesh;
 
-  auto result = create_windows(cloud, labels, inst_to_sem, empty_mesh, window_labels);
+  auto result =
+      create_windows(cloud, labels, inst_to_sem, empty_mesh, window_labels);
 
   REQUIRE(result.components.empty());
 }

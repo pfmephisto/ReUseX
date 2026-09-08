@@ -11,7 +11,7 @@
 
 #include "../../support/synthetic_scene.hpp"
 
-#include <reusex/geometry/segment_planes.hpp>
+#include <reusex/segmentation/segment_planes.hpp>
 
 #include <catch2/catch_test_macros.hpp>
 

@@ -6,7 +6,7 @@
 #include "validation.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
-#include <reusex/geometry/registration/PlaneGraphOptimizer.hpp>
+#include <reusex/slam/PlaneGraphOptimizer.hpp>
 
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>

@@ -1,10 +1,10 @@
 // SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include <reusex/geometry/segment_instances.hpp>
-#include <reusex/types.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
+#include <reusex/segmentation/segment_instances.hpp>
+#include <reusex/types.hpp>
 
 #include <random>
 
@@ -12,9 +12,9 @@ using namespace reusex;
 using namespace reusex::geometry;
 
 // Helper: Create a cloud with points clustered around specified centers
-static CloudPtr create_clustered_cloud(
-    const std::vector<Eigen::Vector3f> &centers, int points_per_cluster,
-    float spread = 0.1F) {
+static CloudPtr
+create_clustered_cloud(const std::vector<Eigen::Vector3f> &centers,
+                       int points_per_cluster, float spread = 0.1F) {
   CloudPtr cloud(new Cloud);
   std::mt19937 gen(42); // Fixed seed for reproducibility
   std::normal_distribution<float> dist(0.0F, spread);
@@ -36,8 +36,9 @@ static CloudPtr create_clustered_cloud(
 }
 
 // Helper: Create semantic labels for clustered cloud
-static CloudLPtr create_semantic_labels(
-    const std::vector<uint32_t> &labels_per_cluster, int points_per_cluster) {
+static CloudLPtr
+create_semantic_labels(const std::vector<uint32_t> &labels_per_cluster,
+                       int points_per_cluster) {
   CloudLPtr labels(new CloudL);
 
   for (uint32_t label : labels_per_cluster) {
@@ -101,13 +102,14 @@ TEST_CASE("segment_instances: Multi-class clustering",
           "[geometry][segment_instances]") {
   // Create 4 clusters: 2 of class 1, 2 of class 2
   std::vector<Eigen::Vector3f> centers = {{0.0F, 0.0F, 0.0F},
-                                            {5.0F, 0.0F, 0.0F},
-                                            {0.0F, 5.0F, 0.0F},
-                                            {5.0F, 5.0F, 0.0F}};
+                                          {5.0F, 0.0F, 0.0F},
+                                          {0.0F, 5.0F, 0.0F},
+                                          {5.0F, 5.0F, 0.0F}};
   int points_per_cluster = 100;
 
   auto cloud = create_clustered_cloud(centers, points_per_cluster, 0.1F);
-  auto semantic_labels = create_semantic_labels({1, 1, 2, 2}, points_per_cluster);
+  auto semantic_labels =
+      create_semantic_labels({1, 1, 2, 2}, points_per_cluster);
 
   SegmentInstancesRequest request;
   request.cloud = cloud;
@@ -140,7 +142,7 @@ TEST_CASE("segment_instances: Cluster tolerance sensitivity",
           "[geometry][segment_instances]") {
   // Create 2 clusters 1m apart
   std::vector<Eigen::Vector3f> centers = {{0.0F, 0.0F, 0.0F},
-                                            {1.0F, 0.0F, 0.0F}};
+                                          {1.0F, 0.0F, 0.0F}};
   int points_per_cluster = 100;
 
   auto cloud = create_clustered_cloud(centers, points_per_cluster, 0.1F);
@@ -166,7 +168,8 @@ TEST_CASE("segment_instances: Cluster tolerance sensitivity",
 
     auto result = segment_instances(request);
     REQUIRE(result.instance_to_semantic.size() == 1);
-    REQUIRE(result.instance_sizes.begin()->second == static_cast<size_t>(2 * points_per_cluster));
+    REQUIRE(result.instance_sizes.begin()->second ==
+            static_cast<size_t>(2 * points_per_cluster));
   }
 }
 
@@ -230,13 +233,14 @@ TEST_CASE("segment_instances: Label filtering",
           "[geometry][segment_instances]") {
   // Create 4 clusters: 2 of class 1, 2 of class 2
   std::vector<Eigen::Vector3f> centers = {{0.0F, 0.0F, 0.0F},
-                                            {5.0F, 0.0F, 0.0F},
-                                            {0.0F, 5.0F, 0.0F},
-                                            {5.0F, 5.0F, 0.0F}};
+                                          {5.0F, 0.0F, 0.0F},
+                                          {0.0F, 5.0F, 0.0F},
+                                          {5.0F, 5.0F, 0.0F}};
   int points_per_cluster = 100;
 
   auto cloud = create_clustered_cloud(centers, points_per_cluster, 0.1F);
-  auto semantic_labels = create_semantic_labels({1, 1, 2, 2}, points_per_cluster);
+  auto semantic_labels =
+      create_semantic_labels({1, 1, 2, 2}, points_per_cluster);
 
   SECTION("Process only class 1") {
     SegmentInstancesRequest request;
@@ -279,8 +283,7 @@ TEST_CASE("segment_instances: Edge cases", "[geometry][segment_instances]") {
   }
 
   SECTION("All unlabeled (label = 0)") {
-    auto cloud =
-        create_clustered_cloud({{0.0F, 0.0F, 0.0F}}, 100, 0.1F);
+    auto cloud = create_clustered_cloud({{0.0F, 0.0F, 0.0F}}, 100, 0.1F);
     auto labels = create_semantic_labels({0}, 100); // All background
 
     SegmentInstancesRequest request;
@@ -328,10 +331,8 @@ TEST_CASE("segment_instances: Edge cases", "[geometry][segment_instances]") {
   }
 }
 
-TEST_CASE("segment_instances: Cancellation",
-          "[geometry][segment_instances]") {
-  auto cloud =
-      create_clustered_cloud({{0.0F, 0.0F, 0.0F}}, 100, 0.1F);
+TEST_CASE("segment_instances: Cancellation", "[geometry][segment_instances]") {
+  auto cloud = create_clustered_cloud({{0.0F, 0.0F, 0.0F}}, 100, 0.1F);
   auto labels = create_semantic_labels({1}, 100);
 
   std::atomic_bool cancel_flag{true}; // Pre-cancelled
@@ -349,9 +350,8 @@ TEST_CASE("segment_instances: Cancellation",
 TEST_CASE("segment_instances: Sequential instance IDs",
           "[geometry][segment_instances]") {
   // Verify instance IDs are sequential (1, 2, 3, ...)
-  std::vector<Eigen::Vector3f> centers = {{0.0F, 0.0F, 0.0F},
-                                            {5.0F, 0.0F, 0.0F},
-                                            {10.0F, 0.0F, 0.0F}};
+  std::vector<Eigen::Vector3f> centers = {
+      {0.0F, 0.0F, 0.0F}, {5.0F, 0.0F, 0.0F}, {10.0F, 0.0F, 0.0F}};
   auto cloud = create_clustered_cloud(centers, 100, 0.1F);
   auto labels = create_semantic_labels({1, 1, 1}, 100);
 

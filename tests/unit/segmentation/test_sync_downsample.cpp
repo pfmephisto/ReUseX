@@ -5,8 +5,8 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <core/ProjectDB.hpp>
-#include <geometry/downsample.hpp>
-#include <geometry/sync_downsample.hpp>
+#include <reusex/segmentation/downsample.hpp>
+#include <reusex/segmentation/sync_downsample.hpp>
 #include <types.hpp>
 
 #include "../../support/synthetic_scene.hpp"

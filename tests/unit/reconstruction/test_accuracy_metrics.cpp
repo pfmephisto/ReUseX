@@ -8,7 +8,7 @@
 
 #include "../../support/synthetic_scene.hpp"
 
-#include <reusex/geometry/accuracy_metrics.hpp>
+#include <reusex/reconstruction/accuracy_metrics.hpp>
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>

@@ -6,7 +6,7 @@
 #include "filter_utils.hpp"
 #include "validation.hpp"
 #include <reusex/core/ProjectDB.hpp>
-#include <reusex/geometry/segment_planes.hpp>
+#include <reusex/segmentation/segment_planes.hpp>
 
 #include <fmt/format.h>
 

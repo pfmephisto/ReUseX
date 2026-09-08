@@ -11,9 +11,9 @@
 
 #include "../support/synthetic_scene.hpp"
 
-#include <reusex/geometry/downsample.hpp>
-#include <reusex/geometry/segment_planes.hpp>
-#include <reusex/geometry/segment_rooms.hpp>
+#include <reusex/segmentation/downsample.hpp>
+#include <reusex/segmentation/segment_planes.hpp>
+#include <reusex/segmentation/segment_rooms.hpp>
 
 #include <catch2/benchmark/catch_benchmark.hpp>
 #include <catch2/catch_test_macros.hpp>

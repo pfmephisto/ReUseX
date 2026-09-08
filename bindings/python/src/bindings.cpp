@@ -4,7 +4,7 @@
 
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/core/SensorIntrinsics.hpp>
-#include <reusex/geometry/depth_filters.hpp>
+#include <reusex/segmentation/depth_filters.hpp>
 
 #include <opencv2/core.hpp>
 
@@ -27,17 +27,17 @@ namespace {
 
 struct FrameCloud {
   int fid{};
-  std::vector<std::array<float, 3>>   pts;
+  std::vector<std::array<float, 3>> pts;
   std::vector<std::array<uint8_t, 3>> cols;
 };
 
-void reconstruct_single(const reusex::ProjectDB &db, int fid,
-                        int step, float min_dist, float max_dist,
-                        int conf_thresh, FrameCloud &out) {
+void reconstruct_single(const reusex::ProjectDB &db, int fid, int step,
+                        float min_dist, float max_dist, int conf_thresh,
+                        FrameCloud &out) {
   out.fid = fid;
 
-  cv::Mat color      = db.sensor_frame_image(fid);
-  cv::Mat depth16    = db.sensor_frame_depth(fid);
+  cv::Mat color = db.sensor_frame_image(fid);
+  cv::Mat depth16 = db.sensor_frame_depth(fid);
   cv::Mat confidence = db.sensor_frame_confidence(fid);
   if (color.empty() || depth16.empty())
     return;
@@ -76,8 +76,10 @@ void reconstruct_single(const reusex::ProjectDB &db, int fid,
       const float x = (static_cast<float>(u) - cx) * z / fx;
       const float y = (static_cast<float>(v) - cy) * z / fy;
 
-      const int cu  = std::clamp(u * color.cols / depth_f.cols, 0, color.cols - 1);
-      const int cv_ = std::clamp(v * color.rows / depth_f.rows, 0, color.rows - 1);
+      const int cu =
+          std::clamp(u * color.cols / depth_f.cols, 0, color.cols - 1);
+      const int cv_ =
+          std::clamp(v * color.rows / depth_f.rows, 0, color.rows - 1);
       const auto &px = color.at<cv::Vec3b>(cv_, cu);
 
       out.pts.push_back({x, y, z});
@@ -91,10 +93,10 @@ py::dict frame_cloud_to_dict(const FrameCloud &fc) {
   std::vector<ssize_t> empty_shape{ssize_t{0}, ssize_t{3}};
   const ssize_t n = static_cast<ssize_t>(fc.pts.size());
 
-  auto positions  = n > 0 ? py::array_t<float>({n, ssize_t{3}})
-                           : py::array_t<float>(empty_shape);
+  auto positions = n > 0 ? py::array_t<float>({n, ssize_t{3}})
+                         : py::array_t<float>(empty_shape);
   auto colors_out = n > 0 ? py::array_t<uint8_t>({n, ssize_t{3}})
-                           : py::array_t<uint8_t>(empty_shape);
+                          : py::array_t<uint8_t>(empty_shape);
 
   if (n > 0) {
     auto pos = positions.mutable_unchecked<2>();
@@ -111,7 +113,7 @@ py::dict frame_cloud_to_dict(const FrameCloud &fc) {
 
   py::dict result;
   result["positions"] = positions;
-  result["colors"]    = colors_out;
+  result["colors"] = colors_out;
   return result;
 }
 
@@ -120,7 +122,8 @@ py::dict frame_cloud_to_dict(const FrameCloud &fc) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 PYBIND11_MODULE(_reusex, m) {
-  m.doc() = "ReUseX Python bindings — read-only access to .rux project databases";
+  m.doc() =
+      "ReUseX Python bindings — read-only access to .rux project databases";
 
   using PDB = reusex::ProjectDB;
   using Summary = PDB::ProjectSummary;
@@ -250,8 +253,7 @@ PYBIND11_MODULE(_reusex, m) {
            "Get a summary of all project data")
       .def("list_point_clouds", &PDB::list_point_clouds,
            "List names of all stored point clouds")
-      .def("list_meshes", &PDB::list_meshes,
-           "List names of all stored meshes")
+      .def("list_meshes", &PDB::list_meshes, "List names of all stored meshes")
       .def("list_building_components",
            py::overload_cast<>(&PDB::list_building_components, py::const_),
            "List names of all building components")
@@ -268,8 +270,7 @@ PYBIND11_MODULE(_reusex, m) {
           "point_cloud_xyzrgb",
           [](const PDB &db, const std::string &name) {
             auto cloud = db.point_cloud_xyzrgb(name);
-            const ssize_t n =
-                cloud ? static_cast<ssize_t>(cloud->size()) : 0;
+            const ssize_t n = cloud ? static_cast<ssize_t>(cloud->size()) : 0;
 
             auto positions = py::array_t<float>({n, ssize_t{3}});
             auto colors = py::array_t<uint8_t>({n, ssize_t{3}});
@@ -303,8 +304,7 @@ PYBIND11_MODULE(_reusex, m) {
           "point_cloud_xyz",
           [](const PDB &db, const std::string &name) {
             auto cloud = db.point_cloud_xyz(name);
-            const ssize_t n =
-                cloud ? static_cast<ssize_t>(cloud->size()) : 0;
+            const ssize_t n = cloud ? static_cast<ssize_t>(cloud->size()) : 0;
 
             auto positions = py::array_t<float>({n, ssize_t{3}});
 
@@ -331,16 +331,15 @@ PYBIND11_MODULE(_reusex, m) {
           "point_cloud_label",
           [](const PDB &db, const std::string &name) {
             auto cloud = db.point_cloud_label(name);
-            const ssize_t n =
-                cloud ? static_cast<ssize_t>(cloud->size()) : 0;
+            const ssize_t n = cloud ? static_cast<ssize_t>(cloud->size()) : 0;
 
             auto labels = py::array_t<int32_t>(n);
 
             if (n > 0) {
               auto lbl = labels.mutable_unchecked<1>();
               for (ssize_t i = 0; i < n; ++i)
-                lbl(i) =
-                    static_cast<int32_t>((*cloud)[static_cast<size_t>(i)].label);
+                lbl(i) = static_cast<int32_t>(
+                    (*cloud)[static_cast<size_t>(i)].label);
             }
 
             py::dict result;
@@ -416,16 +415,19 @@ PYBIND11_MODULE(_reusex, m) {
           py::arg("node_id"), py::arg("step") = 4,
           py::arg("min_distance") = 0.0f, py::arg("max_distance") = 4.0f,
           py::arg("confidence_threshold") = 2,
-          "Reconstruct a single frame's point cloud in optical (camera) frame.\n\n"
-          "Returns dict with 'positions' (N,3) float32 and 'colors' (N,3) uint8.\n"
+          "Reconstruct a single frame's point cloud in optical (camera) "
+          "frame.\n\n"
+          "Returns dict with 'positions' (N,3) float32 and 'colors' (N,3) "
+          "uint8.\n"
           "Points are in optical frame — apply localTransform then worldPose\n"
           "to place them in world space (or use Blender's parent hierarchy).")
 
-      // --- Parallel multi-frame reconstruction --------------------------------
-      // GIL is released exactly once for the entire C++ parallel section.
-      // Each worker thread opens its own DB connection (SQLite is not thread-safe
-      // with shared connections).  Python only needs one background thread to
-      // call this; C++ handles all parallelism internally.
+      // --- Parallel multi-frame reconstruction
+      // -------------------------------- GIL is released exactly once for the
+      // entire C++ parallel section. Each worker thread opens its own DB
+      // connection (SQLite is not thread-safe with shared connections).  Python
+      // only needs one background thread to call this; C++ handles all
+      // parallelism internally.
 
       .def(
           "reconstruct_frames_parallel",
@@ -454,9 +456,8 @@ PYBIND11_MODULE(_reusex, m) {
                         counter.fetch_add(1, std::memory_order_relaxed);
                     if (idx >= n_frames)
                       return;
-                    reconstruct_single(thread_db, nodeIds[idx], step,
-                                       min_dist, max_dist, conf_thresh,
-                                       results[idx]);
+                    reconstruct_single(thread_db, nodeIds[idx], step, min_dist,
+                                       max_dist, conf_thresh, results[idx]);
                   }
                 });
               }
@@ -476,7 +477,8 @@ PYBIND11_MODULE(_reusex, m) {
           py::arg("min_distance") = 0.0f, py::arg("max_distance") = 4.0f,
           py::arg("confidence_threshold") = 2,
           "Reconstruct multiple frames in parallel using C++ threads.\n\n"
-          "The GIL is released for the entire parallel C++ section; each thread\n"
+          "The GIL is released for the entire parallel C++ section; each "
+          "thread\n"
           "opens its own DB connection.  Returns list of (fid, dict) tuples\n"
           "where dict has 'positions' (N,3) float32 and 'colors' (N,3) uint8.")
 

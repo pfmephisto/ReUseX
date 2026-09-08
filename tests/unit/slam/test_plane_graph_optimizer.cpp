@@ -11,8 +11,8 @@
 // pull the drifted poses back toward the (shared, globally-consistent) truth.
 // Fixed seeds keep everything deterministic (docs/STANDARDS.md §6).
 
-#include <reusex/geometry/Surfel.hpp>
-#include <reusex/geometry/registration/PlaneGraphOptimizer.hpp>
+#include <reusex/segmentation/Surfel.hpp>
+#include <reusex/slam/PlaneGraphOptimizer.hpp>
 #include <reusex/types.hpp>
 
 #include <catch2/catch_test_macros.hpp>

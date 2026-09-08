@@ -14,8 +14,8 @@
 #include <fmt/std.h>
 
 #include <reusex/core/ProjectDB.hpp>
-#include <reusex/geometry/mesh.hpp>
 #include <reusex/io/reusex.hpp>
+#include <reusex/reconstruction/mesh.hpp>
 
 #include <pcl/common/common.h>
 #include <pcl/visualization/pcl_visualizer.h>

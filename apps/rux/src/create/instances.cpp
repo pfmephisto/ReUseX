@@ -7,8 +7,8 @@
 
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/core/guid.hpp>
-#include <reusex/geometry/reconcile_instances.hpp>
-#include <reusex/geometry/segment_instances.hpp>
+#include <reusex/segmentation/reconcile_instances.hpp>
+#include <reusex/segmentation/segment_instances.hpp>
 #include <spdlog/spdlog.h>
 
 #include <algorithm>

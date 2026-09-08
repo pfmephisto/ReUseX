@@ -47,7 +47,8 @@ Result<Solver> run(Builder &&build) {
 
   Result<Solver> r;
   r.solved = solver.solve();
-  if (!r.solved) return r;
+  if (!r.solved)
+    return r;
 
   for (std::size_t i = 0; i < obj_coeffs.size(); ++i) {
     double v = static_cast<double>(solver.variables()[i]->solution_value());
@@ -59,8 +60,7 @@ Result<Solver> run(Builder &&build) {
 
 // LP 1: minimize x + y s.t. x + y >= 1, x,y in [0, +inf).
 // Optimal: any point on x+y=1, objective = 1.
-template <typename Solver>
-Result<Solver> solve_lp_continuous() {
+template <typename Solver> Result<Solver> solve_lp_continuous() {
   return run<Solver>([](Solver &s, std::vector<double> &obj, bool &min) {
     auto *x = s.create_variable(Solver::Variable::CONTINUOUS, 0.0, 1e30, "x");
     auto *y = s.create_variable(Solver::Variable::CONTINUOUS, 0.0, 1e30, "y");
@@ -77,8 +77,7 @@ Result<Solver> solve_lp_continuous() {
 
 // LP 2: minimize -2*x1 - x2 s.t. x1+x2 <= 3, x1 <= 2, x1,x2 >= 0.
 // Optimal: x1=2, x2=1, objective=-5.
-template <typename Solver>
-Result<Solver> solve_lp_multi_constraint() {
+template <typename Solver> Result<Solver> solve_lp_multi_constraint() {
   return run<Solver>([](Solver &s, std::vector<double> &obj, bool &min) {
     auto *x1 = s.create_variable(Solver::Variable::CONTINUOUS, 0.0, 1e30, "x1");
     auto *x2 = s.create_variable(Solver::Variable::CONTINUOUS, 0.0, 1e30, "x2");
@@ -146,8 +145,7 @@ template <typename Solver> Result<Solver> solve_infeasible() {
 
 } // namespace
 
-TEST_CASE("HiGHS vs cuOpt: continuous LP",
-          "[mip][solver_compare][gpu]") {
+TEST_CASE("HiGHS vs cuOpt: continuous LP", "[mip][solver_compare][gpu]") {
   auto h = solve_lp_continuous<HiGHS_Solver>();
   auto c = solve_lp_continuous<cuOpt_Solver>();
 
@@ -162,8 +160,7 @@ TEST_CASE("HiGHS vs cuOpt: continuous LP",
   REQUIRE_THAT(h.objective, WithinAbs(c.objective, 1e-4));
 }
 
-TEST_CASE("HiGHS vs cuOpt: multi-constraint LP",
-          "[mip][solver_compare][gpu]") {
+TEST_CASE("HiGHS vs cuOpt: multi-constraint LP", "[mip][solver_compare][gpu]") {
   auto h = solve_lp_multi_constraint<HiGHS_Solver>();
   auto c = solve_lp_multi_constraint<cuOpt_Solver>();
 
@@ -207,9 +204,8 @@ TEST_CASE("HiGHS vs cuOpt: two-sided range constraint",
 
   REQUIRE(h.solved);
   REQUIRE(c.solved);
-  reusex::core::info(
-      "range LP — HiGHS x={} obj={}; cuOpt x={} obj={}", h.values[0],
-      h.objective, c.values[0], c.objective);
+  reusex::core::info("range LP — HiGHS x={} obj={}; cuOpt x={} obj={}",
+                     h.values[0], h.objective, c.values[0], c.objective);
 
   REQUIRE_THAT(h.objective, WithinAbs(1.0, 1e-4));
   REQUIRE_THAT(c.objective, WithinAbs(1.0, 1e-4));

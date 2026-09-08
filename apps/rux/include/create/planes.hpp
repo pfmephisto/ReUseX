@@ -7,7 +7,7 @@
 #include <CLI/CLI.hpp>
 #include <memory>
 
-#include <reusex/geometry/segment_planes.hpp>
+#include <reusex/segmentation/segment_planes.hpp>
 
 namespace fs = std::filesystem;
 

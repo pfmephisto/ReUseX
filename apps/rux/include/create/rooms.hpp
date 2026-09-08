@@ -7,7 +7,7 @@
 #include <CLI/CLI.hpp>
 #include <memory>
 
-#include <reusex/geometry/segment_rooms.hpp>
+#include <reusex/segmentation/segment_rooms.hpp>
 
 namespace fs = std::filesystem;
 

@@ -117,8 +117,10 @@ cmake --build build
 | `LIN_ENABLE_ASAN` / `MSAN` / `UBSAN` / `TSAN` | `OFF` | `libs/reusex/cmake/CompilerOptions.cmake` | Sanitizers |
 | `LIN_ENABLE_WERROR` | `OFF` | `libs/reusex/cmake/CompilerOptions.cmake:23` | `-Werror` |
 
-There is **no** `BUILD_VISUALIZATION` option. The `visualize` module is built
-whenever `libs/reusex/src/visualize/**` has sources (see
+There is no option to make visualization optional: `rux` links
+`pcl_visualization` unconditionally (`apps/rux/CMakeLists.txt`). Separately,
+the `visualize` library module is built whenever
+`libs/reusex/src/visualize/**` has sources (see
 `libs/reusex/cmake/reusexLibrary.cmake`), and the umbrella `reusex` target picks
 it up only `if(TARGET reusex_visualize)`.
 
@@ -207,8 +209,7 @@ ReUseX/
 │   ├── cmake/                      # reusexLibrary.cmake, Dependencies.cmake, ...
 │   └── extern/                     # Vendored headers
 ├── apps/rux/                       # CLI application
-│   ├── include/ + src/             # Subcommands, grouped in subdirs
-│   └── cmake/RuxExecutable.cmake
+│   └── include/ + src/             # Subcommands, grouped in subdirs
 ├── apps/ruxd/                      # HTTP service worker (ruxd)
 ├── apps/blender/reusex_panel/      # Blender add-on
 ├── bindings/python/                # pybind11 bindings (read-only ProjectDB access)

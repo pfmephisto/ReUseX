@@ -22,7 +22,7 @@ only depend on modules in lower layers, and this is **link-enforced** (#222):
 an illegal dependency is a link error, not just a convention.
 
 ```
-Layer 4:  visualize                            (optional, PCL/Qt/VTK)
+Layer 4:  visualize                            (PCL; thin — see note below)
 Layer 3:  segmentation  reconstruction  slam  io  vision   (peers — MUST NOT link each other)
 Layer 2:  core                                 (ProjectDB, logging, materials, stages)
 Layer 1½: geometry_common                      (shared CGAL/PCL helpers: utils, cgal_utils,
@@ -35,6 +35,12 @@ The former single `geometry` module was split into the pipeline-stage peers
 `segmentation`, `reconstruction`, and `slam`; the CGAL/PCL primitives they share
 live in `geometry_common` (just above `utils`) so no peer or upward dependency
 is needed to reach them. `geometry_common` links neither `core` nor any peer.
+
+`visualize` is not an optional build: `rux` links PCL visualization
+unconditionally, and there is no option to disable it. The `reusex_visualize`
+module itself is thin — `libs/reusex/src/visualize/` currently holds only
+`viewport_layout.cpp`. Most of the actual view/render code lives in
+`apps/rux/src/view*` (External layer), not in the `visualize` module.
 
 **Rules:**
 

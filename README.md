@@ -81,10 +81,10 @@ cmake --build build
 - `-DENABLE_COVERAGE=ON/OFF` - Code coverage instrumentation (default: OFF)
 - `-DML_BACKENDS=AUTO|NONE|<list>` - Which ML backends to enable, e.g. `-DML_BACKENDS="TensorRT;LibTorch"` (default: `AUTO`)
 
-**Note on Visualization:** the `visualize` module is built automatically when
-`libs/reusex/src/visualize/` has sources; there is no `BUILD_VISUALIZATION`
-switch. Use `-DGUI_ENABLED=OFF` (the default) to skip CGAL's Qt6 GUI
-components.
+**Note on Visualization:** `rux` links PCL visualization unconditionally — it
+is not an optional build. The `reusex_visualize` library module is a separate
+concern: it is built whenever `libs/reusex/src/visualize/` has sources. Use
+`-DGUI_ENABLED=OFF` (the default) to skip CGAL's Qt6 GUI components.
 
 ### Building API Documentation
 

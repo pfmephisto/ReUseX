@@ -203,9 +203,10 @@ For external dependencies, update:
 ### Visualization Code
 
 Code using PCL visualization or Qt should go in:
-- `libs/reusex/src/visualize/` - automatically excluded from main target
-- Links against `ReUseX_visualization` target
-- Controlled by `-DBUILD_VISUALIZATION=ON/OFF`
+- `libs/reusex/src/visualize/` - the `reusex_visualize` module, built
+  whenever that directory has sources
+- `rux` links PCL visualization unconditionally; there is no build option
+  to disable it
 
 ## ML/Vision Code
 

@@ -153,6 +153,9 @@ if(INTEGRATION_TEST_SOURCES)
             reusex
             Catch2::Catch2WithMain
             fmt::fmt
+            # cv::imwrite, for the opt-in render artifacts written when
+            # REUSEX_TEST_RENDER_DIR is set (#294).
+            opencv_imgcodecs
     )
     target_include_directories(reusex_integration_tests PRIVATE
         ${CMAKE_SOURCE_DIR}/libs/reusex/include

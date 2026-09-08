@@ -298,6 +298,17 @@ target_link_libraries(reusex_slam PUBLIC reusex_segmentation)
 if(REUSEX_VISUALIZE_SOURCES)
     reusex_add_module(reusex_visualize ${REUSEX_VISUALIZE_SOURCES})
     target_link_libraries(reusex_visualize PUBLIC reusex_core)
+    # Layer 4 -> Layer 1.5 (legal downward edge): render_view draws building
+    # components, so it needs BuildingComponent / CoplanarPolygon and the
+    # header-only pose helpers in geometry/transform_utils.hpp.
+    target_link_libraries(reusex_visualize PUBLIC reusex_geometry_common)
+    # VTK backs the headless render_view() (#294). PRIVATE: no VTK type appears
+    # in visualize/render_view.hpp, so consumers never compile VTK headers.
+    target_link_libraries(reusex_visualize PRIVATE ${VTK_LIBRARIES})
+    # Registers the RenderingOpenGL2 object factory in this module's TUs.
+    # Without it vtkRenderWindow::New() returns a base object with no OpenGL
+    # implementation and rendering silently produces nothing.
+    vtk_module_autoinit(TARGETS reusex_visualize MODULES ${VTK_LIBRARIES})
 endif()
 
 # --- Layer 4 — pipeline (stage execution + job runner) ---------------------

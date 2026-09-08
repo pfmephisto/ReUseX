@@ -202,7 +202,7 @@ ReUseX/
 │   │   │                           #   mushroom, exif, export_scene
 │   │   ├── vision/                 # ML models, backends, datasets (tensor_rt/, onnx/,
 │   │   │                           #   libtorch/, osd/, common/)
-│   │   ├── visualize/              # PCL/Qt visualization (optional)
+│   │   ├── visualize/              # viewport layout + headless render_view (VTK)
 │   │   ├── utils/                  # math, cv, tolerances, fmt_formatter
 │   │   ├── types/                  # point_types.hpp, eigen_types.hpp
 │   │   └── types.hpp               # Umbrella re-exporting types/*
@@ -408,7 +408,8 @@ Top-level commands, as registered in `apps/rux/src/rux.cpp`:
 | `get` / `set` / `del` | path-based DB access (`src/database/*_router.cpp`) | `src/get.cpp`, `src/set.cpp`, `src/del.cpp` |
 | `info` | — (project summary) | `src/info.cpp` |
 | `log` | — (pipeline execution history) | `src/log.cpp` |
-| `view` | — (viewer) | `src/view/` |
+| `view` | — (interactive viewer, needs a display) | `src/view/` |
+| `render` | — (headless render to PNG: `--view top\|front\|orbit:N\|frame:<id>`) | `src/render.cpp` |
 | `assemble` | — (multi-scan assembly) | `src/assemble.cpp` |
 
 `create`, `import`, `export`, `edit`, `analyze`, `align` all
@@ -585,6 +586,13 @@ Anything not found there is not a dependency.
 - E57Format - point cloud exchange format
 - OpenNURBS - Rhino 3D (.3dm) files
 - OpenCV (`core`, `imgproc`, `highgui`) - image processing
+- VTK (`CommonCore`, `CommonDataModel`, `CommonExecutionModel`, `RenderingCore`,
+  `RenderingOpenGL2`) - the rendering backend behind `reusex_visualize`'s
+  headless `render_view()`. Arrives in the closure via PCL's visualization
+  module, but is `find_package`d directly because the module uses the VTK API
+  and needs `vtk_module_autoinit`. Headless rendering depends on this VTK being
+  built with `VTK_OPENGL_HAS_EGL` (the flake's is): with no X/Wayland session
+  VTK falls back to `vtkEGLRenderWindow` and still renders on the GPU.
 - exiv2 - photo EXIF metadata
 - CURL + OpenSSL + nlohmann_json - Speckle / HTTP transport
 - No HDF5
@@ -653,6 +661,11 @@ rux -p scan.rux validate --stage mesh
 rux -p scan.rux info
 rux -p scan.rux log
 rux -p scan.rux view
+
+# See the result without a display (SSH, CI, an agent's worktree):
+# writes a PNG via VTK's off-screen renderer, no X/Wayland needed.
+rux -p scan.rux render -o plan.png --view top --layers cloud
+rux -p scan.rux render -o orbit.png --view orbit:8 --layers planes
 ```
 
 ### Run semantic annotation

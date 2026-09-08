@@ -22,7 +22,7 @@ only depend on modules in lower layers, and this is **link-enforced** (#222):
 an illegal dependency is a link error, not just a convention.
 
 ```
-Layer 4:  visualize  pipeline                  (visualize: PCL, thin — see note below)
+Layer 4:  visualize  pipeline                  (visualize: PCL/VTK — see note below)
                                                (pipeline: stage execution + job runner)
 Layer 3:  segmentation  reconstruction  slam  io  vision   (peers — MUST NOT link each other)
 Layer 2:  core                                 (ProjectDB, logging, materials, stages)
@@ -38,10 +38,13 @@ live in `geometry_common` (just above `utils`) so no peer or upward dependency
 is needed to reach them. `geometry_common` links neither `core` nor any peer.
 
 `visualize` is not an optional build: `rux` links PCL visualization
-unconditionally, and there is no option to disable it. The `reusex_visualize`
-module itself is thin — `libs/reusex/src/visualize/` currently holds only
-`viewport_layout.cpp`. Most of the actual view/render code lives in
-`apps/rux/src/view*` (External layer), not in the `visualize` module.
+unconditionally, and there is no option to disable it. The module holds the
+rendering logic that is not tied to an interactive session — `viewport_layout`
+and the headless `render_view()` (#294), which drives VTK's off-screen render
+window directly and needs no display server. The *interactive* viewer
+(keyboard callbacks, panorama navigation, toggles) still lives in
+`apps/rux/src/view*` (External layer), because it is a UI, not a library
+concern.
 
 `pipeline` (#265) is the other Layer-4 module. It holds the database-level
 stage runners (`run_stage(ProjectDB&, StageContext)`) and the in-process
@@ -86,7 +89,8 @@ The allowance comes with obligations:
   geometry types. The `BuildingComponent <-> ComponentRecord` mapping lives on
   the geometry side, in the header-only adapter
   `geometry/component_persistence.hpp`, which is compiled into its consumers
-  (`io`, `apps/rux`, tests) and deliberately not into `reusex_geometry_common`,
+  (`io`, `visualize`, `apps/rux`, tests) and deliberately not into
+  `reusex_geometry_common`,
   so that module keeps its Layer-1½ position (#227).
 - `apps/rux/` subcommands are thin wrappers: parse arguments, validate, call
   one library entry point, report. Business logic lives in the library.

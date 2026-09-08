@@ -50,6 +50,8 @@ target_link_libraries(rux PRIVATE
     spdlog::spdlog
     nlohmann_json::nlohmann_json
     pcl_visualization
+    # cv::imwrite, used by `rux render` to write the headless render (#294)
+    opencv_imgcodecs
 )
 
 install(TARGETS rux DESTINATION bin)

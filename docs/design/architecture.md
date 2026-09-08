@@ -132,7 +132,8 @@ See `docs/design/database-design.md` for detailed RTABMapDatabase architecture.
 - Image display widgets
 - Annotation tools
 
-**Build Option**: `BUILD_VISUALIZATION=ON/OFF`
+**Build Option**: none — this module is not optional. `rux` links PCL
+visualization unconditionally.
 
 **Dependencies**: VTK, Qt (or similar GUI framework)
 

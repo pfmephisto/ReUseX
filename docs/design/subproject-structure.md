@@ -2,10 +2,11 @@
 
 > ⚠️ **Partially stale.** The `apps`/`libs`/`bindings` split it describes is
 > still how the repo is organized, but the details have drifted: headers live in
-> `libs/reusex/include/<module>/` (not `include/ReUseX/`), there is no
-> `BUILD_VISUALIZATION` option, and `RTABMapDatabase` has been replaced by
-> `core::ProjectDB`. For current targets and options see
-> [`ARCHITECTURE.md`](../../ARCHITECTURE.md) and [`CLAUDE.md`](../../CLAUDE.md).
+> `libs/reusex/include/<module>/` (not `include/ReUseX/`), visualization is not
+> an optional build (`rux` links PCL visualization unconditionally), and
+> `RTABMapDatabase` has been replaced by `core::ProjectDB`. For current targets
+> and options see [`ARCHITECTURE.md`](../../ARCHITECTURE.md) and
+> [`CLAUDE.md`](../../CLAUDE.md).
 
 This document explains the organization of ReUseX into separate subprojects following LLVM/Boost conventions.
 
@@ -59,8 +60,8 @@ libs/reusex/
 - Handles all dependencies (OpenCV, CUDA, RTABMap, etc.)
 - Configures compiler and CUDA options
 
-**Options**:
-- `BUILD_VISUALIZATION`: Enable/disable visualization library (default: ON)
+**Options**: none — visualization is not optional; `rux` links PCL
+visualization unconditionally.
 
 ### apps/rux - CLI Tool
 

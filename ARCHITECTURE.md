@@ -146,7 +146,8 @@ Options (defaults in parentheses): `WITH_CUDA` (ON), `USE_CCACHE` (ON),
 `BUILD_TESTS` (ON), `BUILD_DOCUMENTATION` (ON), `BUILD_PYTHON_BINDINGS` (ON),
 `GUI_ENABLED` (OFF), `ENABLE_COVERAGE` (OFF), `ML_BACKENDS` (`AUTO`), and the
 `LIN_ENABLE_*` sanitizer switches. See the table in [`CLAUDE.md`](CLAUDE.md) for
-where each is defined. There is no `BUILD_VISUALIZATION` option.
+where each is defined. `rux` always links PCL visualization unconditionally —
+there is no option to disable it.
 
 ## Version Management
 

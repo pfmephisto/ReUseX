@@ -78,8 +78,17 @@ class Server {
   /// being served instead.
   bool has_assets() const noexcept;
 
-  /// Serve until SIGINT/SIGTERM. Returns a process exit code.
+  /// Serve until SIGINT/SIGTERM or stop(). Returns a process exit code.
   int run();
+
+  /// Ask a running server to shut down, unblocking run().
+  ///
+  /// `rux gui` itself relies on Crow's own signal handling, so this exists for
+  /// callers that drive run() on a thread — chiefly the socket-level tests,
+  /// which need a real listening server and then need it to go away again.
+  /// Safe to call from another thread; join the thread running run() before
+  /// destroying the Server.
+  void stop();
 
     private:
   class Impl;

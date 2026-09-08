@@ -14,21 +14,21 @@ torch::Tensor xyxy_to_xywh(const torch::Tensor &x);
 torch::Tensor xywh_to_xyxy(const torch::Tensor &x);
 
 /** @brief Non-maximum suppression on bounding boxes.
- * @param bboxes Bounding boxes tensor [N, 4] in xyxy format.
- * @param scores Confidence scores tensor [N].
+ *
+ * The algorithm is torchvision's reference CPU kernel, vendored under
+ * BSD-3-Clause in `vision/third_party/torchvision_nms_kernel.hpp` (#141). This
+ * wrapper owns the ReUseX-facing contract: CPU, float32, empty input tolerated.
+ *
+ * Boxes are suppressed when IoU is *strictly greater* than @p iou_threshold, so
+ * a threshold of 1.0 suppresses nothing and ties at the threshold survive.
+ * Equal scores are broken towards the lower index (the sort is stable).
+ *
+ * @param bboxes Bounding boxes tensor [N, 4] in xyxy format. CPU, float32.
+ * @param scores Confidence scores tensor [N]. CPU, float32.
  * @param iou_threshold IoU threshold for suppression.
- * @return Indices of kept boxes.
+ * @return Indices of kept boxes, in descending score order (int64).
+ * @throws c10::Error if the tensors are not CPU float32, or are malformed.
  */
-// TODO: Replace custom NMS with torchvision library implementation
-// category=Vision estimate=4h
-// Current implementation is custom-written. Consider using official torchvision
-// NMS: Reference:
-// https://github.com/pytorch/vision/blob/main/torchvision/csrc/ops/cpu/nms_kernel.cpp
-// Benefits:
-// 1. Optimized CPU/CUDA implementations available
-// 2. Better maintained and tested by PyTorch team
-// 3. Reduces custom code maintenance burden
-// Trade-off: Adds torchvision as dependency (currently only use LibTorch)
 torch::Tensor nms(const torch::Tensor &bboxes, const torch::Tensor &scores,
                   float iou_threshold = 0.45);
 

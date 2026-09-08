@@ -46,6 +46,15 @@ file(GLOB_RECURSE UNIT_TEST_SOURCES CONFIGURE_DEPENDS
 set(HEAVY_TEST_SOURCES ${UNIT_TEST_SOURCES})
 list(FILTER HEAVY_TEST_SOURCES INCLUDE REGEX "/unit/(vision|ruxd|visualize)/")
 
+# reusex/vision/nms.hpp is a torch::Tensor API, and MLBackendConfig.cmake drops
+# nms.cpp/.hpp from the library entirely when the LibTorch backend is off. Its
+# test has to follow the same rule or a -DML_BACKENDS=ONNX build stops
+# compiling.
+if(NOT "LibTorch" IN_LIST ENABLED_ML_BACKENDS)
+    list(FILTER HEAVY_TEST_SOURCES EXCLUDE REGEX "/unit/vision/test_nms\\.cpp$")
+    message(STATUS "Excluding test_nms.cpp (LibTorch backend disabled)")
+endif()
+
 set(LIGHT_TEST_SOURCES ${UNIT_TEST_SOURCES})
 list(FILTER LIGHT_TEST_SOURCES EXCLUDE REGEX "/unit/(vision|ruxd|visualize)/")
 
@@ -99,6 +108,23 @@ if(HEAVY_TEST_SOURCES)
         ${CMAKE_SOURCE_DIR}/libs/reusex/include
         ${CMAKE_BINARY_DIR}/generated
     )
+
+    # configure_ml_backends() links torch PRIVATE to reusex_vision, so neither
+    # the torch headers nor its ABI flags reach a consumer of the umbrella
+    # `reusex` target. tests/unit/vision/test_nms.cpp includes
+    # reusex/vision/nms.hpp, which is torch::Tensor-typed, so it needs its own
+    # link.
+    #
+    # find_package(Torch) has to be repeated here: Dependencies.cmake runs in
+    # the libs/reusex directory scope, and imported targets are visible only in
+    # the directory that created them (and below). Without this, `torch`
+    # degrades to a bare -ltorch with no include directories and the test fails
+    # to compile on <torch/torch.h>. Kept behind the same guard as the source
+    # filter above.
+    if("LibTorch" IN_LIST ENABLED_ML_BACKENDS)
+        find_package(Torch REQUIRED)
+        target_link_libraries(reusex_unit_tests_vision PRIVATE torch)
+    endif()
 endif()
 
 # -----------------------------------------------

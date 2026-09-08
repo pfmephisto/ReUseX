@@ -191,7 +191,8 @@ ReUseX/
 │   ├── include/                    # Public headers; consumers use <reusex/...>
 │   │   ├── core/                   # ProjectDB, logging, stages, validate,
 │   │   │                           #   MaterialPassport, guid, label_semantics
-│   │   ├── geometry/               # geometry_common + #222 forwarding shims
+│   │   ├── geometry/               # geometry_common (Layer 1½); #222 forwarding
+│   │   │                           #   shims removed in #248
 │   │   ├── segmentation/           # planes, rooms, instances, reconstruct,
 │   │   │                           #   depth_filters, downsample, surfels
 │   │   ├── reconstruction/         # CellComplex, Solidifier, mesh, texture,
@@ -262,9 +263,12 @@ header in new code.
 ### Segmentation / Reconstruction / SLAM modules
 
 The former single `geometry` module was split by pipeline stage in #222.
-`include/geometry/*.hpp` still contains one-line forwarding shims (e.g.
-`geometry/CellComplex.hpp` includes `reusex/reconstruction/CellComplex.hpp`) —
-**include the new path in new code.**
+`include/geometry/*.hpp` held one-line forwarding shims (e.g.
+`geometry/CellComplex.hpp` including `reusex/reconstruction/CellComplex.hpp`)
+so consumers didn't need to move at the same time; #248 migrated every
+consumer to the new `<reusex/{segmentation,reconstruction,slam}/...>` paths
+and deleted the shims. `include/geometry/` now holds only the real
+`geometry_common` headers (next section) — there is nothing left to forward.
 
 **segmentation** (`include/segmentation/`):
 - `reconstruct.hpp`: pinhole back-projection of depth frames into clouds

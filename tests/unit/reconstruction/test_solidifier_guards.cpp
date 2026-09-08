@@ -6,8 +6,8 @@
 // issues #212 (MIP timeout + diagnostics) and #213 (cell-complex guards).
 
 #include "core/logging.hpp"
-#include "geometry/CellComplex.hpp"
-#include "geometry/Solidifier.hpp"
+#include <reusex/reconstruction/CellComplex.hpp>
+#include <reusex/reconstruction/Solidifier.hpp>
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>

@@ -11,13 +11,13 @@
 
 #include "../../support/synthetic_scene.hpp"
 
-#include "geometry/CellComplex.hpp"
-#include "geometry/Solidifier.hpp"
+#include <reusex/reconstruction/CellComplex.hpp>
+#include <reusex/reconstruction/Solidifier.hpp>
 
-#include <reusex/geometry/mesh.hpp>
-#include <reusex/geometry/segment_planes.hpp>
-#include <reusex/geometry/segment_rooms.hpp>
 #include <reusex/io/reusex.hpp>
+#include <reusex/reconstruction/mesh.hpp>
+#include <reusex/segmentation/segment_planes.hpp>
+#include <reusex/segmentation/segment_rooms.hpp>
 
 #include <pcl/common/common.h>
 #include <pcl/conversions.h>

@@ -5,7 +5,7 @@
 #include "analyze/quality.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
-#include <reusex/geometry/quality_metrics.hpp>
+#include <reusex/reconstruction/quality_metrics.hpp>
 
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>

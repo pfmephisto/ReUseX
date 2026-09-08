@@ -8,7 +8,7 @@
 #include <memory>
 #include <string>
 
-#include <reusex/geometry/mesh.hpp>
+#include <reusex/reconstruction/mesh.hpp>
 
 namespace fs = std::filesystem;
 

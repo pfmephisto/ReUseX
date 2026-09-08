@@ -10,7 +10,7 @@
 #include <reusex/core/label_semantics.hpp>
 #include <reusex/utils/fmt_formatter.hpp>
 
-#include <reusex/geometry/segment_rooms.hpp>
+#include <reusex/segmentation/segment_rooms.hpp>
 
 #include <CLI/CLI.hpp>
 #include <fmt/format.h>

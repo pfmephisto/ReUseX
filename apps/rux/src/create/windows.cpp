@@ -7,7 +7,7 @@
 
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/geometry/component_persistence.hpp>
-#include <reusex/geometry/create_windows.hpp>
+#include <reusex/reconstruction/create_windows.hpp>
 
 #include <spdlog/spdlog.h>
 

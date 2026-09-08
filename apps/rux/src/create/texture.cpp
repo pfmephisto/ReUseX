@@ -6,8 +6,8 @@
 #include "validation.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
-#include <reusex/geometry/texture_mesh.hpp>
 #include <reusex/geometry/unweld.hpp>
+#include <reusex/reconstruction/texture_mesh.hpp>
 
 #include <spdlog/spdlog.h>
 #include <spdlog/stopwatch.h>

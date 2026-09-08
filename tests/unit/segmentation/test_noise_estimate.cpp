@@ -11,7 +11,7 @@
 
 #include "../../support/synthetic_scene.hpp"
 
-#include <reusex/geometry/noise_estimate.hpp>
+#include <reusex/segmentation/noise_estimate.hpp>
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>

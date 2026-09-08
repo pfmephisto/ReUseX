@@ -14,10 +14,10 @@
 
 #include "../support/synthetic_scene.hpp"
 
-#include <reusex/geometry/mesh.hpp>
-#include <reusex/geometry/segment_planes.hpp>
-#include <reusex/geometry/segment_rooms.hpp>
 #include <reusex/io/reusex.hpp>
+#include <reusex/reconstruction/mesh.hpp>
+#include <reusex/segmentation/segment_planes.hpp>
+#include <reusex/segmentation/segment_rooms.hpp>
 #include <reusex/types.hpp>
 
 #include <pcl/common/common.h>

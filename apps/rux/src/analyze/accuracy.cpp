@@ -5,7 +5,7 @@
 #include "analyze/accuracy.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
-#include <reusex/geometry/accuracy_metrics.hpp>
+#include <reusex/reconstruction/accuracy_metrics.hpp>
 
 #include <pcl/io/ply_io.h>
 #include <pcl/point_cloud.h>

@@ -11,7 +11,7 @@
 #include <core/MaterialPassport.hpp>
 #include <core/ProjectDB.hpp>
 #include <core/guid.hpp>
-#include <geometry/reconcile_instances.hpp>
+#include <reusex/segmentation/reconcile_instances.hpp>
 #include <types.hpp>
 
 #include "../../support/temp_path.hpp"

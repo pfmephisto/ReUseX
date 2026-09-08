@@ -2,9 +2,9 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include <reusex/geometry/Surfel.hpp>
-#include <reusex/geometry/registration/JointPairwiseRegistration.hpp>
 #include <reusex/geometry/transform_utils.hpp>
+#include <reusex/segmentation/Surfel.hpp>
+#include <reusex/slam/JointPairwiseRegistration.hpp>
 #include <reusex/types.hpp>
 
 #include <catch2/catch_test_macros.hpp>
@@ -27,11 +27,15 @@ FrameSurfels make_corner_frame() {
   const float extent = 0.8f;
   auto add = [&](float x, float y, float z, float nx, float ny, float nz) {
     PointT p;
-    p.x = x; p.y = y; p.z = z;
+    p.x = x;
+    p.y = y;
+    p.z = z;
     p.r = p.g = p.b = 200;
     pts->push_back(p);
     NormalT n;
-    n.normal_x = nx; n.normal_y = ny; n.normal_z = nz;
+    n.normal_x = nx;
+    n.normal_y = ny;
+    n.normal_z = nz;
     n.curvature = 0.0f;
     nrm->push_back(n);
   };
@@ -86,7 +90,7 @@ TEST_CASE("JPR recovers a known pose offset on a corner", "[jpr]") {
   params.neighbor_window = 1;
   params.max_corr_distance = 0.10f;
   params.robust_width = 0.05f;
-  params.anchor_frame = 0;   // fix frame 0 -> gauge
+  params.anchor_frame = 0;    // fix frame 0 -> gauge
   params.prior_weight = 0.0f; // no pull toward the (wrong) seed
 
   std::vector<FrameSurfels> frames{f0, f1};
@@ -140,8 +144,7 @@ TEST_CASE("JPR is a near no-op on already-aligned frames", "[jpr]") {
   std::vector<FrameSurfels> frames{f0, f1};
   JointPairwiseRegistration(params).refine(frames);
 
-  REQUIRE_THAT(frames[1].world_pose.translation().norm(),
-               WithinAbs(0.0, 1e-3));
+  REQUIRE_THAT(frames[1].world_pose.translation().norm(), WithinAbs(0.0, 1e-3));
   Eigen::Matrix3f dR =
       frames[1].world_pose.rotation() - Eigen::Matrix3f::Identity();
   REQUIRE(dR.norm() < 5e-3f);

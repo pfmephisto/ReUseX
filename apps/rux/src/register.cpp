@@ -6,7 +6,7 @@
 #include "validation.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
-#include <reusex/geometry/registration/JointPairwiseRegistration.hpp>
+#include <reusex/slam/JointPairwiseRegistration.hpp>
 
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
@@ -15,7 +15,8 @@ void setup_subcommand_register(CLI::App &app,
                                std::shared_ptr<RuxOptions> global_opt) {
   auto opt = std::make_shared<SubcommandRegisterOptions>();
   auto *sub = app.add_subcommand(
-      "register", "Refine per-frame sensor poses (joint pairwise registration)");
+      "register",
+      "Refine per-frame sensor poses (joint pairwise registration)");
 
   sub->footer(R"(
 DESCRIPTION:

@@ -16,7 +16,7 @@
 
 #include <core/ProjectDB.hpp>
 #include <core/SensorIntrinsics.hpp>
-#include <geometry/densify.hpp>
+#include <reusex/segmentation/densify.hpp>
 
 #include "../../support/temp_path.hpp"
 

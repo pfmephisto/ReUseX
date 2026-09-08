@@ -31,8 +31,11 @@
 # Per-module source discovery
 # -----------------------------------------------
 # Phase B (#222) relocated segmentation/reconstruction/slam into their own
-# src/<module>/ dirs. The shared CGAL/PCL helpers (reusex_geometry_common) still
-# live under src/geometry/ and are listed explicitly below.
+# src/<module>/ dirs. The one-line include/geometry/ forwarding shims left
+# behind for consumers were removed in #248 once every call site was migrated
+# to the new <reusex/{segmentation,reconstruction,slam}/...> paths. The shared
+# CGAL/PCL helpers (reusex_geometry_common) still live under src/geometry/ and
+# are listed explicitly below.
 set(SRC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 # Layer 1 — utils (no internal dependencies)

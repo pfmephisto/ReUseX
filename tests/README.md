@@ -115,7 +115,10 @@ sudo apt install lcov
 
 Place tests in the appropriate module directory:
 - `unit/core/` - Core types, logging
-- `unit/geometry/` - Point clouds, segmentation
+- `unit/geometry/` - geometry_common: CGAL/PCL/OpenCV primitives shared across modules
+- `unit/segmentation/` - Planar/room/instance segmentation, point cloud filters
+- `unit/reconstruction/` - CellComplex, Solidifier/MIP solve, mesh, quality/accuracy metrics
+- `unit/slam/` - Pose-graph optimization, joint registration, loop closure
 - `unit/io/` - Database access, file I/O
 - `unit/utils/` - Math, string utilities
 - `unit/vision/` - Datasets, models, object detection

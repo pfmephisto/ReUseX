@@ -9,7 +9,7 @@
 #include <filesystem>
 #include <memory>
 
-#include <reusex/geometry/reconstruct.hpp>
+#include <reusex/segmentation/reconstruct.hpp>
 
 namespace fs = std::filesystem;
 

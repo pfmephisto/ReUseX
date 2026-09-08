@@ -161,6 +161,16 @@ if(INTEGRATION_TEST_SOURCES)
         ${CMAKE_SOURCE_DIR}/libs/reusex/include
         ${CMAKE_BINARY_DIR}/generated
     )
+
+    # test_cli_exit_codes.cpp asserts the process exit code of the real binary
+    # (#299) — the one thing no in-process test can observe — so it needs the
+    # path to `rux` and an explicit build-order dependency on it. `tests` is
+    # added after `apps/rux`, so the target exists here.
+    if(TARGET rux)
+        target_compile_definitions(reusex_integration_tests PRIVATE
+            REUSEX_RUX_EXECUTABLE="$<TARGET_FILE:rux>")
+        add_dependencies(reusex_integration_tests rux)
+    endif()
 endif()
 
 # -----------------------------------------------

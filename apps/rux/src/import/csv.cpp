@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "import/csv.hpp"
+#include "exit_status.hpp"
 #include "global-params.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
@@ -231,7 +232,7 @@ NOTES:
 
   sub->callback([opt, global_opt]() {
     spdlog::trace("calling import csv subcommand");
-    return run_subcommand_import_csv(*opt, *global_opt);
+    rux::finish(run_subcommand_import_csv(*opt, *global_opt));
   });
 }
 

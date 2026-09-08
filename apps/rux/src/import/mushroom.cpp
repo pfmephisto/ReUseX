@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "import/mushroom.hpp"
+#include "exit_status.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/io/mushroom.hpp>
@@ -51,7 +52,7 @@ NOTES:
 
   sub->callback([opt, global_opt]() {
     spdlog::trace("calling run_subcommand_import_mushroom");
-    return run_subcommand_import_mushroom(*opt, *global_opt);
+    rux::finish(run_subcommand_import_mushroom(*opt, *global_opt));
   });
 }
 

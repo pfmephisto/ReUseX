@@ -5,6 +5,7 @@
 #include "create/annotate.hpp"
 #include "stage_prerequisites.hpp"
 
+#include "exit_status.hpp"
 #include "spdmon.hpp"
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/utils/fmt_formatter.hpp>
@@ -145,7 +146,7 @@ PERFORMANCE TUNING:
 
   sub->callback([opt, global_opt]() {
     spdlog::trace("calling run_subcommand_annotate");
-    return run_subcommand_annotate(*opt, *global_opt);
+    rux::finish(run_subcommand_annotate(*opt, *global_opt));
   });
 }
 

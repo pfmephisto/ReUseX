@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "import/photos.hpp"
+#include "exit_status.hpp"
 
 #include <reusex/core/MaterialPassport.hpp>
 #include <reusex/core/ProjectDB.hpp>
@@ -192,7 +193,7 @@ NOTES:
 
   sub->callback([opt, global_opt]() {
     spdlog::trace("calling run_subcommand_import_photos");
-    return run_subcommand_import_photos(*opt, *global_opt);
+    rux::finish(run_subcommand_import_photos(*opt, *global_opt));
   });
 }
 

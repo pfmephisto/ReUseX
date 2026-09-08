@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "import/rtabmap.hpp"
+#include "exit_status.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/io/rtabmap.hpp>
@@ -50,7 +51,7 @@ NOTES:
 
   sub->callback([opt, global_opt]() {
     spdlog::trace("calling run_subcommand_import_rtabmap");
-    return run_subcommand_import_rtabmap(*opt, *global_opt);
+    rux::finish(run_subcommand_import_rtabmap(*opt, *global_opt));
   });
 }
 

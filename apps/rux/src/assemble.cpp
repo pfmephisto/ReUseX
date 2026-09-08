@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "assemble.hpp"
+#include "exit_status.hpp"
 #include "spdmon.hpp"
 
 #include <fmt/format.h>
@@ -68,7 +69,7 @@ NOTES:
 
   sub->callback([opt, global_opt]() {
     spdlog::trace("calling assemble subcommand");
-    return run_subcommand_assemble(*opt, *global_opt);
+    rux::finish(run_subcommand_assemble(*opt, *global_opt));
   });
 }
 

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "import/materialepas.hpp"
+#include "exit_status.hpp"
 #include "global-params.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
@@ -55,7 +56,7 @@ NOTES:
 
   sub->callback([opt, global_opt]() {
     spdlog::trace("calling import materialepas subcommand");
-    return run_subcommand_import_materialepas(*opt, *global_opt);
+    rux::finish(run_subcommand_import_materialepas(*opt, *global_opt));
   });
 }
 

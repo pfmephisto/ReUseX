@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "create/texture.hpp"
+#include "exit_status.hpp"
 #include "stage_prerequisites.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
@@ -90,7 +91,7 @@ NOTES:
 
   sub->callback([opt, global_opt]() {
     spdlog::trace("calling run_subcommand_texture");
-    return run_subcommand_texture(*opt, *global_opt);
+    rux::finish(run_subcommand_texture(*opt, *global_opt));
   });
 }
 int run_subcommand_texture(SubcommandTextureOptions const &opt,

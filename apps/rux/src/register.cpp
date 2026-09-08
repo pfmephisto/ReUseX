@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "register.hpp"
+#include "exit_status.hpp"
 #include "stage_prerequisites.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
@@ -88,7 +89,7 @@ NOTES:
 
   sub->callback([opt, global_opt]() {
     spdlog::trace("calling run_subcommand_register");
-    return run_subcommand_register(*opt, *global_opt);
+    rux::finish(run_subcommand_register(*opt, *global_opt));
   });
 }
 

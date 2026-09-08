@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "create/materials.hpp"
+#include "exit_status.hpp"
 #include "global-params.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
@@ -38,7 +39,8 @@ void set_designation(json &tpl, const std::string &value) {
     if (!section.contains("properties"))
       continue;
     for (auto &prop : section["properties"]) {
-      if (prop.value("name", std::string{}) == "construction item designation") {
+      if (prop.value("name", std::string{}) ==
+          "construction item designation") {
         prop["value"] = value;
         return;
       }
@@ -51,8 +53,8 @@ void set_designation(json &tpl, const std::string &value) {
 void setup_subcommand_create_materials(CLI::App &parent,
                                        std::shared_ptr<RuxOptions> global_opt) {
   auto opt = std::make_shared<SubcommandCreateMaterialsOptions>();
-  auto *sub = parent.add_subcommand(
-      "materials", "Create a material passport per instance");
+  auto *sub = parent.add_subcommand("materials",
+                                    "Create a material passport per instance");
 
   sub->footer(R"(
 DESCRIPTION:
@@ -93,7 +95,7 @@ NOTES:
 
   sub->callback([opt, global_opt]() {
     spdlog::trace("calling create materials subcommand");
-    return run_subcommand_create_materials(*opt, *global_opt);
+    rux::finish(run_subcommand_create_materials(*opt, *global_opt));
   });
 }
 
@@ -123,8 +125,8 @@ int run_subcommand_create_materials(SubcommandCreateMaterialsOptions const &opt,
 
     size_t created = 0, skipped = 0;
     for (const auto &[instance_id, def] : instance_defs) {
-      if (auto existing =
-              db.instance_material_guid(opt.instances_cloud_name, instance_id)) {
+      if (auto existing = db.instance_material_guid(opt.instances_cloud_name,
+                                                    instance_id)) {
         if (!opt.clear) {
           ++skipped;
           continue;
@@ -159,8 +161,9 @@ int run_subcommand_create_materials(SubcommandCreateMaterialsOptions const &opt,
       ++created;
     }
 
-    spdlog::info("Created {} passport(s), skipped {} already-linked instance(s)",
-                 created, skipped);
+    spdlog::info(
+        "Created {} passport(s), skipped {} already-linked instance(s)",
+        created, skipped);
     return RuxError::SUCCESS;
   } catch (const std::exception &e) {
     spdlog::error("create materials failed: {}", e.what());

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "render.hpp"
+#include "exit_status.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/visualize/render_view.hpp>
@@ -199,7 +200,7 @@ NOTES:
 
   sub->callback([opt, global_opt]() {
     spdlog::trace("Running render subcommand");
-    return run_subcommand_render(*opt, *global_opt);
+    rux::finish(run_subcommand_render(*opt, *global_opt));
   });
 }
 

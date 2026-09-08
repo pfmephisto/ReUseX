@@ -1,0 +1,26 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+.host {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  background: var(--color-canvas);
+  overflow: hidden;
+}
+
+.canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* The scene reads --color-canvas off this element via getComputedStyle.
+     Custom properties inherit, so the :root declaration resolves here; do not
+     redeclare it locally (a self-referential var() is a cycle and computes to
+     the empty string, which would silently fall back to the hard-coded default
+     in PointCloudScene). */
+  touch-action: none;
+}

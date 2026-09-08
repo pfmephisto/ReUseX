@@ -1,0 +1,11 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+.page {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+}

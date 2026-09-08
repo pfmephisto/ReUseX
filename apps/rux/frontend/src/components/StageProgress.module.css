@@ -1,0 +1,84 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.label {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.count {
+  color: var(--color-text-faint);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+  flex: none;
+}
+
+.percent {
+  color: var(--color-text-muted);
+}
+
+.track {
+  position: relative;
+  overflow: hidden;
+  height: var(--space-1);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-sunken);
+}
+
+.fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--color-status-running);
+  transition: width var(--duration-normal) var(--easing-standard);
+}
+
+/*
+ * Indeterminate: a fixed-width shuttle rather than a growing bar, so it cannot
+ * be misread as "a quarter done".
+ */
+.sweep {
+  width: 30%;
+  animation: sweep 1.4s var(--easing-standard) infinite;
+}
+
+@keyframes sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(340%);
+  }
+}
+
+/*
+ * The tokens zero the durations, but a keyframe animation is not a transition —
+ * it has to be stopped here as well or it keeps running at full speed.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .sweep {
+    animation: none;
+    width: 100%;
+    opacity: 0.4;
+  }
+}

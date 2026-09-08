@@ -41,6 +41,12 @@
   curl,
   crow,
   asio,
+  # Static React/Vite bundle served by `rux gui` (pkgs/reusex-gui-frontend).
+  # Not a link-time dependency: it is copied into share/reusex/gui by
+  # postInstall below. Kept as its own derivation so the two build graphs stay
+  # independent — an npm/lockfile change must not invalidate the multi-hour C++
+  # build, and editing a .cpp must not re-run the npm build.
+  reusex-gui-frontend,
   libpqxx,
   libpq,
   redis-plus-plus,
@@ -51,7 +57,6 @@
   #libtorch-bin,
   libtorch,
   oneDNN,
-  qt6Packages,
   protobuf,
   libpng,
   trtsam3,
@@ -196,6 +201,20 @@ in
     ];
 
     dontWrapQtApps = true;
+
+    # Drop the prebuilt GUI bundle next to the binaries. `rux gui` falls back to
+    # <install prefix>/share/reusex/gui when neither --assets nor
+    # $RUX_GUI_ASSETS is set (apps/rux/src/gui/assets.cpp), so this is what
+    # makes `nix run .#default -- gui` serve a UI at all.
+    #
+    # Nothing here interacts with the postFixup runpath loop below: that loop
+    # only walks $out/bin and $out/lib and additionally guards on isELF, while
+    # these are static web assets under $out/share.
+    postInstall = ''
+      mkdir -p $out/share/reusex/gui
+      cp -r ${reusex-gui-frontend}/share/reusex/gui/. $out/share/reusex/gui/
+      chmod -R u+w $out/share/reusex/gui
+    '';
 
     # Patch the installed binaries and shared libraries so the dynamic loader
     # finds the host NVIDIA driver (libcuda.so) at /run/opengl-driver/lib.

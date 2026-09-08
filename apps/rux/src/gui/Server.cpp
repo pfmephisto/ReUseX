@@ -19,6 +19,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -359,6 +360,8 @@ class Server::Impl {
     spdlog::info("rux gui shutting down");
     return 0;
   }
+
+  void stop() { app_.stop(); }
 
     private:
   // --- ProjectDB access ----------------------------------------------------
@@ -736,64 +739,88 @@ class Server::Impl {
         });
   }
 
+  /// Serve one file from the bundle, or an empty optional if it is not there.
+  static std::optional<crow::response>
+  file_response(const std::filesystem::path &file,
+                std::string_view content_type) {
+    if (file.empty())
+      return std::nullopt;
+    std::ifstream stream(file, std::ios::binary);
+    std::ostringstream buffer;
+    buffer << stream.rdbuf();
+    crow::response res(200, buffer.str());
+    res.set_header("Content-Type", std::string(content_type));
+    return res;
+  }
+
+  /// Decide what a request that matched no registered route should get.
+  ///
+  /// Pure: it returns the response rather than writing into one, which is what
+  /// keeps the catchall handler below free of `res.end()` — see the comment
+  /// there for why that matters.
+  crow::response static_response(const crow::request &req) {
+    // Anything under the API prefix that reached the catchall is a genuine
+    // 404 — do not shadow it with the SPA fallback, or a client typo would
+    // silently return HTML where JSON was expected.
+    if (req.url.rfind(std::string(kApiPrefix), 0) == 0)
+      return error_response(404, "no route matches " + req.url);
+
+    // A request that names a file (has an extension) must never be answered
+    // with HTML, bundle or no bundle: handing back index.html where the
+    // browser expects JavaScript turns a missing file into an inscrutable
+    // syntax error.
+    if (!looks_like_spa_route(req.url) && !has_assets())
+      return error_response(404, "no such asset " + req.url);
+
+    if (has_assets()) {
+      const auto file = resolve_asset(options_.asset_dir, req.url);
+      if (auto served = file_response(file, mime_type_for(file)))
+        return std::move(*served);
+
+      // SPA fallback, but ONLY for paths that look like client-side routes.
+      // A missing /assets/app.js must 404: answering it with index.html
+      // hands the browser HTML where it expects JavaScript, which surfaces
+      // as an inscrutable syntax error instead of the missing file it is.
+      if (!looks_like_spa_route(req.url))
+        return error_response(404, "no such asset " + req.url);
+
+      if (auto served =
+              file_response(resolve_asset(options_.asset_dir, "/index.html"),
+                            "text/html; charset=utf-8"))
+        return std::move(*served);
+    }
+
+    crow::response res(200,
+                       placeholder_page(options_.project.filename().string()));
+    res.set_header("Content-Type", "text/html; charset=utf-8");
+    return res;
+  }
+
   void register_static() {
     CROW_CATCHALL_ROUTE(app_)
     ([this](const crow::request &req, crow::response &res) {
-      // Anything under the API prefix that reached the catchall is a genuine
-      // 404 — do not shadow it with the SPA fallback, or a client typo would
-      // silently return HTML where JSON was expected.
-      if (req.url.rfind(std::string(kApiPrefix), 0) == 0) {
-        res = error_response(404, "no route matches " + req.url);
-        res.end();
-        return;
-      }
-
-      // A request that names a file (has an extension) must never be answered
-      // with HTML, bundle or no bundle: handing back index.html where the
-      // browser expects JavaScript turns a missing file into an inscrutable
-      // syntax error.
-      if (!looks_like_spa_route(req.url) && !has_assets()) {
-        res = error_response(404, "no such asset " + req.url);
-        res.end();
-        return;
-      }
-
-      if (has_assets()) {
-        if (auto file = resolve_asset(options_.asset_dir, req.url);
-            !file.empty()) {
-          std::ifstream stream(file, std::ios::binary);
-          std::ostringstream buffer;
-          buffer << stream.rdbuf();
-          res = crow::response(200, buffer.str());
-          res.set_header("Content-Type", mime_type_for(file));
-          res.end();
-          return;
-        }
-        // SPA fallback, but ONLY for paths that look like client-side routes.
-        // A missing /assets/app.js must 404: answering it with index.html
-        // hands the browser HTML where it expects JavaScript, which surfaces
-        // as an inscrutable syntax error instead of the missing file it is.
-        if (!looks_like_spa_route(req.url)) {
-          res = error_response(404, "no such asset " + req.url);
-          res.end();
-          return;
-        }
-        if (auto index = resolve_asset(options_.asset_dir, "/index.html");
-            !index.empty()) {
-          std::ifstream stream(index, std::ios::binary);
-          std::ostringstream buffer;
-          buffer << stream.rdbuf();
-          res = crow::response(200, buffer.str());
-          res.set_header("Content-Type", "text/html; charset=utf-8");
-          res.end();
-          return;
-        }
-      }
-
-      res = crow::response(
-          200, placeholder_page(options_.project.filename().string()));
-      res.set_header("Content-Type", "text/html; charset=utf-8");
-      res.end();
+      // DO NOT CALL res.end() HERE — it breaks every keep-alive request after
+      // the first (#265). Crow's Router::handle() calls res.end() itself once
+      // the catchall handler returns (crow/routing.h:1714 in 1.3.2, :1707 in
+      // the 1.3.0 build we pin), so a handler that also ends the response ends
+      // it *twice*. The first end() runs the whole write synchronously —
+      // complete_request() -> do_write_general() -> do_write_sync(), which
+      // calls res.clear() and so resets `completed_` to false — and the
+      // router's second end() then re-sets `completed_ = true` on the response
+      // object that http_connection reuses for the next request on the same
+      // connection. On that next request, http_connection::handle() sees
+      // `res.completed_` (crow/http_connection.h:192) and short-circuits
+      // straight to complete_request() without ever dispatching, emitting the
+      // bare 404 that Router::handle_initial() had stamped on `res.code`.
+      // Result: the bundle loads on request 1 and 404s on request 2, which is
+      // every <script>/<link> a browser asks for on its keep-alive connection.
+      //
+      // Normal CROW_ROUTEs are unaffected: handle_rule() does not add an
+      // end() of its own, so their handlers must (and do) end the response.
+      // This asymmetry is undocumented upstream and is still present in Crow
+      // 1.3.2, hence this comment and the socket-level regression test in
+      // tests/unit/rux_gui/test_gui_server_socket.cpp.
+      res = static_response(req);
     });
   }
 
@@ -832,5 +859,7 @@ std::string Server::url() const { return impl_->url(); }
 bool Server::has_assets() const noexcept { return impl_->has_assets(); }
 
 int Server::run() { return impl_->run(); }
+
+void Server::stop() { impl_->stop(); }
 
 } // namespace rux::gui

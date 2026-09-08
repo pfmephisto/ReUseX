@@ -1,0 +1,120 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  width: var(--layout-panel-width);
+  flex: none;
+  padding: var(--space-4);
+  background: var(--color-surface-raised);
+  border-left: 1px solid var(--color-border);
+  overflow-y: auto;
+  z-index: var(--z-panel);
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.heading {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-faint);
+}
+
+.layers {
+  display: flex;
+  flex-direction: column;
+}
+
+.modes {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.mode {
+  flex: 1;
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-sunken);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  transition: background var(--duration-fast) var(--easing-standard);
+}
+
+.mode:hover:not(:disabled) {
+  background: var(--color-surface-overlay);
+  color: var(--color-text);
+}
+
+.mode:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.modeActive {
+  background: var(--color-accent-muted);
+  border-color: var(--color-border-focus);
+  color: var(--color-text);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.fieldLabel {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.select {
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-sunken);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+}
+
+.select:disabled {
+  opacity: 0.45;
+}
+
+.range {
+  accent-color: var(--color-accent);
+  width: 100%;
+}
+
+.note {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-faint);
+}
+
+.action {
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-sunken);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.action:hover {
+  background: var(--color-surface-overlay);
+  color: var(--color-text);
+}

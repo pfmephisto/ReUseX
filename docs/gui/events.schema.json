@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://reuse-x.dev/schemas/gui/events.schema.json",
   "title": "ReUseX GUI WebSocket message",
-  "description": "One JSON text frame on /api/v1/events. See docs/gui/websocket-events.md. Validation is deliberately OPEN: the contract tells clients to ignore message types they do not know, and the server can emit a forward-compatible type (JobRunner already has a 'job.unknown' fallback), so an unrecognised 'type' must validate rather than fail. Known types are checked by the conditional branches below. SPDX-License-Identifier: GPL-3.0-or-later",
+  "description": "One JSON text frame on /api/v1/events. See docs/gui/websocket-events.md. Validation is deliberately OPEN: the contract tells clients to ignore message types they do not know, and the server can emit a forward-compatible type (JobRunner already has a 'job.unknown' fallback), so an unrecognised 'type' must validate rather than fail. Known types are checked by the conditional branches below.",
   "type": "object",
   "required": [
     "type"

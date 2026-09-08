@@ -5,7 +5,7 @@
 #include "create/mesh.hpp"
 #include "filter_utils.hpp"
 #include "processing_observer.hpp"
-#include "validation.hpp"
+#include "stage_prerequisites.hpp"
 
 #include <CLI/CLI.hpp>
 #include <spdlog/spdlog.h>
@@ -163,12 +163,10 @@ int run_subcommand_mesh(SubcommandMeshOptions const &opt,
 
     // Pre-flight validation: comprehensive check for all prerequisites
     // This resolves the TODO comment from lines 101-107
-    auto validation = rux::validation::validate_mesh_prerequisites(db);
-    if (!validation) {
-      spdlog::error("{}", validation.error_message);
-      spdlog::info("Resolution: {}", validation.resolution_hint);
-      return RuxError::INVALID_ARGUMENT;
-    }
+    if (int rc = rux::check_stage_prerequisites(
+            db, reusex::core::PipelineStage::mesh);
+        rc != RuxError::SUCCESS)
+      return rc;
 
     int logId = db.log_pipeline_start(
         "mesh_generation",

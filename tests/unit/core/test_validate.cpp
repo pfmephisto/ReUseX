@@ -257,3 +257,116 @@ TEST_CASE("validate --stage import: no in-project prerequisites",
   auto report = reusex::core::validate_stage(db, PipelineStage::import);
   REQUIRE(report.ok());
 }
+
+// ── Stages added when the contract was consolidated (#246) ─────────────────
+
+TEST_CASE("validate --stage: every stage name in the table parses",
+          "[core][validate][stage]") {
+  for (const auto &name : reusex::core::pipeline_stage_names())
+    REQUIRE(reusex::core::parse_pipeline_stage(name).has_value());
+  // The four stages the CLI validated privately before #246.
+  REQUIRE(reusex::core::parse_pipeline_stage("texture") ==
+          PipelineStage::texture);
+  REQUIRE(reusex::core::parse_pipeline_stage("windows") ==
+          PipelineStage::windows);
+  REQUIRE(reusex::core::parse_pipeline_stage("annotate") ==
+          PipelineStage::annotate);
+  REQUIRE(reusex::core::parse_pipeline_stage("project") ==
+          PipelineStage::project);
+}
+
+TEST_CASE("validate --stage texture: missing mesh is an error",
+          "[core][validate][stage]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  db.save_point_cloud("cloud", *makeRgbCloud(8), "create_clouds");
+
+  auto report = reusex::core::validate_stage(db, PipelineStage::texture);
+  REQUIRE_FALSE(report.ok());
+  REQUIRE(hasCheck(report.issues, "missing_stage_input"));
+}
+
+TEST_CASE("validate --stage windows: missing inputs are errors",
+          "[core][validate][stage]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  db.save_point_cloud("cloud", *makeRgbCloud(8), "create_clouds");
+
+  auto report = reusex::core::validate_stage(db, PipelineStage::windows);
+  REQUIRE_FALSE(report.ok());
+  REQUIRE(hasCheck(report.issues, "missing_stage_input"));
+}
+
+TEST_CASE("validate --stage instances: labels or planes satisfies the input",
+          "[core][validate][stage]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  db.save_point_cloud("cloud", *makeRgbCloud(12), "create_clouds");
+  db.save_point_cloud("planes", *makeLabelCloud(12), "segment_planes");
+
+  // No `labels` cloud, but the contract accepts the geometric fallback.
+  auto report = reusex::core::validate_stage(db, PipelineStage::instances);
+  REQUIRE(report.ok());
+}
+
+TEST_CASE("validate --stage instances: an override drops the fallback",
+          "[core][validate][stage]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  db.save_point_cloud("cloud", *makeRgbCloud(12), "create_clouds");
+  db.save_point_cloud("planes", *makeLabelCloud(12), "segment_planes");
+
+  // `--semantic-cloud custom` is an instruction: the missing cloud must be
+  // refused even though the contract's fallback happens to be present.
+  auto refused = reusex::core::validate_stage(db, PipelineStage::instances,
+                                              {{"labels", "custom"}});
+  REQUIRE_FALSE(refused.ok());
+
+  db.save_point_cloud("custom", *makeLabelCloud(12), "annotate");
+  auto accepted = reusex::core::validate_stage(db, PipelineStage::instances,
+                                               {{"labels", "custom"}});
+  REQUIRE(accepted.ok());
+}
+
+TEST_CASE("validate --stage: a missing input carries a resolution hint",
+          "[core][validate][stage]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path); // empty project
+
+  auto report = reusex::core::validate_stage(db, PipelineStage::mesh);
+  REQUIRE_FALSE(report.ok());
+
+  // The hint is derived from the table, so it must name the whole chain of
+  // stages that has to run — not just the immediate producer.
+  bool found = false;
+  for (const auto &issue : report.issues) {
+    if (issue.hint.empty())
+      continue;
+    found = true;
+    INFO(issue.hint);
+    CHECK(issue.hint.find("rux create clouds") != std::string::npos);
+  }
+  REQUIRE(found);
+}
+
+TEST_CASE("validate --stage planes: the hint walks back to the first "
+          "unsatisfied prerequisite",
+          "[core][validate][stage]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  // `cloud` exists, `normals` does not — but regenerating normals means
+  // re-running `create clouds`, which itself has no sensor frames to work
+  // from, so the hint has to name the import too rather than send the user
+  // round a command that would also fail.
+  db.save_point_cloud("cloud", *makeRgbCloud(8), "create_clouds");
+
+  auto report = reusex::core::validate_stage(db, PipelineStage::planes);
+  REQUIRE_FALSE(report.ok());
+  REQUIRE(report.issues.size() == 1);
+  const auto &hint = report.issues.front().hint;
+  INFO(hint);
+  CHECK(hint.find("rux import") != std::string::npos);
+  CHECK(hint.find("rux create clouds") != std::string::npos);
+  // Ordered: import comes before the stage that consumes what it produces.
+  CHECK(hint.find("rux import") < hint.find("rux create clouds"));
+}

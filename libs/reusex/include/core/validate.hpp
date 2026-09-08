@@ -3,6 +3,9 @@
 
 #pragma once
 
+#include "reusex/core/stage_contract.hpp"
+
+#include <map>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -22,6 +25,13 @@ struct ValidationIssue {
   std::string check; ///< Machine-readable check id (e.g. "orphaned_passport").
   std::string message; ///< Human-readable description.
   ValidationSeverity severity = ValidationSeverity::error;
+  /// What the user should run to fix it, or empty when there is no mechanical
+  /// resolution. For stage-input issues this is DERIVED from the stage
+  /// contract table (#246) — the producing stage of every missing artifact,
+  /// walked backwards to the first prerequisite that is actually satisfied —
+  /// so the "run these commands in order" guidance cannot drift out of step
+  /// with the checks themselves.
+  std::string hint;
 };
 
 /// Aggregate result of running all validation checks over a project.
@@ -58,41 +68,34 @@ void check_sibling_cloud_sizes(const ProjectDB &db,
 /// Run every check and aggregate the findings.
 ValidationReport validate_project(const ProjectDB &db);
 
-// ── Stage input contracts (#222) ───────────────────────────────────────────
+// ── Stage input contracts (#222, consolidated in #246) ─────────────────────
 // Each pipeline stage consumes a known set of named clouds/tables and produces
-// another (documented in docs/CONTRACTS.md). `rux validate --stage <name>`
-// asserts a stage's *inputs* exist and are mutually consistent before the stage
-// runs, so a missing/misaligned prerequisite fails loudly instead of crashing
-// deep inside the algorithm.
+// another. That table lives in ONE place — core/stage_contract.hpp, mirrored in
+// prose by docs/CONTRACTS.md — and the functions below are generic interpreters
+// of it, not a second copy. `rux validate --stage <name>` and the refusal path
+// of `pipeline::run_stage()` are the same code, so a missing/misaligned
+// prerequisite fails identically whichever door the user came through.
+//
+// `PipelineStage`, `parse_pipeline_stage()`, `to_string()` and
+// `pipeline_stage_names()` come from <reusex/core/stage_contract.hpp>, included
+// above.
 
-/// Pipeline stages that have an input contract. Ordered by pipeline position.
-enum class PipelineStage {
-  import,    ///< extract raw sensor frames from a scan
-  optimize,  ///< refine per-frame sensor poses (a.k.a. register)
-  clouds,    ///< back-project sensor frames into "cloud" + "normals"
-  planes,    ///< detect planar surfaces
-  rooms,     ///< partition into rooms
-  instances, ///< separate semantic labels into spatial instances
-  mesh,      ///< generate the reconstructed mesh
-};
-
-/// Parse a stage name (e.g. "mesh", "register") to a PipelineStage.
-/// Returns std::nullopt for an unknown name. "register" is an alias for
-/// "optimize".
-std::optional<PipelineStage> parse_pipeline_stage(std::string_view name);
-
-/// Canonical lower-case name of a stage (the primary CLI token).
-std::string_view to_string(PipelineStage stage);
-
-/// All stage names accepted by parse_pipeline_stage(), for help text.
-std::vector<std::string> pipeline_stage_names();
+/// Runtime substitutions for artifact names, for the flags that let a stage be
+/// pointed at a differently-named cloud (`rux create instances
+/// --semantic-cloud foo`). Maps the contract's declared name to the name to
+/// actually look for; when any member of an `any_of` input is overridden, the
+/// input collapses to the override so the check is exact rather than lenient.
+using ArtifactOverrides = std::map<std::string, std::string, std::less<>>;
 
 /// Assert that @p stage's input clouds/tables exist in @p db and are
-/// index-aligned. Appends an issue per missing input or size mismatch.
+/// index-aligned, per the contract in core/stage_contract.hpp. Appends an issue
+/// per missing input or size mismatch, each carrying a derived resolution hint.
 void check_stage_inputs(const ProjectDB &db, PipelineStage stage,
-                        std::vector<ValidationIssue> &out);
+                        std::vector<ValidationIssue> &out,
+                        const ArtifactOverrides &overrides = {});
 
 /// Run check_stage_inputs for a single stage and aggregate the findings.
-ValidationReport validate_stage(const ProjectDB &db, PipelineStage stage);
+ValidationReport validate_stage(const ProjectDB &db, PipelineStage stage,
+                                const ArtifactOverrides &overrides = {});
 
 } // namespace reusex::core

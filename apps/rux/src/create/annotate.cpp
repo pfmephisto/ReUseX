@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "create/annotate.hpp"
-#include "validation.hpp"
+#include "stage_prerequisites.hpp"
 
 #include "spdmon.hpp"
 #include <reusex/core/ProjectDB.hpp>
@@ -156,12 +156,10 @@ int run_subcommand_annotate(SubcommandAnnotateOptions const &opt,
     reusex::ProjectDB db(project_path);
 
     // Pre-flight validation: check for sensor frames
-    auto validation = rux::validation::validate_annotate_prerequisites(db);
-    if (!validation) {
-      spdlog::error("{}", validation.error_message);
-      spdlog::info("Resolution: {}", validation.resolution_hint);
-      return RuxError::INVALID_ARGUMENT;
-    }
+    if (int rc = rux::check_stage_prerequisites(
+            db, reusex::core::PipelineStage::annotate);
+        rc != RuxError::SUCCESS)
+      return rc;
 
     // Detect the model type up-front so we can validate/route the video path.
     const auto model_type =

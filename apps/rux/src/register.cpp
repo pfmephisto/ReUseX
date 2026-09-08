@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "register.hpp"
-#include "validation.hpp"
+#include "stage_prerequisites.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/slam/JointPairwiseRegistration.hpp>
@@ -100,12 +100,10 @@ int run_subcommand_register(SubcommandRegisterOptions const &opt,
   try {
     reusex::ProjectDB db(project_path);
 
-    auto validation = rux::validation::validate_register_prerequisites(db);
-    if (!validation) {
-      spdlog::error("{}", validation.error_message);
-      spdlog::info("Resolution: {}", validation.resolution_hint);
-      return RuxError::INVALID_ARGUMENT;
-    }
+    if (int rc = rux::check_stage_prerequisites(
+            db, reusex::core::PipelineStage::optimize);
+        rc != RuxError::SUCCESS)
+      return rc;
 
     reusex::geometry::JprParams params;
     params.max_iterations = opt.iterations;

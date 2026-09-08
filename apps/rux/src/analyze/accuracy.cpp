@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "analyze/accuracy.hpp"
+#include "exit_status.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/reconstruction/accuracy_metrics.hpp>
@@ -78,7 +79,7 @@ NOTES:
 
   sub->callback([opt, global_opt]() {
     spdlog::trace("calling analyze accuracy subcommand");
-    return run_subcommand_analyze_accuracy(*opt, *global_opt);
+    rux::finish(run_subcommand_analyze_accuracy(*opt, *global_opt));
   });
 }
 

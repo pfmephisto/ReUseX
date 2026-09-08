@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "gui.hpp"
+#include "exit_status.hpp"
 #include "gui/Server.hpp"
 
 #include <spdlog/spdlog.h>
@@ -69,9 +70,7 @@ NOTES:
                 "Do not open a browser on startup");
 
   sub->callback([opt, global_opt]() {
-    int exit_code = run_subcommand_gui(*opt, *global_opt);
-    if (exit_code != RuxError::SUCCESS)
-      throw CLI::RuntimeError(exit_code);
+    rux::finish(run_subcommand_gui(*opt, *global_opt));
   });
 }
 

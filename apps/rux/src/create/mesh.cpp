@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "create/mesh.hpp"
+#include "exit_status.hpp"
 #include "filter_utils.hpp"
 #include "processing_observer.hpp"
 #include "stage_prerequisites.hpp"
@@ -145,7 +146,7 @@ NOTES:
 
   sub->callback([opt, global_opt]() {
     spdlog::trace("calling run_subcommand_mesh");
-    return run_subcommand_mesh(*opt, *global_opt);
+    rux::finish(run_subcommand_mesh(*opt, *global_opt));
   });
 };
 

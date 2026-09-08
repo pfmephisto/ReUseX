@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "get/mesh.hpp"
+#include "exit_status.hpp"
 
 #include <fmt/core.h>
 #include <fmt/ranges.h>
@@ -260,6 +261,6 @@ void setup_subcommand_get_mesh(CLI::App &app,
 
   sub->callback([opt, global_opt]() {
     spdlog::trace("calling run_subcommand_get_mesh");
-    return run_subcommand_get_mesh(*opt, *global_opt);
+    rux::finish(run_subcommand_get_mesh(*opt, *global_opt));
   });
 }

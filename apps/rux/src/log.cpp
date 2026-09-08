@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "log.hpp"
+#include "exit_status.hpp"
 #include <nlohmann/json.hpp>
 #include <reusex/core/ProjectDB.hpp>
 #include <spdlog/spdlog.h>
@@ -204,7 +205,7 @@ NOTES:
 
   sub->callback([opt, global_opt]() {
     spdlog::trace("Running log subcommand");
-    return run_subcommand_log(*opt, *global_opt);
+    rux::finish(run_subcommand_log(*opt, *global_opt));
   });
 }
 

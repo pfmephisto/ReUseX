@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "create/annotate_panorama.hpp"
+#include "exit_status.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/vision/model_factory.hpp>
@@ -145,7 +146,7 @@ NOTES:
 
   sub->callback([opt, global_opt]() {
     spdlog::trace("calling run_subcommand_create_annotate_panorama");
-    return run_subcommand_create_annotate_panorama(*opt, *global_opt);
+    rux::finish(run_subcommand_create_annotate_panorama(*opt, *global_opt));
   });
 }
 

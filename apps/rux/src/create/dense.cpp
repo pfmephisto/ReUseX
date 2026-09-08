@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "create/dense.hpp"
+#include "exit_status.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/segmentation/densify.hpp>
@@ -147,7 +148,7 @@ NOTES:
 
   sub->callback([opt, global_opt]() {
     spdlog::trace("calling run_subcommand_create_dense");
-    return run_subcommand_create_dense(*opt, *global_opt);
+    rux::finish(run_subcommand_create_dense(*opt, *global_opt));
   });
 }
 

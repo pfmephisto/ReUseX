@@ -4,6 +4,7 @@
 
 #include "create/clouds.hpp"
 #include "create/stage_bridge.hpp"
+#include "exit_status.hpp"
 #include "stage_prerequisites.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
@@ -67,7 +68,7 @@ NOTES:
 
   sub->callback([opt, global_opt]() {
     spdlog::trace("calling run_subcommand_create_clouds");
-    return run_subcommand_create_clouds(*opt, *global_opt);
+    rux::finish(run_subcommand_create_clouds(*opt, *global_opt));
   });
 }
 

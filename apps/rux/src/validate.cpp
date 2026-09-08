@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "validate.hpp"
+#include "exit_status.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/core/validate.hpp>
@@ -120,9 +121,7 @@ NOTES:
                   fmt::join(reusex::core::pipeline_stage_names(), "|")));
 
   sub->callback([opt, global_opt]() {
-    int exit_code = run_subcommand_validate(*opt, *global_opt);
-    if (exit_code != RuxError::SUCCESS)
-      throw CLI::RuntimeError(exit_code);
+    rux::finish(run_subcommand_validate(*opt, *global_opt));
   });
 }
 

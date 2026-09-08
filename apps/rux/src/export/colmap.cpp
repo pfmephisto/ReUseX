@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "export/colmap.hpp"
+#include "exit_status.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/io/colmap.hpp>
@@ -44,7 +45,8 @@ NOTES:
     head start; subsample is uniform across the cloud.
 )");
 
-  sub->add_option("output_dir", opt->output_dir, "COLMAP scene output directory")
+  sub->add_option("output_dir", opt->output_dir,
+                  "COLMAP scene output directory")
       ->required();
 
   sub->add_flag("--no-lidar-seed", opt->no_lidar_seed,
@@ -65,7 +67,7 @@ NOTES:
 
   sub->callback([opt, global_opt]() {
     spdlog::trace("calling run_subcommand_export_colmap");
-    return run_subcommand_export_colmap(*opt, *global_opt);
+    rux::finish(run_subcommand_export_colmap(*opt, *global_opt));
   });
 }
 

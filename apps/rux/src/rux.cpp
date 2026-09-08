@@ -193,19 +193,34 @@ int main(int argc, char **argv) {
 
   argv = app.ensure_utf8(argv);
 
+  // Teardown shared by the success path and the runtime-failure path, so that
+  // a failing subcommand differs from a succeeding one only in its exit code.
+  auto teardown = [] {
+    rux::wait_for_viewer();
+    reusex::core::reset_visual_observer();
+    reusex::core::reset_progress_observer();
+    // g_processing_observer.stop();
+
+    // Flush async queue to ensure all logs are written before exit
+    spdlog::shutdown();
+  };
+
   try {
     app.parse(argc, argv);
+  } catch (const CLI::RuntimeError &e) {
+    // A subcommand ran and failed (issue #299). rux::finish() turned its
+    // RuxError into this exception; CLI::App::exit() prints nothing for a
+    // RuntimeError, so the subcommand's own spdlog::error line stays the only
+    // diagnostic and only the process exit code changes.
+    teardown();
+    return app.exit(e);
   } catch (const CLI::ParseError &e) {
+    // Argument parsing failed before any subcommand body ran, so there is no
+    // viewer to wind down — keep the original early-out.
     spdlog::shutdown(); // Flush async queue before exit
     return app.exit(e);
   }
 
-  rux::wait_for_viewer();
-  reusex::core::reset_visual_observer();
-  reusex::core::reset_progress_observer();
-  // g_processing_observer.stop();
-
-  // Flush async queue to ensure all logs are written before exit
-  spdlog::shutdown();
+  teardown();
   return 0;
 }

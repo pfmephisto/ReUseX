@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "align/panorama.hpp"
+#include "exit_status.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/slam/PanoramaAlignment.hpp>
@@ -73,7 +74,7 @@ NOTES:
 
   sub->callback([opt, global_opt]() {
     spdlog::trace("calling run_subcommand_align_panorama");
-    return run_subcommand_align_panorama(*opt, *global_opt);
+    rux::finish(run_subcommand_align_panorama(*opt, *global_opt));
   });
 }
 

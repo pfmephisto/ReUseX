@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "analyze/quality.hpp"
+#include "exit_status.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/reconstruction/quality_metrics.hpp>
@@ -65,7 +66,7 @@ NOTES:
 
   sub->callback([opt, global_opt]() {
     spdlog::trace("calling analyze quality subcommand");
-    return run_subcommand_analyze_quality(*opt, *global_opt);
+    rux::finish(run_subcommand_analyze_quality(*opt, *global_opt));
   });
 }
 

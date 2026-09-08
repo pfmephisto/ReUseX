@@ -4,6 +4,7 @@
 
 #include "create/planes.hpp"
 #include "create/stage_bridge.hpp"
+#include "exit_status.hpp"
 #include "stage_prerequisites.hpp"
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/pipeline/stages.hpp>
@@ -121,7 +122,7 @@ NOTES:
     // for those (issue #214).
     opt->dist_explicit = dist_opt->count() > 0;
     opt->min_explicit = min_opt->count() > 0;
-    return run_subcommand_segment_planes(*opt, *global_opt);
+    rux::finish(run_subcommand_segment_planes(*opt, *global_opt));
   });
 }
 

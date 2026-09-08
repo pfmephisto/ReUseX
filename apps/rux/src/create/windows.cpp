@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "create/windows.hpp"
+#include "exit_status.hpp"
 #include "stage_prerequisites.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
@@ -95,10 +96,7 @@ NOTES:
       ->default_val(false);
 
   sub->callback([opt, global_opt]() {
-    int exit_code = run_subcommand_create_windows(*opt, *global_opt);
-    if (exit_code != RuxError::SUCCESS) {
-      throw CLI::RuntimeError(exit_code);
-    }
+    rux::finish(run_subcommand_create_windows(*opt, *global_opt));
   });
 }
 

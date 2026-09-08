@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "export/semantic_images.hpp"
+#include "exit_status.hpp"
 #include "global-params.hpp"
 #include "spdmon.hpp"
 
@@ -57,7 +58,7 @@ NOTES:
 
   sub->callback([opt, global_opt]() {
     spdlog::trace("calling export semantic-images subcommand");
-    return run_subcommand_export_semantic_images(*opt, *global_opt);
+    rux::finish(run_subcommand_export_semantic_images(*opt, *global_opt));
   });
 }
 

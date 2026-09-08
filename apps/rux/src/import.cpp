@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "import.hpp"
+#include "exit_status.hpp"
 #include "import/arkitscenes.hpp"
 #include "import/csv.hpp"
 #include "import/e57.hpp"
@@ -64,7 +65,7 @@ NOTES:
 
   sub->callback([]() {
     spdlog::trace("calling import subcommand");
-    return run_subcommand_import();
+    rux::finish(run_subcommand_import());
   });
 }
 

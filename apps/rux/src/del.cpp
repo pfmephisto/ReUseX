@@ -6,6 +6,7 @@
 
 #include "database/path_parser.hpp"
 #include "database/resource_router.hpp"
+#include "exit_status.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
 
@@ -81,7 +82,7 @@ NOTES:
 
   sub->callback([opt, global_opt]() {
     spdlog::trace("calling run_subcommand_del");
-    return run_subcommand_del(*opt, *global_opt);
+    rux::finish(run_subcommand_del(*opt, *global_opt));
   });
 }
 

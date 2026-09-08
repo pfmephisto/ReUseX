@@ -3,6 +3,7 @@
 
 #include "create/instances.hpp"
 #include "create/stage_bridge.hpp"
+#include "exit_status.hpp"
 #include "global-params.hpp"
 #include "stage_prerequisites.hpp"
 
@@ -77,10 +78,7 @@ NOTES:
       ->delimiter(',');
 
   sub->callback([opt, global_opt]() {
-    int exit_code = run_subcommand_segment_instances(*opt, *global_opt);
-    if (exit_code != RuxError::SUCCESS) {
-      throw CLI::RuntimeError(exit_code);
-    }
+    rux::finish(run_subcommand_segment_instances(*opt, *global_opt));
   });
 }
 

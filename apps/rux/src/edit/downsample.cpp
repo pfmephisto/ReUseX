@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "edit/downsample.hpp"
+#include "exit_status.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/segmentation/sync_downsample.hpp>
@@ -84,7 +85,7 @@ NOTES:
 
   sub->callback([opt, global_opt]() {
     spdlog::trace("calling run_subcommand_edit_downsample");
-    return run_subcommand_edit_downsample(*opt, *global_opt);
+    rux::finish(run_subcommand_edit_downsample(*opt, *global_opt));
   });
 }
 

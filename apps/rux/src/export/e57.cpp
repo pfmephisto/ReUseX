@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "export/e57.hpp"
+#include "exit_status.hpp"
 #include "filter_utils.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
@@ -61,7 +62,7 @@ NOTES:
 
   sub->callback([opt, global_opt]() {
     spdlog::trace("calling run_subcommand_export_e57");
-    return run_subcommand_export_e57(*opt, *global_opt);
+    rux::finish(run_subcommand_export_e57(*opt, *global_opt));
   });
 }
 

@@ -4,6 +4,7 @@
 #include "view.hpp"
 #include "processing_observer.hpp"
 
+#include "exit_status.hpp"
 #include "view/component_renderer.hpp"
 #include "view/label_renderer.hpp"
 #include "view/panorama_handler.hpp"
@@ -93,7 +94,7 @@ NOTES:
 
   sub->callback([opt, global_opt]() {
     spdlog::trace("calling viewer subcommand");
-    return run_subcommand_view(*opt, *global_opt);
+    rux::finish(run_subcommand_view(*opt, *global_opt));
   });
 }
 

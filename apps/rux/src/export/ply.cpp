@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "export/ply.hpp"
+#include "exit_status.hpp"
 #include "filter_utils.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
@@ -60,7 +61,7 @@ NOTES:
 
   sub->callback([opt, global_opt]() {
     spdlog::trace("calling run_subcommand_export_ply");
-    return run_subcommand_export_ply(*opt, *global_opt);
+    rux::finish(run_subcommand_export_ply(*opt, *global_opt));
   });
 }
 

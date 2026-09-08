@@ -4,6 +4,7 @@
 
 #include "create/rooms.hpp"
 #include "create/stage_bridge.hpp"
+#include "exit_status.hpp"
 #include "stage_prerequisites.hpp"
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/pipeline/stages.hpp>
@@ -101,7 +102,7 @@ NOTES:
 
   sub->callback([opt, global_opt]() {
     spdlog::trace("calling seg-rooms subcommand");
-    return run_subcommand_segment_rooms(*opt, *global_opt);
+    rux::finish(run_subcommand_segment_rooms(*opt, *global_opt));
   });
 }
 

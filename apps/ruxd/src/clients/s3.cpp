@@ -10,6 +10,8 @@
 #include <aws/s3/S3ClientConfiguration.h>
 #include <aws/s3/model/ListBucketsRequest.h>
 
+#include <exception>
+
 namespace ruxd {
 
 // --- AwsApiGuard -----------------------------------------------------------
@@ -60,11 +62,20 @@ PingResult S3Client::ping() const {
   if (!impl_->configured) {
     return {false, "not configured"};
   }
-  const auto outcome = impl_->client->ListBuckets();
-  if (outcome.IsSuccess()) {
-    return {true, "ok"};
+  // The AWS SDK reports most failures through the outcome, but it can also
+  // throw (bad endpoint URI, allocation failure, a client built with throwing
+  // error handling). Without this catch the exception escapes into the Crow
+  // handler and /readyz answers 500 instead of a 503 carrying the reason —
+  // unlike the Postgres and Redis probes, which both report as data (#282).
+  try {
+    const auto outcome = impl_->client->ListBuckets();
+    if (outcome.IsSuccess()) {
+      return {true, "ok"};
+    }
+    return {false, outcome.GetError().GetMessage()};
+  } catch (const std::exception &e) {
+    return {false, e.what()};
   }
-  return {false, outcome.GetError().GetMessage()};
 }
 
 } // namespace ruxd

@@ -11,9 +11,11 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <core/ProjectDB.hpp>
+#include <core/processing_observer.hpp>
 
 #include <nlohmann/json.hpp>
 #include <pipeline/stages.hpp>
+#include <types/point_types.hpp>
 
 #include "../../support/temp_path.hpp"
 
@@ -212,4 +214,247 @@ TEST_CASE("A direct (non-job) run logs no job id", "[pipeline][stages]") {
   const auto params = nlohmann::json::parse(log.front().parameters);
   CHECK_FALSE(params.contains("job_id"));
   CHECK(params.at("resolution") == 1.5);
+}
+
+// ===========================================================================
+// #284 — CLI convergence
+//
+// The `rux create <stage>` subcommands no longer carry their own copies of
+// these stage bodies, so everything they used to do themselves — evaluating a
+// -f filter expression, distinguishing "your input was bad" from "it broke
+// mid-run" — has to hold here instead.
+// ===========================================================================
+
+namespace {
+
+/// Seed a project with the minimum a segmentation stage needs: a small planar
+/// patch, its normals, and a semantic label cloud, all index-aligned
+/// (STANDARDS §3.2).
+void seed_segmentable_project(reusex::ProjectDB &db, int side = 20) {
+  reusex::Cloud cloud;
+  reusex::CloudN normals;
+  reusex::CloudL labels;
+
+  for (int y = 0; y < side; ++y) {
+    for (int x = 0; x < side; ++x) {
+      reusex::PointT point;
+      point.x = 0.02F * static_cast<float>(x);
+      point.y = 0.02F * static_cast<float>(y);
+      point.z = 0.0F;
+      point.r = point.g = point.b = 200;
+      cloud.push_back(point);
+
+      reusex::NormalT normal;
+      normal.normal_x = 0.0F;
+      normal.normal_y = 0.0F;
+      normal.normal_z = 1.0F;
+      normal.curvature = 0.0F;
+      normals.push_back(normal);
+
+      // Two semantic classes split down the middle, so an instance run has
+      // something to cluster and a filter has something to select.
+      reusex::LabelT label;
+      label.label = (x < side / 2) ? 1U : 2U;
+      labels.push_back(label);
+    }
+  }
+
+  db.save_point_cloud("cloud", cloud, "test");
+  db.save_point_cloud("normals", normals, "test");
+  db.save_point_cloud("labels", labels, "test");
+}
+
+/// Records whether the global progress hooks were driven.
+class RecordingObserver : public reusex::core::IProgressObserver {
+    public:
+  int started = 0;
+  int finished = 0;
+
+  void on_process_started(reusex::core::Stage, size_t) override { ++started; }
+  void on_process_finished(reusex::core::Stage) override { ++finished; }
+};
+
+} // namespace
+
+TEST_CASE("A refused stage is reported as invalid input, not a failure",
+          "[pipeline][stages]") {
+  TempPath project("test_pipeline_stages");
+  reusex::ProjectDB db(project.path);
+
+  StageContext ctx;
+  ctx.project = project.path;
+  ctx.stage = JobStage::planes;
+
+  const auto result = run_stage(db, ctx);
+
+  // `rux` maps this to INVALID_ARGUMENT; collapsing it into a generic failure
+  // would change the exit code the CLI has always returned for an unusable
+  // request (#284).
+  CHECK_FALSE(result.ok);
+  CHECK(result.invalid_input);
+  CHECK_FALSE(result.cancelled);
+}
+
+TEST_CASE("Malformed parameters are invalid input", "[pipeline][stages]") {
+  TempPath project("test_pipeline_stages");
+  reusex::ProjectDB db(project.path);
+
+  StageContext ctx;
+  ctx.project = project.path;
+  ctx.stage = JobStage::planes;
+  ctx.parameters = "definitely not json";
+
+  const auto result = run_stage(db, ctx);
+  CHECK_FALSE(result.ok);
+  CHECK(result.invalid_input);
+}
+
+TEST_CASE("StageResult::invalid sets exactly the invalid-input flag",
+          "[pipeline][stages]") {
+  const auto bad = StageResult::invalid("bad filter");
+  CHECK_FALSE(bad.ok);
+  CHECK(bad.invalid_input);
+  CHECK_FALSE(bad.cancelled);
+  CHECK(bad.message == "bad filter");
+
+  // The other factories must not claim it.
+  CHECK_FALSE(StageResult::success("done").invalid_input);
+  CHECK_FALSE(StageResult::failure("nope").invalid_input);
+  CHECK_FALSE(StageResult::cancel().invalid_input);
+}
+
+TEST_CASE("A seeded planes stage runs to completion and writes its outputs",
+          "[pipeline][stages]") {
+  TempPath project("test_pipeline_stages");
+  reusex::ProjectDB db(project.path);
+  seed_segmentable_project(db);
+
+  StageContext ctx;
+  ctx.project = project.path;
+  ctx.stage = JobStage::planes;
+  // Pin the thresholds: adaptive derivation measures noise, and this patch is
+  // synthetically noise-free.
+  ctx.parameters = R"({"adaptive":false,"min_inliers":10})";
+
+  const auto result = run_stage(db, ctx);
+
+  INFO(result.message);
+  REQUIRE(result.ok);
+  CHECK_FALSE(result.invalid_input);
+  CHECK(db.has_point_cloud("planes"));
+  CHECK(db.has_point_cloud("plane_centroids"));
+  CHECK(db.has_point_cloud("plane_normals"));
+
+  const auto log = db.pipeline_log();
+  REQUIRE(log.size() == 1);
+  CHECK(log.front().stage == "segment_planes");
+  CHECK(log.front().status == "success");
+}
+
+TEST_CASE("A filter expression restricts the stage and is recorded",
+          "[pipeline][stages]") {
+  TempPath project("test_pipeline_stages");
+  reusex::ProjectDB db(project.path);
+  seed_segmentable_project(db);
+
+  StageContext ctx;
+  ctx.project = project.path;
+  ctx.stage = JobStage::planes;
+  ctx.parameters =
+      R"({"adaptive":false,"min_inliers":10,"filter":"labels == 1"})";
+
+  const auto result = run_stage(db, ctx);
+  INFO(result.message);
+  REQUIRE(result.ok);
+
+  // The filter that produced this result is durable, so the run is
+  // reproducible from its own history. The CLI's copy never recorded it.
+  const auto log = db.pipeline_log();
+  REQUIRE(log.size() == 1);
+  const auto params = nlohmann::json::parse(log.front().parameters);
+  CHECK(params.at("filter") == "labels == 1");
+}
+
+TEST_CASE("An unusable filter expression is refused as invalid input",
+          "[pipeline][stages]") {
+  TempPath project("test_pipeline_stages");
+  reusex::ProjectDB db(project.path);
+  seed_segmentable_project(db);
+
+  StageContext ctx;
+  ctx.project = project.path;
+  ctx.stage = JobStage::planes;
+
+  SECTION("a cloud the project does not have") {
+    ctx.parameters = R"({"adaptive":false,"filter":"nosuchcloud == 1"})";
+  }
+  SECTION("syntactic nonsense") {
+    ctx.parameters = R"({"adaptive":false,"filter":"labels >>>< "})";
+  }
+
+  const auto result = run_stage(db, ctx);
+
+  CHECK_FALSE(result.ok);
+  // This is the exit code the subcommand used to return by catching the
+  // exception itself; it must survive the move into the library.
+  CHECK(result.invalid_input);
+  CHECK(result.message.find("filter") != std::string::npos);
+
+  // The refusal is still durable, and it does NOT leave a half-written result.
+  CHECK_FALSE(db.has_point_cloud("planes"));
+  const auto log = db.pipeline_log();
+  REQUIRE(log.size() == 1);
+  CHECK(log.front().status == "failed");
+}
+
+TEST_CASE("A filter over a mis-sized cloud is refused rather than misapplied",
+          "[pipeline][stages]") {
+  TempPath project("test_pipeline_stages");
+  reusex::ProjectDB db(project.path);
+  seed_segmentable_project(db);
+
+  // A label cloud that does not line up with "cloud": indices drawn from it
+  // would silently address the wrong points.
+  reusex::CloudL shorter;
+  for (int i = 0; i < 10; ++i) {
+    reusex::LabelT label;
+    label.label = 1U;
+    shorter.push_back(label);
+  }
+  db.save_point_cloud("stale", shorter, "test");
+
+  StageContext ctx;
+  ctx.project = project.path;
+  ctx.stage = JobStage::planes;
+  ctx.parameters = R"({"adaptive":false,"filter":"stale == 1"})";
+
+  const auto result = run_stage(db, ctx);
+  CHECK_FALSE(result.ok);
+  CHECK(result.invalid_input);
+}
+
+TEST_CASE("run_stage drives the globally registered progress observer",
+          "[pipeline][stages]") {
+  TempPath project("test_pipeline_stages");
+  reusex::ProjectDB db(project.path);
+  seed_segmentable_project(db);
+
+  // `rux` installs its progress bar as a global observer once at startup and
+  // never passes it to a stage. Converging the CLI onto run_stage is only safe
+  // if the stage bodies still reach that global (#284).
+  RecordingObserver observer;
+  reusex::core::set_progress_observer(&observer);
+
+  StageContext ctx;
+  ctx.project = project.path;
+  ctx.stage = JobStage::instances;
+  ctx.parameters = R"({"min_cluster_size":1,"cluster_tolerance":0.05})";
+
+  const auto result = run_stage(db, ctx);
+  reusex::core::reset_progress_observer();
+
+  INFO(result.message);
+  REQUIRE(result.ok);
+  CHECK(observer.started > 0);
+  CHECK(observer.finished > 0);
 }

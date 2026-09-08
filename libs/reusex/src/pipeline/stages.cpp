@@ -5,6 +5,7 @@
 #include "reusex/pipeline/stages.hpp"
 
 #include "reusex/core/ProjectDB.hpp"
+#include "reusex/core/filter_expression.hpp"
 #include "reusex/core/guid.hpp"
 #include "reusex/core/label_semantics.hpp"
 #include "reusex/core/logging.hpp"
@@ -115,11 +116,33 @@ std::optional<std::string> check_inputs(const ProjectDB &db,
                      fmt::join(errors, "; "));
 }
 
+/// Resolve the optional `"filter"` parameter into the point indices a stage
+/// should restrict itself to.
+///
+/// Mirrors the `filter` field of the segmentation option structs, so it is a
+/// parameter like any other rather than a side channel. Returns a message when
+/// the expression is unusable so the caller can refuse the run as invalid
+/// input instead of letting it surface as a mid-run failure.
+std::optional<std::string> resolve_filter(const json &params, ProjectDB &db,
+                                          size_t cloud_size,
+                                          IndicesConstPtr &out) {
+  const auto expression = param_or<std::string>(params, "filter", "");
+  if (expression.empty())
+    return std::nullopt;
+  try {
+    out = core::evaluate_filter_expression(expression, db, cloud_size);
+  } catch (const std::exception &e) {
+    return fmt::format("filter evaluation failed: {}", e.what());
+  }
+  return std::nullopt;
+}
+
 // --- individual stage bodies ----------------------------------------------
-// Each mirrors the corresponding apps/rux/src/create/*.cpp body, minus CLI
-// concerns. The rux subcommands keep their own copies for now; converging them
-// onto these functions is deliberately left out of #265 Phase 1 so the GUI
-// work does not churn the CLI in the same PR.
+// These are the ONLY implementations of these stages. `rux create <stage>` and
+// the GUI/daemon job runners both reach them through run_stage(); the CLI's
+// former copies were deleted in #284, so a fix applied here cannot miss a
+// second copy. Anything a front end still owns (flag parsing, exit codes,
+// prerequisite hints) stays in the front end.
 
 StageResult run_clouds(ProjectDB &db, const StageContext &ctx,
                        const json &params) {
@@ -175,6 +198,9 @@ StageResult run_planes(ProjectDB &db, const StageContext &ctx,
   auto cloud = db.point_cloud_xyzrgb("cloud");
   auto normals = db.point_cloud_normal("normals");
 
+  if (auto problem = resolve_filter(params, db, cloud->size(), options.filter))
+    return StageResult::invalid(*problem);
+
   auto [labels, centroids, plane_normals] =
       geometry::segment_planes(cloud, normals, options);
 
@@ -207,6 +233,14 @@ StageResult run_rooms(ProjectDB &db, const StageContext &ctx,
   auto planes = db.point_cloud_label("planes");
   auto plane_normals = db.point_cloud_normal("plane_normals");
 
+  // "cloud" and "planes" are index-aligned by contract (STANDARDS §3.2); a
+  // mismatch means one of them was regenerated without the other, and the
+  // per-point normal expansion below would read past the end.
+  if (planes->size() != cloud->size())
+    return StageResult::invalid(
+        fmt::format("Point cloud size mismatch: cloud={}, planes={}",
+                    cloud->size(), planes->size()));
+
   // Expand per-plane normals to per-point normals. Plane labels are 1-based
   // (0 = unlabeled), so plane_normals is indexed via label_to_index
   // (STANDARDS §3).
@@ -220,6 +254,9 @@ StageResult run_rooms(ProjectDB &db, const StageContext &ctx,
       continue;
     normals->points[i] = plane_normals->points[core::label_to_index(label)];
   }
+
+  if (auto problem = resolve_filter(params, db, cloud->size(), options.filter))
+    return StageResult::invalid(*problem);
 
   auto labels = geometry::segment_rooms(cloud, normals, planes, options);
 
@@ -310,6 +347,7 @@ StageResult run_instances(ProjectDB &db, const StageContext &ctx,
         fmt::format("SM{}-{} ({}p)", semantic_class, instance_id, size);
   }
   db.save_label_definitions(output_cloud, definitions);
+  info("Saved {} instance definitions", definitions.size());
 
   // Re-create the instance->material links that the instances-row DELETE
   // cascaded away, for every instance that carried its GUID over.
@@ -339,8 +377,47 @@ StageResult run_instances(ProjectDB &db, const StageContext &ctx,
            it->second, e.what());
     }
   }
+  // Loud reconciliation report (STANDARDS §3.2, §5). An instance that lost its
+  // identity takes its material passport's link with it, so every orphan is
+  // named rather than folded into a count.
+  if (old_labels && !old_instances.empty()) {
+    info("Instance identity: {} carried over, {} fresh GUID(s)",
+         reconcile.matched_count, reconcile.fresh_count);
+    if (!reconcile.orphaned_old.empty()) {
+      warn("{} previous instance(s) had no match in the regenerated cloud:",
+           reconcile.orphaned_old.size());
+      for (const auto &orphan : reconcile.orphaned_old)
+        warn("  - old instance {} (class {}, guid {}, best overlap {:.0f}%)",
+             orphan.instance_id, orphan.semantic_class, orphan.guid,
+             orphan.best_overlap * 100.0);
+    }
+  }
   if (!old_links.empty())
-    info("material links: {} carried over, {} dropped", carried, dropped);
+    info("Material links: {} carried over, {} dropped", carried, dropped);
+
+  size_t labeled_points = 0;
+  for (const auto &label : *result.instance_labels)
+    if (core::is_valid_label(label.label))
+      ++labeled_points;
+
+  const size_t cloud_size = request.cloud->size();
+  info("Summary:");
+  info("  Total instances: {}", result.instance_to_semantic.size());
+  info("  Labeled points: {}/{} ({:.1f}%)", labeled_points, cloud_size,
+       cloud_size ? 100.0 * labeled_points / cloud_size : 0.0);
+
+  std::map<uint32_t, std::vector<uint32_t>> semantic_to_instances;
+  for (const auto &[instance_id, semantic_class] : result.instance_to_semantic)
+    semantic_to_instances[semantic_class].push_back(instance_id);
+
+  info("Per-class breakdown:");
+  for (const auto &[semantic_class, instances] : semantic_to_instances) {
+    size_t total_points = 0;
+    for (const uint32_t instance_id : instances)
+      total_points += result.instance_sizes.at(instance_id);
+    info("  Semantic class {}: {} instances, {} points", semantic_class,
+         instances.size(), total_points);
+  }
 
   return StageResult::success(fmt::format(
       "{} instance(s): {} carried over, {} fresh", reconcile.instances.size(),
@@ -367,15 +444,19 @@ StageResult dispatch(ProjectDB &db, const StageContext &ctx,
 // --- StageResult ----------------------------------------------------------
 
 StageResult StageResult::success(std::string message) {
-  return StageResult{true, false, std::move(message)};
+  return StageResult{true, false, false, std::move(message)};
 }
 
 StageResult StageResult::failure(std::string message) {
-  return StageResult{false, false, std::move(message)};
+  return StageResult{false, false, false, std::move(message)};
+}
+
+StageResult StageResult::invalid(std::string message) {
+  return StageResult{false, false, true, std::move(message)};
 }
 
 StageResult StageResult::cancel(std::string message) {
-  return StageResult{false, true, std::move(message)};
+  return StageResult{false, true, false, std::move(message)};
 }
 
 // --- StageContext ---------------------------------------------------------
@@ -418,9 +499,19 @@ StageResult run_stage(ProjectDB &db, const StageContext &ctx) {
   const auto &desc = descriptor(ctx.stage);
   int log_id = -1;
 
+  // Parameters are parsed before anything is recorded: a blob that is not even
+  // JSON describes no attempt worth logging, and it is the caller's mistake
+  // rather than the stage's failure.
+  json params;
   try {
-    const json params = parse_parameters(ctx.parameters);
+    params = parse_parameters(ctx.parameters);
+  } catch (const std::exception &e) {
+    error("stage '{}' refused: invalid parameters: {}", desc.name, e.what());
+    return StageResult::invalid(
+        fmt::format("invalid parameters: {}", e.what()));
+  }
 
+  try {
     // Open the log row BEFORE validating inputs, so a run that is refused for
     // an unsatisfied contract still leaves a durable record of the attempt and
     // its reason. `pipeline_log` is what the GUI's history view reads
@@ -437,7 +528,7 @@ StageResult run_stage(ProjectDB &db, const StageContext &ctx) {
     if (auto problem = check_inputs(db, desc.contract)) {
       error("stage '{}' refused: {}", desc.name, *problem);
       db.log_pipeline_end(log_id, false, *problem);
-      return StageResult::failure(*problem);
+      return StageResult::invalid(*problem);
     }
 
     core::stopwatch watch;
@@ -452,6 +543,9 @@ StageResult run_stage(ProjectDB &db, const StageContext &ctx) {
       info("stage '{}' finished in {:.2f}s: {}", desc.name, elapsed,
            result.message);
       db.log_pipeline_end(log_id, true);
+    } else if (result.invalid_input) {
+      error("stage '{}' refused: {}", desc.name, result.message);
+      db.log_pipeline_end(log_id, false, result.message);
     } else {
       error("stage '{}' failed after {:.2f}s: {}", desc.name, elapsed,
             result.message);

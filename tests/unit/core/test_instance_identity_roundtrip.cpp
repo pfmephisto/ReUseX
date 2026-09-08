@@ -14,6 +14,8 @@
 #include <geometry/reconcile_instances.hpp>
 #include <types.hpp>
 
+#include "../../support/temp_path.hpp"
+
 #include <filesystem>
 #include <map>
 #include <string>
@@ -26,16 +28,8 @@ namespace fs = std::filesystem;
 
 namespace {
 
-struct TempDB {
-  fs::path path;
-  TempDB()
-      : path(fs::temp_directory_path() /
-             ("test_identity_rt_" +
-              std::to_string(reinterpret_cast<uintptr_t>(this)) + ".rux")) {}
-  ~TempDB() noexcept {
-    std::error_code ec;
-    fs::remove(path, ec);
-  }
+struct TempDB : reusex::test_support::TempPath {
+  TempDB() : TempPath("test_identity_rt") {}
 };
 
 CloudLPtr makeLabels(const std::vector<uint32_t> &labels) {

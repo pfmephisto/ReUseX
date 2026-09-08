@@ -6,6 +6,8 @@
 
 #include <core/ProjectDB.hpp>
 
+#include "../../support/temp_path.hpp"
+
 #include <sqlite3.h>
 
 #include <filesystem>
@@ -16,16 +18,10 @@ namespace fs = std::filesystem;
 
 namespace {
 
-struct TempPath {
-  fs::path path;
-  TempPath()
-      : path(fs::temp_directory_path() /
-             ("test_migration_v10_" +
-              std::to_string(reinterpret_cast<uintptr_t>(this)) + ".rux")) {}
-  ~TempPath() noexcept {
-    std::error_code ec;
-    fs::remove(path, ec);
-  }
+// Keeps the original "test_migration_v10" filename prefix while delegating
+// uniqueness/cleanup to the shared helper.
+struct TempPath : reusex::test_support::TempPath {
+  TempPath() : reusex::test_support::TempPath("test_migration_v10") {}
 };
 
 void exec(sqlite3 *db, const char *sql) {

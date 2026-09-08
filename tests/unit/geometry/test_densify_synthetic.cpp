@@ -18,6 +18,8 @@
 #include <core/SensorIntrinsics.hpp>
 #include <geometry/densify.hpp>
 
+#include "../../support/temp_path.hpp"
+
 #include <opencv2/core.hpp>
 #include <opencv2/imgcodecs.hpp>
 
@@ -35,18 +37,8 @@ namespace fs = std::filesystem;
 
 namespace {
 
-struct TempDir {
-  fs::path path;
-  TempDir() {
-    path = fs::temp_directory_path() /
-           ("test_densify_" +
-            std::to_string(reinterpret_cast<uintptr_t>(this)));
-    fs::create_directories(path);
-  }
-  ~TempDir() noexcept {
-    std::error_code ec;
-    fs::remove_all(path, ec);
-  }
+struct TempDir : reusex::test_support::TempDir {
+  TempDir() : reusex::test_support::TempDir("test_densify") {}
 };
 
 std::array<double, 16> mat4_to_row_major(const Eigen::Matrix4d &m) {
@@ -63,9 +55,9 @@ std::array<double, 16> mat4_to_row_major(const Eigen::Matrix4d &m) {
 Eigen::Matrix4d look_at_camera(const Eigen::Vector3d &eye,
                                const Eigen::Vector3d &target,
                                const Eigen::Vector3d &up_world) {
-  Eigen::Vector3d forward = (target - eye).normalized();      // +Z
+  Eigen::Vector3d forward = (target - eye).normalized();        // +Z
   Eigen::Vector3d right = forward.cross(up_world).normalized(); // +X
-  Eigen::Vector3d down = forward.cross(right).normalized();    // +Y
+  Eigen::Vector3d down = forward.cross(right).normalized();     // +Y
   Eigen::Matrix4d T = Eigen::Matrix4d::Identity();
   T.col(0).head<3>() = right;
   T.col(1).head<3>() = down;
@@ -83,8 +75,7 @@ cv::Vec3b sample_texture(double world_x, double world_y, double cell_size) {
                      static_cast<uint32_t>(cy & 0xFFFFFFFF), 0x9E3779B9u};
   std::mt19937 rng(seed);
   std::uniform_int_distribution<int> dist(40, 240);
-  return cv::Vec3b(static_cast<uchar>(dist(rng)),
-                   static_cast<uchar>(dist(rng)),
+  return cv::Vec3b(static_cast<uchar>(dist(rng)), static_cast<uchar>(dist(rng)),
                    static_cast<uchar>(dist(rng)));
 }
 
@@ -166,9 +157,9 @@ void plant_synthetic_scene(ProjectDB &db, const SceneConfig &cfg) {
     const Eigen::Matrix3d R_wc = T_wc.block<3, 3>(0, 0);
     const Eigen::Vector3d C_w = T_wc.block<3, 1>(0, 3);
 
-    cv::Mat color = render_plane(R_wc, C_w, intr.fx, intr.fy, intr.cx, intr.cy,
-                                 cfg.img_w, cfg.img_h, cfg.z_plane,
-                                 cfg.cell_size);
+    cv::Mat color =
+        render_plane(R_wc, C_w, intr.fx, intr.fy, intr.cx, intr.cy, cfg.img_w,
+                     cfg.img_h, cfg.z_plane, cfg.cell_size);
 
     // ProjectDB stores T_wb (body in world), not T_wc. Compute the body
     // pose that, when composed with T_bc (local_transform), recovers
@@ -194,12 +185,12 @@ void run_and_check(const SceneConfig &cfg) {
   plant_synthetic_scene(db, cfg);
 
   reusex::geometry::DensifyParams params;
-  params.seed_cloud_name = "";   // no LiDAR seed in synthetic scene
-  params.chunk_size = 0;         // single-pass fusion
-  params.gpu_index = -2;         // force CPU PatchMatch (Nix sandbox)
-  params.max_threads = 4;        // bound build-time concurrency
-  params.resolution_level = 0;   // full resolution
-  params.max_resolution = 0;     // no cap
+  params.seed_cloud_name = ""; // no LiDAR seed in synthetic scene
+  params.chunk_size = 0;       // single-pass fusion
+  params.gpu_index = -2;       // force CPU PatchMatch (Nix sandbox)
+  params.max_threads = 4;      // bound build-time concurrency
+  params.resolution_level = 0; // full resolution
+  params.max_resolution = 0;   // no cap
   params.geometric_consistency = true;
 
   reusex::geometry::densify_from_images(db, params);

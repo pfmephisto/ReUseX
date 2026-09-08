@@ -2,13 +2,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include <catch2/catch_test_macros.hpp>
-#include <core/ProjectDB.hpp>
 #include <core/MaterialPassport.hpp>
+#include <core/ProjectDB.hpp>
 #include <core/materialepas_types.hpp>
+
+#include "../../support/temp_path.hpp"
 
 #include <cstdio>
 #include <filesystem>
-#include <iostream>
 
 using namespace reusex;
 using reusex::core::MaterialPassport;
@@ -16,20 +17,8 @@ using reusex::core::MaterialPassport;
 namespace fs = std::filesystem;
 
 // Helper: create a temp database path that auto-cleans
-struct TempDB {
-  fs::path path;
-  TempDB()
-      : path(fs::temp_directory_path() /
-             ("test_projectdb_materials_" +
-              std::to_string(reinterpret_cast<uintptr_t>(this)) + ".rux")) {}
-  ~TempDB() noexcept {
-    std::error_code ec;
-    fs::remove(path, ec);
-    if (ec) {
-      std::cerr << "Warning: Failed to remove temp DB file " << path << ": "
-                << ec.message() << std::endl;
-    }
-  }
+struct TempDB : reusex::test_support::TempPath {
+  TempDB() : TempPath("test_projectdb_materials") {}
 };
 
 TEST_CASE("ProjectDB::project_summary() with material passports",
@@ -66,7 +55,7 @@ TEST_CASE("ProjectDB::project_summary() with material passports",
 
     const auto &material = summary.materials[0];
     REQUIRE(material.guid == "test-guid-12345");
-    REQUIRE(!material.id.empty());  // ID should be populated
+    REQUIRE(!material.id.empty()); // ID should be populated
     REQUIRE(material.created_at == "2025-01-15T10:30:00Z");
     REQUIRE(material.version_number == "1.0.0");
     // Should have at least designation property stored

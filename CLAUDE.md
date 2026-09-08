@@ -123,7 +123,7 @@ it up only `if(TARGET reusex_visualize)`.
 # Build and run all tests
 cmake -B build -DBUILD_TESTS=ON
 cmake --build build
-cd build && ctest --output-on-failure
+cd build && ctest --output-on-failure --parallel $(nproc)
 
 # Run with verbose output
 ctest --verbose
@@ -132,9 +132,24 @@ ctest --verbose
 ctest -R test_name_pattern
 ```
 
+**Always pass `--parallel`.** Nearly the entire suite's wall time is
+per-process dynamic-loader overhead, not test work, so it scales almost
+linearly with cores: serial is ~12 min, `-j8` about 1/6 of that.
+`scripts/check.sh` already does this. Parallel ctest used to be flaky
+because temp-file helpers derived names from object addresses; that was
+fixed in #262 by `tests/support/temp_path.hpp`, which every test must use
+for temp paths.
+
 Tests live in `tests/`: `unit/` (per-module: `core`, `geometry`, `io`, `ruxd`,
-`utils`, `vision`), `integration/`, `benchmarks/`, `support/`, `fixtures/`.
-Catch2 v3.
+`utils`, `vision`, `visualize`), `integration/`, `benchmarks/`, `support/`,
+`fixtures/`. Catch2 v3.
+
+Unit tests link into **two** executables (`tests/CMakeLists.txt`):
+`reusex_unit_tests` for most modules, and `reusex_unit_tests_vision` for
+`unit/vision`, `unit/ruxd` and `unit/visualize`, which need libtorch /
+TensorRT / `ruxd_lib` / the PCL-Qt viewer. Test names and `ctest -R` are
+unaffected by the split. Put a new test in a heavy directory only if it
+really needs those dependencies (#268).
 
 Benchmarks: `scripts/bench.sh` produces an XML report and
 `scripts/bench-compare.py` diffs a baseline against a candidate, failing on a

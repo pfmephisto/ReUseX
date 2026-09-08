@@ -142,6 +142,14 @@ in
       ''
         export VIRTUAL_ENV_PROMPT="ReUseX"
 
+        # Run ctest in parallel by default, even for a bare `ctest` typed in
+        # build/ (#268). Almost all of this suite's wall time is per-process
+        # dynamic-loader overhead rather than test work — one process per
+        # TEST_CASE, ~360 of them — so it scales nearly linearly with cores:
+        # ~12 min serial vs ~75 s at -j8. An explicit `--parallel N` on the
+        # command line still wins over this.
+        export CTEST_PARALLEL_LEVEL="''${CTEST_PARALLEL_LEVEL:-$(nproc)}"
+
         # NixOS keeps the real libcuda.so outside Nix, at /run/opengl-driver/lib.
         # Binaries built in this shell (./build/apps/rux/rux, ctest binaries) are
         # not wrapped with addDriverRunpath, so without this they load the stub

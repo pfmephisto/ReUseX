@@ -10,6 +10,7 @@
 #include <types.hpp>
 
 #include "../../support/synthetic_scene.hpp"
+#include "../../support/temp_path.hpp"
 
 #include <filesystem>
 #include <string>
@@ -21,16 +22,8 @@ namespace fs = std::filesystem;
 
 namespace {
 
-struct TempDB {
-  fs::path path;
-  TempDB()
-      : path(fs::temp_directory_path() /
-             ("test_sync_downsample_" +
-              std::to_string(reinterpret_cast<uintptr_t>(this)) + ".rux")) {}
-  ~TempDB() noexcept {
-    std::error_code ec;
-    fs::remove(path, ec);
-  }
+struct TempDB : reusex::test_support::TempPath {
+  TempDB() : TempPath("test_sync_downsample") {}
 };
 
 // A tiny cloud with two well-separated clusters (leaf=10 => two buckets), so

@@ -193,6 +193,21 @@ writes labels MUST follow it; any deviation is a bug.
   must keep the end-to-end pipeline test green.
 - Tests use fixed seeds and `WithinAbs`/`WithinRel` matchers for floats.
 - Bug fixes come with a regression test that fails before the fix.
+- **Temp files**: never derive a temp path from an object address
+  (`reinterpret_cast<uintptr_t>(this)`). `catch_discover_tests` gives every
+  test case its own process, and under ASLR two concurrent ctest workers
+  routinely land on the same address and then fight over the same file
+  (#262). Use `tests/support/temp_path.hpp` —
+  `reusex::test_support::TempPath` / `TempDir` — which names files
+  `<prefix>_<pid>_<salt>_<counter>` and cleans up sqlite `-wal`/`-shm`
+  sidecars. The suite must stay green under `ctest --parallel $(nproc)`.
+- **Which test binary**: unit tests build into `reusex_unit_tests` (light) or
+  `reusex_unit_tests_vision` (full dependency closure). A test lands in the
+  heavy binary purely by living in `tests/unit/vision/`, `tests/unit/ruxd/`
+  or `tests/unit/visualize/`. Keep new tests out of those directories unless
+  they genuinely need the ML backends, `ruxd_lib` or the PCL/Qt viewer:
+  linking libtorch/TensorRT adds ~0.6 s of dynamic-loader time to *every*
+  test process in that binary (#268).
 
 ## 8. Performance
 

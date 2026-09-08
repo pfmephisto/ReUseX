@@ -134,7 +134,10 @@
           doCheck = true;
           checkPhase = ''
             runHook preCheck
-            ctest --output-on-failure
+            # --parallel: the suite is dominated by per-process loader
+            # overhead, so this is a near-linear speedup (#268). Safe since
+            # #262 gave temp files pid-unique names.
+            ctest --output-on-failure --parallel "''${NIX_BUILD_CORES:-1}"
             runHook postCheck
           '';
         });

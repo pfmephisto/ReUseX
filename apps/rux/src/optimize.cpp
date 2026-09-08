@@ -126,16 +126,37 @@ NOTES:
   sub->add_option("--plane-sigma-distance", opt->plane_sigma_distance,
                   "Plane-distance measurement std (m)")
       ->default_val(opt->plane_sigma_distance);
+  sub->add_option(
+         "--plane-noise", opt->plane_noise,
+         "Per-observation plane-factor noise model: inliers (default; one "
+         "sqrt(median_N/N) scalar on both channels), fit (sigmas from each "
+         "detection's residual RMS, support and in-plane extent, weighting the "
+         "normal and distance channels separately), or uniform (no weighting). "
+         "Use 'fit' on captures whose poses DRIFT — measured better than "
+         "'inliers' on every metric of all three ARKitScenes GT scans, but "
+         "worse on a non-drifting laser-GT scan, so it is not the default. "
+         "Pair it with --plane-weight-min 0.10 --plane-weight-max 15. "
+         "--plane-sigma-normal/-distance always describe a MEDIAN-quality "
+         "observation, so switching models redistributes authority between "
+         "observations without changing the plane term's overall weight")
+      ->default_val(opt->plane_noise)
+      ->check(CLI::IsMember({"uniform", "inliers", "fit"}));
   sub->add_flag("--no-plane-inlier-weight", opt->no_plane_inlier_weight,
-                "Disable per-observation inlier weighting of plane factors "
-                "(weight all planes equally regardless of support)");
+                "Deprecated spelling of --plane-noise uniform (kept so the "
+                "configurations recorded in issue #225 stay reproducible); "
+                "overrides --plane-noise when given");
   sub->add_option("--plane-weight-min", opt->plane_weight_min,
-                  "Min plane-factor sigma scale (strongest, best-supported "
-                  "planes)")
+                  "Min plane-factor sigma scale (most authority a single "
+                  "observation may earn). Defaults are tuned for --plane-noise "
+                  "fit; the legacy 'inliers' model was tuned at 0.5")
       ->default_val(opt->plane_weight_min);
-  sub->add_option("--plane-weight-max", opt->plane_weight_max,
-                  "Max plane-factor sigma scale (weakest, least-supported "
-                  "planes)")
+  sub->add_option(
+         "--plane-weight-max", opt->plane_weight_max,
+         "Max plane-factor sigma scale (least authority). Defaults are "
+         "tuned for --plane-noise fit; the legacy 'inliers' model was "
+         "tuned at 3.0. If most observations hit the clamp, the clamp "
+         "— not the fit quality — is setting the weights (warned about "
+         "at run time); widen the range")
       ->default_val(opt->plane_weight_max);
   sub->add_option("--prior-sigma-rot", opt->prior_sigma_rot,
                   "First-pose gauge prior rotation std (rad)")
@@ -307,7 +328,14 @@ int run_subcommand_optimize(SubcommandOptimizeOptions const &opt,
     options.underconstrained_odom_scale = opt.underconstrained_odom_scale;
     options.plane_sigma_normal = opt.plane_sigma_normal;
     options.plane_sigma_distance = opt.plane_sigma_distance;
-    options.plane_weight_by_inliers = !opt.no_plane_inlier_weight;
+    options.plane_noise_model =
+        opt.no_plane_inlier_weight
+            ? reusex::geometry::PlaneNoiseModel::uniform
+            : (opt.plane_noise == "uniform"
+                   ? reusex::geometry::PlaneNoiseModel::uniform
+                   : (opt.plane_noise == "inliers"
+                          ? reusex::geometry::PlaneNoiseModel::inlier_count
+                          : reusex::geometry::PlaneNoiseModel::fit_geometry));
     options.plane_weight_min = opt.plane_weight_min;
     options.plane_weight_max = opt.plane_weight_max;
     options.prior_sigma_rot = opt.prior_sigma_rot;
@@ -350,12 +378,13 @@ int run_subcommand_optimize(SubcommandOptimizeOptions const &opt,
     int logId = db.log_pipeline_start(
         "pose_optimization_plane_graph",
         fmt::format(
-            R"({{"min_observations":{},"assoc_normal_angle":{},"assoc_distance":{},"max_planes_per_frame":{},"min_plane_inliers":{},"use_gnc":{},"iterations":{},"seed":{},"dry_run":{},"loop_closure":{},"loop_trust":{},"pcm":{},"loop_edges_file":"{}","loop_edges_min_disagreement":{}}})",
+            R"({{"min_observations":{},"assoc_normal_angle":{},"assoc_distance":{},"max_planes_per_frame":{},"min_plane_inliers":{},"plane_noise":"{}","use_gnc":{},"iterations":{},"seed":{},"dry_run":{},"loop_closure":{},"loop_trust":{},"pcm":{},"loop_edges_file":"{}","loop_edges_min_disagreement":{}}})",
             opt.min_observations, opt.assoc_normal_angle, opt.assoc_distance,
-            opt.max_planes_per_frame, opt.min_plane_inliers, !opt.no_gnc,
-            opt.iterations, opt.seed, opt.dry_run, opt.loop_closure,
-            opt.loop_trust, !opt.loop_no_pcm, opt.loop_edges_file,
-            opt.loop_edges_min_disagreement));
+            opt.max_planes_per_frame, opt.min_plane_inliers,
+            opt.no_plane_inlier_weight ? "uniform" : opt.plane_noise,
+            !opt.no_gnc, opt.iterations, opt.seed, opt.dry_run,
+            opt.loop_closure, opt.loop_trust, !opt.loop_no_pcm,
+            opt.loop_edges_file, opt.loop_edges_min_disagreement));
 
     auto result =
         reusex::geometry::optimize_sensor_poses(db, options, opt.dry_run);
@@ -369,6 +398,12 @@ int run_subcommand_optimize(SubcommandOptimizeOptions const &opt,
     spdlog::info("Factor-graph error {:.4f} -> {:.4f}, max pose shift {:.4f} m",
                  result.initial_error, result.final_error,
                  result.max_pose_shift);
+    if (result.median_fit_sigma_normal > 0.0)
+      spdlog::info(
+          "Plane measurement noise: median fit sigma {:.5f} rad / {:.5f} m; "
+          "{} strong and {} weak observations hit the sigma-scale clamp",
+          result.median_fit_sigma_normal, result.median_fit_sigma_distance,
+          result.plane_noise_clamped_low, result.plane_noise_clamped_high);
     if (opt.loop_closure || !opt.loop_edges_file.empty())
       spdlog::info("Loop closure: {} wide-baseline edges added to the graph",
                    result.loop_edges);

@@ -20,6 +20,7 @@
 
 #include <Eigen/Geometry>
 
+#include <cmath>
 #include <vector>
 
 using namespace reusex;
@@ -594,5 +595,115 @@ TEST_CASE("PlaneGraph ignores out-of-range loop edges",
   REQUIRE(res.loop_edges == 0); // the invalid edge was skipped
   for (size_t i = 0; i < frames.size(); ++i)
     REQUIRE((frames[i].world_pose.matrix() - before[i].matrix()).norm() ==
+            0.0f);
+}
+
+// --- Per-observation plane noise models (#225) ------------------------------
+//
+// plane_fit_sigmas itself is covered exhaustively in test_plane_fit_sigmas.cpp.
+// What these cases guard is the WIRING: that the scales computed from the fit
+// statistics reach the factors without breaking the optimizer, and that all
+// three models remain interchangeable on the same fixture. A NaN or zero scale
+// would not fail to compile — it would silently produce a graph whose plane
+// factors are infinitely trusted or entirely ignored, which is exactly the
+// class of bug that cost this issue two rounds of bad numbers.
+
+TEST_CASE("PlaneGraph recovers drift under every plane-noise model",
+          "[plane_graph][optimize][noise]") {
+  const Eigen::Affine3f truth = Eigen::Affine3f::Identity();
+
+  auto build = [&]() {
+    std::vector<FrameSurfels> frames;
+    for (int i = 0; i < 4; ++i)
+      frames.push_back(make_corner_frame(i));
+    frames[0].world_pose = truth; // gauge anchor
+    frames[1].world_pose =
+        drift(0.04f, {1, 1, 1}, {0.03f, -0.02f, 0.015f}) * truth;
+    frames[2].world_pose =
+        drift(0.05f, {0, 1, 0}, {-0.025f, 0.03f, -0.01f}) * truth;
+    frames[3].world_pose =
+        drift(0.03f, {1, 0, 1}, {0.02f, 0.02f, 0.02f}) * truth;
+    return frames;
+  };
+
+  // Seed error, identical for every model since the fixture is rebuilt.
+  std::vector<float> seed_terr;
+  {
+    auto f = build();
+    for (int i = 1; i < 4; ++i)
+      seed_terr.push_back(pose_trans_error(f[i].world_pose, truth));
+  }
+
+  auto run = [&](PlaneNoiseModel model) {
+    auto frames = build();
+    PlaneGraphOptions o = test_options();
+    o.plane_noise_model = model;
+    PlaneGraphOptimizer optimizer(o);
+    PlaneGraphResult res = optimizer.optimize(frames);
+
+    REQUIRE(res.converged);
+    REQUIRE(res.landmarks >= 3);
+    REQUIRE(res.final_error <= res.initial_error);
+    // Every drifted frame moves toward truth, whichever model weighted it.
+    for (int i = 1; i < 4; ++i) {
+      const float terr = pose_trans_error(frames[i].world_pose, truth);
+      INFO("frame " << i << " trans " << seed_terr[i - 1] << " -> " << terr);
+      REQUIRE(terr < seed_terr[i - 1]);
+      REQUIRE(terr < 0.01f);
+    }
+    return res;
+  };
+
+  SECTION("uniform") {
+    const auto res = run(PlaneNoiseModel::uniform);
+    // No weighting means nothing to clamp and no fit statistics to report.
+    REQUIRE(res.plane_noise_clamped_low == 0);
+    REQUIRE(res.plane_noise_clamped_high == 0);
+    REQUIRE(res.median_fit_sigma_normal == 0.0);
+  }
+
+  SECTION("inlier_count (legacy)") { run(PlaneNoiseModel::inlier_count); }
+
+  SECTION("fit_geometry (default)") {
+    const auto res = run(PlaneNoiseModel::fit_geometry);
+    // The run must have produced usable, strictly positive fit statistics —
+    // a zero here would mean the detections carried no residual/extent and the
+    // scales silently collapsed to the clamp.
+    REQUIRE(res.median_fit_sigma_normal > 0.0);
+    REQUIRE(res.median_fit_sigma_distance > 0.0);
+    REQUIRE(std::isfinite(res.median_fit_sigma_normal));
+    REQUIRE(std::isfinite(res.median_fit_sigma_distance));
+  }
+}
+
+TEST_CASE("PlaneGraph plane-noise weighting is deterministic",
+          "[plane_graph][optimize][noise]") {
+  // STANDARDS §6: the noise scales are a pure function of the (seeded) RANSAC
+  // fits, so two identical runs must agree bit for bit — otherwise none of the
+  // before/after measurements in #225 mean anything.
+  auto build = [&]() {
+    std::vector<FrameSurfels> frames;
+    for (int i = 0; i < 3; ++i)
+      frames.push_back(make_corner_frame(i));
+    frames[1].world_pose = drift(0.04f, {1, 1, 1}, {0.03f, -0.02f, 0.015f});
+    frames[2].world_pose = drift(0.05f, {0, 1, 0}, {-0.025f, 0.03f, -0.01f});
+    return frames;
+  };
+
+  PlaneGraphOptions o = test_options();
+  o.plane_noise_model = PlaneNoiseModel::fit_geometry;
+
+  auto a = build();
+  auto b = build();
+  PlaneGraphResult ra = PlaneGraphOptimizer(o).optimize(a);
+  PlaneGraphResult rb = PlaneGraphOptimizer(o).optimize(b);
+
+  REQUIRE(ra.median_fit_sigma_normal == rb.median_fit_sigma_normal);
+  REQUIRE(ra.median_fit_sigma_distance == rb.median_fit_sigma_distance);
+  REQUIRE(ra.plane_noise_clamped_low == rb.plane_noise_clamped_low);
+  REQUIRE(ra.plane_noise_clamped_high == rb.plane_noise_clamped_high);
+  REQUIRE(ra.final_error == rb.final_error);
+  for (size_t i = 0; i < a.size(); ++i)
+    REQUIRE((a[i].world_pose.matrix() - b[i].world_pose.matrix()).norm() ==
             0.0f);
 }

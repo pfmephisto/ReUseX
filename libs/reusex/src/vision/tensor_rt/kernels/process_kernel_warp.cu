@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 #include "vision/tensor_rt/common/check.hpp"
 #include "vision/tensor_rt/kernels/postprocess.cuh"
 #include "vision/tensor_rt/kernels/process_kernel_warp.hpp"

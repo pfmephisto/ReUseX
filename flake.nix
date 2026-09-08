@@ -77,9 +77,9 @@
               enable = true;
               types_or = ["c++" "c" "cuda"];
             };
-            # reuse = {
-            #   enable = true;
-            # };
+            reuse = {
+              enable = true;
+            };
             git-lfs-pre-push = {
               enable = true;
               name = "git-lfs pre-push";

@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 #pragma once
 #include "reusex/vision/IDataset.hpp"
 #include "reusex/vision/IModel.hpp"
@@ -32,10 +36,10 @@ class IMLBackend {
                bool use_cuda = false) = 0;
 
   /* Creates a stateful video model (IVideoModel) of the given type. Unlike
-   * create_model, this returns a temporally-stateful tracker that MUST be driven
-   * in frame order (see IVideoModel). The default implementation throws, so
-   * backends without a video path compile unchanged; backends that support it
-   * (e.g. TensorRT/SAM 3.1) override this.
+   * create_model, this returns a temporally-stateful tracker that MUST be
+   * driven in frame order (see IVideoModel). The default implementation throws,
+   * so backends without a video path compile unchanged; backends that support
+   * it (e.g. TensorRT/SAM 3.1) override this.
    *
    * @param type The type of video model to create.
    * @param modelPath The filesystem path to the model directory.

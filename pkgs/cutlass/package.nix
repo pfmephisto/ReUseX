@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
 {fetchFromGitHub}:
 # Pre-fetched source for NVIDIA CUTLASS.
 # Not built as a standalone package — provided as CPM_cutlass_SOURCE

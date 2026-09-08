@@ -1,6 +1,10 @@
-#include <cuda_runtime.h>
+// SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 #include "vision/tensor_rt/common/check.hpp"
 #include "vision/tensor_rt/common/memory.hpp" // Assume the file name is memory.hpp
+#include <cuda_runtime.h>
 
 namespace reusex::vision::tensor_rt::tensor {
 

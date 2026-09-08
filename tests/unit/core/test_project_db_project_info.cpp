@@ -4,29 +4,18 @@
 #include <catch2/catch_test_macros.hpp>
 #include <core/ProjectDB.hpp>
 
+#include "../../support/temp_path.hpp"
+
 #include <cstdio>
 #include <filesystem>
-#include <iostream>
 
 using namespace reusex;
 
 namespace fs = std::filesystem;
 
 // Helper: create a temp database path that auto-cleans
-struct TempDB {
-  fs::path path;
-  TempDB()
-      : path(fs::temp_directory_path() /
-             ("test_projectdb_project_info_" +
-              std::to_string(reinterpret_cast<uintptr_t>(this)) + ".rux")) {}
-  ~TempDB() noexcept {
-    std::error_code ec;
-    fs::remove(path, ec);
-    if (ec) {
-      std::cerr << "Warning: Failed to remove temp DB file " << path << ": "
-                << ec.message() << std::endl;
-    }
-  }
+struct TempDB : reusex::test_support::TempPath {
+  TempDB() : TempPath("test_projectdb_project_info") {}
 };
 
 TEST_CASE("ProjectDB::project_summary() includes project information",

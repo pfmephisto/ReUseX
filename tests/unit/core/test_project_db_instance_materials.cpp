@@ -8,6 +8,8 @@
 #include <core/ProjectDB.hpp>
 #include <types.hpp>
 
+#include "../../support/temp_path.hpp"
+
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -18,16 +20,8 @@ namespace fs = std::filesystem;
 
 namespace {
 
-struct TempDB {
-  fs::path path;
-  TempDB()
-      : path(fs::temp_directory_path() /
-             ("test_projectdb_instmat_" +
-              std::to_string(reinterpret_cast<uintptr_t>(this)) + ".rux")) {}
-  ~TempDB() noexcept {
-    std::error_code ec;
-    fs::remove(path, ec);
-  }
+struct TempDB : reusex::test_support::TempPath {
+  TempDB() : TempPath("test_projectdb_instmat") {}
 };
 
 // Build a small instance-label cloud so getCloudId() resolves.

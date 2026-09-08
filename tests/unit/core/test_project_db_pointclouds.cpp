@@ -15,9 +15,10 @@
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 
+#include "../../support/temp_path.hpp"
+
 #include <cstdio>
 #include <filesystem>
-#include <iostream>
 
 using namespace reusex;
 using namespace Catch::Matchers;
@@ -25,20 +26,8 @@ using namespace Catch::Matchers;
 namespace fs = std::filesystem;
 
 // Helper: create a temp database path that auto-cleans
-struct TempDB {
-  fs::path path;
-  TempDB()
-      : path(fs::temp_directory_path() /
-             ("test_projectdb_" +
-              std::to_string(reinterpret_cast<uintptr_t>(this)) + ".rux")) {}
-  ~TempDB() noexcept {
-    std::error_code ec;
-    fs::remove(path, ec);
-    if (ec) {
-      std::cerr << "Warning: Failed to remove temp DB file " << path << ": "
-                << ec.message() << std::endl;
-    }
-  }
+struct TempDB : reusex::test_support::TempPath {
+  TempDB() : TempPath("test_projectdb") {}
 };
 
 // Helper: create a small XYZRGB cloud with known values

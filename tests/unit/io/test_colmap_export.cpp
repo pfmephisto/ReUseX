@@ -8,6 +8,8 @@
 #include <core/SensorIntrinsics.hpp>
 #include <io/colmap.hpp>
 
+#include "../../support/temp_path.hpp"
+
 #include <opencv2/core.hpp>
 
 #include <Eigen/Core>
@@ -27,17 +29,8 @@ namespace fs = std::filesystem;
 
 namespace {
 
-struct TempDir {
-  fs::path path;
-  TempDir() {
-    path = fs::temp_directory_path() /
-           ("test_colmap_" + std::to_string(reinterpret_cast<uintptr_t>(this)));
-    fs::create_directories(path);
-  }
-  ~TempDir() noexcept {
-    std::error_code ec;
-    fs::remove_all(path, ec);
-  }
+struct TempDir : reusex::test_support::TempDir {
+  TempDir() : reusex::test_support::TempDir("test_colmap") {}
 };
 
 std::array<double, 16> identity4() {
@@ -57,9 +50,9 @@ cv::Mat make_image(int w, int h, cv::Vec3b fill = {100, 150, 200}) {
   return img;
 }
 
-core::SensorIntrinsics make_intrinsics(double fx, double fy, double cx,
-                                       double cy, int w, int h,
-                                       std::array<double, 16> local = identity4()) {
+core::SensorIntrinsics
+make_intrinsics(double fx, double fy, double cx, double cy, int w, int h,
+                std::array<double, 16> local = identity4()) {
   core::SensorIntrinsics intr;
   intr.fx = fx;
   intr.fy = fy;
@@ -122,8 +115,7 @@ TEST_CASE("export_colmap_scene writes the expected directory layout",
   REQUIRE(fs::exists(out_dir.path / "images" / "00000003.jpg"));
 }
 
-TEST_CASE("identical intrinsics collapse into one camera",
-          "[io][colmap]") {
+TEST_CASE("identical intrinsics collapse into one camera", "[io][colmap]") {
   TempDir tdb_dir;
   TempDir out_dir;
   ProjectDB db(tdb_dir.path / "p.rux");
@@ -150,8 +142,7 @@ TEST_CASE("identical intrinsics collapse into one camera",
   REQUIRE_THAT(cx, WithinAbs(256.0, 1e-6));
 }
 
-TEST_CASE("differing intrinsics produce distinct cameras",
-          "[io][colmap]") {
+TEST_CASE("differing intrinsics produce distinct cameras", "[io][colmap]") {
   TempDir tdb_dir;
   TempDir out_dir;
   ProjectDB db(tdb_dir.path / "p.rux");
@@ -228,8 +219,8 @@ TEST_CASE("pose composition: pose * local_transform = camera-in-world",
 
   Eigen::Matrix4d T_wc_expected = T_wb * T_bc;
 
-  auto intr = make_intrinsics(500.0, 500.0, 256.0, 192.0, 512, 384,
-                              from_eigen(T_bc));
+  auto intr =
+      make_intrinsics(500.0, 500.0, 256.0, 192.0, 512, 384, from_eigen(T_bc));
   seed_sensor_frame(db, 7, from_eigen(T_wb), intr);
 
   reusex::io::export_colmap_scene(db, out_dir.path);
@@ -252,8 +243,7 @@ TEST_CASE("pose composition: pose * local_transform = camera-in-world",
 
   for (int r = 0; r < 4; ++r)
     for (int c = 0; c < 4; ++c)
-      REQUIRE_THAT(T_wc_round_trip(r, c),
-                   WithinAbs(T_wc_expected(r, c), 1e-6));
+      REQUIRE_THAT(T_wc_round_trip(r, c), WithinAbs(T_wc_expected(r, c), 1e-6));
 }
 
 TEST_CASE("LiDAR seed populates points3D.txt with sub-sampling",

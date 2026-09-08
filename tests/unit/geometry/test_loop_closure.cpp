@@ -27,6 +27,8 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
+#include "../../support/temp_path.hpp"
+
 #include <Eigen/Geometry>
 
 #include <cstdint>
@@ -69,19 +71,9 @@ LoopEdge make_edge(int i, int j, const Eigen::Matrix4d &T_ij, int inliers) {
   return e;
 }
 
-/// Temp project database path that auto-cleans (mirrors the TempDB helper in
-/// tests/unit/core).
-struct TempDB {
-  fs::path path;
-  TempDB()
-      : path(fs::temp_directory_path() /
-             ("test_loop_closure_" +
-              std::to_string(reinterpret_cast<std::uintptr_t>(this)) +
-              ".rux")) {}
-  ~TempDB() noexcept {
-    std::error_code ec;
-    fs::remove(path, ec);
-  }
+/// Temp project database path that auto-cleans.
+struct TempDB : reusex::test_support::TempPath {
+  TempDB() : TempPath("test_loop_closure") {}
 };
 
 } // namespace

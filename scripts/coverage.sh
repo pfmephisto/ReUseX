@@ -20,13 +20,17 @@
 # Env overrides:
 #   COVERAGE_BUILD_DIR   build tree location (default: build-coverage/)
 #   COVERAGE_JOBS        parallel *build* jobs (default: min(nproc, 12))
-#   COVERAGE_CTEST_JOBS  parallel *ctest* jobs (default: 1, i.e. serial)
+#   COVERAGE_CTEST_JOBS  parallel *ctest* jobs (default: min(nproc, 12))
 #   COVERAGE_CMAKE_ARGS  extra args appended to the cmake configure step
 #
-# ctest defaults to serial (COVERAGE_CTEST_JOBS=1) rather than -j$(nproc):
-# the suite has known flaky ProjectDB tests under high parallelism (#262).
-# Serial is fine for coverage purposes - line/branch counts don't depend on
-# wall-clock time - so this trades a slower run for a reproducible report.
+# ctest now runs in parallel by default. It used to be pinned to serial
+# because the ProjectDB tests were flaky under -j: their temp-file helpers
+# derived names from `reinterpret_cast<uintptr_t>(this)`, so two concurrent
+# ctest worker processes could pick the same sqlite path (#262). That is
+# fixed - tests/support/temp_path.hpp builds names from pid + salt + counter
+# - so there is no longer a reason to serialize. Coverage counters are
+# per-process and merged by gcov afterwards, so parallelism does not change
+# the resulting line/branch numbers.
 #
 # CI hookup (issue #206's third task, "report coverage in CI") is deferred
 # until hosted CI is enabled - see .github/workflows/ci.yml's header comment
@@ -47,7 +51,7 @@ json_report="$report_dir/gcovr.json"
 
 nproc_val="$(nproc 2>/dev/null || echo 4)"
 build_jobs="${COVERAGE_JOBS:-$((nproc_val < 12 ? nproc_val : 12))}"
-ctest_jobs="${COVERAGE_CTEST_JOBS:-1}"
+ctest_jobs="${COVERAGE_CTEST_JOBS:-$build_jobs}"
 
 for tool in cmake gcovr; do
   if ! command -v "$tool" >/dev/null; then
@@ -67,7 +71,7 @@ cmake -B "$build_dir" -S "$repo_root" \
 echo "==> building (jobs=$build_jobs)"
 cmake --build "$build_dir" --parallel "$build_jobs"
 
-echo "==> running tests serially (ctest jobs=$ctest_jobs) — see #262 re: flaky ProjectDB tests under parallel ctest"
+echo "==> running tests (ctest jobs=$ctest_jobs)"
 # Coverage counters accumulate even if a test fails, so don't let a single
 # flaky test abort report generation; still surface the failure at the end.
 ctest_status=0

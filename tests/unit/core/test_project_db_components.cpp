@@ -9,6 +9,8 @@
 #include <geometry/BuildingComponent.hpp>
 #include <geometry/component_persistence.hpp>
 
+#include "../../support/temp_path.hpp"
+
 #include <cstdio>
 #include <filesystem>
 #include <iostream>
@@ -20,16 +22,8 @@ using Catch::Approx;
 namespace fs = std::filesystem;
 
 // Helper: create a temp database path that auto-cleans
-struct TempDB {
-  fs::path path;
-  TempDB()
-      : path(fs::temp_directory_path() /
-             ("test_projectdb_comp_" +
-              std::to_string(reinterpret_cast<uintptr_t>(this)) + ".rux")) {}
-  ~TempDB() noexcept {
-    std::error_code ec;
-    fs::remove(path, ec);
-  }
+struct TempDB : reusex::test_support::TempPath {
+  TempDB() : TempPath("test_projectdb_comp") {}
 };
 
 // Helper: build a rectangular window component

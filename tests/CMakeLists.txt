@@ -22,32 +22,84 @@ find_package(SQLite3 REQUIRED)
 # -----------------------------------------------
 # Collect test source files from unit/ directory
 # -----------------------------------------------
+#
+# The unit tests are split across TWO executables, purely for run-time speed
+# (#268). `catch_discover_tests` registers one ctest test per TEST_CASE, and
+# each one pays a full process start. When every test case linked the umbrella
+# `reusex` target the binary pulled in 505 shared objects — libtorch_cuda
+# (1.8 GB), TensorRT, cuOpt, NCCL, the OpenCV CUDA modules — and the dynamic
+# loader spent ~1.9 s per process before main() even ran. Multiplied by ~360
+# test cases that was ~11 minutes of pure relocation work.
+#
+# Only tests/unit/vision needs the ML stack, tests/unit/ruxd needs ruxd_lib
+# (which links `reusex` PRIVATE — for a static library that still propagates
+# to the final executable link), and tests/unit/visualize needs the PCL/Qt
+# viewer module. Those three directories get their own "heavy" binary;
+# everything else links just the modules it actually uses and starts an order
+# of magnitude faster.
+#
+# Test *names* are unchanged either way: ctest still sees one test per
+# TEST_CASE, so `ctest -R <name>` keeps working exactly as before.
 file(GLOB_RECURSE UNIT_TEST_SOURCES CONFIGURE_DEPENDS
      "${CMAKE_CURRENT_SOURCE_DIR}/unit/*.cpp")
 
-# -----------------------------------------------
-# Create unit test executable
-# -----------------------------------------------
-add_executable(reusex_unit_tests ${UNIT_TEST_SOURCES})
+set(HEAVY_TEST_SOURCES ${UNIT_TEST_SOURCES})
+list(FILTER HEAVY_TEST_SOURCES INCLUDE REGEX "/unit/(vision|ruxd|visualize)/")
 
-# Link against reusex library and Catch2. ruxd_lib carries the ruxd HTTP
-# routing/auth logic (everything but main()), so tests/unit/ruxd can exercise
-# it directly.
+set(LIGHT_TEST_SOURCES ${UNIT_TEST_SOURCES})
+list(FILTER LIGHT_TEST_SOURCES EXCLUDE REGEX "/unit/(vision|ruxd|visualize)/")
+
+# -----------------------------------------------
+# Create unit test executables
+# -----------------------------------------------
+add_executable(reusex_unit_tests ${LIGHT_TEST_SOURCES})
+
+# Deliberately NOT the umbrella `reusex` target: linking the individual
+# modules keeps reusex_vision (and with it libtorch/TensorRT) out of this
+# binary. Adding a test that needs vision means moving it to
+# tests/unit/vision/, not widening this list.
 target_link_libraries(reusex_unit_tests
     PRIVATE
-        reusex
-        ruxd_lib
+        reusex_core
+        reusex_io
+        reusex_utils
+        reusex_geometry_common
+        reusex_segmentation
+        reusex_reconstruction
+        reusex_slam
         Catch2::Catch2WithMain
         fmt::fmt
         OpenSSL::Crypto
         SQLite::SQLite3
 )
 
-# Include ReUseX headers from new location
 target_include_directories(reusex_unit_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/libs/reusex/include
     ${CMAKE_BINARY_DIR}/generated
 )
+
+# Vision + ruxd tests: these genuinely need the ML backends and the HTTP
+# routing/auth logic, so they carry the full dependency closure.
+if(HEAVY_TEST_SOURCES)
+    add_executable(reusex_unit_tests_vision ${HEAVY_TEST_SOURCES})
+
+    # ruxd_lib carries the ruxd HTTP routing/auth logic (everything but
+    # main()), so tests/unit/ruxd can exercise it directly.
+    target_link_libraries(reusex_unit_tests_vision
+        PRIVATE
+            reusex
+            ruxd_lib
+            Catch2::Catch2WithMain
+            fmt::fmt
+            OpenSSL::Crypto
+            SQLite::SQLite3
+    )
+
+    target_include_directories(reusex_unit_tests_vision PRIVATE
+        ${CMAKE_SOURCE_DIR}/libs/reusex/include
+        ${CMAKE_BINARY_DIR}/generated
+    )
+endif()
 
 # -----------------------------------------------
 # Integration tests (future)
@@ -94,7 +146,34 @@ endif()
 # -----------------------------------------------
 include(CTest)
 include(Catch)
-catch_discover_tests(reusex_unit_tests)
+
+# Discover each test binary twice, splitting on the Catch2 `[gpu]` tag.
+#
+# There is exactly one GPU on a dev box, and the cuOpt / cuDSS tests fall over
+# when several of them initialise the solver at the same time ("CUDSS call
+# ended unsuccessfully ... cudssSetThreadingLayer" at `ctest -j48`). That is a
+# device-contention problem, not the temp-path collision fixed in #262, and it
+# is the one thing that stopped the suite scaling past -j8.
+#
+# RESOURCE_LOCK makes ctest run every [gpu]-tagged test one at a time while
+# leaving the other ~350 free to run fully parallel. The locked set is small
+# (~11 tests, ~30 s total), well under the critical path set by the slowest
+# single test, so serializing them costs no wall time.
+#
+# Two calls on one target are safe: catch_discover_tests derives its generated
+# file names from a hash of TEST_SPEC, so the two sets do not overwrite each
+# other. Total discovered test count is unchanged.
+function(reusex_discover_tests target)
+    catch_discover_tests(${target} TEST_SPEC "~[gpu]")
+    catch_discover_tests(${target} TEST_SPEC "[gpu]"
+                         PROPERTIES RESOURCE_LOCK reusex_gpu)
+endfunction()
+
+reusex_discover_tests(reusex_unit_tests)
+
+if(HEAVY_TEST_SOURCES)
+    reusex_discover_tests(reusex_unit_tests_vision)
+endif()
 
 if(INTEGRATION_TEST_SOURCES)
     catch_discover_tests(reusex_integration_tests)

@@ -7,9 +7,10 @@
 
 #include <core/ProjectDB.hpp>
 
+#include "../../support/temp_path.hpp"
+
 #include <opencv2/core/mat.hpp>
 #include <sqlite3.h>
-#include <unistd.h>
 
 #include <array>
 #include <filesystem>
@@ -20,25 +21,10 @@ namespace fs = std::filesystem;
 
 namespace {
 
-// Unique per process AND per instance: ctest runs each test case in its own
-// process, and an address-derived name alone can collide between concurrent
-// processes (which then fight over the same sqlite file).
-struct TempPath {
-  fs::path path;
-  TempPath()
-      : path(fs::temp_directory_path() /
-             ("test_pano_db_" + std::to_string(::getpid()) + "_" +
-              std::to_string(counter()) + ".rux")) {}
-
-  static unsigned counter() {
-    static unsigned n = 0;
-    return n++;
-  }
-
-  ~TempPath() noexcept {
-    std::error_code ec;
-    fs::remove(path, ec);
-  }
+// Keeps the original "test_pano_db" filename prefix while delegating
+// uniqueness/cleanup to the shared helper.
+struct TempPath : reusex::test_support::TempPath {
+  TempPath() : reusex::test_support::TempPath("test_pano_db") {}
 };
 
 void exec(sqlite3 *db, const char *sql) {

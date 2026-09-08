@@ -16,7 +16,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
-#include <unistd.h> // getpid
+#include "../../support/temp_path.hpp"
 
 #include <cstdio>
 #include <filesystem>
@@ -29,21 +29,14 @@ using Catch::Matchers::WithinAbs;
 
 namespace {
 
-// RAII temp file holding the given JSON text. The pid is part of the name
-// because ctest runs each test case in its own process and `this` is a stack
-// address that repeats across them — without it, `ctest -j` lets two cases
-// write the same file.
+// RAII temp file holding the given JSON text. Naming/uniqueness/cleanup is
+// delegated to the shared TempPath helper (#262); this struct only adds the
+// "write the JSON contents up front" behaviour on top.
 struct TempJson {
-  std::filesystem::path path;
+  reusex::test_support::TempPath tmp{"reusex_loop_edges_test", ".json"};
+  const std::filesystem::path &path = tmp.path;
   explicit TempJson(const std::string &contents) {
-    path = std::filesystem::temp_directory_path() /
-           ("reusex_loop_edges_test_" + std::to_string(::getpid()) + "_" +
-            std::to_string(reinterpret_cast<std::uintptr_t>(this)) + ".json");
     std::ofstream(path) << contents;
-  }
-  ~TempJson() {
-    std::error_code ec;
-    std::filesystem::remove(path, ec);
   }
 };
 

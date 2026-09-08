@@ -9,3 +9,7 @@ tests/fixtures/**/*.db filter=lfs diff=lfs merge=lfs -text
 tests/fixtures/**/*.db3 filter=lfs diff=lfs merge=lfs -text
 tests/fixtures/**/*.e57 filter=lfs diff=lfs merge=lfs -text
 tests/fixtures/**/*.h5 filter=lfs diff=lfs merge=lfs -text
+# `.rux` project databases (sqlite3). Not in .gitignore, so nothing has to be
+# re-included for them -- but they are binary and only ever grow, so they go
+# through LFS like every other fixture blob (#204).
+tests/fixtures/**/*.rux filter=lfs diff=lfs merge=lfs -text

@@ -135,13 +135,19 @@ class Dataloader {
      * batch of data. If the current batch is not loaded, it will be loaded
      * from the dataloader.
      * @return A view of the current batch of data.
+     * @throws std::runtime_error if no batch is available for this index
+     * because the epoch has already finished — i.e. the loader was stopped
+     * (reconfigured or destroyed) while this iterator was live. Dereferencing
+     * an iterator of a stopped epoch is a caller error, and is reported rather
+     * than silently reading an empty optional (#280).
      * */
     BatchView operator*() const;
 
-    /* * Pre-increment operator for the iterator. It advances the iterator to
-     * the next batch of data. If the next batch is not loaded, it will be
-     * loaded from the dataloader.
-     * @return A reference to the advanced iterator.
+    /* * Moves the current batch out of the iterator. If the current batch is
+     * not loaded, it will be loaded from the dataloader first.
+     * @return An rvalue reference to the current batch.
+     * @throws std::runtime_error under the same stopped-epoch condition as
+     * operator*.
      * */
     Batch &&move_batch();
 

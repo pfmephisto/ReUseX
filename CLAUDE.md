@@ -2,6 +2,13 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Project Direction
+
+Project heading, priorities, and active workstreams live in
+[`docs/DIRECTION.md`](docs/DIRECTION.md). Read it before planning, reviewing, or
+filing issues. When work changes the project's direction, update it in the same
+PR with a dated changelog entry.
+
 ## Agent Model Selection
 
 The main session model is for **orchestration, guidance, review, and

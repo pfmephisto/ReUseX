@@ -1,0 +1,67 @@
+<!--
+SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+SPDX-License-Identifier: GPL-3.0-or-later
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="656" viewBox="0 0 900 656" font-family="Helvetica,Arial,sans-serif">
+<rect width="900" height="656" fill="#fcfcfb"/>
+<text x="300" y="30" fill="#0b0b0b" font-size="16" font-weight="600">A. Where the panorama loop edges go</text>
+<text x="300" y="50" fill="#52514e" font-size="12">NewOffice: 18 panoramas, 16 matched ≥ 2 frames, 95 independent per-frame resections</text>
+<text x="288" y="92" fill="#52514e" font-size="12.5" text-anchor="end">frame pairs proposed</text>
+<rect x="300" y="74" width="530.0" height="26" fill="#2a78d6" rx="4"/>
+<text x="839.0" y="92" fill="#0b0b0b" font-size="12.5" font-weight="600">278</text>
+<text x="288" y="132" fill="#52514e" font-size="12.5" text-anchor="end">after gap / seed / cap gates</text>
+<rect x="300" y="114" width="360.3" height="26" fill="#2a78d6" rx="4"/>
+<text x="669.3" y="132" fill="#0b0b0b" font-size="12.5" font-weight="600">189</text>
+<text x="288" y="172" fill="#52514e" font-size="12.5" text-anchor="end">survive PCM → reach the graph</text>
+<rect x="300" y="154" width="5.7" height="26" fill="#2a78d6" rx="4"/>
+<text x="314.7" y="172" fill="#0b0b0b" font-size="12.5" font-weight="600">3</text>
+<text x="300" y="200" fill="#52514e" font-size="11.5">186 of 189 edges fail PCM's mutual-consistency test. Force the rest</text>
+<text x="300" y="216" fill="#52514e" font-size="11.5">through (--loop-trust) and quality collapses (panel B, last row) — so</text>
+<text x="300" y="232" fill="#52514e" font-size="11.5">the rejection is the guardrail working, not misfiring.</text>
+<text x="300" y="274" fill="#0b0b0b" font-size="16" font-weight="600">B. GT-free flatness (lower is better)</text>
+<text x="300" y="294" fill="#52514e" font-size="12">rux analyze quality on the rebuilt cloud + planes, identical params per row</text>
+<rect x="300" y="304" width="10" height="10" fill="#2a78d6" rx="2"/>
+<text x="315" y="313" fill="#52514e" font-size="11.5">flatness_rms</text>
+<rect x="408" y="304" width="10" height="10" fill="#eb6834" rx="2"/>
+<text x="423" y="313" fill="#52514e" font-size="11.5">thickness_p90</text>
+<line x1="300.0" y1="322" x2="300.0" y2="566" stroke="#e2e1dd" stroke-width="1"/>
+<text x="300.0" y="582" fill="#52514e" font-size="11" text-anchor="middle">0</text>
+<line x1="388.3" y1="322" x2="388.3" y2="566" stroke="#e2e1dd" stroke-width="1"/>
+<text x="388.3" y="582" fill="#52514e" font-size="11" text-anchor="middle">10</text>
+<line x1="476.7" y1="322" x2="476.7" y2="566" stroke="#e2e1dd" stroke-width="1"/>
+<text x="476.7" y="582" fill="#52514e" font-size="11" text-anchor="middle">20</text>
+<line x1="565.0" y1="322" x2="565.0" y2="566" stroke="#e2e1dd" stroke-width="1"/>
+<text x="565.0" y="582" fill="#52514e" font-size="11" text-anchor="middle">30</text>
+<line x1="653.3" y1="322" x2="653.3" y2="566" stroke="#e2e1dd" stroke-width="1"/>
+<text x="653.3" y="582" fill="#52514e" font-size="11" text-anchor="middle">40</text>
+<line x1="741.7" y1="322" x2="741.7" y2="566" stroke="#e2e1dd" stroke-width="1"/>
+<text x="741.7" y="582" fill="#52514e" font-size="11" text-anchor="middle">50</text>
+<line x1="830.0" y1="322" x2="830.0" y2="566" stroke="#e2e1dd" stroke-width="1"/>
+<text x="830.0" y="582" fill="#52514e" font-size="11" text-anchor="middle">60</text>
+<text x="565.0" y="606" fill="#52514e" font-size="11.5" text-anchor="middle">millimetres</text>
+<text x="288" y="339" fill="#0b0b0b" font-size="12.5" text-anchor="end">no pose stage (seed poses)</text>
+<rect x="300" y="322" width="247.2" height="15" fill="#2a78d6" rx="4"/>
+<text x="555.2" y="334" fill="#0b0b0b" font-size="11.5" font-weight="500">27.98</text>
+<rect x="300" y="339" width="413.1" height="15" fill="#eb6834" rx="4"/>
+<text x="721.1" y="351" fill="#0b0b0b" font-size="11.5" font-weight="500">46.76</text>
+<text x="288" y="391" fill="#0b0b0b" font-size="12.5" text-anchor="end">optimize (baseline)</text>
+<rect x="300" y="374" width="222.1" height="15" fill="#2a78d6" rx="4"/>
+<text x="530.1" y="386" fill="#0b0b0b" font-size="11.5" font-weight="700">25.15</text>
+<rect x="300" y="391" width="362.1" height="15" fill="#eb6834" rx="4"/>
+<text x="670.1" y="403" fill="#0b0b0b" font-size="11.5" font-weight="500">41.00</text>
+<text x="288" y="443" fill="#0b0b0b" font-size="12.5" text-anchor="end">optimize --use-panoramas</text>
+<rect x="300" y="426" width="239.2" height="15" fill="#2a78d6" rx="4"/>
+<text x="547.2" y="438" fill="#0b0b0b" font-size="11.5" font-weight="500">27.08</text>
+<rect x="300" y="443" width="396.4" height="15" fill="#eb6834" rx="4"/>
+<text x="704.4" y="455" fill="#0b0b0b" font-size="11.5" font-weight="500">44.87</text>
+<text x="288" y="495" fill="#0b0b0b" font-size="12.5" text-anchor="end">…--loop-no-pcm</text>
+<rect x="300" y="478" width="239.0" height="15" fill="#2a78d6" rx="4"/>
+<text x="547.0" y="490" fill="#0b0b0b" font-size="11.5" font-weight="500">27.06</text>
+<rect x="300" y="495" width="392.1" height="15" fill="#eb6834" rx="4"/>
+<text x="700.1" y="507" fill="#0b0b0b" font-size="11.5" font-weight="500">44.39</text>
+<text x="288" y="547" fill="#0b0b0b" font-size="12.5" text-anchor="end">…--loop-no-pcm --loop-trust</text>
+<rect x="300" y="530" width="309.4" height="15" fill="#2a78d6" rx="4"/>
+<text x="617.4" y="542" fill="#0b0b0b" font-size="11.5" font-weight="500">35.03</text>
+<rect x="300" y="547" width="504.1" height="15" fill="#eb6834" rx="4"/>
+<text x="812.1" y="559" fill="#0b0b0b" font-size="11.5" font-weight="500">57.07</text>
+</svg>

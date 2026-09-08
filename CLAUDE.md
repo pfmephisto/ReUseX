@@ -295,6 +295,11 @@ and deleted the shims. `include/geometry/` now holds only the real
   current flag list rather than trusting a doc.
 - `JointPairwiseRegistration.hpp`: `rux register`
 - `PanoramaAlignment.hpp`: content-based 360 pose refinement, `rux align 360`
+- `PanoramaLoopEdges.hpp`: wide-baseline `LoopEdge`s derived from 360
+  panoramas (`rux optimize --use-panoramas`, #236). Each panorama is resected
+  INDEPENDENTLY against every frame it matches, in that frame's own optical
+  coordinates — reusing the aligned panorama *pose* instead would be circular
+  and carry no drift information. Does not require `rux align 360`.
 
 **geometry_common** (`include/geometry/`, layer 1½): the real (non-shim) headers
 there — `utils.hpp`, `cgal_utils.hpp`, `transform_utils.hpp`,

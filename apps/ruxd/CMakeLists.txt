@@ -36,6 +36,9 @@ target_link_libraries(ruxd_lib
         Crow::Crow
         nlohmann_json::nlohmann_json
         Threads::Threads
+        # PUBLIC: connection_pool.hpp (a public header, used by the unit tests)
+        # logs through spdlog.
+        spdlog::spdlog
     PRIVATE
         reusex
         PkgConfig::LIBPQXX

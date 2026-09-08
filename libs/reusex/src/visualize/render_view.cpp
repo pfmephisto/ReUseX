@@ -5,6 +5,7 @@
 #include "visualize/render_view.hpp"
 
 #include "core/ProjectDB.hpp"
+#include "core/SensorIntrinsics.hpp"
 #include "core/logging.hpp"
 #include "geometry/BuildingComponent.hpp"
 #include "geometry/component_persistence.hpp"
@@ -15,7 +16,6 @@
 
 #include <pcl/PolygonMesh.h>
 #include <pcl/common/colors.h>
-#include <pcl/common/common.h>
 #include <pcl/conversions.h>
 
 #include <vtkActor.h>
@@ -91,7 +91,7 @@ void install_vtk_log_bridge() {
   static const bool installed = [] {
     vtkLogger::SetStderrVerbosity(vtkLogger::VERBOSITY_OFF);
     vtkLogger::AddCallback("reusex", &vtk_log_callback, nullptr,
-                           vtkLogger::VERBOSITY_WARNING);
+                           vtkLogger::VERBOSITY_INFO);
     return true;
   }();
   (void)installed;
@@ -192,7 +192,7 @@ std::string producing_command(Layer layer) {
 }
 
 /// Load the geometry cloud shared by every point layer, failing loudly.
-CloudPtr load_geometry_cloud(ProjectDB &db, const RenderOptions &opts) {
+CloudPtr load_geometry_cloud(const ProjectDB &db, const RenderOptions &opts) {
   if (!db.has_point_cloud(opts.cloud_name)) {
     throw std::runtime_error("render: project has no point cloud named '" +
                              opts.cloud_name + "' — run `" +
@@ -376,7 +376,7 @@ double parallel_scale_for(double across, double up, double aspect,
                           double margin) {
   const double half_up =
       std::max(0.5 * up, 0.5 * across / std::max(aspect, 1e-9));
-  return std::max(half_up, 1e-6) * std::max(margin, 1.0);
+  return std::max(half_up, 1e-6) * margin;
 }
 
 /// Place the camera for a preset view, deterministically from @p bounds.
@@ -441,8 +441,7 @@ void place_preset_camera(vtkRenderer *renderer, const RenderOptions &opts,
   }
 
   renderer->ResetCamera();
-  if (opts.margin > 0.0)
-    cam->Zoom(1.0 / opts.margin);
+  cam->Zoom(1.0 / opts.margin); // margin is validated positive
   renderer->ResetCameraClippingRange();
 }
 
@@ -486,7 +485,7 @@ void place_explicit_camera(vtkRenderer *renderer, const RenderOptions &opts,
   // projection center with +x right and +y up, opposite in sign to an image
   // principal point measured from the top-left. Only the centered case is
   // covered by tests; see #294.
-  if (spec.cx > 0.0 && spec.cy > 0.0) {
+  if (spec.cx > 0.0 || spec.cy > 0.0) {
     const double wcx = -2.0 *
                        (spec.cx - 0.5 * static_cast<double>(opts.width)) /
                        static_cast<double>(opts.width);
@@ -526,8 +525,13 @@ cv::Mat to_bgr_image(vtkImageData *image, int width, int height) {
   }
 
   if (dims[0] != width || dims[1] != height) {
-    core::debug("render: framebuffer {}x{} differs from requested {}x{}",
-                dims[0], dims[1], width, height);
+    // render_view() documents an exact output size; silently handing back a
+    // different one would corrupt anything that lays images out (STANDARDS §5).
+    throw std::runtime_error(
+        "render: the offscreen framebuffer came back " +
+        std::to_string(dims[0]) + "x" + std::to_string(dims[1]) + " but " +
+        std::to_string(width) + "x" + std::to_string(height) +
+        " was requested — the GPU may be clamping the offscreen buffer size");
   }
   return out;
 }
@@ -554,6 +558,19 @@ void validate(const RenderOptions &opts) {
   if (opts.view == ViewPreset::explicit_camera && !opts.camera)
     throw std::runtime_error(
         "render: view is 'explicit_camera' but no camera was supplied");
+  if (opts.margin <= 0.0)
+    throw std::runtime_error("render: margin must be positive (got " +
+                             std::to_string(opts.margin) + ")");
+  if (opts.point_size <= 0.0)
+    throw std::runtime_error("render: point size must be positive (got " +
+                             std::to_string(opts.point_size) + ")");
+  // At +/-90 degrees the orbit view direction is parallel to the (0,0,1) up
+  // vector and the camera basis collapses.
+  if (opts.view == ViewPreset::orbit &&
+      std::abs(opts.orbit_elevation_deg) > 89.0)
+    throw std::runtime_error(
+        "render: orbit elevation must be within +/-89 degrees (got " +
+        std::to_string(opts.orbit_elevation_deg) + ")");
 }
 
 } // namespace
@@ -586,6 +603,30 @@ std::string_view to_string(Layer layer) {
   return "unknown";
 }
 
+std::string_view to_string(ViewPreset view) {
+  switch (view) {
+  case ViewPreset::top:
+    return "top";
+  case ViewPreset::front:
+    return "front";
+  case ViewPreset::orbit:
+    return "orbit";
+  case ViewPreset::explicit_camera:
+    return "frame";
+  }
+  return "unknown";
+}
+
+std::optional<ViewPreset> view_preset_from_string(std::string_view name) {
+  for (const ViewPreset view :
+       {ViewPreset::top, ViewPreset::front, ViewPreset::orbit,
+        ViewPreset::explicit_camera}) {
+    if (to_string(view) == name)
+      return view;
+  }
+  return std::nullopt;
+}
+
 const std::vector<Layer> &all_layers() {
   static const std::vector<Layer> layers{
       Layer::cloud,     Layer::labels, Layer::planes,    Layer::rooms,
@@ -593,7 +634,7 @@ const std::vector<Layer> &all_layers() {
   return layers;
 }
 
-cv::Mat render_view(ProjectDB &db, const RenderOptions &opts) {
+cv::Mat render_view(const ProjectDB &db, const RenderOptions &opts) {
   validate(opts);
   if (!db.is_open())
     throw std::runtime_error("render: project database is not open");
@@ -727,7 +768,7 @@ cv::Mat render_view(ProjectDB &db, const RenderOptions &opts) {
   // The whole point of this function: never touch a window manager. With the
   // flake's EGL-enabled VTK this succeeds with no DISPLAY set (#294).
   window->SetOffScreenRendering(1);
-  window->SetMultiSamples(0); // deterministic pixels across GPUs/drivers
+  window->SetMultiSamples(0); // removes MSAA sample-order variance
   window->AddRenderer(renderer);
   window->SetSize(opts.width, opts.height);
 
@@ -738,25 +779,88 @@ cv::Mat render_view(ProjectDB &db, const RenderOptions &opts) {
   }
 
   window->Render();
-
   core::debug("render: window class {}", window->GetClassName());
+
+  // A render window with no usable OpenGL implementation does not fail — it
+  // hands back a correctly sized frame of pure background. Nothing downstream
+  // can tell that apart from a legitimately empty scene, so check it here
+  // rather than let a black PNG be reported as success (STANDARDS §5).
+  if (window->SupportsOpenGL() == 0) {
+    throw std::runtime_error(
+        "render: the offscreen render window has no usable OpenGL "
+        "implementation (window class " +
+        std::string(window->GetClassName()) +
+        "); with no display this needs an EGL-capable VTK and a GPU device");
+  }
 
   vtkNew<vtkWindowToImageFilter> capture;
   capture->SetInput(window);
   capture->SetInputBufferTypeToRGB();
   capture->ReadFrontBufferOff();
+  // Update() re-renders by default; the frame is already drawn, and an orbit
+  // sweep would otherwise pay for 2 renders per view.
+  capture->ShouldRerenderOff();
   capture->Update();
 
   cv::Mat image = to_bgr_image(capture->GetOutput(), opts.width, opts.height);
 
+  // Loud, but not fatal: a uniform frame with geometry in the scene means
+  // nothing reached the framebuffer. It is legitimate only for an explicit
+  // camera the caller aimed away from the geometry.
+  double lo = 0.0;
+  double hi = 0.0;
+  cv::minMaxLoc(image.reshape(1), &lo, &hi);
+  if (lo == hi && (drawn_points + drawn_faces) > 0) {
+    core::warn("render: the frame is a uniform colour despite {} points and {} "
+               "faces in the scene — the camera may be pointed away from the "
+               "geometry, or the GL context produced nothing",
+               drawn_points, drawn_faces);
+  }
+
   core::info("render: {} points, {} faces -> {}x{} in {:.2f}s", drawn_points,
              drawn_faces, image.cols, image.rows, timer.elapsed());
 
-  // Release the GL context before returning; a stale EGL context outliving the
-  // call would keep the GPU handle open for the process's lifetime.
+  // vtkNew would finalize on destruction anyway; doing it here releases the
+  // EGL surface before the (potentially large) image is copied out.
   window->Finalize();
 
   return image;
+}
+
+CameraSpec camera_from_sensor_frame(const ProjectDB &db, int node_id, int width,
+                                    int height) {
+  if (width <= 0 || height <= 0)
+    throw std::runtime_error(
+        "render: camera_from_sensor_frame needs a positive output size (got " +
+        std::to_string(width) + "x" + std::to_string(height) + ")");
+
+  const core::SensorIntrinsics intr = db.sensor_frame_intrinsics(node_id);
+  if (intr.fx <= 0.0 || intr.fy <= 0.0 || intr.width <= 0 || intr.height <= 0) {
+    throw std::runtime_error(
+        "render: sensor frame " + std::to_string(node_id) +
+        " has no usable intrinsics (fx=" + std::to_string(intr.fx) +
+        ", fy=" + std::to_string(intr.fy) + ", " + std::to_string(intr.width) +
+        "x" + std::to_string(intr.height) + ")");
+  }
+
+  // The stored pose is body-to-world; the camera sits at pose * local_transform
+  // — the same composition segmentation/reconstruct.cpp uses to back-project
+  // depth, which is what makes a render line up with the captured frame.
+  const Eigen::Affine3f c2w =
+      geometry::to_affine(db.sensor_frame_pose(node_id)) *
+      geometry::to_affine(intr.local_transform);
+
+  // Intrinsics describe the captured frame; rescale them to the output size.
+  const double sx = static_cast<double>(width) / intr.width;
+  const double sy = static_cast<double>(height) / intr.height;
+
+  CameraSpec spec;
+  spec.pose = geometry::to_array16(c2w);
+  spec.fx = intr.fx * sx;
+  spec.fy = intr.fy * sy;
+  spec.cx = intr.cx * sx;
+  spec.cy = intr.cy * sy;
+  return spec;
 }
 
 } // namespace reusex::visualize

@@ -192,6 +192,9 @@ rux export ply|e57|rhino|colmap|speckle|csv|materialepas|semantic-images
 # Visualize point clouds and results
 rux view
 
+# Render to a PNG with no display (SSH, CI, agents)
+rux render -o plan.png --view top --layers cloud
+
 # Assemble multiple scans into unified model
 rux assemble <paths...> -o <out.rux>
 ```

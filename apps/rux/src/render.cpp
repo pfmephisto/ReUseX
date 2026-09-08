@@ -5,8 +5,6 @@
 #include "render.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
-#include <reusex/core/SensorIntrinsics.hpp>
-#include <reusex/geometry/transform_utils.hpp>
 #include <reusex/visualize/render_view.hpp>
 
 #include <fmt/format.h>
@@ -111,34 +109,6 @@ std::optional<int> parse_suffix(const std::string &text,
   return value;
 }
 
-/// Build the explicit camera that reproduces a stored sensor frame's viewpoint.
-viz::CameraSpec camera_from_frame(const reusex::ProjectDB &db, int node_id,
-                                  int width, int height) {
-  const auto intr = db.sensor_frame_intrinsics(node_id);
-  if (intr.fx <= 0.0 || intr.fy <= 0.0 || intr.width <= 0 || intr.height <= 0)
-    throw std::runtime_error(fmt::format(
-        "sensor frame {} has no usable intrinsics (fx={}, fy={}, {}x{})",
-        node_id, intr.fx, intr.fy, intr.width, intr.height));
-
-  // The stored pose is body-to-world; the camera sits at pose * local_transform
-  // (the same composition reconstruct.cpp uses to back-project depth).
-  const Eigen::Affine3f c2w =
-      reusex::geometry::to_affine(db.sensor_frame_pose(node_id)) *
-      reusex::geometry::to_affine(intr.local_transform);
-
-  // Intrinsics are expressed for the captured frame; rescale to the output.
-  const double sx = static_cast<double>(width) / intr.width;
-  const double sy = static_cast<double>(height) / intr.height;
-
-  viz::CameraSpec spec;
-  spec.pose = reusex::geometry::to_array16(c2w);
-  spec.fx = intr.fx * sx;
-  spec.fy = intr.fy * sy;
-  spec.cx = intr.cx * sx;
-  spec.cy = intr.cy * sy;
-  return spec;
-}
-
 /// `/tmp/view.png` + index 3 -> `/tmp/view_003.png`.
 fs::path numbered_path(const fs::path &base, int index) {
   fs::path out = base;
@@ -163,7 +133,7 @@ void setup_subcommand_render(CLI::App &app,
 
   // Defaults come from the library options struct — never redefined here.
   const viz::RenderOptions defaults;
-  opt->view = "top";
+  opt->view = std::string(viz::to_string(defaults.view));
   opt->layers = default_layer_list(defaults);
   opt->size = fmt::format("{}x{}", defaults.width, defaults.height);
   opt->cloud_name = defaults.cloud_name;
@@ -255,13 +225,19 @@ int run_subcommand_render(SubcommandRenderOptions const &opt,
     } else if (opt.view == "orbit") {
       render_opts.view = viz::ViewPreset::orbit;
     } else if (const auto count = parse_suffix(opt.view, "orbit")) {
+      // Guard the count here: the render loop below would otherwise spin zero
+      // times and report success without writing a file, never reaching the
+      // library's own validation (STANDARDS §5).
+      if (*count < 1)
+        throw std::runtime_error("--view orbit:N needs N >= 1 (got '" +
+                                 opt.view + "')");
       render_opts.view = viz::ViewPreset::orbit;
       render_opts.orbit_count = *count;
     } else if (const auto node = parse_suffix(opt.view, "frame")) {
       render_opts.view = viz::ViewPreset::explicit_camera;
       frame_id = *node;
-      render_opts.camera =
-          camera_from_frame(db, *node, render_opts.width, render_opts.height);
+      render_opts.camera = viz::camera_from_sensor_frame(
+          db, *node, render_opts.width, render_opts.height);
     } else {
       throw std::runtime_error(
           "unknown --view '" + opt.view +

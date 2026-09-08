@@ -586,6 +586,13 @@ Anything not found there is not a dependency.
 - E57Format - point cloud exchange format
 - OpenNURBS - Rhino 3D (.3dm) files
 - OpenCV (`core`, `imgproc`, `highgui`) - image processing
+- VTK (`CommonCore`, `CommonDataModel`, `CommonExecutionModel`, `RenderingCore`,
+  `RenderingOpenGL2`) - the rendering backend behind `reusex_visualize`'s
+  headless `render_view()`. Arrives in the closure via PCL's visualization
+  module, but is `find_package`d directly because the module uses the VTK API
+  and needs `vtk_module_autoinit`. Headless rendering depends on this VTK being
+  built with `VTK_OPENGL_HAS_EGL` (the flake's is): with no X/Wayland session
+  VTK falls back to `vtkEGLRenderWindow` and still renders on the GPU.
 - exiv2 - photo EXIF metadata
 - CURL + OpenSSL + nlohmann_json - Speckle / HTTP transport
 - No HDF5

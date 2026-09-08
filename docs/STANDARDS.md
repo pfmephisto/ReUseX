@@ -22,7 +22,7 @@ only depend on modules in lower layers, and this is **link-enforced** (#222):
 an illegal dependency is a link error, not just a convention.
 
 ```
-Layer 4:  visualize  pipeline                  (visualize: PCL, thin — see note below)
+Layer 4:  visualize  pipeline                  (visualize: PCL/VTK — see note below)
                                                (pipeline: stage execution + job runner)
 Layer 3:  segmentation  reconstruction  slam  io  vision   (peers — MUST NOT link each other)
 Layer 2:  core                                 (ProjectDB, logging, materials, stages)
@@ -89,7 +89,8 @@ The allowance comes with obligations:
   geometry types. The `BuildingComponent <-> ComponentRecord` mapping lives on
   the geometry side, in the header-only adapter
   `geometry/component_persistence.hpp`, which is compiled into its consumers
-  (`io`, `apps/rux`, tests) and deliberately not into `reusex_geometry_common`,
+  (`io`, `visualize`, `apps/rux`, tests) and deliberately not into
+  `reusex_geometry_common`,
   so that module keeps its Layer-1½ position (#227).
 - `apps/rux/` subcommands are thin wrappers: parse arguments, validate, call
   one library entry point, report. Business logic lives in the library.

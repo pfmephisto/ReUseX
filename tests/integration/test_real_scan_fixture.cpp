@@ -307,11 +307,17 @@ TEST_CASE("Real-scan fixture: frames reconstruct and segment within bounds",
     opts.width = 1200;
     opts.height = 900;
 
+    // Deliberately no assertion on the write: this is an opt-in debugging aid,
+    // and an unwritable output directory must not fail the run it is meant to
+    // help diagnose.
     const auto write = [&out_dir](const cv::Mat &image,
                                   const std::string &name) {
       const fs::path path = out_dir / name;
-      REQUIRE(cv::imwrite(path.string(), image));
-      WARN("wrote render artifact " << path);
+      if (cv::imwrite(path.string(), image)) {
+        WARN("wrote render artifact " << path);
+      } else {
+        WARN("could not write render artifact " << path);
+      }
     };
 
     write(reusex::visualize::render_view(db, opts), "office_corridor_top.png");

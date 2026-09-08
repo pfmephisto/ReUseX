@@ -71,6 +71,15 @@ enum class ViewPreset {
   explicit_camera,
 };
 
+/// The canonical name of @p view, as accepted by `rux render --view`.
+///
+/// `orbit` and `explicit_camera` name the *mode*; the CLI spells them
+/// `orbit:N` and `frame:<node_id>` because both need a parameter.
+std::string_view to_string(ViewPreset view);
+
+/// Parse a bare view-preset name. @return std::nullopt if @p name is not one.
+std::optional<ViewPreset> view_preset_from_string(std::string_view name);
+
 /// An explicit camera: rigid pose plus pinhole intrinsics.
 ///
 /// The layout deliberately matches what ProjectDB hands out for a captured
@@ -93,7 +102,9 @@ struct CameraSpec {
 /// mirrors these values into its `--help` and never redefines them
 /// (STANDARDS §4).
 struct RenderOptions {
-  /// Layers to draw, back to front. Empty is an error.
+  /// Layers to draw. Empty is an error. All layers are opaque and
+  /// depth-tested, so the order only matters where two layers put geometry at
+  /// the same depth (e.g. `cloud` and `planes`, which draw the same points).
   std::vector<Layer> layers{Layer::cloud};
 
   /// Named geometry cloud supplying point positions for every point layer.
@@ -122,11 +133,9 @@ struct RenderOptions {
   /// Point sprite size in pixels.
   double point_size = 2.0;
 
-  /// Framing slack around the scene bounding box (1.0 = tight fit).
+  /// Framing slack around the scene bounding box: 1.0 is a tight fit, larger
+  /// pulls back, smaller crops in. Must be positive.
   double margin = 1.08;
-
-  /// Draw a subtle ground grid and axes for scale reference.
-  bool show_axes = false;
 };
 
 /// Render one view of @p db to an image.
@@ -135,14 +144,33 @@ struct RenderOptions {
 /// geometry actually drawn, so two runs over the same project frame the same
 /// shot (STANDARDS §6).
 ///
-/// @param db    An open project. Read-only access is sufficient.
+/// Side effect, once per process: VTK's own diagnostics are rerouted into
+/// ReUseX logging (`core/logging.hpp`) and its stderr sink is switched off, so
+/// library code does not write to stderr behind the caller's back. This is
+/// global to VTK and is not undone — a process that also opens the interactive
+/// viewer will see its VTK messages through the ReUseX log too.
+///
+/// @param db    An open project. Only read.
 /// @param opts  What and how to draw.
 /// @return An 8-bit 3-channel BGR image of size opts.width x opts.height,
 ///         ready for `cv::imwrite`.
 /// @throws std::runtime_error if the project is not open, the options are
 ///         invalid, a requested layer's data is missing (the message names the
-///         stage to run first), or the GPU/EGL context cannot be created.
-cv::Mat render_view(ProjectDB &db, const RenderOptions &opts);
+///         stage to run first), the GPU/EGL context has no usable OpenGL
+///         implementation, or the framebuffer comes back at the wrong size.
+cv::Mat render_view(const ProjectDB &db, const RenderOptions &opts);
+
+/// Build the camera that reproduces a stored sensor frame's viewpoint.
+///
+/// Composes the frame's world pose with its camera-to-base local transform and
+/// rescales the pinhole intrinsics from the captured frame size to @p width x
+/// @p height. Lives here rather than in the CLI so that "camera-to-world =
+/// pose * local_transform" has exactly one definition outside the
+/// back-projection that owns it (STANDARDS §1/§4).
+///
+/// @throws std::runtime_error if the frame has no usable intrinsics.
+CameraSpec camera_from_sensor_frame(const ProjectDB &db, int node_id, int width,
+                                    int height);
 
 } // namespace visualize
 } // namespace reusex

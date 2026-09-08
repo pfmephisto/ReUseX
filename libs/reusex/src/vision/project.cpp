@@ -95,6 +95,21 @@ inline rtabmap::CameraModel createCameraModelFromIntrinsics(
 auto project(const ProjectDB &db, CloudConstPtr cloud) -> CloudLPtr {
   reusex::trace("calling project");
 
+  // Validate the input before anything downstream can see it (STANDARDS §5).
+  // Without this, an empty cloud reaches
+  // rtabmap::util3d::projectCloudToCamera() and dies on an RTABMap-internal
+  // UASSERT ("Condition (!laserScan->empty()) not met!") that names neither
+  // this stage nor the empty input.
+  if (!cloud) {
+    throw std::runtime_error(
+        "project (projecting_labels): input cloud pointer is null");
+  }
+  if (cloud->empty()) {
+    throw std::runtime_error(
+        "project (projecting_labels): input cloud is empty (0 points) — run "
+        "`rux create clouds` before `rux create project`");
+  }
+
   // Create output labeled point cloud
   CloudLPtr labels(new CloudL);
   labels->points.resize(cloud->points.size());
@@ -107,6 +122,19 @@ auto project(const ProjectDB &db, CloudConstPtr cloud) -> CloudLPtr {
   auto frameIds = db.sensor_frame_ids();
   reusex::debug("Loaded {} sensor frames in {:.3f}s", frameIds.size(), timer);
   timer.reset();
+
+  // Degenerate but recoverable: nothing to project from, so every one of the
+  // cloud's points stays unlabeled. Say so with the numbers (STANDARDS §5)
+  // rather than returning a silently blank CloudL.
+  if (frameIds.empty()) {
+    reusex::warn("No sensor frames in project — all {} points of the input "
+                 "cloud will stay unlabeled",
+                 cloud->size());
+  }
+
+  // Frames that actually carried a segmentation image; used for the
+  // end-of-stage diagnostic below.
+  size_t framesWithLabels = 0;
 
   /* Dicription of the different coordinate frames
    *
@@ -138,6 +166,8 @@ auto project(const ProjectDB &db, CloudConstPtr cloud) -> CloudLPtr {
         ++(*observer);
         continue;
       }
+
+      ++framesWithLabels;
 
       // --- Fetch sensor data from ProjectDB
       auto pose_array = db.sensor_frame_pose(id); // std::array<double, 16>
@@ -255,7 +285,17 @@ auto project(const ProjectDB &db, CloudConstPtr cloud) -> CloudLPtr {
     }
   }
 
-  reusex::info("Projection completed in {:.3f}s", timer);
+  // Degenerate output is not an error — annotation may simply not have run —
+  // but it must not be silent (STANDARDS §5).
+  if (!frameIds.empty() && framesWithLabels == 0) {
+    reusex::warn("None of the {} sensor frames had a segmentation image — all "
+                 "{} points stay unlabeled; run `rux create annotate` first",
+                 frameIds.size(), cloud->size());
+  }
+
+  reusex::info("Projected labels from {}/{} sensor frames onto {} points in "
+               "{:.3f}s",
+               framesWithLabels, frameIds.size(), cloud->size(), timer);
 
   return labels;
 }

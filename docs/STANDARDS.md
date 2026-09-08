@@ -22,7 +22,8 @@ only depend on modules in lower layers, and this is **link-enforced** (#222):
 an illegal dependency is a link error, not just a convention.
 
 ```
-Layer 4:  visualize                            (PCL; thin — see note below)
+Layer 4:  visualize  pipeline                  (visualize: PCL, thin — see note below)
+                                               (pipeline: stage execution + job runner)
 Layer 3:  segmentation  reconstruction  slam  io  vision   (peers — MUST NOT link each other)
 Layer 2:  core                                 (ProjectDB, logging, materials, stages)
 Layer 1½: geometry_common                      (shared CGAL/PCL helpers: utils, cgal_utils,
@@ -42,6 +43,27 @@ module itself is thin — `libs/reusex/src/visualize/` currently holds only
 `viewport_layout.cpp`. Most of the actual view/render code lives in
 `apps/rux/src/view*` (External layer), not in the `visualize` module.
 
+`pipeline` (#265) is the other Layer-4 module. It holds the database-level
+stage runners (`run_stage(ProjectDB&, StageContext)`) and the in-process
+`JobRunner` that both `rux gui` and, later, ruxd drive. **It is the one module
+permitted to link several Layer-3 peers at once** — running a stage end to end
+inherently spans `core` (the ProjectDB read/write) plus whichever peers
+implement that stage, which is exactly the combination a peer is forbidden to
+make. Confining that combination to a single named module above the peer layer
+is what keeps the peer rule meaningful instead of eroding it stage by stage.
+
+The allowance comes with obligations:
+
+- **Nothing may depend on `pipeline` except `apps/` and `tests/`.** If a
+  Layer-3 peer ever needs something from it, that something belongs in `core`
+  or `geometry_common`, not in a new upward edge.
+- **It links only the peers it actually calls.** Today that is `segmentation`;
+  `reconstruction` joins when the mesh stage gets a runner. Linking a peer
+  "for later" hides which combinations are really in play.
+- **It owns no algorithms.** `pipeline` loads named clouds, calls a peer's
+  entry point, saves the results, and records the run in `pipeline_log`. An
+  algorithm that appears there belongs in a peer.
+
 **Rules:**
 
 - `core/` MUST NOT include PCL visualization, CGAL, RTABMap, or ML headers.
@@ -53,7 +75,11 @@ module itself is thin — `libs/reusex/src/visualize/` currently holds only
   `geometry_common`, or `types.hpp`, not through peer headers. Documented
   exceptions (explicit, commented links in `reusexLibrary.cmake`): `io ->
   reconstruction` (export_scene serializes a reconstructed scene) and `slam ->
-  segmentation` (registration reuses surfel extraction).
+  segmentation` (registration reuses surfel extraction). Code that legitimately
+  needs to combine several peers goes in `pipeline` (Layer 4), not in a peer.
+- `pipeline` MUST NOT be linked by any library module. It is reachable from
+  `apps/` and `tests/` only; the umbrella `reusex` target links it for
+  backward compatibility with consumers that link the umbrella.
 - Persistence contracts are core-owned PODs. `ProjectDB` stores building
   components as `core::ComponentRecord` (`core/component_record.hpp`) — plain
   strings, blobs and scalars mirroring the table columns — so core needs no

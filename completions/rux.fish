@@ -16,16 +16,26 @@ complete -c rux -s D -l visualize -d "Enable visualization of processing steps"
 complete -c rux -s p -l project -r
 
 # top-level subcommands
-complete -c rux -n "not __fish_seen_subcommand_from assemble create import export get set del info log view" -a "assemble" -d "Assemble multiple scans into one database"
-complete -c rux -n "not __fish_seen_subcommand_from assemble create import export get set del info log view" -a "create" -d "Create derived data from project"
-complete -c rux -n "not __fish_seen_subcommand_from assemble create import export get set del info log view" -a "import" -d "Import data from external sources"
-complete -c rux -n "not __fish_seen_subcommand_from assemble create import export get set del info log view" -a "export" -d "Export data to external formats"
-complete -c rux -n "not __fish_seen_subcommand_from assemble create import export get set del info log view" -a "get" -d "Get data from project database"
-complete -c rux -n "not __fish_seen_subcommand_from assemble create import export get set del info log view" -a "set" -d "Set data in project database"
-complete -c rux -n "not __fish_seen_subcommand_from assemble create import export get set del info log view" -a "del" -d "Delete data from project database"
-complete -c rux -n "not __fish_seen_subcommand_from assemble create import export get set del info log view" -a "info" -d "Display project database summary"
-complete -c rux -n "not __fish_seen_subcommand_from assemble create import export get set del info log view" -a "log" -d "Display pipeline execution history"
-complete -c rux -n "not __fish_seen_subcommand_from assemble create import export get set del info log view" -a "view" -d "Visualize point clouds and meshes"
+complete -c rux -n "not __fish_seen_subcommand_from assemble create import export get set del gui info log view" -a "assemble" -d "Assemble multiple scans into one database"
+complete -c rux -n "not __fish_seen_subcommand_from assemble create import export get set del gui info log view" -a "create" -d "Create derived data from project"
+complete -c rux -n "not __fish_seen_subcommand_from assemble create import export get set del gui info log view" -a "import" -d "Import data from external sources"
+complete -c rux -n "not __fish_seen_subcommand_from assemble create import export get set del gui info log view" -a "export" -d "Export data to external formats"
+complete -c rux -n "not __fish_seen_subcommand_from assemble create import export get set del gui info log view" -a "get" -d "Get data from project database"
+complete -c rux -n "not __fish_seen_subcommand_from assemble create import export get set del gui info log view" -a "set" -d "Set data in project database"
+complete -c rux -n "not __fish_seen_subcommand_from assemble create import export get set del gui info log view" -a "del" -d "Delete data from project database"
+complete -c rux -n "not __fish_seen_subcommand_from assemble create import export get set del gui info log view" -a "gui" -d "Serve the web interface locally"
+complete -c rux -n "not __fish_seen_subcommand_from assemble create import export get set del gui info log view" -a "info" -d "Display project database summary"
+complete -c rux -n "not __fish_seen_subcommand_from assemble create import export get set del gui info log view" -a "log" -d "Display pipeline execution history"
+complete -c rux -n "not __fish_seen_subcommand_from assemble create import export get set del gui info log view" -a "view" -d "Visualize point clouds and meshes"
+
+# Options for: gui
+complete -c rux -n "__fish_seen_subcommand_from gui" -s h -l help -d "Print this help message and exit"
+complete -c rux -n "__fish_seen_subcommand_from gui" -l port -r -d "TCP port to listen on"
+complete -c rux -n "__fish_seen_subcommand_from gui" -l bind -r -d "Interface to bind (default: loopback only)"
+complete -c rux -n "__fish_seen_subcommand_from gui" -l threads -r -d "HTTP worker threads (0 = hardware concurrency)"
+complete -c rux -n "__fish_seen_subcommand_from gui" -l assets -r -F -d "Directory holding the frontend bundle"
+complete -c rux -n "__fish_seen_subcommand_from gui" -l allow-origin -r -d "Additional allowed browser origin (repeatable)"
+complete -c rux -n "__fish_seen_subcommand_from gui" -l no-browser -d "Do not open a browser on startup"
 
 # Options for: assemble
 complete -c rux -n "__fish_seen_subcommand_from assemble" -s h -l help -d "Print this help message and exit"

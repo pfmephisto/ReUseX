@@ -17,6 +17,7 @@
 #include <optimize.hpp>
 #include <processing_observer.hpp>
 #include <register.hpp>
+#include <render.hpp>
 #include <set.hpp>
 #include <validate.hpp>
 #include <view.hpp>
@@ -174,6 +175,7 @@ int main(int argc, char **argv) {
   setup_subcommand_import(app, opt);
   setup_subcommand_export(app, opt);
   setup_subcommand_register(app, opt);
+  setup_subcommand_render(app, opt);
   setup_subcommand_optimize(app, opt);
 
   // Unified path-based database commands (replaces old get/add/set/remove)

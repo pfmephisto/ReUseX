@@ -45,6 +45,10 @@
 #include <reusex/segmentation/reconstruct.hpp>
 #include <reusex/segmentation/segment_planes.hpp>
 #include <reusex/types/point_types.hpp>
+#include <reusex/visualize/render_view.hpp>
+
+#include <opencv2/core.hpp>
+#include <opencv2/imgcodecs.hpp>
 
 #include <pcl/common/common.h>
 
@@ -53,6 +57,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <limits>
@@ -276,4 +281,46 @@ TEST_CASE("Real-scan fixture: frames reconstruct and segment within bounds",
   INFO("floor-to-ceiling separation: " << room_height);
   CHECK(room_height > 2.5F);
   CHECK(room_height < 3.3F);
+
+  // ── Optional: render artifacts for a human to look at (#294) ────────────
+  //
+  // Every assertion above is a number. When one of them trips -- or, worse,
+  // when segmentation changes character while staying inside the bands -- a
+  // reviewer has nothing to look at. Setting REUSEX_TEST_RENDER_DIR writes a
+  // plan view and one orbit view of what this run actually produced, coloured
+  // by plane segment, next to the ctest log:
+  //
+  //     REUSEX_TEST_RENDER_DIR=/tmp/scan-artifacts ctest -R "Real-scan" -V
+  //
+  // These are NOT golden images and nothing here compares pixels; they exist
+  // to be looked at. Rendering is off-screen, so this works with no display.
+  if (const char *render_dir = std::getenv("REUSEX_TEST_RENDER_DIR")) {
+    const fs::path out_dir(render_dir);
+    fs::create_directories(out_dir);
+
+    // The plane labels only existed in memory until now; the render reads
+    // named clouds from the project, exactly as `rux render` would.
+    db.save_point_cloud("planes", *plane_labels);
+
+    reusex::visualize::RenderOptions opts;
+    opts.layers = {reusex::visualize::Layer::cloud};
+    opts.width = 1200;
+    opts.height = 900;
+
+    const auto write = [&out_dir](const cv::Mat &image,
+                                  const std::string &name) {
+      const fs::path path = out_dir / name;
+      REQUIRE(cv::imwrite(path.string(), image));
+      WARN("wrote render artifact " << path);
+    };
+
+    write(reusex::visualize::render_view(db, opts), "office_corridor_top.png");
+
+    opts.layers = {reusex::visualize::Layer::planes};
+    opts.view = reusex::visualize::ViewPreset::orbit;
+    opts.orbit_count = 8;
+    opts.orbit_index = 1;
+    write(reusex::visualize::render_view(db, opts),
+          "office_corridor_orbit_planes.png");
+  }
 }

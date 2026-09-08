@@ -147,6 +147,22 @@ find_package(OpenCV REQUIRED COMPONENTS core imgproc highgui)
 find_package(RTABMap REQUIRED)
 find_package(PCL REQUIRED)
 
+# VTK — the rendering backend behind reusex_visualize's headless render_view()
+# (#294). Already in the dependency closure via pcl_visualization; named here
+# explicitly because the visualize module uses the VTK API directly and needs
+# vtk_module_autoinit() to register the OpenGL2 object factory.
+#
+# Headless rendering relies on this VTK being built with VTK_OPENGL_HAS_EGL
+# (it is, in the flake): when no X/Wayland session is reachable VTK falls back
+# from vtkXOpenGLRenderWindow to vtkEGLRenderWindow and renders on the GPU
+# anyway, which is what makes `env -u DISPLAY rux render` work.
+find_package(VTK REQUIRED COMPONENTS
+    CommonCore
+    CommonDataModel
+    CommonExecutionModel
+    RenderingCore
+    RenderingOpenGL2)
+
 # -----------------------------------------------
 # Geometry & Optimization
 # -----------------------------------------------

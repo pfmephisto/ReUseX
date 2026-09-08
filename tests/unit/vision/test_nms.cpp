@@ -197,6 +197,86 @@ TEST_CASE("nms rejects non-float32 input loudly", "[vision][nms]") {
   REQUIRE_THROWS_AS(nms(b, s, 0.45F), std::exception);
 }
 
+// ── shape validation, gained with the torchvision kernel (#141) ───────────
+//
+// The kernel vendored in #141 validates box/score geometry before it starts
+// indexing raw pointers; the previous hand-written transcription had dropped
+// those checks and would have walked off the end of the buffer instead. These
+// cases pin the diagnostics down so a future re-sync cannot quietly lose them.
+
+TEST_CASE("nms rejects malformed box and score shapes", "[vision][nms]") {
+  SECTION("boxes must be 2-dimensional") {
+    REQUIRE_THROWS_AS(
+        nms(torch::zeros({3, 4, 1}, f32), torch::zeros({3}, f32), 0.45F),
+        std::exception);
+  }
+
+  SECTION("boxes must have exactly four columns") {
+    REQUIRE_THROWS_AS(
+        nms(torch::zeros({3, 5}, f32), torch::zeros({3}, f32), 0.45F),
+        std::exception);
+  }
+
+  SECTION("scores must be 1-dimensional") {
+    REQUIRE_THROWS_AS(
+        nms(torch::zeros({3, 4}, f32), torch::zeros({3, 1}, f32), 0.45F),
+        std::exception);
+  }
+
+  SECTION("boxes and scores must agree on N") {
+    REQUIRE_THROWS_AS(
+        nms(torch::zeros({3, 4}, f32), torch::zeros({2}, f32), 0.45F),
+        std::exception);
+  }
+}
+
+// ── scale ─────────────────────────────────────────────────────────────────
+
+TEST_CASE("nms handles more than a thousand boxes", "[vision][nms]") {
+  // A grid of 40 x 30 = 1200 boxes on a 100-unit pitch: every box is disjoint
+  // from every other, so nothing may be suppressed however large N gets. This
+  // exercises the kernel past the small hand-built cases above, where an
+  // indexing or narrow() bug would otherwise hide.
+  constexpr int64_t kCols = 40;
+  constexpr int64_t kRows = 30;
+  constexpr int64_t kN = kCols * kRows;
+
+  std::vector<float> xyxy;
+  std::vector<float> conf;
+  xyxy.reserve(static_cast<size_t>(kN) * 4);
+  conf.reserve(static_cast<size_t>(kN));
+  for (int64_t r = 0; r < kRows; ++r) {
+    for (int64_t c = 0; c < kCols; ++c) {
+      const auto x = static_cast<float>(c * 100);
+      const auto y = static_cast<float>(r * 100);
+      xyxy.insert(xyxy.end(), {x, y, x + 50.0F, y + 50.0F});
+      // Strictly decreasing scores, so the expected output order is exactly
+      // the input order and we can compare against it directly.
+      conf.push_back(1.0F - static_cast<float>(r * kCols + c) / (2.0F * kN));
+    }
+  }
+
+  auto keep = nms(boxes(xyxy), scores(conf), 0.45F);
+  REQUIRE(keep.numel() == kN);
+
+  std::vector<int64_t> expected(kN);
+  for (int64_t i = 0; i < kN; ++i)
+    expected[i] = i;
+  REQUIRE(kept(keep) == expected);
+
+  SECTION("and collapses a large fully-overlapping set to one box") {
+    // Same count, but every box identical: the opposite extreme, where the
+    // inner suppression loop has to run to completion for the first box only.
+    std::vector<float> same(static_cast<size_t>(kN) * 4);
+    for (int64_t i = 0; i < kN; ++i) {
+      same[static_cast<size_t>(i) * 4 + 2] = 10.0F;
+      same[static_cast<size_t>(i) * 4 + 3] = 10.0F;
+    }
+    auto one = nms(boxes(same), scores(conf), 0.45F);
+    REQUIRE(kept(one) == std::vector<int64_t>{0});
+  }
+}
+
 // ── non_max_suppression: the YOLO-seg wrapper ─────────────────────────────
 
 namespace {

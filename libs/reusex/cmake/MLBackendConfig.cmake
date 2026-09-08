@@ -66,6 +66,10 @@ if(NOT "LibTorch" IN_LIST ENABLED_ML_BACKENDS)
     # Exclude LibTorch-specific utility files (NMS uses torch::Tensor)
     list(FILTER REUSEX_SOURCES EXCLUDE REGEX ".*/vision/nms\\.cpp$")
     list(FILTER REUSEX_HEADERS EXCLUDE REGEX ".*/vision/nms\\.hpp$")
+    # ... and the vendored torchvision kernel that backs it, which is written
+    # against the ATen headers and so needs LibTorch just the same (#141).
+    list(FILTER REUSEX_SOURCES EXCLUDE REGEX ".*/vision/third_party/.*\\.cpp$")
+    list(FILTER REUSEX_HEADERS EXCLUDE REGEX ".*/vision/third_party/.*\\.hpp$")
     message(STATUS "Excluding LibTorch source files from build")
 endif()
 

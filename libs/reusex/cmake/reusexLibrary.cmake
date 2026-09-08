@@ -13,7 +13,7 @@
 #
 # Layer diagram (a module may only depend on lower layers):
 #
-#   Layer 4:  visualize
+#   Layer 4:  visualize  pipeline
 #   Layer 3:  segmentation  reconstruction  slam  io  vision   (peers)
 #   Layer 2:  core
 #   Layer 1:  utils, types.hpp
@@ -79,6 +79,14 @@ file(GLOB_RECURSE REUSEX_SLAM_SOURCES CONFIGURE_DEPENDS
 # Layer 4 — visualize (optional PCL/Qt/VTK)
 file(GLOB_RECURSE REUSEX_VISUALIZE_SOURCES CONFIGURE_DEPENDS
      "${SRC}/visualize/*.cpp")
+
+# Layer 4 — pipeline (DB-level stage execution + the in-process job runner).
+# Added in #265 (GUI Phase 1). Unlike a Layer-3 peer it is ALLOWED to link
+# several peers at once, because "run stage X against a project" inherently
+# spans core (ProjectDB) + segmentation + reconstruction. Nothing may depend on
+# it except apps/tests, which keeps the peer layer clean.
+file(GLOB_RECURSE REUSEX_PIPELINE_SOURCES CONFIGURE_DEPENDS
+     "${SRC}/pipeline/*.cpp")
 
 # Headers (attached to targets for IDE/install visibility; one flat tree).
 file(GLOB_RECURSE REUSEX_HEADERS CONFIGURE_DEPENDS
@@ -288,6 +296,13 @@ if(REUSEX_VISUALIZE_SOURCES)
     target_link_libraries(reusex_visualize PUBLIC reusex_core)
 endif()
 
+# --- Layer 4 — pipeline (stage execution + job runner) ---------------------
+reusex_add_module(reusex_pipeline ${REUSEX_PIPELINE_SOURCES})
+target_link_libraries(reusex_pipeline PUBLIC
+    reusex_core
+    reusex_segmentation
+    reusex_reconstruction)
+
 # ===============================================
 # Umbrella target — backward compatible `reusex`
 # ===============================================
@@ -304,6 +319,7 @@ target_link_libraries(reusex INTERFACE
     reusex_segmentation
     reusex_reconstruction
     reusex_slam
+    reusex_pipeline
 )
 if(TARGET reusex_visualize)
     target_link_libraries(reusex INTERFACE reusex_visualize)
@@ -312,7 +328,7 @@ endif()
 # -----------------------------------------------
 # Diagnostics
 # -----------------------------------------------
-foreach(mod utils geometry_common core io vision segmentation reconstruction slam visualize)
+foreach(mod utils geometry_common core io vision segmentation reconstruction slam pipeline visualize)
     if(TARGET reusex_${mod})
         get_target_property(_srcs reusex_${mod} SOURCES)
         list(LENGTH _srcs _n)

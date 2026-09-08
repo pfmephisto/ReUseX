@@ -58,6 +58,11 @@ add_executable(reusex_unit_tests ${LIGHT_TEST_SOURCES})
 # modules keeps reusex_vision (and with it libtorch/TensorRT) out of this
 # binary. Adding a test that needs vision means moving it to
 # tests/unit/vision/, not widening this list.
+#
+# rux_gui_lib (the `rux gui` server, #265) is deliberately in the LIGHT binary.
+# It links reusex_pipeline rather than the `reusex` umbrella, so it pulls no
+# vision/ML closure -- tests/unit/rux_gui costs nothing extra here, and keeping
+# it out of the heavy binary preserves the fast start-up this split bought.
 target_link_libraries(reusex_unit_tests
     PRIVATE
         reusex_core
@@ -67,6 +72,8 @@ target_link_libraries(reusex_unit_tests
         reusex_segmentation
         reusex_reconstruction
         reusex_slam
+        reusex_pipeline
+        rux_gui_lib
         Catch2::Catch2WithMain
         fmt::fmt
         OpenSSL::Crypto

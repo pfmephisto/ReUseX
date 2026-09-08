@@ -26,7 +26,8 @@ if(TARGET reusex)
         reusex_vision
         reusex_segmentation
         reusex_reconstruction
-        reusex_slam)
+        reusex_slam
+        reusex_pipeline)
     if(TARGET reusex_visualize)
         list(APPEND _reusex_install_targets reusex_visualize)
     endif()

@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://reuse-x.dev/schemas/gui/events.schema.json",
+  "title": "ReUseX GUI WebSocket message",
+  "description": "One JSON text frame on /api/v1/events. See docs/gui/websocket-events.md. SPDX-License-Identifier: GPL-3.0-or-later",
+  "type": "object",
+  "required": ["type"],
+  "oneOf": [
+    { "$ref": "#/$defs/HelloMessage" },
+    { "$ref": "#/$defs/JobMessage" },
+    { "$ref": "#/$defs/PongMessage" },
+    { "$ref": "#/$defs/ErrorMessage" },
+    { "$ref": "#/$defs/ClientPing" },
+    { "$ref": "#/$defs/ClientSubscribe" }
+  ],
+  "$defs": {
+    "Timestamp": {
+      "type": "string",
+      "description": "ISO-8601 UTC, second resolution.",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+
+    "JobProgress": {
+      "type": "object",
+      "required": ["stage", "stage_label", "current", "total"],
+      "properties": {
+        "stage": {
+          "type": "string",
+          "description": "Machine-readable token for the core::Stage phase currently reporting, e.g. region_growing. Match on this.",
+          "pattern": "^[a-z0-9_]+$"
+        },
+        "stage_label": {
+          "type": "string",
+          "description": "The same phase in display form, e.g. \"Region Growing\". Never match on this."
+        },
+        "current": { "type": "integer", "minimum": 0 },
+        "total": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "0 means indeterminate."
+        },
+        "fraction": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 1,
+          "description": "null when total is 0."
+        }
+      }
+    },
+
+    "Job": {
+      "type": "object",
+      "required": ["id", "stage", "status", "submitted_at"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "stage": { "type": "string" },
+        "status": {
+          "type": "string",
+          "enum": ["queued", "running", "succeeded", "failed", "cancelled"]
+        },
+        "parameters": { "type": "object" },
+        "error": { "type": "string" },
+        "submitted_at": { "$ref": "#/$defs/Timestamp" },
+        "started_at": { "type": "string" },
+        "finished_at": { "type": "string" },
+        "cancel_requested": { "type": "boolean" },
+        "progress": { "$ref": "#/$defs/JobProgress" }
+      }
+    },
+
+    "HelloMessage": {
+      "type": "object",
+      "description": "Sent once on connect.",
+      "required": ["type", "timestamp", "api_version", "project", "jobs"],
+      "properties": {
+        "type": { "const": "hello" },
+        "timestamp": { "$ref": "#/$defs/Timestamp" },
+        "api_version": { "type": "string" },
+        "implementation": { "type": "string", "enum": ["rux-gui", "ruxd"] },
+        "project": {
+          "type": "string",
+          "description": "Project file name; never a server path."
+        },
+        "jobs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Job" }
+        }
+      }
+    },
+
+    "JobMessage": {
+      "type": "object",
+      "description": "A job lifecycle or progress notification.",
+      "required": ["type", "timestamp", "job"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "job.submitted",
+            "job.started",
+            "job.progress",
+            "job.finished"
+          ]
+        },
+        "timestamp": { "$ref": "#/$defs/Timestamp" },
+        "job": { "$ref": "#/$defs/Job" }
+      }
+    },
+
+    "PongMessage": {
+      "type": "object",
+      "required": ["type", "timestamp"],
+      "properties": {
+        "type": { "const": "pong" },
+        "timestamp": { "$ref": "#/$defs/Timestamp" }
+      }
+    },
+
+    "ErrorMessage": {
+      "type": "object",
+      "description": "The server rejected a client message.",
+      "required": ["type", "timestamp", "error"],
+      "properties": {
+        "type": { "const": "error" },
+        "timestamp": { "$ref": "#/$defs/Timestamp" },
+        "error": { "type": "string", "minLength": 1 }
+      }
+    },
+
+    "ClientPing": {
+      "type": "object",
+      "description": "Client -> server liveness probe.",
+      "required": ["type"],
+      "properties": { "type": { "const": "ping" } },
+      "additionalProperties": false
+    },
+
+    "ClientSubscribe": {
+      "type": "object",
+      "description": "Client -> server: filter this connection to one job. job_id null clears the filter.",
+      "required": ["type", "job_id"],
+      "properties": {
+        "type": { "const": "subscribe" },
+        "job_id": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    }
+  }
+}

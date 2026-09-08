@@ -1,0 +1,1207 @@
+# SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+openapi: 3.1.0
+
+info:
+  title: ReUseX GUI API
+  version: "1.0.0"
+  description: |
+    The shared contract between the ReUseX web frontend and its backends
+    (issue #265).
+
+    Two implementations serve this contract:
+
+    * `rux gui` — a localhost Crow server embedded in the `rux` CLI. It opens
+      one `.rux` project directly and runs pipeline stages **in-process** on a
+      single worker thread.
+    * `ruxd` — the headless daemon (Phase 6). It will implement the same paths
+      backed by a persistent job queue and remote workers.
+
+    The frontend is a pure client and must not be able to tell them apart.
+    Consequently: job ids are opaque strings, no path ever carries a
+    server-side filesystem location, and every long-running action goes through
+    `/jobs` + the `/events` WebSocket rather than a blocking request.
+
+    A server instance is bound to exactly ONE project for its lifetime — the
+    project is selected when the server starts (`rux -p scan.rux gui`), not per
+    request. Multi-project browsing is intentionally out of scope for v1.
+  license:
+    name: GPL-3.0-or-later
+    identifier: GPL-3.0-or-later
+
+servers:
+  - url: http://localhost:8420/api/v1
+    description: Default `rux gui` bind address
+
+tags:
+  - name: meta
+    description: Service health and self-description
+  - name: project
+    description: Project summary and metadata
+  - name: clouds
+    description: Point clouds
+  - name: meshes
+    description: Meshes and their textures
+  - name: frames
+    description: Sensor frames (color / depth / confidence / segmentation)
+  - name: panoramas
+    description: 360 panoramic images
+  - name: components
+    description: Building components
+  - name: materials
+    description: Material passports
+  - name: instances
+    description: Instance identity and material links
+  - name: pipeline
+    description: Stage catalogue and execution history
+  - name: jobs
+    description: Stage execution — submit, poll, cancel
+
+paths:
+
+  # ---------------------------------------------------------------- meta ----
+  /health:
+    get:
+      tags: [meta]
+      operationId: getHealth
+      summary: Liveness probe and version handshake
+      responses:
+        "200":
+          description: The server is up
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+
+  /endpoints:
+    get:
+      tags: [meta]
+      operationId: listEndpoints
+      summary: The route table this server actually serves
+      description: |
+        Self-description, so a client can detect an older/newer server without
+        parsing this document. The list is generated from the same table the
+        routes are registered from.
+      responses:
+        "200":
+          description: Route table
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [endpoints]
+                properties:
+                  endpoints:
+                    type: array
+                    items: { $ref: "#/components/schemas/EndpointInfo" }
+
+  # ------------------------------------------------------------- project ----
+  /project:
+    get:
+      tags: [project]
+      operationId: getProjectSummary
+      summary: Everything the dashboard needs in one request
+      description: |
+        Mirrors `ProjectDB::project_summary()`. Cheap enough to poll, and the
+        canonical source for cloud/mesh/frame inventories.
+      responses:
+        "200":
+          description: Project summary
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProjectSummary" }
+        "503": { $ref: "#/components/responses/ProjectUnavailable" }
+
+  /projects:
+    get:
+      tags: [project]
+      operationId: listProjects
+      summary: Project metadata records stored in this database
+      description: |
+        A `.rux` file may carry more than one metadata record (a building may be
+        surveyed in several campaigns). This is metadata only — it does not
+        partition the clouds or meshes.
+      responses:
+        "200":
+          description: Project metadata records
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [projects]
+                properties:
+                  projects:
+                    type: array
+                    items: { $ref: "#/components/schemas/ProjectInfo" }
+
+  # -------------------------------------------------------------- clouds ----
+  /clouds:
+    get:
+      tags: [clouds]
+      operationId: listClouds
+      summary: All named point clouds with their type and point count
+      responses:
+        "200":
+          description: Cloud inventory
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [clouds]
+                properties:
+                  clouds:
+                    type: array
+                    items: { $ref: "#/components/schemas/CloudInfo" }
+
+  /clouds/{name}:
+    get:
+      tags: [clouds]
+      operationId: getCloud
+      summary: One cloud's metadata, including its label definitions
+      parameters:
+        - $ref: "#/components/parameters/CloudName"
+      responses:
+        "200":
+          description: Cloud metadata
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CloudInfo" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /clouds/{name}/points:
+    get:
+      tags: [clouds]
+      operationId: getCloudPoints
+      summary: A page of point data
+      description: |
+        Paged point access for the 3D viewport.
+
+        **Phase 1 serves `format=json` only.** The `binary` format is reserved
+        for the chunked little-endian transport (with voxel LOD and optional
+        Draco compression) planned for Phase 2/5, and currently answers `501`.
+        Clients should treat `format` as the forward-compatibility seam: the
+        JSON shape will not change when `binary` arrives.
+
+        The `fields` returned depend on the cloud's type:
+
+        | Cloud type      | Fields                    |
+        |-----------------|---------------------------|
+        | `PointXYZRGB`   | `x,y,z,r,g,b`             |
+        | `PointXYZ`      | `x,y,z`                   |
+        | `Normal`        | `nx,ny,nz`                |
+        | `Label`         | `label`                   |
+
+        Points are returned in storage order, which is index-aligned across the
+        sibling clouds of one scan (`cloud`/`normals`/`planes`/`rooms`/
+        `instances`/`labels`) — see `docs/CONTRACTS.md`. A client may therefore
+        request the same `offset`/`limit` window from two clouds and zip them.
+      parameters:
+        - $ref: "#/components/parameters/CloudName"
+        - name: offset
+          in: query
+          description: Index of the first point to return.
+          schema: { type: integer, minimum: 0, default: 0 }
+        - name: limit
+          in: query
+          description: Maximum points to return. Capped server-side.
+          schema:
+            { type: integer, minimum: 1, maximum: 1000000, default: 100000 }
+        - name: format
+          in: query
+          description: Wire format. `binary` is not implemented yet (501).
+          schema: { type: string, enum: [json, binary], default: json }
+      responses:
+        "200":
+          description: A page of points
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CloudPointsPage" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "501":
+          description: The requested format is not implemented by this server
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  # -------------------------------------------------------------- meshes ----
+  /meshes:
+    get:
+      tags: [meshes]
+      operationId: listMeshes
+      summary: All stored meshes
+      responses:
+        "200":
+          description: Mesh inventory
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [meshes]
+                properties:
+                  meshes:
+                    type: array
+                    items: { $ref: "#/components/schemas/MeshInfo" }
+
+  /meshes/{name}:
+    get:
+      tags: [meshes]
+      operationId: getMesh
+      summary: One mesh's metadata
+      parameters:
+        - $ref: "#/components/parameters/MeshName"
+      responses:
+        "200":
+          description: Mesh metadata
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MeshInfo" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /meshes/{name}/data:
+    get:
+      tags: [meshes]
+      operationId: getMeshData
+      summary: The mesh geometry blob, verbatim
+      description: |
+        The bytes exactly as stored, in the format reported by the mesh's
+        `format` field (`ply` or `obj`). No transcoding happens server-side.
+      parameters:
+        - $ref: "#/components/parameters/MeshName"
+      responses:
+        "200":
+          description: Mesh blob
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /meshes/{name}/textures:
+    get:
+      tags: [meshes]
+      operationId: listMeshTextures
+      summary: Texture metadata for a mesh (no image bytes)
+      parameters:
+        - $ref: "#/components/parameters/MeshName"
+      responses:
+        "200":
+          description: Texture inventory
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [textures]
+                properties:
+                  textures:
+                    type: array
+                    items: { $ref: "#/components/schemas/TextureInfo" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /meshes/{name}/textures/{texture}:
+    get:
+      tags: [meshes]
+      operationId: getMeshTexture
+      summary: One texture image
+      parameters:
+        - $ref: "#/components/parameters/MeshName"
+        - name: texture
+          in: path
+          required: true
+          description: The texture's `tex_name`.
+          schema: { type: string }
+      responses:
+        "200":
+          description: Texture image bytes
+          content:
+            image/png:
+              schema: { type: string, format: binary }
+            image/jpeg:
+              schema: { type: string, format: binary }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # -------------------------------------------------------------- frames ----
+  /frames:
+    get:
+      tags: [frames]
+      operationId: listFrames
+      summary: Sensor frame ids and aggregate counts
+      description: |
+        Returns ids only, not per-frame poses — a scan can hold thousands of
+        frames. Fetch `/frames/{id}` for the details of one.
+      responses:
+        "200":
+          description: Frame inventory
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FrameList" }
+
+  /frames/{id}:
+    get:
+      tags: [frames]
+      operationId: getFrame
+      summary: One sensor frame's pose, intrinsics and availability flags
+      parameters:
+        - $ref: "#/components/parameters/FrameId"
+      responses:
+        "200":
+          description: Frame metadata
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FrameInfo" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /frames/{id}/image:
+    get:
+      tags: [frames]
+      operationId: getFrameImage
+      summary: An encoded image for one sensor frame
+      description: |
+        Images are returned in their **stored orientation** — ReUseX applies no
+        rotation on import, and the server applies none either.
+
+        `depth` and `confidence` are single-channel and are PNG-encoded at their
+        native bit depth, so a client that wants metric depth must know the
+        scale rather than reading pixel luminance. `segmentation` returns the
+        label image with the storage encoding (`CV_16U`, 0 = unlabeled).
+      parameters:
+        - $ref: "#/components/parameters/FrameId"
+        - name: kind
+          in: query
+          description: Which of the frame's images to encode.
+          schema:
+            type: string
+            enum: [color, depth, confidence, segmentation]
+            default: color
+      responses:
+        "200":
+          description: Encoded image
+          content:
+            image/png:
+              schema: { type: string, format: binary }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # ----------------------------------------------------------- panoramas ----
+  /panoramas:
+    get:
+      tags: [panoramas]
+      operationId: listPanoramas
+      summary: All 360 panoramas with pose provenance
+      responses:
+        "200":
+          description: Panorama inventory
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [panoramas]
+                properties:
+                  panoramas:
+                    type: array
+                    items: { $ref: "#/components/schemas/PanoramaInfo" }
+
+  /panoramas/{id}:
+    get:
+      tags: [panoramas]
+      operationId: getPanorama
+      summary: One panorama's metadata
+      parameters:
+        - $ref: "#/components/parameters/PanoramaId"
+      responses:
+        "200":
+          description: Panorama metadata
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PanoramaInfo" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /panoramas/{id}/image:
+    get:
+      tags: [panoramas]
+      operationId: getPanoramaImage
+      summary: The equirectangular image
+      parameters:
+        - $ref: "#/components/parameters/PanoramaId"
+      responses:
+        "200":
+          description: Equirectangular JPEG
+          content:
+            image/jpeg:
+              schema: { type: string, format: binary }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # ---------------------------------------------------------- components ----
+  /components:
+    get:
+      tags: [components]
+      operationId: listComponents
+      summary: Building components, optionally filtered by type
+      parameters:
+        - name: type
+          in: query
+          description: Restrict to one component type (e.g. `window`).
+          schema: { type: string }
+      responses:
+        "200":
+          description: Component inventory
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [components]
+                properties:
+                  components:
+                    type: array
+                    items: { $ref: "#/components/schemas/ComponentInfo" }
+
+  /components/{name}:
+    get:
+      tags: [components]
+      operationId: getComponent
+      summary: One component, including its boundary polygon
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Component detail
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ComponentDetail" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # ----------------------------------------------------------- materials ----
+  /materials:
+    get:
+      tags: [materials]
+      operationId: listMaterials
+      summary: Material passports stored in this project
+      responses:
+        "200":
+          description: Passport inventory
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [materials]
+                properties:
+                  materials:
+                    type: array
+                    items: { $ref: "#/components/schemas/MaterialInfo" }
+
+  /materials/{guid}:
+    get:
+      tags: [materials]
+      operationId: getMaterial
+      summary: One passport's stored properties
+      parameters:
+        - name: guid
+          in: path
+          required: true
+          description: The passport's document guid.
+          schema: { type: string }
+      responses:
+        "200":
+          description: Passport detail
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MaterialDetail" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # ----------------------------------------------------------- instances ----
+  /instances/{cloud}:
+    get:
+      tags: [instances]
+      operationId: listInstances
+      summary: Instance rows of an instance-label cloud, with material links
+      description: |
+        Each row carries the stable GUID that survives regeneration of the
+        instance cloud (issue #207), plus the material passport it is linked to
+        if any.
+      parameters:
+        - name: cloud
+          in: path
+          required: true
+          description: Name of the instance-label cloud (usually `instances`).
+          schema: { type: string }
+      responses:
+        "200":
+          description: Instance rows
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [cloud, instances]
+                properties:
+                  cloud: { type: string }
+                  instances:
+                    type: array
+                    items: { $ref: "#/components/schemas/InstanceInfo" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # ------------------------------------------------------------ pipeline ----
+  /stages:
+    get:
+      tags: [pipeline]
+      operationId: listStages
+      summary: The stage catalogue, with readiness for this project
+      description: |
+        For every stage the server knows about, reports whether it can be
+        submitted as a job (`runnable`), whether cancelling it takes effect
+        mid-run (`cancellable`), and whether its documented input contract is
+        currently satisfied by this project (`ready`, with `blockers`).
+
+        This is what a pipeline-runner UI should drive its "Run" buttons from —
+        it is the same check `rux validate --stage <name>` performs.
+      responses:
+        "200":
+          description: Stage catalogue
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [stages]
+                properties:
+                  stages:
+                    type: array
+                    items: { $ref: "#/components/schemas/StageInfo" }
+
+  /pipeline-log:
+    get:
+      tags: [pipeline]
+      operationId: getPipelineLog
+      summary: Persisted stage execution history
+      description: |
+        Rows of the `pipeline_log` table, newest first. This is the durable
+        record and survives server restarts, unlike `/jobs`, which only covers
+        the current server process.
+      parameters:
+        - name: limit
+          in: query
+          description: Maximum rows to return; 0 means no limit.
+          schema: { type: integer, minimum: 0, default: 100 }
+      responses:
+        "200":
+          description: Log entries
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [entries]
+                properties:
+                  entries:
+                    type: array
+                    items: { $ref: "#/components/schemas/PipelineLogEntry" }
+
+  # ---------------------------------------------------------------- jobs ----
+  /jobs:
+    get:
+      tags: [jobs]
+      operationId: listJobs
+      summary: Jobs known to this server, most recent first
+      description: |
+        In-memory and scoped to the server process. For durable history use
+        `/pipeline-log`.
+      responses:
+        "200":
+          description: Job list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [jobs]
+                properties:
+                  jobs:
+                    type: array
+                    items: { $ref: "#/components/schemas/Job" }
+    post:
+      tags: [jobs]
+      operationId: submitJob
+      summary: Submit a stage run
+      description: |
+        Returns immediately, without waiting for the stage to run. Progress
+        arrives on the `/events` WebSocket; `GET /jobs/{id}` is the polling
+        fallback.
+
+        The returned `status` is a **snapshot at response time**, normally
+        `queued` — but an idle server may already have started the job, so
+        `running` (or even a terminal status, for a stage that fails its input
+        contract immediately) is equally valid. Never assert on it; drive the UI
+        from the events or from a poll.
+
+        `rux gui` executes jobs one at a time on a single worker thread, so a
+        submission may sit in `queued` behind another job. A remote
+        implementation is free to run them in parallel — clients must not assume
+        either.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/JobRequest" }
+      responses:
+        "202":
+          description: Job accepted; the body is its state at response time
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Job" }
+        "400":
+          description: Unknown stage, or parameters that are not a JSON object
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /jobs/{id}:
+    get:
+      tags: [jobs]
+      operationId: getJob
+      summary: One job's current status and progress
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: Job status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Job" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /jobs/{id}/cancel:
+    post:
+      tags: [jobs]
+      operationId: cancelJob
+      summary: Request cancellation
+      description: |
+        Idempotent.
+
+        * A **queued** job is cancelled immediately and never executes.
+        * A **running** job has its cancel token set; cancellation is
+          cooperative, so the job reaches `cancelled` only when the stage next
+          checks. Stages with `cancellable: false` in `/stages` run to
+          completion and then report `cancelled`.
+        * A **terminal** job is left alone and `200` is still returned.
+
+        Cancellation is a *request*: poll the job or watch `/events` for the
+        `job.finished` event to learn the outcome.
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: Cancellation requested; body is the job's current state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Job" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # ----------------------------------------------------------- websocket ----
+  /events:
+    get:
+      tags: [jobs]
+      operationId: openEventStream
+      summary: WebSocket progress channel (upgrade)
+      description: |
+        Not a plain GET — this path answers a WebSocket upgrade. OpenAPI cannot
+        describe a WebSocket channel, so the message schema lives in
+        `docs/gui/websocket-events.md` and `docs/gui/events.schema.json`.
+
+        Every message is a JSON object with a `type` discriminator mirroring
+        `core::IProgressObserver`'s `on_process_started` / `on_process_updated` /
+        `on_process_finished` callbacks, attributed to a job.
+      responses:
+        "101":
+          description: Switching protocols to WebSocket
+        "400":
+          description: Not a WebSocket upgrade request
+
+components:
+
+  parameters:
+    CloudName:
+      name: name
+      in: path
+      required: true
+      description: The cloud's name, e.g. `cloud`, `normals`, `planes`.
+      schema: { type: string }
+    MeshName:
+      name: name
+      in: path
+      required: true
+      description: The mesh's name.
+      schema: { type: string }
+    FrameId:
+      name: id
+      in: path
+      required: true
+      description: Sensor frame `node_id`.
+      schema: { type: integer }
+    PanoramaId:
+      name: id
+      in: path
+      required: true
+      description: Panorama row id.
+      schema: { type: integer }
+    JobId:
+      name: id
+      in: path
+      required: true
+      description: Opaque server-generated job identifier.
+      schema: { type: string }
+
+  responses:
+    NotFound:
+      description: No such resource
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    ProjectUnavailable:
+      description: The project database could not be opened
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: Human-readable failure reason. Never empty.
+        status:
+          type: integer
+          description: The HTTP status, repeated for convenience.
+
+    Health:
+      type: object
+      required: [status, api_version, version, project]
+      properties:
+        status: { type: string, enum: [ok] }
+        api_version:
+          type: string
+          description: Contract version served under this prefix.
+          examples: ["1.0.0"]
+        version:
+          type: string
+          description: ReUseX build version.
+        implementation:
+          type: string
+          description: Which backend is answering.
+          enum: [rux-gui, ruxd]
+        project:
+          type: object
+          description: The single project this server is bound to.
+          required: [name, open]
+          properties:
+            name:
+              type: string
+              description: Project file name (never a full server path).
+            open:
+              type: boolean
+              description: False when the database could not be opened.
+            schema_version: { type: integer }
+
+    EndpointInfo:
+      type: object
+      required: [method, path, summary]
+      properties:
+        method: { type: string, examples: ["GET"] }
+        path: { type: string, examples: ["/api/v1/clouds/<name>"] }
+        summary: { type: string }
+        binary:
+          type: boolean
+          description: True when the response is not JSON.
+
+    ProjectSummary:
+      type: object
+      description: |
+        The dashboard payload. Mirrors `ProjectDB::project_summary()` — one
+        request, everything an overview screen needs.
+      required:
+        [path, schema_version, projects, clouds, meshes, sensor_frames,
+         panoramic_images, components, materials]
+      properties:
+        path:
+          type: string
+          description: |
+            The project **file name** only. The server never discloses its
+            filesystem layout, so this stays meaningful for a remote backend.
+        schema_version: { type: integer }
+        projects:
+          type: array
+          items: { $ref: "#/components/schemas/ProjectInfo" }
+        clouds:
+          type: array
+          items: { $ref: "#/components/schemas/CloudInfo" }
+        meshes:
+          type: array
+          items: { $ref: "#/components/schemas/MeshInfo" }
+        sensor_frames:
+          type: object
+          required: [total_count, segmented_count]
+          properties:
+            total_count: { type: integer }
+            segmented_count: { type: integer }
+            width: { type: integer }
+            height: { type: integer }
+        panoramic_images:
+          type: object
+          required: [total_count, matched_count]
+          properties:
+            total_count: { type: integer }
+            matched_count:
+              type: integer
+              description: Panoramas linked to a sensor frame.
+        components:
+          type: object
+          required: [total_count, count_by_type]
+          properties:
+            total_count: { type: integer }
+            count_by_type:
+              type: object
+              additionalProperties: { type: integer }
+        materials:
+          type: array
+          items: { $ref: "#/components/schemas/MaterialInfo" }
+
+    ProjectInfo:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        building_address: { type: string }
+        year_of_construction:
+          type: integer
+          description: 0 means "not set".
+        survey_date: { type: string }
+        survey_organisation: { type: string }
+        notes: { type: string }
+
+    CloudInfo:
+      type: object
+      required: [name, type, point_count, width, height, organized]
+      properties:
+        name: { type: string }
+        type:
+          type: string
+          enum: [PointXYZRGB, Normal, Label, PointXYZ]
+        point_count: { type: integer }
+        width: { type: integer }
+        height: { type: integer }
+        organized:
+          type: boolean
+          description: True when the cloud has 2D structure (height > 1).
+        labels:
+          type: object
+          description: |
+            Label id to name, for `Label` clouds only. Key `"0"` is never
+            present: 0 means unlabeled (STANDARDS §3).
+          additionalProperties: { type: string }
+
+    CloudPointsPage:
+      type: object
+      required: [name, type, offset, count, total, fields, points]
+      properties:
+        name: { type: string }
+        type: { type: string }
+        offset: { type: integer }
+        count:
+          type: integer
+          description: Number of points in this page.
+        total:
+          type: integer
+          description: Total points in the cloud.
+        fields:
+          type: array
+          description: Field names, in the order they appear in each row.
+          items: { type: string }
+        points:
+          type: array
+          description: One array per point, matching `fields`.
+          items:
+            type: array
+            items: { type: number }
+
+    MeshInfo:
+      type: object
+      required: [name, vertex_count, face_count]
+      properties:
+        name: { type: string }
+        format:
+          type: string
+          description: Storage format of the geometry blob.
+          enum: [ply, obj]
+        vertex_count: { type: integer }
+        face_count: { type: integer }
+        stage: { type: string }
+        parameters:
+          type: string
+          description: The stage parameters JSON, as stored.
+        created_at: { type: string }
+        texture_count: { type: integer }
+
+    TextureInfo:
+      type: object
+      required: [tex_name, format, width, height]
+      properties:
+        tex_name: { type: string }
+        format: { type: string }
+        width: { type: integer }
+        height: { type: integer }
+
+    FrameList:
+      type: object
+      required: [ids, total_count, segmented_count]
+      properties:
+        ids:
+          type: array
+          items: { type: integer }
+        total_count: { type: integer }
+        segmented_count: { type: integer }
+        width: { type: integer }
+        height: { type: integer }
+
+    FrameInfo:
+      type: object
+      required: [id, pose, has_segmentation]
+      properties:
+        id: { type: integer }
+        timestamp:
+          type: number
+          description: Epoch seconds; -1 when unknown.
+        pose:
+          type: array
+          description: Row-major 4x4 world pose.
+          items: { type: number }
+          minItems: 16
+          maxItems: 16
+        intrinsics: { $ref: "#/components/schemas/Intrinsics" }
+        has_depth: { type: boolean }
+        has_confidence: { type: boolean }
+        has_segmentation: { type: boolean }
+
+    Intrinsics:
+      type: object
+      required: [fx, fy, cx, cy, width, height]
+      properties:
+        fx: { type: number }
+        fy: { type: number }
+        cx: { type: number }
+        cy: { type: number }
+        width: { type: integer }
+        height: { type: integer }
+        local_transform:
+          type: array
+          description: Row-major 4x4 camera-to-base transform.
+          items: { type: number }
+          minItems: 16
+          maxItems: 16
+
+    PanoramaInfo:
+      type: object
+      required: [id, filename, node_id, has_pose, pose_source]
+      properties:
+        id: { type: integer }
+        filename: { type: string }
+        timestamp: { type: number }
+        node_id:
+          type: integer
+          description: Matched sensor frame, -1 if unmatched.
+        has_pose:
+          type: boolean
+          description: True once `rux align 360` has refined the pose.
+        pose:
+          type: array
+          items: { type: number }
+          minItems: 16
+          maxItems: 16
+        pose_source: { type: string, enum: [timestamp, aligned] }
+        align_inliers: { type: integer }
+        align_rms:
+          type: number
+          description: Angular RMS of inlier bearings, degrees. -1 if unaligned.
+
+    ComponentInfo:
+      type: object
+      required: [name, guid, type]
+      properties:
+        name: { type: string }
+        guid: { type: string }
+        type: { type: string }
+        parent_id: { type: integer }
+        confidence:
+          type: number
+          description: -1 means manually created.
+        vertex_count: { type: integer }
+
+    ComponentDetail:
+      allOf:
+        - $ref: "#/components/schemas/ComponentInfo"
+        - type: object
+          properties:
+            plane:
+              type: array
+              description: Hessian normal form [a, b, c, d].
+              items: { type: number }
+              minItems: 4
+              maxItems: 4
+            vertices:
+              type: array
+              description: Boundary vertices as [x, y, z] triples.
+              items:
+                type: array
+                items: { type: number }
+                minItems: 3
+                maxItems: 3
+            metadata:
+              type: string
+              description: Opaque type-specific JSON, as stored.
+            notes: { type: string }
+
+    MaterialInfo:
+      type: object
+      required: [guid]
+      properties:
+        id: { type: string }
+        guid: { type: string }
+        property_count: { type: integer }
+        created_at: { type: string }
+        version_number: { type: string }
+
+    MaterialDetail:
+      allOf:
+        - $ref: "#/components/schemas/MaterialInfo"
+        - type: object
+          properties:
+            linked_node_id:
+              type: integer
+              description: Sensor frame the passport was captured from, if any.
+            properties:
+              type: object
+              additionalProperties: { type: string }
+
+    InstanceInfo:
+      type: object
+      required: [instance_id, guid, semantic_class, point_count]
+      properties:
+        instance_id:
+          type: integer
+          description: Label value in the instance cloud (>= 1).
+        guid:
+          type: string
+          description: Stable identity, survives regeneration.
+        semantic_class: { type: integer }
+        point_count: { type: integer }
+        material_guid:
+          type: [string, "null"]
+          description: Linked material passport, null when unlinked.
+
+    StageInfo:
+      type: object
+      required: [stage, runnable, cancellable, ready]
+      properties:
+        stage:
+          type: string
+          description: Token accepted by `POST /jobs`.
+          enum: [clouds, planes, rooms, instances, mesh]
+        runnable:
+          type: boolean
+          description: False when no job runner exists for it yet.
+        cancellable:
+          type: boolean
+          description: |
+            True when cancellation takes effect mid-run. False means a cancel
+            request is honoured only after the stage finishes.
+        ready:
+          type: boolean
+          description: True when the stage's input contract is satisfied.
+        blockers:
+          type: array
+          description: Why `ready` is false; empty when it is true.
+          items: { type: string }
+
+    PipelineLogEntry:
+      type: object
+      required: [id, stage, status, started_at]
+      properties:
+        id: { type: integer }
+        stage: { type: string }
+        status: { type: string, enum: [running, success, failed] }
+        started_at: { type: string }
+        finished_at:
+          type: string
+          description: Empty while still running.
+        parameters:
+          type: string
+          description: Stage parameters JSON, as stored.
+        error_msg:
+          type: string
+          description: Empty when there was no error.
+
+    JobRequest:
+      type: object
+      required: [stage]
+      properties:
+        stage:
+          type: string
+          description: A stage with `runnable: true` in `/stages`.
+          enum: [clouds, planes, rooms, instances]
+        parameters:
+          type: object
+          description: |
+            Stage-specific parameters. Keys mirror the library option-struct
+            field names; unknown keys are ignored, omitted keys take the
+            library default (never a CLI-only default — STANDARDS §4).
+          additionalProperties: true
+
+    Job:
+      type: object
+      required: [id, stage, status, submitted_at]
+      properties:
+        id: { type: string }
+        stage: { type: string }
+        status:
+          type: string
+          enum: [queued, running, succeeded, failed, cancelled]
+        parameters:
+          type: object
+          description: Parameters as submitted.
+          additionalProperties: true
+        error:
+          type: string
+          description: Failure reason; empty unless status is failed/cancelled.
+        submitted_at: { type: string, format: date-time }
+        started_at:
+          type: string
+          description: Empty while queued.
+        finished_at:
+          type: string
+          description: Empty until terminal.
+        cancel_requested: { type: boolean }
+        progress: { $ref: "#/components/schemas/JobProgress" }
+
+    JobProgress:
+      type: object
+      required: [stage, stage_label, current, total]
+      properties:
+        stage:
+          type: string
+          description: |
+            Machine-readable token for the `core::Stage` phase currently
+            reporting, e.g. `region_growing` — lower-case with underscores.
+            A job may pass through several phases. Match on this, never on
+            `stage_label`.
+        stage_label:
+          type: string
+          description: |
+            The same phase in display form, e.g. "Region Growing". Provided so
+            a UI does not have to re-prettify the token, and so wording can
+            change without breaking clients.
+        current: { type: integer }
+        total:
+          type: integer
+          description: 0 means indeterminate — render a spinner, not a bar.
+        fraction:
+          type: [number, "null"]
+          description: current/total, or null when total is 0.

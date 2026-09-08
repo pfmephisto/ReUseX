@@ -235,6 +235,42 @@ sharpen substantially between 500 and 3000.
 - **SH degree 0 by default.** View-dependent colour is available
   (`--sh-degree`) but untested at length.
 
+## 5.2 Native trainer at building scale (NewOffice)
+
+The same command on a contiguous region of the real NewOffice capture — frames
+1900–2300, **394 posed views**, seeded from the full **1,212,572-point** cloud:
+
+```
+rux -p newoffice.rux create gsplat --first-frame 1900 --last-frame 2300 \
+    --iterations 30000 --max-image-size 480 --render-view 147 \
+    --render-dir figs --render-at 0,3000,30000 -o newoffice.ply
+```
+
+![native trainer on NewOffice: GT vs seed vs 3000 vs 30000 iterations](figures/gsplat/native_trainer_newoffice.jpg)
+
+| iterations | loss | L1 | PSNR | Gaussians | wall clock |
+|---:|---:|---:|---:|---:|---:|
+| 3,000 | 0.0749 | 0.0522 | 20.01 dB | 1,055,934 | 18.5 s |
+| 30,000 | 0.0618 | 0.0448 | 21.36 dB | 610,403 | 169.4 s |
+
+**It scales**: 1.2 M Gaussians × 394 views trains at ~177 it/s, the same rate as
+the 110 k-Gaussian fixture, and the whole 30 k-iteration run costs under three
+minutes. Pruning removes half the Gaussians (1.21 M → 610 k) while the loss
+*falls* — those are seeds the photometric term found redundant.
+
+**This is also where the missing densification shows.** Compare the seed panel
+here with the fixture's: NewOffice's cloud covers a whole building at a coarser
+effective spacing, so its seed Gaussians start larger and blurrier, and 30 k
+iterations sharpen the scene without ever resolving detail finer than the seed.
+The fixture reaches 23.4 dB on a 1.2 m corridor segment; the building-scale
+region saturates around 21.4 dB. Refinement *beyond* seed density is exactly
+what §3.1 says this version cannot do — evidence for prioritising MCMC
+densification over any further tuning of the current loop.
+
+Two caveats on those numbers: PSNR is a running mean over training views (no
+held-out split yet), and 30 k iterations across 394 views is only ~76 gradient
+steps per view, against the reference's thousands.
+
 ## 6. Verification (native, once built)
 
 `rux create gsplat -p scene.rux --iterations 7000 --use-panoramas --region <frames>

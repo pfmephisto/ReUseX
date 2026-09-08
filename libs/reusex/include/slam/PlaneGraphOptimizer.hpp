@@ -32,6 +32,7 @@
 #include "reusex/segmentation/Surfel.hpp"
 #include "reusex/segmentation/surfel_extraction.hpp"
 #include "reusex/slam/LoopClosure.hpp"
+#include "reusex/slam/PanoramaLoopEdges.hpp"
 
 #include <string>
 #include <vector>
@@ -248,6 +249,15 @@ struct PlaneGraphOptions {
   /// optimize_sensor_poses detects loop edges from the RGB-D frames and feeds
   /// them into the same GNC graph as robust BetweenFactor<Pose3> constraints.
   LoopClosureOptions loop_closure;
+  /// Panorama-derived wide-baseline loop edges (issue #236; off by default,
+  /// `--use-panoramas`). A 360 panorama is resected INDEPENDENTLY against each
+  /// frame it matches, in that frame's own optical coordinates, so the relative
+  /// pose it implies between two frames is a genuine measurement rather than a
+  /// restatement of the drifted seed trajectory. The resulting edges are the
+  /// same LoopEdge type, gated by the same `loop_closure` knobs
+  /// (`min_frame_gap`, min/max seed disagreement), PCM-filtered as part of the
+  /// UNION with the other sources, and solved in the same GNC graph.
+  PanoramaLoopOptions panorama_loops;
   /// How loop-edge factors are treated by the solver:
   ///   false (default, SAFE): loop edges are ordinary GNC candidates under the
   ///     shared `gnc_inlier_cost` threshold — a wrong edge is down-weighted.
@@ -328,6 +338,9 @@ struct PlaneGraphResult {
       0;                           ///< landmarks dropped as near-collinear
   int underconstrained_frames = 0; ///< frames whose odometry was tightened
   int loop_edges = 0;              ///< wide-baseline loop BetweenFactors added
+  /// Of `loop_edges`, how many came from the panorama front-end (#236).
+  /// Reported separately so a run's panorama contribution is auditable.
+  int panorama_loop_edges = 0;
   /// Observations whose noise scale hit `plane_weight_min` (trusted as hard as
   /// the model allows) and `plane_weight_max` (distrusted as hard as it
   /// allows). Both saturating for most detections means the clamp — not the

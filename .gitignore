@@ -170,6 +170,9 @@ models/*
 # Blender development shell
 .blender-dev/
 
+# Local Claude Code agent state (per-agent scratch memory)
+.claude/agent-memory/
+
 # Local benchmark reports (scripts/bench.sh)
 bench-results/
 

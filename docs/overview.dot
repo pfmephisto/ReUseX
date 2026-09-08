@@ -1,0 +1,66 @@
+digraph overview {
+  rankdir=LR;
+    //splines  = ortho;
+    nodesep  = 0.8;
+    ranksep  = 1.2;
+
+    node [shape=record, fontname="Helvetica", fontsize=11, style="filled", fillcolor="#f5f5f5"];
+    edge [fontname="Helvetica", fontsize=10];
+
+    projects [label="{projects\
+        | <id>   id                   : TEXT PK \l\
+        |        name                 : TEXT \l\
+        |        building_address     : TEXT \l\
+        |        year_of_construction : INTEGER \l\
+        |        survey_date          : TEXT \l\
+        |        survey_organisation  : TEXT \l\
+        |        notes                : TEXT \l\
+    }"];
+
+    property_definitions [label="{property_definitions\
+        | <id>   id            : TEXT PK \l\
+        |        leksikon_guid : TEXT UNIQUE \l\
+        |        name_en       : TEXT NOT NULL \l\
+        |        category      : TEXT \l\
+        |        data_type     : TEXT \l\
+        |        unit          : TEXT \l\
+        |        is_array      : INTEGER DEFAULT 0 \l\
+    }"];
+
+    material_passports [label="{material_passports\
+        | <id>         id            : TEXT PK \l\
+        | <project_id> project_id    : TEXT FK \l\
+        |              document_guid : TEXT UNIQUE \l\
+        |              created_at    : TEXT \l\
+        |              revised_at    : TEXT \l\
+        |              version_number: TEXT \l\
+        |              version_date  : TEXT \l\
+    }"];
+
+    passport_property_values [label="{passport_property_values\
+        | <id>          id            : TEXT PK \l\
+        | <passport_id> passport_id   : TEXT FK \l\
+        | <property_id> property_id   : TEXT FK \l\
+        |               leksikon_guid : TEXT UNIQUE \l\
+        |               sort_order    : INTEGER \l\
+        |               value         : BLOB \l\
+    }"];
+
+    passport_log [label="{passport_log\
+        | <id>          id          : TEXT PK \l\
+        | <passport_id> passport_id : TEXT FK \l\
+        |               entry_type  : TEXT \l\
+        |               target_guid : TEXT \l\
+        |               edited_by   : TEXT \l\
+        |               edited_at   : TEXT \l\
+        |               old_value   : TEXT \l\
+        |               new_value   : TEXT \l\
+    }"];
+
+    // Relationships
+    material_passports:project_id       -> projects:id              [label="project"];
+    passport_property_values:passport_id -> material_passports:id   [label="passport"];
+    passport_property_values:property_id -> property_definitions:id [label="property"];
+    passport_log:passport_id            -> material_passports:id    [label="passport"];
+
+}

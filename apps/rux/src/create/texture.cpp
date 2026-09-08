@@ -83,6 +83,11 @@ NOTES:
                   "Max distance from point to surface in meters")
       ->default_val(opt->distance_threshold);
 
+  sub->add_option("--texture-dir", opt->texture_dir,
+                  "Directory to stage generated texture images in "
+                  "(default: a unique directory under the system temp "
+                  "directory, removed once the textures are in the project)");
+
   sub->callback([opt, global_opt]() {
     spdlog::trace("calling run_subcommand_texture");
     return run_subcommand_texture(*opt, *global_opt);
@@ -141,6 +146,32 @@ int run_subcommand_texture(SubcommandTextureOptions const &opt,
     quality.max_resolution = opt.max_resolution;
     quality.atlas_tile_size = opt.atlas_tile_size;
     quality.distance_threshold = opt.distance_threshold;
+
+    // Resolve the texture staging directory here rather than letting the
+    // library do it implicitly, so this command can clean up after itself.
+    // When --texture-dir is not given we own the (temp) directory and delete
+    // it once the images are safely inside the project database; when the
+    // user names a directory it is theirs and we never remove it (issue #245).
+    const bool owns_staging_dir = opt.texture_dir.empty();
+    quality.texture_dir =
+        reusex::geometry::prepare_texture_dir(opt.texture_dir);
+    spdlog::debug("Staging textures in {}", quality.texture_dir.string());
+
+    /// Removes the staging directory on every exit path, but only when this
+    /// command created it.
+    struct StagingDirGuard {
+      fs::path dir;
+      bool owned;
+      ~StagingDirGuard() {
+        if (!owned)
+          return;
+        std::error_code ec;
+        fs::remove_all(dir, ec);
+        if (ec)
+          spdlog::warn("Failed to remove texture staging directory {}: {}",
+                       dir.string(), ec.message());
+      }
+    } staging_guard{quality.texture_dir, owns_staging_dir};
 
     spdlog::trace("Generating textured mesh");
     auto textured_mesh = reusex::geometry::texture_mesh_with_cloud(

@@ -20,7 +20,7 @@
 #include <rtabmap/core/util2d.h>
 #include <rtabmap/core/util3d.h>
 
-#include <pcl/filters/frustum_culling.h>
+#include <pcl/common/io.h> // pcl::copyPointCloud
 
 #include <cmath>
 #include <limits>
@@ -32,8 +32,6 @@
 
 #include <opencv2/core.hpp>
 #include <opencv2/core/eigen.hpp>
-#include <opencv2/highgui.hpp>
-#include <opencv2/imgcodecs.hpp>
 
 using namespace rtabmap;
 
@@ -97,12 +95,6 @@ inline rtabmap::CameraModel createCameraModelFromIntrinsics(
 auto project(const ProjectDB &db, CloudConstPtr cloud) -> CloudLPtr {
   reusex::trace("calling project");
 
-  // auto viewer =
-  //     std::make_shared<pcl::visualization::PCLVisualizer>("3D Viewer");
-  // viewer->setBackgroundColor(0.1, 0.1, 0.1);
-  // viewer->addCoordinateSystem(0.5);
-  // viewer->initCameraParameters();
-
   // Create output labeled point cloud
   CloudLPtr labels(new CloudL);
   labels->points.resize(cloud->points.size());
@@ -115,12 +107,6 @@ auto project(const ProjectDB &db, CloudConstPtr cloud) -> CloudLPtr {
   auto frameIds = db.sensor_frame_ids();
   reusex::debug("Loaded {} sensor frames in {:.3f}s", frameIds.size(), timer);
   timer.reset();
-
-  // viewer->addPointCloud<Cloud::PointType>(cloud, "input_cloud");
-  // viewer->spinOnce();
-
-  const auto rtabmapCam_T_pclCam =
-      rtabmap::Transform(1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1, 0);
 
   /* Dicription of the different coordinate frames
    *
@@ -180,27 +166,11 @@ auto project(const ProjectDB &db, CloudConstPtr cloud) -> CloudLPtr {
       cv::Mat local_mat = local_mat_4x4(cv::Rect(0, 0, 4, 3));
       rtabmap::Transform t_cam(local_mat);
 
-      std::filesystem::path tmpPath = "./debth_debug";
-      if (!std::filesystem::exists(tmpPath))
-        std::filesystem::create_directory(tmpPath);
-
       // Create scaled camera model for projection
       rtabmap::CameraModel cm = createCameraModelFromIntrinsics(
           intrinsics, cv::Size(intrinsics.width / 16, intrinsics.height / 16));
 
       auto t_local = pose.inverse();
-
-      // Frustum culling setup
-      // pcl::FrustumCulling<Cloud::PointType> fc;
-      // fc.setInputCloud(cloud);
-      // fc.setCameraPose(
-      //    (pose * cm.localTransform().inverse() * rtabmapCam_T_pclCam)
-      //        .toEigen4f());
-      // fc.setNearPlaneDistance(0.05f);
-      // fc.setFarPlaneDistance(50.0f); // wide enough to include valid points
-      // auto [fovYdeg, fovXdeg] = fovsFromCameraModel(cm);
-      // fc.setVerticalFOV(static_cast<float>(fovYdeg));
-      // fc.setHorizontalFOV(static_cast<float>(fovXdeg));
 
       // Observer may be null when running headless — guard before use.
       if (auto *visual_observer = reusex::core::get_visual_observer()) {
@@ -213,25 +183,8 @@ auto project(const ProjectDB &db, CloudConstPtr cloud) -> CloudLPtr {
       }
 
       pcl::Indices indices;
-      // fc.filter(indices);
       indices.resize(cloud->points.size());
       std::iota(indices.begin(), indices.end(), 0);
-
-      // INFO: Visualize frustum culled points
-      //{
-      //  // --- Visualize frustum culled points
-      //  CloudPtr result(new Cloud);
-      //  fc.filter(*result);
-      //  auto red_hander =
-      //      pcl::visualization::PointCloudColorHandlerCustom<Cloud::PointType>(
-      //          result, 255, 0, 0);
-      //  viewer->addPointCloud<Cloud::PointType>(result, red_hander,
-      //                                          fmt::format("cloud_node_{}",
-      //                                          id));
-      //  viewer->setPointCloudRenderingProperties(
-      //      pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 2,
-      //      fmt::format("cloud_node_{}", id));
-      //}
 
       std::shared_ptr<pcl::PointCloud<pcl::PointXYZ>> cloud_lf(
           new pcl::PointCloud<pcl::PointXYZ>);
@@ -250,33 +203,6 @@ auto project(const ProjectDB &db, CloudConstPtr cloud) -> CloudLPtr {
 
       cv::resize(zbuffer, zbuffer, labeledImage.size());
 
-      // cv::Mat zbufferDisplay = zbuffer.clone();
-      // cv::normalize(zbufferDisplay, zbufferDisplay, 0.0, 1.0,
-      // cv::NORM_MINMAX); cv::imshow("Z-Buffer", zbufferDisplay);
-
-      // cv::Mat labeledDisplay = cv::Mat(labeledImage.size(), CV_8UC3);
-      // for (size_t i = 0; i < labeledImage.total(); ++i) {
-      //   auto color = pcl::GlasbeyLUT::at(labeledImage.at<int>(i) %
-      //                                    pcl::GlasbeyLUT::size());
-      //   labeledDisplay.at<cv::Vec3b>(i) = cv::Vec3b(color.b, color.g,
-      //   color.r);
-      // }
-      // cv::imshow("labeled", labeledDisplay);
-
-      // cv::imshow("input", data.imageRaw());
-      // cv::waitKey(0);
-
-      // while (!viewer->wasStopped()) {
-      //   viewer->spinOnce(100);
-      //   std::this_thread::sleep_for(std::chrono::milliseconds(100));
-      // }
-
-      // cv::imwrite(tmpPath / fmt::format("zbuffer_node_{}.png", id),
-      //             normalizeDepthImage(zbuffer) /* zbufferDisplay * 255.0*/);
-
-      cv::Mat temp(labeledImage.size(), CV_8UC3);
-      temp.setTo(cv::Vec3b(0, 0, 0));
-
       // Scale camera model to match label image resolution
       cm = createCameraModelFromIntrinsics(intrinsics, labeledImage.size());
       {
@@ -288,9 +214,8 @@ auto project(const ProjectDB &db, CloudConstPtr cloud) -> CloudLPtr {
         auto cy = cm.cy();
         auto h = cm.imageHeight();
         auto w = cm.imageWidth();
-#pragma omp parallel for shared(labels, cloud, indices, labeledImage, zbuffer, \
-                                    temp)                                      \
-    firstprivate(t_cam, fx, fy, cx, cy, w, h, tmpPath)
+#pragma omp parallel for shared(labels, cloud, indices, labeledImage, zbuffer) \
+    firstprivate(t_cam, fx, fy, cx, cy, w, h)
         for (int j = 0; j < static_cast<int>(indices.size()); ++j) {
           auto idx = indices[j];
 
@@ -323,14 +248,10 @@ auto project(const ProjectDB &db, CloudConstPtr cloud) -> CloudLPtr {
           // labeledImage is API CV_32S (-1 = bg) -> point label (0 = unlabeled)
           labels->points[idx].label =
               reusex::core::api_to_point_label(labeledImage.at<int>(py, px));
-
-          temp.at<cv::Vec3b>(py, px) = cv::Vec3b(
-              cloud->points[idx].b, cloud->points[idx].g, cloud->points[idx].r);
         }
       } // end assign labels
 
       ++(*observer);
-      // cv::imwrite(tmpPath / fmt::format("temp_{}.png", id), temp);
     }
   }
 

@@ -15,14 +15,75 @@
 #include <pcl/surface/texture_mapping.h>
 #include <range/v3/view/enumerate.hpp>
 
+#include <atomic>
 #include <cmath>
 #include <filesystem>
+#include <random>
+#include <stdexcept>
 
 #ifdef _OPENMP
 #include <omp.h>
 #endif
 
 namespace reusex::geometry {
+
+std::filesystem::path
+prepare_texture_dir(const std::filesystem::path &requested) {
+  namespace fs = std::filesystem;
+
+  // A directory the caller named: make it absolute (so the paths we write
+  // into pcl::TexMaterial::tex_file — and from there into the MTL — never
+  // depend on the process working directory) and create it if missing.
+  // Its existing content is deliberately left alone: the library must never
+  // delete a path it did not create itself (issue #245).
+  if (!requested.empty()) {
+    fs::path dir = fs::absolute(requested);
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+    if (ec)
+      throw std::runtime_error(
+          fmt::format("Failed to create texture directory '{}': {}",
+                      dir.string(), ec.message()));
+    if (!fs::is_directory(dir))
+      throw std::runtime_error(
+          fmt::format("Texture directory '{}' exists but is not a directory",
+                      dir.string()));
+    reusex::core::debug("Staging textures in caller-supplied directory: {}",
+                        dir.string());
+    return dir;
+  }
+
+  // Nothing requested: stage into a fresh, uniquely named directory under the
+  // system temp directory. create_directory() returns true only when it
+  // actually created the directory, so a name that is already taken is simply
+  // retried — two concurrent runs can never share a staging directory.
+  static std::atomic<unsigned long long> counter{0};
+  std::random_device rd;
+  const fs::path base = fs::temp_directory_path();
+
+  constexpr int kMaxAttempts = 64;
+  for (int attempt = 0; attempt < kMaxAttempts; ++attempt) {
+    fs::path candidate =
+        base / fmt::format("reusex-textures-{:08x}{:08x}-{}", rd(), rd(),
+                           counter.fetch_add(1, std::memory_order_relaxed));
+    std::error_code ec;
+    if (fs::create_directory(candidate, ec)) {
+      reusex::core::debug("Staging textures in temporary directory: {}",
+                          candidate.string());
+      return candidate;
+    }
+    if (ec)
+      throw std::runtime_error(
+          fmt::format("Failed to create texture staging directory '{}': {}",
+                      candidate.string(), ec.message()));
+    // No error and not created => the name already existed; try another.
+  }
+
+  throw std::runtime_error(fmt::format(
+      "Failed to create a unique texture staging directory under '{}' "
+      "after {} attempts",
+      base.string(), kMaxAttempts));
+}
 
 /**
  * @brief Verify polygon-to-atlas-tile mapping is correct (debug mode)
@@ -950,12 +1011,7 @@ texture_mesh_with_cloud(pcl::PolygonMesh::Ptr mesh, CloudConstPtr cloud,
   pcl::toPCLPointCloud2(cloud_with_normals, textured_mesh->cloud);
 
   reusex::core::trace("Create directory for textures");
-  static constexpr char texture_dir[] = "./mesh_textures";
-  if (std::filesystem::exists(texture_dir)) {
-    std::filesystem::remove_all(texture_dir);
-  }
-  std::filesystem::create_directory(texture_dir);
-  std::filesystem::path base_path = std::filesystem::path(texture_dir);
+  std::filesystem::path base_path = prepare_texture_dir(quality.texture_dir);
 
   reusex::core::trace("Resizing texture mesh structures");
   const size_t nr_polygons = textured_mesh->tex_polygons.size();
@@ -1238,7 +1294,8 @@ texture_mesh_with_cloud(pcl::PolygonMesh::Ptr mesh, CloudConstPtr cloud,
 pcl::TextureMesh::Ptr
 texture_mesh(pcl::PolygonMesh::Ptr mesh,
              std::map<int, rtabmap::Transform> const &poses,
-             std::map<int, rtabmap::Signature> const &nodes) {
+             std::map<int, rtabmap::Signature> const &nodes,
+             const std::filesystem::path &texture_dir) {
   reusex::core::trace("Entering reusex::geometry::texture_mesh");
 
   // Copy cloud and polygons
@@ -1289,12 +1346,7 @@ texture_mesh(pcl::PolygonMesh::Ptr mesh,
   reusex::core::debug("Number of vertices: {}", cloud->size());
 
   reusex::core::trace("Create directory for textures");
-  static constexpr char texture_dir[] = "./mesh_textures";
-  if (std::filesystem::exists(texture_dir)) {
-    std::filesystem::remove_all(texture_dir);
-  }
-  std::filesystem::create_directory(texture_dir);
-  std::filesystem::path base_path = std::filesystem::path(texture_dir);
+  std::filesystem::path base_path = prepare_texture_dir(texture_dir);
 
   reusex::core::trace("Retrive all cameras and textures from the database");
   // TODO: Implement camera/texture retrieval from ProjectDB
@@ -1420,7 +1472,8 @@ texture_mesh(pcl::PolygonMesh::Ptr mesh,
 }
 
 pcl::TextureMesh::Ptr texture_mesh(pcl::PolygonMesh::Ptr mesh,
-                                   std::map<int, CameraData> const &cameras) {
+                                   std::map<int, CameraData> const &cameras,
+                                   const std::filesystem::path &texture_dir) {
   reusex::core::trace(
       "Entering reusex::geometry::texture_mesh (ProjectDB API)");
 
@@ -1466,12 +1519,7 @@ pcl::TextureMesh::Ptr texture_mesh(pcl::PolygonMesh::Ptr mesh,
   reusex::core::debug("Number of vertices: {}", cloud->size());
 
   reusex::core::trace("Creating directory for textures");
-  static constexpr char texture_dir[] = "./mesh_textures";
-  if (std::filesystem::exists(texture_dir)) {
-    std::filesystem::remove_all(texture_dir);
-  }
-  std::filesystem::create_directory(texture_dir);
-  std::filesystem::path base_path = std::filesystem::path(texture_dir);
+  std::filesystem::path base_path = prepare_texture_dir(texture_dir);
 
   reusex::core::trace("Extracting cameras and textures from ProjectDB data");
   pcl::texture_mapping::CameraVector pcl_cameras{};

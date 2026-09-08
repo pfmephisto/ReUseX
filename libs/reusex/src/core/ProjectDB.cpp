@@ -2530,8 +2530,14 @@ class ProjectDB::Impl {
                                  " vertices, " + std::to_string(f) + " faces)");
     }
 
-    // Save CWD so we can find texture files referenced by the MTL
-    auto savedCwd = std::filesystem::current_path();
+    // Base for resolving relative texture paths referenced by the MTL.
+    // The project's own directory is used rather than the process working
+    // directory: current_path() is process-global mutable state, so it is
+    // neither thread-safe nor reproducible across invocations (issue #245).
+    // Textures produced by reusex::geometry::texture_mesh* are absolute and
+    // never hit this fallback; it only matters for meshes assembled elsewhere.
+    const std::filesystem::path textureBase =
+        std::filesystem::absolute(dbPath).parent_path();
 
     // Serialize texture mesh to OBJ via temp file (preserves texture data)
     auto tmpPath =
@@ -2651,13 +2657,16 @@ class ProjectDB::Impl {
       }
 
       for (const auto &[matName, texPath] : texPaths) {
-        // Resolve texture path relative to saved CWD
+        // Resolve relative texture paths against the project directory, not
+        // the process working directory (issue #245).
         std::filesystem::path fullPath = texPath;
         if (!fullPath.is_absolute())
-          fullPath = savedCwd / fullPath;
+          fullPath = textureBase / fullPath;
 
         if (!std::filesystem::exists(fullPath)) {
-          reusex::warn("Texture file not found: {}", fullPath.string());
+          reusex::warn("Texture file not found: {} (resolved '{}' against "
+                       "project directory '{}')",
+                       fullPath.string(), texPath, textureBase.string());
           continue;
         }
 

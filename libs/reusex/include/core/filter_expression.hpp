@@ -190,4 +190,22 @@ auto parse_filter_expression(const std::string &expression, ProjectDB &db)
 auto evaluate_filter(const FilterExpression &expr, size_t cloud_size)
     -> IndicesPtr;
 
+/// Parse and evaluate a filter expression against a project in one step.
+///
+/// The whole "resolve the named label clouds, check they line up with the
+/// cloud being filtered, evaluate, and say how much survived" sequence, which
+/// every caller needs and which used to be duplicated in the app layer. It
+/// lives here so `rux` and the pipeline stage runners filter identically
+/// (#284).
+///
+/// @param filter_expr Expression string; an empty string yields nullptr, i.e.
+///        "no filter", so callers can pass an unset option straight through.
+/// @param db Project to resolve the referenced label clouds from.
+/// @param expected_size Point count of the cloud the indices will index into.
+/// @return Indices of matching points, or nullptr for an empty expression.
+/// @throws std::runtime_error on a parse error, a missing cloud, or a
+///         referenced cloud whose size disagrees with `expected_size`.
+auto evaluate_filter_expression(const std::string &filter_expr, ProjectDB &db,
+                                size_t expected_size) -> IndicesPtr;
+
 } // namespace reusex::core

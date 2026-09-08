@@ -3,19 +3,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "create/planes.hpp"
-#include "filter_utils.hpp"
+#include "create/stage_bridge.hpp"
 #include "validation.hpp"
 #include <reusex/core/ProjectDB.hpp>
-#include <reusex/segmentation/segment_planes.hpp>
+#include <reusex/pipeline/stages.hpp>
 
-#include <fmt/format.h>
-
-#include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
-#include <spdlog/stopwatch.h>
-
-#include <pcl/common/colors.h>
-#include <pcl/filters/filter.h>
 
 namespace fs = std::filesystem;
 
@@ -135,8 +128,9 @@ NOTES:
 /**
  * @brief Execute plane segmentation on a point cloud.
  *
- * Loads point cloud and normals from ProjectDB, performs multi-scale region
- * growing plane segmentation, and saves results to ProjectDB.
+ * Validates the CLI's prerequisites, then hands the run to
+ * reusex::pipeline::run_stage, which owns loading, segmenting, saving and the
+ * pipeline_log record (#284).
  *
  * @param opt Options containing project path and segmentation parameters.
  * @return Exit code (RuxError::SUCCESS on success).
@@ -157,62 +151,31 @@ int run_subcommand_segment_planes(SubcommandSegPlanesOptions const &opt,
       return RuxError::INVALID_ARGUMENT;
     }
 
-    int logId = db.log_pipeline_start(
-        "segment_planes",
-        fmt::format(
-            R"({{"angle_threshold":{},"plane_dist_threshold":{},"min_inliers":{},"radius":{},"interval_0":{},"interval_factor":{}}})",
-            opt.angle_threshold, opt.plane_dist_threshold, opt.minInliers,
-            opt.radius, opt.interval_0, opt.interval_factor));
+    reusex::pipeline::StageContext ctx;
+    ctx.project = project_path;
+    ctx.stage = reusex::pipeline::JobStage::planes;
+    // The noise-adaptive thresholds of #214 are pinned by *presence*: emitting
+    // `plane_dist_threshold` / `min_inliers` only when the user actually passed
+    // -d/-m is what tells the stage to bypass adaptive derivation for exactly
+    // those parameters.
+    ctx.parameters =
+        rux::StageParams()
+            .set("angle_threshold", opt.angle_threshold)
+            .set_if(opt.dist_explicit, "plane_dist_threshold",
+                    opt.plane_dist_threshold)
+            .set_if(opt.min_explicit, "min_inliers", opt.minInliers)
+            .set("radius", opt.radius)
+            .set("interval_0", opt.interval_0)
+            .set("interval_factor", opt.interval_factor)
+            .set("adaptive", opt.adaptive)
+            .set("noise_seed", opt.noise_seed)
+            .set_if(!opt.filter_expr.empty(), "filter", opt.filter_expr)
+            .dump();
 
-    spdlog::trace("Loading point cloud and normals from ProjectDB");
-    auto cloud = db.point_cloud_xyzrgb("cloud");
-    auto normals = db.point_cloud_normal("normals");
-
-    using namespace reusex::geometry;
-
-    // Build options struct
-    reusex::geometry::SegmentPlanesOptions options;
-    options.angle_threshold = opt.angle_threshold;
-    options.plane_dist_threshold = opt.plane_dist_threshold;
-    options.min_inliers = opt.minInliers;
-    options.radius = opt.radius;
-    options.interval_0 = opt.interval_0;
-    options.interval_factor = opt.interval_factor;
-
-    // Noise-adaptive thresholds (issue #214). Explicit -d/-m pin the
-    // corresponding parameter; adaptivity applies to the rest.
-    options.adaptive = opt.adaptive;
-    options.noise_seed = opt.noise_seed;
-    if (opt.dist_explicit)
-      options.plane_dist_threshold_override = opt.plane_dist_threshold;
-    if (opt.min_explicit)
-      options.min_inliers_override = opt.minInliers;
-
-    // Evaluate filter if provided
-    if (!opt.filter_expr.empty()) {
-      try {
-        options.filter =
-            rux::filters::evaluate_filter(opt.filter_expr, db, cloud->size());
-      } catch (const std::exception &e) {
-        spdlog::error("Filter evaluation failed: {}", e.what());
-        return RuxError::INVALID_ARGUMENT;
-      }
-    }
-
-    spdlog::trace("Running plane segmentation algorithm");
-    auto [labels, centroids, plane_normals] =
-        reusex::geometry::segment_planes(cloud, normals, options);
-
-    spdlog::trace("Saving results to ProjectDB");
-    db.save_point_cloud("planes", *labels, "segment_planes");
-    db.save_point_cloud("plane_centroids", *centroids, "segment_planes");
-    db.save_point_cloud("plane_normals", *plane_normals, "segment_planes");
-
-    spdlog::info("Plane segmentation complete: {} planes detected",
-                 centroids->size());
-
-    db.log_pipeline_end(logId, true);
-    return RuxError::SUCCESS;
+    const auto result = reusex::pipeline::run_stage(db, ctx);
+    if (result.ok)
+      spdlog::info("Plane segmentation complete: {}", result.message);
+    return rux::exit_code_for(result);
 
   } catch (const std::exception &e) {
     spdlog::error("Plane segmentation failed: {}", e.what());

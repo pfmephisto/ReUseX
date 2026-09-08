@@ -3,10 +3,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "create/clouds.hpp"
+#include "create/stage_bridge.hpp"
 #include "validation.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
-#include <reusex/segmentation/reconstruct.hpp>
+#include <reusex/pipeline/stages.hpp>
 
 #include <spdlog/spdlog.h>
 
@@ -86,26 +87,23 @@ int run_subcommand_create_clouds(SubcommandCreateCloudsOptions const &opt,
       return RuxError::INVALID_ARGUMENT;
     }
 
-    int logId = db.log_pipeline_start(
-        "cloud_reconstruction",
-        fmt::format(
-            R"({{"resolution":{},"min_distance":{},"max_distance":{},"sampling_factor":{},"confidence_threshold":{}}})",
-            opt.resolution, opt.min_distance, opt.max_distance,
-            opt.sampling_factor, opt.confidence_threshold));
+    reusex::pipeline::StageContext ctx;
+    ctx.project = project_path;
+    ctx.stage = reusex::pipeline::JobStage::clouds;
+    ctx.parameters = rux::StageParams()
+                         .set("resolution", opt.resolution)
+                         .set("min_distance", opt.min_distance)
+                         .set("max_distance", opt.max_distance)
+                         .set("sampling_factor", opt.sampling_factor)
+                         .set("confidence_threshold", opt.confidence_threshold)
+                         .dump();
 
-    reusex::geometry::ReconstructionParams params;
-    params.resolution = opt.resolution;
-    params.min_distance = opt.min_distance;
-    params.max_distance = opt.max_distance;
-    params.sampling_factor = opt.sampling_factor;
-    params.confidence_threshold = opt.confidence_threshold;
-
-    reusex::geometry::reconstruct_point_clouds(db, params);
-
-    db.log_pipeline_end(logId, true);
-
-    spdlog::info("Point cloud reconstruction complete");
-    return RuxError::SUCCESS;
+    // run_stage owns the pipeline_log row, the input-contract check and the
+    // failure reporting; it has already logged whatever went wrong.
+    const auto result = reusex::pipeline::run_stage(db, ctx);
+    if (result.ok)
+      spdlog::info("Point cloud reconstruction complete");
+    return rux::exit_code_for(result);
 
   } catch (const std::exception &e) {
     spdlog::error("Point cloud reconstruction failed: {}", e.what());

@@ -4,6 +4,8 @@
 #include "core/filter_expression.hpp"
 #include "core/ProjectDB.hpp"
 #include "core/logging.hpp"
+#include <fmt/format.h>
+
 #include <algorithm>
 #include <cctype>
 #include <stdexcept>
@@ -410,6 +412,41 @@ auto evaluate_filter(const FilterExpression &expr, size_t cloud_size)
   }
 
   indices->shrink_to_fit();
+  return indices;
+}
+
+auto evaluate_filter_expression(const std::string &filter_expr, ProjectDB &db,
+                                size_t expected_size) -> IndicesPtr {
+  if (filter_expr.empty())
+    return nullptr;
+
+  auto expr = parse_filter_expression(filter_expr, db);
+
+  // A filter produces indices INTO the cloud being processed, so a referenced
+  // label cloud of a different length would silently mislabel points rather
+  // than fail. Refuse instead (STANDARDS §5).
+  if (!expr->clouds.empty()) {
+    const size_t actual_size = expr->clouds[0].size();
+    if (actual_size != expected_size) {
+      throw std::runtime_error(fmt::format(
+          "Cloud size mismatch: filter references clouds with {} points, "
+          "but expected {} points",
+          actual_size, expected_size));
+    }
+  }
+
+  auto indices = evaluate_filter(*expr, expected_size);
+
+  info("Filter '{}' matched {} points ({:.1f}% of cloud)", filter_expr,
+       indices->size(), 100.0 * indices->size() / expected_size);
+
+  if (indices->empty())
+    warn("Filter matched 0 points - output will be empty");
+  else if (indices->size() < 100)
+    warn("Filter matched only {} points ({:.2f}% of cloud) - "
+         "this may be too small for reliable processing",
+         indices->size(), 100.0 * indices->size() / expected_size);
+
   return indices;
 }
 

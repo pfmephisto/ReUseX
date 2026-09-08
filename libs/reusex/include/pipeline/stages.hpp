@@ -71,10 +71,17 @@ bool stage_supports_cancellation(JobStage stage);
 struct StageResult {
   bool ok = false;        ///< The stage completed and wrote its outputs.
   bool cancelled = false; ///< The stage stopped early on a cancel request.
-  std::string message;    ///< Human-readable summary or failure reason.
+  /// The request was refused before/without doing the work because an input or
+  /// a parameter was invalid, as opposed to the stage failing part-way through.
+  /// Front ends need the distinction: `rux` returns INVALID_ARGUMENT rather
+  /// than a generic error, and an HTTP front end would answer 400, not 500.
+  /// Always accompanied by `ok == false`.
+  bool invalid_input = false;
+  std::string message; ///< Human-readable summary or failure reason.
 
   static StageResult success(std::string message = {});
   static StageResult failure(std::string message);
+  static StageResult invalid(std::string message);
   static StageResult cancel(std::string message = "cancelled");
 };
 

@@ -3,28 +3,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "create/rooms.hpp"
-#include "filter_utils.hpp"
-#include "spdmon.hpp"
+#include "create/stage_bridge.hpp"
 #include "validation.hpp"
 #include <reusex/core/ProjectDB.hpp>
-#include <reusex/core/label_semantics.hpp>
-#include <reusex/utils/fmt_formatter.hpp>
-
-#include <reusex/segmentation/segment_rooms.hpp>
+#include <reusex/pipeline/stages.hpp>
 
 #include <CLI/CLI.hpp>
-#include <fmt/format.h>
 
-#include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
-#include <spdlog/stopwatch.h>
-
-#include <pcl/common/pca.h>
-#include <pcl/correspondence.h>
-#include <pcl/filters/filter.h>
-#include <pcl/filters/uniform_sampling.h>
-#include <pcl/point_types.h>
-#include <pcl/search/kdtree.h>
 
 namespace fs = std::filesystem;
 
@@ -122,8 +108,9 @@ NOTES:
 /**
  * @brief Execute room segmentation using Leiden community detection.
  *
- * Loads point cloud, plane labels, and plane data from ProjectDB, then
- * performs room segmentation using Leiden algorithm based on visual relations.
+ * Validates the CLI's prerequisites, then hands the run to
+ * reusex::pipeline::run_stage, which owns loading, segmenting, saving and the
+ * pipeline_log record (#284).
  *
  * @param opt Options containing project path and Leiden parameters.
  * @return Exit code (RuxError::SUCCESS on success).
@@ -144,79 +131,23 @@ int run_subcommand_segment_rooms(SubcommandSegRoomsOptions const &opt,
       return RuxError::INVALID_ARGUMENT;
     }
 
-    int logId = db.log_pipeline_start(
-        "segment_rooms",
-        fmt::format(
-            R"({{"grid_size":{},"resolution":{},"beta":{},"max_iter":{}}})",
-            opt.grid_size, opt.resolution, opt.beta, opt.max_iter));
+    reusex::pipeline::StageContext ctx;
+    ctx.project = project_path;
+    ctx.stage = reusex::pipeline::JobStage::rooms;
+    ctx.parameters =
+        rux::StageParams()
+            .set("grid_size", opt.grid_size)
+            .set("resolution", opt.resolution)
+            .set("beta", opt.beta)
+            .set("max_iter", opt.max_iter)
+            .set("propagate_max_radius", opt.propagate_max_radius)
+            .set_if(!opt.filter_expr.empty(), "filter", opt.filter_expr)
+            .dump();
 
-    spdlog::trace("Loading point cloud and plane data from ProjectDB");
-    auto cloud = db.point_cloud_xyzrgb("cloud");
-    auto planes = db.point_cloud_label("planes");
-    auto plane_centroids = db.point_cloud_xyz("plane_centroids");
-    auto plane_normals = db.point_cloud_normal("plane_normals");
-
-    if (planes->size() != cloud->size()) {
-      spdlog::error("Point cloud size mismatch: cloud={}, planes={}",
-                    cloud->size(), planes->size());
-      db.log_pipeline_end(logId, false, "Size validation failed");
-      return RuxError::INVALID_ARGUMENT;
-    }
-
-    std::set<int> unique_labels{};
-    for (const auto &point : planes->points)
-      unique_labels.insert(point.label);
-    spdlog::debug("Unique plane labels found: {}",
-                  fmt::join(unique_labels, ", "));
-
-    // Plane label convention: 0 = unlabeled, 1..N = plane id (PCL
-    // PlanarRegionGrowing). plane_normals/plane_centroids are sized N and
-    // indexed via reusex::core::label_to_index (label - 1, checked).
-    spdlog::trace("Creating per-point normals from plane labels");
-    CloudNPtr normals(new CloudN);
-    normals->resize(planes->size());
-    normals->width = planes->width;
-    normals->height = planes->height;
-    for (size_t i = 0; i < planes->points.size(); ++i) {
-      const uint32_t label = planes->points[i].label;
-      if (!reusex::core::is_valid_label(label))
-        continue;
-      normals->points[i] =
-          plane_normals->points[reusex::core::label_to_index(label)];
-    }
-
-    spdlog::trace("Running room segmentation algorithm");
-    using namespace reusex::geometry;
-
-    // Build options struct
-    reusex::geometry::SegmentRoomsOptions options;
-    options.grid_size = opt.grid_size;
-    options.resolution = opt.resolution;
-    options.beta = opt.beta;
-    options.max_iter = opt.max_iter;
-    options.propagate_max_radius = opt.propagate_max_radius;
-
-    // Evaluate filter if provided
-    if (!opt.filter_expr.empty()) {
-      try {
-        options.filter =
-            rux::filters::evaluate_filter(opt.filter_expr, db, cloud->size());
-      } catch (const std::exception &e) {
-        spdlog::error("Filter evaluation failed: {}", e.what());
-        return RuxError::INVALID_ARGUMENT;
-      }
-    }
-
-    auto labels =
-        reusex::geometry::segment_rooms(cloud, normals, planes, options);
-
-    spdlog::trace("Saving room labels to ProjectDB");
-    db.save_point_cloud("rooms", *labels, "segment_rooms");
-
-    spdlog::info("Room segmentation complete");
-
-    db.log_pipeline_end(logId, true);
-    return RuxError::SUCCESS;
+    const auto result = reusex::pipeline::run_stage(db, ctx);
+    if (result.ok)
+      spdlog::info("Room segmentation complete: {}", result.message);
+    return rux::exit_code_for(result);
 
   } catch (const std::exception &e) {
     spdlog::error("Room segmentation failed: {}", e.what());

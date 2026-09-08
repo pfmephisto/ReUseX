@@ -40,44 +40,12 @@ auto extract_cloud_names(const std::string &expr) -> std::vector<std::string> {
 
 auto evaluate_filter(const std::string &filter_expr, reusex::ProjectDB &db,
                      size_t expected_size) -> reusex::IndicesPtr {
-  if (filter_expr.empty()) {
-    return nullptr;
-  }
-
-  // Parse expression
-  auto expr = reusex::core::parse_filter_expression(filter_expr, db);
-
-  // Validate cloud size matches expected
-  if (!expr->clouds.empty()) {
-    size_t actual_size = expr->clouds[0].size();
-    if (actual_size != expected_size) {
-      throw std::runtime_error(fmt::format(
-          "Cloud size mismatch: filter references clouds with {} points, "
-          "but expected {} points",
-          actual_size, expected_size));
-    }
-  }
-
-  // Evaluate filter
-  auto indices = reusex::core::evaluate_filter(*expr, expected_size);
-
-  // Log results
-  spdlog::info("Filter '{}' matched {} points ({:.1f}% of cloud)", filter_expr,
-               indices->size(), 100.0 * indices->size() / expected_size);
-
-  // Warn if result is empty
-  if (indices->empty()) {
-    spdlog::warn("Filter matched 0 points - output will be empty");
-  }
-
-  // Warn if result is very small
-  if (indices->size() < 100 && indices->size() > 0) {
-    spdlog::warn("Filter matched only {} points ({:.2f}% of cloud) - "
-                 "this may be too small for reliable processing",
-                 indices->size(), 100.0 * indices->size() / expected_size);
-  }
-
-  return indices;
+  // The implementation lives in the library so that `rux` and the pipeline
+  // stage runners filter identically (#284). This stays as a named app-layer
+  // entry point for the subcommands that do their own filtering because they
+  // have no run_stage counterpart yet (create mesh, export ply/e57, view).
+  return reusex::core::evaluate_filter_expression(filter_expr, db,
+                                                  expected_size);
 }
 
 auto validate_expression_syntax(const std::string &expr) -> ValidationResult {
@@ -124,8 +92,8 @@ auto validate_expression_syntax(const std::string &expr) -> ValidationResult {
   }
 }
 
-auto validate_clouds_exist(const std::string &expr,
-                           const reusex::ProjectDB &db) -> ValidationResult {
+auto validate_clouds_exist(const std::string &expr, const reusex::ProjectDB &db)
+    -> ValidationResult {
   auto cloud_names = extract_cloud_names(expr);
 
   for (const auto &name : cloud_names) {

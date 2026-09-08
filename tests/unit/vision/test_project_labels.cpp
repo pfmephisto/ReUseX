@@ -43,12 +43,11 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
-#include <filesystem>
 #include <memory>
+#include <stdexcept>
+#include <string>
 #include <utility>
 #include <vector>
-
-#include "../../support/temp_path.hpp"
 
 using reusex::ProjectDB;
 using reusex::vision::project;
@@ -133,34 +132,6 @@ bool inside_patch(int px, int py) {
   return px >= kPatchLo && px < kPatchHi && py >= kPatchLo && py < kPatchHi;
 }
 
-/// project() unconditionally creates a `./debth_debug` directory in the
-/// process's working directory — a leftover debug hook in project.cpp whose
-/// every writer is commented out (#279). Run each case from inside a throwaway
-/// directory so the build tree stays clean; this workaround goes when #279
-/// does.
-class ScopedCwd {
-    public:
-  explicit ScopedCwd(const std::filesystem::path &to)
-      : previous_(std::filesystem::current_path()) {
-    std::filesystem::current_path(to);
-  }
-  ScopedCwd(const ScopedCwd &) = delete;
-  ScopedCwd &operator=(const ScopedCwd &) = delete;
-  ~ScopedCwd() {
-    std::error_code ec;
-    std::filesystem::current_path(previous_, ec);
-  }
-
-    private:
-  std::filesystem::path previous_;
-};
-
-/// Fixture: a scratch working directory plus the scoped chdir into it.
-struct Sandbox {
-  reusex::test_support::TempDir dir{"test_project_labels"};
-  ScopedCwd cwd{dir.path};
-};
-
 std::shared_ptr<ProjectDB> make_project(const cv::Mat &label_image,
                                         bool with_segmentation = true) {
   auto db = std::make_shared<ProjectDB>(":memory:");
@@ -176,8 +147,6 @@ std::shared_ptr<ProjectDB> make_project(const cv::Mat &label_image,
 
 TEST_CASE("project labels the points that fall inside the labelled square",
           "[vision][project]") {
-  Sandbox sandbox;
-
   auto db = make_project(make_label_image());
   auto cloud = make_wall();
 
@@ -212,8 +181,6 @@ TEST_CASE("project labels the points that fall inside the labelled square",
 
 TEST_CASE("project leaves every point unlabeled when the class is background",
           "[vision][project]") {
-  Sandbox sandbox;
-
   // An all-background label image must produce an all-zero CloudL, not a
   // cloud of some sentinel class.
   cv::Mat background(kHeight, kWidth, CV_32S,
@@ -230,8 +197,6 @@ TEST_CASE("project leaves every point unlabeled when the class is background",
 
 TEST_CASE("project honours class id zero as a real label",
           "[vision][project]") {
-  Sandbox sandbox;
-
   // 0 is a valid API class id (only -1 is background), and it maps to point
   // label 0 — i.e. indistinguishable from unlabeled in a CloudL. Pinning the
   // behaviour so a future change to the encoding is caught here.
@@ -248,8 +213,6 @@ TEST_CASE("project honours class id zero as a real label",
 
 TEST_CASE("project skips frames that have no segmentation image",
           "[vision][project]") {
-  Sandbox sandbox;
-
   auto db = make_project(cv::Mat(), /*with_segmentation=*/false);
   auto cloud = make_wall();
 
@@ -260,31 +223,43 @@ TEST_CASE("project skips frames that have no segmentation image",
     REQUIRE(pt.label == reusex::core::kUnlabeled);
 }
 
-// FIXME: Flip this to assert graceful handling once project() guards its input
-// category=Vision estimate=30m issue=279
-// project() forwards an empty cloud straight into
-// rtabmap::util3d::projectCloudToCamera(), whose UASSERT aborts with
-// "Condition (!laserScan->empty()) not met!" — an RTABMap-internal message that
-// names neither the stage nor the empty input, against STANDARDS §5. This is a
-// characterization test: it pins today's behaviour so the fix in #279 is
-// visible here, and should become
-//   auto labels = project(*db, empty); REQUIRE(labels->empty());
-// once project() returns early (or throws a message that says what went wrong).
-TEST_CASE("project on an empty cloud currently throws", "[vision][project]") {
-  Sandbox sandbox;
-
+// An empty cloud is a caller error, not a legitimate state: `rux create
+// project` only makes sense after `rux create clouds`, and returning an empty
+// CloudL would let the pipeline continue on nothing. project() therefore
+// rejects it at the entry point with a std::runtime_error naming the stage
+// (STANDARDS §5), instead of letting it reach
+// rtabmap::util3d::projectCloudToCamera() and die on that function's internal
+// UASSERT ("Condition (!laserScan->empty()) not met!"), which named neither
+// this stage nor the empty input (#279).
+TEST_CASE("project rejects an empty cloud with a stage-named error",
+          "[vision][project]") {
   auto db = make_project(make_label_image());
   reusex::CloudPtr empty(new reusex::Cloud);
   empty->width = 0;
   empty->height = 1;
 
-  REQUIRE_THROWS(project(*db, empty));
+  REQUIRE_THROWS_AS(project(*db, empty), std::runtime_error);
+
+  // The message must identify the stage and the problem — the whole point of
+  // the guard is that it does not read like an RTABMap assertion.
+  try {
+    project(*db, empty);
+    FAIL("project() accepted an empty cloud");
+  } catch (const std::runtime_error &e) {
+    const std::string what = e.what();
+    REQUIRE(what.find("project") != std::string::npos);
+    REQUIRE(what.find("empty") != std::string::npos);
+  }
+}
+
+TEST_CASE("project rejects a null cloud pointer", "[vision][project]") {
+  auto db = make_project(make_label_image());
+
+  REQUIRE_THROWS_AS(project(*db, reusex::CloudPtr()), std::runtime_error);
 }
 
 TEST_CASE("project on a project with no sensor frames labels nothing",
           "[vision][project]") {
-  Sandbox sandbox;
-
   auto db = std::make_shared<ProjectDB>(":memory:");
   auto cloud = make_wall();
 
@@ -296,8 +271,6 @@ TEST_CASE("project on a project with no sensor frames labels nothing",
 }
 
 TEST_CASE("project ignores geometry behind the camera", "[vision][project]") {
-  Sandbox sandbox;
-
   auto db = make_project(make_label_image());
 
   // Same wall, mirrored to negative z. project() rejects pt_cam.z <= 0 before
@@ -321,8 +294,6 @@ TEST_CASE("project ignores geometry behind the camera", "[vision][project]") {
 
 TEST_CASE("project ignores geometry beyond the far cutoff",
           "[vision][project]") {
-  Sandbox sandbox;
-
   auto db = make_project(make_label_image());
 
   // project() hard-codes a 7 m maximum depth (see the TODO in project.cpp).

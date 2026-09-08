@@ -18,6 +18,7 @@
 #include <optional>
 #include <random>
 #include <span>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
@@ -65,9 +66,31 @@ std::vector<size_t> Dataloader::shuffled_indices(size_t count,
 Dataloader::Iterator::Iterator(Dataloader *loader, size_t batch_idx)
     : loader_(loader), batch_idx_(batch_idx) {}
 
+namespace {
+
+/* * Diagnostic for a dereference that outlived its epoch. get_batch() returns
+ * an empty optional once the epoch is finished (stop() sets epoch_finished_,
+ * so set_num_workers() / set_prefetch_batches() / ~Dataloader() racing a live
+ * iterator all land here). Dereferencing that optional would be undefined
+ * behaviour, so the iterator throws instead — loudly, naming the batch, per
+ * docs/STANDARDS.md §5 (#280).
+ * */
+[[noreturn]] void throw_no_batch(size_t batch_idx, const char *op) {
+  throw std::runtime_error(
+      "Dataloader::Iterator::" + std::string(op) + ": no batch " +
+      std::to_string(batch_idx) +
+      " available — the epoch was stopped before this iterator was "
+      "dereferenced (the loader was reconfigured or destroyed mid-iteration)");
+}
+
+} // namespace
+
 Dataloader::BatchView Dataloader::Iterator::operator*() const {
   if (!current_batch_) {
     current_batch_ = loader_->get_batch(batch_idx_);
+  }
+  if (!current_batch_) {
+    throw_no_batch(batch_idx_, "operator*");
   }
   return BatchView(*current_batch_);
 }
@@ -75,6 +98,9 @@ Dataloader::BatchView Dataloader::Iterator::operator*() const {
 Dataloader::Batch &&Dataloader::Iterator::move_batch() {
   if (!current_batch_) {
     current_batch_ = loader_->get_batch(batch_idx_);
+  }
+  if (!current_batch_) {
+    throw_no_batch(batch_idx_, "move_batch");
   }
   return std::move(*current_batch_);
 }

@@ -20,11 +20,6 @@
 //   * Prefetch *timing* / throughput. prefetch_batches and num_workers are
 //     exercised for correctness, but any assertion about when a batch becomes
 //     available would be a race, not a test.
-//   * Iterator::operator* / move_batch() when get_batch() returns nullopt
-//     (the epoch is stopped concurrently with a dereference). That path
-//     dereferences a disengaged optional — undefined behaviour, filed as
-//     #280. Reaching it deterministically would need the loader to expose its
-//     stop signal, so it is documented rather than tested.
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -41,6 +36,8 @@
 #include <numeric>
 #include <optional>
 #include <span>
+#include <stdexcept>
+#include <string>
 #include <vector>
 
 using reusex::ProjectDB;
@@ -285,6 +282,67 @@ TEST_CASE("Dataloader order survives changing the worker count mid-life",
   REQUIRE(loader.get_prefetch_batches() == 1);
 
   REQUIRE(visit_order(loader) == before);
+}
+
+// ── stopped-epoch dereference (#280) ──────────────────────────────────────
+
+// get_batch() returns an empty optional once the epoch has finished. Both
+// Iterator::operator* and Iterator::move_batch() used to dereference that
+// optional unconditionally — undefined behaviour rather than a diagnostic.
+// They now throw, naming the batch index.
+//
+// No timing is involved in reaching that state: set_prefetch_batches() (like
+// set_num_workers() and the destructor) calls stop(), which joins every worker
+// and *then* clears the batch queue, so once it returns the queue is
+// guaranteed empty and epoch_finished_ is guaranteed set. A dereference after
+// that point deterministically finds nothing.
+
+TEST_CASE("Dataloader iterator throws when dereferenced after the epoch stops",
+          "[vision][dataloader]") {
+  auto db = make_db(10);
+  IndexDataset ds(db);
+
+  Dataloader loader(ds, 4, false, 2);
+
+  auto it = loader.begin(); // starts the epoch, but do not dereference yet
+  loader.set_prefetch_batches(1); // stop(): joins workers, clears the queue
+
+  REQUIRE_THROWS_AS(*it, std::runtime_error);
+}
+
+TEST_CASE("Dataloader move_batch throws when the epoch has stopped",
+          "[vision][dataloader]") {
+  auto db = make_db(10);
+  IndexDataset ds(db);
+
+  Dataloader loader(ds, 4, false, 2);
+
+  auto it = loader.begin();
+  loader.set_num_workers(1); // stop() again — same deterministic state
+
+  REQUIRE_THROWS_AS(it.move_batch(), std::runtime_error);
+}
+
+TEST_CASE("Dataloader stopped-epoch error names the batch index",
+          "[vision][dataloader]") {
+  auto db = make_db(20);
+  IndexDataset ds(db);
+
+  Dataloader loader(ds, 4, false, 2);
+
+  auto it = loader.begin();
+  ++it;
+  ++it; // batch 2 — a non-zero index, so the message cannot pass by accident
+  loader.set_prefetch_batches(1);
+
+  try {
+    (void)*it;
+    FAIL("dereferencing a stopped iterator did not throw");
+  } catch (const std::runtime_error &e) {
+    const std::string what = e.what();
+    REQUIRE(what.find("Dataloader") != std::string::npos);
+    REQUIRE(what.find("batch 2") != std::string::npos);
+  }
 }
 
 TEST_CASE("Dataloader entropy seeding still visits every sample once",

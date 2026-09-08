@@ -98,22 +98,45 @@ std::string logged_parameters(const json &params, const std::string &job_id) {
 /// Run the stage's documented input contract and fail before doing any work
 /// when a prerequisite is missing (STANDARDS §5: fail fast, loudly, with the
 /// reason). Warnings are logged but do not block.
-std::optional<std::string> check_inputs(const ProjectDB &db,
-                                        core::PipelineStage contract) {
+std::optional<std::string>
+check_inputs(const ProjectDB &db, core::PipelineStage contract,
+             const core::ArtifactOverrides &overrides) {
   std::vector<core::ValidationIssue> issues;
-  core::check_stage_inputs(db, contract, issues);
+  core::check_stage_inputs(db, contract, issues, overrides);
 
   std::vector<std::string> errors;
   for (const auto &issue : issues) {
-    if (issue.severity == core::ValidationSeverity::error)
-      errors.push_back(fmt::format("{}: {}", issue.check, issue.message));
-    else
+    if (issue.severity != core::ValidationSeverity::error) {
       warn("stage input warning [{}]: {}", issue.check, issue.message);
+      continue;
+    }
+    errors.push_back(fmt::format("{}: {}", issue.check, issue.message));
+    // The derived resolution hint (#246) goes to the log rather than into the
+    // refusal message: an HTTP client gets a one-line reason, but whoever
+    // reads the worker log still sees which commands would fix it.
+    if (!issue.hint.empty())
+      info("stage input resolution: {}", issue.hint);
   }
   if (errors.empty())
     return std::nullopt;
   return fmt::format("stage inputs not satisfied — {}",
                      fmt::join(errors, "; "));
+}
+
+/// Which contract artifact names this run has been pointed away from.
+///
+/// Not a second contract: the table still says the `instances` stage consumes
+/// a semantic label cloud, this only says which cloud the caller's parameters
+/// named. Without it, `semantic_cloud: "foo"` would be checked against
+/// `labels` and refused (or, worse, accepted) for the wrong cloud.
+core::ArtifactOverrides contract_overrides(JobStage stage, const json &params) {
+  core::ArtifactOverrides overrides;
+  if (stage == JobStage::instances) {
+    const auto semantic = param_or<std::string>(params, "semantic_cloud", "");
+    if (!semantic.empty())
+      overrides["labels"] = semantic;
+  }
+  return overrides;
 }
 
 /// Resolve the optional `"filter"` parameter into the point indices a stage
@@ -525,7 +548,8 @@ StageResult run_stage(ProjectDB &db, const StageContext &ctx) {
     log_id = db.log_pipeline_start(desc.log_name,
                                    logged_parameters(params, ctx.job_id));
 
-    if (auto problem = check_inputs(db, desc.contract)) {
+    if (auto problem = check_inputs(db, desc.contract,
+                                    contract_overrides(ctx.stage, params))) {
       error("stage '{}' refused: {}", desc.name, *problem);
       db.log_pipeline_end(log_id, false, *problem);
       return StageResult::invalid(*problem);

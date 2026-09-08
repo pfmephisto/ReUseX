@@ -4,7 +4,7 @@
 
 #include "create/clouds.hpp"
 #include "create/stage_bridge.hpp"
-#include "validation.hpp"
+#include "stage_prerequisites.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/pipeline/stages.hpp>
@@ -80,12 +80,10 @@ int run_subcommand_create_clouds(SubcommandCreateCloudsOptions const &opt,
     reusex::ProjectDB db(project_path);
 
     // Pre-flight validation: check for sensor frames
-    auto validation = rux::validation::validate_clouds_prerequisites(db);
-    if (!validation) {
-      spdlog::error("{}", validation.error_message);
-      spdlog::info("Resolution: {}", validation.resolution_hint);
-      return RuxError::INVALID_ARGUMENT;
-    }
+    if (int rc = rux::check_stage_prerequisites(
+            db, reusex::core::PipelineStage::clouds);
+        rc != RuxError::SUCCESS)
+      return rc;
 
     reusex::pipeline::StageContext ctx;
     ctx.project = project_path;

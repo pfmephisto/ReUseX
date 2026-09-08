@@ -5,6 +5,9 @@
 #include "core/ProjectDB.hpp"
 
 #include <fmt/format.h>
+#include <fmt/ranges.h>
+
+#include <opencv2/core/mat.hpp>
 
 #include <algorithm>
 #include <map>
@@ -71,7 +74,8 @@ void check_orphaned_passports(const ProjectDB &db,
                      fmt::format("material passport {} is not linked to any "
                                  "instance",
                                  guid),
-                     ValidationSeverity::warning});
+                     ValidationSeverity::warning,
+                     /*hint=*/{}});
     }
   }
 }
@@ -95,13 +99,15 @@ void check_dangling_instance_materials(const ProjectDB &db,
              fmt::format("cloud '{}': link for instance {} has no instances "
                          "row (guid {})",
                          name, iid, guid),
-             ValidationSeverity::error});
+             ValidationSeverity::error,
+             /*hint=*/{}});
       if (passports.find(guid) == passports.end())
         out.push_back(
             {"dangling_instance_material",
              fmt::format("cloud '{}': instance {} links to missing passport {}",
                          name, iid, guid),
-             ValidationSeverity::error});
+             ValidationSeverity::error,
+             /*hint=*/{}});
     }
   }
 }
@@ -124,7 +130,8 @@ void check_instances_without_label_defs(const ProjectDB &db,
                        fmt::format("cloud '{}': instance {} (guid {}) has no "
                                    "label_definitions entry",
                                    name, r.instance_id, r.guid),
-                       ValidationSeverity::error});
+                       ValidationSeverity::error,
+                       /*hint=*/{}});
     }
   }
 }
@@ -166,7 +173,8 @@ void check_sibling_cloud_sizes(const ProjectDB &db,
            fmt::format("cloud '{}' has {} points but sibling '{}' has {} — "
                        "parallel clouds must be index-aligned",
                        s, it->second, ref_name, ref_size),
-           ValidationSeverity::error});
+           ValidationSeverity::error,
+           /*hint=*/{}});
   }
 }
 
@@ -179,187 +187,291 @@ ValidationReport validate_project(const ProjectDB &db) {
   return report;
 }
 
-// ── Stage input contracts (#222) ───────────────────────────────────────────
-
-std::optional<PipelineStage> parse_pipeline_stage(std::string_view name) {
-  if (name == "import")
-    return PipelineStage::import;
-  if (name == "optimize" || name == "register")
-    return PipelineStage::optimize;
-  if (name == "clouds")
-    return PipelineStage::clouds;
-  if (name == "planes")
-    return PipelineStage::planes;
-  if (name == "rooms")
-    return PipelineStage::rooms;
-  if (name == "instances")
-    return PipelineStage::instances;
-  if (name == "mesh")
-    return PipelineStage::mesh;
-  return std::nullopt;
-}
-
-std::string_view to_string(PipelineStage stage) {
-  switch (stage) {
-  case PipelineStage::import:
-    return "import";
-  case PipelineStage::optimize:
-    return "optimize";
-  case PipelineStage::clouds:
-    return "clouds";
-  case PipelineStage::planes:
-    return "planes";
-  case PipelineStage::rooms:
-    return "rooms";
-  case PipelineStage::instances:
-    return "instances";
-  case PipelineStage::mesh:
-    return "mesh";
-  }
-  return "unknown";
-}
-
-std::vector<std::string> pipeline_stage_names() {
-  return {"import", "optimize", "register",  "clouds",
-          "planes", "rooms",    "instances", "mesh"};
-}
+// ── Stage input contracts (#222, consolidated in #246) ─────────────────────
+//
+// This section used to be a hand-written `switch` with one case per stage,
+// duplicated again in apps/rux/src/validation.cpp. It is now a generic
+// interpreter of the table in core/stage_contract.hpp: adding a stage or
+// changing a prerequisite is a table edit, and every consumer — `rux validate
+// --stage`, every `rux create` subcommand, and pipeline::run_stage()'s refusal
+// path — moves with it.
+//
+// parse_pipeline_stage() / to_string() / pipeline_stage_names() live in
+// core/stage_contract.cpp, next to the table they read.
 
 namespace {
 
-// point_count per named cloud from a single project_summary() call.
-std::map<std::string, size_t> cloud_point_counts(const ProjectDB &db) {
-  std::map<std::string, size_t> counts;
+// What the project currently contains, gathered in one project_summary() call.
+struct ProjectState {
+  std::map<std::string, size_t, std::less<>> cloud_points;
+  std::set<std::string, std::less<>> meshes;
+  int sensor_frames = 0;
+  int segmentation_images = 0;
+  int building_components = 0;
+};
+
+ProjectState read_state(const ProjectDB &db) {
+  ProjectState state;
   auto summary = db.project_summary();
-  for (const auto &c : summary.clouds)
-    counts[c.name] = c.point_count;
-  return counts;
+  for (const auto &cloud : summary.clouds)
+    state.cloud_points[cloud.name] = cloud.point_count;
+  for (const auto &mesh : summary.meshes)
+    state.meshes.insert(mesh.name);
+  state.sensor_frames = summary.sensor_frames.total_count;
+  state.segmentation_images = summary.sensor_frames.segmented_count;
+  state.building_components = summary.components.total_count;
+  return state;
 }
 
-// Require that a named cloud exists; append an error if not. Returns its point
-// count when present (via out-param), leaving `size` untouched when absent.
-bool require_cloud(const std::map<std::string, size_t> &counts,
-                   const std::string &name, const char *stage,
-                   std::vector<ValidationIssue> &out, size_t *size = nullptr) {
-  auto it = counts.find(name);
-  if (it == counts.end()) {
-    out.push_back({"missing_stage_input",
-                   fmt::format("stage '{}' requires cloud '{}' which is not "
-                               "present in the project",
-                               stage, name),
-                   ValidationSeverity::error});
-    return false;
+// Row count of a table artifact. This is the one place that has to know how a
+// given table is counted in ProjectDB — it is an accessor mapping, not a
+// second copy of the contract; which tables a stage needs still comes from the
+// table.
+int table_rows(const ProjectState &state, std::string_view name) {
+  if (name == "sensor_frames")
+    return state.sensor_frames;
+  if (name == "segmentation_images")
+    return state.segmentation_images;
+  if (name == "building_components")
+    return state.building_components;
+  return 0;
+}
+
+// Number of stored frames that carry a depth image, counted up to `wanted` so
+// a satisfied project never pays for decoding more than it must.
+int count_depth_frames(const ProjectDB &db, int wanted) {
+  int found = 0;
+  for (int id : db.sensor_frame_ids()) {
+    if (!db.sensor_frame_depth(id).empty() && ++found >= wanted)
+      break;
   }
-  if (size)
-    *size = it->second;
-  return true;
+  return found;
 }
 
-// Assert every present cloud in `names` has the same point count as the first
-// present one; append an error per mismatch. Missing clouds are ignored here
-// (require_cloud handles required presence).
-void require_aligned(const std::map<std::string, size_t> &counts,
-                     const std::vector<std::string> &names, const char *stage,
-                     std::vector<ValidationIssue> &out) {
-  std::string ref_name;
-  size_t ref_size = 0;
-  for (const auto &n : names) {
-    auto it = counts.find(n);
-    if (it == counts.end())
+/// One input after `overrides` has been applied: what the contract declared
+/// (which fixes the artifact's kind and alignment class) and what to actually
+/// look for in the project.
+struct ResolvedName {
+  std::string_view declared;
+  std::string effective;
+};
+
+std::vector<ResolvedName> resolve(const StageInput &input,
+                                  const ArtifactOverrides &overrides) {
+  std::vector<ResolvedName> resolved;
+  std::vector<ResolvedName> substituted;
+  for (const auto &declared : input.any_of) {
+    auto it = overrides.find(declared);
+    if (it != overrides.end())
+      substituted.push_back({declared, it->second});
+    resolved.push_back({declared, std::string(declared)});
+  }
+  // An explicit override is an instruction, not a preference: `rux create
+  // instances --semantic-cloud foo` must fail when `foo` is missing, even if
+  // the contract's fallback (`planes`) happens to be present.
+  return substituted.empty() ? resolved : substituted;
+}
+
+bool present(const ProjectDB &db, const ProjectState &state,
+             const Artifact &artifact, const std::string &name, int min_rows,
+             int min_depth_frames) {
+  switch (artifact.kind) {
+  case ArtifactKind::point_cloud:
+    return state.cloud_points.find(name) != state.cloud_points.end();
+  case ArtifactKind::mesh:
+    return state.meshes.find(name) != state.meshes.end();
+  case ArtifactKind::table:
+    if (table_rows(state, name) < std::max(min_rows, 1))
+      return false;
+    return min_depth_frames <= 0 ||
+           count_depth_frames(db, min_depth_frames) >= min_depth_frames;
+  }
+  return false;
+}
+
+/// Collect the indices (into stage_contracts()) of every stage that has to run
+/// before @p artifact can exist, transitively.
+///
+/// Terminates because a stage's inputs are only ever produced by strictly
+/// earlier stages — an invariant of the table asserted by
+/// tests/unit/core/test_stage_contract.cpp.
+void collect_producers(const ProjectDB &db, const ProjectState &state,
+                       std::string_view artifact, std::set<size_t> &stages) {
+  auto producer = producing_stage(artifact);
+  if (!producer)
+    return;
+
+  const auto &contracts = stage_contracts();
+  for (size_t i = 0; i < contracts.size(); ++i) {
+    if (contracts[i].stage != *producer)
       continue;
-    if (ref_name.empty()) {
-      ref_name = n;
-      ref_size = it->second;
-      continue;
+    if (!stages.insert(i).second)
+      return; // already collected, and so are its prerequisites
+    for (const auto &input : contracts[i].inputs) {
+      const auto names = resolve(input, {});
+      const bool satisfied =
+          std::any_of(names.begin(), names.end(), [&](const ResolvedName &n) {
+            const Artifact *art = find_artifact(n.declared);
+            return art && present(db, state, *art, n.effective, input.min_rows,
+                                  input.min_depth_frames);
+          });
+      if (!satisfied && !names.empty())
+        collect_producers(db, state, names.front().declared, stages);
     }
-    if (it->second != ref_size)
-      out.push_back(
-          {"stage_input_size_mismatch",
-           fmt::format("stage '{}': cloud '{}' has {} points but '{}' has {} — "
-                       "index-aligned inputs must match",
-                       stage, n, it->second, ref_name, ref_size),
-           ValidationSeverity::error});
+    return;
   }
+}
+
+/// The progressive "run these commands in order" guidance the CLI used to
+/// hard-code per stage, derived from the table instead (#246).
+std::string resolution_hint(const ProjectDB &db, const ProjectState &state,
+                            std::string_view artifact) {
+  std::set<size_t> stages;
+  collect_producers(db, state, artifact, stages);
+  if (stages.empty())
+    return {};
+
+  const auto &contracts = stage_contracts();
+  std::vector<std::string> commands;
+  for (size_t index : stages) // std::set iterates in pipeline order
+    commands.emplace_back(contracts[index].command);
+
+  if (commands.size() == 1)
+    return fmt::format("Run '{}' to produce '{}'", commands.front(), artifact);
+  return fmt::format("Run the following commands in order:\n    {}",
+                     fmt::join(commands, "\n    "));
+}
+
+/// Message for an unsatisfied input, preserving the wording the pre-#246
+/// checks emitted so `rux validate --stage <name> --json` keeps its output.
+std::string missing_message(std::string_view stage, const Artifact &artifact,
+                            const std::vector<ResolvedName> &names,
+                            const StageInput &input, const ProjectState &state,
+                            const ProjectDB &db) {
+  if (artifact.kind == ArtifactKind::table) {
+    if (input.min_depth_frames > 0 &&
+        table_rows(state, names.front().effective) >=
+            std::max(input.min_rows, 1))
+      return fmt::format(
+          "stage '{}' requires at least {} sensor frame(s) with depth data, "
+          "found {}",
+          stage, input.min_depth_frames,
+          count_depth_frames(db, input.min_depth_frames));
+    if (names.front().effective == "sensor_frames") {
+      if (input.min_rows > 1)
+        return fmt::format(
+            "stage '{}' requires at least {} stored sensor frames, found {}",
+            stage, input.min_rows, state.sensor_frames);
+      return fmt::format("stage '{}' requires stored sensor frames (run 'rux "
+                         "import' first)",
+                         stage);
+    }
+    return fmt::format(
+        "stage '{}' requires '{}' ({}), which is empty or not present", stage,
+        names.front().effective, artifact.description);
+  }
+
+  const char *kind = artifact.kind == ArtifactKind::mesh ? "mesh" : "cloud";
+  if (names.size() == 1)
+    return fmt::format("stage '{}' requires {} '{}' which is not present in "
+                       "the project",
+                       stage, kind, names.front().effective);
+
+  std::vector<std::string> options;
+  for (const auto &name : names)
+    options.push_back(fmt::format("'{}'", name.effective));
+  return fmt::format("stage '{}' requires one of the {}s {}, none of which is "
+                     "present in the project",
+                     stage, kind, fmt::join(options, " or "));
 }
 
 } // namespace
 
 void check_stage_inputs(const ProjectDB &db, PipelineStage stage,
-                        std::vector<ValidationIssue> &out) {
-  const char *name = to_string(stage).data();
+                        std::vector<ValidationIssue> &out,
+                        const ArtifactOverrides &overrides) {
+  const auto &contract = stage_contract(stage);
+  const std::string_view name = contract.name;
+  const ProjectState state = read_state(db);
 
-  switch (stage) {
-  case PipelineStage::import:
-    // import has no cloud/table prerequisites (it reads an external scan).
-    break;
+  // Inputs that are present, grouped by the index-alignment class of the
+  // artifact the contract declared. Alignment is a property of the artifact,
+  // so a stage cannot accidentally require the per-plane clouds to match the
+  // per-point ones (STANDARDS §3.2).
+  std::vector<std::pair<Alignment, std::vector<std::pair<std::string, size_t>>>>
+      groups;
+  auto group_for = [&groups](Alignment alignment)
+      -> std::vector<std::pair<std::string, size_t>> & {
+    for (auto &entry : groups)
+      if (entry.first == alignment)
+        return entry.second;
+    groups.push_back({alignment, {}});
+    return groups.back().second;
+  };
 
-  case PipelineStage::optimize:
-  case PipelineStage::clouds: {
-    // Both consume stored sensor frames.
-    auto summary = db.project_summary();
-    if (summary.sensor_frames.total_count <= 0)
+  for (const auto &input : contract.inputs) {
+    const auto names = resolve(input, overrides);
+    if (names.empty())
+      continue;
+
+    const Artifact *artifact = find_artifact(names.front().declared);
+    if (!artifact) {
+      // A contract naming an unregistered artifact is a programming error the
+      // table-integrity test catches at build time; refuse loudly rather than
+      // silently skipping a prerequisite.
       out.push_back({"missing_stage_input",
-                     fmt::format("stage '{}' requires stored sensor frames "
-                                 "(run 'rux import' first)",
-                                 name),
-                     ValidationSeverity::error});
-    break;
-  }
+                     fmt::format("stage '{}' declares unknown artifact '{}'",
+                                 name, names.front().declared),
+                     ValidationSeverity::error,
+                     {}});
+      continue;
+    }
 
-  case PipelineStage::planes: {
-    auto counts = cloud_point_counts(db);
-    require_cloud(counts, "cloud", name, out);
-    require_cloud(counts, "normals", name, out);
-    require_aligned(counts, {"cloud", "normals"}, name, out);
-    break;
-  }
+    bool satisfied = false;
+    for (const auto &candidate : names) {
+      if (!present(db, state, *artifact, candidate.effective, input.min_rows,
+                   input.min_depth_frames))
+        continue;
+      satisfied = true;
+      if (artifact->alignment != Alignment::none) {
+        auto it = state.cloud_points.find(candidate.effective);
+        if (it != state.cloud_points.end())
+          group_for(artifact->alignment)
+              .push_back({candidate.effective, it->second});
+      }
+      break;
+    }
 
-  case PipelineStage::rooms: {
-    auto counts = cloud_point_counts(db);
-    require_cloud(counts, "cloud", name, out);
-    require_cloud(counts, "planes", name, out);
-    require_cloud(counts, "plane_centroids", name, out);
-    require_cloud(counts, "plane_normals", name, out);
-    // cloud and planes are per-point and must be index-aligned; plane_centroids
-    // / plane_normals are per-plane and intentionally shorter.
-    require_aligned(counts, {"cloud", "planes"}, name, out);
-    require_aligned(counts, {"plane_centroids", "plane_normals"}, name, out);
-    break;
-  }
-
-  case PipelineStage::instances: {
-    auto counts = cloud_point_counts(db);
-    require_cloud(counts, "cloud", name, out);
-    // Semantic labels: the default input cloud is "labels"; accept "planes" as
-    // a fallback so the check is useful even when only geometric labels exist.
-    if (counts.find("labels") == counts.end() &&
-        counts.find("planes") == counts.end())
+    if (!satisfied)
       out.push_back({"missing_stage_input",
-                     fmt::format("stage '{}' requires a semantic label cloud "
-                                 "('labels') to cluster into instances",
-                                 name),
-                     ValidationSeverity::error});
-    require_aligned(counts, {"cloud", "labels"}, name, out);
-    break;
+                     missing_message(name, *artifact, names, input, state, db),
+                     ValidationSeverity::error,
+                     resolution_hint(db, state, names.front().declared)});
   }
 
-  case PipelineStage::mesh: {
-    auto counts = cloud_point_counts(db);
-    require_cloud(counts, "cloud", name, out);
-    require_cloud(counts, "normals", name, out);
-    require_cloud(counts, "rooms", name, out);
-    require_cloud(counts, "planes", name, out);
-    require_cloud(counts, "plane_centroids", name, out);
-    require_cloud(counts, "plane_normals", name, out);
-    require_aligned(counts, {"cloud", "normals", "rooms", "planes"}, name, out);
-    require_aligned(counts, {"plane_centroids", "plane_normals"}, name, out);
-    break;
-  }
+  for (const auto &[alignment, members] : groups) {
+    (void)alignment;
+    if (members.size() < 2)
+      continue;
+    const auto &[ref_name, ref_size] = members.front();
+    for (size_t i = 1; i < members.size(); ++i) {
+      const auto &[member_name, member_size] = members[i];
+      if (member_size == ref_size)
+        continue;
+      out.push_back(
+          {"stage_input_size_mismatch",
+           fmt::format("stage '{}': cloud '{}' has {} points but '{}' has {} — "
+                       "index-aligned inputs must match",
+                       name, member_name, member_size, ref_name, ref_size),
+           ValidationSeverity::error, resolution_hint(db, state, member_name)});
+    }
   }
 }
 
-ValidationReport validate_stage(const ProjectDB &db, PipelineStage stage) {
+ValidationReport validate_stage(const ProjectDB &db, PipelineStage stage,
+                                const ArtifactOverrides &overrides) {
   ValidationReport report;
-  check_stage_inputs(db, stage, report.issues);
+  check_stage_inputs(db, stage, report.issues, overrides);
   return report;
 }
 

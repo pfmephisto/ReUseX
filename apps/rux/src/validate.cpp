@@ -41,6 +41,10 @@ void print_terminal(const reusex::core::ValidationReport &report,
     fmt::print("{} [{}] {}\n",
                fmt::styled(is_err ? "ERROR  " : "WARNING", fmt::fg(color)),
                issue.check, issue.message);
+    // The resolution hint is derived from the stage contract table (#246), so
+    // it names the actual commands that would produce the missing inputs.
+    if (!issue.hint.empty())
+      fmt::print("        {}\n", issue.hint);
   }
 
   fmt::print("\n{} error(s), {} warning(s)\n", report.error_count(),
@@ -56,9 +60,14 @@ void print_json(const reusex::core::ValidationReport &report,
   out["warning_count"] = report.warning_count();
   out["issues"] = json::array();
   for (const auto &issue : report.issues) {
-    out["issues"].push_back({{"check", issue.check},
-                             {"severity", severity_str(issue.severity)},
-                             {"message", issue.message}});
+    json entry = {{"check", issue.check},
+                  {"severity", severity_str(issue.severity)},
+                  {"message", issue.message}};
+    // Additive and optional: an issue with no mechanical resolution emits no
+    // "hint" key at all, so every pre-#246 report is byte-identical.
+    if (!issue.hint.empty())
+      entry["hint"] = issue.hint;
+    out["issues"].push_back(std::move(entry));
   }
   std::cout << out.dump(2) << std::endl;
 }
@@ -83,7 +92,11 @@ DESCRIPTION:
   With --stage <name> it instead asserts that the named pipeline stage's input
   contract is satisfied — the clouds/tables it consumes exist and are
   index-aligned (see docs/CONTRACTS.md). Stages:
-  import, optimize (alias register), clouds, planes, rooms, instances, mesh.
+  import, optimize (alias register), clouds, annotate, project, planes, rooms,
+  instances, mesh, texture, windows.
+
+  This is the same check every `rux create` subcommand runs before it starts,
+  so a stage that validates here will not be refused there (#246).
 
 EXAMPLES:
   rux validate                         # Whole-project integrity report
@@ -99,10 +112,12 @@ NOTES:
   sub->add_flag("-j,--json", opt->json_output, "Output in JSON format")
       ->default_val(false);
 
-  sub->add_option("-s,--stage", opt->stage,
-                  "Validate one pipeline stage's input contract "
-                  "(import|optimize|register|clouds|planes|rooms|instances|"
-                  "mesh)");
+  // Built from the stage contract table so a new stage shows up in --help
+  // without a second list to remember to update (#246).
+  sub->add_option(
+      "-s,--stage", opt->stage,
+      fmt::format("Validate one pipeline stage's input contract ({})",
+                  fmt::join(reusex::core::pipeline_stage_names(), "|")));
 
   sub->callback([opt, global_opt]() {
     int exit_code = run_subcommand_validate(*opt, *global_opt);

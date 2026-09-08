@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "create/texture.hpp"
-#include "validation.hpp"
+#include "stage_prerequisites.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/geometry/unweld.hpp>
@@ -101,17 +101,15 @@ int run_subcommand_texture(SubcommandTextureOptions const &opt,
   try {
     reusex::ProjectDB db(project_path);
 
-    // Pre-flight validation: check for mesh and point cloud
-    if (!db.has_mesh(opt.mesh_name)) {
-      spdlog::error("Mesh '{}' not found in project database", opt.mesh_name);
-      return RuxError::INVALID_ARGUMENT;
-    }
-
-    if (!db.has_point_cloud(opt.cloud_name)) {
-      spdlog::error("Point cloud '{}' not found in project database",
-                    opt.cloud_name);
-      return RuxError::INVALID_ARGUMENT;
-    }
+    // Pre-flight validation against the `texture` stage contract. Until #246
+    // this command was the one `rux create` subcommand with no contract check
+    // at all: `validate_texture_prerequisites()` existed but was never called,
+    // so a missing sensor frame surfaced as a failure deep inside texturing.
+    if (int rc = rux::check_stage_prerequisites(
+            db, reusex::core::PipelineStage::texture,
+            {{"mesh", opt.mesh_name}, {"cloud", opt.cloud_name}});
+        rc != RuxError::SUCCESS)
+      return rc;
 
     int logId = db.log_pipeline_start(
         "texture_mesh",

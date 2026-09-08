@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "optimize.hpp"
-#include "validation.hpp"
+#include "stage_prerequisites.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/slam/PlaneGraphOptimizer.hpp>
@@ -284,12 +284,10 @@ int run_subcommand_optimize(SubcommandOptimizeOptions const &opt,
     reusex::ProjectDB db(project_path);
 
     // Reuse the register prerequisites (>= 2 sensor frames carrying depth).
-    auto validation = rux::validation::validate_register_prerequisites(db);
-    if (!validation) {
-      spdlog::error("{}", validation.error_message);
-      spdlog::info("Resolution: {}", validation.resolution_hint);
-      return RuxError::INVALID_ARGUMENT;
-    }
+    if (int rc = rux::check_stage_prerequisites(
+            db, reusex::core::PipelineStage::optimize);
+        rc != RuxError::SUCCESS)
+      return rc;
 
     reusex::geometry::PlaneGraphOptions options;
     options.max_planes_per_frame = opt.max_planes_per_frame;

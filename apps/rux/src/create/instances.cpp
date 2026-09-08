@@ -4,7 +4,7 @@
 #include "create/instances.hpp"
 #include "create/stage_bridge.hpp"
 #include "global-params.hpp"
-#include "validation.hpp"
+#include "stage_prerequisites.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/pipeline/stages.hpp>
@@ -93,15 +93,11 @@ int run_subcommand_segment_instances(const SubcommandSegInstancesOptions &opt,
 
     // Validate prerequisites
     spdlog::info("Validating prerequisites...");
-    auto validation = rux::validation::validate_instances_prerequisites(
-        db, opt.semantic_cloud_name);
-    if (!validation.success) {
-      spdlog::error("Validation failed: {}", validation.error_message);
-      if (!validation.resolution_hint.empty()) {
-        spdlog::info("Suggestion: {}", validation.resolution_hint);
-      }
-      return RuxError::INVALID_ARGUMENT;
-    }
+    if (int rc = rux::check_stage_prerequisites(
+            db, reusex::core::PipelineStage::instances,
+            {{"labels", opt.semantic_cloud_name}});
+        rc != RuxError::SUCCESS)
+      return rc;
 
     if (!opt.labels_to_process.empty())
       spdlog::info("Processing only labels: {}",

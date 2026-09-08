@@ -94,6 +94,12 @@ target_include_directories(reusex_unit_tests PRIVATE
     ${CMAKE_BINARY_DIR}/generated
 )
 
+# tests/unit/core/test_stage_contract.cpp asserts that docs/CONTRACTS.md still
+# says what the stage contract table says (#246). Reading the checked-in
+# markdown needs the source tree, which a test binary otherwise cannot locate.
+target_compile_definitions(reusex_unit_tests
+    PRIVATE REUSEX_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+
 # Vision + ruxd tests: these genuinely need the ML backends and the HTTP
 # routing/auth logic, so they carry the full dependency closure.
 if(HEAVY_TEST_SOURCES)

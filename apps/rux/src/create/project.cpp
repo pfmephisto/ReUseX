@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "create/project.hpp"
-#include "validation.hpp"
+#include "stage_prerequisites.hpp"
 
 #include <CLI/CLI.hpp>
 #include <spdlog/spdlog.h>
@@ -73,12 +73,10 @@ int run_subcommand_project([[maybe_unused]] SubcommandProjectOptions const &opt,
     reusex::ProjectDB db(project_path);
 
     // Pre-flight validation: check for cloud and segmentation images
-    auto validation = rux::validation::validate_project_prerequisites(db);
-    if (!validation) {
-      spdlog::error("{}", validation.error_message);
-      spdlog::info("Resolution: {}", validation.resolution_hint);
-      return RuxError::INVALID_ARGUMENT;
-    }
+    if (int rc = rux::check_stage_prerequisites(
+            db, reusex::core::PipelineStage::project);
+        rc != RuxError::SUCCESS)
+      return rc;
 
     int logId = db.log_pipeline_start("project_labels");
 

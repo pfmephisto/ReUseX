@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "create/windows.hpp"
-#include "validation.hpp"
+#include "stage_prerequisites.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/geometry/component_persistence.hpp>
@@ -110,21 +110,16 @@ int run_subcommand_create_windows(SubcommandWindowOptions const &opt,
 
     reusex::ProjectDB db(project_path);
 
-    // Pre-flight validation
-    auto validation = rux::validation::validate_window_prerequisites(
-        db, opt.semantic_cloud_name);
-    if (!validation) {
-      spdlog::error("{}", validation.error_message);
-      spdlog::info("Resolution: {}", validation.resolution_hint);
-      return RuxError::INVALID_ARGUMENT;
-    }
-
-    // Check mesh exists
-    if (!db.has_mesh(opt.mesh_name)) {
-      spdlog::error("Mesh '{}' not found in project", opt.mesh_name);
-      spdlog::info("Resolution: Run 'rux create mesh' to generate wall mesh");
-      return RuxError::INVALID_ARGUMENT;
-    }
+    // Pre-flight validation. The mesh / instances / semantic cloud existence
+    // checks that used to be open-coded here are all part of the `windows`
+    // stage contract now (#246), retargeted to whatever the flags named.
+    if (int rc = rux::check_stage_prerequisites(
+            db, reusex::core::PipelineStage::windows,
+            {{"labels", opt.semantic_cloud_name},
+             {"instances", opt.instance_cloud_name},
+             {"mesh", opt.mesh_name}});
+        rc != RuxError::SUCCESS)
+      return rc;
 
     // Log pipeline start
     int logId = db.log_pipeline_start(

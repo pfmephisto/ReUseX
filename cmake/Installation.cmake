@@ -31,6 +31,9 @@ if(TARGET reusex)
     if(TARGET reusex_visualize)
         list(APPEND _reusex_install_targets reusex_visualize)
     endif()
+    if(TARGET reusex_gsplat)
+        list(APPEND _reusex_install_targets reusex_gsplat)
+    endif()
     install(TARGETS ${_reusex_install_targets}
         EXPORT reusexTargets
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}

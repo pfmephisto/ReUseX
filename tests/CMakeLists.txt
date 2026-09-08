@@ -44,7 +44,15 @@ file(GLOB_RECURSE UNIT_TEST_SOURCES CONFIGURE_DEPENDS
      "${CMAKE_CURRENT_SOURCE_DIR}/unit/*.cpp")
 
 set(HEAVY_TEST_SOURCES ${UNIT_TEST_SOURCES})
-list(FILTER HEAVY_TEST_SOURCES INCLUDE REGEX "/unit/(vision|ruxd|visualize)/")
+list(FILTER HEAVY_TEST_SOURCES INCLUDE REGEX "/unit/(vision|ruxd|visualize|gsplat)/")
+
+# tests/unit/gsplat exercises reusex_gsplat, which only exists when CUDA and
+# the vendored gsplat rasterizer were both found. Drop those sources otherwise
+# rather than fail to link a CPU-only build.
+if(NOT REUSEX_HAVE_GSPLAT)
+    list(FILTER HEAVY_TEST_SOURCES EXCLUDE REGEX "/unit/gsplat/")
+    message(STATUS "Excluding tests/unit/gsplat (gsplat backend disabled)")
+endif()
 
 # reusex/vision/nms.hpp is a torch::Tensor API, and MLBackendConfig.cmake drops
 # nms.cpp/.hpp from the library entirely when the LibTorch backend is off. Its
@@ -76,7 +84,7 @@ if(NOT "TensorRT" IN_LIST ENABLED_ML_BACKENDS)
 endif()
 
 set(LIGHT_TEST_SOURCES ${UNIT_TEST_SOURCES})
-list(FILTER LIGHT_TEST_SOURCES EXCLUDE REGEX "/unit/(vision|ruxd|visualize)/")
+list(FILTER LIGHT_TEST_SOURCES EXCLUDE REGEX "/unit/(vision|ruxd|visualize|gsplat)/")
 
 # -----------------------------------------------
 # Create unit test executables

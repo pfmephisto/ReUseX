@@ -67,6 +67,7 @@
   nanoflann,
   libjxl,
   cuOpt,
+  gsplat-cuda,
   addDriverRunpath,
 }: let
   effectiveStdenv =
@@ -184,6 +185,11 @@ in
         [
           trtsam3
           cuOpt
+          # gsplat's CUDA rasterization backend (Apache-2.0), vendored as a
+          # standalone LibTorch-linked static library. Backs the `reusex_gsplat`
+          # module and `rux create gsplat` (#240). CUDA-only by construction;
+          # reusexLibrary.cmake skips the module when it is not found.
+          gsplat-cuda
         ]
         ++ (with cudaPackages; [
           cuda_cudart

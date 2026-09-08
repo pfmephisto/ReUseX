@@ -9,6 +9,35 @@
 # Upstream ships no CMake for its csrc/ tree (it builds via torch
 # cpp_extension); we drop in pkgs/gsplat-cuda/CMakeLists.txt (mirrors the
 # flags from gsplat/cuda/build.py) and point it at gsplat/cuda/.
+#
+# NOTE: comments in *this* file are free, but any edit to the adjacent
+# CMakeLists.txt changes the derivation hash and forces a full rebuild — which
+# is over an hour of nvcc (see the CUDA-architectures TODO below). Both known
+# issues are therefore recorded here rather than fixed in place.
+#
+# FIXME: Stop leaking pybind11::headers into gsplat's exported interface
+# category=I/O estimate=2h issue=240
+# CMakeLists.txt does `target_link_libraries(gsplat PRIVATE pybind11::headers)`.
+# For a STATIC library CMake records even PRIVATE dependencies in the exported
+# INTERFACE_LINK_LIBRARIES (wrapped in $<LINK_ONLY:>), because a static archive
+# must be re-linked transitively. A consumer running find_package(gsplat-cuda)
+# without pybind11 already in scope then fails at configure time with "The link
+# interface of target gsplat::gsplat contains: pybind11::headers but the target
+# was not found". The fix is to consume ${pybind11_INCLUDE_DIRS} as a PRIVATE
+# include directory instead of linking the target — pybind11 is only ever
+# needed for headers here, never for symbols. Worked around on the consumer
+# side by a find_package(pybind11 CONFIG QUIET) ahead of
+# find_package(gsplat-cuda) in libs/reusex/cmake/reusexLibrary.cmake.
+#
+# TODO: Build gsplat for one CUDA architecture instead of three
+# category=I/O estimate=2h issue=240
+# CMAKE_CUDA_ARCHITECTURES is pinned to 80;86;89, so nvcc compiles every kernel
+# three times. The 3DGUT rasterizer TUs (RasterizeToPixelsFromWorld3DGS*Fwd.cu)
+# take ~20 min per architecture on their own, making a cold build of this
+# package well over an hour and any change to it effectively unaffordable
+# mid-session. Expose the architecture list as a derivation argument defaulting
+# to nixpkgs' cudaCapabilities so a developer can build only their own GPU's
+# architecture, keeping the three-arch list for anything cached and shared.
 {
   lib,
   config,

@@ -28,18 +28,18 @@ struct Response {
 
 // Metadata describing one HTTP endpoint.
 struct Endpoint {
-  std::string method;             // "GET", "POST", ...
-  std::string path;               // "/health"
-  std::string summary;            // human-readable description
-  bool requires_auth = false;     // requires a valid Bearer token
-  std::vector<Response> responses;// declared response codes (401 auto-added
-                                  // for authenticated endpoints)
+  std::string method;              // "GET", "POST", ...
+  std::string path;                // "/health"
+  std::string summary;             // human-readable description
+  bool requires_auth = false;      // requires a valid Bearer token
+  std::vector<Response> responses; // declared response codes (401 auto-added
+                                   // for authenticated endpoints)
 };
 
 // Collects endpoint metadata as routes are registered and renders it as
 // JSON (/endpoints) or an OpenAPI 3.1 document (/openapi.json).
 class EndpointRegistry {
-public:
+    public:
   void add(const Endpoint &e) { endpoints_.push_back(e); }
   [[nodiscard]] const std::vector<Endpoint> &endpoints() const {
     return endpoints_;
@@ -57,7 +57,7 @@ public:
   [[nodiscard]] nlohmann::json to_json() const;
   [[nodiscard]] nlohmann::json to_openapi() const;
 
-private:
+    private:
   std::vector<Endpoint> endpoints_;
 };
 

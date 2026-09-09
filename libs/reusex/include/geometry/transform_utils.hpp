@@ -66,7 +66,8 @@ inline Eigen::Matrix4d exp(const Vector6d &xi) {
     const double t2 = theta * theta;
     const double s = std::sin(theta);
     const double c = std::cos(theta);
-    R = Eigen::Matrix3d::Identity() + (s / theta) * W + ((1.0 - c) / t2) * (W * W);
+    R = Eigen::Matrix3d::Identity() + (s / theta) * W +
+        ((1.0 - c) / t2) * (W * W);
     V = Eigen::Matrix3d::Identity() + ((1.0 - c) / t2) * W +
         ((theta - s) / (t2 * theta)) * (W * W);
   }

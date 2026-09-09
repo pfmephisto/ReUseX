@@ -118,11 +118,10 @@ TEST_CASE("unweld_mesh - two coplanar triangles sharing edge",
   //   0---1
   // Both in XY plane (z=0), normals identical.
   auto mesh = make_mesh({{0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0}},
-                         {{0, 1, 2}, {0, 2, 3}});
+                        {{0, 1, 2}, {0, 2, 3}});
 
   // threshold pi/4 — normals are identical (angle=0) so vertices stay shared
-  auto result =
-      unweld_mesh(mesh, static_cast<float>(std::numbers::pi) / 4.0f);
+  auto result = unweld_mesh(mesh, static_cast<float>(std::numbers::pi) / 4.0f);
   REQUIRE(vertex_count(*result) == 4);
   REQUIRE(result->polygons.size() == 2);
 }
@@ -133,7 +132,7 @@ TEST_CASE("unweld_mesh - two perpendicular triangles, threshold below 90deg",
   // Triangle B: in XZ plane (y=0)  vertices 0,1,3
   // Shared edge: 0-1.  Angle between normals = 90 degrees.
   auto mesh = make_mesh({{0, 0, 0}, {1, 0, 0}, {0, 1, 0}, {0, 0, 1}},
-                         {{0, 1, 2}, {0, 3, 1}});
+                        {{0, 1, 2}, {0, 3, 1}});
 
   // threshold pi/4 (45 deg) < 90 deg dihedral -> split shared edge vertices
   float threshold = static_cast<float>(std::numbers::pi) / 4.0f;
@@ -147,7 +146,7 @@ TEST_CASE("unweld_mesh - two perpendicular triangles, threshold below 90deg",
 TEST_CASE("unweld_mesh - two perpendicular triangles, threshold above 90deg",
           "[geometry][unweld]") {
   auto mesh = make_mesh({{0, 0, 0}, {1, 0, 0}, {0, 1, 0}, {0, 0, 1}},
-                         {{0, 1, 2}, {0, 3, 1}});
+                        {{0, 1, 2}, {0, 3, 1}});
 
   // threshold 2.0 rad (~114 deg) > 90 deg dihedral -> no split
   auto result = unweld_mesh(mesh, 2.0f);
@@ -180,7 +179,7 @@ TEST_CASE("unweld_mesh - no unweld (threshold=pi) on cube",
 
 TEST_CASE("unweld_mesh - vertex positions preserved", "[geometry][unweld]") {
   auto mesh = make_mesh({{0, 0, 0}, {1, 0, 0}, {0, 1, 0}, {0, 0, 1}},
-                         {{0, 1, 2}, {0, 3, 1}});
+                        {{0, 1, 2}, {0, 3, 1}});
 
   auto result = unweld_mesh(mesh, 0.0f); // full unweld
   auto cloud_in = extract_cloud(mesh);

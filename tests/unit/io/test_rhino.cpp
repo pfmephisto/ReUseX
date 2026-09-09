@@ -4,8 +4,8 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
-#include <io/rhino.hpp>
 #include <io/export_scene.hpp>
+#include <io/rhino.hpp>
 #include <reusex/types.hpp>
 
 #include <pcl/common/io.h>
@@ -21,10 +21,12 @@ TEST_CASE("configure_rhino_model creates valid model", "[io][rhino]") {
   REQUIRE(model->m_properties.m_Application.m_application_name.IsNotEmpty());
 
   // Verify unit system is set to meters
-  REQUIRE(model->m_settings.m_ModelUnitsAndTolerances.m_unit_system == ON::LengthUnitSystem::Meters);
+  REQUIRE(model->m_settings.m_ModelUnitsAndTolerances.m_unit_system ==
+          ON::LengthUnitSystem::Meters);
 
   // Verify tolerances are set
-  REQUIRE(model->m_settings.m_ModelUnitsAndTolerances.m_absolute_tolerance > 0.0);
+  REQUIRE(model->m_settings.m_ModelUnitsAndTolerances.m_absolute_tolerance >
+          0.0);
 }
 
 TEST_CASE("make_rhino_pointcloud converts PCL cloud", "[io][rhino]") {
@@ -76,7 +78,8 @@ TEST_CASE("make_rhino_pointcloud handles empty cloud", "[io][rhino]") {
   REQUIRE(rhino_cloud->m_C.Count() == 0);
 }
 
-TEST_CASE("make_rhino_pointcloud with normals uses actual normals", "[io][rhino]") {
+TEST_CASE("make_rhino_pointcloud with normals uses actual normals",
+          "[io][rhino]") {
   using namespace reusex;
 
   CloudPtr cloud(new Cloud);

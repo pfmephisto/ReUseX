@@ -14,23 +14,22 @@ void register_segment_routes(App &app, EndpointRegistry &reg) {
   // request payload and call reusex::geometry::segment_planes(...). Marked as
   // requiring authentication so the auth requirement is captured in the docs
   // (the 401 response is added automatically by the registry).
-  add_route(
-      app, reg,
-      {"POST",
-       "/segment/planes",
-       "Run point cloud plane segmentation",
-       true,
-       {{202, "Segmentation accepted"},
-        {501, "Not implemented yet"}}},
-      [](const crow::request &req) {
-        reusex::core::info(
-            "POST /segment/planes — received segmentation request "
-            "(not yet implemented), body size = {} bytes",
-            req.body.size());
-        return json_response(crow::status::NOT_IMPLEMENTED,
-                             {{"status", "not_implemented"},
-                              {"message", "segmentation not yet wired up"}});
-      });
+  add_route(app, reg,
+            {"POST",
+             "/segment/planes",
+             "Run point cloud plane segmentation",
+             true,
+             {{202, "Segmentation accepted"}, {501, "Not implemented yet"}}},
+            [](const crow::request &req) {
+              reusex::core::info(
+                  "POST /segment/planes — received segmentation request "
+                  "(not yet implemented), body size = {} bytes",
+                  req.body.size());
+              return json_response(
+                  crow::status::NOT_IMPLEMENTED,
+                  {{"status", "not_implemented"},
+                   {"message", "segmentation not yet wired up"}});
+            });
 }
 
 } // namespace ruxd

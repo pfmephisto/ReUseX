@@ -371,8 +371,7 @@ cv::Mat ONNXSam3::infer_single(const ONNXSam3Data &sam3_data) {
     float *pred_masks = dec_outputs[0].GetTensorMutableData<float>();
     const float *pred_boxes = dec_outputs[1].GetTensorMutableData<float>();
     const float *pred_logits = dec_outputs[2].GetTensorMutableData<float>();
-    const float *presence_logits =
-        dec_outputs[3].GetTensorMutableData<float>();
+    const float *presence_logits = dec_outputs[3].GetTensorMutableData<float>();
 
     float presence_score = 1.0f / (1.0f + std::exp(-presence_logits[0]));
 

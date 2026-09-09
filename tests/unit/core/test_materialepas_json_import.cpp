@@ -161,8 +161,7 @@ TEST_CASE("Round-trip: export then import preserves all fields",
   CHECK(imported.description.designation == original.description.designation);
   CHECK(imported.description.images == original.description.images);
   CHECK(imported.description.has_qr_code == original.description.has_qr_code);
-  CHECK(imported.description.has_rfid_tag ==
-        original.description.has_rfid_tag);
+  CHECK(imported.description.has_rfid_tag == original.description.has_rfid_tag);
   CHECK(imported.description.materials == original.description.materials);
   CHECK(imported.description.assembly_methods ==
         original.description.assembly_methods);
@@ -244,8 +243,7 @@ TEST_CASE("Round-trip: export then import preserves all fields",
         original.pollution.intended_for_indoor_use);
   CHECK(imported.pollution.labelling_scheme ==
         original.pollution.labelling_scheme);
-  CHECK(imported.pollution.emission_level ==
-        original.pollution.emission_level);
+  CHECK(imported.pollution.emission_level == original.pollution.emission_level);
   CHECK(imported.pollution.has_asbestos_analysis ==
         original.pollution.has_asbestos_analysis);
 
@@ -306,12 +304,9 @@ TEST_CASE("Round-trip: export then import preserves all fields",
   CHECK(imported.metadata.version_date == original.metadata.version_date);
 
   // Transaction log
-  REQUIRE(imported.transaction_log.size() ==
-          original.transaction_log.size());
-  CHECK(imported.transaction_log[0].type ==
-        original.transaction_log[0].type);
-  CHECK(imported.transaction_log[0].guid ==
-        original.transaction_log[0].guid);
+  REQUIRE(imported.transaction_log.size() == original.transaction_log.size());
+  CHECK(imported.transaction_log[0].type == original.transaction_log[0].type);
+  CHECK(imported.transaction_log[0].guid == original.transaction_log[0].guid);
   CHECK(imported.transaction_log[0].edited_by ==
         original.transaction_log[0].edited_by);
   CHECK(imported.transaction_log[0].edited_date ==
@@ -448,10 +443,10 @@ TEST_CASE("Missing sections key produces defaults with metadata parsed",
   j["sections"] = json::array();
   j["log"] = json::array();
   j["metadata"] = {{"document guid", "meta-guid"},
-                    {"document creation date", "2025-01-01"},
-                    {"document revision date", "2025-01-02"},
-                    {"version number", "2.0"},
-                    {"version date", "2025-01-03"}};
+                   {"document creation date", "2025-01-01"},
+                   {"document revision date", "2025-01-02"},
+                   {"version number", "2.0"},
+                   {"version date", "2025-01-03"}};
 
   auto imported = json_import::from_json(j);
 

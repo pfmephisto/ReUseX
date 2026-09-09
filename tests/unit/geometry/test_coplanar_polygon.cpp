@@ -39,12 +39,14 @@ TEST_CASE("CoplanarPolygon - is_valid", "[geometry][coplanar_polygon]") {
   }
 }
 
-TEST_CASE("CoplanarPolygon - area of unit square", "[geometry][coplanar_polygon]") {
+TEST_CASE("CoplanarPolygon - area of unit square",
+          "[geometry][coplanar_polygon]") {
   auto poly = make_xy_square();
   REQUIRE(poly.area() == Approx(1.0).margin(1e-10));
 }
 
-TEST_CASE("CoplanarPolygon - area of triangle", "[geometry][coplanar_polygon]") {
+TEST_CASE("CoplanarPolygon - area of triangle",
+          "[geometry][coplanar_polygon]") {
   CoplanarPolygon poly;
   poly.vertices = {{0, 0, 0}, {2, 0, 0}, {0, 2, 0}};
   poly.plane = Eigen::Vector4d(0, 0, 1, 0);

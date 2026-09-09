@@ -35,8 +35,7 @@ crow::status code_for(bool all_ok) {
 
 } // namespace
 
-void register_health_routes(App &app, EndpointRegistry &reg,
-                            Clients &clients) {
+void register_health_routes(App &app, EndpointRegistry &reg, Clients &clients) {
   // Root — simple liveness.
   add_route(app, reg,
             {"GET", "/", "Liveness probe", false, {{200, "Service is up"}}},
@@ -47,7 +46,10 @@ void register_health_routes(App &app, EndpointRegistry &reg,
   // Kubernetes liveness — only that the process is up. Deliberately does NOT
   // touch backends, so a transient backend outage cannot trigger pod restarts.
   add_route(app, reg,
-            {"GET", "/livez", "Kubernetes liveness probe", false,
+            {"GET",
+             "/livez",
+             "Kubernetes liveness probe",
+             false,
              {{200, "Process alive"}}},
             [](const crow::request &) {
               return json_response(crow::status::OK, {{"status", "ok"}});
@@ -57,7 +59,10 @@ void register_health_routes(App &app, EndpointRegistry &reg,
   // reachable. Unauthenticated (probes don't carry credentials); status only,
   // no per-backend detail.
   add_route(app, reg,
-            {"GET", "/readyz", "Kubernetes readiness probe", false,
+            {"GET",
+             "/readyz",
+             "Kubernetes readiness probe",
+             false,
              {{200, "All backends reachable"},
               {503, "One or more backends unreachable"}}},
             [&clients](const crow::request &) {
@@ -70,20 +75,21 @@ void register_health_routes(App &app, EndpointRegistry &reg,
   // Health — public summary that reflects degraded state to everyone (ok /
   // degraded + status code) but exposes per-backend detail only to
   // authenticated callers.
-  add_route(
-      app, reg,
-      {"GET", "/health",
-       "Service health (per-backend detail when authenticated)", false,
-       {{200, "All backends reachable"},
-        {503, "One or more backends unreachable"}}},
-      [&app, &clients](const crow::request &req) {
-        const BackendCheck c = check_backends(clients);
-        nlohmann::json body{{"status", c.all_ok ? "ok" : "degraded"}};
-        if (app.get_context<BearerAuthMiddleware>(req).authenticated) {
-          body.update(c.detail);
-        }
-        return json_response(code_for(c.all_ok), body);
-      });
+  add_route(app, reg,
+            {"GET",
+             "/health",
+             "Service health (per-backend detail when authenticated)",
+             false,
+             {{200, "All backends reachable"},
+              {503, "One or more backends unreachable"}}},
+            [&app, &clients](const crow::request &req) {
+              const BackendCheck c = check_backends(clients);
+              nlohmann::json body{{"status", c.all_ok ? "ok" : "degraded"}};
+              if (app.get_context<BearerAuthMiddleware>(req).authenticated) {
+                body.update(c.detail);
+              }
+              return json_response(code_for(c.all_ok), body);
+            });
 }
 
 } // namespace ruxd

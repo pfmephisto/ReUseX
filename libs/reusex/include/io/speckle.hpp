@@ -129,9 +129,7 @@ struct Collection : Base {
   std::vector<std::shared_ptr<InstanceDefinitionProxy>>
       instanceDefinitionProxies;
 
-  Collection() {
-    speckle_type = "Speckle.Core.Models.Collections.Collection";
-  }
+  Collection() { speckle_type = "Speckle.Core.Models.Collections.Collection"; }
 };
 
 // --- Client ---

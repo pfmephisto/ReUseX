@@ -214,8 +214,8 @@ Re-enable them for object-centric capture, where the assumption holds.
 
 ### Phase 3 — CLI + render + figures
 `rux create gsplat` (mirrors `create/annotate.cpp`): `--iterations --use-panoramas
---n-yaw --fov --sh-degree --out model.ply --render-dir`. Render held-out + orbit
-novel views for the PR. Report held-out **PSNR**.
+--pano-n-yaw --pano-fov --sh-degree --out model.ply --render-dir`. Render
+held-out + orbit novel views for the PR. Report held-out **PSNR**.
 
 ## 4. Effort & risk (honest)
 
@@ -398,7 +398,8 @@ where the next increment belongs — not in density control.
 
 ## 6. Verification (native, once built)
 
-`rux create gsplat -p scene.rux --iterations 7000 --use-panoramas --region <frames>
---out model.ply --render-dir figs/`. Confirm `.ply` opens in a standard splat
+`rux create gsplat -p scene.rux --iterations 7000 --use-panoramas
+--first-frame <id> --last-frame <id> --out model.ply --render-dir figs/`.
+Confirm `.ply` opens in a standard splat
 viewer; report held-out PSNR; include rendered novel-view images (incl. a
 with/without-360 coverage comparison) in the PR.

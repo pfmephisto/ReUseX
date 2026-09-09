@@ -24,7 +24,9 @@ an illegal dependency is a link error, not just a convention.
 ```
 Layer 4:  visualize  pipeline                  (visualize: PCL/VTK — see note below)
                                                (pipeline: stage execution + job runner)
-Layer 3:  segmentation  reconstruction  slam  io  vision   (peers — MUST NOT link each other)
+Layer 3:  segmentation  reconstruction  slam  io  vision  gsplat
+                                               (peers — MUST NOT link each other)
+                                               (gsplat: optional — WITH_CUDA + gsplat-cuda)
 Layer 2:  core                                 (ProjectDB, logging, materials, stages)
 Layer 1½: geometry_common                      (shared CGAL/PCL helpers: utils, cgal_utils,
                                                 CoplanarPolygon, BuildingComponent)

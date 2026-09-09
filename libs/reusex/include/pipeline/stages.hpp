@@ -19,6 +19,7 @@
 // link several of them at once. See docs/STANDARDS.md §1.
 
 #include <atomic>
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <optional>
@@ -67,6 +68,22 @@ std::vector<std::string> job_stage_names();
 /// cancellation takes effect mid-run rather than only between jobs.
 bool stage_supports_cancellation(JobStage stage);
 
+/// One artifact a stage wrote, so a client can refresh exactly what changed
+/// instead of re-fetching everything.
+struct StageArtifact {
+  /// "cloud" | "mesh" | "table".
+  std::string kind;
+  /// Stored name, e.g. "planes". For a `table` artifact this is the key the
+  /// table is scoped by — the instances table of cloud "instances" is
+  /// `{kind: "table", name: "instances"}`, reachable at
+  /// `GET /api/v1/instances/instances`.
+  std::string name;
+  /// Points/rows written; -1 when not meaningful, or when the stage does not
+  /// have the number in hand and counting it would mean re-reading the
+  /// artifact purely to report it. Never a guess.
+  int64_t count = -1;
+};
+
 /// Outcome of one stage execution.
 struct StageResult {
   bool ok = false;        ///< The stage completed and wrote its outputs.
@@ -78,8 +95,14 @@ struct StageResult {
   /// Always accompanied by `ok == false`.
   bool invalid_input = false;
   std::string message; ///< Human-readable summary or failure reason.
+  /// What this run actually wrote. Only populated on `ok == true`, and only
+  /// with artifacts the stage can attest to having written on *this* run — a
+  /// name that merely exists in the project afterwards is not reported.
+  std::vector<StageArtifact> outputs;
 
   static StageResult success(std::string message = {});
+  static StageResult success(std::string message,
+                             std::vector<StageArtifact> outputs);
   static StageResult failure(std::string message);
   static StageResult invalid(std::string message);
   static StageResult cancel(std::string message = "cancelled");

@@ -86,6 +86,13 @@ struct JobRecord {
   core::Stage progress_stage = core::Stage::idle;
   size_t progress_current = 0;
   size_t progress_total = 0; ///< 0 = indeterminate.
+
+  /// The stage's own summary of what it produced, and the artifacts it wrote.
+  /// Populated only when `status == succeeded`; empty otherwise. A failed or
+  /// cancelled job reports through `error` instead — the two are never both
+  /// set, so a client never has to decide which one it is being told.
+  std::string result_summary;
+  std::vector<StageArtifact> result_outputs;
 };
 
 /// One notification about a job. Carries the full record so a listener never
@@ -128,7 +135,41 @@ using JobListener = std::function<void(const JobEvent &)>;
 /// its `ProjectDB` write handle is open.
 using WriterLease = std::unique_lock<std::timed_mutex>;
 
+/// Tuning knobs for the job store.
+struct JobRunnerOptions {
+  /// Terminal (succeeded/failed/cancelled) jobs retained before the oldest
+  /// are dropped. Queued and running jobs are never evicted.
+  ///
+  /// 256 is an upper bound, not a working set. A JobRecord is a few hundred
+  /// bytes — ids, timestamps, the parameter blob and the result summary — so
+  /// the whole retained history costs well under a megabyte, while a day of
+  /// GUI use produces tens of jobs, not hundreds. The cap exists so a server
+  /// left open for a week cannot grow without limit; it is deliberately far
+  /// above anything a user would scroll back through, because the cost of
+  /// forgetting a job someone still holds an id for is much higher than the
+  /// cost of keeping it.
+  size_t max_terminal_jobs = 256;
+};
+
 /// FIFO, single-worker, in-process pipeline job runner.
+///
+/// JOB LIFETIME: the store is in-memory and bounded (#286). Terminal jobs past
+/// `JobRunnerOptions::max_terminal_jobs` are evicted oldest-first by submission
+/// order, so `job()` returning nullopt means "unknown **or evicted**". Nothing
+/// survives a restart.
+///
+/// WHY NOT PERSIST: `rux gui` is an in-process server for a single project, and
+/// a job record is a view of work the process itself is doing — a queue
+/// position, a cancel token, a live progress counter. None of that is
+/// meaningful once the process is gone, and persisting it would make the runner
+/// the second writer of a history the pipeline already writes. The durable
+/// record is `pipeline_log`, which every stage writes and which carries the
+/// driving job id in `pipeline_log.parameters.job_id`; that join is the
+/// documented recovery path for a client holding an id the runner no longer
+/// knows. Durable job *identity* — jobs that outlive the worker executing them
+/// — belongs to Phase 6, where ruxd keeps them in PostgreSQL and one job can
+/// migrate between workers; adding a second, weaker persistence layer here
+/// first would only have to be undone.
 class JobRunner {
     public:
   /// @param project  The `.rux` project every job of this runner operates on.
@@ -136,6 +177,10 @@ class JobRunner {
   ///                 Injecting a fake makes the state machine testable.
   explicit JobRunner(std::filesystem::path project,
                      StageExecutor executor = default_stage_executor());
+
+  /// As above, with an explicit job-store policy.
+  JobRunner(std::filesystem::path project, StageExecutor executor,
+            JobRunnerOptions options);
 
   /// Requests cancellation of anything in flight and joins the worker.
   ~JobRunner();
@@ -158,10 +203,18 @@ class JobRunner {
   /// @return false if no job with that id exists.
   bool cancel(std::string_view id);
 
-  /// Snapshot of one job, or nullopt if the id is unknown.
+  /// Snapshot of one job, or nullopt if the id is unknown **or evicted**.
+  ///
+  /// The two are indistinguishable here by design: the runner does not keep a
+  /// tombstone for a job it has dropped. A caller that needs to tell them apart
+  /// looks in `pipeline_log`, which is the durable record — every stage run is
+  /// a row there, joined back to its job via `pipeline_log.parameters.job_id`.
   std::optional<JobRecord> job(std::string_view id) const;
 
-  /// Snapshot of every known job, most recently submitted first.
+  /// Snapshot of every retained job, most recently submitted first.
+  ///
+  /// Terminal jobs beyond `JobRunnerOptions::max_terminal_jobs` have been
+  /// evicted and do not appear; queued and running jobs always do.
   std::vector<JobRecord> jobs() const;
 
   /// Number of jobs still waiting to start.

@@ -588,3 +588,182 @@ TEST_CASE("JobRunner_CancelHonoredByStage_ReportsCancelled",
 
   CHECK(runner.job(id)->status == JobStatus::cancelled);
 }
+
+// ===========================================================================
+// Bounded job store (#286)
+// ===========================================================================
+
+TEST_CASE("JobRunner_TerminalJobsBeyondCap_EvictsOldestFirst",
+          "[pipeline][jobs]") {
+  JobRunnerOptions options;
+  options.max_terminal_jobs = 3;
+  JobRunner runner("/nonexistent/project.rux", always_succeeds(), options);
+
+  std::vector<std::string> ids;
+  for (int i = 0; i < 6; ++i) {
+    ids.push_back(runner.submit(JobStage::planes));
+    runner.wait_idle();
+  }
+
+  // Exactly the cap is retained, and it is the most recent submissions —
+  // eviction follows submission order, not the hash order of the record map.
+  const auto listed = runner.jobs();
+  REQUIRE(listed.size() == 3);
+  CHECK(listed[0].id == ids[5]); // jobs() is newest-first.
+  CHECK(listed[1].id == ids[4]);
+  CHECK(listed[2].id == ids[3]);
+
+  for (size_t i = 0; i < 3; ++i)
+    CHECK_FALSE(runner.job(ids[i]).has_value());
+  for (size_t i = 3; i < 6; ++i)
+    CHECK(runner.job(ids[i]).has_value());
+}
+
+TEST_CASE("JobRunner_EvictedJobId_ReturnsNullopt", "[pipeline][jobs]") {
+  JobRunnerOptions options;
+  options.max_terminal_jobs = 1;
+  JobRunner runner("/nonexistent/project.rux", always_succeeds(), options);
+
+  const auto dropped = runner.submit(JobStage::clouds);
+  runner.wait_idle();
+  REQUIRE(runner.job(dropped).has_value());
+
+  const auto kept = runner.submit(JobStage::planes);
+  runner.wait_idle();
+
+  // Indistinguishable from an id that never existed — by design; the durable
+  // record is pipeline_log, joined via pipeline_log.parameters.job_id.
+  CHECK_FALSE(runner.job(dropped).has_value());
+  CHECK(runner.job(kept).has_value());
+}
+
+TEST_CASE("JobRunner_QueuedAndRunningJobs_SurviveTerminalCap",
+          "[pipeline][jobs]") {
+  // A cap that could forget a submitted job would be worse than the unbounded
+  // memory it exists to bound, so only terminal jobs are ever candidates.
+  Gate gate;
+  JobRunnerOptions options;
+  options.max_terminal_jobs = 1;
+
+  JobRunner runner(
+      "/nonexistent/project.rux",
+      [&](const StageContext &) {
+        gate.wait();
+        return StageResult::success();
+      },
+      options);
+
+  const auto running = runner.submit(JobStage::clouds);
+  REQUIRE(wait_for([&] { return runner.is_busy(); }));
+
+  const auto queued = runner.submit(JobStage::planes);
+  const auto first = runner.submit(JobStage::rooms);
+  const auto second = runner.submit(JobStage::instances);
+  const auto third = runner.submit(JobStage::planes);
+
+  // Cancelling before execution is the other way the terminal set grows; three
+  // cancellations against a cap of one force two evictions.
+  REQUIRE(runner.cancel(first));
+  REQUIRE(runner.cancel(second));
+  REQUIRE(runner.cancel(third));
+
+  auto live = runner.job(running);
+  REQUIRE(live.has_value());
+  CHECK(live->status == JobStatus::running);
+  auto waiting = runner.job(queued);
+  REQUIRE(waiting.has_value());
+  CHECK(waiting->status == JobStatus::queued);
+
+  // Of the three terminal jobs only the most recently submitted survives.
+  CHECK_FALSE(runner.job(first).has_value());
+  CHECK_FALSE(runner.job(second).has_value());
+  CHECK(runner.job(third).has_value());
+
+  const auto listed = runner.jobs();
+  REQUIRE(listed.size() == 3);
+  CHECK(listed[0].id == third);
+  CHECK(listed[1].id == queued);
+  CHECK(listed[2].id == running);
+
+  gate.open();
+  runner.wait_idle();
+}
+
+// ===========================================================================
+// Stage results carried onto the job record (#286)
+// ===========================================================================
+
+TEST_CASE("JobRunner_SucceededJob_CarriesStageResultSummaryAndOutputs",
+          "[pipeline][jobs]") {
+  JobRunner runner("/nonexistent/project.rux", [](const StageContext &) {
+    return StageResult::success(
+        "detected 3 plane(s)",
+        {{"cloud", "planes", 42}, {"cloud", "plane_centroids", 3}});
+  });
+
+  const auto id = runner.submit(JobStage::planes);
+  runner.wait_idle();
+
+  auto record = runner.job(id);
+  REQUIRE(record.has_value());
+  REQUIRE(record->status == JobStatus::succeeded);
+  CHECK(record->result_summary == "detected 3 plane(s)");
+  CHECK(record->error.empty()); // Success never fills the failure channel.
+
+  REQUIRE(record->result_outputs.size() == 2);
+  CHECK(record->result_outputs[0].kind == "cloud");
+  CHECK(record->result_outputs[0].name == "planes");
+  CHECK(record->result_outputs[0].count == 42);
+  CHECK(record->result_outputs[1].name == "plane_centroids");
+  CHECK(record->result_outputs[1].count == 3);
+}
+
+TEST_CASE("JobRunner_FailedJob_LeavesResultFieldsEmptyAndReportsViaError",
+          "[pipeline][jobs]") {
+  JobRunner runner("/nonexistent/project.rux", [](const StageContext &) {
+    // A stage that fails part-way may still have written something, but the
+    // job must not advertise a result: the message belongs in `error` only.
+    StageResult result = StageResult::failure("plane fitting diverged");
+    result.outputs.push_back({"cloud", "planes", 7});
+    return result;
+  });
+
+  const auto id = runner.submit(JobStage::planes);
+  runner.wait_idle();
+
+  auto record = runner.job(id);
+  REQUIRE(record.has_value());
+  CHECK(record->status == JobStatus::failed);
+  CHECK(record->error == "plane fitting diverged");
+  CHECK(record->result_summary.empty());
+  CHECK(record->result_outputs.empty());
+}
+
+TEST_CASE("JobRunner_CancelledJob_LeavesResultFieldsEmpty",
+          "[pipeline][jobs]") {
+  std::atomic_bool entered{false};
+
+  JobRunner runner("/nonexistent/project.rux", [&](const StageContext &ctx) {
+    entered = true;
+    const auto deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (std::chrono::steady_clock::now() < deadline) {
+      if (ctx.is_cancelled())
+        return StageResult::cancel("stopped early");
+      std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    return StageResult::success("should not get here");
+  });
+
+  const auto id = runner.submit(JobStage::rooms);
+  REQUIRE(wait_for([&] { return entered.load(); }));
+  REQUIRE(runner.cancel(id));
+  runner.wait_idle();
+
+  auto record = runner.job(id);
+  REQUIRE(record.has_value());
+  CHECK(record->status == JobStatus::cancelled);
+  CHECK(record->error == "stopped early");
+  CHECK(record->result_summary.empty());
+  CHECK(record->result_outputs.empty());
+}

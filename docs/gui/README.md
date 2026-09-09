@@ -57,6 +57,15 @@ user happens to have open:
 WebSocket upgrades are checked the same way, in the handshake: CORS does not
 apply to WebSockets at all, so the server has to do it itself.
 
+The contract nevertheless **declares** a `bearerAuth` security scheme, while
+leaving the document-level requirement as `security: []`. That pair is a
+deliberate statement rather than an oversight: the empty list says every
+operation here needs no credential, and a generated client honours it by
+sending none. `ruxd` already takes `--auth-token` and will serve this same
+contract in Phase 6; declaring the scheme now means that deployment overrides
+one document-level field instead of forcing every client to be regenerated
+against a differently-shaped spec.
+
 ### The frontend must be same-origin
 
 Preflighted cross-origin requests (i.e. anything with a JSON body) are **not
@@ -88,13 +97,70 @@ supported setups:
   CORS never enters into it.
 
 `--allow-origin` remains useful for simple cross-origin `GET`s and for
-non-browser clients. Proper preflight support is tracked as a follow-up.
+non-browser clients.
+
+**This is a settled limitation, not an open task.** Lifting it needs either an
+upstream Crow change or a different HTTP layer — decorating Crow's own `204`
+after the fact was tried and rejected, because the first `OPTIONS` on a fresh
+connection loses the added headers, which is worse than a clean refusal. Since
+both supported deployments are same-origin, the limitation costs nothing today,
+and it is worth revisiting only if a genuine cross-origin deployment appears
+(#285).
 
 ## Versioning
 
 Everything is served under `/api/v1`. Breaking changes take a new prefix; the
 `GET /api/v1/health` response carries `api_version` and the `rux` build version
 so a client can detect a mismatch.
+
+## One paging idiom
+
+Every collection that can grow with the size of a scan is paged the same way:
+`offset` and `limit` query parameters in, and an `offset` / `count` / `total`
+envelope out, alongside the items. `limit=0` means "the server maximum", which
+is a real number per resource and never "unbounded" — so no request can ask the
+server to materialise an arbitrarily large response, whatever a client sends.
+A page past the end is a `200` with `count: 0`, never a `404`.
+
+The defaults differ where the cost differs, and only there. `/pipeline-log`
+keeps a default of 100 because a history view wants a screenful, not all of it.
+`/frames` allows up to 10 000 ids, because an id is four bytes and forcing a
+scan of ordinary size to page would be ceremony. `/clouds/{name}/points` keeps
+its own much larger page, because its unit is a point. What is uniform is the
+*shape*: one set of parameter names, one set of response fields, so a client
+writes the pagination logic once.
+
+Three collections are deliberately **not** paged — `/endpoints`, `/stages`, and
+`/meshes/{name}/textures`. Their size is fixed by the server build or bounded
+by one parent object, so a page would add a round trip to answer a question
+that has no second page.
+
+## Jobs are live state, `pipeline_log` is the record
+
+`/jobs` is in-memory and scoped to one server process, and it is **bounded**:
+queued and running jobs are always listed, but finished ones are retained only
+up to a limit, oldest dropped first. That keeps a server left open all day from
+accumulating job records forever.
+
+The consequence is that `GET /jobs/{id}` can answer `404` for a job that really
+ran — because it was evicted, or because the server restarted. The contract
+does not try to distinguish those cases, because the recovery is identical:
+look the id up in `/pipeline-log`, where `parameters.job_id` carries the job id
+that caused each run. **Anything that must still be findable tomorrow keys on
+`pipeline_log`, not on a job id.**
+
+Durable job identity — one store rather than two views — is the shape Phase 6
+needs anyway, where `ruxd` keeps jobs in PostgreSQL and they outlive any single
+worker. Building it into the in-process runner first would be inventing a
+second answer to a question Phase 6 has to answer properly (#286).
+
+A finished job that succeeded also carries `result`: the stage's own summary
+plus the artifacts it wrote, each with the name it is fetched under. That is
+there so a UI refreshes what changed instead of re-fetching every collection on
+the chance that one of them did — a successful `planes` run names `planes`,
+`plane_centroids` and `plane_normals`, and the rest of the screen is left
+alone. `result.outputs` is what this run actually persisted; `StageInfo.outputs`
+is what the stage writes in general. They are not the same question.
 
 ## Describing a stage, not just naming it
 

@@ -97,8 +97,10 @@ std::string iso8601_utc_now() {
 
 class JobRunner::Impl {
     public:
-  Impl(std::filesystem::path project, StageExecutor executor)
-      : project_(std::move(project)), executor_(std::move(executor)) {
+  Impl(std::filesystem::path project, StageExecutor executor,
+       JobRunnerOptions options)
+      : project_(std::move(project)), executor_(std::move(executor)),
+        options_(options) {
     if (!executor_)
       throw std::invalid_argument("JobRunner: stage executor must be callable");
     worker_ = std::thread([this] { run(); });
@@ -194,6 +196,8 @@ class JobRunner::Impl {
       record.finished_at = iso8601_utc_now();
       record.error = "cancelled before execution";
       finished = make_event(JobEvent::Type::finished, record);
+      // `record` is a dangling reference past this point.
+      evict_terminal_locked();
     }
     if (finished) {
       info("job {} cancelled before execution", finished->job.id);
@@ -346,6 +350,46 @@ class JobRunner::Impl {
     core::IProgressObserver *previous_ = nullptr;
   };
 
+  /// Drop the oldest terminal jobs until at most
+  /// `options_.max_terminal_jobs` remain. Caller must hold mutex_.
+  ///
+  /// Ordering comes from `order_` (submission order) and never from `records_`,
+  /// which is unordered and whose iteration order is not reproducible — a cap
+  /// that dropped a different job on each run would be exactly the kind of
+  /// non-determinism STANDARDS §6 rules out.
+  ///
+  /// Queued and running jobs are never candidates, however many there are: they
+  /// are live state, and a queue that silently forgot a submitted job would be
+  /// a far worse failure than the unbounded memory this bounds. `order_` is
+  /// rebuilt in place, so no id can outlive its record and `jobs()`'s
+  /// skip-missing pass stays a belt-and-braces guard rather than load-bearing.
+  void evict_terminal_locked() {
+    size_t terminal = 0;
+    for (const auto &id : order_) {
+      auto it = records_.find(id);
+      if (it != records_.end() && is_terminal(it->second.status))
+        ++terminal;
+    }
+    if (terminal <= options_.max_terminal_jobs)
+      return;
+
+    size_t to_drop = terminal - options_.max_terminal_jobs;
+    std::vector<std::string> retained;
+    retained.reserve(order_.size() - to_drop);
+    for (const auto &id : order_) {
+      auto it = records_.find(id);
+      if (it == records_.end())
+        continue; // Already gone; do not leave a stale id behind.
+      if (to_drop > 0 && is_terminal(it->second.status)) {
+        records_.erase(it);
+        --to_drop;
+        continue;
+      }
+      retained.push_back(id);
+    }
+    order_.swap(retained);
+  }
+
   /// The record of the job currently executing. Caller must hold mutex_.
   JobRecord *current_locked() {
     if (!running_)
@@ -488,14 +532,24 @@ class JobRunner::Impl {
           else
             record.status =
                 result.ok ? JobStatus::succeeded : JobStatus::failed;
-          if (record.status != JobStatus::succeeded)
+          if (record.status != JobStatus::succeeded) {
             record.error = result.message;
-          else if (record.cancel_requested)
-            info("job {} had a cancel request the stage could not honour; it "
-                 "completed normally",
-                 id);
+          } else {
+            // What the run produced, so a client knows exactly what to
+            // re-fetch. Only on success: a failure's message is already in
+            // `error`, and duplicating it here would leave two fields claiming
+            // to be the outcome.
+            record.result_summary = result.message;
+            record.result_outputs = result.outputs;
+            if (record.cancel_requested)
+              info("job {} had a cancel request the stage could not honour; it "
+                   "completed normally",
+                   id);
+          }
           record.finished_at = iso8601_utc_now();
           finished = make_event(JobEvent::Type::finished, record);
+          // `record` is a dangling reference past this point.
+          evict_terminal_locked();
         }
         current_id_.clear();
       }
@@ -509,6 +563,7 @@ class JobRunner::Impl {
 
   std::filesystem::path project_;
   StageExecutor executor_;
+  JobRunnerOptions options_;
 
   /// Guards *writing* to the project. Deliberately separate from mutex_, which
   /// guards the runner's own bookkeeping: a stage holds this one for minutes,
@@ -543,7 +598,12 @@ class JobRunner::Impl {
 // ===========================================================================
 
 JobRunner::JobRunner(std::filesystem::path project, StageExecutor executor)
-    : impl_(std::make_unique<Impl>(std::move(project), std::move(executor))) {}
+    : JobRunner(std::move(project), std::move(executor), JobRunnerOptions{}) {}
+
+JobRunner::JobRunner(std::filesystem::path project, StageExecutor executor,
+                     JobRunnerOptions options)
+    : impl_(std::make_unique<Impl>(std::move(project), std::move(executor),
+                                   options)) {}
 
 JobRunner::~JobRunner() = default;
 

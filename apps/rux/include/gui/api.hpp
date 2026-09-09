@@ -44,6 +44,14 @@ inline constexpr std::string_view kApiPrefix = "/api/v1";
 /// Identifies which implementation of the contract is answering.
 inline constexpr std::string_view kImplementation = "rux-gui";
 
+// --- paging ---------------------------------------------------------------
+//
+// Every collection that grows with the size of a scan is paged the same way:
+// `offset` + `limit` in, an `offset`/`count`/`total` envelope out. `limit=0`
+// means "the server maximum" — a real number per resource, never "unbounded",
+// so no request can ask the server to materialize an arbitrarily large
+// response. The maxima differ only where the per-item cost differs.
+
 /// Upper bound on `limit` for the paged points endpoint, so a stray query
 /// cannot ask the server to materialize an unbounded response.
 inline constexpr size_t kMaxPointsPerPage = 1000000;
@@ -54,6 +62,17 @@ inline constexpr size_t kDefaultPointsPerPage = 100000;
 /// let one query serialize an entire project's history into memory.
 inline constexpr int kMaxLogEntries = 1000;
 inline constexpr int kDefaultLogEntries = 100;
+
+/// Upper bound on `limit` for the ordinary object collections (clouds, meshes,
+/// panoramas, components, materials, instances, jobs, project records). These
+/// are counted in the hundreds at worst, so the cap is about bounding the
+/// response rather than about forcing anyone to page.
+inline constexpr int kMaxCollectionItems = 1000;
+
+/// Upper bound on `limit` for the sensor-frame id list. Deliberately larger
+/// than kMaxCollectionItems: an id is four bytes on the wire, and making a
+/// scan of ordinary size page through its own frame list would be ceremony.
+inline constexpr int kMaxFrameIds = 10000;
 
 /// Upper bound on the `max_size` image parameter. Downscaling only ever makes
 /// an image cheaper, so the cap is about rejecting nonsense (and negative
@@ -120,6 +139,51 @@ class Params {
   std::map<std::string, std::string, std::less<>> values_;
 };
 
+// --- paging ---------------------------------------------------------------
+//
+// Declared after Params, which these take by reference.
+
+/// A validated, clamped `offset`/`limit` window over a collection.
+struct PageRequest {
+  uint64_t offset = 0;
+  uint64_t limit = 0;
+};
+
+/// The half-open `[first, last)` index range a page covers, plus the size of
+/// the collection it was taken from.
+///
+/// A page starting past the end is empty (`first == last`) rather than an
+/// error: a client walking a collection that shrank underneath it should get
+/// an honest empty page, not a 404 it has to special-case.
+struct PageWindow {
+  size_t first = 0;
+  size_t last = 0;
+  size_t total = 0;
+
+  size_t count() const noexcept { return last - first; }
+};
+
+/// Parse and clamp `offset`/`limit` for a paged collection.
+///
+/// @param default_limit `limit` when the parameter is absent.
+/// @param max_limit     The server maximum. A `limit` of 0 requests exactly
+///                      this; a larger one is clamped down to it rather than
+///                      rejected, so a client may always ask for more than it
+///                      expects to receive.
+/// @throws HttpError(400) on a negative `offset`/`limit`, or a non-integer.
+PageRequest parse_page_request(const Params &params, long long default_limit,
+                               long long max_limit);
+
+/// Clamp @p page onto a collection of @p total items.
+PageWindow page_window(const PageRequest &page, size_t total);
+
+/// Add the shared `offset`/`count`/`total` envelope to a collection response.
+///
+/// Every paged collection carries these three fields under exactly these
+/// names, so a client writes its "is there more?" logic once
+/// (docs/gui/openapi.yaml, schema `Page`).
+void add_page_envelope(nlohmann::json &object, const PageWindow &window);
+
 // --- error / meta ---------------------------------------------------------
 
 nlohmann::json error_json(int status, std::string_view message);
@@ -134,12 +198,16 @@ nlohmann::json endpoints_json();
 
 // --- project --------------------------------------------------------------
 
+/// The dashboard payload. Deliberately NOT paged: it is one object describing
+/// a project, not a collection, and a client that had to page it would be
+/// making several requests to answer the one question it exists to answer.
 nlohmann::json project_summary_json(const reusex::ProjectDB &db);
-nlohmann::json projects_json(const reusex::ProjectDB &db);
+
+nlohmann::json projects_json(const reusex::ProjectDB &db, const Params &params);
 
 // --- clouds ---------------------------------------------------------------
 
-nlohmann::json clouds_json(const reusex::ProjectDB &db);
+nlohmann::json clouds_json(const reusex::ProjectDB &db, const Params &params);
 nlohmann::json cloud_json(const reusex::ProjectDB &db, const std::string &name);
 
 /// Label id → name for one cloud, as `{"labels": {...}}`.
@@ -177,7 +245,7 @@ PointsResponse cloud_points(const reusex::ProjectDB &db,
 
 // --- meshes ---------------------------------------------------------------
 
-nlohmann::json meshes_json(const reusex::ProjectDB &db);
+nlohmann::json meshes_json(const reusex::ProjectDB &db, const Params &params);
 nlohmann::json mesh_json(const reusex::ProjectDB &db, const std::string &name);
 nlohmann::json mesh_textures_json(const reusex::ProjectDB &db,
                                   const std::string &name);
@@ -218,7 +286,8 @@ ImageResponse frame_image(const reusex::ProjectDB &db, int id,
 
 // --- panoramas ------------------------------------------------------------
 
-nlohmann::json panoramas_json(const reusex::ProjectDB &db);
+nlohmann::json panoramas_json(const reusex::ProjectDB &db,
+                              const Params &params);
 nlohmann::json panorama_json(const reusex::ProjectDB &db, int id);
 Blob panorama_image_blob(const reusex::ProjectDB &db, int id);
 
@@ -228,11 +297,12 @@ nlohmann::json components_json(const reusex::ProjectDB &db,
                                const Params &params);
 nlohmann::json component_json(const reusex::ProjectDB &db,
                               const std::string &name);
-nlohmann::json materials_json(const reusex::ProjectDB &db);
+nlohmann::json materials_json(const reusex::ProjectDB &db,
+                              const Params &params);
 nlohmann::json material_json(const reusex::ProjectDB &db,
                              const std::string &guid);
 nlohmann::json instances_json(const reusex::ProjectDB &db,
-                              const std::string &cloud);
+                              const std::string &cloud, const Params &params);
 
 // --- pipeline -------------------------------------------------------------
 
@@ -255,8 +325,19 @@ nlohmann::json pipeline_log_json(const reusex::ProjectDB &db,
 ///                 project ruxd (Phase 6) does not need a new message shape.
 nlohmann::json job_json(const reusex::pipeline::JobRecord &record,
                         std::string_view project);
+
+/// Every supplied job, unpaged, as `{"jobs": [...]}`.
+///
+/// The WebSocket `hello` frame uses this: it is a snapshot of the whole store
+/// (which is itself bounded — see JobRunner), not a page of a collection, and
+/// giving it a page envelope would invite a client to try to walk it.
 nlohmann::json jobs_json(const std::vector<reusex::pipeline::JobRecord> &jobs,
                          std::string_view project);
+
+/// `GET /jobs`: one page of the job store, with the shared envelope.
+nlohmann::json
+jobs_page_json(const std::vector<reusex::pipeline::JobRecord> &jobs,
+               std::string_view project, const Params &params);
 nlohmann::json job_event_json(const reusex::pipeline::JobEvent &event,
                               std::string_view project);
 nlohmann::json hello_json(const std::vector<reusex::pipeline::JobRecord> &jobs,

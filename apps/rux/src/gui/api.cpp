@@ -74,25 +74,33 @@ std::string stage_token(reusex::core::Stage stage) {
       std::string("no such ").append(what).append(" '").append(which) + "'");
 }
 
-/// A validated, clamped `offset`/`limit` pair, shared by both wire formats so
-/// the two are interchangeable page for page.
-struct PageRequest {
-  uint64_t offset = 0;
-  uint64_t limit = 0;
-};
+/// One page of an already-materialized vector, wrapped in the shared envelope.
+///
+/// @param source    The whole collection, in the order the contract documents.
+/// @param key       Response key the items go under, e.g. "clouds".
+/// @param serialize Called once per item that is actually in the page — items
+///                  outside it are never touched, which is the point: several
+///                  of these serializers issue a database query per item.
+/// @param max_limit     Server maximum for this collection; `limit=0` asks for
+///                      exactly it.
+/// @param default_limit `limit` when the parameter is absent. 0 means "the
+///                      maximum", which is right for every collection except a
+///                      history view, where a first screenful is wanted.
+template <typename T, typename F>
+json paged_collection(const std::vector<T> &source, std::string_view key,
+                      const Params &params, F &&serialize,
+                      long long max_limit = kMaxCollectionItems,
+                      long long default_limit = 0) {
+  const auto window = page_window(
+      parse_page_request(params, default_limit, max_limit), source.size());
 
-PageRequest parse_page_request(const Params &params) {
-  const long long raw_offset = params.integer("offset", 0);
-  const long long raw_limit =
-      params.integer("limit", static_cast<long long>(kDefaultPointsPerPage));
-  if (raw_offset < 0)
-    throw HttpError(400, "offset must be >= 0");
-  if (raw_limit < 1)
-    throw HttpError(400, "limit must be >= 1");
+  json items = json::array();
+  for (size_t i = window.first; i < window.last; ++i)
+    items.push_back(serialize(source[i]));
 
-  return {static_cast<uint64_t>(raw_offset),
-          std::min<uint64_t>(static_cast<uint64_t>(raw_limit),
-                             static_cast<uint64_t>(kMaxPointsPerPage))};
+  json out{{std::string(key), std::move(items)}};
+  add_page_envelope(out, window);
+  return out;
 }
 
 /// Read one little-endian value out of a stored point record.
@@ -446,6 +454,48 @@ std::optional<bool> Params::boolean(std::string_view key) const {
 }
 
 // ===========================================================================
+// Paging
+// ===========================================================================
+
+PageRequest parse_page_request(const Params &params, long long default_limit,
+                               long long max_limit) {
+  const long long raw_offset = params.integer("offset", 0);
+  const long long raw_limit = params.integer("limit", default_limit);
+  if (raw_offset < 0)
+    throw HttpError(400, "offset must be >= 0");
+  if (raw_limit < 0)
+    throw HttpError(400, "limit must be >= 0");
+
+  // 0 means "as many as the server will give", which is the maximum — not
+  // "unbounded". Anything larger is clamped rather than refused: a client
+  // asking for more than it can get is not making a mistake, and a 400 there
+  // would only teach it to hard-code our cap.
+  const long long limit =
+      (raw_limit == 0) ? max_limit : std::min(raw_limit, max_limit);
+
+  return {static_cast<uint64_t>(raw_offset), static_cast<uint64_t>(limit)};
+}
+
+PageWindow page_window(const PageRequest &page, size_t total) {
+  PageWindow window;
+  window.total = total;
+  window.first = std::min<size_t>(static_cast<size_t>(page.offset), total);
+  // Saturating add: offset+limit can overflow size_t for a large offset paired
+  // with a large limit, and wrapping would turn "past the end" into "the whole
+  // collection" — an empty page is the honest answer.
+  const size_t remaining = total - window.first;
+  window.last = window.first +
+                std::min<size_t>(static_cast<size_t>(page.limit), remaining);
+  return window;
+}
+
+void add_page_envelope(json &object, const PageWindow &window) {
+  object["offset"] = window.first;
+  object["count"] = window.count();
+  object["total"] = window.total;
+}
+
+// ===========================================================================
 // Route table
 // ===========================================================================
 
@@ -594,31 +644,31 @@ json project_summary_json(const reusex::ProjectDB &db) {
               {"materials", std::move(materials)}};
 }
 
-json projects_json(const reusex::ProjectDB &db) {
-  json list = json::array();
-  for (const auto &id : db.list_project_ids()) {
-    const auto metadata = db.get_project_metadata(id);
-    list.push_back(json{{"id", metadata.id},
-                        {"name", metadata.name},
-                        {"building_address", metadata.building_address},
-                        {"year_of_construction", metadata.year_of_construction},
-                        {"survey_date", metadata.survey_date},
-                        {"survey_organisation", metadata.survey_organisation},
-                        {"notes", metadata.notes}});
-  }
-  return json{{"projects", std::move(list)}};
+json projects_json(const reusex::ProjectDB &db, const Params &params) {
+  // The id list is paged before the metadata is read, so an out-of-page record
+  // costs no query at all.
+  return paged_collection(
+      db.list_project_ids(), "projects", params, [&db](const auto &id) {
+        const auto metadata = db.get_project_metadata(id);
+        return json{{"id", metadata.id},
+                    {"name", metadata.name},
+                    {"building_address", metadata.building_address},
+                    {"year_of_construction", metadata.year_of_construction},
+                    {"survey_date", metadata.survey_date},
+                    {"survey_organisation", metadata.survey_organisation},
+                    {"notes", metadata.notes}};
+      });
 }
 
 // ===========================================================================
 // clouds
 // ===========================================================================
 
-json clouds_json(const reusex::ProjectDB &db) {
+json clouds_json(const reusex::ProjectDB &db, const Params &params) {
   const auto summary = db.project_summary();
-  json list = json::array();
-  for (const auto &cloud : summary.clouds)
-    list.push_back(cloud_info_json(cloud));
-  return json{{"clouds", std::move(list)}};
+  return paged_collection(
+      summary.clouds, "clouds", params,
+      [](const auto &cloud) { return cloud_info_json(cloud); });
 }
 
 json cloud_json(const reusex::ProjectDB &db, const std::string &name) {
@@ -651,7 +701,9 @@ json cloud_points_json(const reusex::ProjectDB &db, const std::string &name,
   if (!db.has_point_cloud(name))
     not_found("cloud", name);
 
-  const auto request = parse_page_request(params);
+  const auto request =
+      parse_page_request(params, static_cast<long long>(kDefaultPointsPerPage),
+                         static_cast<long long>(kMaxPointsPerPage));
 
   // Only the bytes this page occupies are read: point_cloud_page() maps the
   // window onto a byte range in the chunked point_cloud_data store and pulls
@@ -725,7 +777,9 @@ PointsResponse cloud_points(const reusex::ProjectDB &db,
     throw HttpError(400,
                     "format must be 'json' or 'binary', got '" + format + "'");
 
-  const auto request = parse_page_request(params);
+  const auto request =
+      parse_page_request(params, static_cast<long long>(kDefaultPointsPerPage),
+                         static_cast<long long>(kMaxPointsPerPage));
   const auto page = db.point_cloud_page(name, request.offset, request.limit);
   if (!ruxp_supports(page.point_type))
     throw HttpError(500, "unsupported cloud type '" + page.point_type + "'");
@@ -745,11 +799,12 @@ PointsResponse cloud_points(const reusex::ProjectDB &db,
 // meshes
 // ===========================================================================
 
-json meshes_json(const reusex::ProjectDB &db) {
-  json list = json::array();
-  for (const auto &name : db.list_meshes())
-    list.push_back(mesh_json(db, name));
-  return json{{"meshes", std::move(list)}};
+json meshes_json(const reusex::ProjectDB &db, const Params &params) {
+  // mesh_json() costs two queries per mesh (metadata + texture list), so the
+  // page is applied to the name list first and only the page is inflated.
+  return paged_collection(
+      db.list_meshes(), "meshes", params,
+      [&db](const std::string &name) { return mesh_json(db, name); });
 }
 
 json mesh_json(const reusex::ProjectDB &db, const std::string &name) {
@@ -823,21 +878,27 @@ json frames_json(const reusex::ProjectDB &db, const Params &params) {
     with_masks.insert(ids.begin(), ids.end());
   }
 
-  json ids = json::array();
+  std::vector<int> matching;
   for (int id : db.sensor_frame_ids()) {
     if (segmented && with_masks.count(id) != static_cast<size_t>(*segmented))
       continue;
-    ids.push_back(id);
+    matching.push_back(id);
   }
 
-  // The counts describe the whole scan even when `ids` is filtered — a browser
-  // showing "12 of 380 segmented" needs both numbers, and making it issue a
-  // second unfiltered request for the denominator would be gratuitous.
-  return json{{"ids", std::move(ids)},
-              {"total_count", summary.sensor_frames.total_count},
-              {"segmented_count", summary.sensor_frames.segmented_count},
-              {"width", summary.sensor_frames.width},
-              {"height", summary.sensor_frames.height}};
+  json out = paged_collection(
+      matching, "ids", params, [](int id) { return json(id); }, kMaxFrameIds);
+
+  // TWO DIFFERENT TOTALS, deliberately. The envelope's `total` (added above)
+  // counts the ids matching `segmented` — what the client is paging through.
+  // These two describe the WHOLE scan and ignore both filter and page, because
+  // a browser showing "12 of 380 segmented" needs the denominator and should
+  // not have to issue a second, unfiltered request to get it. They agree with
+  // `total` only when no filter is set, and that agreement is a coincidence.
+  out["total_count"] = summary.sensor_frames.total_count;
+  out["segmented_count"] = summary.sensor_frames.segmented_count;
+  out["width"] = summary.sensor_frames.width;
+  out["height"] = summary.sensor_frames.height;
+  return out;
 }
 
 json frame_json(const reusex::ProjectDB &db, int id) {
@@ -923,11 +984,10 @@ json panorama_entry_json(const reusex::ProjectDB::PanoramicImage &pano) {
 }
 } // namespace
 
-json panoramas_json(const reusex::ProjectDB &db) {
-  json list = json::array();
-  for (const auto &pano : db.list_panoramic_images())
-    list.push_back(panorama_entry_json(pano));
-  return json{{"panoramas", std::move(list)}};
+json panoramas_json(const reusex::ProjectDB &db, const Params &params) {
+  return paged_collection(
+      db.list_panoramic_images(), "panoramas", params,
+      [](const auto &pano) { return panorama_entry_json(pano); });
 }
 
 json panorama_json(const reusex::ProjectDB &db, int id) {
@@ -1036,10 +1096,14 @@ json components_json(const reusex::ProjectDB &db, const Params &params) {
   const auto names = type.empty() ? db.list_building_components()
                                   : db.list_building_components(type);
 
-  json list = json::array();
-  for (const auto &name : names)
-    list.push_back(component_summary_json(db.component_record(name)));
-  return json{{"components", std::move(list)}};
+  // `total` counts the components matching `type`, not every component in the
+  // project — the filter is applied by the query above, so the page is over
+  // the filtered set. component_record() is a query per name, so again only
+  // the page is inflated.
+  return paged_collection(
+      names, "components", params, [&db](const std::string &name) {
+        return component_summary_json(db.component_record(name));
+      });
 }
 
 json component_json(const reusex::ProjectDB &db, const std::string &name) {
@@ -1060,12 +1124,11 @@ json component_json(const reusex::ProjectDB &db, const std::string &name) {
   return out;
 }
 
-json materials_json(const reusex::ProjectDB &db) {
+json materials_json(const reusex::ProjectDB &db, const Params &params) {
   const auto summary = db.project_summary();
-  json list = json::array();
-  for (const auto &material : summary.materials)
-    list.push_back(material_info_json(material));
-  return json{{"materials", std::move(list)}};
+  return paged_collection(
+      summary.materials, "materials", params,
+      [](const auto &material) { return material_info_json(material); });
 }
 
 json material_json(const reusex::ProjectDB &db, const std::string &guid) {
@@ -1098,23 +1161,25 @@ json material_json(const reusex::ProjectDB &db, const std::string &guid) {
   return out;
 }
 
-json instances_json(const reusex::ProjectDB &db, const std::string &cloud) {
+json instances_json(const reusex::ProjectDB &db, const std::string &cloud,
+                    const Params &params) {
   if (!db.has_point_cloud(cloud))
     not_found("cloud", cloud);
 
   const auto links = db.instance_materials(cloud);
-  json list = json::array();
-  for (const auto &record : db.instances(cloud)) {
-    json entry{{"instance_id", record.instance_id},
-               {"guid", record.guid},
-               {"semantic_class", record.semantic_class},
-               {"point_count", record.point_count}};
-    auto link = links.find(static_cast<int>(record.instance_id));
-    entry["material_guid"] =
-        link == links.end() ? json(nullptr) : json(link->second);
-    list.push_back(std::move(entry));
-  }
-  return json{{"cloud", cloud}, {"instances", std::move(list)}};
+  json out = paged_collection(
+      db.instances(cloud), "instances", params, [&links](const auto &record) {
+        json entry{{"instance_id", record.instance_id},
+                   {"guid", record.guid},
+                   {"semantic_class", record.semantic_class},
+                   {"point_count", record.point_count}};
+        auto link = links.find(static_cast<int>(record.instance_id));
+        entry["material_guid"] =
+            link == links.end() ? json(nullptr) : json(link->second);
+        return entry;
+      });
+  out["cloud"] = cloud;
+  return out;
 }
 
 // ===========================================================================
@@ -1144,27 +1209,35 @@ json stage_validation_json(const reusex::ProjectDB &db,
 }
 
 json pipeline_log_json(const reusex::ProjectDB &db, const Params &params) {
-  const long long requested = params.integer("limit", kDefaultLogEntries);
-  if (requested < 0)
-    throw HttpError(400, "limit must be >= 0");
+  // Validate before querying: a malformed `offset`/`limit` should cost a 400,
+  // not a database read first (STANDARDS §5, fail fast).
+  (void)parse_page_request(params, kDefaultLogEntries, kMaxLogEntries);
 
-  // 0 means "give me as many as you will", not "unbounded" — ProjectDB treats
-  // 0 as no limit, which would let one query materialize a project's entire
-  // history. Clamp both ends, exactly as the points endpoint does.
-  const int limit = (requested == 0 || requested > kMaxLogEntries)
-                        ? kMaxLogEntries
-                        : static_cast<int>(requested);
+  // ProjectDB's query takes a row limit but no offset, so the whole retainable
+  // window is fetched once and paged here. Always fetching kMaxLogEntries
+  // rather than offset+limit keeps `total` meaningful: it is the number of
+  // rows this server is willing to serve, so `offset + count < total` works as
+  // the "there is more" test at every offset.
+  //
+  // `total` therefore SATURATES at kMaxLogEntries. A project with a longer
+  // history reports the maximum, not its true length — the contract says so
+  // rather than pretending a count query exists.
+  const auto rows = db.pipeline_log(kMaxLogEntries);
 
-  json list = json::array();
-  for (const auto &entry : db.pipeline_log(limit))
-    list.push_back(json{{"id", entry.id},
-                        {"stage", entry.stage},
-                        {"status", entry.status},
-                        {"started_at", entry.started_at},
-                        {"finished_at", entry.finished_at},
-                        {"parameters", entry.parameters},
-                        {"error_msg", entry.error_msg}});
-  return json{{"entries", std::move(list)}};
+  // Default of 100 rather than the maximum: this is a history view, and the
+  // first screen of one is almost never the whole of it.
+  return paged_collection(
+      rows, "entries", params,
+      [](const auto &entry) {
+        return json{{"id", entry.id},
+                    {"stage", entry.stage},
+                    {"status", entry.status},
+                    {"started_at", entry.started_at},
+                    {"finished_at", entry.finished_at},
+                    {"parameters", entry.parameters},
+                    {"error_msg", entry.error_msg}};
+      },
+      kMaxLogEntries, kDefaultLogEntries);
 }
 
 // ===========================================================================
@@ -1183,17 +1256,40 @@ json job_json(const pipeline::JobRecord &record, std::string_view project) {
                  static_cast<double>(record.progress_total))
           : json(nullptr);
 
-  return json{{"id", record.id},
-              {"project", std::string(project)},
-              {"stage", std::string(pipeline::to_string(record.stage))},
-              {"status", std::string(pipeline::to_string(record.status))},
-              {"parameters", parameters_object(record.parameters)},
-              {"error", record.error},
-              {"submitted_at", record.submitted_at},
-              {"started_at", record.started_at},
-              {"finished_at", record.finished_at},
-              {"cancel_requested", record.cancel_requested},
-              {"progress", std::move(progress)}};
+  json out{{"id", record.id},
+           {"project", std::string(project)},
+           {"stage", std::string(pipeline::to_string(record.stage))},
+           {"status", std::string(pipeline::to_string(record.status))},
+           {"parameters", parameters_object(record.parameters)},
+           {"error", record.error},
+           {"submitted_at", record.submitted_at},
+           {"started_at", record.started_at},
+           {"finished_at", record.finished_at},
+           {"cancel_requested", record.cancel_requested},
+           {"progress", std::move(progress)}};
+
+  // `result` is present only on success, and only because the stage reported
+  // something. It names what this run actually wrote, so a client refreshes
+  // that and leaves the rest of its screen alone instead of re-fetching every
+  // collection on the chance that one of them changed.
+  //
+  // A failed or cancelled job says what happened in `error`; duplicating that
+  // into a "result" would invite a UI to render a failure as an outcome.
+  if (record.status == pipeline::JobStatus::succeeded) {
+    json outputs = json::array();
+    for (const auto &artifact : record.result_outputs) {
+      json entry{{"kind", artifact.kind}, {"name", artifact.name}};
+      // A negative count means the stage had no honest number for this
+      // artifact. Omit the field rather than send -1 or 0: an absent count
+      // reads as "not measured", and 0 would read as "wrote nothing".
+      if (artifact.count >= 0)
+        entry["count"] = artifact.count;
+      outputs.push_back(std::move(entry));
+    }
+    out["result"] = json{{"summary", record.result_summary},
+                         {"outputs", std::move(outputs)}};
+  }
+  return out;
 }
 
 json jobs_json(const std::vector<pipeline::JobRecord> &jobs,
@@ -1202,6 +1298,14 @@ json jobs_json(const std::vector<pipeline::JobRecord> &jobs,
   for (const auto &record : jobs)
     list.push_back(job_json(record, project));
   return json{{"jobs", std::move(list)}};
+}
+
+json jobs_page_json(const std::vector<pipeline::JobRecord> &jobs,
+                    std::string_view project, const Params &params) {
+  return paged_collection(jobs, "jobs", params,
+                          [project](const pipeline::JobRecord &record) {
+                            return job_json(record, project);
+                          });
 }
 
 json job_event_json(const pipeline::JobEvent &event, std::string_view project) {

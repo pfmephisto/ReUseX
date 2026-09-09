@@ -184,6 +184,21 @@ StageResult run_clouds(ProjectDB &db, const StageContext &ctx,
   auto summary = fmt::format("reconstructed {} points at {:.3f} m resolution",
                              cloud ? cloud->size() : 0, p.resolution);
 
+  // reconstruct_point_clouds() returns void and writes "cloud", "normals" and
+  // (when the frames carried semantic labels) "labels" from one filtered index
+  // set, each only when non-empty. The only count in hand is the one read back
+  // above; "normals" is claimed on presence because reconstruct and the E57
+  // importer are its only writers and it is filtered by the same indices as
+  // "cloud", but its size is left at -1 rather than loading the whole cloud
+  // back for a number nothing needs. "labels" is deliberately NOT claimed:
+  // `rux create project` writes the same cloud name, so finding it afterwards
+  // is no evidence that this run produced it.
+  std::vector<StageArtifact> outputs;
+  if (cloud)
+    outputs.push_back({"cloud", "cloud", static_cast<int64_t>(cloud->size())});
+  if (db.has_point_cloud("normals"))
+    outputs.push_back({"cloud", "normals", -1});
+
   // A cancel that arrived mid-run could not stop this stage, and the output IS
   // written. Reporting "cancelled" would be a lie that makes the user think
   // the project is untouched, so report the success that actually happened and
@@ -194,7 +209,7 @@ StageResult run_clouds(ProjectDB &db, const StageContext &ctx,
     summary += " (cancel requested too late; the stage cannot be interrupted, "
                "so it completed and saved its output)";
   }
-  return StageResult::success(std::move(summary));
+  return StageResult::success(std::move(summary), std::move(outputs));
 }
 
 StageResult run_planes(ProjectDB &db, const StageContext &ctx,
@@ -238,7 +253,11 @@ StageResult run_planes(ProjectDB &db, const StageContext &ctx,
                       ctx.parameters);
 
   return StageResult::success(
-      fmt::format("detected {} plane(s)", centroids->size()));
+      fmt::format("detected {} plane(s)", centroids->size()),
+      {{"cloud", "planes", static_cast<int64_t>(labels->size())},
+       {"cloud", "plane_centroids", static_cast<int64_t>(centroids->size())},
+       {"cloud", "plane_normals",
+        static_cast<int64_t>(plane_normals->size())}});
 }
 
 StageResult run_rooms(ProjectDB &db, const StageContext &ctx,
@@ -293,8 +312,11 @@ StageResult run_rooms(ProjectDB &db, const StageContext &ctx,
   for (const auto &point : labels->points)
     if (core::is_valid_label(point.label))
       unique.insert(point.label);
+  // `count` is points written, not rooms found — the room count is in the
+  // summary. One cloud was written, so one artifact is reported.
   return StageResult::success(
-      fmt::format("segmented {} room(s)", unique.size()));
+      fmt::format("segmented {} room(s)", unique.size()),
+      {{"cloud", "rooms", static_cast<int64_t>(labels->size())}});
 }
 
 StageResult run_instances(ProjectDB &db, const StageContext &ctx,
@@ -443,9 +465,17 @@ StageResult run_instances(ProjectDB &db, const StageContext &ctx,
          instances.size(), total_points);
   }
 
-  return StageResult::success(fmt::format(
-      "{} instance(s): {} carried over, {} fresh", reconcile.instances.size(),
-      reconcile.matched_count, reconcile.fresh_count));
+  // Two artifacts: the per-point instance label cloud, and the instances table
+  // keyed by that cloud's name (`GET /api/v1/instances/{cloud}`). The label
+  // definitions written above belong to the cloud and are served with it, so
+  // they are not a third artifact.
+  return StageResult::success(
+      fmt::format("{} instance(s): {} carried over, {} fresh",
+                  reconcile.instances.size(), reconcile.matched_count,
+                  reconcile.fresh_count),
+      {{"cloud", output_cloud,
+        static_cast<int64_t>(result.instance_labels->size())},
+       {"table", output_cloud, static_cast<int64_t>(records.size())}});
 }
 
 StageResult dispatch(ProjectDB &db, const StageContext &ctx,
@@ -468,19 +498,25 @@ StageResult dispatch(ProjectDB &db, const StageContext &ctx,
 // --- StageResult ----------------------------------------------------------
 
 StageResult StageResult::success(std::string message) {
-  return StageResult{true, false, false, std::move(message)};
+  return StageResult{true, false, false, std::move(message), {}};
+}
+
+StageResult StageResult::success(std::string message,
+                                 std::vector<StageArtifact> outputs) {
+  return StageResult{true, false, false, std::move(message),
+                     std::move(outputs)};
 }
 
 StageResult StageResult::failure(std::string message) {
-  return StageResult{false, false, false, std::move(message)};
+  return StageResult{false, false, false, std::move(message), {}};
 }
 
 StageResult StageResult::invalid(std::string message) {
-  return StageResult{false, false, true, std::move(message)};
+  return StageResult{false, false, true, std::move(message), {}};
 }
 
 StageResult StageResult::cancel(std::string message) {
-  return StageResult{false, true, false, std::move(message)};
+  return StageResult{false, true, false, std::move(message), {}};
 }
 
 // --- StageContext ---------------------------------------------------------

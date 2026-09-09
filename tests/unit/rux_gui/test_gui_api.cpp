@@ -44,6 +44,42 @@ void write_file(const fs::path &path, std::string_view content) {
   out << content;
 }
 
+Params params_of(const std::map<std::string, std::string> &values) {
+  Params params;
+  for (const auto &[key, value] : values)
+    params.set(key, value);
+  return params;
+}
+
+/// Assert the shared `offset`/`count`/`total` envelope, and that `count`
+/// really is the length of the item array rather than a number that merely
+/// looks plausible.
+void check_page_envelope(const json &body, std::string_view items_key,
+                         size_t offset, size_t count, size_t total) {
+  INFO("collection: " << items_key);
+  REQUIRE(body.contains("offset"));
+  REQUIRE(body.contains("count"));
+  REQUIRE(body.contains("total"));
+  CHECK(body.at("offset") == offset);
+  CHECK(body.at("count") == count);
+  CHECK(body.at("total") == total);
+  CHECK(body.at(std::string(items_key)).size() == count);
+}
+
+/// A cloud of @p points points, so a test can populate a project cheaply.
+void save_test_cloud(reusex::ProjectDB &db, const std::string &name,
+                     int points) {
+  reusex::Cloud cloud;
+  for (int i = 0; i < points; ++i) {
+    reusex::PointT point;
+    point.x = static_cast<float>(i);
+    cloud.push_back(point);
+  }
+  cloud.width = cloud.size();
+  cloud.height = 1;
+  db.save_point_cloud(name, cloud, "test");
+}
+
 } // namespace
 
 // ===========================================================================
@@ -212,11 +248,11 @@ TEST_CASE("ProjectDbReadEndpoints_EmptyProject_ReturnEmptyCollections",
   CHECK(summary.at("panoramic_images").at("total_count") == 0);
   CHECK(summary.at("components").at("total_count") == 0);
 
-  CHECK(clouds_json(db).at("clouds").empty());
-  CHECK(meshes_json(db).at("meshes").empty());
+  CHECK(clouds_json(db, Params{}).at("clouds").empty());
+  CHECK(meshes_json(db, Params{}).at("meshes").empty());
   CHECK(frames_json(db, Params{}).at("ids").empty());
-  CHECK(panoramas_json(db).at("panoramas").empty());
-  CHECK(materials_json(db).at("materials").empty());
+  CHECK(panoramas_json(db, Params{}).at("panoramas").empty());
+  CHECK(materials_json(db, Params{}).at("materials").empty());
   CHECK(pipeline_log_json(db, Params{}).at("entries").empty());
 }
 
@@ -234,7 +270,7 @@ TEST_CASE("ProjectsJson_ProjectMetadata_ExposesFields", "[gui][project]") {
   metadata.notes = "note";
   db.update_project_metadata(metadata);
 
-  const auto body = projects_json(db);
+  const auto body = projects_json(db, Params{});
   REQUIRE(body.at("projects").size() == 1);
   const auto &entry = body.at("projects").at(0);
   CHECK(entry.at("id") == "p1");
@@ -269,7 +305,7 @@ TEST_CASE("CloudJson_KnownAndUnknownCloud_ReturnsMetadataOrThrows",
   cloud.height = 1;
   db.save_point_cloud("cloud", cloud, "test");
 
-  const auto listed = clouds_json(db);
+  const auto listed = clouds_json(db, Params{});
   REQUIRE(listed.at("clouds").size() == 1);
   CHECK(listed.at("clouds").at(0).at("name") == "cloud");
   CHECK(listed.at("clouds").at(0).at("type") == "PointXYZRGB");
@@ -588,7 +624,7 @@ TEST_CASE("MissingResourceJson_UnknownId_Throws404WithMessage",
   expect_404([&] { return panorama_json(db, 42); });
   expect_404([&] { return component_json(db, "nope"); });
   expect_404([&] { return material_json(db, "nope"); });
-  expect_404([&] { return instances_json(db, "nope"); });
+  expect_404([&] { return instances_json(db, "nope", Params{}); });
 }
 
 TEST_CASE("InstancesJson_SavedInstances_ReportsGuidAndMaterialLink",
@@ -609,7 +645,7 @@ TEST_CASE("InstancesJson_SavedInstances_ReportsGuidAndMaterialLink",
   db.save_instances("instances",
                     {{1, "guid-one", 7, 100}, {2, "guid-two", 7, 200}});
 
-  const auto body = instances_json(db, "instances");
+  const auto body = instances_json(db, "instances", Params{});
   CHECK(body.at("cloud") == "instances");
   REQUIRE(body.at("instances").size() == 2);
 
@@ -1045,4 +1081,188 @@ TEST_CASE("PercentDecode_EncodedTraversal_DecodesBeforeAssetResolution",
     INFO("attack: " << attack);
     CHECK(resolve_asset(root.path, attack).empty());
   }
+}
+
+// ===========================================================================
+// Paging (#285)
+// ===========================================================================
+
+TEST_CASE("ParsePageRequest_ZeroOrOversizedLimit_ClampsToServerMaximum",
+          "[gui][paging]") {
+  // 0 means "as many as the server will give", which is the maximum -- never
+  // "unbounded". Anything larger is clamped rather than refused, so a client
+  // asking for more than it can get is not taught to hard-code our cap.
+  CHECK(parse_page_request(params_of({{"limit", "0"}}), 25, 100).limit == 100);
+  CHECK(parse_page_request(params_of({{"limit", "9999"}}), 25, 100).limit ==
+        100);
+  CHECK(parse_page_request(params_of({{"limit", "7"}}), 25, 100).limit == 7);
+
+  // Absent means the collection's own default, which is not always the maximum.
+  CHECK(parse_page_request(Params{}, 25, 100).limit == 25);
+  CHECK(parse_page_request(Params{}, 0, 100).limit == 100);
+}
+
+TEST_CASE("ParsePageRequest_NegativeOrNonNumericValues_Rejects",
+          "[gui][paging]") {
+  REQUIRE_THROWS_AS(parse_page_request(params_of({{"offset", "-1"}}), 0, 100),
+                    HttpError);
+  REQUIRE_THROWS_AS(parse_page_request(params_of({{"limit", "-1"}}), 0, 100),
+                    HttpError);
+  REQUIRE_THROWS_AS(parse_page_request(params_of({{"offset", "half"}}), 0, 100),
+                    HttpError);
+}
+
+TEST_CASE("PageWindow_OffsetPastTheEnd_IsAnEmptyPageNotAnError",
+          "[gui][paging]") {
+  // A client walking a collection that shrank underneath it should get an
+  // honest empty page, not a 404 it has to special-case.
+  const auto past = page_window(PageRequest{50, 10}, 5);
+  CHECK(past.count() == 0);
+  CHECK(past.total == 5);
+
+  // A huge offset paired with a huge limit must not wrap around size_t and
+  // return the whole collection.
+  const auto huge = page_window(
+      PageRequest{static_cast<uint64_t>(-1), static_cast<uint64_t>(-1)}, 5);
+  CHECK(huge.count() == 0);
+
+  const auto partial = page_window(PageRequest{3, 10}, 5);
+  CHECK(partial.first == 3);
+  CHECK(partial.count() == 2);
+}
+
+TEST_CASE("PagedCollections_OffsetAndLimit_ReturnRequestedWindowWithEnvelope",
+          "[gui][paging]") {
+  TempPath project("test_gui_api");
+  reusex::ProjectDB db(project.path);
+  for (const char *name : {"a", "b", "c", "d", "e"})
+    save_test_cloud(db, name, 2);
+
+  SECTION("no parameters returns everything, still enveloped") {
+    check_page_envelope(clouds_json(db, Params{}), "clouds", 0, 5, 5);
+  }
+
+  SECTION("a window is honoured and total stays the collection size") {
+    const auto body =
+        clouds_json(db, params_of({{"offset", "1"}, {"limit", "2"}}));
+    check_page_envelope(body, "clouds", 1, 2, 5);
+  }
+
+  SECTION("a page past the end is empty rather than a 404") {
+    const auto body = clouds_json(db, params_of({{"offset", "99"}}));
+    check_page_envelope(body, "clouds", 5, 0, 5);
+  }
+}
+
+TEST_CASE("PagedCollections_EmptyProject_AllCarryTheSharedEnvelope",
+          "[gui][paging]") {
+  // One idiom, one set of field names. A client writes its "is there more?"
+  // logic once, so every paged collection must actually agree.
+  TempPath project("test_gui_api");
+  reusex::ProjectDB db(project.path);
+  save_test_cloud(db, "instances", 1);
+
+  check_page_envelope(clouds_json(db, Params{}), "clouds", 0, 1, 1);
+  check_page_envelope(meshes_json(db, Params{}), "meshes", 0, 0, 0);
+  check_page_envelope(panoramas_json(db, Params{}), "panoramas", 0, 0, 0);
+  check_page_envelope(materials_json(db, Params{}), "materials", 0, 0, 0);
+  check_page_envelope(projects_json(db, Params{}), "projects", 0, 0, 0);
+  check_page_envelope(components_json(db, Params{}), "components", 0, 0, 0);
+  check_page_envelope(pipeline_log_json(db, Params{}), "entries", 0, 0, 0);
+  check_page_envelope(instances_json(db, "instances", Params{}), "instances", 0,
+                      0, 0);
+  check_page_envelope(frames_json(db, Params{}), "ids", 0, 0, 0);
+  check_page_envelope(jobs_page_json({}, "scan.rux", Params{}), "jobs", 0, 0,
+                      0);
+}
+
+TEST_CASE("InstancesJson_Paged_KeepsCloudNameAlongsideTheEnvelope",
+          "[gui][paging][instances]") {
+  // The `cloud` field is not part of the page; it must survive paging.
+  TempPath project("test_gui_api");
+  reusex::ProjectDB db(project.path);
+  save_test_cloud(db, "instances", 1);
+
+  const auto body =
+      instances_json(db, "instances", params_of({{"limit", "1"}}));
+  CHECK(body.at("cloud") == "instances");
+  REQUIRE(body.contains("total"));
+}
+
+TEST_CASE("FramesJson_Paged_KeepsScanTotalsDistinctFromThePageTotal",
+          "[gui][paging][frames]") {
+  // TWO DIFFERENT TOTALS, deliberately: `total` counts the ids matching the
+  // filter (what the client pages through), `total_count` describes the whole
+  // scan so a browser can render "N of M" without a second request. Conflating
+  // them is the mistake this test exists to catch.
+  TempPath project("test_gui_api");
+  reusex::ProjectDB db(project.path);
+
+  const auto body = frames_json(db, params_of({{"limit", "1"}}));
+  REQUIRE(body.contains("total"));
+  REQUIRE(body.contains("total_count"));
+  REQUIRE(body.contains("segmented_count"));
+  CHECK(body.at("ids").size() == body.at("count"));
+}
+
+// ===========================================================================
+// Job.result (#285)
+// ===========================================================================
+
+TEST_CASE("JobJson_SucceededJobWithArtifacts_ReportsWhatItWrote",
+          "[gui][jobs]") {
+  // A UI refreshes what this run wrote instead of re-fetching every collection
+  // on the chance that one of them changed.
+  reusex::pipeline::JobRecord record;
+  record.id = "job-1";
+  record.stage = reusex::pipeline::JobStage::planes;
+  record.status = reusex::pipeline::JobStatus::succeeded;
+  record.result_summary = "detected 3 plane(s)";
+  record.result_outputs = {{"cloud", "planes", 3},
+                           {"cloud", "plane_centroids", 3}};
+
+  const auto body = job_json(record, "scan.rux");
+  REQUIRE(body.contains("result"));
+  CHECK(body.at("result").at("summary") == "detected 3 plane(s)");
+  REQUIRE(body.at("result").at("outputs").size() == 2);
+  CHECK(body.at("result").at("outputs").at(0).at("kind") == "cloud");
+  CHECK(body.at("result").at("outputs").at(0).at("name") == "planes");
+  CHECK(body.at("result").at("outputs").at(0).at("count") == 3);
+}
+
+TEST_CASE("JobJson_ArtifactWithNoHonestCount_OmitsTheCountField",
+          "[gui][jobs]") {
+  // An absent count reads as "not measured". Sending 0 would read as "wrote
+  // nothing", and -1 would read as a number.
+  reusex::pipeline::JobRecord record;
+  record.id = "job-2";
+  record.status = reusex::pipeline::JobStatus::succeeded;
+  record.result_outputs = {{"table", "instances", -1}};
+
+  const auto entry =
+      job_json(record, "scan.rux").at("result").at("outputs").at(0);
+  CHECK(entry.at("name") == "instances");
+  CHECK_FALSE(entry.contains("count"));
+}
+
+TEST_CASE("JobJson_UnfinishedOrFailedJob_HasNoResult", "[gui][jobs]") {
+  // Only success produces a result. Dressing a failure up as an outcome would
+  // invite a UI to render it as one; the reason belongs in `error`.
+  reusex::pipeline::JobRecord record;
+  record.id = "job-3";
+
+  record.status = reusex::pipeline::JobStatus::queued;
+  CHECK_FALSE(job_json(record, "scan.rux").contains("result"));
+
+  record.status = reusex::pipeline::JobStatus::running;
+  CHECK_FALSE(job_json(record, "scan.rux").contains("result"));
+
+  record.status = reusex::pipeline::JobStatus::failed;
+  record.error = "no input cloud";
+  const auto failed = job_json(record, "scan.rux");
+  CHECK_FALSE(failed.contains("result"));
+  CHECK(failed.at("error") == "no input cloud");
+
+  record.status = reusex::pipeline::JobStatus::cancelled;
+  CHECK_FALSE(job_json(record, "scan.rux").contains("result"));
 }

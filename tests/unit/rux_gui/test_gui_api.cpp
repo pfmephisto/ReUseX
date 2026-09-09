@@ -50,7 +50,7 @@ void write_file(const fs::path &path, std::string_view content) {
 // Route table
 // ===========================================================================
 
-TEST_CASE("The route table matches the documented contract", "[gui][routes]") {
+TEST_CASE("EndpointTable_DocumentedRoutes_MatchesContract", "[gui][routes]") {
   const auto &table = endpoint_table();
   REQUIRE_FALSE(table.empty());
 
@@ -104,7 +104,8 @@ TEST_CASE("The route table matches the documented contract", "[gui][routes]") {
   CHECK(actual == expected);
 }
 
-TEST_CASE("/endpoints reports the same table it registers", "[gui][routes]") {
+TEST_CASE("EndpointsJson_RegisteredRoutes_MatchesEndpointTable",
+          "[gui][routes]") {
   const auto body = endpoints_json();
   REQUIRE(body.contains("endpoints"));
   REQUIRE(body["endpoints"].size() == endpoint_table().size());
@@ -120,7 +121,7 @@ TEST_CASE("/endpoints reports the same table it registers", "[gui][routes]") {
 // Params
 // ===========================================================================
 
-TEST_CASE("Params reads strings and integers with defaults", "[gui][params]") {
+TEST_CASE("Params_StrAndInteger_ReturnValueOrDefault", "[gui][params]") {
   Params params;
   params.set("limit", "250");
   params.set("format", "json");
@@ -134,8 +135,7 @@ TEST_CASE("Params reads strings and integers with defaults", "[gui][params]") {
   CHECK(params.str("empty", "fallback") == "fallback");
 }
 
-TEST_CASE("A non-integer query parameter is a 400, not a silent zero",
-          "[gui][params]") {
+TEST_CASE("ParamsInteger_NonIntegerValue_Throws400", "[gui][params]") {
   Params params;
   params.set("limit", "twelve");
   params.set("offset", "12abc");
@@ -156,7 +156,7 @@ TEST_CASE("A non-integer query parameter is a 400, not a silent zero",
 // Errors
 // ===========================================================================
 
-TEST_CASE("error_json carries a message and the status", "[gui][errors]") {
+TEST_CASE("ErrorJson_StatusAndMessage_SerializesBoth", "[gui][errors]") {
   const auto body = error_json(404, "no such cloud 'nope'");
   CHECK(body.at("status") == 404);
   CHECK(body.at("error") == "no such cloud 'nope'");
@@ -166,8 +166,7 @@ TEST_CASE("error_json carries a message and the status", "[gui][errors]") {
 // Read endpoints over a real ProjectDB
 // ===========================================================================
 
-TEST_CASE("health_json reports the project without leaking its path",
-          "[gui][project]") {
+TEST_CASE("HealthJson_OpenProject_ReportsNameWithoutPath", "[gui][project]") {
   TempPath project("test_gui_api");
   reusex::ProjectDB db(project.path);
 
@@ -184,7 +183,7 @@ TEST_CASE("health_json reports the project without leaking its path",
   CHECK(reported.find('/') == std::string::npos);
 }
 
-TEST_CASE("health_json degrades gracefully when the project cannot be opened",
+TEST_CASE("HealthJson_UnopenableProject_ReportsClosedWithoutSchemaVersion",
           "[gui][project]") {
   const auto body = health_json(nullptr, "/somewhere/broken.rux");
   CHECK(body.at("status") == "ok");
@@ -193,7 +192,7 @@ TEST_CASE("health_json degrades gracefully when the project cannot be opened",
   CHECK_FALSE(body.at("project").contains("schema_version"));
 }
 
-TEST_CASE("An empty project serializes to well-formed, empty collections",
+TEST_CASE("ProjectDbReadEndpoints_EmptyProject_ReturnEmptyCollections",
           "[gui][project]") {
   TempPath project("test_gui_api");
   reusex::ProjectDB db(project.path);
@@ -218,7 +217,7 @@ TEST_CASE("An empty project serializes to well-formed, empty collections",
   CHECK(pipeline_log_json(db, Params{}).at("entries").empty());
 }
 
-TEST_CASE("Project metadata is exposed under /projects", "[gui][project]") {
+TEST_CASE("ProjectsJson_ProjectMetadata_ExposesFields", "[gui][project]") {
   TempPath project("test_gui_api");
   reusex::ProjectDB db(project.path);
 
@@ -247,7 +246,8 @@ TEST_CASE("Project metadata is exposed under /projects", "[gui][project]") {
   CHECK(project_summary_json(db).at("projects").size() == 1);
 }
 
-TEST_CASE("Clouds are listed with type and point count", "[gui][clouds]") {
+TEST_CASE("CloudJson_KnownAndUnknownCloud_ReturnsMetadataOrThrows",
+          "[gui][clouds]") {
   TempPath project("test_gui_api");
   reusex::ProjectDB db(project.path);
 
@@ -280,7 +280,8 @@ TEST_CASE("Clouds are listed with type and point count", "[gui][clouds]") {
   REQUIRE_THROWS_AS(cloud_json(db, "missing"), HttpError);
 }
 
-TEST_CASE("Point pages honour offset, limit and field order", "[gui][clouds]") {
+TEST_CASE("CloudPointsJson_OffsetLimitAndFormat_PagesAndValidatesFormat",
+          "[gui][clouds]") {
   TempPath project("test_gui_api");
   reusex::ProjectDB db(project.path);
 
@@ -382,7 +383,7 @@ TEST_CASE("Point pages honour offset, limit and field order", "[gui][clouds]") {
   }
 }
 
-TEST_CASE("Label clouds expose their label definitions", "[gui][clouds]") {
+TEST_CASE("CloudJson_LabelCloud_ExposesLabelDefinitions", "[gui][clouds]") {
   TempPath project("test_gui_api");
   reusex::ProjectDB db(project.path);
 
@@ -411,7 +412,7 @@ TEST_CASE("Label clouds expose their label definitions", "[gui][clouds]") {
   CHECK(points.at("points").at(3).at(0) == 3);
 }
 
-TEST_CASE("The pipeline log round-trips through the API shape",
+TEST_CASE("PipelineLogJson_MixedEntries_RoundTripsAndRejectsNegativeLimit",
           "[gui][pipeline]") {
   TempPath project("test_gui_api");
   reusex::ProjectDB db(project.path);
@@ -449,7 +450,7 @@ TEST_CASE("The pipeline log round-trips through the API shape",
   }
 }
 
-TEST_CASE("The stage catalogue separates runnability from readiness",
+TEST_CASE("StagesJson_EmptyProject_SeparatesRunnableFromReady",
           "[gui][pipeline]") {
   TempPath project("test_gui_api");
   reusex::ProjectDB db(project.path);
@@ -484,7 +485,7 @@ TEST_CASE("The stage catalogue separates runnability from readiness",
   }
 }
 
-TEST_CASE("Every stage carries its contract, hints and parameter schema",
+TEST_CASE("StagesJson_EachStage_IncludesContractHintsAndParameterSchema",
           "[gui][pipeline]") {
   TempPath project("test_gui_api");
   reusex::ProjectDB db(project.path);
@@ -538,8 +539,9 @@ TEST_CASE("Every stage carries its contract, hints and parameter schema",
   }
 }
 
-TEST_CASE("Per-stage validation returns the same record as the catalogue",
-          "[gui][pipeline]") {
+TEST_CASE(
+    "StageValidationJson_KnownAndUnknownStage_MatchesCatalogueOrThrows404",
+    "[gui][pipeline]") {
   TempPath project("test_gui_api");
   reusex::ProjectDB db(project.path);
 
@@ -561,7 +563,8 @@ TEST_CASE("Per-stage validation returns the same record as the catalogue",
   }
 }
 
-TEST_CASE("Missing resources are 404s with a useful message", "[gui][errors]") {
+TEST_CASE("MissingResourceJson_UnknownId_Throws404WithMessage",
+          "[gui][errors]") {
   TempPath project("test_gui_api");
   reusex::ProjectDB db(project.path);
 
@@ -585,7 +588,7 @@ TEST_CASE("Missing resources are 404s with a useful message", "[gui][errors]") {
   expect_404([&] { return instances_json(db, "nope"); });
 }
 
-TEST_CASE("Instance rows carry their stable GUID and material link",
+TEST_CASE("InstancesJson_SavedInstances_ReportsGuidAndMaterialLink",
           "[gui][instances]") {
   TempPath project("test_gui_api");
   reusex::ProjectDB db(project.path);
@@ -621,7 +624,7 @@ TEST_CASE("Instance rows carry their stable GUID and material link",
 // Jobs
 // ===========================================================================
 
-TEST_CASE("A job submission body is validated before anything is queued",
+TEST_CASE("ParseJobRequest_VariousBodies_ValidatesBeforeQueuing",
           "[gui][jobs]") {
   SECTION("a well-formed request parses") {
     const auto submission =
@@ -675,7 +678,7 @@ TEST_CASE("A job submission body is validated before anything is queued",
   }
 }
 
-TEST_CASE("A job serializes into the documented shape", "[gui][jobs]") {
+TEST_CASE("JobJson_RunningJobRecord_SerializesDocumentedShape", "[gui][jobs]") {
   reusex::pipeline::JobRecord record;
   record.id = "job-1";
   record.stage = reusex::pipeline::JobStage::planes;
@@ -705,7 +708,7 @@ TEST_CASE("A job serializes into the documented shape", "[gui][jobs]") {
   CHECK(body.at("progress").at("fraction").get<double>() == 0.25);
 }
 
-TEST_CASE("Indeterminate progress reports a null fraction", "[gui][jobs]") {
+TEST_CASE("JobJson_ZeroProgressTotal_ReportsNullFraction", "[gui][jobs]") {
   reusex::pipeline::JobRecord record;
   record.id = "job-2";
   record.progress_total = 0;
@@ -716,7 +719,7 @@ TEST_CASE("Indeterminate progress reports a null fraction", "[gui][jobs]") {
   CHECK(body.at("progress").at("fraction").is_null());
 }
 
-TEST_CASE("Unparseable stored parameters degrade to an empty object",
+TEST_CASE("JobJson_UnparseableParameters_DegradesToEmptyObject",
           "[gui][jobs]") {
   reusex::pipeline::JobRecord record;
   record.id = "job-3";
@@ -727,7 +730,7 @@ TEST_CASE("Unparseable stored parameters degrade to an empty object",
   CHECK(body.at("parameters").empty());
 }
 
-TEST_CASE("Job events wrap the full record", "[gui][jobs]") {
+TEST_CASE("JobEventJson_FinishedEvent_WrapsFullJobRecord", "[gui][jobs]") {
   reusex::pipeline::JobEvent event;
   event.type = reusex::pipeline::JobEvent::Type::finished;
   event.timestamp = "2026-09-08T11:24:02Z";
@@ -743,7 +746,7 @@ TEST_CASE("Job events wrap the full record", "[gui][jobs]") {
   CHECK(body.at("job").at("error") == "inputs missing");
 }
 
-TEST_CASE("The hello frame carries a job snapshot and no server path",
+TEST_CASE("HelloJson_JobSnapshotAndProjectPath_OmitsServerPath",
           "[gui][websocket]") {
   reusex::pipeline::JobRecord record;
   record.id = "job-5";
@@ -761,7 +764,7 @@ TEST_CASE("The hello frame carries a job snapshot and no server path",
 // WebSocket protocol
 // ===========================================================================
 
-TEST_CASE("WebSocket client messages follow the documented protocol",
+TEST_CASE("HandleWsMessage_VariousMessageTypes_FollowsDocumentedProtocol",
           "[gui][websocket]") {
   std::optional<std::string> subscription;
   bool subscribe_called = false;
@@ -807,7 +810,8 @@ TEST_CASE("WebSocket client messages follow the documented protocol",
   }
 }
 
-TEST_CASE("Subscriptions filter events by job id", "[gui][websocket]") {
+TEST_CASE("EventMatchesSubscription_JobIdFilter_MatchesOnlyTargetJob",
+          "[gui][websocket]") {
   reusex::pipeline::JobEvent event;
   event.job.id = "job-a";
 
@@ -821,7 +825,7 @@ TEST_CASE("Subscriptions filter events by job id", "[gui][websocket]") {
 // Static assets
 // ===========================================================================
 
-TEST_CASE("The placeholder page is a complete, self-describing document",
+TEST_CASE("PlaceholderPage_ProjectName_ProducesSelfDescribingHtml",
           "[gui][assets]") {
   const auto page = placeholder_page("scan.rux");
   CHECK(page.rfind("<!doctype html>", 0) == 0);
@@ -831,7 +835,7 @@ TEST_CASE("The placeholder page is a complete, self-describing document",
   CHECK(page.find("%%PROJECT%%") == std::string::npos);
 }
 
-TEST_CASE("Asset resolution serves files under the root and nothing else",
+TEST_CASE("ResolveAsset_VariousRequests_ServesOnlyFilesUnderRoot",
           "[gui][assets]") {
   TempDir root("test_gui_assets");
   write_file(root.path / "index.html", "<h1>index</h1>");
@@ -875,7 +879,7 @@ TEST_CASE("Asset resolution serves files under the root and nothing else",
   }
 }
 
-TEST_CASE("MIME types cover the frontend bundle's file kinds",
+TEST_CASE("MimeTypeFor_VariousExtensions_ReturnsExpectedContentType",
           "[gui][assets]") {
   CHECK(mime_type_for("index.html") == "text/html; charset=utf-8");
   CHECK(mime_type_for("app.js") == "text/javascript; charset=utf-8");
@@ -887,8 +891,7 @@ TEST_CASE("MIME types cover the frontend bundle's file kinds",
   CHECK(mime_type_for("noextension") == "application/octet-stream");
 }
 
-TEST_CASE("An explicit --assets that is not a directory fails loudly",
-          "[gui][assets]") {
+TEST_CASE("ResolveAssetDir_NotADirectory_Throws", "[gui][assets]") {
   REQUIRE_THROWS_AS(resolve_asset_dir("/definitely/not/a/directory"),
                     std::runtime_error);
 }
@@ -897,7 +900,7 @@ TEST_CASE("An explicit --assets that is not a directory fails loudly",
 // Review follow-ups (#274): project identity, limit clamping, SPA fallback
 // ===========================================================================
 
-TEST_CASE("Every job and event names the project it belongs to",
+TEST_CASE("JobAndEventJson_AnyRecord_IncludesProjectField",
           "[gui][jobs][project]") {
   // The contract has to survive Phase 6, where one ruxd serves many projects.
   // Adding the field later would be a breaking change; adding it now costs a
@@ -916,7 +919,8 @@ TEST_CASE("Every job and event names the project it belongs to",
         "scan.rux");
 }
 
-TEST_CASE("A job aimed at a different project is refused", "[gui][jobs]") {
+TEST_CASE("CheckJobProject_VariousProjectValues_AllowsMatchOrRejectsMismatch",
+          "[gui][jobs]") {
   SECTION("omitting project is fine — the server has only one open") {
     const auto submission = parse_job_request(R"({"stage":"planes"})");
     CHECK_FALSE(submission.project.has_value());
@@ -954,7 +958,7 @@ TEST_CASE("A job aimed at a different project is refused", "[gui][jobs]") {
   }
 }
 
-TEST_CASE("Events carry a monotonic sequence number", "[gui][websocket]") {
+TEST_CASE("JobEventJson_SequenceField_SerializesSeq", "[gui][websocket]") {
   // Events are published without the runner lock, so arrival order is not
   // emission order. `seq` is assigned under the lock and is the authority.
   reusex::pipeline::JobEvent event;
@@ -962,7 +966,8 @@ TEST_CASE("Events carry a monotonic sequence number", "[gui][websocket]") {
   CHECK(job_event_json(event, "scan.rux").at("seq") == 42);
 }
 
-TEST_CASE("pipeline-log limit is clamped at both ends", "[gui][pipeline]") {
+TEST_CASE("PipelineLogJson_LimitParameter_ClampsWithinBoundsOrRejectsNegative",
+          "[gui][pipeline]") {
   TempPath project("test_gui_api");
   reusex::ProjectDB db(project.path);
 
@@ -999,7 +1004,7 @@ TEST_CASE("pipeline-log limit is clamped at both ends", "[gui][pipeline]") {
   }
 }
 
-TEST_CASE("The SPA fallback applies to routes, not to missing files",
+TEST_CASE("LooksLikeSpaRoute_RoutesVsAssetPaths_DistinguishesCorrectly",
           "[gui][assets]") {
   // Answering a missing /assets/app.js with index.html hands the browser HTML
   // where it expects JavaScript — the failure then surfaces as an inscrutable
@@ -1016,7 +1021,7 @@ TEST_CASE("The SPA fallback applies to routes, not to missing files",
   CHECK_FALSE(looks_like_spa_route("/assets/app.js?v=2"));
 }
 
-TEST_CASE("Percent-encoded traversal is decoded before it is judged",
+TEST_CASE("PercentDecode_EncodedTraversal_DecodesBeforeAssetResolution",
           "[gui][assets]") {
   CHECK(percent_decode("/assets/app.js") == "/assets/app.js");
   CHECK(percent_decode("%2e%2e/secret") == "../secret");

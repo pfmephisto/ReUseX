@@ -5,7 +5,8 @@
 #include <core/ProjectDB.hpp>
 #include <core/filter_expression.hpp>
 
-TEST_CASE("Filter expression parsing and evaluation", "[filter][parser]") {
+TEST_CASE("FilterExpression_SingleCloudOperators_MatchesExpectedIndices",
+          "[filter][parser]") {
   // Create in-memory database
   reusex::ProjectDB db(":memory:");
 
@@ -111,7 +112,8 @@ TEST_CASE("Filter expression parsing and evaluation", "[filter][parser]") {
   }
 }
 
-TEST_CASE("Multi-cloud filter expressions", "[filter][multi-cloud]") {
+TEST_CASE("FilterExpression_MultipleClouds_MatchesExpectedIndices",
+          "[filter][multi-cloud]") {
   reusex::ProjectDB db(":memory:");
 
   // Create two label clouds with same size
@@ -181,7 +183,8 @@ TEST_CASE("Multi-cloud filter expressions", "[filter][multi-cloud]") {
   }
 }
 
-TEST_CASE("Filter expression edge cases", "[filter][edge-cases]") {
+TEST_CASE("FilterExpression_EdgeCaseValues_MatchesExpectedIndices",
+          "[filter][edge-cases]") {
   reusex::ProjectDB db(":memory:");
 
   // Create label cloud with negative and zero labels

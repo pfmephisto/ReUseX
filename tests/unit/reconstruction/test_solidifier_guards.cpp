@@ -81,7 +81,7 @@ std::shared_ptr<CellComplex> make_box_complex(size_t max_cells = 500) {
 
 } // namespace
 
-TEST_CASE("Solidifier throws when required property maps are missing",
+TEST_CASE("Solidifier_MissingPropertyMaps_ThrowsDescriptiveError",
           "[geometry][solidifier][guards]") {
   // A freshly-constructed cell complex has "f:area"/"c:volume" (written by the
   // constructor) but NOT "f:support_probability" or "c:room_probabilities"
@@ -96,7 +96,7 @@ TEST_CASE("Solidifier throws when required property maps are missing",
                           ContainsSubstring("c:room_probabilities"));
 }
 
-TEST_CASE("CellComplex max_cells guard fails fast on over-fragmented input",
+TEST_CASE("CellComplex_MaxCellsExceededByFragmentation_ThrowsDescriptiveError",
           "[geometry][cellcomplex][guards]") {
   // A tiny max_cells makes even the single-box arrangement exceed the limit,
   // so construction must throw with an actionable message.
@@ -109,7 +109,7 @@ TEST_CASE("CellComplex max_cells guard fails fast on over-fragmented input",
       ContainsSubstring("max_cells") && ContainsSubstring("merging"));
 }
 
-TEST_CASE("SolveStatus stringifies distinct failure modes",
+TEST_CASE("SolveStatus_ToString_StringifiesDistinctFailureModes",
           "[geometry][solidifier]") {
   // The status enum must round-trip through to_string so log lines can name
   // the failure mode (timeout vs infeasible) distinctly.
@@ -120,7 +120,7 @@ TEST_CASE("SolveStatus stringifies distinct failure modes",
 }
 
 #if defined(USE_CUOPT) || defined(USE_HIGHS)
-TEST_CASE("MIP traits honor the configured time limit (no hang)",
+TEST_CASE("MipTraits_TinyTimeLimit_ReturnsClassifiedStatusWithoutHanging",
           TIMEOUT_SOLVER_TAG) {
   // Build a nontrivial 0/1 knapsack-style MIP and give the solver a tiny time
   // limit. The important property (issue #212) is that solve() *returns*

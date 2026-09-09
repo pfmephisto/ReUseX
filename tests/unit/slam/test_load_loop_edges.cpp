@@ -42,7 +42,7 @@ struct TempJson {
 
 } // namespace
 
-TEST_CASE("load_loop_edges maps node ids to frame indices", "[loop_edges]") {
+TEST_CASE("LoadLoopEdges_NodeIds_MapToFrameIndices", "[loop_edges]") {
   // Frame k has node id node_ids[k]; the file references node ids, not indices.
   const std::vector<int> node_ids{10, 20, 30, 40};
 
@@ -71,7 +71,7 @@ TEST_CASE("load_loop_edges maps node ids to frame indices", "[loop_edges]") {
   CHECK(stats.total_inliers == 123);
 }
 
-TEST_CASE("load_loop_edges drops unknown/self/duplicate/malformed edges",
+TEST_CASE("LoadLoopEdges_UnknownSelfDuplicateMalformedEdges_AreDropped",
           "[loop_edges]") {
   const std::vector<int> node_ids{10, 20, 30};
 
@@ -109,7 +109,7 @@ TEST_CASE("load_loop_edges drops unknown/self/duplicate/malformed edges",
 // class. Each file pairs the bad edge with a valid control edge (10<->30) that
 // must still be accepted, so a rejection cannot be confused with the loader
 // bailing out on the whole file.
-TEST_CASE("load_loop_edges rejects non-SE(3) and bad-sigma payloads",
+TEST_CASE("LoadLoopEdges_NonSE3AndBadSigmaPayloads_AreRejected",
           "[loop_edges]") {
   const std::vector<int> node_ids{10, 20, 30};
 
@@ -210,7 +210,9 @@ TEST_CASE("load_loop_edges rejects non-SE(3) and bad-sigma payloads",
   }
 }
 
-TEST_CASE("load_loop_edges dedups only on accepted edges", "[loop_edges]") {
+TEST_CASE(
+    "LoadLoopEdges_DuplicatePairWithRejectedFirst_DedupsOnlyAcceptedEdges",
+    "[loop_edges]") {
   // A rejected edge must NOT consume its (i,j) slot: the valid second entry for
   // the same pair has to be accepted, not counted as a duplicate.
   const std::vector<int> node_ids{10, 20, 30};
@@ -230,7 +232,7 @@ TEST_CASE("load_loop_edges dedups only on accepted edges", "[loop_edges]") {
   CHECK_THAT(edges[0].T_ij(0, 3), WithinAbs(0.5, 1e-12)); // the VALID one
 }
 
-TEST_CASE("load_loop_edges accepts a genuine rotation", "[loop_edges]") {
+TEST_CASE("LoadLoopEdges_GenuineRotation_IsAccepted", "[loop_edges]") {
   // Guard against an over-strict validator: a real 90-degree rotation about z,
   // with a translation, must pass every SE(3) check.
   const std::vector<int> node_ids{10, 20};
@@ -251,8 +253,7 @@ TEST_CASE("load_loop_edges accepts a genuine rotation", "[loop_edges]") {
   CHECK(edges[0].inliers == 88);
 }
 
-TEST_CASE("load_loop_edges fails loudly on a missing or invalid file",
-          "[loop_edges]") {
+TEST_CASE("LoadLoopEdges_MissingOrInvalidFile_ThrowsLoudly", "[loop_edges]") {
   const std::vector<int> node_ids{1, 2};
 
   SECTION("missing file throws") {

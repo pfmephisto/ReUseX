@@ -25,7 +25,8 @@ using Linear_constraint = MIP_Solver::Linear_constraint;
  *
  * Optimal solution: objective value = 1.0
  */
-TEST_CASE("cuOpt CGAL traits: continuous LP", "[cuopt][mip][gpu]") {
+TEST_CASE("CuOptMipTraits_ContinuousLP_SolvesToOptimalObjective",
+          "[cuopt][mip][gpu]") {
   MIP_Solver solver;
 
   Variable *x = solver.create_variable(Variable::CONTINUOUS, 0.0, 1e30, "x");
@@ -63,7 +64,8 @@ TEST_CASE("cuOpt CGAL traits: continuous LP", "[cuopt][mip][gpu]") {
  *
  * Optimal: x1=1, x2=0, x3=0, objective=3
  */
-TEST_CASE("cuOpt CGAL traits: binary MIP", "[cuopt][mip][gpu]") {
+TEST_CASE("CuOptMipTraits_BinaryMip_AssignsExactlyOneVariable",
+          "[cuopt][mip][gpu]") {
   MIP_Solver solver;
 
   Variable *x1 = solver.create_variable(Variable::BINARY, 0, 1, "x1");
@@ -112,7 +114,8 @@ TEST_CASE("cuOpt CGAL traits: binary MIP", "[cuopt][mip][gpu]") {
  *
  * Optimal: x1=2, x2=1, objective=-5
  */
-TEST_CASE("cuOpt CGAL traits: multi-constraint LP", "[cuopt][mip][gpu]") {
+TEST_CASE("CuOptMipTraits_MultiConstraintLP_SolvesToOptimalObjective",
+          "[cuopt][mip][gpu]") {
   MIP_Solver solver;
 
   Variable *x1 = solver.create_variable(Variable::CONTINUOUS, 0.0, 1e30, "x1");
@@ -151,7 +154,8 @@ TEST_CASE("cuOpt CGAL traits: multi-constraint LP", "[cuopt][mip][gpu]") {
  *                      x <= 1
  *          (infeasible: no x satisfies both)
  */
-TEST_CASE("cuOpt CGAL traits: infeasible problem", "[cuopt][mip][gpu]") {
+TEST_CASE("CuOptMipTraits_InfeasibleProblem_ReportsUnsolved",
+          "[cuopt][mip][gpu]") {
   MIP_Solver solver;
 
   Variable *x = solver.create_variable(Variable::CONTINUOUS, 0.0, 1e30, "x");

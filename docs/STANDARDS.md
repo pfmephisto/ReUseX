@@ -247,6 +247,48 @@ writes labels MUST follow it; any deviation is a bug.
   linking libtorch/TensorRT adds ~0.6 s of dynamic-loader time to *every*
   test process in that binary (#268).
 
+### 7.1 Test naming convention
+
+Every `TEST_CASE` name follows `Subject_Scenario_ExpectedBehavior` (#319):
+
+- **Subject** — the function, method, or class under test (e.g. `LimitToRange`,
+  `SplitCommand`). For integration/pipeline tests, where there is no single
+  free function under test, use the subject actually under test — a fixture
+  or pipeline stage (e.g. `RealScanFixture_Reconstruction_PlaneCountWithinBounds`
+  exercises the `RealScanFixture` running the `Reconstruction` stage).
+- **Scenario** — the input condition or state being exercised (e.g.
+  `ValueBelowRange`, `UnsupportedManufacturer`, `NegativeIndex`).
+- **ExpectedBehavior** — the observable outcome, stated as a fact about what
+  happens, not a wish (e.g. `ReturnsMinimum`, `LeavesCommandUntouched`,
+  `Throws`).
+
+Canonical examples (from #319):
+
+```
+LimitToRange_ValueBelowRange_ReturnsMinimum
+SplitCommand_UnsupportedManufacturer_LeavesCommandUntouched
+InfinitElementAt_NegativeIndex_Throws
+```
+
+Catch2 specifics:
+
+- The convention governs the `TEST_CASE` name string (its first argument)
+  only. Tags — the second `TEST_CASE` argument, e.g. `"[gpu]"` — are
+  unaffected and keep whatever tagging scheme is already in use.
+- `SECTION` names stay free-form/descriptive; they are not bound by this
+  convention. When one `TEST_CASE` covers several scenarios via `SECTION`s
+  (a common pre-#319 pattern), name the `TEST_CASE` for the scenario *class*
+  the sections share rather than any single one of them — e.g. a case whose
+  sections cover the default, custom, and inverted output ranges of `remap`
+  becomes `Remap_VariousRanges_MapsLinearly`, and the individual sections keep
+  their own descriptive names (`"Remap to custom output range"`, etc.).
+- `ctest -R <pattern>` matches against the `TEST_CASE` name, so a bulk rename
+  changes which regex targets a given test. Call this out explicitly in any
+  PR that renames tests in bulk (link old → new for anything a script or CI
+  job depends on by name).
+- `BENCHMARK` names (`tests/benchmarks/`) are not covered by this convention;
+  they describe a measured operation, not a pass/fail expectation.
+
 ## 8. Performance
 
 - Changes to hot paths (reconstruction, segmentation, cell complex, MIP,

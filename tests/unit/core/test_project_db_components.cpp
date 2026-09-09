@@ -53,14 +53,14 @@ static BuildingComponent make_door(const std::string &name) {
   return c;
 }
 
-TEST_CASE("ProjectDB latest schema version on fresh DB",
+TEST_CASE("ProjectDbSchemaVersion_FreshComponentsDatabase_IsLatest",
           "[projectdb][components]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
   REQUIRE(db.schema_version() == 11);
 }
 
-TEST_CASE("ProjectDB building component save/load round-trip",
+TEST_CASE("SaveBuildingComponent_WindowWithAllFields_RoundTripsExactly",
           "[projectdb][components]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
@@ -100,8 +100,9 @@ TEST_CASE("ProjectDB building component save/load round-trip",
   REQUIRE(wd.operable == true);
 }
 
-TEST_CASE("ProjectDB building component UPSERT replaces existing",
-          "[projectdb][components]") {
+TEST_CASE(
+    "SaveBuildingComponent_SameNameDifferentType_UpsertsReplacingExisting",
+    "[projectdb][components]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
 
@@ -117,7 +118,8 @@ TEST_CASE("ProjectDB building component UPSERT replaces existing",
   REQUIRE(std::holds_alternative<DoorData>(loaded.data));
 }
 
-TEST_CASE("ProjectDB has_building_component", "[projectdb][components]") {
+TEST_CASE("HasBuildingComponent_ExistingAndMissingName_ReturnsCorrectBool",
+          "[projectdb][components]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
 
@@ -127,7 +129,8 @@ TEST_CASE("ProjectDB has_building_component", "[projectdb][components]") {
   REQUIRE(db.has_building_component("win1"));
 }
 
-TEST_CASE("ProjectDB delete_building_component", "[projectdb][components]") {
+TEST_CASE("DeleteBuildingComponent_ExistingComponent_RemovesIt",
+          "[projectdb][components]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
 
@@ -138,7 +141,9 @@ TEST_CASE("ProjectDB delete_building_component", "[projectdb][components]") {
   REQUIRE_FALSE(db.has_building_component("win1"));
 }
 
-TEST_CASE("ProjectDB list_building_components", "[projectdb][components]") {
+TEST_CASE(
+    "ListBuildingComponents_MultipleSavedComponents_ReturnsAllInInsertionOrder",
+    "[projectdb][components]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
 
@@ -155,7 +160,7 @@ TEST_CASE("ProjectDB list_building_components", "[projectdb][components]") {
   REQUIRE(names[2] == "door1");
 }
 
-TEST_CASE("ProjectDB list_building_components by type",
+TEST_CASE("ListBuildingComponents_FilteredByType_ReturnsOnlyMatchingType",
           "[projectdb][components]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
@@ -177,7 +182,8 @@ TEST_CASE("ProjectDB list_building_components by type",
   REQUIRE(walls.empty());
 }
 
-TEST_CASE("ProjectDB building_component_count", "[projectdb][components]") {
+TEST_CASE("BuildingComponentCount_AfterSavingComponents_ReturnsCorrectCount",
+          "[projectdb][components]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
 
@@ -188,15 +194,14 @@ TEST_CASE("ProjectDB building_component_count", "[projectdb][components]") {
   REQUIRE(db.building_component_count() == 2);
 }
 
-TEST_CASE("ProjectDB building_component throws for missing",
-          "[projectdb][components]") {
+TEST_CASE("BuildingComponent_MissingName_Throws", "[projectdb][components]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
 
   REQUIRE_THROWS_AS(building_component(db, "nonexistent"), std::runtime_error);
 }
 
-TEST_CASE("ProjectDB project_summary includes component info",
+TEST_CASE("ProjectSummary_WithSavedComponents_IncludesComponentCounts",
           "[projectdb][components]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
@@ -211,7 +216,7 @@ TEST_CASE("ProjectDB project_summary includes component info",
   REQUIRE(summary.components.count_by_type["door"] == 1);
 }
 
-TEST_CASE("ProjectDB door data round-trip with all fields",
+TEST_CASE("SaveBuildingComponent_DoorWithAllFields_RoundTripsExactly",
           "[projectdb][components]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
@@ -227,7 +232,7 @@ TEST_CASE("ProjectDB door data round-trip with all fields",
   REQUIRE(dd.swing == "left");
 }
 
-TEST_CASE("ProjectDB auto-generates a guid on save",
+TEST_CASE("SaveBuildingComponent_EmptyGuid_AutoGeneratesGuid",
           "[projectdb][components][guid]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
@@ -242,7 +247,7 @@ TEST_CASE("ProjectDB auto-generates a guid on save",
   REQUIRE(loaded.guid.find('-') != std::string::npos);
 }
 
-TEST_CASE("ProjectDB honours a caller-supplied guid",
+TEST_CASE("SaveBuildingComponent_CallerSuppliedGuid_PersistsThatGuid",
           "[projectdb][components][guid]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
@@ -254,7 +259,7 @@ TEST_CASE("ProjectDB honours a caller-supplied guid",
   REQUIRE(building_component(db, "win1").guid == "my-fixed-guid");
 }
 
-TEST_CASE("ProjectDB guid is stable across upsert",
+TEST_CASE("SaveBuildingComponent_UpsertSameName_KeepsGuidStable",
           "[projectdb][components][guid]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
@@ -271,7 +276,8 @@ TEST_CASE("ProjectDB guid is stable across upsert",
   REQUIRE(g1 == g2);
 }
 
-TEST_CASE("ProjectDB update_building_component_by_guid renames and edits",
+TEST_CASE("UpdateBuildingComponentByGuid_RenameAndFieldEdits_"
+          "AppliesChangesAndPreservesGuid",
           "[projectdb][components][guid]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
@@ -299,7 +305,7 @@ TEST_CASE("ProjectDB update_building_component_by_guid renames and edits",
   REQUIRE(std::get<WindowData>(loaded.data).pane_count == 4);
 }
 
-TEST_CASE("ProjectDB update_building_component_by_guid throws for unknown guid",
+TEST_CASE("UpdateBuildingComponentByGuid_UnknownGuid_Throws",
           "[projectdb][components][guid]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
@@ -310,8 +316,9 @@ TEST_CASE("ProjectDB update_building_component_by_guid throws for unknown guid",
                     std::runtime_error);
 }
 
-TEST_CASE("ProjectDB persists source_instance_guid provenance (issue #211)",
-          "[projectdb][components][provenance]") {
+TEST_CASE(
+    "SaveBuildingComponent_SourceInstanceGuidSet_PersistsAndUpdatesProvenance",
+    "[projectdb][components][provenance]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
 
@@ -330,7 +337,7 @@ TEST_CASE("ProjectDB persists source_instance_guid provenance (issue #211)",
           "instances-guid-99");
 }
 
-TEST_CASE("ProjectDB leaves source_instance_guid empty when unset",
+TEST_CASE("SaveBuildingComponent_SourceInstanceGuidUnset_LeavesItEmpty",
           "[projectdb][components][provenance]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
@@ -341,7 +348,8 @@ TEST_CASE("ProjectDB leaves source_instance_guid empty when unset",
 
 // --- Core-owned persistence contract (#227) ---------------------------------
 
-TEST_CASE("ComponentRecord mapping round-trips a BuildingComponent",
+TEST_CASE("ComponentRecordMapping_BuildingComponentWithMetadata_"
+          "RoundTripsExactlyAndIsIdempotent",
           "[projectdb][components][record]") {
   auto original = make_window("win1");
   original.guid = "fixed-guid";
@@ -389,7 +397,7 @@ TEST_CASE("ComponentRecord mapping round-trips a BuildingComponent",
   REQUIRE(record2.notes == record.notes);
 }
 
-TEST_CASE("ProjectDB stores and loads a ComponentRecord verbatim",
+TEST_CASE("SaveComponentRecord_DoorRecord_LoadsVerbatim",
           "[projectdb][components][record]") {
   TempDB tmp;
   ProjectDB db(tmp.path);

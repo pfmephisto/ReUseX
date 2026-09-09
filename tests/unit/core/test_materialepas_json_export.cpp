@@ -145,7 +145,7 @@ static MaterialPassport createSamplePassport() {
 // Test Cases
 // ===========================================================================
 
-TEST_CASE("Empty passport JSON matches template structure",
+TEST_CASE("ToJson_EmptyPassport_MatchesTemplateStructure",
           "[core][json][template]") {
   MaterialPassport empty;
   auto j = json_export::to_json(empty);
@@ -198,7 +198,7 @@ TEST_CASE("Empty passport JSON matches template structure",
   CHECK(j["metadata"]["version number"] == "");
 }
 
-TEST_CASE("Populated passport JSON contains correct values",
+TEST_CASE("ToJson_PopulatedPassport_ContainsCorrectValues",
           "[core][json][export]") {
   auto passport = createSamplePassport();
   auto j = json_export::to_json(passport);
@@ -320,7 +320,8 @@ TEST_CASE("Populated passport JSON contains correct values",
   CHECK(log_props[5]["value"] == "Created");
 }
 
-TEST_CASE("Multiple passports export as JSON array", "[core][json][merge]") {
+TEST_CASE("ToJson_MultiplePassports_ExportsAsJsonArray",
+          "[core][json][merge]") {
   MaterialPassport p1 = createSamplePassport();
   p1.metadata.document_guid = "guid-001";
   p1.owner.contact_name = "Alice";
@@ -357,7 +358,7 @@ TEST_CASE("Multiple passports export as JSON array", "[core][json][merge]") {
   CHECK(j[2]["sections"][0]["properties"][1]["value"] == "Charlie");
 }
 
-TEST_CASE("Empty fields produce correct JSON format", "[core][json][empty]") {
+TEST_CASE("ToJson_EmptyFields_ProducesCorrectFormat", "[core][json][empty]") {
   MaterialPassport empty;
   auto j = json_export::to_json(empty);
 
@@ -386,7 +387,7 @@ TEST_CASE("Empty fields produce correct JSON format", "[core][json][empty]") {
   CHECK(j["metadata"]["document creation date"] == "");
 }
 
-TEST_CASE("JSON string export is valid parseable JSON",
+TEST_CASE("ToJsonString_PrettyAndCompact_ProducesParseableJson",
           "[core][json][string]") {
   auto passport = createSamplePassport();
 

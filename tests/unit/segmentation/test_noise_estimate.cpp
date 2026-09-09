@@ -23,8 +23,9 @@ using reusex::geometry::NoiseEstimate;
 using reusex::geometry::NoiseEstimateOptions;
 using reusex::test_support::make_room;
 
-TEST_CASE("noise estimate: recovers injected sigma on synthetic rooms",
-          "[geometry][noise]") {
+TEST_CASE(
+    "EstimateCloudNoise_VariousInjectedSigmas_RecoversSigmaWithinTolerance",
+    "[geometry][noise]") {
   // Tolerance ±40% (issue #214). Local-PCA residual on a k-neighbourhood is a
   // slightly biased estimator of the true along-normal sigma (patch curvature
   // + in-plane spread leak in), so we allow a generous band.
@@ -57,8 +58,7 @@ TEST_CASE("noise estimate: recovers injected sigma on synthetic rooms",
   }
 }
 
-TEST_CASE("noise estimate: deterministic for a fixed seed",
-          "[geometry][noise]") {
+TEST_CASE("EstimateCloudNoise_FixedSeed_IsDeterministic", "[geometry][noise]") {
   const auto scene = make_room(4.0F, 3.0F, 2.5F, 0.05F, 0.005F);
   const NoiseEstimate a =
       estimate_cloud_noise(scene.cloud, scene.normals, NoiseEstimateOptions{});
@@ -69,7 +69,7 @@ TEST_CASE("noise estimate: deterministic for a fixed seed",
   CHECK(a.samples == b.samples);
 }
 
-TEST_CASE("noise estimate: empty cloud throws", "[geometry][noise]") {
+TEST_CASE("EstimateCloudNoise_EmptyCloud_Throws", "[geometry][noise]") {
   auto empty = std::make_shared<reusex::Cloud>();
   auto empty_n = std::make_shared<reusex::CloudN>();
   CHECK_THROWS(estimate_cloud_noise(empty, empty_n, NoiseEstimateOptions{}));

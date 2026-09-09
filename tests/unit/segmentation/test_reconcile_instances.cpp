@@ -34,7 +34,7 @@ std::function<std::string()> counterGuid(int &n) {
 
 } // namespace
 
-TEST_CASE("reconcile: identical clouds carry every GUID over",
+TEST_CASE("ReconcileInstanceIdentities_IdenticalClouds_CarriesOverEveryGuid",
           "[geometry][reconcile]") {
   // Two instances of the same semantic class, unchanged.
   // Points 0-2 = instance 1, points 3-5 = instance 2.
@@ -62,7 +62,7 @@ TEST_CASE("reconcile: identical clouds carry every GUID over",
   REQUIRE(byId.at(2) == "guid-old-2");
 }
 
-TEST_CASE("reconcile: renumbered instances still match by overlap",
+TEST_CASE("ReconcileInstanceIdentities_RenumberedInstances_MatchesByOverlap",
           "[geometry][reconcile]") {
   // Same spatial split but instance ids swapped between runs.
   auto old_l = makeLabels({1, 1, 1, 2, 2, 2});
@@ -86,7 +86,7 @@ TEST_CASE("reconcile: renumbered instances still match by overlap",
   REQUIRE(byId.at(1) == "guid-B");
 }
 
-TEST_CASE("reconcile: different semantic class never matches",
+TEST_CASE("ReconcileInstanceIdentities_DifferentSemanticClass_NeverMatches",
           "[geometry][reconcile]") {
   auto old_l = makeLabels({1, 1, 1});
   auto new_l = makeLabels({1, 1, 1});
@@ -106,7 +106,8 @@ TEST_CASE("reconcile: different semantic class never matches",
   REQUIRE_FALSE(r.instances[0].carried_over);
 }
 
-TEST_CASE("reconcile: below-threshold overlap yields fresh guid + orphan",
+TEST_CASE("ReconcileInstanceIdentities_BelowThresholdOverlap_"
+          "YieldsFreshGuidAndOrphan",
           "[geometry][reconcile]") {
   // Old instance 1 covers points 0-3. New instance 1 covers only point 0
   // plus new points 4,5 -> overlap = 1/3 < 0.5.
@@ -127,7 +128,7 @@ TEST_CASE("reconcile: below-threshold overlap yields fresh guid + orphan",
   REQUIRE(r.orphaned_old[0].guid == "guid-old");
 }
 
-TEST_CASE("reconcile: no prior state assigns all fresh guids",
+TEST_CASE("ReconcileInstanceIdentities_NoPriorState_AssignsAllFreshGuids",
           "[geometry][reconcile]") {
   auto new_l = makeLabels({1, 1, 2, 2});
   std::vector<PriorInstance> prior;
@@ -144,7 +145,8 @@ TEST_CASE("reconcile: no prior state assigns all fresh guids",
   REQUIRE(r.orphaned_old.empty());
 }
 
-TEST_CASE("reconcile: mismatched cloud sizes throw", "[geometry][reconcile]") {
+TEST_CASE("ReconcileInstanceIdentities_MismatchedCloudSizes_Throws",
+          "[geometry][reconcile]") {
   auto old_l = makeLabels({1, 1, 1});
   auto new_l = makeLabels({1, 1});
   std::vector<PriorInstance> prior = {{1, 1, "g"}};

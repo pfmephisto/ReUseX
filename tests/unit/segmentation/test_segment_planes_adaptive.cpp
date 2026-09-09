@@ -44,7 +44,7 @@ std::size_t segment_count(const reusex::CloudPtr &cloud,
 
 } // namespace
 
-TEST_CASE("adaptive planes: ~6 planes on clean AND noisy room",
+TEST_CASE("SegmentPlanes_CleanAndNoisyRoomAdaptive_StaysNearSixPlanes",
           "[geometry][planes][adaptive]") {
   const auto clean = make_room(4.0F, 3.0F, 2.5F, 0.05F, /*sigma=*/0.002F);
   const auto noisy = make_room(4.0F, 3.0F, 2.5F, 0.05F, /*sigma=*/0.015F);
@@ -67,7 +67,7 @@ TEST_CASE("adaptive planes: ~6 planes on clean AND noisy room",
   CHECK(noisy_adaptive <= 12);
 }
 
-TEST_CASE("adaptive planes: no worse than fixed defaults on a noisy room",
+TEST_CASE("SegmentPlanes_NoisyRoomAdaptiveVsFixedDefaults_DoesNotOverFragment",
           "[geometry][planes][adaptive]") {
   const auto noisy = make_room(4.0F, 3.0F, 2.5F, 0.05F, /*sigma=*/0.015F);
 
@@ -91,7 +91,7 @@ TEST_CASE("adaptive planes: no worse than fixed defaults on a noisy room",
   CHECK(adaptive_count <= 12);
 }
 
-TEST_CASE("adaptive planes: explicit distance override bypasses adaptivity",
+TEST_CASE("SegmentPlanes_ExplicitDistanceThresholdOverride_BypassesAdaptivity",
           "[geometry][planes][adaptive]") {
   const auto noisy = make_room(4.0F, 3.0F, 2.5F, 0.05F, /*sigma=*/0.015F);
 

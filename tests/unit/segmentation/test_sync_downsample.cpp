@@ -63,7 +63,8 @@ CloudPtr two_cluster_cloud() {
 
 // ── Label majority-vote overload ────────────────────────────────────────
 
-TEST_CASE("downsample(CloudL): majority vote per bucket", "[sync_downsample]") {
+TEST_CASE("DownsampleLabels_MixedBucketWithMajority_AssignsMajorityLabel",
+          "[sync_downsample]") {
   auto cloud = two_cluster_cloud();
   auto a = voxel_assignment(*cloud, 10.0f);
   REQUIRE(a.bucket_count == 2);
@@ -91,7 +92,7 @@ TEST_CASE("downsample(CloudL): majority vote per bucket", "[sync_downsample]") {
   REQUIRE((*out)[bRow].label == 2u); // deterministic tie-break: lowest label
 }
 
-TEST_CASE("downsample(CloudL): deterministic tie-break is lowest label",
+TEST_CASE("DownsampleLabels_TiedBucketLabels_BreaksTieToLowestLabel",
           "[sync_downsample]") {
   auto cloud = two_cluster_cloud();
   auto a = voxel_assignment(*cloud, 10.0f);
@@ -114,7 +115,7 @@ TEST_CASE("downsample(CloudL): deterministic tie-break is lowest label",
   REQUIRE((*out)[bRow].label == 1u);
 }
 
-TEST_CASE("downsample(CloudL): rejects mismatched sizes", "[sync_downsample]") {
+TEST_CASE("DownsampleLabels_MismatchedSize_Throws", "[sync_downsample]") {
   auto cloud = two_cluster_cloud();
   auto a = voxel_assignment(*cloud, 10.0f);
   CloudL labels;
@@ -126,7 +127,7 @@ TEST_CASE("downsample(CloudL): rejects mismatched sizes", "[sync_downsample]") {
 
 // ── Synchronized project-level downsample ───────────────────────────────
 
-TEST_CASE("sync_downsample: keeps all siblings index-aligned",
+TEST_CASE("SyncDownsample_MultipleSiblingClouds_KeepsAllSiblingsIndexAligned",
           "[sync_downsample]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
@@ -189,7 +190,8 @@ TEST_CASE("sync_downsample: keeps all siblings index-aligned",
   REQUIRE(found);
 }
 
-TEST_CASE("sync_downsample: refuses only-primary when siblings exist",
+TEST_CASE("SyncDownsample_OnlyPrimaryWithoutForceDesync_"
+          "ThrowsAndLeavesSiblingsUntouched",
           "[sync_downsample]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
@@ -210,7 +212,7 @@ TEST_CASE("sync_downsample: refuses only-primary when siblings exist",
   REQUIRE(db.point_cloud_label("labels")->size() == scene.labels->size());
 }
 
-TEST_CASE("sync_downsample: only-primary with force_desync leaves siblings",
+TEST_CASE("SyncDownsample_OnlyPrimaryWithForceDesync_LeavesSiblingsStale",
           "[sync_downsample]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
@@ -235,7 +237,7 @@ TEST_CASE("sync_downsample: only-primary with force_desync leaves siblings",
   REQUIRE(db.point_cloud_normal("normals")->size() == sib_n);
 }
 
-TEST_CASE("sync_downsample: rejects missing / wrong-type primary",
+TEST_CASE("SyncDownsample_MissingOrWrongTypePrimary_Throws",
           "[sync_downsample]") {
   TempDB tmp;
   ProjectDB db(tmp.path);

@@ -18,7 +18,9 @@ static CoplanarPolygon make_xy_square() {
   return poly;
 }
 
-TEST_CASE("CoplanarPolygon - is_valid", "[geometry][coplanar_polygon]") {
+TEST_CASE(
+    "CoplanarPolygonIsValid_VariousVertexAndPlaneConditions_ValidatesCorrectly",
+    "[geometry][coplanar_polygon]") {
   SECTION("Valid square") {
     auto poly = make_xy_square();
     REQUIRE(poly.is_valid());
@@ -39,13 +41,13 @@ TEST_CASE("CoplanarPolygon - is_valid", "[geometry][coplanar_polygon]") {
   }
 }
 
-TEST_CASE("CoplanarPolygon - area of unit square",
+TEST_CASE("CoplanarPolygonArea_UnitSquare_ReturnsOne",
           "[geometry][coplanar_polygon]") {
   auto poly = make_xy_square();
   REQUIRE(poly.area() == Approx(1.0).margin(1e-10));
 }
 
-TEST_CASE("CoplanarPolygon - area of triangle",
+TEST_CASE("CoplanarPolygonArea_Triangle_ReturnsExpectedArea",
           "[geometry][coplanar_polygon]") {
   CoplanarPolygon poly;
   poly.vertices = {{0, 0, 0}, {2, 0, 0}, {0, 2, 0}};
@@ -53,7 +55,7 @@ TEST_CASE("CoplanarPolygon - area of triangle",
   REQUIRE(poly.area() == Approx(2.0).margin(1e-10));
 }
 
-TEST_CASE("CoplanarPolygon - area of rectangle in YZ plane",
+TEST_CASE("CoplanarPolygonArea_RectangleInYZPlane_ReturnsExpectedArea",
           "[geometry][coplanar_polygon]") {
   CoplanarPolygon poly;
   poly.vertices = {{0, 0, 0}, {0, 3, 0}, {0, 3, 2}, {0, 0, 2}};
@@ -61,7 +63,8 @@ TEST_CASE("CoplanarPolygon - area of rectangle in YZ plane",
   REQUIRE(poly.area() == Approx(6.0).margin(1e-10));
 }
 
-TEST_CASE("CoplanarPolygon - centroid", "[geometry][coplanar_polygon]") {
+TEST_CASE("CoplanarPolygonCentroid_UnitSquare_ReturnsCenterPoint",
+          "[geometry][coplanar_polygon]") {
   auto poly = make_xy_square();
   auto c = poly.centroid();
   REQUIRE(c.x() == Approx(0.5));
@@ -69,7 +72,7 @@ TEST_CASE("CoplanarPolygon - centroid", "[geometry][coplanar_polygon]") {
   REQUIRE(c.z() == Approx(0.0));
 }
 
-TEST_CASE("CoplanarPolygon - centroid of empty polygon",
+TEST_CASE("CoplanarPolygonCentroid_EmptyPolygon_ReturnsOrigin",
           "[geometry][coplanar_polygon]") {
   CoplanarPolygon poly;
   auto c = poly.centroid();
@@ -78,7 +81,8 @@ TEST_CASE("CoplanarPolygon - centroid of empty polygon",
   REQUIRE(c.z() == Approx(0.0));
 }
 
-TEST_CASE("CoplanarPolygon - normal", "[geometry][coplanar_polygon]") {
+TEST_CASE("CoplanarPolygonNormal_UnitSquare_ReturnsUnitZAxis",
+          "[geometry][coplanar_polygon]") {
   auto poly = make_xy_square();
   auto n = poly.normal();
   REQUIRE(n.x() == Approx(0.0));
@@ -86,7 +90,7 @@ TEST_CASE("CoplanarPolygon - normal", "[geometry][coplanar_polygon]") {
   REQUIRE(n.z() == Approx(1.0));
 }
 
-TEST_CASE("CoplanarPolygon - normal with non-unit plane",
+TEST_CASE("CoplanarPolygonNormal_NonUnitPlaneVector_ReturnsNormalizedNormal",
           "[geometry][coplanar_polygon]") {
   CoplanarPolygon poly;
   poly.vertices = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}};
@@ -96,7 +100,8 @@ TEST_CASE("CoplanarPolygon - normal with non-unit plane",
   REQUIRE(n.z() == Approx(1.0));
 }
 
-TEST_CASE("CoplanarPolygon - bounding_box", "[geometry][coplanar_polygon]") {
+TEST_CASE("CoplanarPolygonBoundingBox_UnitSquare_ReturnsExpectedExtents",
+          "[geometry][coplanar_polygon]") {
   auto poly = make_xy_square();
   auto [lo, hi] = poly.bounding_box();
   REQUIRE(lo.x() == Approx(0.0));
@@ -107,7 +112,7 @@ TEST_CASE("CoplanarPolygon - bounding_box", "[geometry][coplanar_polygon]") {
   REQUIRE(hi.z() == Approx(0.0));
 }
 
-TEST_CASE("CoplanarPolygon - serialize/deserialize round-trip",
+TEST_CASE("CoplanarPolygonSerializeDeserializeVertices_UnitSquare_RoundTrips",
           "[geometry][coplanar_polygon]") {
   auto poly = make_xy_square();
   auto blob = poly.serialize_vertices();
@@ -125,7 +130,7 @@ TEST_CASE("CoplanarPolygon - serialize/deserialize round-trip",
   }
 }
 
-TEST_CASE("CoplanarPolygon - deserialize invalid size throws",
+TEST_CASE("CoplanarPolygonDeserializeVertices_InvalidByteSize_Throws",
           "[geometry][coplanar_polygon]") {
   std::vector<uint8_t> bad(25); // not a multiple of 24
   REQUIRE_THROWS_AS(
@@ -133,7 +138,7 @@ TEST_CASE("CoplanarPolygon - deserialize invalid size throws",
       std::runtime_error);
 }
 
-TEST_CASE("CoplanarPolygon - empty polygon area is zero",
+TEST_CASE("CoplanarPolygonArea_EmptyPolygon_ReturnsZero",
           "[geometry][coplanar_polygon]") {
   CoplanarPolygon poly;
   REQUIRE(poly.area() == Approx(0.0));

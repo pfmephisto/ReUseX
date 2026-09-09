@@ -103,7 +103,8 @@ ReconcileResult regenerate(ProjectDB &db, const std::string &cloud,
 
 } // namespace
 
-TEST_CASE("GUID + material link survive an unchanged regeneration",
+TEST_CASE("ReconcileInstanceIdentities_UnchangedRegeneration_"
+          "PreservesGuidAndMaterialLink",
           "[projectdb][instances][identity]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
@@ -136,8 +137,9 @@ TEST_CASE("GUID + material link survive an unchanged regeneration",
   REQUIRE(*link == "mat-1");
 }
 
-TEST_CASE("Renumbered instances keep GUIDs and links follow the object",
-          "[projectdb][instances][identity]") {
+TEST_CASE(
+    "ReconcileInstanceIdentities_RenumberedInstances_GuidAndLinkFollowObject",
+    "[projectdb][instances][identity]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
   const std::string cloud = "instances";
@@ -163,8 +165,9 @@ TEST_CASE("Renumbered instances keep GUIDs and links follow the object",
   REQUIRE(*link == "mat-obj");
 }
 
-TEST_CASE("Vanished instance orphans its link but keeps the passport",
-          "[projectdb][instances][identity]") {
+TEST_CASE(
+    "ReconcileInstanceIdentities_VanishedInstance_OrphansLinkKeepsPassport",
+    "[projectdb][instances][identity]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
   const std::string cloud = "instances";

@@ -9,7 +9,7 @@
 using namespace reusex;
 using Catch::Approx;
 
-TEST_CASE("Point cloud creation and basic operations", "[pointcloud]") {
+TEST_CASE("Cloud_BasicOperations_StoresAndRetrievesPoints", "[pointcloud]") {
   CloudPtr cloud(new Cloud());
 
   SECTION("Empty cloud initialization") {
@@ -53,7 +53,7 @@ TEST_CASE("Point cloud creation and basic operations", "[pointcloud]") {
   }
 }
 
-TEST_CASE("Normal cloud operations", "[normals]") {
+TEST_CASE("CloudN_BasicOperations_StoresAndRetrievesNormals", "[normals]") {
   CloudNPtr normals(new CloudN());
 
   SECTION("Empty normals cloud") {
@@ -74,7 +74,7 @@ TEST_CASE("Normal cloud operations", "[normals]") {
   }
 }
 
-TEST_CASE("Indices operations", "[indices]") {
+TEST_CASE("Indices_BasicOperations_StoresAndRetrievesValues", "[indices]") {
   IndicesPtr indices(new Indices());
 
   SECTION("Empty indices") {
@@ -94,7 +94,8 @@ TEST_CASE("Indices operations", "[indices]") {
   }
 }
 
-TEST_CASE("Eigen vector container", "[eigen]") {
+TEST_CASE("EigenVectorContainer_BasicOperations_StoresAndRetrievesVectors",
+          "[eigen]") {
   EigenVectorContainer<double, 3> vectors;
 
   SECTION("Empty container") {

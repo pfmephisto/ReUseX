@@ -161,7 +161,7 @@ reusex::CloudPtr synthetic_room(int per_side = 60) {
 
 } // namespace
 
-TEST_CASE("render_view draws a synthetic project with no display",
+TEST_CASE("RenderView_HeadlessSyntheticProject_DrawsNonBlankDeterministicImage",
           "[integration][render]") {
   if (!has_rendering_device()) {
     SKIP(kNoDeviceReason);
@@ -231,7 +231,7 @@ TEST_CASE("render_view draws a synthetic project with no display",
   CHECK(cv::countNonZero(difference.reshape(1)) > 0);
 }
 
-TEST_CASE("render_view fails loudly on missing or invalid inputs",
+TEST_CASE("RenderView_MissingOrInvalidInputs_ThrowsWithDiagnosticMessage",
           "[integration][render]") {
   const reusex::test_support::TempDir work("reusex_render_errors");
   const fs::path project = work.path / "errors.rux";
@@ -297,7 +297,7 @@ TEST_CASE("render_view fails loudly on missing or invalid inputs",
   }
 }
 
-TEST_CASE("render_view renders the real-scan fixture headlessly",
+TEST_CASE("RenderView_RealScanFixture_ProducesNonBlankImage",
           "[integration][fixture][render]") {
   if (!has_rendering_device()) {
     SKIP(kNoDeviceReason);

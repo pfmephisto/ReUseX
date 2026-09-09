@@ -10,7 +10,8 @@ namespace {
 class TestObserver final : public reusex::core::IProgressObserver {};
 } // namespace
 
-TEST_CASE("Global processing observer can be registered", "[core][observer]") {
+TEST_CASE("SetProgressObserver_ValidObserver_RegistersAsGlobalObserver",
+          "[core][observer]") {
   TestObserver observer;
   reusex::core::set_progress_observer(&observer);
 
@@ -20,7 +21,7 @@ TEST_CASE("Global processing observer can be registered", "[core][observer]") {
   REQUIRE(reusex::core::get_progress_observer() == nullptr);
 }
 
-TEST_CASE("Global processing observer reset clears registration",
+TEST_CASE("ResetProgressObserver_AfterRegistration_ClearsGlobalObserver",
           "[core][observer]") {
   TestObserver observer;
   reusex::core::set_progress_observer(&observer);

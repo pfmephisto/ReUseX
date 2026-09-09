@@ -96,13 +96,14 @@ pcl::PolygonMesh make_cube() {
 
 } // namespace
 
-TEST_CASE("unweld_mesh - empty mesh", "[geometry][unweld]") {
+TEST_CASE("UnweldMesh_EmptyMesh_ReturnsEmptyResult", "[geometry][unweld]") {
   pcl::PolygonMesh empty;
   auto result = unweld_mesh(empty, 1.0f);
   REQUIRE(result->polygons.empty());
 }
 
-TEST_CASE("unweld_mesh - single triangle unchanged", "[geometry][unweld]") {
+TEST_CASE("UnweldMesh_SingleTriangle_LeavesVerticesUnchanged",
+          "[geometry][unweld]") {
   auto mesh = make_mesh({{0, 0, 0}, {1, 0, 0}, {0, 1, 0}}, {{0, 1, 2}});
   auto result = unweld_mesh(mesh, 0.0f);
 
@@ -111,7 +112,7 @@ TEST_CASE("unweld_mesh - single triangle unchanged", "[geometry][unweld]") {
   REQUIRE(result->polygons[0].vertices.size() == 3);
 }
 
-TEST_CASE("unweld_mesh - two coplanar triangles sharing edge",
+TEST_CASE("UnweldMesh_TwoCoplanarTrianglesSharingEdge_KeepsVerticesShared",
           "[geometry][unweld]") {
   //   3---2
   //   | / |
@@ -126,7 +127,8 @@ TEST_CASE("unweld_mesh - two coplanar triangles sharing edge",
   REQUIRE(result->polygons.size() == 2);
 }
 
-TEST_CASE("unweld_mesh - two perpendicular triangles, threshold below 90deg",
+TEST_CASE("UnweldMesh_PerpendicularTrianglesThresholdBelowDihedral_"
+          "SplitsSharedVertices",
           "[geometry][unweld]") {
   // Triangle A: in XY plane (z=0)  vertices 0,1,2
   // Triangle B: in XZ plane (y=0)  vertices 0,1,3
@@ -143,7 +145,8 @@ TEST_CASE("unweld_mesh - two perpendicular triangles, threshold below 90deg",
   REQUIRE(result->polygons.size() == 2);
 }
 
-TEST_CASE("unweld_mesh - two perpendicular triangles, threshold above 90deg",
+TEST_CASE("UnweldMesh_PerpendicularTrianglesThresholdAboveDihedral_"
+          "KeepsVerticesShared",
           "[geometry][unweld]") {
   auto mesh = make_mesh({{0, 0, 0}, {1, 0, 0}, {0, 1, 0}, {0, 0, 1}},
                         {{0, 1, 2}, {0, 3, 1}});
@@ -154,7 +157,7 @@ TEST_CASE("unweld_mesh - two perpendicular triangles, threshold above 90deg",
   REQUIRE(result->polygons.size() == 2);
 }
 
-TEST_CASE("unweld_mesh - threshold=0 splits all non-coplanar faces on cube",
+TEST_CASE("UnweldMesh_ZeroThresholdOnCube_SplitsAllNonCoplanarFaces",
           "[geometry][unweld]") {
   auto mesh = make_cube();
   auto result = unweld_mesh(mesh, 0.0f);
@@ -167,7 +170,7 @@ TEST_CASE("unweld_mesh - threshold=0 splits all non-coplanar faces on cube",
   REQUIRE(result->polygons.size() == 12);
 }
 
-TEST_CASE("unweld_mesh - no unweld (threshold=pi) on cube",
+TEST_CASE("UnweldMesh_PiThresholdOnCube_PreservesAllSharedVertices",
           "[geometry][unweld]") {
   auto mesh = make_cube();
   auto result = unweld_mesh(mesh, static_cast<float>(std::numbers::pi));
@@ -177,7 +180,8 @@ TEST_CASE("unweld_mesh - no unweld (threshold=pi) on cube",
   REQUIRE(result->polygons.size() == 12);
 }
 
-TEST_CASE("unweld_mesh - vertex positions preserved", "[geometry][unweld]") {
+TEST_CASE("UnweldMesh_FullUnweld_PreservesVertexPositions",
+          "[geometry][unweld]") {
   auto mesh = make_mesh({{0, 0, 0}, {1, 0, 0}, {0, 1, 0}, {0, 0, 1}},
                         {{0, 1, 2}, {0, 3, 1}});
 
@@ -199,7 +203,7 @@ TEST_CASE("unweld_mesh - vertex positions preserved", "[geometry][unweld]") {
   }
 }
 
-TEST_CASE("unweld_mesh - face winding preserved", "[geometry][unweld]") {
+TEST_CASE("UnweldMesh_FullUnweld_PreservesFaceWinding", "[geometry][unweld]") {
   // Single triangle: winding should produce the same normal before and after
   auto mesh = make_mesh({{0, 0, 0}, {1, 0, 0}, {0, 1, 0}}, {{0, 1, 2}});
   auto result = unweld_mesh(mesh, 0.0f);

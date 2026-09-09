@@ -34,7 +34,7 @@ reusex::CloudLoc to_loc(const reusex::Cloud &cloud) {
 
 } // namespace
 
-TEST_CASE("accuracy metrics: identical clouds are perfect",
+TEST_CASE("ComputeAccuracy_IdenticalClouds_ReportsPerfectMetrics",
           "[geometry][accuracy]") {
   const auto scene = make_room(4.0F, 3.0F, 2.5F, 0.05F, /*sigma=*/0.0F);
   const reusex::CloudLoc gt = to_loc(*scene.cloud);
@@ -54,8 +54,9 @@ TEST_CASE("accuracy metrics: identical clouds are perfect",
   CHECK_THAT(report.fscore, Catch::Matchers::WithinAbs(1.0, 1e-9));
 }
 
-TEST_CASE("accuracy metrics: 5mm noise recovers as ~5mm accuracy",
-          "[geometry][accuracy]") {
+TEST_CASE(
+    "ComputeAccuracy_FiveMillimeterNoise_RecoversAsFiveMillimeterAccuracy",
+    "[geometry][accuracy]") {
   const auto clean = make_room(4.0F, 3.0F, 2.5F, 0.05F, /*sigma=*/0.0F);
   const reusex::CloudLoc gt = to_loc(*clean.cloud);
 
@@ -83,7 +84,7 @@ TEST_CASE("accuracy metrics: 5mm noise recovers as ~5mm accuracy",
   CHECK(report.fscore > 0.99);
 }
 
-TEST_CASE("accuracy metrics: missing half degrades recall",
+TEST_CASE("ComputeAccuracy_MissingHalfOfReconstruction_DegradesRecall",
           "[geometry][accuracy]") {
   const auto scene = make_room(4.0F, 3.0F, 2.5F, 0.05F, /*sigma=*/0.0F);
   const reusex::CloudLoc gt = to_loc(*scene.cloud);
@@ -109,7 +110,7 @@ TEST_CASE("accuracy metrics: missing half degrades recall",
   CHECK(report.completeness_mean > report.accuracy_mean);
 }
 
-TEST_CASE("accuracy metrics: input validation", "[geometry][accuracy]") {
+TEST_CASE("ComputeAccuracy_EmptyCloudInputs_Throws", "[geometry][accuracy]") {
   const auto scene = make_room(2.0F, 2.0F, 2.0F, 0.1F);
   const reusex::CloudLoc gt = to_loc(*scene.cloud);
 

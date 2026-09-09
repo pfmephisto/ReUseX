@@ -97,7 +97,7 @@ fs::path make_empty_project(const TempPath &tmp) {
 
 } // namespace
 
-TEST_CASE("rux exits non-zero when a stage is refused by its input contract",
+TEST_CASE("RuxCli_StageRefusedByInputContract_ExitsNonZero",
           "[integration][cli][exit_code]") {
   const TempPath project("rux_exit_codes_refused", ".rux");
   make_empty_project(project);
@@ -113,7 +113,7 @@ TEST_CASE("rux exits non-zero when a stage is refused by its input contract",
   CHECK(result.exit_code < 128);
 }
 
-TEST_CASE("rux exits non-zero when the project file does not exist",
+TEST_CASE("RuxCli_MissingProjectFile_ExitsNonZero",
           "[integration][cli][exit_code]") {
   // Deliberately a path that cannot exist rather than an unlinked temp file:
   // the point is that ProjectDB fails to open and `info` reports RuxError::IO.
@@ -125,7 +125,7 @@ TEST_CASE("rux exits non-zero when the project file does not exist",
   CHECK(result.exit_code < 128);
 }
 
-TEST_CASE("rux exits non-zero for a render layer the library rejects",
+TEST_CASE("RuxCli_InvalidRenderLayer_ExitsNonZero",
           "[integration][cli][exit_code]") {
   const TempPath project("rux_exit_codes_render", ".rux");
   make_empty_project(project);
@@ -144,7 +144,7 @@ TEST_CASE("rux exits non-zero for a render layer the library rejects",
   CHECK(result.exit_code < 128);
 }
 
-TEST_CASE("rux exits zero when a command succeeds",
+TEST_CASE("RuxCli_SuccessfulCommand_ExitsZero",
           "[integration][cli][exit_code]") {
   SECTION("--version does no work and succeeds") {
     const auto result = run_rux("--version");

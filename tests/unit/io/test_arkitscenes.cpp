@@ -23,7 +23,7 @@ using reusex::io::interpolate_pose;
 using reusex::io::parse_frame_timestamp;
 using reusex::io::parse_pincam;
 
-TEST_CASE("parse_pincam parses width/height/fx/fy/cx/cy", "[io][arkitscenes]") {
+TEST_CASE("ParsePincam_ValidLine_ParsesAllFields", "[io][arkitscenes]") {
   const ArkitPincam p = parse_pincam("256 192 211.5 211.9 127.9 95.8");
   CHECK_THAT(p.width, WithinAbs(256.0, 1e-9));
   CHECK_THAT(p.height, WithinAbs(192.0, 1e-9));
@@ -33,11 +33,11 @@ TEST_CASE("parse_pincam parses width/height/fx/fy/cx/cy", "[io][arkitscenes]") {
   CHECK_THAT(p.cy, WithinAbs(95.8, 1e-6));
 }
 
-TEST_CASE("parse_pincam rejects malformed lines", "[io][arkitscenes]") {
+TEST_CASE("ParsePincam_MalformedLine_Throws", "[io][arkitscenes]") {
   CHECK_THROWS(parse_pincam("256 192 211.5"));
 }
 
-TEST_CASE("arkit_traj_to_optical_world identity pose is the identity",
+TEST_CASE("ArkitTrajToOpticalWorld_ZeroRotationZeroTranslation_ReturnsIdentity",
           "[io][arkitscenes]") {
   // rx=ry=rz=0 and t=0 => E=I => c2w=I => pose = I (no axis flip: ARKit's
   // camera frame is already the OpenCV optical frame reconstruct expects).
@@ -50,8 +50,9 @@ TEST_CASE("arkit_traj_to_optical_world identity pose is the identity",
     CHECK_THAT(pose[i], WithinAbs(identity[i], 1e-12));
 }
 
-TEST_CASE("arkit_traj_to_optical_world inverts the world->camera extrinsic",
-          "[io][arkitscenes]") {
+TEST_CASE(
+    "ArkitTrajToOpticalWorld_PureTranslationExtrinsic_InvertsToCameraToWorld",
+    "[io][arkitscenes]") {
   // E = [I | t], t=(1,2,3), is world->camera, so pose = c2w = [I | -t]:
   //   [[ 1, 0, 0,-1],
   //    [ 0, 1, 0,-2],
@@ -83,7 +84,8 @@ TEST_CASE("arkit_traj_to_optical_world inverts the world->camera extrinsic",
   CHECK_THAT(w[2], WithinAbs(-2.0, 1e-12));
 }
 
-TEST_CASE("arkit_traj_to_optical_world rotation columns stay orthonormal",
+TEST_CASE("ArkitTrajToOpticalWorld_ArbitraryRodriguesRotation_"
+          "ReturnsOrthonormalRotation",
           "[io][arkitscenes]") {
   // Arbitrary Rodrigues rotation + translation.
   const std::array<double, 16> pose =
@@ -174,8 +176,9 @@ ArkitTrajectory make_traj(const Motion &m, double dt, int n) {
 
 } // namespace
 
-TEST_CASE("interpolate_pose reproduces analytic motion at 60 Hz",
-          "[io][arkitscenes]") {
+TEST_CASE(
+    "InterpolatePose_60HzQueriesOn10HzTrajectory_ReproducesAnalyticMotion",
+    "[io][arkitscenes]") {
   const Motion m;
   const ArkitTrajectory traj = make_traj(m, 0.1, 11); // 10 Hz, 1.0 s span
 
@@ -199,8 +202,7 @@ TEST_CASE("interpolate_pose reproduces analytic motion at 60 Hz",
   CHECK(checked >= 58);
 }
 
-TEST_CASE("interpolate_pose returns sample poses unchanged at their own "
-          "timestamps",
+TEST_CASE("InterpolatePose_QueryAtSampleTimestamp_ReturnsSamplePoseUnchanged",
           "[io][arkitscenes]") {
   const Motion m;
   const ArkitTrajectory traj = make_traj(m, 0.1, 11);
@@ -212,7 +214,7 @@ TEST_CASE("interpolate_pose returns sample poses unchanged at their own "
   }
 }
 
-TEST_CASE("interpolate_pose removes the stale-pose error of nearest matching",
+TEST_CASE("InterpolatePose_QueryBetweenSamples_AvoidsNearestMatchStaleness",
           "[io][arkitscenes]") {
   // The defect this replaces: with a 20 ms tolerance every 10 Hz pose was
   // reused for three 60 Hz frames, so a frame could sit ~16.7 ms away from the
@@ -234,7 +236,7 @@ TEST_CASE("interpolate_pose removes the stale-pose error of nearest matching",
   CHECK((nearest - want).norm() > 5e-3);
 }
 
-TEST_CASE("interpolate_pose rejects timestamps outside the trajectory span",
+TEST_CASE("InterpolatePose_TimestampOutsideTrajectorySpan_ReturnsNullopt",
           "[io][arkitscenes]") {
   const Motion m;
   const ArkitTrajectory traj = make_traj(m, 0.1, 11); // spans kTRef .. kTRef+1
@@ -250,7 +252,7 @@ TEST_CASE("interpolate_pose rejects timestamps outside the trajectory span",
   CHECK_FALSE(interpolate_pose(ArkitTrajectory{}, kTRef).has_value());
 }
 
-TEST_CASE("interpolate_pose rejects an anomalously large bracketing gap",
+TEST_CASE("InterpolatePose_BracketingGapExceedsMaxPoseGap_ReturnsNullopt",
           "[io][arkitscenes]") {
   // Tracking loss: a 1 s hole in an otherwise 10 Hz trajectory.
   const Motion m;
@@ -267,7 +269,7 @@ TEST_CASE("interpolate_pose rejects an anomalously large bracketing gap",
   CHECK(interpolate_pose(traj, kTRef + 0.6, 2.0).has_value());
 }
 
-TEST_CASE("parse_frame_timestamp reads the timestamp after the last underscore",
+TEST_CASE("ParseFrameTimestamp_VariousFilenames_ParsesTrailingTimestamp",
           "[io][arkitscenes]") {
   double ts = 0;
   REQUIRE(parse_frame_timestamp("lowres_depth/41069050_5045.334.png", ts));

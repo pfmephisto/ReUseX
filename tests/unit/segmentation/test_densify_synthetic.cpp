@@ -214,7 +214,7 @@ void run_and_check(const SceneConfig &cfg) {
   REQUIRE(std::abs(mean_z - cfg.z_plane) < 0.3);
 }
 
-TEST_CASE("densify_from_images reconstructs a textured plane",
+TEST_CASE("DensifyFromImages_VariousLocalTransforms_ReconstructsTexturedPlane",
           "[densify][synthetic][slow]") {
   SECTION("identity local_transform (body == camera)") {
     SceneConfig cfg;

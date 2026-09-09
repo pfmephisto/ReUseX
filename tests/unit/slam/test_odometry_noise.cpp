@@ -32,8 +32,7 @@ std::vector<OdometryEdgeMotion> motions(const std::vector<double> &trans,
 
 } // namespace
 
-TEST_CASE("odometry_motion_scales: uniform motion degenerates to the fixed "
-          "model",
+TEST_CASE("OdometryMotionScales_UniformMotion_DegeneratesToFixedModel",
           "[slam][odometry][noise]") {
   // The load-bearing property: `motion` must be a strict generalisation of
   // `fixed`. If every edge moved the same amount there is nothing to
@@ -49,7 +48,7 @@ TEST_CASE("odometry_motion_scales: uniform motion degenerates to the fixed "
   }
 }
 
-TEST_CASE("odometry_motion_scales: sigma scales with the edge's own motion",
+TEST_CASE("OdometryMotionScales_VaryingMotion_ScalesSigmaWithMotion",
           "[slam][odometry][noise]") {
   // Median translation is 0.2. Edges are normalised against it, so a
   // half-median edge earns half the sigma (more trust) and a double-median
@@ -65,7 +64,7 @@ TEST_CASE("odometry_motion_scales: sigma scales with the edge's own motion",
   CHECK_THAT(s[3].rotation, WithinAbs(2.0, 1e-12));
 }
 
-TEST_CASE("odometry_motion_scales: monotone in motion",
+TEST_CASE("OdometryMotionScales_IncreasingMotion_IsMonotoneNonDecreasing",
           "[slam][odometry][noise]") {
   // A larger motion must never earn a *smaller* sigma — otherwise the model
   // would be rewarding the less reliable measurement.
@@ -78,7 +77,8 @@ TEST_CASE("odometry_motion_scales: monotone in motion",
     CHECK(s[i].translation >= s[i - 1].translation);
 }
 
-TEST_CASE("odometry_motion_scales: channels are normalised independently",
+TEST_CASE("OdometryMotionScales_MixedRotationAndTranslation_"
+          "NormalisesChannelsIndependently",
           "[slam][odometry][noise]") {
   // A pure-rotation sweep and a pure-translation dolly are different failure
   // modes of the seed, so a big rotation must not loosen the translation
@@ -93,7 +93,7 @@ TEST_CASE("odometry_motion_scales: channels are normalised independently",
   CHECK_THAT(s[0].rotation, WithinAbs(1.0, 1e-12));
 }
 
-TEST_CASE("odometry_motion_scales: the clamp binds at both ends",
+TEST_CASE("OdometryMotionScales_ExtremeMotion_ClampsAtBothEnds",
           "[slam][odometry][noise]") {
   const auto m = motions({0.001, 0.2, 0.2, 50.0}, {0.001, 0.2, 0.2, 50.0});
   const auto s = odometry_motion_scales(m, 0.5, 3.0);
@@ -105,7 +105,7 @@ TEST_CASE("odometry_motion_scales: the clamp binds at both ends",
   CHECK_THAT(s[3].rotation, WithinAbs(3.0, 1e-12));
 }
 
-TEST_CASE("odometry_motion_scales: a stationary run is not a divide-by-zero",
+TEST_CASE("OdometryMotionScales_ZeroMedianMotion_StaysFiniteAtFixedModel",
           "[slam][odometry][noise]") {
   // Zero median motion (a tripod capture, or a channel that never moved) must
   // fall back to the fixed model rather than emit inf/NaN sigmas into GTSAM.
@@ -121,7 +121,7 @@ TEST_CASE("odometry_motion_scales: a stationary run is not a divide-by-zero",
   }
 }
 
-TEST_CASE("odometry_motion_scales: degenerate inputs stay at the fixed model",
+TEST_CASE("OdometryMotionScales_DegenerateInputs_StaysAtFixedModel",
           "[slam][odometry][noise]") {
   SECTION("empty input") {
     CHECK(odometry_motion_scales({}, 0.5, 3.0).empty());
@@ -145,7 +145,7 @@ TEST_CASE("odometry_motion_scales: degenerate inputs stay at the fixed model",
   }
 }
 
-TEST_CASE("odometry_motion_scales: sign of the motion does not matter",
+TEST_CASE("OdometryMotionScales_SignedMotion_MatchesAbsoluteMotionScales",
           "[slam][odometry][noise]") {
   // Magnitudes are what the noise model is about; a sign flip can only arise
   // from caller error and must be inert rather than inverting the ordering.

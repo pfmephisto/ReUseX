@@ -20,7 +20,8 @@ using namespace Catch::Matchers;
  *
  * Optimal solution: x = 1, y = 0 (or x = 0, y = 1) with objective value = 1
  */
-TEST_CASE("HiGHS PDLP solver with continuous LP", "[highs][pdlp][gpu]") {
+TEST_CASE("HighsPdlpSolver_ContinuousLP_SolvesToOptimalObjectiveWhenAvailable",
+          "[highs][pdlp][gpu]") {
   Highs highs;
 
   // Try to enable PDLP solver (will fail if not built with GPU support)
@@ -118,7 +119,7 @@ TEST_CASE("HiGHS PDLP solver with continuous LP", "[highs][pdlp][gpu]") {
  * This test shows that setting BINARY variables causes HiGHS to ignore
  * the PDLP solver setting and fall back to the default MIP solver.
  */
-TEST_CASE("HiGHS PDLP incompatible with binary variables",
+TEST_CASE("HighsPdlpSolver_IntegerVariable_FallsBackToMipSolver",
           "[highs][pdlp][mip]") {
   Highs highs;
 

@@ -9,7 +9,7 @@
 
 using namespace reusex::vision::common::tensor;
 
-TEST_CASE("cvimg creates Image view from cv::Mat", "[vision][image]") {
+TEST_CASE("Cvimg_GivenMat_CreatesZeroCopyBgrView", "[vision][image]") {
   // Create test Mat (3x3 BGR image)
   cv::Mat mat(3, 3, CV_8UC3);
   mat.setTo(cv::Scalar(255, 0, 0)); // Blue
@@ -30,7 +30,7 @@ TEST_CASE("cvimg creates Image view from cv::Mat", "[vision][image]") {
   REQUIRE(data[2] == 0);   // Red channel
 }
 
-TEST_CASE("cvimg handles empty Mat", "[vision][image]") {
+TEST_CASE("Cvimg_EmptyMat_ReturnsZeroSizedView", "[vision][image]") {
   cv::Mat empty_mat;
   Image img = cvimg(empty_mat);
 
@@ -39,7 +39,7 @@ TEST_CASE("cvimg handles empty Mat", "[vision][image]") {
   REQUIRE(img.bgrptr == nullptr);
 }
 
-TEST_CASE("cvimg handles different Mat types", "[vision][image]") {
+TEST_CASE("Cvimg_SinglePixelMat_PreservesPixelValues", "[vision][image]") {
   // Test with 1x1 image
   cv::Mat small_mat(1, 1, CV_8UC3);
   small_mat.at<cv::Vec3b>(0, 0) = cv::Vec3b(10, 20, 30);

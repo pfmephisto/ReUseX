@@ -25,7 +25,7 @@ namespace {
 constexpr std::size_t kChunkSize = 500;
 } // namespace
 
-TEST_CASE("quality metrics: perfect room has near-zero residuals",
+TEST_CASE("ComputePlaneQuality_PerfectRoom_ReportsNearZeroResiduals",
           "[geometry][quality]") {
   const auto scene = make_room(4.0F, 3.0F, 2.5F, 0.05F, /*sigma=*/0.0F);
   const auto report = compute_plane_quality(*scene.cloud, *scene.labels);
@@ -36,7 +36,7 @@ TEST_CASE("quality metrics: perfect room has near-zero residuals",
   CHECK(report.thickness_p90 < 1e-6);
 }
 
-TEST_CASE("quality metrics: sensor noise is recovered as flatness RMS",
+TEST_CASE("ComputePlaneQuality_SensorNoise_RecoveredAsFlatnessRms",
           "[geometry][quality]") {
   // 5mm Gaussian noise along the normal must appear as ~5mm RMS.
   const auto scene = make_room(4.0F, 3.0F, 2.5F, 0.05F, /*sigma=*/0.005F);
@@ -50,7 +50,7 @@ TEST_CASE("quality metrics: sensor noise is recovered as flatness RMS",
   CHECK(report.thickness_p90 < 0.010);
 }
 
-TEST_CASE("quality metrics: increase monotonically with injected pose error",
+TEST_CASE("ComputePlaneQuality_InjectedPoseError_MetricsIncreaseMonotonically",
           "[geometry][quality]") {
   const auto clean = make_room();
 
@@ -83,7 +83,8 @@ TEST_CASE("quality metrics: increase monotonically with injected pose error",
   CHECK(r1.flatness_rms > 2.0 * r0.flatness_rms);
 }
 
-TEST_CASE("quality metrics: input validation", "[geometry][quality]") {
+TEST_CASE("ComputePlaneQuality_InvalidInputs_ThrowsOrFiltersSmallPlanes",
+          "[geometry][quality]") {
   const auto scene = make_room(2.0F, 2.0F, 2.0F, 0.1F);
 
   SECTION("empty cloud throws") {

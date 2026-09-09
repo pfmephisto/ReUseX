@@ -36,7 +36,7 @@ PointT pt(float x, float y, float z) {
 
 } // namespace
 
-TEST_CASE("propagate_room_labels: within-radius point gets majority label",
+TEST_CASE("PropagateRoomLabels_WithinRadiusMajorityVote_AssignsMajorityLabel",
           "[geometry][segment_rooms][propagation]") {
   // Seeds: a tight cluster of room-1 points around the origin (plus one
   // stray room-2 seed) and a missing point sitting inside the cluster.
@@ -69,7 +69,7 @@ TEST_CASE("propagate_room_labels: within-radius point gets majority label",
   CHECK(labels->points[5].label == 1U);
 }
 
-TEST_CASE("propagate_room_labels: point beyond radius stays unlabeled",
+TEST_CASE("PropagateRoomLabels_PointBeyondRadius_StaysUnlabeled",
           "[geometry][segment_rooms][propagation]") {
   CloudPtr cloud(new Cloud);
   cloud->push_back(pt(0.0F, 0.0F, 0.0F)); // seed, room 1
@@ -92,7 +92,7 @@ TEST_CASE("propagate_room_labels: point beyond radius stays unlabeled",
   CHECK(labels->points[2].label == core::kUnlabeled);
 }
 
-TEST_CASE("propagate_room_labels: deterministic tie-break to smallest label",
+TEST_CASE("PropagateRoomLabels_TiedEquidistantSeeds_BreaksTieToSmallestLabel",
           "[geometry][segment_rooms][propagation]") {
   // Two seeds equidistant from the missing point, different labels (3 and 7).
   // The tie must break towards the smaller label (3), deterministically.
@@ -120,8 +120,9 @@ TEST_CASE("propagate_room_labels: deterministic tie-break to smallest label",
   CHECK(run_once() == first);
 }
 
-TEST_CASE("propagate_room_labels: never propagates the unlabeled sentinel",
-          "[geometry][segment_rooms][propagation]") {
+TEST_CASE(
+    "PropagateRoomLabels_NearestSeedUnlabeled_IgnoresSentinelAndUsesNextSeed",
+    "[geometry][segment_rooms][propagation]") {
   // Nearest seed is itself unlabeled; the majority vote must ignore it and
   // fall back to the labelled seed farther away (still in radius).
   CloudPtr cloud(new Cloud);
@@ -154,7 +155,7 @@ TEST_CASE("propagate_room_labels: never propagates the unlabeled sentinel",
 // side — the single source — so any accidental drift of a library default is
 // caught, and documents the values that issue #217 reconciled.
 // ─────────────────────────────────────────────────────────────────────────
-TEST_CASE("Library option defaults are the single source of truth",
+TEST_CASE("LibraryOptionDefaults_AllPipelineStages_MatchDocumentedValues",
           "[geometry][defaults][STANDARDS]") {
   SECTION("SegmentRoomsOptions") {
     SegmentRoomsOptions o;

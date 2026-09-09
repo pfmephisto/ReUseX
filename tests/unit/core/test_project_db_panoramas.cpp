@@ -75,7 +75,8 @@ void buildV10PanoramaFixture(const fs::path &path) {
 // panoramic_images columns. list_panoramic_images() must degrade to the legacy
 // column list instead of throwing "no such column: pose" (which took out
 // `rux export rhino` / `speckle` and silently dropped panoramas in `rux view`).
-TEST_CASE("Pre-v11 panoramas list without throwing on read-only opens",
+TEST_CASE("ListPanoramicImages_PreV11SchemaReadOnlyOpen_"
+          "DegradesToLegacyColumnsWithoutThrowing",
           "[projectdb][panorama][migration]") {
   TempPath tmp;
   buildV10PanoramaFixture(tmp.path);
@@ -108,7 +109,7 @@ TEST_CASE("Pre-v11 panoramas list without throwing on read-only opens",
   REQUIRE_NOTHROW(db.panorama_segmentation(panos[0].id));
 }
 
-TEST_CASE("Opening a pre-v11 project read-write migrates it to v11",
+TEST_CASE("ProjectDb_PreV11PanoramaProjectReadWriteOpen_MigratesToV11",
           "[projectdb][panorama][migration]") {
   TempPath tmp;
   buildV10PanoramaFixture(tmp.path);
@@ -128,7 +129,7 @@ TEST_CASE("Opening a pre-v11 project read-write migrates it to v11",
   REQUIRE(ro.list_panoramic_images().size() == 2);
 }
 
-TEST_CASE("save_panorama_pose round-trips the pose blob and metrics",
+TEST_CASE("SavePanoramaPose_PoseBlobAndMetrics_RoundTripsAcrossReopen",
           "[projectdb][panorama]") {
   TempPath tmp;
   ProjectDB db(tmp.path);

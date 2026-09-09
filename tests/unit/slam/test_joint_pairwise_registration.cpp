@@ -63,7 +63,7 @@ Eigen::Affine3f perturbation() {
 
 } // namespace
 
-TEST_CASE("se3 exp/log round-trip", "[jpr][se3]") {
+TEST_CASE("Se3ExpLog_RoundTrip_PreservesVector", "[jpr][se3]") {
   se3::Vector6d xi;
   xi << 0.1, -0.2, 0.05, 0.3, -0.1, 0.2;
   se3::Vector6d back = se3::log(se3::exp(xi));
@@ -71,14 +71,15 @@ TEST_CASE("se3 exp/log round-trip", "[jpr][se3]") {
     REQUIRE_THAT(back(i), WithinAbs(xi(i), 1e-9));
 }
 
-TEST_CASE("to_affine / to_array16 round-trip", "[jpr][transform]") {
+TEST_CASE("ToAffineToArray16_RoundTrip_PreservesMatrix", "[jpr][transform]") {
   Eigen::Affine3f a = perturbation();
   auto arr = to_array16(a);
   Eigen::Affine3f b = to_affine(arr);
   REQUIRE((a.matrix() - b.matrix()).norm() < 1e-5f);
 }
 
-TEST_CASE("JPR recovers a known pose offset on a corner", "[jpr]") {
+TEST_CASE("JointPairwiseRegistration_KnownPoseOffsetOnCorner_RecoversOffset",
+          "[jpr]") {
   FrameSurfels f0 = make_corner_frame();
   FrameSurfels f1 = make_corner_frame();
   f0.node_id = 0;
@@ -108,7 +109,7 @@ TEST_CASE("JPR recovers a known pose offset on a corner", "[jpr]") {
   REQUIRE(res.final_rms < 0.01);
 }
 
-TEST_CASE("JPR keeps the anchored frame exactly fixed", "[jpr]") {
+TEST_CASE("JointPairwiseRegistration_AnchoredFrame_StaysFixed", "[jpr]") {
   FrameSurfels f0 = make_corner_frame();
   FrameSurfels f1 = make_corner_frame();
   f0.node_id = 0;
@@ -129,7 +130,8 @@ TEST_CASE("JPR keeps the anchored frame exactly fixed", "[jpr]") {
   REQUIRE((frames[0].world_pose.matrix() - seed0.matrix()).norm() == 0.0f);
 }
 
-TEST_CASE("JPR is a near no-op on already-aligned frames", "[jpr]") {
+TEST_CASE("JointPairwiseRegistration_AlreadyAlignedFrames_IsNearNoOp",
+          "[jpr]") {
   FrameSurfels f0 = make_corner_frame();
   FrameSurfels f1 = make_corner_frame();
   f0.node_id = 0;

@@ -93,7 +93,7 @@ std::vector<std::string> data_lines(const fs::path &p) {
 
 } // namespace
 
-TEST_CASE("export_colmap_scene writes the expected directory layout",
+TEST_CASE("ExportColmapScene_ThreeSensorFrames_WritesExpectedDirectoryLayout",
           "[io][colmap]") {
   TempDir tdb_dir;
   TempDir out_dir;
@@ -115,7 +115,8 @@ TEST_CASE("export_colmap_scene writes the expected directory layout",
   REQUIRE(fs::exists(out_dir.path / "images" / "00000003.jpg"));
 }
 
-TEST_CASE("identical intrinsics collapse into one camera", "[io][colmap]") {
+TEST_CASE("ExportColmapScene_IdenticalIntrinsics_CollapsesIntoOneCamera",
+          "[io][colmap]") {
   TempDir tdb_dir;
   TempDir out_dir;
   ProjectDB db(tdb_dir.path / "p.rux");
@@ -142,7 +143,8 @@ TEST_CASE("identical intrinsics collapse into one camera", "[io][colmap]") {
   REQUIRE_THAT(cx, WithinAbs(256.0, 1e-6));
 }
 
-TEST_CASE("differing intrinsics produce distinct cameras", "[io][colmap]") {
+TEST_CASE("ExportColmapScene_DifferingIntrinsics_ProducesDistinctCameras",
+          "[io][colmap]") {
   TempDir tdb_dir;
   TempDir out_dir;
   ProjectDB db(tdb_dir.path / "p.rux");
@@ -158,8 +160,8 @@ TEST_CASE("differing intrinsics produce distinct cameras", "[io][colmap]") {
   REQUIRE(cams.size() == 2);
 }
 
-TEST_CASE("pose inversion: identity local_transform → quaternion identity, "
-          "translation negated",
+TEST_CASE("ExportColmapScene_IdentityLocalTransform_"
+          "NegatesTranslationWithIdentityQuaternion",
           "[io][colmap]") {
   TempDir tdb_dir;
   TempDir out_dir;
@@ -199,7 +201,8 @@ TEST_CASE("pose inversion: identity local_transform → quaternion identity, "
   REQUIRE_THAT(tz, WithinAbs(-3.0, 1e-9));
 }
 
-TEST_CASE("pose composition: pose * local_transform = camera-in-world",
+TEST_CASE("ExportColmapScene_NonIdentityLocalTransform_"
+          "ComposesPoseWithLocalTransform",
           "[io][colmap]") {
   TempDir tdb_dir;
   TempDir out_dir;
@@ -246,7 +249,7 @@ TEST_CASE("pose composition: pose * local_transform = camera-in-world",
       REQUIRE_THAT(T_wc_round_trip(r, c), WithinAbs(T_wc_expected(r, c), 1e-6));
 }
 
-TEST_CASE("LiDAR seed populates points3D.txt with sub-sampling",
+TEST_CASE("ExportColmapScene_LidarPointsEnabled_SubsamplesIntoPoints3D",
           "[io][colmap]") {
   TempDir tdb_dir;
   TempDir out_dir;
@@ -277,7 +280,7 @@ TEST_CASE("LiDAR seed populates points3D.txt with sub-sampling",
   REQUIRE(pts.size() == 100);
 }
 
-TEST_CASE("disabling lidar seed produces an empty points3D.txt",
+TEST_CASE("ExportColmapScene_LidarPointsDisabled_WritesEmptyPoints3D",
           "[io][colmap]") {
   TempDir tdb_dir;
   TempDir out_dir;
@@ -297,7 +300,7 @@ TEST_CASE("disabling lidar seed produces an empty points3D.txt",
   REQUIRE(pts.empty());
 }
 
-TEST_CASE("empty ProjectDB throws", "[io][colmap]") {
+TEST_CASE("ExportColmapScene_EmptyProjectDB_Throws", "[io][colmap]") {
   TempDir tdb_dir;
   TempDir out_dir;
   ProjectDB db(tdb_dir.path / "p.rux");

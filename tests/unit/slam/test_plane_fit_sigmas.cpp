@@ -47,7 +47,7 @@ PlaneFitQuality nominal() {
 
 } // namespace
 
-TEST_CASE("plane_fit_sigmas: quadrupling support halves both sigmas",
+TEST_CASE("PlaneFitSigmas_QuadruplingSupport_HalvesBothSigmas",
           "[plane_graph][noise]") {
   // Both channels are averages over the inliers, so both tighten as 1/sqrt(N).
   // This is the part the legacy inlier-count model already got right.
@@ -61,7 +61,7 @@ TEST_CASE("plane_fit_sigmas: quadrupling support halves both sigmas",
   REQUIRE_THAT(dense.distance, WithinRel(base.distance / 2.0, 1e-12));
 }
 
-TEST_CASE("plane_fit_sigmas: a rougher fit loosens both channels equally",
+TEST_CASE("PlaneFitSigmas_RougherFit_LoosensBothChannelsEqually",
           "[plane_graph][noise]") {
   // Residual RMS is the point-noise term sigma, which enters both channels
   // linearly — so doubling it doubles both and leaves their ratio alone. This
@@ -79,7 +79,7 @@ TEST_CASE("plane_fit_sigmas: a rougher fit loosens both channels equally",
                WithinRel(base.normal / base.distance, 1e-12));
 }
 
-TEST_CASE("plane_fit_sigmas: a smaller footprint loosens ONLY the normal",
+TEST_CASE("PlaneFitSigmas_SmallerFootprint_LoosensOnlyNormalSigma",
           "[plane_graph][noise]") {
   // The defining property of the model, and the one no single scalar can
   // express. Extent is a lever arm: it divides the tilt uncertainty and does
@@ -96,7 +96,8 @@ TEST_CASE("plane_fit_sigmas: a smaller footprint loosens ONLY the normal",
   REQUIRE_THAT(small.distance, WithinRel(wall.distance, 1e-12));
 }
 
-TEST_CASE("plane_fit_sigmas generalises the legacy inlier-count weighting",
+TEST_CASE("PlaneFitSigmas_UniformRoughnessAndExtent_"
+          "MatchesLegacyInlierWeighting",
           "[plane_graph][noise]") {
   // The legacy model scaled every observation by sqrt(median_N / N). That is
   // exactly what this model reduces to when roughness and extent are uniform
@@ -116,8 +117,7 @@ TEST_CASE("plane_fit_sigmas generalises the legacy inlier-count weighting",
   REQUIRE_THAT(sb.distance / sa.distance, WithinRel(legacy_ratio, 1e-12));
 }
 
-TEST_CASE("plane_fit_sigmas clamps degenerate fits instead of returning "
-          "infinities",
+TEST_CASE("PlaneFitSigmas_DegenerateFits_ClampsToFinitePositiveSigmas",
           "[plane_graph][noise]") {
   // A zero extent or zero residual is not a real detection, but the graph must
   // never see inf/NaN/0 sigmas: a zero sigma is an infinitely trusted factor,

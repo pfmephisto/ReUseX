@@ -12,13 +12,14 @@
 
 using namespace reusex::core;
 
-TEST_CASE("Label constants match the encoding contract", "[label_semantics]") {
+TEST_CASE("LabelSemanticsConstants_EncodingContract_MatchDefinedValues",
+          "[label_semantics]") {
   REQUIRE(kUnlabeled == 0u);
   REQUIRE(kBackgroundApi == -1);
   REQUIRE(kMaxStorableLabel == 65534);
 }
 
-TEST_CASE("is_valid_label distinguishes unlabeled from valid",
+TEST_CASE("IsValidLabel_UnlabeledAndValidInputs_DistinguishesCorrectly",
           "[label_semantics]") {
   REQUIRE_FALSE(is_valid_label(0u));
   REQUIRE(is_valid_label(1u));
@@ -27,7 +28,7 @@ TEST_CASE("is_valid_label distinguishes unlabeled from valid",
   REQUIRE(is_valid_label(4000000000u));
 }
 
-TEST_CASE("label_to_index converts 1-based labels and throws on unlabeled",
+TEST_CASE("LabelToIndex_ValidAndUnlabeledInput_ConvertsOrThrows",
           "[label_semantics]") {
   REQUIRE(label_to_index(1u) == 0u);
   REQUIRE(label_to_index(2u) == 1u);
@@ -35,7 +36,8 @@ TEST_CASE("label_to_index converts 1-based labels and throws on unlabeled",
   REQUIRE_THROWS_AS(label_to_index(0u), std::out_of_range);
 }
 
-TEST_CASE("api <-> point label scalar conversions", "[label_semantics]") {
+TEST_CASE("ApiPointLabelConversion_VariousInputs_RoundTripsCorrectly",
+          "[label_semantics]") {
   SECTION("background maps to unlabeled and back") {
     REQUIRE(api_to_point_label(kBackgroundApi) == kUnlabeled);
     REQUIRE(point_label_to_api(kUnlabeled) == kBackgroundApi);
@@ -58,7 +60,7 @@ TEST_CASE("api <-> point label scalar conversions", "[label_semantics]") {
   }
 }
 
-TEST_CASE("api <-> storage scalar conversions with boundary labels",
+TEST_CASE("ApiStorageConversion_BoundaryAndOverflowLabels_RoundTripsOrThrows",
           "[label_semantics]") {
   SECTION("background") {
     REQUIRE(api_to_storage(kBackgroundApi) == 0u);
@@ -87,7 +89,8 @@ TEST_CASE("api <-> storage scalar conversions with boundary labels",
   }
 }
 
-TEST_CASE("cv::Mat storage <-> api round-trip", "[label_semantics]") {
+TEST_CASE("ApiStorageMatConversion_BoundaryLabels_RoundTripsCorrectly",
+          "[label_semantics]") {
   // Build an API image (CV_32S) with background and boundary labels.
   cv::Mat api(2, 2, CV_32SC1);
   api.at<int>(0, 0) = kBackgroundApi; // -1 background
@@ -110,15 +113,14 @@ TEST_CASE("cv::Mat storage <-> api round-trip", "[label_semantics]") {
   REQUIRE(api_rt.at<int>(1, 1) == 65534);
 }
 
-TEST_CASE("cv::Mat api_mat_to_storage rejects overflowing labels",
-          "[label_semantics]") {
+TEST_CASE("ApiMatToStorage_OverflowingLabel_Throws", "[label_semantics]") {
   cv::Mat api(1, 2, CV_32SC1);
   api.at<int>(0, 0) = 1;
   api.at<int>(0, 1) = 65535; // one past the storable max -> must throw
   REQUIRE_THROWS_AS(api_mat_to_storage(api), std::out_of_range);
 }
 
-TEST_CASE("cv::Mat converters validate input type and emptiness",
+TEST_CASE("MatLabelConverters_EmptyOrWrongTypeInput_ThrowsOrReturnsEmpty",
           "[label_semantics]") {
   SECTION("empty storage returns empty") {
     REQUIRE(storage_mat_to_api(cv::Mat()).empty());

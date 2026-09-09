@@ -72,7 +72,7 @@ long long integer_default(JobStage stage, const std::string &key) {
 
 } // namespace
 
-TEST_CASE("Every runnable stage describes its parameters",
+TEST_CASE("StageParameters_EveryRunnableStage_DescribesWellFormedParameters",
           "[pipeline][params]") {
   for (const auto &name : job_stage_names()) {
     const auto stage = parse_job_stage(name);
@@ -133,7 +133,8 @@ TEST_CASE("Every runnable stage describes its parameters",
   }
 }
 
-TEST_CASE("clouds defaults mirror ReconstructionParams", "[pipeline][params]") {
+TEST_CASE("StageParameters_Clouds_MirrorReconstructionParamsDefaults",
+          "[pipeline][params]") {
   const reusex::geometry::ReconstructionParams d{};
   CHECK(float_default(JobStage::clouds, "resolution") == d.resolution);
   CHECK(float_default(JobStage::clouds, "min_distance") == d.min_distance);
@@ -144,7 +145,8 @@ TEST_CASE("clouds defaults mirror ReconstructionParams", "[pipeline][params]") {
         d.confidence_threshold);
 }
 
-TEST_CASE("planes defaults mirror SegmentPlanesOptions", "[pipeline][params]") {
+TEST_CASE("StageParameters_Planes_MirrorSegmentPlanesOptionsDefaults",
+          "[pipeline][params]") {
   const reusex::geometry::SegmentPlanesOptions d{};
   CHECK(float_default(JobStage::planes, "angle_threshold") ==
         d.angle_threshold);
@@ -174,7 +176,8 @@ TEST_CASE("planes defaults mirror SegmentPlanesOptions", "[pipeline][params]") {
   }
 }
 
-TEST_CASE("rooms defaults mirror SegmentRoomsOptions", "[pipeline][params]") {
+TEST_CASE("StageParameters_Rooms_MirrorSegmentRoomsOptionsDefaults",
+          "[pipeline][params]") {
   const reusex::geometry::SegmentRoomsOptions d{};
   CHECK(float_default(JobStage::rooms, "grid_size") == d.grid_size);
   CHECK(float_default(JobStage::rooms, "resolution") == d.resolution);
@@ -185,7 +188,7 @@ TEST_CASE("rooms defaults mirror SegmentRoomsOptions", "[pipeline][params]") {
         d.propagate_max_radius);
 }
 
-TEST_CASE("instances defaults mirror SegmentInstancesRequest",
+TEST_CASE("StageParameters_Instances_MirrorSegmentInstancesRequestDefaults",
           "[pipeline][params]") {
   const reusex::geometry::SegmentInstancesRequest d{};
   CHECK(float_default(JobStage::instances, "cluster_tolerance") ==
@@ -210,7 +213,7 @@ TEST_CASE("instances defaults mirror SegmentInstancesRequest",
         std::string(kDefaultInstanceCloud));
 }
 
-TEST_CASE("A float default round-trips as the decimal it was written with",
+TEST_CASE("StageParameters_FloatDefault_RoundTripsShortestDecimal",
           "[pipeline][params]") {
   // static_cast<double>(0.05F) is 0.05000000074505806, which is what a JSON
   // encoder would faithfully print into a form field. The table goes through

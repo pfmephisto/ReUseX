@@ -15,7 +15,8 @@ using Catch::Approx;
 
 using namespace reusex;
 
-TEST_CASE("compute_polygon_normal - triangle", "[geometry][utils]") {
+TEST_CASE("ComputePolygonNormal_TriangleInXYPlane_ReturnsUnitZNormal",
+          "[geometry][utils]") {
   // Create a simple triangle in the XY plane with normal pointing in +Z
   // direction
   CloudLocPtr cloud(new CloudLoc);
@@ -48,7 +49,8 @@ TEST_CASE("compute_polygon_normal - triangle", "[geometry][utils]") {
   REQUIRE(normal.norm() == Catch::Approx(1.0f).margin(1e-6));
 }
 
-TEST_CASE("compute_polygon_normal - square", "[geometry][utils]") {
+TEST_CASE("ComputePolygonNormal_SquareInXYPlane_ReturnsUnitZNormal",
+          "[geometry][utils]") {
   // Create a square in the XY plane
   CloudLocPtr cloud(new CloudLoc);
   cloud->points.resize(4);
@@ -84,7 +86,8 @@ TEST_CASE("compute_polygon_normal - square", "[geometry][utils]") {
   REQUIRE(normal.norm() == Catch::Approx(1.0f).margin(1e-6));
 }
 
-TEST_CASE("compute_polygon_normal - vertical plane", "[geometry][utils]") {
+TEST_CASE("ComputePolygonNormal_SquareInXZPlane_ReturnsUnitYNormal",
+          "[geometry][utils]") {
   // Create a square in the XZ plane (vertical, normal pointing in +Y direction)
   CloudLocPtr cloud(new CloudLoc);
   cloud->points.resize(4);
@@ -121,7 +124,8 @@ TEST_CASE("compute_polygon_normal - vertical plane", "[geometry][utils]") {
   REQUIRE(normal.norm() == Catch::Approx(1.0f).margin(1e-6));
 }
 
-TEST_CASE("compute_polygon_normal - reverse winding", "[geometry][utils]") {
+TEST_CASE("ComputePolygonNormal_ReversedWinding_ReturnsOppositeNormal",
+          "[geometry][utils]") {
   // Create a triangle with reverse winding order
   CloudLocPtr cloud(new CloudLoc);
   cloud->points.resize(3);
@@ -159,7 +163,7 @@ TEST_CASE("compute_polygon_normal - reverse winding", "[geometry][utils]") {
   REQUIRE(normal_cw.norm() == Catch::Approx(1.0f).margin(1e-6));
 }
 
-TEST_CASE("compute_polygon_normal - invalid input: too few vertices",
+TEST_CASE("ComputePolygonNormal_TooFewVertices_ThrowsInvalidArgument",
           "[geometry][utils]") {
   CloudLocPtr cloud(new CloudLoc);
   cloud->points.resize(2);
@@ -180,7 +184,7 @@ TEST_CASE("compute_polygon_normal - invalid input: too few vertices",
                     std::invalid_argument);
 }
 
-TEST_CASE("compute_polygon_normal - degenerate polygon: collinear vertices",
+TEST_CASE("ComputePolygonNormal_CollinearVertices_ThrowsRuntimeError",
           "[geometry][utils]") {
   CloudLocPtr cloud(new CloudLoc);
   cloud->points.resize(3);
@@ -206,7 +210,8 @@ TEST_CASE("compute_polygon_normal - degenerate polygon: collinear vertices",
                     std::runtime_error);
 }
 
-TEST_CASE("Distance from point to plane", "[geometry][dist_plane_point]") {
+TEST_CASE("DistPlanePoint_VariousPointsAndPlanes_ReturnsSignedDistance",
+          "[geometry][dist_plane_point]") {
 
   SECTION("Point on plane has zero distance") {
     // Plane: z = 0 (XY plane)
@@ -309,7 +314,7 @@ TEST_CASE("Distance from point to plane", "[geometry][dist_plane_point]") {
   }
 }
 
-TEST_CASE("Distance calculations with normalized normals",
+TEST_CASE("DistPlanePoint_NormalizedNormalVectors_ReturnsSignedDistance",
           "[geometry][dist_plane_point][normalized]") {
 
   SECTION("Normalized normal vector") {

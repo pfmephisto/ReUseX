@@ -75,8 +75,7 @@ LoopClosureOptions permissive_gates() {
 
 } // namespace
 
-TEST_CASE("panorama edge recovers the true relative pose under non-trivial "
-          "rotations",
+TEST_CASE("EdgesFromResections_NonTrivialRotations_RecoversTrueRelativePose",
           "[slam][panorama][loop]") {
   // Two frames with genuinely different orientations, and a panorama placed
   // somewhere else entirely with its own arbitrary orientation.
@@ -117,7 +116,7 @@ TEST_CASE("panorama edge recovers the true relative pose under non-trivial "
   CHECK(stats.edges == 1);
 }
 
-TEST_CASE("panorama edges are independent of the panorama's own placement",
+TEST_CASE("EdgesFromResections_VaryingPanoramaPlacement_ProducesIdenticalEdge",
           "[slam][panorama][loop]") {
   // The panorama is a shared intermediate frame only: moving it must not change
   // the edge at all. (This is why `rux align 360` is not a prerequisite.)
@@ -146,7 +145,7 @@ TEST_CASE("panorama edges are independent of the panorama's own placement",
       CHECK_THAT(e1[0].T_ij(r, c), WithinAbs(e2[0].T_ij(r, c), 1e-9));
 }
 
-TEST_CASE("min_frame_gap rejects temporally adjacent pairs",
+TEST_CASE("EdgesFromResections_MinFrameGap_RejectsTemporallyAdjacentPairs",
           "[slam][panorama][loop]") {
   const Eigen::Matrix4d pano = make_pose({0, 0, 1}, 0.4, {0.0, 0.0, 1.0});
   std::vector<Eigen::Matrix4d> seed(200, Eigen::Matrix4d::Identity());
@@ -173,8 +172,8 @@ TEST_CASE("min_frame_gap rejects temporally adjacent pairs",
   CHECK(edges[1].j == 120);
 }
 
-TEST_CASE("seed-disagreement gates keep informative edges and drop redundant "
-          "ones",
+TEST_CASE("EdgesFromResections_SeedDisagreementGates_"
+          "KeepInformativeDropRedundant",
           "[slam][panorama][loop]") {
   const Eigen::Matrix4d pano = make_pose({0, 1, 0}, 0.3, {0.0, 1.0, 0.0});
   const Eigen::Matrix4d pose_a = Eigen::Matrix4d::Identity();
@@ -230,7 +229,8 @@ TEST_CASE("seed-disagreement gates keep informative edges and drop redundant "
   }
 }
 
-TEST_CASE("per-panorama cap keeps the best-supported edges deterministically",
+TEST_CASE("EdgesFromResections_PerPanoramaCap_"
+          "KeepsBestSupportedEdgesDeterministically",
           "[slam][panorama][loop]") {
   const Eigen::Matrix4d pano = make_pose({0, 0, 1}, 0.0, {0.0, 0.0, 0.0});
   std::vector<Eigen::Matrix4d> seed(1000, Eigen::Matrix4d::Identity());
@@ -273,7 +273,7 @@ TEST_CASE("per-panorama cap keeps the best-supported edges deterministically",
   CHECK(stats2.dropped_cap == stats.dropped_cap);
 }
 
-TEST_CASE("edge order does not depend on resection input order",
+TEST_CASE("EdgesFromResections_ReversedResectionOrder_ProducesSameEdgeOrder",
           "[slam][panorama][loop]") {
   const Eigen::Matrix4d pano = make_pose({1, 1, 0}, 0.6, {0.0, 0.0, 2.0});
   std::vector<Eigen::Matrix4d> seed(700, Eigen::Matrix4d::Identity());
@@ -301,7 +301,7 @@ TEST_CASE("edge order does not depend on resection input order",
   }
 }
 
-TEST_CASE("edge sigmas shrink with inlier support down to the floors",
+TEST_CASE("EdgesFromResections_IncreasingInlierSupport_ShrinksSigmasToFloor",
           "[slam][panorama][loop]") {
   const Eigen::Matrix4d pano = Eigen::Matrix4d::Identity();
   std::vector<Eigen::Matrix4d> seed(300, Eigen::Matrix4d::Identity());
@@ -344,7 +344,8 @@ TEST_CASE("edge sigmas shrink with inlier support down to the floors",
   }
 }
 
-TEST_CASE("a single resection cannot form an edge", "[slam][panorama][loop]") {
+TEST_CASE("EdgesFromResections_SingleResection_CannotFormEdge",
+          "[slam][panorama][loop]") {
   const Eigen::Matrix4d pano = Eigen::Matrix4d::Identity();
   std::vector<Eigen::Matrix4d> seed(10, Eigen::Matrix4d::Identity());
 
@@ -357,7 +358,7 @@ TEST_CASE("a single resection cannot form an edge", "[slam][panorama][loop]") {
   CHECK(stats.edges == 0);
 }
 
-TEST_CASE("resections referencing frames outside the seed vector are ignored",
+TEST_CASE("EdgesFromResections_FrameIndexOutsideSeedVector_IsIgnored",
           "[slam][panorama][loop]") {
   // Defensive: an out-of-range frame index must never index seed_poses.
   const Eigen::Matrix4d pano = Eigen::Matrix4d::Identity();
@@ -372,7 +373,7 @@ TEST_CASE("resections referencing frames outside the seed vector are ignored",
   CHECK(stats.edges == 0);
 }
 
-TEST_CASE("a project with no panoramas yields zero edges without erroring",
+TEST_CASE("DetectPanoramaLoopEdges_NoPanoramas_ReturnsZeroEdgesWithoutError",
           "[slam][panorama][loop]") {
   // The mechanism must be safe to enable unconditionally: a scan that simply
   // has no 360 imagery is a no-op, not a failure. Whether the USER explicitly
@@ -399,7 +400,8 @@ TEST_CASE("a project with no panoramas yields zero edges without erroring",
   CHECK(stats.proposed == 0);
 }
 
-TEST_CASE("mismatched node_ids / seed_poses is a loud failure",
+TEST_CASE("DetectPanoramaLoopEdges_MismatchedNodeIdsAndSeedPoses_"
+          "ThrowsRuntimeError",
           "[slam][panorama][loop]") {
   // A silently truncated pairing would index the wrong frame's seed pose and
   // corrupt the gating decisions rather than fail (docs/STANDARDS.md §5).

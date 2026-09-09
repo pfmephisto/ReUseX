@@ -113,7 +113,8 @@ static CloudPtr make_cluster(const Eigen::Vector3f &center, int count,
   return cloud;
 }
 
-TEST_CASE("extract_wall_candidates: box mesh", "[geometry][create_windows]") {
+TEST_CASE("ExtractWallCandidates_BoxMesh_FindsAllSixWallsWithValidPlanes",
+          "[geometry][create_windows]") {
   auto mesh = make_box_mesh();
   auto walls = extract_wall_candidates(mesh);
 
@@ -146,13 +147,15 @@ TEST_CASE("extract_wall_candidates: box mesh", "[geometry][create_windows]") {
   }
 }
 
-TEST_CASE("extract_wall_candidates: empty mesh", "[geometry][create_windows]") {
+TEST_CASE("ExtractWallCandidates_EmptyMesh_ReturnsNoWalls",
+          "[geometry][create_windows]") {
   pcl::PolygonMesh empty;
   auto walls = extract_wall_candidates(empty);
   REQUIRE(walls.empty());
 }
 
-TEST_CASE("create_windows: rectangle mode", "[geometry][create_windows]") {
+TEST_CASE("CreateWindows_RectangleMode_CreatesOffsetVerticalRectangleWindow",
+          "[geometry][create_windows]") {
   // Create a box mesh with a wall at x=0
   auto mesh = make_box_mesh(4.0f, 3.0f, 2.5f);
 
@@ -218,7 +221,7 @@ TEST_CASE("create_windows: rectangle mode", "[geometry][create_windows]") {
   }
 }
 
-TEST_CASE("create_windows: no matching semantic labels",
+TEST_CASE("CreateWindows_NoMatchingSemanticLabels_ReturnsNoComponents",
           "[geometry][create_windows]") {
   auto mesh = make_box_mesh(4.0f, 3.0f, 2.5f);
 
@@ -236,7 +239,8 @@ TEST_CASE("create_windows: no matching semantic labels",
   REQUIRE(result.unmatched_instances.empty());
 }
 
-TEST_CASE("create_windows: multiple instances", "[geometry][create_windows]") {
+TEST_CASE("CreateWindows_MultipleInstances_CreatesOneComponentEach",
+          "[geometry][create_windows]") {
   // Create a larger box mesh to accommodate two windows
   auto mesh = make_box_mesh(4.0f, 10.0f, 3.0f);
 
@@ -268,7 +272,8 @@ TEST_CASE("create_windows: multiple instances", "[geometry][create_windows]") {
   REQUIRE(result.components[1].name == "window_2");
 }
 
-TEST_CASE("create_windows: no walls", "[geometry][create_windows]") {
+TEST_CASE("CreateWindows_NoWalls_ReturnsNoComponents",
+          "[geometry][create_windows]") {
   auto cloud = make_cluster({1.0f, 1.0f, 1.0f}, 100);
   CloudLPtr labels(new CloudL);
   for (size_t i = 0; i < cloud->size(); ++i)
@@ -286,7 +291,8 @@ TEST_CASE("create_windows: no walls", "[geometry][create_windows]") {
   REQUIRE(result.components.empty());
 }
 
-TEST_CASE("create_windows: null inputs", "[geometry][create_windows]") {
+TEST_CASE("CreateWindows_NullCloudAndLabels_ReturnsNoComponents",
+          "[geometry][create_windows]") {
   std::map<uint32_t, uint32_t> inst_to_sem;
   std::vector<uint32_t> window_labels = {5};
 

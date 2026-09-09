@@ -9,7 +9,8 @@
 #include <string>
 #include <vector>
 
-TEST_CASE("Custom log handler can be registered", "[core][logging]") {
+TEST_CASE("SetLogHandler_CustomHandlerRegistered_ReceivesLoggedMessages",
+          "[core][logging]") {
   std::vector<std::string> messages;
 
   reusex::core::set_log_handler(
@@ -28,7 +29,8 @@ TEST_CASE("Custom log handler can be registered", "[core][logging]") {
   reusex::core::set_log_level(reusex::core::LogLevel::info);
 }
 
-TEST_CASE("Log level filtering works", "[core][logging]") {
+TEST_CASE("SetLogLevel_MessageBelowThreshold_SuppressesMessage",
+          "[core][logging]") {
   int called = 0;
   reusex::core::set_log_handler(
       [&called](reusex::core::LogLevel, std::string_view) { ++called; });

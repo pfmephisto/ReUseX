@@ -71,7 +71,8 @@ StageExecutor always_succeeds(std::string message = "ok") {
 
 } // namespace
 
-TEST_CASE("JobStage names round-trip", "[pipeline][jobs]") {
+TEST_CASE("ParseJobStage_ValidAndInvalidNames_RoundTripsOrRejects",
+          "[pipeline][jobs]") {
   for (const auto &name : job_stage_names()) {
     auto stage = parse_job_stage(name);
     REQUIRE(stage.has_value());
@@ -85,7 +86,8 @@ TEST_CASE("JobStage names round-trip", "[pipeline][jobs]") {
   REQUIRE_FALSE(parse_job_stage("mesh").has_value());
 }
 
-TEST_CASE("JobStatus names round-trip", "[pipeline][jobs]") {
+TEST_CASE("JobStatus_AllValues_RoundTripsAndTerminalityMatches",
+          "[pipeline][jobs]") {
   const JobStatus all[] = {JobStatus::queued, JobStatus::running,
                            JobStatus::succeeded, JobStatus::failed,
                            JobStatus::cancelled};
@@ -103,7 +105,7 @@ TEST_CASE("JobStatus names round-trip", "[pipeline][jobs]") {
   REQUIRE(is_terminal(JobStatus::cancelled));
 }
 
-TEST_CASE("iso8601_utc_now produces a parseable UTC timestamp",
+TEST_CASE("Iso8601UtcNow_Called_ProducesParseableUtcTimestamp",
           "[pipeline][jobs]") {
   const auto stamp = iso8601_utc_now();
   REQUIRE(stamp.size() == 20);
@@ -115,7 +117,7 @@ TEST_CASE("iso8601_utc_now produces a parseable UTC timestamp",
   REQUIRE(stamp.back() == 'Z');
 }
 
-TEST_CASE("A submitted job runs to success", "[pipeline][jobs]") {
+TEST_CASE("JobRunner_SubmittedJob_RunsToSuccess", "[pipeline][jobs]") {
   JobRunner runner("/nonexistent/project.rux", always_succeeds("done"));
 
   const auto id = runner.submit(JobStage::planes);
@@ -133,8 +135,7 @@ TEST_CASE("A submitted job runs to success", "[pipeline][jobs]") {
   CHECK_FALSE(record->finished_at.empty());
 }
 
-TEST_CASE("A failing stage yields a failed job carrying the reason",
-          "[pipeline][jobs]") {
+TEST_CASE("JobRunner_FailingStage_RecordsFailureReason", "[pipeline][jobs]") {
   JobRunner runner("/nonexistent/project.rux", [](const StageContext &) {
     return StageResult::failure("inputs not satisfied");
   });
@@ -148,7 +149,7 @@ TEST_CASE("A failing stage yields a failed job carrying the reason",
   CHECK(record->error == "inputs not satisfied");
 }
 
-TEST_CASE("An exception escaping the stage is reported, not propagated",
+TEST_CASE("JobRunner_StageThrows_ReportsFailureWithoutPropagating",
           "[pipeline][jobs]") {
   JobRunner runner("/nonexistent/project.rux",
                    [](const StageContext &) -> StageResult {
@@ -164,7 +165,8 @@ TEST_CASE("An exception escaping the stage is reported, not propagated",
   CHECK(record->error == "boom");
 }
 
-TEST_CASE("Stage parameters reach the executor verbatim", "[pipeline][jobs]") {
+TEST_CASE("JobRunner_SubmitWithParameters_PassesParametersVerbatim",
+          "[pipeline][jobs]") {
   std::string seen;
   JobRunner runner("/nonexistent/project.rux",
                    [&seen](const StageContext &ctx) {
@@ -177,7 +179,7 @@ TEST_CASE("Stage parameters reach the executor verbatim", "[pipeline][jobs]") {
   CHECK(seen == R"({"radius":0.5})");
 }
 
-TEST_CASE("Parameters that are not a JSON object are rejected at submit",
+TEST_CASE("JobRunner_NonObjectParameters_RejectedAtSubmit",
           "[pipeline][jobs]") {
   JobRunner runner("/nonexistent/project.rux", always_succeeds());
 
@@ -189,13 +191,14 @@ TEST_CASE("Parameters that are not a JSON object are rejected at submit",
   CHECK(runner.jobs().empty());
 }
 
-TEST_CASE("Unknown job ids are reported, not invented", "[pipeline][jobs]") {
+TEST_CASE("JobRunner_UnknownJobId_ReturnsNulloptNotInvented",
+          "[pipeline][jobs]") {
   JobRunner runner("/nonexistent/project.rux", always_succeeds());
   CHECK_FALSE(runner.job("no-such-id").has_value());
   CHECK_FALSE(runner.cancel("no-such-id"));
 }
 
-TEST_CASE("Jobs execute one at a time, in submission order",
+TEST_CASE("JobRunner_MultipleSubmittedJobs_ExecuteSeriallyInSubmissionOrder",
           "[pipeline][jobs]") {
   Gate gate;
   std::atomic<int> concurrent{0};
@@ -237,8 +240,7 @@ TEST_CASE("Jobs execute one at a time, in submission order",
   CHECK(runner.job(third)->status == JobStatus::succeeded);
 }
 
-TEST_CASE("Cancelling a queued job stops it before it ever runs",
-          "[pipeline][jobs]") {
+TEST_CASE("JobRunner_CancelQueuedJob_StopsBeforeItRuns", "[pipeline][jobs]") {
   Gate gate;
   std::atomic<int> executions{0};
 
@@ -268,7 +270,7 @@ TEST_CASE("Cancelling a queued job stops it before it ever runs",
   CHECK(runner.job(running)->status == JobStatus::succeeded);
 }
 
-TEST_CASE("Cancelling a running job sets the token the stage observes",
+TEST_CASE("JobRunner_CancelRunningJob_SetsCancelTokenStageObserves",
           "[pipeline][jobs]") {
   std::atomic_bool entered{false};
   std::atomic_bool saw_cancel{false};
@@ -301,7 +303,7 @@ TEST_CASE("Cancelling a running job sets the token the stage observes",
   CHECK(record->error == "stopped early");
 }
 
-TEST_CASE("Cancelling a terminal job is a no-op and stays successful",
+TEST_CASE("JobRunner_CancelTerminalJob_IsNoOpAndStaysSuccessful",
           "[pipeline][jobs]") {
   JobRunner runner("/nonexistent/project.rux", always_succeeds());
 
@@ -315,7 +317,7 @@ TEST_CASE("Cancelling a terminal job is a no-op and stays successful",
   CHECK(runner.job(id)->status == JobStatus::succeeded);
 }
 
-TEST_CASE("jobs() lists newest first", "[pipeline][jobs]") {
+TEST_CASE("JobRunner_Jobs_ListsNewestFirst", "[pipeline][jobs]") {
   JobRunner runner("/nonexistent/project.rux", always_succeeds());
 
   const auto first = runner.submit(JobStage::clouds);
@@ -328,7 +330,7 @@ TEST_CASE("jobs() lists newest first", "[pipeline][jobs]") {
   CHECK(listed[1].id == first);
 }
 
-TEST_CASE("Listeners observe the full lifecycle", "[pipeline][jobs]") {
+TEST_CASE("JobRunner_Listener_ObservesFullLifecycle", "[pipeline][jobs]") {
   std::mutex mutex;
   std::vector<JobEvent> events;
 
@@ -362,8 +364,7 @@ TEST_CASE("Listeners observe the full lifecycle", "[pipeline][jobs]") {
   CHECK(events.size() == count_before); // Removed listener stays silent.
 }
 
-TEST_CASE("A listener that throws does not take the runner down",
-          "[pipeline][jobs]") {
+TEST_CASE("JobRunner_ListenerThrows_DoesNotCrashRunner", "[pipeline][jobs]") {
   JobRunner runner("/nonexistent/project.rux", always_succeeds());
   runner.add_listener(
       [](const JobEvent &) { throw std::runtime_error("listener exploded"); });
@@ -373,8 +374,7 @@ TEST_CASE("A listener that throws does not take the runner down",
   CHECK(runner.job(id)->status == JobStatus::succeeded);
 }
 
-TEST_CASE("Progress reported through the observer reaches the job record",
-          "[pipeline][jobs]") {
+TEST_CASE("JobRunner_ProgressObserver_UpdatesJobRecord", "[pipeline][jobs]") {
   JobRunner runner("/nonexistent/project.rux", [](const StageContext &) {
     // The runner installs itself as the global progress observer for the
     // duration of a job; a real stage reaches it via core::ProgressObserver.
@@ -396,7 +396,7 @@ TEST_CASE("Progress reported through the observer reaches the job record",
   CHECK(record->progress_stage == reusex::core::Stage::region_growing);
 }
 
-TEST_CASE("The runner restores the previously installed progress observer",
+TEST_CASE("JobRunner_PreexistingProgressObserver_ChainedThenRestored",
           "[pipeline][jobs]") {
   struct Recorder : reusex::core::IProgressObserver {
     std::atomic<size_t> started{0};
@@ -425,8 +425,7 @@ TEST_CASE("The runner restores the previously installed progress observer",
   reusex::core::reset_progress_observer();
 }
 
-TEST_CASE("Destroying the runner cancels whatever is still queued",
-          "[pipeline][jobs]") {
+TEST_CASE("JobRunner_Destruction_CancelsStillQueuedJobs", "[pipeline][jobs]") {
   Gate gate;
   std::atomic<int> executions{0};
   std::mutex mutex;
@@ -458,7 +457,7 @@ TEST_CASE("Destroying the runner cancels whatever is still queued",
   CHECK(executions.load() <= 2);
 }
 
-TEST_CASE("stage_supports_cancellation reflects the real stage plumbing",
+TEST_CASE("StageSupportsCancellation_KnownStages_MatchesRealPlumbing",
           "[pipeline][jobs]") {
   // planes/rooms/instances thread a cancel token into the algorithm;
   // reconstruct_point_clouds does not, and the contract must say so rather
@@ -469,8 +468,7 @@ TEST_CASE("stage_supports_cancellation reflects the real stage plumbing",
   CHECK_FALSE(stage_supports_cancellation(JobStage::clouds));
 }
 
-TEST_CASE("StageContext cancellation reads the token safely",
-          "[pipeline][jobs]") {
+TEST_CASE("StageContext_IsCancelled_ReadsTokenSafely", "[pipeline][jobs]") {
   StageContext ctx;
   CHECK_FALSE(ctx.is_cancelled()); // No token attached.
 
@@ -485,7 +483,7 @@ TEST_CASE("StageContext cancellation reads the token safely",
 // Review follow-ups (#274)
 // ===========================================================================
 
-TEST_CASE("Event sequence numbers are monotonic and gapless",
+TEST_CASE("JobRunner_EventSequenceNumbers_AreMonotonicAndGapless",
           "[pipeline][jobs]") {
   // Events are published without the runner lock (a listener must never run
   // under it), so arrival order is not emission order. The sequence number is
@@ -537,7 +535,7 @@ TEST_CASE("Event sequence numbers are monotonic and gapless",
   }
 }
 
-TEST_CASE("A cancel the stage could not honour is not reported as cancelled",
+TEST_CASE("JobRunner_CancelUnhonoredByStage_ReportsSuccessNotCancelled",
           "[pipeline][jobs]") {
   // The clouds stage cannot be interrupted: it writes its output and returns
   // success. Marking the job "cancelled" because a cancel was *requested*
@@ -567,7 +565,7 @@ TEST_CASE("A cancel the stage could not honour is not reported as cancelled",
   CHECK(record->cancel_requested);
 }
 
-TEST_CASE("A stage that honours the cancel token still reports cancelled",
+TEST_CASE("JobRunner_CancelHonoredByStage_ReportsCancelled",
           "[pipeline][jobs]") {
   std::atomic_bool entered{false};
 

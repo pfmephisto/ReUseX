@@ -93,13 +93,14 @@ static pcl::PointCloud<pcl::PointXYZ>::Ptr makeXYZCloud(size_t n) {
   return cloud;
 }
 
-TEST_CASE("ProjectDB schema version on fresh DB", "[projectdb]") {
+TEST_CASE("ProjectDbSchemaVersion_FreshPointCloudDatabase_IsLatest",
+          "[projectdb]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
   REQUIRE(db.schema_version() == 11);
 }
 
-TEST_CASE("ProjectDB point cloud XYZRGB round-trip", "[projectdb]") {
+TEST_CASE("SavePointCloud_XyzrgbCloud_RoundTripsExactly", "[projectdb]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
 
@@ -121,7 +122,7 @@ TEST_CASE("ProjectDB point cloud XYZRGB round-trip", "[projectdb]") {
   }
 }
 
-TEST_CASE("ProjectDB point cloud Normal round-trip", "[projectdb]") {
+TEST_CASE("SavePointCloud_NormalCloud_RoundTripsExactly", "[projectdb]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
 
@@ -139,7 +140,7 @@ TEST_CASE("ProjectDB point cloud Normal round-trip", "[projectdb]") {
   }
 }
 
-TEST_CASE("ProjectDB point cloud Label round-trip", "[projectdb]") {
+TEST_CASE("SavePointCloud_LabelCloud_RoundTripsExactly", "[projectdb]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
 
@@ -154,7 +155,7 @@ TEST_CASE("ProjectDB point cloud Label round-trip", "[projectdb]") {
   }
 }
 
-TEST_CASE("ProjectDB point cloud PointXYZ round-trip", "[projectdb]") {
+TEST_CASE("SavePointCloud_XyzCloud_RoundTripsExactly", "[projectdb]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
 
@@ -171,7 +172,7 @@ TEST_CASE("ProjectDB point cloud PointXYZ round-trip", "[projectdb]") {
   }
 }
 
-TEST_CASE("ProjectDB has_point_cloud and delete_point_cloud", "[projectdb]") {
+TEST_CASE("HasPointCloud_SaveThenDelete_ReflectsExistence", "[projectdb]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
 
@@ -186,7 +187,8 @@ TEST_CASE("ProjectDB has_point_cloud and delete_point_cloud", "[projectdb]") {
   REQUIRE_FALSE(db.has_point_cloud("test_cloud"));
 }
 
-TEST_CASE("ProjectDB list_point_clouds", "[projectdb]") {
+TEST_CASE("ListPointClouds_MultipleSavedClouds_ReturnsAllInInsertionOrder",
+          "[projectdb]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
 
@@ -203,7 +205,8 @@ TEST_CASE("ProjectDB list_point_clouds", "[projectdb]") {
   REQUIRE(names[2] == "labels");
 }
 
-TEST_CASE("ProjectDB UPSERT replaces existing cloud", "[projectdb]") {
+TEST_CASE("SavePointCloud_SameNameLargerCloud_UpsertsReplacingExisting",
+          "[projectdb]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
 
@@ -220,7 +223,7 @@ TEST_CASE("ProjectDB UPSERT replaces existing cloud", "[projectdb]") {
   REQUIRE(db.list_point_clouds().size() == 1);
 }
 
-TEST_CASE("ProjectDB label definitions save/load", "[projectdb]") {
+TEST_CASE("SaveLabelDefinitions_LabelMapForCloud_RoundTrips", "[projectdb]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
 
@@ -240,7 +243,7 @@ TEST_CASE("ProjectDB label definitions save/load", "[projectdb]") {
   REQUIRE(loaded[4] == "door");
 }
 
-TEST_CASE("ProjectDB mesh save/load round-trip", "[projectdb]") {
+TEST_CASE("SaveMesh_TriangleMesh_RoundTripsExactly", "[projectdb]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
 
@@ -270,7 +273,8 @@ TEST_CASE("ProjectDB mesh save/load round-trip", "[projectdb]") {
   REQUIRE(loaded->polygons[0].vertices.size() == 3);
 }
 
-TEST_CASE("ProjectDB pipeline log start/end", "[projectdb]") {
+TEST_CASE("LogPipelineStartAndEnd_SuccessAndFailureRuns_RecordsBothOutcomes",
+          "[projectdb]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
 
@@ -285,7 +289,7 @@ TEST_CASE("ProjectDB pipeline log start/end", "[projectdb]") {
   REQUIRE_NOTHROW(db.log_pipeline_end(logId2, false, "Out of memory"));
 }
 
-TEST_CASE("ProjectDB type mismatch throws on load", "[projectdb]") {
+TEST_CASE("PointCloud_TypeMismatchOnLoad_Throws", "[projectdb]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
 
@@ -296,14 +300,15 @@ TEST_CASE("ProjectDB type mismatch throws on load", "[projectdb]") {
   REQUIRE_THROWS_AS(db.point_cloud_xyz("cloud"), std::runtime_error);
 }
 
-TEST_CASE("ProjectDB nonexistent cloud throws on load", "[projectdb]") {
+TEST_CASE("PointCloudXyzrgb_NonexistentCloud_Throws", "[projectdb]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
 
   REQUIRE_THROWS_AS(db.point_cloud_xyzrgb("missing"), std::runtime_error);
 }
 
-TEST_CASE("ProjectDB fresh DB includes all v1 tables", "[projectdb]") {
+TEST_CASE("ProjectDbFreshDatabase_V1TablesAndPassportTables_AreUsableAndValid",
+          "[projectdb]") {
   TempDB tmp;
 
   // Fresh DB should create passport tables + v1 tables in one pass
@@ -319,7 +324,8 @@ TEST_CASE("ProjectDB fresh DB includes all v1 tables", "[projectdb]") {
   REQUIRE_NOTHROW(db.validate_schema());
 }
 
-TEST_CASE("ProjectDB read-only mode", "[projectdb]") {
+TEST_CASE("ProjectDb_ReadOnlyReopenOfExistingDatabase_OpensSuccessfully",
+          "[projectdb]") {
   TempDB tmp;
 
   // Create DB first in write mode
@@ -335,7 +341,7 @@ TEST_CASE("ProjectDB read-only mode", "[projectdb]") {
 
 // ── Sensor Frame Tests ──────────────────────────────────────────────
 
-TEST_CASE("ProjectDB sensor frame save/load round-trip", "[projectdb]") {
+TEST_CASE("SaveSensorFrame_ColorImage_RoundTripsExactly", "[projectdb]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
 
@@ -352,7 +358,8 @@ TEST_CASE("ProjectDB sensor frame save/load round-trip", "[projectdb]") {
   REQUIRE(loaded.channels() == original.channels());
 }
 
-TEST_CASE("ProjectDB sensor_frame_ids returns correct list", "[projectdb]") {
+TEST_CASE("SensorFrameIds_MultipleSavedFrames_ReturnsSortedList",
+          "[projectdb]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
 
@@ -370,8 +377,7 @@ TEST_CASE("ProjectDB sensor_frame_ids returns correct list", "[projectdb]") {
   REQUIRE(ids[2] == 20);
 }
 
-TEST_CASE("ProjectDB sensor_frame_image returns empty for missing node",
-          "[projectdb]") {
+TEST_CASE("SensorFrameImage_MissingNode_ReturnsEmptyMat", "[projectdb]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
 
@@ -381,7 +387,8 @@ TEST_CASE("ProjectDB sensor_frame_image returns empty for missing node",
 
 // ── Segmentation Image Tests ────────────────────────────────────────
 
-TEST_CASE("ProjectDB segmentation image save/load round-trip", "[projectdb]") {
+TEST_CASE("SaveSegmentationImage_LabelImageWithBackground_RoundTripsExactly",
+          "[projectdb]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
 
@@ -416,7 +423,8 @@ TEST_CASE("ProjectDB segmentation image save/load round-trip", "[projectdb]") {
   }
 }
 
-TEST_CASE("ProjectDB has_segmentation_image before/after save", "[projectdb]") {
+TEST_CASE("HasSegmentationImage_BeforeAndAfterSave_ReflectsExistence",
+          "[projectdb]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
 
@@ -431,7 +439,8 @@ TEST_CASE("ProjectDB has_segmentation_image before/after save", "[projectdb]") {
   REQUIRE(db.has_segmentation_image(42));
 }
 
-TEST_CASE("ProjectDB save_segmentation_images batch save", "[projectdb]") {
+TEST_CASE("SaveSegmentationImages_BatchOfThreeFrames_SavesAllCorrectly",
+          "[projectdb]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
 
@@ -455,7 +464,9 @@ TEST_CASE("ProjectDB save_segmentation_images batch save", "[projectdb]") {
   }
 }
 
-TEST_CASE("ProjectDB label encoding: background -1 preserved", "[projectdb]") {
+TEST_CASE(
+    "SaveSegmentationImage_AllBackgroundLabels_PreservesNegativeOneEncoding",
+    "[projectdb]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
 
@@ -474,7 +485,8 @@ TEST_CASE("ProjectDB label encoding: background -1 preserved", "[projectdb]") {
   }
 }
 
-TEST_CASE("ProjectDB point_cloud_type returns correct types", "[projectdb]") {
+TEST_CASE("PointCloudType_FourCloudTypes_ReturnsCorrectTypeName",
+          "[projectdb]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
 
@@ -489,15 +501,15 @@ TEST_CASE("ProjectDB point_cloud_type returns correct types", "[projectdb]") {
   REQUIRE(db.point_cloud_type("xyz_cloud") == "PointXYZ");
 }
 
-TEST_CASE("ProjectDB point_cloud_type throws for missing cloud",
-          "[projectdb]") {
+TEST_CASE("PointCloudType_MissingCloud_Throws", "[projectdb]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
 
   REQUIRE_THROWS_AS(db.point_cloud_type("nonexistent"), std::runtime_error);
 }
 
-TEST_CASE("ProjectDB list_meshes returns correct names", "[projectdb]") {
+TEST_CASE("ListMeshes_TwoSavedMeshes_ReturnsNamesInInsertionOrder",
+          "[projectdb]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
 
@@ -528,7 +540,8 @@ TEST_CASE("ProjectDB list_meshes returns correct names", "[projectdb]") {
   REQUIRE(names[1] == "mesh_b");
 }
 
-TEST_CASE("ProjectDB fresh DB has schema version 3", "[projectdb]") {
+TEST_CASE("ProjectDbFreshDatabase_V2TablesQueried_AreEmptyAtLatestSchema",
+          "[projectdb]") {
   TempDB tmp;
 
   ProjectDB db(tmp.path);

@@ -103,7 +103,7 @@ std::vector<std::size_t> iota_vector(std::size_t n) {
 
 // ── batch boundaries ──────────────────────────────────────────────────────
 
-TEST_CASE("Dataloader batch count rounds up on a non-divisible dataset",
+TEST_CASE("Dataloader_NonDivisibleDatasetSize_RoundsUpBatchCount",
           "[vision][dataloader]") {
   auto db = make_db(10);
   IndexDataset ds(db);
@@ -115,7 +115,7 @@ TEST_CASE("Dataloader batch count rounds up on a non-divisible dataset",
   REQUIRE(batch_sizes(loader) == std::vector<std::size_t>{4, 4, 2});
 }
 
-TEST_CASE("Dataloader emits equal batches when the size divides exactly",
+TEST_CASE("Dataloader_DivisibleDatasetSize_EmitsEqualBatches",
           "[vision][dataloader]") {
   auto db = make_db(12);
   IndexDataset ds(db);
@@ -126,7 +126,7 @@ TEST_CASE("Dataloader emits equal batches when the size divides exactly",
   REQUIRE(batch_sizes(loader) == std::vector<std::size_t>{4, 4, 4});
 }
 
-TEST_CASE("Dataloader handles a batch larger than the dataset",
+TEST_CASE("Dataloader_BatchSizeLargerThanDataset_EmitsSingleUndersizedBatch",
           "[vision][dataloader]") {
   auto db = make_db(3);
   IndexDataset ds(db);
@@ -138,7 +138,7 @@ TEST_CASE("Dataloader handles a batch larger than the dataset",
   REQUIRE(visit_order(loader) == iota_vector(3));
 }
 
-TEST_CASE("Dataloader with batch size one yields one sample per batch",
+TEST_CASE("Dataloader_BatchSizeOne_YieldsOneSamplePerBatch",
           "[vision][dataloader]") {
   auto db = make_db(5);
   IndexDataset ds(db);
@@ -150,8 +150,7 @@ TEST_CASE("Dataloader with batch size one yields one sample per batch",
   REQUIRE(visit_order(loader) == iota_vector(5));
 }
 
-TEST_CASE("Dataloader over an empty dataset produces no batches",
-          "[vision][dataloader]") {
+TEST_CASE("Dataloader_EmptyDataset_ProducesNoBatches", "[vision][dataloader]") {
   auto db = make_db(0);
   IndexDataset ds(db);
   REQUIRE(ds.size() == 0);
@@ -165,7 +164,7 @@ TEST_CASE("Dataloader over an empty dataset produces no batches",
 
 // ── ordering ──────────────────────────────────────────────────────────────
 
-TEST_CASE("Dataloader without shuffle visits the dataset in order",
+TEST_CASE("Dataloader_ShuffleDisabled_VisitsDatasetInOrder",
           "[vision][dataloader]") {
   auto db = make_db(10);
   IndexDataset ds(db);
@@ -175,7 +174,7 @@ TEST_CASE("Dataloader without shuffle visits the dataset in order",
   REQUIRE(visit_order(loader) == iota_vector(10));
 }
 
-TEST_CASE("Dataloader shuffle visits every sample exactly once",
+TEST_CASE("Dataloader_ShuffleEnabled_VisitsEverySampleExactlyOnce",
           "[vision][dataloader]") {
   auto db = make_db(37); // deliberately not a multiple of the batch size
   IndexDataset ds(db);
@@ -191,7 +190,7 @@ TEST_CASE("Dataloader shuffle visits every sample exactly once",
   REQUIRE(order != sorted); // and it really was shuffled
 }
 
-TEST_CASE("Dataloader visit order matches shuffled_indices for the same seed",
+TEST_CASE("Dataloader_GivenSeed_VisitOrderMatchesShuffledIndices",
           "[vision][dataloader]") {
   constexpr std::uint32_t kSeed = 1234;
   auto db = make_db(20);
@@ -207,7 +206,7 @@ TEST_CASE("Dataloader visit order matches shuffled_indices for the same seed",
 
 // ── determinism (STANDARDS §6) ────────────────────────────────────────────
 
-TEST_CASE("Two Dataloaders with the same seed visit in identical order",
+TEST_CASE("Dataloader_SameSeedTwoInstances_VisitInIdenticalOrder",
           "[vision][dataloader]") {
   auto db_a = make_db(64);
   auto db_b = make_db(64);
@@ -220,7 +219,7 @@ TEST_CASE("Two Dataloaders with the same seed visit in identical order",
   REQUIRE(visit_order(a) == visit_order(b));
 }
 
-TEST_CASE("Dataloaders with different seeds visit in different order",
+TEST_CASE("Dataloader_DifferentSeeds_VisitInDifferentOrder",
           "[vision][dataloader]") {
   // 64! possible orders, so a chance collision is not a credible flake.
   auto db_a = make_db(64);
@@ -234,7 +233,7 @@ TEST_CASE("Dataloaders with different seeds visit in different order",
   REQUIRE(visit_order(a) != visit_order(b));
 }
 
-TEST_CASE("A seeded Dataloader repeats its order across epochs",
+TEST_CASE("Dataloader_SeededAcrossEpochs_RepeatsVisitOrder",
           "[vision][dataloader]") {
   // Dataloader.hpp documents a held seed as "repeatable across epochs and
   // runs" — re-iterating restarts the epoch and must reshuffle identically.
@@ -250,7 +249,7 @@ TEST_CASE("A seeded Dataloader repeats its order across epochs",
   REQUIRE(first == second);
 }
 
-TEST_CASE("Dataloader order is independent of the worker count",
+TEST_CASE("Dataloader_DifferentWorkerCounts_ProduceSameVisitOrder",
           "[vision][dataloader]") {
   // Batches are produced concurrently but consumed by index, so the number of
   // workers must not perturb what the caller sees.
@@ -266,7 +265,7 @@ TEST_CASE("Dataloader order is independent of the worker count",
   REQUIRE(visit_order(one) == visit_order(eight));
 }
 
-TEST_CASE("Dataloader order survives changing the worker count mid-life",
+TEST_CASE("Dataloader_WorkerCountChangedMidEpoch_PreservesVisitOrder",
           "[vision][dataloader]") {
   // set_num_workers() stops the current epoch; the next one must still be the
   // same seeded permutation.
@@ -297,7 +296,7 @@ TEST_CASE("Dataloader order survives changing the worker count mid-life",
 // guaranteed empty and epoch_finished_ is guaranteed set. A dereference after
 // that point deterministically finds nothing.
 
-TEST_CASE("Dataloader iterator throws when dereferenced after the epoch stops",
+TEST_CASE("DataloaderIterator_DereferencedAfterEpochStopped_Throws",
           "[vision][dataloader]") {
   auto db = make_db(10);
   IndexDataset ds(db);
@@ -310,7 +309,7 @@ TEST_CASE("Dataloader iterator throws when dereferenced after the epoch stops",
   REQUIRE_THROWS_AS(*it, std::runtime_error);
 }
 
-TEST_CASE("Dataloader move_batch throws when the epoch has stopped",
+TEST_CASE("DataloaderIteratorMoveBatch_EpochStopped_Throws",
           "[vision][dataloader]") {
   auto db = make_db(10);
   IndexDataset ds(db);
@@ -323,7 +322,7 @@ TEST_CASE("Dataloader move_batch throws when the epoch has stopped",
   REQUIRE_THROWS_AS(it.move_batch(), std::runtime_error);
 }
 
-TEST_CASE("Dataloader stopped-epoch error names the batch index",
+TEST_CASE("DataloaderIterator_StoppedEpochDereference_ErrorNamesBatchIndex",
           "[vision][dataloader]") {
   auto db = make_db(20);
   IndexDataset ds(db);
@@ -345,7 +344,7 @@ TEST_CASE("Dataloader stopped-epoch error names the batch index",
   }
 }
 
-TEST_CASE("Dataloader entropy seeding still visits every sample once",
+TEST_CASE("Dataloader_EntropySeed_VisitsEverySampleOnce",
           "[vision][dataloader]") {
   auto db = make_db(30);
   IndexDataset ds(db);

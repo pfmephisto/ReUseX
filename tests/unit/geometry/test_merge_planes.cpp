@@ -53,7 +53,7 @@ Eigen::Vector3d centroid_of(const CloudPtr &cloud, const IndicesPtr &idx) {
 
 } // namespace
 
-TEST_CASE("merge_planes: split wall (disjoint halves) merges",
+TEST_CASE("MergePlanes_SplitWallDisjointHalves_Merges",
           "[geometry][merge_planes]") {
   auto cloud = std::make_shared<Cloud>();
 
@@ -84,7 +84,7 @@ TEST_CASE("merge_planes: split wall (disjoint halves) merges",
           Catch::Approx(0.0).margin(1e-3));
 }
 
-TEST_CASE("merge_planes: perpendicular planes never merge",
+TEST_CASE("MergePlanes_PerpendicularPlanes_NeverMerge",
           "[geometry][merge_planes]") {
   auto cloud = std::make_shared<Cloud>();
 
@@ -114,7 +114,7 @@ TEST_CASE("merge_planes: perpendicular planes never merge",
   REQUIRE(Pm.size() == 2);
 }
 
-TEST_CASE("merge_planes: parallel-but-offset walls never merge",
+TEST_CASE("MergePlanes_ParallelOffsetWalls_NeverMerge",
           "[geometry][merge_planes]") {
   auto cloud = std::make_shared<Cloud>();
 
@@ -135,7 +135,7 @@ TEST_CASE("merge_planes: parallel-but-offset walls never merge",
   REQUIRE(Pm.size() == 2);
 }
 
-TEST_CASE("merge_planes: deterministic result ordering",
+TEST_CASE("MergePlanes_RepeatedRuns_ProducesDeterministicOrdering",
           "[geometry][merge_planes]") {
   auto cloud = std::make_shared<Cloud>();
 

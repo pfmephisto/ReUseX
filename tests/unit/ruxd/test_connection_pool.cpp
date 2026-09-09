@@ -67,7 +67,7 @@ bool is_open(FakeConnection &conn) { return conn.healthy; }
 
 } // namespace
 
-TEST_CASE("ConnectionPool creates connections lazily and reuses them",
+TEST_CASE("ConnectionPool_Acquire_CreatesLazilyAndReusesConnections",
           "[ruxd][pool]") {
   const int live_before = FakeConnection::live_count.load();
   CountingFactory factory;
@@ -103,7 +103,7 @@ TEST_CASE("ConnectionPool creates connections lazily and reuses them",
   REQUIRE(factory.calls->load() == 1);
 }
 
-TEST_CASE("ConnectionPool cycles through every slot and returns them all",
+TEST_CASE("ConnectionPool_AcquireAllSlots_CyclesAndReturnsAll",
           "[ruxd][pool]") {
   Pool pool(CountingFactory{}, options(3));
 
@@ -133,7 +133,8 @@ TEST_CASE("ConnectionPool cycles through every slot and returns them all",
   REQUIRE(pool.created_count() == 3);
 }
 
-TEST_CASE("ConnectionPool leases are movable", "[ruxd][pool]") {
+TEST_CASE("ConnectionPoolLease_MoveConstruction_TransfersOwnership",
+          "[ruxd][pool]") {
   Pool pool(CountingFactory{}, options(1));
 
   {
@@ -148,8 +149,7 @@ TEST_CASE("ConnectionPool leases are movable", "[ruxd][pool]") {
   REQUIRE(pool.idle_count() == 1);
 }
 
-TEST_CASE("ConnectionPool blocks then times out when exhausted",
-          "[ruxd][pool]") {
+TEST_CASE("ConnectionPool_Exhausted_BlocksThenThrowsTimeout", "[ruxd][pool]") {
   Pool pool(CountingFactory{}, options(1, 80ms));
 
   auto held = pool.acquire();
@@ -175,7 +175,7 @@ TEST_CASE("ConnectionPool blocks then times out when exhausted",
   REQUIRE_NOTHROW(pool.acquire().release());
 }
 
-TEST_CASE("ConnectionPool wakes a waiter when a connection is returned",
+TEST_CASE("ConnectionPool_ConnectionReleased_WakesWaitingAcquirer",
           "[ruxd][pool]") {
   Pool pool(CountingFactory{}, options(1, 5s));
 
@@ -207,7 +207,7 @@ TEST_CASE("ConnectionPool wakes a waiter when a connection is returned",
   REQUIRE(pool.created_count() == 1);     // no second connection was opened
 }
 
-TEST_CASE("ConnectionPool discards a broken connection and replaces it lazily",
+TEST_CASE("ConnectionPool_MarkBroken_DiscardsAndReplacesLazily",
           "[ruxd][pool]") {
   const int live_before = FakeConnection::live_count.load();
   Pool pool(CountingFactory{}, options(1), is_open);
@@ -238,7 +238,7 @@ TEST_CASE("ConnectionPool discards a broken connection and replaces it lazily",
   REQUIRE(pool.discarded_count() == 1);
 }
 
-TEST_CASE("ConnectionPool discards a connection the health check rejects",
+TEST_CASE("ConnectionPool_UnhealthyConnectionOnRelease_Discards",
           "[ruxd][pool]") {
   const int live_before = FakeConnection::live_count.load();
   Pool pool(CountingFactory{}, options(2), is_open);
@@ -261,7 +261,7 @@ TEST_CASE("ConnectionPool discards a connection the health check rejects",
   REQUIRE(pool.discarded_count() == 1);
 }
 
-TEST_CASE("ConnectionPool releases the slot when the factory fails",
+TEST_CASE("ConnectionPool_FactoryThrows_ReleasesSlotWithoutLeaking",
           "[ruxd][pool]") {
   std::atomic<bool> fail{true};
   std::atomic<int> next_id{100};
@@ -288,7 +288,7 @@ TEST_CASE("ConnectionPool releases the slot when the factory fails",
   REQUIRE(pool.created_count() == 1);
 }
 
-TEST_CASE("ConnectionPool rejects a factory that returns nothing",
+TEST_CASE("ConnectionPool_FactoryReturnsNull_ThrowsConnectionPoolError",
           "[ruxd][pool]") {
   Pool pool([]() -> std::unique_ptr<FakeConnection> { return nullptr; },
             options(1, 100ms));
@@ -298,7 +298,7 @@ TEST_CASE("ConnectionPool rejects a factory that returns nothing",
   REQUIRE(pool.in_use_count() == 0);
 }
 
-TEST_CASE("ConnectionPool requires a factory and clamps capacity 0",
+TEST_CASE("ConnectionPool_EmptyFactoryOrZeroCapacity_ThrowsOrClampsToOne",
           "[ruxd][pool]") {
   REQUIRE_THROWS_AS(Pool(Pool::Factory{}, options(1)),
                     ruxd::ConnectionPoolError);
@@ -307,7 +307,7 @@ TEST_CASE("ConnectionPool requires a factory and clamps capacity 0",
   REQUIRE(pool.capacity() == 1);
 }
 
-TEST_CASE("ConnectionPool holds its invariants under concurrent use",
+TEST_CASE("ConnectionPool_ConcurrentAcquireRelease_HoldsInvariants",
           "[ruxd][pool]") {
   constexpr std::size_t kCapacity = 4;
   constexpr int kThreads = 8;
@@ -370,7 +370,7 @@ TEST_CASE("ConnectionPool holds its invariants under concurrent use",
   REQUIRE(pool.idle_count() + pool.free_slot_count() == kCapacity);
 }
 
-TEST_CASE("ConnectionPool replaces broken connections under concurrent use",
+TEST_CASE("ConnectionPool_ConcurrentMarkBroken_ReplacesWithinCapacity",
           "[ruxd][pool]") {
   constexpr std::size_t kCapacity = 3;
   constexpr int kThreads = 6;

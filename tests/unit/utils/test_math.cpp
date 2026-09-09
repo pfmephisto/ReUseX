@@ -11,7 +11,7 @@
 using namespace reusex::utils;
 using Catch::Approx;
 
-TEST_CASE("Remap function basic tests", "[math][remap]") {
+TEST_CASE("Remap_VariousRanges_MapsLinearly", "[math][remap]") {
 
   SECTION("Remap to default range [0, 1]") {
     // Value at minimum of input range should map to 0
@@ -84,7 +84,8 @@ TEST_CASE("Remap function basic tests", "[math][remap]") {
   }
 }
 
-TEST_CASE("Remap function precision tests", "[math][remap][precision]") {
+TEST_CASE("Remap_HighPrecisionInput_PreservesPrecision",
+          "[math][remap][precision]") {
 
   SECTION("Double precision") {
     double result = remap(5.123456789, 0.0, 10.0);
@@ -97,7 +98,7 @@ TEST_CASE("Remap function precision tests", "[math][remap][precision]") {
   }
 }
 
-TEST_CASE("deg_to_rad converts degrees to radians", "[utils][math]") {
+TEST_CASE("DegToRad_VariousAngles_ConvertsToRadians", "[utils][math]") {
   REQUIRE(deg_to_rad(0.0) == Approx(0.0));
   REQUIRE(deg_to_rad(90.0) == Approx(std::numbers::pi / 2.0));
   REQUIRE(deg_to_rad(180.0) == Approx(std::numbers::pi));
@@ -108,7 +109,7 @@ TEST_CASE("deg_to_rad converts degrees to radians", "[utils][math]") {
   }
 }
 
-TEST_CASE("rad_to_deg converts radians to degrees", "[utils][math]") {
+TEST_CASE("RadToDeg_VariousAngles_ConvertsToDegrees", "[utils][math]") {
   REQUIRE(rad_to_deg(0.0) == Approx(0.0));
   REQUIRE(rad_to_deg(std::numbers::pi) == Approx(180.0));
   REQUIRE(rad_to_deg(std::numbers::pi / 2.0) == Approx(90.0));
@@ -118,7 +119,8 @@ TEST_CASE("rad_to_deg converts radians to degrees", "[utils][math]") {
   }
 }
 
-TEST_CASE("deg_to_rad and rad_to_deg roundtrip", "[utils][math]") {
+TEST_CASE("DegToRadRadToDeg_Roundtrip_PreservesOriginalValue",
+          "[utils][math]") {
   REQUIRE(rad_to_deg(deg_to_rad(45.0)) == Approx(45.0));
   REQUIRE(rad_to_deg(deg_to_rad(123.456)) == Approx(123.456));
   REQUIRE(deg_to_rad(rad_to_deg(1.5)) == Approx(1.5));

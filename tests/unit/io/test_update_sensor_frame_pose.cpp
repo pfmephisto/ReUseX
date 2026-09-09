@@ -15,7 +15,9 @@
 
 using Catch::Matchers::WithinAbs;
 
-TEST_CASE("update_sensor_frame_pose round-trips the transform", "[io][db]") {
+TEST_CASE("UpdateSensorFramePose_ExistingAndMissingFrame_"
+          "RoundTripsPoseAndThrowsOnMissingId",
+          "[io][db]") {
   namespace fs = std::filesystem;
   fs::path db_path = fs::temp_directory_path() / "reusex_update_pose_test.rux";
   fs::remove(db_path);

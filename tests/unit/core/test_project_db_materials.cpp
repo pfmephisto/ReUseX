@@ -21,7 +21,7 @@ struct TempDB : reusex::test_support::TempPath {
   TempDB() : TempPath("test_projectdb_materials") {}
 };
 
-TEST_CASE("ProjectDB::project_summary() with material passports",
+TEST_CASE("ProjectSummary_MaterialPassportsAdded_ReflectsMaterialsList",
           "[ProjectDB][materials]") {
   TempDB tmp;
   ProjectDB db(tmp.path);

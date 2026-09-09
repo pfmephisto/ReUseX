@@ -82,9 +82,8 @@ struct TempDB : reusex::test_support::TempPath {
 // RANSAC 3D-3D relative pose
 // ---------------------------------------------------------------------------
 
-TEST_CASE(
-    "LoopClosure ransac_rigid recovers a rigid transform despite outliers",
-    "[loop_closure][slam][ransac]") {
+TEST_CASE("RansacRigid_CorrespondencesWithOutliers_RecoversTrueTransform",
+          "[loop_closure][slam][ransac]") {
   // 60 exact correspondences under a known transform, plus 20 gross outliers
   // (offset by ~5 m, far beyond any inlier threshold). RANSAC must find the
   // true transform and label exactly the 60 good correspondences as inliers.
@@ -123,7 +122,7 @@ TEST_CASE(
   REQUIRE_THAT((T - truth).norm(), WithinAbs(0.0, 1e-9));
 }
 
-TEST_CASE("LoopClosure ransac_rigid rejects too-few correspondences",
+TEST_CASE("RansacRigid_TooFewCorrespondences_ReturnsNoInliers",
           "[loop_closure][slam][ransac]") {
   // Degenerate input: fewer than the 3 correspondences a rigid fit needs. Must
   // return no inliers and leave the caller's transform untouched (rather than
@@ -150,8 +149,7 @@ TEST_CASE("LoopClosure ransac_rigid rejects too-few correspondences",
 // Pairwise Consistency Maximization
 // ---------------------------------------------------------------------------
 
-TEST_CASE("LoopClosure pcm_filter keeps consistent edges and drops an "
-          "inconsistent one",
+TEST_CASE("PcmFilter_MixedConsistentAndInconsistentEdges_KeepsOnlyConsistent",
           "[loop_closure][slam][pcm]") {
   // A synthetic 6-frame seed trajectory. An edge whose measurement equals the
   // seed relative pose closes the PCM cycle exactly (identity), so any set of
@@ -264,8 +262,8 @@ TEST_CASE("LoopClosure pcm_filter keeps consistent edges and drops an "
 // with no consistency filter at all, which is what made --loop-trust unsafe.
 // ---------------------------------------------------------------------------
 
-TEST_CASE("filter_consistent_loop_edges rejects an inconsistent external edge "
-          "from a mixed set",
+TEST_CASE("FilterConsistentLoopEdges_MixedInternalAndExternalEdges_"
+          "RejectsInconsistentEdge",
           "[loop_closure][slam][pcm]") {
   std::vector<Eigen::Matrix4d> seed;
   for (int k = 0; k < 6; ++k)
@@ -308,7 +306,7 @@ TEST_CASE("filter_consistent_loop_edges rejects an inconsistent external edge "
 // detect_loop_edges degenerate inputs
 // ---------------------------------------------------------------------------
 
-TEST_CASE("LoopClosure detect_loop_edges handles degenerate inputs",
+TEST_CASE("DetectLoopEdges_DegenerateInputs_ReturnsEmptyWithoutCrash",
           "[loop_closure][slam][degenerate]") {
   // These paths must return an empty edge set without crashing and without
   // touching the database — a caller that hands over a single frame, no frames,

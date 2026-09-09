@@ -258,7 +258,7 @@ ServerOptions options_for(const fs::path &project, const fs::path &assets,
 
 } // namespace
 
-TEST_CASE("The frontend bundle survives connection reuse",
+TEST_CASE("RunningServer_KeepAliveGetRequests_ServesFrontendBundleRepeatedly",
           "[gui][server][socket]") {
   // THE REGRESSION. Before the fix this failed on the second GET: Crow's
   // catchall answered request #1 and returned its built-in "404 Not Found" for
@@ -295,7 +295,7 @@ TEST_CASE("The frontend bundle survives connection reuse",
   }
 }
 
-TEST_CASE("The routing contract holds for every request on one connection",
+TEST_CASE("RunningServer_KeepAliveVariousRoutes_HonorsRoutingContract",
           "[gui][server][socket]") {
   // Same reuse property, applied to the whole documented behaviour of the
   // static routes: each of these is answered on the SAME connection, in order,
@@ -365,7 +365,7 @@ TEST_CASE("The routing contract holds for every request on one connection",
   }
 }
 
-TEST_CASE("The placeholder page is served across connection reuse",
+TEST_CASE("RunningServer_NoAssetsKeepAliveRequests_ServesPlaceholderRepeatedly",
           "[gui][server][socket]") {
   // With no bundle installed the server must still answer SPA routes, request
   // after request, or `rux gui` is unusable before the frontend is built.

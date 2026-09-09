@@ -12,7 +12,7 @@
 
 using Catch::Matchers::WithinAbs;
 
-TEST_CASE("configure_rhino_model creates valid model", "[io][rhino]") {
+TEST_CASE("ConfigureRhinoModel_DefaultCall_CreatesValidModel", "[io][rhino]") {
   using namespace reusex;
 
   auto model = io::configure_rhino_model();
@@ -29,7 +29,8 @@ TEST_CASE("configure_rhino_model creates valid model", "[io][rhino]") {
           0.0);
 }
 
-TEST_CASE("make_rhino_pointcloud converts PCL cloud", "[io][rhino]") {
+TEST_CASE("MakeRhinoPointcloud_PclCloudWithColors_ConvertsPointsAndColors",
+          "[io][rhino]") {
   using namespace reusex;
 
   // Create minimal PCL cloud
@@ -66,7 +67,8 @@ TEST_CASE("make_rhino_pointcloud converts PCL cloud", "[io][rhino]") {
   REQUIRE(rhino_cloud->m_C[0].Blue() == 0);
 }
 
-TEST_CASE("make_rhino_pointcloud handles empty cloud", "[io][rhino]") {
+TEST_CASE("MakeRhinoPointcloud_EmptyCloud_ReturnsEmptyPointcloud",
+          "[io][rhino]") {
   using namespace reusex;
 
   CloudPtr cloud(new Cloud);
@@ -78,7 +80,7 @@ TEST_CASE("make_rhino_pointcloud handles empty cloud", "[io][rhino]") {
   REQUIRE(rhino_cloud->m_C.Count() == 0);
 }
 
-TEST_CASE("make_rhino_pointcloud with normals uses actual normals",
+TEST_CASE("MakeRhinoPointcloud_WithNormals_UsesSuppliedNormals",
           "[io][rhino]") {
   using namespace reusex;
 
@@ -105,7 +107,8 @@ TEST_CASE("make_rhino_pointcloud with normals uses actual normals",
   REQUIRE_THAT(rhino_cloud->m_N[1].y, WithinAbs(1.0, 0.001));
 }
 
-TEST_CASE("make_rhino_mesh converts simple triangle mesh", "[io][rhino]") {
+TEST_CASE("MakeRhinoMesh_SingleTriangle_ConvertsVerticesAndFaces",
+          "[io][rhino]") {
   using namespace reusex;
 
   pcl::PolygonMesh polygon_mesh;
@@ -127,7 +130,7 @@ TEST_CASE("make_rhino_mesh converts simple triangle mesh", "[io][rhino]") {
   REQUIRE(rhino_mesh->FaceCount() == 1);
 }
 
-TEST_CASE("make_sphere_mesh creates valid sphere", "[io][rhino]") {
+TEST_CASE("MakeSphereMesh_UnitSphere_CreatesValidGeometry", "[io][rhino]") {
   using namespace reusex;
 
   auto sphere = io::make_sphere_mesh(0.0, 0.0, 0.0, 1.0, 4);
@@ -142,7 +145,7 @@ TEST_CASE("make_sphere_mesh creates valid sphere", "[io][rhino]") {
   REQUIRE_THAT(sphere->m_V[0].z, WithinAbs(1.0, 0.001));
 }
 
-TEST_CASE("export_to_rhino with cloud-only scene", "[io][rhino]") {
+TEST_CASE("ExportToRhino_CloudOnlyScene_ProducesModel", "[io][rhino]") {
   using namespace reusex;
 
   io::ExportScene scene;
@@ -158,7 +161,7 @@ TEST_CASE("export_to_rhino with cloud-only scene", "[io][rhino]") {
   REQUIRE(model != nullptr);
 }
 
-TEST_CASE("export_to_rhino with empty scene produces model", "[io][rhino]") {
+TEST_CASE("ExportToRhino_EmptyScene_ProducesModel", "[io][rhino]") {
   using namespace reusex;
 
   io::ExportScene scene;

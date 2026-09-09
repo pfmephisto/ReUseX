@@ -18,7 +18,7 @@ struct TempDB : reusex::test_support::TempPath {
   TempDB() : TempPath("test_projectdb_project_info") {}
 };
 
-TEST_CASE("ProjectDB::project_summary() includes project information",
+TEST_CASE("ProjectSummary_ProjectMetadataUpdated_ReflectsProjectInfo",
           "[ProjectDB][projects]") {
   TempDB tmp;
   ProjectDB db(tmp.path);

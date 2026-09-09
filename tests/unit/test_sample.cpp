@@ -7,19 +7,21 @@
 
 // Sample tests to verify the test infrastructure is working
 
-TEST_CASE("Basic arithmetic", "[sample]") {
+TEST_CASE("IntegerArithmetic_AddAndMultiply_ProducesCorrectResults",
+          "[sample]") {
   REQUIRE(1 + 1 == 2);
   REQUIRE(2 * 3 == 6);
 }
 
-TEST_CASE("Floating point comparison", "[sample]") {
+TEST_CASE("FloatingPointAddition_ImpreciseSum_MatchesApproxExpected",
+          "[sample]") {
   using Catch::Approx;
 
   double a = 0.1 + 0.2;
   REQUIRE(a == Approx(0.3));
 }
 
-TEST_CASE("String operations", "[sample]") {
+TEST_CASE("StdString_LengthSubstrEmpty_ReturnExpectedValues", "[sample]") {
   std::string str = "ReUseX";
 
   REQUIRE(str.length() == 6);
@@ -27,7 +29,7 @@ TEST_CASE("String operations", "[sample]") {
   REQUIRE_FALSE(str.empty());
 }
 
-TEST_CASE("Vector operations", "[sample]") {
+TEST_CASE("StdVector_PushBackAndClear_UpdatesSizeAndContents", "[sample]") {
   std::vector<int> vec = {1, 2, 3, 4, 5};
 
   REQUIRE(vec.size() == 5);

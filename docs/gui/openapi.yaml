@@ -184,25 +184,43 @@ paths:
       description: |
         Paged point access for the 3D viewport.
 
-        **Phase 1 serves `format=json` only.** The `binary` format is reserved
-        for the chunked little-endian transport (with voxel LOD and optional
-        Draco compression) planned for Phase 2/5, and currently answers `501`.
-        Clients should treat `format` as the forward-compatibility seam: the
-        JSON shape will not change when `binary` arrives.
+        Two wire formats, selected with `format`, carrying identical data over
+        identical `offset`/`limit` semantics:
 
-        The `fields` returned depend on the cloud's type:
+        - **`json`** (default) — the `CloudPointsPage` object below. Readable,
+          `curl`-able, and the format to reach for when debugging. About 4.7×
+          the bytes of `binary` for the same page of a `PointXYZRGB` cloud
+          (measured: 69.9 vs 15.0 bytes/point).
+        - **`binary`** — **RUXP v1**, `application/octet-stream`: a small
+          self-describing header followed by planar (structure-of-arrays)
+          little-endian sections, which a browser turns into
+          `THREE.BufferAttribute`s with zero copies and no per-point work. The
+          byte layout is specified in
+          [`docs/gui/binary-points.md`](binary-points.md) — read it before
+          writing a client.
 
-        | Cloud type      | Fields                    |
-        |-----------------|---------------------------|
-        | `PointXYZRGB`   | `x,y,z,r,g,b`             |
-        | `PointXYZ`      | `x,y,z`                   |
-        | `Normal`        | `nx,ny,nz`                |
-        | `Label`         | `label`                   |
+        A page is served by reading only the bytes that page occupies in the
+        `point_cloud_data` chunk store (SQLite incremental blob I/O), so server
+        memory is proportional to the page, not to the cloud. This holds for
+        both formats.
+
+        The fields carried depend on the cloud's type:
+
+        | Cloud type      | JSON `fields`   | RUXP fields              |
+        |-----------------|-----------------|--------------------------|
+        | `PointXYZRGB`   | `x,y,z,r,g,b`   | `xyz` f32×3, `rgb` u8×3  |
+        | `PointXYZ`      | `x,y,z`         | `xyz` f32×3              |
+        | `Normal`        | `nx,ny,nz`      | `normal` f32×3           |
+        | `Label`         | `label`         | `label` u32×1            |
 
         Points are returned in storage order, which is index-aligned across the
         sibling clouds of one scan (`cloud`/`normals`/`planes`/`rooms`/
         `instances`/`labels`) — see `docs/CONTRACTS.md`. A client may therefore
         request the same `offset`/`limit` window from two clouds and zip them.
+
+        A page past the end of the cloud is a `200` with `count = 0`, not a
+        `404`; `total` is still populated, so `limit=1&offset=0` is a cheap way
+        to ask how long a cloud is.
       parameters:
         - $ref: "#/components/parameters/CloudName"
         - name: offset
@@ -216,20 +234,50 @@ paths:
             { type: integer, minimum: 1, maximum: 1000000, default: 100000 }
         - name: format
           in: query
-          description: Wire format. `binary` is not implemented yet (501).
+          description: |
+            Wire format. `json` returns `CloudPointsPage`; `binary` returns a
+            RUXP v1 octet-stream (`docs/gui/binary-points.md`).
+
+            A server predating RUXP answers `501` for `binary`, so a client that
+            wants to work against both should try `binary` first and fall back
+            to `json` on a `501`.
           schema: { type: string, enum: [json, binary], default: json }
       responses:
         "200":
           description: A page of points
+          headers:
+            X-Ruxp-Version:
+              description: |
+                RUXP format version, on `format=binary` responses only.
+                Mirrors the body header purely as a debugging convenience —
+                the body header is authoritative and a client must not depend
+                on these being present.
+              schema: { type: integer }
+            X-Ruxp-Type:
+              description: Cloud point type, on `format=binary` responses only.
+              schema: { type: string }
+            X-Ruxp-Offset:
+              description: Page offset, on `format=binary` responses only.
+              schema: { type: integer }
+            X-Ruxp-Count:
+              description: Points in this page, on `format=binary` responses only.
+              schema: { type: integer }
+            X-Ruxp-Total:
+              description: Points in the cloud, on `format=binary` responses only.
+              schema: { type: integer }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/CloudPointsPage" }
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+                description: |
+                  A RUXP v1 page: a 40-byte header, `16 * field_count` bytes of
+                  field descriptors, then one tightly packed little-endian
+                  section per field. Fully specified in
+                  `docs/gui/binary-points.md`.
         "404": { $ref: "#/components/responses/NotFound" }
-        "501":
-          description: The requested format is not implemented by this server
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Error" }
 
   # -------------------------------------------------------------- meshes ----
   /meshes:

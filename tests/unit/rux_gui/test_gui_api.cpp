@@ -23,6 +23,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <set>
 #include <string>
 #include <string_view>
@@ -326,26 +327,63 @@ TEST_CASE("Point pages honour offset, limit and field order", "[gui][clouds]") {
     CHECK(empty.at("total") == 10);
   }
 
-  SECTION("the binary format is refused with 501 until Phase 2") {
+  SECTION("format=json goes down the JSON path") {
+    Params as_json;
+    as_json.set("format", "json");
+    const auto response = cloud_points(db, "cloud", as_json);
+    REQUIRE(response.body.has_value());
+    CHECK_FALSE(response.blob.has_value());
+    CHECK(response.headers.empty());
+    CHECK(response.body->at("total") == 10);
+  }
+
+  SECTION("format=binary answers with a RUXP page (#283)") {
     Params binary;
     binary.set("format", "binary");
-    try {
-      cloud_points_json(db, "cloud", binary);
-      FAIL("expected HttpError");
-    } catch (const HttpError &e) {
-      CHECK(e.status() == 501);
-    }
+    binary.set("offset", "3");
+    binary.set("limit", "4");
+
+    const auto response = cloud_points(db, "cloud", binary);
+    REQUIRE(response.blob.has_value());
+    CHECK_FALSE(response.body.has_value());
+    CHECK(response.blob->content_type == "application/octet-stream");
+
+    // Byte-level coverage of the format lives in
+    // tests/unit/rux_gui/test_gui_binary_points.cpp; here it is enough that
+    // the endpoint hands back a well-formed page of the right window.
+    const auto &bytes = response.blob->data;
+    REQUIRE(bytes.size() > 4);
+    CHECK(std::string(reinterpret_cast<const char *>(bytes.data()), 4) ==
+          "RUXP");
+    CHECK(bytes.size() == 72 + 4 * 15); // header + 4 PointXYZRGB points
+
+    // The X-Ruxp-* headers mirror the body header; they are a curl-level
+    // convenience, not the contract (docs/gui/binary-points.md).
+    std::map<std::string, std::string> headers(response.headers.begin(),
+                                               response.headers.end());
+    CHECK(headers.at("X-Ruxp-Version") == "1");
+    CHECK(headers.at("X-Ruxp-Type") == "PointXYZRGB");
+    CHECK(headers.at("X-Ruxp-Offset") == "3");
+    CHECK(headers.at("X-Ruxp-Count") == "4");
+    CHECK(headers.at("X-Ruxp-Total") == "10");
   }
 
   SECTION("an unknown format is a 400") {
     Params bogus;
     bogus.set("format", "protobuf");
     try {
-      cloud_points_json(db, "cloud", bogus);
+      cloud_points(db, "cloud", bogus);
       FAIL("expected HttpError");
     } catch (const HttpError &e) {
       CHECK(e.status() == 400);
     }
+  }
+
+  SECTION("an unknown cloud is a 404 on both formats") {
+    Params binary;
+    binary.set("format", "binary");
+    REQUIRE_THROWS_AS(cloud_points(db, "missing", binary), HttpError);
+    REQUIRE_THROWS_AS(cloud_points(db, "missing", Params{}), HttpError);
   }
 }
 

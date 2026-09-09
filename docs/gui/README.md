@@ -126,9 +126,11 @@ keys.
 Read endpoints, the job endpoints and the WebSocket channel are implemented by
 `rux gui` (`apps/rux/src/gui/`). Two documented gaps, both deliberate:
 
-- **`GET /api/v1/clouds/{name}/points` returns paged JSON only.** The contract
-  reserves `format=binary` for the Phase 2/5 chunked-binary + LOD + Draco
-  transport; the server rejects it with `501` today.
+- **`GET /api/v1/clouds/{name}/points` has no LOD.** `format=binary` now serves
+  the RUXP transport ([`binary-points.md`](binary-points.md)) and a page is read
+  out of the chunk store without materialising the cloud, but paging still
+  returns a *prefix* of a cloud. A viewport wants "all of it, coarsely" — voxel
+  LOD (`lod` / `max_points`) and Draco are tracked in #320.
 - **Runnable stages are `clouds`, `planes`, `rooms`, `instances`.** `mesh`,
   `texture` and the ML `annotate` stages are described by
   `GET /api/v1/stages` as `runnable: false` until their runners land.

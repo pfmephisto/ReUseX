@@ -38,7 +38,9 @@ namespace pipeline = reusex::pipeline;
 using json = nlohmann::json;
 
 crow::response json_response(int status, const json &body) {
-  crow::response res(status, body.dump(2));
+  // dump(-1): compact. The pretty-printer added ~20% to every response for a
+  // reader that is a browser, not a person; `curl | jq` is the debugging path.
+  crow::response res(status, body.dump(-1));
   res.set_header("Content-Type", "application/json");
   return res;
 }
@@ -466,7 +468,7 @@ class Server::Impl {
     });
 
     get("/api/v1/endpoints")([](const crow::request &) {
-      crow::response res(200, endpoints_json().dump(2));
+      crow::response res(200, endpoints_json().dump(-1));
       res.set_header("Content-Type", "application/json");
       res.set_header("Access-Control-Allow-Origin", "*");
       return res;
@@ -499,11 +501,20 @@ class Server::Impl {
           });
         });
 
+    // The only route with two wire formats, so the only one that cannot go
+    // straight through json_response(): `format=binary` answers a RUXP page
+    // (docs/gui/binary-points.md), which is not JSON.
     get("/api/v1/clouds/<string>/points")(
         [this](const crow::request &req, std::string name) {
           const Params params = params_of(req);
           return with_db([&](const reusex::ProjectDB &db) {
-            return json_response(200, cloud_points_json(db, name, params));
+            const auto points = cloud_points(db, name, params);
+            if (points.body)
+              return json_response(200, *points.body);
+            crow::response res = blob_response(*points.blob);
+            for (const auto &[key, value] : points.headers)
+              res.set_header(key, value);
+            return res;
           });
         });
 

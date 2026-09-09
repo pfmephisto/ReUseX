@@ -3,18 +3,35 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 /**
- * Decoding a JSON points page into typed arrays.
+ * Decoding a points page into typed arrays, over both transports.
  *
  * Two silent corruptions live here, and both are asserted against explicitly:
  * reading columns positionally without consulting `fields` (which turns a Label
  * cloud's label column into an x coordinate), and treating 0..255 sRGB bytes as
  * if they were 0..1 linear floats (which washes the whole cloud out).
+ *
+ * The RUXP half (#283) is held to the same two, plus one the JSON path cannot
+ * have: its positions and labels must arrive as *views* onto the response
+ * buffer rather than copies, since avoiding that copy is the reason the binary
+ * transport exists at all.
  */
 
 import { describe, expect, it } from 'vitest';
 import type { CloudPointsPage } from '../api/types';
-import { decodeColors, decodeLabels, decodePositions } from '../viewport/decode';
+import { parseRuxp } from '../viewport/binaryPoints';
+import {
+  decodeBinaryColors,
+  decodeBinaryLabels,
+  decodeBinaryPositions,
+  decodeColors,
+  decodeLabels,
+  decodePositions,
+  pageCount,
+  pageTotal,
+  toPageBuffers,
+} from '../viewport/decode';
 import { CLOUD_POINTS_PAGE, LABEL_POINTS_PAGE } from './fixtures';
+import { XYZRGB_THREE_POINTS, buildRuxpPage } from './ruxpPage';
 
 /** A one-off page, for the cases no recording covers. */
 function page(fields: string[], points: number[][]): CloudPointsPage {
@@ -168,5 +185,178 @@ describe('decodeLabels', () => {
   it('finds the label column wherever it sits', () => {
     const labels = decodeLabels(page(['x', 'y', 'z', 'label'], [[0, 0, 0, 4]]));
     expect(Array.from(labels!)).toEqual([4]);
+  });
+});
+
+// ------------------------------------------------------------ RUXP (#283) ----
+
+const XYZRGB_BUFFER = buildRuxpPage(XYZRGB_THREE_POINTS);
+
+function labelPage(values: number[]) {
+  return parseRuxp(
+    buildRuxpPage({
+      count: values.length,
+      total: values.length,
+      fields: [{ name: 'label', type: 3, components: 1, values }],
+    }),
+  );
+}
+
+describe('decodeBinaryPositions', () => {
+  it('returns the xyz section itself, not a copy of it', () => {
+    const page = parseRuxp(XYZRGB_BUFFER);
+    const positions = decodeBinaryPositions(page)!;
+    expect(Array.from(positions)).toEqual([1, 2, 3, -4.5, 0, 0.25, 1024, -0.5, 65536]);
+    // The whole point of the binary transport: three.js gets the bytes the
+    // socket delivered, with nothing in between.
+    expect(positions.buffer).toBe(XYZRGB_BUFFER);
+    expect(positions).toBe(page.view('xyz'));
+  });
+
+  it('reads a Normal page as no geometry rather than as positions', () => {
+    // `normal` is f32x3 exactly like `xyz`, so a decoder that went by shape
+    // instead of by name would render a unit sphere at the origin and call it
+    // a scan.
+    const page = parseRuxp(
+      buildRuxpPage({
+        count: 1,
+        fields: [{ name: 'normal', type: 1, components: 3, values: [0, 0, 1] }],
+      }),
+    );
+    expect(decodeBinaryPositions(page)).toBeNull();
+  });
+
+  it('returns null for a Label page', () => {
+    expect(decodeBinaryPositions(labelPage([1, 2]))).toBeNull();
+  });
+
+  it('throws rather than misreads an xyz field of the wrong shape', () => {
+    // Not null: null means "this cloud type has no positions", which the caller
+    // treats as normal. A 2-component `xyz` is a server bug and must be loud.
+    const page = parseRuxp(
+      buildRuxpPage({
+        count: 1,
+        fields: [{ name: 'xyz', type: 1, components: 2, values: [1, 2] }],
+      }),
+    );
+    expect(() => decodeBinaryPositions(page)).toThrow(/expected f32x3/);
+  });
+});
+
+describe('decodeBinaryColors', () => {
+  it('applies the sRGB transfer, not a divide by 255', () => {
+    const colors = decodeBinaryColors(parseRuxp(XYZRGB_BUFFER))!;
+    expect(colors).toBeInstanceOf(Float32Array);
+    expect(colors.length).toBe(9);
+    expect(colors[0]).toBe(0); // byte 0
+    expect(colors[2]).toBe(1); // byte 255
+    expect(colors[3]).toBeCloseTo(0.2086369, 6); // byte 126
+    expect(colors[3]).not.toBeCloseTo(126 / 255, 3);
+  });
+
+  it('produces bit-identical values to the JSON path for the same bytes', () => {
+    // The two transports share one 256-entry table by construction. If someone
+    // ever duplicates it, the copies drift and this catches it — a cloud would
+    // change colour depending on which server answered.
+    const viaJson = decodeColors(
+      page(
+        ['x', 'y', 'z', 'r', 'g', 'b'],
+        [
+          [0, 0, 0, 0, 128, 255],
+          [0, 0, 0, 126, 130, 118],
+          [0, 0, 0, 1, 2, 3],
+        ],
+      ),
+    )!;
+    const viaBinary = decodeBinaryColors(parseRuxp(XYZRGB_BUFFER))!;
+    expect(Array.from(viaBinary)).toEqual(Array.from(viaJson));
+  });
+
+  it('returns null for a page with no colour', () => {
+    expect(decodeBinaryColors(labelPage([1]))).toBeNull();
+    expect(
+      decodeBinaryColors(
+        parseRuxp(
+          buildRuxpPage({ count: 1, fields: [{ name: 'xyz', type: 1, components: 3 }] }),
+        ),
+      ),
+    ).toBeNull();
+  });
+});
+
+describe('decodeBinaryLabels', () => {
+  it('returns the label section itself, preserving 0 as unlabeled', () => {
+    const page = labelPage([2, 0, 0, 7]);
+    const labels = decodeBinaryLabels(page)!;
+    expect(labels).toBeInstanceOf(Uint32Array);
+    expect(Array.from(labels)).toEqual([2, 0, 0, 7]);
+    expect(labels).toBe(page.view('label'));
+  });
+
+  it('returns null for a geometry page', () => {
+    expect(decodeBinaryLabels(parseRuxp(XYZRGB_BUFFER))).toBeNull();
+  });
+});
+
+describe('toPageBuffers', () => {
+  it('folds a binary geometry page and a binary label page into one upload', () => {
+    const buffers = toPageBuffers(
+      { format: 'binary', page: parseRuxp(XYZRGB_BUFFER) },
+      { format: 'binary', page: labelPage([4, 0, 9]) },
+    )!;
+    expect(Array.from(buffers.positions)).toEqual([1, 2, 3, -4.5, 0, 0.25, 1024, -0.5, 65536]);
+    expect(buffers.rgb!.length).toBe(9);
+    expect(Array.from(buffers.labels!)).toEqual([4, 0, 9]);
+  });
+
+  it('zips across transports — the two clouds need not agree on one', () => {
+    // The format latch flips mid-stream if a server starts answering 501, so
+    // geometry and labels can legitimately arrive over different transports.
+    // They are joined positionally either way (docs/CONTRACTS.md).
+    const buffers = toPageBuffers(
+      { format: 'binary', page: parseRuxp(XYZRGB_BUFFER) },
+      { format: 'json', page: LABEL_POINTS_PAGE },
+    )!;
+    expect(Array.from(buffers.labels!)).toEqual([2, 0, 0, 0]);
+  });
+
+  it('still decodes the pure JSON case', () => {
+    const buffers = toPageBuffers({ format: 'json', page: CLOUD_POINTS_PAGE }, null)!;
+    expect(buffers.positions.length).toBe(CLOUD_POINTS_PAGE.count * 3);
+    expect(buffers.rgb!.length).toBe(CLOUD_POINTS_PAGE.count * 3);
+    expect(buffers.labels).toBeNull();
+  });
+
+  it('returns null for a page with no renderable geometry', () => {
+    const normals = parseRuxp(
+      buildRuxpPage({
+        count: 1,
+        fields: [{ name: 'normal', type: 1, components: 3, values: [0, 0, 1] }],
+      }),
+    );
+    expect(toPageBuffers({ format: 'binary', page: normals }, null)).toBeNull();
+  });
+
+  it('leaves rgb null for a PointXYZ page rather than inventing white', () => {
+    const xyz = parseRuxp(
+      buildRuxpPage({
+        count: 1,
+        fields: [{ name: 'xyz', type: 1, components: 3, values: [1, 2, 3] }],
+      }),
+    );
+    const buffers = toPageBuffers({ format: 'binary', page: xyz }, null)!;
+    expect(buffers.rgb).toBeNull();
+  });
+});
+
+describe('pageCount / pageTotal', () => {
+  it('read the same two numbers out of either transport', () => {
+    const binary = { format: 'binary', page: parseRuxp(XYZRGB_BUFFER) } as const;
+    expect(pageCount(binary)).toBe(3);
+    expect(pageTotal(binary)).toBe(9);
+
+    const json = { format: 'json', page: CLOUD_POINTS_PAGE } as const;
+    expect(pageCount(json)).toBe(CLOUD_POINTS_PAGE.count);
+    expect(pageTotal(json)).toBe(CLOUD_POINTS_PAGE.total);
   });
 });

@@ -16,12 +16,18 @@ export const MAX_PAGE_SIZE = 1_000_000;
 /**
  * Default page size.
  *
- * 100_000 points is roughly 4 MB of JSON — small enough that the first page
- * paints quickly and the user sees the cloud building, large enough that a
- * 20-million-point scan is 200 requests rather than 20_000. It is a compromise
- * that only exists because the transport is JSON; #283 (binary/LOD) is what
- * actually fixes this, and when it lands this constant should be revisited
- * rather than kept out of habit.
+ * 100_000 points is small enough that the first page paints quickly and the
+ * user sees the cloud building, large enough that a 20-million-point scan is
+ * 200 requests rather than 20_000.
+ *
+ * The number was originally chosen against JSON, where a page is roughly 4 MB.
+ * RUXP (#283) makes the same page 1.5 MB and removes the per-point parse, so
+ * the request *cost* dropped a lot — but the reason for paging at all did not
+ * change, because it was never only about bytes: 20 M points must not arrive as
+ * one response the user waits out with nothing on screen. Raising this would
+ * trade first-paint latency for fewer round trips, which is the wrong direction
+ * for a viewport. The thing that actually removes the trade-off is LOD
+ * (#320) — "all of it, coarsely" instead of a prefix of it — not a bigger page.
  */
 export const DEFAULT_PAGE_SIZE = 100_000;
 

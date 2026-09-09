@@ -201,13 +201,54 @@ export interface InstanceInfo {
   material_guid?: string | null;
 }
 
+/** `ValidationIssue` — one finding of a stage's input-contract check. */
+export interface ValidationIssue {
+  /** Machine-readable check id, e.g. `missing_stage_input`. */
+  check: string;
+  message: string;
+  severity: 'warning' | 'error';
+  /** Terminal-formatted resolution, possibly multi-line. Empty when none. */
+  hint: string;
+  /** The named cloud/table this is about; empty when it is about nothing named. */
+  artifact: string;
+  /** The same resolution as `hint`, in order, as separate commands. */
+  commands: string[];
+}
+
+export type ParameterType = 'number' | 'integer' | 'boolean' | 'string' | 'integer_list';
+
+/** `StageParameter` — one knob of a runnable stage, as the server describes it. */
+export interface StageParameter {
+  /** The key to send inside `JobRequest.parameters`. */
+  key: string;
+  type: ParameterType;
+  label: string;
+  description: string;
+  /** Null means the parameter is absent by default and has no neutral value. */
+  default: number | boolean | string | null;
+  minimum: number | null;
+  maximum: number | null;
+  /** True when sending the key at all changes behaviour, whatever its value. */
+  presence_sensitive: boolean;
+}
+
 /** `StageInfo` — one entry of the stage catalogue. */
 export interface StageInfo {
   stage: string;
+  /** What this stage writes into `pipeline_log.stage`; empty when no runner. */
+  log_name: string;
+  summary: string;
+  command: string;
   runnable: boolean;
   cancellable: boolean;
   ready: boolean;
-  blockers?: string[];
+  /** Artifacts this stage writes. */
+  outputs: string[];
+  /** Printable summary of the error-severity `issues`. */
+  blockers: string[];
+  issues: ValidationIssue[];
+  /** Empty for a stage with no runner. */
+  parameters: StageParameter[];
 }
 
 /** `PipelineLogEntry` — one durable stage-execution record. */

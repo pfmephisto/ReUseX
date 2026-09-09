@@ -25,7 +25,7 @@ interface NavEntry {
 const ENTRIES: NavEntry[] = [
   { to: '/', label: 'Overview' },
   { to: '/viewport', label: 'Viewport' },
-  { to: '/pipeline', label: 'Pipeline', pending: 'Stage runner — Phase 3' },
+  { to: '/pipeline', label: 'Pipeline' },
   { to: '/data', label: 'Data', pending: 'Components, passports, frames — Phase 4' },
 ];
 

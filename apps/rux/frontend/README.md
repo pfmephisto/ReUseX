@@ -6,10 +6,15 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # ReUseX GUI frontend
 
-The Phase 2 web frontend for `rux gui`
+The web frontend for `rux gui`
 ([issue #265](https://github.com/pfmephisto/ReUseX/issues/265)) — a Vite +
 React + TypeScript single-page app that renders a `.rux` project: its summary,
-pipeline log, stages, jobs, and a three.js point-cloud viewport.
+pipeline log, stages, jobs, and a three.js point-cloud viewport. Phase 2 built
+the shell, dashboard and viewport; Phase 3 ([#305]) added the pipeline runner —
+stage cards with server-described parameter forms, run/cancel with live
+progress, and the durable history timeline.
+
+[#305]: https://github.com/pfmephisto/ReUseX/issues/305
 
 It is a **pure client of the shared API contract** in
 [`docs/gui/openapi.yaml`](../../../docs/gui/openapi.yaml) and
@@ -78,9 +83,12 @@ from a plain `nix develop` + `cmake` + `ctest` with no npm anywhere in it. CI
 runs them as a separate `frontend` job in `.github/workflows/ci.yml`.
 
 Tests cover the pure-logic modules (API client with an injected `fetch`, the
-event reducer, the chunk/pagination state machine) against the JSON fixtures in
-`src/test/fixtures/`, which are copied from the contract's examples. No DOM
-environment is configured, so no jsdom dependency is carried.
+event reducer, the chunk/pagination state machine, the stage-card view model,
+the parameter form and the history timeline) against the recorded payloads in
+`src/test/fixtures.ts`. Those are captured verbatim from a real `rux gui`
+serving `tests/fixtures/scans/office_corridor.rux` — re-record them when the
+contract changes, never hand-edit. No DOM environment is configured, so no
+jsdom dependency is carried, and nothing under `pipeline/` may reach for one.
 
 ## Design tokens
 
@@ -106,7 +114,11 @@ src/
 │                 useAsync
 ├── components/   Presentational, contract-agnostic building blocks
 │                 (DataTable, StatCard, NavRail, JobToaster, ...)
-├── routes/       Page-level compositions (Dashboard, ViewportPage)
+├── pipeline/     Pure stage-runner logic: the card view model (stageModel),
+│                 parameter-form parsing and the omit-defaults submit rule
+│                 (params), and the pipeline_log timeline (history)
+├── routes/       Page-level compositions (Dashboard, PipelinePage,
+│                 ViewportPage)
 ├── viewport/     three.js point-cloud rendering: PointCloudScene, the paged
 │                 cloud stream (useCloudStream, pagination), point decoding
 │                 (decode.ts) and label colour mapping (labelColors.ts)

@@ -1,0 +1,190 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-left-width: 3px;
+  border-left-color: var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  min-width: 0;
+}
+
+/* Second channel only — the state word is always rendered as text. */
+.queued {
+  border-left-color: var(--color-status-queued);
+}
+.running {
+  border-left-color: var(--color-status-running);
+}
+.succeeded {
+  border-left-color: var(--color-status-succeeded);
+}
+.failed {
+  border-left-color: var(--color-status-failed);
+}
+.cancelled {
+  border-left-color: var(--color-status-cancelled);
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.title {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-medium);
+}
+
+.state {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+.running .state {
+  color: var(--color-status-running);
+}
+.succeeded .state {
+  color: var(--color-status-succeeded);
+}
+.failed .state {
+  color: var(--color-status-failed);
+}
+.cancelled .state {
+  color: var(--color-status-cancelled);
+}
+.queued .state {
+  color: var(--color-status-queued);
+}
+
+.command {
+  margin-left: auto;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-faint);
+}
+
+.summary {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.outputs {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-faint);
+}
+
+.blocked {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-sunken);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.warning {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-status-queued);
+}
+
+.queued {
+  font-size: var(--font-size-sm);
+}
+
+.outcome {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.outcomeBad {
+  color: var(--color-status-failed);
+}
+
+.error {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-status-failed);
+  word-break: break-word;
+}
+
+.disclose {
+  align-self: flex-start;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--color-accent);
+  font-family: inherit;
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+}
+
+.disclose:hover {
+  color: var(--color-accent-hover);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+.run,
+.cancel {
+  padding: var(--space-1) var(--space-4);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--easing-standard);
+}
+
+.run {
+  border-color: transparent;
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+}
+
+.run:hover:enabled {
+  background: var(--color-accent-hover);
+}
+
+.cancel:hover:enabled {
+  background: var(--color-surface-sunken);
+}
+
+.run:disabled,
+.cancel:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.run:focus-visible,
+.cancel:focus-visible,
+.disclose:focus-visible {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: 2px;
+}
+
+.jobId {
+  margin-left: auto;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-faint);
+}

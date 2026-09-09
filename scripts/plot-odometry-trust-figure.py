@@ -55,8 +55,14 @@ OFFICE = [
 out = []
 add = out.append
 add('<!--')
+# REUSE-IgnoreStart
+# These two lines are the SVG's own REUSE header, emitted into the output
+# file -- they are data, not this script's licence. Without the ignore
+# markers `reuse lint` parses to end-of-line and reads the identifier as
+# "GPL-3.0-or-later')", which is not a valid SPDX expression.
 add('SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen')
 add('SPDX-License-Identifier: GPL-3.0-or-later')
+# REUSE-IgnoreEnd
 add('-->')
 add(f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" '
     f'viewBox="0 0 {W} {H}" font-family="Helvetica,Arial,sans-serif">')

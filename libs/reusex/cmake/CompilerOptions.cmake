@@ -86,8 +86,13 @@ else()
     list(APPEND COMMON_LINKER_FLAGS -lgomp)
 
     if (LIN_ENABLE_WERROR)
-        # list(APPEND COMMON_COMPILER_FLAGS -Werror)
-        list(APPEND COMMON_COMPILER_FLAGS -Wno-unused-variable -Wno-unused-function)
+        # This branch used to comment out -Werror and add blanket
+        # -Wno-unused-variable -Wno-unused-function instead, so the option did
+        # the opposite of its name: asking for "warnings are errors" quietly
+        # suppressed two whole warning classes for everyone who set it. The
+        # unused-* findings it was hiding are fixed (#318), so the flag can
+        # mean what it says. Default is still OFF.
+        list(APPEND COMMON_COMPILER_FLAGS -Werror)
     endif()
 
     # Sanitizer support

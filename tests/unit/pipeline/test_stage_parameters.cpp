@@ -1,0 +1,211 @@
+// SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+// The parameter descriptor table (#305) exists so a front end can build a
+// stage form without re-typing the library defaults. That is only true while
+// the table and the option structs agree, and nothing about the C++ forces
+// them to: `stage_parameters.cpp` reads the struct fields, but a future knob
+// could be added to a struct and forgotten here, or a descriptor could be
+// left pointing at a field that was renamed.
+//
+// So the correspondence is asserted here, field by field, against
+// default-constructed option structs — the same values `run_stage()` falls
+// back to when a key is absent.
+
+#include <catch2/catch_test_macros.hpp>
+
+#include <reusex/pipeline/stage_parameters.hpp>
+#include <reusex/pipeline/stages.hpp>
+#include <reusex/segmentation/reconstruct.hpp>
+#include <reusex/segmentation/segment_instances.hpp>
+#include <reusex/segmentation/segment_planes.hpp>
+#include <reusex/segmentation/segment_rooms.hpp>
+
+#include <set>
+#include <string>
+#include <variant>
+
+using namespace reusex::pipeline;
+
+namespace {
+
+const ParameterDescriptor &parameter_of(JobStage stage,
+                                        const std::string &key) {
+  for (const auto &parameter : stage_parameters(stage))
+    if (parameter.key == key)
+      return parameter;
+  FAIL("no descriptor for parameter '" << key << "'");
+  throw std::logic_error("unreachable");
+}
+
+double number_default(JobStage stage, const std::string &key) {
+  const auto &parameter = parameter_of(stage, key);
+  REQUIRE(std::holds_alternative<double>(parameter.default_value));
+  return std::get<double>(parameter.default_value);
+}
+
+/// The wire value narrowed back to the `float` the option struct holds.
+///
+/// The table publishes the shortest decimal that round-trips the float, so the
+/// wire carries 0.05 rather than 0.05000000074505806. Comparing that double
+/// against `static_cast<double>(0.05F)` would fail for the right reason and
+/// prove nothing; narrowing back is the property that actually matters — a
+/// caller echoing the published default reproduces the struct's value exactly.
+float float_default(JobStage stage, const std::string &key) {
+  return static_cast<float>(number_default(stage, key));
+}
+
+long long integer_default(JobStage stage, const std::string &key) {
+  const auto &parameter = parameter_of(stage, key);
+  REQUIRE(std::holds_alternative<long long>(parameter.default_value));
+  return std::get<long long>(parameter.default_value);
+}
+
+} // namespace
+
+TEST_CASE("Every runnable stage describes its parameters",
+          "[pipeline][params]") {
+  for (const auto &name : job_stage_names()) {
+    const auto stage = parse_job_stage(name);
+    REQUIRE(stage.has_value());
+    INFO("stage: " << name);
+
+    const auto &table = stage_parameters(*stage);
+    CHECK_FALSE(table.empty());
+
+    std::set<std::string> keys;
+    for (const auto &parameter : table) {
+      INFO("parameter: " << parameter.key);
+      CHECK_FALSE(parameter.key.empty());
+      CHECK_FALSE(parameter.label.empty());
+      CHECK_FALSE(parameter.description.empty());
+      // A duplicate key would make the form ambiguous and the last writer win.
+      CHECK(keys.insert(parameter.key).second);
+
+      // A bound that excludes the default would make the form reject its own
+      // starting state.
+      if (const auto *value = std::get_if<double>(&parameter.default_value)) {
+        if (parameter.minimum)
+          CHECK(*value >= *parameter.minimum);
+        if (parameter.maximum)
+          CHECK(*value <= *parameter.maximum);
+      }
+      if (const auto *value =
+              std::get_if<long long>(&parameter.default_value)) {
+        if (parameter.minimum)
+          CHECK(static_cast<double>(*value) >= *parameter.minimum);
+        if (parameter.maximum)
+          CHECK(static_cast<double>(*value) <= *parameter.maximum);
+      }
+
+      // The declared wire type and the stored default must agree, or a client
+      // trusting `type` will send something the runner cannot parse.
+      switch (parameter.type) {
+      case ParameterType::number:
+        CHECK(std::holds_alternative<double>(parameter.default_value));
+        break;
+      case ParameterType::integer:
+        CHECK(std::holds_alternative<long long>(parameter.default_value));
+        break;
+      case ParameterType::boolean:
+        CHECK(std::holds_alternative<bool>(parameter.default_value));
+        break;
+      case ParameterType::string:
+        CHECK(
+            (std::holds_alternative<std::string>(parameter.default_value) ||
+             std::holds_alternative<std::monostate>(parameter.default_value)));
+        break;
+      case ParameterType::integer_list:
+        // A list has no scalar default; absent means "no restriction".
+        CHECK(std::holds_alternative<std::monostate>(parameter.default_value));
+        break;
+      }
+    }
+  }
+}
+
+TEST_CASE("clouds defaults mirror ReconstructionParams", "[pipeline][params]") {
+  const reusex::geometry::ReconstructionParams d{};
+  CHECK(float_default(JobStage::clouds, "resolution") == d.resolution);
+  CHECK(float_default(JobStage::clouds, "min_distance") == d.min_distance);
+  CHECK(float_default(JobStage::clouds, "max_distance") == d.max_distance);
+  CHECK(integer_default(JobStage::clouds, "sampling_factor") ==
+        d.sampling_factor);
+  CHECK(integer_default(JobStage::clouds, "confidence_threshold") ==
+        d.confidence_threshold);
+}
+
+TEST_CASE("planes defaults mirror SegmentPlanesOptions", "[pipeline][params]") {
+  const reusex::geometry::SegmentPlanesOptions d{};
+  CHECK(float_default(JobStage::planes, "angle_threshold") ==
+        d.angle_threshold);
+  CHECK(float_default(JobStage::planes, "plane_dist_threshold") ==
+        d.plane_dist_threshold);
+  CHECK(integer_default(JobStage::planes, "min_inliers") == d.min_inliers);
+  CHECK(float_default(JobStage::planes, "radius") == d.radius);
+  CHECK(float_default(JobStage::planes, "interval_0") == d.interval_0);
+  CHECK(float_default(JobStage::planes, "interval_factor") ==
+        d.interval_factor);
+  CHECK(integer_default(JobStage::planes, "noise_seed") ==
+        static_cast<long long>(d.noise_seed));
+
+  const auto &adaptive = parameter_of(JobStage::planes, "adaptive");
+  REQUIRE(std::holds_alternative<bool>(adaptive.default_value));
+  CHECK(std::get<bool>(adaptive.default_value) == d.adaptive);
+
+  // #214: presence pins the parameter. A form echoing an untouched default
+  // back would silently switch adaptivity off for it, so the flag has to be
+  // on the wire — and only on these two.
+  for (const auto &parameter : stage_parameters(JobStage::planes)) {
+    const bool expected = parameter.key == "plane_dist_threshold" ||
+                          parameter.key == "min_inliers";
+    INFO("parameter: " << parameter.key);
+    CHECK(parameter.presence_sensitive == expected);
+  }
+}
+
+TEST_CASE("rooms defaults mirror SegmentRoomsOptions", "[pipeline][params]") {
+  const reusex::geometry::SegmentRoomsOptions d{};
+  CHECK(float_default(JobStage::rooms, "grid_size") == d.grid_size);
+  CHECK(float_default(JobStage::rooms, "resolution") == d.resolution);
+  CHECK(float_default(JobStage::rooms, "beta") == d.beta);
+  CHECK(integer_default(JobStage::rooms, "max_iter") == d.max_iter);
+  CHECK(integer_default(JobStage::rooms, "propagate_k") == d.propagate_k);
+  CHECK(float_default(JobStage::rooms, "propagate_max_radius") ==
+        d.propagate_max_radius);
+}
+
+TEST_CASE("instances defaults mirror SegmentInstancesRequest",
+          "[pipeline][params]") {
+  const reusex::geometry::SegmentInstancesRequest d{};
+  CHECK(float_default(JobStage::instances, "cluster_tolerance") ==
+        d.cluster_tolerance);
+  CHECK(integer_default(JobStage::instances, "min_cluster_size") ==
+        d.min_cluster_size);
+  CHECK(integer_default(JobStage::instances, "max_cluster_size") ==
+        d.max_cluster_size);
+
+  // These two have no option-struct home — they name clouds, not algorithm
+  // knobs — so the constants are shared with run_instances() instead.
+  const auto &semantic = parameter_of(JobStage::instances, "semantic_cloud");
+  REQUIRE(std::holds_alternative<std::string>(semantic.default_value));
+  CHECK(std::get<std::string>(semantic.default_value) ==
+        std::string(kDefaultSemanticCloud));
+
+  const auto &output = parameter_of(JobStage::instances, "output_cloud");
+  REQUIRE(std::holds_alternative<std::string>(output.default_value));
+  CHECK(std::get<std::string>(output.default_value) ==
+        std::string(kDefaultInstanceCloud));
+}
+
+TEST_CASE("A float default round-trips as the decimal it was written with",
+          "[pipeline][params]") {
+  // static_cast<double>(0.05F) is 0.05000000074505806, which is what a JSON
+  // encoder would faithfully print into a form field. The table goes through
+  // the shortest round-trip decimal of the float instead.
+  const auto resolution = number_default(JobStage::clouds, "resolution");
+  CHECK(resolution == 0.05);
+  CHECK(number_default(JobStage::rooms, "beta") == 0.01);
+  CHECK(number_default(JobStage::planes, "plane_dist_threshold") == 0.07);
+}

@@ -10,6 +10,7 @@
 #include <reusex/core/stages.hpp>
 #include <reusex/core/validate.hpp>
 #include <reusex/core/version.hpp>
+#include <reusex/pipeline/stage_parameters.hpp>
 #include <reusex/types/point_types.hpp>
 
 #include <opencv2/core.hpp>
@@ -20,7 +21,9 @@
 #include <charconv>
 #include <cstring>
 #include <exception>
+#include <type_traits>
 #include <utility>
+#include <variant>
 
 namespace rux::gui {
 namespace {
@@ -163,6 +166,97 @@ const std::vector<CatalogueEntry> &stage_catalogue() {
   return catalogue;
 }
 
+/// Every validation finding for a stage, verbatim — including the derived
+/// resolution `hint` (#295), which is the whole point of surfacing issues
+/// separately from `blockers`. `blockers` is a flat list of strings a client
+/// can print; `issues` is what a UI needs to say "run `rux create clouds`
+/// first" without re-deriving the pipeline order itself.
+json issues_json(const std::vector<reusex::core::ValidationIssue> &issues) {
+  json list = json::array();
+  for (const auto &issue : issues)
+    list.push_back(json{
+        {"check", issue.check},
+        {"message", issue.message},
+        {"severity", issue.severity == reusex::core::ValidationSeverity::error
+                         ? "error"
+                         : "warning"},
+        {"hint", issue.hint},
+        {"artifact", issue.artifact},
+        {"commands", issue.commands}});
+  return list;
+}
+
+/// The parameter descriptors of a runnable stage, straight from
+/// pipeline::stage_parameters() — which reads the library option structs, so
+/// no default is ever re-typed here (STANDARDS §4).
+json stage_parameters_json(pipeline::JobStage stage) {
+  json list = json::array();
+  for (const auto &parameter : pipeline::stage_parameters(stage)) {
+    json entry{{"key", parameter.key},
+               {"type", std::string(pipeline::to_string(parameter.type))},
+               {"label", parameter.label},
+               {"description", parameter.description},
+               {"presence_sensitive", parameter.presence_sensitive}};
+
+    // `null` rather than an invented zero: these parameters genuinely have no
+    // neutral value, and a form that pre-filled one would change behaviour.
+    std::visit(
+        [&entry](const auto &value) {
+          using T = std::decay_t<decltype(value)>;
+          if constexpr (std::is_same_v<T, std::monostate>)
+            entry["default"] = nullptr;
+          else
+            entry["default"] = value;
+        },
+        parameter.default_value);
+
+    entry["minimum"] =
+        parameter.minimum ? json(*parameter.minimum) : json(nullptr);
+    entry["maximum"] =
+        parameter.maximum ? json(*parameter.maximum) : json(nullptr);
+    list.push_back(std::move(entry));
+  }
+  return list;
+}
+
+/// One stage's full record: identity, runnability, readiness and knobs.
+json stage_entry_json(const reusex::ProjectDB &db,
+                      const CatalogueEntry &entry) {
+  std::vector<reusex::core::ValidationIssue> issues;
+  reusex::core::check_stage_inputs(db, entry.contract, issues);
+
+  json blockers = json::array();
+  for (const auto &issue : issues)
+    if (issue.severity == reusex::core::ValidationSeverity::error)
+      blockers.push_back(issue.check + ": " + issue.message);
+
+  const auto &contract = reusex::core::stage_contract(entry.contract);
+  json outputs = json::array();
+  for (const auto &output : contract.outputs)
+    outputs.push_back(std::string(output));
+
+  return json{
+      {"stage", std::string(entry.name)},
+      // The name this stage writes into `pipeline_log.stage`, which is NOT the
+      // wire token — the CLI has been writing `segment_planes` into that
+      // column since before the GUI existed. Without this a client cannot join
+      // durable history to a stage card without hard-coding the mapping.
+      {"log_name", entry.job_stage ? std::string(pipeline::pipeline_log_name(
+                                         *entry.job_stage))
+                                   : std::string()},
+      {"summary", std::string(contract.summary)},
+      {"command", std::string(contract.command)},
+      {"runnable", entry.job_stage.has_value()},
+      {"cancellable", entry.job_stage && pipeline::stage_supports_cancellation(
+                                             *entry.job_stage)},
+      {"ready", blockers.empty()},
+      {"outputs", std::move(outputs)},
+      {"blockers", std::move(blockers)},
+      {"issues", issues_json(issues)},
+      {"parameters", entry.job_stage ? stage_parameters_json(*entry.job_stage)
+                                     : json::array()}};
+}
+
 } // namespace
 
 // ===========================================================================
@@ -250,6 +344,8 @@ const std::vector<Endpoint> &endpoint_table() {
        "Instance rows of an instance-label cloud, with material links"},
       {"GET", "/api/v1/stages",
        "The stage catalogue, with readiness for this project"},
+      {"GET", "/api/v1/stages/<string>/validation",
+       "Input-contract validation for one stage"},
       {"GET", "/api/v1/pipeline-log", "Persisted stage execution history"},
       {"GET", "/api/v1/jobs", "Jobs known to this server, most recent first"},
       {"POST", "/api/v1/jobs", "Submit a stage run"},
@@ -742,25 +838,24 @@ json instances_json(const reusex::ProjectDB &db, const std::string &cloud) {
 
 json stages_json(const reusex::ProjectDB &db) {
   json list = json::array();
-  for (const auto &entry : stage_catalogue()) {
-    std::vector<reusex::core::ValidationIssue> issues;
-    reusex::core::check_stage_inputs(db, entry.contract, issues);
-
-    json blockers = json::array();
-    for (const auto &issue : issues)
-      if (issue.severity == reusex::core::ValidationSeverity::error)
-        blockers.push_back(issue.check + ": " + issue.message);
-
-    list.push_back(
-        json{{"stage", std::string(entry.name)},
-             {"runnable", entry.job_stage.has_value()},
-             {"cancellable",
-              entry.job_stage &&
-                  pipeline::stage_supports_cancellation(*entry.job_stage)},
-             {"ready", blockers.empty()},
-             {"blockers", std::move(blockers)}});
-  }
+  for (const auto &entry : stage_catalogue())
+    list.push_back(stage_entry_json(db, entry));
   return json{{"stages", std::move(list)}};
+}
+
+json stage_validation_json(const reusex::ProjectDB &db,
+                           const std::string &stage) {
+  const auto &catalogue = stage_catalogue();
+  const auto it = std::find_if(
+      catalogue.begin(), catalogue.end(),
+      [&](const CatalogueEntry &entry) { return entry.name == stage; });
+  if (it == catalogue.end())
+    not_found("stage", stage);
+
+  // Deliberately the same body as one element of /stages rather than a
+  // narrower one: a client that re-checks a single stage after a run must not
+  // have to merge two differently-shaped records to refresh its card.
+  return stage_entry_json(db, *it);
 }
 
 json pipeline_log_json(const reusex::ProjectDB &db, const Params &params) {

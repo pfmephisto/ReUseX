@@ -32,6 +32,16 @@ struct ValidationIssue {
   /// so the "run these commands in order" guidance cannot drift out of step
   /// with the checks themselves.
   std::string hint;
+  /// The pipeline artifact this issue is about, when it is about one; empty
+  /// otherwise. Surfaced separately so a front end can say "inputs missing:
+  /// cloud, normals" without regex-ing `message`, which is prose and is
+  /// allowed to change wording (#305).
+  std::string artifact;
+  /// The same resolution as `hint`, as an ordered list of commands rather than
+  /// prose. `hint` is formatted for a terminal (it is multi-line when several
+  /// commands are needed); a GUI needs the steps, not the layout, and parsing
+  /// them back out of the prose would be a second source of truth (#305).
+  std::vector<std::string> commands;
 };
 
 /// Aggregate result of running all validation checks over a project.

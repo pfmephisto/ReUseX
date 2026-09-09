@@ -352,6 +352,21 @@ export class RuxApiClient {
     return body.stages;
   }
 
+  /**
+   * Re-check one stage's input contract.
+   *
+   * Returns the same record `/stages` does for that stage, so a card can be
+   * substituted in place after a run finishes rather than refetching the whole
+   * catalogue to learn that `clouds` succeeding unblocked `planes`.
+   */
+  stageValidation(stage: string, signal?: AbortSignal): Promise<StageInfo> {
+    return this.requestJson<StageInfo>(
+      `/stages/${encodeURIComponent(stage)}/validation`,
+      undefined,
+      signal,
+    );
+  }
+
   async pipelineLog(limit?: number, signal?: AbortSignal): Promise<PipelineLogEntry[]> {
     const body = await this.requestJson<{ entries: PipelineLogEntry[] }>(
       '/pipeline-log',

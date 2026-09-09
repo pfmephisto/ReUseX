@@ -24,6 +24,8 @@ import {
   PIPELINE_LOG,
   PROJECT_SUMMARY,
   STAGES,
+  STAGES_EMPTY_PROJECT,
+  STAGE_VALIDATION_BLOCKED,
 } from './fixtures';
 
 interface RecordedRequest {
@@ -134,11 +136,35 @@ describe('envelope unwrapping', () => {
       'instances',
       'mesh',
     ]);
-    // `mesh` is the one blocked stage in the recorded project.
+    // The recorded project has been through clouds -> planes -> rooms, so every
+    // contract is satisfied; `mesh` is still the one stage with no runner.
     const mesh = stages[4];
-    expect(mesh.ready).toBe(false);
+    expect(mesh.ready).toBe(true);
     expect(mesh.runnable).toBe(false);
-    expect(mesh.blockers?.[0]).toContain("requires cloud 'rooms'");
+    expect(mesh.parameters).toEqual([]);
+  });
+
+  it('carries the parameter schema and the blocked reason', async () => {
+    const { api } = clientFor(STAGES_EMPTY_PROJECT);
+    const stages = await api.stages();
+
+    const planes = stages.find((stage) => stage.stage === 'planes');
+    expect(planes?.ready).toBe(false);
+    expect(planes?.blockers[0]).toContain("requires cloud 'cloud'");
+    // The structured half of the same finding: what is missing, and the
+    // ordered commands that would produce it (#295).
+    expect(planes?.issues.map((issue) => issue.artifact)).toEqual(['cloud', 'normals']);
+    expect(planes?.issues[0].commands).toContain('rux create clouds');
+    // Blocked is not the same as unknown: the knobs are described either way.
+    expect(planes?.parameters.length).toBeGreaterThan(0);
+  });
+
+  it('fetches one stage\'s validation', async () => {
+    const { api, calls } = clientFor(STAGE_VALIDATION_BLOCKED);
+    const stage = await api.stageValidation('planes');
+    expect(calls[0].url).toBe('/api/v1/stages/planes/validation');
+    expect(stage.stage).toBe('planes');
+    expect(stage.ready).toBe(false);
   });
 
   it('unwraps {jobs: [...]}', async () => {
@@ -154,7 +180,7 @@ describe('envelope unwrapping', () => {
     const entries = await api.pipelineLog();
     expect(entries).toHaveLength(3);
     expect(entries.map((entry) => entry.id)).toEqual([3, 2, 1]);
-    expect(entries[0].stage).toBe('segment_planes');
+    expect(entries[0].stage).toBe('segment_rooms');
     expect(entries[0].status).toBe('success');
   });
 

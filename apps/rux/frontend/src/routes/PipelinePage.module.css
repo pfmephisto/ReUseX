@@ -1,0 +1,154 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  padding: var(--space-5);
+  min-width: 0;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.heading {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-medium);
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(var(--layout-panel-width), 1fr));
+  gap: var(--space-4);
+}
+
+.historyHead {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.filters {
+  display: flex;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.filter {
+  padding: var(--space-0) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-family: inherit;
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+}
+
+.filterOn {
+  border-color: transparent;
+  background: var(--color-accent-muted);
+  color: var(--color-text);
+}
+
+.filter:focus-visible {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: 2px;
+}
+
+.timeline {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-left-width: 3px;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+}
+
+.running {
+  border-left-color: var(--color-status-running);
+}
+.success {
+  border-left-color: var(--color-status-succeeded);
+}
+.failed {
+  border-left-color: var(--color-status-failed);
+}
+
+.rowHead {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.rowStage {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+.rowStatus {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+.running .rowStatus {
+  color: var(--color-status-running);
+}
+.success .rowStatus {
+  color: var(--color-status-succeeded);
+}
+.failed .rowStatus {
+  color: var(--color-status-failed);
+}
+
+.viaGui {
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--color-accent-muted);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.rowTime {
+  margin-left: auto;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-faint);
+}
+
+.rowDuration {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.rowParams {
+  margin: var(--space-1) 0 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-faint);
+  word-break: break-word;
+}
+
+.rowError {
+  margin: var(--space-1) 0 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-status-failed);
+  word-break: break-word;
+}

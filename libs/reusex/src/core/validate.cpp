@@ -324,22 +324,38 @@ void collect_producers(const ProjectDB &db, const ProjectState &state,
 
 /// The progressive "run these commands in order" guidance the CLI used to
 /// hard-code per stage, derived from the table instead (#246).
-std::string resolution_hint(const ProjectDB &db, const ProjectState &state,
-                            std::string_view artifact) {
+std::vector<std::string> resolution_commands(const ProjectDB &db,
+                                             const ProjectState &state,
+                                             std::string_view artifact) {
   std::set<size_t> stages;
   collect_producers(db, state, artifact, stages);
-  if (stages.empty())
-    return {};
 
   const auto &contracts = stage_contracts();
   std::vector<std::string> commands;
   for (size_t index : stages) // std::set iterates in pipeline order
     commands.emplace_back(contracts[index].command);
+  return commands;
+}
 
+std::string resolution_hint(const std::vector<std::string> &commands,
+                            std::string_view artifact) {
+  if (commands.empty())
+    return {};
   if (commands.size() == 1)
     return fmt::format("Run '{}' to produce '{}'", commands.front(), artifact);
   return fmt::format("Run the following commands in order:\n    {}",
                      fmt::join(commands, "\n    "));
+}
+
+/// One issue about a named artifact, carrying both forms of the resolution.
+ValidationIssue artifact_issue(const ProjectDB &db, const ProjectState &state,
+                               std::string check, std::string message,
+                               std::string_view artifact) {
+  auto commands = resolution_commands(db, state, artifact);
+  return ValidationIssue{
+      std::move(check),          std::move(message),
+      ValidationSeverity::error, resolution_hint(commands, artifact),
+      std::string(artifact),     std::move(commands)};
 }
 
 /// Message for an unsatisfied input, preserving the wording the pre-#246
@@ -423,7 +439,8 @@ void check_stage_inputs(const ProjectDB &db, PipelineStage stage,
                      fmt::format("stage '{}' declares unknown artifact '{}'",
                                  name, names.front().declared),
                      ValidationSeverity::error,
-                     {}});
+                     {},
+                     std::string(names.front().declared)});
       continue;
     }
 
@@ -443,10 +460,10 @@ void check_stage_inputs(const ProjectDB &db, PipelineStage stage,
     }
 
     if (!satisfied)
-      out.push_back({"missing_stage_input",
-                     missing_message(name, *artifact, names, input, state, db),
-                     ValidationSeverity::error,
-                     resolution_hint(db, state, names.front().declared)});
+      out.push_back(artifact_issue(
+          db, state, "missing_stage_input",
+          missing_message(name, *artifact, names, input, state, db),
+          names.front().declared));
   }
 
   for (const auto &[alignment, members] : groups) {
@@ -458,12 +475,12 @@ void check_stage_inputs(const ProjectDB &db, PipelineStage stage,
       const auto &[member_name, member_size] = members[i];
       if (member_size == ref_size)
         continue;
-      out.push_back(
-          {"stage_input_size_mismatch",
-           fmt::format("stage '{}': cloud '{}' has {} points but '{}' has {} — "
-                       "index-aligned inputs must match",
-                       name, member_name, member_size, ref_name, ref_size),
-           ValidationSeverity::error, resolution_hint(db, state, member_name)});
+      out.push_back(artifact_issue(
+          db, state, "stage_input_size_mismatch",
+          fmt::format("stage '{}': cloud '{}' has {} points but '{}' has {} — "
+                      "index-aligned inputs must match",
+                      name, member_name, member_size, ref_name, ref_size),
+          member_name));
     }
   }
 }

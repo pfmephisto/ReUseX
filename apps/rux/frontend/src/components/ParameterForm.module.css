@@ -1,0 +1,122 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-sunken);
+}
+
+.formHead {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.formTitle {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+.changed {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-faint);
+}
+
+.reset {
+  margin-left: auto;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--color-accent);
+  font-family: inherit;
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+}
+
+.reset:disabled {
+  color: var(--color-text-faint);
+  cursor: not-allowed;
+}
+
+.reset:focus-visible,
+.input:focus-visible,
+.checkbox:focus-visible {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: 2px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(var(--layout-panel-width), 1fr));
+  gap: var(--space-3);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.label {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+}
+
+/* The wire key, always visible: it is what goes into pipeline_log, and what a
+   user would have to type to reproduce the run from the CLI. */
+.key {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-faint);
+}
+
+.input {
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  min-width: 0;
+}
+
+.invalid {
+  border-color: var(--color-status-failed);
+}
+
+.checkbox {
+  align-self: flex-start;
+  accent-color: var(--color-accent);
+}
+
+.help {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.range {
+  color: var(--color-text-faint);
+}
+
+.pinned {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-status-queued);
+}
+
+.error {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-status-failed);
+}

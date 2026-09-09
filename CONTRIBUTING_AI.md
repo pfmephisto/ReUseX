@@ -294,6 +294,26 @@ git add src/geometry/new_feature.cpp include/ReUseX/geometry/new_feature.hpp
 # PR body: Detailed with test plan
 ```
 
+### Worktrees
+
+Most agent work happens in a linked worktree under `.worktrees/`, not in the
+main checkout:
+
+```bash
+git worktree add .worktrees/<name> -b <branch> origin/main
+cp .pre-commit-config.yaml .worktrees/<name>/   # generated file, not tracked
+cd .worktrees/<name> && nix develop
+```
+
+`core.hooksPath` must be an ABSOLUTE path for pre-commit hooks to run on
+commits made inside a worktree — a linked worktree's `.git` is a *file*
+(gitdir pointer), not a directory, so a relative `core.hooksPath` (e.g.
+`.git/hooks`) resolves to nothing there and git silently skips all hooks
+(#317). The devshell's `shellHook` (`shell.nix`) re-pins `core.hooksPath` to
+the absolute git-common-dir on every `nix develop`, so this is normally
+automatic — but if you ever see a commit go through with an obvious
+clang-format/reuse violation, check `git config core.hooksPath` first.
+
 ## Resources
 
 - Main docs: `CLAUDE.md` - High-level project guide

@@ -17,6 +17,11 @@ on:
     branches: [main]
   pull_request:
 
+# Least-privilege default: every job here only checks out and reads/lints,
+# none of them need to write anything.
+permissions:
+  contents: read
+
 jobs:
   clang-format:
     name: clang-format check

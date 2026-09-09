@@ -32,6 +32,12 @@ on:
   # pull_request:
   # ^ blocked on #202 (Cachix cache + CACHIX_AUTH_TOKEN secret)
 
+# Least-privilege default: the build-and-test job only checks out, builds,
+# and (optionally) pushes to Cachix with its own dedicated authToken — it
+# never needs to write to the repo itself.
+permissions:
+  contents: read
+
 jobs:
   build-and-test:
     name: Build + ctest (CPU variant)

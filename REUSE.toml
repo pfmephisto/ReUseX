@@ -1,0 +1,42 @@
+version = 1
+SPDX-PackageName = "ReUseX"
+SPDX-PackageSupplier = "Povl Filip Sonne-Frederiksen"
+SPDX-PackageDownloadLocation = "https://github.com/pfmephisto/ReUseX"
+
+# Bulk licensing for docs, images, and misc config/data files where an
+# inline or .license-sidecar header is impractical or adds no value
+# (rendered/binary assets, generated lockfiles, editor/tool config).
+# Source code keeps per-file SPDX headers (docs/STANDARDS.md; see also the
+# existing per-file .license sidecars next to individual patches/images).
+
+[[annotations]]
+path = [
+  "**/*.md",
+  "docs/header.html",
+]
+SPDX-FileCopyrightText = "2025 Povl Filip Sonne-Frederiksen"
+SPDX-License-Identifier = "GPL-3.0-or-later"
+
+[[annotations]]
+path = [
+  "assets/*.png",
+  "docs/benchmarks/*.jpg",
+  "docs/research/figures/panorama/*.jpg",
+]
+SPDX-FileCopyrightText = "2025 Povl Filip Sonne-Frederiksen"
+SPDX-License-Identifier = "GPL-3.0-or-later"
+
+[[annotations]]
+path = "scripts/testdata/*.xml"
+SPDX-FileCopyrightText = "2025 Povl Filip Sonne-Frederiksen"
+SPDX-License-Identifier = "GPL-3.0-or-later"
+
+[[annotations]]
+path = [
+  ".claude/agents/*.md",
+  ".claude/settings.local.json",
+  ".gitattributes",
+  ".gitmodules",
+]
+SPDX-FileCopyrightText = "2025 Povl Filip Sonne-Frederiksen"
+SPDX-License-Identifier = "GPL-3.0-or-later"

@@ -94,8 +94,8 @@ struct SubcommandOptimizeOptions {
       reusex::geometry::PlaneGraphOptions{}.panorama_loops.max_frames;
   int pano_min_inliers =
       reusex::geometry::PlaneGraphOptions{}.panorama_loops.min_frame_inliers;
-  int pano_max_edges =
-      reusex::geometry::PlaneGraphOptions{}.panorama_loops.max_edges_per_panorama;
+  int pano_max_edges = reusex::geometry::PlaneGraphOptions{}
+                           .panorama_loops.max_edges_per_panorama;
   int pano_n_yaw = reusex::geometry::PlaneGraphOptions{}.panorama_loops.n_yaw;
   int pano_max_features =
       reusex::geometry::PlaneGraphOptions{}.panorama_loops.max_features;

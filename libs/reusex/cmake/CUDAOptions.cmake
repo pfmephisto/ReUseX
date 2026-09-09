@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 set(CMAKE_CUDA_ARCHITECTURES 80 86 89)
 #set(CMAKE_CUDA_ARCHITECTURES "native")
 # RTX A6000 should have compute capability 8.6 (86)

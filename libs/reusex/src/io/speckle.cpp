@@ -213,8 +213,7 @@ nlohmann::json serialize_base(const Base &obj,
       nlohmann::json defs = nlohmann::json::array();
       for (const auto &def : col->instanceDefinitionProxies) {
         ClosureMap unused;
-        nlohmann::json def_json =
-            serialize_base(*def, all_objects, unused);
+        nlohmann::json def_json = serialize_base(*def, all_objects, unused);
         std::string canonical = def_json.dump(
             -1, ' ', false, nlohmann::json::error_handler_t::replace);
         def_json["id"] = md5_hash(canonical);
@@ -856,11 +855,11 @@ auto export_to_speckle(const ExportScene &scene, const ExportConfig &cfg)
           make_speckle_sphere(entry.x, entry.y, entry.z, 0.15));
 
       sphere->name = entry.image_name;
-      sphere->applicationId = uuid_from_identity("panorama:" + entry.image_name);
+      sphere->applicationId =
+          uuid_from_identity("panorama:" + entry.image_name);
       sphere->properties["Image Name"] = entry.image_name;
-      sphere->properties["imageUrl"] =
-          fmt::format("{}/{}/{}", cfg.image_url_base, cfg.project_id,
-                      entry.image_name);
+      sphere->properties["imageUrl"] = fmt::format(
+          "{}/{}/{}", cfg.image_url_base, cfg.project_id, entry.image_name);
 
       root->elements.push_back(sphere);
     }
@@ -874,7 +873,7 @@ auto export_to_speckle(const ExportScene &scene, const ExportConfig &cfg)
   if (!scene.materials.empty()) {
     auto root = std::make_shared<Collection>();
     root->name = "materials";
-    root->version = 3;  // Speckle v3 root marker — enables proxy resolution.
+    root->version = 3; // Speckle v3 root marker — enables proxy resolution.
     // Embed `elements` inline so the reuse-x webapp (which reads
     // speckleRoot.elements directly without resolving "@" references) can
     // walk down to the InstanceProxies.
@@ -957,15 +956,16 @@ auto export_to_speckle(const ExportScene &scene, const ExportConfig &cfg)
       const std::string &filename =
           entry.image_filename.empty() ? entry.name : entry.image_filename;
       nlohmann::json base = nlohmann::json::object();
-      base["id"] = entry.name;          // original material name/guid (HACK)
-      base["Index"] = camera_index;     // matches "Camera N" (HACK)
+      base["id"] = entry.name;      // original material name/guid (HACK)
+      base["Index"] = camera_index; // matches "Camera N" (HACK)
       base["fileName"] = filename;
-      base["imageURL"] = fmt::format("{}/{}/{}", cfg.image_url_base,
-                                     cfg.project_id, filename);
+      base["imageURL"] =
+          fmt::format("{}/{}/{}", cfg.image_url_base, cfg.project_id, filename);
       inst->properties["Base"] = std::move(base);
 
       // Location: mirror the transform as a M00..M33 sub-object.
-      inst->properties["Location"] = transform_to_location_json(inst->transform);
+      inst->properties["Location"] =
+          transform_to_location_json(inst->transform);
 
       // Reuse: every stored passport property carried over as-is.
       // Skip "images" — that's the base64 JPEG blob (kept on the passport

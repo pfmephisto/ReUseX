@@ -4,17 +4,18 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
-#include <io/reusex.hpp>
-#include <types.hpp>
 #include <filesystem>
+#include <io/reusex.hpp>
 #include <pcl/ModelCoefficients.h>
+#include <types.hpp>
 
 using Catch::Matchers::WithinAbs;
 
 TEST_CASE("getPlanes extracts plane data from point clouds", "[io][reusex]") {
   using namespace reusex;
 
-  // Create minimal test clouds - getPlanes expects per-plane data, not per-point labels
+  // Create minimal test clouds - getPlanes expects per-plane data, not
+  // per-point labels
   CloudLPtr planes(new CloudL);
   CloudNPtr normals(new CloudN);
   CloudLocPtr locations(new CloudLoc);
@@ -61,26 +62,26 @@ TEST_CASE("save and read plane data round-trip", "[io][reusex]") {
   // Create test data in the format expected by save()
   std::vector<pcl::ModelCoefficients> model_coefficients;
   pcl::ModelCoefficients coeff1;
-  coeff1.values = {0.0, 0.0, 1.0, 0.0};  // Horizontal plane
+  coeff1.values = {0.0, 0.0, 1.0, 0.0}; // Horizontal plane
   model_coefficients.push_back(coeff1);
 
   pcl::ModelCoefficients coeff2;
-  coeff2.values = {1.0, 0.0, 0.0, -5.0};  // Vertical plane at x=5
+  coeff2.values = {1.0, 0.0, 0.0, -5.0}; // Vertical plane at x=5
   model_coefficients.push_back(coeff2);
 
-  std::vector<Eigen::Vector4f, Eigen::aligned_allocator<Eigen::Vector4f>> centroids = {
-      Eigen::Vector4f(1.0f, 2.0f, 3.0f, 1.0f),
-      Eigen::Vector4f(5.0f, 0.0f, 0.0f, 1.0f)
-  };
+  std::vector<Eigen::Vector4f, Eigen::aligned_allocator<Eigen::Vector4f>>
+      centroids = {Eigen::Vector4f(1.0f, 2.0f, 3.0f, 1.0f),
+                   Eigen::Vector4f(5.0f, 0.0f, 0.0f, 1.0f)};
 
   std::vector<IndicesPtr> inlier_indices = {
       std::make_shared<Indices>(Indices{0, 1, 2}),
-      std::make_shared<Indices>(Indices{3, 4, 5, 6})
-  };
+      std::make_shared<Indices>(Indices{3, 4, 5, 6})};
 
   // Save to temp file
-  std::filesystem::path temp_path = std::filesystem::temp_directory_path() / "test_planes.planes";
-  bool save_result = reusex::io::save(temp_path, model_coefficients, centroids, inlier_indices);
+  std::filesystem::path temp_path =
+      std::filesystem::temp_directory_path() / "test_planes.planes";
+  bool save_result = reusex::io::save(temp_path, model_coefficients, centroids,
+                                      inlier_indices);
   REQUIRE(save_result);
 
   // Verify file exists
@@ -88,10 +89,12 @@ TEST_CASE("save and read plane data round-trip", "[io][reusex]") {
 
   // Read back
   std::vector<pcl::ModelCoefficients> read_model_coefficients;
-  std::vector<Eigen::Vector4f, Eigen::aligned_allocator<Eigen::Vector4f>> read_centroids;
+  std::vector<Eigen::Vector4f, Eigen::aligned_allocator<Eigen::Vector4f>>
+      read_centroids;
   std::vector<IndicesPtr> read_indices;
 
-  bool read_result = reusex::io::read(temp_path, read_model_coefficients, read_centroids, read_indices);
+  bool read_result = reusex::io::read(temp_path, read_model_coefficients,
+                                      read_centroids, read_indices);
   REQUIRE(read_result);
 
   // Verify round-trip
@@ -137,13 +140,15 @@ TEST_CASE("read handles non-existent file", "[io][reusex]") {
   using namespace reusex;
 
   std::vector<pcl::ModelCoefficients> model_coefficients;
-  std::vector<Eigen::Vector4f, Eigen::aligned_allocator<Eigen::Vector4f>> centroids;
+  std::vector<Eigen::Vector4f, Eigen::aligned_allocator<Eigen::Vector4f>>
+      centroids;
   std::vector<IndicesPtr> inlier_indices;
 
   // Try to read a file that doesn't exist
   // Note: Current implementation may return true but leave vectors empty
-  [[maybe_unused]] auto success = reusex::io::read("/tmp/nonexistent_planes_file_12345.planes",
-                   model_coefficients, centroids, inlier_indices);
+  [[maybe_unused]] auto success =
+      reusex::io::read("/tmp/nonexistent_planes_file_12345.planes",
+                       model_coefficients, centroids, inlier_indices);
 
   // Verify vectors are empty (no data loaded)
   REQUIRE(model_coefficients.empty());

@@ -98,9 +98,9 @@ ColmapPose to_colmap_pose(const std::array<double, 16> &worldPose,
   return ColmapPose{q.w(), q.x(), q.y(), q.z(), t_cw.x(), t_cw.y(), t_cw.z()};
 }
 
-void write_cameras_txt(const std::filesystem::path &path,
-                       const std::vector<std::tuple<int, core::SensorIntrinsics>>
-                           &cameras_by_id) {
+void write_cameras_txt(
+    const std::filesystem::path &path,
+    const std::vector<std::tuple<int, core::SensorIntrinsics>> &cameras_by_id) {
   std::ofstream out(path);
   if (!out)
     throw std::runtime_error("Failed to open " + path.string() +
@@ -135,8 +135,8 @@ void write_images_txt(const std::filesystem::path &path,
   out << "# Number of images: " << frames.size() << "\n";
   for (const auto &f : frames) {
     out << f.image_id << " "
-        << fmt::format("{:.17g} {:.17g} {:.17g} {:.17g} ", f.pose.qw,
-                       f.pose.qx, f.pose.qy, f.pose.qz)
+        << fmt::format("{:.17g} {:.17g} {:.17g} {:.17g} ", f.pose.qw, f.pose.qx,
+                       f.pose.qy, f.pose.qz)
         << fmt::format("{:.10g} {:.10g} {:.10g} ", f.pose.tx, f.pose.ty,
                        f.pose.tz)
         << f.camera_id << " " << f.image_name << "\n";
@@ -145,8 +145,7 @@ void write_images_txt(const std::filesystem::path &path,
   }
 }
 
-void write_points3D_txt(const std::filesystem::path &path,
-                        const ProjectDB &db,
+void write_points3D_txt(const std::filesystem::path &path, const ProjectDB &db,
                         const ColmapExportOptions &opt) {
   std::ofstream out(path);
   if (!out)
@@ -272,8 +271,7 @@ void export_colmap_scene(const ProjectDB &db,
     if (!cv::imwrite(image_path.string(), img, jpeg_params))
       throw std::runtime_error("Failed to write " + image_path.string());
 
-    frame_records.push_back(
-        FrameRecord{node_id, cam_id, cpose, image_name});
+    frame_records.push_back(FrameRecord{node_id, cam_id, cpose, image_name});
   }
 
   if (frame_records.empty())

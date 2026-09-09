@@ -11,10 +11,11 @@
 namespace reusex::vision {
 
 /* IVideoModel is a stateful model interface for video / temporal-sequence
- * inference. It is intentionally distinct from IModel: whereas IModel::forward()
- * is a stateless, batch-oriented pass (safe to drive from a shuffled, multi
- * threaded Dataloader), IVideoModel carries an internal memory bank that couples
- * consecutive frames. The SAM 3.1 video tracker is the primary implementation.
+ * inference. It is intentionally distinct from IModel: whereas
+ * IModel::forward() is a stateless, batch-oriented pass (safe to drive from a
+ * shuffled, multi threaded Dataloader), IVideoModel carries an internal memory
+ * bank that couples consecutive frames. The SAM 3.1 video tracker is the
+ * primary implementation.
  *
  * CONTRACT — callers MUST obey the following:
  *   - Feed frames in strict temporal order. The model conditions each frame on
@@ -27,7 +28,8 @@ namespace reusex::vision {
  *
  * step() I/O contract:
  *   - input.first  : a TensorRTData (image + prompts + confidence_threshold).
- *   - input.second : the dataset index / sample id (echoed unchanged on output).
+ *   - input.second : the dataset index / sample id (echoed unchanged on
+ * output).
  *   - output.first : a TensorRTData whose .image is the CV_32S per-pixel label
  *                    image (background = -1, class ids 0+), exactly like
  *                    TensorRTSam3::forward().

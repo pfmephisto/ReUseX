@@ -7,7 +7,11 @@
 # OpenMVS, libtorch — several rebuilt by our overlays) is too large to build
 # from scratch on GitHub-hosted runners without a binary cache.
 #
-# To enable:
+# Cheap gates (clang-format, REUSE/SPDX) no longer wait on this — they run on
+# every push/PR from .github/workflows/lint.yml (#250), since they don't
+# touch the nix closure at all.
+#
+# To enable this build-and-test job on push/PR (tracked in #202):
 #   1. Create a Cachix cache (free for OSS): https://app.cachix.org
 #   2. Add repo secret CACHIX_AUTH_TOKEN.
 #   3. Seed the cache from a machine that has already built the CPU variant:
@@ -26,6 +30,13 @@ on:
   # push:
   #   branches: [main]
   # pull_request:
+  # ^ blocked on #202 (Cachix cache + CACHIX_AUTH_TOKEN secret)
+
+# Least-privilege default: the build-and-test job only checks out, builds,
+# and (optionally) pushes to Cachix with its own dedicated authToken — it
+# never needs to write to the repo itself.
+permissions:
+  contents: read
 
 jobs:
   build-and-test:
@@ -57,6 +68,11 @@ jobs:
   # so unlike build-and-test above it is cheap enough to run on a stock runner
   # today. It is packaged for nix separately (pkgs/reusex-gui-frontend), which
   # is why nothing here needs the Nix store.
+  #
+  # It's still gated by this workflow's workflow_dispatch-only trigger (GitHub
+  # Actions triggers are per-workflow, not per-job) even though nothing about
+  # it depends on #202 — moving it to lint.yml (or its own push/PR workflow)
+  # is a reasonable, but separate, follow-up.
   frontend:
     name: GUI frontend (build + vitest)
     runs-on: ubuntu-latest
@@ -82,15 +98,3 @@ jobs:
       - name: Test
         working-directory: apps/rux/frontend
         run: npm test
-
-  format-check:
-    name: clang-format check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Run clang-format (dry run)
-        run: |
-          sudo apt-get update -q && sudo apt-get install -y -q clang-format
-          git ls-files '*.cpp' '*.hpp' '*.cu' '*.cuh' \
-            | xargs clang-format --dry-run --Werror

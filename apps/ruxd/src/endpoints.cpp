@@ -18,13 +18,20 @@ namespace ruxd {
 
 namespace {
 crow::HTTPMethod to_method(const std::string &m) {
-  if (m == "GET") return crow::HTTPMethod::Get;
-  if (m == "POST") return crow::HTTPMethod::Post;
-  if (m == "PUT") return crow::HTTPMethod::Put;
-  if (m == "DELETE") return crow::HTTPMethod::Delete;
-  if (m == "PATCH") return crow::HTTPMethod::Patch;
-  if (m == "HEAD") return crow::HTTPMethod::Head;
-  if (m == "OPTIONS") return crow::HTTPMethod::Options;
+  if (m == "GET")
+    return crow::HTTPMethod::Get;
+  if (m == "POST")
+    return crow::HTTPMethod::Post;
+  if (m == "PUT")
+    return crow::HTTPMethod::Put;
+  if (m == "DELETE")
+    return crow::HTTPMethod::Delete;
+  if (m == "PATCH")
+    return crow::HTTPMethod::Patch;
+  if (m == "HEAD")
+    return crow::HTTPMethod::Head;
+  if (m == "OPTIONS")
+    return crow::HTTPMethod::Options;
   throw std::invalid_argument(
       fmt::format("ruxd: unsupported HTTP method '{}'", m));
 }

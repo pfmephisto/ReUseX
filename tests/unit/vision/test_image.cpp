@@ -4,8 +4,8 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
-#include <vision/common/image.hpp>
 #include <opencv2/opencv.hpp>
+#include <vision/common/image.hpp>
 
 using namespace reusex::vision::common::tensor;
 
@@ -24,7 +24,7 @@ TEST_CASE("cvimg creates Image view from cv::Mat", "[vision][image]") {
   REQUIRE(img.bgrptr == mat.data);
 
   // Verify it's BGR format
-  const uint8_t* data = static_cast<const uint8_t*>(img.bgrptr);
+  const uint8_t *data = static_cast<const uint8_t *>(img.bgrptr);
   REQUIRE(data[0] == 255); // Blue channel
   REQUIRE(data[1] == 0);   // Green channel
   REQUIRE(data[2] == 0);   // Red channel
@@ -48,7 +48,7 @@ TEST_CASE("cvimg handles different Mat types", "[vision][image]") {
 
   REQUIRE(img.width == 1);
   REQUIRE(img.height == 1);
-  const uint8_t* data = static_cast<const uint8_t*>(img.bgrptr);
+  const uint8_t *data = static_cast<const uint8_t *>(img.bgrptr);
   REQUIRE(data[0] == 10);
   REQUIRE(data[1] == 20);
   REQUIRE(data[2] == 30);

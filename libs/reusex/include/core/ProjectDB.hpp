@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 #pragma once
 // Point-cloud aliases (Cloud/CloudN/CloudL and pcl::PointCloud<pcl::PointXYZ>)
 // are part of the public signatures below, so the point-type header stays.

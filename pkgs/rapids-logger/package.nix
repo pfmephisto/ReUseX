@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
 {
   lib,
   stdenv,
@@ -5,8 +8,6 @@
   cmake,
   rapids-cmake,
   cpm-cmake,
-  spdlog,
-  fmt,
 }: let
   rapids_cmake_dir = "${rapids-cmake}/share/cmake/rapids-cmake";
 

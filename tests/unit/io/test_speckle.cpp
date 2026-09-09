@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include <reusex/io/speckle.hpp>
 #include <reusex/io/export_scene.hpp>
+#include <reusex/io/speckle.hpp>
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -20,23 +20,23 @@ using namespace reusex::io::speckle;
 
 // ---- Helper: compute MD5 the same way the implementation does ----
 static std::string test_md5(const std::string &data) {
-    unsigned char digest[EVP_MAX_MD_SIZE];
-    unsigned int digest_len = 0;
-    EVP_MD_CTX *ctx = EVP_MD_CTX_new();
-    REQUIRE(ctx != nullptr);
-    REQUIRE(EVP_DigestInit_ex(ctx, EVP_md5(), nullptr) == 1);
-    REQUIRE(EVP_DigestUpdate(ctx, data.data(), data.size()) == 1);
-    REQUIRE(EVP_DigestFinal_ex(ctx, digest, &digest_len) == 1);
-    EVP_MD_CTX_free(ctx);
+  unsigned char digest[EVP_MAX_MD_SIZE];
+  unsigned int digest_len = 0;
+  EVP_MD_CTX *ctx = EVP_MD_CTX_new();
+  REQUIRE(ctx != nullptr);
+  REQUIRE(EVP_DigestInit_ex(ctx, EVP_md5(), nullptr) == 1);
+  REQUIRE(EVP_DigestUpdate(ctx, data.data(), data.size()) == 1);
+  REQUIRE(EVP_DigestFinal_ex(ctx, digest, &digest_len) == 1);
+  EVP_MD_CTX_free(ctx);
 
-    static constexpr char hex[] = "0123456789abcdef";
-    std::string result;
-    result.reserve(digest_len * 2);
-    for (unsigned int i = 0; i < digest_len; ++i) {
-        result.push_back(hex[(digest[i] >> 4) & 0x0F]);
-        result.push_back(hex[digest[i] & 0x0F]);
-    }
-    return result;
+  static constexpr char hex[] = "0123456789abcdef";
+  std::string result;
+  result.reserve(digest_len * 2);
+  for (unsigned int i = 0; i < digest_len; ++i) {
+    result.push_back(hex[(digest[i] >> 4) & 0x0F]);
+    result.push_back(hex[digest[i] & 0x0F]);
+  }
+  return result;
 }
 
 // ============================================================
@@ -44,62 +44,62 @@ static std::string test_md5(const std::string &data) {
 // ============================================================
 
 TEST_CASE("Speckle object model defaults", "[speckle]") {
-    SECTION("Base defaults") {
-        Base b;
-        REQUIRE(b.speckle_type == "Base");
-        REQUIRE(b.applicationId.empty());
-        REQUIRE(b.elements.empty());
-        REQUIRE(b.properties.empty());
-    }
+  SECTION("Base defaults") {
+    Base b;
+    REQUIRE(b.speckle_type == "Base");
+    REQUIRE(b.applicationId.empty());
+    REQUIRE(b.elements.empty());
+    REQUIRE(b.properties.empty());
+  }
 
-    SECTION("Point defaults") {
-        Point p;
-        REQUIRE(p.speckle_type == "Objects.Geometry.Point");
-        REQUIRE(p.x == 0);
-        REQUIRE(p.y == 0);
-        REQUIRE(p.z == 0);
-        REQUIRE(p.units == "m");
-    }
+  SECTION("Point defaults") {
+    Point p;
+    REQUIRE(p.speckle_type == "Objects.Geometry.Point");
+    REQUIRE(p.x == 0);
+    REQUIRE(p.y == 0);
+    REQUIRE(p.z == 0);
+    REQUIRE(p.units == "m");
+  }
 
-    SECTION("Point with coordinates") {
-        Point p(1.5, 2.5, 3.5);
-        REQUIRE(p.x == 1.5);
-        REQUIRE(p.y == 2.5);
-        REQUIRE(p.z == 3.5);
-    }
+  SECTION("Point with coordinates") {
+    Point p(1.5, 2.5, 3.5);
+    REQUIRE(p.x == 1.5);
+    REQUIRE(p.y == 2.5);
+    REQUIRE(p.z == 3.5);
+  }
 
-    SECTION("Line defaults") {
-        Line l;
-        REQUIRE(l.speckle_type == "Objects.Geometry.Line");
-        REQUIRE(l.units == "m");
-    }
+  SECTION("Line defaults") {
+    Line l;
+    REQUIRE(l.speckle_type == "Objects.Geometry.Line");
+    REQUIRE(l.units == "m");
+  }
 
-    SECTION("Mesh defaults") {
-        Mesh m;
-        REQUIRE(m.speckle_type == "Objects.Geometry.Mesh");
-        REQUIRE(m.vertices.empty());
-        REQUIRE(m.faces.empty());
-        REQUIRE(m.colors.empty());
-        REQUIRE(m.units == "m");
-    }
+  SECTION("Mesh defaults") {
+    Mesh m;
+    REQUIRE(m.speckle_type == "Objects.Geometry.Mesh");
+    REQUIRE(m.vertices.empty());
+    REQUIRE(m.faces.empty());
+    REQUIRE(m.colors.empty());
+    REQUIRE(m.units == "m");
+  }
 
-    SECTION("Pointcloud defaults") {
-        Pointcloud pc;
-        REQUIRE(pc.speckle_type == "Objects.Geometry.Pointcloud");
-        REQUIRE(pc.points.empty());
-        REQUIRE(pc.colors.empty());
-        REQUIRE(pc.sizes.empty());
-        REQUIRE(pc.units == "m");
-    }
+  SECTION("Pointcloud defaults") {
+    Pointcloud pc;
+    REQUIRE(pc.speckle_type == "Objects.Geometry.Pointcloud");
+    REQUIRE(pc.points.empty());
+    REQUIRE(pc.colors.empty());
+    REQUIRE(pc.sizes.empty());
+    REQUIRE(pc.units == "m");
+  }
 
-    SECTION("Collection defaults") {
-        Collection c;
-        REQUIRE(c.speckle_type == "Speckle.Core.Models.Collections.Collection");
-        REQUIRE(c.name.empty());
-        REQUIRE(c.collectionType.empty());
-        REQUIRE(c.version == 0);
-        REQUIRE(c.instanceDefinitionProxies.empty());
-    }
+  SECTION("Collection defaults") {
+    Collection c;
+    REQUIRE(c.speckle_type == "Speckle.Core.Models.Collections.Collection");
+    REQUIRE(c.name.empty());
+    REQUIRE(c.collectionType.empty());
+    REQUIRE(c.version == 0);
+    REQUIRE(c.instanceDefinitionProxies.empty());
+  }
 }
 
 // ============================================================
@@ -107,19 +107,19 @@ TEST_CASE("Speckle object model defaults", "[speckle]") {
 // ============================================================
 
 TEST_CASE("MD5 hash produces expected values", "[speckle]") {
-    // Known MD5 test vectors
-    REQUIRE(test_md5("") == "d41d8cd98f00b204e9800998ecf8427e");
-    REQUIRE(test_md5("hello") == "5d41402abc4b2a76b9719d911017c592");
-    REQUIRE(test_md5("The quick brown fox jumps over the lazy dog") ==
-            "9e107d9d372bb6826bd81d3542a419d6");
+  // Known MD5 test vectors
+  REQUIRE(test_md5("") == "d41d8cd98f00b204e9800998ecf8427e");
+  REQUIRE(test_md5("hello") == "5d41402abc4b2a76b9719d911017c592");
+  REQUIRE(test_md5("The quick brown fox jumps over the lazy dog") ==
+          "9e107d9d372bb6826bd81d3542a419d6");
 }
 
 TEST_CASE("MD5 hash is 32 hex characters", "[speckle]") {
-    std::string hash = test_md5("test input for length check");
-    REQUIRE(hash.size() == 32);
-    REQUIRE(std::all_of(hash.begin(), hash.end(), [](char c) {
-        return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
-    }));
+  std::string hash = test_md5("test input for length check");
+  REQUIRE(hash.size() == 32);
+  REQUIRE(std::all_of(hash.begin(), hash.end(), [](char c) {
+    return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+  }));
 }
 
 // ============================================================
@@ -127,119 +127,117 @@ TEST_CASE("MD5 hash is 32 hex characters", "[speckle]") {
 // ============================================================
 
 TEST_CASE("to_speckle(CloudConstPtr) converts point cloud", "[speckle]") {
-    auto cloud = std::make_shared<reusex::Cloud>();
-    cloud->resize(3);
+  auto cloud = std::make_shared<reusex::Cloud>();
+  cloud->resize(3);
 
-    cloud->points[0] = {1.0f, 2.0f, 3.0f};
-    cloud->points[0].r = 255;
-    cloud->points[0].g = 0;
-    cloud->points[0].b = 0;
+  cloud->points[0] = {1.0f, 2.0f, 3.0f};
+  cloud->points[0].r = 255;
+  cloud->points[0].g = 0;
+  cloud->points[0].b = 0;
 
-    cloud->points[1] = {4.0f, 5.0f, 6.0f};
-    cloud->points[1].r = 0;
-    cloud->points[1].g = 255;
-    cloud->points[1].b = 0;
+  cloud->points[1] = {4.0f, 5.0f, 6.0f};
+  cloud->points[1].r = 0;
+  cloud->points[1].g = 255;
+  cloud->points[1].b = 0;
 
-    cloud->points[2] = {7.0f, 8.0f, 9.0f};
-    cloud->points[2].r = 0;
-    cloud->points[2].g = 0;
-    cloud->points[2].b = 255;
+  cloud->points[2] = {7.0f, 8.0f, 9.0f};
+  cloud->points[2].r = 0;
+  cloud->points[2].g = 0;
+  cloud->points[2].b = 255;
 
-    auto pc = to_speckle(cloud);
+  auto pc = to_speckle(cloud);
 
-    REQUIRE(pc.speckle_type == "Objects.Geometry.Pointcloud");
-    REQUIRE(pc.points.size() == 9); // 3 points * 3 coords
-    REQUIRE(pc.colors.size() == 3);
+  REQUIRE(pc.speckle_type == "Objects.Geometry.Pointcloud");
+  REQUIRE(pc.points.size() == 9); // 3 points * 3 coords
+  REQUIRE(pc.colors.size() == 3);
 
-    // Check coordinates
-    using Catch::Approx;
-    REQUIRE(pc.points[0] == Approx(1.0));
-    REQUIRE(pc.points[1] == Approx(2.0));
-    REQUIRE(pc.points[2] == Approx(3.0));
-    REQUIRE(pc.points[3] == Approx(4.0));
-    REQUIRE(pc.points[7] == Approx(8.0));
+  // Check coordinates
+  using Catch::Approx;
+  REQUIRE(pc.points[0] == Approx(1.0));
+  REQUIRE(pc.points[1] == Approx(2.0));
+  REQUIRE(pc.points[2] == Approx(3.0));
+  REQUIRE(pc.points[3] == Approx(4.0));
+  REQUIRE(pc.points[7] == Approx(8.0));
 
-    // Check ARGB color encoding
-    int expected_red = (255 << 24) | (255 << 16) | (0 << 8) | 0;
-    REQUIRE(pc.colors[0] == expected_red);
+  // Check ARGB color encoding
+  int expected_red = (255 << 24) | (255 << 16) | (0 << 8) | 0;
+  REQUIRE(pc.colors[0] == expected_red);
 
-    int expected_blue = (255 << 24) | (0 << 16) | (0 << 8) | 255;
-    REQUIRE(pc.colors[2] == expected_blue);
+  int expected_blue = (255 << 24) | (0 << 16) | (0 << 8) | 255;
+  REQUIRE(pc.colors[2] == expected_blue);
 }
 
 TEST_CASE("to_speckle(CloudConstPtr) throws on null cloud", "[speckle]") {
-    reusex::CloudConstPtr null_cloud;
-    REQUIRE_THROWS_AS(to_speckle(null_cloud), std::invalid_argument);
+  reusex::CloudConstPtr null_cloud;
+  REQUIRE_THROWS_AS(to_speckle(null_cloud), std::invalid_argument);
 }
 
 TEST_CASE("to_speckle(CloudConstPtr) throws on empty cloud", "[speckle]") {
-    auto empty_cloud = std::make_shared<reusex::Cloud>();
-    REQUIRE_THROWS_AS(to_speckle(empty_cloud), std::invalid_argument);
+  auto empty_cloud = std::make_shared<reusex::Cloud>();
+  REQUIRE_THROWS_AS(to_speckle(empty_cloud), std::invalid_argument);
 }
 
 TEST_CASE("to_speckle(MatrixXd, MatrixXi) converts Eigen mesh", "[speckle]") {
-    // Simple triangle
-    Eigen::MatrixXd vertices(3, 3);
-    vertices << 0.0, 0.0, 0.0,
-                1.0, 0.0, 0.0,
-                0.0, 1.0, 0.0;
+  // Simple triangle
+  Eigen::MatrixXd vertices(3, 3);
+  vertices << 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0;
 
-    Eigen::MatrixXi faces(1, 3);
-    faces << 0, 1, 2;
+  Eigen::MatrixXi faces(1, 3);
+  faces << 0, 1, 2;
 
-    auto mesh = to_speckle(vertices, faces);
+  auto mesh = to_speckle(vertices, faces);
 
-    REQUIRE(mesh.speckle_type == "Objects.Geometry.Mesh");
-    REQUIRE(mesh.vertices.size() == 9); // 3 vertices * 3 coords
+  REQUIRE(mesh.speckle_type == "Objects.Geometry.Mesh");
+  REQUIRE(mesh.vertices.size() == 9); // 3 vertices * 3 coords
 
-    // Faces: [0, 0, 1, 2] (0 = triangle indicator, then indices)
-    REQUIRE(mesh.faces.size() == 4);
-    REQUIRE(mesh.faces[0] == 0); // triangle indicator
-    REQUIRE(mesh.faces[1] == 0);
-    REQUIRE(mesh.faces[2] == 1);
-    REQUIRE(mesh.faces[3] == 2);
+  // Faces: [0, 0, 1, 2] (0 = triangle indicator, then indices)
+  REQUIRE(mesh.faces.size() == 4);
+  REQUIRE(mesh.faces[0] == 0); // triangle indicator
+  REQUIRE(mesh.faces[1] == 0);
+  REQUIRE(mesh.faces[2] == 1);
+  REQUIRE(mesh.faces[3] == 2);
 
-    using Catch::Approx;
-    REQUIRE(mesh.vertices[0] == Approx(0.0));
-    REQUIRE(mesh.vertices[3] == Approx(1.0)); // second vertex x
-    REQUIRE(mesh.vertices[7] == Approx(1.0)); // third vertex y
+  using Catch::Approx;
+  REQUIRE(mesh.vertices[0] == Approx(0.0));
+  REQUIRE(mesh.vertices[3] == Approx(1.0)); // second vertex x
+  REQUIRE(mesh.vertices[7] == Approx(1.0)); // third vertex y
 }
 
 TEST_CASE("to_speckle(PolygonMesh) converts PCL mesh", "[speckle]") {
-    pcl::PolygonMesh polygon_mesh;
+  pcl::PolygonMesh polygon_mesh;
 
-    // Create a simple cloud with 3 points
-    reusex::Cloud cloud;
-    cloud.resize(3);
-    cloud.points[0] = {0.0f, 0.0f, 0.0f};
-    cloud.points[0].r = 128;
-    cloud.points[0].g = 64;
-    cloud.points[0].b = 32;
-    cloud.points[1] = {1.0f, 0.0f, 0.0f};
-    cloud.points[1].r = 0;
-    cloud.points[1].g = 0;
-    cloud.points[1].b = 0;
-    cloud.points[2] = {0.0f, 1.0f, 0.0f};
-    cloud.points[2].r = 0;
-    cloud.points[2].g = 0;
-    cloud.points[2].b = 0;
-    pcl::toPCLPointCloud2(cloud, polygon_mesh.cloud);
+  // Create a simple cloud with 3 points
+  reusex::Cloud cloud;
+  cloud.resize(3);
+  cloud.points[0] = {0.0f, 0.0f, 0.0f};
+  cloud.points[0].r = 128;
+  cloud.points[0].g = 64;
+  cloud.points[0].b = 32;
+  cloud.points[1] = {1.0f, 0.0f, 0.0f};
+  cloud.points[1].r = 0;
+  cloud.points[1].g = 0;
+  cloud.points[1].b = 0;
+  cloud.points[2] = {0.0f, 1.0f, 0.0f};
+  cloud.points[2].r = 0;
+  cloud.points[2].g = 0;
+  cloud.points[2].b = 0;
+  pcl::toPCLPointCloud2(cloud, polygon_mesh.cloud);
 
-    // One triangle face
-    pcl::Vertices tri;
-    tri.vertices = {0, 1, 2};
-    polygon_mesh.polygons.push_back(tri);
+  // One triangle face
+  pcl::Vertices tri;
+  tri.vertices = {0, 1, 2};
+  polygon_mesh.polygons.push_back(tri);
 
-    auto mesh = to_speckle(polygon_mesh);
+  auto mesh = to_speckle(polygon_mesh);
 
-    REQUIRE(mesh.vertices.size() == 9);
-    REQUIRE(mesh.faces.size() == 4);
-    REQUIRE(mesh.faces[0] == 0); // triangle
-    REQUIRE(mesh.colors.size() == 3);
+  REQUIRE(mesh.vertices.size() == 9);
+  REQUIRE(mesh.faces.size() == 4);
+  REQUIRE(mesh.faces[0] == 0); // triangle
+  REQUIRE(mesh.colors.size() == 3);
 
-    // Check first point color ARGB
-    int expected = (255 << 24) | (128 << 16) | (64 << 8) | 32;
-    REQUIRE(mesh.colors[0] == expected);
+  // Check first point color ARGB
+  int expected = (255 << 24) | (128 << 16) | (64 << 8) | 32;
+  REQUIRE(mesh.colors[0] == expected);
 }
 
 // ============================================================
@@ -247,32 +245,32 @@ TEST_CASE("to_speckle(PolygonMesh) converts PCL mesh", "[speckle]") {
 // ============================================================
 
 TEST_CASE("Collection can hold child elements", "[speckle]") {
-    auto col = std::make_shared<Collection>();
-    col->name = "Room 1";
+  auto col = std::make_shared<Collection>();
+  col->name = "Room 1";
 
-    auto pc = std::make_shared<Pointcloud>();
-    pc->points = {1.0, 2.0, 3.0};
+  auto pc = std::make_shared<Pointcloud>();
+  pc->points = {1.0, 2.0, 3.0};
 
-    auto mesh = std::make_shared<Mesh>();
-    mesh->vertices = {0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0};
-    mesh->faces = {0, 0, 1, 2};
+  auto mesh = std::make_shared<Mesh>();
+  mesh->vertices = {0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0};
+  mesh->faces = {0, 0, 1, 2};
 
-    col->elements.push_back(pc);
-    col->elements.push_back(mesh);
+  col->elements.push_back(pc);
+  col->elements.push_back(mesh);
 
-    REQUIRE(col->elements.size() == 2);
-    REQUIRE(col->elements[0]->speckle_type == "Objects.Geometry.Pointcloud");
-    REQUIRE(col->elements[1]->speckle_type == "Objects.Geometry.Mesh");
+  REQUIRE(col->elements.size() == 2);
+  REQUIRE(col->elements[0]->speckle_type == "Objects.Geometry.Pointcloud");
+  REQUIRE(col->elements[1]->speckle_type == "Objects.Geometry.Mesh");
 }
 
 TEST_CASE("SpeckleClient constructor handles empty token", "[speckle]") {
-    SpeckleClient client("https://example.com", "test_project_id", "");
-    REQUIRE(true);
+  SpeckleClient client("https://example.com", "test_project_id", "");
+  REQUIRE(true);
 }
 
 TEST_CASE("SpeckleClient constructor strips trailing slash", "[speckle]") {
-    SpeckleClient client("https://example.com/", "project_id", "dummy_token");
-    REQUIRE(true);
+  SpeckleClient client("https://example.com/", "project_id", "dummy_token");
+  REQUIRE(true);
 }
 
 // ============================================================
@@ -281,9 +279,9 @@ TEST_CASE("SpeckleClient constructor strips trailing slash", "[speckle]") {
 
 TEST_CASE("SpeckleClient set_max_batch_size compiles and does not throw",
           "[speckle]") {
-    SpeckleClient client("https://example.com", "proj", "tok");
-    REQUIRE_NOTHROW(client.set_max_batch_size(10 * 1024 * 1024));
-    REQUIRE_NOTHROW(client.set_max_batch_size(1));
+  SpeckleClient client("https://example.com", "proj", "tok");
+  REQUIRE_NOTHROW(client.set_max_batch_size(10 * 1024 * 1024));
+  REQUIRE_NOTHROW(client.set_max_batch_size(1));
 }
 
 // ============================================================
@@ -291,206 +289,210 @@ TEST_CASE("SpeckleClient set_max_batch_size compiles and does not throw",
 // ============================================================
 
 TEST_CASE("Base properties support various JSON types", "[speckle]") {
-    Base b;
+  Base b;
 
-    SECTION("String properties") {
-        b.properties["name"] = "Test Object";
-        REQUIRE(b.properties["name"].is_string());
-        REQUIRE(b.properties["name"].get<std::string>() == "Test Object");
-    }
+  SECTION("String properties") {
+    b.properties["name"] = "Test Object";
+    REQUIRE(b.properties["name"].is_string());
+    REQUIRE(b.properties["name"].get<std::string>() == "Test Object");
+  }
 
-    SECTION("Integer properties") {
-        b.properties["count"] = 42;
-        REQUIRE(b.properties["count"].is_number_integer());
-        REQUIRE(b.properties["count"].get<int>() == 42);
-    }
+  SECTION("Integer properties") {
+    b.properties["count"] = 42;
+    REQUIRE(b.properties["count"].is_number_integer());
+    REQUIRE(b.properties["count"].get<int>() == 42);
+  }
 
-    SECTION("Floating-point properties") {
-        b.properties["area"] = 3.14;
-        REQUIRE(b.properties["area"].is_number_float());
-        REQUIRE(b.properties["area"].get<double>() == Catch::Approx(3.14));
-    }
+  SECTION("Floating-point properties") {
+    b.properties["area"] = 3.14;
+    REQUIRE(b.properties["area"].is_number_float());
+    REQUIRE(b.properties["area"].get<double>() == Catch::Approx(3.14));
+  }
 
-    SECTION("Boolean properties") {
-        b.properties["visible"] = true;
-        REQUIRE(b.properties["visible"].is_boolean());
-        REQUIRE(b.properties["visible"].get<bool>() == true);
-    }
+  SECTION("Boolean properties") {
+    b.properties["visible"] = true;
+    REQUIRE(b.properties["visible"].is_boolean());
+    REQUIRE(b.properties["visible"].get<bool>() == true);
+  }
 
-    SECTION("Null properties") {
-        b.properties["empty"] = nullptr;
-        REQUIRE(b.properties["empty"].is_null());
-    }
+  SECTION("Null properties") {
+    b.properties["empty"] = nullptr;
+    REQUIRE(b.properties["empty"].is_null());
+  }
 
-    SECTION("Array properties") {
-        b.properties["tags"] = nlohmann::json::array({"wall", "exterior"});
-        REQUIRE(b.properties["tags"].is_array());
-        REQUIRE(b.properties["tags"].size() == 2);
-        REQUIRE(b.properties["tags"][0] == "wall");
-    }
+  SECTION("Array properties") {
+    b.properties["tags"] = nlohmann::json::array({"wall", "exterior"});
+    REQUIRE(b.properties["tags"].is_array());
+    REQUIRE(b.properties["tags"].size() == 2);
+    REQUIRE(b.properties["tags"][0] == "wall");
+  }
 
-    SECTION("Nested object properties") {
-        b.properties["metadata"] = {{"source", "scan_01"}, {"confidence", 0.95}};
-        REQUIRE(b.properties["metadata"].is_object());
-        REQUIRE(b.properties["metadata"]["source"] == "scan_01");
-        REQUIRE(b.properties["metadata"]["confidence"].get<double>() ==
-                Catch::Approx(0.95));
-    }
+  SECTION("Nested object properties") {
+    b.properties["metadata"] = {{"source", "scan_01"}, {"confidence", 0.95}};
+    REQUIRE(b.properties["metadata"].is_object());
+    REQUIRE(b.properties["metadata"]["source"] == "scan_01");
+    REQUIRE(b.properties["metadata"]["confidence"].get<double>() ==
+            Catch::Approx(0.95));
+  }
 
-    SECTION("Properties serialize as top-level JSON keys") {
-        b.properties["level"] = 2;
-        b.properties["label"] = "floor";
-        b.properties["area_m2"] = 42.5;
-        b.properties["is_exterior"] = false;
+  SECTION("Properties serialize as top-level JSON keys") {
+    b.properties["level"] = 2;
+    b.properties["label"] = "floor";
+    b.properties["area_m2"] = 42.5;
+    b.properties["is_exterior"] = false;
 
-        nlohmann::json j;
-        j["speckle_type"] = b.speckle_type;
-        for (const auto &[key, value] : b.properties)
-            j[key] = value;
+    nlohmann::json j;
+    j["speckle_type"] = b.speckle_type;
+    for (const auto &[key, value] : b.properties)
+      j[key] = value;
 
-        REQUIRE(j["level"] == 2);
-        REQUIRE(j["label"] == "floor");
-        REQUIRE(j["area_m2"].get<double>() == Catch::Approx(42.5));
-        REQUIRE(j["is_exterior"] == false);
-        REQUIRE(j["speckle_type"] == "Base");
-    }
+    REQUIRE(j["level"] == 2);
+    REQUIRE(j["label"] == "floor");
+    REQUIRE(j["area_m2"].get<double>() == Catch::Approx(42.5));
+    REQUIRE(j["is_exterior"] == false);
+    REQUIRE(j["speckle_type"] == "Base");
+  }
 }
 
 // ============================================================
 // export_to_speckle tests
 // ============================================================
 
-TEST_CASE("export_to_speckle with empty scene returns empty vector", "[speckle]") {
-    reusex::io::ExportScene scene;
-    auto models = export_to_speckle(scene, ExportConfig{});
-    REQUIRE(models.empty());
+TEST_CASE("export_to_speckle with empty scene returns empty vector",
+          "[speckle]") {
+  reusex::io::ExportScene scene;
+  auto models = export_to_speckle(scene, ExportConfig{});
+  REQUIRE(models.empty());
 }
 
 TEST_CASE("export_to_speckle with cloud produces cloud model", "[speckle]") {
-    reusex::io::ExportScene scene;
+  reusex::io::ExportScene scene;
 
-    auto cloud = std::make_shared<reusex::Cloud>();
-    cloud->resize(3);
-    cloud->points[0] = {1.0f, 2.0f, 3.0f};
-    cloud->points[0].r = 255;
-    cloud->points[0].g = 0;
-    cloud->points[0].b = 0;
-    cloud->points[1] = {4.0f, 5.0f, 6.0f};
-    cloud->points[1].r = 0;
-    cloud->points[1].g = 255;
-    cloud->points[1].b = 0;
-    cloud->points[2] = {7.0f, 8.0f, 9.0f};
-    cloud->points[2].r = 0;
-    cloud->points[2].g = 0;
-    cloud->points[2].b = 255;
+  auto cloud = std::make_shared<reusex::Cloud>();
+  cloud->resize(3);
+  cloud->points[0] = {1.0f, 2.0f, 3.0f};
+  cloud->points[0].r = 255;
+  cloud->points[0].g = 0;
+  cloud->points[0].b = 0;
+  cloud->points[1] = {4.0f, 5.0f, 6.0f};
+  cloud->points[1].r = 0;
+  cloud->points[1].g = 255;
+  cloud->points[1].b = 0;
+  cloud->points[2] = {7.0f, 8.0f, 9.0f};
+  cloud->points[2].r = 0;
+  cloud->points[2].g = 0;
+  cloud->points[2].b = 255;
 
-    scene.cloud = reusex::io::ExportScene::CloudLayer{cloud, nullptr};
+  scene.cloud = reusex::io::ExportScene::CloudLayer{cloud, nullptr};
 
-    auto models = export_to_speckle(scene, ExportConfig{});
-    REQUIRE(models.size() == 1);
-    REQUIRE(models[0].model_name == "cloud");
-    REQUIRE(models[0].root->speckle_type == "Objects.Geometry.Pointcloud");
+  auto models = export_to_speckle(scene, ExportConfig{});
+  REQUIRE(models.size() == 1);
+  REQUIRE(models[0].model_name == "cloud");
+  REQUIRE(models[0].root->speckle_type == "Objects.Geometry.Pointcloud");
 }
 
-TEST_CASE("export_to_speckle with semantic data produces semantic model", "[speckle]") {
-    reusex::io::ExportScene scene;
+TEST_CASE("export_to_speckle with semantic data produces semantic model",
+          "[speckle]") {
+  reusex::io::ExportScene scene;
 
-    auto cloud = std::make_shared<reusex::Cloud>();
-    cloud->resize(2);
-    cloud->points[0] = {1.0f, 0.0f, 0.0f};
-    cloud->points[0].r = 255;
-    cloud->points[0].g = 0;
-    cloud->points[0].b = 0;
-    cloud->points[1] = {0.0f, 1.0f, 0.0f};
-    cloud->points[1].r = 0;
-    cloud->points[1].g = 255;
-    cloud->points[1].b = 0;
+  auto cloud = std::make_shared<reusex::Cloud>();
+  cloud->resize(2);
+  cloud->points[0] = {1.0f, 0.0f, 0.0f};
+  cloud->points[0].r = 255;
+  cloud->points[0].g = 0;
+  cloud->points[0].b = 0;
+  cloud->points[1] = {0.0f, 1.0f, 0.0f};
+  cloud->points[1].r = 0;
+  cloud->points[1].g = 255;
+  cloud->points[1].b = 0;
 
-    reusex::io::ExportScene::SemanticCategory cat;
-    cat.name = "wall";
-    cat.label_id = 1;
-    cat.color = {200, 100, 50};
-    cat.instances.push_back({0, cloud});
+  reusex::io::ExportScene::SemanticCategory cat;
+  cat.name = "wall";
+  cat.label_id = 1;
+  cat.color = {200, 100, 50};
+  cat.instances.push_back({0, cloud});
 
-    scene.semantic.push_back(std::move(cat));
+  scene.semantic.push_back(std::move(cat));
 
-    auto models = export_to_speckle(scene, ExportConfig{});
-    REQUIRE(models.size() == 1);
-    REQUIRE(models[0].model_name == "semantic");
-    REQUIRE(models[0].root->speckle_type == "Speckle.Core.Models.Collections.Collection");
-    REQUIRE(models[0].root->elements.size() == 1);
+  auto models = export_to_speckle(scene, ExportConfig{});
+  REQUIRE(models.size() == 1);
+  REQUIRE(models[0].model_name == "semantic");
+  REQUIRE(models[0].root->speckle_type ==
+          "Speckle.Core.Models.Collections.Collection");
+  REQUIRE(models[0].root->elements.size() == 1);
 }
 
 TEST_CASE("export_to_speckle with panoramas produces 360 model", "[speckle]") {
-    reusex::io::ExportScene scene;
+  reusex::io::ExportScene scene;
 
-    scene.panoramas.push_back({"photo_001.jpg", "", 1.0, 2.0, 3.0});
+  scene.panoramas.push_back({"photo_001.jpg", "", 1.0, 2.0, 3.0});
 
-    auto models = export_to_speckle(scene, ExportConfig{});
-    REQUIRE(models.size() == 1);
-    REQUIRE(models[0].model_name == "360");
-    REQUIRE(models[0].root->elements.size() == 1);
+  auto models = export_to_speckle(scene, ExportConfig{});
+  REQUIRE(models.size() == 1);
+  REQUIRE(models[0].model_name == "360");
+  REQUIRE(models[0].root->elements.size() == 1);
 }
 
-TEST_CASE("export_to_speckle with materials produces materials model", "[speckle]") {
-    reusex::io::ExportScene scene;
+TEST_CASE("export_to_speckle with materials produces materials model",
+          "[speckle]") {
+  reusex::io::ExportScene scene;
 
-    reusex::io::ExportScene::MaterialEntry mat;
-    mat.name = "Concrete Beam";
-    mat.x = 1.0;
-    mat.y = 2.0;
-    mat.z = 3.0;
-    // Row-major 4x4 with rotation set + translation (1,2,3).
-    mat.transform = {0, -1, 0, 1, 1, 0, 0, 2, 0, 0, 1, 3, 0, 0, 0, 1};
-    mat.image_filename = "concrete_beam.jpg";
-    mat.properties["Designation"] = "CB-001";
-    scene.materials.push_back(std::move(mat));
+  reusex::io::ExportScene::MaterialEntry mat;
+  mat.name = "Concrete Beam";
+  mat.x = 1.0;
+  mat.y = 2.0;
+  mat.z = 3.0;
+  // Row-major 4x4 with rotation set + translation (1,2,3).
+  mat.transform = {0, -1, 0, 1, 1, 0, 0, 2, 0, 0, 1, 3, 0, 0, 0, 1};
+  mat.image_filename = "concrete_beam.jpg";
+  mat.properties["Designation"] = "CB-001";
+  scene.materials.push_back(std::move(mat));
 
-    auto models = export_to_speckle(scene, ExportConfig{});
-    REQUIRE(models.size() == 1);
-    REQUIRE(models[0].model_name == "materials");
+  auto models = export_to_speckle(scene, ExportConfig{});
+  REQUIRE(models.size() == 1);
+  REQUIRE(models[0].model_name == "materials");
 
-    auto *root = dynamic_cast<Collection *>(models[0].root.get());
-    REQUIRE(root != nullptr);
-    REQUIRE(root->version == 3);
+  auto *root = dynamic_cast<Collection *>(models[0].root.get());
+  REQUIRE(root != nullptr);
+  REQUIRE(root->version == 3);
 
-    // Definition lives on the root's instanceDefinitionProxies list (v3
-    // proxy convention), NOT mixed into elements. Its `objects` array
-    // references the 8 frustum lines by applicationId.
-    REQUIRE(root->instanceDefinitionProxies.size() == 1);
-    auto &def = root->instanceDefinitionProxies[0];
-    REQUIRE(!def->definitionAppId.empty());
-    REQUIRE(def->objects.size() == 8);
+  // Definition lives on the root's instanceDefinitionProxies list (v3
+  // proxy convention), NOT mixed into elements. Its `objects` array
+  // references the 8 frustum lines by applicationId.
+  REQUIRE(root->instanceDefinitionProxies.size() == 1);
+  auto &def = root->instanceDefinitionProxies[0];
+  REQUIRE(!def->definitionAppId.empty());
+  REQUIRE(def->objects.size() == 8);
 
-    // Materials live inside a "Cameras" sub-collection so the reuse-x
-    // webapp can discover them (legacy structure compatibility — see HACK
-    // in libs/reusex/src/io/speckle.cpp materials block).
-    REQUIRE(root->elements.size() == 1);
-    auto *cameras = dynamic_cast<Collection *>(root->elements[0].get());
-    REQUIRE(cameras != nullptr);
-    REQUIRE(cameras->name == "Cameras");
-    // cameras->elements: 8 frustum lines + 1 InstanceProxy per material.
-    REQUIRE(cameras->elements.size() == 9);
-    auto *first_line = dynamic_cast<Line *>(cameras->elements[0].get());
-    REQUIRE(first_line != nullptr);
-    REQUIRE(first_line->applicationId == def->objects[0]);
+  // Materials live inside a "Cameras" sub-collection so the reuse-x
+  // webapp can discover them (legacy structure compatibility — see HACK
+  // in libs/reusex/src/io/speckle.cpp materials block).
+  REQUIRE(root->elements.size() == 1);
+  auto *cameras = dynamic_cast<Collection *>(root->elements[0].get());
+  REQUIRE(cameras != nullptr);
+  REQUIRE(cameras->name == "Cameras");
+  // cameras->elements: 8 frustum lines + 1 InstanceProxy per material.
+  REQUIRE(cameras->elements.size() == 9);
+  auto *first_line = dynamic_cast<Line *>(cameras->elements[0].get());
+  REQUIRE(first_line != nullptr);
+  REQUIRE(first_line->applicationId == def->objects[0]);
 
-    auto *inst = dynamic_cast<InstanceProxy *>(cameras->elements[8].get());
-    REQUIRE(inst != nullptr);
-    // Name is the legacy "Camera N" form; real name preserved in Base.id.
-    REQUIRE(inst->name == "Camera 1");
-    REQUIRE(inst->properties["Base"]["id"] == "Concrete Beam");
-    REQUIRE(inst->properties["Base"]["Index"] == 1);
-    REQUIRE(inst->definitionId == def->definitionAppId);
-    // Transform is the entry's pose verbatim: rotation + translation.
-    REQUIRE(inst->transform[0] == 0.0);
-    REQUIRE(inst->transform[1] == -1.0);
-    REQUIRE(inst->transform[3] == 1.0);
-    REQUIRE(inst->transform[7] == 2.0);
-    REQUIRE(inst->transform[11] == 3.0);
-    REQUIRE(inst->properties.count("Base") == 1);
-    REQUIRE(inst->properties.count("Location") == 1);
-    REQUIRE(inst->properties.count("Reuse") == 1);
-    REQUIRE(inst->properties["Base"]["fileName"] == "concrete_beam.jpg");
-    REQUIRE(inst->properties["Reuse"]["Designation"] == "CB-001");
+  auto *inst = dynamic_cast<InstanceProxy *>(cameras->elements[8].get());
+  REQUIRE(inst != nullptr);
+  // Name is the legacy "Camera N" form; real name preserved in Base.id.
+  REQUIRE(inst->name == "Camera 1");
+  REQUIRE(inst->properties["Base"]["id"] == "Concrete Beam");
+  REQUIRE(inst->properties["Base"]["Index"] == 1);
+  REQUIRE(inst->definitionId == def->definitionAppId);
+  // Transform is the entry's pose verbatim: rotation + translation.
+  REQUIRE(inst->transform[0] == 0.0);
+  REQUIRE(inst->transform[1] == -1.0);
+  REQUIRE(inst->transform[3] == 1.0);
+  REQUIRE(inst->transform[7] == 2.0);
+  REQUIRE(inst->transform[11] == 3.0);
+  REQUIRE(inst->properties.count("Base") == 1);
+  REQUIRE(inst->properties.count("Location") == 1);
+  REQUIRE(inst->properties.count("Reuse") == 1);
+  REQUIRE(inst->properties["Base"]["fileName"] == "concrete_beam.jpg");
+  REQUIRE(inst->properties["Reuse"]["Designation"] == "CB-001");
 }

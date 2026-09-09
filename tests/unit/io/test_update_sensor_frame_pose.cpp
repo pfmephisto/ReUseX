@@ -17,8 +17,7 @@ using Catch::Matchers::WithinAbs;
 
 TEST_CASE("update_sensor_frame_pose round-trips the transform", "[io][db]") {
   namespace fs = std::filesystem;
-  fs::path db_path =
-      fs::temp_directory_path() / "reusex_update_pose_test.rux";
+  fs::path db_path = fs::temp_directory_path() / "reusex_update_pose_test.rux";
   fs::remove(db_path);
 
   {
@@ -36,7 +35,7 @@ TEST_CASE("update_sensor_frame_pose round-trips the transform", "[io][db]") {
 
     // Overwrite only the pose.
     std::array<double, 16> pose = {0, -1, 0, 1.5, 1, 0, 0, -2.5,
-                                   0, 0, 1, 3.5, 0, 0, 0, 1};
+                                   0, 0,  1, 3.5, 0, 0, 0, 1};
     db.update_sensor_frame_pose(7, pose);
 
     auto read_back = db.sensor_frame_pose(7);

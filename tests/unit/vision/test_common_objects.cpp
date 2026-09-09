@@ -4,9 +4,9 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
+#include <opencv2/opencv.hpp>
 #include <vision/common/create_object.hpp>
 #include <vision/common/object.hpp>
-#include <opencv2/opencv.hpp>
 
 using namespace reusex::vision::common::object;
 using Catch::Matchers::WithinAbs;
@@ -14,9 +14,9 @@ using Catch::Matchers::WithinAbs;
 TEST_CASE("Box geometric calculations", "[vision][box]") {
   Box box(10.0f, 20.0f, 30.0f, 40.0f); // left=10, top=20, right=30, bottom=40
 
-  REQUIRE_THAT(box.width(), WithinAbs(20.0f, 0.001f));  // 30 - 10
-  REQUIRE_THAT(box.height(), WithinAbs(20.0f, 0.001f)); // 40 - 20
-  REQUIRE_THAT(box.area(), WithinAbs(400.0f, 0.001f));  // 20 * 20
+  REQUIRE_THAT(box.width(), WithinAbs(20.0f, 0.001f));    // 30 - 10
+  REQUIRE_THAT(box.height(), WithinAbs(20.0f, 0.001f));   // 40 - 20
+  REQUIRE_THAT(box.area(), WithinAbs(400.0f, 0.001f));    // 20 * 20
   REQUIRE_THAT(box.center_x(), WithinAbs(20.0f, 0.001f)); // (10 + 30) / 2
   REQUIRE_THAT(box.center_y(), WithinAbs(30.0f, 0.001f)); // (20 + 40) / 2
 }
@@ -44,7 +44,8 @@ TEST_CASE("PosePoint construction and assignment", "[vision][pose]") {
 }
 
 TEST_CASE("Obb area calculation", "[vision][obb]") {
-  Obb obb(5.0f, 5.0f, 10.0f, 20.0f, 45.0f); // center=(5,5), size=(10,20), angle=45°
+  Obb obb(5.0f, 5.0f, 10.0f, 20.0f,
+          45.0f); // center=(5,5), size=(10,20), angle=45°
 
   REQUIRE_THAT(obb.area(), WithinAbs(200.0f, 0.001f)); // 10 * 20
 }

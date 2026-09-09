@@ -35,7 +35,8 @@ TEST_CASE("Filter expression parsing and evaluation", "[filter][parser]") {
   }
 
   SECTION("Parse in-set expression") {
-    auto expr = reusex::core::parse_filter_expression("planes in [1, 2, 5]", db);
+    auto expr =
+        reusex::core::parse_filter_expression("planes in [1, 2, 5]", db);
     REQUIRE(expr != nullptr);
 
     auto indices = reusex::core::evaluate_filter(*expr, planes->size());
@@ -84,8 +85,8 @@ TEST_CASE("Filter expression parsing and evaluation", "[filter][parser]") {
   }
 
   SECTION("Parse OR expression") {
-    auto expr =
-        reusex::core::parse_filter_expression("planes == 1 || planes == 10", db);
+    auto expr = reusex::core::parse_filter_expression(
+        "planes == 1 || planes == 10", db);
     auto indices = reusex::core::evaluate_filter(*expr, planes->size());
     REQUIRE(indices->size() == 20); // Labels 1 and 10
   }
@@ -98,7 +99,8 @@ TEST_CASE("Filter expression parsing and evaluation", "[filter][parser]") {
   }
 
   SECTION("Invalid syntax throws") {
-    REQUIRE_THROWS(reusex::core::parse_filter_expression("planes in 1, 2]", db));
+    REQUIRE_THROWS(
+        reusex::core::parse_filter_expression("planes in 1, 2]", db));
     REQUIRE_THROWS(reusex::core::parse_filter_expression("invalid ==", db));
     REQUIRE_THROWS(reusex::core::parse_filter_expression("", db));
   }
@@ -152,16 +154,16 @@ TEST_CASE("Multi-cloud filter expressions", "[filter][multi-cloud]") {
 
   SECTION("Multi-cloud expression with AND — disjoint sets are empty") {
     // planes==1 only on i<50, rooms==11 only on i>=50. AND has no overlap.
-    auto expr = reusex::core::parse_filter_expression(
-        "planes == 1 && rooms == 11", db);
+    auto expr =
+        reusex::core::parse_filter_expression("planes == 1 && rooms == 11", db);
     auto indices = reusex::core::evaluate_filter(*expr, 100);
     REQUIRE(indices->empty());
   }
 
   SECTION("Multi-cloud expression with AND — overlapping sets") {
     // planes==1 on i<50, rooms==10 on i<50. AND keeps the first 50.
-    auto expr = reusex::core::parse_filter_expression(
-        "planes == 1 && rooms == 10", db);
+    auto expr =
+        reusex::core::parse_filter_expression("planes == 1 && rooms == 10", db);
     auto indices = reusex::core::evaluate_filter(*expr, 100);
     REQUIRE(indices->size() == 50);
   }

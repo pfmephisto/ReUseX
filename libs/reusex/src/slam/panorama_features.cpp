@@ -119,11 +119,11 @@ FrameFeatures extract_frame_features(ProjectDB &db, int node_id,
   return out;
 }
 
-std::vector<int> refine_bearing_pose(const std::vector<Eigen::Vector3d> &points,
-                                     const std::vector<Eigen::Vector3d> &bearings,
-                                     const BearingRefineOptions &opt,
-                                     Eigen::Matrix3d &Q, Eigen::Vector3d &t,
-                                     int *out_initial_inliers) {
+std::vector<int>
+refine_bearing_pose(const std::vector<Eigen::Vector3d> &points,
+                    const std::vector<Eigen::Vector3d> &bearings,
+                    const BearingRefineOptions &opt, Eigen::Matrix3d &Q,
+                    Eigen::Vector3d &t, int *out_initial_inliers) {
   auto gate = [&](const Eigen::Matrix3d &Qc, const Eigen::Vector3d &tc) {
     std::vector<int> sel;
     for (size_t k = 0; k < points.size(); ++k)

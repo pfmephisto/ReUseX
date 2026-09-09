@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 #pragma once
 #include "reusex/vision/IMLBackend.hpp"
 #include "reusex/vision/tensor_rt/Dataset.hpp"
@@ -31,7 +35,8 @@ class TensorRTBackend : public IMLBackend {
                                        bool use_cuda = false) override;
 
   /* Creates a stateful video model (IVideoModel). Currently supports
-   * Model::sam3p1 (the SAM 3.1 video tracker). See IMLBackend::create_video_model.
+   * Model::sam3p1 (the SAM 3.1 video tracker). See
+   * IMLBackend::create_video_model.
    * @param: type - The type of video model to create.
    * @param: modelPath - The directory containing the model engines.
    * @param: use_cuda - Ignored for TensorRT (always uses GPU).

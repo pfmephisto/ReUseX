@@ -18,11 +18,11 @@ nlohmann::json entry_to_json(const reusex::ProjectDB::PipelineLogEntry &e) {
   j["id"] = e.id;
   j["stage"] = e.stage;
   j["started_at"] = e.started_at;
-  j["finished_at"] =
-      e.finished_at.empty() ? nlohmann::json(nullptr) : nlohmann::json(e.finished_at);
+  j["finished_at"] = e.finished_at.empty() ? nlohmann::json(nullptr)
+                                           : nlohmann::json(e.finished_at);
   j["status"] = e.status;
-  j["error_msg"] =
-      e.error_msg.empty() ? nlohmann::json(nullptr) : nlohmann::json(e.error_msg);
+  j["error_msg"] = e.error_msg.empty() ? nlohmann::json(nullptr)
+                                       : nlohmann::json(e.error_msg);
   if (!e.parameters.empty()) {
     try {
       j["parameters"] = nlohmann::json::parse(e.parameters);

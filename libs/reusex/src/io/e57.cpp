@@ -223,9 +223,8 @@ void import_e57(ProjectDB &db, const std::filesystem::path &e57_path) {
     merged_cloud.height = 1;
     merged_cloud.is_dense = true;
 
-    std::string params =
-        fmt::format(R"({{"source":"{}","scans":{}}})", e57_path.string(),
-                    scanCount);
+    std::string params = fmt::format(R"({{"source":"{}","scans":{}}})",
+                                     e57_path.string(), scanCount);
 
     db.save_point_cloud("cloud", merged_cloud, "import_e57", params);
     core::info("Saved 'cloud' with {} points", merged_cloud.size());
@@ -237,9 +236,9 @@ void import_e57(ProjectDB &db, const std::filesystem::path &e57_path) {
       db.save_point_cloud("normals", merged_normals, "import_e57", params);
       core::info("Saved 'normals' with {} entries", merged_normals.size());
     } else if (!merged_normals.empty()) {
-      core::warn(
-          "Skipping 'normals': not all scans had normals (cloud={}, normals={})",
-          merged_cloud.size(), merged_normals.size());
+      core::warn("Skipping 'normals': not all scans had normals (cloud={}, "
+                 "normals={})",
+                 merged_cloud.size(), merged_normals.size());
     }
 
     db.log_pipeline_end(logId, true);

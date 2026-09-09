@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 #pragma once
 #include "reusex/core/logging.hpp"
 #include "reusex/vision/tensor_rt/common/check.hpp"

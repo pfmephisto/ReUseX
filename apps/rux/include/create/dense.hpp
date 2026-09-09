@@ -24,9 +24,9 @@ struct SubcommandCreateDenseOptions {
   int min_resolution = 320;
   int num_views = 4;
   int frame_stride = 1;
-  int gpu_index = -2; // -2 = CPU, -1 = best GPU, >=0 = specific device
-  int max_threads = 0; // 0 = all CPU threads; lower to bound RAM use
-  int chunk_size = 0; // 0 = whole-scene fusion; >0 = N frames per chunk
+  int gpu_index = -2;      // -2 = CPU, -1 = best GPU, >=0 = specific device
+  int max_threads = 0;     // 0 = all CPU threads; lower to bound RAM use
+  int chunk_size = 0;      // 0 = whole-scene fusion; >0 = N frames per chunk
   int max_fuse_points = 0; // 0 = unlimited
   bool no_geom_consistency = false;
   bool no_lidar_seed = false;

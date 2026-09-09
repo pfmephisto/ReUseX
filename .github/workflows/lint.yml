@@ -1,0 +1,91 @@
+# SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Cheap, cache-free lint gates: clang-format, REUSE/SPDX compliance, and a
+# sanity parse of the GUI OpenAPI YAML. None of these need the nix dependency
+# closure, so they run on every push/PR without waiting on the Cachix cache
+# that the heavy build-and-test job in ci.yml needs (#202).
+#
+# clang-format is pinned to 21.1.8 to match the version pre-commit uses
+# (see flake.nix's pre-commit-hooks / the `clang-tools` package in the dev
+# shell) so CI and the local hook agree on formatting.
+
+name: Lint
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Least-privilege default: every job here only checks out and reads/lints,
+# none of them need to write anything.
+permissions:
+  contents: read
+
+jobs:
+  clang-format:
+    name: clang-format check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install clang-format (pinned to match pre-commit)
+        run: pip install clang-format==21.1.8
+
+      - name: Run clang-format (dry run)
+        run: |
+          git ls-files '*.cpp' '*.hpp' '*.cu' '*.cuh' \
+            | xargs clang-format --dry-run --Werror
+
+  reuse:
+    name: REUSE / SPDX compliance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install reuse
+        run: pip install reuse
+
+      - name: Check REUSE compliance
+        run: reuse lint
+
+  yaml-sanity:
+    name: YAML parse sanity (docs/gui)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install PyYAML
+        run: pip install pyyaml
+
+      # scripts/check-openapi.py does a deeper structural check of the same
+      # file (top-level keys, per-operation summary/response, $ref
+      # resolution), but it runs inside ctest — a full nix build. This step
+      # is deliberately shallow (parse-only) so a malformed openapi.yaml
+      # (the PR #274 incident this guards against) fails fast on every
+      # push/PR without waiting on a build.
+      - name: Parse docs/gui/*.yaml
+        run: |
+          python3 -c "
+          import glob, sys, yaml
+          files = glob.glob('docs/gui/*.yaml') + glob.glob('docs/gui/*.yml')
+          if not files:
+              print('No docs/gui/*.yaml files yet; nothing to check.')
+              sys.exit(0)
+          for f in files:
+              with open(f) as fh:
+                  yaml.safe_load(fh)
+              print(f'OK: {f}')
+          "

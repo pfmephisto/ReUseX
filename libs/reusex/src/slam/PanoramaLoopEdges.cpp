@@ -132,8 +132,8 @@ edges_from_resections(std::vector<PanoResection> resections,
       e.i = ra.frame;
       e.j = rb.frame;
       e.T_ij = T_ij;
-      // Joint support is the WEAKER of the two resections: the edge chains both,
-      // so the worse one bounds its trustworthiness.
+      // Joint support is the WEAKER of the two resections: the edge chains
+      // both, so the worse one bounds its trustworthiness.
       e.inliers = std::min(ra.inliers, rb.inliers);
       const double scale =
           std::sqrt(static_cast<double>(std::max(1, opt.min_frame_inliers)) /
@@ -247,10 +247,11 @@ detect_panorama_loop_edges(ProjectDB &db, const std::vector<int> &node_ids,
     return finish();
   }
 
-  core::info("PanoramaLoops: {} panoramas against {} frames swept from {} "
-             "(every {}th)",
-             panos.size(), feats.size(), node_ids.size(),
-             std::max<size_t>(1, node_ids.size() / std::max<size_t>(1, cand.size())));
+  core::info(
+      "PanoramaLoops: {} panoramas against {} frames swept from {} "
+      "(every {}th)",
+      panos.size(), feats.size(), node_ids.size(),
+      std::max<size_t>(1, node_ids.size() / std::max<size_t>(1, cand.size())));
 
   cv::BFMatcher matcher(cv::NORM_HAMMING);
 
@@ -326,7 +327,8 @@ detect_panorama_loop_edges(ProjectDB &db, const std::vector<int> &node_ids,
     std::vector<detail::PanoResection> resections;
     for (size_t fi = 0; fi < feats.size(); ++fi) {
       const FrameCorrespondences &fc = corr[fi];
-      if (static_cast<int>(fc.points.size()) < options.min_frame_correspondences)
+      if (static_cast<int>(fc.points.size()) <
+          options.min_frame_correspondences)
         continue;
 
       // Initialise from the single best (slice, frame) PnP: one slice is a true
@@ -347,8 +349,8 @@ detect_panorama_loop_edges(ProjectDB &db, const std::vector<int> &node_ids,
           img.push_back(px);
         }
         const Eigen::Matrix3d &K = slices[si].K;
-        cv::Mat Kcv = (cv::Mat_<double>(3, 3) << K(0, 0), 0, K(0, 2), 0, K(1, 1),
-                       K(1, 2), 0, 0, 1);
+        cv::Mat Kcv = (cv::Mat_<double>(3, 3) << K(0, 0), 0, K(0, 2), 0,
+                       K(1, 1), K(1, 2), 0, 0, 1);
         cv::Mat rvec, tvec, inliers;
         const bool ok = cv::solvePnPRansac(
             obj, img, Kcv, cv::noArray(), rvec, tvec,
@@ -381,9 +383,8 @@ detect_panorama_loop_edges(ProjectDB &db, const std::vector<int> &node_ids,
       Eigen::Matrix3d Q = Q_best;
       Eigen::Vector3d t = t_best;
       int initial_inliers = 0;
-      const pano_detail::BearingRefineOptions ro{ang_gate,
-                                                 options.refine_iterations,
-                                                 options.min_frame_inliers};
+      const pano_detail::BearingRefineOptions ro{
+          ang_gate, options.refine_iterations, options.min_frame_inliers};
       const std::vector<int> inl = pano_detail::refine_bearing_pose(
           fc.points, fc.bearings, ro, Q, t, &initial_inliers);
       if (inl.empty()) {
@@ -429,8 +430,8 @@ detect_panorama_loop_edges(ProjectDB &db, const std::vector<int> &node_ids,
     const int before = stats.edges;
     std::vector<LoopEdge> pano_edges = detail::edges_from_resections(
         std::move(resections), seed_poses, options, gates, &stats);
-    core::info("PanoramaLoops: panorama {} ('{}') -> {} loop edges",
-               pano.id, pano.filename, stats.edges - before);
+    core::info("PanoramaLoops: panorama {} ('{}') -> {} loop edges", pano.id,
+               pano.filename, stats.edges - before);
     edges.insert(edges.end(), pano_edges.begin(), pano_edges.end());
   }
 
@@ -438,11 +439,10 @@ detect_panorama_loop_edges(ProjectDB &db, const std::vector<int> &node_ids,
   // that both see the same frame pair would otherwise contribute two
   // BetweenFactors on one pair, multiplying that pair's information. The
   // better-supported edge wins.
-  std::sort(edges.begin(), edges.end(),
-            [](const LoopEdge &x, const LoopEdge &y) {
-              return std::tie(x.i, x.j, y.inliers) <
-                     std::tie(y.i, y.j, x.inliers);
-            });
+  std::sort(
+      edges.begin(), edges.end(), [](const LoopEdge &x, const LoopEdge &y) {
+        return std::tie(x.i, x.j, y.inliers) < std::tie(y.i, y.j, x.inliers);
+      });
   const size_t before_dedup = edges.size();
   edges.erase(std::unique(edges.begin(), edges.end(),
                           [](const LoopEdge &x, const LoopEdge &y) {

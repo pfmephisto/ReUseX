@@ -28,6 +28,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace reusex {
@@ -122,8 +123,34 @@ nlohmann::json projects_json(const reusex::ProjectDB &db);
 
 nlohmann::json clouds_json(const reusex::ProjectDB &db);
 nlohmann::json cloud_json(const reusex::ProjectDB &db, const std::string &name);
+
+/// One page of point data as JSON, ignoring `format`.
+///
+/// Backed by ProjectDB::point_cloud_page(), so it reads only the bytes the
+/// page occupies. Use cloud_points() to serve the endpoint — this is the
+/// `format=json` half of it.
+/// @throws HttpError(404) when @p name is not a stored cloud, HttpError(400)
+///         on a malformed `offset`/`limit`.
 nlohmann::json cloud_points_json(const reusex::ProjectDB &db,
                                  const std::string &name, const Params &params);
+
+/// One points-endpoint response. Exactly one of @c body / @c blob is set,
+/// decided by the `format` parameter — the route needs two different return
+/// paths because a RUXP page is not JSON.
+struct PointsResponse {
+  std::optional<nlohmann::json> body; ///< Set on `format=json`.
+  std::optional<Blob> blob;           ///< Set on `format=binary` (RUXP v1).
+  /// `X-Ruxp-*` mirrors of the body header, set on the binary path only.
+  /// A debugging convenience: the body header is the contract, and a client
+  /// must not depend on these being present (docs/gui/binary-points.md).
+  std::vector<std::pair<std::string, std::string>> headers;
+};
+
+/// Serve one page of point data in the requested wire format.
+/// @throws HttpError(404) for an unknown cloud, HttpError(400) for a `format`
+///         other than json|binary or a malformed `offset`/`limit`.
+PointsResponse cloud_points(const reusex::ProjectDB &db,
+                            const std::string &name, const Params &params);
 
 // --- meshes ---------------------------------------------------------------
 

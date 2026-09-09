@@ -197,6 +197,42 @@ class ProjectDB {
   std::vector<std::string> list_point_clouds() const;
   std::string point_cloud_type(std::string_view name) const;
 
+  /// A contiguous window of one cloud's stored records, still in storage
+  /// layout — no PCL type has been inflated.
+  struct CloudPage {
+    /// "PointXYZRGB" | "PointXYZ" | "Normal" | "Label".
+    std::string point_type;
+    uint32_t point_step = 0; ///< Bytes per stored record.
+    uint64_t offset = 0;     ///< First point index, clamped to @c total.
+    uint64_t count = 0;      ///< Points actually read.
+    uint64_t total = 0;      ///< Points in the whole cloud.
+    /// @c count * @c point_step bytes, exactly as stored.
+    std::vector<uint8_t> data;
+  };
+
+  /**
+   * @brief Read one page of a point cloud without materializing the cloud.
+   *
+   * Peak memory is O(page), not O(cloud). The chunk map is built from
+   * `length(data)` (which does not load a blob), and only the chunks the
+   * requested byte range `[offset*step, (offset+count)*step)` overlaps are
+   * touched, via SQLite incremental blob I/O. A 100k-point page of a
+   * 10M-point `PointXYZRGB` cloud therefore costs ~1.6 MB, not the ~160 MB
+   * the blob occupies (nor the ~320 MB it would occupy once inflated into
+   * `pcl::PointXYZRGB`, which is 32 bytes wide because of SSE padding).
+   *
+   * A record may straddle a chunk boundary, so the read works in raw byte
+   * ranges rather than whole records per chunk.
+   *
+   * @param offset First point index. Past the end yields `count == 0` with
+   *               `total` still populated — not an error.
+   * @param limit  Maximum points to return. `0` yields an empty page.
+   * @throws std::runtime_error when @p name is not a stored cloud, or when
+   *         the stored `point_step` contradicts the stored `point_type`.
+   */
+  CloudPage point_cloud_page(std::string_view name, uint64_t offset,
+                             uint64_t limit) const;
+
   // --- Label Definitions ---
 
   void save_label_definitions(std::string_view cloudName,

@@ -4,6 +4,8 @@
 
 #include "gui/api.hpp"
 
+#include "gui/binary_points.hpp"
+
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/core/SensorIntrinsics.hpp>
 #include <reusex/core/component_record.hpp>
@@ -64,6 +66,40 @@ std::string stage_token(reusex::core::Stage stage) {
   throw HttpError(
       404,
       std::string("no such ").append(what).append(" '").append(which) + "'");
+}
+
+/// A validated, clamped `offset`/`limit` pair, shared by both wire formats so
+/// the two are interchangeable page for page.
+struct PageRequest {
+  uint64_t offset = 0;
+  uint64_t limit = 0;
+};
+
+PageRequest parse_page_request(const Params &params) {
+  const long long raw_offset = params.integer("offset", 0);
+  const long long raw_limit =
+      params.integer("limit", static_cast<long long>(kDefaultPointsPerPage));
+  if (raw_offset < 0)
+    throw HttpError(400, "offset must be >= 0");
+  if (raw_limit < 1)
+    throw HttpError(400, "limit must be >= 1");
+
+  return {static_cast<uint64_t>(raw_offset),
+          std::min<uint64_t>(static_cast<uint64_t>(raw_limit),
+                             static_cast<uint64_t>(kMaxPointsPerPage))};
+}
+
+/// Read one little-endian value out of a stored point record.
+float read_f32(const uint8_t *at) {
+  float value = 0.0F;
+  std::memcpy(&value, at, sizeof(value));
+  return value;
+}
+
+uint32_t read_u32(const uint8_t *at) {
+  uint32_t value = 0;
+  std::memcpy(&value, at, sizeof(value));
+  return value;
 }
 
 json pose_array(const std::array<double, 16> &pose) {
@@ -482,81 +518,94 @@ json cloud_points_json(const reusex::ProjectDB &db, const std::string &name,
   if (!db.has_point_cloud(name))
     not_found("cloud", name);
 
-  const std::string format = params.str("format", "json");
-  if (format == "binary")
-    throw HttpError(501, "binary point transport is not implemented yet; it is "
-                         "Phase 2/5 of issue #265. Use format=json.");
-  if (format != "json")
-    throw HttpError(400,
-                    "format must be 'json' or 'binary', got '" + format + "'");
+  const auto request = parse_page_request(params);
 
-  const long long raw_offset = params.integer("offset", 0);
-  const long long raw_limit =
-      params.integer("limit", static_cast<long long>(kDefaultPointsPerPage));
-  if (raw_offset < 0)
-    throw HttpError(400, "offset must be >= 0");
-  if (raw_limit < 1)
-    throw HttpError(400, "limit must be >= 1");
+  // Only the bytes this page occupies are read: point_cloud_page() maps the
+  // window onto a byte range in the chunked point_cloud_data store and pulls
+  // it with SQLite incremental blob I/O, so peak memory is O(page), not
+  // O(cloud). The records come back in storage layout and are decoded inline
+  // here — inflating a pcl::PointCloud would cost 32 B/point of SSE-padded
+  // memory to produce a JSON array.
+  const auto page = db.point_cloud_page(name, request.offset, request.limit);
+  const auto *record = page.data.data();
+  const size_t step = page.point_step;
+  const size_t count = static_cast<size_t>(page.count);
 
-  const size_t offset = static_cast<size_t>(raw_offset);
-  const size_t limit =
-      std::min<size_t>(static_cast<size_t>(raw_limit), kMaxPointsPerPage);
-
-  const std::string type = db.point_cloud_type(name);
-
-  // NOTE: the whole cloud is materialized to serve one page. Acceptable for a
-  // localhost single-user server and for the small clouds Phase 1 targets;
-  // Phase 2's binary transport is where chunk-level reads and voxel LOD land
-  // (the v7 chunked point_cloud_data scheme already stores it in chunks).
   json fields = json::array();
   json points = json::array();
-  size_t total = 0;
 
-  auto emit_range = [&](size_t size, const auto &writer) {
-    total = size;
-    const size_t begin = std::min(offset, size);
-    const size_t end = std::min(begin + limit, size);
-    for (size_t i = begin; i < end; ++i)
-      points.push_back(writer(i));
-  };
-
-  if (type == "PointXYZRGB") {
+  if (page.point_type == "PointXYZRGB") {
     fields = json::array({"x", "y", "z", "r", "g", "b"});
-    auto cloud = db.point_cloud_xyzrgb(name);
-    emit_range(cloud ? cloud->size() : 0, [&](size_t i) {
-      const auto &p = cloud->points[i];
-      return json::array({p.x, p.y, p.z, p.r, p.g, p.b});
-    });
-  } else if (type == "PointXYZ") {
+    for (size_t i = 0; i < count; ++i) {
+      const auto *p = record + i * step;
+      // Bytes 12..15 are pcl::PointXYZRGB::rgba, whose union is declared over
+      // { b, g, r, a } — so r is at +14, g at +13, b at +12 on a
+      // little-endian host. Same swizzle as the RUXP path.
+      points.push_back(json::array({read_f32(p), read_f32(p + 4),
+                                    read_f32(p + 8), p[14], p[13], p[12]}));
+    }
+  } else if (page.point_type == "PointXYZ") {
     fields = json::array({"x", "y", "z"});
-    auto cloud = db.point_cloud_xyz(name);
-    emit_range(cloud ? cloud->size() : 0, [&](size_t i) {
-      const auto &p = cloud->points[i];
-      return json::array({p.x, p.y, p.z});
-    });
-  } else if (type == "Normal") {
+    for (size_t i = 0; i < count; ++i) {
+      const auto *p = record + i * step;
+      points.push_back(
+          json::array({read_f32(p), read_f32(p + 4), read_f32(p + 8)}));
+    }
+  } else if (page.point_type == "Normal") {
+    // The stored record also carries curvature at +12; neither wire format
+    // exposes it.
     fields = json::array({"nx", "ny", "nz"});
-    auto cloud = db.point_cloud_normal(name);
-    emit_range(cloud ? cloud->size() : 0, [&](size_t i) {
-      const auto &p = cloud->points[i];
-      return json::array({p.normal_x, p.normal_y, p.normal_z});
-    });
-  } else if (type == "Label") {
+    for (size_t i = 0; i < count; ++i) {
+      const auto *p = record + i * step;
+      points.push_back(
+          json::array({read_f32(p), read_f32(p + 4), read_f32(p + 8)}));
+    }
+  } else if (page.point_type == "Label") {
     fields = json::array({"label"});
-    auto cloud = db.point_cloud_label(name);
-    emit_range(cloud ? cloud->size() : 0,
-               [&](size_t i) { return json::array({cloud->points[i].label}); });
+    for (size_t i = 0; i < count; ++i)
+      points.push_back(json::array({read_u32(record + i * step)}));
   } else {
-    throw HttpError(500, "unsupported cloud type '" + type + "'");
+    throw HttpError(500, "unsupported cloud type '" + page.point_type + "'");
   }
 
   return json{{"name", name},
-              {"type", type},
-              {"offset", offset},
+              {"type", page.point_type},
+              {"offset", page.offset},
               {"count", points.size()},
-              {"total", total},
+              {"total", page.total},
               {"fields", std::move(fields)},
               {"points", std::move(points)}};
+}
+
+PointsResponse cloud_points(const reusex::ProjectDB &db,
+                            const std::string &name, const Params &params) {
+  if (!db.has_point_cloud(name))
+    not_found("cloud", name);
+
+  const std::string format = params.str("format", "json");
+  if (format == "json") {
+    PointsResponse response;
+    response.body = cloud_points_json(db, name, params);
+    return response;
+  }
+  if (format != "binary")
+    throw HttpError(400,
+                    "format must be 'json' or 'binary', got '" + format + "'");
+
+  const auto request = parse_page_request(params);
+  const auto page = db.point_cloud_page(name, request.offset, request.limit);
+  if (!ruxp_supports(page.point_type))
+    throw HttpError(500, "unsupported cloud type '" + page.point_type + "'");
+
+  PointsResponse response;
+  response.blob = Blob{"application/octet-stream", encode_ruxp(page)};
+  // Mirrors of the body header, for curl-level debugging only.
+  response.headers = {{"X-Ruxp-Version", std::to_string(kRuxpVersion)},
+                      {"X-Ruxp-Type", page.point_type},
+                      {"X-Ruxp-Offset", std::to_string(page.offset)},
+                      {"X-Ruxp-Count", std::to_string(page.count)},
+                      {"X-Ruxp-Total", std::to_string(page.total)}};
+  return response;
 }
 
 // ===========================================================================

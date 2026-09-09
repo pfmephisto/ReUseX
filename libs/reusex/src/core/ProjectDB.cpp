@@ -49,6 +49,21 @@ class StmtGuard {
   sqlite3_stmt *get() const { return stmt_; }
 };
 
+// ── RAII helper for sqlite3_blob (incremental blob I/O) ─────────────────
+class BlobGuard {
+  sqlite3_blob *blob_;
+
+    public:
+  explicit BlobGuard(sqlite3_blob *b) : blob_(b) {}
+  ~BlobGuard() {
+    if (blob_)
+      sqlite3_blob_close(blob_);
+  }
+  BlobGuard(const BlobGuard &) = delete;
+  BlobGuard &operator=(const BlobGuard &) = delete;
+  sqlite3_blob *get() const { return blob_; }
+};
+
 // ── Compact point serialization helpers ─────────────────────────────────
 
 static constexpr int XYZRGB_STEP = 16; // 3 float + 1 uint32
@@ -2090,6 +2105,148 @@ class ProjectDB::Impl {
                                std::string(name));
 
     return meta;
+  }
+
+  // Bytes per stored record for a given point_type, or 0 when the type is not
+  // one this build knows how to store.
+  static uint32_t stepForPointType(std::string_view type) {
+    if (type == "PointXYZRGB")
+      return XYZRGB_STEP;
+    if (type == "Normal")
+      return NORMAL_STEP;
+    if (type == "Label")
+      return LABEL_STEP;
+    if (type == "PointXYZ")
+      return XYZ_STEP;
+    return 0;
+  }
+
+  // Partial read: only the chunks the requested byte range overlaps are
+  // touched, and only the overlapping sub-range of each. See the doc comment
+  // on ProjectDB::point_cloud_page().
+  ProjectDB::CloudPage loadCloudPage(std::string_view name, uint64_t offset,
+                                     uint64_t limit) const {
+    const char *metaSql = "SELECT id, point_type, point_count, point_step FROM "
+                          "point_clouds WHERE name = ?;";
+    sqlite3_stmt *mstmt;
+    if (sqlite3_prepare_v2(db, metaSql, -1, &mstmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to prepare cloud page load: " +
+                               std::string(sqlite3_errmsg(db)));
+    StmtGuard mguard(mstmt);
+    sqlite3_bind_text(mstmt, 1, name.data(), static_cast<int>(name.size()),
+                      SQLITE_TRANSIENT);
+    if (sqlite3_step(mstmt) != SQLITE_ROW)
+      throw std::runtime_error("Point cloud not found: " + std::string(name));
+
+    ProjectDB::CloudPage page;
+    const int cloudId = sqlite3_column_int(mstmt, 0);
+    page.point_type =
+        reinterpret_cast<const char *>(sqlite3_column_text(mstmt, 1));
+    const auto storedCount =
+        static_cast<uint64_t>(sqlite3_column_int64(mstmt, 2));
+    const auto storedStep =
+        static_cast<uint32_t>(sqlite3_column_int64(mstmt, 3));
+
+    const uint32_t knownStep = stepForPointType(page.point_type);
+    if (knownStep == 0)
+      throw std::runtime_error("Point cloud '" + std::string(name) +
+                               "' has unsupported point type '" +
+                               page.point_type + "'");
+    // A stale or zero point_step (pre-v7 rows, a truncated write) must not be
+    // trusted silently: the type's step is the authority, and a disagreement
+    // is reported rather than papered over (STANDARDS §5).
+    if (storedStep != 0 && storedStep != knownStep)
+      throw std::runtime_error(
+          "Point cloud '" + std::string(name) + "' declares point_step " +
+          std::to_string(storedStep) + " but type '" + page.point_type +
+          "' stores " + std::to_string(knownStep) + " bytes per record");
+    if (storedStep == 0)
+      warn("Point cloud '{}' has point_step 0 in its metadata row; falling "
+           "back to {} bytes for type '{}'",
+           name, knownStep, page.point_type);
+    page.point_step = knownStep;
+
+    // Chunk map. length() on a blob column reads the header, not the payload.
+    struct ChunkRef {
+      sqlite3_int64 rowid;
+      uint64_t begin; ///< Global byte offset of this chunk's first byte.
+      uint64_t size;
+    };
+    std::vector<ChunkRef> chunks;
+    uint64_t totalBytes = 0;
+    {
+      const char *chunkSql =
+          "SELECT rowid, chunk_index, length(data) FROM point_cloud_data "
+          "WHERE cloud_id = ? ORDER BY chunk_index;";
+      sqlite3_stmt *cstmt;
+      if (sqlite3_prepare_v2(db, chunkSql, -1, &cstmt, nullptr) != SQLITE_OK)
+        throw std::runtime_error("Failed to prepare cloud chunk map: " +
+                                 std::string(sqlite3_errmsg(db)));
+      StmtGuard cguard(cstmt);
+      sqlite3_bind_int(cstmt, 1, cloudId);
+
+      int rc;
+      while ((rc = sqlite3_step(cstmt)) == SQLITE_ROW) {
+        const auto len = sqlite3_column_int64(cstmt, 2);
+        if (len < 0)
+          throw std::runtime_error("Negative chunk size for point cloud: " +
+                                   std::string(name));
+        chunks.push_back({sqlite3_column_int64(cstmt, 0), totalBytes,
+                          static_cast<uint64_t>(len)});
+        totalBytes += static_cast<uint64_t>(len);
+      }
+      if (rc != SQLITE_DONE)
+        throw std::runtime_error("Failed to read point cloud chunk map: " +
+                                 std::string(sqlite3_errmsg(db)));
+    }
+    if (chunks.empty())
+      throw std::runtime_error("Point cloud has no data rows: " +
+                               std::string(name));
+
+    // The bytes on disk are the ground truth; point_count is a cached number.
+    const uint64_t byteCount = totalBytes / page.point_step;
+    if (byteCount != storedCount)
+      warn("Point cloud '{}' metadata says {} points but its {} stored bytes "
+           "hold {} records of {} bytes; using the byte count",
+           name, storedCount, totalBytes, byteCount, page.point_step);
+    page.total = byteCount;
+
+    page.offset = std::min(offset, page.total);
+    page.count = std::min(limit, page.total - page.offset);
+    if (page.count == 0)
+      return page;
+
+    const uint64_t rangeBegin = page.offset * page.point_step;
+    const uint64_t rangeEnd = rangeBegin + page.count * page.point_step;
+    page.data.resize(static_cast<size_t>(rangeEnd - rangeBegin));
+
+    // A record can straddle a chunk boundary (256 MiB is not a multiple of
+    // 12), so copy raw byte ranges rather than whole records per chunk.
+    for (const auto &chunk : chunks) {
+      if (chunk.size == 0)
+        continue;
+      const uint64_t chunkEnd = chunk.begin + chunk.size;
+      if (chunkEnd <= rangeBegin || chunk.begin >= rangeEnd)
+        continue;
+
+      const uint64_t copyBegin = std::max(chunk.begin, rangeBegin);
+      const uint64_t copyEnd = std::min(chunkEnd, rangeEnd);
+
+      sqlite3_blob *blob = nullptr;
+      if (sqlite3_blob_open(db, "main", "point_cloud_data", "data", chunk.rowid,
+                            /*flags=*/0, &blob) != SQLITE_OK)
+        throw std::runtime_error("Failed to open point cloud chunk blob: " +
+                                 std::string(sqlite3_errmsg(db)));
+      BlobGuard bguard(blob);
+      if (sqlite3_blob_read(blob, page.data.data() + (copyBegin - rangeBegin),
+                            static_cast<int>(copyEnd - copyBegin),
+                            static_cast<int>(copyBegin - chunk.begin)) !=
+          SQLITE_OK)
+        throw std::runtime_error("Failed to read point cloud chunk blob: " +
+                                 std::string(sqlite3_errmsg(db)));
+    }
+
+    return page;
   }
 
   bool hasPointCloud(std::string_view name) const {
@@ -4478,6 +4635,12 @@ std::vector<std::string> ProjectDB::list_point_clouds() const {
 
 std::string ProjectDB::point_cloud_type(std::string_view name) const {
   return impl_->getPointCloudType(name);
+}
+
+ProjectDB::CloudPage ProjectDB::point_cloud_page(std::string_view name,
+                                                 uint64_t offset,
+                                                 uint64_t limit) const {
+  return impl_->loadCloudPage(name, offset, limit);
 }
 
 // --- Label Definitions ---

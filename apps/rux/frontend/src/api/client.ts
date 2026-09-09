@@ -52,9 +52,10 @@ export const DEFAULT_BASE_URL = '/api/v1';
  * A non-2xx response, carrying the status so a caller can branch on it.
  *
  * The statuses worth branching on, per the contract: `404` (no such resource),
- * `501` (`format=binary`, not implemented until #283), `503` (the project
- * database was momentarily locked by a running job — retry), `403` (origin not
- * allowlisted) and `415` (mutating route without the JSON content type).
+ * `501` (`format=binary` against a server that predates #283 — fall back to
+ * JSON), `503` (the project database was momentarily locked by a running job —
+ * retry), `403` (origin not allowlisted) and `415` (mutating route without the
+ * JSON content type).
  */
 export class ApiRequestError extends Error {
   readonly status: number;
@@ -207,17 +208,14 @@ export class RuxApiClient {
   }
 
   /**
-   * One page of points.
+   * One page of points, as JSON rows.
    *
-   * `format` is the forward-compatibility seam for #283: the JSON shape will
-   * not change when `binary` arrives, so the page-walking logic above this can
-   * stay put and only the decode step is replaced. Asking for `binary` today
-   * raises an `ApiRequestError` with `isNotImplemented`.
-   *
-   * It is sent explicitly even when the caller omits it. The contract's default
-   * is `json` today, but this client decodes the JSON shape unconditionally —
-   * so the request must name the format it is prepared to parse rather than
-   * inherit whatever a future server decides to default to.
+   * `format` is sent explicitly even when the caller omits it. The contract's
+   * default is `json` today, but this method decodes the JSON shape
+   * unconditionally — so the request must name the format it is prepared to
+   * parse rather than inherit whatever a future server decides to default to.
+   * For the binary transport use {@link cloudPointsBinary}, which is a
+   * different *return type*, not a different argument.
    */
   cloudPoints(
     name: string,
@@ -229,6 +227,38 @@ export class RuxApiClient {
       { offset: options.offset, limit: options.limit, format: options.format ?? 'json' },
       signal,
     );
+  }
+
+  /**
+   * One page of points as a RUXP v1 body (`docs/gui/binary-points.md`, #283).
+   *
+   * Returns the raw `ArrayBuffer` rather than a parsed page: parsing belongs to
+   * the viewport (`viewport/binaryPoints.ts`), and keeping the two apart is what
+   * lets this client stay the one place that knows about HTTP.
+   *
+   * A server that predates the format answers **501**, which arrives as an
+   * `ApiRequestError` with `isNotImplemented` — the signal a caller uses to
+   * fall back to {@link cloudPoints} for the rest of its stream. Note that this
+   * client does **not** read the `X-Ruxp-*` response headers: they are a `curl`
+   * convenience, and the spec is explicit that the body header is the contract.
+   */
+  async cloudPointsBinary(
+    name: string,
+    options: { offset?: number; limit?: number } = {},
+    signal?: AbortSignal,
+  ): Promise<ArrayBuffer> {
+    const url = this.url(`/clouds/${encodeURIComponent(name)}/points`, {
+      offset: options.offset,
+      limit: options.limit,
+      format: 'binary',
+    });
+    const response = await this.doFetch(url, { method: 'GET', signal });
+    if (!response.ok) {
+      // The failure body is still JSON on this route — the contract's `Error`
+      // object — so the shared reason extraction applies unchanged.
+      throw new ApiRequestError(response.status, await describeFailure(response), url);
+    }
+    return response.arrayBuffer();
   }
 
   // ----------------------------------------------------------- meshes ----

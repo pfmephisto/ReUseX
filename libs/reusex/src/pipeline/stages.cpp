@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "reusex/pipeline/stages.hpp"
+#include "reusex/pipeline/stage_parameters.hpp"
 
 #include "reusex/core/ProjectDB.hpp"
 #include "reusex/core/filter_expression.hpp"
@@ -298,10 +299,10 @@ StageResult run_rooms(ProjectDB &db, const StageContext &ctx,
 
 StageResult run_instances(ProjectDB &db, const StageContext &ctx,
                           const json &params) {
-  const auto semantic_cloud =
-      param_or<std::string>(params, "semantic_cloud", "labels");
-  const auto output_cloud =
-      param_or<std::string>(params, "output_cloud", "instances");
+  const auto semantic_cloud = param_or<std::string>(
+      params, "semantic_cloud", std::string(kDefaultSemanticCloud));
+  const auto output_cloud = param_or<std::string>(
+      params, "output_cloud", std::string(kDefaultInstanceCloud));
 
   geometry::SegmentInstancesRequest request;
   request.cloud = db.point_cloud_xyzrgb("cloud");

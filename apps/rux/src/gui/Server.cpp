@@ -623,6 +623,13 @@ class Server::Impl {
       });
     });
 
+    get("/api/v1/stages/<string>/validation")(
+        [this](const crow::request &, std::string stage) {
+          return with_db([&](const reusex::ProjectDB &db) {
+            return json_response(200, stage_validation_json(db, stage));
+          });
+        });
+
     get("/api/v1/pipeline-log")([this](const crow::request &req) {
       const Params params = params_of(req);
       return with_db([&](const reusex::ProjectDB &db) {

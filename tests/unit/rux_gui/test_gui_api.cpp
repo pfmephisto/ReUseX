@@ -85,6 +85,7 @@ TEST_CASE("The route table matches the documented contract", "[gui][routes]") {
       "GET /api/v1/materials/<string>",
       "GET /api/v1/instances/<string>",
       "GET /api/v1/stages",
+      "GET /api/v1/stages/<string>/validation",
       "GET /api/v1/pipeline-log",
       "GET /api/v1/jobs",
       "POST /api/v1/jobs",
@@ -447,6 +448,83 @@ TEST_CASE("The stage catalogue separates runnability from readiness",
       CHECK(stage.at("cancellable") == false);
     if (name == "planes" || name == "rooms" || name == "instances")
       CHECK(stage.at("cancellable") == true);
+  }
+}
+
+TEST_CASE("Every stage carries its contract, hints and parameter schema",
+          "[gui][pipeline]") {
+  TempPath project("test_gui_api");
+  reusex::ProjectDB db(project.path);
+
+  const auto body = stages_json(db);
+
+  for (const auto &stage : body.at("stages")) {
+    const auto name = stage.at("stage").get<std::string>();
+    INFO("stage: " << name);
+
+    CHECK_FALSE(stage.at("summary").get<std::string>().empty());
+    CHECK_FALSE(stage.at("command").get<std::string>().empty());
+    CHECK(stage.at("outputs").is_array());
+    CHECK_FALSE(stage.at("outputs").empty());
+
+    // An unready stage must not just say "no": every error-severity issue
+    // carries the derived resolution command (#295), which is what lets the
+    // UI say "run X first" instead of leaving the user stuck.
+    REQUIRE(stage.at("issues").is_array());
+    REQUIRE_FALSE(stage.at("issues").empty());
+    for (const auto &issue : stage.at("issues")) {
+      CHECK_FALSE(issue.at("check").get<std::string>().empty());
+      CHECK_FALSE(issue.at("message").get<std::string>().empty());
+      const auto severity = issue.at("severity").get<std::string>();
+      CHECK((severity == "error" || severity == "warning"));
+      if (severity == "error")
+        CHECK_FALSE(issue.at("hint").get<std::string>().empty());
+    }
+
+    // `blockers` stays a strict summary of the error-severity issues.
+    size_t errors = 0;
+    for (const auto &issue : stage.at("issues"))
+      if (issue.at("severity") == "error")
+        ++errors;
+    CHECK(stage.at("blockers").size() == errors);
+
+    REQUIRE(stage.at("parameters").is_array());
+    // A stage with no runner takes no parameters; a runnable one always has
+    // knobs, and every knob must be renderable without guessing.
+    CHECK(stage.at("parameters").empty() == (name == "mesh"));
+    for (const auto &parameter : stage.at("parameters")) {
+      INFO("parameter: " << parameter.at("key"));
+      CHECK_FALSE(parameter.at("key").get<std::string>().empty());
+      CHECK_FALSE(parameter.at("label").get<std::string>().empty());
+      CHECK_FALSE(parameter.at("description").get<std::string>().empty());
+      CHECK(parameter.contains("default"));
+      CHECK(parameter.contains("minimum"));
+      CHECK(parameter.contains("maximum"));
+      CHECK(parameter.at("presence_sensitive").is_boolean());
+    }
+  }
+}
+
+TEST_CASE("Per-stage validation returns the same record as the catalogue",
+          "[gui][pipeline]") {
+  TempPath project("test_gui_api");
+  reusex::ProjectDB db(project.path);
+
+  const auto catalogue = stages_json(db);
+  for (const auto &stage : catalogue.at("stages")) {
+    const auto name = stage.at("stage").get<std::string>();
+    INFO("stage: " << name);
+    CHECK(stage_validation_json(db, name) == stage);
+  }
+
+  // An unknown stage is a 404, not an empty record that a UI would render as
+  // "ready".
+  CHECK_THROWS_AS(stage_validation_json(db, "not-a-stage"), HttpError);
+  try {
+    stage_validation_json(db, "not-a-stage");
+  } catch (const HttpError &e) {
+    CHECK(e.status() == 404);
+    CHECK(std::string(e.what()).find("not-a-stage") != std::string::npos);
   }
 }
 

@@ -164,6 +164,14 @@ nlohmann::json instances_json(const reusex::ProjectDB &db,
 // --- pipeline -------------------------------------------------------------
 
 nlohmann::json stages_json(const reusex::ProjectDB &db);
+
+/// Input-contract validation for a single stage.
+///
+/// Same record shape as one element of stages_json(), so a client refreshing
+/// one card after a run does not have to reconcile two schemas.
+/// @throws HttpError(404) when @p stage is not in the catalogue.
+nlohmann::json stage_validation_json(const reusex::ProjectDB &db,
+                                     const std::string &stage);
 nlohmann::json pipeline_log_json(const reusex::ProjectDB &db,
                                  const Params &params);
 

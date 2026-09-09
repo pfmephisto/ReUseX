@@ -574,6 +574,44 @@ paths:
                     type: array
                     items: { $ref: "#/components/schemas/StageInfo" }
 
+  /stages/{stage}/validation:
+    get:
+      tags: [pipeline]
+      operationId: validateStage
+      summary: Input-contract validation for one stage
+      description: |
+        The same record `/stages` returns for this one stage, re-evaluated now.
+
+        A pipeline-runner UI needs this after every run: finishing `clouds`
+        unblocks `planes`, and re-fetching the whole catalogue to learn that is
+        wasteful when only one card changed. The record shape is deliberately
+        identical to a `/stages` element so the client can substitute it in
+        place rather than merging two schemas.
+
+        `issues[].hint` carries the derived resolution command (#295) — the
+        producing stage of the missing artifact, walked back to the first
+        prerequisite that IS satisfied. That is what lets a UI say "run
+        `rux create clouds` first" without re-deriving the pipeline order.
+      parameters:
+        - name: stage
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [clouds, planes, rooms, instances, mesh]
+          description: A stage listed by `/stages`.
+      responses:
+        "200":
+          description: Stage record, with validation detail
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StageInfo" }
+        "404":
+          description: No such stage
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
   /pipeline-log:
     get:
       tags: [pipeline]
@@ -1131,12 +1169,29 @@ components:
 
     StageInfo:
       type: object
-      required: [stage, runnable, cancellable, ready]
+      required:
+        [stage, log_name, summary, command, runnable, cancellable, ready,
+         outputs, blockers, issues, parameters]
       properties:
         stage:
           type: string
           description: Token accepted by `POST /jobs`.
           enum: [clouds, planes, rooms, instances, mesh]
+        log_name:
+          type: string
+          description: >-
+            The value this stage writes into `pipeline_log.stage`. Deliberately
+            not the wire token -- the CLI has written `segment_planes` /
+            `cloud_reconstruction` into that column since long before the GUI
+            existed, and existing databases are full of those values. Exposed
+            so a history view can be joined to a stage card without hard-coding
+            the mapping. Empty for a stage with no runner.
+        summary:
+          type: string
+          description: One-line description, from the stage contract table.
+        command:
+          type: string
+          description: The `rux` command that runs this stage.
         runnable:
           type: boolean
           description: False when no job runner exists for it yet.
@@ -1148,10 +1203,111 @@ components:
         ready:
           type: boolean
           description: True when the stage's input contract is satisfied.
+        outputs:
+          type: array
+          description: >-
+            Artifacts this stage writes. A view showing one of these empty can
+            name the stage that fills it instead of shrugging.
+          items: { type: string }
         blockers:
           type: array
-          description: Why `ready` is false; empty when it is true.
+          description: >-
+            Why `ready` is false, as flat printable strings; empty when it is
+            true. A summary of the error-severity entries in `issues`.
           items: { type: string }
+        issues:
+          type: array
+          description: >-
+            Every validation finding, including warnings and the derived
+            resolution hint. This is the machine-readable form; `blockers` is
+            the printable one.
+          items: { $ref: "#/components/schemas/ValidationIssue" }
+        parameters:
+          type: array
+          description: >-
+            The knobs `POST /jobs` accepts for this stage, with the defaults
+            read from the library option structs. Empty for a stage with no
+            runner. A form built from this cannot drift from the library the
+            way a hard-coded one does (STANDARDS §4).
+          items: { $ref: "#/components/schemas/StageParameter" }
+
+    ValidationIssue:
+      type: object
+      required: [check, message, severity, hint, artifact, commands]
+      properties:
+        check:
+          type: string
+          description: Machine-readable check id, e.g. `missing_input`.
+        message:
+          type: string
+          description: Human-readable description of the problem.
+        severity:
+          type: string
+          enum: [warning, error]
+          description: Only `error` entries make a stage unready.
+        hint:
+          type: string
+          description: >-
+            The command to run to fix it, derived from the stage contract
+            table (#295). Empty when there is no mechanical resolution.
+        artifact:
+          type: string
+          description: >-
+            The named cloud/table the issue is about, when it is about one;
+            empty otherwise. Surfaced separately so a UI can list the missing
+            inputs without regex-ing `message`, which is prose.
+        commands:
+          type: array
+          description: >-
+            The same resolution as `hint`, in order, as separate commands.
+            `hint` is formatted for a terminal and is multi-line when several
+            steps are needed; a GUI wants the steps, not the layout, and
+            parsing them back out of the prose would be a second source of
+            truth. Empty when there is no mechanical resolution.
+          items: { type: string }
+
+    StageParameter:
+      type: object
+      required:
+        [key, type, label, description, default, minimum, maximum,
+         presence_sensitive]
+      properties:
+        key:
+          type: string
+          description: >-
+            The key to send inside `JobRequest.parameters`. This mirrors the
+            library option-struct field name, which is not always the CLI flag
+            spelling -- `clouds` reads `resolution`, the CLI calls it `--grid`.
+        type:
+          type: string
+          enum: [number, integer, boolean, string, integer_list]
+        label:
+          type: string
+          description: Short form-field label.
+        description:
+          type: string
+          description: One-line explanation, mirroring the CLI help.
+        default:
+          description: >-
+            The value the stage uses when the key is omitted. Null means the
+            parameter has no neutral value and is absent by default -- a form
+            must leave it blank rather than invent one.
+          type: [number, integer, boolean, string, "null"]
+        minimum:
+          type: [number, "null"]
+          description: Inclusive lower bound, null when unbounded.
+        maximum:
+          type: [number, "null"]
+          description: Inclusive upper bound, null when unbounded.
+        presence_sensitive:
+          type: boolean
+          description: >-
+            True when sending the key AT ALL changes behaviour regardless of
+            its value (#214) -- `planes.plane_dist_threshold` and
+            `planes.min_inliers` pin themselves and switch off adaptive
+            derivation. A form must omit an untouched presence-sensitive key
+            rather than echo its default back, which would silently disable
+            adaptivity.
 
     PipelineLogEntry:
       type: object

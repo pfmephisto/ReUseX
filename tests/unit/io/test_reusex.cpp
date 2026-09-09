@@ -11,7 +11,7 @@
 
 using Catch::Matchers::WithinAbs;
 
-TEST_CASE("getPlanes extracts plane data from point clouds", "[io][reusex]") {
+TEST_CASE("GetPlanes_TwoPlanes_ExtractsPlaneData", "[io][reusex]") {
   using namespace reusex;
 
   // Create minimal test clouds - getPlanes expects per-plane data, not
@@ -56,7 +56,7 @@ TEST_CASE("getPlanes extracts plane data from point clouds", "[io][reusex]") {
   REQUIRE_THAT(plane_centroids[0].z(), WithinAbs(0.0, 0.001));
 }
 
-TEST_CASE("save and read plane data round-trip", "[io][reusex]") {
+TEST_CASE("SaveRead_PlaneData_RoundTrips", "[io][reusex]") {
   using namespace reusex;
 
   // Create test data in the format expected by save()
@@ -120,7 +120,7 @@ TEST_CASE("save and read plane data round-trip", "[io][reusex]") {
   std::filesystem::remove(temp_path);
 }
 
-TEST_CASE("getPlanes handles empty cloud", "[io][reusex]") {
+TEST_CASE("GetPlanes_EmptyClouds_ReturnsEmptyResults", "[io][reusex]") {
   using namespace reusex;
 
   CloudLPtr planes(new CloudL);
@@ -136,7 +136,7 @@ TEST_CASE("getPlanes handles empty cloud", "[io][reusex]") {
   REQUIRE(plane_indices.empty());
 }
 
-TEST_CASE("read handles non-existent file", "[io][reusex]") {
+TEST_CASE("Read_NonExistentFile_ReturnsEmptyResults", "[io][reusex]") {
   using namespace reusex;
 
   std::vector<pcl::ModelCoefficients> model_coefficients;

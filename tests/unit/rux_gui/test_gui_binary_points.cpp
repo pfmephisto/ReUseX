@@ -232,8 +232,7 @@ reusex::Cloud make_known_rgb_cloud() {
 // Byte-exact encoding
 // ===========================================================================
 
-TEST_CASE("RUXP encodes a known PointXYZRGB page byte for byte",
-          "[gui][ruxp]") {
+TEST_CASE("EncodeRuxp_KnownPointXYZRGBPage_MatchesExactBytes", "[gui][ruxp]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
   db.save_point_cloud("cloud", make_known_rgb_cloud(), "test");
@@ -386,8 +385,7 @@ TEST_CASE("RUXP encodes a known PointXYZRGB page byte for byte",
 // The RGB swizzle
 // ===========================================================================
 
-TEST_CASE("RUXP emits rgb in r,g,b order, not the stored BGRA word",
-          "[gui][ruxp]") {
+TEST_CASE("EncodeRuxp_RgbField_ReordersFromStoredBgra", "[gui][ruxp]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
 
@@ -434,7 +432,7 @@ TEST_CASE("RUXP emits rgb in r,g,b order, not the stored BGRA word",
 // Paging
 // ===========================================================================
 
-TEST_CASE("RUXP page windows carry the right count/offset/total",
+TEST_CASE("EncodeRuxp_PagingWindows_ReportsCorrectCountOffsetTotal",
           "[gui][ruxp]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
@@ -489,8 +487,7 @@ TEST_CASE("RUXP page windows carry the right count/offset/total",
   }
 }
 
-TEST_CASE("RUXP encodes an empty cloud as a header and nothing else",
-          "[gui][ruxp]") {
+TEST_CASE("EncodeRuxp_EmptyCloud_WritesHeaderOnly", "[gui][ruxp]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
 
@@ -520,7 +517,7 @@ TEST_CASE("RUXP encodes an empty cloud as a header and nothing else",
 // The other cloud types
 // ===========================================================================
 
-TEST_CASE("RUXP encodes a PointXYZ cloud as one xyz field", "[gui][ruxp]") {
+TEST_CASE("EncodeRuxp_PointXYZCloud_WritesSingleXyzField", "[gui][ruxp]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
 
@@ -561,7 +558,7 @@ TEST_CASE("RUXP encodes a PointXYZ cloud as one xyz field", "[gui][ruxp]") {
   check_invariants(buf);
 }
 
-TEST_CASE("RUXP encodes a Normal cloud as three floats named 'normal'",
+TEST_CASE("EncodeRuxp_NormalCloud_WritesNormalFieldExcludingCurvature",
           "[gui][ruxp]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
@@ -606,7 +603,7 @@ TEST_CASE("RUXP encodes a Normal cloud as three floats named 'normal'",
   check_invariants(buf);
 }
 
-TEST_CASE("RUXP encodes a Label cloud as one u32 per point", "[gui][ruxp]") {
+TEST_CASE("EncodeRuxp_LabelCloud_WritesU32PerPoint", "[gui][ruxp]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
 
@@ -642,8 +639,7 @@ TEST_CASE("RUXP encodes a Label cloud as one u32 per point", "[gui][ruxp]") {
 // ruxp_supports
 // ===========================================================================
 
-TEST_CASE("ruxp_supports accepts exactly the four stored point types",
-          "[gui][ruxp]") {
+TEST_CASE("RuxpSupports_StoredPointTypes_AcceptsExactlyFour", "[gui][ruxp]") {
   CHECK(ruxp_supports("PointXYZRGB"));
   CHECK(ruxp_supports("PointXYZ"));
   CHECK(ruxp_supports("Normal"));
@@ -657,7 +653,7 @@ TEST_CASE("ruxp_supports accepts exactly the four stored point types",
   CHECK_FALSE(ruxp_supports("Labels"));
 }
 
-TEST_CASE("encode_ruxp refuses a page it has no layout for", "[gui][ruxp]") {
+TEST_CASE("EncodeRuxp_UnsupportedPointType_Throws", "[gui][ruxp]") {
   ProjectDB::CloudPage page;
   page.point_type = "PointXYZI";
   page.point_step = 16;
@@ -666,7 +662,7 @@ TEST_CASE("encode_ruxp refuses a page it has no layout for", "[gui][ruxp]") {
   CHECK_THROWS_AS(encode_ruxp(page), std::runtime_error);
 }
 
-TEST_CASE("encode_ruxp refuses a page whose data is short", "[gui][ruxp]") {
+TEST_CASE("EncodeRuxp_TruncatedPageData_Throws", "[gui][ruxp]") {
   ProjectDB::CloudPage page;
   page.point_type = "PointXYZRGB";
   page.point_step = 16;

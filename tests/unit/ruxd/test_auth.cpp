@@ -54,7 +54,8 @@ std::string bearer(const std::string &token) { return "Bearer " + token; }
 
 } // namespace
 
-TEST_CASE("Route patterns match concrete request paths", "[ruxd][auth]") {
+TEST_CASE("RoutePatternMatches_VariousUrlShapes_MatchesCorrectly",
+          "[ruxd][auth]") {
   using ruxd::route_pattern_matches;
 
   SECTION("static rules") {
@@ -99,14 +100,14 @@ TEST_CASE("Route patterns match concrete request paths", "[ruxd][auth]") {
   }
 }
 
-TEST_CASE("HTTP method comparison ignores case", "[ruxd][auth]") {
+TEST_CASE("HttpMethodEquals_CaseVariants_IgnoresCase", "[ruxd][auth]") {
   CHECK(ruxd::http_method_equals("GET", "get"));
   CHECK(ruxd::http_method_equals("POST", "POST"));
   CHECK_FALSE(ruxd::http_method_equals("GET", "POST"));
   CHECK_FALSE(ruxd::http_method_equals("GET", "GETT"));
 }
 
-TEST_CASE("Registry resolves auth requirements fail-closed", "[ruxd][auth]") {
+TEST_CASE("EndpointRegistry_RequiresAuth_ResolvesFailClosed", "[ruxd][auth]") {
   const ruxd::EndpointRegistry reg = make_registry();
 
   SECTION("declared public routes stay public") {
@@ -150,7 +151,8 @@ TEST_CASE("Registry resolves auth requirements fail-closed", "[ruxd][auth]") {
   }
 }
 
-TEST_CASE("Token comparison is constant-time", "[ruxd][auth]") {
+TEST_CASE("ConstantTimeEquals_VariousTokenPairs_ComparesConstantTime",
+          "[ruxd][auth]") {
   CHECK(ruxd::constant_time_equals("abc", "abc"));
   CHECK_FALSE(ruxd::constant_time_equals("abc", "abd"));
   CHECK_FALSE(ruxd::constant_time_equals("abc", "Abc"));
@@ -161,7 +163,7 @@ TEST_CASE("Token comparison is constant-time", "[ruxd][auth]") {
   CHECK(ruxd::constant_time_equals("", ""));
 }
 
-TEST_CASE("Middleware rejects unauthenticated protected requests",
+TEST_CASE("BearerAuthMiddleware_UnauthenticatedOrWrongToken_Returns401",
           "[ruxd][auth]") {
   const ruxd::EndpointRegistry reg = make_registry();
 
@@ -215,7 +217,8 @@ TEST_CASE("Middleware rejects unauthenticated protected requests",
   }
 }
 
-TEST_CASE("Middleware records authentication state", "[ruxd][auth]") {
+TEST_CASE("BearerAuthMiddleware_BeforeHandle_RecordsAuthenticatedState",
+          "[ruxd][auth]") {
   const ruxd::EndpointRegistry reg = make_registry();
 
   auto authenticated = [&reg](const std::string &token,
@@ -242,7 +245,7 @@ TEST_CASE("Middleware records authentication state", "[ruxd][auth]") {
   CHECK_FALSE(authenticated("", bearer(kToken)));
 }
 
-TEST_CASE("A null endpoint registry is a startup error", "[ruxd][auth]") {
+TEST_CASE("BearerAuthMiddleware_NullEndpointRegistry_Throws", "[ruxd][auth]") {
   ruxd::BearerAuthMiddleware mw;
   CHECK_THROWS_AS(mw.configure(nullptr, kToken), std::runtime_error);
 

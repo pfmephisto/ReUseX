@@ -46,7 +46,7 @@ constexpr const char *kUnreachableRedis = "tcp://127.0.0.1:1";
 
 } // namespace
 
-TEST_CASE("RedisClient::ping reports an unreachable server as data",
+TEST_CASE("RedisClientPing_UnreachableServer_ReturnsFailureResult",
           "[ruxd][clients][redis]") {
   ruxd::RedisClient client(kUnreachableRedis);
 
@@ -57,7 +57,7 @@ TEST_CASE("RedisClient::ping reports an unreachable server as data",
   REQUIRE_FALSE(result.detail.empty());
 }
 
-TEST_CASE("RedisClient::ping is safe to call concurrently",
+TEST_CASE("RedisClientPing_ConcurrentCalls_NoThrowOrRace",
           "[ruxd][clients][redis]") {
   // Regression guard for #282: ping() created redis_ under init_mutex_ but
   // read it back outside the lock, so concurrent probes raced the shared_ptr.
@@ -92,8 +92,9 @@ TEST_CASE("RedisClient::ping is safe to call concurrently",
   REQUIRE(failures.load() == kThreads);
 }
 
-TEST_CASE("S3Client::ping reports an unconfigured backend without throwing",
-          "[ruxd][clients][s3]") {
+TEST_CASE(
+    "S3ClientPing_UnconfiguredBackend_ReturnsFailureResultWithoutThrowing",
+    "[ruxd][clients][s3]") {
   ruxd::Config cfg; // no s3_endpoint, no credentials
   ruxd::S3Client client(cfg);
 

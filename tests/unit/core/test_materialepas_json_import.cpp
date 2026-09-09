@@ -146,7 +146,7 @@ static MaterialPassport createSamplePassport() {
 // Test Cases
 // ===========================================================================
 
-TEST_CASE("Round-trip: export then import preserves all fields",
+TEST_CASE("FromJson_ExportThenImportRoundTrip_PreservesAllFields",
           "[core][json][import]") {
   auto original = createSamplePassport();
   auto j = json_export::to_json(original);
@@ -317,7 +317,7 @@ TEST_CASE("Round-trip: export then import preserves all fields",
         original.transaction_log[0].new_value);
 }
 
-TEST_CASE("Empty passport round-trip preserves defaults",
+TEST_CASE("FromJson_EmptyPassportRoundTrip_PreservesDefaults",
           "[core][json][import]") {
   MaterialPassport empty;
   auto j = json_export::to_json(empty);
@@ -350,7 +350,7 @@ TEST_CASE("Empty passport round-trip preserves defaults",
   CHECK(imported.transaction_log.empty());
 }
 
-TEST_CASE("Multiple passports round-trip via from_json_array",
+TEST_CASE("FromJsonArray_MultiplePassports_RoundTripsCorrectly",
           "[core][json][import]") {
   MaterialPassport p1 = createSamplePassport();
   p1.metadata.document_guid = "guid-001";
@@ -377,7 +377,7 @@ TEST_CASE("Multiple passports round-trip via from_json_array",
   CHECK(imported[2].owner.contact_name == "Charlie");
 }
 
-TEST_CASE("from_json_string auto-detects single vs array",
+TEST_CASE("FromJsonString_SingleOrArrayInput_AutoDetectsFormat",
           "[core][json][import]") {
   auto passport = createSamplePassport();
 
@@ -396,7 +396,7 @@ TEST_CASE("from_json_string auto-detects single vs array",
   }
 }
 
-TEST_CASE("Multiple DangerousSubstance entries round-trip correctly",
+TEST_CASE("FromJson_MultipleDangerousSubstances_RoundTripCorrectly",
           "[core][json][import]") {
   MaterialPassport passport;
 
@@ -436,7 +436,7 @@ TEST_CASE("Multiple DangerousSubstance entries round-trip correctly",
         100.0);
 }
 
-TEST_CASE("Missing sections key produces defaults with metadata parsed",
+TEST_CASE("FromJson_EmptySectionsArray_ProducesDefaultsWithMetadataParsed",
           "[core][json][import]") {
   // JSON with empty sections array but valid metadata
   json j;
@@ -463,12 +463,13 @@ TEST_CASE("Missing sections key produces defaults with metadata parsed",
   CHECK(imported.metadata.version_date == "2025-01-03");
 }
 
-TEST_CASE("Invalid JSON throws parse_error", "[core][json][import]") {
+TEST_CASE("FromJsonString_InvalidJson_ThrowsParseError",
+          "[core][json][import]") {
   REQUIRE_THROWS_AS(json_import::from_json_string("not valid json {{{"),
                     nlohmann::json::parse_error);
 }
 
-TEST_CASE("Missing required sections key throws runtime_error",
+TEST_CASE("FromJson_MissingSectionsKey_ThrowsRuntimeError",
           "[core][json][import]") {
   json j;
   j["log"] = json::array();
@@ -478,7 +479,7 @@ TEST_CASE("Missing required sections key throws runtime_error",
   REQUIRE_THROWS_AS(json_import::from_json(j), std::runtime_error);
 }
 
-TEST_CASE("JSON string round-trip produces identical re-export",
+TEST_CASE("FromJsonString_RoundTrip_ProducesIdenticalReExport",
           "[core][json][import]") {
   auto original = createSamplePassport();
   auto json_str1 = json_export::to_json_string(original);

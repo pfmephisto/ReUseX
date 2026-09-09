@@ -26,7 +26,8 @@ using Catch::Matchers::WithinAbs;
 // Example 1: Basic test with multiple sections
 // =============================================================================
 
-TEST_CASE("Point cloud transformations", "[pointcloud][geometry]") {
+TEST_CASE("PointCloud_TranslationAndScaling_TransformsPointsCorrectly",
+          "[pointcloud][geometry]") {
   CloudPtr cloud(new Cloud());
 
   SECTION("Translation") {
@@ -97,7 +98,8 @@ class PointCloudFixture {
   }
 };
 
-TEST_CASE_METHOD(PointCloudFixture, "Point cloud filtering",
+TEST_CASE_METHOD(PointCloudFixture,
+                 "CloudFilter_RangeAndColorPredicates_SelectsMatchingPoints",
                  "[pointcloud][filter]") {
   REQUIRE(cloud->size() == 100);
 
@@ -132,7 +134,7 @@ TEST_CASE_METHOD(PointCloudFixture, "Point cloud filtering",
 // Example 3: Testing exception handling
 // =============================================================================
 
-TEST_CASE("Error handling", "[error]") {
+TEST_CASE("CloudAt_OutOfRangeIndex_ThrowsOutOfRange", "[error]") {
   SECTION("Empty cloud access") {
     CloudPtr empty_cloud(new Cloud());
 
@@ -153,7 +155,8 @@ TEST_CASE("Error handling", "[error]") {
 // Example 4: Parameterized tests using GENERATE
 // =============================================================================
 
-TEST_CASE("Point distance calculations", "[geometry][math]") {
+TEST_CASE("EuclideanDistance_ScaledPointPairs_MatchesAnalyticFormula",
+          "[geometry][math]") {
   auto scale = GENERATE(1.0f, 2.0f, 5.0f, 10.0f);
 
   SECTION("Euclidean distance with scale " + std::to_string(scale)) {
@@ -179,7 +182,8 @@ TEST_CASE("Point distance calculations", "[geometry][math]") {
 // Example 5: Testing with Eigen matrices (common in point cloud processing)
 // =============================================================================
 
-TEST_CASE("Eigen operations", "[eigen][matrix]") {
+TEST_CASE("EigenVectorOps_RotationAndNormalization_ProduceExpectedResults",
+          "[eigen][matrix]") {
   SECTION("Matrix-vector multiplication") {
     Eigen::Matrix3d rotation = Eigen::Matrix3d::Identity();
     Eigen::Vector3d point(1.0, 2.0, 3.0);
@@ -208,7 +212,8 @@ TEST_CASE("Eigen operations", "[eigen][matrix]") {
 // Example 6: Benchmarking (if needed)
 // =============================================================================
 
-TEST_CASE("Performance tests", "[.benchmark]") {
+TEST_CASE("LargeCloudCreation_OneMillionPoints_ReachesExpectedSize",
+          "[.benchmark]") {
   // Tests tagged with [.benchmark] are hidden by default
   // Run with: ./reusex_tests "[.benchmark]"
 

@@ -79,7 +79,7 @@ reusex::Cloud make_rgb_cloud(size_t n) {
 // Agreement with the full read
 // ===========================================================================
 
-TEST_CASE("point_cloud_page matches the matching slice of the full read",
+TEST_CASE("PointCloudPage_VariousOffsetsAndLimits_MatchesFullReadSlice",
           "[projectdb][cloudpage]") {
   CloudPageDB tmp;
   ProjectDB db(tmp.path);
@@ -126,7 +126,7 @@ TEST_CASE("point_cloud_page matches the matching slice of the full read",
 // Clamping
 // ===========================================================================
 
-TEST_CASE("point_cloud_page clamps offset and limit",
+TEST_CASE("PointCloudPage_OffsetOrLimitBeyondBounds_ClampsToTotal",
           "[projectdb][cloudpage]") {
   CloudPageDB tmp;
   ProjectDB db(tmp.path);
@@ -180,8 +180,7 @@ TEST_CASE("point_cloud_page clamps offset and limit",
   }
 }
 
-TEST_CASE("point_cloud_page throws for an unknown cloud",
-          "[projectdb][cloudpage]") {
+TEST_CASE("PointCloudPage_UnknownCloudName_Throws", "[projectdb][cloudpage]") {
   CloudPageDB tmp;
   ProjectDB db(tmp.path);
   db.save_point_cloud("cloud", make_rgb_cloud(4), "test");
@@ -198,7 +197,7 @@ TEST_CASE("point_cloud_page throws for an unknown cloud",
 // Every point type
 // ===========================================================================
 
-TEST_CASE("point_cloud_page round-trips every stored point type",
+TEST_CASE("PointCloudPage_EveryStoredPointType_RoundTripsCorrectly",
           "[projectdb][cloudpage]") {
   CloudPageDB tmp;
   ProjectDB db(tmp.path);
@@ -293,7 +292,7 @@ TEST_CASE("point_cloud_page round-trips every stored point type",
 // The memory property
 // ===========================================================================
 
-TEST_CASE("point_cloud_page allocates only the page, not the cloud",
+TEST_CASE("PointCloudPage_LargeCloud_AllocatesOnlyPageNotWholeCloud",
           "[projectdb][cloudpage]") {
   CloudPageDB tmp;
   ProjectDB db(tmp.path);

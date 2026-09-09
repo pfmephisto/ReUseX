@@ -79,7 +79,7 @@ const std::vector<pipeline::JobStage> &runnable_stages() {
 
 } // namespace
 
-TEST_CASE("validate and run_stage agree on refusing an empty project",
+TEST_CASE("ValidateAndRunStage_EmptyProject_AgreeOnRefusal",
           "[pipeline][stages][contract]") {
   for (auto stage : runnable_stages()) {
     TempPath project("test_contract_agreement");
@@ -110,8 +110,7 @@ TEST_CASE("validate and run_stage agree on refusing an empty project",
   }
 }
 
-TEST_CASE("validate and run_stage agree that a satisfied contract is not "
-          "refused",
+TEST_CASE("ValidateAndRunStage_SatisfiedContract_AgreeNotRefused",
           "[pipeline][stages][contract]") {
   TempPath project("test_contract_agreement");
   ProjectDB db(project.path);
@@ -130,7 +129,7 @@ TEST_CASE("validate and run_stage agree that a satisfied contract is not "
   CHECK_FALSE(result.invalid_input);
 }
 
-TEST_CASE("a misaligned sibling is refused by both doors",
+TEST_CASE("ValidateAndRunStage_MisalignedSiblingClouds_AgreeOnRefusal",
           "[pipeline][stages][contract]") {
   TempPath project("test_contract_agreement");
   ProjectDB db(project.path);
@@ -148,7 +147,7 @@ TEST_CASE("a misaligned sibling is refused by both doors",
   CHECK(result.message.find("index-aligned") != std::string::npos);
 }
 
-TEST_CASE("run_stage honours the semantic_cloud override the validator uses",
+TEST_CASE("RunStage_SemanticCloudOverride_RefusedLikeValidator",
           "[pipeline][stages][contract]") {
   TempPath project("test_contract_agreement");
   ProjectDB db(project.path);

@@ -60,7 +60,7 @@ size_t stage_index(PipelineStage stage) {
 
 } // namespace
 
-TEST_CASE("stage contract: every PipelineStage has exactly one row",
+TEST_CASE("StageContractTable_AllPipelineStages_HaveExactlyOneRow",
           "[core][contract]") {
   const auto &contracts = stage_contracts();
   REQUIRE(contracts.size() == all_stages().size());
@@ -74,7 +74,7 @@ TEST_CASE("stage contract: every PipelineStage has exactly one row",
   }
 }
 
-TEST_CASE("stage contract: table order is enum order", "[core][contract]") {
+TEST_CASE("StageContractTable_RowOrder_MatchesEnumOrder", "[core][contract]") {
   // The interpreter's hint recursion and the DAG rule below both rely on table
   // position meaning "pipeline position", so the two orders must not diverge.
   const auto &contracts = stage_contracts();
@@ -83,7 +83,7 @@ TEST_CASE("stage contract: table order is enum order", "[core][contract]") {
     CHECK(contracts[i].stage == stages[i]);
 }
 
-TEST_CASE("stage contract: names and aliases are unique and parseable",
+TEST_CASE("StageContractTable_NamesAndAliases_AreUniqueAndParseable",
           "[core][contract]") {
   std::set<std::string> seen;
   for (const auto &contract : stage_contracts()) {
@@ -112,7 +112,7 @@ TEST_CASE("stage contract: names and aliases are unique and parseable",
   CHECK_FALSE(parse_pipeline_stage("bogus").has_value());
 }
 
-TEST_CASE("stage contract: every named artifact is registered",
+TEST_CASE("StageContractTable_NamedArtifacts_AreAllRegistered",
           "[core][contract]") {
   for (const auto &contract : stage_contracts()) {
     INFO("stage " << contract.name);
@@ -130,8 +130,7 @@ TEST_CASE("stage contract: every named artifact is registered",
   }
 }
 
-TEST_CASE("stage contract: artifact registry has no duplicates",
-          "[core][contract]") {
+TEST_CASE("ArtifactRegistry_Entries_HaveNoDuplicates", "[core][contract]") {
   std::set<std::string> seen;
   for (const auto &artifact : pipeline_artifacts()) {
     INFO("artifact " << artifact.name);
@@ -143,7 +142,7 @@ TEST_CASE("stage contract: artifact registry has no duplicates",
   }
 }
 
-TEST_CASE("stage contract: inputs are produced by strictly earlier stages",
+TEST_CASE("StageContractTable_Inputs_ProducedByEarlierStages",
           "[core][contract]") {
   // This is the "outputs of stage N are the inputs of stage N+1" rule,
   // generalised so the annotate -> project -> instances branch does not have to
@@ -162,8 +161,7 @@ TEST_CASE("stage contract: inputs are produced by strictly earlier stages",
   }
 }
 
-TEST_CASE("stage contract: every produced artifact has a first producer",
-          "[core][contract]") {
+TEST_CASE("StageContractTable_Outputs_HaveFirstProducer", "[core][contract]") {
   for (const auto &contract : stage_contracts()) {
     for (const auto &output : contract.outputs) {
       INFO("stage " << contract.name << " output " << output);
@@ -176,7 +174,7 @@ TEST_CASE("stage contract: every produced artifact has a first producer",
   }
 }
 
-TEST_CASE("stage contract: unknown enumerator is rejected loudly",
+TEST_CASE("StageContract_UnknownEnumerator_ThrowsLogicError",
           "[core][contract]") {
   const auto beyond =
       static_cast<PipelineStage>(static_cast<int>(stage_contracts().size()));
@@ -240,7 +238,7 @@ std::map<std::string, DocStage> parse_contracts_doc(const std::string &text) {
 
 } // namespace
 
-TEST_CASE("stage contract: docs/CONTRACTS.md mirrors the table",
+TEST_CASE("ContractsDoc_StageSections_MatchContractTable",
           "[core][contract][docs]") {
   const std::filesystem::path doc =
       std::filesystem::path(REUSEX_SOURCE_DIR) / "docs" / "CONTRACTS.md";

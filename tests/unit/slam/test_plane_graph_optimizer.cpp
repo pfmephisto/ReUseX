@@ -41,9 +41,8 @@ double plane_factor_consistent_residual();
 // into the pose frame). A perfectly consistent observation must have ~0
 // residual; the buggy encoding produced ~2.1 for the same geometry. This uses
 // an off-origin plane (d != 0) because origin-planes hide the sign entirely.
-TEST_CASE(
-    "OrientedPlane3 conventions: consistent observation has zero residual",
-    "[plane_graph][optimize]") {
+TEST_CASE("PlaneFactorConsistentResidual_OffOriginPlane_IsZero",
+          "[plane_graph][optimize]") {
   const double residual = reusex::geometry::plane_factor_consistent_residual();
   REQUIRE_THAT(residual, WithinAbs(0.0, 1e-9));
 }
@@ -176,7 +175,7 @@ float pose_rot_error(const Eigen::Affine3f &a, const Eigen::Affine3f &b) {
 
 } // namespace
 
-TEST_CASE("PlaneGraph recovers drifted poses toward the shared truth",
+TEST_CASE("PlaneGraphOptimizer_DriftedPosesSharedCorner_RecoverTowardTruth",
           "[plane_graph][optimize]") {
   // All frames sit at the same true pose (identity): each sees the exact same
   // corner. This is the cleanest global-consistency signal.
@@ -230,7 +229,7 @@ TEST_CASE("PlaneGraph recovers drifted poses toward the shared truth",
   }
 }
 
-TEST_CASE("PlaneGraph is a near no-op on already-consistent poses",
+TEST_CASE("PlaneGraphOptimizer_AlreadyConsistentPoses_IsNearNoOp",
           "[plane_graph][optimize]") {
   // All frames already at the true (identity) pose: no drift to correct.
   std::vector<FrameSurfels> frames;
@@ -258,7 +257,7 @@ TEST_CASE("PlaneGraph is a near no-op on already-consistent poses",
 // #225 follow-up: landmark hygiene.
 // ---------------------------------------------------------------------------
 
-TEST_CASE("PlaneGraph does NOT alias two offset parallel walls",
+TEST_CASE("PlaneGraphOptimizer_OffsetParallelWalls_DoesNotAliasLandmarks",
           "[plane_graph][optimize][hygiene]") {
   // Two frames each see a co-normal (normal +z, offset d=0) patch, but the two
   // patches are far apart IN-PLANE (centres 10 m apart along x). They agree in
@@ -296,7 +295,8 @@ TEST_CASE("PlaneGraph does NOT alias two offset parallel walls",
   REQUIRE(res2.landmarks == 1); // aliased when the gate is off
 }
 
-TEST_CASE("PlaneGraph rejects a degenerate (near-collinear) landmark",
+TEST_CASE("PlaneGraphOptimizer_NearCollinearCentroids_"
+          "RejectsDegenerateLandmark",
           "[plane_graph][optimize][hygiene]") {
   // Four frames see adjacent strips of the SAME z=0 plane whose centroids lie
   // on a straight line (along x). Merged into one landmark, those centroids are
@@ -338,7 +338,8 @@ TEST_CASE("PlaneGraph rejects a degenerate (near-collinear) landmark",
   REQUIRE(res_g.landmarks >= 1);
 }
 
-TEST_CASE("PlaneGraph alternating rounds beat a single round on heavy drift",
+TEST_CASE("PlaneGraphOptimizer_HeavyDriftAlternatingRounds_"
+          "ConvergesCloserThanSingleRound",
           "[plane_graph][optimize][hygiene]") {
   // A larger drift than the basic recovery test: one association+optimize pass
   // under-corrects because the landmarks are formed on badly-drifted poses;
@@ -393,7 +394,7 @@ TEST_CASE("PlaneGraph alternating rounds beat a single round on heavy drift",
   REQUIRE(e3 < e1);
 }
 
-TEST_CASE("PlaneGraph leaves poses unchanged when no landmark is shared",
+TEST_CASE("PlaneGraphOptimizer_NoSharedLandmark_LeavesPosesUnchanged",
           "[plane_graph][optimize]") {
   // Two frames but require more observations than any landmark can get: the
   // optimizer must refuse to move the poses (no silent guessing).
@@ -418,7 +419,8 @@ TEST_CASE("PlaneGraph leaves poses unchanged when no landmark is shared",
             0.0f);
 }
 
-TEST_CASE("PlaneGraph loop edge pulls a drifted frame toward truth",
+TEST_CASE("PlaneGraphOptimizer_CorrectLoopEdgeNoPlaneFactors_"
+          "PullsDriftedFrameTowardTruth",
           "[plane_graph][optimize][loop_closure]") {
   // Isolate the P2 loop-edge machinery from the plane objective: require more
   // observations than any landmark can get (so NO plane factors form), leaving
@@ -463,7 +465,7 @@ TEST_CASE("PlaneGraph loop edge pulls a drifted frame toward truth",
 }
 
 TEST_CASE(
-    "PlaneGraph bounds a trusted loop edge instead of trusting it blindly",
+    "PlaneGraphOptimizer_TrustedLoopEdge_BoundsCorrectionInsteadOfBlindTrust",
     "[plane_graph][optimize][loop_closure]") {
   // Regression guard for the --loop-trust semantics (PR #228 review).
   //
@@ -569,7 +571,7 @@ TEST_CASE(
   }
 }
 
-TEST_CASE("PlaneGraph ignores out-of-range loop edges",
+TEST_CASE("PlaneGraphOptimizer_OutOfRangeLoopEdge_IsSkipped",
           "[plane_graph][optimize][loop_closure]") {
   // A loop edge whose endpoints do not exist must be skipped, not crash, and
   // leave poses untouched when there is nothing else to constrain them.
@@ -608,7 +610,7 @@ TEST_CASE("PlaneGraph ignores out-of-range loop edges",
 // factors are infinitely trusted or entirely ignored, which is exactly the
 // class of bug that cost this issue two rounds of bad numbers.
 
-TEST_CASE("PlaneGraph recovers drift under every plane-noise model",
+TEST_CASE("PlaneGraphOptimizer_EveryPlaneNoiseModel_RecoversDrift",
           "[plane_graph][optimize][noise]") {
   const Eigen::Affine3f truth = Eigen::Affine3f::Identity();
 
@@ -676,7 +678,7 @@ TEST_CASE("PlaneGraph recovers drift under every plane-noise model",
   }
 }
 
-TEST_CASE("PlaneGraph plane-noise weighting is deterministic",
+TEST_CASE("PlaneGraphOptimizer_FitGeometryNoiseModel_IsDeterministic",
           "[plane_graph][optimize][noise]") {
   // STANDARDS §6: the noise scales are a pure function of the (seeded) RANSAC
   // fits, so two identical runs must agree bit for bit — otherwise none of the

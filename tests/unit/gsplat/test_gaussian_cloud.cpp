@@ -43,7 +43,7 @@ CloudPtr make_grid(int n_per_axis, float spacing) {
 
 } // namespace
 
-TEST_CASE("SH DC round-trips to RGB", "[gsplat]") {
+TEST_CASE("RgbToShDcRoundtrip_VariousColors_PreservesValue", "[gsplat]") {
   for (float c : {0.0f, 0.25f, 0.5f, 1.0f}) {
     const float f = gsplat::rgb_to_sh_dc(c);
     REQUIRE(gsplat::sh_dc_to_rgb(f) == Approx(c).margin(1e-6));
@@ -52,8 +52,7 @@ TEST_CASE("SH DC round-trips to RGB", "[gsplat]") {
   REQUIRE(gsplat::rgb_to_sh_dc(0.5f) == Approx(0.0).margin(1e-9));
 }
 
-TEST_CASE("inverse_sigmoid inverts sigmoid and stays finite at the ends",
-          "[gsplat]") {
+TEST_CASE("InverseSigmoid_FullRange_InvertsSigmoidAndStaysFinite", "[gsplat]") {
   auto sigmoid = [](float x) { return 1.0f / (1.0f + std::exp(-x)); };
   REQUIRE(sigmoid(gsplat::inverse_sigmoid(0.1f)) == Approx(0.1f).margin(1e-5));
   REQUIRE(sigmoid(gsplat::inverse_sigmoid(0.9f)) == Approx(0.9f).margin(1e-5));
@@ -63,7 +62,8 @@ TEST_CASE("inverse_sigmoid inverts sigmoid and stays finite at the ends",
   REQUIRE(std::isfinite(gsplat::inverse_sigmoid(1.0f)));
 }
 
-TEST_CASE("init_from_point_cloud seeds one Gaussian per point", "[gsplat]") {
+TEST_CASE("InitFromPointCloud_RegularGrid_SeedsOneGaussianPerPoint",
+          "[gsplat]") {
   const float spacing = 0.05f;
   auto cloud = make_grid(5, spacing); // 125 points
 
@@ -113,7 +113,7 @@ TEST_CASE("init_from_point_cloud seeds one Gaussian per point", "[gsplat]") {
   }
 }
 
-TEST_CASE("init_from_point_cloud honours max_points with a uniform stride",
+TEST_CASE("InitFromPointCloud_MaxPointsLimit_AppliesUniformStride",
           "[gsplat]") {
   auto cloud = make_grid(10, 0.05f); // 1000 points
   gsplat::GaussianInitOptions opt;
@@ -127,7 +127,8 @@ TEST_CASE("init_from_point_cloud honours max_points with a uniform stride",
   REQUIRE(g.means[1][0] == Approx((*cloud)[10].x));
 }
 
-TEST_CASE("init_from_point_cloud is deterministic", "[gsplat]") {
+TEST_CASE("InitFromPointCloud_SameInput_ProducesDeterministicOutput",
+          "[gsplat]") {
   auto cloud = make_grid(6, 0.03f);
   gsplat::GaussianInitOptions opt;
   opt.max_points = 50;
@@ -143,7 +144,7 @@ TEST_CASE("init_from_point_cloud is deterministic", "[gsplat]") {
   }
 }
 
-TEST_CASE("init_from_point_cloud rejects unusable input", "[gsplat]") {
+TEST_CASE("InitFromPointCloud_InvalidInput_Throws", "[gsplat]") {
   REQUIRE_THROWS_WITH(gsplat::init_from_point_cloud(CloudPtr{}),
                       Catch::Matchers::ContainsSubstring("null"));
 
@@ -158,7 +159,7 @@ TEST_CASE("init_from_point_cloud rejects unusable input", "[gsplat]") {
                       Catch::Matchers::ContainsSubstring("sh_degree"));
 }
 
-TEST_CASE("duplicate points are clamped, not turned into zero-size Gaussians",
+TEST_CASE("InitFromPointCloud_DuplicatePoints_ClampsScaleInsteadOfZero",
           "[gsplat]") {
   CloudPtr cloud(new Cloud);
   for (int i = 0; i < 10; ++i) {
@@ -178,7 +179,7 @@ TEST_CASE("duplicate points are clamped, not turned into zero-size Gaussians",
   }
 }
 
-TEST_CASE("gaussian .ply survives a write/read round-trip", "[gsplat]") {
+TEST_CASE("GaussianPly_RoundTrip_PreservesData", "[gsplat]") {
   auto cloud = make_grid(4, 0.07f);
   auto g = gsplat::init_from_point_cloud(cloud);
 
@@ -200,7 +201,8 @@ TEST_CASE("gaussian .ply survives a write/read round-trip", "[gsplat]") {
   }
 }
 
-TEST_CASE("validate() names the array that disagrees", "[gsplat]") {
+TEST_CASE("GaussianCloudValidate_MismatchedArraySize_NamesOffendingArray",
+          "[gsplat]") {
   gsplat::GaussianCloud g;
   g.means.resize(3);
   g.scales.resize(3);
@@ -211,7 +213,8 @@ TEST_CASE("validate() names the array that disagrees", "[gsplat]") {
                       Catch::Matchers::ContainsSubstring("opacities"));
 }
 
-TEST_CASE("validate() rejects ragged sh_rest rows", "[gsplat]") {
+TEST_CASE("GaussianCloudValidate_ShRestRowWidth_DetectsInconsistency",
+          "[gsplat]") {
   // A short row is the dangerous case: save_gaussian_ply sizes the header from
   // row 0 and then writes every row at that stride, so one wrong width shifts
   // the byte offset of every vertex after it. The file stays syntactically
@@ -250,7 +253,7 @@ TEST_CASE("validate() rejects ragged sh_rest rows", "[gsplat]") {
   }
 }
 
-TEST_CASE("init_from_point_cloud rejects non-finite coordinates", "[gsplat]") {
+TEST_CASE("InitFromPointCloud_NonFiniteCoordinates_Throws", "[gsplat]") {
   // PCL's FLANN tree does not report NaN as an error — it returns some
   // neighbour with a NaN squared distance, which the seeding code would
   // otherwise misread as a duplicate point and clamp, carrying the NaN into

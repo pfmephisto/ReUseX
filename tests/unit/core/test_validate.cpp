@@ -94,7 +94,7 @@ bool hasCheck(const std::vector<reusex::core::ValidationIssue> &issues,
 
 } // namespace
 
-TEST_CASE("validate: clean project reports no issues", "[core][validate]") {
+TEST_CASE("ValidateProject_CleanProject_ReportsNoIssues", "[core][validate]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
   db.save_point_cloud("instances", *makeLabelCloud(4), "segment_instances");
@@ -112,7 +112,7 @@ TEST_CASE("validate: clean project reports no issues", "[core][validate]") {
   REQUIRE(report.ok());
 }
 
-TEST_CASE("validate: orphaned passport flagged as warning",
+TEST_CASE("CheckOrphanedPassports_UnlinkedPassport_FlagsWarning",
           "[core][validate]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
@@ -129,7 +129,7 @@ TEST_CASE("validate: orphaned passport flagged as warning",
   REQUIRE(report.ok());
 }
 
-TEST_CASE("validate: instance without label def is an error",
+TEST_CASE("CheckInstancesWithoutLabelDefs_MissingDefinition_FlagsError",
           "[core][validate]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
@@ -148,7 +148,7 @@ TEST_CASE("validate: instance without label def is an error",
   REQUIRE_FALSE(report.ok());
 }
 
-TEST_CASE("validate: sibling clouds of different sizes are an error",
+TEST_CASE("CheckSiblingCloudSizes_MismatchedSizes_FlagsError",
           "[core][validate]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
@@ -163,7 +163,7 @@ TEST_CASE("validate: sibling clouds of different sizes are an error",
   REQUIRE_FALSE(report.ok());
 }
 
-TEST_CASE("validate: matching sibling clouds pass size check",
+TEST_CASE("CheckSiblingCloudSizes_MatchingSizes_PassesCheck",
           "[core][validate]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
@@ -179,7 +179,7 @@ TEST_CASE("validate: matching sibling clouds pass size check",
 
 using reusex::core::PipelineStage;
 
-TEST_CASE("validate --stage: stage name parsing round-trips",
+TEST_CASE("ParsePipelineStage_NameStringsAndAliases_RoundTrips",
           "[core][validate][stage]") {
   using reusex::core::parse_pipeline_stage;
   using reusex::core::to_string;
@@ -192,7 +192,7 @@ TEST_CASE("validate --stage: stage name parsing round-trips",
   REQUIRE(to_string(PipelineStage::mesh) == "mesh");
 }
 
-TEST_CASE("validate --stage planes: missing inputs are errors",
+TEST_CASE("ValidateStage_PlanesMissingInputs_ReportsErrors",
           "[core][validate][stage]") {
   TempDB tmp;
   ProjectDB db(tmp.path); // empty project
@@ -202,7 +202,7 @@ TEST_CASE("validate --stage planes: missing inputs are errors",
   REQUIRE(hasCheck(report.issues, "missing_stage_input"));
 }
 
-TEST_CASE("validate --stage planes: present + aligned inputs pass",
+TEST_CASE("ValidateStage_PlanesInputsAligned_Passes",
           "[core][validate][stage]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
@@ -214,7 +214,7 @@ TEST_CASE("validate --stage planes: present + aligned inputs pass",
   REQUIRE(report.error_count() == 0);
 }
 
-TEST_CASE("validate --stage planes: misaligned inputs are an error",
+TEST_CASE("ValidateStage_PlanesInputsMisaligned_ReportsError",
           "[core][validate][stage]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
@@ -226,8 +226,7 @@ TEST_CASE("validate --stage planes: misaligned inputs are an error",
   REQUIRE(hasCheck(report.issues, "stage_input_size_mismatch"));
 }
 
-TEST_CASE("validate --stage mesh: full input set passes",
-          "[core][validate][stage]") {
+TEST_CASE("ValidateStage_MeshFullInputSet_Passes", "[core][validate][stage]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
   seedMeshInputs(db, /*points=*/32, /*planes=*/5);
@@ -237,7 +236,7 @@ TEST_CASE("validate --stage mesh: full input set passes",
   REQUIRE(report.error_count() == 0);
 }
 
-TEST_CASE("validate --stage mesh: missing rooms flagged",
+TEST_CASE("ValidateStage_MeshMissingRooms_FlagsMissingInput",
           "[core][validate][stage]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
@@ -250,7 +249,7 @@ TEST_CASE("validate --stage mesh: missing rooms flagged",
   REQUIRE(hasCheck(report.issues, "missing_stage_input"));
 }
 
-TEST_CASE("validate --stage import: no in-project prerequisites",
+TEST_CASE("ValidateStage_ImportEmptyProject_Passes",
           "[core][validate][stage]") {
   TempDB tmp;
   ProjectDB db(tmp.path); // empty project
@@ -260,7 +259,7 @@ TEST_CASE("validate --stage import: no in-project prerequisites",
 
 // ── Stages added when the contract was consolidated (#246) ─────────────────
 
-TEST_CASE("validate --stage: every stage name in the table parses",
+TEST_CASE("ParsePipelineStage_EveryTableEntry_Parses",
           "[core][validate][stage]") {
   for (const auto &name : reusex::core::pipeline_stage_names())
     REQUIRE(reusex::core::parse_pipeline_stage(name).has_value());
@@ -275,7 +274,7 @@ TEST_CASE("validate --stage: every stage name in the table parses",
           PipelineStage::project);
 }
 
-TEST_CASE("validate --stage texture: missing mesh is an error",
+TEST_CASE("ValidateStage_TextureMissingMesh_ReportsError",
           "[core][validate][stage]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
@@ -286,7 +285,7 @@ TEST_CASE("validate --stage texture: missing mesh is an error",
   REQUIRE(hasCheck(report.issues, "missing_stage_input"));
 }
 
-TEST_CASE("validate --stage windows: missing inputs are errors",
+TEST_CASE("ValidateStage_WindowsMissingInputs_ReportsErrors",
           "[core][validate][stage]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
@@ -297,7 +296,7 @@ TEST_CASE("validate --stage windows: missing inputs are errors",
   REQUIRE(hasCheck(report.issues, "missing_stage_input"));
 }
 
-TEST_CASE("validate --stage instances: labels or planes satisfies the input",
+TEST_CASE("ValidateStage_InstancesPlanesFallback_Passes",
           "[core][validate][stage]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
@@ -309,7 +308,7 @@ TEST_CASE("validate --stage instances: labels or planes satisfies the input",
   REQUIRE(report.ok());
 }
 
-TEST_CASE("validate --stage instances: an override drops the fallback",
+TEST_CASE("ValidateStage_InstancesSemanticCloudOverride_DropsFallback",
           "[core][validate][stage]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
@@ -328,7 +327,7 @@ TEST_CASE("validate --stage instances: an override drops the fallback",
   REQUIRE(accepted.ok());
 }
 
-TEST_CASE("validate --stage: a missing input carries a resolution hint",
+TEST_CASE("ValidateStage_MissingInput_HintNamesProducingCommand",
           "[core][validate][stage]") {
   TempDB tmp;
   ProjectDB db(tmp.path); // empty project
@@ -349,8 +348,7 @@ TEST_CASE("validate --stage: a missing input carries a resolution hint",
   REQUIRE(found);
 }
 
-TEST_CASE("validate --stage planes: the hint walks back to the first "
-          "unsatisfied prerequisite",
+TEST_CASE("ValidateStage_PlanesUnsatisfiedChain_HintOrdersPrerequisites",
           "[core][validate][stage]") {
   TempDB tmp;
   ProjectDB db(tmp.path);

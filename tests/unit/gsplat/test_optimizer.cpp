@@ -80,8 +80,7 @@ bool all_close(const torch::Tensor &a, const torch::Tensor &b) {
 
 } // namespace
 
-TEST_CASE("remap_parameters carries Adam's moments through a row remap",
-          "[gsplat]") {
+TEST_CASE("RemapParameters_RowSubsetKeep_CarriesAdamMoments", "[gsplat]") {
   auto g = make_tensors(8);
   AdamLrs lrs;
   auto opt = make_adam(g, lrs);
@@ -145,7 +144,7 @@ TEST_CASE("remap_parameters carries Adam's moments through a row remap",
   }
 }
 
-TEST_CASE("remap_parameters zeroes the moments of reset rows", "[gsplat]") {
+TEST_CASE("RemapParameters_ResetRows_ZeroesAdamMoments", "[gsplat]") {
   auto g = make_tensors(6);
   AdamLrs lrs;
   auto opt = make_adam(g, lrs);
@@ -170,7 +169,8 @@ TEST_CASE("remap_parameters zeroes the moments of reset rows", "[gsplat]") {
   REQUIRE(after->step() == 1);
 }
 
-TEST_CASE("remap_parameters handles growth by duplicating rows", "[gsplat]") {
+TEST_CASE("RemapParameters_RowDuplicationGrowth_ExpandsTensorsCorrectly",
+          "[gsplat]") {
   auto g = make_tensors(4);
   AdamLrs lrs;
   auto opt = make_adam(g, lrs);
@@ -198,7 +198,7 @@ TEST_CASE("remap_parameters handles growth by duplicating rows", "[gsplat]") {
   REQUIRE(row_sums[5].item<double>() == Approx(0.0));
 }
 
-TEST_CASE("remap_parameters works before the optimizer has stepped",
+TEST_CASE("RemapParameters_OptimizerNotYetStepped_RemapsWithoutMomentState",
           "[gsplat]") {
   // No step taken means no moment buffers to carry. The remap must still
   // rewrite the parameters rather than trip over the missing state — this is

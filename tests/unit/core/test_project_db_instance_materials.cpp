@@ -56,7 +56,7 @@ void makePassport(ProjectDB &db, const std::string &guid) {
 
 } // namespace
 
-TEST_CASE("ProjectDB instance material link round-trip",
+TEST_CASE("SetInstanceMaterial_LinkTwoInstances_RoundTripsGuidLookup",
           "[projectdb][instance_materials]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
@@ -78,7 +78,7 @@ TEST_CASE("ProjectDB instance material link round-trip",
   REQUIRE_FALSE(db.instance_material_guid("instances", 3).has_value());
 }
 
-TEST_CASE("ProjectDB instance material upserts on re-link",
+TEST_CASE("SetInstanceMaterial_RelinkSameInstance_UpsertsSingleRow",
           "[projectdb][instance_materials]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
@@ -97,7 +97,7 @@ TEST_CASE("ProjectDB instance material upserts on re-link",
   REQUIRE(all.at(1) == "guid-new");
 }
 
-TEST_CASE("ProjectDB instance_materials returns full map",
+TEST_CASE("InstanceMaterials_MultipleLinkedInstances_ReturnsFullGuidMap",
           "[projectdb][instance_materials]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
@@ -121,7 +121,7 @@ TEST_CASE("ProjectDB instance_materials returns full map",
   REQUIRE(m.find(3) == m.end());
 }
 
-TEST_CASE("ProjectDB set_instance_material throws for unknown cloud",
+TEST_CASE("SetInstanceMaterial_UnknownCloud_Throws",
           "[projectdb][instance_materials]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
@@ -129,7 +129,7 @@ TEST_CASE("ProjectDB set_instance_material throws for unknown cloud",
                     std::runtime_error);
 }
 
-TEST_CASE("ProjectDB set_instance_material rejects ghost instance",
+TEST_CASE("SetInstanceMaterial_NonexistentInstanceId_Throws",
           "[projectdb][instance_materials][integrity]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
@@ -142,7 +142,7 @@ TEST_CASE("ProjectDB set_instance_material rejects ghost instance",
                     std::runtime_error);
 }
 
-TEST_CASE("ProjectDB set_instance_material rejects missing passport",
+TEST_CASE("SetInstanceMaterial_MissingMaterialPassport_Throws",
           "[projectdb][instance_materials][integrity]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
@@ -153,7 +153,7 @@ TEST_CASE("ProjectDB set_instance_material rejects missing passport",
                     std::runtime_error);
 }
 
-TEST_CASE("ProjectDB instances table round-trip and guid lookup",
+TEST_CASE("SaveInstances_TwoInstanceRecords_RoundTripsAndResolvesGuid",
           "[projectdb][instances]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
@@ -174,7 +174,7 @@ TEST_CASE("ProjectDB instances table round-trip and guid lookup",
   REQUIRE_THROWS_AS(db.instance_guid("instances", 99), std::runtime_error);
 }
 
-TEST_CASE("ProjectDB save_instances rejects empty and duplicate guids",
+TEST_CASE("SaveInstances_EmptyOrDuplicateGuid_Throws",
           "[projectdb][instances]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
@@ -189,8 +189,9 @@ TEST_CASE("ProjectDB save_instances rejects empty and duplicate guids",
   REQUIRE_THROWS_AS(db.save_instances("instances", dup), std::runtime_error);
 }
 
-TEST_CASE("ProjectDB deleting a cloud cascades instance rows and links",
-          "[projectdb][instances][integrity]") {
+TEST_CASE(
+    "DeletePointCloud_CloudWithInstancesAndMaterialLinks_CascadesDeletion",
+    "[projectdb][instances][integrity]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
   db.save_point_cloud("instances", *makeInstanceCloud(2), "segment_instances");

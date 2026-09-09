@@ -55,7 +55,8 @@ static CloudPtr make_two_cluster_cloud() {
   return c;
 }
 
-TEST_CASE("voxel_assignment: rejects bad inputs", "[downsample]") {
+TEST_CASE("VoxelAssignment_InvalidLeafSizeOrEmptyCloud_Throws",
+          "[downsample]") {
   auto cloud = make_two_cluster_cloud();
   REQUIRE_THROWS_AS(voxel_assignment(*cloud, 0.0f), std::invalid_argument);
   REQUIRE_THROWS_AS(voxel_assignment(*cloud, -0.5f), std::invalid_argument);
@@ -64,7 +65,8 @@ TEST_CASE("voxel_assignment: rejects bad inputs", "[downsample]") {
   REQUIRE_THROWS_AS(voxel_assignment(empty, 0.1f), std::invalid_argument);
 }
 
-TEST_CASE("voxel_assignment: groups points by voxel cell", "[downsample]") {
+TEST_CASE("VoxelAssignment_TwoClusters_GroupsPointsByVoxelCell",
+          "[downsample]") {
   auto cloud = make_two_cluster_cloud();
   auto a = voxel_assignment(*cloud, 10.0f);
 
@@ -81,8 +83,7 @@ TEST_CASE("voxel_assignment: groups points by voxel cell", "[downsample]") {
     REQUIRE(a.point_to_bucket[i] == bB);
 }
 
-TEST_CASE("voxel_assignment: marks non-finite points as skipped",
-          "[downsample]") {
+TEST_CASE("VoxelAssignment_NonFinitePoint_MarksSkipped", "[downsample]") {
   Cloud cloud;
   PointT p;
   p.x = 1.0f;
@@ -106,7 +107,7 @@ TEST_CASE("voxel_assignment: marks non-finite points as skipped",
   REQUIRE(a.point_to_bucket[2] != VoxelAssignment::kSkippedPoint);
 }
 
-TEST_CASE("downsample(Cloud): centroid per voxel", "[downsample]") {
+TEST_CASE("Downsample_Cloud_ComputesCentroidPerVoxel", "[downsample]") {
   auto cloud = make_two_cluster_cloud();
   auto a = voxel_assignment(*cloud, 10.0f);
   auto out = downsample(*cloud, a);
@@ -136,7 +137,8 @@ TEST_CASE("downsample(Cloud): centroid per voxel", "[downsample]") {
   REQUIRE(out->width == 2);
 }
 
-TEST_CASE("downsample(CloudN): aligned with primary cloud", "[downsample]") {
+TEST_CASE("Downsample_CloudNormals_AlignedWithPrimaryCloudBuckets",
+          "[downsample]") {
   auto cloud = make_two_cluster_cloud();
   auto a = voxel_assignment(*cloud, 10.0f);
 
@@ -178,7 +180,8 @@ TEST_CASE("downsample(CloudN): aligned with primary cloud", "[downsample]") {
   REQUIRE_THAT((*out)[bIdx].curvature, WithinAbs(0.2f, 1e-5f));
 }
 
-TEST_CASE("voxel_assignment: handles georeferenced (UTM-scale) coordinates",
+TEST_CASE("VoxelAssignment_GeoreferencedUtmScaleCoordinates_"
+          "ShiftsToBboxRelativeVoxels",
           "[downsample]") {
   // Simulate a tiny cloud whose XY are in UTM zone 32 (eastings ~500 km,
   // northings ~6,000 km from origin). At 5 cm leaf, the *absolute* voxel
@@ -210,7 +213,7 @@ TEST_CASE("voxel_assignment: handles georeferenced (UTM-scale) coordinates",
   REQUIRE_THAT(a.origin_y, WithinAbs(base_y, 1.0));
 }
 
-TEST_CASE("voxel_assignment: rejects cloud larger than packed range",
+TEST_CASE("VoxelAssignment_CloudExceedsPackedIndexRange_ThrowsOutOfRange",
           "[downsample]") {
   // Two points ~150 km apart along X at 5 cm leaf → 3e6 voxels, exceeds
   // the 2^21-1 packed limit per axis.
@@ -228,7 +231,7 @@ TEST_CASE("voxel_assignment: rejects cloud larger than packed range",
   REQUIRE_THROWS_AS(voxel_assignment(cloud, 0.05f), std::out_of_range);
 }
 
-TEST_CASE("downsample(CloudN): rejects mismatched sizes", "[downsample]") {
+TEST_CASE("Downsample_CloudNormalsMismatchedSize_Throws", "[downsample]") {
   auto cloud = make_two_cluster_cloud();
   auto a = voxel_assignment(*cloud, 10.0f);
 

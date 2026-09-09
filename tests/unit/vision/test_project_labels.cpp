@@ -145,7 +145,7 @@ std::shared_ptr<ProjectDB> make_project(const cv::Mat &label_image,
 
 } // namespace
 
-TEST_CASE("project labels the points that fall inside the labelled square",
+TEST_CASE("Project_PointsInsideLabelledSquare_GetSquareClassLabel",
           "[vision][project]") {
   auto db = make_project(make_label_image());
   auto cloud = make_wall();
@@ -179,7 +179,7 @@ TEST_CASE("project labels the points that fall inside the labelled square",
   REQUIRE(unlabelled > 100);
 }
 
-TEST_CASE("project leaves every point unlabeled when the class is background",
+TEST_CASE("Project_AllBackgroundLabelImage_LeavesAllPointsUnlabeled",
           "[vision][project]") {
   // An all-background label image must produce an all-zero CloudL, not a
   // cloud of some sentinel class.
@@ -195,7 +195,7 @@ TEST_CASE("project leaves every point unlabeled when the class is background",
     REQUIRE(pt.label == reusex::core::kUnlabeled);
 }
 
-TEST_CASE("project honours class id zero as a real label",
+TEST_CASE("Project_ClassIdZero_MapsToUnlabeledPointLabel",
           "[vision][project]") {
   // 0 is a valid API class id (only -1 is background), and it maps to point
   // label 0 — i.e. indistinguishable from unlabeled in a CloudL. Pinning the
@@ -211,7 +211,7 @@ TEST_CASE("project honours class id zero as a real label",
     REQUIRE(pt.label == reusex::core::kUnlabeled);
 }
 
-TEST_CASE("project skips frames that have no segmentation image",
+TEST_CASE("Project_FrameWithoutSegmentationImage_LeavesPointsUnlabeled",
           "[vision][project]") {
   auto db = make_project(cv::Mat(), /*with_segmentation=*/false);
   auto cloud = make_wall();
@@ -231,8 +231,7 @@ TEST_CASE("project skips frames that have no segmentation image",
 // rtabmap::util3d::projectCloudToCamera() and die on that function's internal
 // UASSERT ("Condition (!laserScan->empty()) not met!"), which named neither
 // this stage nor the empty input (#279).
-TEST_CASE("project rejects an empty cloud with a stage-named error",
-          "[vision][project]") {
+TEST_CASE("Project_EmptyCloud_ThrowsStageNamedError", "[vision][project]") {
   auto db = make_project(make_label_image());
   reusex::CloudPtr empty(new reusex::Cloud);
   empty->width = 0;
@@ -252,14 +251,13 @@ TEST_CASE("project rejects an empty cloud with a stage-named error",
   }
 }
 
-TEST_CASE("project rejects a null cloud pointer", "[vision][project]") {
+TEST_CASE("Project_NullCloudPointer_Throws", "[vision][project]") {
   auto db = make_project(make_label_image());
 
   REQUIRE_THROWS_AS(project(*db, reusex::CloudPtr()), std::runtime_error);
 }
 
-TEST_CASE("project on a project with no sensor frames labels nothing",
-          "[vision][project]") {
+TEST_CASE("Project_NoSensorFrames_LabelsNothing", "[vision][project]") {
   auto db = std::make_shared<ProjectDB>(":memory:");
   auto cloud = make_wall();
 
@@ -270,7 +268,8 @@ TEST_CASE("project on a project with no sensor frames labels nothing",
     REQUIRE(pt.label == reusex::core::kUnlabeled);
 }
 
-TEST_CASE("project ignores geometry behind the camera", "[vision][project]") {
+TEST_CASE("Project_PointsBehindCamera_LeavesPointsUnlabeled",
+          "[vision][project]") {
   auto db = make_project(make_label_image());
 
   // Same wall, mirrored to negative z. project() rejects pt_cam.z <= 0 before
@@ -292,7 +291,7 @@ TEST_CASE("project ignores geometry behind the camera", "[vision][project]") {
     REQUIRE(pt.label == reusex::core::kUnlabeled);
 }
 
-TEST_CASE("project ignores geometry beyond the far cutoff",
+TEST_CASE("Project_PointsBeyondFarCutoff_LeavesPointsUnlabeled",
           "[vision][project]") {
   auto db = make_project(make_label_image());
 

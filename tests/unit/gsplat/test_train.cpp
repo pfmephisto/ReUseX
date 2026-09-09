@@ -127,13 +127,13 @@ std::vector<gsplat::TrainingView> make_ring(int n) {
 
 } // namespace
 
-TEST_CASE("the trainer reports itself available in this build", "[gsplat]") {
+TEST_CASE("IsAvailable_BuiltWithGsplatModule_ReturnsTrue", "[gsplat]") {
   // Compiled at all means the CUDA backend was found at configure time; this
   // is the capability probe the CLI reports on.
   REQUIRE(gsplat::is_available());
 }
 
-TEST_CASE("rendering the seed produces a non-empty image", "[gsplat][gpu]") {
+TEST_CASE("RenderView_SeededGaussians_ProducesNonEmptyImage", "[gsplat][gpu]") {
   auto g = gsplat::init_from_point_cloud(make_blob());
   auto views = make_ring(4);
 
@@ -147,7 +147,7 @@ TEST_CASE("rendering the seed produces a non-empty image", "[gsplat][gpu]") {
   REQUIRE(cv::countNonZero(cv::Mat(img.reshape(1))) > 0);
 }
 
-TEST_CASE("one training run reduces the loss", "[gsplat][gpu]") {
+TEST_CASE("TrainGaussians_ShortRun_ReducesLoss", "[gsplat][gpu]") {
   auto g = gsplat::init_from_point_cloud(make_blob());
   auto views = make_ring(6);
 
@@ -169,7 +169,7 @@ TEST_CASE("one training run reduces the loss", "[gsplat][gpu]") {
   REQUIRE(result.seconds > 0.0);
 }
 
-TEST_CASE("training reproduces to float tolerance for a fixed seed",
+TEST_CASE("TrainGaussians_FixedSeed_ReproducesLossWithinTolerance",
           "[gsplat][gpu]") {
   auto g = gsplat::init_from_point_cloud(make_blob(6));
   auto views = make_ring(4);
@@ -198,7 +198,8 @@ TEST_CASE("training reproduces to float tolerance for a fixed seed",
     REQUIRE(a.history[i].loss == Approx(b.history[i].loss).epsilon(1e-3));
 }
 
-TEST_CASE("trained Gaussians survive the tensor round trip", "[gsplat][gpu]") {
+TEST_CASE("TrainGaussians_PostTraining_GaussiansValidateAndStayFinite",
+          "[gsplat][gpu]") {
   auto seed = gsplat::init_from_point_cloud(make_blob(5));
   auto views = make_ring(3);
 
@@ -219,7 +220,8 @@ TEST_CASE("trained Gaussians survive the tensor round trip", "[gsplat][gpu]") {
   }
 }
 
-TEST_CASE("pruning actually removes the oversized Gaussians", "[gsplat][gpu]") {
+TEST_CASE("TrainGaussians_PruningOversizedGaussians_RemovesOutliers",
+          "[gsplat][gpu]") {
   // 216 blob Gaussians at ~0.16 m scale + 8 isolated ones saturated at 0.5 m.
   constexpr std::size_t kBlob = 6 * 6 * 6;
   constexpr std::size_t kOutliers = 8;
@@ -268,7 +270,8 @@ TEST_CASE("pruning actually removes the oversized Gaussians", "[gsplat][gpu]") {
   REQUIRE(std::isfinite(result.history.back().loss));
 }
 
-TEST_CASE("pruning refuses to empty the model", "[gsplat][gpu]") {
+TEST_CASE("TrainGaussians_PruneThresholdAboveInitialOpacity_SkipsPruning",
+          "[gsplat][gpu]") {
   auto seed = gsplat::init_from_point_cloud(make_blob(6));
   auto views = make_ring(4);
 
@@ -288,7 +291,7 @@ TEST_CASE("pruning refuses to empty the model", "[gsplat][gpu]") {
   REQUIRE(std::isfinite(result.history.back().loss));
 }
 
-TEST_CASE("held-out views are excluded from training and reported",
+TEST_CASE("TrainGaussians_HoldoutViews_ExcludedFromTrainingAndReported",
           "[gsplat][gpu]") {
   auto seed = gsplat::init_from_point_cloud(make_blob(5));
   auto views = make_ring(8);
@@ -331,7 +334,8 @@ TEST_CASE("held-out views are excluded from training and reported",
   REQUIRE(last.holdout_psnr > 0.0);
 }
 
-TEST_CASE("the held-out split is identical across runs", "[gsplat][gpu]") {
+TEST_CASE("TrainGaussians_HoldoutSplit_IsDeterministicAcrossRuns",
+          "[gsplat][gpu]") {
   auto seed = gsplat::init_from_point_cloud(make_blob(5));
   auto views = make_ring(8);
 
@@ -357,7 +361,7 @@ TEST_CASE("the held-out split is identical across runs", "[gsplat][gpu]") {
           Approx(b.evals.back().holdout_psnr).epsilon(1e-3));
 }
 
-TEST_CASE("a split that would leave no training views is refused",
+TEST_CASE("TrainGaussians_HoldoutEveryOne_FallsBackToTrainingOnAllViews",
           "[gsplat][gpu]") {
   auto seed = gsplat::init_from_point_cloud(make_blob(4));
   auto views = make_ring(4);
@@ -383,7 +387,8 @@ TEST_CASE("a split that would leave no training views is refused",
   REQUIRE(result.trained_views == std::vector<std::size_t>{0, 1, 2, 3});
 }
 
-TEST_CASE("MCMC grows the model toward its budget", "[gsplat][gpu]") {
+TEST_CASE("TrainGaussians_McmcEnabled_GrowsModelTowardCapBudget",
+          "[gsplat][gpu]") {
   auto seed = gsplat::init_from_point_cloud(make_blob(6));
   auto views = make_ring(4);
 
@@ -421,7 +426,8 @@ TEST_CASE("MCMC grows the model toward its budget", "[gsplat][gpu]") {
     REQUIRE(std::isfinite(o));
 }
 
-TEST_CASE("MCMC respects an absolute budget", "[gsplat][gpu]") {
+TEST_CASE("TrainGaussians_McmcAbsoluteCap_RespectsBudgetOverFactor",
+          "[gsplat][gpu]") {
   auto seed = gsplat::init_from_point_cloud(make_blob(5));
   auto views = make_ring(4);
 
@@ -443,7 +449,8 @@ TEST_CASE("MCMC respects an absolute budget", "[gsplat][gpu]") {
   REQUIRE(result.final_count <= static_cast<std::size_t>(cap));
 }
 
-TEST_CASE("MCMC noise injection leaves the model finite", "[gsplat][gpu]") {
+TEST_CASE("TrainGaussians_McmcNoiseInjection_KeepsModelFinite",
+          "[gsplat][gpu]") {
   auto seed = gsplat::init_from_point_cloud(make_blob(5));
   auto views = make_ring(4);
 
@@ -468,7 +475,7 @@ TEST_CASE("MCMC noise injection leaves the model finite", "[gsplat][gpu]") {
   }
 }
 
-TEST_CASE("the trainer rejects unusable input", "[gsplat][gpu]") {
+TEST_CASE("TrainGaussians_EmptyGaussiansOrNoViews_Throws", "[gsplat][gpu]") {
   auto g = gsplat::init_from_point_cloud(make_blob(4));
   auto views = make_ring(2);
 

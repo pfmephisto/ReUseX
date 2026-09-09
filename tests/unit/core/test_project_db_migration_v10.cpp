@@ -79,14 +79,15 @@ void buildV9Fixture(const fs::path &path) {
 
 } // namespace
 
-TEST_CASE("Fresh database is created at the latest schema version",
+TEST_CASE("ProjectDbSchemaVersion_FreshMigrationDatabase_IsLatest",
           "[projectdb][migration]") {
   TempPath tmp;
   ProjectDB db(tmp.path);
   REQUIRE(db.schema_version() == 11);
 }
 
-TEST_CASE("Migration v9 -> v10 drops orphan links and preserves valid ones",
+TEST_CASE("ProjectDbMigrationV9ToV10_OrphanAndValidInstanceMaterialLinks_"
+          "DropsOrphanKeepsValid",
           "[projectdb][migration]") {
   TempPath tmp;
   buildV9Fixture(tmp.path);

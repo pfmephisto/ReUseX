@@ -51,7 +51,7 @@ bool is_within(const fs::path &child, const fs::path &parent) {
 
 } // namespace
 
-TEST_CASE("prepare_texture_dir stages outside the working directory",
+TEST_CASE("PrepareTextureDir_DefaultCall_StagesOutsideWorkingDirectory",
           "[geometry][texture][cwd]") {
   ScopedDir dir{prepare_texture_dir()};
 
@@ -65,7 +65,7 @@ TEST_CASE("prepare_texture_dir stages outside the working directory",
   CHECK(is_within(dir.path, fs::temp_directory_path()));
 }
 
-TEST_CASE("prepare_texture_dir yields a distinct directory every call",
+TEST_CASE("PrepareTextureDir_MultipleCalls_YieldsDistinctDirectories",
           "[geometry][texture][cwd]") {
   // Two concurrent `rux create texture` runs must not share staging space.
   constexpr int kRuns = 8;
@@ -81,8 +81,9 @@ TEST_CASE("prepare_texture_dir yields a distinct directory every call",
   CHECK(seen.size() == static_cast<size_t>(kRuns));
 }
 
-TEST_CASE("prepare_texture_dir never deletes a caller-supplied directory",
-          "[geometry][texture][cwd]") {
+TEST_CASE(
+    "PrepareTextureDir_CallerSuppliedDirectoryWithExistingFile_PreservesFile",
+    "[geometry][texture][cwd]") {
   TempDir owned("test_texture_dir_owned");
 
   const fs::path keeper = owned.path / "do-not-delete.txt";
@@ -101,7 +102,7 @@ TEST_CASE("prepare_texture_dir never deletes a caller-supplied directory",
   CHECK(fs::exists(keeper));
 }
 
-TEST_CASE("prepare_texture_dir creates a missing caller-supplied directory",
+TEST_CASE("PrepareTextureDir_MissingCallerSuppliedDirectory_CreatesIt",
           "[geometry][texture][cwd]") {
   TempDir parent("test_texture_dir_missing");
   const fs::path nested = parent.path / "a" / "b" / "textures";
@@ -113,7 +114,7 @@ TEST_CASE("prepare_texture_dir creates a missing caller-supplied directory",
   CHECK(fs::is_directory(returned));
 }
 
-TEST_CASE("prepare_texture_dir returns an absolute path for a relative request",
+TEST_CASE("PrepareTextureDir_RelativePathRequest_ReturnsAbsolutePath",
           "[geometry][texture][cwd]") {
   // Texture paths end up verbatim in pcl::TexMaterial::tex_file and from
   // there in the MTL, so they must not be resolved against the CWD later.

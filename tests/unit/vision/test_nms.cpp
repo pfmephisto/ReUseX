@@ -59,7 +59,7 @@ std::vector<int64_t> kept(const torch::Tensor &keep) {
 
 // ── coordinate conversions ────────────────────────────────────────────────
 
-TEST_CASE("xyxy_to_xywh computes centre and extent", "[vision][nms]") {
+TEST_CASE("XyxyToXywh_GivenBox_ComputesCentreAndExtent", "[vision][nms]") {
   auto b = boxes({2.0F, 4.0F, 10.0F, 8.0F});
   auto c = xyxy_to_xywh(b);
 
@@ -69,7 +69,7 @@ TEST_CASE("xyxy_to_xywh computes centre and extent", "[vision][nms]") {
   REQUIRE_THAT(c[0][3].item<float>(), WithinAbs(4.0F, 1e-5)); // h
 }
 
-TEST_CASE("xywh_to_xyxy is the inverse of xyxy_to_xywh", "[vision][nms]") {
+TEST_CASE("XywhToXyxy_RoundTrip_IsInverseOfXyxyToXywh", "[vision][nms]") {
   auto original = boxes({2.0F, 4.0F, 10.0F, 8.0F, -3.0F, 0.5F, 1.0F, 6.5F});
   auto round_trip = xywh_to_xyxy(xyxy_to_xywh(original));
 
@@ -78,7 +78,7 @@ TEST_CASE("xywh_to_xyxy is the inverse of xyxy_to_xywh", "[vision][nms]") {
 
 // ── nms: degenerate inputs ────────────────────────────────────────────────
 
-TEST_CASE("nms on empty input returns an empty long tensor", "[vision][nms]") {
+TEST_CASE("Nms_EmptyInput_ReturnsEmptyLongTensor", "[vision][nms]") {
   auto b = torch::empty({0, 4}, f32);
   auto s = torch::empty({0}, f32);
 
@@ -88,13 +88,12 @@ TEST_CASE("nms on empty input returns an empty long tensor", "[vision][nms]") {
   REQUIRE(keep.dtype() == torch::kLong);
 }
 
-TEST_CASE("nms on a single box keeps it", "[vision][nms]") {
+TEST_CASE("Nms_SingleBox_KeepsIt", "[vision][nms]") {
   auto keep = nms(boxes({0.0F, 0.0F, 10.0F, 10.0F}), scores({0.9F}), 0.45F);
   REQUIRE(kept(keep) == std::vector<int64_t>{0});
 }
 
-TEST_CASE("nms keeps a single survivor when every box is identical",
-          "[vision][nms]") {
+TEST_CASE("Nms_AllBoxesIdentical_KeepsTopScoringOnly", "[vision][nms]") {
   // IoU 1.0 between all pairs, so everything but the top-scoring box goes.
   auto b = boxes({0, 0, 4, 4, 0, 0, 4, 4, 0, 0, 4, 4});
   auto keep = nms(b, scores({0.3F, 0.9F, 0.6F}), 0.45F);
@@ -103,7 +102,7 @@ TEST_CASE("nms keeps a single survivor when every box is identical",
 
 // ── nms: known overlaps -> known survivors ────────────────────────────────
 
-TEST_CASE("nms suppresses an overlapping box and keeps a disjoint one",
+TEST_CASE("Nms_OverlappingAndDisjointBoxes_SuppressesOverlapKeepsDisjoint",
           "[vision][nms]") {
   // A = (0,0,10,10) area 100, score .9
   // B = (1,1,11,11) area 100, score .8 -> inter 9*9=81, union 119, IoU 0.681
@@ -114,7 +113,7 @@ TEST_CASE("nms suppresses an overlapping box and keeps a disjoint one",
   REQUIRE(kept(keep) == std::vector<int64_t>{0, 2});
 }
 
-TEST_CASE("nms keeps by score, not by input order", "[vision][nms]") {
+TEST_CASE("Nms_LowScoreFirstInInput_KeepsHighestScoringBox", "[vision][nms]") {
   // Same two heavily-overlapping boxes, but the low score comes first.
   auto b = boxes({0, 0, 10, 10, 1, 1, 11, 11});
   auto keep = nms(b, scores({0.1F, 0.9F}), 0.45F);
@@ -122,7 +121,7 @@ TEST_CASE("nms keeps by score, not by input order", "[vision][nms]") {
   REQUIRE(kept(keep) == std::vector<int64_t>{1});
 }
 
-TEST_CASE("nms breaks score ties by lowest index", "[vision][nms]") {
+TEST_CASE("Nms_TiedScores_KeepsLowestIndex", "[vision][nms]") {
   // The sort is stable, so equal scores preserve input order and index 0 wins.
   auto b = boxes({0, 0, 10, 10, 1, 1, 11, 11});
   auto keep = nms(b, scores({0.5F, 0.5F}), 0.45F);
@@ -130,7 +129,7 @@ TEST_CASE("nms breaks score ties by lowest index", "[vision][nms]") {
   REQUIRE(kept(keep) == std::vector<int64_t>{0});
 }
 
-TEST_CASE("nms suppression is transitive through the kept box",
+TEST_CASE("Nms_ChainedOverlaps_SuppressionDoesNotRadiateThroughSuppressedBox",
           "[vision][nms]") {
   // A(.9) suppresses B(.8); C(.7) overlaps B but not A, so C survives —
   // suppression radiates from kept boxes only.
@@ -145,7 +144,8 @@ TEST_CASE("nms suppression is transitive through the kept box",
 
 // ── nms: IoU threshold edges ──────────────────────────────────────────────
 
-TEST_CASE("nms treats the IoU threshold as exclusive", "[vision][nms]") {
+TEST_CASE("Nms_IoUAtThreshold_ThresholdComparisonIsExclusive",
+          "[vision][nms]") {
   // A = (0,0,3,2) area 6, B = (1,0,4,2) area 6.
   // inter = 2*2 = 4, union = 6 + 6 - 4 = 8, IoU = exactly 0.5 in float.
   auto b = boxes({0, 0, 3, 2, 1, 0, 4, 2});
@@ -162,8 +162,7 @@ TEST_CASE("nms treats the IoU threshold as exclusive", "[vision][nms]") {
   }
 }
 
-TEST_CASE("nms keeps edge-touching boxes even at threshold zero",
-          "[vision][nms]") {
+TEST_CASE("Nms_EdgeTouchingBoxesAtThresholdZero_KeepsBoth", "[vision][nms]") {
   // Shared edge at x=2 gives zero intersection area, so IoU is 0 and the
   // exclusive comparison (0 > 0 is false) keeps both.
   auto b = boxes({0, 0, 2, 2, 2, 0, 4, 2});
@@ -172,15 +171,14 @@ TEST_CASE("nms keeps edge-touching boxes even at threshold zero",
   REQUIRE(kept(keep) == std::vector<int64_t>{0, 1});
 }
 
-TEST_CASE("nms with threshold zero suppresses any real overlap",
-          "[vision][nms]") {
+TEST_CASE("Nms_ThresholdZero_SuppressesAnyRealOverlap", "[vision][nms]") {
   auto b = boxes({0, 0, 2, 2, 1, 1, 3, 3});
   auto keep = nms(b, scores({0.9F, 0.8F}), 0.0F);
 
   REQUIRE(kept(keep) == std::vector<int64_t>{0});
 }
 
-TEST_CASE("nms with threshold one suppresses nothing at all", "[vision][nms]") {
+TEST_CASE("Nms_ThresholdOne_SuppressesNothing", "[vision][nms]") {
   // IoU can never exceed 1 and the comparison is exclusive, so not even the
   // exact duplicate at index 2 is dropped.
   auto b = boxes({0, 0, 10, 10, 1, 1, 11, 11, 0, 0, 10, 10});
@@ -189,7 +187,7 @@ TEST_CASE("nms with threshold one suppresses nothing at all", "[vision][nms]") {
   REQUIRE(kept(keep) == std::vector<int64_t>{0, 1, 2});
 }
 
-TEST_CASE("nms rejects non-float32 input loudly", "[vision][nms]") {
+TEST_CASE("Nms_NonFloat32Input_Throws", "[vision][nms]") {
   auto b = torch::zeros({2, 4}, torch::TensorOptions().dtype(torch::kFloat64));
   auto s = torch::zeros({2}, torch::TensorOptions().dtype(torch::kFloat64));
 
@@ -204,7 +202,7 @@ TEST_CASE("nms rejects non-float32 input loudly", "[vision][nms]") {
 // those checks and would have walked off the end of the buffer instead. These
 // cases pin the diagnostics down so a future re-sync cannot quietly lose them.
 
-TEST_CASE("nms rejects malformed box and score shapes", "[vision][nms]") {
+TEST_CASE("Nms_MalformedBoxOrScoreShapes_Throws", "[vision][nms]") {
   SECTION("boxes must be 2-dimensional") {
     REQUIRE_THROWS_AS(
         nms(torch::zeros({3, 4, 1}, f32), torch::zeros({3}, f32), 0.45F),
@@ -232,7 +230,8 @@ TEST_CASE("nms rejects malformed box and score shapes", "[vision][nms]") {
 
 // ── scale ─────────────────────────────────────────────────────────────────
 
-TEST_CASE("nms handles more than a thousand boxes", "[vision][nms]") {
+TEST_CASE("Nms_ThousandsOfDisjointBoxes_KeepsAllInScoreOrder",
+          "[vision][nms]") {
   // A grid of 40 x 30 = 1200 boxes on a 100-unit pitch: every box is disjoint
   // from every other, so nothing may be suppressed however large N gets. This
   // exercises the kernel past the small hand-built cases above, where an
@@ -314,7 +313,7 @@ torch::Tensor predictions(const std::vector<std::vector<float>> &xywh,
 
 } // namespace
 
-TEST_CASE("non_max_suppression returns the documented output shape",
+TEST_CASE("NonMaxSuppression_GivenPrediction_ReturnsDocumentedOutputShape",
           "[vision][nms]") {
   const int64_t nc = 2;
   auto p = predictions({{5, 5, 4, 4}}, {{0.9F, 0.1F}}, nc);
@@ -326,7 +325,7 @@ TEST_CASE("non_max_suppression returns the documented output shape",
   REQUIRE(out.size(2) == 6 + kMaskCoeffs);
 }
 
-TEST_CASE("non_max_suppression emits xyxy boxes with class and confidence",
+TEST_CASE("NonMaxSuppression_SingleAnchor_EmitsXyxyBoxWithClassAndConfidence",
           "[vision][nms]") {
   const int64_t nc = 2;
   // One anchor, class 1 with confidence 0.8, box centred (5,5) sized 4x4.
@@ -346,7 +345,7 @@ TEST_CASE("non_max_suppression emits xyxy boxes with class and confidence",
   REQUIRE_THAT(out[0][1][4].item<float>(), WithinAbs(0.0F, 1e-5));
 }
 
-TEST_CASE("non_max_suppression drops anchors below the confidence threshold",
+TEST_CASE("NonMaxSuppression_AnchorsBelowConfidenceThreshold_AreDropped",
           "[vision][nms]") {
   const int64_t nc = 2;
   auto p = predictions({{5, 5, 4, 4}, {50, 50, 4, 4}},
@@ -359,8 +358,7 @@ TEST_CASE("non_max_suppression drops anchors below the confidence threshold",
   REQUIRE_THAT(out[0][1][4].item<float>(), WithinAbs(0.0F, 1e-5));
 }
 
-TEST_CASE("non_max_suppression yields nothing when all anchors are below "
-          "threshold",
+TEST_CASE("NonMaxSuppression_AllAnchorsBelowThreshold_YieldsNothing",
           "[vision][nms]") {
   const int64_t nc = 2;
   auto p = predictions({{5, 5, 4, 4}, {6, 6, 4, 4}},
@@ -371,7 +369,9 @@ TEST_CASE("non_max_suppression yields nothing when all anchors are below "
   REQUIRE_THAT(out.abs().sum().item<float>(), WithinAbs(0.0F, 1e-5));
 }
 
-TEST_CASE("non_max_suppression is class-aware", "[vision][nms]") {
+TEST_CASE(
+    "NonMaxSuppression_OverlappingBoxesDifferentClasses_TreatedAsClassAware",
+    "[vision][nms]") {
   const int64_t nc = 2;
   // Two anchors on the *same* box. Same class -> one survives; different
   // classes -> both survive, because boxes are offset per class before NMS.
@@ -396,7 +396,7 @@ TEST_CASE("non_max_suppression is class-aware", "[vision][nms]") {
   }
 }
 
-TEST_CASE("non_max_suppression carries mask coefficients through unchanged",
+TEST_CASE("NonMaxSuppression_MaskCoefficients_CarriedThroughUnchanged",
           "[vision][nms]") {
   const int64_t nc = 2;
   // Anchor 1 outscores anchor 0 and they are disjoint, so both survive in
@@ -410,7 +410,8 @@ TEST_CASE("non_max_suppression carries mask coefficients through unchanged",
   REQUIRE_THAT(out[0][1][6].item<float>(), WithinAbs(0.0F, 1e-5));
 }
 
-TEST_CASE("non_max_suppression honours maxDetections", "[vision][nms]") {
+TEST_CASE("NonMaxSuppression_MoreDetectionsThanSlots_HonoursMaxDetections",
+          "[vision][nms]") {
   const int64_t nc = 1;
   // Four disjoint, confident boxes but only two slots.
   auto p =
@@ -424,7 +425,7 @@ TEST_CASE("non_max_suppression honours maxDetections", "[vision][nms]") {
   REQUIRE_THAT(out[0][1][4].item<float>(), WithinAbs(0.8F, 1e-5));
 }
 
-TEST_CASE("non_max_suppression handles a batch of more than one image",
+TEST_CASE("NonMaxSuppression_BatchOfMultipleImages_ProcessesEachIndependently",
           "[vision][nms]") {
   const int64_t nc = 1;
   auto a = predictions({{5, 5, 4, 4}}, {{0.9F}}, nc);

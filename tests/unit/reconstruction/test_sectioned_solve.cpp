@@ -96,7 +96,7 @@ bool no_edge_over_shared(const pcl::PolygonMesh &mesh) {
 
 } // namespace
 
-TEST_CASE("CellComplex records section count and per-cell section index",
+TEST_CASE("CellComplex_StackedStoreys_RecordsSectionCountAndPerCellIndex",
           "[geometry][sectioned][cellcomplex]") {
   // One storey (two horizontal planes) => exactly one section; every cell in
   // section 0.
@@ -121,7 +121,7 @@ TEST_CASE("CellComplex records section count and per-cell section index",
   REQUIRE(seen == std::set<int>{0, 1, 2});
 }
 
-TEST_CASE("Single-section room takes the monolithic path (no section stats)",
+TEST_CASE("Mesh_SingleSectionRoom_TakesMonolithicPathWithNoSectionStats",
           "[geometry][sectioned][monolithic]") {
   // The canonical single box has one section: even with sectioning enabled the
   // Solidifier must use the monolithic solve and leave section_stats empty, so
@@ -150,8 +150,7 @@ TEST_CASE("Single-section room takes the monolithic path (no section stats)",
   REQUIRE(no_edge_over_shared(*mesh));
 }
 
-TEST_CASE("Two-storey room meshes via the sectioned solve with consistent "
-          "shared faces",
+TEST_CASE("Mesh_TwoStoreyRoom_SectionedSolveProducesConsistentSharedFaces",
           "[geometry][sectioned][pipeline]") {
   // Two stacked rooms (three horizontal levels => two sections). With a low
   // threshold the sectioned path engages; the result must be a sane mesh whose

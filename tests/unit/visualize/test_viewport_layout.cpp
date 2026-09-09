@@ -29,7 +29,7 @@ bool rects_overlap(const ViewportBounds &a, const ViewportBounds &b) {
 
 } // namespace
 
-TEST_CASE("viewport_bounds: single viewport covers the whole window",
+TEST_CASE("ViewportBounds_SingleViewport_CoversWholeWindow",
           "[visualize][viewport]") {
   auto vb = viewport_bounds(0, 1);
   REQUIRE(vb.left == Approx(0.0f));
@@ -38,7 +38,7 @@ TEST_CASE("viewport_bounds: single viewport covers the whole window",
   REQUIRE(vb.bottom == Approx(1.0f));
 }
 
-TEST_CASE("viewport_bounds: all bounds stay within [0, 1]",
+TEST_CASE("ViewportBounds_AnyIndexAndTotal_StayWithinUnitRange",
           "[visualize][viewport]") {
   for (std::size_t total = 1; total <= 9; ++total) {
     for (std::size_t i = 0; i < total; ++i) {
@@ -55,7 +55,7 @@ TEST_CASE("viewport_bounds: all bounds stay within [0, 1]",
   }
 }
 
-TEST_CASE("viewport_bounds: partitions are non-overlapping",
+TEST_CASE("ViewportBounds_AnyIndexAndTotal_PartitionsAreNonOverlapping",
           "[visualize][viewport]") {
   for (std::size_t total = 1; total <= 9; ++total) {
     std::vector<ViewportBounds> boxes;
@@ -71,7 +71,7 @@ TEST_CASE("viewport_bounds: partitions are non-overlapping",
   }
 }
 
-TEST_CASE("viewport_bounds: even split halves the window",
+TEST_CASE("ViewportBounds_TwoViewports_SplitWindowInHalf",
           "[visualize][viewport]") {
   // Two viewports split left/right at x = 0.5.
   auto a = viewport_bounds(0, 2);
@@ -89,7 +89,7 @@ TEST_CASE("viewport_bounds: even split halves the window",
   REQUIRE(b.bottom == Approx(1.0f));
 }
 
-TEST_CASE("viewport_bounds: odd count gives the first viewport 60% width",
+TEST_CASE("ViewportBounds_ThreeViewports_FirstGets60PercentWidth",
           "[visualize][viewport]") {
   // First of three viewports gets the larger (60%) horizontal region.
   auto first = viewport_bounds(0, 3);
@@ -99,7 +99,7 @@ TEST_CASE("viewport_bounds: odd count gives the first viewport 60% width",
   REQUIRE(first.bottom == Approx(1.0f));
 }
 
-TEST_CASE("viewport_bounds: four-way split tiles the unit square",
+TEST_CASE("ViewportBounds_FourViewports_TileUnitSquareWithoutGaps",
           "[visualize][viewport]") {
   // Total area of all four viewports should sum to 1 with no overlap.
   float area = 0.0f;

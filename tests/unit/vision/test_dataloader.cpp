@@ -17,7 +17,8 @@ using reusex::vision::Dataloader;
 // different order" assertions cannot flake.
 static constexpr size_t kN = 256;
 
-TEST_CASE("Dataloader shuffle is a valid permutation", "[vision][dataloader]") {
+TEST_CASE("ShuffledIndices_DefaultSeed_IsValidPermutation",
+          "[vision][dataloader]") {
   auto order = Dataloader::shuffled_indices(kN, Dataloader::default_seed);
 
   REQUIRE(order.size() == kN);
@@ -29,7 +30,7 @@ TEST_CASE("Dataloader shuffle is a valid permutation", "[vision][dataloader]") {
   }
 }
 
-TEST_CASE("Same seed yields identical shuffle order across constructions",
+TEST_CASE("ShuffledIndices_SameSeed_ProducesIdenticalOrder",
           "[vision][dataloader]") {
   auto a = Dataloader::shuffled_indices(kN, Dataloader::default_seed);
   auto b = Dataloader::shuffled_indices(kN, Dataloader::default_seed);
@@ -43,7 +44,7 @@ TEST_CASE("Same seed yields identical shuffle order across constructions",
   REQUIRE(c == d);
 }
 
-TEST_CASE("Different seeds yield different shuffle order",
+TEST_CASE("ShuffledIndices_DifferentSeeds_ProduceDifferentOrder",
           "[vision][dataloader]") {
   auto a = Dataloader::shuffled_indices(kN, std::optional<uint32_t>(1));
   auto b = Dataloader::shuffled_indices(kN, std::optional<uint32_t>(2));
@@ -54,7 +55,7 @@ TEST_CASE("Different seeds yield different shuffle order",
   REQUIRE(a != b);
 }
 
-TEST_CASE("Default seed differs from other fixed seeds",
+TEST_CASE("ShuffledIndices_DefaultSeedVsOtherFixedSeed_Differ",
           "[vision][dataloader]") {
   auto def = Dataloader::shuffled_indices(kN, Dataloader::default_seed);
   auto other = Dataloader::shuffled_indices(
@@ -63,7 +64,7 @@ TEST_CASE("Default seed differs from other fixed seeds",
   REQUIRE(def != other);
 }
 
-TEST_CASE("Entropy path (nullopt) still produces a valid permutation",
+TEST_CASE("ShuffledIndices_NulloptSeed_IsValidPermutation",
           "[vision][dataloader]") {
   auto order = Dataloader::shuffled_indices(kN, std::nullopt);
 

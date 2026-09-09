@@ -32,8 +32,7 @@ using namespace reusex::pipeline;
 
 using reusex::test_support::TempPath;
 
-TEST_CASE("A stage with unmet inputs is refused with the reason",
-          "[pipeline][stages]") {
+TEST_CASE("RunStage_UnmetInputs_RefusedWithReason", "[pipeline][stages]") {
   TempPath project("test_pipeline_stages");
   reusex::ProjectDB db(project.path);
 
@@ -50,7 +49,8 @@ TEST_CASE("A stage with unmet inputs is refused with the reason",
   CHECK(result.message.find("normals") != std::string::npos);
 }
 
-TEST_CASE("A refused stage still lands in pipeline_log", "[pipeline][stages]") {
+TEST_CASE("RunStage_RefusedStage_RecordsPipelineLogEntry",
+          "[pipeline][stages]") {
   TempPath project("test_pipeline_stages");
   reusex::ProjectDB db(project.path);
 
@@ -75,7 +75,7 @@ TEST_CASE("A refused stage still lands in pipeline_log", "[pipeline][stages]") {
   CHECK(log.front().parameters == R"({"resolution":1.5})");
 }
 
-TEST_CASE("Malformed stage parameters fail without running anything",
+TEST_CASE("RunStage_MalformedParameters_FailsWithoutRunning",
           "[pipeline][stages]") {
   TempPath project("test_pipeline_stages");
   reusex::ProjectDB db(project.path);
@@ -92,7 +92,7 @@ TEST_CASE("Malformed stage parameters fail without running anything",
   CHECK(db.pipeline_log().empty());
 }
 
-TEST_CASE("run_stage reports an unopenable project instead of throwing",
+TEST_CASE("RunStage_UnopenableProject_ReportsErrorInsteadOfThrowing",
           "[pipeline][stages]") {
   StageContext ctx;
   ctx.project = "/definitely/not/a/directory/project.rux";
@@ -103,7 +103,7 @@ TEST_CASE("run_stage reports an unopenable project instead of throwing",
   CHECK(result.message.find("could not open project") != std::string::npos);
 }
 
-TEST_CASE("An already-cancelled context short-circuits a cancellable stage",
+TEST_CASE("RunStage_AlreadyCancelledContext_ShortCircuitsCancellableStage",
           "[pipeline][stages]") {
   TempPath project("test_pipeline_stages");
   reusex::ProjectDB db(project.path);
@@ -121,7 +121,7 @@ TEST_CASE("An already-cancelled context short-circuits a cancellable stage",
   CHECK(ctx.is_cancelled());
 }
 
-TEST_CASE("The default executor is callable and honours the context",
+TEST_CASE("DefaultStageExecutor_UnopenableProject_ReturnsFailureResult",
           "[pipeline][stages]") {
   auto executor = default_stage_executor();
   REQUIRE(static_cast<bool>(executor));
@@ -135,8 +135,7 @@ TEST_CASE("The default executor is callable and honours the context",
   CHECK_FALSE(result.message.empty());
 }
 
-TEST_CASE("StageResult factories set the flags they claim",
-          "[pipeline][stages]") {
+TEST_CASE("StageResult_Factories_SetClaimedFlags", "[pipeline][stages]") {
   const auto ok = StageResult::success("done");
   CHECK(ok.ok);
   CHECK_FALSE(ok.cancelled);
@@ -159,7 +158,7 @@ TEST_CASE("StageResult factories set the flags they claim",
 // Review follow-ups (#274)
 // ===========================================================================
 
-TEST_CASE("pipeline_log uses the same stage names as the CLI",
+TEST_CASE("PipelineLogName_RunnableStages_MatchesCliNames",
           "[pipeline][stages]") {
   // The GUI and the CLI write into ONE pipeline_log table. Logging "rooms"
   // from one path and "segment_rooms" from the other would silently split a
@@ -174,8 +173,7 @@ TEST_CASE("pipeline_log uses the same stage names as the CLI",
   CHECK(to_string(JobStage::rooms) == "rooms");
 }
 
-TEST_CASE("A stage run records the CLI-compatible name and its job id",
-          "[pipeline][stages]") {
+TEST_CASE("RunStage_JobRun_RecordsCliNameAndJobId", "[pipeline][stages]") {
   TempPath project("test_pipeline_stages");
   reusex::ProjectDB db(project.path);
 
@@ -198,7 +196,7 @@ TEST_CASE("A stage run records the CLI-compatible name and its job id",
   CHECK(params.at("radius") == 0.5);
 }
 
-TEST_CASE("A direct (non-job) run logs no job id", "[pipeline][stages]") {
+TEST_CASE("RunStage_DirectRun_LogsNoJobId", "[pipeline][stages]") {
   TempPath project("test_pipeline_stages");
   reusex::ProjectDB db(project.path);
 
@@ -276,7 +274,7 @@ class RecordingObserver : public reusex::core::IProgressObserver {
 
 } // namespace
 
-TEST_CASE("A refused stage is reported as invalid input, not a failure",
+TEST_CASE("RunStage_RefusedStage_ReportsInvalidInputNotFailure",
           "[pipeline][stages]") {
   TempPath project("test_pipeline_stages");
   reusex::ProjectDB db(project.path);
@@ -295,7 +293,8 @@ TEST_CASE("A refused stage is reported as invalid input, not a failure",
   CHECK_FALSE(result.cancelled);
 }
 
-TEST_CASE("Malformed parameters are invalid input", "[pipeline][stages]") {
+TEST_CASE("RunStage_MalformedParameters_ReportsInvalidInput",
+          "[pipeline][stages]") {
   TempPath project("test_pipeline_stages");
   reusex::ProjectDB db(project.path);
 
@@ -309,7 +308,7 @@ TEST_CASE("Malformed parameters are invalid input", "[pipeline][stages]") {
   CHECK(result.invalid_input);
 }
 
-TEST_CASE("StageResult::invalid sets exactly the invalid-input flag",
+TEST_CASE("StageResult_Invalid_SetsOnlyInvalidInputFlag",
           "[pipeline][stages]") {
   const auto bad = StageResult::invalid("bad filter");
   CHECK_FALSE(bad.ok);
@@ -323,7 +322,7 @@ TEST_CASE("StageResult::invalid sets exactly the invalid-input flag",
   CHECK_FALSE(StageResult::cancel().invalid_input);
 }
 
-TEST_CASE("A seeded planes stage runs to completion and writes its outputs",
+TEST_CASE("RunStage_SeededPlanesStage_RunsToCompletionAndWritesOutputs",
           "[pipeline][stages]") {
   TempPath project("test_pipeline_stages");
   reusex::ProjectDB db(project.path);
@@ -351,7 +350,7 @@ TEST_CASE("A seeded planes stage runs to completion and writes its outputs",
   CHECK(log.front().status == "success");
 }
 
-TEST_CASE("A filter expression restricts the stage and is recorded",
+TEST_CASE("RunStage_FilterExpression_RestrictsStageAndIsRecorded",
           "[pipeline][stages]") {
   TempPath project("test_pipeline_stages");
   reusex::ProjectDB db(project.path);
@@ -375,7 +374,7 @@ TEST_CASE("A filter expression restricts the stage and is recorded",
   CHECK(params.at("filter") == "labels == 1");
 }
 
-TEST_CASE("An unusable filter expression is refused as invalid input",
+TEST_CASE("RunStage_UnusableFilterExpression_RefusedAsInvalidInput",
           "[pipeline][stages]") {
   TempPath project("test_pipeline_stages");
   reusex::ProjectDB db(project.path);
@@ -407,7 +406,7 @@ TEST_CASE("An unusable filter expression is refused as invalid input",
   CHECK(log.front().status == "failed");
 }
 
-TEST_CASE("A filter over a mis-sized cloud is refused rather than misapplied",
+TEST_CASE("RunStage_FilterOverMisSizedCloud_RefusedRatherThanMisapplied",
           "[pipeline][stages]") {
   TempPath project("test_pipeline_stages");
   reusex::ProjectDB db(project.path);
@@ -433,7 +432,7 @@ TEST_CASE("A filter over a mis-sized cloud is refused rather than misapplied",
   CHECK(result.invalid_input);
 }
 
-TEST_CASE("run_stage drives the globally registered progress observer",
+TEST_CASE("RunStage_SeededInstancesStage_DrivesGlobalProgressObserver",
           "[pipeline][stages]") {
   TempPath project("test_pipeline_stages");
   reusex::ProjectDB db(project.path);

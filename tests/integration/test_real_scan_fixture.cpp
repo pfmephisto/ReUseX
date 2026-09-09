@@ -106,7 +106,8 @@ label_histogram(const reusex::CloudL &labels) {
 
 } // namespace
 
-TEST_CASE("Real-scan fixture: frames reconstruct and segment within bounds",
+TEST_CASE("RealScanFixture_OfficeCorridorFrames_"
+          "ReconstructionAndSegmentationWithinBounds",
           "[integration][fixture]") {
   const auto fixture = fixture_path();
 

@@ -339,7 +339,7 @@ void verifyPassportEquality(const MaterialPassport &original,
 // Test Cases
 // ============================================================================
 
-TEST_CASE("MaterialPassport database round-trip",
+TEST_CASE("MaterialPassport_DatabaseRoundTrip_PreservesAllFields",
           "[core][serialization][database]") {
   // 1. Create temporary database path
   auto temp_db = std::filesystem::temp_directory_path() /
@@ -384,7 +384,7 @@ TEST_CASE("MaterialPassport database round-trip",
   }
 }
 
-TEST_CASE("ProjectDB handles empty passport",
+TEST_CASE("MaterialPassport_EmptyPassportInDatabase_PreservesDefaults",
           "[core][serialization][database]") {
   auto temp_db =
       std::filesystem::temp_directory_path() / "test_empty_passport.db";
@@ -415,7 +415,7 @@ TEST_CASE("ProjectDB handles empty passport",
   std::filesystem::remove(temp_db);
 }
 
-TEST_CASE("ProjectDB read non-existent passport throws",
+TEST_CASE("MaterialPassport_NonExistentGuid_ThrowsRuntimeError",
           "[core][serialization][database]") {
   auto temp_db =
       std::filesystem::temp_directory_path() / "test_missing_passport.db";
@@ -439,7 +439,7 @@ TEST_CASE("ProjectDB read non-existent passport throws",
   std::filesystem::remove(temp_db);
 }
 
-TEST_CASE("ProjectDB handles multiple passports",
+TEST_CASE("MaterialPassport_MultiplePassports_RoundTripIndependently",
           "[core][serialization][database]") {
   auto temp_db =
       std::filesystem::temp_directory_path() / "test_multiple_passports.db";

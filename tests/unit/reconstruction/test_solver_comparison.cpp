@@ -145,7 +145,8 @@ template <typename Solver> Result<Solver> solve_infeasible() {
 
 } // namespace
 
-TEST_CASE("HiGHS vs cuOpt: continuous LP", "[mip][solver_compare][gpu]") {
+TEST_CASE("HighsVsCuopt_ContinuousLP_AgreeOnOptimalObjective",
+          "[mip][solver_compare][gpu]") {
   auto h = solve_lp_continuous<HiGHS_Solver>();
   auto c = solve_lp_continuous<cuOpt_Solver>();
 
@@ -160,7 +161,8 @@ TEST_CASE("HiGHS vs cuOpt: continuous LP", "[mip][solver_compare][gpu]") {
   REQUIRE_THAT(h.objective, WithinAbs(c.objective, 1e-4));
 }
 
-TEST_CASE("HiGHS vs cuOpt: multi-constraint LP", "[mip][solver_compare][gpu]") {
+TEST_CASE("HighsVsCuopt_MultiConstraintLP_AgreeOnOptimalSolution",
+          "[mip][solver_compare][gpu]") {
   auto h = solve_lp_multi_constraint<HiGHS_Solver>();
   auto c = solve_lp_multi_constraint<cuOpt_Solver>();
 
@@ -177,7 +179,8 @@ TEST_CASE("HiGHS vs cuOpt: multi-constraint LP", "[mip][solver_compare][gpu]") {
   REQUIRE_THAT(h.values[1], WithinAbs(c.values[1], 1e-4));
 }
 
-TEST_CASE("HiGHS vs cuOpt: binary MIP", "[mip][solver_compare][gpu]") {
+TEST_CASE("HighsVsCuopt_BinaryMip_AgreeOnOptimalAssignment",
+          "[mip][solver_compare][gpu]") {
   auto h = solve_mip_binary<HiGHS_Solver>();
   auto c = solve_mip_binary<cuOpt_Solver>();
 
@@ -196,7 +199,7 @@ TEST_CASE("HiGHS vs cuOpt: binary MIP", "[mip][solver_compare][gpu]") {
   }
 }
 
-TEST_CASE("HiGHS vs cuOpt: two-sided range constraint",
+TEST_CASE("HighsVsCuopt_TwoSidedRangeConstraint_AgreeOnOptimalSolution",
           "[mip][solver_compare][gpu]") {
   // Exercises the cuOpt range-splitting path (1 <= x <= 3 → two cuOpt rows).
   auto h = solve_lp_range_constraint<HiGHS_Solver>();
@@ -212,7 +215,7 @@ TEST_CASE("HiGHS vs cuOpt: two-sided range constraint",
   REQUIRE_THAT(h.values[0], WithinAbs(c.values[0], 1e-4));
 }
 
-TEST_CASE("HiGHS vs cuOpt: infeasible detection",
+TEST_CASE("HighsVsCuopt_InfeasibleProblem_BothReportUnsolved",
           "[mip][solver_compare][gpu]") {
   auto h = solve_infeasible<HiGHS_Solver>();
   auto c = solve_infeasible<cuOpt_Solver>();

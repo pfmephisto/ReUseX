@@ -36,7 +36,7 @@ std::shared_ptr<ProjectDB> make_project(const std::vector<int> &ids,
 }
 } // namespace
 
-TEST_CASE("node_id maps dataset index to ascending node id",
+TEST_CASE("NodeId_AscendingIds_MapsDatasetIndexToNodeId",
           "[vision][annotate]") {
   auto db = make_project({5, 10, 15, 20, 25}, {});
   TensorRTDataset ds(db);
@@ -48,8 +48,9 @@ TEST_CASE("node_id maps dataset index to ascending node id",
   REQUIRE_THROWS_AS(ds.node_id(5), std::out_of_range);
 }
 
-TEST_CASE("filter_annotated_prefix skips only the leading contiguous run",
-          "[vision][annotate]") {
+TEST_CASE(
+    "FilterAnnotatedPrefix_LeadingRunPlusLaterAnnotated_SkipsOnlyLeadingRun",
+    "[vision][annotate]") {
   // Leading prefix {5,10} annotated, plus a later one {20}. Only {5,10} should
   // be skipped; {20} must remain because dropping it mid-sequence would gap the
   // tracker memory bank.
@@ -64,7 +65,7 @@ TEST_CASE("filter_annotated_prefix skips only the leading contiguous run",
   REQUIRE(ds.node_id(2) == 25);
 }
 
-TEST_CASE("filter_annotated_prefix with no leading annotations is a no-op",
+TEST_CASE("FilterAnnotatedPrefix_NoLeadingAnnotations_IsNoOp",
           "[vision][annotate]") {
   auto db = make_project({5, 10, 15}, {10}); // gap at the very first frame
   TensorRTDataset ds(db);
@@ -73,7 +74,7 @@ TEST_CASE("filter_annotated_prefix with no leading annotations is a no-op",
   REQUIRE(ds.size() == 3);
 }
 
-TEST_CASE("filter_annotated_prefix skips the whole list when all annotated",
+TEST_CASE("FilterAnnotatedPrefix_AllAnnotated_SkipsWholeList",
           "[vision][annotate]") {
   auto db = make_project({5, 10, 15}, {5, 10, 15});
   TensorRTDataset ds(db);
@@ -82,7 +83,7 @@ TEST_CASE("filter_annotated_prefix skips the whole list when all annotated",
   REQUIRE(ds.size() == 0);
 }
 
-TEST_CASE("filter_annotated still drops all annotated frames (unchanged)",
+TEST_CASE("FilterAnnotated_MixedAnnotations_DropsAllAnnotatedFrames",
           "[vision][annotate]") {
   auto db = make_project({5, 10, 15, 20, 25}, {5, 10, 20});
   TensorRTDataset ds(db);
@@ -93,7 +94,7 @@ TEST_CASE("filter_annotated still drops all annotated frames (unchanged)",
   REQUIRE(ds.node_id(1) == 25);
 }
 
-TEST_CASE("is_sequence_boundary resets at index 0 and non-increasing node ids",
+TEST_CASE("IsSequenceBoundary_IndexZeroOrNonIncreasingIds_ReturnsTrue",
           "[vision][annotate]") {
   // First frame is always a boundary.
   REQUIRE(is_sequence_boundary(0, 5, 0));

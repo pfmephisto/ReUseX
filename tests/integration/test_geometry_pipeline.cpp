@@ -39,7 +39,7 @@ std::map<uint32_t, size_t> label_histogram(const reusex::CloudL &labels) {
 
 } // namespace
 
-TEST_CASE("Geometry pipeline: synthetic room to mesh",
+TEST_CASE("GeometryPipeline_SyntheticRoom_ProducesBoundedMesh",
           "[integration][pipeline]") {
   // 4m x 3m x 2.5m room, 5cm sampling, 5mm noise, fixed seed.
   const auto scene = reusex::test_support::make_room();

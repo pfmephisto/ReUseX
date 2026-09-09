@@ -56,13 +56,15 @@ fs::path touch(const fs::path &dir, const std::string &name) {
 
 // ── detect_backend: extension mapping ─────────────────────────────────────
 
-TEST_CASE("detect_backend maps TensorRT engine files", "[vision][backend]") {
+TEST_CASE("DetectBackend_EngineExtension_ReturnsTensorRt",
+          "[vision][backend]") {
   TempDir dir;
   REQUIRE(BackendFactory::detect_backend(touch(dir.path, "model.engine")) ==
           Backend::tensor_rt);
 }
 
-TEST_CASE("detect_backend maps every PyTorch extension", "[vision][backend]") {
+TEST_CASE("DetectBackend_PyTorchExtensions_ReturnsLibTorch",
+          "[vision][backend]") {
   TempDir dir;
   REQUIRE(BackendFactory::detect_backend(touch(dir.path, "yolo11l.pt")) ==
           Backend::libtorch);
@@ -72,7 +74,8 @@ TEST_CASE("detect_backend maps every PyTorch extension", "[vision][backend]") {
           Backend::libtorch);
 }
 
-TEST_CASE("detect_backend maps ONNX and OpenVINO files", "[vision][backend]") {
+TEST_CASE("DetectBackend_OnnxAndOpenVinoExtensions_ReturnsMatchingBackend",
+          "[vision][backend]") {
   TempDir dir;
   REQUIRE(BackendFactory::detect_backend(touch(dir.path, "foo.onnx")) ==
           Backend::onnx_runtime);
@@ -82,7 +85,7 @@ TEST_CASE("detect_backend maps ONNX and OpenVINO files", "[vision][backend]") {
           Backend::openvino);
 }
 
-TEST_CASE("detect_backend rejects unknown and extension-less files",
+TEST_CASE("DetectBackend_UnknownOrMissingExtension_ReturnsUnknown",
           "[vision][backend]") {
   TempDir dir;
 
@@ -102,7 +105,7 @@ TEST_CASE("detect_backend rejects unknown and extension-less files",
   }
 }
 
-TEST_CASE("detect_backend returns unknown for a path that does not exist",
+TEST_CASE("DetectBackend_PathDoesNotExist_ReturnsUnknown",
           "[vision][backend]") {
   TempDir dir;
   // Neither is_regular_file nor is_directory holds, so nothing is inspected —
@@ -113,7 +116,7 @@ TEST_CASE("detect_backend returns unknown for a path that does not exist",
 
 // ── detect_backend: directory scanning ────────────────────────────────────
 
-TEST_CASE("detect_backend scans a directory for a recognizable file",
+TEST_CASE("DetectBackend_DirectoryWithRecognizableFile_ReturnsMatchingBackend",
           "[vision][backend]") {
   TempDir dir;
   touch(dir.path, "README.md");
@@ -121,13 +124,12 @@ TEST_CASE("detect_backend scans a directory for a recognizable file",
   REQUIRE(BackendFactory::detect_backend(dir.path) == Backend::onnx_runtime);
 }
 
-TEST_CASE("detect_backend returns unknown for an empty directory",
-          "[vision][backend]") {
+TEST_CASE("DetectBackend_EmptyDirectory_ReturnsUnknown", "[vision][backend]") {
   TempDir dir;
   REQUIRE(BackendFactory::detect_backend(dir.path) == Backend::unknown);
 }
 
-TEST_CASE("detect_backend returns unknown when a directory holds no model file",
+TEST_CASE("DetectBackend_DirectoryWithNoModelFile_ReturnsUnknown",
           "[vision][backend]") {
   TempDir dir;
   touch(dir.path, "README.md");
@@ -135,7 +137,7 @@ TEST_CASE("detect_backend returns unknown when a directory holds no model file",
   REQUIRE(BackendFactory::detect_backend(dir.path) == Backend::unknown);
 }
 
-TEST_CASE("detect_backend ignores sub-directories when scanning",
+TEST_CASE("DetectBackend_NestedEngineFile_IgnoresSubdirectories",
           "[vision][backend]") {
   TempDir dir;
   // Only entries that are regular files are considered, so an engine buried
@@ -146,7 +148,7 @@ TEST_CASE("detect_backend ignores sub-directories when scanning",
 
 // ── detect_model: name shortcuts ──────────────────────────────────────────
 
-TEST_CASE("detect_model defaults to YOLO", "[vision][backend]") {
+TEST_CASE("DetectModel_PtExtension_DefaultsToYolo", "[vision][backend]") {
   TempDir dir;
   REQUIRE(BackendFactory::detect_model(touch(dir.path, "yolo11l.pt")) ==
           Model::yolo);
@@ -156,8 +158,7 @@ TEST_CASE("detect_model defaults to YOLO", "[vision][backend]") {
   REQUIRE(BackendFactory::detect_model(dir.path / "absent.pt") == Model::yolo);
 }
 
-TEST_CASE("detect_model recognizes sam3 and sam2 by name",
-          "[vision][backend]") {
+TEST_CASE("DetectModel_Sam3OrSam2Name_ReturnsSam3", "[vision][backend]") {
   TempDir dir;
   REQUIRE(BackendFactory::detect_model(touch(dir.path, "sam3_x.engine")) ==
           Model::sam3);
@@ -165,7 +166,7 @@ TEST_CASE("detect_model recognizes sam3 and sam2 by name",
           Model::sam3);
 }
 
-TEST_CASE("detect_model name matching is case-insensitive",
+TEST_CASE("DetectModel_MixedCaseName_ReturnsMatchingModel",
           "[vision][backend]") {
   TempDir dir;
   REQUIRE(BackendFactory::detect_model(touch(dir.path, "SAM3_Large.engine")) ==
@@ -174,8 +175,7 @@ TEST_CASE("detect_model name matching is case-insensitive",
           Model::sam3p1);
 }
 
-TEST_CASE("detect_model prefers the sam3.1 shortcut over plain sam3",
-          "[vision][backend]") {
+TEST_CASE("DetectModel_Sam3p1Name_PrefersOverPlainSam3", "[vision][backend]") {
   TempDir dir;
 
   SECTION("dotted spelling") {
@@ -194,7 +194,7 @@ TEST_CASE("detect_model prefers the sam3.1 shortcut over plain sam3",
 
 // ── detect_model: directory sniffing ──────────────────────────────────────
 
-TEST_CASE("detect_model sniffs a vision-encoder directory as sam3",
+TEST_CASE("DetectModel_VisionEncoderDirectory_ReturnsSam3",
           "[vision][backend]") {
   TempDir dir;
   const auto models = dir.path / "models"; // neutral name, no sam3 shortcut
@@ -203,7 +203,7 @@ TEST_CASE("detect_model sniffs a vision-encoder directory as sam3",
   REQUIRE(BackendFactory::detect_model(models) == Model::sam3);
 }
 
-TEST_CASE("detect_model needs the full tracker set to report sam3p1",
+TEST_CASE("DetectModel_TrackerFileSet_ReturnsSam3p1OnlyWhenComplete",
           "[vision][backend]") {
   TempDir dir;
   const auto models = dir.path / "models";
@@ -219,7 +219,7 @@ TEST_CASE("detect_model needs the full tracker set to report sam3p1",
   }
 }
 
-TEST_CASE("detect_model falls back to YOLO for an unrecognized directory",
+TEST_CASE("DetectModel_UnrecognizedDirectory_FallsBackToYolo",
           "[vision][backend]") {
   TempDir dir;
   const auto models = dir.path / "models";
@@ -228,7 +228,7 @@ TEST_CASE("detect_model falls back to YOLO for an unrecognized directory",
   REQUIRE(BackendFactory::detect_model(models) == Model::yolo);
 }
 
-TEST_CASE("detect_model tracker sniffing only applies to directories",
+TEST_CASE("DetectModel_EncoderNamedFile_DoesNotTriggerDirectorySniffing",
           "[vision][backend]") {
   TempDir dir;
   // A regular file named after an encoder is not a model directory; the
@@ -239,8 +239,7 @@ TEST_CASE("detect_model tracker sniffing only applies to directories",
 
 // ── create(): the unconditional error paths ───────────────────────────────
 
-TEST_CASE("create throws for backends that are not implemented",
-          "[vision][backend]") {
+TEST_CASE("Create_UnimplementedBackends_Throws", "[vision][backend]") {
   // opencv, dnn and unknown throw in every build configuration — unlike the
   // REUSEX_USE_*-gated backends (see the untested list at the top).
   REQUIRE_THROWS_AS(BackendFactory::create(Backend::opencv),

@@ -71,7 +71,7 @@ void check_shape(int c, int h, int w, std::uint32_t seed) {
 
 } // namespace
 
-TEST_CASE("CHW->HWC kernel matches the host transpose bit-for-bit",
+TEST_CASE("ChwToHwcDeviceRoundtrip_VariousShapes_MatchesHostTransposeBitForBit",
           "[vision][transpose][gpu]") {
   SECTION("degenerate 1x1x1") { check_shape(1, 1, 1, 1u); }
   SECTION("single channel") { check_shape(1, 5, 7, 2u); }
@@ -88,8 +88,9 @@ TEST_CASE("CHW->HWC kernel matches the host transpose bit-for-bit",
   SECTION("Sam3p1 fpn_feat_2 shape") { check_shape(256, 72, 72, 11u); }
 }
 
-TEST_CASE("CHW->HWC kernel cost vs the host round-trip it replaced",
-          "[vision][transpose][gpu]") {
+TEST_CASE(
+    "ChwToHwcDeviceRoundtrip_Sam3p1FeatureShape_RunsFasterThanHostTranspose",
+    "[vision][transpose][gpu]") {
   // Rough, informational timing on the real shape. The device number is
   // kernel-only (CUDA events); the host number is the CPU transpose pass alone
   // and therefore *excludes* the D2H/H2D copies and the stream sync that the

@@ -102,7 +102,7 @@ SegmentedScene shift(const SegmentedScene &in, const Eigen::Vector3d &offset) {
 
 } // namespace
 
-TEST_CASE("Mesh stage is translation-invariant at 500 km offset",
+TEST_CASE("MeshStage_500kmOffset_ProducesEquivalentMesh",
           "[integration][pipeline][translation]") {
   // Segment once at the origin, then reconstruct the mesh both at the origin
   // and after rigidly translating the segmented scan by +500 km on every axis.

@@ -43,7 +43,8 @@ static std::string test_md5(const std::string &data) {
 // Object model tests
 // ============================================================
 
-TEST_CASE("Speckle object model defaults", "[speckle]") {
+TEST_CASE("SpeckleObjectModels_VariousTypes_HaveExpectedDefaults",
+          "[speckle]") {
   SECTION("Base defaults") {
     Base b;
     REQUIRE(b.speckle_type == "Base");
@@ -106,7 +107,7 @@ TEST_CASE("Speckle object model defaults", "[speckle]") {
 // MD5 hashing tests
 // ============================================================
 
-TEST_CASE("MD5 hash produces expected values", "[speckle]") {
+TEST_CASE("Md5_KnownTestVectors_ProducesExpectedHashes", "[speckle]") {
   // Known MD5 test vectors
   REQUIRE(test_md5("") == "d41d8cd98f00b204e9800998ecf8427e");
   REQUIRE(test_md5("hello") == "5d41402abc4b2a76b9719d911017c592");
@@ -114,7 +115,7 @@ TEST_CASE("MD5 hash produces expected values", "[speckle]") {
           "9e107d9d372bb6826bd81d3542a419d6");
 }
 
-TEST_CASE("MD5 hash is 32 hex characters", "[speckle]") {
+TEST_CASE("Md5_AnyInput_Produces32HexCharacterDigest", "[speckle]") {
   std::string hash = test_md5("test input for length check");
   REQUIRE(hash.size() == 32);
   REQUIRE(std::all_of(hash.begin(), hash.end(), [](char c) {
@@ -126,7 +127,7 @@ TEST_CASE("MD5 hash is 32 hex characters", "[speckle]") {
 // Conversion helper tests
 // ============================================================
 
-TEST_CASE("to_speckle(CloudConstPtr) converts point cloud", "[speckle]") {
+TEST_CASE("ToSpeckle_CloudConstPtr_ConvertsPointsAndColors", "[speckle]") {
   auto cloud = std::make_shared<reusex::Cloud>();
   cloud->resize(3);
 
@@ -167,17 +168,17 @@ TEST_CASE("to_speckle(CloudConstPtr) converts point cloud", "[speckle]") {
   REQUIRE(pc.colors[2] == expected_blue);
 }
 
-TEST_CASE("to_speckle(CloudConstPtr) throws on null cloud", "[speckle]") {
+TEST_CASE("ToSpeckle_NullCloud_ThrowsInvalidArgument", "[speckle]") {
   reusex::CloudConstPtr null_cloud;
   REQUIRE_THROWS_AS(to_speckle(null_cloud), std::invalid_argument);
 }
 
-TEST_CASE("to_speckle(CloudConstPtr) throws on empty cloud", "[speckle]") {
+TEST_CASE("ToSpeckle_EmptyCloud_ThrowsInvalidArgument", "[speckle]") {
   auto empty_cloud = std::make_shared<reusex::Cloud>();
   REQUIRE_THROWS_AS(to_speckle(empty_cloud), std::invalid_argument);
 }
 
-TEST_CASE("to_speckle(MatrixXd, MatrixXi) converts Eigen mesh", "[speckle]") {
+TEST_CASE("ToSpeckle_EigenMatrixMesh_ConvertsVerticesAndFaces", "[speckle]") {
   // Simple triangle
   Eigen::MatrixXd vertices(3, 3);
   vertices << 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0;
@@ -203,7 +204,8 @@ TEST_CASE("to_speckle(MatrixXd, MatrixXi) converts Eigen mesh", "[speckle]") {
   REQUIRE(mesh.vertices[7] == Approx(1.0)); // third vertex y
 }
 
-TEST_CASE("to_speckle(PolygonMesh) converts PCL mesh", "[speckle]") {
+TEST_CASE("ToSpeckle_PclPolygonMesh_ConvertsVerticesFacesAndColors",
+          "[speckle]") {
   pcl::PolygonMesh polygon_mesh;
 
   // Create a simple cloud with 3 points
@@ -244,7 +246,7 @@ TEST_CASE("to_speckle(PolygonMesh) converts PCL mesh", "[speckle]") {
 // Collection / hierarchy tests
 // ============================================================
 
-TEST_CASE("Collection can hold child elements", "[speckle]") {
+TEST_CASE("Collection_PushBackElements_HoldsChildElements", "[speckle]") {
   auto col = std::make_shared<Collection>();
   col->name = "Room 1";
 
@@ -263,12 +265,13 @@ TEST_CASE("Collection can hold child elements", "[speckle]") {
   REQUIRE(col->elements[1]->speckle_type == "Objects.Geometry.Mesh");
 }
 
-TEST_CASE("SpeckleClient constructor handles empty token", "[speckle]") {
+TEST_CASE("SpeckleClient_EmptyToken_ConstructsWithoutThrowing", "[speckle]") {
   SpeckleClient client("https://example.com", "test_project_id", "");
   REQUIRE(true);
 }
 
-TEST_CASE("SpeckleClient constructor strips trailing slash", "[speckle]") {
+TEST_CASE("SpeckleClient_UrlWithTrailingSlash_ConstructsWithoutThrowing",
+          "[speckle]") {
   SpeckleClient client("https://example.com/", "project_id", "dummy_token");
   REQUIRE(true);
 }
@@ -277,8 +280,7 @@ TEST_CASE("SpeckleClient constructor strips trailing slash", "[speckle]") {
 // Configuration setter tests
 // ============================================================
 
-TEST_CASE("SpeckleClient set_max_batch_size compiles and does not throw",
-          "[speckle]") {
+TEST_CASE("SpeckleClient_SetMaxBatchSize_DoesNotThrow", "[speckle]") {
   SpeckleClient client("https://example.com", "proj", "tok");
   REQUIRE_NOTHROW(client.set_max_batch_size(10 * 1024 * 1024));
   REQUIRE_NOTHROW(client.set_max_batch_size(1));
@@ -288,7 +290,8 @@ TEST_CASE("SpeckleClient set_max_batch_size compiles and does not throw",
 // Dynamic property tests
 // ============================================================
 
-TEST_CASE("Base properties support various JSON types", "[speckle]") {
+TEST_CASE("BaseProperties_VariousJsonTypes_StoreAndSerializeCorrectly",
+          "[speckle]") {
   Base b;
 
   SECTION("String properties") {
@@ -358,14 +361,13 @@ TEST_CASE("Base properties support various JSON types", "[speckle]") {
 // export_to_speckle tests
 // ============================================================
 
-TEST_CASE("export_to_speckle with empty scene returns empty vector",
-          "[speckle]") {
+TEST_CASE("ExportToSpeckle_EmptyScene_ReturnsEmptyVector", "[speckle]") {
   reusex::io::ExportScene scene;
   auto models = export_to_speckle(scene, ExportConfig{});
   REQUIRE(models.empty());
 }
 
-TEST_CASE("export_to_speckle with cloud produces cloud model", "[speckle]") {
+TEST_CASE("ExportToSpeckle_SceneWithCloud_ProducesCloudModel", "[speckle]") {
   reusex::io::ExportScene scene;
 
   auto cloud = std::make_shared<reusex::Cloud>();
@@ -391,7 +393,7 @@ TEST_CASE("export_to_speckle with cloud produces cloud model", "[speckle]") {
   REQUIRE(models[0].root->speckle_type == "Objects.Geometry.Pointcloud");
 }
 
-TEST_CASE("export_to_speckle with semantic data produces semantic model",
+TEST_CASE("ExportToSpeckle_SceneWithSemanticData_ProducesSemanticModel",
           "[speckle]") {
   reusex::io::ExportScene scene;
 
@@ -422,7 +424,7 @@ TEST_CASE("export_to_speckle with semantic data produces semantic model",
   REQUIRE(models[0].root->elements.size() == 1);
 }
 
-TEST_CASE("export_to_speckle with panoramas produces 360 model", "[speckle]") {
+TEST_CASE("ExportToSpeckle_SceneWithPanoramas_Produces360Model", "[speckle]") {
   reusex::io::ExportScene scene;
 
   scene.panoramas.push_back({"photo_001.jpg", "", 1.0, 2.0, 3.0});
@@ -433,7 +435,7 @@ TEST_CASE("export_to_speckle with panoramas produces 360 model", "[speckle]") {
   REQUIRE(models[0].root->elements.size() == 1);
 }
 
-TEST_CASE("export_to_speckle with materials produces materials model",
+TEST_CASE("ExportToSpeckle_SceneWithMaterials_ProducesMaterialsModel",
           "[speckle]") {
   reusex::io::ExportScene scene;
 

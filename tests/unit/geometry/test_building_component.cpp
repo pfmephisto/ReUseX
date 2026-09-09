@@ -8,7 +8,7 @@
 
 using namespace reusex::geometry;
 
-TEST_CASE("ComponentType to_string and from_string round-trip",
+TEST_CASE("ComponentTypeToStringFromString_KnownTypes_RoundTrips",
           "[geometry][building_component]") {
   REQUIRE(to_string(ComponentType::window) == "window");
   REQUIRE(to_string(ComponentType::door) == "door");
@@ -19,12 +19,13 @@ TEST_CASE("ComponentType to_string and from_string round-trip",
   REQUIRE(component_type_from_string("wall") == ComponentType::wall);
 }
 
-TEST_CASE("ComponentType from_string throws on unknown type",
+TEST_CASE("ComponentTypeFromString_UnknownType_Throws",
           "[geometry][building_component]") {
   REQUIRE_THROWS_AS(component_type_from_string("beam"), std::runtime_error);
 }
 
-TEST_CASE("WindowData JSON round-trip", "[geometry][building_component]") {
+TEST_CASE("ComponentDataJson_WindowData_RoundTrips",
+          "[geometry][building_component]") {
   BuildingComponent c;
   c.name = "win1";
   c.type = ComponentType::window;
@@ -43,7 +44,8 @@ TEST_CASE("WindowData JSON round-trip", "[geometry][building_component]") {
   REQUIRE(wd.operable == true);
 }
 
-TEST_CASE("DoorData JSON round-trip", "[geometry][building_component]") {
+TEST_CASE("ComponentDataJson_DoorData_RoundTrips",
+          "[geometry][building_component]") {
   BuildingComponent c;
   c.name = "door1";
   c.type = ComponentType::door;
@@ -60,7 +62,8 @@ TEST_CASE("DoorData JSON round-trip", "[geometry][building_component]") {
   REQUIRE(dd.swing == "left");
 }
 
-TEST_CASE("WallData JSON round-trip", "[geometry][building_component]") {
+TEST_CASE("ComponentDataJson_WallData_RoundTrips",
+          "[geometry][building_component]") {
   BuildingComponent c;
   c.name = "wall1";
   c.type = ComponentType::wall;
@@ -75,7 +78,8 @@ TEST_CASE("WallData JSON round-trip", "[geometry][building_component]") {
   REQUIRE(std::holds_alternative<WallData>(c2.data));
 }
 
-TEST_CASE("JSON discriminator determines type",
+TEST_CASE("ComponentDataFromJson_TypeMismatchWithDiscriminator_"
+          "OverridesComponentType",
           "[geometry][building_component]") {
   // Serialize a door, then deserialize into a fresh component
   BuildingComponent c;
@@ -92,7 +96,7 @@ TEST_CASE("JSON discriminator determines type",
   REQUIRE(std::holds_alternative<DoorData>(c2.data));
 }
 
-TEST_CASE("component_data_from_json with empty string is no-op",
+TEST_CASE("ComponentDataFromJson_EmptyString_LeavesComponentUnchanged",
           "[geometry][building_component]") {
   BuildingComponent c;
   c.type = ComponentType::window;
@@ -105,7 +109,7 @@ TEST_CASE("component_data_from_json with empty string is no-op",
   REQUIRE(wd.pane_count == 1);
 }
 
-TEST_CASE("source_instance_guid JSON round-trip when set",
+TEST_CASE("ComponentDataToJsonFromJson_SourceInstanceGuidSet_RoundTrips",
           "[geometry][building_component][provenance]") {
   BuildingComponent c;
   c.type = ComponentType::window;
@@ -123,8 +127,9 @@ TEST_CASE("source_instance_guid JSON round-trip when set",
   REQUIRE(c2.source_instance_guid == "inst-guid-1234");
 }
 
-TEST_CASE("source_instance_guid omitted from JSON when empty (backward compat)",
-          "[geometry][building_component][provenance]") {
+TEST_CASE(
+    "ComponentDataToJson_EmptySourceInstanceGuid_OmitsKeyForBackwardCompat",
+    "[geometry][building_component][provenance]") {
   BuildingComponent c;
   c.type = ComponentType::window;
   c.data = WindowData{"fixed", 1, false};
@@ -140,7 +145,8 @@ TEST_CASE("source_instance_guid omitted from JSON when empty (backward compat)",
   REQUIRE(c2.source_instance_guid.empty());
 }
 
-TEST_CASE("legacy JSON without source_instance_guid still parses",
+TEST_CASE("ComponentDataFromJson_LegacyJsonMissingSourceInstanceGuid_"
+          "ParsesWithoutClobbering",
           "[geometry][building_component][provenance]") {
   // JSON as produced before the provenance field existed.
   const std::string legacy =

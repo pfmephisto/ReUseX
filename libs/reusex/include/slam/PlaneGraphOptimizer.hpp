@@ -69,6 +69,57 @@ enum class PlaneNoiseModel {
   fit_geometry,
 };
 
+/// How the per-edge measurement noise of the consecutive-frame odometry
+/// `BetweenFactor`s is derived (#225 odometry-trust experiment).
+enum class OdometryNoiseModel {
+  /// Every edge gets `odometry_sigma_rot` / `odometry_sigma_trans` unscaled
+  /// (modulo the observability guard). The shipped default.
+  fixed,
+  /// Sigma proportional to the edge's OWN seed motion, normalised by the
+  /// median motion over the run: a frame pair the device barely moved between
+  /// is a near-noiseless relative measurement, while one spanning a fast sweep
+  /// integrates far more sensor error. This is the textbook "odometry error
+  /// grows with distance travelled" model, and — like `fit_geometry` for the
+  /// plane term — the median normalisation leaves the odometry chain's
+  /// AGGREGATE authority against the plane factors unchanged, redistributing
+  /// it rather than re-scaling it.
+  motion,
+};
+
+/// Seed motion of one consecutive-frame odometry edge.
+struct OdometryEdgeMotion {
+  double translation = 0.0; ///< |t_i+1 - t_i| in the seed trajectory (m)
+  double rotation = 0.0;    ///< relative rotation angle of the seed pair (rad)
+};
+
+/// Multiplicative scale applied to an odometry edge's base sigmas.
+struct OdometrySigmaScale {
+  double rotation = 1.0;
+  double translation = 1.0;
+};
+
+/// Per-edge sigma scales for `OdometryNoiseModel::motion`.
+///
+/// Each channel is scaled by that edge's motion relative to the **median**
+/// motion over the run, clamped to `[min_scale, max_scale]`:
+///
+///     scale_trans_i = clamp(|dt_i| / median_j(|dt_j|), min, max)
+///     scale_rot_i   = clamp(|dr_i| / median_j(|dr_j|), min, max)
+///
+/// Properties this function guarantees, and which the unit tests pin:
+///  - a **uniform-motion** run yields all-1.0 scales, i.e. it degenerates
+///    exactly to `OdometryNoiseModel::fixed` (so the model is a strict
+///    generalisation of the shipped one);
+///  - a zero or non-finite median leaves every scale at 1.0 rather than
+///    producing infinities (a stationary capture must not be a divide-by-zero);
+///  - the mapping is monotone: a larger motion never earns a smaller sigma.
+///
+/// The two channels are normalised independently because a pure-rotation sweep
+/// and a pure-translation dolly are different failure modes of the seed.
+std::vector<OdometrySigmaScale>
+odometry_motion_scales(const std::vector<OdometryEdgeMotion> &motion,
+                       double min_scale, double max_scale);
+
 /// Fit statistics of one per-frame plane detection: the inputs from which the
 /// measurement noise of its `OrientedPlane3Factor` is derived.
 struct PlaneFitQuality {
@@ -171,6 +222,34 @@ struct PlaneGraphOptions {
   /// their sigmas multiplied by this factor (< 1 tightens them) so the trusted
   /// odometry holds the trajectory where planes cannot. 1.0 disables the guard.
   float underconstrained_odom_scale = 0.25f;
+  /// Which per-edge noise model weights the odometry factors (#225).
+  ///
+  /// The default is `fixed`, and the **measurement is why** — the odometry
+  /// sweep on the three ARKitScenes GT scans falsified the standing hypothesis
+  /// that `rux optimize` regresses drifting captures because it over-trusts the
+  /// drifted seed. Loosening odometry uniformly makes absolute GT accuracy
+  /// monotonically WORSE on every scan (41069048 F@50mm 0.8512 at the default,
+  /// 0.4565 at 10x looser, 0.2346 at 100x), while tightening it 10x moves the
+  /// result back TOWARD the no-pose-stage baseline (0.8802 vs 0.8917). The
+  /// odometry chain is the accurate part of this graph; the plane term is what
+  /// costs absolute accuracy on these captures.
+  OdometryNoiseModel odometry_noise_model = OdometryNoiseModel::fixed;
+  float odometry_weight_min = 0.5f; ///< min per-edge sigma scale (`motion`)
+  float odometry_weight_max = 3.0f; ///< max per-edge sigma scale (`motion`)
+  /// Let GNC down-weight individual odometry edges instead of registering every
+  /// one as a known inlier.
+  ///
+  /// Default `false`, again because it was measured rather than assumed: the
+  /// premise ("a grossly-wrong seed edge should be demotable") is sound in
+  /// principle, but on captures whose drift accumulates smoothly there is no
+  /// single wrong edge to demote — the error is spread evenly over thousands of
+  /// individually-good relative measurements. Turning it on therefore just
+  /// removes constraints, which the sigma sweep already showed to be harmful.
+  bool odometry_robust = false;
+  /// GNC-TLS inlier threshold for odometry factors when `odometry_robust` is
+  /// set. Odometry is a 6-DoF measurement, so the analogue of the plane term's
+  /// chi-square 99% / 2 is chi2(6, 0.99) / 2 = 16.81 / 2.
+  float odometry_gnc_inlier_cost = 8.41f;
   float plane_sigma_normal = 0.24f;   ///< plane-normal measurement std (rad)
   float plane_sigma_distance = 0.19f; ///< plane-distance measurement std (m)
   /// Which per-observation noise model weights the plane factors.

@@ -655,3 +655,191 @@ rux -p scan.rux analyze accuracy path/to/gt_mesh.ply -o accuracy.json
 
 The figure is regenerated from the `*-accuracy.json` reports with
 `scripts/plot-plane-noise-figure.py` (`REPORT_DIR=<dir> OUT=<png>`).
+
+## 8. The odometry-trust hypothesis, tested and falsified (2026-09-09, #225)
+
+§7.4 closed with a hypothesis for why `rux optimize` regresses every
+ARKitScenes scan against absolute GT:
+
+> the odometry factors are built from consecutive **seed** poses at tight sigmas
+> (0.005 rad / 0.01 m). On a drifting capture that tightly trusts a trajectory
+> which is *known to be wrong*, so the solve cannot remove drift and the plane
+> factors can only add distortion on top.
+
+It is a plausible story and it is **wrong**. This section is the measurement.
+
+### 8.1 What odometry trust actually looks like today
+
+`PlaneGraphOptimizer.cpp` builds one `BetweenFactor<Pose3>` per consecutive
+frame pair from the **seed** poses, with a single global sigma pair
+(`odometry_sigma_rot` / `odometry_sigma_trans`), multiplied by
+`underconstrained_odom_scale` (0.25, i.e. *tighter*) when either endpoint spans
+fewer than two independent landmark normals. Two further properties matter:
+
+- the graph's only absolute anchor is a **very tight gauge prior on frame 0**
+  (`prior_sigma_* = 0.001`), so the trajectory is pinned at one end and the
+  odometry chain propagates from there;
+- every odometry factor is registered through `GncParams::setKnownInliers`, so
+  **GNC structurally cannot down-weight one**.
+
+The first property has a consequence worth stating before any measurement:
+scaling *all* odometry sigmas by `k` is, up to the gauge prior, equivalent to
+dividing all plane sigmas by `k`. A uniform odometry-trust sweep is therefore
+not really a test of "odometry vs. truth" — it is a **plane-authority sweep**.
+That is exactly what makes it a clean test of the hypothesis: if the seed is the
+problem, relaxing it must help.
+
+### 8.2 Intervention 1 — sweep the odometry sigmas (no code)
+
+Identical protocol to §7.2 (fresh copy → pose stage → `create clouds -g 0.05` →
+`create planes` → `analyze quality`/`accuracy`). The `none` and default rows
+reproduce §7.2 **exactly on all five scans**, which is what validates the
+harness before reading anything into the new rows.
+
+**ARKitScenes, GT F@50mm (higher is better):**
+
+| odometry trust | 41069048 | 41069050 | 41069051 |
+|---|---|---|---|
+| *no pose stage* | **0.8917** | **0.8934** | **0.8893** |
+| 10x tighter (0.0005 / 0.001) | 0.8802 | 0.8845 | 0.8831 |
+| **shipped default (0.005 / 0.01)** | 0.8512 | 0.8015 | 0.8437 |
+| 10x looser (0.05 / 0.1) | 0.4565 | 0.4948 | 0.7708 |
+| 100x looser (0.5 / 1.0) | 0.2346 | — | — |
+
+The relationship is **monotone on every scan and in the opposite direction to
+the hypothesis**. Loosening odometry does not recover the regression, it
+amplifies it — catastrophically (41069048 median accuracy error 23.2 mm → 60.1 mm
+→ 137.8 mm). Tightening odometry moves the result back *toward* the
+no-pose-stage baseline, and the limit of "best odometry trust" on these scans is
+the trust level at which the stage does nothing at all.
+
+The observability guard was suspected in §7.4 of being "correct when the seed is
+good, backwards when it isn't". Measured, it is not backwards: disabling it
+(`--underconstrained-odom-scale 1.0`) makes 41069048 **worse** (F 0.8512 →
+0.8443). Tightening odometry on under-constrained frames is helping.
+
+### 8.3 Intervention 2 — redistribute odometry trust per edge (`--odometry-noise motion`)
+
+A uniform scale is a blunt instrument, so the next question is whether the
+*distribution* of odometry trust is wrong even if its aggregate is right. New
+opt-in model: sigma proportional to each edge's own seed motion, normalised by
+the run's median (so aggregate authority against the plane term is unchanged —
+the same design as `--plane-noise fit`). Physically this is the textbook
+"odometry error grows with distance travelled": a frame pair the device barely
+moved between is a near-noiseless relative measurement.
+
+| scan | metric | default | `--odometry-noise motion` |
+|---|---|---|---|
+| 41069048 | F@50mm | **0.8512** | 0.8492 |
+| 41069050 | F@50mm | **0.8015** | 0.7642 |
+| 41069051 | F@50mm | 0.8437 | **0.8441** |
+| honka | F@50mm | **0.7595** | 0.7540 |
+| office | flatness_rms | **11.72 mm** | 12.96 mm |
+
+Neutral-to-worse everywhere. Redistribution does not recover the regression
+either.
+
+### 8.4 Intervention 3 — let GNC demote odometry (`--odometry-robust`)
+
+The sharpest form of the hypothesis: perhaps a few grossly-wrong seed edges
+carry the drift, and the problem is only that `setKnownInliers` forbids GNC from
+demoting them. Dropping odometry from the known-inlier set and giving it its own
+6-DoF TLS threshold (chi²(6, 0.99)/2 = 8.41) tests exactly that.
+
+The result is the cleanest of the three: **bit-identical output on all five
+scans.** Same F-score, same chamfer, same flatness, same max pose shift, to
+every digit reported. GNC classified every odometry factor as an inlier anyway.
+
+That is a real finding rather than a null: **the drift on these captures is not
+carried by a few bad edges.** It accumulates smoothly across thousands of
+individually-good relative measurements, so there is no outlier for a robust
+kernel to find. Robustness is the wrong tool for smooth drift — which is also
+why loop closure (a constraint from *outside* the chain) is the structurally
+right one, and why #236's inability to produce trustworthy edges is the actual
+blocker.
+
+### 8.5 The office scan says the default is already at a local optimum
+
+Office `afb3234950` has no GT, but it is the scan the odometry sigmas were
+originally tuned on, and it separates the two directions:
+
+| odometry trust | flatness_rms | thickness_p90 | max pose shift |
+|---|---|---|---|
+| *no pose stage* | 12.50 mm | 20.42 mm | — |
+| 10x tighter | 12.74 mm | 20.62 mm | 0.0008 m |
+| **shipped default** | **11.72 mm** | **19.12 mm** | 0.0685 m |
+| 10x looser | 13.36 mm | 21.87 mm | 0.4982 m |
+| `--odometry-noise motion` | 12.96 mm | 21.30 mm | 0.1112 m |
+
+Both directions are worse. The shipped odometry trust is a **local optimum for
+the GT-free metric**, and 10x tighter is not merely worse than the default, it is
+worse than doing nothing (12.74 vs 12.50 mm) — the stage becomes a near-no-op
+(0.8 mm max shift) that only adds re-segmentation noise.
+
+### 8.6 Verdict
+
+**The odometry-trust hypothesis is falsified**, on all three axes it could be
+attacked from: uniform scaling (§8.2, monotonically harmful), per-edge
+redistribution (§8.3, neutral-to-worse) and selective robust demotion (§8.4,
+inert). The odometry chain is the *accurate* part of this factor graph. What
+costs absolute accuracy on drifting captures is the **plane term**, and no
+setting of odometry trust repairs it — the setting that scores best on GT is
+simply the one closest to disabling the stage.
+
+The sharper statement the numbers support, which supersedes §7.4's guess:
+
+> `rux optimize` is calibrated against a **GT-free surface-consistency** metric,
+> and on drifting captures that metric and absolute accuracy actively disagree.
+> The plane term buys local flatness (office 12.50 → 11.72 mm, honka 27.98 →
+> 24.91 mm) by making co-observed surfaces mutually consistent — and it pays for
+> it in global accuracy, because with only 28 landmarks surviving hygiene over
+> ~2000 frames it can bend the trajectory without any absolute reference to
+> stop it.
+
+This also revises the "loosen odometry so drift can redistribute" advice that
+`--loop-trust` documentation still carries: loosening odometry is only safe when
+something else supplies an absolute constraint. #310 measured the same wall from
+the other side — with 189 wide-baseline edges applied, `--loop-trust` moved the
+poses 1.12 m and quality collapsed. Both experiments now point at one
+prerequisite: **a trustworthy global constraint**, which today does not exist in
+this pipeline.
+
+Consequently the next increment should **not** be another odometry or plane
+weighting knob. In priority order:
+
+1. **Landmark yield and association quality.** 4646 detections collapse to 28
+   landmarks on 41069048, with 2137 merges blocked by the overlap gate. A plane
+   term that touches so few landmarks cannot be a global regularizer; it is a
+   sparse, high-leverage distortion. Whether the gates are too aggressive is
+   directly measurable now that a GT harness exists.
+2. **A GT-gated stopping rule.** The stage currently always writes poses back.
+   With absolute GT available on three scans, "does this solve actually improve
+   accuracy" is answerable per configuration rather than assumed.
+3. **Global constraints (#236)**, once a matcher can produce edges that survive
+   PCM — the only mechanism that can remove drift rather than redistribute it.
+
+### 8.7 What shipped
+
+Nothing that changes a default. `--odometry-noise motion`, `--odometry-robust`,
+`--odometry-weight-min/max` and `--odometry-gnc-inlier-cost` ship **opt-in**;
+the default path is bit-identical (verified by re-running the default
+configuration on 41069048 after the change: F 0.8512 / chamfer 42.17 mm /
+median accuracy 23.20 mm / flatness 19.43 mm / max shift 0.0657 m, matching the
+pre-change run to every digit). They are kept because they are the instruments
+that produced this verdict, and re-deriving them for the next experiment would
+cost more than carrying them.
+
+![Odometry-trust sweep vs absolute GT](figures/odometry/odometry-trust-225.svg)
+
+### 8.8 Reproducing
+
+```bash
+# the sweep that falsifies the hypothesis
+rux -p scan.rux optimize --odometry-sigma-rot 0.05 --odometry-sigma-trans 0.1
+rux -p scan.rux optimize --odometry-noise motion
+rux -p scan.rux optimize --odometry-robust
+# then, for every row:
+rux -p scan.rux create clouds -g 0.05 && rux -p scan.rux create planes
+rux -p scan.rux analyze quality  -o quality.json
+rux -p scan.rux analyze accuracy path/to/gt_mesh.ply -o accuracy.json
+```

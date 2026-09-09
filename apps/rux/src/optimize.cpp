@@ -123,6 +123,32 @@ NOTES:
                   "Odometry sigma multiplier for frames that span < 2 plane "
                   "normal directions (<1 tightens; 1 disables the guard)")
       ->default_val(opt->underconstrained_odom_scale);
+  sub->add_option(
+         "--odometry-noise", opt->odometry_noise,
+         "Per-edge odometry noise model: fixed (default; every edge gets "
+         "--odometry-sigma-*) or motion (sigma proportional to that edge's own "
+         "seed motion, normalised by the run's median so the odometry chain's "
+         "overall authority against the plane factors is unchanged). Note the "
+         "measured result of issue #225: loosening odometry makes absolute GT "
+         "accuracy monotonically WORSE on drifting captures, so 'motion' is a "
+         "redistribution probe, not a drift fix")
+      ->default_val(opt->odometry_noise)
+      ->check(CLI::IsMember({"fixed", "motion"}));
+  sub->add_option("--odometry-weight-min", opt->odometry_weight_min,
+                  "Min per-edge odometry sigma scale (--odometry-noise motion)")
+      ->default_val(opt->odometry_weight_min);
+  sub->add_option("--odometry-weight-max", opt->odometry_weight_max,
+                  "Max per-edge odometry sigma scale (--odometry-noise motion)")
+      ->default_val(opt->odometry_weight_max);
+  sub->add_flag("--odometry-robust", opt->odometry_robust,
+                "Let GNC down-weight individual odometry factors instead of "
+                "registering every one as a known inlier. Measured on the #225 "
+                "ARKitScenes GT scans: it does not recover the regression, "
+                "because smooth drift has no single wrong edge to demote");
+  sub->add_option("--odometry-gnc-inlier-cost", opt->odometry_gnc_inlier_cost,
+                  "GNC-TLS inlier threshold for odometry factors under "
+                  "--odometry-robust (chi2(6, 0.99)/2 = 8.41)")
+      ->default_val(opt->odometry_gnc_inlier_cost);
   sub->add_option("--plane-sigma-normal", opt->plane_sigma_normal,
                   "Plane-normal measurement std (rad)")
       ->default_val(opt->plane_sigma_normal);
@@ -378,6 +404,14 @@ int run_subcommand_optimize(SubcommandOptimizeOptions const &opt,
                    : (opt.plane_noise == "inliers"
                           ? reusex::geometry::PlaneNoiseModel::inlier_count
                           : reusex::geometry::PlaneNoiseModel::fit_geometry));
+    options.odometry_noise_model =
+        opt.odometry_noise == "motion"
+            ? reusex::geometry::OdometryNoiseModel::motion
+            : reusex::geometry::OdometryNoiseModel::fixed;
+    options.odometry_weight_min = opt.odometry_weight_min;
+    options.odometry_weight_max = opt.odometry_weight_max;
+    options.odometry_robust = opt.odometry_robust;
+    options.odometry_gnc_inlier_cost = opt.odometry_gnc_inlier_cost;
     options.plane_weight_min = opt.plane_weight_min;
     options.plane_weight_max = opt.plane_weight_max;
     options.prior_sigma_rot = opt.prior_sigma_rot;

@@ -44,7 +44,15 @@ file(GLOB_RECURSE UNIT_TEST_SOURCES CONFIGURE_DEPENDS
      "${CMAKE_CURRENT_SOURCE_DIR}/unit/*.cpp")
 
 set(HEAVY_TEST_SOURCES ${UNIT_TEST_SOURCES})
-list(FILTER HEAVY_TEST_SOURCES INCLUDE REGEX "/unit/(vision|ruxd|visualize)/")
+list(FILTER HEAVY_TEST_SOURCES INCLUDE REGEX "/unit/(vision|ruxd|visualize|gsplat)/")
+
+# tests/unit/gsplat exercises reusex_gsplat, which only exists when CUDA and
+# the vendored gsplat rasterizer were both found. Drop those sources otherwise
+# rather than fail to link a CPU-only build.
+if(NOT REUSEX_HAVE_GSPLAT)
+    list(FILTER HEAVY_TEST_SOURCES EXCLUDE REGEX "/unit/gsplat/")
+    message(STATUS "Excluding tests/unit/gsplat (gsplat backend disabled)")
+endif()
 
 # reusex/vision/nms.hpp is a torch::Tensor API, and MLBackendConfig.cmake drops
 # nms.cpp/.hpp from the library entirely when the LibTorch backend is off. Its
@@ -76,7 +84,7 @@ if(NOT "TensorRT" IN_LIST ENABLED_ML_BACKENDS)
 endif()
 
 set(LIGHT_TEST_SOURCES ${UNIT_TEST_SOURCES})
-list(FILTER LIGHT_TEST_SOURCES EXCLUDE REGEX "/unit/(vision|ruxd|visualize)/")
+list(FILTER LIGHT_TEST_SOURCES EXCLUDE REGEX "/unit/(vision|ruxd|visualize|gsplat)/")
 
 # -----------------------------------------------
 # Create unit test executables
@@ -157,6 +165,20 @@ if(HEAVY_TEST_SOURCES)
     if("LibTorch" IN_LIST ENABLED_ML_BACKENDS)
         find_package(Torch REQUIRED)
         target_link_libraries(reusex_unit_tests_vision PRIVATE torch)
+    endif()
+
+    # tests/unit/gsplat/test_optimizer.cpp covers the density-control row remap
+    # directly. That lives behind libs/reusex/src/gsplat/optimizer.hpp, which is
+    # module-private on purpose (it exposes torch types, STANDARDS §2) — so the
+    # test needs the src root on its include path, and torch's headers whether
+    # or not the LibTorch *ML backend* happens to be enabled. Testing it through
+    # the public API is not an option: carrying Adam's moments across a remap
+    # has no observable effect other than the moments themselves.
+    if(TARGET reusex_gsplat)
+        find_package(Torch REQUIRED)
+        target_link_libraries(reusex_unit_tests_vision PRIVATE torch)
+        target_include_directories(reusex_unit_tests_vision PRIVATE
+            ${CMAKE_SOURCE_DIR}/libs/reusex/src)
     endif()
 endif()
 

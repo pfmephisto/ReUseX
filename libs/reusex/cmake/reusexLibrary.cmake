@@ -14,7 +14,7 @@
 # Layer diagram (a module may only depend on lower layers):
 #
 #   Layer 4:  visualize  pipeline
-#   Layer 3:  segmentation  reconstruction  slam  io  vision   (peers)
+#   Layer 3:  segmentation  reconstruction  slam  io  vision  gsplat   (peers)
 #   Layer 2:  core
 #   Layer 1:  utils, types.hpp
 #
@@ -78,6 +78,11 @@ file(GLOB_RECURSE REUSEX_RECONSTRUCTION_SOURCES CONFIGURE_DEPENDS
 # Relocated to src/slam/ in #222 (Phase B).
 file(GLOB_RECURSE REUSEX_SLAM_SOURCES CONFIGURE_DEPENDS
      "${SRC}/slam/*.cpp")
+
+# Layer 3 — gsplat (3D Gaussian Splatting training, #240). Optional: needs
+# WITH_CUDA plus the vendored Apache-2.0 gsplat rasterizer (pkgs/gsplat-cuda).
+file(GLOB_RECURSE REUSEX_GSPLAT_SOURCES CONFIGURE_DEPENDS
+     "${SRC}/gsplat/*.cpp")
 
 # Layer 4 — visualize (optional PCL/Qt/VTK)
 file(GLOB_RECURSE REUSEX_VISUALIZE_SOURCES CONFIGURE_DEPENDS
@@ -294,6 +299,55 @@ target_link_libraries(reusex_slam PRIVATE opencv_calib3d opencv_imgcodecs)
 # extracted surfels). Explicit peer edge slam -> segmentation, kept narrow.
 target_link_libraries(reusex_slam PUBLIC reusex_segmentation)
 
+# --- Layer 3 — gsplat (optional: WITH_CUDA + vendored gsplat) --------------
+# 3D Gaussian Splatting trainer (#240). The differentiable rasterizer is
+# gsplat's Apache-2.0 CUDA backend, vendored by pkgs/gsplat-cuda as a LibTorch-
+# linked static library; gsplat::gsplat propagates ${TORCH_LIBRARIES} PUBLIC, so
+# linking it is what brings LibTorch into this module. Skipped entirely (with a
+# STATUS line, never silently) when CUDA is off or the package is absent — the
+# `rux create gsplat` subcommand then reports that the build lacks support
+# rather than failing to link.
+set(REUSEX_HAVE_GSPLAT OFF)
+if(WITH_CUDA AND REUSEX_GSPLAT_SOURCES)
+    find_package(gsplat-cuda CONFIG QUIET)
+    if(gsplat-cuda_FOUND)
+        set(REUSEX_HAVE_GSPLAT ON)
+    else()
+        message(STATUS "gsplat-cuda not found — reusex_gsplat module disabled "
+                       "(`rux create gsplat` will report unavailable)")
+    endif()
+else()
+    message(STATUS "WITH_CUDA=OFF — reusex_gsplat module disabled")
+endif()
+
+if(REUSEX_HAVE_GSPLAT)
+    reusex_add_module(reusex_gsplat ${REUSEX_GSPLAT_SOURCES})
+    target_link_libraries(reusex_gsplat PUBLIC reusex_core reusex_geometry_common)
+    # gsplat + LibTorch, kept PRIVATE. gsplat::gsplat propagates
+    # ${TORCH_LIBRARIES} — including Torch's _GLIBCXX_USE_CXX11_ABI define and
+    # its 1.8 GB CUDA closure — so letting it go PUBLIC would push both onto
+    # every consumer of the `reusex` umbrella. The module's public headers
+    # therefore expose no torch type (pimpl, like ProjectDB hides sqlite3;
+    # STANDARDS §2). As a static library the link still propagates to the final
+    # executable, which is all that is needed.
+    target_link_libraries(reusex_gsplat PRIVATE gsplat::gsplat)
+    # Signals to consumers (apps/rux, tests) that the trainer is compiled in.
+    target_compile_definitions(reusex_gsplat PUBLIC REUSEX_HAVE_GSPLAT)
+
+    # Which compute capabilities the vendored kernels were actually built for.
+    # pkgs/gsplat-cuda builds ONE architecture by default (sm_89) and emits no
+    # PTX, so there is no JIT fallback — on any other GPU the first kernel
+    # launch dies with "no kernel image is available", minutes into a run.
+    # require_cuda() checks this list up front and names the override; keep the
+    # two in step when changing `cudaCapabilities` in the derivation.
+    set(REUSEX_GSPLAT_CUDA_ARCHS "89" CACHE STRING
+        "Compute capabilities (major*10+minor, comma-separated) the vendored \
+gsplat kernels were compiled for. Mirror pkgs/gsplat-cuda/package.nix's \
+cudaCapabilities.")
+    target_compile_definitions(reusex_gsplat
+        PRIVATE REUSEX_GSPLAT_CUDA_ARCHS="${REUSEX_GSPLAT_CUDA_ARCHS}")
+endif()
+
 # --- Layer 4 — visualize (optional) ----------------------------------------
 if(REUSEX_VISUALIZE_SOURCES)
     reusex_add_module(reusex_visualize ${REUSEX_VISUALIZE_SOURCES})
@@ -341,11 +395,14 @@ target_link_libraries(reusex INTERFACE
 if(TARGET reusex_visualize)
     target_link_libraries(reusex INTERFACE reusex_visualize)
 endif()
+if(TARGET reusex_gsplat)
+    target_link_libraries(reusex INTERFACE reusex_gsplat)
+endif()
 
 # -----------------------------------------------
 # Diagnostics
 # -----------------------------------------------
-foreach(mod utils geometry_common core io vision segmentation reconstruction slam pipeline visualize)
+foreach(mod utils geometry_common core io vision segmentation reconstruction slam pipeline visualize gsplat)
     if(TARGET reusex_${mod})
         get_target_property(_srcs reusex_${mod} SOURCES)
         list(LENGTH _srcs _n)
@@ -360,4 +417,5 @@ if(NOT CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
     set(REUSEX_LIBRARY_TARGET reusex PARENT_SCOPE)
     set(USE_MIP_SOLVER ${USE_MIP_SOLVER} PARENT_SCOPE)
     set(ENABLED_ML_BACKENDS ${ENABLED_ML_BACKENDS} PARENT_SCOPE)
+    set(REUSEX_HAVE_GSPLAT ${REUSEX_HAVE_GSPLAT} PARENT_SCOPE)
 endif()

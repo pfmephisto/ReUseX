@@ -203,6 +203,33 @@ changelog — that history is the point of keeping it in the repo.
 
 ## Direction changelog
 
+- **2026-09-09** — The #225 benchmark itself is now the blocker, not the
+  algorithm. Two measured questions both answered no: a **plane-term weight
+  sweep against absolute GT** has no interior optimum on the drifting scans
+  (accuracy improves monotonically as the term is weakened; the best setting is
+  the new `--no-plane-factors`, which reproduces *no pose stage* bit-exactly),
+  and **XFeat loop edges** — the one front-end whose edges survive PCM and which
+  closes 16.66 m of office drift — **lose GT accuracy in every configuration**
+  on all three ARKitScenes scans. The reason is a signal-to-noise argument that
+  reframes the workstream: those trajectories span only **1.8–2.6 m** and their
+  seed poses already reconstruct to **15.7–18.6 mm** median accuracy, while an
+  XFeat edge disagrees with the seed by **58–169 mm** — its own error, four
+  times larger than the error it would correct (on office the same measurement
+  is 14.5 m of disagreement on an 18 m trajectory, i.e. real drift). So **the
+  ARKitScenes scans cannot adjudicate pose refinement at all**: on a well-posed
+  capture the correct behaviour of every pose stage is to do nothing, and that
+  is exactly what wins. #221 Tier 2 asked for a drifting scan *with* absolute
+  GT; these supply the GT but not the drift. The next increment is therefore
+  **benchmark work, not solver work** — cheapest first: synthesise realistic
+  drift on the ARKitScenes seeds so their GT meshes become a drifting benchmark.
+  Also measured and worth carrying: the plane term is *correctly* calibrated for
+  well-posed captures (honka's GT optimum and office's GT-free optimum are both
+  the shipped default), so this is a capture-dependent split, not a
+  miscalibration; and the shipped 0.50 m seed-disagreement gate is
+  scale-dependent — on a 2 m trajectory it selects the *wrong* edges and drops
+  F to 0.29, so it should become relative to trajectory extent. Full write-up:
+  `docs/research/registration-improvements.md` §9.
+
 - **2026-09-09** — MapAnything evaluated as a loop-edge matcher (#264) and
   **rejected on measurement, not on licence**. The licence question closes
   cleanly in our favour: `facebook/map-anything-apache` is genuinely Apache-2.0

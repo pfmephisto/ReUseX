@@ -59,6 +59,8 @@ struct SubcommandOptimizeOptions {
   bool no_plane_inlier_weight = false;
   float plane_weight_min = 0.5f;
   float plane_weight_max = 3.0f;
+  float plane_sigma_scale = 1.0f;
+  bool no_plane_factors = false;
   float prior_sigma_rot = 0.001f;
   float prior_sigma_trans = 0.001f;
 

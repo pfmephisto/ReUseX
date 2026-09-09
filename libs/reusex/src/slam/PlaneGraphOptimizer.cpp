@@ -439,6 +439,20 @@ PlaneGraphOptimizer::optimize(std::vector<FrameSurfels> &frames,
     core::warn("PlaneGraph: no planes detected; poses unchanged");
     return result;
   }
+  // STANDARDS §5: a configuration that makes the stage a near-no-op must say
+  // so with its numbers, not silently write the seed poses back.
+  if (!options_.use_plane_factors)
+    core::warn("PlaneGraph: --no-plane-factors is set; {} detections will be "
+               "associated and reported but NO plane factor enters the graph "
+               "(odometry + gauge prior only), so the solve cannot move the "
+               "seed trajectory",
+               all_planes.size());
+  else if (options_.plane_sigma_scale != 1.0f)
+    core::info("PlaneGraph: plane sigmas scaled by {:.4g} (plane-term weight "
+               "x{:.4g} relative to the shipped calibration)",
+               options_.plane_sigma_scale,
+               1.0 / (static_cast<double>(options_.plane_sigma_scale) *
+                      options_.plane_sigma_scale));
 
   const double assoc_cos = std::cos(options_.assoc_normal_angle * M_PI / 180.0);
   using GncParamsLM = gtsam::GncParams<gtsam::LevenbergMarquardtParams>;
@@ -836,11 +850,18 @@ PlaneGraphOptimizer::optimize(std::vector<FrameSurfels> &frames,
     // weak plane is loosened so it cannot warp the trajectory. This is the fix
     // for the measured "denser extraction hurts" regression — the extra planes
     // are mostly small, and equal weighting let them dominate wrongly.
-    const double base_sig_n = options_.plane_sigma_normal;
-    const double base_sig_d = options_.plane_sigma_distance;
+    // plane_sigma_scale is the one-dimensional authority knob: it multiplies
+    // both channels, so the plane term's weight in the objective goes as
+    // 1 / scale^2. use_plane_factors == false is its infinite limit, taken
+    // exactly (no landmark variables, no plane factors -> odometry + prior).
+    const double base_sig_n =
+        options_.plane_sigma_normal * options_.plane_sigma_scale;
+    const double base_sig_d =
+        options_.plane_sigma_distance * options_.plane_sigma_scale;
 
     int plane_factors = 0;
-    for (size_t l = 0; l < landmarks.size(); ++l) {
+    for (size_t l = 0; options_.use_plane_factors && l < landmarks.size();
+         ++l) {
       const int key = landmark_key[l];
       if (key < 0)
         continue;

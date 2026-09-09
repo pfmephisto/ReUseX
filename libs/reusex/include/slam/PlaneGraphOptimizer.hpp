@@ -299,8 +299,32 @@ struct PlaneGraphOptions {
   /// --plane-weight-max 15`. Forgetting to is not silent: the optimizer warns
   /// at run time, with the numbers, when the clamp rather than the fit quality
   /// is setting most weights (STANDARDS §5).
-  float plane_weight_min = 0.5f;  ///< min sigma scale (strongest planes)
-  float plane_weight_max = 3.0f;  ///< max sigma scale (weakest planes)
+  float plane_weight_min = 0.5f; ///< min sigma scale (strongest planes)
+  float plane_weight_max = 3.0f; ///< max sigma scale (weakest planes)
+  /// Global multiplier on BOTH plane sigmas, i.e. the plane term's authority
+  /// relative to the odometry chain and the gauge prior. The plane term's
+  /// contribution to the objective scales as `1 / plane_sigma_scale^2`, so
+  /// values > 1 weaken it and values < 1 strengthen it. `1.0` is the shipped
+  /// calibration and is bit-identical to not passing the knob.
+  ///
+  /// It exists as one dimension rather than as "remember to scale both
+  /// `plane_sigma_normal` and `plane_sigma_distance` by the same factor",
+  /// because the question it answers — *is there a plane-term weight that is
+  /// optimal against absolute GT?* — is one-dimensional (#225 §9). Note it is
+  /// NOT exactly equivalent to inversely scaling the odometry sigmas: the GNC
+  /// TLS threshold `gnc_inlier_cost` is applied to the *whitened* plane
+  /// residual, so changing the plane sigmas also changes which observations
+  /// GNC classifies as outliers, whereas changing odometry sigmas does not.
+  float plane_sigma_scale = 1.0f;
+  /// Build the graph WITHOUT any plane factors — the `plane_sigma_scale ->
+  /// infinity` limit, taken exactly. Plane detection, association and landmark
+  /// hygiene still run (so the reported statistics stay comparable), but no
+  /// `OrientedPlane3Factor` and no landmark variable enters the graph, leaving
+  /// odometry + the frame-0 gauge prior. The solve is then a no-op on the seed
+  /// trajectory, which is exactly what makes it useful: it is the measurable
+  /// "plane term off" endpoint of a weight sweep, and a check that the harness
+  /// reproduces the no-pose-stage baseline through the full pipeline.
+  bool use_plane_factors = true;
   float prior_sigma_rot = 0.001f; ///< first-pose gauge prior rotation std (rad)
   float prior_sigma_trans =
       0.001f; ///< first-pose gauge prior translation std (m)

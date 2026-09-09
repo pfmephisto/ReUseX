@@ -99,17 +99,36 @@ survive.
 
 ## Runner disk
 
-The unpacked build closure is ~10 GB, and the stock `ubuntu-latest` image
-leaves only about 21 GB free on `/`. `ci.yml` starts with an inline step that
-removes the preinstalled .NET/Android/GHC toolchains (~25 GB, well under a
-minute) before Nix is installed. If a future dependency bump pushes the
-closure higher, that step is the first place to look.
+Not a problem, contrary to the usual assumption. Measured on the first green
+run: `/` is **145 GB with 106 GB still free at the end of the job**, and
+`/nix/store` peaks at **6.5 GB**. `ci.yml` deliberately does *not* carry the
+widely-copied "free up runner disk space" step — it cost 38 s to reclaim space
+nothing needed. The `Report disk usage` step is the early warning if a future
+dependency bump changes this.
+
+## Where the time actually goes
+
+Measured on the first green PR run (24 min 10 s wall, all of it on
+`ubuntu-latest`, 4 vCPU):
+
+| Phase | Time |
+|---|---:|
+| Job setup, checkout, install-nix, cachix-action | 50 s |
+| **Pull the whole non-substitutable closure from Cachix** | **~38 s** |
+| Compile ReUseX (CPU variant, `-j4`) | ~19 min |
+| `ctest --parallel` (561 tests) | 3 min 42 s |
+| Post steps | 2 s |
+
+The cache does its job completely — 38 seconds for everything
+`cache.nixos.org` could not serve. What it *cannot* fix is the ~19-minute
+compile, because `src = ./.` is unfiltered (below) and so every PR rebuilds
+ReUseX from scratch. That, not the dependency closure, is why a run lands
+around 24 minutes rather than the <20 min originally hoped for in #202.
 
 ## Cold vs warm
 
-- **Warm** (cache hit on every dependency): the run is dominated by compiling
-  ReUseX itself on a 4-vCPU runner, since any source change invalidates the
-  `ReUseX-tests` derivation.
+- **Warm** (cache hit on every dependency): ~24 min, dominated by compiling
+  ReUseX itself on a 4-vCPU runner.
 - **Cold** (an overlay bump invalidated, say, OpenCV): the runner rebuilds
   that dependency from source. `timeout-minutes: 120` exists so such a run can
   still finish and repopulate the cache on `main` rather than being killed

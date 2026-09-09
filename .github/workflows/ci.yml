@@ -56,20 +56,12 @@ jobs:
     # still finish and repopulate the cache rather than being killed halfway.
     timeout-minutes: 120
     steps:
-      # The stock runner image leaves ~21 GB free on /, and /nix/store needs
-      # ~10 GB for the unpacked build closure plus room for the build tree
-      # itself. Dropping the preinstalled toolchains we never use buys ~25 GB
-      # for well under a minute. Done inline rather than via a third-party
-      # action to keep this workflow's supply chain to first-party actions
-      # plus cachix's.
-      - name: Free runner disk space
-        run: |
-          echo "Before:"; df -h /
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
-                      /usr/local/share/boost /usr/local/.ghcup \
-                      "$AGENT_TOOLSDIRECTORY" || true
-          echo "After:"; df -h /
-
+      # No disk-cleanup step here on purpose. The first green run measured the
+      # real numbers: / is 145 GB with 106 GB still free at the end of the job,
+      # and /nix/store peaks at 6.5 GB. The widely-copied "free up runner disk"
+      # incantation cost 38 s to reclaim space nothing needed. If a future
+      # dependency bump changes that, the "Report disk usage" step below is
+      # what will show it.
       - uses: actions/checkout@v4
         with:
           # tests/fixtures/** binaries (.pcd/.db/.e57/.rux) are LFS-tracked and
@@ -102,7 +94,10 @@ jobs:
       - name: Build and run tests
         run: nix build .#checks.x86_64-linux.tests --print-build-logs
 
-      - name: Report Nix store size
+      # Cheap early warning: if the closure ever starts crowding the runner,
+      # this is where it shows up first (6.5 GB store / 106 GB free as of the
+      # first green run).
+      - name: Report disk usage
         if: always()
         run: |
           du -sh /nix/store 2>/dev/null || true

@@ -59,8 +59,14 @@ add = out.append
 # literals, not this script's own SPDX tags — reuse lint mis-detects them
 # as a second, malformed license expression for this .py file otherwise)
 add('<!--')
+# REUSE-IgnoreStart
+# These two lines are the SVG's own REUSE header, emitted into the output
+# file -- they are data, not this script's licence. Without the ignore
+# markers `reuse lint` parses to end-of-line and reads the identifier as
+# "GPL-3.0-or-later')", which is not a valid SPDX expression.
 add('SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen')
 add('SPDX-License-Identifier: GPL-3.0-or-later')
+# REUSE-IgnoreEnd
 add('-->')
 # REUSE-IgnoreEnd
 add(f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" '

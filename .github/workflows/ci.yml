@@ -1,40 +1,42 @@
 # SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# Build-and-test CI (drafted, not yet enabled on push/PR).
+# Build-and-test CI, running on every push to main and every pull request
+# (#202). The nix dependency closure (PCL, OpenCV, RTABMap, OpenMVS, libtorch,
+# GTSAM, HiGHS, OpenNURBS — several rebuilt by our overlays) is far too large
+# to build from scratch on a GitHub-hosted runner, so the paths that
+# cache.nixos.org cannot serve are pulled from our own Cachix cache:
 #
-# Status: manual trigger only. The dependency closure (PCL, OpenCV, RTABMap,
-# OpenMVS, libtorch — several rebuilt by our overlays) is too large to build
-# from scratch on GitHub-hosted runners without a binary cache.
+#   https://reusex.cachix.org   (public: reads need no token)
 #
-# Cheap gates (clang-format, REUSE/SPDX) no longer wait on this — they run on
-# every push/PR from .github/workflows/lint.yml (#250), since they don't
-# touch the nix closure at all.
+# See docs/guides/ci-cache.md for what lives in that cache, how big it is, and
+# how to re-seed it from a dev machine.
 #
-# To enable this build-and-test job on push/PR (tracked in #202):
-#   1. Create a Cachix cache (free for OSS): https://app.cachix.org
-#   2. Add repo secret CACHIX_AUTH_TOKEN.
-#   3. Seed the cache from a machine that has already built the CPU variant:
-#        nix build .#cpu && nix build .#checks.x86_64-linux.tests
-#        nix path-info --recursive .#cpu | cachix push reusex
-#   4. Replace `workflow_dispatch` below with push/pull_request triggers.
+# Cheap gates (clang-format, REUSE/SPDX, docs/gui YAML sanity) live in
+# .github/workflows/lint.yml (#250) and deliberately do not touch nix at all.
 #
-# Until then, the equivalent local gates are:
+# The local equivalents of this workflow are:
 #   scripts/check.sh                          (fast incremental build + ctest)
 #   nix build .#checks.x86_64-linux.tests     (hermetic build + ctest)
 
 name: CI
 
 on:
+  push:
+    branches: [main]
+  pull_request:
   workflow_dispatch:
-  # push:
-  #   branches: [main]
-  # pull_request:
-  # ^ blocked on #202 (Cachix cache + CACHIX_AUTH_TOKEN secret)
 
-# Least-privilege default: the build-and-test job only checks out, builds,
-# and (optionally) pushes to Cachix with its own dedicated authToken — it
-# never needs to write to the repo itself.
+# A force-push or a quick follow-up commit should cancel the run it
+# supersedes: a full C++ build is the most expensive thing in this repo's CI
+# budget. main is exempt so every merged commit is actually built.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+# Least-privilege default: the jobs here only check out, build, and (on main)
+# push to Cachix with their own dedicated authToken — they never need to write
+# to the repo itself.
 permissions:
   contents: read
 
@@ -42,9 +44,28 @@ jobs:
   build-and-test:
     name: Build + ctest (CPU variant)
     runs-on: ubuntu-latest
+    # CACHIX_AUTH_TOKEN is an *environment* secret scoped to the `CI`
+    # environment, not a repo-level secret, so the job has to opt in here or
+    # `secrets.CACHIX_AUTH_TOKEN` silently evaluates to the empty string.
+    # The environment carries no protection rules and no branch policy, so
+    # this neither gates nor delays the run.
+    environment: CI
+    # Warm (dependency closure already in Cachix) this is dominated by the
+    # ReUseX compile itself on a 4-vCPU runner. The ceiling is generous so a
+    # cold run — one where an overlay bump invalidated a big dependency — can
+    # still finish and repopulate the cache rather than being killed halfway.
+    timeout-minutes: 120
     steps:
+      # No disk-cleanup step here on purpose. Measured on a green run with no
+      # cleanup at all: / is 145 GB and still had 80 GB free at the end of the
+      # job, with /nix/store at 7.0 GB. The widely-copied "free up runner disk
+      # space" incantation cost 38 s to reclaim space nothing needed. If a
+      # future dependency bump changes that, the "Report disk usage" step below
+      # is what will show it.
       - uses: actions/checkout@v4
         with:
+          # tests/fixtures/** binaries (.pcd/.db/.e57/.rux) are LFS-tracked and
+          # ctest reads them, so pointer files would fail the suite.
           lfs: true
 
       - uses: cachix/install-nix-action@v31
@@ -56,26 +77,40 @@ jobs:
         with:
           name: reusex
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          # Only push when the token is available (not on forks).
-          skipPush: ${{ secrets.CACHIX_AUTH_TOKEN == '' }}
+          # Read from the cache everywhere; write only from main.
+          #
+          # Two reasons this is not just "push when the token exists":
+          #  - the cache is on the 5 GB free tier, and `src = ./.` in
+          #    default.nix is unfiltered, so *every* PR produces a distinct
+          #    ReUseX-tests output. Pushing all of them would exhaust the
+          #    quota in a few dozen PRs for no reuse benefit.
+          #  - fork PRs get no secrets at all, so pushing could never work
+          #    there anyway. Reads are unaffected: the cache is public.
+          skipPush: ${{ github.event_name != 'push' || github.ref != 'refs/heads/main' }}
 
-      # Builds the CPU variant with BUILD_TESTS=ON and runs ctest inside the
-      # sandbox. Fails the job on any test failure.
+      # Builds the CPU variant (WITH_CUDA=OFF — the runners have no GPU) with
+      # BUILD_TESTS=ON and runs ctest inside the sandbox. Fails the job on any
+      # test failure.
       - name: Build and run tests
         run: nix build .#checks.x86_64-linux.tests --print-build-logs
 
+      # Cheap early warning: if the closure ever starts crowding the runner,
+      # this is where it shows up first (7.0 GB store / 80 GB free as of the
+      # last green run).
+      - name: Report disk usage
+        if: always()
+        run: |
+          du -sh /nix/store 2>/dev/null || true
+          df -h /
+
   # The GUI frontend (apps/rux/frontend) is plain npm — no nix, no C++ closure —
-  # so unlike build-and-test above it is cheap enough to run on a stock runner
-  # today. It is packaged for nix separately (pkgs/reusex-gui-frontend), which
-  # is why nothing here needs the Nix store.
-  #
-  # It's still gated by this workflow's workflow_dispatch-only trigger (GitHub
-  # Actions triggers are per-workflow, not per-job) even though nothing about
-  # it depends on #202 — moving it to lint.yml (or its own push/PR workflow)
-  # is a reasonable, but separate, follow-up.
+  # so it does not depend on the Cachix cache at all. It rides along in this
+  # workflow because it is the other thing a code change can break; it just
+  # runs in parallel with the build above.
   frontend:
     name: GUI frontend (build + vitest)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 

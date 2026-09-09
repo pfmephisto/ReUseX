@@ -4,6 +4,19 @@
 {
   description = "ReUseX";
 
+  # Our overlays rebuild OpenCV/RTABMap/GTSAM/HiGHS/OpenNURBS and we vendor
+  # libtorch + tokenizers-cpp, none of which cache.nixos.org can serve. Those
+  # paths live in reusex.cachix.org (public, read-only without a token) so
+  # neither CI nor a fresh dev machine has to build them from source.
+  # See docs/guides/ci-cache.md. Nix asks before honouring these the first
+  # time; CI opts in up front via `accept-flake-config = true`.
+  nixConfig = {
+    extra-substituters = ["https://reusex.cachix.org"];
+    extra-trusted-public-keys = [
+      "reusex.cachix.org-1:0+y68O2+rBxXytqIepgqOSRsWa+5Ccpst9weS0sUBak="
+    ];
+  };
+
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
 

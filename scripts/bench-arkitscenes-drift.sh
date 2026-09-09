@@ -119,9 +119,13 @@ for vid in $video_ids; do
     rm -f "$master" "$master-shm" "$master-wal"
     cp "$src" "$master"
     echo "==> $vid drift-scale $scale (seed $seed): perturbing poses"
-    "$rux" -p "$master" edit perturb-poses \
+    # -v so the realised drift statistics (extent, ratio, pose error) land in
+    # the log: what was injected is half of every row's meaning, and at default
+    # verbosity those lines are suppressed.
+    "$rux" -v -p "$master" edit perturb-poses \
         --seed "$seed" --drift-scale "$scale" --yes \
-        2>&1 | tee "$out/${vid}-d${scale}-perturb.log" | grep -E "Frames:|Drift ratio:|Pose error:" || true
+        2>&1 | tee "$out/${vid}-d${scale}-perturb.log" \
+      | grep -E "Frames:|Drift ratio:|Pose error:" || true
 
     for cfg in $configs; do
       tag="$vid d=$scale $cfg"
@@ -142,7 +146,20 @@ for vid in $video_ids; do
             rm -f "$work" "$work-shm" "$work-wal"
             continue
           fi
-          "$rux" -p "$work" optimize --no-plane-factors --loop-edges "$edges"
+          "$rux" -v -p "$work" optimize --no-plane-factors --loop-edges "$edges"
+          ;;
+        plane-xfeat)
+          # Plane term ON *and* external loop edges. The interesting cell once
+          # drift exceeds the plane term's association gate: the edges are a
+          # constraint from outside the odometry chain, so they can pull the
+          # seed back inside the basin the plane term needs to work in.
+          edges="$edges_dir/${vid}.json"
+          if [[ -z "$edges_dir" || ! -f "$edges" ]]; then
+            echo "$tag | SKIPPED (no loop edges at ${edges:-<unset -e>})" >> "$summary"
+            rm -f "$work" "$work-shm" "$work-wal"
+            continue
+          fi
+          "$rux" -v -p "$work" optimize --loop-edges "$edges"
           ;;
         *) echo "unknown config '$cfg'" >&2; exit 2 ;;
       esac

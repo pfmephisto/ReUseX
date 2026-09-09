@@ -450,7 +450,7 @@ Top-level commands, as registered in `apps/rux/src/rux.cpp`:
 | `create` | `clouds`, `dense`, `annotate`, `annotate-360`, `material`, `project`, `planes`, `rooms`, `instances`, `materials`, `mesh`, `texture`, `windows` | `src/create/` |
 | `export` | `ply`, `e57`, `materialepas`, `csv`, `rhino`, `semantic-images`, `speckle`, `colmap` | `src/export/` |
 | `align` | `360` (content-based panorama pose refinement) | `src/align/` |
-| `edit` | `downsample` | `src/edit/` |
+| `edit` | `downsample`, `perturb-poses` (drift synthesis, #338) | `src/edit/` |
 | `analyze` | `quality`, `accuracy` | `src/analyze/` |
 | `optimize` | — (plane-landmark pose graph) | `src/optimize.cpp` |
 | `register` | — (joint pairwise registration) | `src/register.cpp` |

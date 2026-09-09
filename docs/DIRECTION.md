@@ -203,6 +203,45 @@ changelog — that history is the point of keeping it in the repo.
 
 ## Direction changelog
 
+- **2026-09-10** — The benchmark blocker named on 2026-09-09 is **cleared**, and
+  it reverses the previous entry's headline. Synthetic, seeded drift on the
+  ARKitScenes seed poses (`rux edit perturb-poses`, #338) turns three unusable
+  scans into a drifting benchmark with absolute GT, and on it **`rux optimize`
+  is GT-positive for the first time in this workstream**: at a moderate drift
+  level (0.09–0.13 m, ~2x the measured loop-edge error) F@50mm goes 0.4640 →
+  0.7927, 0.5393 → 0.6378 and 0.4182 → 0.7607, with median accuracy roughly
+  halved. The mechanism is the **plane term** — `--no-plane-factors` reproduces
+  *no pose stage* bit-exactly on every drifted row, because with the plane term
+  off the graph is odometry plus a gauge prior and the odometry chain *is* the
+  drifted chain. So "the plane term costs absolute accuracy on drifting
+  captures" was an artefact of measuring it on captures with no drift to remove;
+  the term is a drift-recovery mechanism whose benefit is conditional on drift
+  existing. Two consequences worth carrying: the **GT-free flatness metric and
+  absolute accuracy now agree** on every drifted row (they were only ever
+  measured to disagree where the seed was already right), which raises the trust
+  in the office scan's numbers; and recovery **collapses at heavy drift**
+  (0.36–0.51 m) because plane association is seeded from the drifted poses
+  through a 0.10 m gate, so the landmarks that would tie distant frames together
+  are never formed — visible as the same surfaces shattering into ~2x the plane
+  count. That gave a testable prediction about what a global constraint is
+  needed *for* — not to replace the plane term but to pull the seed inside its
+  association basin — and **the test passes**: at heavy drift, `optimize` with
+  the plane term *and* XFeat loop edges reaches F@50mm **0.6042** (41069050) and
+  **0.5406** (41069051), against 0.2980 / 0.2305 for the plane term alone and
+  0.3478 / 0.3361 for the edges alone. Not additive — the edges restore the
+  association basin and the plane term then does the fine correction, visible in
+  the plane count returning from 35 to 15 on 41069051. This is the **first
+  measurement in the workstream of loop closure paying against absolute GT**,
+  and it re-reads #337's negative result as scan-dependent rather than
+  fundamental. It also makes **matcher error a ranked objective**: the same
+  configuration does nothing on 41069048, whose XFeat edges carry 169 mm of
+  their own error versus ~58 mm on the other two. Loop closure (#236, #311) and
+  an association-gate sweep are now both measurable experiments rather than
+  guesses.
+  Also landed: the loop-edge seed-disagreement gate is **scale-relative** (#339),
+  since a 1.8 m room scan and an 18 m walk can no longer share an absolute
+  threshold. Full write-up: `docs/research/registration-improvements.md` §10.
+
 - **2026-09-09** — The #225 benchmark itself is now the blocker, not the
   algorithm. Two measured questions both answered no: a **plane-term weight
   sweep against absolute GT** has no interior optimum on the drifting scans

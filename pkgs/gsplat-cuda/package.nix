@@ -10,34 +10,11 @@
 # cpp_extension); we drop in pkgs/gsplat-cuda/CMakeLists.txt (mirrors the
 # flags from gsplat/cuda/build.py) and point it at gsplat/cuda/.
 #
-# NOTE: comments in *this* file are free, but any edit to the adjacent
-# CMakeLists.txt changes the derivation hash and forces a full rebuild — which
-# is over an hour of nvcc (see the CUDA-architectures TODO below). Both known
-# issues are therefore recorded here rather than fixed in place.
-#
-# FIXME: Stop leaking pybind11::headers into gsplat's exported interface
-# category=I/O estimate=2h issue=240
-# CMakeLists.txt does `target_link_libraries(gsplat PRIVATE pybind11::headers)`.
-# For a STATIC library CMake records even PRIVATE dependencies in the exported
-# INTERFACE_LINK_LIBRARIES (wrapped in $<LINK_ONLY:>), because a static archive
-# must be re-linked transitively. A consumer running find_package(gsplat-cuda)
-# without pybind11 already in scope then fails at configure time with "The link
-# interface of target gsplat::gsplat contains: pybind11::headers but the target
-# was not found". The fix is to consume ${pybind11_INCLUDE_DIRS} as a PRIVATE
-# include directory instead of linking the target — pybind11 is only ever
-# needed for headers here, never for symbols. Worked around on the consumer
-# side by a find_package(pybind11 CONFIG QUIET) ahead of
-# find_package(gsplat-cuda) in libs/reusex/cmake/reusexLibrary.cmake.
-#
-# TODO: Build gsplat for one CUDA architecture instead of three
-# category=I/O estimate=2h issue=240
-# CMAKE_CUDA_ARCHITECTURES is pinned to 80;86;89, so nvcc compiles every kernel
-# three times. The 3DGUT rasterizer TUs (RasterizeToPixelsFromWorld3DGS*Fwd.cu)
-# take ~20 min per architecture on their own, making a cold build of this
-# package well over an hour and any change to it effectively unaffordable
-# mid-session. Expose the architecture list as a derivation argument defaulting
-# to nixpkgs' cudaCapabilities so a developer can build only their own GPU's
-# architecture, keeping the three-arch list for anything cached and shared.
+# NOTE: any edit to this file or to the adjacent CMakeLists.txt changes the
+# derivation hash and forces a full rebuild from source. Budget for it: the
+# 3DGUT rasterizer translation units cost ~20 min of nvcc *per CUDA
+# architecture*, so batch package changes rather than making them one at a
+# time (see `cudaCapabilities` below).
 {
   lib,
   config,
@@ -51,6 +28,19 @@
   cudaPackages,
   addDriverRunpath,
   cudaSupport ? config.cudaSupport,
+  # Which CUDA architectures the kernels are compiled for (#301). Each entry
+  # multiplies nvcc time — the 3DGUT rasterizer TUs alone are ~20 min each —
+  # so the previous hard-coded "8.0;8.6;8.9" made every cold build over an
+  # hour. This flake declares no substituters, so nothing about this package
+  # is cached or shared and a multi-architecture artifact buys nothing; the
+  # default is the development machine's GPU (RTX 6000 Ada, sm_89).
+  #
+  # Other hardware: override just this package, which leaves every other CUDA
+  # derivation's hash (and cache hits) alone — unlike setting nixpkgs' global
+  # `config.cudaCapabilities`, which rebuilds the whole CUDA closure:
+  #
+  #   gsplat-cuda.override { cudaCapabilities = ["8.0" "8.6" "8.9"]; }
+  cudaCapabilities ? ["8.9"],
 }: let
   effectiveStdenv = cudaPackages.backendStdenv;
 in
@@ -116,8 +106,9 @@ in
     # it explicitly to be robust.
     cmakeFlags = [
       (lib.cmakeOptionType "path" "Torch_DIR" "${libtorch}/share/cmake/Torch")
-      (lib.cmakeFeature "CMAKE_CUDA_ARCHITECTURES" "80;86;89")
-      (lib.cmakeFeature "TORCH_CUDA_ARCH_LIST" "8.0;8.6;8.9")
+      (lib.cmakeFeature "CMAKE_CUDA_ARCHITECTURES"
+        (lib.concatStringsSep ";" (map cudaPackages.flags.dropDot cudaCapabilities)))
+      (lib.cmakeFeature "TORCH_CUDA_ARCH_LIST" (lib.concatStringsSep ";" cudaCapabilities))
       (lib.cmakeFeature "CMAKE_BUILD_TYPE" "Release")
     ];
 

@@ -309,13 +309,6 @@ target_link_libraries(reusex_slam PUBLIC reusex_segmentation)
 # rather than failing to link.
 set(REUSEX_HAVE_GSPLAT OFF)
 if(WITH_CUDA AND REUSEX_GSPLAT_SOURCES)
-    # gsplat's static archive records even its PRIVATE build-time dependencies
-    # in the exported link interface (CMake wraps them in $<LINK_ONLY:>, because
-    # a static archive has to be re-linked transitively). Older gsplat-cuda
-    # builds carry `pybind11::headers` there, which makes find_package(gsplat-cuda)
-    # fail unless the pybind11 target already exists. Providing it up front keeps
-    # this build working against both old and fixed gsplat-cuda outputs.
-    find_package(pybind11 CONFIG QUIET)
     find_package(gsplat-cuda CONFIG QUIET)
     if(gsplat-cuda_FOUND)
         set(REUSEX_HAVE_GSPLAT ON)

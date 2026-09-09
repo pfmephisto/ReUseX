@@ -18,7 +18,11 @@ set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
-  set(CMAKE_CUDA_ARCHITECTURES 80 86 89)
+  # The Nix derivation always passes an explicit list (see
+  # pkgs/gsplat-cuda/package.nix, `cudaCapabilities`). `native` keeps a
+  # stand-alone CMake build to the local GPU only, rather than paying ~20 min
+  # of nvcc per speculative architecture.
+  set(CMAKE_CUDA_ARCHITECTURES native)
 endif()
 
 # LibTorch provides the Torch CMake package config (TorchConfig.cmake),
@@ -54,8 +58,15 @@ target_include_directories(gsplat
     "${CMAKE_CURRENT_SOURCE_DIR}/csrc"
     "${CMAKE_CURRENT_SOURCE_DIR}/csrc/third_party/glm"
     ${Python3_INCLUDE_DIRS}
+    ${pybind11_INCLUDE_DIRS}
 )
-target_link_libraries(gsplat PRIVATE pybind11::headers)
+# NOTE: pybind11 is consumed as include directories, deliberately NOT as
+# `target_link_libraries(gsplat PRIVATE pybind11::headers)`. For a STATIC
+# library CMake records even PRIVATE dependencies in the exported
+# INTERFACE_LINK_LIBRARIES (wrapped in $<LINK_ONLY:>), because a static
+# archive must be re-linked transitively — so linking the target made
+# find_package(gsplat-cuda) fail for any consumer without pybind11 already in
+# scope. We need pybind11's headers only, never its symbols. (#302)
 
 # glm is bundled header-only; expose it to consumers too (some public headers
 # under include/ pull in glm types).

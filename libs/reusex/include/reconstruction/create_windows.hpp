@@ -54,11 +54,16 @@ struct CreateWindowsResult {
   std::vector<int> unmatched_instances; ///< Instance IDs with no wall found
 };
 
-/// Extract planar vertical wall candidates from a triangle mesh.
+/// Extract planar wall candidates from a triangle mesh.
 ///
-/// Decomposes the mesh into connected components of approximately-vertical,
-/// coplanar faces. Each component becomes a WallCandidate with a fitted plane,
-/// centroid, outward normal, and boundary vertices.
+/// Decomposes the mesh into connected components of coplanar faces. Each
+/// component becomes a WallCandidate with a fitted plane, centroid, outward
+/// normal, and boundary vertices.
+///
+/// @warning No verticality filter is applied today, so horizontal components
+///   (floors, ceilings) are returned alongside walls. @p normal_z_threshold is
+///   accepted but **ignored**; see the FIXME in `src/reconstruction/
+///   create_windows.cpp`. The doc previously claimed the filter existed.
 std::vector<WallCandidate>
 extract_wall_candidates(const pcl::PolygonMesh &mesh,
                         float normal_z_threshold = 0.3f,

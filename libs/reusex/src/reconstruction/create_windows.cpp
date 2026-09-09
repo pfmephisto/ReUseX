@@ -356,7 +356,7 @@ bool intersects_wallboundary(const CoplanarPolygon &polygon,
   std::vector<Eigen::Vector3d> projected_points{};
   projected_points.reserve(polygon.vertices.size());
 
-  for (auto const p : polygon.vertices)
+  for (auto const &p : polygon.vertices)
     projected_points.push_back(projectPointOnPlane(p, wall.plane));
 
   // for (size_t i = 0; i < projected_points.size(); ++i) {
@@ -365,7 +365,7 @@ bool intersects_wallboundary(const CoplanarPolygon &polygon,
   //     polygon.vertices[i] = p;
   // }
 
-  for (auto const p : projected_points) {
+  for (auto const &p : projected_points) {
     if (!point_in_wall_boundary(p, wall))
       return true;
   }
@@ -436,7 +436,15 @@ double distance_to_wall(const Eigen::Vector3d &point,
 } // namespace
 
 std::vector<WallCandidate>
-extract_wall_candidates(const pcl::PolygonMesh &mesh, float normal_z_threshold,
+// FIXME: Apply the vertical-wall filter extract_wall_candidates promises
+// category=Geometry estimate=4h
+// Both this parameter and CreateWindowsOptions::wall_normal_z_threshold are
+// dead: no verticality test is performed anywhere, so every coplanar component
+// — floors and ceilings included — is returned as a wall candidate. Either
+// filter on |mean_normal.z()| < normal_z_threshold here, or drop both knobs.
+// Left as-is for now because adding the filter changes create_windows output.
+extract_wall_candidates(const pcl::PolygonMesh &mesh,
+                        float /*normal_z_threshold*/,
                         float coplanarity_angle_deg) {
 
   // Early return if there is no geometry
@@ -698,9 +706,9 @@ create_windows(CloudConstPtr cloud, CloudLConstPtr instance_labels,
 
     pca.setIndices(indices);
 
-    Eigen::Vector3f eigenvalues = pca.getEigenValues();
-    Eigen::Matrix3f eigenvectors = pca.getEigenVectors();
-
+    // pcl::PCA computes lazily on the first getter after setIndices(), so the
+    // getMean() below still triggers the decomposition; the two locals that
+    // used to sit here only re-read results that are fetched again downstream.
     Eigen::Vector3d inst_centroid = pca.getMean().head<3>().cast<double>();
     Eigen::Vector3d inst_normal = pca.getEigenVectors().col(2).cast<double>();
 

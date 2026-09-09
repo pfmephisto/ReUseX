@@ -24,23 +24,31 @@
 
 #include <set>
 #include <string>
+#include <string_view>
 #include <variant>
 
 using namespace reusex::pipeline;
 
 namespace {
 
-const ParameterDescriptor &parameter_of(JobStage stage,
-                                        const std::string &key) {
+/// Returns a pointer, never null: the descriptor lives in the table
+/// `stage_parameters()` hands back a reference to, so it outlives the caller.
+///
+/// A pointer rather than a reference on purpose. Returning `const T&` from a
+/// function whose arguments include a temporary makes GCC's
+/// `-Wdangling-reference` assume the result may alias that temporary, which it
+/// cannot here. Handing back a pointer states the non-owning relationship
+/// outright instead of arguing with the heuristic.
+const ParameterDescriptor *parameter_of(JobStage stage, std::string_view key) {
   for (const auto &parameter : stage_parameters(stage))
     if (parameter.key == key)
-      return parameter;
+      return &parameter;
   FAIL("no descriptor for parameter '" << key << "'");
   throw std::logic_error("unreachable");
 }
 
 double number_default(JobStage stage, const std::string &key) {
-  const auto &parameter = parameter_of(stage, key);
+  const ParameterDescriptor &parameter = *parameter_of(stage, key);
   REQUIRE(std::holds_alternative<double>(parameter.default_value));
   return std::get<double>(parameter.default_value);
 }
@@ -57,7 +65,7 @@ float float_default(JobStage stage, const std::string &key) {
 }
 
 long long integer_default(JobStage stage, const std::string &key) {
-  const auto &parameter = parameter_of(stage, key);
+  const ParameterDescriptor &parameter = *parameter_of(stage, key);
   REQUIRE(std::holds_alternative<long long>(parameter.default_value));
   return std::get<long long>(parameter.default_value);
 }
@@ -150,7 +158,8 @@ TEST_CASE("planes defaults mirror SegmentPlanesOptions", "[pipeline][params]") {
   CHECK(integer_default(JobStage::planes, "noise_seed") ==
         static_cast<long long>(d.noise_seed));
 
-  const auto &adaptive = parameter_of(JobStage::planes, "adaptive");
+  const ParameterDescriptor &adaptive =
+      *parameter_of(JobStage::planes, "adaptive");
   REQUIRE(std::holds_alternative<bool>(adaptive.default_value));
   CHECK(std::get<bool>(adaptive.default_value) == d.adaptive);
 
@@ -188,12 +197,14 @@ TEST_CASE("instances defaults mirror SegmentInstancesRequest",
 
   // These two have no option-struct home — they name clouds, not algorithm
   // knobs — so the constants are shared with run_instances() instead.
-  const auto &semantic = parameter_of(JobStage::instances, "semantic_cloud");
+  const ParameterDescriptor &semantic =
+      *parameter_of(JobStage::instances, "semantic_cloud");
   REQUIRE(std::holds_alternative<std::string>(semantic.default_value));
   CHECK(std::get<std::string>(semantic.default_value) ==
         std::string(kDefaultSemanticCloud));
 
-  const auto &output = parameter_of(JobStage::instances, "output_cloud");
+  const ParameterDescriptor &output =
+      *parameter_of(JobStage::instances, "output_cloud");
   REQUIRE(std::holds_alternative<std::string>(output.default_value));
   CHECK(std::get<std::string>(output.default_value) ==
         std::string(kDefaultInstanceCloud));

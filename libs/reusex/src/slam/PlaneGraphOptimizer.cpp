@@ -50,17 +50,25 @@ class ClonableOrientedPlane3Factor : public gtsam::OrientedPlane3Factor {
 /// A plane detected in one frame, expressed in that frame's OPTICAL frame as a
 /// unit normal + signed offset d so that n.dot(p) + d = 0 for points on it.
 struct FramePlane {
-  int frame = -1;               ///< index into the frames vector
-  Eigen::Vector3d normal;       ///< unit normal (optical frame)
-  double d = 0.0;               ///< plane offset (optical frame)
-  int inliers = 0;              ///< supporting surfel count
-  Eigen::Vector3d centroid;     ///< inlier centroid (optical frame)
-  double radius = 0.0;          ///< in-plane RMS extent of inliers (m)
-  double residual_rms = 0.0;    ///< RMS point-to-plane distance of inliers (m)
-  double extent_minor = 0.0;    ///< in-plane RMS extent, weaker axis (m)
-  Eigen::Vector3d world_normal; ///< normal in world (current pose)
-  double world_d = 0.0;         ///< offset in world (current pose)
-  Eigen::Vector3d world_centroid; ///< inlier centroid in world (current pose)
+  int frame = -1; ///< index into the frames vector
+  /// Eigen's default constructor leaves storage indeterminate, so every vector
+  /// member is zero-initialized explicitly: a FramePlane is copied into the
+  /// plane vector before `refresh_world` fills the world-frame fields, and
+  /// copying indeterminate doubles is UB even when the values are overwritten
+  /// before anyone reads them.
+  Eigen::Vector3d normal = Eigen::Vector3d::Zero(); ///< unit normal (optical)
+  double d = 0.0;  ///< plane offset (optical frame)
+  int inliers = 0; ///< supporting surfel count
+  /// inlier centroid (optical frame)
+  Eigen::Vector3d centroid = Eigen::Vector3d::Zero();
+  double radius = 0.0;       ///< in-plane RMS extent of inliers (m)
+  double residual_rms = 0.0; ///< RMS point-to-plane distance of inliers (m)
+  double extent_minor = 0.0; ///< in-plane RMS extent, weaker axis (m)
+  /// normal in world (current pose)
+  Eigen::Vector3d world_normal = Eigen::Vector3d::Zero();
+  double world_d = 0.0; ///< offset in world (current pose)
+  /// inlier centroid in world (current pose)
+  Eigen::Vector3d world_centroid = Eigen::Vector3d::Zero();
 };
 
 /// Transform an optical-frame plane (n, d) by the affine T (optical->world).

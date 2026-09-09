@@ -170,8 +170,11 @@ void Deserializer::deserialize_enum_value(void *ptr, const PropertyValue &value,
   throw std::runtime_error("Failed to parse enum value: " + std::string(str));
 }
 
+// The enum_type tag comes from Traits::struct_name() at every call site and is
+// part of the dispatch signature, but the only enum array MaterialEPAS defines
+// today is std::vector<Material>, so nothing needs to branch on it yet.
 void Deserializer::deserialize_enum_array(void *ptr, const PropertyValue &value,
-                                          std::string_view enum_type) {
+                                          std::string_view /*enum_type*/) {
   auto *field = static_cast<std::vector<Material> *>(ptr);
 
   std::string_view str = value.as_string();
@@ -348,8 +351,10 @@ PropertyValue Serializer::serialize_enum_value(const void *ptr,
   return PropertyValue(to_string(*mat), traits::PropertyType::EnumValue);
 }
 
+// See the note on Deserializer::deserialize_enum_array: enum_type is part of
+// the dispatch signature but std::vector<Material> is the only enum array.
 PropertyValue Serializer::serialize_enum_array(const void *ptr,
-                                               std::string_view enum_type) {
+                                               std::string_view /*enum_type*/) {
   const auto *field = static_cast<const std::vector<Material> *>(ptr);
   json j = json::array();
   for (const auto &mat : *field) {

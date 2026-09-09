@@ -87,9 +87,9 @@ in
         cmake
         pkg-config
         qt6.qtbase
-        # qt6Packages.wrapQtAppsHook
-        # qt6.wrapQtAppsHook
-        qt6.wrapQtAppsNoGuiHook
+        # wrapQtAppsNoGuiHook was deprecated in nixpkgs and now just warns and
+        # forwards here; wrapQtAppsHook is the supported name.
+        qt6.wrapQtAppsHook
         blender.pythonPackages.python # Pin Python version to Blender's (3.11)
       ]
       # CUDA-only build tools:

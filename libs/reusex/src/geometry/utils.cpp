@@ -252,7 +252,14 @@ auto merge_planes(EigenVectorContainer<double, 4> const &planes_,
                   std::vector<IndicesPtr> const &inliers_,
                   EigenVectorContainer<double, 3> const &centroids_,
                   CloudConstPtr cloud, const double angle_threshold,
-                  const double distance_threshold, const double min_overlap)
+                  // FIXME: Honour min_overlap in merge_planes or drop the knob
+                  // category=Geometry estimate=4h
+                  // The parameter is documented and defaults to 0.8, but the
+                  // agglomerative merge below never computes an inlier-overlap
+                  // ratio, so callers who tune it silently get no effect.
+                  // Either gate the merge on the shared-inlier fraction as the
+                  // doc claims, or remove the parameter from the signature.
+                  const double distance_threshold, const double /*min_overlap*/)
     -> std::tuple<EigenVectorContainer<double, 4>, std::vector<IndicesPtr>,
                   EigenVectorContainer<double, 3>> {
   reusex::trace("Merge planes (agglomerative) with angle threshold {} and "

@@ -78,7 +78,7 @@ auto compute_number_of_inliers(CloudConstPtr cloud,
                                const float threshold = 0.2) -> size_t;
 
 /**
- * @brief Merge similar planes based on angle, distance, and overlap.
+ * @brief Merge similar planes based on angle and distance.
  *
  * @param planes_ Input plane coefficients.
  * @param inliers_ Inliers for each plane.
@@ -86,7 +86,10 @@ auto compute_number_of_inliers(CloudConstPtr cloud,
  * @param cloud Point cloud.
  * @param angle_threshold Angular similarity threshold. Default 0.1.
  * @param distance_threshold Distance threshold for merging. Default 0.5.
- * @param min_overlap Minimum overlap ratio for merging. Default 0.8.
+ * @param min_overlap Currently **ignored**. Accepted so the signature stays
+ *   stable, but the agglomerative merge decides purely on the angle and
+ *   distance tolerances; no overlap ratio is computed. See the FIXME in
+ *   `src/geometry/utils.cpp`.
  * @return Tuple of (merged planes, merged inliers, merged centroids).
  */
 auto merge_planes(EigenVectorContainer<double, 4> const &planes_,

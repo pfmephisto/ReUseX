@@ -81,10 +81,11 @@ struct GaussianInitOptions {
   int sh_degree = 0;
 
   /// Uniform stride cap on the number of seeds (0 = use every point).
+  ///
+  /// There is deliberately no RNG seed here: seeding picks every `stride`-th
+  /// point, which is reproducible without consuming randomness at all
+  /// (STANDARDS §6). `TrainOptions::seed` covers the parts that are random.
   std::size_t max_points = 0;
-
-  /// Seed for the deterministic stride/shuffle (STANDARDS §6).
-  unsigned seed = 42;
 };
 
 /// Seed Gaussians from an XYZRGB cloud: means = point positions, DC colour =

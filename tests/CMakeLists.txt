@@ -166,6 +166,20 @@ if(HEAVY_TEST_SOURCES)
         find_package(Torch REQUIRED)
         target_link_libraries(reusex_unit_tests_vision PRIVATE torch)
     endif()
+
+    # tests/unit/gsplat/test_optimizer.cpp covers the density-control row remap
+    # directly. That lives behind libs/reusex/src/gsplat/optimizer.hpp, which is
+    # module-private on purpose (it exposes torch types, STANDARDS §2) — so the
+    # test needs the src root on its include path, and torch's headers whether
+    # or not the LibTorch *ML backend* happens to be enabled. Testing it through
+    # the public API is not an option: carrying Adam's moments across a remap
+    # has no observable effect other than the moments themselves.
+    if(TARGET reusex_gsplat)
+        find_package(Torch REQUIRED)
+        target_link_libraries(reusex_unit_tests_vision PRIVATE torch)
+        target_include_directories(reusex_unit_tests_vision PRIVATE
+            ${CMAKE_SOURCE_DIR}/libs/reusex/src)
+    endif()
 endif()
 
 # -----------------------------------------------

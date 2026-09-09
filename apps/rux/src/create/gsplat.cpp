@@ -156,8 +156,13 @@ NOTES:
       ->default_val(opt->pano_tile)
       ->check(CLI::Range(64, 8192));
 
+  // Required: without it the stage trains for minutes-to-hours and then
+  // discards everything — it writes neither a file nor anything into the
+  // project. Refusing at parse time costs the user a retype; the old
+  // behaviour cost them the run.
   sub->add_option("-o, --out", opt->out_ply,
-                  "Write the trained splat to this .ply");
+                  "Write the trained splat to this .ply")
+      ->required();
   sub->add_option("--render-dir", opt->render_dir,
                   "Directory for checkpoint renders");
   sub->add_option("--render-at", opt->render_iterations,
@@ -203,7 +208,6 @@ int run_subcommand_create_gsplat(SubcommandCreateGsplatOptions const &opt,
     o.seed_cloud = opt.seed_cloud;
     o.init.max_points = opt.max_points;
     o.init.sh_degree = opt.sh_degree;
-    o.init.seed = opt.seed;
 
     o.views.frame_stride = opt.frame_stride;
     o.views.first_frame = opt.first_frame;

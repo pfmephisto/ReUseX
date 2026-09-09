@@ -202,6 +202,17 @@ struct TrainResult {
   double final_holdout_ssim = 0;
   std::size_t relocated = 0; ///< cumulative MCMC relocations
   std::size_t added = 0;     ///< cumulative MCMC growth
+
+  /// The view indices the optimizer actually drew during the run, sorted and
+  /// deduplicated, and the ones reserved for evaluation.
+  ///
+  /// These are recorded rather than merely intended: "held out" is only a real
+  /// claim if nothing ever backpropagated through those views, and that is a
+  /// property of the draw loop, not of the split. Keeping the observed draws
+  /// makes the separation checkable by a caller (and by a test) instead of
+  /// having to be taken on trust.
+  std::vector<std::size_t> trained_views;
+  std::vector<std::size_t> holdout_view_indices;
   /// PNGs written by the `render_iterations` schedule, in write order.
   std::vector<std::filesystem::path> renders;
 };
@@ -237,7 +248,16 @@ struct GsplatStageOptions {
 };
 
 /// Load the seed cloud and views from @p db, train, and write the `.ply`.
-TrainResult run_gsplat_stage(const ProjectDB &db,
-                             const GsplatStageOptions &opt);
+///
+/// @p db is non-const only so the stage can write its `pipeline_log` start and
+/// finish rows the way every other `create` stage does — `rux log` is how a
+/// user reconstructs what produced a project, and a stage that runs for hours
+/// without appearing there is invisible. All project *data* is read-only.
+///
+/// @throws std::runtime_error if the stage would produce no artifact at all
+///         (`out_ply` empty and no `render_iterations`), before any training
+///         happens — a long run whose output is silently discarded is worse
+///         than a refusal.
+TrainResult run_gsplat_stage(ProjectDB &db, const GsplatStageOptions &opt);
 
 } // namespace reusex::gsplat

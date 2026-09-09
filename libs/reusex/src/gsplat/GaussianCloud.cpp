@@ -37,8 +37,31 @@ void GaussianCloud::validate() const {
   check("quats", quats.size());
   check("opacities", opacities.size());
   check("sh_dc", sh_dc.size());
-  if (!sh_rest.empty())
+  if (!sh_rest.empty()) {
     check("sh_rest", sh_rest.size());
+
+    // Row *widths* matter as much as the row count. save_gaussian_ply writes
+    // one `f_rest_*` property per element of sh_rest.front() and then blits
+    // every row at that stride, so a single short or long row shifts the byte
+    // offset of every subsequent vertex — the .ply stays syntactically valid
+    // and opens in a viewer as a smeared model with no error anywhere.
+    const std::size_t width = sh_rest.front().size();
+    const auto bands =
+        static_cast<std::size_t>((sh_degree + 1) * (sh_degree + 1));
+    const std::size_t expected = (bands - 1) * 3;
+    if (width != expected)
+      throw std::runtime_error(fmt::format(
+          "GaussianCloud: 'sh_rest' rows are {} wide but SH degree {} needs "
+          "{} ((bands-1)*3, bands = {})",
+          width, sh_degree, expected, bands));
+    for (std::size_t i = 0; i < sh_rest.size(); ++i)
+      if (sh_rest[i].size() != width)
+        throw std::runtime_error(fmt::format(
+            "GaussianCloud: 'sh_rest' row {} has {} coefficients but row 0 has "
+            "{} — every row must be the same width or the .ply byte layout "
+            "shifts from that vertex on",
+            i, sh_rest[i].size(), width));
+  }
 }
 
 namespace {
@@ -87,8 +110,34 @@ GaussianCloud init_from_point_cloud(const CloudPtr &cloud,
   // that matters is the spacing between seeds, not between original points.
   CloudPtr sub(new Cloud);
   sub->reserve(n);
-  for (int idx : picked)
-    sub->push_back((*cloud)[idx]);
+  std::size_t non_finite = 0;
+  int first_bad = -1;
+  for (int idx : picked) {
+    const PointT &p = (*cloud)[static_cast<std::size_t>(idx)];
+    if (!std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z)) {
+      ++non_finite;
+      if (first_bad < 0)
+        first_bad = idx;
+    }
+    sub->push_back(p);
+  }
+
+  // Reject non-finite coordinates before the KD-tree sees them (STANDARDS §5).
+  // FLANN does not report NaN as an error: a NaN query returns *some* index
+  // with a NaN squared distance, which fails the `spacing > min_scale` test
+  // and is silently counted as a "degenerate neighbour spacing" — i.e. a
+  // corrupt cloud is misreported as one containing duplicate points, and in a
+  // Release build the tree itself may return arbitrary neighbours for the
+  // finite points near it. Nothing downstream can recover from a NaN mean
+  // either: it propagates into the loss on the first render.
+  if (non_finite > 0)
+    throw std::runtime_error(fmt::format(
+        "gsplat: seed cloud has {} of {} selected points with non-finite "
+        "coordinates (first at cloud index {}). Gaussians cannot be seeded "
+        "from them — the KD-tree misreports NaN as duplicate points and the "
+        "NaN reaches the loss on the first iteration. Regenerate the cloud "
+        "(`rux create clouds`) or filter it before training.",
+        non_finite, n, first_bad));
 
   pcl::KdTreeFLANN<PointT> tree;
   tree.setInputCloud(sub);

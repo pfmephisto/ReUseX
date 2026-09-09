@@ -11,15 +11,19 @@
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/core/logging.hpp>
 
+#include <ATen/cuda/CUDAContext.h>
+
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
 
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <numeric>
 #include <random>
 #include <stdexcept>
+#include <string>
 #include <tuple>
 #include <utility>
 
@@ -30,11 +34,75 @@ namespace {
 using detail::GaussianTensors;
 using detail::sh_bands;
 
+/// Compute capabilities the vendored gsplat kernels were compiled for, as a
+/// comma-separated list of `major*10+minor` values. Set by reusexLibrary.cmake
+/// from REUSEX_GSPLAT_CUDA_ARCHS, which mirrors `cudaCapabilities` in
+/// pkgs/gsplat-cuda/package.nix.
+#ifndef REUSEX_GSPLAT_CUDA_ARCHS
+#define REUSEX_GSPLAT_CUDA_ARCHS "89"
+#endif
+
+/// Parse "89" or "80,86,89" into (major, minor) pairs. Tolerates the trailing
+/// letter of nvcc's `90a`-style variants by ignoring non-digits.
+std::vector<std::pair<int, int>> compiled_archs() {
+  std::vector<std::pair<int, int>> out;
+  const std::string spec = REUSEX_GSPLAT_CUDA_ARCHS;
+  std::string tok;
+  auto flush = [&] {
+    if (tok.empty())
+      return;
+    const int v = std::atoi(tok.c_str());
+    if (v > 0)
+      out.emplace_back(v / 10, v % 10);
+    tok.clear();
+  };
+  for (const char c : spec) {
+    if (c >= '0' && c <= '9')
+      tok.push_back(c);
+    else if (c == ',' || c == ';' || c == ' ')
+      flush();
+  }
+  flush();
+  return out;
+}
+
 void require_cuda() {
   if (!torch::cuda::is_available())
     throw std::runtime_error(
         "gsplat: no CUDA device available. The Gaussian-splatting trainer is "
         "GPU-only (the rasterizer has no CPU path).");
+
+  // The vendored rasterizer is built for a *single* architecture by default
+  // and ships no PTX, so there is no JIT fallback: on any other GPU the first
+  // kernel launch fails with a bare "no kernel image is available for
+  // execution on the device", minutes into a run, after the cloud and every
+  // training view have already been loaded. Check up front instead, and say
+  // what to do about it.
+  const cudaDeviceProp *props = at::cuda::getCurrentDeviceProperties();
+  const auto archs = compiled_archs();
+  // CUDA cubins are forward-compatible within a major version only: a kernel
+  // built for sm_80 runs on sm_86/sm_89, but nothing built for sm_89 runs on
+  // sm_86, and nothing crosses a major version.
+  const bool ok = archs.empty() ||
+                  std::any_of(archs.begin(), archs.end(), [&](const auto &a) {
+                    return a.first == props->major && a.second <= props->minor;
+                  });
+  if (!ok) {
+    std::string have;
+    for (const auto &a : archs)
+      have += (have.empty() ? "" : ", ") +
+              fmt::format("sm_{}{}", a.first, a.second);
+    throw std::runtime_error(fmt::format(
+        "gsplat: this build's CUDA kernels target {} but '{}' is sm_{}{}, and "
+        "the vendored rasterizer contains no PTX to JIT from — every kernel "
+        "launch would fail with 'no kernel image is available'. Rebuild the "
+        "rasterizer for this GPU: gsplat-cuda.override {{ cudaCapabilities = "
+        "[\"{}.{}\"]; }} (see pkgs/gsplat-cuda/package.nix; budget ~20 min of "
+        "nvcc per architecture), then reconfigure with "
+        "-DREUSEX_GSPLAT_CUDA_ARCHS={}{}.",
+        have, props->name, props->major, props->minor, props->major,
+        props->minor, props->major, props->minor));
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -484,8 +552,13 @@ TrainResult train_gaussians(const GaussianCloud &init,
   double window_psnr = 0.0;
   int window_n = 0;
 
+  // Which views the loop actually touched, recorded as it goes so the held-out
+  // claim rests on the observed draws rather than on the split alone.
+  std::vector<bool> drawn(views.size(), false);
+
   for (int it = 1; it <= opt.iterations; ++it) {
     const std::size_t vi = split.train[pick(rng)];
+    drawn[vi] = true;
     const auto &v = views[vi];
 
     auto out = detail::render(g, viewmats[vi], intrinsics[vi], v.width(),
@@ -517,6 +590,23 @@ TrainResult train_gaussians(const GaussianCloud &init,
         loss = loss + reg;
     }
 
+    // Fail loud on divergence (STANDARDS §5). Without this a single non-finite
+    // loss NaNs every gradient in backward(), Adam NaNs all five parameters in
+    // one step, and the run continues to completion: the log shows `PSNR nan`,
+    // validate() checks lengths and passes, a full-size garbage .ply is written
+    // and `rux` exits 0. There is no recovery once the parameters are NaN, so
+    // the only honest outcome is to stop at the iteration that produced it.
+    // The sync this costs is already paid below for the PSNR line.
+    const double loss_value = loss.item<double>();
+    if (!std::isfinite(loss_value))
+      throw std::runtime_error(fmt::format(
+          "gsplat: training diverged at iteration {} — loss is {} on view "
+          "'{}' ({} Gaussians). Aborting rather than writing a NaN model. "
+          "Usual causes: a learning rate too high for this scene, a seed cloud "
+          "with degenerate scales, or MCMC noise_lr too large for the scene "
+          "extent.",
+          it, loss_value, v.name, g.count()));
+
     optimizer->zero_grad();
     loss.backward();
     optimizer->step();
@@ -533,7 +623,7 @@ TrainResult train_gaussians(const GaussianCloud &init,
     if (it % opt.log_interval == 0 || it == opt.iterations) {
       TrainMetrics m;
       m.iteration = it;
-      m.loss = loss.item<double>();
+      m.loss = loss_value;
       m.l1 = l1.item<double>();
       m.psnr = window_psnr / std::max(window_n, 1);
       m.gaussians = static_cast<std::size_t>(g.count());
@@ -605,6 +695,10 @@ TrainResult train_gaussians(const GaussianCloud &init,
   result.final_psnr = result.history.empty() ? 0.0 : result.history.back().psnr;
   result.relocated = mcmc_state.relocated;
   result.added = mcmc_state.added;
+  for (std::size_t i = 0; i < drawn.size(); ++i)
+    if (drawn[i])
+      result.trained_views.push_back(i);
+  result.holdout_view_indices = split.holdout;
   if (!result.evals.empty()) {
     result.final_holdout_psnr = result.evals.back().holdout_psnr;
     result.final_holdout_ssim = result.evals.back().holdout_ssim;
@@ -650,26 +744,55 @@ cv::Mat render_view(const GaussianCloud &gaussians, const TrainingView &view) {
   return tensor_to_image(out.image);
 }
 
-TrainResult run_gsplat_stage(const ProjectDB &db,
-                             const GsplatStageOptions &opt) {
+TrainResult run_gsplat_stage(ProjectDB &db, const GsplatStageOptions &opt) {
+  // Refuse before anything expensive rather than after. Training is a
+  // minutes-to-hours operation; with no `.ply` destination and no checkpoint
+  // renders it produces nothing at all, and the old behaviour was to run the
+  // whole thing and log success (STANDARDS §5).
+  if (opt.out_ply.empty() && opt.train.render_iterations.empty())
+    throw std::runtime_error(
+        "gsplat: nothing would be written — pass -o/--out to save the trained "
+        "splat as a .ply (and/or --render-dir with --render-at for checkpoint "
+        "renders). Refusing to train and discard the result.");
+
   if (!db.has_point_cloud(opt.seed_cloud))
     throw std::runtime_error(fmt::format(
         "gsplat: project has no point cloud named '{}'. Run `rux create "
         "clouds` first, or pass --seed-cloud with an existing name.",
         opt.seed_cloud));
 
-  CloudPtr seed = db.point_cloud_xyzrgb(opt.seed_cloud);
-  GaussianCloud init = init_from_point_cloud(seed, opt.init);
-  auto views = load_training_views(db, opt.views);
+  // Same start/finish contract as the sibling create stages, so `rux log`
+  // shows the run, its parameters, and whether it succeeded.
+  const int log_id = db.log_pipeline_start(
+      "gsplat",
+      fmt::format(
+          R"({{"seed_cloud":"{}","max_points":{},"sh_degree":{},"iterations":{},"mcmc":{},"holdout_every":{},"out":"{}"}})",
+          opt.seed_cloud, opt.init.max_points, opt.init.sh_degree,
+          opt.train.iterations, opt.train.mcmc.enabled ? "true" : "false",
+          opt.train.holdout_every, opt.out_ply.string()));
 
-  TrainResult result = train_gaussians(init, views, opt.train);
+  try {
+    CloudPtr seed = db.point_cloud_xyzrgb(opt.seed_cloud);
+    GaussianCloud init = init_from_point_cloud(seed, opt.init);
+    auto views = load_training_views(db, opt.views);
 
-  if (!opt.out_ply.empty()) {
-    if (opt.out_ply.has_parent_path() && !opt.out_ply.parent_path().empty())
-      std::filesystem::create_directories(opt.out_ply.parent_path());
-    save_gaussian_ply(result.gaussians, opt.out_ply);
+    TrainResult result = train_gaussians(init, views, opt.train);
+
+    if (!opt.out_ply.empty()) {
+      if (opt.out_ply.has_parent_path() && !opt.out_ply.parent_path().empty())
+        std::filesystem::create_directories(opt.out_ply.parent_path());
+      save_gaussian_ply(result.gaussians, opt.out_ply);
+    }
+
+    db.log_pipeline_end(log_id, true);
+    return result;
+
+  } catch (const std::exception &e) {
+    // Close the row rather than leaving it "running" forever — a crashed run
+    // that still reads as in-progress is indistinguishable from a live one.
+    db.log_pipeline_end(log_id, false, e.what());
+    throw;
   }
-  return result;
 }
 
 } // namespace reusex::gsplat

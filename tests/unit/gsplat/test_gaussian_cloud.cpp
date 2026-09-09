@@ -14,6 +14,8 @@
 #include "../../support/temp_path.hpp"
 
 #include <cmath>
+#include <limits>
+#include <vector>
 
 using namespace reusex;
 using Catch::Approx;
@@ -207,4 +209,68 @@ TEST_CASE("validate() names the array that disagrees", "[gsplat]") {
   g.sh_dc.resize(3);
   REQUIRE_THROWS_WITH(g.validate(),
                       Catch::Matchers::ContainsSubstring("opacities"));
+}
+
+TEST_CASE("validate() rejects ragged sh_rest rows", "[gsplat]") {
+  // A short row is the dangerous case: save_gaussian_ply sizes the header from
+  // row 0 and then writes every row at that stride, so one wrong width shifts
+  // the byte offset of every vertex after it. The file stays syntactically
+  // valid, which is exactly why validate() has to catch it.
+  auto make = [](int degree, std::size_t n) {
+    gsplat::GaussianCloud g;
+    g.sh_degree = degree;
+    g.means.resize(n);
+    g.scales.resize(n);
+    g.quats.resize(n);
+    g.opacities.resize(n);
+    g.sh_dc.resize(n);
+    const auto bands = static_cast<std::size_t>((degree + 1) * (degree + 1));
+    g.sh_rest.assign(n, std::vector<float>((bands - 1) * 3, 0.0f));
+    return g;
+  };
+
+  SECTION("a consistent degree-2 cloud passes") {
+    auto g = make(2, 4);
+    REQUIRE(g.sh_rest.front().size() == 24); // (9 - 1) * 3
+    REQUIRE_NOTHROW(g.validate());
+  }
+
+  SECTION("one short row is caught and located") {
+    auto g = make(2, 4);
+    g.sh_rest[2].pop_back();
+    REQUIRE_THROWS_WITH(g.validate(),
+                        Catch::Matchers::ContainsSubstring("row 2"));
+  }
+
+  SECTION("a width that contradicts sh_degree is caught") {
+    auto g = make(2, 4);
+    g.sh_degree = 1; // rows are still 24 wide, degree 1 wants 9
+    REQUIRE_THROWS_WITH(g.validate(),
+                        Catch::Matchers::ContainsSubstring("sh_rest"));
+  }
+}
+
+TEST_CASE("init_from_point_cloud rejects non-finite coordinates", "[gsplat]") {
+  // PCL's FLANN tree does not report NaN as an error — it returns some
+  // neighbour with a NaN squared distance, which the seeding code would
+  // otherwise misread as a duplicate point and clamp, carrying the NaN into
+  // the mean and from there into the first loss.
+  auto cloud = make_grid(4, 0.05f);
+  (*cloud)[7].y = std::numeric_limits<float>::quiet_NaN();
+
+  REQUIRE_THROWS_WITH(gsplat::init_from_point_cloud(cloud),
+                      Catch::Matchers::ContainsSubstring("non-finite"));
+
+  auto inf_cloud = make_grid(4, 0.05f);
+  (*inf_cloud)[3].z = std::numeric_limits<float>::infinity();
+  REQUIRE_THROWS_WITH(gsplat::init_from_point_cloud(inf_cloud),
+                      Catch::Matchers::ContainsSubstring("non-finite"));
+
+  // A NaN the stride never selects is not the model's problem: seeding must
+  // not fail on a point it does not use.
+  auto strided = make_grid(4, 0.05f);
+  (*strided)[1].x = std::numeric_limits<float>::quiet_NaN();
+  gsplat::GaussianInitOptions opt;
+  opt.max_points = 8; // stride 8, so indices 0, 8, 16, ... are picked
+  REQUIRE_NOTHROW(gsplat::init_from_point_cloud(strided, opt));
 }

@@ -14,7 +14,7 @@
 # Layer diagram (a module may only depend on lower layers):
 #
 #   Layer 4:  visualize  pipeline
-#   Layer 3:  segmentation  reconstruction  slam  io  vision   (peers)
+#   Layer 3:  segmentation  reconstruction  slam  io  vision  gsplat   (peers)
 #   Layer 2:  core
 #   Layer 1:  utils, types.hpp
 #
@@ -333,6 +333,19 @@ if(REUSEX_HAVE_GSPLAT)
     target_link_libraries(reusex_gsplat PRIVATE gsplat::gsplat)
     # Signals to consumers (apps/rux, tests) that the trainer is compiled in.
     target_compile_definitions(reusex_gsplat PUBLIC REUSEX_HAVE_GSPLAT)
+
+    # Which compute capabilities the vendored kernels were actually built for.
+    # pkgs/gsplat-cuda builds ONE architecture by default (sm_89) and emits no
+    # PTX, so there is no JIT fallback — on any other GPU the first kernel
+    # launch dies with "no kernel image is available", minutes into a run.
+    # require_cuda() checks this list up front and names the override; keep the
+    # two in step when changing `cudaCapabilities` in the derivation.
+    set(REUSEX_GSPLAT_CUDA_ARCHS "89" CACHE STRING
+        "Compute capabilities (major*10+minor, comma-separated) the vendored \
+gsplat kernels were compiled for. Mirror pkgs/gsplat-cuda/package.nix's \
+cudaCapabilities.")
+    target_compile_definitions(reusex_gsplat
+        PRIVATE REUSEX_GSPLAT_CUDA_ARCHS="${REUSEX_GSPLAT_CUDA_ARCHS}")
 endif()
 
 # --- Layer 4 — visualize (optional) ----------------------------------------

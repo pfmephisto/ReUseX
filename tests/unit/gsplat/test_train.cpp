@@ -24,8 +24,10 @@
 
 #include <fmt/format.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <vector>
 
 using namespace reusex;
 using Catch::Approx;
@@ -90,6 +92,30 @@ gsplat::TrainingView make_view(int id, double angle_rad, int w = 96, int h = 72,
 
   v.image = cv::Mat(h, w, CV_8UC3, cv::Scalar(40, 90, 160));
   return v;
+}
+
+/// `make_blob` plus a handful of far-flung isolated points.
+///
+/// The isolated points have no near neighbour, so their seeded scale saturates
+/// at GaussianInitOptions::max_scale (0.5 m) while the cube's stays at its
+/// 0.16 m grid spacing. That 3x separation is what lets a prune test fire on a
+/// *known* subset — keying the test on opacity instead would depend on how far
+/// the logits happen to travel in a few dozen iterations, which is why the
+/// original 0.99-threshold version pruned nothing at all.
+CloudPtr make_blob_with_outliers(int n_per_axis, int n_outliers,
+                                 float outlier_radius = 3.0f) {
+  CloudPtr cloud = make_blob(n_per_axis);
+  for (int i = 0; i < n_outliers; ++i) {
+    PointT p;
+    // Corners of a cube at +/- outlier_radius: mutually distant, and distant
+    // from the blob, so every one of them saturates.
+    p.x = (i & 1) ? outlier_radius : -outlier_radius;
+    p.y = (i & 2) ? outlier_radius : -outlier_radius;
+    p.z = (i & 4) ? outlier_radius : -outlier_radius;
+    p.r = p.g = p.b = 255;
+    cloud->push_back(p);
+  }
+  return cloud;
 }
 
 std::vector<gsplat::TrainingView> make_ring(int n) {
@@ -193,8 +219,56 @@ TEST_CASE("trained Gaussians survive the tensor round trip", "[gsplat][gpu]") {
   }
 }
 
-TEST_CASE("pruning drops collapsed Gaussians without emptying the model",
-          "[gsplat][gpu]") {
+TEST_CASE("pruning actually removes the oversized Gaussians", "[gsplat][gpu]") {
+  // 216 blob Gaussians at ~0.16 m scale + 8 isolated ones saturated at 0.5 m.
+  constexpr std::size_t kBlob = 6 * 6 * 6;
+  constexpr std::size_t kOutliers = 8;
+  auto seed = gsplat::init_from_point_cloud(make_blob_with_outliers(6, 8));
+  auto views = make_ring(4);
+  REQUIRE(seed.size() == kBlob + kOutliers);
+
+  gsplat::TrainOptions opt;
+  opt.iterations = 30;
+  opt.log_interval = 10;
+  opt.prune_enabled = true;
+  opt.prune_start = 20;
+  opt.prune_interval = 20; // fires exactly once, at iteration 20
+  // Between the two populations, and far enough from both that 30 iterations
+  // of lr_scales=5e-3 cannot move either across it.
+  opt.prune_max_scale = 0.3f;
+  // Effectively off, so this test has exactly one cause.
+  opt.prune_opacity = 1e-6f;
+
+  auto result = gsplat::train_gaussians(seed, views, opt);
+
+  // The point of the test: the prune path executed, and took precisely the
+  // Gaussians it was aimed at. `remap_parameters` — including the Adam moment
+  // carry — runs only on this branch.
+  INFO("seed " << seed.size() << " -> final " << result.final_count);
+  REQUIRE(result.final_count < seed.size());
+  REQUIRE(result.final_count == kBlob);
+  REQUIRE_NOTHROW(result.gaussians.validate());
+
+  // Every surviving Gaussian is below the threshold, and none is a leftover
+  // row from the old tensors: a remap that dropped or misaligned a parameter
+  // shows up here as a non-finite or oversized scale.
+  for (const auto &s : result.gaussians.scales) {
+    REQUIRE(std::isfinite(s[0]));
+    REQUIRE(std::exp(std::max({s[0], s[1], s[2]})) < opt.prune_max_scale);
+  }
+  for (const auto &m : result.gaussians.means) {
+    REQUIRE(std::isfinite(m[0]));
+    REQUIRE(std::isfinite(m[1]));
+    REQUIRE(std::isfinite(m[2]));
+  }
+
+  // Training continued past the prune on the remapped tensors rather than
+  // stopping or diverging there.
+  REQUIRE(result.history.back().iteration == opt.iterations);
+  REQUIRE(std::isfinite(result.history.back().loss));
+}
+
+TEST_CASE("pruning refuses to empty the model", "[gsplat][gpu]") {
   auto seed = gsplat::init_from_point_cloud(make_blob(6));
   auto views = make_ring(4);
 
@@ -205,12 +279,13 @@ TEST_CASE("pruning drops collapsed Gaussians without emptying the model",
   opt.prune_start = 20;
   opt.prune_interval = 20;
   // A threshold above the initial alpha (0.1) would take everything; the
-  // trainer must refuse rather than train on an empty model.
+  // trainer must skip the pass rather than train on an empty model.
   opt.prune_opacity = 0.99f;
 
   auto result = gsplat::train_gaussians(seed, views, opt);
 
-  REQUIRE(result.final_count > 0);
+  REQUIRE(result.final_count == seed.size());
+  REQUIRE(std::isfinite(result.history.back().loss));
 }
 
 TEST_CASE("held-out views are excluded from training and reported",
@@ -219,7 +294,7 @@ TEST_CASE("held-out views are excluded from training and reported",
   auto views = make_ring(8);
 
   gsplat::TrainOptions opt;
-  opt.iterations = 20;
+  opt.iterations = 60; // enough draws that all 6 training views get visited
   opt.log_interval = 10;
   opt.eval_interval = 10;
   opt.prune_enabled = false;
@@ -234,6 +309,20 @@ TEST_CASE("held-out views are excluded from training and reported",
   REQUIRE(std::isfinite(last.holdout_psnr));
   REQUIRE(std::isfinite(last.holdout_ssim));
   REQUIRE(result.final_holdout_psnr == Approx(last.holdout_psnr));
+
+  // --- the claim itself ----------------------------------------------------
+  // "Held out" means no gradient ever flowed from these views, which is a
+  // property of the per-iteration draw and not of the split. Assert it on the
+  // views the loop actually touched: counts alone are satisfied by a loop that
+  // draws from the full view list.
+  REQUIRE(result.holdout_view_indices == std::vector<std::size_t>{0, 4});
+  REQUIRE(result.trained_views == std::vector<std::size_t>{1, 2, 3, 5, 6, 7});
+  for (const std::size_t h : result.holdout_view_indices)
+    REQUIRE(std::find(result.trained_views.begin(), result.trained_views.end(),
+                      h) == result.trained_views.end());
+  // Together the two sets account for every view exactly once.
+  REQUIRE(result.trained_views.size() + result.holdout_view_indices.size() ==
+          views.size());
 
   // Every view in this synthetic scene shows the same blob against the same
   // flat target, so the two numbers should land close together. The assertion
@@ -288,6 +377,10 @@ TEST_CASE("a split that would leave no training views is refused",
   REQUIRE(result.evals.back().holdout_views == 0);
   REQUIRE(result.evals.back().train_views == 4);
   REQUIRE(result.final_holdout_psnr == Approx(0.0));
+  // Nothing was withheld, so the fallback must train on the whole set rather
+  // than on whatever the empty split left behind.
+  REQUIRE(result.holdout_view_indices.empty());
+  REQUIRE(result.trained_views == std::vector<std::size_t>{0, 1, 2, 3});
 }
 
 TEST_CASE("MCMC grows the model toward its budget", "[gsplat][gpu]") {

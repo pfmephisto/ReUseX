@@ -37,19 +37,28 @@ torch::Tensor row_mask_like(const torch::Tensor &keep,
   return keep.to(moment.dtype()).view(shape);
 }
 
-} // namespace
-
-AdamPtr make_adam(GaussianTensors &g, const AdamLrs &lrs) {
-  const auto params = parameters(g);
+/// One Adam over five already-materialised tensors, in the fixed order of
+/// `parameters()`. Split out of make_adam so remap_parameters can build the
+/// replacement optimizer *before* it commits the new tensors into `g` — see
+/// the atomicity note there.
+AdamPtr make_adam_from(const std::array<torch::Tensor, 5> &params,
+                       const AdamLrs &lrs) {
   const auto lr = learning_rates(lrs);
 
   std::vector<torch::optim::OptimizerParamGroup> groups;
   groups.reserve(params.size());
   for (std::size_t i = 0; i < params.size(); ++i)
-    groups.push_back(param_group(*params[i], lr[i]));
+    groups.push_back(param_group(params[i], lr[i]));
 
   return std::make_unique<torch::optim::Adam>(groups,
                                               torch::optim::AdamOptions(1e-3));
+}
+
+} // namespace
+
+AdamPtr make_adam(GaussianTensors &g, const AdamLrs &lrs) {
+  const auto p = parameters(g);
+  return make_adam_from({*p[0], *p[1], *p[2], *p[3], *p[4]}, lrs);
 }
 
 void remap_parameters(GaussianTensors &g, AdamPtr &optimizer,
@@ -78,8 +87,11 @@ void remap_parameters(GaussianTensors &g, AdamPtr &optimizer,
         static_cast<const torch::optim::AdamParamState *>(it->second.get());
     saved[i].present = true;
     saved[i].step = s->step();
-    saved[i].exp_avg = s->exp_avg().index_select(0, src_rows).clone();
-    saved[i].exp_avg_sq = s->exp_avg_sq().index_select(0, src_rows).clone();
+    // index_select gathers into fresh storage, so these already own their
+    // data — an extra .clone() would only duplicate it (at 2.4 M Gaussians
+    // the five parameters plus ten moment buffers cost ~408 MB per pass).
+    saved[i].exp_avg = s->exp_avg().index_select(0, src_rows);
+    saved[i].exp_avg_sq = s->exp_avg_sq().index_select(0, src_rows);
     if (reset.defined()) {
       // `reset` marks rows holding a different Gaussian than before.
       const auto keep = torch::logical_not(reset);
@@ -90,13 +102,31 @@ void remap_parameters(GaussianTensors &g, AdamPtr &optimizer,
     }
   }
 
-  for (auto *p : old_params) {
-    auto next = p->detach().index_select(0, src_rows).clone();
-    next.set_requires_grad(true);
-    *p = std::move(next);
+  // Allocate every replacement tensor into locals FIRST, and only commit once
+  // all five exist. Reallocating them one at a time through the pointers into
+  // `g` is not exception-safe: an OOM at allocation 4 of 5 would leave `g`
+  // holding a mix of M-row and N-row tensors with the old Adam still keyed on
+  // the old storage. gsplat derives the Gaussian count from `means.size(0)`,
+  // so a caller that caught that OOM and carried on — say by disabling MCMC
+  // and continuing to train — would rasterize out of bounds on the very next
+  // iteration. Failing with `g` untouched is recoverable; failing halfway is
+  // not.
+  std::array<torch::Tensor, 5> next;
+  for (std::size_t i = 0; i < old_params.size(); ++i) {
+    // Under NoGradGuard this is a leaf, so it can take requires_grad directly.
+    next[i] = old_params[i]->detach().index_select(0, src_rows);
+    next[i].set_requires_grad(true);
   }
 
-  optimizer = make_adam(g, lrs);
+  // Built before the commit for the same reason: make_adam_from only allocates
+  // host-side, but if it did throw, `g` would already be the new model with an
+  // optimizer still pointing at the old one.
+  auto next_optimizer = make_adam_from(next, lrs);
+
+  // ---- commit: nothing below this line allocates device memory -------------
+  for (std::size_t i = 0; i < old_params.size(); ++i)
+    *old_params[i] = next[i];
+  optimizer = std::move(next_optimizer);
 
   const auto new_params = parameters(g);
   for (std::size_t i = 0; i < new_params.size(); ++i) {

@@ -7,6 +7,8 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { JobsProvider } from './JobsContext';
 import { AppShell } from './AppShell';
 import { Dashboard } from '../routes/Dashboard';
+import { DataPage } from '../routes/DataPage';
+import { FramesPage } from '../routes/FramesPage';
 import { PipelinePage } from '../routes/PipelinePage';
 import { ViewportPage } from '../routes/ViewportPage';
 
@@ -26,6 +28,8 @@ export function App() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/viewport" element={<ViewportPage />} />
           <Route path="/pipeline" element={<PipelinePage />} />
+          <Route path="/frames" element={<FramesPage />} />
+          <Route path="/data" element={<DataPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AppShell>

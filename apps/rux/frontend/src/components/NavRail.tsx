@@ -16,17 +16,19 @@ interface NavEntry {
 /**
  * The navigation model for the whole app.
  *
- * The not-yet-built destinations are listed and visibly inert rather than
- * hidden. The pipeline is the product's core object (design brief), so a user
- * who cannot see that "Pipeline" is a place this app will have would reasonably
- * conclude the GUI simply cannot run stages — which is a worse lie than an
- * item that says when it arrives.
+ * Not-yet-built destinations are listed and visibly inert rather than hidden: a
+ * user who cannot see that a place will exist reasonably concludes the GUI
+ * cannot do that thing at all, which is a worse lie than an item saying when it
+ * arrives. Nothing is pending as of Phase 4 — `/frames` and `/data` are the
+ * last two the rail was promising — but the mechanism stays, because the next
+ * phase will want it and re-deriving it from an empty rail would be guesswork.
  */
 const ENTRIES: NavEntry[] = [
   { to: '/', label: 'Overview' },
   { to: '/viewport', label: 'Viewport' },
   { to: '/pipeline', label: 'Pipeline' },
-  { to: '/data', label: 'Data', pending: 'Components, passports, frames — Phase 4' },
+  { to: '/frames', label: 'Frames' },
+  { to: '/data', label: 'Data' },
 ];
 
 export function NavRail() {

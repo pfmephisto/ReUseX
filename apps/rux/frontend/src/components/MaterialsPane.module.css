@@ -1,0 +1,160 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+.pane {
+  display: flex;
+  gap: var(--space-4);
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.list {
+  flex: 1;
+  min-width: 0;
+}
+
+.detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  flex: none;
+  width: calc(var(--layout-panel-width) * 1.5);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  min-width: 0;
+}
+
+.detailHead {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+
+.detailTitle {
+  font-size: var(--font-size-md);
+}
+
+.close {
+  margin-left: auto;
+  padding: 0;
+  color: var(--color-accent);
+  font-size: var(--font-size-xs);
+}
+
+.guid {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-faint);
+  word-break: break-all;
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: var(--space-2);
+  align-items: center;
+  min-width: 0;
+}
+
+.rowInvalid .key {
+  border-color: var(--color-status-failed);
+}
+
+.key,
+.value {
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  min-width: 0;
+}
+
+/* A stored property's name is not editable — renaming is a delete plus an add,
+   and a typo there would read as an edit of the value. */
+.readonly {
+  background: var(--color-surface-sunken);
+  color: var(--color-text-muted);
+}
+
+.clear {
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.clear:hover {
+  border-color: var(--color-status-failed);
+  color: var(--color-status-failed);
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.add,
+.reset {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.add:hover,
+.reset:hover:not(:disabled) {
+  background: var(--color-surface-overlay);
+  color: var(--color-text);
+}
+
+.reset:disabled,
+.save:disabled {
+  color: var(--color-text-faint);
+  cursor: not-allowed;
+}
+
+.save {
+  margin-left: auto;
+  padding: var(--space-1) var(--space-4);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+.save:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+}
+
+.save:disabled {
+  border-color: var(--color-border);
+  background: var(--color-surface-sunken);
+}
+
+.note {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-faint);
+}
+
+.invalid {
+  font-size: var(--font-size-xs);
+  color: var(--color-status-failed);
+}

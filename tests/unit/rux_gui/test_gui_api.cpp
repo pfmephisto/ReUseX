@@ -64,6 +64,8 @@ TEST_CASE("EndpointTable_DocumentedRoutes_MatchesContract", "[gui][routes]") {
       "GET /api/v1/clouds",
       "GET /api/v1/clouds/<string>",
       "GET /api/v1/clouds/<string>/points",
+      "GET /api/v1/clouds/<string>/labels",
+      "PATCH /api/v1/clouds/<string>/labels",
       "GET /api/v1/meshes",
       "GET /api/v1/meshes/<string>",
       "GET /api/v1/meshes/<string>/data",
@@ -79,6 +81,7 @@ TEST_CASE("EndpointTable_DocumentedRoutes_MatchesContract", "[gui][routes]") {
       "GET /api/v1/components/<string>",
       "GET /api/v1/materials",
       "GET /api/v1/materials/<string>",
+      "PATCH /api/v1/materials/<string>",
       "GET /api/v1/instances/<string>",
       "GET /api/v1/stages",
       "GET /api/v1/stages/<string>/validation",
@@ -211,7 +214,7 @@ TEST_CASE("ProjectDbReadEndpoints_EmptyProject_ReturnEmptyCollections",
 
   CHECK(clouds_json(db).at("clouds").empty());
   CHECK(meshes_json(db).at("meshes").empty());
-  CHECK(frames_json(db).at("ids").empty());
+  CHECK(frames_json(db, Params{}).at("ids").empty());
   CHECK(panoramas_json(db).at("panoramas").empty());
   CHECK(materials_json(db).at("materials").empty());
   CHECK(pipeline_log_json(db, Params{}).at("entries").empty());

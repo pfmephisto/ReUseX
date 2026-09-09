@@ -1,0 +1,64 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  /* The grid scrolls inside itself, not the page: a virtualised list whose
+     scroll container is the document cannot be measured. */
+  height: 100%;
+  min-height: 0;
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.filters {
+  display: flex;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-sunken);
+}
+
+.filter {
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-pill);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.filter:hover {
+  color: var(--color-text);
+}
+
+.active,
+.active:hover {
+  background: var(--color-accent-muted);
+  color: var(--color-text);
+}
+
+.counts {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-faint);
+  /* Reserved even while loading, so the grid does not jump when it arrives. */
+  min-height: var(--space-4);
+}
+
+.body {
+  display: flex;
+  gap: var(--space-3);
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}

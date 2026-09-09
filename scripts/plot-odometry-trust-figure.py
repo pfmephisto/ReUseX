@@ -54,10 +54,15 @@ OFFICE = [
 
 out = []
 add = out.append
+# REUSE-IgnoreStart
+# (the generated SVG gets its own SPDX header below; these are string
+# literals, not this script's own SPDX tags — reuse lint mis-detects them
+# as a second, malformed license expression for this .py file otherwise)
 add('<!--')
 add('SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen')
 add('SPDX-License-Identifier: GPL-3.0-or-later')
 add('-->')
+# REUSE-IgnoreEnd
 add(f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" '
     f'viewBox="0 0 {W} {H}" font-family="Helvetica,Arial,sans-serif">')
 add(f'<rect width="{W}" height="{H}" fill="{SURFACE}"/>')

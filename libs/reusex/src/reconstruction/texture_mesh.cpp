@@ -92,14 +92,16 @@ prepare_texture_dir(const std::filesystem::path &requested) {
  * tile. Reports any polygons that sample wrong tiles (UV mapping bugs).
  *
  * @param textured_mesh Mesh with merged atlas texture
- * @param tile_size Size of each texture tile in atlas
  * @param grid_size Grid dimensions (e.g., 8 for 8x8 grid)
  * @param polygon_to_material Mapping of polygon index to original material/tile
  * ID
+ *
+ * The tile pixel size is not needed here: the check works entirely in
+ * normalized UV space, where a tile is 1/grid_size wide regardless of its
+ * resolution.
  */
 static void
-verify_atlas_mapping(const pcl::TextureMesh::Ptr &textured_mesh, int tile_size,
-                     int grid_size,
+verify_atlas_mapping(const pcl::TextureMesh::Ptr &textured_mesh, int grid_size,
                      const std::vector<size_t> &polygon_to_material) {
   if (textured_mesh->tex_polygons.size() != 1) {
     reusex::core::warn("Atlas verification requires merged structure");
@@ -565,7 +567,7 @@ static size_t create_texture_atlas(pcl::TextureMesh::Ptr textured_mesh,
 
   // Verify atlas mapping in debug mode
   if (debug_distinct_colors) {
-    verify_atlas_mapping(textured_mesh, tile_size, grid_size,
+    verify_atlas_mapping(textured_mesh, grid_size,
                          polygon_to_original_material);
   }
 
@@ -878,7 +880,10 @@ static void project_pointcloud_to_mesh_texture(
         // Optional: Normal filtering if normals are available
         bool normal_ok = true;
         if (cloud_normals != nullptr &&
-            neighbor_indices[i] < cloud_normals->size()) {
+            // radiusSearch only ever emits valid, non-negative point indices,
+            // so widening to size_t cannot wrap here.
+            static_cast<std::size_t>(neighbor_indices[i]) <
+                cloud_normals->size()) {
           const auto &pt_normal = cloud_normals->points[neighbor_indices[i]];
           const Eigen::Vector3f pt_normal_vec =
               pt_normal.getNormalVector3fMap();

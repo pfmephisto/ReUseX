@@ -39,8 +39,11 @@ struct Sam3Input {
       prompts; // Required: all prompt words list corresponding to this image
   Sam3Input() = default;
   explicit Sam3Input(const cv::Mat &img) : image(img) {}
+  // Initialiser order follows declaration order (confidence_threshold first),
+  // which is the order the compiler actually uses regardless of what is
+  // written here.
   Sam3Input(const cv::Mat &img, const std::vector<Sam3PromptUnit> &p,
             float conf)
-      : image(img), prompts(p), confidence_threshold(conf) {}
+      : confidence_threshold(conf), image(img), prompts(p) {}
 };
 } // namespace reusex::vision::tensor_rt

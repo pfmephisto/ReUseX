@@ -22,6 +22,18 @@ endif()
 
 option(LIN_ENABLE_WERROR "if true, enables -Werror, /WX" OFF)
 
+# -march=native was previously applied unconditionally to every Release C/C++
+# TU. Inside the Nix dev shell — the only supported build environment — the
+# compiler wrapper sets NIX_ENFORCE_NO_NATIVE and strips the flag again, so it
+# never reached the compiler and instead emitted one "Skipping impure flag"
+# warning per TU (93 of them). It is also at odds with the reproducibility
+# requirement in docs/DIRECTION.md and STANDARDS §6, since it bakes the build
+# host's ISA into the artifacts. Now opt-in, and off by default: enabling it
+# changes codegen only outside Nix, because inside Nix it was already inert.
+option(ENABLE_NATIVE_ARCH
+       "if true, adds -march=native to Release C/C++ builds (non-portable, \
+stripped anyway inside the Nix dev shell)" OFF)
+
 # ===============================================
 # Compiler and linker flags
 # ===============================================
@@ -42,11 +54,15 @@ if (CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDeb
         # GCC/Clang optimization flags (only for C/C++, not CUDA)
         # CUDA uses its own optimization flags via CMAKE_CUDA_FLAGS
         add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-O3>)
-        add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-march=native>)
         add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-DNDEBUG>)
         add_compile_options($<$<COMPILE_LANGUAGE:C>:-O3>)
-        add_compile_options($<$<COMPILE_LANGUAGE:C>:-march=native>)
         add_compile_options($<$<COMPILE_LANGUAGE:C>:-DNDEBUG>)
+        if (ENABLE_NATIVE_ARCH)
+            add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-march=native>)
+            add_compile_options($<$<COMPILE_LANGUAGE:C>:-march=native>)
+            message(STATUS "ENABLE_NATIVE_ARCH: -march=native requested "
+                           "(ignored inside the Nix dev shell)")
+        endif()
         if (CMAKE_BUILD_TYPE STREQUAL "Release")
             # Strip symbols in pure Release mode
             add_link_options(-s)
@@ -70,8 +86,13 @@ else()
     list(APPEND COMMON_LINKER_FLAGS -lgomp)
 
     if (LIN_ENABLE_WERROR)
-        # list(APPEND COMMON_COMPILER_FLAGS -Werror)
-        list(APPEND COMMON_COMPILER_FLAGS -Wno-unused-variable -Wno-unused-function)
+        # This branch used to comment out -Werror and add blanket
+        # -Wno-unused-variable -Wno-unused-function instead, so the option did
+        # the opposite of its name: asking for "warnings are errors" quietly
+        # suppressed two whole warning classes for everyone who set it. The
+        # unused-* findings it was hiding are fixed (#318), so the flag can
+        # mean what it says. Default is still OFF.
+        list(APPEND COMMON_COMPILER_FLAGS -Werror)
     endif()
 
     # Sanitizer support

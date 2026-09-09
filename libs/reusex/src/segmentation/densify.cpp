@@ -65,41 +65,11 @@ Eigen::Matrix4d to_matrix4d(const std::array<double, 16> &m) {
   return out;
 }
 
-struct IntrinsicsKey {
-  int width, height;
-  int64_t fx_q, fy_q, cx_q, cy_q;
-};
-bool operator==(const IntrinsicsKey &a, const IntrinsicsKey &b) {
-  return a.width == b.width && a.height == b.height && a.fx_q == b.fx_q &&
-         a.fy_q == b.fy_q && a.cx_q == b.cx_q && a.cy_q == b.cy_q;
-}
-struct IntrinsicsKeyHash {
-  std::size_t operator()(const IntrinsicsKey &k) const noexcept {
-    auto mix = [](std::size_t h, std::size_t v) {
-      return h ^ (v + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2));
-    };
-    std::size_t h = std::hash<int>{}(k.width);
-    h = mix(h, std::hash<int>{}(k.height));
-    h = mix(h, std::hash<int64_t>{}(k.fx_q));
-    h = mix(h, std::hash<int64_t>{}(k.fy_q));
-    h = mix(h, std::hash<int64_t>{}(k.cx_q));
-    h = mix(h, std::hash<int64_t>{}(k.cy_q));
-    return h;
-  }
-};
-
-IntrinsicsKey to_key(const core::SensorIntrinsics &i) {
-  // Quantize to whole pixels. Sub-pixel intrinsic variation (autofocus,
-  // floating-point noise on phone captures) would otherwise produce
-  // ~1 camera per frame, which murders SelectNeighborViews scaling and
-  // bloats Scene::platforms. 1-pixel rounding still captures genuinely
-  // different cameras (different lenses or resolutions) without false
-  // splits.
-  auto q = [](double v) -> int64_t {
-    return static_cast<int64_t>(std::llround(v));
-  };
-  return IntrinsicsKey{i.width, i.height, q(i.fx), q(i.fy), q(i.cx), q(i.cy)};
-}
+// An IntrinsicsKey / IntrinsicsKeyHash / to_key cluster used to live here to
+// group frames into one OpenMVS camera per distinct quantized intrinsic. It
+// was superseded by the single-platform model documented at the top of
+// build_mvs_scene() — one Platform + one Camera + N Poses, with per-frame
+// intrinsic variation treated as noise — and had been dead ever since.
 
 /// Populate OpenMVS's global dense-reconstruction config with sensible
 /// defaults. These match the values DensifyPointCloud.cpp would assign via
@@ -153,7 +123,12 @@ void initOpenMVSDefaults(const DensifyParams &p, unsigned numThreads) {
   OPTDENSE::nSpeckleSize = 100;
   OPTDENSE::nIpolGapSize = 7;
   OPTDENSE::nIgnoreMaskLabel = -1;
-  OPTDENSE::nOptimize = (p.geometric_consistency ? OPTDENSE::OPTIMIZE : 0u);
+  // OPTDENSE::OPTIMIZE is an unscoped enumerator while the "off" branch is a
+  // plain unsigned, so the conditional mixes enumerated and non-enumerated
+  // types; widen the enumerator explicitly to the field's own type.
+  OPTDENSE::nOptimize =
+      (p.geometric_consistency ? static_cast<unsigned>(OPTDENSE::OPTIMIZE)
+                               : 0u);
   // FuseDepthMaps (FUSE_FILTER) was previously suspected of unbounded
   // RAM growth; heaptrack revealed that was actually our spdmon progress
   // hook, not FuseDepthMaps. FUSE_FILTER yields a much higher point

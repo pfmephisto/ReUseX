@@ -75,7 +75,7 @@ void check_orphaned_passports(const ProjectDB &db,
                                  "instance",
                                  guid),
                      ValidationSeverity::warning,
-                     /*hint=*/{}});
+                     /*hint=*/{}, /*artifact=*/{}, /*commands=*/{}});
     }
   }
 }
@@ -100,14 +100,14 @@ void check_dangling_instance_materials(const ProjectDB &db,
                          "row (guid {})",
                          name, iid, guid),
              ValidationSeverity::error,
-             /*hint=*/{}});
+             /*hint=*/{}, /*artifact=*/{}, /*commands=*/{}});
       if (passports.find(guid) == passports.end())
         out.push_back(
             {"dangling_instance_material",
              fmt::format("cloud '{}': instance {} links to missing passport {}",
                          name, iid, guid),
              ValidationSeverity::error,
-             /*hint=*/{}});
+             /*hint=*/{}, /*artifact=*/{}, /*commands=*/{}});
     }
   }
 }
@@ -131,7 +131,7 @@ void check_instances_without_label_defs(const ProjectDB &db,
                                    "label_definitions entry",
                                    name, r.instance_id, r.guid),
                        ValidationSeverity::error,
-                       /*hint=*/{}});
+                       /*hint=*/{}, /*artifact=*/{}, /*commands=*/{}});
     }
   }
 }
@@ -174,7 +174,7 @@ void check_sibling_cloud_sizes(const ProjectDB &db,
                        "parallel clouds must be index-aligned",
                        s, it->second, ref_name, ref_size),
            ValidationSeverity::error,
-           /*hint=*/{}});
+           /*hint=*/{}, /*artifact=*/{}, /*commands=*/{}});
   }
 }
 
@@ -439,8 +439,8 @@ void check_stage_inputs(const ProjectDB &db, PipelineStage stage,
                      fmt::format("stage '{}' declares unknown artifact '{}'",
                                  name, names.front().declared),
                      ValidationSeverity::error,
-                     {},
-                     std::string(names.front().declared)});
+                     /*hint=*/{}, std::string(names.front().declared),
+                     /*commands=*/{}});
       continue;
     }
 

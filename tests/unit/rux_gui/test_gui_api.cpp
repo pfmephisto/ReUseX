@@ -43,11 +43,6 @@ void write_file(const fs::path &path, std::string_view content) {
   out << content;
 }
 
-/// The project name the server would report for a temp project.
-std::string name_of(const fs::path &project) {
-  return project.filename().string();
-}
-
 } // namespace
 
 // ===========================================================================

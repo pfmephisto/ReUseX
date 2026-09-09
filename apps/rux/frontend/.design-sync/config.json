@@ -1,0 +1,30 @@
+{
+  "projectId": "19f0cf0f-1f7c-43a7-8311-1fd67e34bbb7",
+  "pkg": "reusex-gui",
+  "globalName": "ReusexGui",
+  "shape": "package",
+  "srcDir": "src/components",
+  "tokensPkg": "reusex-gui",
+  "tokensGlob": "src/*.css",
+  "buildCmd": "npm run build:types",
+  "extraEntries": [
+    "./src/preview-support.tsx"
+  ],
+  "provider": {
+    "component": "PreviewProviders"
+  },
+  "dtsPropsFor": {
+    "JobToaster": "// no props \u2014 renders from app JobsContext",
+    "NavRail": "// no props \u2014 renders from router context"
+  },
+  "runtimeFontPrefixes": [
+    "JetBrains Mono",
+    "Fira Code"
+  ],
+  "overrides": {
+    "TitleBar": {
+      "cardMode": "column"
+    }
+  },
+  "readmeHeader": ".design-sync/conventions.md"
+}

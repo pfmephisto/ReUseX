@@ -17,3 +17,11 @@ coverage/
 .vitest/
 vitest.config.ts.timestamp-*
 vite.config.ts.timestamp-*
+
+# design-sync tooling
+.ds-sync/
+ds-bundle/
+.design-sync/.cache/
+.design-sync/learnings/
+.design-sync/node_modules
+dist-types/

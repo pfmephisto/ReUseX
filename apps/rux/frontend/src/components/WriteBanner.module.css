@@ -1,0 +1,90 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+.banner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-left-width: 3px;
+  border-left-color: var(--color-status-failed);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+}
+
+/*
+ * A lost race for the writer lock is not a fault — nothing was written and the
+ * same request will work. It is tinted as "running" rather than "failed" so it
+ * does not read like the refusal above it, which genuinely needs waiting out.
+ */
+.banner[data-kind='busy'] {
+  border-left-color: var(--color-status-running);
+}
+
+.banner[data-kind='conflict'] {
+  border-left-color: var(--color-status-queued);
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.title {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+.detail {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  word-break: break-word;
+}
+
+/* The server's own wording, kept verbatim and visibly secondary. */
+.server {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-faint);
+  word-break: break-word;
+}
+
+.actions {
+  display: flex;
+  flex: none;
+  gap: var(--space-2);
+}
+
+.retry {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+.retry:hover {
+  background: var(--color-accent-hover);
+}
+
+.dismiss {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.dismiss:hover {
+  background: var(--color-surface-overlay);
+  color: var(--color-text);
+}

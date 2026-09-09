@@ -34,6 +34,7 @@ import type {
   InstanceInfo,
   Job,
   JobRequest,
+  LabelLegend,
   MaterialDetail,
   MaterialInfo,
   MeshInfo,
@@ -81,6 +82,19 @@ export class ApiRequestError extends Error {
   /** Transient: the database was locked by a running job. Safe to retry. */
   get isRetryable(): boolean {
     return this.status === 503;
+  }
+
+  /**
+   * The edit conflicts with the project's state and was **not** applied.
+   *
+   * Deliberately distinct from {@link isRetryable}: 503 means "the writer lock
+   * was busy for a moment, send it again", while 409 means either a pipeline
+   * job holds the lock for the duration of a stage — retrying now will fail
+   * again — or the server refuses this edit outright and always will. Telling
+   * the user to "try again" for a 409 is advice that cannot work.
+   */
+  get isConflict(): boolean {
+    return this.status === 409;
   }
 }
 
@@ -158,6 +172,27 @@ export class RuxApiClient {
       // Required by the server on every mutating route — see rule 2 above.
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body ?? {}),
+      signal,
+    });
+    if (!response.ok) {
+      throw new ApiRequestError(response.status, await describeFailure(response), url);
+    }
+    return (await response.json()) as T;
+  }
+
+  /**
+   * A sparse edit against an existing resource.
+   *
+   * Same shape as {@link postJson}, and in particular the same
+   * `Content-Type: application/json` — the server's CSRF gate keys on "is this
+   * method mutating", not on POST, so a PATCH without the header is a 415 too.
+   */
+  private async patchJson<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
+    const url = this.url(path);
+    const response = await this.doFetch(url, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
       signal,
     });
     if (!response.ok) {
@@ -261,6 +296,42 @@ export class RuxApiClient {
     return response.arrayBuffer();
   }
 
+  /**
+   * The label legend of one `Label` cloud.
+   *
+   * The same map `GET /clouds/{name}` embeds; this route exists so an editor
+   * can re-read just the legend after a write instead of the whole record.
+   */
+  async cloudLabels(name: string, signal?: AbortSignal): Promise<Record<string, string>> {
+    const body = await this.requestJson<LabelLegend>(
+      `/clouds/${encodeURIComponent(name)}/labels`,
+      undefined,
+      signal,
+    );
+    return body.labels;
+  }
+
+  /**
+   * Rename label classes. **Sparse** — send only the ids that changed.
+   *
+   * Every id must already exist in the legend and every name must be non-empty
+   * (both 400), and the `instances` cloud is refused with 409 because its names
+   * are `SM<class>-<id> (<n>p)` records the pipeline parses back, not captions.
+   * Returns the full legend after the rename, not just the edited ids.
+   */
+  async patchCloudLabels(
+    name: string,
+    labels: Record<string, string>,
+    signal?: AbortSignal,
+  ): Promise<Record<string, string>> {
+    const body = await this.patchJson<LabelLegend>(
+      `/clouds/${encodeURIComponent(name)}/labels`,
+      { labels },
+      signal,
+    );
+    return body.labels;
+  }
+
   // ----------------------------------------------------------- meshes ----
 
   async meshes(signal?: AbortSignal): Promise<MeshInfo[]> {
@@ -294,17 +365,53 @@ export class RuxApiClient {
 
   // ----------------------------------------------------------- frames ----
 
-  frames(signal?: AbortSignal): Promise<FrameList> {
-    return this.requestJson<FrameList>('/frames', undefined, signal);
+  /**
+   * Frame ids, optionally narrowed to those that do or do not carry a mask.
+   *
+   * `segmented` is a **server-side** filter and must be used as one: the
+   * client-side alternative is `GET /frames/{id}` per frame just to read one
+   * boolean, and that route decodes the depth and confidence blobs to answer.
+   *
+   * `total_count` / `segmented_count` always describe the whole scan, never the
+   * filtered result — use `ids.length` for the size of the filtered set.
+   */
+  frames(
+    options: { segmented?: boolean } = {},
+    signal?: AbortSignal,
+  ): Promise<FrameList> {
+    return this.requestJson<FrameList>('/frames', { segmented: options.segmented }, signal);
   }
 
   frame(id: number, signal?: AbortSignal): Promise<FrameInfo> {
     return this.requestJson<FrameInfo>(`/frames/${id}`, undefined, signal);
   }
 
-  /** URL of one of a frame's images, in its **stored** orientation. */
-  frameImageUrl(id: number, kind: FrameImageKind = 'color'): string {
-    return this.url(`/frames/${id}/image`, { kind });
+  /**
+   * URL of one of a frame's images, in its **stored** orientation.
+   *
+   * `max_size` downscales the longest edge — what makes a grid of hundreds of
+   * thumbnails affordable. `normalize` asks for a *displayable* rendering
+   * rather than the stored measurement, and is required for `depth`,
+   * `confidence` and `segmentation`: those are 16-bit single-channel PNGs, and
+   * a browser decoding a 3 m room stored in millimetres (3000 of 65535) paints
+   * near-black. The normalised image carries **no metric scale**.
+   *
+   * The server reports the mapped range in `X-Image-Range-Min`/`-Max`, which an
+   * `<img>` cannot read. That is deliberate on both sides: they are a `curl`
+   * convenience, so nothing here is built on them.
+   */
+  frameImageUrl(
+    id: number,
+    kind: FrameImageKind = 'color',
+    options: { maxSize?: number; normalize?: boolean } = {},
+  ): string {
+    return this.url(`/frames/${id}/image`, {
+      kind,
+      max_size: options.maxSize,
+      // Sent only when true: the contract's default is already false, and an
+      // explicit `normalize=false` on every colour thumbnail is noise in a log.
+      normalize: options.normalize ? true : undefined,
+    });
   }
 
   // -------------------------------------------------------- panoramas ----
@@ -360,6 +467,25 @@ export class RuxApiClient {
     return this.requestJson<MaterialDetail>(
       `/materials/${encodeURIComponent(guid)}`,
       undefined,
+      signal,
+    );
+  }
+
+  /**
+   * Add, change or clear passport properties. **Sparse** — only what changed.
+   *
+   * A `null` value deletes the property; a string sets it. Anything not named
+   * is left alone, including the MaterialEPAS fields this GUI does not model.
+   * Returns the passport as `GET` would render it after the edit.
+   */
+  patchMaterial(
+    guid: string,
+    properties: Record<string, string | null>,
+    signal?: AbortSignal,
+  ): Promise<MaterialDetail> {
+    return this.patchJson<MaterialDetail>(
+      `/materials/${encodeURIComponent(guid)}`,
+      { properties },
       signal,
     );
   }

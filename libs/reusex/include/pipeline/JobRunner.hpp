@@ -20,15 +20,23 @@
 // THREAD SAFETY: every public member is safe to call from any thread. The
 // ProjectDB instance used to execute a job is created and destroyed on the
 // worker thread and never escapes it — ProjectDB itself is not thread-safe.
+//
+// WRITER EXCLUSION: the runner also owns the project's *writer lock* (see
+// try_acquire_writer). The worker holds it for the whole execution of a stage,
+// so anything else that wants to write to the same `.rux` — the GUI's editor
+// endpoints, for instance — can take the same lock and be genuinely exclusive
+// with the pipeline rather than merely hoping sqlite sorts it out.
 
 #include "reusex/core/stages.hpp"
 #include "reusex/pipeline/stages.hpp"
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -113,6 +121,13 @@ std::string_view to_string(JobEvent::Type type);
 /// runner lock held; implementations must be thread-safe and must not block.
 using JobListener = std::function<void(const JobEvent &)>;
 
+/// Exclusive right to write to a runner's project.
+///
+/// Empty (`!lease.owns_lock()`) when the lock could not be taken in time.
+/// Releases on destruction, so a handler simply keeps it alive for as long as
+/// its `ProjectDB` write handle is open.
+using WriterLease = std::unique_lock<std::timed_mutex>;
+
 /// FIFO, single-worker, in-process pipeline job runner.
 class JobRunner {
     public:
@@ -158,6 +173,27 @@ class JobRunner {
   /// Block until the queue is empty and no job is running.
   /// Test and shutdown helper; do not call from a listener.
   void wait_idle();
+
+  /// Try to take the project's exclusive writer lock, giving up after
+  /// @p timeout.
+  ///
+  /// The worker holds this lock for the entire execution of a stage, so a
+  /// caller that obtains it knows no stage is midway through writing. This is
+  /// the mechanism that lets a second writer (the GUI's editor endpoints)
+  /// exist at all without racing the pipeline: sqlite would serialize the two
+  /// connections anyway, but only at statement granularity and only by
+  /// returning SQLITE_BUSY — which cannot protect a read-modify-write such as
+  /// renaming one entry of a whole-cloud label map.
+  ///
+  /// @param timeout How long to wait. Keep it short on a request path: a
+  ///        running stage holds the lock for minutes, and answering "busy"
+  ///        promptly is far better than stalling the caller until it does.
+  /// @return A held lease, or an unheld one (`!owns_lock()`) on timeout.
+  ///
+  /// Do not call this from a JobListener: the worker publishes events while
+  /// holding the lock, so waiting on it from a listener would deadlock.
+  [[nodiscard]] WriterLease
+  try_acquire_writer(std::chrono::milliseconds timeout);
 
   /// Register a listener. Returns a token for remove_listener().
   size_t add_listener(JobListener listener);

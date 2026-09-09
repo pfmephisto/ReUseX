@@ -155,6 +155,85 @@ job-derived view would silently omit:
 
 ![The pipeline_log timeline](images/pipeline-history.png)
 
+## The editors
+
+![The sensor-frame browser](images/frames-browser.png)
+
+The frame browser virtualises its grid, so a scan of several hundred frames
+costs a screenful of `<img>` elements rather than all of them. Two contract
+additions make it possible at all:
+
+- **`GET /frames?segmented=`** filters server-side. The alternative is fetching
+  `/frames/{id}` for every frame to read one boolean — and that endpoint
+  *decodes the depth and confidence blobs* to answer it.
+- **`?normalize=true`** on the image route renders a picture instead of a
+  measurement. Depth is stored as 16-bit millimetres, and a browser decoding
+  that PNG keeps the high byte, so a 3 m room arrives at 3000 of 65535 and
+  paints near-black. The normalised rendering carries **no metric scale** and
+  is labelled as such; omit the flag to get the stored values.
+  `?max_size=` downscales for thumbnails, nearest-neighbour for label images so
+  no interpolated class id is ever invented.
+
+![The building-component table](images/components-table.png)
+
+`area` and `source_instance_guid` are computed on read — the first by Newell
+from the stored boundary, the second lifted out of the opaque `metadata` JSON.
+Neither is a stored column, so neither can drift from the geometry it describes.
+There is deliberately **no room column**: ReUseX does not associate a building
+component with a room, and a table that showed one would be inventing it.
+
+### Writing
+
+![The material-passport editor](images/passport-editor.png)
+![The label-legend editor](images/label-legend-editor.png)
+
+`PATCH /materials/{guid}` and `PATCH /clouds/{name}/labels` are the first
+mutating endpoints that are not job submissions. Both take a **sparse** map and
+leave everything they are not told about alone, and the client sends only what
+changed. That is not an optimisation: a passport imported from MaterialEPAS
+carries dozens of fields no GUI form models, so a full-document PUT from an
+editor that had not loaded them would be indistinguishable from a deliberate
+request to delete them. For the same reason `null` deletes a property and `""`
+stores an empty one — a form that conflated them would make clearing a field
+unreachable.
+
+Two edits are refused rather than attempted:
+
+- **The `instances` legend.** Those names are generated as `SM<class>-<id>
+  (<n>p)` and parsed back by the v10 migration and `io/export_scene.cpp` to
+  recover the semantic class. A free-text rename corrupts a record while looking
+  like a caption edit, so the server answers `409` and the UI disables the
+  fields — learning the rule by breaking it is a worse experience.
+- **Creating a class.** `PATCH …/labels` renames existing ids; an id not in the
+  legend is a `400`, because naming an id no point carries reads as data loss.
+
+#### One writer, enforced
+
+`rux gui` has two writers — the pipeline job worker and these endpoints — and
+they exclude each other through a real lock, not through hope.
+`pipeline::JobRunner` owns the project's writer lock and **holds it for the
+whole of every stage**; an editor request takes the same lock or does not run:
+
+| Situation | Answer | Why |
+|---|---|---|
+| A job is running or queued | `409` | A stage holds the lock for minutes. Blocking the request that long is indistinguishable from a hung UI. |
+| Another edit holds the lock | `503` after 250 ms | Editor writes take milliseconds, so anything past that is worth reporting rather than waiting on. |
+
+Nothing is written when either check fails, so both are safe to retry — and the
+two are kept distinct in the UI because their advice is opposite: a `409` means
+"wait for the stage", a `503` means "send it again now".
+
+This matters beyond tidiness. Both edits are read-modify-writes: renaming one
+label class rewrites the cloud's entire map, because
+`ProjectDB::save_label_definitions` replaces it wholesale. Two unsynchronised
+writers would lose one of the renames with no error anywhere. SQLite would
+serialise the two connections, but only per statement and only by returning
+`SQLITE_BUSY` — which cannot protect a read-modify-write.
+
+Mutating routes are gated on `Content-Type: application/json`, and that gate
+keys on *whether the method mutates* rather than on `POST` specifically, so a
+future route cannot opt out of CSRF protection by choosing a different verb.
+
 ## Running it
 
 ```bash

@@ -280,6 +280,79 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
 
   # -------------------------------------------------------------- meshes ----
+  /clouds/{name}/labels:
+    get:
+      tags: [clouds]
+      operationId: getCloudLabels
+      summary: The label legend of one Label cloud
+      description: |
+        Label id → display name, as stored in `label_definitions` for this
+        cloud. The same map is embedded in `GET /clouds/{name}`; this endpoint
+        exists so an editor can re-read just the legend after a write.
+
+        Key `"0"` is never present — 0 means unlabeled (STANDARDS §3). Ids are
+        strings because JSON object keys are.
+      parameters:
+        - $ref: "#/components/parameters/CloudName"
+      responses:
+        "200":
+          description: The legend, possibly empty
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LabelLegend" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [clouds]
+      operationId: renameCloudLabels
+      summary: Rename label classes of one Label cloud
+      description: |
+        Applies the given id → name pairs and leaves every other id untouched.
+        Send only what changed.
+
+        A name may not be empty, and an id must already exist in the legend:
+        this endpoint renames classes, it does not invent them. Inventing one
+        would put a name against an id no point carries, which reads as data
+        loss rather than as the typo it is.
+
+        **`instances` is refused.** The names in an instance-label cloud are
+        generated as `SM<class>-<id> (<n>p)` and are *parsed back* by the v10
+        schema migration and by `io/export_scene.cpp` to recover the semantic
+        class. A free-text rename there would corrupt data that looks like a
+        label but is really a record, so the server answers `409` rather than
+        letting a UI offer it.
+
+        Storage replaces the whole per-cloud map, so this is a read-modify-write
+        and is performed under the project's writer lock — see the `409`/`503`
+        responses.
+      parameters:
+        - $ref: "#/components/parameters/CloudName"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LabelLegend" }
+      responses:
+        "200":
+          description: The full legend after the rename
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LabelLegend" }
+        "400":
+          description: |
+            Body was not an object, a key was not an integer, a name was empty
+            or not a string, or an id is not in this cloud's legend
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "415":
+          description: Content-Type was not application/json
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503": { $ref: "#/components/responses/WriterBusy" }
+
   /meshes:
     get:
       tags: [meshes]
@@ -383,12 +456,33 @@ paths:
       description: |
         Returns ids only, not per-frame poses — a scan can hold thousands of
         frames. Fetch `/frames/{id}` for the details of one.
+
+        `total_count` and `segmented_count` always describe the **whole scan**,
+        never the filtered result, so a browser can render "42 of 380
+        segmented" without a second request. Only `ids` narrows when
+        `segmented` is set; use its length for the size of the filtered set.
+      parameters:
+        - name: segmented
+          in: query
+          description: |
+            Restrict `ids` to frames that do (`true`) or do not (`false`) have
+            a stored segmentation image. Omit for all frames.
+
+            This is a server-side filter on purpose: the alternative is
+            fetching `/frames/{id}` for every frame just to read one boolean,
+            and that endpoint decodes the depth and confidence blobs to answer.
+          schema: { type: boolean }
       responses:
         "200":
           description: Frame inventory
           content:
             application/json:
               schema: { $ref: "#/components/schemas/FrameList" }
+        "400":
+          description: The `segmented` filter was not a boolean
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
 
   /frames/{id}:
     get:
@@ -414,10 +508,16 @@ paths:
         Images are returned in their **stored orientation** — ReUseX applies no
         rotation on import, and the server applies none either.
 
-        `depth` and `confidence` are single-channel and are PNG-encoded at their
-        native bit depth, so a client that wants metric depth must know the
-        scale rather than reading pixel luminance. `segmentation` returns the
-        label image with the storage encoding (`CV_16U`, 0 = unlabeled).
+        By default `depth` and `confidence` are single-channel and PNG-encoded
+        at their native bit depth, so a client that wants metric depth must know
+        the scale rather than reading pixel luminance. `segmentation` returns
+        the label image with the storage encoding (`CV_16U`, 0 = unlabeled).
+
+        That default is the *data*, and it is deliberately not displayable: a
+        16-bit depth PNG in millimetres renders as near-black in a browser,
+        because `<img>` decoding keeps the high byte and a 3 m room only reaches
+        3000 of 65535. Pass `normalize=true` for a picture instead of the
+        measurement — see below.
       parameters:
         - $ref: "#/components/parameters/FrameId"
         - name: kind
@@ -427,12 +527,59 @@ paths:
             type: string
             enum: [color, depth, confidence, segmentation]
             default: color
+        - name: max_size
+          in: query
+          description: |
+            Downscale so the longest edge is at most this many pixels,
+            preserving aspect ratio. Never upscales. Intended for the thumbnail
+            grid of a frame browser, where fetching hundreds of full-resolution
+            frames is the difference between a usable screen and an unusable
+            one.
+
+            Label images (`kind=segmentation`) are resampled with
+            nearest-neighbour so that no interpolated, non-existent label id is
+            ever invented; every other kind uses area interpolation.
+          schema: { type: integer, minimum: 1, maximum: 4096 }
+        - name: normalize
+          in: query
+          description: |
+            Render a **displayable** 8-bit image rather than the stored
+            measurement. Ignored for `kind=color`, which is already displayable.
+
+            * `depth` / `confidence` — mapped to 8-bit grey across the
+              observed range of valid (non-zero) pixels, which is reported in
+              the `X-Image-Range-Min` / `X-Image-Range-Max` response headers
+              so a caller can label a scale.
+            * `segmentation` — colourised with the same categorical palette the
+              viewport uses, with label 0 (unlabeled) rendered black.
+
+            The result carries **no metric scale** and must not be measured;
+            it exists to be looked at. Omit it to get the stored values.
+          schema: { type: boolean, default: false }
       responses:
         "200":
-          description: Encoded image
+          description: |
+            Encoded image. `normalize=true` answers 8-bit grey (depth,
+            confidence) or 8-bit RGB (segmentation); otherwise the stored bit
+            depth is preserved.
+          headers:
+            X-Image-Range-Min:
+              description: |
+                Lowest valid stored value mapped by `normalize=true`
+                (millimetres for `depth`). A convenience only — absent unless
+                normalising a single-channel kind, and never load-bearing.
+              schema: { type: number }
+            X-Image-Range-Max:
+              description: Highest valid stored value mapped by `normalize=true`.
+              schema: { type: number }
           content:
             image/png:
               schema: { type: string, format: binary }
+        "400":
+          description: Unknown `kind`, or a `max_size` that is not a positive integer
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
         "404": { $ref: "#/components/responses/NotFound" }
 
   # ----------------------------------------------------------- panoramas ----
@@ -563,6 +710,57 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/MaterialDetail" }
         "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [materials]
+      operationId: updateMaterial
+      summary: Add, change or clear passport properties
+      description: |
+        Applies the given property edits and leaves every other property
+        untouched. Send only what changed.
+
+        A **`null` value deletes** the property; a string sets it. This is why
+        the endpoint is a PATCH over a sparse map rather than a PUT of the whole
+        property set: a PUT would make an editor that had not loaded every
+        property silently delete the ones it did not know about, and passports
+        arrive from MaterialEPAS imports carrying fields no GUI form models.
+
+        A property name the project has never seen is accepted and stored as a
+        custom (`string`) field, matching `rux import materialepas`. Passport
+        *metadata* — guid, dates, version — is not editable here.
+
+        Performed under the project's writer lock; see `409`/`503`.
+      parameters:
+        - name: guid
+          in: path
+          required: true
+          description: The passport's document guid.
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MaterialPatch" }
+      responses:
+        "200":
+          description: The passport after the edit, in the shape `GET` returns
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MaterialDetail" }
+        "400":
+          description: |
+            Body was not an object, `properties` was missing or not an object,
+            a property name was empty, or a value was neither a string nor null
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "415":
+          description: Content-Type was not application/json
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503": { $ref: "#/components/responses/WriterBusy" }
 
   # ----------------------------------------------------------- instances ----
   /instances/{cloud}:
@@ -864,6 +1062,22 @@ components:
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
+    WriteConflict:
+      description: |
+        The edit conflicts with the project's state and was not applied — a
+        pipeline job is running or queued, or the resource is one this server
+        refuses to edit. The message names which. Retrying a job conflict once
+        the job finishes will succeed; retrying a refusal never will.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    WriterBusy:
+      description: |
+        The writer lock could not be taken in time, so nothing was written. The
+        edit is safe to retry as-is.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
 
   schemas:
 
@@ -1147,11 +1361,30 @@ components:
         name: { type: string }
         guid: { type: string }
         type: { type: string }
-        parent_id: { type: integer }
+        parent_id:
+          type: integer
+          description: |
+            Parent **component**, -1 if none. This is not a room: ReUseX does
+            not associate a building component with a room, and this field must
+            not be presented as if it did.
         confidence:
           type: number
           description: -1 means manually created.
         vertex_count: { type: integer }
+        area:
+          type: number
+          description: |
+            Boundary area in m², computed from the stored polygon (Newell) and
+            **not** a persisted field — it is derived on read, so it always
+            agrees with the geometry rather than with whatever wrote it last.
+            Absent when the boundary has fewer than three vertices.
+        source_instance_guid:
+          type: string
+          description: |
+            The segmentation instance this component was derived from (#211),
+            lifted out of the opaque `metadata` JSON so a table can show
+            provenance without every client re-parsing it. Absent when the
+            component was created manually or carries no such link.
 
     ComponentDetail:
       allOf:
@@ -1176,6 +1409,33 @@ components:
               type: string
               description: Opaque type-specific JSON, as stored.
             notes: { type: string }
+
+    LabelLegend:
+      type: object
+      required: [labels]
+      properties:
+        labels:
+          type: object
+          description: |
+            Label id (as a string, because JSON keys are strings) → display
+            name. `"0"` never appears: 0 means unlabeled.
+          additionalProperties: { type: string }
+          examples:
+            - { "1": "wall", "2": "floor" }
+
+    MaterialPatch:
+      type: object
+      required: [properties]
+      properties:
+        properties:
+          type: object
+          description: |
+            Property name → new value. `null` deletes the property. Names not
+            already known to the project are created as custom string fields.
+          additionalProperties:
+            type: [string, "null"]
+          examples:
+            - { "Designation": "Oak beam", "Obsolete field": null }
 
     MaterialInfo:
       type: object

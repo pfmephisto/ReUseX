@@ -39,10 +39,14 @@ import type {
   ApiError,
   CloudInfo,
   CloudPointsPage,
+  ComponentInfo,
+  FrameInfo,
+  FrameList,
   HelloEvent,
   Health,
   Job,
   JobEvent,
+  LabelLegend,
   PipelineLogEntry,
   ProjectSummary,
   StageInfo,
@@ -1512,3 +1516,126 @@ export const WS_EVENTS: [HelloEvent, JobEvent, JobEvent, JobEvent, JobEvent, Job
 
 /** The job id every recorded job event carries. */
 export const RECORDED_JOB_ID = 'dfbc481b-b2f7-4c68-aa29-3cfd9bde0611';
+
+// ---------------------------------------------------------------------------
+// Phase 4 (#265): the editor surfaces.
+//
+// Recorded on 2026-09-09 from a `rux gui` serving a copy of
+// `tests/fixtures/scans/office_corridor.rux` driven clouds -> planes -> rooms,
+// with building components and material passports written directly through
+// `ProjectDB` (the pipeline route to them, `create instances` -> `create
+// windows`, needs exported SAM/YOLO engines this machine does not have) and a
+// label legend seeded with the class names an annotate run would produce.
+// Everything below is the body the server actually returned.
+// ---------------------------------------------------------------------------
+
+/** `GET /frames` — unfiltered. This scan has no segmentation images. */
+export const FRAMES: FrameList = {
+  height: 960,
+  ids: [1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004],
+  segmented_count: 0,
+  total_count: 10,
+  width: 720,
+};
+
+/** `GET /frames/1997`. */
+export const FRAME: FrameInfo = {
+  has_confidence: true,
+  has_depth: true,
+  has_segmentation: false,
+  id: 1997,
+  intrinsics: {
+    cx: 360.99725341796875,
+    cy: 476.7929382324219,
+    fx: 799.1746826171875,
+    fy: 799.1746826171875,
+    height: 960,
+    width: 720,
+  },
+  pose: [
+    -0.8896197080612183, -0.05107032507658005, 0.4534837007522583, 22.86699676513672,
+    0.4499998390674591, 0.05242680013179779, 0.8914709091186523, 8.574508666992188,
+    -0.06938230991363525, 0.9973161816596985, -0.023634541779756546, 0.33636292815208435,
+    0.0, 0.0, 0.0, 1.0,
+  ],
+  timestamp: 1773126993.1998198,
+};
+
+/** `GET /components` — the `area` and `source_instance_guid` fields are #265 Phase 4. */
+export const COMPONENTS: ComponentInfo[] = [
+  {
+    area: 1.4400000000000002,
+    confidence: 0.94,
+    guid: 'cmp-0001',
+    name: 'Window-01',
+    parent_id: -1,
+    source_instance_guid: 'inst-a1b2c3d4',
+    type: 'window',
+    vertex_count: 4,
+  },
+  {
+    area: 1.44,
+    confidence: 0.88,
+    guid: 'cmp-0002',
+    name: 'Window-02',
+    parent_id: -1,
+    source_instance_guid: 'inst-e5f6a7b8',
+    type: 'window',
+    vertex_count: 4,
+  },
+  {
+    area: 0.75,
+    confidence: 0.71,
+    guid: 'cmp-0003',
+    name: 'Window-03',
+    parent_id: -1,
+    source_instance_guid: 'inst-c9d0e1f2',
+    type: 'window',
+    vertex_count: 4,
+  },
+  {
+    area: 1.947499999999998,
+    confidence: 0.82,
+    guid: 'cmp-0004',
+    name: 'Door-01',
+    parent_id: -1,
+    source_instance_guid: 'inst-33445566',
+    type: 'door',
+    vertex_count: 4,
+  },
+  // Manually created: confidence -1, and no provenance link at all.
+  {
+    area: 1.9475000000000033,
+    confidence: -1.0,
+    guid: 'cmp-0005',
+    name: 'Door-02',
+    parent_id: -1,
+    type: 'door',
+    vertex_count: 4,
+  },
+  {
+    area: 21.840000000000003,
+    confidence: -1.0,
+    guid: 'cmp-0006',
+    name: 'Wall-North',
+    parent_id: -1,
+    type: 'wall',
+    vertex_count: 4,
+  },
+];
+
+/** `GET /clouds/labels/labels`. */
+export const LABEL_LEGEND: LabelLegend = {
+  labels: {
+    '1': 'wall',
+    '2': 'floor',
+    '3': 'ceiling',
+    '4': 'door',
+    '5': 'window',
+    '6': 'chair',
+    '7': 'table',
+    '8': 'monitor',
+    '9': 'potted plant',
+    '10': 'sink',
+  },
+};

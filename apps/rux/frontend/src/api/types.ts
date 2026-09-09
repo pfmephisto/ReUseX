@@ -159,10 +159,25 @@ export interface ComponentInfo {
   name: string;
   guid: string;
   type: string;
+  /**
+   * Parent **component**, -1 if none. Not a room: ReUseX does not associate a
+   * component with a room, and this must not be presented as if it did.
+   */
   parent_id?: number;
   /** -1 means manually created. */
   confidence?: number;
   vertex_count?: number;
+  /**
+   * Boundary area in m², derived on read (Newell) rather than stored. Absent
+   * when the boundary has fewer than three vertices — so it is genuinely
+   * optional and must never be rendered as `NaN`.
+   */
+  area?: number;
+  /**
+   * The segmentation instance this component came from (#211), lifted out of
+   * the opaque `metadata` JSON. Absent for a manually created component.
+   */
+  source_instance_guid?: string;
 }
 
 /** `ComponentDetail` — a component plus its boundary polygon. */
@@ -173,6 +188,29 @@ export interface ComponentDetail extends ComponentInfo {
   vertices?: number[][];
   metadata?: string;
   notes?: string;
+}
+
+/**
+ * `LabelLegend` — label id → display name, for one `Label` cloud.
+ *
+ * Both the body of `GET /clouds/{name}/labels` and the body of the `PATCH`,
+ * which is why it is one type: the patch is a *sparse* legend, carrying only
+ * the ids that changed. `"0"` never appears — 0 means unlabeled.
+ */
+export interface LabelLegend {
+  labels: Record<string, string>;
+}
+
+/**
+ * `MaterialPatch` — the body of `PATCH /materials/{guid}`.
+ *
+ * Sparse: only the properties that changed. A `null` value **deletes** the
+ * property; a string sets it. Omitting a property leaves it untouched, which
+ * is the whole reason this is not a PUT — passports carry MaterialEPAS fields
+ * no GUI form models, and a PUT would silently drop them.
+ */
+export interface MaterialPatch {
+  properties: Record<string, string | null>;
 }
 
 /** `MaterialInfo` — a material passport, listing shape. */

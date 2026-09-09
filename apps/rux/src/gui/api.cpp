@@ -15,14 +15,20 @@
 #include <reusex/pipeline/stage_parameters.hpp>
 #include <reusex/types/point_types.hpp>
 
+#include <reusex/utils/cv.hpp>
+
 #include <opencv2/core.hpp>
 #include <opencv2/imgcodecs.hpp>
+#include <opencv2/imgproc.hpp>
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <charconv>
+#include <cmath>
 #include <cstring>
 #include <exception>
+#include <set>
 #include <type_traits>
 #include <utility>
 #include <variant>
@@ -175,6 +181,92 @@ Blob encode_png(const cv::Mat &image, std::string_view what) {
   if (!cv::imencode(".png", encodable, blob.data))
     throw HttpError(500, std::string("could not PNG-encode ").append(what));
   return blob;
+}
+
+/// Validated `max_size`: 0 means "no limit".
+int max_size_param(const Params &params) {
+  const long long requested = params.integer("max_size", 0);
+  if (requested == 0)
+    return 0;
+  if (requested < 1 || requested > kMaxImageSize)
+    throw HttpError(400, "max_size must be between 1 and " +
+                             std::to_string(kMaxImageSize) + ", got " +
+                             std::to_string(requested));
+  return static_cast<int>(requested);
+}
+
+/// Downscale so the longest edge is at most @p max_size. Never upscales.
+///
+/// Label images must be resampled with nearest-neighbour: interpolating
+/// between class 3 and class 5 would silently manufacture class 4, a label no
+/// point in the scan carries.
+cv::Mat resized_to(const cv::Mat &image, int max_size, bool is_label) {
+  if (max_size <= 0 || image.empty())
+    return image;
+
+  const int longest = std::max(image.cols, image.rows);
+  if (longest <= max_size)
+    return image;
+
+  const double scale = static_cast<double>(max_size) / longest;
+  cv::Mat out;
+  cv::resize(image, out, cv::Size(), scale, scale,
+             is_label ? cv::INTER_NEAREST : cv::INTER_AREA);
+  return out;
+}
+
+/// Turn a stored measurement into something a browser can actually show.
+///
+/// This is a *rendering*, not a conversion: the result carries no scale, which
+/// is why the observed range travels back to the caller in @p range so a UI can
+/// label what it is looking at. See the `normalize` parameter in
+/// docs/gui/openapi.yaml.
+cv::Mat displayable(const cv::Mat &image, const std::string &kind,
+                    ValueRange &range) {
+  if (kind == "segmentation") {
+    // Colourise with the same categorical palette the viewport uses, so a mask
+    // and the 3D labels of the same scan are recognisably the same classes.
+    const cv::Mat &lut = reusex::utils::get_glasbey_lut();
+    cv::Mat rgb(image.size(), CV_8UC3, cv::Scalar(0, 0, 0));
+    for (int y = 0; y < image.rows; ++y) {
+      const auto *row = image.ptr<int32_t>(y);
+      auto *out = rgb.ptr<cv::Vec3b>(y);
+      for (int x = 0; x < image.cols; ++x) {
+        // The API encoding is CV_32S with -1 for background
+        // (core/label_semantics.hpp); leave both it and 0 black.
+        if (row[x] <= 0)
+          continue;
+        out[x] = lut.at<cv::Vec3b>(0, row[x] % lut.cols);
+      }
+    }
+    return rgb;
+  }
+
+  // Depth and confidence: stretch the range of *valid* pixels to 8-bit grey.
+  // Zero is "no return" in both, and including it would peg the low end of
+  // every frame to a pixel that carries no measurement, flattening the range
+  // the picture is supposed to show.
+  cv::Mat values;
+  image.convertTo(values, CV_64F);
+  const cv::Mat valid = values > 0.0;
+
+  double lo = 0.0;
+  double hi = 0.0;
+  cv::minMaxLoc(values, &lo, &hi, nullptr, nullptr, valid);
+  range.valid = cv::countNonZero(valid) > 0;
+  range.min = lo;
+  range.max = hi;
+
+  cv::Mat grey(image.size(), CV_8UC1, cv::Scalar(0));
+  if (!range.valid || hi <= lo) {
+    // A constant (or entirely empty) image has no range to stretch. Returning
+    // flat black is honest; scaling by 1/0 would not be.
+    return grey;
+  }
+
+  values.convertTo(grey, CV_8UC1, 255.0 / (hi - lo), -255.0 * lo / (hi - lo));
+  grey.setTo(0, ~valid);
+  return grey;
 }
 
 /// The stage catalogue surfaced by GET /stages. `runnable` mirrors whether a
@@ -333,6 +425,26 @@ long long Params::integer(std::string_view key, long long fallback) const {
   return parsed;
 }
 
+std::optional<bool> Params::boolean(std::string_view key) const {
+  auto value = find(key);
+  if (!value || value->empty())
+    return std::nullopt;
+
+  std::string lowered = *value;
+  std::transform(lowered.begin(), lowered.end(), lowered.begin(),
+                 [](unsigned char c) { return std::tolower(c); });
+
+  if (lowered == "true" || lowered == "1" || lowered == "yes")
+    return true;
+  if (lowered == "false" || lowered == "0" || lowered == "no")
+    return false;
+
+  throw HttpError(400, std::string("query parameter '")
+                               .append(key)
+                               .append("' must be a boolean, got '") +
+                           *value + "'");
+}
+
 // ===========================================================================
 // Route table
 // ===========================================================================
@@ -353,6 +465,10 @@ const std::vector<Endpoint> &endpoint_table() {
       {"GET", "/api/v1/clouds/<string>",
        "One cloud's metadata, including its label definitions"},
       {"GET", "/api/v1/clouds/<string>/points", "A page of point data"},
+      {"GET", "/api/v1/clouds/<string>/labels",
+       "The label legend of one Label cloud"},
+      {"PATCH", "/api/v1/clouds/<string>/labels",
+       "Rename label classes of one Label cloud"},
       {"GET", "/api/v1/meshes", "All stored meshes"},
       {"GET", "/api/v1/meshes/<string>", "One mesh's metadata"},
       {"GET", "/api/v1/meshes/<string>/data",
@@ -376,6 +492,8 @@ const std::vector<Endpoint> &endpoint_table() {
        "One component, including its boundary polygon"},
       {"GET", "/api/v1/materials", "Material passports stored in this project"},
       {"GET", "/api/v1/materials/<string>", "One passport's stored properties"},
+      {"PATCH", "/api/v1/materials/<string>",
+       "Add, change or clear passport properties"},
       {"GET", "/api/v1/instances/<string>",
        "Instance rows of an instance-label cloud, with material links"},
       {"GET", "/api/v1/stages",
@@ -511,6 +629,21 @@ json cloud_json(const reusex::ProjectDB &db, const std::string &name) {
     if (cloud.name == name)
       return cloud_info_json(cloud);
   not_found("cloud", name);
+}
+
+json cloud_labels_json(const reusex::ProjectDB &db, const std::string &name) {
+  if (!db.has_point_cloud(name))
+    not_found("cloud", name);
+
+  json labels = json::object();
+  for (const auto &[id, label_name] : db.label_definitions(name)) {
+    // 0 is unlabeled and has no name to show (STANDARDS §3). A stray row for it
+    // is stale data, not a class, so it is dropped rather than surfaced.
+    if (id <= 0)
+      continue;
+    labels[std::to_string(id)] = label_name;
+  }
+  return json{{"labels", std::move(labels)}};
 }
 
 json cloud_points_json(const reusex::ProjectDB &db, const std::string &name,
@@ -677,11 +810,29 @@ Blob mesh_texture_blob(const reusex::ProjectDB &db, const std::string &name,
 // sensor frames
 // ===========================================================================
 
-json frames_json(const reusex::ProjectDB &db) {
+json frames_json(const reusex::ProjectDB &db, const Params &params) {
   const auto summary = db.project_summary();
+  const auto segmented = params.boolean("segmented");
+
+  // One query for the whole set rather than has_segmentation_image() per frame:
+  // the filter exists precisely because a browser must not pay per-frame costs
+  // to draw a list.
+  std::set<int> with_masks;
+  if (segmented) {
+    const auto ids = db.segmentation_image_ids();
+    with_masks.insert(ids.begin(), ids.end());
+  }
+
   json ids = json::array();
-  for (int id : db.sensor_frame_ids())
+  for (int id : db.sensor_frame_ids()) {
+    if (segmented && with_masks.count(id) != static_cast<size_t>(*segmented))
+      continue;
     ids.push_back(id);
+  }
+
+  // The counts describe the whole scan even when `ids` is filtered — a browser
+  // showing "12 of 380 segmented" needs both numbers, and making it issue a
+  // second unfiltered request for the denominator would be gratuitous.
   return json{{"ids", std::move(ids)},
               {"total_count", summary.sensor_frames.total_count},
               {"segmented_count", summary.sensor_frames.segmented_count},
@@ -705,25 +856,53 @@ json frame_json(const reusex::ProjectDB &db, int id) {
   return out;
 }
 
-Blob frame_image_blob(const reusex::ProjectDB &db, int id,
-                      const std::string &kind) {
+ImageResponse frame_image(const reusex::ProjectDB &db, int id,
+                          const Params &params) {
+  const std::string kind = params.str("kind", "color");
+  if (kind != "color" && kind != "depth" && kind != "confidence" &&
+      kind != "segmentation")
+    throw HttpError(400,
+                    "kind must be color|depth|confidence|segmentation, got '" +
+                        kind + "'");
+
   if (!db.has_sensor_frame(id) && kind != "segmentation")
     not_found("sensor frame", std::to_string(id));
 
-  if (kind == "color")
-    return encode_png(db.sensor_frame_image(id), "color image");
-  if (kind == "depth")
-    return encode_png(db.sensor_frame_depth(id), "depth image");
-  if (kind == "confidence")
-    return encode_png(db.sensor_frame_confidence(id), "confidence image");
-  if (kind == "segmentation") {
+  cv::Mat image;
+  std::string what;
+  if (kind == "color") {
+    image = db.sensor_frame_image(id);
+    what = "color image";
+  } else if (kind == "depth") {
+    image = db.sensor_frame_depth(id);
+    what = "depth image";
+  } else if (kind == "confidence") {
+    image = db.sensor_frame_confidence(id);
+    what = "confidence image";
+  } else {
     if (!db.has_segmentation_image(id))
       not_found("segmentation image for frame", std::to_string(id));
-    return encode_png(db.segmentation_image(id), "segmentation image");
+    image = db.segmentation_image(id);
+    what = "segmentation image";
   }
-  throw HttpError(400, "kind must be color|depth|confidence|segmentation, got "
-                       "'" +
-                           kind + "'");
+
+  if (image.empty())
+    throw HttpError(404, "no " + what + " stored");
+
+  // Resize before colourising: cheaper, and for a label image it keeps
+  // nearest-neighbour operating on ids rather than on colours, where blending
+  // two neighbouring classes would produce a third class's colour.
+  image = resized_to(image, max_size_param(params), kind == "segmentation");
+
+  ImageResponse response;
+  if (params.boolean("normalize").value_or(false) && kind != "color") {
+    ValueRange range;
+    response.blob = encode_png(displayable(image, kind, range), what);
+    response.range = range;
+  } else {
+    response.blob = encode_png(image, what);
+  }
+  return response;
 }
 
 // ===========================================================================
@@ -775,14 +954,80 @@ Blob panorama_image_blob(const reusex::ProjectDB &db, int id) {
 // ===========================================================================
 
 namespace {
-json component_summary_json(const reusex::core::ComponentRecord &record) {
+/// Unpack the packed little-endian float64 xyz triples of a boundary.
+///
+/// memcpy rather than a reinterpret_cast: the blob carries no alignment
+/// guarantee (core/component_record.hpp).
+std::vector<std::array<double, 3>>
+component_vertices(const reusex::core::ComponentRecord &record) {
   constexpr size_t kBytesPerVertex = 3 * sizeof(double);
-  return json{{"name", record.name},
-              {"guid", record.guid},
-              {"type", record.type},
-              {"parent_id", record.parent_id},
-              {"confidence", record.confidence},
-              {"vertex_count", record.vertex_data.size() / kBytesPerVertex}};
+  const size_t count = record.vertex_data.size() / kBytesPerVertex;
+
+  std::vector<std::array<double, 3>> vertices(count);
+  for (size_t i = 0; i < count; ++i)
+    std::memcpy(vertices[i].data(),
+                record.vertex_data.data() + i * kBytesPerVertex,
+                kBytesPerVertex);
+  return vertices;
+}
+
+/// Area of a planar polygon by Newell's method, in m².
+///
+/// Derived on read rather than stored: `building_components` has no area
+/// column, and a cached one would be free to disagree with the geometry it
+/// claims to describe.
+double polygon_area(const std::vector<std::array<double, 3>> &vertices) {
+  if (vertices.size() < 3)
+    return 0.0;
+
+  std::array<double, 3> normal{0.0, 0.0, 0.0};
+  for (size_t i = 0; i < vertices.size(); ++i) {
+    const auto &a = vertices[i];
+    const auto &b = vertices[(i + 1) % vertices.size()];
+    normal[0] += (a[1] - b[1]) * (a[2] + b[2]);
+    normal[1] += (a[2] - b[2]) * (a[0] + b[0]);
+    normal[2] += (a[0] - b[0]) * (a[1] + b[1]);
+  }
+  return 0.5 * std::sqrt(normal[0] * normal[0] + normal[1] * normal[1] +
+                         normal[2] * normal[2]);
+}
+
+/// The provenance link (#211) out of the opaque geometry-owned metadata JSON.
+///
+/// `core` deliberately never parses this column, so the read is defensive:
+/// unparseable metadata means "no link", not a failed request. A component
+/// whose metadata is malformed is still worth listing.
+std::string source_instance_guid(const reusex::core::ComponentRecord &record) {
+  if (record.metadata.empty())
+    return {};
+  const auto parsed =
+      json::parse(record.metadata, nullptr, /*allow_throw=*/false);
+  if (!parsed.is_object())
+    return {};
+  const auto it = parsed.find("source_instance_guid");
+  if (it == parsed.end() || !it->is_string())
+    return {};
+  return it->get<std::string>();
+}
+
+json component_summary_json(const reusex::core::ComponentRecord &record) {
+  const auto vertices = component_vertices(record);
+
+  json out{{"name", record.name},
+           {"guid", record.guid},
+           {"type", record.type},
+           {"parent_id", record.parent_id},
+           {"confidence", record.confidence},
+           {"vertex_count", vertices.size()}};
+
+  if (vertices.size() >= 3)
+    out["area"] = polygon_area(vertices);
+
+  const std::string source = source_instance_guid(record);
+  if (!source.empty())
+    out["source_instance_guid"] = source;
+
+  return out;
 }
 } // namespace
 
@@ -806,18 +1051,9 @@ json component_json(const reusex::ProjectDB &db, const std::string &name) {
   out["plane"] = json::array(
       {record.plane[0], record.plane[1], record.plane[2], record.plane[3]});
 
-  // vertex_data is packed little-endian float64 xyz triples (see
-  // core/component_record.hpp). Unpack via memcpy rather than reinterpreting
-  // the buffer, so alignment is never assumed.
-  constexpr size_t kBytesPerVertex = 3 * sizeof(double);
   json vertices = json::array();
-  const size_t count = record.vertex_data.size() / kBytesPerVertex;
-  for (size_t i = 0; i < count; ++i) {
-    std::array<double, 3> xyz{};
-    std::memcpy(xyz.data(), record.vertex_data.data() + i * kBytesPerVertex,
-                kBytesPerVertex);
+  for (const auto &xyz : component_vertices(record))
     vertices.push_back(json::array({xyz[0], xyz[1], xyz[2]}));
-  }
   out["vertices"] = std::move(vertices);
   out["metadata"] = record.metadata;
   out["notes"] = record.notes;

@@ -1,0 +1,149 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+.pane {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  width: var(--layout-panel-width);
+  flex: none;
+  padding: var(--space-4);
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  min-height: 0;
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+
+.title {
+  font-size: var(--font-size-lg);
+}
+
+.close {
+  margin-left: auto;
+  padding: 0;
+  color: var(--color-accent);
+  font-size: var(--font-size-xs);
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.heading {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.facts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+}
+
+.fact {
+  display: flex;
+  gap: var(--space-3);
+  align-items: baseline;
+  min-width: 0;
+}
+
+.factLabel {
+  flex: none;
+  width: calc(var(--space-7) * 2);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-faint);
+}
+
+.factValue {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  min-width: 0;
+  word-break: break-word;
+}
+
+.matrix {
+  border-collapse: collapse;
+  font-size: var(--font-size-xs);
+}
+
+.matrix td {
+  padding: var(--space-1) var(--space-2);
+  text-align: right;
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.note {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-faint);
+}
+
+.images {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.figure {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  min-width: 0;
+}
+
+.figcaption {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+}
+
+/* Says the picture is a rendering rather than the stored measurement. Uses the
+   "queued" status colour, which is the palette's neutral-informational one —
+   there is no warning token, and this is not a warning. */
+.badge {
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-overlay);
+  color: var(--color-status-queued);
+  font-size: var(--font-size-xs);
+}
+
+.frame {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--space-7);
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: var(--color-canvas);
+}
+
+.full {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.missing {
+  padding: var(--space-4);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-faint);
+}

@@ -10,20 +10,27 @@
 
 #include "../../support/temp_path.hpp"
 
+#include <catch2/matchers/catch_matchers_string.hpp>
+
 #include <opencv2/core.hpp>
 
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 
+#include <sqlite3.h>
+
 #include <array>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
 using namespace reusex;
+using Catch::Matchers::ContainsSubstring;
 using Catch::Matchers::WithinAbs;
 namespace fs = std::filesystem;
 
@@ -89,6 +96,56 @@ std::vector<std::string> data_lines(const fs::path &p) {
     if (!l.empty() && l[0] != '#')
       out.push_back(l);
   return out;
+}
+
+/// One parsed `images.txt` header line.
+struct ImageEntry {
+  int image_id = 0;
+  double qw = 0, qx = 0, qy = 0, qz = 0;
+  double tx = 0, ty = 0, tz = 0;
+  int camera_id = 0;
+  std::string name;
+};
+
+std::vector<ImageEntry> image_entries(const fs::path &p) {
+  std::vector<ImageEntry> out;
+  for (const auto &line : data_lines(p)) {
+    std::istringstream ss(line);
+    ImageEntry e;
+    ss >> e.image_id >> e.qw >> e.qx >> e.qy >> e.qz >> e.tx >> e.ty >> e.tz >>
+        e.camera_id >> e.name;
+    out.push_back(e);
+  }
+  return out;
+}
+
+/// The `images/` filename the exporter derives from a node id.
+std::string expected_image_name(int node_id) {
+  std::ostringstream ss;
+  ss << std::setw(8) << std::setfill('0') << node_id << ".jpg";
+  return ss.str();
+}
+
+/// Blank a sensor frame's `transform` column with raw SQL.
+///
+/// `save_sensor_frame` always binds a well-formed 128-byte pose blob, so there
+/// is no public API that produces the poseless row the exporter now has to
+/// skip (#330) — importers that never had poses do, which is why the check
+/// exists. Writing the row directly is the only way to build the fixture.
+///
+/// The caller's `ProjectDB` must be closed first: the database runs in WAL
+/// mode, so reopening after the write is what makes the change visible.
+void clear_sensor_frame_pose(const fs::path &db_path, int node_id) {
+  sqlite3 *raw = nullptr;
+  REQUIRE(sqlite3_open(db_path.string().c_str(), &raw) == SQLITE_OK);
+  const std::string sql =
+      "UPDATE sensor_frames SET transform = NULL WHERE node_id = " +
+      std::to_string(node_id) + ";";
+  const int rc = sqlite3_exec(raw, sql.c_str(), nullptr, nullptr, nullptr);
+  const int changed = sqlite3_changes(raw);
+  sqlite3_close(raw);
+  REQUIRE(rc == SQLITE_OK);
+  REQUIRE(changed == 1);
 }
 
 } // namespace
@@ -307,4 +364,126 @@ TEST_CASE("ExportColmapScene_EmptyProjectDB_Throws", "[io][colmap]") {
 
   REQUIRE_THROWS_AS(reusex::io::export_colmap_scene(db, out_dir.path),
                     std::runtime_error);
+}
+
+// ===========================================================================
+// Poseless sensor frames (#330)
+// ===========================================================================
+//
+// `ProjectDB::sensor_frame_pose()` returns identity for a frame that has none,
+// so a poseless frame used to land in images.txt as a camera at the world
+// origin — which downstream MVS/SfM tooling takes at face value. The exporter
+// now asks `has_sensor_frame_pose()` and skips instead.
+
+TEST_CASE("ExportColmapScene_FrameWithoutStoredPose_"
+          "ExcludedFromImagesTxtAndImagesDir",
+          "[io][colmap]") {
+  TempDir tdb_dir;
+  TempDir out_dir;
+  const fs::path db_path = tdb_dir.path / "p.rux";
+
+  auto intr = make_intrinsics(500.0, 500.0, 256.0, 192.0, 512, 384);
+  {
+    ProjectDB db(db_path);
+    for (int id = 1; id <= 3; ++id) {
+      auto pose = identity4();
+      pose[3] = id * 1.0; // camera at (id, 0, 0), identity rotation
+      seed_sensor_frame(db, id, pose, intr);
+    }
+  }
+  clear_sensor_frame_pose(db_path, 2);
+
+  ProjectDB db(db_path);
+  reusex::io::export_colmap_scene(db, out_dir.path);
+
+  const fs::path sparse = out_dir.path / "sparse" / "0";
+  auto imgs = image_entries(sparse / "images.txt");
+
+  REQUIRE(imgs.size() == 2);
+  REQUIRE(imgs[0].image_id == 1);
+  REQUIRE(imgs[1].image_id == 3);
+
+  // The skipped frame's image is not written either.
+  REQUIRE(fs::exists(out_dir.path / "images" / "00000001.jpg"));
+  REQUIRE_FALSE(fs::exists(out_dir.path / "images" / "00000002.jpg"));
+  REQUIRE(fs::exists(out_dir.path / "images" / "00000003.jpg"));
+
+  // The header still advertises the count that was actually written.
+  auto raw = read_lines(sparse / "images.txt");
+  bool saw_count = false;
+  for (const auto &l : raw)
+    if (l == "# Number of images: 2")
+      saw_count = true;
+  REQUIRE(saw_count);
+}
+
+TEST_CASE("ExportColmapScene_FrameWithoutStoredPose_"
+          "LeavesRemainingEntriesUnchanged",
+          "[io][colmap]") {
+  // Skipping must be a filter and nothing more: the surviving frames keep the
+  // pose, camera id and image name they would have had without the poseless
+  // neighbour.
+  TempDir tdb_dir;
+  TempDir out_dir;
+  const fs::path db_path = tdb_dir.path / "p.rux";
+
+  auto intr = make_intrinsics(500.0, 500.0, 256.0, 192.0, 512, 384);
+  {
+    ProjectDB db(db_path);
+    for (int id = 1; id <= 3; ++id) {
+      auto pose = identity4();
+      pose[3] = id * 1.0;
+      seed_sensor_frame(db, id, pose, intr);
+    }
+  }
+  clear_sensor_frame_pose(db_path, 2);
+
+  ProjectDB db(db_path);
+  reusex::io::export_colmap_scene(db, out_dir.path);
+
+  const fs::path sparse = out_dir.path / "sparse" / "0";
+  auto imgs = image_entries(sparse / "images.txt");
+  REQUIRE(imgs.size() == 2);
+
+  // local_transform is identity, so T_cw = T_wb^-1: identity quaternion and
+  // t = -(id, 0, 0), exactly as if frame 2 had never existed.
+  for (const auto &e : imgs) {
+    REQUIRE_THAT(e.qw, WithinAbs(1.0, 1e-9));
+    REQUIRE_THAT(e.qx, WithinAbs(0.0, 1e-9));
+    REQUIRE_THAT(e.qy, WithinAbs(0.0, 1e-9));
+    REQUIRE_THAT(e.qz, WithinAbs(0.0, 1e-9));
+    REQUIRE_THAT(e.tx, WithinAbs(-1.0 * e.image_id, 1e-9));
+    REQUIRE_THAT(e.ty, WithinAbs(0.0, 1e-9));
+    REQUIRE_THAT(e.tz, WithinAbs(0.0, 1e-9));
+    REQUIRE(e.camera_id == 1); // shared intrinsics still collapse to one camera
+    REQUIRE(e.name == expected_image_name(e.image_id));
+  }
+
+  // Intrinsics are untouched by the filtering.
+  auto cams = data_lines(sparse / "cameras.txt");
+  REQUIRE(cams.size() == 1);
+}
+
+TEST_CASE("ExportColmapScene_AllFramesPoseless_ThrowsNamingSkipCount",
+          "[io][colmap]") {
+  TempDir tdb_dir;
+  TempDir out_dir;
+  const fs::path db_path = tdb_dir.path / "p.rux";
+
+  auto intr = make_intrinsics(500.0, 500.0, 256.0, 192.0, 512, 384);
+  {
+    ProjectDB db(db_path);
+    for (int id = 1; id <= 2; ++id)
+      seed_sensor_frame(db, id, identity4(), intr);
+  }
+  clear_sensor_frame_pose(db_path, 1);
+  clear_sensor_frame_pose(db_path, 2);
+
+  ProjectDB db(db_path);
+  REQUIRE_THROWS_AS(reusex::io::export_colmap_scene(db, out_dir.path),
+                    std::runtime_error);
+  REQUIRE_THROWS_WITH(
+      reusex::io::export_colmap_scene(db, out_dir.path),
+      ContainsSubstring("no usable sensor frames after filtering") &&
+          ContainsSubstring("2 of 2 skipped for having no stored pose"));
 }

@@ -24,9 +24,10 @@ an illegal dependency is a link error, not just a convention.
 ```
 Layer 4:  visualize  pipeline                  (visualize: PCL/VTK — see note below)
                                                (pipeline: stage execution + job runner)
-Layer 3:  segmentation  reconstruction  slam  io  vision  gsplat
-                                               (peers — MUST NOT link each other)
-                                               (gsplat: optional — WITH_CUDA + gsplat-cuda)
+Layer 3:  segmentation  reconstruction  slam  io  vision
+          gsplat_common  gsplat                (peers — MUST NOT link each other)
+                                               (gsplat: optional — WITH_CUDA + gsplat-cuda;
+                                                gsplat_common: always built, torch-free)
 Layer 2:  core                                 (ProjectDB, logging, materials, stages)
 Layer 1½: geometry_common                      (shared CGAL/PCL helpers: utils, cgal_utils,
                                                 CoplanarPolygon, BuildingComponent)
@@ -47,6 +48,18 @@ window directly and needs no display server. The *interactive* viewer
 (keyboard callbacks, panorama navigation, toggles) still lives in
 `apps/rux/src/view*` (External layer), because it is a UI, not a library
 concern.
+
+`gsplat` is **two** Layer-3 targets, split by dependency rather than by
+responsibility (#332). `reusex_gsplat_common` is the torch-free half —
+`GaussianCloud`, the `ProjectDB -> TrainingView` loader, the view-sampling
+helpers — and is built unconditionally, like any other peer.
+`reusex_gsplat` adds the CUDA training loop and exists only under `WITH_CUDA`
+plus the vendored rasterizer; it links `reusex_gsplat_common` PUBLIC. The split
+exists because CI builds the CPU-only variant: a single CUDA-gated target meant
+the module and all its tests disappeared from the only build a pull request
+gets to prove anything with. Both halves list their sources **explicitly** in
+`reusexLibrary.cmake` (like `geometry_common`), so a new file must be assigned
+to one side deliberately — adding a `src/gsplat/*.cpp` needs a CMake edit.
 
 `pipeline` (#265) is the other Layer-4 module. It holds the database-level
 stage runners (`run_stage(ProjectDB&, StageContext)`) and the in-process
@@ -241,11 +254,21 @@ writes labels MUST follow it; any deviation is a bug.
   sidecars. The suite must stay green under `ctest --parallel $(nproc)`.
 - **Which test binary**: unit tests build into `reusex_unit_tests` (light) or
   `reusex_unit_tests_vision` (full dependency closure). A test lands in the
-  heavy binary purely by living in `tests/unit/vision/`, `tests/unit/ruxd/`
-  or `tests/unit/visualize/`. Keep new tests out of those directories unless
-  they genuinely need the ML backends, `ruxd_lib` or the PCL/Qt viewer:
-  linking libtorch/TensorRT adds ~0.6 s of dynamic-loader time to *every*
-  test process in that binary (#268).
+  heavy binary by living in `tests/unit/vision/`, `tests/unit/ruxd/`,
+  `tests/unit/visualize/` or `tests/unit/gsplat/cuda/`. Keep new tests out of
+  those directories unless they genuinely need the ML backends, `ruxd_lib`,
+  the PCL/Qt viewer or torch: linking libtorch/TensorRT adds ~0.6 s of
+  dynamic-loader time to *every* test process in that binary (#268).
+- **gsplat tests**: `tests/unit/gsplat/cuda/` is for tests that need torch or
+  the rasterizer; it is dropped entirely from a build without
+  `REUSEX_HAVE_GSPLAT`. Tests directly under `tests/unit/gsplat/` cover
+  `reusex_gsplat_common` and build everywhere, including the CPU-only variant
+  CI runs — so that is where a gsplat test belongs unless it truly cannot be
+  written without torch (#332).
+- **`[gpu]` tests SKIP, they do not fail.** A test that needs a CUDA device
+  opens with a device probe (`gsplat::has_cuda_device()`, `cuda::is_available()`)
+  and Catch2's `SKIP()`. "You ran the wrong ctest command" is not a test
+  result; a skip is.
 
 ### 7.1 Test naming convention
 

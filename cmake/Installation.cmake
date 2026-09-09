@@ -27,6 +27,7 @@ if(TARGET reusex)
         reusex_segmentation
         reusex_reconstruction
         reusex_slam
+        reusex_gsplat_common
         reusex_pipeline)
     if(TARGET reusex_visualize)
         list(APPEND _reusex_install_targets reusex_visualize)

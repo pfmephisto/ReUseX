@@ -7,9 +7,15 @@
 #include <spdlog/spdlog.h>
 
 #ifdef REUSEX_HAVE_GSPLAT
-#include <filesystem>
+#include "stage_prerequisites.hpp"
+
 #include <reusex/core/ProjectDB.hpp>
+#include <reusex/core/stage_contract.hpp>
 #include <reusex/gsplat/train.hpp>
+
+#include <atomic>
+#include <csignal>
+#include <filesystem>
 #endif
 
 void setup_subcommand_create_gsplat(CLI::App &app,
@@ -46,6 +52,17 @@ REPORTED QUALITY:
   Every Nth view (--holdout-every, default 8) is excluded from training and
   used only for evaluation. The held-out PSNR is the honest number; the
   training-view PSNR will always be higher.
+
+CHECKPOINTING:
+  Ctrl-C no longer throws the run away. The first SIGINT asks the trainer to
+  stop at the end of the current iteration; it then runs a final evaluation
+  and writes --out exactly as a completed run would, logging which iteration
+  it reached. Press Ctrl-C a SECOND time to abort immediately the usual way,
+  with nothing written.
+  --checkpoint-every N additionally writes an intermediate .ply every N
+  iterations (atomically, via a .tmp + rename), keeping the last
+  --checkpoint-keep of them next to --out or under --checkpoint-dir. It is
+  insurance against a crash, not against Ctrl-C.
 
 REGION SELECTION MATTERS:
   3DGS needs dense multi-view overlap. Training on a sparse sample spread over
@@ -173,6 +190,18 @@ NOTES:
                   "Index of the training view used for checkpoint renders")
       ->default_val(opt->render_view_index);
 
+  sub->add_option("--checkpoint-every", opt->checkpoint_every,
+                  "Write an intermediate .ply every N iterations (0 = off)")
+      ->default_val(opt->checkpoint_every)
+      ->check(CLI::Range(0, 1000000));
+  sub->add_option("--checkpoint-keep", opt->checkpoint_keep,
+                  "How many checkpoint .ply files to keep (0 = keep all)")
+      ->default_val(opt->checkpoint_keep)
+      ->check(CLI::Range(0, 10000));
+  sub->add_option(
+      "--checkpoint-dir", opt->checkpoint_dir,
+      "Directory for checkpoint .ply files (default: beside --out)");
+
   sub->callback([opt, global_opt]() {
     spdlog::trace("calling create gsplat subcommand");
     return run_subcommand_create_gsplat(*opt, *global_opt);
@@ -192,6 +221,55 @@ int run_subcommand_create_gsplat(SubcommandCreateGsplatOptions const &,
 
 #else
 
+namespace {
+
+/// Set by the SIGINT handler, polled by the training loop. Namespace scope
+/// because a signal handler may only touch objects of static storage duration,
+/// and lock-free because a handler may not block.
+std::atomic_bool g_gsplat_cancel{false};
+static_assert(std::atomic_bool::is_always_lock_free,
+              "the SIGINT handler stores to this flag and must not block");
+
+extern "C" void gsplat_sigint_handler(int sig) {
+  // Async-signal-safe by construction: one relaxed store, and on the second
+  // signal two calls that POSIX lists as safe. No logging, no allocation — the
+  // training loop's own core::warn reports the cancel once it observes it.
+  if (g_gsplat_cancel.load(std::memory_order_relaxed)) {
+    // Second Ctrl-C: the user wants out NOW. Offering only the graceful path
+    // would make the feature a trap on a run whose next iteration is minutes
+    // away. Hand the signal back to the default disposition and re-raise, so
+    // the process dies exactly as it would have with no handler installed.
+    std::signal(sig, SIG_DFL);
+    std::raise(sig);
+    return;
+  }
+  g_gsplat_cancel.store(true, std::memory_order_relaxed);
+}
+
+/// Installs the SIGINT handler for the lifetime of one `create gsplat` run and
+/// puts back whatever was there before. `rux` is one process running many
+/// subcommands: leaving a handler pointing at this TU's flag after the
+/// subcommand returned would silently swallow a later Ctrl-C.
+class SigintGuard {
+    public:
+  SigintGuard() {
+    // A previous run in the same process may have left the flag set.
+    g_gsplat_cancel.store(false, std::memory_order_relaxed);
+    previous_ = std::signal(SIGINT, gsplat_sigint_handler);
+  }
+  ~SigintGuard() {
+    if (previous_ != SIG_ERR)
+      std::signal(SIGINT, previous_);
+  }
+  SigintGuard(const SigintGuard &) = delete;
+  SigintGuard &operator=(const SigintGuard &) = delete;
+
+    private:
+  void (*previous_)(int) = SIG_ERR;
+};
+
+} // namespace
+
 int run_subcommand_create_gsplat(SubcommandCreateGsplatOptions const &opt,
                                  const RuxOptions &global_opt) {
   namespace fs = std::filesystem;
@@ -203,6 +281,22 @@ int run_subcommand_create_gsplat(SubcommandCreateGsplatOptions const &opt,
 
   try {
     reusex::ProjectDB db(project_path);
+
+    // Gate on the documented stage contract like every sibling `create`
+    // subcommand (#331). The seed cloud is passed as an override so that
+    // `--seed-cloud foo` is checked for `foo` rather than for the contract's
+    // default name — without it the check would refuse for the wrong reason.
+    //
+    // This is also why `run_gsplat_stage`'s own "project has no point cloud
+    // named 'X'" refusal never doubles up with this one: the CLI returns here
+    // before the library is called, so exactly one message is printed. The
+    // library keeps its check for the non-CLI callers (pipeline, ruxd) that do
+    // not pass through this gate.
+    if (int rc = rux::check_stage_prerequisites(
+            db, reusex::core::PipelineStage::gsplat,
+            {{"cloud", opt.seed_cloud}});
+        rc != RuxError::SUCCESS)
+      return rc;
 
     gs::GsplatStageOptions o;
     o.seed_cloud = opt.seed_cloud;
@@ -240,11 +334,30 @@ int run_subcommand_create_gsplat(SubcommandCreateGsplatOptions const &opt,
     if (!opt.out_ply.empty())
       o.out_ply = opt.out_ply;
 
+    o.train.checkpoint_every = opt.checkpoint_every;
+    o.train.checkpoint_keep = opt.checkpoint_keep;
+    if (!opt.checkpoint_dir.empty())
+      o.train.checkpoint_dir = opt.checkpoint_dir;
+
+    // Signal handling belongs to the application, never the library: the
+    // library's half of the contract is the plain flag below. The guard is
+    // scoped to the training call so the previous disposition is back in place
+    // the moment the stage returns, however it returns.
+    const SigintGuard sigint_guard;
+    o.train.cancel_token = &g_gsplat_cancel;
+
     const gs::TrainResult r = gs::run_gsplat_stage(db, o);
 
-    spdlog::info("Gaussian splatting complete: {} Gaussians, {:.2f} dB "
-                 "(training views), {:.1f} s",
-                 r.final_count, r.final_psnr, r.seconds);
+    if (r.cancelled)
+      spdlog::warn("Cancelled at iteration {} of {} — the .ply was still "
+                   "written and holds the model as trained so far. Its metrics "
+                   "are from a shortened run.",
+                   r.iterations_run, opt.iterations);
+
+    spdlog::info("Gaussian splatting {}: {} Gaussians, {:.2f} dB "
+                 "(training views), {:.1f} s over {} iterations",
+                 r.cancelled ? "stopped early" : "complete", r.final_count,
+                 r.final_psnr, r.seconds, r.iterations_run);
     if (!r.evals.empty() && r.evals.back().holdout_views > 0)
       spdlog::info("Held-out: {:.2f} dB / SSIM {:.4f} over {} views excluded "
                    "from training",
@@ -257,7 +370,15 @@ int run_subcommand_create_gsplat(SubcommandCreateGsplatOptions const &opt,
       spdlog::info("Wrote {}", opt.out_ply);
     for (const auto &p : r.renders)
       spdlog::info("Render: {}", p.string());
+    for (const auto &p : r.checkpoints)
+      spdlog::info("Checkpoint: {}", p.string());
 
+    // SUCCESS even when cancelled. The user asked for the run to stop and it
+    // stopped where they asked, having written the artifact they asked for; a
+    // non-zero status would make `rux create gsplat && rux ...` and every CI
+    // script treat a deliberate, successful salvage as a failure. The shortened
+    // run is reported through the warning above and through the `pipeline_log`
+    // note, which is where a reader looks for what happened.
     return RuxError::SUCCESS;
 
   } catch (const std::exception &e) {

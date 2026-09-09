@@ -101,6 +101,13 @@ Python-registered backwards missing.
 
 ## 3. Native design — `reusex_gsplat` module (WITH_CUDA-gated)
 
+> **Update (#332):** the module shipped as two targets rather than one.
+> `reusex_gsplat_common` holds the torch-free half (`GaussianCloud`,
+> `TrainingViews`, the view-sampling helpers) and is built unconditionally;
+> `reusex_gsplat` — everything below — stays WITH_CUDA-gated and links it.
+> Without the split the CPU-only CI variant compiled no gsplat code and ran no
+> gsplat tests.
+
 ### Phase 0 — vendor gsplat as a C++/CUDA lib (Nix)
 `pkgs/gsplat-cuda/package.nix`: compile `gsplat/cuda/csrc/*.{cu,cpp}` (36 `.cu` + 14
 `.cpp`) into a static lib, include `csrc/` + bundled `third_party/glm`, link
@@ -395,6 +402,31 @@ error (the SLAM baseline for this scan measures ~22 mm plane-flatness RMS,
 which at 480 px is on the order of a pixel of reprojection error across the
 whole model) and the 480 px training resolution, not Gaussian count. That is
 where the next increment belongs — not in density control.
+
+## 5.4 Surviving a long run (#329)
+
+A 30 k-iteration NewOffice run is a multi-hour job, which makes "what happens
+when it does not finish" a first-class question rather than an ergonomic
+nicety.
+
+- **Ctrl-C salvages.** The first SIGINT sets a flag the loop polls at the top
+  of each iteration; the trainer stops at that boundary, runs a final held-out
+  evaluation, and writes `--out` exactly as a completed run would. The log and
+  the `pipeline_log` row both say `CANCELLED at iteration N of M`, and
+  `TrainResult::{cancelled, iterations_run}` carry it to a programmatic
+  caller — a shortened run's PSNR is real but is not comparable with a full
+  one's. A second Ctrl-C restores `SIG_DFL` and re-raises, so the impatient
+  path still exists.
+- **`--checkpoint-every N`** writes an intermediate `.ply` on a schedule,
+  keeping the last `--checkpoint-keep` (default 3) beside `--out` or under
+  `--checkpoint-dir`. Each write goes to `<name>.tmp` and is `rename()`d into
+  place, so an interrupted write can never leave a truncated `.ply` whose
+  header still parses. This covers the case a cancel does not: a crash, an
+  OOM, or a machine that goes away.
+- **`--render-at` write failures no longer abort.** A checkpoint render is a
+  diagnostic; a full disk at iteration 500 of 30 000 warns and the run
+  continues. Only an uncreatable `--render-dir` / `--checkpoint-dir` still
+  fails, and it fails at startup, before the hours.
 
 ## 6. Verification (native, once built)
 

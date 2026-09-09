@@ -21,6 +21,7 @@
 #include <sqlite3.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <fstream>
 #include <random>
@@ -1335,7 +1336,15 @@ class ProjectDB::Impl {
     return cv::imdecode(encoded, cv::IMREAD_UNCHANGED); // CV_8UC1
   }
 
-  std::array<double, 16> getSensorFramePose(int nodeId) const {
+  /// Read the raw `transform` blob of a sensor frame.
+  ///
+  /// Shared by getSensorFramePose (which falls back to identity) and
+  /// hasSensorFramePose (which reports the failure instead) so the two can
+  /// never disagree about what "there is a stored pose" means.
+  ///
+  /// @return false when the row is missing, the blob is NULL, or the blob is
+  ///         not exactly 16 doubles. `out` is untouched in that case.
+  bool readSensorFramePoseBlob(int nodeId, std::array<double, 16> &out) const {
     const char *sql = "SELECT transform FROM sensor_frames WHERE node_id = ?;";
     sqlite3_stmt *stmt;
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
@@ -1344,17 +1353,63 @@ class ProjectDB::Impl {
     StmtGuard guard(stmt);
     sqlite3_bind_int(stmt, 1, nodeId);
 
-    std::array<double, 16> pose = {1, 0, 0, 0, 0, 1, 0, 0,
-                                   0, 0, 1, 0, 0, 0, 0, 1};
     if (sqlite3_step(stmt) != SQLITE_ROW)
-      return pose;
+      return false;
 
     const void *blob = sqlite3_column_blob(stmt, 0);
     int blobSize = sqlite3_column_bytes(stmt, 0);
-    if (blob && blobSize == static_cast<int>(16 * sizeof(double)))
-      std::memcpy(pose.data(), blob, 16 * sizeof(double));
+    if (!blob || blobSize != static_cast<int>(16 * sizeof(double)))
+      return false;
 
+    std::memcpy(out.data(), blob, 16 * sizeof(double));
+    return true;
+  }
+
+  std::array<double, 16> getSensorFramePose(int nodeId) const {
+    // Identity fallback is load-bearing for existing callers; ask
+    // hasSensorFramePose() when the difference matters (#330).
+    std::array<double, 16> pose = {1, 0, 0, 0, 0, 1, 0, 0,
+                                   0, 0, 1, 0, 0, 0, 0, 1};
+    readSensorFramePoseBlob(nodeId, pose);
     return pose;
+  }
+
+  /// Is the stored `transform` a pose we can trust as a camera placement?
+  ///
+  /// A genuinely-stored identity IS a valid pose (a scan may legitimately put
+  /// its first frame at the origin), so this rejects only what cannot be a
+  /// rigid transform at all.
+  bool hasSensorFramePose(int nodeId) const {
+    std::array<double, 16> m{};
+    // Missing row / NULL / short blob: nothing was ever written here.
+    if (!readSensorFramePoseBlob(nodeId, m))
+      return false;
+
+    // NaN/Inf survive a round-trip through the BLOB and would poison every
+    // downstream matrix product without ever throwing.
+    for (double v : m)
+      if (!std::isfinite(v))
+        return false;
+
+    // Row-major storage, so the bottom row is m[12..15]. An affine 4x4 that
+    // is not [0 0 0 1] there is not a pose — it is a garbled or
+    // differently-laid-out blob.
+    constexpr double kRowTol = 1e-6;
+    if (std::abs(m[12]) > kRowTol || std::abs(m[13]) > kRowTol ||
+        std::abs(m[14]) > kRowTol || std::abs(m[15] - 1.0) > kRowTol)
+      return false;
+
+    // Non-degenerate rotation block. This is the check that catches the
+    // all-zeros matrix an importer writes for a frame it has no pose for:
+    // that passes the bottom-row test only when m[15] happens to be 1, and
+    // fails here because det(R) == 0. A proper rotation has det == +1; we
+    // only demand a magnitude away from zero so a scaled or slightly
+    // non-orthonormal stored pose is still accepted.
+    constexpr double kDetEps = 1e-9;
+    const double det = m[0] * (m[5] * m[10] - m[6] * m[9]) -
+                       m[1] * (m[4] * m[10] - m[6] * m[8]) +
+                       m[2] * (m[4] * m[9] - m[5] * m[8]);
+    return std::abs(det) > kDetEps;
   }
 
   reusex::core::SensorIntrinsics getSensorFrameIntrinsics(int nodeId) const {
@@ -4450,6 +4505,10 @@ cv::Mat ProjectDB::sensor_frame_confidence(int nodeId) const {
 
 std::array<double, 16> ProjectDB::sensor_frame_pose(int nodeId) const {
   return impl_->getSensorFramePose(nodeId);
+}
+
+bool ProjectDB::has_sensor_frame_pose(int nodeId) const {
+  return impl_->hasSensorFramePose(nodeId);
 }
 
 core::SensorIntrinsics ProjectDB::sensor_frame_intrinsics(int nodeId) const {

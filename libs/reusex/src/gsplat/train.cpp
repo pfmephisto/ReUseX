@@ -7,6 +7,8 @@
 #include "mcmc.hpp"
 #include "optimizer.hpp"
 #include "rasterize.hpp"
+#include "ssim.hpp"
+#include "view_sampling.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/core/logging.hpp>
@@ -17,13 +19,16 @@
 #include <opencv2/imgproc.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <filesystem>
 #include <numeric>
 #include <random>
 #include <stdexcept>
 #include <string>
+#include <system_error>
 #include <tuple>
 #include <utility>
 
@@ -238,128 +243,11 @@ cv::Mat tensor_to_image(const torch::Tensor &hwc) {
   return bgr; // cvtColor allocated fresh storage, so this outlives `c`
 }
 
-// ---------------------------------------------------------------------------
-// Losses
-// ---------------------------------------------------------------------------
-
-torch::Tensor gaussian_kernel1d(int window, double sigma,
-                                const torch::TensorOptions &o) {
-  auto x = torch::arange(window, o) - (window - 1) / 2.0;
-  auto g = torch::exp(-x.pow(2) / (2.0 * sigma * sigma));
-  return g / g.sum();
-}
-
-/// Structural similarity over a [1,3,H,W] pair, the standard 11x11 sigma=1.5
-/// Gaussian-windowed formulation used by every 3DGS implementation.
-torch::Tensor ssim(const torch::Tensor &a, const torch::Tensor &b) {
-  constexpr int window = 11;
-  constexpr double sigma = 1.5;
-  const int64_t channels = a.size(1);
-
-  auto k1 = gaussian_kernel1d(window, sigma, a.options());
-  auto k2 = k1.unsqueeze(1).mm(k1.unsqueeze(0)); // [w,w]
-  auto kernel = k2.expand({channels, 1, window, window}).contiguous();
-
-  auto conv = [&](const torch::Tensor &t) {
-    return torch::conv2d(t, kernel, /*bias=*/{}, /*stride=*/1,
-                         /*padding=*/window / 2, /*dilation=*/1,
-                         /*groups=*/channels);
-  };
-
-  auto mu_a = conv(a);
-  auto mu_b = conv(b);
-  auto mu_a2 = mu_a * mu_a;
-  auto mu_b2 = mu_b * mu_b;
-  auto mu_ab = mu_a * mu_b;
-
-  auto sigma_a2 = conv(a * a) - mu_a2;
-  auto sigma_b2 = conv(b * b) - mu_b2;
-  auto sigma_ab = conv(a * b) - mu_ab;
-
-  constexpr double c1 = 0.01 * 0.01;
-  constexpr double c2 = 0.03 * 0.03;
-  auto num = (2 * mu_ab + c1) * (2 * sigma_ab + c2);
-  auto den = (mu_a2 + mu_b2 + c1) * (sigma_a2 + sigma_b2 + c2);
-  return (num / den).mean();
-}
-
-/// Radius of the camera cloud — the reference scales the position learning
-/// rate by it, because a step in metres only means something relative to how
-/// big the scene is.
-double scene_extent(const std::vector<TrainingView> &views) {
-  Eigen::Vector3d centroid = Eigen::Vector3d::Zero();
-  std::vector<Eigen::Vector3d> centers;
-  centers.reserve(views.size());
-  for (const auto &v : views) {
-    // camera centre in world = -R^T t  for T_cw = [R|t]
-    const Eigen::Matrix3d R = v.T_cw.block<3, 3>(0, 0);
-    const Eigen::Vector3d t = v.T_cw.block<3, 1>(0, 3);
-    centers.push_back(-R.transpose() * t);
-    centroid += centers.back();
-  }
-  centroid /= static_cast<double>(centers.size());
-  double radius = 0.0;
-  for (const auto &c : centers)
-    radius = std::max(radius, (c - centroid).norm());
-  // A single-viewpoint capture would otherwise scale the LR to zero.
-  return std::max(radius, 1e-3);
-}
-
-// ---------------------------------------------------------------------------
-// Train / held-out split
-// ---------------------------------------------------------------------------
-
-/// The two view index sets. Deterministic by construction: membership depends
-/// only on a view's position in the list, never on the RNG, so two runs — or a
-/// prune-only run and an MCMC run — evaluate on exactly the same images
-/// (STANDARDS §6).
-struct ViewSplit {
-  std::vector<std::size_t> train;
-  std::vector<std::size_t> holdout;
-};
-
-ViewSplit split_views(std::size_t n_views, int holdout_every) {
-  ViewSplit s;
-  for (std::size_t i = 0; i < n_views; ++i) {
-    const bool held =
-        holdout_every > 0 && i % static_cast<std::size_t>(holdout_every) == 0;
-    (held ? s.holdout : s.train).push_back(i);
-  }
-
-  // A split that leaves nothing to train on is worse than no split. This only
-  // triggers for tiny view sets (holdout_every == 1, or a single view).
-  if (s.train.empty()) {
-    core::warn("gsplat: a held-out split of every {}th view would leave {} "
-               "training views out of {} — training on all views instead, and "
-               "reporting no held-out metric",
-               holdout_every, s.train.size(), n_views);
-    s.train.clear();
-    s.holdout.clear();
-    for (std::size_t i = 0; i < n_views; ++i)
-      s.train.push_back(i);
-  }
-  return s;
-}
-
-/// Sub-sample @p src to at most @p max_n entries by a uniform stride, keeping
-/// the first entry. Deterministic, and it spreads the sample over the whole
-/// trajectory rather than taking a contiguous prefix.
-std::vector<std::size_t> stride_sample(const std::vector<std::size_t> &src,
-                                       int max_n) {
-  if (max_n <= 0 || src.size() <= static_cast<std::size_t>(max_n))
-    return src;
-  const std::size_t step = src.size() / static_cast<std::size_t>(max_n);
-  std::vector<std::size_t> out;
-  out.reserve(static_cast<std::size_t>(max_n));
-  for (std::size_t i = 0; out.size() < static_cast<std::size_t>(max_n);
-       i += step)
-    out.push_back(src[i]);
-  return out;
-}
-
 } // namespace
 
 bool is_available() { return true; }
+
+bool has_cuda_device() { return torch::cuda::is_available(); }
 
 // ---------------------------------------------------------------------------
 
@@ -383,8 +271,9 @@ TrainResult train_gaussians(const GaussianCloud &init,
   g.logit_opacity.set_requires_grad(true);
   g.sh.set_requires_grad(true);
 
-  const double extent = scene_extent(views);
-  const ViewSplit split = split_views(views.size(), opt.holdout_every);
+  const double extent = detail::scene_extent(views);
+  const detail::ViewSplit split =
+      detail::split_views(views.size(), opt.holdout_every);
 
   core::info(
       "gsplat: {} views ({} train / {} held out), scene extent {:.2f} m, "
@@ -429,28 +318,140 @@ TrainResult train_gaussians(const GaussianCloud &init,
                              .to(torch::kCUDA));
   }
 
+  // A destination the caller named but that cannot be created is a mistake to
+  // report NOW, before the hours of training that would discover it. This is
+  // the opposite call from a *write* failure mid-run (see dump_render and
+  // write_checkpoint): the destination is an input, the individual file is a
+  // by-product.
+  auto require_directory = [](const std::filesystem::path &dir,
+                              std::string_view what, std::string_view flag) {
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    // create_directories reports no error for a directory that already exists,
+    // so the existence question has to be asked separately.
+    if (!std::filesystem::is_directory(dir))
+      throw std::runtime_error(fmt::format(
+          "gsplat: cannot create the {} directory '{}'{} — refusing "
+          "to train with an unusable {}.",
+          what, dir.string(),
+          ec ? fmt::format(": {}", ec.message()) : std::string{}, flag));
+  };
+
   std::filesystem::path render_dir = opt.render_dir;
   const std::size_t render_idx =
       std::min(opt.render_view_index, views.size() - 1);
   if (!render_dir.empty())
-    std::filesystem::create_directories(render_dir);
+    require_directory(render_dir, "render", "--render-dir");
+
+  const bool checkpointing = opt.checkpoint_every > 0;
+  if (checkpointing) {
+    if (opt.checkpoint_dir.empty())
+      throw std::runtime_error(
+          "gsplat: checkpointing is enabled but no checkpoint directory was "
+          "resolved — pass --checkpoint-dir (or -o/--out, whose parent "
+          "directory is used by default).");
+    require_directory(opt.checkpoint_dir, "checkpoint", "--checkpoint-dir");
+    core::info("gsplat: checkpointing every {} iterations to '{}', keeping {}",
+               opt.checkpoint_every, opt.checkpoint_dir.string(),
+               opt.checkpoint_keep > 0 ? fmt::format("{}", opt.checkpoint_keep)
+                                       : std::string("all"));
+  }
 
   TrainResult result;
+
+  // The last iteration a render / evaluation was attempted at, so the
+  // post-cancel wrap-up can top the run up without duplicating work the loop
+  // already did on its final pass.
+  int last_render_iter = -1;
+  int last_eval_iter = -1;
 
   auto dump_render = [&](int iteration) {
     if (render_dir.empty())
       return;
+    last_render_iter = iteration;
     torch::NoGradGuard no_grad;
     const auto &v = views[render_idx];
     auto out = detail::render(g, viewmats[render_idx], intrinsics[render_idx],
                               v.width(), v.height(), g.sh_degree);
     const auto path =
         render_dir / fmt::format("render_{}_iter{:06d}.png", v.name, iteration);
-    if (!cv::imwrite(path.string(), tensor_to_image(out.image)))
-      throw std::runtime_error(
-          fmt::format("gsplat: failed to write render '{}'", path.string()));
+
+    // A checkpoint render is a diagnostic, not the product: a full disk or a
+    // missing codec at iteration 500 of 30 000 must not throw away the run.
+    // cv::imwrite signals both ways — `false` for an unwritable path, a
+    // cv::Exception for an unknown extension or an absent codec — so both are
+    // caught here and reported the same way.
+    std::string reason;
+    try {
+      if (!cv::imwrite(path.string(), tensor_to_image(out.image)))
+        reason = "cv::imwrite returned false (unwritable path, full disk, or "
+                 "no codec for this extension)";
+    } catch (const std::exception &e) {
+      reason = e.what();
+    }
+    if (!reason.empty()) {
+      core::warn("gsplat: could not write checkpoint render '{}': {}. Training "
+                 "continues — the render is a diagnostic, not the run's "
+                 "output. TrainResult::renders will not list this file.",
+                 path.string(), reason);
+      return;
+    }
+
     result.renders.push_back(path);
     core::info("gsplat: wrote checkpoint render {}", path.string());
+  };
+
+  // --- periodic checkpoints ------------------------------------------------
+  // Insurance against a run that dies late: a 30 k-iteration job that crashes
+  // at 29 k otherwise leaves nothing at all behind.
+  auto write_checkpoint = [&](int iteration) {
+    if (!checkpointing)
+      return;
+    const auto final_path = opt.checkpoint_dir /
+                            fmt::format("checkpoint_iter{:06d}.ply", iteration);
+    // Write to a sibling `.tmp` and rename onto the final name. rename() is
+    // atomic within a filesystem, so a crash or a Ctrl-C part-way through the
+    // (large, slow) .ply write leaves either the previous checkpoint or the
+    // new one — never a truncated file whose header still parses as valid and
+    // whose Gaussian list stops halfway.
+    const std::filesystem::path tmp_path = final_path.string() + ".tmp";
+
+    try {
+      const GaussianCloud snapshot = to_cloud(g);
+      save_gaussian_ply(snapshot, tmp_path);
+      std::filesystem::rename(tmp_path, final_path);
+      result.checkpoints.push_back(final_path);
+      core::info("gsplat: checkpoint at iter {} -> {} ({} Gaussians)",
+                 iteration, final_path.string(), snapshot.size());
+    } catch (const std::exception &e) {
+      // Same reasoning as a failed render: the checkpoint is insurance, not
+      // the product. Killing an hours-long run because the insurance could not
+      // be filed is the worse outcome.
+      core::warn("gsplat: could not write checkpoint '{}': {}. Training "
+                 "continues without it.",
+                 final_path.string(), e.what());
+      std::error_code ec;
+      std::filesystem::remove(tmp_path, ec); // best-effort; a stray .tmp is
+                                             // noise, not corruption
+      return;
+    }
+
+    // Retention. Driven by the paths this run wrote, in order, rather than by
+    // globbing the directory — the trainer must never delete a file it did not
+    // create, and a user's own `.ply` sitting in the same folder is not ours
+    // to remove.
+    if (opt.checkpoint_keep > 0) {
+      while (result.checkpoints.size() >
+             static_cast<std::size_t>(opt.checkpoint_keep)) {
+        const auto oldest = result.checkpoints.front();
+        result.checkpoints.erase(result.checkpoints.begin());
+        std::error_code ec;
+        std::filesystem::remove(oldest, ec);
+        if (ec)
+          core::warn("gsplat: could not delete superseded checkpoint '{}': {}",
+                     oldest.string(), ec.message());
+      }
+    }
   };
 
   auto wants_render = [&](int it) {
@@ -467,9 +468,10 @@ TrainResult train_gaussians(const GaussianCloud &init,
   // --- held-out evaluation -------------------------------------------------
   // Both sides are strided down to the same budget so the pair is comparable
   // and the pass stays cheap relative to training.
-  const auto eval_train_views = stride_sample(split.train, opt.eval_max_views);
+  const auto eval_train_views =
+      detail::stride_sample(split.train, opt.eval_max_views);
   const auto eval_holdout_views =
-      stride_sample(split.holdout, opt.eval_max_views);
+      detail::stride_sample(split.holdout, opt.eval_max_views);
 
   auto eval_set = [&](const std::vector<std::size_t> &idx) {
     torch::NoGradGuard no_grad;
@@ -483,8 +485,8 @@ TrainResult train_gaussians(const GaussianCloud &init,
       const auto &target = targets[vi];
       auto mse = torch::mse_loss(pred, target);
       psnr_sum += 10.0 * std::log10(1.0 / std::max(mse.item<double>(), 1e-12));
-      ssim_sum += ssim(pred.permute({2, 0, 1}).unsqueeze(0),
-                       target.permute({2, 0, 1}).unsqueeze(0))
+      ssim_sum += detail::ssim(pred.permute({2, 0, 1}).unsqueeze(0),
+                               target.permute({2, 0, 1}).unsqueeze(0))
                       .item<double>();
     }
     const auto n = static_cast<double>(std::max<std::size_t>(idx.size(), 1));
@@ -494,6 +496,7 @@ TrainResult train_gaussians(const GaussianCloud &init,
   auto run_eval = [&](int it) {
     if (eval_train_views.empty())
       return;
+    last_eval_iter = it;
     EvalMetrics m;
     m.iteration = it;
     m.gaussians = static_cast<std::size_t>(g.count());
@@ -551,12 +554,30 @@ TrainResult train_gaussians(const GaussianCloud &init,
   const auto t0 = std::chrono::steady_clock::now();
   double window_psnr = 0.0;
   int window_n = 0;
+  // Kept so a cancel between two log lines can still flush an honest history
+  // row rather than reporting the last complete window as if it were the end.
+  double last_loss_value = 0.0;
+  double last_l1_value = 0.0;
 
   // Which views the loop actually touched, recorded as it goes so the held-out
   // claim rests on the observed draws rather than on the split alone.
   std::vector<bool> drawn(views.size(), false);
 
+  // The last iteration that ran to completion. Assigned at the bottom of the
+  // loop body so a cancel can never claim credit for a half-applied step.
+  int completed = 0;
+
   for (int it = 1; it <= opt.iterations; ++it) {
+    // Poll at the TOP of the body, before anything is rendered or stepped. A
+    // cancel arriving mid-iteration therefore takes effect at the next clean
+    // boundary rather than leaving a backward() without its optimizer step, or
+    // an MCMC relocation without the noise injection that belongs with it.
+    if (opt.cancel_token != nullptr &&
+        opt.cancel_token->load(std::memory_order_relaxed)) {
+      result.cancelled = true;
+      break;
+    }
+
     const std::size_t vi = split.train[pick(rng)];
     drawn[vi] = true;
     const auto &v = views[vi];
@@ -572,7 +593,7 @@ TrainResult train_gaussians(const GaussianCloud &init,
     if (opt.lambda_dssim > 0.0f) {
       auto p = pred.permute({2, 0, 1}).unsqueeze(0); // [1,3,H,W]
       auto t = target.permute({2, 0, 1}).unsqueeze(0);
-      auto s = ssim(p, t);
+      auto s = detail::ssim(p, t);
       loss = (1.0f - opt.lambda_dssim) * l1 + opt.lambda_dssim * (1.0 - s);
     } else {
       loss = l1;
@@ -598,6 +619,11 @@ TrainResult train_gaussians(const GaussianCloud &init,
     // the only honest outcome is to stop at the iteration that produced it.
     // The sync this costs is already paid below for the PSNR line.
     const double loss_value = loss.item<double>();
+    // Read out alongside the loss rather than after the optimizer step: the
+    // stream is already drained by the line above, so the second copy costs
+    // almost nothing, and having the number in hand lets a cancelled run flush
+    // a final history row instead of reporting the last full log window.
+    const double l1_value = l1.item<double>();
     if (!std::isfinite(loss_value))
       throw std::runtime_error(fmt::format(
           "gsplat: training diverged at iteration {} — loss is {} on view "
@@ -619,12 +645,14 @@ TrainResult train_gaussians(const GaussianCloud &init,
     }
     window_psnr += psnr;
     ++window_n;
+    last_loss_value = loss_value;
+    last_l1_value = l1_value;
 
     if (it % opt.log_interval == 0 || it == opt.iterations) {
       TrainMetrics m;
       m.iteration = it;
       m.loss = loss_value;
-      m.l1 = l1.item<double>();
+      m.l1 = l1_value;
       m.psnr = window_psnr / std::max(window_n, 1);
       m.gaussians = static_cast<std::size_t>(g.count());
       result.history.push_back(m);
@@ -685,6 +713,52 @@ TrainResult train_gaussians(const GaussianCloud &init,
 
     if (wants_render(it))
       dump_render(it);
+
+    // No checkpoint on the final iteration: `result.gaussians` already carries
+    // that exact model back to the caller, which writes it to `out_ply`. A
+    // checkpoint there would be a byte-identical duplicate.
+    if (checkpointing && it % opt.checkpoint_every == 0 && it < opt.iterations)
+      write_checkpoint(it);
+
+    completed = it;
+  }
+
+  result.iterations_run = completed;
+
+  if (result.cancelled) {
+    core::warn("gsplat: CANCELLED at iteration {} of {} — stopping here and "
+               "keeping the model as trained so far. Metrics below are from {} "
+               "iterations, not {}; do not compare them against a completed "
+               "run.",
+               completed, opt.iterations, completed, opt.iterations);
+
+    if (completed >= 1) {
+      // Finish the run the way a completed one would, so the numbers that come
+      // back describe the model that is about to be written rather than
+      // whatever the last scheduled pass happened to catch.
+      if (window_n > 0) {
+        TrainMetrics m;
+        m.iteration = completed;
+        m.loss = last_loss_value;
+        m.l1 = last_l1_value;
+        m.psnr = window_psnr / window_n;
+        m.gaussians = static_cast<std::size_t>(g.count());
+        result.history.push_back(m);
+      }
+      if (last_eval_iter != completed)
+        run_eval(completed);
+      // The scheduled render for the end of the run will now never fire, so
+      // dump one here instead — but only if the caller asked for checkpoint
+      // renders at all.
+      if (!render_dir.empty() && !opt.render_iterations.empty() &&
+          last_render_iter != completed)
+        dump_render(completed);
+    }
+    // Deliberately NO final checkpoint here. `result.gaussians` below is the
+    // complete cancelled model, and `run_gsplat_stage` writes it to `out_ply`
+    // — a checkpoint would duplicate that file byte for byte. The checkpoint
+    // schedule exists for the case where nobody gets to write anything at all,
+    // which a cooperative cancel is not.
   }
 
   result.seconds =
@@ -704,11 +778,14 @@ TrainResult train_gaussians(const GaussianCloud &init,
     result.final_holdout_ssim = result.evals.back().holdout_ssim;
   }
 
-  core::info("gsplat: trained {} iterations in {:.1f} s "
+  // Reports what actually ran, not what was requested: after a cancel those
+  // are different numbers, and quoting the request would make a 1 200-iteration
+  // model look like a 30 000-iteration one in the log.
+  core::info("gsplat: trained {} of {} iterations in {:.1f} s "
              "({:.1f} it/s), final PSNR {:.2f} dB over {} Gaussians",
-             opt.iterations, result.seconds,
-             opt.iterations / std::max(result.seconds, 1e-9), result.final_psnr,
-             result.final_count);
+             result.iterations_run, opt.iterations, result.seconds,
+             result.iterations_run / std::max(result.seconds, 1e-9),
+             result.final_psnr, result.final_count);
   if (!result.evals.empty() && result.evals.back().holdout_views > 0)
     core::info("gsplat: held-out PSNR {:.2f} dB / SSIM {:.4f} over {} views "
                "the optimizer never saw",
@@ -761,30 +838,61 @@ TrainResult run_gsplat_stage(ProjectDB &db, const GsplatStageOptions &opt) {
         "clouds` first, or pass --seed-cloud with an existing name.",
         opt.seed_cloud));
 
+  // `train_gaussians` never sees `out_ply`, so the "next to the output"
+  // default has to be resolved here. Only when checkpointing is actually on:
+  // filling the field unconditionally would turn a stray --checkpoint-dir
+  // typo into a silently ignored setting.
+  TrainOptions train = opt.train;
+  if (train.checkpoint_every > 0 && train.checkpoint_dir.empty()) {
+    if (opt.out_ply.empty())
+      throw std::runtime_error(
+          "gsplat: --checkpoint-every was given but there is nowhere to write "
+          "the checkpoints — pass --checkpoint-dir, or -o/--out so they can go "
+          "beside the output .ply.");
+    const auto parent = opt.out_ply.parent_path();
+    train.checkpoint_dir = parent.empty() ? std::filesystem::path(".") : parent;
+  }
+
   // Same start/finish contract as the sibling create stages, so `rux log`
   // shows the run, its parameters, and whether it succeeded.
   const int log_id = db.log_pipeline_start(
       "gsplat",
       fmt::format(
-          R"({{"seed_cloud":"{}","max_points":{},"sh_degree":{},"iterations":{},"mcmc":{},"holdout_every":{},"out":"{}"}})",
+          R"({{"seed_cloud":"{}","max_points":{},"sh_degree":{},"iterations":{},"mcmc":{},"holdout_every":{},"checkpoint_every":{},"out":"{}"}})",
           opt.seed_cloud, opt.init.max_points, opt.init.sh_degree,
-          opt.train.iterations, opt.train.mcmc.enabled ? "true" : "false",
-          opt.train.holdout_every, opt.out_ply.string()));
+          train.iterations, train.mcmc.enabled ? "true" : "false",
+          train.holdout_every, train.checkpoint_every, opt.out_ply.string()));
 
   try {
     CloudPtr seed = db.point_cloud_xyzrgb(opt.seed_cloud);
     GaussianCloud init = init_from_point_cloud(seed, opt.init);
     auto views = load_training_views(db, opt.views);
 
-    TrainResult result = train_gaussians(init, views, opt.train);
+    TrainResult result = train_gaussians(init, views, train);
 
+    // Unconditionally, cancelled or not: salvaging the partly-trained model is
+    // the whole reason a cooperative cancel exists rather than a SIGKILL.
     if (!opt.out_ply.empty()) {
       if (opt.out_ply.has_parent_path() && !opt.out_ply.parent_path().empty())
         std::filesystem::create_directories(opt.out_ply.parent_path());
       save_gaussian_ply(result.gaussians, opt.out_ply);
     }
 
-    db.log_pipeline_end(log_id, true);
+    // A cancelled run closes as `success`, not `failed`. It did what it was
+    // asked to do and its artifact is on disk; marking it failed would make
+    // `rux log --json | jq 'select(.status=="failed")'` — the way a user finds
+    // runs that produced nothing — report a run that produced a usable model.
+    // The distinction is not dropped, it moves into the message, which
+    // `rux log` prints verbatim and which leads with the literal token
+    // CANCELLED so it is greppable.
+    db.log_pipeline_end(
+        log_id, true,
+        result.cancelled
+            ? fmt::format("CANCELLED at iteration {} of {} on user request; "
+                          "'{}' holds the model as trained so far",
+                          result.iterations_run, train.iterations,
+                          opt.out_ply.string())
+            : std::string{});
     return result;
 
   } catch (const std::exception &e) {

@@ -155,10 +155,18 @@ Tests live in `tests/`: `unit/` (per-module: `core`, `geometry`, `io`, `ruxd`,
 
 Unit tests link into **two** executables (`tests/CMakeLists.txt`):
 `reusex_unit_tests` for most modules, and `reusex_unit_tests_vision` for
-`unit/vision`, `unit/ruxd` and `unit/visualize`, which need libtorch /
-TensorRT / `ruxd_lib` / the PCL-Qt viewer. Test names and `ctest -R` are
-unaffected by the split. Put a new test in a heavy directory only if it
-really needs those dependencies (#268).
+`unit/vision`, `unit/ruxd`, `unit/visualize` and `unit/gsplat/cuda`, which
+need libtorch / TensorRT / `ruxd_lib` / the PCL-Qt viewer. Test names and
+`ctest -R` are unaffected by the split. Put a new test in a heavy directory
+only if it really needs those dependencies (#268).
+
+`unit/gsplat/` splits inside the directory (#332): `unit/gsplat/cuda/` needs
+torch or the rasterizer and is dropped from a build without
+`REUSEX_HAVE_GSPLAT`, while tests directly under `unit/gsplat/` cover
+`reusex_gsplat_common` and run everywhere — including the CPU-only variant CI
+builds. Tests that need a CUDA *device* are tagged `[gpu]` and open with
+`if (!gsplat::has_cuda_device()) SKIP(...)`, so a GPU-less machine reports
+them as skipped rather than failed.
 
 Benchmarks: `scripts/bench.sh` produces an XML report and
 `scripts/bench-compare.py` diffs a baseline against a candidate, failing on a
@@ -266,9 +274,18 @@ for the authoritative diagram and the documented exceptions.
 
 Targets: `reusex_utils`, `reusex_geometry_common`, `reusex_core`, `reusex_io`,
 `reusex_vision`, `reusex_segmentation`, `reusex_reconstruction`, `reusex_slam`,
-`reusex_visualize` (conditional), plus two interface targets
+`reusex_gsplat_common`, `reusex_pipeline`, `reusex_visualize` (conditional),
+`reusex_gsplat` (conditional), plus two interface targets
 (`reusex_common` = public deps, `reusex_private_deps`) and the umbrella
 INTERFACE target `reusex` that links everything for backward compatibility.
+
+Gaussian splatting is **two** targets (#332): `reusex_gsplat_common` is the
+torch-free half (`GaussianCloud`, the `ProjectDB -> TrainingView` loader, the
+view-sampling helpers) and is always built; `reusex_gsplat` adds the CUDA
+training loop and only exists under `WITH_CUDA` + the vendored gsplat
+rasterizer, linking `reusex_gsplat_common` PUBLIC. Both list their sources
+**explicitly** in `reusexLibrary.cmake`, so a new `src/gsplat/*.cpp` needs a
+CMake edit assigning it to the CPU or the CUDA half.
 
 The old `ReUseX` / `ReUseX_visualization` target names no longer exist.
 
@@ -470,8 +487,11 @@ per module with `CONFIGURE_DEPENDS`:
 - Headers: `libs/reusex/include/**/*.hpp`
 - Tests: `tests/unit/**/*.cpp`
 
-**Exception:** `src/geometry/` (the `geometry_common` module) uses an explicit
-source list, so adding a `.cpp` there needs a `reusexLibrary.cmake` edit.
+**Exceptions:** `src/geometry/` (the `geometry_common` module) and
+`src/gsplat/` (split into `reusex_gsplat_common` / `reusex_gsplat`, #332) use
+explicit source lists, so adding a `.cpp` to either needs a
+`reusexLibrary.cmake` edit — for gsplat, one that says which half the file
+belongs to.
 
 Put the file in the module that matches its pipeline stage, and check
 [`STANDARDS.md` §1](docs/STANDARDS.md#1-module-boundaries) first — a

@@ -14,9 +14,15 @@
 # Layer diagram (a module may only depend on lower layers):
 #
 #   Layer 4:  visualize  pipeline
-#   Layer 3:  segmentation  reconstruction  slam  io  vision  gsplat   (peers)
+#   Layer 3:  segmentation  reconstruction  slam  io  vision            (peers)
+#             gsplat_common  gsplat
 #   Layer 2:  core
 #   Layer 1:  utils, types.hpp
+#
+# `gsplat` is two targets, not one: `reusex_gsplat_common` is the torch-free CPU
+# half and is always built, while `reusex_gsplat` adds the CUDA trainer and only
+# exists under WITH_CUDA + the vendored rasterizer. See the gsplat source lists
+# below for why (#332).
 #
 # `reusex_geometry_common` holds the CGAL/PCL geometry helpers (`geometry/utils`,
 # `cgal_utils`, `CoplanarPolygon`, `BuildingComponent`) shared by several
@@ -79,10 +85,40 @@ file(GLOB_RECURSE REUSEX_RECONSTRUCTION_SOURCES CONFIGURE_DEPENDS
 file(GLOB_RECURSE REUSEX_SLAM_SOURCES CONFIGURE_DEPENDS
      "${SRC}/slam/*.cpp")
 
-# Layer 3 — gsplat (3D Gaussian Splatting training, #240). Optional: needs
+# Layer 3 — gsplat (3D Gaussian Splatting, #240), split into a CPU half and a
+# CUDA half (#332).
+#
+# WHY THE SPLIT EXISTS: CI builds the CPU-only nix variant
+# (`nix build .#checks.x86_64-linux.tests`, WITH_CUDA=OFF). While the whole
+# module was one CUDA-gated target, the module — and with it every one of its
+# tests — simply vanished from the only build a pull request actually gets to
+# prove anything with. Yet roughly half of gsplat never touches torch or the
+# rasterizer: the `GaussianCloud` value type (seeding, SH round trip, `.ply`
+# I/O, `validate()`), the `ProjectDB` -> `TrainingView` loader (frame
+# selection, downscale + the matching intrinsics rescale, pose composition,
+# panorama tiling), and the view-sampling helpers (train/held-out split, stride
+# sampler, scene extent). That is where the CPU-testable logic lives, so it is
+# built unconditionally as `reusex_gsplat_common` and its tests run everywhere.
+#
+# Both halves list their sources EXPLICITLY rather than globbing, so a new file
+# has to be assigned to one side deliberately. A torch include drifting into
+# the CPU half would otherwise re-break the CPU build silently, which is the
+# exact failure this split exists to prevent.
+
+# CPU half — no torch, no CUDA, always built.
+set(REUSEX_GSPLAT_COMMON_SOURCES
+    ${SRC}/gsplat/GaussianCloud.cpp
+    ${SRC}/gsplat/TrainingViews.cpp
+    ${SRC}/gsplat/view_sampling.cpp)
+
+# CUDA half — the training loop and everything torch-typed. Optional: needs
 # WITH_CUDA plus the vendored Apache-2.0 gsplat rasterizer (pkgs/gsplat-cuda).
-file(GLOB_RECURSE REUSEX_GSPLAT_SOURCES CONFIGURE_DEPENDS
-     "${SRC}/gsplat/*.cpp")
+set(REUSEX_GSPLAT_SOURCES
+    ${SRC}/gsplat/train.cpp
+    ${SRC}/gsplat/mcmc.cpp
+    ${SRC}/gsplat/optimizer.cpp
+    ${SRC}/gsplat/rasterize.cpp
+    ${SRC}/gsplat/ssim.cpp)
 
 # Layer 4 — visualize (optional PCL/Qt/VTK)
 file(GLOB_RECURSE REUSEX_VISUALIZE_SOURCES CONFIGURE_DEPENDS
@@ -299,6 +335,17 @@ target_link_libraries(reusex_slam PRIVATE opencv_calib3d opencv_imgcodecs)
 # extracted surfels). Explicit peer edge slam -> segmentation, kept narrow.
 target_link_libraries(reusex_slam PUBLIC reusex_segmentation)
 
+# --- Layer 3 — gsplat_common (CPU half, always built) ----------------------
+# The torch-free part of the Gaussian-splatting module: the GaussianCloud value
+# type, the ProjectDB -> TrainingView loader, and the view-sampling helpers.
+# An ordinary Layer-3 peer in every respect — it links core + geometry_common
+# (for EquirectProjection, which the panorama tiling uses) and links no peer.
+# Built unconditionally so the CPU-only CI variant compiles and runs its tests
+# (#332); see the source-list comment above for why that matters.
+reusex_add_module(reusex_gsplat_common ${REUSEX_GSPLAT_COMMON_SOURCES})
+target_link_libraries(reusex_gsplat_common
+    PUBLIC reusex_core reusex_geometry_common)
+
 # --- Layer 3 — gsplat (optional: WITH_CUDA + vendored gsplat) --------------
 # 3D Gaussian Splatting trainer (#240). The differentiable rasterizer is
 # gsplat's Apache-2.0 CUDA backend, vendored by pkgs/gsplat-cuda as a LibTorch-
@@ -322,7 +369,11 @@ endif()
 
 if(REUSEX_HAVE_GSPLAT)
     reusex_add_module(reusex_gsplat ${REUSEX_GSPLAT_SOURCES})
-    target_link_libraries(reusex_gsplat PUBLIC reusex_core reusex_geometry_common)
+    # The CUDA half is built on the CPU half, not beside it: train.cpp consumes
+    # GaussianCloud, TrainingView and the view-sampling helpers directly.
+    # PUBLIC, so a consumer that links only reusex_gsplat still resolves them
+    # (and reaches core / geometry_common transitively).
+    target_link_libraries(reusex_gsplat PUBLIC reusex_gsplat_common)
     # gsplat + LibTorch, kept PRIVATE. gsplat::gsplat propagates
     # ${TORCH_LIBRARIES} — including Torch's _GLIBCXX_USE_CXX11_ABI define and
     # its 1.8 GB CUDA closure — so letting it go PUBLIC would push both onto
@@ -390,6 +441,7 @@ target_link_libraries(reusex INTERFACE
     reusex_segmentation
     reusex_reconstruction
     reusex_slam
+    reusex_gsplat_common
     reusex_pipeline
 )
 if(TARGET reusex_visualize)
@@ -402,7 +454,7 @@ endif()
 # -----------------------------------------------
 # Diagnostics
 # -----------------------------------------------
-foreach(mod utils geometry_common core io vision segmentation reconstruction slam pipeline visualize gsplat)
+foreach(mod utils geometry_common core io vision segmentation reconstruction slam pipeline visualize gsplat_common gsplat)
     if(TARGET reusex_${mod})
         get_target_property(_srcs reusex_${mod} SOURCES)
         list(LENGTH _srcs _n)

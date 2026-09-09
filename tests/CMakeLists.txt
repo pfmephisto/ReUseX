@@ -38,20 +38,36 @@ find_package(SQLite3 REQUIRED)
 # everything else links just the modules it actually uses and starts an order
 # of magnitude faster.
 #
+# gsplat splits *within* its directory rather than by directory (#332).
+# `tests/unit/gsplat/cuda/` is heavy — those tests link torch, and the ones
+# that also need a device are [gpu]-tagged and SKIP without one. Everything
+# directly under `tests/unit/gsplat/` is light: it exercises
+# `reusex_gsplat_common`, the torch-free half of the module (GaussianCloud,
+# the TrainingViews loader, the view-sampling helpers).
+#
+# That distinction is the entire point of #332. CI builds the CPU-only nix
+# variant, where `REUSEX_HAVE_GSPLAT` is false; while the whole directory was
+# heavy-and-gated, a CPU-only build compiled ZERO gsplat tests, so none of the
+# module's logic — SH round trip, `.ply` I/O, the held-out split rule, the
+# intrinsics rescale — was ever exercised by a pull request. Putting the
+# CPU-testable surface in the binary CI actually builds is what changes that.
+#
 # Test *names* are unchanged either way: ctest still sees one test per
 # TEST_CASE, so `ctest -R <name>` keeps working exactly as before.
 file(GLOB_RECURSE UNIT_TEST_SOURCES CONFIGURE_DEPENDS
      "${CMAKE_CURRENT_SOURCE_DIR}/unit/*.cpp")
 
 set(HEAVY_TEST_SOURCES ${UNIT_TEST_SOURCES})
-list(FILTER HEAVY_TEST_SOURCES INCLUDE REGEX "/unit/(vision|ruxd|visualize|gsplat)/")
+list(FILTER HEAVY_TEST_SOURCES INCLUDE REGEX
+     "/unit/(vision|ruxd|visualize)/|/unit/gsplat/cuda/")
 
-# tests/unit/gsplat exercises reusex_gsplat, which only exists when CUDA and
-# the vendored gsplat rasterizer were both found. Drop those sources otherwise
-# rather than fail to link a CPU-only build.
+# tests/unit/gsplat/cuda exercises reusex_gsplat, which only exists when CUDA
+# and the vendored gsplat rasterizer were both found. Drop those sources
+# otherwise rather than fail to link a CPU-only build. The CPU-only gsplat
+# tests one directory up are unaffected and keep running.
 if(NOT REUSEX_HAVE_GSPLAT)
-    list(FILTER HEAVY_TEST_SOURCES EXCLUDE REGEX "/unit/gsplat/")
-    message(STATUS "Excluding tests/unit/gsplat (gsplat backend disabled)")
+    list(FILTER HEAVY_TEST_SOURCES EXCLUDE REGEX "/unit/gsplat/cuda/")
+    message(STATUS "Excluding tests/unit/gsplat/cuda (gsplat backend disabled)")
 endif()
 
 # reusex/vision/nms.hpp is a torch::Tensor API, and MLBackendConfig.cmake drops
@@ -84,7 +100,8 @@ if(NOT "TensorRT" IN_LIST ENABLED_ML_BACKENDS)
 endif()
 
 set(LIGHT_TEST_SOURCES ${UNIT_TEST_SOURCES})
-list(FILTER LIGHT_TEST_SOURCES EXCLUDE REGEX "/unit/(vision|ruxd|visualize|gsplat)/")
+list(FILTER LIGHT_TEST_SOURCES EXCLUDE REGEX
+     "/unit/(vision|ruxd|visualize)/|/unit/gsplat/cuda/")
 
 # -----------------------------------------------
 # Create unit test executables
@@ -110,6 +127,11 @@ target_link_libraries(reusex_unit_tests
         reusex_reconstruction
         reusex_slam
         reusex_pipeline
+        # The torch-free half of the gsplat module (#332). It is a plain
+        # core+geometry_common consumer -- linking it adds no libtorch, no
+        # TensorRT and no CUDA closure, which is exactly why the CPU-testable
+        # gsplat tests can live in this binary.
+        reusex_gsplat_common
         rux_gui_lib
         Catch2::Catch2WithMain
         fmt::fmt
@@ -120,6 +142,12 @@ target_link_libraries(reusex_unit_tests
 target_include_directories(reusex_unit_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/libs/reusex/include
     ${CMAKE_BINARY_DIR}/generated
+    # tests/unit/gsplat/test_view_sampling.cpp covers split_views /
+    # stride_sample / scene_extent directly, and those live behind
+    # libs/reusex/src/gsplat/view_sampling.hpp, which is module-private on
+    # purpose (STANDARDS §2: it is an implementation detail of the training
+    # loop). Same arrangement the heavy binary uses for optimizer.hpp below.
+    ${CMAKE_SOURCE_DIR}/libs/reusex/src
 )
 
 # tests/unit/core/test_stage_contract.cpp asserts that docs/CONTRACTS.md still
@@ -167,13 +195,18 @@ if(HEAVY_TEST_SOURCES)
         target_link_libraries(reusex_unit_tests_vision PRIVATE torch)
     endif()
 
-    # tests/unit/gsplat/test_optimizer.cpp covers the density-control row remap
-    # directly. That lives behind libs/reusex/src/gsplat/optimizer.hpp, which is
-    # module-private on purpose (it exposes torch types, STANDARDS §2) — so the
-    # test needs the src root on its include path, and torch's headers whether
-    # or not the LibTorch *ML backend* happens to be enabled. Testing it through
-    # the public API is not an option: carrying Adam's moments across a remap
-    # has no observable effect other than the moments themselves.
+    # tests/unit/gsplat/cuda/test_optimizer.cpp covers the density-control row
+    # remap directly, and test_ssim.cpp the SSIM loss. Both live behind
+    # module-private headers (libs/reusex/src/gsplat/optimizer.hpp, ssim.hpp)
+    # which are private on purpose — they expose torch types, STANDARDS §2 — so
+    # the tests need the src root on their include path, and torch's headers
+    # whether or not the LibTorch *ML backend* happens to be enabled. Testing
+    # the remap through the public API is not an option: carrying Adam's moments
+    # across a remap has no observable effect other than the moments themselves.
+    #
+    # Neither test needs a CUDA *device*; they run on CPU tensors. The ones that
+    # do are [gpu]-tagged in test_train.cpp and SKIP when has_cuda_device() is
+    # false.
     if(TARGET reusex_gsplat)
         find_package(Torch REQUIRED)
         target_link_libraries(reusex_unit_tests_vision PRIVATE torch)

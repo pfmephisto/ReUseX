@@ -2,10 +2,15 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// GPU tests for the training loop. Every TEST_CASE here is tagged [gpu]:
-// gsplat's rasterizer is CUDA-only (there is no CPU kernel), so on a machine
-// without a device these must be excluded with `ctest -E` / `--exclude-tags`
-// rather than silently passing.
+// GPU tests for the training loop. Every TEST_CASE here but the capability
+// probe is tagged [gpu]: gsplat's rasterizer is CUDA-only (there is no CPU
+// kernel), so none of them can run without a device.
+//
+// Each one opens with a `has_cuda_device()` guard and Catch2's SKIP(), so a
+// run on a CUDA-less machine reports them as *skipped* — which is what they
+// are — instead of failing and inviting the reader to exclude them by hand.
+// That also makes this file safe to compile in a build where the module exists
+// but the runner has no GPU (#332).
 //
 // The scene is synthetic and deliberately tiny — a handful of Gaussians seen
 // from a few cameras — so the whole file runs in seconds and asserts on
@@ -16,6 +21,8 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
+#include "../../../support/temp_path.hpp"
+
 #include <reusex/gsplat/GaussianCloud.hpp>
 #include <reusex/gsplat/TrainingViews.hpp>
 #include <reusex/gsplat/train.hpp>
@@ -25,12 +32,20 @@
 #include <fmt/format.h>
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <stdexcept>
+#include <system_error>
+#include <thread>
 #include <vector>
 
 using namespace reusex;
 using Catch::Approx;
+using reusex::test_support::TempDir;
 
 namespace {
 
@@ -125,6 +140,55 @@ std::vector<gsplat::TrainingView> make_ring(int n) {
   return views;
 }
 
+/// Every file in @p dir with extension @p ext, sorted by name — which for
+/// `checkpoint_iter%06d.ply` is the same as sorted by iteration.
+///
+/// Uses the error_code overloads throughout: the cancellation test calls this
+/// from a watcher thread while the trainer is renaming files into the same
+/// directory, and a transient ENOENT there must not blow up the test.
+std::vector<std::filesystem::path>
+files_with_extension(const std::filesystem::path &dir, const char *ext) {
+  std::vector<std::filesystem::path> out;
+  std::error_code ec;
+  for (std::filesystem::directory_iterator it(dir, ec), end; it != end && !ec;
+       it.increment(ec))
+    if (it->path().extension() == ext)
+      out.push_back(it->path());
+  std::sort(out.begin(), out.end());
+  return out;
+}
+
+/// Restores a directory's permissions on scope exit, so a failed REQUIRE
+/// cannot leave a write-protected temp directory behind that TempDir's
+/// destructor is then unable to remove.
+struct PermissionsGuard {
+  std::filesystem::path dir;
+  std::filesystem::perms saved;
+
+  PermissionsGuard(std::filesystem::path d, std::filesystem::perms s)
+      : dir(std::move(d)), saved(s) {}
+  PermissionsGuard(const PermissionsGuard &) = delete;
+  PermissionsGuard &operator=(const PermissionsGuard &) = delete;
+  ~PermissionsGuard() {
+    std::error_code ec;
+    std::filesystem::permissions(dir, saved,
+                                 std::filesystem::perm_options::replace, ec);
+  }
+};
+
+/// True when a new file really cannot be created in @p dir. Running as root
+/// defeats the permission bits entirely, so the render-failure test has to ask
+/// rather than assume.
+bool directory_is_unwritable(const std::filesystem::path &dir) {
+  const auto probe = dir / "writability_probe";
+  std::ofstream f(probe);
+  const bool opened = f.is_open();
+  f.close();
+  std::error_code ec;
+  std::filesystem::remove(probe, ec);
+  return !opened;
+}
+
 } // namespace
 
 TEST_CASE("IsAvailable_BuiltWithGsplatModule_ReturnsTrue", "[gsplat]") {
@@ -134,6 +198,9 @@ TEST_CASE("IsAvailable_BuiltWithGsplatModule_ReturnsTrue", "[gsplat]") {
 }
 
 TEST_CASE("RenderView_SeededGaussians_ProducesNonEmptyImage", "[gsplat][gpu]") {
+  if (!gsplat::has_cuda_device())
+    SKIP("no CUDA device available");
+
   auto g = gsplat::init_from_point_cloud(make_blob());
   auto views = make_ring(4);
 
@@ -148,6 +215,9 @@ TEST_CASE("RenderView_SeededGaussians_ProducesNonEmptyImage", "[gsplat][gpu]") {
 }
 
 TEST_CASE("TrainGaussians_ShortRun_ReducesLoss", "[gsplat][gpu]") {
+  if (!gsplat::has_cuda_device())
+    SKIP("no CUDA device available");
+
   auto g = gsplat::init_from_point_cloud(make_blob());
   auto views = make_ring(6);
 
@@ -171,6 +241,9 @@ TEST_CASE("TrainGaussians_ShortRun_ReducesLoss", "[gsplat][gpu]") {
 
 TEST_CASE("TrainGaussians_FixedSeed_ReproducesLossWithinTolerance",
           "[gsplat][gpu]") {
+  if (!gsplat::has_cuda_device())
+    SKIP("no CUDA device available");
+
   auto g = gsplat::init_from_point_cloud(make_blob(6));
   auto views = make_ring(4);
 
@@ -200,6 +273,9 @@ TEST_CASE("TrainGaussians_FixedSeed_ReproducesLossWithinTolerance",
 
 TEST_CASE("TrainGaussians_PostTraining_GaussiansValidateAndStayFinite",
           "[gsplat][gpu]") {
+  if (!gsplat::has_cuda_device())
+    SKIP("no CUDA device available");
+
   auto seed = gsplat::init_from_point_cloud(make_blob(5));
   auto views = make_ring(3);
 
@@ -222,6 +298,9 @@ TEST_CASE("TrainGaussians_PostTraining_GaussiansValidateAndStayFinite",
 
 TEST_CASE("TrainGaussians_PruningOversizedGaussians_RemovesOutliers",
           "[gsplat][gpu]") {
+  if (!gsplat::has_cuda_device())
+    SKIP("no CUDA device available");
+
   // 216 blob Gaussians at ~0.16 m scale + 8 isolated ones saturated at 0.5 m.
   constexpr std::size_t kBlob = 6 * 6 * 6;
   constexpr std::size_t kOutliers = 8;
@@ -272,6 +351,9 @@ TEST_CASE("TrainGaussians_PruningOversizedGaussians_RemovesOutliers",
 
 TEST_CASE("TrainGaussians_PruneThresholdAboveInitialOpacity_SkipsPruning",
           "[gsplat][gpu]") {
+  if (!gsplat::has_cuda_device())
+    SKIP("no CUDA device available");
+
   auto seed = gsplat::init_from_point_cloud(make_blob(6));
   auto views = make_ring(4);
 
@@ -293,6 +375,9 @@ TEST_CASE("TrainGaussians_PruneThresholdAboveInitialOpacity_SkipsPruning",
 
 TEST_CASE("TrainGaussians_HoldoutViews_ExcludedFromTrainingAndReported",
           "[gsplat][gpu]") {
+  if (!gsplat::has_cuda_device())
+    SKIP("no CUDA device available");
+
   auto seed = gsplat::init_from_point_cloud(make_blob(5));
   auto views = make_ring(8);
 
@@ -336,6 +421,9 @@ TEST_CASE("TrainGaussians_HoldoutViews_ExcludedFromTrainingAndReported",
 
 TEST_CASE("TrainGaussians_HoldoutSplit_IsDeterministicAcrossRuns",
           "[gsplat][gpu]") {
+  if (!gsplat::has_cuda_device())
+    SKIP("no CUDA device available");
+
   auto seed = gsplat::init_from_point_cloud(make_blob(5));
   auto views = make_ring(8);
 
@@ -363,6 +451,9 @@ TEST_CASE("TrainGaussians_HoldoutSplit_IsDeterministicAcrossRuns",
 
 TEST_CASE("TrainGaussians_HoldoutEveryOne_FallsBackToTrainingOnAllViews",
           "[gsplat][gpu]") {
+  if (!gsplat::has_cuda_device())
+    SKIP("no CUDA device available");
+
   auto seed = gsplat::init_from_point_cloud(make_blob(4));
   auto views = make_ring(4);
 
@@ -389,6 +480,9 @@ TEST_CASE("TrainGaussians_HoldoutEveryOne_FallsBackToTrainingOnAllViews",
 
 TEST_CASE("TrainGaussians_McmcEnabled_GrowsModelTowardCapBudget",
           "[gsplat][gpu]") {
+  if (!gsplat::has_cuda_device())
+    SKIP("no CUDA device available");
+
   auto seed = gsplat::init_from_point_cloud(make_blob(6));
   auto views = make_ring(4);
 
@@ -428,6 +522,9 @@ TEST_CASE("TrainGaussians_McmcEnabled_GrowsModelTowardCapBudget",
 
 TEST_CASE("TrainGaussians_McmcAbsoluteCap_RespectsBudgetOverFactor",
           "[gsplat][gpu]") {
+  if (!gsplat::has_cuda_device())
+    SKIP("no CUDA device available");
+
   auto seed = gsplat::init_from_point_cloud(make_blob(5));
   auto views = make_ring(4);
 
@@ -451,6 +548,9 @@ TEST_CASE("TrainGaussians_McmcAbsoluteCap_RespectsBudgetOverFactor",
 
 TEST_CASE("TrainGaussians_McmcNoiseInjection_KeepsModelFinite",
           "[gsplat][gpu]") {
+  if (!gsplat::has_cuda_device())
+    SKIP("no CUDA device available");
+
   auto seed = gsplat::init_from_point_cloud(make_blob(5));
   auto views = make_ring(4);
 
@@ -476,6 +576,9 @@ TEST_CASE("TrainGaussians_McmcNoiseInjection_KeepsModelFinite",
 }
 
 TEST_CASE("TrainGaussians_EmptyGaussiansOrNoViews_Throws", "[gsplat][gpu]") {
+  if (!gsplat::has_cuda_device())
+    SKIP("no CUDA device available");
+
   auto g = gsplat::init_from_point_cloud(make_blob(4));
   auto views = make_ring(2);
 
@@ -483,4 +586,376 @@ TEST_CASE("TrainGaussians_EmptyGaussiansOrNoViews_Throws", "[gsplat][gpu]") {
                       Catch::Matchers::ContainsSubstring("zero Gaussians"));
   REQUIRE_THROWS_WITH(gsplat::train_gaussians(g, {}),
                       Catch::Matchers::ContainsSubstring("training views"));
+}
+
+// --- cancellation (#329) ----------------------------------------------------
+
+TEST_CASE("TrainGaussians_CancelTokenSetBeforeCall_ReturnsUsableSeedModel",
+          "[gsplat][gpu]") {
+  if (!gsplat::has_cuda_device())
+    SKIP("no CUDA device available");
+
+  // Catches: a cancel token that is only consulted on some later schedule (or
+  // not at all), and a cancelled run that returns an empty/garbage model
+  // instead of the Gaussians it holds. Salvaging the model is the entire
+  // reason a cooperative cancel exists rather than a SIGKILL.
+  auto seed = gsplat::init_from_point_cloud(make_blob(5));
+  auto views = make_ring(4);
+
+  std::atomic_bool cancel{true}; // already requested before training starts
+
+  gsplat::TrainOptions opt;
+  opt.iterations = 500; // far more than a prompt cancel can get through
+  opt.log_interval = 10;
+  opt.prune_enabled = false;
+  opt.cancel_token = &cancel;
+
+  auto result = gsplat::train_gaussians(seed, views, opt);
+
+  REQUIRE(result.cancelled);
+  REQUIRE(result.iterations_run < opt.iterations / 10);
+
+  // The model still comes back whole: same Gaussian count as the seed, valid,
+  // finite, non-empty.
+  REQUIRE_NOTHROW(result.gaussians.validate());
+  REQUIRE_FALSE(result.gaussians.empty());
+  REQUIRE(result.gaussians.size() == seed.size());
+  REQUIRE(result.final_count == seed.size());
+  for (const auto &m : result.gaussians.means) {
+    REQUIRE(std::isfinite(m[0]));
+    REQUIRE(std::isfinite(m[1]));
+    REQUIRE(std::isfinite(m[2]));
+  }
+  for (const float o : result.gaussians.opacities)
+    REQUIRE(std::isfinite(o));
+}
+
+TEST_CASE(
+    "TrainGaussians_CancelTokenSetMidRun_StopsEarlyAndReturnsPartialModel",
+    "[gsplat][gpu]") {
+  if (!gsplat::has_cuda_device())
+    SKIP("no CUDA device available");
+
+  // Catches: a loop that ignores the token once it is past its first
+  // iteration, and a cancelled run that reports the *requested* iteration
+  // count or an empty history/eval list.
+  //
+  // The flip is driven by an observable side effect rather than by a sleep:
+  // the watcher waits until the first checkpoint `.ply` has landed, which can
+  // only happen after iteration `checkpoint_every` completed. That makes the
+  // lower bound on `iterations_run` a fact rather than a race, and leaves the
+  // remaining ~995 iterations of GPU work as the margin on the upper side.
+  TempDir dir("reusex_gsplat_cancel");
+
+  auto seed = gsplat::init_from_point_cloud(make_blob(5));
+  auto views = make_ring(4);
+
+  std::atomic_bool cancel{false};
+  std::atomic_bool watcher_timed_out{false};
+
+  gsplat::TrainOptions opt;
+  opt.iterations = 1000; // never reached; the cancel lands around iteration 5
+  opt.log_interval = 5;
+  opt.eval_interval = 1000; // only the iteration-0 baseline fires on schedule
+  opt.holdout_every = 0;
+  opt.prune_enabled = false;
+  opt.checkpoint_every = 5;
+  opt.checkpoint_keep = 3;
+  opt.checkpoint_dir = dir.path;
+  opt.cancel_token = &cancel;
+
+  std::thread watcher([&] {
+    const auto deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(60);
+    while (std::chrono::steady_clock::now() < deadline) {
+      if (!files_with_extension(dir.path, ".ply").empty()) {
+        cancel.store(true, std::memory_order_relaxed);
+        return;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    watcher_timed_out.store(true);
+    cancel.store(true, std::memory_order_relaxed);
+  });
+
+  auto result = gsplat::train_gaussians(seed, views, opt);
+  watcher.join();
+
+  REQUIRE_FALSE(watcher_timed_out.load());
+  REQUIRE(result.cancelled);
+  INFO("stopped after " << result.iterations_run << " of " << opt.iterations);
+  // Bounded on both sides: the flip cannot precede the checkpoint at iteration
+  // 5, and the loop cannot run past what was asked for.
+  REQUIRE(result.iterations_run >= opt.checkpoint_every);
+  REQUIRE(result.iterations_run <= opt.iterations);
+
+  // A cancelled run is still a complete run report, and every number in it
+  // describes iterations that actually executed.
+  REQUIRE_FALSE(result.history.empty());
+  REQUIRE(result.history.back().iteration <= result.iterations_run);
+  REQUIRE(std::isfinite(result.history.back().loss));
+  REQUIRE_FALSE(result.evals.empty());
+  REQUIRE(result.evals.back().iteration <= result.iterations_run);
+  REQUIRE(result.seconds > 0.0);
+
+  REQUIRE_NOTHROW(result.gaussians.validate());
+  REQUIRE(result.gaussians.size() == seed.size());
+  for (const auto &m : result.gaussians.means) {
+    REQUIRE(std::isfinite(m[0]));
+    REQUIRE(std::isfinite(m[1]));
+    REQUIRE(std::isfinite(m[2]));
+  }
+}
+
+TEST_CASE("TrainGaussians_CancelTokenNeverSet_RunsToCompletion",
+          "[gsplat][gpu]") {
+  if (!gsplat::has_cuda_device())
+    SKIP("no CUDA device available");
+
+  // The counterpart to the two above: catches a `cancelled` flag stuck on, a
+  // token pointer that is misread as "cancel requested" merely by being
+  // non-null, and an `iterations_run` that is never filled in.
+  auto seed = gsplat::init_from_point_cloud(make_blob(4));
+  auto views = make_ring(3);
+
+  std::atomic_bool cancel{false};
+
+  gsplat::TrainOptions opt;
+  opt.iterations = 10;
+  opt.log_interval = 5;
+  opt.prune_enabled = false;
+  opt.cancel_token = &cancel;
+
+  auto result = gsplat::train_gaussians(seed, views, opt);
+
+  REQUIRE_FALSE(result.cancelled);
+  REQUIRE(result.iterations_run == opt.iterations);
+  REQUIRE(result.history.back().iteration == opt.iterations);
+}
+
+// --- checkpointing (#329) ---------------------------------------------------
+
+TEST_CASE("TrainGaussians_CheckpointEverySet_WritesLoadablePlysOnSchedule",
+          "[gsplat][gpu]") {
+  if (!gsplat::has_cuda_device())
+    SKIP("no CUDA device available");
+
+  // Catches: an off-by-one in the schedule, a `TrainResult::checkpoints` list
+  // that disagrees with what is on disk, a duplicate checkpoint on the final
+  // iteration, and a `.ply` written from stale or half-uploaded tensors.
+  TempDir dir("reusex_gsplat_ckpt");
+
+  auto seed = gsplat::init_from_point_cloud(make_blob(5));
+  auto views = make_ring(4);
+
+  gsplat::TrainOptions opt;
+  opt.iterations = 20;
+  opt.log_interval = 10;
+  opt.eval_interval = 20;
+  opt.holdout_every = 0;
+  opt.prune_enabled = false;
+  opt.checkpoint_every = 5;
+  opt.checkpoint_keep = 0; // keep every checkpoint
+  opt.checkpoint_dir = dir.path;
+
+  auto result = gsplat::train_gaussians(seed, views, opt);
+
+  REQUIRE(result.iterations_run == opt.iterations);
+
+  // 5, 10, 15 — and deliberately NOT 20: the final model is what the caller
+  // gets back, so a checkpoint there would be a byte-identical duplicate.
+  const std::vector<std::filesystem::path> expected{
+      dir.path / "checkpoint_iter000005.ply",
+      dir.path / "checkpoint_iter000010.ply",
+      dir.path / "checkpoint_iter000015.ply"};
+  REQUIRE(result.checkpoints == expected);
+  REQUIRE(files_with_extension(dir.path, ".ply") == expected);
+  REQUIRE_FALSE(
+      std::filesystem::exists(dir.path / "checkpoint_iter000020.ply"));
+
+  // Every listed path is a file a caller can actually open, and it holds the
+  // model rather than an empty shell.
+  for (const auto &p : result.checkpoints) {
+    REQUIRE(std::filesystem::exists(p));
+    REQUIRE(std::filesystem::file_size(p) > 0);
+  }
+  const auto reloaded = gsplat::load_gaussian_ply(result.checkpoints.front());
+  REQUIRE_NOTHROW(reloaded.validate());
+  REQUIRE(reloaded.size() == seed.size());
+  REQUIRE(reloaded.sh_degree == seed.sh_degree);
+  for (const auto &m : reloaded.means) {
+    REQUIRE(std::isfinite(m[0]));
+    REQUIRE(std::isfinite(m[1]));
+    REQUIRE(std::isfinite(m[2]));
+  }
+}
+
+TEST_CASE("TrainGaussians_CheckpointKeepLimit_RetainsOnlyTheNewestN",
+          "[gsplat][gpu]") {
+  if (!gsplat::has_cuda_device())
+    SKIP("no CUDA device available");
+
+  // Catches: retention that deletes the newest instead of the oldest, that
+  // trims the in-memory list without unlinking the file (or the reverse), and
+  // a `.tmp` staging file left behind by the atomic write.
+  TempDir dir("reusex_gsplat_keep");
+
+  auto seed = gsplat::init_from_point_cloud(make_blob(4));
+  auto views = make_ring(3);
+
+  gsplat::TrainOptions opt;
+  opt.iterations = 25;
+  opt.log_interval = 25;
+  opt.eval_interval = 25;
+  opt.holdout_every = 0;
+  opt.prune_enabled = false;
+  opt.checkpoint_every = 5; // writes at 5, 10, 15, 20 (not 25)
+  opt.checkpoint_keep = 2;
+  opt.checkpoint_dir = dir.path;
+
+  auto result = gsplat::train_gaussians(seed, views, opt);
+
+  const std::vector<std::filesystem::path> survivors{
+      dir.path / "checkpoint_iter000015.ply",
+      dir.path / "checkpoint_iter000020.ply"};
+  REQUIRE(result.checkpoints == survivors);
+  REQUIRE(files_with_extension(dir.path, ".ply") == survivors);
+
+  // The superseded ones are gone from disk, not merely dropped from the list.
+  REQUIRE_FALSE(
+      std::filesystem::exists(dir.path / "checkpoint_iter000005.ply"));
+  REQUIRE_FALSE(
+      std::filesystem::exists(dir.path / "checkpoint_iter000010.ply"));
+
+  // The write goes `.tmp` -> rename; nothing may be left staged.
+  REQUIRE(files_with_extension(dir.path, ".tmp").empty());
+
+  REQUIRE(gsplat::load_gaussian_ply(survivors.back()).size() == seed.size());
+}
+
+TEST_CASE("TrainGaussians_CheckpointEveryZero_WritesNoCheckpointFiles",
+          "[gsplat][gpu]") {
+  if (!gsplat::has_cuda_device())
+    SKIP("no CUDA device available");
+
+  // Catches checkpointing that switches itself on whenever a directory is
+  // present — a long run silently spraying `.ply` files nobody asked for.
+  TempDir dir("reusex_gsplat_nockpt");
+
+  auto seed = gsplat::init_from_point_cloud(make_blob(4));
+  auto views = make_ring(3);
+
+  gsplat::TrainOptions opt;
+  opt.iterations = 12;
+  opt.log_interval = 12;
+  opt.eval_interval = 12;
+  opt.holdout_every = 0;
+  opt.prune_enabled = false;
+  opt.checkpoint_dir = dir.path; // set, but the schedule is off by default
+  REQUIRE(opt.checkpoint_every == 0);
+
+  auto result = gsplat::train_gaussians(seed, views, opt);
+
+  REQUIRE(result.iterations_run == opt.iterations);
+  REQUIRE(result.checkpoints.empty());
+  REQUIRE(files_with_extension(dir.path, ".ply").empty());
+  REQUIRE(files_with_extension(dir.path, ".tmp").empty());
+}
+
+// --- non-fatal render failures / fatal bad destinations (#329) --------------
+
+TEST_CASE("TrainGaussians_CheckpointRenderWriteFails_ContinuesAndOmitsPath",
+          "[gsplat][gpu]") {
+  if (!gsplat::has_cuda_device())
+    SKIP("no CUDA device available");
+
+  // Catches a regression to the old behaviour, where a single failed
+  // cv::imwrite at iteration 500 of 30 000 threw away the whole run. The
+  // render is a diagnostic; only the model is the product.
+  TempDir dir("reusex_gsplat_render");
+
+  const auto saved = std::filesystem::status(dir.path).permissions();
+  std::filesystem::permissions(dir.path,
+                               std::filesystem::perms::owner_read |
+                                   std::filesystem::perms::owner_exec,
+                               std::filesystem::perm_options::replace);
+  PermissionsGuard restore(dir.path, saved);
+
+  if (!directory_is_unwritable(dir.path))
+    SKIP("cannot make a directory unwritable here (running as root?)");
+
+  auto seed = gsplat::init_from_point_cloud(make_blob(4));
+  auto views = make_ring(3);
+
+  gsplat::TrainOptions opt;
+  opt.iterations = 10;
+  opt.log_interval = 10;
+  opt.eval_interval = 10;
+  opt.holdout_every = 0;
+  opt.prune_enabled = false;
+  opt.render_dir = dir.path;   // exists, so startup validation passes...
+  opt.render_iterations = {5}; // ...but the write at iteration 5 cannot land
+  opt.render_view_index = 0;
+
+  gsplat::TrainResult result;
+  REQUIRE_NOTHROW(result = gsplat::train_gaussians(seed, views, opt));
+
+  // The run reached the end despite the failed write.
+  REQUIRE(result.iterations_run == opt.iterations);
+  REQUIRE_FALSE(result.cancelled);
+  REQUIRE(result.history.back().iteration == opt.iterations);
+  REQUIRE_NOTHROW(result.gaussians.validate());
+
+  // `renders` is what is on disk, not what was attempted.
+  REQUIRE(result.renders.empty());
+  REQUIRE(files_with_extension(dir.path, ".png").empty());
+}
+
+TEST_CASE("TrainGaussians_UncreatableOutputDirectory_ThrowsBeforeTraining",
+          "[gsplat][gpu]") {
+  if (!gsplat::has_cuda_device())
+    SKIP("no CUDA device available");
+
+  // The one destination failure that must stay fatal: a directory the caller
+  // named that can never exist. Catches a blanket downgrade of write failures
+  // that would let an hours-long run proceed to a destination it can never
+  // use. The parent here is a regular file, so create_directories cannot win.
+  TempDir dir("reusex_gsplat_baddir");
+  const auto blocker = dir.path / "not_a_directory";
+  {
+    std::ofstream f(blocker);
+    f << "regular file";
+  }
+  REQUIRE(std::filesystem::is_regular_file(blocker));
+  const auto impossible = blocker / "sub";
+
+  auto seed = gsplat::init_from_point_cloud(make_blob(4));
+  auto views = make_ring(3);
+
+  gsplat::TrainOptions base;
+  base.iterations = 5;
+  base.log_interval = 5;
+  base.eval_interval = 5;
+  base.holdout_every = 0;
+  base.prune_enabled = false;
+
+  auto render = base;
+  render.render_dir = impossible;
+  render.render_iterations = {2};
+  REQUIRE_THROWS_AS(gsplat::train_gaussians(seed, views, render),
+                    std::runtime_error);
+
+  auto checkpoint = base;
+  checkpoint.checkpoint_every = 2;
+  checkpoint.checkpoint_dir = impossible;
+  REQUIRE_THROWS_AS(gsplat::train_gaussians(seed, views, checkpoint),
+                    std::runtime_error);
+
+  // Checkpointing on with nowhere to put the files is the same class of
+  // mistake and must also refuse rather than train and discard.
+  auto nowhere = base;
+  nowhere.checkpoint_every = 2;
+  nowhere.checkpoint_dir.clear();
+  REQUIRE_THROWS_AS(gsplat::train_gaussians(seed, views, nowhere),
+                    std::runtime_error);
 }

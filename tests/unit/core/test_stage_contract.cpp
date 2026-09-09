@@ -5,9 +5,10 @@
 // Integrity tests for the single stage-contract table (#246).
 //
 // The table is data, so these tests are what keeps it honest: every enumerator
-// covered, every artifact it names registered, the stage order a real DAG, and
-// docs/CONTRACTS.md — a prose mirror, not a second source of truth — saying the
-// same thing the table does.
+// covered, every artifact it names registered, every stage producing something
+// (in the project or, for a leaf like `gsplat`, outside it), the stage order a
+// real DAG, and docs/CONTRACTS.md — a prose mirror, not a second source of
+// truth — saying the same thing the table does.
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -44,7 +45,7 @@ const std::vector<PipelineStage> &all_stages() {
       PipelineStage::import,   PipelineStage::optimize,  PipelineStage::clouds,
       PipelineStage::annotate, PipelineStage::project,   PipelineStage::planes,
       PipelineStage::rooms,    PipelineStage::instances, PipelineStage::mesh,
-      PipelineStage::texture,  PipelineStage::windows,
+      PipelineStage::texture,  PipelineStage::windows,   PipelineStage::gsplat,
   };
   return stages;
 }
@@ -112,6 +113,21 @@ TEST_CASE("StageContractTable_NamesAndAliases_AreUniqueAndParseable",
   CHECK_FALSE(parse_pipeline_stage("bogus").has_value());
 }
 
+TEST_CASE("PipelineStageNames_GsplatToken_ParsesAndRoundTrips",
+          "[core][contract]") {
+  // The generic case above derives the expected spelling from the row it is
+  // checking, so it stays green if the row is renamed to "splat" — the table
+  // would simply agree with itself. This one pins the literal token, which is
+  // what `rux validate --stage gsplat` accepts and what the gsplat section
+  // heading in docs/CONTRACTS.md spells. Renaming it is a CLI break, and this
+  // is what would catch one.
+  REQUIRE(parse_pipeline_stage("gsplat") == PipelineStage::gsplat);
+  CHECK(to_string(PipelineStage::gsplat) == "gsplat");
+
+  const auto names = pipeline_stage_names();
+  CHECK(std::find(names.begin(), names.end(), "gsplat") != names.end());
+}
+
 TEST_CASE("StageContractTable_NamedArtifacts_AreAllRegistered",
           "[core][contract]") {
   for (const auto &contract : stage_contracts()) {
@@ -174,6 +190,70 @@ TEST_CASE("StageContractTable_Outputs_HaveFirstProducer", "[core][contract]") {
   }
 }
 
+TEST_CASE("StageContractTable_EveryStage_ProducesInProjectOrExternalArtifact",
+          "[core][contract]") {
+  // A stage that produces nothing at all is either a half-filled table row or a
+  // stage that does not belong in the pipeline — but "has a non-empty
+  // `outputs`" is the wrong way to say that, because `gsplat` writes a .ply on
+  // disk and nothing into the project. The invariant is "produces something",
+  // with `external_outputs` carrying the other half of "something".
+  //
+  // The two witnesses are what stop the invariant going vacuous: without them a
+  // table in which every row had drifted onto the same branch would still pass,
+  // and this case would no longer be testing the branch that motivated the
+  // field.
+  bool saw_in_project_producer = false;
+  bool saw_external_only_producer = false;
+  for (const auto &contract : stage_contracts()) {
+    INFO("stage " << contract.name);
+    CHECK((!contract.outputs.empty() || !contract.external_outputs.empty()));
+
+    if (!contract.outputs.empty())
+      saw_in_project_producer = true;
+    else if (!contract.external_outputs.empty())
+      saw_external_only_producer = true;
+  }
+  CHECK(saw_in_project_producer);
+  CHECK(saw_external_only_producer);
+}
+
+TEST_CASE("StageContractTable_InProjectProducers_DeclareNoExternalOutputs",
+          "[core][contract]") {
+  // The two fields are alternatives, not a pair. A stage whose product lands in
+  // the `.rux` is fully described by `outputs`; docs/CONTRACTS.md renders an
+  // `| External |` row only for a stage that has nothing there, and the doc
+  // mirror below asserts exactly that correspondence. A row filling in both
+  // would make "Produces: nothing in the project" a half-truth for some stage
+  // and leave the reader with two places to look for the same answer.
+  for (const auto &contract : stage_contracts()) {
+    INFO("stage " << contract.name);
+    if (!contract.outputs.empty())
+      CHECK(contract.external_outputs.empty());
+  }
+}
+
+TEST_CASE("StageContractTable_StageWithNoOutputs_IsNotAnArtifactProducer",
+          "[core][contract]") {
+  // The consequence of keeping external products out of the artifact registry:
+  // a file on disk has no name `ProjectDB` can be asked about, so a stage that
+  // writes only such files must be invisible to producing_stage(). If one ever
+  // became the answer for some artifact, check_stage_inputs() would start
+  // handing users a "run `rux create gsplat` first" hint for a prerequisite
+  // that stage cannot possibly satisfy — and on a CPU-only build that command
+  // does not even exist.
+  for (const auto &contract : stage_contracts()) {
+    if (!contract.outputs.empty())
+      continue;
+    INFO("leaf stage " << contract.name);
+    for (const auto &artifact : pipeline_artifacts()) {
+      INFO("artifact " << artifact.name);
+      const auto producer = producing_stage(artifact.name);
+      if (producer.has_value())
+        CHECK(*producer != contract.stage);
+    }
+  }
+}
+
 TEST_CASE("StageContract_UnknownEnumerator_ThrowsLogicError",
           "[core][contract]") {
   const auto beyond =
@@ -206,10 +286,15 @@ std::set<std::string> artifact_tokens(const std::string &line) {
 struct DocStage {
   std::set<std::string> consumes;
   std::set<std::string> produces;
+  /// Whether the section's table carries an `| External |` row. Its *content*
+  /// is deliberately not compared: `external_outputs` is prose, and requiring
+  /// the doc to repeat it word for word would make the mirror a copy rather
+  /// than a check. Presence is the part that can silently drift.
+  bool has_external = false;
 };
 
 /// Parse the `### \`stage\`` sections of docs/CONTRACTS.md into their Consumes
-/// and Produces artifact sets.
+/// and Produces artifact sets, plus whether an External row is present.
 std::map<std::string, DocStage> parse_contracts_doc(const std::string &text) {
   std::map<std::string, DocStage> stages;
   std::istringstream in(text);
@@ -232,6 +317,8 @@ std::map<std::string, DocStage> parse_contracts_doc(const std::string &text) {
       stages[current].consumes = artifact_tokens(line);
     else if (line.rfind("| Produces ", 0) == 0)
       stages[current].produces = artifact_tokens(line);
+    else if (line.rfind("| External ", 0) == 0)
+      stages[current].has_external = true;
   }
   return stages;
 }
@@ -268,6 +355,12 @@ TEST_CASE("ContractsDoc_StageSections_MatchContractTable",
 
     CHECK(it->second.consumes == consumes);
     CHECK(it->second.produces == produces);
+
+    // A stage with an external product must document it, and only such a stage
+    // may carry an `| External |` row. Without this, a stage could acquire an
+    // empty `Produces` row in the doc and leave the reader believing it does
+    // nothing — the one reading of an empty Produces that is never true.
+    CHECK(it->second.has_external == !contract.external_outputs.empty());
   }
 
   // No stage section in the doc that the table does not know about.

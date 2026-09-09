@@ -46,6 +46,13 @@ enum class PipelineStage {
   mesh,      ///< generate the reconstructed mesh
   texture,   ///< texture-map the reconstructed mesh
   windows,   ///< derive window building components
+  // `gsplat` consumes `cloud` + `sensor_frames`, so anywhere after `clouds`
+  // would satisfy the ordering invariant. It sits last because it is a LEAF:
+  // it writes nothing into the project, so no stage can ever depend on it, and
+  // putting it mid-table would read as if the reconstruction spine ran through
+  // it. Leaves at the end also keeps the numbering of the existing stages
+  // stable.
+  gsplat, ///< train a 3D Gaussian splat (writes a .ply outside the project)
 };
 
 /// What kind of thing a named artifact is inside a `.rux` project.
@@ -100,9 +107,23 @@ struct StageContract {
   /// One-line description for help text.
   std::string_view summary;
   std::vector<StageInput> inputs;
-  /// Artifacts this stage writes. Used to derive resolution hints and to
-  /// assert the pipeline forms a DAG.
+  /// Artifacts this stage writes INTO the project. Used to derive resolution
+  /// hints and to assert the pipeline forms a DAG.
   std::vector<std::string_view> outputs;
+  /// Artifacts this stage writes OUTSIDE the project, described in prose
+  /// (e.g. "a .ply at the path given by -o/--out"). Empty for every stage
+  /// whose whole output lives in the `.rux`.
+  ///
+  /// Kept deliberately separate from `outputs` rather than modelled as another
+  /// `ArtifactKind`, because nothing in the project can ever depend on it: a
+  /// file on disk has no name `ProjectDB` can be asked about, so it is
+  /// invisible to `producing_stage()`, to the DAG assertion, and to
+  /// `check_stage_inputs()`. Encoding it as an artifact would let a future
+  /// stage declare it as an input, and the checker would have no way to answer
+  /// whether it is present. It is documentation with a machine-readable home,
+  /// not a dependency edge — but it is what lets the "every stage produces
+  /// something" invariant stay true for a stage with an empty `outputs`.
+  std::string_view external_outputs;
 };
 
 /// Every stage contract, in pipeline order.

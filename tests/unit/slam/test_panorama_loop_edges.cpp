@@ -30,9 +30,9 @@
 #include <vector>
 
 using namespace reusex::geometry;
+using Catch::Matchers::WithinAbs;
 using reusex::geometry::detail::edges_from_resections;
 using reusex::geometry::detail::PanoResection;
-using Catch::Matchers::WithinAbs;
 
 namespace {
 
@@ -164,8 +164,8 @@ TEST_CASE("min_frame_gap rejects temporally adjacent pairs",
   const auto edges =
       edges_from_resections(res, seed, permissive_options(), gates, &stats);
 
-  CHECK(stats.proposed == 3);      // (10,30), (10,120), (30,120)
-  CHECK(stats.dropped_gap == 1);   // only (10,30) is closer than 50
+  CHECK(stats.proposed == 3);    // (10,30), (10,120), (30,120)
+  CHECK(stats.dropped_gap == 1); // only (10,30) is closer than 50
   REQUIRE(edges.size() == 2);
   CHECK(edges[0].i == 10);
   CHECK(edges[0].j == 120);
@@ -239,10 +239,10 @@ TEST_CASE("per-panorama cap keeps the best-supported edges deterministically",
   // with the frame index, so the cap must keep pairs among the high indices.
   std::vector<PanoResection> res;
   for (int k = 0; k < 6; ++k)
-    res.push_back(resect(k * 100, pano,
-                         make_pose({0, 0, 1}, 0.1 * k,
-                                   {static_cast<double>(k), 0.0, 0.0}),
-                         20 + 10 * k));
+    res.push_back(resect(
+        k * 100, pano,
+        make_pose({0, 0, 1}, 0.1 * k, {static_cast<double>(k), 0.0, 0.0}),
+        20 + 10 * k));
 
   auto opt = permissive_options();
   opt.max_edges_per_panorama = 4;
@@ -280,10 +280,10 @@ TEST_CASE("edge order does not depend on resection input order",
 
   std::vector<PanoResection> forward;
   for (int k = 0; k < 4; ++k)
-    forward.push_back(resect(k * 150, pano,
-                             make_pose({0, 1, 0}, 0.2 * k,
-                                       {0.0, static_cast<double>(k), 0.0}),
-                             25 + k));
+    forward.push_back(resect(
+        k * 150, pano,
+        make_pose({0, 1, 0}, 0.2 * k, {0.0, static_cast<double>(k), 0.0}),
+        25 + k));
   std::vector<PanoResection> reversed(forward.rbegin(), forward.rend());
 
   const auto a = edges_from_resections(forward, seed, permissive_options(),

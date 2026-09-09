@@ -61,10 +61,10 @@ double bearing_angle(const Eigen::Matrix3d &Q, const Eigen::Vector3d &t,
 /// The 3D points are stored in the frame's OWN OPTICAL coordinates. That choice
 /// is what makes the loop-edge front-end pose-independent: a panorama resected
 /// against `local` sees nothing of `sensor_frame_pose`, so the relative pose it
-/// implies between two frames is a genuine measurement rather than a restatement
-/// of the (drifted) seed trajectory. Callers that want world coordinates — the
-/// alignment path, which resects a single pooled world pose — compose with
-/// `T_world_cam` via world().
+/// implies between two frames is a genuine measurement rather than a
+/// restatement of the (drifted) seed trajectory. Callers that want world
+/// coordinates — the alignment path, which resects a single pooled world pose —
+/// compose with `T_world_cam` via world().
 struct FrameFeatures {
   cv::Mat descriptors;                 ///< Nx32 CV_8U
   std::vector<cv::KeyPoint> keypoints; ///< pixel locations (figures/debug)
@@ -111,10 +111,10 @@ struct BearingRefineOptions {
 ///                             report why a resection was abandoned.
 /// @returns indices into @p points of the final inlier set, or empty when the
 ///          initial or final gate falls below `min_inliers`.
-std::vector<int> refine_bearing_pose(const std::vector<Eigen::Vector3d> &points,
-                                     const std::vector<Eigen::Vector3d> &bearings,
-                                     const BearingRefineOptions &opt,
-                                     Eigen::Matrix3d &Q, Eigen::Vector3d &t,
-                                     int *out_initial_inliers = nullptr);
+std::vector<int>
+refine_bearing_pose(const std::vector<Eigen::Vector3d> &points,
+                    const std::vector<Eigen::Vector3d> &bearings,
+                    const BearingRefineOptions &opt, Eigen::Matrix3d &Q,
+                    Eigen::Vector3d &t, int *out_initial_inliers = nullptr);
 
 } // namespace reusex::geometry::pano_detail

@@ -95,9 +95,9 @@ PlaneGraphResult optimize_sensor_poses(ProjectDB &db,
     // detect_panorama_loop_edges from these same LoopClosureOptions.
     if (options.panorama_loops.enable) {
       PanoramaLoopResult pl;
-      auto pano_edges = detect_panorama_loop_edges(
-          db, node_ids, seed_poses, options.panorama_loops,
-          options.loop_closure, &pl);
+      auto pano_edges = detect_panorama_loop_edges(db, node_ids, seed_poses,
+                                                   options.panorama_loops,
+                                                   options.loop_closure, &pl);
 
       if (pl.panoramas == 0) {
         // The user explicitly asked for panorama edges on a project that has
@@ -257,8 +257,8 @@ PlaneGraphResult optimize_sensor_poses(ProjectDB &db,
             ++pano_kept;
         core::info("PlaneGraph: PCM kept {} of {} unioned loop edges; "
                    "{} of {} panorama edges rejected as inconsistent",
-                   loop_edges.size(), before,
-                   panorama_pairs.size() - pano_kept, panorama_pairs.size());
+                   loop_edges.size(), before, panorama_pairs.size() - pano_kept,
+                   panorama_pairs.size());
       } else {
         core::warn("PlaneGraph: PCM disabled (--loop-no-pcm) — {} panorama "
                    "loop edges enter the graph WITHOUT a consistency filter",

@@ -286,7 +286,8 @@ PanoramaAlignmentResult align_panorama(ProjectDB &db, int pano_id,
   const double ang_gate = 2.0 * std::atan(opt.ransac_reproj_px / fx0);
 
   // Parallel arrays for the shared bearing-space refinement: each pooled
-  // correspondence's WORLD point against the panorama bearing it was seen under.
+  // correspondence's WORLD point against the panorama bearing it was seen
+  // under.
   std::vector<Eigen::Vector3d> pool_pts, pool_bearings;
   pool_pts.reserve(pool.size());
   pool_bearings.reserve(pool.size());

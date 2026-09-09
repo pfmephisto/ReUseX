@@ -6,12 +6,13 @@
 //
 // WHY A PANORAMA IS THE RIGHT SENSOR FOR THIS
 // -------------------------------------------
-// The plane-landmark back-end (PlaneGraphOptimizer) makes frames that co-observe
-// the same wall mutually consistent, but two temporally distant views of the
-// same place that share no plane-landmark chain are left unconstrained — the
-// "basin problem" of docs/research/registration-improvements.md. The ORB
-// front-end in LoopClosure.hpp attacks that by matching frame PAIRS, which
-// requires the two narrow-FOV frames to overlap each other.
+// The plane-landmark back-end (PlaneGraphOptimizer) makes frames that
+// co-observe the same wall mutually consistent, but two temporally distant
+// views of the same place that share no plane-landmark chain are left
+// unconstrained — the "basin problem" of
+// docs/research/registration-improvements.md. The ORB front-end in
+// LoopClosure.hpp attacks that by matching frame PAIRS, which requires the two
+// narrow-FOV frames to overlap each other.
 //
 // A 360 panorama sees every direction at once, so a SINGLE panorama routinely
 // matches frames that do not overlap each other at all — including frames from
@@ -20,11 +21,12 @@
 //
 // WHAT MAKES THE EDGE INFORMATIVE (the one thing to get right)
 // ------------------------------------------------------------
-// `PanoramaAlignment` resects ONE panorama pose in WORLD coordinates, from frame
-// keypoints already transformed to world by their (drifted) seed poses. An edge
-// built from that pose would be circular: `T_pano_A^-1 · T_pano_B` would
-// reproduce `seed(A)^-1 · seed(B)` and carry exactly ZERO drift-correction
-// information — it would restate the drift rather than measure it.
+// `PanoramaAlignment` resects ONE panorama pose in WORLD coordinates, from
+// frame keypoints already transformed to world by their (drifted) seed poses.
+// An edge built from that pose would be circular: `T_pano_A^-1 · T_pano_B`
+// would reproduce `seed(A)^-1 · seed(B)` and carry exactly ZERO
+// drift-correction information — it would restate the drift rather than measure
+// it.
 //
 // This module therefore resects the panorama INDEPENDENTLY against each matched
 // frame, using that frame's keypoints in the frame's OWN optical coordinates:
@@ -141,15 +143,15 @@ struct PanoramaLoopOptions {
 /// Statistics from panorama loop-edge detection. Every drop reason is counted
 /// so an empty result is explainable rather than mysterious (STANDARDS §5).
 struct PanoramaLoopResult {
-  int panoramas = 0;        ///< panoramas in the project
-  int panoramas_matched = 0;///< panoramas that resected >= 2 frames
-  int frames_resected = 0;  ///< accepted independent per-frame resections
-  int proposed = 0;         ///< candidate frame pairs before gating
-  int dropped_gap = 0;      ///< rejected: closer than min_frame_gap
-  int dropped_seed_gate = 0;///< rejected: min/max seed-disagreement
-  int dropped_cap = 0;      ///< rejected: max_edges_per_panorama
-  int edges = 0;            ///< emitted edges
-  int total_inliers = 0;    ///< summed supporting inliers
+  int panoramas = 0;         ///< panoramas in the project
+  int panoramas_matched = 0; ///< panoramas that resected >= 2 frames
+  int frames_resected = 0;   ///< accepted independent per-frame resections
+  int proposed = 0;          ///< candidate frame pairs before gating
+  int dropped_gap = 0;       ///< rejected: closer than min_frame_gap
+  int dropped_seed_gate = 0; ///< rejected: min/max seed-disagreement
+  int dropped_cap = 0;       ///< rejected: max_edges_per_panorama
+  int edges = 0;             ///< emitted edges
+  int total_inliers = 0;     ///< summed supporting inliers
 };
 
 /// Detect panorama-derived wide-baseline loop edges.

@@ -778,6 +778,20 @@ cv::Mat render_view(const ProjectDB &db, const RenderOptions &opts) {
     place_preset_camera(renderer, opts, bounds);
   }
 
+  // TODO: Fail gracefully when VTK cannot create an offscreen render window
+  // category=Visualization estimate=4h
+  // On a machine with no DRM render node and no X/Wayland display (a
+  // GitHub-hosted CI runner, a nix build sandbox) this Render() call segfaults
+  // inside vtkEGLRenderWindow instead of reporting the failure. The
+  // SupportsOpenGL() guard below already produces the right diagnosis, but it
+  // is unreachable: the crash happens first, so STANDARDS §5 is violated by a
+  // crash rather than served by a diagnosed error. Fixing it means probing for
+  // a usable EGL device *before* the first Render() — without regressing the
+  // software-rasteriser and remote-GPU setups that legitimately have no local
+  // render node, which is why this is not just a matter of moving the check up.
+  // The two rendering tests in tests/integration/test_render_view.cpp skip
+  // themselves on such machines; remove that guard once this reports properly.
+  // Follow-up to #294.
   window->Render();
   core::debug("render: window class {}", window->GetClassName());
 

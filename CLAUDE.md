@@ -167,6 +167,34 @@ regression beyond `--threshold` percent. The required before/after workflow is
 `scripts/bench-arkitscenes.sh` and `scripts/bench-mushroom.sh` drive
 dataset-level runs.
 
+### Continuous integration
+
+Two workflows, split by whether they need the nix closure:
+
+| Workflow | Triggers | Jobs |
+|---|---|---|
+| `.github/workflows/lint.yml` | push (main) + PR | clang-format, REUSE/SPDX, docs/gui YAML parse |
+| `.github/workflows/ci.yml` | push (main) + PR | `nix build .#checks.x86_64-linux.tests` (CPU variant + ctest), GUI frontend build + vitest |
+
+`ci.yml` is only affordable on GitHub-hosted runners because the dependency
+paths that `cache.nixos.org` cannot serve — our overlaid OpenCV, RTABMap,
+GTSAM, HiGHS, OpenNURBS, libtorch, OpenMVS, tokenizers-cpp — are pulled from
+**https://reusex.cachix.org** (public; reads need no token). Writes happen
+only from `main`, using `CACHIX_AUTH_TOKEN`, which is an **environment**
+secret on the `CI` environment — hence `environment: CI` on the job.
+
+To re-seed or top up the cache from a dev machine:
+
+```bash
+nix build .#checks.x86_64-linux.tests
+nix-store -q --requisites --include-outputs \
+  $(nix path-info --derivation .#checks.x86_64-linux.tests) \
+  | grep -v '\.drv$' | cachix push reusex   # upstream-cached paths are skipped
+```
+
+Full details — cache contents, size budget, and the 5 GB free-tier
+constraint: [`docs/guides/ci-cache.md`](docs/guides/ci-cache.md).
+
 ### Documentation
 
 The Doxygen target is named `docs` (not `doc`) and writes to `docs/api`

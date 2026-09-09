@@ -55,6 +55,26 @@ if(NOT "LibTorch" IN_LIST ENABLED_ML_BACKENDS)
     message(STATUS "Excluding test_nms.cpp (LibTorch backend disabled)")
 endif()
 
+# Same rule for the TensorRT backend: MLBackendConfig.cmake drops
+# src/vision/tensor_rt/** (the .cpp *and* the .cu kernels) from reusex_vision
+# when TensorRT is off, so any test that names a symbol from there stops
+# linking. That is what breaks the CPU build (WITH_CUDA=OFF), which CI runs via
+# `nix build .#checks.x86_64-linux.tests` (#202).
+#
+#   * test_transpose_kernel.cpp calls chw_to_hwc_device_roundtrip(), defined in
+#     kernels/transpose.cu, and needs a CUDA device at run time anyway.
+#   * test_annotate_resume.cpp instantiates TensorRTDataset purely as a concrete
+#     IDataset to exercise the base-class resume logic; without the backend even
+#     its vtable is gone.
+#
+# The condition is deliberately the same ENABLED_ML_BACKENDS check the library
+# filter uses, so the two cannot drift apart.
+if(NOT "TensorRT" IN_LIST ENABLED_ML_BACKENDS)
+    list(FILTER HEAVY_TEST_SOURCES EXCLUDE REGEX
+         "/unit/vision/test_(transpose_kernel|annotate_resume)\\.cpp$")
+    message(STATUS "Excluding TensorRT-only vision tests (backend disabled)")
+endif()
+
 set(LIGHT_TEST_SOURCES ${UNIT_TEST_SOURCES})
 list(FILTER LIGHT_TEST_SOURCES EXCLUDE REGEX "/unit/(vision|ruxd|visualize)/")
 

@@ -246,6 +246,43 @@ class Mast3rMatcher:
 # MapAnything — apache checkpoint is commercial-safe; NC checkpoint = oracle    #
 # --------------------------------------------------------------------------- #
 class MapAnythingMatcher:
+    """MapAnything pointmap matcher (#264).
+
+    Unlike every other backend here, MapAnything is not a descriptor matcher:
+    it regresses a per-view 3D **pointmap** for both views *into one shared
+    frame*. Correspondence is therefore recovered geometrically — two pixels
+    correspond when their regressed 3D points are mutual nearest neighbours in
+    that shared frame — rather than photometrically.
+
+    What that buys, and what it costs:
+      + correspondences exist on texture-poor surfaces (blank walls) where
+        descriptor matchers have nothing to key on;
+      + the pair is reasoned about jointly, so a wide baseline is the regime
+        the model was trained for.
+      - a mutual-NN pair is only as trustworthy as the pointmap alignment. If
+        the model puts the two views in the wrong relative place, it does so
+        *smoothly*, and the resulting matches are dense, self-consistent and
+        wrong — the exact failure mode PCM had to reject for cross-camera ORB
+        in #236. The distance gate + reciprocity below are the only defence at
+        this level; the RANSAC and PCM stages downstream are the real one.
+
+    We deliberately discard MapAnything's own metric poses and re-lift the 2D
+    matches through our stored depth (as every backend does), so relative poses
+    stay comparable across matchers. Inference is image-only: no intrinsics,
+    depth or pose is fed in, which keeps this an honest measurement of what the
+    model alone contributes.
+
+    The apache and NC checkpoints share this code path verbatim; only the
+    checkpoint id resolved in __init__ differs.
+    """
+
+    _RESOLUTION_SET = 518  # resolution grid both checkpoints were trained on
+    _STRIDE = 4  # pixel stride of the sampled pointmap grid
+    _CONF_PERCENTILE = 20  # drop this % least-confident pixels per view
+    _ABS_GATE_M = 0.05  # floor of the mutual-NN distance gate (metres)
+    _SPACING_MULT = 1.5  # gate also scales with the map's own sample spacing
+    _SPREAD_CELLS = 24  # keep <=1 match per (W/24)-wide cell of view i
+
     def __init__(self, device="cuda", weights=None, variant="apache"):
         import torch
 
@@ -262,36 +299,163 @@ class MapAnythingMatcher:
             else "facebook/map-anything"
         )
         self.model = MapAnything.from_pretrained(ckpt).to(device).eval()
+        # Per-call diagnostics for the visualiser (see visualize_matches.py).
+        # match() keeps the (xy_i, xy_j) contract; this carries the extras.
+        self.last_match_info = None
 
-    def match(self, fi, fj, max_matches=4000):
-        # TODO: Implement MapAnything pointmap-to-2D correspondence extraction
-        # category=Vision estimate=1d
-        # This backend is a declared SEAM, not a working matcher: __init__ loads
-        # the checkpoint but match() raises, so `--matcher mapanything` fails
-        # immediately rather than silently producing no edges. The validated
-        # backends are orb / xfeat / lightglue / mast3r (see
-        # docs/research/loop-closure-learned-matchers.md §5).
-        # MapAnything regresses per-view pointmaps in a shared frame, so the
-        # implementation is not a descriptor match but a 3D one:
-        # 1. Run the model on the (fi, fj) pair to get both pointmaps.
-        # 2. Build mutual nearest-3D-neighbour pairs between the two pointmaps,
-        #    rejecting non-reciprocal pairs and pairs beyond a distance gate.
-        # 3. Project each accepted pointmap sample back to its own view's pixel
-        #    coordinates to emit (xy_i, xy_j) in FULL-RESOLUTION image space,
-        #    matching the contract the other backends' match() returns.
-        # 4. Return None below 3 matches, and cap at max_matches.
-        # Deliberately do NOT return MapAnything's own metric poses: every
-        # backend must re-lift through our stored depth so relative poses are
-        # comparable across matchers (see the class comment).
-        # Keep one code path for both the apache and NC checkpoints — the only
-        # difference is the checkpoint id resolved in __init__.
-        raise NotImplementedError(
-            "MapAnything correspondence extraction is not implemented — this "
-            "backend is a planned seam so the commercial-safe apache checkpoint "
-            "and the NC one can share one code path. Use --matcher xfeat "
-            "(Apache-2.0) for a validated commercial-safe learned matcher, or "
-            "--matcher mast3r for the non-commercial oracle."
+    # -- preprocessing ------------------------------------------------------ #
+    def _prep(self, color_bgr, idx):
+        """BGR frame -> a MapAnything view dict + the (sx, sy) that map resized
+        pixel coords back to the original image.
+
+        We resize the WHOLE image to the nearest trained resolution instead of
+        using the upstream `crop_resize_if_necessary` centre-crop: on a
+        wide-baseline pair the overlap is often at the image border, and
+        cropping it away is exactly the signal we came for. The residual aspect
+        distortion is small (the target is the closest trained aspect ratio) and
+        harmless here — the model predicts per-pixel ray directions, and the
+        metric lift downstream uses OUR intrinsics on the ORIGINAL image, not
+        the model's.
+        """
+        import cv2
+        import numpy as np
+        import torch
+        from mapanything.utils.image import find_closest_aspect_ratio
+        from uniception.models.encoders.image_normalizations import (
+            IMAGE_NORMALIZATION_DICT,
         )
+
+        rgb = cv2_to_rgb(color_bgr)
+        H, W = rgb.shape[:2]
+        W2, H2 = find_closest_aspect_ratio(W / H, self._RESOLUTION_SET)
+        interp = cv2.INTER_AREA if W2 < W else cv2.INTER_CUBIC
+        small = cv2.resize(rgb, (W2, H2), interpolation=interp)
+
+        norm = IMAGE_NORMALIZATION_DICT["dinov2"]
+        t = torch.from_numpy(small).to(self.device).permute(2, 0, 1).float() / 255.0
+        mean = norm.mean.view(3, 1, 1).to(self.device)
+        std = norm.std.view(3, 1, 1).to(self.device)
+        view = {
+            "img": ((t - mean) / std)[None],
+            "data_norm_type": ["dinov2"],
+            "true_shape": np.int32([[H2, W2]]),
+            "idx": idx,
+            "instance": str(idx),
+        }
+        return view, (W / W2, H / H2)
+
+    def _samples(self, pred):
+        """Strided, masked, confidence-gated pointmap samples for one view.
+        Returns (Nx3 world points, Nx2 resized-grid (u, v), N confidences)."""
+        import numpy as np
+
+        pts = pred["pts3d"][0].float().cpu().numpy()  # (H, W, 3), shared frame
+        mask = pred["mask"][0, ..., 0].cpu().numpy().astype(bool)
+        conf = pred["conf"][0].float().cpu().numpy()
+        h, w = mask.shape
+        s = self._STRIDE
+        vv, uu = np.mgrid[0:h:s, 0:w:s]
+        p = pts[vv, uu]
+        m = mask[vv, uu] & np.isfinite(p).all(axis=-1)
+        c = conf[vv, uu]
+        if int(m.sum()) >= 16:
+            m &= c >= np.percentile(c[m], self._CONF_PERCENTILE)
+        uv = np.stack([uu[m], vv[m]], axis=1).astype(np.float64)
+        return p[m], uv, c[m]
+
+    def _spread(self, idx, uv, shape):
+        """Thin a residual-sorted match list to <=1 per image cell of view i.
+
+        Mutual-NN survivors CLUSTER. Where the two pointmaps carry a small
+        systematic offset relative to each other, reciprocity only survives near
+        the stationary points of that offset field, so the accepted matches
+        bunch into a few patches. Feeding a bunched point set to RANSAC-Kabsch
+        is a degenerate fit: it reports a healthy inlier count while the
+        rotation is essentially unconstrained (measured on the office scan:
+        matches with a 56-107 px spread gave 90 deg pose errors at 100+
+        inliers, against ORB's 130-211 px spread). Spreading trades raw count
+        for conditioning, which is what the pose solve actually needs.
+
+        Input must already be sorted best-first; the first match reaching a cell
+        wins it.
+        """
+        import numpy as np
+
+        h, w = int(shape[0]), int(shape[1])
+        cell = max(1, int(np.ceil(max(h, w) / self._SPREAD_CELLS)))
+        keys = (uv[idx, 1].astype(np.int64) // cell) * (w // cell + 1) + (
+            uv[idx, 0].astype(np.int64) // cell
+        )
+        _, first = np.unique(keys, return_index=True)
+        return idx[np.sort(first)]
+
+    @staticmethod
+    def _to_full_res(uv, scale):
+        """Resized-grid pixel coords -> original-image pixel coords, using
+        cv2.resize's pixel-centre convention (x_src = (x_dst + .5)*s - .5)."""
+        import numpy as np
+
+        return (uv + 0.5) * np.asarray(scale, np.float64) - 0.5
+
+    # -- the contract ------------------------------------------------------- #
+    def match(self, fi, fj, max_matches=4000):
+        import numpy as np
+        import torch
+        from scipy.spatial import cKDTree
+
+        self.last_match_info = None
+        v0, s0 = self._prep(fi.color, 0)
+        v1, s1 = self._prep(fj.color, 1)
+        with torch.inference_mode():
+            preds = self.model.infer(
+                [v0, v1],
+                memory_efficient_inference=False,
+                use_amp=True,
+                amp_dtype="bf16",
+                apply_mask=True,
+                mask_edges=True,
+            )
+        p0, uv0, c0 = self._samples(preds[0])
+        p1, uv1, c1 = self._samples(preds[1])
+        if len(p0) < 3 or len(p1) < 3:
+            return None
+
+        # Mutual nearest 3D neighbour in the shared frame. Reciprocity kills the
+        # many-to-one collapse you get where one view sees a surface at grazing
+        # incidence and the other head-on.
+        t1, t0 = cKDTree(p1), cKDTree(p0)
+        d01, i01 = t1.query(p0, workers=-1)
+        _, i10 = t0.query(p1, workers=-1)
+        mutual = i10[i01] == np.arange(len(p0))
+
+        # Distance gate. A pointmap is sampled on a pixel grid, so even a
+        # perfect correspondence lands ~half a sample spacing away from its
+        # partner; gating tighter than the grid would reject everything. Scale
+        # the gate with the target map's own median spacing, with an absolute
+        # floor for close-range pairs where the spacing is millimetric.
+        spacing = float(np.median(t1.query(p1, k=2, workers=-1)[0][:, 1]))
+        gate = max(self._ABS_GATE_M, self._SPACING_MULT * spacing)
+        keep = mutual & np.isfinite(d01) & (d01 <= gate)
+        n_keep = int(keep.sum())
+        if n_keep < 3:
+            return None
+
+        idx = np.flatnonzero(keep)
+        idx = idx[np.argsort(d01[idx])]  # best residual first
+        idx = self._spread(idx, uv0, v0["true_shape"][0])[:max_matches]
+        xy_i = self._to_full_res(uv0[idx], s0)
+        xy_j = self._to_full_res(uv1[i01[idx]], s1)
+        self.last_match_info = {
+            "residual_m": d01[idx],  # mutual-NN 3D distance, metres
+            "conf_i": c0[idx],
+            "conf_j": c1[i01[idx]],
+            "gate_m": gate,
+            "spacing_m": spacing,
+            "n_sampled": int(len(p0)),
+            "n_mutual": int(mutual.sum()),
+            "n_gated": n_keep,
+        }
+        return xy_i, xy_j
 
 
 # --------------------------------------------------------------------------- #

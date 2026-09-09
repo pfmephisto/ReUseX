@@ -203,6 +203,25 @@ changelog — that history is the point of keeping it in the repo.
 
 ## Direction changelog
 
+- **2026-09-09** — MapAnything evaluated as a loop-edge matcher (#264) and
+  **rejected on measurement, not on licence**. The licence question closes
+  cleanly in our favour: `facebook/map-anything-apache` is genuinely Apache-2.0
+  (verified on the model card), so a pointmap *foundation* model is commercially
+  available to us for the first time. But on the office scan's 1225-pair endcap
+  set it produced 148 edges with the highest inlier support of any backend
+  (9203, above the MASt3R NC oracle) — of which **PCM rejected 145 as mutually
+  inconsistent**, leaving a 0.21 m correction on a scan that needs ~16 m, where
+  XFeat's 163 edges survive intact and apply 16.66 m. This is the #236 failure
+  repeated from a different front-end: a pointmap model asked about two blank
+  repetitive walls always returns a geometry, so per-pair confidence is high and
+  cross-pair agreement is absent. **Σ inliers is therefore not a matcher
+  ranking** — it rewards precisely what PCM punishes, and any future matcher
+  comparison should be judged on edges-surviving-PCM and applied correction.
+  The shipping recommendation is unchanged (XFeat / LightGlue+ALIKED); the C++
+  ingestion path for MapAnything is **not** worth building. Full write-up:
+  [`research/loop-closure-learned-matchers.md`](research/loop-closure-learned-matchers.md)
+  §5.5–5.6.
+
 - **2026-09-08** — 360-driven pose-graph loop closure (#236) implemented and
   measured on the NewOffice drifted scan: the mechanism, guardrails and CLI
   landed, but the effect is negative (flatness_rms 25.15 → 27.08 mm vs the

@@ -33,19 +33,52 @@ commercial-safe matcher writes the identical file for production.
 | `xfeat` | Apache-2.0 | commercial-safe learned features |
 | `lightglue` | Apache-2.0 | commercial-safe (LightGlue + ALIKED/DISK — **not** SuperPoint, which is NC) |
 | `mast3r` | **CC-BY-NC-SA** | **oracle only**; needs `--allow-noncommercial` |
-| `mapanything` | Apache-2.0 (`--variant apache`) or CC-BY-NC | **planned, not implemented** — `match()` raises `NotImplementedError`; the licence split (apache checkpoint shippable, NC checkpoint oracle-only) is why the seam exists |
+| `mapanything` | Apache-2.0 (`--variant apache`, default) or CC-BY-NC (`--variant nc`) | pointmap model, **not** a descriptor matcher: correspondence = mutual nearest 3D neighbour between the two per-view pointmaps. Finds matches on blank walls where descriptors have nothing to key on; see the caveats in `docs/research/loop-closure-learned-matchers.md` §5.5 |
 
 **Commercial rule:** output from `mast3r` or `mapanything --variant nc` is an
 evaluation artefact. It must not be bundled into or shipped with a commercial
 deliverable. The tool prints a banner and gates these behind
-`--allow-noncommercial`.
+`--allow-noncommercial`. `mapanything` with the default `--variant apache`
+needs no gate: Meta ships that checkpoint under Apache-2.0 precisely so it can
+be used commercially (verified 2026-09-09 — the `license:` field on
+[`facebook/map-anything-apache`](https://huggingface.co/facebook/map-anything-apache)
+reads `apache-2.0`, against `cc-by-nc-4.0` on `facebook/map-anything`, and the
+upstream README names the apache checkpoint as the commercial one).
 
 ## Environment
 
 Each learned backend has its own venv (dependency isolation). `orb` needs only
-`numpy` + `opencv-python` (already present in the dev shell). Setup for
-`xfeat` / `mast3r` is documented in the PR; venvs live under
-`~/loop-edges-work/<backend>/` (outside the repo, not committed).
+`numpy` + `opencv-python` (already present in the dev shell). Venvs live under
+`~/loop-edges-work/<backend>/`, **outside the repo** — never committed, and no
+model weights land in the tree either (they cache under `~/.cache/huggingface`
+and `~/.cache/torch/hub`; see `models/README.md` for the project convention).
+
+`mapanything`, following the venv recipe in `python/README.md` — prebuilt
+wheels, never a Nix source build of torch:
+
+```bash
+W=~/loop-edges-work/mapanything && mkdir -p $W
+python3 -m venv $W/.venv
+$W/.venv/bin/pip install torch==2.11.0 torchvision==0.26.0 \
+    --index-url https://download.pytorch.org/whl/cu128
+git clone --depth 1 https://github.com/facebookresearch/map-anything.git $W/map-anything
+$W/.venv/bin/pip install -e $W/map-anything     # pulls uniception, timm, scipy
+```
+
+On NixOS `import torch` then fails with `libstdc++.so.6: cannot open shared
+object file` until the loader can see gcc's libs, the driver, and torch's
+bundled CUDA libs — the same gotcha `docs/sam3.1-export-guide.md` §1.2
+documents. Write `$W/env.sh` once and source it before every run:
+
+```bash
+export MA_PY=~/loop-edges-work/mapanything/.venv/bin/python
+GCC=$(ls -d /nix/store/*gcc-14.3.0-lib/lib | head -1)
+NVLIBS=$(echo ~/loop-edges-work/mapanything/.venv/lib/python*/site-packages/nvidia/*/lib | tr ' ' ':')
+export LD_LIBRARY_PATH="$GCC:/run/opengl-driver/lib:$NVLIBS"
+```
+
+First run downloads the checkpoint (~5 GB) into the HF cache and takes ~2 min
+to load; inference is ~1 s per pair on an RTX 6000 Ada at ~9 GB VRAM.
 
 ## Usage
 
@@ -64,6 +97,15 @@ python3 tools/loop_edges/export_loop_edges.py PROJECT.rux \
 # MASt3R oracle (research/eval only)
 ~/loop-edges-work/mast3r/.venv/bin/python tools/loop_edges/export_loop_edges.py \
     PROJECT.rux -o edges-mast3r.json --matcher mast3r --allow-noncommercial
+
+# MapAnything, apache checkpoint — commercial-safe, no gate needed (source env.sh first)
+$MA_PY tools/loop_edges/export_loop_edges.py PROJECT.rux \
+    -o edges-mapanything.json --matcher mapanything --proposal endcap
+
+# Look at what a backend actually proposes before trusting a table of counts.
+# Green = survives the same RANSAC the exporter runs; red = rejected.
+$MA_PY tools/loop_edges/visualize_matches.py PROJECT.rux \
+    -o matches.jpg --pair 7:231 --pair 11:224 --matchers orb,mapanything
 
 # Feed edges into the pose graph (license-clean; C++ never links a matcher)
 rux -p PROJECT.rux optimize --loop-edges edges-xfeat.json --loop-trust \

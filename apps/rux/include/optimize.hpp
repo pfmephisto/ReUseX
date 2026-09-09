@@ -48,6 +48,11 @@ struct SubcommandOptimizeOptions {
   float odometry_sigma_rot = 0.005f;
   float odometry_sigma_trans = 0.01f;
   float underconstrained_odom_scale = 0.25f;
+  std::string odometry_noise = "fixed"; // fixed | motion
+  float odometry_weight_min = 0.5f;
+  float odometry_weight_max = 3.0f;
+  bool odometry_robust = false;
+  float odometry_gnc_inlier_cost = 8.41f;
   float plane_sigma_normal = 0.24f;
   float plane_sigma_distance = 0.19f;
   std::string plane_noise = "inliers"; // uniform | inliers | fit

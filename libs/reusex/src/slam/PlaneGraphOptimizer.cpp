@@ -335,6 +335,42 @@ double median_of(std::vector<double> v) {
 
 } // namespace
 
+std::vector<OdometrySigmaScale>
+odometry_motion_scales(const std::vector<OdometryEdgeMotion> &motion,
+                       double min_scale, double max_scale) {
+  std::vector<OdometrySigmaScale> scales(motion.size());
+  if (motion.empty())
+    return scales;
+  if (!(min_scale > 0.0) || !(max_scale >= min_scale))
+    return scales; // caller gave a degenerate clamp: stay at the fixed model
+
+  std::vector<double> trans, rot;
+  trans.reserve(motion.size());
+  rot.reserve(motion.size());
+  for (const auto &m : motion) {
+    trans.push_back(std::abs(m.translation));
+    rot.push_back(std::abs(m.rotation));
+  }
+  const double med_t = median_of(trans);
+  const double med_r = median_of(rot);
+
+  // A zero (or non-finite) median means the run has no motion to normalise
+  // against — a stationary capture, or a channel that never moved. Leaving the
+  // scale at 1.0 degenerates to OdometryNoiseModel::fixed, which is the honest
+  // answer; dividing would be a divide-by-zero dressed up as a noise model.
+  const bool use_t = std::isfinite(med_t) && med_t > 0.0;
+  const bool use_r = std::isfinite(med_r) && med_r > 0.0;
+
+  for (size_t i = 0; i < motion.size(); ++i) {
+    if (use_t && std::isfinite(trans[i]))
+      scales[i].translation =
+          std::clamp(trans[i] / med_t, min_scale, max_scale);
+    if (use_r && std::isfinite(rot[i]))
+      scales[i].rotation = std::clamp(rot[i] / med_r, min_scale, max_scale);
+  }
+  return scales;
+}
+
 PlaneFitSigmas plane_fit_sigmas(const PlaneFitQuality &q) {
   // Guards, not corrections: these clamps only bound the degenerate corners so
   // the graph never sees an infinite or zero sigma. Real detections are far
@@ -653,6 +689,10 @@ PlaneGraphOptimizer::optimize(std::vector<FrameSurfels> &frames,
     // Graph positions of the loop-edge factors that get the relaxed GNC-TLS
     // inlier threshold (only populated when loop_edges_trusted is set).
     std::vector<size_t> loop_factors;
+    // Graph positions of the odometry factors, populated only when
+    // options_.odometry_robust leaves them OUT of the known-inlier set so GNC
+    // can down-weight them; they then need their own 6-DoF TLS threshold.
+    std::vector<size_t> odom_factors;
 
     for (int i = 0; i < N; ++i) {
       const gtsam::Rot3 R(cur[i].block<3, 3>(0, 0));
@@ -682,19 +722,55 @@ PlaneGraphOptimizer::optimize(std::vector<FrameSurfels> &frames,
       const double base_r = options_.odometry_sigma_rot;
       const double base_t = options_.odometry_sigma_trans;
       const double scale = options_.underconstrained_odom_scale;
+
+      // Relative seed motion per edge, computed once: it is both the factor
+      // measurement and (under OdometryNoiseModel::motion) the noise signal.
+      std::vector<gtsam::Pose3> odom(std::max(0, N - 1));
+      std::vector<OdometryEdgeMotion> motion(std::max(0, N - 1));
+      for (int i = 0; i + 1 < N; ++i) {
+        const Eigen::Matrix4d rel = seed[i].inverse() * seed[i + 1];
+        odom[i] = gtsam::Pose3(gtsam::Rot3(rel.block<3, 3>(0, 0)),
+                               gtsam::Point3(rel.block<3, 1>(0, 3)));
+        motion[i].translation = odom[i].translation().norm();
+        motion[i].rotation = gtsam::Rot3::Logmap(odom[i].rotation()).norm();
+      }
+
+      std::vector<OdometrySigmaScale> motion_scale;
+      if (options_.odometry_noise_model == OdometryNoiseModel::motion) {
+        motion_scale = odometry_motion_scales(
+            motion, static_cast<double>(options_.odometry_weight_min),
+            static_cast<double>(options_.odometry_weight_max));
+        std::vector<double> mt, mr;
+        mt.reserve(motion.size());
+        mr.reserve(motion.size());
+        for (const auto &m : motion) {
+          mt.push_back(m.translation);
+          mr.push_back(m.rotation);
+        }
+        core::info("PlaneGraph: motion-scaled odometry noise over {} edges "
+                   "(median motion {:.4f} m / {:.4f} rad)",
+                   motion.size(), median_of(mt), median_of(mr));
+      }
+
       for (int i = 0; i + 1 < N; ++i) {
         const double s =
             (underconstrained[i] || underconstrained[i + 1]) ? scale : 1.0;
+        const double mr = motion_scale.empty() ? 1.0 : motion_scale[i].rotation;
+        const double mt =
+            motion_scale.empty() ? 1.0 : motion_scale[i].translation;
+        const double sr = base_r * s * mr;
+        const double st = base_t * s * mt;
         auto odom_noise = gtsam::noiseModel::Diagonal::Sigmas(
-            (gtsam::Vector(6) << base_r * s, base_r * s, base_r * s, base_t * s,
-             base_t * s, base_t * s)
-                .finished());
-        const Eigen::Matrix4d rel = seed[i].inverse() * seed[i + 1];
-        const gtsam::Pose3 odom(gtsam::Rot3(rel.block<3, 3>(0, 0)),
-                                gtsam::Point3(rel.block<3, 1>(0, 3)));
+            (gtsam::Vector(6) << sr, sr, sr, st, st, st).finished());
         graph.emplace_shared<gtsam::BetweenFactor<gtsam::Pose3>>(
-            X(i), X(i + 1), odom, odom_noise);
-        trusted_factors.push_back(graph.size() - 1);
+            X(i), X(i + 1), odom[i], odom_noise);
+        // Odometry is a KNOWN INLIER by default: GNC may not demote it. With
+        // --odometry-robust it is left out of the trusted set so GNC can, which
+        // is the #225 "grossly-wrong seed edge" probe.
+        if (options_.odometry_robust)
+          odom_factors.push_back(graph.size() - 1);
+        else
+          trusted_factors.push_back(graph.size() - 1);
       }
     }
 
@@ -801,9 +877,23 @@ PlaneGraphOptimizer::optimize(std::vector<FrameSurfels> &frames,
         GncParamsLM gnc_params(lm_params);
         gnc_params.setKnownInliers(trusted_factors);
         GncLM optimizer(graph, initial, gnc_params);
-        if (loop_factors.empty()) {
+        if (loop_factors.empty() && odom_factors.empty()) {
           optimizer.setInlierCostThresholds(
               static_cast<double>(options_.gnc_inlier_cost));
+        } else if (loop_factors.empty()) {
+          // Robust odometry only: plane factors keep the 3-DoF chi-square
+          // threshold, odometry gets the 6-DoF one.
+          gtsam::Vector barc = gtsam::Vector::Constant(
+              static_cast<Eigen::Index>(graph.size()),
+              static_cast<double>(options_.gnc_inlier_cost));
+          for (size_t k : odom_factors)
+            barc[static_cast<Eigen::Index>(k)] =
+                static_cast<double>(options_.odometry_gnc_inlier_cost);
+          optimizer.setInlierCostThresholds(barc);
+          core::info("PlaneGraph: {} odometry factors are GNC-demotable at a "
+                     "TLS threshold of {:.2f} (planes {:.2f})",
+                     odom_factors.size(), options_.odometry_gnc_inlier_cost,
+                     options_.gnc_inlier_cost);
         } else {
           // Per-factor TLS thresholds: everything keeps gnc_inlier_cost, the
           // trusted loop edges get the far more generous (but finite)
@@ -815,6 +905,9 @@ PlaneGraphOptimizer::optimize(std::vector<FrameSurfels> &frames,
           for (size_t k : loop_factors)
             barc[static_cast<Eigen::Index>(k)] =
                 static_cast<double>(options_.loop_trust_inlier_cost);
+          for (size_t k : odom_factors)
+            barc[static_cast<Eigen::Index>(k)] =
+                static_cast<double>(options_.odometry_gnc_inlier_cost);
           optimizer.setInlierCostThresholds(barc);
           core::info("PlaneGraph: {} trusted loop factors given a relaxed GNC "
                      "inlier threshold of {:.2f} (others {:.2f})",

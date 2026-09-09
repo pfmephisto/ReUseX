@@ -1106,3 +1106,337 @@ rux -p scan.rux analyze accuracy path/to/gt_mesh.ply -o accuracy.json
 ```
 
 The figure is regenerated with `python3 scripts/plot-plane-term-figure.py`.
+
+## 10. Synthetic drift: making the GT scans able to adjudicate a pose stage (2026-09-10, #338)
+
+§9 closed with an uncomfortable conclusion: the three ARKitScenes scans
+**cannot adjudicate pose refinement at all**, because they carry absolute GT
+but no drift, and on a well-posed capture the correct behaviour of every pose
+stage is to do nothing. Every solver-side experiment since #298 has therefore
+been measuring the benchmark rather than the solver.
+
+This section supplies the missing half — synthetic, seeded drift on the seed
+trajectories (#338) — and re-runs the §9 matrix on the result. The headline is
+that the answer changes sign:
+
+> **`rux optimize` recovers synthetic drift and is GT-positive** — +0.33 F@50mm
+> on two of three scans at a moderate drift level — and the mechanism is the
+> **plane term**, the very component §9 named as what costs absolute accuracy.
+> Both statements are true, and together they say the plane term is not
+> miscalibrated: it needs drift to pay for itself.
+
+### 10.1 The drift model
+
+`rux edit perturb-poses` (library: `slam/perturb_poses.hpp`) perturbs the
+**relative** pose chain and integrates it, rather than displacing each pose
+independently. That choice is forced by §8.3, which measured that real drift on
+these captures is carried smoothly by thousands of individually-good relative
+measurements, with no outlier for a robust kernel to find:
+
+```
+P'[0]   = P[0]                                  (gauge — see below)
+P'[i+1] = P'[i] * (P[i]^-1 * P[i+1]) * Exp(xi_i)
+```
+
+`xi_i` has two components, both scaled by the step length so drift grows with
+distance travelled and not with frame count:
+
+- a **bias** term — an Ornstein-Uhlenbeck process with a metric correlation
+  length (default 5 m). This is the systematic part (gyro bias, scale error) and
+  it is what makes accumulated drift smooth and *curved*. Its rotational channel
+  dominates: a small constant yaw error integrates through the lever arm into a
+  super-linear position error.
+- a **random walk** scaled by `sqrt(step)`, so relative errors compose as
+  Brownian motion — the textbook "odometry error grows with the square root of
+  distance".
+
+Base gains: `rot_bias 0.020 rad/m`, `rot_walk 0.010 rad/sqrt(m)`,
+`trans_bias 0.020` (fraction of step), `trans_walk 0.010 m/sqrt(m)`. These set
+the *character* of the deformation; the *magnitude* is solved for separately
+(§10.2), so changing a gain changes the shape without changing how much drift
+was injected.
+
+Two design points that decide whether the benchmark measures anything:
+
+**Gauge.** Frame 0 is left exactly on the seed. The pose graph's only absolute
+anchor is its tight prior on frame 0 (§8.1), so a rigid displacement of the
+whole trajectory would be drift that no pose stage could recover *by
+construction* — the benchmark would be measuring an impossibility. Anchoring
+frame 0 makes the injected error exactly the deformation the solver is asked to
+undo.
+
+**Determinism (STANDARDS §6).** Everything is a pure function of
+(poses, seed, options): the noise realisation is drawn once from a seeded
+`std::mt19937` and then *rescaled* by the amplitude search, so the calibration
+cannot perturb the realisation it is calibrating. `--drift-scale 0` returns the
+poses bit-identical — the no-op guard proving the harness injects nothing of its
+own. Both properties are unit-tested.
+
+### 10.2 Calibrating the magnitude, and why the default is not office's 0.80
+
+The amplitude is solved by bisection so that the realised **median relative-pose
+disagreement over temporally distant frame pairs**, as a fraction of the
+trajectory's extent, hits `target_drift_ratio * drift_scale`. That statistic is
+§9.5's "edge ↔ seed disagreement", computed against a known reference instead of
+against a matcher, so the injected drift is reported in the same units the
+workstream already uses to describe real drift.
+
+The default target is **0.20**, not office's measured 0.80, and the reason is
+worth recording because it is a property of the captures rather than a taste
+call. Office walks **69.1 m of path inside an 18.01 m box**; these ARKitScenes
+scans orbit **8.2–14.9 m of path inside a 1.82–2.57 m box**. Demanding 80% of
+*that* extent needs ~38x the base gains and tumbles the worst frame by 180° —
+which is no longer drift, it is destruction. The generator warns above 60° of
+worst-frame orientation error for exactly this reason.
+
+0.20 is chosen against the two thresholds that decide whether the benchmark can
+answer anything: it is **2–9x the measured XFeat edge error** (58–169 mm, §9.5),
+so drift ≫ edge error and loop closure has something to win; and **7–10x the
+50 mm F-score threshold**, so the no-pose-stage baseline is unambiguously bad
+against GT rather than marginally so.
+
+What was actually injected (seed 1, the harness default):
+
+| scan | extent | path | `-s 0.25` disagreement / median pose err / max rot | `-s 1.0` disagreement / median pose err / max rot |
+|---|---|---|---|---|
+| 41069048 | 1.82 m | 10.25 m | 0.091 m / 0.124 m / 6.6° | 0.363 m / 0.494 m / 26.3° |
+| 41069050 | 1.86 m | 8.21 m | 0.093 m / 0.101 m / 3.6° | 0.372 m / 0.373 m / 14.5° |
+| 41069051 | 2.57 m | 14.94 m | 0.128 m / 0.131 m / 20.0° | 0.514 m / 0.587 m / **87.2°** |
+
+41069051 at `-s 1.0` trips the implausibility warning; its heavy row should be
+read as an upper bound on damage, not as a realistic capture.
+
+The extent figures are a free validation of the harness: `trajectory_extent()`
+reproduces §9.5's independently-recorded table **exactly** — office 18.01 m,
+ARKitScenes 1.82 / 1.86 / 2.57 m.
+
+### 10.3 The matrix on drifted variants
+
+Protocol identical to §9.9 (fresh copy → pose stage → `create clouds -g 0.05` →
+`create planes` → `analyze quality` / `analyze accuracy`), driven by
+`scripts/bench-arkitscenes-drift.sh`. Originals in `~/datasets` are never
+mutated; every run works on a copy that is deleted once scored.
+
+**F@50 mm against the `3dod_mesh` GT (higher is better).** `d=0` is the
+undrifted original, i.e. the recorded §9.3 rows.
+
+| configuration | 41069048 | 41069050 | 41069051 |
+|---|---|---|---|
+| **d = 0 (undrifted)** | | | |
+| no pose stage | **0.8917** | **0.8934** | **0.8893** |
+| optimize (default) | 0.8512 | 0.8015 | 0.8437 |
+| **d = 0.25 (mild: 0.09–0.13 m drift)** | | | |
+| no pose stage | 0.4640 | 0.5393 | 0.4182 |
+| optimize (default) | **0.7927** | **0.6378** | **0.7607** |
+| `--no-plane-factors` | 0.4640 | 0.5393 | 0.4182 |
+| **d = 1.0 (heavy: 0.36–0.51 m drift)** | | | |
+| no pose stage | 0.2288 | 0.1970 | 0.2169 |
+| optimize (default) | **0.2750** | **0.2980** | **0.2305** |
+| `--no-plane-factors` | 0.2288 | 0.1970 | 0.2169 |
+
+**Median accuracy against GT (mm, lower is better):**
+
+| | 41069048 | 41069050 | 41069051 |
+|---|---|---|---|
+| d=0.25, no pose stage | 63.07 | 52.05 | 73.10 |
+| d=0.25, optimize | **27.58** | **37.00** | **28.90** |
+| d=1.0, no pose stage | 167.95 | 151.66 | 181.87 |
+| d=1.0, optimize | **133.57** | **123.90** | **167.73** |
+
+![Synthetic drift makes the ARKitScenes GT scans able to adjudicate a pose stage](figures/drift/drift-bench-338.svg)
+
+### 10.4 What the numbers say
+
+**1. The sign flips, and that is the whole point of #338.** On the undrifted
+originals `optimize` costs 0.04–0.09 F; at mild drift it *gains* 0.10–0.34. The
+same stage, the same defaults, the same scans — the only thing that changed is
+whether there was drift to remove. This is the first GT-positive result for
+`rux optimize` in this workstream, and it validates #338's acceptance criterion
+directly: *a pose stage that removes synthetic drift measurably improves F@50mm.*
+
+**2. The plane term is the mechanism.** `--no-plane-factors` reproduces *no pose
+stage* **bit-exactly on every metric of every drifted row** — F, chamfer,
+accuracy, completeness, flatness and plane count all agree to every digit. With
+the plane term off, the graph is odometry + the frame-0 gauge prior, and the
+odometry chain **is** the drifted chain, so there is nothing to correct: the
+solver reproduces its input. All of the recovery in the table comes from the
+plane landmarks.
+
+That resolves the tension §9.6 left open. §9.3 measured the plane term as
+monotonically harmful on these scans and concluded it was "structurally harmful
+for drifting captures"; the truth is the opposite and more useful:
+
+> The plane term makes co-observed surfaces mutually consistent. When the seed
+> is already right, that is a distortion with no absolute reference to stop it
+> (§9.3). When the seed has drifted, it is exactly the right correction. Its
+> shipped calibration is not wrong — it was being measured on captures with no
+> drift for it to remove.
+
+**3. The GT-free metric and absolute accuracy now agree.** §8.6 and §9.3 recorded
+that they "actively disagree" on drifting captures. On the drifted variants they
+move together on every row: 41069048 at d=0.25 goes flatness 25.31 → 19.77 mm
+while F goes 0.4640 → 0.7927. The earlier disagreement was measured only where
+the seed was already correct — i.e. where the GT-free metric was being asked a
+question it is not calibrated for. That materially raises the trust one can put
+in the office scan's flatness numbers, which are the workstream's only signal on
+its only genuinely drifting capture.
+
+**4. Recovery collapses at heavy drift.** At d=1.0 the gain shrinks to
+0.01–0.10 F. The plane term recovers drift by *associating* per-frame plane
+detections across frames, and that association is seeded from the drifted poses
+(`assoc_distance = 0.10 m`, `assoc_normal_angle = 10°`). Once the drift is
+several times the association gate — 0.36–0.51 m against a 0.10 m gate — the
+landmarks that would tie distant frames together are never formed. Visible
+directly in the plane counts: 41069051 segments 15 planes at d=0.25 and 35 at
+d=1.0, i.e. the same surfaces shattered into fragments that no longer merge.
+**This is a real, measured limit of the current stage**, and the first concrete
+evidence for what a global constraint from outside the odometry chain is
+actually needed for: not to replace the plane term, but to bring the seed inside
+the plane term's association basin. §10.5 tests that prediction directly, and it
+holds.
+
+### 10.5 Loop edges on the drifted variants
+
+XFeat edges were re-exported with the `tools/loop_edges` bridge
+(`--matcher xfeat --proposal exhaustive --stride 6 --min-frame-gap 10
+--max-pairs 6000 --seed 42`). The proposal is by frame **index** and the
+measurement comes from images + depth, so the export is independent of the
+stored poses: one export per scan is valid for every drifted variant, and
+41069048 reproduced §9.4's edge count **exactly** (278 edges) — a further
+harness check.
+
+Edge counts: 278 / 337 / 460. 41069048 and 41069050 reproduce §9.4's recorded
+counts **exactly**; 41069051 exports more (460 vs 342) because §9.4 strided that
+3845-frame scan down to ~330 frames while the harness's fixed `--stride 6`
+leaves 641 — more frames proposed, more edges accepted.
+
+Two configurations were run at each drift level: the §9.4 one (plane term
+**off**, so the graph is odometry + gauge prior + loop edges) and — new here —
+the plane term **on** *and* loop edges, which §10.4 predicts is the interesting
+cell.
+
+**F@50 mm (higher is better), all four configurations:**
+
+| | 41069048 | 41069050 | 41069051 |
+|---|---|---|---|
+| XFeat edge error (§9.5) | **169.0 mm** | 59.9 mm | 57.6 mm |
+| **d = 0.25 (drift 0.09–0.13 m)** | | | |
+| no pose stage | 0.4640 | 0.5393 | 0.4182 |
+| optimize (plane only) | **0.7927** | 0.6378 | 0.7607 |
+| plane off + XFeat | 0.2611 | **0.7041** | 0.6527 |
+| plane + XFeat | **0.7927** | 0.5745 | **0.8160** |
+| **d = 1.0 (drift 0.36–0.51 m)** | | | |
+| no pose stage | 0.2288 | 0.1970 | 0.2169 |
+| optimize (plane only) | **0.2750** | 0.2980 | 0.2305 |
+| plane off + XFeat | 0.2287 | 0.3478 | 0.3361 |
+| plane + XFeat | **0.2750** | **0.6042** | **0.5406** |
+
+Gate and consistency-filter behaviour (the #339 gate resolved from each drifted
+trajectory's own extent, which is *larger* than the undrifted one because the
+drift stretches the trajectory):
+
+| scan | d | extent | gate | kept after gating | PCM kept |
+|---|---|---|---|---|---|
+| 41069048 | 0.25 | 2.02 m | 0.056 m | 230 / 278 | 38 |
+| 41069048 | 1.0 | 2.52 m | 0.070 m | 261 / 278 | 35 |
+| 41069050 | 0.25 | 1.94 m | 0.054 m | 297 / 337 | 149 |
+| 41069050 | 1.0 | 2.27 m | 0.063 m | 316 / 337 | 85 |
+| 41069051 | 0.25 | 2.62 m | 0.073 m | 344 / 460 | 64 |
+| 41069051 | 1.0 | 2.93 m | 0.082 m | 382 / 460 | 21 |
+
+**The §9.5 signal-to-noise rule survives contact with a controlled drift axis,
+and now cuts both ways.** 41069048's edges carry 169 mm of their own error. At
+mild drift (91 mm) that is *larger than the drift they would correct*, and they
+are duly catastrophic on their own (0.2611 vs 0.4640 for doing nothing). At heavy
+drift (363 mm) the ratio finally favours them, but PCM finds only 35 of 261
+mutually consistent, and against a graph with `odometry_sigma_trans = 0.01 m`
+GNC discounts them: `plane + XFeat` comes back **bit-identical to `optimize`** on
+every metric. On 41069050 and 41069051, whose edges carry ~58–60 mm, PCM keeps
+2–4x as many and the result inverts.
+
+**And that inversion is the most important measurement in this section.** At
+heavy drift, where §10.4 showed the plane term alone stalls:
+
+| | plane only | edges only | **both** | (no stage) |
+|---|---|---|---|---|
+| 41069050 | 0.2980 | 0.3478 | **0.6042** | 0.1970 |
+| 41069051 | 0.2305 | 0.3361 | **0.5406** | 0.2169 |
+
+Neither component gets past ~0.35 alone; together they reach 0.54–0.60. That is
+not additive, and the mechanism is exactly the one §10.4 predicted from the
+plane-count evidence: **the loop edges are a constraint from outside the odometry
+chain, so they pull the seed back inside the plane term's 0.10 m association
+basin, and the plane term then does the fine correction it is good at.** The
+plane counts confirm it — 41069051 at d=1.0 segments 35 planes with no pose
+stage, 25 after `optimize`, and 15 with `plane + XFeat`, i.e. back to the count
+of a *mildly* drifted scan.
+
+At mild drift the ordering is less clean (`plane + XFeat` is best on 41069051 at
+0.8160 — within reach of the undrifted 0.8893 — but *costs* 0.06 on 41069050),
+which is what one should expect when 93 mm of drift is being corrected by 60 mm
+edges. The margin is thin there; at heavy drift it is not.
+
+This is the **first measurement in this workstream of loop closure paying against
+absolute ground truth.** §9.4's "XFeat edges do not make `rux optimize`
+GT-positive" was, like the rest of §9, a statement about captures with no drift
+to correct.
+
+### 10.6 The gate this section depends on (#339)
+
+§9.7 item 2 asked for the seed-disagreement gate to be scale-relative, and this
+benchmark is the reason it could not be postponed: drifted variants of a 1.8 m
+scan and the 18 m office scan have to be gated by the same defaults. The gate is
+now `max(fraction * trajectory_extent, absolute_floor)`, with defaults chosen so
+that no previously measured scan changes behaviour — office's external-edge gate
+still resolves to 0.501 m, and the internal ORB gate's 0.10 m floor still wins at
+every measured extent. On these 1.8–2.6 m scans the external gate now resolves to
+~0.05 m instead of 0.50 m, which is the setting §9.4 measured at 0.73–0.76
+instead of the 0.29 collapse.
+
+### 10.7 What this changes about the workstream
+
+1. **The benchmark blocker of §9.6 is cleared.** There is now a drifting
+   benchmark with absolute GT, at two drift levels, seeded and reproducible. The
+   undrifted originals stay in the suite as the no-regression guard — a pose
+   stage must still do nothing on them.
+2. **"The plane term is harmful" is retired** and replaced by a sharper
+   statement: it is a drift-recovery mechanism whose benefit is conditional on
+   drift existing, and whose reach is bounded by its association gates.
+3. **Loop closure has a measured role, and it is a specific one.** Not "a global
+   constraint improves accuracy" but: *at drift beyond the plane term's
+   association gate, loop edges whose own error is well below the drift recover
+   what the plane term cannot reach alone* (0.2305 → 0.5406 on 41069051,
+   0.2980 → 0.6042 on 41069050). This also gives #236 and the learned-matcher
+   work (#311, #337) a target they can be measured against, and re-reads §9.4's
+   negative result as scan-dependent rather than fundamental.
+4. **Edge quality is the binding constraint, quantitatively.** 41069048's 169 mm
+   edges never pay at any drift level tested; the ~58 mm edges do. "Reduce
+   matcher error" is now a ranked, measurable objective rather than a hope.
+5. **The obvious next solver experiment** is an association-gate sweep
+   (`--assoc-distance`) on the drifted variants: §10.4 attributes the heavy-drift
+   stall to a 0.10 m gate, and that attribution is now directly testable.
+6. Still unimplemented and still wanted: a **GT-gated stopping rule** (§8.6,
+   §9.7) — on the undrifted scans the stage still writes poses back when it makes
+   accuracy worse.
+
+### 10.8 Reproducing
+
+```bash
+# one drifted copy, measured before committing
+cp scan.rux copy.rux
+rux -v -p copy.rux edit perturb-poses --dry-run           # extent / path / frames
+rux -v -p copy.rux edit perturb-poses --seed 1 --drift-scale 0.25 --yes
+
+# the whole matrix (originals are never touched)
+scripts/bench-arkitscenes-drift.sh -s "0.25 1.0" -S 1 \
+    -c "none optimize noplane xfeat plane-xfeat" \
+    -e ~/datasets/arkitscenes/drift-edges
+
+# the loop edges the last two configurations consume (pose-independent, so one
+# export per scan serves every drifted variant)
+tools/loop_edges/export_loop_edges.py scan.rux -o edges/<id>.json \
+    --matcher xfeat --proposal exhaustive --stride 6 --min-frame-gap 10 \
+    --max-pairs 6000 --seed 42
+```
+
+The figure is regenerated with `python3 scripts/plot-drift-bench-figure.py`.

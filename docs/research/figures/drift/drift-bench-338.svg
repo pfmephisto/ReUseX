@@ -1,0 +1,184 @@
+<!--
+SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+SPDX-License-Identifier: GPL-3.0-or-later
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="940" height="980" viewBox="0 0 940 980">
+<rect x="0.0" y="0.0" width="940.0" height="980.0" fill="#fcfcfb"/>
+<text x="28.0" y="34.0" font-size="17" fill="#0b0b0b" text-anchor="start" font-weight="600" font-family="Inter, Helvetica, Arial, sans-serif">Synthetic drift makes the ARKitScenes GT scans able to adjudicate a pose stage (#338)</text>
+<text x="28.0" y="54.0" font-size="12" fill="#52514e" text-anchor="start" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">Absolute GT (3dod_mesh) F@50mm, higher is better. Drift is injected into a copy of the seed poses; the GT mesh is untouched.</text>
+<text x="28.0" y="80.0" font-size="13" fill="#0b0b0b" text-anchor="start" font-weight="600" font-family="Inter, Helvetica, Arial, sans-serif">A · F@50mm against absolute GT, by injected drift</text>
+<line x1="40.0" y1="340.0" x2="310.0" y2="340.0" stroke="#52514e" stroke-width="1"/>
+<line x1="40.0" y1="295.6" x2="310.0" y2="295.6" stroke="#e2e1dd" stroke-width="1"/>
+<text x="32.0" y="299.6" font-size="10" fill="#52514e" text-anchor="end" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">0.2</text>
+<line x1="40.0" y1="251.2" x2="310.0" y2="251.2" stroke="#e2e1dd" stroke-width="1"/>
+<text x="32.0" y="255.2" font-size="10" fill="#52514e" text-anchor="end" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">0.4</text>
+<line x1="40.0" y1="206.8" x2="310.0" y2="206.8" stroke="#e2e1dd" stroke-width="1"/>
+<text x="32.0" y="210.8" font-size="10" fill="#52514e" text-anchor="end" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">0.6</text>
+<line x1="40.0" y1="162.4" x2="310.0" y2="162.4" stroke="#e2e1dd" stroke-width="1"/>
+<text x="32.0" y="166.4" font-size="10" fill="#52514e" text-anchor="end" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">0.8</text>
+<text x="175.0" y="106.0" font-size="12" fill="#0b0b0b" text-anchor="middle" font-weight="600" font-family="Inter, Helvetica, Arial, sans-serif">41069048</text>
+<rect x="57.0" y="142.0" width="26.0" height="198.0" fill="#9a9894"/>
+<text x="70.0" y="137.0" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">0.89</text>
+<rect x="87.0" y="151.0" width="26.0" height="189.0" fill="#2a78d6"/>
+<text x="100.0" y="146.0" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">0.85</text>
+<text x="85.0" y="356.0" font-size="10" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">none</text>
+<text x="85.0" y="369.0" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">d=0</text>
+<rect x="147.0" y="237.0" width="26.0" height="103.0" fill="#9a9894"/>
+<text x="160.0" y="232.0" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">0.46</text>
+<rect x="177.0" y="164.0" width="26.0" height="176.0" fill="#2a78d6"/>
+<text x="190.0" y="159.0" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">0.79</text>
+<text x="175.0" y="356.0" font-size="10" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">mild</text>
+<text x="175.0" y="369.0" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">d=0.25</text>
+<rect x="237.0" y="289.2" width="26.0" height="50.8" fill="#9a9894"/>
+<text x="250.0" y="284.2" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">0.23</text>
+<rect x="267.0" y="278.9" width="26.0" height="61.1" fill="#2a78d6"/>
+<text x="280.0" y="273.9" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">0.28</text>
+<text x="265.0" y="356.0" font-size="10" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">heavy</text>
+<text x="265.0" y="369.0" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">d=1</text>
+<line x1="350.0" y1="340.0" x2="620.0" y2="340.0" stroke="#52514e" stroke-width="1"/>
+<line x1="350.0" y1="295.6" x2="620.0" y2="295.6" stroke="#e2e1dd" stroke-width="1"/>
+<line x1="350.0" y1="251.2" x2="620.0" y2="251.2" stroke="#e2e1dd" stroke-width="1"/>
+<line x1="350.0" y1="206.8" x2="620.0" y2="206.8" stroke="#e2e1dd" stroke-width="1"/>
+<line x1="350.0" y1="162.4" x2="620.0" y2="162.4" stroke="#e2e1dd" stroke-width="1"/>
+<text x="485.0" y="106.0" font-size="12" fill="#0b0b0b" text-anchor="middle" font-weight="600" font-family="Inter, Helvetica, Arial, sans-serif">41069050</text>
+<rect x="367.0" y="141.7" width="26.0" height="198.3" fill="#9a9894"/>
+<text x="380.0" y="136.7" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">0.89</text>
+<rect x="397.0" y="162.1" width="26.0" height="177.9" fill="#2a78d6"/>
+<text x="410.0" y="157.1" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">0.80</text>
+<text x="395.0" y="356.0" font-size="10" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">none</text>
+<text x="395.0" y="369.0" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">d=0</text>
+<rect x="457.0" y="220.3" width="26.0" height="119.7" fill="#9a9894"/>
+<text x="470.0" y="215.3" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">0.54</text>
+<rect x="487.0" y="198.4" width="26.0" height="141.6" fill="#2a78d6"/>
+<text x="500.0" y="193.4" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">0.64</text>
+<text x="485.0" y="356.0" font-size="10" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">mild</text>
+<text x="485.0" y="369.0" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">d=0.25</text>
+<rect x="547.0" y="296.3" width="26.0" height="43.7" fill="#9a9894"/>
+<text x="560.0" y="291.3" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">0.20</text>
+<rect x="577.0" y="273.8" width="26.0" height="66.2" fill="#2a78d6"/>
+<text x="590.0" y="268.8" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">0.30</text>
+<text x="575.0" y="356.0" font-size="10" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">heavy</text>
+<text x="575.0" y="369.0" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">d=1</text>
+<line x1="660.0" y1="340.0" x2="930.0" y2="340.0" stroke="#52514e" stroke-width="1"/>
+<line x1="660.0" y1="295.6" x2="930.0" y2="295.6" stroke="#e2e1dd" stroke-width="1"/>
+<line x1="660.0" y1="251.2" x2="930.0" y2="251.2" stroke="#e2e1dd" stroke-width="1"/>
+<line x1="660.0" y1="206.8" x2="930.0" y2="206.8" stroke="#e2e1dd" stroke-width="1"/>
+<line x1="660.0" y1="162.4" x2="930.0" y2="162.4" stroke="#e2e1dd" stroke-width="1"/>
+<text x="795.0" y="106.0" font-size="12" fill="#0b0b0b" text-anchor="middle" font-weight="600" font-family="Inter, Helvetica, Arial, sans-serif">41069051</text>
+<rect x="677.0" y="142.6" width="26.0" height="197.4" fill="#9a9894"/>
+<text x="690.0" y="137.6" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">0.89</text>
+<rect x="707.0" y="152.7" width="26.0" height="187.3" fill="#2a78d6"/>
+<text x="720.0" y="147.7" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">0.84</text>
+<text x="705.0" y="356.0" font-size="10" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">none</text>
+<text x="705.0" y="369.0" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">d=0</text>
+<rect x="767.0" y="247.2" width="26.0" height="92.8" fill="#9a9894"/>
+<text x="780.0" y="242.2" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">0.42</text>
+<rect x="797.0" y="171.1" width="26.0" height="168.9" fill="#2a78d6"/>
+<text x="810.0" y="166.1" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">0.76</text>
+<text x="795.0" y="356.0" font-size="10" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">mild</text>
+<text x="795.0" y="369.0" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">d=0.25</text>
+<rect x="857.0" y="291.8" width="26.0" height="48.2" fill="#9a9894"/>
+<text x="870.0" y="286.8" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">0.22</text>
+<rect x="887.0" y="288.8" width="26.0" height="51.2" fill="#2a78d6"/>
+<text x="900.0" y="283.8" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">0.23</text>
+<text x="885.0" y="356.0" font-size="10" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">heavy</text>
+<text x="885.0" y="369.0" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">d=1</text>
+<rect x="40.0" y="383.0" width="14.0" height="11.0" fill="#9a9894"/>
+<text x="60.0" y="392.0" font-size="11" fill="#52514e" text-anchor="start" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">no pose stage</text>
+<rect x="170.0" y="383.0" width="14.0" height="11.0" fill="#2a78d6"/>
+<text x="190.0" y="392.0" font-size="11" fill="#52514e" text-anchor="start" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">rux optimize (shipped default)</text>
+<text x="28.0" y="412.0" font-size="13" fill="#0b0b0b" text-anchor="start" font-weight="600" font-family="Inter, Helvetica, Arial, sans-serif">B · What the pose stage is worth: F(optimize) − F(no pose stage)</text>
+<text x="28.0" y="430.0" font-size="11" fill="#52514e" text-anchor="start" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">Below the line the stage should do nothing; above it, the stage is recovering drift.</text>
+<line x1="40.0" y1="596.9" x2="860.0" y2="596.9" stroke="#e2e1dd" stroke-width="1"/>
+<text x="32.0" y="600.9" font-size="10" fill="#52514e" text-anchor="end" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">-0.1</text>
+<line x1="40.0" y1="565.7" x2="860.0" y2="565.7" stroke="#52514e" stroke-width="1.5"/>
+<text x="32.0" y="569.7" font-size="10" fill="#52514e" text-anchor="end" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">+0.0</text>
+<line x1="40.0" y1="534.5" x2="860.0" y2="534.5" stroke="#e2e1dd" stroke-width="1"/>
+<text x="32.0" y="538.5" font-size="10" fill="#52514e" text-anchor="end" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">+0.1</text>
+<line x1="40.0" y1="503.2" x2="860.0" y2="503.2" stroke="#e2e1dd" stroke-width="1"/>
+<text x="32.0" y="507.2" font-size="10" fill="#52514e" text-anchor="end" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">+0.2</text>
+<line x1="40.0" y1="472.0" x2="860.0" y2="472.0" stroke="#e2e1dd" stroke-width="1"/>
+<text x="32.0" y="476.0" font-size="10" fill="#52514e" text-anchor="end" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">+0.3</text>
+<text x="176.7" y="630.0" font-size="11" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">none  (d=0)</text>
+<text x="450.0" y="630.0" font-size="11" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">mild  (d=0.25)</text>
+<text x="723.3" y="630.0" font-size="11" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">heavy  (d=1)</text>
+<path d="M176.7,578.3 L450.0,463.0 L723.3,551.3" fill="none" stroke="#2a78d6" stroke-width="2.5"/>
+<circle cx="176.7" cy="578.3" r="4" fill="#2a78d6"/>
+<circle cx="450.0" cy="463.0" r="4" fill="#2a78d6"/>
+<circle cx="723.3" cy="551.3" r="4" fill="#2a78d6"/>
+<text x="735.3" y="555.3" font-size="11" fill="#2a78d6" text-anchor="start" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">41069048</text>
+<path d="M176.7,594.4 L450.0,534.9 L723.3,534.1" fill="none" stroke="#eb6834" stroke-width="2.5"/>
+<circle cx="176.7" cy="594.4" r="4" fill="#eb6834"/>
+<circle cx="450.0" cy="534.9" r="4" fill="#eb6834"/>
+<circle cx="723.3" cy="534.1" r="4" fill="#eb6834"/>
+<text x="735.3" y="538.1" font-size="11" fill="#eb6834" text-anchor="start" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">41069050</text>
+<path d="M176.7,579.9 L450.0,458.7 L723.3,561.4" fill="none" stroke="#8a5cd6" stroke-width="2.5"/>
+<circle cx="176.7" cy="579.9" r="4" fill="#8a5cd6"/>
+<circle cx="450.0" cy="458.7" r="4" fill="#8a5cd6"/>
+<circle cx="723.3" cy="561.4" r="4" fill="#8a5cd6"/>
+<text x="735.3" y="565.4" font-size="11" fill="#8a5cd6" text-anchor="start" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">41069051</text>
+<text x="28.0" y="700.0" font-size="13" fill="#0b0b0b" text-anchor="start" font-weight="600" font-family="Inter, Helvetica, Arial, sans-serif">C · At heavy drift (d=1), what an outside constraint is for</text>
+<text x="28.0" y="716.0" font-size="11" fill="#52514e" text-anchor="start" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">The plane term recovers drift by associating plane detections across frames through a 0.10 m gate. Past that gate it stops working —</text>
+<text x="28.0" y="731.0" font-size="11" fill="#52514e" text-anchor="start" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">and a loop edge that pulls the seed back inside it is then worth more than either part alone. Where the edges carry 169 mm of their own error (41069048), nothing changes.</text>
+<line x1="40.0" y1="890.0" x2="310.0" y2="890.0" stroke="#52514e" stroke-width="1"/>
+<line x1="40.0" y1="854.3" x2="310.0" y2="854.3" stroke="#e2e1dd" stroke-width="1"/>
+<text x="32.0" y="858.3" font-size="10" fill="#52514e" text-anchor="end" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">0.2</text>
+<line x1="40.0" y1="818.6" x2="310.0" y2="818.6" stroke="#e2e1dd" stroke-width="1"/>
+<text x="32.0" y="822.6" font-size="10" fill="#52514e" text-anchor="end" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">0.4</text>
+<line x1="40.0" y1="782.9" x2="310.0" y2="782.9" stroke="#e2e1dd" stroke-width="1"/>
+<text x="32.0" y="786.9" font-size="10" fill="#52514e" text-anchor="end" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">0.6</text>
+<text x="175.0" y="753.0" font-size="12" fill="#0b0b0b" text-anchor="middle" font-weight="600" font-family="Inter, Helvetica, Arial, sans-serif">41069048</text>
+<rect x="66.0" y="849.1" width="22.0" height="40.9" fill="#9a9894"/>
+<text x="77.0" y="844.1" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">0.23</text>
+<text x="77.0" y="906.0" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">none</text>
+<rect x="120.5" y="840.9" width="22.0" height="49.1" fill="#2a78d6"/>
+<text x="131.5" y="835.9" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">0.28</text>
+<text x="131.5" y="906.0" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">optimize</text>
+<rect x="175.0" y="849.2" width="22.0" height="40.8" fill="#eb6834"/>
+<text x="186.0" y="844.2" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">0.23</text>
+<text x="186.0" y="906.0" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">+XFeat</text>
+<text x="186.0" y="917.0" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">(plane off)</text>
+<rect x="229.5" y="840.9" width="22.0" height="49.1" fill="#1d8f6b"/>
+<text x="240.5" y="835.9" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">0.28</text>
+<text x="240.5" y="906.0" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">plane</text>
+<text x="240.5" y="917.0" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">+XFeat</text>
+<line x1="350.0" y1="890.0" x2="620.0" y2="890.0" stroke="#52514e" stroke-width="1"/>
+<line x1="350.0" y1="854.3" x2="620.0" y2="854.3" stroke="#e2e1dd" stroke-width="1"/>
+<line x1="350.0" y1="818.6" x2="620.0" y2="818.6" stroke="#e2e1dd" stroke-width="1"/>
+<line x1="350.0" y1="782.9" x2="620.0" y2="782.9" stroke="#e2e1dd" stroke-width="1"/>
+<text x="485.0" y="753.0" font-size="12" fill="#0b0b0b" text-anchor="middle" font-weight="600" font-family="Inter, Helvetica, Arial, sans-serif">41069050</text>
+<rect x="376.0" y="854.8" width="22.0" height="35.2" fill="#9a9894"/>
+<text x="387.0" y="849.8" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">0.20</text>
+<text x="387.0" y="906.0" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">none</text>
+<rect x="430.5" y="836.8" width="22.0" height="53.2" fill="#2a78d6"/>
+<text x="441.5" y="831.8" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">0.30</text>
+<text x="441.5" y="906.0" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">optimize</text>
+<rect x="485.0" y="827.9" width="22.0" height="62.1" fill="#eb6834"/>
+<text x="496.0" y="822.9" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">0.35</text>
+<text x="496.0" y="906.0" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">+XFeat</text>
+<text x="496.0" y="917.0" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">(plane off)</text>
+<rect x="539.5" y="782.1" width="22.0" height="107.9" fill="#1d8f6b"/>
+<text x="550.5" y="777.1" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">0.60</text>
+<text x="550.5" y="906.0" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">plane</text>
+<text x="550.5" y="917.0" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">+XFeat</text>
+<line x1="660.0" y1="890.0" x2="930.0" y2="890.0" stroke="#52514e" stroke-width="1"/>
+<line x1="660.0" y1="854.3" x2="930.0" y2="854.3" stroke="#e2e1dd" stroke-width="1"/>
+<line x1="660.0" y1="818.6" x2="930.0" y2="818.6" stroke="#e2e1dd" stroke-width="1"/>
+<line x1="660.0" y1="782.9" x2="930.0" y2="782.9" stroke="#e2e1dd" stroke-width="1"/>
+<text x="795.0" y="753.0" font-size="12" fill="#0b0b0b" text-anchor="middle" font-weight="600" font-family="Inter, Helvetica, Arial, sans-serif">41069051</text>
+<rect x="686.0" y="851.3" width="22.0" height="38.7" fill="#9a9894"/>
+<text x="697.0" y="846.3" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">0.22</text>
+<text x="697.0" y="906.0" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">none</text>
+<rect x="740.5" y="848.8" width="22.0" height="41.2" fill="#2a78d6"/>
+<text x="751.5" y="843.8" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">0.23</text>
+<text x="751.5" y="906.0" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">optimize</text>
+<rect x="795.0" y="830.0" width="22.0" height="60.0" fill="#eb6834"/>
+<text x="806.0" y="825.0" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">0.34</text>
+<text x="806.0" y="906.0" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">+XFeat</text>
+<text x="806.0" y="917.0" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">(plane off)</text>
+<rect x="849.5" y="793.5" width="22.0" height="96.5" fill="#1d8f6b"/>
+<text x="860.5" y="788.5" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">0.54</text>
+<text x="860.5" y="906.0" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">plane</text>
+<text x="860.5" y="917.0" font-size="9" fill="#52514e" text-anchor="middle" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">+XFeat</text>
+<text x="28.0" y="968.0" font-size="10" fill="#52514e" text-anchor="start" font-weight="normal" font-family="Inter, Helvetica, Arial, sans-serif">Undrifted (d=0) values are the recorded §9.3 rows; drifted variants use seed 1. Drift target = d x 0.20 x trajectory extent.</text>
+</svg>

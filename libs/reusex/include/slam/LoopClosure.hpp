@@ -143,7 +143,24 @@ struct LoopClosureOptions {
   /// drops only non-informative edges, never the large-drift corrections. On a
   /// well-aligned scan this makes loop closure a near no-op; on a drifted scan
   /// the true loop (large disagreement) is kept. Set 0 to keep every edge.
+  ///
+  /// This is the ABSOLUTE FLOOR of the gate (issue #339). The gate actually
+  /// applied is `max(min_seed_disagreement_fraction * trajectory_extent,
+  /// min_seed_disagreement)` — see seed_disagreement_gate(). The floor encodes
+  /// a sensor property (the iPad-LiDAR depth-noise level below which a
+  /// disagreement is matcher noise rather than drift) and so does NOT scale
+  /// with the capture; the fraction encodes the drift budget, which does.
   float min_seed_disagreement = 0.10f;
+  /// Scale-relative part of the lower gate: a fraction of the seed
+  /// trajectory's extent (issue #339). Drift grows with how far the camera
+  /// travelled, so a gate that separates "drift" from "matcher noise" cannot be
+  /// a constant in metres — measured on a 16 m-drift scan it selects the wrong
+  /// edges on a 2 m room scan (registration-improvements.md §9.4). Default
+  /// 0.00555 reproduces today's 0.10 m on the office scan's 18.01 m extent
+  /// exactly (0.00555 * 18.01 = 0.0999 m, below the 0.10 m floor), so this
+  /// default only ever STRENGTHENS the gate — on captures longer than ~18 m.
+  /// Set 0 to use the absolute floor alone.
+  float min_seed_disagreement_fraction = 0.00555f;
 
   // --- Edge noise ----------------------------------------------------------
   /// Base translational/rotational std at min_match_inliers; both shrink as
@@ -172,6 +189,36 @@ struct LoopClosureOptions {
 
   unsigned seed = 42; ///< RANSAC determinism
 };
+
+/// Spatial extent of a trajectory: the diagonal of the axis-aligned bounding
+/// box of the camera centres, in metres.
+///
+/// This is the capture-scale denominator every scale-relative threshold in the
+/// loop-closure front-end divides by (issue #339). It is deliberately the bbox
+/// diagonal rather than the travelled path length: what a loop edge can be
+/// asked to correct is how far apart two *places* are, not how long the
+/// operator walked between them, and a scan that walks the same corridor twice
+/// must not read as twice the scale. Deterministic, O(N), independent of frame
+/// ordering (STANDARDS §6). Returns 0 for fewer than two poses.
+///
+/// Reference values (registration-improvements.md §9.5): office 18.01 m,
+/// ARKitScenes 41069048/50/51 1.82 / 1.86 / 2.57 m.
+double trajectory_extent(const std::vector<Eigen::Matrix4d> &poses);
+
+/// Effective seed-disagreement gate in metres, combining a scale-relative term
+/// with an absolute floor: `max(fraction * extent, floor)`, with negative
+/// inputs treated as 0. A result of 0 means "no gate" (keep every edge).
+///
+/// Issue #339: expressing the gate purely in metres does not transfer across
+/// capture scales. The 0.50 m external default was tuned on a scan with ~16 m
+/// of drift over an 18 m extent; applied unchanged to a 1.8 m ARKitScenes room
+/// scan it stops selecting *informative* edges and starts selecting the *most
+/// disagreeing* — i.e. the wrong — ones, measured at F@50mm 0.29
+/// (registration-improvements.md §9.4). The fraction term fixes that. The floor
+/// term is kept because a matcher's own error is a sensor property that does
+/// NOT shrink with the room: on a small scan the floor is what keeps loop
+/// closure a no-op instead of injecting depth noise.
+double seed_disagreement_gate(double extent, double fraction, double floor_m);
 
 /// Summary statistics from loop-edge detection.
 struct LoopClosureResult {

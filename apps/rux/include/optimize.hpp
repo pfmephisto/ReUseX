@@ -83,9 +83,10 @@ struct SubcommandOptimizeOptions {
   int loop_max_features = 3000;
   float loop_ratio_test = 0.85f;
   float loop_ransac_inlier_dist = 0.10f;
-  float loop_max_seed_disagreement = 0.0f; // 0 = disabled (correct drift)
-  float loop_min_seed_disagreement =
-      0.10f; // drop redundant near-agreement edges
+  float loop_max_seed_disagreement = 0.0f;  // 0 = disabled (correct drift)
+  float loop_min_seed_disagreement = 0.10f; // absolute FLOOR of the gate (#339)
+  float loop_min_seed_disagreement_fraction =
+      0.00555f; // scale-relative part: fraction of trajectory extent (#339)
   // Trust loop edges: give them their own generous-but-finite GNC-TLS inlier
   // threshold (Huber under --no-gnc) instead of the shared --gnc-inlier-cost.
   bool loop_trust = false;
@@ -116,9 +117,12 @@ struct SubcommandOptimizeOptions {
   // none.
   std::string loop_edges_file;
   // Seed-disagreement gate for external edges (drop edges agreeing with the
-  // seed within this many m; keeps the bridge a no-op on a well-posed scan). 0
-  // = off. 0.5 m sits above the depth-noise floor, below any real drift.
-  double loop_edges_min_disagreement = 0.50;
+  // seed within this many m; keeps the bridge a no-op on a well-posed scan).
+  // Absolute FLOOR; the effective gate is max(fraction * extent, floor) (#339).
+  double loop_edges_min_disagreement = 0.0;
+  // Scale-relative part of that gate: fraction of the trajectory's extent.
+  // 0.0278 == 0.50 m on the 18.01 m office scan (#339).
+  double loop_edges_min_disagreement_fraction = 0.0278;
 
   // Surfel extraction (shared with `rux register`).
   float surfel_voxel = 0.03f;

@@ -95,9 +95,17 @@ PlaneGraphResult optimize_sensor_poses(ProjectDB &db,
     // detect_panorama_loop_edges from these same LoopClosureOptions.
     if (options.panorama_loops.enable) {
       PanoramaLoopResult pl;
-      auto pano_edges = detect_panorama_loop_edges(db, node_ids, seed_poses,
-                                                   options.panorama_loops,
-                                                   options.loop_closure, &pl);
+      // #339: resolve the scale-relative gate here and hand
+      // detect_panorama_loop_edges the already-absolute value, so all three
+      // edge sources are judged against one gate computed from one extent.
+      LoopClosureOptions pano_gates = options.loop_closure;
+      pano_gates.min_seed_disagreement = static_cast<float>(
+          seed_disagreement_gate(trajectory_extent(seed_poses),
+                                 pano_gates.min_seed_disagreement_fraction,
+                                 pano_gates.min_seed_disagreement));
+      pano_gates.min_seed_disagreement_fraction = 0.0f;
+      auto pano_edges = detect_panorama_loop_edges(
+          db, node_ids, seed_poses, options.panorama_loops, pano_gates, &pl);
 
       if (pl.panoramas == 0) {
         // The user explicitly asked for panorama edges on a project that has
@@ -157,8 +165,22 @@ PlaneGraphResult optimize_sensor_poses(ProjectDB &db,
       // (measured: honka laser-GT F 0.7958 -> 0.62 when 1336 redundant edges
       // were applied ungated). Dropping them makes the bridge a no-op on a
       // well-posed scan while keeping every large-disagreement
-      // (drift-correcting) edge. <= 0 disables the gate.
-      const double gate = options.loop_edges_min_seed_disagreement;
+      // (drift-correcting) edge. 0 disables the gate.
+      //
+      // #339: the gate is resolved against THIS capture's extent rather than
+      // being a constant in metres, because the disagreement it is trying to
+      // separate from noise (drift) grows with the capture and the noise does
+      // not.
+      const double extent = trajectory_extent(seed_poses);
+      const double gate = seed_disagreement_gate(
+          extent, options.loop_edges_min_seed_disagreement_fraction,
+          options.loop_edges_min_seed_disagreement);
+      core::info("PlaneGraph: trajectory extent {:.2f} m -> external "
+                 "seed-disagreement gate {:.3f} m (fraction {:.5f}, floor "
+                 "{:.3f} m)",
+                 extent, gate,
+                 options.loop_edges_min_seed_disagreement_fraction,
+                 options.loop_edges_min_seed_disagreement);
 
       // Cross-source dedup: an (i,j) pair already constrained by an internally
       // detected ORB edge must not receive a SECOND BetweenFactor from the

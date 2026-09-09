@@ -31,8 +31,21 @@ DESCRIPTION:
 
 EXAMPLES:
   rux create gsplat --iterations 2000 --out splat.ply
+  rux create gsplat --mcmc --iterations 30000 --out splat.ply
   rux create gsplat --first-frame 1995 --last-frame 2400 --max-image-size 512
   rux create gsplat --use-panoramas --render-dir figs --render-at 0,500,2000
+
+DENSITY CONTROL:
+  By default the trainer only prunes: it removes collapsed Gaussians but
+  cannot add any, so it never resolves detail finer than the seed cloud.
+  --mcmc switches to 3DGS-MCMC, which relocates dead Gaussians onto dense
+  regions and samples new ones up to --mcmc-cap-factor x the seed count. Use
+  it for scans whose cloud is coarse relative to the image resolution.
+
+REPORTED QUALITY:
+  Every Nth view (--holdout-every, default 8) is excluded from training and
+  used only for evaluation. The held-out PSNR is the honest number; the
+  training-view PSNR will always be higher.
 
 REGION SELECTION MATTERS:
   3DGS needs dense multi-view overlap. Training on a sparse sample spread over
@@ -70,6 +83,45 @@ NOTES:
       ->default_val(opt->seed);
   sub->add_flag("--no-prune", opt->no_prune,
                 "Disable opacity/size pruning during training");
+
+  sub->add_option("--holdout-every", opt->holdout_every,
+                  "Hold every Nth view out of training and report PSNR/SSIM "
+                  "on it (0 = train on every view, no held-out metric)")
+      ->default_val(opt->holdout_every)
+      ->check(CLI::Range(0, 1000));
+  sub->add_option("--eval-interval", opt->eval_interval,
+                  "Iterations between held-out evaluation passes")
+      ->default_val(opt->eval_interval)
+      ->check(CLI::Range(1, 1000000));
+  sub->add_option("--eval-views", opt->eval_max_views,
+                  "Views per side of an evaluation pass")
+      ->default_val(opt->eval_max_views)
+      ->check(CLI::Range(1, 10000));
+
+  sub->add_flag("--mcmc", opt->mcmc,
+                "Enable 3DGS-MCMC density control (relocation + growth + "
+                "Langevin noise). Replaces pruning; this is the only mode "
+                "that can add detail beyond the seed cloud");
+  sub->add_option("--mcmc-cap-factor", opt->mcmc_cap_factor,
+                  "Gaussian budget as a multiple of the seed count")
+      ->default_val(opt->mcmc_cap_factor)
+      ->check(CLI::Range(1.0, 100.0));
+  sub->add_option("--mcmc-cap", opt->mcmc_cap,
+                  "Absolute Gaussian budget (0 = use --mcmc-cap-factor)")
+      ->default_val(opt->mcmc_cap);
+  sub->add_option("--mcmc-refine-every", opt->mcmc_refine_every,
+                  "Iterations between relocate+grow passes")
+      ->default_val(opt->mcmc_refine_every)
+      ->check(CLI::Range(1, 100000));
+  sub->add_option("--mcmc-noise-lr", opt->mcmc_noise_lr, "Langevin noise scale")
+      ->default_val(opt->mcmc_noise_lr);
+  sub->add_option("--mcmc-opacity-reg", opt->mcmc_opacity_reg,
+                  "L1 weight on activated opacity (0 by default; the "
+                  "paper's 0.01 collapses interior-traverse scans)")
+      ->default_val(opt->mcmc_opacity_reg);
+  sub->add_option("--mcmc-scale-reg", opt->mcmc_scale_reg,
+                  "L1 weight on activated scale (0 by default, see above)")
+      ->default_val(opt->mcmc_scale_reg);
 
   sub->add_option("--frame-stride", opt->frame_stride,
                   "Use every Nth sensor frame")
@@ -167,6 +219,16 @@ int run_subcommand_create_gsplat(SubcommandCreateGsplatOptions const &opt,
     o.train.lambda_dssim = opt.lambda_dssim;
     o.train.seed = opt.seed;
     o.train.prune_enabled = !opt.no_prune;
+    o.train.holdout_every = opt.holdout_every;
+    o.train.eval_interval = opt.eval_interval;
+    o.train.eval_max_views = opt.eval_max_views;
+    o.train.mcmc.enabled = opt.mcmc;
+    o.train.mcmc.cap_factor = opt.mcmc_cap_factor;
+    o.train.mcmc.cap_absolute = opt.mcmc_cap;
+    o.train.mcmc.refine_every = opt.mcmc_refine_every;
+    o.train.mcmc.noise_lr = opt.mcmc_noise_lr;
+    o.train.mcmc.opacity_reg = opt.mcmc_opacity_reg;
+    o.train.mcmc.scale_reg = opt.mcmc_scale_reg;
     o.train.render_iterations = opt.render_iterations;
     o.train.render_view_index = opt.render_view_index;
     if (!opt.render_dir.empty())
@@ -176,9 +238,17 @@ int run_subcommand_create_gsplat(SubcommandCreateGsplatOptions const &opt,
 
     const gs::TrainResult r = gs::run_gsplat_stage(db, o);
 
-    spdlog::info("Gaussian splatting complete: {} Gaussians, {:.2f} dB, "
-                 "{:.1f} s",
+    spdlog::info("Gaussian splatting complete: {} Gaussians, {:.2f} dB "
+                 "(training views), {:.1f} s",
                  r.final_count, r.final_psnr, r.seconds);
+    if (!r.evals.empty() && r.evals.back().holdout_views > 0)
+      spdlog::info("Held-out: {:.2f} dB / SSIM {:.4f} over {} views excluded "
+                   "from training",
+                   r.final_holdout_psnr, r.final_holdout_ssim,
+                   r.evals.back().holdout_views);
+    if (opt.mcmc)
+      spdlog::info("MCMC: relocated {}, added {} Gaussians", r.relocated,
+                   r.added);
     if (!opt.out_ply.empty())
       spdlog::info("Wrote {}", opt.out_ply);
     for (const auto &p : r.renders)

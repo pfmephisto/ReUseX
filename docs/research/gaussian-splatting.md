@@ -127,27 +127,90 @@ Eigen::Matrix3d K; Eigen::Matrix4d viewmat /*T_cw*/; }`:
 see §2.1) → L1 + D-SSIM loss → per-group `torch::optim::Adam` → density control
 → save reference-format `.ply`.
 
-### 3.1 Density control — what shipped, and why it is only half
+### 3.1 Density control — two regimes
 The reference 3DGS grows Gaussians by cloning/splitting those whose *screen-space*
 position gradient exceeds a threshold. That signal (`means2d_absgrad`) is not
-available on the world-space rasterizer (§2.1), so the first native trainer does
+available on the world-space rasterizer (§2.1), so the first native trainer did
 **pruning only**: it drops Gaussians whose opacity has collapsed or whose extent
-has blown up.
+has blown up, and can never add one.
 
-This is a smaller loss than it sounds, and it is the point of seeding from a
+That was a smaller loss than it sounds, and it is the point of seeding from a
 LiDAR cloud. Densification exists to recover detail an SfM point cloud never
 had — a few thousand sparse points growing into millions. Our seed is already
-at scan density (173k points on NewOffice before any cap), so the trainer starts
-where the reference spends thousands of iterations getting to. What we give up
-is refinement *beyond* scan density: thin structures and high-frequency texture
-will stay soft.
+at scan density (1.21 M points on the NewOffice region), so the trainer starts
+where the reference spends thousands of iterations getting to. What pruning
+alone gives up is refinement *beyond* scan density: thin structures and
+high-frequency texture stay soft, which is exactly what §5.2's building-scale
+result showed.
 
-Two ways to close it, in preference order:
-1. **MCMC densification** (3DGS-MCMC) — gsplat ships `MCMCPerturb*` and
-   `Relocation.h` as public `launch_*_kernel` symbols, and its relocate/perturb
-   scheme needs no screen-space gradient at all. Best fit for this architecture.
-2. Hand-written `torch::autograd::Function`s over the EWA
-   `launch_*_{fwd,bwd}_kernel` pairs, which do expose absgrad.
+**`--mcmc` closes it** (#307). "3D Gaussian Splatting as Markov Chain Monte
+Carlo" (Kheradmand et al. 2024) reframes training as SGLD sampling over Gaussian
+configurations, and needs no screen-space quantity at all. Four parts, all
+implemented in `src/gsplat/mcmc.cpp`:
+
+| part | what it does | where |
+|---|---|---|
+| relocate | move dead Gaussians onto live ones sampled ∝ opacity, rescaling the pile by the paper's Eq. 9 so it stays radiometrically equivalent | `::gsplat::launch_relocation_kernel` |
+| grow | sample new Gaussians from the same distribution up to a capped budget | same kernel |
+| perturb | covariance-shaped Langevin noise on the positions, gated to low-opacity Gaussians | `::gsplat::launch_mcmc_perturb_positions_kernel` |
+| regularize | L1 on activated opacity and scale — what makes Gaussians die, so relocation has samples to recycle | `mcmc_regularizer` |
+
+Both kernels are **plain external-linkage symbols with installed headers**
+(`Relocation.h`, `MCMCPerturb.h`), verified with `nm` on `libgsplat.a` before any
+of this was designed. They do not go through `c10::Dispatcher` and their
+registration does not live in `ext.cpp`, so the failure mode that made
+`rasterize_to_pixels_3dgs` unusable (§2.1) does not apply to them.
+
+What is *not* borrowed from gsplat is the bookkeeping around the kernels: the
+multinomial sampling, the binomial table, the Gaussian budget, and — the fiddly
+part — carrying Adam's moment buffers across every row remap
+(`src/gsplat/optimizer.cpp`). torch keys optimizer state by tensor identity, so
+each relocate/grow pass would otherwise reset the momentum of the entire model;
+at MCMC's cadence of one pass per 100 iterations that is most of the run. Rows
+that now hold a *different* Gaussian get their moments zeroed deliberately; every
+other row keeps its history. Pruning uses the same remap and so no longer
+restarts momentum either.
+
+The budget is expressed as a multiple of the seed count (`--mcmc-cap-factor`,
+default 2×) rather than gsplat's absolute `cap_max = 1_000_000`, because this
+trainer seeds from a scan: a whole-building capture and a 1 m corridor differ by
+an order of magnitude in seed count and no single absolute number serves both.
+
+The remaining alternative — hand-written `torch::autograd::Function`s over the
+EWA `launch_*_{fwd,bwd}_kernel` pairs, which do expose absgrad — is no longer
+worth doing: it is strictly more work for the algorithm the MCMC paper improves
+on, and §5.3 shows density control is not what limits this scene anyway.
+
+#### The opacity/scale regularizers are off by default, on evidence
+
+The paper's `opacity_reg = scale_reg = 0.01` **collapses a building-scale
+interior scan**, and the cause is scene topology, not tuning.
+
+3DGS-MCMC was developed on object-centric captures, where nearly every Gaussian
+projects into nearly every view; the constant regularizer pull is therefore
+balanced by a photometric gradient on almost every step. A corridor traverse is
+the opposite — each of NewOffice's 344 training views sees a small fraction of
+1.2 M Gaussians — so most Gaussians receive *only* the regularizer gradient on
+most steps. Adam is scale-invariant, so it converts that lone tiny gradient into
+a step of the full learning rate: at `lr_opacities = 5e-2`, an off-screen
+Gaussian falls from the seed opacity to `min_opacity` in ~60 iterations.
+
+Measured, 30 k iterations on NewOffice:
+
+| `opacity_reg` = `scale_reg` | held-out PSNR @4k | relocations |
+|---:|---:|---:|
+| 0.01 (paper) | 15.08 dB | 38,996,045 |
+| 0.002 | 15.93 dB | 33,329,364 |
+| 0.0005 | 15.88 dB | 28,753,897 |
+| 0.0001 | 15.20 dB | 22,308,939 |
+| **0 (our default)** | **18.80 dB** | **492,558** |
+
+Lowering the weight barely helps — precisely what scale invariance predicts,
+since Adam normalises the coefficient away. Only 0 is stable. The full-length
+run with the paper's value ends at **12.73 dB held-out with 415 M relocations**,
+about 68 % of the model teleported on every refine pass.
+
+Re-enable them for object-centric capture, where the assumption holds.
 
 ### Phase 3 — CLI + render + figures
 `rux create gsplat` (mirrors `create/annotate.cpp`): `--iterations --use-panoramas
@@ -269,7 +332,69 @@ densification over any further tuning of the current loop.
 
 Two caveats on those numbers: PSNR is a running mean over training views (no
 held-out split yet), and 30 k iterations across 394 views is only ~76 gradient
-steps per view, against the reference's thousands.
+steps per view, against the reference's thousands. §5.3 closes the first caveat
+and, in doing so, overturns this section's conclusion.
+
+## 5.3 Held-out evaluation, and what it says about densification (#307)
+
+Every 8th view is now excluded from training and used only for evaluation
+(`--holdout-every`, deterministic — a pure function of the view count, so the
+split is identical across runs and across configurations). On the same
+NewOffice region: **394 views → 344 train / 50 held out**, evaluated on 32
+views per side.
+
+![prune-only vs MCMC: held-out PSNR and model size](figures/gsplat/mcmc_vs_prune_curves.jpg)
+
+| | train PSNR | **held-out PSNR** | held-out SSIM | Gaussians | wall clock |
+|---|---:|---:|---:|---:|---:|
+| seed (no optimization) | 12.86 dB | 13.24 dB | 0.6339 | 1,212,572 | — |
+| prune-only | 20.99 dB | **20.05 dB** | 0.7830 | 785,176 | 179.8 s |
+| no density control | 21.03 dB | **20.09 dB** | 0.7822 | 1,212,572 | 188.6 s |
+| MCMC (2× budget) | 21.25 dB | **20.00 dB** | 0.7764 | 2,425,144 | 265.7 s |
+
+### MCMC works, and it does not help
+
+The implementation is correct — relocation, growth to budget, Langevin noise and
+Adam moment handling all behave — and it is *worse than useless* here: 0.05 dB
+below prune-only on held-out views, for 3× the Gaussians and 1.5× the wall
+clock.
+
+![the same held-out view, prune-only vs MCMC](figures/gsplat/mcmc_vs_prune_views.jpg)
+
+**The held-out split is what makes this visible.** MCMC's *training-view* PSNR
+rose from 20.99 to 21.25 dB — under the training-view-only reporting §5.2 used,
+that is a +0.26 dB "improvement", and we would have shipped it as one. The
+held-out number went *down*. The extra 1.2 M Gaussians bought fit to the
+training views and nothing else.
+
+### Capacity is not this scene's bottleneck
+
+The three rows above span a **3.1× range in model size and differ by 0.09 dB**.
+That is the real finding, and it contradicts §5.2's reading of its own figure:
+the 21.4 dB ceiling was attributed to the absence of densification, and that
+attribution was wrong. Density control — in either direction — is not what
+limits this reconstruction.
+
+Two mechanisms explain why growth cannot help here:
+
+1. **The seed is already at scan density.** Densification exists to grow a
+   sparse SfM cloud; we start where it finishes.
+2. **Growth without separation is a no-op.** `sample_add` places each new
+   Gaussian exactly on top of the one it was sampled from, and relies on the
+   Langevin noise to separate the pair. But the noise is gated by
+   `sigmoid(-k·(α - t))` with `k = 100`, `t = 0.005`, so a *healthy* Gaussian
+   (α ≈ 0.5) receives a gate value of ~1e-22 — no motion at all. With the
+   regularizers off (previous section), almost all Gaussians are healthy, so
+   the duplicates never separate. The two halves of the algorithm need each
+   other, and the half that makes them cooperate is the one that destroys this
+   scene topology.
+
+The renders point at the actual limit: both regimes are uniformly *soft*, in a
+way that looks like smear rather than lack of detail. The suspects are pose
+error (the SLAM baseline for this scan measures ~22 mm plane-flatness RMS,
+which at 480 px is on the order of a pixel of reprojection error across the
+whole model) and the 480 px training resolution, not Gaussian count. That is
+where the next increment belongs — not in density control.
 
 ## 6. Verification (native, once built)
 

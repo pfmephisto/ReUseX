@@ -25,6 +25,7 @@
 #include <fmt/format.h>
 
 #include <cmath>
+#include <cstdint>
 
 using namespace reusex;
 using Catch::Approx;
@@ -210,6 +211,168 @@ TEST_CASE("pruning drops collapsed Gaussians without emptying the model",
   auto result = gsplat::train_gaussians(seed, views, opt);
 
   REQUIRE(result.final_count > 0);
+}
+
+TEST_CASE("held-out views are excluded from training and reported",
+          "[gsplat][gpu]") {
+  auto seed = gsplat::init_from_point_cloud(make_blob(5));
+  auto views = make_ring(8);
+
+  gsplat::TrainOptions opt;
+  opt.iterations = 20;
+  opt.log_interval = 10;
+  opt.eval_interval = 10;
+  opt.prune_enabled = false;
+  opt.holdout_every = 4; // views 0 and 4 held out, 6 left to train on
+
+  auto result = gsplat::train_gaussians(seed, views, opt);
+
+  REQUIRE(!result.evals.empty());
+  const auto &last = result.evals.back();
+  REQUIRE(last.holdout_views == 2);
+  REQUIRE(last.train_views == 6);
+  REQUIRE(std::isfinite(last.holdout_psnr));
+  REQUIRE(std::isfinite(last.holdout_ssim));
+  REQUIRE(result.final_holdout_psnr == Approx(last.holdout_psnr));
+
+  // Every view in this synthetic scene shows the same blob against the same
+  // flat target, so the two numbers should land close together. The assertion
+  // that matters is that a held-out number exists at all and is a real
+  // measurement, not that it beats or trails the training one.
+  REQUIRE(last.holdout_psnr > 0.0);
+}
+
+TEST_CASE("the held-out split is identical across runs", "[gsplat][gpu]") {
+  auto seed = gsplat::init_from_point_cloud(make_blob(5));
+  auto views = make_ring(8);
+
+  gsplat::TrainOptions opt;
+  opt.iterations = 20;
+  opt.log_interval = 20;
+  opt.eval_interval = 20;
+  opt.prune_enabled = false;
+  opt.holdout_every = 4;
+  opt.seed = 11;
+
+  auto a = gsplat::train_gaussians(seed, views, opt);
+  auto b = gsplat::train_gaussians(seed, views, opt);
+
+  REQUIRE(a.evals.size() == b.evals.size());
+  REQUIRE(!a.evals.empty());
+  // The split is a pure function of the view count, so it cannot drift even
+  // though the trained values themselves are only reproducible to ~1e-3 (see
+  // the reproducibility test above for why).
+  REQUIRE(a.evals.back().holdout_views == b.evals.back().holdout_views);
+  REQUIRE(a.evals.back().train_views == b.evals.back().train_views);
+  REQUIRE(a.evals.back().holdout_psnr ==
+          Approx(b.evals.back().holdout_psnr).epsilon(1e-3));
+}
+
+TEST_CASE("a split that would leave no training views is refused",
+          "[gsplat][gpu]") {
+  auto seed = gsplat::init_from_point_cloud(make_blob(4));
+  auto views = make_ring(4);
+
+  gsplat::TrainOptions opt;
+  opt.iterations = 10;
+  opt.log_interval = 10;
+  opt.eval_interval = 10;
+  opt.prune_enabled = false;
+  opt.holdout_every = 1; // would hold out everything
+
+  auto result = gsplat::train_gaussians(seed, views, opt);
+
+  // Falls back to training on all views and reports no held-out metric,
+  // rather than training on nothing.
+  REQUIRE(!result.evals.empty());
+  REQUIRE(result.evals.back().holdout_views == 0);
+  REQUIRE(result.evals.back().train_views == 4);
+  REQUIRE(result.final_holdout_psnr == Approx(0.0));
+}
+
+TEST_CASE("MCMC grows the model toward its budget", "[gsplat][gpu]") {
+  auto seed = gsplat::init_from_point_cloud(make_blob(6));
+  auto views = make_ring(4);
+
+  gsplat::TrainOptions opt;
+  opt.iterations = 60;
+  opt.log_interval = 20;
+  opt.eval_interval = 60;
+  opt.holdout_every = 0;
+  opt.mcmc.enabled = true;
+  opt.mcmc.cap_factor = 1.5;
+  opt.mcmc.refine_every = 10;
+  opt.mcmc.refine_start = 10;
+
+  auto result = gsplat::train_gaussians(seed, views, opt);
+
+  const auto cap = static_cast<std::size_t>(seed.size() * 1.5);
+  INFO("seed " << seed.size() << " -> final " << result.final_count << " (cap "
+               << cap << "), added " << result.added);
+  REQUIRE(result.added > 0);
+  REQUIRE(result.final_count > seed.size());
+  REQUIRE(result.final_count <= cap);
+
+  // Growth must not corrupt the model: relocation writes Eq. 9's corrected
+  // opacity and scale, and a sign or activation-space error there produces
+  // NaNs within a few passes.
+  REQUIRE_NOTHROW(result.gaussians.validate());
+  for (const auto &m : result.gaussians.means) {
+    REQUIRE(std::isfinite(m[0]));
+    REQUIRE(std::isfinite(m[1]));
+    REQUIRE(std::isfinite(m[2]));
+  }
+  for (const auto &s : result.gaussians.scales)
+    REQUIRE(std::isfinite(s[0]));
+  for (const float o : result.gaussians.opacities)
+    REQUIRE(std::isfinite(o));
+}
+
+TEST_CASE("MCMC respects an absolute budget", "[gsplat][gpu]") {
+  auto seed = gsplat::init_from_point_cloud(make_blob(5));
+  auto views = make_ring(4);
+
+  const auto cap = static_cast<std::int64_t>(seed.size()) + 10;
+
+  gsplat::TrainOptions opt;
+  opt.iterations = 80;
+  opt.log_interval = 40;
+  opt.eval_interval = 80;
+  opt.holdout_every = 0;
+  opt.mcmc.enabled = true;
+  opt.mcmc.cap_absolute = cap; // takes precedence over cap_factor
+  opt.mcmc.cap_factor = 100.0;
+  opt.mcmc.refine_every = 10;
+  opt.mcmc.refine_start = 10;
+
+  auto result = gsplat::train_gaussians(seed, views, opt);
+
+  REQUIRE(result.final_count <= static_cast<std::size_t>(cap));
+}
+
+TEST_CASE("MCMC noise injection leaves the model finite", "[gsplat][gpu]") {
+  auto seed = gsplat::init_from_point_cloud(make_blob(5));
+  auto views = make_ring(4);
+
+  gsplat::TrainOptions opt;
+  opt.iterations = 30;
+  opt.log_interval = 30;
+  opt.eval_interval = 30;
+  opt.holdout_every = 0;
+  opt.mcmc.enabled = true;
+  // Isolate the Langevin term: no refine pass inside the run.
+  opt.mcmc.refine_start = 1000;
+  opt.mcmc.noise_lr = 5e5f;
+
+  auto result = gsplat::train_gaussians(seed, views, opt);
+
+  REQUIRE(result.final_count == seed.size());
+  REQUIRE(std::isfinite(result.history.back().loss));
+  for (const auto &m : result.gaussians.means) {
+    REQUIRE(std::isfinite(m[0]));
+    REQUIRE(std::isfinite(m[1]));
+    REQUIRE(std::isfinite(m[2]));
+  }
 }
 
 TEST_CASE("the trainer rejects unusable input", "[gsplat][gpu]") {

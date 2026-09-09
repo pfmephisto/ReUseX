@@ -5,6 +5,7 @@
 #pragma once
 #include "../global-params.hpp"
 #include <CLI/CLI.hpp>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -27,6 +28,21 @@ struct SubcommandCreateGsplatOptions {
   float lambda_dssim = 0.2f;
   unsigned seed = 42;
   bool no_prune = false;
+
+  // Held-out evaluation (TrainOptions::holdout_every / eval_interval /
+  // eval_max_views).
+  int holdout_every = 8;
+  int eval_interval = 1000;
+  int eval_max_views = 32;
+
+  // MCMC density control (TrainOptions::mcmc).
+  bool mcmc = false;
+  double mcmc_cap_factor = 2.0;
+  std::int64_t mcmc_cap = 0;
+  int mcmc_refine_every = 100;
+  float mcmc_noise_lr = 5e5f;
+  float mcmc_opacity_reg = 0.0f;
+  float mcmc_scale_reg = 0.0f;
 
   int frame_stride = 1;
   int first_frame = -1;

@@ -4,6 +4,8 @@
 
 #include <reusex/gsplat/train.hpp>
 
+#include "mcmc.hpp"
+#include "optimizer.hpp"
 #include "rasterize.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
@@ -18,6 +20,8 @@
 #include <numeric>
 #include <random>
 #include <stdexcept>
+#include <tuple>
+#include <utility>
 
 namespace reusex::gsplat {
 
@@ -233,12 +237,56 @@ double scene_extent(const std::vector<TrainingView> &views) {
   return std::max(radius, 1e-3);
 }
 
-/// Adam parameter group with its own learning rate. eps follows the reference
-/// 3DGS value (1e-15), which matters because SH gradients are tiny.
-torch::optim::OptimizerParamGroup param_group(torch::Tensor p, double lr) {
-  auto opts = std::make_unique<torch::optim::AdamOptions>(lr);
-  opts->eps(1e-15);
-  return torch::optim::OptimizerParamGroup({std::move(p)}, std::move(opts));
+// ---------------------------------------------------------------------------
+// Train / held-out split
+// ---------------------------------------------------------------------------
+
+/// The two view index sets. Deterministic by construction: membership depends
+/// only on a view's position in the list, never on the RNG, so two runs — or a
+/// prune-only run and an MCMC run — evaluate on exactly the same images
+/// (STANDARDS §6).
+struct ViewSplit {
+  std::vector<std::size_t> train;
+  std::vector<std::size_t> holdout;
+};
+
+ViewSplit split_views(std::size_t n_views, int holdout_every) {
+  ViewSplit s;
+  for (std::size_t i = 0; i < n_views; ++i) {
+    const bool held =
+        holdout_every > 0 && i % static_cast<std::size_t>(holdout_every) == 0;
+    (held ? s.holdout : s.train).push_back(i);
+  }
+
+  // A split that leaves nothing to train on is worse than no split. This only
+  // triggers for tiny view sets (holdout_every == 1, or a single view).
+  if (s.train.empty()) {
+    core::warn("gsplat: a held-out split of every {}th view would leave {} "
+               "training views out of {} — training on all views instead, and "
+               "reporting no held-out metric",
+               holdout_every, s.train.size(), n_views);
+    s.train.clear();
+    s.holdout.clear();
+    for (std::size_t i = 0; i < n_views; ++i)
+      s.train.push_back(i);
+  }
+  return s;
+}
+
+/// Sub-sample @p src to at most @p max_n entries by a uniform stride, keeping
+/// the first entry. Deterministic, and it spreads the sample over the whole
+/// trajectory rather than taking a contiguous prefix.
+std::vector<std::size_t> stride_sample(const std::vector<std::size_t> &src,
+                                       int max_n) {
+  if (max_n <= 0 || src.size() <= static_cast<std::size_t>(max_n))
+    return src;
+  const std::size_t step = src.size() / static_cast<std::size_t>(max_n);
+  std::vector<std::size_t> out;
+  out.reserve(static_cast<std::size_t>(max_n));
+  for (std::size_t i = 0; out.size() < static_cast<std::size_t>(max_n);
+       i += step)
+    out.push_back(src[i]);
+  return out;
 }
 
 } // namespace
@@ -268,21 +316,27 @@ TrainResult train_gaussians(const GaussianCloud &init,
   g.sh.set_requires_grad(true);
 
   const double extent = scene_extent(views);
-  core::info("gsplat: {} views, scene extent {:.2f} m, {} seed Gaussians, "
-             "SH degree {}",
-             views.size(), extent, init.size(), init.sh_degree);
+  const ViewSplit split = split_views(views.size(), opt.holdout_every);
 
-  auto make_optimizer = [&](GaussianTensors &t) {
-    std::vector<torch::optim::OptimizerParamGroup> groups;
-    groups.push_back(param_group(t.means, opt.lr_means * extent));
-    groups.push_back(param_group(t.log_scales, opt.lr_scales));
-    groups.push_back(param_group(t.quats, opt.lr_quats));
-    groups.push_back(param_group(t.logit_opacity, opt.lr_opacities));
-    groups.push_back(param_group(t.sh, opt.lr_sh_dc));
-    return std::make_unique<torch::optim::Adam>(
-        groups, torch::optim::AdamOptions(1e-3));
-  };
-  auto optimizer = make_optimizer(g);
+  core::info(
+      "gsplat: {} views ({} train / {} held out), scene extent {:.2f} m, "
+      "{} seed Gaussians, SH degree {}",
+      views.size(), split.train.size(), split.holdout.size(), extent,
+      init.size(), init.sh_degree);
+
+  detail::AdamLrs lrs;
+  lrs.means = opt.lr_means * extent;
+  lrs.log_scales = opt.lr_scales;
+  lrs.quats = opt.lr_quats;
+  lrs.logit_opacity = opt.lr_opacities;
+  lrs.sh = opt.lr_sh_dc;
+  auto optimizer = detail::make_adam(g, lrs);
+
+  // Seeds torch's own generators. MCMC draws from them (multinomial for
+  // relocation targets, randn for the Langevin noise), so without this the
+  // density control would differ run to run even though the view schedule
+  // would not.
+  torch::manual_seed(opt.seed);
 
   // Pre-upload the targets once. A short run revisits every view many times, so
   // paying the host->device copy per iteration would dominate the loop.
@@ -342,15 +396,96 @@ TrainResult train_gaussians(const GaussianCloud &init,
     dump_render(0);
   }
 
+  // --- held-out evaluation -------------------------------------------------
+  // Both sides are strided down to the same budget so the pair is comparable
+  // and the pass stays cheap relative to training.
+  const auto eval_train_views = stride_sample(split.train, opt.eval_max_views);
+  const auto eval_holdout_views =
+      stride_sample(split.holdout, opt.eval_max_views);
+
+  auto eval_set = [&](const std::vector<std::size_t> &idx) {
+    torch::NoGradGuard no_grad;
+    double psnr_sum = 0.0;
+    double ssim_sum = 0.0;
+    for (const std::size_t vi : idx) {
+      const auto &v = views[vi];
+      auto out = detail::render(g, viewmats[vi], intrinsics[vi], v.width(),
+                                v.height(), g.sh_degree);
+      auto pred = out.image.clamp(0.0f, 1.0f);
+      const auto &target = targets[vi];
+      auto mse = torch::mse_loss(pred, target);
+      psnr_sum += 10.0 * std::log10(1.0 / std::max(mse.item<double>(), 1e-12));
+      ssim_sum += ssim(pred.permute({2, 0, 1}).unsqueeze(0),
+                       target.permute({2, 0, 1}).unsqueeze(0))
+                      .item<double>();
+    }
+    const auto n = static_cast<double>(std::max<std::size_t>(idx.size(), 1));
+    return std::pair<double, double>{psnr_sum / n, ssim_sum / n};
+  };
+
+  auto run_eval = [&](int it) {
+    if (eval_train_views.empty())
+      return;
+    EvalMetrics m;
+    m.iteration = it;
+    m.gaussians = static_cast<std::size_t>(g.count());
+    std::tie(m.train_psnr, m.train_ssim) = eval_set(eval_train_views);
+    m.train_views = eval_train_views.size();
+    if (!eval_holdout_views.empty()) {
+      std::tie(m.holdout_psnr, m.holdout_ssim) = eval_set(eval_holdout_views);
+      m.holdout_views = eval_holdout_views.size();
+      core::info("gsplat: eval iter {:6d}  train {:.2f} dB / SSIM {:.4f} ({} "
+                 "views)  held-out {:.2f} dB / SSIM {:.4f} ({} views)  N {}",
+                 m.iteration, m.train_psnr, m.train_ssim, m.train_views,
+                 m.holdout_psnr, m.holdout_ssim, m.holdout_views, m.gaussians);
+    } else {
+      core::info("gsplat: eval iter {:6d}  train {:.2f} dB / SSIM {:.4f} ({} "
+                 "views)  no held-out split  N {}",
+                 m.iteration, m.train_psnr, m.train_ssim, m.train_views,
+                 m.gaussians);
+    }
+    result.evals.push_back(m);
+  };
+
+  // --- MCMC density control ------------------------------------------------
+  const bool mcmc = opt.mcmc.enabled;
+  detail::MCMCState mcmc_state;
+  int64_t mcmc_cap = 0;
+  int mcmc_stop = 0;
+  if (mcmc) {
+    mcmc_state = detail::make_mcmc_state(g.means.device());
+    mcmc_cap = opt.mcmc.cap_absolute > 0
+                   ? opt.mcmc.cap_absolute
+                   : static_cast<int64_t>(static_cast<double>(init.size()) *
+                                          opt.mcmc.cap_factor);
+    mcmc_cap = std::max<int64_t>(mcmc_cap, g.count());
+    mcmc_stop = static_cast<int>(static_cast<double>(opt.iterations) *
+                                 opt.mcmc.refine_stop_fraction);
+    core::info("gsplat: MCMC density control on — budget {} Gaussians "
+               "(x{:.2f} of seed), refine every {} from iter {} to {}, "
+               "noise_lr {:.3g}, opacity_reg {:.3g}, scale_reg {:.3g}",
+               mcmc_cap, opt.mcmc.cap_factor, opt.mcmc.refine_every,
+               opt.mcmc.refine_start, mcmc_stop, opt.mcmc.noise_lr,
+               opt.mcmc.opacity_reg, opt.mcmc.scale_reg);
+    if (opt.prune_enabled)
+      core::info("gsplat: pruning is disabled while MCMC is active — MCMC "
+                 "relocates collapsed Gaussians rather than deleting them");
+  }
+
+  // Baseline at iteration 0: the seed cloud rendered as Gaussians, before any
+  // optimization. Without it the quality curves start mid-air and there is
+  // nothing to attribute the first thousand iterations' gain to.
+  run_eval(0);
+
   std::mt19937 rng(opt.seed);
-  std::uniform_int_distribution<std::size_t> pick(0, views.size() - 1);
+  std::uniform_int_distribution<std::size_t> pick(0, split.train.size() - 1);
 
   const auto t0 = std::chrono::steady_clock::now();
   double window_psnr = 0.0;
   int window_n = 0;
 
   for (int it = 1; it <= opt.iterations; ++it) {
-    const std::size_t vi = pick(rng);
+    const std::size_t vi = split.train[pick(rng)];
     const auto &v = views[vi];
 
     auto out = detail::render(g, viewmats[vi], intrinsics[vi], v.width(),
@@ -368,6 +503,18 @@ TrainResult train_gaussians(const GaussianCloud &init,
       loss = (1.0f - opt.lambda_dssim) * l1 + opt.lambda_dssim * (1.0 - s);
     } else {
       loss = l1;
+    }
+
+    if (mcmc) {
+      // The MCMC objective is the photometric loss plus L1 on activated
+      // opacity and scale. These are not cosmetic: they are what drives
+      // redundant Gaussians down to `min_opacity` so relocation has dead
+      // samples to recycle. `TrainMetrics::loss` therefore includes them,
+      // while `l1` and `psnr` stay purely photometric and comparable across
+      // the prune-only/MCMC pair.
+      auto reg = detail::mcmc_regularizer(g, opt.mcmc);
+      if (reg.defined())
+        loss = loss + reg;
     }
 
     optimizer->zero_grad();
@@ -398,13 +545,29 @@ TrainResult train_gaussians(const GaussianCloud &init,
       window_n = 0;
     }
 
-    // ---- density control: opacity/size pruning only ------------------------
-    // The reference clone/split heuristic needs the screen-space position
-    // gradient, which gsplat's world-space rasterizer does not expose. Seeding
-    // from a LiDAR cloud supplies the density that heuristic exists to grow, so
-    // this version prunes but does not densify (see train.hpp).
-    if (opt.prune_enabled && it >= opt.prune_start &&
-        it % opt.prune_interval == 0 && it < opt.iterations) {
+    // ---- density control ---------------------------------------------------
+    // Two mutually exclusive regimes. MCMC (relocate + grow + Langevin noise)
+    // is the one that can add detail beyond the seed cloud; pruning alone is
+    // the fallback, and it can only remove. The reference clone/split
+    // heuristic is available in neither, because gsplat's world-space
+    // rasterizer never forms the screen-space gradient it keys on (mcmc.hpp).
+    if (mcmc) {
+      if (it >= opt.mcmc.refine_start && it <= mcmc_stop &&
+          it % opt.mcmc.refine_every == 0) {
+        const int64_t before = g.count();
+        const auto counts = detail::mcmc_refine(g, optimizer, lrs, mcmc_state,
+                                                opt.mcmc, mcmc_cap);
+        if (counts.relocated > 0 || counts.added > 0)
+          core::debug("gsplat: MCMC refine at iter {}: relocated {}, added {}, "
+                      "{} -> {} Gaussians (budget {})",
+                      it, counts.relocated, counts.added, before, g.count(),
+                      mcmc_cap);
+      }
+      // The Langevin term runs every iteration, not just on refine passes:
+      // it is part of the sampler, not part of density control.
+      detail::mcmc_inject_noise(g, opt.mcmc, lrs.means);
+    } else if (opt.prune_enabled && it >= opt.prune_start &&
+               it % opt.prune_interval == 0 && it < opt.iterations) {
       torch::NoGradGuard no_grad;
       auto alpha = torch::sigmoid(g.logit_opacity);
       auto max_scale = torch::exp(g.log_scales).amax(1);
@@ -418,30 +581,17 @@ TrainResult train_gaussians(const GaussianCloud &init,
                    it, before, opt.prune_opacity);
       } else if (kept < before) {
         auto idx = torch::nonzero(keep).squeeze(1);
-        GaussianTensors ng;
-        ng.sh_degree = g.sh_degree;
-        ng.means = g.means.detach().index_select(0, idx).clone();
-        ng.log_scales = g.log_scales.detach().index_select(0, idx).clone();
-        ng.quats = g.quats.detach().index_select(0, idx).clone();
-        ng.logit_opacity =
-            g.logit_opacity.detach().index_select(0, idx).clone();
-        ng.sh = g.sh.detach().index_select(0, idx).clone();
-        ng.means.set_requires_grad(true);
-        ng.log_scales.set_requires_grad(true);
-        ng.quats.set_requires_grad(true);
-        ng.logit_opacity.set_requires_grad(true);
-        ng.sh.set_requires_grad(true);
-        g = std::move(ng);
-        // Adam's per-parameter moments are indexed by tensor identity, so a
-        // resize means a fresh optimizer. Restarting the moments costs a few
-        // iterations of momentum; carrying them would require re-indexing
-        // torch's optimizer state by hand.
-        optimizer = make_optimizer(g);
+        // Carries Adam's moments through the row remap — surviving Gaussians
+        // keep their momentum instead of restarting it every prune pass.
+        detail::remap_parameters(g, optimizer, lrs, idx, /*reset=*/{});
         core::info("gsplat: pruned {} -> {} Gaussians at iter {} "
                    "(alpha <= {} or scale >= {} m)",
                    before, kept, it, opt.prune_opacity, opt.prune_max_scale);
       }
     }
+
+    if (it % std::max(opt.eval_interval, 1) == 0 || it == opt.iterations)
+      run_eval(it);
 
     if (wants_render(it))
       dump_render(it);
@@ -453,12 +603,26 @@ TrainResult train_gaussians(const GaussianCloud &init,
   result.gaussians = to_cloud(g);
   result.final_count = result.gaussians.size();
   result.final_psnr = result.history.empty() ? 0.0 : result.history.back().psnr;
+  result.relocated = mcmc_state.relocated;
+  result.added = mcmc_state.added;
+  if (!result.evals.empty()) {
+    result.final_holdout_psnr = result.evals.back().holdout_psnr;
+    result.final_holdout_ssim = result.evals.back().holdout_ssim;
+  }
 
   core::info("gsplat: trained {} iterations in {:.1f} s "
              "({:.1f} it/s), final PSNR {:.2f} dB over {} Gaussians",
              opt.iterations, result.seconds,
              opt.iterations / std::max(result.seconds, 1e-9), result.final_psnr,
              result.final_count);
+  if (!result.evals.empty() && result.evals.back().holdout_views > 0)
+    core::info("gsplat: held-out PSNR {:.2f} dB / SSIM {:.4f} over {} views "
+               "the optimizer never saw",
+               result.final_holdout_psnr, result.final_holdout_ssim,
+               result.evals.back().holdout_views);
+  if (mcmc)
+    core::info("gsplat: MCMC relocated {} and added {} Gaussians in total",
+               result.relocated, result.added);
   return result;
 }
 

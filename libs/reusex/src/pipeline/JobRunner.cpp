@@ -238,6 +238,12 @@ class JobRunner::Impl {
     idle_cv_.wait(lock, [this] { return queue_.empty() && !running_; });
   }
 
+  WriterLease try_acquire_writer(std::chrono::milliseconds timeout) {
+    WriterLease lease(writer_mutex_, std::defer_lock);
+    lease.try_lock_for(timeout);
+    return lease;
+  }
+
   size_t add_listener(JobListener listener) {
     std::lock_guard<std::mutex> lock(listeners_mutex_);
     const size_t token = next_listener_token_++;
@@ -442,13 +448,25 @@ class JobRunner::Impl {
       emit(started);
 
       StageResult result;
-      try {
-        ObserverBridge bridge(*this);
-        result = executor_(ctx);
-      } catch (const std::exception &e) {
-        result = StageResult::failure(e.what());
-      } catch (...) {
-        result = StageResult::failure("unknown error");
+      {
+        // Hold the project's writer lock across the whole stage. The worker is
+        // the only writer *among jobs* by construction (one thread), but the
+        // GUI's editor endpoints write to the same file from request threads;
+        // this is what makes them exclusive with a running stage rather than
+        // merely unlikely to collide with one.
+        //
+        // Taken after the `running` transition and after `started` is emitted,
+        // so a job blocked behind a long editor write still shows as running
+        // rather than silently sitting in the queue.
+        std::lock_guard<std::timed_mutex> writer(writer_mutex_);
+        try {
+          ObserverBridge bridge(*this);
+          result = executor_(ctx);
+        } catch (const std::exception &e) {
+          result = StageResult::failure(e.what());
+        } catch (...) {
+          result = StageResult::failure("unknown error");
+        }
       }
 
       JobEvent finished;
@@ -491,6 +509,13 @@ class JobRunner::Impl {
 
   std::filesystem::path project_;
   StageExecutor executor_;
+
+  /// Guards *writing* to the project. Deliberately separate from mutex_, which
+  /// guards the runner's own bookkeeping: a stage holds this one for minutes,
+  /// and blocking status queries behind it would make the GUI look hung.
+  /// Lock order is writer_mutex_ -> mutex_ (the worker publishes progress
+  /// while executing); never take them the other way round.
+  std::timed_mutex writer_mutex_;
 
   mutable std::mutex mutex_;
   std::condition_variable queue_cv_;
@@ -543,6 +568,10 @@ size_t JobRunner::queued_count() const { return impl_->queued_count(); }
 bool JobRunner::is_busy() const { return impl_->is_busy(); }
 
 void JobRunner::wait_idle() { impl_->wait_idle(); }
+
+WriterLease JobRunner::try_acquire_writer(std::chrono::milliseconds timeout) {
+  return impl_->try_acquire_writer(timeout);
+}
 
 size_t JobRunner::add_listener(JobListener listener) {
   return impl_->add_listener(std::move(listener));

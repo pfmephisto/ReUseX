@@ -55,6 +55,16 @@ inline constexpr size_t kDefaultPointsPerPage = 100000;
 inline constexpr int kMaxLogEntries = 1000;
 inline constexpr int kDefaultLogEntries = 100;
 
+/// Upper bound on the `max_size` image parameter. Downscaling only ever makes
+/// an image cheaper, so the cap is about rejecting nonsense (and negative
+/// values) rather than about cost.
+inline constexpr int kMaxImageSize = 4096;
+
+/// How long a mutating request waits for the project's writer lock before
+/// answering 503. A running stage holds that lock for minutes, so waiting is
+/// pointless: the honest answer is "busy, retry", not a stalled request.
+inline constexpr int kWriteLockTimeoutMs = 250;
+
 /// Thrown by a handler to produce a non-200 JSON error response.
 class HttpError : public std::runtime_error {
     public:
@@ -98,6 +108,14 @@ class Params {
   /// @throws HttpError(400) when present but not a valid integer.
   long long integer(std::string_view key, long long fallback) const;
 
+  /// Boolean value, or nullopt when absent/empty.
+  ///
+  /// Accepts `true`/`false`, `1`/`0`, `yes`/`no`, any case. Anything else is a
+  /// 400 rather than a silent `false`, because a filter that quietly inverts
+  /// itself on a typo is worse than one that refuses.
+  /// @throws HttpError(400) when present but not a recognised boolean.
+  std::optional<bool> boolean(std::string_view key) const;
+
     private:
   std::map<std::string, std::string, std::less<>> values_;
 };
@@ -123,6 +141,11 @@ nlohmann::json projects_json(const reusex::ProjectDB &db);
 
 nlohmann::json clouds_json(const reusex::ProjectDB &db);
 nlohmann::json cloud_json(const reusex::ProjectDB &db, const std::string &name);
+
+/// Label id → name for one cloud, as `{"labels": {...}}`.
+/// Id 0 is never included: it means unlabeled (STANDARDS §3).
+nlohmann::json cloud_labels_json(const reusex::ProjectDB &db,
+                                 const std::string &name);
 
 /// One page of point data as JSON, ignoring `format`.
 ///
@@ -164,11 +187,34 @@ Blob mesh_texture_blob(const reusex::ProjectDB &db, const std::string &name,
 
 // --- sensor frames --------------------------------------------------------
 
-nlohmann::json frames_json(const reusex::ProjectDB &db);
+/// Range of the valid stored values a `normalize=true` rendering mapped.
+///
+/// Reported so a UI can label its own scale bar; `valid` is false when the
+/// image had no measured pixels at all, in which case there was no range to
+/// report and none is sent.
+struct ValueRange {
+  bool valid = false;
+  double min = 0.0;
+  double max = 0.0;
+};
+
+/// An encoded image plus the provenance of any rendering applied to it.
+struct ImageResponse {
+  Blob blob;
+  ValueRange range; ///< Only populated for a normalized single-channel kind.
+};
+
+/// @param params `segmented` filters the id list; see docs/gui/openapi.yaml.
+nlohmann::json frames_json(const reusex::ProjectDB &db, const Params &params);
 nlohmann::json frame_json(const reusex::ProjectDB &db, int id);
-/// @param kind one of color|depth|confidence|segmentation.
-Blob frame_image_blob(const reusex::ProjectDB &db, int id,
-                      const std::string &kind);
+
+/// One of a frame's images, encoded as PNG.
+///
+/// @param params `kind` (color|depth|confidence|segmentation), `max_size`
+///        (longest edge, downscale only) and `normalize` (render for display
+///        rather than for measurement).
+ImageResponse frame_image(const reusex::ProjectDB &db, int id,
+                          const Params &params);
 
 // --- panoramas ------------------------------------------------------------
 

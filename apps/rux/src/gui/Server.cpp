@@ -6,6 +6,7 @@
 
 #include "gui/api.hpp"
 #include "gui/assets.hpp"
+#include "gui/edits.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/pipeline/JobRunner.hpp>
@@ -16,6 +17,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <chrono>
 #include <cstdlib>
 #include <fstream>
 #include <mutex>
@@ -221,7 +223,14 @@ class SecurityMiddleware {
       return;
     }
 
-    if (req.method == crow::HTTPMethod::Post) {
+    // Every method that can change the project, not just POST. A `text/plain`
+    // POST is a CORS *simple request*, dispatched by the browser before it
+    // reads a single response header, and demanding JSON is what a forged one
+    // cannot satisfy. PUT/PATCH/DELETE are preflighted and so are already
+    // covered by the origin check — but gating on the method rather than on
+    // that reasoning means a future route cannot quietly opt out of CSRF
+    // protection by choosing a different verb.
+    if (is_mutating(req.method)) {
       const auto media = media_type_of(req.get_header_value("Content-Type"));
       if (media != "application/json") {
         res = error_response(
@@ -231,6 +240,13 @@ class SecurityMiddleware {
         return;
       }
     }
+  }
+
+  static bool is_mutating(crow::HTTPMethod method) {
+    return method == crow::HTTPMethod::Post ||
+           method == crow::HTTPMethod::Put ||
+           method == crow::HTTPMethod::Patch ||
+           method == crow::HTTPMethod::Delete;
   }
 
   void after_handle(crow::request &req, crow::response &res, context &) {
@@ -373,8 +389,11 @@ class Server::Impl {
   /// ProjectDB is not thread-safe and Crow is multi-threaded, so each request
   /// gets its own connection rather than sharing one behind a mutex — sqlite3
   /// handles concurrent readers natively and a global lock would serialize the
-  /// whole GUI behind whichever request is decoding a mesh blob. The job worker
-  /// is the only writer and owns a separate connection of its own.
+  /// whole GUI behind whichever request is decoding a mesh blob.
+  ///
+  /// Writers are the job worker and the editor endpoints (with_write below);
+  /// both hold the runner's writer lock, so at most one of them is writing at
+  /// any moment and this connection never has to reason about them separately.
   template <typename Handler> crow::response with_db(Handler &&handler) {
     try {
       reusex::ProjectDB db(options_.project, /*readOnly=*/true);
@@ -392,6 +411,51 @@ class Server::Impl {
                                    "writing); retry shortly");
       }
       spdlog::error("Request failed: {}", what);
+      return error_response(500, what);
+    }
+  }
+
+  /// Run @p handler against a writable ProjectDB, under the project's writer
+  /// lock.
+  ///
+  /// The editor endpoints are the second writer in this process; the pipeline
+  /// job worker is the first. They exclude each other through
+  /// JobRunner::try_acquire_writer, which the worker holds for the whole of
+  /// every stage. Two rules follow, and both are deliberate:
+  ///
+  ///  * **A queued or running job means 409, not a wait.** A stage holds the
+  ///    lock for minutes; blocking a request that long is indistinguishable
+  ///    from a hung UI, and the user can retry when the run is done.
+  ///  * **Failing to take the lock means 503, not a longer wait.** That path is
+  ///    another editor request mid-write — milliseconds — so a short timeout
+  ///    absorbs the normal case and anything past it is worth reporting.
+  ///
+  /// Nothing is written when either check fails, so both are safe to retry.
+  template <typename Handler> crow::response with_write(Handler &&handler) {
+    if (runner_->is_busy() || runner_->queued_count() > 0)
+      return error_response(409,
+                            "a pipeline job is running or queued; edits are "
+                            "refused while a stage is writing the project");
+
+    auto lease = runner_->try_acquire_writer(
+        std::chrono::milliseconds(kWriteLockTimeoutMs));
+    if (!lease.owns_lock())
+      return error_response(503, "the project is being written to; retry "
+                                 "shortly");
+
+    try {
+      reusex::ProjectDB db(options_.project, /*readOnly=*/false);
+      return handler(db);
+    } catch (const HttpError &e) {
+      return error_response(e.status(), e.what());
+    } catch (const std::exception &e) {
+      const std::string what = e.what();
+      if (what.find("locked") != std::string::npos ||
+          what.find("busy") != std::string::npos) {
+        spdlog::debug("ProjectDB busy during a write: {}", what);
+        return error_response(503, "project database is busy; retry shortly");
+      }
+      spdlog::error("Edit failed: {}", what);
       return error_response(500, what);
     }
   }
@@ -518,6 +582,21 @@ class Server::Impl {
           });
         });
 
+    // One rule for both methods: registering the same path twice would create
+    // two competing Crow rules (same reasoning as /jobs below).
+    app_.route_dynamic("/api/v1/clouds/<string>/labels")
+        .methods(crow::HTTPMethod::GET, crow::HTTPMethod::PATCH)(
+            [this](const crow::request &req, std::string name) {
+              if (req.method == crow::HTTPMethod::GET)
+                return with_db([&](const reusex::ProjectDB &db) {
+                  return json_response(200, cloud_labels_json(db, name));
+                });
+              return with_write([&](reusex::ProjectDB &db) {
+                return json_response(200,
+                                     patch_cloud_labels(db, name, req.body));
+              });
+            });
+
     // ---- meshes ----
     get("/api/v1/meshes")([this](const crow::request &) {
       return with_db([](const reusex::ProjectDB &db) {
@@ -554,9 +633,10 @@ class Server::Impl {
         });
 
     // ---- sensor frames ----
-    get("/api/v1/frames")([this](const crow::request &) {
-      return with_db([](const reusex::ProjectDB &db) {
-        return json_response(200, frames_json(db));
+    get("/api/v1/frames")([this](const crow::request &req) {
+      const Params params = params_of(req);
+      return with_db([&](const reusex::ProjectDB &db) {
+        return json_response(200, frames_json(db, params));
       });
     });
 
@@ -567,9 +647,17 @@ class Server::Impl {
     });
 
     get("/api/v1/frames/<int>/image")([this](const crow::request &req, int id) {
-      const std::string kind = params_of(req).str("kind", "color");
+      const Params params = params_of(req);
       return with_db([&](const reusex::ProjectDB &db) {
-        return blob_response(frame_image_blob(db, id, kind));
+        const auto image = frame_image(db, id, params);
+        crow::response res = blob_response(image.blob);
+        // Convenience only, exactly like the X-Ruxp-* headers: the picture is
+        // the response, and a client must not need these to use it.
+        if (image.range.valid) {
+          res.set_header("X-Image-Range-Min", std::to_string(image.range.min));
+          res.set_header("X-Image-Range-Max", std::to_string(image.range.max));
+        }
+        return res;
       });
     });
 
@@ -613,12 +701,17 @@ class Server::Impl {
       });
     });
 
-    get("/api/v1/materials/<string>")(
-        [this](const crow::request &, std::string guid) {
-          return with_db([&](const reusex::ProjectDB &db) {
-            return json_response(200, material_json(db, guid));
-          });
-        });
+    app_.route_dynamic("/api/v1/materials/<string>")
+        .methods(crow::HTTPMethod::GET, crow::HTTPMethod::PATCH)(
+            [this](const crow::request &req, std::string guid) {
+              if (req.method == crow::HTTPMethod::GET)
+                return with_db([&](const reusex::ProjectDB &db) {
+                  return json_response(200, material_json(db, guid));
+                });
+              return with_write([&](reusex::ProjectDB &db) {
+                return json_response(200, patch_material(db, guid, req.body));
+              });
+            });
 
     get("/api/v1/instances/<string>")(
         [this](const crow::request &, std::string cloud) {

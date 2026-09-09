@@ -1,0 +1,154 @@
+<!--
+SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+SPDX-License-Identifier: GPL-3.0-or-later
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="940" height="900" viewBox="0 0 940 900" font-family="Helvetica,Arial,sans-serif">
+<rect width="940" height="900" fill="#fcfcfb"/>
+<text x="92.0" y="40.0" fill="#0b0b0b" font-size="17" font-weight="600">Is there a GT-optimal plane-term weight?</text>
+<text x="92.0" y="62.0" fill="#52514e" font-size="12.5">Sweeping the plane term's authority against absolute ground truth. Zero = running no pose stage at all.</text>
+<text x="92.0" y="88.0" fill="#0b0b0b" font-size="14" font-weight="600">A. Change in GT F-score @ 50 mm vs no pose stage (higher is better; 0 = no pose stage)</text>
+<line x1="96.0" y1="140.5" x2="706.0" y2="140.5" stroke="#9a9894" stroke-width="1.5" stroke-dasharray="5 4"/>
+<text x="100.0" y="132.5" fill="#52514e" font-size="11.5">no pose stage</text>
+<line x1="96.0" y1="336.6" x2="706.0" y2="336.6" stroke="#e2e1dd" stroke-width="1"/>
+<text x="86.0" y="340.6" fill="#52514e" font-size="11" text-anchor="end">-0.4</text>
+<line x1="96.0" y1="287.6" x2="706.0" y2="287.6" stroke="#e2e1dd" stroke-width="1"/>
+<text x="86.0" y="291.6" fill="#52514e" font-size="11" text-anchor="end">-0.3</text>
+<line x1="96.0" y1="238.5" x2="706.0" y2="238.5" stroke="#e2e1dd" stroke-width="1"/>
+<text x="86.0" y="242.5" fill="#52514e" font-size="11" text-anchor="end">-0.2</text>
+<line x1="96.0" y1="189.5" x2="706.0" y2="189.5" stroke="#e2e1dd" stroke-width="1"/>
+<text x="86.0" y="193.5" fill="#52514e" font-size="11" text-anchor="end">-0.1</text>
+<text x="86.0" y="144.5" fill="#52514e" font-size="11" text-anchor="end">0</text>
+<line x1="96.0" y1="116.0" x2="96.0" y2="366.0" stroke="#e2e1dd" stroke-width="1"/>
+<text x="96.0" y="386.0" fill="#52514e" font-size="11.5" text-anchor="middle">0.1</text>
+<line x1="186.6" y1="116.0" x2="186.6" y2="366.0" stroke="#e2e1dd" stroke-width="1"/>
+<text x="186.6" y="386.0" fill="#52514e" font-size="11.5" text-anchor="middle">0.32</text>
+<line x1="277.3" y1="116.0" x2="277.3" y2="366.0" stroke="#e2e1dd" stroke-width="1"/>
+<text x="277.3" y="386.0" fill="#52514e" font-size="11.5" text-anchor="middle">1.0</text>
+<line x1="368.0" y1="116.0" x2="368.0" y2="366.0" stroke="#e2e1dd" stroke-width="1"/>
+<text x="368.0" y="386.0" fill="#52514e" font-size="11.5" text-anchor="middle">3.2</text>
+<line x1="458.7" y1="116.0" x2="458.7" y2="366.0" stroke="#e2e1dd" stroke-width="1"/>
+<text x="458.7" y="386.0" fill="#52514e" font-size="11.5" text-anchor="middle">10</text>
+<line x1="640.0" y1="116.0" x2="640.0" y2="366.0" stroke="#e2e1dd" stroke-width="1"/>
+<text x="640.0" y="386.0" fill="#52514e" font-size="11.5" text-anchor="middle">100</text>
+<line x1="706.0" y1="116.0" x2="706.0" y2="366.0" stroke="#e2e1dd" stroke-width="1"/>
+<text x="706.0" y="386.0" fill="#52514e" font-size="11.5" font-weight="600" text-anchor="middle">off</text>
+<text x="277.3" y="408.0" fill="#52514e" font-size="11.5" text-anchor="middle">--plane-sigma-scale   (left = stronger plane term, right = weaker; 1.0 = shipped default)</text>
+<path d="M96.0,352.5 L186.6,227.7 L277.3,160.4 L368.0,156.2 L458.7,146.1 L640.0,140.5 L706.0,140.5" fill="none" stroke="#2a78d6" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="96.0" cy="352.5" r="4.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="186.6" cy="227.7" r="4.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="277.3" cy="160.4" r="4.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="368.0" cy="156.2" r="4.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="458.7" cy="146.1" r="4.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="640.0" cy="140.5" r="4.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="706.0" cy="140.5" r="4.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+<path d="M96.0,324.9 L186.6,234.1 L277.3,185.6 L368.0,169.3 L458.7,144.9 L640.0,140.5 L706.0,140.5" fill="none" stroke="#eb6834" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="96.0" cy="324.9" r="4.5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="186.6" cy="234.1" r="4.5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="277.3" cy="185.6" r="4.5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="368.0" cy="169.3" r="4.5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="458.7" cy="144.9" r="4.5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="640.0" cy="140.5" r="4.5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="706.0" cy="140.5" r="4.5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/>
+<path d="M96.0,224.8 L186.6,162.1 L277.3,162.9 L368.0,156.8 L458.7,143.5 L640.0,139.8 L706.0,140.5" fill="none" stroke="#8a5cd6" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="96.0" cy="224.8" r="4.5" fill="#8a5cd6" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="186.6" cy="162.1" r="4.5" fill="#8a5cd6" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="277.3" cy="162.9" r="4.5" fill="#8a5cd6" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="368.0" cy="156.8" r="4.5" fill="#8a5cd6" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="458.7" cy="143.5" r="4.5" fill="#8a5cd6" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="640.0" cy="139.8" r="4.5" fill="#8a5cd6" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="706.0" cy="140.5" r="4.5" fill="#8a5cd6" stroke="#fcfcfb" stroke-width="2"/>
+<path d="M96.0,157.3 L186.6,145.3 L277.3,139.4 L368.0,143.2 L458.7,144.1 L640.0,140.6 L706.0,140.5" fill="none" stroke="#1d8f6b" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="96.0" cy="157.3" r="4.5" fill="#1d8f6b" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="186.6" cy="145.3" r="4.5" fill="#1d8f6b" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="277.3" cy="139.4" r="4.5" fill="#1d8f6b" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="368.0" cy="143.2" r="4.5" fill="#1d8f6b" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="458.7" cy="144.1" r="4.5" fill="#1d8f6b" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="640.0" cy="140.6" r="4.5" fill="#1d8f6b" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="706.0" cy="140.5" r="4.5" fill="#1d8f6b" stroke="#fcfcfb" stroke-width="2"/>
+<line x1="277.3" y1="133.4" x2="277.3" y2="117.4" stroke="#1d8f6b" stroke-width="1.2"/>
+<text x="277.3" y="112.4" fill="#1d8f6b" font-size="11" font-weight="600" text-anchor="middle">honka peak +0.0023</text>
+<text x="732.0" y="120.0" fill="#52514e" font-size="11.5" font-weight="600">scan</text>
+<rect x="732" y="130" width="10" height="10" fill="#2a78d6" rx="2"/>
+<text x="747.0" y="139.0" fill="#52514e" font-size="11.5">41069048</text>
+<rect x="732" y="148" width="10" height="10" fill="#eb6834" rx="2"/>
+<text x="747.0" y="157.0" fill="#52514e" font-size="11.5">41069050</text>
+<rect x="732" y="166" width="10" height="10" fill="#8a5cd6" rx="2"/>
+<text x="747.0" y="175.0" fill="#52514e" font-size="11.5">41069051</text>
+<rect x="732" y="184" width="10" height="10" fill="#1d8f6b" rx="2"/>
+<text x="747.0" y="193.0" fill="#52514e" font-size="11.5">honka</text>
+<text x="732.0" y="232.0" fill="#52514e" font-size="11">The three drifting</text>
+<text x="732.0" y="246.0" fill="#52514e" font-size="11">scans rise to zero</text>
+<text x="732.0" y="260.0" fill="#52514e" font-size="11">and stop: their best</text>
+<text x="732.0" y="274.0" fill="#52514e" font-size="11">plane weight is OFF.</text>
+<text x="732.0" y="296.0" fill="#52514e" font-size="11">honka (no drift) is</text>
+<text x="732.0" y="310.0" fill="#52514e" font-size="11">the only scan with a</text>
+<text x="732.0" y="324.0" fill="#52514e" font-size="11">peak above zero —</text>
+<text x="732.0" y="338.0" fill="#52514e" font-size="11">at the shipped 1.0.</text>
+<text x="92.0" y="434.0" fill="#0b0b0b" font-size="14" font-weight="600">B. Office scan — GT-free flatness_rms, mm (lower is better)</text>
+<text x="92.0" y="456.0" fill="#52514e" font-size="12">The GT-free metric disagrees: on the scan the defaults were tuned on, the optimum is the shipped 1.0, not off.</text>
+<line x1="96.0" y1="616.0" x2="706.0" y2="616.0" stroke="#e2e1dd" stroke-width="1"/>
+<text x="86.0" y="620.0" fill="#52514e" font-size="11" text-anchor="end">0</text>
+<line x1="96.0" y1="572.7" x2="706.0" y2="572.7" stroke="#e2e1dd" stroke-width="1"/>
+<text x="86.0" y="576.7" fill="#52514e" font-size="11" text-anchor="end">5</text>
+<line x1="96.0" y1="529.3" x2="706.0" y2="529.3" stroke="#e2e1dd" stroke-width="1"/>
+<text x="86.0" y="533.3" fill="#52514e" font-size="11" text-anchor="end">10</text>
+<line x1="96.0" y1="507.7" x2="706.0" y2="507.7" stroke="#9a9894" stroke-width="1.5" stroke-dasharray="5 4"/>
+<text x="714.0" y="511.7" fill="#52514e" font-size="11">no pose stage 12.50</text>
+<rect x="109.0" y="494.1" width="61.1" height="121.9" fill="#9a9894" rx="4"/>
+<text x="139.6" y="486.1" fill="#0b0b0b" font-size="12" font-weight="600" text-anchor="middle">14.06</text>
+<text x="139.6" y="634.0" fill="#52514e" font-size="11.5" text-anchor="middle">0.1</text>
+<rect x="196.1" y="505.1" width="61.1" height="110.9" fill="#9a9894" rx="4"/>
+<text x="226.7" y="497.1" fill="#0b0b0b" font-size="12" font-weight="600" text-anchor="middle">12.80</text>
+<text x="226.7" y="634.0" fill="#52514e" font-size="11.5" text-anchor="middle">0.32</text>
+<rect x="283.3" y="514.4" width="61.1" height="101.6" fill="#2a78d6" rx="4"/>
+<text x="313.9" y="506.4" fill="#0b0b0b" font-size="12" font-weight="600" text-anchor="middle">11.72</text>
+<text x="313.9" y="634.0" fill="#52514e" font-size="11.5" text-anchor="middle">1.0</text>
+<rect x="370.4" y="511.8" width="61.1" height="104.2" fill="#9a9894" rx="4"/>
+<text x="401.0" y="503.8" fill="#0b0b0b" font-size="12" font-weight="600" text-anchor="middle">12.02</text>
+<text x="401.0" y="634.0" fill="#52514e" font-size="11.5" text-anchor="middle">3.2</text>
+<rect x="457.6" y="505.6" width="61.1" height="110.4" fill="#9a9894" rx="4"/>
+<text x="488.1" y="497.6" fill="#0b0b0b" font-size="12" font-weight="600" text-anchor="middle">12.74</text>
+<text x="488.1" y="634.0" fill="#52514e" font-size="11.5" text-anchor="middle">10</text>
+<rect x="544.7" y="504.5" width="61.1" height="111.5" fill="#9a9894" rx="4"/>
+<text x="575.3" y="496.5" fill="#0b0b0b" font-size="12" font-weight="600" text-anchor="middle">12.86</text>
+<text x="575.3" y="634.0" fill="#52514e" font-size="11.5" text-anchor="middle">100</text>
+<rect x="631.9" y="505.8" width="61.1" height="110.2" fill="#9a9894" rx="4"/>
+<text x="662.4" y="497.8" fill="#0b0b0b" font-size="12" font-weight="600" text-anchor="middle">12.72</text>
+<text x="662.4" y="634.0" fill="#52514e" font-size="11.5" text-anchor="middle">off</text>
+<text x="401.0" y="656.0" fill="#52514e" font-size="11.5" text-anchor="middle">--plane-sigma-scale</text>
+<text x="92.0" y="674.0" fill="#0b0b0b" font-size="14" font-weight="600">C. XFeat loop edges on the same GT scans — change in F@50mm vs no pose stage</text>
+<text x="92.0" y="696.0" fill="#52514e" font-size="12">Applied with the plane term off. Every configuration that moves the poses loses GT accuracy.</text>
+<line x1="96.0" y1="726.0" x2="706.0" y2="726.0" stroke="#9a9894" stroke-width="1.5" stroke-dasharray="5 4"/>
+<text x="86.0" y="730.0" fill="#52514e" font-size="11" text-anchor="end">0</text>
+<line x1="96.0" y1="764.1" x2="706.0" y2="764.1" stroke="#e2e1dd" stroke-width="1"/>
+<text x="86.0" y="768.1" fill="#52514e" font-size="11" text-anchor="end">-0.2</text>
+<line x1="96.0" y1="802.1" x2="706.0" y2="802.1" stroke="#e2e1dd" stroke-width="1"/>
+<text x="86.0" y="806.1" fill="#52514e" font-size="11" text-anchor="end">-0.4</text>
+<line x1="96.0" y1="840.2" x2="706.0" y2="840.2" stroke="#e2e1dd" stroke-width="1"/>
+<text x="86.0" y="844.2" fill="#52514e" font-size="11" text-anchor="end">-0.6</text>
+<rect x="156.0" y="726.0" width="42" height="0.0" fill="#2a78d6" rx="4"/>
+<text x="177.0" y="740.0" fill="#0b0b0b" font-size="11" font-weight="600" text-anchor="middle">+0.000</text>
+<text x="177.0" y="756.0" fill="#52514e" font-size="10" text-anchor="middle">no edges</text>
+<text x="177.0" y="768.0" fill="#52514e" font-size="10" text-anchor="middle">survived PCM</text>
+<rect x="212.0" y="726.0" width="42" height="85.0" fill="#eb6834" rx="4"/>
+<text x="233.0" y="825.0" fill="#0b0b0b" font-size="11" font-weight="600" text-anchor="middle">-0.447</text>
+<rect x="268.0" y="726.0" width="42" height="113.9" fill="#8a5cd6" rx="4"/>
+<text x="289.0" y="853.9" fill="#0b0b0b" font-size="11" font-weight="600" text-anchor="middle">-0.598</text>
+<text x="233.0" y="870.0" fill="#52514e" font-size="11.5" font-weight="600" text-anchor="middle">shipped gate 0.50 m</text>
+<rect x="461.0" y="726.0" width="42" height="30.5" fill="#2a78d6" rx="4"/>
+<text x="482.0" y="770.5" fill="#0b0b0b" font-size="11" font-weight="600" text-anchor="middle">-0.160</text>
+<rect x="517.0" y="726.0" width="42" height="25.5" fill="#eb6834" rx="4"/>
+<text x="538.0" y="765.5" fill="#0b0b0b" font-size="11" font-weight="600" text-anchor="middle">-0.134</text>
+<rect x="573.0" y="726.0" width="42" height="26.4" fill="#8a5cd6" rx="4"/>
+<text x="594.0" y="766.4" fill="#0b0b0b" font-size="11" font-weight="600" text-anchor="middle">-0.139</text>
+<text x="538.0" y="870.0" fill="#52514e" font-size="11.5" font-weight="600" text-anchor="middle">gate 0.05 m</text>
+<text x="732.0" y="736.0" fill="#52514e" font-size="11">Why: on these</text>
+<text x="732.0" y="750.0" fill="#52514e" font-size="11">scans the edges</text>
+<text x="732.0" y="764.0" fill="#52514e" font-size="11">disagree with the</text>
+<text x="732.0" y="778.0" fill="#52514e" font-size="11">seed by 58–169 mm</text>
+<text x="732.0" y="792.0" fill="#52514e" font-size="11">on a ~2 m trajectory,</text>
+<text x="732.0" y="806.0" fill="#52514e" font-size="11">but the seed is</text>
+<text x="732.0" y="820.0" fill="#52514e" font-size="11">already accurate to</text>
+<text x="732.0" y="834.0" fill="#52514e" font-size="11">16 mm. The office</text>
+<text x="732.0" y="848.0" fill="#52514e" font-size="11">scan: 14.5 m on 18 m.</text>
+</svg>

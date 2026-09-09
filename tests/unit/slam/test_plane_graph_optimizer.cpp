@@ -709,3 +709,118 @@ TEST_CASE("PlaneGraphOptimizer_FitGeometryNoiseModel_IsDeterministic",
     REQUIRE((a[i].world_pose.matrix() - b[i].world_pose.matrix()).norm() ==
             0.0f);
 }
+
+// ── Plane-term authority knob (#225 §9) ─────────────────────────────────────
+// `plane_sigma_scale` multiplies both plane sigmas, so the plane term's weight
+// in the objective goes as 1/scale^2; `use_plane_factors == false` is that
+// knob's infinite limit taken exactly. Both must be *strictly* opt-in: the
+// shipped default path has to stay bit-identical, or every before/after number
+// recorded in #225 becomes uninterpretable.
+
+namespace {
+
+// Three frames seeing the same corner, frames 1..2 drifted off the gauge.
+std::vector<FrameSurfels> drifted_corner_frames() {
+  std::vector<FrameSurfels> frames;
+  for (int i = 0; i < 3; ++i)
+    frames.push_back(make_corner_frame(i));
+  frames[1].world_pose = drift(0.04f, {1, 1, 1}, {0.03f, -0.02f, 0.015f});
+  frames[2].world_pose = drift(0.05f, {0, 1, 0}, {-0.025f, 0.03f, -0.01f});
+  return frames;
+}
+
+} // namespace
+
+TEST_CASE("PlaneGraph plane_sigma_scale 1.0 is the shipped default exactly",
+          "[plane_graph][optimize][plane_weight]") {
+  // The default-preservation guarantee. 1.0 must not merely be "close to" the
+  // unscaled path — a float multiply by 1.0f is exact, and this pins that.
+  PlaneGraphOptions def = test_options();
+  PlaneGraphOptions explicit_one = test_options();
+  explicit_one.plane_sigma_scale = 1.0f;
+
+  auto a = drifted_corner_frames();
+  auto b = drifted_corner_frames();
+  PlaneGraphResult ra = PlaneGraphOptimizer(def).optimize(a);
+  PlaneGraphResult rb = PlaneGraphOptimizer(explicit_one).optimize(b);
+
+  REQUIRE(ra.plane_factors == rb.plane_factors);
+  REQUIRE(ra.final_error == rb.final_error);
+  for (size_t i = 0; i < a.size(); ++i)
+    REQUIRE((a[i].world_pose.matrix() - b[i].world_pose.matrix()).norm() ==
+            0.0f);
+}
+
+TEST_CASE("PlaneGraph plane_sigma_scale weakens the correction monotonically",
+          "[plane_graph][optimize][plane_weight]") {
+  // The knob has to be a real authority dial, not a no-op: a larger sigma
+  // scale is a weaker plane term, so less of the seed drift gets corrected and
+  // the residual error against truth must not decrease. This is what makes a
+  // sweep over the knob a meaningful experiment.
+  const Eigen::Affine3f truth = Eigen::Affine3f::Identity();
+  float prev_err = -1.0f;
+  for (const float scale : {1.0f, 10.0f, 100.0f, 1000.0f}) {
+    PlaneGraphOptions o = test_options();
+    o.plane_sigma_scale = scale;
+    auto frames = drifted_corner_frames();
+    const float seed_err = pose_trans_error(frames[1].world_pose, truth);
+    PlaneGraphResult res = PlaneGraphOptimizer(o).optimize(frames);
+    const float err = pose_trans_error(frames[1].world_pose, truth);
+    INFO("scale " << scale << ": seed " << seed_err << " -> " << err);
+    REQUIRE(res.plane_factors > 0); // the factors still exist, just weaker
+    if (prev_err >= 0.0f)
+      REQUIRE(err >= prev_err - 1e-6f);
+    prev_err = err;
+  }
+  // ... and the weakest setting must have given up most of the correction.
+  auto frames = drifted_corner_frames();
+  const float seed_err = pose_trans_error(frames[1].world_pose, truth);
+  REQUIRE(prev_err > 0.5f * seed_err);
+}
+
+TEST_CASE("PlaneGraph --no-plane-factors leaves the seed trajectory alone",
+          "[plane_graph][optimize][plane_weight]") {
+  // The "plane term off" endpoint: detection and association still run and are
+  // still reported (so a sweep row stays comparable), but the graph is
+  // odometry + gauge prior only, which is exactly satisfied by the seed poses.
+  auto frames = drifted_corner_frames();
+  std::vector<Eigen::Matrix4f> seed;
+  for (const auto &f : frames)
+    seed.push_back(f.world_pose.matrix());
+
+  PlaneGraphOptions o = test_options();
+  o.use_plane_factors = false;
+  PlaneGraphResult res = PlaneGraphOptimizer(o).optimize(frames);
+
+  REQUIRE(res.plane_factors == 0);
+  REQUIRE(res.planes_detected > 0); // still measured and reported
+  REQUIRE(res.landmarks >= 3);      // association still runs
+  REQUIRE(res.converged);
+  for (size_t i = 0; i < frames.size(); ++i) {
+    INFO("frame " << i);
+    REQUIRE((frames[i].world_pose.matrix() - seed[i]).norm() < 1e-4f);
+  }
+}
+
+TEST_CASE("PlaneGraph --no-plane-factors ignores the plane sigmas entirely",
+          "[plane_graph][optimize][plane_weight]") {
+  // Off means off: with no plane factors in the graph, the plane sigmas (and
+  // hence the sigma scale) cannot influence the result at all. Guards against
+  // a future refactor that keeps some plane influence alive on this path.
+  auto a = drifted_corner_frames();
+  auto b = drifted_corner_frames();
+
+  PlaneGraphOptions o1 = test_options();
+  o1.use_plane_factors = false;
+  PlaneGraphOptions o2 = o1;
+  o2.plane_sigma_scale = 1000.0f;
+  o2.plane_noise_model = PlaneNoiseModel::fit_geometry;
+
+  PlaneGraphResult ra = PlaneGraphOptimizer(o1).optimize(a);
+  PlaneGraphResult rb = PlaneGraphOptimizer(o2).optimize(b);
+
+  REQUIRE(ra.final_error == rb.final_error);
+  for (size_t i = 0; i < a.size(); ++i)
+    REQUIRE((a[i].world_pose.matrix() - b[i].world_pose.matrix()).norm() ==
+            0.0f);
+}

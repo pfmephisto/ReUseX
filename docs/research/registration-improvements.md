@@ -843,3 +843,266 @@ rux -p scan.rux create clouds -g 0.05 && rux -p scan.rux create planes
 rux -p scan.rux analyze quality  -o quality.json
 rux -p scan.rux analyze accuracy path/to/gt_mesh.ply -o accuracy.json
 ```
+
+## 9. Is there a GT-optimal plane-term weight? And do XFeat loop edges help on GT scans? (2026-09-09, #225)
+
+§8 ended by naming the **plane term** as what costs absolute accuracy on
+drifting captures, and by naming a **trustworthy global constraint** as the
+missing prerequisite. This section tests both statements directly, as two
+measured questions:
+
+1. **Is there a plane-term weight that is optimal against absolute GT** — or
+   should the term simply be off on drifting scans?
+2. **Do XFeat loop edges** (the only front-end measured to produce edges that
+   survive PCM, PR #311) **make `rux optimize` GT-positive** on the three
+   ARKitScenes scans?
+
+Both answer **no**. The numbers, and why the second "no" is the more useful
+one, are below.
+
+### 9.1 Harness check first
+
+Same protocol as §7.2 / §8.2 (fresh copy → pose stage → `create clouds -g 0.05`
+→ `create planes` → `analyze quality` / `analyze accuracy`). Every `none` and
+default-`optimize` row reproduces the recorded #298 / #316 numbers **exactly,
+to every digit, on all five scans**:
+
+| scan | metric | recorded | reproduced |
+|---|---|---|---|
+| 41069048 | F / chamfer / acc-median | 0.8917 / 37.00 / 15.75 | 0.8917 / 37.00 / 15.75 |
+| 41069050 | F | 0.8934 → 0.8015 | 0.8934 → 0.8015 |
+| 41069051 | F | 0.8893 → 0.8437 | 0.8893 → 0.8437 |
+| honka | F | 0.7572 → 0.7595 | 0.7572 → 0.7595 |
+| office | flatness_rms | 12.50 → 11.72 mm | 12.50 → 11.72 mm |
+
+### 9.2 What was added (both opt-in, default bit-identical)
+
+- **`--plane-sigma-scale <k>`** — one global multiplier on both plane sigmas.
+  The plane term's weight in the objective goes as `1/k²`, so `k < 1`
+  strengthens it and `k > 1` weakens it. `k = 1.0` is the shipped calibration
+  and is a float multiply by exactly 1.0, i.e. bit-identical to omitting the
+  flag (unit-tested).
+- **`--no-plane-factors`** — the `k → ∞` limit taken **exactly**: planes are
+  still detected, associated and reported, but no `OrientedPlane3Factor` and no
+  landmark variable enters the graph, leaving odometry + the frame-0 gauge
+  prior. Measured, this leaves the seed trajectory **bit-identical** (0 of 238
+  office frames moved by any amount), which is what makes it a usable "plane
+  term off" endpoint rather than an approximation.
+
+A note on why this is not simply §8.2 restated. §8.1 established that scaling
+all odometry sigmas by `k` is, up to the gauge prior, equivalent to dividing all
+plane sigmas by `k` — so §8.2's odometry sweep already *was* a partial
+plane-authority sweep. Two things it could not reach: the GNC TLS threshold
+`gnc_inlier_cost` is applied to the **whitened** plane residual, so changing
+plane sigmas also changes which observations GNC rejects, whereas changing
+odometry sigmas does not; and no odometry setting reaches the "off" endpoint.
+
+### 9.3 Question 1 — the sweep: no GT-optimal interior weight
+
+**ARKitScenes, absolute `3dod_mesh` GT, F@50 mm (higher is better):**
+
+| `--plane-sigma-scale` | 41069048 | 41069050 | 41069051 |
+|---|---|---|---|
+| 0.1 (100x stronger plane term) | 0.4592 | 0.5172 | 0.7174 |
+| 0.32 (10x stronger) | 0.7138 | 0.7025 | 0.8452 |
+| **1.0 (shipped default)** | 0.8512 | 0.8015 | 0.8437 |
+| 3.16 (10x weaker) | 0.8597 | 0.8347 | 0.8560 |
+| 10 (100x weaker) | 0.8802 | 0.8845 | 0.8831 |
+| 100 (10⁴x weaker) | 0.8917 | 0.8934 | 0.8908 |
+| **off (`--no-plane-factors`)** | **0.8917** | **0.8934** | 0.8893 |
+| *no pose stage* | 0.8917 | 0.8934 | 0.8893 |
+
+The relationship is **monotone on every scan**: GT accuracy improves
+continuously as the plane term is weakened, and the best achievable value is
+the one where the term does nothing. `off` reproduces *no pose stage* **exactly
+on all metrics of all three scans** — F, chamfer, accuracy median,
+completeness median and flatness all agree to every digit — which is both the
+expected behaviour and a second, independent validation of the harness. The
+single exception in the table is 41069051 at scale 100 (0.8908 vs 0.8893), a
++0.0015 difference that is at the level of the metric's own resolution.
+
+So: **there is no GT-optimal interior plane weight on a drifting scan.** The
+optimum is at the boundary, and the boundary is "off".
+
+**honka (Faro laser GT, a capture that does not drift) — the guard, and the
+counter-example:**
+
+| `--plane-sigma-scale` | F@50 mm | acc median (mm) | flatness (mm) |
+|---|---|---|---|
+| 0.1 | 0.7229 | 40.79 | 29.74 |
+| 0.32 | 0.7474 | 37.09 | 28.89 |
+| **1.0 (shipped default)** | **0.7595** | 32.19 | **24.91** |
+| 3.16 | 0.7517 | **31.61** | 26.74 |
+| 10 | 0.7499 | 31.84 | 28.45 |
+| 100 | 0.7571 | 32.88 | 26.63 |
+| off | 0.7572 | 33.52 | 27.95 |
+| *no pose stage* | 0.7572 | 33.52 | 27.98 |
+
+honka is the one scan with a **genuine interior optimum, and it sits exactly at
+the shipped default** — better than off (0.7595 vs 0.7572), better than
+stronger, better than weaker. The shipped calibration is not miscalibrated; it
+is calibrated for this kind of capture.
+
+**office (GT-free flatness_rms, mm — lower is better):**
+
+| scale | 0.1 | 0.32 | **1.0** | 3.16 | 10 | 100 | off | *none* |
+|---|---|---|---|---|---|---|---|---|
+| flatness_rms | 14.06 | 12.80 | **11.72** | 12.02 | 12.74 | 12.86 | 12.72 | 12.50 |
+
+The GT-free metric also has an interior optimum at the shipped default — and
+points the **opposite way** from GT on the drifting scans. This is §8.6's
+"the two metrics actively disagree", now measured as a full curve rather than
+a single pair of points.
+
+![Plane-term weight sweep and XFeat loop edges vs absolute GT](figures/plane-term/plane-term-225.svg)
+
+### 9.4 Question 2 — XFeat loop edges on the GT scans
+
+Edges were produced out-of-process with the existing `tools/loop_edges` bridge
+(`--matcher xfeat --proposal exhaustive`, 6000 candidate pairs per scan,
+strided to ~330 frames, seed 42) and fed to `rux optimize --loop-edges` with
+the plane term **off**, i.e. the best plane setting from §9.3 — so the pose
+graph is odometry + gauge prior + loop edges, a clean loop-closure test.
+
+The front-end works: 278 / 337 / 342 edges exported, gated, PCM-filtered, and
+applied as real corrections (0.10–1.42 m of pose motion). The results, F@50 mm:
+
+| configuration | 41069048 | 41069050 | 41069051 |
+|---|---|---|---|
+| *no pose stage* | **0.8917** | **0.8934** | **0.8893** |
+| plane off + XFeat, shipped 0.50 m gate | 0.8917 † | 0.4468 | 0.2911 |
+| plane off + XFeat, 0.05 m gate | 0.7316 | 0.7594 | 0.7505 |
+| plane off + XFeat, 0.05 m gate, `--loop-trust` | 0.7316 | 0.7594 | 0.7505 |
+| default plane + XFeat, 0.05 m gate | 0.8167 | 0.7302 | 0.8353 |
+| default plane term only (no edges) | 0.8512 | 0.8015 | 0.8437 |
+
+† no edges survived PCM on this scan at that gate, so the stage was a no-op and
+reproduced the baseline exactly.
+
+**Every configuration that actually moves the poses loses GT accuracy**, and
+the two `--loop-trust` rows are bit-identical to their untrusted counterparts —
+GNC was already treating these edges as inliers, so trust changed nothing.
+
+The shipped **0.50 m seed-disagreement gate is actively harmful here**, and the
+reason is worth recording as a design lesson. That gate exists to drop edges
+that merely restate the seed; 0.50 m was chosen on a scan with ~16 m of drift.
+These ARKitScenes trajectories span **1.8–2.6 m in total**. On such a scan the
+gate does not select *informative* edges — it selects the **most
+disagreeing**, which on a well-posed capture are exactly the **wrong** ones.
+The result is a 0.80 m / 1.42 m "correction" and F collapsing to 0.45 / 0.29.
+A gate expressed in absolute metres does not transfer across capture scales.
+
+### 9.5 Why loop closure cannot help these scans — the signal-to-noise argument
+
+The mechanism is one table. For each scan, the median disagreement between an
+XFeat edge and the seed's own relative pose, against the trajectory's extent:
+
+| scan | edges | median disagreement | trajectory extent | ratio |
+|---|---|---|---|---|
+| 41069048 | 278 | 169.0 mm | 1.82 m | 9.3% |
+| 41069050 | 337 | 59.9 mm | 1.86 m | 3.2% |
+| 41069051 | 342 | 57.6 mm | 2.57 m | 2.2% |
+| **office** | 163 | **14 455 mm** | 18.01 m | **80.3%** |
+
+On office, the edges disagree with the seed by 80% of the trajectory's extent.
+No plausible matcher error is that large: the disagreement **is** the drift, and
+closing it is what PR #311 measured (16.66 m of applied correction).
+
+On the ARKitScenes scans the disagreement is 2–9% of a ~2 m trajectory — and
+the seed poses already reconstruct the scene to a **median accuracy of
+15.7–18.6 mm** against the GT mesh. An edge that disagrees by 58–169 mm is
+therefore not reporting drift; it is reporting **its own measurement error**,
+which is an order of magnitude larger than the error it would be correcting.
+Applying it can only inject noise, which is exactly what the table in §9.4
+shows.
+
+This generalises the rule the workstream keeps rediscovering, and makes it
+quantitative rather than qualitative:
+
+> Loop closure pays only when **drift ≫ edge error**. It is not a property of
+> the matcher, and not a property of the back-end — it is a property of the
+> *capture*. A 2 m room scan from a good SLAM seed has no drift budget for a
+> 6 cm-accurate constraint to recover.
+
+### 9.6 Verdict
+
+Both questions answer no, and together they close off the direction §8.6 left
+open:
+
+1. **There is no GT-optimal plane-term weight on a drifting scan** — the
+   optimum is the boundary, "off". But the term is **not** globally wrong:
+   honka's optimum is the shipped default, and office's GT-free optimum is the
+   shipped default. The plane term is correctly calibrated for well-posed
+   captures and structurally harmful for drifting ones, with no single weight
+   serving both.
+2. **XFeat edges do not make `rux optimize` GT-positive** — not because the
+   edges are bad (they are the best available, and they close a 16 m drift on
+   office), but because these particular GT scans have **no drift for them to
+   remove**, while their own ~6 cm error is 4x the seed's error.
+
+The uncomfortable consequence, stated plainly: **the three ARKitScenes scans
+cannot adjudicate the question this workstream actually cares about.** They are
+well-posed captures with excellent seeds, so on them the correct behaviour of
+every pose stage is to do nothing — which is precisely what the best
+configuration does. #221 Tier 2 asked for "a drifting scan *with* absolute GT";
+these scans supply the GT but **not the drift**. That gap, not the plane weight
+and not the matcher, is what blocks the workstream.
+
+### 9.7 What this says the next increment should be
+
+In priority order, revised by the above:
+
+1. **Get a drifting capture with absolute GT.** Every remaining question —
+   does a loop edge help, does the plane term help, is the GT-free metric
+   trustworthy — is unanswerable without one. Options: capture a long corridor
+   or multi-room walk alongside a Faro/laser reference; or *synthesise* drift
+   by perturbing the ARKitScenes seed poses with a realistic random-walk and
+   re-running the whole matrix, which costs nothing and makes the existing GT
+   meshes usable as a drifting benchmark. The synthetic route is cheap and
+   should be tried first.
+2. **Make the seed-disagreement gate scale-relative.** Expressing it as a
+   fraction of trajectory extent (or of the local inter-frame motion) rather
+   than in absolute metres would have prevented the 0.29 F-score in §9.4
+   outright. This is a small, well-motivated change with a measured failure to
+   justify it.
+3. **A GT-gated stopping rule** (carried over from §8.6, still unimplemented):
+   the stage always writes poses back, even when it makes accuracy worse.
+4. Not another plane or odometry weighting knob. Two increments have now swept
+   that space from both sides.
+
+### 9.8 A measurement caveat worth recording
+
+On office, `--no-plane-factors` leaves the poses **bit-identical** (verified:
+0 of 238 frames moved) yet the downstream flatness differs from not running the
+stage at all — 12.72 vs 12.50 mm, with 63 planes segmented instead of 64. The
+pipeline is otherwise deterministic (three identical repeats of the `none` path
+give 12.504 mm exactly), the run itself is reproducible (12.716 mm twice), and a
+table-by-table hash of the project database around the `optimize` call shows no
+content change. I could not isolate the trigger within this increment.
+
+Two things follow. First, **office deltas below ~0.2 mm should not be read as
+signal.** Second, this is a real determinism smell (STANDARDS §6) — a stage
+that provably does not change its inputs should not change its outputs — and
+deserves its own investigation.
+
+### 9.9 Reproducing
+
+```bash
+# Q1 — the plane-term weight sweep (k = 0.1 .. 100, then off)
+rux -p scan.rux optimize --plane-sigma-scale 10
+rux -p scan.rux optimize --no-plane-factors
+
+# Q2 — XFeat loop edges, plane term off
+~/loop-edges-work/xfeat/.venv/bin/python tools/loop_edges/export_loop_edges.py \
+    scan.rux -o edges-xfeat.json --matcher xfeat --proposal exhaustive \
+    --stride 6 --min-frame-gap 10 --max-pairs 6000 --seed 42
+rux -p scan.rux optimize --no-plane-factors --loop-edges edges-xfeat.json \
+    --loop-edges-min-disagreement 0.05
+
+# then, for every row:
+rux -p scan.rux create clouds -g 0.05 && rux -p scan.rux create planes
+rux -p scan.rux analyze quality  -o quality.json
+rux -p scan.rux analyze accuracy path/to/gt_mesh.ply -o accuracy.json
+```
+
+The figure is regenerated with `python3 scripts/plot-plane-term-figure.py`.

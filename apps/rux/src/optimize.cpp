@@ -187,6 +187,22 @@ NOTES:
          "— not the fit quality — is setting the weights (warned about "
          "at run time); widen the range")
       ->default_val(opt->plane_weight_max);
+  sub->add_option(
+         "--plane-sigma-scale", opt->plane_sigma_scale,
+         "Global multiplier on BOTH plane sigmas — the plane term's authority "
+         "against the odometry chain. The plane term's weight in the objective "
+         "goes as 1/scale^2, so >1 weakens it and <1 strengthens it; 1.0 is "
+         "the shipped calibration (bit-identical to omitting the flag). Use it "
+         "to sweep plane-term weight in one dimension (#225 §9)")
+      ->default_val(opt->plane_sigma_scale)
+      ->check(CLI::PositiveNumber);
+  sub->add_flag("--no-plane-factors", opt->no_plane_factors,
+                "Build the pose graph WITHOUT plane factors (the "
+                "--plane-sigma-scale -> infinity limit, taken exactly): "
+                "odometry + the frame-0 gauge prior only. Planes are still "
+                "detected and associated for reporting. The solve then cannot "
+                "move the seed trajectory, which makes this the 'plane term "
+                "off' endpoint of a weight sweep");
   sub->add_option("--prior-sigma-rot", opt->prior_sigma_rot,
                   "First-pose gauge prior rotation std (rad)")
       ->default_val(opt->prior_sigma_rot);
@@ -414,6 +430,8 @@ int run_subcommand_optimize(SubcommandOptimizeOptions const &opt,
     options.odometry_gnc_inlier_cost = opt.odometry_gnc_inlier_cost;
     options.plane_weight_min = opt.plane_weight_min;
     options.plane_weight_max = opt.plane_weight_max;
+    options.plane_sigma_scale = opt.plane_sigma_scale;
+    options.use_plane_factors = !opt.no_plane_factors;
     options.prior_sigma_rot = opt.prior_sigma_rot;
     options.prior_sigma_trans = opt.prior_sigma_trans;
     options.use_gnc = !opt.no_gnc;

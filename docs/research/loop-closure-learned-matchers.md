@@ -223,6 +223,7 @@ RANSAC — only the matcher differs:
 | ORB (BSD) | commercial-safe | 5 | 175 | 42 |
 | **XFeat** (Apache-2.0) | **commercial-safe** | **163** | **7857** | 205 |
 | MASt3R (CC-BY-NC) | oracle only | 86 | 6725 | — |
+| MapAnything-apache (#264) | commercial-safe | 148 | 9203 | 239 |
 
 Two results, both important:
 
@@ -248,6 +249,7 @@ Two results, both important:
 | optimize (no loops) | **11.72 mm** | **19.12 mm** | 0 | 6.8 cm |
 | optimize + ORB edges | 18.63 mm | 30.88 mm | 5 | 14.92 m |
 | optimize + XFeat edges | 20.89 mm | 34.52 mm | 163 | **16.66 m** |
+| optimize + MapAnything edges (#264) | 12.42 mm | 20.13 mm | 3 *(of 148 — PCM rejected 145)* | 0.21 m |
 
 **Read this carefully — it is the crux of the whole loop-closure problem on
 GT-less scans.** The office scan's start↔end drift is **~16 m** (§Scans). With
@@ -329,14 +331,144 @@ by default; only feed `--loop-edges` to a scan that actually drifts (office,
 NewOffice) — exactly where XFeat's 32×-denser edges pay off. The gate is the
 safety rail that makes a mistaken invocation harmless instead of catastrophic.
 
+### 5.5 MapAnything: a pointmap model used as a matcher (#264)
+
+Implemented in `tools/loop_edges/matchers/` (`MapAnythingMatcher`), closing the
+seam this document opened. Two things are worth separating: whether the weights
+are usable, and whether the matches are good.
+
+**Licence — clean, verified 2026-09-09.** The code is Apache-2.0, and Meta ships
+*two* checkpoints trained on deliberately different data:
+[`facebook/map-anything-apache`](https://huggingface.co/facebook/map-anything-apache)
+carries `license: apache-2.0` and is named in the upstream README as the
+commercial one, while `facebook/map-anything` carries `license: cc-by-nc-4.0`.
+The apache checkpoint is therefore **shippable** and needs no
+`--allow-noncommercial` gate — the first genuinely commercial-safe *foundation*
+model in this comparison, as §2 predicted. No weights enter the repo; they cache
+under `~/.cache/huggingface`.
+
+**Method.** MapAnything is not a descriptor matcher, so there is no descriptor
+distance to threshold. It regresses a per-view pointmap for both views into one
+shared frame; a correspondence is a pair of pixels whose regressed 3D points are
+**mutual nearest neighbours** there, subject to a reciprocity test and a distance
+gate that scales with the pointmap's own sample spacing. Inference is image-only
+(no intrinsics, depth or pose fed in) and its predicted poses are discarded —
+the 2D matches are re-lifted through our stored depth like every other backend,
+so the resulting edges stay comparable.
+
+**Two implementation findings worth recording**, because both are invisible in an
+edge-count table:
+
+1. **Mutual-NN survivors clump.** Where the two pointmaps carry a small
+   systematic offset relative to each other, reciprocity only survives near the
+   stationary points of that offset field. The accepted matches bunch into a few
+   image patches, and a bunched point set is a *degenerate* input to
+   RANSAC-Kabsch: measured on the office scan, matches with a 56–107 px spread
+   produced **90° pose errors at 100+ inliers**. Inlier count looked healthy the
+   whole time. `_spread()` thins the matches to at most one per image cell,
+   trading raw count for conditioning — which cut the median translation error
+   on 2-frame-gap pairs from 0.534 m to 0.149 m.
+2. **Dense sampling is worse than sparse.** At stride 2 the sample spacing
+   (~6 mm) is far below the pointmap's own error, so reciprocity becomes close to
+   a coin flip; stride 4 with spreading was the best operating point.
+
+**Correspondence precision** (office scan, 30 pairs at the shortest baseline the
+scan offers — consecutive frames are already ~0.45 m apart — scored against the
+stored odometry, which is only trustworthy at that gap):
+
+| matcher | pairs posed (≥20 inliers) | median rot err | median trans err |
+|---|---:|---:|---:|
+| ORB | 12/30 | 0.9° | 0.070 m |
+| XFeat | 30/30 | 1.3° | 0.062 m |
+| MapAnything-apache | 27/30 | 3.2° | 0.082 m |
+
+So MapAnything's edge is **yield, not per-edge accuracy**: it poses more than
+twice as many pairs as ORB, but each edge is ~3× less accurate in rotation than
+XFeat's, which matches everything anyway at this baseline.
+
+**Qualitatively** (`docs/research/figures/mapanything/`, green = survives the
+same RANSAC the exporter runs, red = rejected):
+
+- [`matches-11-224.jpg`](figures/mapanything/matches-11-224.jpg) — two views of
+  the same window from very different angles. MapAnything's inliers land
+  coherently on the shared window structure (20 of 31 kept); ORB manages 5
+  inliers and XFeat 15, both buried in mostly-rejected spaghetti. This is the
+  case the model is *for*.
+- [`matches-7-231.jpg`](figures/mapanything/matches-7-231.jpg) — two blank white
+  wall corners. ORB proposes 3 matches and keeps none. MapAnything returns 28
+  confident inliers in a single parallel bundle: exactly the "dense,
+  self-consistent, and unverifiable" pattern that PCM had to reject 186 times in
+  #236. A planar, texture-poor surface gives RANSAC nothing to disambiguate
+  with, and the pointmap model does not abstain — it interpolates.
+
+That second figure is the whole caveat in one picture, and the reason
+MapAnything's §5.1 row (148 edges, 9203 inliers — the highest inlier support of
+any backend, above even the NC oracle) must not be read as a win on its own.
+
+**The verdict, and it is negative.** Running those 148 edges through the actual
+pose graph (`scripts/bench-loop-edges.sh`, same scan, same flags as §5.2)
+settles it:
+
+```
+PlaneGraph: 148 external loop edges kept after gating
+PlaneGraph: PCM kept 3 of 148 unioned loop edges; 145 of 148 external edges
+            rejected as inconsistent
+Loop closure: 3 wide-baseline edges added to the graph
+```
+
+Every edge passed the 0.5 m seed-disagreement gate of §5.4, then **PCM rejected
+145 of 148 as mutually inconsistent**, and the surviving 3 applied a **0.21 m**
+correction to a scan that needs ~16 m. XFeat's 163 edges, on the identical
+candidate set, survive PCM intact and apply 16.66 m.
+
+This is the #236 pattern exactly (186 of 189 rejected), from a different
+front-end: **per-pair confidence without cross-pair consistency.** Each
+MapAnything edge is internally plausible — it has to be, RANSAC-Kabsch on its
+own correspondences agreed — but the edges disagree with *each other* about
+where the start of the scan sits relative to the end. A descriptor matcher that
+finds nothing on a blank wall contributes no edge; a pointmap model asked about
+two blank walls always returns a geometry, and on a repetitive interior that
+geometry is a plausible-looking guess. Σ inliers rewards exactly the behaviour
+PCM punishes, which is why §5.1 ranks MapAnything first and this table ranks it
+last.
+
+The one genuinely good number here is the flatness (12.42 mm, barely off the
+11.72 mm loop-free optimum) — but that is the signature of a **no-op**, not of a
+correct closure: with 3 edges applying 0.21 m, the trajectory was left
+essentially untouched. Harmless, not useful.
+
+### 5.6 ONNX export feasibility (probe, not a port)
+
+Asked because a C++ path would need the model out of Python. `torch.onnx.export`
+(TorchScript tracer, opset 17, 2 views at a fixed 392×518) **completes in 79 s**
+and emits a structurally complete graph: 3639 nodes, 736 initializers totalling
+1.23 B parameters, no custom ops, no flash-attn kernel (the core model uses
+standard attention — the vendored flash-attn code sits in the *external*
+comparison backends only). So there is no fundamental blocker.
+
+It is nonetheless **not a working export**, and the failure is a quiet one worth
+recording: the exporter marked every large initializer `data_location: EXTERNAL`
+and then **never wrote the data files**, leaving an 880 KB weightless graph that
+loads fine and would silently be wrong. Plus the trace freezes in the view count,
+the input resolution, and — via
+`if torch.rand(1) < geometric_input_config["sparse_depth_prob"]` — a *random*
+training-time augmentation branch. Anyone resuming this must diff ONNX Runtime
+output against torch before trusting a single number.
+
+Given §5.5's verdict, none of that is worth doing yet.
+
 ---
 
 ## 6. Recommendation
 
 1. **Ship** the ORB front-end as the zero-dependency default (already in #225).
-2. **Offer** a commercial-safe learned upgrade through the file bridge — start
-   with **XFeat** or **LightGlue+ALIKED** (Apache, ONNX/TensorRT-ready), with
-   **MapAnything-apache** as a foundation-model option for the widest baselines.
+2. **Offer** a commercial-safe learned upgrade through the file bridge — **XFeat**
+   or **LightGlue+ALIKED** (Apache, ONNX/TensorRT-ready). *Not*
+   MapAnything-apache: §5.5 measured it and PCM rejected 145 of its 148 edges as
+   mutually inconsistent, where XFeat's 163 survive intact. Its licence is clean
+   and its Σ inliers lead the field; its edges do not agree with each other.
+   Revisit only if the failure mode is addressed (§5.5), not because a newer
+   checkpoint appears.
 3. **Keep** MASt3R + MapAnything-NC as offline ceiling oracles; only invest in
    productionising / fine-tuning a learned matcher if the oracle shows a
    material win on a genuinely-drifting scan **and** the honka GT does not
@@ -347,10 +479,12 @@ safety rail that makes a mistaken invocation harmless instead of catastrophic.
 
 ---
 
-## 7. Sources (verified 2026-09-04)
+## 7. Sources (verified 2026-09-04; MapAnything re-verified 2026-09-09)
 
 - MapAnything (Apache + NC checkpoints): https://github.com/facebookresearch/map-anything ·
-  https://huggingface.co/facebook/map-anything-apache · https://arxiv.org/abs/2509.13414
+  https://huggingface.co/facebook/map-anything-apache (`license: apache-2.0`) ·
+  https://huggingface.co/facebook/map-anything (`license: cc-by-nc-4.0`) ·
+  https://arxiv.org/abs/2509.13414
 - RoMa (MIT; DINOv2 Apache backbone): https://github.com/Parskatt/RoMa
 - DINOv2 Apache-2.0 relicense: https://ai.meta.com/blog/dinov2-facet-computer-vision-fairness-evaluation/
 - XFeat (Apache-2.0): https://github.com/verlab/accelerated_features

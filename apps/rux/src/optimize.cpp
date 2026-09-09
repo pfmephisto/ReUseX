@@ -267,8 +267,18 @@ NOTES:
          "--loop-min-seed-disagreement", opt->loop_min_seed_disagreement,
          "Keep only loop edges that disagree with the seed poses by at "
          "least this (m) — drops redundant edges that would just add "
-         "noise to already-good poses (0 keeps all)")
+         "noise to already-good poses. This is the absolute FLOOR of the gate; "
+         "the applied gate is max(fraction * trajectory extent, floor). 0 "
+         "leaves only the fraction term)")
       ->default_val(opt->loop_min_seed_disagreement);
+  sub->add_option("--loop-min-seed-disagreement-fraction",
+                  opt->loop_min_seed_disagreement_fraction,
+                  "Scale-relative part of the lower seed-disagreement gate, as "
+                  "a fraction of the trajectory's extent (#339). Drift scales "
+                  "with the capture, matcher noise does not — a gate in metres "
+                  "alone does not transfer between a 2 m room and an 18 m "
+                  "walk. 0 uses the absolute floor alone.")
+      ->default_val(opt->loop_min_seed_disagreement_fraction);
   sub->add_flag(
       "--loop-trust", opt->loop_trust,
       "Trust loop edges: give them their own relaxed GNC-TLS inlier "
@@ -341,8 +351,17 @@ NOTES:
          "edges "
          "that would only add matcher noise to already-correct poses (keeps "
          "the "
-         "bridge a no-op on a well-posed scan). 0 disables the gate.")
+         "bridge a no-op on a well-posed scan). Absolute FLOOR; the applied "
+         "gate is max(fraction * trajectory extent, floor).")
       ->default_val(opt->loop_edges_min_disagreement);
+  sub->add_option("--loop-edges-min-disagreement-fraction",
+                  opt->loop_edges_min_disagreement_fraction,
+                  "Scale-relative part of the external-edge seed-disagreement "
+                  "gate, as a fraction of the trajectory's extent (#339). "
+                  "Default 0.0278 == the historical 0.50 m on an 18 m capture, "
+                  "and 0.05 m on a 1.8 m room scan where the absolute gate was "
+                  "measured to admit only the wrong edges. 0 uses the floor.")
+      ->default_val(opt->loop_edges_min_disagreement_fraction);
 
   // --- Surfel extraction ---
   sub->add_option("--surfel-voxel", opt->surfel_voxel,
@@ -462,12 +481,16 @@ int run_subcommand_optimize(SubcommandOptimizeOptions const &opt,
     options.loop_closure.ransac_inlier_dist = opt.loop_ransac_inlier_dist;
     options.loop_closure.max_seed_disagreement = opt.loop_max_seed_disagreement;
     options.loop_closure.min_seed_disagreement = opt.loop_min_seed_disagreement;
+    options.loop_closure.min_seed_disagreement_fraction =
+        opt.loop_min_seed_disagreement_fraction;
     options.loop_closure.pcm = !opt.loop_no_pcm;
     options.loop_edges_trusted = opt.loop_trust;
     options.loop_trust_inlier_cost = opt.loop_trust_inlier_cost;
     options.loop_closure.seed = opt.seed;
     options.loop_edges_file = opt.loop_edges_file;
     options.loop_edges_min_seed_disagreement = opt.loop_edges_min_disagreement;
+    options.loop_edges_min_seed_disagreement_fraction =
+        opt.loop_edges_min_disagreement_fraction;
     options.panorama_loops.enable = opt.use_panoramas;
     options.panorama_loops.max_frames = opt.pano_max_frames;
     options.panorama_loops.min_frame_inliers = opt.pano_min_inliers;

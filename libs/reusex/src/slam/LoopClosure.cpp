@@ -439,6 +439,25 @@ filter_consistent_loop_edges(std::vector<LoopEdge> edges,
   return detail::pcm_filter(std::move(edges), seed, options);
 }
 
+double trajectory_extent(const std::vector<Eigen::Matrix4d> &poses) {
+  if (poses.size() < 2)
+    return 0.0;
+  Eigen::Vector3d lo = poses.front().block<3, 1>(0, 3);
+  Eigen::Vector3d hi = lo;
+  for (const auto &P : poses) {
+    const Eigen::Vector3d c = P.block<3, 1>(0, 3);
+    lo = lo.cwiseMin(c);
+    hi = hi.cwiseMax(c);
+  }
+  return (hi - lo).norm();
+}
+
+double seed_disagreement_gate(double extent, double fraction, double floor_m) {
+  const double relative =
+      (fraction > 0.0 && extent > 0.0) ? fraction * extent : 0.0;
+  return std::max(relative, std::max(floor_m, 0.0));
+}
+
 std::vector<LoopEdge>
 detect_loop_edges(ProjectDB &db, const std::vector<int> &node_ids,
                   const std::vector<Eigen::Matrix4d> &seed_poses,
@@ -448,6 +467,18 @@ detect_loop_edges(ProjectDB &db, const std::vector<int> &node_ids,
   const int N = static_cast<int>(node_ids.size());
   if (N < 2 || static_cast<int>(seed_poses.size()) != N)
     return edges;
+
+  // Scale-relative lower gate (#339): resolved ONCE from this capture's own
+  // extent so every candidate is judged against the same threshold, and logged
+  // because a gate that silently changes with the input is the kind of thing
+  // §9.4 spent a whole experiment mis-attributing to the matcher.
+  const double extent = trajectory_extent(seed_poses);
+  const double min_gate = seed_disagreement_gate(
+      extent, opt.min_seed_disagreement_fraction, opt.min_seed_disagreement);
+  core::info("LoopClosure: trajectory extent {:.2f} m -> seed-disagreement "
+             "gate {:.3f} m (fraction {:.5f}, floor {:.3f} m)",
+             extent, min_gate, opt.min_seed_disagreement_fraction,
+             opt.min_seed_disagreement);
 
   // --- 1. Per-frame features (cached) -------------------------------------
   auto orb = cv::ORB::create(opt.max_features);
@@ -602,7 +633,7 @@ detect_loop_edges(ProjectDB &db, const std::vector<int> &node_ids,
     // LOWER gate: drop edges that already agree with the seed — they carry no
     // drift-correction information and only re-impose ORB+depth noise on
     // already-correct poses (keeps loop closure a no-op on well-aligned scans).
-    if (dt < opt.min_seed_disagreement)
+    if (dt < min_gate)
       continue;
     // Optional UPPER gate: coarse guard against gross mismatches (off by
     // default; GNC/PCM handle outliers).

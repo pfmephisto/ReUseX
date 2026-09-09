@@ -413,15 +413,25 @@ struct PlaneGraphOptions {
   /// 0.7958 -> 0.62 when 1336 redundant edges were applied ungated). Dropping
   /// them makes the bridge a no-op on a well-posed scan while keeping every
   /// large-drift edge.
-  /// <= 0 disables the gate (apply every external edge). Default 0.50 m —
-  /// measured: this sits ABOVE the iPad-LiDAR depth-noise floor (a well-posed
-  /// scan's wide-baseline matcher+depth estimates disagree with the seed by
-  /// ~0.1-0.4 m of pure noise) yet FAR below any real drift (office 16.66 m,
-  /// NewOffice >20 m). At 0.5 m the honka non-drift guard's max pose shift
-  /// collapses 0.26 m -> 0.06 m (near no-op) while office keeps all 163 drift
-  /// edges. A lower 0.1 m gate lets honka's depth-noise edges through and still
-  /// regresses laser-GT (F 0.7958 -> 0.55); 0.5 m does not.
-  double loop_edges_min_seed_disagreement = 0.50;
+  /// This field is the ABSOLUTE FLOOR of that gate; the gate applied is
+  /// `max(loop_edges_min_seed_disagreement_fraction * trajectory_extent,
+  /// loop_edges_min_seed_disagreement)` — see geometry::seed_disagreement_gate.
+  /// Both 0 disables the gate (apply every external edge).
+  ///
+  /// The floor defaults to 0 because, unlike the internal ORB path, this gate's
+  /// historical 0.50 m value was never a noise floor: it was a DRIFT threshold
+  /// measured on one 18 m scan (office 16.66 m of drift, NewOffice >20 m), and
+  /// issue #339 is exactly the bill for that. It is kept as an option so an
+  /// absolute gate can still be pinned when a capture's scale is known.
+  double loop_edges_min_seed_disagreement = 0.0;
+  /// Scale-relative seed-disagreement gate for external edges, as a fraction of
+  /// the seed trajectory's extent (#339). Default 0.0278 reproduces the
+  /// historical 0.50 m on the office scan (0.0278 * 18.01 m = 0.501 m, which
+  /// keeps all 163 of its drift edges) while scaling down to 0.05 m on a 1.8 m
+  /// ARKitScenes room scan — the setting measured in §9.4 to avoid the F@50mm
+  /// 0.29 collapse the absolute 0.50 m gate produced there by admitting only
+  /// the most-disagreeing (wrong) edges. Set 0 to use the floor alone.
+  double loop_edges_min_seed_disagreement_fraction = 0.0278;
 };
 
 /// Summary statistics from a plane-graph optimization run.

@@ -545,16 +545,18 @@ class Server::Impl {
       });
     });
 
-    get("/api/v1/projects")([this](const crow::request &) {
-      return with_db([](const reusex::ProjectDB &db) {
-        return json_response(200, projects_json(db));
+    get("/api/v1/projects")([this](const crow::request &req) {
+      const Params params = params_of(req);
+      return with_db([&](const reusex::ProjectDB &db) {
+        return json_response(200, projects_json(db, params));
       });
     });
 
     // ---- clouds ----
-    get("/api/v1/clouds")([this](const crow::request &) {
-      return with_db([](const reusex::ProjectDB &db) {
-        return json_response(200, clouds_json(db));
+    get("/api/v1/clouds")([this](const crow::request &req) {
+      const Params params = params_of(req);
+      return with_db([&](const reusex::ProjectDB &db) {
+        return json_response(200, clouds_json(db, params));
       });
     });
 
@@ -598,9 +600,10 @@ class Server::Impl {
             });
 
     // ---- meshes ----
-    get("/api/v1/meshes")([this](const crow::request &) {
-      return with_db([](const reusex::ProjectDB &db) {
-        return json_response(200, meshes_json(db));
+    get("/api/v1/meshes")([this](const crow::request &req) {
+      const Params params = params_of(req);
+      return with_db([&](const reusex::ProjectDB &db) {
+        return json_response(200, meshes_json(db, params));
       });
     });
 
@@ -662,9 +665,10 @@ class Server::Impl {
     });
 
     // ---- panoramas ----
-    get("/api/v1/panoramas")([this](const crow::request &) {
-      return with_db([](const reusex::ProjectDB &db) {
-        return json_response(200, panoramas_json(db));
+    get("/api/v1/panoramas")([this](const crow::request &req) {
+      const Params params = params_of(req);
+      return with_db([&](const reusex::ProjectDB &db) {
+        return json_response(200, panoramas_json(db, params));
       });
     });
 
@@ -695,9 +699,10 @@ class Server::Impl {
           });
         });
 
-    get("/api/v1/materials")([this](const crow::request &) {
-      return with_db([](const reusex::ProjectDB &db) {
-        return json_response(200, materials_json(db));
+    get("/api/v1/materials")([this](const crow::request &req) {
+      const Params params = params_of(req);
+      return with_db([&](const reusex::ProjectDB &db) {
+        return json_response(200, materials_json(db, params));
       });
     });
 
@@ -714,9 +719,10 @@ class Server::Impl {
             });
 
     get("/api/v1/instances/<string>")(
-        [this](const crow::request &, std::string cloud) {
+        [this](const crow::request &req, std::string cloud) {
+          const Params params = params_of(req);
           return with_db([&](const reusex::ProjectDB &db) {
-            return json_response(200, instances_json(db, cloud));
+            return json_response(200, instances_json(db, cloud, params));
           });
         });
 
@@ -750,7 +756,8 @@ class Server::Impl {
           return guarded([&] {
             const auto project = options_.project.filename().string();
             if (req.method == crow::HTTPMethod::GET)
-              return json_response(200, jobs_json(runner_->jobs(), project));
+              return json_response(200, jobs_page_json(runner_->jobs(), project,
+                                                       params_of(req)));
 
             const auto submission = parse_job_request(req.body);
             check_job_project(submission, project);

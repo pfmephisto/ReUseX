@@ -23,9 +23,13 @@
 ## Preview-authoring learnings (2026-09-09, folded from waves A+B)
 - All 15 authored components fed via plain props; JobToaster is the only
   floor card (JobsContext not injectable).
-- JobIndicator CSS cascade bug found during authoring (busy overrides
-  connection color) — filed as a GitHub issue; previews pass the honest props,
-  the defect is in component CSS. Re-grade JobIndicator/TitleBar after the fix.
+- JobIndicator CSS cascade bug found during authoring (busy overrode the
+  connection color) — filed as #324 and FIXED: `.busy` no longer touches
+  `background`, it composes as a pulsing ring (box-shadow, --color-status-running)
+  around a dot that keeps its connection colour. JobIndicator/TitleBar have
+  been re-captured and re-graded against that rendering; DisconnectedWhileBusy
+  (red-orange core + ring) and OneJobRunning (green core + ring) are now
+  distinct cells. Previews were always honest — only the component CSS moved.
 - ApiRequestError is not exported from the package surface, so ErrorBanner's
   tailored 503/501/404 branches are unreachable from previews; cells cover the
   public fallback path. Export it if those branches should be showcased.
@@ -47,5 +51,7 @@
 - Preview data inlines realistic wire objects (Job/StageInfo shapes from
   dist-types/api/types.d.ts); if the wire types change, previews compile-fail
   at rebuild — fix the compositions, don't loosen the types.
-- JobIndicator/TitleBar previews intentionally show the CSS-cascade bug's
-  honest rendering; after the fix lands their sheets change → re-grade.
+- JobIndicator's busy signal is a box-shadow ring, not a background swap
+  (#324). If a future sync re-introduces a `background` in `.busy`, the
+  connection colour is lost again — src/test/jobIndicatorStyles.test.ts
+  guards this, so vitest fails before the sheets do.

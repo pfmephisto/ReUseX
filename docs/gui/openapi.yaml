@@ -39,8 +39,16 @@ security: []
 # No authentication in v1: `rux gui` binds to loopback and is single-user.
 # Access control is an Origin allowlist enforced server-side (403 for a
 # non-allowlisted browser origin) plus `Content-Type: application/json` on
-# mutating routes. A remote implementation (ruxd, Phase 6) adds a bearer token
-# here; see docs/gui/README.md.
+# mutating routes. See docs/gui/README.md.
+#
+# The empty list is a real statement, not an omission: it says "this operation
+# needs no credential", and a generated client honours it by sending none.
+# `components.securitySchemes.bearerAuth` is nevertheless declared, because
+# ruxd already takes `--auth-token` and will serve this same contract in
+# Phase 6. A remote deployment overrides this document's top-level `security`
+# with `[{bearerAuth: []}]`; the operations themselves do not change, so
+# Phase 6 is a client *configuration* change rather than a regenerate-
+# everything event.
 
 tags:
   - name: meta
@@ -80,6 +88,7 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Health" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
 
   /endpoints:
     get:
@@ -102,6 +111,7 @@ paths:
                   endpoints:
                     type: array
                     items: { $ref: "#/components/schemas/EndpointInfo" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
 
   # ------------------------------------------------------------- project ----
   /project:
@@ -119,6 +129,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ProjectSummary" }
         "503": { $ref: "#/components/responses/ProjectUnavailable" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
 
   /projects:
     get:
@@ -129,18 +140,26 @@ paths:
         A `.rux` file may carry more than one metadata record (a building may be
         surveyed in several campaigns). This is metadata only — it does not
         partition the clouds or meshes.
+
+        Paged: `limit` defaults to the server maximum of 1000.
+      parameters:
+        - $ref: "#/components/parameters/Offset"
+        - $ref: "#/components/parameters/Limit"
       responses:
         "200":
           description: Project metadata records
           content:
             application/json:
               schema:
-                type: object
-                required: [projects]
-                properties:
-                  projects:
-                    type: array
-                    items: { $ref: "#/components/schemas/ProjectInfo" }
+                allOf:
+                  - $ref: "#/components/schemas/Page"
+                  - type: object
+                    required: [projects]
+                    properties:
+                      projects:
+                        type: array
+                        items: { $ref: "#/components/schemas/ProjectInfo" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
 
   # -------------------------------------------------------------- clouds ----
   /clouds:
@@ -148,18 +167,28 @@ paths:
       tags: [clouds]
       operationId: listClouds
       summary: All named point clouds with their type and point count
+      description: |
+        Paged: `limit` defaults to the server maximum of 1000. A project holds
+        a handful of named clouds, so the page exists to bound the response,
+        not because anyone expects a second one.
+      parameters:
+        - $ref: "#/components/parameters/Offset"
+        - $ref: "#/components/parameters/Limit"
       responses:
         "200":
           description: Cloud inventory
           content:
             application/json:
               schema:
-                type: object
-                required: [clouds]
-                properties:
-                  clouds:
-                    type: array
-                    items: { $ref: "#/components/schemas/CloudInfo" }
+                allOf:
+                  - $ref: "#/components/schemas/Page"
+                  - type: object
+                    required: [clouds]
+                    properties:
+                      clouds:
+                        type: array
+                        items: { $ref: "#/components/schemas/CloudInfo" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
 
   /clouds/{name}:
     get:
@@ -175,6 +204,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/CloudInfo" }
         "404": { $ref: "#/components/responses/NotFound" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
 
   /clouds/{name}/points:
     get:
@@ -229,9 +259,13 @@ paths:
           schema: { type: integer, minimum: 0, default: 0 }
         - name: limit
           in: query
-          description: Maximum points to return. Capped server-side.
+          description: >-
+            Maximum points to return, following the shared paging idiom: `0`
+            means the server maximum (1000000), a larger value is clamped
+            rather than rejected. The default is much larger than for the
+            object collections because the unit here is a point, not a record.
           schema:
-            { type: integer, minimum: 1, maximum: 1000000, default: 100000 }
+            { type: integer, minimum: 0, maximum: 1000000, default: 100000 }
         - name: format
           in: query
           description: |
@@ -278,6 +312,7 @@ paths:
                   section per field. Fully specified in
                   `docs/gui/binary-points.md`.
         "404": { $ref: "#/components/responses/NotFound" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
 
   # -------------------------------------------------------------- meshes ----
   /clouds/{name}/labels:
@@ -301,6 +336,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/LabelLegend" }
         "404": { $ref: "#/components/responses/NotFound" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
     patch:
       tags: [clouds]
       operationId: renameCloudLabels
@@ -352,24 +388,33 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
         "503": { $ref: "#/components/responses/WriterBusy" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
 
   /meshes:
     get:
       tags: [meshes]
       operationId: listMeshes
       summary: All stored meshes
+      description: |
+        Paged: `limit` defaults to the server maximum of 1000.
+      parameters:
+        - $ref: "#/components/parameters/Offset"
+        - $ref: "#/components/parameters/Limit"
       responses:
         "200":
           description: Mesh inventory
           content:
             application/json:
               schema:
-                type: object
-                required: [meshes]
-                properties:
-                  meshes:
-                    type: array
-                    items: { $ref: "#/components/schemas/MeshInfo" }
+                allOf:
+                  - $ref: "#/components/schemas/Page"
+                  - type: object
+                    required: [meshes]
+                    properties:
+                      meshes:
+                        type: array
+                        items: { $ref: "#/components/schemas/MeshInfo" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
 
   /meshes/{name}:
     get:
@@ -385,6 +430,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/MeshInfo" }
         "404": { $ref: "#/components/responses/NotFound" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
 
   /meshes/{name}/data:
     get:
@@ -403,6 +449,7 @@ paths:
             application/octet-stream:
               schema: { type: string, format: binary }
         "404": { $ref: "#/components/responses/NotFound" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
 
   /meshes/{name}/textures:
     get:
@@ -424,6 +471,7 @@ paths:
                     type: array
                     items: { $ref: "#/components/schemas/TextureInfo" }
         "404": { $ref: "#/components/responses/NotFound" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
 
   /meshes/{name}/textures/{texture}:
     get:
@@ -446,6 +494,7 @@ paths:
             image/jpeg:
               schema: { type: string, format: binary }
         "404": { $ref: "#/components/responses/NotFound" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
 
   # -------------------------------------------------------------- frames ----
   /frames:
@@ -457,11 +506,21 @@ paths:
         Returns ids only, not per-frame poses — a scan can hold thousands of
         frames. Fetch `/frames/{id}` for the details of one.
 
-        `total_count` and `segmented_count` always describe the **whole scan**,
-        never the filtered result, so a browser can render "42 of 380
-        segmented" without a second request. Only `ids` narrows when
-        `segmented` is set; use its length for the size of the filtered set.
+        **Two different totals, deliberately.** `total_count` and
+        `segmented_count` always describe the **whole scan**, never the
+        filtered or paged result, so a browser can render "42 of 380 segmented"
+        without a second request. `total` is the pagination envelope's field
+        and counts the ids matching `segmented` — the number `ids` would have
+        if it were not paged. With no `segmented` filter the two agree; that
+        coincidence is not something to rely on.
+
+        Paged: `limit` defaults to the server maximum of 10000 ids. A frame id
+        is four bytes on the wire, so the cap is generous on purpose — it is
+        there to stop an unbounded array, not to force clients to page a scan
+        of ordinary size.
       parameters:
+        - $ref: "#/components/parameters/Offset"
+        - $ref: "#/components/parameters/Limit"
         - name: segmented
           in: query
           description: |
@@ -483,6 +542,7 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
 
   /frames/{id}:
     get:
@@ -498,6 +558,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/FrameInfo" }
         "404": { $ref: "#/components/responses/NotFound" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
 
   /frames/{id}/image:
     get:
@@ -581,6 +642,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
         "404": { $ref: "#/components/responses/NotFound" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
 
   # ----------------------------------------------------------- panoramas ----
   /panoramas:
@@ -588,18 +650,26 @@ paths:
       tags: [panoramas]
       operationId: listPanoramas
       summary: All 360 panoramas with pose provenance
+      description: |
+        Paged: `limit` defaults to the server maximum of 1000.
+      parameters:
+        - $ref: "#/components/parameters/Offset"
+        - $ref: "#/components/parameters/Limit"
       responses:
         "200":
           description: Panorama inventory
           content:
             application/json:
               schema:
-                type: object
-                required: [panoramas]
-                properties:
-                  panoramas:
-                    type: array
-                    items: { $ref: "#/components/schemas/PanoramaInfo" }
+                allOf:
+                  - $ref: "#/components/schemas/Page"
+                  - type: object
+                    required: [panoramas]
+                    properties:
+                      panoramas:
+                        type: array
+                        items: { $ref: "#/components/schemas/PanoramaInfo" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
 
   /panoramas/{id}:
     get:
@@ -615,6 +685,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/PanoramaInfo" }
         "404": { $ref: "#/components/responses/NotFound" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
 
   /panoramas/{id}/image:
     get:
@@ -630,6 +701,7 @@ paths:
             image/jpeg:
               schema: { type: string, format: binary }
         "404": { $ref: "#/components/responses/NotFound" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
 
   # ---------------------------------------------------------- components ----
   /components:
@@ -637,7 +709,12 @@ paths:
       tags: [components]
       operationId: listComponents
       summary: Building components, optionally filtered by type
+      description: |
+        Paged: `limit` defaults to the server maximum of 1000. `total` counts
+        the components matching `type`, not every component in the project.
       parameters:
+        - $ref: "#/components/parameters/Offset"
+        - $ref: "#/components/parameters/Limit"
         - name: type
           in: query
           description: Restrict to one component type (e.g. `window`).
@@ -648,12 +725,15 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                required: [components]
-                properties:
-                  components:
-                    type: array
-                    items: { $ref: "#/components/schemas/ComponentInfo" }
+                allOf:
+                  - $ref: "#/components/schemas/Page"
+                  - type: object
+                    required: [components]
+                    properties:
+                      components:
+                        type: array
+                        items: { $ref: "#/components/schemas/ComponentInfo" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
 
   /components/{name}:
     get:
@@ -672,6 +752,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ComponentDetail" }
         "404": { $ref: "#/components/responses/NotFound" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
 
   # ----------------------------------------------------------- materials ----
   /materials:
@@ -679,18 +760,27 @@ paths:
       tags: [materials]
       operationId: listMaterials
       summary: Material passports stored in this project
+      description: |
+        Paged: `limit` defaults to the server maximum of 1000. A MaterialEPAS
+        import can bring in a large catalogue, so this one really can page.
+      parameters:
+        - $ref: "#/components/parameters/Offset"
+        - $ref: "#/components/parameters/Limit"
       responses:
         "200":
           description: Passport inventory
           content:
             application/json:
               schema:
-                type: object
-                required: [materials]
-                properties:
-                  materials:
-                    type: array
-                    items: { $ref: "#/components/schemas/MaterialInfo" }
+                allOf:
+                  - $ref: "#/components/schemas/Page"
+                  - type: object
+                    required: [materials]
+                    properties:
+                      materials:
+                        type: array
+                        items: { $ref: "#/components/schemas/MaterialInfo" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
 
   /materials/{guid}:
     get:
@@ -710,6 +800,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/MaterialDetail" }
         "404": { $ref: "#/components/responses/NotFound" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
     patch:
       tags: [materials]
       operationId: updateMaterial
@@ -761,6 +852,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
         "503": { $ref: "#/components/responses/WriterBusy" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
 
   # ----------------------------------------------------------- instances ----
   /instances/{cloud}:
@@ -772,26 +864,34 @@ paths:
         Each row carries the stable GUID that survives regeneration of the
         instance cloud (issue #207), plus the material passport it is linked to
         if any.
+
+        Paged: `limit` defaults to the server maximum of 1000. A scan can hold
+        thousands of instances.
       parameters:
         - name: cloud
           in: path
           required: true
           description: Name of the instance-label cloud (usually `instances`).
           schema: { type: string }
+        - $ref: "#/components/parameters/Offset"
+        - $ref: "#/components/parameters/Limit"
       responses:
         "200":
           description: Instance rows
           content:
             application/json:
               schema:
-                type: object
-                required: [cloud, instances]
-                properties:
-                  cloud: { type: string }
-                  instances:
-                    type: array
-                    items: { $ref: "#/components/schemas/InstanceInfo" }
+                allOf:
+                  - $ref: "#/components/schemas/Page"
+                  - type: object
+                    required: [cloud, instances]
+                    properties:
+                      cloud: { type: string }
+                      instances:
+                        type: array
+                        items: { $ref: "#/components/schemas/InstanceInfo" }
         "404": { $ref: "#/components/responses/NotFound" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
 
   # ------------------------------------------------------------ pipeline ----
   /stages:
@@ -819,6 +919,7 @@ paths:
                   stages:
                     type: array
                     items: { $ref: "#/components/schemas/StageInfo" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
 
   /stages/{stage}/validation:
     get:
@@ -857,6 +958,7 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
 
   /pipeline-log:
     get:
@@ -866,8 +968,18 @@ paths:
       description: |
         Rows of the `pipeline_log` table, newest first. This is the durable
         record and survives server restarts, unlike `/jobs`, which only covers
-        the current server process.
+        the current server process and evicts its oldest finished jobs.
+
+        Paged. `limit` keeps a **default of 100** rather than the server
+        maximum: this is a history view, and the first screen of one is almost
+        never the whole of it. `offset` walks back through it.
+
+        `total` **saturates at 1000**, the server maximum. A project with a
+        longer history reports 1000 rather than its true length — there is no
+        count query behind this table, and inventing a number would be worse
+        than admitting the ceiling.
       parameters:
+        - $ref: "#/components/parameters/Offset"
         - name: limit
           in: query
           description: >-
@@ -881,12 +993,16 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                required: [entries]
-                properties:
-                  entries:
-                    type: array
-                    items: { $ref: "#/components/schemas/PipelineLogEntry" }
+                allOf:
+                  - $ref: "#/components/schemas/Page"
+                  - type: object
+                    required: [entries]
+                    properties:
+                      entries:
+                        type: array
+                        items:
+                          { $ref: "#/components/schemas/PipelineLogEntry" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
 
   # ---------------------------------------------------------------- jobs ----
   /jobs:
@@ -897,18 +1013,39 @@ paths:
       description: |
         In-memory and scoped to the server process. For durable history use
         `/pipeline-log`.
+
+        **This store is bounded and forgets.** Queued and running jobs are
+        always listed — they are live state. Finished ones (`succeeded`,
+        `failed`, `cancelled`) are retained only up to a server limit, oldest
+        dropped first, so a server left open all day does not accumulate job
+        records without end. An evicted id answers `404` from
+        `GET /jobs/{id}`, exactly as an id from before a restart does, and the
+        recovery is the same in both cases: `/pipeline-log`, whose
+        `parameters.job_id` carries the job id that caused each run.
+
+        A client that needs a run to still be findable tomorrow must key on
+        `pipeline_log`, not on a job id.
+
+        Paged: `limit` defaults to the server maximum of 1000, which is above
+        the retention limit, so in practice one page is the whole store.
+      parameters:
+        - $ref: "#/components/parameters/Offset"
+        - $ref: "#/components/parameters/Limit"
       responses:
         "200":
           description: Job list
           content:
             application/json:
               schema:
-                type: object
-                required: [jobs]
-                properties:
-                  jobs:
-                    type: array
-                    items: { $ref: "#/components/schemas/Job" }
+                allOf:
+                  - $ref: "#/components/schemas/Page"
+                  - type: object
+                    required: [jobs]
+                    properties:
+                      jobs:
+                        type: array
+                        items: { $ref: "#/components/schemas/Job" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
     post:
       tags: [jobs]
       operationId: submitJob
@@ -954,12 +1091,17 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
 
   /jobs/{id}:
     get:
       tags: [jobs]
       operationId: getJob
       summary: One job's current status and progress
+      description: |
+        A successful terminal job also carries `result`, naming what it wrote —
+        which is what a client should refresh from, rather than re-fetching
+        every collection on the chance that one of them changed.
       parameters:
         - $ref: "#/components/parameters/JobId"
       responses:
@@ -968,7 +1110,20 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Job" }
-        "404": { $ref: "#/components/responses/NotFound" }
+        "404":
+          description: |
+            No job with that id is known to this server. Three cases, and the
+            response cannot tell them apart: the id was never valid, the job
+            finished long enough ago to be evicted from the bounded in-memory
+            store, or the server restarted since it ran.
+
+            All three recover the same way — look the id up in `/pipeline-log`
+            under `parameters.job_id`. A job that actually ran is there; one
+            that never existed is not.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
 
   /jobs/{id}/cancel:
     post:
@@ -996,6 +1151,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Job" }
         "404": { $ref: "#/components/responses/NotFound" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
 
   # ----------------------------------------------------------- websocket ----
   /events:
@@ -1016,10 +1172,45 @@ paths:
           description: Switching protocols to WebSocket
         "400":
           description: Not a WebSocket upgrade request
+        default: { $ref: "#/components/responses/UnexpectedError" }
 
 components:
 
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: |
+        Bearer token in the `Authorization` header, matching ruxd's
+        `--auth-token`.
+
+        **No implementation requires this today.** `rux gui` binds to loopback,
+        has no notion of a user, and leaves the document-level `security: []`
+        in force — sending a token to it is harmless and ignored. The scheme is
+        declared now so that the Phase 6 remote deployment (ruxd) is a change
+        of *which* security requirement applies, not a change to the operations
+        themselves.
+
   parameters:
+    Offset:
+      name: offset
+      in: query
+      description: |
+        Index of the first item to return, in the collection's own documented
+        order. A page past the end is a `200` with `count: 0`, never a `404`.
+      schema: { type: integer, minimum: 0, default: 0 }
+    Limit:
+      name: limit
+      in: query
+      description: |
+        Maximum items to return. `0` means "as many as the server will give",
+        which is that collection's **server maximum** — never unbounded. A
+        value above the maximum is clamped rather than rejected, so a client
+        may always ask for more than it expects to get.
+
+        Each operation documents its own default and maximum: they differ by
+        how expensive an item is to produce, not by idiom.
+      schema: { type: integer, minimum: 0, default: 0 }
     CloudName:
       name: name
       in: path
@@ -1052,6 +1243,24 @@ components:
       schema: { type: string }
 
   responses:
+    UnexpectedError:
+      description: |
+        Any failure that is not specific to this operation. Three can come back
+        from **every** route, whatever it does, which is why they are attached
+        as a `default` rather than repeated per operation:
+
+        * `403` — the request carried a browser `Origin` that is not
+          allowlisted. Refused before any handler runs.
+        * `415` — a mutating route was called without
+          `Content-Type: application/json`.
+        * `503` — the project database was momentarily locked; the request
+          changed nothing and is safe to retry.
+
+        A generated client should treat this as the catch-all arm: the body is
+        always an `Error`, so `error` is readable without knowing the status.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
     NotFound:
       description: No such resource
       content:
@@ -1081,19 +1290,52 @@ components:
 
   schemas:
 
+    Page:
+      type: object
+      description: |
+        The pagination envelope every paged collection carries alongside its
+        items. One idiom, one set of field names, everywhere:
+
+        * `offset` — echo of the requested offset, so a response is
+          self-describing when it arrives out of order.
+        * `count` — items in **this** page.
+        * `total` — items available under the request's filters, which is what
+          `offset + count < total` tests against. Where an operation also
+          reports unfiltered totals (`/frames`), those keep their own names and
+          are documented separately.
+
+        Collections whose size is fixed by the server build or bounded by one
+        parent object are deliberately **not** paged and carry no envelope:
+        `/endpoints`, `/stages`, `/meshes/{name}/textures`. Paging them would
+        add a round trip to answer a question that has no second page.
+      required: [offset, count, total]
+      properties:
+        offset: { type: integer }
+        count: { type: integer }
+        total: { type: integer }
+
     Error:
       description: |
-        Returned for every non-2xx response. Notable statuses beyond the ones
-        listed per operation:
+        Returned for **every** non-2xx response, without exception, so a client
+        can read `error` before it has decided what the status means.
 
-        * `403` -- the request carried a browser `Origin` that is not
-          allowlisted. Cross-origin browser access is refused server-side, and
-          preflighted (JSON-bodied) cross-origin requests are unsupported --
-          serve the frontend same-origin. See docs/gui/README.md.
-        * `415` -- a mutating route was called without
-          `Content-Type: application/json`.
-        * `503` -- the project database was momentarily locked by a running
-          job; retry.
+        The statuses that are not specific to any one operation -- `403`, `415`
+        and `503` -- are attached to each operation as a `default` response;
+        see `UnexpectedError` for what each means.
+
+        On `403` in particular: cross-origin browser access is refused
+        server-side, and preflighted (JSON-bodied) cross-origin requests are
+        **not supported at all**. Crow 1.3 answers `OPTIONS` from
+        `Router::handle_initial()`, which runs before the request headers are
+        parsed, so the server cannot see the `Origin` at preflight time and
+        cannot emit a correct preflight response; decorating Crow's own 204
+        afterwards proved unreliable, losing the added headers on the first
+        OPTIONS of a fresh connection. This is a limitation of the HTTP layer,
+        not a gap to be filled in -- lifting it needs an upstream Crow change
+        or a different server. The supported model is same-origin (the server
+        serves the bundle in production, Vite `server.proxy` in development),
+        which costs nothing because both real deployments already are.
+        See docs/gui/README.md.
       type: object
       required: [error]
       properties:
@@ -1232,28 +1474,27 @@ components:
           additionalProperties: { type: string }
 
     CloudPointsPage:
-      type: object
-      required: [name, type, offset, count, total, fields, points]
-      properties:
-        name: { type: string }
-        type: { type: string }
-        offset: { type: integer }
-        count:
-          type: integer
-          description: Number of points in this page.
-        total:
-          type: integer
-          description: Total points in the cloud.
-        fields:
-          type: array
-          description: Field names, in the order they appear in each row.
-          items: { type: string }
-        points:
-          type: array
-          description: One array per point, matching `fields`.
-          items:
-            type: array
-            items: { type: number }
+      description: |
+        A page of points. Carries the same `offset`/`count`/`total` envelope as
+        every other paged collection — the unit is a point rather than a row,
+        but the arithmetic a client does is identical.
+      allOf:
+        - $ref: "#/components/schemas/Page"
+        - type: object
+          required: [name, type, fields, points]
+          properties:
+            name: { type: string }
+            type: { type: string }
+            fields:
+              type: array
+              description: Field names, in the order they appear in each row.
+              items: { type: string }
+            points:
+              type: array
+              description: One array per point, matching `fields`.
+              items:
+                type: array
+                items: { type: number }
 
     MeshInfo:
       type: object
@@ -1283,16 +1524,33 @@ components:
         height: { type: integer }
 
     FrameList:
-      type: object
-      required: [ids, total_count, segmented_count]
-      properties:
-        ids:
-          type: array
-          items: { type: integer }
-        total_count: { type: integer }
-        segmented_count: { type: integer }
-        width: { type: integer }
-        height: { type: integer }
+      description: |
+        Frame ids, paged, plus the two whole-scan counts a browser needs to
+        render "42 of 380 segmented" without a second request.
+
+        Read `total` and `total_count` carefully: `total` (from the pagination
+        envelope) is how many ids match the `segmented` filter, `total_count`
+        is how many frames the scan holds. They differ exactly when the filter
+        is in use.
+      allOf:
+        - $ref: "#/components/schemas/Page"
+        - type: object
+          required: [ids, total_count, segmented_count]
+          properties:
+            ids:
+              type: array
+              description: This page of ids, ascending.
+              items: { type: integer }
+            total_count:
+              type: integer
+              description: Frames in the whole scan, ignoring filter and page.
+            segmented_count:
+              type: integer
+              description: >-
+                Frames in the whole scan that have a stored segmentation image,
+                ignoring filter and page.
+            width: { type: integer }
+            height: { type: integer }
 
     FrameInfo:
       type: object
@@ -1697,6 +1955,55 @@ components:
           description: Empty until terminal.
         cancel_requested: { type: boolean }
         progress: { $ref: "#/components/schemas/JobProgress" }
+        result: { $ref: "#/components/schemas/JobResult" }
+
+    JobResult:
+      type: object
+      description: |
+        What a job actually produced. Present **only** on `status: succeeded`;
+        a failed or cancelled job reports through `error` instead, and a job
+        that has not finished has no result to report.
+
+        This exists so a client does not have to infer the consequence of a run
+        from its stage name. Knowing that a `planes` job succeeded tells a UI
+        that *something* changed; `outputs` tells it that `planes`,
+        `plane_centroids` and `plane_normals` are the clouds to re-fetch, and
+        leaves the rest of the screen alone.
+      required: [summary, outputs]
+      properties:
+        summary:
+          type: string
+          description: >-
+            The stage's own one-line account of what it did, e.g. "detected 37
+            plane(s)". Written for a human to read; do not parse it.
+        outputs:
+          type: array
+          description: >-
+            The artifacts this run wrote, as reported by the stage itself. A
+            stage lists only what it actually persisted on this run -- this is
+            not the stage's declared output contract (that is `outputs` on
+            `StageInfo`, which says what the stage writes in general).
+          items: { $ref: "#/components/schemas/JobArtifact" }
+
+    JobArtifact:
+      type: object
+      required: [kind, name]
+      properties:
+        kind:
+          type: string
+          description: Which endpoint family the artifact is fetched from.
+          enum: [cloud, mesh, table]
+        name:
+          type: string
+          description: >-
+            The stored name, e.g. `planes`. For `kind: cloud` this is the
+            `{name}` of `GET /clouds/{name}`, so a refresh needs no mapping.
+        count:
+          type: integer
+          description: >-
+            Points or rows written. **Absent when the stage does not have an
+            honest number to report** -- an omitted count means "not measured",
+            never zero, and a UI must not render it as one.
 
     JobProgress:
       description: >-

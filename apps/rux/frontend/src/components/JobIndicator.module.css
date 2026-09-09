@@ -30,9 +30,25 @@
   background: var(--color-status-failed);
 }
 
+/*
+ * Busy is an ORTHOGONAL fact to the connection state, so it must not touch
+ * `background`: that channel already carries the connection colour, and
+ * repainting it here is what made a dropped socket during a long job render
+ * identically to a healthy one (#324). Busy is written as a ring around the
+ * dot plus motion, which leaves the connection colour readable as the dot's
+ * own fill in every busy/idle combination.
+ *
+ * The pulse animates the RING, never the dot's opacity. Fading the whole dot
+ * to 0.35 would wash out the very colour the user reads the connection off —
+ * exactly the wrong channel to spend on "something is happening".
+ *
+ * box-shadow draws the ring, so it costs no layout: the dot stays 8px and the
+ * widest ring (4px) fits inside the indicator's own --space-2 gap without
+ * touching the label. Nothing on the way up to the TitleBar clips it.
+ */
 .busy {
-  background: var(--color-status-running);
-  animation: pulse 1.4s var(--easing-standard) infinite;
+  box-shadow: 0 0 0 1.5px var(--color-status-running);
+  animation: pulse-ring 1.4s var(--easing-standard) infinite;
 }
 
 .label {
@@ -41,12 +57,23 @@
   white-space: nowrap;
 }
 
-@keyframes pulse {
+@keyframes pulse-ring {
   0%,
   100% {
-    opacity: 1;
+    box-shadow: 0 0 0 1.5px var(--color-status-running);
   }
   50% {
-    opacity: 0.35;
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-status-running) 35%, transparent);
+  }
+}
+
+/*
+ * tokens.css zeroes --duration-*, but that only governs transitions — a
+ * keyframe animation has to be stopped explicitly (same as Spinner/
+ * StageProgress). The static 1.5px ring still reads as "busy" without motion.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .busy {
+    animation: none;
   }
 }

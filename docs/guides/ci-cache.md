@@ -99,35 +99,35 @@ survive.
 
 ## Runner disk
 
-Not a problem, contrary to the usual assumption. Measured on the first green
-run: `/` is **145 GB with 106 GB still free at the end of the job**, and
-`/nix/store` peaks at **6.5 GB**. `ci.yml` deliberately does *not* carry the
-widely-copied "free up runner disk space" step — it cost 38 s to reclaim space
-nothing needed. The `Report disk usage` step is the early warning if a future
-dependency bump changes this.
+Not a problem, contrary to the usual assumption. Measured on a green run
+carrying no cleanup step at all: `/` is **145 GB and still had 80 GB free at
+the end of the job**, with `/nix/store` at **7.0 GB**. `ci.yml` therefore does
+*not* carry the widely-copied "free up runner disk space" step — it cost 38 s
+to reclaim space nothing needed. The `Report disk usage` step is the early
+warning if a future dependency bump changes this.
 
 ## Where the time actually goes
 
-Measured on the first green PR run (24 min 10 s wall, all of it on
-`ubuntu-latest`, 4 vCPU):
+Measured on a green PR run (25 min 39 s wall, all of it on `ubuntu-latest`,
+4 vCPU):
 
 | Phase | Time |
 |---|---:|
 | Job setup, checkout, install-nix, cachix-action | 50 s |
 | **Pull the whole non-substitutable closure from Cachix** | **~38 s** |
-| Compile ReUseX (CPU variant, `-j4`) | ~19 min |
-| `ctest --parallel` (561 tests) | 3 min 42 s |
+| Compile ReUseX (CPU variant, `-j4`) | ~20 min |
+| `ctest --parallel` (577 tests) | 3 min 48 s |
 | Post steps | 2 s |
 
 The cache does its job completely — 38 seconds for everything
 `cache.nixos.org` could not serve. What it *cannot* fix is the ~19-minute
 compile, because `src = ./.` is unfiltered (below) and so every PR rebuilds
 ReUseX from scratch. That, not the dependency closure, is why a run lands
-around 24 minutes rather than the <20 min originally hoped for in #202.
+around 25 minutes rather than the <20 min originally hoped for in #202.
 
 ## Cold vs warm
 
-- **Warm** (cache hit on every dependency): ~24 min, dominated by compiling
+- **Warm** (cache hit on every dependency): ~25 min, dominated by compiling
   ReUseX itself on a 4-vCPU runner.
 - **Cold** (an overlay bump invalidated, say, OpenCV): the runner rebuilds
   that dependency from source. `timeout-minutes: 120` exists so such a run can

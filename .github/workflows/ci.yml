@@ -56,12 +56,12 @@ jobs:
     # still finish and repopulate the cache rather than being killed halfway.
     timeout-minutes: 120
     steps:
-      # No disk-cleanup step here on purpose. The first green run measured the
-      # real numbers: / is 145 GB with 106 GB still free at the end of the job,
-      # and /nix/store peaks at 6.5 GB. The widely-copied "free up runner disk"
-      # incantation cost 38 s to reclaim space nothing needed. If a future
-      # dependency bump changes that, the "Report disk usage" step below is
-      # what will show it.
+      # No disk-cleanup step here on purpose. Measured on a green run with no
+      # cleanup at all: / is 145 GB and still had 80 GB free at the end of the
+      # job, with /nix/store at 7.0 GB. The widely-copied "free up runner disk
+      # space" incantation cost 38 s to reclaim space nothing needed. If a
+      # future dependency bump changes that, the "Report disk usage" step below
+      # is what will show it.
       - uses: actions/checkout@v4
         with:
           # tests/fixtures/** binaries (.pcd/.db/.e57/.rux) are LFS-tracked and
@@ -95,8 +95,8 @@ jobs:
         run: nix build .#checks.x86_64-linux.tests --print-build-logs
 
       # Cheap early warning: if the closure ever starts crowding the runner,
-      # this is where it shows up first (6.5 GB store / 106 GB free as of the
-      # first green run).
+      # this is where it shows up first (7.0 GB store / 80 GB free as of the
+      # last green run).
       - name: Report disk usage
         if: always()
         run: |

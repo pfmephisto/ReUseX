@@ -168,5 +168,18 @@ in
 
         ${motd}
       ''
-      + self.checks.${system}.pre-commit-check.shellHook;
+      + self.checks.${system}.pre-commit-check.shellHook
+      + ''
+
+        # Force core.hooksPath to an ABSOLUTE path (#317). pre-commit-hooks.nix's
+        # installationScript (above) stores a path relative to the toplevel
+        # working directory, which is correct for the main checkout but wrong
+        # for a linked worktree: `.git` there is a FILE (gitdir pointer), not
+        # a directory, so the relative path resolves to nothing and git
+        # silently runs no hooks. Re-pin it to the absolute git-common-dir on
+        # every shell entry; idempotent, silent on success.
+        if command -v git >/dev/null 2>&1 && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+          git config --local core.hooksPath "$(git rev-parse --path-format=absolute --git-common-dir)/hooks"
+        fi
+      '';
   }

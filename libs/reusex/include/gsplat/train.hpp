@@ -7,6 +7,7 @@
 #include <reusex/gsplat/GaussianCloud.hpp>
 #include <reusex/gsplat/TrainingViews.hpp>
 
+#include <atomic>
 #include <cstdint>
 #include <filesystem>
 #include <string>
@@ -161,6 +162,27 @@ struct TrainOptions {
   std::vector<int> render_iterations;
   std::filesystem::path render_dir;
   std::size_t render_view_index = 0;
+
+  /// Cooperative cancellation, owned by the caller and polled once per
+  /// iteration. When it flips, the loop stops at the end of the current
+  /// iteration, runs a final evaluation, and returns a complete TrainResult —
+  /// the run is cut short, not thrown away. May be null.
+  ///
+  /// A raw pointer rather than a pipeline type on purpose: `reusex_gsplat` is
+  /// a Layer-3 peer and cannot see `reusex_pipeline` (STANDARDS §1), so the
+  /// contract is the narrowest thing both layers can name.
+  const std::atomic_bool *cancel_token = nullptr;
+
+  /// Write an intermediate `.ply` every N iterations (0 = off, the default).
+  /// A long run that dies at iteration 29 000 of 30 000 otherwise produces
+  /// nothing at all.
+  int checkpoint_every = 0;
+  /// How many checkpoint files to keep; older ones are deleted as new ones
+  /// land. 0 keeps every checkpoint.
+  int checkpoint_keep = 3;
+  /// Directory for checkpoint `.ply` files. When empty, they go next to
+  /// `GsplatStageOptions::out_ply`.
+  std::filesystem::path checkpoint_dir;
 };
 
 /// One row of the loss history.
@@ -213,14 +235,36 @@ struct TrainResult {
   /// having to be taken on trust.
   std::vector<std::size_t> trained_views;
   std::vector<std::size_t> holdout_view_indices;
-  /// PNGs written by the `render_iterations` schedule, in write order.
+  /// PNGs written by the `render_iterations` schedule, in write order. A
+  /// scheduled render whose write failed is absent — the list is what is on
+  /// disk, not what was attempted.
   std::vector<std::filesystem::path> renders;
+
+  /// Intermediate `.ply` files from the `checkpoint_every` schedule that are
+  /// still on disk, oldest first. Files already deleted by `checkpoint_keep`
+  /// retention are dropped from this list as they go, so every entry names a
+  /// file a caller can actually open.
+  std::vector<std::filesystem::path> checkpoints;
+
+  /// True when the run stopped early on a cancel request rather than by
+  /// reaching `TrainOptions::iterations`. The model and metrics are real, they
+  /// are just from fewer iterations — check this before comparing two runs.
+  bool cancelled = false;
+  /// The last iteration actually executed. Equals `TrainOptions::iterations`
+  /// for a run that finished.
+  int iterations_run = 0;
 };
 
 /// True when this build actually contains the CUDA trainer. Always true in a
 /// translation unit that can link `reusex_gsplat`; provided so callers can
 /// report the capability without an #ifdef of their own.
 bool is_available();
+
+/// True when this process can actually reach a CUDA device right now.
+/// `is_available()` answers "was the trainer compiled in"; this answers "is
+/// there a GPU to run it on", which is what a [gpu]-tagged test needs in order
+/// to SKIP honestly instead of failing.
+bool has_cuda_device();
 
 /// Train Gaussians against posed views.
 ///
@@ -254,10 +298,16 @@ struct GsplatStageOptions {
 /// user reconstructs what produced a project, and a stage that runs for hours
 /// without appearing there is invisible. All project *data* is read-only.
 ///
+/// A run cancelled through `TrainOptions::cancel_token` still writes `out_ply`
+/// — salvaging the model is the entire point of cancelling rather than killing
+/// the process — and closes its `pipeline_log` row as a success carrying a
+/// "CANCELLED" note (see the comment at the call site for why not a failure).
+///
 /// @throws std::runtime_error if the stage would produce no artifact at all
-///         (`out_ply` empty and no `render_iterations`), before any training
-///         happens — a long run whose output is silently discarded is worse
-///         than a refusal.
+///         (`out_ply` empty and no `render_iterations`), if checkpointing is
+///         enabled with nowhere to put the files, or if the seed cloud is
+///         missing — all before any training happens, because a long run whose
+///         output is silently discarded is worse than a refusal.
 TrainResult run_gsplat_stage(ProjectDB &db, const GsplatStageOptions &opt);
 
 } // namespace reusex::gsplat

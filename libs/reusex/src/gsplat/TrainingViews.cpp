@@ -82,7 +82,8 @@ std::vector<TrainingView> load_training_views(const ProjectDB &db,
 
   std::vector<TrainingView> views;
 
-  std::size_t skipped_no_image = 0, skipped_bad_intrinsics = 0;
+  std::size_t skipped_no_image = 0, skipped_bad_intrinsics = 0,
+              skipped_no_pose = 0, frames_considered = 0;
 
   if (opt.include_frames) {
     std::vector<int> ids = db.sensor_frame_ids();
@@ -103,6 +104,19 @@ std::vector<TrainingView> load_training_views(const ProjectDB &db,
     for (std::size_t i = 0; i < selected.size();
          i += static_cast<std::size_t>(opt.frame_stride)) {
       const int node_id = selected[i];
+      ++frames_considered;
+
+      // Pose first: a frame with no stored pose would otherwise enter the
+      // training set as a camera at the world origin looking down +Z, and its
+      // photometric loss is real gradient pulling the model toward a scene
+      // that is not there — a smeared reconstruction with nothing in the log
+      // to attribute it to (#330).
+      if (!db.has_sensor_frame_pose(node_id)) {
+        core::debug("gsplat: node {} has no usable stored pose, skipping",
+                    node_id);
+        ++skipped_no_pose;
+        continue;
+      }
 
       cv::Mat img = db.sensor_frame_image(node_id);
       if (img.empty()) {
@@ -203,16 +217,38 @@ std::vector<TrainingView> load_training_views(const ProjectDB &db,
 
   if (views.empty())
     throw std::runtime_error(fmt::format(
-        "gsplat: no usable training views (skipped {} frames without a colour "
-        "image, {} with invalid intrinsics). Check that the project has "
-        "imported sensor frames, and that any --first-frame/--last-frame "
-        "range covers them.",
-        skipped_no_image, skipped_bad_intrinsics));
+        "gsplat: no usable training views out of {} sensor frames considered "
+        "(skipped {} without a stored pose, {} without a colour image, {} with "
+        "invalid intrinsics). A project whose frames carry no pose needs "
+        "`rux import` to have brought poses in, or `rux optimize` / "
+        "`rux register` to have produced them; also check that any "
+        "--first-frame/--last-frame range covers the imported frames.",
+        frames_considered, skipped_no_pose, skipped_no_image,
+        skipped_bad_intrinsics));
 
-  if (skipped_no_image > 0 || skipped_bad_intrinsics > 0)
-    core::warn("gsplat: skipped {} frames without a colour image and {} with "
-               "invalid intrinsics",
-               skipped_no_image, skipped_bad_intrinsics);
+  if (skipped_no_pose > 0 || skipped_no_image > 0 || skipped_bad_intrinsics > 0)
+    core::warn("gsplat: skipped {} of {} sensor frames ({} without a stored "
+               "pose, {} without a colour image, {} with invalid intrinsics)",
+               skipped_no_pose + skipped_no_image + skipped_bad_intrinsics,
+               frames_considered, skipped_no_pose, skipped_no_image,
+               skipped_bad_intrinsics);
+
+  // Refuse rather than train on a set that cannot possibly converge: with
+  // fewer than two views there is no second ray to triangulate against, so
+  // every Gaussian is free to sit anywhere along a viewing ray and the run
+  // produces a confident-looking result that means nothing. Gate on the FINAL
+  // view count (panorama slices included) so a project that legitimately
+  // trains from 360 slices alone is unaffected, and only when poses were the
+  // reason views went missing — the other skip paths already have their own
+  // diagnostics and a genuinely tiny project is the user's call.
+  constexpr std::size_t kMinViews = 2;
+  if (skipped_no_pose > 0 && views.size() < kMinViews)
+    throw std::runtime_error(fmt::format(
+        "gsplat: only {} usable training view(s) after skipping {} of {} "
+        "sensor frames for having no stored pose — at least {} are needed to "
+        "triangulate anything. Run `rux optimize` (or re-import with poses) "
+        "before training.",
+        views.size(), skipped_no_pose, frames_considered, kMinViews));
 
   core::info("gsplat: {} training views ({}x{} first view)", views.size(),
              views.front().width(), views.front().height());

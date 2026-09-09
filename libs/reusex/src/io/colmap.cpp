@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <fstream>
 #include <stdexcept>
 #include <tuple>
@@ -243,9 +244,24 @@ void export_colmap_scene(const ProjectDB &db,
     return cam_id;
   };
 
+  // Skip counters, reported once at the end (STANDARDS §5).
+  std::size_t skipped_no_pose = 0;
+
   for (int node_id : frame_ids) {
     if (!db.has_sensor_frame(node_id))
       continue;
+
+    // A frame with no stored pose would be written to images.txt as an
+    // identity pose, and downstream MVS/SfM tooling takes that at face value.
+    // The pose was the one field this loop did not check (#330).
+    if (!db.has_sensor_frame_pose(node_id)) {
+      // Per-frame at debug, like the sibling skips below: a scan imported
+      // without poses has thousands of these, and the one line that matters is
+      // the count reported once after the loop.
+      core::debug("Node {} has no usable stored pose, skipping", node_id);
+      ++skipped_no_pose;
+      continue;
+    }
 
     cv::Mat img = db.sensor_frame_image(node_id);
     if (img.empty()) {
@@ -287,9 +303,16 @@ void export_colmap_scene(const ProjectDB &db,
     frame_records.push_back(FrameRecord{node_id, cam_id, cpose, image_name});
   }
 
+  if (skipped_no_pose > 0)
+    core::warn("Skipped {} of {} sensor frames for having no stored pose; "
+               "they are absent from images.txt",
+               skipped_no_pose, frame_ids.size());
+
   if (frame_records.empty())
-    throw std::runtime_error(
-        "export_colmap_scene: no usable sensor frames after filtering");
+    throw std::runtime_error(fmt::format(
+        "export_colmap_scene: no usable sensor frames after filtering "
+        "({} of {} skipped for having no stored pose)",
+        skipped_no_pose, frame_ids.size()));
 
   // Content-aligned 360 panoramas as extra pinhole cameras: dice each into
   // overlapping tangent (perspective) views and emit one COLMAP image per

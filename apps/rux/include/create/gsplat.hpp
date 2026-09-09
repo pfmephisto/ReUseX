@@ -59,6 +59,12 @@ struct SubcommandCreateGsplatOptions {
   std::string render_dir;
   std::vector<int> render_iterations;
   std::size_t render_view_index = 0;
+
+  // Periodic checkpointing (TrainOptions::checkpoint_every / checkpoint_keep /
+  // checkpoint_dir).
+  int checkpoint_every = 0;
+  int checkpoint_keep = 3;
+  std::string checkpoint_dir;
 };
 
 void setup_subcommand_create_gsplat(CLI::App &app,

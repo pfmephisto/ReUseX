@@ -150,6 +150,38 @@ const std::vector<StageContract> &contracts() {
        "derive window building components",
        {{{"cloud"}}, {{"labels"}}, {{"instances"}}, {{"mesh"}}},
        {"building_components"}},
+
+      // `reusex_gsplat` only exists under WITH_CUDA + the vendored rasterizer,
+      // while `reusex_core` is built unconditionally — but that is not a
+      // problem for this row, because the table is pure data (enums and
+      // string_views; see the layering note in the header). Nothing here names
+      // a gsplat type, and the interpreter only asks ProjectDB for a named
+      // cloud and the `sensor_frames` row count. The entry therefore compiles
+      // and validates identically in a CPU-only build: `rux validate --stage
+      // gsplat` answers even where `rux create gsplat` is not compiled in,
+      // which is the useful behaviour — you can check a project on the laptop
+      // that captured it and train on the machine with the GPU.
+      {PipelineStage::gsplat,
+       "gsplat",
+       {},
+       "rux create gsplat",
+       "train a 3D Gaussian splat from the fused cloud and posed frames",
+       // Two frames is the structural floor, not a quality bar: a radiance
+       // field fitted to a single view is just that view, so there is nothing
+       // to optimize. It matches the `optimize` row's reasoning. The real
+       // requirement — dense multi-view overlap over a contiguous capture
+       // segment — is a judgement about the *content* of the frames that no
+       // row count can express, so the subcommand's footer carries it instead.
+       // No `min_depth_frames`: the geometry comes from the seed cloud and the
+       // trainer only needs color + pose, so a depth-less frame is still a
+       // usable training view.
+       {{{"cloud"}}, {{"sensor_frames"}, /*min_rows=*/2}},
+       // Nothing. 360 panoramas are an *optional* extra source of views
+       // (`--use-panoramas`), never a prerequisite, so they are deliberately
+       // absent from the inputs above.
+       {},
+       "a 3D Gaussian Splatting .ply at the path given by -o/--out, plus "
+       "optional checkpoint PNGs under --render-dir"},
   };
   return table;
 }

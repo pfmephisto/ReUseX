@@ -94,10 +94,15 @@ DESCRIPTION:
   contract is satisfied — the clouds/tables it consumes exist and are
   index-aligned (see docs/CONTRACTS.md). Stages:
   import, optimize (alias register), clouds, annotate, project, planes, rooms,
-  instances, mesh, texture, windows.
+  instances, mesh, texture, windows, gsplat.
 
   This is the same check every `rux create` subcommand runs before it starts,
   so a stage that validates here will not be refused there (#246).
+
+  `gsplat` is answerable even in a build with no CUDA, where `rux create
+  gsplat` is not compiled in at all: the stage contract is pure data, so you
+  can check a project on the machine that captured it and train on the one
+  with the GPU (#331).
 
 EXAMPLES:
   rux validate                         # Whole-project integrity report

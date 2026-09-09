@@ -51,6 +51,13 @@ subcommand makes, so a stage that validates cannot then be refused when run.
   instances --semantic-cloud foo`). Those flags are passed to the checker as
   *overrides* of the contract's declared name; the contract itself does not
   change.
+- **External artifacts** are files a stage writes outside the project, at a
+  path the user chose. They are recorded in the table's `external_outputs`
+  field — prose, not a name — and are *not* pipeline artifacts: nothing in the
+  project can depend on a file on disk, so they are invisible to
+  `producing_stage()`, to the DAG assertion and to `check_stage_inputs()`. A
+  stage may legitimately have an empty **Produces** row as long as it has one
+  of these; `gsplat` is the only such stage today.
 
 ## Stages
 
@@ -183,11 +190,45 @@ Derive window building components from the instances and the mesh.
 `--semantic`, `--instances` and `--mesh` override `labels`, `instances` and
 `mesh` respectively.
 
+### `gsplat` (`rux create gsplat`)
+
+Train a 3D Gaussian splat from the fused cloud and the posed sensor frames.
+
+| | |
+|---|---|
+| Consumes | `cloud`, `sensor_frames` |
+| Produces | nothing in the project — see External below |
+| External | a 3D Gaussian Splatting `.ply` at `-o/--out`, plus optional checkpoint PNGs under `--render-dir` |
+| Options  | `GsplatStageOptions` (`libs/reusex/include/gsplat/train.hpp`) |
+| Checks   | seed cloud present; ≥2 stored sensor frames |
+
+**This stage writes nothing into the `.rux`.** Its product is a file on disk at
+the path given by `-o/--out`; the project only gains a `pipeline_log` row
+recording that the run happened. That is why its **Produces** row is empty and
+its output is described in prose instead — see the External artifacts bullet
+under Conventions.
+
+`--seed-cloud <name>` overrides `cloud`. Content-aligned 360 panoramas are an
+**optional extra source of training views** (`--use-panoramas`), not a
+prerequisite: a project with no panoramas trains from the sensor frames alone,
+so they are deliberately absent from the contract's inputs.
+
+The contract's ≥2-frame floor is structural — a radiance field fitted to one
+view is that view. It is not a quality bar: 3DGS needs dense multi-view overlap
+over a contiguous capture segment, which no row count can assert. See `rux
+create gsplat --help`.
+
+`rux validate --stage gsplat` works in a CPU-only build, where `rux create
+gsplat` is not compiled in at all: the stage table is pure data, so the entry
+exists everywhere even though the trainer needs `WITH_CUDA` and the vendored
+rasterizer.
+
 ## Typical pipeline order
 
 ```
 import → (optimize|register) → clouds → planes → rooms → mesh → texture
                                   ↘ annotate → project → instances → windows
+                                  ↘ gsplat (leaf: writes a .ply, not the project)
 ```
 
 Stage order in the table is load-bearing and asserted by a test: an input may

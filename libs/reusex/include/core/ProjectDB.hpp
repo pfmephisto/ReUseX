@@ -106,6 +106,15 @@ class ProjectDB {
   cv::Mat sensor_frame_depth(int nodeId) const;
   cv::Mat sensor_frame_confidence(int nodeId) const;
   std::array<double, 16> sensor_frame_pose(int nodeId) const;
+
+  /// True when this frame carries a usable stored world pose.
+  ///
+  /// `sensor_frame_pose()` cannot answer this: it returns identity for a frame
+  /// with no row, a NULL `transform`, or a wrong-sized blob, so a poseless
+  /// frame is indistinguishable from one legitimately at the origin. Ask this
+  /// first when an identity pose would be a silent lie (#330).
+  bool has_sensor_frame_pose(int nodeId) const;
+
   core::SensorIntrinsics sensor_frame_intrinsics(int nodeId) const;
   bool has_sensor_frame(int nodeId) const;
 

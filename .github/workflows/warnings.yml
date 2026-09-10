@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # Compiler warning tracker.  Runs after each push to main that touches C++
-# source, forces a fresh build to capture current warnings, then calls
+# source, compiles with cmake inside the nix dev shell, and calls
 # scripts/file_build_warnings.py to:
 #   - create a GitHub issue for every new warning (label: build-warning)
 #   - close issues whose warning has been fixed
@@ -10,12 +10,18 @@
 #
 # The job also runs on workflow_dispatch so you can trigger it manually.
 #
-# Why --rebuild?  nix caches derivations by content hash.  If nothing in the
-# source tree changed since the last build, nix returns the cached output
-# immediately without recompiling, and --print-build-logs produces nothing.
-# --rebuild forces recompilation even against a cached output so the warning
-# capture is always current.  The job runs only on pushes to main, not on
-# every PR, so the rebuild cost is paid at most once per merged commit.
+# Why cmake inside nix develop rather than nix build?
+#   nix build caches derivations by content hash — if the inputs haven't
+#   changed, it returns the cached output instantly without recompiling, and
+#   --print-build-logs produces nothing.  --rebuild sounds like the fix, but
+#   it requires the derivation to already be in the *local* store to compare
+#   against; CI runners start fresh so the output is always in Cachix, never
+#   local, and nix errors out.
+#
+#   Running cmake directly inside `nix develop` sidesteps nix derivation
+#   caching entirely: cmake always compiles from scratch (no cmake cache on
+#   the runner), deps are still served from Cachix, and compiler warnings go
+#   to cmake's stderr like normal.
 
 name: Build Warnings
 
@@ -42,37 +48,39 @@ jobs:
     name: Capture and file compiler warnings
     runs-on: ubuntu-latest
     environment: CI
-    # A forced rebuild adds ~the same wall time as a normal build.  120 min
-    # matches the ceiling in ci.yml.
     timeout-minutes: 120
 
     steps:
+      # No lfs: true needed — we build with BUILD_TESTS=OFF so fixtures are
+      # never read.
       - uses: actions/checkout@v4
-        with:
-          lfs: true
 
       - uses: cachix/install-nix-action@v31
         with:
           extra_nix_config: |
             accept-flake-config = true
 
-      # Read from the cache (public, no token needed); never push from here —
-      # the warning job rebuilds from source and its outputs are identical to
-      # what ci.yml already pushes.
+      # Read from the cache (public, no token needed); never push from here.
       - uses: cachix/cachix-action@v16
         with:
           name: reusex
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
           skipPush: true
 
-      - name: Build (forced rebuild, CPU variant) and capture warnings
+      - name: Configure (populates nix dev shell from Cachix)
+        run: |
+          nix develop --command cmake -B build \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DBUILD_TESTS=OFF \
+            -DWITH_CUDA=OFF
+
+      - name: Build and capture warnings
         # continue-on-error so a build failure doesn't skip the issue-filing
-        # step — we still want to track warnings even from a broken build.
+        # step — we still want to track warnings from a broken build.
         continue-on-error: true
         run: |
-          nix build .#checks.x86_64-linux.tests \
-            --rebuild \
-            --print-build-logs \
+          nix develop --command cmake --build build \
+            --parallel "$(nproc)" \
             2>&1 | tee build-warnings.log
 
       - name: Sync warning issues

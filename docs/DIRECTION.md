@@ -270,6 +270,9 @@ changelog — that history is the point of keeping it in the repo.
   cross-pair agreement is absent. **Σ inliers is therefore not a matcher
   ranking** — it rewards precisely what PCM punishes, and any future matcher
   comparison should be judged on edges-surviving-PCM and applied correction.
+  (#312 carried this into the tooling: `scripts/bench-loop-edges.sh` now emits
+  `pcm_kept` and `max_shift_m` as its primary columns and §5.1's table leads
+  with them, so the comparison cannot be read the wrong way round.)
   The shipping recommendation is unchanged (XFeat / LightGlue+ALIKED); the C++
   ingestion path for MapAnything is **not** worth building. Full write-up:
   [`research/loop-closure-learned-matchers.md`](research/loop-closure-learned-matchers.md)

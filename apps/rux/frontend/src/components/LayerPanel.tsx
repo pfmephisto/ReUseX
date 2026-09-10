@@ -2,13 +2,27 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import type { CloudInfo } from '../api/types';
+import type { CloudInfo, GsplatInfo } from '../api/types';
 import type { ColorMode } from '../viewport/PointCloudScene';
 import type { CloudStreamState } from '../viewport/useCloudStream';
+import type { SplatLayerState } from '../viewport/Viewport';
+import { describeGsplat, gsplatNote } from '../viewport/gsplatLayer';
 import { EmptyState } from './EmptyState';
 import { LabelLegend } from './LabelLegend';
 import { LayerRow } from './LayerRow';
 import styles from './LayerPanel.module.css';
+
+/** Everything the panel needs about the Gaussian-splat layers (#322). */
+export interface SplatPanelState {
+  /** Splats stored in the project, or null while the list is being fetched. */
+  items: GsplatInfo[] | null;
+  /** A failure listing them, as opposed to a project that has none. */
+  error: Error | null;
+  visible: Record<string, boolean>;
+  /** Load progress per splat; absent until one has been switched on. */
+  loading: Record<string, SplatLayerState>;
+  onToggle: (name: string, visible: boolean) => void;
+}
 
 export interface LayerPanelProps {
   /** Renderable geometry clouds (`PointXYZRGB` / `PointXYZ`). */
@@ -27,6 +41,14 @@ export interface LayerPanelProps {
   onLabelCloudChange: (name: string | null) => void;
   /** Why no label source is offered, when none is. */
   labelSourceNote?: string;
+
+  /**
+   * The Gaussian-splat layers, when the page models them.
+   *
+   * One optional object rather than five loose props, so a page with no splat
+   * support says so by omitting one thing.
+   */
+  splat?: SplatPanelState;
 
   colorMode: ColorMode;
   onColorModeChange: (mode: ColorMode) => void;
@@ -53,6 +75,7 @@ export function LayerPanel({
   labelCloud,
   onLabelCloudChange,
   labelSourceNote,
+  splat,
   colorMode,
   onColorModeChange,
   pointSize,
@@ -84,6 +107,8 @@ export function LayerPanel({
           </div>
         )}
       </section>
+
+      {splat && <SplatSection splat={splat} />}
 
       <section className={styles.section}>
         <h2 className={styles.heading}>Colour</h2>
@@ -153,5 +178,71 @@ export function LayerPanel({
         </button>
       </section>
     </aside>
+  );
+}
+
+/**
+ * One row per Gaussian splat stored in the project, or the reason there are
+ * none.
+ *
+ * A project without a splat still gets the heading and a sentence. Hiding the
+ * section entirely would leave a user who has just run `rux create gsplat` no
+ * way to tell "this viewer cannot draw splats" apart from "this project has
+ * none" — and those want completely different next actions.
+ *
+ * Toggled independently of the point cloud, and of each other: comparing a
+ * splat against the LiDAR cloud it was seeded from is the reason to have both
+ * in one viewport at all.
+ */
+function SplatSection({ splat }: { splat: SplatPanelState }) {
+  const { items, error, visible, loading, onToggle } = splat;
+  const note = gsplatNote(items, error);
+
+  return (
+    <section className={styles.section}>
+      <h2 className={styles.heading}>Gaussian splats</h2>
+
+      {note && <p className={styles.note}>{note}</p>}
+
+      {(items ?? []).map((info) => {
+        const state = loading[info.name];
+        return (
+          <div key={info.name} className={styles.splat}>
+            <label className={styles.splatToggle}>
+              <input
+                type="checkbox"
+                checked={visible[info.name] ?? false}
+                onChange={(event) => onToggle(info.name, event.target.checked)}
+                className={styles.checkbox}
+              />
+              <span className={styles.splatName} title={info.name}>
+                {info.name}
+              </span>
+            </label>
+
+            <p className={styles.note}>{describeGsplat(info)}</p>
+
+            {state?.loading && (
+              <div className={styles.track}>
+                <div
+                  className={`${styles.fill} ${
+                    state.fraction === null ? styles.indeterminate : ''
+                  }`}
+                  style={
+                    state.fraction === null ? undefined : { width: `${state.fraction * 100}%` }
+                  }
+                />
+              </div>
+            )}
+
+            {state?.error && (
+              <p className={styles.error}>
+                The splat could not be loaded: {state.error.message}
+              </p>
+            )}
+          </div>
+        );
+      })}
+    </section>
   );
 }

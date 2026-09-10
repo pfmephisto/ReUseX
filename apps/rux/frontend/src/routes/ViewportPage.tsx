@@ -6,13 +6,13 @@ import { useCallback, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 import { api } from '../api/client';
-import type { CloudInfo } from '../api/types';
+import type { CloudInfo, GsplatInfo } from '../api/types';
 import { useAsync } from '../app/useAsync';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { EmptyState } from '../components/EmptyState';
 import { LayerPanel } from '../components/LayerPanel';
 import { Spinner } from '../components/Spinner';
-import { Viewport, type ViewportLayer } from '../viewport/Viewport';
+import { Viewport, type SplatLayerState, type ViewportLayer } from '../viewport/Viewport';
 import type { ColorMode } from '../viewport/PointCloudScene';
 import type { CloudStreamState } from '../viewport/useCloudStream';
 import styles from './ViewportPage.module.css';
@@ -54,6 +54,13 @@ export function ViewportPage() {
     reload,
   } = useAsync<CloudInfo[]>((signal) => api.clouds(signal), []);
 
+  // Asked for once alongside the cloud inventory. Metadata only — the blobs
+  // stay in the project until a layer is switched on.
+  const { data: gsplats, error: gsplatError } = useAsync<GsplatInfo[]>(
+    (signal) => api.gsplats(signal),
+    [],
+  );
+
   const [visible, setVisible] = useState<Record<string, boolean>>({});
   const [progress, setProgress] = useState<Record<string, CloudStreamState>>({});
   // `null` means "follow the label source". Set only when the user picks a mode
@@ -65,6 +72,29 @@ export function ViewportPage() {
   const [pointSize, setPointSize] = useState(0.02);
   const [frameToken, setFrameToken] = useState(0);
   const [initialised, setInitialised] = useState(false);
+
+  // `?splat=<name>` deep-links one on. Otherwise every splat starts off: the
+  // blob is hundreds of megabytes where a cloud streams in pages, so loading
+  // one has to be a decision the user made — which is why the panel shows the
+  // size beside the toggle.
+  const deepLinkedSplat = params.get('splat');
+  const [splatVisible, setSplatVisible] = useState<Record<string, boolean>>(() =>
+    deepLinkedSplat ? { [deepLinkedSplat]: true } : {},
+  );
+  // Sticky: once a download has started, hiding the layer must not throw it
+  // away. This is what keeps the toggle instant on the second click, the same
+  // rule `CloudLayerLoader` follows for a cloud's pages.
+  const [splatRequested, setSplatRequested] = useState<Record<string, boolean>>(() =>
+    deepLinkedSplat ? { [deepLinkedSplat]: true } : {},
+  );
+  const [splatLoading, setSplatLoading] = useState<Record<string, SplatLayerState>>({});
+  const handleSplatProgress = useCallback((name: string, state: SplatLayerState) => {
+    setSplatLoading((current) => ({ ...current, [name]: state }));
+  }, []);
+  const handleToggleSplat = useCallback((name: string, next: boolean) => {
+    setSplatVisible((current) => ({ ...current, [name]: next }));
+    if (next) setSplatRequested((current) => ({ ...current, [name]: true }));
+  }, []);
 
   const renderable = useMemo(
     () => (clouds ?? []).filter((cloud) => RENDERABLE.has(cloud.type)),
@@ -141,7 +171,10 @@ export function ViewportPage() {
   if (loading && !clouds) return <Spinner label="Loading clouds…" />;
   if (error) return <ErrorBanner error={error} onRetry={reload} context="cloud inventory" />;
 
-  if (renderable.length === 0) {
+  // A splat alone is something to render, so the empty state is only honest
+  // when there is neither. A project whose splat was imported, or whose seed
+  // cloud was since deleted, is the case this covers.
+  if (renderable.length === 0 && (gsplats ?? []).length === 0) {
     return (
       <EmptyState
         title="Nothing to render yet"
@@ -158,9 +191,24 @@ export function ViewportPage() {
         pointSize={pointSize}
         frameToken={frameToken}
         onLayerProgress={handleProgress}
+        splats={(gsplats ?? [])
+          .filter((info) => splatRequested[info.name])
+          .map((info) => ({
+            name: info.name,
+            url: api.gsplatDataUrl(info.name),
+            visible: splatVisible[info.name] ?? false,
+          }))}
+        onSplatProgress={handleSplatProgress}
       />
       <LayerPanel
         clouds={renderable}
+        splat={{
+          items: gsplats ?? null,
+          error: gsplatError ?? null,
+          visible: splatVisible,
+          loading: splatLoading,
+          onToggle: handleToggleSplat,
+        }}
         visible={visible}
         progress={progress}
         onToggleLayer={(name, next) =>

@@ -30,6 +30,7 @@ import type {
   FrameInfo,
   FrameImageKind,
   FrameList,
+  GsplatInfo,
   Health,
   InstanceInfo,
   Job,
@@ -399,6 +400,45 @@ export class RuxApiClient {
     return this.url(
       `/meshes/${encodeURIComponent(name)}/textures/${encodeURIComponent(texture)}`,
     );
+  }
+
+  // ---------------------------------------------------------- gsplats ----
+
+  /**
+   * Gaussian splats stored in this project.
+   *
+   * An empty array is the normal answer for a project nobody has run
+   * `rux create gsplat` on — not a `404`, and not an error. Unpaged by
+   * contract: a project holds a handful of splats, not a number that grows
+   * with the size of the scan.
+   */
+  async gsplats(signal?: AbortSignal): Promise<GsplatInfo[]> {
+    const body = await this.requestJson<{ gsplats: GsplatInfo[] }>(
+      '/gsplats',
+      undefined,
+      signal,
+    );
+    return body.gsplats;
+  }
+
+  gsplat(name: string, signal?: AbortSignal): Promise<GsplatInfo> {
+    return this.requestJson<GsplatInfo>(
+      `/gsplats/${encodeURIComponent(name)}`,
+      undefined,
+      signal,
+    );
+  }
+
+  /**
+   * URL of one splat's PLY blob, for the renderer to fetch itself.
+   *
+   * A URL rather than an `ArrayBuffer`: the splat loader streams and parses the
+   * file on a worker, and routing hundreds of megabytes through this client
+   * first would buffer the whole thing twice for no gain. The same reasoning as
+   * {@link meshDataUrl}.
+   */
+  gsplatDataUrl(name: string): string {
+    return this.url(`/gsplats/${encodeURIComponent(name)}/data`);
   }
 
   // ----------------------------------------------------------- frames ----

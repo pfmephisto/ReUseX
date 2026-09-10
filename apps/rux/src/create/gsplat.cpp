@@ -36,10 +36,17 @@ DESCRIPTION:
   trainer around it is part of ReUseX (GPL-3.0-or-later).
 
 EXAMPLES:
-  rux create gsplat --iterations 2000 --out splat.ply
-  rux create gsplat --mcmc --iterations 30000 --out splat.ply
+  rux create gsplat --iterations 2000
+  rux create gsplat --mcmc --iterations 30000 --name detailed
   rux create gsplat --first-frame 1995 --last-frame 2400 --max-image-size 512
+  rux create gsplat --iterations 2000 --out splat.ply   # also export a file
   rux create gsplat --use-panoramas --render-dir figs --render-at 0,500,2000
+
+OUTPUT:
+  The trained splat is stored IN THE PROJECT (schema v12) under --name,
+  defaulting to 'splat', and is what `rux gui` renders as its splat layer.
+  -o/--out additionally writes the same bytes to a .ply for viewers outside
+  ReUseX; it is an export, not the output, and is optional.
 
 DENSITY CONTROL:
   By default the trainer only prunes: it removes collapsed Gaussians but
@@ -56,13 +63,14 @@ REPORTED QUALITY:
 CHECKPOINTING:
   Ctrl-C no longer throws the run away. The first SIGINT asks the trainer to
   stop at the end of the current iteration; it then runs a final evaluation
-  and writes --out exactly as a completed run would, logging which iteration
-  it reached. Press Ctrl-C a SECOND time to abort immediately the usual way,
-  with nothing written.
+  and stores the splat exactly as a completed run would, logging which
+  iteration it reached. Press Ctrl-C a SECOND time to abort immediately the
+  usual way, with nothing stored.
   --checkpoint-every N additionally writes an intermediate .ply every N
   iterations (atomically, via a .tmp + rename), keeping the last
-  --checkpoint-keep of them next to --out or under --checkpoint-dir. It is
-  insurance against a crash, not against Ctrl-C.
+  --checkpoint-keep of them under --checkpoint-dir (default: beside the
+  project). Checkpoints stay files, not project rows: they are insurance
+  against a crash, not project state.
 
 REGION SELECTION MATTERS:
   3DGS needs dense multi-view overlap. Training on a sparse sample spread over
@@ -74,6 +82,8 @@ NOTES:
   - Requires sensor frames and a point cloud (run 'rux create clouds' first)
   - --max-image-size is the most effective speed knob: cost is per-pixel
   - Output .ply follows the reference 3DGS layout and opens in splat viewers
+  - An existing .ply trained before schema v12 can be brought into a project
+    with 'rux import gsplat <file.ply>'
 )");
 
   sub->get_formatter()->column_width(40);
@@ -173,13 +183,14 @@ NOTES:
       ->default_val(opt->pano_tile)
       ->check(CLI::Range(64, 8192));
 
-  // Required: without it the stage trains for minutes-to-hours and then
-  // discards everything — it writes neither a file nor anything into the
-  // project. Refusing at parse time costs the user a retype; the old
-  // behaviour cost them the run.
+  sub->add_option("--name", opt->splat_name,
+                  "Name the trained splat is stored under in the project")
+      ->default_val(opt->splat_name);
+  // Optional since #322: the splat is stored in the project, so a run can no
+  // longer end with nothing to show for itself. This is an export for viewers
+  // outside ReUseX, not the output.
   sub->add_option("-o, --out", opt->out_ply,
-                  "Write the trained splat to this .ply")
-      ->required();
+                  "Additionally write the trained splat to this .ply");
   sub->add_option("--render-dir", opt->render_dir,
                   "Directory for checkpoint renders");
   sub->add_option("--render-at", opt->render_iterations,
@@ -331,6 +342,7 @@ int run_subcommand_create_gsplat(SubcommandCreateGsplatOptions const &opt,
     o.train.render_view_index = opt.render_view_index;
     if (!opt.render_dir.empty())
       o.train.render_dir = opt.render_dir;
+    o.splat_name = opt.splat_name;
     if (!opt.out_ply.empty())
       o.out_ply = opt.out_ply;
 
@@ -349,8 +361,8 @@ int run_subcommand_create_gsplat(SubcommandCreateGsplatOptions const &opt,
     const gs::TrainResult r = gs::run_gsplat_stage(db, o);
 
     if (r.cancelled)
-      spdlog::warn("Cancelled at iteration {} of {} — the .ply was still "
-                   "written and holds the model as trained so far. Its metrics "
+      spdlog::warn("Cancelled at iteration {} of {} — the splat was still "
+                   "stored and holds the model as trained so far. Its metrics "
                    "are from a shortened run.",
                    r.iterations_run, opt.iterations);
 
@@ -366,6 +378,8 @@ int run_subcommand_create_gsplat(SubcommandCreateGsplatOptions const &opt,
     if (opt.mcmc)
       spdlog::info("MCMC: relocated {}, added {} Gaussians", r.relocated,
                    r.added);
+    spdlog::info("Stored in the project as '{}' — view it with `rux gui`",
+                 opt.splat_name);
     if (!opt.out_ply.empty())
       spdlog::info("Wrote {}", opt.out_ply);
     for (const auto &p : r.renders)

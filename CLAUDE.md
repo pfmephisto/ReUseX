@@ -404,7 +404,8 @@ tree — if a doc mentions `RTABMapDatabase`, that doc is stale.
 
 - Pimpl idiom keeps sqlite3 out of the public header; `cv::Mat` and the PCL mesh
   types are forward-declared, not included (STANDARDS §2)
-- Stores point clouds (chunked), meshes + texture blobs, sensor frames
+- Stores point clouds (chunked), meshes + texture blobs, Gaussian splats
+  (chunked, schema v12 — `rux create gsplat` writes here, #322), sensor frames
   (color/depth/confidence/pose/intrinsics), panoramic images,
   `segmentation_images`, building components, material passports,
   instance↔material links, and the pipeline log
@@ -446,7 +447,7 @@ Top-level commands, as registered in `apps/rux/src/rux.cpp`:
 
 | Command | Sub-commands | Source |
 |---|---|---|
-| `import` | `rtabmap`, `mushroom`, `arkitscenes`, `e57`, `ply`, `materialepas`, `csv`, `360`, `photos` | `src/import/` |
+| `import` | `rtabmap`, `mushroom`, `arkitscenes`, `e57`, `ply`, `gsplat`, `materialepas`, `csv`, `360`, `photos` | `src/import/` |
 | `create` | `clouds`, `dense`, `annotate`, `annotate-360`, `material`, `project`, `planes`, `rooms`, `instances`, `materials`, `mesh`, `texture`, `windows` | `src/create/` |
 | `export` | `ply`, `e57`, `materialepas`, `csv`, `rhino`, `semantic-images`, `speckle`, `colmap` | `src/export/` |
 | `align` | `360` (content-based panorama pose refinement) | `src/align/` |

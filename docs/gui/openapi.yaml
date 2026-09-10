@@ -59,6 +59,8 @@ tags:
     description: Point clouds
   - name: meshes
     description: Meshes and their textures
+  - name: gsplats
+    description: Gaussian splats trained by `rux create gsplat`
   - name: frames
     description: Sensor frames (color / depth / confidence / segmentation)
   - name: panoramas
@@ -532,6 +534,87 @@ paths:
             image/jpeg:
               schema: { type: string, format: binary }
         "404": { $ref: "#/components/responses/NotFound" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  # ------------------------------------------------------------- gsplats ----
+  /gsplats:
+    get:
+      tags: [gsplats]
+      operationId: listGsplats
+      summary: Gaussian splats stored in this project
+      description: |
+        The 3D Gaussian Splatting models `rux create gsplat` has trained into
+        this project (schema v12), or that `rux import gsplat` has brought in
+        from an INRIA `.ply` produced elsewhere. Stored in the `.rux` exactly
+        as a mesh is, so this is a project read like any other and never
+        touches a filesystem path.
+
+        Metadata only. `byte_size` and `gaussian_count` are what let a client
+        decide *before* fetching: unlike a cloud, which streams in pages, a
+        splat is one response of hundreds of megabytes, so the viewport does
+        not download it until the user switches the layer on.
+
+        Deliberately **unpaged**, unlike `/clouds` and `/meshes`. A project
+        holds a handful of splats — one per training run someone chose to keep
+        — not a number that grows with the size of the scan. An empty array is
+        the normal answer for a project nobody has run the trainer on.
+      responses:
+        "200":
+          description: Splat inventory
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [gsplats]
+                properties:
+                  gsplats:
+                    type: array
+                    items: { $ref: "#/components/schemas/GsplatInfo" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  /gsplats/{name}:
+    get:
+      tags: [gsplats]
+      operationId: getGsplat
+      summary: One Gaussian splat's metadata
+      parameters:
+        - $ref: "#/components/parameters/GsplatName"
+      responses:
+        "200":
+          description: Splat record
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GsplatInfo" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  /gsplats/{name}/data:
+    get:
+      tags: [gsplats]
+      operationId: getGsplatData
+      summary: The INRIA-format splat PLY, verbatim
+      description: |
+        The bytes exactly as stored. No transcoding happens server-side: the
+        client's splat renderer parses the PLY itself.
+
+        Call `GET /gsplats` first — this route is only meaningful for a name
+        that appeared there.
+      parameters:
+        - $ref: "#/components/parameters/GsplatName"
+      responses:
+        "200":
+          description: Splat PLY
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "413":
+          description: |
+            The splat is larger than the server will materialize in one
+            response (1 GiB).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
   # -------------------------------------------------------------- frames ----
@@ -1261,6 +1344,12 @@ components:
       required: true
       description: The mesh's name.
       schema: { type: string }
+    GsplatName:
+      name: name
+      in: path
+      required: true
+      description: The splat's name in the project, e.g. `splat`.
+      schema: { type: string }
     FrameId:
       name: id
       in: path
@@ -1572,6 +1661,40 @@ components:
         format: { type: string }
         width: { type: integer }
         height: { type: integer }
+
+    GsplatInfo:
+      description: |
+        One 3D Gaussian Splatting model stored in the project, described from
+        its PLY header so a client knows the cost and the colour model before
+        fetching the blob.
+      type: object
+      required: [name, format, gaussian_count, sh_degree, byte_size]
+      properties:
+        name:
+          type: string
+          description: The splat's name in the project (`rux create gsplat --name`).
+        format:
+          type: string
+          description: Storage format of the blob.
+          enum: [ply]
+        gaussian_count:
+          type: integer
+          description: |
+            `element vertex` from the PLY header — the number of Gaussians.
+        sh_degree:
+          type: integer
+          description: |
+            Spherical-harmonic degree, derived from the count of `f_rest_*`
+            properties (3 * ((degree + 1)^2 - 1) of them). 0 means
+            view-independent colour, not "missing".
+        byte_size: { type: integer }
+        stage:
+          type: string
+          description: The stage that produced it, e.g. `gsplat`.
+        parameters:
+          type: string
+          description: The stage parameters JSON, as stored.
+        created_at: { type: string }
 
     FrameList:
       description: |

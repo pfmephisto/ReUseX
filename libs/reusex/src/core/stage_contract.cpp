@@ -42,6 +42,8 @@ const std::vector<Artifact> &artifacts() {
        "the texture-mapped mesh"},
       {"building_components", ArtifactKind::table, Alignment::none,
        "derived building components (windows, …)"},
+      {"splat", ArtifactKind::gaussian_splat, Alignment::none,
+       "a trained 3D Gaussian Splatting model"},
   };
   return table;
 }
@@ -176,12 +178,23 @@ const std::vector<StageContract> &contracts() {
        // trainer only needs color + pose, so a depth-less frame is still a
        // usable training view.
        {{{"cloud"}}, {{"sensor_frames"}, /*min_rows=*/2}},
-       // Nothing. 360 panoramas are an *optional* extra source of views
+       // (360 panoramas are an *optional* extra source of views
        // (`--use-panoramas`), never a prerequisite, so they are deliberately
-       // absent from the inputs above.
-       {},
-       "a 3D Gaussian Splatting .ply at the path given by -o/--out, plus "
-       "optional checkpoint PNGs under --render-dir"},
+       // absent from the inputs above.)
+       //
+       // `splat` is the contract's declared name; `--name` overrides it, the
+       // same way `--seed-cloud` overrides `cloud`.
+       //
+       // Since #322 the trained model goes INTO the project, so this row has a
+       // real `outputs` and an EMPTY `external_outputs` — it was the one stage
+       // with the opposite pair. `-o/--out` still writes a .ply and
+       // `--render-dir` still writes PNGs, but those are exports and
+       // diagnostics documented in `rux create gsplat --help`, not products
+       // the project's state depends on. Declaring them here as well would
+       // give a reader two places to look for the same answer, which is
+       // exactly what `external_outputs` exists to avoid.
+       {"splat"},
+       ""},
   };
   return table;
 }

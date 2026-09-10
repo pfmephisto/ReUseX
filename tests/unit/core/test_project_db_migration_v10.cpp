@@ -83,7 +83,7 @@ TEST_CASE("ProjectDbSchemaVersion_FreshMigrationDatabase_IsLatest",
           "[projectdb][migration]") {
   TempPath tmp;
   ProjectDB db(tmp.path);
-  REQUIRE(db.schema_version() == 11);
+  REQUIRE(db.schema_version() == 12);
 }
 
 TEST_CASE("ProjectDbMigrationV9ToV10_OrphanAndValidInstanceMaterialLinks_"

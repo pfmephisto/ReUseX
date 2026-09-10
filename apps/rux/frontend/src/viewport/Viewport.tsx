@@ -5,8 +5,26 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { PointCloudScene, type ColorMode } from './PointCloudScene';
+import { SplatScene } from './SplatScene';
 import { useCloudStream, type CloudStreamState } from './useCloudStream';
 import styles from './Viewport.module.css';
+
+/** Progress of the Gaussian-splat layer, as the panel reports it. */
+export interface SplatLayerState {
+  loading: boolean;
+  /** 0..1 while downloading, null before the first progress callback. */
+  fraction: number | null;
+  loaded: boolean;
+  error: Error | null;
+}
+
+export interface ViewportSplat {
+  /** The splat's name in the project — also the scene layer id. */
+  name: string;
+  /** Where the renderer fetches the INRIA `.ply`. */
+  url: string;
+  visible: boolean;
+}
 
 export interface ViewportLayer {
   /** Cloud name — also the scene layer id. */
@@ -28,6 +46,20 @@ export interface ViewportProps {
   /** Bump to re-frame the camera on the loaded content. */
   frameToken: number;
   onLayerProgress?: (cloud: string, state: CloudStreamState) => void;
+  /**
+   * The Gaussian-splat layers the page has asked to be loaded (#322).
+   *
+   * A separate array rather than more `ViewportLayer`s: a splat is not a
+   * cloud, it does not stream in pages, and it is not coloured by a label
+   * source — folding it into that array would mean every field of
+   * `ViewportLayer` becoming optional to describe something it does not model.
+   *
+   * Only splats that should actually be downloaded belong here. A splat the
+   * user has never switched on must be absent, not present-and-hidden: the
+   * blob is hundreds of megabytes and mounting the loader starts fetching it.
+   */
+  splats?: ViewportSplat[];
+  onSplatProgress?: (name: string, state: SplatLayerState) => void;
 }
 
 /**
@@ -43,6 +75,8 @@ export function Viewport({
   pointSize,
   frameToken,
   onLayerProgress,
+  splats,
+  onSplatProgress,
 }: ViewportProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [scene, setScene] = useState<PointCloudScene | null>(null);
@@ -98,6 +132,21 @@ export function Viewport({
               scene.frameAll();
             }}
             onProgress={onLayerProgress}
+          />
+        ))}
+      {scene &&
+        (splats ?? []).map((splat) => (
+          <SplatLayerLoader
+            key={splat.name}
+            scene={scene}
+            url={splat.url}
+            visible={splat.visible}
+            onFirstContent={() => {
+              if (framedOnce.current) return;
+              framedOnce.current = true;
+              scene.frameAll();
+            }}
+            onProgress={(state) => onSplatProgress?.(splat.name, state)}
           />
         ))}
     </div>
@@ -166,4 +215,79 @@ function CloudLayerLoader({
  */
 function overviewLayerId(cloud: string): string {
   return `${cloud}::overview`;
+}
+
+/**
+ * Streams the Gaussian splat into the scene. Renders nothing.
+ *
+ * Mirrors `CloudLayerLoader`, including the rule that hiding is not unloading:
+ * the splat is one large file and re-downloading it on every toggle would make
+ * the toggle useless. Unlike a cloud it arrives as a single response, so the
+ * download is started once, on mount, and visibility is a separate effect.
+ *
+ * Mounted only for splats the page has asked for and keyed by name, so React's
+ * own lifecycle handles the download and its teardown.
+ */
+function SplatLayerLoader({
+  scene,
+  url,
+  visible,
+  onFirstContent,
+  onProgress,
+}: {
+  scene: PointCloudScene;
+  url: string;
+  visible: boolean;
+  onFirstContent: () => void;
+  onProgress?: (state: SplatLayerState) => void;
+}) {
+  const splatRef = useRef<SplatScene | null>(null);
+  // Effects below read the latest callbacks without listing them as deps: both
+  // are inline closures at the call site, and depending on them would tear the
+  // splat down and re-download it on every render of the parent.
+  const progressRef = useRef(onProgress);
+  progressRef.current = onProgress;
+  const firstContentRef = useRef(onFirstContent);
+  firstContentRef.current = onFirstContent;
+
+  useEffect(() => {
+    let cancelled = false;
+    const instance = new SplatScene(scene, {
+      onProgress: (fraction) =>
+        progressRef.current?.({ loading: true, fraction, loaded: false, error: null }),
+    });
+    splatRef.current = instance;
+    progressRef.current?.({ loading: true, fraction: null, loaded: false, error: null });
+
+    instance
+      .load(url)
+      .then(() => {
+        if (cancelled) return;
+        progressRef.current?.({ loading: false, fraction: 1, loaded: true, error: null });
+        firstContentRef.current();
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        progressRef.current?.({
+          loading: false,
+          fraction: null,
+          loaded: false,
+          error: error instanceof Error ? error : new Error(String(error)),
+        });
+      });
+
+    return () => {
+      cancelled = true;
+      splatRef.current = null;
+      // Fire-and-forget: `dispose` is async because the library's is, but
+      // React's cleanup is not, and nothing here waits on the teardown.
+      void instance.dispose();
+    };
+  }, [scene, url]);
+
+  useEffect(() => {
+    splatRef.current?.setVisible(visible);
+  }, [visible]);
+
+  return null;
 }

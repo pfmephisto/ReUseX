@@ -42,6 +42,9 @@ NOTES:
     the live API. The real frontend is Phase 2 of issue #265.
   - Asset lookup order: --assets, then $RUX_GUI_ASSETS, then
     <install prefix>/share/reusex/gui.
+  - The viewport renders the Gaussian splats stored in the project by
+    'rux create gsplat' (schema v12) as a layer of their own. An existing .ply
+    from an older run can be brought in with 'rux import gsplat'.
   - The project is created if it does not exist, exactly like other
     project-writing subcommands.
 )");

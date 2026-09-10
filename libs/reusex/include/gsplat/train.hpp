@@ -288,23 +288,37 @@ struct GsplatStageOptions {
   GaussianInitOptions init;
   TrainingViewOptions views;
   TrainOptions train;
-  std::filesystem::path out_ply; ///< where to write the trained splat
+
+  /// Name the trained splat is stored under in the project (#322).
+  ///
+  /// The stage's real output. An empty name is refused rather than treated as
+  /// "do not store": training for hours and keeping nothing is the failure
+  /// mode this stage was built to prevent.
+  std::string splat_name = "splat";
+
+  /// Optional extra copy on disk, for a viewer outside ReUseX. The project
+  /// copy is written either way, so this is an export, not the output.
+  std::filesystem::path out_ply;
 };
 
-/// Load the seed cloud and views from @p db, train, and write the `.ply`.
+/// Load the seed cloud and views from @p db, train, and store the splat.
 ///
-/// @p db is non-const only so the stage can write its `pipeline_log` start and
-/// finish rows the way every other `create` stage does — `rux log` is how a
-/// user reconstructs what produced a project, and a stage that runs for hours
-/// without appearing there is invisible. All project *data* is read-only.
+/// The trained model is written into @p db under `GsplatStageOptions::
+/// splat_name` (schema v12), and *additionally* to `out_ply` when one is
+/// given. Both get the identical bytes, from one call to gaussian_ply_bytes().
 ///
-/// A run cancelled through `TrainOptions::cancel_token` still writes `out_ply`
+/// @p db is therefore non-const for two reasons: the splat itself, and the
+/// `pipeline_log` start and finish rows every other `create` stage writes —
+/// `rux log` is how a user reconstructs what produced a project, and a stage
+/// that runs for hours without appearing there is invisible. All project
+/// *data* is read-only.
+///
+/// A run cancelled through `TrainOptions::cancel_token` still stores its splat
 /// — salvaging the model is the entire point of cancelling rather than killing
 /// the process — and closes its `pipeline_log` row as a success carrying a
 /// "CANCELLED" note (see the comment at the call site for why not a failure).
 ///
-/// @throws std::runtime_error if the stage would produce no artifact at all
-///         (`out_ply` empty and no `render_iterations`), if checkpointing is
+/// @throws std::runtime_error if `splat_name` is empty, if checkpointing is
 ///         enabled with nowhere to put the files, or if the seed cloud is
 ///         missing — all before any training happens, because a long run whose
 ///         output is silently discarded is worse than a refusal.

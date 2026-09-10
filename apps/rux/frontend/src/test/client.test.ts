@@ -217,6 +217,31 @@ describe('URL construction', () => {
     expect(calls[0].url).toBe('/api/v1/clouds/cloud/points?offset=0&limit=4&format=binary');
   });
 
+  it('serialises max_points and lod_source for a LOD read', async () => {
+    // The wire names are snake_case; the TypeScript surface is camelCase. The
+    // translation is the client's job and nothing above it should know either
+    // spelling (#320).
+    const { api, calls } = clientFor(CLOUD_POINTS_PAGE);
+    await api.cloudPoints('labels', { maxPoints: 200_000, lodSource: 'cloud' });
+    expect(calls[0].url).toBe(
+      '/api/v1/clouds/labels/points?max_points=200000&lod_source=cloud&format=json',
+    );
+  });
+
+  it('refuses max_points together with a window, at the call site', async () => {
+    // The server answers 400 for this, but a caller that wrote it has a bug in
+    // its own logic, not a bad server. Failing here names the mistake where it
+    // was made instead of a round trip later.
+    const { api } = clientFor(CLOUD_POINTS_PAGE);
+    expect(() => api.cloudPoints('cloud', { maxPoints: 1000, offset: 0 })).toThrow(TypeError);
+    expect(() => api.cloudPoints('cloud', { maxPoints: 1000, limit: 10 })).toThrow(
+      /cannot be combined/,
+    );
+    await expect(api.cloudPointsBinary('cloud', { maxPoints: 1000, offset: 0 })).rejects.toThrow(
+      TypeError,
+    );
+  });
+
   it('omits undefined query values instead of serialising the string "undefined"', async () => {
     const { api, calls } = clientFor(CLOUD_POINTS_PAGE);
     await api.cloudPoints('cloud', {});

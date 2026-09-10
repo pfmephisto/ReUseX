@@ -125,6 +125,45 @@ function buildQuery(query?: Query): string {
 }
 
 /**
+ * How much of a cloud to ask for, in one of the endpoint's two modes.
+ *
+ * `offset`/`limit` take a **window** of the cloud in storage order.
+ * `maxPoints` takes a spatially representative view of **all** of it (#320) —
+ * a different question, so the server refuses the two together rather than
+ * inventing a meaning for an offset into a set the client cannot enumerate.
+ * That mutual exclusion is enforced here too, one layer earlier, so a caller
+ * gets a `TypeError` at the call site instead of a 400 over the wire.
+ */
+export interface CloudPointsQuery {
+  offset?: number;
+  limit?: number;
+  /**
+   * Budget for a level-of-detail read of the whole cloud. The answer holds at
+   * most this many points, and — because the underlying grid is dyadic — may
+   * hold as few as roughly a quarter of them.
+   */
+  maxPoints?: number;
+  /**
+   * Cloud whose positions drive the selection, for a sibling that has none of
+   * its own (a `Label` cloud). The two must be index-aligned; the resulting
+   * pages then describe the same points and can still be zipped positionally.
+   */
+  lodSource?: string;
+}
+
+function pointsQuery(options: CloudPointsQuery): Query {
+  if (options.maxPoints !== undefined && (options.offset !== undefined || options.limit !== undefined)) {
+    throw new TypeError('maxPoints cannot be combined with offset or limit');
+  }
+  return {
+    offset: options.offset,
+    limit: options.limit,
+    max_points: options.maxPoints,
+    lod_source: options.lodSource,
+  };
+}
+
+/**
  * Pull a human-readable reason out of a failed response.
  *
  * The contract says every non-2xx body is an `Error` object with a non-empty
@@ -254,12 +293,12 @@ export class RuxApiClient {
    */
   cloudPoints(
     name: string,
-    options: { offset?: number; limit?: number; format?: 'json' | 'binary' } = {},
+    options: CloudPointsQuery & { format?: 'json' | 'binary' } = {},
     signal?: AbortSignal,
   ): Promise<CloudPointsPage> {
     return this.requestJson<CloudPointsPage>(
       `/clouds/${encodeURIComponent(name)}/points`,
-      { offset: options.offset, limit: options.limit, format: options.format ?? 'json' },
+      { ...pointsQuery(options), format: options.format ?? 'json' },
       signal,
     );
   }
@@ -279,12 +318,11 @@ export class RuxApiClient {
    */
   async cloudPointsBinary(
     name: string,
-    options: { offset?: number; limit?: number } = {},
+    options: CloudPointsQuery = {},
     signal?: AbortSignal,
   ): Promise<ArrayBuffer> {
     const url = this.url(`/clouds/${encodeURIComponent(name)}/points`, {
-      offset: options.offset,
-      limit: options.limit,
+      ...pointsQuery(options),
       format: 'binary',
     });
     const response = await this.doFetch(url, { method: 'GET', signal });

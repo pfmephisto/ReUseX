@@ -62,6 +62,13 @@ export interface RuxpPage {
   offset: number;
   /** Points in the whole cloud. */
   total: number;
+  /**
+   * True when this page is a level-of-detail view of the whole cloud (#320):
+   * its `count` points are spread over all `total` of them, `offset` carries
+   * no meaning, and it must not be zipped positionally against a page from a
+   * different selection.
+   */
+  lod: boolean;
   /** Field table, in header order. */
   fields: RuxpField[];
   /**
@@ -82,13 +89,22 @@ const FIELD_DESCRIPTOR_BYTES = 16;
 const SUPPORTED_VERSION = 1;
 
 /**
+ * `flags` bit 0 — a level-of-detail page (#320).
+ *
+ * Set only in answer to `max_points`, which is why defining it needed no
+ * version bump: the byte layout did not change, and a reader that predates it
+ * can only ever meet it by asking for it.
+ */
+export const RUXP_FLAG_LOD = 0x1;
+
+/**
  * Flag bits this reader knows how to honour.
  *
- * v1 defines none, so any bit set is a page written by something that expects
- * the reader to do something it has never heard of — byte-swapping, say, or
- * decoding quantised positions. Refusing is the whole reason the field exists.
+ * Any other bit is a page written by something that expects the reader to do
+ * something it has never heard of — byte-swapping, say, or decoding quantised
+ * positions. Refusing is the whole reason the field exists.
  */
-const KNOWN_FLAGS = 0;
+const KNOWN_FLAGS = RUXP_FLAG_LOD;
 
 const TYPE_SIZES: Record<RuxpFieldType, number> = { f32: 4, u8: 1, u32: 4 };
 
@@ -143,8 +159,12 @@ export function parseRuxp(buffer: ArrayBuffer): RuxpPage {
   const offset = readU64(header, 24, 'offset');
   const total = readU64(header, 32, 'total');
 
-  if (flags !== KNOWN_FLAGS) {
-    throw new Error(`RUXP: unknown flags 0x${flags.toString(16)} set; v1 defines none`);
+  const unknownFlags = flags & ~KNOWN_FLAGS;
+  if (unknownFlags !== 0) {
+    throw new Error(
+      `RUXP: unknown flags 0x${unknownFlags.toString(16)} set; this reader knows ` +
+        `0x${KNOWN_FLAGS.toString(16)}`,
+    );
   }
 
   const expectedHeaderSize = FIXED_HEADER_BYTES + FIELD_DESCRIPTOR_BYTES * fieldCount;
@@ -234,6 +254,7 @@ export function parseRuxp(buffer: ArrayBuffer): RuxpPage {
     count,
     offset,
     total,
+    lod: (flags & RUXP_FLAG_LOD) !== 0,
     fields,
     view(name: string): RuxpView | null {
       const cached = views.get(name);

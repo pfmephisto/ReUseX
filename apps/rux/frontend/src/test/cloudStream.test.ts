@@ -23,6 +23,7 @@
 import { describe, expect, it } from 'vitest';
 import { ApiRequestError } from '../api/client';
 import type { CloudPointsPage } from '../api/types';
+import { pageIsLod } from '../viewport/decode';
 import { createPageFetcher, type PointsClient } from '../viewport/useCloudStream';
 import { CLOUD_POINTS_PAGE } from './fixtures';
 import { XYZRGB_THREE_POINTS, buildRuxpPage } from './ruxpPage';
@@ -31,6 +32,8 @@ interface Recorded {
   name: string;
   offset?: number;
   limit?: number;
+  maxPoints?: number;
+  lodSource?: string;
 }
 
 interface Stub {
@@ -82,7 +85,7 @@ describe('createPageFetcher — the happy path', () => {
     const { client, binaryCalls, jsonCalls } = stubClient(RUXP_PAGE);
     const fetchPage = createPageFetcher({ client });
 
-    const result = await fetchPage('cloud', 0, 100);
+    const result = await fetchPage('cloud', { offset: 0, limit: 100 });
     expect(result.format).toBe('binary');
     if (result.format !== 'binary') throw new Error('unreachable');
     expect(result.page.count).toBe(3);
@@ -99,8 +102,36 @@ describe('createPageFetcher — the happy path', () => {
   it('passes offset and limit through unchanged', async () => {
     const { client, binaryCalls } = stubClient(RUXP_PAGE);
     const fetchPage = createPageFetcher({ client });
-    await fetchPage('planes', 400_000, 100_000);
+    await fetchPage('planes', { offset: 400_000, limit: 100_000 });
     expect(binaryCalls[0]).toEqual({ name: 'planes', offset: 400_000, limit: 100_000 });
+  });
+
+  it('passes an overview query through unchanged, including lodSource', async () => {
+    // The fetcher is transport negotiation and nothing else — it must not have
+    // an opinion about which of the endpoint's two modes it is carrying (#320).
+    const { client, binaryCalls } = stubClient(RUXP_PAGE);
+    const fetchPage = createPageFetcher({ client });
+    await fetchPage('labels', { maxPoints: 200_000, lodSource: 'cloud' });
+    expect(binaryCalls[0]).toEqual({ name: 'labels', maxPoints: 200_000, lodSource: 'cloud' });
+  });
+
+  it('reports the LOD flag on a page that carries it', async () => {
+    const { client } = stubClient(() => buildRuxpPage({ ...XYZRGB_THREE_POINTS, flags: 1 }));
+    const result = await createPageFetcher({ client })('cloud', { maxPoints: 3 });
+    expect(result.format).toBe('binary');
+    expect(pageIsLod(result)).toBe(true);
+  });
+
+  it('reads a JSON overview answer as LOD too', async () => {
+    // The two transports say the same thing differently, and the caller must
+    // not have to know which one it got.
+    const { client } = stubClient(() => notImplemented());
+    const result = await createPageFetcher({ client })('cloud', { maxPoints: 3 });
+    expect(result.format).toBe('json');
+    // The stub's JSON fixture carries no `lod` field — an old server that
+    // ignored `max_points` and answered with an ordinary prefix.
+    expect(pageIsLod(result)).toBe(false);
+    expect(pageIsLod({ format: 'json', page: { ...CLOUD_POINTS_PAGE, lod: true } })).toBe(true);
   });
 });
 
@@ -110,7 +141,7 @@ describe('createPageFetcher — falling back to JSON', () => {
     const fetchPage = createPageFetcher({ client });
 
     for (const offset of [0, 100, 200]) {
-      const result = await fetchPage('cloud', offset, 100);
+      const result = await fetchPage('cloud', { offset, limit: 100 });
       expect(result.format).toBe('json');
     }
 
@@ -127,8 +158,8 @@ describe('createPageFetcher — falling back to JSON', () => {
     const { client, binaryCalls, jsonCalls } = stubClient(jsonBody);
     const fetchPage = createPageFetcher({ client });
 
-    expect((await fetchPage('cloud', 0, 100)).format).toBe('json');
-    expect((await fetchPage('cloud', 100, 100)).format).toBe('json');
+    expect((await fetchPage('cloud', { offset: 0, limit: 100 })).format).toBe('json');
+    expect((await fetchPage('cloud', { offset: 100, limit: 100 })).format).toBe('json');
     expect(binaryCalls).toHaveLength(1);
     expect(jsonCalls).toHaveLength(2);
   });
@@ -136,7 +167,7 @@ describe('createPageFetcher — falling back to JSON', () => {
   it('re-serves the page it fell back on, rather than dropping it', async () => {
     const { client, jsonCalls } = stubClient(() => notImplemented());
     const fetchPage = createPageFetcher({ client });
-    const result = await fetchPage('cloud', 700, 50);
+    const result = await fetchPage('cloud', { offset: 700, limit: 50 });
     // The offset that failed over binary is the offset refetched over JSON —
     // losing it would leave a hole in the cloud, silently.
     expect(jsonCalls[0]).toEqual({ name: 'cloud', offset: 700, limit: 50 });
@@ -148,8 +179,8 @@ describe('createPageFetcher — falling back to JSON', () => {
   it('shares one latch across the geometry and label clouds of a stream', async () => {
     const { client, binaryCalls } = stubClient(() => notImplemented());
     const fetchPage = createPageFetcher({ client });
-    await fetchPage('cloud', 0, 100);
-    await fetchPage('labels', 0, 100);
+    await fetchPage('cloud', { offset: 0, limit: 100 });
+    await fetchPage('labels', { offset: 0, limit: 100 });
     // The two clouds are served by the same server; discovering it twice would
     // be one wasted request per page, not per stream.
     expect(binaryCalls).toHaveLength(1);
@@ -157,8 +188,8 @@ describe('createPageFetcher — falling back to JSON', () => {
 
   it('gives a fresh fetcher a fresh latch, so a restarted server is retried', async () => {
     const { client, binaryCalls } = stubClient(() => notImplemented());
-    await createPageFetcher({ client })('cloud', 0, 100);
-    await createPageFetcher({ client })('cloud', 0, 100);
+    await createPageFetcher({ client })('cloud', { offset: 0, limit: 100 });
+    await createPageFetcher({ client })('cloud', { offset: 0, limit: 100 });
     expect(binaryCalls).toHaveLength(2);
   });
 });
@@ -176,7 +207,7 @@ describe('createPageFetcher — errors that are not a fallback', () => {
     const { client, jsonCalls } = stubClient(truncated);
     const fetchPage = createPageFetcher({ client, delay: async () => {} });
 
-    await expect(fetchPage('cloud', 0, 100)).rejects.toThrow(/RUXP/);
+    await expect(fetchPage('cloud', { offset: 0, limit: 100 })).rejects.toThrow(/RUXP/);
     expect(jsonCalls).toHaveLength(0);
   });
 
@@ -192,7 +223,7 @@ describe('createPageFetcher — errors that are not a fallback', () => {
       },
     });
 
-    const result = await fetchPage('cloud', 0, 100);
+    const result = await fetchPage('cloud', { offset: 0, limit: 100 });
     expect(result.format).toBe('binary');
     expect(binaryCalls).toHaveLength(3);
     expect(waits).toEqual([150, 300]); // exponential, not a busy loop
@@ -201,7 +232,7 @@ describe('createPageFetcher — errors that are not a fallback', () => {
   it('gives up on a 503 that will not clear', async () => {
     const { client, binaryCalls } = stubClient(() => locked());
     const fetchPage = createPageFetcher({ client, delay: async () => {} });
-    await expect(fetchPage('cloud', 0, 100)).rejects.toThrow(/locked/);
+    await expect(fetchPage('cloud', { offset: 0, limit: 100 })).rejects.toThrow(/locked/);
     // Four attempts: the first plus RETRY_LIMIT retries.
     expect(binaryCalls).toHaveLength(4);
   });
@@ -210,7 +241,7 @@ describe('createPageFetcher — errors that are not a fallback', () => {
     const missing = new ApiRequestError(404, 'no such cloud', '/api/v1/clouds/nope/points');
     const { client, binaryCalls, jsonCalls } = stubClient(() => missing);
     const fetchPage = createPageFetcher({ client, delay: async () => {} });
-    await expect(fetchPage('nope', 0, 100)).rejects.toBe(missing);
+    await expect(fetchPage('nope', { offset: 0, limit: 100 })).rejects.toBe(missing);
     expect(binaryCalls).toHaveLength(1);
     expect(jsonCalls).toHaveLength(0);
   });
@@ -224,7 +255,7 @@ describe('createPageFetcher — errors that are not a fallback', () => {
       isCancelled: () => true,
       delay: async () => {},
     });
-    await expect(fetchPage('cloud', 0, 100)).rejects.toThrow(/locked/);
+    await expect(fetchPage('cloud', { offset: 0, limit: 100 })).rejects.toThrow(/locked/);
     expect(binaryCalls).toHaveLength(1);
   });
 });

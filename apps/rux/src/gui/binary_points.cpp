@@ -95,7 +95,12 @@ bool ruxp_supports(std::string_view point_type) {
   return !fields_for(point_type).empty();
 }
 
-std::vector<uint8_t> encode_ruxp(const reusex::ProjectDB::CloudPage &page) {
+std::vector<uint8_t> encode_ruxp(const reusex::ProjectDB::CloudPage &page,
+                                 uint32_t flags) {
+  if ((flags & ~kRuxpKnownFlags) != 0)
+    throw std::runtime_error("RUXP flags 0x" + std::to_string(flags) +
+                             " contain a bit this encoder does not define");
+
   const auto fields = fields_for(page.point_type);
   if (fields.empty())
     throw std::runtime_error("RUXP has no field layout for point type '" +
@@ -132,7 +137,7 @@ std::vector<uint8_t> encode_ruxp(const reusex::ProjectDB::CloudPage &page) {
   std::memcpy(out.data(), kMagic.data(), kMagic.size());
   put_u16(out, 4, kRuxpVersion);
   put_u16(out, 6, static_cast<uint16_t>(header_size));
-  put_u32(out, 8, 0); // flags
+  put_u32(out, 8, flags);
   put_u32(out, 12, static_cast<uint32_t>(fields.size()));
   put_u32(out, 16, static_cast<uint32_t>(count));
   put_u32(out, 20, 0); // reserved

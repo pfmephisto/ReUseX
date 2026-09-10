@@ -68,7 +68,13 @@ export function Viewport({
   }, [scene, pointSize]);
 
   useEffect(() => {
-    for (const layer of layers) scene?.setLayerVisible(layer.cloud, layer.visible);
+    for (const layer of layers) {
+      scene?.setLayerVisible(layer.cloud, layer.visible);
+      // The coarse overview is part of the same layer as far as the user is
+      // concerned, so it has to follow the same toggle. Missing this would
+      // leave a ghost of a hidden layer on screen until its stream finished.
+      scene?.setLayerVisible(overviewLayerId(layer.cloud), layer.visible);
+    }
   }, [scene, layers]);
 
   useEffect(() => {
@@ -121,11 +127,18 @@ function CloudLayerLoader({
   const state = useCloudStream({
     cloud: layer.cloud,
     labelCloud: layer.labelCloud,
-    onPage: (buffers) => {
-      scene.addPage(layer.cloud, buffers);
-      scene.setLayerVisible(layer.cloud, layer.visible);
+    onPage: (buffers, kind) => {
+      // The overview goes into a layer of its own so it can be dropped whole
+      // once the full-resolution pages have covered the same ground. Its
+      // points are a subset of theirs at identical coordinates, so while both
+      // are resident they coincide rather than fight — no z-fighting, just a
+      // scene that is complete from the first request instead of the last.
+      const id = kind.overview ? overviewLayerId(layer.cloud) : layer.cloud;
+      scene.addPage(id, buffers);
+      scene.setLayerVisible(id, layer.visible);
       onFirstContent();
     },
+    onOverviewSuperseded: () => scene.removeLayer(overviewLayerId(layer.cloud)),
   });
 
   useEffect(() => {
@@ -136,8 +149,21 @@ function CloudLayerLoader({
   }, [layer.cloud, state]);
 
   useEffect(() => {
-    return () => scene.removeLayer(layer.cloud);
+    return () => {
+      scene.removeLayer(layer.cloud);
+      scene.removeLayer(overviewLayerId(layer.cloud));
+    };
   }, [scene, layer.cloud]);
 
   return null;
+}
+
+/**
+ * Scene layer id for a cloud's coarse overview (#320).
+ *
+ * `::` cannot appear in a cloud name (they are SQL identifiers written by the
+ * pipeline), so this can never collide with the layer of a real cloud.
+ */
+function overviewLayerId(cloud: string): string {
+  return `${cloud}::overview`;
 }

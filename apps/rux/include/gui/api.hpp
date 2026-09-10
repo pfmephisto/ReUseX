@@ -220,8 +220,15 @@ nlohmann::json cloud_labels_json(const reusex::ProjectDB &db,
 /// Backed by ProjectDB::point_cloud_page(), so it reads only the bytes the
 /// page occupies. Use cloud_points() to serve the endpoint — this is the
 /// `format=json` half of it.
+///
+/// With `max_points` (#320) the answer is instead a voxel-subsampled view of
+/// the *whole* cloud, and the body carries `lod` (and `voxel_size` when it is
+/// true). `max_points` is mutually exclusive with `offset`/`limit`; see
+/// docs/gui/binary-points.md § "Level of detail".
 /// @throws HttpError(404) when @p name is not a stored cloud, HttpError(400)
-///         on a malformed `offset`/`limit`.
+///         on a malformed `offset`/`limit`/`max_points`, on `max_points`
+///         combined with `offset`/`limit`, or on a `max_points` request
+///         against a cloud with no positions and no usable `lod_source`.
 nlohmann::json cloud_points_json(const reusex::ProjectDB &db,
                                  const std::string &name, const Params &params);
 

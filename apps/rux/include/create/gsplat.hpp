@@ -55,6 +55,7 @@ struct SubcommandCreateGsplatOptions {
   double pano_fov_deg = 90.0;
   int pano_tile = 1024;
 
+  std::string splat_name = "splat";
   std::string out_ply;
   std::string render_dir;
   std::vector<int> render_iterations;

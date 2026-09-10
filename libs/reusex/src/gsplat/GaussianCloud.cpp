@@ -208,21 +208,15 @@ GaussianCloud init_from_point_cloud(const CloudPtr &cloud,
 // .ply I/O — the reference 3DGS layout (binary_little_endian, float32).
 // ---------------------------------------------------------------------------
 
-void save_gaussian_ply(const GaussianCloud &gaussians,
-                       const std::filesystem::path &path) {
+std::vector<std::uint8_t> gaussian_ply_bytes(const GaussianCloud &gaussians) {
   gaussians.validate();
   if (gaussians.empty())
-    throw std::runtime_error("gsplat: refusing to write an empty .ply");
+    throw std::runtime_error("gsplat: refusing to serialize an empty .ply");
 
   const std::size_t n = gaussians.size();
   const int rest = gaussians.sh_rest.empty()
                        ? 0
                        : static_cast<int>(gaussians.sh_rest.front().size());
-
-  std::ofstream out(path, std::ios::binary);
-  if (!out)
-    throw std::runtime_error(
-        fmt::format("gsplat: cannot open '{}' for writing", path.string()));
 
   std::ostringstream hdr;
   hdr << "ply\nformat binary_little_endian 1.0\n";
@@ -242,10 +236,15 @@ void save_gaussian_ply(const GaussianCloud &gaussians,
     hdr << "property float rot_" << i << "\n";
   hdr << "end_header\n";
   const std::string header = hdr.str();
-  out.write(header.data(), static_cast<std::streamsize>(header.size()));
+
+  const std::size_t row_floats =
+      static_cast<std::size_t>(3 + 3 + 3 + rest + 1 + 3 + 4);
+  std::vector<std::uint8_t> bytes;
+  bytes.reserve(header.size() + n * row_floats * sizeof(float));
+  bytes.insert(bytes.end(), header.begin(), header.end());
 
   std::vector<float> row;
-  row.reserve(3 + 3 + 3 + rest + 1 + 3 + 4);
+  row.reserve(row_floats);
   for (std::size_t i = 0; i < n; ++i) {
     row.clear();
     row.insert(row.end(), gaussians.means[i].begin(), gaussians.means[i].end());
@@ -258,15 +257,29 @@ void save_gaussian_ply(const GaussianCloud &gaussians,
     row.insert(row.end(), gaussians.scales[i].begin(),
                gaussians.scales[i].end());
     row.insert(row.end(), gaussians.quats[i].begin(), gaussians.quats[i].end());
-    out.write(reinterpret_cast<const char *>(row.data()),
-              static_cast<std::streamsize>(row.size() * sizeof(float)));
+
+    const auto *raw = reinterpret_cast<const std::uint8_t *>(row.data());
+    bytes.insert(bytes.end(), raw, raw + row.size() * sizeof(float));
   }
+  return bytes;
+}
+
+void save_gaussian_ply(const GaussianCloud &gaussians,
+                       const std::filesystem::path &path) {
+  const auto bytes = gaussian_ply_bytes(gaussians);
+
+  std::ofstream out(path, std::ios::binary);
+  if (!out)
+    throw std::runtime_error(
+        fmt::format("gsplat: cannot open '{}' for writing", path.string()));
+  out.write(reinterpret_cast<const char *>(bytes.data()),
+            static_cast<std::streamsize>(bytes.size()));
   if (!out)
     throw std::runtime_error(
         fmt::format("gsplat: write failed for '{}'", path.string()));
 
-  reusex::info("gsplat: wrote {} Gaussians (SH degree {}) to {}", n,
-               gaussians.sh_degree, path.string());
+  reusex::info("gsplat: wrote {} Gaussians (SH degree {}) to {}",
+               gaussians.size(), gaussians.sh_degree, path.string());
 }
 
 GaussianCloud load_gaussian_ply(const std::filesystem::path &path) {

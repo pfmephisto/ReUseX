@@ -97,7 +97,7 @@ TEST_CASE("ProjectDbSchemaVersion_FreshPointCloudDatabase_IsLatest",
           "[projectdb]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
-  REQUIRE(db.schema_version() == 11);
+  REQUIRE(db.schema_version() == 12);
 }
 
 TEST_CASE("SavePointCloud_XyzrgbCloud_RoundTripsExactly", "[projectdb]") {
@@ -313,7 +313,7 @@ TEST_CASE("ProjectDbFreshDatabase_V1TablesAndPassportTables_AreUsableAndValid",
 
   // Fresh DB should create passport tables + v1 tables in one pass
   ProjectDB db(tmp.path);
-  REQUIRE(db.schema_version() == 11);
+  REQUIRE(db.schema_version() == 12);
 
   // V1 tables should work
   REQUIRE_FALSE(db.has_point_cloud("anything"));
@@ -545,7 +545,7 @@ TEST_CASE("ProjectDbFreshDatabase_V2TablesQueried_AreEmptyAtLatestSchema",
   TempDB tmp;
 
   ProjectDB db(tmp.path);
-  REQUIRE(db.schema_version() == 11);
+  REQUIRE(db.schema_version() == 12);
 
   // V2 tables should work
   REQUIRE_FALSE(db.has_segmentation_image(1));

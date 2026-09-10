@@ -224,6 +224,37 @@ export class PointCloudScene {
     return !this.bounds.isEmpty();
   }
 
+  /**
+   * The scene root, so a sibling layer can draw with this camera (#322).
+   *
+   * The Gaussian-splat layer is the caller: it renders through its own shader
+   * but must share the camera and `OrbitControls`, or the viewport would have
+   * two cameras the user has to orbit separately.
+   */
+  sceneRoot(): THREE.Scene {
+    return this.scene;
+  }
+
+  /**
+   * Register world-space bounds for content this scene draws but does not own,
+   * and get back the offset that content must be positioned by.
+   *
+   * Two things at once because they are two halves of the same fact. The
+   * recentring described above applies to *everything* in this scene, not just
+   * to points: a splat left at its georeferenced coordinates while the cloud is
+   * recentred lands kilometres away. And bounds a layer never contributed are
+   * bounds `frameAll` cannot frame — which is exactly the splat-only case,
+   * where no page has run `growBounds`.
+   *
+   * @param box World-space bounds, in the same frame the point pages arrive in.
+   * @returns The recentring origin, adopted from @p box if none is set yet.
+   */
+  registerExternalBounds(box: THREE.Box3): THREE.Vector3 {
+    if (!this.origin) this.origin = box.getCenter(new THREE.Vector3());
+    this.bounds.union(box);
+    return this.origin.clone();
+  }
+
   removeLayer(layerId: string): void {
     const layer = this.layers.get(layerId);
     if (!layer) return;

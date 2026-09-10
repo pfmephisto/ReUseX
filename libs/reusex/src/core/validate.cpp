@@ -280,6 +280,12 @@ bool present(const ProjectDB &db, const ProjectState &state,
     return state.cloud_points.find(name) != state.cloud_points.end();
   case ArtifactKind::mesh:
     return state.meshes.find(name) != state.meshes.end();
+  case ArtifactKind::gaussian_splat:
+    // Queried straight from the database rather than pre-collected into
+    // ProjectState: a project holds a handful of splats and nothing consumes
+    // one today, so caching the list would cost every validation run a query
+    // to answer a question nobody asks.
+    return db.has_gaussian_splat(name);
   case ArtifactKind::table:
     if (table_rows(state, name) < std::max(min_rows, 1))
       return false;
@@ -387,7 +393,10 @@ std::string missing_message(std::string_view stage, const Artifact &artifact,
         names.front().effective, artifact.description);
   }
 
-  const char *kind = artifact.kind == ArtifactKind::mesh ? "mesh" : "cloud";
+  const char *kind = artifact.kind == ArtifactKind::mesh ? "mesh"
+                     : artifact.kind == ArtifactKind::gaussian_splat
+                         ? "Gaussian splat"
+                         : "cloud";
   if (names.size() == 1)
     return fmt::format("stage '{}' requires {} '{}' which is not present in "
                        "the project",

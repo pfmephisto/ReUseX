@@ -302,11 +302,41 @@ Mutating routes are gated on `Content-Type: application/json`, and that gate
 keys on *whether the method mutates* rather than on `POST` specifically, so a
 future route cannot opt out of CSRF protection by choosing a different verb.
 
+## Gaussian splats
+
+`rux create gsplat` stores the model it trains **in the project** (schema v12),
+exactly as `rux create mesh` stores a mesh, so `/gsplats` is an ordinary
+project read and no filesystem path appears anywhere in the contract. A `.ply`
+from a run made before v12, or from another 3DGS implementation, comes in with
+`rux import gsplat`.
+
+The header is validated on the way into the project rather than on the way
+out. That check matters more than it sounds: `rux export ply` writes a
+perfectly valid PLY with no `f_dc_*`/`opacity`/`scale_*`/`rot_*` properties,
+and without it, pointing the importer at one would produce an empty viewport
+with no explanation. It is also where `gaussian_count` and `sh_degree` come
+from, so a row can never describe a different model than the one stored.
+
+`/gsplats` is unpaged, unlike `/clouds` and `/meshes`. A project holds a
+handful of splats — one per training run somebody chose to keep — not a number
+that grows with the size of the scan.
+
+In the frontend the splats are layers beside the point cloud, sharing one
+canvas, one camera and one `OrbitControls`
+(`apps/rux/frontend/src/viewport/SplatScene.ts`), each toggled independently
+from the layer panel. Nothing is **downloaded** until a toggle is switched on:
+unlike a cloud, which streams in pages, a splat is a single response of
+hundreds of megabytes, so the panel shows the size and the Gaussian count and
+lets the user decide. `?splat=<name>` deep-links one on.
+
 ## Running it
 
 ```bash
 rux -p scan.rux gui --port 8420 --no-browser
 curl -s localhost:8420/api/v1/project | jq
+
+# What Gaussian splats does this project hold, and what do they cost to load?
+curl -s localhost:8420/api/v1/gsplats | jq
 ```
 
 See `rux gui --help` for the asset directory, bind address and browser flags.

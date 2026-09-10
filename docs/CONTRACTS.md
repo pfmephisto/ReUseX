@@ -57,7 +57,10 @@ subcommand makes, so a stage that validates cannot then be refused when run.
   project can depend on a file on disk, so they are invisible to
   `producing_stage()`, to the DAG assertion and to `check_stage_inputs()`. A
   stage may legitimately have an empty **Produces** row as long as it has one
-  of these; `gsplat` is the only such stage today.
+  of these. **No stage does today**: `gsplat` was the last one, and #322 moved
+  its trained model into the project. The field stays because the reason for it
+  has not — a future stage whose product cannot be a `ProjectDB` row still
+  needs somewhere to say so.
 
 ## Stages
 
@@ -197,16 +200,20 @@ Train a 3D Gaussian splat from the fused cloud and the posed sensor frames.
 | | |
 |---|---|
 | Consumes | `cloud`, `sensor_frames` |
-| Produces | nothing in the project — see External below |
-| External | a 3D Gaussian Splatting `.ply` at `-o/--out`, plus optional checkpoint PNGs under `--render-dir` |
+| Produces | `splat` |
 | Options  | `GsplatStageOptions` (`libs/reusex/include/gsplat/train.hpp`) |
 | Checks   | seed cloud present; ≥2 stored sensor frames |
 
-**This stage writes nothing into the `.rux`.** Its product is a file on disk at
-the path given by `-o/--out`; the project only gains a `pipeline_log` row
-recording that the run happened. That is why its **Produces** row is empty and
-its output is described in prose instead — see the External artifacts bullet
-under Conventions.
+`splat` is a row in the `gaussian_splats` table (schema v12) holding the
+INRIA-format `.ply` the trainer produced, alongside its Gaussian count and
+spherical-harmonic degree. `--name <name>` overrides the declared name, the
+same way `--seed-cloud` overrides `cloud`. An INRIA `.ply` trained elsewhere —
+or by a run predating v12 — is brought in with `rux import gsplat`.
+
+`-o/--out` additionally writes the identical bytes to a file, and
+`--render-dir` writes checkpoint PNGs. Neither is a contract artifact: they are
+an export and a diagnostic, and nothing in the project depends on them. See
+`rux create gsplat --help`.
 
 `--seed-cloud <name>` overrides `cloud`. Content-aligned 360 panoramas are an
 **optional extra source of training views** (`--use-panoramas`), not a
@@ -228,7 +235,7 @@ rasterizer.
 ```
 import → (optimize|register) → clouds → planes → rooms → mesh → texture
                                   ↘ annotate → project → instances → windows
-                                  ↘ gsplat (leaf: writes a .ply, not the project)
+                                  ↘ gsplat (leaf: produces `splat`)
 ```
 
 Stage order in the table is load-bearing and asserted by a test: an input may

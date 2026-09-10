@@ -7,6 +7,7 @@
 #include "gui/api.hpp"
 #include "gui/assets.hpp"
 #include "gui/edits.hpp"
+#include "gui/gsplat.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/pipeline/JobRunner.hpp>
@@ -632,6 +633,28 @@ class Server::Impl {
         [this](const crow::request &, std::string name, std::string texture) {
           return with_db([&](const reusex::ProjectDB &db) {
             return blob_response(mesh_texture_blob(db, name, texture));
+          });
+        });
+
+    // ---- gaussian splats (#322) ----
+    get("/api/v1/gsplats")([this](const crow::request &req) {
+      const Params params = params_of(req);
+      return with_db([&](const reusex::ProjectDB &db) {
+        return json_response(200, gsplats_json(db, params));
+      });
+    });
+
+    get("/api/v1/gsplats/<string>")(
+        [this](const crow::request &, std::string name) {
+          return with_db([&](const reusex::ProjectDB &db) {
+            return json_response(200, gsplat_json(db, name));
+          });
+        });
+
+    get("/api/v1/gsplats/<string>/data")(
+        [this](const crow::request &, std::string name) {
+          return with_db([&](const reusex::ProjectDB &db) {
+            return blob_response(gsplat_blob(db, name));
           });
         });
 

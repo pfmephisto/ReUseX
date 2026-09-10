@@ -103,6 +103,26 @@ export interface MeshInfo {
   texture_count?: number;
 }
 
+/**
+ * `GsplatInfo` — one Gaussian splat stored in the project (#322).
+ *
+ * Produced by `rux create gsplat` (or brought in with `rux import gsplat`) and
+ * stored in the `.rux` like a mesh, so this is metadata about a project row,
+ * never a filesystem path.
+ */
+export interface GsplatInfo {
+  name: string;
+  /** Storage format of the blob. `ply` is the INRIA 3DGS layout. */
+  format: 'ply';
+  gaussian_count: number;
+  /** 0 means view-independent colour, not "missing". */
+  sh_degree: number;
+  byte_size: number;
+  stage?: string;
+  parameters?: string;
+  created_at?: string;
+}
+
 /** `TextureInfo` — texture metadata (never the image bytes). */
 export interface TextureInfo {
   tex_name: string;

@@ -193,28 +193,25 @@ TEST_CASE("StageContractTable_Outputs_HaveFirstProducer", "[core][contract]") {
 TEST_CASE("StageContractTable_EveryStage_ProducesInProjectOrExternalArtifact",
           "[core][contract]") {
   // A stage that produces nothing at all is either a half-filled table row or a
-  // stage that does not belong in the pipeline — but "has a non-empty
-  // `outputs`" is the wrong way to say that, because `gsplat` writes a .ply on
-  // disk and nothing into the project. The invariant is "produces something",
-  // with `external_outputs` carrying the other half of "something".
+  // stage that does not belong in the pipeline. The invariant is "produces
+  // something", and `external_outputs` carries the other half of "something"
+  // for a stage whose whole product is a file on disk.
   //
-  // The two witnesses are what stop the invariant going vacuous: without them a
-  // table in which every row had drifted onto the same branch would still pass,
-  // and this case would no longer be testing the branch that motivated the
-  // field.
+  // There is no such stage today: `gsplat` was the only one, and #322 moved its
+  // model into the project. The branch is kept rather than deleted because the
+  // *reason* it exists has not gone away — a future stage whose product cannot
+  // be a `ProjectDB` row still needs somewhere to say so, and `outputs` is not
+  // it (see the field's comment). So this asserts the invariant and the
+  // in-project witness, and deliberately does not require an external-only one.
   bool saw_in_project_producer = false;
-  bool saw_external_only_producer = false;
   for (const auto &contract : stage_contracts()) {
     INFO("stage " << contract.name);
     CHECK((!contract.outputs.empty() || !contract.external_outputs.empty()));
 
     if (!contract.outputs.empty())
       saw_in_project_producer = true;
-    else if (!contract.external_outputs.empty())
-      saw_external_only_producer = true;
   }
   CHECK(saw_in_project_producer);
-  CHECK(saw_external_only_producer);
 }
 
 TEST_CASE("StageContractTable_InProjectProducers_DeclareNoExternalOutputs",

@@ -6,6 +6,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <vector>
 
@@ -96,9 +97,20 @@ struct GaussianInitOptions {
 GaussianCloud init_from_point_cloud(const CloudPtr &cloud,
                                     const GaussianInitOptions &opt = {});
 
-/// Write a 3DGS-format binary-little-endian `.ply` (the property names the
-/// reference implementation and every common viewer expect: x/y/z, nx/ny/nz,
-/// f_dc_*, f_rest_*, opacity, scale_*, rot_*).
+/// Serialize to a 3DGS-format binary-little-endian `.ply` in memory (the
+/// property names the reference implementation and every common viewer expect:
+/// x/y/z, nx/ny/nz, f_dc_*, f_rest_*, opacity, scale_*, rot_*).
+///
+/// Exists as its own function because the trained splat has **two**
+/// destinations and they must be byte-identical: `ProjectDB` (where the stage
+/// stores it, #322) and an optional `--out` file. Serializing twice would be
+/// two chances to diverge; writing the file and re-reading it would be an
+/// extra pass over hundreds of megabytes.
+///
+/// @throws std::runtime_error if @p gaussians is empty or fails validation.
+std::vector<std::uint8_t> gaussian_ply_bytes(const GaussianCloud &gaussians);
+
+/// Write the bytes of gaussian_ply_bytes() to @p path.
 void save_gaussian_ply(const GaussianCloud &gaussians,
                        const std::filesystem::path &path);
 

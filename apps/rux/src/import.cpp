@@ -7,6 +7,7 @@
 #include "import/arkitscenes.hpp"
 #include "import/csv.hpp"
 #include "import/e57.hpp"
+#include "import/gsplat.hpp"
 #include "import/materialepas.hpp"
 #include "import/mushroom.hpp"
 #include "import/panorama.hpp"
@@ -24,7 +25,7 @@ void setup_subcommand_import(CLI::App &app,
 DESCRIPTION:
   Parent command for importing data from external sources into ReUseX
   project databases. Supports RTABMap SLAM databases, E57 and PLY point
-  clouds, and material passport JSON files.
+  clouds, Gaussian splats, and material passport JSON files.
 
 SUBCOMMANDS:
   rtabmap       Import sensor data from RTABMap SLAM database
@@ -32,6 +33,7 @@ SUBCOMMANDS:
   arkitscenes   Import an ARKitScenes scene (lowres iPad-LiDAR RGB-D)
   e57           Import point cloud from an E57 file
   ply           Import point cloud from a PLY file
+  gsplat        Import a 3D Gaussian Splatting .ply
   materialepas  Import material passports from JSON file
   csv           Reimport an edited element CSV (from 'rux export csv')
   360           Import 360 panoramic images
@@ -42,6 +44,7 @@ EXAMPLES:
   rux import arkitscenes <scene_dir>   # Import ARKitScenes scene
   rux import e57 scan.e57              # Import E57 point cloud
   rux import ply cloud.ply             # Import PLY point cloud
+  rux import gsplat splat.ply          # Import a Gaussian splat
   rux import materialepas data.json    # Import material passports
   rux import csv elements.csv          # Reimport edited element CSV
   rux import 360 /path/to/photos/     # Import 360 panoramic images
@@ -58,6 +61,7 @@ NOTES:
   setup_subcommand_import_arkitscenes(*sub, global_opt);
   setup_subcommand_import_e57(*sub, global_opt);
   setup_subcommand_import_ply(*sub, global_opt);
+  setup_subcommand_import_gsplat(*sub, global_opt);
   setup_subcommand_import_materialepas(*sub, global_opt);
   setup_subcommand_import_csv(*sub, global_opt);
   setup_subcommand_import_panorama(*sub, global_opt);

@@ -12,6 +12,7 @@
 #include "reusex/types/point_types.hpp"
 
 #include <array>
+#include <cstdint>
 #include <filesystem>
 #include <map>
 #include <memory>
@@ -54,6 +55,7 @@ class ProjectDB {
    * - point_clouds / point_cloud_data: Point cloud storage
    * - label_definitions: Semantic label lookup
    * - meshes: Mesh storage
+   * - gaussian_splats / gaussian_splat_data: Gaussian splat storage
    * - sensor_frames: Imported sensor frame color images
    * - segmentation_images: Per-frame semantic label images
    * - pipeline_log: Pipeline provenance log
@@ -351,6 +353,69 @@ class ProjectDB {
   std::vector<MeshTextureMetadata>
   mesh_texture_metadata(std::string_view name) const;
 
+  // --- Gaussian Splat Operations ---
+  //
+  // A trained splat is stored verbatim, as the INRIA `.ply` bytes, chunked
+  // across `gaussian_splat_data` rows the same way point clouds are: a splat
+  // is routinely hundreds of MB and SQLite materializes a whole blob column
+  // on read, so a single-row layout would cost peak memory proportional to
+  // the entire file even to answer "how many Gaussians".
+  //
+  // The bytes are opaque to core — nothing here inflates a splat into a
+  // geometry type. What core *does* own is the guarantee that the bytes are a
+  // splat at all: `save_gaussian_splat()` parses the PLY header
+  // (core/gaussian_splat.hpp) and refuses anything else, so the point-cloud
+  // PLY that `rux export ply` writes is rejected at the door instead of
+  // reaching a renderer that would draw nothing and say nothing.
+
+  /// One row of the `gaussian_splats` table, minus the payload.
+  struct GaussianSplatMetadata {
+    std::string name;
+    std::string format; ///< "ply" (INRIA 3DGS layout) — the only one today.
+    std::uint64_t gaussian_count = 0;
+    int sh_degree = 0;           ///< Derived from the `f_rest_*` count.
+    std::uint64_t byte_size = 0; ///< Size of the stored `.ply`, in bytes.
+    std::string created_at;
+    std::string stage;      ///< Pipeline stage that produced it, may be empty.
+    std::string parameters; ///< JSON provenance, may be empty.
+  };
+
+  /// Store an INRIA-format 3DGS `.ply` under @p name, replacing any splat
+  /// already stored under it (chunks of the previous payload are dropped, so
+  /// a re-save never leaves orphaned rows behind).
+  ///
+  /// The header is parsed for two reasons, not one: it yields the metadata
+  /// (`gaussian_count`, `sh_degree`) without a second source of truth, and it
+  /// rejects a file that is not a Gaussian splat *before* several hundred MB
+  /// are committed to the project.
+  ///
+  /// @throws std::runtime_error if @p ply is not an INRIA 3DGS PLY.
+  void save_gaussian_splat(std::string_view name,
+                           const std::vector<uint8_t> &ply,
+                           std::string_view stage = "",
+                           std::string_view parameters = "");
+
+  /// False — not an error — on a project whose schema predates the splat
+  /// tables, which is what a read-only open of an old project looks like
+  /// (read-only opens never migrate).
+  bool has_gaussian_splat(std::string_view name) const;
+
+  /// Empty on a pre-v12 schema, for the same reason as
+  /// `has_gaussian_splat()`.
+  std::vector<std::string> list_gaussian_splats() const;
+
+  /// @throws std::runtime_error when there is no splat named @p name.
+  GaussianSplatMetadata gaussian_splat_metadata(std::string_view name) const;
+
+  /// The stored bytes, reassembled from their chunks — byte-for-byte what
+  /// `save_gaussian_splat()` was given.
+  /// @throws std::runtime_error when there is no splat named @p name.
+  std::vector<uint8_t> gaussian_splat_blob(std::string_view name) const;
+
+  /// Deleting the metadata row cascades to its data chunks.
+  /// @returns false when there was nothing to delete.
+  bool delete_gaussian_splat(std::string_view name);
+
   // --- Building Component Operations ---
   //
   // Persistence speaks only core::ComponentRecord (see
@@ -455,6 +520,9 @@ class ProjectDB {
     std::vector<ProjectInfo> projects;
     std::vector<CloudInfo> clouds;
     std::vector<MeshInfo> meshes;
+    /// Metadata only — the summary never carries a splat's payload, which is
+    /// routinely hundreds of MB. Empty on a pre-v12 schema.
+    std::vector<GaussianSplatMetadata> gaussian_splats;
     SensorFrameInfo sensor_frames;
     PanoramicInfo panoramic_images;
     ComponentInfo components;

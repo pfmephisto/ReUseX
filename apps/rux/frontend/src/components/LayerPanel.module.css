@@ -105,6 +105,81 @@
   color: var(--color-text-faint);
 }
 
+/* --- Gaussian splat layer (#322) ---------------------------------------- */
+
+.splat {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+}
+
+.splat:hover {
+  background: var(--color-surface-overlay);
+}
+
+.splatToggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+  min-width: 0;
+}
+
+.checkbox {
+  accent-color: var(--color-accent);
+  flex: none;
+}
+
+.splatName {
+  font-size: var(--font-size-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.track {
+  height: var(--space-1);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-sunken);
+  overflow: hidden;
+}
+
+.fill {
+  height: 100%;
+  background: var(--color-status-running);
+  transition: width var(--duration-normal) var(--easing-standard);
+}
+
+.indeterminate {
+  width: 35%;
+  animation: splat-sweep 1.2s var(--easing-standard) infinite;
+}
+
+.error {
+  color: var(--color-status-failed);
+  font-size: var(--font-size-xs);
+}
+
+@keyframes splat-sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(300%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .indeterminate {
+    animation: none;
+    width: 100%;
+    opacity: 0.5;
+  }
+}
+
 .action {
   padding: var(--space-2);
   border-radius: var(--radius-sm);

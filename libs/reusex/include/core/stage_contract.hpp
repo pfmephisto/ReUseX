@@ -48,18 +48,18 @@ enum class PipelineStage {
   windows,   ///< derive window building components
   // `gsplat` consumes `cloud` + `sensor_frames`, so anywhere after `clouds`
   // would satisfy the ordering invariant. It sits last because it is a LEAF:
-  // it writes nothing into the project, so no stage can ever depend on it, and
-  // putting it mid-table would read as if the reconstruction spine ran through
-  // it. Leaves at the end also keeps the numbering of the existing stages
-  // stable.
-  gsplat, ///< train a 3D Gaussian splat (writes a .ply outside the project)
+  // it produces a `splat` nothing else consumes, so putting it mid-table would
+  // read as if the reconstruction spine ran through it. Leaves at the end also
+  // keeps the numbering of the existing stages stable.
+  gsplat, ///< train a 3D Gaussian splat and store it in the project
 };
 
 /// What kind of thing a named artifact is inside a `.rux` project.
 enum class ArtifactKind {
-  point_cloud, ///< a named `ProjectDB` point cloud
-  mesh,        ///< a row in the `meshes` table
-  table,       ///< a relational table (`sensor_frames`, `segmentation_images`)
+  point_cloud,    ///< a named `ProjectDB` point cloud
+  mesh,           ///< a row in the `meshes` table
+  gaussian_splat, ///< a row in the `gaussian_splats` table
+  table,          ///< a relational table (`sensor_frames`, …)
 };
 
 /// Which index-alignment class an artifact belongs to.

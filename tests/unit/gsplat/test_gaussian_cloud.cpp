@@ -14,6 +14,9 @@
 #include "../../support/temp_path.hpp"
 
 #include <cmath>
+#include <cstdint>
+#include <fstream>
+#include <iterator>
 #include <limits>
 #include <vector>
 
@@ -199,6 +202,31 @@ TEST_CASE("GaussianPly_RoundTrip_PreservesData", "[gsplat]") {
     REQUIRE(back.opacities[i] == Approx(g.opacities[i]));
     REQUIRE(back.sh_dc[i][1] == Approx(g.sh_dc[i][1]));
   }
+}
+
+TEST_CASE("GaussianPlyBytes_SameCloud_MatchesTheFileSaveWrites", "[gsplat]") {
+  // The "serialize once, store twice" contract (#322): the stage stores these
+  // bytes in the ProjectDB and writes the same buffer to `--out`. If the two
+  // paths could diverge, a project's splat and its exported .ply would be
+  // different models under one name, which is the failure this pins shut.
+  auto cloud = make_grid(4, 0.07f);
+  auto g = gsplat::init_from_point_cloud(cloud);
+
+  reusex::test_support::TempPath tmp("test_gaussian_cloud", ".ply");
+  gsplat::save_gaussian_ply(g, tmp.path);
+
+  std::ifstream in(tmp.path, std::ios::binary);
+  REQUIRE(in.good());
+  const std::vector<std::uint8_t> from_file(
+      (std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+
+  CHECK(gsplat::gaussian_ply_bytes(g) == from_file);
+}
+
+TEST_CASE("GaussianPlyBytes_EmptyCloud_Throws", "[gsplat]") {
+  // A zero-Gaussian "splat" is not a splat; refusing here is what stops an
+  // empty row reaching the project and rendering as nothing.
+  REQUIRE_THROWS(gsplat::gaussian_ply_bytes(gsplat::GaussianCloud{}));
 }
 
 TEST_CASE("GaussianCloudValidate_MismatchedArraySize_NamesOffendingArray",

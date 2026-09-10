@@ -24,6 +24,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <numeric>
 #include <random>
 #include <stdexcept>
@@ -823,14 +824,13 @@ cv::Mat render_view(const GaussianCloud &gaussians, const TrainingView &view) {
 
 TrainResult run_gsplat_stage(ProjectDB &db, const GsplatStageOptions &opt) {
   // Refuse before anything expensive rather than after. Training is a
-  // minutes-to-hours operation; with no `.ply` destination and no checkpoint
-  // renders it produces nothing at all, and the old behaviour was to run the
-  // whole thing and log success (STANDARDS §5).
-  if (opt.out_ply.empty() && opt.train.render_iterations.empty())
+  // minutes-to-hours operation and the project copy is the artifact, so a
+  // blank name is the one way this stage could still finish with nothing to
+  // show for itself (STANDARDS §5).
+  if (opt.splat_name.empty())
     throw std::runtime_error(
-        "gsplat: nothing would be written — pass -o/--out to save the trained "
-        "splat as a .ply (and/or --render-dir with --render-at for checkpoint "
-        "renders). Refusing to train and discard the result.");
+        "gsplat: --name is empty, so the trained splat would have nowhere to "
+        "be stored in the project. Refusing to train and discard the result.");
 
   if (!db.has_point_cloud(opt.seed_cloud))
     throw std::runtime_error(fmt::format(
@@ -842,26 +842,25 @@ TrainResult run_gsplat_stage(ProjectDB &db, const GsplatStageOptions &opt) {
   // default has to be resolved here. Only when checkpointing is actually on:
   // filling the field unconditionally would turn a stray --checkpoint-dir
   // typo into a silently ignored setting.
+  // Checkpoints stay files even though the final splat does not: they are
+  // crash insurance during a run, not project state, and writing a few hundred
+  // megabytes into the project every N iterations only to delete it again
+  // would churn the database for nothing.
   TrainOptions train = opt.train;
   if (train.checkpoint_every > 0 && train.checkpoint_dir.empty()) {
-    if (opt.out_ply.empty())
-      throw std::runtime_error(
-          "gsplat: --checkpoint-every was given but there is nowhere to write "
-          "the checkpoints — pass --checkpoint-dir, or -o/--out so they can go "
-          "beside the output .ply.");
-    const auto parent = opt.out_ply.parent_path();
+    const auto parent = opt.out_ply.empty() ? db.path().parent_path()
+                                            : opt.out_ply.parent_path();
     train.checkpoint_dir = parent.empty() ? std::filesystem::path(".") : parent;
   }
 
   // Same start/finish contract as the sibling create stages, so `rux log`
   // shows the run, its parameters, and whether it succeeded.
-  const int log_id = db.log_pipeline_start(
-      "gsplat",
-      fmt::format(
-          R"({{"seed_cloud":"{}","max_points":{},"sh_degree":{},"iterations":{},"mcmc":{},"holdout_every":{},"checkpoint_every":{},"out":"{}"}})",
-          opt.seed_cloud, opt.init.max_points, opt.init.sh_degree,
-          train.iterations, train.mcmc.enabled ? "true" : "false",
-          train.holdout_every, train.checkpoint_every, opt.out_ply.string()));
+  const std::string parameters = fmt::format(
+      R"({{"seed_cloud":"{}","max_points":{},"sh_degree":{},"iterations":{},"mcmc":{},"holdout_every":{},"checkpoint_every":{},"name":"{}","out":"{}"}})",
+      opt.seed_cloud, opt.init.max_points, opt.init.sh_degree, train.iterations,
+      train.mcmc.enabled ? "true" : "false", train.holdout_every,
+      train.checkpoint_every, opt.splat_name, opt.out_ply.string());
+  const int log_id = db.log_pipeline_start("gsplat", parameters);
 
   try {
     CloudPtr seed = db.point_cloud_xyzrgb(opt.seed_cloud);
@@ -872,10 +871,32 @@ TrainResult run_gsplat_stage(ProjectDB &db, const GsplatStageOptions &opt) {
 
     // Unconditionally, cancelled or not: salvaging the partly-trained model is
     // the whole reason a cooperative cancel exists rather than a SIGKILL.
+    //
+    // Serialized once and stored twice. The project copy is the artifact —
+    // `rux gui` and every later stage read it from there — and `--out` is an
+    // export for viewers outside ReUseX. Re-serializing for the file would be
+    // a second chance for the two to disagree about the same model.
+    const auto ply = gaussian_ply_bytes(result.gaussians);
+    db.save_gaussian_splat(opt.splat_name, ply, "gsplat", parameters);
+    reusex::info("gsplat: stored {} Gaussians (SH degree {}) in the project as "
+                 "'{}' ({:.1f} MB)",
+                 result.gaussians.size(), result.gaussians.sh_degree,
+                 opt.splat_name,
+                 static_cast<double>(ply.size()) / (1024.0 * 1024.0));
+
     if (!opt.out_ply.empty()) {
       if (opt.out_ply.has_parent_path() && !opt.out_ply.parent_path().empty())
         std::filesystem::create_directories(opt.out_ply.parent_path());
-      save_gaussian_ply(result.gaussians, opt.out_ply);
+      std::ofstream out(opt.out_ply, std::ios::binary);
+      if (!out)
+        throw std::runtime_error(fmt::format(
+            "gsplat: cannot open '{}' for writing", opt.out_ply.string()));
+      out.write(reinterpret_cast<const char *>(ply.data()),
+                static_cast<std::streamsize>(ply.size()));
+      if (!out)
+        throw std::runtime_error(
+            fmt::format("gsplat: write failed for '{}'", opt.out_ply.string()));
+      reusex::info("gsplat: also wrote {}", opt.out_ply.string());
     }
 
     // A cancelled run closes as `success`, not `failed`. It did what it was
@@ -889,9 +910,10 @@ TrainResult run_gsplat_stage(ProjectDB &db, const GsplatStageOptions &opt) {
         log_id, true,
         result.cancelled
             ? fmt::format("CANCELLED at iteration {} of {} on user request; "
-                          "'{}' holds the model as trained so far",
+                          "the splat stored as '{}' holds the model as trained "
+                          "so far",
                           result.iterations_run, train.iterations,
-                          opt.out_ply.string())
+                          opt.splat_name)
             : std::string{});
     return result;
 

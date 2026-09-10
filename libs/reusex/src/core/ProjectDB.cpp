@@ -5,6 +5,7 @@
 #include "core/ProjectDB.hpp"
 #include "core/MaterialPassport.hpp"
 #include "core/SensorIntrinsics.hpp"
+#include "core/gaussian_splat.hpp"
 #include "core/guid.hpp"
 #include "core/label_semantics.hpp"
 #include "core/logging.hpp"
@@ -205,12 +206,19 @@ class ProjectDB::Impl {
   sqlite3 *db = nullptr;
 
   // cppcheck-suppress unusedStructMember
-  static constexpr int LATEST_SCHEMA_VERSION = 11;
+  static constexpr int LATEST_SCHEMA_VERSION = 12;
 
   // Maximum bytes per point_cloud_data row. SQLite's default SQLITE_MAX_LENGTH
   // is 1 GB and the hard compile-time max is 2 GB-1. We chunk large clouds
   // into multiple rows so a single cloud can exceed those per-row limits.
   static constexpr size_t POINT_CLOUD_CHUNK_BYTES = 256ull * 1024 * 1024;
+
+  // Maximum bytes per gaussian_splat_data row. Deliberately far smaller than
+  // POINT_CLOUD_CHUNK_BYTES: point clouds are read back through incremental
+  // blob I/O (point_cloud_page), whereas a splat is handed out whole, so the
+  // chunk size is what bounds the transient copy sqlite makes per row rather
+  // than a per-row storage ceiling.
+  static constexpr size_t GAUSSIAN_SPLAT_CHUNK_BYTES = 8ull * 1024 * 1024;
 
   void execOrThrow(const char *sql) {
     char *errMsg = nullptr;
@@ -399,6 +407,10 @@ class ProjectDB::Impl {
 
     if (current < 11) {
       migrateToV11();
+    }
+
+    if (current < 12) {
+      migrateToV12();
     }
 
     reusex::trace("Schema version: {}", getCurrentSchemaVersion());
@@ -1009,6 +1021,51 @@ class ProjectDB::Impl {
     insertSchemaVersion(11,
                         "Add panorama pose columns + panorama_segmentation");
     reusex::info("Migration to schema version 11 complete");
+  }
+
+  void migrateToV12() {
+    reusex::info("Migrating database to schema version 12");
+
+    // Gaussian splat storage (#322). `rux create gsplat` used to write its
+    // .ply to a path of the user's choosing, which made the trained splat the
+    // one pipeline artefact that did not live in the project — nothing could
+    // list it, `rux info` could not see it, and the GUI had to be pointed at
+    // a file. The payload is chunked for the same reason point clouds are:
+    // sqlite materializes a whole blob column on read, and a splat is
+    // routinely hundreds of MB.
+    //
+    // gaussian_count / sh_degree / byte_size are denormalized from the PLY
+    // header at save time so a listing costs no blob reads at all.
+    const char *v12_schema = R"(
+      CREATE TABLE IF NOT EXISTS gaussian_splats (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        name           TEXT NOT NULL UNIQUE,
+        format         TEXT NOT NULL,
+        gaussian_count INTEGER NOT NULL,
+        sh_degree      INTEGER NOT NULL,
+        byte_size      INTEGER NOT NULL,
+        created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+        stage          TEXT,
+        parameters     TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS gaussian_splat_data (
+        splat_id    INTEGER NOT NULL REFERENCES gaussian_splats(id) ON DELETE CASCADE,
+        chunk_index INTEGER NOT NULL DEFAULT 0,
+        data        BLOB NOT NULL,
+        PRIMARY KEY (splat_id, chunk_index)
+      );
+    )";
+
+    char *errMsg = nullptr;
+    if (sqlite3_exec(db, v12_schema, nullptr, nullptr, &errMsg) != SQLITE_OK) {
+      std::string error = errMsg ? errMsg : "unknown error";
+      sqlite3_free(errMsg);
+      throw std::runtime_error("Migration to v12 failed: " + error);
+    }
+
+    insertSchemaVersion(12, "Add gaussian_splats + gaussian_splat_data");
+    reusex::info("Migration to schema version 12 complete");
   }
 
   // Parse the semantic class id from an instance definition name of the form
@@ -3313,6 +3370,302 @@ class ProjectDB::Impl {
     return result;
   }
 
+  // ── Gaussian splat CRUD ────────────────────────────────────────────
+
+  /// Every splat read path funnels through this. A read-only open never runs
+  /// migrations, so a v11 project opened read-only genuinely has no splat
+  /// tables — readers must report "no splats" rather than surface a raw
+  /// "no such table: gaussian_splats" from sqlite.
+  bool gaussianSplatTablesExist() const {
+    return tableExists("gaussian_splats") && tableExists("gaussian_splat_data");
+  }
+
+  int getGaussianSplatId(std::string_view name) const {
+    const char *sql = "SELECT id FROM gaussian_splats WHERE name = ?;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to query Gaussian splat id: " +
+                               std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+    sqlite3_bind_text(stmt, 1, name.data(), static_cast<int>(name.size()),
+                      SQLITE_TRANSIENT);
+    if (sqlite3_step(stmt) != SQLITE_ROW)
+      throw std::runtime_error("Gaussian splat not found: " +
+                               std::string(name));
+    return sqlite3_column_int(stmt, 0);
+  }
+
+  void saveGaussianSplat(std::string_view name, const std::vector<uint8_t> &ply,
+                         std::string_view stage, std::string_view paramsJson) {
+    // Validate BEFORE opening a transaction: a project must never end up
+    // holding half a rejected file, and the caller gets the header error with
+    // nothing written (STANDARDS §5).
+    const std::string_view head(
+        reinterpret_cast<const char *>(ply.data()),
+        std::min(ply.size(), reusex::core::kGaussianSplatHeaderProbeBytes));
+    const auto header = reusex::core::parse_gaussian_splat_ply_header(head);
+
+    if (!gaussianSplatTablesExist())
+      throw std::runtime_error(
+          "This project has no Gaussian splat tables (schema is older than "
+          "v12). Open it read-write once to migrate.");
+
+    execOrThrow("BEGIN TRANSACTION;");
+    try {
+      const char *upsert = R"(
+        INSERT INTO gaussian_splats
+          (name, format, gaussian_count, sh_degree, byte_size, stage, parameters)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(name) DO UPDATE SET
+          format = excluded.format,
+          gaussian_count = excluded.gaussian_count,
+          sh_degree = excluded.sh_degree,
+          byte_size = excluded.byte_size,
+          created_at = datetime('now'),
+          stage = excluded.stage,
+          parameters = excluded.parameters;
+      )";
+
+      sqlite3_stmt *stmt;
+      if (sqlite3_prepare_v2(db, upsert, -1, &stmt, nullptr) != SQLITE_OK)
+        throw std::runtime_error("Failed to prepare Gaussian splat upsert: " +
+                                 std::string(sqlite3_errmsg(db)));
+      {
+        StmtGuard guard(stmt);
+        sqlite3_bind_text(stmt, 1, name.data(), static_cast<int>(name.size()),
+                          SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 2, "ply", -1, SQLITE_STATIC);
+        sqlite3_bind_int64(stmt, 3,
+                           static_cast<sqlite3_int64>(header.gaussian_count));
+        sqlite3_bind_int(stmt, 4, header.sh_degree);
+        sqlite3_bind_int64(stmt, 5, static_cast<sqlite3_int64>(ply.size()));
+        if (!stage.empty())
+          sqlite3_bind_text(stmt, 6, stage.data(),
+                            static_cast<int>(stage.size()), SQLITE_TRANSIENT);
+        else
+          sqlite3_bind_null(stmt, 6);
+        if (!paramsJson.empty())
+          sqlite3_bind_text(stmt, 7, paramsJson.data(),
+                            static_cast<int>(paramsJson.size()),
+                            SQLITE_TRANSIENT);
+        else
+          sqlite3_bind_null(stmt, 7);
+
+        if (sqlite3_step(stmt) != SQLITE_DONE)
+          throw std::runtime_error(
+              "Failed to upsert Gaussian splat metadata: " +
+              std::string(sqlite3_errmsg(db)));
+      }
+
+      const int splatId = getGaussianSplatId(name);
+
+      // Replacing a splat keeps the row id, so the old chunks are NOT removed
+      // by the ON DELETE CASCADE — drop them explicitly or a shorter payload
+      // would leave a tail of the previous one behind it.
+      {
+        const char *deleteSql =
+            "DELETE FROM gaussian_splat_data WHERE splat_id = ?;";
+        sqlite3_stmt *delStmt;
+        if (sqlite3_prepare_v2(db, deleteSql, -1, &delStmt, nullptr) !=
+            SQLITE_OK)
+          throw std::runtime_error(
+              "Failed to prepare Gaussian splat data delete: " +
+              std::string(sqlite3_errmsg(db)));
+        StmtGuard delGuard(delStmt);
+        sqlite3_bind_int(delStmt, 1, splatId);
+        if (sqlite3_step(delStmt) != SQLITE_DONE)
+          throw std::runtime_error("Failed to clear Gaussian splat data: " +
+                                   std::string(sqlite3_errmsg(db)));
+      }
+
+      const char *dataInsert =
+          "INSERT INTO gaussian_splat_data (splat_id, chunk_index, data) "
+          "VALUES (?, ?, ?);";
+      sqlite3_stmt *dstmt;
+      if (sqlite3_prepare_v2(db, dataInsert, -1, &dstmt, nullptr) != SQLITE_OK)
+        throw std::runtime_error(
+            "Failed to prepare Gaussian splat data insert: " +
+            std::string(sqlite3_errmsg(db)));
+      StmtGuard dguard(dstmt);
+
+      const size_t total = ply.size();
+      size_t offset = 0;
+      int chunkIndex = 0;
+      // Always write at least one row, so an (impossible-in-practice) empty
+      // payload still has a data row rather than looking like a missing splat.
+      do {
+        const size_t len = std::min(GAUSSIAN_SPLAT_CHUNK_BYTES, total - offset);
+        sqlite3_reset(dstmt);
+        sqlite3_clear_bindings(dstmt);
+
+        if (sqlite3_bind_int(dstmt, 1, splatId) != SQLITE_OK)
+          throw std::runtime_error("Failed to bind splat_id: " +
+                                   std::string(sqlite3_errmsg(db)));
+        if (sqlite3_bind_int(dstmt, 2, chunkIndex) != SQLITE_OK)
+          throw std::runtime_error("Failed to bind chunk_index: " +
+                                   std::string(sqlite3_errmsg(db)));
+        static constexpr uint8_t emptyByte = 0;
+        const void *blobPtr =
+            len ? static_cast<const void *>(ply.data() + offset)
+                : static_cast<const void *>(&emptyByte);
+        if (sqlite3_bind_blob64(dstmt, 3, blobPtr,
+                                static_cast<sqlite3_uint64>(len),
+                                SQLITE_STATIC) != SQLITE_OK)
+          throw std::runtime_error(
+              "Failed to bind Gaussian splat chunk " +
+              std::to_string(chunkIndex) + " (" + std::to_string(len) +
+              " bytes): " + std::string(sqlite3_errmsg(db)));
+
+        if (sqlite3_step(dstmt) != SQLITE_DONE)
+          throw std::runtime_error("Failed to insert Gaussian splat chunk " +
+                                   std::to_string(chunkIndex) + ": " +
+                                   std::string(sqlite3_errmsg(db)));
+
+        offset += len;
+        ++chunkIndex;
+      } while (offset < total);
+
+      sqlite3_exec(db, "COMMIT;", nullptr, nullptr, nullptr);
+    } catch (...) {
+      sqlite3_exec(db, "ROLLBACK;", nullptr, nullptr, nullptr);
+      throw;
+    }
+
+    reusex::info("Stored Gaussian splat '{}': {} Gaussians, SH degree {}, "
+                 "{} bytes",
+                 name, header.gaussian_count, header.sh_degree, ply.size());
+  }
+
+  bool hasGaussianSplat(std::string_view name) const {
+    if (!gaussianSplatTablesExist())
+      return false;
+    const char *sql = "SELECT COUNT(*) FROM gaussian_splats WHERE name = ?;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      return false;
+    StmtGuard guard(stmt);
+    sqlite3_bind_text(stmt, 1, name.data(), static_cast<int>(name.size()),
+                      SQLITE_TRANSIENT);
+    if (sqlite3_step(stmt) == SQLITE_ROW)
+      return sqlite3_column_int(stmt, 0) > 0;
+    return false;
+  }
+
+  std::vector<std::string> listGaussianSplats() const {
+    std::vector<std::string> names;
+    if (!gaussianSplatTablesExist())
+      return names;
+
+    const char *sql = "SELECT name FROM gaussian_splats ORDER BY id;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to list Gaussian splats: " +
+                               std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+      const char *n =
+          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
+      names.emplace_back(n ? n : "");
+    }
+    return names;
+  }
+
+  ProjectDB::GaussianSplatMetadata
+  getGaussianSplatMetadata(std::string_view name) const {
+    if (!gaussianSplatTablesExist())
+      throw std::runtime_error("Gaussian splat not found: " +
+                               std::string(name));
+
+    const char *sql = "SELECT name, format, gaussian_count, sh_degree, "
+                      "byte_size, created_at, stage, parameters "
+                      "FROM gaussian_splats WHERE name = ?;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error(
+          "Failed to prepare Gaussian splat metadata query: " +
+          std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+    sqlite3_bind_text(stmt, 1, name.data(), static_cast<int>(name.size()),
+                      SQLITE_TRANSIENT);
+    if (sqlite3_step(stmt) != SQLITE_ROW)
+      throw std::runtime_error("Gaussian splat not found: " +
+                               std::string(name));
+
+    auto col_text = [&](int col) -> std::string {
+      auto *p = reinterpret_cast<const char *>(sqlite3_column_text(stmt, col));
+      return p ? std::string(p) : std::string();
+    };
+
+    ProjectDB::GaussianSplatMetadata meta;
+    meta.name = col_text(0);
+    meta.format = col_text(1);
+    meta.gaussian_count = static_cast<uint64_t>(sqlite3_column_int64(stmt, 2));
+    meta.sh_degree = sqlite3_column_int(stmt, 3);
+    meta.byte_size = static_cast<uint64_t>(sqlite3_column_int64(stmt, 4));
+    meta.created_at = col_text(5);
+    meta.stage = col_text(6);
+    meta.parameters = col_text(7);
+    return meta;
+  }
+
+  std::vector<uint8_t> getGaussianSplatBlob(std::string_view name) const {
+    if (!gaussianSplatTablesExist())
+      throw std::runtime_error("Gaussian splat not found: " +
+                               std::string(name));
+
+    const int splatId = getGaussianSplatId(name);
+
+    const char *sql = "SELECT data FROM gaussian_splat_data "
+                      "WHERE splat_id = ? ORDER BY chunk_index;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to prepare Gaussian splat data query: " +
+                               std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+    sqlite3_bind_int(stmt, 1, splatId);
+
+    std::vector<uint8_t> data;
+    bool anyChunks = false;
+    int rc;
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+      anyChunks = true;
+      const void *blob = sqlite3_column_blob(stmt, 0);
+      const int blobSize = sqlite3_column_bytes(stmt, 0);
+      if (blobSize < 0)
+        throw std::runtime_error("Negative chunk size for Gaussian splat: " +
+                                 std::string(name));
+      if (blobSize > 0 && blob) {
+        const auto *src = static_cast<const uint8_t *>(blob);
+        data.insert(data.end(), src, src + blobSize);
+      }
+    }
+    if (rc != SQLITE_DONE)
+      throw std::runtime_error("Failed to read Gaussian splat chunks: " +
+                               std::string(sqlite3_errmsg(db)));
+    if (!anyChunks)
+      throw std::runtime_error("Gaussian splat has no data rows: " +
+                               std::string(name));
+    return data;
+  }
+
+  bool deleteGaussianSplat(std::string_view name) {
+    if (!gaussianSplatTablesExist())
+      return false;
+
+    const char *sql = "DELETE FROM gaussian_splats WHERE name = ?;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to prepare Gaussian splat delete: " +
+                               std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+    sqlite3_bind_text(stmt, 1, name.data(), static_cast<int>(name.size()),
+                      SQLITE_TRANSIENT);
+    if (sqlite3_step(stmt) != SQLITE_DONE)
+      throw std::runtime_error("Failed to delete Gaussian splat: " +
+                               std::string(sqlite3_errmsg(db)));
+    return sqlite3_changes(db) > 0;
+  }
+
   // ── Pipeline log ───────────────────────────────────────────────────
 
   int logPipelineStart(std::string_view stage, std::string_view paramsJson) {
@@ -4280,6 +4633,38 @@ class ProjectDB::Impl {
       }
     }
 
+    // Query Gaussian splats. Metadata only — the payload is chunked precisely
+    // so nobody has to load it to describe it. Guarded on the tables because
+    // a read-only open of a pre-v12 project never migrates, and `rux info`
+    // must still work there.
+    if (tableExists("gaussian_splats")) {
+      const char *sql = "SELECT name, format, gaussian_count, sh_degree, "
+                        "byte_size, created_at, stage, parameters "
+                        "FROM gaussian_splats ORDER BY id;";
+      sqlite3_stmt *stmt;
+      if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        StmtGuard guard(stmt);
+        auto col_text = [&](int col) -> std::string {
+          auto *p =
+              reinterpret_cast<const char *>(sqlite3_column_text(stmt, col));
+          return p ? std::string(p) : std::string();
+        };
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+          ProjectDB::GaussianSplatMetadata info;
+          info.name = col_text(0);
+          info.format = col_text(1);
+          info.gaussian_count =
+              static_cast<uint64_t>(sqlite3_column_int64(stmt, 2));
+          info.sh_degree = sqlite3_column_int(stmt, 3);
+          info.byte_size = static_cast<uint64_t>(sqlite3_column_int64(stmt, 4));
+          info.created_at = col_text(5);
+          info.stage = col_text(6);
+          info.parameters = col_text(7);
+          summary.gaussian_splats.push_back(std::move(info));
+        }
+      }
+    }
+
     // Query sensor frames
     {
       // Get total count
@@ -4797,6 +5182,37 @@ ProjectDB::mesh_texture_blobs(std::string_view name) const {
 std::vector<ProjectDB::MeshTextureMetadata>
 ProjectDB::mesh_texture_metadata(std::string_view name) const {
   return impl_->getMeshTextureMetadata(name);
+}
+
+// --- Gaussian Splat Operations ---
+
+void ProjectDB::save_gaussian_splat(std::string_view name,
+                                    const std::vector<uint8_t> &ply,
+                                    std::string_view stage,
+                                    std::string_view parameters) {
+  impl_->saveGaussianSplat(name, ply, stage, parameters);
+}
+
+bool ProjectDB::has_gaussian_splat(std::string_view name) const {
+  return impl_->hasGaussianSplat(name);
+}
+
+std::vector<std::string> ProjectDB::list_gaussian_splats() const {
+  return impl_->listGaussianSplats();
+}
+
+ProjectDB::GaussianSplatMetadata
+ProjectDB::gaussian_splat_metadata(std::string_view name) const {
+  return impl_->getGaussianSplatMetadata(name);
+}
+
+std::vector<uint8_t>
+ProjectDB::gaussian_splat_blob(std::string_view name) const {
+  return impl_->getGaussianSplatBlob(name);
+}
+
+bool ProjectDB::delete_gaussian_splat(std::string_view name) {
+  return impl_->deleteGaussianSplat(name);
 }
 
 // --- Pipeline Log ---

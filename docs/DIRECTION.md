@@ -129,19 +129,6 @@ issue.
   the solid-model solve is a MIP with binary variables and PDLP handles only
   continuous LP, so it could never be used. GPU acceleration for that solve goes
   through cuOpt instead. *Would change if:* HiGHS ships a GPU MIP path.
-- **Remote / multi-tenant execution in `ruxd`.** `ruxd` stays a headless service
-  worker; the GUI ships local-first against the same API contract so remote
-  execution can be added later without redesigning it. *Would change if:* the
-  local GUI is proven and a multi-machine use case appears.
-- **Write/pipeline APIs in the Python bindings.** Read-only `.rux` inspection by
-  design — the CLI and library remain the only way to mutate a project, which
-  keeps the schema-migration surface small. *Would change if:* a consumer needs
-  scripted pipeline control that MCP (#267) cannot serve.
-- **Loading raw scan data into Blender.** Measured and rejected: per-frame
-  objects make Blender unusable at scan scale. The Blender path is for
-  *simplified* models and component inventories only (#267).
-  *Would change if:* a bulk/instanced representation makes it tractable.
-
 ---
 
 ## Review-loop protocol

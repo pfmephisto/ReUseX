@@ -173,6 +173,14 @@ models/*
 # Local Claude Code agent state (per-agent scratch memory)
 .claude/agent-memory/
 
+# Project database runtime files (sqlite WAL/SHM companions)
+*.rux
+*.rux-wal
+*.rux-shm
+
+# Root-level npm lock (no root package.json; created accidentally by npm)
+/package-lock.json
+
 # Local benchmark reports (scripts/bench.sh)
 bench-results/
 

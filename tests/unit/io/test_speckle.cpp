@@ -14,7 +14,9 @@
 #include <pcl/io/pcd_io.h>
 
 #include <algorithm>
+#include <map>
 #include <string>
+#include <vector>
 
 using namespace reusex::io::speckle;
 
@@ -497,4 +499,199 @@ TEST_CASE("ExportToSpeckle_SceneWithMaterials_ProducesMaterialsModel",
   REQUIRE(inst->properties.count("Reuse") == 1);
   REQUIRE(inst->properties["Base"]["fileName"] == "concrete_beam.jpg");
   REQUIRE(inst->properties["Reuse"]["Designation"] == "CB-001");
+}
+
+// ============================================================
+// reuse-x webapp compatibility (see HACKs in src/io/speckle.cpp)
+// ============================================================
+
+namespace {
+
+/// Build a one-material scene; `props` become the passport properties.
+reusex::io::ExportScene
+make_material_scene(std::map<std::string, std::string> props = {}) {
+  reusex::io::ExportScene scene;
+  reusex::io::ExportScene::MaterialEntry mat;
+  mat.name = "Concrete Beam";
+  mat.transform = {1, 0, 0, 1, 0, 1, 0, 2, 0, 0, 1, 3, 0, 0, 0, 1};
+  mat.image_filename = "concrete_beam.jpg";
+  mat.properties = std::move(props);
+  scene.materials.push_back(std::move(mat));
+  return scene;
+}
+
+/// The first InstanceProxy inside the "Cameras" sub-collection.
+const InstanceProxy *first_camera(const SpeckleModel &model) {
+  auto *root = dynamic_cast<Collection *>(model.root.get());
+  REQUIRE(root != nullptr);
+  REQUIRE(root->elements.size() == 1);
+  auto *cameras = dynamic_cast<Collection *>(root->elements[0].get());
+  REQUIRE(cameras != nullptr);
+  for (const auto &e : cameras->elements)
+    if (auto *inst = dynamic_cast<InstanceProxy *>(e.get()))
+      return inst;
+  FAIL("no InstanceProxy in the Cameras collection");
+  return nullptr;
+}
+
+/// Every key the webapp's ImageClassificationDialog binds with v-model
+/// (its `IReuse` interface). A missing one makes the dialog throw.
+const std::vector<std::string> kDialogFields = {"Risk",
+                                                "Unit",
+                                                "Level",
+                                                "Material",
+                                                "Quantity",
+                                                "Condition",
+                                                "Circularity",
+                                                "Lacation / ID",
+                                                "Investigations",
+                                                "Remarks / Notes",
+                                                "Presumed Material",
+                                                "Type Code Level 1",
+                                                "Type Code Level 2",
+                                                "Type Code Level 3",
+                                                "Building Component"};
+
+} // namespace
+
+TEST_CASE("ExportToSpeckle_MaterialWithoutPassport_SeedsAllDialogFields",
+          "[speckle]") {
+  auto models = export_to_speckle(make_material_scene(), ExportConfig{});
+  REQUIRE(models.size() == 1);
+  const auto &reuse = first_camera(models[0])->properties.at("Reuse");
+
+  for (const auto &field : kDialogFields) {
+    INFO("dialog field: " << field);
+    REQUIRE(reuse.contains(field));
+  }
+
+  // Quantity is bound to <Input type="number">, so it seeds as a number.
+  REQUIRE(reuse["Quantity"].is_number());
+  // Every other seeded default is the empty-string placeholder.
+  REQUIRE(reuse["Risk"] == "");
+  REQUIRE(reuse["Building Component"] == "");
+}
+
+TEST_CASE("ExportToSpeckle_SeededInvestigations_ParsesAsJsonArray",
+          "[speckle]") {
+  auto models = export_to_speckle(make_material_scene(), ExportConfig{});
+  const auto &reuse = first_camera(models[0])->properties.at("Reuse");
+
+  // The dialog does JSON.parse(Investigations.replace(/'/g, '"')).
+  REQUIRE(reuse["Investigations"].is_string());
+  std::string raw = reuse["Investigations"].get<std::string>();
+  std::replace(raw.begin(), raw.end(), '\'', '"');
+  nlohmann::json parsed;
+  REQUIRE_NOTHROW(parsed = nlohmann::json::parse(raw));
+  REQUIRE(parsed.is_array());
+  REQUIRE(parsed.empty());
+}
+
+TEST_CASE("ExportToSpeckle_PassportValues_OverrideSeededDefaults",
+          "[speckle]") {
+  auto scene = make_material_scene({{"Risk", "High"},
+                                    {"Quantity", "12"},
+                                    {"Investigations", "['Functionality']"},
+                                    {"Building Component", "Beam"}});
+  auto models = export_to_speckle(scene, ExportConfig{});
+  const auto &reuse = first_camera(models[0])->properties.at("Reuse");
+
+  REQUIRE(reuse["Risk"] == "High");
+  REQUIRE(reuse["Quantity"] == "12");
+  REQUIRE(reuse["Investigations"] == "['Functionality']");
+  REQUIRE(reuse["Building Component"] == "Beam");
+  // Fields the passport does not carry still get their placeholder.
+  REQUIRE(reuse["Condition"] == "");
+  REQUIRE(reuse["Type Code Level 1"] == "");
+}
+
+TEST_CASE("ExportToSpeckle_MultipleMaterials_NamesCamerasSequentially",
+          "[speckle]") {
+  reusex::io::ExportScene scene;
+  for (int i = 0; i < 3; ++i) {
+    reusex::io::ExportScene::MaterialEntry mat;
+    mat.name = "Material " + std::to_string(i);
+    mat.transform = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+    scene.materials.push_back(std::move(mat));
+  }
+
+  auto models = export_to_speckle(scene, ExportConfig{});
+  auto *root = dynamic_cast<Collection *>(models[0].root.get());
+  auto *cameras = dynamic_cast<Collection *>(root->elements[0].get());
+  REQUIRE(cameras->name == "Cameras");
+  // 8 frustum lines shared by all instances + one proxy per material.
+  REQUIRE(cameras->elements.size() == 11);
+
+  std::vector<std::string> names;
+  for (const auto &e : cameras->elements)
+    if (auto *inst = dynamic_cast<InstanceProxy *>(e.get()))
+      names.push_back(inst->name);
+  REQUIRE(names ==
+          std::vector<std::string>{"Camera 1", "Camera 2", "Camera 3"});
+}
+
+// ---- Wire format: what the webapp actually parses ----
+
+TEST_CASE("Flatten_MaterialsModel_EmitsInlineCamerasCollection", "[speckle]") {
+  auto models = export_to_speckle(make_material_scene(), ExportConfig{});
+  auto [root_id, objects] = flatten(*models[0].root);
+
+  REQUIRE(!root_id.empty());
+  REQUIRE(!objects.empty());
+  const nlohmann::json &root = objects.front();
+  REQUIRE(root["id"] == root_id);
+
+  // The webapp reads speckleRoot.elements directly and never resolves
+  // Speckle's detached "@"-prefixed references.
+  REQUIRE(root.contains("elements"));
+  REQUIRE(!root.contains("@elements"));
+  // isRootCollection() compares against the STRING "3".
+  REQUIRE(root["version"] == "3");
+
+  // loadImages: speckleRoot.elements.find(c => c.name === 'Cameras')
+  REQUIRE(root["elements"].size() == 1);
+  const nlohmann::json &cameras = root["elements"][0];
+  REQUIRE(cameras["name"] == "Cameras");
+  REQUIRE(cameras.contains("elements"));
+  REQUIRE(!cameras.contains("@elements"));
+
+  // ...then .filter(e => e.name.startsWith('Camera')).
+  std::vector<const nlohmann::json *> discovered;
+  for (const auto &e : cameras["elements"])
+    if (e.contains("name") && e["name"].is_string() &&
+        e["name"].get<std::string>().rfind("Camera", 0) == 0)
+      discovered.push_back(&e);
+  REQUIRE(discovered.size() == 1);
+
+  // showImages reads properties.Base / properties.Reuse and transform[3|7|11].
+  const nlohmann::json &cam = *discovered.front();
+  REQUIRE(cam["speckle_type"] == "Speckle.Core.Models.Instances.InstanceProxy");
+  REQUIRE(cam["properties"]["Base"].contains("imageURL"));
+  REQUIRE(cam["properties"]["Base"].contains("fileName"));
+  REQUIRE(cam["properties"]["Reuse"].contains("Investigations"));
+  REQUIRE(cam["transform"][3] == 1.0);
+  REQUIRE(cam["transform"][7] == 2.0);
+  REQUIRE(cam["transform"][11] == 3.0);
+}
+
+TEST_CASE("Flatten_DetachedCollection_EmitsReferenceStubsAsSeparateObjects",
+          "[speckle]") {
+  auto root = std::make_shared<Collection>();
+  root->name = "detached";
+  auto child = std::make_shared<Point>(1.0, 2.0, 3.0);
+  root->elements.push_back(child);
+
+  auto [root_id, objects] = flatten(*root);
+
+  // Default (embed_elements == false): child is uploaded separately and
+  // referenced by a stub.
+  REQUIRE(objects.size() == 2);
+  const nlohmann::json &root_json = objects.front();
+  REQUIRE(root_json.contains("@elements"));
+  REQUIRE(!root_json.contains("elements"));
+  const std::string ref = root_json["@elements"][0]["referencedId"];
+  REQUIRE(root_json["@elements"][0]["speckle_type"] == "reference");
+  REQUIRE(objects[1]["id"] == ref);
+  REQUIRE(objects[1]["speckle_type"] == "Objects.Geometry.Point");
+  REQUIRE(root_json["__closure"][ref] == 1);
 }

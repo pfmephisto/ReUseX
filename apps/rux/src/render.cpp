@@ -14,6 +14,9 @@
 #include <spdlog/spdlog.h>
 
 #include <charconv>
+#include <optional>
+#include <stdexcept>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -110,6 +113,35 @@ std::optional<int> parse_suffix(const std::string &text,
   return value;
 }
 
+/// Parse a `name:value` suffix whose value is a length in metres, e.g. the
+/// 1.4 in `plan:1.4`. Separate from parse_suffix() because a cut height is a
+/// measurement, not a count, and `plan:1` must not silently mean 1 m when the
+/// user meant the first of something.
+std::optional<double> parse_metre_suffix(const std::string &text,
+                                         std::string_view name) {
+  if (text.size() <= name.size() + 1 || !text.starts_with(name) ||
+      text[name.size()] != ':')
+    return std::nullopt;
+
+  const std::string digits = text.substr(name.size() + 1);
+  std::size_t consumed = 0;
+  double value = 0.0;
+  try {
+    value = std::stod(digits, &consumed);
+  } catch (const std::exception &) {
+    consumed = 0;
+  }
+  if (consumed != digits.size())
+    throw std::runtime_error("expected a height in metres after '" +
+                             std::string(name) + ":' (got '" + text + "')");
+  if (!(value > 0.0))
+    throw std::runtime_error("--view " + std::string(name) +
+                             ":<height> needs a positive height in metres "
+                             "above the floor (got '" +
+                             text + "')");
+  return value;
+}
+
 /// `/tmp/view.png` + index 3 -> `/tmp/view_003.png`.
 fs::path numbered_path(const fs::path &base, int index) {
   fs::path out = base;
@@ -152,8 +184,11 @@ DESCRIPTION:
   CI, and from an agent's worktree.
 
 EXAMPLES:
-  # Orthographic floor plan of the fused cloud
-  rux -p scan.rux render -o plan.png --view top --layers cloud
+  # True floor plan: cut 1.2 m above the detected floor, looking down
+  rux -p scan.rux render -o plan.png --view plan --layers cloud
+
+  # The same, cut at 1.6 m to clear a high sill
+  rux -p scan.rux render -o plan.png --view plan:1.6 --layers cloud
 
   # Eight views around the scene, coloured by plane segment
   rux -p scan.rux render -o orbit.png --view orbit:8 --layers planes
@@ -165,7 +200,13 @@ EXAMPLES:
   rux -p scan.rux render -o frame.png --view frame:1995
 
 VIEWS:
-  top          orthographic plan, looking down -Z (default)
+  top          orthographic view looking down -Z (default). In a closed
+               interior this shows the CEILING -- use `plan` for a floor plan.
+  plan[:h]     `top` plus a horizontal cut: everything above h metres over the
+               floor is clipped away, leaving the floor and the walls in
+               section. Default h is 1.2 m above the floor plane detected by
+               `rux create planes`, or 45 % of the scene height when the
+               project has no planes yet.
   front        orthographic elevation, looking along +Y
   orbit[:N]    N perspective views on a ring; writes N numbered files
                (out_000.png, out_001.png, ...)
@@ -173,15 +214,18 @@ VIEWS:
 
 NOTES:
   - Camera presets are derived from the geometry's bounding box, so the same
-    project always frames the same shot.
+    project always frames the same shot. The cut changes what is visible, not
+    how the shot is framed.
+  - --cut-height applies the same cut to any view (e.g. a cut axonometric).
   - Layers draw back to front in the order given.
   - A missing layer is an error naming the stage that produces it.
 )");
 
   sub->add_option("-o,--output", opt->output, "Output image path")
       ->default_val(opt->output.string());
-  sub->add_option("--view", opt->view,
-                  "Camera: top, front, orbit[:N] or frame:<node_id>")
+  sub->add_option(
+         "--view", opt->view,
+         "Camera: top, plan[:height], front, orbit[:N] or frame:<node_id>")
       ->default_val(opt->view);
   sub->add_option("--layers", opt->layers,
                   "Comma-separated layers (" + layer_vocabulary() + ")")
@@ -197,6 +241,11 @@ NOTES:
   sub->add_option("--elevation", opt->orbit_elevation_deg,
                   "Orbit elevation above the scene, in degrees")
       ->default_val(opt->orbit_elevation_deg);
+  sub->add_option("--cut-height", opt->cut_height,
+                  fmt::format("Cut everything above this height in metres "
+                              "above the floor; applies to any view "
+                              "(default with --view plan: {:g} m)",
+                              viz::kDefaultCutHeightM));
 
   sub->callback([opt, global_opt]() {
     spdlog::trace("Running render subcommand");
@@ -218,9 +267,26 @@ int run_subcommand_render(SubcommandRenderOptions const &opt,
     reusex::ProjectDB db(global_opt.project_db, /* readOnly */ true);
 
     // ── Camera selection ────────────────────────────────────────────────
+    // An explicit --cut-height cuts whatever view was asked for; `--view
+    // plan[:h]` is the shorthand that also picks the top-down camera.
+    if (opt.cut_height < 0.0)
+      throw std::runtime_error(
+          "--cut-height is measured upward from the floor and must be "
+          "positive (got " +
+          std::to_string(opt.cut_height) + ")");
+    if (opt.cut_height > 0.0) {
+      render_opts.cut = true;
+      render_opts.cut_height = opt.cut_height;
+    }
+
     std::optional<int> frame_id;
     if (opt.view == "top") {
       render_opts.view = viz::ViewPreset::top;
+    } else if (opt.view == "plan") {
+      render_opts.view = viz::ViewPreset::plan;
+    } else if (const auto height = parse_metre_suffix(opt.view, "plan")) {
+      render_opts.view = viz::ViewPreset::plan;
+      render_opts.cut_height = *height;
     } else if (opt.view == "front") {
       render_opts.view = viz::ViewPreset::front;
     } else if (opt.view == "orbit") {
@@ -242,7 +308,8 @@ int run_subcommand_render(SubcommandRenderOptions const &opt,
     } else {
       throw std::runtime_error(
           "unknown --view '" + opt.view +
-          "'; expected top, front, orbit[:N] or frame:<node_id>");
+          "'; expected top, plan[:height], front, orbit[:N] or "
+          "frame:<node_id>");
     }
 
     // ── Render ──────────────────────────────────────────────────────────

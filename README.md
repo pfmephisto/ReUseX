@@ -196,7 +196,7 @@ rux export ply|e57|rhino|colmap|speckle|csv|materialepas|semantic-images
 rux view
 
 # Render to a PNG with no display (SSH, CI, agents)
-rux render -o plan.png --view top --layers cloud
+rux render -o plan.png --view plan --layers cloud
 
 # Assemble multiple scans into unified model
 rux assemble <paths...> -o <out.rux>

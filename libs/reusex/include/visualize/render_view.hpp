@@ -18,6 +18,7 @@
 
 #include <array>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -60,8 +61,14 @@ const std::vector<Layer> &all_layers();
 
 /// How the camera is placed.
 enum class ViewPreset {
-  /// Orthographic floor plan looking straight down (-Z), north up.
+  /// Orthographic view looking straight down (-Z), north up. Shows whatever
+  /// is topmost — in a closed interior, the ceiling. For a floor plan use
+  /// ViewPreset::plan.
   top,
+  /// A true floor plan: ViewPreset::top plus a horizontal cut (#306). The
+  /// ceiling and everything else above RenderOptions::cut_height is clipped
+  /// away, leaving the floor and the walls in section.
+  plan,
   /// Orthographic elevation looking along +Y.
   front,
   /// Perspective view on a ring around the scene; see
@@ -96,6 +103,25 @@ struct CameraSpec {
   double cy = 0.0; ///< principal point in pixels (y)
 };
 
+/// Default height of the plan cut above the detected floor, in metres.
+///
+/// Waist height: above every sill and below every soffit, so a plan shows door
+/// and window openings in section the way a drawn plan does.
+inline constexpr double kDefaultCutHeightM = 1.2;
+
+/// Fallback cut height when no floor plane is available, as a fraction of the
+/// scene's vertical extent.
+///
+/// A height in metres would be meaningless there — with no segmentation to
+/// locate the floor the reference is the bounding box's lower face, which a
+/// single stray point can put well below the real floor.
+inline constexpr double kDefaultCutBboxFraction = 0.45;
+
+/// |n_z| above which a segmented plane counts as horizontal when looking for
+/// the floor. Same split the real-scan fixture test asserts on the office
+/// corridor, so "horizontal" means the same thing in both places.
+inline constexpr double kHorizontalNormalZ = 0.95;
+
 /// Everything render_view() can be told to do.
 ///
 /// This struct is the single definition of every render default; `rux render`
@@ -124,6 +150,20 @@ struct RenderOptions {
   /// Camera used when view == ViewPreset::explicit_camera.
   std::optional<CameraSpec> camera;
 
+  /// Clip away everything above a horizontal cut plane before rendering.
+  ///
+  /// Implied by ViewPreset::plan and settable on its own, so any view can be
+  /// cut — `--view orbit:8 --cut-height 1.2` is a cut axonometric.
+  bool cut = false;
+
+  /// Height of the cut plane above the floor, in metres.
+  ///
+  /// std::nullopt means derive it: kDefaultCutHeightM above the lowest
+  /// horizontal plane in `plane_centroids` / `plane_normals`, or
+  /// kDefaultCutBboxFraction of the vertical extent above the bounding box's
+  /// lower face when the project has no plane segmentation.
+  std::optional<double> cut_height;
+
   int width = 1600;
   int height = 1200;
 
@@ -136,6 +176,18 @@ struct RenderOptions {
   /// Framing slack around the scene bounding box: 1.0 is a tight fit, larger
   /// pulls back, smaller crops in. Must be positive.
   double margin = 1.08;
+};
+
+/// This machine cannot create an offscreen OpenGL context (#313).
+///
+/// A distinct type, not a bare message, because "there is no GPU here" is not
+/// a defect in the caller's request the way every other render error is: a
+/// test can skip on it, and a batch job can downgrade rendering to optional,
+/// while still failing hard on a bad layer or a missing cloud. It derives from
+/// std::runtime_error, so existing catch sites keep working unchanged.
+class OffscreenGlUnavailable : public std::runtime_error {
+    public:
+  using std::runtime_error::runtime_error;
 };
 
 /// Render one view of @p db to an image.
@@ -154,10 +206,13 @@ struct RenderOptions {
 /// @param opts  What and how to draw.
 /// @return An 8-bit 3-channel BGR image of size opts.width x opts.height,
 ///         ready for `cv::imwrite`.
+/// @throws OffscreenGlUnavailable if the machine has no usable offscreen
+///         OpenGL implementation — probed before any rendering happens, so
+///         this is reported rather than crashed on (#313).
 /// @throws std::runtime_error if the project is not open, the options are
 ///         invalid, a requested layer's data is missing (the message names the
-///         stage to run first), the GPU/EGL context has no usable OpenGL
-///         implementation, or the framebuffer comes back at the wrong size.
+///         stage to run first), or the framebuffer comes back at the wrong
+///         size.
 cv::Mat render_view(const ProjectDB &db, const RenderOptions &opts);
 
 /// Build the camera that reproduces a stored sensor frame's viewpoint.

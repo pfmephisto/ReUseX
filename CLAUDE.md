@@ -460,7 +460,7 @@ Top-level commands, as registered in `apps/rux/src/rux.cpp`:
 | `info` | — (project summary) | `src/info.cpp` |
 | `log` | — (pipeline execution history) | `src/log.cpp` |
 | `view` | — (interactive viewer, needs a display) | `src/view/` |
-| `render` | — (headless render to PNG: `--view top\|front\|orbit:N\|frame:<id>`) | `src/render.cpp` |
+| `render` | — (headless render to PNG: `--view top\|plan[:h]\|front\|orbit:N\|frame:<id>`) | `src/render.cpp` |
 | `assemble` | — (multi-scan assembly) | `src/assemble.cpp` |
 
 `create`, `import`, `export`, `edit`, `analyze`, `align` all
@@ -646,7 +646,10 @@ Anything not found there is not a dependency.
   module, but is `find_package`d directly because the module uses the VTK API
   and needs `vtk_module_autoinit`. Headless rendering depends on this VTK being
   built with `VTK_OPENGL_HAS_EGL` (the flake's is): with no X/Wayland session
-  VTK falls back to `vtkEGLRenderWindow` and still renders on the GPU.
+  VTK falls back to `vtkEGLRenderWindow` and still renders on the GPU. With no
+  rendering device at all, `render_view()` throws
+  `visualize::OffscreenGlUnavailable` from an EGL probe run before the first
+  `Render()` — VTK itself would segfault there (#313).
 - exiv2 - photo EXIF metadata
 - CURL + OpenSSL + nlohmann_json - Speckle / HTTP transport
 - No HDF5
@@ -718,7 +721,7 @@ rux -p scan.rux view
 
 # See the result without a display (SSH, CI, an agent's worktree):
 # writes a PNG via VTK's off-screen renderer, no X/Wayland needed.
-rux -p scan.rux render -o plan.png --view top --layers cloud
+rux -p scan.rux render -o plan.png --view plan --layers cloud   # cut floor plan
 rux -p scan.rux render -o orbit.png --view orbit:8 --layers planes
 ```
 

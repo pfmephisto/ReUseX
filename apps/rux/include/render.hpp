@@ -18,7 +18,7 @@ namespace fs = std::filesystem;
 /// hold the string forms the CLI parses.
 struct SubcommandRenderOptions {
   fs::path output = "render.png";
-  /// `top`, `front`, `orbit[:N]` or `frame:<node_id>`.
+  /// `top`, `plan[:height]`, `front`, `orbit[:N]` or `frame:<node_id>`.
   std::string view;
   /// Comma-separated layer names.
   std::string layers;
@@ -28,6 +28,9 @@ struct SubcommandRenderOptions {
   std::string mesh_name;
   double point_size = 0.0;
   double orbit_elevation_deg = 0.0;
+  /// Cut height in metres above the floor; <= 0 means "let the library derive
+  /// it", which is how `--view plan` with no suffix behaves (#306).
+  double cut_height = 0.0;
 };
 
 // Function declarations

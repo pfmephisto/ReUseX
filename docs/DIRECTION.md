@@ -190,6 +190,43 @@ changelog — that history is the point of keeping it in the repo.
 
 ## Direction changelog
 
+- **2026-09-10** — **The ~10 mm office flatness target should be retired as an
+  acceptance criterion** (#225 §11), because it is simultaneously *already
+  reachable* and *not measuring what priority 1 wants measured*. Three findings,
+  each measured. (1) §9.8's determinism smell is a **float32 round-trip in the
+  pose write-back**: `ProjectDB` stores poses as `double[16]` but the surfel /
+  write-back path is `Affine3f`, so a solve that provably cannot move a pose
+  still rewrites 237 of 238 stored blobs, by up to 1.43 µm. The pipeline itself
+  is bit-reproducible. (2) That µm-scale change matters because **the office
+  flatness metric is chaotic**: a deliberate 4.4 µm pose perturbation moves
+  `flatness_rms` across 11.76–13.25 mm (sd 0.64 mm) and the plane count across
+  63–67, since the 5 cm voxel grid and the region-growing thresholds are
+  discrete and the metric averages over whatever plane set comes out. It is also
+  strongly confounded by that count — `flatness = 25.4 − 0.206 × planes`,
+  r = −0.80 over 78 runs — so it **rewards fragmentation**. Every office
+  comparison must now be seed-averaged (`scripts/bench-office.sh`, mean ± sd over
+  five µm-perturbation seeds) and must report the plane count; the smallest
+  difference a single pair of runs can support is ~1.5 mm, not the ~0.2 mm §9.8
+  suggested. Re-measured that way the shipped `optimize` default is a genuine
+  local optimum (11.45 ± 0.25 mm; every knob in either direction is neutral or
+  worse), its win over no pose stage survives at ~3.5σ, and one recorded result
+  **reverses**: `--plane-noise fit` loses on office (12.10 ± 0.33), its recorded
+  11.66 mm having been one lucky draw from a more-fragmented ensemble. Its
+  ARKitScenes GT evidence stands. One result is **corrected**: office XFeat edges
+  are not "163 PCM-surviving" — 163 is the pre-PCM count, PCM keeps **3**, and
+  the configuration is bit-identical to plain `optimize`. (3) `rux register`
+  clears the target — 9.83 ± 0.34 mm, or **8.33 ± 0.61 mm** tuned — but JPR
+  minimises point-to-plane residual and `flatness_rms` *is* point-to-plane
+  residual, and the honka laser-GT control shows that same stage improving
+  flatness while **lowering GT F 0.795 → 0.756** with *fewer* planes. So the
+  target is satisfiable by a stage measured to make the reconstruction worse.
+  The blocker to settling it is quantified: JPR proposes **542 070 candidate
+  pairs on 41069050's 1 859 frames** (vs 1 293 on office's 238) because these
+  captures orbit a small room, projecting to ~17 h per run — the GT benchmark
+  cannot currently score the one stage that hits the target. **Highest-value
+  next item: bound JPR's candidate-pair set**, then re-anchor priority 1 on
+  F@50 mm over the #338 drifted variants instead of on office flatness.
+
 - **2026-09-10** — The benchmark blocker named on 2026-09-09 is **cleared**, and
   it reverses the previous entry's headline. Synthetic, seeded drift on the
   ARKitScenes seed poses (`rux edit perturb-poses`, #338) turns three unusable

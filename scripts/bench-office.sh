@@ -8,7 +8,7 @@
 # scan, but it has no ground truth, so every claim about it rests on the GT-free
 # `analyze quality` flatness_rms. That metric turns out to be CHAOTIC with
 # respect to arbitrarily small pose changes: a 4.4 um perturbation of the stored
-# poses — four thousand times smaller than any correction a pose stage makes —
+# poses — fifteen thousand times smaller than any correction a pose stage makes —
 # moves office flatness_rms across 11.76-13.25 mm and the segmented plane count
 # across 63-67 (measured, §11.2). The mechanism is discreteness downstream: the
 # `create clouds -g 0.05` voxel grid and `create planes` region growing both make
@@ -44,6 +44,11 @@
 #
 # THE ORIGINAL IS NEVER MUTATED: each run works on a copy that is deleted as soon
 # as it has been scored.
+#
+# RESULTS ARE CACHED per (config, seed, noise scale) as
+# "$out/<cfg>.s<seed>.n<noise>.quality.json", so re-running is cheap and two
+# different -n values can safely share one -o dir. Delete a JSON to force that
+# single run to be recomputed.
 
 set -euo pipefail
 
@@ -95,7 +100,11 @@ summary="$out/summary.txt"
 
 for cfg in $configs; do
   for seed in $seeds; do
-    name="$cfg.s$seed"
+    # The noise scale is part of the cache key, not just the seed: the §11.8
+    # recipe runs `-c none -n 4e-7` and `-c none -n 4e-9` into the same out
+    # dir, and without the `.n` component the second run would silently reuse
+    # the first one's JSONs and report the wrong spread.
+    name="$cfg.s$seed.n$noise"
     q="$out/$name.quality.json"
     if [[ ! -f "$q" ]]; then
       work="$out/$name.rux"
@@ -117,7 +126,7 @@ for cfg in $configs; do
     python3 - "$q" "$name" <<'PY' | tee -a "$summary"
 import json, sys
 d = json.load(open(sys.argv[1]))
-print("%-24s flatness=%8.4f mm  p90=%8.4f mm  planes=%d" % (
+print("%-30s flatness=%8.4f mm  p90=%8.4f mm  planes=%d" % (
     sys.argv[2], d["flatness_rms"] * 1000, d["thickness_p90"] * 1000,
     d["plane_count"]))
 PY
@@ -127,19 +136,28 @@ done
 echo
 echo "=== seed-averaged (mean +- sd over the ensemble) ==="
 python3 - "$out" <<'PY' | tee -a "$summary"
-import glob, json, os, statistics as st, sys, collections
+import glob, json, os, re, statistics as st, sys, collections
+# Ensembles are keyed by (config, noise scale): runs at different -n are
+# different measurements and must never be averaged together.
+key = re.compile(r"^(?P<cfg>.+)\.s(?P<seed>[^.]+)\.n(?P<noise>.+)$")
 data = collections.defaultdict(list)
 for f in sorted(glob.glob(os.path.join(sys.argv[1], "*.quality.json"))):
-    cfg, _ = os.path.basename(f)[:-len(".quality.json")].rsplit(".s", 1)
+    m = key.match(os.path.basename(f)[:-len(".quality.json")])
+    if not m:
+        print("!! skipping unkeyed file (pre-'.n' layout?): %s" % f)
+        continue
     d = json.load(open(f))
-    data[cfg].append((d["flatness_rms"] * 1000, d["thickness_p90"] * 1000,
-                      d["plane_count"]))
-print("%-16s %2s  %-16s %-16s %s" % ("config", "n", "flatness_rms (mm)",
-                                     "p90 (mm)", "planes"))
-for cfg, v in sorted(data.items(), key=lambda kv: st.mean(x[0] for x in kv[1])):
+    data[(m["cfg"], m["noise"])].append(
+        (d["flatness_rms"] * 1000, d["thickness_p90"] * 1000, d["plane_count"]))
+print("%-16s %-8s %2s  %-16s %-16s %s" % ("config", "noise", "n",
+                                          "flatness_rms (mm)", "p90 (mm)",
+                                          "planes"))
+for (cfg, noise), v in sorted(data.items(),
+                              key=lambda kv: st.mean(x[0] for x in kv[1])):
     fl = [x[0] for x in v]; p9 = [x[1] for x in v]; pc = [x[2] for x in v]
     sd = st.stdev(fl) if len(fl) > 1 else 0.0
     sd9 = st.stdev(p9) if len(p9) > 1 else 0.0
-    print("%-16s %2d  %6.2f +- %-6.2f  %6.2f +- %-6.2f  %5.1f"
-          % (cfg, len(fl), st.mean(fl), sd, st.mean(p9), sd9, st.mean(pc)))
+    print("%-16s %-8s %2d  %6.2f +- %-6.2f  %6.2f +- %-6.2f  %5.1f"
+          % (cfg, noise, len(fl), st.mean(fl), sd, st.mean(p9), sd9,
+             st.mean(pc)))
 PY

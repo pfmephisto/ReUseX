@@ -1508,9 +1508,10 @@ unperturbed canonical run):
 | `--drift-scale 4e-9`, seeds 1–3 | **44 nm** | 12.502 / 12.504 / 12.504 | 64 / 64 / 64 |
 | `--drift-scale 4e-7`, seeds 1–5 | **4.4 µm** | **12.114 / 13.245 / 13.154 / 11.761 / 12.428** | 67 / 63 / 63 / 67 / 65 |
 
-At nanometre scale the pipeline is stable. At **micrometre** scale — still four
-thousand times smaller than the 0.0685 m of pose motion `rux optimize` applies —
-the metric spreads over **1.5 mm (sd 0.64 mm)** and the plane count over 63–67.
+At nanometre scale the pipeline is stable. At **micrometre** scale — still
+fifteen thousand times smaller than the 0.0685 m of pose motion `rux optimize`
+applies — the metric spreads over **1.5 mm (sd 0.64 mm)** and the plane count
+over 63–67.
 
 The mechanism is discreteness, not floating-point noise: `create clouds -g 0.05`
 bins points into a 5 cm voxel grid and `create planes` grows regions against
@@ -1636,20 +1637,57 @@ it is the only row in the table with a large negative plane-count residual
 numbers reproduce §6's 2026-09-02 measurement (8.68 mm), now with error bars.
 
 So the target is attainable today, with a shipped command, no new code. The
-reason to not declare victory is the control §6 already recorded and this
-section re-reads in light of §10:
+reason to not declare victory is the honka control, re-read here in light of
+§10.
 
-| MuSHRoom honka (Faro laser GT, non-drifting) | GT F@50 mm | flatness_rms | planes |
-|---|---|---|---|
-| none | **0.7950** | 26.77 mm | 13 |
-| `register` (JPR) | 0.7556 | **22.78 mm** | 11 |
+The control is the **2026-08-31 `scripts/bench-mushroom.sh` run** — the only run
+in this workstream that scores `none` and `register` on honka *within a single
+measurement*, on both flatness and laser GT. Its four output files are still on
+disk in `~/datasets/mushroom/`:
 
-JPR improves flatness by 15% while **losing 0.04 of GT F-score and 2.9 mm of
-median accuracy** — and it does so with *fewer* planes, so fragmentation cannot
-explain it away. The mechanism is not mysterious: **JPR minimises point-to-plane
-residual, and `analyze quality`'s `flatness_rms` is point-to-plane residual.**
-The stage is being scored on its own objective. It makes surfaces flatter while
-moving them away from where they actually are.
+```bash
+# flatness: written by the script itself (l. 65 / l. 72). The JPR variant is
+# `register --prior-weight 0.1 --neighbor-window 10 --iterations 50` (l. 69).
+scripts/bench-mushroom.sh                    # → honka.rux, honka-jpr.rux + quality JSONs
+
+# GT: run separately afterwards, in $HOME/datasets/mushroom, on stock defaults
+# (--threshold 0.05, --gt-voxel 0.01 — both confirmed in the stored JSONs).
+# `analyze accuracy` is NOT part of bench-mushroom.sh; folding it in is a
+# loose end.
+rux -p honka.rux     analyze accuracy room_datasets/honka/gt_pd.ply \
+                       -o honka-accuracy-baseline.json
+rux -p honka-jpr.rux analyze accuracy room_datasets/honka/gt_pd.ply \
+                       -o honka-accuracy-jpr.json
+```
+
+| MuSHRoom honka (Faro laser GT, non-drifting), 2026-08-31 | GT F@50 mm | accuracy_median | flatness_rms | planes |
+|---|---|---|---|---|
+| none | **0.7950** | 29.28 mm | 26.77 mm | 13 |
+| `register` (JPR, tuned) | 0.7556 | 32.15 mm | **22.78 mm** | 11 |
+
+**Reconciling this with §6's honka table**, which records `none` at 27.98 mm,
+not 26.77 mm: §6's honka row is stitched from *two* runs. Its GT column is this
+same 2026-08-31 bench (0.7950 / 0.7556 are these files to four digits); its
+flatness column is a separate hand-run sweep on **2026-09-02**
+(`/tmp/rux-exp/h_*.quality.json`), where the `none` re-run scored 27.98 mm with
+**26** segmented planes against this run's 13. That is why §6's `register` row
+carries no flatness figure at all — the Sep-2 sweep never ran JPR.
+
+The two `none` numbers are therefore not a contradiction but two draws of the
+confound §11.2 quantifies: a factor-two difference in plane count is exactly the
+condition under which absolute `flatness_rms` is not comparable across runs. The
+consequence is that **only the within-run delta is admissible**, and the 15%
+below is computed inside the Aug-31 pair (26.77 → 22.78). Differencing across
+runs — 27.98 vs 22.78, "18.6%" — would be making precisely the mistake this
+section exists to warn about.
+
+Within that one run, JPR improves flatness by 15% while **losing 0.04 of GT
+F-score and 2.9 mm of median accuracy** (29.28 → 32.15 mm) — and it does so with
+*fewer* planes, so fragmentation cannot explain it away. The mechanism is not
+mysterious: **JPR minimises point-to-plane residual, and `analyze quality`'s
+`flatness_rms` is point-to-plane residual.** The stage is being scored on its
+own objective. It makes surfaces flatter while moving them away from where they
+actually are.
 
 That is a sharper statement of §6's finding 2, and §10 is what makes it binding.
 §10.4 raised confidence in the office flatness numbers because flatness and
@@ -1719,7 +1757,10 @@ not to the harness.
 scripts/bench-office.sh -c "none optimize fit register register-tuned \
                             opt-register register-opt" -S "0 1 2 3 4"
 
-# the noise floor itself: same config, only the perturbation seed differs
+# the noise floor itself: same config, only the perturbation scale differs.
+# Safe to share one -o dir: results are cached per (config, seed, NOISE), so
+# the second invocation re-runs rather than reusing the first's JSONs, and the
+# summary reports the two ensembles as separate rows.
 scripts/bench-office.sh -c none -S "0 1 2 3 4" -n 4e-7   # spread 1.5 mm
 scripts/bench-office.sh -c none -S "0 1 2 3"   -n 4e-9   # spread 2 um
 

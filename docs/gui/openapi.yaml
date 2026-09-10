@@ -813,14 +813,41 @@ paths:
       tags: [panoramas]
       operationId: getPanoramaImage
       summary: The equirectangular image
+      description: |
+        The stored panorama, JPEG-encoded, in its stored orientation.
+
+        The pixel convention is the one `geometry/EquirectProjection.hpp`
+        defines and every other consumer of these images uses: column
+        `u` spans longitude `theta` in `[-pi, pi]` left to right, row `v` spans
+        latitude from the north pole (`v = 0`) down, and the bearing of a pixel
+        in the panorama's own optical frame (x right, y **down**, z forward) is
+        `(sin(theta)cos(phi), -sin(phi), cos(theta)cos(phi))`. A client that
+        maps this onto a sphere must use that convention or the world will be
+        mirrored — which looks plausible and is wrong.
       parameters:
         - $ref: "#/components/parameters/PanoramaId"
+        - name: max_size
+          in: query
+          description: |
+            Downscale so the longest edge is at most this many pixels,
+            preserving aspect ratio. Never upscales.
+
+            Intended for a panorama picker: a stored equirect is routinely
+            8192x4096 and several megabytes, and a strip of twenty thumbnails
+            at full resolution is tens of megabytes for a row of 96-pixel
+            images.
+          schema: { type: integer, minimum: 1, maximum: 4096 }
       responses:
         "200":
           description: Equirectangular JPEG
           content:
             image/jpeg:
               schema: { type: string, format: binary }
+        "400":
+          description: A `max_size` outside the permitted range
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
         "404": { $ref: "#/components/responses/NotFound" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
@@ -1772,7 +1799,7 @@ components:
 
     PanoramaInfo:
       type: object
-      required: [id, filename, node_id, has_pose, pose_source]
+      required: [id, filename, node_id, has_pose, pose_source, has_frame_pose]
       properties:
         id: { type: integer }
         filename: { type: string }
@@ -1788,11 +1815,40 @@ components:
           items: { type: number }
           minItems: 16
           maxItems: 16
+          description: |
+            Row-major 4x4 camera-to-world pose from content-based alignment,
+            verbatim as stored — **identity until `rux align 360` has run**.
+            Check `has_pose` before using it.
         pose_source: { type: string, enum: [timestamp, aligned] }
         align_inliers: { type: integer }
         align_rms:
           type: number
           description: Angular RMS of inlier bearings, degrees. -1 if unaligned.
+        has_frame_pose:
+          type: boolean
+          description: |
+            Whether `frame_pose` is present: `node_id` names a sensor frame and
+            that frame has a stored pose.
+        frame_pose:
+          type: array
+          items: { type: number }
+          minItems: 16
+          maxItems: 16
+          description: |
+            Row-major 4x4 pose of the **timestamp-matched sensor frame**
+            (`node_id`), derived on read rather than stored.
+
+            It is here so that a client can place an unaligned panorama in
+            space at all: `pose` is identity until `rux align 360` has run, and
+            resolving `node_id` client-side costs one `GET /frames/{id}` per
+            panorama — each of which decodes that frame's depth and confidence
+            blobs to answer its availability flags.
+
+            Deliberately a **separate field** rather than a fallback folded
+            into `pose`. A borrowed frame pose is a different claim from a
+            resected one — it carries the panorama's mounting offset and the
+            timestamp-match error — and `has_pose` / `pose_source` exist so a
+            client can say which it is showing.
 
     ComponentInfo:
       type: object

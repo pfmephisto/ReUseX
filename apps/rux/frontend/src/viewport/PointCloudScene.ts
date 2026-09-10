@@ -9,6 +9,27 @@ import { labelColorIndex, paletteToFloats, readLabelPalette } from './labelColor
 
 export type ColorMode = 'rgb' | 'label';
 
+/**
+ * Radius of the panorama backdrop, metres.
+ *
+ * Far enough that a room's geometry fits inside it — a sphere smaller than the
+ * scan would clip through the walls the user is comparing it against — and
+ * near enough to stay well inside the far plane at ordinary building scale.
+ */
+export const PANORAMA_RADIUS = 20;
+
+/** Fallback look direction when a caller supplies a degenerate one. */
+const FORWARD_X = new THREE.Vector3(1, 0, 0);
+
+/** The orbit camera as it was before panorama mode took it over. */
+interface SavedCamera {
+  position: THREE.Vector3;
+  target: THREE.Vector3;
+  near: number;
+  far: number;
+  fov: number;
+}
+
 /** One decoded page, in the form the scene consumes. */
 export interface PageBuffers {
   /** xyz triples, in world coordinates as stored. */
@@ -60,6 +81,7 @@ export class PointCloudScene {
   private readonly bounds = new THREE.Box3();
   private origin: THREE.Vector3 | null = null;
 
+  private saved: SavedCamera | null = null;
   private colorMode: ColorMode = 'rgb';
   private pointSize = 0.02;
   private frameHandle: number | null = null;
@@ -255,6 +277,93 @@ export class PointCloudScene {
     return this.origin.clone();
   }
 
+  /**
+   * World -> scene coordinates, adopting @p world as the recentring origin if
+   * none is set yet.
+   *
+   * The lighter half of {@link registerExternalBounds}: a panorama's sphere is
+   * 20 m of backdrop that must not enter the framing bounds, but its centre
+   * still has to be recentred like everything else or it lands at the scan's
+   * absolute coordinates. Callers whose content *should* be framable use
+   * `registerExternalBounds` instead.
+   */
+  toSceneLocal(world: THREE.Vector3): THREE.Vector3 {
+    if (!this.origin) this.origin = world.clone();
+    return world.clone().sub(this.origin);
+  }
+
+  /**
+   * Objects under the pointer, nearest first.
+   *
+   * Exposed so a sibling layer can be clickable without a second camera or a
+   * copy of this one: picking needs the camera that drew the frame, and that
+   * camera stays private.
+   *
+   * @param ndc Pointer position in normalised device coordinates (-1..1).
+   */
+  pick(ndc: THREE.Vector2, objects: THREE.Object3D[]): THREE.Intersection[] {
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(ndc, this.camera);
+    return raycaster.intersectObjects(objects, false);
+  }
+
+  /**
+   * Stand the camera at @p position looking along @p forward (both in scene
+   * coordinates), and remember where it was.
+   *
+   * This is panorama mode's camera: `OrbitControls` orbiting a target 10 cm
+   * ahead is a look-around, and inverting `rotateSpeed` makes a drag grab the
+   * image rather than swing around it — the motion every 360 viewer uses.
+   * Panning is switched off because there is nowhere to pan to from inside a
+   * sphere, and dollying because it would push the camera through the wall.
+   *
+   * Idempotent: entering twice does not overwrite the saved orbit pose with
+   * the immersive one, so stepping panorama-to-panorama still returns the user
+   * to where they were standing.
+   */
+  enterFirstPerson(position: THREE.Vector3, forward: THREE.Vector3): void {
+    if (!this.saved) {
+      this.saved = {
+        position: this.camera.position.clone(),
+        target: this.controls.target.clone(),
+        near: this.camera.near,
+        far: this.camera.far,
+        fov: this.camera.fov,
+      };
+    }
+
+    const direction = forward.lengthSq() > 0 ? forward.clone().normalize() : FORWARD_X.clone();
+    this.camera.position.copy(position);
+    this.camera.near = 0.01;
+    this.camera.far = PANORAMA_RADIUS * 4;
+    this.camera.updateProjectionMatrix();
+
+    this.controls.target.copy(position).addScaledVector(direction, 0.1);
+    this.controls.enablePan = false;
+    this.controls.enableZoom = false;
+    this.controls.rotateSpeed = -0.3;
+    this.controls.update();
+  }
+
+  /** Put the orbit camera back where {@link enterFirstPerson} found it. */
+  exitFirstPerson(): void {
+    this.controls.enablePan = true;
+    this.controls.enableZoom = true;
+    this.controls.rotateSpeed = 1;
+
+    const saved = this.saved;
+    this.saved = null;
+    if (!saved) return;
+
+    this.camera.position.copy(saved.position);
+    this.camera.near = saved.near;
+    this.camera.far = saved.far;
+    this.camera.fov = saved.fov;
+    this.camera.updateProjectionMatrix();
+    this.controls.target.copy(saved.target);
+    this.controls.update();
+  }
+
   removeLayer(layerId: string): void {
     const layer = this.layers.get(layerId);
     if (!layer) return;
@@ -293,9 +402,26 @@ export class PointCloudScene {
     // Approach from an oblique angle rather than an axis: an axis-aligned view
     // of a corridor scan is a wall of points with no depth cue at all.
     const direction = new THREE.Vector3(0.7, -0.7, 0.45).normalize();
-    this.camera.position.copy(sphere.center).addScaledVector(direction, distance);
-    this.camera.near = Math.max(radius / 1000, 0.01);
-    this.camera.far = distance + radius * 4;
+    const position = sphere.center.clone().addScaledVector(direction, distance);
+    const near = Math.max(radius / 1000, 0.01);
+    const far = distance + radius * 4;
+
+    // In panorama mode the camera is standing inside a sphere, and the framing
+    // request is almost always the cloud's own first page arriving a moment
+    // after the backdrop. Flying out of the picture the user asked for would
+    // be the wrong reading of it — so the framed pose is written into the
+    // remembered orbit camera, and exiting lands on it.
+    if (this.saved) {
+      this.saved.position.copy(position);
+      this.saved.target.copy(sphere.center);
+      this.saved.near = near;
+      this.saved.far = far;
+      return;
+    }
+
+    this.camera.position.copy(position);
+    this.camera.near = near;
+    this.camera.far = far;
     this.camera.updateProjectionMatrix();
 
     this.controls.target.copy(sphere.center);

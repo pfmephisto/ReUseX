@@ -51,6 +51,9 @@ NOTES:
   - Use --mode rect for axis-aligned bounding boxes (default)
   - Use --mode poly for concave hull boundaries (--alpha controls tightness)
   - Wall offset moves the polygon outward from the wall surface
+  - --wall-normal-z restricts which surfaces may host windows; it defaults to
+    off (all orientations, so skylights are kept), 0.3 keeps near-vertical
+    walls only
   - Use --clear to replace all existing windows (default: update/append via UPSERT)
   - Output stored in project database building_components table
 )");
@@ -80,6 +83,15 @@ NOTES:
   sub->add_option("--alpha", opt->alpha, "ConcaveHull alpha for polyline mode")
       ->default_val(opt->alpha)
       ->check(CLI::Range(0.01, 10.0));
+
+  sub->add_option("--wall-normal-z", opt->wall_normal_z_threshold,
+                  "Verticality gate on wall candidates: a mesh region hosts "
+                  "windows only when |normal.z| is below this. The default "
+                  "turns the gate off, accepting every orientation (keeps "
+                  "skylights and tilted roof glazing); use e.g. 0.3 for "
+                  "near-vertical walls only")
+      ->default_val(opt->wall_normal_z_threshold)
+      ->check(CLI::Range(0.0f, reusex::geometry::kWallVerticalityGateOff));
 
   sub->add_option("-l,--labels", opt->labels_to_process,
                   "Semantic labels to treat as windows (comma-separated)")
@@ -206,6 +218,7 @@ int run_subcommand_create_windows(SubcommandWindowOptions const &opt,
                            : reusex::geometry::WindowBoundaryMode::rectangle;
     create_opts.wall_offset = opt.wall_offset;
     create_opts.alpha = opt.alpha;
+    create_opts.wall_normal_z_threshold = opt.wall_normal_z_threshold;
     create_opts.include_internal = opt.include_internal;
 
     // Provenance resolver: map an instance label id to its stable GUID so each

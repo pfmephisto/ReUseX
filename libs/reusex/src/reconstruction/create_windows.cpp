@@ -436,15 +436,7 @@ double distance_to_wall(const Eigen::Vector3d &point,
 } // namespace
 
 std::vector<WallCandidate>
-// FIXME: Apply the vertical-wall filter extract_wall_candidates promises
-// category=Geometry estimate=4h
-// Both this parameter and CreateWindowsOptions::wall_normal_z_threshold are
-// dead: no verticality test is performed anywhere, so every coplanar component
-// — floors and ceilings included — is returned as a wall candidate. Either
-// filter on |mean_normal.z()| < normal_z_threshold here, or drop both knobs.
-// Left as-is for now because adding the filter changes create_windows output.
-extract_wall_candidates(const pcl::PolygonMesh &mesh,
-                        float /*normal_z_threshold*/,
+extract_wall_candidates(const pcl::PolygonMesh &mesh, float normal_z_threshold,
                         float coplanarity_angle_deg) {
 
   // Early return if there is no geometry
@@ -507,6 +499,7 @@ extract_wall_candidates(const pcl::PolygonMesh &mesh,
   // Convert each region to a WallCandidate
   std::vector<WallCandidate> candidates;
   candidates.reserve(regions.size());
+  size_t rejected_non_vertical = 0;
 
   for (const auto &[plane_primitive, face_indices] : regions) {
     if (face_indices.empty())
@@ -547,6 +540,16 @@ extract_wall_candidates(const pcl::PolygonMesh &mesh,
 
     mean_normal.normalize();
     centroid /= total_area;
+
+    // Verticality gate (#326). `normal_z_threshold` is the largest |n.z| a
+    // component may have and still host a window; kWallVerticalityGateOff
+    // switches the gate off entirely (the default), keeping skylights and
+    // tilted roof glazing.
+    if (normal_z_threshold < kWallVerticalityGateOff &&
+        std::abs(mean_normal.z()) >= static_cast<double>(normal_z_threshold)) {
+      ++rejected_non_vertical;
+      continue;
+    }
 
     // Build Hessian plane equation: n.dot(p) + d = 0
     Eigen::Vector4d plane;
@@ -635,9 +638,23 @@ extract_wall_candidates(const pcl::PolygonMesh &mesh,
     candidates.push_back(std::move(wc));
   }
 
-  reusex::debug("Extracted {} wall candidates from {} mesh faces using "
-                "CGAL region growing",
-                candidates.size(), num_faces);
+  if (normal_z_threshold < kWallVerticalityGateOff)
+    reusex::debug("Extracted {} wall candidates from {} mesh faces using CGAL "
+                  "region growing; the verticality gate rejected {} region(s) "
+                  "with |n.z| >= {}",
+                  candidates.size(), num_faces, rejected_non_vertical,
+                  normal_z_threshold);
+  else
+    reusex::debug("Extracted {} wall candidates from {} mesh faces using CGAL "
+                  "region growing (verticality gate off)",
+                  candidates.size(), num_faces);
+
+  if (candidates.empty() && rejected_non_vertical > 0)
+    reusex::warn("extract_wall_candidates: all {} planar region(s) were "
+                 "rejected by the verticality gate (normal_z_threshold={}); "
+                 "no wall candidates remain — raise the threshold to admit "
+                 "less vertical surfaces",
+                 rejected_non_vertical, normal_z_threshold);
   return candidates;
 }
 
@@ -658,7 +675,8 @@ create_windows(CloudConstPtr cloud, CloudLConstPtr instance_labels,
 
   // Extract wall candidates from mesh
   reusex::info("Extracting wall candidates from mesh...");
-  auto walls = reusex::geometry::extract_wall_candidates(mesh);
+  auto walls = reusex::geometry::extract_wall_candidates(
+      mesh, options.wall_normal_z_threshold, options.coplanarity_angle_deg);
   reusex::info("Found {} wall candidates", walls.size());
 
   if (walls.empty()) {

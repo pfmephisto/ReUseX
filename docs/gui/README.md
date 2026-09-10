@@ -190,16 +190,18 @@ keys.
 ## Implementation status (Phase 1)
 
 Read endpoints, the job endpoints and the WebSocket channel are implemented by
-`rux gui` (`apps/rux/src/gui/`). Two documented gaps, both deliberate:
+`rux gui` (`apps/rux/src/gui/`). One documented gap, deliberate:
 
-- **`GET /api/v1/clouds/{name}/points` has no LOD.** `format=binary` now serves
-  the RUXP transport ([`binary-points.md`](binary-points.md)) and a page is read
-  out of the chunk store without materialising the cloud, but paging still
-  returns a *prefix* of a cloud. A viewport wants "all of it, coarsely" — voxel
-  LOD (`lod` / `max_points`) and Draco are tracked in #320.
 - **Runnable stages are `clouds`, `planes`, `rooms`, `instances`.** `mesh`,
   `texture` and the ML `annotate` stages are described by
   `GET /api/v1/stages` as `runnable: false` until their runners land.
+
+`GET /api/v1/clouds/{name}/points` serves both the RUXP binary transport
+(`format=binary`, [`binary-points.md`](binary-points.md)) and voxel LOD
+(`max_points`, #320) — "all of it, coarsely" rather than a prefix. What remains
+open on #320 is the *cheap* version of LOD: a precomputed progressive ordering
+in the `.rux`, which would make every level a prefix and cost the server
+nothing. Draco and quantised positions are open there too.
 
 ## The pipeline runner
 

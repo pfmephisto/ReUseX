@@ -251,6 +251,24 @@ paths:
         A page past the end of the cloud is a `200` with `count = 0`, not a
         `404`; `total` is still populated, so `limit=1&offset=0` is a cheap way
         to ask how long a cloud is.
+
+        ### Level of detail
+
+        `max_points` asks a different question: **all** of the cloud, coarsely,
+        instead of a prefix of it. The server voxel-subsamples the whole cloud
+        and answers with one page of at most that many points, flagged as LOD
+        (RUXP `flags` bit 0; JSON `lod: true`). `total` still means the whole
+        cloud, `offset` is 0 and means nothing, and `count <= max_points` —
+        typically 80–98 % of it.
+
+        `max_points` is **mutually exclusive** with `offset` and `limit`: sending
+        it with either is a `400`. A cloud with no positions of its own
+        (`Normal`, `Label`) needs `lod_source` naming an index-aligned geometry
+        cloud, or it is a `400` too.
+
+        Full design, including why this is computed per request and what a
+        precomputed progressive ordering would change:
+        [`docs/gui/binary-points.md`](binary-points.md) § "Level of detail".
       parameters:
         - $ref: "#/components/parameters/CloudName"
         - name: offset
@@ -266,6 +284,21 @@ paths:
             object collections because the unit here is a point, not a record.
           schema:
             { type: integer, minimum: 0, maximum: 1000000, default: 100000 }
+        - name: max_points
+          in: query
+          description: >-
+            Budget for a level-of-detail read of the **whole** cloud, instead of
+            a window of it. Clamped to the server maximum (1000000). Cannot be
+            combined with `offset` or `limit` — that is a `400`.
+          schema: { type: integer, minimum: 1, maximum: 1000000 }
+        - name: lod_source
+          in: query
+          description: >-
+            Cloud whose positions drive a `max_points` selection, for a sibling
+            that has none of its own. The two must be index-aligned (same
+            `total`); the resulting pages then describe the same points and can
+            still be zipped positionally. Only meaningful with `max_points`.
+          schema: { type: string }
         - name: format
           in: query
           description: |
@@ -290,6 +323,11 @@ paths:
             X-Ruxp-Type:
               description: Cloud point type, on `format=binary` responses only.
               schema: { type: string }
+            X-Ruxp-Flags:
+              description: >-
+                Header `flags` word, on `format=binary` responses only. Bit 0
+                means the page is a level-of-detail view of the whole cloud.
+              schema: { type: integer }
             X-Ruxp-Offset:
               description: Page offset, on `format=binary` responses only.
               schema: { type: integer }
@@ -1495,6 +1533,18 @@ components:
               items:
                 type: array
                 items: { type: number }
+            lod:
+              type: boolean
+              description: >-
+                Present only on a `max_points` request. True when these rows are
+                a voxel subsample of the whole cloud rather than a window of it;
+                false when the cloud already fit the budget and came back
+                complete, in storage order.
+            voxel_size:
+              type: number
+              description: >-
+                Edge length of the voxel the subsample settled on, in cloud
+                units. Present only when `lod` is true.
 
     MeshInfo:
       type: object

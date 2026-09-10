@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 from mcp.client.client import Client
 
+from rux_mcp.commands import WriteMode
 from rux_mcp.runner import RuxRunner
 from rux_mcp.server import build_server
 
@@ -20,11 +21,13 @@ from rux_mcp.server import build_server
 EXPECTED_TOOLS = {
     "analyze_accuracy",
     "analyze_quality",
+    "command_help",
     "get_component",
     "get_frame",
     "get_passport",
     "label_definitions",
     "list_clouds",
+    "list_commands",
     "list_components",
     "list_frames",
     "list_meshes",
@@ -34,6 +37,16 @@ EXPECTED_TOOLS = {
     "query_db",
     "render_view",
     "validate_project",
+}
+
+#: The tools that only exist above ``--write-mode none``.  Registration, not
+#: just refusal: a read-only server must not advertise these at all.
+WRITE_TOOLS = {
+    "cancel_job",
+    "job_output",
+    "job_status",
+    "list_jobs",
+    "run_command",
 }
 
 EXPECTED_RESOURCES = {
@@ -67,6 +80,21 @@ INFO_JSON = json.dumps(
 @pytest.fixture
 def server(runner: RuxRunner, tmp_path: Path):
     return build_server(runner, render_dir=tmp_path / "renders")
+
+
+@pytest.fixture
+def server_at(runner: RuxRunner, tmp_path: Path):
+    """Build a server at a chosen write mode, sharing the fake ``rux``."""
+
+    def make(mode: WriteMode):
+        return build_server(
+            runner,
+            render_dir=tmp_path / f"renders-{mode.value}",
+            job_log_dir=tmp_path / f"joblogs-{mode.value}",
+            write_mode=mode,
+        )
+
+    return make
 
 
 def text_of(result) -> str:
@@ -321,3 +349,243 @@ async def test_query_path_guide_is_readable_as_a_resource(server):
     assert "denied (binary)" in body
     assert "clouds.<item>.<property>" in body
     assert "list_components()" in body
+
+
+# ---------------------------------------------------------- the write surface
+
+
+async def test_the_default_server_is_read_only(server):
+    """The gate is registration, not refusal — a default server has no job tools."""
+    async with Client(server) as client:
+        names = {tool.name for tool in (await client.list_tools()).tools}
+    assert names == EXPECTED_TOOLS
+    assert not (names & WRITE_TOOLS)
+
+
+@pytest.mark.parametrize("mode", [WriteMode.stages, WriteMode.full])
+async def test_write_modes_add_exactly_the_job_tools(server_at, mode):
+    async with Client(server_at(mode)) as client:
+        names = {tool.name for tool in (await client.list_tools()).tools}
+    assert names == EXPECTED_TOOLS | WRITE_TOOLS
+
+
+async def test_the_catalogue_is_readable_from_a_read_only_server(server):
+    """Knowing what is blocked is how the agent learns to ask the operator."""
+    async with Client(server) as client:
+        result = await client.call_tool("list_commands", {})
+    payload = json.loads(text_of(result))
+    assert payload["write_mode"] == "none"
+    runnable = [c for c in payload["commands"] if c["runnable"]]
+    assert runnable and not any(c["mutates_project"] for c in runnable)
+    assert "--write-mode" in payload["note"]
+
+
+async def test_the_catalogue_reports_what_stages_mode_unlocks(server_at):
+    async with Client(server_at(WriteMode.stages)) as client:
+        result = await client.call_tool("list_commands", {})
+    by_key = {c["command"]: c for c in json.loads(text_of(result))["commands"]}
+    assert by_key["create planes"]["runnable"] is True
+    assert by_key["del"]["runnable"] is False
+    assert by_key["del"]["needs_confirmation_option"] == "yes"
+
+
+async def test_command_help_comes_from_the_binary(server, fake_rux):
+    fake_rux.reply("Usage: rux create planes [OPTIONS]\n  --grid-size FLOAT\n")
+    async with Client(server) as client:
+        result = await client.call_tool("command_help", {"command": "create planes"})
+    payload = json.loads(text_of(result))
+    assert "--grid-size" in payload["help"]
+    # Readable, but this server still could not run it.
+    assert payload["runnable"] is False
+    assert payload["required_write_mode"] == "stages"
+    assert fake_rux.calls[-1].endswith("create planes --help")
+
+
+async def test_command_help_refuses_an_uncatalogued_command(server, fake_rux):
+    fake_rux.reply("should never be read")
+    async with Client(server) as client:
+        result = await client.call_tool("command_help", {"command": "view"})
+    assert result.is_error
+    assert fake_rux.calls == []
+
+
+async def test_run_command_runs_a_stage_and_reports_its_output(server_at, fake_rux):
+    fake_rux.reply("Segmented 38 planes")
+    async with Client(server_at(WriteMode.stages)) as client:
+        result = await client.call_tool(
+            "run_command",
+            {"command": "create planes", "options": {"grid-size": 0.05}},
+        )
+    payload = json.loads(text_of(result))
+    assert payload["state"] == "succeeded"
+    assert payload["done"] is True
+    assert "Segmented 38 planes" in payload["output_tail"]
+    # `--flag=value`, and the project flag still leads.
+    assert fake_rux.calls[-1].endswith("create planes --grid-size=0.05")
+    assert "the project changed" in payload["next"]
+
+
+async def test_a_failing_stage_is_a_finished_job_not_a_tool_error(server_at, fake_rux):
+    fake_rux.reply("Error: no cloud named 'cloud'", status=1)
+    async with Client(server_at(WriteMode.stages)) as client:
+        result = await client.call_tool("run_command", {"command": "create planes"})
+    assert not result.is_error, "a non-zero rux exit is a job result, not a crash"
+    payload = json.loads(text_of(result))
+    assert payload["state"] == "failed"
+    assert payload["exit_status"] == 1
+    assert "no cloud named" in payload["output_tail"]
+
+
+async def test_run_command_refuses_a_command_above_the_mode(server_at, fake_rux):
+    fake_rux.reply("")
+    async with Client(server_at(WriteMode.stages)) as client:
+        result = await client.call_tool(
+            "run_command", {"command": "del", "arguments": ["clouds.cloud"]}
+        )
+    assert result.is_error
+    assert "--write-mode full" in text_of(result)
+    assert fake_rux.calls == []
+
+
+async def test_destructive_commands_need_the_confirmation_option(server_at, fake_rux):
+    fake_rux.reply("")
+    async with Client(server_at(WriteMode.full)) as client:
+        refused = await client.call_tool(
+            "run_command",
+            {"command": "del", "arguments": ["clouds.cloud"], "options": {"force": True}},
+        )
+        assert refused.is_error
+        assert "'yes': true" in text_of(refused)
+        assert fake_rux.calls == []
+
+        confirmed = await client.call_tool(
+            "run_command",
+            {
+                "command": "del",
+                "arguments": ["clouds.cloud"],
+                "options": {"force": True, "yes": True},
+            },
+        )
+    assert not confirmed.is_error, text_of(confirmed)
+    assert fake_rux.calls[-1].endswith("del clouds.cloud --force --yes")
+
+
+async def test_a_positional_that_would_be_read_as_a_flag_is_refused(
+    server_at, fake_rux
+):
+    fake_rux.reply("")
+    async with Client(server_at(WriteMode.full)) as client:
+        result = await client.call_tool(
+            "run_command", {"command": "import ply", "arguments": ["--yes"]}
+        )
+    assert result.is_error
+    assert "read as a flag" in text_of(result)
+    assert fake_rux.calls == []
+
+
+async def test_a_slow_command_hands_back_a_job_to_poll(runner, tmp_path):
+    slow = tmp_path / "bin" / "rux"
+    slow.write_text('#!/bin/sh\necho "solving"\nsleep 4\necho "done"\n')
+    slow.chmod(0o755)
+    server = build_server(
+        runner,
+        render_dir=tmp_path / "renders",
+        job_log_dir=tmp_path / "joblogs",
+        write_mode=WriteMode.stages,
+    )
+    async with Client(server) as client:
+        submitted = json.loads(
+            text_of(
+                await client.call_tool(
+                    "run_command", {"command": "create mesh", "wait_seconds": 0.3}
+                )
+            )
+        )
+        assert submitted["done"] is False
+        assert submitted["state"] == "running"
+        assert "job_status" in submitted["hint"]
+        # Progress is visible before the command finishes.
+        assert "solving" in submitted["output_tail"]
+
+        # A second command is refused rather than queued: sqlite, one writer.
+        busy = await client.call_tool("run_command", {"command": "create rooms"})
+        assert busy.is_error
+        assert submitted["job_id"] in text_of(busy)
+
+        listed = json.loads(text_of(await client.call_tool("list_jobs", {})))
+        assert listed["running"] == submitted["job_id"]
+
+        cancelled = json.loads(
+            text_of(
+                await client.call_tool("cancel_job", {"job_id": submitted["job_id"]})
+            )
+        )
+        assert cancelled["state"] == "cancelled"
+
+        after = json.loads(
+            text_of(
+                await client.call_tool(
+                    "job_output", {"job_id": submitted["job_id"], "tail_chars": 500}
+                )
+            )
+        )
+        assert "solving" in after["output"]
+        assert Path(after["log_path"]).is_file()
+
+
+async def test_job_status_names_an_unknown_id(server_at):
+    async with Client(server_at(WriteMode.stages)) as client:
+        result = await client.call_tool("job_status", {"job_id": "nope"})
+    assert result.is_error
+    assert "list_jobs()" in text_of(result)
+
+
+async def test_a_missing_project_stops_a_command_before_it_runs(
+    tmp_path, fake_rux
+):
+    runner = RuxRunner(
+        project=tmp_path / "gone.rux", binary=str(fake_rux.path), timeout=5
+    )
+    server = build_server(
+        runner, render_dir=tmp_path / "renders", write_mode=WriteMode.stages
+    )
+    fake_rux.reply("")
+    async with Client(server) as client:
+        result = await client.call_tool("run_command", {"command": "create planes"})
+    assert result.is_error
+    assert "gone.rux" in text_of(result)
+    assert fake_rux.calls == []
+
+
+@pytest.mark.parametrize(
+    "arguments,needle",
+    [
+        ({"command": "create planes", "wait_seconds": -1}, "wait_seconds"),
+        ({"command": "create planes", "wait_seconds": 9999}, "wait_seconds"),
+        ({"command": "create planes", "timeout_seconds": 0}, "timeout_seconds"),
+        ({"command": "nonsense"}, "list_commands()"),
+    ],
+)
+async def test_run_command_validates_before_spawning(
+    server_at, fake_rux, arguments, needle
+):
+    fake_rux.reply("")
+    async with Client(server_at(WriteMode.stages)) as client:
+        result = await client.call_tool("run_command", arguments)
+    assert result.is_error
+    assert needle in text_of(result)
+    assert fake_rux.calls == []
+
+
+@pytest.mark.parametrize(
+    "mode,needle",
+    [
+        (WriteMode.none, "READ-ONLY"),
+        (WriteMode.stages, "write mode: stages"),
+        (WriteMode.full, "write mode: full"),
+    ],
+)
+async def test_the_server_briefing_states_its_write_mode(server_at, mode, needle):
+    async with Client(server_at(mode)) as client:
+        instructions = client.instructions
+    assert needle in instructions

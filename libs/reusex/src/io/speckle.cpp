@@ -289,32 +289,6 @@ nlohmann::json serialize_base(const Base &obj,
   return j;
 }
 
-// Collect all objects into a flat list with IDs
-std::pair<std::string, std::vector<nlohmann::json>> flatten(const Base &root) {
-  std::vector<nlohmann::json> all_objects;
-  ClosureMap root_closure;
-  nlohmann::json root_json = serialize_base(root, all_objects, root_closure);
-
-  // Compute root hash BEFORE adding metadata fields
-  std::string canonical =
-      root_json.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
-  std::string root_id = md5_hash(canonical);
-
-  // Add metadata after hashing (Speckle convention)
-  root_json["id"] = root_id;
-  root_json["totalChildrenCount"] = nullptr;
-  if (!root_closure.empty()) {
-    nlohmann::json cc;
-    for (const auto &[id, d] : root_closure)
-      cc[id] = d;
-    root_json["__closure"] = std::move(cc);
-  }
-
-  // Root goes first
-  all_objects.insert(all_objects.begin(), std::move(root_json));
-  return {root_id, std::move(all_objects)};
-}
-
 // ---- HTTP via libcurl ----
 
 size_t write_callback(char *ptr, size_t size, size_t nmemb, void *userdata) {
@@ -405,6 +379,36 @@ std::string http_post_json(const std::string &url, const std::string &token,
 }
 
 } // anonymous namespace
+
+// ============================================================
+// Serialization
+// ============================================================
+
+// Collect all objects into a flat list with IDs
+std::pair<std::string, std::vector<nlohmann::json>> flatten(const Base &root) {
+  std::vector<nlohmann::json> all_objects;
+  ClosureMap root_closure;
+  nlohmann::json root_json = serialize_base(root, all_objects, root_closure);
+
+  // Compute root hash BEFORE adding metadata fields
+  std::string canonical =
+      root_json.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
+  std::string root_id = md5_hash(canonical);
+
+  // Add metadata after hashing (Speckle convention)
+  root_json["id"] = root_id;
+  root_json["totalChildrenCount"] = nullptr;
+  if (!root_closure.empty()) {
+    nlohmann::json cc;
+    for (const auto &[id, d] : root_closure)
+      cc[id] = d;
+    root_json["__closure"] = std::move(cc);
+  }
+
+  // Root goes first
+  all_objects.insert(all_objects.begin(), std::move(root_json));
+  return {root_id, std::move(all_objects)};
+}
 
 // ============================================================
 // SpeckleClient
@@ -881,7 +885,7 @@ auto export_to_speckle(const ExportScene &scene, const ExportConfig &cfg)
 
     // HACK: Wrap material InstanceProxies in a "Cameras" sub-collection and
     // rename each one "Camera N" to match the legacy Grasshopper layout.
-    // category=I/O estimate=2h
+    // category=I/O estimate=2h issue=270
     // The reuse-x webapp's loadImages composable hardcodes
     //     speckleRoot.elements.find(c => c.name === 'Cameras')
     //         .elements.filter(e => e.name.startsWith('Camera'))
@@ -979,6 +983,7 @@ auto export_to_speckle(const ExportScene &scene, const ExportConfig &cfg)
       }
 
       // HACK: seed the fields the reuse-x webapp's ImageClassificationDialog
+      // category=I/O estimate=2h issue=271
       // (apps/reuse-x/src/components/dialogs/ImageClassificationDialog.vue)
       // reads with safe defaults so it doesn't crash on undefined property
       // access. The dialog does e.g.
@@ -990,6 +995,12 @@ auto export_to_speckle(const ExportScene &scene, const ExportConfig &cfg)
       // passport override these via the loop above; only-defaults-missing
       // fields get the placeholder. `Investigations` must be a string
       // that parses as JSON after `'`→`"` (an empty array literal works).
+      //
+      // The list below mirrors the dialog's `IReuse` interface 1:1 — every
+      // key it binds with v-model, in declaration order. When the webapp
+      // adds or renames a field, mirror it here (or drop the whole block
+      // once the dialog null-checks properly). `Quantity` is bound to an
+      // <Input type="number">, so it seeds as a number, not a string.
       auto default_if_missing = [&](const std::string &key, auto value) {
         if (!reuse.contains(key))
           reuse[key] = value;
@@ -1004,6 +1015,11 @@ auto export_to_speckle(const ExportScene &scene, const ExportConfig &cfg)
       default_if_missing("Lacation / ID", ""); // sic — webapp typo
       default_if_missing("Investigations", "[]");
       default_if_missing("Remarks / Notes", "");
+      default_if_missing("Presumed Material", "");
+      default_if_missing("Type Code Level 1", "");
+      default_if_missing("Type Code Level 2", "");
+      default_if_missing("Type Code Level 3", "");
+      default_if_missing("Building Component", "");
 
       inst->properties["Reuse"] = std::move(reuse);
 

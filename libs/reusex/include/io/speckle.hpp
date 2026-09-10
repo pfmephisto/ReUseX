@@ -14,6 +14,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace reusex::io {
@@ -131,6 +132,20 @@ struct Collection : Base {
 
   Collection() { speckle_type = "Speckle.Core.Models.Collections.Collection"; }
 };
+
+// --- Serialization ---
+
+/// Serialize an object tree into the flat list of Speckle objects that
+/// `SpeckleClient::send` uploads, exactly as it goes over the wire.
+///
+/// Detached children (`@elements`) become separate entries in the returned
+/// list, referenced from their parent by a `referencedId` stub; inline
+/// children (`Collection::embed_elements`) stay embedded under `elements`.
+///
+/// @return `{root_object_id, objects}` — `objects.front()` is the root.
+/// Exposed so the emitted structure can be inspected offline (tests,
+/// debugging a viewer/webapp that cannot see the data) without a server.
+std::pair<std::string, std::vector<nlohmann::json>> flatten(const Base &root);
 
 // --- Client ---
 

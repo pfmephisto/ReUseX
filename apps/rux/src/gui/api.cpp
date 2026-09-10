@@ -5,6 +5,7 @@
 #include "gui/api.hpp"
 
 #include "gui/binary_points.hpp"
+#include "gui/point_lod.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/core/SensorIntrinsics.hpp>
@@ -696,22 +697,100 @@ json cloud_labels_json(const reusex::ProjectDB &db, const std::string &name) {
   return json{{"labels", std::move(labels)}};
 }
 
-json cloud_points_json(const reusex::ProjectDB &db, const std::string &name,
-                       const Params &params) {
-  if (!db.has_point_cloud(name))
-    not_found("cloud", name);
+namespace {
 
-  const auto request =
-      parse_page_request(params, static_cast<long long>(kDefaultPointsPerPage),
-                         static_cast<long long>(kMaxPointsPerPage));
+/// A validated `max_points` / `lod_source` pair (#320).
+struct LodRequest {
+  bool active = false;
+  uint64_t max_points = 0;
+  /// Cloud whose positions drive the selection. Empty means "this one".
+  std::string source;
+};
 
-  // Only the bytes this page occupies are read: point_cloud_page() maps the
-  // window onto a byte range in the chunked point_cloud_data store and pulls
-  // it with SQLite incremental blob I/O, so peak memory is O(page), not
-  // O(cloud). The records come back in storage layout and are decoded inline
-  // here — inflating a pcl::PointCloud would cost 32 B/point of SSE-padded
-  // memory to produce a JSON array.
-  const auto page = db.point_cloud_page(name, request.offset, request.limit);
+/// Parse the LOD half of the points query.
+///
+/// `max_points` and `offset`/`limit` are refused together rather than
+/// reconciled. They answer different questions — "all of it, coarsely" versus
+/// "this window of it" — and any rule that made them coexist would have to
+/// invent a meaning for `offset` into a set the client cannot enumerate. A
+/// progressive on-disk ordering is what would collapse the two (see
+/// docs/gui/binary-points.md § "Level of detail"); until then, refusing is the
+/// honest answer.
+LodRequest parse_lod_request(const Params &params) {
+  // An empty value (`?offset=`) is treated as absent throughout this API, so
+  // it must not be what makes max_points a 400.
+  const auto supplied = [&params](std::string_view key) {
+    const auto value = params.find(key);
+    return value.has_value() && !value->empty();
+  };
+
+  LodRequest request;
+  if (!supplied("max_points")) {
+    if (supplied("lod_source"))
+      throw HttpError(400, "lod_source is only meaningful with max_points");
+    return request;
+  }
+  if (supplied("offset") || supplied("limit"))
+    throw HttpError(400, "max_points selects points from the whole cloud and "
+                         "cannot be combined with offset or limit");
+
+  const long long value = params.integer("max_points", 0);
+  if (value < 1)
+    throw HttpError(400, "max_points must be at least 1, got " +
+                             std::to_string(value));
+
+  request.active = true;
+  // Clamped rather than rejected, like `limit`: a client may always ask for
+  // more than the server is willing to serve.
+  request.max_points =
+      std::min<uint64_t>(static_cast<uint64_t>(value), kMaxPointsPerPage);
+  request.source = params.str("lod_source", "");
+  return request;
+}
+
+/// A LOD page plus what the wire needs to say about it.
+struct LodPage {
+  reusex::ProjectDB::CloudPage page;
+  /// False when the cloud fit the budget: the page is then an ordinary,
+  /// complete, storage-ordered read and must not claim LOD on the wire.
+  bool subsampled = false;
+  double voxel_size = 0.0;
+};
+
+LodPage resolve_lod(const reusex::ProjectDB &db, const std::string &name,
+                    const LodRequest &request) {
+  const std::string source = request.source.empty() ? name : request.source;
+  if (!db.has_point_cloud(source))
+    not_found("cloud", source);
+  if (!lod_supports(db.point_cloud_type(source)))
+    throw HttpError(400,
+                    "cloud '" + source +
+                        "' carries no positions to voxelise; pass lod_source "
+                        "naming an index-aligned geometry cloud");
+
+  auto selection = voxel_lod(db, source, request.max_points);
+  if (source == name)
+    return {std::move(selection.page), selection.subsampled,
+            selection.voxel_size};
+
+  // A sibling: sample it at the *same* storage indices, which is the only way
+  // a Label cloud can still be zipped positionally against a subsampled
+  // geometry cloud (docs/CONTRACTS.md, STANDARDS §3.2).
+  const auto sibling = db.point_cloud_page(name, 0, 0);
+  if (sibling.total != selection.page.total)
+    throw HttpError(400, "cloud '" + name + "' holds " +
+                             std::to_string(sibling.total) + " points and '" +
+                             source + "' holds " +
+                             std::to_string(selection.page.total) +
+                             "; they are not index-aligned");
+
+  return {gather_points(db, name, selection.indices), selection.subsampled,
+          selection.voxel_size};
+}
+
+/// Serialize one already-read page as the JSON `CloudPointsPage` object.
+json points_json_from_page(const std::string &name,
+                           const reusex::ProjectDB::CloudPage &page) {
   const auto *record = page.data.data();
   const size_t step = page.point_step;
   const size_t count = static_cast<size_t>(page.count);
@@ -762,6 +841,40 @@ json cloud_points_json(const reusex::ProjectDB &db, const std::string &name,
               {"points", std::move(points)}};
 }
 
+} // namespace
+
+json cloud_points_json(const reusex::ProjectDB &db, const std::string &name,
+                       const Params &params) {
+  if (!db.has_point_cloud(name))
+    not_found("cloud", name);
+
+  const auto lod = parse_lod_request(params);
+  if (lod.active) {
+    const auto result = resolve_lod(db, name, lod);
+    auto body = points_json_from_page(name, result.page);
+    // Always present when max_points was asked for, so a client can tell "the
+    // whole cloud fit" from "here is a coarse view of it" without comparing
+    // counts. The RUXP path says the same thing with a flag bit.
+    body["lod"] = result.subsampled;
+    if (result.subsampled)
+      body["voxel_size"] = result.voxel_size;
+    return body;
+  }
+
+  const auto request =
+      parse_page_request(params, static_cast<long long>(kDefaultPointsPerPage),
+                         static_cast<long long>(kMaxPointsPerPage));
+
+  // Only the bytes this page occupies are read: point_cloud_page() maps the
+  // window onto a byte range in the chunked point_cloud_data store and pulls
+  // it with SQLite incremental blob I/O, so peak memory is O(page), not
+  // O(cloud). The records come back in storage layout and are decoded inline
+  // by points_json_from_page() — inflating a pcl::PointCloud would cost
+  // 32 B/point of SSE-padded memory to produce a JSON array.
+  return points_json_from_page(
+      name, db.point_cloud_page(name, request.offset, request.limit));
+}
+
 PointsResponse cloud_points(const reusex::ProjectDB &db,
                             const std::string &name, const Params &params) {
   if (!db.has_point_cloud(name))
@@ -777,18 +890,34 @@ PointsResponse cloud_points(const reusex::ProjectDB &db,
     throw HttpError(400,
                     "format must be 'json' or 'binary', got '" + format + "'");
 
-  const auto request =
-      parse_page_request(params, static_cast<long long>(kDefaultPointsPerPage),
-                         static_cast<long long>(kMaxPointsPerPage));
-  const auto page = db.point_cloud_page(name, request.offset, request.limit);
+  const auto lod = parse_lod_request(params);
+
+  reusex::ProjectDB::CloudPage page;
+  uint32_t flags = 0;
+  if (lod.active) {
+    auto result = resolve_lod(db, name, lod);
+    // The flag is set only when points were actually dropped. A cloud that fit
+    // the budget came back whole and in storage order, and claiming LOD would
+    // tell the client to distrust an offset that is perfectly good.
+    if (result.subsampled)
+      flags |= kRuxpFlagLod;
+    page = std::move(result.page);
+  } else {
+    const auto request = parse_page_request(
+        params, static_cast<long long>(kDefaultPointsPerPage),
+        static_cast<long long>(kMaxPointsPerPage));
+    page = db.point_cloud_page(name, request.offset, request.limit);
+  }
+
   if (!ruxp_supports(page.point_type))
     throw HttpError(500, "unsupported cloud type '" + page.point_type + "'");
 
   PointsResponse response;
-  response.blob = Blob{"application/octet-stream", encode_ruxp(page)};
+  response.blob = Blob{"application/octet-stream", encode_ruxp(page, flags)};
   // Mirrors of the body header, for curl-level debugging only.
   response.headers = {{"X-Ruxp-Version", std::to_string(kRuxpVersion)},
                       {"X-Ruxp-Type", page.point_type},
+                      {"X-Ruxp-Flags", std::to_string(flags)},
                       {"X-Ruxp-Offset", std::to_string(page.offset)},
                       {"X-Ruxp-Count", std::to_string(page.count)},
                       {"X-Ruxp-Total", std::to_string(page.total)}};

@@ -36,6 +36,21 @@ inline constexpr size_t kRuxpHeaderBase = 40;
 /// Bytes per field descriptor.
 inline constexpr size_t kRuxpFieldSize = 16;
 
+/// `flags` bit 0 — this page is a level-of-detail view of the whole cloud
+/// rather than a contiguous window of it (#320).
+///
+/// When set, `count` points were drawn from all `total` of them, `offset` is 0
+/// and carries no meaning, and the page must **not** be zipped positionally
+/// against a page that does not come from the same selection. The layout is
+/// unchanged, which is why this is a flag and not a version: a reader that
+/// predates it refuses the page (v1's rule for an unknown flag), and it only
+/// ever reaches a reader that asked for it with `max_points`.
+inline constexpr uint32_t kRuxpFlagLod = 0x1U;
+
+/// Every flag bit this encoder will emit. Anything else is a programming
+/// error, not a wire condition.
+inline constexpr uint32_t kRuxpKnownFlags = kRuxpFlagLod;
+
 /// Field value types, as written into a descriptor's `type` byte.
 enum class RuxpType : uint8_t { f32 = 1, u8 = 2, u32 = 3 };
 
@@ -51,10 +66,15 @@ enum class RuxpType : uint8_t { f32 = 1, u8 = 2, u32 = 3 };
  *
  * A page with `count == 0` still yields a complete, valid header.
  *
+ * @param flags Bits to write into the header's `flags` word — today only
+ *              #kRuxpFlagLod. A client rejects a page carrying a bit it does
+ *              not know, so a bit must never be set speculatively.
  * @throws std::runtime_error when the page's `point_type` has no RUXP field
- *         mapping, or when its `data` is shorter than `count * point_step`.
+ *         mapping, when its `data` is shorter than `count * point_step`, or
+ *         when @p flags contains a bit outside #kRuxpKnownFlags.
  */
-std::vector<uint8_t> encode_ruxp(const reusex::ProjectDB::CloudPage &page);
+std::vector<uint8_t> encode_ruxp(const reusex::ProjectDB::CloudPage &page,
+                                 uint32_t flags = 0);
 
 /// True when @p type is one encode_ruxp() knows how to lay out.
 bool ruxp_supports(std::string_view point_type);

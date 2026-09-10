@@ -1440,3 +1440,296 @@ tools/loop_edges/export_loop_edges.py scan.rux -o edges/<id>.json \
 ```
 
 The figure is regenerated with `python3 scripts/plot-drift-bench-figure.py`.
+
+## 11. The office scan's ~10 mm target: reachable today, and why that is bad news (2026-09-10, #225)
+
+This increment set out to drive the office scan's `flatness_rms` from 11.72 mm
+toward the ~10 mm target of #221, starting from the measurement caveat §9.8
+left open. It ends with three results, in increasing order of how much they
+change the workstream:
+
+> 1. **§9.8's determinism smell is a float32 round-trip in the pose
+>    write-back**, not nondeterminism. The pipeline is bit-reproducible.
+> 2. **The office flatness metric is chaotic at ±0.6 mm per run** — a 4.4 µm
+>    pose perturbation moves it across 11.76–13.25 mm — and it is strongly
+>    confounded by the segmented plane count (r = −0.80 over 78 runs). Every
+>    single-run office comparison in this document below ~1.5 mm was measuring
+>    that. One of them reverses: `--plane-noise fit` **loses** on office when
+>    the noise is averaged out.
+> 3. **The ~10 mm target is already reachable** — `rux register` scores
+>    9.83 ± 0.34 mm and its tuned variant 8.33 ± 0.61 mm. But the honka control
+>    (§6) shows that same stage *lowering* laser-GT F 0.795 → 0.756 while
+>    improving flatness. The number is attainable; the evidence says it would
+>    not mean what #221 wants it to mean. **The binding constraint is the
+>    metric, not the solver.**
+
+### 11.1 §9.8 resolved: the write-back is lossy, the pipeline is not
+
+§9.8 recorded that `optimize --no-plane-factors` leaves the office poses
+"bit-identical" (0 of 238 frames moved) yet changes downstream flatness from
+12.50 to 12.72 mm, and could not isolate the trigger. The trigger is a
+precision loss, and it is one line of type declarations deep:
+
+`ProjectDB` stores each pose as a **`double[16]`**, but `FrameSurfels::world_pose`
+and the `to_affine()` / `to_array16()` helpers in `geometry/transform_utils.hpp`
+are **`Affine3f`**. So `optimize_sensor_poses()` reads doubles, narrows them to
+float, and writes them back as doubles — for every frame, on every run,
+*including* a run whose solve provably cannot move a pose.
+
+Measured directly on the stored blobs (`sqlite3 … hex(transform)` before and
+after):
+
+| check | result |
+|---|---|
+| pose rows byte-changed by a no-op solve | **237 of 238** |
+| max translation change | **1.43 × 10⁻⁶ m** |
+| max rotation-element change | 7.3 × 10⁻¹² |
+| `none` run repeated | 12.5040 mm, **identical to every digit** |
+| `optimize` run repeated | 11.7179 mm, **identical to every digit** |
+
+So §9.8's "0 of 238 frames moved" was true *at float precision*, which is
+exactly the precision the check was performed in. The stage is deterministic;
+it is just not idempotent on the stored doubles. Recorded in the source as a
+`FIXME` (`libs/reusex/src/slam/optimize_sensor_poses.cpp`) rather than fixed
+here: carrying poses in double changes every number in this document by a small
+amount and needs its own re-baseline.
+
+### 11.2 The real problem: the metric is chaotic, and the amplifier is discreteness
+
+A 1.4 µm pose change moving flatness by 0.2 mm is a 150× amplification, so the
+next question is not "what changed the poses" but **"how sensitive is this
+metric to a change of any size"**. Answer, measured with `rux edit
+perturb-poses` at drift scales far below any real correction (seed 0 = the
+unperturbed canonical run):
+
+| perturbation | max camera-centre shift | flatness_rms (mm) | plane_count |
+|---|---|---|---|
+| none | 0 | 12.504 | 64 |
+| `--drift-scale 4e-9`, seeds 1–3 | **44 nm** | 12.502 / 12.504 / 12.504 | 64 / 64 / 64 |
+| `--drift-scale 4e-7`, seeds 1–5 | **4.4 µm** | **12.114 / 13.245 / 13.154 / 11.761 / 12.428** | 67 / 63 / 63 / 67 / 65 |
+
+At nanometre scale the pipeline is stable. At **micrometre** scale — still four
+thousand times smaller than the 0.0685 m of pose motion `rux optimize` applies —
+the metric spreads over **1.5 mm (sd 0.64 mm)** and the plane count over 63–67.
+
+The mechanism is discreteness, not floating-point noise: `create clouds -g 0.05`
+bins points into a 5 cm voxel grid and `create planes` grows regions against
+hard thresholds. A micrometre nudge flips a handful of boundary decisions, the
+region growing then either merges two nearly-coplanar patches or does not, and
+`flatness_rms` is an average **over whatever plane set came out**. Note the
+tell: `labeled_points` stays within ±1% across all of these runs, so nothing is
+being labelled away — the same points are simply partitioned differently.
+
+That has a second consequence, and it is the more damaging one. Across all 78
+runs measured in this section:
+
+```
+flatness_rms = 25.445 mm − 0.206 mm × plane_count      (r = −0.80, n = 78)
+```
+
+**The metric rewards fragmentation.** Splitting one slightly-bowed wall into two
+planes lowers the RMS without the reconstruction having improved at all. Any
+office flatness claim therefore has to be read against the plane count, not just
+against the previous number.
+
+**Protocol used from here on**, and shipped as `scripts/bench-office.sh`: run
+every configuration over an **ensemble of five micrometre-scale pose
+perturbations** (seeds 0–4, `--drift-scale 4e-7`) and report **mean ± sd**
+together with the mean plane count. The perturbation is orders of magnitude
+below any pose correction, so it cannot change what a configuration does — it
+only samples the chaos the single-run protocol was silently drawing one sample
+from.
+
+### 11.3 The matrix, re-measured with error bars
+
+Protocol: fresh copy of the canonical office project → µm perturbation (seed) →
+pose stage → `create clouds -g 0.05` → `create planes` → `analyze quality`.
+Five seeds per row (three for `register` ×2). `resid` is the row's distance from
+the plane-count trend line above — **negative means genuinely flatter than its
+plane count explains**, positive means the row is buying its number with
+fragmentation.
+
+| configuration | n | flatness_rms (mm) | thickness_p90 (mm) | planes | resid |
+|---|---|---|---|---|---|
+| `register --prior-weight 0.1 --neighbor-window 10 --iterations 50` | 5 | **8.33 ± 0.61** | **13.74 ± 0.94** | 74.4 | **−1.76** |
+| `register` (defaults) | 5 | 9.83 ± 0.34 | 16.15 ± 0.59 | 77.0 | +0.28 |
+| `register` → `optimize` | 5 | 10.00 ± 0.51 | 16.37 ± 0.89 | 73.4 | −0.29 |
+| `register` → `register` | 3 | 10.29 ± 0.58 | 16.87 ± 0.87 | 74.3 | +0.19 |
+| `optimize` → `register` | 5 | 11.14 ± 0.20 | 18.39 ± 0.39 | 67.4 | −0.39 |
+| **`optimize` (shipped default)** | 5 | **11.45 ± 0.25** | 18.70 ± 0.39 | 67.0 | −0.16 |
+| `optimize --assoc-rounds 4` | 5 | 11.45 ± 0.25 | 18.70 ± 0.39 | 67.0 | −0.16 |
+| `optimize --loop-edges xfeat.json` | 5 | 11.45 ± 0.25 | 18.70 ± 0.39 | 67.0 | −0.16 |
+| `optimize --underconstrained-odom-scale 0.1` | 5 | 11.56 ± 0.32 | 18.87 ± 0.51 | 65.8 | −0.30 |
+| `optimize --plane-noise fit` (tuned clamp) | 5 | 12.10 ± 0.33 | 19.60 ± 0.46 | 71.6 | **+1.44** |
+| `optimize --plane-sigma-scale 0.7` | 5 | 12.19 ± 0.12 | 19.95 ± 0.15 | 63.4 | −0.16 |
+| `optimize --underconstrained-odom-scale 1.0` | 5 | 12.34 ± 0.34 | 20.09 ± 0.52 | 64.0 | +0.10 |
+| `optimize --assoc-distance 0.20` | 5 | 12.38 ± 0.27 | 20.06 ± 0.42 | 65.0 | +0.36 |
+| `optimize --max-planes-per-frame 10 --min-plane-inliers 60` | 5 | 12.53 ± 0.13 | 20.38 ± 0.19 | 62.0 | −0.12 |
+| *no pose stage* | 5 | 12.56 ± 0.64 | 20.49 ± 1.03 | 64.8 | +0.49 |
+| `optimize --assoc-distance 0.05` | 5 | 12.57 ± 0.22 | 20.56 ± 0.44 | 65.8 | +0.71 |
+
+Reading it:
+
+**1. The shipped `optimize` default is a genuine local optimum.** Every knob
+moved in either direction is neutral or worse: association gate 0.05 and 0.20
+both lose to 0.10, denser detection loses, a stronger plane term loses,
+disabling the under-constrained-odometry guard loses and tightening it is a
+wash. §9.7's "not another plane or odometry weighting knob" is confirmed from a
+third direction, now with error bars.
+
+**2. `optimize`'s own win survives the noise.** 12.56 ± 0.64 → 11.45 ± 0.25 is
+−1.10 mm against a ~0.31 mm standard error of the difference, i.e. ~3.5σ. The
+tighter ensemble spread (0.25 vs 0.64) is itself a result: the stage does not
+just lower the metric, it makes the downstream segmentation *more stable*.
+
+**3. `--plane-noise fit`'s recorded office win is retracted.** §7.2 recorded
+11.66 mm for `fit` against 11.72 mm for the default and called office unable to
+separate the models. Seed-averaged, `fit` is **12.10 ± 0.33 against 11.45 ±
+0.25 — it loses by 0.65 mm**, and it carries the worst plane-count residual in
+the table (+1.44). Its recorded 11.66 was one lucky draw from an ensemble whose
+extra planes (71.6 vs 67.0) were already flattering it. §7.4's conclusion 1
+("`fit_geometry` helps exactly where the poses are wrong") still rests on the
+three ARKitScenes scans, where it was measured against absolute GT; only the
+office corroboration is withdrawn. `fit` remains correctly opt-in.
+
+**4. `--assoc-rounds 4` is a no-op on office** — bit-identical to the default on
+all five seeds, because the rounds stop early on the `--assoc-round-tol 0.02 m`
+criterion. Not a lever here.
+
+### 11.4 XFeat loop edges on office are a no-op on current `main`
+
+The planned headline experiment of this increment was `--plane-noise fit`
+combined with XFeat loop closure, the two best-known ingredients. It cannot
+exist as a distinct configuration, because **XFeat edges no longer reach the
+office solve at all**:
+
+```
+PlaneGraph: trajectory extent 18.01 m -> external seed-disagreement gate 0.501 m
+PlaneGraph: 163 external loop edges kept after gating
+PlaneGraph: PCM kept 3 of 163 unioned loop edges; 160 of 163 rejected as inconsistent
+```
+
+The three survivors are then discounted by GNC: the run is **bit-identical to
+plain `optimize` on all five seeds** (same 62 landmarks, same 386 plane factors,
+same 0.0685 m max pose shift, same flatness to every digit) despite the graph
+error being 154 366 instead of 7.83.
+
+This corrects a claim that has been propagating through this workstream. "**163
+PCM-surviving edges on office**" is a misreading: 163 is the count *after the
+seed-disagreement gate and before PCM*. PCM rejects 98% of them. The office
+XFeat edges are mutually inconsistent — which is the same verdict §10.5 reached
+for 41069048's 169 mm edges, and the same verdict PCM reached for MapAnything
+(#264) and for the panorama edges (#236). PR #311's "16.66 m of applied
+correction" was measured before PCM was applied to the union of edge sources;
+the Sep-4 office bench that recorded `optimize+xfeat` at 20.89 mm flatness dates
+from the same period and no longer reproduces.
+
+The workstream's standing rule survives intact and is reinforced: **rank a
+matcher by PCM-surviving edges, never by raw or gated edge count** (#312).
+
+### 11.5 The ~10 mm target, and why hitting it would be metric-gaming
+
+`rux register` (joint pairwise registration) clears the target with room to
+spare: 9.83 ± 0.34 mm on defaults, **8.33 ± 0.61 mm** with §6's tuned flags, and
+it is the only row in the table with a large negative plane-count residual
+(−1.76) — it is genuinely flattening surfaces, not fragmenting them. Both
+numbers reproduce §6's 2026-09-02 measurement (8.68 mm), now with error bars.
+
+So the target is attainable today, with a shipped command, no new code. The
+reason to not declare victory is the control §6 already recorded and this
+section re-reads in light of §10:
+
+| MuSHRoom honka (Faro laser GT, non-drifting) | GT F@50 mm | flatness_rms | planes |
+|---|---|---|---|
+| none | **0.7950** | 26.77 mm | 13 |
+| `register` (JPR) | 0.7556 | **22.78 mm** | 11 |
+
+JPR improves flatness by 15% while **losing 0.04 of GT F-score and 2.9 mm of
+median accuracy** — and it does so with *fewer* planes, so fragmentation cannot
+explain it away. The mechanism is not mysterious: **JPR minimises point-to-plane
+residual, and `analyze quality`'s `flatness_rms` is point-to-plane residual.**
+The stage is being scored on its own objective. It makes surfaces flatter while
+moving them away from where they actually are.
+
+That is a sharper statement of §6's finding 2, and §10 is what makes it binding.
+§10.4 raised confidence in the office flatness numbers because flatness and
+absolute GT were shown to agree on drifted captures — but that agreement was
+measured for the **plane-graph** stage, whose objective (global landmark
+consistency) is not the metric. It does not transfer to a stage whose objective
+*is* the metric.
+
+**Conclusion for #221: "office flatness_rms ≤ 10 mm" is no longer a useful
+acceptance criterion.** It is satisfiable by a stage that is known to make the
+reconstruction worse, and its measurement noise (±0.64 mm single-run) is a
+sizeable fraction of the remaining 1.5 mm gap. Chasing it further would be
+optimising the ruler.
+
+### 11.6 The blocker: the GT harness cannot currently adjudicate `register`
+
+The obvious way to settle §11.5 is to run `register` on the §10 drifted
+ARKitScenes variants and score it against `3dod_mesh`. `register` and
+`opt-register` configurations were added to `scripts/bench-arkitscenes-drift.sh`
+for exactly that, and then the run had to be abandoned:
+
+| scan | frames | JPR candidate pairs | measured / projected wall time |
+|---|---|---|---|
+| office `afb3234950` | 238 | 1 293 | 150 s |
+| ARKitScenes 41069050 | 1 859 | **542 070** | **≈ 17 h** (projected, killed) |
+
+JPR's pairing is 292 pairs/frame on 41069050 against 5.4 on office. These
+captures orbit 8–15 m of path inside a 1.8–2.6 m box, so almost every frame
+overlaps almost every other one, and the pair set grows quadratically. The
+office scan walks 69 m inside an 18 m box and does not have this problem.
+
+This is a concrete, quantified blocker rather than a shrug: **the only benchmark
+in this workstream with absolute GT cannot score the only pose stage that hits
+the flatness target.** Fixing it needs a bound on JPR's candidate pairs (a
+spatial cap, or a coverage-based selection), which is a change to `register`,
+not to the harness.
+
+### 11.7 What this changes about the workstream
+
+1. **Retire "office flatness_rms → 10 mm" as an acceptance criterion** (#221).
+   Replace it with a criterion that a metric-gaming stage cannot satisfy — GT
+   F@50 mm on the §10 drifted variants is the obvious candidate, and it is
+   already wired up for every stage except `register`.
+2. **Every office comparison must be seed-averaged from now on**
+   (`scripts/bench-office.sh`), and must report the plane count. §9.8's advice
+   of "deltas below ~0.2 mm are not signal" was an order of magnitude too
+   generous: the real single-run band is **±0.64 mm**, so ~1.5 mm is the
+   smallest difference a single pair of runs can support.
+3. **One recorded result is retracted** — `--plane-noise fit` does not beat the
+   default on office (§11.3, item 3). Its ARKitScenes GT evidence stands.
+4. **One recorded result is corrected** — office XFeat edges are not "163
+   PCM-surviving"; PCM keeps 3, and the configuration is a no-op (§11.4).
+5. **Bound JPR's candidate-pair explosion** so the GT benchmark can score it
+   (§11.6). This is now the highest-value item in the thread: it converts the
+   one stage that hits the target from "probably gaming the metric" into a
+   measured yes or no.
+6. **Fix the float32 pose write-back** (`FIXME` in `optimize_sensor_poses.cpp`),
+   scheduled with its own re-baseline. It is not the cause of anything in this
+   section beyond §9.8's smell, but it is a standing STANDARDS §6 violation.
+7. Still unimplemented and still wanted: the **GT-gated stopping rule** (§8.6,
+   §9.7, §10.7).
+
+### 11.8 Reproducing
+
+```bash
+# the seed-averaged office matrix (this section's table)
+scripts/bench-office.sh -c "none optimize fit register register-tuned \
+                            opt-register register-opt" -S "0 1 2 3 4"
+
+# the noise floor itself: same config, only the perturbation seed differs
+scripts/bench-office.sh -c none -S "0 1 2 3 4" -n 4e-7   # spread 1.5 mm
+scripts/bench-office.sh -c none -S "0 1 2 3"   -n 4e-9   # spread 2 um
+
+# §11.1, the write-back precision check
+cp project.rux det.rux
+sqlite3 det.rux "select node_id, hex(transform) from sensor_frames" > before.txt
+rux -p det.rux optimize --no-plane-factors
+sqlite3 det.rux "select node_id, hex(transform) from sensor_frames" > after.txt
+diff before.txt after.txt | grep -c '^<'          # 237
+
+# §11.6, the abandoned GT run (do not expect it to finish)
+scripts/bench-arkitscenes-drift.sh -v 41069050 -s 0.25 -c "none register opt-register"
+```

@@ -58,6 +58,15 @@ video_ids="41069048 41069050 41069051"
 #   noplane     odometry + gauge prior only (--no-plane-factors), §9.3's
 #               GT-optimal setting on the undrifted scans
 #   xfeat       noplane + external XFeat loop edges, i.e. a global constraint
+#   register    `rux register` (joint pairwise registration) INSTEAD of the
+#               plane graph — the local point-to-plane polish. Added in #225
+#               §11 because it is the only configuration measured to reach the
+#               office scan's ~10 mm flatness target, and its objective is
+#               point-to-plane residual, i.e. almost exactly the GT-free
+#               flatness metric. That makes a flatness win on office weak
+#               evidence on its own; this row is what tests it against
+#               absolute GT.
+#   opt-register  the plane graph first, then the local polish.
 configs="none optimize noplane xfeat"
 
 while getopts "d:o:s:S:e:v:c:" o; do
@@ -161,6 +170,9 @@ for vid in $video_ids; do
           fi
           "$rux" -v -p "$work" optimize --loop-edges "$edges"
           ;;
+        register)     "$rux" -v -p "$work" register ;;
+        opt-register) "$rux" -v -p "$work" optimize &&
+                      "$rux" -v -p "$work" register ;;
         *) echo "unknown config '$cfg'" >&2; exit 2 ;;
       esac
 

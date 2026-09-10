@@ -104,6 +104,32 @@ struct TrainOptions {
   float lr_opacities = 5e-2f; ///< on logit-opacity
   float lr_sh_dc = 2.5e-3f;   ///< on the degree-0 SH coefficients
 
+  /// Learning rate for SH degrees 1..`GaussianInitOptions::sh_degree` — the
+  /// view-*dependent* colour. The reference 3DGS trains these at a twentieth
+  /// of the DC rate and the ratio matters more than either absolute value:
+  /// the higher bands start at zero and are the most expressive parameters in
+  /// the model, so at the DC rate they race ahead of the geometry and absorb
+  /// residuals that a Gaussian should have moved to explain. That fits the
+  /// training views and shows up as a *worse* held-out number.
+  ///
+  /// Ignored entirely when the model is degree 0, which is the default.
+  float lr_sh_rest = 2.5e-3f / 20.0f;
+
+  /// Iterations between unlocking one more SH band (reference 3DGS's
+  /// `oneUpSHdegree`). Rendering starts at DC only and reaches the model's
+  /// full degree at `sh_degree_interval * sh_degree`; a locked band gets no
+  /// gradient and stays at its zero initialisation.
+  ///
+  /// Set to 0 to train every band from iteration 0. That is not recommended —
+  /// see `lr_sh_rest` for why the higher bands need the DC term to settle
+  /// first — but it makes the warm-up measurable rather than assumed.
+  ///
+  /// A run shorter than `sh_degree_interval * sh_degree` never reaches the
+  /// degree it was asked for; the trainer warns at startup and names the
+  /// degree the schedule will actually reach rather than letting the run
+  /// quietly deliver a cheaper model than requested (STANDARDS §5).
+  int sh_degree_interval = 1000;
+
   /// Weight of the D-SSIM term: `loss = (1-l)*L1 + l*(1 - SSIM)`.
   float lambda_dssim = 0.2f;
 
@@ -245,6 +271,14 @@ struct TrainResult {
   /// retention are dropped from this list as they go, so every entry names a
   /// file a caller can actually open.
   std::vector<std::filesystem::path> checkpoints;
+
+  /// The highest SH degree the warm-up schedule actually unlocked, which is
+  /// **not** always `gaussians.sh_degree`: a run shorter than
+  /// `sh_degree_interval * sh_degree` stops part-way up the ladder, and the
+  /// bands it never reached are still zero in the saved model. Recorded so a
+  /// caller comparing two runs can see that one of them trained a smaller
+  /// model than its `--sh-degree` suggests.
+  int final_sh_degree = 0;
 
   /// True when the run stopped early on a cancel request rather than by
   /// reaching `TrainOptions::iterations`. The model and metrics are real, they

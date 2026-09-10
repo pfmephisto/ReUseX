@@ -428,6 +428,103 @@ nicety.
   continues. Only an uncreatable `--render-dir` / `--checkpoint-dir` still
   fails, and it fails at startup, before the hours.
 
+## 5.5 View-dependent colour: the first held-out gain (#240)
+
+§5.3 ruled out capacity as this scene's limit and named two suspects for the
+uniform softness — pose error and the 480 px training resolution. It missed a
+third, and the third is the one that lives inside the trainer: **every
+Gaussian had exactly one colour from every direction.** `sh_degree` defaulted
+to 0, so the model was Lambertian by construction. A polished concrete floor,
+a monitor, a window — the parts of an office interior whose appearance
+genuinely changes with viewing angle — cannot be represented by such a model
+at all, and the optimizer's only way to reduce their per-view residual is to
+blur the Gaussians that cover them. That is a mechanism that produces exactly
+"smear rather than missing detail".
+
+Degree-3 SH was already plumbed through `GaussianCloud`, the `.ply` writer and
+`--sh-degree`, but nothing had ever trained with it, and two pieces the
+reference implementation relies on were missing:
+
+- **One learning rate for all coefficients.** `AdamLrs` had a single `sh`
+  entry, so degrees 1..3 would have been trained at the DC rate. The reference
+  uses `DC / 20`. This cannot be fixed with a gradient hook — Adam normalises
+  by its own second moment, so scaling a parameter's gradient uniformly leaves
+  its step length unchanged. The DC term and the higher bands have to be
+  **separate leaf tensors in separate param groups**, which is why
+  `GaussianTensors::sh` is now `sh_dc` + `sh_rest` (the reference splits them
+  the same way, as `_features_dc` / `_features_rest`).
+- **No band warm-up.** The reference renders with DC only and unlocks one band
+  every 1000 iterations (`oneUpSHdegree`). The higher bands start at zero and
+  are the most expressive parameters in the model; let loose before the
+  view-independent colour has settled, they absorb residuals that belong to
+  geometry.
+
+### Measured: NewOffice, 394 views (344 train / 50 held out), 30 000 iterations
+
+Same region, resolution and split as §5.3, so these rows are directly
+comparable with the density-control table above.
+
+| | train PSNR | **held-out PSNR** | held-out SSIM | Gaussians | wall clock | rate |
+|---|---:|---:|---:|---:|---:|---:|
+| A — `--sh-degree 0` (default) | 20.94 dB | **20.06 dB** | 0.7825 | 787,745 | 187.6 s | 160 it/s |
+| B — degree 3, warm-up 1000, `lr_rest = DC/20` | 21.41 dB | **20.44 dB** | 0.7908 | 817,528 | 395.4 s | 76 it/s |
+| C — degree 3, no warm-up, `lr_rest = DC` | 21.54 dB | **20.35 dB** | 0.7943 | 988,447 | 444.5 s | 68 it/s |
+
+**Row A reproduces §5.3's prune-only row** (20.05 dB, 785,176 Gaussians) to
+0.01 dB and 0.3 % of the model size, which is what says the SH split did not
+disturb the degree-0 path it refactored.
+
+**+0.38 dB held-out for view-dependent colour.** For scale: the entire
+density-control study in §5.3 spanned 0.09 dB across a **3.1× range in model
+size**. Expressivity moves this scene four times as far as capacity did, in
+the opposite direction from the one #307 was looking. It is also the first
+*positive* held-out result in this workstream.
+
+The gain is not overfitting: train rises 0.47 dB and held-out 0.38 dB, so the
+generalisation gap barely widens (0.88 → 0.97 dB).
+
+### The two reference details are load-bearing, and row C is the proof
+
+Row C is the configuration you get by wiring degree-3 SH up naively — all
+bands live from iteration 0, all coefficients at the DC learning rate. It has
+the **best training PSNR of the three and a worse held-out number than row B**.
+That is the textbook overfitting signature, and it is the reason both details
+are defaults rather than options: had the increment shipped without them, the
+training-view number would have looked like the bigger win.
+
+Honesty about the size of the effect: B beats C by 0.13 dB PSNR but *loses* to
+it by 0.0035 SSIM. The direction is consistent with the theory and consistent
+across the metric the workstream reports, but B-vs-C is a much weaker result
+than A-vs-B, and one scene is not an ablation.
+
+A useful side effect of the warm-up: for the first `sh_degree_interval`
+iterations a degree-3 run renders through exactly the degree-0 path, so rows A
+and B log an **identical** loss at iteration 100 (0.28313). Row C, with every
+band live, does not (0.28337). That equality is a free regression test on the
+refactor.
+
+### What it costs
+
+Degree 3 is **2.1× slower** (160 → 76 it/s) and **3.8× larger on disk**
+(51.1 MB → 193.4 MB), because `sh_rest` is 45 more floats per Gaussian to
+store, step and — once per iteration — concatenate onto the DC band for the
+rasterizer. `sh_coeffs()` concatenates only the bands the *active* degree
+needs, so the warm-up phase pays nothing, but past iteration 3000 the full
+block is in play.
+
+That is a real trade, so **degree 0 stays the default**: it is the right choice
+for a quick look at a scan, and `--sh-degree 3` is the right choice for a
+presentable one. Both are now measured rather than assumed.
+
+### Where this leaves the limit
+
+Pose error and training resolution remain untested — nothing here addressed
+either, and 20.4 dB is still soft. What has changed is that the trainer is no
+longer the *first* thing to suspect: it now models view-dependent appearance,
+and the remaining softness is more clearly somebody else's variable. The
+resolution suspect is a one-flag experiment (`--max-image-size`); the pose
+suspect belongs to the slam-quality workstream.
+
 ## 6. Verification (native, once built)
 
 `rux create gsplat -p scene.rux --iterations 7000 --use-panoramas

@@ -27,12 +27,17 @@ struct AdamLrs {
   double log_scales = 5e-3;
   double quats = 1e-3;
   double logit_opacity = 5e-2;
-  double sh = 2.5e-3;
+  double sh_dc = 2.5e-3;
+  /// The reference 3DGS trains degrees 1..n at a twentieth of the DC rate.
+  /// Giving them the DC rate is not a small mistake: the higher bands start at
+  /// zero and are the most expressive parameters in the model, so at full
+  /// speed they fit per-view residuals that belong to geometry.
+  double sh_rest = 2.5e-3 / 20.0;
 };
 
 using AdamPtr = std::unique_ptr<torch::optim::Adam>;
 
-/// One Adam over @p g's five parameter tensors, one param group each so the
+/// One Adam over @p g's six parameter tensors, one param group each so the
 /// learning rates stay independent.
 AdamPtr make_adam(GaussianTensors &g, const AdamLrs &lrs);
 

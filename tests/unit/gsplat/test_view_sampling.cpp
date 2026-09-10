@@ -232,3 +232,53 @@ TEST_CASE("SceneExtent_DegenerateCapture_ReturnsMinimumFloor", "[gsplat]") {
     REQUIRE(detail::scene_extent({}) == Approx(1e-3).epsilon(1e-9));
   }
 }
+
+// --- SH warm-up schedule (#240) --------------------------------------------
+// `active_sh_degree` decides how expressive the model is allowed to be at each
+// iteration. It lives here, with the other pure schedule helpers, so the
+// CPU-only CI build can assert on it — the alternative is inferring it from a
+// CUDA training log.
+
+TEST_CASE("ActiveShDegree_UnlocksOneBandPerInterval", "[gsplat]") {
+  // Degree 3, one band per 1000 iterations: DC only until 1000, then up.
+  REQUIRE(detail::active_sh_degree(0, 3, 1000) == 0);
+  REQUIRE(detail::active_sh_degree(999, 3, 1000) == 0);
+  REQUIRE(detail::active_sh_degree(1000, 3, 1000) == 1);
+  REQUIRE(detail::active_sh_degree(1999, 3, 1000) == 1);
+  REQUIRE(detail::active_sh_degree(2000, 3, 1000) == 2);
+  REQUIRE(detail::active_sh_degree(3000, 3, 1000) == 3);
+  // Never past the model's own degree, however long the run.
+  REQUIRE(detail::active_sh_degree(3001, 3, 1000) == 3);
+  REQUIRE(detail::active_sh_degree(1'000'000, 3, 1000) == 3);
+}
+
+TEST_CASE("ActiveShDegree_DegreeZeroModel_StaysAtZero", "[gsplat]") {
+  // The default model has no higher bands to unlock; no schedule setting may
+  // conjure one, or render() would be asked for a degree the tensors cannot
+  // supply.
+  for (const int interval : {0, 1, 1000})
+    for (const int it : {0, 1, 500, 100000})
+      REQUIRE(detail::active_sh_degree(it, 0, interval) == 0);
+  REQUIRE(detail::active_sh_degree(10, -1, 100) == 0);
+}
+
+TEST_CASE("ActiveShDegree_NoWarmUp_EveryBandLiveImmediately", "[gsplat]") {
+  // interval <= 0 is the documented "train all bands from iteration 0" escape
+  // hatch, and it must not divide by zero on the way there.
+  REQUIRE(detail::active_sh_degree(0, 3, 0) == 3);
+  REQUIRE(detail::active_sh_degree(0, 3, -5) == 3);
+  REQUIRE(detail::active_sh_degree(12345, 2, 0) == 2);
+}
+
+TEST_CASE("ActiveShDegree_Monotonic_NeverRegresses", "[gsplat]") {
+  // A band that unlocks must stay unlocked: dropping back would silently zero
+  // out coefficients the optimizer had already fitted.
+  int previous = 0;
+  for (int it = 0; it <= 5000; ++it) {
+    const int d = detail::active_sh_degree(it, 3, 700);
+    REQUIRE(d >= previous);
+    REQUIRE(d <= 3);
+    previous = d;
+  }
+  REQUIRE(previous == 3);
+}

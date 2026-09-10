@@ -143,26 +143,40 @@ GaussianTensors to_tensors(const GaussianCloud &g) {
                         .clone()
                         .to(torch::kCUDA);
 
-  // SH layout [N, K, 3]. Band 0 is the DC triple; the higher bands come from
-  // sh_rest, which is stored channel-major (all of channel 0's coefficients,
-  // then channel 1's, then channel 2's) to match the reference .ply.
-  std::vector<float> sh(static_cast<std::size_t>(n * K * 3), 0.0f);
+  // SH layout [N, ·, 3], split into the DC band and the rest so Adam can give
+  // them different learning rates (rasterize.hpp). Band 0 is the DC triple;
+  // the higher bands come from sh_rest, which is stored channel-major (all of
+  // channel 0's coefficients, then channel 1's, then channel 2's) to match the
+  // reference .ply.
   const int64_t rest = K - 1;
+  std::vector<float> dc(static_cast<std::size_t>(n * 3), 0.0f);
+  std::vector<float> hi(static_cast<std::size_t>(n * rest * 3), 0.0f);
   for (int64_t i = 0; i < n; ++i) {
     for (int64_t c = 0; c < 3; ++c)
-      sh[static_cast<std::size_t>(i * K * 3 + 0 * 3 + c)] =
+      dc[static_cast<std::size_t>(i * 3 + c)] =
           g.sh_dc[static_cast<std::size_t>(i)][static_cast<std::size_t>(c)];
     if (rest > 0 && !g.sh_rest.empty()) {
       const auto &r = g.sh_rest[static_cast<std::size_t>(i)];
       for (int64_t c = 0; c < 3; ++c)
         for (int64_t j = 0; j < rest; ++j)
-          sh[static_cast<std::size_t>(i * K * 3 + (j + 1) * 3 + c)] =
+          hi[static_cast<std::size_t>(i * rest * 3 + j * 3 + c)] =
               r[static_cast<std::size_t>(c * rest + j)];
     }
   }
-  t.sh = torch::from_blob(sh.data(), {n, K, 3}, torch::kFloat32)
-             .clone()
-             .to(torch::kCUDA);
+  t.sh_dc = torch::from_blob(dc.data(), {n, 1, 3}, torch::kFloat32)
+                .clone()
+                .to(torch::kCUDA);
+  // Always materialised, even at degree 0 where it is [N,0,3]: the optimizer
+  // keeps one fixed parameter list rather than branching on the degree.
+  // Allocated directly in that case — `hi.data()` on an empty vector may be
+  // null, which from_blob must not be handed.
+  t.sh_rest = rest > 0
+                  ? torch::from_blob(hi.data(), {n, rest, 3}, torch::kFloat32)
+                        .clone()
+                        .to(torch::kCUDA)
+                  : torch::zeros({n, 0, 3}, torch::TensorOptions()
+                                                .dtype(torch::kFloat32)
+                                                .device(torch::kCUDA));
   return t;
 }
 
@@ -171,11 +185,11 @@ GaussianCloud to_cloud(const GaussianTensors &t) {
   auto scales = t.log_scales.detach().to(torch::kCPU).contiguous();
   auto quats = t.quats.detach().to(torch::kCPU).contiguous();
   auto opac = t.logit_opacity.detach().to(torch::kCPU).contiguous();
-  auto sh = t.sh.detach().to(torch::kCPU).contiguous();
+  auto dc = t.sh_dc.detach().to(torch::kCPU).contiguous();
+  auto hi = t.sh_rest.detach().to(torch::kCPU).contiguous();
 
   const int64_t n = means.size(0);
-  const int64_t K = sh.size(1);
-  const int64_t rest = K - 1;
+  const int64_t rest = hi.size(1);
 
   GaussianCloud g;
   g.sh_degree = t.sh_degree;
@@ -192,7 +206,8 @@ GaussianCloud to_cloud(const GaussianTensors &t) {
   const float *ps = scales.data_ptr<float>();
   const float *pq = quats.data_ptr<float>();
   const float *po = opac.data_ptr<float>();
-  const float *ph = sh.data_ptr<float>();
+  const float *pdc = dc.data_ptr<float>();
+  const float *phi = rest > 0 ? hi.data_ptr<float>() : nullptr;
 
   for (int64_t i = 0; i < n; ++i) {
     const auto u = static_cast<std::size_t>(i);
@@ -200,11 +215,12 @@ GaussianCloud to_cloud(const GaussianTensors &t) {
     g.scales[u] = {ps[i * 3], ps[i * 3 + 1], ps[i * 3 + 2]};
     g.quats[u] = {pq[i * 4], pq[i * 4 + 1], pq[i * 4 + 2], pq[i * 4 + 3]};
     g.opacities[u] = po[i];
-    g.sh_dc[u] = {ph[i * K * 3 + 0], ph[i * K * 3 + 1], ph[i * K * 3 + 2]};
+    g.sh_dc[u] = {pdc[i * 3 + 0], pdc[i * 3 + 1], pdc[i * 3 + 2]};
+    // Back to the reference .ply's channel-major sh_rest layout.
     for (int64_t c = 0; c < 3; ++c)
       for (int64_t j = 0; j < rest; ++j)
         g.sh_rest[u][static_cast<std::size_t>(c * rest + j)] =
-            ph[i * K * 3 + (j + 1) * 3 + c];
+            phi[i * rest * 3 + j * 3 + c];
   }
   g.validate();
   return g;
@@ -270,7 +286,8 @@ TrainResult train_gaussians(const GaussianCloud &init,
   g.log_scales.set_requires_grad(true);
   g.quats.set_requires_grad(true);
   g.logit_opacity.set_requires_grad(true);
-  g.sh.set_requires_grad(true);
+  g.sh_dc.set_requires_grad(true);
+  g.sh_rest.set_requires_grad(true);
 
   const double extent = detail::scene_extent(views);
   const detail::ViewSplit split =
@@ -287,8 +304,40 @@ TrainResult train_gaussians(const GaussianCloud &init,
   lrs.log_scales = opt.lr_scales;
   lrs.quats = opt.lr_quats;
   lrs.logit_opacity = opt.lr_opacities;
-  lrs.sh = opt.lr_sh_dc;
+  lrs.sh_dc = opt.lr_sh_dc;
+  lrs.sh_rest = opt.lr_sh_rest;
   auto optimizer = detail::make_adam(g, lrs);
+
+  // --- spherical-harmonic warm-up ------------------------------------------
+  // Bands unlock one at a time (reference 3DGS `oneUpSHdegree`); a locked band
+  // receives no gradient and stays at its zero initialisation.
+  const int sh_interval = opt.sh_degree_interval;
+  int active_degree = detail::active_sh_degree(0, g.sh_degree, sh_interval);
+  if (g.sh_degree > 0) {
+    const int reachable =
+        detail::active_sh_degree(opt.iterations, g.sh_degree, sh_interval);
+    core::info("gsplat: SH {}; rest-band LR {:.3g}, DC {:.3g} (ratio {:.3g})",
+               sh_interval > 0
+                   ? fmt::format("warm-up — degree 0 now, +1 every {} "
+                                 "iterations up to {}",
+                                 sh_interval, g.sh_degree)
+                   : fmt::format("warm-up DISABLED — all {} degrees live from "
+                                 "iteration 0",
+                                 g.sh_degree),
+               opt.lr_sh_rest, opt.lr_sh_dc,
+               opt.lr_sh_rest > 0.0f ? opt.lr_sh_dc / opt.lr_sh_rest : 0.0);
+    // Asking for degree 3 and silently getting degree 1 is exactly the kind of
+    // quiet under-delivery STANDARDS §5 forbids: the model still validates,
+    // the .ply still loads, and the unreached bands are simply zero.
+    if (reachable < g.sh_degree)
+      core::warn(
+          "gsplat: {} iterations only unlock SH degree {} of the requested "
+          "{} (one band per {} iterations) — degrees {}..{} will stay at "
+          "their zero initialisation. Train for at least {} iterations, or "
+          "lower --sh-degree-interval, to get the model you asked for.",
+          opt.iterations, reachable, g.sh_degree, sh_interval, reachable + 1,
+          g.sh_degree, sh_interval * g.sh_degree);
+  }
 
   // Seeds torch's own generators. MCMC draws from them (multinomial for
   // relocation targets, randn for the Langevin noise), so without this the
@@ -372,8 +421,12 @@ TrainResult train_gaussians(const GaussianCloud &init,
     last_render_iter = iteration;
     torch::NoGradGuard no_grad;
     const auto &v = views[render_idx];
+    // Rendered at the degree the model is *currently* trained to, not at its
+    // nominal one: a checkpoint render is a picture of the run's state, and
+    // bands that are still locked hold zeros the rasterizer would faithfully
+    // add to nothing.
     auto out = detail::render(g, viewmats[render_idx], intrinsics[render_idx],
-                              v.width(), v.height(), g.sh_degree);
+                              v.width(), v.height(), active_degree);
     const auto path =
         render_dir / fmt::format("render_{}_iter{:06d}.png", v.name, iteration);
 
@@ -481,7 +534,7 @@ TrainResult train_gaussians(const GaussianCloud &init,
     for (const std::size_t vi : idx) {
       const auto &v = views[vi];
       auto out = detail::render(g, viewmats[vi], intrinsics[vi], v.width(),
-                                v.height(), g.sh_degree);
+                                v.height(), active_degree);
       auto pred = out.image.clamp(0.0f, 1.0f);
       const auto &target = targets[vi];
       auto mse = torch::mse_loss(pred, target);
@@ -579,12 +632,21 @@ TrainResult train_gaussians(const GaussianCloud &init,
       break;
     }
 
+    // One more SH band every `sh_interval` iterations. Announced rather than
+    // silent: unlocking a band changes what the model can express, so a jump
+    // in the loss curve at this iteration has a cause worth naming.
+    if (const int next = detail::active_sh_degree(it, g.sh_degree, sh_interval);
+        next != active_degree) {
+      active_degree = next;
+      core::info("gsplat: SH degree {} active from iter {}", active_degree, it);
+    }
+
     const std::size_t vi = split.train[pick(rng)];
     drawn[vi] = true;
     const auto &v = views[vi];
 
     auto out = detail::render(g, viewmats[vi], intrinsics[vi], v.width(),
-                              v.height(), g.sh_degree);
+                              v.height(), active_degree);
 
     auto pred = out.image;            // [H,W,3]
     const auto &target = targets[vi]; // [H,W,3]
@@ -725,6 +787,7 @@ TrainResult train_gaussians(const GaussianCloud &init,
   }
 
   result.iterations_run = completed;
+  result.final_sh_degree = active_degree;
 
   if (result.cancelled) {
     core::warn("gsplat: CANCELLED at iteration {} of {} — stopping here and "
@@ -856,8 +919,9 @@ TrainResult run_gsplat_stage(ProjectDB &db, const GsplatStageOptions &opt) {
   // Same start/finish contract as the sibling create stages, so `rux log`
   // shows the run, its parameters, and whether it succeeded.
   const std::string parameters = fmt::format(
-      R"({{"seed_cloud":"{}","max_points":{},"sh_degree":{},"iterations":{},"mcmc":{},"holdout_every":{},"checkpoint_every":{},"name":"{}","out":"{}"}})",
-      opt.seed_cloud, opt.init.max_points, opt.init.sh_degree, train.iterations,
+      R"({{"seed_cloud":"{}","max_points":{},"sh_degree":{},"sh_degree_interval":{},"lr_sh_rest":{},"iterations":{},"mcmc":{},"holdout_every":{},"checkpoint_every":{},"name":"{}","out":"{}"}})",
+      opt.seed_cloud, opt.init.max_points, opt.init.sh_degree,
+      train.sh_degree_interval, train.lr_sh_rest, train.iterations,
       train.mcmc.enabled ? "true" : "false", train.holdout_every,
       train.checkpoint_every, opt.splat_name, opt.out_ply.string());
   const int log_id = db.log_pipeline_start("gsplat", parameters);
@@ -878,10 +942,10 @@ TrainResult run_gsplat_stage(ProjectDB &db, const GsplatStageOptions &opt) {
     // a second chance for the two to disagree about the same model.
     const auto ply = gaussian_ply_bytes(result.gaussians);
     db.save_gaussian_splat(opt.splat_name, ply, "gsplat", parameters);
-    reusex::info("gsplat: stored {} Gaussians (SH degree {}) in the project as "
-                 "'{}' ({:.1f} MB)",
+    reusex::info("gsplat: stored {} Gaussians (SH degree {}, trained up to "
+                 "degree {}) in the project as '{}' ({:.1f} MB)",
                  result.gaussians.size(), result.gaussians.sh_degree,
-                 opt.splat_name,
+                 result.final_sh_degree, opt.splat_name,
                  static_cast<double>(ply.size()) / (1024.0 * 1024.0));
 
     if (!opt.out_ply.empty()) {

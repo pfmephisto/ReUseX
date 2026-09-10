@@ -55,6 +55,18 @@ DENSITY CONTROL:
   regions and samples new ones up to --mcmc-cap-factor x the seed count. Use
   it for scans whose cloud is coarse relative to the image resolution.
 
+VIEW-DEPENDENT COLOUR:
+  --sh-degree 0 (the default) gives every Gaussian one colour from every
+  direction, so glossy floors, screens and windows cannot be represented and
+  their view-dependent energy is absorbed as blur. --sh-degree 1..3 adds
+  spherical-harmonic bands that model it. They are unlocked one at a time,
+  every --sh-degree-interval iterations, and trained at --lr-sh-rest (a
+  twentieth of the DC rate, as in the reference implementation) — both
+  because the higher bands start at zero and, let loose early or fast, fit
+  per-view residuals that belong to geometry. Budget at least
+  sh-degree x sh-degree-interval iterations or the top bands never unlock;
+  the trainer warns when they will not.
+
 REPORTED QUALITY:
   Every Nth view (--holdout-every, default 8) is excluded from training and
   used only for evaluation. The held-out PSNR is the honest number; the
@@ -98,6 +110,16 @@ NOTES:
                   "Spherical-harmonic degree (0 = view-independent colour)")
       ->default_val(opt->sh_degree)
       ->check(CLI::Range(0, 3));
+  sub->add_option("--sh-degree-interval", opt->sh_degree_interval,
+                  "Iterations between unlocking one more SH band "
+                  "(0 = all bands from the start)")
+      ->default_val(opt->sh_degree_interval)
+      ->check(CLI::NonNegativeNumber);
+  sub->add_option("--lr-sh-rest", opt->lr_sh_rest,
+                  "Learning rate for SH degrees 1..n "
+                  "(reference 3DGS uses 1/20 of the DC rate)")
+      ->default_val(opt->lr_sh_rest)
+      ->check(CLI::NonNegativeNumber);
 
   sub->add_option("-i, --iterations", opt->iterations, "Training iterations")
       ->default_val(opt->iterations)
@@ -325,6 +347,8 @@ int run_subcommand_create_gsplat(SubcommandCreateGsplatOptions const &opt,
     o.views.pano_tile = opt.pano_tile;
 
     o.train.iterations = opt.iterations;
+    o.train.sh_degree_interval = opt.sh_degree_interval;
+    o.train.lr_sh_rest = opt.lr_sh_rest;
     o.train.lambda_dssim = opt.lambda_dssim;
     o.train.seed = opt.seed;
     o.train.prune_enabled = !opt.no_prune;

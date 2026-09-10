@@ -23,6 +23,10 @@ struct SubcommandCreateGsplatOptions {
   std::string seed_cloud = "cloud";
   std::size_t max_points = 0;
   int sh_degree = 0;
+  /// TrainOptions::sh_degree_interval / lr_sh_rest — the view-dependent-colour
+  /// warm-up. Both are inert at the default `sh_degree = 0`.
+  int sh_degree_interval = 1000;
+  float lr_sh_rest = 2.5e-3f / 20.0f;
 
   int iterations = 2000;
   float lambda_dssim = 0.2f;

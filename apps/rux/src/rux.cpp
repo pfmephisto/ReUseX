@@ -18,6 +18,7 @@
 #include <processing_observer.hpp>
 #include <register.hpp>
 #include <render.hpp>
+#include <rux_app.hpp>
 #include <set.hpp>
 #include <validate.hpp>
 #include <view.hpp>
@@ -70,7 +71,9 @@ void install_fatal_signal_handlers() {
 }
 } // namespace
 
-int main(int argc, char **argv) {
+namespace rux {
+
+int run(int argc, char **argv) {
   install_fatal_signal_handlers();
 
   // Initialize async logger thread pool (lock-free queue, background writer
@@ -224,3 +227,5 @@ int main(int argc, char **argv) {
   teardown();
   return 0;
 }
+
+} // namespace rux

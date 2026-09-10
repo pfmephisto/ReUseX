@@ -109,6 +109,10 @@ The allowance comes with obligations:
   so that module keeps its Layer-1½ position (#227).
 - `apps/rux/` subcommands are thin wrappers: parse arguments, validate, call
   one library entry point, report. Business logic lives in the library.
+- **An app target owns exactly one symbol the tests cannot link: `main`.**
+  Everything else in `apps/<app>/src/` goes into a static library, and the
+  executable is the `main()` translation unit plus a link line (#249). See
+  the table below.
 - New heavyweight dependencies (anything that adds > 30 s to a clean build)
   require an issue discussing alternatives before being added.
 
@@ -116,6 +120,38 @@ The allowance comes with obligations:
 clouds/tables each stage consumes and produces) are specified in
 [`CONTRACTS.md`](CONTRACTS.md) and enforced at runtime by
 `rux validate --stage <name>`.
+
+### 1.1 App targets
+
+`apps/` sits above the library layers and may link anything, but it is not
+exempt from being tested. A bare `add_executable(<app> <all the sources>)`
+makes every line in it unreachable from ctest, because a translation unit
+defining `main` cannot be linked into a Catch2 binary that supplies its own
+(#249). So:
+
+| Target | Contents | Test directory | Test binary |
+|---|---|---|---|
+| `rux_core_lib` | app logic that stops at `reusex_core`: `path_parser`, `filter_utils`, `stage_prerequisites`, the stdin/format handlers | `tests/unit/rux/` | light |
+| `rux_gui_lib` | the `rux gui` server (#265) — links `reusex_pipeline`, not the umbrella | `tests/unit/rux_gui/` | light |
+| `rux_lib` | everything else under `apps/rux/src`: subcommands, `database/*_router.cpp`, the interactive viewer, `rux::run()` | `tests/unit/rux_app/` | heavy |
+| `rux` | `src/main.cpp` — `return rux::run(argc, argv);` | — | — |
+| `ruxd_lib` | everything under `apps/ruxd/src` except `main.cpp`: `EndpointRegistry`, `BearerAuthMiddleware`, the connection pool, the handlers | `tests/unit/ruxd/` | heavy |
+| `ruxd` | `src/main.cpp` | — | — |
+
+Rules for adding to `apps/`:
+
+- **New source files need no CMake edit.** `rux_lib`, `rux_gui_lib` and
+  `ruxd_lib` are `GLOB_RECURSE ... CONFIGURE_DEPENDS`; only `rux_core_lib` is
+  an explicit list, and only because membership there is a *claim* — that the
+  file links no further than `reusex_core`, and therefore that its tests can
+  stay in the fast binary. When in doubt, leave the file in `rux_lib`.
+- **New app code does not go in `main.cpp`.** The two `main.cpp` files are
+  one statement each and stay that way; CLI wiring belongs in `rux::run()`
+  (`apps/rux/src/rux.cpp`), inside the library.
+- **Splitting an app library further is a dependency decision, not a
+  responsibility one.** `rux_core_lib` and `rux_gui_lib` exist because they
+  keep the ML/viewer closure out of the light test binary (§7), which is the
+  only thing that makes their tests cheap. Do not split for tidiness.
 
 ## 2. Header hygiene
 
@@ -255,10 +291,20 @@ writes labels MUST follow it; any deviation is a bug.
 - **Which test binary**: unit tests build into `reusex_unit_tests` (light) or
   `reusex_unit_tests_vision` (full dependency closure). A test lands in the
   heavy binary by living in `tests/unit/vision/`, `tests/unit/ruxd/`,
-  `tests/unit/visualize/` or `tests/unit/gsplat/cuda/`. Keep new tests out of
-  those directories unless they genuinely need the ML backends, `ruxd_lib`,
-  the PCL/Qt viewer or torch: linking libtorch/TensorRT adds ~0.6 s of
-  dynamic-loader time to *every* test process in that binary (#268).
+  `tests/unit/rux_app/`, `tests/unit/visualize/` or `tests/unit/gsplat/cuda/`.
+  Keep new tests out of those directories unless they genuinely need the ML
+  backends, `ruxd_lib`, `rux_lib`, the PCL/Qt viewer or torch: linking
+  libtorch/TensorRT adds ~0.6 s of dynamic-loader time to *every* test process
+  in that binary (#268).
+- **App-layer tests** (`apps/rux`, `apps/ruxd`) are unit tests like any other;
+  the app code is reachable because each app is a static library plus a
+  one-line `main.cpp` (§1.1). Which directory a test goes in follows the same
+  light/heavy rule as everything else: `tests/unit/rux/` for anything covered
+  by `rux_core_lib`, `tests/unit/rux_gui/` for the GUI server,
+  `tests/unit/rux_app/` only when the test needs a subcommand, a
+  `database/*_router.cpp` or the viewer. Adding a file to any of these needs
+  no CMake change — `tests/unit/**/*.cpp` is globbed and the libraries are
+  already linked.
 - **gsplat tests**: `tests/unit/gsplat/cuda/` is for tests that need torch or
   the rasterizer; it is dropped entirely from a build without
   `REUSEX_HAVE_GSPLAT`. Tests directly under `tests/unit/gsplat/` cover

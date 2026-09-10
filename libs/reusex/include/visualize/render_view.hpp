@@ -168,7 +168,10 @@ cv::Mat render_view(const ProjectDB &db, const RenderOptions &opts);
 /// pose * local_transform" has exactly one definition outside the
 /// back-projection that owns it (STANDARDS §1/§4).
 ///
-/// @throws std::runtime_error if the frame has no usable intrinsics.
+/// @throws std::runtime_error if the frame has no usable intrinsics, or no
+///         usable stored pose (`ProjectDB::has_sensor_frame_pose()`) — a
+///         render from the identity fallback would silently be a view from the
+///         world origin (#336).
 CameraSpec camera_from_sensor_frame(const ProjectDB &db, int node_id, int width,
                                     int height);
 

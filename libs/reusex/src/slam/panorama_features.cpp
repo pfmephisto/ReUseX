@@ -11,6 +11,7 @@
 
 #include "core/ProjectDB.hpp"
 #include "core/SensorIntrinsics.hpp"
+#include "core/logging.hpp"
 
 #include <opencv2/imgproc.hpp>
 
@@ -93,6 +94,19 @@ FrameFeatures extract_frame_features(ProjectDB &db, int node_id,
   if (fx <= 0.0 || fy <= 0.0)
     return out;
 
+  // T_world_cam turns this frame's depth into the WORLD 3D points a panorama
+  // is resected against. `sensor_frame_pose()`'s identity fallback would place
+  // that whole point set at the origin and a degenerate transform would
+  // collapse it, either way handing the resection correspondences that are
+  // geometrically wrong but perfectly well-formed (#336). An empty
+  // `descriptors` is the established "this frame contributes nothing" signal
+  // every caller already checks.
+  if (!db.has_sensor_frame_pose(node_id)) {
+    core::debug("panorama_features: node {} has no usable stored pose, "
+                "contributing no correspondences",
+                node_id);
+    return out;
+  }
   out.T_world_cam = to_matrix4(db.sensor_frame_pose(node_id));
 
   orb->detectAndCompute(gray, cv::noArray(), out.keypoints, out.descriptors);

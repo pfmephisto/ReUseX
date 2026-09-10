@@ -129,8 +129,13 @@ export interface FrameInfo {
   id: number;
   /** Epoch seconds; -1 when unknown. */
   timestamp?: number;
-  /** Row-major 4x4 world pose. */
+  /**
+   * Row-major 4x4 world pose, verbatim as stored. A frame with no stored pose
+   * reads back as identity — check `has_pose` before trusting it.
+   */
   pose: number[];
+  /** Whether `pose` is a usable stored pose rather than the identity fallback. */
+  has_pose?: boolean;
   intrinsics?: Intrinsics;
   has_depth?: boolean;
   has_confidence?: boolean;

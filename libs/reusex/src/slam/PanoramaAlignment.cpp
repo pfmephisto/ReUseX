@@ -338,14 +338,38 @@ PanoramaAlignmentResult align_panorama(ProjectDB &db, int pano_id,
   T_world_pano.block<3, 3>(0, 0) = R;
   T_world_pano.block<3, 1>(0, 3) = c;
 
-  // correction relative to the timestamp-seed placement
-  const Eigen::Matrix4d T_seed = to_matrix4(db.sensor_frame_pose(seed_node_id));
-  const double delta = (c - T_seed.block<3, 1>(0, 3)).norm();
+  // Correction relative to the timestamp-seed placement. This is the ONLY use
+  // of the seed's stored pose — the resection itself is driven by the world
+  // points in `pool`, which come from frames that already had to pass
+  // `has_sensor_frame_pose()` inside extract_frame_features() (#336).
+  //
+  // With no usable seed pose there is no baseline to measure against:
+  // `sensor_frame_pose()`'s identity fallback would silently make `delta` the
+  // distance from the world origin, which either waves a bad alignment through
+  // or rejects a good one depending on where the scan happens to sit. Report
+  // the delta as unmeasurable and skip the gate rather than gate on a number
+  // that means nothing.
+  //
+  // -1.0 is the field's documented "no seed measurement" sentinel; NaN would
+  // poison the caller's running average of the corrections.
+  const bool seed_pose_usable = db.has_sensor_frame_pose(seed_node_id);
+  double delta = -1.0;
+  if (seed_pose_usable) {
+    const Eigen::Matrix4d T_seed =
+        to_matrix4(db.sensor_frame_pose(seed_node_id));
+    delta = (c - T_seed.block<3, 1>(0, 3)).norm();
+  } else {
+    core::warn("PanoramaAlignment: panorama {} — seed node {} has no usable "
+               "stored pose, so the {:.1f} m plausibility gate cannot be "
+               "applied to this alignment",
+               pano_id, seed_node_id, opt.max_correction_m);
+  }
   res.delta_from_seed_m = delta;
 
   // Plausibility gate: an implausibly large correction means the bearing
   // resection was ill-conditioned (narrow match cone) rather than a real fix.
-  if (opt.max_correction_m > 0.0 && delta > opt.max_correction_m) {
+  if (seed_pose_usable && opt.max_correction_m > 0.0 &&
+      delta > opt.max_correction_m) {
     core::debug("PanoramaAlignment: panorama {} rejected — {:.1f} m correction "
                 "exceeds {:.1f} m gate ({} inliers, {:.3f} deg RMS; likely "
                 "ill-conditioned)",

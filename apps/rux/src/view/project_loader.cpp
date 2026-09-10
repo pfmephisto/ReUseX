@@ -342,7 +342,13 @@ ProjectLoadResult load_from_project_db(const fs::path &path,
         pi.pose_valid = true;
         spdlog::debug("Panorama '{}' (aligned) at ({:.2f}, {:.2f}, {:.2f})",
                       pi.filename, pi.px, pi.py, pi.pz);
-      } else if (pano.node_id >= 0 && db.has_sensor_frame(pano.node_id)) {
+      } else if (pano.node_id >= 0 && db.has_sensor_frame(pano.node_id) &&
+                 db.has_sensor_frame_pose(pano.node_id)) {
+        // The pose check is not redundant with has_sensor_frame(): an unposed
+        // frame would come back from sensor_frame_pose() as identity and put a
+        // panorama sphere at the world origin, which the viewer draws exactly
+        // like a real placement (#336). `pose_valid` staying false is the
+        // existing "don't draw a sphere" signal.
         try {
           pi.pose = db.sensor_frame_pose(pano.node_id);
           pi.px = pi.pose[3]; // row-major: translation is [3], [7], [11]
@@ -356,9 +362,9 @@ ProjectLoadResult load_from_project_db(const fs::path &path,
                        e.what());
         }
       } else {
-        spdlog::debug(
-            "Panorama '{}' has no linked sensor frame, skipping sphere",
-            pi.filename);
+        spdlog::debug("Panorama '{}' has no linked sensor frame with a usable "
+                      "pose, skipping sphere",
+                      pi.filename);
       }
 
       result.panoramas.push_back(std::move(pi));

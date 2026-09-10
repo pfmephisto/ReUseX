@@ -905,9 +905,15 @@ json frame_json(const reusex::ProjectDB &db, int id) {
   if (!db.has_sensor_frame(id))
     not_found("sensor frame", std::to_string(id));
 
+  // `pose` stays the verbatim stored value — this is a read-out of what the
+  // project contains, and a client debugging a bad import needs to see the
+  // bytes rather than a sanitised substitute. `has_pose` is what lets it tell
+  // a real identity pose from `sensor_frame_pose()`'s identity fallback
+  // (#336); the pipeline stages gate on the same predicate.
   json out{{"id", id},
            {"timestamp", db.sensor_frame_timestamp(id)},
            {"pose", pose_array(db.sensor_frame_pose(id))},
+           {"has_pose", db.has_sensor_frame_pose(id)},
            {"intrinsics", intrinsics_json(db.sensor_frame_intrinsics(id))},
            {"has_segmentation", db.has_segmentation_image(id)}};
   // Availability is probed rather than assumed: an import may have stored the

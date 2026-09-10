@@ -96,7 +96,10 @@ struct PanoramaAlignmentResult {
   /// ProjectDB::sensor_frame_pose). Identity when !aligned.
   std::array<double, 16> pose = {1, 0, 0, 0, 0, 1, 0, 0,
                                  0, 0, 1, 0, 0, 0, 0, 1};
-  /// Translation delta from the timestamp-seed placement (m); -1 if no seed.
+  /// Translation delta from the timestamp-seed placement (m); -1 when there is
+  /// no seed, or when the seed frame carries no usable stored pose to measure
+  /// against (#336) — in which case the `max_correction_m` plausibility gate
+  /// is skipped and a warning names the frame.
   double delta_from_seed_m = -1.0;
 };
 

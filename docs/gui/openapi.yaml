@@ -1562,10 +1562,19 @@ components:
           description: Epoch seconds; -1 when unknown.
         pose:
           type: array
-          description: Row-major 4x4 world pose.
+          description: >-
+            Row-major 4x4 world pose, verbatim as stored. A frame with no
+            stored pose reads back as identity, so check `has_pose` before
+            trusting it.
           items: { type: number }
           minItems: 16
           maxItems: 16
+        has_pose:
+          type: boolean
+          description: >-
+            Whether `pose` is a usable stored pose (present, finite, bottom row
+            [0,0,0,1], non-degenerate rotation) rather than the identity
+            fallback or a degenerate transform.
         intrinsics: { $ref: "#/components/schemas/Intrinsics" }
         has_depth: { type: boolean }
         has_confidence: { type: boolean }

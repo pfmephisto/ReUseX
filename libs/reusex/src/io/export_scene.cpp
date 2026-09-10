@@ -17,6 +17,7 @@
 
 #include <fmt/format.h>
 
+#include <cstddef>
 #include <cstdlib>
 #include <limits>
 #include <regex>
@@ -223,17 +224,28 @@ ExportScene gather_export_scene(const ProjectDB &db) {
   }
 
   // --- 360 Panoramas ---
+  std::size_t panos_without_pose = 0;
   for (const auto &pano : db.list_panoramic_images()) {
     ExportScene::PanoEntry entry;
     entry.image_name = pano.filename;
 
     // Prefer the content-aligned pose (`rux align 360`) when present; fall
     // back to the timestamp-matched sensor frame's pose.
+    //
+    // The seed frame's pose has to be checked, not just its existence: an
+    // unposed frame would fall through `sensor_frame_pose()`'s identity
+    // fallback and drop the panorama marker at the world origin, which reads
+    // in an exported scene as a real placement (#336). Leaving x/y/z at their
+    // defaults is the same "unplaced" state a panorama with no linked frame
+    // already gets.
     if (pano.has_pose) {
       extract_position(pano.pose, entry.x, entry.y, entry.z);
-    } else if (pano.node_id >= 0 && db.has_sensor_frame(pano.node_id)) {
+    } else if (pano.node_id >= 0 && db.has_sensor_frame(pano.node_id) &&
+               db.has_sensor_frame_pose(pano.node_id)) {
       auto pose = db.sensor_frame_pose(pano.node_id);
       extract_position(pose, entry.x, entry.y, entry.z);
+    } else {
+      ++panos_without_pose;
     }
 
     scene.panoramas.push_back(std::move(entry));
@@ -241,8 +253,13 @@ ExportScene gather_export_scene(const ProjectDB &db) {
 
   if (!scene.panoramas.empty())
     reusex::debug("ExportScene: {} panoramic images", scene.panoramas.size());
+  if (panos_without_pose > 0)
+    reusex::warn("ExportScene: {} of {} panoramas have no usable pose (no "
+                 "aligned pose and no posed seed frame); exported unplaced",
+                 panos_without_pose, scene.panoramas.size());
 
   // --- Materials ---
+  std::size_t materials_without_pose = 0;
   for (const auto &passport : db.all_material_passports()) {
     ExportScene::MaterialEntry entry;
     entry.name = passport.description.designation.empty()
@@ -277,15 +294,27 @@ ExportScene gather_export_scene(const ProjectDB &db) {
       auto node_id =
           db.passport_linked_node_id(passport.metadata.document_guid);
       if (node_id && db.has_sensor_frame(*node_id)) {
-        auto pose = db.sensor_frame_pose(*node_id);
-        try {
-          auto intr = db.sensor_frame_intrinsics(*node_id);
-          entry.transform = matmul4x4(pose, intr.local_transform);
-        } catch (...) {
-          // No intrinsics stored — fall back to the body pose.
-          entry.transform = pose;
+        // A linked frame with no usable stored pose yields the identity
+        // fallback, i.e. a camera frustum at the world origin pointing down
+        // +Z — indistinguishable from a real photo position (#336). Keep the
+        // entry's default identity transform instead, which is the same state
+        // an unlinked passport gets, and count it.
+        if (!db.has_sensor_frame_pose(*node_id)) {
+          reusex::debug("ExportScene: material '{}' links node {}, which has "
+                        "no usable stored pose; exported unplaced",
+                        entry.name, *node_id);
+          ++materials_without_pose;
+        } else {
+          auto pose = db.sensor_frame_pose(*node_id);
+          try {
+            auto intr = db.sensor_frame_intrinsics(*node_id);
+            entry.transform = matmul4x4(pose, intr.local_transform);
+          } catch (...) {
+            // No intrinsics stored — fall back to the body pose.
+            entry.transform = pose;
+          }
+          extract_position(entry.transform, entry.x, entry.y, entry.z);
         }
-        extract_position(entry.transform, entry.x, entry.y, entry.z);
       }
     } catch (...) {
       // No linked frame -> keep identity transform / origin.
@@ -296,6 +325,10 @@ ExportScene gather_export_scene(const ProjectDB &db) {
 
   if (!scene.materials.empty())
     reusex::debug("ExportScene: {} material passports", scene.materials.size());
+  if (materials_without_pose > 0)
+    reusex::warn("ExportScene: {} of {} material passports link a sensor frame "
+                 "with no usable stored pose; exported unplaced",
+                 materials_without_pose, scene.materials.size());
 
   // --- Building Components ---
   for (const auto &name : db.list_building_components()) {

@@ -135,6 +135,9 @@ auto project(const ProjectDB &db, CloudConstPtr cloud) -> CloudLPtr {
   // Frames that actually carried a segmentation image; used for the
   // end-of-stage diagnostic below.
   size_t framesWithLabels = 0;
+  // Frames that carried a segmentation image but no usable stored pose, so
+  // their labels could not be placed in the world (#336).
+  size_t framesSkippedNoPose = 0;
 
   /* Dicription of the different coordinate frames
    *
@@ -163,6 +166,19 @@ auto project(const ProjectDB &db, CloudConstPtr cloud) -> CloudLPtr {
       cv::Mat labeledImage = db.segmentation_image(id); // CV_32S
       if (labeledImage.empty()) {
         reusex::warn("No segmentation for node {}, skipping", id);
+        ++(*observer);
+        continue;
+      }
+
+      // A frame with no usable stored pose would be projected through
+      // `sensor_frame_pose()`'s identity fallback: its 2D labels would be cast
+      // onto whichever cloud points happen to sit in front of the world
+      // origin, writing confident semantic labels onto the wrong geometry
+      // (#336). Skipping keeps those points unlabeled, which is recoverable.
+      if (!db.has_sensor_frame_pose(id)) {
+        reusex::debug("Node {} has no usable stored pose, skipping projection",
+                      id);
+        ++framesSkippedNoPose;
         ++(*observer);
         continue;
       }
@@ -287,10 +303,20 @@ auto project(const ProjectDB &db, CloudConstPtr cloud) -> CloudLPtr {
 
   // Degenerate output is not an error — annotation may simply not have run —
   // but it must not be silent (STANDARDS §5).
+  if (framesSkippedNoPose > 0) {
+    reusex::warn("Skipped {} of {} sensor frames that had a segmentation image "
+                 "but no usable stored pose; their labels were not projected",
+                 framesSkippedNoPose, frameIds.size());
+  }
+
   if (!frameIds.empty() && framesWithLabels == 0) {
-    reusex::warn("None of the {} sensor frames had a segmentation image — all "
-                 "{} points stay unlabeled; run `rux create annotate` first",
-                 frameIds.size(), cloud->size());
+    reusex::warn("None of the {} sensor frames contributed labels ({} had no "
+                 "segmentation image, {} had a segmentation image but no "
+                 "usable stored pose) — all {} points stay unlabeled; run "
+                 "`rux create annotate` first",
+                 frameIds.size(),
+                 frameIds.size() - framesWithLabels - framesSkippedNoPose,
+                 framesSkippedNoPose, cloud->size());
   }
 
   reusex::info("Projected labels from {}/{} sensor frames onto {} points in "

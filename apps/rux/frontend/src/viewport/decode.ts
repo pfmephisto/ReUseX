@@ -224,6 +224,20 @@ export function pageTotal(page: StreamPage): number {
 }
 
 /**
+ * True when this page is a level-of-detail view of the whole cloud (#320)
+ * rather than a window of it.
+ *
+ * The two transports say it differently — a RUXP `flags` bit, a JSON `lod`
+ * field — and a server that predates `max_points` says nothing at all, which
+ * reads as `false`. That is the right answer: such a server ignored the
+ * parameter and sent an ordinary first page, and the caller must page it as
+ * one rather than believing it has the whole scene.
+ */
+export function pageIsLod(page: StreamPage): boolean {
+  return page.format === 'binary' ? page.page.lod : page.page.lod === true;
+}
+
+/**
  * Fold a geometry page and its optional sibling label page into one upload.
  *
  * The two pages are joined *positionally*: sibling clouds of one scan are

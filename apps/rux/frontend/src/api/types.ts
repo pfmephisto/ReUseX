@@ -81,6 +81,14 @@ export interface CloudPointsPage {
   /** Field names, in the order they appear in each row of `points`. */
   fields: string[];
   points: number[][];
+  /**
+   * Present only on a `max_points` request (#320). True when the rows are a
+   * voxel-subsampled view of the whole cloud rather than a window of it;
+   * false when the cloud already fit the budget and came back complete.
+   */
+  lod?: boolean;
+  /** Voxel edge the subsample settled on, present only when `lod` is true. */
+  voxel_size?: number;
 }
 
 /** `MeshInfo` — one stored mesh. */

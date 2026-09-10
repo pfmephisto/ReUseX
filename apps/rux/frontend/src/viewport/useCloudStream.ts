@@ -4,21 +4,46 @@
 
 import { useEffect, useRef, useState } from 'react';
 
-import { ApiRequestError, api, type RuxApiClient } from '../api/client';
+import { ApiRequestError, api, type CloudPointsQuery, type RuxApiClient } from '../api/client';
 import { isRuxp, parseRuxp } from './binaryPoints';
-import { pageCount, pageTotal, toPageBuffers, type StreamPage } from './decode';
-import { DEFAULT_PAGE_SIZE, clampPageSize, loadFraction, planPages } from './pagination';
+import { pageCount, pageIsLod, pageTotal, toPageBuffers, type StreamPage } from './decode';
+import {
+  DEFAULT_OVERVIEW_POINTS,
+  DEFAULT_PAGE_SIZE,
+  clampOverviewPoints,
+  clampPageSize,
+  loadFraction,
+  planPages,
+} from './pagination';
 import type { PageBuffers } from './PointCloudScene';
 
 export interface CloudStreamState {
-  /** Points handed to `onPage` so far. */
+  /** Points handed to `onPage` as full-resolution pages so far. */
   loaded: number;
+  /**
+   * Points in the coarse overview, once it has been applied.
+   *
+   * Deliberately not folded into `loaded`: the overview is a view of the whole
+   * cloud, so adding it to a count that is compared against `total` would
+   * report progress the stream has not made.
+   */
+  overview?: number;
   /** Total points in the cloud; undefined until the first page comes back. */
   total?: number;
   /** `loaded / total`, or null while the total is unknown. */
   fraction: number | null;
   done: boolean;
   error?: Error;
+}
+
+/** Which of the two things a page is, when it reaches `onPage`. */
+export interface PageKind {
+  /**
+   * True for the coarse whole-scene page fetched before paging starts. The
+   * caller must keep it in its own scene layer: it covers the same volume the
+   * full-resolution pages are about to cover, and it is dropped once they have.
+   */
+  overview: boolean;
 }
 
 export interface CloudStreamOptions {
@@ -30,12 +55,25 @@ export interface CloudStreamOptions {
    * The contract guarantees sibling clouds of one scan are returned in storage
    * order and are index-aligned, so the same `offset`/`limit` window can be
    * pulled from both and joined positionally. That guarantee is the only reason
-   * this works without a join key.
+   * this works without a join key — and it is why the overview pass names the
+   * geometry cloud as the label cloud's `lodSource`, so the two subsamples
+   * pick the same point indices instead of two unrelated ones.
    */
   labelCloud?: string | null;
   pageSize?: number;
+  /**
+   * Budget for the coarse whole-scene overview fetched first (#320). `0`
+   * disables it and restores the plain prefix-paging behaviour.
+   */
+  overviewPoints?: number;
   /** Called once per decoded page, in page order. */
-  onPage: (buffers: PageBuffers) => void;
+  onPage: (buffers: PageBuffers, kind: PageKind) => void;
+  /**
+   * Called once the full-resolution stream has covered everything the overview
+   * showed, so the caller can drop the overview layer. Not called when there
+   * was no overview.
+   */
+  onOverviewSuperseded?: () => void;
   /** Called once when every page has been applied. */
   onComplete?: () => void;
 }
@@ -56,8 +94,15 @@ export interface PageFetcherOptions {
   delay?: (ms: number) => Promise<void>;
 }
 
-/** Fetch one page of a named cloud, in the best format the server supports. */
-export type FetchPage = (name: string, offset: number, limit: number) => Promise<StreamPage>;
+/**
+ * Fetch one page of a named cloud, in the best format the server supports.
+ *
+ * The query is passed as an object rather than positional `offset`/`limit`
+ * because the endpoint now has two mutually exclusive modes — a window
+ * (`offset`/`limit`) or a whole-cloud LOD (`maxPoints`) — and a positional
+ * signature would have to encode "not this one" as a pair of `undefined`s.
+ */
+export type FetchPage = (name: string, query: CloudPointsQuery) => Promise<StreamPage>;
 
 /**
  * A page fetcher with **sticky** format negotiation, for the life of one stream.
@@ -88,31 +133,31 @@ export function createPageFetcher(options: PageFetcherOptions = {}): FetchPage {
   // The latch. Starts optimistic; only ever moves binary -> json.
   let binarySupported = true;
 
-  const fetchOnce = async (name: string, offset: number, limit: number): Promise<StreamPage> => {
+  const fetchOnce = async (name: string, query: CloudPointsQuery): Promise<StreamPage> => {
     if (binarySupported) {
       let buffer: ArrayBuffer;
       try {
-        buffer = await client.cloudPointsBinary(name, { offset, limit }, signal);
+        buffer = await client.cloudPointsBinary(name, query, signal);
       } catch (cause) {
         // 503 is transient and must reach the retry loop unchanged; only a
         // "this server cannot do binary" answer flips the latch.
         if (!(cause instanceof ApiRequestError) || !cause.isNotImplemented) throw cause;
         binarySupported = false;
-        return fetchOnce(name, offset, limit);
+        return fetchOnce(name, query);
       }
       if (!isRuxp(buffer)) {
         binarySupported = false;
-        return fetchOnce(name, offset, limit);
+        return fetchOnce(name, query);
       }
       return { format: 'binary', page: parseRuxp(buffer) };
     }
-    return { format: 'json', page: await client.cloudPoints(name, { offset, limit }, signal) };
+    return { format: 'json', page: await client.cloudPoints(name, query, signal) };
   };
 
-  return async (name, offset, limit) => {
+  return async (name, query) => {
     for (let attempt = 0; ; attempt += 1) {
       try {
-        return await fetchOnce(name, offset, limit);
+        return await fetchOnce(name, query);
       } catch (cause) {
         if (isCancelled()) throw cause;
         const retryable = cause instanceof ApiRequestError && cause.isRetryable;
@@ -124,7 +169,29 @@ export function createPageFetcher(options: PageFetcherOptions = {}): FetchPage {
 }
 
 /**
- * Walk a cloud page by page, handing each decoded page to `onPage`.
+ * Walk a cloud, coarsely first and then page by page, handing each decoded page
+ * to `onPage`.
+ *
+ * ## The overview pass (#320)
+ *
+ * The first request is not the first page — it is `max_points`, a voxel
+ * subsample of the **whole** cloud. A viewport does not want the first 100 000
+ * points of a 10-million-point scan; it wants all ten million of them, coarsely,
+ * and then finer. One request now puts the entire scan on screen, correctly
+ * framed, before any of the ~100 paging requests behind it have returned.
+ *
+ * It doubles as the "how big is this cloud" probe, so it costs no extra round
+ * trip. Three answers are possible and all three are handled:
+ *
+ * - **A LOD page** (`lod` set): the scan is bigger than the budget. Apply it as
+ *   the overview, then page the cloud properly and drop the overview at the end.
+ * - **The whole cloud** (`lod` clear, `count === total`): it fit the budget, so
+ *   this *is* the cloud. Apply it as an ordinary page and stop — one request
+ *   for a small cloud, where the old code always made at least one more.
+ * - **A prefix** (`lod` clear, `count < total`): a server that predates
+ *   `max_points` ignored it. Fall through to plain paging from offset 0. One
+ *   wasted request against an old server, which is the same trade the RUXP
+ *   fallback already makes.
  *
  * Pages are fetched **sequentially**, not in parallel — but no longer because
  * the server cannot afford otherwise. Since #283 a page reads only the blob
@@ -137,7 +204,12 @@ export function createPageFetcher(options: PageFetcherOptions = {}): FetchPage {
  * turns one of them into a `SQLITE_BUSY`.
  */
 export function useCloudStream(options: CloudStreamOptions): CloudStreamState {
-  const { cloud, labelCloud = null, pageSize = DEFAULT_PAGE_SIZE } = options;
+  const {
+    cloud,
+    labelCloud = null,
+    pageSize = DEFAULT_PAGE_SIZE,
+    overviewPoints = DEFAULT_OVERVIEW_POINTS,
+  } = options;
 
   const [state, setState] = useState<CloudStreamState>({
     loaded: 0,
@@ -151,6 +223,8 @@ export function useCloudStream(options: CloudStreamOptions): CloudStreamState {
   onPageRef.current = options.onPage;
   const onCompleteRef = useRef(options.onComplete);
   onCompleteRef.current = options.onComplete;
+  const onSupersededRef = useRef(options.onOverviewSuperseded);
+  onSupersededRef.current = options.onOverviewSuperseded;
 
   useEffect(() => {
     if (!cloud) {
@@ -161,6 +235,7 @@ export function useCloudStream(options: CloudStreamOptions): CloudStreamState {
     const controller = new AbortController();
     let cancelled = false;
     const limit = clampPageSize(pageSize);
+    const overviewBudget = clampOverviewPoints(overviewPoints);
 
     // One fetcher per stream, so the format latch is per stream too: a reload
     // against a restarted server tries binary again.
@@ -169,45 +244,100 @@ export function useCloudStream(options: CloudStreamOptions): CloudStreamState {
       isCancelled: () => cancelled,
     });
 
-    const applyPage = (geometry: StreamPage, labels: StreamPage | null) => {
+    const applyPage = (
+      geometry: StreamPage,
+      labels: StreamPage | null,
+      kind: PageKind = { overview: false },
+    ) => {
       const buffers = toPageBuffers(geometry, labels);
       if (!buffers) return 0;
-      onPageRef.current(buffers);
+      onPageRef.current(buffers, kind);
       return pageCount(geometry);
+    };
+
+    /** Geometry plus its label sibling, over the same window or selection. */
+    const fetchBoth = async (query: CloudPointsQuery) => {
+      const geometry = await fetchPage(cloud, query);
+      if (cancelled || !labelCloud) return { geometry, labels: null };
+      // `lodSource` is what keeps the two index-aligned: without it the label
+      // cloud has no positions of its own to voxelise, and a second,
+      // independent selection would zip the wrong labels onto the points.
+      const labels = await fetchPage(labelCloud, {
+        ...query,
+        ...(query.maxPoints === undefined ? {} : { lodSource: cloud }),
+      });
+      return { geometry, labels };
     };
 
     const run = async () => {
       setState({ loaded: 0, fraction: null, done: false });
 
-      // The first page doubles as the "how big is this cloud" probe, so the
-      // common small-cloud case costs one request rather than two.
-      const first = await fetchPage(cloud, 0, limit);
-      if (cancelled) return;
+      let total: number | undefined;
+      let overview = 0;
 
-      const total = pageTotal(first);
-      const firstLabels = labelCloud ? await fetchPage(labelCloud, 0, limit) : null;
-      if (cancelled) return;
-
-      let loaded = applyPage(first, firstLabels);
-      setState({ loaded, total, fraction: loadFraction(loaded, total), done: false });
-
-      const remaining = planPages(total, limit).slice(1);
-      for (const plan of remaining) {
+      if (overviewBudget > 0) {
+        const first = await fetchBoth({ maxPoints: overviewBudget });
         if (cancelled) return;
-        const page = await fetchPage(cloud, plan.offset, plan.limit);
-        const labelPage = labelCloud
-          ? await fetchPage(labelCloud, plan.offset, plan.limit)
-          : null;
+        total = pageTotal(first.geometry);
+
+        if (!pageIsLod(first.geometry) && pageCount(first.geometry) >= total) {
+          // The whole cloud fit the budget, so it is already on screen at full
+          // resolution. Paging it again would refetch the same points.
+          const loaded = applyPage(first.geometry, first.labels);
+          setState({ loaded, total, fraction: loadFraction(loaded, total), done: true });
+          onCompleteRef.current?.();
+          return;
+        }
+
+        if (pageIsLod(first.geometry)) {
+          overview = applyPage(first.geometry, first.labels, { overview: true });
+          setState({ loaded: 0, overview, total, fraction: loadFraction(0, total), done: false });
+        }
+        // Otherwise the server ignored `max_points`; fall through and page.
+      }
+
+      let loaded = 0;
+      let applied = 0;
+
+      /** One full-resolution page. False means the stream was torn down. */
+      const pageAt = async (offset: number, pageLimit: number) => {
+        const page = await fetchBoth({ offset, limit: pageLimit });
+        if (cancelled) return false;
+        if (total === undefined) total = pageTotal(page.geometry);
+        loaded += applyPage(page.geometry, page.labels);
+        applied += 1;
+        setState({ loaded, overview, total, fraction: loadFraction(loaded, total), done: false });
+        return true;
+      };
+
+      // Without a usable overview the first page is the size probe, exactly as
+      // it was before #320 — so a `overviewPoints: 0` stream behaves
+      // identically to the old one, request for request.
+      let firstPlan = 0;
+      if (total === undefined) {
+        if (!(await pageAt(0, limit))) return;
+        firstPlan = 1;
+      }
+
+      for (const plan of planPages(total ?? 0, limit).slice(firstPlan)) {
         if (cancelled) return;
-        loaded += applyPage(page, labelPage);
-        setState({ loaded, total, fraction: loadFraction(loaded, total), done: false });
+        if (!(await pageAt(plan.offset, plan.limit))) return;
       }
 
       if (cancelled) return;
-      setState({ loaded, total, fraction: loadFraction(loaded, total), done: true });
+      if (overview > 0 && applied > 0) onSupersededRef.current?.();
+      setState({
+        loaded,
+        overview,
+        total,
+        fraction: loadFraction(loaded, total),
+        done: true,
+      });
       onCompleteRef.current?.();
     };
 
+    // `overviewPoints` is a number, so a caller passing a literal cannot
+    // restart the stream by re-rendering — same reason the callbacks are refs.
     run().catch((cause: unknown) => {
       if (cancelled || controller.signal.aborted) return;
       setState((current) => ({
@@ -221,7 +351,7 @@ export function useCloudStream(options: CloudStreamOptions): CloudStreamState {
       cancelled = true;
       controller.abort();
     };
-  }, [cloud, labelCloud, pageSize]);
+  }, [cloud, labelCloud, pageSize, overviewPoints]);
 
   return state;
 }

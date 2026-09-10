@@ -21,7 +21,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { isRuxp, parseRuxp, ruxpField } from '../viewport/binaryPoints';
+import { RUXP_FLAG_LOD, isRuxp, parseRuxp, ruxpField } from '../viewport/binaryPoints';
 import {
   FIELD_DESCRIPTOR_BYTES,
   FIXED_HEADER_BYTES,
@@ -203,14 +203,33 @@ describe('parseRuxp — rejections', () => {
   });
 
   it('rejects unknown flag bits', () => {
-    // v1 defines none, so any bit set means the sender expects a decode step
-    // this reader has never heard of.
-    expect(() => parseRuxp(buildRuxpPage({ ...XYZRGB_THREE_POINTS, flags: 1 }))).toThrow(
+    // A bit outside the known set means the sender expects a decode step this
+    // reader has never heard of.
+    expect(() => parseRuxp(buildRuxpPage({ ...XYZRGB_THREE_POINTS, flags: 2 }))).toThrow(
       /unknown flags/,
     );
     expect(() => parseRuxp(buildRuxpPage({ ...XYZRGB_THREE_POINTS, flags: 0x8000_0000 }))).toThrow(
       /unknown flags/,
     );
+    // ...including one set *alongside* a bit that is known: a page is all or
+    // nothing, and honouring the half it understands would be a guess.
+    expect(() =>
+      parseRuxp(buildRuxpPage({ ...XYZRGB_THREE_POINTS, flags: RUXP_FLAG_LOD | 2 })),
+    ).toThrow(/unknown flags/);
+  });
+
+  it('reports the LOD flag instead of refusing the page', () => {
+    // Bit 0 says "these count points are spread over all total of them" (#320).
+    // The layout is unchanged, which is why it is a flag and not a v2.
+    const plain = parseRuxp(buildRuxpPage(XYZRGB_THREE_POINTS));
+    expect(plain.lod).toBe(false);
+
+    const lod = parseRuxp(buildRuxpPage({ ...XYZRGB_THREE_POINTS, flags: RUXP_FLAG_LOD }));
+    expect(lod.lod).toBe(true);
+    // Everything else about the page still parses exactly as before.
+    expect(lod.count).toBe(3);
+    expect(lod.total).toBe(9);
+    expect(Array.from(lod.view('xyz')!)).toEqual([1, 2, 3, -4.5, 0, 0.25, 1024, -0.5, 65536]);
   });
 
   it('rejects a header_size that disagrees with field_count', () => {

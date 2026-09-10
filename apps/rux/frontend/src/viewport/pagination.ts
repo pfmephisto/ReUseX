@@ -31,6 +31,35 @@ export const MAX_PAGE_SIZE = 1_000_000;
  */
 export const DEFAULT_PAGE_SIZE = 100_000;
 
+/**
+ * Budget for the coarse whole-scene overview a stream fetches first (#320).
+ *
+ * 200 000 points is about 3 MB over RUXP — a page and a half — and is where the
+ * two things being traded meet. Below roughly 100 000 a building scan reads as
+ * a sparse haze rather than a room; above roughly 500 000 the request stops
+ * being something that lands before the user has finished looking at the
+ * canvas, which is the entire point of it.
+ *
+ * The number is a *budget*, not a promise: the server's grid is dyadic, so the
+ * answer holds at most this many points and may hold as few as a quarter of
+ * them (`docs/gui/binary-points.md` § "Level of detail").
+ */
+export const DEFAULT_OVERVIEW_POINTS = 200_000;
+
+/**
+ * Clamp an overview budget into what the endpoint will serve.
+ *
+ * Zero or negative is meaningful and means **off**: no overview request, plain
+ * prefix paging, the pre-#320 behaviour. A non-finite value is not a choice —
+ * it is a bug upstream — so it falls back to the default rather than silently
+ * turning the feature off, which is the same rule `clampPageSize` follows.
+ */
+export function clampOverviewPoints(points: number): number {
+  if (!Number.isFinite(points)) return DEFAULT_OVERVIEW_POINTS;
+  if (points <= 0) return 0;
+  return Math.min(MAX_PAGE_SIZE, Math.max(1, Math.floor(points)));
+}
+
 export interface PagePlan {
   /** 0-based page number, and the order pages must be applied in. */
   index: number;

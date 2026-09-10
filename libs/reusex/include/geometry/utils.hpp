@@ -80,24 +80,29 @@ auto compute_number_of_inliers(CloudConstPtr cloud,
 /**
  * @brief Merge similar planes based on angle and distance.
  *
+ * Agglomerative clustering: a pair merges when it is coplanar (normal and
+ * offset within the tolerances below) **and** spatially adjacent (inlier
+ * bounding boxes overlap, or their gap is below the coplanarity tolerance).
+ *
+ * There is no inlier-overlap gate. The `min_overlap` parameter this function
+ * used to accept was removed in #325: measured on a real scan, honouring it at
+ * its documented 0.8 default blocked legitimate split-wall merges (the very
+ * regression #215 fixed), and any lower value changed nothing while doubling
+ * the merge cost.
+ *
  * @param planes_ Input plane coefficients.
  * @param inliers_ Inliers for each plane.
  * @param centroids_ Plane centroids.
  * @param cloud Point cloud.
  * @param angle_threshold Angular similarity threshold. Default 0.1.
  * @param distance_threshold Distance threshold for merging. Default 0.5.
- * @param min_overlap Currently **ignored**. Accepted so the signature stays
- *   stable, but the agglomerative merge decides purely on the angle and
- *   distance tolerances; no overlap ratio is computed. See the FIXME in
- *   `src/geometry/utils.cpp`.
  * @return Tuple of (merged planes, merged inliers, merged centroids).
  */
 auto merge_planes(EigenVectorContainer<double, 4> const &planes_,
                   std::vector<IndicesPtr> const &inliers_,
                   EigenVectorContainer<double, 3> const &centroids_,
                   CloudConstPtr cloud, const double angle_threshold = 0.1,
-                  const double distance_threshold = 0.5,
-                  const double min_overlap = 0.8)
+                  const double distance_threshold = 0.5)
     -> std::tuple<EigenVectorContainer<double, 4>, std::vector<IndicesPtr>,
                   EigenVectorContainer<double, 3>>;
 

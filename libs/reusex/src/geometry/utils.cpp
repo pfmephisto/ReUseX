@@ -252,14 +252,7 @@ auto merge_planes(EigenVectorContainer<double, 4> const &planes_,
                   std::vector<IndicesPtr> const &inliers_,
                   EigenVectorContainer<double, 3> const &centroids_,
                   CloudConstPtr cloud, const double angle_threshold,
-                  // FIXME: Honour min_overlap in merge_planes or drop the knob
-                  // category=Geometry estimate=4h
-                  // The parameter is documented and defaults to 0.8, but the
-                  // agglomerative merge below never computes an inlier-overlap
-                  // ratio, so callers who tune it silently get no effect.
-                  // Either gate the merge on the shared-inlier fraction as the
-                  // doc claims, or remove the parameter from the signature.
-                  const double distance_threshold, const double /*min_overlap*/)
+                  const double distance_threshold)
     -> std::tuple<EigenVectorContainer<double, 4>, std::vector<IndicesPtr>,
                   EigenVectorContainer<double, 3>> {
   reusex::trace("Merge planes (agglomerative) with angle threshold {} and "
@@ -320,8 +313,19 @@ auto merge_planes(EigenVectorContainer<double, 4> const &planes_,
   }
 
   // A pair is mergeable iff it is coplanar (plane distance below threshold) AND
-  // spatially adjacent (inlier boxes overlap or gap below adjacency). This
-  // replaces the old 0.8 inlier-overlap gate that kept split walls apart.
+  // spatially adjacent (inlier boxes overlap or gap below adjacency).
+  //
+  // There is deliberately no inlier-overlap gate (#325). The old greedy pass
+  // took a `min_overlap` ratio defaulting to 0.8 — the mutual fraction of each
+  // patch's inliers lying within tolerance of the other's plane — and #215
+  // dropped it because it kept split walls apart. Reinstating it was measured
+  // on the office scan (38 planes / 255,744 points): the gate blocks 2 of 16
+  // merges at 0.8, including a 41,967-point wall pair whose plane distance is
+  // 0.384 (well inside the merge tolerance) but whose mutual overlap is 0.588,
+  // because a long patch necessarily deviates from a slightly-rotated
+  // neighbour's plane at its far end. Below 0.8 the gate changes nothing and
+  // merely doubles the merge cost (9.6 ms -> 19.1 ms), so no threshold buys
+  // anything the coplanarity + adjacency test does not already decide.
   auto mergeable = [&](const Cluster &a, const Cluster &b, double &dist) {
     dist = plane_distance(a.plane, a.centroid, b.plane, b.centroid,
                           angle_tol_rad, coplanar_tol_m);

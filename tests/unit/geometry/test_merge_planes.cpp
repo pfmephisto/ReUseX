@@ -11,6 +11,7 @@
 //   - split wall (same plane, disjoint halves)      -> MERGES
 //   - perpendicular planes                           -> NEVER merge
 //   - parallel-but-offset walls (> tolerance apart)  -> NEVER merge
+//   - coplanar+adjacent pair with low mutual inlier overlap -> MERGES (#325)
 //   - result ordering is deterministic
 
 #include <reusex/geometry/utils.hpp>
@@ -20,6 +21,9 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <Eigen/Core>
+
+#include <cmath>
+#include <numbers>
 
 using namespace reusex;
 using namespace reusex::geometry;
@@ -37,6 +41,27 @@ IndicesPtr add_x_wall_patch(CloudPtr &cloud, double x0, double y0, double y1,
       p.x = static_cast<float>(x0);
       p.y = static_cast<float>(y);
       p.z = static_cast<float>(z);
+      idx->push_back(static_cast<int>(cloud->size()));
+      cloud->push_back(p);
+    }
+  }
+  return idx;
+}
+
+/// Append a patch lying on the plane through (x_hinge, ·, 0) tilted by
+/// `tilt_rad` about the y axis: z = tan(tilt) * (x - x_hinge). Spans
+/// x in [x0, x1] and y in [y0, y1].
+IndicesPtr add_tilted_z_patch(CloudPtr &cloud, double x0, double x1, double y0,
+                              double y1, double x_hinge, double tilt_rad,
+                              double step = 0.5) {
+  IndicesPtr idx(new Indices);
+  const double slope = std::tan(tilt_rad);
+  for (double x = x0; x <= x1 + 1e-9; x += step) {
+    for (double y = y0; y <= y1 + 1e-9; y += step) {
+      PointT p;
+      p.x = static_cast<float>(x);
+      p.y = static_cast<float>(y);
+      p.z = static_cast<float>(slope * (x - x_hinge));
       idx->push_back(static_cast<int>(cloud->size()));
       cloud->push_back(p);
     }
@@ -133,6 +158,37 @@ TEST_CASE("MergePlanes_ParallelOffsetWalls_NeverMerge",
   auto [Pm, Im, Cm] = merge_planes(planes, inliers, centroids, cloud);
 
   REQUIRE(Pm.size() == 2);
+}
+
+TEST_CASE("MergePlanes_CoplanarAdjacentWithLowInlierOverlap_StillMerges",
+          "[geometry][merge_planes]") {
+  // Regression guard for #325: merge_planes has no inlier-overlap gate, and
+  // must not grow one back. Two 20 m long patches, one flat (z = 0) and one
+  // tilted 10 deg about y, share a hinge at x = 10 and sit 0.2 m apart in y.
+  // They are coplanar within tolerance and spatially adjacent, so they merge —
+  // even though only ~29 % of either patch's points lie within tolerance of the
+  // other patch's plane (the far ends drift off it), which the removed
+  // `min_overlap = 0.8` gate would have rejected.
+  auto cloud = std::make_shared<Cloud>();
+
+  constexpr double kTilt = 10.0 * std::numbers::pi / 180.0;
+  auto flat = add_tilted_z_patch(cloud, 0.0, 20.0, 0.0, 1.0, 10.0, 0.0);
+  auto tilted = add_tilted_z_patch(cloud, 0.0, 20.0, 1.2, 2.2, 10.0, kTilt);
+  cloud->width = static_cast<uint32_t>(cloud->size());
+  cloud->height = 1;
+
+  EigenVectorContainer<double, 4> planes{
+      Eigen::Vector4d(0, 0, 1, 0),
+      Eigen::Vector4d(-std::sin(kTilt), 0, std::cos(kTilt),
+                      10.0 * std::sin(kTilt))};
+  std::vector<IndicesPtr> inliers{flat, tilted};
+  EigenVectorContainer<double, 3> centroids{centroid_of(cloud, flat),
+                                            centroid_of(cloud, tilted)};
+
+  auto [Pm, Im, Cm] = merge_planes(planes, inliers, centroids, cloud);
+
+  REQUIRE(Pm.size() == 1);
+  REQUIRE(Im[0]->size() == flat->size() + tilted->size());
 }
 
 TEST_CASE("MergePlanes_RepeatedRuns_ProducesDeterministicOrdering",

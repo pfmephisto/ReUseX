@@ -120,6 +120,7 @@ tensorrt_cache/
 *.db
 *.db3
 *.e57
+*.ply
 
 # Coverage reports
 *.gcda

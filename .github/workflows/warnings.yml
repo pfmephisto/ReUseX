@@ -1,0 +1,90 @@
+# SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Compiler warning tracker.  Runs after each push to main that touches C++
+# source, forces a fresh build to capture current warnings, then calls
+# scripts/file_build_warnings.py to:
+#   - create a GitHub issue for every new warning (label: build-warning)
+#   - close issues whose warning has been fixed
+#   - skip creation when an issue already exists (dedup by content hash)
+#
+# The job also runs on workflow_dispatch so you can trigger it manually.
+#
+# Why --rebuild?  nix caches derivations by content hash.  If nothing in the
+# source tree changed since the last build, nix returns the cached output
+# immediately without recompiling, and --print-build-logs produces nothing.
+# --rebuild forces recompilation even against a cached output so the warning
+# capture is always current.  The job runs only on pushes to main, not on
+# every PR, so the rebuild cost is paid at most once per merged commit.
+
+name: Build Warnings
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "libs/**"
+      - "apps/**"
+      - "bindings/**"
+      - "tests/**"
+      - "CMakeLists.txt"
+      - "cmake/**"
+      - "default.nix"
+  workflow_dispatch:
+
+# Least privilege: only issues write is needed beyond the default read.
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  track-warnings:
+    name: Capture and file compiler warnings
+    runs-on: ubuntu-latest
+    environment: CI
+    # A forced rebuild adds ~the same wall time as a normal build.  120 min
+    # matches the ceiling in ci.yml.
+    timeout-minutes: 120
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            accept-flake-config = true
+
+      # Read from the cache (public, no token needed); never push from here —
+      # the warning job rebuilds from source and its outputs are identical to
+      # what ci.yml already pushes.
+      - uses: cachix/cachix-action@v16
+        with:
+          name: reusex
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          skipPush: true
+
+      - name: Build (forced rebuild, CPU variant) and capture warnings
+        # continue-on-error so a build failure doesn't skip the issue-filing
+        # step — we still want to track warnings even from a broken build.
+        continue-on-error: true
+        run: |
+          nix build .#checks.x86_64-linux.tests \
+            --rebuild \
+            --print-build-logs \
+            2>&1 | tee build-warnings.log
+
+      - name: Sync warning issues
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 scripts/file_build_warnings.py build-warnings.log
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-warnings-log
+          path: build-warnings.log
+          retention-days: 7

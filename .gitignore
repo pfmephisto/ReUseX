@@ -85,6 +85,7 @@ rays.out
 
 .venv/
 ReUseX_py.egg-info/
+*.egg-info/
 *.whl
 *.gz
 
@@ -93,6 +94,8 @@ ReUseX_py.egg-info/
 
 # Ignore cache
 **/__pycache__/**/*
+__pycache__/
+.pytest_cache/
 **/.cache/**/*
 .ccls-cache
 
@@ -194,3 +197,4 @@ bench-results/
 !tests/fixtures/**
 !assets/**
 !docs/**/images/**
+!tools/rux-mcp/docs/**

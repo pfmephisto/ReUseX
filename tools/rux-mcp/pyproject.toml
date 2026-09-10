@@ -1,0 +1,43 @@
+# SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Packaging metadata for rux-mcp, the read-only MCP gateway over the `rux` CLI.
+# Install into its own venv with prebuilt wheels — this package is deliberately
+# NOT wired into CMake or nix (see README.md).
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rux-mcp"
+version = "0.1.0"
+description = "Read-only Model Context Protocol gateway over the ReUseX `rux` CLI"
+requires-python = ">=3.10"
+license = { text = "GPL-3.0-or-later" }
+authors = [{ name = "Povl Filip Sonne-Frederiksen" }]
+readme = "README.md"
+
+# One runtime dependency on purpose: the official MCP Python SDK. Everything
+# else the gateway needs (subprocess, json, csv) is in the standard library.
+dependencies = ["mcp>=2.0,<3"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.23"]
+
+[project.scripts]
+rux-mcp = "rux_mcp.cli:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+    "integration: exercises a real rux binary and a real .rux project (skipped when unavailable)",
+]

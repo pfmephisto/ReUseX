@@ -35,6 +35,15 @@ commercial-safe matcher writes the identical file for production.
 | `mast3r` | **CC-BY-NC-SA** | **oracle only**; needs `--allow-noncommercial` |
 | `mapanything` | Apache-2.0 (`--variant apache`, default) or CC-BY-NC (`--variant nc`) | pointmap model, **not** a descriptor matcher: correspondence = mutual nearest 3D neighbour between the two per-view pointmaps. Finds matches on blank walls where descriptors have nothing to key on; see the caveats in `docs/research/loop-closure-learned-matchers.md` §5.5 |
 
+**How to compare two backends (#312).** Rank them on **edges that survive PCM**
+and the **correction actually applied** (`pcm_kept` / `max_shift_m` in
+`scripts/bench-loop-edges.sh`'s `summary.tsv`) — never on the edge count or the
+Σ inliers of the exported JSON. Those are per-pair confidence; the pose graph
+consumes cross-pair *consistency*, and the two can invert. MapAnything led the
+office endcap set on Σ inliers (9203, above the NC oracle) and PCM rejected 145
+of its 148 edges, applying 0.21 m where ~16 m was needed. A matcher that
+abstains on an unmatchable surface is doing the right thing.
+
 **Commercial rule:** output from `mast3r` or `mapanything --variant nc` is an
 evaluation artefact. It must not be bundled into or shipped with a commercial
 deliverable. The tool prints a banner and gates these behind

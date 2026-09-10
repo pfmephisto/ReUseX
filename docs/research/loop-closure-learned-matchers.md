@@ -216,20 +216,44 @@ seeds. Driver: `scripts/bench-loop-edges.sh`.
 
 Identical candidate set (endcap proposal, 1225 start↔end pairs, `--band-frac
 0.15 --min-frame-gap 50 --min-inliers 30`), identical depth backprojection +
-RANSAC — only the matcher differs:
+RANSAC — only the matcher differs.
 
-| matcher | licence | loop edges | Σ inliers | max inliers |
-|---|---|---:|---:|---:|
-| ORB (BSD) | commercial-safe | 5 | 175 | 42 |
-| **XFeat** (Apache-2.0) | **commercial-safe** | **163** | **7857** | 205 |
-| MASt3R (CC-BY-NC) | oracle only | 86 | 6725 | — |
-| MapAnything-apache (#264) | commercial-safe | 148 | 9203 | 239 |
+**Ranked on what the pose graph consumes** (#312): edges that survive Pairwise
+Consistency Maximization, and the correction those edges actually apply. The
+office loop needs a **~16 m** correction (§Scans).
 
-Two results, both important:
+| matcher | licence | **edges surviving PCM** | **applied correction** | edges emitted | Σ inliers | max inliers |
+|---|---|---:|---:|---:|---:|---:|
+| **XFeat** (Apache-2.0) | **commercial-safe** | **163 of 163** | **16.66 m** | 163 | 7857 | 205 |
+| ORB (BSD) | commercial-safe | 5 of 5 | 14.92 m | 5 | 175 | 42 |
+| MapAnything-apache (#264) | commercial-safe | **3 of 148** | **0.21 m** | 148 | **9203** | 239 |
+| MASt3R (CC-BY-NC) | oracle only | not run through the graph | — | 86 | 6725 | — |
 
-1. **XFeat found 32× more loop edges with 45× the inlier support than ORB on the
-   identical candidate set** — a decisive front-end win, and XFeat is Apache-2.0
-   (shippable). This directly answers "find more/better loop closures."
+Applied-correction figures are the `max pose shift` of the corresponding §5.2
+run; the two right-hand groups come from the same benchmark row, so the table
+reads left-to-right from "does it help" to "why".
+
+**Why the last three columns are diagnostics, not a ranking.** Edges emitted and
+Σ inliers are *per-pair* quantities: they say how confidently a matcher fits
+**one** image pair in isolation. The pose graph never sees that. It sees whether
+the edges agree with **each other**, which is what PCM tests — and the two can
+point in opposite directions, as the MapAnything row does. A matcher that
+*abstains* on an unmatchable surface (ORB proposes 3 matches on two blank walls
+and keeps none) contributes no edge and no error; a pointmap model asked about
+the same two walls always returns a geometry, scoring high on Σ inliers exactly
+where its answer is least verifiable. So Σ inliers systematically rewards the
+behaviour PCM punishes. **Abstention is a virtue in a loop-closure front-end**,
+and no per-pair metric can express it. Ranking on Σ inliers put MapAnything
+first here and #236's panorama edges (186 of 189 PCM-rejected) in the same
+misleading position; rank on PCM survivors and applied correction instead.
+`scripts/bench-loop-edges.sh` emits the columns in this order for that reason.
+
+Three results, all important:
+
+1. **XFeat found 32× more loop edges than ORB on the identical candidate set,
+   and every one of them survived PCM** — a decisive front-end win, and XFeat is
+   Apache-2.0 (shippable). This directly answers "find more/better loop
+   closures."
 2. **The commercial-safe matcher matches — even exceeds — the non-commercial
    oracle here.** XFeat (163 edges / 7857 inliers) is on par with MASt3R
    (86 edges / 6725 inliers) on this indoor RGB-D loop. The reason is structural:
@@ -237,19 +261,27 @@ Two results, both important:
    already provides, so its edge over a plain Apache matcher collapses. **This is
    the empirical basis for not shipping MASt3R at all** — the oracle sets a
    ceiling the commercial-safe path already reaches.
+3. **The field's Σ-inliers leader is its consistency loser.** MapAnything-apache
+   tops inlier support — above even the NC oracle — and PCM rejects 145 of its
+   148 edges, leaving a 0.21 m correction where 16 m is needed. §5.5 dissects
+   the mechanism; the practical consequence is the ranking change above.
 
 ### 5.2 Effect on applied pose quality (office, GT-free)
 
 `scripts/bench-loop-edges.sh`, fresh `.rux` per variant, `--loop-trust
 --odometry-sigma-trans 0.05`:
 
-| pose stage | flatness_rms | thickness_p90 | edges | max pose shift |
+| pose stage | edges surviving PCM | max pose shift | flatness_rms | thickness_p90 |
 |---|---:|---:|---:|---:|
-| base (stored poses) | 12.50 mm | 20.42 mm | 0 | — |
-| optimize (no loops) | **11.72 mm** | **19.12 mm** | 0 | 6.8 cm |
-| optimize + ORB edges | 18.63 mm | 30.88 mm | 5 | 14.92 m |
-| optimize + XFeat edges | 20.89 mm | 34.52 mm | 163 | **16.66 m** |
-| optimize + MapAnything edges (#264) | 12.42 mm | 20.13 mm | 3 *(of 148 — PCM rejected 145)* | 0.21 m |
+| base (stored poses) | 0 | — | 12.50 mm | 20.42 mm |
+| optimize (no loops) | 0 | 6.8 cm | **11.72 mm** | **19.12 mm** |
+| optimize + ORB edges | 5 of 5 | 14.92 m | 18.63 mm | 30.88 mm |
+| optimize + XFeat edges | 163 of 163 | **16.66 m** | 20.89 mm | 34.52 mm |
+| optimize + MapAnything edges (#264) | 3 of 148 | 0.21 m | 12.42 mm | 20.13 mm |
+
+(The `edges surviving PCM` / `max pose shift` pair is `pcm_kept` / `max_shift_m`
+in the script's `summary.tsv`; `edges_emitted` and `sum_inliers` sit further
+right there, as secondary diagnostics — #312.)
 
 **Read this carefully — it is the crux of the whole loop-closure problem on
 GT-less scans.** The office scan's start↔end drift is **~16 m** (§Scans). With
@@ -429,8 +461,10 @@ where the start of the scan sits relative to the end. A descriptor matcher that
 finds nothing on a blank wall contributes no edge; a pointmap model asked about
 two blank walls always returns a geometry, and on a repetitive interior that
 geometry is a plausible-looking guess. Σ inliers rewards exactly the behaviour
-PCM punishes, which is why §5.1 ranks MapAnything first and this table ranks it
-last.
+PCM punishes — which is why §5.1 used to rank MapAnything first on that column
+while this result ranks it last. #312 fixed the measurement: §5.1 now leads with
+edges-surviving-PCM and applied correction, and Σ inliers is kept only as the
+diagnostic that explains *how* a matcher can fail this way.
 
 The one genuinely good number here is the flatness (12.42 mm, barely off the
 11.72 mm loop-free optimum) — but that is the signature of a **no-op**, not of a

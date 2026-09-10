@@ -34,11 +34,13 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
-# Least-privilege default: the jobs here only check out, build, and (on main)
-# push to Cachix with their own dedicated authToken — they never need to write
-# to the repo itself.
+# Least-privilege default: the build-and-test job also files warning issues
+# on main-branch pushes, so it needs issues:write.  PRs and fork runs never
+# reach the issue-filing step (guarded by the `if:` below) and the permission
+# is harmless when unused.
 permissions:
   contents: read
+  issues: write
 
 jobs:
   build-and-test:
@@ -91,8 +93,22 @@ jobs:
       # Builds the CPU variant (WITH_CUDA=OFF — the runners have no GPU) with
       # BUILD_TESTS=ON and runs ctest inside the sandbox. Fails the job on any
       # test failure.
+      #
+      # Build output is teed to build-warnings.log so the warning-sync step
+      # below can parse compiler diagnostics without a second compile.  The
+      # log is kept even on failure so warnings from a broken build are still
+      # tracked.
       - name: Build and run tests
-        run: nix build .#checks.x86_64-linux.tests --print-build-logs
+        run: nix build .#checks.x86_64-linux.tests --print-build-logs 2>&1 | tee build-warnings.log
+
+      # Parse GCC/Clang warning lines from the build log and sync them to
+      # GitHub issues (create new, close fixed, skip existing).  Only runs on
+      # main-branch pushes — PRs and fork runs do not write issues.
+      - name: Sync warning issues
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 scripts/file_build_warnings.py build-warnings.log
 
       # Cheap early warning: if the closure ever starts crowding the runner,
       # this is where it shows up first (7.0 GB store / 80 GB free as of the

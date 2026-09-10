@@ -2,18 +2,26 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 import { api } from '../api/client';
-import type { CloudInfo, GsplatInfo } from '../api/types';
+import type { CloudInfo, GsplatInfo, PanoramaInfo } from '../api/types';
 import { useAsync } from '../app/useAsync';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { EmptyState } from '../components/EmptyState';
 import { LayerPanel } from '../components/LayerPanel';
+import { PanoramaBar } from '../components/PanoramaBar';
 import { Spinner } from '../components/Spinner';
-import { Viewport, type SplatLayerState, type ViewportLayer } from '../viewport/Viewport';
+import {
+  Viewport,
+  type PanoramaLayerState,
+  type SplatLayerState,
+  type ViewportLayer,
+} from '../viewport/Viewport';
+import type { PanoramaMarker } from '../viewport/PanoramaScene';
 import type { ColorMode } from '../viewport/PointCloudScene';
+import { resolvePlacement, stepPanorama } from '../viewport/panorama';
 import type { CloudStreamState } from '../viewport/useCloudStream';
 import styles from './ViewportPage.module.css';
 
@@ -96,6 +104,92 @@ export function ViewportPage() {
     if (next) setSplatRequested((current) => ({ ...current, [name]: true }));
   }, []);
 
+  // --- 360 panoramas (#265, Phase 5) --------------------------------------
+
+  const { data: panoramas, error: panoramaError } = useAsync<PanoramaInfo[]>(
+    (signal) => api.panoramas(signal),
+    [],
+  );
+
+  const [markersVisible, setMarkersVisible] = useState(true);
+  const [panoramaState, setPanoramaState] = useState<PanoramaLayerState>({
+    loading: false,
+    error: null,
+  });
+  // Off by default: the panorama is what the user asked to look at. See
+  // `PanoramaBar` for why it is offered at all.
+  const [overlayGeometry, setOverlayGeometry] = useState(false);
+
+  // Placeable panoramas only. One with neither an aligned pose nor a matched
+  // frame pose has no position, and drawing it at the origin would put a
+  // photograph somewhere the building is not — see `resolvePlacement`.
+  const markers = useMemo<PanoramaMarker[]>(
+    () =>
+      (panoramas ?? []).flatMap((pano) => {
+        const placement = resolvePlacement(pano);
+        return placement ? [{ id: pano.id, placement }] : [];
+      }),
+    [panoramas],
+  );
+
+  // `?pano=<id>` is the deep link, and it is also where the active panorama
+  // lives: the URL is then shareable and survives a reload, which a piece of
+  // component state would not.
+  const panoParam = params.get('pano');
+  const requestedPano = panoParam === null ? null : Number(panoParam);
+  const activePano = useMemo(
+    () =>
+      requestedPano === null
+        ? null
+        : ((panoramas ?? []).find((pano) => pano.id === requestedPano) ?? null),
+    [panoramas, requestedPano],
+  );
+  const activeMarker = useMemo(
+    () => markers.find((marker) => marker.id === activePano?.id) ?? null,
+    [markers, activePano],
+  );
+  // Immersive only once a placement exists: a panorama named in the URL but
+  // unplaceable must not leave the page in a mode it cannot render.
+  const immersive = activeMarker !== null;
+
+  const enterPanorama = useCallback(
+    (id: number | null) => {
+      const next = new URLSearchParams(params);
+      if (id === null) next.delete('pano');
+      else next.set('pano', String(id));
+      setParams(next, { replace: true });
+    },
+    [params, setParams],
+  );
+
+  const stepBy = useCallback(
+    (delta: number) => {
+      const id = stepPanorama(
+        markers.map((marker) => marker.id),
+        activeMarker?.id ?? null,
+        delta,
+      );
+      if (id !== null) enterPanorama(id);
+    },
+    [markers, activeMarker, enterPanorama],
+  );
+
+  // `Esc` to leave and `[` / `]` to step, the keys `rux view` already uses.
+  // Bound only while immersive so they stay available to the rest of the app.
+  useEffect(() => {
+    if (!immersive) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      if (event.key === 'Escape') enterPanorama(null);
+      else if (event.key === '[') stepBy(-1);
+      else if (event.key === ']') stepBy(1);
+      else return;
+      event.preventDefault();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [immersive, enterPanorama, stepBy]);
+
   const renderable = useMemo(
     () => (clouds ?? []).filter((cloud) => RENDERABLE.has(cloud.type)),
     [clouds],
@@ -137,18 +231,24 @@ export function ViewportPage() {
 
   const colorMode: ColorMode = explicitColorMode ?? (activeLabelCloud ? 'label' : 'rgb');
 
+  // Inside a panorama the geometry is hidden unless the user asks for it —
+  // `rux view` hides every other prop on entering, and this keeps that
+  // default. Hidden, not unmounted: the pages stay resident, so leaving the
+  // panorama does not re-download the cloud.
+  const geometryHidden = immersive && !overlayGeometry;
+
   const layers = useMemo<ViewportLayer[]>(
     () =>
       renderable
         .filter((cloud) => visible[cloud.name] !== undefined)
         .map((cloud) => ({
           cloud: cloud.name,
-          visible: visible[cloud.name] ?? false,
+          visible: geometryHidden ? false : (visible[cloud.name] ?? false),
           // Only the layer the label cloud is length-compatible with gets it.
           labelCloud:
             activeLabelCloud && primary?.name === cloud.name ? activeLabelCloud : null,
         })),
-    [renderable, visible, activeLabelCloud, primary],
+    [renderable, visible, activeLabelCloud, primary, geometryHidden],
   );
 
   const handleProgress = useCallback((cloud: string, state: CloudStreamState) => {
@@ -174,7 +274,9 @@ export function ViewportPage() {
   // A splat alone is something to render, so the empty state is only honest
   // when there is neither. A project whose splat was imported, or whose seed
   // cloud was since deleted, is the case this covers.
-  if (renderable.length === 0 && (gsplats ?? []).length === 0) {
+  // A splat or a placeable panorama is also something to render, so the empty
+  // state is only honest when there is none of the three.
+  if (renderable.length === 0 && (gsplats ?? []).length === 0 && markers.length === 0) {
     return (
       <EmptyState
         title="Nothing to render yet"
@@ -199,6 +301,38 @@ export function ViewportPage() {
             visible: splatVisible[info.name] ?? false,
           }))}
         onSplatProgress={handleSplatProgress}
+        panoramas={markers}
+        showPanoramaMarkers={markersVisible && !immersive}
+        activePanorama={
+          activeMarker
+            ? {
+                marker: activeMarker,
+                // Capped rather than native. A stored equirect can be
+                // 12000 px wide; as an RGBA texture with mipmaps that is
+                // hundreds of megabytes of GPU memory for detail no viewport
+                // can show, and the upload stalls the first frames.
+                imageUrl: api.panoramaImageUrl(activeMarker.id, { maxSize: 4096 }),
+              }
+            : null
+        }
+        onPanoramaState={setPanoramaState}
+        onPickPanorama={enterPanorama}
+        overlay={
+          immersive && activePano ? (
+            <PanoramaBar
+              panorama={activePano}
+              placement={activeMarker?.placement ?? null}
+              index={markers.findIndex((marker) => marker.id === activePano.id) + 1}
+              total={markers.length}
+              loading={panoramaState.loading}
+              error={panoramaState.error}
+              showGeometry={overlayGeometry}
+              onShowGeometryChange={setOverlayGeometry}
+              onStep={stepBy}
+              onExit={() => enterPanorama(null)}
+            />
+          ) : null
+        }
       />
       <LayerPanel
         clouds={renderable}
@@ -208,6 +342,14 @@ export function ViewportPage() {
           visible: splatVisible,
           loading: splatLoading,
           onToggle: handleToggleSplat,
+        }}
+        panorama={{
+          items: panoramas ?? null,
+          error: panoramaError ?? null,
+          activeId: activeMarker?.id ?? null,
+          markersVisible,
+          onMarkersVisibleChange: setMarkersVisible,
+          onEnter: enterPanorama,
         }}
         visible={visible}
         progress={progress}
@@ -226,7 +368,13 @@ export function ViewportPage() {
         onColorModeChange={setExplicitColorMode}
         pointSize={pointSize}
         onPointSizeChange={setPointSize}
-        onFrame={() => setFrameToken((token) => token + 1)}
+        onFrame={() => {
+          // Framing the whole scan from inside a panorama is a request to
+          // stop being inside it; leaving the backdrop up while the camera
+          // flies out would look like the viewer had broken.
+          if (immersive) enterPanorama(null);
+          setFrameToken((token) => token + 1);
+        }}
       />
     </div>
   );

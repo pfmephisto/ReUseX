@@ -1110,36 +1110,61 @@ ImageResponse frame_image(const reusex::ProjectDB &db, int id,
 // ===========================================================================
 
 namespace {
-json panorama_entry_json(const reusex::ProjectDB::PanoramicImage &pano) {
-  return json{{"id", pano.id},
-              {"filename", pano.filename},
-              {"timestamp", pano.timestamp},
-              {"node_id", pano.node_id},
-              {"has_pose", pano.has_pose},
-              {"pose", pose_array(pano.pose)},
-              {"pose_source", pano.pose_source},
-              {"align_inliers", pano.align_inliers},
-              {"align_rms", pano.align_rms}};
+json panorama_entry_json(const reusex::ProjectDB &db,
+                         const reusex::ProjectDB::PanoramicImage &pano) {
+  json out{{"id", pano.id},
+           {"filename", pano.filename},
+           {"timestamp", pano.timestamp},
+           {"node_id", pano.node_id},
+           {"has_pose", pano.has_pose},
+           {"pose", pose_array(pano.pose)},
+           {"pose_source", pano.pose_source},
+           {"align_inliers", pano.align_inliers},
+           {"align_rms", pano.align_rms}};
+
+  // The pose of the timestamp-matched sensor frame, as a SEPARATE field.
+  //
+  // `pose` is the content-aligned pose and is identity until `rux align 360`
+  // has run — which is the state of every panorama in a project that has only
+  // been imported. A client that wants to place those panoramas in space has
+  // no other source than the frame they were matched to, and reaching it
+  // itself costs one `GET /frames/{node_id}` per panorama, each of which
+  // decodes that frame's depth and confidence blobs to answer `has_depth`.
+  //
+  // Merging the two into one `pose` was rejected: `has_pose`/`pose_source`
+  // exist precisely so a caller can tell a resected pose from a borrowed one,
+  // and a client that draws them identically is claiming an accuracy it does
+  // not have. Two fields, and the caller decides.
+  if (pano.node_id >= 0 && db.has_sensor_frame_pose(pano.node_id)) {
+    out["frame_pose"] = pose_array(db.sensor_frame_pose(pano.node_id));
+    out["has_frame_pose"] = true;
+  } else {
+    out["has_frame_pose"] = false;
+  }
+  return out;
 }
 } // namespace
 
 json panoramas_json(const reusex::ProjectDB &db, const Params &params) {
   return paged_collection(
       db.list_panoramic_images(), "panoramas", params,
-      [](const auto &pano) { return panorama_entry_json(pano); });
+      [&db](const auto &pano) { return panorama_entry_json(db, pano); });
 }
 
 json panorama_json(const reusex::ProjectDB &db, int id) {
   for (const auto &pano : db.list_panoramic_images())
     if (pano.id == id)
-      return panorama_entry_json(pano);
+      return panorama_entry_json(db, pano);
   not_found("panorama", std::to_string(id));
 }
 
-Blob panorama_image_blob(const reusex::ProjectDB &db, int id) {
-  const cv::Mat image = db.panoramic_image(id);
+Blob panorama_image_blob(const reusex::ProjectDB &db, int id,
+                         const Params &params) {
+  cv::Mat image = db.panoramic_image(id);
   if (image.empty())
     not_found("panorama", std::to_string(id));
+
+  image = resized_to(image, max_size_param(params), /*is_label=*/false);
 
   Blob blob;
   blob.content_type = "image/jpeg";

@@ -701,11 +701,13 @@ class Server::Impl {
       });
     });
 
-    get("/api/v1/panoramas/<int>/image")([this](const crow::request &, int id) {
-      return with_db([&](const reusex::ProjectDB &db) {
-        return blob_response(panorama_image_blob(db, id));
-      });
-    });
+    get("/api/v1/panoramas/<int>/image")(
+        [this](const crow::request &req, int id) {
+          const Params params = params_of(req);
+          return with_db([&](const reusex::ProjectDB &db) {
+            return blob_response(panorama_image_blob(db, id, params));
+          });
+        });
 
     // ---- components / materials / instances ----
     get("/api/v1/components")([this](const crow::request &req) {

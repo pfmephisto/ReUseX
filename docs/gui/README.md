@@ -329,6 +329,70 @@ unlike a cloud, which streams in pages, a splat is a single response of
 hundreds of megabytes, so the panel shows the size and the Gaussian count and
 lets the user decide. `?splat=<name>` deep-links one on.
 
+## 360 panoramas
+
+![Capture positions marked in the scan](images/panorama-markers.png)
+
+The viewport draws a marker at every capture position and lets the user stand
+inside one — `rux view`'s panorama skybox, made discoverable. Clicking a marker
+enters; `[` / `]` step and `Esc` leaves, the keys `rux view` already uses, named
+on the controls that do the same thing. `?pano=<id>` deep-links one.
+
+Two things about the contract are worth stating, because both are places where
+an easier implementation would have produced a plausible, wrong picture.
+
+**A panorama's placement has two possible sources, and they are separate
+fields.** `pose` is the pose `rux align 360` resects; it is **identity until
+that command has run**, which is the state of every panorama in a
+freshly-imported project. `frame_pose` is the pose of the timestamp-matched
+sensor frame (`node_id`), derived on read — without it a client must issue one
+`GET /frames/{id}` per panorama, and that route decodes each frame's depth and
+confidence blobs to answer its availability flags.
+
+They are not merged into one `pose` with a fallback. A borrowed frame pose
+carries the 360 camera's mounting offset and the timestamp-match error, and
+that is a different claim from a resection — which is what `has_pose` and
+`pose_source` exist to let a client say. The frontend consumes them
+accordingly: a resected panorama is oriented by its own pose, while an
+unaligned one is drawn at the frame's *position* with a **level horizon and an
+arbitrary heading**, labelled as such. Adopting the phone's rotation instead
+would tilt a horizon that was level, and a tilted photorealistic backdrop reads
+as a broken viewer rather than as missing information.
+
+A panorama with neither pose is listed, disabled, and **not drawn** — an
+unplaceable photograph rendered at the origin asserts it was taken somewhere
+the building is not.
+
+![Standing inside an unaligned panorama](images/panorama-immersive.png)
+
+**The equirect convention is the library's, not three.js's.** `u` spans
+longitude `[-pi, pi]` left to right, `v` runs down from the north pole, and a
+pixel's bearing in the panorama's own optical frame (x right, y **down**, z
+forward) is `(sin θ cos φ, −sin φ, cos θ cos φ)` —
+`geometry/EquirectProjection.hpp`, restated under `GET /panoramas/{id}/image`.
+The frontend generates its own sphere from that formula
+(`apps/rux/frontend/src/viewport/panorama.ts`) rather than re-mapping
+`THREE.SphereGeometry`, for two reasons that both show up on screen: the
+geometry's local frame is then the panorama frame, so the stored pose applies
+to the mesh unmodified; and deriving `u` from the grid column rather than from
+the vertex position gives the duplicated seam vertices `u = 0` and `u = 1`
+instead of the same value, which is what closes the seam at longitude ±π.
+
+The sphere is wound **outward** and drawn with `THREE.BackSide`. The opposite
+winding culls exactly the faces a viewer standing at the centre can see: the
+panorama is then visible from outside the sphere, where nobody stands, and the
+immersive view is empty with no error anywhere. `src/test/panorama.test.ts`
+asserts the winding for that reason.
+
+`?max_size=` on the image route is what makes the picker affordable: a stored
+equirect is routinely 8192x4096 and several megabytes, so a strip of thumbnails
+at full resolution is tens of megabytes for a row of 128-pixel images.
+
+Inside a panorama the geometry is hidden by default, as `rux view` hides every
+other prop — but *Overlay geometry* puts the point cloud back inside the
+sphere, which is the cheapest visual check there is on whether an alignment is
+right.
+
 ## Running it
 
 ```bash

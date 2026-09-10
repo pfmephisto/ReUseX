@@ -2,11 +2,18 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import type { CloudInfo, GsplatInfo } from '../api/types';
+import { api } from '../api/client';
+import type { CloudInfo, GsplatInfo, PanoramaInfo } from '../api/types';
 import type { ColorMode } from '../viewport/PointCloudScene';
 import type { CloudStreamState } from '../viewport/useCloudStream';
 import type { SplatLayerState } from '../viewport/Viewport';
 import { describeGsplat, gsplatNote } from '../viewport/gsplatLayer';
+import {
+  describePlacement,
+  panoramaNote,
+  resolvePlacement,
+  type PanoramaPlacement,
+} from '../viewport/panorama';
 import { EmptyState } from './EmptyState';
 import { LabelLegend } from './LabelLegend';
 import { LayerRow } from './LayerRow';
@@ -22,6 +29,21 @@ export interface SplatPanelState {
   /** Load progress per splat; absent until one has been switched on. */
   loading: Record<string, SplatLayerState>;
   onToggle: (name: string, visible: boolean) => void;
+}
+
+/** Everything the panel needs about the 360 panoramas (#265, Phase 5). */
+export interface PanoramaPanelState {
+  /** Panoramas in the project, or null while the list is being fetched. */
+  items: PanoramaInfo[] | null;
+  /** A failure listing them, as opposed to a project that has none. */
+  error: Error | null;
+  /** The panorama currently being looked through, if any. */
+  activeId: number | null;
+  /** Whether the capture-position markers are drawn in the orbit view. */
+  markersVisible: boolean;
+  onMarkersVisibleChange: (visible: boolean) => void;
+  /** Enter a panorama, or leave the current one with null. */
+  onEnter: (id: number | null) => void;
 }
 
 export interface LayerPanelProps {
@@ -50,6 +72,14 @@ export interface LayerPanelProps {
    */
   splat?: SplatPanelState;
 
+  /**
+   * The 360 panoramas, when the page models them.
+   *
+   * Optional for the same reason `splat` is: a page with no panorama support
+   * says so by omitting one thing rather than by passing five empty props.
+   */
+  panorama?: PanoramaPanelState;
+
   colorMode: ColorMode;
   onColorModeChange: (mode: ColorMode) => void;
 
@@ -76,6 +106,7 @@ export function LayerPanel({
   onLabelCloudChange,
   labelSourceNote,
   splat,
+  panorama,
   colorMode,
   onColorModeChange,
   pointSize,
@@ -109,6 +140,8 @@ export function LayerPanel({
       </section>
 
       {splat && <SplatSection splat={splat} />}
+
+      {panorama && <PanoramaSection panorama={panorama} />}
 
       <section className={styles.section}>
         <h2 className={styles.heading}>Colour</h2>
@@ -241,6 +274,73 @@ function SplatSection({ splat }: { splat: SplatPanelState }) {
               </p>
             )}
           </div>
+        );
+      })}
+    </section>
+  );
+}
+
+/**
+ * One row per 360 panorama, and the reason there are none.
+ *
+ * The rows are buttons, not toggles: entering a panorama is a *place to
+ * stand*, and only one can be occupied at a time — a checkbox would promise a
+ * combination the viewport cannot show. A panorama the project cannot place
+ * (no aligned pose, no matched frame pose) is listed and disabled rather than
+ * hidden, so "this panorama exists but nothing knows where it was taken" is
+ * visible instead of looking like a missing import.
+ *
+ * The thumbnail is fetched at `max_size=128`. At full resolution a strip of
+ * twenty of these is tens of megabytes, which is exactly the reason that
+ * parameter was added to the contract for this phase.
+ */
+function PanoramaSection({ panorama }: { panorama: PanoramaPanelState }) {
+  const { items, error, activeId, markersVisible, onMarkersVisibleChange, onEnter } = panorama;
+  const note = panoramaNote(items, error);
+
+  return (
+    <section className={styles.section}>
+      <h2 className={styles.heading}>360 panoramas</h2>
+
+      {note && <p className={styles.note}>{note}</p>}
+
+      {(items ?? []).length > 0 && (
+        <label className={styles.splatToggle}>
+          <input
+            type="checkbox"
+            checked={markersVisible}
+            onChange={(event) => onMarkersVisibleChange(event.target.checked)}
+            className={styles.checkbox}
+          />
+          <span className={styles.splatName}>Show capture positions</span>
+        </label>
+      )}
+
+      {(items ?? []).map((info) => {
+        const placement: PanoramaPlacement | null = resolvePlacement(info);
+        const active = activeId === info.id;
+        return (
+          <button
+            key={info.id}
+            type="button"
+            className={`${styles.panorama} ${active ? styles.panoramaActive : ''}`}
+            disabled={placement === null}
+            aria-pressed={active}
+            onClick={() => onEnter(active ? null : info.id)}
+          >
+            <img
+              className={styles.thumbnail}
+              src={api.panoramaImageUrl(info.id, { maxSize: 128 })}
+              alt=""
+              loading="lazy"
+            />
+            <span className={styles.panoramaText}>
+              <span className={styles.panoramaName} title={info.filename}>
+                {info.filename}
+              </span>
+              <span className={styles.note}>{describePlacement(info, placement)}</span>
+            </span>
+          </button>
         );
       })}
     </section>

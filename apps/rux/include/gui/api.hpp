@@ -296,7 +296,14 @@ ImageResponse frame_image(const reusex::ProjectDB &db, int id,
 nlohmann::json panoramas_json(const reusex::ProjectDB &db,
                               const Params &params);
 nlohmann::json panorama_json(const reusex::ProjectDB &db, int id);
-Blob panorama_image_blob(const reusex::ProjectDB &db, int id);
+
+/// The equirectangular image, JPEG-encoded.
+///
+/// @param params `max_size` (longest edge, downscale only), for the thumbnail
+///        strip of a panorama picker — a stored equirect is routinely
+///        8192x4096 and several megabytes.
+Blob panorama_image_blob(const reusex::ProjectDB &db, int id,
+                         const Params &params);
 
 // --- components / materials / instances -----------------------------------
 

@@ -2,9 +2,17 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useEffect, useRef, useState } from 'react';
+import {
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
+import * as THREE from 'three';
 
 import { PointCloudScene, type ColorMode } from './PointCloudScene';
+import { PanoramaScene, type PanoramaMarker } from './PanoramaScene';
 import { SplatScene } from './SplatScene';
 import { useCloudStream, type CloudStreamState } from './useCloudStream';
 import styles from './Viewport.module.css';
@@ -60,6 +68,41 @@ export interface ViewportProps {
    */
   splats?: ViewportSplat[];
   onSplatProgress?: (name: string, state: SplatLayerState) => void;
+
+  /**
+   * Capture positions to mark in the orbit view (#265, Phase 5).
+   *
+   * Only placeable panoramas belong here — one with neither an aligned pose
+   * nor a matched frame pose has no position to mark, and marking it at the
+   * origin would put it somewhere the scan never was.
+   */
+  panoramas?: PanoramaMarker[];
+  showPanoramaMarkers?: boolean;
+  /**
+   * The panorama to stand inside, or null for the orbit view.
+   *
+   * A marker plus a URL rather than an id, so this component never has to know
+   * how a panorama is placed or where its image comes from.
+   */
+  activePanorama?: { marker: PanoramaMarker; imageUrl: string } | null;
+  onPanoramaState?: (state: PanoramaLayerState) => void;
+  /** A marker was clicked. */
+  onPickPanorama?: (id: number) => void;
+
+  /**
+   * Chrome drawn over the canvas.
+   *
+   * A slot rather than a component, because the host element is what makes
+   * `position: absolute` mean "over the viewport" — an overlay rendered beside
+   * `<Viewport>` would position itself against the page instead.
+   */
+  overlay?: ReactNode;
+}
+
+/** Load state of the panorama backdrop, as the page reports it. */
+export interface PanoramaLayerState {
+  loading: boolean;
+  error: Error | null;
 }
 
 /**
@@ -77,10 +120,17 @@ export function Viewport({
   onLayerProgress,
   splats,
   onSplatProgress,
+  panoramas,
+  showPanoramaMarkers = true,
+  activePanorama,
+  onPanoramaState,
+  onPickPanorama,
+  overlay,
 }: ViewportProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [scene, setScene] = useState<PointCloudScene | null>(null);
   const framedOnce = useRef(false);
+  const panoramaRef = useRef<PanoramaScene | null>(null);
 
   useEffect(() => {
     if (!canvasRef.current) return;
@@ -117,8 +167,105 @@ export function Viewport({
     if (frameToken > 0) scene?.frameAll();
   }, [scene, frameToken]);
 
+  // --- panorama layer ------------------------------------------------------
+
+  useEffect(() => {
+    if (!scene) return;
+    const layer = new PanoramaScene(scene);
+    panoramaRef.current = layer;
+    return () => {
+      panoramaRef.current = null;
+      layer.dispose();
+    };
+  }, [scene]);
+
+  useEffect(() => {
+    panoramaRef.current?.setMarkers(panoramas ?? []);
+  }, [scene, panoramas]);
+
+  useEffect(() => {
+    panoramaRef.current?.setMarkersVisible(showPanoramaMarkers);
+  }, [scene, panoramas, showPanoramaMarkers]);
+
+  // Reported through a ref for the same reason the splat loader does it: both
+  // callbacks are inline closures at the call site, and depending on them
+  // would tear the backdrop down and re-download it on every parent render.
+  const panoramaStateRef = useRef(onPanoramaState);
+  panoramaStateRef.current = onPanoramaState;
+
+  const activeId = activePanorama?.marker.id ?? null;
+  const activeUrl = activePanorama?.imageUrl ?? null;
+  useEffect(() => {
+    const layer = panoramaRef.current;
+    if (!layer) return;
+    if (activeId === null || !activeUrl || !activePanorama) {
+      layer.hide();
+      panoramaStateRef.current?.({ loading: false, error: null });
+      return;
+    }
+
+    let cancelled = false;
+    panoramaStateRef.current?.({ loading: true, error: null });
+    layer
+      .show(activePanorama.marker.placement, activeUrl)
+      .then(() => {
+        if (!cancelled) panoramaStateRef.current?.({ loading: false, error: null });
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        panoramaStateRef.current?.({
+          loading: false,
+          error: error instanceof Error ? error : new Error(String(error)),
+        });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+    // Keyed by id and URL, not by the object: the page rebuilds the marker
+    // array on every render, and depending on it would reload the texture.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scene, activeId, activeUrl]);
+
+  /**
+   * Click-to-enter.
+   *
+   * `pointerup` with a movement threshold rather than `click`, because a drag
+   * that happens to end over a marker is an orbit, not a request to teleport
+   * into it — and `click` cannot tell the two apart.
+   */
+  const pressedAt = useRef<{ x: number; y: number } | null>(null);
+  const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    pressedAt.current = { x: event.clientX, y: event.clientY };
+  };
+  const handlePointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const start = pressedAt.current;
+    pressedAt.current = null;
+    if (!start || !scene || !onPickPanorama || !showPanoramaMarkers) return;
+    if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > 4) return;
+
+    const layer = panoramaRef.current;
+    if (!layer) return;
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const ndc = new THREE.Vector2(
+      ((event.clientX - bounds.left) / bounds.width) * 2 - 1,
+      -((event.clientY - bounds.top) / bounds.height) * 2 + 1,
+    );
+    for (const hit of scene.pick(ndc, layer.markerObjects())) {
+      const id = layer.panoramaIdOf(hit.object);
+      if (id !== null) {
+        onPickPanorama(id);
+        return;
+      }
+    }
+  };
+
   return (
-    <div className={styles.host}>
+    <div
+      className={styles.host}
+      onPointerDown={handlePointerDown}
+      onPointerUp={handlePointerUp}
+    >
       <canvas ref={canvasRef} className={styles.canvas} />
       {scene &&
         layers.map((layer) => (
@@ -149,6 +296,7 @@ export function Viewport({
             onProgress={(state) => onSplatProgress?.(splat.name, state)}
           />
         ))}
+      {overlay}
     </div>
   );
 }

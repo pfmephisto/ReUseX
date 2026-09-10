@@ -507,8 +507,15 @@ export class RuxApiClient {
     return this.requestJson<PanoramaInfo>(`/panoramas/${id}`, undefined, signal);
   }
 
-  panoramaImageUrl(id: number): string {
-    return this.url(`/panoramas/${id}/image`);
+  /**
+   * URL of the equirectangular JPEG, in its **stored** orientation.
+   *
+   * `maxSize` downscales the longest edge, and a picker must use it: a stored
+   * equirect is routinely 8192x4096 and several megabytes, so a strip of
+   * twenty 96-pixel thumbnails is otherwise tens of megabytes.
+   */
+  panoramaImageUrl(id: number, options: { maxSize?: number } = {}): string {
+    return this.url(`/panoramas/${id}/image`, { max_size: options.maxSize });
   }
 
   // ------------------------------------------------------- components ----

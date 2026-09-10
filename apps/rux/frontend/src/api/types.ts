@@ -179,12 +179,28 @@ export interface PanoramaInfo {
   timestamp?: number;
   /** Matched sensor frame, -1 if unmatched. */
   node_id: number;
+  /** True once `rux align 360` has resected this panorama. */
   has_pose: boolean;
+  /**
+   * Row-major 4x4 camera-to-world pose from content-based alignment —
+   * **identity until `rux align 360` has run**. Check `has_pose` first.
+   */
   pose?: number[];
   pose_source: 'timestamp' | 'aligned';
   align_inliers?: number;
   /** Angular RMS of inlier bearings, degrees. -1 if unaligned. */
   align_rms?: number;
+  /** Whether `frame_pose` is present. */
+  has_frame_pose?: boolean;
+  /**
+   * Row-major 4x4 pose of the timestamp-matched sensor frame (`node_id`),
+   * derived on read.
+   *
+   * A separate field from `pose` on purpose: a borrowed frame pose carries the
+   * panorama's mounting offset and the timestamp-match error, and is a
+   * different claim from a resected one.
+   */
+  frame_pose?: number[];
 }
 
 /** `ComponentInfo` — one building component. */

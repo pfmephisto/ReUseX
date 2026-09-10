@@ -1,0 +1,107 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+.bar {
+  position: absolute;
+  left: 50%;
+  bottom: var(--space-4);
+  transform: translateX(-50%);
+  z-index: var(--z-panel);
+
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  width: max-content;
+  max-width: min(72ch, calc(100% - var(--space-6)));
+  padding: var(--space-2) var(--space-3);
+
+  background: var(--color-surface-overlay);
+  border: 1px solid var(--color-border);
+  /* Not a pill: the caveat line makes this box two rows tall, and a 999px
+     radius on a tall box is a circle. */
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+}
+
+.text {
+  flex: 0 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.name {
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.caveat {
+  /* Its own row, so it can wrap as a sentence instead of as a column. */
+  flex: 1 0 100%;
+  order: 1;
+  font-size: var(--font-size-xs);
+  color: var(--color-status-failed);
+}
+
+.error {
+  flex: 1 0 100%;
+  order: 2;
+  font-size: var(--font-size-xs);
+  color: var(--color-status-failed);
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex: none;
+}
+
+.step,
+.exit {
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-sunken);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.step:hover:not(:disabled),
+.exit:hover {
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+}
+
+.step:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: none;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.checkbox {
+  accent-color: var(--color-accent);
+}

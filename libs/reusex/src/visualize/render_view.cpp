@@ -11,6 +11,7 @@
 #include "geometry/component_persistence.hpp"
 #include "geometry/transform_utils.hpp"
 #include "types/point_types.hpp"
+#include "visualize/offscreen_gl.hpp"
 
 #include <opencv2/core.hpp>
 
@@ -19,11 +20,14 @@
 #include <pcl/conversions.h>
 
 #include <vtkActor.h>
+#include <vtkActorCollection.h>
 #include <vtkCamera.h>
 #include <vtkCellArray.h>
 #include <vtkImageData.h>
 #include <vtkLogger.h>
+#include <vtkMapper.h>
 #include <vtkNew.h>
+#include <vtkPlane.h>
 #include <vtkPointData.h>
 #include <vtkPoints.h>
 #include <vtkPolyData.h>
@@ -363,6 +367,189 @@ void add_component_actors(
   }
 }
 
+// ── Horizontal cut plane (#306) ──────────────────────────────────────────────
+//
+// `--view top` on a real interior renders the ceiling, because that is what is
+// topmost. A floor plan is the same camera with everything above waist height
+// clipped away, which is what `--view plan` adds.
+//
+// Two decisions worth stating. The cut is applied per *mapper*, not by
+// filtering the geometry, so every layer is cut by the same plane with no copy
+// of the point data and no change to what the layers mean. And the camera is
+// still framed on the *uncut* bounding box, so a plan and a top view of the
+// same project cover the same ground — the cut changes what is visible, never
+// where the shot is aimed (STANDARDS §6).
+
+/// How far below the drawn geometry a detected floor plane may sit and still
+/// be believed, in metres. A plane centroid further down than this belongs to
+/// a stale per-plane cloud from a different run, not to this scene's floor.
+constexpr double kFloorPlaneSlackM = 0.5;
+
+/// World z of the floor, from the plane segmentation if the project has one.
+///
+/// The lowest horizontal plane, matching how the real-scan fixture test
+/// identifies floor and ceiling. Nothing in an interior scan segments as a
+/// horizontal plane below the floor, so "lowest" is the floor; a table top or
+/// a windowsill is horizontal too but always above it.
+std::optional<double> detect_floor_z(const ProjectDB &db) {
+  if (!db.has_point_cloud("plane_centroids") ||
+      !db.has_point_cloud("plane_normals"))
+    return std::nullopt;
+
+  const auto centroids = db.point_cloud_xyz("plane_centroids");
+  const auto normals = db.point_cloud_normal("plane_normals");
+  const std::size_t n_centroids = centroids ? centroids->size() : 0;
+  const std::size_t n_normals = normals ? normals->size() : 0;
+  if (n_centroids == 0 || n_centroids != n_normals) {
+    core::warn("render: 'plane_centroids' ({}) and 'plane_normals' ({}) are "
+               "empty or out of sync; placing the cut plane from the bounding "
+               "box instead — re-run `rux create planes`",
+               n_centroids, n_normals);
+    return std::nullopt;
+  }
+
+  double lowest = 0.0;
+  bool found = false;
+  int horizontal = 0;
+  for (std::size_t i = 0; i < n_centroids; ++i) {
+    if (std::abs(static_cast<double>(normals->points[i].normal_z)) <
+        kHorizontalNormalZ)
+      continue;
+    ++horizontal;
+    const double z = static_cast<double>(centroids->points[i].z);
+    if (!found || z < lowest) {
+      lowest = z;
+      found = true;
+    }
+  }
+  if (!found) {
+    core::warn("render: none of the {} segmented planes is horizontal "
+               "(|n_z| >= {}), so no floor could be identified; placing the "
+               "cut plane from the bounding box instead",
+               n_centroids, kHorizontalNormalZ);
+    return std::nullopt;
+  }
+  core::debug("render: floor at z={:.3f} m, from {} horizontal plane(s) of {}",
+              lowest, horizontal, n_centroids);
+  return lowest;
+}
+
+/// A resolved cut: where the plane sits and how that was decided.
+struct CutPlane {
+  double z = 0.0;           ///< world z of the plane
+  double floor_z = 0.0;     ///< the reference it was measured up from
+  double height = 0.0;      ///< metres above @ref floor_z
+  bool from_planes = false; ///< floor came from the segmentation, not the bbox
+};
+
+/// Decide where to cut, and say so loudly when the answer is degenerate.
+CutPlane resolve_cut_plane(const ProjectDB &db, const RenderOptions &opts,
+                           const Bounds &bounds) {
+  CutPlane cut;
+
+  const std::optional<double> floor = detect_floor_z(db);
+  if (floor && *floor >= bounds.min[2] - kFloorPlaneSlackM &&
+      *floor <= bounds.max[2]) {
+    cut.floor_z = *floor;
+    cut.from_planes = true;
+  } else {
+    if (floor) {
+      core::warn("render: the detected floor plane (z={:.3f}) lies outside the "
+                 "drawn geometry (z in [{:.3f}, {:.3f}]); the per-plane clouds "
+                 "are stale — placing the cut plane from the bounding box",
+                 *floor, bounds.min[2], bounds.max[2]);
+    }
+    cut.floor_z = bounds.min[2];
+  }
+
+  cut.height = opts.cut_height.value_or(
+      cut.from_planes ? kDefaultCutHeightM
+                      : kDefaultCutBboxFraction * bounds.extent(2));
+  cut.z = cut.floor_z + cut.height;
+
+  // Neither of these is fatal — the render still means something — but a plan
+  // that quietly turned back into a top view, or into an empty frame, must not
+  // pass unremarked (STANDARDS §5).
+  if (cut.z >= bounds.max[2]) {
+    core::warn("render: the cut plane (z={:.3f}) is above everything drawn "
+               "(z <= {:.3f}); nothing is cut away and this is a plain top "
+               "view",
+               cut.z, bounds.max[2]);
+  } else if (cut.z <= bounds.min[2]) {
+    core::warn("render: the cut plane (z={:.3f}) is below everything drawn "
+               "(z >= {:.3f}); the frame will be empty — lower --cut-height or "
+               "check the floor",
+               cut.z, bounds.min[2]);
+  }
+  return cut;
+}
+
+/// Clip every actor in @p renderer to the half-space below z = @p z.
+///
+/// vtkPlane keeps the side its normal points to, so the normal points down.
+/// Clipping planes live on the mapper and are evaluated in the vertex shader,
+/// which is what makes this work uniformly for point sprites, mesh triangles
+/// and component polylines alike.
+void apply_cut_plane(vtkRenderer *renderer, double z) {
+  vtkNew<vtkPlane> plane;
+  plane->SetOrigin(0.0, 0.0, z);
+  plane->SetNormal(0.0, 0.0, -1.0);
+
+  vtkActorCollection *actors = renderer->GetActors();
+  actors->InitTraversal();
+  while (vtkActor *actor = actors->GetNextActor()) {
+    if (vtkMapper *mapper = actor->GetMapper())
+      mapper->AddClippingPlane(plane);
+  }
+}
+
+// ── Offscreen OpenGL availability (#313) ─────────────────────────────────────
+
+/// Refuse to render, with a diagnosis, when there is no offscreen GL here.
+///
+/// Called after every option and data check and immediately before the first
+/// Render(): VTK's EGL render window crashes rather than failing when it has
+/// no device, so this is the last point at which the condition can still be
+/// reported. Placing it here (rather than at the top of render_view()) also
+/// keeps the cheaper, more common diagnostics — a missing cloud, a stale label
+/// layer — as the message a caller sees, on a GPU-less machine as much as
+/// anywhere else.
+void require_offscreen_gl() {
+  // One probe per process. The answer cannot change while it runs, and an
+  // orbit sweep would otherwise pay for it once per frame.
+  static const OffscreenGlProbe probe = probe_offscreen_gl();
+
+  if (probe.status == OffscreenGlStatus::usable) {
+    core::debug("render: offscreen GL available — {}", probe.detail);
+    return;
+  }
+  if (probe.status == OffscreenGlStatus::unknown) {
+    // Not a verdict. VTK may be using OSMesa or a windowed GL path that never
+    // goes through EGL; SupportsOpenGL() after the render still guards those.
+    core::debug("render: offscreen GL probe inconclusive — {}", probe.detail);
+    return;
+  }
+
+  if (display_configured()) {
+    // VTK tries the windowed path first here and only falls back to EGL if it
+    // cannot reach the display. An EGL that will not initialise says nothing
+    // about GLX on a working X server, so this must not be fatal.
+    core::warn("render: no usable EGL device ({}), but DISPLAY/WAYLAND_DISPLAY "
+               "is set — continuing on VTK's windowed GL path",
+               probe.detail);
+    return;
+  }
+
+  throw OffscreenGlUnavailable(
+      "render: this machine cannot create an offscreen OpenGL context, so "
+      "there is nothing to render into — " +
+      probe.detail +
+      ". Headless rendering needs a GPU reachable through EGL (a DRM render "
+      "node under /dev/dri, or a vendor driver), a software rasteriser (Mesa's "
+      "llvmpipe EGL driver), or an X/Wayland display to fall back on. Set "
+      "REUSEX_SKIP_EGL_PROBE=1 to bypass this check and let VTK try anyway.");
+}
+
 // ── Camera placement ─────────────────────────────────────────────────────────
 
 /// Parallel scale (half the viewport height in world units) that exactly fits
@@ -401,7 +588,9 @@ void place_preset_camera(vtkRenderer *renderer, const RenderOptions &opts,
 
   switch (opts.view) {
   case ViewPreset::top:
-    // Orthographic floor plan: straight down -Z with +Y up the page.
+  case ViewPreset::plan:
+    // Straight down -Z with +Y up the page. `plan` differs from `top` only in
+    // the cut plane applied to the actors, so the two frame identically.
     cam->ParallelProjectionOn();
     cam->SetPosition(center[0], center[1], center[2] + reach);
     cam->SetViewUp(0.0, 1.0, 0.0);
@@ -564,6 +753,11 @@ void validate(const RenderOptions &opts) {
   if (opts.point_size <= 0.0)
     throw std::runtime_error("render: point size must be positive (got " +
                              std::to_string(opts.point_size) + ")");
+  if (opts.cut_height && *opts.cut_height <= 0.0)
+    throw std::runtime_error(
+        "render: cut height must be positive — it is measured upward from the "
+        "floor (got " +
+        std::to_string(*opts.cut_height) + ")");
   // At +/-90 degrees the orbit view direction is parallel to the (0,0,1) up
   // vector and the camera basis collapses.
   if (opts.view == ViewPreset::orbit &&
@@ -607,6 +801,8 @@ std::string_view to_string(ViewPreset view) {
   switch (view) {
   case ViewPreset::top:
     return "top";
+  case ViewPreset::plan:
+    return "plan";
   case ViewPreset::front:
     return "front";
   case ViewPreset::orbit:
@@ -619,7 +815,7 @@ std::string_view to_string(ViewPreset view) {
 
 std::optional<ViewPreset> view_preset_from_string(std::string_view name) {
   for (const ViewPreset view :
-       {ViewPreset::top, ViewPreset::front, ViewPreset::orbit,
+       {ViewPreset::top, ViewPreset::plan, ViewPreset::front, ViewPreset::orbit,
         ViewPreset::explicit_camera}) {
     if (to_string(view) == name)
       return view;
@@ -764,6 +960,16 @@ cv::Mat render_view(const ProjectDB &db, const RenderOptions &opts) {
         "render: the selected layers produced no drawable geometry");
   }
 
+  // A plan view is a top view plus the cut; an explicit `cut` cuts any view.
+  if (opts.cut || opts.view == ViewPreset::plan) {
+    const CutPlane cut = resolve_cut_plane(db, opts, bounds);
+    apply_cut_plane(renderer, cut.z);
+    core::info("render: cut plane at z={:.3f} m — {:.2f} m above the {} floor "
+               "at z={:.3f}",
+               cut.z, cut.height, cut.from_planes ? "detected" : "bounding-box",
+               cut.floor_z);
+  }
+
   vtkNew<vtkRenderWindow> window;
   // The whole point of this function: never touch a window manager. With the
   // flake's EGL-enabled VTK this succeeds with no DISPLAY set (#294).
@@ -778,33 +984,29 @@ cv::Mat render_view(const ProjectDB &db, const RenderOptions &opts) {
     place_preset_camera(renderer, opts, bounds);
   }
 
-  // TODO: Fail gracefully when VTK cannot create an offscreen render window
-  // category=Visualization estimate=4h
-  // On a machine with no DRM render node and no X/Wayland display (a
-  // GitHub-hosted CI runner, a nix build sandbox) this Render() call segfaults
-  // inside vtkEGLRenderWindow instead of reporting the failure. The
-  // SupportsOpenGL() guard below already produces the right diagnosis, but it
-  // is unreachable: the crash happens first, so STANDARDS §5 is violated by a
-  // crash rather than served by a diagnosed error. Fixing it means probing for
-  // a usable EGL device *before* the first Render() — without regressing the
-  // software-rasteriser and remote-GPU setups that legitimately have no local
-  // render node, which is why this is not just a matter of moving the check up.
-  // The two rendering tests in tests/integration/test_render_view.cpp skip
-  // themselves on such machines; remove that guard once this reports properly.
-  // Follow-up to #294.
+  // Everything above this line is checked without touching the GPU, so a
+  // GPU-less machine still gets the more useful diagnosis when the request
+  // itself is wrong. From here on VTK owns the process: its EGL render window
+  // crashes rather than fails when it has no device, so the question has to be
+  // asked before the first Render() (#313).
+  require_offscreen_gl();
+
   window->Render();
   core::debug("render: window class {}", window->GetClassName());
 
   // A render window with no usable OpenGL implementation does not fail — it
   // hands back a correctly sized frame of pure background. Nothing downstream
   // can tell that apart from a legitimately empty scene, so check it here
-  // rather than let a black PNG be reported as success (STANDARDS §5).
+  // rather than let a black PNG be reported as success (STANDARDS §5). The
+  // probe above cannot replace this: it answers for EGL, and VTK may have
+  // taken a windowed or OSMesa path instead.
   if (window->SupportsOpenGL() == 0) {
-    throw std::runtime_error(
-        "render: the offscreen render window has no usable OpenGL "
-        "implementation (window class " +
+    throw OffscreenGlUnavailable(
+        "render: the render window has no usable OpenGL implementation "
+        "(window class " +
         std::string(window->GetClassName()) +
-        "); with no display this needs an EGL-capable VTK and a GPU device");
+        "); with no display this needs an EGL-capable VTK and a rendering "
+        "device");
   }
 
   vtkNew<vtkWindowToImageFilter> capture;

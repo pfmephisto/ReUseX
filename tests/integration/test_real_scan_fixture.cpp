@@ -299,35 +299,50 @@ TEST_CASE("RealScanFixture_OfficeCorridorFrames_"
     const fs::path out_dir(render_dir);
     fs::create_directories(out_dir);
 
-    // The plane labels only existed in memory until now; the render reads
-    // named clouds from the project, exactly as `rux render` would.
+    // The plane results only existed in memory until now; the render reads
+    // named clouds from the project, exactly as `rux render` would. The
+    // per-plane clouds go in too: they are what lets the plan view find the
+    // floor and cut 1.2 m above it instead of guessing from the bbox (#306).
     db.save_point_cloud("planes", *plane_labels);
+    db.save_point_cloud("plane_centroids", *plane_centroids);
+    db.save_point_cloud("plane_normals", *plane_normals);
 
     reusex::visualize::RenderOptions opts;
     opts.layers = {reusex::visualize::Layer::cloud};
     opts.width = 1200;
     opts.height = 900;
 
-    // Deliberately no assertion on the write: this is an opt-in debugging aid,
-    // and an unwritable output directory must not fail the run it is meant to
-    // help diagnose.
-    const auto write = [&out_dir](const cv::Mat &image,
-                                  const std::string &name) {
+    // Deliberately no assertion on either the render or the write: this is an
+    // opt-in debugging aid, and neither an unwritable output directory nor a
+    // machine with no offscreen OpenGL must fail the run it is meant to help
+    // diagnose. Every assertion this test exists for has already run above.
+    const auto write = [&out_dir,
+                        &db](const reusex::visualize::RenderOptions &o,
+                             const std::string &name) {
       const fs::path path = out_dir / name;
-      if (cv::imwrite(path.string(), image)) {
-        WARN("wrote render artifact " << path);
-      } else {
-        WARN("could not write render artifact " << path);
+      try {
+        if (cv::imwrite(path.string(), reusex::visualize::render_view(db, o))) {
+          WARN("wrote render artifact " << path);
+        } else {
+          WARN("could not write render artifact " << path);
+        }
+      } catch (const reusex::visualize::OffscreenGlUnavailable &e) {
+        WARN("no offscreen OpenGL, skipping render artifact " << path << ": "
+                                                              << e.what());
       }
     };
 
-    write(reusex::visualize::render_view(db, opts), "office_corridor_top.png");
+    write(opts, "office_corridor_top.png");
+
+    // The pair a reviewer actually wants: the same camera with and without the
+    // cut. `top` is a picture of the ceiling; `plan` is the floor plan (#306).
+    opts.view = reusex::visualize::ViewPreset::plan;
+    write(opts, "office_corridor_plan.png");
 
     opts.layers = {reusex::visualize::Layer::planes};
     opts.view = reusex::visualize::ViewPreset::orbit;
     opts.orbit_count = 8;
     opts.orbit_index = 1;
-    write(reusex::visualize::render_view(db, opts),
-          "office_corridor_orbit_planes.png");
+    write(opts, "office_corridor_orbit_planes.png");
   }
 }

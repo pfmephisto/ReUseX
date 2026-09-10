@@ -20,20 +20,21 @@
 //     across GPUs and driver versions, so a golden file would fail for reasons
 //     unrelated to the code under test.
 //
-// The two rendering tests skip themselves when the machine has neither a DRM
-// render node nor an X/Wayland session — a GitHub-hosted CI runner, or a nix
-// build sandbox, which does not bind-mount /dev/dri.
+// Rendering needs a rendering device, and a GitHub-hosted CI runner or a nix
+// build sandbox has none. These tests used to guess at that themselves, by
+// looking for a DRM render node or an X/Wayland session, because render_view()
+// answered the question with a segfault. It no longer does (#313): it probes
+// EGL and throws OffscreenGlUnavailable, so the guess is gone and the tests
+// simply render and skip on *that* exception. Two things follow — the skip
+// condition is now the library's own verdict rather than a second, divergent
+// heuristic, and the diagnosis itself is under test, since a machine that can
+// render must not produce that exception.
 //
-// That is not a retreat from the point of #294. "Renders with no display" is
-// still asserted in full: on any machine with a GPU these tests run with
-// DISPLAY unset and exercise the EGL fallback, which is the case the feature
-// exists for. "No rendering device at all" is simply outside what VTK can do,
-// and it currently segfaults rather than reporting the failure (see the TODO
-// in libs/reusex/src/visualize/render_view.cpp) — a crash that would mask
-// every regression these tests exist to catch. Remove the guard once
-// render_view() diagnoses that condition properly.
+// "Renders with no display" is still asserted in full: on any machine with a
+// GPU these tests run with DISPLAY unset and exercise the EGL fallback, which
+// is the case the feature exists for.
 //
-// The error-path test is deliberately left unguarded: every case it covers is
+// The error-path test renders nothing successfully: every case it covers is
 // rejected before any GL work happens, so it keeps its value on a device-less
 // runner.
 
@@ -49,7 +50,6 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <cstdint>
-#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -59,35 +59,20 @@ namespace viz = reusex::visualize;
 
 namespace {
 
-/// True when VTK has some way to create a render window: a DRM render node for
-/// the off-screen EGL path, or an X/Wayland session to fall back on.
+/// Render, or skip the test when the library reports this machine has no
+/// offscreen OpenGL.
 ///
-/// Checked before calling render_view() rather than around it, because VTK does
-/// not fail gracefully when neither exists — it segfaults, which no amount of
-/// exception handling here can catch.
-bool has_rendering_device() {
-  for (const char *var : {"DISPLAY", "WAYLAND_DISPLAY"}) {
-    const char *value = std::getenv(var);
-    if (value != nullptr && value[0] != '\0') {
-      return true;
-    }
+/// Every other exception propagates: a missing cloud or a stale label layer is
+/// a failure, not a reason to stop looking.
+cv::Mat render_or_skip(const reusex::ProjectDB &db,
+                       const viz::RenderOptions &opts) {
+  try {
+    return viz::render_view(db, opts);
+  } catch (const viz::OffscreenGlUnavailable &e) {
+    SKIP("No offscreen OpenGL on this machine: " << e.what());
   }
-
-  // The error_code overload yields an empty range instead of throwing when
-  // /dev/dri does not exist at all, which is exactly the sandbox case.
-  std::error_code ec;
-  for (const auto &entry : fs::directory_iterator("/dev/dri", ec)) {
-    if (entry.path().filename().string().starts_with("renderD")) {
-      return true;
-    }
-  }
-  return false;
+  return {}; // unreachable; SKIP throws
 }
-
-/// Message shared by both rendering tests, so the reason reads the same way.
-constexpr const char *kNoDeviceReason =
-    "No DRM render node (/dev/dri/renderD*) and no X/Wayland display; VTK "
-    "cannot create a render window.";
 
 /// tests/integration/<this file> -> tests/fixtures/scans/office_corridor.rux
 fs::path fixture_path() {
@@ -136,6 +121,71 @@ double foreground_fraction(const cv::Mat &image,
          static_cast<double>(image.rows * image.cols);
 }
 
+/// An exactly-this-colour pixel count.
+///
+/// Point sprites are drawn with lighting off, direct scalars and no
+/// multisampling, so a point's colour reaches the framebuffer unmodified and
+/// an exact match is the right test — which is what lets the plan-view test
+/// ask "is any of the ceiling still visible" and get a yes/no answer.
+std::size_t count_color(const cv::Mat &image, int r, int g, int b) {
+  const cv::Vec3b want(static_cast<unsigned char>(b),
+                       static_cast<unsigned char>(g),
+                       static_cast<unsigned char>(r));
+  std::size_t hits = 0;
+  for (int y = 0; y < image.rows; ++y) {
+    const auto *row = image.ptr<cv::Vec3b>(y);
+    for (int x = 0; x < image.cols; ++x) {
+      if (row[x] == want) {
+        ++hits;
+      }
+    }
+  }
+  return hits;
+}
+
+/// Surface colours of coloured_room(), as RGB.
+constexpr int kFloorRgb[3] = {40, 90, 230};
+constexpr int kCeilingRgb[3] = {230, 60, 40};
+constexpr int kWallRgb[3] = {60, 200, 90};
+
+/// A closed room whose floor, ceiling and walls are each a different colour.
+///
+/// The point of a floor plan is *which* surfaces it shows, and the hollow box
+/// below cannot answer that — every face of it is the same colour. This one
+/// can: count the ceiling pixels.
+reusex::CloudPtr coloured_room(float height = 2.7F, int per_side = 60) {
+  auto cloud = std::make_shared<reusex::Cloud>();
+  const auto add = [&cloud](float x, float y, float z, const int rgb[3]) {
+    reusex::PointT p;
+    p.x = x, p.y = y, p.z = z;
+    p.r = static_cast<std::uint8_t>(rgb[0]);
+    p.g = static_cast<std::uint8_t>(rgb[1]);
+    p.b = static_cast<std::uint8_t>(rgb[2]);
+    cloud->push_back(p);
+  };
+
+  const int last = per_side - 1;
+  const float span = 4.0F; // the room is 4 x 4 m, centred on the origin
+  for (int i = 0; i < per_side; ++i) {
+    const float u = -0.5F * span + span * static_cast<float>(i) / last;
+    for (int j = 0; j < per_side; ++j) {
+      const float v = -0.5F * span + span * static_cast<float>(j) / last;
+      add(u, v, 0.0F, kFloorRgb);
+      add(u, v, height, kCeilingRgb);
+    }
+    for (int k = 0; k < per_side; ++k) {
+      const float z = height * static_cast<float>(k) / last;
+      add(u, -0.5F * span, z, kWallRgb);
+      add(u, 0.5F * span, z, kWallRgb);
+      add(-0.5F * span, u, z, kWallRgb);
+      add(0.5F * span, u, z, kWallRgb);
+    }
+  }
+  cloud->width = cloud->size();
+  cloud->height = 1;
+  return cloud;
+}
+
 /// A hollow box of points, so a render has something with extent in all axes.
 reusex::CloudPtr synthetic_room(int per_side = 60) {
   auto cloud = std::make_shared<reusex::Cloud>();
@@ -163,10 +213,6 @@ reusex::CloudPtr synthetic_room(int per_side = 60) {
 
 TEST_CASE("RenderView_HeadlessSyntheticProject_DrawsNonBlankDeterministicImage",
           "[integration][render]") {
-  if (!has_rendering_device()) {
-    SKIP(kNoDeviceReason);
-  }
-
   const reusex::test_support::TempDir work("reusex_render_synthetic");
   const fs::path project = work.path / "synthetic.rux";
 
@@ -183,7 +229,7 @@ TEST_CASE("RenderView_HeadlessSyntheticProject_DrawsNonBlankDeterministicImage",
   opts.height = 360;
 
   // ── The image has the requested shape and is not blank ──────────────────
-  const cv::Mat top = viz::render_view(db, opts);
+  const cv::Mat top = render_or_skip(db, opts);
   CHECK(top.cols == opts.width);
   CHECK(top.rows == opts.height);
   CHECK(top.type() == CV_8UC3);
@@ -193,7 +239,7 @@ TEST_CASE("RenderView_HeadlessSyntheticProject_DrawsNonBlankDeterministicImage",
   CHECK(covered > 0.01);
 
   // ── Repeating the call reproduces the frame exactly (STANDARDS §6) ──────
-  const cv::Mat again = viz::render_view(db, opts);
+  const cv::Mat again = render_or_skip(db, opts);
   cv::Mat difference;
   cv::absdiff(top, again, difference);
   CHECK(cv::countNonZero(difference.reshape(1)) == 0);
@@ -202,7 +248,7 @@ TEST_CASE("RenderView_HeadlessSyntheticProject_DrawsNonBlankDeterministicImage",
   opts.view = viz::ViewPreset::orbit;
   opts.orbit_count = 4;
   opts.orbit_index = 1;
-  const cv::Mat orbit = viz::render_view(db, opts);
+  const cv::Mat orbit = render_or_skip(db, opts);
   INFO("foreground fraction (orbit): " << foreground_fraction(orbit,
                                                               opts.background));
   CHECK(foreground_fraction(orbit, opts.background) > 0.01);
@@ -224,11 +270,154 @@ TEST_CASE("RenderView_HeadlessSyntheticProject_DrawsNonBlankDeterministicImage",
   label_opts.layers = {viz::Layer::planes};
   label_opts.width = opts.width;
   label_opts.height = opts.height;
-  const cv::Mat by_plane = viz::render_view(db, label_opts);
+  const cv::Mat by_plane = render_or_skip(db, label_opts);
   CHECK(foreground_fraction(by_plane, label_opts.background) > 0.01);
 
   cv::absdiff(top, by_plane, difference);
   CHECK(cv::countNonZero(difference.reshape(1)) > 0);
+}
+
+TEST_CASE("RenderView_PlanView_CutsAwayTheCeilingAndShowsTheFloor",
+          "[integration][render]") {
+  // The acceptance criterion of #306, stated in pixels: `top` on a closed
+  // interior shows the ceiling and nothing else, `plan` shows the floor and
+  // the walls in section and none of the ceiling.
+  const reusex::test_support::TempDir work("reusex_render_plan");
+  const fs::path project = work.path / "plan.rux";
+
+  reusex::ProjectDB db(project);
+  REQUIRE(db.is_open());
+  db.save_point_cloud("cloud", *coloured_room());
+
+  viz::RenderOptions opts;
+  opts.layers = {viz::Layer::cloud};
+  opts.width = 480;
+  opts.height = 360;
+  const auto pixels = static_cast<double>(opts.width * opts.height);
+
+  const auto ceiling = [](const cv::Mat &m) {
+    return count_color(m, kCeilingRgb[0], kCeilingRgb[1], kCeilingRgb[2]);
+  };
+  const auto floor = [](const cv::Mat &m) {
+    return count_color(m, kFloorRgb[0], kFloorRgb[1], kFloorRgb[2]);
+  };
+  const auto wall = [](const cv::Mat &m) {
+    return count_color(m, kWallRgb[0], kWallRgb[1], kWallRgb[2]);
+  };
+
+  // ── `top` is the problem: it is a picture of the ceiling ─────────────────
+  const cv::Mat top = render_or_skip(db, opts);
+  INFO("top: ceiling " << ceiling(top) << ", floor " << floor(top));
+  CHECK(static_cast<double>(ceiling(top)) > 0.05 * pixels);
+  // The ceiling sits directly over the floor on the same sample grid, so the
+  // floor is not merely rare in a top view — it is completely hidden.
+  CHECK(static_cast<double>(floor(top)) < 0.001 * pixels);
+
+  // ── `plan` is the fix ────────────────────────────────────────────────────
+  //
+  // This project has no plane segmentation, so the cut is placed by the
+  // bounding-box fallback: 45 % of 2.7 m ≈ 1.2 m above the floor.
+  opts.view = viz::ViewPreset::plan;
+  const cv::Mat plan = render_or_skip(db, opts);
+  INFO("plan: ceiling " << ceiling(plan) << ", floor " << floor(plan)
+                        << ", wall " << wall(plan));
+  CHECK(ceiling(plan) == 0); // exact: clipping is per-vertex, not a heuristic
+  CHECK(static_cast<double>(floor(plan)) > 0.05 * pixels);
+  CHECK(wall(plan) > 0);
+
+  // ── An explicit height moves the cut, and still removes the ceiling ──────
+  opts.cut_height = 0.5;
+  const cv::Mat low = render_or_skip(db, opts);
+  CHECK(ceiling(low) == 0);
+  CHECK(static_cast<double>(floor(low)) > 0.05 * pixels);
+
+  // A cut above everything is a plain top view again — and says so in the log
+  // rather than pretending to be a plan (STANDARDS §5).
+  opts.cut_height = 10.0;
+  const cv::Mat above_everything = render_or_skip(db, opts);
+  CHECK(static_cast<double>(ceiling(above_everything)) > 0.05 * pixels);
+
+  // ── The cut is a property of the scene, not of the plan camera ───────────
+  viz::RenderOptions orbit_opts;
+  orbit_opts.layers = {viz::Layer::cloud};
+  orbit_opts.width = opts.width;
+  orbit_opts.height = opts.height;
+  orbit_opts.view = viz::ViewPreset::orbit;
+  orbit_opts.orbit_count = 4;
+  orbit_opts.orbit_index = 1;
+  const cv::Mat orbit = render_or_skip(db, orbit_opts);
+  CHECK(static_cast<double>(ceiling(orbit)) > 0.0);
+
+  orbit_opts.cut = true;
+  const cv::Mat cut_orbit = render_or_skip(db, orbit_opts);
+  CHECK(ceiling(cut_orbit) == 0);
+  CHECK(wall(cut_orbit) > 0);
+
+  // ── A cut height is measured upward, so zero and below are nonsense ──────
+  viz::RenderOptions bad_cut;
+  bad_cut.view = viz::ViewPreset::plan;
+  bad_cut.cut_height = -1.0;
+  CHECK_THROWS_AS(viz::render_view(db, bad_cut), std::runtime_error);
+}
+
+TEST_CASE("RenderView_PlanViewWithSegmentedPlanes_CutsAboveTheDetectedFloor",
+          "[integration][render]") {
+  // With `rux create planes` run, the cut is measured from the floor plane
+  // rather than the bounding box — which matters exactly when the two differ,
+  // so this project has a stray point 5 m below the floor to pull the bounding
+  // box down. A cut placed from the box would land below the real floor and
+  // render an empty frame.
+  const reusex::test_support::TempDir work("reusex_render_plan_planes");
+  const fs::path project = work.path / "plan_planes.rux";
+
+  reusex::ProjectDB db(project);
+  REQUIRE(db.is_open());
+
+  auto cloud = coloured_room();
+  reusex::PointT stray;
+  stray.x = 0.0F, stray.y = 0.0F, stray.z = -5.0F;
+  stray.r = 255, stray.g = 255, stray.b = 255;
+  cloud->push_back(stray);
+  cloud->width = cloud->size();
+  db.save_point_cloud("cloud", *cloud);
+
+  // The per-plane clouds `rux create planes` would write: a floor at z = 0 and
+  // a ceiling at z = 2.7, both horizontal.
+  auto centroids = std::make_shared<reusex::CloudLoc>();
+  centroids->push_back(reusex::LocT(0.0F, 0.0F, 0.0F));
+  centroids->push_back(reusex::LocT(0.0F, 0.0F, 2.7F));
+  centroids->width = centroids->size();
+  centroids->height = 1;
+
+  auto normals = std::make_shared<reusex::CloudN>();
+  normals->resize(2);
+  for (auto &n : normals->points) {
+    n.normal_x = 0.0F, n.normal_y = 0.0F, n.normal_z = 1.0F;
+  }
+  normals->width = normals->size();
+  normals->height = 1;
+
+  db.save_point_cloud("plane_centroids", *centroids);
+  db.save_point_cloud("plane_normals", *normals);
+
+  viz::RenderOptions opts;
+  opts.layers = {viz::Layer::cloud};
+  opts.width = 480;
+  opts.height = 360;
+  opts.view = viz::ViewPreset::plan;
+
+  const cv::Mat plan = render_or_skip(db, opts);
+  const std::size_t ceiling =
+      count_color(plan, kCeilingRgb[0], kCeilingRgb[1], kCeilingRgb[2]);
+  const std::size_t floor =
+      count_color(plan, kFloorRgb[0], kFloorRgb[1], kFloorRgb[2]);
+  INFO("ceiling " << ceiling << ", floor " << floor);
+
+  // 1.2 m above the *detected* floor (z = 0), not above the box floor
+  // (z = -5), which would have put the cut at -2.8 and cut everything away.
+  CHECK(ceiling == 0);
+  CHECK(static_cast<double>(floor) >
+        0.05 * static_cast<double>(opts.width * opts.height));
 }
 
 TEST_CASE("RenderView_MissingOrInvalidInputs_ThrowsWithDiagnosticMessage",
@@ -299,10 +488,6 @@ TEST_CASE("RenderView_MissingOrInvalidInputs_ThrowsWithDiagnosticMessage",
 
 TEST_CASE("RenderView_RealScanFixture_ProducesNonBlankImage",
           "[integration][fixture][render]") {
-  if (!has_rendering_device()) {
-    SKIP(kNoDeviceReason);
-  }
-
   const auto fixture = fixture_path();
   if (!fs::exists(fixture)) {
     SKIP("Fixture missing: " << fixture
@@ -339,7 +524,7 @@ TEST_CASE("RenderView_RealScanFixture_ProducesNonBlankImage",
   opts.width = 640;
   opts.height = 480;
 
-  const cv::Mat plan = viz::render_view(db, opts);
+  const cv::Mat plan = render_or_skip(db, opts);
   REQUIRE(plan.cols == 640);
   REQUIRE(plan.rows == 480);
 
@@ -353,7 +538,7 @@ TEST_CASE("RenderView_RealScanFixture_ProducesNonBlankImage",
   opts.view = viz::ViewPreset::orbit;
   opts.orbit_count = 8;
   opts.orbit_index = 1;
-  const cv::Mat orbit = viz::render_view(db, opts);
+  const cv::Mat orbit = render_or_skip(db, opts);
   const double orbit_covered = foreground_fraction(orbit, opts.background);
   INFO("orbit foreground fraction: " << orbit_covered);
   CHECK(orbit_covered > 0.01);

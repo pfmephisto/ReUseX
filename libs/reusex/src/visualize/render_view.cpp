@@ -857,6 +857,19 @@ CameraSpec camera_from_sensor_frame(const ProjectDB &db, int node_id, int width,
         "x" + std::to_string(intr.height) + ")");
   }
 
+  // Unlike the pipeline stages, there is nothing to skip here: this function
+  // returns exactly one camera. Falling through to `sensor_frame_pose()`'s
+  // identity fallback would render the scene from the world origin and hand
+  // back a PNG that looks like a real answer (#336), so refuse the same way
+  // the unusable-intrinsics check above does.
+  if (!db.has_sensor_frame_pose(node_id)) {
+    throw std::runtime_error(
+        "render: sensor frame " + std::to_string(node_id) +
+        " has no usable stored pose (missing, non-finite, or degenerate "
+        "transform) — pick another frame, or run 'rux optimize' to give the "
+        "scan poses");
+  }
+
   // The stored pose is body-to-world; the camera sits at pose * local_transform
   // — the same composition segmentation/reconstruct.cpp uses to back-project
   // depth, which is what makes a render line up with the captured frame.

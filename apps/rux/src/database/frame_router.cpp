@@ -106,8 +106,13 @@ nlohmann::json FrameRouter::metadata_json(int nodeId) const {
   j["height"] = intrinsics.height;
   j["intrinsics"] = intrinsics_to_json(intrinsics);
 
+  // Verbatim read-out: `rux get` is the tool you reach for to inspect a
+  // project whose poses are suspect, so it must not sanitise them. `has_pose`
+  // is the additional field that distinguishes a genuinely stored identity
+  // pose from `sensor_frame_pose()`'s identity fallback (#336).
   const auto pose = db_->sensor_frame_pose(nodeId);
   j["pose"] = pose;
+  j["has_pose"] = db_->has_sensor_frame_pose(nodeId);
 
   j["has_depth"] = !db_->sensor_frame_depth(nodeId).empty();
   j["has_confidence"] = !db_->sensor_frame_confidence(nodeId).empty();
@@ -160,8 +165,13 @@ DataPayload FrameRouter::get(const std::vector<PathComponent> &components) {
     return encode_png(img);
   }
   if (prop == "pose") {
+    // See metadata_json(): deliberately verbatim. `rux get frames/N/has_pose`
+    // answers whether it is trustworthy (#336).
     auto pose = db_->sensor_frame_pose(node_id);
     return nlohmann::json(pose);
+  }
+  if (prop == "has_pose") {
+    return nlohmann::json(db_->has_sensor_frame_pose(node_id));
   }
   if (prop == "intrinsics") {
     return intrinsics_to_json(db_->sensor_frame_intrinsics(node_id));
@@ -174,7 +184,7 @@ DataPayload FrameRouter::get(const std::vector<PathComponent> &components) {
   throw std::runtime_error(
       "Unknown property: " + prop +
       "\nAvailable properties: metadata, color, depth, confidence, "
-      "pose, intrinsics, timestamp");
+      "pose, has_pose, intrinsics, timestamp");
 }
 
 void FrameRouter::set(const std::vector<PathComponent> & /*components*/,

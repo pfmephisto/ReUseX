@@ -399,10 +399,23 @@ void densify_from_images(ProjectDB &db, const DensifyParams &p) {
     // per-frame variation is treated as noise. Multi-platform Scenes
     // also appear to trigger heap corruption in Scene::~Scene.
     bool platform_initialized = false;
-    std::size_t used = 0, skipped = 0;
+    std::size_t used = 0, skipped = 0, skipped_no_pose = 0;
 
     for (int node_id : chunk_frames) {
       if (!db.has_sensor_frame(node_id)) {
+        ++skipped;
+        continue;
+      }
+
+      // OpenMVS takes Platform::Pose at face value — there is no bundle
+      // adjustment here to notice that a camera is wrong. A frame with no
+      // usable stored pose would arrive through `sensor_frame_pose()`'s
+      // identity fallback as a camera at the origin, and depth-map fusion
+      // would happily reconstruct the resulting nonsense (#336).
+      if (!db.has_sensor_frame_pose(node_id)) {
+        // Per-frame at debug; the count is reported once per chunk below.
+        reusex::debug("Node {} has no usable stored pose, skipping", node_id);
+        ++skipped_no_pose;
         ++skipped;
         continue;
       }
@@ -507,21 +520,31 @@ void densify_from_images(ProjectDB &db, const DensifyParams &p) {
       ++used;
     }
 
+    if (skipped_no_pose > 0)
+      reusex::warn("Chunk {}/{}: skipped {} of {} frames for having no usable "
+                   "stored pose; they contribute no depth maps",
+                   ci + 1, chunks.size(), skipped_no_pose, chunk_frames.size());
+
     if (scene.images.empty()) {
       if (chunked) {
-        reusex::warn("Chunk {}/{} had no usable frames — skipping", ci + 1,
-                     chunks.size());
+        reusex::warn("Chunk {}/{} had no usable frames — skipping ({} of {} "
+                     "had no usable stored pose)",
+                     ci + 1, chunks.size(), skipped_no_pose,
+                     chunk_frames.size());
         std::error_code ec;
         fs::remove_all(chunk_ws, ec);
         continue;
       }
       fs::remove_all(workspace);
-      throw std::runtime_error(
-          "densify_from_images: no usable sensor frames after filtering");
+      throw std::runtime_error(fmt::format(
+          "densify_from_images: no usable sensor frames after filtering "
+          "({} of {} skipped for having no usable stored pose)",
+          skipped_no_pose, chunk_frames.size()));
     }
     scene.nCalibratedImages = static_cast<unsigned>(scene.images.size());
-    reusex::info("Built MVS scene: {} images, {} cameras (skipped {})", used,
-                 scene.platforms.size(), skipped);
+    reusex::info("Built MVS scene: {} images, {} cameras (skipped {}, of which "
+                 "{} for having no usable stored pose)",
+                 used, scene.platforms.size(), skipped, skipped_no_pose);
 
     // ── Optional LiDAR seed point cloud ─────────────────────────────────
     // OpenMVS's SelectNeighborViews uses point→image co-visibility to score

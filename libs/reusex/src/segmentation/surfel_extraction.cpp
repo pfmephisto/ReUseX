@@ -24,7 +24,6 @@ extract_frame_surfels(ProjectDB &db, int node_id,
   cv::Mat color = db.sensor_frame_image(node_id);
   cv::Mat depth16 = db.sensor_frame_depth(node_id); // CV_16UC1 mm
   cv::Mat confidence = db.sensor_frame_confidence(node_id);
-  auto pose = db.sensor_frame_pose(node_id);
   auto intr = db.sensor_frame_intrinsics(node_id);
 
   if (color.empty() || depth16.empty()) {
@@ -32,6 +31,18 @@ extract_frame_surfels(ProjectDB &db, int node_id,
                 node_id);
     return std::nullopt;
   }
+
+  // `world_pose` is the SEED the registration optimisers start from, and both
+  // of them write their answer straight back to the database. Seeding from
+  // `sensor_frame_pose()`'s identity fallback would put a frame at the origin
+  // and let JPR/PlaneGraph drag the rest of the graph toward it; an all-zero
+  // transform seeds a singular world_pose outright (#336).
+  if (!db.has_sensor_frame_pose(node_id)) {
+    core::debug("Node {}: no usable stored pose, skipping surfel extraction",
+                node_id);
+    return std::nullopt;
+  }
+  auto pose = db.sensor_frame_pose(node_id);
   if (intr.width <= 0 || intr.height <= 0) {
     core::warn("Node {}: intrinsics have invalid dimensions {}x{}", node_id,
                intr.width, intr.height);

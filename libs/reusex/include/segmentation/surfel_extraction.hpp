@@ -34,8 +34,10 @@ struct SurfelExtractionParams {
 /// camera. The returned `world_pose` equals worldTf * localTf, so that
 /// world_pt = world_pose * optical_pt reproduces the reconstruction geometry.
 ///
-/// @returns std::nullopt when the frame lacks usable color/depth, has invalid
-///          intrinsics, or yields too few points for normal estimation.
+/// @returns std::nullopt when the frame lacks usable color/depth, has no
+///          usable stored pose (`ProjectDB::has_sensor_frame_pose()`, #336),
+///          has invalid intrinsics, or yields too few points for normal
+///          estimation.
 std::optional<FrameSurfels>
 extract_frame_surfels(ProjectDB &db, int node_id,
                       const SurfelExtractionParams &params);

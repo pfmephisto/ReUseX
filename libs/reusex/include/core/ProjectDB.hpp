@@ -105,14 +105,35 @@ class ProjectDB {
   cv::Mat sensor_frame_image(int nodeId) const;
   cv::Mat sensor_frame_depth(int nodeId) const;
   cv::Mat sensor_frame_confidence(int nodeId) const;
+  /// The stored world pose, **verbatim** — row-major 4x4, identity when the
+  /// row is missing, the `transform` is NULL, or the blob is the wrong size.
+  ///
+  /// This accessor does NOT validate. A well-sized all-zero or NaN transform
+  /// is handed back exactly as stored, and the identity fallback is
+  /// indistinguishable from a frame legitimately placed at the origin.
+  ///
+  /// **If a wrong pose would corrupt your output, gate on
+  /// `has_sensor_frame_pose()` first** — every pipeline stage does (#336).
+  /// Raw use is for read-out surfaces (`rux get`, the GUI API, the Python
+  /// bindings) that exist to show what the project actually contains,
+  /// including when it is broken.
+  ///
+  /// Deliberately non-throwing (#336): making it reject degenerate transforms
+  /// would break exactly the diagnostic paths you need on a bad project, and
+  /// the validity question has a dedicated accessor below.
   std::array<double, 16> sensor_frame_pose(int nodeId) const;
 
   /// True when this frame carries a usable stored world pose.
   ///
   /// `sensor_frame_pose()` cannot answer this: it returns identity for a frame
   /// with no row, a NULL `transform`, or a wrong-sized blob, so a poseless
-  /// frame is indistinguishable from one legitimately at the origin. Ask this
-  /// first when an identity pose would be a silent lie (#330).
+  /// frame is indistinguishable from one legitimately at the origin (#330) —
+  /// and it returns an all-zero or NaN transform verbatim (#336).
+  ///
+  /// Checks: the row exists, the blob is exactly 16 doubles, all finite, the
+  /// bottom row is `[0,0,0,1]`, and `|det(R)|` is above epsilon. A genuinely
+  /// stored identity pose IS valid — a scan may put its first frame at the
+  /// origin.
   bool has_sensor_frame_pose(int nodeId) const;
 
   core::SensorIntrinsics sensor_frame_intrinsics(int nodeId) const;

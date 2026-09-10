@@ -31,6 +31,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <cstddef>
 #include <cstring>
 #include <unordered_map>
 
@@ -59,12 +60,14 @@ void reconstruct_point_clouds(ProjectDB &db,
   auto observer =
       core::ProgressObserver(core::Stage::assembling_cloud, frameIds.size());
 
+  // Skip counters, reported once after the loop (STANDARDS §5).
+  std::size_t skipped_no_pose = 0;
+
   for (int nodeId : frameIds) {
     // ── Read from ProjectDB ──────────────────────────────────────
     cv::Mat color = db.sensor_frame_image(nodeId);
     cv::Mat depth16 = db.sensor_frame_depth(nodeId);         // CV_16UC1 mm
     cv::Mat confidence = db.sensor_frame_confidence(nodeId); // CV_8UC1
-    auto pose = db.sensor_frame_pose(nodeId);
     auto intr = db.sensor_frame_intrinsics(nodeId);
 
     if (color.empty() || depth16.empty()) {
@@ -72,6 +75,22 @@ void reconstruct_point_clouds(ProjectDB &db,
       ++observer;
       continue;
     }
+
+    // A frame with no usable stored pose would be back-projected through
+    // `sensor_frame_pose()`'s identity fallback: its points land at the world
+    // origin in whatever orientation the depth image happened to have, merge
+    // into the fused cloud, and are then indistinguishable from real geometry
+    // for every stage downstream (#336). An all-zero transform is worse still
+    // — it collapses the whole frame onto a single point.
+    if (!db.has_sensor_frame_pose(nodeId)) {
+      // Per-frame at debug: a scan imported without poses has thousands of
+      // these, and the line that matters is the count reported after the loop.
+      core::debug("Node {} has no usable stored pose, skipping", nodeId);
+      ++skipped_no_pose;
+      ++observer;
+      continue;
+    }
+    auto pose = db.sensor_frame_pose(nodeId);
 
     // ── Dimension validation ──────────────────────────────────────
     if (intr.width <= 0 || intr.height <= 0) {
@@ -239,8 +258,16 @@ void reconstruct_point_clouds(ProjectDB &db,
     ++observer;
   }
 
+  if (skipped_no_pose > 0)
+    core::warn("Skipped {} of {} sensor frames for having no usable stored "
+               "pose; their depth contributes nothing to the fused cloud. Run "
+               "'rux optimize' or re-import with poses if this is unexpected.",
+               skipped_no_pose, frameIds.size());
+
   if (merged_cloud->empty()) {
-    core::error("No points generated from any sensor frame");
+    core::error("No points generated from any sensor frame ({} of {} frames "
+                "skipped for having no usable stored pose)",
+                skipped_no_pose, frameIds.size());
     return;
   }
 

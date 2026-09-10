@@ -396,7 +396,18 @@ PYBIND11_MODULE(_reusex, m) {
             return mat;
           },
           py::arg("node_id"),
-          "Return the (4,4) float64 SE(3) world pose for a frame.")
+          "Return the (4,4) float64 SE(3) world pose for a frame.\n\n"
+          "Verbatim: a frame with no stored pose reads back as identity, so\n"
+          "call has_sensor_frame_pose() first when the difference matters.")
+
+      .def("has_sensor_frame_pose", &PDB::has_sensor_frame_pose,
+           py::arg("node_id"),
+           "True when the frame carries a usable stored world pose.\n\n"
+           "sensor_frame_pose() cannot answer this: it returns identity for a\n"
+           "frame with no row, a NULL transform, or a wrong-sized blob, and\n"
+           "hands back an all-zero or NaN transform verbatim. This checks the\n"
+           "row exists and the blob is 16 finite doubles with bottom row\n"
+           "[0,0,0,1] and a non-degenerate rotation (#336).")
 
       // --- Single-frame reconstruction ---
 

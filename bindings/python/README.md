@@ -28,6 +28,7 @@ otherwise `"Native module not available: <reason>"`.
 | `point_cloud_xyzrgb(name)` | `dict` with `positions` (N,3) float32 and `colors` (N,3) uint8 |
 | `point_cloud_xyz(name)`, `point_cloud_label(name)` | numpy arrays |
 | `sensor_frame_ids()`, `sensor_frame_pose(id)`, `sensor_frame_intrinsics(id)` | frame metadata |
+| `has_sensor_frame_pose(id)` | is the stored pose usable? `sensor_frame_pose()` returns identity for a poseless frame and an all-zero/NaN transform verbatim, so ask this before trusting one |
 | `reconstruct_frame(...)`, `reconstruct_frames_parallel(...)` | back-projected frame geometry |
 
 Value types re-exported from the package: `ProjectSummary`, `ProjectInfo`,

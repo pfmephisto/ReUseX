@@ -15,6 +15,8 @@
 
 #include <Eigen/Geometry>
 
+#include <fmt/format.h>
+
 #include <algorithm>
 #include <iterator>
 #include <set>
@@ -41,9 +43,20 @@ PlaneGraphResult optimize_sensor_poses(ProjectDB &db,
     frames.push_back(std::move(*fs));
   }
 
+  // extract_frame_surfels() drops a frame silently (missing colour/depth,
+  // invalid intrinsics, no usable stored pose, too few points). Report the
+  // shortfall rather than letting the graph quietly shrink (STANDARDS §5).
+  if (frames.size() < frameIds.size())
+    core::warn("PlaneGraph: {} of {} sensor frames yielded no surfels "
+               "(missing colour/depth, invalid intrinsics, no usable stored "
+               "pose, or too few points); optimizing the remaining {}",
+               frameIds.size() - frames.size(), frameIds.size(), frames.size());
+
   if (frames.size() < 2)
-    throw std::runtime_error(
-        "PlaneGraph: fewer than 2 usable sensor frames with depth/pose");
+    throw std::runtime_error(fmt::format(
+        "PlaneGraph: fewer than 2 usable sensor frames with depth/pose ({} of "
+        "{} frames yielded surfels)",
+        frames.size(), frameIds.size()));
 
   // P2: assemble wide-baseline loop edges (before the optimizer mutates the
   // poses) and feed them into the same GNC graph. Indices refer to positions in

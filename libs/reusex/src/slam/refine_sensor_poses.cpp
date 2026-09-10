@@ -15,6 +15,8 @@
 
 #include <Eigen/Geometry>
 
+#include <fmt/format.h>
+
 #include <algorithm>
 #include <stdexcept>
 #include <utility>
@@ -38,9 +40,20 @@ JprResult refine_sensor_poses(ProjectDB &db, const JprParams &params,
     frames.push_back(std::move(*fs));
   }
 
+  // extract_frame_surfels() drops a frame silently (missing colour/depth,
+  // invalid intrinsics, no usable stored pose, too few points). Report the
+  // shortfall rather than letting the graph quietly shrink (STANDARDS §5).
+  if (frames.size() < frameIds.size())
+    core::warn("JPR: {} of {} sensor frames yielded no surfels (missing "
+               "colour/depth, invalid intrinsics, no usable stored pose, or "
+               "too few points); registering the remaining {}",
+               frameIds.size() - frames.size(), frameIds.size(), frames.size());
+
   if (frames.size() < 2)
-    throw std::runtime_error(
-        "JPR: fewer than 2 usable sensor frames with depth/pose");
+    throw std::runtime_error(fmt::format(
+        "JPR: fewer than 2 usable sensor frames with depth/pose ({} of {} "
+        "frames yielded surfels)",
+        frames.size(), frameIds.size()));
 
   JointPairwiseRegistration jpr(params);
   JprResult result = jpr.refine(frames);

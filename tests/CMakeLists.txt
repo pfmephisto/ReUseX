@@ -33,10 +33,17 @@ find_package(SQLite3 REQUIRED)
 #
 # Only tests/unit/vision needs the ML stack, tests/unit/ruxd needs ruxd_lib
 # (which links `reusex` PRIVATE — for a static library that still propagates
-# to the final executable link), and tests/unit/visualize needs the PCL/Qt
-# viewer module. Those three directories get their own "heavy" binary;
-# everything else links just the modules it actually uses and starts an order
-# of magnitude faster.
+# to the final executable link), tests/unit/rux_app needs rux_lib (the `rux`
+# CLI minus main(), which links the `reusex` umbrella and the PCL viewer), and
+# tests/unit/visualize needs the PCL/Qt viewer module. Those directories get
+# their own "heavy" binary; everything else links just the modules it actually
+# uses and starts an order of magnitude faster.
+#
+# The app layer splits the same way the library does (#249): `tests/unit/rux/`
+# is LIGHT and covers `rux_core_lib` — the app logic that stops at reusex_core
+# (path parsing, filter validation, stage prerequisites, stdin/format
+# handling). Only a test that needs a subcommand, a router or the viewer
+# belongs in `tests/unit/rux_app/`.
 #
 # gsplat splits *within* its directory rather than by directory (#332).
 # `tests/unit/gsplat/cuda/` is heavy — those tests link torch, and the ones
@@ -59,7 +66,7 @@ file(GLOB_RECURSE UNIT_TEST_SOURCES CONFIGURE_DEPENDS
 
 set(HEAVY_TEST_SOURCES ${UNIT_TEST_SOURCES})
 list(FILTER HEAVY_TEST_SOURCES INCLUDE REGEX
-     "/unit/(vision|ruxd|visualize)/|/unit/gsplat/cuda/")
+     "/unit/(vision|ruxd|rux_app|visualize)/|/unit/gsplat/cuda/")
 
 # tests/unit/gsplat/cuda exercises reusex_gsplat, which only exists when CUDA
 # and the vendored gsplat rasterizer were both found. Drop those sources
@@ -101,7 +108,7 @@ endif()
 
 set(LIGHT_TEST_SOURCES ${UNIT_TEST_SOURCES})
 list(FILTER LIGHT_TEST_SOURCES EXCLUDE REGEX
-     "/unit/(vision|ruxd|visualize)/|/unit/gsplat/cuda/")
+     "/unit/(vision|ruxd|rux_app|visualize)/|/unit/gsplat/cuda/")
 
 # -----------------------------------------------
 # Create unit test executables
@@ -117,6 +124,10 @@ add_executable(reusex_unit_tests ${LIGHT_TEST_SOURCES})
 # It links reusex_pipeline rather than the `reusex` umbrella, so it pulls no
 # vision/ML closure -- tests/unit/rux_gui costs nothing extra here, and keeping
 # it out of the heavy binary preserves the fast start-up this split bought.
+#
+# rux_core_lib (#249) is here for the same reason: it stops at reusex_core, so
+# tests/unit/rux gets the app layer's pure logic -- path_parser, filter_utils --
+# under test at light-binary start-up cost.
 target_link_libraries(reusex_unit_tests
     PRIVATE
         reusex_core
@@ -132,6 +143,7 @@ target_link_libraries(reusex_unit_tests
         # TensorRT and no CUDA closure, which is exactly why the CPU-testable
         # gsplat tests can live in this binary.
         reusex_gsplat_common
+        rux_core_lib
         rux_gui_lib
         Catch2::Catch2WithMain
         fmt::fmt
@@ -162,11 +174,15 @@ if(HEAVY_TEST_SOURCES)
     add_executable(reusex_unit_tests_vision ${HEAVY_TEST_SOURCES})
 
     # ruxd_lib carries the ruxd HTTP routing/auth logic (everything but
-    # main()), so tests/unit/ruxd can exercise it directly.
+    # main()), so tests/unit/ruxd can exercise it directly. rux_lib is the same
+    # arrangement for the `rux` CLI (#249): every subcommand, every
+    # database/*_router.cpp and rux::run() itself, minus the `main` symbol,
+    # reachable from tests/unit/rux_app.
     target_link_libraries(reusex_unit_tests_vision
         PRIVATE
             reusex
             ruxd_lib
+            rux_lib
             Catch2::Catch2WithMain
             fmt::fmt
             OpenSSL::Crypto

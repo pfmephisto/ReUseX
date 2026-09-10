@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# Packaging metadata for rux-mcp, the read-only MCP gateway over the `rux` CLI.
+# Packaging metadata for rux-mcp, the MCP gateway over the `rux` CLI.
 # Install into its own venv with prebuilt wheels — this package is deliberately
 # NOT wired into CMake or nix (see README.md).
 
@@ -12,8 +12,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rux-mcp"
-version = "0.1.0"
-description = "Read-only Model Context Protocol gateway over the ReUseX `rux` CLI"
+version = "0.2.0"
+description = "Model Context Protocol gateway over the ReUseX `rux` CLI"
 requires-python = ">=3.10"
 license = { text = "GPL-3.0-or-later" }
 authors = [{ name = "Povl Filip Sonne-Frederiksen" }]

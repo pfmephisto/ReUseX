@@ -34,10 +34,15 @@ _ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 _LOG_LINE = re.compile(r"^\[\d{4}-\d{2}-\d{2}[ T][\d:.]+\]\s*\[[^\]]*\]\s*\[[^\]]*\]")
 
 
-def _clean(raw: bytes | str, limit: int = 4000) -> str:
-    """Decode, de-colour and tail-truncate a captured stream."""
+def strip_ansi(raw: bytes | str) -> str:
+    """Decode if needed and remove the colour escapes spdlog emits."""
     text = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else raw
-    text = _ANSI.sub("", text).strip()
+    return _ANSI.sub("", text)
+
+
+def clean_stream(raw: bytes | str, limit: int = 4000) -> str:
+    """Decode, de-colour and tail-truncate a captured stream."""
+    text = strip_ansi(raw).strip()
     if len(text) > limit:
         text = "...\n" + text[-limit:]
     return text
@@ -181,6 +186,10 @@ class RuxRunner:
                 timeout=budget,
                 check=False,
                 env=environ,
+                # `rux del` and `rux edit perturb-poses` ask for confirmation
+                # on a terminal. With stdin closed the read fails and the
+                # command aborts, which is the safe outcome for a gateway.
+                stdin=subprocess.DEVNULL,
             )
         except FileNotFoundError as exc:  # binary vanished between which() and exec
             raise RuxNotFoundError(
@@ -190,7 +199,7 @@ class RuxRunner:
             raise RuxTimeoutError(
                 f"rux timed out after {budget:g}s",
                 command=command,
-                stderr=_clean(exc.stderr or b""),
+                stderr=clean_stream(exc.stderr or b""),
             ) from exc
 
         if completed.returncode != 0:
@@ -198,7 +207,7 @@ class RuxRunner:
                 f"rux exited with status {completed.returncode}",
                 command=command,
                 returncode=completed.returncode,
-                stderr=_clean(completed.stderr) or _clean(completed.stdout),
+                stderr=clean_stream(completed.stderr) or clean_stream(completed.stdout),
                 stdout=completed.stdout.decode("utf-8", errors="replace"),
             )
         return completed.stdout.decode("utf-8", errors="replace")
@@ -228,6 +237,6 @@ class RuxRunner:
             raise RuxError(
                 f"rux output was not valid JSON: {exc}",
                 command=self.argv(args),
-                stderr=_clean(payload, limit=800),
+                stderr=clean_stream(payload, limit=800),
                 stdout=raw,
             ) from exc

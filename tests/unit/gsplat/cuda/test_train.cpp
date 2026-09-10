@@ -959,3 +959,112 @@ TEST_CASE("TrainGaussians_UncreatableOutputDirectory_ThrowsBeforeTraining",
   REQUIRE_THROWS_AS(gsplat::train_gaussians(seed, views, nowhere),
                     std::runtime_error);
 }
+
+// --- view-dependent colour (#240) ------------------------------------------
+// Degree-0 models are the default and every other test here uses them, so
+// without these the SH path is compiled but never executed: `sh_rest` could
+// stay at zero, or the warm-up could lock a band forever, and nothing would
+// notice.
+
+TEST_CASE("TrainGaussians_ShDegreeThree_TrainsTheHigherBands",
+          "[gsplat][gpu]") {
+  if (!gsplat::has_cuda_device())
+    SKIP("no CUDA device available");
+
+  gsplat::GaussianInitOptions init_opt;
+  init_opt.sh_degree = 3;
+  auto seed = gsplat::init_from_point_cloud(make_blob(5), init_opt);
+  REQUIRE(seed.sh_degree == 3);
+  // Seeding leaves the view-dependent bands at zero — a LiDAR point carries
+  // one colour, not a lobe — so anything non-zero afterwards came from Adam.
+  REQUIRE(!seed.sh_rest.empty());
+  REQUIRE(seed.sh_rest.front().size() == (4 * 4 - 1) * 3);
+  for (const auto &row : seed.sh_rest)
+    for (const float c : row)
+      REQUIRE(c == 0.0f);
+
+  auto views = make_ring(4);
+
+  gsplat::TrainOptions opt;
+  opt.iterations = 40;
+  opt.log_interval = 40;
+  opt.eval_interval = 40;
+  opt.prune_enabled = false;
+  // Every band unlocked by iteration 30, so the run reaches full degree.
+  opt.sh_degree_interval = 10;
+
+  auto result = gsplat::train_gaussians(seed, views, opt);
+
+  REQUIRE(result.gaussians.sh_degree == 3);
+  REQUIRE(result.final_sh_degree == 3);
+  REQUIRE_NOTHROW(result.gaussians.validate());
+
+  double moved = 0.0;
+  for (const auto &row : result.gaussians.sh_rest)
+    for (const float c : row) {
+      REQUIRE(std::isfinite(c));
+      moved += std::abs(static_cast<double>(c));
+    }
+  REQUIRE(moved > 0.0);
+}
+
+TEST_CASE("TrainGaussians_ShWarmUpShorterThanLadder_StopsAtReachedDegree",
+          "[gsplat][gpu]") {
+  if (!gsplat::has_cuda_device())
+    SKIP("no CUDA device available");
+
+  // 20 iterations at one band per 15 cannot get past degree 1. The model is
+  // still a degree-3 model — the .ply keeps the full layout — but the top two
+  // bands never received a gradient, and `final_sh_degree` is what says so.
+  gsplat::GaussianInitOptions init_opt;
+  init_opt.sh_degree = 3;
+  auto seed = gsplat::init_from_point_cloud(make_blob(4), init_opt);
+  auto views = make_ring(3);
+
+  gsplat::TrainOptions opt;
+  opt.iterations = 20;
+  opt.log_interval = 20;
+  opt.eval_interval = 20;
+  opt.prune_enabled = false;
+  opt.sh_degree_interval = 15;
+
+  auto result = gsplat::train_gaussians(seed, views, opt);
+
+  REQUIRE(result.gaussians.sh_degree == 3);
+  REQUIRE(result.final_sh_degree == 1);
+
+  // Bands 2 and 3 are still exactly zero. sh_rest is channel-major over 15
+  // coefficients per channel; degree 1 owns the first 3 of each channel's run.
+  constexpr std::size_t kRest = 4 * 4 - 1; // 15 coefficients per channel
+  constexpr std::size_t kDeg1 = 2 * 2 - 1; //  3 of them are degree 1
+  for (const auto &row : result.gaussians.sh_rest) {
+    REQUIRE(row.size() == kRest * 3);
+    for (std::size_t c = 0; c < 3; ++c)
+      for (std::size_t j = kDeg1; j < kRest; ++j)
+        REQUIRE(row[c * kRest + j] == 0.0f);
+  }
+}
+
+TEST_CASE("TrainGaussians_ShDegreeZero_LeavesNoHigherBands", "[gsplat][gpu]") {
+  if (!gsplat::has_cuda_device())
+    SKIP("no CUDA device available");
+
+  // The default path, pinned so the SH split cannot quietly start emitting an
+  // empty-but-present sh_rest into the saved model.
+  auto seed = gsplat::init_from_point_cloud(make_blob(4));
+  REQUIRE(seed.sh_degree == 0);
+  auto views = make_ring(3);
+
+  gsplat::TrainOptions opt;
+  opt.iterations = 10;
+  opt.log_interval = 10;
+  opt.eval_interval = 10;
+  opt.prune_enabled = false;
+
+  auto result = gsplat::train_gaussians(seed, views, opt);
+
+  REQUIRE(result.gaussians.sh_degree == 0);
+  REQUIRE(result.final_sh_degree == 0);
+  REQUIRE(result.gaussians.sh_rest.empty());
+  REQUIRE_NOTHROW(result.gaussians.validate());
+}

@@ -70,4 +70,15 @@ double scene_extent(const std::vector<TrainingView> &views) {
   return std::max(radius, 1e-3);
 }
 
+int active_sh_degree(int iteration, int max_degree, int interval) {
+  if (max_degree <= 0)
+    return 0;
+  if (interval <= 0)
+    return max_degree; // no warm-up: every band live from iteration 0
+  if (iteration < 0)
+    return 0;
+  const int unlocked = iteration / interval;
+  return std::min(unlocked, max_degree);
+}
+
 } // namespace reusex::gsplat::detail

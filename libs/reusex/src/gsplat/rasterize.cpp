@@ -66,6 +66,15 @@ c10::intrusive_ptr<FThetaCameraDistortionParameters> default_ftheta_params() {
 
 } // namespace
 
+torch::Tensor GaussianTensors::sh_coeffs(int active_degree) const {
+  const int64_t bands = sh_bands(active_degree);
+  if (bands <= 1)
+    return sh_dc;
+  // sh_rest holds degrees 1..sh_degree; take only the leading (bands-1) of
+  // them. `slice` is a view, so nothing is copied until the cat.
+  return torch::cat({sh_dc, sh_rest.slice(/*dim=*/1, 0, bands - 1)}, /*dim=*/1);
+}
+
 RenderOutput render(const GaussianTensors &g, const torch::Tensor &viewmat,
                     const torch::Tensor &K, int64_t width, int64_t height,
                     int active_sh_degree) {
@@ -100,7 +109,7 @@ RenderOutput render(const GaussianTensors &g, const torch::Tensor &viewmat,
       /*color_post=*/2, /*extra_post=*/0, /*has_depth=*/false,
       /*depth_is_zero=*/false, /*extra_has_c=*/false,
       g.means.reshape({1, N, 3}), viewmats.reshape({1, C, 4, 4}), c10::nullopt,
-      g.sh, c10::nullopt, c10::nullopt, c10::nullopt);
+      g.sh_coeffs(active_sh_degree), c10::nullopt, c10::nullopt, c10::nullopt);
   colors = colors.reshape({C, N, 3}).contiguous();
 
   // ---- projection: purely to decide which Gaussian touches which tile ------

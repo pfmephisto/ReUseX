@@ -22,7 +22,9 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "gsplat/optimizer.hpp"
+#include "gsplat/rasterize.hpp"
 
+#include <array>
 #include <cstdint>
 
 using namespace reusex::gsplat::detail;
@@ -30,9 +32,20 @@ using Catch::Approx;
 
 namespace {
 
-/// Five CPU parameter tensors with distinct, position-dependent values, so a
-/// row that ends up in the wrong place is visible rather than plausible.
-GaussianTensors make_tensors(int64_t n) {
+/// The parameter tensors, in one place: the SH split (#240) means there are
+/// six of them, and a test that forgets one silently stops checking it.
+std::array<torch::Tensor *, 6> all_params(GaussianTensors &g) {
+  return {&g.means,         &g.log_scales, &g.quats,
+          &g.logit_opacity, &g.sh_dc,      &g.sh_rest};
+}
+
+/// Every parameter tensor, with distinct position-dependent values so a row
+/// that ends up in the wrong place is visible rather than plausible.
+///
+/// @p sh_degree drives the width of `sh_rest`, which is [n,0,3] at degree 0 —
+/// the default model, and the shape most likely to trip an index_select or an
+/// Adam step that assumes a non-empty parameter.
+GaussianTensors make_tensors(int64_t n, int sh_degree = 0) {
   const auto f32 = torch::TensorOptions(torch::kFloat32);
   auto ramp = [&](std::vector<int64_t> shape) {
     int64_t total = 1;
@@ -42,14 +55,14 @@ GaussianTensors make_tensors(int64_t n) {
   };
 
   GaussianTensors g;
-  g.sh_degree = 0;
+  g.sh_degree = sh_degree;
   g.means = ramp({n, 3});
   g.log_scales = ramp({n, 3});
   g.quats = ramp({n, 4});
   g.logit_opacity = ramp({n});
-  g.sh = ramp({n, 1, 3});
-  for (torch::Tensor *p :
-       {&g.means, &g.log_scales, &g.quats, &g.logit_opacity, &g.sh})
+  g.sh_dc = ramp({n, 1, 3});
+  g.sh_rest = ramp({n, sh_bands(sh_degree) - 1, 3});
+  for (torch::Tensor *p : all_params(g))
     p->set_requires_grad(true);
   return g;
 }
@@ -58,8 +71,7 @@ GaussianTensors make_tensors(int64_t n) {
 /// buffers exist and are non-zero. Without this there is nothing to carry and
 /// the remap's interesting branch never runs.
 void one_step(GaussianTensors &g, AdamPtr &opt) {
-  for (torch::Tensor *p :
-       {&g.means, &g.log_scales, &g.quats, &g.logit_opacity, &g.sh})
+  for (torch::Tensor *p : all_params(g))
     p->mutable_grad() = torch::ones_like(*p) * 0.5f;
   opt->step();
 }
@@ -105,10 +117,11 @@ TEST_CASE("RemapParameters_RowSubsetKeep_CarriesAdamMoments", "[gsplat]") {
     REQUIRE(g.log_scales.size(0) == 4);
     REQUIRE(g.quats.size(0) == 4);
     REQUIRE(g.logit_opacity.size(0) == 4);
-    REQUIRE(g.sh.size(0) == 4);
+    REQUIRE(g.sh_dc.size(0) == 4);
+    REQUIRE(g.sh_rest.size(0) == 4);
     // Shapes past dim 0 are untouched.
     REQUIRE(g.quats.size(1) == 4);
-    REQUIRE(g.sh.size(1) == 1);
+    REQUIRE(g.sh_dc.size(1) == 1);
   }
 
   SECTION("values come from the selected source rows") {
@@ -128,9 +141,10 @@ TEST_CASE("RemapParameters_RowSubsetKeep_CarriesAdamMoments", "[gsplat]") {
   }
 
   SECTION("every parameter keeps its own moments, not another's") {
-    for (const torch::Tensor *p :
-         {&g.means, &g.log_scales, &g.quats, &g.logit_opacity, &g.sh}) {
+    for (const torch::Tensor *p : all_params(g)) {
       const auto *s = adam_state(opt, *p);
+      if (p->numel() == 0)
+        continue; // degree-0 sh_rest: nothing to hold moments for
       REQUIRE(s != nullptr);
       REQUIRE(s->exp_avg().sizes() == p->sizes());
       REQUIRE(s->step() == step_before);
@@ -186,7 +200,8 @@ TEST_CASE("RemapParameters_RowDuplicationGrowth_ExpandsTensorsCorrectly",
   remap_parameters(g, opt, lrs, src, reset);
 
   REQUIRE(g.count() == 6);
-  REQUIRE(g.sh.size(0) == 6);
+  REQUIRE(g.sh_dc.size(0) == 6);
+  REQUIRE(g.sh_rest.size(0) == 6);
   REQUIRE(all_close(g.means.detach(), means_before.index_select(0, src)));
 
   const auto *after = adam_state(opt, g.means);
@@ -214,4 +229,73 @@ TEST_CASE("RemapParameters_OptimizerNotYetStepped_RemapsWithoutMomentState",
   REQUIRE(adam_state(opt, g.means) == nullptr);
   REQUIRE_NOTHROW(one_step(g, opt));
   REQUIRE(adam_state(opt, g.means)->step() == 1);
+}
+
+// --- the SH split (#240) ---------------------------------------------------
+// The degree-0 term and the higher bands are two parameters precisely so Adam
+// can step them at different rates. These tests pin that: that the split
+// survives a remap with a non-empty sh_rest, and that the two rates actually
+// reach the optimizer instead of collapsing into one.
+
+TEST_CASE("MakeAdam_SplitSphericalHarmonics_UsesSeparateLearningRates",
+          "[gsplat]") {
+  auto g = make_tensors(4, /*sh_degree=*/2);
+  REQUIRE(g.sh_dc.size(1) == 1);
+  REQUIRE(g.sh_rest.size(1) == sh_bands(2) - 1); // 8 higher-order bands
+
+  AdamLrs lrs;
+  lrs.sh_dc = 1e-2;
+  lrs.sh_rest = 1e-2 / 20.0;
+  auto opt = make_adam(g, lrs);
+
+  // Six parameters, six groups: one shared group could not carry two rates.
+  REQUIRE(opt->param_groups().size() == 6);
+
+  auto lr_of = [&](const torch::Tensor &p) {
+    for (const auto &grp : opt->param_groups())
+      if (grp.params().size() == 1 &&
+          grp.params()[0].unsafeGetTensorImpl() == p.unsafeGetTensorImpl())
+        return static_cast<const torch::optim::AdamOptions &>(grp.options())
+            .lr();
+    FAIL("parameter has no group of its own");
+    return 0.0;
+  };
+  REQUIRE(lr_of(g.sh_dc) == Approx(1e-2));
+  REQUIRE(lr_of(g.sh_rest) == Approx(1e-2 / 20.0));
+
+  // And the rates have to bite: with identical gradients, Adam's step length
+  // is its learning rate, so the DC band must move 20x as far as the rest.
+  const auto dc_before = g.sh_dc.detach().clone();
+  const auto rest_before = g.sh_rest.detach().clone();
+  one_step(g, opt);
+  const double dc_moved =
+      (g.sh_dc.detach() - dc_before).abs().mean().item<double>();
+  const double rest_moved =
+      (g.sh_rest.detach() - rest_before).abs().mean().item<double>();
+  REQUIRE(rest_moved > 0.0);
+  REQUIRE(dc_moved / rest_moved == Approx(20.0).epsilon(0.01));
+}
+
+TEST_CASE("RemapParameters_NonEmptyShRest_CarriesBothSHTensors", "[gsplat]") {
+  auto g = make_tensors(6, /*sh_degree=*/3);
+  AdamLrs lrs;
+  auto opt = make_adam(g, lrs);
+  one_step(g, opt);
+
+  const auto rest_before = g.sh_rest.detach().clone();
+  const auto keep = torch::tensor({0, 3, 5}, torch::kInt64);
+  remap_parameters(g, opt, lrs, keep, /*reset=*/{});
+
+  REQUIRE(g.sh_dc.size(0) == 3);
+  REQUIRE(g.sh_rest.size(0) == 3);
+  REQUIRE(g.sh_rest.size(1) == sh_bands(3) - 1); // 15 bands, still
+  REQUIRE(all_close(g.sh_rest.detach(), rest_before.index_select(0, keep)));
+
+  // Moments must follow sh_rest too, not only the tensors the older
+  // five-parameter layout knew about.
+  const auto *after = adam_state(opt, g.sh_rest);
+  REQUIRE(after != nullptr);
+  REQUIRE(after->step() == 1);
+  REQUIRE(after->exp_avg().sizes() == g.sh_rest.sizes());
+  REQUIRE(after->exp_avg().abs().sum().item<double>() > 0.0);
 }

@@ -39,15 +39,40 @@ namespace reusex::gsplat::detail {
 /// Stored in the same parameterisation as GaussianCloud — log-scales, logit
 /// opacity, unnormalised quaternions — because that is what Adam should step
 /// in; the activations are applied inside render().
+///
+/// The spherical harmonics are **two** tensors rather than one [N,K,3] block,
+/// and that is a deliberate optimizer decision rather than a layout
+/// preference. Adam needs the degree-0 term and the higher bands in separate
+/// parameter groups, because the reference 3DGS trains the higher bands at
+/// `lr / 20` — and a shared group cannot express that. Nor can a gradient
+/// hook: Adam normalises by its own second moment, so uniformly scaling a
+/// parameter's gradient leaves its step length unchanged. Separate leaves are
+/// the only way. (The reference implementation splits them for the same
+/// reason, as `_features_dc` / `_features_rest`.)
 struct GaussianTensors {
   torch::Tensor means;         ///< [N,3] f32
   torch::Tensor log_scales;    ///< [N,3] f32
   torch::Tensor quats;         ///< [N,4] f32, (w,x,y,z)
   torch::Tensor logit_opacity; ///< [N]   f32
-  torch::Tensor sh;            ///< [N,K,3] f32, raw SH coefficients
+  torch::Tensor sh_dc;         ///< [N,1,3] f32, degree-0 coefficients
+  /// [N,K-1,3] f32, degrees 1..sh_degree. Always defined and always [N,·,3],
+  /// with K-1 == 0 for a degree-0 model — an always-present zero-width tensor
+  /// keeps the optimizer's parameter list one fixed shape instead of two.
+  torch::Tensor sh_rest;
   int sh_degree = 0;
 
   int64_t count() const { return means.size(0); }
+
+  /// The coefficients the rasterizer wants: [N, (d+1)^2, 3] for
+  /// @p active_degree, assembled from the two parameter tensors.
+  ///
+  /// Only the bands `active_degree` actually uses are concatenated, so the
+  /// SH warm-up costs nothing while the higher bands are still locked — at a
+  /// million Gaussians a full degree-3 block is ~190 MB, and copying it on
+  /// every iteration to feed zeros to the kernel would be pure waste.
+  /// Concatenation is differentiable, so gradients land back on whichever of
+  /// the two leaves contributed.
+  torch::Tensor sh_coeffs(int active_degree) const;
 };
 
 /// One rendered image plus its alpha.

@@ -57,4 +57,25 @@ std::vector<std::size_t> stride_sample(const std::vector<std::size_t> &src,
 /// scale the learning rate to zero.
 double scene_extent(const std::vector<TrainingView> &views);
 
+/// How many spherical-harmonic bands the rasterizer may use at @p iteration.
+///
+/// The reference 3DGS (`oneUpSHdegree`) does not train all bands from the
+/// start: it renders with DC only and raises the active degree by one every
+/// `interval` iterations, up to @p max_degree. The reason is that the higher
+/// bands are initialised to zero and are far more expressive than the DC term,
+/// so letting them move before the view-independent colour has settled lets
+/// them absorb error that belongs to geometry — which fits the training views
+/// and does not generalise.
+///
+/// A pure function of the iteration counter: no RNG, no state, so two runs
+/// with the same schedule activate bands at exactly the same iterations
+/// (STANDARDS §6).
+///
+/// @param iteration  0-based iteration index.
+/// @param max_degree The model's SH degree; the return value never exceeds it.
+/// @param interval   Iterations between activations. <= 0 means "no warm-up",
+///                   i.e. every band is active from iteration 0.
+/// @returns a degree in [0, max_degree]; 0 when @p max_degree is 0 or negative.
+int active_sh_degree(int iteration, int max_degree, int interval);
+
 } // namespace reusex::gsplat::detail

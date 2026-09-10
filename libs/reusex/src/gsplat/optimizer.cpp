@@ -11,6 +11,11 @@ namespace reusex::gsplat::detail {
 
 namespace {
 
+/// How many leaf tensors the trainer optimizes. Named because three separate
+/// fixed-size arrays have to agree with `parameters()` or moments get
+/// reattached to the wrong parameter.
+constexpr std::size_t kNumParams = 6;
+
 /// Adam parameter group with its own learning rate. eps follows the reference
 /// 3DGS value (1e-15), which matters because SH gradients are tiny.
 torch::optim::OptimizerParamGroup param_group(torch::Tensor p, double lr) {
@@ -19,14 +24,19 @@ torch::optim::OptimizerParamGroup param_group(torch::Tensor p, double lr) {
   return torch::optim::OptimizerParamGroup({std::move(p)}, std::move(opts));
 }
 
-/// The five optimizable tensors, in a fixed order shared by make_adam and
+/// The six optimizable tensors, in a fixed order shared by make_adam and
 /// remap_parameters so moments cannot be reattached to the wrong parameter.
-std::array<torch::Tensor *, 5> parameters(GaussianTensors &g) {
-  return {&g.means, &g.log_scales, &g.quats, &g.logit_opacity, &g.sh};
+///
+/// The SH split (sh_dc / sh_rest) is what makes the two SH learning rates
+/// expressible at all — see the note on GaussianTensors in rasterize.hpp.
+std::array<torch::Tensor *, kNumParams> parameters(GaussianTensors &g) {
+  return {&g.means,         &g.log_scales, &g.quats,
+          &g.logit_opacity, &g.sh_dc,      &g.sh_rest};
 }
 
-std::array<double, 5> learning_rates(const AdamLrs &lrs) {
-  return {lrs.means, lrs.log_scales, lrs.quats, lrs.logit_opacity, lrs.sh};
+std::array<double, kNumParams> learning_rates(const AdamLrs &lrs) {
+  return {lrs.means,         lrs.log_scales, lrs.quats,
+          lrs.logit_opacity, lrs.sh_dc,      lrs.sh_rest};
 }
 
 /// Broadcast a [M] row mask over a [M, ...] moment buffer.
@@ -37,11 +47,11 @@ torch::Tensor row_mask_like(const torch::Tensor &keep,
   return keep.to(moment.dtype()).view(shape);
 }
 
-/// One Adam over five already-materialised tensors, in the fixed order of
+/// One Adam over six already-materialised tensors, in the fixed order of
 /// `parameters()`. Split out of make_adam so remap_parameters can build the
 /// replacement optimizer *before* it commits the new tensors into `g` — see
 /// the atomicity note there.
-AdamPtr make_adam_from(const std::array<torch::Tensor, 5> &params,
+AdamPtr make_adam_from(const std::array<torch::Tensor, kNumParams> &params,
                        const AdamLrs &lrs) {
   const auto lr = learning_rates(lrs);
 
@@ -58,7 +68,7 @@ AdamPtr make_adam_from(const std::array<torch::Tensor, 5> &params,
 
 AdamPtr make_adam(GaussianTensors &g, const AdamLrs &lrs) {
   const auto p = parameters(g);
-  return make_adam_from({*p[0], *p[1], *p[2], *p[3], *p[4]}, lrs);
+  return make_adam_from({*p[0], *p[1], *p[2], *p[3], *p[4], *p[5]}, lrs);
 }
 
 void remap_parameters(GaussianTensors &g, AdamPtr &optimizer,
@@ -76,7 +86,7 @@ void remap_parameters(GaussianTensors &g, AdamPtr &optimizer,
     torch::Tensor exp_avg;
     torch::Tensor exp_avg_sq;
   };
-  std::array<Moments, 5> saved;
+  std::array<Moments, kNumParams> saved;
   for (std::size_t i = 0; i < old_params.size(); ++i) {
     auto &state = optimizer->state();
     const auto it =
@@ -89,7 +99,7 @@ void remap_parameters(GaussianTensors &g, AdamPtr &optimizer,
     saved[i].step = s->step();
     // index_select gathers into fresh storage, so these already own their
     // data — an extra .clone() would only duplicate it (at 2.4 M Gaussians
-    // the five parameters plus ten moment buffers cost ~408 MB per pass).
+    // the six parameters plus twelve moment buffers cost ~408 MB per pass).
     saved[i].exp_avg = s->exp_avg().index_select(0, src_rows);
     saved[i].exp_avg_sq = s->exp_avg_sq().index_select(0, src_rows);
     if (reset.defined()) {
@@ -103,15 +113,15 @@ void remap_parameters(GaussianTensors &g, AdamPtr &optimizer,
   }
 
   // Allocate every replacement tensor into locals FIRST, and only commit once
-  // all five exist. Reallocating them one at a time through the pointers into
-  // `g` is not exception-safe: an OOM at allocation 4 of 5 would leave `g`
+  // all six exist. Reallocating them one at a time through the pointers into
+  // `g` is not exception-safe: an OOM at allocation 5 of 6 would leave `g`
   // holding a mix of M-row and N-row tensors with the old Adam still keyed on
   // the old storage. gsplat derives the Gaussian count from `means.size(0)`,
   // so a caller that caught that OOM and carried on — say by disabling MCMC
   // and continuing to train — would rasterize out of bounds on the very next
   // iteration. Failing with `g` untouched is recoverable; failing halfway is
   // not.
-  std::array<torch::Tensor, 5> next;
+  std::array<torch::Tensor, kNumParams> next;
   for (std::size_t i = 0; i < old_params.size(); ++i) {
     // Under NoGradGuard this is a leaf, so it can take requires_grad directly.
     next[i] = old_params[i]->detach().index_select(0, src_rows);

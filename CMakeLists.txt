@@ -8,6 +8,12 @@
 
 cmake_minimum_required(VERSION 3.17)
 
+# Silence "FindBoost module is removed" from GTSAM/CGAL config files: we use
+# the new BoostConfig.cmake (find_package(Boost) resolves correctly already).
+cmake_policy(SET CMP0167 NEW)
+# Silence "FindPythonInterp/FindPythonLibs removed" from pybind11 < 2.12.
+cmake_policy(SET CMP0148 NEW)
+
 project(reusex
     VERSION 0.0.5
     LANGUAGES CXX

@@ -123,7 +123,7 @@ struct StageContract {
   /// whether it is present. It is documentation with a machine-readable home,
   /// not a dependency edge — but it is what lets the "every stage produces
   /// something" invariant stay true for a stage with an empty `outputs`.
-  std::string_view external_outputs;
+  std::string_view external_outputs = {};
 };
 
 /// Every stage contract, in pipeline order.

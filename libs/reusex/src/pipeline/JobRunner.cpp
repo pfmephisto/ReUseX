@@ -244,7 +244,8 @@ class JobRunner::Impl {
 
   WriterLease try_acquire_writer(std::chrono::milliseconds timeout) {
     WriterLease lease(writer_mutex_, std::defer_lock);
-    lease.try_lock_for(timeout);
+    (void)lease.try_lock_for(
+        timeout); // owns_lock() is authoritative; bool is redundant
     return lease;
   }
 

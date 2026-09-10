@@ -73,7 +73,7 @@ void seed_frame(ProjectDB &db, int node_id, const std::array<double, 16> &pose,
 std::vector<std::uint8_t> fake_jpeg() { return {0xFF, 0xD8, 0xFF, 0xD9}; }
 
 const io::ExportScene::PanoEntry &find_pano(const io::ExportScene &scene,
-                                            const std::string &name) {
+                                            std::string_view name) {
   auto it = std::find_if(scene.panoramas.begin(), scene.panoramas.end(),
                          [&](const io::ExportScene::PanoEntry &e) {
                            return e.image_name == name;

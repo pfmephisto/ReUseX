@@ -181,8 +181,8 @@ Two workflows, split by whether they need the nix closure:
 
 | Workflow | Triggers | Jobs |
 |---|---|---|
-| `.github/workflows/lint.yml` | push (main) + PR | clang-format, REUSE/SPDX, docs/gui YAML parse |
-| `.github/workflows/ci.yml` | push (main) + PR | `nix build .#checks.x86_64-linux.tests` (CPU variant + ctest), GUI frontend build + vitest |
+| `.github/workflows/lint.yml` | push (main) + PR | clang-format, REUSE/SPDX, docs/gui YAML parse, GUI frontend build + vitest |
+| `.github/workflows/ci.yml` | push (main) + PR + `workflow_dispatch` | `nix build .#checks.x86_64-linux.tests` (CPU variant + ctest) |
 
 `ci.yml` is only affordable on GitHub-hosted runners because the dependency
 paths that `cache.nixos.org` cannot serve — our overlaid OpenCV, RTABMap,

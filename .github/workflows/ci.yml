@@ -12,7 +12,8 @@
 # See docs/guides/ci-cache.md for what lives in that cache, how big it is, and
 # how to re-seed it from a dev machine.
 #
-# Cheap gates (clang-format, REUSE/SPDX, docs/gui YAML sanity) live in
+# Cheap, cache-free gates (clang-format, REUSE/SPDX, docs/gui YAML sanity, and
+# the GUI frontend build + vitest, moved here in #348) live in
 # .github/workflows/lint.yml (#250) and deliberately do not touch nix at all.
 #
 # The local equivalents of this workflow are:
@@ -118,34 +119,3 @@ jobs:
         run: |
           du -sh /nix/store 2>/dev/null || true
           df -h /
-
-  # The GUI frontend (apps/rux/frontend) is plain npm — no nix, no C++ closure —
-  # so it does not depend on the Cachix cache at all. It rides along in this
-  # workflow because it is the other thing a code change can break; it just
-  # runs in parallel with the build above.
-  frontend:
-    name: GUI frontend (build + vitest)
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: apps/rux/frontend/package-lock.json
-
-      - name: Install dependencies
-        working-directory: apps/rux/frontend
-        run: npm ci
-
-      # `npm run build` is `tsc --noEmit && vite build`, so this is the
-      # typecheck gate as well as the bundle gate.
-      - name: Build
-        working-directory: apps/rux/frontend
-        run: npm run build
-
-      - name: Test
-        working-directory: apps/rux/frontend
-        run: npm test

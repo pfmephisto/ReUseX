@@ -18,11 +18,15 @@
 
 namespace reusex::geometry {
 
-/// A connected component of approximately-vertical, coplanar mesh faces.
+/// A connected component of coplanar mesh faces that may host a window.
+///
+/// Orientation is *not* implied: by default every planar region qualifies,
+/// floors and ceilings included, so skylights find a host surface. Restrict to
+/// near-vertical walls with `CreateWindowsOptions::wall_normal_z_threshold`.
 struct WallCandidate {
   Eigen::Vector4d plane;    ///< Hessian normal form [a,b,c,d]: ax+by+cz+d=0
   Eigen::Vector3d centroid; ///< Area-weighted centroid of component faces
-  Eigen::Vector3d normal;   ///< Unit outward normal (approximately horizontal)
+  Eigen::Vector3d normal;   ///< Unit outward normal of the component
 
   /// Boundary loops ordered by half-edge traversal (outer loop first, then
   /// holes) Each loop is a sequence of vertices forming a closed polygon. First
@@ -36,12 +40,26 @@ struct WallCandidate {
 /// How to compute the window boundary polygon.
 enum class WindowBoundaryMode { rectangle, polyline };
 
+/// Verticality-gate threshold at which the gate is off (#326).
+///
+/// The gate keeps a region when `|mean_normal.z| < normal_z_threshold`. Since
+/// every unit normal has `|n.z| <= 1`, this value admits every orientation —
+/// and it is treated as an exact opt-out so perfectly horizontal faces
+/// (`|n.z| == 1`) are kept too.
+inline constexpr float kWallVerticalityGateOff = 1.0f;
+
 /// Configuration for the create_windows pipeline.
 struct CreateWindowsOptions {
   WindowBoundaryMode mode = WindowBoundaryMode::rectangle;
   float wall_offset = 0.5f; ///< Offset along outward wall normal (meters)
   float alpha = 0.5f;       ///< ConcaveHull alpha for polyline mode
-  float wall_normal_z_threshold = 0.3f; ///< |normal.z| < this → vertical
+  /// Verticality gate on wall candidates: a coplanar mesh region is kept only
+  /// when `|normal.z| < wall_normal_z_threshold`. The default
+  /// `kWallVerticalityGateOff` accepts every orientation, which is what window
+  /// detection wants — skylights and tilted roof glazing need their
+  /// horizontal/oblique host surfaces (#326). Lower it (e.g. `0.3`) to
+  /// restrict windows to near-vertical walls.
+  float wall_normal_z_threshold = kWallVerticalityGateOff;
   float coplanarity_angle_deg =
       10.0f; ///< Max angle deviation within wall component
   bool include_internal =
@@ -60,13 +78,15 @@ struct CreateWindowsResult {
 /// component becomes a WallCandidate with a fitted plane, centroid, outward
 /// normal, and boundary vertices.
 ///
-/// @warning No verticality filter is applied today, so horizontal components
-///   (floors, ceilings) are returned alongside walls. @p normal_z_threshold is
-///   accepted but **ignored**; see the FIXME in `src/reconstruction/
-///   create_windows.cpp`. The doc previously claimed the filter existed.
+/// @param normal_z_threshold Verticality gate: a region is kept only when
+///   `|mean_normal.z| < normal_z_threshold`. The default
+///   `kWallVerticalityGateOff` keeps every orientation (floors, ceilings and
+///   tilted roofs included) so skylight windows still find a host surface;
+///   pass e.g. `0.3` to keep near-vertical walls only (#326).
+/// @param coplanarity_angle_deg Maximum angular deviation inside one region.
 std::vector<WallCandidate>
 extract_wall_candidates(const pcl::PolygonMesh &mesh,
-                        float normal_z_threshold = 0.3f,
+                        float normal_z_threshold = kWallVerticalityGateOff,
                         float coplanarity_angle_deg = 10.0f);
 
 /// Resolves the stable GUID of an instance from its integer label id.

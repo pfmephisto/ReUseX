@@ -9,6 +9,7 @@
 
 #include <pcl/conversions.h>
 
+#include <cmath>
 #include <random>
 
 using namespace reusex;
@@ -152,6 +153,87 @@ TEST_CASE("ExtractWallCandidates_EmptyMesh_ReturnsNoWalls",
   pcl::PolygonMesh empty;
   auto walls = extract_wall_candidates(empty);
   REQUIRE(walls.empty());
+}
+
+// Verticality gate (#326). The knob is honoured, but its default keeps every
+// orientation: skylights and tilted roof glazing need their horizontal host
+// surfaces, so the default path must still return floors and ceilings.
+namespace {
+size_t count_horizontal(const std::vector<WallCandidate> &walls,
+                        double min_abs_nz = 0.9) {
+  size_t n = 0;
+  for (const auto &w : walls)
+    if (std::abs(w.normal.z()) >= min_abs_nz)
+      ++n;
+  return n;
+}
+} // namespace
+
+TEST_CASE("ExtractWallCandidates_DefaultThreshold_KeepsHorizontalRegions",
+          "[geometry][create_windows]") {
+  auto mesh = make_box_mesh();
+  auto walls = extract_wall_candidates(mesh);
+
+  REQUIRE(walls.size() == 6);
+  REQUIRE(count_horizontal(walls) == 2); // floor + ceiling survive by default
+
+  // The gate-off sentinel is an exact opt-out: |n.z| == 1 must not be cut.
+  auto explicit_off =
+      extract_wall_candidates(mesh, geometry::kWallVerticalityGateOff);
+  REQUIRE(explicit_off.size() == walls.size());
+}
+
+TEST_CASE("ExtractWallCandidates_VerticalityGate_DropsFloorAndCeiling",
+          "[geometry][create_windows]") {
+  auto mesh = make_box_mesh();
+  auto walls = extract_wall_candidates(mesh, 0.3f);
+
+  REQUIRE(walls.size() == 4);
+  REQUIRE(count_horizontal(walls) == 0);
+  for (const auto &w : walls)
+    REQUIRE(std::abs(w.normal.z()) < 0.3);
+}
+
+TEST_CASE("ExtractWallCandidates_ZeroThreshold_RejectsEveryRegion",
+          "[geometry][create_windows]") {
+  auto mesh = make_box_mesh();
+  REQUIRE(extract_wall_candidates(mesh, 0.0f).empty());
+}
+
+TEST_CASE("ExtractWallCandidates_SameInput_IsDeterministic",
+          "[geometry][create_windows]") {
+  auto mesh = make_box_mesh();
+  auto a = extract_wall_candidates(mesh, 0.3f);
+  auto b = extract_wall_candidates(mesh, 0.3f);
+
+  REQUIRE(a.size() == b.size());
+  for (size_t i = 0; i < a.size(); ++i)
+    REQUIRE(a[i].plane == b[i].plane);
+}
+
+TEST_CASE("CreateWindows_VerticalityGateRejectsAllWalls_ReturnsNoComponents",
+          "[geometry][create_windows]") {
+  // Same scenario as the rectangle-mode test, which yields one component with
+  // the default options — here the gate is tightened until no surface may host
+  // a window, which proves CreateWindowsOptions reaches
+  // extract_wall_candidates.
+  auto mesh = make_box_mesh(4.0f, 3.0f, 2.5f);
+  auto cloud =
+      make_planar_cluster({0.1f, 2.0f, 1.5f}, {1.0f, 0.0f, 0.0f}, 200, 0.2f);
+  CloudLPtr labels(new CloudL);
+  for (size_t i = 0; i < cloud->size(); ++i)
+    labels->push_back(pcl::Label{1});
+
+  std::map<uint32_t, uint32_t> inst_to_sem = {{1, 5}};
+  std::vector<uint32_t> window_labels = {5};
+
+  CreateWindowsOptions opts;
+  opts.wall_normal_z_threshold = 0.0f;
+
+  auto result =
+      create_windows(cloud, labels, inst_to_sem, mesh, window_labels, opts);
+
+  REQUIRE(result.components.empty());
 }
 
 TEST_CASE("CreateWindows_RectangleMode_CreatesOffsetVerticalRectangleWindow",

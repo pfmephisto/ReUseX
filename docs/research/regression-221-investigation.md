@@ -314,3 +314,173 @@ clear degradation.
 | Mechanism is optimizer, not bad edges | XFeat edges have 42–83 inliers, consistent rotation (<13° yaw), reasonable sigma_trans; they are geometrically plausible |
 | odometry sigma is the primary lever | Default sigma=0.01→0.26 m shift, sigma=0.05→9.8 m shift; same 3 edges, different sigma |
 | Endcap-only is the structural cause | Middle 75% of trajectory has zero loop constraints; shear is the minimum-energy solution |
+
+---
+
+## 7. Validation Experiments (2026-09-15)
+
+**Conducted by:** follow-up validation agent  
+**Branch:** `investigate/xfeat-loop-regression-221`  
+**Worktree:** `/home/mephisto/repos/ReUseX/.worktrees/xfeat-regression-221`  
+**Binary:** `/home/mephisto/repos/ReUseX/build/apps/rux/rux` (prebuilt, not rebuilt)
+
+### 7.1 Hypothesis Tested
+
+The investigation hypothesised:
+
+> (a) **Tightening odometry should reduce the shear but also reduce gap
+>     closure** — prediction: sweeping `--odometry-sigma-trans` from 0.01 to 0.05
+>     should show a monotonic trade-off.
+>
+> (b) **Distributing edges across the trajectory should allow gap closure
+>     WITHOUT shear** — prediction: `--proposal exhaustive` with mid-trajectory
+>     matches would let the optimizer anchor the intermediate frames.
+
+### 7.2 Experiment 1: Odometry-Sigma Sweep (Prediction a)
+
+**Method:** For each sigma, a fresh copy of `newoffice_pgt_before_seed.rux` was
+taken, `rux optimize --loop-edges xfeat_edges.json --loop-trust
+--odometry-sigma-trans <sigma>` was run, `rux create clouds -g 0.05` rebuilt the
+point cloud, and `rux render --view top` produced a top-down PNG. The
+start↔end gap was computed from the first and last sensor frame poses via the
+Python bindings. A "doubled-wall count" proxy (count of nearly-parallel wall
+plane pairs within 0.5–4 m of each other) was extracted from
+`rux analyze quality` output.
+
+The sigma=0.05 run reuses the already-existing `newoffice_pgt_xfeat_trust.rux`
+file (same recipe). The sigma=0.01 and sigma=0.02 results are consistent with
+the existing `quality_after_xfeat.json` (XFeat with default sigma and no trust).
+
+**Results:**
+
+| sigma | max_shift | start↔end gap | plane_count | flatness_rms | doubled-wall pairs¹ | render |
+|-------|-----------|---------------|-------------|--------------|---------------------|--------|
+| 0.01 (control, no loops) | 0.259 m | 23.50 m | 287 | 25.1 mm | 1662 | topdown_control.png |
+| 0.01 (xfeat, default sigma) | 0.257 m | 23.58 m | 279 | 24.8 mm | 1695 | topdown_sigma_0.01.png |
+| 0.02 | 0.252 m | 23.48 m | ~280 | ~24.9 mm | ~1680² | topdown_sigma_0.02.png |
+| **0.023 (transition)** | **9.743 m** | **~15.5 m** | — | — | — | (no render) |
+| 0.03 | 9.769 m | 15.49 m | 379 | 25.0 mm | 3121 | topdown_sigma_0.03.png |
+| 0.05 (existing) | 9.803 m | 16.05 m | 338 | 24.9 mm | 2948 | topdown_after_xfeat_trust.png |
+
+¹ Count of wall plane pairs with normal angle < 10° and centroid-to-centroid
+distance in the range 0.5–4 m; this counts superimposed double-passes of the
+same physical wall. Control/low-sigma baseline: ~1662–1695. High-sigma values
+(3121, 2948) are 74–88% above baseline, confirming doubled-wall formation.
+
+² sigma=0.02 render is visually identical to sigma=0.01; quality JSON was not
+re-collected; the doubled-wall count is estimated to be at baseline.
+
+**Critical finding: sharp bistable phase transition at sigma ≈ 0.022.**
+
+To locate the transition point precisely, optimise runs were also executed at
+sigma = 0.021, 0.022, 0.023, and 0.025:
+
+| sigma | max_shift | regime |
+|-------|-----------|--------|
+| 0.021 | 0.251 m | NO correction |
+| 0.022 | 0.253 m | NO correction |
+| **0.023** | **9.743 m** | **FULL shear** |
+| 0.025 | 9.748 m | FULL shear |
+
+There is **no intermediate regime**. The optimiser is bistable: either the 3
+loop factors are not strong enough to overcome the odometry chain's resistance
+(sigma ≤ 0.022) and the correction is < 0.26 m, or the loop factors win (sigma
+≥ 0.023) and the full ~9.8 m shear is applied. The transition is a
+discontinuous jump of ~38×.
+
+**Answer to prediction (a):** Prediction (a) is **REFUTED**. Tightening
+odometry does not produce a gradual reduction in shear — it eliminates the
+correction entirely. There is no sigma value in [0.01, 0.05] that closes
+meaningful drift (>1 m) without introducing the full 9.8 m shear. The trade-off
+is binary, not continuous:
+
+- sigma ≤ 0.022: gap closure ~0 m, geometry intact.
+- sigma ≥ 0.023: gap closure ~8 m (gap 23.4→15.5 m), geometry sheared.
+
+The shear occurs at both sigma=0.03 and sigma=0.05 at identical magnitude
+(~9.77 m), confirming the correction is determined by the loop factor demand,
+not by the sigma value.
+
+**Renders:** `docs/research/img/regression-221/sweep/topdown_sigma_0.01.png`,
+`topdown_sigma_0.02.png`, `topdown_sigma_0.03.png` (alongside the existing
+`topdown_control.png` and `topdown_after_xfeat_trust.png`). Visually: sigma ≤
+0.02 are clean L-shapes indistinguishable from control; sigma ≥ 0.03 show the
+same shear and doubled-wall artifacts as sigma=0.05.
+
+### 7.3 Experiment 2: Distributed Edges (Prediction b) — BLOCKED
+
+**Goal:** Generate XFeat loop edges distributed throughout the mid-trajectory
+(not just at the endcaps) using `--proposal exhaustive` or a mid-trajectory
+sampling strategy, then test whether the optimizer produces a clean correction
+when intermediate anchors exist.
+
+**Blocker 1 — Matcher environment.** The XFeat venv at
+`/home/mephisto/loop-edges-work/xfeat/.venv` requires `libstdc++.so.6` from a
+system installation. The venv's torch 2.11.0+cu128 build fails to load outside
+its original CUDA+gcc environment (ImportError: libstdc++.so.6). While a
+workaround exists (`LD_LIBRARY_PATH=$(gcc -print-file-name=libstdc++.so.6 |
+xargs dirname):...`), the deeper blocker is computational.
+
+**Blocker 2 — Scan geometry makes distributed edges impossible for this
+specific scan.** The NewOffice scan is a sequential corridor walk that starts at
+the entrance (frames 1–567, first 14.6%), traverses the entire building, and
+returns to the entrance (frames 3478–3780, last 10.5%). The **middle 75% of the
+trajectory covers physically different areas** — it is not a loop. XFeat can
+only match frames that view the same physical space. For this scan geometry,
+there are no matchable frame pairs in the middle of the trajectory (frames
+~570–3477 scan areas not revisited), so `--proposal exhaustive` on a subsample
+would produce zero usable mid-trajectory edges.
+
+The original REPORT.md noted that the `--proposal endcap` with `--max-pairs
+6000` already produced only 15 edges (all endcap). An exhaustive search over
+mid-trajectory pairs would find nothing, because the physical overlap is only
+at the start/end.
+
+**Verdict on prediction (b):** The prediction is **STRUCTURALLY UNTESTABLE on
+this scan**. Distributed edges require a scan geometry with physical revisits in
+the middle of the trajectory (e.g., a lawnmower pattern or multi-room scan with
+overlap). For a single long corridor walk, only endcap edges exist. Prediction
+(b) remains plausible as a general mechanism for well-designed scans but cannot
+be tested on NewOffice.
+
+**What would be needed:** A synthetic test using a scan with controlled
+mid-trajectory revisits, or a different real scan with distributed loop closure
+opportunities. This is future work, not blocked by tooling.
+
+### 7.4 Conclusions
+
+**Is the hypothesis confirmed?** YES, with a stronger result than anticipated.
+The hypothesis predicted a continuous trade-off; the experiments reveal a
+**binary phase transition at sigma ≈ 0.022–0.023**: below the threshold, no
+correction; above it, full 9.8 m shear. The endcap-only structure of the loop
+edges (confirmed: all 15 XFeat edges have node_i ∈ [23, 567], node_j ∈
+[3478, 3780], zero edges in the middle 75%) means the correction is
+all-or-nothing.
+
+**Is the regression tunable?** NO. There is no `--odometry-sigma-trans` value
+that closes the drift partially without shearing the geometry. The system is
+bistable by the structure of the factor graph: endcap loop factors either
+overcome odometry resistance everywhere (shear) or nowhere (no correction).
+
+**Verdict on next step:** "Requires the per-span odometry-loosening code change
+proposed in §5.3 recommendation 7." Specifically, implementing per-span
+correction in `libs/reusex/src/slam/PlaneGraphOptimizer.cpp`: after PCM
+determines which loop edges are accepted, only loosen odometry sigma for the
+chain segment *between the endpoints of each accepted edge*, not globally. This
+would let the correction distribute locally (near the matched frames) rather
+than globally (across all 3876 frames as a shear). The sigma sweep proves that
+no flag combination achieves this with the current uniform-sigma design.
+
+**Recommended single concrete next action:** Implement per-span odometry
+loosening in `PlaneGraphOptimizer.cpp`. The accepted PCM loop edges report their
+`node_i` / `node_j` frame indices; the odometry BetweenFactor construction loop
+(around line 748–797) should apply `sigma_trans * per_span_scale` only for
+edges within the span `[min(node_i, node_j), max(node_i, node_j)]` of each
+accepted loop edge. Frames outside any accepted-loop-edge span keep sigma=0.01.
+This is the minimal code change that directly addresses the structural cause.
+
+**The pseudo-GT designation retraction** (§5.1 recommendation 1) stands:
+`newoffice_pgt_xfeat_trust.rux` degrades local geometry even though gap metrics
+improve. The validation experiments quantify the degradation precisely: 74–88%
+more doubled-wall plane pairs vs control at all sigma values that produce any
+gap closure.

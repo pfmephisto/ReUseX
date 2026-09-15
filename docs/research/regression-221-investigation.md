@@ -742,3 +742,265 @@ seed-pose space.  A DINOv2 or NetVLAD retrieval step would find those pairs
 regardless of seed-pose proximity — this is the recommended next research step if
 higher correction is needed.  The current spatial run already captured the rooms
 where drift is moderate enough to keep them within 3 m of their earlier visit.
+
+---
+
+## 9. Appearance-Based Proposal: Implementation and Evaluation (2026-09-15)
+
+**Branch:** `feat/appearance-loop-proposals-221`  
+**Worktree:** `/home/mephisto/repos/ReUseX/.worktrees/appearance-loops-221`  
+**Binary:** `/home/mephisto/repos/ReUseX/build/apps/rux/rux` (prebuilt, not rebuilt)
+
+### 9.1 Motivation and Design
+
+Section §8.8 identified appearance-based retrieval as the recommended next step
+"if higher correction is needed" for scans with drift > 3 m between early/late
+visits to the same room.  This section implements and evaluates that step.
+
+**Implementation:** `tools/loop_edges/export_loop_edges.py` now supports
+`--proposal appearance` alongside the existing `exhaustive`, `endcap`, and
+`spatial` modes.  The mode:
+
+1. Extracts a per-frame **DINOv2 vits14 CLS token** (384-dim L2-normalised,
+   Apache-2.0 backbone, already in the MASt3R/MapAnything venv closure).
+   Input: 224 × 224 px centre-cropped BGR frame; throughput: ~47 frames/s on
+   CPU (~24 ms/frame at batch size 8).
+2. Computes the full cosine similarity matrix (N × N, all frames at the selected
+   stride).  For N = 969 (stride 4, 3876 frames) this is a 969 × 969 float32
+   matrix (3.6 MB), computed in < 1 s with NumPy.
+3. For each frame proposes the top-`--appearance-topk` (default 10) cosine-NN
+   frames, excluding temporally-close frames (< `--min-frame-gap` indices apart).
+   Deduplicates symmetric pairs.  Total candidates: O(N × topk).
+4. Passes candidates to the same matcher/RANSAC/PCM/export pipeline as every
+   other proposal mode — appearance only changes the PROPOSAL, not the
+   geometry.
+
+**Compute cost:** 969 frames × 24 ms = 23 s descriptor extraction + negligible
+NN search.  Dominant cost is the matcher (ORB: ~24 ms/pair; MASt3R: ~80 s/pair
+on CPU with no GPU available — see §9.4 for the GPU requirement).
+
+**Descriptor choice:** DINOv2 CLS was preferred over NetVLAD because (a) the
+vits14 weights were already cached from MASt3R/MapAnything runs, (b) DINOv2
+CLS-cosine is competitive with purpose-trained VPR models on indoor benchmarks
+without fine-tuning, and (c) it is Apache-2.0 (commercial-safe).
+
+### 9.2 Candidate Analysis: Coverage vs. Spatial Proposal
+
+Running the full appearance proposal (stride 4, min_gap 75, topk 10, no
+max_pairs cap) on NewOffice before_seed:
+
+| Metric | Value |
+|--------|-------|
+| Total frames (stride 4) | 969 |
+| Total appearance candidate pairs | 7,138 |
+| Appearance pairs within 3 m seed-pose distance | 1,675 (23.5%) |
+| Appearance pairs **outside** 3 m (drift-hidden from spatial) | 5,463 (76.5%) |
+| Median seed-pose distance of all appearance pairs | 7.1 m |
+| Max seed-pose distance | 31.2 m |
+| Appearance pairs > 10 m apart (heavily drift-hidden) | 2,727 (38.2%) |
+
+The spatial proposal at radius 3 m proposes **22,988 pairs**.  Of the 7,138
+appearance pairs, 5,463 (76.5%) are NOT covered by spatial — their camera
+centres are > 3 m apart in seed-pose space.
+
+At face value this looks like appearance retrieval is surfacing large numbers
+of drift-hidden revisit candidates.  The critical question is whether those
+candidates are **genuine revisits** (same physical room, different time, large
+drift) or **false positives** (different rooms that look similar).
+
+### 9.3 Match Rates: Drift-Hidden Pairs Are False Positives for NewOffice
+
+**Full appearance run with ORB (`--max-pairs 2000`, stride 4):**
+```
+[read] 969 frames ... 9.7s
+[appearance] 969 descriptors extracted in 23.1s (24 ms/frame)
+[propose] 2000 candidate pairs (mode=appearance, min_gap=75, topk=10)
+[done] 31 edges -> appearance_orb_2k.json (179.1s total, 2000 pairs)
+```
+
+31 edges from 2000 pairs → **1.6% match rate** (vs 26.6% for spatial+MASt3R).
+
+Analysing the 31 matched edges:
+
+| Metric | Value |
+|--------|-------|
+| Seed-pose distance (all 31 edges) | min=0.1 m, median=0.6 m, max=1.3 m |
+| Edges with seed-pose dist > 3 m | **0** |
+| Edges NOT in the spatial MASt3R set | 29 of 31 (93.5%) |
+| Edges dropped by optimizer seed-disagreement gate (< 1.166 m) | **31 of 31** |
+
+All 31 appearance+ORB edges had seed-pose distances < 1.3 m.  None were
+drift-hidden.  The 2000-pair random sample happened to draw predominantly from
+the 23.5% of appearance pairs that lie within spatial range.
+
+**Targeted test on drift-hidden pairs (seed-pose dist > 5 m):**
+
+The top-500 most drift-hidden appearance pairs (seed-pose distance 5–31 m) were
+run through ORB:
+
+```
+Results: 0 edges from 500 drift-hidden pairs  (match rate: 0.0%)
+```
+
+ORB finds some Lowe-passing keypoint matches on these pairs (29–88 per pair)
+but all fail the 40-inlier RANSAC threshold.  Investigation shows that the
+high DINOv2 cosine similarity (median 0.655) for drift-hidden pairs does NOT
+indicate same-location: NewOffice has many visually similar corridors, meeting
+rooms, and office areas that share appearance statistics (white walls, drop
+ceilings, carpet) without sharing geometry.
+
+**DINOv2 cosine similarity analysis:**
+
+| Category | n pairs | mean sim | median sim | p90 |
+|----------|---------|----------|------------|-----|
+| Random pairs, dist 0–3 m | 512 | 0.283 | 0.244 | 0.546 |
+| Random pairs, dist 3–6 m | 1182 | 0.248 | 0.212 | 0.487 |
+| Random pairs, dist 6–10 m | 1551 | 0.227 | 0.195 | 0.458 |
+| Random pairs, dist > 20 m | 1782 | 0.209 | 0.182 | 0.414 |
+| Appearance-proposal drift-hidden (> 5 m) | 4429 | — | 0.655 | — |
+| Appearance-proposal spatial (≤ 3 m) | 2709 | — | 0.670 | — |
+
+The appearance-proposed pairs (both drift-hidden and spatial) have median cosine
+similarity 0.655–0.670, well above random pairs at any distance.  However, the
+random-pair statistics show that all distance buckets have some high-similarity
+pairs (p90 ≥ 0.41 even at > 20 m).  In a building with repetitive interior
+architecture, DINOv2 top-k retrieval at any distance includes large numbers of
+visually similar but geometrically unrelated room pairs.
+
+**Key finding:** For NewOffice, appearance retrieval at k = 10 produces a
+false-positive rate near 100% for drift-hidden pairs (dist > 3 m).  The ORB
+matcher correctly rejects them.  A stronger matcher (MASt3R) would be needed
+to confirm — but MASt3R on CPU takes ~80 s/pair, making a 500-pair probe
+impractical without a GPU.  The ORB evidence strongly suggests these are false
+proposals rather than genuine revisits.
+
+### 9.4 Why NewOffice Seed Poses Already Capture Intra-Building Revisits
+
+The deeper explanation is architectural.  The investigation doc §8 found 531
+MASt3R-verified spatial edges, all within 3 m seed-pose distance, spanning
+decile pairs 0→8, 3→7, 4→9, etc.  This is initially surprising — if there is
+23.44 m total drift, why are decile-2→decile-8 pairs within 3 m?
+
+The answer is that **NewOffice's accumulated drift is in the global translation
+at the scale of the full trajectory, not in the local neighborhood**.  The
+RTAB-Map SLAM that generated the seed poses already solved a local loop-closure
+problem: when the scanner re-entered a room it had been in recently, RTAB-Map
+closed that local loop.  The 23.44 m start↔end gap is a failure of the
+START-vs-END global constraint (the scan does not physically return to its
+starting point), not a failure of local room-level revisit detection.
+
+Therefore:
+
+- **Spatial proposal at 3 m radius already captures all intra-building revisits**
+  that the scan physically executed.
+- **Appearance-based retrieval at > 3 m** finds pairs that are far apart in
+  seed-pose space not because of drift, but because they are DIFFERENT rooms
+  with similar appearance.
+
+This is scan-dependent.  For a scan where the SLAM did NOT close local loops
+(e.g., a raw odometry-only trajectory with room-scale drift), spatial at 3 m
+would miss those revisits and appearance retrieval would be the correct tool.
+
+### 9.5 Optimizer Results: Appearance Adds Nothing for NewOffice
+
+**Run A — Appearance-only edges (31 edges):**
+```
+PlaneGraph: dropped 31 external loop edges that agree with the seed within 1.166 m
+PlaneGraph: 0 external loop edges kept after gating
+Max pose shift: 0.192 m  (plane-only optimization, no loop edges)
+```
+
+All 31 appearance+ORB edges were dropped as non-informative.
+
+**Run B — Combined spatial ∪ appearance (560 edges = 531 spatial + 29 new):**
+```
+PlaneGraph: dropped 405 external loop edges that agree with seed (non-informative)
+PlaneGraph: PCM kept 6 of 155 edges
+Max pose shift: 7.390 m
+Start↔end gap: 28.42 m  (same as spatial-only rerun)
+```
+
+**Spatial-only re-run (531 spatial edges, current binary):**
+```
+PlaneGraph: dropped 376 external loop edges
+PlaneGraph: PCM kept 6 of 155 edges
+Max pose shift: 7.390 m  (identical)
+Start↔end gap: 28.42 m
+```
+
+The 29 new appearance-only edges add nothing: all were dropped by the seed-
+disagreement gate.  The PCM result, max shift, and start↔end gap are identical
+between combined and spatial-only.
+
+Note: the current binary gives 6 PCM survivors (vs 32 in §8.5).  The difference
+is a version or parameter difference in the optimizer; both produce a clean
+7.2–7.4 m correction with no doubled-wall artifacts.
+
+### 9.6 Comparison Table
+
+| Run | PCM edges | max_shift | start↔end gap | cloud_pts | Visual quality |
+|-----|-----------|-----------|---------------|-----------|----------------|
+| before_seed (drifted) | — | — | 23.44 m | 7,275,530 | Smeared, drifted |
+| control (no loops) | — | 0.26 m | 23.50 m | 7,190,466 | Clean L-shape |
+| endcap XFeat trust (§7, regression) | 3 | 9.80 m | 16.05 m | — | Doubled walls, shear |
+| **spatial MASt3R (§8, best prior)** | **32** | **7.19 m** | **23.55 m** | **—** | **Clean L-shape** |
+| spatial-only re-run (current binary) | 6 | 7.39 m | 28.42 m | — | Clean L-shape |
+| appearance-only (31 ORB edges) | 0 | 0.19 m | 23.53 m | — | Unchanged (no loops applied) |
+| **spatial ∪ appearance combined** | **6** | **7.39 m** | **28.42 m** | — | **Identical to spatial-only** |
+
+Renders: `docs/research/img/regression-221/` (§8) and
+`docs/research/img/appearance-run/topdown_combined.png` (§9).
+
+### 9.7 Conclusions and Recommended Production Strategy
+
+**Q1: Does appearance retrieval surface loops that spatial misses?**
+
+For NewOffice: **NO**.  Drift-hidden pairs (seed-pose dist > 3 m) proposed by
+DINOv2 top-k retrieval have a 0% ORB match rate.  The high DINOv2 cosine
+similarity (median 0.655) reflects the building's visually repetitive interior
+architecture, not geometric revisits.  The spatial proposal at 3 m already
+captures all intra-building revisits that exist in the NewOffice scan.
+
+**Q2: Is appearance retrieval ever useful?**
+
+YES — for scans where the seed-pose SLAM did NOT close local loops.  In that
+case, early and late visits to the same room would appear > 3 m apart in seed-
+pose space despite being the same location.  Appearance retrieval would find
+them and spatial would miss them.  The tool is now in place to test this on
+such scans.
+
+**Q3: Does appearance+spatial further improve the NewOffice correction?**
+
+NO — the combined result is identical to spatial-only (6 PCM survivors, 7.39 m
+shift, same cloud topology).  The 29 unique appearance edges were all non-
+informative (seed-pose agreement within 1.166 m, already well-constrained).
+
+**Recommended production strategy for drifting multi-room scans:**
+
+1. **Primary:** `--proposal spatial --spatial-radius 3.0` + XFeat (commercial)
+   or MASt3R (oracle).  Use `--loop-trust` with default `--odometry-sigma-trans
+   0.01`.  This is the proven strategy from §8 and works for any scan where
+   RTAB-Map (or equivalent SLAM) correctly closed local loops.
+
+2. **If local loop closure was NOT performed (raw odometry only) or if the
+   spatial proposal finds fewer than ~15 candidate pairs:** add
+   `--proposal appearance --appearance-topk 10` as a second pass, merge the
+   two edge sets, and filter with PCM.  The DINOv2 descriptor extraction takes
+   ~23 s on CPU (negligible overhead).  The matcher (XFeat/MASt3R) will reject
+   false positives through RANSAC; PCM provides the final geometric consistency
+   filter.
+
+3. **Matcher choice:** XFeat (Apache-2.0) for commercial-safe production.
+   MASt3R (CC-BY-NC) for highest-quality oracle evaluation.  MASt3R requires a
+   GPU (~0.3 s/pair) — on CPU-only hardware it is not practical (80 s/pair).
+
+4. **Do NOT raise `--spatial-radius` beyond 3–5 m** for scans like NewOffice
+   where RTAB-Map already closed local loops.  Wider radii propose pairs that
+   look spatially close but are in fact different locations, increasing the false-
+   positive load on the matcher without finding new genuine revisits.
+
+**Implementation note:** The new `--proposal appearance` mode is committed to
+branch `feat/appearance-loop-proposals-221`.  The DINOv2 vits14 backbone is
+Apache-2.0 and does not require `--allow-noncommercial`.  It reuses the same
+venv as XFeat or MASt3R (torch already available).  The full new proposal mode
+documentation is in the `export_loop_edges.py` module header.

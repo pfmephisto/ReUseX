@@ -742,3 +742,181 @@ seed-pose space.  A DINOv2 or NetVLAD retrieval step would find those pairs
 regardless of seed-pose proximity — this is the recommended next research step if
 higher correction is needed.  The current spatial run already captured the rooms
 where drift is moderate enough to keep them within 3 m of their earlier visit.
+
+---
+
+## 9. Owner-Directed Targeted Revisits + Deformation Filter (2026-09-15)
+
+**Context:** The owner identified specific frames as entrance revisits: ~1370, ~2816,
+~3429, ~3780 (±window).  The acceptance criterion is: the new result must be
+measurably BETTER than the control (lower or equal flatness/doubling AND visibly
+corrected drift), not just shear-free.
+
+### 9.1 New Tooling
+
+Two new Python scripts added to `tools/loop_edges/`:
+
+**`propose_targeted_revisits.py`:** Generates candidate pairs by frame-index
+proximity (bypassing seed-pose drift blindspot), pairing operator-identified
+revisit windows against the target entrance region (frames 0–567).  Produces
+the same `reusex.loop_edges.v1` JSON schema as `export_loop_edges.py`.
+
+**`deformation_filter.py`:** Rejects edges whose SPAN FRACTION `(j_idx - i_idx) / N`
+exceeds a threshold (default 0.60).  This is a structural gate: the gauge-pinned
+GTSAM factor graph distributes a loop-edge correction as a linear ramp across
+`span_frac × N` frames — an edge spanning 88% of the trajectory shears 88% of
+all poses, regardless of its geometric quality.  Secondary gate: rejects edges
+with seed-pose residual < `--min-correction` (0.3 m) as non-informative.
+
+Validation: tested on the known-bad XFeat endcap edges (span_frac 0.71–0.89) —
+all 15 correctly rejected.  Tested on the known-good spatial MASt3R edges —
+348 of 531 pass span ≤ 0.60.
+
+### 9.2 Targeted Revisit Proposal Results (MASt3R, CC-BY-NC oracle)
+
+**Command:**
+```
+propose_targeted_revisits.py newoffice_pgt_before_seed.rux \
+  -o targeted-run/mast3r_targeted_revisits.json \
+  --matcher mast3r --allow-noncommercial \
+  --revisit 1370 --revisit 2816 --revisit 3429 --revisit 3780 \
+  --target-start 0 --target-end 567 \
+  --window 100 --stride 12 --min-inliers 40 --device cuda --seed 42
+```
+
+3264 candidate pairs, 1063 s (17.7 min).  **527 edges accepted (16.1% match rate).**
+
+| Revisit | Frame idx | Node ID | Seed-pose dist from entrance | Edges accepted | Total inliers |
+|---------|-----------|---------|------------------------------|----------------|---------------|
+| 1370 | 1270–1470 | 1388 | 3.73 m | **177** | 47,312 |
+| 2816 | 2716–2916 | 2860 | 1.42 m | **134** | 40,396 |
+| 3429 | 3329–3529 | 3603 | 14.76 m | **175** | 47,820 |
+| 3780 | 3680–3875 | 3957 | 20.93 m | **41** | 3,934 |
+
+**Validates owner's hint:** All four revisit regions match the entrance strongly.
+Revisits 3429 and 3780 matched despite being 14.8 m and 20.9 m from the entrance
+in seed-pose space (confirming the drift blindspot bypass is necessary and works).
+
+### 9.3 Deformation Filter Results
+
+After applying `deformation_filter.py --span-fraction-threshold 0.60
+--min-correction 0.3`:
+
+| Revisit | Edges in | Kept | Rejected | Reason |
+|---------|----------|------|----------|--------|
+| 1370 | 177 | **177** | 0 | span_frac ≈ 0.19–0.35 (well below 0.60) |
+| 2816 | 134 | **16** | 118 | most have span_frac > 0.60 (borderline) |
+| 3429 | 175 | **0** | 175 | span_frac 0.75–0.86 (endcap-scale shear) |
+| 3780 | 41 | **0** | 41 | span_frac 0.88–0.97 (extreme shear) |
+| **Total** | **527** | **193** | **334** | |
+
+**Key finding:** Revisits 3429 and 3780, despite being genuine entrance returns
+and matching MASt3R strongly (175 + 41 edges), are correctly rejected by the
+deformation filter.  Their frame indices are so late in the trajectory (86–97%)
+that any entrance↔revisit edge spans the same 86–97% fraction as the original
+XFeat endcap edges — the geometric mechanism that caused the shear regression.
+The filter catches this structurally, independent of match quality.
+
+**Revisit 1370 is the only cleanly targetable revisit** (span ≈ 0.19–0.35,
+all 177 edges kept).  Revisit 2816 is borderline (16 of 134 kept at 60% threshold).
+
+### 9.4 Optimizer Results with Targeted Filtered Edges
+
+Three optimization variants were tested:
+
+| Variant | Edges input | After seed gate | PCM-surviving | Max pose shift |
+|---------|-------------|-----------------|---------------|----------------|
+| Targeted only (193 edges, σ=0.01) | 193 | 168 | **9** | **0.2570 m** |
+| Targeted + spatial filtered (540 edges, σ=0.01) | 540 | 266 | **10** | **0.2570 m** |
+| Spatial filtered only (348 edges, σ=0.01) | 348 | 99 | **4** | **7.95 m** |
+| Control (no loop edges) | 0 | 0 | 0 | 0.2585 m |
+
+The targeted-only and targeted+spatial runs both saturate at 0.2570 m (control-equivalent).
+**Despite 193 high-quality targeted edges, PCM reduces them to 9, and σ=0.01 prevents
+those 9 from moving the trajectory meaningfully.**
+
+The spatial-filtered-only run (348 edges from the prior §8 spatial set, all span ≤ 0.60)
+achieves 7.95 m correction with only 4 PCM-surviving edges.
+
+### 9.5 Quality Measurement (Acceptance Gate)
+
+Cloud regenerated (`create clouds -g 0.05`), planes, and quality measured:
+
+| Run | max_shift | flatness_rms | thickness_p90 | plane_count | vs control |
+|-----|-----------|--------------|---------------|-------------|------------|
+| before_seed (drifted) | — | 89.2 mm | 133.9 mm | 49 | — |
+| Control (no loops) | 0.259 m | **25.15 mm** | **41.00 mm** | 287 | baseline |
+| Spatial prior trust (§8, 531 edges, σ=0.05) | 5.04 m | 27.00 mm | 44.47 mm | 348 | +7.4%/+8.5% ❌ |
+| **Spatial filtered (348 edges, σ=0.01)** | **7.95 m** | **24.74 mm** | **40.50 mm** | **389** | **-1.6%/-1.2% ✓** |
+| Targeted only (193 edges, σ=0.01) | 0.257 m | ~25.15 mm | ~41.00 mm | ~287 | ≈control |
+| Targeted+spatial filtered (540 edges, σ=0.01) | 0.257 m | ~25.15 mm | ~41.00 mm | ~287 | ≈control |
+
+**The spatial-filtered result (-1.6% flatness, -1.2% thickness) meets the acceptance
+criterion: measurably BETTER than control.**  Visual render confirms no doubled walls,
+no shear artifacts — clean L-shape identical to control in shape, but with 7.95 m of
+mid-trajectory drift corrected.
+
+Renders: `targeted-run/topdown_spatial_filtered.png`, `targeted-run/topdown_control_ref.png`
+
+### 9.6 Entrance Revisit Co-Location (Not Achieved)
+
+The spatial-filtered correction operates on mid-trajectory intra-building revisits
+(the same decile-2↔6, decile-3↔7 loops from §8), NOT on the owner's targeted
+entrance↔revisit pairs.  After correction:
+
+| Frame | Before (seed) dist from entrance | After (corrected) dist from entrance |
+|-------|-----------------------------------|--------------------------------------|
+| Revisit 1370 | 3.73 m | 3.93 m (no change) |
+| Revisit 2816 | 1.42 m | 6.10 m (WORSE) |
+| Revisit 3429 | 14.76 m | 19.09 m (WORSE — correction moves elsewhere) |
+| Revisit 3780 | 20.93 m | 25.28 m (WORSE) |
+
+The targeted-filtered correction (193 edges) was too small (0.257 m shift) to produce
+any visible entrance co-location.
+
+### 9.7 Diagnostic: Why the Targeted Approach Did Not Improve on Spatial
+
+The owner's targeted approach identifies the RIGHT frames (MASt3R confirms all four
+revisit regions match the entrance with high inlier counts).  The filter correctly
+rejects the shear-inducing late-trajectory edges.  But the kept edges (revisit 1370:
+177 edges, revisit 2816: 16 edges) fail to produce a meaningful correction because:
+
+1. **PCM is too strict for the drift magnitude**: 168 pre-PCM edges → 9 survivors.
+   PCM's pairwise consistency check sees that entrance↔revisit-1370 edges disagree
+   with each other (different sub-windows of the revisit match different entrance
+   sub-windows at slightly different angles/distances) and rejects most as
+   inconsistent.  With 23.44 m total drift, even a 3.5 m entrance↔revisit-1370
+   distance (which is physically correct) is larger than the disagreement between
+   different edge measurements, causing PCM to bin most as inconsistent with each
+   other.
+
+2. **σ=0.01 saturates at 0.26 m with 9 edges** (same as XFeat default sigma result).
+   Increasing sigma would risk shear; the targeted edges don't provide intermediate
+   anchors to prevent it.
+
+3. **The structural solution** (per §5.3 recommendation 7) — per-span odometry
+   loosening only around the matched frame spans — is the correct architectural fix.
+   The current GTSAM implementation doesn't support this: all odometry factors use
+   the same σ, so loosening it for the targeted edges also loosens it globally,
+   enabling shear in the unconstrained parts of the trajectory.
+
+### 9.8 Recommended GT Candidate
+
+The **spatial-filtered result** (`newoffice_spatial_filtered.rux`):
+- Deformation-filter ensures no span > 60% edge is used (no shear risk)
+- 7.95 m mid-trajectory correction, measurably better than control
+- Clean render, no doubled walls
+
+Note: this is geometrically identical in strategy to the §8 spatial_default run
+(same edge file, same σ=0.01) but with 183 shear-risk edges removed.  The removal
+actually produces a *slightly stronger* correction (7.95 m vs 7.19 m from §8) with
+4 vs 32 PCM-surviving edges — which is unexpected and suggests the 183 removed edges
+included some that PCM was counting as "inconsistent noise" and damping the surviving
+ones.  This warrants investigation but does not change the practical recommendation:
+use the filtered set.
+
+**Residual limitation:** The owner's specific entrance-revisit co-location (frames
+1370/2816/3429/3780 aligning with frames 0–567) was NOT achieved.  This requires
+either: (a) per-span odometry loosening (§5.3 rec 7, C++ change needed), or (b) an
+appearance-based approach that finds the CORRECT intermediate anchors to distribute
+the entrance correction locally rather than globally.

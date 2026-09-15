@@ -94,6 +94,18 @@ struct BearingRefineOptions {
   double ang_gate = 0.01; ///< inlier angular tolerance (rad)
   int iterations = 10;    ///< Gauss-Newton steps
   int min_inliers = 25;   ///< abandon below this many gated correspondences
+
+  /// Override for the INITIAL inlier gate only (the first call to the gate
+  /// lambda before any Gauss-Newton step runs). 0.0 means "same as ang_gate".
+  ///
+  /// Used by the fix-translation path in PanoramaAlignment: the rotation seed
+  /// Q_best was estimated by PnP using the PnP's OWN translation, so forcing
+  /// the centre to fixed_centre makes most correspondences exceed the tight
+  /// production ang_gate (~0.02 rad) before GN has had a chance to run. A
+  /// looser seed gate lets GN start from a non-empty inlier set; the tight
+  /// ang_gate is used for every subsequent re-gate so final quality is
+  /// unchanged. (See issue #364.)
+  double initial_ang_gate = 0.0;
 };
 
 /// Gauss-Newton refinement of a pano_from_reference pose (@p Q, @p t) over

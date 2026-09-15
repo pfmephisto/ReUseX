@@ -210,6 +210,8 @@ std::vector<int> refine_bearing_pose_rotation_only(
     return -Qc * c_world;
   };
 
+  // Tight gate used for re-gating during and after GN (preserves final
+  // quality).
   auto gate = [&](const Eigen::Matrix3d &Qc) {
     const Eigen::Vector3d tc = t_from_Q(Qc);
     std::vector<int> sel;
@@ -219,7 +221,25 @@ std::vector<int> refine_bearing_pose_rotation_only(
     return sel;
   };
 
-  std::vector<int> inl = gate(Q);
+  // Looser seed gate for the INITIAL inlier assessment only. Used by the
+  // fix-translation path: the PnP rotation seed Q_best was estimated with the
+  // PnP's own translation, not fixed_centre, so forcing the centre to
+  // fixed_centre shifts the predicted bearings and most correspondences exceed
+  // the tight production ang_gate before GN has run. The loose seed gate lets
+  // GN start from a non-empty inlier set; subsequent re-gates use the tight
+  // ang_gate so final quality is unchanged. (issue #364)
+  const double seed_gate =
+      (opt.initial_ang_gate > 0.0) ? opt.initial_ang_gate : opt.ang_gate;
+  auto seed_gate_fn = [&](const Eigen::Matrix3d &Qc) {
+    const Eigen::Vector3d tc = t_from_Q(Qc);
+    std::vector<int> sel;
+    for (size_t k = 0; k < points.size(); ++k)
+      if (bearing_angle(Qc, tc, points[k], bearings[k]) < seed_gate)
+        sel.push_back(static_cast<int>(k));
+    return sel;
+  };
+
+  std::vector<int> inl = seed_gate_fn(Q);
   if (out_initial_inliers)
     *out_initial_inliers = static_cast<int>(inl.size());
   if (static_cast<int>(inl.size()) < opt.min_inliers)

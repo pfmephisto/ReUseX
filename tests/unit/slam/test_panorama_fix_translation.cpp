@@ -233,3 +233,88 @@ TEST_CASE("PanoramaAlignmentResult_DefaultFields_TranslationNotFixed",
   CHECK_THAT(r.delta_from_seed_m, WithinAbs(-1.0, 1e-12));
   CHECK_FALSE(r.aligned);
 }
+
+// ---------------------------------------------------------------------------
+// 5. Regression: production-tight ang_gate with a translation-entangled seed
+//    (the exact failing condition before the issue #364 fix).
+//
+// The fix-translation path seeds the rotation-only GN with Q_best, which was
+// computed by per-slice PnP using the PnP's OWN translation (t_pnp), not the
+// fixed_centre. Forcing the centre to fixed_centre shifts the predicted
+// bearings by an amount proportional to the distance between t_pnp and
+// -Q*fixed_centre. On datasets with SLAM drift this offset can be 1-5 m,
+// shifting bearings by 0.05-0.5 rad at typical indoor depth — far above the
+// production ang_gate (~0.02 rad). All initial inliers collapse to 0 and GN
+// never runs. (See issue #364 for the NewOffice 6→0 regression.)
+//
+// This test reproduces that condition: bearings come from Q_true / c_world,
+// but the solver is seeded with Q_pnp (computed under a centre 3 m away).
+// At the tight production ang_gate the initial count is 0. With the 5x-looser
+// gate that PanoramaAlignment now uses throughout the rotation-only path, GN
+// starts from a non-empty inlier set and converges to Q_true.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("RefineBearingPoseRotationOnly_TightGateWithTranslationEntangledSeed_"
+          "RequiresLooserGate",
+          "[slam][panorama][fix_translation][regression]") {
+  // True scene: panorama at c_world with Q_true orientation.
+  const Eigen::Matrix3d Q_true =
+      rot(Eigen::Vector3d(0.0, 0.0, 1.0), M_PI / 6.0); // 30 deg yaw
+  const Eigen::Vector3d c_world(5.0, 2.0, 1.5);
+
+  SyntheticScene scene(Q_true, c_world);
+
+  // The PnP rotation seed was estimated with the PnP's OWN translation —
+  // a centre 3 m away from the true fixed_centre — and is ~5 deg off Q_true.
+  const Eigen::Matrix3d Q_pnp =
+      rot(Eigen::Vector3d(0.0, 0.0, 1.0), 0.087) * Q_true; // ~5 deg off
+
+  // Production-like tight ang_gate: ~0.02 rad ≈ 1.14 deg.
+  // PanoramaAlignment computes this as 2 * atan(ransac_reproj_px / fx0).
+  constexpr double kTightGate = 0.02;
+  constexpr double kLooseMult = 5.0;
+
+  // --- Tight gate (pre-fix): initial inlier count must be 0 ----------------
+  // The bearing shift from the 3 m centre offset at ~3 m scene depth is
+  // ~0.5 rad, so essentially no inlier survives the 0.02 rad gate.
+  {
+    BearingRefineOptions opt_tight;
+    opt_tight.ang_gate = kTightGate;
+    opt_tight.initial_ang_gate = 0.0; // same as ang_gate — unchanged
+    opt_tight.iterations = 20;
+    opt_tight.min_inliers = 5;
+
+    Eigen::Matrix3d Q = Q_pnp;
+    int init_count = 0;
+    const std::vector<int> inl = refine_bearing_pose_rotation_only(
+        scene.points, scene.bearings, c_world, opt_tight, Q, &init_count);
+    // With the tight gate and the translation-entangled seed, all inliers
+    // fall outside 0.02 rad: init_count must be 0 and the function returns {}.
+    CHECK(init_count == 0);
+    CHECK(inl.empty());
+  }
+
+  // --- Looser gate (post-fix): solver must find inliers and converge --------
+  // PanoramaAlignment now passes 5 * ang_gate to the rotation-only path,
+  // which lets GN start from a non-empty inlier set and converge.
+  {
+    BearingRefineOptions opt_loose;
+    opt_loose.ang_gate = kLooseMult * kTightGate; // 0.10 rad ≈ 5.7 deg
+    opt_loose.initial_ang_gate = 0.0;             // same as ang_gate
+    opt_loose.iterations = 20;
+    opt_loose.min_inliers = 5;
+
+    Eigen::Matrix3d Q = Q_pnp;
+    int init_count = 0;
+    const std::vector<int> inl = refine_bearing_pose_rotation_only(
+        scene.points, scene.bearings, c_world, opt_loose, Q, &init_count);
+    // Solver must find initial inliers and converge to Q_true.
+    CHECK(init_count > 0);
+    REQUIRE_FALSE(inl.empty());
+
+    // Recovered rotation must be close to Q_true.
+    const double err_deg =
+        Eigen::AngleAxisd(Q * Q_true.transpose()).angle() * 180.0 / M_PI;
+    CHECK_THAT(err_deg, WithinAbs(0.0, 2.0));
+  }
+}

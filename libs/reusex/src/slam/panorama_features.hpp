@@ -117,4 +117,21 @@ refine_bearing_pose(const std::vector<Eigen::Vector3d> &points,
                     const BearingRefineOptions &opt, Eigen::Matrix3d &Q,
                     Eigen::Vector3d &t, int *out_initial_inliers = nullptr);
 
+/// Rotation-only variant of refine_bearing_pose: the panorama centre @p c_world
+/// (in world coordinates) is held fixed. Only the rotation @p Q is updated.
+///
+/// The centre enters the residual as `t = -Q * c_world` at each step,
+/// recomputed from the current rotation rather than held as a separate
+/// variable, so the translation DOF is fully suppressed.
+///
+/// @param c_world  fixed panorama centre in world space (from the seed frame
+/// pose)
+/// @param out_initial_inliers  same semantics as refine_bearing_pose
+/// @returns final inlier indices, or empty when below `min_inliers`.
+std::vector<int> refine_bearing_pose_rotation_only(
+    const std::vector<Eigen::Vector3d> &points,
+    const std::vector<Eigen::Vector3d> &bearings,
+    const Eigen::Vector3d &c_world, const BearingRefineOptions &opt,
+    Eigen::Matrix3d &Q, int *out_initial_inliers = nullptr);
+
 } // namespace reusex::geometry::pano_detail

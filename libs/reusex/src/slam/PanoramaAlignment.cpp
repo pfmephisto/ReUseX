@@ -297,16 +297,53 @@ PanoramaAlignmentResult align_panorama(ProjectDB &db, int pano_id,
   }
 
   // --- Gauss-Newton refine pano_from_world (Q,t) over pooled inliers --------
-  // Shared with the loop-edge front-end (pano_detail::refine_bearing_pose):
-  // left perturbation T <- exp(xi) T, residual e = b_hat - b_obs, re-gating the
-  // inlier set as the pose improves.
+  // Two paths depending on opt.fix_translation:
+  //
+  // Default (fix_translation=false):
+  //   Shared with the loop-edge front-end (pano_detail::refine_bearing_pose):
+  //   left perturbation T <- exp(xi) T, residual e = b_hat - b_obs, re-gating
+  //   the inlier set as the pose improves. Full 6-DOF update.
+  //
+  // fix_translation=true:
+  //   The panorama centre is fixed to the seed frame's stored position. Only
+  //   the rotation block is solved
+  //   (pano_detail::refine_bearing_pose_rotation_only). The per-slice PnP
+  //   initial rotation seed (Q_best) is still used; the PnP-estimated
+  //   translation is discarded and replaced with the seed position.
   Eigen::Matrix3d Q = Q_best;
   Eigen::Vector3d t = t_best;
   int initial_inliers = 0;
   const pano_detail::BearingRefineOptions ro{ang_gate, opt.refine_iterations,
                                              opt.min_inliers};
-  const std::vector<int> inl_idx = pano_detail::refine_bearing_pose(
-      pool_pts, pool_bearings, ro, Q, t, &initial_inliers);
+  std::vector<int> inl_idx;
+  // Valid only in the fix_translation path; kept here so the later t-recompute
+  // doesn't need a second DB read.
+  Eigen::Vector3d fixed_centre = Eigen::Vector3d::Zero();
+
+  if (opt.fix_translation) {
+    // Seed the centre from the seed frame's stored pose (world_from_pano
+    // convention: the 4th column of the world_from_cam matrix is the camera
+    // centre in world space). Fail loud if no usable seed pose is available —
+    // without a reliable centre fix_translation mode makes no sense.
+    if (!db.has_sensor_frame_pose(seed_node_id)) {
+      core::warn(
+          "PanoramaAlignment: panorama {} — fix_translation requested "
+          "but seed node {} has no usable stored pose; cannot fix centre",
+          pano_id, seed_node_id);
+      return res;
+    }
+    fixed_centre =
+        to_matrix4(db.sensor_frame_pose(seed_node_id)).block<3, 1>(0, 3);
+    // Recompute t from Q_best and the fixed centre so the initial pose is
+    // consistent with the fixed-centre constraint before refinement begins.
+    t = -Q * fixed_centre;
+    inl_idx = pano_detail::refine_bearing_pose_rotation_only(
+        pool_pts, pool_bearings, fixed_centre, ro, Q, &initial_inliers);
+  } else {
+    inl_idx = pano_detail::refine_bearing_pose(pool_pts, pool_bearings, ro, Q,
+                                               t, &initial_inliers);
+  }
+
   if (initial_inliers < opt.min_inliers) {
     core::debug("PanoramaAlignment: panorama {} — {} pooled inliers < {}",
                 pano_id, initial_inliers, opt.min_inliers);
@@ -324,6 +361,14 @@ PanoramaAlignmentResult align_panorama(ProjectDB &db, int pano_id,
   for (int k : inl_idx)
     inl.push_back(&pool[k]);
 
+  // In fix_translation mode Q has been updated by the rotation-only GN while
+  // `t` was only set before refinement. Recompute t from the final Q and the
+  // cached fixed centre so that bearing_angle() and the world_from_pano
+  // extraction below use a consistent pose. (In the 6-DOF path GN updates
+  // both Q and t together, so this is a no-op there.)
+  if (opt.fix_translation)
+    t = -Q * fixed_centre;
+
   double sq = 0.0;
   for (const Corr *c : inl) {
     const double a = bearing_angle(Q, t, c->world, c->bearing);
@@ -338,54 +383,71 @@ PanoramaAlignmentResult align_panorama(ProjectDB &db, int pano_id,
   T_world_pano.block<3, 3>(0, 0) = R;
   T_world_pano.block<3, 1>(0, 3) = c;
 
-  // Correction relative to the timestamp-seed placement. This is the ONLY use
-  // of the seed's stored pose — the resection itself is driven by the world
-  // points in `pool`, which come from frames that already had to pass
-  // `has_sensor_frame_pose()` inside extract_frame_features() (#336).
+  // Correction relative to the timestamp-seed placement.
   //
-  // With no usable seed pose there is no baseline to measure against:
-  // `sensor_frame_pose()`'s identity fallback would silently make `delta` the
-  // distance from the world origin, which either waves a bad alignment through
-  // or rejects a good one depending on where the scan happens to sit. Report
-  // the delta as unmeasurable and skip the gate rather than gate on a number
-  // that means nothing.
+  // fix_translation mode: the centre IS the seed position by construction, so
+  // delta is definitionally 0 and the plausibility gate is vacuous. Report the
+  // special sentinel so callers can emit informative dry-run output.
+  //
+  // Default mode: the ONLY use of the seed's stored pose here — the resection
+  // itself is driven by the world points in `pool`, which came from frames that
+  // already had to pass `has_sensor_frame_pose()` inside
+  // extract_frame_features() (#336). With no usable seed pose there is no
+  // baseline to measure against: `sensor_frame_pose()`'s identity fallback
+  // would silently make `delta` the distance from the world origin, which
+  // either waves a bad alignment through or rejects a good one depending on
+  // where the scan happens to sit. Report the delta as unmeasurable and skip
+  // the gate rather than gate on a number that means nothing.
   //
   // -1.0 is the field's documented "no seed measurement" sentinel; NaN would
   // poison the caller's running average of the corrections.
-  const bool seed_pose_usable = db.has_sensor_frame_pose(seed_node_id);
   double delta = -1.0;
-  if (seed_pose_usable) {
-    const Eigen::Matrix4d T_seed =
-        to_matrix4(db.sensor_frame_pose(seed_node_id));
-    delta = (c - T_seed.block<3, 1>(0, 3)).norm();
+  if (opt.fix_translation) {
+    // Centre came from the seed — has_sensor_frame_pose() was already checked
+    // above and returned early if missing.
+    delta = 0.0;
+    res.translation_fixed = true;
   } else {
-    core::warn("PanoramaAlignment: panorama {} — seed node {} has no usable "
-               "stored pose, so the {:.1f} m plausibility gate cannot be "
-               "applied to this alignment",
-               pano_id, seed_node_id, opt.max_correction_m);
+    const bool seed_pose_usable = db.has_sensor_frame_pose(seed_node_id);
+    if (seed_pose_usable) {
+      const Eigen::Matrix4d T_seed =
+          to_matrix4(db.sensor_frame_pose(seed_node_id));
+      delta = (c - T_seed.block<3, 1>(0, 3)).norm();
+    } else {
+      core::warn("PanoramaAlignment: panorama {} — seed node {} has no usable "
+                 "stored pose, so the {:.1f} m plausibility gate cannot be "
+                 "applied to this alignment",
+                 pano_id, seed_node_id, opt.max_correction_m);
+    }
+    // Plausibility gate: an implausibly large correction means the bearing
+    // resection was ill-conditioned (narrow match cone) rather than a real fix.
+    if (seed_pose_usable && opt.max_correction_m > 0.0 &&
+        delta > opt.max_correction_m) {
+      core::debug(
+          "PanoramaAlignment: panorama {} rejected — {:.1f} m correction "
+          "exceeds {:.1f} m gate ({} inliers, {:.3f} deg RMS; likely "
+          "ill-conditioned)",
+          pano_id, delta, opt.max_correction_m, static_cast<int>(inl.size()),
+          rms_rad * 180.0 / M_PI);
+      return res; // aligned stays false -> keep timestamp placement
+    }
   }
   res.delta_from_seed_m = delta;
-
-  // Plausibility gate: an implausibly large correction means the bearing
-  // resection was ill-conditioned (narrow match cone) rather than a real fix.
-  if (seed_pose_usable && opt.max_correction_m > 0.0 &&
-      delta > opt.max_correction_m) {
-    core::debug("PanoramaAlignment: panorama {} rejected — {:.1f} m correction "
-                "exceeds {:.1f} m gate ({} inliers, {:.3f} deg RMS; likely "
-                "ill-conditioned)",
-                pano_id, delta, opt.max_correction_m,
-                static_cast<int>(inl.size()), rms_rad * 180.0 / M_PI);
-    return res; // aligned stays false -> keep timestamp placement
-  }
 
   res.aligned = true;
   res.inliers = static_cast<int>(inl.size());
   res.rms_deg = rms_rad * 180.0 / M_PI;
   res.pose = from_matrix4(T_world_pano);
 
-  core::info("PanoramaAlignment: panorama {} aligned — {} inliers, {:.3f} deg "
-             "RMS, {:.3f} m from seed",
-             pano_id, res.inliers, res.rms_deg, res.delta_from_seed_m);
+  if (res.translation_fixed) {
+    core::info("PanoramaAlignment: panorama {} aligned (rotation-only, "
+               "translation fixed to seed) — {} inliers, {:.3f} deg RMS",
+               pano_id, res.inliers, res.rms_deg);
+  } else {
+    core::info("PanoramaAlignment: panorama {} aligned — {} inliers, {:.3f} "
+               "deg RMS, {:.3f} m from seed",
+               pano_id, res.inliers, res.rms_deg, res.delta_from_seed_m);
+  }
 
   // Optional correspondence figure: pick the (slice, frame) pair contributing
   // the most inliers and draw the matches between the panorama slice and that

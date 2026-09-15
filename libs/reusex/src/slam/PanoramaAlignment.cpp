@@ -313,8 +313,34 @@ PanoramaAlignmentResult align_panorama(ProjectDB &db, int pano_id,
   Eigen::Matrix3d Q = Q_best;
   Eigen::Vector3d t = t_best;
   int initial_inliers = 0;
-  const pano_detail::BearingRefineOptions ro{ang_gate, opt.refine_iterations,
-                                             opt.min_inliers};
+  // In fix-translation mode the rotation seed Q_best was estimated by PnP using
+  // the PnP's OWN translation, not fixed_centre. Forcing the centre to
+  // fixed_centre shifts the predicted bearings by an amount proportional to the
+  // distance between t_pnp and the fixed seed position. On real datasets with
+  // SLAM drift this offset can be 1-5 m, shifting bearings by 0.05-0.5 rad at
+  // typical indoor scene depth (2-10 m) — far above the tight production
+  // ang_gate (~0.02 rad). Using ang_gate for the rotation-only path therefore
+  // collapses the initial inlier count to 0 and GN never runs. (issue #364)
+  //
+  // Fix (Option A): for the rotation-only path, use a 5x looser gate throughout
+  // (both the initial seed assessment and the GN re-gate and final gate). The
+  // 5x multiplier (≈0.10 rad ≈ 5.7 deg) is consistent with the accepted-pose
+  // quality bar for fix-translation: the rotation is solved under a centre that
+  // may be tens of centimetres from the true panorama position, so residuals
+  // below 0.10 rad are still geometrically meaningful. The tight gate is kept
+  // unchanged for the 6-DoF path, so no-flag behaviour is byte-for-byte
+  // identical.
+  const double rot_only_gate = opt.fix_translation ? 5.0 * ang_gate : ang_gate;
+  // For the rotation-only path, allow GN to start from a smaller initial
+  // inlier set (min_inliers / 2, floor 5) so that borderline panoramas get a
+  // chance to converge. The full opt.min_inliers threshold is enforced on the
+  // FINAL inlier count (checked after GN in PanoramaAlignment). The 6-DoF path
+  // is unchanged (ro.min_inliers == opt.min_inliers).
+  const int rot_only_min =
+      opt.fix_translation ? std::max(5, opt.min_inliers / 2) : opt.min_inliers;
+  pano_detail::BearingRefineOptions ro{rot_only_gate, opt.refine_iterations,
+                                       rot_only_min};
+  ro.initial_ang_gate = 0.0;
   std::vector<int> inl_idx;
   // Valid only in the fix_translation path; kept here so the later t-recompute
   // doesn't need a second DB read.
@@ -344,7 +370,14 @@ PanoramaAlignmentResult align_panorama(ProjectDB &db, int pano_id,
                                                t, &initial_inliers);
   }
 
-  if (initial_inliers < opt.min_inliers) {
+  // In the 6-DoF path the refinement function enforces opt.min_inliers
+  // internally, so initial_inliers < opt.min_inliers is a reliable early-exit
+  // signal (the function already returned {} and inl_idx is empty).
+  //
+  // In the rotation-only path ro.min_inliers was lowered to rot_only_min to
+  // allow GN to start from a smaller initial inlier set. The FINAL acceptance
+  // threshold is still opt.min_inliers and is checked on inl_idx.size() below.
+  if (!opt.fix_translation && initial_inliers < opt.min_inliers) {
     core::debug("PanoramaAlignment: panorama {} — {} pooled inliers < {}",
                 pano_id, initial_inliers, opt.min_inliers);
     return res;
@@ -353,6 +386,16 @@ PanoramaAlignmentResult align_panorama(ProjectDB &db, int pano_id,
     core::debug("PanoramaAlignment: panorama {} — refinement fell below {} "
                 "inliers (started at {})",
                 pano_id, opt.min_inliers, initial_inliers);
+    return res;
+  }
+  // Enforce the full opt.min_inliers threshold on the final inlier count for
+  // the rotation-only path (the function used a lower rot_only_min internally).
+  if (opt.fix_translation &&
+      static_cast<int>(inl_idx.size()) < opt.min_inliers) {
+    core::debug("PanoramaAlignment: panorama {} — rotation-only final inlier "
+                "count {} < {} (started at {})",
+                pano_id, static_cast<int>(inl_idx.size()), opt.min_inliers,
+                initial_inliers);
     return res;
   }
 

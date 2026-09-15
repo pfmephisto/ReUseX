@@ -103,6 +103,16 @@ python3 tools/loop_edges/export_loop_edges.py PROJECT.rux \
 # Target a start<->end drift loop the spatial proposer is blind to
 ... --proposal endcap --band-frac 0.15
 
+# Intra-building revisits: same room, different time (--proposal spatial)
+# Proposes pairs whose seed-pose camera centres are within --spatial-radius metres
+# and whose frame indices differ by at least --min-frame-gap.
+# DRIFT CAVEAT: if accumulated drift > room radius, revisits may appear far apart
+# in the seed poses; increase --spatial-radius (5-8 m) or use appearance retrieval.
+~/loop-edges-work/mast3r/.venv/bin/python tools/loop_edges/export_loop_edges.py \
+    PROJECT.rux -o edges-spatial.json --matcher mast3r --allow-noncommercial \
+    --proposal spatial --spatial-radius 3.0 --min-frame-gap 300 \
+    --stride 4 --max-pairs 2000
+
 # MASt3R oracle (research/eval only)
 ~/loop-edges-work/mast3r/.venv/bin/python tools/loop_edges/export_loop_edges.py \
     PROJECT.rux -o edges-mast3r.json --matcher mast3r --allow-noncommercial

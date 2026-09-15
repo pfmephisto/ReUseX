@@ -318,3 +318,106 @@ TEST_CASE("RefineBearingPoseRotationOnly_TightGateWithTranslationEntangledSeed_"
     CHECK_THAT(err_deg, WithinAbs(0.0, 2.0));
   }
 }
+
+// ---------------------------------------------------------------------------
+// 6. Gravity-alignment check: the upside-down PnP seed detection.
+//
+// PanoramaAlignment rejects an alignment whose PnP-initialised Q_best has its
+// pano_Y axis (row 1 of Q, = pano down expressed in world) anti-aligned with
+// the seed frame's camera-Y (column 1 of the seed frame's rotation block).
+// Both should point in the gravity direction; a negative dot product means
+// the PnP converged to the upside-down local minimum.
+//
+// This test pins the geometric computation that implements the check:
+//   down_dot = Q_best.row(1).dot(seed_T.block<3,1>(0,1)) < 0 → reject
+//
+// and confirms that:
+//   (a) a correctly-oriented Q_best (pano_Y ≈ gravity) gives down_dot > 0
+//   (b) an upside-down Q_best (pano_Y ≈ anti-gravity) gives down_dot < 0
+//   (c) a 180-deg Z-flip of the upside-down Q gives down_dot > 0 again
+//       (confirming the flip is the right correction geometrically, even though
+//       the GN cannot converge from there when only equatorial features exist)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("GravityAlignmentCheck_CorrectVsUpsideDownPnPSeed_DetectsFlip",
+          "[slam][panorama][gravity]") {
+  // Gravity is +Z in world (a common RTABMap convention for indoors).
+  // The seed camera is oriented so that:
+  //   - cam_Y (down) points mostly in +Z world (gravity direction)
+  //   - cam_Z (forward) is roughly horizontal
+  // This mirrors the real NewOffice sensor frames (average cam_Y·Z ≈ +0.85).
+  const Eigen::Vector3d gravity_world(0.0, 0.0, 1.0);
+
+  // Build a seed frame rotation (world_from_cam) with cam_Y ≈ gravity:
+  //   cam_Z (forward) = +X world, cam_X (right) = +Y world, cam_Y (down) = +Z
+  Eigen::Matrix3d R_seed;
+  R_seed.col(0) = Eigen::Vector3d(0.0, 1.0, 0.0); // cam_X = world +Y
+  R_seed.col(1) = Eigen::Vector3d(0.0, 0.0, 1.0); // cam_Y = world +Z (gravity)
+  R_seed.col(2) = Eigen::Vector3d(1.0, 0.0, 0.0); // cam_Z = world +X (forward)
+  // seed_T_world_cam with identity translation:
+  Eigen::Matrix4d seed_T = Eigen::Matrix4d::Identity();
+  seed_T.block<3, 3>(0, 0) = R_seed;
+  const Eigen::Vector3d seed_down_world =
+      seed_T.block<3, 1>(0, 1); // column 1 = cam_Y in world
+
+  REQUIRE_THAT(seed_down_world.dot(gravity_world),
+               WithinAbs(1.0, 1e-9)); // cam_Y IS gravity
+
+  // (a) A correctly-oriented panorama: Q = R_seed^T (pano_from_world ≈
+  // world_from_cam^T).
+  //     pano_Y in world = row 1 of Q = col 1 of Q^T = col 1 of R_seed = cam_Y.
+  const Eigen::Matrix3d Q_correct = R_seed.transpose();
+  const Eigen::Vector3d pano_down_correct = Q_correct.row(1).transpose();
+  const double dot_correct = pano_down_correct.dot(seed_down_world);
+  CHECK(dot_correct > 0.0); // correctly aligned → accept
+
+  // (b) An upside-down panorama: 180-deg roll about Z axis of the pano frame.
+  //     diag(-1,-1,+1) applied on the left flips rows 0 and 1 of Q.
+  Eigen::Matrix3d Q_updown = Q_correct;
+  Q_updown.row(0) = -Q_updown.row(0);
+  Q_updown.row(1) = -Q_updown.row(1);
+  const Eigen::Vector3d pano_down_updown = Q_updown.row(1).transpose();
+  const double dot_updown = pano_down_updown.dot(seed_down_world);
+  CHECK(dot_updown < 0.0); // anti-aligned → detect and reject
+
+  // (c) The Z-flip corrects the down direction: diag(-1,-1,+1)*Q_updown =
+  // Q_correct.
+  Eigen::Matrix3d Q_reflipped = Q_updown;
+  Q_reflipped.row(0) = -Q_reflipped.row(0);
+  Q_reflipped.row(1) = -Q_reflipped.row(1);
+  const Eigen::Vector3d pano_down_reflipped = Q_reflipped.row(1).transpose();
+  const double dot_reflipped = pano_down_reflipped.dot(seed_down_world);
+  CHECK(dot_reflipped > 0.0); // correct again after double flip
+  // Round-trip: diag(-1,-1,1)^2 = I → Q_reflipped must equal Q_correct.
+  CHECK_THAT((Q_reflipped - Q_correct).norm(), WithinAbs(0.0, 1e-12));
+}
+
+TEST_CASE("GravityAlignmentCheck_RotationAxisConvention_RowOneIsDownInWorld",
+          "[slam][panorama][gravity]") {
+  // Verifies that row 1 of Q = pano_from_world gives the panorama's Y-axis
+  // (down direction) in world coordinates.
+  //
+  // For Q = I (panorama frame = world frame), pano_Y in world = [0,1,0] world.
+  // Row 1 of I = [0,1,0] ✓.
+  const Eigen::Matrix3d Q = Eigen::Matrix3d::Identity();
+  const Eigen::Vector3d pano_down_world = Q.row(1).transpose();
+  REQUIRE_THAT((pano_down_world - Eigen::Vector3d(0, 1, 0)).norm(),
+               WithinAbs(0.0, 1e-12));
+
+  // For a 90-deg rotation around Z (pano Z = world Z, yaw-only), pano_Y
+  // rotates from world +Y to world -X in the panorama frame, but:
+  // Q_yaw90 = Rz(-90) (pano_from_world, rotating world into pano), so world +Y
+  // maps to pano... let's just verify the formula is geometrically consistent.
+  // Q maps world vectors into pano frame: pano_v = Q * world_v.
+  // Pano_Y_in_world is the world vector whose pano representation is [0,1,0]:
+  //   Q * pano_Y_world = [0,1,0]  =>  pano_Y_world = Q^T * [0,1,0] = col 1 of
+  //   Q^T = row 1 of Q.
+  // This must equal Q.row(1).  Verified for identity above; check for a
+  // rotation:
+  const Eigen::Matrix3d Q2 =
+      Eigen::AngleAxisd(0.3, Eigen::Vector3d::UnitZ()).toRotationMatrix();
+  const Eigen::Vector3d pano_Y_in_world_v2 = Q2.row(1).transpose();
+  // Alternative: solve Q2 * v = [0,1,0] -> v = Q2^T * [0,1,0]:
+  const Eigen::Vector3d expected = Q2.transpose() * Eigen::Vector3d(0, 1, 0);
+  REQUIRE_THAT((pano_Y_in_world_v2 - expected).norm(), WithinAbs(0.0, 1e-12));
+}

@@ -279,6 +279,51 @@ PanoramaAlignmentResult align_panorama(ProjectDB &db, int pano_id,
     return res;
   }
 
+  // --- gravity-alignment check on the PnP seed rotation --------------------
+  // The per-slice PnP can converge to an upside-down local minimum when matched
+  // features are concentrated near the equatorial band and provide no vertical
+  // leverage — a known degeneracy of bearing resection without a gravity prior.
+  // The bearing-space GN then inherits that flipped seed and stores an
+  // upside-down pose.
+  //
+  // We detect this by comparing the panorama's Y-axis (camera down, +Y_pano)
+  // in world space, as implied by Q_best, against the seed frame's camera down
+  // direction. Both should be co-oriented (dot product > 0) because both
+  // cameras observe the same gravity direction. A negative dot product means
+  // the PnP picked the upside-down solution.
+  //
+  // The equatorial-band features that produced the flipped Q_best are
+  // ambiguous: a 180-deg flip leaves their AZIMUTHAL positions unchanged while
+  // inverting elevation, so a corrected initial Q predicts those same features
+  // at opposite azimuth — far outside any angular gate, and GN will not
+  // converge from there. Accordingly, the correct action when the upside-down
+  // case is detected is to REJECT the alignment (return without setting
+  // res.aligned) rather than to flip and retry. The owner will see these
+  // panoramas with their timestamp-based fallback poses rather than with a
+  // geometrically wrong aligned pose. (See issue #364.)
+  //
+  // This guard is skipped when no usable seed pose is available; the 6-DOF
+  // path also applies it so that an inverted Q_best does not seed a bad GN
+  // trajectory there either.
+  if (db.has_sensor_frame_pose(seed_node_id)) {
+    const Eigen::Matrix4d T_seed =
+        to_matrix4(db.sensor_frame_pose(seed_node_id));
+    // Seed camera's Y (down) in world — column 1 of the rotation block.
+    const Eigen::Vector3d seed_down_world = T_seed.block<3, 1>(0, 1);
+    // Panorama's Y (down) in world — from Q_best = pano_from_world:
+    //   column 1 of world_from_pano = column 1 of Q_best^T = row 1 of Q_best.
+    const Eigen::Vector3d pano_down_world = Q_best.row(1).transpose();
+    const double down_dot = pano_down_world.dot(seed_down_world);
+    if (down_dot < 0.0) {
+      core::debug(
+          "PanoramaAlignment: panorama {} rejected — PnP seed is upside-down "
+          "(pano_down·seed_down={:.3f} < 0); equatorial-band features are "
+          "ambiguous about vertical orientation",
+          pano_id, down_dot);
+      return res; // keeps res.aligned = false → timestamp-based fallback
+    }
+  }
+
   // --- gate the pool by consistency with the initial pose -------------------
   // angular threshold from the slice reprojection tolerance (small-angle),
   // relaxed 2x to admit the honest inliers of the other slices.

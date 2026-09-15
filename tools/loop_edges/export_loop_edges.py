@@ -69,6 +69,46 @@ class Frame:
         self.K = K  # 3x3
 
 
+def read_seed_positions(db_path):
+    """Read stored (possibly drifted) camera positions for all sensor frames.
+
+    Returns a list of (node_id, xyz) in node_id order, aligned with the frame
+    list that read_frames() returns at stride=1.  The transform blob is a
+    row-major float64 4x4 camera-to-world matrix; only the translation column
+    (last column, first three rows) is extracted here.
+
+    NOTE: These are the *seed* poses baked into the .rux at import time.  For
+    scans with significant accumulated drift, a room that was revisited late in
+    the trajectory may appear metres away from its early-visit position in this
+    coordinate frame.  The spatial proposal therefore uses a generous radius
+    (see --spatial-radius) and pairs by seed-pose proximity as a *heuristic*
+    that works well for low-to-moderate drift but is blind to heavily drifted
+    revisits.  For those, an appearance-based approach (e.g., NetVLAD or
+    DINOv2 image retrieval) would be needed — see §8.2 of the investigation
+    doc for the recommended follow-up."""
+    con = sqlite3.connect(db_path)
+    cur = con.cursor()
+    cur.execute(
+        "SELECT node_id, transform FROM sensor_frames "
+        "WHERE color IS NOT NULL AND depth IS NOT NULL ORDER BY node_id"
+    )
+    rows = cur.fetchall()
+    con.close()
+
+    positions = []
+    for node_id, transform_data in rows:
+        if transform_data is None:
+            positions.append((node_id, None))
+            continue
+        arr = np.frombuffer(transform_data, dtype=np.float64)
+        if len(arr) == 16:
+            xyz = arr.reshape(4, 4)[:3, 3].copy()
+        else:
+            xyz = None
+        positions.append((node_id, xyz))
+    return positions
+
+
 def read_frames(db_path, stride=1, max_frames=None):
     con = sqlite3.connect(db_path)
     cur = con.cursor()
@@ -190,16 +230,67 @@ def edge_sigmas(inliers, ref, base_t, base_r, floor_t, floor_r):
 # --------------------------------------------------------------------------- #
 # Candidate proposal                                                          #
 # --------------------------------------------------------------------------- #
-def propose_pairs(n, min_gap, max_pairs, rng, mode="exhaustive", band_frac=0.15):
+def propose_pairs(
+    n,
+    min_gap,
+    max_pairs,
+    rng,
+    mode="exhaustive",
+    band_frac=0.15,
+    positions=None,
+    spatial_radius=3.0,
+):
     """Candidate loop pairs.
-    exhaustive: every (i,j) with j-i>min_gap.
-    endcap:     first band x last band only — targets the start<->end revisit a
-                drifting scan cannot close. Spatial (seed-pose) proposal is blind
-                to it because the drift pulls the true partners far apart in the
-                stored poses, so we pair by frame INDEX position instead."""
+
+    exhaustive: every (i,j) with j-i>min_gap.  O(N²) — only tractable for
+                small scans; use --max-pairs to cap it.
+
+    endcap:     first band × last band only — targets the start↔end revisit a
+                drifting scan cannot close.  Spatial (seed-pose) proximity is
+                BLIND to it because accumulated drift pulls the true partners
+                far apart in the stored poses, so we pair by frame-INDEX
+                position instead.
+
+    spatial:    pairs whose stored seed-pose camera centres are within
+                `spatial_radius` metres AND whose frame indices differ by at
+                least `min_gap`.  This surfaces intra-building revisits (same
+                room seen at different times) that are completely invisible to
+                the endcap strategy.
+
+                DRIFT CAVEAT: for scans with large accumulated drift (>half
+                the room diameter) the early and late visits to the same room
+                will appear far apart in seed-pose space, so `spatial_radius`
+                must be set generously enough to still find them.  The default
+                3 m works for low-to-moderate drift; increase to 5–8 m for
+                heavily drifted scans at the cost of more false proposals.  For
+                very large drift an appearance-based retrieval (e.g., DINOv2)
+                is needed instead — see §8.2 of the investigation doc.
+
+                `positions` must be supplied when mode='spatial'; it is a list
+                of (node_id, xyz_or_None) aligned with the subsampled frame
+                list (i.e., already respecting --stride / --max-frames).
+    """
     if mode == "endcap":
         b = max(1, int(n * band_frac))
         pairs = [(i, j) for i in range(b) for j in range(n - b, n) if j - i > min_gap]
+    elif mode == "spatial":
+        if positions is None:
+            raise ValueError("mode='spatial' requires positions to be provided")
+        pos = np.array(
+            [p if p is not None else [np.nan, np.nan, np.nan] for p in positions],
+            dtype=np.float64,
+        )
+        valid = np.all(np.isfinite(pos), axis=1)
+        pairs = []
+        for i in range(n):
+            if not valid[i]:
+                continue
+            for j in range(i + min_gap, n):
+                if not valid[j]:
+                    continue
+                d = np.linalg.norm(pos[i] - pos[j])
+                if d <= spatial_radius:
+                    pairs.append((i, j))
     else:
         pairs = [(i, j) for i in range(n) for j in range(i + 1, n) if j - i > min_gap]
     if max_pairs and len(pairs) > max_pairs:
@@ -224,9 +315,21 @@ def main():
         choices=["orb", "xfeat", "lightglue", "mast3r", "mapanything"],
     )
     ap.add_argument(
-        "--proposal", default="exhaustive", choices=["exhaustive", "endcap"]
+        "--proposal",
+        default="exhaustive",
+        choices=["exhaustive", "endcap", "spatial"],
     )
     ap.add_argument("--band-frac", type=float, default=0.15, help="endcap band size")
+    ap.add_argument(
+        "--spatial-radius",
+        type=float,
+        default=3.0,
+        help="seed-pose proximity radius in metres for --proposal spatial. "
+        "Pairs whose stored camera centres are within this distance AND whose "
+        "frame indices differ by at least --min-frame-gap are proposed. "
+        "Generous values (5-8 m) help find revisits in heavily drifted scans "
+        "at the cost of more false proposals. Default: 3.0 m.",
+    )
     ap.add_argument("--min-frame-gap", type=int, default=50)
     ap.add_argument("--min-inliers", type=int, default=40)
     ap.add_argument("--ransac-thresh", type=float, default=0.10, help="3D-3D (m)")
@@ -259,6 +362,22 @@ def main():
     if len(frames) < 2:
         sys.exit("need >= 2 frames")
 
+    # For the spatial proposal, read stored seed poses (needed before propose_pairs).
+    # We read ALL poses from the DB and align them to the subsampled frame list by
+    # matching on node_id so the indexing stays consistent with the frames list.
+    positions = None
+    if args.proposal == "spatial":
+        all_seed = read_seed_positions(args.project)
+        # Build a node_id → xyz lookup; the frames list is a subset of all frames
+        # (due to stride / max_frames), so we extract positions in that order.
+        seed_map = {nid: xyz for nid, xyz in all_seed}
+        positions = [seed_map.get(f.node_id) for f in frames]
+        n_with_pos = sum(1 for p in positions if p is not None)
+        print(
+            f"[spatial] loaded seed poses for {n_with_pos}/{len(frames)} frames "
+            f"(radius={args.spatial_radius:.1f}m)"
+        )
+
     pairs = propose_pairs(
         len(frames),
         args.min_frame_gap,
@@ -266,6 +385,8 @@ def main():
         rng,
         mode=args.proposal,
         band_frac=args.band_frac,
+        positions=positions,
+        spatial_radius=args.spatial_radius,
     )
     print(
         f"[propose] {len(pairs)} candidate pairs "
@@ -319,10 +440,19 @@ def main():
         "sensor_frames.node_id",
         "params": {
             "matcher": args.matcher,
+            "proposal": args.proposal,
             "min_frame_gap": args.min_frame_gap,
             "min_inliers": args.min_inliers,
             "ransac_thresh_m": args.ransac_thresh,
             "stride": args.stride,
+            **(
+                {
+                    "spatial_radius_m": args.spatial_radius,
+                    "band_frac": args.band_frac,
+                }
+                if args.proposal in ("spatial", "endcap")
+                else {}
+            ),
         },
         "edges": edges,
     }

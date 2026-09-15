@@ -78,6 +78,24 @@ struct PanoramaAlignmentOptions {
   double max_correction_m = 5.0;
   unsigned seed = 42;
 
+  /// Fix the panorama centre to the timestamp-seed frame's stored position and
+  /// solve for rotation only.
+  ///
+  /// When set:
+  ///   - The centre (t in pano_from_world) is seeded directly from
+  ///     `sensor_frame_pose(seed_node_id)` and held fixed throughout.
+  ///   - The Gauss-Newton bearing refinement updates ONLY the rotation block;
+  ///     the translation degree of freedom is suppressed.
+  ///   - `delta_from_seed_m` is always 0 — the centre is definitionally the
+  ///     seed, so the `max_correction_m` plausibility gate is vacuous and the
+  ///     dry-run output says "translation fixed (seed node position)" instead.
+  ///
+  /// Default false for backward-compatibility. Recommended when EXIF timestamps
+  /// are reliable (the panorama was captured at the same location as the
+  /// matched sensor frame, so the seed position is an accurate prior; only
+  /// orientation is uncertain).
+  bool fix_translation = false;
+
   /// If non-empty, write an ORB-correspondence figure (panorama slice <-> the
   /// best-matching sensor frame, inlier matches drawn) for each aligned
   /// panorama to `<debug_dir>/<debug_name>_matches.jpg`.
@@ -100,7 +118,13 @@ struct PanoramaAlignmentResult {
   /// no seed, or when the seed frame carries no usable stored pose to measure
   /// against (#336) — in which case the `max_correction_m` plausibility gate
   /// is skipped and a warning names the frame.
+  /// Always 0.0 when `PanoramaAlignmentOptions::fix_translation` was set.
   double delta_from_seed_m = -1.0;
+  /// True when the panorama centre was fixed to the seed frame's stored
+  /// position (PanoramaAlignmentOptions::fix_translation). Callers use this
+  /// to emit "translation fixed (seed node position)" in dry-run output
+  /// rather than a misleading delta of 0.
+  bool translation_fixed = false;
 };
 
 /// Align one panorama against nearby sensor frames. Read-only on @p db (does

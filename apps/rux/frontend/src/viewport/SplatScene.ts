@@ -135,7 +135,12 @@ export class SplatScene {
 
     const viewer = new DropInViewer({
       sharedMemoryForWorkers: false,
-      gpuAcceleratedSort: true,
+      // GPU-accelerated sort uses WebGL transform feedback to precompute
+      // distances. When the GPU has very little free VRAM (e.g. because another
+      // process is using it), the WebGL allocation can fail silently, causing the
+      // sort promise to never resolve. CPU sort via the WASM worker is slower but
+      // works unconditionally.
+      gpuAcceleratedSort: false,
       dynamicScene: false,
       // The scan is the subject, not a reveal animation; and a gradual reveal
       // on a layer the user just switched on reads as a slow load.

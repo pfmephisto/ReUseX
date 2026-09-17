@@ -35,17 +35,19 @@ namespace reusex::core {
 /// a stage's inputs may only be produced by a *strictly earlier* stage, which
 /// is asserted by tests/unit/core/test_stage_contract.cpp.
 enum class PipelineStage {
-  import,    ///< extract raw sensor frames from a scan
-  optimize,  ///< refine per-frame sensor poses (a.k.a. register)
-  clouds,    ///< back-project sensor frames into "cloud" + "normals"
-  annotate,  ///< ML semantic labelling of the stored frames
-  project,   ///< project 2D semantic labels onto the 3D cloud
-  planes,    ///< detect planar surfaces
-  rooms,     ///< partition into rooms
-  instances, ///< separate semantic labels into spatial instances
-  mesh,      ///< generate the reconstructed mesh
-  texture,   ///< texture-map the reconstructed mesh
-  windows,   ///< derive window building components
+  import,     ///< extract raw sensor frames from a scan
+  optimize,   ///< refine per-frame sensor poses (a.k.a. register)
+  clouds,     ///< back-project sensor frames into "cloud" + "normals"
+  annotate,   ///< ML semantic labelling of the stored frames
+  project,    ///< project 2D semantic labels onto the 3D cloud
+  planes,     ///< detect planar surfaces
+  rooms,      ///< partition into rooms
+  instances,  ///< separate semantic labels into spatial instances
+  mesh,       ///< generate the reconstructed mesh
+  texture,    ///< texture-map the reconstructed mesh
+  windows,    ///< derive window building components
+  materials,  ///< create one material passport per instance + link it
+  attributes, ///< VLM-derived per-material annotations (description + kv)
   // `gsplat` consumes `cloud` + `sensor_frames`, so anywhere after `clouds`
   // would satisfy the ordering invariant. It sits last because it is a LEAF:
   // it produces a `splat` nothing else consumes, so putting it mid-table would

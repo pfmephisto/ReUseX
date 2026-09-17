@@ -206,7 +206,7 @@ class ProjectDB::Impl {
   sqlite3 *db = nullptr;
 
   // cppcheck-suppress unusedStructMember
-  static constexpr int LATEST_SCHEMA_VERSION = 12;
+  static constexpr int LATEST_SCHEMA_VERSION = 13;
 
   // Maximum bytes per point_cloud_data row. SQLite's default SQLITE_MAX_LENGTH
   // is 1 GB and the hard compile-time max is 2 GB-1. We chunk large clouds
@@ -411,6 +411,10 @@ class ProjectDB::Impl {
 
     if (current < 12) {
       migrateToV12();
+    }
+
+    if (current < 13) {
+      migrateToV13();
     }
 
     reusex::trace("Schema version: {}", getCurrentSchemaVersion());
@@ -1066,6 +1070,71 @@ class ProjectDB::Impl {
 
     insertSchemaVersion(12, "Add gaussian_splats + gaussian_splat_data");
     reusex::info("Migration to schema version 12 complete");
+  }
+
+  void migrateToV13() {
+    reusex::info("Migrating database to schema version 13");
+
+    // Material-keyed VLM-derived annotations (#373). `rux create attributes`
+    // iterates the project's material passports; for each material it resolves
+    // the instance(s) it is linked to (via `instance_materials`), crops the
+    // best sensor view of those points, asks an OpenAI-compatible
+    // vision-language endpoint to describe the material, and records the
+    // free-text answer + an arbitrary key/value set here so a MaterialPassport
+    // can be seeded from it.
+    //
+    // Keyed on `material_guid` — the same identity that `material_passports`
+    // exposes as `document_guid` and that `instance_materials.material_guid`
+    // links to. Referential integrity onto the OWNING material is load-bearing:
+    // deleting a passport (`delete_material_passport`, which the CASCADE from
+    // `material_passports` reaches through `instance_materials`) or otherwise
+    // removing the material must not leave a dangling annotation keyed to a
+    // GUID nothing owns any more (STANDARDS §3.2). Because `material_passports`
+    // has no compound PK we can hang a two-column FK from, we use a plain FK
+    // from `material_annotations.material_guid` onto
+    // `material_passports(document_guid)` ON DELETE CASCADE (document_guid is
+    // UNIQUE, which SQLite accepts as an FK parent). `save_material_annotation`
+    // additionally enforces the GUID exists BEFORE inserting, so a nonexistent
+    // material is rejected loudly rather than silently written.
+    //
+    // The arbitrary attributes are stored as queryable rows in a child table
+    // `material_annotation_kv`, keyed (material_guid, key), FK-cascading off
+    // `material_annotations` so re-describing or deleting a material clears its
+    // key/value rows too. `raw_json` preserves the model's full response for
+    // provenance; `provider_model` records which endpoint+model produced it.
+    const char *v13_schema = R"(
+      CREATE TABLE IF NOT EXISTS material_annotations (
+        material_guid  TEXT PRIMARY KEY
+          REFERENCES material_passports(document_guid) ON DELETE CASCADE,
+        description    TEXT,
+        provider_model TEXT,
+        raw_json       TEXT,
+        created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE IF NOT EXISTS material_annotation_kv (
+        material_guid  TEXT NOT NULL,
+        key            TEXT NOT NULL,
+        value          TEXT,
+        PRIMARY KEY (material_guid, key),
+        FOREIGN KEY (material_guid)
+          REFERENCES material_annotations(material_guid) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_material_annotation_kv_guid
+        ON material_annotation_kv(material_guid);
+    )";
+
+    char *errMsg = nullptr;
+    if (sqlite3_exec(db, v13_schema, nullptr, nullptr, &errMsg) != SQLITE_OK) {
+      std::string error = errMsg ? errMsg : "unknown error";
+      sqlite3_free(errMsg);
+      throw std::runtime_error("Migration to v13 failed: " + error);
+    }
+
+    insertSchemaVersion(
+        13, "Add material_annotations + material_annotation_kv tables");
+    reusex::info("Migration to schema version 13 complete");
   }
 
   // Parse the semantic class id from an instance definition name of the form
@@ -2701,6 +2770,161 @@ class ProjectDB::Impl {
         result[id] = g;
     }
     return result;
+  }
+
+  // ── Material annotation CRUD ────────────────────────────────────────
+
+  void saveMaterialAnnotation(std::string_view materialGuid,
+                              const ProjectDB::MaterialAnnotation &annotation) {
+    // Referential integrity: the material passport must exist so an annotation
+    // row can never dangle (STANDARDS §3.2, §5). The attributes stage runs
+    // after `rux create materials`, which writes the `material_passports` and
+    // `instance_materials` tables.
+    if (!passportExists(materialGuid))
+      throw std::runtime_error(fmt::format(
+          "save_material_annotation: material passport '{}' does not exist "
+          "(run 'rux create materials' first)",
+          materialGuid));
+
+    auto bindTextOrNull = [&](sqlite3_stmt *stmt, int col,
+                              const std::string &s) {
+      if (s.empty())
+        sqlite3_bind_null(stmt, col);
+      else
+        sqlite3_bind_text(stmt, col, s.data(), static_cast<int>(s.size()),
+                          SQLITE_TRANSIENT);
+    };
+
+    // Upsert the description/provenance row and REPLACE the kv rows atomically:
+    // a partial write must never leave stale keys behind (STANDARDS §5, §6).
+    execOrThrow("BEGIN TRANSACTION;");
+    try {
+      {
+        const char *sql = R"(
+          INSERT INTO material_annotations
+            (material_guid, description, provider_model, raw_json)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(material_guid) DO UPDATE SET
+            description    = excluded.description,
+            provider_model = excluded.provider_model,
+            raw_json       = excluded.raw_json,
+            created_at     = datetime('now');
+        )";
+        sqlite3_stmt *stmt;
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+          throw std::runtime_error(
+              "Failed to prepare material annotation upsert: " +
+              std::string(sqlite3_errmsg(db)));
+        StmtGuard guard(stmt);
+        sqlite3_bind_text(stmt, 1, materialGuid.data(),
+                          static_cast<int>(materialGuid.size()),
+                          SQLITE_TRANSIENT);
+        bindTextOrNull(stmt, 2, annotation.description);
+        bindTextOrNull(stmt, 3, annotation.provider_model);
+        bindTextOrNull(stmt, 4, annotation.raw_json);
+        if (sqlite3_step(stmt) != SQLITE_DONE)
+          throw std::runtime_error("Failed to save material annotation: " +
+                                   std::string(sqlite3_errmsg(db)));
+      }
+
+      // Clear the previous kv rows so no stale key lingers across a
+      // re-describe.
+      {
+        const char *sql =
+            "DELETE FROM material_annotation_kv WHERE material_guid = ?;";
+        sqlite3_stmt *stmt;
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+          throw std::runtime_error(
+              "Failed to prepare material annotation kv delete: " +
+              std::string(sqlite3_errmsg(db)));
+        StmtGuard guard(stmt);
+        sqlite3_bind_text(stmt, 1, materialGuid.data(),
+                          static_cast<int>(materialGuid.size()),
+                          SQLITE_TRANSIENT);
+        if (sqlite3_step(stmt) != SQLITE_DONE)
+          throw std::runtime_error(
+              "Failed to clear material annotation kv rows: " +
+              std::string(sqlite3_errmsg(db)));
+      }
+
+      // Insert the new kv rows. A duplicate key within one answer would violate
+      // the compound PK; ON CONFLICT REPLACE keeps the last value for a key so
+      // a model that repeats a key does not abort the whole save.
+      if (!annotation.attributes.empty()) {
+        const char *sql = R"(
+          INSERT INTO material_annotation_kv (material_guid, key, value)
+          VALUES (?, ?, ?)
+          ON CONFLICT(material_guid, key) DO UPDATE SET value = excluded.value;
+        )";
+        sqlite3_stmt *stmt;
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+          throw std::runtime_error(
+              "Failed to prepare material annotation kv insert: " +
+              std::string(sqlite3_errmsg(db)));
+        StmtGuard guard(stmt);
+        for (const auto &[key, value] : annotation.attributes) {
+          if (key.empty())
+            continue; // never store an empty key (§5)
+          sqlite3_reset(stmt);
+          sqlite3_clear_bindings(stmt);
+          sqlite3_bind_text(stmt, 1, materialGuid.data(),
+                            static_cast<int>(materialGuid.size()),
+                            SQLITE_TRANSIENT);
+          sqlite3_bind_text(stmt, 2, key.data(), static_cast<int>(key.size()),
+                            SQLITE_TRANSIENT);
+          bindTextOrNull(stmt, 3, value);
+          if (sqlite3_step(stmt) != SQLITE_DONE)
+            throw std::runtime_error(
+                "Failed to save material annotation kv row: " +
+                std::string(sqlite3_errmsg(db)));
+        }
+      }
+
+      execOrThrow("COMMIT;");
+    } catch (...) {
+      sqlite3_exec(db, "ROLLBACK;", nullptr, nullptr, nullptr);
+      throw;
+    }
+  }
+
+  std::optional<ProjectDB::MaterialAnnotation>
+  materialAnnotation(std::string_view materialGuid) const {
+    const char *sql = "SELECT description, provider_model, raw_json "
+                      "FROM material_annotations WHERE material_guid = ?;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to query material annotation: " +
+                               std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+    sqlite3_bind_text(stmt, 1, materialGuid.data(),
+                      static_cast<int>(materialGuid.size()), SQLITE_TRANSIENT);
+    if (sqlite3_step(stmt) != SQLITE_ROW)
+      return std::nullopt;
+
+    auto colText = [&](sqlite3_stmt *s, int col) -> std::string {
+      const char *t =
+          reinterpret_cast<const char *>(sqlite3_column_text(s, col));
+      return t ? std::string(t) : std::string();
+    };
+    ProjectDB::MaterialAnnotation annotation;
+    annotation.description = colText(stmt, 0);
+    annotation.provider_model = colText(stmt, 1);
+    annotation.raw_json = colText(stmt, 2);
+
+    // Load the kv rows in a deterministic (key-sorted) order (STANDARDS §6).
+    const char *kvSql = "SELECT key, value FROM material_annotation_kv "
+                        "WHERE material_guid = ? ORDER BY key;";
+    sqlite3_stmt *kvStmt;
+    if (sqlite3_prepare_v2(db, kvSql, -1, &kvStmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to query material annotation kv: " +
+                               std::string(sqlite3_errmsg(db)));
+    StmtGuard kvGuard(kvStmt);
+    sqlite3_bind_text(kvStmt, 1, materialGuid.data(),
+                      static_cast<int>(materialGuid.size()), SQLITE_TRANSIENT);
+    while (sqlite3_step(kvStmt) == SQLITE_ROW)
+      annotation.attributes.emplace_back(colText(kvStmt, 0),
+                                         colText(kvStmt, 1));
+    return annotation;
   }
 
   // ── Mesh CRUD ──────────────────────────────────────────────────────
@@ -5132,6 +5356,18 @@ ProjectDB::instance_material_guid(std::string_view cloudName,
 std::map<int, std::string>
 ProjectDB::instance_materials(std::string_view cloudName) const {
   return impl_->getInstanceMaterials(cloudName);
+}
+
+// --- Material Annotations (VLM-derived) ---
+
+void ProjectDB::save_material_annotation(std::string_view materialGuid,
+                                         const MaterialAnnotation &annotation) {
+  impl_->saveMaterialAnnotation(materialGuid, annotation);
+}
+
+std::optional<ProjectDB::MaterialAnnotation>
+ProjectDB::material_annotation(std::string_view materialGuid) const {
+  return impl_->materialAnnotation(materialGuid);
 }
 
 // --- Mesh Operations ---

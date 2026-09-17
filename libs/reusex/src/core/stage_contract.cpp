@@ -42,6 +42,10 @@ const std::vector<Artifact> &artifacts() {
        "the texture-mapped mesh"},
       {"building_components", ArtifactKind::table, Alignment::none,
        "derived building components (windows, …)"},
+      {"instance_materials", ArtifactKind::table, Alignment::none,
+       "instance→material-passport links + the material passports"},
+      {"material_annotations", ArtifactKind::table, Alignment::none,
+       "per-material VLM annotations (description + key/value attributes)"},
       {"splat", ArtifactKind::gaussian_splat, Alignment::none,
        "a trained 3D Gaussian Splatting model"},
   };
@@ -152,6 +156,32 @@ const std::vector<StageContract> &contracts() {
        "derive window building components",
        {{{"cloud"}}, {{"labels"}}, {{"instances"}}, {{"mesh"}}},
        {"building_components"}},
+
+      {PipelineStage::materials,
+       "materials",
+       {},
+       "rux create materials",
+       "create one material passport per instance and link it",
+       // Needs the instance-label cloud (one passport per instance) — the
+       // `instances` table it links against is produced with that cloud.
+       {{{"instances"}}},
+       {"instance_materials"}},
+
+      {PipelineStage::attributes,
+       "attributes",
+       {},
+       "rux create attributes",
+       "describe each material with a vision-language model",
+       // Iterates material passports, so it needs the material links
+       // (`instance_materials`, produced by `create materials`); to crop a
+       // material it also needs the fused cloud (the instances' 3D points), the
+       // instance-label cloud (which points belong to which instance) and the
+       // posed sensor frames (the 2D view). All are present after `materials`.
+       {{{"cloud"}},
+        {{"instances"}},
+        {{"instance_materials"}},
+        {{"sensor_frames"}}},
+       {"material_annotations"}},
 
       // `reusex_gsplat` only exists under WITH_CUDA + the vendored rasterizer,
       // while `reusex_core` is built unconditionally — but that is not a

@@ -920,3 +920,280 @@ use the filtered set.
 either: (a) per-span odometry loosening (§5.3 rec 7, C++ change needed), or (b) an
 appearance-based approach that finds the CORRECT intermediate anchors to distribute
 the entrance correction locally rather than globally.
+
+---
+
+## 10. Entrance-Anchor Experiment (2026-09-17)
+
+**Context:** The owner directed a flag-only experiment testing whether treating the
+entrance-return frames as a shared anchor — combined with the plane-landmark term —
+removes the accumulated drift WITHOUT the global shear that raw loop edges produce.
+The hypothesis: bypass PCM (`--loop-no-pcm`) and the deformation filter, use all four
+revisit groups' edges, and let the plane term distribute the correction cleanly.
+
+**Worktree:** `/home/mephisto/repos/ReUseX/.worktrees/pano-fix-translation-364`
+**Outputs:** `/home/mephisto/repos/NewOffice/pseudo-gt/anchor-experiment/`
+
+### 10.1 Step 0: Plane Association Mechanism (Code Analysis)
+
+Source: `libs/reusex/src/slam/PlaneGraphOptimizer.cpp`.
+
+Plane association is **world-space, greedy, overlap-aware**:
+1. Each detected plane's `world_normal` and `world_d` are recomputed from the
+   CURRENT (post-round) poses before each round's association pass.
+2. Association gates: normal-angle < `--assoc-normal-angle` (10°), offset
+   difference < `--assoc-distance` (0.10 m), AND in-plane centroid gap < sum of
+   footprint radii + `--assoc-overlap-margin` (0.30 m).
+3. Planes from vastly different world positions cannot merge: the overlap gate
+   prevents two scans of the same physical wall from linking if their centroids are
+   > `radius_a + radius_b + 0.30 m` apart — which for a 14–20 m displaced return
+   frame is always true.
+
+**Critical implication:** A plane observed at frame 3957 (seed pose 24 m from
+entrance) can only associate with an entrance-region plane if the optimizer first
+moves frame 3957 within ~1–2 m of the entrance. The plane term cannot itself
+initiate this movement — it can only reinforce a correction that loop edges have
+already established. The plane term is NOT a global-consistency signal that "sees"
+across the 20+ m drift gap.
+
+### 10.2 Step 0: Flags Available
+
+Relevant `rux optimize` flags (from `--help`):
+
+- `--loop-no-pcm` — bypass PCM filter entirely
+- `--loop-trust` — raise GNC inlier threshold for loop factors to 200
+- `--loop-edges-min-disagreement 0` / `--loop-edges-min-disagreement-fraction 0` —
+  bypass the seed-disagreement gate (admits all edges regardless of seed residual)
+- `--odometry-sigma-trans` — controls odometry chain stiffness (default 0.01 m)
+- `--plane-sigma-scale` — global multiplier on both plane sigmas (< 1 = stronger)
+- `--plane-noise fit` / `--plane-weight-min` / `--plane-weight-max` — quality-weighted
+  plane authority
+- `--no-plane-factors` — remove all plane factors (isolation test)
+
+### 10.3 Edge File Preparation
+
+MASt3R targeted-revisit edges from the prior §9 run were reused
+(`targeted-run/mast3r_targeted_revisits.json`, 527 edges). The deformation filter
+was intentionally bypassed: the experiment tests whether plane factors prevent the
+shear that the filter was blocking.
+
+A "top-20 per revisit group" subset (80 edges total) was created to maximise anchor
+density while avoiding noise:
+
+| Revisit | Edges (extended window) | Top-20 by inliers |
+|---------|------------------------|-------------------|
+| 1370 | 172 | 20 (top inliers 1639–819) |
+| 2816 | 134 | 20 (top inliers 1958–1199) |
+| 3429 | 175 | 20 (top inliers 2000–1102) |
+| 3780 | 41 | 20 (top inliers 2028–314) |
+
+**Critical structural observation:** The "anchor" frames selected by MASt3R are NOT
+all at the physical entrance. Specifically:
+- Revisit 3780's best edge connects node 515 (seed pos (5.9, 11.9)) to node 3957
+  (seed pos (20.0, 14.4)). Node 515 is mid-trajectory, not at entrance (0.08, 0.06).
+- Revisit 3429's best edge connects node 467 (seed pos (4.2, 10.9)) to node 3603.
+  Node 467 is also mid-trajectory.
+
+This means the "anchor" edges constrain the return frames relative to mid-trajectory
+frames, not relative to the physical entrance. The optimizer satisfies these
+constraints by moving BOTH endpoints together.
+
+### 10.4 Experiment Matrix
+
+Five variants, all from fresh copies of `newoffice_pgt_before_seed.rux`:
+
+| Variant | Flags | odom σ | planes |
+|---------|-------|--------|--------|
+| V1 control | no loop edges | 0.01 (default) | fit |
+| V2 anchors+planes | 80 edges, --loop-trust --loop-no-pcm | **0.01** | fit |
+| V3 anchors+planes | 80 edges, --loop-trust --loop-no-pcm | **0.05** | fit |
+| V4 anchors+planes-strong | 80 edges, --loop-trust --loop-no-pcm | **0.05** | fit, **--plane-sigma-scale 0.3** (11× stronger) |
+| V5 anchors+no-planes | 80 edges, --loop-trust --loop-no-pcm | **0.05** | **--no-plane-factors** |
+
+All loop-edge variants also use `--loop-edges-min-disagreement 0
+--loop-edges-min-disagreement-fraction 0` to bypass the seed-disagreement gate.
+
+### 10.5 Optimization Results
+
+| Variant | Max pose shift | Rounds | Round shifts | Graph error |
+|---------|---------------|--------|--------------|-------------|
+| V1 control | **0.25 m** | 2 | 0.21 / 0.07 m | 1539 → 832 |
+| V2 anchors+planes (σ=0.01) | **0.68 m** | 2 | 4.92 / 4.89 m | 5.53M → 5.53M (OSCILLATED) |
+| V3 anchors+planes (σ=0.05) | **5.27 m** | 2 | 5.02 / 3.14 m | 5.53M → 3.89M |
+| V4 anchors+planes-strong (σ=0.05) | **5.00 m** | 2 | 4.99 / 1.19 m | 5.54M → 4.01M |
+| V5 anchors+no-planes (σ=0.05) | **5.37 m** | 2 | 5.44 / 2.94 m | 5.53M → 3.88M |
+
+**V2 oscillated.** Round 1 attempted a ~4.9 m shift but round 2 ERROR increased (4.38M → 5.53M);
+max pose shift from seed settled at only 0.68 m. Stiff odometry (σ=0.01) produced an
+unstable two-state oscillation: the loop factors pull hard in round 1, but the odometry
+chain overrides in round 2.
+
+**V3/V4/V5 all moved the late trajectory ~5 m** (consistent with V5's isolation showing
+planes add nothing: 5.37 m no-planes ≈ 5.27 m with planes).
+
+### 10.6 Colocation Results (Per-Return-Frame)
+
+Metric: L2 distance from each revisit's best-matched anchor frame to the revisit node frame,
+in world coordinates after optimization.
+
+| Revisit | Anchor frame | Return frame | SEED | V1 | V3 | V4 | V5 |
+|---------|-------------|-------------|------|-----|-----|-----|-----|
+| 1370 | 563 | 1388 | 15.26 m | 15.25 m | 10.43 m | 11.10 m | 10.47 m |
+| 2816 | 431 | 2860 | 2.73 m  | 2.80 m  | 2.47 m  | 2.57 m  | 2.54 m  |
+| 3429 | 467 | 3603 | 9.76 m  | 9.78 m  | 8.37 m  | **7.65 m** | 8.36 m |
+| 3780 | 515 | 3957 | 14.36 m | 14.38 m | 14.27 m | 14.21 m | 14.24 m |
+
+**Revisit 3780 did not close.** The anchor frame (515) and return frame (3957)
+moved TOGETHER: both shifted ~4 m in the same direction (515: (5.9,11.9)→(2.6,8.2),
+3957: (20.0,14.4)→(16.7,10.4)), satisfying the BetweenFactor constraint by block
+translation rather than convergence. The inter-frame distance barely changed (14.36→14.27 m).
+
+**Revisit 3429** improved by 2.1 m (best: V4 at 7.65 m vs seed 9.76 m).
+
+**Absolute position improvement:** Frame 3957 moved from 24.6 m to 19.6 m from the
+physical entrance (frame 1). Frame 3603 moved from 18.7 m to 13.8 m from entrance.
+This is 20–27% of the full drift correction.
+
+**Isolation test (V3 vs V5):** Plane factors add at most 0.04 m to colocation vs
+no-plane baseline — noise level. The plane term provides NO additional drift correction
+once the loop edges have moved the trajectory.
+
+**Why the plane term cannot close the gap:** After 5 m partial correction, frame 3957
+is still ~19 m from the entrance. Entrance-region planes (from frames 0–567) and
+return-region planes (from frames 3600+) remain >14 m apart in world space. The
+overlap gate (`radius_a + radius_b + 0.30 m`, where typical wall radii are 2–5 m)
+prevents them from merging into shared landmarks. The plane term optimizes local
+flatness within each sub-segment but cannot impose global consistency across the gap.
+
+### 10.7 Quality Metrics (V1, V3, V4)
+
+`create clouds -g 0.05` → `create planes` → `analyze quality`:
+
+| Variant | flatness_rms | thickness_p90 | Plane count | Points |
+|---------|-------------|--------------|-------------|--------|
+| V1 control | 0.0248 m | 0.0594 m | 301 | 1,181,039 |
+| V3 anchors+planes (σ=0.05) | **0.0271 m** | **0.0611 m** | 353 | 1,426,900 |
+| V4 anchors+planes-strong (σ=0.05) | **0.0242 m** | **0.0585 m** | 357 | 1,339,317 |
+
+**V3 degraded flatness** (0.0248 → 0.0271 m, +9.3%), indicating geometric deformation.
+V4 showed marginal improvement (−2.4%), within noise.
+
+Point count inflation in V3 (1,427k vs 1,181k) is consistent with the partially-corrected
+late trajectory producing a double-pass of some walls — the entrance-region and
+return-region scans now overlap more than before (they moved ~5 m closer) but not enough
+to merge cleanly (still ~14 m apart), so both passes appear as separate point layers.
+
+### 10.8 Trajectory and Visual Assessment
+
+Start-to-end gap (frame 1 to frame 4016):
+
+| Variant | Gap |
+|---------|-----|
+| SEED | 27.81 m |
+| V1 control | 27.85 m |
+| V3 anchors+planes (σ=0.05) | 23.66 m |
+| V4 anchors+planes-strong (σ=0.05) | 24.08 m |
+
+Renders produced (`render --view top/plan --layers cloud`):
+- `anchor-experiment/render_v1_control_top.png` — clean L-shape, reference.
+- `anchor-experiment/render_v4_anchors_strong_top.png` — L-shape preserved but
+  the right wing is visibly shifted; a small geometric discontinuity is visible
+  at the junction of the two arms, reflecting the ~5 m block translation of the
+  late trajectory without full closure.
+
+Visual verdict: V4 does NOT show the severe doubled-wall shear of the endcap-only
+run (§7). The L-shape is recognisable and the walls are not doubled. However, the
+junction between the early and late trajectory segments shows a gap/offset, and the
+overall building silhouette is slightly misaligned compared to control. This is
+"partial correction with mild deformation," not "clean correction."
+
+**Acceptance criteria:**
+- (a) Entrance-revisit colocation substantially improved (drift removed): **PARTIALLY** —
+  5 m improvement for revisits 3429/3780 in absolute terms, but colocation distance to
+  their anchor frames barely changed (both endpoints moved together).
+- (b) Flatness/doubling ≤ control: **FAILS for V3** (flatness +9.3%); marginal for V4.
+- (c) Clean render: **PARTIAL** — no doubled walls, but junction discontinuity visible.
+
+**Overall verdict: DOES NOT WORK with existing flags for the NewOffice entrance-revisit
+problem.** The formulation achieves only ~15–20% of the required drift correction and
+the plane term provides no additional benefit over pure loop edges.
+
+### 10.9 Root Cause: Why the Anchor Formulation Cannot Close the Loop
+
+The fundamental problem is that `rux optimize`'s loop edges are **BetweenFactors**
+(relative pose constraints between two frames). Providing a BetweenFactor connecting
+entrance frame A to return frame B tells the optimizer: "A and B should be adjacent."
+The optimizer satisfies this by moving A and B toward each other — but since A is also
+part of the odometry chain, the optimizer moves BOTH toward a midpoint, not B to A's
+fixed position.
+
+To truly anchor frame B to frame A's world position, the optimizer needs a **PriorFactor
+on B's absolute world pose** (derived from A's seed pose and the MASt3R T_ij). This is
+equivalent to: "frame B must be at world position seed(A) · T_ij — regardless of where
+the odometry chain has placed it." BetweenFactors cannot express this; only PriorFactors
+can.
+
+The existing gauge prior (`--prior-sigma-*`) does this for frame 0 only. Extending it to
+arbitrary return frames is the missing capability.
+
+### 10.10 Proposed Minimal Code Change
+
+**Option A: `--anchor-priors` flag (recommended minimal fix)**
+
+Adds support for absolute-pose priors on specific frames derived from MASt3R T_ij:
+
+- `apps/rux/src/optimize.cpp`: add `--anchor-priors <json>` flag that loads a list of
+  `{return_frame_id, entrance_frame_id, entrance_seed_pose, T_ij}` records.
+- `libs/reusex/src/slam/PlaneGraphOptimizer.cpp` → `PlaneGraphOptimizer::optimize()`:
+  for each anchor record, compute `world_pose = entrance_seed * T_ij` and add
+  `gtsam::PriorFactor<Pose3>(X(return_frame), world_pose, anchor_noise)` to the graph.
+  Mark these as `trusted_factors` (GNC inlier).
+- The anchor noise sigma would be a new flag (e.g. `--anchor-sigma-trans`, `--anchor-sigma-rot`),
+  defaulting to the matched edge's reported `sigma_trans/rot` from the JSON.
+- The `LoopEdge` struct (`libs/reusex/include/slam/PlaneGraphOptimizer.hpp`) would
+  gain an `is_anchor_prior: bool` field; a parallel load path in optimize.cpp populates it.
+- Estimate: ~80 lines in PlaneGraphOptimizer.cpp + ~30 lines in optimize.cpp + the JSON schema.
+
+**Why this works:** A PriorFactor pins frame B to an absolute world position. The
+odometry chain tension is distributed symmetrically around B (shorter spans on either
+side pull toward the anchor), unlike a BetweenFactor where the tension is spread across
+the entire trajectory from frame A to B.
+
+**Option B: Iterative correction with more rounds**
+
+Use `--assoc-rounds 5` (or more) starting from the V3/V4 partial correction. After 5 m
+partial correction, some plane pairs from the entrance and return regions may now be
+close enough (< `radius_a + radius_b + 0.30 m`) to begin associating. However, with
+~14 m still remaining, this is unlikely to close the gap in a reasonable round count
+— and each round risks further deformation. Not recommended.
+
+**Option C: Better edge selection (no code change)**
+
+The deformation filter rejected all revisit-3429 and revisit-3780 edges as
+"deforming" (span_frac > 0.60). This is correct: these edges are structurally
+equivalent to the shear-causing endcap XFeat edges. The anchor hypothesis assumed the
+PLANE TERM would prevent the shear, but the isolation test (V5) proves it does not.
+There is no flag combination that expresses a true absolute-pose anchor with existing
+code; Option A is required.
+
+### 10.11 Conclusion
+
+The entrance-anchor formulation was tested across 5 variants. It achieves
+~5 m of drift reduction (20–27% of the total) for the critical return frames
+(3429 and 3780), but fails the acceptance criteria:
+
+1. The plane term is inert relative to loop edges for this problem (isolation test V3 vs V5).
+2. The anchor edges move BOTH endpoints together (block translation), not the return
+   frame to the entrance.
+3. V3 degrades flatness_rms; V4 is marginal.
+4. The renders show a junction discontinuity, not a clean closure.
+
+**The blocker is architectural:** existing `--loop-edges` flags produce BetweenFactors;
+closing a 20 m entrance-drift gap requires PriorFactors. The minimal code change is a
+new `--anchor-priors` flag in `apps/rux/src/optimize.cpp` and ~80 new lines in
+`PlaneGraphOptimizer::optimize()`.
+
+**The owner should confirm scope before implementation.** The spatial-filtered approach
+from §9 (348 mid-trajectory edges, 7.95 m correction, clean render, better-than-control
+quality) remains the recommended production approach for NewOffice. The entrance-anchor
+problem (frames 3429 and 3780) requires a C++ change to express properly.

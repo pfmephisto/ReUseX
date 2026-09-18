@@ -66,27 +66,42 @@ Then open http://localhost:7860 in your browser.
 ## Workflow
 
 1. **Load a project.** Pass `-p project.rux` at launch. The top-down scatter
-   shows all frame positions from the seed poses.
+   shows all frame positions from the seed poses as an **interactive Plotly
+   figure** — zoom with scroll, pan with drag.
 
-2. **Pick a pair.** Use the Frame A and Frame B scrubbers to choose frames.
-   Click "Propose candidates for A" to find spatially nearby frames by seed-pose
-   proximity.
+2. **Pick a pair.** Three ways to select frames:
+   - **Sliders** — Frame A and Frame B scrubbers (original, always works).
+   - **Node-ID box** — hover over the graph to read a node_id from the tooltip,
+     then type it in the "Set A/B by node_id" box and click Set.  Toggle the
+     "Selecting A/B" radio to control which frame gets set.
+   - **Row select in tables** — selecting a row in the loaded-edges table,
+     the match-history table, or the anchor table loads that pair into A/B.
+   - Click "Propose candidates for A" to find spatially nearby frames by seed-pose
+     proximity.
 
-3. **Run a match.** Choose a method from the dropdown:
+3. **Load prior-computed edges (optional).** Paste a path to an edge JSON file
+   or directory (e.g. `pseudo-gt/edges/xfeat_edges.json` or the whole
+   `pseudo-gt/edges/` directory) and click "Load". The edges appear as a
+   browsable table and as faint lines on the graph.  Select any row to open
+   that pair in the verification panel.
+
+4. **Run a match.** Choose a method from the dropdown:
    - `orb`, `sift`, `akaze` — OpenCV in-process matchers
    - `xfeat` — XFeat learned features (subprocess, `~/loop-edges-work/xfeat/.venv`)
    - `mast3r` — MASt3R (subprocess, `~/loop-edges-work/mast3r/.venv`, CC-BY-NC)
    - `icp` — Manual + ICP mode (use the sliders to coarse-align, then Run ICP)
 
    Click "Run match". The correspondence image shows green/red inlier lines.
+   Every match is recorded in the **Session match history** table.
 
-4. **Accept or redo.** Click "Accept last match" to append to the anchor list.
-   Repeat for more pairs.
+5. **Accept or redo.** Click "Accept last match" to append to the anchor list.
+   Accepted anchors are immediately drawn as solid green lines on the graph.
+   The anchor table is always visible; selecting a row re-opens that pair.
 
-5. **Export anchors.** Click "Export anchors" to write a JSON file in the
+6. **Export anchors.** Click "Export anchors" to write a JSON file in the
    `reusex.gt_anchors.v1` schema that `solve_gt_poses_cli.py` consumes.
 
-6. **Live GT preview (optional).** Fill in the seed `.rux` path and optionally
+7. **Live GT preview (optional).** Fill in the seed `.rux` path and optionally
    the anchor-zone max sequential index (e.g. 567 for NewOffice), then click
    "Run GT preview". This runs the full GTSAM solve on a copy, then
    `rux create clouds` and `rux render --view top` to show before/after images.
@@ -109,6 +124,9 @@ Verified by `tests/test_convention.py::TestTijConvention::test_seed_relative_rou
 |---|---|
 | `app.py` | Gradio UI — all callbacks and server startup |
 | `db_reader.py` | Read frame positions, thumbnails, poses from `.rux` |
+| `graph_view.py` | Plotly interactive top-down figure builder (zoom/pan, overlays) |
+| `edge_io.py` | Load prior-computed edge JSON files (xfeat/mast3r/spatial-filter) |
+| `history.py` | Session match history (one row per cb_match invocation) |
 | `opencv_features.py` | In-process ORB/SIFT/AKAZE matching + T_ij extraction |
 | `icp_align.py` | Point-to-point ICP (scipy/numpy, no open3d) + slider→T helper |
 | `anchors.py` | Anchor list management + JSON export in `gt_anchors.v1` schema |
@@ -116,32 +134,46 @@ Verified by `tests/test_convention.py::TestTijConvention::test_seed_relative_rou
 | `solve_gt_poses_cli.py` | GTSAM solve CLI (generalised from `solve_gt_poses.py`) |
 | `launch.sh` | Shell wrapper that sets the required env vars |
 | `tests/test_convention.py` | Unit tests: T_ij convention, anchor round-trip, ICP |
+| `tests/test_new_features.py` | Unit tests: edge_io, history, graph_view, callback logic |
 
 ## What is built and working
 
-- Frame panel: top-down scatter, A/B scrubbers, thumbnails, candidate proposal
-- Verification panel: ORB/SIFT/AKAZE (in-process), XFeat/MASt3R (subprocess)
-- Manual + ICP mode: x/y/z + yaw sliders, Run ICP button
-- Anchor list: add, remove, export JSON, import JSON
-- solve_gt_poses_cli.py: generalised from solve_gt_poses.py with `--edges`/`--out`
-- Live GT preview: wired end-to-end (solve → clouds → render → before/after images)
-- 11 unit tests passing
+- **Interactive graph** (`gr.Plot` with Plotly): zoom/pan natively; A/B markers;
+  accepted anchor overlays (solid green lines); loaded prior-edge overlays (faint
+  blue lines); graph refreshes on every selection/accept/import/load.
+- **Node-ID direct select**: type a node_id (read from graph hover tooltip) + radio
+  to choose A/B + "Set" button; sets the matching slider and loads the thumbnail.
+- **Load prior-computed edges**: file or directory path; parses all known schema
+  variants (`inliers`, `n_inliers`, `num_inliers`); browsable Dataframe; row-select
+  loads the pair into A/B and shows the pre-computed T_ij.
+- **Session match history**: one row per `cb_match` invocation; accepted? column;
+  row-select re-opens the pair in A/B.
+- Frame panel: A/B scrubbers (retained), thumbnails, candidate proposal.
+- Verification panel: ORB/SIFT/AKAZE (in-process), XFeat/MASt3R (subprocess).
+- Manual + ICP mode: x/y/z + yaw sliders, Run ICP button.
+- Anchor list: add, remove, export JSON, import JSON; anchor table row-select re-opens pair.
+- solve_gt_poses_cli.py: generalised from solve_gt_poses.py with `--edges`/`--out`.
+- Live GT preview: wired end-to-end (solve → clouds → render → before/after images).
+- **46 unit tests passing** (11 original + 35 new).
+
+## Plotly click-to-select: status and fallback
+
+`gr.Plot` in Gradio 6.27 exposes only a `.change` event (no `.select` or `.click`).
+Plotly's `clickData` cannot be bridged to Python callbacks without custom JavaScript.
+
+Fallback implemented: the "Set A/B by node_id" input + "Set" button.  Workflow:
+hover over a node in the Plotly graph to see its tooltip (`node_id=NNN`), type that
+NNN into the box, toggle the A/B radio, click Set.  This is reliable and works
+headlessly.  The sliders also remain fully functional as before.
 
 ## What is stubbed / not fully verified
 
+- **Plotly click-to-select**: not available in Gradio 6.27 (see above).  The
+  node-ID input is the supported workaround.
 - **MapAnything backend**: hook present in `match_worker.py` CLI (arg accepted)
-  but returns `"mapanything not implemented"`. The matchers/__init__.py code is
-  already there — only the `match_worker.py` dispatch needs `elif backend == "mapanything"`.
-- **Live preview timing**: the full 3,876-frame solve + clouds + render was wired
-  and the solve path is verified (0.2s with 1 anchor). Full pipeline timing on
-  NewOffice was not measured in this task (~2 min expected from the existing
-  solve_gt_poses.py experience).
-- **rux render before/after**: `rux render` requires a fused cloud to be present;
-  for the seed project a cloud may not exist, so before-image may be blank/error.
-  The code handles this gracefully (reads None from cv2.imread on failure).
-- **open3d**: pip wheels for open3d don't work on this Nix system (missing X11/EGL/usb
-  libs). ICP is implemented in pure numpy+scipy instead — this is equally correct.
-  Point-to-plane ICP (open3d's advantage) is not available; point-to-point is used.
-- **MASt3R tested**: XFeat subprocess was verified to return 117 inliers on node
-  1↔1370. MASt3R subprocess bridge is wired identically but was not run in this
-  task (it requires ~30GB VRAM or a long CPU run).
+  but returns `"mapanything not implemented"`.
+- **Live preview timing**: ~2 min expected from the existing solve_gt_poses.py
+  experience; not re-measured in this task.
+- **rux render before/after**: requires a fused cloud; handles gracefully if absent.
+- **open3d**: not available on this Nix system; ICP is pure numpy+scipy.
+- **MASt3R tested**: subprocess bridge is wired but not run (requires ~30GB VRAM).

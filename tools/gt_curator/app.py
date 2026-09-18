@@ -10,7 +10,7 @@ Launch:
   python tools/gt_curator/app.py -p /path/to/project.rux [--port 7860]
 
 Dependencies (in ~/gt-curator-venv plus Nix paths):
-  gradio, opencv-python (nix), numpy (nix), scipy
+  gradio, plotly, opencv-python (nix), numpy (nix), scipy
 
 Learned matchers (MASt3R, XFeat) run out-of-process via match_worker.py
 in their own venvs (~/loop-edges-work/{mast3r,xfeat}/.venv).
@@ -49,6 +49,9 @@ from db_reader import (  # noqa: E402
     read_frame_count,
     read_seed_positions,
 )
+from edge_io import LoadedEdges  # noqa: E402
+from graph_view import build_figure  # noqa: E402
+from history import MatchHistory  # noqa: E402
 from icp_align import run_icp_on_frames, sliders_to_T  # noqa: E402
 from opencv_features import clear_cache, match_pair  # noqa: E402
 
@@ -99,6 +102,8 @@ _db_path: Optional[str] = None
 _positions: list = []          # [(node_id, xyz_or_None)]
 _node_ids: list[int] = []      # sorted list
 _anchors = AnchorList()
+_loaded_edges = LoadedEdges()
+_match_history = MatchHistory()
 
 # Last match result (for Accept button)
 _last_match: Optional[dict] = None
@@ -118,94 +123,23 @@ def _node_id_at_index(idx: int) -> int:
     return _node_ids[idx]
 
 
-def _scatter_plot_data():
-    """Return a PIL image of the top-down frame scatter."""
-    if not _positions:
-        return None
-    pts = [(nid, xyz) for nid, xyz in _positions if xyz is not None]
-    if not pts:
-        return None
-    xs = np.array([p[1][0] for p in pts])
-    ys = np.array([p[1][1] for p in pts])  # use X and Y as top-down
-
-    # Render to image
-    margin = 20
-    h, w = 400, 400
-    x_min, x_max = xs.min(), xs.max()
-    y_min, y_max = ys.min(), ys.max()
-    rng_x = max(x_max - x_min, 0.1)
-    rng_y = max(y_max - y_min, 0.1)
-
-    canvas = np.ones((h, w, 3), dtype=np.uint8) * 240
-
-    def to_px(x, y):
-        px = int((x - x_min) / rng_x * (w - 2 * margin)) + margin
-        py = int((1 - (y - y_min) / rng_y) * (h - 2 * margin)) + margin
-        return px, py
-
-    for _, xyz in pts:
-        px, py = to_px(xyz[0], xyz[1])
-        cv2.circle(canvas, (px, py), 2, (100, 100, 200), -1)
-
-    return canvas  # RGB
+def _index_of_node_id(node_id: int) -> int:
+    """Return the slider index for a given node_id (or 0 if not found)."""
+    try:
+        return _node_ids.index(node_id)
+    except ValueError:
+        return 0
 
 
-def _draw_scatter_with_highlight(node_a: Optional[int], node_b: Optional[int]):
-    canvas = _scatter_plot_data()
-    if canvas is None:
-        return None
-
-    if not _positions:
-        return canvas
-
-    pts = [(nid, xyz) for nid, xyz in _positions if xyz is not None]
-    xs = np.array([p[1][0] for p in pts])
-    ys = np.array([p[1][1] for p in pts])
-    x_min, x_max = xs.min(), xs.max()
-    y_min, y_max = ys.min(), ys.max()
-    rng_x = max(x_max - x_min, 0.1)
-    rng_y = max(y_max - y_min, 0.1)
-    h, w = canvas.shape[:2]
-    margin = 20
-
-    def to_px(x, y):
-        px = int((x - x_min) / rng_x * (w - 2 * margin)) + margin
-        py = int((1 - (y - y_min) / rng_y) * (h - 2 * margin)) + margin
-        return px, py
-
-    pos_map = {nid: xyz for nid, xyz in _positions if xyz is not None}
-    for nid, col, size in [(node_a, (220, 80, 80), 6), (node_b, (80, 220, 80), 6)]:
-        if nid is not None and nid in pos_map:
-            px, py = to_px(pos_map[nid][0], pos_map[nid][1])
-            cv2.circle(canvas, (px, py), size, col, -1)
-
-    return canvas
-
-
-def _draw_correspondences(match: dict, db_path: str, node_i: int, node_j: int):
-    """Return side-by-side correspondence image using draw_pair from visualize_matches."""
-    from export_loop_edges import read_frames
-    from visualize_matches import draw_pair
-
-    frames = read_frames(db_path)
-    by_id = {f.node_id: f for f in frames}
-    fi = by_id.get(node_i)
-    fj = by_id.get(node_j)
-    if fi is None or fj is None:
-        return None
-
-    xy_i = np.array(match["xy_i"]) if match["xy_i"] else np.zeros((0, 2))
-    xy_j = np.array(match["xy_j"]) if match["xy_j"] else np.zeros((0, 2))
-    inl = np.array(match["inlier_mask"]) if match["inlier_mask"] else np.zeros(0, bool)
-
-    if len(xy_i) == 0:
-        return None
-
-    n_inl = int(inl.sum()) if len(inl) else 0
-    rms_str = f"{match['rms']*1000:.1f}mm" if match.get("rms") else "—"
-    title = f"n={len(xy_i)} matches, {n_inl} inliers, RMS={rms_str}"
-    img = draw_pair(fi, fj, xy_i, xy_j, inl, title)
-    return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+def _build_graph(node_a: Optional[int] = None, node_b: Optional[int] = None):
+    """Build the interactive Plotly figure for the top-down scatter."""
+    return build_figure(
+        positions=_positions,
+        node_a=node_a,
+        node_b=node_b,
+        anchor_edges=_anchors.as_list(),
+        loaded_edges=[_loaded_edges.get(k) for k in range(len(_loaded_edges))],
+    )
 
 
 # ── subprocess helpers ────────────────────────────────────────────────────────
@@ -257,8 +191,8 @@ def cb_load_frame_a(slider_a: int):
     _require_db()
     node_id = _node_id_at_index(int(slider_a))
     thumb = read_color_thumbnail(_db_path, node_id)
-    scatter = _draw_scatter_with_highlight(node_id, None)
-    return thumb, scatter, str(node_id)
+    fig = _build_graph(node_a=node_id, node_b=None)
+    return thumb, fig, str(node_id)
 
 
 def cb_load_frame_b(slider_b: int):
@@ -266,8 +200,19 @@ def cb_load_frame_b(slider_b: int):
     _require_db()
     node_id = _node_id_at_index(int(slider_b))
     thumb = read_color_thumbnail(_db_path, node_id)
-    scatter = _draw_scatter_with_highlight(None, node_id)
+    # Return updated node_id_b only; graph is updated when A changes or on match
     return thumb, str(node_id)
+
+
+def cb_load_frame_ab(slider_a: int, slider_b: int):
+    """Reload both frames and refresh the graph with both highlights."""
+    _require_db()
+    node_a = _node_id_at_index(int(slider_a))
+    node_b = _node_id_at_index(int(slider_b))
+    thumb_a = read_color_thumbnail(_db_path, node_a)
+    thumb_b = read_color_thumbnail(_db_path, node_b)
+    fig = _build_graph(node_a=node_a, node_b=node_b)
+    return thumb_a, thumb_b, fig, str(node_a), str(node_b)
 
 
 def cb_propose_candidates(slider_a: int):
@@ -283,6 +228,97 @@ def cb_propose_candidates(slider_a: int):
     return "\n".join(lines)
 
 
+def cb_graph_node_select(node_id_text: str, selecting_target: str):
+    """Set A or B from a manually typed node_id.
+
+    selecting_target: "A" or "B" (from the radio group in the UI).
+    Returns (slider_a, slider_b, thumb_a, thumb_b, fig, node_id_a, node_id_b, status).
+    """
+    _require_db()
+    try:
+        nid = int(node_id_text.strip())
+    except (ValueError, AttributeError):
+        return gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), "Invalid node_id"
+
+    idx = _index_of_node_id(nid)
+    if _node_ids[idx] != nid:
+        return gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), f"node_id {nid} not in project"
+
+    # We need the current A/B — they are passed back from the hidden state textboxes
+    # but since we don't have them here, return gr.update() for the one we're not changing
+    thumb = read_color_thumbnail(_db_path, nid)
+    if selecting_target == "A":
+        return idx, gr.update(), thumb, gr.update(), gr.update(), str(nid), gr.update(), f"Set Frame A = node_id {nid}"
+    else:
+        return gr.update(), idx, gr.update(), thumb, gr.update(), gr.update(), str(nid), f"Set Frame B = node_id {nid}"
+
+
+def cb_loaded_edge_select(evt: gr.SelectData, slider_a: int, slider_b: int):
+    """A row in the loaded-edges table was selected — load that pair into A/B."""
+    _require_db()
+    row_idx = evt.index[0]
+    edge = _loaded_edges.get(row_idx)
+    if edge is None:
+        return gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), "Edge not found"
+
+    node_i = edge["node_i"]
+    node_j = edge["node_j"]
+    idx_i = _index_of_node_id(node_i)
+    idx_j = _index_of_node_id(node_j)
+
+    thumb_a = read_color_thumbnail(_db_path, node_i)
+    thumb_b = read_color_thumbnail(_db_path, node_j)
+    fig = _build_graph(node_a=node_i, node_b=node_j)
+
+    n_inl = edge.get("n_inliers", "?")
+    src = edge.get("source", "")
+    status = f"Loaded edge: node_i={node_i} ↔ node_j={node_j}, inliers={n_inl}, src={src}"
+
+    T_display = json.dumps(edge["T_ij"], indent=2) if edge.get("T_ij") else "— (no T_ij in source)"
+
+    return idx_i, idx_j, thumb_a, thumb_b, fig, str(node_i), str(node_j), status
+
+
+def cb_history_select(evt: gr.SelectData, slider_a: int, slider_b: int):
+    """A row in the match-history table was selected — re-open that pair."""
+    _require_db()
+    row_idx = evt.index[0]
+    row = _match_history.get(row_idx)
+    if row is None:
+        return gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
+
+    node_i = row["node_i"]
+    node_j = row["node_j"]
+    idx_i = _index_of_node_id(node_i)
+    idx_j = _index_of_node_id(node_j)
+
+    thumb_a = read_color_thumbnail(_db_path, node_i)
+    thumb_b = read_color_thumbnail(_db_path, node_j)
+    fig = _build_graph(node_a=node_i, node_b=node_j)
+
+    return idx_i, idx_j, thumb_a, thumb_b, fig, str(node_i), str(node_j)
+
+
+def cb_load_edges(path_text: str):
+    """Load prior-computed edge JSON(s) from a file or directory."""
+    if not path_text.strip():
+        return "Enter a file or directory path.", _loaded_edges.to_display_rows(), gr.update()
+
+    n, warnings = _loaded_edges.load(path_text)
+    fig = _build_graph()
+    status = f"Loaded {n} edges from {path_text}"
+    if warnings:
+        status += "\nWarnings:\n" + "\n".join(warnings[:5])
+    return status, _loaded_edges.to_display_rows(), fig
+
+
+def cb_clear_loaded_edges():
+    """Clear all loaded prior edges."""
+    _loaded_edges.clear()
+    fig = _build_graph()
+    return "Cleared all loaded edges.", [], fig
+
+
 def cb_match(slider_a: int, slider_b: int, method: str):
     """Run a match on the selected frame pair."""
     global _last_match
@@ -291,7 +327,7 @@ def cb_match(slider_a: int, slider_b: int, method: str):
     node_j = _node_id_at_index(int(slider_b))
 
     if node_i == node_j:
-        return None, "Frames A and B are the same — select different frames.", ""
+        return None, "Frames A and B are the same — select different frames.", "", _match_history.to_display_rows()
 
     # Dispatch to appropriate backend
     if method in ("orb", "sift", "akaze"):
@@ -308,20 +344,30 @@ def cb_match(slider_a: int, slider_b: int, method: str):
             "xy_i": [], "xy_j": [], "inlier_mask": [],
         }
     else:
-        return None, f"Unknown method: {method}", ""
+        return None, f"Unknown method: {method}", "", _match_history.to_display_rows()
 
     _last_match = match
 
+    # Record in session history
+    _match_history.append(
+        node_i=node_i,
+        node_j=node_j,
+        method=method,
+        n_inliers=match.get("n_inliers", 0),
+        rms=match.get("rms"),
+        accepted=False,
+    )
+
     # Error path
     if match.get("error"):
-        return None, f"Error: {match['error']}", ""
+        return None, f"Error: {match['error']}", "", _match_history.to_display_rows()
 
     # Draw correspondences (only for feature methods)
     img = None
     if match.get("xy_i"):
         try:
             img = _draw_correspondences(match, _db_path, node_i, node_j)
-        except Exception as exc:
+        except Exception:
             pass  # correspondence drawing is non-critical
 
     rms_str = f"{match['rms']*1000:.1f}mm" if match.get("rms") else "—"
@@ -335,7 +381,7 @@ def cb_match(slider_a: int, slider_b: int, method: str):
         status += f"T_ij translation: [{t_vec[0]:.3f}, {t_vec[1]:.3f}, {t_vec[2]:.3f}]"
 
     T_display = json.dumps(T, indent=2) if T else "none"
-    return img, status, T_display
+    return img, status, T_display, _match_history.to_display_rows()
 
 
 def cb_run_icp(slider_a: int, slider_b: int, dx: float, dy: float, dz: float, dyaw: float):
@@ -375,7 +421,7 @@ def cb_accept(slider_a: int, slider_b: int, method: str):
     global _last_match
     _require_db()
     if _last_match is None or _last_match.get("T_ij") is None:
-        return "No valid match to accept. Run a match first.", _anchors.to_display_rows()
+        return "No valid match to accept. Run a match first.", _anchors.to_display_rows(), gr.update()
 
     node_i = _node_id_at_index(int(slider_a))
     node_j = _node_id_at_index(int(slider_b))
@@ -387,8 +433,15 @@ def cb_accept(slider_a: int, slider_b: int, method: str):
         rms=_last_match.get("rms"),
         n_inliers=_last_match.get("n_inliers", 0),
     )
+    _match_history.mark_last_accepted()
     _last_match = None
-    return f"Accepted anchor {len(_anchors)-1}: {node_i} ↔ {node_j}", _anchors.to_display_rows()
+
+    fig = _build_graph(node_a=node_i, node_b=node_j)
+    return (
+        f"Accepted anchor {len(_anchors)-1}: {node_i} ↔ {node_j}",
+        _anchors.to_display_rows(),
+        fig,
+    )
 
 
 def cb_remove_anchor(index_str: str):
@@ -396,9 +449,10 @@ def cb_remove_anchor(index_str: str):
     try:
         idx = int(index_str)
     except ValueError:
-        return "Invalid index.", _anchors.to_display_rows()
+        return "Invalid index.", _anchors.to_display_rows(), gr.update()
     _anchors.remove(idx)
-    return f"Removed anchor at index {idx}.", _anchors.to_display_rows()
+    fig = _build_graph()
+    return f"Removed anchor at index {idx}.", _anchors.to_display_rows(), fig
 
 
 def cb_export_anchors(export_path: str):
@@ -415,12 +469,13 @@ def cb_export_anchors(export_path: str):
 def cb_import_anchors(import_path: str):
     """Import anchors from JSON."""
     if not import_path.strip():
-        return "Please enter a file path.", _anchors.to_display_rows()
+        return "Please enter a file path.", _anchors.to_display_rows(), gr.update()
     try:
         n = _anchors.import_json(import_path.strip())
-        return f"Imported {n} anchors from {import_path}", _anchors.to_display_rows()
+        fig = _build_graph()
+        return f"Imported {n} anchors from {import_path}", _anchors.to_display_rows(), fig
     except Exception as exc:
-        return f"Import failed: {exc}", _anchors.to_display_rows()
+        return f"Import failed: {exc}", _anchors.to_display_rows(), gr.update()
 
 
 def cb_preview_gt(seed_rux: str, export_path: str, anchor_max_idx_str: str):
@@ -528,6 +583,32 @@ def cb_preview_gt(seed_rux: str, export_path: str, anchor_max_idx_str: str):
         return status, before_img, after_img
 
 
+def _draw_correspondences(match: dict, db_path: str, node_i: int, node_j: int):
+    """Return side-by-side correspondence image using draw_pair from visualize_matches."""
+    from export_loop_edges import read_frames
+    from visualize_matches import draw_pair
+
+    frames = read_frames(db_path)
+    by_id = {f.node_id: f for f in frames}
+    fi = by_id.get(node_i)
+    fj = by_id.get(node_j)
+    if fi is None or fj is None:
+        return None
+
+    xy_i = np.array(match["xy_i"]) if match["xy_i"] else np.zeros((0, 2))
+    xy_j = np.array(match["xy_j"]) if match["xy_j"] else np.zeros((0, 2))
+    inl = np.array(match["inlier_mask"]) if match["inlier_mask"] else np.zeros(0, bool)
+
+    if len(xy_i) == 0:
+        return None
+
+    n_inl = int(inl.sum()) if len(inl) else 0
+    rms_str = f"{match['rms']*1000:.1f}mm" if match.get("rms") else "—"
+    title = f"n={len(xy_i)} matches, {n_inl} inliers, RMS={rms_str}"
+    img = draw_pair(fi, fj, xy_i, xy_j, inl, title)
+    return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # Gradio UI definition
 # ══════════════════════════════════════════════════════════════════════════════
@@ -540,20 +621,23 @@ def build_ui(db_path_arg: str) -> gr.Blocks:
     _node_ids = [nid for nid, _ in _positions]
     n_frames = len(_node_ids)
 
-    initial_scatter = _scatter_plot_data()
+    initial_fig = _build_graph()
     first_thumb_a = read_color_thumbnail(_db_path, _node_ids[0]) if _node_ids else None
     first_thumb_b = read_color_thumbnail(_db_path, _node_ids[min(200, n_frames - 1)]) if _node_ids else None
 
     with gr.Blocks(title="GT Curator — ReUseX #221") as demo:
         gr.Markdown(f"# GT Curator — {Path(db_path_arg).name}  ({n_frames} frames)")
 
-        # ── Row: scatter + frame panels ─────────────────────────────────────
+        # ── Row: interactive graph + frame panels ────────────────────────────
         with gr.Row():
-            with gr.Column(scale=1):
-                gr.Markdown("### Top-down map")
-                scatter_img = gr.Image(
-                    value=initial_scatter, label="Frame positions (seed poses)",
-                    height=380, show_label=True
+            with gr.Column(scale=2):
+                gr.Markdown(
+                    "### Top-down map  \n"
+                    "_Zoom/pan with scroll and drag. Use sliders or node-ID box below to set A/B._"
+                )
+                scatter_plot = gr.Plot(
+                    value=initial_fig,
+                    label="Frame positions (seed poses) — zoom/pan enabled",
                 )
 
             with gr.Column(scale=1):
@@ -573,10 +657,25 @@ def build_ui(db_path_arg: str) -> gr.Blocks:
                     label="node_id B", interactive=False
                 )
 
-        # Candidate proposal
+        # ── Node-ID direct select (click-to-select workaround) ───────────────
         with gr.Row():
-            propose_btn = gr.Button("Propose candidates for A")
-            candidates_out = gr.Textbox(label="Candidates", lines=6)
+            with gr.Column(scale=2):
+                gr.Markdown(
+                    "**Set A/B by node_id** — read node_id from the graph hover tooltip, "
+                    "enter it here, then click Set."
+                )
+                with gr.Row():
+                    node_select_target = gr.Radio(
+                        choices=["A", "B"], value="A", label="Selecting", scale=1
+                    )
+                    node_select_input = gr.Textbox(
+                        label="node_id to select", placeholder="e.g. 1370", scale=2
+                    )
+                    node_select_btn = gr.Button("Set", scale=1)
+                node_select_status = gr.Textbox(label="", lines=1, interactive=False)
+            with gr.Column(scale=1):
+                propose_btn = gr.Button("Propose candidates for A")
+                candidates_out = gr.Textbox(label="Candidates", lines=5)
 
         # ── Verification panel ───────────────────────────────────────────────
         gr.Markdown("---\n## Verification")
@@ -616,7 +715,8 @@ def build_ui(db_path_arg: str) -> gr.Blocks:
         anchor_table = gr.Dataframe(
             headers=["#", "node_i", "node_j", "method", "inliers", "RMS (mm)"],
             value=_anchors.to_display_rows(),
-            label="Accepted anchors",
+            label="Accepted anchors  (select a row to inspect the pair)",
+            interactive=False,
         )
 
         with gr.Row():
@@ -636,6 +736,48 @@ def build_ui(db_path_arg: str) -> gr.Blocks:
             import_path = gr.Textbox(label="Import JSON path", value="")
             import_btn = gr.Button("Import anchors")
             import_status = gr.Textbox(label="", lines=1)
+
+        # ── Session match history ─────────────────────────────────────────────
+        gr.Markdown("---\n## Session match history")
+        gr.Markdown(
+            "Every `Run match` invocation appends a row here. "
+            "Select a row to re-open that pair in the verification panel."
+        )
+        history_table = gr.Dataframe(
+            headers=["#", "node_i", "node_j", "method", "inliers", "RMS (mm)", "accepted"],
+            value=[],
+            label="Match history (this session)",
+            interactive=False,
+        )
+
+        # ── Load prior-computed edges ─────────────────────────────────────────
+        gr.Markdown("---\n## Load prior-computed edges")
+        gr.Markdown(
+            "Load edge JSON files from a previous xfeat/mast3r/spatial-filter run. "
+            "Accepted files: any with `edges[].node_i/node_j` (e.g. from "
+            "`pseudo-gt/edges/` or `pseudo-gt/targeted-run/`). "
+            "Selecting a row loads that pair into the verification panel; "
+            "edges are also drawn as faint lines on the top-down graph."
+        )
+        with gr.Row():
+            load_edges_path = gr.Textbox(
+                label="Path to edge JSON (file or directory)",
+                placeholder="/home/.../pseudo-gt/edges/xfeat_edges.json",
+                scale=4,
+            )
+            load_edges_btn = gr.Button("Load", scale=1)
+            clear_edges_btn = gr.Button("Clear", scale=1)
+        load_edges_status = gr.Textbox(label="", lines=2, interactive=False)
+        loaded_edges_table = gr.Dataframe(
+            headers=["#", "node_i", "node_j", "n_inliers", "source"],
+            value=[],
+            label="Loaded prior edges  (select a row to open the pair)",
+            interactive=False,
+        )
+        loaded_edge_T = gr.Textbox(
+            label="T_ij from loaded edge (pre-computed; re-run match to verify)",
+            lines=4, interactive=False,
+        )
 
         # ── Live GT preview ───────────────────────────────────────────────────
         gr.Markdown("---\n## Live GT preview (on-demand)")
@@ -659,18 +801,81 @@ def build_ui(db_path_arg: str) -> gr.Blocks:
             after_img = gr.Image(label="After (GT)", height=360)
 
         # ── Wiring ───────────────────────────────────────────────────────────
-        slider_a.change(cb_load_frame_a, [slider_a], [thumb_a, scatter_img, node_id_a])
+
+        # Slider A → update thumb A + graph
+        slider_a.change(cb_load_frame_a, [slider_a], [thumb_a, scatter_plot, node_id_a])
+        # Slider B → update thumb B + node_id_b only (graph updated when both sliders settle)
         slider_b.change(cb_load_frame_b, [slider_b], [thumb_b, node_id_b])
+
+        # Candidate proposal
         propose_btn.click(cb_propose_candidates, [slider_a], [candidates_out])
-        match_btn.click(cb_match, [slider_a, slider_b, method_dd],
-                        [corr_img, match_status, T_display])
+
+        # Node-ID direct select
+        node_select_btn.click(
+            cb_graph_node_select,
+            [node_select_input, node_select_target],
+            [slider_a, slider_b, thumb_a, thumb_b, scatter_plot, node_id_a, node_id_b, node_select_status],
+        )
+
+        # Match
+        match_btn.click(
+            cb_match, [slider_a, slider_b, method_dd],
+            [corr_img, match_status, T_display, history_table]
+        )
+
+        # ICP
         icp_btn.click(cb_run_icp, [slider_a, slider_b, sl_dx, sl_dy, sl_dz, sl_yaw],
                       [icp_status, icp_T])
-        accept_btn.click(cb_accept, [slider_a, slider_b, method_dd],
-                         [accept_status, anchor_table])
-        remove_btn.click(cb_remove_anchor, [remove_idx], [remove_status, anchor_table])
+
+        # Accept
+        accept_btn.click(
+            cb_accept, [slider_a, slider_b, method_dd],
+            [accept_status, anchor_table, scatter_plot]
+        )
+
+        # Anchor table: select a row to re-open pair
+        anchor_table.select(
+            cb_history_select,
+            [slider_a, slider_b],
+            [slider_a, slider_b, thumb_a, thumb_b, scatter_plot, node_id_a, node_id_b],
+        )
+
+        # Remove / export / import anchors
+        remove_btn.click(
+            cb_remove_anchor, [remove_idx],
+            [remove_status, anchor_table, scatter_plot]
+        )
         export_btn.click(cb_export_anchors, [export_path], [export_status])
-        import_btn.click(cb_import_anchors, [import_path], [import_status, anchor_table])
+        import_btn.click(
+            cb_import_anchors, [import_path],
+            [import_status, anchor_table, scatter_plot]
+        )
+
+        # Session history: select a row to re-open pair
+        history_table.select(
+            cb_history_select,
+            [slider_a, slider_b],
+            [slider_a, slider_b, thumb_a, thumb_b, scatter_plot, node_id_a, node_id_b],
+        )
+
+        # Load prior edges
+        load_edges_btn.click(
+            cb_load_edges, [load_edges_path],
+            [load_edges_status, loaded_edges_table, scatter_plot]
+        )
+        clear_edges_btn.click(
+            cb_clear_loaded_edges,
+            [],
+            [load_edges_status, loaded_edges_table, scatter_plot]
+        )
+        # Selecting a row in loaded-edges table
+        loaded_edges_table.select(
+            cb_loaded_edge_select,
+            [slider_a, slider_b],
+            [slider_a, slider_b, thumb_a, thumb_b, scatter_plot, node_id_a, node_id_b, loaded_edge_T],
+        )
+
+        # GT preview
         preview_btn.click(
             cb_preview_gt, [seed_rux_path, export_path, anchor_max_idx_input],
             [preview_status, before_img, after_img]

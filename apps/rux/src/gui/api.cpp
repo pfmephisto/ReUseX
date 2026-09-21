@@ -518,6 +518,8 @@ const std::vector<Endpoint> &endpoint_table() {
        "The label legend of one Label cloud"},
       {"PATCH", "/api/v1/clouds/<string>/labels",
        "Rename label classes of one Label cloud"},
+      {"GET", "/api/v1/clouds/<string>/tiles",
+       "Spatial tile index for frustum-culled streaming"},
       {"GET", "/api/v1/meshes", "All stored meshes"},
       {"GET", "/api/v1/meshes/<string>", "One mesh's metadata"},
       {"GET", "/api/v1/meshes/<string>/data",
@@ -701,6 +703,33 @@ json cloud_labels_json(const reusex::ProjectDB &db, const std::string &name) {
   return json{{"labels", std::move(labels)}};
 }
 
+json cloud_tiles_json(const reusex::ProjectDB &db, const std::string &name) {
+  if (!db.has_point_cloud(name))
+    not_found("cloud", name);
+
+  const auto blob = db.tile_index(name);
+  if (blob.empty())
+    throw HttpError(404, "no tile index for cloud '" + name + "'");
+
+  const auto [hdr, tiles] = parse_tile_index(blob);
+  const uint32_t K = 1u << hdr.tile_bits;
+
+  json tile_array = json::array();
+  for (uint32_t k = 0; k < K; ++k) {
+    const auto &t = tiles[k];
+    tile_array.push_back(
+        json{{"id", k},
+             {"count", t.count},
+             {"min", json::array({t.min[0], t.min[1], t.min[2]})},
+             {"max", json::array({t.max[0], t.max[1], t.max[2]})}});
+  }
+  return json{{"name", name},
+              {"tile_count", K},
+              {"tile_bits", hdr.tile_bits},
+              {"point_count", hdr.point_count},
+              {"tiles", std::move(tile_array)}};
+}
+
 namespace {
 
 /// A validated `max_points` / `lod_source` pair (#320).
@@ -792,6 +821,54 @@ LodPage resolve_lod(const reusex::ProjectDB &db, const std::string &name,
           selection.voxel_size};
 }
 
+/// A validated single-tile request (#395).
+struct TileRequest {
+  bool active = false;
+  uint32_t tile_id = 0;
+};
+
+/// Parse the `tile` half of the points query. Mutually exclusive with
+/// `max_points`/`offset`/`limit`: a tile is a full-resolution spatial slice, a
+/// different question from paging or LOD.
+TileRequest parse_tile_request(const Params &params) {
+  const auto supplied = [&params](std::string_view key) {
+    const auto value = params.find(key);
+    return value.has_value() && !value->empty();
+  };
+
+  TileRequest request;
+  if (!supplied("tile"))
+    return request;
+  if (supplied("max_points") || supplied("offset") || supplied("limit"))
+    throw HttpError(400, "tile serves one spatial slice of the whole cloud and "
+                         "cannot be combined with max_points, offset or limit");
+
+  const long long value = params.integer("tile", -1);
+  if (value < 0)
+    throw HttpError(400, "tile must be >= 0, got " + std::to_string(value));
+  request.active = true;
+  request.tile_id = static_cast<uint32_t>(value);
+  return request;
+}
+
+/// Read one spatial tile by scanning for points with matching sort_key.
+reusex::ProjectDB::CloudPage resolve_tile(const reusex::ProjectDB &db,
+                                          const std::string &name,
+                                          const TileRequest &request) {
+  const auto blob = db.tile_index(name);
+  if (blob.empty())
+    throw HttpError(404, "no tile index for cloud '" + name + "'");
+
+  const auto [hdr, tiles] = parse_tile_index(blob);
+  const uint32_t K = 1u << hdr.tile_bits;
+  if (request.tile_id >= K)
+    throw HttpError(400, "tile " + std::to_string(request.tile_id) +
+                             " out of range; cloud '" + name + "' has " +
+                             std::to_string(K) + " tiles");
+
+  return gather_tile_points(db, name, hdr, request.tile_id);
+}
+
 /// Serialize one already-read page as the JSON `CloudPointsPage` object.
 json points_json_from_page(const std::string &name,
                            const reusex::ProjectDB::CloudPage &page) {
@@ -852,6 +929,14 @@ json cloud_points_json(const reusex::ProjectDB &db, const std::string &name,
   if (!db.has_point_cloud(name))
     not_found("cloud", name);
 
+  const auto tile = parse_tile_request(params);
+  if (tile.active) {
+    auto body = points_json_from_page(name, resolve_tile(db, name, tile));
+    // A tile is a full-resolution spatial slice, not a coarsened view.
+    body["lod"] = false;
+    return body;
+  }
+
   const auto lod = parse_lod_request(params);
   if (lod.active) {
     const auto result = resolve_lod(db, name, lod);
@@ -894,11 +979,15 @@ PointsResponse cloud_points(const reusex::ProjectDB &db,
     throw HttpError(400,
                     "format must be 'json' or 'binary', got '" + format + "'");
 
+  const auto tile = parse_tile_request(params);
   const auto lod = parse_lod_request(params);
 
   reusex::ProjectDB::CloudPage page;
   uint32_t flags = 0;
-  if (lod.active) {
+  if (tile.active) {
+    // A tile is a full-resolution spatial slice: LOD is not claimed.
+    page = resolve_tile(db, name, tile);
+  } else if (lod.active) {
     auto result = resolve_lod(db, name, lod);
     // The flag is set only when points were actually dropped. A cloud that fit
     // the budget came back whole and in storage order, and claiming LOD would

@@ -209,7 +209,7 @@ class ProjectDB::Impl {
   sqlite3 *db = nullptr;
 
   // cppcheck-suppress unusedStructMember
-  static constexpr int LATEST_SCHEMA_VERSION = 15;
+  static constexpr int LATEST_SCHEMA_VERSION = 16;
 
   // Maximum bytes per point_cloud_data row. SQLite's default SQLITE_MAX_LENGTH
   // is 1 GB and the hard compile-time max is 2 GB-1. We chunk large clouds
@@ -437,6 +437,10 @@ class ProjectDB::Impl {
 
     if (current < 15) {
       migrateToV15();
+    }
+
+    if (current < 16) {
+      migrateToV16();
     }
 
     reusex::trace("Schema version: {}", getCurrentSchemaVersion());
@@ -1299,6 +1303,26 @@ class ProjectDB::Impl {
     if (sqlite3_step(stmt) == SQLITE_ROW)
       return sqlite3_column_int(stmt, 0) > 0;
     return false;
+  }
+
+  void migrateToV16() {
+    reusex::info("Migrating database to schema version 16");
+    // Spatial tile index for morton_10bit_bitrev clouds (#395).
+    // Computed at create clouds time; NULL for older clouds.
+    // Guard: the table may not exist (panorama-only DBs) or the column may
+    // already exist (downgrade-then-remigrate path).
+    if (tableExists("point_clouds") &&
+        !columnExists("point_clouds", "tile_index")) {
+      const char *sql = "ALTER TABLE point_clouds ADD COLUMN tile_index BLOB;";
+      char *errMsg = nullptr;
+      if (sqlite3_exec(db, sql, nullptr, nullptr, &errMsg) != SQLITE_OK) {
+        std::string error = errMsg ? errMsg : "unknown error";
+        sqlite3_free(errMsg);
+        throw std::runtime_error("Migration to v16 failed: " + error);
+      }
+    }
+    insertSchemaVersion(16, "Add tile_index column to point_clouds");
+    reusex::info("Migration to schema version 16 complete");
   }
 
   // Parse the semantic class id from an instance definition name of the form
@@ -2752,6 +2776,46 @@ class ProjectDB::Impl {
     } catch (...) {
     }
     return "";
+  }
+
+  void saveTileIndex(std::string_view name, const std::vector<uint8_t> &blob) {
+    const char *sql = "UPDATE point_clouds SET tile_index = ? WHERE name = ?;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to prepare tile index update: " +
+                               std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+    if (blob.empty())
+      sqlite3_bind_null(stmt, 1);
+    else
+      sqlite3_bind_blob(stmt, 1, blob.data(), static_cast<int>(blob.size()),
+                        SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 2, name.data(), static_cast<int>(name.size()),
+                      SQLITE_TRANSIENT);
+    if (sqlite3_step(stmt) != SQLITE_DONE)
+      throw std::runtime_error("Failed to save tile index: " +
+                               std::string(sqlite3_errmsg(db)));
+    if (sqlite3_changes(db) == 0)
+      throw std::runtime_error("Point cloud not found: " + std::string(name));
+  }
+
+  std::vector<uint8_t> getTileIndex(std::string_view name) const {
+    const char *sql = "SELECT tile_index FROM point_clouds WHERE name = ?;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to prepare tile index query: " +
+                               std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+    sqlite3_bind_text(stmt, 1, name.data(), static_cast<int>(name.size()),
+                      SQLITE_TRANSIENT);
+    if (sqlite3_step(stmt) != SQLITE_ROW)
+      throw std::runtime_error("Point cloud not found: " + std::string(name));
+    if (sqlite3_column_type(stmt, 0) == SQLITE_NULL)
+      return {};
+    const auto *bytes =
+        static_cast<const uint8_t *>(sqlite3_column_blob(stmt, 0));
+    const int size = sqlite3_column_bytes(stmt, 0);
+    return std::vector<uint8_t>(bytes, bytes + size);
   }
 
   // ── Label definitions ──────────────────────────────────────────────
@@ -5625,6 +5689,16 @@ std::string ProjectDB::point_cloud_type(std::string_view name) const {
 
 std::string ProjectDB::point_cloud_storage_order(std::string_view name) const {
   return impl_->getCloudStorageOrder(name);
+}
+
+void ProjectDB::save_tile_index(std::string_view name,
+                                const std::vector<uint8_t> &blob) {
+  impl_->checkWritable();
+  impl_->saveTileIndex(name, blob);
+}
+
+std::vector<uint8_t> ProjectDB::tile_index(std::string_view name) const {
+  return impl_->getTileIndex(name);
 }
 
 ProjectDB::CloudPage ProjectDB::point_cloud_page(std::string_view name,

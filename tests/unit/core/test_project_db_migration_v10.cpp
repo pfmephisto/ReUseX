@@ -102,7 +102,7 @@ TEST_CASE("ProjectDbSchemaVersion_FreshMigrationDatabase_IsLatest",
           "[projectdb][migration]") {
   TempPath tmp;
   ProjectDB db(tmp.path);
-  REQUIRE(db.schema_version() == 15);
+  REQUIRE(db.schema_version() == 16);
 }
 
 TEST_CASE("ProjectDb_PreV13ProjectReadWriteOpen_MigratesToV14_"
@@ -125,7 +125,7 @@ TEST_CASE("ProjectDb_PreV13ProjectReadWriteOpen_MigratesToV14_"
   // Read-write open triggers migrateToV14.
   {
     ProjectDB db(tmp.path);
-    REQUIRE(db.schema_version() == 15);
+    REQUIRE(db.schema_version() == 16);
 
     // Insert a sensor frame + glass confidence image.
     cv::Mat color(4, 4, CV_8UC3, cv::Scalar(0, 0, 0));

@@ -12,6 +12,7 @@
 
 #include <gui/api.hpp>
 #include <gui/assets.hpp>
+#include <gui/point_lod.hpp>
 
 #include "../../support/temp_path.hpp"
 
@@ -102,6 +103,7 @@ TEST_CASE("EndpointTable_DocumentedRoutes_MatchesContract", "[gui][routes]") {
       "GET /api/v1/clouds/<string>/points",
       "GET /api/v1/clouds/<string>/labels",
       "PATCH /api/v1/clouds/<string>/labels",
+      "GET /api/v1/clouds/<string>/tiles",
       "GET /api/v1/meshes",
       "GET /api/v1/meshes/<string>",
       "GET /api/v1/meshes/<string>/data",
@@ -453,6 +455,76 @@ TEST_CASE("CloudJson_LabelCloud_ExposesLabelDefinitions", "[gui][clouds]") {
   CHECK(points.at("fields") == json::array({"label"}));
   CHECK(points.at("points").at(0).at(0) == 0);
   CHECK(points.at("points").at(3).at(0) == 3);
+}
+
+TEST_CASE("CloudTilesJson_NoTileIndex_Returns404", "[gui][clouds][tiles]") {
+  TempPath project("test_gui_api");
+  reusex::ProjectDB db(project.path);
+  save_test_cloud(db, "cloud", 100);
+
+  // A cloud with no computed tile index is a 404 on this route.
+  try {
+    cloud_tiles_json(db, "cloud");
+    FAIL("expected HttpError");
+  } catch (const HttpError &e) {
+    CHECK(e.status() == 404);
+  }
+
+  // An unknown cloud is also a 404.
+  REQUIRE_THROWS_AS(cloud_tiles_json(db, "missing"), HttpError);
+}
+
+TEST_CASE("CloudTilesJson_WithTileIndex_ReturnsStructure",
+          "[gui][clouds][tiles]") {
+  TempPath project("test_gui_api");
+  reusex::ProjectDB db(project.path);
+
+  // A cloud big enough for the default K=64 tiles, saved as
+  // morton_10bit_bitrev.
+  reusex::Cloud cloud;
+  for (int i = 0; i < 4096; ++i) {
+    reusex::PointT point;
+    point.x = static_cast<float>(i % 16);
+    point.y = static_cast<float>((i / 16) % 16);
+    point.z = static_cast<float>(i / 256);
+    cloud.push_back(point);
+  }
+  cloud.width = cloud.size();
+  cloud.height = 1;
+  db.save_point_cloud("cloud", cloud, "test",
+                      R"({"storage_order":"morton_10bit_bitrev"})");
+
+  const auto blob = rux::gui::compute_tile_index(db, "cloud");
+  REQUIRE_FALSE(blob.empty());
+  db.save_tile_index("cloud", blob);
+
+  const auto body = cloud_tiles_json(db, "cloud");
+  CHECK(body.at("name") == "cloud");
+  CHECK(body.at("tile_count") == 64);
+  CHECK(body.at("tile_bits") == 6);
+  CHECK(body.at("point_count") == 4096);
+  REQUIRE(body.at("tiles").is_array());
+  REQUIRE(body.at("tiles").size() == 64);
+
+  const auto &tile0 = body.at("tiles").at(0);
+  CHECK(tile0.contains("id"));
+  CHECK(tile0.contains("count"));
+  REQUIRE(tile0.at("min").is_array());
+  REQUIRE(tile0.at("min").size() == 3);
+  REQUIRE(tile0.at("max").size() == 3);
+
+  // Every point is assigned to exactly one tile.
+  uint64_t total = 0;
+  for (const auto &t : body.at("tiles"))
+    total += t.at("count").get<uint64_t>();
+  CHECK(total == 4096);
+
+  // A single-tile points request returns that tile's points at full resolution.
+  Params tile;
+  tile.set("tile", "0");
+  const auto points = cloud_points_json(db, "cloud", tile);
+  CHECK(points.at("lod") == false);
+  CHECK(points.at("count") == tile0.at("count"));
 }
 
 TEST_CASE("PipelineLogJson_MixedEntries_RoundTripsAndRejectsNegativeLimit",

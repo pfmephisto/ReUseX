@@ -14,6 +14,7 @@
 #include <stdexcept>
 #include <string>
 #include <unordered_set>
+#include <utility>
 
 namespace rux::gui {
 namespace {
@@ -453,6 +454,241 @@ gather_points(const reusex::ProjectDB &db, std::string_view name,
                              std::to_string(indices.size()) +
                              " requested points");
 
+  return out;
+}
+
+namespace {
+
+// Spread one 10-bit coordinate into a 30-bit word by interleaving every 3rd
+// bit (magic-bit expansion). Identical to the version in reconstruct.cpp.
+uint32_t expand3(uint32_t v) {
+  v &= 0x000003ffu;
+  v = (v | (v << 16u)) & 0x030000ffu;
+  v = (v | (v << 8u)) & 0x0300f00fu;
+  v = (v | (v << 4u)) & 0x030c30c3u;
+  v = (v | (v << 2u)) & 0x09249249u;
+  return v;
+}
+
+// Reverse the 30 significant bits of a Morton code. The coarsest-level octant
+// bits (top bits of plain Morton) become the BOTTOM bits of the result.
+// Identical to the version in reconstruct.cpp.
+uint32_t reverse_bits30(uint32_t v) {
+  v = ((v >> 1u) & 0x55555555u) | ((v & 0x55555555u) << 1u);
+  v = ((v >> 2u) & 0x33333333u) | ((v & 0x33333333u) << 2u);
+  v = ((v >> 4u) & 0x0f0f0f0fu) | ((v & 0x0f0f0f0fu) << 4u);
+  v = ((v >> 8u) & 0x00ff00ffu) | ((v & 0x00ff00ffu) << 8u);
+  v = (v >> 16u) | (v << 16u);
+  return v >> 2u;
+}
+
+// Compute the 30-bit bit-reversed Morton sort key for a point given the cloud
+// bbox. Mirrors the sort-key computation in reconstruct.cpp so tile assignment
+// at index-build time matches the storage order the cloud was sorted into.
+uint32_t morton_sort_key(float x, float y, float z, const float lo[3],
+                         const float range[3]) {
+  constexpr uint32_t kMax10 = 1023u;
+  const auto clamp01 = [](float v) {
+    return v < 0.f ? 0.f : (v > 1.f ? 1.f : v);
+  };
+  const uint32_t xi =
+      static_cast<uint32_t>(clamp01((x - lo[0]) / range[0]) * kMax10);
+  const uint32_t yi =
+      static_cast<uint32_t>(clamp01((y - lo[1]) / range[1]) * kMax10);
+  const uint32_t zi =
+      static_cast<uint32_t>(clamp01((z - lo[2]) / range[2]) * kMax10);
+  return reverse_bits30(expand3(xi) | (expand3(yi) << 1u) |
+                        (expand3(zi) << 2u));
+}
+
+} // namespace
+
+std::vector<uint8_t> compute_tile_index(const reusex::ProjectDB &db,
+                                        std::string_view name,
+                                        uint32_t tile_bits) {
+  const auto probe = db.point_cloud_page(name, 0, 0);
+  const uint64_t total = probe.total;
+  const size_t step = probe.point_step;
+
+  if (step == 0 || step > kMaxRecord || total == 0)
+    return {};
+
+  const uint32_t K = 1u << tile_bits;
+  if (total < K)
+    return {}; // cloud too small for K distinct tiles
+
+  // Pass 1: compute cloud bbox (needed for sort_key normalization).
+  float lo[3] = {std::numeric_limits<float>::infinity(),
+                 std::numeric_limits<float>::infinity(),
+                 std::numeric_limits<float>::infinity()};
+  float hi[3] = {-std::numeric_limits<float>::infinity(),
+                 -std::numeric_limits<float>::infinity(),
+                 -std::numeric_limits<float>::infinity()};
+  for (uint64_t start = 0; start < total; start += kLodStreamChunk) {
+    const auto window = db.point_cloud_page(name, start, kLodStreamChunk);
+    if (window.count == 0)
+      break;
+    for (uint64_t i = 0; i < window.count; ++i) {
+      const uint8_t *rec = window.data.data() + i * step;
+      if (!finite_position(rec))
+        continue;
+      for (int ax = 0; ax < 3; ++ax) {
+        const float v = read_f32(rec + 4 * ax);
+        if (v < lo[ax])
+          lo[ax] = v;
+        if (v > hi[ax])
+          hi[ax] = v;
+      }
+    }
+  }
+  // Avoid division by zero for degenerate clouds.
+  float rng[3];
+  for (int ax = 0; ax < 3; ++ax)
+    rng[ax] = (hi[ax] - lo[ax]) > 1e-9f ? (hi[ax] - lo[ax]) : 1e-9f;
+
+  // Pass 2: assign each point to tile (sort_key & (K-1)), update tight AABB.
+  // The bottom tile_bits bits of the 30-bit bit-reversed Morton sort_key are
+  // the TOP tile_bits bits of the plain Morton code — the coarsest spatial
+  // octant bits. Points sharing these bits occupy one spatial cell.
+  std::vector<TileInfo> tiles(K);
+  for (auto &t : tiles) {
+    t.min[0] = t.min[1] = t.min[2] = std::numeric_limits<float>::infinity();
+    t.max[0] = t.max[1] = t.max[2] = -std::numeric_limits<float>::infinity();
+    t.count = 0;
+  }
+
+  const uint32_t mask = K - 1;
+  for (uint64_t start = 0; start < total; start += kLodStreamChunk) {
+    const auto window = db.point_cloud_page(name, start, kLodStreamChunk);
+    if (window.count == 0)
+      break;
+
+    for (uint64_t i = 0; i < window.count; ++i) {
+      const uint8_t *rec = window.data.data() + i * step;
+      if (!finite_position(rec))
+        continue;
+
+      const float x = read_f32(rec);
+      const float y = read_f32(rec + 4);
+      const float z = read_f32(rec + 8);
+      const uint32_t sk = morton_sort_key(x, y, z, lo, rng);
+      const uint32_t tile = sk & mask;
+      TileInfo &t = tiles[tile];
+      t.count += 1;
+      if (x < t.min[0])
+        t.min[0] = x;
+      if (y < t.min[1])
+        t.min[1] = y;
+      if (z < t.min[2])
+        t.min[2] = z;
+      if (x > t.max[0])
+        t.max[0] = x;
+      if (y > t.max[1])
+        t.max[1] = y;
+      if (z > t.max[2])
+        t.max[2] = z;
+    }
+  }
+
+  // Empty tiles: degenerate bbox at origin.
+  for (auto &t : tiles) {
+    if (t.count == 0) {
+      t.min[0] = t.min[1] = t.min[2] = 0.0f;
+      t.max[0] = t.max[1] = t.max[2] = 0.0f;
+    }
+  }
+
+  // Serialize: fixed-size header (v2 includes bbox) + per-tile data.
+  TileIndexHeader hdr{};
+  hdr.magic = kTileIndexMagic;
+  hdr.version = 2u;
+  hdr.tile_bits = tile_bits;
+  hdr.point_count =
+      static_cast<uint32_t>(total > UINT32_MAX ? UINT32_MAX : total);
+  for (int ax = 0; ax < 3; ++ax) {
+    hdr.lo[ax] = lo[ax];
+    hdr.hi[ax] = hi[ax];
+  }
+  const size_t blob_size = sizeof(TileIndexHeader) + K * sizeof(TileInfo);
+  std::vector<uint8_t> blob(blob_size);
+  std::memcpy(blob.data(), &hdr, sizeof(hdr));
+  std::memcpy(blob.data() + sizeof(hdr), tiles.data(), K * sizeof(TileInfo));
+  return blob;
+}
+
+std::pair<TileIndexHeader, std::vector<TileInfo>>
+parse_tile_index(const std::vector<uint8_t> &blob) {
+  if (blob.size() < sizeof(TileIndexHeader))
+    throw std::runtime_error("tile index blob too short");
+
+  TileIndexHeader hdr;
+  std::memcpy(&hdr, blob.data(), sizeof(hdr));
+  if (hdr.magic != kTileIndexMagic)
+    throw std::runtime_error("tile index blob has wrong magic");
+  if (hdr.version != 2u)
+    throw std::runtime_error(
+        "unsupported tile index version " + std::to_string(hdr.version) +
+        " (expected 2; re-run rux create clouds to rebuild)");
+  if (hdr.tile_bits == 0 || hdr.tile_bits > 20)
+    throw std::runtime_error("tile_bits out of range");
+
+  const uint32_t K = 1u << hdr.tile_bits;
+  const size_t expected = sizeof(TileIndexHeader) + K * sizeof(TileInfo);
+  if (blob.size() != expected)
+    throw std::runtime_error("tile index blob size mismatch");
+
+  std::vector<TileInfo> tiles(K);
+  std::memcpy(tiles.data(), blob.data() + sizeof(hdr), K * sizeof(TileInfo));
+  return {hdr, std::move(tiles)};
+}
+
+reusex::ProjectDB::CloudPage gather_tile_points(const reusex::ProjectDB &db,
+                                                std::string_view name,
+                                                const TileIndexHeader &hdr,
+                                                uint32_t tile_id) {
+  const uint32_t K = 1u << hdr.tile_bits;
+  if (tile_id >= K)
+    throw std::runtime_error("tile_id " + std::to_string(tile_id) +
+                             " >= K=" + std::to_string(K));
+
+  const auto probe = db.point_cloud_page(name, 0, 0);
+  const size_t step = probe.point_step;
+  if (step == 0 || step > kMaxRecord)
+    throw std::runtime_error("unusable point_step for cloud '" +
+                             std::string(name) + "'");
+
+  // Precompute range clamped to avoid division by zero.
+  float rng[3];
+  for (int ax = 0; ax < 3; ++ax)
+    rng[ax] =
+        (hdr.hi[ax] - hdr.lo[ax]) > 1e-9f ? (hdr.hi[ax] - hdr.lo[ax]) : 1e-9f;
+
+  const uint32_t mask = K - 1;
+  reusex::ProjectDB::CloudPage out;
+  out.point_type = probe.point_type;
+  out.point_step = step;
+  out.offset = 0;
+  out.total = probe.total;
+  out.count = 0;
+
+  // O(N) scan: collect points whose sort_key & mask == tile_id.
+  for (uint64_t start = 0; start < probe.total; start += kLodStreamChunk) {
+    const auto window = db.point_cloud_page(name, start, kLodStreamChunk);
+    if (window.count == 0)
+      break;
+    for (uint64_t i = 0; i < window.count; ++i) {
+      const uint8_t *rec = window.data.data() + i * step;
+      if (!finite_position(rec))
+        continue;
+      const float x = read_f32(rec);
+      const float y = read_f32(rec + 4);
+      const float z = read_f32(rec + 8);
+      if ((morton_sort_key(x, y, z, hdr.lo, rng) & mask) != tile_id)
+        continue;
+      out.data.insert(out.data.end(), rec, rec + step);
+      ++out.count;
+    }
+  }
   return out;
 }
 

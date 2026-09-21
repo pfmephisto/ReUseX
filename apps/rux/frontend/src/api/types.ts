@@ -91,6 +91,28 @@ export interface CloudPointsPage {
   voxel_size?: number;
 }
 
+/** `TileInfo` — one spatial tile's AABB and point count (#395). */
+export interface TileInfo {
+  id: number;
+  count: number;
+  min: [number, number, number];
+  max: [number, number, number];
+}
+
+/**
+ * `CloudTileIndex` — the spatial tile index of one cloud (#395).
+ *
+ * Present only for clouds stored in morton_10bit_bitrev order. Tile `k` is the
+ * stride-K storage slice `{k, k+K, k+2K, ...}` with `K = tile_count`.
+ */
+export interface CloudTileIndex {
+  name: string;
+  tile_count: number;
+  tile_bits: number;
+  point_count: number;
+  tiles: TileInfo[];
+}
+
 /** `MeshInfo` — one stored mesh. */
 export interface MeshInfo {
   name: string;

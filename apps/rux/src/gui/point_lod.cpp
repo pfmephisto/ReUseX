@@ -311,6 +311,26 @@ LodSelection voxel_lod(const reusex::ProjectDB &db, std::string_view name,
     return result;
   }
 
+  // Bit-reversed Morton storage: the cloud was sorted by reverse_bits30(code)
+  // so the coarsest-level octant bits are most-significant in the sort key.
+  // Any prefix therefore visits all spatial octants before refining any single
+  // one — it is a spatially stratified uniform sample, not a corner.  Skip
+  // the two-pass voxel algorithm and return a contiguous prefix page.
+  //
+  // voxel_size stays 0.0 — the same sentinel the under-budget path uses for
+  // "no voxel grid was applied". subsampled==true tells the caller to advertise
+  // LOD on the wire.
+  if (db.point_cloud_storage_order(name) == "morton_10bit_bitrev") {
+    auto page = db.point_cloud_page(name, 0, max_points);
+    result.page = std::move(page);
+    result.indices.resize(static_cast<size_t>(result.page.count));
+    for (size_t i = 0; i < result.indices.size(); ++i)
+      result.indices[i] = static_cast<uint64_t>(i);
+    result.subsampled = true;
+    // voxel_size = 0.0 (default): prefix read, no voxel grid.
+    return result;
+  }
+
   auto pass = select_pass(db, name, probe.total, step, max_points, 0.0);
 
   // ---- one measured refinement pass ----

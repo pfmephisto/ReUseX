@@ -258,8 +258,24 @@ class PCL_EXPORTS PlanarRegionGrowing : public PCLBase<PointT> {
     labels_ = labels;
 
     reusex::core::trace("Sorting indices");
+    // Stable sort with spatial tie-breaking so the seed order is invariant
+    // to the input cloud's array ordering (STANDARDS §6).  A plain sort with
+    // array-index tie-breaking produces different seeds for the same cloud in
+    // different permutations (e.g. Morton reorder), which changes how many
+    // planes region growing detects.
     std::sort(indices_->begin(), indices_->end(), [&](int i, int j) {
-      return normals_->at(i).curvature < normals_->at(j).curvature;
+      const float ci = normals_->at(i).curvature;
+      const float cj = normals_->at(j).curvature;
+      if (ci != cj)
+        return ci < cj;
+      // Spatial tie-break: deterministic regardless of array ordering.
+      const auto &pi = input_->at(i);
+      const auto &pj = input_->at(j);
+      if (pi.x != pj.x)
+        return pi.x < pj.x;
+      if (pi.y != pj.y)
+        return pi.y < pj.y;
+      return pi.z < pj.z;
     });
 
     findPointNeighbours();
@@ -428,7 +444,30 @@ class PCL_EXPORTS PlanarRegionGrowing : public PCLBase<PointT> {
       pcl::Indices k_indices;
       std::vector<float> k_distances;
       search_method_(*input_, index, k_indices, k_distances);
-      std::swap(k_indices, point_neighbours_[index]);
+      // Sort by (distance, spatial coords) so growing order is invariant to
+      // the cloud's array ordering (e.g. Morton reorder for LOD, STANDARDS §6).
+      // FLANN's tree traversal order — and thus tie-breaking — depends on
+      // internal node structure, which varies with input ordering.
+      if (!k_indices.empty()) {
+        const size_t sz = k_indices.size();
+        std::vector<size_t> order(sz);
+        std::iota(order.begin(), order.end(), size_t{0});
+        std::sort(order.begin(), order.end(), [&](size_t a, size_t b) {
+          if (k_distances[a] != k_distances[b])
+            return k_distances[a] < k_distances[b];
+          const auto &pa = input_->at(k_indices[a]);
+          const auto &pb = input_->at(k_indices[b]);
+          if (pa.x != pb.x)
+            return pa.x < pb.x;
+          if (pa.y != pb.y)
+            return pa.y < pb.y;
+          return pa.z < pb.z;
+        });
+        pcl::Indices sorted(sz);
+        for (size_t s = 0; s < sz; ++s)
+          sorted[s] = k_indices[order[s]];
+        std::swap(sorted, point_neighbours_[index]);
+      }
     }
 
     reusex::core::debug("Precompute neighbor indices took {}s", sw);

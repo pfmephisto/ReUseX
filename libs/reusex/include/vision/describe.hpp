@@ -44,6 +44,12 @@ struct DescribeConfig {
   int min_view_points = 20;
   /// Max points to reproject per frame (subsample large instances for speed).
   std::size_t max_points_per_frame = 5000;
+  /// CURL TCP connect timeout in seconds. 0 = no limit. VLM servers can be
+  /// slow to accept; 10 s catches a wedged endpoint fast.
+  int connect_timeout_s = 10;
+  /// CURL total request timeout in seconds (covers connect + send + receive).
+  /// 0 = no limit. 120 s is generous enough for large-image VLM responses.
+  int total_timeout_s = 120;
 };
 
 /// The default instruction: asks for a JSON object with a free-text

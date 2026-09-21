@@ -232,13 +232,14 @@ int describe_with_client(const std::filesystem::path &dbPath,
     cv::Mat crop = image(cv::Rect(x0, y0, x1 - x0, y1 - y0)).clone();
 
     VlmResult result;
+    reusex::stopwatch sw;
     try {
       result = client.describe(crop, prompt);
     } catch (const std::exception &e) {
       ++call_failed;
-      reusex::warn(
-          "Material {}: VLM call failed ({}); leaving annotation unset",
-          material_guid, e.what());
+      reusex::warn("Material {}: VLM call failed after {:.1f}s ({}); leaving "
+                   "annotation unset",
+                   material_guid, sw.elapsed(), e.what());
       continue;
     }
 
@@ -279,7 +280,8 @@ int describe(const std::filesystem::path &dbPath,
              const DescribeConfig &config) {
   try {
     OpenAiCompatibleVlmClient client(config.api_url, config.model,
-                                     config.api_key);
+                                     config.api_key, config.connect_timeout_s,
+                                     config.total_timeout_s);
     describe_with_client(dbPath, config, client);
     return 0;
   } catch (const std::exception &e) {

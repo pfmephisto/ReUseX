@@ -24,6 +24,8 @@ struct SubcommandAttributesOptions {
   bool skip_existing = false;
   int crop_padding = 8;
   int min_view_points = 20;
+  int connect_timeout_s = 10;
+  int total_timeout_s = 120;
 };
 
 void setup_subcommand_create_attributes(CLI::App &app,

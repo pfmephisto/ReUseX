@@ -68,9 +68,13 @@ std::string resolve_endpoint(std::string base_url) {
 
 OpenAiCompatibleVlmClient::OpenAiCompatibleVlmClient(std::string base_url,
                                                      std::string model,
-                                                     std::string api_key)
+                                                     std::string api_key,
+                                                     int connect_timeout_s,
+                                                     int total_timeout_s)
     : endpoint_(resolve_endpoint(std::move(base_url))),
-      model_(std::move(model)), api_key_(std::move(api_key)) {}
+      model_(std::move(model)), api_key_(std::move(api_key)),
+      connect_timeout_s_(connect_timeout_s), total_timeout_s_(total_timeout_s) {
+}
 
 VlmResult OpenAiCompatibleVlmClient::describe(const cv::Mat &crop,
                                               const std::string &prompt) {
@@ -93,6 +97,15 @@ VlmResult OpenAiCompatibleVlmClient::describe(const cv::Mat &crop,
     headers = curl_slist_append(headers,
                                 ("Authorization: Bearer " + api_key_).c_str());
 
+  // Required for CURLOPT_TIMEOUT to work reliably in multithreaded programs
+  // (otherwise libcurl uses SIGALRM, which is process-wide).
+  curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+  if (connect_timeout_s_ > 0)
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT,
+                     static_cast<long>(connect_timeout_s_));
+  if (total_timeout_s_ > 0)
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT,
+                     static_cast<long>(total_timeout_s_));
   curl_easy_setopt(curl, CURLOPT_URL, endpoint_.c_str());
   curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
   curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(body.size()));

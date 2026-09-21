@@ -6,6 +6,15 @@
 // (network-free) IVlmClient injected via describe_with_client() (#373). The
 // stage iterates MATERIAL passports, resolves each to its linked instance(s),
 // crops their best view and stores a material-keyed annotation.
+//
+// Timeout plumbing (#382): DescribeConfig carries connect_timeout_s /
+// total_timeout_s fields with defaults (10s / 120s) that the describe() entry
+// point forwards to OpenAiCompatibleVlmClient, which applies them as
+// CURLOPT_CONNECTTIMEOUT / CURLOPT_TIMEOUT / CURLOPT_NOSIGNAL. The config-
+// plumbing tests below verify the field defaults; end-to-end behaviour (client
+// errors after the timeout rather than blocking) was manually verified by
+// pointing the client at 10.255.255.1:11434 with total_timeout_s=2 and
+// observing CURLE_OPERATION_TIMEDOUT within ~2 s.
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -15,6 +24,7 @@
 #include <types.hpp>
 #include <vision/IVlmClient.hpp>
 #include <vision/describe.hpp>
+#include <vision/vlm/OpenAiCompatibleVlmClient.hpp>
 
 #include "../../support/temp_path.hpp"
 
@@ -120,6 +130,25 @@ void seedProject(ProjectDB &db) {
 }
 
 } // namespace
+
+// --- Timeout config plumbing (#382) ---
+
+TEST_CASE("DescribeConfig_TimeoutDefaults_AreReasonable",
+          "[vision][attributes]") {
+  reusex::vision::DescribeConfig cfg;
+  CHECK(cfg.connect_timeout_s == 10);
+  CHECK(cfg.total_timeout_s == 120);
+}
+
+TEST_CASE("OpenAiCompatibleVlmClient_AcceptsTimeoutParams_StoresThem",
+          "[vision][attributes]") {
+  reusex::vision::OpenAiCompatibleVlmClient client("http://localhost:11434/v1",
+                                                   "qwen2.5vl", "", 5, 30);
+  CHECK(client.connect_timeout_s() == 5);
+  CHECK(client.total_timeout_s() == 30);
+}
+
+// ---
 
 TEST_CASE("DescribeWithClient_OneMaterialWithView_StoresAnnotation",
           "[vision][attributes]") {

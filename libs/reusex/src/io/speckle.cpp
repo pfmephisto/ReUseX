@@ -317,6 +317,10 @@ std::string http_post_multipart(const std::string &url,
                  static_cast<curl_off_t>(json_payload.size()));
   curl_mime_type(part, "application/json");
 
+  // Required for signal-based timeout to work in multithreaded programs.
+  curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+  curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
+  curl_easy_setopt(curl, CURLOPT_TIMEOUT, 60L);
   curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
   curl_easy_setopt(curl, CURLOPT_MIMEPOST, mime);
   curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
@@ -354,6 +358,10 @@ std::string http_post_json(const std::string &url, const std::string &token,
   headers =
       curl_slist_append(headers, ("Authorization: Bearer " + token).c_str());
 
+  // Required for signal-based timeout to work in multithreaded programs.
+  curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+  curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
+  curl_easy_setopt(curl, CURLOPT_TIMEOUT, 60L);
   curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
   curl_easy_setopt(curl, CURLOPT_POSTFIELDS, json_body.c_str());
   curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);

@@ -32,6 +32,8 @@ void setup_subcommand_create_attributes(
   opt->crop_padding = defaults.crop_padding;
   opt->min_view_points = defaults.min_view_points;
   opt->skip_existing = defaults.skip_existing;
+  opt->connect_timeout_s = defaults.connect_timeout_s;
+  opt->total_timeout_s = defaults.total_timeout_s;
 
   sub->footer(R"(
 DESCRIPTION:
@@ -95,6 +97,15 @@ NOTES:
                   "usable view")
       ->check(CLI::Range(1, 1000000))
       ->default_val(opt->min_view_points);
+  sub->add_option("--connect-timeout", opt->connect_timeout_s,
+                  "TCP connect timeout in seconds (0 = no limit)")
+      ->check(CLI::Range(0, 3600))
+      ->default_val(opt->connect_timeout_s);
+  sub->add_option("--timeout", opt->total_timeout_s,
+                  "Total request timeout in seconds covering connect + send + "
+                  "receive (0 = no limit; VLM responses can be slow)")
+      ->check(CLI::Range(0, 86400))
+      ->default_val(opt->total_timeout_s);
 
   sub->callback([opt, global_opt]() {
     rux::finish(run_subcommand_attributes(*opt, *global_opt));
@@ -130,6 +141,8 @@ int run_subcommand_attributes(SubcommandAttributesOptions const &opt,
     config.skip_existing = opt.skip_existing;
     config.crop_padding = opt.crop_padding;
     config.min_view_points = opt.min_view_points;
+    config.connect_timeout_s = opt.connect_timeout_s;
+    config.total_timeout_s = opt.total_timeout_s;
 
     return reusex::vision::describe(project_path, config);
   } catch (const std::exception &e) {

@@ -430,12 +430,18 @@ void reconstruct_point_clouds(ProjectDB &db,
              100.0 * out_cloud->size() / ds_cloud->size());
 
   // ── Morton reorder ────────────────────────────────────────────────────────
-  // Sort cloud, normals, and labels by a 30-bit Morton code (10 bits per axis)
-  // computed over the cloud's bounding box. Any stored prefix of the result is
-  // a uniform spatial sample, so the LOD read path (#394) can skip its voxel
-  // pass and serve a prefix directly.
+  // Sort cloud, normals, and labels by the BIT-REVERSED 30-bit Morton code
+  // (10 bits per axis) so that any stored prefix is a spatially stratified
+  // sample that covers all octants before refining any single one.
   //
-  // Quantisation: 10 bits/axis → 1024 levels over [bbox_min, bbox_max].
+  // Plain ascending Morton order is z-major: the first k% of points all fall
+  // in the lowest-code spatial octant (x<mid ∧ y<mid ∧ z<mid), not the
+  // whole scene.  Bit-reversing the 30-bit code promotes the coarsest-level
+  // octant bits to the most-significant position of the sort key, so the sort
+  // visits ONE representative from each of the 8 top-level octants, then ONE
+  // from each of the 64 sub-octants, etc. — breadth-first spatial coverage.
+  // Any prefix then gives a uniform spatial sample rather than a corner.
+  //
   // Same input → same order: codes are deterministic over the bbox, and
   // std::stable_sort breaks ties by storage index (STANDARDS §6).
   //
@@ -470,7 +476,20 @@ void reconstruct_point_clouds(ProjectDB &db,
       return v;
     };
 
-    // Precompute codes so each is evaluated once, not twice per comparison.
+    // Reverse the 30 significant bits of a Morton code so the coarsest-level
+    // octant bits become most-significant in the sort key.  Standard 32-bit
+    // reversal then >>2 shifts the reversed 30 bits into positions 0..29.
+    auto reverse_bits30 = [](uint32_t v) -> uint32_t {
+      v = ((v >> 1u) & 0x55555555u) | ((v & 0x55555555u) << 1u);
+      v = ((v >> 2u) & 0x33333333u) | ((v & 0x33333333u) << 2u);
+      v = ((v >> 4u) & 0x0f0f0f0fu) | ((v & 0x0f0f0f0fu) << 4u);
+      v = ((v >> 8u) & 0x00ff00ffu) | ((v & 0x00ff00ffu) << 8u);
+      v = (v >> 16u) | (v << 16u);
+      return v >> 2u;
+    };
+
+    // Precompute bit-reversed codes so each is evaluated once, not twice per
+    // comparison.
     constexpr uint32_t kMax10 = 1023u;
     std::vector<uint32_t> codes(n);
     for (size_t i = 0; i < n; ++i) {
@@ -481,7 +500,8 @@ void reconstruct_point_clouds(ProjectDB &db,
           std::clamp((p.y - lo.y()) / range.y(), 0.0f, 1.0f) * kMax10);
       const uint32_t zi = static_cast<uint32_t>(
           std::clamp((p.z - lo.z()) / range.z(), 0.0f, 1.0f) * kMax10);
-      codes[i] = expand3(xi) | (expand3(yi) << 1u) | (expand3(zi) << 2u);
+      codes[i] = reverse_bits30(expand3(xi) | (expand3(yi) << 1u) |
+                                (expand3(zi) << 2u));
     }
 
     std::vector<size_t> perm(n);
@@ -511,7 +531,7 @@ void reconstruct_point_clouds(ProjectDB &db,
   // ── Save to ProjectDB ────────────────────────────────────────────
   core::info("Saving point clouds to database");
   std::string paramsJson = fmt::format(
-      R"({{"resolution":{},"min_distance":{},"max_distance":{},"sampling_factor":{},"confidence_threshold":{},"storage_order":"morton_10bit"}})",
+      R"({{"resolution":{},"min_distance":{},"max_distance":{},"sampling_factor":{},"confidence_threshold":{},"storage_order":"morton_10bit_bitrev"}})",
       params.resolution, params.min_distance, params.max_distance,
       params.sampling_factor, params.confidence_threshold);
 

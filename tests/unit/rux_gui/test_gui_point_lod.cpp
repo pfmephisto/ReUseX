@@ -367,8 +367,7 @@ TEST_CASE("EncodeRuxp_LodFlag_IsWrittenIntoTheHeaderFlagsWord", "[gui][lod]") {
 namespace {
 
 /// Spread one 10-bit value into a 30-bit word (bit k → position 3k).
-/// Mirrors the implementation in reconstruct.cpp exactly so the test can
-/// build Morton-ordered clouds without depending on internal linkage.
+/// Mirrors the implementation in reconstruct.cpp exactly.
 uint32_t expand3(uint32_t v) {
   v &= 0x000003ffu;
   v = (v | (v << 16u)) & 0x030000ffu;
@@ -381,6 +380,18 @@ uint32_t expand3(uint32_t v) {
 /// 30-bit Morton code for quantised (xi, yi, zi) each in [0, 1023].
 uint32_t morton30(uint32_t xi, uint32_t yi, uint32_t zi) {
   return expand3(xi) | (expand3(yi) << 1u) | (expand3(zi) << 2u);
+}
+
+/// Reverse the 30 significant bits of a Morton code.
+/// Mirrors reverse_bits30 in reconstruct.cpp: standard 32-bit reversal then
+/// >>2 shifts the reversed 30 bits into positions 0..29.
+uint32_t reverse_bits30(uint32_t v) {
+  v = ((v >> 1u) & 0x55555555u) | ((v & 0x55555555u) << 1u);
+  v = ((v >> 2u) & 0x33333333u) | ((v & 0x33333333u) << 2u);
+  v = ((v >> 4u) & 0x0f0f0f0fu) | ((v & 0x0f0f0f0fu) << 4u);
+  v = ((v >> 8u) & 0x00ff00ffu) | ((v & 0x00ff00ffu) << 8u);
+  v = (v >> 16u) | (v << 16u);
+  return v >> 2u;
 }
 
 /// Build a cloud of `n` points spread across all 8 octants of [0, 10)^3,
@@ -442,7 +453,7 @@ MortonCloud make_morton_cloud(size_t n) {
         static_cast<uint32_t>(clamp01((p.y - lo[1]) / range[1]) * kMax10);
     const uint32_t zi =
         static_cast<uint32_t>(clamp01((p.z - lo[2]) / range[2]) * kMax10);
-    codes[i] = morton30(xi, yi, zi);
+    codes[i] = reverse_bits30(morton30(xi, yi, zi));
   }
 
   std::vector<size_t> perm(n);
@@ -461,11 +472,11 @@ MortonCloud make_morton_cloud(size_t n) {
   return {std::move(sorted), std::move(perm)};
 }
 
-/// Save a cloud with the "morton_10bit" storage_order in its parameters JSON.
+/// Save a cloud with the "morton_10bit_bitrev" storage_order.
 void save_morton_cloud(ProjectDB &db, std::string_view name,
                        const reusex::Cloud &cloud) {
   db.save_point_cloud(name, cloud, "test",
-                      R"({"storage_order":"morton_10bit"})");
+                      R"({"storage_order":"morton_10bit_bitrev"})");
 }
 
 } // namespace
@@ -479,12 +490,12 @@ TEST_CASE("MortonLod_StorageOrderMetadata_RoundTrips", "[gui][lod][morton]") {
   save_morton_cloud(db, "cloud", mc.cloud);
 
   // Single-cloud accessor
-  CHECK(db.point_cloud_storage_order("cloud") == "morton_10bit");
+  CHECK(db.point_cloud_storage_order("cloud") == "morton_10bit_bitrev");
 
   // project_summary() path
   const auto summary = db.project_summary();
   REQUIRE(summary.clouds.size() == 1);
-  CHECK(summary.clouds[0].storage_order == "morton_10bit");
+  CHECK(summary.clouds[0].storage_order == "morton_10bit_bitrev");
 
   // Absent key = empty string (sequential/unspecified)
   db.save_point_cloud("plain", make_corner_loaded_cloud(100, 10), "test");
@@ -535,60 +546,70 @@ TEST_CASE("MortonLod_FlaggedCloud_ReturnsPrefixNotVoxels",
   CHECK(vox.voxel_size > 0.0); // voxel pass ran
 }
 
-// ── Test 3: Morton prefix is spatially concentrated ───────────────────────
+// ── Test 3: bit-reversed Morton prefix is spatially stratified ───────────
 //
-// For a uniformly distributed cloud in [0, 10)^3, the first ~12.5 % by
-// Morton code corresponds to the first octant of the space-filling curve:
-// all points with z < z_mid, y < y_mid, x < x_mid (in z-major order, where
-// z_mid is the Morton quantisation boundary ≈ lo + range * 512/1023).
+// Bit-reversal makes the coarsest octant bits most-significant in the sort
+// key, so any prefix visits all octants before refining any single one.  A
+// 5 % prefix of a uniform [0,10)^3 cloud should therefore span ≥ 80 % of
+// the full cloud's bbox on every axis — proving it covers the whole room
+// rather than a corner.
 //
-// The key correctness property: every point in a budget-sized prefix lies
-// strictly below the Morton midpoint on ALL three axes, proving the prefix
-// occupies a connected spatial region, not a scatter across the whole cloud.
-//
-// Budget = 700 is chosen to be safely inside the ~1003-point first octant
-// (for 8000 uniform points, E[count] = 1003, SD = 29.6, so 700 is > 10 SD
-// below the mean — the test never flukes).
-TEST_CASE("MortonLod_Prefix_IsSpatiallyConcentrated", "[gui][lod][morton]") {
+// Contrast: plain ascending Morton order puts the first 12.5 % of points
+// entirely in the lowest-code octant (x<mid ∧ y<mid ∧ z<mid), so the same
+// ≥80 % check fails against plain Morton — the test is sensitive to the
+// defect it is guarding against.
+TEST_CASE("MortonLod_Prefix_IsStratiified", "[gui][lod][morton]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
 
   const size_t total = 8000;
-  const uint64_t budget = 700; // safely inside first octant (~1003 expected)
+  const uint64_t budget = 400; // 5 % — small enough to be a real test
   const auto mc = make_morton_cloud(total);
   save_morton_cloud(db, "cloud", mc.cloud);
 
-  // Compute the actual Morton quantisation midpoints from the stored cloud.
-  // These are lo_ax + range_ax * 512/1023, NOT simply 5.0 — the bbox of a
-  // finite sample is slightly smaller than [0, 10), so the boundary shifts.
+  // Measure the full cloud's per-axis range.
   const auto whole = db.point_cloud_page("cloud", 0, total);
-  float bbox_lo[3] = {std::numeric_limits<float>::max(),
+  float full_lo[3] = {std::numeric_limits<float>::max(),
                       std::numeric_limits<float>::max(),
                       std::numeric_limits<float>::max()};
-  float bbox_hi[3] = {-std::numeric_limits<float>::max(),
+  float full_hi[3] = {-std::numeric_limits<float>::max(),
                       -std::numeric_limits<float>::max(),
                       -std::numeric_limits<float>::max()};
   for (size_t i = 0; i < total; ++i)
     for (int ax = 0; ax < 3; ++ax) {
       const float v = axis_of(whole, i, ax);
-      bbox_lo[ax] = std::min(bbox_lo[ax], v);
-      bbox_hi[ax] = std::max(bbox_hi[ax], v);
+      full_lo[ax] = std::min(full_lo[ax], v);
+      full_hi[ax] = std::max(full_hi[ax], v);
     }
-  float mid[3];
-  for (int ax = 0; ax < 3; ++ax)
-    mid[ax] = bbox_lo[ax] + (bbox_hi[ax] - bbox_lo[ax]) * 512.0f / 1023.0f;
 
   const auto selection = voxel_lod(db, "cloud", budget);
   REQUIRE(selection.page.count == budget);
 
-  // Every prefix point must be below the Morton midpoint on all three axes:
-  // they are all in the first octant of the Z-curve.
+  // Measure the prefix's per-axis range.
+  float pfx_lo[3] = {std::numeric_limits<float>::max(),
+                     std::numeric_limits<float>::max(),
+                     std::numeric_limits<float>::max()};
+  float pfx_hi[3] = {-std::numeric_limits<float>::max(),
+                     -std::numeric_limits<float>::max(),
+                     -std::numeric_limits<float>::max()};
   for (size_t i = 0; i < budget; ++i)
     for (int ax = 0; ax < 3; ++ax) {
-      INFO("point " << i << " axis " << ax << ": value="
-                    << axis_of(selection.page, i, ax) << " mid=" << mid[ax]);
-      CHECK(axis_of(selection.page, i, ax) <= mid[ax]);
+      const float v = axis_of(selection.page, i, ax);
+      pfx_lo[ax] = std::min(pfx_lo[ax], v);
+      pfx_hi[ax] = std::max(pfx_hi[ax], v);
     }
+
+  // Prefix range must be ≥ 80 % of the full cloud range on every axis.
+  // Plain Morton would give ≈ 50 % (one octant), so this threshold is
+  // clearly distinguishing between the two orderings.
+  for (int ax = 0; ax < 3; ++ax) {
+    const float full_range = full_hi[ax] - full_lo[ax];
+    const float pfx_range = pfx_hi[ax] - pfx_lo[ax];
+    const float fraction = pfx_range / full_range;
+    INFO("axis " << ax << ": prefix range " << pfx_range << " / full range "
+                 << full_range << " = " << fraction);
+    CHECK(fraction >= 0.80f);
+  }
 }
 
 // ── Test 4: permutation alignment — same perm applied to cloud and labels ─
@@ -621,7 +642,7 @@ TEST_CASE("MortonLod_PermutationAlignedLabels_MatchGeometryPoints",
 
   save_morton_cloud(db, "cloud", mc.cloud);
   db.save_point_cloud("labels", labels, "test",
-                      R"({"storage_order":"morton_10bit"})");
+                      R"({"storage_order":"morton_10bit_bitrev"})");
 
   // Fetch a prefix of the geometry cloud via the Morton LOD path.
   const uint64_t budget = 200;

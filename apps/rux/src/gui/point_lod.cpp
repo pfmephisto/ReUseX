@@ -311,17 +311,16 @@ LodSelection voxel_lod(const reusex::ProjectDB &db, std::string_view name,
     return result;
   }
 
-  // Morton-ordered storage: any prefix is a uniform spatial sample, so reading
-  // the first max_points records is equivalent to a voxel LOD. Skip the two-
-  // pass voxel algorithm entirely and return a contiguous prefix page.
+  // Bit-reversed Morton storage: the cloud was sorted by reverse_bits30(code)
+  // so the coarsest-level octant bits are most-significant in the sort key.
+  // Any prefix therefore visits all spatial octants before refining any single
+  // one — it is a spatially stratified uniform sample, not a corner.  Skip
+  // the two-pass voxel algorithm and return a contiguous prefix page.
   //
   // voxel_size stays 0.0 — the same sentinel the under-budget path uses for
-  // "no voxel grid was applied". The caller reads subsampled==true to decide
-  // whether to advertise LOD on the wire; voxel_size is advisory metadata for
-  // the viewer's display resolution, not a gate. A prefix of a spatially-
-  // ordered cloud needs no voxel_size because its spacing is data-dependent
-  // and changes as more points are loaded, not fixed by a grid.
-  if (db.point_cloud_storage_order(name) == "morton_10bit") {
+  // "no voxel grid was applied". subsampled==true tells the caller to advertise
+  // LOD on the wire.
+  if (db.point_cloud_storage_order(name) == "morton_10bit_bitrev") {
     auto page = db.point_cloud_page(name, 0, max_points);
     result.page = std::move(page);
     result.indices.resize(static_cast<size_t>(result.page.count));

@@ -27,6 +27,7 @@ struct SubcommandRegisterOptions {
   float max_distance = 4.0f;
   int sampling_factor = 8;
   int confidence_threshold = 2;
+  float spatial_radius = 1.0f;
   bool dry_run = false;
 };
 

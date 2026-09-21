@@ -156,7 +156,7 @@ JointPairwiseRegistration::refine(std::vector<FrameSurfels> &frames) const {
     }
     pcl::KdTreeFLANN<pcl::PointXYZ> ctree;
     ctree.setInputCloud(centers);
-    const float spatial_radius = 1.0f; // meters; interior handheld scale
+    const float spatial_radius = params_.spatial_radius;
     std::vector<int> idx;
     std::vector<float> dist;
     for (int i = 0; i < N; ++i) {

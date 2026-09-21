@@ -54,6 +54,7 @@ struct JprParams {
       1.0f;              ///< soft prior pulling poses toward seeds (0 disables)
   int anchor_frame = -1; ///< frame index (not node_id) to hard-fix; -1 = none
   float convergence_eps = 1e-4f; ///< stop when max per-frame ||dxi|| below this
+  float spatial_radius = 1.0f; ///< radius (m) for spatial candidate-pair search
 
   SurfelExtractionParams surfel; ///< surfel extraction settings
 };

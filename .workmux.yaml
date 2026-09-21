@@ -1,0 +1,27 @@
+# SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Project-level workmux config. Global defaults (agent, mode, merge_strategy,
+# base_branch, window_placement, the pane layout) live in the global config at
+# ~/.config/workmux/config.yaml and are inherited here.
+
+# .envrc (`use flake`) is gitignored (.gitignore:105) and untracked, so `git
+# worktree` never checks it out -- a fresh worktree has no .envrc at all, the
+# Nix devshell never loads, and `claude` launches outside it. Two steps fix it:
+#   1. copy the untracked .envrc from the main worktree into the new one, then
+#   2. `direnv allow` it (approval is per-directory, so it can't be inherited).
+# The allow is a couple of seconds, inside the budget for a hook that blocks the
+# tmux window opening.
+files:
+  copy:
+    - .envrc
+
+post_create:
+  - direnv allow
+
+# Deliberately no pre_merge hook. The obvious candidate is a build or the test
+# suite, but a blanket check is the wrong shape here: a full build is minutes,
+# `nix flake check` OOMs this machine (see CLAUDE.md / project memory), and
+# which target actually needs rebuilding depends on the change. Verification
+# stays a deliberate step -- see scripts/check.sh and `ctest --parallel`.

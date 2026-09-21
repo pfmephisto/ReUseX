@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include "reusex/io/panoramas.hpp"
+
 #include <array>
 #include <cstddef>
 #include <filesystem>
@@ -120,15 +122,21 @@ bool parse_frame_timestamp(const std::filesystem::path &file, double &ts);
 /// outside the trajectory's time span are skipped. Depth is already CV_16UC1
 /// millimeters and is passed through unchanged.
 ///
+/// After importing sensor frames, companion 360° equirect JPEGs are
+/// auto-discovered and imported via import_panoramas() unless
+/// @p pano_opts.skip is set.
+///
 /// @note Timestamps (in the stream filenames, the `.traj`, and the ones stored
 /// on each sensor frame) are ARKit **device-relative** seconds — uptime since
 /// boot, not a Unix epoch — so they are only comparable within one scene.
 ///
 /// @param db         Open project database (frames are written to it).
 /// @param scene_dir  Scene directory (frames dir or its parent).
+/// @param pano_opts  Controls companion panorama auto-discovery.
 /// @returns          Number of sensor frames imported.
 /// @throws std::runtime_error on missing/malformed inputs or zero frames.
 std::size_t import_arkitscenes(ProjectDB &db,
-                               const std::filesystem::path &scene_dir);
+                               const std::filesystem::path &scene_dir,
+                               const ImportPanoramasOptions &pano_opts = {});
 
 } // namespace reusex::io

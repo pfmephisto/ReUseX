@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include "reusex/io/panoramas.hpp"
+
 #include <filesystem>
 
 namespace reusex {
@@ -32,11 +34,17 @@ namespace reusex::io {
 /// ready for accuracy comparison against gt_mesh.ply. Depth is stored as
 /// normalized float32 .npy and converted to metric CV_16UC1 millimeters.
 ///
+/// After importing sensor frames, companion 360° equirect JPEGs are
+/// auto-discovered and imported via import_panoramas() unless
+/// @p pano_opts.skip is set.
+///
 /// @param db           Open project database (frames are written to it).
 /// @param capture_dir  Path to the capture directory described above.
+/// @param pano_opts    Controls companion panorama auto-discovery.
 /// @returns            Number of sensor frames imported.
 /// @throws std::runtime_error on missing/malformed files.
 std::size_t import_mushroom(ProjectDB &db,
-                            const std::filesystem::path &capture_dir);
+                            const std::filesystem::path &capture_dir,
+                            const ImportPanoramasOptions &pano_opts = {});
 
 } // namespace reusex::io

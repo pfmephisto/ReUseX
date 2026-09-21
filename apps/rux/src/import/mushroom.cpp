@@ -7,6 +7,7 @@
 
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/io/mushroom.hpp>
+#include <reusex/io/panoramas.hpp>
 
 #include <spdlog/fmt/std.h>
 #include <spdlog/spdlog.h>
@@ -50,6 +51,9 @@ NOTES:
       ->required()
       ->check(CLI::ExistingDirectory);
 
+  sub->add_flag("--no-panoramas", opt->no_panoramas,
+                "Skip auto-import of companion 360° equirect JPEGs");
+
   sub->callback([opt, global_opt]() {
     spdlog::trace("calling run_subcommand_import_mushroom");
     rux::finish(run_subcommand_import_mushroom(*opt, *global_opt));
@@ -69,7 +73,10 @@ int run_subcommand_import_mushroom(SubcommandImportMushroomOptions const &opt,
         "import_mushroom",
         fmt::format(R"({{"capture_dir":"{}"}})", opt.capture_dir.string()));
 
-    const auto frames = reusex::io::import_mushroom(db, opt.capture_dir);
+    reusex::io::ImportPanoramasOptions pano_opts;
+    pano_opts.skip = opt.no_panoramas;
+    const auto frames =
+        reusex::io::import_mushroom(db, opt.capture_dir, pano_opts);
 
     db.log_pipeline_end(logId, true);
     spdlog::info("Imported {} frames. Use 'rux create clouds' to generate "

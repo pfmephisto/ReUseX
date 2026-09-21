@@ -7,6 +7,7 @@
 
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/io/arkitscenes.hpp>
+#include <reusex/io/panoramas.hpp>
 
 #include <spdlog/fmt/std.h>
 #include <spdlog/spdlog.h>
@@ -54,6 +55,9 @@ NOTES:
       ->required()
       ->check(CLI::ExistingDirectory);
 
+  sub->add_flag("--no-panoramas", opt->no_panoramas,
+                "Skip auto-import of companion 360° equirect JPEGs");
+
   sub->callback([opt, global_opt]() {
     spdlog::trace("calling run_subcommand_import_arkitscenes");
     rux::finish(run_subcommand_import_arkitscenes(*opt, *global_opt));
@@ -74,7 +78,10 @@ int run_subcommand_import_arkitscenes(
         "import_arkitscenes",
         fmt::format(R"({{"scene_dir":"{}"}})", opt.scene_dir.string()));
 
-    const auto frames = reusex::io::import_arkitscenes(db, opt.scene_dir);
+    reusex::io::ImportPanoramasOptions pano_opts;
+    pano_opts.skip = opt.no_panoramas;
+    const auto frames =
+        reusex::io::import_arkitscenes(db, opt.scene_dir, pano_opts);
 
     db.log_pipeline_end(logId, true);
     spdlog::info("Imported {} frames. Use 'rux create clouds' to generate "

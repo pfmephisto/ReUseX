@@ -12,6 +12,8 @@
 /// Options for the ARKitScenes dataset import subcommand.
 struct SubcommandImportArkitscenesOptions {
   fs::path scene_dir; ///< e.g. .../raw/Validation/41069021
+  bool no_panoramas =
+      false; ///< --no-panoramas: skip companion 360° JPEG import
 };
 
 void setup_subcommand_import_arkitscenes(

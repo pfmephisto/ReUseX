@@ -6,6 +6,7 @@
 #include "core/ProjectDB.hpp"
 #include "core/SensorIntrinsics.hpp"
 #include "core/logging.hpp"
+#include "io/panoramas.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -137,7 +138,8 @@ std::filesystem::path resolve_frames_dir(const std::filesystem::path &dir) {
 } // namespace
 
 std::size_t import_mushroom(ProjectDB &db,
-                            const std::filesystem::path &capture_dir) {
+                            const std::filesystem::path &capture_dir,
+                            const ImportPanoramasOptions &pano_opts) {
   const auto frames_dir = resolve_frames_dir(capture_dir);
   const auto json_path = frames_dir / "meta_data.json";
 
@@ -240,6 +242,9 @@ std::size_t import_mushroom(ProjectDB &db,
   reusex::info("import_mushroom: imported {} sensor frames from {} "
                "(metric scale {:.4f}, GT-mesh frame)",
                imported, frames_dir.string(), scale);
+
+  import_panoramas(db, capture_dir, pano_opts);
+
   return imported;
 }
 

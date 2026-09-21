@@ -193,6 +193,47 @@ Derive window building components from the instances and the mesh.
 `--semantic`, `--instances` and `--mesh` override `labels`, `instances` and
 `mesh` respectively.
 
+### `materials` (`rux create materials`)
+
+Create one material passport per instance and link it back to the instance.
+
+| | |
+|---|---|
+| Consumes | `instances` |
+| Produces | `instance_materials` (the `instance_materials` link table + `material_passports`) |
+| Options  | `rux create materials` CLI options (`--instances`, `--clear`) |
+| Checks   | `instances` present |
+
+Generates a `material_passports` row per instance in the instance-label cloud
+and records the instance→passport link in `instance_materials`. This is the
+prerequisite that lets `attributes` iterate materials.
+
+### `attributes` (`rux create attributes`)
+
+Describe each material by cropping its linked instance(s) out of their best
+sensor view and asking a vision-language model.
+
+| | |
+|---|---|
+| Consumes | `cloud`, `instances`, `instance_materials`, `sensor_frames` |
+| Produces | `material_annotations` (table) |
+| Options  | `DescribeConfig` (`libs/reusex/include/vision/describe.hpp`) |
+| Checks   | `cloud` present; `instances` present; ≥1 material passport; ≥1 stored sensor frame |
+
+For each material passport the stage resolves its linked instance(s) via
+`instance_materials`, gathers their 3D points (from `cloud`, index-aligned with
+the `instances` label cloud), pinhole-projects them into every posed sensor
+frame, picks the frame with the most in-bounds points as the best view, and
+crops the 2D bounding box (plus padding) from that frame's color image. The crop
+is sent to an OpenAI-compatible chat/completions endpoint (default a local
+Ollama at `http://localhost:11434/v1`, swappable to OpenAI or another provider)
+and the answer — a free-text description plus arbitrary key/value attributes, as
+driven by the prompt — is stored in the `material_annotations` table (with its
+`material_annotation_kv` child rows) keyed on the material GUID. A material with
+no linked instance, no usable view, or an unusable answer is logged and skipped
+— descriptions/attributes are never fabricated (STANDARDS §5). `--instances` and
+`--cloud` override the declared names.
+
 ### `gsplat` (`rux create gsplat`)
 
 Train a 3D Gaussian splat from the fused cloud and the posed sensor frames.

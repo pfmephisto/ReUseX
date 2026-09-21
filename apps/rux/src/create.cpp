@@ -5,6 +5,7 @@
 #include "create.hpp"
 #include "create/annotate.hpp"
 #include "create/annotate_panorama.hpp"
+#include "create/attributes.hpp"
 #include "create/clouds.hpp"
 #include "create/dense.hpp"
 #include "create/gsplat.hpp"
@@ -42,6 +43,7 @@ SUBCOMMANDS:
   project      Project 2D labels onto 3D point cloud
   material     Create blank material passport
   windows      Create window building components
+  attributes   Extract per-instance attributes with a vision-language model
 
 TYPICAL WORKFLOW:
   1. rux import rtabmap scan.db        # Import sensor data
@@ -70,6 +72,7 @@ NOTES:
   setup_subcommand_create_mesh(*sub, global_opt);
   setup_subcommand_create_texture(*sub, global_opt);
   setup_subcommand_create_windows(*sub, global_opt);
+  setup_subcommand_create_attributes(*sub, global_opt);
   setup_subcommand_create_gsplat(*sub, global_opt);
 
   sub->require_subcommand(1);

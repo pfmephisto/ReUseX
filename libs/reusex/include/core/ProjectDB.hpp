@@ -19,6 +19,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 // Forward declarations for heavy third-party types used only by-value or via
@@ -316,6 +317,35 @@ class ProjectDB {
   /// All instance_id → material_guid links for a cloud.
   std::map<int, std::string>
   instance_materials(std::string_view cloudName) const;
+
+  // --- Material Annotations (VLM-derived) ---
+
+  /// A free-text description plus an arbitrary, prompt-driven set of key/value
+  /// attributes for one material passport, as extracted by a vision-language
+  /// model (`rux create attributes`, #373). The prompt fully drives which keys
+  /// come back; nothing here is a fixed schema and nothing is fabricated — an
+  /// empty description with no attributes is never stored.
+  struct MaterialAnnotation {
+    std::string description; ///< Free-text description of the material.
+    std::vector<std::pair<std::string, std::string>>
+        attributes; ///< Arbitrary key/value pairs the model returned.
+    std::string provider_model; ///< Provenance: "<base_url>|<model>".
+    std::string raw_json;       ///< The model's full JSON answer, verbatim.
+  };
+
+  /// Upsert the VLM annotation for one material passport (keyed on its
+  /// document GUID). Replaces the description/provenance and REPLACES the
+  /// key/value rows for that GUID atomically, so no stale key survives a
+  /// re-describe.
+  /// @throws std::runtime_error if the material passport does not exist
+  ///         (STANDARDS §5) — run `rux create materials` first.
+  void save_material_annotation(std::string_view materialGuid,
+                                const MaterialAnnotation &annotation);
+
+  /// The stored annotation for one material passport, or nullopt when none was
+  /// saved. Key/value pairs are returned in key-sorted order (deterministic).
+  std::optional<MaterialAnnotation>
+  material_annotation(std::string_view materialGuid) const;
 
   // --- Mesh Operations ---
 

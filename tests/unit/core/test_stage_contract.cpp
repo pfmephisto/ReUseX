@@ -42,10 +42,13 @@ namespace {
 // below fails the moment the table grows or shrinks without it.
 const std::vector<PipelineStage> &all_stages() {
   static const std::vector<PipelineStage> stages = {
-      PipelineStage::import,   PipelineStage::optimize,  PipelineStage::clouds,
-      PipelineStage::annotate, PipelineStage::project,   PipelineStage::planes,
-      PipelineStage::rooms,    PipelineStage::instances, PipelineStage::mesh,
-      PipelineStage::texture,  PipelineStage::windows,   PipelineStage::gsplat,
+      PipelineStage::import,     PipelineStage::optimize,
+      PipelineStage::clouds,     PipelineStage::annotate,
+      PipelineStage::project,    PipelineStage::planes,
+      PipelineStage::rooms,      PipelineStage::instances,
+      PipelineStage::mesh,       PipelineStage::texture,
+      PipelineStage::windows,    PipelineStage::materials,
+      PipelineStage::attributes, PipelineStage::gsplat,
   };
   return stages;
 }

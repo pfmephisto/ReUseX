@@ -219,7 +219,7 @@ TEST_CASE("SaveGaussianSplat_TrainedSplat_RoundTripsBytesVerbatim",
 
   {
     ProjectDB db(tmp.path);
-    REQUIRE(db.schema_version() == 12);
+    REQUIRE(db.schema_version() == 13);
     db.save_gaussian_splat("scene", ply, "gsplat", R"({"iters":30000})");
     REQUIRE(db.has_gaussian_splat("scene"));
   }
@@ -405,11 +405,11 @@ TEST_CASE("ProjectDb_PreV12ProjectReadWriteOpen_MigratesToV12",
   const auto ply = make_splat_ply(64, 1);
   {
     ProjectDB db(tmp.path);
-    REQUIRE(db.schema_version() == 12);
+    REQUIRE(db.schema_version() == 13);
     db.save_gaussian_splat("scene", ply);
   }
 
   ProjectDB ro(tmp.path, /*readOnly=*/true);
-  CHECK(ro.schema_version() == 12);
+  CHECK(ro.schema_version() == 13);
   CHECK(ro.gaussian_splat_blob("scene") == ply);
 }

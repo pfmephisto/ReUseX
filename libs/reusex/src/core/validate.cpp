@@ -208,6 +208,7 @@ struct ProjectState {
   int sensor_frames = 0;
   int segmentation_images = 0;
   int building_components = 0;
+  int material_passports = 0;
 };
 
 ProjectState read_state(const ProjectDB &db) {
@@ -220,6 +221,7 @@ ProjectState read_state(const ProjectDB &db) {
   state.sensor_frames = summary.sensor_frames.total_count;
   state.segmentation_images = summary.sensor_frames.segmented_count;
   state.building_components = summary.components.total_count;
+  state.material_passports = static_cast<int>(summary.materials.size());
   return state;
 }
 
@@ -234,6 +236,13 @@ int table_rows(const ProjectState &state, std::string_view name) {
     return state.segmentation_images;
   if (name == "building_components")
     return state.building_components;
+  // `instance_materials` (the instance→material links) is produced by
+  // `rux create materials` alongside the material passports; a project has the
+  // links exactly when it has passports, so the passport count is the presence
+  // signal. `material_annotations` is only ever an OUTPUT of `attributes`, so
+  // it is never checked as an input and needs no counter.
+  if (name == "instance_materials")
+    return state.material_passports;
   return 0;
 }
 

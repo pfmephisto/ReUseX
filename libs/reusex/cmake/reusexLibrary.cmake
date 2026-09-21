@@ -308,6 +308,10 @@ target_link_libraries(reusex_io PUBLIC reusex_geometry_common reusex_reconstruct
 
 reusex_add_module(reusex_vision ${REUSEX_VISION_SOURCES})
 target_link_libraries(reusex_vision PUBLIC reusex_core)
+# opencv_imgcodecs backs the VLM client's cv::imencode(.jpg) of instance crops
+# (OpenAiCompatibleVlmClient.cpp). PRIVATE: not part of any public header;
+# opencv_core / opencv_imgproc already arrive via reusex_common.
+target_link_libraries(reusex_vision PRIVATE opencv_imgcodecs)
 # ML backend libraries + REUSEX_USE_* defines attach to the vision module only.
 configure_ml_backends(reusex_vision)
 

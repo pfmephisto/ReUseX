@@ -35,23 +35,13 @@
 #                       mast3r and mapanything --variant nc)
 #   -h / --help         Print this help and exit
 #
-# ENVIRONMENT SETUP (NixOS / venv libstdc++ issue)
-#   If `import torch` fails with "libstdc++.so.6: cannot open shared object
-#   file", set LD_LIBRARY_PATH before calling this script:
-#
-#     GCC=$(ls -d /nix/store/*gcc-*-lib/lib 2>/dev/null | sort -V | tail -1)
-#     NVLIBS=$(echo ~/.venv/lib/python*/site-packages/nvidia/*/lib | tr ' ' ':')
-#     export LD_LIBRARY_PATH="$GCC:/run/opengl-driver/lib:$NVLIBS"
-#
-#   The exact gcc store path changes with compiler versions; the glob above
-#   captures the newest one. See tools/loop_edges/README.md for the full recipe.
-#
-# TODO: automate the LD_LIBRARY_PATH sniff so users don't need to set it
-# category=CLI estimate=2h
-# Description: On NixOS the libstdc++ path changes with each gcc derivation;
-#   auto-detect it here by probing `$VENV python -c "import torch"` and, on
-#   ImportError, trying each /nix/store/*gcc-*-lib/lib candidate in version
-#   order until the import succeeds or all are exhausted.
+# ENVIRONMENT (NixOS / venv libstdc++ issue)
+#   Handled automatically.  At startup the script probes `import torch`; if it
+#   fails it tries each /nix/store/*gcc-*-lib/lib candidate (newest gcc version
+#   first) until the import succeeds.  The resolved path is scoped only to the
+#   matcher subprocess — never exported — so rux C++ calls are unaffected.  A
+#   pre-set LD_LIBRARY_PATH that already makes the import succeed is honoured
+#   as-is.  If no candidate works the script exits 2 with a diagnostic.
 #
 # EXAMPLE
 #   # XFeat (commercial-safe, default):
@@ -167,6 +157,37 @@ if [[ ! -x "$VENV" ]]; then
 fi
 
 # --------------------------------------------------------------------------- #
+# LD_LIBRARY_PATH sniff (NixOS / venv libstdc++ issue)                         #
+# --------------------------------------------------------------------------- #
+# Probe import torch with the current environment first.  If it fails (e.g.    #
+# libstdc++.so.6 not found outside nix develop), iterate over gcc-*-lib        #
+# candidates in descending version order and stop at the first one that works. #
+# VENV_ENV is scoped to the matcher subprocess only — never exported globally  #
+# — so rux C++ calls later in this script are unaffected.                      #
+VENV_ENV=()
+if ! "$VENV" -c "import torch" &>/dev/null; then
+    _venv_root="$(dirname "$(dirname "$VENV")")"
+    _nv_libs="$(echo "${_venv_root}"/lib/python*/site-packages/nvidia/*/lib 2>/dev/null | tr ' ' ':')"
+    _found=""
+    # shellcheck disable=SC2012
+    while IFS= read -r _gcc_lib; do
+        _candidate="${_gcc_lib}:/run/opengl-driver/lib:${_nv_libs}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+        if LD_LIBRARY_PATH="$_candidate" "$VENV" -c "import torch" &>/dev/null; then
+            _found="$_gcc_lib"
+            VENV_ENV=(env "LD_LIBRARY_PATH=${_candidate}")
+            break
+        fi
+    done < <(ls -d /nix/store/*-gcc-*-lib/lib 2>/dev/null | sort -rV)
+    if [[ -z "$_found" ]]; then
+        echo "ERROR: venv cannot import torch and no gcc-lib candidate resolved it." >&2
+        echo "       Set LD_LIBRARY_PATH manually before calling this script." >&2
+        echo "       See tools/loop_edges/README.md for the recipe." >&2
+        exit 2
+    fi
+    echo "  [ld-sniff] resolved libstdc++ via: $_found"
+fi
+
+# --------------------------------------------------------------------------- #
 # Prepare output directory and working copy                                      #
 # --------------------------------------------------------------------------- #
 mkdir -p "$OUTPUT_DIR"
@@ -206,7 +227,7 @@ echo "  -> $BEFORE_PNG"
 # --------------------------------------------------------------------------- #
 echo "[2/4] Generating spatial loop edges (matcher=$MATCHER, radius=${SPATIAL_RADIUS}m)..."
 # shellcheck disable=SC2086
-"$VENV" "$TOOL" \
+"${VENV_ENV[@]}" "$VENV" "$TOOL" \
     "$PROJECT" \
     -o "$EDGES_JSON" \
     --matcher "$MATCHER" \

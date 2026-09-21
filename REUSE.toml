@@ -23,6 +23,7 @@ path = [
   "docs/benchmarks/*.jpg",
   "docs/research/figures/panorama/*.jpg",
   "docs/research/figures/gsplat/*.jpg",
+  "docs/research/img/**/*.png",
   "tools/rux-mcp/docs/*.png",
 ]
 SPDX-FileCopyrightText = "2025 Povl Filip Sonne-Frederiksen"

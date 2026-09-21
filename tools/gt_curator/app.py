@@ -53,7 +53,7 @@ from edge_io import LoadedEdges  # noqa: E402
 from graph_view import build_figure  # noqa: E402
 from history import MatchHistory  # noqa: E402
 from icp_align import run_icp_on_frames, sliders_to_T  # noqa: E402
-from opencv_features import clear_cache, match_pair  # noqa: E402
+from opencv_features import _read_frames_by_id, match_pair  # noqa: E402
 
 # ── paths ───────────────────────────────────────────────────────────────────
 XFEAT_VENV = Path.home() / "loop-edges-work" / "xfeat" / ".venv" / "bin" / "python"
@@ -585,11 +585,9 @@ def cb_preview_gt(seed_rux: str, export_path: str, anchor_max_idx_str: str):
 
 def _draw_correspondences(match: dict, db_path: str, node_i: int, node_j: int):
     """Return side-by-side correspondence image using draw_pair from visualize_matches."""
-    from export_loop_edges import read_frames
     from visualize_matches import draw_pair
 
-    frames = read_frames(db_path)
-    by_id = {f.node_id: f for f in frames}
+    by_id = _read_frames_by_id(db_path)
     fi = by_id.get(node_i)
     fj = by_id.get(node_j)
     if fi is None or fj is None:

@@ -27,8 +27,8 @@ versions isolated:
 python3 -m venv ~/gt-curator-venv
 VENV=~/gt-curator-venv
 
-# Core deps
-$VENV/bin/pip install gradio numpy==1.26.4 scipy==1.14.1 gtsam opencv-python
+# Core deps (numpy 2.x is fine; gtsam 4.2.2 is compatible)
+$VENV/bin/pip install gradio scipy==1.14.1 gtsam opencv-python
 $VENV/bin/pip install packaging pyyaml Pillow markupsafe jinja2 starlette
 $VENV/bin/pip install six click certifi idna httpx tomlkit
 

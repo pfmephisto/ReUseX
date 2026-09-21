@@ -13,12 +13,13 @@ The T_ij convention is identical to solve_gt_poses.py:
   T_ij = pose(i)^-1 * pose(j)  (optical→world convention)
   pose(j)_pred = pose(i) @ T_ij
 
-This script runs in the ~/loop-edges-work/mast3r/.venv (which has gtsam +
-scipy + numpy), NOT in the gradio venv. The app shells out to it via subprocess.
+This script runs in ~/gt-curator-venv (which has gtsam 4.2.2 + scipy 1.14 +
+numpy 2.x). The app shells out to it via subprocess using SOLVE_VENV defined
+in app.py.  Do NOT run it from the mast3r or xfeat venvs.
 
 Usage:
   LD_LIBRARY_PATH=<gcc-lib> \
-  ~/loop-edges-work/mast3r/.venv/bin/python solve_gt_poses_cli.py \
+  ~/gt-curator-venv/bin/python solve_gt_poses_cli.py \
     --seed <rux> --edges <json> --out <rux> [--anchor-max-idx N]
 """
 

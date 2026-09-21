@@ -137,6 +137,9 @@ void register_help_callback(const std::vector<LoadedCloud> &clouds,
                   spdlog::info(
                       "  [/]: Previous/Next panorama (in panorama mode)");
                 }
+                spdlog::info("  k: Toggle turntable orbit mode on/off");
+                spdlog::info("  Space: Pause/resume turntable spinning");
+                spdlog::info("  ,/.: Decrease/increase turntable speed");
                 spdlog::info("  h: Show this help");
                 spdlog::info("  q: Quit viewer");
               }

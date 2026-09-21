@@ -9,6 +9,7 @@
 #include "view/label_renderer.hpp"
 #include "view/panorama_handler.hpp"
 #include "view/project_loader.hpp"
+#include "view/turntable.hpp"
 #include "view/viewer_types.hpp"
 
 #include <fmt/format.h>
@@ -70,6 +71,9 @@ KEYBOARD CONTROLS:
   Shift+Click Enter 360 panorama (click on orange sphere)
   Escape      Exit panorama mode
   [/]         Previous/Next panorama (in panorama mode)
+  k           Toggle turntable orbit mode on/off
+  Space       Pause/resume turntable spinning
+  ,/.         Decrease/increase turntable speed
   h           Show help message
   q           Quit viewer
 
@@ -130,7 +134,12 @@ int run_subcommand_view([[maybe_unused]] SubcommandViewOptions const &opt,
   auto pano_state = std::make_shared<PanoramaState>();
   pano_state->infos = std::move(result.panoramas);
 
+  // Setup turntable state
+  auto turntable_state = std::make_shared<TurntableState>();
+
   // === Phase 2: Register Keyboard Callbacks ===
+  register_turntable_callbacks(turntable_state, observer);
+
   register_individual_toggles(clouds, observer);
   register_toggle_all_callback(clouds, observer);
 

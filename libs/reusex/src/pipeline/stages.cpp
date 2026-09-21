@@ -11,6 +11,8 @@
 #include "reusex/core/label_semantics.hpp"
 #include "reusex/core/logging.hpp"
 #include "reusex/core/validate.hpp"
+#include "reusex/io/reusex.hpp"
+#include "reusex/reconstruction/mesh.hpp"
 #include "reusex/segmentation/reconcile_instances.hpp"
 #include "reusex/segmentation/reconstruct.hpp"
 #include "reusex/segmentation/segment_instances.hpp"
@@ -48,7 +50,7 @@ struct StageName {
 // Single source of truth for stage identity. The `name` column is the token
 // used in the HTTP contract (docs/gui/openapi.yaml) and `contract` selects the
 // input check run before the stage executes (docs/CONTRACTS.md).
-constexpr std::array<StageName, 4> kStages{{
+constexpr std::array<StageName, 5> kStages{{
     {JobStage::clouds, "clouds", "cloud_reconstruction",
      core::PipelineStage::clouds, false},
     {JobStage::planes, "planes", "segment_planes", core::PipelineStage::planes,
@@ -57,6 +59,11 @@ constexpr std::array<StageName, 4> kStages{{
      true},
     {JobStage::instances, "instances", "segment_instances",
      core::PipelineStage::instances, true},
+    // Not cancellable: the HiGHS/cuOpt MIP solver has no cooperative cancel
+    // hook; the time_limit_seconds parameter is the correct escape hatch for
+    // large scenes. The job remains in `running` until the solver returns.
+    {JobStage::mesh, "mesh", "mesh_generation", core::PipelineStage::mesh,
+     false},
 }};
 
 const StageName &descriptor(JobStage stage) {
@@ -480,6 +487,65 @@ StageResult run_instances(ProjectDB &db, const StageContext &ctx,
        {"table", output_cloud, static_cast<int64_t>(records.size())}});
 }
 
+StageResult run_mesh(ProjectDB &db, const StageContext &ctx,
+                     const json &params) {
+  const auto output_name = param_or<std::string>(params, "output_name", "mesh");
+
+  geometry::MeshOptions options;
+  options.search_threshold = static_cast<float>(
+      param_or(params, "search_threshold",
+               static_cast<double>(options.search_threshold)));
+  options.new_plane_offset = static_cast<float>(
+      param_or(params, "new_plane_offset",
+               static_cast<double>(options.new_plane_offset)));
+  options.time_limit_seconds =
+      param_or(params, "time_limit_seconds", options.time_limit_seconds);
+  options.alpha = param_or(params, "alpha", options.alpha);
+  options.max_cells = param_or(params, "max_cells", options.max_cells);
+  options.sectioned = param_or(params, "sectioned", options.sectioned);
+  options.sectioned_threshold =
+      param_or(params, "sectioned_threshold", options.sectioned_threshold);
+
+  const auto solver_str = param_or<std::string>(params, "solver", "auto");
+  try {
+    options.solver = geometry::parse_solver_choice(solver_str);
+  } catch (const std::exception &e) {
+    return StageResult::invalid(
+        fmt::format("invalid solver '{}': {}", solver_str, e.what()));
+  }
+
+  auto cloud = db.point_cloud_xyzrgb("cloud");
+  auto normals = db.point_cloud_normal("normals");
+  auto rooms = db.point_cloud_label("rooms");
+  auto plane_labels = db.point_cloud_label("planes");
+  auto plane_centroids = db.point_cloud_xyz("plane_centroids");
+  auto plane_normals = db.point_cloud_normal("plane_normals");
+
+  auto [planes, centroids, inliers] =
+      reusex::io::getPlanes(plane_labels, plane_normals, plane_centroids);
+
+  pcl::PolygonMeshPtr mesh_result = geometry::mesh(
+      cloud, normals, planes, centroids, inliers, rooms, options);
+
+  const auto vertex_count = static_cast<int64_t>(mesh_result->cloud.width) *
+                            mesh_result->cloud.height;
+  const auto face_count = static_cast<int64_t>(mesh_result->polygons.size());
+
+  if (vertex_count == 0 || face_count == 0)
+    return StageResult::failure(
+        "mesh generation produced an empty mesh (0 vertices or faces); "
+        "the MIP solver may have selected no cells — try widening the plane "
+        "filter, lowering the search threshold, or re-running "
+        "'rux create planes/rooms'");
+
+  db.save_mesh(output_name, *mesh_result, "mesh_generation");
+
+  return StageResult::success(
+      fmt::format("mesh '{}' saved ({} vertices, {} faces)", output_name,
+                  vertex_count, face_count),
+      {{"mesh", output_name, vertex_count}});
+}
+
 StageResult dispatch(ProjectDB &db, const StageContext &ctx,
                      const json &params) {
   switch (ctx.stage) {
@@ -491,6 +557,8 @@ StageResult dispatch(ProjectDB &db, const StageContext &ctx,
     return run_rooms(db, ctx, params);
   case JobStage::instances:
     return run_instances(db, ctx, params);
+  case JobStage::mesh:
+    return run_mesh(db, ctx, params);
   }
   return StageResult::failure("unknown stage");
 }

@@ -517,10 +517,12 @@ TEST_CASE("StagesJson_EmptyProject_SeparatesRunnableFromReady",
 
   for (const auto &stage : body.at("stages")) {
     const auto name = stage.at("stage").get<std::string>();
-    // `mesh` is documented but has no runner yet.
-    CHECK(stage.at("runnable").get<bool>() == (name != "mesh"));
-    // clouds runs a stage that cannot be interrupted mid-run.
-    if (name == "clouds")
+    // All stages are now runnable (#265 Phase 3 added the mesh runner).
+    CHECK(stage.at("runnable").get<bool>() == true);
+    // clouds and mesh run stages that cannot be interrupted mid-run (clouds
+    // because it is not interruptible, mesh because the MIP solver has no
+    // cancel hook).
+    if (name == "clouds" || name == "mesh")
       CHECK(stage.at("cancellable") == false);
     if (name == "planes" || name == "rooms" || name == "instances")
       CHECK(stage.at("cancellable") == true);
@@ -565,9 +567,9 @@ TEST_CASE("StagesJson_EachStage_IncludesContractHintsAndParameterSchema",
     CHECK(stage.at("blockers").size() == errors);
 
     REQUIRE(stage.at("parameters").is_array());
-    // A stage with no runner takes no parameters; a runnable one always has
-    // knobs, and every knob must be renderable without guessing.
-    CHECK(stage.at("parameters").empty() == (name == "mesh"));
+    // Every runnable stage has at least one parameter knob, and every knob
+    // must be renderable without guessing (#265 Phase 3 added the mesh runner).
+    CHECK_FALSE(stage.at("parameters").empty());
     for (const auto &parameter : stage.at("parameters")) {
       INFO("parameter: " << parameter.at("key"));
       CHECK_FALSE(parameter.at("key").get<std::string>().empty());
@@ -706,17 +708,9 @@ TEST_CASE("ParseJobRequest_VariousBodies_ValidatesBeforeQueuing",
     expect_400(R"({"stage":"planes","parameters":[1,2]})");
   }
 
-  SECTION("a documented but non-runnable stage is refused with guidance") {
-    try {
-      parse_job_request(R"({"stage":"mesh"})");
-      FAIL("expected HttpError");
-    } catch (const HttpError &e) {
-      CHECK(e.status() == 400);
-      const std::string message = e.what();
-      CHECK(message.find("mesh") != std::string::npos);
-      // The error must list what IS runnable, not just say no.
-      CHECK(message.find("planes") != std::string::npos);
-    }
+  SECTION("mesh is now a valid submittable stage (#265 Phase 3)") {
+    // This must NOT throw: mesh has a runner, so the request is accepted.
+    CHECK_NOTHROW(parse_job_request(R"({"stage":"mesh"})"));
   }
 }
 

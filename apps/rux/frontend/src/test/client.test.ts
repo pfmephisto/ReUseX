@@ -137,11 +137,10 @@ describe('envelope unwrapping', () => {
       'mesh',
     ]);
     // The recorded project has been through clouds -> planes -> rooms, so every
-    // contract is satisfied; `mesh` is still the one stage with no runner.
+    // contract is satisfied; mesh now has a runner (#265 Phase 3).
     const mesh = stages[4];
     expect(mesh.ready).toBe(true);
-    expect(mesh.runnable).toBe(false);
-    expect(mesh.parameters).toEqual([]);
+    expect(mesh.runnable).toBe(true);
   });
 
   it('carries the parameter schema and the blocked reason', async () => {

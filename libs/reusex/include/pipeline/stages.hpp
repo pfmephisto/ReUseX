@@ -44,6 +44,7 @@ enum class JobStage {
   planes,    ///< detect planar surfaces -> "planes"/"plane_*"
   rooms,     ///< partition planes into rooms -> "rooms"
   instances, ///< split semantic labels into spatial instances
+  mesh,      ///< MIP-solve the cell complex into a watertight mesh
 };
 
 /// Canonical lower-case stage name (the token used on the wire and the CLI).

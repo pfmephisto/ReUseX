@@ -10,8 +10,11 @@
 // real scan is broken too. Keep it green (docs/STANDARDS.md §7).
 
 #include "../support/synthetic_scene.hpp"
+#include "../support/temp_path.hpp"
 
+#include <reusex/core/ProjectDB.hpp>
 #include <reusex/io/reusex.hpp>
+#include <reusex/pipeline/stages.hpp>
 #include <reusex/reconstruction/mesh.hpp>
 #include <reusex/segmentation/segment_planes.hpp>
 #include <reusex/segmentation/segment_rooms.hpp>
@@ -23,6 +26,8 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <map>
+
+using reusex::test_support::TempPath;
 
 namespace {
 
@@ -113,4 +118,59 @@ TEST_CASE("GeometryPipeline_SyntheticRoom_ProducesBoundedMesh",
   CHECK(max_pt.y - min_pt.y < 4.5F);
   CHECK(max_pt.z - min_pt.z > 1.5F);
   CHECK(max_pt.z - min_pt.z < 4.0F);
+}
+
+TEST_CASE("RunStageMesh_SyntheticRoom_ProducesMeshViaJobRunner",
+          "[integration][pipeline]") {
+  // Identical scene as above, but this time driven through run_stage() + a
+  // real ProjectDB to verify the full job-runner path (#265 Phase 3).
+  const auto scene = reusex::test_support::make_room();
+
+  // ── Seed the project with the outputs of planes + rooms ─────────────────
+  TempPath project("test_run_stage_mesh");
+  reusex::ProjectDB db(project.path);
+
+  db.save_point_cloud("cloud", *scene.cloud, "test");
+  db.save_point_cloud("normals", *scene.normals, "test");
+
+  auto [plane_labels, plane_centroids, plane_normals] =
+      reusex::geometry::segment_planes(scene.cloud, scene.normals);
+  db.save_point_cloud("planes", *plane_labels, "test");
+  db.save_point_cloud("plane_centroids", *plane_centroids, "test");
+  db.save_point_cloud("plane_normals", *plane_normals, "test");
+
+  auto rooms =
+      reusex::geometry::segment_rooms(scene.cloud, scene.normals, plane_labels);
+  db.save_point_cloud("rooms", *rooms, "test");
+
+  // ── Drive the mesh stage through run_stage() ────────────────────────────
+  reusex::pipeline::StageContext ctx;
+  ctx.project = project.path;
+  ctx.stage = reusex::pipeline::JobStage::mesh;
+
+  const auto result = reusex::pipeline::run_stage(db, ctx);
+
+  INFO(result.message);
+  REQUIRE(result.ok);
+  CHECK_FALSE(result.invalid_input);
+  CHECK(db.has_mesh("mesh"));
+
+  // The pipeline log must record a success row with the CLI-compatible name.
+  const auto log = db.pipeline_log();
+  // 4 "test" saves above do not write pipeline_log; only run_stage does.
+  const auto mesh_rows = [&] {
+    std::vector<reusex::ProjectDB::PipelineLogEntry> rows;
+    for (const auto &entry : log)
+      if (entry.stage == "mesh_generation")
+        rows.push_back(entry);
+    return rows;
+  }();
+  REQUIRE(mesh_rows.size() == 1);
+  CHECK(mesh_rows.front().status == "success");
+
+  // The artifact list must contain a mesh entry.
+  REQUIRE_FALSE(result.outputs.empty());
+  CHECK(result.outputs.front().kind == "mesh");
+  CHECK(result.outputs.front().name == "mesh");
+  CHECK(result.outputs.front().count > 0);
 }

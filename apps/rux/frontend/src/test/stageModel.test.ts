@@ -303,12 +303,11 @@ describe('buildStageCards', () => {
     expect(blocked.ready).toBe(false);
     expect(blocked.canRun).toBe(false);
 
-    // `mesh` has no runner. The card is still listed so its readiness is
-    // visible, but a Run button that always 400s would be worse than none.
-    const noRunner = buildStageCards([stageNamed('mesh')], [])[0];
-    expect(noRunner.runnable).toBe(false);
-    expect(noRunner.canRun).toBe(false);
-    expect(noRunner.parameters).toEqual([]);
+    // `mesh` is now runnable (#265 Phase 3): its stage card should behave like
+    // any other ready, idle stage.
+    const meshCard = buildStageCards([stageNamed('mesh')], [])[0];
+    expect(meshCard.runnable).toBe(true);
+    expect(meshCard.canRun).toBe(true);
   });
 
   it('shows progress only while the job is actually running', () => {
@@ -363,5 +362,17 @@ describe('buildStageCards', () => {
     expect(card.warnings).toEqual(['a passport is unused']);
     expect(card.blocked).toBeNull();
     expect(card.canRun).toBe(true);
+  });
+
+  it('mesh stage is non-cancellable but a queued job can still be dropped', () => {
+    // The MIP solver cannot be interrupted once running; `cancellable: false`
+    // means the button wording changes, not that queued jobs are stuck.
+    const card = buildStageCards(
+      [stageNamed('mesh')],
+      [jobWith({ stage: 'mesh', status: 'queued' })],
+    )[0];
+    expect(card.cancellable).toBe(false);
+    expect(card.canCancel).toBe(true);
+    expect(card.canRun).toBe(false);
   });
 });

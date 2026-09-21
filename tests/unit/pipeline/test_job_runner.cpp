@@ -81,9 +81,9 @@ TEST_CASE("ParseJobStage_ValidAndInvalidNames_RoundTripsOrRejects",
 
   REQUIRE_FALSE(parse_job_stage("not-a-stage").has_value());
   REQUIRE_FALSE(parse_job_stage("").has_value());
-  // `mesh` has an input contract but no runner yet, so it must NOT parse as a
-  // submittable job stage — the API relies on that to reject it with a 400.
-  REQUIRE_FALSE(parse_job_stage("mesh").has_value());
+  // `mesh` now has a runner (#265 Phase 3), so it parses and round-trips.
+  REQUIRE(parse_job_stage("mesh").has_value());
+  CHECK(to_string(*parse_job_stage("mesh")) == "mesh");
 }
 
 TEST_CASE("JobStatus_AllValues_RoundTripsAndTerminalityMatches",

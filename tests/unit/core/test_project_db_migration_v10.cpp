@@ -8,6 +8,7 @@
 
 #include "../../support/temp_path.hpp"
 
+#include <opencv2/core.hpp>
 #include <sqlite3.h>
 
 #include <filesystem>
@@ -77,6 +78,23 @@ void buildV9Fixture(const fs::path &path) {
   sqlite3_close(db);
 }
 
+// Roll a freshly-created (v14) database back to v13 by dropping the
+// glass_confidence_images table and rewinding the schema_version row.
+// Read-only opens never migrate, so this is what a v13 project on disk
+// looks like to today's reader.
+void downgrade_to_v13(const fs::path &path) {
+  sqlite3 *db = nullptr;
+  REQUIRE(sqlite3_open(path.string().c_str(), &db) == SQLITE_OK);
+  char *err = nullptr;
+  const int rc = sqlite3_exec(db,
+                              "DROP TABLE IF EXISTS glass_confidence_images;"
+                              "DELETE FROM schema_version WHERE version >= 14;",
+                              nullptr, nullptr, &err);
+  sqlite3_free(err);
+  sqlite3_close(db);
+  REQUIRE(rc == SQLITE_OK);
+}
+
 } // namespace
 
 TEST_CASE("ProjectDbSchemaVersion_FreshMigrationDatabase_IsLatest",
@@ -84,6 +102,57 @@ TEST_CASE("ProjectDbSchemaVersion_FreshMigrationDatabase_IsLatest",
   TempPath tmp;
   ProjectDB db(tmp.path);
   REQUIRE(db.schema_version() == 14);
+}
+
+TEST_CASE("ProjectDb_PreV13ProjectReadWriteOpen_MigratesToV14_"
+          "GlassConfidenceImagesTableExistsAndCascades",
+          "[projectdb][migration]") {
+  TempPath tmp;
+  {
+    ProjectDB fresh(tmp.path); // creates v14
+  }
+  downgrade_to_v13(tmp.path);
+
+  // Read-only open must not migrate; table is still absent.
+  {
+    ProjectDB ro(tmp.path, /*readOnly=*/true);
+    REQUIRE(ro.schema_version() == 13);
+    // hasGlassConfidenceImage returns false when the table is absent.
+    CHECK_FALSE(ro.has_glass_confidence_image(1));
+  }
+
+  // Read-write open triggers migrateToV14.
+  {
+    ProjectDB db(tmp.path);
+    REQUIRE(db.schema_version() == 14);
+
+    // Insert a sensor frame + glass confidence image.
+    cv::Mat color(4, 4, CV_8UC3, cv::Scalar(0, 0, 0));
+    db.save_sensor_frame(99, color);
+    cv::Mat conf(4, 4, CV_8U, cv::Scalar(255));
+    db.save_glass_confidence_image(99, conf);
+    REQUIRE(db.has_glass_confidence_image(99));
+  }
+
+  // Re-open and verify the image survived across close/reopen.
+  {
+    ProjectDB db(tmp.path);
+    REQUIRE(db.has_glass_confidence_image(99));
+
+    // Delete the parent sensor frame via raw sqlite3; the FK CASCADE must
+    // remove the glass_confidence_images row automatically.
+    sqlite3 *raw = nullptr;
+    REQUIRE(sqlite3_open(tmp.path.string().c_str(), &raw) == SQLITE_OK);
+    exec(raw, "PRAGMA foreign_keys = ON;");
+    exec(raw, "DELETE FROM sensor_frames WHERE node_id = 99;");
+    sqlite3_close(raw);
+  }
+
+  // Reopen and confirm the cascade fired.
+  {
+    ProjectDB db(tmp.path);
+    CHECK_FALSE(db.has_glass_confidence_image(99));
+  }
 }
 
 TEST_CASE("ProjectDbMigrationV9ToV10_OrphanAndValidInstanceMaterialLinks_"

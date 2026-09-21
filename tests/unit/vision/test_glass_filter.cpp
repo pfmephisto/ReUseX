@@ -97,6 +97,43 @@ TEST_CASE("BuildGlassConfidenceMap_MultipleGlassIds_UnionSuppressed",
   REQUIRE(conf.at<uchar>(0, 3) == 255); // class 10 → trust
 }
 
+// ── find_duplicate_prompt_concept
+// ────────────────────────────────────────────
+
+TEST_CASE("FindDuplicatePromptConcept_EmptyOrUnique_ReturnsEmpty",
+          "[vision][glass_filter]") {
+  CHECK(find_duplicate_prompt_concept({}).empty());
+  CHECK(find_duplicate_prompt_concept({"wall", "floor", "ceiling"}).empty());
+  CHECK(find_duplicate_prompt_concept({"wall:0.3", "floor:0.5"}).empty());
+  // Different concepts whose names happen to share a prefix are not duplicates.
+  CHECK(find_duplicate_prompt_concept({"window", "window pane"}).empty());
+}
+
+TEST_CASE("FindDuplicatePromptConcept_PlainDuplicate_ReturnsDuplicateText",
+          "[vision][glass_filter]") {
+  auto dup = find_duplicate_prompt_concept({"wall", "floor", "wall"});
+  REQUIRE(!dup.empty());
+  CHECK(dup == "wall");
+}
+
+TEST_CASE("FindDuplicatePromptConcept_DuplicateWithDifferentThresholds_"
+          "ReturnsConcept",
+          "[vision][glass_filter]") {
+  // "wall:0.3" and "wall:0.5" are the same concept — only the threshold
+  // differs; the model deduplicates on concept text alone.
+  auto dup = find_duplicate_prompt_concept({"wall:0.3", "floor", "wall:0.5"});
+  REQUIRE(!dup.empty());
+  CHECK(dup == "wall");
+}
+
+TEST_CASE("FindDuplicatePromptConcept_DuplicateWithAndWithoutThreshold_"
+          "ReturnsConcept",
+          "[vision][glass_filter]") {
+  auto dup = find_duplicate_prompt_concept({"wall", "floor", "wall:0.4"});
+  REQUIRE(!dup.empty());
+  CHECK(dup == "wall");
+}
+
 TEST_CASE("BuildGlassConfidenceMap_BackgroundMinusOne_NotSuppressed",
           "[vision][glass_filter]") {
   // Background pixels (-1) must not be suppressed; glass IDs are non-negative.

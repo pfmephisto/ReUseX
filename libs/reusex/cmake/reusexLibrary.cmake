@@ -422,11 +422,10 @@ endif()
 
 # --- Layer 4 — pipeline (stage execution + job runner) ---------------------
 reusex_add_module(reusex_pipeline ${REUSEX_PIPELINE_SOURCES})
-# Only what the stage runners actually call today. reusex_reconstruction joins
-# this list when the mesh stage gets a runner (#265 Phase 3) -- linking it
-# ahead of time buys nothing and hides which peers are really in play.
 target_link_libraries(reusex_pipeline PUBLIC
     reusex_core
+    reusex_io
+    reusex_reconstruction
     reusex_segmentation)
 
 # ===============================================

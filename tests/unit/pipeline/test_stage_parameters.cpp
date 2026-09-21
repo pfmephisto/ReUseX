@@ -17,6 +17,7 @@
 
 #include <reusex/pipeline/stage_parameters.hpp>
 #include <reusex/pipeline/stages.hpp>
+#include <reusex/reconstruction/mesh.hpp>
 #include <reusex/segmentation/reconstruct.hpp>
 #include <reusex/segmentation/segment_instances.hpp>
 #include <reusex/segmentation/segment_planes.hpp>
@@ -211,6 +212,36 @@ TEST_CASE("StageParameters_Instances_MirrorSegmentInstancesRequestDefaults",
   REQUIRE(std::holds_alternative<std::string>(output.default_value));
   CHECK(std::get<std::string>(output.default_value) ==
         std::string(kDefaultInstanceCloud));
+}
+
+TEST_CASE("StageParameters_Mesh_MirrorMeshOptionsDefaults",
+          "[pipeline][params]") {
+  const reusex::geometry::MeshOptions d{};
+  CHECK(float_default(JobStage::mesh, "search_threshold") ==
+        d.search_threshold);
+  CHECK(float_default(JobStage::mesh, "new_plane_offset") ==
+        d.new_plane_offset);
+  CHECK(number_default(JobStage::mesh, "time_limit_seconds") ==
+        d.time_limit_seconds);
+  CHECK(number_default(JobStage::mesh, "alpha") == d.alpha);
+  CHECK(integer_default(JobStage::mesh, "max_cells") ==
+        static_cast<long long>(d.max_cells));
+  CHECK(integer_default(JobStage::mesh, "sectioned_threshold") ==
+        static_cast<long long>(d.sectioned_threshold));
+
+  const ParameterDescriptor &sectioned =
+      *parameter_of(JobStage::mesh, "sectioned");
+  REQUIRE(std::holds_alternative<bool>(sectioned.default_value));
+  CHECK(std::get<bool>(sectioned.default_value) == d.sectioned);
+
+  const ParameterDescriptor &solver = *parameter_of(JobStage::mesh, "solver");
+  REQUIRE(std::holds_alternative<std::string>(solver.default_value));
+  CHECK(std::get<std::string>(solver.default_value) == "auto");
+
+  const ParameterDescriptor &output_name =
+      *parameter_of(JobStage::mesh, "output_name");
+  REQUIRE(std::holds_alternative<std::string>(output_name.default_value));
+  CHECK(std::get<std::string>(output_name.default_value) == "mesh");
 }
 
 TEST_CASE("StageParameters_FloatDefault_RoundTripsShortestDecimal",

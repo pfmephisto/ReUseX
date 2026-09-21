@@ -168,6 +168,7 @@ TEST_CASE("PipelineLogName_RunnableStages_MatchesCliNames",
   CHECK(pipeline_log_name(JobStage::planes) == "segment_planes");
   CHECK(pipeline_log_name(JobStage::rooms) == "segment_rooms");
   CHECK(pipeline_log_name(JobStage::instances) == "segment_instances");
+  CHECK(pipeline_log_name(JobStage::mesh) == "mesh_generation");
 
   // The wire token stays short and is deliberately NOT the log name.
   CHECK(to_string(JobStage::rooms) == "rooms");
@@ -456,4 +457,48 @@ TEST_CASE("RunStage_SeededInstancesStage_DrivesGlobalProgressObserver",
   REQUIRE(result.ok);
   CHECK(observer.started > 0);
   CHECK(observer.finished > 0);
+}
+
+// ===========================================================================
+// Mesh stage (#265, Phase 3)
+// ===========================================================================
+
+TEST_CASE("RunStage_MeshStage_RefusedWithoutPlanes", "[pipeline][stages]") {
+  TempPath project("test_pipeline_stages_mesh");
+  reusex::ProjectDB db(project.path);
+
+  StageContext ctx;
+  ctx.project = project.path;
+  ctx.stage = JobStage::mesh;
+
+  const auto result = run_stage(db, ctx);
+
+  CHECK_FALSE(result.ok);
+  CHECK(result.invalid_input);
+  // The message must name what is missing — a generic "failed" is not
+  // actionable (STANDARDS §5).
+  CHECK(result.message.find("planes") != std::string::npos);
+
+  // The refusal is durable so the GUI history view shows why it was refused.
+  const auto log = db.pipeline_log();
+  REQUIRE(log.size() == 1);
+  CHECK(log.front().stage == "mesh_generation");
+  CHECK(log.front().status == "failed");
+}
+
+TEST_CASE("RunStage_MeshStage_InvalidSolverRefused", "[pipeline][stages]") {
+  TempPath project("test_pipeline_stages_mesh");
+  reusex::ProjectDB db(project.path);
+
+  StageContext ctx;
+  ctx.project = project.path;
+  ctx.stage = JobStage::mesh;
+  ctx.parameters = R"({"solver":"badvalue"})";
+
+  // The contract check fires before the solver parse, so this still fails with
+  // invalid_input (missing inputs) rather than the solver error — the important
+  // thing is that it does not crash and does not claim success.
+  const auto result = run_stage(db, ctx);
+  CHECK_FALSE(result.ok);
+  CHECK(result.invalid_input);
 }

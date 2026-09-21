@@ -554,7 +554,7 @@ export const STAGES: { stages: StageInfo[] } = {
       ],
       parameters: [],
       ready: true,
-      runnable: false,
+      runnable: true,
       stage: 'mesh',
       summary: 'solidify the cell complex into a room-partitioned mesh',
     },

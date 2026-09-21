@@ -296,9 +296,7 @@ const std::vector<CatalogueEntry> &stage_catalogue() {
       {"rooms", reusex::core::PipelineStage::rooms, pipeline::JobStage::rooms},
       {"instances", reusex::core::PipelineStage::instances,
        pipeline::JobStage::instances},
-      // No runner yet — the cell-complex/MIP plumbing is Phase 3 (#265). It is
-      // still listed so the UI can show its readiness and grey out "Run".
-      {"mesh", reusex::core::PipelineStage::mesh, std::nullopt},
+      {"mesh", reusex::core::PipelineStage::mesh, pipeline::JobStage::mesh},
   };
   return catalogue;
 }

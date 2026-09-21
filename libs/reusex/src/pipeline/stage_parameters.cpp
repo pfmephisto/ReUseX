@@ -4,6 +4,7 @@
 
 #include <reusex/pipeline/stage_parameters.hpp>
 
+#include <reusex/reconstruction/mesh.hpp>
 #include <reusex/segmentation/reconstruct.hpp>
 #include <reusex/segmentation/segment_instances.hpp>
 #include <reusex/segmentation/segment_planes.hpp>
@@ -208,6 +209,50 @@ const std::vector<ParameterDescriptor> &instances_parameters() {
   return table;
 }
 
+const std::vector<ParameterDescriptor> &mesh_parameters() {
+  static const std::vector<ParameterDescriptor> table = [] {
+    const geometry::MeshOptions d{};
+    return std::vector<ParameterDescriptor>{
+        text("solver", "MIP solver",
+             "MIP backend: 'auto' uses the primary solver (cuOpt on GPU if "
+             "available) and falls back to HiGHS CPU on error or OOM; "
+             "'highs' forces the CPU solver; 'cuopt' forces the GPU solver. "
+             "This job cannot be cancelled once the solver is running — set "
+             "time_limit_seconds to bound wall-clock time on large scenes.",
+             "auto"),
+        num("time_limit_seconds", "Time limit [s]",
+            "MIP solver wall-clock time limit. The solver returns its best "
+            "solution found so far when this limit expires, guarding against "
+            "indefinite hangs on complex buildings.",
+            static_cast<float>(d.time_limit_seconds), 1.0, 36000.0),
+        text("output_name", "Output mesh name",
+             "Name the mesh is saved under in the ProjectDB.", "mesh"),
+        num("search_threshold", "Search threshold [m]",
+            "Maximum distance for pairing nearby planes.", d.search_threshold,
+            0.01, 10.0),
+        num("new_plane_offset", "New-plane offset [m]",
+            "Offset distance used when synthesising a closing plane.",
+            d.new_plane_offset, 0.01, 1.0),
+        num("alpha", "Wall-complexity weight",
+            "Weight on the wall/complexity term of the MIP objective.",
+            static_cast<float>(d.alpha), 0.0, 100.0),
+        integer("max_cells", "Max cells",
+                "Cell-complex cell count above which the stage fails fast "
+                "with a diagnostic instead of attempting an intractable MIP.",
+                static_cast<long long>(d.max_cells), 1.0, 1000000.0),
+        boolean("sectioned", "Sectioned solve",
+                "Solve the MIP per horizontal section (storey) when the "
+                "arrangement is large, keeping multi-room buildings tractable.",
+                d.sectioned),
+        integer("sectioned_threshold", "Sectioned threshold",
+                "Engage the sectioned solve only when the cell complex has "
+                "at least this many cells.",
+                static_cast<long long>(d.sectioned_threshold), 1.0, 1000000.0),
+    };
+  }();
+  return table;
+}
+
 } // namespace
 
 std::string_view to_string(ParameterType type) {
@@ -236,6 +281,8 @@ const std::vector<ParameterDescriptor> &stage_parameters(JobStage stage) {
     return rooms_parameters();
   case JobStage::instances:
     return instances_parameters();
+  case JobStage::mesh:
+    return mesh_parameters();
   }
   throw std::logic_error("unhandled JobStage in stage_parameters()");
 }

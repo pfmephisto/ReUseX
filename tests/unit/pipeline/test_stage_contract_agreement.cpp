@@ -65,6 +65,8 @@ core::PipelineStage contract_of(pipeline::JobStage stage) {
     return core::PipelineStage::rooms;
   case pipeline::JobStage::instances:
     return core::PipelineStage::instances;
+  case pipeline::JobStage::mesh:
+    return core::PipelineStage::mesh;
   }
   FAIL("JobStage has no contract mapping");
   return core::PipelineStage::clouds;
@@ -73,7 +75,8 @@ core::PipelineStage contract_of(pipeline::JobStage stage) {
 const std::vector<pipeline::JobStage> &runnable_stages() {
   static const std::vector<pipeline::JobStage> stages = {
       pipeline::JobStage::clouds, pipeline::JobStage::planes,
-      pipeline::JobStage::rooms, pipeline::JobStage::instances};
+      pipeline::JobStage::rooms, pipeline::JobStage::instances,
+      pipeline::JobStage::mesh};
   return stages;
 }
 

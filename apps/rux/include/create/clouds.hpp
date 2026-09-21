@@ -23,6 +23,9 @@ struct SubcommandCreateCloudsOptions {
       reusex::geometry::ReconstructionParams{}.sampling_factor;
   int confidence_threshold =
       reusex::geometry::ReconstructionParams{}.confidence_threshold;
+  bool glass_filter = reusex::geometry::ReconstructionParams{}.glass_filter;
+  float glass_threshold =
+      reusex::geometry::ReconstructionParams{}.glass_threshold;
 };
 
 // Function declarations.

@@ -44,6 +44,14 @@ void reconstruct_point_clouds(ProjectDB &db,
   core::info("Reconstructing point clouds from sensor frames");
   core::stopwatch timer;
 
+  // Fail fast: --glass-filter requires pre-computed glass confidence images
+  // (STANDARDS §5 — no silent no-op when the user explicitly requested it).
+  if (params.glass_filter && db.glass_confidence_image_ids().empty()) {
+    throw std::runtime_error(
+        "glass-filter requires glass confidence images in the database. "
+        "Run 'rux create annotate --glass-filter' first.");
+  }
+
   auto frameIds = db.sensor_frame_ids();
   if (frameIds.empty()) {
     core::warn("No sensor frames in database, nothing to reconstruct");
@@ -62,6 +70,7 @@ void reconstruct_point_clouds(ProjectDB &db,
 
   // Skip counters, reported once after the loop (STANDARDS §5).
   std::size_t skipped_no_pose = 0;
+  std::size_t total_glass_suppressed = 0; // depth pixels zeroed by glass filter
 
   for (int nodeId : frameIds) {
     // ── Read from ProjectDB ──────────────────────────────────────
@@ -122,6 +131,25 @@ void reconstruct_point_clouds(ProjectDB &db,
     // ── Depth filters ────────────────────────────────────────────
     apply_depth_discontinuity_filter(depth_f, confidence, 0.5f);
     apply_ray_consistency_filter(depth_f, confidence, 0.2f);
+
+    // ── Glass depth filter ────────────────────────────────────────
+    if (params.glass_filter && db.has_glass_confidence_image(nodeId)) {
+      cv::Mat glass_conf = db.glass_confidence_image(nodeId); // CV_8U
+      if (!glass_conf.empty()) {
+        // Resize to depth resolution if needed (glass map is at color res).
+        if (glass_conf.size() != depth_f.size()) {
+          cv::resize(glass_conf, glass_conf, depth_f.size(), 0, 0,
+                     cv::INTER_NEAREST);
+        }
+        const auto thresh =
+            static_cast<uint8_t>(params.glass_threshold * 255.0f);
+        cv::Mat suppress_mask = glass_conf < thresh;
+        // Count only pixels that have valid depth (would have been projected).
+        total_glass_suppressed += static_cast<std::size_t>(
+            cv::countNonZero(suppress_mask & (depth_f > 0.0f)));
+        depth_f.setTo(0.0f, suppress_mask);
+      }
+    }
 
     // ── Build per-frame transforms ───────────────────────────────
     Eigen::Affine3f localTf = to_affine(intr.local_transform).cast<float>();
@@ -263,6 +291,11 @@ void reconstruct_point_clouds(ProjectDB &db,
                "pose; their depth contributes nothing to the fused cloud. Run "
                "'rux optimize' or re-import with poses if this is unexpected.",
                skipped_no_pose, frameIds.size());
+
+  if (total_glass_suppressed > 0)
+    core::warn("Glass depth filter suppressed {} depth pixels across {} frames "
+               "(threshold {:.2f}); these pixels were not added to the cloud.",
+               total_glass_suppressed, frameIds.size(), params.glass_threshold);
 
   if (merged_cloud->empty()) {
     core::error("No points generated from any sensor frame ({} of {} frames "

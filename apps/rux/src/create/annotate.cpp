@@ -144,6 +144,22 @@ PERFORMANCE TUNING:
                 "SAM 3.1 model directory.")
       ->default_val(opt->video);
 
+  sub->add_flag(
+         "--glass-filter", opt->glass_filter,
+         "Detect glass, mirror, and transparent-surface pixels and emit a "
+         "per-frame depth-suppress map (CV_8U) so 'rux create clouds "
+         "--glass-filter' can zero those pixels before back-projection. "
+         "Batch path only; silently ignored in --video / SAM3.1 mode.")
+      ->default_val(opt->glass_filter);
+
+  sub->add_option(
+         "--glass-threshold", opt->glass_threshold,
+         "Per-class confidence threshold for glass detections in [0,1]. "
+         "Applied post-inference so glass uses a separate (typically higher) "
+         "bar than structural classes, which use --confidence.")
+      ->check(CLI::Range(0.0f, 1.0f))
+      ->default_val(opt->glass_threshold);
+
   sub->callback([opt, global_opt]() {
     spdlog::trace("calling run_subcommand_annotate");
     rux::finish(run_subcommand_annotate(*opt, *global_opt));
@@ -243,7 +259,9 @@ int run_subcommand_annotate(SubcommandAnnotateOptions const &opt,
         .prompts = std::move(prompts),
         .seed =
             opt.random_seed ? std::nullopt : std::optional<uint32_t>(opt.seed),
-        .video = video};
+        .video = video,
+        .glass_filter = opt.glass_filter,
+        .glass_threshold = opt.glass_threshold};
 
     return reusex::vision::annotate(project_path, opt.net_path, config);
 

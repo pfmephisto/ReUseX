@@ -206,7 +206,7 @@ class ProjectDB::Impl {
   sqlite3 *db = nullptr;
 
   // cppcheck-suppress unusedStructMember
-  static constexpr int LATEST_SCHEMA_VERSION = 13;
+  static constexpr int LATEST_SCHEMA_VERSION = 14;
 
   // Maximum bytes per point_cloud_data row. SQLite's default SQLITE_MAX_LENGTH
   // is 1 GB and the hard compile-time max is 2 GB-1. We chunk large clouds
@@ -426,6 +426,10 @@ class ProjectDB::Impl {
 
     if (current < 13) {
       migrateToV13();
+    }
+
+    if (current < 14) {
+      migrateToV14();
     }
 
     reusex::trace("Schema version: {}", getCurrentSchemaVersion());
@@ -1146,6 +1150,35 @@ class ProjectDB::Impl {
     insertSchemaVersion(
         13, "Add material_annotations + material_annotation_kv tables");
     reusex::info("Migration to schema version 13 complete");
+  }
+
+  void migrateToV14() {
+    reusex::info("Migrating database to schema version 14");
+
+    // Per-frame glass/mirror depth-suppress maps (#372). `rux create annotate
+    // --glass-filter` runs glass/mirror/transparent prompts through SAM3 and
+    // stores a CV_8U binary mask here (255 = trust depth, 0 = suppress).
+    // `rux create clouds --glass-filter` reads these to zero glass pixels
+    // before back-projection, preventing reflective/transparent artefacts in
+    // the fused cloud. Cascade-deletes with the parent sensor frame so removing
+    // a frame also removes its glass mask.
+    const char *v14_schema = R"(
+      CREATE TABLE IF NOT EXISTS glass_confidence_images (
+        node_id          INTEGER PRIMARY KEY
+          REFERENCES sensor_frames(node_id) ON DELETE CASCADE,
+        confidence_image BLOB NOT NULL
+      );
+    )";
+
+    char *errMsg = nullptr;
+    if (sqlite3_exec(db, v14_schema, nullptr, nullptr, &errMsg) != SQLITE_OK) {
+      std::string error = errMsg ? errMsg : "unknown error";
+      sqlite3_free(errMsg);
+      throw std::runtime_error("Migration to v14 failed: " + error);
+    }
+
+    insertSchemaVersion(14, "Add glass_confidence_images table");
+    reusex::info("Migration to schema version 14 complete");
   }
 
   // Parse the semantic class id from an instance definition name of the form
@@ -1996,6 +2029,84 @@ class ProjectDB::Impl {
       sqlite3_exec(db, "ROLLBACK;", nullptr, nullptr, nullptr);
       throw;
     }
+  }
+
+  // ── Glass confidence image operations ─────────────────────────────
+
+  bool hasGlassConfidenceImage(int nodeId) const {
+    const char *sql =
+        "SELECT 1 FROM glass_confidence_images WHERE node_id = ? LIMIT 1;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      return false;
+    StmtGuard guard(stmt);
+    sqlite3_bind_int(stmt, 1, nodeId);
+    return sqlite3_step(stmt) == SQLITE_ROW;
+  }
+
+  cv::Mat getGlassConfidenceImage(int nodeId) const {
+    const char *sql = "SELECT confidence_image FROM glass_confidence_images "
+                      "WHERE node_id = ?;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to prepare glass confidence query: " +
+                               std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+    sqlite3_bind_int(stmt, 1, nodeId);
+
+    if (sqlite3_step(stmt) != SQLITE_ROW)
+      return cv::Mat();
+
+    const void *blob = sqlite3_column_blob(stmt, 0);
+    int blobSize = sqlite3_column_bytes(stmt, 0);
+    cv::Mat encoded(1, blobSize, CV_8UC1, const_cast<void *>(blob));
+    cv::Mat result = cv::imdecode(encoded, cv::IMREAD_UNCHANGED);
+    return result; // CV_8U: 255=trust, 0=suppress
+  }
+
+  std::vector<int> getGlassConfidenceImageIds() const {
+    const char *sql =
+        "SELECT node_id FROM glass_confidence_images ORDER BY node_id;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to query glass confidence image IDs: " +
+                               std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+    std::vector<int> ids;
+    while (sqlite3_step(stmt) == SQLITE_ROW)
+      ids.push_back(sqlite3_column_int(stmt, 0));
+    return ids;
+  }
+
+  void saveGlassConfidenceImage(int nodeId, const cv::Mat &confidence) {
+    if (confidence.empty())
+      throw std::runtime_error("Cannot save empty glass confidence image");
+
+    cv::Mat toSave = confidence;
+    if (toSave.type() != CV_8U)
+      toSave.convertTo(toSave, CV_8U, 255.0);
+
+    std::vector<unsigned char> pngBytes;
+    if (!cv::imencode(".png", toSave, pngBytes))
+      throw std::runtime_error(
+          "Failed to encode glass confidence image as PNG");
+
+    const char *upsert = R"(
+      INSERT INTO glass_confidence_images (node_id, confidence_image)
+      VALUES (?, ?)
+      ON CONFLICT(node_id) DO UPDATE SET confidence_image = excluded.confidence_image;
+    )";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, upsert, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to prepare glass confidence upsert: " +
+                               std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+    sqlite3_bind_int(stmt, 1, nodeId);
+    sqlite3_bind_blob(stmt, 2, pngBytes.data(),
+                      static_cast<int>(pngBytes.size()), SQLITE_TRANSIENT);
+    if (sqlite3_step(stmt) != SQLITE_DONE)
+      throw std::runtime_error("Failed to upsert glass confidence image: " +
+                               std::string(sqlite3_errmsg(db)));
   }
 
   // ── Legacy passport tables ─────────────────────────────────────────
@@ -5234,6 +5345,26 @@ void ProjectDB::save_segmentation_images(const std::vector<int> &nodeIds,
                                          const std::vector<cv::Mat> &labels) {
   impl_->checkWritable();
   impl_->saveSegmentationImages(nodeIds, labels);
+}
+
+// --- Glass Confidence Image Operations ---
+
+bool ProjectDB::has_glass_confidence_image(int nodeId) const {
+  return impl_->hasGlassConfidenceImage(nodeId);
+}
+
+cv::Mat ProjectDB::glass_confidence_image(int nodeId) const {
+  return impl_->getGlassConfidenceImage(nodeId);
+}
+
+std::vector<int> ProjectDB::glass_confidence_image_ids() const {
+  return impl_->getGlassConfidenceImageIds();
+}
+
+void ProjectDB::save_glass_confidence_image(int nodeId,
+                                            const cv::Mat &confidence) {
+  impl_->checkWritable();
+  impl_->saveGlassConfidenceImage(nodeId, confidence);
 }
 
 // --- Point Cloud Operations ---

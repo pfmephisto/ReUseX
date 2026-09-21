@@ -66,6 +66,22 @@ NOTES:
                   "Minimum confidence threshold")
       ->default_val(opt->confidence_threshold);
 
+  sub->add_flag(
+         "--glass-filter", opt->glass_filter,
+         "Suppress depth pixels whose glass confidence image value is below "
+         "--glass-threshold. Requires glass confidence images in the database "
+         "(run 'rux create annotate --glass-filter' first). Fails with an "
+         "error if the flag is set but no glass confidence images exist.")
+      ->default_val(opt->glass_filter);
+
+  sub->add_option(
+         "--glass-threshold", opt->glass_threshold,
+         "Confidence fraction below which a pixel is treated as glass and "
+         "suppressed from the depth image [0,1]. Only used with "
+         "--glass-filter.")
+      ->check(CLI::Range(0.0f, 1.0f))
+      ->default_val(opt->glass_threshold);
+
   sub->callback([opt, global_opt]() {
     spdlog::trace("calling run_subcommand_create_clouds");
     rux::finish(run_subcommand_create_clouds(*opt, *global_opt));
@@ -95,6 +111,8 @@ int run_subcommand_create_clouds(SubcommandCreateCloudsOptions const &opt,
                          .set("max_distance", opt.max_distance)
                          .set("sampling_factor", opt.sampling_factor)
                          .set("confidence_threshold", opt.confidence_threshold)
+                         .set("glass_filter", opt.glass_filter)
+                         .set("glass_threshold", opt.glass_threshold)
                          .dump();
 
     // run_stage owns the pipeline_log row, the input-contract check and the

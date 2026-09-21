@@ -201,6 +201,18 @@ class ProjectDB {
   void save_segmentation_images(const std::vector<int> &nodeIds,
                                 const std::vector<cv::Mat> &labels);
 
+  // --- Glass Confidence Image Operations ---
+  //
+  // Per-frame binary depth-suppress map produced by `rux create annotate
+  // --glass-filter`.  Stored as CV_8U PNG: 0 = suppress (glass/mirror), 255 =
+  // trust depth.  Consumed by reconstruct_point_clouds when glass_filter is
+  // enabled.
+
+  bool has_glass_confidence_image(int nodeId) const;
+  cv::Mat glass_confidence_image(int nodeId) const;
+  std::vector<int> glass_confidence_image_ids() const;
+  void save_glass_confidence_image(int nodeId, const cv::Mat &confidence);
+
   // --- Point Cloud Operations ---
 
   void save_point_cloud(std::string_view name, const Cloud &cloud,

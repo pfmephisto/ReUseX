@@ -32,6 +32,10 @@ class TensorRTDataset : public IDataset {
    * successful. */
   bool save(const std::span<Pair> &data) override;
 
+  /// Returns the 18 built-in TensorRT structural prompt strings so callers
+  /// can prepend them when building a merged (structural + glass) prompt list.
+  std::vector<std::string> default_prompt_strings() const override;
+
     private:
   bool class_map_saved_ = false;
 };

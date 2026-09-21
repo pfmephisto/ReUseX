@@ -13,18 +13,29 @@
 
 namespace reusex::geometry {
 
-/// Build a 4x4 Eigen affine (float) from a row-major double[16] array.
-inline Eigen::Affine3f to_affine(const std::array<double, 16> &m) {
-  Eigen::Matrix4f mat;
+/// Build a 4x4 Eigen affine (double) from a row-major double[16] array.
+inline Eigen::Affine3d to_affine(const std::array<double, 16> &m) {
+  Eigen::Matrix4d mat;
   for (int r = 0; r < 4; ++r)
     for (int c = 0; c < 4; ++c)
-      mat(r, c) = static_cast<float>(m[r * 4 + c]);
-  Eigen::Affine3f aff;
+      mat(r, c) = m[r * 4 + c];
+  Eigen::Affine3d aff;
   aff.matrix() = mat;
   return aff;
 }
 
+/// Flatten a 4x4 Eigen affine (double) into a row-major double[16] array.
+inline std::array<double, 16> to_array16(const Eigen::Affine3d &aff) {
+  std::array<double, 16> m{};
+  const Eigen::Matrix4d mat = aff.matrix();
+  for (int r = 0; r < 4; ++r)
+    for (int c = 0; c < 4; ++c)
+      m[r * 4 + c] = mat(r, c);
+  return m;
+}
+
 /// Flatten a 4x4 Eigen affine (float) into a row-major double[16] array.
+/// Prefer the Affine3d overload when writing back to ProjectDB.
 inline std::array<double, 16> to_array16(const Eigen::Affine3f &aff) {
   std::array<double, 16> m{};
   const Eigen::Matrix4f mat = aff.matrix();

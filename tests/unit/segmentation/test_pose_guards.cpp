@@ -234,8 +234,8 @@ TEST_CASE("ExtractFrameSurfels_FrameWithStoredIdentityPose_ReturnsSurfels",
   REQUIRE(surfels->points);
   CHECK_FALSE(surfels->points->empty());
   // world_pose = worldTf * localTf; both identity here.
-  CHECK(surfels->world_pose.matrix().isApprox(Eigen::Matrix4f::Identity(),
-                                              1e-6F));
+  CHECK(surfels->world_pose.matrix().isApprox(Eigen::Matrix4d::Identity(),
+                                              1e-12));
 }
 
 TEST_CASE("ExtractFrameSurfels_PosedFrame_SeedsWorldPoseFromStoredTransform",
@@ -252,7 +252,7 @@ TEST_CASE("ExtractFrameSurfels_PosedFrame_SeedsWorldPoseFromStoredTransform",
   ProjectDB db(tmp.path);
   auto surfels = geometry::extract_frame_surfels(db, 7, surfel_params());
   REQUIRE(surfels.has_value());
-  const Eigen::Vector3f t = surfels->world_pose.translation();
+  const Eigen::Vector3d t = surfels->world_pose.translation();
   CHECK_THAT(t.x(), Catch::Matchers::WithinAbs(kFarX, 1e-4));
   CHECK_THAT(t.y(), Catch::Matchers::WithinAbs(1.0, 1e-4));
   CHECK_THAT(t.z(), Catch::Matchers::WithinAbs(-2.0, 1e-4));

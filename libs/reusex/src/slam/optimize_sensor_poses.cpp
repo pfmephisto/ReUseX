@@ -86,7 +86,7 @@ PlaneGraphResult optimize_sensor_poses(ProjectDB &db,
     seed_poses.reserve(frames.size());
     for (const auto &f : frames) {
       node_ids.push_back(f.node_id);
-      seed_poses.push_back(f.world_pose.matrix().cast<double>());
+      seed_poses.push_back(f.world_pose.matrix());
     }
 
     if (options.loop_closure.enable) {
@@ -332,25 +332,10 @@ PlaneGraphResult optimize_sensor_poses(ProjectDB &db,
   // Write optimized poses back. The stored `transform` column is worldTf, so we
   // remove the constant local (optical->sensor) transform that was folded into
   // world_pose during extraction:  worldTf = world_pose * localTf^-1.
-  //
-  // FIXME: Pose write-back loses precision through a float32 round-trip
-  // category=Geometry estimate=1d
-  // ProjectDB stores each pose as double[16], but FrameSurfels::world_pose and
-  // to_affine()/to_array16() are Affine3f, so every pose stage rewrites the
-  // stored doubles through float32 even when the solve did not move them.
-  // Measured on the office scan (#225 §11.1): `optimize --no-plane-factors` —
-  // which provably cannot move a pose, and does not at float precision —
-  // changes 237 of 238 stored pose blobs, by up to 1.43 um of translation.
-  // That is not cosmetic: the downstream voxel grid and plane region growing
-  // are discrete, so a micrometre nudge changes the segmented plane count and
-  // moves office flatness_rms by ~0.2 mm, which is what §9.8 recorded as an
-  // unexplained determinism smell. Fix by carrying poses in double through
-  // surfel extraction and the write-back (Affine3d), which will change every
-  // recorded number by a small amount and therefore needs its own re-baseline.
   int written = 0;
   for (size_t k = 0; k < frames.size(); ++k) {
-    const Eigen::Affine3f localTf = to_affine(intrinsics[k].local_transform);
-    const Eigen::Affine3f worldTf = frames[k].world_pose * localTf.inverse();
+    const Eigen::Affine3d localTf = to_affine(intrinsics[k].local_transform);
+    const Eigen::Affine3d worldTf = frames[k].world_pose * localTf.inverse();
     db.update_sensor_frame_pose(frames[k].node_id, to_array16(worldTf));
     ++written;
   }

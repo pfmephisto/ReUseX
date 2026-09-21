@@ -421,7 +421,7 @@ PlaneGraphOptimizer::optimize(std::vector<FrameSurfels> &frames,
   // the working pose, updated after each round and used to re-associate.
   std::vector<Eigen::Matrix4d> seed(N);
   for (int i = 0; i < N; ++i)
-    seed[i] = frames[i].world_pose.matrix().cast<double>();
+    seed[i] = frames[i].world_pose.matrix();
   std::vector<Eigen::Matrix4d> cur = seed;
 
   // --- 1. Per-frame plane detection (once; geometry is pose-independent) ----
@@ -993,8 +993,8 @@ PlaneGraphOptimizer::optimize(std::vector<FrameSurfels> &frames,
     max_shift =
         std::max(max_shift,
                  (cur[i].block<3, 1>(0, 3) - seed[i].block<3, 1>(0, 3)).norm());
-    Eigen::Affine3f aff;
-    aff.matrix() = cur[i].cast<float>();
+    Eigen::Affine3d aff;
+    aff.matrix() = cur[i];
     frames[i].world_pose = aff;
   }
   result.max_pose_shift = max_shift;

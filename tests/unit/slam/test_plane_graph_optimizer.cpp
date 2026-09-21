@@ -339,10 +339,16 @@ TEST_CASE("PlaneGraphOptimizer_NearCollinearCentroids_"
 TEST_CASE("PlaneGraphOptimizer_HeavyDriftAlternatingRounds_"
           "ConvergesCloserThanSingleRound",
           "[plane_graph][optimize][hygiene]") {
-  // A larger drift than the basic recovery test: one association+optimize pass
-  // under-corrects because the landmarks are formed on badly-drifted poses;
-  // re-associating on the improved poses (EM-style) recovers more. Assert the
-  // 3-round run ends strictly closer to truth than the 1-round run.
+  // Guards that additional association+optimization rounds produce a strictly
+  // better solution than a single round from the same heavy starting drift.
+  //
+  // The mechanism (see #383): each round builds a fresh factor graph
+  // re-linearised at the poses the previous round produced. A single round
+  // capped at max_iterations cannot fully converge from a ~2× larger drift;
+  // three rounds of fresh re-linearisation compound to a substantially smaller
+  // residual. All three plane associations are correct from round 1 onwards
+  // (drift < assoc_distance), so the improvement is entirely EM-style
+  // re-linearisation rather than association recovery.
   const Eigen::Affine3d truth = Eigen::Affine3d::Identity();
 
   auto build = [&]() {
@@ -350,9 +356,11 @@ TEST_CASE("PlaneGraphOptimizer_HeavyDriftAlternatingRounds_"
     for (int i = 0; i < 4; ++i)
       frames.push_back(make_corner_frame(i));
     frames[0].world_pose = truth; // gauge anchor at truth
-    frames[1].world_pose = drift(0.10, {1, 1, 1}, {0.08, -0.06, 0.05}) * truth;
-    frames[2].world_pose = drift(0.12, {0, 1, 0}, {-0.07, 0.09, -0.05}) * truth;
-    frames[3].world_pose = drift(0.09, {1, 0, 1}, {0.06, 0.06, 0.07}) * truth;
+    // ~2× heavier than the basic DriftedPosesSharedCorner fixture so a single
+    // capped round cannot reach the global minimum.
+    frames[1].world_pose = drift(0.18, {1, 1, 1}, {0.16, -0.13, 0.11}) * truth;
+    frames[2].world_pose = drift(0.20, {0, 1, 0}, {-0.13, 0.17, -0.11}) * truth;
+    frames[3].world_pose = drift(0.16, {1, 0, 1}, {0.12, 0.12, 0.15}) * truth;
     return frames;
   };
 
@@ -369,11 +377,15 @@ TEST_CASE("PlaneGraphOptimizer_HeavyDriftAlternatingRounds_"
   base.assoc_overlap_margin = 2.0f;      // corner planes are large & shared
   base.min_landmark_spread_ratio = 0.0f; // corner geometry, not under test here
   base.underconstrained_odom_scale = 1.0f; // isolate the rounds effect
+  // Cap per-round LM iterations so a single round cannot fully converge from
+  // the heavy drift above. Three rounds of 5 iterations (with fresh
+  // re-linearisation between them) achieve a substantially better solution.
+  base.max_iterations = 5;
 
   PlaneGraphOptions one = base;
   one.assoc_rounds = 1;
   std::vector<FrameSurfels> f1 = build();
-  PlaneGraphOptimizer(one).optimize(f1);
+  PlaneGraphResult r1 = PlaneGraphOptimizer(one).optimize(f1);
   const double e1 = total_error(f1);
 
   PlaneGraphOptions many = base;
@@ -385,11 +397,10 @@ TEST_CASE("PlaneGraphOptimizer_HeavyDriftAlternatingRounds_"
 
   INFO("1-round total err " << e1 << " vs 3-round " << e3
                             << " (rounds=" << r3.rounds << ")");
+  REQUIRE(r1.rounds == 1);
   REQUIRE(r3.rounds >= 2);
-  // With double-precision seeds the 1-round and 3-round solutions converge to
-  // nearly identical results (difference ~4 nm re-baseline after #351 fix).
-  // The structural property is that iterating does not make things worse.
-  REQUIRE(e3 < e1 + 1e-6);
+  // The 3-round run must end strictly closer to truth than the 1-round run.
+  REQUIRE(e3 < e1);
 }
 
 TEST_CASE("PlaneGraphOptimizer_NoSharedLandmark_LeavesPosesUnchanged",

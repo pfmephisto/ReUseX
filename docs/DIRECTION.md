@@ -190,6 +190,20 @@ changelog — that history is the point of keeping it in the repo.
 
 ## Direction changelog
 
+- **2026-09-21** — **Viewport LOD: extend RUXP, do not adopt Potree** (#321
+  closed, decision accepted by the maintainer). The evaluation
+  ([`research/potree-vs-ruxp-lod.md`](research/potree-vs-ruxp-lod.md), PR #384)
+  found a scale mismatch (our 1–15 M-point clouds vs Potree's >100 M design
+  point), an asymmetric integration cost (no LAS export path; PotreeConverter
+  rejects our PLY; a custom Potree 2.0 writer is ~1 500 lines), and no Potree
+  equivalent for RUXP's index-aligned label streaming (`lod_source`). The GUI
+  workstream instead builds LOD on the proven RUXP stack: Morton-ordered cloud
+  storage at `create clouds` time (#394), a spatial tile index with
+  frustum-culled fetching (#395), and stride-sampled multi-level LOD (#396) —
+  per #320's original design goal that paging and LOD collapse into one
+  mechanism. *Revisit Potree if:* scans consistently exceed ~50 M points, or
+  multi-user CDN/edge serving becomes a requirement.
+
 - **2026-09-10** — **The ~10 mm office flatness target should be retired as an
   acceptance criterion** (#225 §11), because it is simultaneously *already
   reachable* and *not measuring what priority 1 wants measured*. Three findings,

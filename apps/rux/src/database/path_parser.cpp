@@ -14,8 +14,8 @@ namespace rux::database {
 namespace {
 // Valid collection names (only implemented routers)
 const std::vector<std::string> kValidCollections = {
-    "clouds",    "frames", "labels",    "log",
-    "materials", "meshes", "panoramas", "projects"};
+    "clouds",    "components", "frames",    "labels",  "log",
+    "materials", "meshes",     "panoramas", "projects"};
 
 /**
  * @brief Split a string by a delimiter
@@ -123,9 +123,10 @@ std::vector<PathComponent> parse_path(std::string_view path) {
       if (i == 0) {
         // First component is always a collection
         if (!is_valid_collection(part)) {
-          throw PathError("Invalid collection name: " + part +
-                          "\nValid collections: clouds, frames, labels, log, "
-                          "materials, meshes, panoramas, projects");
+          throw PathError(
+              "Invalid collection name: " + part +
+              "\nValid collections: clouds, components, frames, "
+              "labels, log, materials, meshes, panoramas, projects");
         }
         components.emplace_back(ComponentType::Collection, part);
       } else if (i == 1) {

@@ -50,14 +50,14 @@ FrameSurfels make_corner_frame() {
   f.node_id = 0;
   f.points = pts;
   f.normals = nrm;
-  f.world_pose = Eigen::Affine3f::Identity();
+  f.world_pose = Eigen::Affine3d::Identity();
   return f;
 }
 
-Eigen::Affine3f perturbation() {
-  Eigen::Affine3f t = Eigen::Affine3f::Identity();
-  t.rotate(Eigen::AngleAxisf(0.03f, Eigen::Vector3f(1, 1, 1).normalized()));
-  t.translation() = Eigen::Vector3f(0.02f, -0.015f, 0.01f);
+Eigen::Affine3d perturbation() {
+  Eigen::Affine3d t = Eigen::Affine3d::Identity();
+  t.rotate(Eigen::AngleAxisd(0.03, Eigen::Vector3d(1, 1, 1).normalized()));
+  t.translation() = Eigen::Vector3d(0.02, -0.015, 0.01);
   return t;
 }
 
@@ -72,10 +72,12 @@ TEST_CASE("Se3ExpLog_RoundTrip_PreservesVector", "[jpr][se3]") {
 }
 
 TEST_CASE("ToAffineToArray16_RoundTrip_PreservesMatrix", "[jpr][transform]") {
-  Eigen::Affine3f a = perturbation();
+  // build an Affine3d by promoting the perturbation
+  Eigen::Affine3d a = perturbation();
   auto arr = to_array16(a);
-  Eigen::Affine3f b = to_affine(arr);
-  REQUIRE((a.matrix() - b.matrix()).norm() < 1e-5f);
+  Eigen::Affine3d b = to_affine(arr);
+  // Should be bit-exact (no float truncation)
+  REQUIRE((a.matrix() - b.matrix()).norm() < 1e-15);
 }
 
 TEST_CASE("JointPairwiseRegistration_KnownPoseOffsetOnCorner_RecoversOffset",
@@ -100,9 +102,9 @@ TEST_CASE("JointPairwiseRegistration_KnownPoseOffsetOnCorner_RecoversOffset",
 
   // Frame 1 should converge back toward identity (aligning with frame 0).
   REQUIRE_THAT(frames[1].world_pose.translation().norm(), WithinAbs(0.0, 0.01));
-  Eigen::Matrix3f dR =
-      frames[1].world_pose.rotation() - Eigen::Matrix3f::Identity();
-  REQUIRE(dR.norm() < 0.05f);
+  Eigen::Matrix3d dR =
+      frames[1].world_pose.rotation() - Eigen::Matrix3d::Identity();
+  REQUIRE(dR.norm() < 0.05);
 
   // Residual must improve.
   REQUIRE(res.final_rms <= res.initial_rms);
@@ -114,7 +116,7 @@ TEST_CASE("JointPairwiseRegistration_AnchoredFrame_StaysFixed", "[jpr]") {
   FrameSurfels f1 = make_corner_frame();
   f0.node_id = 0;
   f1.node_id = 1;
-  const Eigen::Affine3f seed0 = f0.world_pose; // identity
+  const Eigen::Affine3d seed0 = f0.world_pose; // identity
   f1.world_pose = perturbation();
 
   JprParams params;
@@ -127,7 +129,7 @@ TEST_CASE("JointPairwiseRegistration_AnchoredFrame_StaysFixed", "[jpr]") {
   JointPairwiseRegistration(params).refine(frames);
 
   // Anchored frame is removed from the system -> bit-for-bit unchanged.
-  REQUIRE((frames[0].world_pose.matrix() - seed0.matrix()).norm() == 0.0f);
+  REQUIRE((frames[0].world_pose.matrix() - seed0.matrix()).norm() == 0.0);
 }
 
 TEST_CASE("JointPairwiseRegistration_AlreadyAlignedFrames_IsNearNoOp",
@@ -147,7 +149,7 @@ TEST_CASE("JointPairwiseRegistration_AlreadyAlignedFrames_IsNearNoOp",
   JointPairwiseRegistration(params).refine(frames);
 
   REQUIRE_THAT(frames[1].world_pose.translation().norm(), WithinAbs(0.0, 1e-3));
-  Eigen::Matrix3f dR =
-      frames[1].world_pose.rotation() - Eigen::Matrix3f::Identity();
-  REQUIRE(dR.norm() < 5e-3f);
+  Eigen::Matrix3d dR =
+      frames[1].world_pose.rotation() - Eigen::Matrix3d::Identity();
+  REQUIRE(dR.norm() < 5e-3);
 }

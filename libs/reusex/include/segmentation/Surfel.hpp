@@ -18,12 +18,13 @@ namespace reusex::geometry {
 /// The registration optimizer refines `world_pose` while the points/normals
 /// stay fixed in the optical frame. `world_pose` is the composition
 /// worldTf * localTf, i.e. the seed equals to_affine(pose) *
-/// to_affine(intrinsics.local_transform).
+/// to_affine(intrinsics.local_transform). Held in double to preserve the
+/// double-precision poses stored in ProjectDB end-to-end.
 struct FrameSurfels {
   int node_id = -1;
   CloudPtr points;   ///< pcl::PointXYZRGB in optical frame
   CloudNPtr normals; ///< pcl::Normal in optical frame (unit, facing camera)
-  Eigen::Affine3f world_pose = Eigen::Affine3f::Identity();
+  Eigen::Affine3d world_pose = Eigen::Affine3d::Identity();
 };
 
 } // namespace reusex::geometry

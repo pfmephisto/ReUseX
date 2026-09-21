@@ -68,8 +68,8 @@ JprResult refine_sensor_poses(ProjectDB &db, const JprParams &params,
   // world_pose during extraction:  worldTf = world_pose * localTf^-1.
   int written = 0;
   for (size_t k = 0; k < frames.size(); ++k) {
-    const Eigen::Affine3f localTf = to_affine(intrinsics[k].local_transform);
-    const Eigen::Affine3f worldTf = frames[k].world_pose * localTf.inverse();
+    const Eigen::Affine3d localTf = to_affine(intrinsics[k].local_transform);
+    const Eigen::Affine3d worldTf = frames[k].world_pose * localTf.inverse();
     db.update_sensor_frame_pose(frames[k].node_id, to_array16(worldTf));
     ++written;
   }

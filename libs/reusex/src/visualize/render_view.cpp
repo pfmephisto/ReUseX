@@ -644,7 +644,7 @@ void place_explicit_camera(vtkRenderer *renderer, const RenderOptions &opts,
         std::to_string(spec.fx) + ", fy=" + std::to_string(spec.fy) + ")");
   }
 
-  const Eigen::Affine3f c2w = geometry::to_affine(spec.pose);
+  const Eigen::Affine3f c2w = geometry::to_affine(spec.pose).cast<float>();
   const Eigen::Vector3f eye = c2w.translation();
   // OpenCV camera axes: +x right, +y down, +z along the view direction.
   const Eigen::Vector3f forward = c2w.linear() * Eigen::Vector3f::UnitZ();
@@ -1076,8 +1076,9 @@ CameraSpec camera_from_sensor_frame(const ProjectDB &db, int node_id, int width,
   // — the same composition segmentation/reconstruct.cpp uses to back-project
   // depth, which is what makes a render line up with the captured frame.
   const Eigen::Affine3f c2w =
-      geometry::to_affine(db.sensor_frame_pose(node_id)) *
-      geometry::to_affine(intr.local_transform);
+      (geometry::to_affine(db.sensor_frame_pose(node_id)) *
+       geometry::to_affine(intr.local_transform))
+          .cast<float>();
 
   // Intrinsics describe the captured frame; rescale them to the output size.
   const double sx = static_cast<double>(width) / intr.width;

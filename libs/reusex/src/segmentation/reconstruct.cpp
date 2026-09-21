@@ -124,8 +124,8 @@ void reconstruct_point_clouds(ProjectDB &db,
     apply_ray_consistency_filter(depth_f, confidence, 0.2f);
 
     // ── Build per-frame transforms ───────────────────────────────
-    Eigen::Affine3f localTf = to_affine(intr.local_transform);
-    Eigen::Affine3f worldTf = to_affine(pose);
+    Eigen::Affine3f localTf = to_affine(intr.local_transform).cast<float>();
+    Eigen::Affine3f worldTf = to_affine(pose).cast<float>();
 
     // Debug logging for first frame to verify transform correctness
     if (nodeId == frameIds[0]) {

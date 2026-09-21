@@ -116,7 +116,7 @@ JointPairwiseRegistration::refine(std::vector<FrameSurfels> &frames) const {
   // --- Seed poses (for the soft prior) ------------------------------------
   std::vector<Eigen::Matrix4d> seed(N);
   for (int i = 0; i < N; ++i)
-    seed[i] = frames[i].world_pose.matrix().cast<double>();
+    seed[i] = frames[i].world_pose.matrix();
 
   // --- Free-variable remapping (anchored frame is removed) ----------------
   std::vector<int> free_index(N, -1);
@@ -147,13 +147,12 @@ JointPairwiseRegistration::refine(std::vector<FrameSurfels> &frames) const {
     centers->resize(N);
     std::vector<Eigen::Vector3d> views(N);
     for (int i = 0; i < N; ++i) {
-      const Eigen::Vector3d t =
-          frames[i].world_pose.translation().cast<double>();
+      const Eigen::Vector3d t = frames[i].world_pose.translation();
       (*centers)[i].x = static_cast<float>(t.x());
       (*centers)[i].y = static_cast<float>(t.y());
       (*centers)[i].z = static_cast<float>(t.z());
-      views[i] = frames[i].world_pose.rotation().cast<double>() *
-                 Eigen::Vector3d(0.0, 0.0, 1.0);
+      views[i] =
+          frames[i].world_pose.rotation() * Eigen::Vector3d(0.0, 0.0, 1.0);
     }
     pcl::KdTreeFLANN<pcl::PointXYZ> ctree;
     ctree.setInputCloud(centers);
@@ -186,7 +185,7 @@ JointPairwiseRegistration::refine(std::vector<FrameSurfels> &frames) const {
   // Tcur as the authoritative state during optimization and write back at end.
   std::vector<Eigen::Matrix4d> Tcur(N);
   for (int i = 0; i < N; ++i)
-    Tcur[i] = frames[i].world_pose.matrix().cast<double>();
+    Tcur[i] = frames[i].world_pose.matrix();
 
   // Build correspondences for the given poses (NN search in world space).
   // Stores point indices so residuals can be re-evaluated at any trial pose.
@@ -416,8 +415,8 @@ JointPairwiseRegistration::refine(std::vector<FrameSurfels> &frames) const {
 
   // Write refined poses back into the frames.
   for (int i = 0; i < N; ++i) {
-    Eigen::Affine3f aff;
-    aff.matrix() = Tcur[i].cast<float>();
+    Eigen::Affine3d aff;
+    aff.matrix() = Tcur[i];
     frames[i].world_pose = aff;
   }
 

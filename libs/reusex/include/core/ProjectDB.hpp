@@ -67,6 +67,7 @@ class ProjectDB {
    * invalid
    */
   explicit ProjectDB(std::filesystem::path dbPath, bool readOnly = false);
+  bool is_read_only() const noexcept;
   /**
    * @brief Destructor closes database connection
    */

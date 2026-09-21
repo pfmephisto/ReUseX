@@ -284,6 +284,12 @@ class ProjectDB::Impl {
     }
   }
 
+  void checkWritable() const {
+    if (readOnly)
+      throw std::runtime_error("Cannot write to read-only database: " +
+                               dbPath.string());
+  }
+
   // ── Schema versioning ──────────────────────────────────────────────
 
   bool tableExists(const char *tableName) const {
@@ -363,6 +369,11 @@ class ProjectDB::Impl {
         current = 0;
       }
       // else: completely fresh DB, will go straight to v1
+    }
+
+    if (current >= 0 && current < LATEST_SCHEMA_VERSION) {
+      reusex::warn("Migrating project schema from v{} to v{}: {}", current,
+                   LATEST_SCHEMA_VERSION, dbPath);
     }
 
     if (current < 1) {
@@ -5075,9 +5086,12 @@ int ProjectDB::schema_version() const {
 
 void ProjectDB::validate_schema() const { impl_->validateSchema(); }
 
+bool ProjectDB::is_read_only() const noexcept { return impl_->readOnly; }
+
 // --- Sensor Frame Operations ---
 
 void ProjectDB::save_sensor_frame(int nodeId, const cv::Mat &colorImage) {
+  impl_->checkWritable();
   impl_->saveSensorFrame(nodeId, colorImage);
 }
 
@@ -5087,12 +5101,14 @@ void ProjectDB::save_sensor_frame(int nodeId, const cv::Mat &color,
                                   const std::array<double, 16> &worldPose,
                                   const core::SensorIntrinsics &intrinsics,
                                   double timestamp) {
+  impl_->checkWritable();
   impl_->saveSensorFrameFull(nodeId, color, depth, confidence, worldPose,
                              intrinsics, timestamp);
 }
 
 void ProjectDB::update_sensor_frame_pose(
     int nodeId, const std::array<double, 16> &worldPose) {
+  impl_->checkWritable();
   impl_->updateSensorFramePose(nodeId, worldPose);
 }
 
@@ -5141,6 +5157,7 @@ int ProjectDB::nearest_sensor_frame_by_timestamp(double timestamp) const {
 void ProjectDB::save_panoramic_image(const std::string &filename,
                                      const std::vector<uint8_t> &jpeg_data,
                                      double timestamp, int nodeId) {
+  impl_->checkWritable();
   impl_->savePanoramicImage(filename, jpeg_data, timestamp, nodeId);
 }
 
@@ -5157,10 +5174,12 @@ bool ProjectDB::has_panoramic_image(std::string_view filename) const {
 }
 
 void ProjectDB::delete_panoramic_image(int id) {
+  impl_->checkWritable();
   impl_->deletePanoramicImageById(id);
 }
 
 void ProjectDB::delete_panoramic_image(std::string_view filename) {
+  impl_->checkWritable();
   impl_->deletePanoramicImageByFilename(filename);
 }
 
@@ -5175,6 +5194,7 @@ int ProjectDB::panoramic_image_count() const {
 
 void ProjectDB::save_panorama_pose(int id, const std::array<double, 16> &pose,
                                    int inliers, double rms) {
+  impl_->checkWritable();
   impl_->savePanoramaPose(id, pose, inliers, rms);
 }
 
@@ -5187,6 +5207,7 @@ cv::Mat ProjectDB::panorama_segmentation(int panoId) const {
 }
 
 void ProjectDB::save_panorama_segmentation(int panoId, const cv::Mat &labels) {
+  impl_->checkWritable();
   impl_->savePanoramaSegmentation(panoId, labels);
 }
 
@@ -5205,11 +5226,13 @@ std::vector<int> ProjectDB::segmentation_image_ids() const {
 }
 
 void ProjectDB::save_segmentation_image(int nodeId, const cv::Mat &labels) {
+  impl_->checkWritable();
   impl_->saveSegmentationImage(nodeId, labels);
 }
 
 void ProjectDB::save_segmentation_images(const std::vector<int> &nodeIds,
                                          const std::vector<cv::Mat> &labels) {
+  impl_->checkWritable();
   impl_->saveSegmentationImages(nodeIds, labels);
 }
 
@@ -5218,6 +5241,7 @@ void ProjectDB::save_segmentation_images(const std::vector<int> &nodeIds,
 void ProjectDB::save_point_cloud(std::string_view name, const Cloud &cloud,
                                  std::string_view stage,
                                  std::string_view paramsJson) {
+  impl_->checkWritable();
   auto data = serializeXYZRGB(cloud);
   impl_->savePointCloudMeta(name, "PointXYZRGB", cloud.size(), XYZRGB_STEP,
                             cloud.width, cloud.height, data, stage, paramsJson);
@@ -5226,6 +5250,7 @@ void ProjectDB::save_point_cloud(std::string_view name, const Cloud &cloud,
 void ProjectDB::save_point_cloud(std::string_view name, const CloudN &cloud,
                                  std::string_view stage,
                                  std::string_view paramsJson) {
+  impl_->checkWritable();
   auto data = serializeNormal(cloud);
   impl_->savePointCloudMeta(name, "Normal", cloud.size(), NORMAL_STEP,
                             cloud.width, cloud.height, data, stage, paramsJson);
@@ -5234,6 +5259,7 @@ void ProjectDB::save_point_cloud(std::string_view name, const CloudN &cloud,
 void ProjectDB::save_point_cloud(std::string_view name, const CloudL &cloud,
                                  std::string_view stage,
                                  std::string_view paramsJson) {
+  impl_->checkWritable();
   auto data = serializeLabel(cloud);
   impl_->savePointCloudMeta(name, "Label", cloud.size(), LABEL_STEP,
                             cloud.width, cloud.height, data, stage, paramsJson);
@@ -5243,6 +5269,7 @@ void ProjectDB::save_point_cloud(std::string_view name,
                                  const pcl::PointCloud<pcl::PointXYZ> &cloud,
                                  std::string_view stage,
                                  std::string_view paramsJson) {
+  impl_->checkWritable();
   auto data = serializeXYZ(cloud);
   impl_->savePointCloudMeta(name, "PointXYZ", cloud.size(), XYZ_STEP,
                             cloud.width, cloud.height, data, stage, paramsJson);
@@ -5294,6 +5321,7 @@ bool ProjectDB::has_point_cloud(std::string_view name) const {
 }
 
 void ProjectDB::delete_point_cloud(std::string_view name) {
+  impl_->checkWritable();
   impl_->deletePointCloud(name);
 }
 
@@ -5315,6 +5343,7 @@ ProjectDB::CloudPage ProjectDB::point_cloud_page(std::string_view name,
 
 void ProjectDB::save_label_definitions(
     std::string_view cloudName, const std::map<int, std::string> &labelMap) {
+  impl_->checkWritable();
   impl_->saveLabelDefinitions(cloudName, labelMap);
 }
 
@@ -5328,6 +5357,7 @@ ProjectDB::label_definitions(std::string_view cloudName) const {
 void ProjectDB::save_instances(
     const std::string &cloud_name,
     const std::vector<ProjectDB::InstanceRecord> &records) {
+  impl_->checkWritable();
   impl_->saveInstances(cloud_name, records);
 }
 
@@ -5344,6 +5374,7 @@ std::string ProjectDB::instance_guid(const std::string &cloud_name,
 void ProjectDB::set_instance_material(std::string_view cloudName,
                                       int instanceId,
                                       std::string_view materialGuid) {
+  impl_->checkWritable();
   impl_->setInstanceMaterial(cloudName, instanceId, materialGuid);
 }
 
@@ -5362,6 +5393,7 @@ ProjectDB::instance_materials(std::string_view cloudName) const {
 
 void ProjectDB::save_material_annotation(std::string_view materialGuid,
                                          const MaterialAnnotation &annotation) {
+  impl_->checkWritable();
   impl_->saveMaterialAnnotation(materialGuid, annotation);
 }
 
@@ -5374,11 +5406,13 @@ ProjectDB::material_annotation(std::string_view materialGuid) const {
 
 void ProjectDB::save_mesh(std::string_view name, const pcl::PolygonMesh &mesh,
                           std::string_view stage, std::string_view paramsJson) {
+  impl_->checkWritable();
   impl_->saveMesh(name, mesh, stage, paramsJson);
 }
 
 void ProjectDB::save_mesh(std::string_view name, const pcl::TextureMesh &mesh,
                           std::string_view stage, std::string_view paramsJson) {
+  impl_->checkWritable();
   impl_->saveMesh(name, mesh, stage, paramsJson);
 }
 
@@ -5426,6 +5460,7 @@ void ProjectDB::save_gaussian_splat(std::string_view name,
                                     const std::vector<uint8_t> &ply,
                                     std::string_view stage,
                                     std::string_view parameters) {
+  impl_->checkWritable();
   impl_->saveGaussianSplat(name, ply, stage, parameters);
 }
 
@@ -5448,6 +5483,7 @@ ProjectDB::gaussian_splat_blob(std::string_view name) const {
 }
 
 bool ProjectDB::delete_gaussian_splat(std::string_view name) {
+  impl_->checkWritable();
   return impl_->deleteGaussianSplat(name);
 }
 
@@ -5455,11 +5491,13 @@ bool ProjectDB::delete_gaussian_splat(std::string_view name) {
 
 int ProjectDB::log_pipeline_start(std::string_view stage,
                                   std::string_view paramsJson) {
+  impl_->checkWritable();
   return impl_->logPipelineStart(stage, paramsJson);
 }
 
 void ProjectDB::log_pipeline_end(int logId, bool success,
                                  std::string_view errorMsg) {
+  impl_->checkWritable();
   impl_->logPipelineEnd(logId, success, errorMsg);
 }
 
@@ -5483,16 +5521,19 @@ ProjectDB::all_material_passports() const {
 void ProjectDB::add_material_passport(
     const reusex::core::MaterialPassport &passport,
     std::string_view projectId) {
+  impl_->checkWritable();
   impl_->addMaterialPassport(passport, projectId);
 }
 
 void ProjectDB::add_material_passport(
     const reusex::core::MaterialPassport &passport, std::string_view projectId,
     std::string_view id) {
+  impl_->checkWritable();
   impl_->addMaterialPassport(passport, projectId, id);
 }
 
 void ProjectDB::delete_material_passport(std::string_view documentGuid) {
+  impl_->checkWritable();
   // Delete related data (property values, log entries, then passport)
   const char *delete_values_query =
       "DELETE FROM passport_property_values WHERE passport_id = "
@@ -5652,6 +5693,7 @@ ProjectDB::passport_metadata(std::string_view documentGuid) const {
 void ProjectDB::set_passport_metadata_field(std::string_view documentGuid,
                                             std::string_view column,
                                             std::string_view value) {
+  impl_->checkWritable();
   // Only allow known safe columns (prevent SQL injection via column name)
   static const std::map<std::string_view, const char *> allowed = {
       {"created_at",
@@ -5739,6 +5781,7 @@ ProjectDB::passport_linked_node_id(std::string_view documentGuid) const {
 void ProjectDB::set_passport_property(std::string_view documentGuid,
                                       std::string_view fieldName,
                                       std::string_view value) {
+  impl_->checkWritable();
   // Verify passport exists
   const char *check_query =
       "SELECT id FROM material_passports WHERE document_guid = ?;";
@@ -5850,6 +5893,7 @@ void ProjectDB::set_passport_property(std::string_view documentGuid,
 
 void ProjectDB::delete_passport_property(std::string_view documentGuid,
                                          std::string_view fieldName) {
+  impl_->checkWritable();
   const char *query = "DELETE FROM passport_property_values "
                       "WHERE passport_id = (SELECT id FROM material_passports "
                       "WHERE document_guid = ?) "
@@ -5943,6 +5987,7 @@ ProjectDB::get_project_metadata(std::string_view projectId) const {
 }
 
 void ProjectDB::update_project_metadata(const ProjectMetadata &metadata) {
+  impl_->checkWritable();
   const char *query =
       "INSERT INTO projects (id, name, building_address, year_of_construction, "
       "survey_date, survey_organisation, notes) "
@@ -6011,11 +6056,13 @@ std::vector<std::string> ProjectDB::list_project_ids() const {
 // --- Building Component Operations ---
 
 void ProjectDB::save_component_record(const core::ComponentRecord &record) {
+  impl_->checkWritable();
   impl_->saveComponentRecord(record);
 }
 
 void ProjectDB::update_component_record_by_guid(
     const core::ComponentRecord &record) {
+  impl_->checkWritable();
   impl_->updateComponentRecordByGuid(record);
 }
 
@@ -6028,6 +6075,7 @@ bool ProjectDB::has_building_component(std::string_view name) const {
 }
 
 void ProjectDB::delete_building_component(std::string_view name) {
+  impl_->checkWritable();
   impl_->deleteBuildingComponent(name);
 }
 

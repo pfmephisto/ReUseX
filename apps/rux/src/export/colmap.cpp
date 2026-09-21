@@ -88,8 +88,7 @@ int run_subcommand_export_colmap(SubcommandExportColmapOptions const &opt,
     spdlog::info("Exporting COLMAP scene from project: {}",
                  global_opt.project_db.string());
 
-    // Open writable so any pending schema migrations run before we read.
-    reusex::ProjectDB db(global_opt.project_db);
+    reusex::ProjectDB db(global_opt.project_db, /*readOnly=*/true);
 
     reusex::io::ColmapExportOptions cmopt;
     cmopt.include_lidar_points = !opt.no_lidar_seed;

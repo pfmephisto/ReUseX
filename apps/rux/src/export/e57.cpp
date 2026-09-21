@@ -72,7 +72,7 @@ int run_subcommand_export_e57(SubcommandExportE57Options const &opt,
     spdlog::info("Exporting E57 from project: {}",
                  global_opt.project_db.string());
 
-    reusex::ProjectDB db(global_opt.project_db);
+    reusex::ProjectDB db(global_opt.project_db, /*readOnly=*/true);
 
     if (!db.has_point_cloud(opt.cloud_name)) {
       spdlog::error("Point cloud '{}' not found in project", opt.cloud_name);

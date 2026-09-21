@@ -198,3 +198,4 @@ bench-results/
 !assets/**
 !docs/**/images/**
 !tools/rux-mcp/docs/**
+scratch/

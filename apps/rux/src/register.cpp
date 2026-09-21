@@ -84,6 +84,9 @@ NOTES:
   sub->add_option("--confidence", opt->confidence_threshold,
                   "Minimum confidence threshold")
       ->default_val(opt->confidence_threshold);
+  sub->add_option("--spatial-radius", opt->spatial_radius,
+                  "Radius (m) for spatial candidate-pair search")
+      ->default_val(opt->spatial_radius);
   sub->add_flag("--dry-run", opt->dry_run,
                 "Compute and report residual without writing poses back");
 
@@ -122,14 +125,15 @@ int run_subcommand_register(SubcommandRegisterOptions const &opt,
     params.surfel.sampling_factor = opt.sampling_factor;
     params.surfel.confidence_threshold = opt.confidence_threshold;
     params.surfel.voxel_size = opt.surfel_voxel;
+    params.spatial_radius = opt.spatial_radius;
 
     int logId = db.log_pipeline_start(
         "pose_refinement_jpr",
         fmt::format(
-            R"({{"iterations":{},"neighbor_window":{},"max_corr_distance":{},"normal_angle":{},"robust_width":{},"kernel":"{}","prior_weight":{},"anchor_frame":{},"dry_run":{}}})",
+            R"({{"iterations":{},"neighbor_window":{},"max_corr_distance":{},"normal_angle":{},"robust_width":{},"kernel":"{}","prior_weight":{},"anchor_frame":{},"spatial_radius":{},"dry_run":{}}})",
             opt.iterations, opt.neighbor_window, opt.max_corr_distance,
             opt.normal_angle, opt.robust_width, opt.kernel, opt.prior_weight,
-            opt.anchor_frame, opt.dry_run));
+            opt.anchor_frame, opt.spatial_radius, opt.dry_run));
 
     auto result =
         reusex::geometry::refine_sensor_poses(db, params, opt.dry_run);

@@ -153,3 +153,8 @@ TEST_CASE("JointPairwiseRegistration_AlreadyAlignedFrames_IsNearNoOp",
       frames[1].world_pose.rotation() - Eigen::Matrix3d::Identity();
   REQUIRE(dR.norm() < 5e-3);
 }
+
+TEST_CASE("JprParams_SpatialRadius_DefaultIsOne", "[jpr][params]") {
+  JprParams params;
+  REQUIRE_THAT(params.spatial_radius, WithinAbs(1.0f, 1e-6f));
+}

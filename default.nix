@@ -79,7 +79,31 @@ in
     pname = "ReUseX";
     version = "0.0.5";
 
-    src = ./.;
+    src = lib.fileset.toSource {
+      root = ./.;
+      fileset = lib.fileset.unions [
+        # Build system
+        ./CMakeLists.txt
+        ./cmake
+        # C++ library source, headers, and CMake config
+        ./libs
+        # Applications: rux CLI and ruxd service worker.
+        # apps/blender has no CMakeLists.txt and is not part of the C++ build.
+        ./apps/rux
+        ./apps/ruxd
+        # Python bindings (pybind11, BUILD_PYTHON_BINDINGS)
+        ./bindings
+        # Tests: unit, integration, benchmarks, support, and binary fixtures
+        ./tests
+        # ctest registers this as the gui_api_contract_parses test
+        ./scripts/check-openapi.py
+        # Accessed at test runtime via REUSEX_SOURCE_DIR (test_stage_contract.cpp)
+        ./docs/CONTRACTS.md
+        # Accessed at test runtime by scripts/check-openapi.py
+        ./docs/gui/openapi.yaml
+        ./docs/gui/events.schema.json
+      ];
+    };
 
     # Native dependencies
     # programs and libraries used at build-time

@@ -332,6 +332,13 @@ nlohmann::json stage_validation_json(const reusex::ProjectDB &db,
 nlohmann::json pipeline_log_json(const reusex::ProjectDB &db,
                                  const Params &params);
 
+// --- pose graph -----------------------------------------------------------
+
+/// Pose-graph nodes (frame poses with a stored world transform) and edges
+/// (written by `rux optimize`) with their post-solve residuals.  An un-
+/// optimised project returns an empty `edges` array.
+nlohmann::json posegraph_json(const reusex::ProjectDB &db);
+
 // --- jobs -----------------------------------------------------------------
 
 /// @param project  Name of the project the job belongs to. Present on every

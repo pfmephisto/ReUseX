@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 import { api } from '../api/client';
-import type { CloudInfo, GsplatInfo, MeshInfo, PanoramaInfo } from '../api/types';
+import type { CloudInfo, GsplatInfo, MeshInfo, PanoramaInfo, PoseGraph } from '../api/types';
 import { useAsync } from '../app/useAsync';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { EmptyState } from '../components/EmptyState';
@@ -128,6 +128,14 @@ export function ViewportPage() {
     setSplatVisible((current) => ({ ...current, [name]: next }));
     if (next) setSplatRequested((current) => ({ ...current, [name]: true }));
   }, []);
+
+  // --- pose graph (#265, review pt 4) ------------------------------------
+
+  const { data: poseGraphData, error: poseGraphError } = useAsync<PoseGraph>(
+    (signal) => api.posegraph(signal),
+    [],
+  );
+  const [poseGraphVisible, setPoseGraphVisible] = useState(false);
 
   // --- 360 panoramas (#265, Phase 5) --------------------------------------
 
@@ -351,6 +359,8 @@ export function ViewportPage() {
         }
         onPanoramaState={setPanoramaState}
         onPickPanorama={enterPanorama}
+        poseGraph={poseGraphData ?? null}
+        poseGraphVisible={poseGraphVisible}
         overlay={
           immersive && activePano ? (
             <PanoramaBar
@@ -393,6 +403,12 @@ export function ViewportPage() {
           markersVisible,
           onMarkersVisibleChange: setMarkersVisible,
           onEnter: enterPanorama,
+        }}
+        posegraph={{
+          graph: poseGraphData ?? null,
+          error: poseGraphError ?? null,
+          visible: poseGraphVisible,
+          onToggle: setPoseGraphVisible,
         }}
         visible={visible}
         progress={progress}

@@ -413,6 +413,36 @@ export interface ProjectSummary {
   materials: MaterialInfo[];
 }
 
+// ----------------------------------------------------------- pose graph ----
+
+/** One node in the pose graph: a sensor frame with a world pose. */
+export interface PoseGraphNode {
+  /** DB node_id (sensor frame id). */
+  id: number;
+  /** 4×4 world transform, column-major float64. */
+  pose: number[];
+}
+
+/** Edge type produced by the optimizer. */
+export type PoseGraphEdgeType = 'odometry' | 'loop_closure' | 'panorama';
+
+/** One directed edge with its post-solve residual. */
+export interface PoseGraphEdge {
+  from: number;
+  to: number;
+  type: PoseGraphEdgeType;
+  /** 0.5 × whitened squared residual after convergence (GTSAM). Low = satisfied. */
+  residual: number;
+  /** 1/σ² translational information weight at build time; absent if not extractable. */
+  weight?: number;
+}
+
+/** Full pose graph response from `GET /api/v1/posegraph`. */
+export interface PoseGraph {
+  nodes: PoseGraphNode[];
+  edges: PoseGraphEdge[];
+}
+
 // ------------------------------------------------------------- websocket ----
 // docs/gui/websocket-events.md + docs/gui/events.schema.json.
 

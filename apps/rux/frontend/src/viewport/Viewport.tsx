@@ -14,9 +14,11 @@ import * as THREE from 'three';
 import { PointCloudScene, type ColorMode } from './PointCloudScene';
 import { MeshScene } from './MeshScene';
 import { PanoramaScene, type PanoramaMarker } from './PanoramaScene';
+import { PoseGraphScene } from './PoseGraphScene';
 import { SplatScene } from './SplatScene';
 import { useCloudStream, type CloudStreamState } from './useCloudStream';
 import styles from './Viewport.module.css';
+import type { PoseGraph } from '../api/types';
 
 /** Progress of the PLY mesh layer, as the panel reports it (#265, review pt 2). */
 export interface MeshLayerState {
@@ -116,6 +118,15 @@ export interface ViewportProps {
   onPickPanorama?: (id: number) => void;
 
   /**
+   * Pose-graph overlay (#265, review pt 4).
+   *
+   * null while the fetch is in flight; an empty object when the project has
+   * never been optimised (no edges, nodes from sensor-frame poses).
+   */
+  poseGraph?: PoseGraph | null;
+  poseGraphVisible?: boolean;
+
+  /**
    * Chrome drawn over the canvas.
    *
    * A slot rather than a component, because the host element is what makes
@@ -153,12 +164,15 @@ export function Viewport({
   activePanorama,
   onPanoramaState,
   onPickPanorama,
+  poseGraph,
+  poseGraphVisible = false,
   overlay,
 }: ViewportProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [scene, setScene] = useState<PointCloudScene | null>(null);
   const framedOnce = useRef(false);
   const panoramaRef = useRef<PanoramaScene | null>(null);
+  const poseGraphRef = useRef<PoseGraphScene | null>(null);
 
   useEffect(() => {
     if (!canvasRef.current) return;
@@ -206,6 +220,26 @@ export function Viewport({
       layer.dispose();
     };
   }, [scene]);
+
+  // Pose-graph layer (#265 review pt 4): mount once per scene, load/clear when
+  // the data changes, show/hide when the toggle changes.
+  useEffect(() => {
+    if (!scene) return;
+    const pg = new PoseGraphScene(scene.sceneRoot());
+    poseGraphRef.current = pg;
+    return () => {
+      poseGraphRef.current = null;
+      pg.dispose();
+    };
+  }, [scene]);
+
+  useEffect(() => {
+    poseGraphRef.current?.load(poseGraph ?? null);
+  }, [scene, poseGraph]);
+
+  useEffect(() => {
+    poseGraphRef.current?.setVisible(poseGraphVisible);
+  }, [scene, poseGraphVisible]);
 
   useEffect(() => {
     panoramaRef.current?.setMarkers(panoramas ?? []);

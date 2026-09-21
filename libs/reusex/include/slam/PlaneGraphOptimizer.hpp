@@ -434,6 +434,17 @@ struct PlaneGraphOptions {
   double loop_edges_min_seed_disagreement_fraction = 0.0278;
 };
 
+/// One pose-graph edge produced by the optimizer, indexed by position in the
+/// frames[] vector (NOT by database node_id — translate at the write site so
+/// GTSAM types never escape into the public API).
+struct PoseGraphEdgeRecord {
+  int i = 0;             ///< from-frame index in frames[]
+  int j = 0;             ///< to-frame index in frames[]
+  std::string type;      ///< "odometry" | "loop_closure"
+  double residual = 0.0; ///< 0.5 × whitened squared residual (GTSAM convention)
+  double weight = 1.0;   ///< 1 / sigma_trans² at build time
+};
+
 /// Summary statistics from a plane-graph optimization run.
 struct PlaneGraphResult {
   bool converged = false;      ///< optimizer produced a solution
@@ -450,7 +461,10 @@ struct PlaneGraphResult {
   int landmarks_rejected_degenerate =
       0;                           ///< landmarks dropped as near-collinear
   int underconstrained_frames = 0; ///< frames whose odometry was tightened
-  int loop_edges = 0;              ///< wide-baseline loop BetweenFactors added
+  /// Per-edge residuals from the FINAL solve round, frame-index based.
+  /// Populated only when the optimizer converged; empty otherwise.
+  std::vector<PoseGraphEdgeRecord> edges;
+  int loop_edges = 0; ///< wide-baseline loop BetweenFactors added
   /// Of `loop_edges`, how many came from the panorama front-end (#236).
   /// Reported separately so a run's panorama contribution is auditable.
   int panorama_loop_edges = 0;

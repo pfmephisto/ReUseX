@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { api } from '../api/client';
-import type { CloudInfo, GsplatInfo, MeshInfo, PanoramaInfo } from '../api/types';
+import type { CloudInfo, GsplatInfo, MeshInfo, PanoramaInfo, PoseGraph } from '../api/types';
 import type { ColorMode } from '../viewport/PointCloudScene';
 import type { CloudStreamState } from '../viewport/useCloudStream';
 import type { MeshLayerState, SplatLayerState } from '../viewport/Viewport';
@@ -15,6 +15,7 @@ import {
   resolvePlacement,
   type PanoramaPlacement,
 } from '../viewport/panorama';
+import { posegraphNote } from '../viewport/posegraphLayer';
 import { EmptyState } from './EmptyState';
 import { LabelLegend } from './LabelLegend';
 import { LayerRow } from './LayerRow';
@@ -60,6 +61,14 @@ export interface PanoramaPanelState {
   onEnter: (id: number | null) => void;
 }
 
+/** Pose-graph panel state, passed from the viewport page. */
+export interface PoseGraphPanelState {
+  graph: PoseGraph | null;
+  error: Error | null;
+  visible: boolean;
+  onToggle: (visible: boolean) => void;
+}
+
 export interface LayerPanelProps {
   /** Renderable geometry clouds (`PointXYZRGB` / `PointXYZ`). */
   clouds: CloudInfo[];
@@ -102,6 +111,9 @@ export interface LayerPanelProps {
    */
   panorama?: PanoramaPanelState;
 
+  /** Pose-graph overlay (#265, review pt 4). */
+  posegraph?: PoseGraphPanelState;
+
   colorMode: ColorMode;
   onColorModeChange: (mode: ColorMode) => void;
 
@@ -130,6 +142,7 @@ export function LayerPanel({
   mesh,
   splat,
   panorama,
+  posegraph,
   colorMode,
   onColorModeChange,
   pointSize,
@@ -167,6 +180,8 @@ export function LayerPanel({
       {splat && <SplatSection splat={splat} />}
 
       {panorama && <PanoramaSection panorama={panorama} />}
+
+      {posegraph && <PoseGraphSection posegraph={posegraph} />}
 
       <section className={styles.section}>
         <h2 className={styles.heading}>Colour</h2>
@@ -437,6 +452,38 @@ function PanoramaSection({ panorama }: { panorama: PanoramaPanelState }) {
           </button>
         );
       })}
+    </section>
+  );
+}
+
+/**
+ * Pose-graph toggle section (#265, review pt 4).
+ *
+ * A single on/off toggle — the graph is one logical layer, not per-edge.
+ * The note text summarises the graph's content (frame count, edge counts)
+ * or explains what is missing (no optimize run yet).
+ */
+function PoseGraphSection({ posegraph }: { posegraph: PoseGraphPanelState }) {
+  const { graph, error, visible, onToggle } = posegraph;
+  const note = posegraphNote(graph, error);
+
+  return (
+    <section className={styles.section}>
+      <h2 className={styles.heading}>Pose graph</h2>
+
+      {note && <p className={styles.note}>{note}</p>}
+
+      {(graph?.nodes.length ?? 0) > 0 && (
+        <label className={styles.splatToggle}>
+          <input
+            type="checkbox"
+            checked={visible}
+            onChange={(event) => onToggle(event.target.checked)}
+            className={styles.checkbox}
+          />
+          <span className={styles.splatName}>Show pose graph</span>
+        </label>
+      )}
     </section>
   );
 }

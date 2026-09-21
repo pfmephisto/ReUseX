@@ -6,6 +6,7 @@
 #include "core/ProjectDB.hpp"
 #include "core/SensorIntrinsics.hpp"
 #include "core/logging.hpp"
+#include "io/panoramas.hpp"
 
 #include <opencv2/core.hpp>
 #include <opencv2/imgcodecs.hpp>
@@ -233,7 +234,8 @@ std::array<double, 16> arkit_traj_to_optical_world(double rx, double ry,
 }
 
 std::size_t import_arkitscenes(ProjectDB &db,
-                               const std::filesystem::path &scene_dir) {
+                               const std::filesystem::path &scene_dir,
+                               const ImportPanoramasOptions &pano_opts) {
   const auto frames_dir = resolve_frames_dir(scene_dir);
 
   const auto rgb_dir = frames_dir / "lowres_wide";
@@ -420,6 +422,9 @@ std::size_t import_arkitscenes(ProjectDB &db,
   reusex::info("import_arkitscenes: imported {} of {} depth frames from {} "
                "(interpolated poses; {} outside the trajectory span)",
                imported, depth_frames.size(), frames_dir.string(), no_pose);
+
+  import_panoramas(db, scene_dir, pano_opts);
+
   return imported;
 }
 

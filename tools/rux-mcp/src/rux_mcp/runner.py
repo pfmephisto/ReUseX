@@ -27,13 +27,6 @@ DEFAULT_TIMEOUT = 120.0
 #: spdlog writes coloured diagnostics; strip the escapes before quoting them.
 _ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
-#: ``rux`` installs spdlog on **stdout**, not stderr, so a warning such as
-#: "Project schema is v11 but this build expects v12" is printed ahead of the
-#: JSON a ``--json`` command produces.  These lines have to come off before the
-#: payload can be parsed.  Pattern: ``[2026-09-10 11:02:52.886] [rux] [warning] …``
-_LOG_LINE = re.compile(r"^\[\d{4}-\d{2}-\d{2}[ T][\d:.]+\]\s*\[[^\]]*\]\s*\[[^\]]*\]")
-
-
 def strip_ansi(raw: bytes | str) -> str:
     """Decode if needed and remove the colour escapes spdlog emits."""
     text = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else raw
@@ -46,12 +39,6 @@ def clean_stream(raw: bytes | str, limit: int = 4000) -> str:
     if len(text) > limit:
         text = "...\n" + text[-limit:]
     return text
-
-
-def strip_log_lines(text: str) -> str:
-    """Return ``text`` without the spdlog lines ``rux`` prints on stdout."""
-    kept = [line for line in text.splitlines() if not _LOG_LINE.match(line.strip())]
-    return "\n".join(kept).strip()
 
 
 class RuxError(RuntimeError):
@@ -218,13 +205,9 @@ class RuxRunner:
         *,
         timeout: float | None = None,
     ) -> Any:
-        """Run ``rux <args>`` and parse stdout as JSON.
-
-        ``rux`` logs to stdout, so any spdlog lines that preceded the payload
-        are removed before parsing.
-        """
+        """Run ``rux <args>`` and parse stdout as JSON."""
         raw = self.run(args, timeout=timeout)
-        payload = strip_log_lines(_ANSI.sub("", raw))
+        payload = _ANSI.sub("", raw).strip()
         if not payload:
             raise RuxError(
                 "rux produced no output where JSON was expected",

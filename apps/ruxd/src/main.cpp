@@ -38,7 +38,7 @@ constexpr int kMaxVerbosity = 3;
 // apps/rux/src/rux.cpp so library log output is rendered the same way.
 void setup_logging() {
   spdlog::init_thread_pool(8192, 1);
-  auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+  auto console_sink = std::make_shared<spdlog::sinks::stderr_color_sink_mt>();
   auto console_logger = std::make_shared<spdlog::async_logger>(
       "ruxd", console_sink, spdlog::thread_pool(),
       spdlog::async_overflow_policy::block);

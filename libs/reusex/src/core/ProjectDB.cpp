@@ -21,6 +21,8 @@
 #include <pcl/io/ply_io.h>
 #include <sqlite3.h>
 
+#include <nlohmann/json.hpp>
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -2608,6 +2610,32 @@ class ProjectDB::Impl {
     return reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
   }
 
+  /// Extract "storage_order" from the cloud's parameters JSON.
+  /// Returns "" when the key is absent, the cloud is missing, or JSON is
+  /// unparseable — all of which mean "treat as sequential".
+  std::string getCloudStorageOrder(std::string_view name) const {
+    const char *sql = "SELECT parameters FROM point_clouds WHERE name = ?;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      return "";
+    StmtGuard guard(stmt);
+    sqlite3_bind_text(stmt, 1, name.data(), static_cast<int>(name.size()),
+                      SQLITE_TRANSIENT);
+    if (sqlite3_step(stmt) != SQLITE_ROW)
+      return "";
+    const char *params_text =
+        reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
+    if (!params_text || !*params_text)
+      return "";
+    try {
+      auto j = nlohmann::json::parse(params_text);
+      if (j.contains("storage_order"))
+        return j["storage_order"].get<std::string>();
+    } catch (...) {
+    }
+    return "";
+  }
+
   // ── Label definitions ──────────────────────────────────────────────
 
   void saveLabelDefinitions(std::string_view cloudName,
@@ -4931,8 +4959,9 @@ class ProjectDB::Impl {
 
     // Query point clouds
     {
-      const char *sql = "SELECT name, point_type, point_count, width, height "
-                        "FROM point_clouds ORDER BY id;";
+      const char *sql =
+          "SELECT name, point_type, point_count, width, height, parameters "
+          "FROM point_clouds ORDER BY id;";
       sqlite3_stmt *stmt;
       if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
         throw std::runtime_error("Failed to query point clouds: " +
@@ -4949,6 +4978,18 @@ class ProjectDB::Impl {
         cloud.width = static_cast<size_t>(sqlite3_column_int(stmt, 3));
         cloud.height = static_cast<size_t>(sqlite3_column_int(stmt, 4));
         cloud.organized = cloud.height > 1;
+
+        // Parse storage_order from parameters JSON (absent key = sequential).
+        const char *params_text =
+            reinterpret_cast<const char *>(sqlite3_column_text(stmt, 5));
+        if (params_text && *params_text) {
+          try {
+            auto j = nlohmann::json::parse(params_text);
+            if (j.contains("storage_order"))
+              cloud.storage_order = j["storage_order"].get<std::string>();
+          } catch (...) {
+          }
+        }
 
         // Load label definitions if this is a Label cloud
         if (cloud.type == "Label") {
@@ -5462,6 +5503,10 @@ std::vector<std::string> ProjectDB::list_point_clouds() const {
 
 std::string ProjectDB::point_cloud_type(std::string_view name) const {
   return impl_->getPointCloudType(name);
+}
+
+std::string ProjectDB::point_cloud_storage_order(std::string_view name) const {
+  return impl_->getCloudStorageOrder(name);
 }
 
 ProjectDB::CloudPage ProjectDB::point_cloud_page(std::string_view name,

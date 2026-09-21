@@ -30,6 +30,7 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <numeric>
 #include <set>
 #include <string>
 #include <vector>
@@ -358,4 +359,300 @@ TEST_CASE("EncodeRuxp_LodFlag_IsWrittenIntoTheHeaderFlagsWord", "[gui][lod]") {
   // let a client puzzle over.
   CHECK_THROWS_AS(rux::gui::encode_ruxp(selection.page, 0x8000'0000U),
                   std::runtime_error);
+}
+
+// ── Morton LOD tests (#394) ────────────────────────────────────────────────
+//
+// Helpers shared by the Morton tests below.
+namespace {
+
+/// Spread one 10-bit value into a 30-bit word (bit k → position 3k).
+/// Mirrors the implementation in reconstruct.cpp exactly so the test can
+/// build Morton-ordered clouds without depending on internal linkage.
+uint32_t expand3(uint32_t v) {
+  v &= 0x000003ffu;
+  v = (v | (v << 16u)) & 0x030000ffu;
+  v = (v | (v << 8u)) & 0x0300f00fu;
+  v = (v | (v << 4u)) & 0x030c30c3u;
+  v = (v | (v << 2u)) & 0x09249249u;
+  return v;
+}
+
+/// 30-bit Morton code for quantised (xi, yi, zi) each in [0, 1023].
+uint32_t morton30(uint32_t xi, uint32_t yi, uint32_t zi) {
+  return expand3(xi) | (expand3(yi) << 1u) | (expand3(zi) << 2u);
+}
+
+/// Build a cloud of `n` points spread across all 8 octants of [0, 10)^3,
+/// then sort them by their Morton code — exactly as reconstruct.cpp does.
+/// Returns both the sorted cloud and the permutation that produced it so
+/// the caller can build an index-aligned label array.
+struct MortonCloud {
+  reusex::Cloud cloud;
+  std::vector<size_t> perm;
+};
+
+MortonCloud make_morton_cloud(size_t n) {
+  Lcg rng;
+  reusex::Cloud unsorted;
+  unsorted.width = static_cast<uint32_t>(n);
+  unsorted.height = 1;
+  unsorted.is_dense = true;
+  unsorted.points.resize(n);
+  for (size_t i = 0; i < n; ++i) {
+    unsorted.points[i].x = static_cast<float>(rng.next() * 10.0);
+    unsorted.points[i].y = static_cast<float>(rng.next() * 10.0);
+    unsorted.points[i].z = static_cast<float>(rng.next() * 10.0);
+    // Colour encodes the original index so an alignment test can read it back.
+    unsorted.points[i].r = static_cast<uint8_t>(i & 0xFFu);
+    unsorted.points[i].g = static_cast<uint8_t>((i >> 8u) & 0xFFu);
+    unsorted.points[i].b = static_cast<uint8_t>((i >> 16u) & 0xFFu);
+    unsorted.points[i].a = 255;
+  }
+
+  // Compute bbox for quantisation.
+  constexpr float kMax10 = 1023.0f;
+  float lo[3] = {std::numeric_limits<float>::max(),
+                 std::numeric_limits<float>::max(),
+                 std::numeric_limits<float>::max()};
+  float hi[3] = {-std::numeric_limits<float>::max(),
+                 -std::numeric_limits<float>::max(),
+                 -std::numeric_limits<float>::max()};
+  for (const auto &p : unsorted.points) {
+    lo[0] = std::min(lo[0], p.x);
+    lo[1] = std::min(lo[1], p.y);
+    lo[2] = std::min(lo[2], p.z);
+    hi[0] = std::max(hi[0], p.x);
+    hi[1] = std::max(hi[1], p.y);
+    hi[2] = std::max(hi[2], p.z);
+  }
+  float range[3] = {std::max(hi[0] - lo[0], 1e-9f),
+                    std::max(hi[1] - lo[1], 1e-9f),
+                    std::max(hi[2] - lo[2], 1e-9f)};
+
+  std::vector<uint32_t> codes(n);
+  for (size_t i = 0; i < n; ++i) {
+    const auto &p = unsorted.points[i];
+    const auto clamp01 = [](float v) {
+      return std::max(0.0f, std::min(1.0f, v));
+    };
+    const uint32_t xi =
+        static_cast<uint32_t>(clamp01((p.x - lo[0]) / range[0]) * kMax10);
+    const uint32_t yi =
+        static_cast<uint32_t>(clamp01((p.y - lo[1]) / range[1]) * kMax10);
+    const uint32_t zi =
+        static_cast<uint32_t>(clamp01((p.z - lo[2]) / range[2]) * kMax10);
+    codes[i] = morton30(xi, yi, zi);
+  }
+
+  std::vector<size_t> perm(n);
+  std::iota(perm.begin(), perm.end(), size_t{0});
+  std::stable_sort(perm.begin(), perm.end(),
+                   [&](size_t a, size_t b) { return codes[a] < codes[b]; });
+
+  reusex::Cloud sorted;
+  sorted.width = static_cast<uint32_t>(n);
+  sorted.height = 1;
+  sorted.is_dense = true;
+  sorted.points.resize(n);
+  for (size_t i = 0; i < n; ++i)
+    sorted.points[i] = unsorted.points[perm[i]];
+
+  return {std::move(sorted), std::move(perm)};
+}
+
+/// Save a cloud with the "morton_10bit" storage_order in its parameters JSON.
+void save_morton_cloud(ProjectDB &db, std::string_view name,
+                       const reusex::Cloud &cloud) {
+  db.save_point_cloud(name, cloud, "test",
+                      R"({"storage_order":"morton_10bit"})");
+}
+
+} // namespace
+
+// ── Test 1: metadata round-trips through point_cloud_storage_order() ──────
+TEST_CASE("MortonLod_StorageOrderMetadata_RoundTrips", "[gui][lod][morton]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+
+  const auto mc = make_morton_cloud(500);
+  save_morton_cloud(db, "cloud", mc.cloud);
+
+  // Single-cloud accessor
+  CHECK(db.point_cloud_storage_order("cloud") == "morton_10bit");
+
+  // project_summary() path
+  const auto summary = db.project_summary();
+  REQUIRE(summary.clouds.size() == 1);
+  CHECK(summary.clouds[0].storage_order == "morton_10bit");
+
+  // Absent key = empty string (sequential/unspecified)
+  db.save_point_cloud("plain", make_corner_loaded_cloud(100, 10), "test");
+  CHECK(db.point_cloud_storage_order("plain").empty());
+  const auto summary2 = db.project_summary();
+  REQUIRE(summary2.clouds.size() == 2);
+  const auto &plain_info = summary2.clouds[0].name == "plain"
+                               ? summary2.clouds[0]
+                               : summary2.clouds[1];
+  CHECK(plain_info.storage_order.empty());
+}
+
+// ── Test 2: Morton LOD returns a prefix, not voxels ───────────────────────
+//
+// A Morton-sorted cloud with `storage_order=="morton_10bit"` should make
+// voxel_lod() skip the voxel pass entirely and return indices [0..N-1].
+TEST_CASE("MortonLod_FlaggedCloud_ReturnsPrefixNotVoxels",
+          "[gui][lod][morton]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+
+  const size_t total = 5000;
+  const uint64_t budget = 1000;
+  const auto mc = make_morton_cloud(total);
+  save_morton_cloud(db, "cloud", mc.cloud);
+
+  const auto selection = voxel_lod(db, "cloud", budget);
+
+  CHECK(selection.subsampled);
+  CHECK(selection.page.count == budget);
+  CHECK(selection.page.total == total);
+  CHECK(selection.page.offset == 0);
+  CHECK(selection.indices.size() == budget);
+
+  // Prefix: indices must be exactly 0, 1, 2, …, budget-1.
+  for (uint64_t i = 0; i < budget; ++i) {
+    INFO("index " << i);
+    CHECK(selection.indices[i] == i);
+  }
+
+  // voxel_size sentinel: 0.0 means "prefix, no voxel grid".
+  CHECK(selection.voxel_size == 0.0);
+
+  // Non-flagged cloud still runs the voxel path (regression guard).
+  db.save_point_cloud("plain", make_corner_loaded_cloud(total, 1000), "test");
+  const auto vox = voxel_lod(db, "plain", budget);
+  CHECK(vox.subsampled);
+  CHECK(vox.voxel_size > 0.0); // voxel pass ran
+}
+
+// ── Test 3: Morton prefix is spatially concentrated ───────────────────────
+//
+// For a uniformly distributed cloud in [0, 10)^3, the first ~12.5 % by
+// Morton code corresponds to the first octant of the space-filling curve:
+// all points with z < z_mid, y < y_mid, x < x_mid (in z-major order, where
+// z_mid is the Morton quantisation boundary ≈ lo + range * 512/1023).
+//
+// The key correctness property: every point in a budget-sized prefix lies
+// strictly below the Morton midpoint on ALL three axes, proving the prefix
+// occupies a connected spatial region, not a scatter across the whole cloud.
+//
+// Budget = 700 is chosen to be safely inside the ~1003-point first octant
+// (for 8000 uniform points, E[count] = 1003, SD = 29.6, so 700 is > 10 SD
+// below the mean — the test never flukes).
+TEST_CASE("MortonLod_Prefix_IsSpatiallyConcentrated", "[gui][lod][morton]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+
+  const size_t total = 8000;
+  const uint64_t budget = 700; // safely inside first octant (~1003 expected)
+  const auto mc = make_morton_cloud(total);
+  save_morton_cloud(db, "cloud", mc.cloud);
+
+  // Compute the actual Morton quantisation midpoints from the stored cloud.
+  // These are lo_ax + range_ax * 512/1023, NOT simply 5.0 — the bbox of a
+  // finite sample is slightly smaller than [0, 10), so the boundary shifts.
+  const auto whole = db.point_cloud_page("cloud", 0, total);
+  float bbox_lo[3] = {std::numeric_limits<float>::max(),
+                      std::numeric_limits<float>::max(),
+                      std::numeric_limits<float>::max()};
+  float bbox_hi[3] = {-std::numeric_limits<float>::max(),
+                      -std::numeric_limits<float>::max(),
+                      -std::numeric_limits<float>::max()};
+  for (size_t i = 0; i < total; ++i)
+    for (int ax = 0; ax < 3; ++ax) {
+      const float v = axis_of(whole, i, ax);
+      bbox_lo[ax] = std::min(bbox_lo[ax], v);
+      bbox_hi[ax] = std::max(bbox_hi[ax], v);
+    }
+  float mid[3];
+  for (int ax = 0; ax < 3; ++ax)
+    mid[ax] = bbox_lo[ax] + (bbox_hi[ax] - bbox_lo[ax]) * 512.0f / 1023.0f;
+
+  const auto selection = voxel_lod(db, "cloud", budget);
+  REQUIRE(selection.page.count == budget);
+
+  // Every prefix point must be below the Morton midpoint on all three axes:
+  // they are all in the first octant of the Z-curve.
+  for (size_t i = 0; i < budget; ++i)
+    for (int ax = 0; ax < 3; ++ax) {
+      INFO("point " << i << " axis " << ax << ": value="
+                    << axis_of(selection.page, i, ax) << " mid=" << mid[ax]);
+      CHECK(axis_of(selection.page, i, ax) <= mid[ax]);
+    }
+}
+
+// ── Test 4: permutation alignment — same perm applied to cloud and labels ─
+//
+// Simulate what reconstruct.cpp does: apply the Morton permutation to both
+// a geometry cloud and an index-aligned label cloud, save both, then verify
+// that for every stored position i the label encodes the same original index
+// as the geometry point — i.e. the two arrays stayed index-aligned through
+// the reorder (STANDARDS §3.2).
+//
+// label[stored_i] = perm[i] (original index before sort). After LOD prefix
+// fetch, gather_points on the label cloud with the same indices must return
+// that same value, confirming both arrays were sorted by the identical perm.
+TEST_CASE("MortonLod_PermutationAlignedLabels_MatchGeometryPoints",
+          "[gui][lod][morton]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+
+  const size_t n = 1000;
+  // mc.cloud is sorted by Morton code; mc.perm[i] = original index at stored i.
+  const auto mc = make_morton_cloud(n);
+
+  // Build a label cloud that encodes the original index at each stored slot.
+  reusex::CloudL labels;
+  labels.width = static_cast<uint32_t>(n);
+  labels.height = 1;
+  labels.points.resize(n);
+  for (size_t i = 0; i < n; ++i)
+    labels.points[i].label = static_cast<uint32_t>(mc.perm[i]);
+
+  save_morton_cloud(db, "cloud", mc.cloud);
+  db.save_point_cloud("labels", labels, "test",
+                      R"({"storage_order":"morton_10bit"})");
+
+  // Fetch a prefix of the geometry cloud via the Morton LOD path.
+  const uint64_t budget = 200;
+  const auto selection = voxel_lod(db, "cloud", budget);
+  REQUIRE(selection.page.count == budget);
+  // Morton prefix: selection.indices == [0, 1, ..., budget-1].
+  REQUIRE(selection.indices[0] == 0);
+  REQUIRE(selection.indices[budget - 1] == budget - 1);
+
+  // Gather the matching labels for the same indices.
+  const auto sibling = gather_points(db, "labels", selection.indices);
+  REQUIRE(sibling.count == budget);
+
+  // For each stored position i in the prefix:
+  // - label[i] == mc.perm[i] (original index of this point)
+  // - the geometry x coordinate must match mc.cloud.points[i].x (prefix is
+  //   storage-ordered, so stored position i == mc.cloud[i])
+  for (size_t i = 0; i < budget; ++i) {
+    uint32_t label = 0;
+    std::memcpy(&label, sibling.data.data() + i * sibling.point_step,
+                sizeof(label));
+
+    float geo_x = 0.0f;
+    std::memcpy(&geo_x,
+                selection.page.data.data() + i * selection.page.point_step,
+                sizeof(geo_x));
+
+    INFO("stored position " << i << ": label=" << label
+                            << " perm=" << mc.perm[i] << " geo_x=" << geo_x
+                            << " mc_x=" << mc.cloud.points[i].x);
+    CHECK(label == static_cast<uint32_t>(mc.perm[i]));
+    CHECK(geo_x == mc.cloud.points[i].x);
+  }
 }

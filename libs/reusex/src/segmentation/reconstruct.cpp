@@ -31,8 +31,12 @@
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <cstring>
+#include <limits>
+#include <numeric>
 #include <unordered_map>
 
 namespace reusex::geometry {
@@ -425,10 +429,89 @@ void reconstruct_point_clouds(ProjectDB &db,
              out_cloud->size(), ds_cloud->size(),
              100.0 * out_cloud->size() / ds_cloud->size());
 
+  // ── Morton reorder ────────────────────────────────────────────────────────
+  // Sort cloud, normals, and labels by a 30-bit Morton code (10 bits per axis)
+  // computed over the cloud's bounding box. Any stored prefix of the result is
+  // a uniform spatial sample, so the LOD read path (#394) can skip its voxel
+  // pass and serve a prefix directly.
+  //
+  // Quantisation: 10 bits/axis → 1024 levels over [bbox_min, bbox_max].
+  // Same input → same order: codes are deterministic over the bbox, and
+  // std::stable_sort breaks ties by storage index (STANDARDS §6).
+  //
+  // The same permutation is applied to out_normals and out_labels so the three
+  // arrays remain index-aligned (CONTRACTS.md, STANDARDS §3.2).
+  if (out_cloud->size() > 1) {
+    const size_t n = out_cloud->size();
+
+    // Bounding box over all points.
+    Eigen::Vector3f lo(std::numeric_limits<float>::max(),
+                       std::numeric_limits<float>::max(),
+                       std::numeric_limits<float>::max());
+    Eigen::Vector3f hi(-std::numeric_limits<float>::max(),
+                       -std::numeric_limits<float>::max(),
+                       -std::numeric_limits<float>::max());
+    for (const auto &p : *out_cloud) {
+      lo = lo.cwiseMin(Eigen::Vector3f(p.x, p.y, p.z));
+      hi = hi.cwiseMax(Eigen::Vector3f(p.x, p.y, p.z));
+    }
+    // Avoid division by zero for degenerate (flat/single-point) clouds.
+    Eigen::Vector3f range = (hi - lo).cwiseMax(1e-9f);
+
+    // Spread one 10-bit coordinate value into a 30-bit word by placing bit k
+    // at position 3k (magic-bit interleave, Rosen 2011). Called once per
+    // axis; the three results are OR-ed with 0, 1, 2-bit shifts for x, y, z.
+    auto expand3 = [](uint32_t v) -> uint32_t {
+      v &= 0x000003ffu;
+      v = (v | (v << 16u)) & 0x030000ffu;
+      v = (v | (v << 8u)) & 0x0300f00fu;
+      v = (v | (v << 4u)) & 0x030c30c3u;
+      v = (v | (v << 2u)) & 0x09249249u;
+      return v;
+    };
+
+    // Precompute codes so each is evaluated once, not twice per comparison.
+    constexpr uint32_t kMax10 = 1023u;
+    std::vector<uint32_t> codes(n);
+    for (size_t i = 0; i < n; ++i) {
+      const auto &p = (*out_cloud)[i];
+      const uint32_t xi = static_cast<uint32_t>(
+          std::clamp((p.x - lo.x()) / range.x(), 0.0f, 1.0f) * kMax10);
+      const uint32_t yi = static_cast<uint32_t>(
+          std::clamp((p.y - lo.y()) / range.y(), 0.0f, 1.0f) * kMax10);
+      const uint32_t zi = static_cast<uint32_t>(
+          std::clamp((p.z - lo.z()) / range.z(), 0.0f, 1.0f) * kMax10);
+      codes[i] = expand3(xi) | (expand3(yi) << 1u) | (expand3(zi) << 2u);
+    }
+
+    std::vector<size_t> perm(n);
+    std::iota(perm.begin(), perm.end(), size_t{0});
+    std::stable_sort(perm.begin(), perm.end(),
+                     [&](size_t a, size_t b) { return codes[a] < codes[b]; });
+
+    // Apply the same permutation to all three index-aligned arrays.
+    auto apply_perm = [&perm, n](auto &cloud_ptr) {
+      using C = std::remove_reference_t<decltype(*cloud_ptr)>;
+      auto sorted = std::make_shared<C>();
+      sorted->width = static_cast<uint32_t>(n);
+      sorted->height = 1;
+      sorted->is_dense = cloud_ptr->is_dense;
+      sorted->points.resize(n);
+      for (size_t i = 0; i < n; ++i)
+        sorted->points[i] = cloud_ptr->points[perm[i]];
+      cloud_ptr = std::move(sorted);
+    };
+    apply_perm(out_cloud);
+    apply_perm(out_normals);
+    apply_perm(out_labels);
+
+    core::debug("Morton reorder complete ({} points)", n);
+  }
+
   // ── Save to ProjectDB ────────────────────────────────────────────
   core::info("Saving point clouds to database");
   std::string paramsJson = fmt::format(
-      R"({{"resolution":{},"min_distance":{},"max_distance":{},"sampling_factor":{},"confidence_threshold":{}}})",
+      R"({{"resolution":{},"min_distance":{},"max_distance":{},"sampling_factor":{},"confidence_threshold":{},"storage_order":"morton_10bit"}})",
       params.resolution, params.min_distance, params.max_distance,
       params.sampling_factor, params.confidence_threshold);
 

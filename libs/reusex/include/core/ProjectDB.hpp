@@ -243,6 +243,14 @@ class ProjectDB {
   std::vector<std::string> list_point_clouds() const;
   std::string point_cloud_type(std::string_view name) const;
 
+  /// Returns the "storage_order" value from the cloud's parameters JSON, or
+  /// an empty string when the key is absent or the JSON is unparseable.
+  ///
+  /// "morton_10bit" means the cloud was stored in Morton order (10 bits/axis,
+  /// 30-bit code) so any prefix is a uniform spatial sample — the LOD read
+  /// path can skip its voxel pass and return a prefix directly (#394).
+  std::string point_cloud_storage_order(std::string_view name) const;
+
   /// A contiguous window of one cloud's stored records, still in storage
   /// layout — no PCL type has been inflated.
   struct CloudPage {
@@ -515,6 +523,17 @@ class ProjectDB {
       size_t height;
       bool organized;                    // height > 1
       std::map<int, std::string> labels; // Only for Label clouds
+
+      /// How points are ordered in storage.
+      ///
+      /// "morton_10bit" means points were sorted by a 30-bit Morton code
+      /// (10 bits per axis) over the cloud's bounding box before chunking,
+      /// so any stored prefix is a uniform spatial sample — it can be served
+      /// directly as an LOD without a per-request voxel pass (#394).
+      ///
+      /// Empty string means sequential / insertion order, or unspecified
+      /// (the "storage_order" key is absent from the parameters JSON).
+      std::string storage_order;
     };
 
     struct MeshInfo {

@@ -159,10 +159,27 @@ class IDataset {
     prompts_ = std::move(prompts);
   }
 
+  /* Returns the model's built-in default prompt strings (the class list the
+   * model uses when no caller prompts are set). Subclasses override this to
+   * expose their backend's default class list so callers can prepend it before
+   * appending glass prompts. Returns an empty vector by default. */
+  virtual std::vector<std::string> default_prompt_strings() const { return {}; }
+
+  /* Set the 0-based class IDs (positions in the merged prompt list) that
+   * correspond to glass/mirror/transparent classes.  When non-empty,
+   * concrete datasets that support glass filtering will build a CV_8U glass
+   * confidence map for each saved frame, zero those pixels in the label image,
+   * and persist the map so 'rux create clouds --glass-filter' can apply it. */
+  void set_glass_class_ids(std::vector<int> ids) {
+    glass_class_ids_ = std::move(ids);
+  }
+
     protected:
   float confidence_ = 0.5f; ///< Detection confidence threshold for get().
   std::vector<std::string>
       prompts_; ///< Concept prompts for get() (empty=default).
+  std::vector<int>
+      glass_class_ids_; ///< Class IDs treated as glass (empty=off).
 
   /* Retrieves the image data for a sample from the database. The getImage
    * method takes an index as input, which is used to look up the corresponding

@@ -7,10 +7,12 @@
 #include "core/logging.hpp"
 #include "vision/IData.hpp"
 #include "vision/IDataset.hpp"
+#include "vision/glass_filter.hpp"
 #include "vision/tensor_rt/Data.hpp"
 
 #include <fmt/core.h>
 #include <fmt/ranges.h>
+#include <opencv2/imgproc.hpp>
 #include <range/v3/all.hpp>
 
 #include <algorithm>
@@ -62,6 +64,10 @@ void push_unique(std::vector<std::string> &classes, std::string text) {
 
 } // namespace
 
+std::vector<std::string> TensorRTDataset::default_prompt_strings() const {
+  return TensorRTData::default_prompt_text_list();
+}
+
 reusex::vision::IDataset::Pair
 TensorRTDataset::get(const std::size_t index) const {
   reusex::trace("TensorRTDataset getting data at index {}", index);
@@ -95,6 +101,29 @@ bool TensorRTDataset::save(const std::span<IDataset::Pair> &data) {
                    index);
       success = false;
       continue;
+    }
+
+    // Glass depth filter: when glass class IDs are set, build a binary
+    // confidence map, zero those pixels in the label image, and persist the
+    // map so reconstruct_point_clouds can suppress glass depth pixels.
+    if (!glass_class_ids_.empty()) {
+      const int nid = node_id(index);
+      cv::Mat glass_conf =
+          build_glass_confidence_map(trt_data->image, glass_class_ids_);
+
+      // Count and log suppressed pixels (STANDARDS §5 — no silent decimation).
+      int suppressed = cv::countNonZero(glass_conf == 0);
+      if (suppressed > 0) {
+        reusex::debug("Node {}: glass filter masked {} pixels", nid,
+                      suppressed);
+        // Zero glass pixels in the label image so they never paint labels.
+        for (int gid : glass_class_ids_) {
+          cv::Mat mask;
+          cv::compare(trt_data->image, gid, mask, cv::CMP_EQ);
+          trt_data->image.setTo(-1, mask);
+        }
+        database()->save_glass_confidence_image(nid, glass_conf);
+      }
     }
 
     success &= save_image(index, trt_data->image);

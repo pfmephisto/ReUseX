@@ -8,6 +8,7 @@
 #include "vision/Dataloader.hpp"
 // #include "vision/Dataset.hpp"
 #include "vision/annotate.hpp"
+#include "vision/glass_filter.hpp"
 // #include "vision/infer/sam3infer.hpp"
 #include "vision/utils.hpp"
 
@@ -108,6 +109,37 @@ auto annotate(const std::filesystem::path &dbPath,
   if (!config.prompts.empty()) {
     reusex::info("Using {} custom concept prompts", config.prompts.size());
     dataset->set_prompts(config.prompts);
+  }
+
+  // Glass depth filter setup (batch path only). Merge glass prompts into the
+  // prompt list with their own per-prompt threshold (Option A rationale:
+  // glass classes use a higher threshold applied post-inference).
+  if (config.glass_filter && !config.video && modelType != Model::sam3p1) {
+    // Determine the structural prompt list (explicit or model defaults).
+    auto structural = config.prompts;
+    if (structural.empty())
+      structural = dataset->default_prompt_strings();
+
+    // Build the merged list: structural prompts + glass prompts at
+    // glass_threshold (encoded as "concept:threshold" for parse_prompt_spec).
+    std::vector<std::string> merged = structural;
+    std::vector<int> glass_ids;
+    for (const auto &g : glass_prompt_list()) {
+      glass_ids.push_back(static_cast<int>(merged.size()));
+      merged.push_back(g + ":" + std::to_string(config.glass_threshold));
+    }
+
+    reusex::info("Glass depth filter enabled: {} structural + {} glass prompts "
+                 "(threshold {:.2f}); glass class IDs {}–{}",
+                 structural.size(), glass_prompt_list().size(),
+                 config.glass_threshold, glass_ids.front(), glass_ids.back());
+
+    dataset->set_prompts(merged);
+    dataset->set_glass_class_ids(std::move(glass_ids));
+  } else if (config.glass_filter &&
+             (config.video || modelType == Model::sam3p1)) {
+    reusex::warn("Glass depth filter is not supported in video/SAM3.1 mode; "
+                 "ignoring --glass-filter");
   }
 
   // Video-tracker path: stateful, ordered, single-threaded. Triggered by the

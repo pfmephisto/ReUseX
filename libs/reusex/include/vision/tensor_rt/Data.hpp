@@ -60,5 +60,22 @@ struct TensorRTData : IData {
   };
 
   float confidence_threshold = 0.5f;
+
+  /// Returns the plain text of the built-in default prompt list so callers
+  /// can merge it with extra prompts (e.g. glass classes) without including
+  /// this backend-specific header.
+  static const std::vector<std::string> &default_prompt_text_list() {
+    static const std::vector<std::string> texts{
+        "wall",          "floor",
+        "ceiling",       "column",
+        "beam",          "door",
+        "door frame",    "window",
+        "staircase",     "railing",
+        "radiator",      "pipe",
+        "duct",          "electrical outlet",
+        "ceiling light", "sink",
+        "cabinet",       "shelf"};
+    return texts;
+  }
 };
 } // namespace reusex::vision::tensor_rt

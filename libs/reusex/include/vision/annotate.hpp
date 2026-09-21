@@ -28,6 +28,15 @@ struct AnnotationConfig {
   bool video = false; ///< Use the stateful video-tracker path (SAM 3.1). Frames
                       ///< are processed in temporal order on a single thread;
                       ///< the shuffled Dataloader is bypassed.
+
+  // Glass depth filter (batch path only; ignored in video/SAM3.1 mode).
+  /// Append glass/mirror/transparent prompts and build per-frame confidence
+  /// maps that rux create clouds can use to suppress glass depth pixels.
+  bool glass_filter = false;
+  /// Per-class confidence threshold for glass detections. Applied
+  /// post-inference so glass pixels use a separate (typically higher) bar than
+  /// structural classes, which use the global 'confidence' threshold.
+  float glass_threshold = 0.5f;
 };
 
 /**

@@ -177,6 +177,8 @@ StageResult run_clouds(ProjectDB &db, const StageContext &ctx,
   p.sampling_factor = param_or(params, "sampling_factor", p.sampling_factor);
   p.confidence_threshold =
       param_or(params, "confidence_threshold", p.confidence_threshold);
+  p.glass_filter = param_or(params, "glass_filter", p.glass_filter);
+  p.glass_threshold = param_or(params, "glass_threshold", p.glass_threshold);
 
   geometry::reconstruct_point_clouds(db, p);
 

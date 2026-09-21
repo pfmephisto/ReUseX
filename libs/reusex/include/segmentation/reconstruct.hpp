@@ -17,6 +17,12 @@ struct ReconstructionParams {
   float max_distance = 4.0f;
   int sampling_factor = 4;
   int confidence_threshold = 2;
+  /// Suppress glass/mirror depth pixels using stored glass confidence images.
+  /// Fails fast if no glass confidence images exist in the DB (run
+  /// 'rux create annotate --glass-filter' first to generate them).
+  bool glass_filter = false;
+  /// Pixel confidence fraction below which depth is suppressed as glass [0,1].
+  float glass_threshold = 0.5f;
 };
 
 /// Generate merged point clouds from sensor frames stored in a ProjectDB.

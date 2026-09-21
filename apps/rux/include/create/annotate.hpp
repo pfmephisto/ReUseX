@@ -5,6 +5,8 @@
 #pragma once
 #include "../global-params.hpp"
 
+#include <reusex/vision/annotate.hpp>
+
 #include <CLI/CLI.hpp>
 #include <cstdint>
 #include <filesystem>
@@ -39,6 +41,11 @@ struct SubcommandAnnotateOptions {
   // (docs/STANDARDS.md §6). --random-seed opts into entropy instead.
   uint32_t seed = 42;
   bool random_seed = false; // Seed from std::random_device (non-deterministic)
+
+  // Glass depth filter (batch path only; ignored in --video / SAM3.1 mode).
+  bool glass_filter = false; // Detect glass/mirror pixels and emit per-frame
+                             // confidence maps consumed by 'rux create clouds'.
+  float glass_threshold = reusex::vision::AnnotationConfig{}.glass_threshold;
 };
 
 // Function declarations.

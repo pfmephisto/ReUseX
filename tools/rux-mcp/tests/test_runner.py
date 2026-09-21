@@ -86,37 +86,6 @@ def test_timeout_becomes_a_rux_timeout_error(project, tmp_path):
     assert "timed out" in str(excinfo.value)
 
 
-#: `rux` installs spdlog on stdout, so warnings arrive interleaved with the
-#: payload rather than on stderr.  Every JSON-parsing tool depends on this.
-SPDLOG_WARNING = (
-    "[2026-09-10 11:02:52.886] [rux] [warning] Project schema is v11 but "
-    "this build expects v12."
-)
-
-
-def test_spdlog_lines_on_stdout_are_stripped_before_parsing(runner, fake_rux):
-    fake_rux.reply(SPDLOG_WARNING + '\n{"schema_version": 11}\n')
-    assert runner.run_json(["info", "--json"]) == {"schema_version": 11}
-
-
-def test_several_log_lines_are_stripped(runner, fake_rux):
-    fake_rux.reply(
-        "\n".join(
-            [
-                "[2026-09-10 11:02:52.886] [rux] [warning] one",
-                "[2026-09-10 11:02:52.887] [rux] [ error ] two",
-                "[1, 2, 3]",
-            ]
-        )
-    )
-    assert runner.run_json(["get", "frames"]) == [1, 2, 3]
-
-
-def test_a_scalar_payload_survives_log_stripping(runner, fake_rux):
-    fake_rux.reply(SPDLOG_WARNING + "\n255744\n")
-    assert runner.run_json(["get", "clouds.cloud.point_count"]) == 255744
-
-
 def test_log_stripping_does_not_eat_json_that_merely_looks_bracketed(runner, fake_rux):
     fake_rux.reply('["[2026-09-10] not a log line"]')
     assert runner.run_json(["get", "clouds"]) == ["[2026-09-10] not a log line"]

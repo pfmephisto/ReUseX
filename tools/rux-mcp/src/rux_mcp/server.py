@@ -36,7 +36,7 @@ from rux_mcp import components as component_inventory
 from rux_mcp.commands import CommandNotAllowed, WriteMode
 from rux_mcp.jobs import JobBusy, JobNotFound, JobRunner
 from rux_mcp.paths import PathNotAllowed, check_query_path, describe_allowlist
-from rux_mcp.runner import RuxError, RuxRunner, strip_log_lines
+from rux_mcp.runner import RuxError, RuxRunner
 
 #: Layers ``rux render`` knows about (``apps/rux/src/render.cpp``).
 RENDER_LAYERS = (
@@ -514,7 +514,7 @@ def build_server(
         except RuxError as exc:
             # `rux validate` exits non-zero when it finds errors but still
             # prints the report; a failing project is an answer, not a crash.
-            payload = strip_log_lines(exc.stdout)
+            payload = exc.stdout.strip()
             if payload:
                 try:
                     return json.loads(payload)
@@ -579,7 +579,7 @@ def build_server(
             "command": entry.key,
             "runnable": write_mode.allows(entry.mode),
             "required_write_mode": entry.mode.value,
-            "help": strip_log_lines(text),
+            "help": text.strip(),
         }
 
     if write_mode is not WriteMode.none:

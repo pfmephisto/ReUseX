@@ -80,13 +80,13 @@ nix path-info --json $(…path list…) \
 
 Two design decisions keep the cache from growing without bound:
 
-1. **CI writes only from `main`.** `default.nix` uses an unfiltered
-   `src = ./.`, so *every* commit — even a README typo — produces a distinct
-   `ReUseX-tests` output path. If PR runs pushed, a few dozen PRs would
-   exhaust the quota with outputs nothing will ever reuse. `ci.yml` therefore
-   sets `skipPush` for everything that is not a push to `main`. PRs still
-   *read* from the cache, which is where all the value is: the dependency
-   closure, not the build product.
+1. **CI writes only from `main`.** Even with the `lib.fileset` source filter
+   in place (see below), a commit that touches any build-relevant file still
+   produces a distinct `ReUseX-tests` output path. If PR runs pushed, a few
+   dozen PRs would exhaust the quota with outputs nothing will ever reuse.
+   `ci.yml` therefore sets `skipPush` for everything that is not a push to
+   `main`. PRs still *read* from the cache, which is where all the value is:
+   the dependency closure, not the build product.
 
 2. **Only the CPU variant is cached.** The CUDA closure (TensorRT, cuOpt,
    CUDA-enabled OpenCV, the `.cu` kernels) is many times larger than the whole
@@ -121,9 +121,12 @@ Measured on a green PR run (25 min 39 s wall, all of it on `ubuntu-latest`,
 
 The cache does its job completely — 38 seconds for everything
 `cache.nixos.org` could not serve. What it *cannot* fix is the ~19-minute
-compile, because `src = ./.` is unfiltered (below) and so every PR rebuilds
-ReUseX from scratch. That, not the dependency closure, is why a run lands
-around 25 minutes rather than the <20 min originally hoped for in #202.
+compile for a PR that touches build-relevant files, because every change in
+`libs/`, `apps/`, `tests/`, etc. produces a new source hash and requires
+recompiling ReUseX from scratch. PRs that touch only excluded paths (docs,
+workflows, markdown) are pure cache hits — they skip the compile entirely.
+That distinction is why run times split: doc-only PRs land in ~90 s, while
+source-touching PRs still take ~25 min.
 
 ## Cold vs warm
 
@@ -134,13 +137,25 @@ around 25 minutes rather than the <20 min originally hoped for in #202.
   still finish and repopulate the cache on `main` rather than being killed
   halfway, leaving the cache stale for the next PR.
 
-### Known inefficiency: `src = ./.` is unfiltered
+### Filtered `src`: doc-only changes are pure cache hits
 
-`default.nix` sets `src = ./.` with no source filter, so editing a README, a
-doc, or this very workflow changes the `ReUseX-tests` derivation hash and
-triggers a **full C++ rebuild** in CI. Filtering `src` (e.g. with
-`lib.fileset`, excluding `docs/`, `.github/`, `*.md`) would turn every
-docs-only PR into a pure cache hit and is the single highest-leverage
-improvement available to CI wall time. It is deliberately out of scope here —
-changing what goes into `src` risks breaking the build in ways that have
-nothing to do with enabling CI — but it is the obvious follow-up.
+`default.nix` uses `lib.fileset.toSource` to include only the files the C++
+build actually needs: `CMakeLists.txt`, `cmake/`, `libs/`, `apps/rux/`,
+`apps/ruxd/`, `bindings/`, `tests/`, `scripts/check-openapi.py` (a ctest),
+and two specific docs files the test suite reads at runtime
+(`docs/CONTRACTS.md`, `docs/gui/openapi.yaml`, `docs/gui/events.schema.json`).
+
+Everything else — `docs/`, `.github/`, `*.md`, `apps/blender/`, `tools/`,
+`.claude/`, `overlays/`, `pkgs/`, `python/`, `scripts/` (except the one ctest
+entry) — is excluded. A PR that only touches those paths produces the same
+`ReUseX-tests` derivation hash, so CI resolves the entire build from the
+Cachix cache in ~38 s instead of recompiling for ~20 min.
+
+**Verification performed in #357:**
+
+| Change | Derivation hash | Expected |
+|---|---|---|
+| Baseline (`src = ./.`) | `wm3ig0mn2sc1m8k3511fn5j8dabmgfmh` | — |
+| After filter, no file change | `vwfcqjy23w8q1d9mglqg3fh6093h57a6` | changed (filter itself is new) |
+| Append blank line to `docs/DIRECTION.md` | `vwfcqjy23w8q1d9mglqg3fh6093h57a6` | **unchanged** ✓ |
+| Append comment to `libs/reusex/src/core/logging.cpp` | `qvngp54bppgmhihwrzqvidw24kcsipi2` | **changed** ✓ |

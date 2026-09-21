@@ -120,6 +120,18 @@ auto annotate(const std::filesystem::path &dbPath,
     if (structural.empty())
       structural = dataset->default_prompt_strings();
 
+    // Reject duplicate concept texts in the structural list: the model assigns
+    // class IDs by first-seen (dedup) order, so duplicates shift glass IDs and
+    // suppress the wrong pixels.
+    if (auto dup = find_duplicate_prompt_concept(structural); !dup.empty()) {
+      reusex::error("Duplicate prompt '{}' in concept list with "
+                    "--glass-filter: the model deduplicates internally, so "
+                    "duplicates shift glass class IDs and suppress the wrong "
+                    "pixels. Remove the duplicate and retry.",
+                    dup);
+      return 1;
+    }
+
     // Build the merged list: structural prompts + glass prompts at
     // glass_threshold (encoded as "concept:threshold" for parse_prompt_spec).
     std::vector<std::string> merged = structural;

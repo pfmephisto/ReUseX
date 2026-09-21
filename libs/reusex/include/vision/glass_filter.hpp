@@ -4,6 +4,7 @@
 #pragma once
 
 #include <opencv2/core.hpp>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -30,5 +31,13 @@ bool is_glass_class(std::string_view class_name);
 /// An empty glass_ids or empty label_image returns an all-255 map.
 cv::Mat build_glass_confidence_map(const cv::Mat &label_image,
                                    const std::vector<int> &glass_ids);
+
+/// Returns the first duplicate concept text found in @p prompts after stripping
+/// optional `:threshold` suffixes, or an empty string if the list is
+/// duplicate-free.  Mirrors the first-seen dedup order that the model applies
+/// internally, so callers can validate their prompt list before computing glass
+/// class IDs.
+std::string
+find_duplicate_prompt_concept(const std::vector<std::string> &prompts);
 
 } // namespace reusex::vision

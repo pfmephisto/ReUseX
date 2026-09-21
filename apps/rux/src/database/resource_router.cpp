@@ -5,6 +5,7 @@
 #include "database/resource_router.hpp"
 
 #include "database/cloud_router.hpp"
+#include "database/component_router.hpp"
 #include "database/frame_router.hpp"
 #include "database/label_router.hpp"
 #include "database/log_router.hpp"
@@ -19,26 +20,44 @@ namespace rux::database {
 
 RouterRegistry::RouterRegistry(std::shared_ptr<reusex::ProjectDB> db)
     : db_(db) {
-  // Register routers for each collection type
+  // Register routers for each collection type.
+  // The map is ordered alphabetically; collection_names() and the
+  // error message below reflect that order automatically.
   routers_["clouds"] = std::make_unique<CloudRouter>(db);
-  routers_["meshes"] = std::make_unique<MeshRouter>(db);
-  routers_["projects"] = std::make_unique<ProjectRouter>(db);
-  routers_["materials"] = std::make_unique<PassportRouter>(db);
-  routers_["panoramas"] = std::make_unique<PanoramaRouter>(db);
+  routers_["components"] = std::make_unique<ComponentRouter>(db);
   routers_["frames"] = std::make_unique<FrameRouter>(db);
   routers_["labels"] = std::make_unique<LabelRouter>(db);
   routers_["log"] = std::make_unique<LogRouter>(db);
+  routers_["materials"] = std::make_unique<PassportRouter>(db);
+  routers_["meshes"] = std::make_unique<MeshRouter>(db);
+  routers_["panoramas"] = std::make_unique<PanoramaRouter>(db);
+  routers_["projects"] = std::make_unique<ProjectRouter>(db);
 
   spdlog::trace("Initialized router registry with {} routers", routers_.size());
+}
+
+std::vector<std::string> RouterRegistry::collection_names() const {
+  std::vector<std::string> names;
+  names.reserve(routers_.size());
+  for (const auto &[name, _] : routers_) {
+    names.push_back(name);
+  }
+  return names; // std::map iterates in sorted key order
 }
 
 ResourceRouter &RouterRegistry::get_router(std::string_view collection) {
   auto it = routers_.find(std::string(collection));
   if (it == routers_.end()) {
+    // Build the list from the live registry so it cannot drift.
+    std::string supported;
+    for (const auto &[name, _] : routers_) {
+      if (!supported.empty())
+        supported += ", ";
+      supported += name;
+    }
     throw std::runtime_error(
         "No router for collection: " + std::string(collection) +
-        "\nSupported collections: clouds, frames, labels, log, materials, "
-        "meshes, panoramas, projects");
+        "\nSupported collections: " + supported);
   }
   return *it->second;
 }

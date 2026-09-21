@@ -102,6 +102,10 @@ class RouterRegistry {
    */
   ResourceRouter &get_router(std::string_view collection);
 
+  /// Sorted list of registered collection names — use this instead of a
+  /// hardcoded array so the help text and runtime output cannot drift.
+  std::vector<std::string> collection_names() const;
+
     private:
   std::shared_ptr<reusex::ProjectDB> db_;
   std::map<std::string, std::unique_ptr<ResourceRouter>> routers_;

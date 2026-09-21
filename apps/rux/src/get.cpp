@@ -32,7 +32,7 @@ EXAMPLES:
   rux get clouds.scan1                 # Get scan1 metadata
   rux get clouds.scan1.type            # Get specific property
   rux get components --pretty          # Pretty-print JSON
-  rux get passports -o data.json       # Save to file
+  rux get materials -o data.json       # Save to file
 
 PATH SYNTAX:
   collections              List available collections (clouds, meshes, etc.)
@@ -61,7 +61,9 @@ PATH SYNTAX:
   log.ID                   Get a single log entry (JSON)
   log.ID.PROPERTY          stage, status, parameters, started_at, ...
   components               List all building components
-  passports                List all material passports
+  components.NAME          Get component fields (name, guid, type, vertex_count, …)
+  components.NAME.PROP     Get a single field
+  materials                List all material passports
 
 NOTES:
   - Default output: compact JSON to stdout
@@ -99,14 +101,15 @@ int run_subcommand_get(const DatabaseGetOptions &opt,
     auto db = std::make_shared<reusex::ProjectDB>(project_path,
                                                   /* readOnly */ true);
 
+    // Create the registry early so its collection_names() drives both the
+    // empty-path listing and the routing below — the two cannot drift.
+    rux::database::RouterRegistry registry(db);
+
     // If no path provided, show available collection names
     if (opt.path.empty()) {
       spdlog::debug("No path provided, listing collection names");
 
-      nlohmann::json collections = nlohmann::json::array(
-          {"clouds", "frames", "labels", "log", "materials", "meshes",
-           "panoramas", "projects"});
-
+      nlohmann::json collections = nlohmann::json(registry.collection_names());
       rux::database::DataPayload payload = collections;
 
       if (opt.output_file.empty()) {
@@ -131,8 +134,6 @@ int run_subcommand_get(const DatabaseGetOptions &opt,
     const auto &collection = components[0].value;
     spdlog::debug("Collection: {}", collection);
 
-    // Create router registry
-    rux::database::RouterRegistry registry(db);
     auto &router = registry.get_router(collection);
 
     // Remove collection from components (routers work with relative paths)

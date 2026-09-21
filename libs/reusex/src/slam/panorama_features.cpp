@@ -193,4 +193,94 @@ refine_bearing_pose(const std::vector<Eigen::Vector3d> &points,
   return inl;
 }
 
+std::vector<int> refine_bearing_pose_rotation_only(
+    const std::vector<Eigen::Vector3d> &points,
+    const std::vector<Eigen::Vector3d> &bearings,
+    const Eigen::Vector3d &c_world, const BearingRefineOptions &opt,
+    Eigen::Matrix3d &Q, int *out_initial_inliers) {
+  // With a fixed centre c_world, the pano_from_world transform is:
+  //   m = Q * X + t,  where t = -Q * c_world
+  // so m = Q * (X - c_world).  The Jacobian wrt the rotation perturbation dw
+  // (left perturbation: Q <- exp(dw) Q) gives:
+  //   dm/dw = -skew(Q * (X - c_world)) = -skew(m)
+  // same as the rotation block in the 6-DOF case — only the 3-DOF translation
+  // column is removed.
+
+  auto t_from_Q = [&](const Eigen::Matrix3d &Qc) -> Eigen::Vector3d {
+    return -Qc * c_world;
+  };
+
+  // Tight gate used for re-gating during and after GN (preserves final
+  // quality).
+  auto gate = [&](const Eigen::Matrix3d &Qc) {
+    const Eigen::Vector3d tc = t_from_Q(Qc);
+    std::vector<int> sel;
+    for (size_t k = 0; k < points.size(); ++k)
+      if (bearing_angle(Qc, tc, points[k], bearings[k]) < opt.ang_gate)
+        sel.push_back(static_cast<int>(k));
+    return sel;
+  };
+
+  // Looser seed gate for the INITIAL inlier assessment only. Used by the
+  // fix-translation path: the PnP rotation seed Q_best was estimated with the
+  // PnP's own translation, not fixed_centre, so forcing the centre to
+  // fixed_centre shifts the predicted bearings and most correspondences exceed
+  // the tight production ang_gate before GN has run. The loose seed gate lets
+  // GN start from a non-empty inlier set; subsequent re-gates use the tight
+  // ang_gate so final quality is unchanged. (issue #364)
+  const double seed_gate =
+      (opt.initial_ang_gate > 0.0) ? opt.initial_ang_gate : opt.ang_gate;
+  auto seed_gate_fn = [&](const Eigen::Matrix3d &Qc) {
+    const Eigen::Vector3d tc = t_from_Q(Qc);
+    std::vector<int> sel;
+    for (size_t k = 0; k < points.size(); ++k)
+      if (bearing_angle(Qc, tc, points[k], bearings[k]) < seed_gate)
+        sel.push_back(static_cast<int>(k));
+    return sel;
+  };
+
+  std::vector<int> inl = seed_gate_fn(Q);
+  if (out_initial_inliers)
+    *out_initial_inliers = static_cast<int>(inl.size());
+  if (static_cast<int>(inl.size()) < opt.min_inliers)
+    return {};
+
+  for (int it = 0; it < opt.iterations; ++it) {
+    Eigen::Matrix3d H = Eigen::Matrix3d::Zero();
+    Eigen::Vector3d g = Eigen::Vector3d::Zero();
+    const Eigen::Vector3d t = t_from_Q(Q);
+    for (int k : inl) {
+      const Eigen::Vector3d m = Q * points[k] + t; // = Q * (X - c_world)
+      const double n = m.norm();
+      if (n < 1e-9)
+        continue;
+      const Eigen::Vector3d bh = m / n;
+      const Eigen::Vector3d e = bh - bearings[k];
+      const Eigen::Matrix3d dbh_dm =
+          (Eigen::Matrix3d::Identity() - bh * bh.transpose()) / n;
+      const Eigen::Matrix<double, 3, 3> J =
+          dbh_dm * (-skew(m)); // rotation only
+      H += J.transpose() * J;
+      g += J.transpose() * e;
+    }
+    H += 1e-9 * Eigen::Matrix3d::Identity();
+    const Eigen::Vector3d dw = H.ldlt().solve(-g);
+    if (!dw.allFinite())
+      break;
+    const Eigen::Matrix3d dR = exp_so3(dw);
+    Q = dR * Q;
+    if (dw.norm() < 1e-8)
+      break;
+    if (it + 1 < opt.iterations)
+      inl = gate(Q);
+    if (static_cast<int>(inl.size()) < opt.min_inliers)
+      break;
+  }
+
+  inl = gate(Q);
+  if (static_cast<int>(inl.size()) < opt.min_inliers)
+    return {};
+  return inl;
+}
+
 } // namespace reusex::geometry::pano_detail

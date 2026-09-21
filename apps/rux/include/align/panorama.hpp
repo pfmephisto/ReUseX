@@ -10,8 +10,10 @@
 #include <string>
 
 struct SubcommandAlignPanoramaOptions {
-  bool dry_run = false;        ///< compute + report only, do not write poses
-  bool overwrite = false;      ///< re-align panoramas that are already aligned
+  bool dry_run = false;   ///< compute + report only, do not write poses
+  bool overwrite = false; ///< re-align panoramas that are already aligned
+  bool fix_translation =
+      false;                   ///< fix centre to seed pose, solve rotation only
   int min_inliers = 40;        ///< accept an alignment above this many inliers
   int window = 12;             ///< candidate frames on each side of the seed
   int max_candidates = 8;      ///< cap candidate frames matched per panorama

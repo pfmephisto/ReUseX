@@ -94,6 +94,18 @@ struct BearingRefineOptions {
   double ang_gate = 0.01; ///< inlier angular tolerance (rad)
   int iterations = 10;    ///< Gauss-Newton steps
   int min_inliers = 25;   ///< abandon below this many gated correspondences
+
+  /// Override for the INITIAL inlier gate only (the first call to the gate
+  /// lambda before any Gauss-Newton step runs). 0.0 means "same as ang_gate".
+  ///
+  /// Used by the fix-translation path in PanoramaAlignment: the rotation seed
+  /// Q_best was estimated by PnP using the PnP's OWN translation, so forcing
+  /// the centre to fixed_centre makes most correspondences exceed the tight
+  /// production ang_gate (~0.02 rad) before GN has had a chance to run. A
+  /// looser seed gate lets GN start from a non-empty inlier set; the tight
+  /// ang_gate is used for every subsequent re-gate so final quality is
+  /// unchanged. (See issue #364.)
+  double initial_ang_gate = 0.0;
 };
 
 /// Gauss-Newton refinement of a pano_from_reference pose (@p Q, @p t) over
@@ -116,5 +128,22 @@ refine_bearing_pose(const std::vector<Eigen::Vector3d> &points,
                     const std::vector<Eigen::Vector3d> &bearings,
                     const BearingRefineOptions &opt, Eigen::Matrix3d &Q,
                     Eigen::Vector3d &t, int *out_initial_inliers = nullptr);
+
+/// Rotation-only variant of refine_bearing_pose: the panorama centre @p c_world
+/// (in world coordinates) is held fixed. Only the rotation @p Q is updated.
+///
+/// The centre enters the residual as `t = -Q * c_world` at each step,
+/// recomputed from the current rotation rather than held as a separate
+/// variable, so the translation DOF is fully suppressed.
+///
+/// @param c_world  fixed panorama centre in world space (from the seed frame
+/// pose)
+/// @param out_initial_inliers  same semantics as refine_bearing_pose
+/// @returns final inlier indices, or empty when below `min_inliers`.
+std::vector<int> refine_bearing_pose_rotation_only(
+    const std::vector<Eigen::Vector3d> &points,
+    const std::vector<Eigen::Vector3d> &bearings,
+    const Eigen::Vector3d &c_world, const BearingRefineOptions &opt,
+    Eigen::Matrix3d &Q, int *out_initial_inliers = nullptr);
 
 } // namespace reusex::geometry::pano_detail

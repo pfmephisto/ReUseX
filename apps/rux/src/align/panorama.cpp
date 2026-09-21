@@ -32,6 +32,7 @@ EXAMPLES:
   rux align 360                    # align all panoramas, write refined poses
   rux align 360 --dry-run          # report inliers / RMS / correction only
   rux align 360 --overwrite        # re-align panoramas already aligned
+  rux align 360 --fix-translation  # rotation-only (recommended when EXIF reliable)
 
 WORKFLOW:
   1. rux import rtabmap scan.db     # sensor frames (with timestamps + depth)
@@ -41,12 +42,20 @@ WORKFLOW:
 NOTES:
   - Requires panoramas linked to a sensor frame (node_id) with depth.
   - A panorama that fails to align keeps its timestamp placement.
+  - --fix-translation is recommended when EXIF timestamps are reliable.
+    The panorama centre is fixed to the seed frame position; only the 3-DOF
+    rotation is solved. This avoids ill-conditioned translation drift when
+    the matched frames span a narrow angular cone.
 )");
 
   sub->add_flag("--dry-run", opt->dry_run,
                 "Compute and report only; do not write poses");
   sub->add_flag("--overwrite", opt->overwrite,
                 "Re-align panoramas that are already aligned");
+  sub->add_flag(
+      "--fix-translation", opt->fix_translation,
+      "Fix the panorama centre to the seed frame's stored position and solve "
+      "for rotation only. Recommended when EXIF timestamps are reliable.");
   sub->add_option("--min-inliers", opt->min_inliers,
                   "Accept an alignment above this many pooled inliers")
       ->capture_default_str();
@@ -94,6 +103,7 @@ int run_subcommand_align_panorama(SubcommandAlignPanoramaOptions const &opt,
     ao.fov_deg = opt.fov;
     ao.min_inliers = opt.min_inliers;
     ao.max_correction_m = opt.max_correction;
+    ao.fix_translation = opt.fix_translation;
 
     // Slices are spread evenly over 360 deg; if their FOVs do not add up the
     // equator is sampled with gaps and matchable features get dropped.
@@ -145,10 +155,18 @@ int run_subcommand_align_panorama(SubcommandAlignPanoramaOptions const &opt,
           continue;
         }
 
-        spdlog::info("{}: aligned — {} inliers, {:.3f} deg RMS, {:.3f} m "
-                     "correction{}",
-                     pano.filename, r.inliers, r.rms_deg, r.delta_from_seed_m,
-                     opt.dry_run ? " (dry-run)" : "");
+        if (r.translation_fixed) {
+          spdlog::info(
+              "{}: aligned (rotation-only) — {} inliers, {:.3f} deg RMS, "
+              "translation fixed (seed node position){}",
+              pano.filename, r.inliers, r.rms_deg,
+              opt.dry_run ? " (dry-run)" : "");
+        } else {
+          spdlog::info("{}: aligned — {} inliers, {:.3f} deg RMS, {:.3f} m "
+                       "correction{}",
+                       pano.filename, r.inliers, r.rms_deg, r.delta_from_seed_m,
+                       opt.dry_run ? " (dry-run)" : "");
+        }
         sum_delta += r.delta_from_seed_m;
         ++aligned;
         if (!ao.debug_dir.empty())

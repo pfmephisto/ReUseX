@@ -251,12 +251,11 @@ run_command('del', arguments=['clouds.scratch'],
   `rux get components` call once gap 3 of #267 is closed.
 - **Component *geometry* is not exposed at all** — only properties. Seeing
   where a component is means `render_view(layers='components')`.
-- **`rux` logs to stdout, not stderr.** A schema warning ("Project schema is
-  v11 but this build expects v12") is printed *ahead of* the JSON that
-  `--json` produces, and stderr stays empty. `runner.strip_log_lines()`
-  removes spdlog-formatted lines before parsing, and a failed call falls back
-  to stdout for its diagnostics. Worth fixing in `rux` itself — until then,
-  never `json.loads()` `rux` output directly.
+- **`rux` logs go to stderr, not stdout.** Since #353 the spdlog sink is on
+  stderr, so `--json` stdout is always clean JSON. A failed `rux validate`
+  call still prints its JSON report to stdout even with a non-zero exit code;
+  `RuxError.stdout` carries that payload and `run_json` / the validate tool
+  recover it from there.
 
 ## Demo
 

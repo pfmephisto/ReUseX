@@ -81,7 +81,7 @@ int run(int argc, char **argv) {
   spdlog::init_thread_pool(8192, 1);
 
   // Create async logger with lock-free queue (no mutex contention)
-  auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+  auto console_sink = std::make_shared<spdlog::sinks::stderr_color_sink_mt>();
   auto console_logger = std::make_shared<spdlog::async_logger>(
       "rux", console_sink, spdlog::thread_pool(),
       spdlog::async_overflow_policy::block);

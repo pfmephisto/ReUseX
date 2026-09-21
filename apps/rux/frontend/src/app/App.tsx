@@ -8,6 +8,7 @@ import { JobsProvider } from './JobsContext';
 import { AppShell } from './AppShell';
 import { Dashboard } from '../routes/Dashboard';
 import { DataPage } from '../routes/DataPage';
+import { ExportPage } from '../routes/ExportPage';
 import { FramesPage } from '../routes/FramesPage';
 import { PipelinePage } from '../routes/PipelinePage';
 import { ViewportPage } from '../routes/ViewportPage';
@@ -30,6 +31,7 @@ export function App() {
           <Route path="/pipeline" element={<PipelinePage />} />
           <Route path="/frames" element={<FramesPage />} />
           <Route path="/data" element={<DataPage />} />
+          <Route path="/export" element={<ExportPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AppShell>

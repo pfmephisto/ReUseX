@@ -1,0 +1,208 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+/* ---- Screen layout -------------------------------------------------- */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  padding: var(--space-5);
+  overflow-y: auto;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.hint {
+  flex: 1;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  min-width: 0;
+}
+
+.printButton {
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-focus);
+  background: var(--color-accent-muted);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.printButton:hover {
+  background: var(--color-accent);
+  color: var(--color-surface-raised);
+}
+
+/* ---- Report --------------------------------------------------------- */
+
+.report {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+/* ---- Cover page ----------------------------------------------------- */
+
+.cover {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-5);
+}
+
+.coverTitle {
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text);
+  margin: 0;
+}
+
+.coverSubtitle {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+.coverMeta {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-1) var(--space-4);
+  font-size: var(--font-size-sm);
+  margin: 0;
+}
+
+.coverMeta dt {
+  color: var(--color-text-muted);
+  font-weight: var(--font-weight-bold);
+}
+
+.coverMeta dd {
+  color: var(--color-text);
+  margin: 0;
+}
+
+.coverNotes {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+/* ---- Table ---------------------------------------------------------- */
+
+.tableSection {
+  overflow-x: auto;
+}
+
+.table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: var(--font-size-sm);
+}
+
+.th {
+  border: 1px solid var(--color-border);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-raised);
+  color: var(--color-text-muted);
+  font-weight: var(--font-weight-bold);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.td {
+  border: 1px solid var(--color-border);
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-text);
+  vertical-align: top;
+}
+
+.tdId {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+}
+
+.tr:nth-child(even) .td {
+  background: var(--color-surface-sunken);
+}
+
+.empty {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+/* ---- Print ---------------------------------------------------------- */
+
+@media print {
+  .toolbar {
+    display: none;
+  }
+
+  .page {
+    padding: 0;
+    gap: 0;
+  }
+
+  .cover {
+    border: none;
+    border-radius: 0;
+    padding: 0;
+    page-break-after: always;
+    min-height: 100vh;
+    justify-content: center;
+  }
+
+  .coverTitle {
+    font-size: 28pt;
+    color: #000;
+  }
+
+  .coverSubtitle {
+    color: #444;
+  }
+
+  .coverMeta dt,
+  .coverMeta dd {
+    color: #000;
+  }
+
+  .table {
+    font-size: 9pt;
+  }
+
+  .th {
+    background: #eee;
+    color: #000;
+    border-color: #999;
+  }
+
+  .td {
+    border-color: #999;
+    color: #000;
+  }
+
+  .tr:nth-child(even) .td {
+    background: #f5f5f5;
+  }
+
+  .tableSection {
+    overflow: visible;
+  }
+}

@@ -29,6 +29,7 @@ const ENTRIES: NavEntry[] = [
   { to: '/pipeline', label: 'Pipeline' },
   { to: '/frames', label: 'Frames' },
   { to: '/data', label: 'Data' },
+  { to: '/export', label: 'Export' },
 ];
 
 export function NavRail() {

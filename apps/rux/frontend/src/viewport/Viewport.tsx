@@ -12,10 +12,27 @@ import {
 import * as THREE from 'three';
 
 import { PointCloudScene, type ColorMode } from './PointCloudScene';
+import { MeshScene } from './MeshScene';
 import { PanoramaScene, type PanoramaMarker } from './PanoramaScene';
 import { SplatScene } from './SplatScene';
 import { useCloudStream, type CloudStreamState } from './useCloudStream';
 import styles from './Viewport.module.css';
+
+/** Progress of the PLY mesh layer, as the panel reports it (#265, review pt 2). */
+export interface MeshLayerState {
+  loading: boolean;
+  error: Error | null;
+}
+
+/** One mesh the viewport should render. */
+export interface ViewportMesh {
+  /** Mesh name — also the scene layer id. */
+  name: string;
+  /** Where the renderer fetches the PLY blob. */
+  url: string;
+  visible: boolean;
+  wireframe: boolean;
+}
 
 /** Progress of the Gaussian-splat layer, as the panel reports it. */
 export interface SplatLayerState {
@@ -54,6 +71,15 @@ export interface ViewportProps {
   /** Bump to re-frame the camera on the loaded content. */
   frameToken: number;
   onLayerProgress?: (cloud: string, state: CloudStreamState) => void;
+  /**
+   * PLY mesh layers (#265, review pt 2).
+   *
+   * Only meshes the user has switched on belong here — the blob can be large
+   * and the loader starts fetching immediately on mount.
+   */
+  meshes?: ViewportMesh[];
+  onMeshProgress?: (name: string, state: MeshLayerState) => void;
+
   /**
    * The Gaussian-splat layers the page has asked to be loaded (#322).
    *
@@ -118,6 +144,8 @@ export function Viewport({
   pointSize,
   frameToken,
   onLayerProgress,
+  meshes,
+  onMeshProgress,
   splats,
   onSplatProgress,
   panoramas,
@@ -282,6 +310,15 @@ export function Viewport({
           />
         ))}
       {scene &&
+        (meshes ?? []).map((mesh) => (
+          <MeshLayerLoader
+            key={mesh.name}
+            scene={scene}
+            mesh={mesh}
+            onProgress={(state) => onMeshProgress?.(mesh.name, state)}
+          />
+        ))}
+      {scene &&
         (splats ?? []).map((splat) => (
           <SplatLayerLoader
             key={splat.name}
@@ -299,6 +336,65 @@ export function Viewport({
       {overlay}
     </div>
   );
+}
+
+/**
+ * Loads one PLY mesh into the scene. Renders nothing.
+ *
+ * Mounting starts the download; unmounting disposes the geometry and removes it
+ * from the scene. Hiding is handled by `MeshScene.setVisible`, not by
+ * unmounting — the blob is too large to re-download on every toggle.
+ */
+function MeshLayerLoader({
+  scene,
+  mesh,
+  onProgress,
+}: {
+  scene: PointCloudScene;
+  mesh: ViewportMesh;
+  onProgress?: (state: MeshLayerState) => void;
+}) {
+  const meshRef = useRef<MeshScene | null>(null);
+  const progressRef = useRef(onProgress);
+  progressRef.current = onProgress;
+
+  useEffect(() => {
+    let cancelled = false;
+    const instance = new MeshScene(scene);
+    meshRef.current = instance;
+    progressRef.current?.({ loading: true, error: null });
+
+    instance
+      .load(mesh.url)
+      .then(() => {
+        if (!cancelled) progressRef.current?.({ loading: false, error: null });
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        progressRef.current?.({
+          loading: false,
+          error: error instanceof Error ? error : new Error(String(error)),
+        });
+      });
+
+    return () => {
+      cancelled = true;
+      meshRef.current = null;
+      instance.dispose();
+    };
+  // Re-mount when the URL changes (different mesh); visibility is a separate effect.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scene, mesh.url]);
+
+  useEffect(() => {
+    meshRef.current?.setVisible(mesh.visible);
+  }, [mesh.visible]);
+
+  useEffect(() => {
+    meshRef.current?.setWireframe(mesh.wireframe);
+  }, [mesh.wireframe]);
+
+  return null;
 }
 
 /**

@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 import { api } from '../api/client';
-import type { CloudInfo, GsplatInfo, PanoramaInfo } from '../api/types';
+import type { CloudInfo, GsplatInfo, MeshInfo, PanoramaInfo } from '../api/types';
 import { useAsync } from '../app/useAsync';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { EmptyState } from '../components/EmptyState';
@@ -15,9 +15,11 @@ import { PanoramaBar } from '../components/PanoramaBar';
 import { Spinner } from '../components/Spinner';
 import {
   Viewport,
+  type MeshLayerState,
   type PanoramaLayerState,
   type SplatLayerState,
   type ViewportLayer,
+  type ViewportMesh,
 } from '../viewport/Viewport';
 import type { PanoramaMarker } from '../viewport/PanoramaScene';
 import type { ColorMode } from '../viewport/PointCloudScene';
@@ -61,6 +63,29 @@ export function ViewportPage() {
     loading,
     reload,
   } = useAsync<CloudInfo[]>((signal) => api.clouds(signal), []);
+
+  // Mesh list — metadata only. Blobs stay in the project until switched on.
+  const { data: meshes, error: meshError } = useAsync<MeshInfo[]>(
+    (signal) => api.meshes(signal),
+    [],
+  );
+
+  const [meshVisible, setMeshVisible] = useState<Record<string, boolean>>({});
+  const [meshWireframe, setMeshWireframe] = useState<Record<string, boolean>>({});
+  // Sticky: once a download has started, hiding the layer must not throw it away.
+  const [meshRequested, setMeshRequested] = useState<Record<string, boolean>>({});
+  const [meshLoading, setMeshLoading] = useState<Record<string, MeshLayerState>>({});
+
+  const handleMeshProgress = useCallback((name: string, state: MeshLayerState) => {
+    setMeshLoading((current) => ({ ...current, [name]: state }));
+  }, []);
+  const handleToggleMesh = useCallback((name: string, next: boolean) => {
+    setMeshVisible((current) => ({ ...current, [name]: next }));
+    if (next) setMeshRequested((current) => ({ ...current, [name]: true }));
+  }, []);
+  const handleWireframeMesh = useCallback((name: string, next: boolean) => {
+    setMeshWireframe((current) => ({ ...current, [name]: next }));
+  }, []);
 
   // Asked for once alongside the cloud inventory. Metadata only — the blobs
   // stay in the project until a layer is switched on.
@@ -293,6 +318,15 @@ export function ViewportPage() {
         pointSize={pointSize}
         frameToken={frameToken}
         onLayerProgress={handleProgress}
+        meshes={(meshes ?? [])
+          .filter((info) => meshRequested[info.name])
+          .map<ViewportMesh>((info) => ({
+            name: info.name,
+            url: api.meshDataUrl(info.name),
+            visible: meshVisible[info.name] ?? false,
+            wireframe: meshWireframe[info.name] ?? false,
+          }))}
+        onMeshProgress={handleMeshProgress}
         splats={(gsplats ?? [])
           .filter((info) => splatRequested[info.name])
           .map((info) => ({
@@ -336,6 +370,15 @@ export function ViewportPage() {
       />
       <LayerPanel
         clouds={renderable}
+        mesh={{
+          items: meshes ?? null,
+          error: meshError ?? null,
+          visible: meshVisible,
+          wireframe: meshWireframe,
+          loading: meshLoading,
+          onToggle: handleToggleMesh,
+          onWireframeToggle: handleWireframeMesh,
+        }}
         splat={{
           items: gsplats ?? null,
           error: gsplatError ?? null,

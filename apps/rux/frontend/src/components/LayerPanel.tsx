@@ -3,11 +3,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { api } from '../api/client';
-import type { CloudInfo, GsplatInfo, PanoramaInfo } from '../api/types';
+import type { CloudInfo, GsplatInfo, MeshInfo, PanoramaInfo } from '../api/types';
 import type { ColorMode } from '../viewport/PointCloudScene';
 import type { CloudStreamState } from '../viewport/useCloudStream';
-import type { SplatLayerState } from '../viewport/Viewport';
+import type { MeshLayerState, SplatLayerState } from '../viewport/Viewport';
 import { describeGsplat, gsplatNote } from '../viewport/gsplatLayer';
+import { describeMesh, meshNote } from '../viewport/meshLayer';
 import {
   describePlacement,
   panoramaNote,
@@ -18,6 +19,19 @@ import { EmptyState } from './EmptyState';
 import { LabelLegend } from './LabelLegend';
 import { LayerRow } from './LayerRow';
 import styles from './LayerPanel.module.css';
+
+/** Everything the panel needs about the PLY mesh layers (#265, review pt 2). */
+export interface MeshPanelState {
+  /** Meshes stored in the project, or null while the list is being fetched. */
+  items: MeshInfo[] | null;
+  error: Error | null;
+  visible: Record<string, boolean>;
+  wireframe: Record<string, boolean>;
+  /** Load progress per mesh; absent until one has been switched on. */
+  loading: Record<string, MeshLayerState>;
+  onToggle: (name: string, visible: boolean) => void;
+  onWireframeToggle: (name: string, wireframe: boolean) => void;
+}
 
 /** Everything the panel needs about the Gaussian-splat layers (#322). */
 export interface SplatPanelState {
@@ -65,6 +79,14 @@ export interface LayerPanelProps {
   labelSourceNote?: string;
 
   /**
+   * PLY mesh layers, when the page models them (#265, review pt 2).
+   *
+   * One optional object rather than six loose props, so a page with no mesh
+   * support says so by omitting one thing.
+   */
+  mesh?: MeshPanelState;
+
+  /**
    * The Gaussian-splat layers, when the page models them.
    *
    * One optional object rather than five loose props, so a page with no splat
@@ -105,6 +127,7 @@ export function LayerPanel({
   labelCloud,
   onLabelCloudChange,
   labelSourceNote,
+  mesh,
   splat,
   panorama,
   colorMode,
@@ -138,6 +161,8 @@ export function LayerPanel({
           </div>
         )}
       </section>
+
+      {mesh && <MeshSection mesh={mesh} />}
 
       {splat && <SplatSection splat={splat} />}
 
@@ -211,6 +236,75 @@ export function LayerPanel({
         </button>
       </section>
     </aside>
+  );
+}
+
+/**
+ * One row per PLY mesh stored in the project, or the reason there are none.
+ *
+ * A project without a mesh still gets the heading and a sentence, for the same
+ * reason `SplatSection` does: "cannot draw meshes" and "has no mesh" want
+ * completely different next actions from the user.
+ *
+ * Toggled independently of the point cloud — comparing the reconstructed mesh
+ * against the raw cloud is one of the most useful checks an architect can do.
+ * Wireframe mode reveals the cell-complex triangle structure (room boundaries).
+ */
+function MeshSection({ mesh }: { mesh: MeshPanelState }) {
+  const { items, error, visible, wireframe, loading, onToggle, onWireframeToggle } = mesh;
+  const note = meshNote(items, error);
+
+  return (
+    <section className={styles.section}>
+      <h2 className={styles.heading}>Mesh</h2>
+
+      {note && <p className={styles.note}>{note}</p>}
+
+      {(items ?? []).map((info) => {
+        const state = loading[info.name];
+        return (
+          <div key={info.name} className={styles.splat}>
+            <label className={styles.splatToggle}>
+              <input
+                type="checkbox"
+                checked={visible[info.name] ?? false}
+                onChange={(event) => onToggle(info.name, event.target.checked)}
+                className={styles.checkbox}
+              />
+              <span className={styles.splatName} title={info.name}>
+                {info.name}
+              </span>
+            </label>
+
+            <p className={styles.note}>{describeMesh(info)}</p>
+
+            {(visible[info.name] ?? false) && (
+              <label className={styles.splatToggle}>
+                <input
+                  type="checkbox"
+                  checked={wireframe[info.name] ?? false}
+                  onChange={(event) => onWireframeToggle(info.name, event.target.checked)}
+                  className={styles.checkbox}
+                />
+                <span className={styles.note}>Wireframe</span>
+              </label>
+            )}
+
+            {state?.loading && (
+              <div className={styles.track}>
+                <div className={`${styles.fill} ${styles.indeterminate}`} />
+              </div>
+            )}
+
+            {state?.error && (
+              <p className={styles.error}>
+                The mesh could not be loaded: {state.error.message}
+              </p>
+            )}
+          </div>
+        );
+      })}
+    </section>
   );
 }
 

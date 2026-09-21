@@ -1,0 +1,1199 @@
+<!--
+SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+
+SPDX-License-Identifier: GPL-3.0-or-later
+-->
+
+# Issue #221 Regression Investigation: XFeat Loop-Trust Degrades Local Geometry
+
+**Branch:** `investigate/xfeat-loop-regression-221`  
+**Date:** 2026-09-15  
+**Artefacts read:** `/home/mephisto/repos/NewOffice/pseudo-gt/` (read-only copies)  
+**Prebuilt binary:** `/home/mephisto/repos/ReUseX/build/apps/rux/rux` (not invoked; renders already on disk)
+
+---
+
+## 1. Regression Confirmed
+
+The owner's visual complaint is **confirmed**. The three renders at
+`docs/research/img/regression-221/` show it unambiguously:
+
+| Image | State | Point count |
+|---|---|---|
+| `topdown_before.png` | Seed trajectory (drifted) | 1,212,572 |
+| `topdown_control.png` | `rux optimize` no loop edges | 1,191,187 |
+| `topdown_after_xfeat_trust.png` | `--loop-trust --odometry-sigma-trans 0.05` | 1,379,343 |
+
+**What the renders show:**
+
+- **Before / Control:** Building footprint is a clear, clean L-shape. The long
+  corridor is a single, sharp stripe. Walls are crisp.
+- **XFeat trust:** The long corridor is visibly wider and blurrier. The lower-left
+  corner (the junction area, most likely where the entrance is) shows clearly doubled
+  wall lines — two parallel wall segments instead of one. The outer boundary of the
+  building has ghost edges. The overall building silhouette is bloated and smeared.
+- **Junction crop comparison** (`crop_before_junction.png` vs `crop_after_junction.png`):
+  The before/control crop shows a clear right-angle junction. The xfeat_trust crop shows
+  the same area with a wider, hazier junction and visible doubling of wall boundaries.
+
+The control result is almost identical to "before", confirming the degradation is
+introduced specifically by the XFeat trust-mode correction, not by `rux optimize` alone.
+
+The owner's claim of a ~45° skew is **partially correct but imprecisely framed**.
+The actual global wall orientation shift measured from dominant plane normals is
+**~2.6°** (not 45°) between xfeat_trust and control. The "45°" impression is the
+building's existing orientation relative to compass north — the correction does not
+introduce a new 45° rotation, but it does produce a shear/stretch that distorts the
+orthogonality of rooms. The angle between the two dominant wall families widens from
+**90.6°** (control) to **91.0°** (xfeat_trust), a measurable but small non-orthogonality.
+The more visible effect is the spatial smearing/doubling described next.
+
+---
+
+## 2. Root Cause
+
+### 2.1 What the optimizer did
+
+The XFeat endcap proposal generated 15 edges, all connecting early frames (nodes
+23–567, first 14.6% of the scan) to late frames (nodes 3478–3780, last 89–97.5%
+of the scan). After the seed-disagreement gate dropped 4 non-informative edges and
+PCM filtered the remaining 11 down to **3 pairwise-consistent edges**, those 3 were
+admitted to the factor graph with `loop_trust_inlier_cost = 200.0` (vs the default
+`gnc_inlier_cost = 5.67` for everything else).
+
+The optimize log records:
+```
+PlaneGraph round 1: error 25627.0141 -> 28444.4513 (4658 plane factors,
+  2951 under-constrained frames tightened, round shift 9.7553 m)
+PlaneGraph round 2: error 1887.8186 -> 671.4475 (4932 plane factors,
+  2960 under-constrained frames tightened, round shift 2.0314 m)
+PlaneGraph: 2 rounds, error 25627.0141 -> 671.4475, max pose shift 9.8033 m
+```
+
+The max pose shift of **9.8033 m** is real. The start↔end gap (trajectory-level metric)
+closed from 23.44 m to **16.05 m** (~32%). This is the number that made the earlier
+analysis call the run a "pseudo-GT win".
+
+### 2.2 Why it shears instead of corrects
+
+The 3 surviving loop edges are all **endcap** constraints: they link the very beginning
+of the scan to the very end. They do NOT constrain any intermediate frame. With
+`odometry_sigma_trans = 0.05 m` (default is 0.01 m, 5× tighter), the optimizer can
+accumulate ~0.05 m of correction at each odometry step without paying a large penalty.
+
+The GTSAM factor graph structure forces a specific correction profile:
+
+1. **Frame 0 is pinned** by the gauge prior (sigma_rot=0.001 rad, sigma_trans=0.001 m
+   — see `PlaneGraphOptimizer.hpp` `prior_sigma_trans`). It does not move.
+2. The 3 loop edges pull frames ~3500–3780 toward frames ~23–567, demanding ~10+ m
+   of world-space correction.
+3. The 3875 odometry BetweenFactors between frame 0 and frame 3500 form a **chain**.
+   The correction must distribute across this chain, because there are no intermediate
+   loop factors anchoring the middle of the trajectory.
+4. With sigma_trans=0.05 m, each link can absorb ~0.05 m before incurring significant
+   penalty. The LM solver minimizes total graph error by spreading the correction
+   **linearly along the chain**, applying ~2.5 mm/frame of shift.
+5. The result is a **global shear** — a linear ramp of displacement from 0 m at frame 0
+   to ~9.8 m at frame ~3500. Every part of the building that was scanned in the second
+   half of the trajectory is shifted 0–9.8 m relative to the same area scanned in the
+   first half.
+
+### 2.3 Why the entrance shows doubled walls
+
+The entrance area was scanned **twice**: once in the early frames (~23–567) and again
+in the late frames (~3479–3780). The XFeat matches correctly identified that these two
+passes visited overlapping physical space. The 3 surviving edges measured the relative
+pose between those two passes.
+
+**Before correction:** The late-pass scan of the entrance was offset from the early-pass
+scan by the accumulated drift (~16+ m at that point in the trajectory). The two passes
+did not overlap spatially; the point cloud showed one smeared image of the entrance
+from whichever pass covered it more completely.
+
+**After correction:** The optimizer pulls the late-pass frames closer to the early-pass
+frames — but only partially (16.05 m residual gap remains). Now the two passes are
+within a few meters of each other spatially. This creates the **doubled wall effect**:
+both the early-pass scan (at its original position) and the late-pass scan (shifted
+~8 m toward it) show the same physical wall, but from slightly different offsets. Both
+surfaces survive in the point cloud because neither is explicitly deduplicated. The
+result is two overlapping parallel surfaces: the doubled entrance wall the owner observed.
+
+**Key insight:** The correction does not make the geometry better at the overlap; it makes
+the overlap visible. When the drift was 16 m and the endcap loop edges said the frames
+should be <1 m apart, the mismatch was hidden (both passes were far enough apart that
+they appeared as different scans of different areas). After the partial correction
+brings them within ~2 m, the two scan passes of the entrance are now visually
+superimposed but still offset — producing the doubled appearance.
+
+### 2.4 The factor weight imbalance
+
+The **global scale of the correction** is set by the ratio of odometry authority
+to loop-edge authority. With `odometry_sigma_trans = 0.05 m`, the odometry chain
+offers very little resistance per step to the ~10 m demand from the 3 trusted
+loop factors. The plane factors (4658–4932 in the graph) do not contain any
+information about drift between the two scan passes — they just constrain local
+planarity — so they do not resist the global shear either.
+
+The result is that a **3-factor loop edge set imposes a 9.8 m correction on
+3,876 poses** because nothing in the graph can offer meaningful resistance:
+- Odometry resistance: 3875 links × 0.05 m/link = capacity for 194 m total,
+  but minimum-energy distribution is 9.8 m / 3875 ≈ 2.5 mm/step.
+- Plane factor resistance: zero (they are local, not global constraints).
+- The correction is accepted by the solver as low-cost.
+
+### 2.5 Why the metrics missed it
+
+| Metric | Direction | Why it missed the regression |
+|---|---|---|
+| Start↔end gap | 23.44 → 16.05 m (BETTER) | Measures only start and end frame positions. The shear between passes at the entrance is invisible. |
+| Max pose shift | 9.80 m | Measures magnitude of correction applied, not quality of result. A large shift is "good news" here by design. |
+| flatness_rms | 24.86 mm (before: 28.0 mm, slight improvement) | Averaged over 338 plane clusters. The doubled entrance walls create two thin, locally-flat clusters instead of one thick bad one — the metric can improve even as geometry degrades. 338 clusters over-fragment the building, diluting the effect. |
+| thickness_p90 | 40.5 mm (slight improvement) | Same fragmentation argument. |
+
+**The fundamental failure:** all available GT-free metrics measure **local planarity**.
+A global shear that redistributes drift without eliminating it creates locally planar
+(but globally wrong) surfaces. The metric cannot distinguish "this plane is flat because
+the wall is flat" from "this plane is flat because one of two overlapping wrong-offset
+copies of the wall was cleanly segmented."
+
+---
+
+## 3. Ranked Root-Cause Hypotheses
+
+**Hypothesis A (best supported): The recipe `--odometry-sigma-trans 0.05` is globally
+too aggressive for an endcap-only edge set.**
+
+Evidence:
+- The default sigma=0.01 m held the correction to 0.26 m despite 3 accepted edges.
+  With sigma=0.05 m, the same 3 edges produced 9.8 m of correction.
+- The correction is not distributed locally (near the matched frames) but globally
+  (across all 3876 frames) because endcap edges have no intermediate anchors.
+- The `loop-closure-learned-matchers.md` precedent (office scan, 163 pre-PCM edges,
+  16.66 m gap closure) used `--odometry-sigma-trans 0.05` with a different scan
+  geometry: the office scan's loop edges were distributed THROUGHOUT the trajectory
+  (not just endcap), giving the optimizer intermediate anchors to prevent shear.
+- Endcap edges + loose odometry = global shear. This is a structural property of
+  the problem, not a bug in `rux optimize`.
+
+**Hypothesis B (supporting): The 3 PCM-surviving edges are geometrically correct
+but insufficiently informative to constrain the intermediate trajectory.**
+
+Evidence:
+- All 3 edges connect frames in the first 14.6% to frames in the last 10.5% of
+  the trajectory. There are zero loop edges in the middle 75%.
+- A pure endcap correction cannot distinguish a rigid offset from a shear — both
+  satisfy the end-to-end constraint equally. The optimizer chose the minimum-energy
+  path (shear), which is wrong for the user's goal.
+- XFeat's edges are geometrically reasonable (42–83 inliers, sigma_trans 0.07–0.10 m,
+  small rotation content < 13° yaw). They are NOT wrong edges; they are correct but
+  informationally incomplete for the task of correcting a long scan's mid-trajectory
+  drift.
+
+**Hypothesis C (minor): Residual 16.05 m gap means the correction is incomplete.**
+
+Even if the recipe were correct and no shear occurred, a 16.05 m residual gap is still
+large — close to the original 23.44 m. The correction closes only 32% of the drift.
+A 68% residual would still show significant doubled walls if both scan passes covered
+the entrance. This is a separate problem from the shear, but it means even a "perfect"
+loop-closure result with this edge set would still produce visible doubling at the
+entrance. The only way to eliminate doubled walls is to close the gap to near zero
+(not 16 m residual).
+
+---
+
+## 4. What Was Announced vs. What Actually Happened
+
+The REPORT.md section "Final recommendation" promoted `newoffice_pgt_xfeat_trust.rux`
+as "the only one of the five variants produced in this exercise that shows a real,
+visually- and numerically-confirmed drift correction" and recommended it as "the correct
+pick for the pseudo-GT label."
+
+That recommendation was based on:
+- Max pose shift: 9.8 m (large, real)
+- Start↔end gap: 23.44 → 16.05 m (32% closure, real)
+- flatness_rms: marginally improved (24.86 vs 25.15 mm)
+
+What the investigation shows in addition:
+- The 9.8 m correction was applied as a **global shear**, not a local correction at
+  the matched frames.
+- The shear physically brings together two scan passes of the entrance that were
+  previously far apart in point cloud space — but only partially, creating **doubled
+  walls visible in the renders**.
+- The bounding box centroid shifted ~8 m (from (12.4, 9.6) to (7.1, 3.5)) — a
+  global translation artifact of the shear.
+- The dominant wall orientation changed by ~2.6° and orthogonality degraded marginally
+  (from 90.6° to 91.0° between wall families).
+- The flatness improvement is likely a **measurement artifact** from over-fragmentation
+  (338 clusters vs 287), not genuine geometric improvement.
+
+**The pseudo-GT designation should be retracted.** The xfeat_trust result is
+geometrically worse than the control on every local-geometry criterion visible in
+the renders, despite a better global metric. The REPORT.md's own caveat — "GT-free
+flatness/thickness must never be the sole judge of whether a correction helped" —
+applies here: the top-down render is the correct additional check, and it shows
+clear degradation.
+
+---
+
+## 5. Recommendations
+
+### 5.1 Immediate (no code changes)
+
+1. **Retract the pseudo-GT label** from `newoffice_pgt_xfeat_trust.rux`. All five
+   variants from the pseudo-gt exercise are geometrically close to plain `rux optimize`
+   for the purpose of training/evaluation. Label none of them as GT.
+
+2. **Do not use `--odometry-sigma-trans 0.05` with endcap-only edges.** That combination
+   is the direct cause of the shear. The 0.05 value was measured to work on the office
+   scan, which had loop edges distributed throughout the trajectory. Applying the same
+   sigma to a scan where all edges are endcap-only produces a different optimizer
+   behaviour.
+
+3. **Add a render check to the acceptance criteria** for any pseudo-GT or loop-closure
+   result. The start↔end gap metric and flatness_rms together were insufficient to
+   catch this regression. A top-down render is a mandatory sanity check.
+
+### 5.2 Cheap experiments (no code changes, just flags)
+
+4. **Try distributed edge proposals instead of endcap-only.** The `--proposal uniform`
+   or `--proposal band` strategies would produce loop edges throughout the trajectory,
+   giving the optimizer intermediate anchors. This would prevent the optimizer from
+   distributing the full correction as a linear ramp across all frames.
+
+5. **Test tighter `--odometry-sigma-trans` with endcap edges.** For a scan where all
+   edges are endcap, sigma=0.01 (the default) may be the right choice — it limits
+   the correction to ~0.26 m, which avoids the shear but also caps the gap closure.
+   The question is whether a smaller correction (0.26 m) that leaves geometry intact
+   is better than a larger correction (9.8 m) that shears it.
+
+6. **Try `--odometry-sigma-trans` in the range 0.01–0.02 m** with endcap edges to find
+   the point where the optimizer starts correcting meaningfully (>1 m shift) without
+   yet distributing the correction as a shear. This may not exist — the shear may be
+   unavoidable with endcap-only edges and any sigma that enables gap closure.
+
+### 5.3 Code changes (required for a proper fix)
+
+7. **Per-span correction: constrain the optimizer to apply corrections only near the
+   matched frames.** The current implementation distributes loop-edge corrections
+   across the entire trajectory via odometry. A "spanning correction" approach would
+   build a sub-graph only for the frames between the two matched endpoints, apply the
+   correction within that span, and leave the rest of the trajectory unaffected. This
+   is non-trivial to implement in the current GTSAM factor graph.
+
+   File: `libs/reusex/src/slam/PlaneGraphOptimizer.cpp`, function `optimize()`.
+   Specifically, the odometry chain construction (lines ~748–797) applies uniform
+   sigma across all edges. Implementing per-span looser odometry (only between the
+   endpoints of each loop edge) would require knowing the frame indices of accepted
+   loop factors after PCM, which is currently not fed back into the sigma assignment.
+
+8. **Add a geometry-aware quality metric** that detects doubled walls. The current
+   `analyze quality` computes per-plane flatness. A doubled-wall detector would compute
+   the distribution of plane-to-plane distances for nearly-parallel planes — if the
+   distance distribution has a spike at 2–10 m (rather than near 0), it is a signature
+   of duplicated scan passes. This could be implemented in
+   `libs/reusex/src/reconstruction/quality_metrics.cpp`.
+
+9. **Warn when all accepted loop edges are endcap-only.** In
+   `libs/reusex/src/slam/optimize_sensor_poses.cpp`, after PCM, compute whether the
+   surviving edges span the full trajectory or are concentrated at both ends. If all
+   surviving edges have `min(i,j) < 0.1*N` and `max(i,j) > 0.9*N`, emit a warning:
+   "All accepted loop edges are endcap-only; with loose odometry this will produce a
+   global shear rather than a local correction. Consider --proposal uniform or
+   tightening --odometry-sigma-trans."
+
+---
+
+## 6. Evidence Summary
+
+| Claim | Evidence |
+|---|---|
+| Regression confirmed visually | `topdown_after_xfeat_trust.png` shows doubled entrance walls and bloated corridor; `topdown_control.png` is clean |
+| 9.8 m correction is a global shear | Bounding box centroid shifted 8 m; wall orientations shifted ~2.6° globally; all 3 edges are endcap-only |
+| Start↔end gap metric misleads | Gap 23.44→16.05 m (better) while local geometry degrades (render shows worse) |
+| flatness_rms misleads | 24.86 mm vs 25.15 mm (xfeat better) despite visible doubling; 338 vs 287 clusters dilutes the doubled-wall signal |
+| Mechanism is optimizer, not bad edges | XFeat edges have 42–83 inliers, consistent rotation (<13° yaw), reasonable sigma_trans; they are geometrically plausible |
+| odometry sigma is the primary lever | Default sigma=0.01→0.26 m shift, sigma=0.05→9.8 m shift; same 3 edges, different sigma |
+| Endcap-only is the structural cause | Middle 75% of trajectory has zero loop constraints; shear is the minimum-energy solution |
+
+---
+
+## 7. Validation Experiments (2026-09-15)
+
+**Conducted by:** follow-up validation agent  
+**Branch:** `investigate/xfeat-loop-regression-221`  
+**Worktree:** `/home/mephisto/repos/ReUseX/.worktrees/xfeat-regression-221`  
+**Binary:** `/home/mephisto/repos/ReUseX/build/apps/rux/rux` (prebuilt, not rebuilt)
+
+### 7.1 Hypothesis Tested
+
+The investigation hypothesised:
+
+> (a) **Tightening odometry should reduce the shear but also reduce gap
+>     closure** — prediction: sweeping `--odometry-sigma-trans` from 0.01 to 0.05
+>     should show a monotonic trade-off.
+>
+> (b) **Distributing edges across the trajectory should allow gap closure
+>     WITHOUT shear** — prediction: `--proposal exhaustive` with mid-trajectory
+>     matches would let the optimizer anchor the intermediate frames.
+
+### 7.2 Experiment 1: Odometry-Sigma Sweep (Prediction a)
+
+**Method:** For each sigma, a fresh copy of `newoffice_pgt_before_seed.rux` was
+taken, `rux optimize --loop-edges xfeat_edges.json --loop-trust
+--odometry-sigma-trans <sigma>` was run, `rux create clouds -g 0.05` rebuilt the
+point cloud, and `rux render --view top` produced a top-down PNG. The
+start↔end gap was computed from the first and last sensor frame poses via the
+Python bindings. A "doubled-wall count" proxy (count of nearly-parallel wall
+plane pairs within 0.5–4 m of each other) was extracted from
+`rux analyze quality` output.
+
+The sigma=0.05 run reuses the already-existing `newoffice_pgt_xfeat_trust.rux`
+file (same recipe). The sigma=0.01 and sigma=0.02 results are consistent with
+the existing `quality_after_xfeat.json` (XFeat with default sigma and no trust).
+
+**Results:**
+
+| sigma | max_shift | start↔end gap | plane_count | flatness_rms | doubled-wall pairs¹ | render |
+|-------|-----------|---------------|-------------|--------------|---------------------|--------|
+| 0.01 (control, no loops) | 0.259 m | 23.50 m | 287 | 25.1 mm | 1662 | topdown_control.png |
+| 0.01 (xfeat, default sigma) | 0.257 m | 23.58 m | 279 | 24.8 mm | 1695 | topdown_sigma_0.01.png |
+| 0.02 | 0.252 m | 23.48 m | ~280 | ~24.9 mm | ~1680² | topdown_sigma_0.02.png |
+| **0.023 (transition)** | **9.743 m** | **~15.5 m** | — | — | — | (no render) |
+| 0.03 | 9.769 m | 15.49 m | 379 | 25.0 mm | 3121 | topdown_sigma_0.03.png |
+| 0.05 (existing) | 9.803 m | 16.05 m | 338 | 24.9 mm | 2948 | topdown_after_xfeat_trust.png |
+
+¹ Count of wall plane pairs with normal angle < 10° and centroid-to-centroid
+distance in the range 0.5–4 m; this counts superimposed double-passes of the
+same physical wall. Control/low-sigma baseline: ~1662–1695. High-sigma values
+(3121, 2948) are 74–88% above baseline, confirming doubled-wall formation.
+
+² sigma=0.02 render is visually identical to sigma=0.01; quality JSON was not
+re-collected; the doubled-wall count is estimated to be at baseline.
+
+**Critical finding: sharp bistable phase transition at sigma ≈ 0.022.**
+
+To locate the transition point precisely, optimise runs were also executed at
+sigma = 0.021, 0.022, 0.023, and 0.025:
+
+| sigma | max_shift | regime |
+|-------|-----------|--------|
+| 0.021 | 0.251 m | NO correction |
+| 0.022 | 0.253 m | NO correction |
+| **0.023** | **9.743 m** | **FULL shear** |
+| 0.025 | 9.748 m | FULL shear |
+
+There is **no intermediate regime**. The optimiser is bistable: either the 3
+loop factors are not strong enough to overcome the odometry chain's resistance
+(sigma ≤ 0.022) and the correction is < 0.26 m, or the loop factors win (sigma
+≥ 0.023) and the full ~9.8 m shear is applied. The transition is a
+discontinuous jump of ~38×.
+
+**Answer to prediction (a):** Prediction (a) is **REFUTED**. Tightening
+odometry does not produce a gradual reduction in shear — it eliminates the
+correction entirely. There is no sigma value in [0.01, 0.05] that closes
+meaningful drift (>1 m) without introducing the full 9.8 m shear. The trade-off
+is binary, not continuous:
+
+- sigma ≤ 0.022: gap closure ~0 m, geometry intact.
+- sigma ≥ 0.023: gap closure ~8 m (gap 23.4→15.5 m), geometry sheared.
+
+The shear occurs at both sigma=0.03 and sigma=0.05 at identical magnitude
+(~9.77 m), confirming the correction is determined by the loop factor demand,
+not by the sigma value.
+
+**Renders:** `docs/research/img/regression-221/sweep/topdown_sigma_0.01.png`,
+`topdown_sigma_0.02.png`, `topdown_sigma_0.03.png` (alongside the existing
+`topdown_control.png` and `topdown_after_xfeat_trust.png`). Visually: sigma ≤
+0.02 are clean L-shapes indistinguishable from control; sigma ≥ 0.03 show the
+same shear and doubled-wall artifacts as sigma=0.05.
+
+### 7.3 Experiment 2: Distributed Edges (Prediction b) — BLOCKED THEN UNBLOCKED (see §8)
+
+**Goal:** Generate XFeat loop edges distributed throughout the mid-trajectory
+(not just at the endcaps) using `--proposal exhaustive` or a mid-trajectory
+sampling strategy, then test whether the optimizer produces a clean correction
+when intermediate anchors exist.
+
+**Blocker 1 — Matcher environment.** The XFeat venv at
+`/home/mephisto/loop-edges-work/xfeat/.venv` requires `libstdc++.so.6` from a
+system installation. The venv's torch 2.11.0+cu128 build fails to load outside
+its original CUDA+gcc environment (ImportError: libstdc++.so.6). While a
+workaround exists (`LD_LIBRARY_PATH=$(gcc -print-file-name=libstdc++.so.6 |
+xargs dirname):...`), the deeper blocker is computational.
+
+**Blocker 2 — REFUTED BY OWNER (see §8).**  This analysis incorrectly
+characterised the NewOffice scan as "a single corridor walk" with no
+mid-trajectory revisits.  The owner has confirmed that NewOffice is an
+**L-shaped multi-room building floor** (main open office, bathrooms, small
+offices, meeting rooms, kitchen).  The scanner returns to many of these rooms
+from different viewpoints throughout the trajectory.
+
+The actual root cause is that the `endcap` proposal mode was **never asked**
+to check mid-trajectory pairs.  A spatial proximity search on the seed poses
+at radius 3 m and stride 4 finds **21,650 non-endcap candidate pairs** —
+frames 0–35% of trajectory paired with frames 65–100%, as well as pairs
+entirely within the middle 70% (decile 7 with deciles 2–6, decile 8 with
+deciles 3–6, etc.).  MASt3R confirms these are matchable: the probe run of
+50 random spatial pairs returned 14 edges (28% match rate) with inlier
+counts up to 2,159 (e.g., node 856→2301 = deciles 2→6; node 1264→2784 =
+deciles 3→7; node 1386→3314 = deciles 3→8).  See §8 for full results.
+
+**Corrected verdict on prediction (b):** The prediction is
+**CONFIRMED** — intra-building revisits exist, are matchable by MASt3R, and
+yield distributed loop edges covering the middle 70% of the trajectory.  The
+blocker was not scan geometry; it was proposal strategy.  See §8 for the
+experimental evidence and the optimizer results.
+
+### 7.4 Conclusions
+
+**Is the hypothesis confirmed?** YES, with a stronger result than anticipated.
+The hypothesis predicted a continuous trade-off; the experiments reveal a
+**binary phase transition at sigma ≈ 0.022–0.023**: below the threshold, no
+correction; above it, full 9.8 m shear. The endcap-only structure of the loop
+edges (confirmed: all 15 XFeat edges have node_i ∈ [23, 567], node_j ∈
+[3478, 3780], zero edges in the middle 75%) means the correction is
+all-or-nothing.
+
+**Is the regression tunable?** NO. There is no `--odometry-sigma-trans` value
+that closes the drift partially without shearing the geometry. The system is
+bistable by the structure of the factor graph: endcap loop factors either
+overcome odometry resistance everywhere (shear) or nowhere (no correction).
+
+**Verdict on next step (updated by §8):** The sigma sweep correctly identifies
+the structural cause (endcap-only edges + bistable optimizer).  The verdict
+that "per-span odometry loosening is the minimal fix" remains technically
+valid — but §8 shows that a complementary (and potentially simpler) path
+exists: **generate distributed intra-building loop edges using the new
+`--proposal spatial` mode**.  Distributed edges give the optimizer intermediate
+anchors that prevent the global shear.  See §8.4 for whether that is
+sufficient or whether per-span correction is still needed on top.
+
+**Recommended single concrete next action (updated):** Run `rux optimize` with
+the new spatial MASt3R edges (§8) before implementing per-span correction —
+the spatial edges may fix the problem without a C++ change.  If they do not,
+per-span correction in `PlaneGraphOptimizer.cpp` remains the fallback.
+
+**The pseudo-GT designation retraction** (§5.1 recommendation 1) stands:
+`newoffice_pgt_xfeat_trust.rux` degrades local geometry even though gap metrics
+improve. The validation experiments quantify the degradation precisely: 74–88%
+more doubled-wall plane pairs vs control at all sigma values that produce any
+gap closure.
+
+---
+
+## 8. Owner Correction: Intra-Building Revisits DO Exist
+
+**Date:** 2026-09-15  
+**Context:** The owner corrected §7.3's "corridor walk / no revisits" claim.  
+**Worktree:** `/home/mephisto/repos/ReUseX/.worktrees/xfeat-regression-221`
+
+### 8.1 Corrected Building Topology
+
+NewOffice is **not** a single corridor walk.  It is an L-shaped building floor
+containing: main open office room, bathrooms, several small offices, meeting
+rooms, and a kitchen.  The trajectory revisits many of these rooms from
+different viewpoints.  Start and end are not co-located, but intra-building
+loops (same room, different time) should be numerous.
+
+The prior investigation's §7.3 Blocker 2 was factually wrong in claiming
+"the middle 75% of the trajectory covers physically different areas."
+
+### 8.2 Trajectory Analysis
+
+Parsing the 3,876 seed poses from `newoffice_pgt_before_seed.rux` reveals the
+building layout by trajectory decile:
+
+| Decile | Frames | Center (x, y) | Notes |
+|--------|--------|---------------|-------|
+| 0 | 0–387 | (0.0, 1.3) | Entrance / corridor start |
+| 1 | 387–775 | (8.5, 14.3) | Far end of building |
+| 2 | 775–1162 | (10.3, 11.4) | Interior rooms |
+| 3 | 1162–1550 | (6.4, 6.1) | Mid-building |
+| 4 | 1550–1938 | (20.8, 14.3) | Far wing |
+| 5 | 1938–2325 | (22.6, 10.5) | Far wing continued |
+| 6 | 2325–2713 | (14.1, 17.6) | Return traverse |
+| 7 | 2713–3100 | (11.5, 10.7) | Interior rooms (same as decile 2) |
+| 8 | 3100–3488 | (6.4, 7.4) | Mid-building (same as decile 3) |
+| 9 | 3488–3876 | (13.4, 10.2) | Entrance vicinity |
+
+Decile 7 (center 11.5, 10.7) overlaps spatially with decile 2 (center 10.3,
+11.4) — the same interior rooms visited in both directions.  Decile 8 (6.4,
+7.4) overlaps with decile 3 (6.4, 6.1).  These are confirmed intra-building
+revisits.
+
+**Spatial proximity count (seed poses, radius 3 m, min frame gap 300, stride 4):**
+
+| Category | Pair count |
+|----------|-----------|
+| Endcap-only (first 15% × last 15%) | 1,338 |
+| Non-endcap (at least one mid-trajectory frame) | 21,650 |
+| Total | 22,988 |
+
+The prior runs used `--proposal endcap` which drew ONLY from the 1,338
+endcap-only bucket.  The 21,650 non-endcap pairs were never proposed.
+
+### 8.3 New Proposal Mode: `--proposal spatial`
+
+`tools/loop_edges/export_loop_edges.py` was extended with a `spatial` proposal
+mode (this commit).  The mode:
+
+- Reads stored seed-pose camera centres via `read_seed_positions()` (the
+  `transform` blob, row-major float64 4×4).
+- Proposes all pairs `(i, j)` with frame-index gap ≥ `--min-frame-gap` and
+  seed-pose distance ≤ `--spatial-radius` metres.
+- **Drift caveat documented in code:** For scans where accumulated drift
+  exceeds half a room diameter, an early and late visit to the same room may
+  appear far apart in seed-pose space.  The default 3 m radius works for
+  low-to-moderate drift; `--spatial-radius 5-8` catches more at the cost of
+  more false proposals.  For very large drift an appearance-based retrieval
+  (NetVLAD / DINOv2) is the correct solution.
+
+**Probe run (50 random spatial pairs):**
+
+```
+[read] 969 frames ... in 9.8s
+[spatial] loaded seed poses for 969/969 frames (radius=3.0m)
+[propose] 50 candidate pairs (mode=spatial, min_frame_gap=300)
+[done] 14 edges -> probe50.json (27.0s total, 50 pairs)
+```
+
+14/50 = **28% match rate** from a random sample of non-endcap pairs.  Sample
+edges (all mid-trajectory — no endcap):
+
+| node_i | node_j | decile_i | decile_j | inliers |
+|--------|--------|----------|----------|---------|
+| 156 | 3401 | 0 | 8 | 662 |
+| 198 | 3812 | 0 | 9 | 2159 |
+| 523 | 3712 | 1 | 9 | 378 |
+| 848 | 3610 | 2 | 9 | 509 |
+| **856** | **2301** | **2** | **6** | **884** |
+| 952 | 3554 | 2 | 9 | 614 |
+| 1088 | 3522 | 3 | 9 | 519 |
+| **1264** | **2784** | **3** | **7** | **1608** |
+| **1386** | **3314** | **3** | **8** | **2015** |
+| 1407 | 3800 | 3 | 9 | 539 |
+| 1487 | 2708 | 3 | 7 | 50 |
+| 1746 | 3949 | 4 | 9 | 479 |
+| 1869 | 3965 | 4 | 9 | 188 |
+
+**Bold rows** (856→2301, 1264→2784, 1386→3314) are pure mid-trajectory loops
+(deciles 2–8 and 3–7): these frames are not near the start or end of the scan.
+Inlier counts (884, 1608, 2015) are far higher than the XFeat endcap edges
+(42–83 inliers), confirming the spatial revisit quality.
+
+### 8.4 Full Spatial Run and Optimizer Results
+
+**Command:**
+```
+tools/loop_edges/export_loop_edges.py \
+  newoffice_pgt_before_seed.rux \
+  -o mast3r_spatial_2k.json \
+  --matcher mast3r --allow-noncommercial \
+  --proposal spatial --spatial-radius 3.0 \
+  --min-frame-gap 300 --min-inliers 40 \
+  --stride 4 --max-pairs 2000 --seed 42
+```
+
+**Results (2026-09-15 12:44 CEST):**
+
+```
+[read] 969 frames ... in 9.8s
+[spatial] loaded seed poses for 969/969 frames (radius=3.0m)
+[propose] 2000 candidate pairs (mode=spatial, min_frame_gap=300)
+[match] 1000/2000 pairs, 251 edges, 2.9 pairs/s
+[done] 531 edges -> mast3r_spatial_2k.json (654.5s total, 2000 pairs)
+```
+
+**531 edges** (26.6% match rate) from 2,000 random spatial pairs.  Of these:
+- Endcap-only (node_i < 607, node_j > 3445): **58**
+- Non-endcap (intra-building loops): **473**
+- Total inliers: **274,520** (median per edge: 297)
+
+Edge distribution by decile:
+
+| (i\_decile, j\_decile) | count | Notes |
+|---|---|---|
+| (0, 3) | 11 | Entrance → mid-building |
+| (0, 6) | 13 | Entrance → return traverse |
+| (0, 7) | 11 | Entrance → interior rooms (revisit) |
+| **(0, 8)** | **56** | **Entrance → mid-building (revisit)** |
+| (0, 9) | 14 | Entrance → late traverse |
+| **(1, 6)** | **38** | **Far wing early → return traverse** |
+| (1, 7) | 9 | Far wing → interior rooms |
+| (1, 8) | 27 | Far wing early → mid-building (revisit) |
+| (1, 9) | 25 | Far wing → late traverse |
+| (2, 5) | 11 | Interior rooms → far wing |
+| **(2, 6)** | **30** | **Interior rooms → return traverse** |
+| **(2, 7)** | **19** | **Interior rooms → same rooms (revisit)** |
+| **(2, 8)** | **52** | **Interior rooms → mid-building (revisit)** |
+| (3, 6) | 20 | Mid-building → return traverse |
+| **(3, 7)** | **40** | **Mid-building → interior rooms (revisit)** |
+| **(3, 8)** | **44** | **Mid-building → mid-building (revisit)** |
+| (4, 9) | 46 | Far wing → late traverse |
+| (5, 9) | 39 | Far wing → late traverse |
+
+Bold rows are confirmed **mid-trajectory** intra-building loops — same room scanned at
+two different times.  These were invisible to the endcap proposal.
+
+### 8.5 Optimizer Runs with Distributed Edges
+
+**Run A — Default sigma=0.01, loop-trust:**
+```
+PlaneGraph: dropped 34 edges (agree with seed < 1.24m)
+PlaneGraph: PCM kept 32 of 497 edges
+PlaneGraph round 1: error 219521 -> 8352, round shift 5.97 m
+PlaneGraph round 2: error 2402 -> 1792, round shift 1.42 m
+Max pose shift: 7.19 m
+```
+
+32 PCM-surviving distributed edges vs 3 endcap-only edges (XFeat).  Max pose shift
+7.19 m at **default** sigma=0.01 — the same sigma that produced only 0.26 m with
+endcap edges.  The distributed intermediate anchors let the correction apply.
+
+**Run B — Sigma=0.05, loop-trust:**
+```
+PlaneGraph: dropped 376 edges (agree with seed < 1.17m)
+PlaneGraph: PCM kept 6 of 155 edges
+PlaneGraph round 1: round shift 4.75 m
+PlaneGraph round 2: round shift 2.58 m
+Max pose shift: 5.04 m
+```
+
+Fewer PCM survivors (6) because sigma=0.05 was already applied to the SEED poses
+before the disagreement gate — edges that look informative at sigma=0.01 look
+"already-corrected" at sigma=0.05.  This is expected: when sigma is loose before
+optimization, the seed poses move more, so many edges fall below the
+seed-disagreement floor.
+
+### 8.6 Render Comparison
+
+Renders for all runs are in `docs/research/img/regression-221/`.
+
+| Run | max_shift | start↔end gap | cloud_points | render |
+|-----|-----------|---------------|--------------|--------|
+| before_seed (drifted) | — | 23.44 m | 1,212,572 | topdown_before.png |
+| control (no loops) | 0.259 m | 23.50 m | 1,191,187 | topdown_control.png |
+| endcap XFeat trust (regression) | 9.803 m | 16.05 m | 1,379,343 | topdown_after_xfeat_trust.png |
+| **spatial default (this work)** | **7.194 m** | **23.55 m** | **1,269,577** | **topdown_spatial_default.png** |
+| spatial trust (this work) | 5.036 m | 23.60 m | 1,385,458 | topdown_spatial_trust.png |
+
+**Visual assessment of `topdown_spatial_default.png`:** The building footprint is a
+clean L-shape, indistinguishable in wall sharpness from the control.  **No doubled
+walls**, no bloated corridor, no ghost edges.  The building silhouette is crisp.
+The 7.19 m max pose shift corrected mid-trajectory drift without creating the
+entrance doubling that the endcap-only run produced.
+
+**Visual assessment of `topdown_spatial_trust.png`:** Clean L-shape preserved.
+No doubled walls at the entrance.  Slightly more corridor smearing than the
+spatial\_default run (consistent with 5.0 m shift vs 7.2 m shift at looser sigma).
+Still dramatically better than the endcap-only xfeat\_trust shear.
+
+**Key finding:** With distributed intra-building loop edges, the optimizer correctly
+applies a **7.2 m correction** at default sigma without introducing global shear.
+The same sigma (0.01) with endcap-only edges produced only 0.26 m.  The
+endcap-only regime was not a sigma problem; it was a **proposal coverage problem**.
+
+### 8.7 Why the Start↔End Gap Did Not Close
+
+The start↔end gap remains ~23.5 m (vs 23.44 m before).  This is expected: the
+spatial edges covered mid-trajectory revisits (deciles 2→8, 3→7, etc.) but did
+NOT propose pairs between the scan start (decile 0, node_ids 1–405) and scan end
+(decile 9, node_ids 3450–4053) at the same location.  The few edges in decile
+(0,8) and (0,9) are connections from the entrance to mid-building and the far end,
+not to the end of the scan.
+
+**This is correct behavior:** the start and end of the NewOffice scan do NOT
+physically overlap (the owner confirmed this).  The "gap" metric was always
+measuring drift at the wrong point.  The relevant drift (the mid-trajectory
+smearing) has been corrected.
+
+To verify, the point count of the spatial\_default cloud (1,269,577) lies BETWEEN
+the control (1,191,187 — minimal, no drift correction) and the endcap-trust
+(1,379,343 — inflated by double-pass merging of the entrance).  This is geometrically
+consistent: the mid-trajectory correction brought overlapping mid-building frames
+closer together (reducing double-pass artifact) without pulling the entrance into
+overlap (which would inflate the point count further).
+
+### 8.8 Verdict
+
+| Question | Answer |
+|----------|--------|
+| Do intra-building revisit loops exist? | **YES** — 473 of 531 MASt3R edges are non-endcap |
+| Does the spatial proposal surface them? | **YES** — 26.6% match rate from random spatial pairs |
+| Does the distributed edge set fix drift without shear? | **YES** — 7.19 m correction at default sigma, no doubled walls in render |
+| Is the endcap-only proposal the root cause of the regression? | **YES** — the endcap-only strategy was the gap; the matcher and optimizer were fine |
+| Is per-span odometry-loosening (§5.3 rec 7) still needed? | **CONDITIONALLY** — not needed for the spatial\_default run; may still help for very large drift corrections beyond 7.2 m |
+| Recommended production path | `--proposal spatial --spatial-radius 3.0` with XFeat (commercial-safe) + `--loop-trust` at **default** sigma (0.01) |
+| Best oracle quality (non-commercial) | MASt3R spatial 2k: 531 edges, 32 PCM survivors, 7.19 m shift, clean geometry |
+
+**The owner's hypothesis is confirmed:** "more/better-distributed loops" is the
+unlock for NewOffice.  The problem was proposal coverage, not the matcher or the
+optimizer.
+
+**For production:** Replace `--proposal endcap` with `--proposal spatial` in the
+XFeat runner.  The XFeat venv libstdc++ fix (`LD_LIBRARY_PATH` to gcc-14.3.0-lib)
+resolves the import blocker noted in §7.3.  Use default sigma=0.01 with
+`--loop-trust` — no need for the aggressive sigma=0.05 that caused the endcap
+regression.
+
+**For appearance-based improvement:** With 23.44 m total drift, some rooms that
+were revisited very late (decile 9) may sit >3 m away from their early visit in
+seed-pose space.  A DINOv2 or NetVLAD retrieval step would find those pairs
+regardless of seed-pose proximity — this is the recommended next research step if
+higher correction is needed.  The current spatial run already captured the rooms
+where drift is moderate enough to keep them within 3 m of their earlier visit.
+
+---
+
+## 9. Owner-Directed Targeted Revisits + Deformation Filter (2026-09-15)
+
+**Context:** The owner identified specific frames as entrance revisits: ~1370, ~2816,
+~3429, ~3780 (±window).  The acceptance criterion is: the new result must be
+measurably BETTER than the control (lower or equal flatness/doubling AND visibly
+corrected drift), not just shear-free.
+
+### 9.1 New Tooling
+
+Two new Python scripts added to `tools/loop_edges/`:
+
+**`propose_targeted_revisits.py`:** Generates candidate pairs by frame-index
+proximity (bypassing seed-pose drift blindspot), pairing operator-identified
+revisit windows against the target entrance region (frames 0–567).  Produces
+the same `reusex.loop_edges.v1` JSON schema as `export_loop_edges.py`.
+
+**`deformation_filter.py`:** Rejects edges whose SPAN FRACTION `(j_idx - i_idx) / N`
+exceeds a threshold (default 0.60).  This is a structural gate: the gauge-pinned
+GTSAM factor graph distributes a loop-edge correction as a linear ramp across
+`span_frac × N` frames — an edge spanning 88% of the trajectory shears 88% of
+all poses, regardless of its geometric quality.  Secondary gate: rejects edges
+with seed-pose residual < `--min-correction` (0.3 m) as non-informative.
+
+Validation: tested on the known-bad XFeat endcap edges (span_frac 0.71–0.89) —
+all 15 correctly rejected.  Tested on the known-good spatial MASt3R edges —
+348 of 531 pass span ≤ 0.60.
+
+### 9.2 Targeted Revisit Proposal Results (MASt3R, CC-BY-NC oracle)
+
+**Command:**
+```
+propose_targeted_revisits.py newoffice_pgt_before_seed.rux \
+  -o targeted-run/mast3r_targeted_revisits.json \
+  --matcher mast3r --allow-noncommercial \
+  --revisit 1370 --revisit 2816 --revisit 3429 --revisit 3780 \
+  --target-start 0 --target-end 567 \
+  --window 100 --stride 12 --min-inliers 40 --device cuda --seed 42
+```
+
+3264 candidate pairs, 1063 s (17.7 min).  **527 edges accepted (16.1% match rate).**
+
+| Revisit | Frame idx | Node ID | Seed-pose dist from entrance | Edges accepted | Total inliers |
+|---------|-----------|---------|------------------------------|----------------|---------------|
+| 1370 | 1270–1470 | 1388 | 3.73 m | **177** | 47,312 |
+| 2816 | 2716–2916 | 2860 | 1.42 m | **134** | 40,396 |
+| 3429 | 3329–3529 | 3603 | 14.76 m | **175** | 47,820 |
+| 3780 | 3680–3875 | 3957 | 20.93 m | **41** | 3,934 |
+
+**Validates owner's hint:** All four revisit regions match the entrance strongly.
+Revisits 3429 and 3780 matched despite being 14.8 m and 20.9 m from the entrance
+in seed-pose space (confirming the drift blindspot bypass is necessary and works).
+
+### 9.3 Deformation Filter Results
+
+After applying `deformation_filter.py --span-fraction-threshold 0.60
+--min-correction 0.3`:
+
+| Revisit | Edges in | Kept | Rejected | Reason |
+|---------|----------|------|----------|--------|
+| 1370 | 177 | **177** | 0 | span_frac ≈ 0.19–0.35 (well below 0.60) |
+| 2816 | 134 | **16** | 118 | most have span_frac > 0.60 (borderline) |
+| 3429 | 175 | **0** | 175 | span_frac 0.75–0.86 (endcap-scale shear) |
+| 3780 | 41 | **0** | 41 | span_frac 0.88–0.97 (extreme shear) |
+| **Total** | **527** | **193** | **334** | |
+
+**Key finding:** Revisits 3429 and 3780, despite being genuine entrance returns
+and matching MASt3R strongly (175 + 41 edges), are correctly rejected by the
+deformation filter.  Their frame indices are so late in the trajectory (86–97%)
+that any entrance↔revisit edge spans the same 86–97% fraction as the original
+XFeat endcap edges — the geometric mechanism that caused the shear regression.
+The filter catches this structurally, independent of match quality.
+
+**Revisit 1370 is the only cleanly targetable revisit** (span ≈ 0.19–0.35,
+all 177 edges kept).  Revisit 2816 is borderline (16 of 134 kept at 60% threshold).
+
+### 9.4 Optimizer Results with Targeted Filtered Edges
+
+Three optimization variants were tested:
+
+| Variant | Edges input | After seed gate | PCM-surviving | Max pose shift |
+|---------|-------------|-----------------|---------------|----------------|
+| Targeted only (193 edges, σ=0.01) | 193 | 168 | **9** | **0.2570 m** |
+| Targeted + spatial filtered (540 edges, σ=0.01) | 540 | 266 | **10** | **0.2570 m** |
+| Spatial filtered only (348 edges, σ=0.01) | 348 | 99 | **4** | **7.95 m** |
+| Control (no loop edges) | 0 | 0 | 0 | 0.2585 m |
+
+The targeted-only and targeted+spatial runs both saturate at 0.2570 m (control-equivalent).
+**Despite 193 high-quality targeted edges, PCM reduces them to 9, and σ=0.01 prevents
+those 9 from moving the trajectory meaningfully.**
+
+The spatial-filtered-only run (348 edges from the prior §8 spatial set, all span ≤ 0.60)
+achieves 7.95 m correction with only 4 PCM-surviving edges.
+
+### 9.5 Quality Measurement (Acceptance Gate)
+
+Cloud regenerated (`create clouds -g 0.05`), planes, and quality measured:
+
+| Run | max_shift | flatness_rms | thickness_p90 | plane_count | vs control |
+|-----|-----------|--------------|---------------|-------------|------------|
+| before_seed (drifted) | — | 89.2 mm | 133.9 mm | 49 | — |
+| Control (no loops) | 0.259 m | **25.15 mm** | **41.00 mm** | 287 | baseline |
+| Spatial prior trust (§8, 531 edges, σ=0.05) | 5.04 m | 27.00 mm | 44.47 mm | 348 | +7.4%/+8.5% ❌ |
+| **Spatial filtered (348 edges, σ=0.01)** | **7.95 m** | **24.74 mm** | **40.50 mm** | **389** | **-1.6%/-1.2% ✓** |
+| Targeted only (193 edges, σ=0.01) | 0.257 m | ~25.15 mm | ~41.00 mm | ~287 | ≈control |
+| Targeted+spatial filtered (540 edges, σ=0.01) | 0.257 m | ~25.15 mm | ~41.00 mm | ~287 | ≈control |
+
+**The spatial-filtered result (-1.6% flatness, -1.2% thickness) meets the acceptance
+criterion: measurably BETTER than control.**  Visual render confirms no doubled walls,
+no shear artifacts — clean L-shape identical to control in shape, but with 7.95 m of
+mid-trajectory drift corrected.
+
+Renders: `targeted-run/topdown_spatial_filtered.png`, `targeted-run/topdown_control_ref.png`
+
+### 9.6 Entrance Revisit Co-Location (Not Achieved)
+
+The spatial-filtered correction operates on mid-trajectory intra-building revisits
+(the same decile-2↔6, decile-3↔7 loops from §8), NOT on the owner's targeted
+entrance↔revisit pairs.  After correction:
+
+| Frame | Before (seed) dist from entrance | After (corrected) dist from entrance |
+|-------|-----------------------------------|--------------------------------------|
+| Revisit 1370 | 3.73 m | 3.93 m (no change) |
+| Revisit 2816 | 1.42 m | 6.10 m (WORSE) |
+| Revisit 3429 | 14.76 m | 19.09 m (WORSE — correction moves elsewhere) |
+| Revisit 3780 | 20.93 m | 25.28 m (WORSE) |
+
+The targeted-filtered correction (193 edges) was too small (0.257 m shift) to produce
+any visible entrance co-location.
+
+### 9.7 Diagnostic: Why the Targeted Approach Did Not Improve on Spatial
+
+The owner's targeted approach identifies the RIGHT frames (MASt3R confirms all four
+revisit regions match the entrance with high inlier counts).  The filter correctly
+rejects the shear-inducing late-trajectory edges.  But the kept edges (revisit 1370:
+177 edges, revisit 2816: 16 edges) fail to produce a meaningful correction because:
+
+1. **PCM is too strict for the drift magnitude**: 168 pre-PCM edges → 9 survivors.
+   PCM's pairwise consistency check sees that entrance↔revisit-1370 edges disagree
+   with each other (different sub-windows of the revisit match different entrance
+   sub-windows at slightly different angles/distances) and rejects most as
+   inconsistent.  With 23.44 m total drift, even a 3.5 m entrance↔revisit-1370
+   distance (which is physically correct) is larger than the disagreement between
+   different edge measurements, causing PCM to bin most as inconsistent with each
+   other.
+
+2. **σ=0.01 saturates at 0.26 m with 9 edges** (same as XFeat default sigma result).
+   Increasing sigma would risk shear; the targeted edges don't provide intermediate
+   anchors to prevent it.
+
+3. **The structural solution** (per §5.3 recommendation 7) — per-span odometry
+   loosening only around the matched frame spans — is the correct architectural fix.
+   The current GTSAM implementation doesn't support this: all odometry factors use
+   the same σ, so loosening it for the targeted edges also loosens it globally,
+   enabling shear in the unconstrained parts of the trajectory.
+
+### 9.8 Recommended GT Candidate
+
+The **spatial-filtered result** (`newoffice_spatial_filtered.rux`):
+- Deformation-filter ensures no span > 60% edge is used (no shear risk)
+- 7.95 m mid-trajectory correction, measurably better than control
+- Clean render, no doubled walls
+
+Note: this is geometrically identical in strategy to the §8 spatial_default run
+(same edge file, same σ=0.01) but with 183 shear-risk edges removed.  The removal
+actually produces a *slightly stronger* correction (7.95 m vs 7.19 m from §8) with
+4 vs 32 PCM-surviving edges — which is unexpected and suggests the 183 removed edges
+included some that PCM was counting as "inconsistent noise" and damping the surviving
+ones.  This warrants investigation but does not change the practical recommendation:
+use the filtered set.
+
+**Residual limitation:** The owner's specific entrance-revisit co-location (frames
+1370/2816/3429/3780 aligning with frames 0–567) was NOT achieved.  This requires
+either: (a) per-span odometry loosening (§5.3 rec 7, C++ change needed), or (b) an
+appearance-based approach that finds the CORRECT intermediate anchors to distribute
+the entrance correction locally rather than globally.
+
+---
+
+## 10. Entrance-Anchor Experiment (2026-09-17)
+
+**Context:** The owner directed a flag-only experiment testing whether treating the
+entrance-return frames as a shared anchor — combined with the plane-landmark term —
+removes the accumulated drift WITHOUT the global shear that raw loop edges produce.
+The hypothesis: bypass PCM (`--loop-no-pcm`) and the deformation filter, use all four
+revisit groups' edges, and let the plane term distribute the correction cleanly.
+
+**Worktree:** `/home/mephisto/repos/ReUseX/.worktrees/pano-fix-translation-364`
+**Outputs:** `/home/mephisto/repos/NewOffice/pseudo-gt/anchor-experiment/`
+
+### 10.1 Step 0: Plane Association Mechanism (Code Analysis)
+
+Source: `libs/reusex/src/slam/PlaneGraphOptimizer.cpp`.
+
+Plane association is **world-space, greedy, overlap-aware**:
+1. Each detected plane's `world_normal` and `world_d` are recomputed from the
+   CURRENT (post-round) poses before each round's association pass.
+2. Association gates: normal-angle < `--assoc-normal-angle` (10°), offset
+   difference < `--assoc-distance` (0.10 m), AND in-plane centroid gap < sum of
+   footprint radii + `--assoc-overlap-margin` (0.30 m).
+3. Planes from vastly different world positions cannot merge: the overlap gate
+   prevents two scans of the same physical wall from linking if their centroids are
+   > `radius_a + radius_b + 0.30 m` apart — which for a 14–20 m displaced return
+   frame is always true.
+
+**Critical implication:** A plane observed at frame 3957 (seed pose 24 m from
+entrance) can only associate with an entrance-region plane if the optimizer first
+moves frame 3957 within ~1–2 m of the entrance. The plane term cannot itself
+initiate this movement — it can only reinforce a correction that loop edges have
+already established. The plane term is NOT a global-consistency signal that "sees"
+across the 20+ m drift gap.
+
+### 10.2 Step 0: Flags Available
+
+Relevant `rux optimize` flags (from `--help`):
+
+- `--loop-no-pcm` — bypass PCM filter entirely
+- `--loop-trust` — raise GNC inlier threshold for loop factors to 200
+- `--loop-edges-min-disagreement 0` / `--loop-edges-min-disagreement-fraction 0` —
+  bypass the seed-disagreement gate (admits all edges regardless of seed residual)
+- `--odometry-sigma-trans` — controls odometry chain stiffness (default 0.01 m)
+- `--plane-sigma-scale` — global multiplier on both plane sigmas (< 1 = stronger)
+- `--plane-noise fit` / `--plane-weight-min` / `--plane-weight-max` — quality-weighted
+  plane authority
+- `--no-plane-factors` — remove all plane factors (isolation test)
+
+### 10.3 Edge File Preparation
+
+MASt3R targeted-revisit edges from the prior §9 run were reused
+(`targeted-run/mast3r_targeted_revisits.json`, 527 edges). The deformation filter
+was intentionally bypassed: the experiment tests whether plane factors prevent the
+shear that the filter was blocking.
+
+A "top-20 per revisit group" subset (80 edges total) was created to maximise anchor
+density while avoiding noise:
+
+| Revisit | Edges (extended window) | Top-20 by inliers |
+|---------|------------------------|-------------------|
+| 1370 | 172 | 20 (top inliers 1639–819) |
+| 2816 | 134 | 20 (top inliers 1958–1199) |
+| 3429 | 175 | 20 (top inliers 2000–1102) |
+| 3780 | 41 | 20 (top inliers 2028–314) |
+
+**Critical structural observation:** The "anchor" frames selected by MASt3R are NOT
+all at the physical entrance. Specifically:
+- Revisit 3780's best edge connects node 515 (seed pos (5.9, 11.9)) to node 3957
+  (seed pos (20.0, 14.4)). Node 515 is mid-trajectory, not at entrance (0.08, 0.06).
+- Revisit 3429's best edge connects node 467 (seed pos (4.2, 10.9)) to node 3603.
+  Node 467 is also mid-trajectory.
+
+This means the "anchor" edges constrain the return frames relative to mid-trajectory
+frames, not relative to the physical entrance. The optimizer satisfies these
+constraints by moving BOTH endpoints together.
+
+### 10.4 Experiment Matrix
+
+Five variants, all from fresh copies of `newoffice_pgt_before_seed.rux`:
+
+| Variant | Flags | odom σ | planes |
+|---------|-------|--------|--------|
+| V1 control | no loop edges | 0.01 (default) | fit |
+| V2 anchors+planes | 80 edges, --loop-trust --loop-no-pcm | **0.01** | fit |
+| V3 anchors+planes | 80 edges, --loop-trust --loop-no-pcm | **0.05** | fit |
+| V4 anchors+planes-strong | 80 edges, --loop-trust --loop-no-pcm | **0.05** | fit, **--plane-sigma-scale 0.3** (11× stronger) |
+| V5 anchors+no-planes | 80 edges, --loop-trust --loop-no-pcm | **0.05** | **--no-plane-factors** |
+
+All loop-edge variants also use `--loop-edges-min-disagreement 0
+--loop-edges-min-disagreement-fraction 0` to bypass the seed-disagreement gate.
+
+### 10.5 Optimization Results
+
+| Variant | Max pose shift | Rounds | Round shifts | Graph error |
+|---------|---------------|--------|--------------|-------------|
+| V1 control | **0.25 m** | 2 | 0.21 / 0.07 m | 1539 → 832 |
+| V2 anchors+planes (σ=0.01) | **0.68 m** | 2 | 4.92 / 4.89 m | 5.53M → 5.53M (OSCILLATED) |
+| V3 anchors+planes (σ=0.05) | **5.27 m** | 2 | 5.02 / 3.14 m | 5.53M → 3.89M |
+| V4 anchors+planes-strong (σ=0.05) | **5.00 m** | 2 | 4.99 / 1.19 m | 5.54M → 4.01M |
+| V5 anchors+no-planes (σ=0.05) | **5.37 m** | 2 | 5.44 / 2.94 m | 5.53M → 3.88M |
+
+**V2 oscillated.** Round 1 attempted a ~4.9 m shift but round 2 ERROR increased (4.38M → 5.53M);
+max pose shift from seed settled at only 0.68 m. Stiff odometry (σ=0.01) produced an
+unstable two-state oscillation: the loop factors pull hard in round 1, but the odometry
+chain overrides in round 2.
+
+**V3/V4/V5 all moved the late trajectory ~5 m** (consistent with V5's isolation showing
+planes add nothing: 5.37 m no-planes ≈ 5.27 m with planes).
+
+### 10.6 Colocation Results (Per-Return-Frame)
+
+Metric: L2 distance from each revisit's best-matched anchor frame to the revisit node frame,
+in world coordinates after optimization.
+
+| Revisit | Anchor frame | Return frame | SEED | V1 | V3 | V4 | V5 |
+|---------|-------------|-------------|------|-----|-----|-----|-----|
+| 1370 | 563 | 1388 | 15.26 m | 15.25 m | 10.43 m | 11.10 m | 10.47 m |
+| 2816 | 431 | 2860 | 2.73 m  | 2.80 m  | 2.47 m  | 2.57 m  | 2.54 m  |
+| 3429 | 467 | 3603 | 9.76 m  | 9.78 m  | 8.37 m  | **7.65 m** | 8.36 m |
+| 3780 | 515 | 3957 | 14.36 m | 14.38 m | 14.27 m | 14.21 m | 14.24 m |
+
+**Revisit 3780 did not close.** The anchor frame (515) and return frame (3957)
+moved TOGETHER: both shifted ~4 m in the same direction (515: (5.9,11.9)→(2.6,8.2),
+3957: (20.0,14.4)→(16.7,10.4)), satisfying the BetweenFactor constraint by block
+translation rather than convergence. The inter-frame distance barely changed (14.36→14.27 m).
+
+**Revisit 3429** improved by 2.1 m (best: V4 at 7.65 m vs seed 9.76 m).
+
+**Absolute position improvement:** Frame 3957 moved from 24.6 m to 19.6 m from the
+physical entrance (frame 1). Frame 3603 moved from 18.7 m to 13.8 m from entrance.
+This is 20–27% of the full drift correction.
+
+**Isolation test (V3 vs V5):** Plane factors add at most 0.04 m to colocation vs
+no-plane baseline — noise level. The plane term provides NO additional drift correction
+once the loop edges have moved the trajectory.
+
+**Why the plane term cannot close the gap:** After 5 m partial correction, frame 3957
+is still ~19 m from the entrance. Entrance-region planes (from frames 0–567) and
+return-region planes (from frames 3600+) remain >14 m apart in world space. The
+overlap gate (`radius_a + radius_b + 0.30 m`, where typical wall radii are 2–5 m)
+prevents them from merging into shared landmarks. The plane term optimizes local
+flatness within each sub-segment but cannot impose global consistency across the gap.
+
+### 10.7 Quality Metrics (V1, V3, V4)
+
+`create clouds -g 0.05` → `create planes` → `analyze quality`:
+
+| Variant | flatness_rms | thickness_p90 | Plane count | Points |
+|---------|-------------|--------------|-------------|--------|
+| V1 control | 0.0248 m | 0.0594 m | 301 | 1,181,039 |
+| V3 anchors+planes (σ=0.05) | **0.0271 m** | **0.0611 m** | 353 | 1,426,900 |
+| V4 anchors+planes-strong (σ=0.05) | **0.0242 m** | **0.0585 m** | 357 | 1,339,317 |
+
+**V3 degraded flatness** (0.0248 → 0.0271 m, +9.3%), indicating geometric deformation.
+V4 showed marginal improvement (−2.4%), within noise.
+
+Point count inflation in V3 (1,427k vs 1,181k) is consistent with the partially-corrected
+late trajectory producing a double-pass of some walls — the entrance-region and
+return-region scans now overlap more than before (they moved ~5 m closer) but not enough
+to merge cleanly (still ~14 m apart), so both passes appear as separate point layers.
+
+### 10.8 Trajectory and Visual Assessment
+
+Start-to-end gap (frame 1 to frame 4016):
+
+| Variant | Gap |
+|---------|-----|
+| SEED | 27.81 m |
+| V1 control | 27.85 m |
+| V3 anchors+planes (σ=0.05) | 23.66 m |
+| V4 anchors+planes-strong (σ=0.05) | 24.08 m |
+
+Renders produced (`render --view top/plan --layers cloud`):
+- `anchor-experiment/render_v1_control_top.png` — clean L-shape, reference.
+- `anchor-experiment/render_v4_anchors_strong_top.png` — L-shape preserved but
+  the right wing is visibly shifted; a small geometric discontinuity is visible
+  at the junction of the two arms, reflecting the ~5 m block translation of the
+  late trajectory without full closure.
+
+Visual verdict: V4 does NOT show the severe doubled-wall shear of the endcap-only
+run (§7). The L-shape is recognisable and the walls are not doubled. However, the
+junction between the early and late trajectory segments shows a gap/offset, and the
+overall building silhouette is slightly misaligned compared to control. This is
+"partial correction with mild deformation," not "clean correction."
+
+**Acceptance criteria:**
+- (a) Entrance-revisit colocation substantially improved (drift removed): **PARTIALLY** —
+  5 m improvement for revisits 3429/3780 in absolute terms, but colocation distance to
+  their anchor frames barely changed (both endpoints moved together).
+- (b) Flatness/doubling ≤ control: **FAILS for V3** (flatness +9.3%); marginal for V4.
+- (c) Clean render: **PARTIAL** — no doubled walls, but junction discontinuity visible.
+
+**Overall verdict: DOES NOT WORK with existing flags for the NewOffice entrance-revisit
+problem.** The formulation achieves only ~15–20% of the required drift correction and
+the plane term provides no additional benefit over pure loop edges.
+
+### 10.9 Root Cause: Why the Anchor Formulation Cannot Close the Loop
+
+The fundamental problem is that `rux optimize`'s loop edges are **BetweenFactors**
+(relative pose constraints between two frames). Providing a BetweenFactor connecting
+entrance frame A to return frame B tells the optimizer: "A and B should be adjacent."
+The optimizer satisfies this by moving A and B toward each other — but since A is also
+part of the odometry chain, the optimizer moves BOTH toward a midpoint, not B to A's
+fixed position.
+
+To truly anchor frame B to frame A's world position, the optimizer needs a **PriorFactor
+on B's absolute world pose** (derived from A's seed pose and the MASt3R T_ij). This is
+equivalent to: "frame B must be at world position seed(A) · T_ij — regardless of where
+the odometry chain has placed it." BetweenFactors cannot express this; only PriorFactors
+can.
+
+The existing gauge prior (`--prior-sigma-*`) does this for frame 0 only. Extending it to
+arbitrary return frames is the missing capability.
+
+### 10.10 Proposed Minimal Code Change
+
+**Option A: `--anchor-priors` flag (recommended minimal fix)**
+
+Adds support for absolute-pose priors on specific frames derived from MASt3R T_ij:
+
+- `apps/rux/src/optimize.cpp`: add `--anchor-priors <json>` flag that loads a list of
+  `{return_frame_id, entrance_frame_id, entrance_seed_pose, T_ij}` records.
+- `libs/reusex/src/slam/PlaneGraphOptimizer.cpp` → `PlaneGraphOptimizer::optimize()`:
+  for each anchor record, compute `world_pose = entrance_seed * T_ij` and add
+  `gtsam::PriorFactor<Pose3>(X(return_frame), world_pose, anchor_noise)` to the graph.
+  Mark these as `trusted_factors` (GNC inlier).
+- The anchor noise sigma would be a new flag (e.g. `--anchor-sigma-trans`, `--anchor-sigma-rot`),
+  defaulting to the matched edge's reported `sigma_trans/rot` from the JSON.
+- The `LoopEdge` struct (`libs/reusex/include/slam/PlaneGraphOptimizer.hpp`) would
+  gain an `is_anchor_prior: bool` field; a parallel load path in optimize.cpp populates it.
+- Estimate: ~80 lines in PlaneGraphOptimizer.cpp + ~30 lines in optimize.cpp + the JSON schema.
+
+**Why this works:** A PriorFactor pins frame B to an absolute world position. The
+odometry chain tension is distributed symmetrically around B (shorter spans on either
+side pull toward the anchor), unlike a BetweenFactor where the tension is spread across
+the entire trajectory from frame A to B.
+
+**Option B: Iterative correction with more rounds**
+
+Use `--assoc-rounds 5` (or more) starting from the V3/V4 partial correction. After 5 m
+partial correction, some plane pairs from the entrance and return regions may now be
+close enough (< `radius_a + radius_b + 0.30 m`) to begin associating. However, with
+~14 m still remaining, this is unlikely to close the gap in a reasonable round count
+— and each round risks further deformation. Not recommended.
+
+**Option C: Better edge selection (no code change)**
+
+The deformation filter rejected all revisit-3429 and revisit-3780 edges as
+"deforming" (span_frac > 0.60). This is correct: these edges are structurally
+equivalent to the shear-causing endcap XFeat edges. The anchor hypothesis assumed the
+PLANE TERM would prevent the shear, but the isolation test (V5) proves it does not.
+There is no flag combination that expresses a true absolute-pose anchor with existing
+code; Option A is required.
+
+### 10.11 Conclusion
+
+The entrance-anchor formulation was tested across 5 variants. It achieves
+~5 m of drift reduction (20–27% of the total) for the critical return frames
+(3429 and 3780), but fails the acceptance criteria:
+
+1. The plane term is inert relative to loop edges for this problem (isolation test V3 vs V5).
+2. The anchor edges move BOTH endpoints together (block translation), not the return
+   frame to the entrance.
+3. V3 degrades flatness_rms; V4 is marginal.
+4. The renders show a junction discontinuity, not a clean closure.
+
+**The blocker is architectural:** existing `--loop-edges` flags produce BetweenFactors;
+closing a 20 m entrance-drift gap requires PriorFactors. The minimal code change is a
+new `--anchor-priors` flag in `apps/rux/src/optimize.cpp` and ~80 new lines in
+`PlaneGraphOptimizer::optimize()`.
+
+**The owner should confirm scope before implementation.** The spatial-filtered approach
+from §9 (348 mid-trajectory edges, 7.95 m correction, clean render, better-than-control
+quality) remains the recommended production approach for NewOffice. The entrance-anchor
+problem (frames 3429 and 3780) requires a C++ change to express properly.

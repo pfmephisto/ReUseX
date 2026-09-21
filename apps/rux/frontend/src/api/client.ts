@@ -41,6 +41,7 @@ import type {
   MeshInfo,
   PanoramaInfo,
   PipelineLogEntry,
+  PoseGraph,
   ProjectInfo,
   ProjectSummary,
   StageInfo,
@@ -439,6 +440,19 @@ export class RuxApiClient {
    */
   gsplatDataUrl(name: string): string {
     return this.url(`/gsplats/${encodeURIComponent(name)}/data`);
+  }
+
+  // --------------------------------------------------------- pose graph ----
+
+  /**
+   * Pose-graph nodes (frame poses) and edges (post-solve residuals).
+   *
+   * Nodes are all sensor frames with a stored world pose.  Edges are populated
+   * by `rux optimize`; an un-optimised project returns an empty `edges` array.
+   * Unpaged — sized for diagnostic use, not streaming.
+   */
+  posegraph(signal?: AbortSignal): Promise<PoseGraph> {
+    return this.requestJson<PoseGraph>('/posegraph', undefined, signal);
   }
 
   // ----------------------------------------------------------- frames ----

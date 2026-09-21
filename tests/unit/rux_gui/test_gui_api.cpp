@@ -125,6 +125,7 @@ TEST_CASE("EndpointTable_DocumentedRoutes_MatchesContract", "[gui][routes]") {
       "GET /api/v1/stages",
       "GET /api/v1/stages/<string>/validation",
       "GET /api/v1/pipeline-log",
+      "GET /api/v1/posegraph",
       "GET /api/v1/jobs",
       "POST /api/v1/jobs",
       "GET /api/v1/jobs/<string>",

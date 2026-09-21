@@ -716,6 +716,17 @@ PlaneGraphOptimizer::optimize(std::vector<FrameSurfels> &frames,
     // can down-weight them; they then need their own 6-DoF TLS threshold.
     std::vector<size_t> odom_factors;
 
+    // Edge records for pose-graph persistence: populated alongside graph
+    // construction, residuals filled post-solve.  Cleared and rebuilt each
+    // round so result.edges always reflects the FINAL round.
+    struct EdgeRec {
+      int i, j;
+      std::string type;
+      size_t factor_idx;
+      double weight; // 1 / sigma_trans² at build time
+    };
+    std::vector<EdgeRec> edge_recs;
+
     for (int i = 0; i < N; ++i) {
       const gtsam::Rot3 R(cur[i].block<3, 3>(0, 0));
       const gtsam::Point3 tt(cur[i].block<3, 1>(0, 3));
@@ -793,6 +804,8 @@ PlaneGraphOptimizer::optimize(std::vector<FrameSurfels> &frames,
           odom_factors.push_back(graph.size() - 1);
         else
           trusted_factors.push_back(graph.size() - 1);
+        edge_recs.push_back(
+            {i, i + 1, "odometry", graph.size() - 1, 1.0 / (st * st)});
       }
     }
 
@@ -839,6 +852,8 @@ PlaneGraphOptimizer::optimize(std::vector<FrameSurfels> &frames,
                                                                rel, noise);
       if (options_.loop_edges_trusted)
         loop_factors.push_back(graph.size() - 1);
+      edge_recs.push_back({e.i, e.j, "loop_closure", graph.size() - 1,
+                           1.0 / (e.sigma_trans * e.sigma_trans)});
       ++loop_edge_count;
     }
     result.loop_edges = loop_edge_count;
@@ -959,6 +974,15 @@ PlaneGraphOptimizer::optimize(std::vector<FrameSurfels> &frames,
     }
     result.converged = true;
     result.final_error = graph.error(solution);
+
+    // Extract per-edge residuals for pose-graph persistence.  Repopulated
+    // each round so result.edges always reflects the FINAL round's solve.
+    result.edges.clear();
+    result.edges.reserve(edge_recs.size());
+    for (const auto &rec : edge_recs) {
+      const double res = graph.at(rec.factor_idx)->error(solution);
+      result.edges.push_back({rec.i, rec.j, rec.type, res, rec.weight});
+    }
 
     // Adopt the round's poses into cur[] and measure this round's motion.
     round_max_shift = 0.0;

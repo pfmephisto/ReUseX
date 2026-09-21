@@ -467,6 +467,39 @@ class ProjectDB {
   /// @returns false when there was nothing to delete.
   bool delete_gaussian_splat(std::string_view name);
 
+  // --- Pose Graph ---
+  //
+  // Written by `rux optimize` after convergence; replaced atomically on each
+  // run.  The table always reflects the most-recent optimize invocation.
+  // A project that has never been optimized has an empty table.
+  //
+  // Node positions are read from `sensor_frames` (their current world poses),
+  // so there is no separate nodes table.
+
+  /// One directed edge stored in `pose_graph_edges`.
+  struct PoseGraphEdge {
+    int from_node_id = 0;
+    int to_node_id = 0;
+    /// "odometry" | "loop_closure" | "panorama"
+    std::string edge_type;
+    /// 0.5 × whitened squared residual after convergence (GTSAM convention).
+    double residual = 0.0;
+    /// Translational information weight (1 / sigma_trans²).  NaN when not
+    /// extractable for this edge type.
+    double weight = 1.0;
+  };
+
+  /// Replace the stored pose graph atomically (delete-then-insert inside one
+  /// transaction).  Calling with an empty vector clears the table.
+  void save_pose_graph_edges(const std::vector<PoseGraphEdge> &edges);
+
+  /// All stored edges, in insertion order.  Returns an empty vector when the
+  /// table does not exist (pre-v15 schema opened read-only).
+  std::vector<PoseGraphEdge> list_pose_graph_edges() const;
+
+  /// True when the pose graph table exists and has at least one edge.
+  bool has_pose_graph() const;
+
   // --- Building Component Operations ---
   //
   // Persistence speaks only core::ComponentRecord (see

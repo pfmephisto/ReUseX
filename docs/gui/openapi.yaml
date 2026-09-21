@@ -73,6 +73,8 @@ tags:
     description: Instance identity and material links
   - name: pipeline
     description: Stage catalogue and execution history
+  - name: slam
+    description: Pose-graph topology and per-edge residuals
   - name: jobs
     description: Stage execution — submit, poll, cancel
 
@@ -1150,6 +1152,91 @@ paths:
                         type: array
                         items:
                           { $ref: "#/components/schemas/PipelineLogEntry" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  # ---------------------------------------------------------- pose graph ----
+  /posegraph:
+    get:
+      tags: [slam]
+      operationId: getPoseGraph
+      summary: Pose-graph nodes (frame poses) and edges (post-solve residuals)
+      description: |
+        Returns the factor-graph topology and per-edge residuals written by the
+        most recent `rux optimize` run.  Nodes are sensor frames that have a
+        stored world pose; edges are the optimizer's constraints (odometry,
+        loop-closure, and panorama-derived).
+
+        **Nodes** — only frames with a pose are included.  The payload is `id`
+        (DB `node_id`) and `pose` (the 4×4 world transform, column-major
+        float64 array, identical to `GET /frames/{id}.pose`).
+
+        **Edges** — populated after `rux optimize` has run at least once.
+        An un-optimised project returns an empty `edges` array.
+
+        **`residual`** is GTSAM's per-factor cost (0.5 × whitened squared
+        residual) after convergence.  Low residual = constraint satisfied.
+        High residual = strained constraint — the visual the editor uses as a
+        heat map.
+
+        **`weight`** is the translational information weight (1/σ²) at build
+        time, present for all edge types.  Absent (`null`) only when the
+        optimizer could not compute it for a particular edge.
+
+        **`type`** is one of `"odometry"` | `"loop_closure"` | `"panorama"`.
+
+        The payload is position-only (no covariances) and unpaged.  For a
+        4 000-frame project the JSON is ≈ 500 kB — sized for diagnostic use,
+        not real-time streaming.
+      responses:
+        "200":
+          description: Pose-graph nodes and edges
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [nodes, edges]
+                properties:
+                  nodes:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, pose]
+                      properties:
+                        id:
+                          type: integer
+                          description: Sensor frame node_id
+                        pose:
+                          type: array
+                          items: { type: number }
+                          minItems: 16
+                          maxItems: 16
+                          description: 4×4 world transform, column-major float64
+                  edges:
+                    type: array
+                    items:
+                      type: object
+                      required: [from, to, type, residual]
+                      properties:
+                        from:
+                          type: integer
+                          description: from_node_id
+                        to:
+                          type: integer
+                          description: to_node_id
+                        type:
+                          type: string
+                          enum: [odometry, loop_closure, panorama]
+                        residual:
+                          type: number
+                          description: >-
+                            0.5 × whitened squared residual post-convergence
+                            (GTSAM convention). Low = satisfied, high = strained.
+                        weight:
+                          type: number
+                          nullable: true
+                          description: >-
+                            Translational information weight (1/σ²) at build
+                            time. Absent when not extractable.
         default: { $ref: "#/components/responses/UnexpectedError" }
 
   # ---------------------------------------------------------------- jobs ----

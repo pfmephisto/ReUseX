@@ -18,6 +18,7 @@
 #include <fmt/format.h>
 
 #include <algorithm>
+#include <cmath>
 #include <iterator>
 #include <set>
 #include <stdexcept>
@@ -340,6 +341,29 @@ PlaneGraphResult optimize_sensor_poses(ProjectDB &db,
     ++written;
   }
   core::info("PlaneGraph: wrote {} optimized poses back to database", written);
+
+  // Persist the pose graph: translate frame-vector indices → DB node_ids via
+  // FrameSurfels::node_id (always set; no separate node_ids lookup needed).
+  // Mark panorama-sourced loop edges by checking against panorama_pairs.
+  std::vector<reusex::ProjectDB::PoseGraphEdge> pg_edges;
+  pg_edges.reserve(result.edges.size());
+  const int N_frames = static_cast<int>(frames.size());
+  for (const auto &e : result.edges) {
+    if (e.i < 0 || e.j < 0 || e.i >= N_frames || e.j >= N_frames)
+      continue;
+    std::string type = e.type;
+    if (type == "loop_closure") {
+      const int lo = std::min(e.i, e.j);
+      const int hi = std::max(e.i, e.j);
+      if (panorama_pairs.count({lo, hi}) > 0)
+        type = "panorama";
+    }
+    pg_edges.push_back({frames[e.i].node_id, frames[e.j].node_id,
+                        std::move(type), e.residual, e.weight});
+  }
+  db.save_pose_graph_edges(pg_edges);
+  core::info("PlaneGraph: saved {} pose-graph edges to database",
+             pg_edges.size());
   return result;
 }
 

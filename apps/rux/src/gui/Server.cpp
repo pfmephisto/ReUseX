@@ -751,6 +751,13 @@ class Server::Impl {
           });
         });
 
+    // ---- pose graph ----
+    get("/api/v1/posegraph")([this](const crow::request &) {
+      return with_db([](const reusex::ProjectDB &db) {
+        return json_response(200, posegraph_json(db));
+      });
+    });
+
     // ---- pipeline ----
     get("/api/v1/stages")([this](const crow::request &) {
       return with_db([](const reusex::ProjectDB &db) {

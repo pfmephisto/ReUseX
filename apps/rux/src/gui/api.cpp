@@ -559,6 +559,8 @@ const std::vector<Endpoint> &endpoint_table() {
       {"GET", "/api/v1/jobs/<string>", "One job's current status and progress"},
       {"POST", "/api/v1/jobs/<string>/cancel", "Request cancellation"},
       {"GET", "/api/v1/events", "WebSocket progress channel (upgrade)", true},
+      {"GET", "/api/v1/posegraph",
+       "Pose-graph nodes (frame poses) and edges (with post-solve residuals)"},
   };
   return table;
 }
@@ -1400,6 +1402,36 @@ json pipeline_log_json(const reusex::ProjectDB &db, const Params &params) {
                     {"error_msg", entry.error_msg}};
       },
       kMaxLogEntries, kDefaultLogEntries);
+}
+
+// ===========================================================================
+// pose graph
+// ===========================================================================
+
+json posegraph_json(const reusex::ProjectDB &db) {
+  // Nodes: every sensor frame that has a stored pose.  Positions are world-
+  // space; the frontend maps them directly to 3D scene coordinates.
+  json nodes = json::array();
+  for (int id : db.sensor_frame_ids()) {
+    if (!db.has_sensor_frame_pose(id))
+      continue;
+    const auto pose = db.sensor_frame_pose(id);
+    nodes.push_back(json{{"id", id}, {"pose", pose}});
+  }
+
+  // Edges: stored by `rux optimize`; empty until the stage has run once.
+  json edges = json::array();
+  for (const auto &e : db.list_pose_graph_edges()) {
+    json entry{{"from", e.from_node_id},
+               {"to", e.to_node_id},
+               {"type", e.edge_type},
+               {"residual", e.residual}};
+    if (!std::isnan(e.weight))
+      entry["weight"] = e.weight;
+    edges.push_back(std::move(entry));
+  }
+
+  return json{{"nodes", std::move(nodes)}, {"edges", std::move(edges)}};
 }
 
 // ===========================================================================

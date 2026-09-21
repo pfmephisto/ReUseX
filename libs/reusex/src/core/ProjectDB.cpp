@@ -27,6 +27,7 @@
 #include <cmath>
 #include <cstring>
 #include <fstream>
+#include <limits>
 #include <random>
 #include <set>
 #include <sstream>
@@ -208,7 +209,7 @@ class ProjectDB::Impl {
   sqlite3 *db = nullptr;
 
   // cppcheck-suppress unusedStructMember
-  static constexpr int LATEST_SCHEMA_VERSION = 14;
+  static constexpr int LATEST_SCHEMA_VERSION = 15;
 
   // Maximum bytes per point_cloud_data row. SQLite's default SQLITE_MAX_LENGTH
   // is 1 GB and the hard compile-time max is 2 GB-1. We chunk large clouds
@@ -432,6 +433,10 @@ class ProjectDB::Impl {
 
     if (current < 14) {
       migrateToV14();
+    }
+
+    if (current < 15) {
+      migrateToV15();
     }
 
     reusex::trace("Schema version: {}", getCurrentSchemaVersion());
@@ -1181,6 +1186,119 @@ class ProjectDB::Impl {
 
     insertSchemaVersion(14, "Add glass_confidence_images table");
     reusex::info("Migration to schema version 14 complete");
+  }
+
+  void migrateToV15() {
+    reusex::info("Migrating database to schema version 15");
+
+    // Pose-graph edges written by `rux optimize` after convergence (#265).
+    // The table stores the factor-graph topology + per-edge post-solve
+    // residuals so the GUI can visualise which constraints are strained.
+    // Deliberately no CASCADE to sensor_frames: if a frame is removed the edge
+    // is stale, but retaining it until the next `rux optimize` is less
+    // surprising than silently emptying the table on a frame delete.
+    const char *v15_schema = R"(
+      CREATE TABLE IF NOT EXISTS pose_graph_edges (
+        id           INTEGER PRIMARY KEY,
+        from_node_id INTEGER NOT NULL,
+        to_node_id   INTEGER NOT NULL,
+        edge_type    TEXT    NOT NULL,
+        residual     REAL    NOT NULL,
+        weight       REAL
+      );
+    )";
+
+    char *errMsg = nullptr;
+    if (sqlite3_exec(db, v15_schema, nullptr, nullptr, &errMsg) != SQLITE_OK) {
+      std::string error = errMsg ? errMsg : "unknown error";
+      sqlite3_free(errMsg);
+      throw std::runtime_error("Migration to v15 failed: " + error);
+    }
+
+    insertSchemaVersion(15, "Add pose_graph_edges table");
+    reusex::info("Migration to schema version 15 complete");
+  }
+
+  // ── Pose-graph helpers ───────────────────────────────────────────────────
+
+  void savePoseGraphEdges(const std::vector<ProjectDB::PoseGraphEdge> &edges) {
+    checkWritable();
+    execOrThrow("BEGIN TRANSACTION;");
+    try {
+      execOrThrow("DELETE FROM pose_graph_edges;");
+      if (!edges.empty()) {
+        const char *ins = R"(
+          INSERT INTO pose_graph_edges
+            (from_node_id, to_node_id, edge_type, residual, weight)
+          VALUES (?, ?, ?, ?, ?);
+        )";
+        sqlite3_stmt *stmt;
+        if (sqlite3_prepare_v2(db, ins, -1, &stmt, nullptr) != SQLITE_OK)
+          throw std::runtime_error(
+              "Failed to prepare pose_graph_edges insert: " +
+              std::string(sqlite3_errmsg(db)));
+        StmtGuard guard(stmt);
+        for (const auto &e : edges) {
+          sqlite3_bind_int(stmt, 1, e.from_node_id);
+          sqlite3_bind_int(stmt, 2, e.to_node_id);
+          sqlite3_bind_text(stmt, 3, e.edge_type.c_str(), -1, SQLITE_TRANSIENT);
+          sqlite3_bind_double(stmt, 4, e.residual);
+          if (std::isnan(e.weight))
+            sqlite3_bind_null(stmt, 5);
+          else
+            sqlite3_bind_double(stmt, 5, e.weight);
+          if (sqlite3_step(stmt) != SQLITE_DONE)
+            throw std::runtime_error("pose_graph_edges insert failed: " +
+                                     std::string(sqlite3_errmsg(db)));
+          sqlite3_reset(stmt);
+        }
+      }
+      execOrThrow("COMMIT;");
+    } catch (...) {
+      sqlite3_exec(db, "ROLLBACK;", nullptr, nullptr, nullptr);
+      throw;
+    }
+  }
+
+  std::vector<ProjectDB::PoseGraphEdge> listPoseGraphEdges() const {
+    if (!tableExists("pose_graph_edges"))
+      return {};
+    const char *sel =
+        "SELECT from_node_id, to_node_id, edge_type, residual, weight "
+        "FROM pose_graph_edges ORDER BY id;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sel, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to prepare pose_graph_edges select: " +
+                               std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+    std::vector<ProjectDB::PoseGraphEdge> out;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+      ProjectDB::PoseGraphEdge e;
+      e.from_node_id = sqlite3_column_int(stmt, 0);
+      e.to_node_id = sqlite3_column_int(stmt, 1);
+      if (auto *t =
+              reinterpret_cast<const char *>(sqlite3_column_text(stmt, 2)))
+        e.edge_type = t;
+      e.residual = sqlite3_column_double(stmt, 3);
+      e.weight = (sqlite3_column_type(stmt, 4) == SQLITE_NULL)
+                     ? std::numeric_limits<double>::quiet_NaN()
+                     : sqlite3_column_double(stmt, 4);
+      out.push_back(std::move(e));
+    }
+    return out;
+  }
+
+  bool hasPoseGraph() const {
+    if (!tableExists("pose_graph_edges"))
+      return false;
+    const char *sel = "SELECT COUNT(*) FROM pose_graph_edges;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sel, -1, &stmt, nullptr) != SQLITE_OK)
+      return false;
+    StmtGuard guard(stmt);
+    if (sqlite3_step(stmt) == SQLITE_ROW)
+      return sqlite3_column_int(stmt, 0) > 0;
+    return false;
   }
 
   // Parse the semantic class id from an instance definition name of the form
@@ -6278,5 +6396,17 @@ std::vector<ProjectDB::PipelineLogEntry>
 ProjectDB::pipeline_log(int limit) const {
   return impl_->getPipelineLog(limit);
 }
+
+// --- Pose Graph ---
+
+void ProjectDB::save_pose_graph_edges(const std::vector<PoseGraphEdge> &edges) {
+  impl_->savePoseGraphEdges(edges);
+}
+
+std::vector<ProjectDB::PoseGraphEdge> ProjectDB::list_pose_graph_edges() const {
+  return impl_->listPoseGraphEdges();
+}
+
+bool ProjectDB::has_pose_graph() const { return impl_->hasPoseGraph(); }
 
 } // namespace reusex

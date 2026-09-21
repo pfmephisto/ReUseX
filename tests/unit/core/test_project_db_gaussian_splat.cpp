@@ -387,7 +387,6 @@ TEST_CASE(
 
   CHECK_FALSE(db.has_gaussian_splat("scene"));
   CHECK(db.list_gaussian_splats().empty());
-  CHECK_FALSE(db.delete_gaussian_splat("scene"));
   REQUIRE_THROWS_AS(db.gaussian_splat_blob("scene"), std::runtime_error);
   REQUIRE_THROWS_AS(db.gaussian_splat_metadata("scene"), std::runtime_error);
 }

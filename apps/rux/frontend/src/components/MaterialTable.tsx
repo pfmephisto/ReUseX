@@ -16,6 +16,7 @@ import { useAsync } from '../app/useAsync';
 import { describeWriteFailure, type WriteFailure } from '../data/writeState';
 import { ColumnHeaderMenu } from './ColumnHeaderMenu';
 import { EditableCell } from './EditableCell';
+import { PeekPanel } from './PeekPanel';
 import { TableNavContext, type CellCoord, type TableNav } from './tableNav';
 import { ThumbnailCell } from './ThumbnailCell';
 import { WriteBanner } from './WriteBanner';
@@ -514,6 +515,7 @@ export function MaterialTable() {
                   className={styles.row}
                   data-hovered={hoveredRowId === guid ? 'true' : undefined}
                   data-selected={selected ? 'true' : undefined}
+                  data-peeked={peekGuid === guid ? 'true' : undefined}
                   onMouseEnter={() => setHoveredRowId(guid)}
                   onMouseLeave={() =>
                     setHoveredRowId((cur) => (cur === guid ? null : cur))
@@ -590,6 +592,25 @@ export function MaterialTable() {
             void handleMoveColumn(colMenu.id, 'right');
             setColMenu(null);
           }}
+        />
+      )}
+
+      {peekGuid && (
+        <PeekPanel
+          guid={peekGuid}
+          columns={columnsAsync.data ?? []}
+          values={details.get(peekGuid)?.properties ?? {}}
+          hasThumbnail={details.get(peekGuid)?.has_thumbnail ?? false}
+          onClose={() => setPeekGuid(null)}
+          onSave={(propName, value) => handleCellSave(peekGuid, propName, value)}
+          onAddOption={(colId, opt) =>
+            handleOptionsChange(colId, [
+              ...((columnsAsync.data?.find((c) => c.id === colId)?.options) ?? []),
+              opt,
+            ])
+          }
+          onAddColumn={() => void handleAddColumn()}
+          onDeleted={() => materialsAsync.reload()}
         />
       )}
     </div>

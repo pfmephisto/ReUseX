@@ -70,6 +70,16 @@
   background: var(--row-selected-bg);
 }
 
+/* The row whose peek panel is open gets an accent left edge + faint wash. */
+.table tbody tr[data-peeked='true'] td,
+.table tbody tr[data-peeked='true']:hover td {
+  background: color-mix(in srgb, var(--color-accent) 8%, transparent);
+}
+
+.table tbody tr[data-peeked='true'] td:first-child {
+  box-shadow: inset 2px 0 0 var(--color-accent);
+}
+
 .addColBtn {
   background: none;
   border: none;

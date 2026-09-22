@@ -5,8 +5,8 @@
  */
 
 .panel {
-  position: fixed;
-  min-width: 180px;
+  position: absolute;
+  min-width: 240px;
   max-height: 320px;
   display: flex;
   flex-direction: column;
@@ -20,40 +20,107 @@
   font-family: var(--font-sans);
 }
 
+/* ------------------------------------------------ section 1: value strip -- */
+
+.valueStrip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  min-height: 34px;
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 20px;
+  border-radius: 4px;
+  padding: 0 2px 0 6px;
+  font-size: var(--font-size-sm);
+  max-width: 100%;
+}
+
+.pillText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pillRemove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: none;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: var(--font-size-md);
+  line-height: 1;
+  opacity: 0.7;
+  border-radius: 3px;
+}
+
+.pillRemove:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.12);
+}
+
 .search {
+  flex: 1;
+  min-width: 60px;
   border: none;
   outline: none;
-  border-bottom: 1px solid var(--color-border);
-  padding: var(--space-2) var(--space-3);
   background: transparent;
-  width: 100%;
   color: var(--color-text);
   font: inherit;
+  padding: var(--space-1) 0;
 }
 
 .search::placeholder {
   color: var(--color-text-faint);
 }
 
-.options {
-  overflow-y: auto;
-  padding: var(--space-1) 0;
+/* -------------------------------------------------- section 2: option list */
+
+.listHeader {
+  padding: var(--space-3) var(--space-2) var(--space-1);
+  font-size: var(--font-size-xs);
+  letter-spacing: 0.04em;
+  color: var(--color-text-faint);
+  user-select: none;
 }
 
-.option {
+.options {
+  overflow-y: auto;
+  padding-bottom: var(--space-1);
+}
+
+.optionRow {
   display: flex;
   align-items: center;
+  gap: var(--space-2);
   width: 100%;
+  height: 28px;
   text-align: left;
-  padding: var(--space-1) var(--space-2);
+  padding: 0 var(--space-2);
   border: none;
   background: none;
   cursor: pointer;
   font: inherit;
+  color: var(--color-text);
 }
 
 .highlighted {
   background: var(--color-surface-overlay);
+}
+
+.createLabel {
+  color: var(--color-text-muted);
 }
 
 .chip {
@@ -70,28 +137,6 @@
 }
 
 .emptyNote {
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-2) var(--space-2);
   color: var(--color-text-faint);
-}
-
-.create {
-  display: block;
-  width: 100%;
-  text-align: left;
-  padding: var(--space-2) var(--space-3);
-  border: none;
-  border-top: 1px solid var(--color-border);
-  background: none;
-  color: var(--color-text-muted);
-  cursor: pointer;
-  font: inherit;
-}
-
-.create:hover {
-  background: var(--color-surface-overlay);
-  color: var(--color-text);
-}
-
-.createText {
-  color: var(--color-text);
 }

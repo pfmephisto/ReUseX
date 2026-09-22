@@ -42,14 +42,17 @@ export function chipColorFor(text: string): (typeof CHIP_COLORS)[number] {
 }
 
 /**
- * A Notion-style tag picker for a `select` column.
+ * A Notion-style tag picker for a `select` column (spec §8.3).
  *
- * Opens as an absolutely-positioned panel anchored below the cell. The top
- * search input both filters the existing options and, when the typed text
- * matches none of them, offers to create a new one — which persists to the
- * column definition before the value is stored on the row. Keyboard: arrows
- * move the highlight, Enter picks the highlighted option (or creates), Escape
- * closes without saving.
+ * Two stacked sections. The top *value strip* shows the currently-selected
+ * value as a removable pill (its `×` clears the value) sitting alongside a
+ * filter input; the bottom *option list* draws one coloured-chip row per
+ * matching option under a faint "SELECT AN OPTION OR CREATE ONE" header. When
+ * the typed text matches none of the options a `Create "…"` row appears at the
+ * top of the list, persisting the new option to the column definition before
+ * storing it on the row. Keyboard: arrows move the highlight, Enter picks the
+ * highlighted row (or creates), Escape closes without saving. The panel is
+ * absolutely positioned below its anchor cell.
  */
 export function SelectDropdown({
   value,
@@ -63,7 +66,7 @@ export function SelectDropdown({
   const inputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState('');
   const [highlight, setHighlight] = useState(0);
-  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(null);
 
   const options = colDef.options ?? [];
   const filtered = query
@@ -72,16 +75,21 @@ export function SelectDropdown({
   const exactMatch = options.some((opt) => opt.toLowerCase() === query.trim().toLowerCase());
   const canCreate = query.trim() !== '' && !exactMatch;
 
-  // Position the panel below the anchor, clamped into the viewport. Done in a
-  // layout effect so the first paint is already in the right place.
+  // The list rows, in the same order the highlight indexes them: the optional
+  // Create row is index 0, then the filtered options.
+  const rowCount = (canCreate ? 1 : 0) + filtered.length;
+
+  // Position the panel below the anchor, clamped into the viewport. Absolute
+  // (not fixed) so it scrolls with the cell; done in a layout effect so the
+  // first paint is already in the right place. Width: max(cell width, 240px).
   useLayoutEffect(() => {
     const anchor = anchorRef.current;
     if (!anchor) return;
     const rect = anchor.getBoundingClientRect();
-    const panelWidth = Math.max(rect.width, 180);
-    const left = Math.min(rect.left, window.innerWidth - panelWidth - 8);
-    const top = Math.min(rect.bottom + 2, window.innerHeight - 8);
-    setPos({ top, left: Math.max(8, left) });
+    const width = Math.max(rect.width, 240);
+    const left = Math.min(rect.left + window.scrollX, window.scrollX + window.innerWidth - width - 8);
+    const top = rect.bottom + window.scrollY + 2;
+    setPos({ top, left: Math.max(8, left), width });
   }, [anchorRef]);
 
   useEffect(() => {
@@ -104,6 +112,11 @@ export function SelectDropdown({
     onClose();
   };
 
+  const clear = async () => {
+    await onSave(null);
+    onClose();
+  };
+
   const create = async () => {
     const text = query.trim();
     if (text === '') return;
@@ -112,48 +125,97 @@ export function SelectDropdown({
     onClose();
   };
 
+  // Resolve the currently-highlighted list row and act on it.
+  const activate = () => {
+    if (canCreate && highlight === 0) {
+      void create();
+      return;
+    }
+    const optIndex = canCreate ? highlight - 1 : highlight;
+    const opt = filtered[optIndex];
+    if (opt !== undefined) void select(opt);
+  };
+
   const onKeyDown = (event: React.KeyboardEvent) => {
     if (event.key === 'Escape') {
       event.preventDefault();
       onClose();
     } else if (event.key === 'ArrowDown') {
       event.preventDefault();
-      setHighlight((h) => Math.min(h + 1, Math.max(0, filtered.length - 1)));
+      setHighlight((h) => Math.min(h + 1, Math.max(0, rowCount - 1)));
     } else if (event.key === 'ArrowUp') {
       event.preventDefault();
       setHighlight((h) => Math.max(0, h - 1));
     } else if (event.key === 'Enter') {
       event.preventDefault();
-      if (filtered.length > 0 && filtered[highlight]) {
-        void select(filtered[highlight]);
-      } else if (canCreate) {
-        void create();
-      }
+      activate();
     }
   };
+
+  const selectedChip = value !== undefined && value !== '' ? chipColorFor(value) : null;
 
   return (
     <div
       ref={panelRef}
       className={styles.panel}
-      style={pos ? { top: pos.top, left: pos.left } : { visibility: 'hidden' }}
+      style={pos ? { top: pos.top, left: pos.left, width: pos.width } : { visibility: 'hidden' }}
       onKeyDown={onKeyDown}
       role="listbox"
       aria-label={colDef.name}
     >
-      <input
-        ref={inputRef}
-        className={styles.search}
-        value={query}
-        placeholder="Search or create…"
-        onChange={(event) => {
-          setQuery(event.target.value);
-          setHighlight(0);
-        }}
-        aria-label="Filter or create option"
-      />
+      {/* Section 1 — value strip: selected pill (removable) + filter input. */}
+      <div className={styles.valueStrip}>
+        {selectedChip && (
+          <span className={styles.pill} style={{ background: selectedChip.bg, color: selectedChip.text }}>
+            <span className={styles.pillText}>{value}</span>
+            <button
+              type="button"
+              className={styles.pillRemove}
+              aria-label="Clear selection"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => void clear()}
+            >
+              ×
+            </button>
+          </span>
+        )}
+        <input
+          ref={inputRef}
+          className={styles.search}
+          value={query}
+          placeholder="Search options…"
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setHighlight(0);
+          }}
+          aria-label="Filter or create option"
+        />
+      </div>
+
+      {/* Section 2 — option list. */}
+      <div className={styles.listHeader}>SELECT AN OPTION OR CREATE ONE</div>
       <div className={styles.options}>
+        {canCreate && (
+          <button
+            type="button"
+            className={`${styles.optionRow} ${highlight === 0 ? styles.highlighted : ''}`}
+            onMouseEnter={() => setHighlight(0)}
+            onClick={() => void create()}
+          >
+            <span className={styles.createLabel}>Create</span>
+            <span
+              className={styles.chip}
+              style={{
+                background: chipColorFor(query.trim()).bg,
+                color: chipColorFor(query.trim()).text,
+              }}
+            >
+              {query.trim()}
+            </span>
+          </button>
+        )}
         {filtered.map((opt, index) => {
+          const rowIndex = canCreate ? index + 1 : index;
           const color = chipColorFor(opt);
           return (
             <button
@@ -161,8 +223,8 @@ export function SelectDropdown({
               type="button"
               role="option"
               aria-selected={opt === value}
-              className={`${styles.option} ${index === highlight ? styles.highlighted : ''}`}
-              onMouseEnter={() => setHighlight(index)}
+              className={`${styles.optionRow} ${rowIndex === highlight ? styles.highlighted : ''}`}
+              onMouseEnter={() => setHighlight(rowIndex)}
               onClick={() => void select(opt)}
             >
               <span className={styles.chip} style={{ background: color.bg, color: color.text }}>
@@ -175,11 +237,6 @@ export function SelectDropdown({
           <div className={styles.emptyNote}>No options</div>
         )}
       </div>
-      {canCreate && (
-        <button type="button" className={styles.create} onClick={() => void create()}>
-          Create <span className={styles.createText}>“{query.trim()}”</span>
-        </button>
-      )}
     </div>
   );
 }

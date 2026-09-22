@@ -37,6 +37,7 @@ import type {
   Job,
   JobRequest,
   LabelLegend,
+  MaterialCreate,
   MaterialDetail,
   MaterialInfo,
   MeshInfo,
@@ -45,6 +46,7 @@ import type {
   PoseGraph,
   ProjectInfo,
   ProjectSummary,
+  PropertyDefinition,
   StageInfo,
   TextureInfo,
 } from './types';
@@ -606,6 +608,80 @@ export class RuxApiClient {
       { properties },
       signal,
     );
+  }
+
+  /** Create a new (blank) material passport. Returns the created passport. */
+  async createMaterial(body?: MaterialCreate): Promise<MaterialDetail> {
+    return this.postJson<MaterialDetail>('/materials', body ?? {});
+  }
+
+  /** Delete a material passport. The server answers 204 (no body). */
+  async deleteMaterial(guid: string): Promise<void> {
+    const url = this.url(`/materials/${encodeURIComponent(guid)}`);
+    const response = await this.doFetch(url, { method: 'DELETE' });
+    if (!response.ok) {
+      throw new ApiRequestError(response.status, await describeFailure(response), url);
+    }
+  }
+
+  /**
+   * URL of a material's thumbnail image, for use as an `<img src>`.
+   *
+   * This returns a URL string, not a fetch — the browser loads it directly.
+   */
+  materialThumbnail(guid: string): string {
+    return this.url(`/materials/${encodeURIComponent(guid)}/thumbnail`);
+  }
+
+  /**
+   * Upload (or replace) a material's thumbnail image.
+   *
+   * Deliberately bypasses the JSON transport: the body is the raw file bytes and
+   * the `Content-Type` is the file's own MIME type, so `this.postJson` (which is
+   * JSON-only) cannot be used here.
+   */
+  async uploadThumbnail(guid: string, file: File): Promise<void> {
+    const url = this.url(`/materials/${encodeURIComponent(guid)}/thumbnail`);
+    const response = await fetch(url, {
+      method: 'PUT',
+      headers: { 'Content-Type': file.type || 'image/jpeg' },
+      body: file,
+    });
+    if (!response.ok) {
+      throw new ApiRequestError(response.status, await describeFailure(response), url);
+    }
+  }
+
+  // ------------------------------------------------- material columns ----
+
+  /** All user-defined material column definitions. */
+  propertyDefinitions(signal?: AbortSignal): Promise<PropertyDefinition[]> {
+    return this.requestJson<PropertyDefinition[]>('/material-columns', undefined, signal);
+  }
+
+  /** Create a material column definition. Returns the created definition. */
+  createPropertyDefinition(def: Omit<PropertyDefinition, 'id'>): Promise<PropertyDefinition> {
+    return this.postJson<PropertyDefinition>('/material-columns', def);
+  }
+
+  /** Sparsely update a material column definition. Returns the updated one. */
+  updatePropertyDefinition(
+    id: string,
+    patch: Partial<Omit<PropertyDefinition, 'id'>>,
+  ): Promise<PropertyDefinition> {
+    return this.patchJson<PropertyDefinition>(
+      `/material-columns/${encodeURIComponent(id)}`,
+      patch,
+    );
+  }
+
+  /** Delete a material column definition. The server answers 204 (no body). */
+  async deletePropertyDefinition(id: string): Promise<void> {
+    const url = this.url(`/material-columns/${encodeURIComponent(id)}`);
+    const response = await this.doFetch(url, { method: 'DELETE' });
+    if (!response.ok) {
+      throw new ApiRequestError(response.status, await describeFailure(response), url);
+    }
   }
 
   // -------------------------------------------------------- instances ----

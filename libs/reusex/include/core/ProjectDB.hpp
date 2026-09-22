@@ -664,6 +664,82 @@ class ProjectDB {
 
   ProjectSummary project_summary() const;
 
+  /**
+   * @brief A user-defined column in the Notion-like material editor.
+   *
+   * Backed by the `material_property_definitions` table (schema v18). These
+   * describe the editable columns the GUI presents over material passports;
+   * they are distinct from the leksikon-based `property_definitions` table.
+   */
+  struct PropertyDefinition {
+    std::string id;
+    std::string type; // "text" | "number" | "date" | "boolean" | "select"
+    std::string name;
+    std::vector<std::string> options; // populated for "select" only
+    int sort_order = 0;
+  };
+
+  // --- Material Property Definition Operations (schema v18) ---
+
+  /**
+   * @brief List all user-defined material column definitions.
+   * @return Definitions ordered by sort_order then created_at.
+   */
+  [[nodiscard]] std::vector<PropertyDefinition>
+  list_property_definitions() const;
+
+  /**
+   * @brief Add a new material column definition.
+   * @param name Column display name
+   * @param type One of text/number/date/boolean/select
+   * @param options Choices, only meaningful for the "select" type
+   * @param sort_order Display order
+   * @return The freshly minted definition id (GUID)
+   */
+  std::string add_property_definition(const std::string &name,
+                                      const std::string &type,
+                                      const std::vector<std::string> &options,
+                                      int sort_order);
+
+  /**
+   * @brief Overwrite an existing material column definition.
+   * @throws std::runtime_error if the id does not exist
+   */
+  void update_property_definition(const std::string &id,
+                                  const std::string &name,
+                                  const std::string &type,
+                                  const std::vector<std::string> &options,
+                                  int sort_order);
+
+  /**
+   * @brief Delete a material column definition by id.
+   * @throws std::runtime_error if the id does not exist
+   */
+  void delete_property_definition(const std::string &id);
+
+  /**
+   * @brief Fetch a material's thumbnail blob and its MIME type.
+   * @param guid Material passport document GUID
+   * @return {blob, mime_type} when a thumbnail exists, else std::nullopt
+   */
+  [[nodiscard]] std::optional<std::pair<std::vector<std::uint8_t>, std::string>>
+  material_thumbnail(const std::string &guid) const;
+
+  /**
+   * @brief Insert or replace a material's thumbnail blob.
+   * @param guid Material passport document GUID
+   * @param blob Raw image bytes
+   * @param mime_type Image MIME type (e.g. "image/jpeg")
+   */
+  void set_material_thumbnail(const std::string &guid,
+                              const std::vector<std::uint8_t> &blob,
+                              const std::string &mime_type);
+
+  /**
+   * @brief Delete a material's thumbnail if present (no-op when absent).
+   */
+  void delete_material_thumbnail(const std::string &guid);
+
   // --- Material Passport Operations ---
 
   core::MaterialPassport material_passport(std::string_view documentGuid) const;

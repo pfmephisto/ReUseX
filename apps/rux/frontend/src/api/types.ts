@@ -299,6 +299,29 @@ export interface MaterialInfo {
 export interface MaterialDetail extends MaterialInfo {
   linked_node_id?: number;
   properties?: Record<string, string>;
+  /** Whether a thumbnail image is stored for this passport. */
+  has_thumbnail?: boolean;
+}
+
+/** The kind of a user-defined material editor column. */
+export type PropertyType = 'text' | 'number' | 'date' | 'boolean' | 'select';
+
+/**
+ * `PropertyDefinition` — a user-defined column in the material editor.
+ *
+ * `options` is populated only for the `select` type.
+ */
+export interface PropertyDefinition {
+  id: string;
+  name: string;
+  type: PropertyType;
+  options?: string[];
+  sort_order: number;
+}
+
+/** `MaterialCreate` — the (optional) body of `POST /materials`. */
+export interface MaterialCreate {
+  properties?: Record<string, string>;
 }
 
 /** `InstanceInfo` — one instance row of an instance-label cloud. */

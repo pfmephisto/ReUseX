@@ -174,9 +174,12 @@ void launch_browser(const std::string &url) {
 ///     403 *before routing*, so no handler runs and nothing is disclosed.
 ///     This is server-side enforcement, not a hint to the browser — it holds
 ///     for simple requests, which are dispatched before CORS is consulted.
-///  2. **application/json required on mutating routes.** A form or simple POST
-///     cannot set that header without triggering a preflight, so this closes
-///     the CSRF-shaped hole that a `text/plain` POST would otherwise leave.
+///  2. **application/json required on the JSON-body verbs (POST, PATCH).** A
+///     form or simple POST cannot set that header without triggering a
+///     preflight, so this closes the CSRF-shaped hole that a `text/plain` POST
+///     would otherwise leave. PUT and DELETE are exempt: both are preflighted
+///     (already covered by (1)), and the sole PUT uploads a raw image whose
+///     Content-Type is its image type, not JSON.
 ///
 /// Responses to allowlisted origins echo that specific origin (never `*`) with
 /// `Vary: Origin`.
@@ -224,14 +227,18 @@ class SecurityMiddleware {
       return;
     }
 
-    // Every method that can change the project, not just POST. A `text/plain`
-    // POST is a CORS *simple request*, dispatched by the browser before it
-    // reads a single response header, and demanding JSON is what a forged one
-    // cannot satisfy. PUT/PATCH/DELETE are preflighted and so are already
-    // covered by the origin check — but gating on the method rather than on
-    // that reasoning means a future route cannot quietly opt out of CSRF
-    // protection by choosing a different verb.
-    if (is_mutating(req.method)) {
+    // Require JSON on the verbs that carry a JSON body. A `text/plain` POST is
+    // a CORS *simple request*, dispatched by the browser before it reads a
+    // single response header, and demanding JSON is what a forged one cannot
+    // satisfy. PATCH is folded in here too: it always carries a JSON patch, so
+    // the check is free and keeps the CSRF floor uniform for the JSON verbs.
+    //
+    // PUT and DELETE are exempt on purpose. Both are preflighted (never a CORS
+    // simple request), so the origin check above already covers them, and the
+    // one PUT this server serves uploads a raw image body whose Content-Type is
+    // its image type, not application/json — demanding JSON there would refuse
+    // every legitimate thumbnail upload.
+    if (requires_json_body(req.method)) {
       const auto media = media_type_of(req.get_header_value("Content-Type"));
       if (media != "application/json") {
         res = error_response(
@@ -243,11 +250,9 @@ class SecurityMiddleware {
     }
   }
 
-  static bool is_mutating(crow::HTTPMethod method) {
+  static bool requires_json_body(crow::HTTPMethod method) {
     return method == crow::HTTPMethod::Post ||
-           method == crow::HTTPMethod::Put ||
-           method == crow::HTTPMethod::Patch ||
-           method == crow::HTTPMethod::Delete;
+           method == crow::HTTPMethod::Patch;
   }
 
   void after_handle(crow::request &req, crow::response &res, context &) {
@@ -731,22 +736,77 @@ class Server::Impl {
           });
         });
 
-    get("/api/v1/materials")([this](const crow::request &req) {
-      const Params params = params_of(req);
-      return with_db([&](const reusex::ProjectDB &db) {
-        return json_response(200, materials_json(db, params));
-      });
-    });
+    // One rule for both methods: registering the same path twice would create
+    // two competing Crow rules (same reasoning as /jobs below).
+    app_.route_dynamic("/api/v1/materials")
+        .methods(crow::HTTPMethod::GET,
+                 crow::HTTPMethod::POST)([this](const crow::request &req) {
+          if (req.method == crow::HTTPMethod::GET) {
+            const Params params = params_of(req);
+            return with_db([&](const reusex::ProjectDB &db) {
+              return json_response(200, materials_json(db, params));
+            });
+          }
+          return with_write([&](reusex::ProjectDB &db) {
+            return json_response(201, create_material(db));
+          });
+        });
 
     app_.route_dynamic("/api/v1/materials/<string>")
-        .methods(crow::HTTPMethod::GET, crow::HTTPMethod::PATCH)(
+        .methods(crow::HTTPMethod::GET, crow::HTTPMethod::PATCH,
+                 crow::HTTPMethod::DELETE)(
             [this](const crow::request &req, std::string guid) {
               if (req.method == crow::HTTPMethod::GET)
                 return with_db([&](const reusex::ProjectDB &db) {
                   return json_response(200, material_json(db, guid));
                 });
+              if (req.method == crow::HTTPMethod::PATCH)
+                return with_write([&](reusex::ProjectDB &db) {
+                  return json_response(200, patch_material(db, guid, req.body));
+                });
               return with_write([&](reusex::ProjectDB &db) {
-                return json_response(200, patch_material(db, guid, req.body));
+                delete_material(db, guid);
+                return crow::response(204);
+              });
+            });
+
+    app_.route_dynamic("/api/v1/materials/<string>/thumbnail")
+        .methods(crow::HTTPMethod::GET, crow::HTTPMethod::PUT)(
+            [this](const crow::request &req, std::string guid) {
+              if (req.method == crow::HTTPMethod::GET)
+                return with_db([&](const reusex::ProjectDB &db) {
+                  return blob_response(material_thumbnail_blob(db, guid));
+                });
+              return with_write([&](reusex::ProjectDB &db) {
+                set_material_thumbnail(db, guid, req.body,
+                                       req.get_header_value("Content-Type"));
+                return crow::response(204);
+              });
+            });
+
+    app_.route_dynamic("/api/v1/material-columns")
+        .methods(crow::HTTPMethod::GET,
+                 crow::HTTPMethod::POST)([this](const crow::request &req) {
+          if (req.method == crow::HTTPMethod::GET)
+            return with_db([&](const reusex::ProjectDB &db) {
+              return json_response(200, material_columns_json(db));
+            });
+          return with_write([&](reusex::ProjectDB &db) {
+            return json_response(201, create_material_column(db, req.body));
+          });
+        });
+
+    app_.route_dynamic("/api/v1/material-columns/<string>")
+        .methods(crow::HTTPMethod::PATCH, crow::HTTPMethod::DELETE)(
+            [this](const crow::request &req, std::string id) {
+              if (req.method == crow::HTTPMethod::PATCH)
+                return with_write([&](reusex::ProjectDB &db) {
+                  return json_response(200,
+                                       patch_material_column(db, id, req.body));
+                });
+              return with_write([&](reusex::ProjectDB &db) {
+                delete_material_column(db, id);
+                return crow::response(204);
               });
             });
 

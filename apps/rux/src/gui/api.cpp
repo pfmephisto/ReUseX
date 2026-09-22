@@ -7,9 +7,11 @@
 #include "gui/binary_points.hpp"
 #include "gui/point_lod.hpp"
 
+#include <reusex/core/MaterialPassport.hpp>
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/core/SensorIntrinsics.hpp>
 #include <reusex/core/component_record.hpp>
+#include <reusex/core/guid.hpp>
 #include <reusex/core/stages.hpp>
 #include <reusex/core/validate.hpp>
 #include <reusex/core/version.hpp>
@@ -546,9 +548,23 @@ const std::vector<Endpoint> &endpoint_table() {
       {"GET", "/api/v1/components/<string>",
        "One component, including its boundary polygon"},
       {"GET", "/api/v1/materials", "Material passports stored in this project"},
+      {"POST", "/api/v1/materials", "Create a new blank material passport"},
       {"GET", "/api/v1/materials/<string>", "One passport's stored properties"},
       {"PATCH", "/api/v1/materials/<string>",
        "Add, change or clear passport properties"},
+      {"DELETE", "/api/v1/materials/<string>", "Delete a material passport"},
+      {"GET", "/api/v1/materials/<string>/thumbnail",
+       "A material's thumbnail image", true},
+      {"PUT", "/api/v1/materials/<string>/thumbnail",
+       "Upload or replace a material's thumbnail image"},
+      {"GET", "/api/v1/material-columns",
+       "User-defined material column definitions"},
+      {"POST", "/api/v1/material-columns",
+       "Create a material column definition"},
+      {"PATCH", "/api/v1/material-columns/<string>",
+       "Update a material column definition"},
+      {"DELETE", "/api/v1/material-columns/<string>",
+       "Delete a material column definition"},
       {"GET", "/api/v1/instances/<string>",
        "Instance rows of an instance-label cloud, with material links"},
       {"GET", "/api/v1/stages",
@@ -1479,7 +1495,8 @@ json material_json(const reusex::ProjectDB &db, const std::string &guid) {
 
   json out{{"guid", guid},
            {"property_count", properties.size()},
-           {"properties", std::move(props)}};
+           {"properties", std::move(props)},
+           {"has_thumbnail", db.material_thumbnail(guid).has_value()}};
 
   // Enrich from the summary when the passport is listed there (it carries the
   // human-facing id / created_at / version that the property table does not).
@@ -1495,6 +1512,189 @@ json material_json(const reusex::ProjectDB &db, const std::string &guid) {
   if (auto node_id = db.passport_linked_node_id(guid))
     out["linked_node_id"] = *node_id;
   return out;
+}
+
+namespace {
+
+/// Serialize one user-defined material column definition (schema v18).
+json definition_json(const reusex::ProjectDB::PropertyDefinition &d) {
+  return json{{"id", d.id},
+              {"name", d.name},
+              {"type", d.type},
+              {"options", d.options},
+              {"sort_order", d.sort_order}};
+}
+
+/// The column value types the editor understands. Anything else is a 400 —
+/// a column with an unknown type would have no editor widget to render it.
+bool is_valid_column_type(const std::string &type) {
+  return type == "text" || type == "number" || type == "date" ||
+         type == "boolean" || type == "select";
+}
+
+} // namespace
+
+json create_material(reusex::ProjectDB &db) {
+  const std::string guid = reusex::core::generate_guid();
+  const std::string created_at = pipeline::iso8601_utc_now();
+
+  reusex::core::MaterialPassport passport;
+  passport.metadata.document_guid = guid;
+  passport.metadata.creation_date = created_at;
+  passport.metadata.version_number = "0.1.0";
+
+  db.add_material_passport(passport, "");
+
+  return json{{"guid", guid},
+              {"id", guid},
+              {"properties", json::object()},
+              {"has_thumbnail", false},
+              {"created_at", created_at},
+              {"version_number", "0.1.0"}};
+}
+
+void delete_material(reusex::ProjectDB &db, const std::string &guid) {
+  // A missing passport is a 404, not a 500: delete_material_passport throws
+  // when the guid is unknown, which is precisely "no such passport".
+  try {
+    db.delete_material_passport(guid);
+  } catch (const std::exception &e) {
+    throw HttpError(404, e.what());
+  }
+}
+
+Blob material_thumbnail_blob(const reusex::ProjectDB &db,
+                             const std::string &guid) {
+  const auto thumb = db.material_thumbnail(guid);
+  if (!thumb.has_value())
+    throw HttpError(404, "no thumbnail stored for material '" + guid + "'");
+
+  Blob blob;
+  blob.content_type = thumb->second;
+  blob.data = thumb->first;
+  return blob;
+}
+
+void set_material_thumbnail(reusex::ProjectDB &db, const std::string &guid,
+                            const std::string &body, const std::string &mime) {
+  // Default to JPEG when the client sends no Content-Type: the thumbnail is
+  // shown, not parsed, and a wrong-but-plausible mime is better than a refused
+  // upload the user cannot diagnose.
+  const std::string content_type = mime.empty() ? "image/jpeg" : mime;
+  const std::vector<std::uint8_t> bytes(body.begin(), body.end());
+  db.set_material_thumbnail(guid, bytes, content_type);
+}
+
+json material_columns_json(const reusex::ProjectDB &db) {
+  json list = json::array();
+  for (const auto &def : db.list_property_definitions())
+    list.push_back(definition_json(def));
+  return list;
+}
+
+json create_material_column(reusex::ProjectDB &db, const std::string &body) {
+  auto parsed = json::parse(body, nullptr, /*allow_exceptions=*/false);
+  if (parsed.is_discarded() || !parsed.is_object())
+    throw HttpError(400, "request body must be a JSON object");
+
+  auto name_it = parsed.find("name");
+  if (name_it == parsed.end() || !name_it->is_string())
+    throw HttpError(400, "'name' is required and must be a string");
+  auto type_it = parsed.find("type");
+  if (type_it == parsed.end() || !type_it->is_string())
+    throw HttpError(400, "'type' is required and must be a string");
+
+  const auto name = name_it->get<std::string>();
+  const auto type = type_it->get<std::string>();
+  if (!is_valid_column_type(type))
+    throw HttpError(400, "'type' must be one of "
+                         "text/number/date/boolean/select");
+
+  std::vector<std::string> options;
+  auto options_it = parsed.find("options");
+  if (options_it != parsed.end() && options_it->is_array())
+    for (const auto &option : *options_it)
+      if (option.is_string())
+        options.push_back(option.get<std::string>());
+
+  int sort_order = 0;
+  auto sort_it = parsed.find("sort_order");
+  if (sort_it != parsed.end() && sort_it->is_number_integer())
+    sort_order = sort_it->get<int>();
+
+  reusex::ProjectDB::PropertyDefinition created;
+  created.id = db.add_property_definition(name, type, options, sort_order);
+  created.name = name;
+  created.type = type;
+  created.options = options;
+  created.sort_order = sort_order;
+  return definition_json(created);
+}
+
+json patch_material_column(reusex::ProjectDB &db, const std::string &id,
+                           const std::string &body) {
+  auto parsed = json::parse(body, nullptr, /*allow_exceptions=*/false);
+  if (parsed.is_discarded() || !parsed.is_object())
+    throw HttpError(400, "request body must be a JSON object");
+
+  const auto defs = db.list_property_definitions();
+  const auto it = std::find_if(defs.begin(), defs.end(),
+                               [&](const auto &d) { return d.id == id; });
+  if (it == defs.end())
+    not_found("material column", id);
+
+  // Sparse update: start from the stored values and overlay only the fields the
+  // request carries, so an absent field keeps what it had rather than being
+  // cleared to a default.
+  std::string name = it->name;
+  std::string type = it->type;
+  std::vector<std::string> options = it->options;
+  int sort_order = it->sort_order;
+
+  if (parsed.contains("name")) {
+    if (!parsed["name"].is_string())
+      throw HttpError(400, "'name' must be a string");
+    name = parsed["name"].get<std::string>();
+  }
+  if (parsed.contains("type")) {
+    if (!parsed["type"].is_string())
+      throw HttpError(400, "'type' must be a string");
+    type = parsed["type"].get<std::string>();
+    if (!is_valid_column_type(type))
+      throw HttpError(400, "'type' must be one of "
+                           "text/number/date/boolean/select");
+  }
+  if (parsed.contains("options")) {
+    if (!parsed["options"].is_array())
+      throw HttpError(400, "'options' must be an array");
+    options.clear();
+    for (const auto &option : parsed["options"])
+      if (option.is_string())
+        options.push_back(option.get<std::string>());
+  }
+  if (parsed.contains("sort_order")) {
+    if (!parsed["sort_order"].is_number_integer())
+      throw HttpError(400, "'sort_order' must be an integer");
+    sort_order = parsed["sort_order"].get<int>();
+  }
+
+  db.update_property_definition(id, name, type, options, sort_order);
+
+  reusex::ProjectDB::PropertyDefinition updated;
+  updated.id = id;
+  updated.name = name;
+  updated.type = type;
+  updated.options = options;
+  updated.sort_order = sort_order;
+  return definition_json(updated);
+}
+
+void delete_material_column(reusex::ProjectDB &db, const std::string &id) {
+  try {
+    db.delete_property_definition(id);
+  } catch (const std::exception &e) {
+    throw HttpError(404, e.what());
+  }
 }
 
 json instances_json(const reusex::ProjectDB &db, const std::string &cloud,

@@ -17,8 +17,11 @@
 #include <clients.hpp>
 #include <handlers.hpp>
 
+#include <reusex/core/ProjectDB.hpp>
 #include <reusex/core/logging.hpp>
 #include <reusex/core/version.hpp>
+
+#include <memory>
 
 #include <CLI/CLI.hpp>
 #include <crow.h>
@@ -135,6 +138,12 @@ int main(int argc, char **argv) {
                  "(empty = auth disabled)")
       ->envname("RUXD_AUTH_TOKEN");
 
+  // --- Project ---
+  cli.add_option("--project", cfg.project,
+                 "Path to a .rux project database. Enables the material editor "
+                 "routes when set.")
+      ->envname("RUXD_PROJECT");
+
   // Verbosity: -v, -vv, -vvv raise both spdlog and the ReUseX library logger
   // from the default warn level to info/debug/trace, mirroring rux.
   cli.add_flag(
@@ -178,6 +187,28 @@ int main(int argc, char **argv) {
   ruxd::register_health_routes(app, registry, clients);
   ruxd::register_segment_routes(app, registry);
   ruxd::register_meta_routes(app, registry);
+
+  // Material editor routes (#414/#415) need a .rux project database. ProjectDB
+  // is not thread-safe, so this single instance must outlive app.run() and the
+  // server must serialise access to it — it is opened here and captured by
+  // reference into the handlers.
+  //
+  // NOTE: the handlers currently share one ProjectDB across worker threads.
+  // That is only safe because writes to the editor tables are serialised
+  // elsewhere; a follow-up should add a mutex or a per-thread connection.
+  std::unique_ptr<reusex::ProjectDB> project_db;
+  if (!cfg.project.empty()) {
+    project_db = std::make_unique<reusex::ProjectDB>(cfg.project,
+                                                     /*readOnly=*/false);
+    ruxd::register_material_routes(app, registry, *project_db);
+    ruxd::register_material_column_routes(app, registry, *project_db);
+    reusex::core::info("material editor routes enabled (project: {})",
+                       cfg.project);
+  } else {
+    reusex::core::warn("material editor routes DISABLED (no --project / "
+                       "RUXD_PROJECT set)");
+  }
+
   ruxd::register_not_found_handler(app);
 
   // Wire the auth middleware to the populated registry. With no token set, auth

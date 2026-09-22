@@ -53,10 +53,15 @@ std::vector<Response> effective_responses(const Endpoint &e) {
 }
 } // namespace
 
+crow::HTTPMethod register_endpoint(EndpointRegistry &reg,
+                                   const Endpoint &meta) {
+  reg.add(meta);
+  return to_method(meta.method);
+}
+
 void add_route(App &app, EndpointRegistry &reg, Endpoint meta,
                RouteHandler handler) {
-  const crow::HTTPMethod method = to_method(meta.method);
-  reg.add(meta);
+  const crow::HTTPMethod method = register_endpoint(reg, meta);
   app.route_dynamic(meta.path).methods(method)(std::move(handler));
 }
 

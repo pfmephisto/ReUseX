@@ -155,7 +155,7 @@ export function ColumnHeaderMenu({
         </div>
       </section>
 
-      {colDef.type === 'select' && (
+      {(colDef.type === 'select' || colDef.type === 'multiselect') && (
         <section className={styles.section}>
           <label className={styles.label} htmlFor="col-menu-options">
             Options (comma-separated)

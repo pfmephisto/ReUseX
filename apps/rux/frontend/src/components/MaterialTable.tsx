@@ -11,7 +11,11 @@ import {
 } from '@tanstack/react-table';
 
 import { api } from '../api/client';
-import type { MaterialDetail, MaterialInfo, PropertyType } from '../api/types';
+import type {
+  MaterialDetail,
+  MaterialInfo,
+  PropertyType,
+} from '../api/types';
 import { useAsync } from '../app/useAsync';
 import { describeWriteFailure, type WriteFailure } from '../data/writeState';
 import { ColumnHeaderMenu } from './ColumnHeaderMenu';
@@ -59,6 +63,22 @@ export function MaterialTable() {
   const [colWidths, setColWidths] = useState<Record<string, number>>({});
   const scrollRef = useRef<HTMLDivElement>(null);
   const [isScrolledX, setIsScrolledX] = useState(false);
+
+  // Seed local widths from the loaded column definitions, once per column.
+  // useState can't take async data, so hydrate here — and only for columns the
+  // user hasn't already resized this session (so a drag isn't clobbered).
+  useEffect(() => {
+    if (!columnsAsync.data) return;
+    setColWidths((prev) => {
+      const next = { ...prev };
+      for (const col of columnsAsync.data!) {
+        if (!(col.id in next)) {
+          next[col.id] = col.width ?? 200;
+        }
+      }
+      return next;
+    });
+  }, [columnsAsync.data]);
 
   // ---- row gutter / selection / peek --------------------------------------
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
@@ -152,17 +172,17 @@ export function MaterialTable() {
       e.preventDefault();
       const startX = e.clientX;
       const MIN_WIDTH = 100;
+      let currentWidth = startWidth;
 
       const onMouseMove = (ev: MouseEvent) => {
-        const newWidth = Math.max(MIN_WIDTH, startWidth + (ev.clientX - startX));
-        setColWidths((prev) => ({ ...prev, [colId]: newWidth }));
+        currentWidth = Math.max(MIN_WIDTH, startWidth + (ev.clientX - startX));
+        setColWidths((prev) => ({ ...prev, [colId]: currentWidth }));
       };
 
       const onMouseUp = () => {
         window.removeEventListener('mousemove', onMouseMove);
         window.removeEventListener('mouseup', onMouseUp);
-        // No `width` field on the property definition yet, so the resized width
-        // lives only in local state. Persist here once the schema grows one.
+        void api.updatePropertyDefinition(colId, { width: currentWidth });
       };
 
       window.addEventListener('mousemove', onMouseMove);

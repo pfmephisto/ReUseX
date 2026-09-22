@@ -4,10 +4,28 @@
 
 import { useEffect, useRef, useState } from 'react';
 
-import type { PropertyDefinition } from '../api/types';
+import type { PropertyDefinition, PropertyType } from '../api/types';
+import { MultiSelectDropdown } from './MultiSelectDropdown';
 import { chipColorFor, SelectDropdown } from './SelectDropdown';
 import { useTableNav } from './tableNav';
 import styles from './EditableCell.module.css';
+
+const MULTISELECT_TYPE: PropertyType = 'multiselect';
+
+/** Parse a stored multi-select value (a JSON array string) into values. */
+function parseMultiValues(raw: string | undefined): string[] {
+  if (!raw) return [];
+  try {
+    return JSON.parse(raw) as string[];
+  } catch {
+    return raw ? [raw] : [];
+  }
+}
+
+/** Serialize selected values back to storage (JSON array, or null when empty). */
+function serializeMultiValues(vals: string[]): string | null {
+  return vals.length === 0 ? null : JSON.stringify(vals);
+}
 
 export interface EditableCellProps {
   value: string | undefined;
@@ -119,6 +137,52 @@ export function EditableCell({
           tabIndex={-1}
           onChange={toggle}
         />
+      </div>
+    );
+  }
+
+  // ---- multiselect: multiple chips, keep-open dropdown -------------------
+
+  if ((colDef.type as string) === MULTISELECT_TYPE) {
+    const currentValues = parseMultiValues(value);
+    return (
+      <div
+        ref={cellRef}
+        tabIndex={0}
+        className={`${styles.cell} ${isFocused ? styles.focused : ''}`}
+        onFocus={() => nav.setFocused(rowIndex, colIndex)}
+        onClick={() => nav.startEdit(rowIndex, colIndex)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === 'F2') {
+            event.preventDefault();
+            nav.startEdit(rowIndex, colIndex);
+          }
+        }}
+      >
+        <div className={styles.multiChips}>
+          {currentValues.length === 0 ? (
+            <span className={styles.empty}>—</span>
+          ) : (
+            currentValues.map((v) => {
+              const c = chipColorFor(v);
+              return (
+                <span key={v} className={styles.chip} style={{ background: c.bg, color: c.text }}>
+                  {v}
+                </span>
+              );
+            })
+          )}
+        </div>
+        {isEditing && (
+          <MultiSelectDropdown
+            values={currentValues}
+            colDef={colDef}
+            onSave={(vals) => void onSave(serializeMultiValues(vals))}
+            onAddOption={onAddOption}
+            onClose={() => nav.exitEdit(false)}
+            anchorRef={cellRef}
+          />
+        )}
       </div>
     );
   }

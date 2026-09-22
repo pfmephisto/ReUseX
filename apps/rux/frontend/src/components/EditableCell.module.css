@@ -85,3 +85,12 @@
   accent-color: var(--color-accent);
   cursor: pointer;
 }
+
+/* Multi-select read mode: several coloured chips wrapping within the cell. */
+.multiChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  min-height: 20px;
+}

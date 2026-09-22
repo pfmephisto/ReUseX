@@ -189,6 +189,10 @@ export function EditableCell({
       {isEditing ? (
         <input
           ref={inputRef}
+          // autoFocus gives the browser an immediate, synchronous focus hint
+          // when the element is inserted into the DOM — more reliable than the
+          // useEffect approach alone, which fires after the paint.
+          autoFocus
           className={styles.input}
           type={inputType}
           step={colDef.type === 'number' ? 'any' : undefined}
@@ -196,6 +200,13 @@ export function EditableCell({
           aria-label={colDef.name}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
+            // Stop all keys from reaching the table-level handler, except Tab
+            // (which commits and moves focus to the next cell). Without this,
+            // any keydown that arrives while the scroll wrapper has stale focus
+            // hits the table's printable-key handler and is preventDefault()-ed
+            // before the input's onChange can fire.
+            if (event.key !== 'Tab') event.stopPropagation();
+
             if (event.key === 'Enter') {
               event.preventDefault();
               void commit();
@@ -203,7 +214,6 @@ export function EditableCell({
               event.preventDefault();
               cancel();
             }
-            // Tab is handled by the table wrapper (save + move); let it bubble.
           }}
           onBlur={() => void commit()}
         />

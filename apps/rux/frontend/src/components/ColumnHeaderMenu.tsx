@@ -19,6 +19,7 @@ import styles from './ColumnHeaderMenu.module.css';
 export interface ColumnHeaderMenuProps {
   colDef: PropertyDefinition;
   position: { x: number; y: number };
+  sortDirection: 'asc' | 'desc' | null;
   onClose: () => void;
   onRename: (name: string) => void;
   onTypeChange: (type: PropertyType) => void;
@@ -26,6 +27,8 @@ export interface ColumnHeaderMenuProps {
   onDelete: () => void;
   onMoveLeft: () => void;
   onMoveRight: () => void;
+  onSortAsc: () => void;
+  onSortDesc: () => void;
 }
 
 /** Split a comma-separated option list into trimmed, non-empty entries. */
@@ -49,6 +52,7 @@ function parseOptions(raw: string): string[] {
 export function ColumnHeaderMenu({
   colDef,
   position,
+  sortDirection,
   onClose,
   onRename,
   onTypeChange,
@@ -56,6 +60,8 @@ export function ColumnHeaderMenu({
   onDelete,
   onMoveLeft,
   onMoveRight,
+  onSortAsc,
+  onSortDesc,
 }: ColumnHeaderMenuProps) {
   const cardRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState(position);
@@ -156,6 +162,20 @@ export function ColumnHeaderMenu({
       )}
 
       <section className={styles.actions}>
+        <button
+          type="button"
+          className={`${styles.action} ${sortDirection === 'asc' ? styles.actionActive : ''}`}
+          onClick={onSortAsc}
+        >
+          ↑ Sort A → Z
+        </button>
+        <button
+          type="button"
+          className={`${styles.action} ${sortDirection === 'desc' ? styles.actionActive : ''}`}
+          onClick={onSortDesc}
+        >
+          ↓ Sort Z → A
+        </button>
         <button type="button" className={styles.action} onClick={onMoveLeft}>
           Move left
         </button>

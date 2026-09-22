@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   flexRender,
   getCoreRowModel,
@@ -51,6 +51,10 @@ export function MaterialTable() {
   const [failure, setFailure] = useState<WriteFailure | null>(null);
   const [colMenu, setColMenu] = useState<{ id: string; x: number; y: number } | null>(null);
 
+  // ---- sort / search -------------------------------------------------------
+  const [sortConfig, setSortConfig] = useState<{ colName: string; dir: 'asc' | 'desc' } | null>(null);
+  const [search, setSearch] = useState('');
+
   // ---- column widths (resize) / horizontal-scroll shadow ------------------
   const [colWidths, setColWidths] = useState<Record<string, number>>({});
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -70,7 +74,31 @@ export function MaterialTable() {
   const seedRef = useRef<string | null>(null);
 
   const dataCols = columnsAsync.data ?? [];
-  const rowCount = materialsAsync.data?.length ?? 0;
+
+  // Filter by search, then sort by sortConfig. Both operate on property values
+  // in the details map, which is populated after materialsAsync resolves.
+  const sortedFilteredRows = useMemo(() => {
+    let rows = materialsAsync.data ?? [];
+    if (search.trim()) {
+      const needle = search.trim().toLowerCase();
+      rows = rows.filter((m) => {
+        const props = details.get(m.guid)?.properties ?? {};
+        return Object.values(props).some((v) => v.toLowerCase().includes(needle));
+      });
+    }
+    if (sortConfig) {
+      const { colName, dir } = sortConfig;
+      rows = [...rows].sort((a, b) => {
+        const aVal = details.get(a.guid)?.properties?.[colName] ?? '';
+        const bVal = details.get(b.guid)?.properties?.[colName] ?? '';
+        const cmp = aVal.localeCompare(bVal, undefined, { numeric: true, sensitivity: 'base' });
+        return dir === 'asc' ? cmp : -cmp;
+      });
+    }
+    return rows;
+  }, [materialsAsync.data, details, search, sortConfig]);
+
+  const rowCount = sortedFilteredRows.length;
   const colCount = dataCols.length;
 
   useEffect(() => {
@@ -462,7 +490,7 @@ export function MaterialTable() {
   const allCols = [thumbnailCol, ...dynamicCols, addColumnCol];
 
   const table = useReactTable({
-    data: materialsAsync.data ?? [],
+    data: sortedFilteredRows,
     columns: allCols,
     getCoreRowModel: getCoreRowModel(),
     columnResizeMode: 'onChange',
@@ -484,6 +512,27 @@ export function MaterialTable() {
           onDismiss={() => setFailure(null)}
         />
       )}
+
+      <div className={styles.toolbar}>
+        <input
+          type="search"
+          className={styles.searchInput}
+          placeholder="Search materials…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          aria-label="Search materials"
+        />
+        {sortConfig && (
+          <button
+            type="button"
+            className={styles.sortBadge}
+            onClick={() => setSortConfig(null)}
+            title="Clear sort"
+          >
+            {sortConfig.colName} {sortConfig.dir === 'asc' ? '↑' : '↓'} ×
+          </button>
+        )}
+      </div>
 
       {selectedRowIds.size > 0 && (
         <div className={styles.bulkBar}>
@@ -652,6 +701,7 @@ export function MaterialTable() {
         <ColumnHeaderMenu
           colDef={menuColDef}
           position={{ x: colMenu.x, y: colMenu.y }}
+          sortDirection={sortConfig?.colName === menuColDef.name ? sortConfig.dir : null}
           onClose={() => setColMenu(null)}
           onRename={(name) => {
             void handleRename(colMenu.id, name);
@@ -675,6 +725,14 @@ export function MaterialTable() {
           }}
           onMoveRight={() => {
             void handleMoveColumn(colMenu.id, 'right');
+            setColMenu(null);
+          }}
+          onSortAsc={() => {
+            setSortConfig({ colName: menuColDef.name, dir: 'asc' });
+            setColMenu(null);
+          }}
+          onSortDesc={() => {
+            setSortConfig({ colName: menuColDef.name, dir: 'desc' });
             setColMenu(null);
           }}
         />

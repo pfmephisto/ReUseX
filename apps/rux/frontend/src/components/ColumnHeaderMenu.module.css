@@ -115,3 +115,8 @@
 .danger {
   color: var(--color-status-failed);
 }
+
+.actionActive {
+  color: var(--color-accent);
+  font-weight: var(--font-weight-medium);
+}

@@ -5,6 +5,7 @@
 #include "gui/point_lod.hpp"
 
 #include <reusex/core/logging.hpp>
+#include <reusex/geometry/morton.hpp>
 
 #include <algorithm>
 #include <array>
@@ -459,34 +460,12 @@ gather_points(const reusex::ProjectDB &db, std::string_view name,
 
 namespace {
 
-// Spread one 10-bit coordinate into a 30-bit word by interleaving every 3rd
-// bit (magic-bit expansion). Identical to the version in reconstruct.cpp.
-uint32_t expand3(uint32_t v) {
-  v &= 0x000003ffu;
-  v = (v | (v << 16u)) & 0x030000ffu;
-  v = (v | (v << 8u)) & 0x0300f00fu;
-  v = (v | (v << 4u)) & 0x030c30c3u;
-  v = (v | (v << 2u)) & 0x09249249u;
-  return v;
-}
-
-// Reverse the 30 significant bits of a Morton code. The coarsest-level octant
-// bits (top bits of plain Morton) become the BOTTOM bits of the result.
-// Identical to the version in reconstruct.cpp.
-uint32_t reverse_bits30(uint32_t v) {
-  v = ((v >> 1u) & 0x55555555u) | ((v & 0x55555555u) << 1u);
-  v = ((v >> 2u) & 0x33333333u) | ((v & 0x33333333u) << 2u);
-  v = ((v >> 4u) & 0x0f0f0f0fu) | ((v & 0x0f0f0f0fu) << 4u);
-  v = ((v >> 8u) & 0x00ff00ffu) | ((v & 0x00ff00ffu) << 8u);
-  v = (v >> 16u) | (v << 16u);
-  return v >> 2u;
-}
-
-// Compute the 30-bit bit-reversed Morton sort key for a point given the cloud
-// bbox. Mirrors the sort-key computation in reconstruct.cpp so tile assignment
-// at index-build time matches the storage order the cloud was sorted into.
+// 30-bit bit-reversed Morton sort key for (x,y,z) quantised in [lo, hi].
+// Uses the shared helpers from <reusex/geometry/morton.hpp> so the computation
+// stays identical to reconstruct.cpp's sort and can never silently diverge.
 uint32_t morton_sort_key(float x, float y, float z, const float lo[3],
                          const float range[3]) {
+  namespace gm = reusex::geometry;
   constexpr uint32_t kMax10 = 1023u;
   const auto clamp01 = [](float v) {
     return v < 0.f ? 0.f : (v > 1.f ? 1.f : v);
@@ -497,8 +476,9 @@ uint32_t morton_sort_key(float x, float y, float z, const float lo[3],
       static_cast<uint32_t>(clamp01((y - lo[1]) / range[1]) * kMax10);
   const uint32_t zi =
       static_cast<uint32_t>(clamp01((z - lo[2]) / range[2]) * kMax10);
-  return reverse_bits30(expand3(xi) | (expand3(yi) << 1u) |
-                        (expand3(zi) << 2u));
+  return gm::morton_reverse_bits30(gm::morton_expand3(xi) |
+                                   (gm::morton_expand3(yi) << 1u) |
+                                   (gm::morton_expand3(zi) << 2u));
 }
 
 } // namespace
@@ -690,6 +670,47 @@ reusex::ProjectDB::CloudPage gather_tile_points(const reusex::ProjectDB &db,
     }
   }
   return out;
+}
+
+std::vector<uint64_t> gather_tile_indices(const reusex::ProjectDB &db,
+                                          std::string_view name,
+                                          const TileIndexHeader &hdr,
+                                          uint32_t tile_id) {
+  const uint32_t K = 1u << hdr.tile_bits;
+  if (tile_id >= K)
+    throw std::runtime_error("tile_id " + std::to_string(tile_id) +
+                             " >= K=" + std::to_string(K));
+
+  const auto probe = db.point_cloud_page(name, 0, 0);
+  const size_t step = probe.point_step;
+  if (step == 0 || step > kMaxRecord)
+    throw std::runtime_error("unusable point_step for cloud '" +
+                             std::string(name) + "'");
+
+  float rng[3];
+  for (int ax = 0; ax < 3; ++ax)
+    rng[ax] =
+        (hdr.hi[ax] - hdr.lo[ax]) > 1e-9f ? (hdr.hi[ax] - hdr.lo[ax]) : 1e-9f;
+
+  const uint32_t mask = K - 1;
+  std::vector<uint64_t> indices;
+  for (uint64_t start = 0; start < probe.total; start += kLodStreamChunk) {
+    const auto window = db.point_cloud_page(name, start, kLodStreamChunk);
+    if (window.count == 0)
+      break;
+    for (uint64_t i = 0; i < window.count; ++i) {
+      const uint8_t *rec = window.data.data() + i * step;
+      if (!finite_position(rec))
+        continue;
+      const float x = read_f32(rec);
+      const float y = read_f32(rec + 4);
+      const float z = read_f32(rec + 8);
+      if ((morton_sort_key(x, y, z, hdr.lo, rng) & mask) != tile_id)
+        continue;
+      indices.push_back(start + i);
+    }
+  }
+  return indices; // ascending by construction — forward iteration
 }
 
 } // namespace rux::gui

@@ -825,11 +825,18 @@ LodPage resolve_lod(const reusex::ProjectDB &db, const std::string &name,
 struct TileRequest {
   bool active = false;
   uint32_t tile_id = 0;
+  /// Geometry cloud whose tile index drives the scan, for a sibling that has
+  /// no positions of its own (a Label cloud). Empty = serve this cloud
+  /// directly.
+  std::string lod_source;
 };
 
 /// Parse the `tile` half of the points query. Mutually exclusive with
 /// `max_points`/`offset`/`limit`: a tile is a full-resolution spatial slice, a
 /// different question from paging or LOD.
+///
+/// `lod_source` may accompany `tile`: it names the geometry cloud whose tile
+/// membership is used to gather the position-free sibling (BLOCKER 2 fix).
 TileRequest parse_tile_request(const Params &params) {
   const auto supplied = [&params](std::string_view key) {
     const auto value = params.find(key);
@@ -848,18 +855,65 @@ TileRequest parse_tile_request(const Params &params) {
     throw HttpError(400, "tile must be >= 0, got " + std::to_string(value));
   request.active = true;
   request.tile_id = static_cast<uint32_t>(value);
+  request.lod_source = params.str("lod_source", "");
   return request;
 }
 
 /// Read one spatial tile by scanning for points with matching sort_key.
+///
+/// When `request.lod_source` is set the cloud being served has no positions
+/// (e.g. a Label cloud); tile membership is determined from the source cloud's
+/// tile index and the matching storage indices are used to gather the sibling.
 reusex::ProjectDB::CloudPage resolve_tile(const reusex::ProjectDB &db,
                                           const std::string &name,
                                           const TileRequest &request) {
+  if (!request.lod_source.empty()) {
+    // Companion fetch: gather the label (or other position-free) cloud at the
+    // same storage indices as the geometry tile — the only way to keep it
+    // index-aligned without positions of its own.
+    const auto src_blob = db.tile_index(request.lod_source);
+    if (src_blob.empty())
+      throw HttpError(404, "no tile index for source cloud '" +
+                               request.lod_source + "'");
+    const auto [src_hdr, src_tiles] = parse_tile_index(src_blob);
+    const uint32_t K = 1u << src_hdr.tile_bits;
+    if (request.tile_id >= K)
+      throw HttpError(400, "tile " + std::to_string(request.tile_id) +
+                               " out of range; source cloud '" +
+                               request.lod_source + "' has " +
+                               std::to_string(K) + " tiles");
+
+    const auto probe = db.point_cloud_page(name, 0, 0);
+    if (probe.total != src_hdr.point_count)
+      throw HttpError(400, "cloud '" + name + "' has " +
+                               std::to_string(probe.total) +
+                               " points but source '" + request.lod_source +
+                               "' tile index was built for " +
+                               std::to_string(src_hdr.point_count) +
+                               " points — re-run create clouds");
+
+    const auto indices =
+        gather_tile_indices(db, request.lod_source, src_hdr, request.tile_id);
+    return gather_points(db, name, indices);
+  }
+
   const auto blob = db.tile_index(name);
   if (blob.empty())
     throw HttpError(404, "no tile index for cloud '" + name + "'");
 
   const auto [hdr, tiles] = parse_tile_index(blob);
+
+  // Stale-index guard: a cloud rewrite clears tile_index (ProjectDB upsert),
+  // but a stale blob from before schema v16 could slip through. 404 so the
+  // client falls back to sequential paging rather than serving wrong tiles.
+  const auto probe = db.point_cloud_page(name, 0, 0);
+  if (probe.total != hdr.point_count)
+    throw HttpError(404, "tile index for cloud '" + name + "' was built for " +
+                             std::to_string(hdr.point_count) +
+                             " points but the cloud now has " +
+                             std::to_string(probe.total) +
+                             " — re-run create clouds");
+
   const uint32_t K = 1u << hdr.tile_bits;
   if (request.tile_id >= K)
     throw HttpError(400, "tile " + std::to_string(request.tile_id) +

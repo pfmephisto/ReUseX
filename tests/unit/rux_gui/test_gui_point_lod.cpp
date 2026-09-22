@@ -773,3 +773,59 @@ TEST_CASE("TileIndex_NonMortonCloud_IsEmpty", "[gui][tiles]") {
   const auto blob = rux::gui::compute_tile_index(db, "small");
   CHECK(blob.empty());
 }
+
+TEST_CASE("TileIndex_CloudRewrite_ClearsIndex", "[gui][tiles]") {
+  // Regression for BLOCKER 3: savePointCloudMeta upsert must set tile_index =
+  // NULL so a re-run of create clouds does not leave a stale index in place.
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  const auto mc = make_morton_cloud(2000);
+  save_morton_cloud(db, "cloud", mc.cloud);
+
+  // Build and persist the tile index.
+  const auto blob = rux::gui::compute_tile_index(db, "cloud");
+  db.save_tile_index("cloud", blob);
+  REQUIRE_FALSE(db.tile_index("cloud").empty());
+
+  // Re-save the cloud (simulating a second create clouds run).
+  db.save_point_cloud("cloud", mc.cloud, "test2");
+
+  // The old tile index must be gone — it was built for a different geometry
+  // run and cannot be trusted against the new storage order.
+  CHECK(db.tile_index("cloud").empty());
+}
+
+TEST_CASE("TileIndex_GatherTileIndices_MatchGatherTilePoints", "[gui][tiles]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  const auto mc = make_morton_cloud(4000);
+  save_morton_cloud(db, "cloud", mc.cloud);
+
+  const auto blob = rux::gui::compute_tile_index(db, "cloud");
+  const auto [hdr, tiles] = rux::gui::parse_tile_index(blob);
+
+  // Build a label cloud that encodes the storage index as its label value.
+  reusex::CloudL labels;
+  labels.width = static_cast<uint32_t>(mc.cloud.size());
+  labels.height = 1;
+  labels.points.resize(mc.cloud.size());
+  for (size_t i = 0; i < mc.cloud.size(); ++i)
+    labels.points[i].label = static_cast<uint32_t>(i);
+  db.save_point_cloud("labels", labels, "test");
+
+  // For tile 0, gather_tile_indices and gather_tile_points must agree on which
+  // storage positions belong to the tile.
+  const auto indices = rux::gui::gather_tile_indices(db, "cloud", hdr, 0u);
+  const auto page = rux::gui::gather_tile_points(db, "cloud", hdr, 0u);
+  CHECK(indices.size() == static_cast<size_t>(page.count));
+
+  // Gather the label cloud by those indices; each label must equal its index.
+  const auto sibling = rux::gui::gather_points(db, "labels", indices);
+  CHECK(sibling.count == page.count);
+  for (size_t i = 0; i < indices.size(); ++i) {
+    uint32_t label = 0;
+    std::memcpy(&label, sibling.data.data() + i * sibling.point_step,
+                sizeof(label));
+    CHECK(label == static_cast<uint32_t>(indices[i]));
+  }
+}

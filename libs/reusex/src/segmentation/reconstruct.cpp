@@ -8,6 +8,7 @@
 #include "core/label_semantics.hpp"
 #include "core/logging.hpp"
 #include "core/processing_observer.hpp"
+#include "geometry/morton.hpp"
 #include "geometry/transform_utils.hpp"
 #include "segmentation/depth_filters.hpp"
 #include "utils/fmt_formatter.hpp"
@@ -464,32 +465,9 @@ void reconstruct_point_clouds(ProjectDB &db,
     // Avoid division by zero for degenerate (flat/single-point) clouds.
     Eigen::Vector3f range = (hi - lo).cwiseMax(1e-9f);
 
-    // Spread one 10-bit coordinate value into a 30-bit word by placing bit k
-    // at position 3k (magic-bit interleave, Rosen 2011). Called once per
-    // axis; the three results are OR-ed with 0, 1, 2-bit shifts for x, y, z.
-    auto expand3 = [](uint32_t v) -> uint32_t {
-      v &= 0x000003ffu;
-      v = (v | (v << 16u)) & 0x030000ffu;
-      v = (v | (v << 8u)) & 0x0300f00fu;
-      v = (v | (v << 4u)) & 0x030c30c3u;
-      v = (v | (v << 2u)) & 0x09249249u;
-      return v;
-    };
-
-    // Reverse the 30 significant bits of a Morton code so the coarsest-level
-    // octant bits become most-significant in the sort key.  Standard 32-bit
-    // reversal then >>2 shifts the reversed 30 bits into positions 0..29.
-    auto reverse_bits30 = [](uint32_t v) -> uint32_t {
-      v = ((v >> 1u) & 0x55555555u) | ((v & 0x55555555u) << 1u);
-      v = ((v >> 2u) & 0x33333333u) | ((v & 0x33333333u) << 2u);
-      v = ((v >> 4u) & 0x0f0f0f0fu) | ((v & 0x0f0f0f0fu) << 4u);
-      v = ((v >> 8u) & 0x00ff00ffu) | ((v & 0x00ff00ffu) << 8u);
-      v = (v >> 16u) | (v << 16u);
-      return v >> 2u;
-    };
-
-    // Precompute bit-reversed codes so each is evaluated once, not twice per
-    // comparison.
+    // Precompute bit-reversed Morton codes so each is evaluated once, not
+    // twice per comparison.  Shared helpers from geometry/morton.hpp.
+    namespace gm = reusex::geometry;
     constexpr uint32_t kMax10 = 1023u;
     std::vector<uint32_t> codes(n);
     for (size_t i = 0; i < n; ++i) {
@@ -500,8 +478,9 @@ void reconstruct_point_clouds(ProjectDB &db,
           std::clamp((p.y - lo.y()) / range.y(), 0.0f, 1.0f) * kMax10);
       const uint32_t zi = static_cast<uint32_t>(
           std::clamp((p.z - lo.z()) / range.z(), 0.0f, 1.0f) * kMax10);
-      codes[i] = reverse_bits30(expand3(xi) | (expand3(yi) << 1u) |
-                                (expand3(zi) << 2u));
+      codes[i] = gm::morton_reverse_bits30(gm::morton_expand3(xi) |
+                                           (gm::morton_expand3(yi) << 1u) |
+                                           (gm::morton_expand3(zi) << 2u));
     }
 
     std::vector<size_t> perm(n);

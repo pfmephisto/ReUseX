@@ -102,8 +102,10 @@ export interface TileInfo {
 /**
  * `CloudTileIndex` — the spatial tile index of one cloud (#395).
  *
- * Present only for clouds stored in morton_10bit_bitrev order. Tile `k` is the
- * stride-K storage slice `{k, k+K, k+2K, ...}` with `K = tile_count`.
+ * Present only for clouds stored in morton_10bit_bitrev order. Tile `k`
+ * contains the points where `(sort_key & (K-1)) == k`, where
+ * `sort_key = reverse_bits30(morton(x,y,z))` and `K = tile_count`. The server
+ * selects them with an O(N) scan at serve time.
  */
 export interface CloudTileIndex {
   name: string;

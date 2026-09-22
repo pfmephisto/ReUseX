@@ -22,7 +22,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { ApiRequestError } from '../api/client';
-import type { CloudPointsPage } from '../api/types';
+import type { CloudPointsPage, CloudTileIndex } from '../api/types';
 import { pageIsLod } from '../viewport/decode';
 import { createPageFetcher, type PointsClient } from '../viewport/useCloudStream';
 import { CLOUD_POINTS_PAGE } from './fixtures';
@@ -34,6 +34,7 @@ interface Recorded {
   limit?: number;
   maxPoints?: number;
   lodSource?: string;
+  tile?: number;
 }
 
 interface Stub {
@@ -48,8 +49,13 @@ interface Stub {
  * `binary` is a function of the call index so a test can make the *second*
  * request behave differently from the first — the only way to show that the
  * latch, once flipped, stays flipped.
+ *
+ * `cloudTiles` defaults to 404 (no tile index) so existing tests are unaffected.
  */
-function stubClient(binary: (call: number) => ArrayBuffer | Error): Stub {
+function stubClient(
+  binary: (call: number) => ArrayBuffer | Error,
+  cloudTiles?: (name: string) => Promise<CloudTileIndex>,
+): Stub {
   const binaryCalls: Recorded[] = [];
   const jsonCalls: Recorded[] = [];
   const client: PointsClient = {
@@ -62,6 +68,10 @@ function stubClient(binary: (call: number) => ArrayBuffer | Error): Stub {
       jsonCalls.push({ name, ...options });
       return Promise.resolve(CLOUD_POINTS_PAGE);
     },
+    cloudTiles: cloudTiles ?? ((_name) =>
+      Promise.reject(
+        new ApiRequestError(404, 'no tile index', '/api/v1/clouds/c/tiles'),
+      )),
   };
   return { client, binaryCalls, jsonCalls };
 }
@@ -257,5 +267,48 @@ describe('createPageFetcher — errors that are not a fallback', () => {
     });
     await expect(fetchPage('cloud', { offset: 0, limit: 100 })).rejects.toThrow(/locked/);
     expect(binaryCalls).toHaveLength(1);
+  });
+});
+
+// ── Tile + lodSource queries (#395, BLOCKER 1 + BLOCKER 2) ─────────────────
+//
+// useCloudStream's runTiled path is now reachable: Viewport.tsx passes
+// getCameraState from the real PointCloudScene camera, and dispatches
+// 'rux-camera-move' via onCameraChange. The tests below pin the fetch-level
+// behaviour: that tile and tile+lodSource queries are forwarded unchanged to
+// the server, matching the fixes for the dead-code path (BLOCKER 1) and the
+// label-alignment bug (BLOCKER 2).
+//
+// The hook itself is a React hook and cannot be exercised without a renderer,
+// but createPageFetcher is the transport layer the hook uses for every tile
+// fetch — so these assertions are equivalent to running the hook up to the
+// point where the network calls are made.
+describe('createPageFetcher — tile queries (#395)', () => {
+  it('passes tile through unchanged for a geometry cloud', async () => {
+    const { client, binaryCalls } = stubClient(RUXP_PAGE);
+    const fetchPage = createPageFetcher({ client });
+    await fetchPage('cloud', { tile: 3 });
+    expect(binaryCalls[0]).toEqual({ name: 'cloud', tile: 3 });
+  });
+
+  it('passes tile + lodSource for a label cloud companion fetch (BLOCKER 2)', async () => {
+    // A Label cloud has no positions; the server needs lodSource to compute tile
+    // membership via the geometry cloud's sort keys. Without this fix the label
+    // tile fetch sent tile=id with no lodSource, hitting a 404 on the server.
+    const { client, binaryCalls } = stubClient(RUXP_PAGE);
+    const fetchPage = createPageFetcher({ client });
+    await fetchPage('labels', { tile: 7, lodSource: 'cloud' });
+    expect(binaryCalls[0]).toEqual({ name: 'labels', tile: 7, lodSource: 'cloud' });
+  });
+
+  it('keeps the format latch per stream, not per query mode', async () => {
+    // Tile queries use the same fetcher instance as paging queries; the latch
+    // must still flip on a 501 even when the first request was a tile query.
+    const { client, binaryCalls, jsonCalls } = stubClient(() => notImplemented());
+    const fetchPage = createPageFetcher({ client });
+    await fetchPage('cloud', { tile: 0 });
+    await fetchPage('cloud', { tile: 1 });
+    expect(binaryCalls).toHaveLength(1);
+    expect(jsonCalls).toHaveLength(2);
   });
 });

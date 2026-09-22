@@ -2368,7 +2368,8 @@ class ProjectDB::Impl {
           height = excluded.height,
           created_at = datetime('now'),
           stage = excluded.stage,
-          parameters = excluded.parameters;
+          parameters = excluded.parameters,
+          tile_index = NULL;
       )";
 
       sqlite3_stmt *stmt;

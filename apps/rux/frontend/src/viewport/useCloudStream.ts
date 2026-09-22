@@ -330,7 +330,12 @@ export function useCloudStream(options: CloudStreamOptions): CloudStreamState {
         if (cancelled) return;
         let labels: StreamPage | null = null;
         if (labelCloud) {
-          labels = await fetchPage(labelCloud, { tile: id });
+          // Label clouds have no positions, so tile membership cannot be
+          // computed on them directly. Pass lodSource so the server runs the
+          // O(N) scan on the geometry cloud and gathers the label cloud by
+          // the resulting storage indices — exactly as the lod_source path
+          // does for max_points requests (see fetchBoth / gather_points).
+          labels = await fetchPage(labelCloud, { tile: id, lodSource: cloud });
           if (cancelled) return;
         }
         loaded += applyPage(geometry, labels);

@@ -180,4 +180,16 @@ reusex::ProjectDB::CloudPage gather_tile_points(const reusex::ProjectDB &db,
                                                 const TileIndexHeader &hdr,
                                                 uint32_t tile_id);
 
+/// Return the sorted storage indices of the points in spatial tile @p tile_id.
+///
+/// Same O(N) scan as gather_tile_points, but yields only the indices — not the
+/// records — so a position-free sibling cloud (e.g. a Label cloud) can be
+/// gathered at the same points via gather_points().
+/// @throws std::runtime_error when @p tile_id >= K or the cloud has an
+///         unusable point_step.
+std::vector<uint64_t> gather_tile_indices(const reusex::ProjectDB &db,
+                                          std::string_view name,
+                                          const TileIndexHeader &hdr,
+                                          uint32_t tile_id);
+
 } // namespace rux::gui

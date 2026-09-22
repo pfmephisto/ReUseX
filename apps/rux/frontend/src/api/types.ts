@@ -304,12 +304,18 @@ export interface MaterialDetail extends MaterialInfo {
 }
 
 /** The kind of a user-defined material editor column. */
-export type PropertyType = 'text' | 'number' | 'date' | 'boolean' | 'select';
+export type PropertyType =
+  | 'text'
+  | 'number'
+  | 'date'
+  | 'boolean'
+  | 'select'
+  | 'multiselect';
 
 /**
  * `PropertyDefinition` — a user-defined column in the material editor.
  *
- * `options` is populated only for the `select` type.
+ * `options` is populated only for the `select`/`multiselect` types.
  */
 export interface PropertyDefinition {
   id: string;
@@ -317,6 +323,7 @@ export interface PropertyDefinition {
   type: PropertyType;
   options?: string[];
   sort_order: number;
+  width?: number;
 }
 
 /** `MaterialCreate` — the (optional) body of `POST /materials`. */

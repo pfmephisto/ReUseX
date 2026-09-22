@@ -1522,14 +1522,15 @@ json definition_json(const reusex::ProjectDB::PropertyDefinition &d) {
               {"name", d.name},
               {"type", d.type},
               {"options", d.options},
-              {"sort_order", d.sort_order}};
+              {"sort_order", d.sort_order},
+              {"width", d.width}};
 }
 
 /// The column value types the editor understands. Anything else is a 400 —
 /// a column with an unknown type would have no editor widget to render it.
 bool is_valid_column_type(const std::string &type) {
   return type == "text" || type == "number" || type == "date" ||
-         type == "boolean" || type == "select";
+         type == "boolean" || type == "select" || type == "multiselect";
 }
 
 } // namespace
@@ -1608,7 +1609,7 @@ json create_material_column(reusex::ProjectDB &db, const std::string &body) {
   const auto type = type_it->get<std::string>();
   if (!is_valid_column_type(type))
     throw HttpError(400, "'type' must be one of "
-                         "text/number/date/boolean/select");
+                         "text/number/date/boolean/select/multiselect");
 
   std::vector<std::string> options;
   auto options_it = parsed.find("options");
@@ -1622,12 +1623,19 @@ json create_material_column(reusex::ProjectDB &db, const std::string &body) {
   if (sort_it != parsed.end() && sort_it->is_number_integer())
     sort_order = sort_it->get<int>();
 
+  int width = 200;
+  auto width_it = parsed.find("width");
+  if (width_it != parsed.end() && width_it->is_number_integer())
+    width = width_it->get<int>();
+
   reusex::ProjectDB::PropertyDefinition created;
-  created.id = db.add_property_definition(name, type, options, sort_order);
+  created.id =
+      db.add_property_definition(name, type, options, sort_order, width);
   created.name = name;
   created.type = type;
   created.options = options;
   created.sort_order = sort_order;
+  created.width = width;
   return definition_json(created);
 }
 
@@ -1650,6 +1658,7 @@ json patch_material_column(reusex::ProjectDB &db, const std::string &id,
   std::string type = it->type;
   std::vector<std::string> options = it->options;
   int sort_order = it->sort_order;
+  int width = it->width;
 
   if (parsed.contains("name")) {
     if (!parsed["name"].is_string())
@@ -1662,7 +1671,7 @@ json patch_material_column(reusex::ProjectDB &db, const std::string &id,
     type = parsed["type"].get<std::string>();
     if (!is_valid_column_type(type))
       throw HttpError(400, "'type' must be one of "
-                           "text/number/date/boolean/select");
+                           "text/number/date/boolean/select/multiselect");
   }
   if (parsed.contains("options")) {
     if (!parsed["options"].is_array())
@@ -1677,8 +1686,13 @@ json patch_material_column(reusex::ProjectDB &db, const std::string &id,
       throw HttpError(400, "'sort_order' must be an integer");
     sort_order = parsed["sort_order"].get<int>();
   }
+  if (parsed.contains("width")) {
+    if (!parsed["width"].is_number_integer())
+      throw HttpError(400, "'width' must be an integer");
+    width = parsed["width"].get<int>();
+  }
 
-  db.update_property_definition(id, name, type, options, sort_order);
+  db.update_property_definition(id, name, type, options, sort_order, width);
 
   reusex::ProjectDB::PropertyDefinition updated;
   updated.id = id;
@@ -1686,6 +1700,7 @@ json patch_material_column(reusex::ProjectDB &db, const std::string &id,
   updated.type = type;
   updated.options = options;
   updated.sort_order = sort_order;
+  updated.width = width;
   return definition_json(updated);
 }
 

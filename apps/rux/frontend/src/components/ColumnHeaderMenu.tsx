@@ -6,13 +6,21 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import type { PropertyDefinition, PropertyType } from '../api/types';
 
-const PROPERTY_TYPES: PropertyType[] = ['text', 'number', 'date', 'boolean', 'select'];
+const PROPERTY_TYPES: PropertyType[] = [
+  'text',
+  'number',
+  'date',
+  'boolean',
+  'select',
+  'multiselect',
+];
 const PROPERTY_TYPE_LABELS: Record<PropertyType, string> = {
   text: 'Text',
   number: 'Number',
   date: 'Date',
   boolean: 'Checkbox',
   select: 'Select',
+  multiselect: 'Multi-select',
 };
 import styles from './ColumnHeaderMenu.module.css';
 

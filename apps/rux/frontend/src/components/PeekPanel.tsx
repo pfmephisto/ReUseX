@@ -32,6 +32,7 @@ const PROPERTY_TYPE_ICON: Record<PropertyType, string> = {
   date: '▦',
   boolean: '☑',
   select: '▾',
+  multiselect: '▾',
 };
 
 /**

@@ -210,7 +210,7 @@ class ProjectDB::Impl {
   sqlite3 *db = nullptr;
 
   // cppcheck-suppress unusedStructMember
-  static constexpr int LATEST_SCHEMA_VERSION = 18;
+  static constexpr int LATEST_SCHEMA_VERSION = 19;
 
   // Maximum bytes per point_cloud_data row. SQLite's default SQLITE_MAX_LENGTH
   // is 1 GB and the hard compile-time max is 2 GB-1. We chunk large clouds
@@ -450,6 +450,10 @@ class ProjectDB::Impl {
 
     if (current < 18) {
       migrateToV18();
+    }
+
+    if (current < 19) {
+      migrateToV19();
     }
 
     reusex::trace("Schema version: {}", getCurrentSchemaVersion());
@@ -1448,6 +1452,25 @@ class ProjectDB::Impl {
     insertSchemaVersion(
         18, "Add material_property_definitions and material_thumbnails (#413)");
     reusex::info("Migration to schema version 18 complete");
+  }
+
+  void migrateToV19() {
+    reusex::info("Migrating database to schema version 19");
+
+    // Notion-like material editor: persist per-column display width so the
+    // GUI can remember user-resized columns.
+    const char *v19_schema = "ALTER TABLE material_property_definitions "
+                             "ADD COLUMN width INTEGER NOT NULL DEFAULT 200;";
+
+    char *errMsg = nullptr;
+    if (sqlite3_exec(db, v19_schema, nullptr, nullptr, &errMsg) != SQLITE_OK) {
+      std::string error = errMsg ? errMsg : "unknown error";
+      sqlite3_free(errMsg);
+      throw std::runtime_error("Migration to v19 failed: " + error);
+    }
+
+    insertSchemaVersion(19, "Add width to material_property_definitions");
+    reusex::info("Migration to schema version 19 complete");
   }
 
   // ── Scan helpers (#129) ──────────────────────────────────────────────────
@@ -2554,6 +2577,7 @@ class ProjectDB::Impl {
         type        TEXT NOT NULL DEFAULT 'text',
         options     TEXT,
         sort_order  INTEGER NOT NULL DEFAULT 0,
+        width       INTEGER NOT NULL DEFAULT 200,
         created_at  TEXT NOT NULL DEFAULT (datetime('now'))
       );
 
@@ -6246,7 +6270,7 @@ void ProjectDB::delete_material_passport(std::string_view documentGuid) {
 
 std::vector<ProjectDB::PropertyDefinition>
 ProjectDB::list_property_definitions() const {
-  const char *query = "SELECT id, name, type, options, sort_order "
+  const char *query = "SELECT id, name, type, options, sort_order, width "
                       "FROM material_property_definitions "
                       "ORDER BY sort_order, created_at;";
 
@@ -6274,6 +6298,7 @@ ProjectDB::list_property_definitions() const {
     def.name = name ? name : "";
     def.type = type ? type : "text";
     def.sort_order = sqlite3_column_int(stmt, 4);
+    def.width = sqlite3_column_int(stmt, 5);
 
     if (options && *options) {
       try {
@@ -6297,15 +6322,15 @@ ProjectDB::list_property_definitions() const {
 
 std::string ProjectDB::add_property_definition(
     const std::string &name, const std::string &type,
-    const std::vector<std::string> &options, int sort_order) {
+    const std::vector<std::string> &options, int sort_order, int width) {
   impl_->checkWritable();
 
   const std::string id = core::generate_guid();
   const std::string options_json = nlohmann::json(options).dump();
 
-  const char *query =
-      "INSERT INTO material_property_definitions "
-      "(id, name, type, options, sort_order) VALUES (?, ?, ?, ?, ?);";
+  const char *query = "INSERT INTO material_property_definitions "
+                      "(id, name, type, options, sort_order, width) "
+                      "VALUES (?, ?, ?, ?, ?, ?);";
   sqlite3_stmt *stmt;
   if (sqlite3_prepare_v2(impl_->db, query, -1, &stmt, nullptr) != SQLITE_OK) {
     throw std::runtime_error(
@@ -6319,6 +6344,7 @@ std::string ProjectDB::add_property_definition(
   sqlite3_bind_text(stmt, 3, type.c_str(), -1, SQLITE_TRANSIENT);
   sqlite3_bind_text(stmt, 4, options_json.c_str(), -1, SQLITE_TRANSIENT);
   sqlite3_bind_int(stmt, 5, sort_order);
+  sqlite3_bind_int(stmt, 6, width);
 
   if (sqlite3_step(stmt) != SQLITE_DONE) {
     throw std::runtime_error("Failed to add property definition: " +
@@ -6329,14 +6355,14 @@ std::string ProjectDB::add_property_definition(
 
 void ProjectDB::update_property_definition(
     const std::string &id, const std::string &name, const std::string &type,
-    const std::vector<std::string> &options, int sort_order) {
+    const std::vector<std::string> &options, int sort_order, int width) {
   impl_->checkWritable();
 
   const std::string options_json = nlohmann::json(options).dump();
 
-  const char *query =
-      "UPDATE material_property_definitions "
-      "SET name = ?, type = ?, options = ?, sort_order = ? WHERE id = ?;";
+  const char *query = "UPDATE material_property_definitions "
+                      "SET name = ?, type = ?, options = ?, sort_order = ?, "
+                      "width = ? WHERE id = ?;";
   sqlite3_stmt *stmt;
   if (sqlite3_prepare_v2(impl_->db, query, -1, &stmt, nullptr) != SQLITE_OK) {
     throw std::runtime_error(
@@ -6349,7 +6375,8 @@ void ProjectDB::update_property_definition(
   sqlite3_bind_text(stmt, 2, type.c_str(), -1, SQLITE_TRANSIENT);
   sqlite3_bind_text(stmt, 3, options_json.c_str(), -1, SQLITE_TRANSIENT);
   sqlite3_bind_int(stmt, 4, sort_order);
-  sqlite3_bind_text(stmt, 5, id.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_int(stmt, 5, width);
+  sqlite3_bind_text(stmt, 6, id.c_str(), -1, SQLITE_TRANSIENT);
 
   if (sqlite3_step(stmt) != SQLITE_DONE) {
     throw std::runtime_error("Failed to update property definition: " +

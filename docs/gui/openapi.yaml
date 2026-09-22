@@ -306,12 +306,17 @@ paths:
         - name: tile
           in: query
           description: >-
-            Serve one spatial tile of the cloud at full resolution (#395).
-            Tile k is the set of points where `(sort_key & (K-1)) == k`
-            (selected by an O(N) scan), where `sort_key = reverse_bits30(morton(x,y,z))`
-            and K is the tile count from `GET /clouds/{name}/tiles`. Requires a
-            tile index (`404` when there is none) and is mutually exclusive with
-            `max_points`, `offset` and `limit` — that is a `400`.
+            Serve a spatial tile of the cloud (#395). Tile k is the set of
+            points where `(sort_key & (K-1)) == k`, where
+            `sort_key = reverse_bits30(morton(x,y,z))` and K is the tile count
+            from `GET /clouds/{name}/tiles`. Requires a tile index (`404` when
+            there is none). Mutually exclusive with `max_points` — that is a
+            `400`. When combined with `offset`/`limit`, serves a within-tile
+            slice for multi-level LOD (#396): `offset` is the number of tile
+            points to skip and `limit` is the maximum to return. The response
+            carries `lod: true` (or the RUXP LOD flag) when `limit` is set,
+            signalling that more data is available for this tile. Without
+            `offset`/`limit` the full tile is returned at full resolution.
           schema: { type: integer, minimum: 0 }
         - name: format
           in: query

@@ -829,3 +829,202 @@ TEST_CASE("TileIndex_GatherTileIndices_MatchGatherTilePoints", "[gui][tiles]") {
     CHECK(label == static_cast<uint32_t>(indices[i]));
   }
 }
+
+// ── Multi-level tile LOD tests (#396) ──────────────────────────────────────
+//
+// The key property to verify: within a tile, the stored order is a
+// bit-reversed Morton ordering of the sub-octant. A prefix of a tile's
+// points is therefore a spatially stratified sample of that tile.
+
+TEST_CASE("TileLod_WithinTilePrefix_IsStratiified", "[gui][tiles][lod396]") {
+  // Build a Morton-sorted cloud large enough to have non-trivial tiles.
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  const auto mc = make_morton_cloud(8000);
+  save_morton_cloud(db, "cloud", mc.cloud);
+
+  const auto blob = rux::gui::compute_tile_index(db, "cloud");
+  const auto [hdr, tiles] = rux::gui::parse_tile_index(blob);
+
+  // Pick the tile with the most points (so a 25% prefix is still meaningful).
+  uint32_t best_tile = 0;
+  uint32_t best_count = 0;
+  for (uint32_t k = 0; k < static_cast<uint32_t>(tiles.size()); ++k) {
+    if (tiles[k].count > best_count) {
+      best_count = tiles[k].count;
+      best_tile = k;
+    }
+  }
+  REQUIRE(best_count >=
+          20); // need enough points for the check to be meaningful
+
+  // Full tile fetch: establishes ground-truth bbox.
+  const auto full = rux::gui::gather_tile_points(db, "cloud", hdr, best_tile);
+  REQUIRE(full.count == best_count);
+
+  float full_lo[3] = {std::numeric_limits<float>::max(),
+                      std::numeric_limits<float>::max(),
+                      std::numeric_limits<float>::max()};
+  float full_hi[3] = {-std::numeric_limits<float>::max(),
+                      -std::numeric_limits<float>::max(),
+                      -std::numeric_limits<float>::max()};
+  for (size_t i = 0; i < full.count; ++i)
+    for (int ax = 0; ax < 3; ++ax) {
+      const float v = axis_of(full, i, ax);
+      full_lo[ax] = std::min(full_lo[ax], v);
+      full_hi[ax] = std::max(full_hi[ax], v);
+    }
+
+  // Prefix fetch (first 25%): must cover >= 60% of the full tile bbox per axis.
+  // A plain-Morton ordering of the same cloud would put the first 25% of the
+  // tile into one spatial sub-octant (≈ 50% on each axis at best), while
+  // bit-reversal distributes across all sub-octants — so 60% is a realistic
+  // threshold distinguishing the two.
+  const uint64_t prefix_count = std::max<uint64_t>(1, best_count / 4);
+  const auto prefix = rux::gui::gather_tile_points(db, "cloud", hdr, best_tile,
+                                                   /*skip=*/0, prefix_count);
+  REQUIRE(static_cast<uint64_t>(prefix.count) == prefix_count);
+
+  for (int ax = 0; ax < 3; ++ax) {
+    const float full_range = full_hi[ax] - full_lo[ax];
+    if (full_range < 1e-4f)
+      continue; // degenerate axis (e.g. a flat scan) — skip coverage check
+    float pfx_lo = std::numeric_limits<float>::max();
+    float pfx_hi = -std::numeric_limits<float>::max();
+    for (size_t i = 0; i < prefix.count; ++i) {
+      const float v = axis_of(prefix, i, ax);
+      pfx_lo = std::min(pfx_lo, v);
+      pfx_hi = std::max(pfx_hi, v);
+    }
+    const float coverage = (pfx_hi - pfx_lo) / full_range;
+    INFO("tile " << best_tile << " axis " << ax << ": prefix covers "
+                 << coverage * 100.0f << "% of tile range");
+    CHECK(coverage >= 0.60f);
+  }
+}
+
+TEST_CASE("TileLod_Limit_ReturnsExactCount", "[gui][tiles][lod396]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  const auto mc = make_morton_cloud(4000);
+  save_morton_cloud(db, "cloud", mc.cloud);
+
+  const auto blob = rux::gui::compute_tile_index(db, "cloud");
+  const auto [hdr, tiles] = rux::gui::parse_tile_index(blob);
+
+  // Find a tile with at least 10 points.
+  uint32_t test_tile = 0;
+  for (uint32_t k = 0; k < static_cast<uint32_t>(tiles.size()); ++k) {
+    if (tiles[k].count >= 10) {
+      test_tile = k;
+      break;
+    }
+  }
+
+  // A limit smaller than the tile count must be respected exactly.
+  const uint64_t limit = static_cast<uint64_t>(tiles[test_tile].count / 2);
+  const auto page = rux::gui::gather_tile_points(db, "cloud", hdr, test_tile,
+                                                 /*skip=*/0, limit);
+  CHECK(static_cast<uint64_t>(page.count) == limit);
+  CHECK(page.count < static_cast<uint64_t>(tiles[test_tile].count));
+
+  // limit == 0 returns the full tile.
+  const auto full = rux::gui::gather_tile_points(db, "cloud", hdr, test_tile,
+                                                 /*skip=*/0, /*limit=*/0);
+  CHECK(full.count == static_cast<uint64_t>(tiles[test_tile].count));
+}
+
+TEST_CASE("TileLod_OffsetPlusLimit_PartitionsTheTile", "[gui][tiles][lod396]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  const auto mc = make_morton_cloud(4000);
+  save_morton_cloud(db, "cloud", mc.cloud);
+
+  const auto blob = rux::gui::compute_tile_index(db, "cloud");
+  const auto [hdr, tiles] = rux::gui::parse_tile_index(blob);
+
+  // Find a tile with at least 6 points so we can split into halves.
+  uint32_t test_tile = 0;
+  for (uint32_t k = 0; k < static_cast<uint32_t>(tiles.size()); ++k) {
+    if (tiles[k].count >= 6) {
+      test_tile = k;
+      break;
+    }
+  }
+  const uint64_t total = tiles[test_tile].count;
+  const uint64_t half = total / 2;
+
+  const auto first_half = rux::gui::gather_tile_points(
+      db, "cloud", hdr, test_tile, /*skip=*/0, half);
+  const auto second_half = rux::gui::gather_tile_points(
+      db, "cloud", hdr, test_tile, /*skip=*/half, total - half);
+  const auto full = rux::gui::gather_tile_points(db, "cloud", hdr, test_tile,
+                                                 /*skip=*/0, /*limit=*/0);
+
+  REQUIRE(first_half.count == half);
+  REQUIRE(second_half.count == total - half);
+  REQUIRE(full.count == total);
+
+  // The two halves together must exactly reconstruct the full tile.
+  const size_t step = full.point_step;
+  for (size_t i = 0; i < half; ++i) {
+    CHECK(std::memcmp(first_half.data.data() + i * step,
+                      full.data.data() + i * step, step) == 0);
+  }
+  for (size_t i = 0; i < total - half; ++i) {
+    CHECK(std::memcmp(second_half.data.data() + i * step,
+                      full.data.data() + (half + i) * step, step) == 0);
+  }
+}
+
+TEST_CASE("TileLod_IndicesAndPoints_HaveSameSkipLimit",
+          "[gui][tiles][lod396]") {
+  // gather_tile_indices with skip/limit must return exactly the storage indices
+  // of the points gather_tile_points would return — the label-alignment
+  // contract from docs/CONTRACTS.md, STANDARDS §3.2.
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  const auto mc = make_morton_cloud(4000);
+  save_morton_cloud(db, "cloud", mc.cloud);
+
+  // Build a label cloud encoding each stored position's index.
+  reusex::CloudL labels;
+  labels.width = static_cast<uint32_t>(mc.cloud.size());
+  labels.height = 1;
+  labels.points.resize(mc.cloud.size());
+  for (size_t i = 0; i < mc.cloud.size(); ++i)
+    labels.points[i].label = static_cast<uint32_t>(i);
+  db.save_point_cloud("labels", labels, "test");
+
+  const auto blob = rux::gui::compute_tile_index(db, "cloud");
+  const auto [hdr, tiles] = rux::gui::parse_tile_index(blob);
+
+  // Find a tile with >= 8 points.
+  uint32_t test_tile = 0;
+  for (uint32_t k = 0; k < static_cast<uint32_t>(tiles.size()); ++k) {
+    if (tiles[k].count >= 8) {
+      test_tile = k;
+      break;
+    }
+  }
+  const uint64_t total = tiles[test_tile].count;
+  const uint64_t skip = total / 4;
+  const uint64_t lim = total / 2;
+
+  const auto indices =
+      rux::gui::gather_tile_indices(db, "cloud", hdr, test_tile, skip, lim);
+  const auto page =
+      rux::gui::gather_tile_points(db, "cloud", hdr, test_tile, skip, lim);
+
+  REQUIRE(indices.size() == static_cast<size_t>(page.count));
+
+  // Gather labels by these indices: each label value must match the index.
+  const auto sibling = rux::gui::gather_points(db, "labels", indices);
+  REQUIRE(sibling.count == page.count);
+  for (size_t i = 0; i < indices.size(); ++i) {
+    uint32_t label = 0;
+    std::memcpy(&label, sibling.data.data() + i * sibling.point_step,
+                sizeof(label));
+    CHECK(label == static_cast<uint32_t>(indices[i]));
+  }
+}

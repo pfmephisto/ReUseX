@@ -170,26 +170,39 @@ std::vector<uint8_t> compute_tile_index(const reusex::ProjectDB &db,
 std::pair<TileIndexHeader, std::vector<TileInfo>>
 parse_tile_index(const std::vector<uint8_t> &blob);
 
-/// Return all points in spatial tile @p tile_id at full resolution.
+/// Return points in spatial tile @p tile_id, optionally as a slice.
 ///
 /// O(N) scan: recomputes each point's sort key from its coordinates and the
 /// bbox stored in @p hdr, then collects points whose `sort_key & (K-1) == k`.
+/// Within a tile the points appear in ascending sort_key order, which is itself
+/// a bit-reversed Morton ordering of the sub-octant — so any prefix of a tile's
+/// points is a spatially stratified sample of that tile.
+///
+/// @param skip  Skip this many matching points before collecting. 0 = start
+///              from the first point of the tile.
+/// @param limit Collect at most this many points. 0 = no limit (full tile).
 /// @throws std::runtime_error when @p tile_id >= K.
-reusex::ProjectDB::CloudPage gather_tile_points(const reusex::ProjectDB &db,
-                                                std::string_view name,
-                                                const TileIndexHeader &hdr,
-                                                uint32_t tile_id);
+reusex::ProjectDB::CloudPage
+gather_tile_points(const reusex::ProjectDB &db, std::string_view name,
+                   const TileIndexHeader &hdr, uint32_t tile_id,
+                   uint64_t skip = 0, uint64_t limit = 0);
 
-/// Return the sorted storage indices of the points in spatial tile @p tile_id.
+/// Return sorted storage indices of points in spatial tile @p tile_id.
 ///
 /// Same O(N) scan as gather_tile_points, but yields only the indices — not the
 /// records — so a position-free sibling cloud (e.g. a Label cloud) can be
-/// gathered at the same points via gather_points().
+/// gathered at the same points via gather_points(). The skip/limit contract is
+/// identical to gather_tile_points, so the two always produce index-aligned
+/// results when called with the same arguments.
+///
+/// @param skip  Skip this many matching points before collecting.
+/// @param limit Collect at most this many indices. 0 = no limit.
 /// @throws std::runtime_error when @p tile_id >= K or the cloud has an
 ///         unusable point_step.
 std::vector<uint64_t> gather_tile_indices(const reusex::ProjectDB &db,
                                           std::string_view name,
                                           const TileIndexHeader &hdr,
-                                          uint32_t tile_id);
+                                          uint32_t tile_id, uint64_t skip = 0,
+                                          uint64_t limit = 0);
 
 } // namespace rux::gui

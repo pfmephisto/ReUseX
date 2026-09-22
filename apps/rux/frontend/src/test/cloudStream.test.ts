@@ -312,3 +312,42 @@ describe('createPageFetcher — tile queries (#395)', () => {
     expect(jsonCalls).toHaveLength(2);
   });
 });
+
+// ── Multi-level tile LOD queries (#396) ────────────────────────────────────
+//
+// The within-tile slice params (offset + limit alongside tile) enable
+// incremental LOD refinement. The fetcher passes them unchanged to the server;
+// labels get the same offset/limit as geometry so the two remain index-aligned.
+describe('createPageFetcher — tile LOD slice queries (#396)', () => {
+  it('passes tile + offset + limit for a within-tile slice', async () => {
+    const { client, binaryCalls } = stubClient(RUXP_PAGE);
+    const fetchPage = createPageFetcher({ client });
+    await fetchPage('cloud', { tile: 2, offset: 500, limit: 250 });
+    expect(binaryCalls[0]).toEqual({ name: 'cloud', tile: 2, offset: 500, limit: 250 });
+  });
+
+  it('passes the same offset + limit to the label companion', async () => {
+    // Label clouds must receive identical skip/limit so they stay index-aligned
+    // with the geometry slice (STANDARDS §3.2 and #396 label-companion contract).
+    const { client, binaryCalls } = stubClient(RUXP_PAGE);
+    const fetchPage = createPageFetcher({ client });
+    await fetchPage('labels', { tile: 5, lodSource: 'cloud', offset: 200, limit: 100 });
+    expect(binaryCalls[0]).toEqual({
+      name: 'labels',
+      tile: 5,
+      lodSource: 'cloud',
+      offset: 200,
+      limit: 100,
+    });
+  });
+
+  it('treats a tile without offset/limit as a full-resolution fetch', async () => {
+    const { client, binaryCalls } = stubClient(RUXP_PAGE);
+    const fetchPage = createPageFetcher({ client });
+    await fetchPage('cloud', { tile: 0 });
+    expect(binaryCalls[0]).toEqual({ name: 'cloud', tile: 0 });
+    // No offset or limit fields in the call — they must not be serialised when absent.
+    expect(binaryCalls[0]).not.toHaveProperty('offset');
+    expect(binaryCalls[0]).not.toHaveProperty('limit');
+  });
+});

@@ -821,7 +821,7 @@ LodPage resolve_lod(const reusex::ProjectDB &db, const std::string &name,
           selection.voxel_size};
 }
 
-/// A validated single-tile request (#395).
+/// A validated single-tile request (#395 / #396).
 struct TileRequest {
   bool active = false;
   uint32_t tile_id = 0;
@@ -829,11 +829,18 @@ struct TileRequest {
   /// no positions of its own (a Label cloud). Empty = serve this cloud
   /// directly.
   std::string lod_source;
+  /// Within-tile offset and limit for multi-level LOD (#396). Both are 0 for
+  /// a full-resolution tile fetch. When limit > 0, the response carries the
+  /// LOD flag so the client knows more data is available for this tile.
+  uint64_t tile_offset = 0;
+  uint64_t tile_limit = 0;
 };
 
-/// Parse the `tile` half of the points query. Mutually exclusive with
-/// `max_points`/`offset`/`limit`: a tile is a full-resolution spatial slice, a
-/// different question from paging or LOD.
+/// Parse the `tile` half of the points query.
+///
+/// Mutually exclusive with `max_points` only: `offset`/`limit` serve as
+/// within-tile slice parameters (#396) when `tile` is present, enabling
+/// multi-level LOD without schema changes.
 ///
 /// `lod_source` may accompany `tile`: it names the geometry cloud whose tile
 /// membership is used to gather the position-free sibling (BLOCKER 2 fix).
@@ -846,9 +853,8 @@ TileRequest parse_tile_request(const Params &params) {
   TileRequest request;
   if (!supplied("tile"))
     return request;
-  if (supplied("max_points") || supplied("offset") || supplied("limit"))
-    throw HttpError(400, "tile serves one spatial slice of the whole cloud and "
-                         "cannot be combined with max_points, offset or limit");
+  if (supplied("max_points"))
+    throw HttpError(400, "tile cannot be combined with max_points");
 
   const long long value = params.integer("tile", -1);
   if (value < 0)
@@ -856,6 +862,21 @@ TileRequest parse_tile_request(const Params &params) {
   request.active = true;
   request.tile_id = static_cast<uint32_t>(value);
   request.lod_source = params.str("lod_source", "");
+
+  // Within-tile slice for multi-level LOD. offset and limit are validated but
+  // not applied to the global page: they address the tile's point sequence.
+  if (supplied("offset")) {
+    const long long off = params.integer("offset", 0);
+    if (off < 0)
+      throw HttpError(400, "offset must be >= 0");
+    request.tile_offset = static_cast<uint64_t>(off);
+  }
+  if (supplied("limit")) {
+    const long long lim = params.integer("limit", 0);
+    if (lim < 0)
+      throw HttpError(400, "limit must be >= 0");
+    request.tile_limit = static_cast<uint64_t>(lim);
+  }
   return request;
 }
 
@@ -864,6 +885,7 @@ TileRequest parse_tile_request(const Params &params) {
 /// When `request.lod_source` is set the cloud being served has no positions
 /// (e.g. a Label cloud); tile membership is determined from the source cloud's
 /// tile index and the matching storage indices are used to gather the sibling.
+/// `request.tile_offset`/`tile_limit` select a within-tile slice (#396).
 reusex::ProjectDB::CloudPage resolve_tile(const reusex::ProjectDB &db,
                                           const std::string &name,
                                           const TileRequest &request) {
@@ -892,8 +914,11 @@ reusex::ProjectDB::CloudPage resolve_tile(const reusex::ProjectDB &db,
                                std::to_string(src_hdr.point_count) +
                                " points — re-run create clouds");
 
+    // Skip/limit must match geometry so label and geometry remain
+    // index-aligned.
     const auto indices =
-        gather_tile_indices(db, request.lod_source, src_hdr, request.tile_id);
+        gather_tile_indices(db, request.lod_source, src_hdr, request.tile_id,
+                            request.tile_offset, request.tile_limit);
     return gather_points(db, name, indices);
   }
 
@@ -920,7 +945,8 @@ reusex::ProjectDB::CloudPage resolve_tile(const reusex::ProjectDB &db,
                              " out of range; cloud '" + name + "' has " +
                              std::to_string(K) + " tiles");
 
-  return gather_tile_points(db, name, hdr, request.tile_id);
+  return gather_tile_points(db, name, hdr, request.tile_id, request.tile_offset,
+                            request.tile_limit);
 }
 
 /// Serialize one already-read page as the JSON `CloudPointsPage` object.
@@ -986,8 +1012,9 @@ json cloud_points_json(const reusex::ProjectDB &db, const std::string &name,
   const auto tile = parse_tile_request(params);
   if (tile.active) {
     auto body = points_json_from_page(name, resolve_tile(db, name, tile));
-    // A tile is a full-resolution spatial slice, not a coarsened view.
-    body["lod"] = false;
+    // A tile slice (limit > 0) is partial — more data is available for this
+    // tile. A full-resolution tile fetch (limit == 0) is complete.
+    body["lod"] = tile.tile_limit > 0;
     return body;
   }
 
@@ -1039,8 +1066,10 @@ PointsResponse cloud_points(const reusex::ProjectDB &db,
   reusex::ProjectDB::CloudPage page;
   uint32_t flags = 0;
   if (tile.active) {
-    // A tile is a full-resolution spatial slice: LOD is not claimed.
     page = resolve_tile(db, name, tile);
+    // A tile slice (limit > 0) is partial: signal that more data is available.
+    if (tile.tile_limit > 0)
+      flags |= kRuxpFlagLod;
   } else if (lod.active) {
     auto result = resolve_lod(db, name, lod);
     // The flag is set only when points were actually dropped. A cloud that fit

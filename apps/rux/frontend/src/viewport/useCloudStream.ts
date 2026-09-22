@@ -6,10 +6,11 @@ import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 
 import { ApiRequestError, api, type CloudPointsQuery, type RuxApiClient } from '../api/client';
-import type { CloudTileIndex } from '../api/types';
+import type { CloudTileIndex, TileInfo } from '../api/types';
 import { isRuxp, parseRuxp } from './binaryPoints';
 import { visibleTileIds } from './frustumCull';
 import { pageCount, pageIsLod, pageTotal, toPageBuffers, type StreamPage } from './decode';
+import { computeTileFraction, desiredCount } from './tileLevel';
 import {
   DEFAULT_OVERVIEW_POINTS,
   DEFAULT_PAGE_SIZE,
@@ -298,14 +299,18 @@ export function useCloudStream(options: CloudStreamOptions): CloudStreamState {
     };
 
     /**
-     * Frustum-culled tile streaming (#395).
+     * Frustum-culled, multi-level tile streaming (#395 / #396).
      *
      * Returns true when it handled the cloud (tile index present and a camera
      * accessor was given); false to signal the caller to fall through to the
-     * sequential overview + paging path. Fetches visible tiles nearest-first,
-     * then re-evaluates on each camera move (debounced) and pulls newly visible
-     * tiles as they come into view. Each tile is a full-resolution spatial
-     * slice, so nothing is an overview and nothing is superseded.
+     * sequential overview + paging path.
+     *
+     * Each visible tile is fetched at a LOD fraction determined by its angular
+     * size (see `tileLevel.ts`). On camera settle the fraction is re-evaluated
+     * and only the delta slice is requested — already-fetched points are never
+     * re-fetched. Tiles that become invisible while partially loaded are left
+     * as-is; when they come back into view the next camera-settle pass fetches
+     * the remaining fraction if it has increased.
      */
     const runTiled = async (): Promise<boolean> => {
       const getCameraState = getCameraStateRef.current;
@@ -322,51 +327,80 @@ export function useCloudStream(options: CloudStreamOptions): CloudStreamState {
       if (cancelled) return true;
 
       const total = index.point_count;
-      const fetched = new Set<number>();
+      // Per-tile fetched count. A tile is "fully loaded" when fetchedCounts[id]
+      // >= tile.count. The map is never decremented — LOD only refines.
+      const fetchedCounts = new Map<number, number>();
       let loaded = 0;
 
-      const fetchTile = async (id: number) => {
-        const geometry = await fetchPage(cloud, { tile: id });
+      // Build a map from tile id to TileInfo for O(1) lookup.
+      const tileById = new Map<number, TileInfo>();
+      for (const tile of index.tiles) tileById.set(tile.id, tile);
+
+      /**
+       * Fetch the next slice of tile `id`, from `offset` to `offset + limit`.
+       * Applies the resulting page and updates the per-tile and total counts.
+       */
+      const fetchTileSlice = async (id: number, offset: number, limit: number) => {
+        const query: CloudPointsQuery = { tile: id, offset, limit };
+        const geometry = await fetchPage(cloud, query);
         if (cancelled) return;
         let labels: StreamPage | null = null;
         if (labelCloud) {
           // Label clouds have no positions, so tile membership cannot be
-          // computed on them directly. Pass lodSource so the server runs the
-          // O(N) scan on the geometry cloud and gathers the label cloud by
-          // the resulting storage indices — exactly as the lod_source path
-          // does for max_points requests (see fetchBoth / gather_points).
-          labels = await fetchPage(labelCloud, { tile: id, lodSource: cloud });
+          // computed on them directly. Pass the same offset/limit so the server
+          // applies the identical skip/limit to the geometry-derived indices
+          // and the two remain index-aligned.
+          labels = await fetchPage(labelCloud, {
+            tile: id,
+            lodSource: cloud,
+            offset,
+            limit,
+          });
           if (cancelled) return;
         }
-        loaded += applyPage(geometry, labels);
+        const n = applyPage(geometry, labels);
+        loaded += n;
+        fetchedCounts.set(id, (fetchedCounts.get(id) ?? 0) + n);
         setState({ loaded, total, fraction: loadFraction(loaded, total), done: false });
       };
 
-      // Fetch every tile the current frustum sees, nearest first, skipping any
-      // already loaded. Shared by the initial pass and each camera-move pass.
-      const fetchVisible = async () => {
+      /**
+       * Evaluate the visible tile set and fetch any outstanding slices.
+       *
+       * For each visible tile, the desired point count is computed from its
+       * angular size. If the tile has not yet reached that count, the delta
+       * slice is requested. Already-complete tiles are skipped without a
+       * network call.
+       */
+      const fetchVisibleLod = async () => {
         const { frustum, position, origin } = getCameraState();
         const ids = visibleTileIds(index.tiles, frustum, position, origin);
         for (const id of ids) {
           if (cancelled) return;
-          if (fetched.has(id)) continue;
-          fetched.add(id);
-          await fetchTile(id);
+          const tile = tileById.get(id);
+          if (!tile || tile.count === 0) continue;
+
+          const fraction = computeTileFraction(tile, position, origin);
+          const desired = desiredCount(tile.count, fraction);
+          const alreadyFetched = fetchedCounts.get(id) ?? 0;
+          if (alreadyFetched >= desired) continue;
+
+          const delta = desired - alreadyFetched;
+          await fetchTileSlice(id, alreadyFetched, delta);
         }
       };
 
       setState({ loaded: 0, total, fraction: loadFraction(0, total), done: false });
-      await fetchVisible();
+      await fetchVisibleLod();
       if (cancelled) return true;
 
-      // Re-evaluate the visible set whenever the camera settles. A cloud is
-      // usually far bigger than one frustum, so this is how the rest of it loads
-      // in as the user looks around.
+      // Re-evaluate whenever the camera settles. The debounce timer matches
+      // #395's 150 ms and re-uses the same `rux-camera-move` event.
       let timer: ReturnType<typeof setTimeout> | undefined;
       const onMove = () => {
         if (timer !== undefined) clearTimeout(timer);
         timer = setTimeout(() => {
-          fetchVisible().catch(() => {
+          fetchVisibleLod().catch(() => {
             /* a failed refresh is not fatal to the stream */
           });
         }, 150);

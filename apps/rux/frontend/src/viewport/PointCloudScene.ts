@@ -293,6 +293,43 @@ export class PointCloudScene {
   }
 
   /**
+   * Current camera frustum, position, and recentring origin.
+   *
+   * Passed to {@link useCloudStream} so it can frustum-cull the tile index and
+   * fetch only what the camera sees. The frustum is computed from the camera's
+   * current projection × view matrices — the render loop keeps them current, so
+   * this is always valid to call during a camera-change callback.
+   */
+  getCameraState(): {
+    frustum: THREE.Frustum;
+    position: THREE.Vector3;
+    origin: THREE.Vector3 | null;
+  } {
+    this.camera.updateWorldMatrix(true, false);
+    const projScreenMatrix = new THREE.Matrix4().multiplyMatrices(
+      this.camera.projectionMatrix,
+      this.camera.matrixWorldInverse,
+    );
+    return {
+      frustum: new THREE.Frustum().setFromProjectionMatrix(projScreenMatrix),
+      position: this.camera.position.clone(),
+      origin: this.origin,
+    };
+  }
+
+  /**
+   * Register a listener that fires whenever the orbit camera moves.
+   *
+   * Returns a cleanup function that removes the listener. Used by the tile
+   * streaming path to dispatch `rux-camera-move` so {@link useCloudStream}
+   * can re-evaluate the visible tile set.
+   */
+  onCameraChange(listener: () => void): () => void {
+    this.controls.addEventListener('change', listener);
+    return () => this.controls.removeEventListener('change', listener);
+  }
+
+  /**
    * Objects under the pointer, nearest first.
    *
    * Exposed so a sibling layer can be clickable without a second camera or a

@@ -215,6 +215,16 @@ nlohmann::json cloud_json(const reusex::ProjectDB &db, const std::string &name);
 nlohmann::json cloud_labels_json(const reusex::ProjectDB &db,
                                  const std::string &name);
 
+/// Spatial tile index for a morton_10bit_bitrev cloud (#395).
+///
+/// Returns the per-tile AABBs so a viewport can frustum-cull and stream only
+/// the tiles it can see. Tile k contains the points where
+/// `(sort_key & (K-1)) == k`, selected by an O(N) scan at serve time.
+/// @throws HttpError(404) when @p name is not a stored cloud, or when no tile
+///         index has been computed for it.
+nlohmann::json cloud_tiles_json(const reusex::ProjectDB &db,
+                                const std::string &name);
+
 /// One page of point data as JSON, ignoring `format`.
 ///
 /// Backed by ProjectDB::point_cloud_page(), so it reads only the bytes the

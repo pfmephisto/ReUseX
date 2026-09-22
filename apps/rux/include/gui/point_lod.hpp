@@ -22,6 +22,7 @@
 
 #include <cstdint>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace rux::gui {
@@ -120,5 +121,75 @@ LodSelection voxel_lod(const reusex::ProjectDB &db, std::string_view name,
 reusex::ProjectDB::CloudPage
 gather_points(const reusex::ProjectDB &db, std::string_view name,
               const std::vector<uint64_t> &indices);
+
+/// Magic number identifying a tile index blob.
+inline constexpr uint32_t kTileIndexMagic = 0x52555854u; // 'RUXT'
+
+/// Header of a serialized tile index blob (version 2).
+///
+/// Tile assignment uses the BOTTOM tile_bits bits of the 30-bit bit-reversed
+/// Morton sort key, which equal the TOP tile_bits bits of the plain Morton
+/// code. These bits identify the coarsest spatial octant, so each tile covers
+/// one spatial cell of a (2^(tile_bits/3))³ grid over the cloud's bbox.
+/// The cloud bbox (lo, hi) stored here is required to recompute sort keys at
+/// serve time without re-reading all point data.
+struct TileIndexHeader {
+  uint32_t magic;
+  uint32_t version;   ///< 2.
+  uint32_t tile_bits; ///< log2(K), so K = 2^tile_bits tiles.
+  uint32_t point_count;
+  float lo[3]; ///< Cloud bbox minimum (world coords).
+  float hi[3]; ///< Cloud bbox maximum (world coords).
+};
+
+/// Per-tile AABB and point count within the tile.
+struct TileInfo {
+  float min[3];
+  float max[3];
+  uint32_t count;
+};
+
+/// Compute the spatial tile index for a morton_10bit_bitrev cloud.
+///
+/// Single O(N) forward scan over the stored cloud. Assigns each point to tile
+/// `sort_key & (K-1)` where `sort_key = reverse_bits30(morton(x,y,z))` and
+/// `K = 2^tile_bits`. The bottom tile_bits bits of the 30-bit bit-reversed
+/// Morton code are the TOP tile_bits bits of the plain code — the coarsest
+/// spatial octant bits — so each tile covers one spatial cell of a
+/// (2^(tile_bits/3))^3 grid over the cloud bbox.
+///
+/// @param tile_bits log2 of the tile count; 6 gives K=64 (a 4×4×4 grid).
+/// @returns serialized binary blob suitable for ProjectDB::save_tile_index().
+///          Empty when the cloud has fewer than K points or is not found.
+std::vector<uint8_t> compute_tile_index(const reusex::ProjectDB &db,
+                                        std::string_view name,
+                                        uint32_t tile_bits = 6);
+
+/// Deserialize the header + tile array from a tile index blob.
+/// @throws std::runtime_error on a corrupt or unknown-version blob.
+std::pair<TileIndexHeader, std::vector<TileInfo>>
+parse_tile_index(const std::vector<uint8_t> &blob);
+
+/// Return all points in spatial tile @p tile_id at full resolution.
+///
+/// O(N) scan: recomputes each point's sort key from its coordinates and the
+/// bbox stored in @p hdr, then collects points whose `sort_key & (K-1) == k`.
+/// @throws std::runtime_error when @p tile_id >= K.
+reusex::ProjectDB::CloudPage gather_tile_points(const reusex::ProjectDB &db,
+                                                std::string_view name,
+                                                const TileIndexHeader &hdr,
+                                                uint32_t tile_id);
+
+/// Return the sorted storage indices of the points in spatial tile @p tile_id.
+///
+/// Same O(N) scan as gather_tile_points, but yields only the indices — not the
+/// records — so a position-free sibling cloud (e.g. a Label cloud) can be
+/// gathered at the same points via gather_points().
+/// @throws std::runtime_error when @p tile_id >= K or the cloud has an
+///         unusable point_step.
+std::vector<uint64_t> gather_tile_indices(const reusex::ProjectDB &db,
+                                          std::string_view name,
+                                          const TileIndexHeader &hdr,
+                                          uint32_t tile_id);
 
 } // namespace rux::gui

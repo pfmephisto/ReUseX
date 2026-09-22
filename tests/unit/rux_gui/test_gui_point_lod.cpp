@@ -677,3 +677,155 @@ TEST_CASE("MortonLod_PermutationAlignedLabels_MatchGeometryPoints",
     CHECK(geo_x == mc.cloud.points[i].x);
   }
 }
+
+// ── Tile index tests (#395) ─────────────────────────────────────────────────
+
+TEST_CASE("TileIndex_MortonCloud_HasCorrectTileCount", "[gui][tiles]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  const auto mc = make_morton_cloud(8000);
+  save_morton_cloud(db, "cloud", mc.cloud);
+
+  const auto blob = rux::gui::compute_tile_index(db, "cloud");
+  REQUIRE_FALSE(blob.empty());
+
+  const auto [hdr, tiles] = rux::gui::parse_tile_index(blob);
+  CHECK(hdr.magic == rux::gui::kTileIndexMagic);
+  CHECK(hdr.version == 2u);
+  CHECK(hdr.tile_bits == 6u); // default: K=64
+  CHECK(hdr.point_count == 8000u);
+  CHECK(tiles.size() == 64u);
+}
+
+TEST_CASE("TileIndex_AllTilesBboxCoverCloud", "[gui][tiles]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  const auto mc = make_morton_cloud(8000);
+  save_morton_cloud(db, "cloud", mc.cloud);
+
+  const auto blob = rux::gui::compute_tile_index(db, "cloud");
+  const auto [hdr, tiles] = rux::gui::parse_tile_index(blob);
+
+  // Union of all tile bboxes must cover the whole cloud.
+  float cloud_min[3] = {std::numeric_limits<float>::max(),
+                        std::numeric_limits<float>::max(),
+                        std::numeric_limits<float>::max()};
+  float cloud_max[3] = {-std::numeric_limits<float>::max(),
+                        -std::numeric_limits<float>::max(),
+                        -std::numeric_limits<float>::max()};
+  uint32_t total_count = 0;
+  for (const auto &t : tiles) {
+    total_count += t.count;
+    for (int ax = 0; ax < 3; ++ax) {
+      cloud_min[ax] = std::min(cloud_min[ax], t.min[ax]);
+      cloud_max[ax] = std::max(cloud_max[ax], t.max[ax]);
+    }
+  }
+  CHECK(total_count == 8000u); // every point assigned to a tile
+
+  // Verify bbox covers the actual cloud extent.
+  const auto whole = db.point_cloud_page("cloud", 0, 8000);
+  for (size_t i = 0; i < 8000; ++i) {
+    for (int ax = 0; ax < 3; ++ax) {
+      const float v = axis_of(whole, i, ax);
+      CHECK(v >= cloud_min[ax] - 1e-4f);
+      CHECK(v <= cloud_max[ax] + 1e-4f);
+    }
+  }
+}
+
+TEST_CASE("TileIndex_GatherTilePoints_CountMatchesTileInfo", "[gui][tiles]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  // Need >= K=64 points for a non-empty tile index.
+  const auto mc = make_morton_cloud(8000);
+  save_morton_cloud(db, "cloud", mc.cloud);
+
+  const auto blob = rux::gui::compute_tile_index(db, "cloud");
+  const auto [hdr, tiles] = rux::gui::parse_tile_index(blob);
+
+  // gather_tile_points must return the same count as recorded in TileInfo.
+  for (uint32_t k : {0u, 1u, 32u, 63u}) {
+    const auto page = rux::gui::gather_tile_points(db, "cloud", hdr, k);
+    CHECK(page.count == static_cast<uint64_t>(tiles[k].count));
+  }
+}
+
+TEST_CASE("TileIndex_SaveAndLoad_RoundTrips", "[gui][tiles]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  const auto mc = make_morton_cloud(2000);
+  save_morton_cloud(db, "cloud", mc.cloud);
+
+  const auto blob = rux::gui::compute_tile_index(db, "cloud");
+  db.save_tile_index("cloud", blob);
+
+  const auto loaded = db.tile_index("cloud");
+  CHECK(loaded == blob);
+  CHECK(loaded.size() > 0);
+}
+
+TEST_CASE("TileIndex_NonMortonCloud_IsEmpty", "[gui][tiles]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  // A plain (non-Morton) cloud with <K points should return empty.
+  db.save_point_cloud("small", make_corner_loaded_cloud(10, 2), "test");
+  const auto blob = rux::gui::compute_tile_index(db, "small");
+  CHECK(blob.empty());
+}
+
+TEST_CASE("TileIndex_CloudRewrite_ClearsIndex", "[gui][tiles]") {
+  // Regression for BLOCKER 3: savePointCloudMeta upsert must set tile_index =
+  // NULL so a re-run of create clouds does not leave a stale index in place.
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  const auto mc = make_morton_cloud(2000);
+  save_morton_cloud(db, "cloud", mc.cloud);
+
+  // Build and persist the tile index.
+  const auto blob = rux::gui::compute_tile_index(db, "cloud");
+  db.save_tile_index("cloud", blob);
+  REQUIRE_FALSE(db.tile_index("cloud").empty());
+
+  // Re-save the cloud (simulating a second create clouds run).
+  db.save_point_cloud("cloud", mc.cloud, "test2");
+
+  // The old tile index must be gone — it was built for a different geometry
+  // run and cannot be trusted against the new storage order.
+  CHECK(db.tile_index("cloud").empty());
+}
+
+TEST_CASE("TileIndex_GatherTileIndices_MatchGatherTilePoints", "[gui][tiles]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  const auto mc = make_morton_cloud(4000);
+  save_morton_cloud(db, "cloud", mc.cloud);
+
+  const auto blob = rux::gui::compute_tile_index(db, "cloud");
+  const auto [hdr, tiles] = rux::gui::parse_tile_index(blob);
+
+  // Build a label cloud that encodes the storage index as its label value.
+  reusex::CloudL labels;
+  labels.width = static_cast<uint32_t>(mc.cloud.size());
+  labels.height = 1;
+  labels.points.resize(mc.cloud.size());
+  for (size_t i = 0; i < mc.cloud.size(); ++i)
+    labels.points[i].label = static_cast<uint32_t>(i);
+  db.save_point_cloud("labels", labels, "test");
+
+  // For tile 0, gather_tile_indices and gather_tile_points must agree on which
+  // storage positions belong to the tile.
+  const auto indices = rux::gui::gather_tile_indices(db, "cloud", hdr, 0u);
+  const auto page = rux::gui::gather_tile_points(db, "cloud", hdr, 0u);
+  CHECK(indices.size() == static_cast<size_t>(page.count));
+
+  // Gather the label cloud by those indices; each label must equal its index.
+  const auto sibling = rux::gui::gather_points(db, "labels", indices);
+  CHECK(sibling.count == page.count);
+  for (size_t i = 0; i < indices.size(); ++i) {
+    uint32_t label = 0;
+    std::memcpy(&label, sibling.data.data() + i * sibling.point_step,
+                sizeof(label));
+    CHECK(label == static_cast<uint32_t>(indices[i]));
+  }
+}

@@ -303,6 +303,16 @@ paths:
             `total`); the resulting pages then describe the same points and can
             still be zipped positionally. Only meaningful with `max_points`.
           schema: { type: string }
+        - name: tile
+          in: query
+          description: >-
+            Serve one spatial tile of the cloud at full resolution (#395).
+            Tile k is the set of points where `(sort_key & (K-1)) == k`
+            (selected by an O(N) scan), where `sort_key = reverse_bits30(morton(x,y,z))`
+            and K is the tile count from `GET /clouds/{name}/tiles`. Requires a
+            tile index (`404` when there is none) and is mutually exclusive with
+            `max_points`, `offset` and `limit` — that is a `400`.
+          schema: { type: integer, minimum: 0 }
         - name: format
           in: query
           description: |
@@ -430,6 +440,53 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
         "503": { $ref: "#/components/responses/WriterBusy" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  /clouds/{name}/tiles:
+    get:
+      tags: [clouds]
+      operationId: getCloudTiles
+      summary: Spatial tile index for frustum-culled streaming
+      description: |
+        Returns the tile index for a cloud stored in morton_10bit_bitrev order
+        (#395). Tile k contains the points where `(sort_key & (K-1)) == k`,
+        where `sort_key = reverse_bits30(morton(x,y,z))` and K=2^tile_bits.
+        Each tile covers one coarse spatial cell. Returns 404 when no tile
+        index has been computed for this cloud.
+      parameters:
+        - $ref: "#/components/parameters/CloudName"
+      responses:
+        "200":
+          description: Tile index
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [name, tile_count, tile_bits, point_count, tiles]
+                properties:
+                  name: { type: string }
+                  tile_count: { type: integer }
+                  tile_bits: { type: integer }
+                  point_count: { type: integer }
+                  tiles:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, count, min, max]
+                      properties:
+                        id: { type: integer }
+                        count: { type: integer }
+                        min:
+                          type: array
+                          items: { type: number }
+                          minItems: 3
+                          maxItems: 3
+                        max:
+                          type: array
+                          items: { type: number }
+                          minItems: 3
+                          maxItems: 3
+        "404": { $ref: "#/components/responses/NotFound" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
   /meshes:

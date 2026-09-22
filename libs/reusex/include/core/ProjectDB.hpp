@@ -251,6 +251,13 @@ class ProjectDB {
   /// path can skip its voxel pass and return a prefix directly (#394).
   std::string point_cloud_storage_order(std::string_view name) const;
 
+  /// Save a serialized tile index blob for the named cloud.
+  void save_tile_index(std::string_view name, const std::vector<uint8_t> &blob);
+
+  /// Load the tile index blob, or empty if not set.
+  /// @throws std::runtime_error when @p name is not a stored cloud.
+  std::vector<uint8_t> tile_index(std::string_view name) const;
+
   /// A contiguous window of one cloud's stored records, still in storage
   /// layout — no PCL type has been inflated.
   struct CloudPage {

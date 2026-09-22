@@ -600,6 +600,13 @@ class Server::Impl {
               });
             });
 
+    get("/api/v1/clouds/<string>/tiles")(
+        [this](const crow::request &, std::string name) {
+          return with_db([&](const reusex::ProjectDB &db) {
+            return json_response(200, cloud_tiles_json(db, name));
+          });
+        });
+
     // ---- meshes ----
     get("/api/v1/meshes")([this](const crow::request &req) {
       const Params params = params_of(req);

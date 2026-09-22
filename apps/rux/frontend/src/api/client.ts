@@ -24,6 +24,7 @@
 import type {
   CloudInfo,
   CloudPointsPage,
+  CloudTileIndex,
   ComponentDetail,
   ComponentInfo,
   EndpointInfo,
@@ -151,6 +152,8 @@ export interface CloudPointsQuery {
    * pages then describe the same points and can still be zipped positionally.
    */
   lodSource?: string;
+  /** Tile ID for spatially-partitioned streaming (#395). */
+  tile?: number;
 }
 
 function pointsQuery(options: CloudPointsQuery): Query {
@@ -162,6 +165,7 @@ function pointsQuery(options: CloudPointsQuery): Query {
     limit: options.limit,
     max_points: options.maxPoints,
     lod_source: options.lodSource,
+    tile: options.tile,
   };
 }
 
@@ -342,6 +346,21 @@ export class RuxApiClient {
    * The same map `GET /clouds/{name}` embeds; this route exists so an editor
    * can re-read just the legend after a write instead of the whole record.
    */
+  /**
+   * The spatial tile index of one cloud (#395).
+   *
+   * Present only for clouds stored in morton_10bit_bitrev order; a 404 arrives
+   * as an `ApiRequestError` with `isNotFound`, the signal a viewport uses to
+   * fall back to sequential paging.
+   */
+  cloudTiles(name: string, signal?: AbortSignal): Promise<CloudTileIndex> {
+    return this.requestJson<CloudTileIndex>(
+      `/clouds/${encodeURIComponent(name)}/tiles`,
+      undefined,
+      signal,
+    );
+  }
+
   async cloudLabels(name: string, signal?: AbortSignal): Promise<Record<string, string>> {
     const body = await this.requestJson<LabelLegend>(
       `/clouds/${encodeURIComponent(name)}/labels`,

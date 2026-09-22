@@ -241,6 +241,16 @@ export function Viewport({
     poseGraphRef.current?.setVisible(poseGraphVisible);
   }, [scene, poseGraphVisible]);
 
+  // Dispatch 'rux-camera-move' whenever the orbit camera changes so that
+  // tile-streaming layers can re-evaluate their visible tile sets.
+  useEffect(() => {
+    if (!scene) return;
+    return scene.onCameraChange(() => {
+      if (typeof window !== 'undefined')
+        window.dispatchEvent(new Event('rux-camera-move'));
+    });
+  }, [scene]);
+
   useEffect(() => {
     panoramaRef.current?.setMarkers(panoramas ?? []);
   }, [scene, panoramas]);
@@ -454,6 +464,7 @@ function CloudLayerLoader({
   const state = useCloudStream({
     cloud: layer.cloud,
     labelCloud: layer.labelCloud,
+    getCameraState: () => scene.getCameraState(),
     onPage: (buffers, kind) => {
       // The overview goes into a layer of its own so it can be dropped whole
       // once the full-resolution pages have covered the same ground. Its

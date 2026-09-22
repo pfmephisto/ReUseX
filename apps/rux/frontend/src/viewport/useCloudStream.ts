@@ -3,9 +3,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { useEffect, useRef, useState } from 'react';
+import * as THREE from 'three';
 
 import { ApiRequestError, api, type CloudPointsQuery, type RuxApiClient } from '../api/client';
+import type { CloudTileIndex } from '../api/types';
 import { isRuxp, parseRuxp } from './binaryPoints';
+import { visibleTileIds } from './frustumCull';
 import { pageCount, pageIsLod, pageTotal, toPageBuffers, type StreamPage } from './decode';
 import {
   DEFAULT_OVERVIEW_POINTS,
@@ -76,13 +79,33 @@ export interface CloudStreamOptions {
   onOverviewSuperseded?: () => void;
   /** Called once when every page has been applied. */
   onComplete?: () => void;
+  /**
+   * Camera accessor for tile-based (frustum-culled) streaming (#395).
+   *
+   * When provided **and** the cloud carries a spatial tile index, the stream
+   * fetches only the tiles whose bbox intersects the frustum, nearest first,
+   * and re-evaluates on camera movement. Without it — or for a cloud with no
+   * tile index — the stream falls back to the sequential overview + paging path.
+   *
+   * `origin` is the recentring offset subtracted from world positions before
+   * upload; the frustum is in that scene-local space, so the tile AABBs (world
+   * space) are shifted by it before the intersection test.
+   */
+  getCameraState?: () => {
+    frustum: THREE.Frustum;
+    position: THREE.Vector3;
+    origin: THREE.Vector3 | null;
+  };
 }
 
 /** How many times a page is retried when the server answers 503. */
 const RETRY_LIMIT = 3;
 
-/** The two point-page routes a stream uses. Narrow so a test can fake it. */
-export type PointsClient = Pick<RuxApiClient, 'cloudPoints' | 'cloudPointsBinary'>;
+/** The point-page routes a stream uses. Narrow so a test can fake it. */
+export type PointsClient = Pick<
+  RuxApiClient,
+  'cloudPoints' | 'cloudPointsBinary' | 'cloudTiles'
+>;
 
 export interface PageFetcherOptions {
   /** Defaults to the app client. */
@@ -225,6 +248,8 @@ export function useCloudStream(options: CloudStreamOptions): CloudStreamState {
   onCompleteRef.current = options.onComplete;
   const onSupersededRef = useRef(options.onOverviewSuperseded);
   onSupersededRef.current = options.onOverviewSuperseded;
+  const getCameraStateRef = useRef(options.getCameraState);
+  getCameraStateRef.current = options.getCameraState;
 
   useEffect(() => {
     if (!cloud) {
@@ -236,6 +261,9 @@ export function useCloudStream(options: CloudStreamOptions): CloudStreamState {
     let cancelled = false;
     const limit = clampPageSize(pageSize);
     const overviewBudget = clampOverviewPoints(overviewPoints);
+    const client = api;
+    // Set by the tiled path so the effect cleanup can drop its camera listener.
+    let cameraMoveCleanup: (() => void) | undefined;
 
     // One fetcher per stream, so the format latch is per stream too: a reload
     // against a restarted server tries binary again.
@@ -269,8 +297,97 @@ export function useCloudStream(options: CloudStreamOptions): CloudStreamState {
       return { geometry, labels };
     };
 
+    /**
+     * Frustum-culled tile streaming (#395).
+     *
+     * Returns true when it handled the cloud (tile index present and a camera
+     * accessor was given); false to signal the caller to fall through to the
+     * sequential overview + paging path. Fetches visible tiles nearest-first,
+     * then re-evaluates on each camera move (debounced) and pulls newly visible
+     * tiles as they come into view. Each tile is a full-resolution spatial
+     * slice, so nothing is an overview and nothing is superseded.
+     */
+    const runTiled = async (): Promise<boolean> => {
+      const getCameraState = getCameraStateRef.current;
+      if (!getCameraState) return false;
+
+      let index: CloudTileIndex;
+      try {
+        index = await client.cloudTiles(cloud, controller.signal);
+      } catch (cause) {
+        // No tile index for this cloud (or an old server): page it the old way.
+        if (cause instanceof ApiRequestError && cause.isNotFound) return false;
+        throw cause;
+      }
+      if (cancelled) return true;
+
+      const total = index.point_count;
+      const fetched = new Set<number>();
+      let loaded = 0;
+
+      const fetchTile = async (id: number) => {
+        const geometry = await fetchPage(cloud, { tile: id });
+        if (cancelled) return;
+        let labels: StreamPage | null = null;
+        if (labelCloud) {
+          // Label clouds have no positions, so tile membership cannot be
+          // computed on them directly. Pass lodSource so the server runs the
+          // O(N) scan on the geometry cloud and gathers the label cloud by
+          // the resulting storage indices — exactly as the lod_source path
+          // does for max_points requests (see fetchBoth / gather_points).
+          labels = await fetchPage(labelCloud, { tile: id, lodSource: cloud });
+          if (cancelled) return;
+        }
+        loaded += applyPage(geometry, labels);
+        setState({ loaded, total, fraction: loadFraction(loaded, total), done: false });
+      };
+
+      // Fetch every tile the current frustum sees, nearest first, skipping any
+      // already loaded. Shared by the initial pass and each camera-move pass.
+      const fetchVisible = async () => {
+        const { frustum, position, origin } = getCameraState();
+        const ids = visibleTileIds(index.tiles, frustum, position, origin);
+        for (const id of ids) {
+          if (cancelled) return;
+          if (fetched.has(id)) continue;
+          fetched.add(id);
+          await fetchTile(id);
+        }
+      };
+
+      setState({ loaded: 0, total, fraction: loadFraction(0, total), done: false });
+      await fetchVisible();
+      if (cancelled) return true;
+
+      // Re-evaluate the visible set whenever the camera settles. A cloud is
+      // usually far bigger than one frustum, so this is how the rest of it loads
+      // in as the user looks around.
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const onMove = () => {
+        if (timer !== undefined) clearTimeout(timer);
+        timer = setTimeout(() => {
+          fetchVisible().catch(() => {
+            /* a failed refresh is not fatal to the stream */
+          });
+        }, 150);
+      };
+      if (typeof window !== 'undefined')
+        window.addEventListener('rux-camera-move', onMove);
+      cameraMoveCleanup = () => {
+        if (timer !== undefined) clearTimeout(timer);
+        if (typeof window !== 'undefined')
+          window.removeEventListener('rux-camera-move', onMove);
+      };
+
+      setState({ loaded, total, fraction: loadFraction(loaded, total), done: true });
+      onCompleteRef.current?.();
+      return true;
+    };
+
     const run = async () => {
       setState({ loaded: 0, fraction: null, done: false });
+
+      if (await runTiled()) return;
 
       let total: number | undefined;
       let overview = 0;
@@ -350,6 +467,7 @@ export function useCloudStream(options: CloudStreamOptions): CloudStreamState {
     return () => {
       cancelled = true;
       controller.abort();
+      cameraMoveCleanup?.();
     };
   }, [cloud, labelCloud, pageSize, overviewPoints]);
 

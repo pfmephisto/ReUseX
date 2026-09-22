@@ -42,6 +42,11 @@ struct Config {
 
   // Auth — Bearer token required for authenticated routes. Empty disables auth.
   std::string auth_token; // secret
+
+  // Project — path to the .rux project database. When set, the material editor
+  // routes (#414/#415) are registered against it. Empty = not configured, those
+  // routes are skipped.
+  std::string project; // e.g. "./project.rux"
 };
 
 } // namespace ruxd

@@ -106,8 +106,17 @@ export function MaterialTable() {
 
   const handleAddColumn = useCallback(async () => {
     const order = columnsAsync.data?.length ?? 0;
-    await api.createPropertyDefinition({ name: 'New column', type: 'text', sort_order: order });
-    columnsAsync.reload();
+    try {
+      await api.createPropertyDefinition({ name: 'New column', type: 'text', sort_order: order });
+      columnsAsync.reload();
+    } catch (error) {
+      setFailure(
+        describeWriteFailure(
+          error instanceof Error ? error : new Error(String(error)),
+          'new column',
+        ),
+      );
+    }
   }, [columnsAsync]);
 
   const handleRename = useCallback(
@@ -160,8 +169,17 @@ export function MaterialTable() {
   // ---- row management -----------------------------------------------------
 
   const handleAddRow = useCallback(async () => {
-    await api.createMaterial();
-    materialsAsync.reload();
+    try {
+      await api.createMaterial();
+      materialsAsync.reload();
+    } catch (error) {
+      setFailure(
+        describeWriteFailure(
+          error instanceof Error ? error : new Error(String(error)),
+          'new material',
+        ),
+      );
+    }
   }, [materialsAsync]);
 
   const handleDeleteRow = useCallback(

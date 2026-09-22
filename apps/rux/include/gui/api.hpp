@@ -325,6 +325,53 @@ nlohmann::json materials_json(const reusex::ProjectDB &db,
                               const Params &params);
 nlohmann::json material_json(const reusex::ProjectDB &db,
                              const std::string &guid);
+
+/// Mint a new blank material passport and return its wire record (#414).
+///
+/// The passport is created with a fresh GUID, an ISO-8601 creation timestamp
+/// and version "0.1.0"; the response mirrors material_json() for a passport
+/// that has no properties or thumbnail yet.
+nlohmann::json create_material(reusex::ProjectDB &db);
+
+/// Delete a material passport by GUID.
+/// @throws HttpError(404) when no passport carries @p guid.
+void delete_material(reusex::ProjectDB &db, const std::string &guid);
+
+/// The stored thumbnail image for a material, with its stored MIME type.
+/// @throws HttpError(404) when the passport has no thumbnail stored.
+Blob material_thumbnail_blob(const reusex::ProjectDB &db,
+                             const std::string &guid);
+
+/// Store (or replace) a material's thumbnail from the raw request body.
+///
+/// @param body raw image bytes.
+/// @param mime the request Content-Type; empty falls back to "image/jpeg".
+void set_material_thumbnail(reusex::ProjectDB &db, const std::string &guid,
+                            const std::string &body, const std::string &mime);
+
+/// User-defined material column definitions, as a JSON array (schema v18).
+nlohmann::json material_columns_json(const reusex::ProjectDB &db);
+
+/// Create a material column definition from a request body.
+///
+/// @param body `{name, type, options?, sort_order?}`; `type` must be one of
+///        text/number/date/boolean/select.
+/// @throws HttpError(400) on a malformed body or an unknown `type`.
+nlohmann::json create_material_column(reusex::ProjectDB &db,
+                                      const std::string &body);
+
+/// Sparse-update a material column definition; only the fields present in the
+/// body change.
+/// @throws HttpError(404) when @p id is not a defined column, HttpError(400)
+///         on a malformed body or an unknown `type`.
+nlohmann::json patch_material_column(reusex::ProjectDB &db,
+                                     const std::string &id,
+                                     const std::string &body);
+
+/// Delete a material column definition by id.
+/// @throws HttpError(404) when @p id is not a defined column.
+void delete_material_column(reusex::ProjectDB &db, const std::string &id);
+
 nlohmann::json instances_json(const reusex::ProjectDB &db,
                               const std::string &cloud, const Params &params);
 

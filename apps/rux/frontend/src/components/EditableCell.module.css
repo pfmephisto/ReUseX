@@ -4,22 +4,30 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-.display {
-  display: block;
+.cell {
+  position: relative;
+  display: flex;
+  align-items: center;
   width: 100%;
-  text-align: left;
+  min-height: 1.75em;
   padding: var(--space-1) var(--space-2);
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  background: none;
   color: var(--color-text);
   font: inherit;
-  cursor: text;
-  min-height: 1.5em;
+  cursor: default;
+  border-radius: var(--radius-sm);
 }
 
-.display:hover {
-  border-color: var(--color-border);
+/*
+ * Focus ring drawn with box-shadow, not outline: Firefox renders `outline`
+ * inconsistently against a table cell, box-shadow is pixel-stable. `outline:
+ * none` suppresses the UA ring the tabIndex would otherwise draw.
+ */
+.cell:focus {
+  outline: none;
+}
+
+.focused {
+  box-shadow: 0 0 0 2px var(--color-accent);
 }
 
 .text {
@@ -35,31 +43,25 @@
 
 .input {
   width: 100%;
-  padding: var(--space-1) var(--space-2);
-  border: 1px solid var(--color-border-focus);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface-sunken);
+  border: none;
+  outline: none;
+  background: transparent;
   color: var(--color-text);
   font: inherit;
-  outline: none;
 }
 
-.select {
-  width: 100%;
-  padding: var(--space-1) var(--space-2);
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  background: none;
-  color: var(--color-text);
-  font: inherit;
-  cursor: pointer;
-}
-
-.select:hover,
-.select:focus {
-  border-color: var(--color-border);
-  background: var(--color-surface-sunken);
-  outline: none;
+/* Notion-style coloured tag, read mode of a `select` cell. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  border-radius: 4px;
+  padding: 0 6px;
+  font-size: var(--font-size-sm);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .checkbox {

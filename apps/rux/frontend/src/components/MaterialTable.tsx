@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   flexRender,
   getCoreRowModel,
@@ -16,6 +16,7 @@ import { useAsync } from '../app/useAsync';
 import { describeWriteFailure, type WriteFailure } from '../data/writeState';
 import { ColumnHeaderMenu } from './ColumnHeaderMenu';
 import { EditableCell } from './EditableCell';
+import { TableNavContext, type CellCoord, type TableNav } from './tableNav';
 import { ThumbnailCell } from './ThumbnailCell';
 import { WriteBanner } from './WriteBanner';
 import styles from './MaterialTable.module.css';
@@ -47,6 +48,17 @@ export function MaterialTable() {
   const [details, setDetails] = useState<Map<string, MaterialDetail>>(new Map());
   const [failure, setFailure] = useState<WriteFailure | null>(null);
   const [colMenu, setColMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+
+  // ---- spreadsheet keyboard navigation -----------------------------------
+  const [focusedCell, setFocusedCell] = useState<CellCoord | null>(null);
+  const [editingCell, setEditingCell] = useState<CellCoord | null>(null);
+  // A printable key pressed on a focused (non-editing) cell both starts edit
+  // mode and seeds the input; the seed is stashed here for the cell to consume.
+  const seedRef = useRef<string | null>(null);
+
+  const dataCols = columnsAsync.data ?? [];
+  const rowCount = materialsAsync.data?.length ?? 0;
+  const colCount = dataCols.length;
 
   useEffect(() => {
     if (!materialsAsync.data) return;
@@ -161,6 +173,90 @@ export function MaterialTable() {
     [materialsAsync],
   );
 
+  // ---- navigation handlers ------------------------------------------------
+
+  const setFocused = useCallback((row: number, col: number) => {
+    setFocusedCell({ row, col });
+  }, []);
+
+  const startEdit = useCallback((row: number, col: number, seed?: string) => {
+    if (seed !== undefined) seedRef.current = seed;
+    setFocusedCell({ row, col });
+    setEditingCell({ row, col });
+  }, []);
+
+  const exitEdit = useCallback((_save: boolean) => {
+    // The cell owns the commit decision (via onBlur / Enter); here we only
+    // leave edit mode. `save` is part of the contract for symmetry and future
+    // use, but a text cell has already committed by the time it calls this.
+    setEditingCell(null);
+  }, []);
+
+  const takeSeed = useCallback(() => {
+    const seed = seedRef.current;
+    seedRef.current = null;
+    return seed;
+  }, []);
+
+  const navValue: TableNav = {
+    focusedCell,
+    editingCell,
+    rowCount,
+    colCount,
+    setFocused,
+    startEdit,
+    exitEdit,
+    takeSeed,
+  };
+
+  // Table-level keyboard handler: arrows / Tab move the focused cell, Enter/F2
+  // and printable characters start editing. Ignored while a cell is editing —
+  // the input owns its keys then, except for Tab (save + move) handled below.
+  const handleTableKeyDown = useCallback(
+    (event: React.KeyboardEvent) => {
+      const editing = editingCell;
+      const focused = focusedCell;
+
+      // Tab always moves, saving first if editing.
+      if (event.key === 'Tab') {
+        if (!focused) return;
+        event.preventDefault();
+        if (editing) setEditingCell(null);
+        const flat = focused.row * colCount + focused.col;
+        const next = event.shiftKey ? flat - 1 : flat + 1;
+        const clamped = Math.max(0, Math.min(next, rowCount * colCount - 1));
+        setFocusedCell({ row: Math.floor(clamped / colCount), col: clamped % colCount });
+        return;
+      }
+
+      // Everything below is navigation only — never while editing.
+      if (editing || !focused) return;
+
+      const move = (dr: number, dc: number) => {
+        event.preventDefault();
+        setFocusedCell({
+          row: Math.max(0, Math.min(focused.row + dr, rowCount - 1)),
+          col: Math.max(0, Math.min(focused.col + dc, colCount - 1)),
+        });
+      };
+
+      if (event.key === 'ArrowUp') move(-1, 0);
+      else if (event.key === 'ArrowDown') move(1, 0);
+      else if (event.key === 'ArrowLeft') move(0, -1);
+      else if (event.key === 'ArrowRight') move(0, 1);
+      else if (event.key === 'Enter' || event.key === 'F2') {
+        event.preventDefault();
+        setEditingCell({ ...focused });
+      } else if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        // A printable character starts edit mode seeded with that character.
+        event.preventDefault();
+        seedRef.current = event.key;
+        setEditingCell({ ...focused });
+      }
+    },
+    [editingCell, focusedCell, colCount, rowCount],
+  );
+
   // ---- TanStack columns ---------------------------------------------------
 
   const thumbnailCol: ColumnDef<MaterialInfo> = {
@@ -177,7 +273,7 @@ export function MaterialTable() {
     enableResizing: false,
   };
 
-  const dynamicCols: ColumnDef<MaterialInfo>[] = (columnsAsync.data ?? []).map((col) => ({
+  const dynamicCols: ColumnDef<MaterialInfo>[] = dataCols.map((col, colIndex) => ({
     id: col.id,
     header: col.name,
     cell: ({ row }) => (
@@ -185,6 +281,9 @@ export function MaterialTable() {
         value={details.get(row.original.guid)?.properties?.[col.name]}
         colDef={col}
         onSave={(val) => handleCellSave(row.original.guid, col.name, val)}
+        onAddOption={(opt) => handleOptionsChange(col.id, [...(col.options ?? []), opt])}
+        rowIndex={row.index}
+        colIndex={colIndex}
       />
     ),
   }));
@@ -215,6 +314,7 @@ export function MaterialTable() {
     : undefined;
 
   return (
+    <TableNavContext.Provider value={navValue}>
     <div className={styles.root}>
       {materialsAsync.error && <div className={styles.error}>Failed to load materials</div>}
 
@@ -226,7 +326,7 @@ export function MaterialTable() {
         />
       )}
 
-      <div className={styles.scroll}>
+      <div className={styles.scroll} tabIndex={-1} onKeyDown={handleTableKeyDown}>
         <table className={styles.table}>
           <thead>
             <tr>
@@ -302,5 +402,6 @@ export function MaterialTable() {
         />
       )}
     </div>
+    </TableNavContext.Provider>
   );
 }

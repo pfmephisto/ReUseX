@@ -5,130 +5,211 @@
 import { useEffect, useRef, useState } from 'react';
 
 import type { PropertyDefinition } from '../api/types';
+import { chipColorFor, SelectDropdown } from './SelectDropdown';
+import { useTableNav } from './tableNav';
 import styles from './EditableCell.module.css';
 
 export interface EditableCellProps {
   value: string | undefined;
   colDef: PropertyDefinition;
   onSave: (value: string | null) => Promise<void>;
+  /** Add an option to this column's definition (for the `select` picker). */
+  onAddOption: (option: string) => Promise<void>;
+  /** Row index in the data grid. */
+  rowIndex: number;
+  /** Data-column index (thumbnail / add-column columns excluded). */
+  colIndex: number;
 }
 
 /**
- * One inline-editable property value.
+ * One inline-editable property value, Notion's double-click-to-edit model.
  *
- * The behaviour splits on the property's type. `text`/`number`/`date` are
- * click-to-edit: the cell shows a value until clicked, then swaps to a focused
- * input that saves on Enter or blur and reverts on Escape. `boolean` and
- * `select` are always-visible controls that save immediately on change, because
- * a checkbox or a dropdown has nothing to "start editing".
+ * Read mode shows the value as plain text (or a coloured chip for `select`) and
+ * is keyboard-reachable (`tabIndex=0`). The cell enters edit mode on
+ * double-click, on `Enter`/`F2`, or when a printable character is typed while it
+ * is focused — the last case seeding the input with that character. `boolean`
+ * has no edit mode: a double-click or `Enter` toggles it in place.
  *
- * `value` is the source of truth. `draft` is local scratch that only exists
- * while editing; a `useEffect` re-reads `value` after every save so the cell
- * shows server truth the moment `onSave` resolves.
+ * Focus/edit ownership lives in `MaterialTable` via `TableNavContext`; this cell
+ * reads `{focusedCell, editingCell}` to decide how to render and reports focus
+ * back up. `value` is the source of truth; `draft` is scratch that exists only
+ * while editing and is re-synced from `value` after each save.
  */
-export function EditableCell({ value, colDef, onSave }: EditableCellProps) {
-  const [editing, setEditing] = useState(false);
+export function EditableCell({
+  value,
+  colDef,
+  onSave,
+  onAddOption,
+  rowIndex,
+  colIndex,
+}: EditableCellProps) {
+  const nav = useTableNav();
+  const isFocused = nav.focusedCell?.row === rowIndex && nav.focusedCell.col === colIndex;
+  const isEditing = nav.editingCell?.row === rowIndex && nav.editingCell.col === colIndex;
+
   const [draft, setDraft] = useState(value ?? '');
+  const cellRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Re-sync the draft to props whenever the stored value changes and we are not
-  // mid-edit — this is what makes the cell controlled after an optimistic save.
+  // Re-sync the draft from props whenever the stored value changes and we are
+  // not mid-edit — this is what makes the cell controlled after a save.
   useEffect(() => {
-    if (!editing) setDraft(value ?? '');
-  }, [value, editing]);
+    if (!isEditing) setDraft(value ?? '');
+  }, [value, isEditing]);
 
+  // Entering edit mode: seed from a printable keypress if one was stashed, then
+  // focus the input and put the caret at the end.
   useEffect(() => {
-    if (editing) inputRef.current?.focus();
-  }, [editing]);
+    if (!isEditing) return;
+    const seed = nav.takeSeed();
+    if (seed !== null) setDraft(seed);
+    const input = inputRef.current;
+    if (input) {
+      input.focus();
+      const end = input.value.length;
+      input.setSelectionRange?.(end, end);
+    }
+    // Only run when edit mode turns on for this cell.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEditing]);
+
+  // Keep the DOM focus on the cell div while it is the focused, non-editing
+  // cell — so arrow keys keep flowing to the table handler.
+  useEffect(() => {
+    if (isFocused && !isEditing) cellRef.current?.focus();
+  }, [isFocused, isEditing]);
 
   const commit = async () => {
-    setEditing(false);
     const trimmed = draft;
     const next = trimmed === '' ? null : trimmed;
-    // Nothing changed — do not send an edit for a no-op.
-    if ((value ?? '') === trimmed) return;
+    nav.exitEdit(true);
+    if ((value ?? '') === trimmed) return; // no-op
     await onSave(next);
   };
 
   const cancel = () => {
     setDraft(value ?? '');
-    setEditing(false);
+    nav.exitEdit(false);
   };
 
-  const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      void commit();
-    } else if (event.key === 'Escape') {
-      event.preventDefault();
-      cancel();
-    }
-  };
-
-  // ---- always-visible controls -------------------------------------------
+  // ---- boolean: no edit mode, toggles in place ---------------------------
 
   if (colDef.type === 'boolean') {
+    const checked = value === 'true';
+    const toggle = () => void onSave(checked ? 'false' : 'true');
     return (
-      <input
-        type="checkbox"
-        className={styles.checkbox}
-        checked={value === 'true'}
-        aria-label={colDef.name}
-        onChange={(event) => void onSave(event.target.checked ? 'true' : 'false')}
-      />
+      <div
+        ref={cellRef}
+        tabIndex={0}
+        className={`${styles.cell} ${isFocused ? styles.focused : ''}`}
+        onFocus={() => nav.setFocused(rowIndex, colIndex)}
+        onDoubleClick={toggle}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === 'F2' || event.key === ' ') {
+            event.preventDefault();
+            toggle();
+          }
+        }}
+      >
+        <input
+          type="checkbox"
+          className={styles.checkbox}
+          checked={checked}
+          aria-label={colDef.name}
+          tabIndex={-1}
+          onChange={toggle}
+        />
+      </div>
     );
   }
+
+  // ---- select: custom dropdown, chip in read mode ------------------------
 
   if (colDef.type === 'select') {
-    const options = colDef.options ?? [];
+    const chip =
+      value !== undefined && value !== '' ? chipColorFor(value) : null;
     return (
-      <select
-        className={styles.select}
-        value={value ?? ''}
-        aria-label={colDef.name}
-        onChange={(event) => void onSave(event.target.value === '' ? null : event.target.value)}
+      <div
+        ref={cellRef}
+        tabIndex={0}
+        className={`${styles.cell} ${isFocused ? styles.focused : ''}`}
+        onFocus={() => nav.setFocused(rowIndex, colIndex)}
+        onDoubleClick={() => nav.startEdit(rowIndex, colIndex)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === 'F2') {
+            event.preventDefault();
+            nav.startEdit(rowIndex, colIndex);
+          }
+        }}
       >
-        <option value="">—</option>
-        {options.map((opt) => (
-          <option key={opt} value={opt}>
-            {opt}
-          </option>
-        ))}
-      </select>
+        {chip ? (
+          <span className={styles.chip} style={{ background: chip.bg, color: chip.text }}>
+            {value}
+          </span>
+        ) : (
+          <span className={styles.empty}>—</span>
+        )}
+        {isEditing && (
+          <SelectDropdown
+            value={value}
+            colDef={colDef}
+            onSave={onSave}
+            onAddOption={onAddOption}
+            onClose={() => nav.exitEdit(false)}
+            anchorRef={cellRef}
+          />
+        )}
+      </div>
     );
   }
 
-  // ---- click-to-edit inputs ----------------------------------------------
+  // ---- text / number / date: double-click to edit ------------------------
 
-  if (editing) {
-    const inputType = colDef.type === 'number' ? 'number' : colDef.type === 'date' ? 'date' : 'text';
-    return (
-      <input
-        ref={inputRef}
-        className={styles.input}
-        type={inputType}
-        step={colDef.type === 'number' ? 'any' : undefined}
-        value={draft}
-        aria-label={colDef.name}
-        onChange={(event) => setDraft(event.target.value)}
-        onKeyDown={onKeyDown}
-        onBlur={() => void commit()}
-      />
-    );
-  }
+  const inputType =
+    colDef.type === 'number' ? 'number' : colDef.type === 'date' ? 'date' : 'text';
 
   return (
-    <button
-      type="button"
-      className={styles.display}
-      onClick={() => setEditing(true)}
-      title={value ?? ''}
+    <div
+      ref={cellRef}
+      tabIndex={isEditing ? -1 : 0}
+      className={`${styles.cell} ${isFocused ? styles.focused : ''}`}
+      onFocus={() => nav.setFocused(rowIndex, colIndex)}
+      onDoubleClick={() => nav.startEdit(rowIndex, colIndex)}
+      onKeyDown={(event) => {
+        if (isEditing) return; // input owns its own keys
+        if (event.key === 'Enter' || event.key === 'F2') {
+          event.preventDefault();
+          nav.startEdit(rowIndex, colIndex);
+        }
+      }}
+      title={!isEditing ? (value ?? '') : undefined}
     >
-      {value !== undefined && value !== '' ? (
+      {isEditing ? (
+        <input
+          ref={inputRef}
+          className={styles.input}
+          type={inputType}
+          step={colDef.type === 'number' ? 'any' : undefined}
+          value={draft}
+          aria-label={colDef.name}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              void commit();
+            } else if (event.key === 'Escape') {
+              event.preventDefault();
+              cancel();
+            }
+            // Tab is handled by the table wrapper (save + move); let it bubble.
+          }}
+          onBlur={() => void commit()}
+        />
+      ) : value !== undefined && value !== '' ? (
         <span className={styles.text}>{value}</span>
       ) : (
         <span className={styles.empty}>—</span>
       )}
-    </button>
+    </div>
   );
 }

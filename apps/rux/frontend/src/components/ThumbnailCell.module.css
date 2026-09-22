@@ -4,6 +4,11 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
+.root {
+  position: relative;
+  display: inline-block;
+}
+
 .cell {
   position: relative;
   display: inline-flex;
@@ -41,6 +46,40 @@
 
 .cell:hover .placeholder {
   color: var(--color-text-muted);
+}
+
+.menu {
+  position: absolute;
+  top: calc(3rem + 2px);
+  left: 0;
+  min-width: 180px;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  z-index: 100;
+  overflow: hidden;
+  font-size: var(--font-size-sm);
+  padding: var(--space-1) 0;
+}
+
+.menuItem {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  background: none;
+  color: var(--color-text);
+  cursor: pointer;
+  font: inherit;
+  white-space: nowrap;
+}
+
+.menuItem:hover {
+  background: var(--color-surface-overlay);
 }
 
 .input {

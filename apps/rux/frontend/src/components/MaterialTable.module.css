@@ -38,11 +38,19 @@
 }
 
 .table td {
-  padding: var(--space-1) var(--space-3);
+  padding: 0;
+  height: 36px;
+  border-right: 1px solid var(--color-border);
   border-bottom: 1px solid var(--color-border);
   vertical-align: middle;
   max-width: 15rem;
   color: var(--color-text);
+}
+
+/* No outer grid line on the last data column's right edge. */
+.table td:last-child,
+.table th:last-child {
+  border-right: none;
 }
 
 .table tbody tr:hover td {

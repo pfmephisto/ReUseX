@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { api } from '../api/client';
 import type { CloudInfo, GsplatInfo, MeshInfo, PanoramaInfo, PoseGraph } from '../api/types';
@@ -56,6 +56,45 @@ const RENDERABLE = new Set(['PointXYZRGB', 'PointXYZ']);
  */
 export function ViewportPage() {
   const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
+
+  // Thumbnail-capture mode: entered from a material passport's thumbnail cell
+  // via `/viewport?captureFor=<guid>`. When set, a floating button grabs the
+  // Three.js canvas and PUTs it as that passport's thumbnail, then returns to
+  // the materials table.
+  const captureFor = params.get('captureFor');
+  const [capturing, setCapturing] = useState(false);
+  const [captureError, setCaptureError] = useState<string | null>(null);
+
+  const captureThumbnail = useCallback(() => {
+    if (!captureFor || capturing) return;
+    const canvas = document.querySelector('canvas') as HTMLCanvasElement | null;
+    if (!canvas) {
+      setCaptureError('No 3D viewport found');
+      return;
+    }
+    setCapturing(true);
+    setCaptureError(null);
+    // Firefox-compatible: canvas.toBlob rather than any Chrome-only capture API.
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) {
+          setCapturing(false);
+          setCaptureError('Could not read the viewport image');
+          return;
+        }
+        const file = new File([blob], 'thumbnail.png', { type: 'image/png' });
+        api
+          .uploadThumbnail(captureFor, file)
+          .then(() => navigate('/data?tab=materials'))
+          .catch((error: unknown) => {
+            setCaptureError(error instanceof Error ? error.message : String(error));
+            setCapturing(false);
+          });
+      },
+      'image/png',
+    );
+  }, [captureFor, capturing, navigate]);
 
   const {
     data: clouds,
@@ -435,6 +474,19 @@ export function ViewportPage() {
           setFrameToken((token) => token + 1);
         }}
       />
+      {captureFor && (
+        <div className={styles.captureBar}>
+          {captureError && <span className={styles.captureError}>{captureError}</span>}
+          <button
+            type="button"
+            className={styles.captureButton}
+            onClick={captureThumbnail}
+            disabled={capturing}
+          >
+            {capturing ? 'Saving…' : 'Set as thumbnail'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

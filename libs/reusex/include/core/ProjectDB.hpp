@@ -673,10 +673,12 @@ class ProjectDB {
    */
   struct PropertyDefinition {
     std::string id;
-    std::string type; // "text" | "number" | "date" | "boolean" | "select"
+    std::string type; // "text" | "number" | "date" | "boolean" | "select" |
+                      // "multiselect"
     std::string name;
-    std::vector<std::string> options; // populated for "select" only
+    std::vector<std::string> options; // populated for "select"/"multiselect"
     int sort_order = 0;
+    int width = 200; // display column width in pixels (schema v19)
   };
 
   // --- Material Property Definition Operations (schema v18) ---
@@ -699,7 +701,7 @@ class ProjectDB {
   std::string add_property_definition(const std::string &name,
                                       const std::string &type,
                                       const std::vector<std::string> &options,
-                                      int sort_order);
+                                      int sort_order, int width = 200);
 
   /**
    * @brief Overwrite an existing material column definition.
@@ -709,7 +711,7 @@ class ProjectDB {
                                   const std::string &name,
                                   const std::string &type,
                                   const std::vector<std::string> &options,
-                                  int sort_order);
+                                  int sort_order, int width);
 
   /**
    * @brief Delete a material column definition by id.

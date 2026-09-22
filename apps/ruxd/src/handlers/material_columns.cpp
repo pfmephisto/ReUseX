@@ -23,8 +23,8 @@ namespace ruxd {
 
 namespace {
 
-constexpr std::array<std::string_view, 5> kValidTypes = {
-    "text", "number", "date", "boolean", "select"};
+constexpr std::array<std::string_view, 6> kValidTypes = {
+    "text", "number", "date", "boolean", "select", "multiselect"};
 
 bool is_valid_type(const std::string &type) {
   return std::find(kValidTypes.begin(), kValidTypes.end(), type) !=
@@ -36,7 +36,8 @@ nlohmann::json definition_json(const reusex::ProjectDB::PropertyDefinition &d) {
                         {"name", d.name},
                         {"type", d.type},
                         {"options", d.options},
-                        {"sort_order", d.sort_order}};
+                        {"sort_order", d.sort_order},
+                        {"width", d.width}};
 }
 
 crow::response error_json(crow::status code, const std::string &message) {
@@ -98,9 +99,9 @@ void register_material_column_routes(App &app, EndpointRegistry &reg,
         const std::string name = body["name"].get<std::string>();
         const std::string type = body["type"].get<std::string>();
         if (!is_valid_type(type))
-          return error_json(
-              crow::status::BAD_REQUEST,
-              "'type' must be one of text/number/date/boolean/select");
+          return error_json(crow::status::BAD_REQUEST,
+                            "'type' must be one of "
+                            "text/number/date/boolean/select/multiselect");
 
         std::vector<std::string> options;
         if (body.contains("options") && body["options"].is_array()) {
@@ -112,16 +113,20 @@ void register_material_column_routes(App &app, EndpointRegistry &reg,
         if (body.contains("sort_order") &&
             body["sort_order"].is_number_integer())
           sort_order = body["sort_order"].get<int>();
+        int width = 200;
+        if (body.contains("width") && body["width"].is_number_integer())
+          width = body["width"].get<int>();
 
         try {
-          const std::string id =
-              db.add_property_definition(name, type, options, sort_order);
+          const std::string id = db.add_property_definition(name, type, options,
+                                                            sort_order, width);
           reusex::ProjectDB::PropertyDefinition created;
           created.id = id;
           created.name = name;
           created.type = type;
           created.options = options;
           created.sort_order = sort_order;
+          created.width = width;
           return json_response(crow::status::CREATED, definition_json(created));
         } catch (const std::exception &e) {
           reusex::core::error("POST /material-columns failed: {}", e.what());
@@ -164,6 +169,7 @@ void register_material_column_routes(App &app, EndpointRegistry &reg,
           std::string type = it->type;
           std::vector<std::string> options = it->options;
           int sort_order = it->sort_order;
+          int width = it->width;
 
           if (body.contains("name")) {
             if (!body["name"].is_string()) {
@@ -181,9 +187,10 @@ void register_material_column_routes(App &app, EndpointRegistry &reg,
             }
             type = body["type"].get<std::string>();
             if (!is_valid_type(type)) {
-              finish(res, error_json(crow::status::BAD_REQUEST,
-                                     "'type' must be one of "
-                                     "text/number/date/boolean/select"));
+              finish(res,
+                     error_json(crow::status::BAD_REQUEST,
+                                "'type' must be one of "
+                                "text/number/date/boolean/select/multiselect"));
               return;
             }
           }
@@ -206,8 +213,17 @@ void register_material_column_routes(App &app, EndpointRegistry &reg,
             }
             sort_order = body["sort_order"].get<int>();
           }
+          if (body.contains("width")) {
+            if (!body["width"].is_number_integer()) {
+              finish(res, error_json(crow::status::BAD_REQUEST,
+                                     "'width' must be an integer"));
+              return;
+            }
+            width = body["width"].get<int>();
+          }
 
-          db.update_property_definition(id, name, type, options, sort_order);
+          db.update_property_definition(id, name, type, options, sort_order,
+                                        width);
 
           reusex::ProjectDB::PropertyDefinition updated;
           updated.id = id;
@@ -215,6 +231,7 @@ void register_material_column_routes(App &app, EndpointRegistry &reg,
           updated.type = type;
           updated.options = options;
           updated.sort_order = sort_order;
+          updated.width = width;
           finish(res,
                  json_response(crow::status::OK, definition_json(updated)));
         } catch (const std::exception &e) {

@@ -22,13 +22,13 @@ export interface EditableCellProps {
 }
 
 /**
- * One inline-editable property value, Notion's double-click-to-edit model.
+ * One inline-editable property value, Notion's single-click-to-edit model.
  *
  * Read mode shows the value as plain text (or a coloured chip for `select`) and
- * is keyboard-reachable (`tabIndex=0`). The cell enters edit mode on
- * double-click, on `Enter`/`F2`, or when a printable character is typed while it
- * is focused — the last case seeding the input with that character. `boolean`
- * has no edit mode: a double-click or `Enter` toggles it in place.
+ * is keyboard-reachable (`tabIndex=0`). The cell enters edit mode on a single
+ * click, on `Enter`/`F2`, or when a printable character is typed while it is
+ * focused — the last case seeding the input with that character. `boolean` has
+ * no edit mode: a single click or `Enter` toggles it in place.
  *
  * Focus/edit ownership lives in `MaterialTable` via `TableNavContext`; this cell
  * reads `{focusedCell, editingCell}` to decide how to render and reports focus
@@ -103,7 +103,7 @@ export function EditableCell({
         tabIndex={0}
         className={`${styles.cell} ${isFocused ? styles.focused : ''}`}
         onFocus={() => nav.setFocused(rowIndex, colIndex)}
-        onDoubleClick={toggle}
+        onClick={toggle}
         onKeyDown={(event) => {
           if (event.key === 'Enter' || event.key === 'F2' || event.key === ' ') {
             event.preventDefault();
@@ -134,7 +134,7 @@ export function EditableCell({
         tabIndex={0}
         className={`${styles.cell} ${isFocused ? styles.focused : ''}`}
         onFocus={() => nav.setFocused(rowIndex, colIndex)}
-        onDoubleClick={() => nav.startEdit(rowIndex, colIndex)}
+        onClick={() => nav.startEdit(rowIndex, colIndex)}
         onKeyDown={(event) => {
           if (event.key === 'Enter' || event.key === 'F2') {
             event.preventDefault();
@@ -174,7 +174,9 @@ export function EditableCell({
       tabIndex={isEditing ? -1 : 0}
       className={`${styles.cell} ${isFocused ? styles.focused : ''}`}
       onFocus={() => nav.setFocused(rowIndex, colIndex)}
-      onDoubleClick={() => nav.startEdit(rowIndex, colIndex)}
+      onClick={() => {
+        if (!isEditing) nav.startEdit(rowIndex, colIndex);
+      }}
       onKeyDown={(event) => {
         if (isEditing) return; // input owns its own keys
         if (event.key === 'Enter' || event.key === 'F2') {

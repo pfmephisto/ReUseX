@@ -28,6 +28,21 @@
 
 .focused {
   box-shadow: 0 0 0 2px var(--color-accent);
+  z-index: 2;
+}
+
+/* Blue fill handle shown on the selected (focused, non-editing) cell */
+.focused::after {
+  content: '';
+  position: absolute;
+  bottom: -3px;
+  right: -3px;
+  width: 6px;
+  height: 6px;
+  background: var(--color-accent);
+  border-radius: 50%;
+  z-index: 2;
+  pointer-events: none;
 }
 
 .text {

@@ -27,8 +27,11 @@ export interface TableNav {
   rowCount: number;
   setFocused: (row: number, col: number) => void;
   startEdit: (row: number, col: number, seed?: string) => void;
-  /** Leave edit mode; `save` decides whether the in-flight draft is committed. */
+  /** Leave edit mode; `save` decides whether the in-flight draft is committed.
+   * The cell stays SELECTED (focusedCell keeps its value). */
   exitEdit: (save: boolean) => void;
+  /** Drop the cursor entirely: SELECTED → IDLE. Clears focus and editing. */
+  clearFocus: () => void;
   /** Consume-and-clear the seed character a printable keypress stashed. */
   takeSeed: () => string | null;
 }

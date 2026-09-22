@@ -13,6 +13,7 @@
 #include <fmt/ranges.h>
 #include <range/v3/all.hpp>
 
+#include <filesystem>
 #include <iostream>
 #include <locale>
 
@@ -84,6 +85,19 @@ void format_terminal_output(const reusex::ProjectDB::ProjectSummary &summary) {
   fmt::print("{}", fmt::format(loc, "Sensor Frames: {:L} frames {}\n",
                                summary.sensor_frames.total_count,
                                sensor_frame_shape));
+
+  // Per-scan breakdown (only when more than one import session is present)
+  if (summary.sensor_frames.scans.size() > 1) {
+    for (const auto &scan : summary.sensor_frames.scans) {
+      std::string basename =
+          scan.source_path.empty()
+              ? "(legacy)"
+              : std::filesystem::path(scan.source_path).filename().string();
+      fmt::print("{}{} scan {}  {} frames  source: {}\n", indent, indent,
+                 fmt::styled(scan.scan_id, fmt::fg(fmt::terminal_color::cyan)),
+                 fmt::format(loc, "{:L}", scan.frame_count), basename);
+    }
+  }
 
   // Panoramic images section
   if (summary.panoramic_images.total_count > 0) {
@@ -198,6 +212,14 @@ void format_json_output(const reusex::ProjectDB::ProjectSummary &summary) {
                         {"width", summary.sensor_frames.width},
                         {"height", summary.sensor_frames.height},
                         {"segmented", summary.sensor_frames.segmented_count}};
+
+  j["sensor_frames"]["scans"] = json::array();
+  for (const auto &scan : summary.sensor_frames.scans) {
+    j["sensor_frames"]["scans"].push_back({{"scan_id", scan.scan_id},
+                                           {"source_path", scan.source_path},
+                                           {"imported_at", scan.imported_at},
+                                           {"frame_count", scan.frame_count}});
+  }
 
   // Panoramic images
   j["panoramic_images"] = {{"total", summary.panoramic_images.total_count},

@@ -96,7 +96,7 @@ class ProjectDB {
                          const cv::Mat &confidence,
                          const std::array<double, 16> &worldPose,
                          const core::SensorIntrinsics &intrinsics,
-                         double timestamp = -1.0);
+                         double timestamp = -1.0, int scan_id = -1);
 
   /// Update only the stored world pose (transform) of an existing sensor frame.
   /// Leaves color/depth/confidence/intrinsics blobs untouched. Throws if no
@@ -507,6 +507,28 @@ class ProjectDB {
   /// True when the pose graph table exists and has at least one edge.
   bool has_pose_graph() const;
 
+  // --- Scans (multi-session import, #129) ---
+
+  /// One row of the `scans` table.  Each `rux import` creates one record;
+  /// `id_offset` is the node-id watermark at import time so a re-import can be
+  /// re-based, and `provenance_json` carries importer-specific metadata.
+  struct ScanRecord {
+    int id = 0;
+    std::string source_path;
+    std::string imported_at;
+    int id_offset = 0;
+    std::string provenance_json;
+  };
+
+  /// Creates a new scan record. Computes id_offset = MAX(node_id) from
+  /// sensor_frames at call time (0 if empty). Warns if source_path already
+  /// appears in the scans table (duplicate import guard).
+  ScanRecord create_scan(const std::string &source_path,
+                         const std::string &provenance_json = "{}");
+
+  /// Returns all scan records ordered by id.
+  std::vector<ScanRecord> scans() const;
+
   // --- Building Component Operations ---
   //
   // Persistence speaks only core::ComponentRecord (see
@@ -583,10 +605,19 @@ class ProjectDB {
     };
 
     struct SensorFrameInfo {
+      struct ScanInfo {
+        int scan_id = 0;
+        std::string source_path;
+        std::string imported_at;
+        int frame_count = 0;
+      };
+
       int total_count;
-      int width;           // 0 if no frames
-      int height;          // 0 if no frames
-      int segmented_count; // frames with segmentation
+      int width;                   // 0 if no frames
+      int height;                  // 0 if no frames
+      int segmented_count;         // frames with segmentation
+      std::vector<ScanInfo> scans; // per-scan breakdown; empty if scans table
+                                   // absent
     };
 
     struct PanoramicInfo {

@@ -142,7 +142,13 @@
       "WebFetch(domain:superhivemarket.com)",
       "WebFetch(domain:fossies.org)",
       "WebFetch(domain:devenv.sh)",
-      "Read(//tmp/**)"
+      "Read(//tmp/**)",
+      "Bash(workmux send *)",
+      "Bash(workmux wait *)",
+      "Bash(workmux status *)",
+      "Bash(workmux capture *)",
+      "Bash(workmux remove *)",
+      "Bash(workmux add *)"
     ]
   },
   "sandbox": {

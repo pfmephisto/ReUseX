@@ -10,6 +10,9 @@ import styles from './ThumbnailCell.module.css';
 
 export interface ThumbnailCellProps {
   guid: string;
+  /** Hint from the server — used only for the first render. The cell tracks
+   *  actual image availability itself via onLoad/onError, and bumps a version
+   *  counter on upload so the browser re-fetches without a page reload. */
   hasThumbnail: boolean;
   onUploaded: () => void;
 }
@@ -17,12 +20,10 @@ export interface ThumbnailCellProps {
 /**
  * The passport's thumbnail, in a single narrow table cell.
  *
- * Clicking the picture no longer opens the file picker directly: it opens a
- * small action menu offering "Upload image" (the file picker) or "Capture from
- * viewport", which routes to `/viewport?captureFor=<guid>` where the viewport
- * grows a "Set as thumbnail" button. The file input stays hidden and is driven
- * from the menu, because a bare `<input type="file">` cannot be styled into the
- * square the placeholder occupies.
+ * The cell always tries to load the thumbnail URL and shows the image on
+ * success, the camera-icon placeholder on failure (404 or no thumbnail yet).
+ * A local version counter is bumped on every successful upload to force the
+ * browser to re-fetch rather than show a stale cached response.
  */
 export function ThumbnailCell({ guid, hasThumbnail, onUploaded }: ThumbnailCellProps) {
   const navigate = useNavigate();
@@ -30,6 +31,16 @@ export function ThumbnailCell({ guid, hasThumbnail, onUploaded }: ThumbnailCellP
   const rootRef = useRef<HTMLDivElement>(null);
   const [uploading, setUploading] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  // `loaded` tracks whether the img element actually loaded successfully.
+  // Initialise from the server hint so the first render is correct.
+  const [loaded, setLoaded] = useState(hasThumbnail);
+  // Incremented on every successful upload to bust the browser image cache.
+  const [version, setVersion] = useState(0);
+
+  // Re-probe when the server hint changes (e.g. after details refresh).
+  useEffect(() => {
+    setLoaded(hasThumbnail);
+  }, [hasThumbnail]);
 
   // Close the menu on any outside click.
   useEffect(() => {
@@ -60,17 +71,20 @@ export function ThumbnailCell({ guid, hasThumbnail, onUploaded }: ThumbnailCellP
 
   const onChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    // Reset the input so picking the same file twice still fires a change.
     event.target.value = '';
     if (!file) return;
     setUploading(true);
     try {
       await api.uploadThumbnail(guid, file);
+      setVersion((v) => v + 1); // force img refetch
+      setLoaded(true);
       onUploaded();
     } finally {
       setUploading(false);
     }
   };
+
+  const thumbnailSrc = `${api.materialThumbnail(guid)}${version > 0 ? `?v=${version}` : ''}`;
 
   return (
     <div className={styles.root} ref={rootRef}>
@@ -78,14 +92,21 @@ export function ThumbnailCell({ guid, hasThumbnail, onUploaded }: ThumbnailCellP
         type="button"
         className={styles.cell}
         onClick={openMenu}
-        title={hasThumbnail ? 'Change thumbnail' : 'Add a thumbnail'}
-        aria-label={hasThumbnail ? 'Change thumbnail' : 'Add a thumbnail'}
+        title={loaded ? 'Change thumbnail' : 'Add a thumbnail'}
+        aria-label={loaded ? 'Change thumbnail' : 'Add a thumbnail'}
         aria-haspopup="menu"
         aria-expanded={menuOpen}
       >
-        {hasThumbnail ? (
-          <img className={styles.image} src={api.materialThumbnail(guid)} alt="" />
-        ) : (
+        {/* Always render the img; hide it when load fails so the placeholder shows */}
+        <img
+          className={styles.image}
+          style={{ display: loaded ? 'block' : 'none' }}
+          src={thumbnailSrc}
+          alt=""
+          onLoad={() => setLoaded(true)}
+          onError={() => setLoaded(false)}
+        />
+        {!loaded && (
           <span className={styles.placeholder} aria-hidden="true">
             <svg
               viewBox="0 0 24 24"

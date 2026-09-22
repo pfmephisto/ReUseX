@@ -29,7 +29,8 @@ import styles from './MaterialTable.module.css';
  * editor). The whole grid is editable in place: each cell edits one property,
  * each header right-click configures the column, and rows and columns are added
  * and removed from the table itself. TanStack Table supplies the headless model;
- * every visual decision is this component's CSS.
+ * every visual decision is this component's CSS. A single click on a header
+ * cell opens its column menu; a drag on the header's right edge resizes it.
  *
  * Writes are optimistic. A cell edit updates `details` immediately, sends a
  * sparse `PATCH /materials/{guid}`, and rolls back to the pre-edit map on
@@ -49,6 +50,11 @@ export function MaterialTable() {
   const [details, setDetails] = useState<Map<string, MaterialDetail>>(new Map());
   const [failure, setFailure] = useState<WriteFailure | null>(null);
   const [colMenu, setColMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+
+  // ---- column widths (resize) / horizontal-scroll shadow ------------------
+  const [colWidths, setColWidths] = useState<Record<string, number>>({});
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [isScrolledX, setIsScrolledX] = useState(false);
 
   // ---- row gutter / selection / peek --------------------------------------
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
@@ -107,6 +113,34 @@ export function MaterialTable() {
       }
     },
     [details],
+  );
+
+  // ---- column resize ------------------------------------------------------
+
+  const DEFAULT_COL_WIDTH = 200;
+
+  const handleResizerMouseDown = useCallback(
+    (e: React.MouseEvent, colId: string, startWidth: number) => {
+      e.preventDefault();
+      const startX = e.clientX;
+      const MIN_WIDTH = 100;
+
+      const onMouseMove = (ev: MouseEvent) => {
+        const newWidth = Math.max(MIN_WIDTH, startWidth + (ev.clientX - startX));
+        setColWidths((prev) => ({ ...prev, [colId]: newWidth }));
+      };
+
+      const onMouseUp = () => {
+        window.removeEventListener('mousemove', onMouseMove);
+        window.removeEventListener('mouseup', onMouseUp);
+        // No `width` field on the property definition yet, so the resized width
+        // lives only in local state. Persist here once the schema grows one.
+      };
+
+      window.addEventListener('mousemove', onMouseMove);
+      window.addEventListener('mouseup', onMouseUp);
+    },
+    [],
   );
 
   // ---- column management --------------------------------------------------
@@ -471,7 +505,13 @@ export function MaterialTable() {
         </div>
       )}
 
-      <div className={styles.scroll} tabIndex={-1} onKeyDown={handleTableKeyDown}>
+      <div
+        ref={scrollRef}
+        className={styles.scroll}
+        onScroll={() => setIsScrolledX((scrollRef.current?.scrollLeft ?? 0) > 0)}
+        tabIndex={-1}
+        onKeyDown={handleTableKeyDown}
+      >
         <table className={styles.table}>
           <thead>
             <tr>
@@ -487,22 +527,49 @@ export function MaterialTable() {
                   onChange={toggleSelectAll}
                 />
               </th>
-              {table.getFlatHeaders().map((header) => (
-                <th
-                  key={header.id}
-                  style={{ width: header.getSize() !== 150 ? header.getSize() : undefined }}
-                  onContextMenu={
-                    header.column.id !== '__thumbnail' && header.column.id !== '__add_col'
-                      ? (e) => {
-                          e.preventDefault();
-                          setColMenu({ id: header.column.id, x: e.clientX, y: e.clientY });
-                        }
-                      : undefined
-                  }
-                >
-                  {flexRender(header.column.columnDef.header, header.getContext())}
-                </th>
-              ))}
+              {table.getFlatHeaders().map((header) => {
+                const colId = header.column.id;
+                const isThumb = colId === '__thumbnail';
+                const isAddCol = colId === '__add_col';
+                const isDynamic = !isThumb && !isAddCol;
+                const stickyClass = isThumb
+                  ? `${styles.stickyCol}${isScrolledX ? ` ${styles.scrolled}` : ''}`
+                  : '';
+                const width = isDynamic
+                  ? (colWidths[colId] ?? DEFAULT_COL_WIDTH)
+                  : header.getSize() !== 150
+                    ? header.getSize()
+                    : undefined;
+                return (
+                  <th
+                    key={header.id}
+                    className={`${styles.headerCell} ${stickyClass}`.trim()}
+                    style={{ width, position: 'relative' }}
+                    onClick={
+                      isDynamic
+                        ? (e) => {
+                            if ((e.target as HTMLElement).classList.contains(styles.resizer)) return;
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            setColMenu({ id: colId, x: rect.left, y: rect.bottom });
+                          }
+                        : undefined
+                    }
+                  >
+                    <span className={styles.headerLabel}>
+                      {flexRender(header.column.columnDef.header, header.getContext())}
+                    </span>
+                    {isDynamic && (
+                      <div
+                        className={styles.resizer}
+                        onMouseDown={(e) => {
+                          e.stopPropagation();
+                          handleResizerMouseDown(e, colId, colWidths[colId] ?? DEFAULT_COL_WIDTH);
+                        }}
+                      />
+                    )}
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
@@ -547,11 +614,26 @@ export function MaterialTable() {
                       />
                     </div>
                   </td>
-                  {row.getVisibleCells().map((cell) => (
-                    <td key={cell.id}>
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </td>
-                  ))}
+                  {row.getVisibleCells().map((cell) => {
+                    const colId = cell.column.id;
+                    const isThumb = colId === '__thumbnail';
+                    const isAddCol = colId === '__add_col';
+                    const isDynamic = !isThumb && !isAddCol;
+                    const stickyClass = isThumb
+                      ? `${styles.stickyCol}${isScrolledX ? ` ${styles.scrolled}` : ''}`
+                      : '';
+                    return (
+                      <td
+                        key={cell.id}
+                        className={stickyClass || undefined}
+                        style={
+                          isDynamic ? { width: colWidths[colId] ?? DEFAULT_COL_WIDTH } : undefined
+                        }
+                      >
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </td>
+                    );
+                  })}
                 </tr>
               );
             })}
@@ -560,7 +642,10 @@ export function MaterialTable() {
       </div>
 
       <button className={styles.addRow} onClick={handleAddRow}>
-        + Add material
+        <span className={styles.addRowIcon} aria-hidden="true">
+          +
+        </span>
+        <span className={styles.addRowLabel}>New material</span>
       </button>
 
       {colMenu && menuColDef && (

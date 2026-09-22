@@ -37,9 +37,9 @@ function parseOptions(raw: string): string[] {
 }
 
 /**
- * The per-column configuration panel, opened by right-clicking a header.
+ * The per-column configuration panel, opened by a single left click on a header.
  *
- * A `position: fixed` card anchored at the click. A `useLayoutEffect` measures
+ * A `position: fixed` card anchored below the header cell. A `useLayoutEffect` measures
  * it once it is mounted and nudges it back inside the viewport if it would spill
  * off the right or bottom edge — measured, not guessed, because the panel's
  * height depends on whether the column is a `select` (which grows an options

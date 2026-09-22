@@ -625,7 +625,8 @@ parse_tile_index(const std::vector<uint8_t> &blob) {
 reusex::ProjectDB::CloudPage gather_tile_points(const reusex::ProjectDB &db,
                                                 std::string_view name,
                                                 const TileIndexHeader &hdr,
-                                                uint32_t tile_id) {
+                                                uint32_t tile_id, uint64_t skip,
+                                                uint64_t limit) {
   const uint32_t K = 1u << hdr.tile_bits;
   if (tile_id >= K)
     throw std::runtime_error("tile_id " + std::to_string(tile_id) +
@@ -651,7 +652,10 @@ reusex::ProjectDB::CloudPage gather_tile_points(const reusex::ProjectDB &db,
   out.total = probe.total;
   out.count = 0;
 
-  // O(N) scan: collect points whose sort_key & mask == tile_id.
+  uint64_t skipped = 0;
+  // O(N) scan: collect points whose sort_key & mask == tile_id, applying
+  // skip/limit. Within a tile, storage order is ascending sort_key, which is
+  // a bit-reversed sub-octant ordering — so a prefix is a stratified sample.
   for (uint64_t start = 0; start < probe.total; start += kLodStreamChunk) {
     const auto window = db.point_cloud_page(name, start, kLodStreamChunk);
     if (window.count == 0)
@@ -665,8 +669,14 @@ reusex::ProjectDB::CloudPage gather_tile_points(const reusex::ProjectDB &db,
       const float z = read_f32(rec + 8);
       if ((morton_sort_key(x, y, z, hdr.lo, rng) & mask) != tile_id)
         continue;
+      if (skipped < skip) {
+        ++skipped;
+        continue;
+      }
       out.data.insert(out.data.end(), rec, rec + step);
       ++out.count;
+      if (limit > 0 && out.count >= limit)
+        return out;
     }
   }
   return out;
@@ -675,7 +685,8 @@ reusex::ProjectDB::CloudPage gather_tile_points(const reusex::ProjectDB &db,
 std::vector<uint64_t> gather_tile_indices(const reusex::ProjectDB &db,
                                           std::string_view name,
                                           const TileIndexHeader &hdr,
-                                          uint32_t tile_id) {
+                                          uint32_t tile_id, uint64_t skip,
+                                          uint64_t limit) {
   const uint32_t K = 1u << hdr.tile_bits;
   if (tile_id >= K)
     throw std::runtime_error("tile_id " + std::to_string(tile_id) +
@@ -694,6 +705,7 @@ std::vector<uint64_t> gather_tile_indices(const reusex::ProjectDB &db,
 
   const uint32_t mask = K - 1;
   std::vector<uint64_t> indices;
+  uint64_t skipped = 0;
   for (uint64_t start = 0; start < probe.total; start += kLodStreamChunk) {
     const auto window = db.point_cloud_page(name, start, kLodStreamChunk);
     if (window.count == 0)
@@ -707,7 +719,13 @@ std::vector<uint64_t> gather_tile_indices(const reusex::ProjectDB &db,
       const float z = read_f32(rec + 8);
       if ((morton_sort_key(x, y, z, hdr.lo, rng) & mask) != tile_id)
         continue;
+      if (skipped < skip) {
+        ++skipped;
+        continue;
+      }
       indices.push_back(start + i);
+      if (limit > 0 && static_cast<uint64_t>(indices.size()) >= limit)
+        return indices;
     }
   }
   return indices; // ascending by construction — forward iteration

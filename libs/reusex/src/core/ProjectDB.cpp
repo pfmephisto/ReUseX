@@ -209,7 +209,7 @@ class ProjectDB::Impl {
   sqlite3 *db = nullptr;
 
   // cppcheck-suppress unusedStructMember
-  static constexpr int LATEST_SCHEMA_VERSION = 16;
+  static constexpr int LATEST_SCHEMA_VERSION = 17;
 
   // Maximum bytes per point_cloud_data row. SQLite's default SQLITE_MAX_LENGTH
   // is 1 GB and the hard compile-time max is 2 GB-1. We chunk large clouds
@@ -441,6 +441,10 @@ class ProjectDB::Impl {
 
     if (current < 16) {
       migrateToV16();
+    }
+
+    if (current < 17) {
+      migrateToV17();
     }
 
     reusex::trace("Schema version: {}", getCurrentSchemaVersion());
@@ -1325,6 +1329,194 @@ class ProjectDB::Impl {
     reusex::info("Migration to schema version 16 complete");
   }
 
+  void migrateToV17() {
+    reusex::info("Migrating database to schema version 17");
+
+    // Multi-session import support (#129). Each `rux import` records a `scans`
+    // row; sensor frames carry a nullable `scan_id` back-reference. Both
+    // changes are additive so existing frames stay valid.
+    //
+    // Guards: the table / column may already exist on a
+    // downgrade-then-remigrate path, so use CREATE TABLE IF NOT EXISTS and
+    // check columnExists() before the ALTER.
+    const char *scans_schema = R"(
+      CREATE TABLE IF NOT EXISTS scans (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_path TEXT NOT NULL,
+        imported_at TEXT NOT NULL DEFAULT (datetime('now')),
+        id_offset   INTEGER NOT NULL DEFAULT 0,
+        provenance  TEXT
+      );
+    )";
+
+    char *errMsg = nullptr;
+    if (sqlite3_exec(db, scans_schema, nullptr, nullptr, &errMsg) !=
+        SQLITE_OK) {
+      std::string error = errMsg ? errMsg : "unknown error";
+      sqlite3_free(errMsg);
+      throw std::runtime_error("Migration to v17 failed: " + error);
+    }
+
+    if (tableExists("sensor_frames") &&
+        !columnExists("sensor_frames", "scan_id")) {
+      const char *alter =
+          "ALTER TABLE sensor_frames ADD COLUMN scan_id INTEGER "
+          "REFERENCES scans(id);";
+      if (sqlite3_exec(db, alter, nullptr, nullptr, &errMsg) != SQLITE_OK) {
+        std::string error = errMsg ? errMsg : "unknown error";
+        sqlite3_free(errMsg);
+        throw std::runtime_error("Migration to v17 failed: " + error);
+      }
+    }
+
+    // If pre-existing frames are present, back-fill a single "legacy" scan
+    // record (id=1) and point every unassigned frame at it.
+    if (tableExists("sensor_frames")) {
+      bool hasFrames = false;
+      {
+        const char *cnt = "SELECT COUNT(*) FROM sensor_frames;";
+        sqlite3_stmt *stmt;
+        if (sqlite3_prepare_v2(db, cnt, -1, &stmt, nullptr) == SQLITE_OK) {
+          StmtGuard guard(stmt);
+          if (sqlite3_step(stmt) == SQLITE_ROW)
+            hasFrames = sqlite3_column_int(stmt, 0) > 0;
+        }
+      }
+
+      if (hasFrames) {
+        const char *legacy =
+            "INSERT OR IGNORE INTO scans (id, source_path, id_offset, "
+            "provenance) VALUES (1, '', 0, '{\"legacy\":true}');";
+        if (sqlite3_exec(db, legacy, nullptr, nullptr, &errMsg) != SQLITE_OK) {
+          std::string error = errMsg ? errMsg : "unknown error";
+          sqlite3_free(errMsg);
+          throw std::runtime_error("Migration to v17 failed: " + error);
+        }
+
+        const char *backfill =
+            "UPDATE sensor_frames SET scan_id = 1 WHERE scan_id IS NULL;";
+        if (sqlite3_exec(db, backfill, nullptr, nullptr, &errMsg) !=
+            SQLITE_OK) {
+          std::string error = errMsg ? errMsg : "unknown error";
+          sqlite3_free(errMsg);
+          throw std::runtime_error("Migration to v17 failed: " + error);
+        }
+      }
+    }
+
+    insertSchemaVersion(17, "Add scans table and sensor_frames.scan_id (#129)");
+    reusex::info("Migration to schema version 17 complete");
+  }
+
+  // ── Scan helpers (#129) ──────────────────────────────────────────────────
+
+  ProjectDB::ScanRecord createScan(const std::string &source_path,
+                                   const std::string &provenance_json) {
+    checkWritable();
+
+    // Duplicate-import guard: warn but proceed (a second scan is created by
+    // design; the caller can `rux del` the original if that was a mistake).
+    {
+      const char *dup = "SELECT COUNT(*) FROM scans WHERE source_path = ?;";
+      sqlite3_stmt *stmt;
+      if (sqlite3_prepare_v2(db, dup, -1, &stmt, nullptr) != SQLITE_OK)
+        throw std::runtime_error("Failed to prepare scan duplicate check: " +
+                                 std::string(sqlite3_errmsg(db)));
+      StmtGuard guard(stmt);
+      sqlite3_bind_text(stmt, 1, source_path.c_str(), -1, SQLITE_TRANSIENT);
+      int count = 0;
+      if (sqlite3_step(stmt) == SQLITE_ROW)
+        count = sqlite3_column_int(stmt, 0);
+      if (count > 0)
+        reusex::warn("importing an already-present source \"{}\" — creating a "
+                     "second scan by design; use rux del to remove the "
+                     "original if needed",
+                     source_path);
+    }
+
+    // id_offset = current node-id watermark (0 if no frames yet).
+    int id_offset = 0;
+    {
+      const char *off = "SELECT COALESCE(MAX(node_id), 0) FROM sensor_frames;";
+      sqlite3_stmt *stmt;
+      if (sqlite3_prepare_v2(db, off, -1, &stmt, nullptr) != SQLITE_OK)
+        throw std::runtime_error("Failed to prepare id_offset query: " +
+                                 std::string(sqlite3_errmsg(db)));
+      StmtGuard guard(stmt);
+      if (sqlite3_step(stmt) == SQLITE_ROW)
+        id_offset = sqlite3_column_int(stmt, 0);
+    }
+
+    {
+      const char *ins =
+          "INSERT INTO scans (source_path, id_offset, provenance) "
+          "VALUES (?, ?, ?);";
+      sqlite3_stmt *stmt;
+      if (sqlite3_prepare_v2(db, ins, -1, &stmt, nullptr) != SQLITE_OK)
+        throw std::runtime_error("Failed to prepare scan insert: " +
+                                 std::string(sqlite3_errmsg(db)));
+      StmtGuard guard(stmt);
+      sqlite3_bind_text(stmt, 1, source_path.c_str(), -1, SQLITE_TRANSIENT);
+      sqlite3_bind_int(stmt, 2, id_offset);
+      sqlite3_bind_text(stmt, 3, provenance_json.c_str(), -1, SQLITE_TRANSIENT);
+      if (sqlite3_step(stmt) != SQLITE_DONE)
+        throw std::runtime_error("Failed to insert scan record: " +
+                                 std::string(sqlite3_errmsg(db)));
+    }
+
+    ProjectDB::ScanRecord rec;
+    rec.id = static_cast<int>(sqlite3_last_insert_rowid(db));
+    rec.source_path = source_path;
+    rec.id_offset = id_offset;
+    rec.provenance_json = provenance_json;
+
+    {
+      const char *sel = "SELECT imported_at FROM scans WHERE id = ?;";
+      sqlite3_stmt *stmt;
+      if (sqlite3_prepare_v2(db, sel, -1, &stmt, nullptr) != SQLITE_OK)
+        throw std::runtime_error("Failed to prepare imported_at query: " +
+                                 std::string(sqlite3_errmsg(db)));
+      StmtGuard guard(stmt);
+      sqlite3_bind_int(stmt, 1, rec.id);
+      if (sqlite3_step(stmt) == SQLITE_ROW) {
+        if (auto *t =
+                reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0)))
+          rec.imported_at = t;
+      }
+    }
+
+    return rec;
+  }
+
+  std::vector<ProjectDB::ScanRecord> getScans() const {
+    if (!tableExists("scans"))
+      return {};
+    const char *sel = "SELECT id, source_path, imported_at, id_offset, "
+                      "provenance FROM scans ORDER BY id;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sel, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to prepare scans select: " +
+                               std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+    std::vector<ProjectDB::ScanRecord> out;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+      ProjectDB::ScanRecord rec;
+      rec.id = sqlite3_column_int(stmt, 0);
+      if (auto *t =
+              reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1)))
+        rec.source_path = t;
+      if (auto *t =
+              reinterpret_cast<const char *>(sqlite3_column_text(stmt, 2)))
+        rec.imported_at = t;
+      rec.id_offset = sqlite3_column_int(stmt, 3);
+      if (auto *t =
+              reinterpret_cast<const char *>(sqlite3_column_text(stmt, 4)))
+        rec.provenance_json = t;
+      out.push_back(std::move(rec));
+    }
+    return out;
+  }
+
   // Parse the semantic class id from an instance definition name of the form
   // "SM{class}-{id} (...)". Returns -1 if it doesn't match.
   static int parseSemanticClassFromDef(const std::string &def) {
@@ -1486,7 +1678,7 @@ class ProjectDB::Impl {
                            const cv::Mat &depth, const cv::Mat &confidence,
                            const std::array<double, 16> &worldPose,
                            const reusex::core::SensorIntrinsics &intrinsics,
-                           double timestamp) {
+                           double timestamp, int scan_id = -1) {
     if (color.empty())
       throw std::runtime_error("Cannot save empty color image");
 
@@ -1529,8 +1721,8 @@ class ProjectDB::Impl {
     std::string cameraJson = intrinsics.to_json();
 
     const char *upsert = R"(
-      INSERT INTO sensor_frames (node_id, color, depth, confidence, transform, width, height, camera_model, timestamp)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO sensor_frames (node_id, color, depth, confidence, transform, width, height, camera_model, timestamp, scan_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(node_id) DO UPDATE SET
         color = excluded.color,
         depth = excluded.depth,
@@ -1539,7 +1731,8 @@ class ProjectDB::Impl {
         width = excluded.width,
         height = excluded.height,
         camera_model = excluded.camera_model,
-        timestamp = excluded.timestamp;
+        timestamp = excluded.timestamp,
+        scan_id = excluded.scan_id;
     )";
 
     sqlite3_stmt *stmt;
@@ -1576,6 +1769,11 @@ class ProjectDB::Impl {
       sqlite3_bind_double(stmt, 9, timestamp);
     else
       sqlite3_bind_null(stmt, 9);
+
+    if (scan_id < 0)
+      sqlite3_bind_null(stmt, 10);
+    else
+      sqlite3_bind_int(stmt, 10, scan_id);
 
     if (sqlite3_step(stmt) != SQLITE_DONE)
       throw std::runtime_error("Failed to upsert sensor frame: " +
@@ -5303,6 +5501,33 @@ class ProjectDB::Impl {
       }
     }
 
+    // Per-scan breakdown (#129); left empty when the scans table is absent.
+    if (tableExists("scans")) {
+      const char *scan_sql = "SELECT s.id, s.source_path, s.imported_at, "
+                             "COUNT(f.node_id) as frame_count "
+                             "FROM scans s "
+                             "LEFT JOIN sensor_frames f ON f.scan_id = s.id "
+                             "GROUP BY s.id "
+                             "ORDER BY s.id;";
+      sqlite3_stmt *stmt;
+      if (sqlite3_prepare_v2(db, scan_sql, -1, &stmt, nullptr) != SQLITE_OK)
+        throw std::runtime_error("Failed to query scan breakdown: " +
+                                 std::string(sqlite3_errmsg(db)));
+      StmtGuard scan_guard(stmt);
+      while (sqlite3_step(stmt) == SQLITE_ROW) {
+        ProjectDB::ProjectSummary::SensorFrameInfo::ScanInfo info;
+        info.scan_id = sqlite3_column_int(stmt, 0);
+        if (auto *t =
+                reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1)))
+          info.source_path = t;
+        if (auto *t =
+                reinterpret_cast<const char *>(sqlite3_column_text(stmt, 2)))
+          info.imported_at = t;
+        info.frame_count = sqlite3_column_int(stmt, 3);
+        summary.sensor_frames.scans.push_back(std::move(info));
+      }
+    }
+
     // Query panoramic images
     if (tableExists("panoramic_images")) {
       const char *count_sql = "SELECT COUNT(*) FROM panoramic_images;";
@@ -5435,10 +5660,10 @@ void ProjectDB::save_sensor_frame(int nodeId, const cv::Mat &color,
                                   const cv::Mat &confidence,
                                   const std::array<double, 16> &worldPose,
                                   const core::SensorIntrinsics &intrinsics,
-                                  double timestamp) {
+                                  double timestamp, int scan_id) {
   impl_->checkWritable();
   impl_->saveSensorFrameFull(nodeId, color, depth, confidence, worldPose,
-                             intrinsics, timestamp);
+                             intrinsics, timestamp, scan_id);
 }
 
 void ProjectDB::update_sensor_frame_pose(
@@ -6480,6 +6705,18 @@ void ProjectDB::save_pose_graph_edges(const std::vector<PoseGraphEdge> &edges) {
 
 std::vector<ProjectDB::PoseGraphEdge> ProjectDB::list_pose_graph_edges() const {
   return impl_->listPoseGraphEdges();
+}
+
+// --- Scans (multi-session import, #129) ---
+
+ProjectDB::ScanRecord
+ProjectDB::create_scan(const std::string &source_path,
+                       const std::string &provenance_json) {
+  return impl_->createScan(source_path, provenance_json);
+}
+
+std::vector<ProjectDB::ScanRecord> ProjectDB::scans() const {
+  return impl_->getScans();
 }
 
 bool ProjectDB::has_pose_graph() const { return impl_->hasPoseGraph(); }

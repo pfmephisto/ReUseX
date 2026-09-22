@@ -69,9 +69,33 @@ subcommand makes, so a stage that validates cannot then be refused when run.
 | | |
 |---|---|
 | Consumes | An external RTABMap scan file (not project data) |
-| Produces | `sensor_frames` |
+| Produces | `sensor_frames`, one row in `scans` |
 | Options  | import-specific CLI options (depth filters) |
 | Checks   | nothing in-project (reads an external scan) |
+
+**Multi-session identity.** Each invocation of `rux import rtabmap` creates
+one row in the `scans` table (`id`, `source_path`, `imported_at`, `id_offset`,
+`provenance`).  Every imported `sensor_frame` carries a `scan_id` foreign key
+back to that row.
+
+**Node-ID remapping.** RTABMap sessions restart their node IDs at 1.  To avoid
+collisions across sessions, the importer computes `id_offset = MAX(node_id)`
+from the existing `sensor_frames` at call time (0 when the project is empty)
+and stores each frame as `node_id = rtabmap_id + id_offset`.  The offset is
+recorded in `scans.id_offset` so downstream tools can recover the within-session
+ID from any stored frame.
+
+**FK safety invariant.** Tables that reference `sensor_frame.node_id`
+(`segmentation_images`, `panoramic_images`, `glass_confidence_images`) enforce
+referential integrity via `ON DELETE CASCADE / SET NULL` and SQLite FK
+enforcement (always on for write-mode opens).  They cannot hold references
+above the offset watermark.  The one table without a FK constraint
+(`pose_graph_edges`) is written only by `rux optimize`, which runs after all
+imports, so it is empty for any new session's ID range at import time.
+
+**Re-import guard.** Importing the same `source_path` a second time creates a
+second scan by design (e.g. re-processing after editing the RTABMap DB).
+A `WARN` is logged; the import is not blocked.
 
 ### `optimize` / `register` (`rux optimize`, `rux register`)
 

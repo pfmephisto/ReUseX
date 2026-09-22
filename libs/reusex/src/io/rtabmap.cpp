@@ -25,6 +25,17 @@ void import_rtabmap(ProjectDB &db,
   core::info("Importing RTABMap database: {}", rtabmap_db_path);
   core::stopwatch timer;
 
+  // Create a scan record and get the ID offset for this session.
+  // id_offset = MAX(existing node_id), ensuring new IDs never collide with
+  // previously imported sessions. FK-constrained tables (segmentation_images,
+  // panoramic_images, glass_confidence_images) cannot hold references above
+  // the offset because SQLite FK enforcement is on. pose_graph_edges has no FK
+  // constraint but is written only by `rux optimize`, which runs after all
+  // imports, so it is empty for any session's ID range at import time.
+  auto scan = db.create_scan(rtabmap_db_path.string());
+  core::info("Multi-session import: scan id={} id_offset={}", scan.id,
+             scan.id_offset);
+
   // ── Initialise RTABMap and load the optimised graph ──────────────
   rtabmap::ParametersMap params;
   rtabmap::Rtabmap rtabmap;
@@ -58,6 +69,7 @@ void import_rtabmap(ProjectDB &db,
   int logId = db.log_pipeline_start(
       "import", fmt::format(R"({{"source":"{}"}})", rtabmap_db_path.string()));
 
+  int imported_count = 0;
   try {
     for (const auto &[id, pose] : poses) {
       auto nodeIt = nodes.find(id);
@@ -142,11 +154,12 @@ void import_rtabmap(ProjectDB &db,
       double stamp = rawStamp > 0.0 ? rawStamp : -1.0;
 
       // ── Store in ProjectDB ───────────────────────────────────────
-      db.save_sensor_frame(id, color, depth, confidence, worldPose, intrinsics,
-                           stamp);
+      db.save_sensor_frame(id + scan.id_offset, color, depth, confidence,
+                           worldPose, intrinsics, stamp, scan.id);
 
       core::trace("Imported node {} ({}x{}, depth {}x{})", id, color.cols,
                   color.rows, depth.cols, depth.rows);
+      ++imported_count;
       ++observer;
     }
 
@@ -158,7 +171,9 @@ void import_rtabmap(ProjectDB &db,
   }
 
   rtabmap.close();
-  core::info("Import complete: {} sensor frames stored",
+  core::info("Import complete: scan {} ({} frames, id_offset={}), {} total "
+             "sensor frames in project",
+             scan.id, imported_count, scan.id_offset,
              db.sensor_frame_ids().size());
 }
 

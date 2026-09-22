@@ -7,7 +7,7 @@ import { useSearchParams } from 'react-router-dom';
 
 import { ComponentsPane } from '../components/ComponentsPane';
 import { LabelsPane } from '../components/LabelsPane';
-import { MaterialsPane } from '../components/MaterialsPane';
+import { MaterialTable } from '../components/MaterialTable';
 import { DATA_TABS, DATA_TAB_LABELS, parseDataTab, type DataTab } from '../data/tabs';
 import styles from './DataPage.module.css';
 
@@ -16,15 +16,16 @@ import styles from './DataPage.module.css';
  *
  * Three panes under one route rather than three routes, because they are one
  * screen conceptually — what this project *knows*, as opposed to what it looks
- * like — and because two of them are editors that share the write model
- * (optimistic, sparse patch, 409 vs 503). Splitting them would have duplicated
- * that model three ways.
+ * like — and because they share the write model (optimistic, sparse patch,
+ * 409 vs 503). Splitting them would have duplicated that model three ways.
  *
- * Every pane's selection lives in the URL alongside the tab, so a link carries
- * the whole screen: `?tab=materials&material=<guid>` opens that passport's
- * editor. Selections are namespaced per pane rather than sharing one `?id=`,
- * so switching tabs does not carry a component name into the material pane and
- * ask the server for a passport that cannot exist.
+ * A pane's selection lives in the URL alongside the tab, so a link carries the
+ * whole screen: `?tab=components&component=<name>` opens that component's
+ * detail. Selections are namespaced per pane rather than sharing one `?id=`,
+ * so switching tabs does not carry a component name into another pane and ask
+ * the server for a resource that cannot exist. The materials pane is a
+ * full-width inline-editable table (`MaterialTable`, #416) with no per-row
+ * selection, so it carries no URL param of its own.
  */
 export function DataPage() {
   const [params, setParams] = useSearchParams();
@@ -76,12 +77,7 @@ export function DataPage() {
             onTypeChange={(type) => setParam({ type, component: null })}
           />
         )}
-        {tab === 'materials' && (
-          <MaterialsPane
-            selected={params.get('material')}
-            onSelect={(guid) => setParam({ material: guid })}
-          />
-        )}
+        {tab === 'materials' && <MaterialTable />}
         {tab === 'labels' && (
           <LabelsPane
             cloud={params.get('cloud')}

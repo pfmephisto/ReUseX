@@ -1,0 +1,396 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+.root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.scroll {
+  flex: 1;
+  overflow: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 14px;
+  font-family: var(--font-sans);
+}
+
+.table th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--color-surface-sunken);
+  color: var(--color-text-muted);
+  text-align: left;
+  padding: 7.5px 8px;
+  font-size: 14px;
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+  user-select: none;
+  /* Header divider lives in a box-shadow, not a border — body cells own the
+     right borders, headers stay clean (Notion). */
+  box-shadow: inset 0 -1px 0 var(--color-border);
+}
+
+/* Dynamic header cells open the column menu on a single click. */
+.headerCell {
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.headerCell:hover {
+  background: var(--color-surface-overlay);
+}
+
+.headerLabel {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.table td {
+  position: relative;
+  /* The inner cell/thumbnail widgets own their own padding and fill the cell;
+     the td stays flush so the focus ring and fill handle sit at the edges. */
+  padding: 0;
+  height: 36px;
+  font-size: 14px;
+  border-right: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: middle;
+  overflow: visible;
+  color: var(--color-text);
+}
+
+/* Rows must not clip the fill handle that pokes past the cell edge. */
+.row {
+  overflow: visible;
+}
+
+/* ---------------------------------------------------- resize handle ------ */
+
+.resizer {
+  position: absolute;
+  right: -3px;
+  top: 0;
+  width: 5px;
+  height: 100%;
+  cursor: col-resize;
+  background: transparent;
+  z-index: 3;
+  user-select: none;
+  touch-action: none;
+}
+
+.resizer:hover,
+.resizer.dragging {
+  background: var(--color-accent);
+}
+
+/* ------------------------------------------------ sticky first column ---- */
+
+/* The thumbnail column pins to the left edge and gains a drop shadow once the
+   table scrolls horizontally, so it reads as floating over the scrolled body. */
+.stickyCol {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--color-surface);
+}
+
+/* A sticky HEADER cell must out-rank body cells but sit under the resizer. */
+.table th.stickyCol {
+  z-index: 3;
+  background: var(--color-surface-sunken);
+}
+
+.stickyCol.scrolled {
+  box-shadow: 2px 0 8px -2px rgb(0 0 0 / 30%);
+}
+
+/* No outer grid line on the last data column's right edge. */
+.table td:last-child,
+.table th:last-child {
+  border-right: none;
+}
+
+.table tbody tr:hover td {
+  background: var(--color-surface-overlay);
+}
+
+/* Selected rows win over hover: tinted accent wash (~14% alpha). */
+.table tbody tr[data-selected='true'] td,
+.table tbody tr[data-selected='true']:hover td {
+  --row-selected-bg: color-mix(in srgb, var(--color-accent) 14%, transparent);
+  background: var(--row-selected-bg);
+}
+
+/* The row whose peek panel is open gets an accent left edge + faint wash. */
+.table tbody tr[data-peeked='true'] td,
+.table tbody tr[data-peeked='true']:hover td {
+  background: color-mix(in srgb, var(--color-accent) 8%, transparent);
+}
+
+.table tbody tr[data-peeked='true'] td:first-child {
+  box-shadow: inset 2px 0 0 var(--color-accent);
+}
+
+.addColBtn {
+  background: none;
+  border: none;
+  color: var(--color-text-faint);
+  cursor: pointer;
+  font-size: var(--font-size-lg);
+  padding: 0 var(--space-2);
+  line-height: 1;
+}
+
+.addColBtn:hover {
+  color: var(--color-text);
+}
+
+/* Notion's "New item" row: an inline row, not a button — a faint + and label
+   left-padded to line up past the row gutter. */
+.addRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-faint);
+  /* Left pad aligns the + with the data columns, past the 40px gutter. */
+  padding: 0 var(--space-2) 0 40px;
+  height: 36px;
+  cursor: pointer;
+  font-size: 14px;
+  text-align: left;
+  width: 100%;
+}
+
+.addRow:hover {
+  color: var(--color-text);
+  background: var(--color-surface-overlay);
+}
+
+.addRowIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  font-size: var(--font-size-lg);
+  line-height: 1;
+}
+
+.addRowLabel {
+  font-size: 14px;
+}
+
+.error {
+  color: var(--color-status-failed);
+  padding: var(--space-3);
+}
+
+/* ------------------------------------------------------------- gutter ---- */
+
+.gutterHead,
+.gutterCell {
+  width: 40px;
+  min-width: 40px;
+  padding: 0;
+  border-right: none;
+}
+
+.gutterHead {
+  text-align: center;
+}
+
+.gutter {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  height: 100%;
+  opacity: 0;
+  transition: opacity var(--duration-fast) ease;
+}
+
+.row[data-hovered='true'] .gutter,
+.row[data-selected='true'] .gutter {
+  opacity: 1;
+}
+
+.gutterInsert,
+.gutterDrag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  font-size: var(--font-size-sm);
+  line-height: 1;
+  color: var(--color-text-faint);
+  background: none;
+  border: none;
+}
+
+.gutterInsert {
+  cursor: pointer;
+}
+
+.gutterInsert:hover {
+  color: var(--color-text);
+}
+
+.gutterDrag {
+  cursor: grab;
+  user-select: none;
+}
+
+.checkbox {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--color-accent);
+  cursor: pointer;
+}
+
+/* ------------------------------------------------- title cell OPEN btn --- */
+
+.thumbWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+}
+
+.openBtn {
+  position: absolute;
+  right: 8px;
+  height: 24px;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-radius: var(--radius-sm);
+  padding: 0 6px;
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-sm);
+  border: none;
+  cursor: pointer;
+  color: var(--color-text);
+  opacity: 0;
+  transition: opacity var(--duration-fast) ease;
+}
+
+.row[data-hovered='true'] .openBtn {
+  opacity: 1;
+}
+
+/* --------------------------------------------------------- bulk bar ------ */
+
+.bulkBar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-overlay);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.bulkPill {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--color-accent-muted);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+.bulkDelete,
+.bulkClear {
+  background: none;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-2);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+}
+
+.bulkDelete {
+  color: var(--color-status-failed);
+}
+
+.bulkDelete:hover {
+  background: var(--color-surface-raised);
+}
+
+.bulkClear {
+  color: var(--color-text-muted);
+}
+
+.bulkClear:hover {
+  color: var(--color-text);
+  background: var(--color-surface-raised);
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.searchInput {
+  flex: 1;
+  max-width: 280px;
+  height: 28px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-sunken);
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+}
+
+.searchInput:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.sortBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 24px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--color-accent);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.sortBadge:hover {
+  background: var(--color-surface-overlay);
+}

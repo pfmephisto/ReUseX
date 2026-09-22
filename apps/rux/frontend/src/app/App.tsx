@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 
 import { JobsProvider } from './JobsContext';
 import { AppShell } from './AppShell';
@@ -20,20 +20,57 @@ import { ViewportPage } from '../routes/ViewportPage';
  * extensionless requests to `index.html`, so that a missing `/assets/app.js`
  * still 404s instead of silently returning HTML. A route containing a dot would
  * break on reload.
+ *
+ * ## Viewport keep-alive
+ *
+ * `ViewportPage` is rendered *outside* the `<Routes>` switcher and kept mounted
+ * permanently. Navigating to `/data`, `/frames`, etc. CSS-hides it via
+ * `display:none` but does not unmount it, so the Three.js scene, point-cloud
+ * pages, mesh blobs, and splat blobs all stay in GPU/CPU memory across
+ * navigation. Without this, every visit to `/viewport` re-downloads all
+ * geometry.
+ *
+ * `display:none` sets the canvas dimensions to 0×0. The Viewport already
+ * contains a ResizeObserver on its container, so when the wrapper becomes
+ * visible again the renderer is resized back to the correct dimensions
+ * automatically on the next animation frame.
  */
-export function App() {
+function RoutedContent() {
+  const location = useLocation();
+  const onViewport = location.pathname === '/viewport';
+
   return (
-    <JobsProvider>
-      <AppShell>
+    <>
+      {/* Always mounted; hidden (not unmounted) when off /viewport */}
+      <div
+        style={{
+          display: onViewport ? 'contents' : 'none',
+          height: '100%',
+        }}
+      >
+        <ViewportPage />
+      </div>
+
+      {/* Standard switcher for every other page */}
+      {!onViewport && (
         <Routes>
           <Route path="/" element={<Dashboard />} />
-          <Route path="/viewport" element={<ViewportPage />} />
           <Route path="/pipeline" element={<PipelinePage />} />
           <Route path="/frames" element={<FramesPage />} />
           <Route path="/data" element={<DataPage />} />
           <Route path="/export" element={<ExportPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+      )}
+    </>
+  );
+}
+
+export function App() {
+  return (
+    <JobsProvider>
+      <AppShell>
+        <RoutedContent />
       </AppShell>
     </JobsProvider>
   );

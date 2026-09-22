@@ -4,7 +4,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 
-import type { PropertyDefinition } from './materialTableStubs';
+import type { PropertyDefinition } from '../api/types';
 import styles from './EditableCell.module.css';
 
 export interface EditableCellProps {

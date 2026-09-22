@@ -4,15 +4,8 @@
 
 import { useRef, useState } from 'react';
 
+import { api } from '../api/client';
 import styles from './ThumbnailCell.module.css';
-
-// Stub API calls — replace with api.* when backend PR merges (#414).
-const apiStubs = {
-  uploadThumbnail: async (_guid: string, _file: File) => {
-    console.warn('uploadThumbnail: backend stub', _guid);
-  },
-  materialThumbnailUrl: (guid: string) => `/api/v1/materials/${guid}/thumbnail`,
-};
 
 export interface ThumbnailCellProps {
   guid: string;
@@ -45,7 +38,7 @@ export function ThumbnailCell({ guid, hasThumbnail, onUploaded }: ThumbnailCellP
     if (!file) return;
     setUploading(true);
     try {
-      await apiStubs.uploadThumbnail(guid, file);
+      await api.uploadThumbnail(guid, file);
       onUploaded();
     } finally {
       setUploading(false);
@@ -61,7 +54,7 @@ export function ThumbnailCell({ guid, hasThumbnail, onUploaded }: ThumbnailCellP
       aria-label={hasThumbnail ? 'Replace thumbnail' : 'Add a thumbnail'}
     >
       {hasThumbnail ? (
-        <img className={styles.image} src={apiStubs.materialThumbnailUrl(guid)} alt="" />
+        <img className={styles.image} src={api.materialThumbnail(guid)} alt="" />
       ) : (
         <span className={styles.placeholder} aria-hidden="true">
           <svg

@@ -4,12 +4,16 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
-import {
-  PROPERTY_TYPES,
-  PROPERTY_TYPE_LABELS,
-  type PropertyDefinition,
-  type PropertyType,
-} from './materialTableStubs';
+import type { PropertyDefinition, PropertyType } from '../api/types';
+
+const PROPERTY_TYPES: PropertyType[] = ['text', 'number', 'date', 'boolean', 'select'];
+const PROPERTY_TYPE_LABELS: Record<PropertyType, string> = {
+  text: 'Text',
+  number: 'Number',
+  date: 'Date',
+  boolean: 'Checkbox',
+  select: 'Select',
+};
 import styles from './ColumnHeaderMenu.module.css';
 
 export interface ColumnHeaderMenuProps {

@@ -11,14 +11,13 @@ import {
 } from '@tanstack/react-table';
 
 import { api } from '../api/client';
-import type { MaterialInfo } from '../api/types';
+import type { MaterialDetail, MaterialInfo, PropertyType } from '../api/types';
 import { useAsync } from '../app/useAsync';
 import { describeWriteFailure, type WriteFailure } from '../data/writeState';
 import { ColumnHeaderMenu } from './ColumnHeaderMenu';
 import { EditableCell } from './EditableCell';
 import { ThumbnailCell } from './ThumbnailCell';
 import { WriteBanner } from './WriteBanner';
-import { apiStubs, type PropertyType } from './materialTableStubs';
 import styles from './MaterialTable.module.css';
 
 /**
@@ -42,10 +41,10 @@ import styles from './MaterialTable.module.css';
  */
 export function MaterialTable() {
   const materialsAsync = useAsync((signal) => api.materials(signal), []);
-  const columnsAsync = useAsync(apiStubs.propertyDefinitions, []);
+  const columnsAsync = useAsync((signal) => api.propertyDefinitions(signal), []);
 
-  /** Per-row property maps, fetched from the detail endpoint. */
-  const [details, setDetails] = useState<Map<string, Record<string, string>>>(new Map());
+  /** Per-row full detail (properties + has_thumbnail), fetched from the detail endpoint. */
+  const [details, setDetails] = useState<Map<string, MaterialDetail>>(new Map());
   const [failure, setFailure] = useState<WriteFailure | null>(null);
   const [colMenu, setColMenu] = useState<{ id: string; x: number; y: number } | null>(null);
 
@@ -56,8 +55,8 @@ export function MaterialTable() {
       materialsAsync.data.map((m) =>
         api
           .material(m.guid, controller.signal)
-          .then((d) => [m.guid, d.properties ?? {}] as const)
-          .catch(() => [m.guid, {}] as const),
+          .then((d) => [m.guid, d] as const)
+          .catch(() => [m.guid, { guid: m.guid } as MaterialDetail] as const),
       ),
     ).then((pairs) => setDetails(new Map(pairs)));
     return () => controller.abort();
@@ -67,16 +66,17 @@ export function MaterialTable() {
 
   const handleCellSave = useCallback(
     async (guid: string, propName: string, value: string | null) => {
-      const prev = details.get(guid) ?? {};
-      const next =
+      const prev = details.get(guid) ?? ({ guid } as MaterialDetail);
+      const prevProps = prev.properties ?? {};
+      const nextProps =
         value === null
-          ? Object.fromEntries(Object.entries(prev).filter(([k]) => k !== propName))
-          : { ...prev, [propName]: value };
-      setDetails((d) => new Map(d).set(guid, next)); // optimistic
+          ? Object.fromEntries(Object.entries(prevProps).filter(([k]) => k !== propName))
+          : { ...prevProps, [propName]: value };
+      setDetails((d) => new Map(d).set(guid, { ...prev, properties: nextProps })); // optimistic
       setFailure(null);
       try {
         const updated = await api.patchMaterial(guid, { [propName]: value });
-        setDetails((d) => new Map(d).set(guid, updated.properties ?? {}));
+        setDetails((d) => new Map(d).set(guid, { ...prev, ...updated }));
       } catch (error) {
         setDetails((d) => new Map(d).set(guid, prev)); // rollback
         setFailure(
@@ -94,13 +94,13 @@ export function MaterialTable() {
 
   const handleAddColumn = useCallback(async () => {
     const order = columnsAsync.data?.length ?? 0;
-    await apiStubs.createPropertyDefinition({ name: 'New column', type: 'text', sort_order: order });
+    await api.createPropertyDefinition({ name: 'New column', type: 'text', sort_order: order });
     columnsAsync.reload();
   }, [columnsAsync]);
 
   const handleRename = useCallback(
     async (id: string, name: string) => {
-      await apiStubs.updatePropertyDefinition(id, { name });
+      await api.updatePropertyDefinition(id, { name });
       columnsAsync.reload();
     },
     [columnsAsync],
@@ -108,7 +108,7 @@ export function MaterialTable() {
 
   const handleTypeChange = useCallback(
     async (id: string, type: PropertyType) => {
-      await apiStubs.updatePropertyDefinition(id, { type });
+      await api.updatePropertyDefinition(id, { type });
       columnsAsync.reload();
     },
     [columnsAsync],
@@ -116,7 +116,7 @@ export function MaterialTable() {
 
   const handleOptionsChange = useCallback(
     async (id: string, options: string[]) => {
-      await apiStubs.updatePropertyDefinition(id, { options });
+      await api.updatePropertyDefinition(id, { options });
       columnsAsync.reload();
     },
     [columnsAsync],
@@ -124,7 +124,7 @@ export function MaterialTable() {
 
   const handleDeleteColumn = useCallback(
     async (id: string) => {
-      await apiStubs.deletePropertyDefinition(id);
+      await api.deletePropertyDefinition(id);
       columnsAsync.reload();
     },
     [columnsAsync],
@@ -137,8 +137,8 @@ export function MaterialTable() {
       const target = direction === 'left' ? idx - 1 : idx + 1;
       if (target < 0 || target >= cols.length) return;
       await Promise.all([
-        apiStubs.updatePropertyDefinition(id, { sort_order: cols[target].sort_order }),
-        apiStubs.updatePropertyDefinition(cols[target].id, { sort_order: cols[idx].sort_order }),
+        api.updatePropertyDefinition(id, { sort_order: cols[target].sort_order }),
+        api.updatePropertyDefinition(cols[target].id, { sort_order: cols[idx].sort_order }),
       ]);
       columnsAsync.reload();
     },
@@ -148,14 +148,14 @@ export function MaterialTable() {
   // ---- row management -----------------------------------------------------
 
   const handleAddRow = useCallback(async () => {
-    await apiStubs.createMaterial();
+    await api.createMaterial();
     materialsAsync.reload();
   }, [materialsAsync]);
 
   const handleDeleteRow = useCallback(
     async (guid: string) => {
       if (!window.confirm('Delete this material passport?')) return;
-      await apiStubs.deleteMaterial(guid);
+      await api.deleteMaterial(guid);
       materialsAsync.reload();
     },
     [materialsAsync],
@@ -170,8 +170,7 @@ export function MaterialTable() {
     cell: ({ row }) => (
       <ThumbnailCell
         guid={row.original.guid}
-        // Stub; becomes row.original.has_thumbnail after the backend merges.
-        hasThumbnail={false}
+        hasThumbnail={details.get(row.original.guid)?.has_thumbnail ?? false}
         onUploaded={() => materialsAsync.reload()}
       />
     ),
@@ -183,7 +182,7 @@ export function MaterialTable() {
     header: col.name,
     cell: ({ row }) => (
       <EditableCell
-        value={details.get(row.original.guid)?.[col.name]}
+        value={details.get(row.original.guid)?.properties?.[col.name]}
         colDef={col}
         onSave={(val) => handleCellSave(row.original.guid, col.name, val)}
       />

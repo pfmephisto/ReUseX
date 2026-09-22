@@ -14,7 +14,6 @@ import { api } from '../api/client';
 import type {
   MaterialDetail,
   MaterialInfo,
-  PropertyDefinition,
   PropertyType,
 } from '../api/types';
 import { useAsync } from '../app/useAsync';
@@ -74,10 +73,7 @@ export function MaterialTable() {
       const next = { ...prev };
       for (const col of columnsAsync.data!) {
         if (!(col.id in next)) {
-          // TODO(gui): use col.width once the backend PR adds it to
-          // PropertyDefinition (material-editor-backend-v2). Until then the
-          // field may be absent, so fall back to the default width.
-          next[col.id] = (col as { width?: number }).width ?? 200;
+          next[col.id] = col.width ?? 200;
         }
       }
       return next;
@@ -186,12 +182,7 @@ export function MaterialTable() {
       const onMouseUp = () => {
         window.removeEventListener('mousemove', onMouseMove);
         window.removeEventListener('mouseup', onMouseUp);
-        // Persist the resized width to the backend column definition.
-        // TODO(gui): drop the cast once the backend PR adds `width` to
-        // PropertyDefinition (material-editor-backend-v2).
-        void api.updatePropertyDefinition(colId, {
-          width: currentWidth,
-        } as Partial<PropertyDefinition> & { width: number });
+        void api.updatePropertyDefinition(colId, { width: currentWidth });
       };
 
       window.addEventListener('mousemove', onMouseMove);

@@ -4,15 +4,13 @@
 
 import { useEffect, useRef, useState } from 'react';
 
-import type { PropertyDefinition } from '../api/types';
+import type { PropertyDefinition, PropertyType } from '../api/types';
 import { MultiSelectDropdown } from './MultiSelectDropdown';
 import { chipColorFor, SelectDropdown } from './SelectDropdown';
 import { useTableNav } from './tableNav';
 import styles from './EditableCell.module.css';
 
-// TODO(gui): remove once 'multiselect' is in PropertyType from types.ts
-// (backend PR material-editor-backend-v2).
-const MULTISELECT_TYPE = 'multiselect' as const;
+const MULTISELECT_TYPE: PropertyType = 'multiselect';
 
 /** Parse a stored multi-select value (a JSON array string) into values. */
 function parseMultiValues(raw: string | undefined): string[] {

@@ -7,9 +7,11 @@ import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { JobsProvider } from './JobsContext';
 import { AppShell } from './AppShell';
 import { Dashboard } from '../routes/Dashboard';
-import { DataPage } from '../routes/DataPage';
+import { LabelsPage } from '../routes/DataPage';
 import { ExportPage } from '../routes/ExportPage';
 import { FramesPage } from '../routes/FramesPage';
+import { GeometryPage } from '../routes/GeometryPage';
+import { MaterialsPage } from '../routes/MaterialsPage';
 import { PipelineLogPage } from '../routes/PipelineLogPage';
 import { PipelinePage } from '../routes/PipelinePage';
 import { ViewportPage } from '../routes/ViewportPage';
@@ -25,7 +27,7 @@ import { ViewportPage } from '../routes/ViewportPage';
  * ## Viewport keep-alive
  *
  * `ViewportPage` is rendered *outside* the `<Routes>` switcher and kept mounted
- * permanently. Navigating to `/data`, `/frames`, etc. CSS-hides it via
+ * permanently. Navigating to `/geometry`, `/materials`, etc. CSS-hides it via
  * `display:none` but does not unmount it, so the Three.js scene, point-cloud
  * pages, mesh blobs, and splat blobs all stay in GPU/CPU memory across
  * navigation. Without this, every visit to `/viewport` re-downloads all
@@ -59,7 +61,9 @@ function RoutedContent() {
           <Route path="/pipeline" element={<PipelinePage />} />
           <Route path="/pipeline/log" element={<PipelineLogPage />} />
           <Route path="/frames" element={<FramesPage />} />
-          <Route path="/data" element={<DataPage />} />
+          <Route path="/geometry" element={<GeometryPage />} />
+          <Route path="/materials" element={<MaterialsPage />} />
+          <Route path="/labels" element={<LabelsPage />} />
           <Route path="/export" element={<ExportPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

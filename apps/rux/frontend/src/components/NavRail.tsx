@@ -35,7 +35,9 @@ const ENTRIES: NavEntry[] = [
   { to: '/pipeline', label: 'Pipeline', end: true },
   { to: '/pipeline/log', label: 'Pipeline Log' },
   { to: '/frames', label: 'Frames' },
-  { to: '/data', label: 'Data' },
+  { to: '/geometry', label: 'Geometry' },
+  { to: '/materials', label: 'Materials' },
+  { to: '/labels', label: 'Labels' },
   { to: '/export', label: 'Export' },
 ];
 

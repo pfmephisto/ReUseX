@@ -14,7 +14,6 @@ import {
   formatParent,
   formatText,
 } from '../data/format';
-import { parseDataTab } from '../data/tabs';
 import { COMPONENTS } from './fixtures';
 
 describe('formatArea', () => {
@@ -123,16 +122,3 @@ describe('formatting the recorded components', () => {
   });
 });
 
-describe('parseDataTab', () => {
-  it('accepts the three documented tabs', () => {
-    expect(parseDataTab('components')).toBe('components');
-    expect(parseDataTab('materials')).toBe('materials');
-    expect(parseDataTab('labels')).toBe('labels');
-  });
-
-  it('falls back to components for junk in the URL', () => {
-    for (const raw of ['', null, undefined, 'passports']) {
-      expect(parseDataTab(raw)).toBe('components');
-    }
-  });
-});

@@ -199,3 +199,6 @@ bench-results/
 !docs/**/images/**
 !tools/rux-mcp/docs/**
 scratch/
+
+# superpowers skill session artifacts (never committed)
+.superpowers/

@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 import { api } from '../api/client';
@@ -11,6 +11,7 @@ import { EmptyState } from '../components/EmptyState';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { FrameDetail } from '../components/FrameDetail';
 import { FrameGrid } from '../components/FrameGrid';
+import { PanoramaGrid } from '../components/PanoramaGrid';
 import { Spinner } from '../components/Spinner';
 import {
   FRAME_FILTERS,
@@ -25,23 +26,29 @@ import styles from './FramesPage.module.css';
 /**
  * The sensor-frame browser.
  *
- * Both pieces of state — the filter and the selection — live in the URL, the
- * same convention the viewport uses for `?cloud=`. That makes "the segmented
- * frames of this scan" and "frame 412" links, which is what a screen someone
- * uses to point at a problem needs to be.
+ * Frames are presented in two collapsible groups — Sensor Frames and 360
+ * Images — so the view does not overwhelm the user with a single flat grid of
+ * hundreds of thumbnails. Each group is lazy: its thumbnails are only loaded
+ * when the group is expanded.
  *
- * The filter is a **request**, not a predicate. `GET /frames?segmented=` is
- * refetched when it changes rather than the full id list being narrowed on the
- * client, because the only client-side way to know whether a frame carries a
- * mask is `GET /frames/{id}` — which decodes that frame's depth and confidence
- * blobs to answer. Doing that several hundred times to draw a filtered list
- * would be the most expensive way to compute something the server already
- * knows.
+ * Both pieces of URL state — the filter and the selection — follow the same
+ * convention the viewport uses for `?cloud=`. The filter is a **request** to
+ * the server, not a client-side predicate: `GET /frames?segmented=` is cheaper
+ * than one `/frames/{id}` per frame to read a single boolean.
+ *
+ * Grouping by scan is not yet possible: `GET /frames` returns a flat id list
+ * with no per-frame scan key. The backend scan data (scans table, scan_id
+ * column on sensor_frames) is available in ProjectDB but not exposed by the
+ * API. Scan-level grouping is a follow-up that requires a backend change (see
+ * issue #450 report).
  */
 export function FramesPage() {
   const [params, setParams] = useSearchParams();
   const filter = parseFrameFilter(params.get('filter'));
 
+  // Frame IDs are fetched eagerly — they are integers and cheap, and the
+  // selection URL state (`?frame=`) needs them to validate on every render,
+  // including when the Sensor Frames group is collapsed.
   const frames = useAsync(
     (signal) => api.frames({ segmented: segmentedParam(filter) }, signal),
     [filter],
@@ -68,7 +75,7 @@ export function FramesPage() {
   return (
     <div className={styles.page}>
       <header className={styles.head}>
-        <div className={styles.filters} role="group" aria-label="Frame filter">
+        <div className={styles.filters} role="group" aria-label="Sensor frame filter">
           {FRAME_FILTERS.map((option) => (
             <button
               key={option}
@@ -82,37 +89,173 @@ export function FramesPage() {
           ))}
         </div>
         <p className={styles.counts}>
-          {frames.data ? describeFrameCounts(frames.data, filter) : ' '}
+          {frames.data ? describeFrameCounts(frames.data, filter) : ' '}
         </p>
       </header>
 
-      {frames.error ? (
-        <ErrorBanner
-          error={frames.error}
-          onRetry={frames.reload}
-          context="the frame inventory"
-        />
-      ) : !frames.data ? (
-        <Spinner label="Reading frames…" />
-      ) : ids.length === 0 ? (
-        <EmptyState
-          title={filter === 'all' ? 'No sensor frames' : `No ${filter} frames`}
-          detail={
-            filter === 'all'
-              ? '`rux import rtabmap` (or `mushroom`, `arkitscenes`) brings captured frames into the project.'
-              : filter === 'segmented'
-                ? 'None of this scan\'s frames carry a segmentation mask yet. `rux create annotate` produces them.'
-                : 'Every frame in this scan already carries a segmentation mask.'
-          }
-        />
-      ) : (
-        <div className={styles.body}>
-          <FrameGrid ids={ids} selected={selected} onSelect={handleSelect} />
-          {selected !== null && (
-            <FrameDetail id={selected} onClose={() => setParam('frame', null)} />
-          )}
+      <div className={styles.body}>
+        <div className={styles.groupsColumn}>
+          <FrameGroupSection
+            label="Sensor Frames"
+            count={frames.data?.total_count}
+            defaultExpanded
+            grow
+          >
+            {frames.error ? (
+              <ErrorBanner
+                error={frames.error}
+                onRetry={frames.reload}
+                context="the frame inventory"
+              />
+            ) : !frames.data ? (
+              <Spinner label="Reading frames…" />
+            ) : ids.length === 0 ? (
+              <EmptyState
+                title={filter === 'all' ? 'No sensor frames' : `No ${filter} frames`}
+                detail={
+                  filter === 'all'
+                    ? '`rux import rtabmap` (or `mushroom`, `arkitscenes`) brings captured frames into the project.'
+                    : filter === 'segmented'
+                      ? "None of this scan's frames carry a segmentation mask yet. `rux create annotate` produces them."
+                      : 'Every frame in this scan already carries a segmentation mask.'
+                }
+              />
+            ) : (
+              <FrameGrid ids={ids} selected={selected} onSelect={handleSelect} />
+            )}
+          </FrameGroupSection>
+
+          <FrameGroupSection label="360 Images">
+            <PanoramaGroupContent />
+          </FrameGroupSection>
+        </div>
+
+        {selected !== null && (
+          <FrameDetail id={selected} onClose={() => setParam('frame', null)} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Group section
+// ---------------------------------------------------------------------------
+
+interface FrameGroupSectionProps {
+  label: string;
+  /**
+   * Badge count shown in the header. Absent while loading (the panoramas group
+   * does not know its count until the data is fetched).
+   */
+  count?: number;
+  /**
+   * Whether the section fills the remaining vertical space. True for Sensor
+   * Frames (contains a virtualised grid that must be tall to be useful), false
+   * for 360 Images (wraps to a few rows of thumbnails).
+   */
+  grow?: boolean;
+  defaultExpanded?: boolean;
+  children: React.ReactNode;
+}
+
+/**
+ * A collapsible group in the Frames view.
+ *
+ * Children are only mounted when the section is expanded — this is what makes
+ * loading lazy: an unmounted child issues no fetch and creates no `<img>`
+ * elements. The group remembers whether it was ever opened, so re-collapsing
+ * and re-expanding does not re-trigger a fetch (the child stays mounted once
+ * it is first shown).
+ *
+ * `grow` controls whether the section stretches to fill remaining vertical
+ * space in the column or wraps to its content height.
+ */
+function FrameGroupSection({
+  label,
+  count,
+  grow = false,
+  defaultExpanded = false,
+  children,
+}: FrameGroupSectionProps) {
+  const [expanded, setExpanded] = useState(defaultExpanded);
+  // Keep the child mounted once it has been shown so re-expanding does not
+  // re-trigger a fetch. The initial load is still lazy: mounting happens only
+  // on the first expand.
+  const [everExpanded, setEverExpanded] = useState(defaultExpanded);
+
+  const toggle = useCallback(() => {
+    setExpanded((e) => {
+      if (!e) setEverExpanded(true);
+      return !e;
+    });
+  }, []);
+
+  return (
+    <section className={`${styles.group} ${grow ? styles.groupGrow : ''}`}>
+      <button
+        type="button"
+        className={styles.groupHeader}
+        onClick={toggle}
+        aria-expanded={expanded}
+      >
+        <span className={styles.groupChevron} aria-hidden="true">
+          {expanded ? '▾' : '▸'}
+        </span>
+        <span className={styles.groupLabel}>{label}</span>
+        {count !== undefined && (
+          <span className={`${styles.groupCount} mono`}>{count}</span>
+        )}
+      </button>
+      {everExpanded && (
+        <div className={`${styles.groupBody} ${expanded ? '' : styles.groupBodyHidden}`}>
+          {children}
         </div>
       )}
-    </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Panorama group content (lazy)
+// ---------------------------------------------------------------------------
+
+/**
+ * The body of the 360 Images group.
+ *
+ * Mounted only when the group is first expanded, so the panorama fetch starts
+ * lazily. Panorama selection is local to this component: there is no
+ * panorama-detail pane in this view, and the selection does not need to
+ * survive the group being collapsed and re-opened.
+ */
+function PanoramaGroupContent() {
+  const [selected, setSelected] = useState<number | null>(null);
+  const panoramas = useAsync((signal) => api.panoramas(signal), []);
+
+  if (panoramas.error) {
+    return (
+      <ErrorBanner
+        error={panoramas.error}
+        onRetry={panoramas.reload}
+        context="the panorama list"
+      />
+    );
+  }
+
+  if (!panoramas.data) {
+    return <Spinner label="Reading panoramas…" />;
+  }
+
+  if (panoramas.data.length === 0) {
+    return (
+      <EmptyState
+        title="No 360° panoramas"
+        detail="`rux import 360` brings equirectangular images into the project."
+      />
+    );
+  }
+
+  return (
+    <PanoramaGrid panoramas={panoramas.data} selected={selected} onSelect={setSelected} />
   );
 }

@@ -9,7 +9,7 @@
   flex-direction: column;
   gap: var(--space-3);
   padding: var(--space-5);
-  /* The grid scrolls inside itself, not the page: a virtualised list whose
+  /* The virtualised grid scrolls inside itself, not the page: a list whose
      scroll container is the document cannot be measured. */
   height: 100%;
   min-height: 0;
@@ -61,4 +61,110 @@
   flex: 1;
   min-height: 0;
   min-width: 0;
+}
+
+/* -------------------------------------------------------- groups column ---- */
+
+/*
+ * The left column: a vertical stack of collapsible group sections. It does
+ * not scroll itself — each section manages its own overflow. The Sensor Frames
+ * section stretches to fill the remaining space; the 360 Images section wraps
+ * to its content height with an internal scroll cap.
+ */
+.groupsColumn {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  gap: var(--space-2);
+}
+
+/* --------------------------------------------------------- group section ---- */
+
+/*
+ * Base section — does not grow; the 360 Images section uses this.
+ */
+.group {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  min-height: 0;
+}
+
+/*
+ * Modifier applied to the Sensor Frames section so it fills the remaining
+ * vertical space in the column. The body below it inherits flex: 1 via the
+ * descendant rule, which lets the virtualised FrameGrid size itself.
+ */
+.groupGrow {
+  flex: 1;
+}
+
+.groupHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+.groupHeader:hover {
+  background: var(--color-surface-overlay);
+  border-color: var(--color-border-strong);
+}
+
+.groupChevron {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  flex-shrink: 0;
+  width: var(--space-4);
+  text-align: center;
+}
+
+.groupLabel {
+  flex: 1;
+}
+
+.groupCount {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-faint);
+}
+
+/*
+ * The section body, shown when expanded.
+ *
+ * For the growing variant (.groupGrow .groupBody): flex: 1 lets it expand to
+ * fill the section, and min-height: 0 lets the flex child (FrameGrid) shrink.
+ * For the non-growing variant (360 Images): wraps to content with a max-height
+ * cap and an internal scroll so many panoramas do not overflow the page.
+ */
+.groupBody {
+  overflow-y: auto;
+  max-height: 300px;
+  padding-top: var(--space-2);
+}
+
+.groupGrow .groupBody {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  overflow-y: hidden;
+}
+
+/*
+ * Hides the body without unmounting it. Once a group's content is mounted
+ * (after the first expand), we keep it in the tree so re-expanding does not
+ * re-trigger a fetch. `display: none` removes it from the flow and stops
+ * images inside from loading or being painted.
+ */
+.groupBodyHidden {
+  display: none;
 }

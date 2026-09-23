@@ -10,6 +10,7 @@ import { Dashboard } from '../routes/Dashboard';
 import { DataPage } from '../routes/DataPage';
 import { ExportPage } from '../routes/ExportPage';
 import { FramesPage } from '../routes/FramesPage';
+import { PipelineLogPage } from '../routes/PipelineLogPage';
 import { PipelinePage } from '../routes/PipelinePage';
 import { ViewportPage } from '../routes/ViewportPage';
 
@@ -56,6 +57,7 @@ function RoutedContent() {
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/pipeline" element={<PipelinePage />} />
+          <Route path="/pipeline/log" element={<PipelineLogPage />} />
           <Route path="/frames" element={<FramesPage />} />
           <Route path="/data" element={<DataPage />} />
           <Route path="/export" element={<ExportPage />} />

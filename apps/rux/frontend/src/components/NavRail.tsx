@@ -11,6 +11,12 @@ interface NavEntry {
   label: string;
   /** Set when the destination does not exist yet; renders inert with a reason. */
   pending?: string;
+  /**
+   * Match this path exactly rather than as a prefix. Needed when a longer route
+   * nests under it (`/pipeline` vs `/pipeline/log`) so both do not light up at
+   * once. `/` already gets this via the `to === '/'` fallback.
+   */
+  end?: boolean;
 }
 
 /**
@@ -26,7 +32,8 @@ interface NavEntry {
 const ENTRIES: NavEntry[] = [
   { to: '/', label: 'Overview' },
   { to: '/viewport', label: 'Viewport' },
-  { to: '/pipeline', label: 'Pipeline' },
+  { to: '/pipeline', label: 'Pipeline', end: true },
+  { to: '/pipeline/log', label: 'Pipeline Log' },
   { to: '/frames', label: 'Frames' },
   { to: '/data', label: 'Data' },
   { to: '/export', label: 'Export' },
@@ -47,7 +54,7 @@ export function NavRail() {
           <NavLink
             key={entry.to}
             to={entry.to}
-            end={entry.to === '/'}
+            end={entry.end ?? entry.to === '/'}
             className={({ isActive }) => `${styles.link} ${isActive ? styles.active : ''}`}
           >
             {entry.label}

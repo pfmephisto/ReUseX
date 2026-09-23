@@ -121,6 +121,68 @@ export function filterByStage(rows: HistoryRow[], stage: string | null): History
   return rows.filter((row) => row.entry.stage === stage);
 }
 
+/** Rows whose status matches @p status, or every row when @p status is null. */
+export function filterByStatus(
+  rows: HistoryRow[],
+  status: PipelineLogEntry['status'] | null,
+): HistoryRow[] {
+  if (!status) return rows;
+  return rows.filter((row) => row.entry.status === status);
+}
+
+/**
+ * The lowercased text a free-text search matches against.
+ *
+ * Everything the reader can actually see in the row is searchable — the stage,
+ * the status word, the error, the job marker, and each `key=value` knob — so a
+ * query for "planes", "failed", "job 3f", or "voxel_size" all land where the
+ * reader expects. Values are stringified the same way the row renders them, so
+ * what you see is what you can search. Timestamps are included so a date
+ * fragment like "2026-09-08" narrows to a day without a dedicated picker.
+ */
+export function rowHaystack(row: HistoryRow): string {
+  const parts: string[] = [
+    row.entry.stage,
+    row.entry.status,
+    row.entry.started_at,
+    row.entry.finished_at ?? '',
+    row.entry.error_msg ?? '',
+    row.jobId ?? '',
+  ];
+  for (const [key, value] of Object.entries(row.parameters)) {
+    parts.push(`${key}=${JSON.stringify(value)}`);
+  }
+  return parts.join(' ').toLowerCase();
+}
+
+/**
+ * Rows matching a free-text @p query, or every row when it is blank.
+ *
+ * Case-insensitive substring match over {@link rowHaystack}. A whitespace-only
+ * query is treated as no query rather than as a filter that hides everything.
+ */
+export function searchRows(rows: HistoryRow[], query: string): HistoryRow[] {
+  const needle = query.trim().toLowerCase();
+  if (needle === '') return rows;
+  return rows.filter((row) => rowHaystack(row).includes(needle));
+}
+
+/** The filters the log view applies together. A null/blank field is inactive. */
+export interface HistoryFilter {
+  stage: string | null;
+  status: PipelineLogEntry['status'] | null;
+  query: string;
+}
+
+/**
+ * Apply stage, status and free-text filters in one pass, newest-first order
+ * preserved. Composed from the single-axis helpers so each stays independently
+ * testable; the order is irrelevant because every filter only removes rows.
+ */
+export function applyHistoryFilter(rows: HistoryRow[], filter: HistoryFilter): HistoryRow[] {
+  return searchRows(filterByStatus(filterByStage(rows, filter.stage), filter.status), filter.query);
+}
+
 /** Every distinct stage name present in the history, in first-seen order. */
 export function stagesInHistory(rows: HistoryRow[]): string[] {
   const seen: string[] = [];

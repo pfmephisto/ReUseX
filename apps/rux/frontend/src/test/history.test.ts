@@ -6,12 +6,16 @@ import { describe, expect, it } from 'vitest';
 
 import type { PipelineLogEntry } from '../api/types';
 import {
+  applyHistoryFilter,
   chosenParameters,
   epochMs,
   filterByStage,
+  filterByStatus,
   formatDuration,
   historyRows,
   jobIdOf,
+  rowHaystack,
+  searchRows,
   stagesInHistory,
 } from '../pipeline/history';
 import { PIPELINE_LOG, PIPELINE_LOG_JOB_ID, RECORDED_JOB_ID } from './fixtures';
@@ -167,5 +171,77 @@ describe('filterByStage / stagesInHistory', () => {
       entry({ id: 1, stage: 'cloud_reconstruction' }),
     ]);
     expect(filterByStage(rows, 'segment_planes').map((row) => row.entry.id)).toEqual([2]);
+  });
+});
+
+describe('filterByStatus', () => {
+  it('returns everything when no status is selected', () => {
+    const rows = historyRows(PIPELINE_LOG.entries);
+    expect(filterByStatus(rows, null)).toBe(rows);
+  });
+
+  it('keeps only rows of the selected status', () => {
+    const rows = historyRows([
+      entry({ id: 3, status: 'failed', finished_at: '' }),
+      entry({ id: 2, status: 'success' }),
+      entry({ id: 1, status: 'running', finished_at: '' }),
+    ]);
+    expect(filterByStatus(rows, 'failed').map((row) => row.entry.id)).toEqual([3]);
+    expect(filterByStatus(rows, 'running').map((row) => row.entry.id)).toEqual([1]);
+  });
+});
+
+describe('rowHaystack / searchRows', () => {
+  it('matches the stage, status word and parameters case-insensitively', () => {
+    const rows = historyRows([
+      entry({ id: 2, stage: 'segment_planes', parameters: '{"angle_threshold":25}' }),
+      entry({ id: 1, stage: 'cloud_reconstruction', parameters: '{"voxel_size":0.05}' }),
+    ]);
+    expect(searchRows(rows, 'PLANES').map((row) => row.entry.id)).toEqual([2]);
+    expect(searchRows(rows, 'voxel_size').map((row) => row.entry.id)).toEqual([1]);
+    expect(searchRows(rows, 'success').map((row) => row.entry.id)).toEqual([2, 1]);
+  });
+
+  it('searches the job marker a GUI-started run leaves behind', () => {
+    const rows = historyRows([
+      entry({ id: 2, parameters: `{"job_id":"${RECORDED_JOB_ID}"}` }),
+      entry({ id: 1, parameters: '{"angle_threshold":25}' }),
+    ]);
+    expect(searchRows(rows, RECORDED_JOB_ID.slice(0, 6)).map((row) => row.entry.id)).toEqual([2]);
+  });
+
+  it('does not surface the injected job marker as a parameter key', () => {
+    const rows = historyRows([entry({ id: 1, parameters: `{"job_id":"${RECORDED_JOB_ID}"}` })]);
+    // The marker is searchable as a job id, never as a `job_id=` knob the user
+    // could think they had set.
+    expect(rowHaystack(rows[0])).not.toContain('job_id=');
+  });
+
+  it('treats a blank or whitespace-only query as no filter', () => {
+    const rows = historyRows(PIPELINE_LOG.entries);
+    expect(searchRows(rows, '')).toBe(rows);
+    expect(searchRows(rows, '   ')).toBe(rows);
+  });
+});
+
+describe('applyHistoryFilter', () => {
+  it('narrows by stage, status and query together, newest first', () => {
+    const rows = historyRows([
+      entry({ id: 4, stage: 'segment_planes', status: 'failed', finished_at: '', started_at: '2026-09-08 13:00:00', parameters: '{"angle_threshold":25}' }),
+      entry({ id: 3, stage: 'segment_planes', status: 'success', started_at: '2026-09-08 12:00:00', parameters: '{"angle_threshold":25}' }),
+      entry({ id: 2, stage: 'segment_planes', status: 'success', started_at: '2026-09-08 11:00:00', parameters: '{"angle_threshold":40}' }),
+      entry({ id: 1, stage: 'cloud_reconstruction', status: 'success', started_at: '2026-09-08 10:00:00', parameters: '{"voxel_size":0.05}' }),
+    ]);
+    const filtered = applyHistoryFilter(rows, {
+      stage: 'segment_planes',
+      status: 'success',
+      query: 'angle_threshold=25',
+    });
+    expect(filtered.map((row) => row.entry.id)).toEqual([3]);
+  });
+
+  it('is a no-op when every field is inactive', () => {
+    const rows = historyRows(PIPELINE_LOG.entries);
+    expect(applyHistoryFilter(rows, { stage: null, status: null, query: '' })).toBe(rows);
   });
 });

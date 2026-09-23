@@ -484,3 +484,61 @@ describe('eventsUrl', () => {
     );
   });
 });
+
+// --- pose graph editor endpoints (#407) ------------------------------------
+
+const POSE_GRAPH_EDGE = {
+  from: 1,
+  to: 50,
+  type: 'loop_closure',
+  residual: 0.0,
+  weight: 1.0,
+};
+
+const POSE_GRAPH_DELETE_RESULT = {
+  deleted: 1,
+  from: 1,
+  to: 50,
+  type: 'loop_closure',
+};
+
+describe('addPoseGraphEdge', () => {
+  it('POSTs to /posegraph/edges with JSON body and returns the created edge', async () => {
+    const { api, calls } = clientFor(POSE_GRAPH_EDGE);
+    const result = await api.addPoseGraphEdge({ from: 1, to: 50, type: 'loop_closure' });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe('/api/v1/posegraph/edges');
+    expect(calls[0].method).toBe('POST');
+    expect(calls[0].headers?.['Content-Type']).toBe('application/json');
+    expect(result.from).toBe(1);
+    expect(result.to).toBe(50);
+    expect(result.type).toBe('loop_closure');
+  });
+
+  it('throws ApiRequestError on 409 (no pose graph yet)', async () => {
+    const { api } = clientFor({ error: 'no pose graph yet' }, { status: 409 });
+    await expect(api.addPoseGraphEdge({ from: 1, to: 2 })).rejects.toBeInstanceOf(ApiRequestError);
+  });
+});
+
+describe('deletePoseGraphEdge', () => {
+  it('DELETEs /posegraph/edges/{from}/{to} and returns the delete result', async () => {
+    const { api, calls } = clientFor(POSE_GRAPH_DELETE_RESULT);
+    const result = await api.deletePoseGraphEdge(1, 50, 'loop_closure');
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe('/api/v1/posegraph/edges/1/50?type=loop_closure');
+    expect(calls[0].method).toBe('DELETE');
+    expect(result.deleted).toBe(1);
+  });
+
+  it('omits the type param when not supplied', async () => {
+    const { api, calls } = clientFor(POSE_GRAPH_DELETE_RESULT);
+    await api.deletePoseGraphEdge(1, 50);
+    expect(calls[0].url).toBe('/api/v1/posegraph/edges/1/50');
+  });
+
+  it('throws ApiRequestError on 404 (edge not found)', async () => {
+    const { api } = clientFor({ error: 'not found' }, { status: 404 });
+    await expect(api.deletePoseGraphEdge(99, 100)).rejects.toBeInstanceOf(ApiRequestError);
+  });
+});

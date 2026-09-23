@@ -683,6 +683,9 @@ const std::vector<Endpoint> &endpoint_table() {
       {"GET", "/api/v1/events", "WebSocket progress channel (upgrade)", true},
       {"GET", "/api/v1/posegraph",
        "Pose-graph nodes (frame poses) and edges (with post-solve residuals)"},
+      {"DELETE", "/api/v1/posegraph/edges/<int>/<int>",
+       "Delete a pose-graph edge (by from/to node ids)"},
+      {"POST", "/api/v1/posegraph/edges", "Add a manual pose-graph edge"},
   };
   return table;
 }
@@ -2059,6 +2062,94 @@ json posegraph_json(const reusex::ProjectDB &db) {
   }
 
   return json{{"nodes", std::move(nodes)}, {"edges", std::move(edges)}};
+}
+
+namespace {
+/// Valid edge types accepted by the editor endpoints.
+bool is_valid_edge_type(std::string_view t) {
+  return t == "odometry" || t == "loop_closure" || t == "panorama";
+}
+} // namespace
+
+json delete_posegraph_edge(reusex::ProjectDB &db, int from, int to,
+                           std::string_view edge_type) {
+  if (!edge_type.empty() && !is_valid_edge_type(edge_type))
+    throw HttpError(400,
+                    "'type' must be one of odometry/loop_closure/panorama");
+
+  // The underlying delete will throw if the table doesn't exist, but since
+  // migration always creates it, the only failure mode worth reporting is no
+  // matching rows — which we surface as 404 below.
+  const int deleted = db.delete_pose_graph_edges(from, to, edge_type);
+
+  if (deleted == 0)
+    throw HttpError(
+        404, "no pose-graph edge found with from=" + std::to_string(from) +
+                 " to=" + std::to_string(to) +
+                 (edge_type.empty() ? "" : " type=" + std::string(edge_type)));
+
+  return json{
+      {"deleted", deleted},
+      {"from", from},
+      {"to", to},
+      {"type", edge_type.empty() ? nullptr : json(std::string(edge_type))}};
+}
+
+json add_posegraph_edge(reusex::ProjectDB &db, const std::string &body) {
+  auto parsed = json::parse(body, nullptr, /*allow_exceptions=*/false);
+  if (parsed.is_discarded() || !parsed.is_object())
+    throw HttpError(400, "request body must be a JSON object");
+
+  auto from_it = parsed.find("from");
+  if (from_it == parsed.end() || !from_it->is_number_integer())
+    throw HttpError(400, "'from' is required and must be an integer");
+  auto to_it = parsed.find("to");
+  if (to_it == parsed.end() || !to_it->is_number_integer())
+    throw HttpError(400, "'to' is required and must be an integer");
+
+  const int from = from_it->get<int>();
+  const int to = to_it->get<int>();
+
+  std::string edge_type = "loop_closure";
+  auto type_it = parsed.find("type");
+  if (type_it != parsed.end() && !type_it->is_null()) {
+    if (!type_it->is_string())
+      throw HttpError(400, "'type' must be a string");
+    edge_type = type_it->get<std::string>();
+    if (!is_valid_edge_type(edge_type))
+      throw HttpError(400,
+                      "'type' must be one of odometry/loop_closure/panorama");
+  }
+
+  double weight = 1.0;
+  auto weight_it = parsed.find("weight");
+  if (weight_it != parsed.end() && !weight_it->is_null()) {
+    if (!weight_it->is_number())
+      throw HttpError(400, "'weight' must be a number");
+    weight = weight_it->get<double>();
+    if (weight <= 0.0)
+      throw HttpError(400, "'weight' must be positive");
+  }
+
+  reusex::ProjectDB::PoseGraphEdge edge;
+  edge.from_node_id = from;
+  edge.to_node_id = to;
+  edge.edge_type = edge_type;
+  edge.residual = 0.0;
+  edge.weight = weight;
+
+  if (!db.has_pose_graph())
+    throw HttpError(409, "no pose graph yet — run `rux optimize` first to "
+                         "create the graph, then edit it");
+
+  db.add_pose_graph_edge(edge);
+
+  json out{{"from", from},
+           {"to", to},
+           {"type", edge_type},
+           {"residual", 0.0},
+           {"weight", weight}};
+  return out;
 }
 
 // ===========================================================================

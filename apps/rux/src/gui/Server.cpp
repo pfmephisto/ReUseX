@@ -861,6 +861,23 @@ class Server::Impl {
       });
     });
 
+    app_.route_dynamic("/api/v1/posegraph/edges/<int>/<int>")
+        .methods(crow::HTTPMethod::DELETE)(
+            [this](const crow::request &req, int from, int to) {
+              const auto type = params_of(req).str("type", "");
+              return with_write([&](reusex::ProjectDB &db) {
+                return json_response(200,
+                                     delete_posegraph_edge(db, from, to, type));
+              });
+            });
+
+    app_.route_dynamic("/api/v1/posegraph/edges")
+        .methods(crow::HTTPMethod::POST)([this](const crow::request &req) {
+          return with_write([&](reusex::ProjectDB &db) {
+            return json_response(201, add_posegraph_edge(db, req.body));
+          });
+        });
+
     // ---- pipeline ----
     get("/api/v1/stages")([this](const crow::request &) {
       return with_db([](const reusex::ProjectDB &db) {

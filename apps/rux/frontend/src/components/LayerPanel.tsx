@@ -13,7 +13,7 @@ import {
   type ViewPreset,
 } from '../viewport/cameraViews';
 import type { CloudStreamState } from '../viewport/useCloudStream';
-import type { MeshLayerState, SplatLayerState } from '../viewport/Viewport';
+import type { MeshLayerState, SelectedEdge, SplatLayerState } from '../viewport/Viewport';
 import { describeGsplat, gsplatNote } from '../viewport/gsplatLayer';
 import { describeMesh, meshNote } from '../viewport/meshLayer';
 import { panoramaNote } from '../viewport/panorama';
@@ -22,6 +22,7 @@ import { EmptyState } from './EmptyState';
 import { LabelLegend } from './LabelLegend';
 import { LayerRow } from './LayerRow';
 import { PanoramaPanel } from './PanoramaPanel';
+import { PoseGraphEdgeInspector } from './PoseGraphEdgeInspector';
 import styles from './LayerPanel.module.css';
 
 /** Everything the panel needs about the PLY mesh layers (#265, review pt 2). */
@@ -80,6 +81,11 @@ export interface PoseGraphPanelState {
   onResidualThresholdChange: (threshold: number) => void;
   nodeColorMode: 'default' | 'degree';
   onNodeColorModeChange: (mode: 'default' | 'degree') => void;
+  // Editor state added in #407:
+  selectedEdge: SelectedEdge | null;
+  onEdgeSelect: (edge: SelectedEdge | null) => void;
+  /** Called after a successful edge write so the parent can refresh the graph. */
+  onGraphChanged: () => void;
 }
 
 /** Serialisable bounding-box corners, one per axis. */
@@ -794,6 +800,9 @@ function PoseGraphSection({ posegraph }: { posegraph: PoseGraphPanelState }) {
     onResidualThresholdChange,
     nodeColorMode,
     onNodeColorModeChange,
+    selectedEdge,
+    onEdgeSelect,
+    onGraphChanged,
   } = posegraph;
   const note = posegraphNote(graph, error);
   const hasNodes = (graph?.nodes.length ?? 0) > 0;
@@ -891,6 +900,14 @@ function PoseGraphSection({ posegraph }: { posegraph: PoseGraphPanelState }) {
                   className={styles.range}
                 />
               </label>
+
+              <div className={styles.fieldLabel}>Edge inspector</div>
+              <PoseGraphEdgeInspector
+                edge={selectedEdge}
+                onDeleted={onGraphChanged}
+                onAdded={onGraphChanged}
+                onDeselect={() => onEdgeSelect(null)}
+              />
             </>
           )}
         </>

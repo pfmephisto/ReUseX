@@ -536,6 +536,22 @@ export interface PoseGraph {
   edges: PoseGraphEdge[];
 }
 
+/** Body of `POST /api/v1/posegraph/edges`. */
+export interface PoseGraphEdgeCreate {
+  from: number;
+  to: number;
+  type?: PoseGraphEdgeType;
+  weight?: number;
+}
+
+/** Response of `DELETE /api/v1/posegraph/edges/{from}/{to}`. */
+export interface PoseGraphEdgeDeleteResult {
+  deleted: number;
+  from: number;
+  to: number;
+  type: PoseGraphEdgeType | null;
+}
+
 // ------------------------------------------------- frame visibility (#453) ----
 
 /**

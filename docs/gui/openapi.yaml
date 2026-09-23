@@ -1738,6 +1738,121 @@ paths:
                             time. Absent when not extractable.
         default: { $ref: "#/components/responses/UnexpectedError" }
 
+  /posegraph/edges:
+    post:
+      tags: [slam]
+      operationId: addPoseGraphEdge
+      summary: Add a manual pose-graph edge
+      description: |
+        Insert one edge into the pose-graph edge table.  Use this to add a
+        manual loop-closure constraint before re-running `rux optimize`.
+
+        The edge is stored with `residual = 0.0` (no optimizer has solved it
+        yet).  After adding edges, run `rux optimize` (or the GUI re-run
+        action) to propagate the new constraints into the stored frame poses.
+
+        **Requires an existing pose-graph table** — i.e. `rux optimize` must
+        have been run at least once.  A project that has never been optimised
+        returns 409.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [from, to]
+              properties:
+                from:
+                  type: integer
+                  description: from_node_id (sensor frame id)
+                to:
+                  type: integer
+                  description: to_node_id (sensor frame id)
+                type:
+                  type: string
+                  enum: [odometry, loop_closure, panorama]
+                  default: loop_closure
+                weight:
+                  type: number
+                  description: "Translational information weight (1/σ²). Default: 1.0"
+                  default: 1.0
+      responses:
+        "201":
+          description: Edge created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [from, to, type, residual, weight]
+                properties:
+                  from: { type: integer }
+                  to: { type: integer }
+                  type: { type: string, enum: [odometry, loop_closure, panorama] }
+                  residual: { type: number }
+                  weight: { type: number }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "409":
+          description: >-
+            No pose-graph table exists yet (project has never been optimised)
+            or a pipeline job is running.
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  /posegraph/edges/{from}/{to}:
+    delete:
+      tags: [slam]
+      operationId: deletePoseGraphEdge
+      summary: Delete a pose-graph edge (by from/to node ids)
+      description: |
+        Remove one or more pose-graph edges that connect `from` to `to`.
+
+        When the optional `type` query parameter is supplied only edges of that
+        type are removed, so a caller can delete a loop-closure edge without
+        touching an odometry edge that happens to share the same endpoint pair.
+
+        After deleting edges, re-run `rux optimize` to recalculate residuals
+        and update the stored frame poses.
+      parameters:
+        - name: from
+          in: path
+          required: true
+          schema: { type: integer }
+          description: from_node_id (sensor frame id)
+        - name: to
+          in: path
+          required: true
+          schema: { type: integer }
+          description: to_node_id (sensor frame id)
+        - name: type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [odometry, loop_closure, panorama]
+          description: >-
+            When present, only edges of this type are removed.
+            When absent, all edges between the pair are removed.
+      responses:
+        "200":
+          description: Edge(s) deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [deleted, from, to]
+                properties:
+                  deleted: { type: integer, description: Number of rows removed }
+                  from: { type: integer }
+                  to: { type: integer }
+                  type:
+                    type: string
+                    nullable: true
+                    description: The type filter that was applied, or null when none
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: A pipeline job is running; edits are refused.
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
   # ---------------------------------------------------------------- jobs ----
   /jobs:
     get:

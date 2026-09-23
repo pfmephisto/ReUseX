@@ -519,6 +519,20 @@ export class PointCloudScene {
   }
 
   /**
+   * Create a raycaster aimed at @p ndc (NDC) using the current camera.
+   *
+   * Exported so callers (e.g. pose-graph edge picking) can reuse the same
+   * camera setup without needing access to the private `camera` field.
+   *
+   * @param ndc Pointer position in normalised device coordinates (-1..1).
+   */
+  raycasterAt(ndc: THREE.Vector2): THREE.Raycaster {
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(ndc, this.camera);
+    return raycaster;
+  }
+
+  /**
    * Pick the nearest point-cloud point under the pointer and return its
    * world-space position, or `null` when nothing is hit.
    *

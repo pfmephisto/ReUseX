@@ -435,6 +435,32 @@ nlohmann::json pipeline_log_json(const reusex::ProjectDB &db,
 /// optimised project returns an empty `edges` array.
 nlohmann::json posegraph_json(const reusex::ProjectDB &db);
 
+/// Delete a pose-graph edge identified by its from/to node ids.
+///
+/// When @p edge_type is non-empty only edges of that type are removed, so a
+/// caller that knows the type (the GUI always does) can remove a loop-closure
+/// edge without touching a coincident odometry edge.
+///
+/// @returns `{"deleted": N, "from": from, "to": to, "type": type}`.
+/// @throws HttpError(404) when no matching edge exists.
+/// @throws HttpError(400) when @p edge_type is not a known value.
+nlohmann::json delete_posegraph_edge(reusex::ProjectDB &db, int from, int to,
+                                     std::string_view edge_type = "");
+
+/// Add a manual pose-graph edge.
+///
+/// Body fields: `from` (int, required), `to` (int, required),
+/// `type` (string, default `"loop_closure"`), `weight` (number, default 1.0).
+/// The edge is stored with `residual = 0.0` — no optimizer has solved it yet.
+/// Returns the stored edge record.
+///
+/// @throws HttpError(400) on a malformed body, unknown edge type, or missing
+///         from/to.
+/// @throws HttpError(409) when the pose_graph_edges table does not exist yet
+///         (the project has never been optimised and has no graph to edit).
+nlohmann::json add_posegraph_edge(reusex::ProjectDB &db,
+                                  const std::string &body);
+
 // --- jobs -----------------------------------------------------------------
 
 /// @param project  Name of the project the job belongs to. Present on every

@@ -153,6 +153,8 @@ TEST_CASE("EndpointTable_DocumentedRoutes_MatchesContract", "[gui][routes]") {
       "GET /api/v1/stages/<string>/validation",
       "GET /api/v1/pipeline-log",
       "GET /api/v1/posegraph",
+      "DELETE /api/v1/posegraph/edges/<int>/<int>",
+      "POST /api/v1/posegraph/edges",
       "GET /api/v1/jobs",
       "POST /api/v1/jobs",
       "GET /api/v1/jobs/<string>",
@@ -1605,4 +1607,173 @@ TEST_CASE("InstanceFrames_UnknownCloud_Is404", "[gui][routes]") {
   const TempPath project("gui_visibility_instance");
   reusex::ProjectDB db(project.path);
   CHECK_THROWS_AS(instance_frames_json(db, "nope", 1, Params{}), HttpError);
+}
+
+// ===========================================================================
+// Pose-graph editor endpoints (#407)
+// ===========================================================================
+
+namespace {
+
+/// Seed the pose_graph_edges table with a small graph suitable for editor
+/// tests.  Uses save_pose_graph_edges to populate atomically, then we can
+/// test add/delete on top.
+void seed_pose_graph(reusex::ProjectDB &db) {
+  reusex::ProjectDB::PoseGraphEdge e1;
+  e1.from_node_id = 1;
+  e1.to_node_id = 2;
+  e1.edge_type = "odometry";
+  e1.residual = 0.1;
+  e1.weight = 10.0;
+
+  reusex::ProjectDB::PoseGraphEdge e2;
+  e2.from_node_id = 1;
+  e2.to_node_id = 50;
+  e2.edge_type = "loop_closure";
+  e2.residual = 3.5;
+  e2.weight = 1.0;
+
+  db.save_pose_graph_edges({e1, e2});
+}
+
+} // namespace
+
+TEST_CASE("DeletePoseGraphEdge_ExistingEdge_RemovesAndReports",
+          "[gui][posegraph][editor]") {
+  const TempPath project("gui_posegraph_delete");
+  reusex::ProjectDB db(project.path, /*readOnly=*/false);
+  seed_pose_graph(db);
+
+  // Delete the loop-closure edge.
+  const auto body = delete_posegraph_edge(db, 1, 50, "loop_closure");
+  CHECK(body.at("deleted") == 1);
+  CHECK(body.at("from") == 1);
+  CHECK(body.at("to") == 50);
+
+  // Only the odometry edge should remain.
+  const auto edges = db.list_pose_graph_edges();
+  REQUIRE(edges.size() == 1);
+  CHECK(edges[0].edge_type == "odometry");
+}
+
+TEST_CASE("DeletePoseGraphEdge_WithoutTypeFilter_DeletesAllMatchingPairs",
+          "[gui][posegraph][editor]") {
+  const TempPath project("gui_posegraph_delete_all");
+  reusex::ProjectDB db(project.path, /*readOnly=*/false);
+
+  // Two edges between the same pair but different types.
+  reusex::ProjectDB::PoseGraphEdge ea;
+  ea.from_node_id = 5;
+  ea.to_node_id = 10;
+  ea.edge_type = "odometry";
+  ea.residual = 0.0;
+  ea.weight = 1.0;
+  reusex::ProjectDB::PoseGraphEdge eb = ea;
+  eb.edge_type = "loop_closure";
+  db.save_pose_graph_edges({ea, eb});
+
+  const auto body = delete_posegraph_edge(db, 5, 10);
+  CHECK(body.at("deleted") == 2);
+  CHECK(db.list_pose_graph_edges().empty());
+}
+
+TEST_CASE("DeletePoseGraphEdge_NoMatch_Is404", "[gui][posegraph][editor]") {
+  const TempPath project("gui_posegraph_delete_404");
+  reusex::ProjectDB db(project.path, /*readOnly=*/false);
+  seed_pose_graph(db);
+
+  try {
+    delete_posegraph_edge(db, 99, 100);
+    FAIL("expected HttpError(404)");
+  } catch (const HttpError &e) {
+    CHECK(e.status() == 404);
+  }
+}
+
+TEST_CASE("DeletePoseGraphEdge_UnknownType_Is400", "[gui][posegraph][editor]") {
+  const TempPath project("gui_posegraph_delete_400");
+  reusex::ProjectDB db(project.path, /*readOnly=*/false);
+  seed_pose_graph(db);
+
+  try {
+    delete_posegraph_edge(db, 1, 2, "unknown_type");
+    FAIL("expected HttpError(400)");
+  } catch (const HttpError &e) {
+    CHECK(e.status() == 400);
+  }
+}
+
+TEST_CASE("AddPoseGraphEdge_ValidBody_InsertsAndReturnsEdge",
+          "[gui][posegraph][editor]") {
+  const TempPath project("gui_posegraph_add");
+  reusex::ProjectDB db(project.path, /*readOnly=*/false);
+  seed_pose_graph(db);
+
+  const auto body = add_posegraph_edge(
+      db, R"({"from":10,"to":20,"type":"loop_closure","weight":2.5})");
+
+  CHECK(body.at("from") == 10);
+  CHECK(body.at("to") == 20);
+  CHECK(body.at("type") == "loop_closure");
+  CHECK(body.at("residual") == 0.0);
+  CHECK(body.at("weight") == 2.5);
+
+  // Confirm it is in the DB.
+  const auto edges = db.list_pose_graph_edges();
+  REQUIRE(edges.size() == 3); // 2 seeded + 1 added
+  const auto &added = edges.back();
+  CHECK(added.from_node_id == 10);
+  CHECK(added.to_node_id == 20);
+  CHECK(added.edge_type == "loop_closure");
+  CHECK(added.weight == 2.5);
+}
+
+TEST_CASE("AddPoseGraphEdge_DefaultType_IsLoopClosure",
+          "[gui][posegraph][editor]") {
+  const TempPath project("gui_posegraph_add_default");
+  reusex::ProjectDB db(project.path, /*readOnly=*/false);
+  seed_pose_graph(db);
+
+  const auto body = add_posegraph_edge(db, R"({"from":5,"to":95})");
+  CHECK(body.at("type") == "loop_closure");
+  CHECK(body.at("weight") == 1.0);
+}
+
+TEST_CASE("AddPoseGraphEdge_MissingFrom_Is400", "[gui][posegraph][editor]") {
+  const TempPath project("gui_posegraph_add_400");
+  reusex::ProjectDB db(project.path, /*readOnly=*/false);
+  seed_pose_graph(db);
+
+  try {
+    add_posegraph_edge(db, R"({"to":20})");
+    FAIL("expected HttpError(400)");
+  } catch (const HttpError &e) {
+    CHECK(e.status() == 400);
+  }
+}
+
+TEST_CASE("AddPoseGraphEdge_UnknownType_Is400", "[gui][posegraph][editor]") {
+  const TempPath project("gui_posegraph_add_400_type");
+  reusex::ProjectDB db(project.path, /*readOnly=*/false);
+  seed_pose_graph(db);
+
+  try {
+    add_posegraph_edge(db, R"({"from":1,"to":2,"type":"bad_type"})");
+    FAIL("expected HttpError(400)");
+  } catch (const HttpError &e) {
+    CHECK(e.status() == 400);
+  }
+}
+
+TEST_CASE("AddPoseGraphEdge_NoTable_Is409", "[gui][posegraph][editor]") {
+  // A fresh DB has no pose_graph_edges table until rux optimize has run.
+  const TempPath project("gui_posegraph_add_409");
+  reusex::ProjectDB db(project.path, /*readOnly=*/false);
+
+  try {
+    add_posegraph_edge(db, R"({"from":1,"to":2})");
+    FAIL("expected HttpError(409)");
+  } catch (const HttpError &e) {
+    CHECK(e.status() == 409);
+  }
 }

@@ -1318,6 +1318,63 @@ class ProjectDB::Impl {
     return false;
   }
 
+  int addPoseGraphEdge(const ProjectDB::PoseGraphEdge &edge) {
+    checkWritable();
+    const char *ins = R"(
+      INSERT INTO pose_graph_edges
+        (from_node_id, to_node_id, edge_type, residual, weight)
+      VALUES (?, ?, ?, ?, ?);
+    )";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, ins, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to prepare pose_graph_edges insert: " +
+                               std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+    sqlite3_bind_int(stmt, 1, edge.from_node_id);
+    sqlite3_bind_int(stmt, 2, edge.to_node_id);
+    sqlite3_bind_text(stmt, 3, edge.edge_type.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_double(stmt, 4, edge.residual);
+    if (std::isnan(edge.weight))
+      sqlite3_bind_null(stmt, 5);
+    else
+      sqlite3_bind_double(stmt, 5, edge.weight);
+    if (sqlite3_step(stmt) != SQLITE_DONE)
+      throw std::runtime_error("pose_graph_edges insert failed: " +
+                               std::string(sqlite3_errmsg(db)));
+    return static_cast<int>(sqlite3_last_insert_rowid(db));
+  }
+
+  int deletePoseGraphEdges(int from_node_id, int to_node_id,
+                           std::string_view edge_type) {
+    checkWritable();
+    sqlite3_stmt *stmt;
+    if (edge_type.empty()) {
+      const char *del = "DELETE FROM pose_graph_edges "
+                        "WHERE from_node_id=? AND to_node_id=?;";
+      if (sqlite3_prepare_v2(db, del, -1, &stmt, nullptr) != SQLITE_OK)
+        throw std::runtime_error("Failed to prepare pose_graph_edges delete: " +
+                                 std::string(sqlite3_errmsg(db)));
+      StmtGuard guard(stmt);
+      sqlite3_bind_int(stmt, 1, from_node_id);
+      sqlite3_bind_int(stmt, 2, to_node_id);
+      sqlite3_step(stmt);
+    } else {
+      const char *del = "DELETE FROM pose_graph_edges "
+                        "WHERE from_node_id=? AND to_node_id=? "
+                        "AND edge_type=?;";
+      if (sqlite3_prepare_v2(db, del, -1, &stmt, nullptr) != SQLITE_OK)
+        throw std::runtime_error("Failed to prepare pose_graph_edges delete: " +
+                                 std::string(sqlite3_errmsg(db)));
+      StmtGuard guard(stmt);
+      sqlite3_bind_int(stmt, 1, from_node_id);
+      sqlite3_bind_int(stmt, 2, to_node_id);
+      const std::string type_str(edge_type);
+      sqlite3_bind_text(stmt, 3, type_str.c_str(), -1, SQLITE_TRANSIENT);
+      sqlite3_step(stmt);
+    }
+    return sqlite3_changes(db);
+  }
+
   void migrateToV16() {
     reusex::info("Migrating database to schema version 16");
     // Spatial tile index for morton_10bit_bitrev clouds (#395).
@@ -7042,6 +7099,15 @@ void ProjectDB::save_pose_graph_edges(const std::vector<PoseGraphEdge> &edges) {
 
 std::vector<ProjectDB::PoseGraphEdge> ProjectDB::list_pose_graph_edges() const {
   return impl_->listPoseGraphEdges();
+}
+
+int ProjectDB::add_pose_graph_edge(const PoseGraphEdge &edge) {
+  return impl_->addPoseGraphEdge(edge);
+}
+
+int ProjectDB::delete_pose_graph_edges(int from_node_id, int to_node_id,
+                                       std::string_view edge_type) {
+  return impl_->deletePoseGraphEdges(from_node_id, to_node_id, edge_type);
 }
 
 // --- Scans (multi-session import, #129) ---

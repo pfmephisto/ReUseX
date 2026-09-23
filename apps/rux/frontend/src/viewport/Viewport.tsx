@@ -16,12 +16,14 @@ import type { CameraProjection, LightingState, ViewPreset } from './cameraViews'
 import { ClippingBoxLayer } from './ClippingBoxLayer';
 import { MeshScene } from './MeshScene';
 import { PanoramaScene, type PanoramaMarker } from './PanoramaScene';
-import { PoseGraphScene } from './PoseGraphScene';
+import { PoseGraphScene, type SelectedEdge } from './PoseGraphScene';
 import { SplatScene } from './SplatScene';
 import { useCloudStream, type CloudStreamState } from './useCloudStream';
 import styles from './Viewport.module.css';
 import type { PoseGraph, PoseGraphEdgeType } from '../api/types';
 import type { ProjectionPlane } from './posegraphLayer';
+
+export type { SelectedEdge };
 
 /** Progress of the PLY mesh layer, as the panel reports it (#265, review pt 2). */
 export interface MeshLayerState {
@@ -150,6 +152,10 @@ export interface ViewportProps {
   poseGraphResidualThreshold?: number;
   /** Colour nodes by connectivity degree instead of uniform grey (#445). */
   poseGraphNodeColorMode?: 'default' | 'degree';
+  /** The currently selected edge (#407); null to clear. */
+  poseGraphSelectedEdge?: SelectedEdge | null;
+  /** Called when the user clicks an edge (or the background to deselect). */
+  onPickPoseGraphEdge?: (edge: SelectedEdge | null) => void;
 
   /**
    * Clipping box state (#444).
@@ -227,6 +233,8 @@ export function Viewport({
   poseGraphEdgeTypeVisible,
   poseGraphResidualThreshold,
   poseGraphNodeColorMode,
+  poseGraphSelectedEdge,
+  onPickPoseGraphEdge,
   clipping,
   overlay,
   pickMode = false,
@@ -336,6 +344,10 @@ export function Viewport({
     poseGraphRef.current?.setNodeColorMode(poseGraphNodeColorMode ?? 'default');
   }, [scene, poseGraphNodeColorMode]);
 
+  useEffect(() => {
+    poseGraphRef.current?.setSelectedEdge(poseGraphSelectedEdge ?? null);
+  }, [scene, poseGraphSelectedEdge]);
+
   // Dispatch 'rux-camera-move' whenever the orbit camera changes so that
   // tile-streaming layers can re-evaluate their visible tile sets.
   useEffect(() => {
@@ -428,6 +440,18 @@ export function Viewport({
       const world = scene.pickCloudPoint(ndc);
       if (world) onPickPoint({ x: world.x, y: world.y, z: world.z });
       return;
+    }
+
+    // Pose-graph edge picking (#407): try to pick an edge when the graph is
+    // visible and a callback is registered.
+    if (onPickPoseGraphEdge && poseGraphVisible && poseGraphRef.current) {
+      const raycaster = scene.raycasterAt(ndc);
+      const hit = poseGraphRef.current.pickEdge(raycaster);
+      onPickPoseGraphEdge(hit);
+      // Don't return: let panorama picking run too so a click on empty space
+      // does not block entering a panorama.  Edge pick result is reported even
+      // if null (to clear a previous selection).
+      if (hit) return;
     }
 
     // Panorama-marker picking (original behaviour).

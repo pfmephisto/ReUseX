@@ -511,6 +511,23 @@ class ProjectDB {
   /// True when the pose graph table exists and has at least one edge.
   bool has_pose_graph() const;
 
+  /// Insert a single edge and return its row id.
+  ///
+  /// Used by the GUI editor to add manual loop-closure edges without disturbing
+  /// the rest of the graph.  Unlike save_pose_graph_edges(), this does not
+  /// replace the whole table — it appends exactly one row.
+  int add_pose_graph_edge(const PoseGraphEdge &edge);
+
+  /// Delete edges matching @p from_node_id and @p to_node_id.
+  ///
+  /// When @p edge_type is non-empty, only edges of that type are removed so
+  /// the caller can target a single loop-closure without touching an odometry
+  /// edge that happens to share the same endpoint pair.
+  ///
+  /// @returns the number of rows deleted (0 when nothing matched).
+  int delete_pose_graph_edges(int from_node_id, int to_node_id,
+                              std::string_view edge_type = "");
+
   // --- Scans (multi-session import, #129) ---
 
   /// One row of the `scans` table.  Each `rux import` creates one record;

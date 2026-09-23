@@ -18,6 +18,7 @@ import {
   Viewport,
   type MeshLayerState,
   type PanoramaLayerState,
+  type SelectedEdge,
   type SplatLayerState,
   type ViewportLayer,
   type ViewportMesh,
@@ -249,12 +250,10 @@ export function ViewportPage() {
     if (next) setSplatRequested((current) => ({ ...current, [name]: true }));
   }, []);
 
-  // --- pose graph (#265, review pt 4; #445) ---------------------------------
+  // --- pose graph (#265, review pt 4; #445; #407) ---------------------------
 
-  const { data: poseGraphData, error: poseGraphError } = useAsync<PoseGraph>(
-    (signal) => api.posegraph(signal),
-    [],
-  );
+  const { data: poseGraphData, error: poseGraphError, reload: reloadPoseGraph } =
+    useAsync<PoseGraph>((signal) => api.posegraph(signal), []);
   const [poseGraphVisible, setPoseGraphVisible] = useState(false);
   const [pgProjectionPlane, setPgProjectionPlane] = useState<ProjectionPlane>('3D');
   const [pgEdgeTypeVisible, setPgEdgeTypeVisible] = useState<Record<PoseGraphEdgeType, boolean>>({
@@ -264,6 +263,7 @@ export function ViewportPage() {
   });
   const [pgResidualThreshold, setPgResidualThreshold] = useState(0);
   const [pgNodeColorMode, setPgNodeColorMode] = useState<'default' | 'degree'>('default');
+  const [pgSelectedEdge, setPgSelectedEdge] = useState<SelectedEdge | null>(null);
 
   // --- 360 panoramas (#265, Phase 5) --------------------------------------
 
@@ -506,6 +506,8 @@ export function ViewportPage() {
         poseGraphEdgeTypeVisible={pgEdgeTypeVisible}
         poseGraphResidualThreshold={pgResidualThreshold}
         poseGraphNodeColorMode={pgNodeColorMode}
+        poseGraphSelectedEdge={pgSelectedEdge}
+        onPickPoseGraphEdge={setPgSelectedEdge}
         clipping={{
           enabled: clippingEnabled,
           min: clippingMin,
@@ -585,6 +587,9 @@ export function ViewportPage() {
           onResidualThresholdChange: setPgResidualThreshold,
           nodeColorMode: pgNodeColorMode,
           onNodeColorModeChange: setPgNodeColorMode,
+          selectedEdge: pgSelectedEdge,
+          onEdgeSelect: setPgSelectedEdge,
+          onGraphChanged: reloadPoseGraph,
         }}
         visible={visible}
         progress={progress}

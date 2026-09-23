@@ -47,6 +47,10 @@ import type {
   PanoramaInfo,
   PipelineLogEntry,
   PoseGraph,
+  PoseGraphEdge,
+  PoseGraphEdgeCreate,
+  PoseGraphEdgeDeleteResult,
+  PoseGraphEdgeType,
   ProjectInfo,
   ProjectSummary,
   PropertyDefinition,
@@ -518,6 +522,38 @@ export class RuxApiClient {
    */
   posegraph(signal?: AbortSignal): Promise<PoseGraph> {
     return this.requestJson<PoseGraph>('/posegraph', undefined, signal);
+  }
+
+  /**
+   * Add a manual pose-graph edge (#407).
+   *
+   * The edge is stored with `residual = 0.0`. After adding edges, re-run
+   * `rux optimize` to propagate the new constraints.
+   *
+   * Returns 409 when the project has never been optimised (no graph to edit).
+   */
+  addPoseGraphEdge(edge: PoseGraphEdgeCreate, signal?: AbortSignal): Promise<PoseGraphEdge> {
+    return this.postJson<PoseGraphEdge>('/posegraph/edges', edge, signal);
+  }
+
+  /**
+   * Delete a pose-graph edge by from/to node id (#407).
+   *
+   * When `type` is supplied only edges of that type are removed.
+   * Returns 404 when no matching edge exists.
+   */
+  async deletePoseGraphEdge(
+    from: number,
+    to: number,
+    type?: PoseGraphEdgeType,
+    signal?: AbortSignal,
+  ): Promise<PoseGraphEdgeDeleteResult> {
+    const url = this.url(`/posegraph/edges/${from}/${to}`, { type });
+    const response = await this.doFetch(url, { method: 'DELETE', signal });
+    if (!response.ok) {
+      throw new ApiRequestError(response.status, await describeFailure(response), url);
+    }
+    return (await response.json()) as PoseGraphEdgeDeleteResult;
   }
 
   // ----------------------------------------------------------- frames ----

@@ -31,12 +31,24 @@ import {
   type ResidualStats,
 } from './posegraphLayer';
 
-/** Per-type edge batch stored for in-place recolouring. */
+/** Per-type edge batch stored for in-place recolouring and picking. */
 interface EdgeBatch {
   lines: THREE.LineSegments;
   edges: PoseGraphEdge[];
   stats: ResidualStats;
 }
+
+/** The selected edge, identified by its graph properties. */
+export interface SelectedEdge {
+  from: number;
+  to: number;
+  type: PoseGraphEdgeType;
+  residual: number;
+  weight: number | undefined;
+}
+
+/** Highlight colour for a selected edge (bright yellow). */
+const SELECTED_COLOR: [number, number, number] = [1.0, 0.9, 0.0];
 
 /** Extract world-space position from a column-major 4×4 pose, projected. */
 function posFromPose(pose: number[], plane: ProjectionPlane): THREE.Vector3 {
@@ -60,6 +72,7 @@ export class PoseGraphScene {
   };
   private residualThreshold_ = 0;
   private nodeColorMode_: 'default' | 'degree' = 'default';
+  private selectedEdge_: SelectedEdge | null = null;
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
@@ -109,6 +122,58 @@ export class PoseGraphScene {
 
   isVisible(): boolean {
     return this.visible_;
+  }
+
+  /**
+   * Pick the closest edge to a ray.  Returns the edge or null if no edge is
+   * within the threshold.
+   *
+   * The Three.js raycaster's `params.Line.threshold` controls the maximum
+   * world-space distance from the ray to a segment for a hit.  0.15 m works
+   * for typical room-scale scenes; callers can adjust via `threshold`.
+   */
+  pickEdge(raycaster: THREE.Raycaster, threshold = 0.15): SelectedEdge | null {
+    const prevThreshold = raycaster.params.Line?.threshold ?? 1;
+    if (raycaster.params.Line) raycaster.params.Line.threshold = threshold;
+
+    let bestDist = Infinity;
+    let best: SelectedEdge | null = null;
+
+    for (const [type, { lines, edges }] of this.edgesByType) {
+      if (!lines.visible) continue;
+      const hits = raycaster.intersectObject(lines);
+      if (hits.length === 0) continue;
+      const hit = hits[0];
+      if (hit.distance < bestDist) {
+        bestDist = hit.distance;
+        // hits[0].index is the vertex index in the segments (each edge = 2 vertices)
+        const edgeIdx = Math.floor((hit.index ?? 0) / 2);
+        if (edgeIdx < edges.length) {
+          const e = edges[edgeIdx];
+          best = {
+            from: e.from,
+            to: e.to,
+            type,
+            residual: e.residual,
+            weight: e.weight,
+          };
+        }
+      }
+    }
+
+    if (raycaster.params.Line) raycaster.params.Line.threshold = prevThreshold;
+    return best;
+  }
+
+  /** Highlight one edge as selected; clears any previous selection. */
+  setSelectedEdge(edge: SelectedEdge | null): void {
+    this.selectedEdge_ = edge;
+    this.recolorEdges();
+  }
+
+  /** The currently selected edge, or null. */
+  selectedEdge(): SelectedEdge | null {
+    return this.selectedEdge_;
   }
 
   dispose(): void {
@@ -249,10 +314,11 @@ export class PoseGraphScene {
   }
 
   /**
-   * Recolour edges in-place after a threshold change.
+   * Recolour edges in-place after a threshold or selection change.
    * Only the colour buffer changes — positions are left untouched.
    */
   private recolorEdges(): void {
+    const sel = this.selectedEdge_;
     for (const [type, { lines, edges, stats }] of this.edgesByType) {
       const base = EDGE_BASE_COLORS[type] ?? ([0.5, 0.5, 0.5] as [number, number, number]);
       const colorAttr = lines.geometry.getAttribute('color') as THREE.BufferAttribute;
@@ -260,10 +326,14 @@ export class PoseGraphScene {
 
       for (let i = 0; i < edges.length; i++) {
         const e = edges[i];
+        const isSelected =
+          sel !== null && e.from === sel.from && e.to === sel.to && type === sel.type;
         const aboveThreshold = this.residualThreshold_ > 0 && e.residual > this.residualThreshold_;
-        const [r, g, b] = aboveThreshold
-          ? THRESHOLD_COLOR
-          : residualColor(e.residual, stats.min, stats.max, base);
+        const [r, g, b] = isSelected
+          ? SELECTED_COLOR
+          : aboveThreshold
+            ? THRESHOLD_COLOR
+            : residualColor(e.residual, stats.min, stats.max, base);
 
         colors[i * 6 + 0] = r; colors[i * 6 + 1] = g; colors[i * 6 + 2] = b;
         colors[i * 6 + 3] = r; colors[i * 6 + 4] = g; colors[i * 6 + 5] = b;

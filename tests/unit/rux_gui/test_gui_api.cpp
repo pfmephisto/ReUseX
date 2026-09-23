@@ -482,6 +482,42 @@ TEST_CASE("CloudJson_LabelCloud_ExposesLabelDefinitions", "[gui][clouds]") {
   CHECK(points.at("points").at(3).at(0) == 3);
 }
 
+TEST_CASE("CloudJson_LabelCloud_ExposesLabelKind", "[gui][clouds]") {
+  TempPath project("test_gui_api");
+  reusex::ProjectDB db(project.path);
+
+  reusex::CloudL labels;
+  reusex::LabelT pt;
+  pt.label = 1;
+  labels.push_back(pt);
+  labels.width = 1;
+  labels.height = 1;
+
+  // Geometry clouds: planes and rooms.
+  db.save_point_cloud("planes", labels, "test");
+  db.save_point_cloud("rooms", labels, "test");
+
+  const auto planes = cloud_json(db, "planes");
+  REQUIRE(planes.contains("label_kind"));
+  CHECK(planes.at("label_kind") == "geometry");
+
+  const auto rooms = cloud_json(db, "rooms");
+  REQUIRE(rooms.contains("label_kind"));
+  CHECK(rooms.at("label_kind") == "geometry");
+
+  // Semantic clouds: instances and annotation-derived.
+  db.save_point_cloud("instances", labels, "test");
+  db.save_point_cloud("labels", labels, "test");
+
+  const auto instances = cloud_json(db, "instances");
+  REQUIRE(instances.contains("label_kind"));
+  CHECK(instances.at("label_kind") == "semantic");
+
+  const auto annot = cloud_json(db, "labels");
+  REQUIRE(annot.contains("label_kind"));
+  CHECK(annot.at("label_kind") == "semantic");
+}
+
 TEST_CASE("CloudTilesJson_NoTileIndex_Returns404", "[gui][clouds][tiles]") {
   TempPath project("test_gui_api");
   reusex::ProjectDB db(project.path);

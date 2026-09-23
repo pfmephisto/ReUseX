@@ -63,6 +63,13 @@ export interface CloudInfo {
   height: number;
   organized: boolean;
   /**
+   * Present for `Label` clouds only. Classifies the cloud as structural
+   * segmentation (`"geometry"`: planes, rooms) or object-class annotation
+   * (`"semantic"`: instances, annotation-derived). Server-authoritative —
+   * the client must not re-derive this from the name.
+   */
+  label_kind?: 'geometry' | 'semantic';
+  /**
    * Label id → name, for `Label` clouds only. Key `"0"` is never present:
    * 0 means unlabeled (STANDARDS §3).
    */

@@ -25,18 +25,15 @@ import { WriteBanner } from './WriteBanner';
 import styles from './LabelsPane.module.css';
 
 /**
- * Names of the geometry-segmentation label clouds — produced by
- * `rux create planes` and `rux create rooms`. Everything else (including
- * `instances` and any annotation-derived cloud) is semantic.
- *
- * NOTE: when the backend adds a `label_kind` field to `CloudInfo` this set
- * becomes the fallback and the field takes precedence.
+ * Fallback set for classifying Label clouds when the server does not provide
+ * `label_kind` (older backends). Prefer the server-provided field.
  */
-export const GEOMETRY_CLOUD_NAMES = new Set(['planes', 'rooms']);
+const GEOMETRY_CLOUD_NAMES_FALLBACK = new Set(['planes', 'rooms']);
 
-/** Classify a Label cloud as geometry or semantic by its well-known name. */
-export function labelKind(name: string): 'geometry' | 'semantic' {
-  return GEOMETRY_CLOUD_NAMES.has(name) ? 'geometry' : 'semantic';
+/** Classify a Label cloud using the server-provided `label_kind` field, falling
+ * back to a name-based heuristic for older backends that do not send it. */
+export function labelKind(cloud: { name: string; label_kind?: 'geometry' | 'semantic' }): 'geometry' | 'semantic' {
+  return cloud.label_kind ?? (GEOMETRY_CLOUD_NAMES_FALLBACK.has(cloud.name) ? 'geometry' : 'semantic');
 }
 
 /**
@@ -68,8 +65,8 @@ export interface LabelsPaneProps {
    * `geometry` → structural segmentation clouds (`planes`, `rooms`).
    * `semantic` → object-class clouds (`instances` and annotation-derived ones).
    *
-   * Classified by {@link labelKind}; when the backend gains a `label_kind`
-   * field on `CloudInfo`, replace the name-based heuristic with that field.
+   * Classified by {@link labelKind} using the server-provided `label_kind`
+   * field on `CloudInfo`, with a name-based fallback for older backends.
    */
   kind: 'geometry' | 'semantic';
   /** Selected Label cloud, carried in the URL by the page. */
@@ -83,7 +80,7 @@ export function LabelsPane({ kind, cloud, onCloudChange }: LabelsPaneProps) {
   const labelClouds = useMemo(
     () =>
       (clouds.data ?? []).filter(
-        (entry: CloudInfo) => entry.type === 'Label' && labelKind(entry.name) === kind,
+        (entry: CloudInfo) => entry.type === 'Label' && labelKind(entry) === kind,
       ),
     [clouds.data, kind],
   );

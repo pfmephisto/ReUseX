@@ -2206,6 +2206,15 @@ components:
         organized:
           type: boolean
           description: True when the cloud has 2D structure (height > 1).
+        label_kind:
+          type: string
+          enum: [geometry, semantic]
+          description: |
+            Present for `Label` clouds only. Classifies the cloud as structural
+            segmentation (`geometry`: `planes`, `rooms`) or object-class
+            annotation (`semantic`: `instances`, annotation-derived, and
+            user-defined). Determined server-side from the cloud name; the
+            client must not re-derive this from the name.
         labels:
           type: object
           description: |

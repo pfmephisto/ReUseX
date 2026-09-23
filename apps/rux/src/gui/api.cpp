@@ -45,6 +45,22 @@ namespace {
 using json = nlohmann::json;
 namespace pipeline = reusex::pipeline;
 
+/// Classify a Label cloud as geometry (structural segmentation) or semantic
+/// (object-class annotation).
+///
+/// `planes` and `rooms` are the outputs of `rux create planes` / `rux create
+/// rooms` — structural segmentation whose labels are plane/room ids. Everything
+/// else (including `instances`, annotation-derived clouds, and user-defined
+/// ones) carries per-object semantic classes and is therefore semantic.
+///
+/// This is the single, authoritative server-side definition of `label_kind`.
+/// The frontend must not re-derive it from the name.
+std::string_view label_kind_of(std::string_view name) noexcept {
+  if (name == "planes" || name == "rooms")
+    return "geometry";
+  return "semantic";
+}
+
 /// Re-parse a stored parameter blob so `parameters` is a JSON *object* on the
 /// wire rather than an escaped string. An unparseable blob degrades to {}
 /// rather than corrupting the response.
@@ -146,11 +162,14 @@ json cloud_info_json(const reusex::ProjectDB::ProjectSummary::CloudInfo &info) {
            {"width", info.width},
            {"height", info.height},
            {"organized", info.organized}};
-  if (!info.labels.empty()) {
-    json labels = json::object();
-    for (const auto &[id, name] : info.labels)
-      labels[std::to_string(id)] = name;
-    out["labels"] = std::move(labels);
+  if (info.type == "Label") {
+    out["label_kind"] = std::string(label_kind_of(info.name));
+    if (!info.labels.empty()) {
+      json labels = json::object();
+      for (const auto &[id, name] : info.labels)
+        labels[std::to_string(id)] = name;
+      out["labels"] = std::move(labels);
+    }
   }
   return out;
 }

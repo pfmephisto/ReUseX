@@ -72,6 +72,7 @@ interface Layer {
  * fixed by the first page so that later pages stay registered to it.
  */
 export class PointCloudScene {
+  private readonly canvas: HTMLCanvasElement;
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
   private readonly camera: THREE.PerspectiveCamera;
@@ -89,6 +90,7 @@ export class PointCloudScene {
   private disposed = false;
 
   constructor(canvas: HTMLCanvasElement) {
+    this.canvas = canvas;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
@@ -103,7 +105,7 @@ export class PointCloudScene {
     this.controls.dampingFactor = 0.12;
     this.controls.screenSpacePanning = true;
 
-    this.applyBackgroundFromTokens(canvas);
+    this.applyBackgroundFromTokens();
     this.observeResize(canvas);
     this.loop();
   }
@@ -114,9 +116,21 @@ export class PointCloudScene {
    * The viewport background is a design token like any other; reading it here
    * is what keeps the 3D view inside the design system instead of beside it.
    */
-  private applyBackgroundFromTokens(canvas: HTMLCanvasElement): void {
-    const value = getComputedStyle(canvas).getPropertyValue('--color-canvas').trim();
-    this.scene.background = new THREE.Color(value || '#0a0b0d');
+  private applyBackgroundFromTokens(): void {
+    this.scene.background = this.resolveColorToken('--color-canvas', '#0a0b0d');
+  }
+
+  /**
+   * Resolve a CSS custom property to a {@link THREE.Color}, from the canvas's
+   * own cascade so themed overrides apply.
+   *
+   * Shared with sibling layers ({@link MeshScene}) that draw into this scene and
+   * must take their colours from the same design tokens rather than hard-coding
+   * them. Falls back to @p fallback when the property is unset or empty.
+   */
+  resolveColorToken(name: string, fallback: string): THREE.Color {
+    const value = getComputedStyle(this.canvas).getPropertyValue(name).trim();
+    return new THREE.Color(value || fallback);
   }
 
   private observeResize(canvas: HTMLCanvasElement): void {

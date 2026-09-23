@@ -78,6 +78,12 @@
   /* Points whose label is 0 (unlabeled, STANDARDS §3) render in this. */
   --label-unlabeled: #4a505c;
 
+  /* ------------------------------------------------- viewport: geometry -- */
+  /* Diffuse albedo for a mesh with no vertex colours of its own. A mid neutral
+     gray so the lit surface reads as solid geometry against the near-black
+     canvas instead of collapsing to black. */
+  --mesh-surface: #8a8f99;
+
   /* ------------------------------------------------------------ typography */
   --font-sans:
     ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue',

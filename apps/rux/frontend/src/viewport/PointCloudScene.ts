@@ -595,6 +595,53 @@ export class PointCloudScene {
     if (saved.projection === 'orthographic') this.setProjection('orthographic');
   }
 
+  // --- clipping box (#444) -------------------------------------------------
+
+  /**
+   * Scene-local bounds of all loaded content, or `null` if nothing has been
+   * added yet.
+   *
+   * "Scene-local" means the recentred frame: world coordinates minus the
+   * recentring `origin`, the same frame every `THREE.Object3D` in the scene
+   * lives in. The returned box is a copy — mutating it has no effect here.
+   */
+  getSceneBounds(): THREE.Box3 | null {
+    if (this.bounds.isEmpty()) return null;
+    if (!this.origin) return this.bounds.clone();
+    return this.bounds.clone().translate(this.origin.clone().negate());
+  }
+
+  /**
+   * Apply a set of world-space clipping planes to the renderer.
+   *
+   * `renderer.clippingPlanes` clips all geometry globally without requiring
+   * per-material opt-in (`localClippingEnabled`). Pass an empty array to
+   * disable clipping.
+   */
+  setClippingPlanes(planes: THREE.Plane[]): void {
+    this.renderer.clippingPlanes = planes;
+  }
+
+  /** Enable or disable orbit-camera interaction without disposing the controls. */
+  setControlsEnabled(enabled: boolean): void {
+    this.controls.enabled = enabled;
+  }
+
+  /**
+   * The active camera, for use by scene layers that need to construct a ray.
+   *
+   * Exposed narrowly so `ClippingBoxLayer` can compute a drag plane without
+   * keeping its own camera reference.
+   */
+  getCamera(): THREE.PerspectiveCamera | THREE.OrthographicCamera {
+    return this.camera;
+  }
+
+  /** The canvas element the renderer draws into. */
+  getCanvas(): HTMLCanvasElement {
+    return this.canvas;
+  }
+
   removeLayer(layerId: string): void {
     const layer = this.layers.get(layerId);
     if (!layer) return;

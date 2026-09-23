@@ -13,6 +13,7 @@ import * as THREE from 'three';
 
 import { PointCloudScene, type ColorMode } from './PointCloudScene';
 import type { CameraProjection, LightingState, ViewPreset } from './cameraViews';
+import { ClippingBoxLayer } from './ClippingBoxLayer';
 import { MeshScene } from './MeshScene';
 import { PanoramaScene, type PanoramaMarker } from './PanoramaScene';
 import { PoseGraphScene } from './PoseGraphScene';
@@ -151,6 +152,22 @@ export interface ViewportProps {
   poseGraphNodeColorMode?: 'default' | 'degree';
 
   /**
+   * Clipping box state (#444).
+   *
+   * When present, a `ClippingBoxLayer` is mounted. The layer applies six
+   * renderer-level clipping planes when enabled, and calls `onBoxChange` on
+   * drag-end so the panel sliders stay in sync.
+   */
+  clipping?: {
+    enabled: boolean;
+    /** Scene-local min corner, or null to initialise from scene bounds. */
+    min: { x: number; y: number; z: number } | null;
+    /** Scene-local max corner, or null to initialise from scene bounds. */
+    max: { x: number; y: number; z: number } | null;
+    onBoxChange: (min: { x: number; y: number; z: number }, max: { x: number; y: number; z: number }) => void;
+  };
+
+  /**
    * Chrome drawn over the canvas.
    *
    * A slot rather than a component, because the host element is what makes
@@ -197,6 +214,7 @@ export function Viewport({
   poseGraphEdgeTypeVisible,
   poseGraphResidualThreshold,
   poseGraphNodeColorMode,
+  clipping,
   overlay,
 }: ViewportProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -439,6 +457,9 @@ export function Viewport({
             onProgress={(state) => onSplatProgress?.(splat.name, state)}
           />
         ))}
+      {scene && clipping && (
+        <ClippingBoxLayerLoader scene={scene} clipping={clipping} />
+      )}
       {overlay}
     </div>
   );
@@ -566,6 +587,55 @@ function CloudLayerLoader({
  */
 function overviewLayerId(cloud: string): string {
   return `${cloud}::overview`;
+}
+
+/**
+ * Mounts the clipping box layer and drives it from React props (#444).
+ *
+ * Mirrors the pattern of `MeshLayerLoader`: mount once per scene, update
+ * imperatively from props via effects, never re-mount for property changes.
+ * The layer handles its own pointer events and calls `onBoxChange` after
+ * each drag to sync the React sliders.
+ */
+function ClippingBoxLayerLoader({
+  scene,
+  clipping,
+}: {
+  scene: PointCloudScene;
+  clipping: NonNullable<ViewportProps['clipping']>;
+}) {
+  const layerRef = useRef<ClippingBoxLayer | null>(null);
+  const onBoxChangeRef = useRef(clipping.onBoxChange);
+  onBoxChangeRef.current = clipping.onBoxChange;
+
+  useEffect(() => {
+    const layer = new ClippingBoxLayer(scene, (box) => {
+      onBoxChangeRef.current({ x: box.min.x, y: box.min.y, z: box.min.z }, { x: box.max.x, y: box.max.y, z: box.max.z });
+    });
+    layerRef.current = layer;
+    return () => {
+      layerRef.current = null;
+      layer.dispose();
+    };
+  }, [scene]);
+
+  useEffect(() => {
+    layerRef.current?.setEnabled(clipping.enabled);
+  }, [clipping.enabled]);
+
+  useEffect(() => {
+    if (clipping.min && clipping.max) {
+      const box = new THREE.Box3(
+        new THREE.Vector3(clipping.min.x, clipping.min.y, clipping.min.z),
+        new THREE.Vector3(clipping.max.x, clipping.max.y, clipping.max.z),
+      );
+      layerRef.current?.setBox(box);
+    }
+    // When min/max are null the layer auto-initialises from scene bounds on enable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clipping.min?.x, clipping.min?.y, clipping.min?.z, clipping.max?.x, clipping.max?.y, clipping.max?.z]);
+
+  return null;
 }
 
 /**

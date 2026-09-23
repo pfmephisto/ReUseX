@@ -82,6 +82,24 @@ export interface PoseGraphPanelState {
   onNodeColorModeChange: (mode: 'default' | 'degree') => void;
 }
 
+/** Serialisable bounding-box corners, one per axis. */
+export interface BoxCorner {
+  x: number;
+  y: number;
+  z: number;
+}
+
+/** Clipping-box panel state (#444). */
+export interface ClippingPanelState {
+  enabled: boolean;
+  /** Current box corners, or null before the first enable. */
+  min: BoxCorner | null;
+  max: BoxCorner | null;
+  onEnabledChange: (enabled: boolean) => void;
+  onBoxChange: (min: BoxCorner, max: BoxCorner) => void;
+  onReset: () => void;
+}
+
 export interface LayerPanelProps {
   /** Renderable geometry clouds (`PointXYZRGB` / `PointXYZ`). */
   clouds: CloudInfo[];
@@ -143,6 +161,8 @@ export interface LayerPanelProps {
   /** Key + fill light settings and their controls (#443). */
   lighting: LightingState;
   onLightingChange: (next: Partial<LightingState>) => void;
+  /** Interactive clipping box (#444). */
+  clipping?: ClippingPanelState;
 }
 
 /**
@@ -179,6 +199,7 @@ export function LayerPanel({
   onView,
   lighting,
   onLightingChange,
+  clipping,
 }: LayerPanelProps) {
   const activeLabelCloud = labelSources.find((cloud) => cloud.name === labelCloud);
 
@@ -301,6 +322,8 @@ export function LayerPanel({
           lighting={lighting}
           onLightingChange={onLightingChange}
         />
+
+        {clipping && <ClippingSection clipping={clipping} />}
       </aside>
     </>
   );
@@ -421,6 +444,111 @@ function ViewSection({
           className={styles.range}
         />
       </label>
+    </Section>
+  );
+}
+
+/**
+ * Clipping box section (#444).
+ *
+ * A toggle enables/disables the six renderer clipping planes that crop the
+ * loaded clouds, mesh and splats. When on, six range sliders (min/max per axis)
+ * let the user fine-tune the cut region, and the 3D viewport shows spherical
+ * face handles for direct dragging. A Reset button snaps the box back to the
+ * full scene bounds.
+ *
+ * The sliders are disabled when the box corners are not yet known (first enable
+ * auto-initialises from scene bounds; the 3D drag then populates the values).
+ */
+function ClippingSection({ clipping }: { clipping: ClippingPanelState }) {
+  const { enabled, min, max, onEnabledChange, onBoxChange, onReset } = clipping;
+
+  const handleAxis = (
+    axis: 'x' | 'y' | 'z',
+    side: 'min' | 'max',
+    value: number,
+  ) => {
+    if (!min || !max) return;
+    const nextMin = { ...min };
+    const nextMax = { ...max };
+    if (side === 'min') nextMin[axis] = value;
+    else nextMax[axis] = value;
+    onBoxChange(nextMin, nextMax);
+  };
+
+  const axisLabel: Record<'x' | 'y' | 'z', string> = { x: 'X', y: 'Y', z: 'Z' };
+  const hasBox = min !== null && max !== null;
+
+  // Determine slider range: extend 10 % beyond current box so the user can push
+  // the face outward without first resetting. Fallback for first-enable.
+  const range = (axis: 'x' | 'y' | 'z') => {
+    if (!min || !max) return { lo: -50, hi: 50 };
+    const span = max[axis] - min[axis];
+    const pad = Math.max(span * 0.5, 1);
+    return { lo: min[axis] - pad, hi: max[axis] + pad };
+  };
+
+  return (
+    <Section title="Clipping" defaultOpen={false}>
+      <label className={styles.splatToggle}>
+        <input
+          type="checkbox"
+          checked={enabled}
+          onChange={(event) => onEnabledChange(event.target.checked)}
+          className={styles.checkbox}
+        />
+        <span className={styles.splatName}>Enable clipping box</span>
+      </label>
+
+      {enabled && (
+        <>
+          {(['x', 'y', 'z'] as const).map((axis) => {
+            const r = range(axis);
+            return (
+              <div key={axis}>
+                <label className={styles.field}>
+                  <span className={styles.fieldLabel}>
+                    {axisLabel[axis]} min{' '}
+                    <span className="mono">{hasBox ? min![axis].toFixed(2) : '—'} m</span>
+                  </span>
+                  <input
+                    type="range"
+                    min={r.lo}
+                    max={hasBox ? max![axis] - 0.01 : r.hi}
+                    step={0.01}
+                    value={hasBox ? min![axis] : 0}
+                    disabled={!hasBox}
+                    onChange={(event) => handleAxis(axis, 'min', Number(event.target.value))}
+                    className={styles.range}
+                  />
+                </label>
+                <label className={styles.field}>
+                  <span className={styles.fieldLabel}>
+                    {axisLabel[axis]} max{' '}
+                    <span className="mono">{hasBox ? max![axis].toFixed(2) : '—'} m</span>
+                  </span>
+                  <input
+                    type="range"
+                    min={hasBox ? min![axis] + 0.01 : r.lo}
+                    max={r.hi}
+                    step={0.01}
+                    value={hasBox ? max![axis] : 0}
+                    disabled={!hasBox}
+                    onChange={(event) => handleAxis(axis, 'max', Number(event.target.value))}
+                    className={styles.range}
+                  />
+                </label>
+              </div>
+            );
+          })}
+          <button type="button" className={styles.action} onClick={onReset}>
+            Reset to scene bounds
+          </button>
+          {!hasBox && (
+            <p className={styles.note}>Enable and load a scan to see clipping controls.</p>
+          )}
+        </>
+      )}
     </Section>
   );
 }

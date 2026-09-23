@@ -10,7 +10,7 @@ import type { CloudInfo, GsplatInfo, MeshInfo, PanoramaInfo, PoseGraph, PoseGrap
 import { useAsync } from '../app/useAsync';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { EmptyState } from '../components/EmptyState';
-import { LayerPanel } from '../components/LayerPanel';
+import { LayerPanel, type BoxCorner } from '../components/LayerPanel';
 import { PanoramaBar } from '../components/PanoramaBar';
 import { Spinner } from '../components/Spinner';
 import {
@@ -162,6 +162,22 @@ export function ViewportPage() {
   );
   const handleLightingChange = useCallback((next: Partial<LightingState>) => {
     setLighting((current) => ({ ...current, ...next }));
+  }, []);
+
+  // --- clipping box (#444) ------------------------------------------------
+
+  const [clippingEnabled, setClippingEnabled] = useState(false);
+  const [clippingMin, setClippingMin] = useState<BoxCorner | null>(null);
+  const [clippingMax, setClippingMax] = useState<BoxCorner | null>(null);
+
+  const handleClippingBoxChange = useCallback((min: BoxCorner, max: BoxCorner) => {
+    setClippingMin(min);
+    setClippingMax(max);
+  }, []);
+
+  const handleClippingReset = useCallback(() => {
+    setClippingMin(null);
+    setClippingMax(null);
   }, []);
 
   // `?splat=<name>` deep-links one on. Otherwise every splat starts off: the
@@ -444,6 +460,12 @@ export function ViewportPage() {
         poseGraphEdgeTypeVisible={pgEdgeTypeVisible}
         poseGraphResidualThreshold={pgResidualThreshold}
         poseGraphNodeColorMode={pgNodeColorMode}
+        clipping={{
+          enabled: clippingEnabled,
+          min: clippingMin,
+          max: clippingMax,
+          onBoxChange: handleClippingBoxChange,
+        }}
         overlay={
           immersive && activePano ? (
             <PanoramaBar
@@ -524,6 +546,14 @@ export function ViewportPage() {
         onView={handleView}
         lighting={lighting}
         onLightingChange={handleLightingChange}
+        clipping={{
+          enabled: clippingEnabled,
+          min: clippingMin,
+          max: clippingMax,
+          onEnabledChange: setClippingEnabled,
+          onBoxChange: handleClippingBoxChange,
+          onReset: handleClippingReset,
+        }}
         onFrame={() => {
           // Framing the whole scan from inside a panorama is a request to
           // stop being inside it; leaving the backdrop up while the camera

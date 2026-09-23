@@ -155,4 +155,68 @@ json patch_material(reusex::ProjectDB &db, const std::string &guid,
   return material_json(db, guid);
 }
 
+json patch_project(reusex::ProjectDB &db, const std::string &id,
+                   const std::string &body) {
+  auto parsed = json::parse(body, nullptr, /*allow_exceptions=*/false);
+  if (parsed.is_discarded() || !parsed.is_object())
+    throw HttpError(400, "request body must be a JSON object");
+
+  // Read the existing record or start from a blank one (upsert semantics).
+  reusex::ProjectDB::ProjectMetadata metadata;
+  const auto ids = db.list_project_ids();
+  if (std::find(ids.begin(), ids.end(), id) != ids.end())
+    metadata = db.get_project_metadata(id);
+  else
+    metadata.id = id;
+
+  for (const auto &[key, value] : parsed.items()) {
+    if (key == "name") {
+      if (!value.is_string())
+        throw HttpError(400, "'name' must be a string");
+      metadata.name = value.get<std::string>();
+    } else if (key == "building_address") {
+      if (!value.is_string() && !value.is_null())
+        throw HttpError(400, "'building_address' must be a string or null");
+      metadata.building_address =
+          value.is_null() ? "" : value.get<std::string>();
+    } else if (key == "year_of_construction") {
+      if (value.is_null()) {
+        metadata.year_of_construction = 0;
+      } else if (value.is_number_integer()) {
+        const int year = value.get<int>();
+        if (year < 0)
+          throw HttpError(400, "'year_of_construction' must be >= 0");
+        metadata.year_of_construction = year;
+      } else {
+        throw HttpError(400,
+                        "'year_of_construction' must be an integer or null");
+      }
+    } else if (key == "survey_date") {
+      if (!value.is_string() && !value.is_null())
+        throw HttpError(400, "'survey_date' must be a string or null");
+      metadata.survey_date = value.is_null() ? "" : value.get<std::string>();
+    } else if (key == "survey_organisation") {
+      if (!value.is_string() && !value.is_null())
+        throw HttpError(400, "'survey_organisation' must be a string or null");
+      metadata.survey_organisation =
+          value.is_null() ? "" : value.get<std::string>();
+    } else if (key == "notes") {
+      if (!value.is_string() && !value.is_null())
+        throw HttpError(400, "'notes' must be a string or null");
+      metadata.notes = value.is_null() ? "" : value.get<std::string>();
+    }
+    // Unknown keys are silently ignored for forward-compatibility.
+  }
+
+  db.update_project_metadata(metadata);
+
+  return json{{"id", metadata.id},
+              {"name", metadata.name},
+              {"building_address", metadata.building_address},
+              {"year_of_construction", metadata.year_of_construction},
+              {"survey_date", metadata.survey_date},
+              {"survey_organisation", metadata.survey_organisation},
+              {"notes", metadata.notes}};
+}
+
 } // namespace rux::gui

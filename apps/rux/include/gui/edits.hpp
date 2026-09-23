@@ -64,4 +64,21 @@ nlohmann::json patch_cloud_labels(reusex::ProjectDB &db,
 nlohmann::json patch_material(reusex::ProjectDB &db, const std::string &guid,
                               const std::string &body);
 
+/// Sparsely update (or create) a project metadata record.
+///
+/// @param id   The project identifier. A new record is created when @p id is
+///             not already in the database, so this is an upsert.
+/// @param body A JSON object with any subset of the project fields:
+///             `name`, `building_address`, `survey_date`,
+///             `survey_organisation`, `notes` (all string or null),
+///             `year_of_construction` (integer ≥ 0 or null; 0 = not set).
+///             Unknown keys are silently ignored. Fields absent from the body
+///             are left at their current value (or the default for new rows).
+/// @return The `ProjectInfo` JSON for the record after the edit.
+///
+/// @throws HttpError(400) on a malformed body, a non-string field value, or a
+///         negative `year_of_construction`.
+nlohmann::json patch_project(reusex::ProjectDB &db, const std::string &id,
+                             const std::string &body);
+
 } // namespace rux::gui

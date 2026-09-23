@@ -297,6 +297,31 @@ export class RuxApiClient {
     return body.projects;
   }
 
+  /**
+   * Sparsely update (or create) a project metadata record.
+   *
+   * Only the fields present in `patch` are changed; absent fields keep their
+   * current values. When the project id does not yet exist a new record is
+   * created (upsert). Returns the full `ProjectInfo` after the edit.
+   *
+   * `null` explicitly clears a field (sets it to the empty/unset value).
+   * `undefined` (or absent) means "leave untouched".
+   */
+  patchProject(
+    id: string,
+    patch: {
+      name?: string;
+      building_address?: string | null;
+      year_of_construction?: number | null;
+      survey_date?: string | null;
+      survey_organisation?: string | null;
+      notes?: string | null;
+    },
+    signal?: AbortSignal,
+  ): Promise<ProjectInfo> {
+    return this.patchJson<ProjectInfo>(`/projects/${encodeURIComponent(id)}`, patch, signal);
+  }
+
   // ----------------------------------------------------------- clouds ----
 
   async clouds(signal?: AbortSignal): Promise<CloudInfo[]> {

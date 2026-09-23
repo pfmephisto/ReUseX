@@ -111,6 +111,7 @@ TEST_CASE("EndpointTable_DocumentedRoutes_MatchesContract", "[gui][routes]") {
       "GET /api/v1/endpoints",
       "GET /api/v1/project",
       "GET /api/v1/projects",
+      "PATCH /api/v1/projects/<string>",
       "GET /api/v1/clouds",
       "GET /api/v1/clouds/<string>",
       "GET /api/v1/clouds/<string>/points",

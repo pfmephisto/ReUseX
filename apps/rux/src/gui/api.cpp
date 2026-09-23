@@ -587,6 +587,8 @@ const std::vector<Endpoint> &endpoint_table() {
        "Everything the dashboard needs in one request"},
       {"GET", "/api/v1/projects",
        "Project metadata records stored in this database"},
+      {"PATCH", "/api/v1/projects/<string>",
+       "Sparsely update (or create) a project metadata record"},
       {"GET", "/api/v1/clouds",
        "All named point clouds with their type and point count"},
       {"GET", "/api/v1/clouds/<string>",

@@ -558,6 +558,14 @@ class Server::Impl {
       });
     });
 
+    app_.route_dynamic("/api/v1/projects/<string>")
+        .methods(crow::HTTPMethod::PATCH)(
+            [this](const crow::request &req, std::string id) {
+              return with_write([&](reusex::ProjectDB &db) {
+                return json_response(200, patch_project(db, id, req.body));
+              });
+            });
+
     // ---- clouds ----
     get("/api/v1/clouds")([this](const crow::request &req) {
       const Params params = params_of(req);

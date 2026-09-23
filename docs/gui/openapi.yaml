@@ -165,6 +165,73 @@ paths:
                         items: { $ref: "#/components/schemas/ProjectInfo" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
+  /projects/{id}:
+    patch:
+      tags: [project]
+      operationId: patchProject
+      summary: Sparsely update (or create) a project metadata record
+      description: |
+        Applies a sparse update to the project record identified by `id`. Only
+        the fields present in the request body are changed; absent fields keep
+        their current values. When `id` does not yet exist in the database a
+        new record is created with the supplied fields and empty defaults for
+        the rest (upsert semantics).
+
+        Performed under the project's writer lock; see `409`/`503`.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+          description: The project identifier (as returned in `ProjectInfo.id`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                building_address:
+                  type: string
+                  nullable: true
+                year_of_construction:
+                  type: integer
+                  minimum: 0
+                  nullable: true
+                  description: 0 or null means not set.
+                survey_date:
+                  type: string
+                  nullable: true
+                survey_organisation:
+                  type: string
+                  nullable: true
+                notes:
+                  type: string
+                  nullable: true
+      responses:
+        "200":
+          description: The project record after the edit
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProjectInfo" }
+        "400":
+          description: |
+            Body was not a JSON object, a field value was the wrong type, or
+            year_of_construction was negative
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "415":
+          description: Content-Type was not application/json
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503": { $ref: "#/components/responses/WriterBusy" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
   # -------------------------------------------------------------- clouds ----
   /clouds:
     get:

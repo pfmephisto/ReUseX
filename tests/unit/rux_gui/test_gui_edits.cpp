@@ -2,7 +2,8 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Contract tests for the `rux gui` editor endpoints and frame-browser reads
+// Contract tests for the `rux gui` editor endpoints, including the project
+// metadata PATCH handler (#440).
 // (#265, Phase 4).
 //
 // Covers the surface commit 03b51ad added: Params::boolean, the `segmented`
@@ -775,4 +776,122 @@ TEST_CASE("PatchMaterial_MalformedBody_Throws", "[gui][edits]") {
     CHECK(status_of([&] { return patch_material(db, guid, body); }) == 400);
     CHECK(db.passport_stored_properties(guid) == before);
   }
+}
+
+// ===========================================================================
+// PATCH /projects/{id}
+// ===========================================================================
+
+TEST_CASE("PatchProject_NewId_CreatesRecord", "[gui][edits]") {
+  TempDB tmp;
+  reusex::ProjectDB db(tmp.path);
+
+  // No projects yet — the PATCH upserts a new record.
+  const auto body = patch_project(
+      db, "p1",
+      R"({"name":"Test Bldg","building_address":"1 Main St",)"
+      R"("year_of_construction":1972,"survey_date":"2026-01-01",)"
+      R"("survey_organisation":"Survey Co","notes":"notes here"})");
+
+  CHECK(body.at("id") == "p1");
+  CHECK(body.at("name") == "Test Bldg");
+  CHECK(body.at("building_address") == "1 Main St");
+  CHECK(body.at("year_of_construction") == 1972);
+  CHECK(body.at("survey_date") == "2026-01-01");
+  CHECK(body.at("survey_organisation") == "Survey Co");
+  CHECK(body.at("notes") == "notes here");
+
+  // The record is actually persisted.
+  const auto stored = db.get_project_metadata("p1");
+  CHECK(stored.name == "Test Bldg");
+  CHECK(stored.year_of_construction == 1972);
+}
+
+TEST_CASE("PatchProject_ExistingId_UpdatesOnlyNamedFields", "[gui][edits]") {
+  TempDB tmp;
+  reusex::ProjectDB db(tmp.path);
+
+  reusex::ProjectDB::ProjectMetadata meta;
+  meta.id = "p1";
+  meta.name = "Original";
+  meta.building_address = "1 Main St";
+  meta.year_of_construction = 1900;
+  meta.survey_date = "2025-01-01";
+  meta.survey_organisation = "Old Org";
+  meta.notes = "old notes";
+  db.update_project_metadata(meta);
+
+  const auto body =
+      patch_project(db, "p1", R"({"name":"New Name","notes":null})");
+
+  CHECK(body.at("name") == "New Name");
+  // null clears the field to empty string.
+  CHECK(body.at("notes") == "");
+  // Untouched fields keep their previous values.
+  CHECK(body.at("building_address") == "1 Main St");
+  CHECK(body.at("year_of_construction") == 1900);
+  CHECK(body.at("survey_organisation") == "Old Org");
+
+  // And the change landed in the database.
+  const auto stored = db.get_project_metadata("p1");
+  CHECK(stored.name == "New Name");
+  CHECK(stored.notes == "");
+  CHECK(stored.year_of_construction == 1900);
+}
+
+TEST_CASE("PatchProject_EmptyPatch_IsNoOpAndReturnsRecord", "[gui][edits]") {
+  TempDB tmp;
+  reusex::ProjectDB db(tmp.path);
+
+  reusex::ProjectDB::ProjectMetadata meta;
+  meta.id = "p1";
+  meta.name = "Building";
+  meta.building_address = "2 Side St";
+  db.update_project_metadata(meta);
+
+  const auto body = patch_project(db, "p1", "{}");
+  CHECK(body.at("id") == "p1");
+  CHECK(body.at("name") == "Building");
+  CHECK(body.at("building_address") == "2 Side St");
+}
+
+TEST_CASE("PatchProject_MalformedBody_Throws400", "[gui][edits]") {
+  TempDB tmp;
+  reusex::ProjectDB db(tmp.path);
+
+  const std::vector<std::string> rejected{
+      "not json",
+      "[]",
+      R"({"name":42})",
+      R"({"building_address":true})",
+      R"({"year_of_construction":"1970"})",
+      R"({"year_of_construction":-1})",
+      R"({"survey_date":0})",
+      R"({"survey_organisation":false})",
+      R"({"notes":[]})",
+  };
+
+  for (const auto &body : rejected) {
+    INFO("body: " << body);
+    CHECK(status_of([&] { return patch_project(db, "p1", body); }) == 400);
+  }
+}
+
+TEST_CASE("PatchProject_YearZeroOrNull_SetsNotSet", "[gui][edits]") {
+  TempDB tmp;
+  reusex::ProjectDB db(tmp.path);
+
+  reusex::ProjectDB::ProjectMetadata meta;
+  meta.id = "p1";
+  meta.year_of_construction = 2000;
+  db.update_project_metadata(meta);
+
+  // null clears to 0 (not set).
+  const auto cleared =
+      patch_project(db, "p1", R"({"year_of_construction":null})");
+  CHECK(cleared.at("year_of_construction") == 0);
+
+  // 0 also accepted directly.
+  const auto zero = patch_project(db, "p1", R"({"year_of_construction":0})");
+  CHECK(zero.at("year_of_construction") == 0);
 }

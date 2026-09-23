@@ -2,17 +2,20 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import { useCallback, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { api } from '../api/client';
 import type { CloudInfo, MeshInfo, ProjectInfo } from '../api/types';
 import { useAsync } from '../app/useAsync';
+import { describeWriteFailure, type WriteFailure } from '../data/writeState';
 import { DataTable, type Column } from '../components/DataTable';
 import { EmptyState } from '../components/EmptyState';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { PipelineLogList } from '../components/PipelineLogList';
 import { Spinner } from '../components/Spinner';
 import { StatCard } from '../components/StatCard';
+import { WriteBanner } from '../components/WriteBanner';
 import styles from './Dashboard.module.css';
 
 /** How many recent entries the overview sidebar shows. Full history is at /pipeline/log. */
@@ -115,6 +118,17 @@ export function Dashboard() {
   const summary = useAsync((signal) => api.projectSummary(signal), []);
   const log = useAsync((signal) => api.pipelineLog(LOG_LIMIT, signal), []);
 
+  // Local project list for optimistic updates: when a card saves, its record is
+  // replaced in this list so the view reflects the edit without a full reload.
+  const [localProjects, setLocalProjects] = useState<ProjectInfo[] | null>(null);
+
+  const handleProjectSaved = useCallback((updated: ProjectInfo) => {
+    setLocalProjects((prev) => {
+      const base = prev ?? summary.data?.projects ?? [];
+      return base.map((p) => (p.id === updated.id ? updated : p));
+    });
+  }, [summary.data]);
+
   if (summary.error) {
     return (
       <div className={styles.page}>
@@ -136,6 +150,7 @@ export function Dashboard() {
   }
 
   const data = summary.data;
+  const projects = localProjects ?? data.projects;
   const totalPoints = data.clouds.reduce((sum, cloud) => sum + cloud.point_count, 0);
   const componentTypes: TypeCount[] = Object.entries(data.components.count_by_type)
     .map(([type, count]) => ({ type, count }))
@@ -185,15 +200,15 @@ export function Dashboard() {
           <p className={styles.subheading}>
             <span className="mono">{data.path}</span> · schema v{data.schema_version}
           </p>
-          {data.projects.length === 0 ? (
+          {projects.length === 0 ? (
             <EmptyState
               title="No project metadata record"
               detail="Address, survey date and organisation are set by an import that carries them, or by `rux set`."
             />
           ) : (
             <div className={styles.metaGrid}>
-              {data.projects.map((project) => (
-                <ProjectCard key={project.id} project={project} />
+              {projects.map((project) => (
+                <ProjectCard key={project.id} project={project} onSaved={handleProjectSaved} />
               ))}
             </div>
           )}
@@ -264,7 +279,162 @@ export function Dashboard() {
   );
 }
 
-function ProjectCard({ project }: { project: ProjectInfo }) {
+interface ProjectCardProps {
+  project: ProjectInfo;
+  onSaved: (updated: ProjectInfo) => void;
+}
+
+function ProjectCard({ project, onSaved }: ProjectCardProps) {
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [failure, setFailure] = useState<WriteFailure | null>(null);
+
+  // Local draft mirrors the project fields while the form is open.
+  const [draft, setDraft] = useState<ProjectInfo>(project);
+
+  const handleEdit = useCallback(() => {
+    setDraft(project);
+    setFailure(null);
+    setEditing(true);
+  }, [project]);
+
+  const handleCancel = useCallback(() => {
+    setEditing(false);
+    setFailure(null);
+  }, []);
+
+  const handleSave = useCallback(async () => {
+    setSaving(true);
+    setFailure(null);
+    try {
+      const updated = await api.patchProject(project.id, {
+        name: draft.name,
+        building_address: draft.building_address ?? null,
+        year_of_construction: draft.year_of_construction ?? 0,
+        survey_date: draft.survey_date ?? null,
+        survey_organisation: draft.survey_organisation ?? null,
+        notes: draft.notes ?? null,
+      });
+      onSaved(updated);
+      setEditing(false);
+    } catch (err) {
+      setFailure(describeWriteFailure(err as Error, 'the project metadata'));
+    } finally {
+      setSaving(false);
+    }
+  }, [project.id, draft, onSaved]);
+
+  const handleRetry = useCallback(() => {
+    void handleSave();
+  }, [handleSave]);
+
+  if (editing) {
+    return (
+      <article className={styles.metaCard}>
+        {failure && (
+          <WriteBanner
+            failure={failure}
+            onRetry={failure.retryable ? handleRetry : undefined}
+            onDismiss={() => setFailure(null)}
+          />
+        )}
+        <div className={styles.metaEditForm}>
+          <label className={styles.metaEditLabel}>
+            Name
+            <input
+              className={styles.metaEditInput}
+              value={draft.name ?? ''}
+              onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
+              disabled={saving}
+            />
+          </label>
+          <label className={styles.metaEditLabel}>
+            Address
+            <input
+              className={styles.metaEditInput}
+              value={draft.building_address ?? ''}
+              onChange={(e) =>
+                setDraft((d) => ({ ...d, building_address: e.target.value }))
+              }
+              disabled={saving}
+            />
+          </label>
+          <label className={styles.metaEditLabel}>
+            Built (year)
+            <input
+              className={styles.metaEditInput}
+              type="number"
+              min={0}
+              max={9999}
+              value={
+                draft.year_of_construction && draft.year_of_construction > 0
+                  ? draft.year_of_construction
+                  : ''
+              }
+              onChange={(e) =>
+                setDraft((d) => ({
+                  ...d,
+                  year_of_construction: e.target.value
+                    ? Math.max(0, parseInt(e.target.value, 10))
+                    : 0,
+                }))
+              }
+              disabled={saving}
+            />
+          </label>
+          <label className={styles.metaEditLabel}>
+            Survey date
+            <input
+              className={styles.metaEditInput}
+              value={draft.survey_date ?? ''}
+              onChange={(e) =>
+                setDraft((d) => ({ ...d, survey_date: e.target.value }))
+              }
+              disabled={saving}
+            />
+          </label>
+          <label className={styles.metaEditLabel}>
+            Surveyor
+            <input
+              className={styles.metaEditInput}
+              value={draft.survey_organisation ?? ''}
+              onChange={(e) =>
+                setDraft((d) => ({ ...d, survey_organisation: e.target.value }))
+              }
+              disabled={saving}
+            />
+          </label>
+          <label className={styles.metaEditLabel}>
+            Notes
+            <textarea
+              className={styles.metaEditInput}
+              rows={3}
+              value={draft.notes ?? ''}
+              onChange={(e) => setDraft((d) => ({ ...d, notes: e.target.value }))}
+              disabled={saving}
+            />
+          </label>
+        </div>
+        <div className={styles.metaEditActions}>
+          <button
+            className={styles.metaEditSave}
+            onClick={() => void handleSave()}
+            disabled={saving}
+          >
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+          <button
+            className={styles.metaEditCancel}
+            onClick={handleCancel}
+            disabled={saving}
+          >
+            Cancel
+          </button>
+        </div>
+      </article>
+    );
+  }
+
   // `0` is the contract's "not set" for year_of_construction, so it is dropped
   // rather than printed — a building constructed in year 0 is not the claim.
   const year =
@@ -282,7 +452,12 @@ function ProjectCard({ project }: { project: ProjectInfo }) {
 
   return (
     <article className={styles.metaCard}>
-      <h3 className={styles.metaName}>{project.name}</h3>
+      <div className={styles.metaCardHead}>
+        <h3 className={styles.metaName}>{project.name}</h3>
+        <button className={styles.metaEditBtn} onClick={handleEdit}>
+          Edit
+        </button>
+      </div>
       {known.length === 0 ? (
         <p className={styles.metaNone}>No metadata recorded.</p>
       ) : (

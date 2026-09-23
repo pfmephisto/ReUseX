@@ -9,3 +9,46 @@
   height: 100%;
   min-height: 0;
 }
+
+/*
+ * Thumbnail-capture affordance. `position: fixed` at the top-right so it floats
+ * over the canvas without displacing the layer panel or the panorama overlay.
+ */
+.captureBar {
+  position: fixed;
+  top: calc(var(--layout-titlebar-height) + var(--space-3));
+  right: var(--space-4);
+  z-index: var(--z-toast);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.captureButton {
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-md);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  font: inherit;
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  box-shadow: var(--shadow-md);
+}
+
+.captureButton:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+}
+
+.captureButton:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+.captureError {
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-status-failed);
+  box-shadow: var(--shadow-md);
+}

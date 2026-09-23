@@ -993,6 +993,25 @@ paths:
                         type: array
                         items: { $ref: "#/components/schemas/MaterialInfo" }
         default: { $ref: "#/components/responses/UnexpectedError" }
+    post:
+      tags: [materials]
+      operationId: createMaterial
+      summary: Create a new blank material passport
+      description: |
+        Mints a fresh document guid and stores a minimal passport (version
+        `0.1.0`). The optional body may seed initial properties.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MaterialCreate" }
+      responses:
+        "201":
+          description: The created passport
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MaterialDetail" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
 
   /materials/{guid}:
     get:
@@ -1064,6 +1083,172 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
         "503": { $ref: "#/components/responses/WriterBusy" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+    delete:
+      tags: [materials]
+      operationId: deleteMaterial
+      summary: Delete a material passport
+      parameters:
+        - name: guid
+          in: path
+          required: true
+          description: The passport's document guid.
+          schema: { type: string }
+      responses:
+        "204": { description: Passport deleted }
+        "404": { $ref: "#/components/responses/NotFound" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  /materials/{guid}/thumbnail:
+    get:
+      tags: [materials]
+      operationId: getMaterialThumbnail
+      summary: Fetch a material's thumbnail image
+      description: |
+        Returns the stored thumbnail image bytes with the `Content-Type` under
+        which they were uploaded. `404` when no thumbnail is stored.
+      parameters:
+        - name: guid
+          in: path
+          required: true
+          description: The passport's document guid.
+          schema: { type: string }
+      responses:
+        "200":
+          description: The thumbnail image
+          content:
+            image/*:
+              schema: { type: string, format: binary }
+        "404": { $ref: "#/components/responses/NotFound" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+    put:
+      tags: [materials]
+      operationId: uploadMaterialThumbnail
+      summary: Upload or replace a material's thumbnail image
+      description: |
+        The request body is the raw image bytes; the `Content-Type` header names
+        the image's MIME type (defaults to `image/jpeg` when absent). Insert or
+        replace — a previously stored thumbnail is overwritten.
+      parameters:
+        - name: guid
+          in: path
+          required: true
+          description: The passport's document guid.
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          image/*:
+            schema: { type: string, format: binary }
+      responses:
+        "204": { description: Thumbnail stored }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  # ---------------------------------------------------- material columns ----
+  /material-columns:
+    get:
+      tags: [materials]
+      operationId: listMaterialColumns
+      summary: List user-defined material column definitions
+      responses:
+        "200":
+          description: Column definitions, ordered by sort_order
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/PropertyDefinition" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+    post:
+      tags: [materials]
+      operationId: createMaterialColumn
+      summary: Create a material column definition
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, type]
+              properties:
+                name: { type: string }
+                type:
+                  type: string
+                  enum: [text, number, date, boolean, select, multiselect]
+                options:
+                  type: array
+                  items: { type: string }
+                sort_order: { type: integer }
+                width: { type: integer, default: 200 }
+      responses:
+        "201":
+          description: The created column definition
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PropertyDefinition" }
+        "400":
+          description: Body invalid or `type` not one of the allowed values
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  /material-columns/{id}:
+    patch:
+      tags: [materials]
+      operationId: updateMaterialColumn
+      summary: Sparsely update a material column definition
+      description: |
+        Send only the fields that changed; anything omitted keeps its current
+        value.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The column definition id.
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                type:
+                  type: string
+                  enum: [text, number, date, boolean, select, multiselect]
+                options:
+                  type: array
+                  items: { type: string }
+                sort_order: { type: integer }
+                width: { type: integer, default: 200 }
+      responses:
+        "200":
+          description: The updated column definition
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PropertyDefinition" }
+        "400":
+          description: Body invalid or `type` not one of the allowed values
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+    delete:
+      tags: [materials]
+      operationId: deleteMaterialColumn
+      summary: Delete a material column definition
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The column definition id.
+          schema: { type: string }
+      responses:
+        "204": { description: Column deleted }
+        "404": { $ref: "#/components/responses/NotFound" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
   # ----------------------------------------------------------- instances ----
@@ -2103,6 +2288,35 @@ components:
             properties:
               type: object
               additionalProperties: { type: string }
+            has_thumbnail:
+              type: boolean
+              description: Whether a thumbnail image is stored for this passport.
+
+    MaterialCreate:
+      type: object
+      description: Optional seed for a new passport created via `POST /materials`.
+      properties:
+        properties:
+          type: object
+          description: Initial property name → value pairs.
+          additionalProperties: { type: string }
+
+    PropertyDefinition:
+      type: object
+      required: [id, name, type, sort_order]
+      description: A user-defined column in the material editor.
+      properties:
+        id: { type: string }
+        name: { type: string }
+        type:
+          type: string
+          enum: [text, number, date, boolean, select, multiselect]
+        options:
+          type: array
+          description: Choices, populated for `select`/`multiselect` types only.
+          items: { type: string }
+        sort_order: { type: integer }
+        width: { type: integer, default: 200 }
 
     InstanceInfo:
       type: object

@@ -1,0 +1,96 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+.cell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 1.75em;
+  padding: var(--space-1) var(--space-2);
+  color: var(--color-text);
+  font: inherit;
+  cursor: default;
+  border-radius: var(--radius-sm);
+}
+
+/*
+ * Focus ring drawn with box-shadow, not outline: Firefox renders `outline`
+ * inconsistently against a table cell, box-shadow is pixel-stable. `outline:
+ * none` suppresses the UA ring the tabIndex would otherwise draw.
+ */
+.cell:focus {
+  outline: none;
+}
+
+.focused {
+  box-shadow: 0 0 0 2px var(--color-accent);
+  z-index: 2;
+}
+
+/* Blue fill handle shown on the selected (focused, non-editing) cell */
+.focused::after {
+  content: '';
+  position: absolute;
+  bottom: -3px;
+  right: -3px;
+  width: 6px;
+  height: 6px;
+  background: var(--color-accent);
+  border-radius: 50%;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.text {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.empty {
+  color: var(--color-text-faint);
+}
+
+.input {
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+}
+
+/* Notion-style coloured tag, read mode of a `select` cell. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  border-radius: 4px;
+  padding: 0 6px;
+  font-size: var(--font-size-sm);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.checkbox {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--color-accent);
+  cursor: pointer;
+}
+
+/* Multi-select read mode: several coloured chips wrapping within the cell. */
+.multiChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  min-height: 20px;
+}

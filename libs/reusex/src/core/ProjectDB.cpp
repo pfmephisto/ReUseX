@@ -25,6 +25,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <fstream>
 #include <limits>
@@ -209,7 +210,7 @@ class ProjectDB::Impl {
   sqlite3 *db = nullptr;
 
   // cppcheck-suppress unusedStructMember
-  static constexpr int LATEST_SCHEMA_VERSION = 17;
+  static constexpr int LATEST_SCHEMA_VERSION = 19;
 
   // Maximum bytes per point_cloud_data row. SQLite's default SQLITE_MAX_LENGTH
   // is 1 GB and the hard compile-time max is 2 GB-1. We chunk large clouds
@@ -445,6 +446,14 @@ class ProjectDB::Impl {
 
     if (current < 17) {
       migrateToV17();
+    }
+
+    if (current < 18) {
+      migrateToV18();
+    }
+
+    if (current < 19) {
+      migrateToV19();
     }
 
     reusex::trace("Schema version: {}", getCurrentSchemaVersion());
@@ -1406,6 +1415,62 @@ class ProjectDB::Impl {
 
     insertSchemaVersion(17, "Add scans table and sensor_frames.scan_id (#129)");
     reusex::info("Migration to schema version 17 complete");
+  }
+
+  void migrateToV18() {
+    reusex::info("Migrating database to schema version 18");
+
+    // Notion-like material editor (#413): user-defined column definitions and
+    // per-material thumbnail blobs. Both additive; CREATE TABLE IF NOT EXISTS
+    // keeps a downgrade-then-remigrate path safe.
+    const char *v18_schema = R"(
+      CREATE TABLE IF NOT EXISTS material_property_definitions (
+        id          TEXT PRIMARY KEY,
+        name        TEXT NOT NULL,
+        type        TEXT NOT NULL DEFAULT 'text',
+        options     TEXT,
+        sort_order  INTEGER NOT NULL DEFAULT 0,
+        created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE IF NOT EXISTS material_thumbnails (
+        material_guid TEXT PRIMARY KEY
+          REFERENCES material_passports(document_guid) ON DELETE CASCADE,
+        blob          BLOB NOT NULL,
+        mime_type     TEXT NOT NULL DEFAULT 'image/jpeg',
+        created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+    )";
+
+    char *errMsg = nullptr;
+    if (sqlite3_exec(db, v18_schema, nullptr, nullptr, &errMsg) != SQLITE_OK) {
+      std::string error = errMsg ? errMsg : "unknown error";
+      sqlite3_free(errMsg);
+      throw std::runtime_error("Migration to v18 failed: " + error);
+    }
+
+    insertSchemaVersion(
+        18, "Add material_property_definitions and material_thumbnails (#413)");
+    reusex::info("Migration to schema version 18 complete");
+  }
+
+  void migrateToV19() {
+    reusex::info("Migrating database to schema version 19");
+
+    // Notion-like material editor: persist per-column display width so the
+    // GUI can remember user-resized columns.
+    const char *v19_schema = "ALTER TABLE material_property_definitions "
+                             "ADD COLUMN width INTEGER NOT NULL DEFAULT 200;";
+
+    char *errMsg = nullptr;
+    if (sqlite3_exec(db, v19_schema, nullptr, nullptr, &errMsg) != SQLITE_OK) {
+      std::string error = errMsg ? errMsg : "unknown error";
+      sqlite3_free(errMsg);
+      throw std::runtime_error("Migration to v19 failed: " + error);
+    }
+
+    insertSchemaVersion(19, "Add width to material_property_definitions");
+    reusex::info("Migration to schema version 19 complete");
   }
 
   // ── Scan helpers (#129) ──────────────────────────────────────────────────
@@ -2504,6 +2569,24 @@ class ProjectDB::Impl {
         edited_at   TEXT,
         old_value   TEXT,
         new_value   TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS material_property_definitions (
+        id          TEXT PRIMARY KEY,
+        name        TEXT NOT NULL,
+        type        TEXT NOT NULL DEFAULT 'text',
+        options     TEXT,
+        sort_order  INTEGER NOT NULL DEFAULT 0,
+        width       INTEGER NOT NULL DEFAULT 200,
+        created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE IF NOT EXISTS material_thumbnails (
+        material_guid TEXT PRIMARY KEY
+          REFERENCES material_passports(document_guid) ON DELETE CASCADE,
+        blob          BLOB NOT NULL,
+        mime_type     TEXT NOT NULL DEFAULT 'image/jpeg',
+        created_at    TEXT NOT NULL DEFAULT (datetime('now'))
       );
     )";
 
@@ -6180,6 +6263,234 @@ void ProjectDB::delete_material_passport(std::string_view documentGuid) {
   if (changes == 0) {
     throw std::runtime_error("Passport not found: " +
                              std::string(documentGuid));
+  }
+}
+
+// ── Material property definitions (schema v18, #413) ───────────────────────
+
+std::vector<ProjectDB::PropertyDefinition>
+ProjectDB::list_property_definitions() const {
+  const char *query = "SELECT id, name, type, options, sort_order, width "
+                      "FROM material_property_definitions "
+                      "ORDER BY sort_order, created_at;";
+
+  sqlite3_stmt *stmt;
+  if (sqlite3_prepare_v2(impl_->db, query, -1, &stmt, nullptr) != SQLITE_OK) {
+    throw std::runtime_error(
+        "Failed to prepare list property definitions query: " +
+        std::string(sqlite3_errmsg(impl_->db)));
+  }
+  StmtGuard guard(stmt);
+
+  std::vector<PropertyDefinition> defs;
+  while (sqlite3_step(stmt) == SQLITE_ROW) {
+    PropertyDefinition def;
+    const char *id =
+        reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
+    const char *name =
+        reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1));
+    const char *type =
+        reinterpret_cast<const char *>(sqlite3_column_text(stmt, 2));
+    const char *options =
+        reinterpret_cast<const char *>(sqlite3_column_text(stmt, 3));
+
+    def.id = id ? id : "";
+    def.name = name ? name : "";
+    def.type = type ? type : "text";
+    def.sort_order = sqlite3_column_int(stmt, 4);
+    def.width = sqlite3_column_int(stmt, 5);
+
+    if (options && *options) {
+      try {
+        auto parsed = nlohmann::json::parse(options);
+        if (parsed.is_array()) {
+          for (const auto &opt : parsed) {
+            if (opt.is_string())
+              def.options.push_back(opt.get<std::string>());
+          }
+        }
+      } catch (const nlohmann::json::exception &) {
+        // Tolerate a malformed options blob rather than failing the whole list.
+        reusex::warn("Ignoring malformed options for property definition {}",
+                     def.id);
+      }
+    }
+    defs.push_back(std::move(def));
+  }
+  return defs;
+}
+
+std::string ProjectDB::add_property_definition(
+    const std::string &name, const std::string &type,
+    const std::vector<std::string> &options, int sort_order, int width) {
+  impl_->checkWritable();
+
+  const std::string id = core::generate_guid();
+  const std::string options_json = nlohmann::json(options).dump();
+
+  const char *query = "INSERT INTO material_property_definitions "
+                      "(id, name, type, options, sort_order, width) "
+                      "VALUES (?, ?, ?, ?, ?, ?);";
+  sqlite3_stmt *stmt;
+  if (sqlite3_prepare_v2(impl_->db, query, -1, &stmt, nullptr) != SQLITE_OK) {
+    throw std::runtime_error(
+        "Failed to prepare add property definition statement: " +
+        std::string(sqlite3_errmsg(impl_->db)));
+  }
+  StmtGuard guard(stmt);
+
+  sqlite3_bind_text(stmt, 1, id.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmt, 2, name.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmt, 3, type.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmt, 4, options_json.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_int(stmt, 5, sort_order);
+  sqlite3_bind_int(stmt, 6, width);
+
+  if (sqlite3_step(stmt) != SQLITE_DONE) {
+    throw std::runtime_error("Failed to add property definition: " +
+                             std::string(sqlite3_errmsg(impl_->db)));
+  }
+  return id;
+}
+
+void ProjectDB::update_property_definition(
+    const std::string &id, const std::string &name, const std::string &type,
+    const std::vector<std::string> &options, int sort_order, int width) {
+  impl_->checkWritable();
+
+  const std::string options_json = nlohmann::json(options).dump();
+
+  const char *query = "UPDATE material_property_definitions "
+                      "SET name = ?, type = ?, options = ?, sort_order = ?, "
+                      "width = ? WHERE id = ?;";
+  sqlite3_stmt *stmt;
+  if (sqlite3_prepare_v2(impl_->db, query, -1, &stmt, nullptr) != SQLITE_OK) {
+    throw std::runtime_error(
+        "Failed to prepare update property definition statement: " +
+        std::string(sqlite3_errmsg(impl_->db)));
+  }
+  StmtGuard guard(stmt);
+
+  sqlite3_bind_text(stmt, 1, name.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmt, 2, type.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmt, 3, options_json.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_int(stmt, 4, sort_order);
+  sqlite3_bind_int(stmt, 5, width);
+  sqlite3_bind_text(stmt, 6, id.c_str(), -1, SQLITE_TRANSIENT);
+
+  if (sqlite3_step(stmt) != SQLITE_DONE) {
+    throw std::runtime_error("Failed to update property definition: " +
+                             std::string(sqlite3_errmsg(impl_->db)));
+  }
+  if (sqlite3_changes(impl_->db) == 0) {
+    throw std::runtime_error("Property definition not found: " + id);
+  }
+}
+
+void ProjectDB::delete_property_definition(const std::string &id) {
+  impl_->checkWritable();
+
+  const char *query = "DELETE FROM material_property_definitions WHERE id = ?;";
+  sqlite3_stmt *stmt;
+  if (sqlite3_prepare_v2(impl_->db, query, -1, &stmt, nullptr) != SQLITE_OK) {
+    throw std::runtime_error(
+        "Failed to prepare delete property definition statement: " +
+        std::string(sqlite3_errmsg(impl_->db)));
+  }
+  StmtGuard guard(stmt);
+
+  sqlite3_bind_text(stmt, 1, id.c_str(), -1, SQLITE_TRANSIENT);
+
+  if (sqlite3_step(stmt) != SQLITE_DONE) {
+    throw std::runtime_error("Failed to delete property definition: " +
+                             std::string(sqlite3_errmsg(impl_->db)));
+  }
+  if (sqlite3_changes(impl_->db) == 0) {
+    throw std::runtime_error("Property definition not found: " + id);
+  }
+}
+
+// ── Material thumbnails (schema v18, #413) ─────────────────────────────────
+
+std::optional<std::pair<std::vector<std::uint8_t>, std::string>>
+ProjectDB::material_thumbnail(const std::string &guid) const {
+  const char *query = "SELECT blob, mime_type FROM material_thumbnails WHERE "
+                      "material_guid = ?;";
+  sqlite3_stmt *stmt;
+  if (sqlite3_prepare_v2(impl_->db, query, -1, &stmt, nullptr) != SQLITE_OK) {
+    throw std::runtime_error("Failed to prepare material thumbnail query: " +
+                             std::string(sqlite3_errmsg(impl_->db)));
+  }
+  StmtGuard guard(stmt);
+
+  sqlite3_bind_text(stmt, 1, guid.c_str(), -1, SQLITE_TRANSIENT);
+
+  if (sqlite3_step(stmt) != SQLITE_ROW) {
+    return std::nullopt;
+  }
+
+  const void *blob_data = sqlite3_column_blob(stmt, 0);
+  const int blob_size = sqlite3_column_bytes(stmt, 0);
+  const char *mime =
+      reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1));
+
+  std::vector<std::uint8_t> blob;
+  if (blob_data && blob_size > 0) {
+    const auto *bytes = static_cast<const std::uint8_t *>(blob_data);
+    blob.assign(bytes, bytes + blob_size);
+  }
+  std::string mime_type = mime ? mime : "image/jpeg";
+  return std::make_pair(std::move(blob), std::move(mime_type));
+}
+
+void ProjectDB::set_material_thumbnail(const std::string &guid,
+                                       const std::vector<std::uint8_t> &blob,
+                                       const std::string &mime_type) {
+  impl_->checkWritable();
+
+  const char *query =
+      "INSERT INTO material_thumbnails (material_guid, blob, mime_type) "
+      "VALUES (?, ?, ?) "
+      "ON CONFLICT(material_guid) DO UPDATE SET "
+      "  blob = excluded.blob, "
+      "  mime_type = excluded.mime_type, "
+      "  created_at = datetime('now');";
+  sqlite3_stmt *stmt;
+  if (sqlite3_prepare_v2(impl_->db, query, -1, &stmt, nullptr) != SQLITE_OK) {
+    throw std::runtime_error(
+        "Failed to prepare set material thumbnail statement: " +
+        std::string(sqlite3_errmsg(impl_->db)));
+  }
+  StmtGuard guard(stmt);
+
+  sqlite3_bind_text(stmt, 1, guid.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_blob(stmt, 2, blob.empty() ? nullptr : blob.data(),
+                    static_cast<int>(blob.size()), SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmt, 3, mime_type.c_str(), -1, SQLITE_TRANSIENT);
+
+  if (sqlite3_step(stmt) != SQLITE_DONE) {
+    throw std::runtime_error("Failed to set material thumbnail: " +
+                             std::string(sqlite3_errmsg(impl_->db)));
+  }
+}
+
+void ProjectDB::delete_material_thumbnail(const std::string &guid) {
+  impl_->checkWritable();
+
+  const char *query =
+      "DELETE FROM material_thumbnails WHERE material_guid = ?;";
+  sqlite3_stmt *stmt;
+  if (sqlite3_prepare_v2(impl_->db, query, -1, &stmt, nullptr) != SQLITE_OK) {
+    throw std::runtime_error(
+        "Failed to prepare delete material thumbnail statement: " +
+        std::string(sqlite3_errmsg(impl_->db)));
+  }
+  StmtGuard guard(stmt);
+
+  sqlite3_bind_text(stmt, 1, guid.c_str(), -1, SQLITE_TRANSIENT);
+  if (sqlite3_step(stmt) != SQLITE_DONE) {
+    throw std::runtime_error("Failed to delete material thumbnail: " +
+                             std::string(sqlite3_errmsg(impl_->db)));
   }
 }
 

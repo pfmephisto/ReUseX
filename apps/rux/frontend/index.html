@@ -8,8 +8,27 @@ SPDX-License-Identifier: GPL-3.0-or-later
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="dark" />
+    <meta name="color-scheme" content="dark light" />
     <title>ReUseX</title>
+    <script>
+      // FOUC guard: apply the persisted theme to <html data-theme> before the
+      // first paint, so the app never flashes the wrong theme on load. This is
+      // a hand-inlined mirror of resolveTheme()/THEME_STORAGE_KEY in
+      // src/theme.ts — keep the key and the resolution rule in sync. The React
+      // useTheme hook re-applies the identical value on mount (idempotent).
+      (function () {
+        try {
+          var choice = localStorage.getItem('reusex-theme') || 'system';
+          var dark =
+            choice === 'dark' ||
+            (choice !== 'light' &&
+              window.matchMedia('(prefers-color-scheme: dark)').matches);
+          document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+        } catch (e) {
+          document.documentElement.dataset.theme = 'dark';
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

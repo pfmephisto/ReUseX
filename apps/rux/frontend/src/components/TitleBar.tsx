@@ -4,6 +4,7 @@
 
 import type { ConnectionStatus } from '../api/events';
 import { JobIndicator } from './JobIndicator';
+import { ThemeToggle } from './ThemeToggle';
 import styles from './TitleBar.module.css';
 
 export interface TitleBarProps {
@@ -67,6 +68,7 @@ export function TitleBar({
         <JobIndicator connection={connection} activeJobCount={activeJobCount} />
         {implementation && <span className={styles.meta}>{implementation}</span>}
         {version && <span className={`${styles.meta} mono`}>{version}</span>}
+        <ThemeToggle />
       </div>
     </header>
   );

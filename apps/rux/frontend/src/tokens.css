@@ -30,6 +30,11 @@
  */
 
 :root {
+  /* Dark is the default theme. `data-theme` on <html> carries the *resolved*
+     value (light | dark); the light block below overrides at equal specificity
+     and wins on source order when it applies. */
+  color-scheme: dark;
+
   /* ---------------------------------------------------------- surfaces -- */
   /* Application chrome, from furthest back to nearest the user. */
   --color-canvas: #0a0b0d; /* the 3D viewport background */
@@ -144,11 +149,67 @@
 }
 
 /*
- * The GUI is dark-first because the viewport is. A light theme is a design
- * decision that has not been taken; when it is, it arrives as a
- * [data-theme="light"] block here, synced from the design project — not as
- * per-component overrides.
+ * Light theme. The GUI is dark-first because the viewport is, so this block
+ * only re-points the *chrome* semantic tokens: the canvas stays near-black
+ * (point clouds are additive light on a dark field — a light canvas destroys
+ * the depth read), and the categorical --label-* palette is left untouched so
+ * the Okabe-Ito set keeps its colourblind-safe distinctness in both themes.
+ *
+ * These are PLACEHOLDER VALUES, exactly like the dark set above: they exist so
+ * the toggle has something to switch to before the first /design-sync. Do not
+ * hand-tune beyond structure — re-sync instead. What this repo owns here is the
+ * set of token names and their roles; the design project owns every value.
+ *
+ * `[data-theme='light']` and `:root` share specificity (0,1,0); this block
+ * wins only because it comes later in the file. Keep it after `:root`.
  */
+[data-theme='light'] {
+  color-scheme: light;
+
+  /* ---------------------------------------------------------- surfaces -- */
+  --color-canvas: #0a0b0d; /* unchanged: the viewport must stay near-black */
+  --color-surface: #f4f5f7;
+  --color-surface-raised: #ffffff;
+  --color-surface-overlay: #ffffff;
+  --color-surface-sunken: #e9ebef;
+
+  /* ------------------------------------------------------------ border -- */
+  --color-border: #d5d9e0;
+  --color-border-strong: #b7bec9;
+  --color-border-focus: #2563eb;
+
+  /* -------------------------------------------------------------- text -- */
+  --color-text: #1a1d23;
+  --color-text-muted: #55606f;
+  --color-text-faint: #838d9c;
+  --color-text-inverse: #f4f5f7;
+
+  /* ------------------------------------------------------------ accent -- */
+  --color-accent: #2563eb;
+  --color-accent-hover: #1d4ed8;
+  --color-accent-muted: #dbe6fe;
+  --color-on-accent: #ffffff;
+
+  /* ------------------------------------------------------------ status -- */
+  /* Darkened from the dark-theme hues to hold contrast on light surfaces. */
+  --color-status-queued: #55606f;
+  --color-status-running: #0072b2;
+  --color-status-succeeded: #007a59;
+  --color-status-failed: #b8460b;
+  --color-status-cancelled: #838d9c;
+
+  /* --------------------------------------------- categorical: labels ---- */
+  /* --label-0..7 inherit from :root unchanged (Okabe-Ito). Only the neutral
+     unlabeled swatch is re-pointed to read on a light field. */
+  --label-unlabeled: #b7bec9;
+
+  /* ------------------------------------------------------------ shadow --- */
+  /* Shadows on light surfaces need far less alpha or they read as smudges. */
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 12%);
+  --shadow-md: 0 4px 12px rgb(0 0 0 / 15%);
+  --shadow-lg: 0 12px 32px rgb(0 0 0 / 18%);
+}
+
 @media (prefers-reduced-motion: reduce) {
   :root {
     --duration-fast: 0ms;

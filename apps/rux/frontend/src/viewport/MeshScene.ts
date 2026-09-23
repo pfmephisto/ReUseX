@@ -31,10 +31,10 @@ import type { PointCloudScene } from './PointCloudScene';
  *
  * ## Lighting
  *
- * The lit surface needs light, and the host {@link PointCloudScene} has none of
- * its own — points and splats draw with unlit materials, so they are unaffected
- * by the hemisphere + directional pair added here on {@link load}. The lights
- * live only as long as the mesh does and are removed in {@link dispose}.
+ * The lit surface needs light. The host {@link PointCloudScene} owns the light
+ * rig (a hemisphere fill + a directional key, adjustable from the viewport
+ * panel, #443); this layer adds none of its own. Points and splats draw with
+ * unlit materials, so those lights only ever reach a lit mesh like this one.
  *
  * ## Coordinates
  *
@@ -61,7 +61,6 @@ export class MeshScene {
   private group: THREE.Group | null = null;
   private surfaceMaterial: THREE.MeshStandardMaterial | null = null;
   private wireframeMaterial: THREE.MeshBasicMaterial | null = null;
-  private lights: THREE.Light[] = [];
 
   private _visible = true;
   private _wireframe = false;
@@ -131,35 +130,9 @@ export class MeshScene {
     group.add(mesh);
 
     this.host.sceneRoot().add(group);
-    this.addLights();
     this.surfaceMaterial = surfaceMaterial;
     this.wireframeMaterial = wireframeMaterial;
     this.group = group;
-  }
-
-  /**
-   * Add the lights the lit surface material needs, once.
-   *
-   * A hemisphere light gives an even sky/ground fill aligned with the scan's
-   * gravity axis (Z up), and an oblique directional key makes adjacent facets
-   * differ so the geometry reads as solid rather than flat. Both are added to
-   * the shared scene root; position-independent (hemisphere) and
-   * direction-only (directional) lighting means the group's recentring offset
-   * does not affect them.
-   */
-  private addLights(): void {
-    if (this.lights.length > 0) return;
-
-    const hemisphere = new THREE.HemisphereLight(0xdfe4ec, 0x14171c, 1.4);
-    hemisphere.position.set(0, 0, 1);
-
-    const key = new THREE.DirectionalLight(0xffffff, 2.2);
-    key.position.set(4, -6, 8);
-
-    const root = this.host.sceneRoot();
-    root.add(hemisphere);
-    root.add(key);
-    this.lights = [hemisphere, key];
   }
 
   /** Show or hide the layer without unloading the geometry. */
@@ -191,11 +164,6 @@ export class MeshScene {
         if (obj instanceof THREE.Mesh) obj.geometry.dispose();
       });
     }
-    for (const light of this.lights) {
-      light.removeFromParent();
-      light.dispose();
-    }
-    this.lights = [];
     this.surfaceMaterial?.dispose();
     this.wireframeMaterial?.dispose();
     this.surfaceMaterial = null;

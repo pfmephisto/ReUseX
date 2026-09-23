@@ -6,6 +6,12 @@ import { useState, type ReactNode } from 'react';
 
 import type { CloudInfo, GsplatInfo, MeshInfo, PanoramaInfo, PoseGraph } from '../api/types';
 import type { ColorMode } from '../viewport/PointCloudScene';
+import {
+  VIEW_PRESETS,
+  type CameraProjection,
+  type LightingState,
+  type ViewPreset,
+} from '../viewport/cameraViews';
 import type { CloudStreamState } from '../viewport/useCloudStream';
 import type { MeshLayerState, SplatLayerState } from '../viewport/Viewport';
 import { describeGsplat, gsplatNote } from '../viewport/gsplatLayer';
@@ -118,6 +124,15 @@ export interface LayerPanelProps {
   onPointSizeChange: (size: number) => void;
 
   onFrame: () => void;
+
+  /** Orbit-camera projection and its toggle (#443). */
+  projection: CameraProjection;
+  onProjectionChange: (projection: CameraProjection) => void;
+  /** Reorient to a named axis view (Top / Front / …) (#443). */
+  onView: (preset: ViewPreset) => void;
+  /** Key + fill light settings and their controls (#443). */
+  lighting: LightingState;
+  onLightingChange: (next: Partial<LightingState>) => void;
 }
 
 /**
@@ -149,6 +164,11 @@ export function LayerPanel({
   pointSize,
   onPointSizeChange,
   onFrame,
+  projection,
+  onProjectionChange,
+  onView,
+  lighting,
+  onLightingChange,
 }: LayerPanelProps) {
   const activeLabelCloud = labelSources.find((cloud) => cloud.name === labelCloud);
 
@@ -263,8 +283,135 @@ export function LayerPanel({
             Frame all
           </button>
         </Section>
+
+        <ViewSection
+          projection={projection}
+          onProjectionChange={onProjectionChange}
+          onView={onView}
+          lighting={lighting}
+          onLightingChange={onLightingChange}
+        />
       </aside>
     </>
+  );
+}
+
+/**
+ * Camera and lighting controls (#443).
+ *
+ * The discoverable replacement for the camera keys `rux view` binds and the
+ * `--view` presets `rux render` takes: a projection toggle, the axis-aligned
+ * preset views, and the key/fill lights the reconstructed mesh is lit by. The
+ * preset orientations match the CLI's so a shot framed here is the shot the
+ * headless renderer produces.
+ */
+function ViewSection({
+  projection,
+  onProjectionChange,
+  onView,
+  lighting,
+  onLightingChange,
+}: {
+  projection: CameraProjection;
+  onProjectionChange: (projection: CameraProjection) => void;
+  onView: (preset: ViewPreset) => void;
+  lighting: LightingState;
+  onLightingChange: (next: Partial<LightingState>) => void;
+}) {
+  return (
+    <Section title="View">
+      <div className={styles.modes} role="group" aria-label="Camera projection">
+        <button
+          type="button"
+          className={`${styles.mode} ${projection === 'perspective' ? styles.modeActive : ''}`}
+          onClick={() => onProjectionChange('perspective')}
+        >
+          Perspective
+        </button>
+        <button
+          type="button"
+          className={`${styles.mode} ${projection === 'orthographic' ? styles.modeActive : ''}`}
+          onClick={() => onProjectionChange('orthographic')}
+        >
+          Orthographic
+        </button>
+      </div>
+
+      <div className={styles.presets} role="group" aria-label="Preset views">
+        {VIEW_PRESETS.map(({ preset, label }) => (
+          <button
+            key={preset}
+            type="button"
+            className={styles.action}
+            onClick={() => onView(preset)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <label className={styles.field}>
+        <span className={styles.fieldLabel}>
+          Key light <span className="mono">{lighting.keyIntensity.toFixed(1)}</span>
+        </span>
+        <input
+          type="range"
+          min={0}
+          max={5}
+          step={0.1}
+          value={lighting.keyIntensity}
+          onChange={(event) => onLightingChange({ keyIntensity: Number(event.target.value) })}
+          className={styles.range}
+        />
+      </label>
+
+      <label className={styles.field}>
+        <span className={styles.fieldLabel}>
+          Fill light <span className="mono">{lighting.ambientIntensity.toFixed(1)}</span>
+        </span>
+        <input
+          type="range"
+          min={0}
+          max={3}
+          step={0.1}
+          value={lighting.ambientIntensity}
+          onChange={(event) =>
+            onLightingChange({ ambientIntensity: Number(event.target.value) })
+          }
+          className={styles.range}
+        />
+      </label>
+
+      <label className={styles.field}>
+        <span className={styles.fieldLabel}>
+          Light bearing <span className="mono">{Math.round(lighting.azimuth)}°</span>
+        </span>
+        <input
+          type="range"
+          min={-180}
+          max={180}
+          step={5}
+          value={lighting.azimuth}
+          onChange={(event) => onLightingChange({ azimuth: Number(event.target.value) })}
+          className={styles.range}
+        />
+      </label>
+
+      <label className={styles.field}>
+        <span className={styles.fieldLabel}>
+          Light height <span className="mono">{Math.round(lighting.elevation)}°</span>
+        </span>
+        <input
+          type="range"
+          min={0}
+          max={90}
+          step={5}
+          value={lighting.elevation}
+          onChange={(event) => onLightingChange({ elevation: Number(event.target.value) })}
+          className={styles.range}
+        />
+      </label>
+    </Section>
   );
 }
 

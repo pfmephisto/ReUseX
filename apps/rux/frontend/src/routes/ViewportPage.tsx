@@ -23,6 +23,12 @@ import {
 } from '../viewport/Viewport';
 import type { PanoramaMarker } from '../viewport/PanoramaScene';
 import type { ColorMode } from '../viewport/PointCloudScene';
+import {
+  DEFAULT_LIGHTING,
+  type CameraProjection,
+  type LightingState,
+  type ViewPreset,
+} from '../viewport/cameraViews';
 import { resolvePlacement, stepPanorama } from '../viewport/panorama';
 import type { CloudStreamState } from '../viewport/useCloudStream';
 import styles from './ViewportPage.module.css';
@@ -145,6 +151,18 @@ export function ViewportPage() {
   const [frameToken, setFrameToken] = useState(0);
   const [initialised, setInitialised] = useState(false);
 
+  // Camera and lighting controls (#443). The projection and light rig are
+  // ordinary state; a preset view is a one-shot command, so it carries a nonce
+  // the viewport effect keys on — asking for the same view twice re-frames.
+  const [projection, setProjection] = useState<CameraProjection>('perspective');
+  const [lighting, setLighting] = useState<LightingState>(DEFAULT_LIGHTING);
+  const [viewRequest, setViewRequest] = useState<{ preset: ViewPreset; nonce: number } | null>(
+    null,
+  );
+  const handleLightingChange = useCallback((next: Partial<LightingState>) => {
+    setLighting((current) => ({ ...current, ...next }));
+  }, []);
+
   // `?splat=<name>` deep-links one on. Otherwise every splat starts off: the
   // blob is hundreds of megabytes where a cloud streams in pages, so loading
   // one has to be a decision the user made — which is why the panel shows the
@@ -244,6 +262,16 @@ export function ViewportPage() {
       if (id !== null) enterPanorama(id);
     },
     [markers, activeMarker, enterPanorama],
+  );
+
+  const handleView = useCallback(
+    (preset: ViewPreset) => {
+      // Framing a preset from inside a panorama is a request to stop being
+      // inside it — the same reading `onFrame` gives a Frame-all press.
+      if (immersive) enterPanorama(null);
+      setViewRequest((prev) => ({ preset, nonce: (prev?.nonce ?? 0) + 1 }));
+    },
+    [immersive, enterPanorama],
   );
 
   // `Esc` to leave and `[` / `]` to step, the keys `rux view` already uses.
@@ -364,6 +392,9 @@ export function ViewportPage() {
         colorMode={colorMode}
         pointSize={pointSize}
         frameToken={frameToken}
+        projection={projection}
+        lighting={lighting}
+        view={viewRequest}
         onLayerProgress={handleProgress}
         meshes={(meshes ?? [])
           .filter((info) => meshRequested[info.name])
@@ -466,6 +497,11 @@ export function ViewportPage() {
         onColorModeChange={setExplicitColorMode}
         pointSize={pointSize}
         onPointSizeChange={setPointSize}
+        projection={projection}
+        onProjectionChange={setProjection}
+        onView={handleView}
+        lighting={lighting}
+        onLightingChange={handleLightingChange}
         onFrame={() => {
           // Framing the whole scan from inside a panorama is a request to
           // stop being inside it; leaving the backdrop up while the camera

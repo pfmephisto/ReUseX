@@ -224,3 +224,10 @@
   border-color: var(--color-border-focus);
   color: var(--color-text);
 }
+
+/* Preset-view button grid (#443). */
+.presets {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-1);
+}

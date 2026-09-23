@@ -12,6 +12,7 @@ import {
 import * as THREE from 'three';
 
 import { PointCloudScene, type ColorMode } from './PointCloudScene';
+import type { CameraProjection, LightingState, ViewPreset } from './cameraViews';
 import { MeshScene } from './MeshScene';
 import { PanoramaScene, type PanoramaMarker } from './PanoramaScene';
 import { PoseGraphScene } from './PoseGraphScene';
@@ -72,6 +73,20 @@ export interface ViewportProps {
   pointSize: number;
   /** Bump to re-frame the camera on the loaded content. */
   frameToken: number;
+
+  /** Orbit-camera projection (#443). Defaults to perspective when omitted. */
+  projection?: CameraProjection;
+  /** Key + fill light settings (#443). Defaults to the scene's own when omitted. */
+  lighting?: LightingState;
+  /**
+   * A pending preset-view request (#443).
+   *
+   * A `{ preset, nonce }` rather than a bare preset so that asking for the same
+   * view twice still re-frames: the effect keys on the object identity, which
+   * the page changes by bumping the nonce on every button press.
+   */
+  view?: { preset: ViewPreset; nonce: number } | null;
+
   onLayerProgress?: (cloud: string, state: CloudStreamState) => void;
   /**
    * PLY mesh layers (#265, review pt 2).
@@ -154,6 +169,9 @@ export function Viewport({
   colorMode,
   pointSize,
   frameToken,
+  projection,
+  lighting,
+  view,
   onLayerProgress,
   meshes,
   onMeshProgress,
@@ -192,6 +210,18 @@ export function Viewport({
   useEffect(() => {
     scene?.setPointSize(pointSize);
   }, [scene, pointSize]);
+
+  useEffect(() => {
+    if (projection) scene?.setProjection(projection);
+  }, [scene, projection]);
+
+  useEffect(() => {
+    if (lighting) scene?.setLighting(lighting);
+  }, [scene, lighting]);
+
+  useEffect(() => {
+    if (view) scene?.setView(view.preset);
+  }, [scene, view]);
 
   useEffect(() => {
     for (const layer of layers) {

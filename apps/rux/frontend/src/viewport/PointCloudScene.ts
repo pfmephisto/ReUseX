@@ -5,9 +5,24 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
+import {
+  DEFAULT_LIGHTING,
+  lightDirection,
+  orthoHalfHeight,
+  presetOrientation,
+  type CameraProjection,
+  type LightingState,
+  type ViewPreset,
+} from './cameraViews';
 import { labelColorIndex, paletteToFloats, readLabelPalette } from './labelColors';
 
 export type ColorMode = 'rgb' | 'label';
+
+/** Oblique framing direction: an axis view of a corridor has no depth cue. */
+const OBLIQUE_DIRECTION = new THREE.Vector3(0.7, -0.7, 0.45).normalize();
+
+/** World up for the gravity-aligned scan. */
+const WORLD_UP = new THREE.Vector3(0, 0, 1);
 
 /**
  * Radius of the panorama backdrop, metres.
@@ -25,9 +40,11 @@ const FORWARD_X = new THREE.Vector3(1, 0, 0);
 interface SavedCamera {
   position: THREE.Vector3;
   target: THREE.Vector3;
+  up: THREE.Vector3;
   near: number;
   far: number;
   fov: number;
+  projection: CameraProjection;
 }
 
 /** One decoded page, in the form the scene consumes. */
@@ -75,9 +92,20 @@ export class PointCloudScene {
   private readonly canvas: HTMLCanvasElement;
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
-  private readonly camera: THREE.PerspectiveCamera;
+  private readonly perspectiveCamera: THREE.PerspectiveCamera;
+  private readonly orthographicCamera: THREE.OrthographicCamera;
+  private camera: THREE.PerspectiveCamera | THREE.OrthographicCamera;
+  private projection: CameraProjection = 'perspective';
   private readonly controls: OrbitControls;
   private readonly layers = new Map<string, Layer>();
+
+  // Viewport lighting rig (#443). One key + one hemisphere fill live on the
+  // scene, not per-mesh: a viewport has one light model, adjustable from the
+  // panel and unchanged by which meshes are toggled on. Points and splats draw
+  // with unlit materials, so the lights only ever reach a lit mesh.
+  private readonly hemisphere: THREE.HemisphereLight;
+  private readonly keyLight: THREE.DirectionalLight;
+  private lighting: LightingState = { ...DEFAULT_LIGHTING };
 
   private readonly bounds = new THREE.Box3();
   private origin: THREE.Vector3 | null = null;
@@ -94,16 +122,32 @@ export class PointCloudScene {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
-    this.camera = new THREE.PerspectiveCamera(60, 1, 0.01, 5000);
+    this.perspectiveCamera = new THREE.PerspectiveCamera(60, 1, 0.01, 5000);
     // Building scans are gravity-aligned with Z up; three.js defaults to Y up,
     // which would make the orbit gimbal fight the data on every drag.
-    this.camera.up.set(0, 0, 1);
-    this.camera.position.set(6, -6, 4);
+    this.perspectiveCamera.up.copy(WORLD_UP);
+    this.perspectiveCamera.position.set(6, -6, 4);
+
+    // Orthographic peer. Its frustum is (re)sized from the perspective view on
+    // every projection toggle and reframing, so these placeholder extents are
+    // overwritten before it is ever the active camera.
+    this.orthographicCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.01, 5000);
+    this.orthographicCamera.up.copy(WORLD_UP);
+    this.orthographicCamera.position.copy(this.perspectiveCamera.position);
+
+    this.camera = this.perspectiveCamera;
 
     this.controls = new OrbitControls(this.camera, canvas);
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.12;
     this.controls.screenSpacePanning = true;
+
+    this.hemisphere = new THREE.HemisphereLight(0xdfe4ec, 0x14171c, this.lighting.ambientIntensity);
+    this.hemisphere.position.copy(WORLD_UP);
+    this.keyLight = new THREE.DirectionalLight(0xffffff, this.lighting.keyIntensity);
+    this.scene.add(this.hemisphere);
+    this.scene.add(this.keyLight);
+    this.applyLighting();
 
     this.applyBackgroundFromTokens();
     this.observeResize(canvas);
@@ -140,8 +184,15 @@ export class PointCloudScene {
       const { clientWidth, clientHeight } = parent;
       if (clientWidth === 0 || clientHeight === 0) return;
       this.renderer.setSize(clientWidth, clientHeight, false);
-      this.camera.aspect = clientWidth / clientHeight;
-      this.camera.updateProjectionMatrix();
+      const aspect = clientWidth / clientHeight;
+      this.perspectiveCamera.aspect = aspect;
+      this.perspectiveCamera.updateProjectionMatrix();
+      // Hold the orthographic vertical extent and refit the horizontal one, so
+      // a resize never changes how tall the scene reads under either camera.
+      const halfHeight = (this.orthographicCamera.top - this.orthographicCamera.bottom) / 2;
+      this.orthographicCamera.left = -halfHeight * aspect;
+      this.orthographicCamera.right = halfHeight * aspect;
+      this.orthographicCamera.updateProjectionMatrix();
     };
     resize();
     this.resizeObserver = new ResizeObserver(resize);
@@ -253,6 +304,115 @@ export class PointCloudScene {
   setLayerVisible(layerId: string, visible: boolean): void {
     const layer = this.layers.get(layerId);
     if (layer) layer.group.visible = visible;
+  }
+
+  // --- camera projection (#443) -------------------------------------------
+
+  /** Whether the orbit camera is currently perspective or orthographic. */
+  currentProjection(): CameraProjection {
+    return this.projection;
+  }
+
+  /**
+   * Switch the orbit camera between perspective and orthographic, preserving
+   * the framing the user was looking at.
+   *
+   * The two cameras share a target and view direction; only the projection
+   * differs. Going to orthographic, the frustum is sized to show the same
+   * vertical extent the perspective camera spanned at the target distance;
+   * going back, the perspective camera is stood off at the distance that
+   * reproduces the orthographic camera's visible height. Either way the scene
+   * stays the same size at the plane the user was focused on, so the switch
+   * reads as a change of projection rather than a jump.
+   *
+   * In panorama mode the look-around is always perspective, so a request there
+   * is only remembered and applied when the orbit camera returns
+   * (see {@link exitFirstPerson}).
+   */
+  setProjection(next: CameraProjection): void {
+    if (this.projection === next) return;
+    if (this.saved) {
+      this.saved.projection = next;
+      return;
+    }
+
+    const target = this.controls.target;
+    const persp = this.perspectiveCamera;
+    const ortho = this.orthographicCamera;
+
+    if (next === 'orthographic') {
+      ortho.position.copy(persp.position);
+      ortho.up.copy(persp.up);
+      ortho.near = persp.near;
+      ortho.far = persp.far;
+      const distance = persp.position.distanceTo(target);
+      this.sizeOrtho(orthoHalfHeight(persp.fov, distance));
+      this.camera = ortho;
+    } else {
+      persp.up.copy(ortho.up);
+      persp.near = ortho.near;
+      persp.far = ortho.far;
+      const halfHeight = (ortho.top - ortho.bottom) / 2 / ortho.zoom;
+      const distance = Math.max(
+        halfHeight / Math.tan(THREE.MathUtils.degToRad(persp.fov) / 2),
+        persp.near * 2,
+      );
+      const direction = ortho.position.clone().sub(target);
+      if (direction.lengthSq() === 0) direction.copy(OBLIQUE_DIRECTION);
+      direction.normalize();
+      persp.position.copy(target).addScaledVector(direction, distance);
+      persp.updateProjectionMatrix();
+      this.camera = persp;
+    }
+
+    this.controls.object = this.camera;
+    this.projection = next;
+    this.controls.update();
+  }
+
+  /**
+   * Reorient the camera to a named axis-aligned view (Top / Front / …),
+   * framing the whole loaded scene along that axis.
+   *
+   * Orbit-only: inside a panorama there is no scene to frame, and the page
+   * leaves the panorama before asking for a preset. The orientation convention
+   * is the CLI's — see {@link presetOrientation}.
+   */
+  setView(preset: ViewPreset): void {
+    if (this.saved) return;
+    const { direction, up } = presetOrientation(preset);
+    this.frameFromDirection(direction, up);
+  }
+
+  // --- lighting (#443) -----------------------------------------------------
+
+  /** Current key/fill light settings. */
+  currentLighting(): LightingState {
+    return { ...this.lighting };
+  }
+
+  /** Update one or more lighting parameters and drive the scene lights. */
+  setLighting(next: Partial<LightingState>): void {
+    this.lighting = { ...this.lighting, ...next };
+    this.applyLighting();
+  }
+
+  private applyLighting(): void {
+    this.hemisphere.intensity = this.lighting.ambientIntensity;
+    this.keyLight.intensity = this.lighting.keyIntensity;
+    this.keyLight.position.copy(lightDirection(this.lighting.azimuth, this.lighting.elevation));
+  }
+
+  /** Size the orthographic frustum to a half-height, keeping the aspect ratio. */
+  private sizeOrtho(halfHeight: number): void {
+    const ortho = this.orthographicCamera;
+    const half = Math.max(halfHeight, 1e-3);
+    ortho.top = half;
+    ortho.bottom = -half;
+    ortho.left = -half * this.perspectiveCamera.aspect;
+    ortho.right = half * this.perspectiveCamera.aspect;
+    ortho.zoom = 1;
+    ortho.updateProjectionMatrix();
   }
 
   /** True when at least one point has been added. */
@@ -377,17 +537,27 @@ export class PointCloudScene {
       this.saved = {
         position: this.camera.position.clone(),
         target: this.controls.target.clone(),
-        near: this.camera.near,
-        far: this.camera.far,
-        fov: this.camera.fov,
+        up: this.camera.up.clone(),
+        near: this.perspectiveCamera.near,
+        far: this.perspectiveCamera.far,
+        fov: this.perspectiveCamera.fov,
+        projection: this.projection,
       };
     }
 
+    // A 360 look-around is perspective by nature; force it here and restore the
+    // orthographic choice, if any, on exit.
+    this.camera = this.perspectiveCamera;
+    this.controls.object = this.perspectiveCamera;
+    this.projection = 'perspective';
+
+    const persp = this.perspectiveCamera;
     const direction = forward.lengthSq() > 0 ? forward.clone().normalize() : FORWARD_X.clone();
-    this.camera.position.copy(position);
-    this.camera.near = 0.01;
-    this.camera.far = PANORAMA_RADIUS * 4;
-    this.camera.updateProjectionMatrix();
+    persp.position.copy(position);
+    persp.up.copy(WORLD_UP);
+    persp.near = 0.01;
+    persp.far = PANORAMA_RADIUS * 4;
+    persp.updateProjectionMatrix();
 
     this.controls.target.copy(position).addScaledVector(direction, 0.1);
     this.controls.enablePan = false;
@@ -406,13 +576,23 @@ export class PointCloudScene {
     this.saved = null;
     if (!saved) return;
 
-    this.camera.position.copy(saved.position);
-    this.camera.near = saved.near;
-    this.camera.far = saved.far;
-    this.camera.fov = saved.fov;
-    this.camera.updateProjectionMatrix();
+    const persp = this.perspectiveCamera;
+    persp.position.copy(saved.position);
+    persp.up.copy(saved.up);
+    persp.near = saved.near;
+    persp.far = saved.far;
+    persp.fov = saved.fov;
+    persp.updateProjectionMatrix();
+
+    this.camera = persp;
+    this.controls.object = persp;
+    this.projection = 'perspective';
     this.controls.target.copy(saved.target);
     this.controls.update();
+
+    // Rebuild the orthographic projection the user had before, from the
+    // now-restored perspective pose so the framing carries across.
+    if (saved.projection === 'orthographic') this.setProjection('orthographic');
   }
 
   removeLayer(layerId: string): void {
@@ -440,6 +620,18 @@ export class PointCloudScene {
 
   /** Move the camera so the whole loaded cloud is in frame. */
   frameAll(): void {
+    // Approach from an oblique angle rather than an axis: an axis-aligned view
+    // of a corridor scan is a wall of points with no depth cue at all.
+    this.frameFromDirection(OBLIQUE_DIRECTION, WORLD_UP);
+  }
+
+  /**
+   * Frame the whole loaded scene along a given view direction and up vector.
+   *
+   * Shared by {@link frameAll} (oblique) and {@link setView} (axis presets).
+   * @p direction points from the framed centre toward the camera.
+   */
+  private frameFromDirection(direction: THREE.Vector3, up: THREE.Vector3): void {
     if (this.bounds.isEmpty() || !this.origin) return;
 
     const sphere = new THREE.Sphere();
@@ -447,13 +639,11 @@ export class PointCloudScene {
     sphere.center.sub(this.origin);
 
     const radius = Math.max(sphere.radius, 0.5);
-    const fov = THREE.MathUtils.degToRad(this.camera.fov);
+    const fov = THREE.MathUtils.degToRad(this.perspectiveCamera.fov);
     const distance = (radius / Math.sin(fov / 2)) * 1.15;
 
-    // Approach from an oblique angle rather than an axis: an axis-aligned view
-    // of a corridor scan is a wall of points with no depth cue at all.
-    const direction = new THREE.Vector3(0.7, -0.7, 0.45).normalize();
-    const position = sphere.center.clone().addScaledVector(direction, distance);
+    const dir = direction.lengthSq() > 0 ? direction.clone().normalize() : OBLIQUE_DIRECTION.clone();
+    const position = sphere.center.clone().addScaledVector(dir, distance);
     const near = Math.max(radius / 1000, 0.01);
     const far = distance + radius * 4;
 
@@ -465,15 +655,22 @@ export class PointCloudScene {
     if (this.saved) {
       this.saved.position.copy(position);
       this.saved.target.copy(sphere.center);
+      this.saved.up.copy(up);
       this.saved.near = near;
       this.saved.far = far;
       return;
     }
 
-    this.camera.position.copy(position);
-    this.camera.near = near;
-    this.camera.far = far;
-    this.camera.updateProjectionMatrix();
+    for (const cam of [this.perspectiveCamera, this.orthographicCamera]) {
+      cam.position.copy(position);
+      cam.up.copy(up);
+      cam.near = near;
+      cam.far = far;
+    }
+    // The orthographic camera holds the same bounding sphere with the same 15%
+    // margin the perspective distance uses, so a toggle after framing is seamless.
+    this.sizeOrtho(radius * 1.15);
+    this.perspectiveCamera.updateProjectionMatrix();
 
     this.controls.target.copy(sphere.center);
     this.controls.update();
@@ -484,6 +681,10 @@ export class PointCloudScene {
     if (this.frameHandle !== null) cancelAnimationFrame(this.frameHandle);
     this.resizeObserver?.disconnect();
     this.clear();
+    this.scene.remove(this.hemisphere);
+    this.scene.remove(this.keyLight);
+    this.hemisphere.dispose();
+    this.keyLight.dispose();
     this.controls.dispose();
     this.renderer.dispose();
   }

@@ -519,6 +519,40 @@ export class PointCloudScene {
   }
 
   /**
+   * Pick the nearest point-cloud point under the pointer and return its
+   * world-space position, or `null` when nothing is hit.
+   *
+   * Uses the same camera as {@link pick}: the raycaster needs the camera that
+   * drew the frame. The threshold is two point radii in world units — large
+   * enough to be usable at typical point densities, small enough not to snap
+   * across large gaps.
+   *
+   * The hit position is in **world** coordinates (scene-local + recentring
+   * origin), so it can be passed directly to the visibility API which speaks
+   * the same world frame as the stored sensor poses.
+   *
+   * @param ndc Pointer position in normalised device coordinates (-1..1).
+   */
+  pickCloudPoint(ndc: THREE.Vector2): THREE.Vector3 | null {
+    if (!this.origin) return null;
+
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(ndc, this.camera);
+    raycaster.params.Points = { threshold: this.pointSize * 2 };
+
+    const objects: THREE.Object3D[] = [];
+    for (const layer of this.layers.values()) {
+      for (const page of layer.pages) objects.push(page.points);
+    }
+
+    const hits = raycaster.intersectObjects(objects, false);
+    if (hits.length === 0) return null;
+
+    // Convert scene-local hit back to world coordinates.
+    return hits[0].point.clone().add(this.origin);
+  }
+
+  /**
    * Stand the camera at @p position looking along @p forward (both in scene
    * coordinates), and remember where it was.
    *

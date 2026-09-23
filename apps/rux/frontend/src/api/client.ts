@@ -33,6 +33,7 @@ import type {
   FrameInfo,
   FrameImageKind,
   FrameList,
+  FrameVisibilityList,
   GsplatInfo,
   Health,
   InstanceInfo,
@@ -550,6 +551,45 @@ export class RuxApiClient {
     return this.postJson<DescriptorMatchResult>(
       `/frames/${frameA}/descriptor-match/${frameB}`,
       { method },
+      signal,
+    );
+  }
+
+  /**
+   * Sensor frames that see a world-space point, ranked by centrality (#453).
+   *
+   * The first frame in the result is the best "source image" for the point —
+   * the one where it projects closest to the principal point.
+   */
+  pointVisibility(
+    x: number,
+    y: number,
+    z: number,
+    options: { maxDepth?: number; limit?: number } = {},
+    signal?: AbortSignal,
+  ): Promise<FrameVisibilityList> {
+    return this.requestJson<FrameVisibilityList>(
+      '/frames/visibility',
+      { x, y, z, max_depth: options.maxDepth, limit: options.limit },
+      signal,
+    );
+  }
+
+  /**
+   * Sensor frames that see an instance's centroid, ranked by centrality (#453).
+   *
+   * Convenience wrapper over `/frames/visibility`: the server computes the
+   * centroid for the caller rather than requiring a two-step fetch.
+   */
+  instanceVisibility(
+    cloud: string,
+    instanceId: number,
+    options: { maxDepth?: number; limit?: number } = {},
+    signal?: AbortSignal,
+  ): Promise<FrameVisibilityList> {
+    return this.requestJson<FrameVisibilityList>(
+      `/instances/${encodeURIComponent(cloud)}/${instanceId}/frames`,
+      { max_depth: options.maxDepth, limit: options.limit },
       signal,
     );
   }

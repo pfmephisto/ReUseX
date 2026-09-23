@@ -497,6 +497,44 @@ export interface PoseGraph {
   edges: PoseGraphEdge[];
 }
 
+// ------------------------------------------------- frame visibility (#453) ----
+
+/**
+ * `VisibleFrame` — one frame in which a queried point projects inside the image.
+ *
+ * Mirror of `components.schemas.VisibleFrame` in `docs/gui/openapi.yaml`.
+ */
+export interface VisibleFrame {
+  /** DB node_id of the sensor frame. */
+  frame_id: number;
+  /** Normalised distance from principal point: 0 = dead centre, ~1 = corner. Sort key. */
+  centrality: number;
+  /** Higher-is-better complement: `1 - centrality`. */
+  score: number;
+  /** Point depth in the camera optical frame, metres (> 0). */
+  depth: number;
+  /** Projected pixel column (0 = left edge). */
+  u: number;
+  /** Projected pixel row (0 = top edge). */
+  v: number;
+}
+
+/**
+ * `FrameVisibilityList` — frames that see a world point, most central first.
+ *
+ * Mirror of `components.schemas.FrameVisibilityList`. The `count` is how many
+ * `frames` carries (bounded by `limit`); `total` is the full visible count.
+ */
+export interface FrameVisibilityList {
+  /** The queried world point [x, y, z] (a centroid for the instance variant). */
+  point: [number, number, number];
+  frames: VisibleFrame[];
+  /** Number of frames in this response. */
+  count: number;
+  /** Total visible frames, before the `limit` cap. */
+  total: number;
+}
+
 // ------------------------------------------------- frame-pair inspection ----
 
 /**

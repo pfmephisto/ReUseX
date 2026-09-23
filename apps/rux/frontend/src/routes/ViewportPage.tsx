@@ -2,16 +2,17 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { api } from '../api/client';
-import type { CloudInfo, GsplatInfo, MeshInfo, PanoramaInfo, PoseGraph, PoseGraphEdgeType } from '../api/types';
+import type { CloudInfo, FrameVisibilityList, GsplatInfo, MeshInfo, PanoramaInfo, PoseGraph, PoseGraphEdgeType } from '../api/types';
 import { useAsync } from '../app/useAsync';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { EmptyState } from '../components/EmptyState';
 import { LayerPanel, type BoxCorner } from '../components/LayerPanel';
 import { PanoramaBar } from '../components/PanoramaBar';
+import { SourceImagePanel } from '../components/SourceImagePanel';
 import { Spinner } from '../components/Spinner';
 import {
   Viewport,
@@ -179,6 +180,48 @@ export function ViewportPage() {
     setClippingMin(null);
     setClippingMax(null);
   }, []);
+
+  // --- source-image cross-reference (#454) -----------------------------------
+
+  const [pickMode, setPickMode] = useState(false);
+  const [pickedPoint, setPickedPoint] = useState<{ x: number; y: number; z: number } | null>(null);
+  const [visibility, setVisibility] = useState<FrameVisibilityList | null | undefined>(undefined);
+  const [visibilityError, setVisibilityError] = useState<Error | null>(null);
+  // Abort the in-flight fetch when the user picks a new point.
+  const visibilityAbortRef = useRef<AbortController | null>(null);
+
+  const handlePickPoint = useCallback((point: { x: number; y: number; z: number }) => {
+    visibilityAbortRef.current?.abort();
+    const controller = new AbortController();
+    visibilityAbortRef.current = controller;
+    setPickedPoint(point);
+    setPickMode(false);
+    setVisibility(null);
+    setVisibilityError(null);
+    api
+      .pointVisibility(point.x, point.y, point.z, { limit: 12 }, controller.signal)
+      .then((result) => {
+        if (!controller.signal.aborted) setVisibility(result);
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        setVisibilityError(error instanceof Error ? error : new Error(String(error)));
+      });
+  }, []);
+
+  const handleCloseSourcePanel = useCallback(() => {
+    visibilityAbortRef.current?.abort();
+    setPickedPoint(null);
+    setVisibility(undefined);
+    setVisibilityError(null);
+  }, []);
+
+  const handleOpenFrame = useCallback(
+    (frameId: number) => {
+      navigate(`/frames?frame=${frameId}`);
+    },
+    [navigate],
+  );
 
   // `?splat=<name>` deep-links one on. Otherwise every splat starts off: the
   // blob is hundreds of megabytes where a cloud streams in pages, so loading
@@ -466,6 +509,8 @@ export function ViewportPage() {
           max: clippingMax,
           onBoxChange: handleClippingBoxChange,
         }}
+        pickMode={pickMode}
+        onPickPoint={handlePickPoint}
         overlay={
           immersive && activePano ? (
             <PanoramaBar
@@ -480,7 +525,21 @@ export function ViewportPage() {
               onStep={stepBy}
               onExit={() => enterPanorama(null)}
             />
-          ) : null
+          ) : (
+            <>
+              {!immersive && (
+                <PickButton active={pickMode} onToggle={() => setPickMode((m) => !m)} />
+              )}
+              {pickedPoint !== null && (
+                <SourceImagePanel
+                  visibility={visibility}
+                  error={visibilityError}
+                  onClose={handleCloseSourcePanel}
+                  onOpenFrame={handleOpenFrame}
+                />
+              )}
+            </>
+          )
         }
       />
       <LayerPanel
@@ -576,5 +635,43 @@ export function ViewportPage() {
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Small overlay toggle for point-pick mode (#454).
+ *
+ * Positioned at the top-left of the viewport canvas so it does not overlap the
+ * SourceImagePanel (top-right) or the PanoramaBar (top-center). Uses inline
+ * styles built from design tokens so no extra CSS module is needed for a
+ * two-state icon button.
+ */
+function PickButton({ active, onToggle }: { active: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      title={active ? 'Cancel pick (click a point in the cloud to inspect source images)' : 'Pick a point to find source images'}
+      aria-pressed={active}
+      style={{
+        position: 'absolute',
+        top: 'var(--space-3)',
+        left: 'var(--space-3)',
+        zIndex: 10,
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 'var(--space-1)',
+        padding: 'var(--space-1) var(--space-2)',
+        border: `1px solid ${active ? 'var(--color-accent)' : 'var(--color-border-strong)'}`,
+        borderRadius: 'var(--radius-sm)',
+        background: active ? 'var(--color-accent-muted)' : 'var(--color-surface-raised)',
+        color: active ? 'var(--color-accent)' : 'var(--color-text-muted)',
+        fontFamily: 'var(--font-sans)',
+        fontSize: 'var(--font-size-xs)',
+        cursor: 'pointer',
+      }}
+    >
+      ⊕ {active ? 'Cancel pick' : 'Pick point'}
+    </button>
   );
 }

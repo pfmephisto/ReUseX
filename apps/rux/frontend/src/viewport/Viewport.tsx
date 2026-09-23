@@ -175,6 +175,19 @@ export interface ViewportProps {
    * `<Viewport>` would position itself against the page instead.
    */
   overlay?: ReactNode;
+
+  /**
+   * Point-pick mode (#454).
+   *
+   * When true the orbit controls are suspended; the next pointer-up that did not
+   * move more than 4 px picks the nearest point-cloud point and calls
+   * `onPickPoint` with its world-space coordinates.  The host is responsible for
+   * toggling this back off (e.g. after the panel opens) if it only wants a single
+   * pick per mode-entry.
+   */
+  pickMode?: boolean;
+  /** Called with the world-space point the user just picked (#454). */
+  onPickPoint?: (point: { x: number; y: number; z: number }) => void;
 }
 
 /** Load state of the panorama backdrop, as the page reports it. */
@@ -216,6 +229,8 @@ export function Viewport({
   poseGraphNodeColorMode,
   clipping,
   overlay,
+  pickMode = false,
+  onPickPoint,
 }: ViewportProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [scene, setScene] = useState<PointCloudScene | null>(null);
@@ -379,8 +394,14 @@ export function Viewport({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scene, activeId, activeUrl]);
 
+  // Suspend orbit controls while pick mode is active so a click does not also
+  // start an orbit drag.
+  useEffect(() => {
+    scene?.setControlsEnabled(!pickMode);
+  }, [scene, pickMode]);
+
   /**
-   * Click-to-enter.
+   * Click-to-enter / click-to-pick.
    *
    * `pointerup` with a movement threshold rather than `click`, because a drag
    * that happens to end over a marker is an orbit, not a request to teleport
@@ -393,16 +414,25 @@ export function Viewport({
   const handlePointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
     const start = pressedAt.current;
     pressedAt.current = null;
-    if (!start || !scene || !onPickPanorama || !showPanoramaMarkers) return;
+    if (!start || !scene) return;
     if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > 4) return;
 
-    const layer = panoramaRef.current;
-    if (!layer) return;
     const bounds = event.currentTarget.getBoundingClientRect();
     const ndc = new THREE.Vector2(
       ((event.clientX - bounds.left) / bounds.width) * 2 - 1,
       -((event.clientY - bounds.top) / bounds.height) * 2 + 1,
     );
+
+    // Point-pick mode: raycasts the cloud geometry and calls onPickPoint (#454).
+    if (pickMode && onPickPoint) {
+      const world = scene.pickCloudPoint(ndc);
+      if (world) onPickPoint({ x: world.x, y: world.y, z: world.z });
+      return;
+    }
+
+    // Panorama-marker picking (original behaviour).
+    const layer = panoramaRef.current;
+    if (!layer || !onPickPanorama || !showPanoramaMarkers) return;
     for (const hit of scene.pick(ndc, layer.markerObjects())) {
       const id = layer.panoramaIdOf(hit.object);
       if (id !== null) {
@@ -414,7 +444,7 @@ export function Viewport({
 
   return (
     <div
-      className={styles.host}
+      className={`${styles.host}${pickMode ? ` ${styles.pickMode}` : ''}`}
       onPointerDown={handlePointerDown}
       onPointerUp={handlePointerUp}
     >

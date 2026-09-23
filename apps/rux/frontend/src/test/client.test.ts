@@ -416,6 +416,51 @@ describe('error mapping', () => {
   });
 });
 
+describe('point visibility', () => {
+  const VISIBILITY_FIXTURE = {
+    point: [1.0, 2.0, 3.0] as [number, number, number],
+    frames: [
+      { frame_id: 42, centrality: 0.1, score: 0.9, depth: 2.5, u: 320, v: 240 },
+      { frame_id: 7, centrality: 0.4, score: 0.6, depth: 1.8, u: 100, v: 200 },
+    ],
+    count: 2,
+    total: 5,
+  };
+
+  it('calls /frames/visibility with x/y/z query params', async () => {
+    const { api, calls } = clientFor(VISIBILITY_FIXTURE);
+    await api.pointVisibility(1.0, 2.0, 3.0);
+    expect(calls[0].url).toBe('/api/v1/frames/visibility?x=1&y=2&z=3');
+  });
+
+  it('passes optional limit and max_depth to the server', async () => {
+    const { api, calls } = clientFor(VISIBILITY_FIXTURE);
+    await api.pointVisibility(0.5, -1.5, 4.2, { limit: 10, maxDepth: 5 });
+    expect(calls[0].url).toBe('/api/v1/frames/visibility?x=0.5&y=-1.5&z=4.2&max_depth=5&limit=10');
+  });
+
+  it('returns the ranked FrameVisibilityList body', async () => {
+    const { api } = clientFor(VISIBILITY_FIXTURE);
+    const result = await api.pointVisibility(1.0, 2.0, 3.0);
+    expect(result.total).toBe(5);
+    expect(result.count).toBe(2);
+    expect(result.frames[0].frame_id).toBe(42);
+    expect(result.frames[0].score).toBe(0.9);
+  });
+
+  it('calls /instances/{cloud}/{id}/frames for instance visibility', async () => {
+    const { api, calls } = clientFor(VISIBILITY_FIXTURE);
+    await api.instanceVisibility('instances', 3);
+    expect(calls[0].url).toBe('/api/v1/instances/instances/3/frames');
+  });
+
+  it('passes optional limit to instanceVisibility', async () => {
+    const { api, calls } = clientFor(VISIBILITY_FIXTURE);
+    await api.instanceVisibility('instances', 3, { limit: 6 });
+    expect(calls[0].url).toBe('/api/v1/instances/instances/3/frames?limit=6');
+  });
+});
+
 describe('eventsUrl', () => {
   it('derives ws:// from an http origin', () => {
     const { api } = clientFor(HEALTH);

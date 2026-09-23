@@ -1,0 +1,144 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: var(--layout-panel-width);
+  flex: none;
+  padding: var(--space-4);
+  background: var(--color-surface-raised);
+  border-left: 1px solid var(--color-border);
+  /* The list scrolls inside .list; the header, note and marker toggle stay put. */
+  overflow: hidden;
+  z-index: var(--z-panel);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex: none;
+}
+
+.heading {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-faint);
+}
+
+.close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: var(--space-5);
+  height: var(--space-5);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-sunken);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-tight);
+}
+
+.close:hover {
+  background: var(--color-surface-overlay);
+  color: var(--color-text);
+}
+
+.note {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-faint);
+  flex: none;
+}
+
+.markerToggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+  flex: none;
+  min-width: 0;
+}
+
+.markerLabel {
+  font-size: var(--font-size-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.checkbox {
+  accent-color: var(--color-accent);
+  flex: none;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  /* This is what keeps the panel compact regardless of panorama count. */
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.panorama {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--color-text);
+  text-align: left;
+  min-width: 0;
+}
+
+.panorama:hover:not(:disabled) {
+  background: var(--color-surface-overlay);
+}
+
+.panorama:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.panoramaActive {
+  background: var(--color-accent-muted);
+  border-color: var(--color-border-focus);
+}
+
+.thumbnail {
+  /* 2:1 — every equirect is, and a thumbnail that is not looks cropped. */
+  width: 64px;
+  height: 32px;
+  flex: none;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-sunken);
+}
+
+.panoramaText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.panoramaName {
+  font-size: var(--font-size-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -12,6 +12,7 @@ export * from './components/LayerPanel';
 export * from './components/LayerRow';
 export * from './components/NavRail';
 export * from './components/PanoramaBar';
+export * from './components/PanoramaPanel';
 export * from './components/ParameterForm';
 export * from './components/PipelineLogList';
 export * from './components/Spinner';

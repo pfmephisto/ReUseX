@@ -2,23 +2,20 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { api } from '../api/client';
+import { useState, type ReactNode } from 'react';
+
 import type { CloudInfo, GsplatInfo, MeshInfo, PanoramaInfo, PoseGraph } from '../api/types';
 import type { ColorMode } from '../viewport/PointCloudScene';
 import type { CloudStreamState } from '../viewport/useCloudStream';
 import type { MeshLayerState, SplatLayerState } from '../viewport/Viewport';
 import { describeGsplat, gsplatNote } from '../viewport/gsplatLayer';
 import { describeMesh, meshNote } from '../viewport/meshLayer';
-import {
-  describePlacement,
-  panoramaNote,
-  resolvePlacement,
-  type PanoramaPlacement,
-} from '../viewport/panorama';
+import { panoramaNote } from '../viewport/panorama';
 import { posegraphNote } from '../viewport/posegraphLayer';
 import { EmptyState } from './EmptyState';
 import { LabelLegend } from './LabelLegend';
 import { LayerRow } from './LayerRow';
+import { PanoramaPanel } from './PanoramaPanel';
 import styles from './LayerPanel.module.css';
 
 /** Everything the panel needs about the PLY mesh layers (#265, review pt 2). */
@@ -129,6 +126,10 @@ export interface LayerPanelProps {
  * This is the discoverable replacement for `rux view`'s keyboard vocabulary —
  * the design brief's "interaction seed". Every control here corresponds to a
  * keypress an architect would otherwise have had to be told about.
+ *
+ * Sections are collapsible and the 360 panorama list lives in its own surface
+ * (`PanoramaPanel`, #442), so the panel stays short regardless of how many
+ * clouds, meshes, splats or panoramas a project has.
  */
 export function LayerPanel({
   clouds,
@@ -151,106 +152,150 @@ export function LayerPanel({
 }: LayerPanelProps) {
   const activeLabelCloud = labelSources.find((cloud) => cloud.name === labelCloud);
 
+  // The 360 list is its own surface, opened on demand from the compact trigger
+  // in the panorama section. Closed by default so the page opens compact.
+  const [panoramaOpen, setPanoramaOpen] = useState(false);
+
   return (
-    <aside className={styles.panel} aria-label="Layers">
-      <section className={styles.section}>
-        <h2 className={styles.heading}>Clouds</h2>
-        {clouds.length === 0 ? (
-          <EmptyState
-            title="No renderable clouds"
-            detail="Run `rux create clouds` to back-project the sensor frames into a fused cloud."
+    <>
+      {panorama && panoramaOpen && (
+        <PanoramaPanel panorama={panorama} onClose={() => setPanoramaOpen(false)} />
+      )}
+
+      <aside className={styles.panel} aria-label="Layers">
+        <Section title="Clouds">
+          {clouds.length === 0 ? (
+            <EmptyState
+              title="No renderable clouds"
+              detail="Run `rux create clouds` to back-project the sensor frames into a fused cloud."
+            />
+          ) : (
+            <div className={styles.layers}>
+              {clouds.map((cloud) => (
+                <LayerRow
+                  key={cloud.name}
+                  cloud={cloud}
+                  visible={visible[cloud.name] ?? false}
+                  progress={progress[cloud.name]}
+                  onToggle={(next) => onToggleLayer(cloud.name, next)}
+                />
+              ))}
+            </div>
+          )}
+        </Section>
+
+        {mesh && <MeshSection mesh={mesh} />}
+
+        {splat && <SplatSection splat={splat} />}
+
+        {panorama && (
+          <PanoramaTrigger
+            panorama={panorama}
+            open={panoramaOpen}
+            onToggle={() => setPanoramaOpen((open) => !open)}
           />
-        ) : (
-          <div className={styles.layers}>
-            {clouds.map((cloud) => (
-              <LayerRow
-                key={cloud.name}
-                cloud={cloud}
-                visible={visible[cloud.name] ?? false}
-                progress={progress[cloud.name]}
-                onToggle={(next) => onToggleLayer(cloud.name, next)}
-              />
-            ))}
+        )}
+
+        {posegraph && <PoseGraphSection posegraph={posegraph} />}
+
+        <Section title="Colour">
+          <div className={styles.modes} role="group" aria-label="Colour mode">
+            <button
+              type="button"
+              className={`${styles.mode} ${colorMode === 'rgb' ? styles.modeActive : ''}`}
+              onClick={() => onColorModeChange('rgb')}
+            >
+              Sensor RGB
+            </button>
+            <button
+              type="button"
+              className={`${styles.mode} ${colorMode === 'label' ? styles.modeActive : ''}`}
+              onClick={() => onColorModeChange('label')}
+              disabled={labelCloud === null}
+              title={labelCloud === null ? 'Select a label source first' : undefined}
+            >
+              Labels
+            </button>
           </div>
-        )}
-      </section>
 
-      {mesh && <MeshSection mesh={mesh} />}
+          <label className={styles.field}>
+            <span className={styles.fieldLabel}>Label source</span>
+            <select
+              className={styles.select}
+              value={labelCloud ?? ''}
+              onChange={(event) => onLabelCloudChange(event.target.value || null)}
+              disabled={labelSources.length === 0}
+            >
+              <option value="">None</option>
+              {labelSources.map((cloud) => (
+                <option key={cloud.name} value={cloud.name}>
+                  {cloud.name}
+                </option>
+              ))}
+            </select>
+          </label>
 
-      {splat && <SplatSection splat={splat} />}
+          {labelSources.length === 0 && labelSourceNote && (
+            <p className={styles.note}>{labelSourceNote}</p>
+          )}
 
-      {panorama && <PanoramaSection panorama={panorama} />}
+          {colorMode === 'label' && activeLabelCloud?.labels && (
+            <LabelLegend labels={activeLabelCloud.labels} />
+          )}
+        </Section>
 
-      {posegraph && <PoseGraphSection posegraph={posegraph} />}
-
-      <section className={styles.section}>
-        <h2 className={styles.heading}>Colour</h2>
-        <div className={styles.modes} role="group" aria-label="Colour mode">
-          <button
-            type="button"
-            className={`${styles.mode} ${colorMode === 'rgb' ? styles.modeActive : ''}`}
-            onClick={() => onColorModeChange('rgb')}
-          >
-            Sensor RGB
+        <Section title="Display">
+          <label className={styles.field}>
+            <span className={styles.fieldLabel}>
+              Point size <span className="mono">{pointSize.toFixed(3)} m</span>
+            </span>
+            <input
+              type="range"
+              min={0.002}
+              max={0.12}
+              step={0.002}
+              value={pointSize}
+              onChange={(event) => onPointSizeChange(Number(event.target.value))}
+              className={styles.range}
+            />
+          </label>
+          <button type="button" className={styles.action} onClick={onFrame}>
+            Frame all
           </button>
-          <button
-            type="button"
-            className={`${styles.mode} ${colorMode === 'label' ? styles.modeActive : ''}`}
-            onClick={() => onColorModeChange('label')}
-            disabled={labelCloud === null}
-            title={labelCloud === null ? 'Select a label source first' : undefined}
-          >
-            Labels
-          </button>
-        </div>
+        </Section>
+      </aside>
+    </>
+  );
+}
 
-        <label className={styles.field}>
-          <span className={styles.fieldLabel}>Label source</span>
-          <select
-            className={styles.select}
-            value={labelCloud ?? ''}
-            onChange={(event) => onLabelCloudChange(event.target.value || null)}
-            disabled={labelSources.length === 0}
-          >
-            <option value="">None</option>
-            {labelSources.map((cloud) => (
-              <option key={cloud.name} value={cloud.name}>
-                {cloud.name}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        {labelSources.length === 0 && labelSourceNote && (
-          <p className={styles.note}>{labelSourceNote}</p>
-        )}
-
-        {colorMode === 'label' && activeLabelCloud?.labels && (
-          <LabelLegend labels={activeLabelCloud.labels} />
-        )}
-      </section>
-
-      <section className={styles.section}>
-        <h2 className={styles.heading}>Display</h2>
-        <label className={styles.field}>
-          <span className={styles.fieldLabel}>
-            Point size <span className="mono">{pointSize.toFixed(3)} m</span>
-          </span>
-          <input
-            type="range"
-            min={0.002}
-            max={0.12}
-            step={0.002}
-            value={pointSize}
-            onChange={(event) => onPointSizeChange(Number(event.target.value))}
-            className={styles.range}
-          />
-        </label>
-        <button type="button" className={styles.action} onClick={onFrame}>
-          Frame all
-        </button>
-      </section>
-    </aside>
+/**
+ * A collapsible panel section (#442).
+ *
+ * `<details>`/`<summary>` rather than hand-rolled open state: it is keyboard-
+ * and screen-reader-accessible for free, and collapsing a section is what keeps
+ * the panel short no matter how many meshes, splats or clouds a project has.
+ * Open by default so nothing an architect relies on is hidden until they choose
+ * to hide it.
+ */
+function Section({
+  title,
+  children,
+  defaultOpen = true,
+}: {
+  title: string;
+  children: ReactNode;
+  defaultOpen?: boolean;
+}) {
+  return (
+    <details className={styles.section} open={defaultOpen}>
+      <summary className={styles.summary}>
+        <span className={styles.chevron} aria-hidden="true">
+          ▸
+        </span>
+        {title}
+      </summary>
+      {children}
+    </details>
   );
 }
 
@@ -270,9 +315,7 @@ function MeshSection({ mesh }: { mesh: MeshPanelState }) {
   const note = meshNote(items, error);
 
   return (
-    <section className={styles.section}>
-      <h2 className={styles.heading}>Mesh</h2>
-
+    <Section title="Mesh">
       {note && <p className={styles.note}>{note}</p>}
 
       {(items ?? []).map((info) => {
@@ -319,7 +362,7 @@ function MeshSection({ mesh }: { mesh: MeshPanelState }) {
           </div>
         );
       })}
-    </section>
+    </Section>
   );
 }
 
@@ -341,9 +384,7 @@ function SplatSection({ splat }: { splat: SplatPanelState }) {
   const note = gsplatNote(items, error);
 
   return (
-    <section className={styles.section}>
-      <h2 className={styles.heading}>Gaussian splats</h2>
-
+    <Section title="Gaussian splats">
       {note && <p className={styles.note}>{note}</p>}
 
       {(items ?? []).map((info) => {
@@ -385,74 +426,47 @@ function SplatSection({ splat }: { splat: SplatPanelState }) {
           </div>
         );
       })}
-    </section>
+    </Section>
   );
 }
 
 /**
- * One row per 360 panorama, and the reason there are none.
+ * The compact 360-panorama entry in the layer panel (#442).
  *
- * The rows are buttons, not toggles: entering a panorama is a *place to
- * stand*, and only one can be occupied at a time — a checkbox would promise a
- * combination the viewport cannot show. A panorama the project cannot place
- * (no aligned pose, no matched frame pose) is listed and disabled rather than
- * hidden, so "this panorama exists but nothing knows where it was taken" is
- * visible instead of looking like a missing import.
- *
- * The thumbnail is fetched at `max_size=128`. At full resolution a strip of
- * twenty of these is tens of megabytes, which is exactly the reason that
- * parameter was added to the contract for this phase.
+ * The per-image list itself lives in `PanoramaPanel`, a surface of its own, so
+ * a project with twenty panoramas no longer buries the Colour and Display
+ * controls. What stays here is the reason there are none (when there are none)
+ * and a single button to open that surface — the "interaction seed" for 360
+ * mode, discoverable without listing every image inline.
  */
-function PanoramaSection({ panorama }: { panorama: PanoramaPanelState }) {
-  const { items, error, activeId, markersVisible, onMarkersVisibleChange, onEnter } = panorama;
+function PanoramaTrigger({
+  panorama,
+  open,
+  onToggle,
+}: {
+  panorama: PanoramaPanelState;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const { items, error } = panorama;
   const note = panoramaNote(items, error);
+  const count = (items ?? []).length;
 
   return (
-    <section className={styles.section}>
-      <h2 className={styles.heading}>360 panoramas</h2>
-
+    <Section title="360 panoramas">
       {note && <p className={styles.note}>{note}</p>}
 
-      {(items ?? []).length > 0 && (
-        <label className={styles.splatToggle}>
-          <input
-            type="checkbox"
-            checked={markersVisible}
-            onChange={(event) => onMarkersVisibleChange(event.target.checked)}
-            className={styles.checkbox}
-          />
-          <span className={styles.splatName}>Show capture positions</span>
-        </label>
+      {count > 0 && (
+        <button
+          type="button"
+          className={`${styles.action} ${open ? styles.actionActive : ''}`}
+          onClick={onToggle}
+          aria-expanded={open}
+        >
+          {open ? 'Hide panoramas' : `Browse panoramas (${count})`}
+        </button>
       )}
-
-      {(items ?? []).map((info) => {
-        const placement: PanoramaPlacement | null = resolvePlacement(info);
-        const active = activeId === info.id;
-        return (
-          <button
-            key={info.id}
-            type="button"
-            className={`${styles.panorama} ${active ? styles.panoramaActive : ''}`}
-            disabled={placement === null}
-            aria-pressed={active}
-            onClick={() => onEnter(active ? null : info.id)}
-          >
-            <img
-              className={styles.thumbnail}
-              src={api.panoramaImageUrl(info.id, { maxSize: 128 })}
-              alt=""
-              loading="lazy"
-            />
-            <span className={styles.panoramaText}>
-              <span className={styles.panoramaName} title={info.filename}>
-                {info.filename}
-              </span>
-              <span className={styles.note}>{describePlacement(info, placement)}</span>
-            </span>
-          </button>
-        );
-      })}
-    </section>
+    </Section>
   );
 }
 
@@ -468,9 +482,7 @@ function PoseGraphSection({ posegraph }: { posegraph: PoseGraphPanelState }) {
   const note = posegraphNote(graph, error);
 
   return (
-    <section className={styles.section}>
-      <h2 className={styles.heading}>Pose graph</h2>
-
+    <Section title="Pose graph">
       {note && <p className={styles.note}>{note}</p>}
 
       {(graph?.nodes.length ?? 0) > 0 && (
@@ -484,6 +496,6 @@ function PoseGraphSection({ posegraph }: { posegraph: PoseGraphPanelState }) {
           <span className={styles.splatName}>Show pose graph</span>
         </label>
       )}
-    </section>
+    </Section>
   );
 }

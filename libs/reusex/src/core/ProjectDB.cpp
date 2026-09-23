@@ -1466,7 +1466,14 @@ class ProjectDB::Impl {
     if (sqlite3_exec(db, v19_schema, nullptr, nullptr, &errMsg) != SQLITE_OK) {
       std::string error = errMsg ? errMsg : "unknown error";
       sqlite3_free(errMsg);
-      throw std::runtime_error("Migration to v19 failed: " + error);
+      // A fresh DB gets material_property_definitions from createTables() with
+      // `width` already present, and then this migration runs over the top of
+      // it — so a "duplicate column" here is expected and harmless, exactly as
+      // in migrateToV3/V5/V8. Without this guard every fresh ProjectDB open
+      // throws.
+      if (error.find("duplicate column") == std::string::npos) {
+        throw std::runtime_error("Migration to v19 failed: " + error);
+      }
     }
 
     insertSchemaVersion(19, "Add width to material_property_definitions");

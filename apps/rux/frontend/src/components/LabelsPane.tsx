@@ -25,6 +25,21 @@ import { WriteBanner } from './WriteBanner';
 import styles from './LabelsPane.module.css';
 
 /**
+ * Names of the geometry-segmentation label clouds — produced by
+ * `rux create planes` and `rux create rooms`. Everything else (including
+ * `instances` and any annotation-derived cloud) is semantic.
+ *
+ * NOTE: when the backend adds a `label_kind` field to `CloudInfo` this set
+ * becomes the fallback and the field takes precedence.
+ */
+export const GEOMETRY_CLOUD_NAMES = new Set(['planes', 'rooms']);
+
+/** Classify a Label cloud as geometry or semantic by its well-known name. */
+export function labelKind(name: string): 'geometry' | 'semantic' {
+  return GEOMETRY_CLOUD_NAMES.has(name) ? 'geometry' : 'semantic';
+}
+
+/**
  * The label legend editor.
  *
  * Renames existing classes — it cannot create them, and the server enforces
@@ -47,17 +62,30 @@ import styles from './LabelsPane.module.css';
  * the colour of those points in the viewport.
  */
 export interface LabelsPaneProps {
+  /**
+   * Which category of Label clouds to show.
+   *
+   * `geometry` → structural segmentation clouds (`planes`, `rooms`).
+   * `semantic` → object-class clouds (`instances` and annotation-derived ones).
+   *
+   * Classified by {@link labelKind}; when the backend gains a `label_kind`
+   * field on `CloudInfo`, replace the name-based heuristic with that field.
+   */
+  kind: 'geometry' | 'semantic';
   /** Selected Label cloud, carried in the URL by the page. */
   cloud: string | null;
   onCloudChange: (cloud: string | null) => void;
 }
 
-export function LabelsPane({ cloud, onCloudChange }: LabelsPaneProps) {
+export function LabelsPane({ kind, cloud, onCloudChange }: LabelsPaneProps) {
   const clouds = useAsync((signal) => api.clouds(signal), []);
 
   const labelClouds = useMemo(
-    () => (clouds.data ?? []).filter((entry: CloudInfo) => entry.type === 'Label'),
-    [clouds.data],
+    () =>
+      (clouds.data ?? []).filter(
+        (entry: CloudInfo) => entry.type === 'Label' && labelKind(entry.name) === kind,
+      ),
+    [clouds.data, kind],
   );
 
   const active =
@@ -73,12 +101,11 @@ export function LabelsPane({ cloud, onCloudChange }: LabelsPaneProps) {
   if (!clouds.data) return <Spinner label="Reading clouds…" />;
 
   if (labelClouds.length === 0) {
-    return (
-      <EmptyState
-        title="No label clouds"
-        detail="`rux create planes`, `rooms` or `instances` produce the Label clouds whose legends are edited here."
-      />
-    );
+    const emptyDetail =
+      kind === 'geometry'
+        ? '`rux create planes` and `rux create rooms` produce the geometry Label clouds edited here.'
+        : '`rux create instances` (and annotation-derived clouds) produce the semantic Label clouds edited here.';
+    return <EmptyState title={`No ${kind} label clouds`} detail={emptyDetail} />;
   }
 
   return (

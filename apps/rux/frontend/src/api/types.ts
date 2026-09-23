@@ -342,6 +342,23 @@ export interface InstanceInfo {
   material_guid?: string | null;
 }
 
+/**
+ * `VisibleFrame` — one entry from `/frames/visibility` or
+ * `/instances/{cloud}/{id}/frames`.
+ *
+ * `centrality` is the sort key (ascending): 0 at the principal point
+ * (most central), ~1 at a corner.  `score` is the higher-is-better
+ * complement (`1 - centrality`).
+ */
+export interface VisibleFrame {
+  frame_id: number;
+  centrality: number;
+  score: number;
+  depth: number;
+  u: number;
+  v: number;
+}
+
 /** `ValidationIssue` — one finding of a stage's input-contract check. */
 export interface ValidationIssue {
   /** Machine-readable check id, e.g. `missing_stage_input`. */

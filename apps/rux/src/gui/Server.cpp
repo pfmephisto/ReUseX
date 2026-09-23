@@ -836,6 +836,16 @@ class Server::Impl {
           });
         });
 
+    app_.route_dynamic("/api/v1/instances/<string>/<int>/material")
+        .methods(crow::HTTPMethod::PUT)([this](const crow::request &req,
+                                               std::string cloud,
+                                               int instance_id) {
+          return with_write([&](reusex::ProjectDB &db) {
+            return json_response(
+                200, link_instance_material(db, cloud, instance_id, req.body));
+          });
+        });
+
     // ---- pose graph ----
     get("/api/v1/posegraph")([this](const crow::request &) {
       return with_db([](const reusex::ProjectDB &db) {

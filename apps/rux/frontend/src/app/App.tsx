@@ -12,6 +12,7 @@ import { ExportPage } from '../routes/ExportPage';
 import { FramesPage } from '../routes/FramesPage';
 import { GeometryPage } from '../routes/GeometryPage';
 import { GraphViewPage } from '../routes/GraphViewPage';
+import { InstancesPage } from '../routes/InstancesPage';
 import { MaterialsPage } from '../routes/MaterialsPage';
 import { PipelineLogPage } from '../routes/PipelineLogPage';
 import { PipelinePage } from '../routes/PipelinePage';
@@ -64,6 +65,7 @@ function RoutedContent() {
           <Route path="/frames" element={<FramesPage />} />
           <Route path="/graph-view" element={<GraphViewPage />} />
           <Route path="/geometry" element={<GeometryPage />} />
+          <Route path="/instances" element={<InstancesPage />} />
           <Route path="/materials" element={<MaterialsPage />} />
           <Route path="/labels" element={<LabelsPage />} />
           <Route path="/export" element={<ExportPage />} />

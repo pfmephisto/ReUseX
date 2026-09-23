@@ -52,6 +52,7 @@ import type {
   PropertyDefinition,
   StageInfo,
   TextureInfo,
+  VisibleFrame,
 } from './types';
 
 /** Default base path. Relative on purpose — see rule 1 above. */
@@ -222,6 +223,21 @@ export class RuxApiClient {
       // Required by the server on every mutating route — see rule 2 above.
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body ?? {}),
+      signal,
+    });
+    if (!response.ok) {
+      throw new ApiRequestError(response.status, await describeFailure(response), url);
+    }
+    return (await response.json()) as T;
+  }
+
+  /** Full replacement of a resource, with a JSON body. */
+  private async putJson<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
+    const url = this.url(path);
+    const response = await this.doFetch(url, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
       signal,
     });
     if (!response.ok) {
@@ -760,6 +776,43 @@ export class RuxApiClient {
       signal,
     );
     return body.instances;
+  }
+
+  /**
+   * Link a material passport to an instance (upsert).
+   *
+   * The material must already exist — mint one with {@link createMaterial} first.
+   * Returns the updated instance row.
+   */
+  async linkInstanceMaterial(
+    cloud: string,
+    instanceId: number,
+    materialGuid: string,
+  ): Promise<InstanceInfo> {
+    return this.putJson<InstanceInfo>(
+      `/instances/${encodeURIComponent(cloud)}/${instanceId}/material`,
+      { guid: materialGuid },
+    );
+  }
+
+  /**
+   * Fetch the ranked source frames for an instance centroid.
+   *
+   * Returns the `frames` array from the `/instances/{cloud}/{id}/frames`
+   * response, which is the same shape as `/frames/visibility`.  The top
+   * element (index 0) is the most-central frame — the "best" source image.
+   */
+  async instanceFrames(
+    cloud: string,
+    instanceId: number,
+    signal?: AbortSignal,
+  ): Promise<VisibleFrame[]> {
+    const body = await this.requestJson<{ frames: VisibleFrame[] }>(
+      `/instances/${encodeURIComponent(cloud)}/${instanceId}/frames`,
+      undefined,
+      signal,
+    );
+    return body.frames ?? [];
   }
 
   // --------------------------------------------------------- pipeline ----

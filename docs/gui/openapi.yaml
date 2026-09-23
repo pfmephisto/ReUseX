@@ -1420,6 +1420,61 @@ paths:
               schema: { $ref: "#/components/schemas/Error" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
+  /instances/{cloud}/{id}/material:
+    put:
+      tags: [instances]
+      operationId: linkInstanceMaterial
+      summary: Link a material passport to an instance (upsert)
+      description: |
+        Creates or replaces the instance→material link. The material passport
+        must already exist — mint one with `POST /materials` first. An existing
+        link is replaced atomically; there is no partial state.
+
+        This is a write endpoint: it is refused with **409** while a pipeline
+        job holds the project's writer lock, and with **503** if the lock could
+        not be taken within the server's timeout window.
+      parameters:
+        - name: cloud
+          in: path
+          required: true
+          description: Name of the instance-label cloud (usually `instances`).
+          schema: { type: string }
+        - name: id
+          in: path
+          required: true
+          description: Instance id (the label value in the instance cloud, >= 1).
+          schema: { type: integer, minimum: 1 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [guid]
+              properties:
+                guid:
+                  type: string
+                  description: GUID of the material passport to link.
+      responses:
+        "200":
+          description: The updated instance row
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InstanceInfo" }
+        "400":
+          description: Body was not a JSON object or `guid` was missing / not a string
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404":
+          description: The cloud, the instance id, or the material passport does not exist
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "503": { $ref: "#/components/responses/WriterBusy" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
   # ------------------------------------------------------------ pipeline ----
   /stages:
     get:

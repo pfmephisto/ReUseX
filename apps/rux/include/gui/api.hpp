@@ -402,6 +402,18 @@ nlohmann::json instance_frames_json(const reusex::ProjectDB &db,
                                     const std::string &cloud, int instance_id,
                                     const Params &params);
 
+/// Link or replace a material passport on an instance (upsert on
+/// (cloud, instance_id)).  Returns the updated InstanceInfo JSON for that
+/// single row.
+///
+/// @throws HttpError(400) when the body is not a JSON object or `guid` is
+///         missing or not a string.
+/// @throws HttpError(404) when @p cloud is unknown, the instance_id is not in
+///         the cloud's instance table, or the material passport does not exist.
+nlohmann::json link_instance_material(reusex::ProjectDB &db,
+                                      const std::string &cloud, int instance_id,
+                                      const std::string &body);
+
 // --- pipeline -------------------------------------------------------------
 
 nlohmann::json stages_json(const reusex::ProjectDB &db);

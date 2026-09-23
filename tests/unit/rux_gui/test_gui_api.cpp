@@ -18,6 +18,7 @@
 #include "../../support/pose_fixture.hpp"
 #include "../../support/temp_path.hpp"
 
+#include <core/MaterialPassport.hpp>
 #include <core/ProjectDB.hpp>
 #include <core/SensorIntrinsics.hpp>
 #include <pipeline/JobRunner.hpp>
@@ -41,6 +42,15 @@ namespace {
 
 using reusex::test_support::TempDir;
 using reusex::test_support::TempPath;
+
+// Add a material passport with the given document guid to `db`.
+void add_passport(reusex::ProjectDB &db, const std::string &guid) {
+  reusex::core::MaterialPassport p;
+  p.metadata.document_guid = guid;
+  p.metadata.creation_date = "2025-01-01T00:00:00Z";
+  p.metadata.version_number = "1.0.0";
+  db.add_material_passport(p, "test-project");
+}
 
 void write_file(const fs::path &path, std::string_view content) {
   fs::create_directories(path.parent_path());
@@ -137,6 +147,7 @@ TEST_CASE("EndpointTable_DocumentedRoutes_MatchesContract", "[gui][routes]") {
       "DELETE /api/v1/material-columns/<string>",
       "GET /api/v1/instances/<string>",
       "GET /api/v1/instances/<string>/<int>/frames",
+      "PUT /api/v1/instances/<string>/<int>/material",
       "GET /api/v1/stages",
       "GET /api/v1/stages/<string>/validation",
       "GET /api/v1/pipeline-log",
@@ -748,6 +759,83 @@ TEST_CASE("InstancesJson_SavedInstances_ReportsGuidAndMaterialLink",
   // Unlinked instances report null rather than omitting the key, so a client
   // never has to distinguish "absent" from "unlinked".
   CHECK(first.at("material_guid").is_null());
+}
+
+TEST_CASE("LinkInstanceMaterial_UnknownCloud_Is404", "[gui][instances]") {
+  TempPath project("test_gui_api_link");
+  reusex::ProjectDB db(project.path);
+  CHECK_THROWS_AS(
+      link_instance_material(db, "no-such-cloud", 1, R"({"guid":"g"})"),
+      HttpError);
+}
+
+TEST_CASE("LinkInstanceMaterial_UnknownInstance_Is404", "[gui][instances]") {
+  TempPath project("test_gui_api_link");
+  reusex::ProjectDB db(project.path);
+
+  reusex::CloudL labels;
+  reusex::LabelT lbl;
+  lbl.label = 1;
+  labels.push_back(lbl);
+  labels.width = 1;
+  labels.height = 1;
+  db.save_point_cloud("instances", labels, "test");
+  db.save_instances("instances", {{1, "inst-guid", 7, 10}});
+  add_passport(db, "mat-guid");
+
+  // instance_id 99 does not exist
+  CHECK_THROWS_AS(
+      link_instance_material(db, "instances", 99, R"({"guid":"mat-guid"})"),
+      HttpError);
+}
+
+TEST_CASE("LinkInstanceMaterial_HappyPath_ReturnsMaterialGuid",
+          "[gui][instances]") {
+  TempPath project("test_gui_api_link");
+  reusex::ProjectDB db(project.path);
+
+  reusex::CloudL labels;
+  for (uint32_t i = 0; i < 2; ++i) {
+    reusex::LabelT lbl;
+    lbl.label = i + 1;
+    labels.push_back(lbl);
+  }
+  labels.width = 2;
+  labels.height = 1;
+  db.save_point_cloud("instances", labels, "test");
+  db.save_instances("instances",
+                    {{1, "inst-guid-1", 7, 100}, {2, "inst-guid-2", 7, 200}});
+  add_passport(db, "mat-guid-A");
+
+  const auto body =
+      link_instance_material(db, "instances", 1, R"({"guid":"mat-guid-A"})");
+
+  CHECK(body.at("instance_id") == 1);
+  CHECK(body.at("guid") == "inst-guid-1");
+  CHECK(body.at("material_guid") == "mat-guid-A");
+
+  // Instance 2 should remain unlinked.
+  const auto list = instances_json(db, "instances", Params{});
+  CHECK(list.at("instances").at(1).at("material_guid").is_null());
+}
+
+TEST_CASE("LinkInstanceMaterial_BadBody_Is400", "[gui][instances]") {
+  TempPath project("test_gui_api_link");
+  reusex::ProjectDB db(project.path);
+
+  reusex::CloudL labels;
+  reusex::LabelT lbl;
+  lbl.label = 1;
+  labels.push_back(lbl);
+  labels.width = 1;
+  labels.height = 1;
+  db.save_point_cloud("instances", labels, "test");
+  db.save_instances("instances", {{1, "inst-guid", 7, 10}});
+
+  CHECK_THROWS_AS(link_instance_material(db, "instances", 1, "not-json"),
+                  HttpError);
+  CHECK_THROWS_AS(link_instance_material(db, "instances", 1, R"({})"),
+                  HttpError);
 }
 
 // ===========================================================================

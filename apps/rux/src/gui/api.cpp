@@ -647,6 +647,8 @@ const std::vector<Endpoint> &endpoint_table() {
        "Instance rows of an instance-label cloud, with material links"},
       {"GET", "/api/v1/instances/<string>/<int>/frames",
        "Sensor frames that see an instance's centroid, ranked by centrality"},
+      {"PUT", "/api/v1/instances/<string>/<int>/material",
+       "Link a material passport to an instance (upsert)"},
       {"GET", "/api/v1/stages",
        "The stage catalogue, with readiness for this project"},
       {"GET", "/api/v1/stages/<string>/validation",
@@ -1879,6 +1881,46 @@ json instances_json(const reusex::ProjectDB &db, const std::string &cloud,
       });
   out["cloud"] = cloud;
   return out;
+}
+
+json link_instance_material(reusex::ProjectDB &db, const std::string &cloud,
+                            int instance_id, const std::string &body) {
+  if (!db.has_point_cloud(cloud))
+    not_found("cloud", cloud);
+
+  auto parsed = json::parse(body, nullptr, /*allow_exceptions=*/false);
+  if (parsed.is_discarded() || !parsed.is_object())
+    throw HttpError(400, "request body must be a JSON object");
+
+  auto guid_it = parsed.find("guid");
+  if (guid_it == parsed.end() || !guid_it->is_string())
+    throw HttpError(400, "'guid' is required and must be a string");
+
+  const auto guid = guid_it->get<std::string>();
+
+  try {
+    db.set_instance_material(cloud, instance_id, guid);
+  } catch (const std::exception &e) {
+    throw HttpError(404, e.what());
+  }
+
+  const auto records = db.instances(cloud);
+  const auto it = std::find_if(
+      records.begin(), records.end(), [instance_id](const auto &r) {
+        return static_cast<int>(r.instance_id) == instance_id;
+      });
+  if (it == records.end())
+    not_found("instance", cloud + "/" + std::to_string(instance_id));
+
+  const auto links = db.instance_materials(cloud);
+  json entry{{"instance_id", it->instance_id},
+             {"guid", it->guid},
+             {"semantic_class", it->semantic_class},
+             {"point_count", it->point_count}};
+  auto link = links.find(static_cast<int>(it->instance_id));
+  entry["material_guid"] =
+      link == links.end() ? json(nullptr) : json(link->second);
+  return entry;
 }
 
 // ===========================================================================

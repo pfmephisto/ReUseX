@@ -1,0 +1,95 @@
+/* SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen */
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1rem;
+  overflow: auto;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  height: 100%;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem 0;
+}
+
+.cloudLabel {
+  font-size: 0.85rem;
+  color: var(--color-text-secondary, #888);
+}
+
+.cloudSelect {
+  font-size: 0.9rem;
+  padding: 0.2rem 0.4rem;
+  border: 1px solid var(--color-border, #444);
+  border-radius: 4px;
+  background: var(--color-surface, #1e1e1e);
+  color: inherit;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.th {
+  text-align: left;
+  padding: 0.4rem 0.75rem;
+  font-weight: 600;
+  border-bottom: 1px solid var(--color-border, #333);
+  color: var(--color-text-secondary, #aaa);
+  white-space: nowrap;
+}
+
+.row:hover {
+  background: var(--color-hover, rgba(255, 255, 255, 0.04));
+}
+
+.td {
+  padding: 0.35rem 0.75rem;
+  border-bottom: 1px solid var(--color-border-faint, #2a2a2a);
+  vertical-align: middle;
+}
+
+.linked {
+  font-size: 0.8rem;
+  color: var(--color-success, #4caf50);
+  background: var(--color-success-bg, rgba(76, 175, 80, 0.12));
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+}
+
+.unlinked {
+  color: var(--color-text-faint, #555);
+}
+
+.createBtn {
+  font-size: 0.8rem;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid var(--color-border, #444);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-accent, #90caf9);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.createBtn:hover:not(:disabled) {
+  background: var(--color-accent-bg, rgba(144, 202, 249, 0.1));
+}
+
+.createBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

@@ -202,3 +202,6 @@ scratch/
 
 # superpowers skill session artifacts (never committed)
 .superpowers/
+
+# stray root-level node_modules (e.g. vitest cache when run outside apps/rux/frontend)
+/node_modules/

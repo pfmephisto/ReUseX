@@ -5,14 +5,19 @@
 import { useCallback } from 'react';
 
 import { api } from '../api/client';
-import type { MaterialDetail, ProjectInfo, ProjectSummary } from '../api/types';
+import type {
+  MaterialDetail,
+  ProjectInfo,
+  ProjectSummary,
+  PropertyDefinition,
+} from '../api/types';
 import { useAsync } from '../app/useAsync';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { Spinner } from '../components/Spinner';
 import styles from './ExportPage.module.css';
 
 /**
- * BEK 496 "Ressourcekortlægning" export (#265, review pt 9).
+ * BEK 496 "Ressourcekortlægning" export (#265, review pt 9, #458).
  *
  * BEK 496 (Bekendtgørelse om ressourcekortlægning) is Danish building-waste
  * legislation requiring a resource survey report listing each identified
@@ -24,20 +29,12 @@ import styles from './ExportPage.module.css';
  * correctly in every major PDF viewer. The `@media print` rules in the module
  * CSS hide the page chrome (nav, button) and lay the report out for A4 paper.
  *
- * BEK 496 field mapping:
- *   - `material_type`       → Materialetype
- *   - `quantity_estimate`   → Mængde (estimate)
- *   - `unit`                → Enhed
- *   - `location`            → Beliggenhed
- *   - `reusability_class`   → Genanvendelsespotentiale (A/B/C/D)
- *   - `hazardous`           → Farlige stoffer (ja/nej)
- *   - `condition`           → Tilstand
- *   - `notes` / `comment`   → Kommentarer
- *
- * Keys that are absent from a passport are shown as "—". Passports imported
- * via `rux import materialepas` may already carry these fields under their
- * MaterialEPAS names; `rux create materials` derives passports from instances
- * and the field names depend on the annotation pipeline used.
+ * Column mapping (#458): property columns are driven by the same
+ * `PropertyDefinition[]` that power the material table (`GET /material-columns`,
+ * sorted by `sort_order`). A value edited on the material page is stored under
+ * `properties[col.name]` and appears here immediately. Fixed report columns
+ * (Nr., Id) are structural identifiers and not material properties; they are
+ * always present regardless of which user columns exist.
  */
 export function ExportPage() {
   const summary = useAsync<ProjectSummary>((signal) => api.projectSummary(signal), []);
@@ -57,41 +54,29 @@ export function ExportPage() {
 }
 
 // ---------------------------------------------------------------------------
-// Internal: report assembled once all passport details are loaded
+// Internal: report assembled once all passport details and column definitions
+// are loaded.
 // ---------------------------------------------------------------------------
 
-/** BEK 496 property keys to look for in each passport, in column order. */
-const BEK_FIELDS: { key: string; label: string }[] = [
-  { key: 'material_type', label: 'Materialetype' },
-  { key: 'quantity_estimate', label: 'Mængde' },
-  { key: 'unit', label: 'Enhed' },
-  { key: 'location', label: 'Beliggenhed' },
-  { key: 'reusability_class', label: 'Genanvendelsespotentiale (A–D)' },
-  { key: 'hazardous', label: 'Farlige stoffer' },
-  { key: 'condition', label: 'Tilstand' },
-  { key: 'notes', label: 'Kommentarer' },
-];
-
-/** Aliases: MaterialEPAS may store the same fact under a slightly different key. */
-const ALIASES: Record<string, string[]> = {
-  material_type: ['materialtype', 'type', 'material'],
-  quantity_estimate: ['quantity', 'maengde', 'mængde', 'amount'],
-  unit: ['enhed'],
-  location: ['beliggenhed', 'location_reference', 'placering'],
-  reusability_class: ['genanvendelsespotentiale', 'reusability', 'reuse_class', 'class'],
-  hazardous: ['farlige_stoffer', 'farlige stoffer', 'hazardous_materials'],
-  condition: ['tilstand', 'state'],
-  notes: ['comment', 'comments', 'kommentarer', 'note', 'bemærkninger'],
-};
-
-function lookupField(props: Record<string, string>, key: string): string {
-  const direct = props[key];
-  if (direct !== undefined) return direct;
-  for (const alias of ALIASES[key] ?? []) {
-    const found = props[alias];
-    if (found !== undefined) return found;
+/**
+ * Format a property value for display in the report, according to the column
+ * type set on the material page. Keeps formatting consistent with how the
+ * material table renders each type (boolean → Ja/Nej, date → Danish locale).
+ */
+function formatValue(value: string | undefined, type: PropertyDefinition['type']): string {
+  if (value === undefined || value === '') return '—';
+  switch (type) {
+    case 'boolean':
+      return value === 'true' || value === '1' || value.toLowerCase() === 'ja' ? 'Ja' : 'Nej';
+    case 'date': {
+      const d = new Date(value);
+      return Number.isNaN(d.getTime())
+        ? value
+        : d.toLocaleDateString('da-DK', { year: 'numeric', month: 'long', day: 'numeric' });
+    }
+    default:
+      return value;
   }
-  return '—';
 }
 
 function ReportView({
@@ -101,7 +86,13 @@ function ReportView({
   project: ProjectInfo | null;
   guids: string[];
 }) {
-  const details = useAsync<MaterialDetail[]>(
+  // User-defined column definitions — the same source as the material table.
+  const definitionsAsync = useAsync<PropertyDefinition[]>(
+    (signal) => api.propertyDefinitions(signal),
+    [],
+  );
+
+  const detailsAsync = useAsync<MaterialDetail[]>(
     async (signal) => {
       if (guids.length === 0) return [];
       return Promise.all(guids.map((guid) => api.material(guid, signal)));
@@ -113,15 +104,27 @@ function ReportView({
     window.print();
   }, []);
 
-  if (details.error)
+  if (definitionsAsync.error)
     return (
       <ErrorBanner
-        error={details.error}
-        onRetry={details.reload}
+        error={definitionsAsync.error}
+        onRetry={definitionsAsync.reload}
+        context="material columns"
+      />
+    );
+  if (detailsAsync.error)
+    return (
+      <ErrorBanner
+        error={detailsAsync.error}
+        onRetry={detailsAsync.reload}
         context="material passports"
       />
     );
-  if (!details.data) return <Spinner label="Loading passports…" />;
+  if (!definitionsAsync.data || !detailsAsync.data)
+    return <Spinner label="Loading passports…" />;
+
+  // Sort by sort_order — the same order the material table uses.
+  const columns = [...definitionsAsync.data].sort((a, b) => a.sort_order - b.sort_order);
 
   const today = new Date().toLocaleDateString('da-DK', {
     year: 'numeric',
@@ -187,27 +190,34 @@ function ReportView({
 
         {/* Material table */}
         <section className={styles.tableSection}>
-          {details.data.length === 0 ? (
+          {detailsAsync.data.length === 0 ? (
             <p className={styles.empty}>
               Ingen materialeregistreringer fundet. Kør{' '}
               <code>rux import materialepas</code> eller{' '}
               <code>rux create materials</code> for at oprette registreringer.
             </p>
+          ) : columns.length === 0 ? (
+            <p className={styles.empty}>
+              Ingen brugerdefinererede kolonner fundet. Tilføj kolonner via materialesiden for at
+              se egenskaber i eksporten.
+            </p>
           ) : (
             <table className={styles.table}>
               <thead>
                 <tr>
+                  {/* Fixed structural columns — not material properties */}
                   <th className={styles.th}>Nr.</th>
                   <th className={styles.th}>Id</th>
-                  {BEK_FIELDS.map((f) => (
-                    <th key={f.key} className={styles.th}>
-                      {f.label}
+                  {/* User-defined material columns, in the same order as the material table */}
+                  {columns.map((col) => (
+                    <th key={col.id} className={styles.th}>
+                      {col.name}
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {details.data.map((detail, index) => {
+                {detailsAsync.data.map((detail, index) => {
                   const props = detail.properties ?? {};
                   return (
                     <tr key={detail.guid} className={styles.tr}>
@@ -215,9 +225,9 @@ function ReportView({
                       <td className={`${styles.td} ${styles.tdId}`} title={detail.guid}>
                         {detail.id ?? detail.guid.slice(0, 8)}
                       </td>
-                      {BEK_FIELDS.map((f) => (
-                        <td key={f.key} className={styles.td}>
-                          {lookupField(props, f.key)}
+                      {columns.map((col) => (
+                        <td key={col.id} className={styles.td}>
+                          {formatValue(props[col.name], col.type)}
                         </td>
                       ))}
                     </tr>

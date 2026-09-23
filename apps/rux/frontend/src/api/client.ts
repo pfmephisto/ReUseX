@@ -27,6 +27,8 @@ import type {
   CloudTileIndex,
   ComponentDetail,
   ComponentInfo,
+  DescriptorMatchResult,
+  DescriptorMethod,
   EndpointInfo,
   FrameInfo,
   FrameImageKind,
@@ -525,6 +527,31 @@ export class RuxApiClient {
       // explicit `normalize=false` on every colour thumbnail is noise in a log.
       normalize: options.normalize ? true : undefined,
     });
+  }
+
+  /**
+   * Match feature descriptors between two frames.
+   *
+   * **Backend endpoint not yet implemented** as of #446.  Calling this method
+   * will receive a 404 from the current server.  The full contract — request
+   * body, success/error shapes, and matching pipeline — is documented on
+   * `DescriptorMatchResult` in `api/types.ts`.
+   *
+   * The UI catches the resulting `ApiRequestError` with `isNotFound` /
+   * `isNotImplemented` and renders a "backend not yet available" message,
+   * so the stub is safe to ship.
+   */
+  frameDescriptorMatch(
+    frameA: number,
+    frameB: number,
+    method: DescriptorMethod,
+    signal?: AbortSignal,
+  ): Promise<DescriptorMatchResult> {
+    return this.postJson<DescriptorMatchResult>(
+      `/frames/${frameA}/descriptor-match/${frameB}`,
+      { method },
+      signal,
+    );
   }
 
   // -------------------------------------------------------- panoramas ----

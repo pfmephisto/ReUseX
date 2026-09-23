@@ -1,0 +1,135 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+/* ------------------------------------------------------------------ page ---- */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  padding: var(--space-5);
+  gap: var(--space-4);
+}
+
+/* ------------------------------------------------------------------ head ---- */
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.title {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text);
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------ picker row ---- */
+
+.pickerRow {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-3);
+  flex: 1;
+  flex-wrap: wrap;
+}
+
+.swapBtn {
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-lg);
+  cursor: pointer;
+  transition: border-color var(--duration-fast) var(--easing-standard),
+              color var(--duration-fast) var(--easing-standard);
+  /* Align with the bottom of the input */
+  margin-bottom: 0;
+  align-self: flex-end;
+}
+
+.swapBtn:hover {
+  border-color: var(--color-border-strong);
+  color: var(--color-text);
+}
+
+/* ---------------------------------------------------------------- picker ---- */
+
+.picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.pickerLabel {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.pickerInputRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.pickerInput {
+  width: 8rem;
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  transition: border-color var(--duration-fast) var(--easing-standard);
+}
+
+.pickerInput:focus {
+  outline: none;
+  border-color: var(--color-border-focus);
+}
+
+.pickerInput::placeholder {
+  color: var(--color-text-faint);
+}
+
+.pickerThumb {
+  width: 40px;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-surface-sunken);
+  flex-shrink: 0;
+}
+
+.pickerThumbImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.pickerThumbMissing {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-faint);
+}
+
+/* ------------------------------------------------------------------ body ---- */
+
+.body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}

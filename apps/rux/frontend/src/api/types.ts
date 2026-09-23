@@ -497,6 +497,63 @@ export interface PoseGraph {
   edges: PoseGraphEdge[];
 }
 
+// ------------------------------------------------- frame-pair inspection ----
+
+/**
+ * Feature-descriptor algorithm for pairwise frame matching.
+ *
+ * Backend implementation reference: `tools/gt_curator/opencv_features.py`.
+ * Used both in the `POST /frames/{a}/descriptor-match/{b}` request body and
+ * in the result, so both sides of the wire speak the same string.
+ */
+export type DescriptorMethod = 'orb' | 'sift' | 'akaze';
+
+/**
+ * `DescriptorMatchResult` — response of `POST /frames/{a}/descriptor-match/{b}`.
+ *
+ * **Backend endpoint not yet implemented as of #446.** The GUI stub will
+ * receive a 404 and surface it gracefully. The schema below is the contract
+ * the implementation must satisfy:
+ *
+ *   POST /api/v1/frames/{frame_a}/descriptor-match/{frame_b}
+ *   Body:    { method: DescriptorMethod }
+ *   Success: DescriptorMatchResult (200 OK)
+ *   Error:   { error: string }   (400 bad frame id, 404 frame not found,
+ *                                 422 no depth for backprojection, 500 server)
+ *
+ * Matching pipeline (mirrors opencv_features.py):
+ *  1. Load stored colour images for both frames.
+ *  2. Extract keypoints and descriptors with the requested detector.
+ *  3. BF-match + Lowe ratio test (threshold 0.85).
+ *  4. Back-project matched 2-D points into 3-D using the stored depth image
+ *     and sensor intrinsics; discard pairs where either depth is invalid.
+ *  5. RANSAC rigid-body estimation (threshold 0.10 m, 500 iterations).
+ *  6. Return keypoints, inlier mask, relative transform, and RMS error.
+ */
+export interface DescriptorMatchResult {
+  frame_a: number;
+  frame_b: number;
+  method: DescriptorMethod;
+  /** RANSAC-surviving inlier count. */
+  n_inliers: number;
+  /** RMS of inlier reprojection errors in metres; null when fewer than 3 inliers. */
+  rms_m: number | null;
+  /** All matched pixel coordinates in frame A (Lowe-filtered, including outliers). */
+  keypoints_a: [number, number][];
+  /** Matched pixel coordinates in frame B, index-aligned with keypoints_a. */
+  keypoints_b: [number, number][];
+  /** True for RANSAC inliers (index-aligned with keypoints_a/b). */
+  inlier_mask: boolean[];
+  /**
+   * Row-major 4×4 rigid transform T_AB that maps 3-D points from frame B's
+   * optical coordinate frame into frame A's — the loop-edge convention:
+   * `p_A ≈ T_AB @ p_B`.  Null when RANSAC failed or fewer than 3 depth pairs.
+   */
+  transform: number[] | null;
+  /** Non-null only when the server could not compute matches. */
+  error: string | null;
+}
+
 // ------------------------------------------------------------- websocket ----
 // docs/gui/websocket-events.md + docs/gui/events.schema.json.
 

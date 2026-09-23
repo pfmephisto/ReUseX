@@ -32,6 +32,7 @@ interface NavEntry {
 const ENTRIES: NavEntry[] = [
   { to: '/', label: 'Overview' },
   { to: '/viewport', label: 'Viewport' },
+  { to: '/graph-view', label: 'Graph View' },
   { to: '/pipeline', label: 'Pipeline', end: true },
   { to: '/pipeline/log', label: 'Pipeline Log' },
   { to: '/frames', label: 'Frames' },

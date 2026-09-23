@@ -1,0 +1,244 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+/* ---------------------------------------------------------------- panel ---- */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* Panel B in overlay mode: absolutely positioned over the sibling. */
+.overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border: none;
+  border-radius: 0;
+  /* The parent manages the opacity and translate via inline style. */
+}
+
+/* ------------------------------------------------------------------ head ---- */
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-sunken);
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.panelLabel {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text);
+  width: var(--space-4);
+  flex-shrink: 0;
+}
+
+.frameId {
+  flex: 1;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ------------------------------------------------------------ view toggle ---- */
+
+.viewToggle {
+  display: flex;
+  gap: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.modeBtn {
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--easing-standard),
+              color var(--duration-fast) var(--easing-standard);
+}
+
+.modeBtn:hover {
+  background: var(--color-surface-overlay);
+  color: var(--color-text);
+}
+
+.modeBtnActive {
+  background: var(--color-accent-muted);
+  color: var(--color-text);
+}
+
+/* ------------------------------------------------------------- kind bar ---- */
+
+.kindBar {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.kindBtn {
+  flex: 1;
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: color var(--duration-fast) var(--easing-standard);
+}
+
+.kindBtn:hover {
+  color: var(--color-text);
+}
+
+.kindBtnActive {
+  color: var(--color-text);
+  border-bottom-color: var(--color-accent);
+}
+
+/* --------------------------------------------------------------- body ---- */
+
+.body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---------------------------------------------------------- empty slot ---- */
+
+.emptySlot {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-6);
+  color: var(--color-text-faint);
+}
+
+.emptyIcon {
+  font-size: var(--font-size-2xl);
+  opacity: 0.4;
+}
+
+.emptyText {
+  font-size: var(--font-size-sm);
+}
+
+/* ---------------------------------------------------------- frame image ---- */
+
+.imageWrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.image {
+  display: block;
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+}
+
+.imageError {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.retryBtn {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+}
+
+.retryBtn:hover {
+  border-color: var(--color-border-strong);
+  color: var(--color-text);
+}
+
+.normalizedNote {
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-faint);
+  border-top: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+/* ---------------------------------------------------------- cloud stub ---- */
+
+.cloudStub {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-5);
+  text-align: center;
+}
+
+.cloudIcon {
+  font-size: var(--font-size-2xl);
+  color: var(--color-text-faint);
+}
+
+.cloudTitle {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-muted);
+}
+
+.cloudDetail {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-faint);
+  max-width: 28ch;
+}
+
+.cloudContract {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-faint);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-sunken);
+  border-radius: var(--radius-sm);
+  text-align: left;
+  line-height: var(--line-height-normal);
+}
+
+.cloudContract code {
+  font-family: var(--font-mono);
+}

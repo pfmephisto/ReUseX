@@ -1,0 +1,270 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+/* ----------------------------------------------------------------- root ---- */
+
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: 0;
+}
+
+/* --------------------------------------------------------- mode selector ---- */
+
+.modeRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.modeLabel {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.modeGroup {
+  display: flex;
+  gap: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.modeBtn {
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--easing-standard),
+              color var(--duration-fast) var(--easing-standard);
+}
+
+.modeBtn:hover {
+  background: var(--color-surface-overlay);
+  color: var(--color-text);
+}
+
+.modeBtnActive {
+  background: var(--color-accent-muted);
+  color: var(--color-text);
+}
+
+/* ---------------------------------------------------------------- panels ---- */
+
+.panels {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+  /* Fill available height so both panels grow together. */
+  flex: 1;
+  min-height: 0;
+}
+
+/* Overlay mode: single-column, stacking anchor. */
+.panelsOverlay {
+  grid-template-columns: 1fr;
+}
+
+.overlayAnchor {
+  position: relative;
+  /* Stretches to fill the grid cell. */
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* -------------------------------------------------------- overlay controls ---- */
+
+.overlayControls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  flex-wrap: wrap;
+}
+
+.sliderRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 14rem;
+}
+
+.sliderLabel {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  width: 4rem;
+  flex-shrink: 0;
+}
+
+.slider {
+  flex: 1;
+  accent-color: var(--color-accent);
+  cursor: pointer;
+}
+
+.sliderValue {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  width: 3.5rem;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.resetBtn {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.resetBtn:hover {
+  border-color: var(--color-border-strong);
+  color: var(--color-text);
+}
+
+/* ---------------------------------------------------- descriptor panel ---- */
+
+.descriptorPanel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  flex-shrink: 0;
+}
+
+.descriptorTitle {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text);
+}
+
+.descriptorControls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.methodGroup {
+  display: flex;
+  gap: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.methodBtn {
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--easing-standard),
+              color var(--duration-fast) var(--easing-standard);
+}
+
+.methodBtn:hover {
+  background: var(--color-surface-overlay);
+  color: var(--color-text);
+}
+
+.methodBtnActive {
+  background: var(--color-accent-muted);
+  color: var(--color-text);
+}
+
+.matchBtn {
+  padding: var(--space-1) var(--space-4);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--easing-standard);
+  flex-shrink: 0;
+}
+
+.matchBtn:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+}
+
+.matchBtn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.matchHint {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-faint);
+  line-height: var(--line-height-normal);
+}
+
+.matchError {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-sunken);
+  border-radius: var(--radius-sm);
+  border-left: 2px solid var(--color-status-failed);
+}
+
+.matchErrorIcon {
+  color: var(--color-status-failed);
+  font-size: var(--font-size-sm);
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.matchErrorMsg {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  line-height: var(--line-height-normal);
+}
+
+.matchResult {
+  display: flex;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.matchStat {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.matchStat dt {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-faint);
+}
+
+.matchStat dd {
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+}
+
+.matchStatError dd {
+  font-size: var(--font-size-xs);
+  color: var(--color-status-failed);
+}

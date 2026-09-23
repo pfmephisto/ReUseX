@@ -216,6 +216,9 @@ export function ViewportPage() {
     setVisibilityError(null);
   }, []);
 
+  // Abort any in-flight visibility fetch on unmount (e.g. the user navigates away).
+  useEffect(() => () => { visibilityAbortRef.current?.abort(); }, []);
+
   const handleOpenFrame = useCallback(
     (frameId: number) => {
       navigate(`/frames?frame=${frameId}`);

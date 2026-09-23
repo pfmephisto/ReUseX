@@ -19,11 +19,9 @@
   font-family: var(--font-sans);
   font-size: var(--font-size-sm);
   color: var(--color-text);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-md);
   max-height: calc(100% - var(--space-6));
   overflow: hidden;
-  display: flex;
-  flex-direction: column;
 }
 
 /* ---------------------------------------------------------------- header --- */
@@ -136,7 +134,9 @@
   left: var(--space-1);
   padding: 1px var(--space-1);
   background: rgba(0, 0, 0, 0.65);
-  color: var(--color-text);
+  /* Fixed light value: the dark semi-transparent background is always dark
+     regardless of theme, so a theme-adaptive token would flip to unreadable. */
+  color: #e6e9ef;
   font-size: var(--font-size-xs);
   border-radius: var(--radius-sm);
   line-height: 1.4;
@@ -153,7 +153,8 @@
   right: var(--space-1);
   padding: 1px var(--space-1);
   background: rgba(0, 0, 0, 0.65);
-  color: var(--color-text-muted);
+  /* Same rationale as .badge — fixed light value against a dark background. */
+  color: #9aa3b2;
   font-size: var(--font-size-xs);
   border-radius: var(--radius-sm);
   line-height: 1.4;

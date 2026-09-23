@@ -43,3 +43,12 @@ path = [
 ]
 SPDX-FileCopyrightText = "2025 Povl Filip Sonne-Frederiksen"
 SPDX-License-Identifier = "GPL-3.0-or-later"
+
+# Vitest run-result cache written to node_modules/.vite/vitest/ during local
+# test runs. Not committed (gitignored), but the REUSE tool scans the
+# filesystem rather than the index, so a stale cache file trips the hook.
+# Covered here rather than requiring `rm -rf` before every commit.
+[[annotations]]
+path = "node_modules/.vite/**"
+SPDX-FileCopyrightText = "2025 Povl Filip Sonne-Frederiksen"
+SPDX-License-Identifier = "GPL-3.0-or-later"

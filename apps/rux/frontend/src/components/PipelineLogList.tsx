@@ -9,6 +9,8 @@ import styles from './PipelineLogList.module.css';
 
 export interface PipelineLogListProps {
   entries: PipelineLogEntry[];
+  /** Strip badges and secondary fields; used in the overview sidebar. */
+  compact?: boolean;
 }
 
 /** Text label per status. The colour is a second channel, never the only one. */
@@ -18,7 +20,7 @@ const STATUS_LABEL: Record<PipelineLogEntry['status'], string> = {
   failed: 'Failed',
 };
 
-export function PipelineLogList({ entries }: PipelineLogListProps) {
+export function PipelineLogList({ entries, compact = false }: PipelineLogListProps) {
   if (entries.length === 0) {
     return (
       <EmptyState
@@ -39,15 +41,17 @@ export function PipelineLogList({ entries }: PipelineLogListProps) {
             <div className={styles.head}>
               <span className={styles.stage}>{entry.stage}</span>
               <span className={styles.status}>{STATUS_LABEL[entry.status]}</span>
-              {jobId && (
+              {!compact && jobId && (
                 <span className={styles.viaGui} title={`Job ${jobId}`}>
                   via GUI
                 </span>
               )}
               <span className={`${styles.time} mono`}>{entry.started_at}</span>
-              {duration && <span className={`${styles.duration} mono`}>{duration}</span>}
+              {!compact && duration && (
+                <span className={`${styles.duration} mono`}>{duration}</span>
+              )}
             </div>
-            {entry.error_msg && <p className={styles.error}>{entry.error_msg}</p>}
+            {!compact && entry.error_msg && <p className={styles.error}>{entry.error_msg}</p>}
           </li>
         );
       })}

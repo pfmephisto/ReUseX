@@ -22,11 +22,48 @@
   gap: var(--space-3);
 }
 
+/*
+ * Two-column row: project metadata (left) beside recent activity (right).
+ * Below a narrow viewport the columns stack; the tables below this row
+ * always run full-width so they keep enough space for their data.
+ */
+.overview {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-5);
+  align-items: start;
+}
+
+@media (max-width: 720px) {
+  .overview {
+    grid-template-columns: 1fr;
+  }
+}
+
 .section {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
   min-width: 0;
+}
+
+.sectionHead {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+
+.viewAll {
+  margin-left: auto;
+  font-size: var(--font-size-xs);
+  color: var(--color-accent);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.viewAll:hover {
+  color: var(--color-accent-hover);
+  text-decoration: underline;
 }
 
 .heading {

@@ -15,8 +15,8 @@ import { Spinner } from '../components/Spinner';
 import { StatCard } from '../components/StatCard';
 import styles from './Dashboard.module.css';
 
-/** How much durable history the overview shows. Deeper history is Phase 4. */
-const LOG_LIMIT = 15;
+/** How many recent entries the overview sidebar shows. Full history is at /pipeline/log. */
+const LOG_LIMIT = 5;
 
 /**
  * Counts here run to eight digits — a 20-million-point cloud must not read as
@@ -179,24 +179,42 @@ export function Dashboard() {
         />
       </section>
 
-      <section className={styles.section}>
-        <h2 className={styles.heading}>Project</h2>
-        <p className={styles.subheading}>
-          <span className="mono">{data.path}</span> · schema v{data.schema_version}
-        </p>
-        {data.projects.length === 0 ? (
-          <EmptyState
-            title="No project metadata record"
-            detail="Address, survey date and organisation are set by an import that carries them, or by `rux set`."
-          />
-        ) : (
-          <div className={styles.metaGrid}>
-            {data.projects.map((project) => (
-              <ProjectCard key={project.id} project={project} />
-            ))}
+      <div className={styles.overview}>
+        <section className={styles.section}>
+          <h2 className={styles.heading}>Project</h2>
+          <p className={styles.subheading}>
+            <span className="mono">{data.path}</span> · schema v{data.schema_version}
+          </p>
+          {data.projects.length === 0 ? (
+            <EmptyState
+              title="No project metadata record"
+              detail="Address, survey date and organisation are set by an import that carries them, or by `rux set`."
+            />
+          ) : (
+            <div className={styles.metaGrid}>
+              {data.projects.map((project) => (
+                <ProjectCard key={project.id} project={project} />
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className={styles.section}>
+          <div className={styles.sectionHead}>
+            <h2 className={styles.heading}>Recent activity</h2>
+            <Link to="/pipeline/log" className={styles.viewAll}>
+              View full log
+            </Link>
           </div>
-        )}
-      </section>
+          {log.error ? (
+            <ErrorBanner error={log.error} onRetry={log.reload} context="the pipeline log" />
+          ) : log.data ? (
+            <PipelineLogList entries={log.data} compact />
+          ) : (
+            <Spinner label="Reading stage history…" />
+          )}
+        </section>
+      </div>
 
       <section className={styles.section}>
         <h2 className={styles.heading}>Clouds</h2>
@@ -241,17 +259,6 @@ export function Dashboard() {
             />
           }
         />
-      </section>
-
-      <section className={styles.section}>
-        <h2 className={styles.heading}>Recent stages</h2>
-        {log.error ? (
-          <ErrorBanner error={log.error} onRetry={log.reload} context="the pipeline log" />
-        ) : log.data ? (
-          <PipelineLogList entries={log.data} />
-        ) : (
-          <Spinner label="Reading stage history…" />
-        )}
       </section>
     </div>
   );

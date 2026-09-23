@@ -98,7 +98,6 @@ export function InstanceList({ cloud }: { cloud: string }) {
         <WriteBanner
           failure={failure}
           onDismiss={() => setFailure(null)}
-          onRetry={failure.retryable ? () => setFailure(null) : undefined}
         />
       )}
       <table className={styles.table}>

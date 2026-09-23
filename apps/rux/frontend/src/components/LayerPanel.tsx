@@ -4,7 +4,7 @@
 
 import { useState, type ReactNode } from 'react';
 
-import type { CloudInfo, GsplatInfo, MeshInfo, PanoramaInfo, PoseGraph } from '../api/types';
+import type { CloudInfo, GsplatInfo, MeshInfo, PanoramaInfo, PoseGraph, PoseGraphEdgeType } from '../api/types';
 import type { ColorMode } from '../viewport/PointCloudScene';
 import {
   VIEW_PRESETS,
@@ -17,7 +17,7 @@ import type { MeshLayerState, SplatLayerState } from '../viewport/Viewport';
 import { describeGsplat, gsplatNote } from '../viewport/gsplatLayer';
 import { describeMesh, meshNote } from '../viewport/meshLayer';
 import { panoramaNote } from '../viewport/panorama';
-import { posegraphNote } from '../viewport/posegraphLayer';
+import { EDGE_BASE_COLORS, posegraphNote, type ProjectionPlane } from '../viewport/posegraphLayer';
 import { EmptyState } from './EmptyState';
 import { LabelLegend } from './LabelLegend';
 import { LayerRow } from './LayerRow';
@@ -70,6 +70,16 @@ export interface PoseGraphPanelState {
   error: Error | null;
   visible: boolean;
   onToggle: (visible: boolean) => void;
+  // Inspection controls added in #445:
+  projectionPlane: ProjectionPlane;
+  onProjectionPlaneChange: (plane: ProjectionPlane) => void;
+  edgeTypeVisible: Record<PoseGraphEdgeType, boolean>;
+  onEdgeTypeChange: (type: PoseGraphEdgeType, visible: boolean) => void;
+  /** 0 = disabled; edges above this residual value are highlighted in amber. */
+  residualThreshold: number;
+  onResidualThresholdChange: (threshold: number) => void;
+  nodeColorMode: 'default' | 'degree';
+  onNodeColorModeChange: (mode: 'default' | 'degree') => void;
 }
 
 export interface LayerPanelProps {
@@ -617,31 +627,145 @@ function PanoramaTrigger({
   );
 }
 
+const PROJECTION_PLANES: ProjectionPlane[] = ['3D', 'XY', 'XZ', 'YZ'];
+
+const EDGE_TYPE_LABELS: Record<PoseGraphEdgeType, string> = {
+  odometry: 'Odometry',
+  loop_closure: 'Loop closure',
+  panorama: 'Panorama',
+};
+
+const EDGE_TYPES: PoseGraphEdgeType[] = ['odometry', 'loop_closure', 'panorama'];
+
 /**
- * Pose-graph toggle section (#265, review pt 4).
+ * Pose-graph inspection section (#265, review pt 4; #445).
  *
- * A single on/off toggle — the graph is one logical layer, not per-edge.
- * The note text summarises the graph's content (frame count, edge counts)
- * or explains what is missing (no optimize run yet).
+ * Controls:
+ * - On/off toggle for the whole layer.
+ * - Projection-plane switch (3D / XY / XZ / YZ) for 2D graph inspection.
+ * - Per-type edge visibility (Odometry / Loop closure / Panorama).
+ * - Residual threshold slider: highlights strained edges in amber.
+ * - Node colour mode: uniform grey or connectivity-degree heat ramp.
+ *
+ * TODO: relaxation under different constraints (#445 follow-up) — visualising
+ * which constraints are active in a hypothetical graph requires a new backend
+ * endpoint that re-solves with a subset of edges and returns the updated poses.
+ * Document as a separate issue once the endpoint contract is agreed.
  */
 function PoseGraphSection({ posegraph }: { posegraph: PoseGraphPanelState }) {
-  const { graph, error, visible, onToggle } = posegraph;
+  const {
+    graph,
+    error,
+    visible,
+    onToggle,
+    projectionPlane,
+    onProjectionPlaneChange,
+    edgeTypeVisible,
+    onEdgeTypeChange,
+    residualThreshold,
+    onResidualThresholdChange,
+    nodeColorMode,
+    onNodeColorModeChange,
+  } = posegraph;
   const note = posegraphNote(graph, error);
+  const hasNodes = (graph?.nodes.length ?? 0) > 0;
+  const hasEdges = (graph?.edges.length ?? 0) > 0;
 
   return (
     <Section title="Pose graph">
       {note && <p className={styles.note}>{note}</p>}
 
-      {(graph?.nodes.length ?? 0) > 0 && (
-        <label className={styles.splatToggle}>
-          <input
-            type="checkbox"
-            checked={visible}
-            onChange={(event) => onToggle(event.target.checked)}
-            className={styles.checkbox}
-          />
-          <span className={styles.splatName}>Show pose graph</span>
-        </label>
+      {hasNodes && (
+        <>
+          <label className={styles.splatToggle}>
+            <input
+              type="checkbox"
+              checked={visible}
+              onChange={(event) => onToggle(event.target.checked)}
+              className={styles.checkbox}
+            />
+            <span className={styles.splatName}>Show pose graph</span>
+          </label>
+
+          <div className={styles.fieldLabel}>Projection</div>
+          <div className={styles.modes} role="group" aria-label="Projection plane">
+            {PROJECTION_PLANES.map((plane) => (
+              <button
+                key={plane}
+                type="button"
+                className={`${styles.mode} ${projectionPlane === plane ? styles.modeActive : ''}`}
+                onClick={() => onProjectionPlaneChange(plane)}
+              >
+                {plane}
+              </button>
+            ))}
+          </div>
+
+          <div className={styles.fieldLabel}>Node colour</div>
+          <div className={styles.modes} role="group" aria-label="Node colour mode">
+            <button
+              type="button"
+              className={`${styles.mode} ${nodeColorMode === 'default' ? styles.modeActive : ''}`}
+              onClick={() => onNodeColorModeChange('default')}
+            >
+              Default
+            </button>
+            <button
+              type="button"
+              className={`${styles.mode} ${nodeColorMode === 'degree' ? styles.modeActive : ''}`}
+              onClick={() => onNodeColorModeChange('degree')}
+            >
+              By degree
+            </button>
+          </div>
+
+          {hasEdges && (
+            <>
+              <div className={styles.fieldLabel}>Edge types</div>
+              {EDGE_TYPES.map((type) => {
+                const [r, g, b] = EDGE_BASE_COLORS[type];
+                return (
+                  <label key={type} className={styles.splatToggle}>
+                    <input
+                      type="checkbox"
+                      checked={edgeTypeVisible[type] ?? true}
+                      onChange={(event) => onEdgeTypeChange(type, event.target.checked)}
+                      className={styles.checkbox}
+                    />
+                    <span
+                      className={styles.edgeSwatch}
+                      style={{
+                        backgroundColor: `rgb(${Math.round(r * 255)},${Math.round(g * 255)},${Math.round(b * 255)})`,
+                      }}
+                      aria-hidden="true"
+                    />
+                    <span className={styles.splatName}>{EDGE_TYPE_LABELS[type]}</span>
+                  </label>
+                );
+              })}
+
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>
+                  Residual threshold
+                  <span className="mono">
+                    {residualThreshold === 0 ? 'Off' : residualThreshold.toFixed(2)}
+                  </span>
+                </span>
+                <input
+                  type="range"
+                  min={0}
+                  max={10}
+                  step={0.05}
+                  value={residualThreshold}
+                  onChange={(event) =>
+                    onResidualThresholdChange(Number(event.target.value))
+                  }
+                  className={styles.range}
+                />
+              </label>
+            </>
+          )}
+        </>
       )}
     </Section>
   );

@@ -16,8 +16,12 @@ import { RuxApiClient, type FetchLike } from '../api/client';
 import type { PoseGraph, PoseGraphEdge } from '../api/types';
 import {
   EDGE_BASE_COLORS,
+  THRESHOLD_COLOR,
+  computeNodeDegrees,
   computeResidualStats,
+  nodeDegreeColor,
   posegraphNote,
+  projectPosition,
   residualColor,
 } from '../viewport/posegraphLayer';
 
@@ -126,6 +130,129 @@ describe('residualColor', () => {
     expect(r).toBeCloseTo(base[0]);
     expect(g).toBeCloseTo(base[1]);
     expect(b).toBeCloseTo(base[2]);
+  });
+});
+
+// --------------------------------------------------------- posegraphNote --
+
+// ------------------------------------------------------- projectPosition (#445) --
+
+describe('projectPosition', () => {
+  it('ThreeD_ReturnsUnchanged', () => {
+    expect(projectPosition(1, 2, 3, '3D')).toEqual([1, 2, 3]);
+  });
+  it('XY_ZerosZ', () => {
+    expect(projectPosition(1, 2, 3, 'XY')).toEqual([1, 2, 0]);
+  });
+  it('XZ_ZerosY', () => {
+    expect(projectPosition(1, 2, 3, 'XZ')).toEqual([1, 0, 3]);
+  });
+  it('YZ_ZerosX', () => {
+    expect(projectPosition(1, 2, 3, 'YZ')).toEqual([0, 2, 3]);
+  });
+});
+
+// ---------------------------------------------------- computeNodeDegrees (#445) --
+
+const IDENTITY_POSE = Array(16)
+  .fill(0)
+  .map((_, i) => (i % 5 === 0 ? 1 : 0));
+
+describe('computeNodeDegrees', () => {
+  it('ChainGraph_HasCorrectDegrees', () => {
+    const graph: PoseGraph = {
+      nodes: [
+        { id: 1, pose: IDENTITY_POSE },
+        { id: 2, pose: IDENTITY_POSE },
+        { id: 3, pose: IDENTITY_POSE },
+      ],
+      edges: [
+        { from: 1, to: 2, type: 'odometry', residual: 0.01 },
+        { from: 2, to: 3, type: 'odometry', residual: 0.02 },
+      ],
+    };
+    const degrees = computeNodeDegrees(graph);
+    expect(degrees.get(1)).toBe(1);
+    expect(degrees.get(2)).toBe(2);
+    expect(degrees.get(3)).toBe(1);
+  });
+
+  it('NoEdges_AllDegreesZero', () => {
+    const graph: PoseGraph = {
+      nodes: [{ id: 1, pose: IDENTITY_POSE }],
+      edges: [],
+    };
+    const degrees = computeNodeDegrees(graph);
+    expect(degrees.get(1)).toBe(0);
+  });
+
+  it('IgnoresEdgesWithUnknownEndpoints', () => {
+    const graph: PoseGraph = {
+      nodes: [{ id: 1, pose: IDENTITY_POSE }],
+      edges: [{ from: 1, to: 999, type: 'odometry', residual: 0.01 }],
+    };
+    const degrees = computeNodeDegrees(graph);
+    expect(degrees.get(1)).toBe(0);
+    expect(degrees.has(999)).toBe(false);
+  });
+
+  it('LoopClosureEdge_CountsForBothEndpoints', () => {
+    const graph: PoseGraph = {
+      nodes: [
+        { id: 1, pose: IDENTITY_POSE },
+        { id: 5, pose: IDENTITY_POSE },
+      ],
+      edges: [{ from: 1, to: 5, type: 'loop_closure', residual: 0.4 }],
+    };
+    const degrees = computeNodeDegrees(graph);
+    expect(degrees.get(1)).toBe(1);
+    expect(degrees.get(5)).toBe(1);
+  });
+});
+
+// ----------------------------------------------------- nodeDegreeColor (#445) --
+
+describe('nodeDegreeColor', () => {
+  it('ZeroDegree_ReturnsLowEndColor', () => {
+    const [r, g, b] = nodeDegreeColor(0, 10);
+    expect(r).toBeCloseTo(0.2);
+    expect(g).toBeCloseTo(0.4);
+    expect(b).toBeCloseTo(0.9);
+  });
+
+  it('MaxDegree_ReturnsHighEndColor', () => {
+    const [r, g, b] = nodeDegreeColor(10, 10);
+    expect(r).toBeCloseTo(1.0);
+    expect(g).toBeCloseTo(0.2);
+    expect(b).toBeCloseTo(0.1);
+  });
+
+  it('HalfDegree_InterpolatesLinearly', () => {
+    const [r] = nodeDegreeColor(5, 10);
+    expect(r).toBeCloseTo(0.6); // midpoint between 0.2 and 1.0
+  });
+
+  it('ZeroMaxDegree_ReturnsDefaultGrey', () => {
+    const [r, g, b] = nodeDegreeColor(0, 0);
+    expect(r).toBeCloseTo(0.85);
+    expect(g).toBeCloseTo(0.85);
+    expect(b).toBeCloseTo(0.9);
+  });
+
+  it('DegreeBeyondMax_ClampsToOne', () => {
+    const [r] = nodeDegreeColor(20, 10);
+    expect(r).toBeCloseTo(1.0);
+  });
+});
+
+// --------------------------------------------------------- THRESHOLD_COLOR --
+
+describe('THRESHOLD_COLOR', () => {
+  it('IsAmberNotBaseTypeColor', () => {
+    const [r, , b] = THRESHOLD_COLOR;
+    // High red, low blue → amber, not the blue loop_closure colour.
+    expect(r).toBeGreaterThan(0.9);
+    expect(b).toBeLessThan(0.1);
   });
 });
 

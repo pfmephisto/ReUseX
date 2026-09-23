@@ -231,3 +231,12 @@
   grid-template-columns: repeat(3, 1fr);
   gap: var(--space-1);
 }
+
+/* Colour swatch next to edge-type checkboxes (#445). */
+.edgeSwatch {
+  display: inline-block;
+  width: var(--space-2);
+  height: var(--space-2);
+  border-radius: var(--radius-pill);
+  flex: none;
+}

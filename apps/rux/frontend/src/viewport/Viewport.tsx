@@ -19,7 +19,8 @@ import { PoseGraphScene } from './PoseGraphScene';
 import { SplatScene } from './SplatScene';
 import { useCloudStream, type CloudStreamState } from './useCloudStream';
 import styles from './Viewport.module.css';
-import type { PoseGraph } from '../api/types';
+import type { PoseGraph, PoseGraphEdgeType } from '../api/types';
+import type { ProjectionPlane } from './posegraphLayer';
 
 /** Progress of the PLY mesh layer, as the panel reports it (#265, review pt 2). */
 export interface MeshLayerState {
@@ -133,13 +134,21 @@ export interface ViewportProps {
   onPickPanorama?: (id: number) => void;
 
   /**
-   * Pose-graph overlay (#265, review pt 4).
+   * Pose-graph overlay (#265, review pt 4; #445).
    *
    * null while the fetch is in flight; an empty object when the project has
    * never been optimised (no edges, nodes from sensor-frame poses).
    */
   poseGraph?: PoseGraph | null;
   poseGraphVisible?: boolean;
+  /** Flatten graph positions to a 2D plane for inspection (#445). */
+  poseGraphProjectionPlane?: ProjectionPlane;
+  /** Independent edge-type visibility (#445). */
+  poseGraphEdgeTypeVisible?: Record<PoseGraphEdgeType, boolean>;
+  /** Highlight edges above this residual value in amber; 0 = disabled (#445). */
+  poseGraphResidualThreshold?: number;
+  /** Colour nodes by connectivity degree instead of uniform grey (#445). */
+  poseGraphNodeColorMode?: 'default' | 'degree';
 
   /**
    * Chrome drawn over the canvas.
@@ -184,6 +193,10 @@ export function Viewport({
   onPickPanorama,
   poseGraph,
   poseGraphVisible = false,
+  poseGraphProjectionPlane,
+  poseGraphEdgeTypeVisible,
+  poseGraphResidualThreshold,
+  poseGraphNodeColorMode,
   overlay,
 }: ViewportProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -270,6 +283,25 @@ export function Viewport({
   useEffect(() => {
     poseGraphRef.current?.setVisible(poseGraphVisible);
   }, [scene, poseGraphVisible]);
+
+  useEffect(() => {
+    poseGraphRef.current?.setProjectionPlane(poseGraphProjectionPlane ?? '3D');
+  }, [scene, poseGraphProjectionPlane]);
+
+  useEffect(() => {
+    if (!poseGraphEdgeTypeVisible) return;
+    for (const [type, vis] of Object.entries(poseGraphEdgeTypeVisible) as [PoseGraphEdgeType, boolean][]) {
+      poseGraphRef.current?.setEdgeTypeVisible(type, vis);
+    }
+  }, [scene, poseGraphEdgeTypeVisible]);
+
+  useEffect(() => {
+    poseGraphRef.current?.setResidualThreshold(poseGraphResidualThreshold ?? 0);
+  }, [scene, poseGraphResidualThreshold]);
+
+  useEffect(() => {
+    poseGraphRef.current?.setNodeColorMode(poseGraphNodeColorMode ?? 'default');
+  }, [scene, poseGraphNodeColorMode]);
 
   // Dispatch 'rux-camera-move' whenever the orbit camera changes so that
   // tile-streaming layers can re-evaluate their visible tile sets.

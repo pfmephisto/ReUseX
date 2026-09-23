@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { api } from '../api/client';
-import type { CloudInfo, GsplatInfo, MeshInfo, PanoramaInfo, PoseGraph } from '../api/types';
+import type { CloudInfo, GsplatInfo, MeshInfo, PanoramaInfo, PoseGraph, PoseGraphEdgeType } from '../api/types';
 import { useAsync } from '../app/useAsync';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { EmptyState } from '../components/EmptyState';
@@ -30,6 +30,7 @@ import {
   type ViewPreset,
 } from '../viewport/cameraViews';
 import { resolvePlacement, stepPanorama } from '../viewport/panorama';
+import type { ProjectionPlane } from '../viewport/posegraphLayer';
 import type { CloudStreamState } from '../viewport/useCloudStream';
 import styles from './ViewportPage.module.css';
 
@@ -186,13 +187,21 @@ export function ViewportPage() {
     if (next) setSplatRequested((current) => ({ ...current, [name]: true }));
   }, []);
 
-  // --- pose graph (#265, review pt 4) ------------------------------------
+  // --- pose graph (#265, review pt 4; #445) ---------------------------------
 
   const { data: poseGraphData, error: poseGraphError } = useAsync<PoseGraph>(
     (signal) => api.posegraph(signal),
     [],
   );
   const [poseGraphVisible, setPoseGraphVisible] = useState(false);
+  const [pgProjectionPlane, setPgProjectionPlane] = useState<ProjectionPlane>('3D');
+  const [pgEdgeTypeVisible, setPgEdgeTypeVisible] = useState<Record<PoseGraphEdgeType, boolean>>({
+    odometry: true,
+    loop_closure: true,
+    panorama: true,
+  });
+  const [pgResidualThreshold, setPgResidualThreshold] = useState(0);
+  const [pgNodeColorMode, setPgNodeColorMode] = useState<'default' | 'degree'>('default');
 
   // --- 360 panoramas (#265, Phase 5) --------------------------------------
 
@@ -431,6 +440,10 @@ export function ViewportPage() {
         onPickPanorama={enterPanorama}
         poseGraph={poseGraphData ?? null}
         poseGraphVisible={poseGraphVisible}
+        poseGraphProjectionPlane={pgProjectionPlane}
+        poseGraphEdgeTypeVisible={pgEdgeTypeVisible}
+        poseGraphResidualThreshold={pgResidualThreshold}
+        poseGraphNodeColorMode={pgNodeColorMode}
         overlay={
           immersive && activePano ? (
             <PanoramaBar
@@ -479,6 +492,15 @@ export function ViewportPage() {
           error: poseGraphError ?? null,
           visible: poseGraphVisible,
           onToggle: setPoseGraphVisible,
+          projectionPlane: pgProjectionPlane,
+          onProjectionPlaneChange: setPgProjectionPlane,
+          edgeTypeVisible: pgEdgeTypeVisible,
+          onEdgeTypeChange: (type, vis) =>
+            setPgEdgeTypeVisible((current) => ({ ...current, [type]: vis })),
+          residualThreshold: pgResidualThreshold,
+          onResidualThresholdChange: setPgResidualThreshold,
+          nodeColorMode: pgNodeColorMode,
+          onNodeColorModeChange: setPgNodeColorMode,
         }}
         visible={visible}
         progress={progress}

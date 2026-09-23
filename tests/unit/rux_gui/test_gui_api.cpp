@@ -8,15 +8,18 @@
 // submission validation, the WebSocket message protocol, and the JSON shape of
 // the read endpoints against a real (empty and populated) ProjectDB.
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <gui/api.hpp>
 #include <gui/assets.hpp>
 #include <gui/point_lod.hpp>
 
+#include "../../support/pose_fixture.hpp"
 #include "../../support/temp_path.hpp"
 
 #include <core/ProjectDB.hpp>
+#include <core/SensorIntrinsics.hpp>
 #include <pipeline/JobRunner.hpp>
 
 #include <algorithm>
@@ -113,6 +116,7 @@ TEST_CASE("EndpointTable_DocumentedRoutes_MatchesContract", "[gui][routes]") {
       "GET /api/v1/gsplats/<string>",
       "GET /api/v1/gsplats/<string>/data",
       "GET /api/v1/frames",
+      "GET /api/v1/frames/visibility",
       "GET /api/v1/frames/<int>",
       "GET /api/v1/frames/<int>/image",
       "GET /api/v1/panoramas",
@@ -132,6 +136,7 @@ TEST_CASE("EndpointTable_DocumentedRoutes_MatchesContract", "[gui][routes]") {
       "PATCH /api/v1/material-columns/<string>",
       "DELETE /api/v1/material-columns/<string>",
       "GET /api/v1/instances/<string>",
+      "GET /api/v1/instances/<string>/<int>/frames",
       "GET /api/v1/stages",
       "GET /api/v1/stages/<string>/validation",
       "GET /api/v1/pipeline-log",
@@ -1343,4 +1348,92 @@ TEST_CASE("JobJson_UnfinishedOrFailedJob_HasNoResult", "[gui][jobs]") {
 
   record.status = reusex::pipeline::JobStatus::cancelled;
   CHECK_FALSE(job_json(record, "scan.rux").contains("result"));
+}
+
+// ===========================================================================
+// point / frame visibility (#453)
+// ===========================================================================
+
+namespace {
+
+// Same synthetic scene the library test uses: a pinhole camera (fx=fy=100,
+// principal point at the 128x128 centre, identity local transform) at four
+// world poses, all looking down +z. Frame 1 sees the point (0,0,2) dead
+// centre, frame 2 off to one side, frames 3 and 4 not at all.
+void save_visibility_frame(reusex::ProjectDB &db, int id, double tx, double ty,
+                           double tz) {
+  const auto intr = reusex::test_support::make_intrinsics(
+      /*fx=*/100.0, /*fy=*/100.0, /*cx=*/64.0, /*cy=*/64.0, /*w=*/128,
+      /*h=*/128);
+  const std::array<double, 16> pose{1, 0, 0, tx, 0, 1, 0, ty,
+                                    0, 0, 1, tz, 0, 0, 0, 1};
+  db.save_sensor_frame(id, reusex::test_support::make_color(128, 128),
+                       cv::Mat(), cv::Mat(), pose, intr,
+                       static_cast<double>(id), -1);
+}
+
+} // namespace
+
+TEST_CASE("FramesVisibility_PointQuery_RanksByCentrality", "[gui][routes]") {
+  const TempPath project("gui_visibility");
+  {
+    reusex::ProjectDB db(project.path);
+    save_visibility_frame(db, 1, 0.0, 0.0, 0.0);
+    save_visibility_frame(db, 2, 0.3, 0.0, 0.0);
+    save_visibility_frame(db, 3, 0.0, 0.0, 5.0);
+    save_visibility_frame(db, 4, 5.0, 0.0, 0.0);
+  }
+  reusex::ProjectDB db(project.path);
+
+  SECTION("in-front, in-frustum frames come back best-first") {
+    const auto body = frames_visibility_json(
+        db, params_of({{"x", "0"}, {"y", "0"}, {"z", "2"}}));
+
+    REQUIRE(body.at("total") == 2);
+    REQUIRE(body.at("frames").size() == 2);
+    CHECK(body["frames"][0].at("frame_id") == 1);
+    CHECK(body["frames"][1].at("frame_id") == 2);
+    // Frame 1 sees the point at the principal point.
+    CHECK(body["frames"][0].at("centrality").get<double>() < 1e-9);
+    CHECK(body["frames"][0].at("score").get<double>() ==
+          Catch::Approx(1.0).margin(1e-9));
+    CHECK(body["frames"][1].at("centrality").get<double>() >
+          body["frames"][0].at("centrality").get<double>());
+    CHECK(body.at("point") == json::array({0.0, 0.0, 2.0}));
+  }
+
+  SECTION("limit bounds the body but total reports the full count") {
+    const auto body = frames_visibility_json(
+        db, params_of({{"x", "0"}, {"y", "0"}, {"z", "2"}, {"limit", "1"}}));
+    CHECK(body.at("total") == 2);
+    CHECK(body.at("count") == 1);
+    CHECK(body.at("frames").size() == 1);
+    CHECK(body["frames"][0].at("frame_id") == 1);
+  }
+
+  SECTION("max_depth rejects frames beyond the range limit") {
+    const auto body = frames_visibility_json(
+        db,
+        params_of({{"x", "0"}, {"y", "0"}, {"z", "2"}, {"max_depth", "1.5"}}));
+    CHECK(body.at("total") == 0);
+    CHECK(body.at("frames").empty());
+  }
+
+  SECTION("a missing coordinate is a 400") {
+    CHECK_THROWS_AS(frames_visibility_json(db, params_of({{"x", "0"}})),
+                    HttpError);
+  }
+
+  SECTION("a non-numeric coordinate is a 400") {
+    CHECK_THROWS_AS(
+        frames_visibility_json(
+            db, params_of({{"x", "0"}, {"y", "0"}, {"z", "over-there"}})),
+        HttpError);
+  }
+}
+
+TEST_CASE("InstanceFrames_UnknownCloud_Is404", "[gui][routes]") {
+  const TempPath project("gui_visibility_instance");
+  reusex::ProjectDB db(project.path);
+  CHECK_THROWS_AS(instance_frames_json(db, "nope", 1, Params{}), HttpError);
 }

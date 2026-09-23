@@ -293,6 +293,19 @@ struct ImageResponse {
 nlohmann::json frames_json(const reusex::ProjectDB &db, const Params &params);
 nlohmann::json frame_json(const reusex::ProjectDB &db, int id);
 
+/// Sensor frames that see a world point, ranked most-central-first (#453).
+///
+/// Backed by `reusex::core::visible_frames()`: each posed frame is a frustum
+/// test plus a centrality score (distance of the projection from the principal
+/// point). Useful for the one-click "best source image" flow.
+///
+/// @param params `x`, `y`, `z` (required, world coordinates), optional
+///        `max_depth` (metres; reject farther frames) and `limit` (max frames
+///        in the body; 0 = all).
+/// @throws HttpError(400) when a coordinate is missing or not a finite number.
+nlohmann::json frames_visibility_json(const reusex::ProjectDB &db,
+                                      const Params &params);
+
 /// One of a frame's images, encoded as PNG.
 ///
 /// @param params `kind` (color|depth|confidence|segmentation), `max_size`
@@ -374,6 +387,20 @@ void delete_material_column(reusex::ProjectDB &db, const std::string &id);
 
 nlohmann::json instances_json(const reusex::ProjectDB &db,
                               const std::string &cloud, const Params &params);
+
+/// Sensor frames that see one instance's centroid, ranked most-central-first
+/// (#453). The centroid is taken over the base `cloud` positions index-aligned
+/// with the instance-label @p cloud. Same body shape as
+/// frames_visibility_json(), plus `cloud`, `instance_id` and
+/// `instance_point_count`.
+///
+/// @param params optional `max_depth` and `limit`; see frames_visibility_json.
+/// @throws HttpError(404) when the cloud or instance id is unknown,
+///         HttpError(409) when the base positions cloud is missing or not
+///         index-aligned with the instance labels.
+nlohmann::json instance_frames_json(const reusex::ProjectDB &db,
+                                    const std::string &cloud, int instance_id,
+                                    const Params &params);
 
 // --- pipeline -------------------------------------------------------------
 

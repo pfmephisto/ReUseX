@@ -678,6 +678,15 @@ class Server::Impl {
       });
     });
 
+    // Registered before /frames/<int> so the static "visibility" segment is
+    // matched ahead of the integer rule.
+    get("/api/v1/frames/visibility")([this](const crow::request &req) {
+      const Params params = params_of(req);
+      return with_db([&](const reusex::ProjectDB &db) {
+        return json_response(200, frames_visibility_json(db, params));
+      });
+    });
+
     get("/api/v1/frames/<int>")([this](const crow::request &, int id) {
       return with_db([&](const reusex::ProjectDB &db) {
         return json_response(200, frame_json(db, id));
@@ -815,6 +824,15 @@ class Server::Impl {
           const Params params = params_of(req);
           return with_db([&](const reusex::ProjectDB &db) {
             return json_response(200, instances_json(db, cloud, params));
+          });
+        });
+
+    get("/api/v1/instances/<string>/<int>/frames")(
+        [this](const crow::request &req, std::string cloud, int instance_id) {
+          const Params params = params_of(req);
+          return with_db([&](const reusex::ProjectDB &db) {
+            return json_response(
+                200, instance_frames_json(db, cloud, instance_id, params));
           });
         });
 

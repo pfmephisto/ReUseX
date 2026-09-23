@@ -729,6 +729,68 @@ paths:
               schema: { $ref: "#/components/schemas/Error" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
+  /frames/visibility:
+    get:
+      tags: [frames]
+      operationId: pointVisibility
+      summary: Sensor frames that see a world point, ranked by centrality
+      description: |
+        Given a world-space point, returns the posed sensor frames in which it
+        is visible, ordered by how **centrally** it projects — the first frame
+        is the best candidate "source image" for that point (#453).
+
+        Each frame is a frustum test: the point must be **in front of** the
+        camera and its pinhole projection must **land within the image**. The
+        `centrality` score is the projection's normalised distance from the
+        principal point (`0` = dead centre, `~1` = image corner); `score` is its
+        higher-is-better complement (`1 - centrality`). Frames with no usable
+        stored pose or degenerate intrinsics are silently skipped, exactly as
+        the projection pipeline skips them.
+
+        No occlusion test is applied yet: a point behind a wall still counts as
+        visible if it falls inside the frustum. Depth-buffer occlusion is a
+        planned follow-up.
+      parameters:
+        - name: x
+          in: query
+          required: true
+          description: World X coordinate of the point.
+          schema: { type: number, format: double }
+        - name: y
+          in: query
+          required: true
+          description: World Y coordinate of the point.
+          schema: { type: number, format: double }
+        - name: z
+          in: query
+          required: true
+          description: World Z coordinate of the point.
+          schema: { type: number, format: double }
+        - name: max_depth
+          in: query
+          description: |
+            Reject frames where the point is farther than this many metres from
+            the camera. Omit (or `0`) for no far limit.
+          schema: { type: number, format: double, minimum: 0 }
+        - name: limit
+          in: query
+          description: |
+            Maximum number of frames in `frames`. `0` (the default) returns all
+            visible frames; `total` always reports the full count regardless.
+          schema: { type: integer, minimum: 0 }
+      responses:
+        "200":
+          description: Ranked visible frames, most central first
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FrameVisibilityList" }
+        "400":
+          description: A coordinate was missing or not a finite number
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
   /frames/{id}:
     get:
       tags: [frames]
@@ -1288,6 +1350,74 @@ paths:
                         type: array
                         items: { $ref: "#/components/schemas/InstanceInfo" }
         "404": { $ref: "#/components/responses/NotFound" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  /instances/{cloud}/{id}/frames:
+    get:
+      tags: [instances]
+      operationId: instanceVisibility
+      summary: Sensor frames that see an instance's centroid, ranked by centrality
+      description: |
+        Convenience wrapper over `/frames/visibility` (#453): computes the
+        **centroid** of one instance and returns the frames that see it, ranked
+        most-central-first, for a one-click "best source image" of an object.
+
+        The centroid is averaged over the points of the base `cloud` (the
+        positions the instance-label cloud was segmented from, index-aligned
+        point for point). The response has the same shape as
+        `/frames/visibility` plus `cloud`, `instance_id` and
+        `instance_point_count`; see that endpoint for the frustum/centrality
+        semantics.
+      parameters:
+        - name: cloud
+          in: path
+          required: true
+          description: Name of the instance-label cloud (usually `instances`).
+          schema: { type: string }
+        - name: id
+          in: path
+          required: true
+          description: Instance id (the label value in the instance cloud, >= 1).
+          schema: { type: integer, minimum: 1 }
+        - name: max_depth
+          in: query
+          description: |
+            Reject frames where the centroid is farther than this many metres.
+            Omit (or `0`) for no far limit.
+          schema: { type: number, format: double, minimum: 0 }
+        - name: limit
+          in: query
+          description: |
+            Maximum number of frames in `frames`. `0` (the default) returns all.
+          schema: { type: integer, minimum: 0 }
+      responses:
+        "200":
+          description: Ranked visible frames for the instance centroid
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/FrameVisibilityList"
+                  - type: object
+                    required: [cloud, instance_id, instance_point_count]
+                    properties:
+                      cloud: { type: string }
+                      instance_id: { type: integer }
+                      instance_point_count:
+                        type: integer
+                        description: Points that contributed to the centroid.
+        "404":
+          description: The cloud or the instance id does not exist
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: |
+            The base positions cloud is missing, or is not index-aligned with
+            the instance-label cloud.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
   # ------------------------------------------------------------ pipeline ----
@@ -2085,6 +2215,62 @@ components:
                 ignoring filter and page.
             width: { type: integer }
             height: { type: integer }
+
+    VisibleFrame:
+      type: object
+      description: One frame in which a queried point projects inside the image.
+      required: [frame_id, centrality, score, depth, u, v]
+      properties:
+        frame_id:
+          type: integer
+          description: node_id of the sensor frame.
+        centrality:
+          type: number
+          format: double
+          description: >-
+            Normalised distance of the projection from the principal point:
+            0 at the principal point (most central), ~1 at an image corner.
+            This is the sort key — frames come back ascending in it.
+        score:
+          type: number
+          format: double
+          description: Higher-is-better complement of centrality (1 - centrality).
+        depth:
+          type: number
+          format: double
+          description: Point's depth in the camera optical frame, metres (> 0).
+        u:
+          type: number
+          format: double
+          description: Projected pixel column (0 = left edge).
+        v:
+          type: number
+          format: double
+          description: Projected pixel row (0 = top edge).
+
+    FrameVisibilityList:
+      type: object
+      description: |
+        Frames that see a world point, most central first. `count` is how many
+        `frames` carries (bounded by `limit`); `total` is the full number of
+        visible frames.
+      required: [point, frames, count, total]
+      properties:
+        point:
+          type: array
+          description: The queried world point [x, y, z] (a centroid for the instance variant).
+          minItems: 3
+          maxItems: 3
+          items: { type: number, format: double }
+        frames:
+          type: array
+          items: { $ref: "#/components/schemas/VisibleFrame" }
+        count:
+          type: integer
+          description: Number of frames in this response.
+        total:
+          type: integer
+          description: Total visible frames, before the `limit` cap.
 
     FrameInfo:
       type: object

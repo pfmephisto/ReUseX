@@ -11,6 +11,7 @@
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/core/SensorIntrinsics.hpp>
 #include <reusex/core/component_record.hpp>
+#include <reusex/core/frame_visibility.hpp>
 #include <reusex/core/guid.hpp>
 #include <reusex/core/stages.hpp>
 #include <reusex/core/validate.hpp>
@@ -19,6 +20,8 @@
 #include <reusex/types/point_types.hpp>
 
 #include <reusex/utils/cv.hpp>
+
+#include <Eigen/Core>
 
 #include <opencv2/core.hpp>
 #include <opencv2/imgcodecs.hpp>
@@ -394,6 +397,79 @@ json stage_entry_json(const reusex::ProjectDB &db,
                                      : json::array()}};
 }
 
+// --- point/frame visibility (#453) -----------------------------------------
+
+/// Parse a finite double query parameter, or 400 if absent/malformed. Used by
+/// the visibility endpoints, whose coordinates are not integers.
+double require_double(const Params &params, std::string_view key) {
+  const auto value = params.find(key);
+  if (!value || value->empty())
+    throw HttpError(400, std::string("query parameter '") + std::string(key) +
+                             "' is required");
+  try {
+    std::size_t pos = 0;
+    const double parsed = std::stod(*value, &pos);
+    if (pos != value->size() || !std::isfinite(parsed))
+      throw std::invalid_argument("");
+    return parsed;
+  } catch (const std::exception &) {
+    throw HttpError(400, std::string("query parameter '") + std::string(key) +
+                             "' must be a finite number, got '" + *value + "'");
+  }
+}
+
+/// Build the shared visibility query (currently just an optional `max_depth`)
+/// from request parameters.
+reusex::core::VisibilityQuery visibility_query_of(const Params &params) {
+  reusex::core::VisibilityQuery query;
+  if (const auto value = params.find("max_depth"); value && !value->empty()) {
+    try {
+      std::size_t pos = 0;
+      const double parsed = std::stod(*value, &pos);
+      if (pos != value->size() || !std::isfinite(parsed) || parsed < 0.0)
+        throw std::invalid_argument("");
+      query.max_depth = parsed;
+    } catch (const std::exception &) {
+      throw HttpError(400, "query parameter 'max_depth' must be a "
+                           "non-negative number, got '" +
+                               *value + "'");
+    }
+  }
+  return query;
+}
+
+/// Serialise a ranked visibility result. `limit` bounds how many frames the
+/// body carries (`total` always reports the full count).
+json visibility_json(const std::array<double, 3> &point,
+                     const std::vector<reusex::core::FrameVisibility> &frames,
+                     const Params &params) {
+  const long long raw_limit = params.integer("limit", 0);
+  if (raw_limit < 0)
+    throw HttpError(400, "limit must be >= 0");
+  const std::size_t count =
+      raw_limit == 0 ? frames.size()
+                     : std::min<std::size_t>(
+                           static_cast<std::size_t>(raw_limit), frames.size());
+
+  json arr = json::array();
+  for (std::size_t i = 0; i < count; ++i) {
+    const auto &f = frames[i];
+    // `centrality` is 0 at the principal point; `score` is its higher-is-better
+    // complement so a client can sort/threshold either way without inverting.
+    arr.push_back(json{{"frame_id", f.frame_id},
+                       {"centrality", f.centrality},
+                       {"score", 1.0 - f.centrality},
+                       {"depth", f.depth},
+                       {"u", f.u},
+                       {"v", f.v}});
+  }
+
+  return json{{"point", {point[0], point[1], point[2]}},
+              {"frames", std::move(arr)},
+              {"count", count},
+              {"total", frames.size()}};
+}
+
 } // namespace
 
 // ===========================================================================
@@ -535,6 +611,8 @@ const std::vector<Endpoint> &endpoint_table() {
       {"GET", "/api/v1/gsplats/<string>/data",
        "The INRIA-format splat PLY, verbatim", true},
       {"GET", "/api/v1/frames", "Sensor frame ids and aggregate counts"},
+      {"GET", "/api/v1/frames/visibility",
+       "Sensor frames that see a world point, ranked by centrality"},
       {"GET", "/api/v1/frames/<int>",
        "One sensor frame's pose, intrinsics and availability flags"},
       {"GET", "/api/v1/frames/<int>/image",
@@ -567,6 +645,8 @@ const std::vector<Endpoint> &endpoint_table() {
        "Delete a material column definition"},
       {"GET", "/api/v1/instances/<string>",
        "Instance rows of an instance-label cloud, with material links"},
+      {"GET", "/api/v1/instances/<string>/<int>/frames",
+       "Sensor frames that see an instance's centroid, ranked by centrality"},
       {"GET", "/api/v1/stages",
        "The stage catalogue, with readiness for this project"},
       {"GET", "/api/v1/stages/<string>/validation",
@@ -1219,6 +1299,74 @@ json frames_json(const reusex::ProjectDB &db, const Params &params) {
   out["segmented_count"] = summary.sensor_frames.segmented_count;
   out["width"] = summary.sensor_frames.width;
   out["height"] = summary.sensor_frames.height;
+  return out;
+}
+
+json frames_visibility_json(const reusex::ProjectDB &db, const Params &params) {
+  const double x = require_double(params, "x");
+  const double y = require_double(params, "y");
+  const double z = require_double(params, "z");
+  const auto frames = reusex::core::visible_frames(db, Eigen::Vector3d(x, y, z),
+                                                   visibility_query_of(params));
+  return visibility_json({x, y, z}, frames, params);
+}
+
+json instance_frames_json(const reusex::ProjectDB &db, const std::string &cloud,
+                          int instance_id, const Params &params) {
+  if (!db.has_point_cloud(cloud))
+    not_found("cloud", cloud);
+
+  // The instance-label cloud stores labels only; its positions are the base
+  // `cloud` it was segmented from, index-aligned point for point (the
+  // `instances` stage reads exactly that — see run_instances). Without it there
+  // is nowhere to take a centroid from.
+  static constexpr const char *kPositions = "cloud";
+  if (!db.has_point_cloud(kPositions))
+    throw HttpError(409, std::string("instance visibility needs the base '") +
+                             kPositions +
+                             "' point cloud for positions, which this project "
+                             "does not have");
+
+  const auto positions = db.point_cloud_xyzrgb(kPositions);
+  const auto labels = db.point_cloud_label(cloud);
+  if (!positions || !labels)
+    throw HttpError(500, "could not load positions or instance labels");
+  if (positions->size() != labels->size())
+    throw HttpError(409, "instance-label cloud '" + cloud + "' has " +
+                             std::to_string(labels->size()) +
+                             " points but base cloud '" +
+                             std::string(kPositions) + "' has " +
+                             std::to_string(positions->size()) +
+                             " — they are not index-aligned");
+
+  // Centroid of the points carrying this instance id. Non-finite points are
+  // skipped so one NaN cannot poison the average.
+  double sx = 0.0, sy = 0.0, sz = 0.0;
+  std::size_t n = 0;
+  for (std::size_t i = 0; i < labels->size(); ++i) {
+    if (labels->points[i].label != static_cast<uint32_t>(instance_id))
+      continue;
+    const auto &p = positions->points[i];
+    if (!std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z))
+      continue;
+    sx += p.x;
+    sy += p.y;
+    sz += p.z;
+    ++n;
+  }
+  if (n == 0)
+    not_found("instance", cloud + "/" + std::to_string(instance_id));
+
+  const double cx = sx / static_cast<double>(n);
+  const double cy = sy / static_cast<double>(n);
+  const double cz = sz / static_cast<double>(n);
+  const auto frames = reusex::core::visible_frames(
+      db, Eigen::Vector3d(cx, cy, cz), visibility_query_of(params));
+
+  json out = visibility_json({cx, cy, cz}, frames, params);
+  out["cloud"] = cloud;
+  out["instance_id"] = instance_id;
+  out["instance_point_count"] = n;
   return out;
 }
 

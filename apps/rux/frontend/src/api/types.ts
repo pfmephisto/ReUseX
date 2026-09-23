@@ -162,6 +162,16 @@ export interface TextureInfo {
   height: number;
 }
 
+/** `ScanGroup` — one import session's frames within a `FrameList` (#462). */
+export interface ScanGroup {
+  scan_id: number;
+  /** Raw path passed to `rux import`; take the final segment for display. */
+  source_path: string;
+  imported_at: string;
+  /** Filtered frame ids belonging to this scan, in ascending order. */
+  ids: number[];
+}
+
 /** `FrameList` — sensor frame ids plus aggregate counts. */
 export interface FrameList {
   ids: number[];
@@ -169,6 +179,11 @@ export interface FrameList {
   segmented_count: number;
   width?: number;
   height?: number;
+  /**
+   * Per-scan breakdown of the ids above (#462).
+   * Absent for projects imported before schema v17.
+   */
+  scans?: ScanGroup[];
 }
 
 /** `Intrinsics` — pinhole intrinsics of one sensor. */

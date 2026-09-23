@@ -34,6 +34,7 @@
 #include <cmath>
 #include <cstring>
 #include <exception>
+#include <map>
 #include <set>
 #include <type_traits>
 #include <utility>
@@ -1322,6 +1323,34 @@ json frames_json(const reusex::ProjectDB &db, const Params &params) {
   out["segmented_count"] = summary.sensor_frames.segmented_count;
   out["width"] = summary.sensor_frames.width;
   out["height"] = summary.sensor_frames.height;
+
+  // Per-scan grouping (#462). Omit when the project has no scans table (schema
+  // < v17) — those projects already have a flat id list and nothing breaks.
+  if (!summary.sensor_frames.scans.empty()) {
+    const auto id_scan_pairs = db.sensor_frame_ids_with_scan();
+    std::map<int, int> id_to_scan;
+    for (const auto &[node_id, scan_id] : id_scan_pairs)
+      id_to_scan[node_id] = scan_id;
+
+    std::map<int, std::vector<int>> ids_by_scan;
+    for (int id : matching) {
+      const auto it = id_to_scan.find(id);
+      ids_by_scan[it != id_to_scan.end() ? it->second : 0].push_back(id);
+    }
+
+    json scans_arr = json::array();
+    for (const auto &scan : summary.sensor_frames.scans) {
+      const auto it = ids_by_scan.find(scan.scan_id);
+      json entry;
+      entry["scan_id"] = scan.scan_id;
+      entry["source_path"] = scan.source_path;
+      entry["imported_at"] = scan.imported_at;
+      entry["ids"] = it != ids_by_scan.end() ? json(it->second) : json::array();
+      scans_arr.push_back(std::move(entry));
+    }
+    out["scans"] = std::move(scans_arr);
+  }
+
   return out;
 }
 

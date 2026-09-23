@@ -1413,6 +1413,50 @@ TEST_CASE("FramesJson_Paged_KeepsScanTotalsDistinctFromThePageTotal",
   CHECK(body.at("ids").size() == body.at("count"));
 }
 
+TEST_CASE("FramesJson_MultiScan_GroupsIdsByScanId", "[gui][frames]") {
+  // Frames from two different import sessions must appear in separate `scans`
+  // entries in the response (#462). The flat `ids` array still has all ids;
+  // the `scans` array provides the per-scan breakdown the frontend needs to
+  // render one collapsible group per import session.
+  TempPath project("test_gui_api_multiscan");
+  reusex::ProjectDB db(project.path);
+
+  const auto scan_a = db.create_scan("path/to/scan_a.db");
+  const auto scan_b = db.create_scan("path/to/scan_b.db");
+
+  const auto intr =
+      reusex::test_support::make_intrinsics(100.0, 100.0, 64.0, 64.0, 128, 128);
+  const std::array<double, 16> identity{1, 0, 0, 0, 0, 1, 0, 0,
+                                        0, 0, 1, 0, 0, 0, 0, 1};
+  db.save_sensor_frame(1, reusex::test_support::make_color(128, 128), cv::Mat(),
+                       cv::Mat(), identity, intr, 1.0, scan_a.id);
+  db.save_sensor_frame(2, reusex::test_support::make_color(128, 128), cv::Mat(),
+                       cv::Mat(), identity, intr, 2.0, scan_a.id);
+  db.save_sensor_frame(3, reusex::test_support::make_color(128, 128), cv::Mat(),
+                       cv::Mat(), identity, intr, 3.0, scan_b.id);
+
+  const auto body = frames_json(db, Params{});
+  REQUIRE(body.contains("ids"));
+  CHECK(body.at("ids").size() == 3);
+  CHECK(body.at("total_count") == 3);
+
+  REQUIRE(body.contains("scans"));
+  const auto &scans = body.at("scans");
+  REQUIRE(scans.size() == 2);
+
+  CHECK(scans[0].at("scan_id") == scan_a.id);
+  CHECK(scans[0].at("source_path") == "path/to/scan_a.db");
+  REQUIRE(scans[0].contains("imported_at"));
+  REQUIRE(scans[0].at("ids").size() == 2);
+  CHECK(scans[0].at("ids")[0] == 1);
+  CHECK(scans[0].at("ids")[1] == 2);
+
+  CHECK(scans[1].at("scan_id") == scan_b.id);
+  CHECK(scans[1].at("source_path") == "path/to/scan_b.db");
+  REQUIRE(scans[1].at("ids").size() == 1);
+  CHECK(scans[1].at("ids")[0] == 3);
+}
+
 // ===========================================================================
 // Job.result (#285)
 // ===========================================================================

@@ -1724,6 +1724,21 @@ class ProjectDB::Impl {
     return ids;
   }
 
+  std::vector<std::pair<int, int>> getSensorFrameIdsWithScan() const {
+    const char *sql = "SELECT node_id, COALESCE(scan_id, 0) "
+                      "FROM sensor_frames ORDER BY node_id;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("Failed to query sensor frame ids with scan: " +
+                               std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+    std::vector<std::pair<int, int>> result;
+    while (sqlite3_step(stmt) == SQLITE_ROW)
+      result.emplace_back(sqlite3_column_int(stmt, 0),
+                          sqlite3_column_int(stmt, 1));
+    return result;
+  }
+
   cv::Mat getSensorFrameImage(int nodeId) const {
     const char *sql = "SELECT color FROM sensor_frames WHERE node_id = ?;";
     sqlite3_stmt *stmt;
@@ -5764,6 +5779,10 @@ void ProjectDB::update_sensor_frame_pose(
 
 std::vector<int> ProjectDB::sensor_frame_ids() const {
   return impl_->getSensorFrameIds();
+}
+
+std::vector<std::pair<int, int>> ProjectDB::sensor_frame_ids_with_scan() const {
+  return impl_->getSensorFrameIdsWithScan();
 }
 
 cv::Mat ProjectDB::sensor_frame_image(int nodeId) const {

@@ -106,6 +106,10 @@ class ProjectDB {
                                 const std::array<double, 16> &worldPose);
 
   std::vector<int> sensor_frame_ids() const;
+
+  /// Returns {node_id, scan_id} pairs ordered by node_id.
+  /// scan_id is 0 when the frame has no recorded scan (schema < v17).
+  std::vector<std::pair<int, int>> sensor_frame_ids_with_scan() const;
   cv::Mat sensor_frame_image(int nodeId) const;
   cv::Mat sensor_frame_depth(int nodeId) const;
   cv::Mat sensor_frame_confidence(int nodeId) const;

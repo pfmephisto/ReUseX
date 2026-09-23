@@ -6,6 +6,7 @@ import { useCallback, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 import { api } from '../api/client';
+import type { ScanGroup } from '../api/types';
 import { useAsync } from '../app/useAsync';
 import { EmptyState } from '../components/EmptyState';
 import { ErrorBanner } from '../components/ErrorBanner';
@@ -26,21 +27,20 @@ import styles from './FramesPage.module.css';
 /**
  * The sensor-frame browser.
  *
- * Frames are presented in two collapsible groups — Sensor Frames and 360
- * Images — so the view does not overwhelm the user with a single flat grid of
- * hundreds of thumbnails. Each group is lazy: its thumbnails are only loaded
- * when the group is expanded.
+ * Frames are presented in collapsible groups — one per import scan plus the
+ * 360 Images group — so the view does not overwhelm the user with a single
+ * flat grid of hundreds of thumbnails. Each group is lazy: its thumbnails are
+ * only loaded when the group is expanded.
+ *
+ * When the server returns a single scan (or a pre-v17 project with no `scans`
+ * field), the view falls back to a single "Sensor Frames" group exactly as
+ * before. When there are multiple scans, each gets its own collapsible section
+ * labelled by the basename of the import path.
  *
  * Both pieces of URL state — the filter and the selection — follow the same
  * convention the viewport uses for `?cloud=`. The filter is a **request** to
  * the server, not a client-side predicate: `GET /frames?segmented=` is cheaper
  * than one `/frames/{id}` per frame to read a single boolean.
- *
- * Grouping by scan is not yet possible: `GET /frames` returns a flat id list
- * with no per-frame scan key. The backend scan data (scans table, scan_id
- * column on sensor_frames) is available in ProjectDB but not exposed by the
- * API. Scan-level grouping is a follow-up that requires a backend change (see
- * issue #450 report).
  */
 export function FramesPage() {
   const [params, setParams] = useSearchParams();
@@ -48,7 +48,7 @@ export function FramesPage() {
 
   // Frame IDs are fetched eagerly — they are integers and cheap, and the
   // selection URL state (`?frame=`) needs them to validate on every render,
-  // including when the Sensor Frames group is collapsed.
+  // including when a Sensor Frames group is collapsed.
   const frames = useAsync(
     (signal) => api.frames({ segmented: segmentedParam(filter) }, signal),
     [filter],
@@ -71,6 +71,9 @@ export function FramesPage() {
     (id: number) => setParam('frame', String(id)),
     [setParam],
   );
+
+  const scanGroups = frames.data?.scans;
+  const isMultiScan = scanGroups !== undefined && scanGroups.length > 1;
 
   return (
     <div className={styles.page}>
@@ -95,35 +98,64 @@ export function FramesPage() {
 
       <div className={styles.body}>
         <div className={styles.groupsColumn}>
-          <FrameGroupSection
-            label="Sensor Frames"
-            count={frames.data?.total_count}
-            defaultExpanded
-            grow
-          >
-            {frames.error ? (
-              <ErrorBanner
-                error={frames.error}
-                onRetry={frames.reload}
-                context="the frame inventory"
-              />
-            ) : !frames.data ? (
-              <Spinner label="Reading frames…" />
-            ) : ids.length === 0 ? (
-              <EmptyState
-                title={filter === 'all' ? 'No sensor frames' : `No ${filter} frames`}
-                detail={
-                  filter === 'all'
-                    ? '`rux import rtabmap` (or `mushroom`, `arkitscenes`) brings captured frames into the project.'
-                    : filter === 'segmented'
-                      ? "None of this scan's frames carry a segmentation mask yet. `rux create annotate` produces them."
-                      : 'Every frame in this scan already carries a segmentation mask.'
-                }
-              />
-            ) : (
-              <FrameGrid ids={ids} selected={selected} onSelect={handleSelect} />
-            )}
-          </FrameGroupSection>
+          {isMultiScan ? (
+            // One collapsible group per import scan (#462).
+            scanGroups!.map((scan, index) => (
+              <FrameGroupSection
+                key={scan.scan_id}
+                label={scanGroupLabel(scan)}
+                count={scan.ids.length}
+                defaultExpanded={index === 0}
+                grow
+              >
+                {scan.ids.length === 0 ? (
+                  <EmptyState
+                    title={filter === 'all' ? 'No sensor frames' : `No ${filter} frames`}
+                    detail={
+                      filter === 'segmented'
+                        ? "None of this scan's frames carry a segmentation mask yet."
+                        : filter === 'unsegmented'
+                          ? 'Every frame in this scan already carries a segmentation mask.'
+                          : 'This scan has no frames.'
+                    }
+                  />
+                ) : (
+                  <FrameGrid ids={scan.ids} selected={selected} onSelect={handleSelect} />
+                )}
+              </FrameGroupSection>
+            ))
+          ) : (
+            // Single scan or pre-v17 project: one "Sensor Frames" group.
+            <FrameGroupSection
+              label={scanGroups?.length === 1 ? scanGroupLabel(scanGroups[0]) : 'Sensor Frames'}
+              count={frames.data?.total_count}
+              defaultExpanded
+              grow
+            >
+              {frames.error ? (
+                <ErrorBanner
+                  error={frames.error}
+                  onRetry={frames.reload}
+                  context="the frame inventory"
+                />
+              ) : !frames.data ? (
+                <Spinner label="Reading frames…" />
+              ) : ids.length === 0 ? (
+                <EmptyState
+                  title={filter === 'all' ? 'No sensor frames' : `No ${filter} frames`}
+                  detail={
+                    filter === 'all'
+                      ? '`rux import rtabmap` (or `mushroom`, `arkitscenes`) brings captured frames into the project.'
+                      : filter === 'segmented'
+                        ? "None of this scan's frames carry a segmentation mask yet. `rux create annotate` produces them."
+                        : 'Every frame in this scan already carries a segmentation mask.'
+                  }
+                />
+              ) : (
+                <FrameGrid ids={ids} selected={selected} onSelect={handleSelect} />
+              )}
+            </FrameGroupSection>
+          )}
 
           <FrameGroupSection label="360 Images">
             <PanoramaGroupContent />
@@ -136,6 +168,12 @@ export function FramesPage() {
       </div>
     </div>
   );
+}
+
+/** Display label for a scan group: the final path segment, or "Scan N" fallback. */
+function scanGroupLabel(scan: ScanGroup): string {
+  const basename = scan.source_path.split(/[/\\]/).at(-1) ?? '';
+  return basename || `Scan ${scan.scan_id}`;
 }
 
 // ---------------------------------------------------------------------------

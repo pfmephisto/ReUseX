@@ -142,3 +142,30 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ---- SAM3 segmentation section (#448) ---- */
+
+.segmentSection {
+  flex: none;
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-3);
+}
+
+.segmentToggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  width: 100%;
+  padding: var(--space-1) 0;
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  text-align: left;
+  cursor: pointer;
+}
+
+.segmentToggle:hover {
+  color: var(--color-text);
+}

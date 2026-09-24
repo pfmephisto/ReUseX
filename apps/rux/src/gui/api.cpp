@@ -649,6 +649,8 @@ const std::vector<Endpoint> &endpoint_table() {
       {"GET", "/api/v1/panoramas/<int>", "One panorama's metadata"},
       {"GET", "/api/v1/panoramas/<int>/image", "The equirectangular image",
        true},
+      {"POST", "/api/v1/panoramas/<int>/segment",
+       "Run SAM3 on one 360 panorama and store the equirect label mask"},
       {"GET", "/api/v1/components",
        "Building components, optionally filtered by type"},
       {"GET", "/api/v1/components/<string>",
@@ -1528,6 +1530,22 @@ json segment_frame_result_json(int frame_id, const cv::Mat &label_map,
   const int labeled = label_map.empty() ? 0 : cv::countNonZero(label_map != -1);
   json out{
       {"frame_id", frame_id}, {"saved", saved}, {"labeled_pixels", labeled}};
+  json labels_obj = json::object();
+  for (std::size_t i = 0; i < class_names.size(); ++i)
+    labels_obj[std::to_string(i)] = class_names[i];
+  out["labels"] = std::move(labels_obj);
+  return out;
+}
+
+// ===========================================================================
+// panorama segmentation (#448)
+// ===========================================================================
+
+json segment_panorama_result_json(int pano_id, const cv::Mat &label_map,
+                                  const std::vector<std::string> &class_names,
+                                  bool saved) {
+  const int labeled = label_map.empty() ? 0 : cv::countNonZero(label_map != -1);
+  json out{{"pano_id", pano_id}, {"saved", saved}, {"labeled_pixels", labeled}};
   json labels_obj = json::object();
   for (std::size_t i = 0; i < class_names.size(); ++i)
     labels_obj[std::to_string(i)] = class_names[i];

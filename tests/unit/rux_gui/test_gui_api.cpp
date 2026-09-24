@@ -134,6 +134,7 @@ TEST_CASE("EndpointTable_DocumentedRoutes_MatchesContract", "[gui][routes]") {
       "GET /api/v1/panoramas",
       "GET /api/v1/panoramas/<int>",
       "GET /api/v1/panoramas/<int>/image",
+      "POST /api/v1/panoramas/<int>/segment",
       "GET /api/v1/components",
       "GET /api/v1/components/<string>",
       "GET /api/v1/materials",
@@ -1829,6 +1830,53 @@ TEST_CASE("SegmentFrameResultJson_NoClassNames_EmptyLabelsObject",
           "[gui][segment]") {
   cv::Mat label_map(2, 2, CV_32S, cv::Scalar(-1));
   const auto body = segment_frame_result_json(1, label_map, {}, false);
+
+  CHECK(body.at("labeled_pixels") == 0);
+  CHECK(body.at("labels").is_object());
+  CHECK(body.at("labels").empty());
+}
+
+// ===========================================================================
+// POST /panoramas/<id>/segment — segment_panorama_result_json (#448)
+// ===========================================================================
+
+TEST_CASE("SegmentPanoramaResultJson_WithLabelMap_ReportsLabeledPixels",
+          "[gui][segment][panorama]") {
+  // 4x8 equirect label map: two classes, background in top row.
+  cv::Mat label_map(4, 8, CV_32S, cv::Scalar(0));
+  for (int c = 4; c < 8; ++c)
+    for (int r = 0; r < 4; ++r)
+      label_map.at<int>(r, c) = 1;
+  for (int c = 0; c < 8; ++c)
+    label_map.at<int>(0, c) = -1;
+
+  const std::vector<std::string> names{"wall", "floor"};
+  const auto body = segment_panorama_result_json(5, label_map, names, true);
+
+  CHECK(body.at("pano_id") == 5);
+  CHECK(body.at("saved") == true);
+  // 4x8=32 pixels, top row (-1) = 8 background → 24 labeled.
+  CHECK(body.at("labeled_pixels") == 24);
+  REQUIRE(body.contains("labels"));
+  CHECK(body.at("labels").at("0") == "wall");
+  CHECK(body.at("labels").at("1") == "floor");
+}
+
+TEST_CASE("SegmentPanoramaResultJson_EmptyLabelMap_ZeroLabeledPixels",
+          "[gui][segment][panorama]") {
+  const auto body = segment_panorama_result_json(
+      3, cv::Mat{}, std::vector<std::string>{}, false);
+
+  CHECK(body.at("pano_id") == 3);
+  CHECK(body.at("saved") == false);
+  CHECK(body.at("labeled_pixels") == 0);
+  CHECK(body.at("labels").empty());
+}
+
+TEST_CASE("SegmentPanoramaResultJson_NoClassNames_EmptyLabelsObject",
+          "[gui][segment][panorama]") {
+  cv::Mat label_map(2, 4, CV_32S, cv::Scalar(-1));
+  const auto body = segment_panorama_result_json(7, label_map, {}, false);
 
   CHECK(body.at("labeled_pixels") == 0);
   CHECK(body.at("labels").is_object());

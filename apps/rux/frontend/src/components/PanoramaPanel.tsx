@@ -2,6 +2,8 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import { useState } from 'react';
+
 import { api } from '../api/client';
 import {
   describePlacement,
@@ -10,6 +12,7 @@ import {
   type PanoramaPlacement,
 } from '../viewport/panorama';
 import type { PanoramaPanelState } from './LayerPanel';
+import { PanoramaSegmentPanel } from './PanoramaSegmentPanel';
 import styles from './PanoramaPanel.module.css';
 
 export interface PanoramaPanelProps {
@@ -40,6 +43,8 @@ export interface PanoramaPanelProps {
 export function PanoramaPanel({ panorama, onClose }: PanoramaPanelProps) {
   const { items, error, activeId, markersVisible, onMarkersVisibleChange, onEnter } = panorama;
   const note = panoramaNote(items, error);
+
+  const [segmentOpen, setSegmentOpen] = useState(false);
 
   return (
     <aside className={styles.panel} aria-label="360 panoramas">
@@ -99,6 +104,26 @@ export function PanoramaPanel({ panorama, onClose }: PanoramaPanelProps) {
           );
         })}
       </div>
+
+      {/* ---- SAM3 segmentation for the active panorama (#448) ---- */}
+      {activeId !== null && (
+        <div className={styles.segmentSection}>
+          <button
+            type="button"
+            className={styles.segmentToggle}
+            onClick={() => setSegmentOpen((o) => !o)}
+            aria-expanded={segmentOpen}
+          >
+            {segmentOpen ? '▾ Segmentation' : '▸ Segmentation'}
+          </button>
+          {segmentOpen && (
+            <PanoramaSegmentPanel
+              panoramaId={activeId}
+              onSegmented={() => {}}
+            />
+          )}
+        </div>
+      )}
     </aside>
   );
 }

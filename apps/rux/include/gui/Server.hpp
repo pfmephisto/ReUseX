@@ -24,7 +24,8 @@
 // (and hence OpenCV / reusex headers) just to store a pointer.
 namespace rux::gui {
 class IFrameSegmenter;
-}
+class IPanoramaSegmenter;
+} // namespace rux::gui
 
 namespace rux::gui {
 
@@ -102,6 +103,12 @@ class Server {
   /// pointer — the caller must keep it alive for the server's lifetime.
   /// When nullptr (the default), the endpoint returns HTTP 503.
   void set_segmenter(IFrameSegmenter *segmenter);
+
+  /// Register a SAM3 segmenter for POST /api/v1/panoramas/<id>/segment (#448).
+  ///
+  /// Same ownership and lifetime rules as set_segmenter(). When nullptr (the
+  /// default), the endpoint returns HTTP 503.
+  void set_panorama_segmenter(IPanoramaSegmenter *segmenter);
 
     private:
   class Impl;

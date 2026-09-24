@@ -48,6 +48,8 @@ import type {
   MaterialInfo,
   MeshInfo,
   PanoramaInfo,
+  PanoramaSegmentRequest,
+  PanoramaSegmentResult,
   PipelineLogEntry,
   PoseGraph,
   PoseGraphEdge,
@@ -719,6 +721,25 @@ export class RuxApiClient {
    */
   panoramaImageUrl(id: number, options: { maxSize?: number } = {}): string {
     return this.url(`/panoramas/${id}/image`, { max_size: options.maxSize });
+  }
+
+  /**
+   * Run SAM3 segmentation on a 360 panorama and optionally store the equirect
+   * label mask (#448).
+   *
+   * Returns 503 when no panorama segmenter is registered (started without
+   * `rux gui`). Returns 409 when a pipeline job holds the write lock.
+   */
+  segmentPanorama(
+    id: number,
+    request: PanoramaSegmentRequest,
+    signal?: AbortSignal,
+  ): Promise<PanoramaSegmentResult> {
+    return this.postJson<PanoramaSegmentResult>(
+      `/panoramas/${id}/segment`,
+      request,
+      signal,
+    );
   }
 
   // ------------------------------------------------------- components ----

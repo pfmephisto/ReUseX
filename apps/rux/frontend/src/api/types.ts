@@ -709,6 +709,33 @@ export interface ExportTemplate {
   updated_at: string;
 }
 
+// ------------------------------------------------------- panorama segment ----
+
+/** Body of `POST /panoramas/{id}/segment`. */
+export interface PanoramaSegmentRequest {
+  /** Server-side filesystem path to a TRT engine directory or `.onnx` file. */
+  model_path: string;
+  /** Text-only prompts; empty / absent ⟹ model's built-in default class list. */
+  prompts?: Array<{ text: string; confidence?: number }>;
+  /** Global detection threshold [0, 1]. Default 0.5. */
+  confidence?: number;
+  /** Number of equator tiles around the sphere. Default 8. */
+  n_yaw?: number;
+  /** Per-tile horizontal FOV in degrees. Default 90. */
+  fov_deg?: number;
+  /** Write the equirect label map back to the project. Default true. */
+  save?: boolean;
+}
+
+/** Response of `POST /panoramas/{id}/segment`. */
+export interface PanoramaSegmentResult {
+  pano_id: number;
+  labeled_pixels: number;
+  saved: boolean;
+  /** Label id → class name. Empty when the model's built-in list was used. */
+  labels: Record<string, string>;
+}
+
 // --------------------------------------------------------------- reports ----
 
 /** `ReportPdfVersion` — metadata for one stored Ressourcekortlægning PDF. */

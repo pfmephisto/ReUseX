@@ -1173,6 +1173,126 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
+  /panoramas/{id}/segment:
+    post:
+      tags: [panoramas]
+      operationId: segmentPanorama
+      summary: Run SAM3 on one 360 panorama and store the equirect label mask
+      description: |
+        Tiles the equirectangular panorama into overlapping perspective views,
+        runs the **unmodified** SAM3 model on each tile, and stitches the
+        per-tile CV\_32S label maps back into a single equirect label image.
+        Optionally saves the result via `save_panorama_segmentation`.
+
+        **Text prompts only (v1):** bounding-box hints in equirect coordinates
+        are not yet supported. Pass `prompts` with `text` fields to guide the
+        segmentation; omit prompts to use the model's built-in default class
+        list.
+
+        **503 without a model registered:** the endpoint returns 503 when the
+        server was started without `rux gui` because `rux_gui_lib` never links
+        the ML backends directly.
+      parameters:
+        - $ref: "#/components/parameters/PanoramaId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [model_path]
+              properties:
+                model_path:
+                  type: string
+                  description: |
+                    Filesystem path to the SAM3 model (TRT engine directory
+                    or `.onnx` file). Reloaded when the path changes between
+                    calls; cached otherwise.
+                prompts:
+                  type: array
+                  description: |
+                    Text-only SAM3 prompt list. Empty ⟹ use the model's
+                    built-in default class list (18 architectural classes for
+                    TRT). Box coordinates in equirect space are not supported
+                    in v1.
+                  items:
+                    type: object
+                    required: [text]
+                    properties:
+                      text:
+                        type: string
+                        description: Open-vocabulary class name, e.g. "wall".
+                      confidence:
+                        type: number
+                        format: float
+                        description: |
+                          Per-prompt threshold override. Negative (default)
+                          ⟹ use the top-level `confidence`.
+                confidence:
+                  type: number
+                  format: float
+                  default: 0.5
+                  description: Global detection confidence threshold [0, 1].
+                n_yaw:
+                  type: integer
+                  default: 8
+                  description: Number of equator tiles around the sphere.
+                fov_deg:
+                  type: number
+                  format: double
+                  default: 90.0
+                  description: Per-tile horizontal FOV in degrees.
+                save:
+                  type: boolean
+                  default: true
+                  description: |
+                    Write the equirect label map back to the project so
+                    `has_panorama_segmentation` is true for this panorama.
+      responses:
+        "200":
+          description: Segmentation result.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pano_id:
+                    type: integer
+                  labeled_pixels:
+                    type: integer
+                    description: Non-background pixel count.
+                  saved:
+                    type: boolean
+                    description: True when the mask was written to the project.
+                  labels:
+                    type: object
+                    description: |
+                      Map of label id (string key) → class name. Populated
+                      from the request `prompts`; empty when the model default
+                      list was used.
+                    additionalProperties: { type: string }
+        "400":
+          description: Missing or invalid `model_path`, or malformed prompts.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: |
+            A pipeline job is running; the write-back was refused. Retry
+            after the job completes.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503":
+          description: |
+            No SAM3 panorama segmenter is registered (server not started via
+            `rux gui`, or model unavailable).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
   # ---------------------------------------------------------- components ----
   /components:
     get:

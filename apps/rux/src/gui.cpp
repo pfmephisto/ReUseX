@@ -10,6 +10,7 @@
 #include <reusex/vision/model_factory.hpp>
 #include <reusex/vision/sam3_prompt.hpp>
 #include <reusex/vision/segment_image.hpp>
+#include <reusex/vision/segment_panorama.hpp>
 
 #include <opencv2/core.hpp>
 #include <spdlog/spdlog.h>
@@ -51,6 +52,58 @@ class DefaultFrameSegmenter : public rux::gui::IFrameSegmenter {
 
     cv::Mat label_map =
         reusex::vision::segment_image(*model_, image_bgr, prompts, confidence);
+
+    std::vector<std::string> class_names;
+    class_names.reserve(prompts.size());
+    for (const auto &p : prompts)
+      class_names.push_back(p.text);
+
+    return {std::move(label_map), std::move(class_names)};
+  }
+
+    private:
+  std::mutex mutex_;
+  std::unique_ptr<reusex::vision::IModel> model_;
+  std::string current_path_;
+};
+
+/// Concrete panorama segmenter registered with the GUI server (#448).
+///
+/// Reuses the same model cache as DefaultFrameSegmenter (both are kept alive
+/// for the server's lifetime and share nothing else). A mutex ensures only one
+/// SAM3 inference runs at a time.
+class DefaultPanoramaSegmenter : public rux::gui::IPanoramaSegmenter {
+    public:
+  rux::gui::SegmentPanoramaResult
+  segment(const cv::Mat &equirect_bgr,
+          const std::vector<reusex::vision::Sam3Prompt> &prompts,
+          float confidence, int n_yaw, double fov_deg,
+          const std::string &model_path) override {
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    if (!model_ || model_path != current_path_) {
+      spdlog::info("GUI panorama segmenter: loading SAM3 model from {}",
+                   model_path);
+      try {
+        model_ = reusex::vision::create_model_from_path(model_path,
+                                                        /*use_cuda=*/true);
+        current_path_ = model_path;
+      } catch (const std::exception &e) {
+        throw std::runtime_error(std::string("failed to load SAM3 model: ") +
+                                 e.what());
+      }
+    }
+
+    reusex::vision::SegmentPanoramaOptions opts;
+    opts.n_yaw = n_yaw;
+    opts.fov_deg = fov_deg;
+    opts.confidence = confidence;
+    opts.prompts.reserve(prompts.size());
+    for (const auto &p : prompts)
+      opts.prompts.push_back(p.text);
+
+    cv::Mat label_map =
+        reusex::vision::segment_panorama(*model_, equirect_bgr, opts);
 
     std::vector<std::string> class_names;
     class_names.reserve(prompts.size());
@@ -146,9 +199,12 @@ int run_subcommand_gui(SubcommandGuiOptions const &opt,
 
     rux::gui::Server server(std::move(server_options));
 
-    // Register the SAM3 segmenter so POST /frames/<id>/segment works (#409).
+    // Register segmenters so the SAM3 endpoints work (#409, #448).
     DefaultFrameSegmenter segmenter;
     server.set_segmenter(&segmenter);
+
+    DefaultPanoramaSegmenter panorama_segmenter;
+    server.set_panorama_segmenter(&panorama_segmenter);
 
     spdlog::info("Serving {} at {}", global_opt.project_db.string(),
                  server.url());

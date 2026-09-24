@@ -326,6 +326,17 @@ segment_frame_result_json(int frame_id, const cv::Mat &label_map,
                           const std::vector<std::string> &class_names,
                           bool saved);
 
+/// Build the JSON response body for POST /panoramas/<id>/segment (#448).
+///
+/// @param pano_id        The panorama that was segmented.
+/// @param label_map      CV_32S equirect label map; may be empty.
+/// @param class_names    Class name per label id (empty = model default list).
+/// @param saved          True when the mask was written back to the project.
+nlohmann::json
+segment_panorama_result_json(int pano_id, const cv::Mat &label_map,
+                             const std::vector<std::string> &class_names,
+                             bool saved);
+
 // --- panoramas ------------------------------------------------------------
 
 nlohmann::json panoramas_json(const reusex::ProjectDB &db,

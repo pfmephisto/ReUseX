@@ -389,6 +389,9 @@ class Server::Impl {
   void stop() { app_.stop(); }
 
   void set_segmenter(IFrameSegmenter *seg) noexcept { segmenter_ = seg; }
+  void set_panorama_segmenter(IPanoramaSegmenter *seg) noexcept {
+    panorama_segmenter_ = seg;
+  }
 
     private:
   // --- ProjectDB access ----------------------------------------------------
@@ -834,6 +837,84 @@ class Server::Impl {
           const Params params = params_of(req);
           return with_db([&](const reusex::ProjectDB &db) {
             return blob_response(panorama_image_blob(db, id, params));
+          });
+        });
+
+    // POST /api/v1/panoramas/<id>/segment — interactive SAM3 segmentation on
+    // 360 panoramas (#448). Mirrors POST /frames/<id>/segment but tiles the
+    // equirect through segment_panorama() rather than segment_image().
+    app_.route_dynamic(std::string(kApiPrefix) + "/panoramas/<int>/segment")
+        .methods(
+            crow::HTTPMethod::POST)([this](const crow::request &req, int id) {
+          return guarded([&]() -> crow::response {
+            if (!panorama_segmenter_)
+              return error_response(
+                  503, "no SAM3 panorama segmenter registered; start the "
+                       "server via 'rux gui' and ensure a model is available");
+
+            auto body = nlohmann::json::parse(req.body, nullptr, false);
+            if (body.is_discarded())
+              throw HttpError(400, "request body must be valid JSON");
+
+            const std::string model_path = body.value("model_path", "");
+            if (model_path.empty())
+              throw HttpError(400, "'model_path' is required");
+
+            const float confidence = body.value("confidence", 0.5f);
+            const int n_yaw = body.value("n_yaw", 8);
+            const double fov_deg = body.value("fov_deg", 90.0);
+            const bool save = body.value("save", true);
+
+            // Text-only prompts (no box coordinates in equirect space for v1).
+            std::vector<reusex::vision::Sam3Prompt> prompts;
+            if (body.contains("prompts") && body["prompts"].is_array()) {
+              for (const auto &p : body["prompts"]) {
+                const std::string text = p.value("text", "");
+                if (text.empty())
+                  throw HttpError(400,
+                                  "each prompt must have a non-empty 'text'");
+                const float per_conf = p.value("confidence", -1.0f);
+                prompts.emplace_back(
+                    text, std::vector<reusex::vision::SegmentBox>{}, per_conf);
+              }
+            }
+
+            // Load panorama image (brief read-only connection).
+            cv::Mat image;
+            {
+              try {
+                reusex::ProjectDB db(options_.project, /*readOnly=*/true);
+                image = db.panoramic_image(id);
+              } catch (const HttpError &) {
+                throw;
+              } catch (const std::exception &e) {
+                throw HttpError(500, e.what());
+              }
+            }
+            if (image.empty())
+              throw HttpError(404, "panorama " + std::to_string(id) +
+                                       " not found or has no image");
+
+            // Run inference outside any DB connection — may take seconds.
+            const auto result = panorama_segmenter_->segment(
+                image, prompts, confidence, n_yaw, fov_deg, model_path);
+
+            // Optionally persist the label map.
+            bool saved = false;
+            if (save && !result.label_map.empty()) {
+              auto write_res =
+                  with_write([&](reusex::ProjectDB &wdb) -> crow::response {
+                    wdb.save_panorama_segmentation(id, result.label_map);
+                    return json_response(200, nlohmann::json{});
+                  });
+              if (write_res.code != 200)
+                return write_res;
+              saved = true;
+            }
+
+            return json_response(
+                200, segment_panorama_result_json(id, result.label_map,
+                                                  result.class_names, saved));
           });
         });
 
@@ -1289,6 +1370,10 @@ class Server::Impl {
   /// Optional SAM3 segmenter registered by the rux app layer (#409).
   /// Not owned; lifetime must exceed the server's. nullptr ⟹ 503.
   IFrameSegmenter *segmenter_ = nullptr;
+
+  /// Optional panorama segmenter registered by the rux app layer (#448).
+  /// Not owned; lifetime must exceed the server's. nullptr ⟹ 503.
+  IPanoramaSegmenter *panorama_segmenter_ = nullptr;
 };
 
 // ===========================================================================
@@ -1314,6 +1399,10 @@ void Server::stop() { impl_->stop(); }
 
 void Server::set_segmenter(IFrameSegmenter *segmenter) {
   impl_->set_segmenter(segmenter);
+}
+
+void Server::set_panorama_segmenter(IPanoramaSegmenter *segmenter) {
+  impl_->set_panorama_segmenter(segmenter);
 }
 
 } // namespace rux::gui

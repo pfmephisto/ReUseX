@@ -542,3 +542,46 @@ describe('deletePoseGraphEdge', () => {
     await expect(api.deletePoseGraphEdge(99, 100)).rejects.toBeInstanceOf(ApiRequestError);
   });
 });
+
+describe('segmentPanorama (#448)', () => {
+  const PANO_SEGMENT_RESULT = {
+    pano_id: 5,
+    labeled_pixels: 12480,
+    saved: true,
+    labels: { '0': 'wall', '1': 'floor' },
+  };
+
+  it('POSTs to /panoramas/{id}/segment with JSON body', async () => {
+    const { api, calls } = clientFor(PANO_SEGMENT_RESULT);
+    const result = await api.segmentPanorama(5, {
+      model_path: '/models/sam3',
+      prompts: [{ text: 'wall' }, { text: 'floor' }],
+      confidence: 0.6,
+      n_yaw: 8,
+      save: true,
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe('/api/v1/panoramas/5/segment');
+    expect(calls[0].method).toBe('POST');
+    expect(calls[0].headers?.['Content-Type']).toBe('application/json');
+    expect(JSON.parse(calls[0].body ?? '')).toMatchObject({
+      model_path: '/models/sam3',
+      confidence: 0.6,
+    });
+    expect(result.pano_id).toBe(5);
+    expect(result.saved).toBe(true);
+    expect(result.labeled_pixels).toBe(12480);
+    expect(result.labels['0']).toBe('wall');
+  });
+
+  it('throws ApiRequestError on 503 (no segmenter registered)', async () => {
+    const { api } = clientFor(
+      { error: 'no SAM3 panorama segmenter registered' },
+      { status: 503, statusText: 'Service Unavailable' },
+    );
+    await expect(
+      api.segmentPanorama(5, { model_path: '/models/sam3' }),
+    ).rejects.toBeInstanceOf(ApiRequestError);
+  });
+});

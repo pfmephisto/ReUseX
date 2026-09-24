@@ -1733,7 +1733,8 @@ json definition_json(const reusex::ProjectDB::PropertyDefinition &d) {
 /// a column with an unknown type would have no editor widget to render it.
 bool is_valid_column_type(const std::string &type) {
   return type == "text" || type == "number" || type == "date" ||
-         type == "boolean" || type == "select" || type == "multiselect";
+         type == "boolean" || type == "select" || type == "multiselect" ||
+         type == "url";
 }
 
 } // namespace

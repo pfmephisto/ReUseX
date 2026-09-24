@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { api } from '../api/client';
 import type { PropertyDefinition, PropertyType } from '../api/types';
@@ -23,6 +23,8 @@ export interface PeekPanelProps {
   onAddColumn: () => void;
   /** Delete this passport; the caller reloads the table and closes the peek. */
   onDeleted: () => void;
+  /** Called after a thumbnail is uploaded from the panel. */
+  onUploaded?: () => void;
 }
 
 /** Type-glyph shown in a peek property label, mirroring the header menu names. */
@@ -33,6 +35,7 @@ const PROPERTY_TYPE_ICON: Record<PropertyType, string> = {
   boolean: '☑',
   select: '▾',
   multiselect: '▾',
+  url: '⌁',
 };
 
 /**
@@ -57,8 +60,12 @@ export function PeekPanel({
   onAddOption,
   onAddColumn,
   onDeleted,
+  onUploaded,
 }: PeekPanelProps) {
   const [peekEditingProp, setPeekEditingProp] = useState<string | null>(null);
+  const [thumbnailVersion, setThumbnailVersion] = useState(0);
+  const [localHasThumbnail, setLocalHasThumbnail] = useState(hasThumbnail);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Escape closes the peek.
   useEffect(() => {
@@ -92,6 +99,9 @@ export function PeekPanel({
     };
   }, [columns, editingIndex]);
 
+  // Sync localHasThumbnail when the parent-supplied prop changes.
+  useEffect(() => setLocalHasThumbnail(hasThumbnail), [hasThumbnail]);
+
   const handleDelete = async () => {
     if (!window.confirm('Delete this material passport?')) return;
     await api.deleteMaterial(guid);
@@ -99,7 +109,23 @@ export function PeekPanel({
     onClose();
   };
 
-  const thumbnailSrc = api.materialThumbnail(guid);
+  const handleThumbnailUpload = async (file: File) => {
+    await api.uploadThumbnail(guid, file);
+    setThumbnailVersion((v) => v + 1);
+    setLocalHasThumbnail(true);
+    onUploaded?.();
+  };
+
+  const thumbnailSrc = `${api.materialThumbnail(guid)}${thumbnailVersion > 0 ? `?v=${thumbnailVersion}` : ''}`;
+
+  // Use the first non-empty text-like property value as a friendly title.
+  const friendlyTitle = (() => {
+    for (const col of columns) {
+      const val = values[col.name];
+      if (val && (col.type === 'text' || col.type === 'url')) return val;
+    }
+    return null;
+  })();
 
   return (
     <>
@@ -116,7 +142,7 @@ export function PeekPanel({
             ‹
           </button>
           <span className={styles.title} title={guid}>
-            {guid}
+            {friendlyTitle ?? 'Material passport'}
           </span>
           <button
             type="button"
@@ -129,7 +155,7 @@ export function PeekPanel({
 
         <div className={styles.body}>
           <div className={styles.thumbnail}>
-            {hasThumbnail ? (
+            {localHasThumbnail ? (
               <img className={styles.thumbnailImg} src={thumbnailSrc} alt="" />
             ) : (
               <span className={styles.thumbnailPlaceholder} aria-hidden="true">
@@ -148,6 +174,25 @@ export function PeekPanel({
                 </svg>
               </span>
             )}
+            <button
+              type="button"
+              className={styles.uploadThumbBtn}
+              onClick={() => fileInputRef.current?.click()}
+              title="Upload thumbnail"
+            >
+              {localHasThumbnail ? 'Replace image' : 'Upload image'}
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className={styles.hiddenFileInput}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void handleThumbnailUpload(file);
+                e.target.value = '';
+              }}
+            />
           </div>
 
           <TableNavContext.Provider value={nav}>

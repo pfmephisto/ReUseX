@@ -2,6 +2,18 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import {
+  DndContext,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  horizontalListSortingStrategy,
+  SortableContext,
+} from '@dnd-kit/sortable';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   flexRender,
@@ -18,9 +30,17 @@ import type {
 } from '../api/types';
 import { useAsync } from '../app/useAsync';
 import { describeWriteFailure, type WriteFailure } from '../data/writeState';
+import { ColumnFilterCell } from './ColumnFilterCell';
+import {
+  countActiveFilters,
+  isFilterActive,
+  matchesColumnFilter,
+  type ColumnFilters,
+} from './columnFilterHelpers';
 import { ColumnHeaderMenu } from './ColumnHeaderMenu';
 import { EditableCell } from './EditableCell';
 import { PeekPanel } from './PeekPanel';
+import { SortableColumnHeader } from './SortableColumnHeader';
 import { TableNavContext, type CellCoord, type TableNav } from './tableNav';
 import { ThumbnailCell } from './ThumbnailCell';
 import { WriteBanner } from './WriteBanner';
@@ -31,20 +51,18 @@ import styles from './MaterialTable.module.css';
  *
  * This replaces the old two-pane MaterialsPane (a list next to a detail
  * editor). The whole grid is editable in place: each cell edits one property,
- * each header right-click configures the column, and rows and columns are added
+ * each header click configures the column, and rows and columns are added
  * and removed from the table itself. TanStack Table supplies the headless model;
- * every visual decision is this component's CSS. A single click on a header
- * cell opens its column menu; a drag on the header's right edge resizes it.
+ * every visual decision is this component's CSS.
  *
  * Writes are optimistic. A cell edit updates `details` immediately, sends a
  * sparse `PATCH /materials/{guid}`, and rolls back to the pre-edit map on
  * failure — the same 409-vs-503 contract the old pane relied on, surfaced
  * through `WriteBanner`.
  *
- * The property-definition schema (columns) and the create/delete/thumbnail
- * endpoints are stubbed in `materialTableStubs.ts` until the backend PR
- * (#413/#414/#415) merges; those stubs `console.warn` and are the single seam
- * to swap for real `api.*` calls.
+ * Column drag-and-drop reorder (#408): @dnd-kit/sortable drives the header DnD;
+ * on drop, all affected column sort_orders are PATCHed and columns reloaded.
+ * Row reorder is deferred — rows have no server-side sort_order field yet.
  */
 export function MaterialTable() {
   const materialsAsync = useAsync((signal) => api.materials(signal), []);
@@ -55,9 +73,11 @@ export function MaterialTable() {
   const [failure, setFailure] = useState<WriteFailure | null>(null);
   const [colMenu, setColMenu] = useState<{ id: string; x: number; y: number } | null>(null);
 
-  // ---- sort / search -------------------------------------------------------
+  // ---- sort / search / column filters ------------------------------------
   const [sortConfig, setSortConfig] = useState<{ colName: string; dir: 'asc' | 'desc' } | null>(null);
   const [search, setSearch] = useState('');
+  const [columnFilters, setColumnFilters] = useState<ColumnFilters>({});
+  const [filterBarOpen, setFilterBarOpen] = useState(false);
 
   // ---- column widths (resize) / horizontal-scroll shadow ------------------
   const [colWidths, setColWidths] = useState<Record<string, number>>({});
@@ -65,8 +85,6 @@ export function MaterialTable() {
   const [isScrolledX, setIsScrolledX] = useState(false);
 
   // Seed local widths from the loaded column definitions, once per column.
-  // useState can't take async data, so hydrate here — and only for columns the
-  // user hasn't already resized this session (so a drag isn't clobbered).
   useEffect(() => {
     if (!columnsAsync.data) return;
     setColWidths((prev) => {
@@ -83,22 +101,26 @@ export function MaterialTable() {
   // ---- row gutter / selection / peek --------------------------------------
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
   const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
-  // Peek panel target (Phase 2 wires the actual panel); the OPEN button sets it.
   const [peekGuid, setPeekGuid] = useState<string | null>(null);
 
   // ---- spreadsheet keyboard navigation -----------------------------------
   const [focusedCell, setFocusedCell] = useState<CellCoord | null>(null);
   const [editingCell, setEditingCell] = useState<CellCoord | null>(null);
-  // A printable key pressed on a focused (non-editing) cell both starts edit
-  // mode and seeds the input; the seed is stashed here for the cell to consume.
   const seedRef = useRef<string | null>(null);
 
   const dataCols = columnsAsync.data ?? [];
 
-  // Filter by search, then sort by sortConfig. Both operate on property values
-  // in the details map, which is populated after materialsAsync resolves.
+  // ---- DnD sensors (8px activation distance to separate click from drag) --
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+  );
+
+  const dynamicColIds = useMemo(() => dataCols.map((c) => c.id), [dataCols]);
+
+  // Filter by global search + per-column filters, then sort.
   const sortedFilteredRows = useMemo(() => {
     let rows = materialsAsync.data ?? [];
+
     if (search.trim()) {
       const needle = search.trim().toLowerCase();
       rows = rows.filter((m) => {
@@ -106,6 +128,19 @@ export function MaterialTable() {
         return Object.values(props).some((v) => v.toLowerCase().includes(needle));
       });
     }
+
+    const activeColFilters = Object.entries(columnFilters).filter(([, v]) => isFilterActive(v));
+    if (activeColFilters.length > 0) {
+      rows = rows.filter((m) => {
+        const props = details.get(m.guid)?.properties ?? {};
+        return activeColFilters.every(([colId, filterVal]) => {
+          const col = dataCols.find((c) => c.id === colId);
+          if (!col) return true;
+          return matchesColumnFilter(col, props[col.name], filterVal);
+        });
+      });
+    }
+
     if (sortConfig) {
       const { colName, dir } = sortConfig;
       rows = [...rows].sort((a, b) => {
@@ -116,7 +151,7 @@ export function MaterialTable() {
       });
     }
     return rows;
-  }, [materialsAsync.data, details, search, sortConfig]);
+  }, [materialsAsync.data, details, search, sortConfig, columnFilters, dataCols]);
 
   const rowCount = sortedFilteredRows.length;
   const colCount = dataCols.length;
@@ -235,6 +270,12 @@ export function MaterialTable() {
   const handleDeleteColumn = useCallback(
     async (id: string) => {
       await api.deletePropertyDefinition(id);
+      // Remove any filter for the deleted column.
+      setColumnFilters((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
       columnsAsync.reload();
     },
     [columnsAsync],
@@ -246,10 +287,33 @@ export function MaterialTable() {
       const idx = cols.findIndex((c) => c.id === id);
       const target = direction === 'left' ? idx - 1 : idx + 1;
       if (target < 0 || target >= cols.length) return;
-      await Promise.all([
-        api.updatePropertyDefinition(id, { sort_order: cols[target].sort_order }),
-        api.updatePropertyDefinition(cols[target].id, { sort_order: cols[idx].sort_order }),
-      ]);
+      const newCols = arrayMove(cols, idx, target);
+      await Promise.all(
+        newCols.map((col, newOrder) => api.updatePropertyDefinition(col.id, { sort_order: newOrder })),
+      );
+      columnsAsync.reload();
+    },
+    [columnsAsync],
+  );
+
+  // ---- DnD column drag-end handler ----------------------------------------
+
+  const handleDragEnd = useCallback(
+    async (event: DragEndEvent) => {
+      const { active, over } = event;
+      if (!over || active.id === over.id) return;
+      const cols = columnsAsync.data ?? [];
+      const oldIndex = cols.findIndex((c) => c.id === active.id);
+      const newIndex = cols.findIndex((c) => c.id === over.id);
+      if (oldIndex === -1 || newIndex === -1) return;
+      const newCols = arrayMove(cols, oldIndex, newIndex);
+      // Normalize sort_orders (0-indexed) and update only changed columns.
+      await Promise.all(
+        newCols
+          .map((col, idx) => ({ col, newOrder: idx }))
+          .filter(({ col, newOrder }) => cols.find((c) => c.id === col.id)?.sort_order !== newOrder)
+          .map(({ col, newOrder }) => api.updatePropertyDefinition(col.id, { sort_order: newOrder })),
+      );
       columnsAsync.reload();
     },
     [columnsAsync],
@@ -281,7 +345,6 @@ export function MaterialTable() {
   );
 
   const handleInsertRowBelow = useCallback(async () => {
-    // No positional-insert endpoint yet; append a new material like Add row.
     try {
       await api.createMaterial();
       materialsAsync.reload();
@@ -316,7 +379,6 @@ export function MaterialTable() {
         ? new Set()
         : new Set(allGuids),
     );
-    // allGuids is derived per-render; the closure captures the current set.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [materialsAsync.data]);
 
@@ -354,14 +416,9 @@ export function MaterialTable() {
   }, []);
 
   const exitEdit = useCallback((_save: boolean) => {
-    // The cell owns the commit decision (via onBlur / Enter); here we only
-    // leave edit mode. The cell stays SELECTED (focusedCell keeps its value).
-    // `save` is part of the contract for symmetry and future use, but a text
-    // cell has already committed by the time it calls this.
     setEditingCell(null);
   }, []);
 
-  // SELECTED → IDLE: drop the cursor entirely.
   const clearFocus = useCallback(() => {
     setFocusedCell(null);
     setEditingCell(null);
@@ -385,15 +442,11 @@ export function MaterialTable() {
     takeSeed,
   };
 
-  // Table-level keyboard handler: arrows / Tab move the focused cell, Enter/F2
-  // and printable characters start editing. Ignored while a cell is editing —
-  // the input owns its keys then, except for Tab (save + move) handled below.
   const handleTableKeyDown = useCallback(
     (event: React.KeyboardEvent) => {
       const editing = editingCell;
       const focused = focusedCell;
 
-      // Tab always moves, saving first if editing.
       if (event.key === 'Tab') {
         if (!focused) return;
         event.preventDefault();
@@ -405,7 +458,6 @@ export function MaterialTable() {
         return;
       }
 
-      // Everything below is navigation only — never while editing.
       if (editing || !focused) return;
 
       const move = (dr: number, dc: number) => {
@@ -421,20 +473,17 @@ export function MaterialTable() {
       else if (event.key === 'ArrowLeft') move(0, -1);
       else if (event.key === 'ArrowRight') move(0, 1);
       else if (event.key === 'Escape') {
-        // SELECTED → IDLE: drop the cursor.
         event.preventDefault();
         clearFocus();
       } else if (event.key === 'Backspace' || event.key === 'Delete') {
-        // Clear the focused cell's value in place, no editor.
         event.preventDefault();
-        const material = materialsAsync.data?.[focused.row];
+        const material = sortedFilteredRows[focused.row];
         const col = dataCols[focused.col];
         if (material && col) void handleCellSave(material.guid, col.name, null);
       } else if (event.key === 'Enter' || event.key === 'F2') {
         event.preventDefault();
         setEditingCell({ ...focused });
       } else if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
-        // A printable character starts edit mode seeded with that character.
         event.preventDefault();
         seedRef.current = event.key;
         setEditingCell({ ...focused });
@@ -446,7 +495,7 @@ export function MaterialTable() {
       colCount,
       rowCount,
       clearFocus,
-      materialsAsync.data,
+      sortedFilteredRows,
       dataCols,
       handleCellSave,
     ],
@@ -520,6 +569,8 @@ export function MaterialTable() {
     ? (columnsAsync.data ?? []).find((c) => c.id === colMenu.id)
     : undefined;
 
+  const activeFilterCount = countActiveFilters(columnFilters);
+
   return (
     <TableNavContext.Provider value={navValue}>
     <div className={styles.root} data-peek={peekGuid ?? undefined}>
@@ -542,6 +593,25 @@ export function MaterialTable() {
           onChange={(e) => setSearch(e.target.value)}
           aria-label="Search materials"
         />
+        <button
+          type="button"
+          className={`${styles.filterToggle}${filterBarOpen ? ` ${styles.filterToggleActive}` : ''}`}
+          onClick={() => setFilterBarOpen((v) => !v)}
+          title={filterBarOpen ? 'Hide column filters' : 'Show column filters'}
+          aria-pressed={filterBarOpen}
+        >
+          {activeFilterCount > 0 ? `Filters (${activeFilterCount})` : 'Filters'}
+        </button>
+        {activeFilterCount > 0 && (
+          <button
+            type="button"
+            className={styles.clearFilters}
+            onClick={() => setColumnFilters({})}
+            title="Clear all column filters"
+          >
+            Clear filters
+          </button>
+        )}
         {sortConfig && (
           <button
             type="button"
@@ -582,65 +652,108 @@ export function MaterialTable() {
         onKeyDown={handleTableKeyDown}
       >
         <table className={styles.table}>
-          <thead>
-            <tr>
-              <th className={styles.gutterHead}>
-                <input
-                  type="checkbox"
-                  className={styles.checkbox}
-                  checked={allSelected}
-                  ref={(el) => {
-                    if (el) el.indeterminate = someSelected;
-                  }}
-                  aria-label="Select all rows"
-                  onChange={toggleSelectAll}
-                />
-              </th>
-              {table.getFlatHeaders().map((header) => {
-                const colId = header.column.id;
-                const isThumb = colId === '__thumbnail';
-                const isAddCol = colId === '__add_col';
-                const isDynamic = !isThumb && !isAddCol;
-                const stickyClass = isThumb
-                  ? `${styles.stickyCol}${isScrolledX ? ` ${styles.scrolled}` : ''}`
-                  : '';
-                const width = isDynamic
-                  ? (colWidths[colId] ?? DEFAULT_COL_WIDTH)
-                  : header.getSize() !== 150
-                    ? header.getSize()
-                    : undefined;
-                return (
-                  <th
-                    key={header.id}
-                    className={`${styles.headerCell} ${stickyClass}`.trim()}
-                    style={{ width, position: 'relative' }}
-                    onClick={
-                      isDynamic
-                        ? (e) => {
-                            if ((e.target as HTMLElement).classList.contains(styles.resizer)) return;
+          <DndContext sensors={sensors} onDragEnd={(e) => void handleDragEnd(e)}>
+            <SortableContext items={dynamicColIds} strategy={horizontalListSortingStrategy}>
+              <thead>
+                <tr>
+                  <th className={styles.gutterHead}>
+                    <input
+                      type="checkbox"
+                      className={styles.checkbox}
+                      checked={allSelected}
+                      ref={(el) => {
+                        if (el) el.indeterminate = someSelected;
+                      }}
+                      aria-label="Select all rows"
+                      onChange={toggleSelectAll}
+                    />
+                  </th>
+                  {table.getFlatHeaders().map((header) => {
+                    const colId = header.column.id;
+                    const isThumb = colId === '__thumbnail';
+                    const isAddCol = colId === '__add_col';
+                    const isDynamic = !isThumb && !isAddCol;
+                    const stickyClass = isThumb
+                      ? `${styles.stickyCol}${isScrolledX ? ` ${styles.scrolled}` : ''}`
+                      : '';
+                    const width = isDynamic
+                      ? (colWidths[colId] ?? DEFAULT_COL_WIDTH)
+                      : header.getSize() !== 150
+                        ? header.getSize()
+                        : undefined;
+
+                    if (isDynamic) {
+                      return (
+                        <SortableColumnHeader
+                          key={header.id}
+                          colId={colId}
+                          width={colWidths[colId] ?? DEFAULT_COL_WIDTH}
+                          hasActiveFilter={isFilterActive(columnFilters[colId])}
+                          onClick={(e) => {
+                            if ((e.target as HTMLElement).closest('[data-no-menu]')) return;
                             const rect = e.currentTarget.getBoundingClientRect();
                             setColMenu({ id: colId, x: rect.left, y: rect.bottom });
+                          }}
+                          onResizerMouseDown={(e) =>
+                            handleResizerMouseDown(e, colId, colWidths[colId] ?? DEFAULT_COL_WIDTH)
                           }
-                        : undefined
+                        >
+                          {flexRender(header.column.columnDef.header, header.getContext())}
+                        </SortableColumnHeader>
+                      );
                     }
-                  >
-                    <span className={styles.headerLabel}>
-                      {flexRender(header.column.columnDef.header, header.getContext())}
-                    </span>
-                    {isDynamic && (
-                      <div
-                        className={styles.resizer}
-                        onMouseDown={(e) => {
-                          e.stopPropagation();
-                          handleResizerMouseDown(e, colId, colWidths[colId] ?? DEFAULT_COL_WIDTH);
-                        }}
-                      />
-                    )}
-                  </th>
-                );
-              })}
-            </tr>
-          </thead>
+
+                    return (
+                      <th
+                        key={header.id}
+                        className={`${styles.headerCell} ${stickyClass}`.trim()}
+                        style={{ width, position: 'relative' }}
+                      >
+                        <span className={styles.headerLabel}>
+                          {flexRender(header.column.columnDef.header, header.getContext())}
+                        </span>
+                      </th>
+                    );
+                  })}
+                </tr>
+
+                {filterBarOpen && (
+                  <tr>
+                    <th className={styles.filterGutterCell} />
+                    {table.getFlatHeaders().map((header) => {
+                      const colId = header.column.id;
+                      const isThumb = colId === '__thumbnail';
+                      const isAddCol = colId === '__add_col';
+                      const isDynamic = !isThumb && !isAddCol;
+                      const col = isDynamic ? dataCols.find((c) => c.id === colId) : undefined;
+                      const width = isDynamic
+                        ? (colWidths[colId] ?? DEFAULT_COL_WIDTH)
+                        : header.getSize() !== 150
+                          ? header.getSize()
+                          : undefined;
+                      return (
+                        <th
+                          key={`filter-${header.id}`}
+                          className={styles.filterCell}
+                          style={{ width }}
+                        >
+                          {col && (
+                            <ColumnFilterCell
+                              colDef={col}
+                              value={columnFilters[colId]}
+                              onChange={(val) =>
+                                setColumnFilters((prev) => ({ ...prev, [colId]: val }))
+                              }
+                            />
+                          )}
+                        </th>
+                      );
+                    })}
+                  </tr>
+                )}
+              </thead>
+            </SortableContext>
+          </DndContext>
           <tbody>
             {table.getRowModel().rows.map((row) => {
               const guid = row.original.guid;
@@ -774,6 +887,7 @@ export function MaterialTable() {
           }
           onAddColumn={() => void handleAddColumn()}
           onDeleted={() => materialsAsync.reload()}
+          onUploaded={() => materialsAsync.reload()}
         />
       )}
     </div>

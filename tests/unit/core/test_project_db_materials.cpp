@@ -1,4 +1,5 @@
 // SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+// SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include <catch2/catch_test_macros.hpp>
@@ -119,6 +120,18 @@ TEST_CASE("ProjectSummary_MaterialPassportsAdded_ReflectsMaterialsList",
     REQUIRE(material.guid == "test-guid-no-name");
     // ID should be populated (the row ID)
     REQUIRE(!material.id.empty());
+  }
+
+  SECTION("url column type round-trips through add/list") {
+    // The GUI accepts a 'url' column type (#408/#416); the DB must store and
+    // retrieve it verbatim so the frontend can render the URL cell widget.
+    ProjectDB db2(TempDB().path);
+    const std::string id = db2.add_property_definition("Website", "url", {}, 0);
+    const auto defs = db2.list_property_definitions();
+    REQUIRE(defs.size() == 1);
+    REQUIRE(defs[0].id == id);
+    REQUIRE(defs[0].name == "Website");
+    REQUIRE(defs[0].type == "url");
   }
 
   SECTION("Property count reflects stored properties") {

@@ -86,6 +86,20 @@
   cursor: pointer;
 }
 
+/* URL cell: truncated link, opens in a new tab. */
+.urlLink {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+.urlLink:hover {
+  text-decoration: underline;
+}
+
 /* Multi-select read mode: several coloured chips wrapping within the cell. */
 .multiChips {
   display: flex;

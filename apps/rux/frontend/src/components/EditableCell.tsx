@@ -227,6 +227,65 @@ export function EditableCell({
     );
   }
 
+  // ---- url: link in read mode, url input in edit mode --------------------
+
+  if (colDef.type === 'url') {
+    return (
+      <div
+        ref={cellRef}
+        tabIndex={isEditing ? -1 : 0}
+        className={`${styles.cell} ${isFocused ? styles.focused : ''}`}
+        onFocus={() => nav.setFocused(rowIndex, colIndex)}
+        onClick={() => {
+          if (!isEditing) nav.startEdit(rowIndex, colIndex);
+        }}
+        onKeyDown={(event) => {
+          if (isEditing) return;
+          if (event.key === 'Enter' || event.key === 'F2') {
+            event.preventDefault();
+            nav.startEdit(rowIndex, colIndex);
+          }
+        }}
+      >
+        {isEditing ? (
+          <input
+            ref={inputRef}
+            autoFocus
+            className={styles.input}
+            type="url"
+            value={draft}
+            aria-label={colDef.name}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key !== 'Tab') event.stopPropagation();
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                void commit();
+              } else if (event.key === 'Escape') {
+                event.preventDefault();
+                cancel();
+              }
+            }}
+            onBlur={() => void commit()}
+          />
+        ) : value !== undefined && value !== '' ? (
+          <a
+            href={value}
+            className={styles.urlLink}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={value}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {value}
+          </a>
+        ) : (
+          <span className={styles.empty}>—</span>
+        )}
+      </div>
+    );
+  }
+
   // ---- text / number / date: double-click to edit ------------------------
 
   const inputType =

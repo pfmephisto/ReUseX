@@ -1303,7 +1303,7 @@ paths:
                 name: { type: string }
                 type:
                   type: string
-                  enum: [text, number, date, boolean, select, multiselect]
+                  enum: [text, number, date, boolean, select, multiselect, url]
                 options:
                   type: array
                   items: { type: string }
@@ -1346,7 +1346,7 @@ paths:
                 name: { type: string }
                 type:
                   type: string
-                  enum: [text, number, date, boolean, select, multiselect]
+                  enum: [text, number, date, boolean, select, multiselect, url]
                 options:
                   type: array
                   items: { type: string }
@@ -2781,7 +2781,7 @@ components:
         name: { type: string }
         type:
           type: string
-          enum: [text, number, date, boolean, select, multiselect]
+          enum: [text, number, date, boolean, select, multiselect, url]
         options:
           type: array
           description: Choices, populated for `select`/`multiselect` types only.

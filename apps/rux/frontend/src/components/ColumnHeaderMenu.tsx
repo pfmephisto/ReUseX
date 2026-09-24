@@ -13,6 +13,7 @@ const PROPERTY_TYPES: PropertyType[] = [
   'boolean',
   'select',
   'multiselect',
+  'url',
 ];
 const PROPERTY_TYPE_LABELS: Record<PropertyType, string> = {
   text: 'Text',
@@ -21,6 +22,7 @@ const PROPERTY_TYPE_LABELS: Record<PropertyType, string> = {
   boolean: 'Checkbox',
   select: 'Select',
   multiselect: 'Multi-select',
+  url: 'URL',
 };
 import styles from './ColumnHeaderMenu.module.css';
 

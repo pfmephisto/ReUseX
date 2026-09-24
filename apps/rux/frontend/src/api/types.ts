@@ -332,7 +332,8 @@ export type PropertyType =
   | 'date'
   | 'boolean'
   | 'select'
-  | 'multiselect';
+  | 'multiselect'
+  | 'url';
 
 /**
  * `PropertyDefinition` — a user-defined column in the material editor.

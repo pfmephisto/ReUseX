@@ -4,6 +4,7 @@
 
 #include "gui/Server.hpp"
 
+#include "gui/FrameSegmenter.hpp"
 #include "gui/api.hpp"
 #include "gui/assets.hpp"
 #include "gui/edits.hpp"
@@ -387,6 +388,8 @@ class Server::Impl {
 
   void stop() { app_.stop(); }
 
+  void set_segmenter(IFrameSegmenter *seg) noexcept { segmenter_ = seg; }
+
     private:
   // --- ProjectDB access ----------------------------------------------------
 
@@ -715,6 +718,102 @@ class Server::Impl {
         return res;
       });
     });
+
+    // POST /api/v1/frames/<id>/segment — interactive SAM3 segmentation (#409).
+    // The segmenter is injected by the rux app layer; returns 503 if absent.
+    app_.route_dynamic(std::string(kApiPrefix) + "/frames/<int>/segment")
+        .methods(
+            crow::HTTPMethod::POST)([this](const crow::request &req, int id) {
+          return guarded([&]() -> crow::response {
+            if (!segmenter_)
+              return error_response(503, "no SAM3 model registered; start the "
+                                         "server via 'rux gui' and ensure a "
+                                         "model is available");
+
+            // Parse request body.
+            auto body = nlohmann::json::parse(req.body, nullptr, false);
+            if (body.is_discarded())
+              throw HttpError(400, "request body must be valid JSON");
+
+            const std::string model_path = body.value("model_path", "");
+            if (model_path.empty())
+              throw HttpError(400, "'model_path' is required");
+
+            const float confidence = body.value("confidence", 0.5f);
+            const bool save = body.value("save", true);
+
+            // Parse prompts array: [{text, boxes?}]
+            std::vector<reusex::vision::Sam3Prompt> prompts;
+            if (body.contains("prompts") && body["prompts"].is_array()) {
+              for (const auto &p : body["prompts"]) {
+                const std::string text = p.value("text", "");
+                if (text.empty())
+                  throw HttpError(400,
+                                  "each prompt must have a non-empty 'text'");
+
+                std::vector<reusex::vision::SegmentBox> boxes;
+                if (p.contains("boxes") && p["boxes"].is_array()) {
+                  for (const auto &b : p["boxes"]) {
+                    if (!b.is_array() || b.size() != 2)
+                      throw HttpError(
+                          400, "each box must be [label, [x1,y1,x2,y2]]");
+                    const std::string lbl = b[0].get<std::string>();
+                    if (lbl != "pos" && lbl != "neg")
+                      throw HttpError(400, "box label must be 'pos' or 'neg'");
+                    if (!b[1].is_array() || b[1].size() != 4)
+                      throw HttpError(400, "box coords must be [x1,y1,x2,y2]");
+                    std::array<float, 4> coords{
+                        b[1][0].get<float>(), b[1][1].get<float>(),
+                        b[1][2].get<float>(), b[1][3].get<float>()};
+                    boxes.emplace_back(lbl, coords);
+                  }
+                }
+                const float per_conf = p.value("confidence", -1.0f);
+                prompts.emplace_back(text, std::move(boxes), per_conf);
+              }
+            }
+
+            // Load frame image (brief read-only DB connection).
+            cv::Mat image;
+            {
+              try {
+                reusex::ProjectDB db(options_.project, /*readOnly=*/true);
+                if (!db.has_sensor_frame(id))
+                  throw HttpError(404, "sensor frame " + std::to_string(id) +
+                                           " not found");
+                image = db.sensor_frame_image(id);
+              } catch (const HttpError &) {
+                throw;
+              } catch (const std::exception &e) {
+                throw HttpError(500, e.what());
+              }
+            }
+            if (image.empty())
+              throw HttpError(404, "frame " + std::to_string(id) +
+                                       " has no color image");
+
+            // Run inference (outside any DB connection — may take seconds).
+            const auto result =
+                segmenter_->segment(image, prompts, confidence, model_path);
+
+            // Optionally persist the mask (uses write lock to exclude jobs).
+            bool saved = false;
+            if (save && !result.label_map.empty()) {
+              auto write_res =
+                  with_write([&](reusex::ProjectDB &wdb) -> crow::response {
+                    wdb.save_segmentation_image(id, result.label_map);
+                    return json_response(200, nlohmann::json{});
+                  });
+              if (write_res.code != 200)
+                return write_res;
+              saved = true;
+            }
+
+            return json_response(
+                200, segment_frame_result_json(id, result.label_map,
+                                               result.class_names, saved));
+          });
+        });
 
     // ---- panoramas ----
     get("/api/v1/panoramas")([this](const crow::request &req) {
@@ -1109,6 +1208,10 @@ class Server::Impl {
   App app_;
   std::unique_ptr<pipeline::JobRunner> runner_;
   size_t listener_ = 0;
+
+  /// Optional SAM3 segmenter registered by the rux app layer (#409).
+  /// Not owned; lifetime must exceed the server's. nullptr ⟹ 503.
+  IFrameSegmenter *segmenter_ = nullptr;
 };
 
 // ===========================================================================
@@ -1131,5 +1234,9 @@ bool Server::has_assets() const noexcept { return impl_->has_assets(); }
 int Server::run() { return impl_->run(); }
 
 void Server::stop() { impl_->stop(); }
+
+void Server::set_segmenter(IFrameSegmenter *segmenter) {
+  impl_->set_segmenter(segmenter);
+}
 
 } // namespace rux::gui

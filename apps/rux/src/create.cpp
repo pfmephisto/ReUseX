@@ -16,6 +16,7 @@
 #include "create/planes.hpp"
 #include "create/project.hpp"
 #include "create/rooms.hpp"
+#include "create/segment_frame.hpp"
 #include "create/texture.hpp"
 #include "create/windows.hpp"
 
@@ -74,6 +75,7 @@ NOTES:
   setup_subcommand_create_windows(*sub, global_opt);
   setup_subcommand_create_attributes(*sub, global_opt);
   setup_subcommand_create_gsplat(*sub, global_opt);
+  setup_subcommand_create_segment_frame(*sub, global_opt);
 
   sub->require_subcommand(1);
 }

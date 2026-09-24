@@ -639,6 +639,8 @@ const std::vector<Endpoint> &endpoint_table() {
        "One sensor frame's pose, intrinsics and availability flags"},
       {"GET", "/api/v1/frames/<int>/image",
        "An encoded image for one sensor frame", true},
+      {"POST", "/api/v1/frames/<int>/segment",
+       "Run SAM3 on one frame and store the label mask"},
       {"GET", "/api/v1/panoramas", "All 360 panoramas with pose provenance"},
       {"GET", "/api/v1/panoramas/<int>", "One panorama's metadata"},
       {"GET", "/api/v1/panoramas/<int>/image", "The equirectangular image",
@@ -1494,6 +1496,23 @@ ImageResponse frame_image(const reusex::ProjectDB &db, int id,
     response.blob = encode_png(image, what);
   }
   return response;
+}
+
+// ===========================================================================
+// frame segmentation (#409)
+// ===========================================================================
+
+json segment_frame_result_json(int frame_id, const cv::Mat &label_map,
+                               const std::vector<std::string> &class_names,
+                               bool saved) {
+  const int labeled = label_map.empty() ? 0 : cv::countNonZero(label_map != -1);
+  json out{
+      {"frame_id", frame_id}, {"saved", saved}, {"labeled_pixels", labeled}};
+  json labels_obj = json::object();
+  for (std::size_t i = 0; i < class_names.size(); ++i)
+    labels_obj[std::to_string(i)] = class_names[i];
+  out["labels"] = std::move(labels_obj);
+  return out;
 }
 
 // ===========================================================================

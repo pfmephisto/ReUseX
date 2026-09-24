@@ -19,6 +19,7 @@
 #include <reusex/pipeline/stages.hpp>
 
 #include <nlohmann/json.hpp>
+#include <opencv2/core.hpp>
 
 #include <cstdint>
 #include <filesystem>
@@ -313,6 +314,17 @@ nlohmann::json frames_visibility_json(const reusex::ProjectDB &db,
 ///        rather than for measurement).
 ImageResponse frame_image(const reusex::ProjectDB &db, int id,
                           const Params &params);
+
+/// Build the JSON response body for POST /frames/<id>/segment (#409).
+///
+/// @param frame_id       The frame that was segmented.
+/// @param label_map      CV_32S result from segment_image(); may be empty.
+/// @param class_names    Class name per label id (empty = model default list).
+/// @param saved          True when the mask was written back to the project.
+nlohmann::json
+segment_frame_result_json(int frame_id, const cv::Mat &label_map,
+                          const std::vector<std::string> &class_names,
+                          bool saved);
 
 // --- panoramas ------------------------------------------------------------
 

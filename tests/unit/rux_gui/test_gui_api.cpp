@@ -130,6 +130,7 @@ TEST_CASE("EndpointTable_DocumentedRoutes_MatchesContract", "[gui][routes]") {
       "GET /api/v1/frames/visibility",
       "GET /api/v1/frames/<int>",
       "GET /api/v1/frames/<int>/image",
+      "POST /api/v1/frames/<int>/segment",
       "GET /api/v1/panoramas",
       "GET /api/v1/panoramas/<int>",
       "GET /api/v1/panoramas/<int>/image",
@@ -1776,4 +1777,51 @@ TEST_CASE("AddPoseGraphEdge_NoTable_Is409", "[gui][posegraph][editor]") {
   } catch (const HttpError &e) {
     CHECK(e.status() == 409);
   }
+}
+
+// ===========================================================================
+// POST /frames/<id>/segment — segment_frame_result_json (#409)
+// ===========================================================================
+
+TEST_CASE("SegmentFrameResultJson_WithLabelMap_ReportsLabeledPixels",
+          "[gui][segment]") {
+  // 4x4 label map: two labels in left/right halves, background (-1) in top row.
+  cv::Mat label_map(4, 4, CV_32S, cv::Scalar(0));
+  for (int c = 2; c < 4; ++c)
+    for (int r = 0; r < 4; ++r)
+      label_map.at<int>(r, c) = 1;
+  for (int c = 0; c < 4; ++c)
+    label_map.at<int>(0, c) = -1;
+
+  const std::vector<std::string> names{"wall", "floor"};
+  const auto body = segment_frame_result_json(42, label_map, names, true);
+
+  CHECK(body.at("frame_id") == 42);
+  CHECK(body.at("saved") == true);
+  // 4x4=16 pixels, top row (-1) = 4 background pixels → 12 labeled.
+  CHECK(body.at("labeled_pixels") == 12);
+  REQUIRE(body.contains("labels"));
+  CHECK(body.at("labels").at("0") == "wall");
+  CHECK(body.at("labels").at("1") == "floor");
+}
+
+TEST_CASE("SegmentFrameResultJson_EmptyLabelMap_ZeroLabeledPixels",
+          "[gui][segment]") {
+  const auto body = segment_frame_result_json(
+      7, cv::Mat{}, std::vector<std::string>{}, false);
+
+  CHECK(body.at("frame_id") == 7);
+  CHECK(body.at("saved") == false);
+  CHECK(body.at("labeled_pixels") == 0);
+  CHECK(body.at("labels").empty());
+}
+
+TEST_CASE("SegmentFrameResultJson_NoClassNames_EmptyLabelsObject",
+          "[gui][segment]") {
+  cv::Mat label_map(2, 2, CV_32S, cv::Scalar(-1));
+  const auto body = segment_frame_result_json(1, label_map, {}, false);
+
+  CHECK(body.at("labeled_pixels") == 0);
+  CHECK(body.at("labels").is_object());
+  CHECK(body.at("labels").empty());
 }

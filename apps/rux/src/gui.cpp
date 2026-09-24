@@ -4,9 +4,69 @@
 
 #include "gui.hpp"
 #include "exit_status.hpp"
+#include "gui/FrameSegmenter.hpp"
 #include "gui/Server.hpp"
 
+#include <reusex/vision/model_factory.hpp>
+#include <reusex/vision/sam3_prompt.hpp>
+#include <reusex/vision/segment_image.hpp>
+
+#include <opencv2/core.hpp>
 #include <spdlog/spdlog.h>
+
+#include <memory>
+#include <mutex>
+#include <stdexcept>
+#include <string>
+#include <vector>
+
+namespace {
+
+/// Concrete SAM3 segmenter registered with the GUI server by the rux app layer
+/// (#409). Lives in rux_lib (which links the full reusex umbrella including
+/// reusex_vision) so the GUI library itself stays free of libtorch/TensorRT.
+///
+/// Thread safety: model is created on first call and cached by path. A mutex
+/// ensures only one inference runs at a time (SAM3 engines are not re-entrant).
+class DefaultFrameSegmenter : public rux::gui::IFrameSegmenter {
+    public:
+  rux::gui::SegmentFrameResult
+  segment(const cv::Mat &image_bgr,
+          const std::vector<reusex::vision::Sam3Prompt> &prompts,
+          float confidence, const std::string &model_path) override {
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    // Reload when the model path changes (supports runtime model switching).
+    if (!model_ || model_path != current_path_) {
+      spdlog::info("GUI segmenter: loading SAM3 model from {}", model_path);
+      try {
+        model_ = reusex::vision::create_model_from_path(model_path,
+                                                        /*use_cuda=*/true);
+        current_path_ = model_path;
+      } catch (const std::exception &e) {
+        throw std::runtime_error(std::string("failed to load SAM3 model: ") +
+                                 e.what());
+      }
+    }
+
+    cv::Mat label_map =
+        reusex::vision::segment_image(*model_, image_bgr, prompts, confidence);
+
+    std::vector<std::string> class_names;
+    class_names.reserve(prompts.size());
+    for (const auto &p : prompts)
+      class_names.push_back(p.text);
+
+    return {std::move(label_map), std::move(class_names)};
+  }
+
+    private:
+  std::mutex mutex_;
+  std::unique_ptr<reusex::vision::IModel> model_;
+  std::string current_path_;
+};
+
+} // namespace
 
 void setup_subcommand_gui(CLI::App &app,
                           std::shared_ptr<RuxOptions> global_opt) {
@@ -85,6 +145,11 @@ int run_subcommand_gui(SubcommandGuiOptions const &opt,
     server_options.open_browser = !opt.no_browser;
 
     rux::gui::Server server(std::move(server_options));
+
+    // Register the SAM3 segmenter so POST /frames/<id>/segment works (#409).
+    DefaultFrameSegmenter segmenter;
+    server.set_segmenter(&segmenter);
+
     spdlog::info("Serving {} at {}", global_opt.project_db.string(),
                  server.url());
     return server.run();

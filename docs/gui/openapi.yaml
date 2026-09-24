@@ -958,6 +958,129 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
+  /frames/{id}/segment:
+    post:
+      tags: [frames]
+      operationId: segmentFrame
+      summary: Run SAM3 on one frame and store the label mask
+      description: |
+        Runs SAM3 segmentation on the colour image of sensor frame `{id}` and
+        optionally saves the resulting CV\_32S label map as the frame's
+        segmentation image. Requires a SAM3 model (TensorRT engine directory or
+        ONNX file) to be accessible on the server filesystem.
+
+        **Point-click emulation:** SAM3 does not natively support point prompts.
+        To guide segmentation toward a viewport click, pass a small positive box
+        centred on the click, e.g. `[x-8, y-8, x+8, y+8]`. Native point-prompt
+        support is a follow-up to issue #409.
+
+        **503 without a model registered:** the endpoint returns 503 when the
+        server was started without `rux gui` (e.g. from a test harness) because
+        `rux_gui_lib` never links the ML backends directly.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [model_path]
+              properties:
+                model_path:
+                  type: string
+                  description: |
+                    Filesystem path to the SAM3 model (TRT engine directory
+                    or `.onnx` file). Reloaded when the path changes between
+                    calls; cached otherwise.
+                prompts:
+                  type: array
+                  description: |
+                    SAM3 prompt list. Empty ⟹ use the model's built-in
+                    default class list (18 architectural classes for TRT).
+                  items:
+                    type: object
+                    required: [text]
+                    properties:
+                      text:
+                        type: string
+                        description: Open-vocabulary class name, e.g. "wall".
+                      boxes:
+                        type: array
+                        description: |
+                          Optional bounding-box hints: `["pos"|"neg",
+                          [x1, y1, x2, y2]]`.
+                        items:
+                          type: array
+                          minItems: 2
+                          maxItems: 2
+                      confidence:
+                        type: number
+                        format: float
+                        description: |
+                          Per-prompt threshold override. Negative (default)
+                          ⟹ use the top-level `confidence`.
+                confidence:
+                  type: number
+                  format: float
+                  default: 0.5
+                  description: Global detection confidence threshold [0, 1].
+                save:
+                  type: boolean
+                  default: true
+                  description: |
+                    Write the label map back to the project so
+                    `GET /frames/{id}/image?kind=segmentation` serves it.
+      responses:
+        "200":
+          description: Segmentation result.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  frame_id:
+                    type: integer
+                  labeled_pixels:
+                    type: integer
+                    description: Non-background pixel count.
+                  saved:
+                    type: boolean
+                    description: True when the mask was written to the project.
+                  labels:
+                    type: object
+                    description: |
+                      Map of label id (string key) → class name. Populated
+                      from the request `prompts`; empty when the model default
+                      list was used.
+                    additionalProperties: { type: string }
+        "400":
+          description: |
+            Missing or invalid `model_path`, malformed prompts, or invalid
+            box format.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: |
+            A pipeline job is running; the write-back was refused. Retry
+            after the job completes (same as the editor endpoints).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503":
+          description: |
+            No SAM3 segmenter is registered (server not started via `rux gui`,
+            or model unavailable).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
   # ----------------------------------------------------------- panoramas ----
   /panoramas:
     get:

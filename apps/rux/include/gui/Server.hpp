@@ -20,6 +20,12 @@
 #include <string>
 #include <vector>
 
+// Forward-declared so Server.hpp does not need to include FrameSegmenter.hpp
+// (and hence OpenCV / reusex headers) just to store a pointer.
+namespace rux::gui {
+class IFrameSegmenter;
+}
+
 namespace rux::gui {
 
 /// Everything `rux gui` needs to stand a server up.
@@ -89,6 +95,13 @@ class Server {
   /// Safe to call from another thread; join the thread running run() before
   /// destroying the Server.
   void stop();
+
+  /// Register a SAM3 segmenter for POST /api/v1/frames/<id>/segment (#409).
+  ///
+  /// Must be called before run(). The server does NOT take ownership of the
+  /// pointer — the caller must keep it alive for the server's lifetime.
+  /// When nullptr (the default), the endpoint returns HTTP 503.
+  void set_segmenter(IFrameSegmenter *segmenter);
 
     private:
   class Impl;

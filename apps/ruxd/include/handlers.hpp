@@ -74,6 +74,13 @@ void register_material_routes(App &app, EndpointRegistry &reg,
 void register_material_column_routes(App &app, EndpointRegistry &reg,
                                      reusex::ProjectDB &db);
 
+// Server-side PDF generation for Ressourcekortlægning (#456):
+//   POST   /reports/ressourcekortlaegning — generate + store + return metadata
+//   GET    /reports/ressourcekortlaegning — list stored versions
+//   GET    /reports/ressourcekortlaegning/<int> — fetch PDF bytes
+void register_report_routes(App &app, EndpointRegistry &reg,
+                            reusex::ProjectDB &db);
+
 // Catchall handler returning a JSON 404 for unmatched routes.
 void register_not_found_handler(App &app);
 

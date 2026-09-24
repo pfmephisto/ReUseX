@@ -77,6 +77,8 @@ tags:
     description: Pose-graph topology and per-edge residuals
   - name: jobs
     description: Stage execution — submit, poll, cancel
+  - name: reports
+    description: Server-side PDF report generation (Ressourcekortlægning)
 
 paths:
 
@@ -1976,6 +1978,70 @@ paths:
           description: A pipeline job is running; edits are refused.
         default: { $ref: "#/components/responses/UnexpectedError" }
 
+  # --------------------------------------------------------------- reports ----
+  /reports/ressourcekortlaegning:
+    get:
+      tags: [reports]
+      operationId: listReportVersions
+      summary: List stored Ressourcekortlægning PDF versions
+      description: |
+        Returns metadata for every generated PDF, newest first. PDF bytes are
+        fetched separately via `GET /reports/ressourcekortlaegning/{id}`.
+      responses:
+        "200":
+          description: Version list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [versions]
+                properties:
+                  versions:
+                    type: array
+                    items: { $ref: "#/components/schemas/ReportPdfVersion" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+    post:
+      tags: [reports]
+      operationId: generateReport
+      summary: Generate a Ressourcekortlægning PDF and store it
+      description: |
+        Assembles project metadata, material passports, column definitions and
+        thumbnails, then invokes `typst compile` server-side to render an A4
+        PDF. The result is persisted in the project database and the new
+        version metadata is returned.
+
+        Requires `typst` to be present in `PATH` at the server's runtime
+        (added to the devshell via `pkgs.typst`).
+
+        Writer-locked: concurrent POST requests queue behind a mutex.
+      responses:
+        "201":
+          description: PDF generated and stored; returns the new version metadata
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReportPdfVersion" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  /reports/ressourcekortlaegning/{id}:
+    get:
+      tags: [reports]
+      operationId: getReportPdf
+      summary: Fetch a stored Ressourcekortlægning PDF by version id
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Version id returned by `GET /reports/ressourcekortlaegning` or the POST response.
+          schema: { type: integer, format: int64 }
+      responses:
+        "200":
+          description: Raw PDF bytes
+          content:
+            application/pdf:
+              schema: { type: string, format: binary }
+        "404": { $ref: "#/components/responses/NotFound" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
   # ---------------------------------------------------------------- jobs ----
   /jobs:
     get:
@@ -2352,6 +2418,26 @@ components:
               type: boolean
               description: False when the database could not be opened.
             schema_version: { type: integer }
+
+    ReportPdfVersion:
+      type: object
+      description: Metadata for one stored Ressourcekortlægning PDF version.
+      required: [id, created_at, label, size_bytes]
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: Stable numeric id; use in `GET /reports/ressourcekortlaegning/{id}`.
+        created_at:
+          type: string
+          format: date-time
+          description: ISO 8601 UTC timestamp when the PDF was generated.
+        label:
+          type: string
+          description: Human-readable label stored with the PDF (e.g. "Ressourcekortlægning").
+        size_bytes:
+          type: integer
+          description: Size of the PDF blob in bytes.
 
     EndpointInfo:
       type: object

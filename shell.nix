@@ -125,6 +125,9 @@ in
         #qt6.full
         #qtcreator
 
+        # PDF generation (used at runtime by ruxd for Ressourcekortlægning #456)
+        typst
+
         # DevOps tools
         nix-update
         sqlitebrowser

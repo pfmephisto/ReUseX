@@ -888,6 +888,41 @@ class ProjectDB {
   void delete_passport_property(std::string_view documentGuid,
                                 std::string_view fieldName);
 
+  // --- Report PDF Storage (schema v20) ---
+
+  /**
+   * @brief Metadata for one stored report PDF version.
+   * The PDF blob itself is fetched separately via report_pdf(id).
+   */
+  struct ReportPdfRecord {
+    int64_t id = 0;
+    std::string created_at; // ISO 8601 UTC
+    std::string label;      // human-readable tag (e.g. "Ressourcekortlægning")
+    std::size_t size_bytes = 0;
+  };
+
+  /**
+   * @brief Store a PDF blob and return its record (id, created_at, size).
+   * @param pdf Raw PDF bytes
+   * @param label Optional human-readable label stored alongside the blob
+   * @return The new record (does not include the blob payload)
+   */
+  ReportPdfRecord add_report_pdf(const std::vector<std::uint8_t> &pdf,
+                                 const std::string &label = "");
+
+  /**
+   * @brief List all stored report PDFs, newest first.
+   * Does NOT return the blob payload — call report_pdf(id) for that.
+   */
+  [[nodiscard]] std::vector<ReportPdfRecord> list_report_pdfs() const;
+
+  /**
+   * @brief Fetch one stored PDF blob by id.
+   * @return The raw PDF bytes, or std::nullopt if the id does not exist.
+   */
+  [[nodiscard]] std::optional<std::vector<std::uint8_t>>
+  report_pdf(int64_t id) const;
+
   // --- Project Metadata Operations ---
 
   struct ProjectMetadata {

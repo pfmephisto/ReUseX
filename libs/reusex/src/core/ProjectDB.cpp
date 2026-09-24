@@ -210,7 +210,7 @@ class ProjectDB::Impl {
   sqlite3 *db = nullptr;
 
   // cppcheck-suppress unusedStructMember
-  static constexpr int LATEST_SCHEMA_VERSION = 19;
+  static constexpr int LATEST_SCHEMA_VERSION = 20;
 
   // Maximum bytes per point_cloud_data row. SQLite's default SQLITE_MAX_LENGTH
   // is 1 GB and the hard compile-time max is 2 GB-1. We chunk large clouds
@@ -454,6 +454,10 @@ class ProjectDB::Impl {
 
     if (current < 19) {
       migrateToV19();
+    }
+
+    if (current < 20) {
+      migrateToV20();
     }
 
     reusex::trace("Schema version: {}", getCurrentSchemaVersion());
@@ -1535,6 +1539,34 @@ class ProjectDB::Impl {
 
     insertSchemaVersion(19, "Add width to material_property_definitions");
     reusex::info("Migration to schema version 19 complete");
+  }
+
+  void migrateToV20() {
+    reusex::info("Migrating database to schema version 20");
+
+    // Server-side PDF report versioned storage (#456): one row per generated
+    // Ressourcekortlægning PDF; the blob is stored inline (passports are
+    // typically a few hundred KB). Blobs are fetched one at a time so there is
+    // no per-query heap spike from materialising multiple PDFs.
+    const char *v20_schema = R"(
+      CREATE TABLE IF NOT EXISTS report_pdfs (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        label      TEXT    NOT NULL DEFAULT '',
+        created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+        pdf_blob   BLOB    NOT NULL
+      );
+    )";
+
+    char *errMsg = nullptr;
+    if (sqlite3_exec(db, v20_schema, nullptr, nullptr, &errMsg) != SQLITE_OK) {
+      std::string error = errMsg ? errMsg : "unknown error";
+      sqlite3_free(errMsg);
+      throw std::runtime_error("Migration to v20 failed: " + error);
+    }
+
+    insertSchemaVersion(
+        20, "Add report_pdfs table for versioned PDF storage (#456)");
+    reusex::info("Migration to schema version 20 complete");
   }
 
   // ── Scan helpers (#129) ──────────────────────────────────────────────────
@@ -7123,5 +7155,92 @@ std::vector<ProjectDB::ScanRecord> ProjectDB::scans() const {
 }
 
 bool ProjectDB::has_pose_graph() const { return impl_->hasPoseGraph(); }
+
+// --- Report PDF Storage (schema v20) ---
+
+ProjectDB::ReportPdfRecord
+ProjectDB::add_report_pdf(const std::vector<std::uint8_t> &pdf,
+                          const std::string &label) {
+  impl_->checkWritable();
+
+  const char *sql = R"(
+    INSERT INTO report_pdfs (label, pdf_blob)
+    VALUES (?, ?)
+    RETURNING id, created_at, length(pdf_blob);
+  )";
+
+  sqlite3_stmt *stmt = nullptr;
+  if (sqlite3_prepare_v2(impl_->db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+    throw std::runtime_error("add_report_pdf: prepare failed: " +
+                             std::string(sqlite3_errmsg(impl_->db)));
+  StmtGuard guard(stmt);
+
+  sqlite3_bind_text(stmt, 1, label.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_blob(stmt, 2, pdf.data(), static_cast<int>(pdf.size()),
+                    SQLITE_TRANSIENT);
+
+  if (sqlite3_step(stmt) != SQLITE_ROW)
+    throw std::runtime_error("add_report_pdf: insert failed: " +
+                             std::string(sqlite3_errmsg(impl_->db)));
+
+  ReportPdfRecord rec;
+  rec.id = sqlite3_column_int64(stmt, 0);
+  if (const auto *ts =
+          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1)))
+    rec.created_at = ts;
+  rec.size_bytes = static_cast<std::size_t>(sqlite3_column_int64(stmt, 2));
+  rec.label = label;
+  return rec;
+}
+
+std::vector<ProjectDB::ReportPdfRecord> ProjectDB::list_report_pdfs() const {
+  const char *sql = "SELECT id, label, created_at, length(pdf_blob) "
+                    "FROM report_pdfs ORDER BY id DESC;";
+
+  sqlite3_stmt *stmt = nullptr;
+  if (sqlite3_prepare_v2(impl_->db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+    throw std::runtime_error("list_report_pdfs: prepare failed: " +
+                             std::string(sqlite3_errmsg(impl_->db)));
+  StmtGuard guard(stmt);
+
+  std::vector<ReportPdfRecord> out;
+  while (sqlite3_step(stmt) == SQLITE_ROW) {
+    ReportPdfRecord rec;
+    rec.id = sqlite3_column_int64(stmt, 0);
+    if (const auto *s =
+            reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1)))
+      rec.label = s;
+    if (const auto *s =
+            reinterpret_cast<const char *>(sqlite3_column_text(stmt, 2)))
+      rec.created_at = s;
+    rec.size_bytes = static_cast<std::size_t>(sqlite3_column_int64(stmt, 3));
+    out.push_back(std::move(rec));
+  }
+  return out;
+}
+
+std::optional<std::vector<std::uint8_t>>
+ProjectDB::report_pdf(int64_t id) const {
+  const char *sql = "SELECT pdf_blob FROM report_pdfs WHERE id = ?;";
+
+  sqlite3_stmt *stmt = nullptr;
+  if (sqlite3_prepare_v2(impl_->db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+    throw std::runtime_error("report_pdf: prepare failed: " +
+                             std::string(sqlite3_errmsg(impl_->db)));
+  StmtGuard guard(stmt);
+
+  sqlite3_bind_int64(stmt, 1, id);
+
+  if (sqlite3_step(stmt) != SQLITE_ROW)
+    return std::nullopt;
+
+  const auto *blob =
+      reinterpret_cast<const std::uint8_t *>(sqlite3_column_blob(stmt, 0));
+  const int bytes = sqlite3_column_bytes(stmt, 0);
+  if (!blob || bytes <= 0)
+    return std::vector<std::uint8_t>{};
+
+  return std::vector<std::uint8_t>(blob, blob + bytes);
+}
 
 } // namespace reusex

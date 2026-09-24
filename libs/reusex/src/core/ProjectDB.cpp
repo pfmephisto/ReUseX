@@ -210,7 +210,7 @@ class ProjectDB::Impl {
   sqlite3 *db = nullptr;
 
   // cppcheck-suppress unusedStructMember
-  static constexpr int LATEST_SCHEMA_VERSION = 20;
+  static constexpr int LATEST_SCHEMA_VERSION = 21;
 
   // Maximum bytes per point_cloud_data row. SQLite's default SQLITE_MAX_LENGTH
   // is 1 GB and the hard compile-time max is 2 GB-1. We chunk large clouds
@@ -458,6 +458,10 @@ class ProjectDB::Impl {
 
     if (current < 20) {
       migrateToV20();
+    }
+
+    if (current < 21) {
+      migrateToV21();
     }
 
     reusex::trace("Schema version: {}", getCurrentSchemaVersion());
@@ -1567,6 +1571,34 @@ class ProjectDB::Impl {
     insertSchemaVersion(
         20, "Add report_pdfs table for versioned PDF storage (#456)");
     reusex::info("Migration to schema version 20 complete");
+  }
+
+  void migrateToV21() {
+    reusex::info("Migrating database to schema version 21");
+
+    // Named export templates (#459): stores user-defined column selections and
+    // format options for CSV export. Config is stored as JSON so new options
+    // (additional filters, sort order, etc.) can be added without schema bumps.
+    const char *v21_schema = R"(
+      CREATE TABLE IF NOT EXISTS export_templates (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        name       TEXT    NOT NULL,
+        config     TEXT    NOT NULL DEFAULT '{}',
+        created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT    NOT NULL DEFAULT (datetime('now'))
+      );
+    )";
+
+    char *errMsg = nullptr;
+    if (sqlite3_exec(db, v21_schema, nullptr, nullptr, &errMsg) != SQLITE_OK) {
+      std::string error = errMsg ? errMsg : "unknown error";
+      sqlite3_free(errMsg);
+      throw std::runtime_error("Migration to v21 failed: " + error);
+    }
+
+    insertSchemaVersion(
+        21, "Add export_templates table for named CSV export configs (#459)");
+    reusex::info("Migration to schema version 21 complete");
   }
 
   // ── Scan helpers (#129) ──────────────────────────────────────────────────
@@ -7241,6 +7273,173 @@ ProjectDB::report_pdf(int64_t id) const {
     return std::vector<std::uint8_t>{};
 
   return std::vector<std::uint8_t>(blob, blob + bytes);
+}
+
+int ProjectDB::latest_schema_version() noexcept {
+  return Impl::LATEST_SCHEMA_VERSION;
+}
+
+// --- Export Templates (schema v21) ---
+
+ProjectDB::ExportTemplateRecord
+ProjectDB::add_export_template(const std::string &name,
+                               const std::string &config_json) {
+  impl_->checkWritable();
+
+  const char *sql = R"(
+    INSERT INTO export_templates (name, config)
+    VALUES (?, ?)
+    RETURNING id, created_at, updated_at;
+  )";
+
+  sqlite3_stmt *stmt = nullptr;
+  if (sqlite3_prepare_v2(impl_->db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+    throw std::runtime_error("add_export_template: prepare failed: " +
+                             std::string(sqlite3_errmsg(impl_->db)));
+  StmtGuard guard(stmt);
+
+  sqlite3_bind_text(stmt, 1, name.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmt, 2, config_json.c_str(), -1, SQLITE_TRANSIENT);
+
+  if (sqlite3_step(stmt) != SQLITE_ROW)
+    throw std::runtime_error("add_export_template: insert failed: " +
+                             std::string(sqlite3_errmsg(impl_->db)));
+
+  ExportTemplateRecord rec;
+  rec.id = sqlite3_column_int64(stmt, 0);
+  if (const auto *s =
+          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1)))
+    rec.created_at = s;
+  if (const auto *s =
+          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 2)))
+    rec.updated_at = s;
+  rec.name = name;
+  rec.config_json = config_json;
+  return rec;
+}
+
+std::vector<ProjectDB::ExportTemplateRecord>
+ProjectDB::list_export_templates() const {
+  const char *sql = "SELECT id, name, config, created_at, updated_at "
+                    "FROM export_templates ORDER BY id ASC;";
+
+  sqlite3_stmt *stmt = nullptr;
+  if (sqlite3_prepare_v2(impl_->db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+    throw std::runtime_error("list_export_templates: prepare failed: " +
+                             std::string(sqlite3_errmsg(impl_->db)));
+  StmtGuard guard(stmt);
+
+  std::vector<ExportTemplateRecord> out;
+  while (sqlite3_step(stmt) == SQLITE_ROW) {
+    ExportTemplateRecord rec;
+    rec.id = sqlite3_column_int64(stmt, 0);
+    if (const auto *s =
+            reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1)))
+      rec.name = s;
+    if (const auto *s =
+            reinterpret_cast<const char *>(sqlite3_column_text(stmt, 2)))
+      rec.config_json = s;
+    if (const auto *s =
+            reinterpret_cast<const char *>(sqlite3_column_text(stmt, 3)))
+      rec.created_at = s;
+    if (const auto *s =
+            reinterpret_cast<const char *>(sqlite3_column_text(stmt, 4)))
+      rec.updated_at = s;
+    out.push_back(std::move(rec));
+  }
+  return out;
+}
+
+std::optional<ProjectDB::ExportTemplateRecord>
+ProjectDB::export_template(int64_t id) const {
+  const char *sql = "SELECT id, name, config, created_at, updated_at "
+                    "FROM export_templates WHERE id = ?;";
+
+  sqlite3_stmt *stmt = nullptr;
+  if (sqlite3_prepare_v2(impl_->db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+    throw std::runtime_error("export_template: prepare failed: " +
+                             std::string(sqlite3_errmsg(impl_->db)));
+  StmtGuard guard(stmt);
+
+  sqlite3_bind_int64(stmt, 1, id);
+
+  if (sqlite3_step(stmt) != SQLITE_ROW)
+    return std::nullopt;
+
+  ExportTemplateRecord rec;
+  rec.id = sqlite3_column_int64(stmt, 0);
+  if (const auto *s =
+          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1)))
+    rec.name = s;
+  if (const auto *s =
+          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 2)))
+    rec.config_json = s;
+  if (const auto *s =
+          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 3)))
+    rec.created_at = s;
+  if (const auto *s =
+          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 4)))
+    rec.updated_at = s;
+  return rec;
+}
+
+ProjectDB::ExportTemplateRecord
+ProjectDB::update_export_template(int64_t id, const std::string &name,
+                                  const std::string &config_json) {
+  impl_->checkWritable();
+
+  const char *sql = R"(
+    UPDATE export_templates
+    SET name = ?, config = ?, updated_at = datetime('now')
+    WHERE id = ?
+    RETURNING id, created_at, updated_at;
+  )";
+
+  sqlite3_stmt *stmt = nullptr;
+  if (sqlite3_prepare_v2(impl_->db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+    throw std::runtime_error("update_export_template: prepare failed: " +
+                             std::string(sqlite3_errmsg(impl_->db)));
+  StmtGuard guard(stmt);
+
+  sqlite3_bind_text(stmt, 1, name.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmt, 2, config_json.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_int64(stmt, 3, id);
+
+  if (sqlite3_step(stmt) != SQLITE_ROW)
+    throw std::runtime_error("update_export_template: id not found: " +
+                             std::to_string(id));
+
+  ExportTemplateRecord rec;
+  rec.id = sqlite3_column_int64(stmt, 0);
+  if (const auto *s =
+          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1)))
+    rec.created_at = s;
+  if (const auto *s =
+          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 2)))
+    rec.updated_at = s;
+  rec.name = name;
+  rec.config_json = config_json;
+  return rec;
+}
+
+bool ProjectDB::delete_export_template(int64_t id) {
+  impl_->checkWritable();
+
+  const char *sql = "DELETE FROM export_templates WHERE id = ?;";
+
+  sqlite3_stmt *stmt = nullptr;
+  if (sqlite3_prepare_v2(impl_->db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+    throw std::runtime_error("delete_export_template: prepare failed: " +
+                             std::string(sqlite3_errmsg(impl_->db)));
+  StmtGuard guard(stmt);
+
+  sqlite3_bind_int64(stmt, 1, id);
+
+  if (sqlite3_step(stmt) != SQLITE_DONE)
+    throw std::runtime_error("delete_export_template: delete failed: " +
+                             std::string(sqlite3_errmsg(impl_->db)));
+
+  return sqlite3_changes(impl_->db) > 0;
 }
 
 } // namespace reusex

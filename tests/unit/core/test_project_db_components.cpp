@@ -57,7 +57,7 @@ TEST_CASE("ProjectDbSchemaVersion_FreshComponentsDatabase_IsLatest",
           "[projectdb][components]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
-  REQUIRE(db.schema_version() == 19);
+  REQUIRE(db.schema_version() == ProjectDB::latest_schema_version());
 }
 
 TEST_CASE("SaveBuildingComponent_WindowWithAllFields_RoundTripsExactly",

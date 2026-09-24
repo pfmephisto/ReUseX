@@ -86,6 +86,7 @@ class ProjectDB {
   bool is_open() const noexcept;
   const std::filesystem::path &path() const noexcept;
   int schema_version() const;
+  static int latest_schema_version() noexcept;
   void validate_schema() const;
 
   // --- Sensor Frame Operations ---
@@ -922,6 +923,26 @@ class ProjectDB {
    */
   [[nodiscard]] std::optional<std::vector<std::uint8_t>>
   report_pdf(int64_t id) const;
+
+  // --- Export Templates (schema v21) ---
+
+  struct ExportTemplateRecord {
+    int64_t id = 0;
+    std::string name;
+    std::string config_json; // JSON: {"columns": [...]}
+    std::string created_at;  // ISO 8601 UTC
+    std::string updated_at;  // ISO 8601 UTC
+  };
+
+  ExportTemplateRecord add_export_template(const std::string &name,
+                                           const std::string &config_json);
+  [[nodiscard]] std::vector<ExportTemplateRecord> list_export_templates() const;
+  [[nodiscard]] std::optional<ExportTemplateRecord>
+  export_template(int64_t id) const;
+  ExportTemplateRecord update_export_template(int64_t id,
+                                              const std::string &name,
+                                              const std::string &config_json);
+  bool delete_export_template(int64_t id);
 
   // --- Project Metadata Operations ---
 

@@ -543,4 +543,32 @@ nlohmann::json list_report_pdfs_json(const reusex::ProjectDB &db);
 /// @throws HttpError(404) when @p id has no stored PDF.
 Blob report_pdf_blob(const reusex::ProjectDB &db, int id);
 
+// --- CSV export and named export templates (schema v21, #459) -----------
+
+/// Generate project elements as a UTF-8 CSV blob.
+/// @param columns Ordered column names to include; empty = all columns.
+Blob export_csv_blob(reusex::ProjectDB &db,
+                     const std::vector<std::string> &columns);
+
+/// All stored export templates.
+nlohmann::json list_export_templates_json(const reusex::ProjectDB &db);
+
+/// Create a new export template; returns its full record as JSON.
+nlohmann::json create_export_template_json(reusex::ProjectDB &db,
+                                           const nlohmann::json &body);
+
+/// Fetch one export template by id.
+/// @throws HttpError(404) when not found.
+nlohmann::json get_export_template_json(const reusex::ProjectDB &db,
+                                        int64_t id);
+
+/// Update an existing export template; returns the updated record.
+/// @throws HttpError(404) when not found.
+nlohmann::json update_export_template_json(reusex::ProjectDB &db, int64_t id,
+                                           const nlohmann::json &body);
+
+/// Delete an export template.
+/// @throws HttpError(404) when not found.
+void delete_export_template(reusex::ProjectDB &db, int64_t id);
+
 } // namespace rux::gui

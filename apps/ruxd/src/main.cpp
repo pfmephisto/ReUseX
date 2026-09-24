@@ -203,6 +203,7 @@ int main(int argc, char **argv) {
     ruxd::register_material_routes(app, registry, *project_db);
     ruxd::register_material_column_routes(app, registry, *project_db);
     ruxd::register_report_routes(app, registry, *project_db);
+    ruxd::register_export_routes(app, registry, *project_db);
     reusex::core::info("material editor routes enabled (project: {})",
                        cfg.project);
   } else {

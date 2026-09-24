@@ -116,7 +116,7 @@ TEST_CASE("ProjectDb_PreV11PanoramaProjectReadWriteOpen_MigratesToV11",
 
   {
     ProjectDB db(tmp.path);
-    REQUIRE(db.schema_version() == 19);
+    REQUIRE(db.schema_version() == ProjectDB::latest_schema_version());
     auto panos = db.list_panoramic_images();
     REQUIRE(panos.size() == 2);
     // Existing rows survive with NULL pose columns.
@@ -125,7 +125,7 @@ TEST_CASE("ProjectDb_PreV11PanoramaProjectReadWriteOpen_MigratesToV11",
 
   // Read-only re-open now sees the migrated schema.
   ProjectDB ro(tmp.path, /*readOnly=*/true);
-  REQUIRE(ro.schema_version() == 19);
+  REQUIRE(ro.schema_version() == ProjectDB::latest_schema_version());
   REQUIRE(ro.list_panoramic_images().size() == 2);
 }
 

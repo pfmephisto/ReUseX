@@ -13,9 +13,12 @@
 #include <reusex/core/component_record.hpp>
 #include <reusex/core/frame_visibility.hpp>
 #include <reusex/core/guid.hpp>
+#include <reusex/core/materialepas_json_export.hpp>
 #include <reusex/core/stages.hpp>
 #include <reusex/core/validate.hpp>
 #include <reusex/core/version.hpp>
+#include <reusex/geometry/BuildingComponent.hpp>
+#include <reusex/geometry/component_persistence.hpp>
 #include <reusex/pipeline/stage_parameters.hpp>
 #include <reusex/types/point_types.hpp>
 
@@ -36,6 +39,7 @@
 #include <exception>
 #include <map>
 #include <set>
+#include <sstream>
 #include <type_traits>
 #include <utility>
 #include <variant>
@@ -694,6 +698,16 @@ const std::vector<Endpoint> &endpoint_table() {
        "Generate a Ressourcekortlægning PDF and store it"},
       {"GET", "/api/v1/reports/ressourcekortlaegning/<int>",
        "Fetch a stored Ressourcekortlægning PDF by version id", true},
+      {"GET", "/api/v1/exports/csv",
+       "Export project elements (components + passports) as CSV", true},
+      {"GET", "/api/v1/export-templates", "List all named export templates"},
+      {"POST", "/api/v1/export-templates", "Create a named export template"},
+      {"GET", "/api/v1/export-templates/<int>",
+       "Fetch a named export template by id"},
+      {"PATCH", "/api/v1/export-templates/<int>",
+       "Update a named export template"},
+      {"DELETE", "/api/v1/export-templates/<int>",
+       "Delete a named export template"},
   };
   return table;
 }
@@ -2380,6 +2394,233 @@ Blob report_pdf_blob(const reusex::ProjectDB &db, int id) {
   blob.content_type = "application/pdf";
   blob.data = *pdf;
   return blob;
+}
+
+// ===========================================================================
+// CSV export and named export templates (schema v21, #459)
+// ===========================================================================
+
+namespace {
+
+const std::vector<std::string> kComponentCols = {
+    "component_name",  "component_type",  "confidence",   "parent_id",
+    "notes",           "source_instance", "window_style", "window_pane_count",
+    "window_operable", "door_style",      "door_swing"};
+
+const std::vector<std::string> kPassportMetaCols = {
+    "linked_instance", "passport_version_number", "passport_creation_date",
+    "passport_revision_date", "passport_version_date"};
+
+std::string csv_esc(const std::string &f) {
+  if (f.find_first_of(",\"\n\r") == std::string::npos)
+    return f;
+  std::string o = "\"";
+  for (char c : f)
+    o += (c == '"') ? "\"\"" : std::string(1, c);
+  return o + "\"";
+}
+
+std::string passport_col_name(const std::string &sec, const std::string &prop) {
+  return sec + " / " + prop;
+}
+
+std::vector<std::string> passport_prop_cols(const json &sections) {
+  std::vector<std::string> cols;
+  std::set<std::string> seen;
+  for (const auto &section : sections) {
+    std::string sec = section.value("nameEN", std::string{});
+    for (const auto &prop : section.at("properties")) {
+      auto col = passport_col_name(sec, prop.value("name", std::string{}));
+      if (seen.insert(col).second)
+        cols.push_back(col);
+    }
+  }
+  return cols;
+}
+
+std::vector<std::string> build_csv_header(const json &blank,
+                                          const std::vector<std::string> &sel) {
+  std::vector<std::string> all = {"kind", "id"};
+  all.insert(all.end(), kComponentCols.begin(), kComponentCols.end());
+  all.insert(all.end(), kPassportMetaCols.begin(), kPassportMetaCols.end());
+  auto prop = passport_prop_cols(blank.at("sections"));
+  all.insert(all.end(), prop.begin(), prop.end());
+
+  if (sel.empty())
+    return all;
+
+  const std::set<std::string> valid(all.begin(), all.end());
+  std::vector<std::string> out;
+  for (const auto &c : sel)
+    if (valid.count(c))
+      out.push_back(c);
+  return out;
+}
+
+void write_csv_row(std::ostream &os, const std::vector<std::string> &hdr,
+                   const std::map<std::string, std::string> &row) {
+  for (size_t i = 0; i < hdr.size(); ++i) {
+    if (i)
+      os << ',';
+    auto it = row.find(hdr[i]);
+    os << csv_esc(it == row.end() ? std::string{} : it->second);
+  }
+  os << '\n';
+}
+
+json template_record_json(const reusex::ProjectDB::ExportTemplateRecord &t) {
+  json cfg = json::parse(t.config_json, nullptr, false);
+  if (cfg.is_discarded())
+    cfg = json::object();
+  return json{{"id", t.id},
+              {"name", t.name},
+              {"config", cfg},
+              {"created_at", t.created_at},
+              {"updated_at", t.updated_at}};
+}
+
+} // anonymous namespace
+
+Blob export_csv_blob(reusex::ProjectDB &db,
+                     const std::vector<std::string> &columns) {
+  const json blank = reusex::core::json_export::generate_blank_template();
+  const auto header = build_csv_header(blank, columns);
+
+  std::ostringstream oss;
+
+  // Header row.
+  for (size_t i = 0; i < header.size(); ++i) {
+    if (i)
+      oss << ',';
+    oss << csv_esc(header[i]);
+  }
+  oss << '\n';
+
+  // Building components.
+  for (const auto &name : db.list_building_components()) {
+    auto c = reusex::geometry::building_component(db, name);
+    std::map<std::string, std::string> row;
+    row["kind"] = "component";
+    row["id"] = c.guid;
+    row["component_name"] = c.name;
+    row["component_type"] = std::string(reusex::geometry::to_string(c.type));
+    if (c.confidence >= 0.0)
+      row["confidence"] = std::to_string(c.confidence);
+    if (c.parent_id >= 0)
+      row["parent_id"] = std::to_string(c.parent_id);
+    row["notes"] = c.notes;
+    row["source_instance"] = c.source_instance_guid;
+    std::visit(
+        [&](auto &&d) {
+          using T = std::decay_t<decltype(d)>;
+          if constexpr (std::is_same_v<T, reusex::geometry::WindowData>) {
+            row["window_style"] = d.style;
+            row["window_pane_count"] = std::to_string(d.pane_count);
+            row["window_operable"] = d.operable ? "true" : "false";
+          } else if constexpr (std::is_same_v<T, reusex::geometry::DoorData>) {
+            row["door_style"] = d.style;
+            row["door_swing"] = d.swing;
+          }
+        },
+        c.data);
+    write_csv_row(oss, header, row);
+  }
+
+  // Material passports.
+  std::map<std::string, std::string> guid_to_inst;
+  const std::string inst_cloud = "instances";
+  if (db.has_point_cloud(inst_cloud))
+    for (const auto &[iid, g] : db.instance_materials(inst_cloud))
+      guid_to_inst[g] = inst_cloud + "#" + std::to_string(iid);
+
+  for (const auto &p : db.all_material_passports()) {
+    std::map<std::string, std::string> row;
+    row["kind"] = "passport";
+    row["id"] = p.metadata.document_guid;
+    if (auto it = guid_to_inst.find(p.metadata.document_guid);
+        it != guid_to_inst.end())
+      row["linked_instance"] = it->second;
+    row["passport_version_number"] = p.metadata.version_number;
+    row["passport_creation_date"] = p.metadata.creation_date;
+    row["passport_revision_date"] = p.metadata.revision_date;
+    row["passport_version_date"] = p.metadata.version_date;
+
+    json j = reusex::core::json_export::to_json_with_defaults(p);
+    for (const auto &section : j.at("sections")) {
+      std::string sec = section.value("nameEN", std::string{});
+      std::map<std::string, json> nested;
+      for (const auto &prop : section.at("properties")) {
+        auto col = passport_col_name(sec, prop.value("name", std::string{}));
+        if (prop.contains("value")) {
+          const json &v = prop["value"];
+          row[col] = v.is_string() ? v.get<std::string>() : v.dump();
+        } else if (prop.contains("values")) {
+          json arr = json::array();
+          for (const auto &item : prop["values"])
+            arr.push_back(item.value("value", std::string{}));
+          row[col] = arr.dump();
+        } else if (prop.contains("properties")) {
+          nested[col].push_back(prop["properties"]);
+        }
+      }
+      for (auto &[col, arr] : nested)
+        row[col] = arr.dump();
+    }
+    write_csv_row(oss, header, row);
+  }
+
+  const std::string csv_str = oss.str();
+  Blob blob;
+  blob.content_type = "text/csv; charset=utf-8";
+  blob.data.assign(reinterpret_cast<const uint8_t *>(csv_str.data()),
+                   reinterpret_cast<const uint8_t *>(csv_str.data()) +
+                       csv_str.size());
+  return blob;
+}
+
+json list_export_templates_json(const reusex::ProjectDB &db) {
+  json arr = json::array();
+  for (const auto &t : db.list_export_templates())
+    arr.push_back(template_record_json(t));
+  return json{{"templates", std::move(arr)}};
+}
+
+json create_export_template_json(reusex::ProjectDB &db, const json &body) {
+  if (!body.is_object() || !body.contains("name") || !body["name"].is_string())
+    throw HttpError(400, "\"name\" (string) is required");
+  const std::string name = body["name"].get<std::string>();
+  const std::string config_json =
+      body.contains("config") ? body["config"].dump() : "{}";
+  const auto rec = db.add_export_template(name, config_json);
+  return template_record_json(rec);
+}
+
+json get_export_template_json(const reusex::ProjectDB &db, int64_t id) {
+  const auto rec = db.export_template(id);
+  if (!rec.has_value())
+    throw HttpError(404, "export template not found: " + std::to_string(id));
+  return template_record_json(*rec);
+}
+
+json update_export_template_json(reusex::ProjectDB &db, int64_t id,
+                                 const json &body) {
+  const auto existing = db.export_template(id);
+  if (!existing.has_value())
+    throw HttpError(404, "export template not found: " + std::to_string(id));
+  if (!body.is_object())
+    throw HttpError(400, "body must be a JSON object");
+  const std::string name = body.contains("name") && body["name"].is_string()
+                               ? body["name"].get<std::string>()
+                               : existing->name;
+  const std::string config_json =
+      body.contains("config") ? body["config"].dump() : existing->config_json;
+  const auto rec = db.update_export_template(id, name, config_json);
+  return template_record_json(rec);
+}
+
+void delete_export_template(reusex::ProjectDB &db, int64_t id) {
+  if (!db.delete_export_template(id))
+    throw HttpError(404, "export template not found: " + std::to_string(id));
 }
 
 } // namespace rux::gui

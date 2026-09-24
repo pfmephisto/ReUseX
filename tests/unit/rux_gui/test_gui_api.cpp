@@ -164,6 +164,12 @@ TEST_CASE("EndpointTable_DocumentedRoutes_MatchesContract", "[gui][routes]") {
       "GET /api/v1/reports/ressourcekortlaegning",
       "POST /api/v1/reports/ressourcekortlaegning",
       "GET /api/v1/reports/ressourcekortlaegning/<int>",
+      "GET /api/v1/exports/csv",
+      "GET /api/v1/export-templates",
+      "POST /api/v1/export-templates",
+      "GET /api/v1/export-templates/<int>",
+      "PATCH /api/v1/export-templates/<int>",
+      "DELETE /api/v1/export-templates/<int>",
   };
 
   std::set<std::string> actual;

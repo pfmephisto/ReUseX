@@ -1065,6 +1065,63 @@ class Server::Impl {
           });
         });
 
+    // ---- CSV export + export templates (#459) ----
+    get("/api/v1/exports/csv")([this](const crow::request &req) {
+      std::vector<std::string> columns;
+      if (const char *raw = req.url_params.get("columns"); raw && *raw) {
+        std::istringstream ss(raw);
+        std::string col;
+        while (std::getline(ss, col, ','))
+          if (!col.empty())
+            columns.push_back(col);
+      }
+      return with_write([&](reusex::ProjectDB &db) {
+        auto b = export_csv_blob(db, columns);
+        crow::response res(200);
+        res.set_header("Content-Type", b.content_type);
+        res.set_header("Content-Disposition",
+                       "attachment; filename=\"elements.csv\"");
+        res.body.assign(reinterpret_cast<const char *>(b.data.data()),
+                        b.data.size());
+        return res;
+      });
+    });
+
+    app_.route_dynamic("/api/v1/export-templates")
+        .methods(crow::HTTPMethod::GET,
+                 crow::HTTPMethod::POST)([this](const crow::request &req) {
+          if (req.method == crow::HTTPMethod::GET)
+            return with_db([](const reusex::ProjectDB &db) {
+              return json_response(200, list_export_templates_json(db));
+            });
+          return with_write([&](reusex::ProjectDB &db) {
+            const auto body = nlohmann::json::parse(req.body, nullptr, false);
+            return json_response(201, create_export_template_json(db, body));
+          });
+        });
+
+    app_.route_dynamic("/api/v1/export-templates/<int>")
+        .methods(
+            crow::HTTPMethod::GET, crow::HTTPMethod::PATCH,
+            crow::HTTPMethod::DELETE)([this](const crow::request &req, int id) {
+          if (req.method == crow::HTTPMethod::GET)
+            return with_db([&](const reusex::ProjectDB &db) {
+              return json_response(
+                  200, get_export_template_json(db, static_cast<int64_t>(id)));
+            });
+          if (req.method == crow::HTTPMethod::DELETE)
+            return with_write([&](reusex::ProjectDB &db) {
+              delete_export_template(db, static_cast<int64_t>(id));
+              return crow::response(204);
+            });
+          // PATCH
+          return with_write([&](reusex::ProjectDB &db) {
+            const auto body = nlohmann::json::parse(req.body, nullptr, false);
+            return json_response(200, update_export_template_json(
+                                          db, static_cast<int64_t>(id), body));
+          });
+        });
+
     register_websocket();
     register_static();
   }

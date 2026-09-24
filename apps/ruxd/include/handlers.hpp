@@ -81,6 +81,13 @@ void register_material_column_routes(App &app, EndpointRegistry &reg,
 void register_report_routes(App &app, EndpointRegistry &reg,
                             reusex::ProjectDB &db);
 
+// CSV export and named export-template CRUD (#459):
+//   GET    /exports/csv — stream CSV (optional ?columns= selection)
+//   GET/POST /export-templates — list / create templates
+//   GET/PATCH/DELETE /export-templates/<int> — fetch / update / remove one
+void register_export_routes(App &app, EndpointRegistry &reg,
+                            reusex::ProjectDB &db);
+
 // Catchall handler returning a JSON 404 for unmatched routes.
 void register_not_found_handler(App &app);
 

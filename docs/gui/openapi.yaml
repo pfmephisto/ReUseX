@@ -79,6 +79,10 @@ tags:
     description: Stage execution — submit, poll, cancel
   - name: reports
     description: Server-side PDF report generation (Ressourcekortlægning)
+  - name: exports
+    description: CSV export with optional column selection (#459)
+  - name: export-templates
+    description: Named export templates — saved column selections for CSV export (#459)
 
 paths:
 
@@ -2042,6 +2046,149 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
+  # -------------------------------------------------------------- exports ----
+  /exports/csv:
+    get:
+      tags: [exports]
+      operationId: exportCsv
+      summary: Export project elements as CSV
+      description: |
+        Returns a UTF-8 RFC 4180 CSV containing every building component and
+        material passport in the project. Rows from both sources share a common
+        header; component rows leave passport columns blank and vice-versa.
+
+        Pass `?columns=col1,col2,...` to restrict output to a subset of columns.
+        Unknown column names in the selection are silently dropped. Omit the
+        parameter for the full schema (all columns).
+
+        The `id` column is an immutable GUID that is stable across exports —
+        keep it to support reimport via `rux import csv`.
+      parameters:
+        - name: columns
+          in: query
+          required: false
+          description: |
+            Comma-separated list of column names to include in the output.
+            When omitted, all columns are returned.
+          schema:
+            type: string
+            example: "kind,id,component_name,component_type"
+      responses:
+        "200":
+          description: CSV bytes
+          content:
+            text/csv:
+              schema: { type: string, format: binary }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  # -------------------------------------------------------- export-templates ----
+  /export-templates:
+    get:
+      tags: [export-templates]
+      operationId: listExportTemplates
+      summary: List all named export templates
+      responses:
+        "200":
+          description: Template list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [templates]
+                properties:
+                  templates:
+                    type: array
+                    items: { $ref: "#/components/schemas/ExportTemplate" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+    post:
+      tags: [export-templates]
+      operationId: createExportTemplate
+      summary: Create a named export template
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  description: Human-readable template name
+                config:
+                  type: object
+                  description: Template configuration (column selection, etc.)
+                  properties:
+                    columns:
+                      type: array
+                      items: { type: string }
+                      description: Ordered list of column names to include
+      responses:
+        "201":
+          description: Template created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExportTemplate" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  /export-templates/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer, format: int64 }
+        description: Template id
+    get:
+      tags: [export-templates]
+      operationId: getExportTemplate
+      summary: Fetch one export template by id
+      responses:
+        "200":
+          description: Template record
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExportTemplate" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+    patch:
+      tags: [export-templates]
+      operationId: updateExportTemplate
+      summary: Update a template's name and/or config
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                config:
+                  type: object
+                  properties:
+                    columns:
+                      type: array
+                      items: { type: string }
+      responses:
+        "200":
+          description: Updated template
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExportTemplate" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+    delete:
+      tags: [export-templates]
+      operationId: deleteExportTemplate
+      summary: Delete an export template
+      responses:
+        "204":
+          description: Template deleted
+        "404": { $ref: "#/components/responses/NotFound" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
   # ---------------------------------------------------------------- jobs ----
   /jobs:
     get:
@@ -2438,6 +2585,35 @@ components:
         size_bytes:
           type: integer
           description: Size of the PDF blob in bytes.
+
+    ExportTemplate:
+      type: object
+      description: A named, saved CSV export configuration (column selection).
+      required: [id, name, config, created_at, updated_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: Stable numeric id.
+        name:
+          type: string
+          description: Human-readable template name.
+        config:
+          type: object
+          description: Export configuration stored as a JSON object.
+          properties:
+            columns:
+              type: array
+              items: { type: string }
+              description: Ordered list of column names to include in the CSV.
+        created_at:
+          type: string
+          format: date-time
+          description: ISO 8601 UTC timestamp when the template was created.
+        updated_at:
+          type: string
+          format: date-time
+          description: ISO 8601 UTC timestamp of the last update.
 
     EndpointInfo:
       type: object

@@ -648,6 +648,51 @@ export interface DescriptorMatchResult {
   error: string | null;
 }
 
+// ------------------------------------------------------------ segment (#409) ----
+
+/**
+ * Wire tuple for one SAM3 bounding-box hint.
+ *
+ * Shape: `["pos" | "neg", [x1, y1, x2, y2]]` in image pixel coordinates.
+ * The polarity marks whether the enclosed region is a positive example
+ * (include) or a negative example (exclude).
+ */
+export type FrameSegmentBox = ['pos' | 'neg', [number, number, number, number]];
+
+/** One SAM3 text + optional box prompt. */
+export interface FrameSegmentPrompt {
+  /** Open-vocabulary class name, e.g. `"wall"`. Required by the contract. */
+  text: string;
+  /** Bounding-box hints, each tagged with a polarity. */
+  boxes?: FrameSegmentBox[];
+  /** Per-prompt threshold override; negative (absent) → use top-level confidence. */
+  confidence?: number;
+}
+
+/** Body of `POST /frames/{id}/segment`. */
+export interface FrameSegmentRequest {
+  /** Server-side filesystem path to a TRT engine directory or `.onnx` file. */
+  model_path: string;
+  /** Empty / absent ⟹ use the model's built-in default class list. */
+  prompts?: FrameSegmentPrompt[];
+  /** Global detection threshold [0, 1]. Default 0.5. */
+  confidence?: number;
+  /** Write the label map back to the project. Default true. */
+  save?: boolean;
+}
+
+/** Response of `POST /frames/{id}/segment`. */
+export interface FrameSegmentResult {
+  frame_id: number;
+  labeled_pixels: number;
+  saved: boolean;
+  /**
+   * Label id → class name. Populated from `prompts`; empty when the model's
+   * built-in default list was used.
+   */
+  labels: Record<string, string>;
+}
+
 // ------------------------------------------------------------- websocket ----
 // docs/gui/websocket-events.md + docs/gui/events.schema.json.
 

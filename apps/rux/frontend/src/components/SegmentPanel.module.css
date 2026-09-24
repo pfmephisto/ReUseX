@@ -1,0 +1,308 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* ---------------------------------------------------------------- sections -- */
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.sectionHead {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* --------------------------------------------------------------- type ramp -- */
+
+.fieldLabel {
+  font-size: var(--font-size-sm);
+}
+
+.required {
+  color: var(--color-status-failed);
+}
+
+.hint {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-faint);
+}
+
+.code {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--font-size-xs);
+}
+
+/* ------------------------------------------------------------------ inputs -- */
+
+.textInput {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-sunken);
+  font-size: var(--font-size-sm);
+  font-family: var(--font-mono, monospace);
+  color: var(--color-text);
+  min-width: 0;
+}
+
+.textInput:focus {
+  outline: none;
+  border-color: var(--color-border-focus);
+}
+
+.textInput:disabled {
+  opacity: 0.6;
+}
+
+.slider {
+  width: 100%;
+  accent-color: var(--color-accent);
+}
+
+/* ------------------------------------------------- image + canvas overlay -- */
+
+.imageWrap {
+  position: relative;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--color-canvas);
+  line-height: 0; /* removes the inline-block gap under the <img> */
+}
+
+.frameImage {
+  display: block;
+  width: 100%;
+  height: auto;
+  user-select: none;
+}
+
+.maskOverlay {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  opacity: 0.55;
+  pointer-events: none;
+  object-fit: cover;
+}
+
+/* The canvas sits on top of both images and captures mouse events. */
+.canvas {
+  position: absolute;
+  inset: 0;
+  cursor: crosshair;
+  /* CSS size fills the container; canvas resolution is set via .width/.height
+     attributes in syncCanvasSize to avoid scaling artefacts. */
+  width: 100%;
+  height: 100%;
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  color: var(--color-text-muted);
+  user-select: none;
+}
+
+.toggle input {
+  accent-color: var(--color-accent);
+}
+
+/* ----------------------------------------------------------------- prompts -- */
+
+.promptList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.promptRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.promptKind {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-faint);
+  flex: none;
+  width: var(--space-4);
+  text-align: center;
+}
+
+.promptText {
+  flex: 1;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-sunken);
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  min-width: 0;
+}
+
+.promptText:focus {
+  outline: none;
+  border-color: var(--color-border-focus);
+}
+
+.promptText:disabled {
+  opacity: 0.6;
+}
+
+.removeAction {
+  padding: 0 var(--space-1);
+  color: var(--color-text-faint);
+  font-size: var(--font-size-xs);
+  flex: none;
+}
+
+.removeAction:hover:not(:disabled) {
+  color: var(--color-status-failed);
+}
+
+.addAction {
+  font-size: var(--font-size-xs);
+  color: var(--color-accent);
+  text-align: left;
+  align-self: flex-start;
+}
+
+.addAction:hover:not(:disabled) {
+  color: var(--color-accent-hover);
+}
+
+.inlineAction {
+  font-size: inherit;
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+
+.inlineAction:hover:not(:disabled) {
+  color: var(--color-accent-hover);
+}
+
+/* ---------------------------------------------------------------- run btn -- */
+
+.runBtn {
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  align-self: flex-start;
+  transition: background 0.1s;
+}
+
+.runBtn:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+}
+
+.runBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ------------------------------------------------------------------ error -- */
+
+.errorMsg {
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-overlay);
+  border: 1px solid var(--color-status-failed);
+  color: var(--color-status-failed);
+  font-size: var(--font-size-sm);
+  margin: 0;
+}
+
+/* ----------------------------------------------------------------- result -- */
+
+.resultSection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.resultFacts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+}
+
+.resultRow {
+  display: flex;
+  gap: var(--space-3);
+  align-items: baseline;
+}
+
+.resultRow dt {
+  flex: none;
+  width: calc(var(--space-7) * 2);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-faint);
+}
+
+.resultRow dd {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  min-width: 0;
+  word-break: break-word;
+}
+
+.nextSteps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border);
+}
+
+.nextStepsHead {
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+}
+
+.cmdBlock {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  background: var(--color-canvas);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  overflow-x: auto;
+  margin: 0;
+  white-space: pre;
+}
+
+.pipelineLink {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+
+.pipelineLink:hover {
+  color: var(--color-accent-hover);
+}

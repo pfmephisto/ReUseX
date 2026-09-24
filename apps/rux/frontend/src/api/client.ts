@@ -33,6 +33,8 @@ import type {
   FrameInfo,
   FrameImageKind,
   FrameList,
+  FrameSegmentRequest,
+  FrameSegmentResult,
   FrameVisibilityList,
   GsplatInfo,
   Health,
@@ -630,6 +632,26 @@ export class RuxApiClient {
       { method },
       signal,
     );
+  }
+
+  /**
+   * Run SAM3 segmentation on one frame and optionally store the label mask (#409).
+   *
+   * Returns 503 when no SAM3 segmenter is registered on the server (i.e. the
+   * server was not started via `rux gui` with a SAM3 model available). That
+   * status arrives as an `ApiRequestError` with `isRetryable` — note that 503
+   * here means "model not configured", not "transient DB lock", even though
+   * both share the status code. Handle it with a specific message.
+   *
+   * Returns 409 when a pipeline job holds the write lock; safe to retry after
+   * the job completes.
+   */
+  segmentFrame(
+    id: number,
+    request: FrameSegmentRequest,
+    signal?: AbortSignal,
+  ): Promise<FrameSegmentResult> {
+    return this.postJson<FrameSegmentResult>(`/frames/${id}/segment`, request, signal);
   }
 
   /**

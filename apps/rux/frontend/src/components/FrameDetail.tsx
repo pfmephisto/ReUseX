@@ -15,6 +15,7 @@ import {
   poseTranslation,
 } from '../data/framesModel';
 import { ErrorBanner } from './ErrorBanner';
+import { SegmentPanel } from './SegmentPanel';
 import { Spinner } from './Spinner';
 import styles from './FrameDetail.module.css';
 
@@ -40,8 +41,11 @@ export interface FrameDetailProps {
   onClose: () => void;
 }
 
+type DetailMode = 'info' | 'segment';
+
 export function FrameDetail({ id, onClose }: FrameDetailProps) {
   const frame = useAsync((signal) => api.frame(id, signal), [id]);
+  const [mode, setMode] = useState<DetailMode>('info');
 
   return (
     <aside className={styles.pane} aria-label={`Sensor frame ${id}`}>
@@ -49,6 +53,26 @@ export function FrameDetail({ id, onClose }: FrameDetailProps) {
         <h2 className={styles.title}>
           Frame <span className="mono">{id}</span>
         </h2>
+
+        <div className={styles.tabs} role="group" aria-label="View mode">
+          <button
+            type="button"
+            className={`${styles.tab} ${mode === 'info' ? styles.tabActive : ''}`}
+            aria-pressed={mode === 'info'}
+            onClick={() => setMode('info')}
+          >
+            Info
+          </button>
+          <button
+            type="button"
+            className={`${styles.tab} ${mode === 'segment' ? styles.tabActive : ''}`}
+            aria-pressed={mode === 'segment'}
+            onClick={() => setMode('segment')}
+          >
+            Segment
+          </button>
+        </div>
+
         <button type="button" className={styles.close} onClick={onClose}>
           Close
         </button>
@@ -62,8 +86,18 @@ export function FrameDetail({ id, onClose }: FrameDetailProps) {
         />
       ) : !frame.data ? (
         <Spinner label="Reading the frame…" />
-      ) : (
+      ) : mode === 'info' ? (
         <FrameBody frame={frame.data} />
+      ) : (
+        // key=id remounts SegmentPanel on frame change, resetting all drawing
+        // state without needing an explicit reset effect.
+        <SegmentPanel
+          key={id}
+          frameId={id}
+          imageWidth={frame.data.intrinsics?.width}
+          imageHeight={frame.data.intrinsics?.height}
+          onSegmented={frame.reload}
+        />
       )}
     </aside>
   );

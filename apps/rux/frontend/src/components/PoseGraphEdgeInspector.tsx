@@ -3,16 +3,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 /**
- * Pose-graph edge inspector panel (#407).
+ * Pose-graph edge inspector panel (#407, #464).
  *
  * Shows the properties of the currently selected edge (from, to, type,
  * residual, weight) with frame thumbnails and Delete / Add-edge actions.
- * The "re-run optimizer" prompt is surfaced here too — it directs the user
- * to the CLI because `optimize` is not yet a GUI job stage.
+ * Includes a "Re-run optimize" button that submits an optimize job and
+ * reflects progress via JobsContext.
  */
 
 import { useState, useCallback } from 'react';
 import { api } from '../api/client';
+import { useJobs } from '../app/JobsContext';
 import type { PoseGraphEdgeType } from '../api/types';
 import type { SelectedEdge } from '../viewport/PoseGraphScene';
 import styles from './PoseGraphEdgeInspector.module.css';
@@ -42,6 +43,23 @@ export function PoseGraphEdgeInspector({
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  const [optimizing, setOptimizing] = useState(false);
+  const [optimizeError, setOptimizeError] = useState<string | null>(null);
+  const { active } = useJobs();
+
+  const isJobActive = active.some((j) => j.stage === 'optimize');
+
+  const handleOptimize = useCallback(async () => {
+    setOptimizing(true);
+    setOptimizeError(null);
+    try {
+      await api.submitJob({ stage: 'optimize' });
+    } catch (err) {
+      setOptimizeError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setOptimizing(false);
+    }
+  }, []);
 
   const handleDelete = useCallback(async () => {
     if (!edge) return;
@@ -78,6 +96,12 @@ export function PoseGraphEdgeInspector({
             onCancel={() => setAddOpen(false)}
           />
         )}
+        <OptimizeSection
+          optimizing={optimizing}
+          isJobActive={isJobActive}
+          optimizeError={optimizeError}
+          onOptimize={handleOptimize}
+        />
       </div>
     );
   }
@@ -154,13 +178,12 @@ export function PoseGraphEdgeInspector({
         />
       )}
 
-      <div className={styles.optimizeHint}>
-        <p className={styles.hintText}>
-          After editing edges, re-run the optimizer to recalculate residuals
-          and update frame poses:
-        </p>
-        <code className={styles.cliCmd}>rux optimize</code>
-      </div>
+      <OptimizeSection
+        optimizing={optimizing}
+        isJobActive={isJobActive}
+        optimizeError={optimizeError}
+        onOptimize={handleOptimize}
+      />
     </div>
   );
 }
@@ -300,6 +323,43 @@ function AddEdgeForm({ defaultFrom, defaultTo, onAdded, onCancel }: AddEdgeFormP
           Cancel
         </button>
       </div>
+    </div>
+  );
+}
+
+// -------------------------------------------------------------------------- //
+
+interface OptimizeSectionProps {
+  optimizing: boolean;
+  isJobActive: boolean;
+  optimizeError: string | null;
+  onOptimize: () => void;
+}
+
+function OptimizeSection({
+  optimizing,
+  isJobActive,
+  optimizeError,
+  onOptimize,
+}: OptimizeSectionProps) {
+  const busy = optimizing || isJobActive;
+  const label = isJobActive ? 'Optimizing…' : optimizing ? 'Submitting…' : 'Re-run optimize';
+
+  return (
+    <div className={styles.optimizeHint}>
+      <p className={styles.hintText}>
+        After editing edges, re-run the optimizer to recalculate residuals and
+        update frame poses.
+      </p>
+      {optimizeError && <p className={styles.error}>{optimizeError}</p>}
+      <button
+        type="button"
+        className={styles.optimizeBtn}
+        onClick={onOptimize}
+        disabled={busy}
+      >
+        {label}
+      </button>
     </div>
   );
 }

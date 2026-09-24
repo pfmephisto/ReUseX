@@ -1843,7 +1843,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [clouds, planes, rooms, instances, mesh]
+            enum: [optimize, clouds, planes, rooms, instances, mesh]
           description: A stage listed by `/stages`.
       responses:
         "200":
@@ -3319,7 +3319,7 @@ components:
         stage:
           type: string
           description: Token accepted by `POST /jobs`.
-          enum: [clouds, planes, rooms, instances, mesh]
+          enum: [optimize, clouds, planes, rooms, instances, mesh]
         log_name:
           type: string
           description: >-
@@ -3492,7 +3492,7 @@ components:
         stage:
           type: string
           description: "A stage with `runnable: true` in `/stages`."
-          enum: [clouds, planes, rooms, instances]
+          enum: [optimize, clouds, planes, rooms, instances, mesh]
         parameters:
           type: object
           description: |

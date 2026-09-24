@@ -7,11 +7,16 @@
 #include "gui/FrameSegmenter.hpp"
 #include "gui/Server.hpp"
 
+#include <reusex/core/ProjectDB.hpp>
+#include <reusex/pipeline/stages.hpp>
+#include <reusex/slam/PlaneGraphOptimizer.hpp>
 #include <reusex/vision/model_factory.hpp>
 #include <reusex/vision/sam3_prompt.hpp>
 #include <reusex/vision/segment_image.hpp>
 #include <reusex/vision/segment_panorama.hpp>
 
+#include <fmt/format.h>
+#include <nlohmann/json.hpp>
 #include <opencv2/core.hpp>
 #include <spdlog/spdlog.h>
 
@@ -119,6 +124,102 @@ class DefaultPanoramaSegmenter : public rux::gui::IPanoramaSegmenter {
   std::string current_path_;
 };
 
+// ---------------------------------------------------------------------------
+// Optimize executor (#464)
+// ---------------------------------------------------------------------------
+//
+// LAYERING: reusex_pipeline does not link reusex_slam (GTSAM). This function
+// lives in rux_lib (which links the full `reusex` umbrella) and is injected
+// into the Server via ServerOptions::stage_executor, keeping rux_gui_lib free
+// of the slam/GTSAM closure and the light test binary unaffected.
+
+namespace {
+
+template <typename T>
+T param_or(const nlohmann::json &params, const char *key, T fallback) {
+  auto it = params.find(key);
+  if (it == params.end() || it->is_null())
+    return fallback;
+  return it->get<T>();
+}
+
+} // anonymous namespace
+
+reusex::pipeline::StageResult
+run_optimize_stage(reusex::ProjectDB &db,
+                   const reusex::pipeline::StageContext &ctx) {
+  nlohmann::json params;
+  if (!ctx.parameters.empty()) {
+    params = nlohmann::json::parse(ctx.parameters, nullptr,
+                                   /*allow_exceptions=*/false);
+    if (params.is_discarded() || !params.is_object())
+      return reusex::pipeline::StageResult::invalid(
+          "optimize parameters must be a JSON object");
+  }
+
+  reusex::geometry::PlaneGraphOptions options;
+  options.min_landmark_observations =
+      param_or(params, "min_observations", options.min_landmark_observations);
+  options.assoc_rounds = param_or(params, "assoc_rounds", options.assoc_rounds);
+  if (param_or(params, "no_gnc", false))
+    options.use_gnc = false;
+
+  const bool dry_run = param_or(params, "dry_run", false);
+
+  try {
+    auto result = reusex::geometry::optimize_sensor_poses(db, options, dry_run);
+
+    if (result.landmarks == 0 && result.loop_edges == 0)
+      return reusex::pipeline::StageResult::success(
+          fmt::format("no plane landmarks reached min_observations={} and no "
+                      "loop edges present; poses left unchanged",
+                      options.min_landmark_observations));
+
+    if (!result.converged)
+      return reusex::pipeline::StageResult::failure(
+          "factor-graph optimizer failed to produce a solution; poses left "
+          "unchanged");
+
+    if (dry_run)
+      return reusex::pipeline::StageResult::success(
+          fmt::format("dry run: {} frames, {} landmarks, {:.4f} -> {:.4f} "
+                      "error, max shift {:.4f} m (poses not written)",
+                      result.frames, result.landmarks, result.initial_error,
+                      result.final_error, result.max_pose_shift));
+
+    return reusex::pipeline::StageResult::success(
+        fmt::format("{} frames, {} landmarks, {:.4f} -> {:.4f} error, max "
+                    "shift {:.4f} m",
+                    result.frames, result.landmarks, result.initial_error,
+                    result.final_error, result.max_pose_shift),
+        // `sensor_frames` is the artifact optimized poses are written into.
+        {{"table", "sensor_frames", static_cast<int64_t>(result.frames)}});
+  } catch (const std::exception &e) {
+    return reusex::pipeline::StageResult::failure(
+        fmt::format("pose optimization failed: {}", e.what()));
+  }
+}
+
+/// StageExecutor that handles `optimize` directly and delegates everything else
+/// to the default executor (clouds / planes / rooms / instances / mesh).
+reusex::pipeline::StageExecutor make_gui_stage_executor() {
+  auto default_exec = reusex::pipeline::default_stage_executor();
+  return [default_exec = std::move(default_exec)](
+             const reusex::pipeline::StageContext &ctx)
+             -> reusex::pipeline::StageResult {
+    if (ctx.stage == reusex::pipeline::JobStage::optimize) {
+      try {
+        reusex::ProjectDB db(ctx.project, /*readOnly=*/false);
+        return run_optimize_stage(db, ctx);
+      } catch (const std::exception &e) {
+        return reusex::pipeline::StageResult::failure(fmt::format(
+            "could not open project '{}': {}", ctx.project.string(), e.what()));
+      }
+    }
+    return default_exec(ctx);
+  };
+}
+
 } // namespace
 
 void setup_subcommand_gui(CLI::App &app,
@@ -196,6 +297,10 @@ int run_subcommand_gui(SubcommandGuiOptions const &opt,
     rux::gui::ServerOptions server_options = opt.server;
     server_options.project = global_opt.project_db;
     server_options.open_browser = !opt.no_browser;
+    // Wire the optimize stage (#464): reusex_pipeline does not link
+    // reusex_slam, so the executor that calls optimize_sensor_poses() lives
+    // here in rux_lib and is injected rather than compiled into rux_gui_lib.
+    server_options.stage_executor = make_gui_stage_executor();
 
     rux::gui::Server server(std::move(server_options));
 

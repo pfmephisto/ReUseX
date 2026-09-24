@@ -253,6 +253,35 @@ const std::vector<ParameterDescriptor> &mesh_parameters() {
   return table;
 }
 
+const std::vector<ParameterDescriptor> &optimize_parameters() {
+  // Defaults mirror SubcommandOptimizeOptions in apps/rux/include/optimize.hpp
+  // (STANDARDS §4). Only the knobs most likely to be changed from the GUI are
+  // exposed here; the full CLI surface is available via `rux optimize --help`.
+  // Deliberately not including <reusex/slam/PlaneGraphOptimizer.hpp>: the slam
+  // module links GTSAM which must not enter reusex_pipeline (see #464 layering
+  // note in stages.cpp). Default values are hard-coded to match the header.
+  static const std::vector<ParameterDescriptor> table{
+      integer("min_observations", "Min landmark observations",
+              "A plane landmark must be seen by at least this many sensor "
+              "frames to enter the factor graph.",
+              4, 1.0, 100.0),
+      integer("assoc_rounds", "Association rounds",
+              "Number of associate / optimize / refit iterations (1 = "
+              "one-shot). More rounds let landmarks re-form on improved poses.",
+              2, 1.0, 10.0),
+      boolean("no_gnc", "Disable GNC",
+              "Use plain Levenberg-Marquardt without Graduated Non-Convexity. "
+              "GNC down-weights outlier plane associations; disabling it is "
+              "faster but less robust.",
+              false),
+      boolean("dry_run", "Dry run",
+              "Compute and report statistics without writing optimised poses "
+              "back to the project.",
+              false),
+  };
+  return table;
+}
+
 } // namespace
 
 std::string_view to_string(ParameterType type) {
@@ -283,6 +312,8 @@ const std::vector<ParameterDescriptor> &stage_parameters(JobStage stage) {
     return instances_parameters();
   case JobStage::mesh:
     return mesh_parameters();
+  case JobStage::optimize:
+    return optimize_parameters();
   }
   throw std::logic_error("unhandled JobStage in stage_parameters()");
 }

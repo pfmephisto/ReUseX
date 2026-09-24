@@ -645,7 +645,7 @@ TEST_CASE("StagesJson_EmptyProject_SeparatesRunnableFromReady",
   reusex::ProjectDB db(project.path);
 
   const auto body = stages_json(db);
-  REQUIRE(body.at("stages").size() == 5);
+  REQUIRE(body.at("stages").size() == 6);
 
   std::set<std::string> names;
   for (const auto &stage : body.at("stages")) {
@@ -659,17 +659,18 @@ TEST_CASE("StagesJson_EmptyProject_SeparatesRunnableFromReady",
     if (!stage.at("ready").get<bool>())
       CHECK_FALSE(stage.at("blockers").empty());
   }
-  CHECK(names == std::set<std::string>{"clouds", "planes", "rooms", "instances",
-                                       "mesh"});
+  CHECK(names == std::set<std::string>{"optimize", "clouds", "planes", "rooms",
+                                       "instances", "mesh"});
 
   for (const auto &stage : body.at("stages")) {
     const auto name = stage.at("stage").get<std::string>();
-    // All stages are now runnable (#265 Phase 3 added the mesh runner).
+    // All stages are now runnable (#265 Phase 3 added the mesh runner; #464
+    // added optimize).
     CHECK(stage.at("runnable").get<bool>() == true);
-    // clouds and mesh run stages that cannot be interrupted mid-run (clouds
-    // because it is not interruptible, mesh because the MIP solver has no
-    // cancel hook).
-    if (name == "clouds" || name == "mesh")
+    // clouds, mesh, and optimize run stages that cannot be interrupted mid-run:
+    // clouds is not interruptible, mesh and optimize have no cooperative cancel
+    // hook in their solvers (HiGHS/cuOpt MIP and GTSAM respectively).
+    if (name == "clouds" || name == "mesh" || name == "optimize")
       CHECK(stage.at("cancellable") == false);
     if (name == "planes" || name == "rooms" || name == "instances")
       CHECK(stage.at("cancellable") == true);

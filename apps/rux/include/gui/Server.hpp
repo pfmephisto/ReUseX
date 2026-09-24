@@ -14,6 +14,8 @@
 // reaches the rest of the app or the tests. The handler logic itself lives in
 // gui/api.hpp, which is framework-free.
 
+#include <reusex/pipeline/stages.hpp>
+
 #include <cstdint>
 #include <filesystem>
 #include <memory>
@@ -60,6 +62,16 @@ struct ServerOptions {
 
   /// Launch the system browser at the server URL once it is listening.
   bool open_browser = true;
+
+  /// Custom stage executor injected by the app layer (#464).
+  ///
+  /// When set, the job runner uses this instead of
+  /// pipeline::default_stage_executor(). The rux app layer (rux_lib) uses this
+  /// to add the `optimize` stage, which calls reusex_slam (GTSAM) — a dep that
+  /// must not enter rux_gui_lib's link graph (it would bloat the light test
+  /// binary). Leave empty to use the default executor (clouds/planes/rooms/
+  /// instances/mesh only).
+  reusex::pipeline::StageExecutor stage_executor;
 };
 
 /// Crow-backed implementation of the GUI API contract.

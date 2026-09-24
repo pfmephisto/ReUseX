@@ -167,23 +167,37 @@
 .optimizeHint {
   border-top: 1px solid var(--color-border);
   padding-top: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
 }
 
 .hintText {
   font-size: var(--font-size-xs);
   color: var(--color-text-faint);
-  margin: 0 0 var(--space-1);
+  margin: 0;
 }
 
-.cliCmd {
-  font-size: var(--font-size-xs);
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
+.optimizeBtn {
+  width: 100%;
   padding: var(--space-1) var(--space-2);
-  display: block;
-  color: var(--color-text-muted);
-  user-select: all;
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  text-align: center;
+}
+
+.optimizeBtn:hover:not(:disabled) {
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+}
+
+.optimizeBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* Add edge form */

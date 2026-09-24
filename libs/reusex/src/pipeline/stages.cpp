@@ -50,7 +50,7 @@ struct StageName {
 // Single source of truth for stage identity. The `name` column is the token
 // used in the HTTP contract (docs/gui/openapi.yaml) and `contract` selects the
 // input check run before the stage executes (docs/CONTRACTS.md).
-constexpr std::array<StageName, 5> kStages{{
+constexpr std::array<StageName, 6> kStages{{
     {JobStage::clouds, "clouds", "cloud_reconstruction",
      core::PipelineStage::clouds, false},
     {JobStage::planes, "planes", "segment_planes", core::PipelineStage::planes,
@@ -64,6 +64,12 @@ constexpr std::array<StageName, 5> kStages{{
     // large scenes. The job remains in `running` until the solver returns.
     {JobStage::mesh, "mesh", "mesh_generation", core::PipelineStage::mesh,
      false},
+    // Not cancellable: the GTSAM solver has no cooperative cancel hook; the
+    // job runs to completion. Matches `pose_optimization_plane_graph`, the log
+    // name rux optimize has always written, for history-view join
+    // compatibility.
+    {JobStage::optimize, "optimize", "pose_optimization_plane_graph",
+     core::PipelineStage::optimize, false},
 }};
 
 const StageName &descriptor(JobStage stage) {
@@ -559,6 +565,14 @@ StageResult dispatch(ProjectDB &db, const StageContext &ctx,
     return run_instances(db, ctx, params);
   case JobStage::mesh:
     return run_mesh(db, ctx, params);
+  case JobStage::optimize:
+    // Optimize requires reusex_slam (GTSAM), which reusex_pipeline does not
+    // link. The GUI wires a custom StageExecutor from rux_lib that intercepts
+    // this stage before dispatch() is reached. This path is the safe fallback
+    // for any caller that forgot to provide the custom executor.
+    return StageResult::failure(
+        "the optimize stage requires the slam executor; register one via "
+        "ServerOptions::stage_executor (see #464)");
   }
   return StageResult::failure("unknown stage");
 }

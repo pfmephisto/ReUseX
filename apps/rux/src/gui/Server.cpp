@@ -320,7 +320,10 @@ class Server::Impl {
     for (const auto &origin : options_.allowed_origins)
       spdlog::info("Additional allowed origin: {}", origin);
 
-    runner_ = std::make_unique<pipeline::JobRunner>(options_.project);
+    runner_ = std::make_unique<pipeline::JobRunner>(
+        options_.project, options_.stage_executor
+                              ? options_.stage_executor
+                              : pipeline::default_stage_executor());
     listener_ = runner_->add_listener(
         [this](const pipeline::JobEvent &event) { broadcast(event); });
 

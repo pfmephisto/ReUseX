@@ -318,6 +318,8 @@ struct CatalogueEntry {
 
 const std::vector<CatalogueEntry> &stage_catalogue() {
   static const std::vector<CatalogueEntry> catalogue{
+      {"optimize", reusex::core::PipelineStage::optimize,
+       pipeline::JobStage::optimize},
       {"clouds", reusex::core::PipelineStage::clouds,
        pipeline::JobStage::clouds},
       {"planes", reusex::core::PipelineStage::planes,

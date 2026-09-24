@@ -23,11 +23,15 @@
   flex-wrap: wrap;
 }
 
-.hint {
+.toolbarLeft {
   flex: 1;
+  min-width: 0;
+}
+
+.hint {
   font-size: var(--font-size-sm);
   color: var(--color-text-muted);
-  min-width: 0;
+  margin: 0;
 }
 
 .printButton {
@@ -45,6 +49,68 @@
 .printButton:hover {
   background: var(--color-accent);
   color: var(--color-surface-raised);
+}
+
+/* ---- Version history ------------------------------------------------ */
+
+.versionsSection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.versionsHeading {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text);
+  margin: 0;
+}
+
+.versionsEmpty {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+.versionsTable {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: var(--font-size-sm);
+}
+
+.versionsTh {
+  border: 1px solid var(--color-border);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-raised);
+  color: var(--color-text-muted);
+  font-weight: var(--font-weight-bold);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.versionsTd {
+  border: 1px solid var(--color-border);
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-text);
+}
+
+.versionsTr:nth-child(even) .versionsTd {
+  background: var(--color-surface-sunken);
+}
+
+.versionsSize {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.downloadLink {
+  color: var(--color-accent);
+  text-decoration: none;
+  font-weight: var(--font-weight-bold);
+}
+
+.downloadLink:hover {
+  text-decoration: underline;
 }
 
 /* ---- Report --------------------------------------------------------- */
@@ -152,6 +218,10 @@
 
 @media print {
   .toolbar {
+    display: none;
+  }
+
+  .versionsSection {
     display: none;
   }
 

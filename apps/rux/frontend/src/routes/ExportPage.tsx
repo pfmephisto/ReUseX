@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 
 import { api } from '../api/client';
 import type {
@@ -10,31 +10,27 @@ import type {
   ProjectInfo,
   ProjectSummary,
   PropertyDefinition,
+  ReportPdfVersion,
 } from '../api/types';
 import { useAsync } from '../app/useAsync';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { Spinner } from '../components/Spinner';
+import { WriteBanner } from '../components/WriteBanner';
+import { describeWriteFailure } from '../data/writeState';
+import type { WriteFailure } from '../data/writeState';
 import styles from './ExportPage.module.css';
 
 /**
- * BEK 496 "Ressourcekortlægning" export (#265, review pt 9, #458).
+ * BEK 496 "Ressourcekortlægning" export (#265, #456, #457).
  *
  * BEK 496 (Bekendtgørelse om ressourcekortlægning) is Danish building-waste
  * legislation requiring a resource survey report listing each identified
  * material with quantity, reusability class (A–D), and hazardous status.
  *
- * Implementation note: the report is rendered as a print-optimised HTML page.
- * The user clicks "Print / Save as PDF" and the browser's native print dialog
- * produces a PDF — no new npm dependency needed, and the output renders
- * correctly in every major PDF viewer. The `@media print` rules in the module
- * CSS hide the page chrome (nav, button) and lay the report out for A4 paper.
- *
- * Column mapping (#458): property columns are driven by the same
- * `PropertyDefinition[]` that power the material table (`GET /material-columns`,
- * sorted by `sort_order`). A value edited on the material page is stored under
- * `properties[col.name]` and appears here immediately. Fixed report columns
- * (Nr., Id) are structural identifiers and not material properties; they are
- * always present regardless of which user columns exist.
+ * The authoritative artefact is now the server-side Typst PDF (POST
+ * /reports/ressourcekortlaegning). The on-page HTML preview remains for
+ * quick reference; the stored versions panel lists every generated PDF with
+ * a direct download link.
  */
 export function ExportPage() {
   const summary = useAsync<ProjectSummary>((signal) => api.projectSummary(signal), []);
@@ -79,6 +75,24 @@ function formatValue(value: string | undefined, type: PropertyDefinition['type']
   }
 }
 
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatTimestamp(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString('da-DK', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 function ReportView({
   project,
   guids,
@@ -100,8 +114,36 @@ function ReportView({
     [guids.join(',')],
   );
 
-  const handlePrint = useCallback(() => {
-    window.print();
+  // Version history — reload key bumped after each successful generate.
+  const [versionsKey, setVersionsKey] = useState(0);
+  const versionsAsync = useAsync<ReportPdfVersion[]>(
+    (signal) => api.listReportVersions(signal),
+    [versionsKey],
+  );
+
+  // Generate PDF state.
+  const [generating, setGenerating] = useState(false);
+  const [generateFailure, setGenerateFailure] = useState<WriteFailure | null>(null);
+
+  const handleGenerate = useCallback(async () => {
+    setGenerating(true);
+    setGenerateFailure(null);
+    try {
+      await api.generateReport();
+      setVersionsKey((k) => k + 1);
+    } catch (err) {
+      setGenerateFailure(describeWriteFailure(err instanceof Error ? err : new Error(String(err)), 'the PDF report'));
+    } finally {
+      setGenerating(false);
+    }
+  }, []);
+
+  const handleRetryGenerate = useCallback(() => {
+    void handleGenerate();
+  }, [handleGenerate]);
+
+  const handleDismissFailure = useCallback(() => {
+    setGenerateFailure(null);
   }, []);
 
   if (definitionsAsync.error)
@@ -136,16 +178,81 @@ function ReportView({
     <div className={styles.page}>
       {/* Screen-only toolbar */}
       <div className={styles.toolbar}>
-        <p className={styles.hint}>
-          Click <strong>Print / Save as PDF</strong> to export the report. In the print dialog,
-          select "Save as PDF" as the destination, A4 paper, and portrait orientation.
-        </p>
-        <button type="button" className={styles.printButton} onClick={handlePrint}>
-          Print / Save as PDF
+        <div className={styles.toolbarLeft}>
+          <p className={styles.hint}>
+            Click <strong>Generate PDF</strong> to create a server-side PDF using Typst.
+            Previous versions remain available for download below.
+          </p>
+        </div>
+        <button
+          type="button"
+          className={styles.printButton}
+          onClick={() => void handleGenerate()}
+          disabled={generating}
+        >
+          {generating ? 'Generating…' : 'Generate PDF'}
         </button>
       </div>
 
-      {/* The report itself — the print CSS shows only this */}
+      {/* Generate failure banner */}
+      {generateFailure && (
+        <WriteBanner
+          failure={generateFailure}
+          onRetry={generateFailure.retryable ? handleRetryGenerate : undefined}
+          onDismiss={handleDismissFailure}
+        />
+      )}
+
+      {/* Version history */}
+      <section className={styles.versionsSection}>
+        <h2 className={styles.versionsHeading}>Generated PDFs</h2>
+        {versionsAsync.error ? (
+          <ErrorBanner
+            error={versionsAsync.error}
+            onRetry={versionsAsync.reload}
+            context="report versions"
+          />
+        ) : !versionsAsync.data ? (
+          <Spinner label="Loading versions…" />
+        ) : versionsAsync.data.length === 0 ? (
+          <p className={styles.versionsEmpty}>
+            No PDFs generated yet. Click <strong>Generate PDF</strong> to create the first one.
+          </p>
+        ) : (
+          <table className={styles.versionsTable}>
+            <thead>
+              <tr>
+                <th className={styles.versionsTh}>Generated</th>
+                <th className={styles.versionsTh}>Label</th>
+                <th className={styles.versionsTh}>Size</th>
+                <th className={styles.versionsTh}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {versionsAsync.data.map((v) => (
+                <tr key={v.id} className={styles.versionsTr}>
+                  <td className={styles.versionsTd}>{formatTimestamp(v.created_at)}</td>
+                  <td className={styles.versionsTd}>{v.label}</td>
+                  <td className={`${styles.versionsTd} ${styles.versionsSize}`}>
+                    {formatBytes(v.size_bytes)}
+                  </td>
+                  <td className={styles.versionsTd}>
+                    <a
+                      href={api.reportPdfUrl(v.id)}
+                      download={`ressourcekortlaegning-${v.id}.pdf`}
+                      className={styles.downloadLink}
+                    >
+                      Download
+                    </a>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
+
+      {/* On-page HTML preview — print CSS shows only this section */}
       <article className={styles.report}>
         {/* Cover page */}
         <header className={styles.cover}>

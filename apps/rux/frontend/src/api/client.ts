@@ -56,6 +56,7 @@ import type {
   ProjectInfo,
   ProjectSummary,
   PropertyDefinition,
+  ReportPdfVersion,
   StageInfo,
   TextureInfo,
   VisibleFrame,
@@ -954,6 +955,44 @@ export class RuxApiClient {
   /** Request cancellation. Idempotent; the outcome arrives as `job.finished`. */
   cancelJob(id: string, signal?: AbortSignal): Promise<Job> {
     return this.postJson<Job>(`/jobs/${encodeURIComponent(id)}/cancel`, {}, signal);
+  }
+
+  // --------------------------------------------------------- reports ----
+
+  /**
+   * Generate a Ressourcekortlægning PDF server-side and store it.
+   *
+   * Invokes `typst compile` on the server, stores the PDF in the project
+   * database, and returns the new version metadata. Writer-locked: a 409
+   * means a pipeline stage is holding the lock; a 503 means a transient
+   * busy — the `ApiRequestError` properties distinguish the two.
+   */
+  generateReport(signal?: AbortSignal): Promise<ReportPdfVersion> {
+    return this.postJson<ReportPdfVersion>('/reports/ressourcekortlaegning', {}, signal);
+  }
+
+  /**
+   * List stored Ressourcekortlægning PDF versions, newest first.
+   *
+   * Returns an empty array for a project that has never had a report generated.
+   */
+  async listReportVersions(signal?: AbortSignal): Promise<ReportPdfVersion[]> {
+    const body = await this.requestJson<{ versions: ReportPdfVersion[] }>(
+      '/reports/ressourcekortlaegning',
+      undefined,
+      signal,
+    );
+    return body.versions;
+  }
+
+  /**
+   * URL of a stored PDF, for use as an `<a href>` or in `window.open`.
+   *
+   * Returns a URL string so the browser downloads the raw PDF bytes directly
+   * without routing them through JS.
+   */
+  reportPdfUrl(id: number): string {
+    return this.url(`/reports/ressourcekortlaegning/${id}`);
   }
 
   // -------------------------------------------------------- websocket ----

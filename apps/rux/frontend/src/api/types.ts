@@ -693,6 +693,20 @@ export interface FrameSegmentResult {
   labels: Record<string, string>;
 }
 
+// --------------------------------------------------------------- reports ----
+
+/** `ReportPdfVersion` — metadata for one stored Ressourcekortlægning PDF. */
+export interface ReportPdfVersion {
+  /** Stable numeric id; use in `GET /reports/ressourcekortlaegning/{id}`. */
+  id: number;
+  /** ISO 8601 UTC timestamp when the PDF was generated. */
+  created_at: string;
+  /** Human-readable label stored with the PDF. */
+  label: string;
+  /** Size of the PDF blob in bytes. */
+  size_bytes: number;
+}
+
 // ------------------------------------------------------------- websocket ----
 // docs/gui/websocket-events.md + docs/gui/events.schema.json.
 

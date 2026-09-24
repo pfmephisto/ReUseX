@@ -15,8 +15,11 @@
 // The contract these functions implement is docs/gui/openapi.yaml. Any change
 // here that alters a response shape is a change to that document too.
 
+#include "FrameSegmenter.hpp"
+
 #include <reusex/pipeline/JobRunner.hpp>
 #include <reusex/pipeline/stages.hpp>
+#include <reusex/vision/sam3_prompt.hpp>
 
 #include <nlohmann/json.hpp>
 #include <opencv2/core.hpp>
@@ -314,6 +317,66 @@ nlohmann::json frames_visibility_json(const reusex::ProjectDB &db,
 ///        rather than for measurement).
 ImageResponse frame_image(const reusex::ProjectDB &db, int id,
                           const Params &params);
+
+// --- Segment request parsing + execution (#467) ----------------------------
+
+/// Parsed and validated body of POST /frames/<id>/segment.
+struct SegmentFrameRequest {
+  std::string model_path;
+  float confidence = 0.5f;
+  bool save = true;
+  /// Whether to use CUDA/TensorRT inference. Defaults to the server-wide
+  /// value; overridable per-request via the `use_cuda` body field.
+  bool use_cuda = true;
+  std::vector<reusex::vision::Sam3Prompt> prompts;
+};
+
+/// Parse and validate the body of POST /frames/<id>/segment.
+///
+/// @param server_cuda_default  Server-wide use_cuda default; used when the
+///        request body omits the `use_cuda` field.
+/// @throws HttpError(400) on missing/empty model_path, bad JSON, or invalid
+///         prompt/box format.
+SegmentFrameRequest parse_segment_frame_request(std::string_view body,
+                                                bool server_cuda_default);
+
+/// Parsed and validated body of POST /panoramas/<id>/segment.
+struct SegmentPanoramaRequest {
+  std::string model_path;
+  float confidence = 0.5f;
+  bool save = true;
+  bool use_cuda = true;
+  int n_yaw = 8;
+  double fov_deg = 90.0;
+  std::vector<reusex::vision::Sam3Prompt> prompts;
+};
+
+/// Parse and validate the body of POST /panoramas/<id>/segment.
+///
+/// @param server_cuda_default  Server-wide use_cuda default.
+/// @throws HttpError(400) on missing/empty model_path, bad JSON, or invalid
+///         prompt format.
+SegmentPanoramaRequest parse_segment_panorama_request(std::string_view body,
+                                                      bool server_cuda_default);
+
+/// Load a frame image, run SAM3 inference, and optionally save back.
+///
+/// Unit-testable helper (single ProjectDB connection, no Crow write lock).
+/// Server.cpp uses parse_segment_frame_request() + its own locking instead.
+///
+/// @throws HttpError(503) if segmenter is nullptr.
+/// @throws HttpError(404) if frame not found or has no colour image.
+nlohmann::json execute_segment_frame(reusex::ProjectDB &db, int frame_id,
+                                     const SegmentFrameRequest &req,
+                                     IFrameSegmenter *segmenter);
+
+/// Load a panorama image, run SAM3 inference, and optionally save back.
+///
+/// @throws HttpError(503) if segmenter is nullptr.
+/// @throws HttpError(404) if panorama not found.
+nlohmann::json execute_segment_panorama(reusex::ProjectDB &db, int pano_id,
+                                        const SegmentPanoramaRequest &req,
+                                        IPanoramaSegmenter *segmenter);
 
 /// Build the JSON response body for POST /frames/<id>/segment (#409).
 ///

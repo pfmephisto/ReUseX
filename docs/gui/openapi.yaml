@@ -1040,6 +1040,13 @@ paths:
                   description: |
                     Write the label map back to the project so
                     `GET /frames/{id}/image?kind=segmentation` serves it.
+                use_cuda:
+                  type: boolean
+                  description: |
+                    Use CUDA/TensorRT inference. Absent ⟹ inherit the
+                    server-wide default (set with `--segment-cuda` /
+                    `--no-segment-cuda`). Pass `false` on a CPU-only host to
+                    route inference through the ONNX CPU backend (#467).
       responses:
         "200":
           description: Segmentation result.
@@ -1248,6 +1255,13 @@ paths:
                   description: |
                     Write the equirect label map back to the project so
                     `has_panorama_segmentation` is true for this panorama.
+                use_cuda:
+                  type: boolean
+                  description: |
+                    Use CUDA/TensorRT inference. Absent ⟹ inherit the
+                    server-wide default (set with `--segment-cuda` /
+                    `--no-segment-cuda`). Pass `false` on a CPU-only host to
+                    route inference through the ONNX CPU backend (#467).
       responses:
         "200":
           description: Segmentation result.

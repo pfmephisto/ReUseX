@@ -679,6 +679,12 @@ export interface FrameSegmentRequest {
   confidence?: number;
   /** Write the label map back to the project. Default true. */
   save?: boolean;
+  /**
+   * Use CUDA/TensorRT inference. Absent ⟹ server-wide default
+   * (`--segment-cuda` / `--no-segment-cuda`). Pass `false` on CPU-only
+   * hosts to route inference through the ONNX CPU backend (#467).
+   */
+  use_cuda?: boolean;
 }
 
 /** Response of `POST /frames/{id}/segment`. */
@@ -725,6 +731,12 @@ export interface PanoramaSegmentRequest {
   fov_deg?: number;
   /** Write the equirect label map back to the project. Default true. */
   save?: boolean;
+  /**
+   * Use CUDA/TensorRT inference. Absent ⟹ server-wide default
+   * (`--segment-cuda` / `--no-segment-cuda`). Pass `false` on CPU-only
+   * hosts to route inference through the ONNX CPU backend (#467).
+   */
+  use_cuda?: boolean;
 }
 
 /** Response of `POST /panoramas/{id}/segment`. */

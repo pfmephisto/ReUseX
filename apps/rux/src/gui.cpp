@@ -29,29 +29,49 @@
 namespace {
 
 /// Concrete SAM3 segmenter registered with the GUI server by the rux app layer
-/// (#409). Lives in rux_lib (which links the full reusex umbrella including
-/// reusex_vision) so the GUI library itself stays free of libtorch/TensorRT.
+/// (#409, #467). Lives in rux_lib (which links the full reusex umbrella
+/// including reusex_vision) so the GUI library itself stays free of
+/// libtorch/TensorRT.
 ///
-/// Thread safety: model is created on first call and cached by path. A mutex
-/// ensures only one inference runs at a time (SAM3 engines are not re-entrant).
+/// Thread safety: model is created on first call and cached by (path,
+/// use_cuda). A mutex ensures only one inference runs at a time (SAM3 engines
+/// are not re-entrant).
 class DefaultFrameSegmenter : public rux::gui::IFrameSegmenter {
     public:
   rux::gui::SegmentFrameResult
   segment(const cv::Mat &image_bgr,
           const std::vector<reusex::vision::Sam3Prompt> &prompts,
-          float confidence, const std::string &model_path) override {
+          float confidence, const std::string &model_path,
+          bool use_cuda) override {
     std::lock_guard<std::mutex> lock(mutex_);
 
-    // Reload when the model path changes (supports runtime model switching).
-    if (!model_ || model_path != current_path_) {
-      spdlog::info("GUI segmenter: loading SAM3 model from {}", model_path);
+    // Reload when the model path or cuda preference changes.
+    if (!model_ || model_path != current_path_ || use_cuda != current_cuda_) {
+      spdlog::info("GUI segmenter: loading SAM3 model from {} (cuda={})",
+                   model_path, use_cuda);
       try {
-        model_ = reusex::vision::create_model_from_path(model_path,
-                                                        /*use_cuda=*/true);
+        model_ = reusex::vision::create_model_from_path(model_path, use_cuda);
         current_path_ = model_path;
+        current_cuda_ = use_cuda;
       } catch (const std::exception &e) {
-        throw std::runtime_error(std::string("failed to load SAM3 model: ") +
-                                 e.what());
+        if (use_cuda) {
+          // Graceful CPU fallback: if CUDA loading fails, try ONNX/CPU (#467).
+          spdlog::warn("GUI segmenter: CUDA model load failed ({}); retrying "
+                       "on CPU",
+                       e.what());
+          try {
+            model_ = reusex::vision::create_model_from_path(model_path,
+                                                            /*use_cuda=*/false);
+            current_path_ = model_path;
+            current_cuda_ = false;
+          } catch (const std::exception &e2) {
+            throw std::runtime_error(
+                std::string("failed to load SAM3 model: ") + e2.what());
+          }
+        } else {
+          throw std::runtime_error(std::string("failed to load SAM3 model: ") +
+                                   e.what());
+        }
       }
     }
 
@@ -70,32 +90,48 @@ class DefaultFrameSegmenter : public rux::gui::IFrameSegmenter {
   std::mutex mutex_;
   std::unique_ptr<reusex::vision::IModel> model_;
   std::string current_path_;
+  bool current_cuda_ = false;
 };
 
-/// Concrete panorama segmenter registered with the GUI server (#448).
+/// Concrete panorama segmenter registered with the GUI server (#448, #467).
 ///
-/// Reuses the same model cache as DefaultFrameSegmenter (both are kept alive
-/// for the server's lifetime and share nothing else). A mutex ensures only one
-/// SAM3 inference runs at a time.
+/// Reuses the same model-cache approach as DefaultFrameSegmenter. A mutex
+/// ensures only one SAM3 inference runs at a time.
 class DefaultPanoramaSegmenter : public rux::gui::IPanoramaSegmenter {
     public:
   rux::gui::SegmentPanoramaResult
   segment(const cv::Mat &equirect_bgr,
           const std::vector<reusex::vision::Sam3Prompt> &prompts,
           float confidence, int n_yaw, double fov_deg,
-          const std::string &model_path) override {
+          const std::string &model_path, bool use_cuda) override {
     std::lock_guard<std::mutex> lock(mutex_);
 
-    if (!model_ || model_path != current_path_) {
-      spdlog::info("GUI panorama segmenter: loading SAM3 model from {}",
-                   model_path);
+    if (!model_ || model_path != current_path_ || use_cuda != current_cuda_) {
+      spdlog::info(
+          "GUI panorama segmenter: loading SAM3 model from {} (cuda={})",
+          model_path, use_cuda);
       try {
-        model_ = reusex::vision::create_model_from_path(model_path,
-                                                        /*use_cuda=*/true);
+        model_ = reusex::vision::create_model_from_path(model_path, use_cuda);
         current_path_ = model_path;
+        current_cuda_ = use_cuda;
       } catch (const std::exception &e) {
-        throw std::runtime_error(std::string("failed to load SAM3 model: ") +
-                                 e.what());
+        if (use_cuda) {
+          spdlog::warn("GUI panorama segmenter: CUDA model load failed ({}); "
+                       "retrying on CPU",
+                       e.what());
+          try {
+            model_ = reusex::vision::create_model_from_path(model_path,
+                                                            /*use_cuda=*/false);
+            current_path_ = model_path;
+            current_cuda_ = false;
+          } catch (const std::exception &e2) {
+            throw std::runtime_error(
+                std::string("failed to load SAM3 model: ") + e2.what());
+          }
+        } else {
+          throw std::runtime_error(std::string("failed to load SAM3 model: ") +
+                                   e.what());
+        }
       }
     }
 
@@ -122,6 +158,7 @@ class DefaultPanoramaSegmenter : public rux::gui::IPanoramaSegmenter {
   std::mutex mutex_;
   std::unique_ptr<reusex::vision::IModel> model_;
   std::string current_path_;
+  bool current_cuda_ = false;
 };
 
 // ---------------------------------------------------------------------------
@@ -285,6 +322,12 @@ NOTES:
 
   sub->add_flag("--no-browser", opt->no_browser,
                 "Do not open a browser on startup");
+
+  sub->add_flag(
+      "--segment-cuda,!--no-segment-cuda", opt->server.segment_cuda,
+      "Use CUDA/TensorRT for the segment endpoints (default: on). Pass "
+      "--no-segment-cuda on hosts without a GPU to route inference through "
+      "the ONNX CPU backend instead");
 
   sub->callback([opt, global_opt]() {
     rux::finish(run_subcommand_gui(*opt, *global_opt));

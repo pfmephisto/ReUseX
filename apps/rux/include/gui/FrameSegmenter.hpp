@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // Injectable segmenter interfaces for interactive SAM3 segmentation (#409,
-// #448).
+// #448, #467).
 //
 // LAYERING: rux_gui_lib must not link reusex_vision (libtorch / TensorRT would
 // follow, bloating the light test binary). These interfaces let the HTTP
@@ -48,11 +48,14 @@ class IFrameSegmenter {
   /// @param prompts    SAM3 prompts. Empty ⟹ model default list.
   /// @param confidence Detection confidence threshold [0,1].
   /// @param model_path Filesystem path to the SAM3 model (TRT dir or .onnx).
+  /// @param use_cuda   True to request CUDA/TensorRT inference; false forces
+  ///                   the CPU/ONNX path. The implementation may fall back to
+  ///                   CPU if CUDA loading fails (#467).
   /// @return Segmentation result with a CV_32S label map.
   virtual SegmentFrameResult
   segment(const cv::Mat &image_bgr,
           const std::vector<reusex::vision::Sam3Prompt> &prompts,
-          float confidence, const std::string &model_path) = 0;
+          float confidence, const std::string &model_path, bool use_cuda) = 0;
 };
 
 // ---------------------------------------------------------------------------
@@ -87,12 +90,15 @@ class IPanoramaSegmenter {
   /// 8).
   /// @param fov_deg       Per-tile horizontal FOV in degrees (default 90.0).
   /// @param model_path    Filesystem path to the SAM3 model.
+  /// @param use_cuda      True to request CUDA/TensorRT inference; false forces
+  ///                      the CPU/ONNX path. Falls back to CPU on CUDA error
+  ///                      (#467).
   /// @return Segmentation result with a CV_32S equirect label map.
   virtual SegmentPanoramaResult
   segment(const cv::Mat &equirect_bgr,
           const std::vector<reusex::vision::Sam3Prompt> &prompts,
           float confidence, int n_yaw, double fov_deg,
-          const std::string &model_path) = 0;
+          const std::string &model_path, bool use_cuda) = 0;
 };
 
 } // namespace rux::gui

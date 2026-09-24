@@ -725,8 +725,10 @@ class Server::Impl {
       });
     });
 
-    // POST /api/v1/frames/<id>/segment — interactive SAM3 segmentation (#409).
-    // The segmenter is injected by the rux app layer; returns 503 if absent.
+    // POST /api/v1/frames/<id>/segment — interactive SAM3 segmentation (#409,
+    // #467). The segmenter is injected by the rux app layer; returns 503 if
+    // absent. use_cuda defaults to ServerOptions::segment_cuda; can be
+    // overridden per-request via the body.
     app_.route_dynamic(std::string(kApiPrefix) + "/frames/<int>/segment")
         .methods(
             crow::HTTPMethod::POST)([this](const crow::request &req, int id) {
@@ -736,48 +738,9 @@ class Server::Impl {
                                          "server via 'rux gui' and ensure a "
                                          "model is available");
 
-            // Parse request body.
-            auto body = nlohmann::json::parse(req.body, nullptr, false);
-            if (body.is_discarded())
-              throw HttpError(400, "request body must be valid JSON");
-
-            const std::string model_path = body.value("model_path", "");
-            if (model_path.empty())
-              throw HttpError(400, "'model_path' is required");
-
-            const float confidence = body.value("confidence", 0.5f);
-            const bool save = body.value("save", true);
-
-            // Parse prompts array: [{text, boxes?}]
-            std::vector<reusex::vision::Sam3Prompt> prompts;
-            if (body.contains("prompts") && body["prompts"].is_array()) {
-              for (const auto &p : body["prompts"]) {
-                const std::string text = p.value("text", "");
-                if (text.empty())
-                  throw HttpError(400,
-                                  "each prompt must have a non-empty 'text'");
-
-                std::vector<reusex::vision::SegmentBox> boxes;
-                if (p.contains("boxes") && p["boxes"].is_array()) {
-                  for (const auto &b : p["boxes"]) {
-                    if (!b.is_array() || b.size() != 2)
-                      throw HttpError(
-                          400, "each box must be [label, [x1,y1,x2,y2]]");
-                    const std::string lbl = b[0].get<std::string>();
-                    if (lbl != "pos" && lbl != "neg")
-                      throw HttpError(400, "box label must be 'pos' or 'neg'");
-                    if (!b[1].is_array() || b[1].size() != 4)
-                      throw HttpError(400, "box coords must be [x1,y1,x2,y2]");
-                    std::array<float, 4> coords{
-                        b[1][0].get<float>(), b[1][1].get<float>(),
-                        b[1][2].get<float>(), b[1][3].get<float>()};
-                    boxes.emplace_back(lbl, coords);
-                  }
-                }
-                const float per_conf = p.value("confidence", -1.0f);
-                prompts.emplace_back(text, std::move(boxes), per_conf);
-              }
-            }
+            // Parse and validate the request body.
+            const auto seg_req =
+                parse_segment_frame_request(req.body, options_.segment_cuda);
 
             // Load frame image (brief read-only DB connection).
             cv::Mat image;
@@ -800,11 +763,12 @@ class Server::Impl {
 
             // Run inference (outside any DB connection — may take seconds).
             const auto result =
-                segmenter_->segment(image, prompts, confidence, model_path);
+                segmenter_->segment(image, seg_req.prompts, seg_req.confidence,
+                                    seg_req.model_path, seg_req.use_cuda);
 
             // Optionally persist the mask (uses write lock to exclude jobs).
             bool saved = false;
-            if (save && !result.label_map.empty()) {
+            if (seg_req.save && !result.label_map.empty()) {
               auto write_res =
                   with_write([&](reusex::ProjectDB &wdb) -> crow::response {
                     wdb.save_segmentation_image(id, result.label_map);
@@ -844,8 +808,8 @@ class Server::Impl {
         });
 
     // POST /api/v1/panoramas/<id>/segment — interactive SAM3 segmentation on
-    // 360 panoramas (#448). Mirrors POST /frames/<id>/segment but tiles the
-    // equirect through segment_panorama() rather than segment_image().
+    // 360 panoramas (#448, #467). Mirrors POST /frames/<id>/segment but tiles
+    // the equirect through segment_panorama() rather than segment_image().
     app_.route_dynamic(std::string(kApiPrefix) + "/panoramas/<int>/segment")
         .methods(
             crow::HTTPMethod::POST)([this](const crow::request &req, int id) {
@@ -855,32 +819,8 @@ class Server::Impl {
                   503, "no SAM3 panorama segmenter registered; start the "
                        "server via 'rux gui' and ensure a model is available");
 
-            auto body = nlohmann::json::parse(req.body, nullptr, false);
-            if (body.is_discarded())
-              throw HttpError(400, "request body must be valid JSON");
-
-            const std::string model_path = body.value("model_path", "");
-            if (model_path.empty())
-              throw HttpError(400, "'model_path' is required");
-
-            const float confidence = body.value("confidence", 0.5f);
-            const int n_yaw = body.value("n_yaw", 8);
-            const double fov_deg = body.value("fov_deg", 90.0);
-            const bool save = body.value("save", true);
-
-            // Text-only prompts (no box coordinates in equirect space for v1).
-            std::vector<reusex::vision::Sam3Prompt> prompts;
-            if (body.contains("prompts") && body["prompts"].is_array()) {
-              for (const auto &p : body["prompts"]) {
-                const std::string text = p.value("text", "");
-                if (text.empty())
-                  throw HttpError(400,
-                                  "each prompt must have a non-empty 'text'");
-                const float per_conf = p.value("confidence", -1.0f);
-                prompts.emplace_back(
-                    text, std::vector<reusex::vision::SegmentBox>{}, per_conf);
-              }
-            }
+            const auto seg_req =
+                parse_segment_panorama_request(req.body, options_.segment_cuda);
 
             // Load panorama image (brief read-only connection).
             cv::Mat image;
@@ -900,11 +840,12 @@ class Server::Impl {
 
             // Run inference outside any DB connection — may take seconds.
             const auto result = panorama_segmenter_->segment(
-                image, prompts, confidence, n_yaw, fov_deg, model_path);
+                image, seg_req.prompts, seg_req.confidence, seg_req.n_yaw,
+                seg_req.fov_deg, seg_req.model_path, seg_req.use_cuda);
 
             // Optionally persist the label map.
             bool saved = false;
-            if (save && !result.label_map.empty()) {
+            if (seg_req.save && !result.label_map.empty()) {
               auto write_res =
                   with_write([&](reusex::ProjectDB &wdb) -> crow::response {
                     wdb.save_panorama_segmentation(id, result.label_map);

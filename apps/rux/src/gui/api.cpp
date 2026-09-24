@@ -1523,6 +1523,146 @@ ImageResponse frame_image(const reusex::ProjectDB &db, int id,
 }
 
 // ===========================================================================
+// segment request parsing + execution (#467)
+// ===========================================================================
+
+namespace {
+
+/// Parse the shared prompt array from a segment request body.
+std::vector<reusex::vision::Sam3Prompt> parse_prompts(const json &body,
+                                                      bool allow_boxes) {
+  std::vector<reusex::vision::Sam3Prompt> prompts;
+  if (!body.contains("prompts") || !body["prompts"].is_array())
+    return prompts;
+
+  for (const auto &p : body["prompts"]) {
+    const std::string text = p.value("text", "");
+    if (text.empty())
+      throw HttpError(400, "each prompt must have a non-empty 'text'");
+
+    std::vector<reusex::vision::SegmentBox> boxes;
+    if (allow_boxes && p.contains("boxes") && p["boxes"].is_array()) {
+      for (const auto &b : p["boxes"]) {
+        if (!b.is_array() || b.size() != 2)
+          throw HttpError(400, "each box must be [label, [x1,y1,x2,y2]]");
+        const std::string lbl = b[0].get<std::string>();
+        if (lbl != "pos" && lbl != "neg")
+          throw HttpError(400, "box label must be 'pos' or 'neg'");
+        if (!b[1].is_array() || b[1].size() != 4)
+          throw HttpError(400, "box coords must be [x1,y1,x2,y2]");
+        std::array<float, 4> coords{b[1][0].get<float>(), b[1][1].get<float>(),
+                                    b[1][2].get<float>(), b[1][3].get<float>()};
+        boxes.emplace_back(lbl, coords);
+      }
+    }
+    const float per_conf = p.value("confidence", -1.0f);
+    prompts.emplace_back(text, std::move(boxes), per_conf);
+  }
+  return prompts;
+}
+
+} // namespace
+
+SegmentFrameRequest parse_segment_frame_request(std::string_view body,
+                                                bool server_cuda_default) {
+  auto j = json::parse(body, nullptr, /*allow_exceptions=*/false);
+  if (j.is_discarded())
+    throw HttpError(400, "request body must be valid JSON");
+
+  SegmentFrameRequest req;
+  req.model_path = j.value("model_path", "");
+  if (req.model_path.empty())
+    throw HttpError(400, "'model_path' is required");
+
+  req.confidence = j.value("confidence", 0.5f);
+  req.save = j.value("save", true);
+  req.use_cuda = j.contains("use_cuda") && j["use_cuda"].is_boolean()
+                     ? j["use_cuda"].get<bool>()
+                     : server_cuda_default;
+  req.prompts = parse_prompts(j, /*allow_boxes=*/true);
+  return req;
+}
+
+SegmentPanoramaRequest
+parse_segment_panorama_request(std::string_view body,
+                               bool server_cuda_default) {
+  auto j = json::parse(body, nullptr, /*allow_exceptions=*/false);
+  if (j.is_discarded())
+    throw HttpError(400, "request body must be valid JSON");
+
+  SegmentPanoramaRequest req;
+  req.model_path = j.value("model_path", "");
+  if (req.model_path.empty())
+    throw HttpError(400, "'model_path' is required");
+
+  req.confidence = j.value("confidence", 0.5f);
+  req.save = j.value("save", true);
+  req.use_cuda = j.contains("use_cuda") && j["use_cuda"].is_boolean()
+                     ? j["use_cuda"].get<bool>()
+                     : server_cuda_default;
+  req.n_yaw = j.value("n_yaw", 8);
+  req.fov_deg = j.value("fov_deg", 90.0);
+  req.prompts = parse_prompts(j, /*allow_boxes=*/false);
+  return req;
+}
+
+nlohmann::json execute_segment_frame(reusex::ProjectDB &db, int frame_id,
+                                     const SegmentFrameRequest &req,
+                                     IFrameSegmenter *segmenter) {
+  if (!segmenter)
+    throw HttpError(503, "no SAM3 model registered; start the server via "
+                         "'rux gui' and ensure a model is available");
+
+  if (!db.has_sensor_frame(frame_id))
+    throw HttpError(404,
+                    "sensor frame " + std::to_string(frame_id) + " not found");
+
+  cv::Mat image = db.sensor_frame_image(frame_id);
+  if (image.empty())
+    throw HttpError(404, "frame " + std::to_string(frame_id) +
+                             " has no color image");
+
+  const auto result = segmenter->segment(image, req.prompts, req.confidence,
+                                         req.model_path, req.use_cuda);
+
+  bool saved = false;
+  if (req.save && !result.label_map.empty()) {
+    db.save_segmentation_image(frame_id, result.label_map);
+    saved = true;
+  }
+
+  return segment_frame_result_json(frame_id, result.label_map,
+                                   result.class_names, saved);
+}
+
+nlohmann::json execute_segment_panorama(reusex::ProjectDB &db, int pano_id,
+                                        const SegmentPanoramaRequest &req,
+                                        IPanoramaSegmenter *segmenter) {
+  if (!segmenter)
+    throw HttpError(503,
+                    "no SAM3 panorama segmenter registered; start the "
+                    "server via 'rux gui' and ensure a model is available");
+
+  cv::Mat image = db.panoramic_image(pano_id);
+  if (image.empty())
+    throw HttpError(404, "panorama " + std::to_string(pano_id) +
+                             " not found or has no image");
+
+  const auto result =
+      segmenter->segment(image, req.prompts, req.confidence, req.n_yaw,
+                         req.fov_deg, req.model_path, req.use_cuda);
+
+  bool saved = false;
+  if (req.save && !result.label_map.empty()) {
+    db.save_panorama_segmentation(pano_id, result.label_map);
+    saved = true;
+  }
+
+  return segment_panorama_result_json(pano_id, result.label_map,
+                                      result.class_names, saved);
+}
+
+// ===========================================================================
 // frame segmentation (#409)
 // ===========================================================================
 

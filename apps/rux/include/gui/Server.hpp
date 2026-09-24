@@ -72,6 +72,11 @@ struct ServerOptions {
   /// binary). Leave empty to use the default executor (clouds/planes/rooms/
   /// instances/mesh only).
   reusex::pipeline::StageExecutor stage_executor;
+
+  /// Server-wide default for CUDA inference on the segment endpoints (#467).
+  /// Overridable per-request via the `use_cuda` body field.
+  /// Set to false with `--no-segment-cuda` when no GPU is present.
+  bool segment_cuda = true;
 };
 
 /// Crow-backed implementation of the GUI API contract.

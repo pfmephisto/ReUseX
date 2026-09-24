@@ -7,11 +7,13 @@
 #include "gui/api.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
+#include <reusex/core/report_generator.hpp>
 
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <charconv>
+#include <cstdint>
 #include <map>
 #include <optional>
 #include <string>
@@ -217,6 +219,24 @@ json patch_project(reusex::ProjectDB &db, const std::string &id,
               {"survey_date", metadata.survey_date},
               {"survey_organisation", metadata.survey_organisation},
               {"notes", metadata.notes}};
+}
+
+// ===========================================================================
+// report PDFs (schema v20, #456)
+// ===========================================================================
+
+json generate_report_pdf_json(reusex::ProjectDB &db) {
+  std::vector<std::uint8_t> pdf;
+  try {
+    pdf = reusex::generate_ressourcekortlaegning_pdf(db);
+  } catch (const std::exception &e) {
+    throw HttpError(500, std::string("PDF generation failed: ") + e.what());
+  }
+  const auto rec = db.add_report_pdf(pdf, "Ressourcekortlægning");
+  return json{{"id", rec.id},
+              {"created_at", rec.created_at},
+              {"label", rec.label},
+              {"size_bytes", rec.size_bytes}};
 }
 
 } // namespace rux::gui

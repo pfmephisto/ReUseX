@@ -534,4 +534,13 @@ std::optional<nlohmann::json> handle_ws_message(
 bool event_matches_subscription(const reusex::pipeline::JobEvent &event,
                                 const std::optional<std::string> &subscription);
 
+// --- report PDFs (schema v20, #456) -----------------------------------
+
+/// All stored report PDF versions, newest first (metadata only).
+nlohmann::json list_report_pdfs_json(const reusex::ProjectDB &db);
+
+/// One stored PDF blob as a Blob response.
+/// @throws HttpError(404) when @p id has no stored PDF.
+Blob report_pdf_blob(const reusex::ProjectDB &db, int id);
+
 } // namespace rux::gui

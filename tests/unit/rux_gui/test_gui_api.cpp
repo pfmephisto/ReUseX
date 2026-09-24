@@ -161,6 +161,9 @@ TEST_CASE("EndpointTable_DocumentedRoutes_MatchesContract", "[gui][routes]") {
       "GET /api/v1/jobs/<string>",
       "POST /api/v1/jobs/<string>/cancel",
       "GET /api/v1/events",
+      "GET /api/v1/reports/ressourcekortlaegning",
+      "POST /api/v1/reports/ressourcekortlaegning",
+      "GET /api/v1/reports/ressourcekortlaegning/<int>",
   };
 
   std::set<std::string> actual;

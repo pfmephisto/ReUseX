@@ -688,6 +688,12 @@ const std::vector<Endpoint> &endpoint_table() {
       {"DELETE", "/api/v1/posegraph/edges/<int>/<int>",
        "Delete a pose-graph edge (by from/to node ids)"},
       {"POST", "/api/v1/posegraph/edges", "Add a manual pose-graph edge"},
+      {"GET", "/api/v1/reports/ressourcekortlaegning",
+       "List stored Ressourcekortlægning PDF versions"},
+      {"POST", "/api/v1/reports/ressourcekortlaegning",
+       "Generate a Ressourcekortlægning PDF and store it"},
+      {"GET", "/api/v1/reports/ressourcekortlaegning/<int>",
+       "Fetch a stored Ressourcekortlægning PDF by version id", true},
   };
   return table;
 }
@@ -2349,6 +2355,31 @@ bool event_matches_subscription(
     const pipeline::JobEvent &event,
     const std::optional<std::string> &subscription) {
   return !subscription.has_value() || *subscription == event.job.id;
+}
+
+// ===========================================================================
+// report PDFs (schema v20, #456)
+// ===========================================================================
+
+json list_report_pdfs_json(const reusex::ProjectDB &db) {
+  const auto recs = db.list_report_pdfs();
+  json arr = json::array();
+  for (const auto &r : recs)
+    arr.push_back({{"id", r.id},
+                   {"created_at", r.created_at},
+                   {"label", r.label},
+                   {"size_bytes", r.size_bytes}});
+  return json{{"versions", std::move(arr)}};
+}
+
+Blob report_pdf_blob(const reusex::ProjectDB &db, int id) {
+  const auto pdf = db.report_pdf(static_cast<int64_t>(id));
+  if (!pdf.has_value())
+    throw HttpError(404, "report version not found: " + std::to_string(id));
+  Blob blob;
+  blob.content_type = "application/pdf";
+  blob.data = *pdf;
+  return blob;
 }
 
 } // namespace rux::gui

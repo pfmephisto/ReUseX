@@ -81,4 +81,14 @@ nlohmann::json patch_material(reusex::ProjectDB &db, const std::string &guid,
 nlohmann::json patch_project(reusex::ProjectDB &db, const std::string &id,
                              const std::string &body);
 
+/// Generate a Ressourcekortlægning PDF, store it in the project, and return
+/// the new version metadata JSON.
+///
+/// Delegates generation to reusex::generate_ressourcekortlaegning_pdf()
+/// (requires `typst` in PATH). The resulting bytes are persisted in the
+/// report_pdfs table (schema v20) via ProjectDB::add_report_pdf().
+///
+/// @throws HttpError(500) if typst is not available or compilation fails.
+nlohmann::json generate_report_pdf_json(reusex::ProjectDB &db);
+
 } // namespace rux::gui

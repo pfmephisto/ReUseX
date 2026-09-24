@@ -1045,6 +1045,26 @@ class Server::Impl {
           });
         });
 
+    // ---- report PDFs (#456) ----
+    app_.route_dynamic("/api/v1/reports/ressourcekortlaegning")
+        .methods(crow::HTTPMethod::GET,
+                 crow::HTTPMethod::POST)([this](const crow::request &req) {
+          if (req.method == crow::HTTPMethod::GET)
+            return with_db([](const reusex::ProjectDB &db) {
+              return json_response(200, list_report_pdfs_json(db));
+            });
+          return with_write([](reusex::ProjectDB &db) {
+            return json_response(201, generate_report_pdf_json(db));
+          });
+        });
+
+    app_.route_dynamic("/api/v1/reports/ressourcekortlaegning/<int>")
+        .methods(crow::HTTPMethod::GET)([this](const crow::request &, int id) {
+          return with_db([&](const reusex::ProjectDB &db) {
+            return blob_response(report_pdf_blob(db, id));
+          });
+        });
+
     register_websocket();
     register_static();
   }

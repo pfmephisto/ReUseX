@@ -22,7 +22,9 @@ namespace reusex::io {
 /// cached for subsequent calls — construction is ~10 ms at 5888×2944.
 ///
 /// Lens model: equidistant fisheye, ~200° FoV, no polynomial distortion
-/// correction (a=b=c=0 in the reference .pto), cosine-weighted blend at seam.
+/// correction (a=b=c=0 in the reference .pto). Gain compensation aligns
+/// brightness between hemispheres; a multi-band (Laplacian-pyramid) blend
+/// hides the seam.
 ///
 /// @param dual_fisheye  BGR (or BGRA/grey) cv::Mat with dual-fisheye pixels.
 /// @returns             Equirectangular BGR cv::Mat; width == 2×height.

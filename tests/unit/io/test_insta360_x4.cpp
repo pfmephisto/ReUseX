@@ -229,6 +229,48 @@ TEST_CASE("StitchX4_BackLensWhiteFrontBlack_BackRegionBright",
   CHECK(bright_count > 0);
 }
 
+// ─── stitch_insta360_x4: seam continuity ─────────────────────────────────────
+
+TEST_CASE("StitchX4_UniformInput_SeamContinuousInCoveredBand",
+          "[io][insta360]") {
+  // With a completely uniform input, neither the multi-band blender nor the
+  // gain compensator should introduce a visible step at the lens seam.
+  // Strategy: collect pixel luminance in the equatorial band (where both lenses
+  // cover and the seam lies) and verify std-dev is small.
+  const int w = kRefW / 8, h = kRefH / 8;
+  const cv::Mat dual(h, w, CV_8UC3, cv::Scalar(128, 128, 128));
+  const cv::Mat result = stitch_insta360_x4(dual);
+
+  const int mid_v = result.rows / 2;
+  const int band = result.rows / 6; // ±1/6 height around equator
+
+  double sum = 0.0, sum_sq = 0.0;
+  int count = 0;
+  for (int v = mid_v - band; v <= mid_v + band; ++v) {
+    for (int u = 0; u < result.cols; ++u) {
+      const auto px = result.at<cv::Vec3b>(v, u);
+      if (px == cv::Vec3b(0, 0, 0))
+        continue; // uncovered gap — skip
+      const double lum = (px[0] + px[1] + px[2]) / 3.0;
+      sum += lum;
+      sum_sq += lum * lum;
+      ++count;
+    }
+  }
+
+  REQUIRE(count > 100);
+  const double mean = sum / count;
+  const double variance = sum_sq / count - mean * mean;
+  const double std_dev = std::sqrt(std::max(0.0, variance));
+
+  // Bilinear remap + pyramid rounding on a flat-colour input should produce
+  // essentially zero variance; allow up to 8 counts for rounding headroom.
+  CHECK(std_dev < 8.0);
+  // Mean should stay close to the input grey (128).
+  CHECK(mean > 80.0);
+  CHECK(mean < 175.0);
+}
+
 // ─── import_panoramas: .insp discovery and stitching ─────────────────────────
 
 TEST_CASE("ImportPanoramas_InspFile_IsStitchedAndImported",

@@ -143,7 +143,7 @@ set(ENABLED_ML_BACKENDS ${ENABLED_ML_BACKENDS} PARENT_SCOPE)
 # -----------------------------------------------
 # Computer Vision & Point Cloud Processing
 # -----------------------------------------------
-find_package(OpenCV REQUIRED COMPONENTS core imgproc highgui)
+find_package(OpenCV REQUIRED COMPONENTS core imgproc highgui stitching)
 find_package(RTABMap REQUIRED)
 find_package(PCL REQUIRED)
 

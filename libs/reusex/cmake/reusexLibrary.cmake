@@ -306,8 +306,9 @@ target_link_libraries(reusex_io PUBLIC reusex_core)
 # dependency, documented in docs/STANDARDS.md §1 ([target]) and export_scene.hpp.
 target_link_libraries(reusex_io PUBLIC reusex_geometry_common reusex_reconstruction)
 # opencv_imgcodecs: cv::imread / cv::imencode for .insp dual-fisheye stitching (#461).
+# opencv_stitching: MultiBandBlender + ExposureCompensator for seam blend (#468).
 # PRIVATE: not part of any public header; opencv_core/imgproc arrive via reusex_common.
-target_link_libraries(reusex_io PRIVATE opencv_imgcodecs)
+target_link_libraries(reusex_io PRIVATE opencv_imgcodecs opencv_stitching)
 
 reusex_add_module(reusex_vision ${REUSEX_VISION_SOURCES})
 target_link_libraries(reusex_vision PUBLIC reusex_core)

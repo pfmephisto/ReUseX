@@ -8,6 +8,8 @@
 
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
+#include <opencv2/stitching/detail/blenders.hpp>
+#include <opencv2/stitching/detail/exposure_compensate.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -15,6 +17,7 @@
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace reusex::io {
 
@@ -255,33 +258,57 @@ cv::Mat stitch_insta360_x4(const cv::Mat &dual_fisheye) {
   cv::remap(src, img_back, maps.back.map_x, maps.back.map_y, cv::INTER_LINEAR,
             cv::BORDER_CONSTANT, cv::Scalar(0, 0, 0));
 
-  // Cosine-weighted blend: w ∝ cz_cam (peaks at optical axis, zero at edge)
-  cv::Mat front_f, back_f;
-  img_front.convertTo(front_f, CV_32FC3);
-  img_back.convertTo(back_f, CV_32FC3);
+  const int out_w = maps.out_w;
+  const int out_h = maps.out_h;
 
-  cv::Mat wf3, wb3;
+  // Build binary coverage masks (CV_8U, 255 where weight > 0).
+  cv::Mat mask_front_thresh, mask_back_thresh;
+  cv::threshold(maps.front.weight, mask_front_thresh, 0.0, 255.0,
+                cv::THRESH_BINARY);
+  cv::threshold(maps.back.weight, mask_back_thresh, 0.0, 255.0,
+                cv::THRESH_BINARY);
+  cv::Mat mask_front, mask_back;
+  mask_front_thresh.convertTo(mask_front, CV_8U);
+  mask_back_thresh.convertTo(mask_back, CV_8U);
+
+  // Gain compensation: align mean brightness between hemispheres so that
+  // exposure differences don't create a visible step at the seam.
   {
-    const cv::Mat ch[3] = {maps.front.weight, maps.front.weight,
-                           maps.front.weight};
-    cv::merge(ch, 3, wf3);
-  }
-  {
-    const cv::Mat ch[3] = {maps.back.weight, maps.back.weight,
-                           maps.back.weight};
-    cv::merge(ch, 3, wb3);
+    cv::UMat ufront, uback, umf, umb;
+    img_front.copyTo(ufront);
+    img_back.copyTo(uback);
+    mask_front.copyTo(umf);
+    mask_back.copyTo(umb);
+
+    const std::vector<cv::Point> comp_corners = {cv::Point(0, 0),
+                                                 cv::Point(0, 0)};
+    const std::vector<cv::UMat> comp_images = {ufront, uback};
+    const std::vector<cv::UMat> comp_masks = {umf, umb};
+
+    auto compensator = cv::detail::ExposureCompensator::createDefault(
+        cv::detail::ExposureCompensator::GAIN);
+    compensator->feed(comp_corners, comp_images, comp_masks);
+    compensator->apply(0, cv::Point(0, 0), img_front, mask_front);
+    compensator->apply(1, cv::Point(0, 0), img_back, mask_back);
   }
 
-  // Pixels with total weight ≈ 0 (neither lens covers them) stay black.
-  cv::Mat total = wf3 + wb3;
-  cv::Mat safe_total;
-  cv::max(total, cv::Scalar(1e-6, 1e-6, 1e-6), safe_total);
+  // Multi-band (Laplacian pyramid) blend: hides the seam by blending at
+  // multiple frequency bands rather than a simple weighted average.
+  // MultiBandBlender expects CV_16SC3 input.
+  cv::Mat front16, back16;
+  img_front.convertTo(front16, CV_16SC3);
+  img_back.convertTo(back16, CV_16SC3);
 
-  cv::Mat blend_f;
-  cv::divide(front_f.mul(wf3) + back_f.mul(wb3), safe_total, blend_f);
+  cv::detail::MultiBandBlender blender(/*try_gpu=*/false, /*num_bands=*/5);
+  blender.prepare(cv::Rect(0, 0, out_w, out_h));
+  blender.feed(front16, mask_front, cv::Point(0, 0));
+  blender.feed(back16, mask_back, cv::Point(0, 0));
+
+  cv::Mat result_s, result_mask;
+  blender.blend(result_s, result_mask);
 
   cv::Mat result;
-  blend_f.convertTo(result, CV_8UC3);
+  result_s.convertTo(result, CV_8UC3);
   return result;
 }
 

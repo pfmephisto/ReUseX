@@ -36,6 +36,16 @@ cv::Mat segment_image(IModel &model, const cv::Mat &image_bgr,
   }
 
   // --- TensorRT path (primary) -------------------------------------------
+  //
+  // Dispatch relies on a backend asymmetry: ONNX forward() throws when handed
+  // TensorRTData (wrong IData type); TRT forward() silently returns empty pairs
+  // on wrong input. The try/catch below catches the ONNX throw and falls
+  // through to the ONNX path. If TRT returns empty (model produced no
+  // detections), the debug log fires and we also fall through — this is
+  // benign in a dual-backend build (ONNX gets a second chance on the same
+  // image with the correct data type). Future backends must either throw or
+  // return empty for incompatible input to keep this working. (#409 follow-up:
+  // replace with explicit model-type dispatch via BackendFactory.)
 #ifdef REUSEX_USE_TENSORRT
   {
     using tensor_rt::Sam3PromptUnit;
@@ -91,6 +101,14 @@ cv::Mat segment_image(IModel &model, const cv::Mat &image_bgr,
     if (!prompts.empty()) {
       data->prompts.clear();
       for (const auto &p : prompts) {
+        // ONNXSam3Data has no per-prompt confidence field; the global threshold
+        // applies to all prompts. Log if the caller set a per-prompt override
+        // so the silent drop is discoverable.
+        if (p.confidence >= 0.0f)
+          reusex::debug("segment_image/ONNX: per-prompt confidence {:.2f} for "
+                        "'{}' is not supported by the ONNX backend; "
+                        "global threshold {:.2f} applies",
+                        p.confidence, p.text, confidence);
         Sam3PromptUnit unit(p.text);
         for (const auto &[lbl, box] : p.boxes)
           unit.boxes.emplace_back(lbl, box);

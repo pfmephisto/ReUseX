@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include "RuxOptions.hpp"
+#include "../global-params.hpp"
 
 #include <CLI/CLI.hpp>
 

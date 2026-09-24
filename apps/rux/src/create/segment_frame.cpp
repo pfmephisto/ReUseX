@@ -37,23 +37,27 @@ reusex::vision::SegmentBox parse_box(const std::string &spec) {
 
   const std::string coords = spec.substr(colon + 1);
   std::array<float, 4> box{};
-  int parsed = 0;
   std::size_t pos = 0;
-  for (int i = 0; i < 4; ++i) {
-    std::size_t end;
-    box[static_cast<std::size_t>(i)] = std::stof(coords.substr(pos), &end);
-    pos += end;
-    if (i < 3) {
-      if (pos >= coords.size() || coords[pos] != ',')
-        throw std::invalid_argument(
-            fmt::format("--box '{}': expected 4 comma-separated coords", spec));
-      ++pos;
+  try {
+    for (int i = 0; i < 4; ++i) {
+      std::size_t end;
+      box[static_cast<std::size_t>(i)] = std::stof(coords.substr(pos), &end);
+      pos += end;
+      if (i < 3) {
+        if (pos >= coords.size() || coords[pos] != ',')
+          throw std::invalid_argument(fmt::format(
+              "--box '{}': expected 4 comma-separated coords", spec));
+        ++pos;
+      }
     }
-    ++parsed;
-  }
-  if (parsed != 4)
+  } catch (const std::out_of_range &) {
     throw std::invalid_argument(
-        fmt::format("--box '{}': expected exactly 4 coordinates", spec));
+        fmt::format("--box '{}': coordinate out of float range", spec));
+  }
+  // Reject trailing garbage after the 4th coordinate.
+  if (pos != coords.size())
+    throw std::invalid_argument(
+        fmt::format("--box '{}': unexpected trailing characters", spec));
 
   return {label, box};
 }
@@ -114,8 +118,8 @@ NOTES:
   sub->add_flag("-c,--cuda", opt->use_cuda, "Use CUDA for inference")
       ->default_val(opt->use_cuda);
 
-  sub->add_flag("--no-save", "Skip writing the mask back to the project")
-      ->default_function([opt]() { opt->save = false; });
+  sub->add_flag("!--no-save", opt->save,
+                "Skip writing the mask to the project (default: save)");
 
   sub->callback([opt, global_opt]() {
     rux::finish(run_subcommand_create_segment_frame(*opt, *global_opt));

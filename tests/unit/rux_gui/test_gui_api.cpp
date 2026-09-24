@@ -30,6 +30,7 @@
 #include <iostream>
 #include <map>
 #include <set>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <unistd.h>
@@ -157,6 +158,7 @@ TEST_CASE("EndpointTable_DocumentedRoutes_MatchesContract", "[gui][routes]") {
       "GET /api/v1/posegraph",
       "DELETE /api/v1/posegraph/edges/<int>/<int>",
       "POST /api/v1/posegraph/edges",
+      "POST /api/v1/posegraph/icp",
       "GET /api/v1/jobs",
       "POST /api/v1/jobs",
       "GET /api/v1/jobs/<string>",
@@ -1788,6 +1790,98 @@ TEST_CASE("AddPoseGraphEdge_NoTable_Is409", "[gui][posegraph][editor]") {
   } catch (const HttpError &e) {
     CHECK(e.status() == 409);
   }
+}
+
+// ===========================================================================
+// POST /posegraph/icp — refine_posegraph_icp (#465)
+// ===========================================================================
+
+TEST_CASE("RefinePoseGraphIcp_NullFn_Is503", "[gui][posegraph][icp]") {
+  const TempPath project("gui_icp_503");
+  reusex::ProjectDB db(project.path, /*readOnly=*/false);
+
+  try {
+    refine_posegraph_icp(db, nullptr, R"({"from":1,"to":2})");
+    FAIL("expected HttpError(503)");
+  } catch (const HttpError &e) {
+    CHECK(e.status() == 503);
+  }
+}
+
+TEST_CASE("RefinePoseGraphIcp_MissingFrom_Is400", "[gui][posegraph][icp]") {
+  const TempPath project("gui_icp_400a");
+  reusex::ProjectDB db(project.path, /*readOnly=*/false);
+  IcpRefineFn fn = [](const reusex::ProjectDB &, int, int) {
+    return IcpRefineResult{};
+  };
+
+  try {
+    refine_posegraph_icp(db, fn, R"({"to":2})");
+    FAIL("expected HttpError(400)");
+  } catch (const HttpError &e) {
+    CHECK(e.status() == 400);
+  }
+}
+
+TEST_CASE("RefinePoseGraphIcp_SameFrameId_Is400", "[gui][posegraph][icp]") {
+  const TempPath project("gui_icp_400b");
+  reusex::ProjectDB db(project.path, /*readOnly=*/false);
+  IcpRefineFn fn = [](const reusex::ProjectDB &, int, int) {
+    return IcpRefineResult{};
+  };
+
+  try {
+    refine_posegraph_icp(db, fn, R"({"from":5,"to":5})");
+    FAIL("expected HttpError(400)");
+  } catch (const HttpError &e) {
+    CHECK(e.status() == 400);
+  }
+}
+
+TEST_CASE("RefinePoseGraphIcp_FnThrows_Is422", "[gui][posegraph][icp]") {
+  const TempPath project("gui_icp_422");
+  reusex::ProjectDB db(project.path, /*readOnly=*/false);
+  IcpRefineFn fn = [](const reusex::ProjectDB &, int, int) -> IcpRefineResult {
+    throw std::runtime_error("frame 1 has no stored depth image");
+  };
+
+  try {
+    refine_posegraph_icp(db, fn, R"({"from":1,"to":2})");
+    FAIL("expected HttpError(422)");
+  } catch (const HttpError &e) {
+    CHECK(e.status() == 422);
+    CHECK(std::string(e.what()).find("no stored depth") != std::string::npos);
+  }
+}
+
+TEST_CASE("RefinePoseGraphIcp_StubFn_ReturnsFullResult",
+          "[gui][posegraph][icp]") {
+  const TempPath project("gui_icp_ok");
+  reusex::ProjectDB db(project.path, /*readOnly=*/false);
+
+  IcpRefineResult expected;
+  expected.relative_pose = {1, 0, 0, -0.15, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+  expected.fitness = 0.012;
+  expected.inlier_fraction = 0.85;
+  expected.converged = true;
+
+  IcpRefineFn fn = [&expected](const reusex::ProjectDB &, int, int) {
+    return expected;
+  };
+
+  const auto body = refine_posegraph_icp(db, fn, R"({"from":1,"to":2})");
+
+  CHECK(body.at("from") == 1);
+  CHECK(body.at("to") == 2);
+  CHECK(body.at("fitness").get<double>() == Catch::Approx(0.012).epsilon(1e-9));
+  CHECK(body.at("inlier_fraction").get<double>() ==
+        Catch::Approx(0.85).epsilon(1e-9));
+  CHECK(body.at("converged") == true);
+
+  const auto rel = body.at("relative_pose");
+  REQUIRE(rel.size() == 16);
+  CHECK(rel[3].get<double>() == Catch::Approx(-0.15).epsilon(1e-9));
+  CHECK(rel[0].get<double>() == Catch::Approx(1.0).epsilon(1e-9));
 }
 
 // ===========================================================================

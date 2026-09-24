@@ -2116,6 +2116,83 @@ paths:
           description: A pipeline job is running; edits are refused.
         default: { $ref: "#/components/responses/UnexpectedError" }
 
+  /posegraph/icp:
+    post:
+      tags: [slam]
+      operationId: refinePoseGraphIcp
+      summary: ICP-refine the relative pose between two depth frames
+      description: |
+        Back-projects the depth images of `from` and `to` into world-space
+        point clouds (4-pixel stride, 0.3–4 m range), then runs point-to-point
+        ICP (max 50 iterations, 0.5 m correspondence window) seeded by the
+        stored world poses.
+
+        Returns the refined relative pose **T_to⁻¹ @ T_delta @ T_from** (a
+        row-major 4×4 matrix that maps a point from the `from` camera frame
+        into the `to` camera frame), the RMS correspondence fitness after ICP,
+        the fraction of source points that landed within 5 cm of the target,
+        and whether ICP converged.
+
+        Use the fitness and inlier fraction to decide an appropriate `weight`
+        before calling `POST /posegraph/edges`.
+
+        **Requires depth and a stored pose on both frames.** Returns 422 when
+        either frame lacks depth or a stored world pose. Returns 503 when the
+        server was not built with the ICP backend (CPU-only minimal builds).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [from, to]
+              properties:
+                from:
+                  type: integer
+                  description: from_node_id (sensor frame id)
+                to:
+                  type: integer
+                  description: to_node_id (sensor frame id; must differ from from)
+      responses:
+        "200":
+          description: ICP result
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [from, to, relative_pose, fitness, inlier_fraction, converged]
+                properties:
+                  from: { type: integer }
+                  to: { type: integer }
+                  relative_pose:
+                    type: array
+                    items: { type: number }
+                    minItems: 16
+                    maxItems: 16
+                    description: >-
+                      Row-major 4×4 relative pose T_to⁻¹ @ T_delta @ T_from.
+                      Maps a point from the "from" camera frame into the "to"
+                      camera frame.
+                  fitness:
+                    type: number
+                    description: RMS correspondence error after ICP (metres).
+                  inlier_fraction:
+                    type: number
+                    description: >-
+                      Fraction of source points with a nearest-neighbour in the
+                      target within 5 cm after alignment. 1.0 = perfect overlap.
+                  converged:
+                    type: boolean
+                    description: True when ICP reached its convergence criterion.
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "422":
+          description: >-
+            One or both frames lack a stored depth image or world pose; ICP
+            cannot be run.
+        "503":
+          description: ICP backend not available in this build.
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
   # --------------------------------------------------------------- reports ----
   /reports/ressourcekortlaegning:
     get:

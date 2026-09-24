@@ -1002,6 +1002,15 @@ class Server::Impl {
           });
         });
 
+    app_.route_dynamic("/api/v1/posegraph/icp")
+        .methods(crow::HTTPMethod::POST)([this](const crow::request &req) {
+          return with_db([&](const reusex::ProjectDB &db) {
+            return json_response(
+                200,
+                refine_posegraph_icp(db, options_.icp_refine_fn, req.body));
+          });
+        });
+
     // ---- pipeline ----
     get("/api/v1/stages")([this](const crow::request &) {
       return with_db([](const reusex::ProjectDB &db) {

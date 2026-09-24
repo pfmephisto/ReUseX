@@ -14,7 +14,7 @@
 import { useState, useCallback } from 'react';
 import { api } from '../api/client';
 import { useJobs } from '../app/JobsContext';
-import type { PoseGraphEdgeType } from '../api/types';
+import type { IcpRefineResult, PoseGraphEdgeType } from '../api/types';
 import type { SelectedEdge } from '../viewport/PoseGraphScene';
 import styles from './PoseGraphEdgeInspector.module.css';
 
@@ -234,6 +234,33 @@ function AddEdgeForm({ defaultFrom, defaultTo, onAdded, onCancel }: AddEdgeFormP
   const [weight, setWeight] = useState('1.0');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [refining, setRefining] = useState(false);
+  const [icpResult, setIcpResult] = useState<IcpRefineResult | null>(null);
+  const [icpError, setIcpError] = useState<string | null>(null);
+
+  const handleIcpRefine = useCallback(async () => {
+    const fromId = parseInt(from, 10);
+    const toId = parseInt(to, 10);
+    if (isNaN(fromId) || isNaN(toId)) {
+      setIcpError('Enter valid integer Frame IDs before refining.');
+      return;
+    }
+    if (fromId === toId) {
+      setIcpError("'From' and 'To' must be different frames.");
+      return;
+    }
+    setRefining(true);
+    setIcpError(null);
+    setIcpResult(null);
+    try {
+      const result = await api.refinePoseGraphIcp({ from: fromId, to: toId });
+      setIcpResult(result);
+    } catch (err) {
+      setIcpError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRefining(false);
+    }
+  }, [from, to]);
 
   const handleSubmit = useCallback(async () => {
     const fromId = parseInt(from, 10);
@@ -270,7 +297,7 @@ function AddEdgeForm({ defaultFrom, defaultTo, onAdded, onCancel }: AddEdgeFormP
           className={`${styles.addInput} mono`}
           value={from}
           placeholder="Frame ID"
-          onChange={(e) => setFrom(e.target.value)}
+          onChange={(e) => { setFrom(e.target.value); setIcpResult(null); }}
         />
       </div>
       <div className={styles.fieldRow}>
@@ -282,7 +309,7 @@ function AddEdgeForm({ defaultFrom, defaultTo, onAdded, onCancel }: AddEdgeFormP
           className={`${styles.addInput} mono`}
           value={to}
           placeholder="Frame ID"
-          onChange={(e) => setTo(e.target.value)}
+          onChange={(e) => { setTo(e.target.value); setIcpResult(null); }}
         />
       </div>
       <div className={styles.fieldRow}>
@@ -309,6 +336,14 @@ function AddEdgeForm({ defaultFrom, defaultTo, onAdded, onCancel }: AddEdgeFormP
           onChange={(e) => setWeight(e.target.value)}
         />
       </div>
+
+      <IcpRefineSection
+        refining={refining}
+        result={icpResult}
+        error={icpError}
+        onRefine={handleIcpRefine}
+      />
+
       {error && <p className={styles.error}>{error}</p>}
       <div className={styles.formActions}>
         <button
@@ -323,6 +358,54 @@ function AddEdgeForm({ defaultFrom, defaultTo, onAdded, onCancel }: AddEdgeFormP
           Cancel
         </button>
       </div>
+    </div>
+  );
+}
+
+// -------------------------------------------------------------------------- //
+
+interface IcpRefineSectionProps {
+  refining: boolean;
+  result: IcpRefineResult | null;
+  error: string | null;
+  onRefine: () => void;
+}
+
+function IcpRefineSection({ refining, result, error, onRefine }: IcpRefineSectionProps) {
+  return (
+    <div className={styles.icpSection}>
+      <button
+        type="button"
+        className={styles.icpBtn}
+        onClick={onRefine}
+        disabled={refining}
+        title="Run point-cloud ICP to estimate the relative pose and fitness before adding the edge"
+      >
+        {refining ? 'Refining…' : 'ICP refine'}
+      </button>
+      {error && <p className={styles.error}>{error}</p>}
+      {result && (
+        <div className={styles.icpResult}>
+          <div className={styles.fieldRow}>
+            <span className={styles.fieldKey}>Fitness</span>
+            <span className={`${styles.fieldVal} mono`}>
+              {(result.fitness * 100).toFixed(1)} cm RMS
+            </span>
+          </div>
+          <div className={styles.fieldRow}>
+            <span className={styles.fieldKey}>Inliers</span>
+            <span className={`${styles.fieldVal} mono`}>
+              {(result.inlier_fraction * 100).toFixed(0)} %
+            </span>
+          </div>
+          <div className={styles.fieldRow}>
+            <span className={styles.fieldKey}>Converged</span>
+            <span className={`${styles.fieldVal} mono`}>
+              {result.converged ? 'yes' : 'no'}
+            </span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

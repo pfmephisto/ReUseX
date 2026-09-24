@@ -543,6 +543,51 @@ describe('deletePoseGraphEdge', () => {
   });
 });
 
+describe('refinePoseGraphIcp (#465)', () => {
+  const ICP_RESULT = {
+    from: 1,
+    to: 2,
+    relative_pose: [1, 0, 0, -0.15, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+    fitness: 0.012,
+    inlier_fraction: 0.85,
+    converged: true,
+  };
+
+  it('POSTs to /posegraph/icp with JSON body and returns the ICP result', async () => {
+    const { api, calls } = clientFor(ICP_RESULT);
+    const result = await api.refinePoseGraphIcp({ from: 1, to: 2 });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe('/api/v1/posegraph/icp');
+    expect(calls[0].method).toBe('POST');
+    expect(calls[0].headers?.['Content-Type']).toBe('application/json');
+    expect(JSON.parse(calls[0].body ?? '')).toEqual({ from: 1, to: 2 });
+    expect(result.fitness).toBe(0.012);
+    expect(result.inlier_fraction).toBe(0.85);
+    expect(result.converged).toBe(true);
+    expect(result.relative_pose).toHaveLength(16);
+  });
+
+  it('throws ApiRequestError on 422 (frame has no depth)', async () => {
+    const { api } = clientFor(
+      { error: 'ICP refine failed: frame 1 has no stored depth image' },
+      { status: 422 },
+    );
+    await expect(api.refinePoseGraphIcp({ from: 1, to: 2 })).rejects.toBeInstanceOf(
+      ApiRequestError,
+    );
+  });
+
+  it('throws ApiRequestError on 503 (ICP not available)', async () => {
+    const { api } = clientFor(
+      { error: 'ICP refine not available: not compiled in this build' },
+      { status: 503, statusText: 'Service Unavailable' },
+    );
+    await expect(api.refinePoseGraphIcp({ from: 1, to: 2 })).rejects.toBeInstanceOf(
+      ApiRequestError,
+    );
+  });
+});
+
 describe('segmentPanorama (#448)', () => {
   const PANO_SEGMENT_RESULT = {
     pano_id: 5,

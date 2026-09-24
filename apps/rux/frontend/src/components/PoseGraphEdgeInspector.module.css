@@ -265,3 +265,43 @@
   font-size: var(--font-size-sm);
   cursor: pointer;
 }
+
+/* ICP refine section inside the add-edge form */
+.icpSection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-top: var(--space-1);
+  border-top: 1px solid var(--color-border);
+}
+
+.icpBtn {
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-surface-raised);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  align-self: flex-start;
+}
+
+.icpBtn:hover:not(:disabled) {
+  color: var(--color-text);
+  border-color: var(--color-border-strong);
+}
+
+.icpBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.icpResult {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-surface-sunken);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+}

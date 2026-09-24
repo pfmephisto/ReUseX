@@ -696,6 +696,8 @@ const std::vector<Endpoint> &endpoint_table() {
       {"DELETE", "/api/v1/posegraph/edges/<int>/<int>",
        "Delete a pose-graph edge (by from/to node ids)"},
       {"POST", "/api/v1/posegraph/edges", "Add a manual pose-graph edge"},
+      {"POST", "/api/v1/posegraph/icp",
+       "ICP-refine the relative pose between two depth frames"},
       {"GET", "/api/v1/reports/ressourcekortlaegning",
        "List stored Ressourcekortlægning PDF versions"},
       {"POST", "/api/v1/reports/ressourcekortlaegning",
@@ -2350,6 +2352,45 @@ json add_posegraph_edge(reusex::ProjectDB &db, const std::string &body) {
            {"residual", 0.0},
            {"weight", weight}};
   return out;
+}
+
+json refine_posegraph_icp(const reusex::ProjectDB &db,
+                          const IcpRefineFn &refine_fn,
+                          const std::string &body) {
+  if (!refine_fn)
+    throw HttpError(503,
+                    "ICP refine not available: not compiled in this build");
+
+  auto parsed = json::parse(body, nullptr, /*allow_exceptions=*/false);
+  if (parsed.is_discarded() || !parsed.is_object())
+    throw HttpError(400, "request body must be a JSON object");
+
+  auto from_it = parsed.find("from");
+  if (from_it == parsed.end() || !from_it->is_number_integer())
+    throw HttpError(400, "'from' is required and must be an integer");
+  auto to_it = parsed.find("to");
+  if (to_it == parsed.end() || !to_it->is_number_integer())
+    throw HttpError(400, "'to' is required and must be an integer");
+
+  const int from = from_it->get<int>();
+  const int to = to_it->get<int>();
+
+  if (from == to)
+    throw HttpError(400, "'from' and 'to' must identify different frame ids");
+
+  IcpRefineResult result;
+  try {
+    result = refine_fn(db, from, to);
+  } catch (const std::exception &e) {
+    throw HttpError(422, std::string("ICP refine failed: ") + e.what());
+  }
+
+  return json{{"from", from},
+              {"to", to},
+              {"relative_pose", result.relative_pose},
+              {"fitness", result.fitness},
+              {"inlier_fraction", result.inlier_fraction},
+              {"converged", result.converged}};
 }
 
 // ===========================================================================

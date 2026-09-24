@@ -553,6 +553,31 @@ export interface PoseGraphEdgeDeleteResult {
   type: PoseGraphEdgeType | null;
 }
 
+/** Body of `POST /api/v1/posegraph/icp` (#465). */
+export interface IcpRefineRequest {
+  from: number;
+  to: number;
+}
+
+/**
+ * Response of `POST /api/v1/posegraph/icp` (#465).
+ *
+ * `relative_pose` is a 16-element row-major 4×4 matrix T_to⁻¹ @ T_delta @ T_from
+ * (maps a point from the "from" camera frame into the "to" camera frame).
+ */
+export interface IcpRefineResult {
+  from: number;
+  to: number;
+  /** Row-major 4×4 relative pose (16 elements). */
+  relative_pose: number[];
+  /** RMS correspondence error after ICP (metres). Low = good alignment. */
+  fitness: number;
+  /** Fraction of source points within 5 cm of target after alignment. */
+  inlier_fraction: number;
+  /** True when ICP reached its convergence criterion. */
+  converged: boolean;
+}
+
 // ------------------------------------------------- frame visibility (#453) ----
 
 /**

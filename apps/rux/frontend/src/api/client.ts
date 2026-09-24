@@ -51,6 +51,8 @@ import type {
   PanoramaSegmentRequest,
   PanoramaSegmentResult,
   PipelineLogEntry,
+  IcpRefineRequest,
+  IcpRefineResult,
   PoseGraph,
   PoseGraphEdge,
   PoseGraphEdgeCreate,
@@ -560,6 +562,23 @@ export class RuxApiClient {
       throw new ApiRequestError(response.status, await describeFailure(response), url);
     }
     return (await response.json()) as PoseGraphEdgeDeleteResult;
+  }
+
+  /**
+   * ICP-refine the relative pose between two depth frames (#465).
+   *
+   * Runs point-to-point ICP between the depth clouds of `from` and `to`.
+   * Returns the refined relative pose, RMS fitness (metres), inlier fraction,
+   * and whether ICP converged.
+   *
+   * Returns 422 when a frame has no depth or pose; 503 when ICP is not
+   * available in this build.
+   */
+  refinePoseGraphIcp(
+    req: IcpRefineRequest,
+    signal?: AbortSignal,
+  ): Promise<IcpRefineResult> {
+    return this.postJson<IcpRefineResult>('/posegraph/icp', req, signal);
   }
 
   // ----------------------------------------------------------- frames ----

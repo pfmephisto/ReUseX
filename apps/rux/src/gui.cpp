@@ -6,6 +6,7 @@
 #include "exit_status.hpp"
 #include "gui/FrameSegmenter.hpp"
 #include "gui/Server.hpp"
+#include "gui_icp.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/pipeline/stages.hpp>
@@ -344,6 +345,9 @@ int run_subcommand_gui(SubcommandGuiOptions const &opt,
     // reusex_slam, so the executor that calls optimize_sensor_poses() lives
     // here in rux_lib and is injected rather than compiled into rux_gui_lib.
     server_options.stage_executor = make_gui_stage_executor();
+    // Wire the ICP refine callback (#465): rux_gui_lib must not link PCL
+    // directly, so the implementation lives here in rux_lib and is injected.
+    server_options.icp_refine_fn = rux::make_icp_refine_fn();
 
     rux::gui::Server server(std::move(server_options));
 

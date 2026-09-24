@@ -547,6 +547,36 @@ nlohmann::json delete_posegraph_edge(reusex::ProjectDB &db, int from, int to,
 nlohmann::json add_posegraph_edge(reusex::ProjectDB &db,
                                   const std::string &body);
 
+/// Result of an ICP-based relative-pose refinement between two sensor frames.
+struct IcpRefineResult {
+  /// Row-major 4×4 relative pose: T_to^{-1} @ T_icp_delta @ T_from.
+  /// Maps a point from the "from" camera frame into the "to" camera frame.
+  std::array<double, 16> relative_pose{1, 0, 0, 0, 0, 1, 0, 0,
+                                       0, 0, 1, 0, 0, 0, 0, 1};
+  double fitness = 0.0;         ///< RMS correspondence error after ICP (m).
+  double inlier_fraction = 0.0; ///< Fraction of src pts within 5 cm of tgt.
+  bool converged = false;
+};
+
+/// Injected by the app layer to run depth-based pairwise ICP (#465).
+///
+/// Defined here (in the framework-free contract header) so Server.hpp and
+/// api.cpp can reference the type without pulling PCL into rux_gui_lib.
+using IcpRefineFn =
+    std::function<IcpRefineResult(const reusex::ProjectDB &, int from, int to)>;
+
+/// Run ICP between the depth clouds of two stored sensor frames (#465).
+///
+/// Body: `{"from": int, "to": int}`. Returns the relative pose between the
+/// two frames as refined by depth-cloud ICP, along with fitness metrics.
+///
+/// @throws HttpError(503) when @p refine_fn is empty (ICP not compiled in).
+/// @throws HttpError(422) when a frame has no stored depth or pose.
+/// @throws HttpError(400) on a malformed body or same from/to ids.
+nlohmann::json refine_posegraph_icp(const reusex::ProjectDB &db,
+                                    const IcpRefineFn &refine_fn,
+                                    const std::string &body);
+
 // --- jobs -----------------------------------------------------------------
 
 /// @param project  Name of the project the job belongs to. Present on every

@@ -14,6 +14,7 @@
 // reaches the rest of the app or the tests. The handler logic itself lives in
 // gui/api.hpp, which is framework-free.
 
+#include <gui/api.hpp>
 #include <reusex/pipeline/stages.hpp>
 
 #include <cstdint>
@@ -77,6 +78,14 @@ struct ServerOptions {
   /// Overridable per-request via the `use_cuda` body field.
   /// Set to false with `--no-segment-cuda` when no GPU is present.
   bool segment_cuda = true;
+
+  /// ICP refine callback injected by the app layer (#465).
+  ///
+  /// When set, POST /api/v1/posegraph/icp runs depth-based ICP between two
+  /// stored sensor frames to estimate their relative pose. rux_gui_lib must not
+  /// link PCL directly, so the implementation lives in rux_lib and is injected
+  /// here. Leave empty to have the endpoint return HTTP 503.
+  rux::gui::IcpRefineFn icp_refine_fn;
 };
 
 /// Crow-backed implementation of the GUI API contract.

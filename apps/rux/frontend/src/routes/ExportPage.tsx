@@ -2,10 +2,11 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 
 import { api } from '../api/client';
 import type {
+  ExportTemplate,
   MaterialDetail,
   ProjectInfo,
   ProjectSummary,
@@ -16,6 +17,12 @@ import { useAsync } from '../app/useAsync';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { Spinner } from '../components/Spinner';
 import { WriteBanner } from '../components/WriteBanner';
+import {
+  configToSelection,
+  selectionToConfig,
+  selectionToQueryParam,
+  STRUCTURAL_COLUMNS,
+} from '../data/csvExport';
 import { describeWriteFailure } from '../data/writeState';
 import type { WriteFailure } from '../data/writeState';
 import styles from './ExportPage.module.css';
@@ -165,6 +172,8 @@ function ReportView({
   if (!definitionsAsync.data || !detailsAsync.data)
     return <Spinner label="Loading passports…" />;
 
+  const definitions = definitionsAsync.data;
+
   // Sort by sort_order — the same order the material table uses.
   const columns = [...definitionsAsync.data].sort((a, b) => a.sort_order - b.sort_order);
 
@@ -251,6 +260,9 @@ function ReportView({
           </table>
         )}
       </section>
+
+      {/* CSV Export section */}
+      <CsvExportSection definitions={definitions} />
 
       {/* On-page HTML preview — print CSS shows only this section */}
       <article className={styles.report}>
@@ -346,5 +358,356 @@ function ReportView({
         </section>
       </article>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// CsvExportSection — column selection, named templates, and download.
+// ---------------------------------------------------------------------------
+
+const GROUP_LABELS: Record<string, string> = {
+  common: 'Common',
+  component: 'Component fields',
+  passport: 'Passport metadata',
+  property: 'Material properties',
+};
+
+function CsvExportSection({ definitions }: { definitions: PropertyDefinition[] }) {
+  // All available columns: structural (from server source) + user-defined.
+  const allColumns = useMemo(() => {
+    const propertyColumns = definitions.map((def) => ({
+      key: def.name,
+      label: def.name,
+      group: 'property' as const,
+    }));
+    return [...STRUCTURAL_COLUMNS, ...propertyColumns];
+  }, [definitions]);
+
+  const allKeys = useMemo(() => allColumns.map((c) => c.key), [allColumns]);
+
+  // Column selection state — defaults to all columns selected.
+  const [selected, setSelected] = useState<Set<string>>(() => new Set(allKeys));
+
+  // Active template id — tracks which saved template matches the current selection.
+  const [activeTemplateId, setActiveTemplateId] = useState<number | null>(null);
+
+  // Template list — refetched when a template is created/updated/deleted.
+  const [templatesKey, setTemplatesKey] = useState(0);
+  const templatesAsync = useAsync<ExportTemplate[]>(
+    (signal) => api.listExportTemplates(signal),
+    [templatesKey],
+  );
+
+  // "Save as new" input state.
+  const [saveName, setSaveName] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Per-template rename state: maps template id to the in-progress name string.
+  const [renaming, setRenaming] = useState<Record<number, string>>({});
+
+  const toggle = useCallback(
+    (key: string) => {
+      setSelected((prev) => {
+        const next = new Set(prev);
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
+        return next;
+      });
+      setActiveTemplateId(null);
+    },
+    [],
+  );
+
+  const selectAll = useCallback(() => {
+    setSelected(new Set(allKeys));
+    setActiveTemplateId(null);
+  }, [allKeys]);
+
+  const selectNone = useCallback(() => {
+    setSelected(new Set());
+    setActiveTemplateId(null);
+  }, []);
+
+  const applyTemplate = useCallback(
+    (template: ExportTemplate) => {
+      setSelected(configToSelection(template.config, allKeys));
+      setActiveTemplateId(template.id);
+    },
+    [allKeys],
+  );
+
+  const saveAsNew = useCallback(async () => {
+    const name = saveName.trim();
+    if (!name) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const config = selectionToConfig(selected, allKeys);
+      const created = await api.createExportTemplate(name, config);
+      setActiveTemplateId(created.id);
+      setSaveName('');
+      setTemplatesKey((k) => k + 1);
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
+  }, [saveName, selected, allKeys]);
+
+  const updateActiveTemplate = useCallback(async () => {
+    if (activeTemplateId === null) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const config = selectionToConfig(selected, allKeys);
+      await api.updateExportTemplate(activeTemplateId, { config });
+      setTemplatesKey((k) => k + 1);
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
+  }, [activeTemplateId, selected, allKeys]);
+
+  const commitRename = useCallback(
+    async (id: number) => {
+      const name = renaming[id]?.trim();
+      if (!name) {
+        setRenaming((prev) => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+        return;
+      }
+      try {
+        await api.updateExportTemplate(id, { name });
+        setTemplatesKey((k) => k + 1);
+      } catch (err) {
+        setSaveError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setRenaming((prev) => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+      }
+    },
+    [renaming],
+  );
+
+  const deleteTemplate = useCallback(
+    async (id: number) => {
+      setSaveError(null);
+      try {
+        await api.deleteExportTemplate(id);
+        if (activeTemplateId === id) setActiveTemplateId(null);
+        setTemplatesKey((k) => k + 1);
+      } catch (err) {
+        setSaveError(err instanceof Error ? err.message : String(err));
+      }
+    },
+    [activeTemplateId],
+  );
+
+  const columnsParam = selectionToQueryParam(selected, allKeys);
+  const downloadUrl = api.csvExportUrl(columnsParam ? columnsParam.split(',') : undefined);
+
+  const templates = templatesAsync.data ?? [];
+
+  // Group structural columns by their group field.
+  const structuralGroups = useMemo(() => {
+    const map = new Map<string, typeof STRUCTURAL_COLUMNS>();
+    for (const col of STRUCTURAL_COLUMNS) {
+      const arr = map.get(col.group) ?? [];
+      arr.push(col);
+      map.set(col.group, arr);
+    }
+    return map;
+  }, []);
+
+  return (
+    <section className={styles.csvSection}>
+      <h2 className={styles.versionsHeading}>CSV Export</h2>
+
+      {/* Saved templates */}
+      {templates.length > 0 && (
+        <div className={styles.csvTemplates}>
+          <span className={styles.csvTemplateLabel}>Saved templates</span>
+          <div className={styles.csvTemplateList}>
+            {templates.map((t) => {
+              const isActive = activeTemplateId === t.id;
+              const isRenaming = t.id in renaming;
+              return (
+                <div
+                  key={t.id}
+                  className={`${styles.csvTemplateItem} ${isActive ? styles.csvTemplateItemActive : ''}`}
+                >
+                  {isRenaming ? (
+                    <input
+                      type="text"
+                      className={styles.csvTemplateRenameInput}
+                      value={renaming[t.id]}
+                      onChange={(e) =>
+                        setRenaming((prev) => ({ ...prev, [t.id]: e.target.value }))
+                      }
+                      onBlur={() => void commitRename(t.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') void commitRename(t.id);
+                        if (e.key === 'Escape')
+                          setRenaming((prev) => {
+                            const next = { ...prev };
+                            delete next[t.id];
+                            return next;
+                          });
+                      }}
+                      autoFocus
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      className={styles.csvTemplateApply}
+                      onClick={() => applyTemplate(t)}
+                      title="Apply this template"
+                    >
+                      {t.name}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className={styles.csvTemplateDelete}
+                    title="Rename"
+                    onClick={() =>
+                      setRenaming((prev) => ({ ...prev, [t.id]: t.name }))
+                    }
+                  >
+                    ✎
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.csvTemplateDelete}
+                    title={`Delete "${t.name}"`}
+                    onClick={() => void deleteTemplate(t.id)}
+                  >
+                    ×
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Column selection */}
+      <div className={styles.csvColumns}>
+        <div className={styles.csvColumnsHeader}>
+          <span className={styles.csvColumnsTitle}>
+            Columns ({selected.size} / {allKeys.length})
+          </span>
+          <div className={styles.csvColumnsActions}>
+            <button type="button" className={styles.csvActionButton} onClick={selectAll}>
+              All
+            </button>
+            <button type="button" className={styles.csvActionButton} onClick={selectNone}>
+              None
+            </button>
+          </div>
+        </div>
+        <div className={styles.csvColumnGroups}>
+          {/* Structural groups */}
+          {(['common', 'component', 'passport'] as const).map((group) => {
+            const cols = structuralGroups.get(group);
+            if (!cols?.length) return null;
+            return (
+              <div key={group} className={styles.csvColumnGroup}>
+                <span className={styles.csvColumnGroupLabel}>{GROUP_LABELS[group]}</span>
+                <div className={styles.csvColumnCheckboxes}>
+                  {cols.map((col) => (
+                    <label key={col.key} className={styles.csvColumnLabel}>
+                      <input
+                        type="checkbox"
+                        checked={selected.has(col.key)}
+                        onChange={() => toggle(col.key)}
+                      />
+                      <span>{col.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+          {/* User-defined material property columns */}
+          {definitions.length > 0 && (
+            <div className={styles.csvColumnGroup}>
+              <span className={styles.csvColumnGroupLabel}>
+                {GROUP_LABELS['property']}
+              </span>
+              <div className={styles.csvColumnCheckboxes}>
+                {definitions.map((def) => (
+                  <label key={def.id} className={styles.csvColumnLabel}>
+                    <input
+                      type="checkbox"
+                      checked={selected.has(def.name)}
+                      onChange={() => toggle(def.name)}
+                    />
+                    <span>{def.name}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Template save / update row */}
+      <div className={styles.csvSaveRow}>
+        {activeTemplateId !== null && (
+          <button
+            type="button"
+            className={styles.csvActionButtonPrimary}
+            onClick={() => void updateActiveTemplate()}
+            disabled={saving}
+          >
+            {saving ? 'Saving…' : 'Update template'}
+          </button>
+        )}
+        <input
+          type="text"
+          className={styles.csvNameInput}
+          placeholder="New template name…"
+          value={saveName}
+          onChange={(e) => setSaveName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') void saveAsNew();
+          }}
+        />
+        <button
+          type="button"
+          className={styles.csvActionButtonPrimary}
+          onClick={() => void saveAsNew()}
+          disabled={saving || !saveName.trim()}
+        >
+          {saving ? 'Saving…' : 'Save as template'}
+        </button>
+      </div>
+
+      {saveError && <p className={styles.csvError}>{saveError}</p>}
+
+      {/* Download */}
+      <div className={styles.csvDownloadRow}>
+        <a
+          href={downloadUrl}
+          download="elements.csv"
+          className={`${styles.printButton} ${selected.size === 0 ? styles.printButtonDisabled : ''}`}
+          onClick={selected.size === 0 ? (e) => e.preventDefault() : undefined}
+        >
+          Download CSV
+        </a>
+        {selected.size === 0 && (
+          <span className={styles.hint}>Select at least one column to download.</span>
+        )}
+      </div>
+    </section>
   );
 }

@@ -6,6 +6,10 @@
 #include "core/ProjectDB.hpp"
 #include "core/logging.hpp"
 #include "io/exif.hpp"
+#include "io/insta360_x4.hpp"
+
+#include <opencv2/core.hpp>
+#include <opencv2/imgcodecs.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -103,7 +107,7 @@ std::size_t import_panoramas(ProjectDB &db, const fs::path &dir,
   if (scan_dirs.empty())
     scan_dirs.push_back(dir);
 
-  // Collect JPEG candidates from scan dirs (one level deep, non-recursive).
+  // Collect JPEG and .insp candidates (one level deep, non-recursive).
   std::vector<fs::path> candidates;
   for (const auto &d : scan_dirs) {
     for (const auto &entry : fs::directory_iterator(d)) {
@@ -111,33 +115,44 @@ std::size_t import_panoramas(ProjectDB &db, const fs::path &dir,
         continue;
       auto ext = entry.path().extension().string();
       std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-      if (ext == ".jpg" || ext == ".jpeg")
+      if (ext == ".jpg" || ext == ".jpeg" || ext == ".insp")
         candidates.push_back(entry.path());
     }
   }
   std::sort(candidates.begin(), candidates.end());
 
-  // Apply equirect guard: width == 2 * height (2:1 aspect ratio).
+  // Split into equirect JPEGs and dual-fisheye .insp files.
   std::vector<fs::path> equirect;
+  std::vector<fs::path> insp_files;
   for (const auto &p : candidates) {
-    const auto [w, h] = read_jpeg_dimensions(p);
-    if (w > 0 && h > 0 && w == 2 * h) {
-      equirect.push_back(p);
+    if (is_insta360_dual_fisheye(p)) {
+      if (opts.stitch_insp)
+        insp_files.push_back(p);
+      else
+        reusex::debug(
+            "import_panoramas: skipping .insp (stitch_insp=false): {}",
+            p.filename().string());
     } else {
-      reusex::debug("import_panoramas: skipping {} — not equirect ({}x{}, "
-                    "need width==2*height)",
-                    p.filename().string(), w, h);
+      const auto [w, h] = read_jpeg_dimensions(p);
+      if (w > 0 && h > 0 && w == 2 * h) {
+        equirect.push_back(p);
+      } else {
+        reusex::debug("import_panoramas: skipping {} — not equirect ({}x{}, "
+                      "need width==2*height)",
+                      p.filename().string(), w, h);
+      }
     }
   }
 
-  if (equirect.empty()) {
-    reusex::warn("import_panoramas: no 2:1 equirect JPEGs found in {} "
+  if (equirect.empty() && insp_files.empty()) {
+    reusex::warn("import_panoramas: no panoramas found in {} "
                  "(checked {} candidate(s)); no panoramas imported",
                  dir.string(), candidates.size());
     return 0;
   }
-  reusex::info("import_panoramas: {} equirect JPEG(s) found in {}",
-               equirect.size(), dir.string());
+  reusex::info(
+      "import_panoramas: {} equirect JPEG(s) + {} .insp file(s) found in {}",
+      equirect.size(), insp_files.size(), dir.string());
 
   // Check whether any sensor frame carries a timestamp for matching.
   const auto frame_ids = db.sensor_frame_ids();
@@ -159,8 +174,52 @@ std::size_t import_panoramas(ProjectDB &db, const fs::path &dir,
   std::size_t matched = 0;
   std::size_t unlinked = 0;
 
+  // Helper: match one file to a sensor frame and return the node_id.
+  auto match_to_frame =
+      [&](const fs::path &file,
+          const std::string &label) -> std::pair<double, int> {
+    const double timestamp = reusex::io::read_exif_timestamp(file);
+    int node_id = -1;
+    if (timestamp >= 0.0 && has_timestamps) {
+      node_id = db.nearest_sensor_frame_by_timestamp(timestamp);
+      if (node_id >= 0) {
+        const double dt =
+            std::abs(timestamp - db.sensor_frame_timestamp(node_id));
+        reusex::info("import_panoramas: {} -> sensor frame {} (dt={:.1f}s)",
+                     label, node_id, dt);
+        ++matched;
+      } else {
+        reusex::warn("import_panoramas: {} — no sensor frame matched by "
+                     "timestamp; imported unlinked",
+                     label);
+        ++unlinked;
+      }
+    } else {
+      reusex::warn(
+          "import_panoramas: {} — no EXIF timestamp; imported unlinked", label);
+      ++unlinked;
+    }
+    return {timestamp, node_id};
+  };
+
+  // ── Equirect JPEGs ──────────────────────────────────────────────────────
   for (const auto &file : equirect) {
     const std::string filename = file.filename().string();
+    if (db.has_panoramic_image(filename)) {
+      reusex::debug("import_panoramas: skipping already imported: {}",
+                    filename);
+      continue;
+    }
+    auto [timestamp, node_id] = match_to_frame(file, filename);
+    const auto jpeg_data = read_file_bytes(file);
+    db.save_panoramic_image(filename, jpeg_data, timestamp, node_id);
+    ++imported;
+  }
+
+  // ── Insta360 X4 dual-fisheye .insp ─────────────────────────────────────
+  for (const auto &file : insp_files) {
+    // Store the stitched result under a .jpg name derived from the .insp stem.
+    const std::string filename = file.stem().string() + ".jpg";
 
     if (db.has_panoramic_image(filename)) {
       reusex::debug("import_panoramas: skipping already imported: {}",
@@ -168,33 +227,29 @@ std::size_t import_panoramas(ProjectDB &db, const fs::path &dir,
       continue;
     }
 
-    const double timestamp = reusex::io::read_exif_timestamp(file);
+    auto [timestamp, node_id] = match_to_frame(file, file.filename().string());
 
-    int node_id = -1;
-    if (timestamp >= 0.0 && has_timestamps) {
-      node_id = db.nearest_sensor_frame_by_timestamp(timestamp);
-      if (node_id >= 0) {
-        const double frame_ts = db.sensor_frame_timestamp(node_id);
-        const double dt = std::abs(timestamp - frame_ts);
-        reusex::info("import_panoramas: {} -> sensor frame {} (dt={:.1f}s)",
-                     filename, node_id, dt);
-        ++matched;
-      } else {
-        reusex::warn("import_panoramas: {} — no sensor frame matched by "
-                     "timestamp; imported unlinked (node_id=NULL); 'rux align "
-                     "360' will skip this panorama",
-                     filename);
-        ++unlinked;
-      }
-    } else {
-      reusex::warn("import_panoramas: {} — no EXIF timestamp; imported "
-                   "unlinked (node_id=NULL); 'rux align 360' will skip this "
-                   "panorama",
-                   filename);
-      ++unlinked;
+    // Read and stitch
+    const cv::Mat dual = cv::imread(file.string());
+    if (dual.empty()) {
+      reusex::warn("import_panoramas: cannot read .insp file: {}",
+                   file.filename().string());
+      continue;
     }
 
-    const auto jpeg_data = read_file_bytes(file);
+    cv::Mat equirect_img;
+    try {
+      equirect_img = stitch_insta360_x4(dual);
+    } catch (const std::exception &ex) {
+      reusex::warn("import_panoramas: stitch failed for {}: {}",
+                   file.filename().string(), ex.what());
+      continue;
+    }
+
+    std::vector<uint8_t> jpeg_data;
+    cv::imencode(".jpg", equirect_img, jpeg_data,
+                 {cv::IMWRITE_JPEG_QUALITY, 90});
+
     db.save_panoramic_image(filename, jpeg_data, timestamp, node_id);
     ++imported;
   }

@@ -305,6 +305,9 @@ target_link_libraries(reusex_io PUBLIC reusex_core)
 # / cgal_utils / unweld to serialize a reconstructed scene. Peer io -> geometry
 # dependency, documented in docs/STANDARDS.md §1 ([target]) and export_scene.hpp.
 target_link_libraries(reusex_io PUBLIC reusex_geometry_common reusex_reconstruction)
+# opencv_imgcodecs: cv::imread / cv::imencode for .insp dual-fisheye stitching (#461).
+# PRIVATE: not part of any public header; opencv_core/imgproc arrive via reusex_common.
+target_link_libraries(reusex_io PRIVATE opencv_imgcodecs)
 
 reusex_add_module(reusex_vision ${REUSEX_VISION_SOURCES})
 target_link_libraries(reusex_vision PUBLIC reusex_core)

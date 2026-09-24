@@ -24,6 +24,12 @@ struct ImportPanoramasOptions {
   /// directories are scanned (non-recursively). If none exist, the root
   /// directory itself is scanned one level deep as a fallback.
   std::vector<std::string> subdir_hints = {"360", "panoramas", "pano"};
+
+  /// When true (default), stitch .insp dual-fisheye files using the static
+  /// Insta360 X4 calibration (see io/insta360_x4.hpp). Set to false to skip
+  /// .insp files entirely (e.g. if stitch quality needs manual verification
+  /// before import, or for benchmarking without stitching overhead).
+  bool stitch_insp = true;
 };
 
 /// Auto-discover and import companion 360° equirect JPEGs from a capture

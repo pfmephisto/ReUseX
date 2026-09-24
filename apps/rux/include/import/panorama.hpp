@@ -14,6 +14,8 @@ namespace fs = std::filesystem;
 
 struct SubcommandImportPanoramaOptions {
   std::vector<fs::path> input_paths; // directories or individual files
+  bool no_stitch =
+      false; // --no-stitch: skip .insp stitching, import equirects only
 };
 
 void setup_subcommand_import_panorama(CLI::App &app,

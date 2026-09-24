@@ -38,12 +38,14 @@ import styles from './FrameDetail.module.css';
  */
 export interface FrameDetailProps {
   id: number;
+  /** All frame IDs in display order; used by SegmentPanel's frame-range enqueue. */
+  allFrameIds?: number[];
   onClose: () => void;
 }
 
 type DetailMode = 'info' | 'segment';
 
-export function FrameDetail({ id, onClose }: FrameDetailProps) {
+export function FrameDetail({ id, allFrameIds, onClose }: FrameDetailProps) {
   const frame = useAsync((signal) => api.frame(id, signal), [id]);
   const [mode, setMode] = useState<DetailMode>('info');
 
@@ -94,6 +96,7 @@ export function FrameDetail({ id, onClose }: FrameDetailProps) {
         <SegmentPanel
           key={id}
           frameId={id}
+          allFrameIds={allFrameIds}
           imageWidth={frame.data.intrinsics?.width}
           imageHeight={frame.data.intrinsics?.height}
           onSegmented={frame.reload}

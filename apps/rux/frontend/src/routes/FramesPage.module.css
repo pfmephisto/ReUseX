@@ -53,6 +53,30 @@
   color: var(--color-text-faint);
   /* Reserved even while loading, so the grid does not jump when it arrives. */
   min-height: var(--space-4);
+  flex: 1;
+}
+
+/* ----------------------------------------------------------- queue toggle -- */
+
+.queueToggle {
+  margin-left: auto;
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.queueToggle:hover {
+  color: var(--color-text);
+  border-color: var(--color-border-strong);
+}
+
+.queueToggleActive {
+  background: var(--color-accent-muted);
+  border-color: var(--color-accent-muted);
+  color: var(--color-text);
 }
 
 .body {

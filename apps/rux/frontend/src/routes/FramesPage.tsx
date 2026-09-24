@@ -7,11 +7,13 @@ import { useSearchParams } from 'react-router-dom';
 
 import { api } from '../api/client';
 import type { ScanGroup } from '../api/types';
+import { useLabelQueue } from '../app/LabelQueueContext';
 import { useAsync } from '../app/useAsync';
 import { EmptyState } from '../components/EmptyState';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { FrameDetail } from '../components/FrameDetail';
 import { FrameGrid } from '../components/FrameGrid';
+import { LabelQueuePanel } from '../components/LabelQueuePanel';
 import { PanoramaGrid } from '../components/PanoramaGrid';
 import { Spinner } from '../components/Spinner';
 import {
@@ -45,6 +47,8 @@ import styles from './FramesPage.module.css';
 export function FramesPage() {
   const [params, setParams] = useSearchParams();
   const filter = parseFrameFilter(params.get('filter'));
+  const { pendingCount } = useLabelQueue();
+  const [showQueue, setShowQueue] = useState(false);
 
   // Frame IDs are fetched eagerly — they are integers and cheap, and the
   // selection URL state (`?frame=`) needs them to validate on every render,
@@ -68,7 +72,10 @@ export function FramesPage() {
   );
 
   const handleSelect = useCallback(
-    (id: number) => setParam('frame', String(id)),
+    (id: number) => {
+      setParam('frame', String(id));
+      setShowQueue(false);
+    },
     [setParam],
   );
 
@@ -94,6 +101,15 @@ export function FramesPage() {
         <p className={styles.counts}>
           {frames.data ? describeFrameCounts(frames.data, filter) : ' '}
         </p>
+        <button
+          type="button"
+          className={`${styles.queueToggle} ${showQueue ? styles.queueToggleActive : ''}`}
+          aria-pressed={showQueue}
+          onClick={() => setShowQueue((v) => !v)}
+          title="Open the label library and batch annotation queue"
+        >
+          Queue{pendingCount > 0 ? ` · ${pendingCount}` : ''}
+        </button>
       </header>
 
       <div className={styles.body}>
@@ -162,9 +178,15 @@ export function FramesPage() {
           </FrameGroupSection>
         </div>
 
-        {selected !== null && (
-          <FrameDetail id={selected} onClose={() => setParam('frame', null)} />
-        )}
+        {showQueue ? (
+          <LabelQueuePanel />
+        ) : selected !== null ? (
+          <FrameDetail
+            id={selected}
+            allFrameIds={ids}
+            onClose={() => setParam('frame', null)}
+          />
+        ) : null}
       </div>
     </div>
   );

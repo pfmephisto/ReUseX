@@ -21,6 +21,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { ApiRequestError, api } from '../api/client';
 import type { FrameSegmentResult } from '../api/types';
+import { useLabelQueue } from '../app/LabelQueueContext';
+import { neighborFrameIds } from '../data/labelQueue';
 import {
   buildPrompt,
   canvasToImageBox,
@@ -44,6 +46,11 @@ interface UIPrompt {
 
 export interface SegmentPanelProps {
   frameId: number;
+  /**
+   * All frame IDs in display order, used to compute the neighbour window for
+   * "Add to queue". When absent only the current frame is enqueued.
+   */
+  allFrameIds?: number[];
   /** From FrameInfo.intrinsics — used for coordinate conversion. */
   imageWidth?: number;
   imageHeight?: number;
@@ -53,10 +60,13 @@ export interface SegmentPanelProps {
 
 export function SegmentPanel({
   frameId,
+  allFrameIds,
   imageWidth,
   imageHeight,
   onSegmented,
 }: SegmentPanelProps) {
+  const labelQueue = useLabelQueue();
+
   const [modelPath, setModelPath] = useState('');
   const [prompts, setPrompts] = useState<UIPrompt[]>([]);
   const [confidence, setConfidence] = useState(0.5);
@@ -65,6 +75,11 @@ export function SegmentPanel({
   const [result, setResult] = useState<FrameSegmentResult | null>(null);
   const [maskVersion, setMaskVersion] = useState(0);
   const [showMask, setShowMask] = useState(false);
+
+  // Enqueue state
+  const [framesBefore, setFramesBefore] = useState(0);
+  const [framesAfter, setFramesAfter] = useState(0);
+  const [enqueueMsg, setEnqueueMsg] = useState<string | null>(null);
 
   const imgRef = useRef<HTMLImageElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -206,19 +221,15 @@ export function SegmentPanel({
 
   // ------------------------------------------------------------------- run --
 
-  const handleRun = async () => {
-    if (!modelPath.trim()) {
-      setError('Model path is required.');
-      return;
-    }
-
+  // Shared prompt-building logic used by both "Run" and "Add to queue".
+  const buildApiPrompts = () => {
     const img = imgRef.current;
     const displayW = img?.clientWidth ?? 1;
     const displayH = img?.clientHeight ?? 1;
     const imgW = imageWidth ?? img?.naturalWidth ?? 1;
     const imgH = imageHeight ?? img?.naturalHeight ?? 1;
 
-    const apiPrompts = prompts
+    return prompts
       .filter((p) => p.text.trim() || p.displayBox)
       .map((p) => {
         const boxes: [number, number, number, number][] = [];
@@ -227,6 +238,30 @@ export function SegmentPanel({
         }
         return buildPrompt(p.text.trim(), boxes);
       });
+  };
+
+  const handleAddToQueue = () => {
+    if (!modelPath.trim()) {
+      setError('Model path is required.');
+      return;
+    }
+    const apiPrompts = buildApiPrompts();
+    const frameIds = allFrameIds
+      ? neighborFrameIds(allFrameIds, frameId, framesBefore, framesAfter)
+      : [frameId];
+    labelQueue.enqueue(frameIds, apiPrompts, modelPath.trim(), confidence);
+    const count = frameIds.length;
+    setEnqueueMsg(`${count} frame${count !== 1 ? 's' : ''} added to queue.`);
+    setTimeout(() => setEnqueueMsg(null), 3000);
+  };
+
+  const handleRun = async () => {
+    if (!modelPath.trim()) {
+      setError('Model path is required.');
+      return;
+    }
+
+    const apiPrompts = buildApiPrompts();
 
     setRunning(true);
     setError(null);
@@ -423,6 +458,68 @@ export function SegmentPanel({
           onChange={(e) => setConfidence(Number(e.target.value))}
           disabled={running}
         />
+      </section>
+
+      {/* ---- add to queue ---- */}
+      <section className={styles.section}>
+        <h4 className={styles.sectionHead}>Add to queue</h4>
+        <p className={styles.hint}>
+          Stage this frame (and neighbours) for a batch run via the Queue panel.
+        </p>
+        {allFrameIds && allFrameIds.length > 1 && (
+          <div className={styles.rangeRow}>
+            <label className={styles.rangeLabel} htmlFor={`seg-before-${frameId}`}>
+              Frames before
+              <input
+                id={`seg-before-${frameId}`}
+                className={styles.rangeInput}
+                type="number"
+                min={0}
+                max={500}
+                value={framesBefore}
+                onChange={(e) => setFramesBefore(Math.max(0, Number(e.target.value) | 0))}
+                disabled={running}
+                aria-label="Number of preceding frames to include"
+              />
+            </label>
+            <span className={styles.rangeCurrent} aria-hidden="true">
+              #{frameId}
+            </span>
+            <label className={styles.rangeLabel} htmlFor={`seg-after-${frameId}`}>
+              After
+              <input
+                id={`seg-after-${frameId}`}
+                className={styles.rangeInput}
+                type="number"
+                min={0}
+                max={500}
+                value={framesAfter}
+                onChange={(e) => setFramesAfter(Math.max(0, Number(e.target.value) | 0))}
+                disabled={running}
+                aria-label="Number of following frames to include"
+              />
+            </label>
+          </div>
+        )}
+        <button
+          type="button"
+          className={styles.enqueueBtn}
+          onClick={handleAddToQueue}
+          disabled={running || !modelPath.trim()}
+          title="Add this frame range to the label queue for a batch run"
+        >
+          {(() => {
+            const count = allFrameIds
+              ? neighborFrameIds(allFrameIds, frameId, framesBefore, framesAfter).length
+              : 1;
+            return `+ Add ${count} frame${count !== 1 ? 's' : ''} to queue`;
+          })()}
+        </button>
+        {enqueueMsg && (
+          <p className={styles.enqueueMsg} role="status">
+            {enqueueMsg}
+          </p>
+        )}
       </section>
 
       {/* ---- error ---- */}

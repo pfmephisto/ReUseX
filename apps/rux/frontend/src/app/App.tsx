@@ -5,6 +5,7 @@
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 
 import { JobsProvider } from './JobsContext';
+import { LabelQueueProvider } from './LabelQueueContext';
 import { AppShell } from './AppShell';
 import { Dashboard } from '../routes/Dashboard';
 import { LabelsPage } from '../routes/DataPage';
@@ -79,9 +80,11 @@ function RoutedContent() {
 export function App() {
   return (
     <JobsProvider>
-      <AppShell>
-        <RoutedContent />
-      </AppShell>
+      <LabelQueueProvider>
+        <AppShell>
+          <RoutedContent />
+        </AppShell>
+      </LabelQueueProvider>
     </JobsProvider>
   );
 }

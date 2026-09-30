@@ -37,6 +37,7 @@ SPDX-License-Identifier = "GPL-3.0-or-later"
 [[annotations]]
 path = [
   ".claude/agents/*.md",
+  ".claude/skills/**",
   ".claude/settings.local.json",
   ".gitattributes",
   ".gitmodules",

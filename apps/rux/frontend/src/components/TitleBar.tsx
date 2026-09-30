@@ -43,24 +43,26 @@ export function TitleBar({
   unreachable = false,
 }: TitleBarProps) {
   const title = unreachable
-    ? 'Server unreachable'
-    : (projectName ?? 'Loading…');
+    ? 'Server utilgængelig'
+    : (projectName ?? 'Indlæser…');
 
   return (
     <header className={styles.bar}>
       <div className={styles.identity}>
-        <span className={styles.product}>ReUseX</span>
+        <span className={styles.product}>
+          ReUse<em className={styles.x}>X</em>
+        </span>
         <span className={styles.divider} aria-hidden="true" />
         <span className={styles.project} title={title}>
           {title}
         </span>
         {projectOpen === false && (
-          <span className={styles.badgeWarn} title="The server could not open this database">
-            not open
+          <span className={styles.badgeWarn} title="Serveren kunne ikke åbne databasen">
+            ikke åben
           </span>
         )}
         {schemaVersion !== undefined && (
-          <span className={`${styles.meta} mono`}>schema v{schemaVersion}</span>
+          <span className={`${styles.meta} mono`}>skema v{schemaVersion}</span>
         )}
       </div>
 

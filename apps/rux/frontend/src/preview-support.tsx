@@ -7,7 +7,7 @@ import { MemoryRouter } from 'react-router-dom';
 
 /**
  * Context wrapper for design-system preview cards (design-sync harness only —
- * not part of the app). Router-dependent components (NavRail's NavLinks)
+ * not part of the app). Router-dependent components (Sidebar's NavLinks)
  * render inside a MemoryRouter; everything else passes through unaffected.
  */
 export function PreviewProviders({ children }: { children: ReactNode }) {

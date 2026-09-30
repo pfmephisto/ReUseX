@@ -1,0 +1,126 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  width: var(--layout-nav-width);
+  padding: var(--space-4) 0 var(--space-5);
+  overflow-y: auto;
+  background: var(--color-chrome);
+  color: var(--color-on-chrome);
+}
+
+.eyebrow,
+.groupLabel {
+  padding: 0 var(--space-4);
+  font-size: var(--font-size-2xs);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--color-on-chrome-muted);
+}
+
+.groupLabel {
+  margin-top: var(--space-5);
+  margin-bottom: var(--space-1);
+}
+
+.project {
+  padding: var(--space-1) var(--space-4) var(--space-3);
+  font-family: var(--font-display);
+  font-weight: var(--font-weight-bold);
+  font-size: var(--font-size-lg);
+  text-transform: uppercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nav {
+  display: grid;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-on-chrome-muted);
+  text-decoration: none;
+}
+
+.item:hover {
+  color: var(--color-on-chrome);
+}
+
+.item:focus-visible {
+  outline-offset: -2px;
+}
+
+.dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border: 1.5px solid currentColor;
+  border-radius: var(--radius-pill);
+}
+
+.label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.active {
+  background: var(--color-chrome-raised);
+  color: var(--color-on-chrome);
+  box-shadow: inset 3px 0 0 var(--color-accent);
+}
+
+.active .dot {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.count {
+  margin-left: auto;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--color-chrome-border);
+  font-size: var(--font-size-xs);
+}
+
+.hot {
+  background: var(--color-accent-deep);
+  color: var(--color-on-accent);
+}
+
+.pending {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.pending:hover {
+  color: var(--color-on-chrome-muted);
+}
+
+.back {
+  margin-top: auto;
+  padding: var(--space-3) var(--space-4) 0;
+  font-size: var(--font-size-sm);
+}
+
+.back a {
+  color: var(--color-on-chrome-muted);
+}
+
+.back a:hover {
+  color: var(--color-on-chrome);
+}

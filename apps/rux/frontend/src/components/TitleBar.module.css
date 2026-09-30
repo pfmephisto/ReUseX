@@ -11,8 +11,9 @@
   gap: var(--space-4);
   height: var(--layout-titlebar-height);
   padding: 0 var(--space-4);
-  background: var(--color-surface-raised);
-  border-bottom: 1px solid var(--color-border);
+  background: var(--color-chrome);
+  color: var(--color-on-chrome);
+  border-bottom: 1px solid var(--color-chrome-border);
   z-index: var(--z-titlebar);
   flex: none;
 }
@@ -26,25 +27,34 @@
 }
 
 .product {
+  font-family: var(--font-display);
   font-weight: var(--font-weight-bold);
-  letter-spacing: 0.02em;
+  font-size: var(--font-size-lg);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.x {
+  color: var(--color-accent);
+  font-style: normal;
 }
 
 .divider {
   width: 1px;
   height: 16px;
-  background: var(--color-border-strong);
+  background: var(--color-chrome-border);
 }
 
 .project {
   font-weight: var(--font-weight-medium);
+  color: var(--color-on-chrome-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .meta {
-  color: var(--color-text-faint);
+  color: var(--color-on-chrome-muted);
   font-size: var(--font-size-xs);
   white-space: nowrap;
 }

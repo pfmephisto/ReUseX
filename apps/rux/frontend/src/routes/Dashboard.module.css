@@ -13,8 +13,8 @@
 
 /*
  * auto-fit rather than a fixed column count: the shell already spends
- * --layout-nav-width on the rail, and on a laptop six fixed tiles would each be
- * narrower than the eight-digit figure they have to hold.
+ * --layout-nav-width on the sidebar, and on a laptop six fixed tiles would each
+ * be narrower than the eight-digit figure they have to hold.
  */
 .stats {
   display: grid;

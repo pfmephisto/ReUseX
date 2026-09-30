@@ -4,7 +4,8 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { ALL_CASES_PATH, NAV_ENTRIES, badgeText, entriesIn } from '../app/navigation';
+import { ALL_CASES_PATH, NAV_ENTRIES, badgeText, displayProjectName, entriesIn } from '../app/navigation';
+import type { Health, ProjectSummary } from '../api/types';
 
 describe('navigation model', () => {
   it('lists the case workflow in the prototype order', () => {
@@ -65,5 +66,20 @@ describe('navigation model', () => {
     expect(badgeText(0)).toBeNull();
     expect(badgeText(7)).toBe('7');
     expect(badgeText(120)).toBe('99+');
+  });
+});
+
+describe('displayProjectName', () => {
+  const health = { project: { name: 'scan.rux', open: true } } as Health;
+  it('prefers the first project record name', () => {
+    const summary = { projects: [{ id: 'a', name: 'Måløv Byvej 229' }] } as ProjectSummary;
+    expect(displayProjectName(summary, health)).toBe('Måløv Byvej 229');
+  });
+  it('falls back to the file name when the record has no name', () => {
+    const summary = { projects: [{ id: 'a', name: '' }] } as ProjectSummary;
+    expect(displayProjectName(summary, health)).toBe('scan.rux');
+  });
+  it('is undefined while nothing has loaded', () => {
+    expect(displayProjectName(undefined, undefined)).toBeUndefined();
   });
 });

@@ -32,7 +32,7 @@ export interface DataTableProps<T> {
  *
  * The horizontal scroll lives on the table's own wrapper. A wide mesh or
  * component table must not be able to make the whole page scroll sideways and
- * carry the nav rail off-screen with it.
+ * carry the sidebar off-screen with it.
  */
 export function DataTable<T>({ columns, rows, rowKey, empty, onRowClick }: DataTableProps<T>) {
   if (rows.length === 0 && empty !== undefined) return <>{empty}</>;

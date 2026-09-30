@@ -7,6 +7,15 @@
   stdenv,
   config,
   cudaSupport ? config.cudaSupport,
+  # Opt-in torch-free build (`.#cuda-notorch` / `.#cpu-notorch`). When false,
+  # libtorch and gsplat-cuda (itself LibTorch-linked) are left out of
+  # buildInputs and ML_BACKENDS is pinned to the non-LibTorch backends, so:
+  #   - the LibTorch ML backend (YOLO .pt), vision/nms and the vendored
+  #     torchvision kernel are excluded by MLBackendConfig.cmake;
+  #   - reusex_gsplat is skipped (REUSEX_HAVE_GSPLAT off) and
+  #     `rux create gsplat` reports that the build lacks support.
+  # The default `true` keeps the derivation byte-identical to before.
+  withLibtorch ? true,
   cudaPackages,
   qt6,
   pkg-config,
@@ -176,8 +185,9 @@ in
 
         opencv
         cli11
-
-        libtorch
+      ]
+      ++ lib.optionals withLibtorch [libtorch]
+      ++ [
         oneDNN
         protobuf # should be in libtorch?
         onnxruntime
@@ -222,6 +232,8 @@ in
         [
           trtsam3
           cuOpt
+        ]
+        ++ lib.optionals withLibtorch [
           # gsplat's CUDA rasterization backend (Apache-2.0), vendored as a
           # standalone LibTorch-linked static library. Backs the `reusex_gsplat`
           # module and `rux create gsplat` (#240). CUDA-only by construction;
@@ -252,9 +264,21 @@ in
     # language (no nvcc required) and auto-excludes the CUDA-only code paths
     # (TensorRT backend + .cu kernels, cuOpt solver). ROCm-ness itself comes
     # from libtorch/onnxruntime being built under a rocmSupport nixpkgs.
-    cmakeFlags = [
-      (lib.cmakeBool "WITH_CUDA" cudaSupport)
-    ];
+    cmakeFlags =
+      [
+        (lib.cmakeBool "WITH_CUDA" cudaSupport)
+      ]
+      # Without libtorch, pin the backend list instead of relying on AUTO: an
+      # explicit list makes a missing TensorRT/ONNX dependency a configure
+      # error rather than a silently smaller build. This is what AUTO resolves
+      # to in the default build, minus LibTorch (OpenVINO is not packaged).
+      ++ lib.optionals (!withLibtorch) [
+        (lib.cmakeFeature "ML_BACKENDS" (
+          if cudaSupport
+          then "TensorRT;ONNX"
+          else "ONNX"
+        ))
+      ];
 
     dontWrapQtApps = true;
 

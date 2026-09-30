@@ -185,9 +185,13 @@
           # backend (+ its .cu kernels) and the cuOpt solver.
           reusex = pkgs.callPackage ./default.nix {}; # CUDA (default)
 
+          # Opt-in torch-free CUDA build (see withLibtorch in default.nix).
+          reusexCudaNoTorch = pkgs.callPackage ./default.nix {withLibtorch = false;};
+
           mkReusex = {
             cudaSupport ? false,
             rocmSupport ? false,
+            withLibtorch ? true,
           }: let
             variantPkgs = import nixpkgs {
               inherit system;
@@ -199,7 +203,7 @@
             };
           in
             variantPkgs.callPackage ./default.nix {
-              inherit cudaSupport;
+              inherit cudaSupport withLibtorch;
               # The CUDA path already gets ccache via cudaPackages.backendStdenv
               # (overlays/ccache.nix); wrap the plain stdenv so the CPU/ROCm
               # ReUseX compiles are cached too.
@@ -208,6 +212,7 @@
 
           reusexCpu = mkReusex {};
           reusexRocm = mkReusex {rocmSupport = true;};
+          reusexCpuNoTorch = mkReusex {withLibtorch = false;};
 
           # Shared OCI image builder: ruxd as PID 1 for a given ReUseX variant.
           mkImage = {
@@ -240,6 +245,11 @@
             cuda = reusex;
             cpu = reusexCpu;
             rocm = reusexRocm;
+            # Opt-in variants without libtorch: no LibTorch ML backend (YOLO
+            # .pt) and no `rux create gsplat`. TensorRT/ONNX (CUDA) or ONNX
+            # (CPU) inference is unaffected.
+            cuda-notorch = reusexCudaNoTorch;
+            cpu-notorch = reusexCpuNoTorch;
 
             inherit (pkgs) rtabmap;
 

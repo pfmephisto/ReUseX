@@ -194,6 +194,11 @@ if(HEAVY_TEST_SOURCES)
         ${CMAKE_BINARY_DIR}/generated
     )
 
+    # Lets tests locate checked-in reference assets (e.g. the canonical
+    # python/reusex_sam3/engine-build.json parsed by test_engine_build_profiles).
+    target_compile_definitions(reusex_unit_tests_vision
+        PRIVATE REUSEX_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+
     # configure_ml_backends() links torch PRIVATE to reusex_vision, so neither
     # the torch headers nor its ABI flags reach a consumer of the umbrella
     # `reusex` target. tests/unit/vision/test_nms.cpp includes

@@ -1572,9 +1572,10 @@ SegmentFrameRequest parse_segment_frame_request(std::string_view body,
     throw HttpError(400, "request body must be valid JSON");
 
   SegmentFrameRequest req;
+  // Optional: an empty model_path asks the server to resolve/prepare the
+  // managed SAM3 model (self-contained packaging). A missing managed model
+  // provider turns this back into a 400 at the handler.
   req.model_path = j.value("model_path", "");
-  if (req.model_path.empty())
-    throw HttpError(400, "'model_path' is required");
 
   req.confidence = j.value("confidence", 0.5f);
   req.save = j.value("save", true);
@@ -1593,9 +1594,9 @@ parse_segment_panorama_request(std::string_view body,
     throw HttpError(400, "request body must be valid JSON");
 
   SegmentPanoramaRequest req;
+  // Optional: see parse_segment_frame_request — empty resolves the managed
+  // model.
   req.model_path = j.value("model_path", "");
-  if (req.model_path.empty())
-    throw HttpError(400, "'model_path' is required");
 
   req.confidence = j.value("confidence", 0.5f);
   req.save = j.value("save", true);

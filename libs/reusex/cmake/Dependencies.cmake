@@ -137,6 +137,25 @@ if(NOT ML_BACKENDS STREQUAL "NONE" AND NOT ENABLED_ML_BACKENDS)
     message(FATAL_ERROR "No ML backends available. Install at least one: LibTorch, TensorRT, ONNX Runtime, or OpenVINO")
 endif()
 
+# The native EngineBuilder (libs/reusex/src/vision/tensor_rt/common/EngineBuilder.cpp)
+# builds SAM3 engines from ONNX on-device, so it needs the TensorRT ONNX parser
+# (libnvonnxparser + NvOnnxParser.h). trtsam3 propagates cudaPackages.tensorrt,
+# which puts these in the closure, but its CMake target only links libnvinfer —
+# so locate the parser lib/header explicitly here and hand them to
+# configure_ml_backends() via cache variables.
+if("TensorRT" IN_LIST ENABLED_ML_BACKENDS)
+    find_library(REUSEX_TRT_ONNXPARSER_LIB nvonnxparser)
+    find_path(REUSEX_TRT_ONNXPARSER_INCLUDE NvOnnxParser.h)
+    if(NOT REUSEX_TRT_ONNXPARSER_LIB OR NOT REUSEX_TRT_ONNXPARSER_INCLUDE)
+        message(FATAL_ERROR
+            "TensorRT backend enabled but libnvonnxparser / NvOnnxParser.h were "
+            "not found. They ship with TensorRT (cudaPackages.tensorrt, "
+            "propagated by trtsam3). lib=${REUSEX_TRT_ONNXPARSER_LIB} "
+            "include=${REUSEX_TRT_ONNXPARSER_INCLUDE}")
+    endif()
+    message(STATUS "TensorRT ONNX parser: ${REUSEX_TRT_ONNXPARSER_LIB}")
+endif()
+
 # Export for use in library CMakeLists and root summary
 set(ENABLED_ML_BACKENDS ${ENABLED_ML_BACKENDS} PARENT_SCOPE)
 

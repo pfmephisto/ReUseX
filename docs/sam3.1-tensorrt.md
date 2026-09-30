@@ -691,6 +691,7 @@ make -C python load              # inspect + write remap_report.json
 make -C python export-detector   # 4 detector ONNX graphs
 make -C python export-tracker    # 4 tracker ONNX graphs + tracker-meta.json
 make -C python engines           # trtexec → 8 .engine files (FP16, dynamic shapes)
+                                 # also writes engine-build.json into the ONNX dir
 make -C python verify            # torch vs onnxruntime vs tensorrt parity
 # or: make -C python all
 ```
@@ -704,6 +705,105 @@ rux -p <project.rux> create annotate --net <model_dir> --video
 # --video is implicit when a SAM 3.1 directory is detected; it forces ordered,
 # single-threaded processing (shuffle/batch/workers are disabled).
 ```
+
+For `rux gui` usage, engines no longer need to be built manually — see §9
+(managed provisioning).
+
+---
+
+## 9. Managed provisioning for `rux gui`
+
+This section covers the automatic model lifecycle introduced alongside the GUI
+segment endpoints. It is not relevant to the `rux create annotate` CLI path.
+
+### 9.1 The C++ EngineBuilder
+
+`libs/reusex/src/vision/tensor_rt/common/EngineBuilder.cpp` builds TensorRT
+engines from the portable ONNX bundle on-device using `nvonnxparser` + `IBuilder`,
+without requiring any Python or `trtexec` on the deployment machine.
+
+The build recipe — dynamic shape profiles, which engines run fp32 vs fp16, and
+workspace sizes — is read from `engine-build.json`, the same file that
+`build_engines.py` emits. This is the **single source of truth** shared by both
+the Python exporter and the C++ builder. The fp32-vision-encoder rule (§5) is
+baked into `engine-build.json`, so neither side needs to hard-code it
+independently.
+
+To regenerate `engine-build.json` after modifying `SHAPE_PROFILES` or
+`FP32_ENGINES` in `build_engines.py`:
+
+```bash
+python -m reusex_sam3.build_engines --emit-profiles
+```
+
+`make -C python engines` also writes `engine-build.json` into the ONNX output
+directory, so a fully exported bundle is self-describing.
+
+### 9.2 Managed model location and cache-key scheme
+
+The managed model root is resolved in this precedence order:
+
+1. `--models-dir <dir>` flag to `rux gui`
+2. `$REUSEX_MODELS_DIR` environment variable
+3. `$XDG_CACHE_HOME/reusex/models` (falls back to `$HOME/.cache/reusex/models`)
+
+The portable ONNX bundle lives at `<models-dir>/sam3.1/onnx/`. Device-specific
+engines are cached at `<models-dir>/sam3.1/engines/<gpu>-sm<cc>-trt<ver>/`,
+where the subdirectory name is derived from the GPU model name, CUDA compute
+capability, and TensorRT version. This ensures engines built for one GPU / TRT
+version are never loaded on an incompatible configuration.
+
+Escape hatches:
+
+| Flag / variable | Effect |
+|---|---|
+| `--sam3-model <dir>` | Skip managed provisioning; use this pre-built model dir directly (back-compatible) |
+| `$REUSEX_SAM3_ONNX_DIR` | Point at an existing ONNX export (e.g. `make -C python export` output); C++ still builds engines from it on-device |
+| `--sam3-manifest-url <url>` | Override the default bundle download URL |
+
+### 9.3 Lazy provisioning and status endpoint
+
+The segment endpoints (`POST /api/v1/frames/{id}/segment`,
+`POST /api/v1/panoramas/{id}/segment`) now accept an omitted or empty
+`model_path`. On the first such request, the server starts a background thread
+that:
+
+1. Resolves the managed model location.
+2. Downloads the portable ONNX bundle if absent (the URL is `kDefaultManifestUrl`
+   in `libs/reusex/src/vision/sam3/sam3_assets.cpp` — **not yet pinned**; a TODO
+   marks the placeholder until the GitHub Release asset is published).
+3. Builds device-specific engines from the ONNX + `engine-build.json`.
+
+While the background task is running, segment requests return **HTTP 503**:
+
+```
+SAM3 model is being prepared (building): … — poll GET /api/v1/models/sam3/status
+```
+
+`GET /api/v1/models/sam3/status` returns:
+
+```json
+{ "state": "building", "progress": 0.42, "message": "…", "use_cuda": true }
+```
+
+`state` ∈ `{absent, downloading, building, ready, error}`. When `ready`, the
+response also includes `"model_path"`. An explicit non-empty `model_path` in a
+segment request still bypasses all of the above (back-compat).
+
+### 9.4 ONNX bundle redistribution and SAM License
+
+The portable ONNX bundle is a derivative of Meta's gated `facebook/sam3.1`
+checkpoint. Under the SAM License
+(https://huggingface.co/facebook/sam3/blob/main/LICENSE §1.b.i), it:
+
+- **May** be redistributed, but **only under the SAM License** — not relicensed
+  under this repo's GPL-3.0.
+- **Must** be distributed alongside a copy of `LICENSE_SAM.txt`.
+
+The planned channel is a GitHub Release asset (a `manifest.json` listing files +
+sha256 hashes, plus `LICENSE_SAM.txt`). Until the asset is published and the URL
+is pinned in `kDefaultManifestUrl`, set `$REUSEX_SAM3_ONNX_DIR` to a local ONNX
+export as the escape hatch.
 
 ### Known open risks / TODOs
 

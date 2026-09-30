@@ -686,6 +686,18 @@ SAM3 from the path:
   export, the engine-I/O contract, and how the C++ tracker consumes the engines
 - [`docs/sam3.1-export-guide.md`](docs/sam3.1-export-guide.md) — export guide
 
+**`rux gui` provisions SAM3 automatically.** The segment endpoints download the
+portable ONNX bundle and build device-specific engines on first use — no manual
+export or engine placement is needed for GUI operation. The managed model root
+resolves as: `--models-dir` flag > `$REUSEX_MODELS_DIR` >
+`$XDG_CACHE_HOME/reusex/models`. Override the path with `--sam3-model <dir>`
+or point at an existing ONNX export via `$REUSEX_SAM3_ONNX_DIR`. The build
+recipe is `engine-build.json` (emitted by `build_engines.py --emit-profiles`),
+which is the shared source of truth consumed by both the Python `trtexec` driver
+and the C++ `EngineBuilder`. See [`models/README.md`](models/README.md) and
+[`docs/sam3.1-tensorrt.md`](docs/sam3.1-tensorrt.md) §9 for the full layout,
+cache-key scheme, status endpoint, and SAM License redistribution posture.
+
 ## Common Tasks
 
 ### Import and process a scan

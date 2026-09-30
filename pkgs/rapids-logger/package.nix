@@ -75,7 +75,24 @@ in
       "-DCPM_fmt_SOURCE=${fmt-src}"
       "-DBUILD_TESTS=OFF"
       "-DBUILD_SHARED_LIBS=ON"
-      "-DRAPIDS_LOGGER_HIDE_ALL_SPDLOG_SYMBOLS=OFF"
+      # HIDE all spdlog symbols — this is the whole point of rapids-logger, and
+      # the only configuration that keeps its vendored spdlog/fmt from leaking
+      # into the rest of the closure. With it ON (the upstream default),
+      # rapids-logger links spdlog statically with hidden visibility and
+      # `--exclude-libs,libspdlog`, and does NOT add spdlog/fmt to its install
+      # export set. That means:
+      #   * librapids_logger.so has NO `libspdlog.so.1.14` NEEDED entry, so it no
+      #     longer conflicts with the stack's own spdlog 1.17 at link time; and
+      #   * no bundled fmt 11 / spdlog 1.14 headers or CMake configs are
+      #     installed, so a consumer of cuOpt (which pulls rapids_logger onto its
+      #     include path) no longer compiles `<fmt/format.h>` against fmt 11
+      #     instead of the stack's fmt 12 — which is what produced the
+      #     `undefined reference to fmt::v11::report_error` link error after the
+      #     nixpkgs bump moved fmt to v12 / spdlog to 1.17.
+      # rapids_logger's public API deliberately hides spdlog (printf-style
+      # formatting, no fmt/spdlog in its headers), and rmm/raft/cuOpt each
+      # CPM-fetch their own spdlog/fmt, so nothing downstream needs the exports.
+      "-DRAPIDS_LOGGER_HIDE_ALL_SPDLOG_SYMBOLS=ON"
     ];
 
     doCheck = false;

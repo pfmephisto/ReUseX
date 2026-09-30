@@ -55,11 +55,13 @@
             cudaSupport = true;
             hardware.nvidia.open = false;
             allowUnfree = true;
-            # Project-specific override for CVE-2026-24188 (TensorRT OOB write)
-            # Acknowledged and accepted for ML inference backend in development context
-            permittedInsecurePackages = [
-              "cuda12.9-tensorrt-10.14.1.48"
-            ];
+            # Build CUDA code only for the workstation GPU (RTX 6000 Ada = sm_89)
+            # instead of the default multi-arch list — much faster builds, smaller
+            # closure. This is the only GPU this stack targets.
+            cudaCapabilities = ["8.9"];
+            # tensorrt (cuda12.9-tensorrt-10.16.1.11, updated by the nixpkgs bump)
+            # carries no known vulnerabilities, so no permittedInsecurePackages
+            # entry is needed anymore.
           };
 
           # Set overlays and custom fixes for broken packages
@@ -164,6 +166,18 @@
           # Filter out broken packages from exports
           nonBrokenPackages = lib.filterAttrs (_name: pkg: !(pkg.meta.broken or false)) allPackages;
 
+          # Heavy custom packages that compile through the plain stdenv (i.e. are
+          # NOT covered by the ccache'd cudaPackages.backendStdenv from
+          # overlays/ccache.nix) get their compiler wrapped in ccache here.
+          # Prebuilt (libtorch) and Rust (tokenizers-cpp) packages are excluded:
+          # ccache does not help them.
+          ccachedPackageNames = ["gtsam" "trtsam3" "opennurbs"];
+          ccachedPackages =
+            nonBrokenPackages
+            // lib.genAttrs
+            (lib.filter (n: nonBrokenPackages ? ${n}) ccachedPackageNames)
+            (n: nonBrokenPackages.${n}.override {stdenv = pkgs.ccacheStdenv;});
+
           # ReUseX build variants. The default/CUDA build reuses the top-level
           # (CUDA-configured) nixpkgs; the cpu and rocm builds use a fresh
           # nixpkgs with the matching GPU config. cudaSupport drives the
@@ -174,17 +188,23 @@
           mkReusex = {
             cudaSupport ? false,
             rocmSupport ? false,
-          }:
-            (import nixpkgs {
+          }: let
+            variantPkgs = import nixpkgs {
               inherit system;
               config = {
                 inherit cudaSupport rocmSupport;
                 allowUnfree = true;
               };
               overlays = import ./overlays {inherit lib;};
-            })
-            .callPackage
-            ./default.nix {inherit cudaSupport;};
+            };
+          in
+            variantPkgs.callPackage ./default.nix {
+              inherit cudaSupport;
+              # The CUDA path already gets ccache via cudaPackages.backendStdenv
+              # (overlays/ccache.nix); wrap the plain stdenv so the CPU/ROCm
+              # ReUseX compiles are cached too.
+              stdenv = variantPkgs.ccacheStdenv;
+            };
 
           reusexCpu = mkReusex {};
           reusexRocm = mkReusex {rocmSupport = true;};
@@ -244,8 +264,8 @@
               tag = "cpu";
             };
           }
-          # All custom packages (excluding broken ones)
-          // nonBrokenPackages; # end of packages
+          # All custom packages (excluding broken ones), heavy ones ccache-wrapped
+          // ccachedPackages; # end of packages
 
         devShells =
           {

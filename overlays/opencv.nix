@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: MIT
 _: _final: prev: {
   opencv = prev.opencv.override {
-    enableGtk2 = true;
+    # enableGtk2 was dropped upstream (nixpkgs removed the arg); GTK3 remains.
     enableGtk3 = true;
     enableVtk = true;
     enableTbb = true;

@@ -51,12 +51,13 @@ Use on every screenshot round. Look at the image, not the code. Note the 3–5 w
 
 ## ReUseX rux GUI (check on every rux screen)
 - **Both themes reviewed.** You screenshotted `--theme dark` *and* `--theme light`.
-  Nothing looks right in one and broken in the other (the light block re-points
-  chrome only) — a component that flips wrong is hardcoding a colour.
+  Nothing looks right in one and broken in the other (light is the default,
+  `[data-theme='dark']` re-points the themed roles) — a component that flips
+  wrong is hardcoding a colour.
 - **Tokens only.** `scripts/token_lint.py` passes: no literal colour, radius,
   spacing or type size in the changed `.module.css`. `tokens.css` untouched.
 - **Fits the app.** It looks like it belongs next to the existing routes/panels;
-  you reused `DataTable`/`StatCard`/`NavRail`/`EmptyState`/`ErrorBanner`/… rather
+  you reused `DataTable`/`StatCard`/`Sidebar`/`EmptyState`/`ErrorBanner`/… rather
   than inventing a near-duplicate.
 - **Viewport stays near-black** (`--color-canvas`) in both themes — point-cloud
   depth read depends on it. An untextured mesh uses `--mesh-surface`, not black.
@@ -71,3 +72,7 @@ Use on every screenshot round. Look at the image, not the code. Note the 3–5 w
   "Unlabeled points" — not "Feature one". Actions name what they do.
 - **Contract-honest.** Data shown matches `docs/gui/openapi.yaml`; nothing
   invented. A view needing an endpoint that doesn't exist yet says so.
+- **Chrome text uses chrome tokens.** Text on the navy chrome uses
+  `--color-on-chrome` / `--color-on-chrome-muted`, never surface text tokens.
+- **TS/inline colours are tokens too.** Colours in TS constants and inline
+  `style={…}` are `var(--…)` too — the token linter only sees CSS.

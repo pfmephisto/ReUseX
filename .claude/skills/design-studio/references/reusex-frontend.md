@@ -12,7 +12,7 @@ in `apps/rux/frontend/`; skim later for the token names.
 ## Table of contents
 1. Stack and directory layout
 2. The token system (full inventory)
-3. Theme model (dark-first, three-way toggle)
+3. Theme model (light-default, three-way toggle)
 4. Dev environment and the proxy (why it's mandatory)
 5. The API/WS contract — the frontend is a pure client
 6. Testing
@@ -32,7 +32,7 @@ apps/rux/frontend/src/
 ├── app/          App shell, routing, cross-cutting state (JobsContext,
 │                 LabelQueueContext), useAsync, useTheme
 ├── components/   Presentational, contract-agnostic blocks — reuse these:
-│                 DataTable, StatCard, NavRail, EmptyState, ErrorBanner,
+│                 DataTable, StatCard, Sidebar, EmptyState, ErrorBanner,
 │                 ParameterForm, SelectDropdown, MultiSelectDropdown,
 │                 JobToaster, LayerPanel, PeekPanel, LabelLegend, …
 ├── pipeline/     Pure stage-runner logic (stageModel, params, history)
@@ -53,31 +53,46 @@ logic → `pipeline/` or a sibling `*.ts`. SPDX header on every file.
 
 ## 2. The token system (full inventory)
 
-`src/tokens.css` defines these on `:root` (dark) with a `[data-theme='light']`
-override for chrome only. **Reference them by name; never write the value.**
+`src/tokens.css` defines these on `:root` (light, the default theme) with a
+`[data-theme='dark']` override re-pointing the themed roles. **Reference them
+by name; never write the value.**
 
 - **Surfaces:** `--color-canvas` (3D viewport bg, near-black in both themes),
   `--color-surface`, `--color-surface-raised`, `--color-surface-overlay`,
-  `--color-surface-sunken`
+  `--color-surface-sunken`, `--color-scrim` (modal backdrop)
+- **Chrome (navy title bar + sidebar):** `--color-chrome`,
+  `--color-chrome-raised`, `--color-chrome-border`, `--color-on-chrome`,
+  `--color-on-chrome-muted`
 - **Border:** `--color-border`, `--color-border-strong`, `--color-border-focus`
 - **Text:** `--color-text`, `--color-text-muted`, `--color-text-faint`,
   `--color-text-inverse`
 - **Accent:** `--color-accent`, `--color-accent-hover`, `--color-accent-muted`,
-  `--color-on-accent`
+  `--color-accent-deep` (accent text, filled primary buttons), `--color-on-accent`,
+  `--color-star` ("vigtig" ★)
+- **Tone (bg/ink pairs for pills and notices):**
+  `--tone-good|warn|wait|crit|accent-bg|ink`
+- **Categorical: affaldshierarki (waste hierarchy, ranked best→worst):**
+  `--circ-bevaring`, `--circ-genbrug`, `--circ-genanvendelse`,
+  `--circ-nyttiggoerelse`, `--circ-bortskaffelse`
+- **Categorical: chips (select/multiselect tag colours, ≥4.5:1 in both
+  themes):** `--chip-blue|red|green|purple|yellow|gray-bg|ink`
 - **Status (job/stage lifecycle, distinct in luminance too):**
   `--color-status-queued|running|succeeded|failed|cancelled`
 - **Categorical labels (Okabe-Ito, colourblind-safe — a correctness constraint):**
   `--label-0`…`--label-7`, `--label-count`, `--label-unlabeled`
 - **Viewport geometry:** `--mesh-surface` (mid-gray albedo for untextured mesh so
   it reads against the near-black canvas)
-- **Type:** `--font-sans`, `--font-mono` (tables are mono by design — figures
-  align), `--font-size-xs|sm|md|lg|xl|2xl`, `--font-weight-regular|medium|bold`,
-  `--line-height-tight|normal`
+- **Type:** `--font-display` (Oswald, headings/eyebrows), `--font-sans`,
+  `--font-mono` (tables are mono by design — figures align),
+  `--font-size-2xs|xs|sm|md|lg|xl|2xl|3xl`,
+  `--font-weight-regular|medium|bold`, `--line-height-tight|normal`,
+  `--tracking-caps` (uppercase labels), `--tracking-wide` (sidebar eyebrow)
 - **Space:** `--space-0`…`--space-7` (0, .25, .5, .75, 1, 1.5, 2, 3 rem)
-- **Radius:** `--radius-sm|md|lg|pill`
-- **Shadow:** `--shadow-sm|md|lg` (lighter alpha in the light theme)
+- **Radius:** `--radius-sm|md|lg|xl|pill`
+- **Shadow:** `--shadow-sm|md|lg|panel` (lighter alpha in the light theme)
 - **Layout:** `--layout-titlebar-height`, `--layout-nav-width`,
-  `--layout-panel-width`
+  `--layout-panel-width`, `--layout-bench-aside-width` (Kortlægning's
+  evidence/detail column)
 - **Motion:** `--duration-fast|normal`, `--easing-standard` (both durations zero
   out under `prefers-reduced-motion`)
 - **Z-index:** `--z-panel|titlebar|toast`
@@ -87,16 +102,20 @@ design project**, not a literal. Flag it in hand-off.
 
 ## 3. Theme model
 
-Dark-first. `<html data-theme>` carries the *resolved* value (`light`|`dark`);
-the user *preference* is `system`|`light`|`dark`, stored in `localStorage` under
-`reusex-theme`. `index.html` has a FOUC-guard inline script that applies the
-resolved theme before first paint — it's a hand-mirror of `theme.ts`, keep the
-key/rule in sync. `useTheme()` owns the live sync; mount exactly one instance.
+Light is the default theme. `<html data-theme>` carries the *resolved* value
+(`light`|`dark`); the user *preference* is `light`|`dark`|`system` (`light` is
+`DEFAULT_THEME_PREFERENCE`), stored in `localStorage` under `reusex-theme`
+(`dark` and `system` are honoured when explicitly stored). `index.html` has a
+FOUC-guard inline script that applies the resolved theme before first
+paint — it's a hand-mirror of `theme.ts`, keep the key/rule in sync; both fall
+back to `light` when nothing valid is stored or `matchMedia` is unavailable.
+`useTheme()` owns the live sync; mount exactly one instance.
 
 For screenshots, force the app's preference with `screenshot.py --theme
 light|dark|system` (it seeds `localStorage['reusex-theme']` before load). Always
-review **both** themes — the light block only re-points chrome, so a component
-that hardcodes a colour will look right in one and wrong in the other.
+review **both** themes — the dark block only re-points the themed roles, so a
+component that hardcodes a colour will look right in one and wrong in the
+other.
 
 ## 4. Dev environment and the proxy
 

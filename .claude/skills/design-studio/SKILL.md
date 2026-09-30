@@ -54,7 +54,7 @@ The design system already exists. Your job is to *conform*, not to create one.
   layout, motion, z-index). `references/reusex-frontend.md` has the full list.
 - **Find the nearest existing component and copy its patterns.** Grep
   `src/components/` and `src/routes/` for something similar — a card, a table, a
-  panel, a form. Reuse `DataTable`, `StatCard`, `NavRail`, `EmptyState`,
+  panel, a form. Reuse `DataTable`, `StatCard`, `Sidebar`, `EmptyState`,
   `ErrorBanner`, `ParameterForm`, `SelectDropdown`, etc. rather than inventing a
   parallel one. Consistency with the app beats novelty.
 - **Hard rules that come from that ownership boundary:**
@@ -79,8 +79,10 @@ Only when the brief is open-ended (a brand-new kind of surface, or the user is
 explicitly exploring) sketch 2–3 directions, a few lines each — palette drawn
 from the *existing* tokens, layout as a one-line ASCII wireframe, and the one
 memorable move. Even then, stay inside the established feel:
-- **Dark-first.** The app defaults to dark because the 3D viewport does; light
-  is a re-pointing of chrome tokens only.
+- **Light-default.** The workbench (`:root`) is light; `[data-theme='dark']`
+  re-points the themed roles. The 3D viewport canvas stays near-black in
+  *both* themes — that one surface is dark-first regardless of the workbench
+  theme.
 - **Dense, technical, calm.** This is an engineering tool over a `.rux` project —
   tabular numbers (`.mono`, `tabular-nums`), tight rhythm, restraint. Not
   marketing polish.

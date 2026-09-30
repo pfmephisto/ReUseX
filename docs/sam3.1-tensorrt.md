@@ -737,7 +737,9 @@ python -m reusex_sam3.build_engines --emit-profiles
 ```
 
 `make -C python engines` also writes `engine-build.json` into the ONNX output
-directory, so a fully exported bundle is self-describing.
+directory, so a fully exported bundle is self-describing. An ONNX dir without
+it (a bare `make -C python export`) falls back to the canonical copy embedded
+at C++ build time (`EngineBuildProfiles::builtin()`).
 
 ### 9.2 Managed model location and cache-key scheme
 
@@ -786,7 +788,8 @@ SAM3 model is being prepared (building): … — poll GET /api/v1/models/sam3/st
 { "state": "building", "progress": 0.42, "message": "…", "use_cuda": true }
 ```
 
-`state` ∈ `{absent, downloading, building, ready, error}`. When `ready`, the
+`state` ∈ `{absent, not_built, downloading, building, ready, error}`
+(`not_built`: ONNX present, engines not built, nothing running). When `ready`, the
 response also includes `"model_path"`. An explicit non-empty `model_path` in a
 segment request still bypasses all of the above (back-compat).
 

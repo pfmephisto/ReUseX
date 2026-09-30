@@ -65,6 +65,11 @@ struct EngineBuildProfiles {
   /// Parse from an in-memory JSON string (used by tests).
   static EngineBuildProfiles from_string(const std::string &json_text);
 
+  /// The canonical recipe (``python/reusex_sam3/engine-build.json``) embedded
+  /// at build time. The fallback when an ONNX directory does not ship its own
+  /// ``engine-build.json`` (a bare ``make -C python export`` does not).
+  static const EngineBuildProfiles &builtin();
+
   /// Look up one engine's recipe, or ``std::nullopt`` if absent.
   [[nodiscard]] std::optional<EngineProfile>
   find(const std::string &engine_name) const;

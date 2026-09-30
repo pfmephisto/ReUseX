@@ -42,16 +42,19 @@ namespace fs = std::filesystem;
 // new tracker; the on-disk layout is shared).
 static constexpr const char *kSubDir = "sam3.1";
 
-// TODO: Publish the SAM 3.1 ONNX bundle release and pin its manifest URL here.
-// category=Vision estimate=2h
-// Description: The portable ONNX + tokenizer.json + tracker-meta.json +
-//   engine-build.json are a derivative of Meta's gated facebook/sam3.1
-//   checkpoint. The SAM License permits redistributing them ONLY under the SAM
-//   License with LICENSE_SAM.txt bundled (see docs/sam3.1-tensorrt.md). Once
-//   the GitHub Release asset + manifest.json (files + sha256) exist, set this
-//   URL. Until then, point REUSEX_SAM3_ONNX_DIR at a local `make export`
-//   output.
-static constexpr const char *kDefaultManifestUrl = "";
+// Default release manifest for the managed SAM3 model bundle. The bundle is a
+// derivative of Meta's SAM checkpoint, redistributed under the SAM License
+// (LICENSE_SAM.txt ships in the release; see docs/sam3.1-tensorrt.md §9).
+//
+// sam3.1-onnx-v1 is DETECTOR-ONLY (image + panorama segmentation): the 4
+// detector ONNX + tokenizer.json + engine-build.json. The SAM 3.1 video-tracker
+// engines are not in v1; a future bundle version adds them (the C++ builder
+// already skips engines whose ONNX is absent). Override with a full local
+// export via REUSEX_SAM3_ONNX_DIR, or a different bundle via
+// --sam3-manifest-url.
+static constexpr const char *kDefaultManifestUrl =
+    "https://github.com/pfmephisto/ReUseX/releases/download/sam3.1-onnx-v1/"
+    "manifest.json";
 
 const char *to_string(PrepState state) {
   switch (state) {

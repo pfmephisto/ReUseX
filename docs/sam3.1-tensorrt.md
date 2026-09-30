@@ -771,9 +771,10 @@ The segment endpoints (`POST /api/v1/frames/{id}/segment`,
 that:
 
 1. Resolves the managed model location.
-2. Downloads the portable ONNX bundle if absent (the URL is `kDefaultManifestUrl`
-   in `libs/reusex/src/vision/sam3/sam3_assets.cpp` — **not yet pinned**; a TODO
-   marks the placeholder until the GitHub Release asset is published).
+2. Downloads the portable ONNX bundle if absent (from `kDefaultManifestUrl` in
+   `libs/reusex/src/vision/sam3/sam3_assets.cpp`, pinned to the
+   [`sam3.1-onnx-v1`](https://github.com/pfmephisto/ReUseX/releases/tag/sam3.1-onnx-v1)
+   release — detector-only in v1).
 3. Builds device-specific engines from the ONNX + `engine-build.json`.
 
 While the background task is running, segment requests return **HTTP 503**:
@@ -803,10 +804,14 @@ checkpoint. Under the SAM License
   under this repo's GPL-3.0.
 - **Must** be distributed alongside a copy of `LICENSE_SAM.txt`.
 
-The planned channel is a GitHub Release asset (a `manifest.json` listing files +
-sha256 hashes, plus `LICENSE_SAM.txt`). Until the asset is published and the URL
-is pinned in `kDefaultManifestUrl`, set `$REUSEX_SAM3_ONNX_DIR` to a local ONNX
-export as the escape hatch.
+The bundle is a GitHub Release asset (a `manifest.json` listing files + sha256
+hashes, plus `LICENSE_SAM.txt`), pinned in `kDefaultManifestUrl`. The current
+release
+[`sam3.1-onnx-v1`](https://github.com/pfmephisto/ReUseX/releases/tag/sam3.1-onnx-v1)
+is **detector-only** (the 4 detector ONNX + `tokenizer.json` + `engine-build.json`
++ `LICENSE_SAM.txt`); the SAM 3.1 video-tracker engines are a future bundle
+version (the builder skips engines whose ONNX is absent). Override with
+`$REUSEX_SAM3_ONNX_DIR` (a local export) or `--sam3-manifest-url`.
 
 ### Known open risks / TODOs
 

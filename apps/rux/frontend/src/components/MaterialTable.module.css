@@ -115,7 +115,7 @@
 }
 
 .stickyCol.scrolled {
-  box-shadow: 2px 0 8px -2px rgb(0 0 0 / 30%);
+  box-shadow: var(--shadow-md);
 }
 
 /* No outer grid line on the last data column's right edge. */

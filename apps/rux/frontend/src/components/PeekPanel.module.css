@@ -23,7 +23,7 @@
   flex-direction: column;
   background: var(--color-surface-sunken);
   box-shadow:
-    -4px 0 20px rgba(0, 0, 0, 0.3),
+    var(--shadow-lg),
     -1px 0 0 var(--color-border);
   font-family: var(--font-sans);
   font-size: var(--font-size-sm);

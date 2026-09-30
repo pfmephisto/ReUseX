@@ -462,6 +462,9 @@
 
 /* ---- Print ---------------------------------------------------------- */
 
+/* Literal colours below are intentional: printed ink is always black-on-white
+   regardless of the app's active theme, so these are left as literals rather
+   than themed tokens (Task 6, gui-phase1). */
 @media print {
   .toolbar {
     display: none;

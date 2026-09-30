@@ -25,15 +25,15 @@
 
 .cloudLabel {
   font-size: 0.85rem;
-  color: var(--color-text-secondary, #888);
+  color: var(--color-text-muted);
 }
 
 .cloudSelect {
   font-size: 0.9rem;
   padding: 0.2rem 0.4rem;
-  border: 1px solid var(--color-border, #444);
+  border: 1px solid var(--color-border);
   border-radius: 4px;
-  background: var(--color-surface, #1e1e1e);
+  background: var(--color-surface);
   color: inherit;
 }
 
@@ -47,46 +47,46 @@
   text-align: left;
   padding: 0.4rem 0.75rem;
   font-weight: 600;
-  border-bottom: 1px solid var(--color-border, #333);
-  color: var(--color-text-secondary, #aaa);
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-muted);
   white-space: nowrap;
 }
 
 .row:hover {
-  background: var(--color-hover, rgba(255, 255, 255, 0.04));
+  background: var(--color-surface-overlay);
 }
 
 .td {
   padding: 0.35rem 0.75rem;
-  border-bottom: 1px solid var(--color-border-faint, #2a2a2a);
+  border-bottom: 1px solid var(--color-border);
   vertical-align: middle;
 }
 
 .linked {
   font-size: 0.8rem;
-  color: var(--color-success, #4caf50);
-  background: var(--color-success-bg, rgba(76, 175, 80, 0.12));
+  color: var(--tone-good-ink);
+  background: var(--tone-good-bg);
   padding: 0.15rem 0.5rem;
   border-radius: 4px;
 }
 
 .unlinked {
-  color: var(--color-text-faint, #555);
+  color: var(--color-text-faint);
 }
 
 .createBtn {
   font-size: 0.8rem;
   padding: 0.25rem 0.6rem;
-  border: 1px solid var(--color-border, #444);
+  border: 1px solid var(--color-border);
   border-radius: 4px;
   background: transparent;
-  color: var(--color-accent, #90caf9);
+  color: var(--color-accent);
   cursor: pointer;
   white-space: nowrap;
 }
 
 .createBtn:hover:not(:disabled) {
-  background: var(--color-accent-bg, rgba(144, 202, 249, 0.1));
+  background: var(--color-accent-muted);
 }
 
 .createBtn:disabled {

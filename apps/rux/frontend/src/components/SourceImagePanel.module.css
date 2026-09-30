@@ -133,10 +133,12 @@
   top: var(--space-1);
   left: var(--space-1);
   padding: 1px var(--space-1);
-  background: rgba(0, 0, 0, 0.65);
-  /* Fixed light value: the dark semi-transparent background is always dark
-     regardless of theme, so a theme-adaptive token would flip to unreadable. */
-  color: #e6e9ef;
+  /* Overlays sit on a photo, not the page surface, so they use the chrome
+     tokens (fixed navy-on-light regardless of theme) instead of the themed
+     surface/text tokens — a theme-adaptive token would flip to unreadable
+     against the image. */
+  background: color-mix(in srgb, var(--color-chrome) 85%, transparent);
+  color: var(--color-on-chrome);
   font-size: var(--font-size-xs);
   border-radius: var(--radius-sm);
   line-height: 1.4;
@@ -152,9 +154,9 @@
   bottom: var(--space-1);
   right: var(--space-1);
   padding: 1px var(--space-1);
-  background: rgba(0, 0, 0, 0.65);
-  /* Same rationale as .badge — fixed light value against a dark background. */
-  color: #9aa3b2;
+  /* Same rationale as .badge — fixed chrome value against an image. */
+  background: color-mix(in srgb, var(--color-chrome) 85%, transparent);
+  color: var(--color-on-chrome-muted);
   font-size: var(--font-size-xs);
   border-radius: var(--radius-sm);
   line-height: 1.4;

@@ -21,6 +21,7 @@
   nvtx3,
   spdlog,
   fmt,
+  removeReferencesTo,
   ...
 }: let
   rapids_cmake_dir = "${rapids-cmake}/share/cmake/rapids-cmake";
@@ -85,6 +86,7 @@ in
     nativeBuildInputs = [
       cmake
       cudaPackages.cuda_nvcc
+      removeReferencesTo
     ];
 
     buildInputs = [
@@ -207,6 +209,37 @@ in
               exit 1
             fi
     '';
+
+    # Keep build-time-only store paths out of the runtime closure:
+    #
+    # - PaPILO's install() also copies its whole FetchContent build tree to
+    #   lib/cmake/papilo/_deps/papilo-build (Makefiles, link.txt, .o.d depfiles).
+    #   Nothing reads it (papilo-config.cmake only lists _deps/local as an
+    #   optional HINT for TBB), but it bakes in the unwrapped host gcc, the
+    #   ccache compiler wrapper, cmake and boost-dev.
+    # - libcuopt.so's .nv_fatbin (the embedded PTX's file/include paths) names
+    #   cuda_nvcc and the unwrapped host gcc. nixpkgs strips the same nvcc
+    #   string from libnccl.so's .nv_fatbin (cuda-modules/packages/nccl.nix,
+    #   NixOS/nixpkgs#457803); only path bytes change, the SASS is untouched.
+    # The unwrapped host gcc is read from the nvcc host-compiler wrapper
+    # (CUDAHOSTCXX, set by setup-cuda-hook) rather than hard-coding a gcc
+    # version, so this follows backendStdenv.
+    postFixup = ''
+      rm -rf "$out/lib/cmake/papilo/_deps"
+
+      hostCcWrapper="''${CUDAHOSTCXX%/bin/*}"
+      hostCc="$(< "$hostCcWrapper/nix-support/orig-cc")"
+      remove-references-to \
+        -t "${lib.getBin cudaPackages.cuda_nvcc}" \
+        -t "$hostCc" \
+        "$out"/lib/libcuopt.so "$out"/bin/*
+    '';
+
+    # C.f. postFixup: fail the build if a compiler or build tool leaks back in.
+    disallowedReferences = [
+      (lib.getBin cudaPackages.cuda_nvcc)
+      cmake
+    ];
 
     # Skip tests (require GPU runtime)
     doCheck = false;

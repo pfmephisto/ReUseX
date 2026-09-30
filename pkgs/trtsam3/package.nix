@@ -6,7 +6,6 @@
   cmake,
   fetchFromGitHub,
   ninja,
-  cudatoolkit,
   cudaPackages,
   opencv,
   freetype,
@@ -29,10 +28,17 @@ stdenv.mkDerivation rec {
   nativeBuildInputs = [
     cmake
     ninja
+    # The compiler only. Not the merged `cudatoolkit`: propagating that put the
+    # whole toolkit (nvcc included) into every consumer's RUNPATH and thus its
+    # runtime closure.
+    cudaPackages.cuda_nvcc
   ];
 
+  # trtsam_core's exported link interface is `cudart;cublas;cudnn` (bare
+  # names) plus the TensorRT libs, and its headers include <cuda_runtime.h>.
   propagatedBuildInputs = [
-    cudatoolkit
+    cudaPackages.cuda_cudart
+    cudaPackages.libcublas
     cudaPackages.tensorrt
     cudaPackages.cudnn
     opencv

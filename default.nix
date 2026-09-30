@@ -10,7 +10,6 @@
   cudaPackages,
   qt6,
   pkg-config,
-  cudatoolkit,
   opennurbs,
   highs,
   boost,
@@ -126,14 +125,18 @@ in
         blender.pythonPackages.python # Pin Python version to Blender's (3.11)
       ]
       # CUDA-only build tools:
-      # - cudatoolkit provides nvcc, required to compile the .cu sources and for
-      #   CMake's `enable_language(CUDA)`.
+      # - cuda_nvcc is the compiler, required to compile the .cu sources and for
+      #   CMake's `enable_language(CUDA)`. It is deliberately the bare redist
+      #   package, not `cudatoolkit`: the merged toolkit's lib/ ends up in
+      #   rux's RUNPATH and drags the whole toolkit (nvcc included, ~4 GiB)
+      #   into the runtime closure. The libraries actually linked are listed
+      #   individually in buildInputs below.
       # - addDriverRunpath ships a helper that patches a binary's RUNPATH to
       #   include /run/opengl-driver/lib. On NixOS the real libcuda.so lives
       #   there, not in any Nix store path — without this any CUDA-using binary
       #   fails at runtime with cudaErrorStubLibrary.
       ++ lib.optionals cudaSupport [
-        cudatoolkit
+        cudaPackages.cuda_nvcc
         addDriverRunpath
       ];
 
@@ -225,8 +228,21 @@ in
           # reusexLibrary.cmake skips the module when it is not found.
           gsplat-cuda
         ]
+        # Individual CUDA redist libraries instead of the merged `cudatoolkit`
+        # (see nativeBuildInputs). This is the set LibTorch's Caffe2 CMake
+        # config, trtsam3, cuOpt and OpenCV's CUDA modules resolve through
+        # FindCUDAToolkit / CUDA::* targets, plus the headers they include.
         ++ (with cudaPackages; [
           cuda_cudart
+          cccl # <thrust/*>, <cub/*> (CUDA::cccl / torch headers)
+          cuda_nvrtc # Torch imported target references CUDA_nvrtc_LIBRARY
+          cuda_nvtx
+          cuda_profiler_api
+          libcublas
+          libcufft
+          libcurand
+          libcusolver
+          libcusparse
           cudnn
         ])
       );

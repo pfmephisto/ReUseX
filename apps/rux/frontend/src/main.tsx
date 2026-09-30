@@ -8,6 +8,7 @@ import { BrowserRouter } from 'react-router-dom';
 
 // Token import comes first so every later stylesheet can rely on the custom
 // properties already being declared.
+import './fonts';
 import './tokens.css';
 import './base.css';
 

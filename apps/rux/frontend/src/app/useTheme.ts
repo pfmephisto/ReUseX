@@ -30,7 +30,8 @@ export interface UseThemeResult {
 }
 
 /**
- * Own the theme: read the stored preference, follow the OS live while it is
+ * Own the theme: read the stored preference (light by default — see
+ * `DEFAULT_THEME_PREFERENCE` in `theme.ts`), follow the OS live while it is
  * `system`, paint the resolved value onto `<html data-theme>`, and persist any
  * change. The inline script in `index.html` has already applied the correct
  * theme before first paint; this hook keeps it in sync afterwards, so mounting

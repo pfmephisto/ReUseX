@@ -4,6 +4,7 @@
 
 #include "gui.hpp"
 #include "exit_status.hpp"
+#include "gui/BackgroundModelProvider.hpp"
 #include "gui/FrameSegmenter.hpp"
 #include "gui/ModelProvider.hpp"
 #include "gui/Server.hpp"
@@ -23,6 +24,7 @@
 #include <opencv2/core.hpp>
 #include <spdlog/spdlog.h>
 
+#include <atomic>
 #include <filesystem>
 #include <memory>
 #include <mutex>
@@ -169,87 +171,40 @@ class DefaultPanoramaSegmenter : public rux::gui::IPanoramaSegmenter {
 /// Managed-SAM3-model provider (self-contained packaging). Resolves an omitted
 /// request model_path to a managed model: downloads the portable ONNX on first
 /// use and builds the device-specific TensorRT engines, both off the request
-/// thread. Lives in rux_lib (links reusex_vision); injected into the GUI server
-/// which stays free of the vision/TensorRT closure.
-class DefaultModelProvider : public rux::gui::IModelProvider {
-    public:
-  DefaultModelProvider(std::filesystem::path models_dir,
-                       std::string explicit_model, std::string manifest_url)
-      : explicit_model_(std::move(explicit_model)) {
-    base_opts_.models_dir = std::move(models_dir);
-    base_opts_.manifest_url = std::move(manifest_url);
-  }
+/// thread. The retry/cancellation state machine is rux::gui's
+/// BackgroundModelProvider; only the SAM3 prepare/probe glue lives here in
+/// rux_lib (links reusex_vision), so the GUI server stays free of the
+/// vision/TensorRT closure.
+std::unique_ptr<rux::gui::IModelProvider>
+make_sam3_model_provider(std::filesystem::path models_dir,
+                         std::string explicit_model, std::string manifest_url) {
+  namespace sam3 = reusex::vision::sam3;
+  sam3::Sam3AssetOptions base;
+  base.models_dir = std::move(models_dir);
+  base.manifest_url = std::move(manifest_url);
 
-  ~DefaultModelProvider() override {
-    for (auto &slot : slots_)
-      if (slot.worker.joinable())
-        slot.worker.join();
-  }
-
-  rux::gui::ModelPrepStatus ensure(bool use_cuda) override {
-    if (!explicit_model_.empty())
-      return {"ready", 1.0f, "explicit model", explicit_model_};
-
-    Slot &slot = slots_[use_cuda ? 1 : 0];
-    std::lock_guard<std::mutex> lock(slot.m);
-    if (!slot.started) {
-      slot.started = true;
-      slot.status = {"downloading", 0.0f, "preparing managed SAM3 model", ""};
-      slot.worker =
-          std::thread([this, &slot, use_cuda] { run(slot, use_cuda); });
-    }
-    return slot.status;
-  }
-
-  rux::gui::ModelPrepStatus status(bool use_cuda) override {
-    if (!explicit_model_.empty())
-      return {"ready", 1.0f, "explicit model", explicit_model_};
-
-    Slot &slot = slots_[use_cuda ? 1 : 0];
-    std::lock_guard<std::mutex> lock(slot.m);
-    if (slot.started)
-      return slot.status;
-
-    // Not started yet — pure probe of what is already on disk.
-    auto opts = base_opts_;
-    opts.use_cuda = use_cuda;
-    const auto p = reusex::vision::sam3::sam3_status(opts);
-    return {reusex::vision::sam3::to_string(p.state), p.fraction, p.message,
-            ""};
-  }
-
-    private:
-  struct Slot {
-    std::mutex m;
-    std::thread worker;
-    bool started = false;
-    rux::gui::ModelPrepStatus status{"absent", 0.0f, "", ""};
-  };
-
-  void run(Slot &slot, bool use_cuda) {
-    auto opts = base_opts_;
-    opts.use_cuda = use_cuda;
-    try {
-      auto cb = [&slot](const reusex::vision::sam3::PrepProgress &p) {
-        std::lock_guard<std::mutex> lock(slot.m);
-        slot.status.state = reusex::vision::sam3::to_string(p.state);
-        slot.status.progress = p.fraction;
-        slot.status.message = p.message;
+  auto prepare =
+      [base](bool use_cuda,
+             const rux::gui::BackgroundModelProvider::ProgressFn &progress,
+             const std::atomic<bool> &stop) {
+        auto opts = base;
+        opts.use_cuda = use_cuda;
+        opts.cancel = &stop;
+        const auto dir = sam3::prepare_sam3_model(
+            opts, [&progress](const sam3::PrepProgress &p) {
+              progress({sam3::to_string(p.state), p.fraction, p.message, ""});
+            });
+        return dir.string();
       };
-      const auto dir = reusex::vision::sam3::prepare_sam3_model(opts, cb);
-      std::lock_guard<std::mutex> lock(slot.m);
-      slot.status = {"ready", 1.0f, "ready", dir.string()};
-    } catch (const std::exception &e) {
-      spdlog::error("SAM3 model preparation failed: {}", e.what());
-      std::lock_guard<std::mutex> lock(slot.m);
-      slot.status = {"error", 0.0f, e.what(), ""};
-    }
-  }
-
-  reusex::vision::sam3::Sam3AssetOptions base_opts_;
-  std::string explicit_model_;
-  Slot slots_[2]; // [0] = CPU/ONNX, [1] = CUDA/TensorRT
-};
+  auto probe = [base](bool use_cuda) -> rux::gui::ModelPrepStatus {
+    auto opts = base;
+    opts.use_cuda = use_cuda;
+    const auto p = sam3::sam3_status(opts);
+    return {sam3::to_string(p.state), p.fraction, p.message, ""};
+  };
+  return std::make_unique<rux::gui::BackgroundModelProvider>(
+      std::move(prepare), std::move(probe), std::move(explicit_model));
+}
 
 // ---------------------------------------------------------------------------
 // Optimize executor (#464)
@@ -463,9 +418,9 @@ int run_subcommand_gui(SubcommandGuiOptions const &opt,
 
     // Managed-model provider: resolves an omitted model_path and provisions the
     // SAM3 model (download ONNX + build engines) lazily on first use (#448).
-    DefaultModelProvider model_provider(opt.models_dir, opt.sam3_model_dir,
-                                        opt.sam3_manifest_url);
-    server.set_model_provider(&model_provider);
+    const auto model_provider = make_sam3_model_provider(
+        opt.models_dir, opt.sam3_model_dir, opt.sam3_manifest_url);
+    server.set_model_provider(model_provider.get());
 
     spdlog::info("Serving {} at {}", global_opt.project_db.string(),
                  server.url());

@@ -63,15 +63,25 @@ in {
   # consumer (g2o, ceres, rtabmap, openmvs) then needs those on its include path
   # or fails with "cublas_v2.h: No such file or directory". Propagate them.
   # Keeps SuiteSparse's GPU sparse solvers enabled.
-  suitesparse = prev.suitesparse.overrideAttrs (old: {
-    propagatedBuildInputs =
-      (old.propagatedBuildInputs or [])
-      ++ [
-        final.cudaPackages.libcublas
-        final.cudaPackages.cuda_cudart
-        final.cudaPackages.cuda_nvcc # crt/host_defines.h (pulled in by cuda_runtime.h)
-      ];
-  });
+  #
+  # Only when SuiteSparse is actually built with CUDA: its `enableCuda` defaults
+  # to config.cudaSupport (and isn't exposed on the result), so gate on the same
+  # config. Propagating nvcc into a cudaSupport=false closure leaks it into
+  # ceres-solver -> OpenMVS, whose OpenMVS_USE_CUDA then auto-enables and fails
+  # configure ("links to CUDA::curand but the target was not found").
+  suitesparse =
+    if prev.config.cudaSupport or false
+    then
+      prev.suitesparse.overrideAttrs (old: {
+        propagatedBuildInputs =
+          (old.propagatedBuildInputs or [])
+          ++ [
+            final.cudaPackages.libcublas
+            final.cudaPackages.cuda_cudart
+            final.cudaPackages.cuda_nvcc # crt/host_defines.h (pulled in by cuda_runtime.h)
+          ];
+      })
+    else prev.suitesparse;
 
   # Heavy nixpkgs C++ packages that stay on the plain stdenv even under CUDA
   # (they invoke nvcc as a separate tool). Wrapping the stdenv arg is a no-op

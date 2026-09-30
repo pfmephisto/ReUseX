@@ -11,9 +11,9 @@ export interface JobIndicatorProps {
 }
 
 const CONNECTION_LABEL: Record<ConnectionStatus, string> = {
-  connecting: 'Connecting to the event channel…',
+  connecting: 'Forbinder til hændelseskanalen…',
   open: 'Live',
-  closed: 'Event channel disconnected — results shown may be stale',
+  closed: 'Hændelseskanalen er afbrudt — viste resultater kan være forældede',
 };
 
 /**
@@ -34,9 +34,7 @@ export function JobIndicator({ connection, activeJobCount }: JobIndicatorProps) 
         aria-hidden="true"
       />
       <span className={styles.label}>
-        {busy
-          ? `${activeJobCount} job${activeJobCount === 1 ? '' : 's'} running`
-          : CONNECTION_LABEL[connection]}
+        {busy ? `${activeJobCount} job kører` : CONNECTION_LABEL[connection]}
       </span>
     </div>
   );

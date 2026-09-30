@@ -115,7 +115,7 @@
 }
 
 .stickyCol.scrolled {
-  box-shadow: 2px 0 8px -2px rgb(0 0 0 / 30%);
+  box-shadow: var(--shadow-md);
 }
 
 /* No outer grid line on the last data column's right edge. */
@@ -128,11 +128,10 @@
   background: var(--color-surface-overlay);
 }
 
-/* Selected rows win over hover: tinted accent wash (~14% alpha). */
+/* Selected rows win over hover: the dedicated "selected row" fill. */
 .table tbody tr[data-selected='true'] td,
 .table tbody tr[data-selected='true']:hover td {
-  --row-selected-bg: color-mix(in srgb, var(--color-accent) 14%, transparent);
-  background: var(--row-selected-bg);
+  background: var(--color-accent-muted);
 }
 
 /* The row whose peek panel is open gets an accent left edge + faint wash. */

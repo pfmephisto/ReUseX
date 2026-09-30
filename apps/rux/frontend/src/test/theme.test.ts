@@ -15,6 +15,7 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  DEFAULT_THEME_PREFERENCE,
   THEME_PREFERENCES,
   THEME_STORAGE_KEY,
   isThemePreference,
@@ -67,20 +68,21 @@ describe('isThemePreference', () => {
 });
 
 describe('THEME_PREFERENCES', () => {
-  it('lists the three choices with system (the default) first', () => {
-    expect([...THEME_PREFERENCES]).toEqual(['system', 'light', 'dark']);
-    expect(THEME_PREFERENCES[0]).toBe('system');
+  it('lists the three choices with light (the default) first', () => {
+    expect([...THEME_PREFERENCES]).toEqual(['light', 'dark', 'system']);
+    expect(THEME_PREFERENCES[0]).toBe(DEFAULT_THEME_PREFERENCE);
+    expect(DEFAULT_THEME_PREFERENCE).toBe('light');
   });
 });
 
 describe('readStoredPreference / storePreference', () => {
-  it('defaults to system when nothing is stored', () => {
-    expect(readStoredPreference(fakeStorage())).toBe('system');
+  it('defaults to light when nothing is stored', () => {
+    expect(readStoredPreference(fakeStorage())).toBe('light');
   });
 
-  it('defaults to system when the stored value is not a preference', () => {
+  it('defaults to light when the stored value is not a preference', () => {
     expect(readStoredPreference(fakeStorage({ [THEME_STORAGE_KEY]: 'sepia' }))).toBe(
-      'system',
+      'light',
     );
   });
 
@@ -95,5 +97,12 @@ describe('readStoredPreference / storePreference', () => {
     storePreference('dark', storage);
     expect(storage.getItem(THEME_STORAGE_KEY)).toBe('dark');
     expect(readStoredPreference(storage)).toBe('dark');
+  });
+
+  it('keeps a stored dark or system choice across the default change', () => {
+    expect(readStoredPreference(fakeStorage({ 'reusex-theme': 'dark' }))).toBe('dark');
+    expect(readStoredPreference(fakeStorage({ 'reusex-theme': 'system' }))).toBe(
+      'system',
+    );
   });
 });

@@ -8,9 +8,9 @@ import type { ThemePreference } from '../theme';
 import styles from './ThemeToggle.module.css';
 
 const LABELS: Record<ThemePreference, string> = {
+  light: 'Lys',
+  dark: 'Mørk',
   system: 'System',
-  light: 'Light',
-  dark: 'Dark',
 };
 
 /**
@@ -64,7 +64,7 @@ export function ThemeToggle() {
   const { preference, setPreference } = useTheme();
 
   return (
-    <div className={styles.group} role="radiogroup" aria-label="Colour theme">
+    <div className={styles.group} role="radiogroup" aria-label="Farvetema">
       {THEME_PREFERENCES.map((option) => {
         const active = option === preference;
         return (
@@ -74,11 +74,11 @@ export function ThemeToggle() {
             role="radio"
             aria-checked={active}
             className={`${styles.option} ${active ? styles.active : ''}`}
-            title={`${LABELS[option]} theme`}
+            title={`${LABELS[option]} tema`}
             onClick={() => setPreference(option)}
           >
             <ThemeIcon preference={option} />
-            <span className={styles.srOnly}>{LABELS[option]} theme</span>
+            <span className={styles.srOnly}>{LABELS[option]} tema</span>
           </button>
         );
       })}

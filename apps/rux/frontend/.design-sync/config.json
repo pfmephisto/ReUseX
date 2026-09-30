@@ -15,7 +15,7 @@
   },
   "dtsPropsFor": {
     "JobToaster": "// no props \u2014 renders from app JobsContext",
-    "NavRail": "// no props \u2014 renders from router context"
+    "Sidebar": "// projectName?: string; badges?: { reviewQueue?: number; pendingSamples?: number } \u2014 renders from router context"
   },
   "runtimeFontPrefixes": [
     "JetBrains Mono",

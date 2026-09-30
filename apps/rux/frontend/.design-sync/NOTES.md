@@ -11,9 +11,10 @@
 - `--font-mono` is a SYSTEM font stack by design (ui-monospace, SF Mono, ...);
   JetBrains Mono / Fira Code are opportunistic mid-stack candidates, not shipped
   brand fonts → runtimeFontPrefixes suppresses [FONT_MISSING] honestly.
-- JobToaster/NavRail take no props (context-driven): dtsPropsFor pins empty
-  props bodies. NavRail previews via PreviewProviders (MemoryRouter, in
-  src/preview-support.tsx via extraEntries). JobToaster keeps the FLOOR CARD
+- JobToaster takes no props (context-driven): dtsPropsFor pins its empty props
+  body. Sidebar takes `projectName?`/`badges?` but still reads router context
+  for its active entry, so it also previews via PreviewProviders (MemoryRouter,
+  in src/preview-support.tsx via extraEntries). JobToaster keeps the FLOOR CARD
   deliberately: its JobsContext is not externally injectable and feeding it
   requires a live rux gui server — do not chase this on re-sync.
 - .d.ts contracts come from `npm run build:types` (tsc -p tsconfig.decl.json ->
@@ -35,8 +36,8 @@
   public fallback path. Export it if those branches should be showcased.
 - EmptyState WithAction uses a native <button> (no Button export exists) —
   browser-default chrome inside the card is expected, not a bug.
-- NavRail: no props + bare MemoryRouter = always renders the "Overview" route
-  active; variance ceiling is structural.
+- Sidebar: bare MemoryRouter = always renders the "Overblik" route active;
+  variance across cells comes from `projectName`/`badges` props only.
 - PipelineLogEntry stage names are engine tokens (cloud_reconstruction,
   segment_planes...) — previews must use those, not display names.
 

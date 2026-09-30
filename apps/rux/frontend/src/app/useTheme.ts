@@ -14,11 +14,15 @@ import {
 
 const DARK_QUERY = '(prefers-color-scheme: dark)';
 
-/** Whether the OS currently asks for dark; dark-first when it cannot be asked. */
+/**
+ * Whether the OS currently asks for dark. Falls back to light (`false`) when
+ * it cannot be asked, matching the FOUC guard's light fallback in
+ * `index.html` — light is the app default, not dark.
+ */
 function systemPrefersDark(): boolean {
   return typeof window !== 'undefined' && typeof window.matchMedia === 'function'
     ? window.matchMedia(DARK_QUERY).matches
-    : true;
+    : false;
 }
 
 export interface UseThemeResult {
@@ -30,7 +34,8 @@ export interface UseThemeResult {
 }
 
 /**
- * Own the theme: read the stored preference, follow the OS live while it is
+ * Own the theme: read the stored preference (light by default — see
+ * `DEFAULT_THEME_PREFERENCE` in `theme.ts`), follow the OS live while it is
  * `system`, paint the resolved value onto `<html data-theme>`, and persist any
  * change. The inline script in `index.html` has already applied the correct
  * theme before first paint; this hook keeps it in sync afterwards, so mounting

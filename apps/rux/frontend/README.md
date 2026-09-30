@@ -93,15 +93,19 @@ jsdom dependency is carried, and nothing under `pipeline/` may reach for one.
 ## Design tokens
 
 `src/tokens.css` is **owned by the Claude Design project "ReUseX GUI"**
-(project id `19f0cf0f-1f7c-43a7-8311-1fd67e34bbb7`). Its values are
-placeholders until the first `/design-sync`. Never hand-tune them — re-sync
-instead. This repo owns the token *names* and their roles; the design project
-owns every value on the right-hand side.
+(project id `19f0cf0f-1f7c-43a7-8311-1fd67e34bbb7`). Its values are the
+prototype-v2 identity (`docs/design/gui-kortlaegning-redesign.md`), adopted
+before the first `/design-sync`; push them to the design project with
+`/design-sync` rather than hand-tuning. This repo owns the token *names* and
+their roles; the design project owns every value on the right-hand side.
 
 The corollary is a hard rule for everything else under `src/`: no colour,
 radius, spacing or type size is ever written literally in a component, only
 `var(--...)`. That is what makes the first real sync a value swap rather than a
 refactor.
+
+Fonts (Oswald, Archivo) are bundled from `@fontsource/*` in `src/fonts.ts`;
+the app never fetches fonts at runtime.
 
 ## Layout
 
@@ -113,7 +117,7 @@ src/
 ├── app/          App shell, routing, cross-cutting state (JobsContext),
 │                 useAsync
 ├── components/   Presentational, contract-agnostic building blocks
-│                 (DataTable, StatCard, NavRail, JobToaster, ...)
+│                 (DataTable, StatCard, Sidebar, JobToaster, ...)
 ├── pipeline/     Pure stage-runner logic: the card view model (stageModel),
 │                 parameter-form parsing and the omit-defaults submit rule
 │                 (params), and the pipeline_log timeline (history)

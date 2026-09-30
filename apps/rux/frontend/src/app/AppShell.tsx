@@ -5,16 +5,17 @@
 import type { ReactNode } from 'react';
 
 import { api } from '../api/client';
-import type { Health } from '../api/types';
+import type { Health, ProjectSummary } from '../api/types';
 import { TitleBar } from '../components/TitleBar';
-import { NavRail } from '../components/NavRail';
+import { Sidebar } from '../components/Sidebar';
 import { JobToaster } from '../components/JobToaster';
 import { useAsync } from './useAsync';
 import { useJobs } from './JobsContext';
+import { displayProjectName } from './navigation';
 import styles from './AppShell.module.css';
 
 /**
- * Title bar + nav rail + content region.
+ * Title bar + sidebar + content region.
  *
  * The shell resolves the project identity once, from `GET /health`, rather than
  * from `/project`: health is the cheap call, it is the one the contract
@@ -24,6 +25,7 @@ import styles from './AppShell.module.css';
  */
 export function AppShell({ children }: { children: ReactNode }) {
   const { data: health, error } = useAsync<Health>((signal) => api.health(signal), []);
+  const { data: summary } = useAsync<ProjectSummary>((signal) => api.projectSummary(signal), []);
   const { active, status } = useJobs();
 
   return (
@@ -39,7 +41,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         unreachable={Boolean(error)}
       />
       <div className={styles.body}>
-        <NavRail />
+        <Sidebar projectName={displayProjectName(summary, health)} />
         <main className={styles.content}>{children}</main>
       </div>
       <JobToaster />

@@ -13,8 +13,8 @@
 
 /*
  * auto-fit rather than a fixed column count: the shell already spends
- * --layout-nav-width on the rail, and on a laptop six fixed tiles would each be
- * narrower than the eight-digit figure they have to hold.
+ * --layout-nav-width on the sidebar, and on a laptop six fixed tiles would each
+ * be narrower than the eight-digit figure they have to hold.
  */
 .stats {
   display: grid;
@@ -207,7 +207,7 @@
   font-size: var(--font-size-sm);
   padding: var(--space-1) var(--space-3);
   background: var(--color-accent);
-  color: var(--color-text-on-accent, #fff);
+  color: var(--color-on-accent);
   border: none;
   border-radius: var(--radius-sm);
   cursor: pointer;

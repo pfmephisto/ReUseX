@@ -6,7 +6,8 @@
  * Colour-theme model: the user's *preference* versus the *resolved* theme.
  *
  * A preference of `system` defers to the OS (`prefers-color-scheme`); `light`
- * and `dark` force one. The DOM only ever carries a resolved value on
+ * and `dark` force one. `light` is the default for a first-time user (see
+ * {@link DEFAULT_THEME_PREFERENCE}). The DOM only ever carries a resolved value on
  * `<html data-theme>` — `light` or `dark` — because CSS has one light token
  * block to override, not two. The unresolved preference lives in localStorage.
  *
@@ -25,8 +26,11 @@ export type ResolvedTheme = 'light' | 'dark';
  */
 export const THEME_STORAGE_KEY = 'reusex-theme';
 
+/** What a first-time user sees: the light workbench of the prototype-v2 identity. */
+export const DEFAULT_THEME_PREFERENCE: ThemePreference = 'light';
+
 /** The three choices, in the order the toggle presents them (default first). */
-export const THEME_PREFERENCES = ['system', 'light', 'dark'] as const;
+export const THEME_PREFERENCES = ['light', 'dark', 'system'] as const;
 
 export function isThemePreference(value: unknown): value is ThemePreference {
   return value === 'system' || value === 'light' || value === 'dark';
@@ -53,13 +57,17 @@ function defaultStorage(): Storage | undefined {
   }
 }
 
-/** The stored preference, defaulting to `system` when missing or unrecognised. */
+/**
+ * The stored preference, defaulting to {@link DEFAULT_THEME_PREFERENCE} when
+ * missing or unrecognised. A stored `dark` or `system` from before light became
+ * the default is honoured unchanged.
+ */
 export function readStoredPreference(storage = defaultStorage()): ThemePreference {
   try {
     const raw = storage?.getItem(THEME_STORAGE_KEY);
-    return isThemePreference(raw) ? raw : 'system';
+    return isThemePreference(raw) ? raw : DEFAULT_THEME_PREFERENCE;
   } catch {
-    return 'system';
+    return DEFAULT_THEME_PREFERENCE;
   }
 }
 

@@ -4,7 +4,7 @@ SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
 SPDX-License-Identifier: GPL-3.0-or-later
 -->
 <!doctype html>
-<html lang="en">
+<html lang="da">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -16,16 +16,18 @@ SPDX-License-Identifier: GPL-3.0-or-later
       // a hand-inlined mirror of resolveTheme()/THEME_STORAGE_KEY in
       // src/theme.ts — keep the key and the resolution rule in sync. The React
       // useTheme hook re-applies the identical value on mount (idempotent).
+      // Light is the default when nothing (valid) is stored.
       (function () {
         try {
-          var choice = localStorage.getItem('reusex-theme') || 'system';
+          var choice = localStorage.getItem('reusex-theme');
+          if (choice !== 'dark' && choice !== 'system') choice = 'light';
           var dark =
             choice === 'dark' ||
-            (choice !== 'light' &&
+            (choice === 'system' &&
               window.matchMedia('(prefers-color-scheme: dark)').matches);
           document.documentElement.dataset.theme = dark ? 'dark' : 'light';
         } catch (e) {
-          document.documentElement.dataset.theme = 'dark';
+          document.documentElement.dataset.theme = 'light';
         }
       })();
     </script>

@@ -118,7 +118,7 @@
 
 .error {
   font-size: var(--font-size-xs);
-  color: var(--color-danger);
+  color: var(--tone-crit-ink);
   margin: 0;
 }
 
@@ -131,17 +131,17 @@
 .deleteBtn {
   flex: 1;
   padding: var(--space-1) var(--space-2);
-  background: var(--color-danger-subtle);
-  color: var(--color-danger);
-  border: 1px solid var(--color-danger);
+  background: var(--tone-crit-bg);
+  color: var(--tone-crit-ink);
+  border: 1px solid var(--tone-crit-ink);
   border-radius: var(--radius-sm);
   font-size: var(--font-size-sm);
   cursor: pointer;
 }
 
 .deleteBtn:hover:not(:disabled) {
-  background: var(--color-danger);
-  color: var(--color-on-danger);
+  background: var(--tone-crit-ink);
+  color: var(--color-surface-raised);
 }
 
 .deleteBtn:disabled {
@@ -181,7 +181,7 @@
 .optimizeBtn {
   width: 100%;
   padding: var(--space-1) var(--space-2);
-  background: var(--color-accent-subtle);
+  background: var(--color-accent-muted);
   color: var(--color-accent);
   border: 1px solid var(--color-accent);
   border-radius: var(--radius-sm);
@@ -238,7 +238,7 @@
 .submitBtn {
   flex: 1;
   padding: var(--space-1) var(--space-2);
-  background: var(--color-accent-subtle);
+  background: var(--color-accent-muted);
   color: var(--color-accent);
   border: 1px solid var(--color-accent);
   border-radius: var(--radius-sm);

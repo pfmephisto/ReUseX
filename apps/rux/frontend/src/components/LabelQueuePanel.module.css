@@ -298,7 +298,7 @@
 }
 
 .item_done {
-  border-left-color: var(--color-status-ok, #4caf50);
+  border-left-color: var(--tone-good-ink);
   border-left-width: 3px;
   opacity: 0.85;
 }
@@ -367,8 +367,8 @@
 }
 
 .status_done {
-  background: color-mix(in srgb, var(--color-status-ok, #4caf50) 15%, transparent);
-  color: var(--color-status-ok, #4caf50);
+  background: var(--tone-good-bg);
+  color: var(--tone-good-ink);
 }
 
 .status_failed {

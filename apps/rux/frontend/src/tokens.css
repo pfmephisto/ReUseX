@@ -7,67 +7,109 @@
  * OWNED BY the Claude Design project "ReUseX GUI"
  * (project id 19f0cf0f-1f7c-43a7-8311-1fd67e34bbb7).
  *
- * These are PLACEHOLDER VALUES until the first /design-sync. Do not hand-tune
- * them beyond structure — re-sync instead. What this repo owns here is the set
- * of token *names* and their roles; what the design project owns is every
- * value on the right-hand side.
+ * Values: the prototype-v2 identity (docs/design/gui-kortlaegning-redesign.md),
+ * adopted 2026-09-30 ahead of the first /design-sync. The repo owns the token
+ * *names* and roles; the design project owns every value on the right-hand
+ * side. Push these to the design project with /design-sync rather than
+ * letting the two drift.
  *
  * Rule for everything else in src/: no colour, radius, spacing or type size is
- * ever written literally in a component. Only var(--...). That is what makes
- * the first real sync a value swap rather than a refactor.
+ * ever written literally in a component. Only var(--...).
  * ============================================================================
  *
- * Palette notes for whoever authors the real values:
- *
- *  - The viewport canvas must stay near-black. Point clouds are additive light
- *    on a dark field; a light canvas destroys the depth read entirely.
- *  - --label-N is a CATEGORICAL scale for segmentation classes and must stay
- *    colourblind-safe. The placeholders are the Okabe-Ito 8-colour set, which
- *    is distinguishable under deuteranopia, protanopia and tritanopia. If the
- *    design project replaces them, it must replace them with another set that
- *    holds that property — this is a correctness constraint, not a taste one:
- *    the user is reading semantic classes off these colours.
+ * Correctness constraints for whoever authors values:
+ *  - --color-canvas stays near-black in BOTH themes. Point clouds are additive
+ *    light on a dark field; a light canvas destroys the depth read.
+ *  - --label-N is a CATEGORICAL, colourblind-safe scale (Okabe-Ito). A
+ *    replacement must keep that property; it is never overridden per theme.
+ *  - --circ-* is the waste hierarchy (affaldshierarki), ordered from best
+ *    (bevaring) to worst (bortskaffelse). It is read as a ranked category.
  */
 
 :root {
-  /* Dark is the default theme. `data-theme` on <html> carries the *resolved*
-     value (light | dark); the light block below overrides at equal specificity
-     and wins on source order when it applies. */
-  color-scheme: dark;
+  /* Light is the default theme. `data-theme` on <html> carries the resolved
+     value; the dark block below overrides at equal specificity and wins on
+     source order when it applies. */
+  color-scheme: light;
 
   /* ---------------------------------------------------------- surfaces -- */
-  /* Application chrome, from furthest back to nearest the user. */
-  --color-canvas: #0a0b0d; /* the 3D viewport background */
-  --color-surface: #131519; /* page background */
-  --color-surface-raised: #1a1d23; /* cards, panels */
-  --color-surface-overlay: #22262e; /* toasts, menus, hover */
-  --color-surface-sunken: #0e1014; /* wells, table headers */
+  --color-canvas: #171c24; /* the 3D viewport — near-black in both themes */
+  --color-surface: #e9e9e7; /* the workbench (page background) */
+  --color-surface-raised: #ffffff; /* panels, cards */
+  --color-surface-overlay: #ffffff; /* menus, toasts, hover */
+  --color-surface-sunken: #f2f2f0; /* inputs, table headers, wells */
+  --color-scrim: #1d2d3d; /* modal backdrop, used at reduced opacity */
+
+  /* ------------------------------------------------------------ chrome -- */
+  /* The navy title bar and sidebar. */
+  --color-chrome: #1d2d3d;
+  --color-chrome-raised: #24374b; /* active nav row, chrome buttons */
+  --color-chrome-border: #35495e;
+  --color-on-chrome: #f2f2f3;
+  --color-on-chrome-muted: #93a3b3;
 
   /* ------------------------------------------------------------ border -- */
-  --color-border: #2a2f38;
-  --color-border-strong: #3b414c;
-  --color-border-focus: #6ea8fe;
+  --color-border: #d8d8d4;
+  --color-border-strong: #b9bcbf;
+  --color-border-focus: #5980a6;
 
   /* -------------------------------------------------------------- text -- */
-  --color-text: #e6e9ef;
-  --color-text-muted: #9aa3b2;
-  --color-text-faint: #6b7382;
-  --color-text-inverse: #0a0b0d;
+  --color-text: #1c2530;
+  --color-text-muted: #5a6470;
+  --color-text-faint: #8b939d; /* decoration and disabled only (3.1:1) */
+  --color-text-inverse: #f2f2f3;
 
   /* ------------------------------------------------------------ accent -- */
-  --color-accent: #6ea8fe;
-  --color-accent-hover: #8cbaff;
-  --color-accent-muted: #21344f;
-  --color-on-accent: #0a0b0d;
+  --color-accent: #5980a6; /* bars, markers, focus, active dots */
+  --color-accent-hover: #3e5f80;
+  --color-accent-muted: #e4ebf2; /* selected row, soft fills */
+  --color-accent-deep: #3e5f80; /* accent text; filled primary buttons */
+  --color-on-accent: #ffffff; /* text on --color-accent-deep */
+  --color-star: #b98a1d; /* "vigtig" ★ */
+
+  /* -------------------------------------------------------------- tone -- */
+  /* Background/ink pairs for pills and notices. */
+  --tone-good-bg: #deebe2;
+  --tone-good-ink: #2c5c40;
+  --tone-warn-bg: #f3e9cb;
+  --tone-warn-ink: #6e5313;
+  --tone-wait-bg: #e3e6ea;
+  --tone-wait-ink: #4a5563;
+  --tone-crit-bg: #f3dcd7;
+  --tone-crit-ink: #8a2f23;
+  --tone-accent-bg: #e4ebf2;
+  --tone-accent-ink: #3e5f80;
+
+  /* ----------------------------------------- categorical: affaldshierarki */
+  --circ-bevaring: #24374b;
+  --circ-genbrug: #5980a6;
+  --circ-genanvendelse: #6f9080;
+  --circ-nyttiggoerelse: #c09a46;
+  --circ-bortskaffelse: #8a6a55;
+
+  /* ------------------------------------------------ categorical: chips -- */
+  /* Tag chips for select/multiselect columns (Materialedata). bg/ink pairs,
+     ≥4.5:1 in both themes. */
+  --chip-blue-bg: #dde9f7;
+  --chip-blue-ink: #1f5f99;
+  --chip-red-bg: #f6dedc;
+  --chip-red-ink: #9a3530;
+  --chip-green-bg: #dcede3;
+  --chip-green-ink: #2c6b48;
+  --chip-purple-bg: #eee0f3;
+  --chip-purple-ink: #6f3f80;
+  --chip-yellow-bg: #f5ebd0;
+  --chip-yellow-ink: #72561a;
+  --chip-gray-bg: #e6e7e9;
+  --chip-gray-ink: #4a5260;
 
   /* ------------------------------------------------------------ status -- */
-  /* Job/stage lifecycle. Kept distinct in luminance as well as hue, so the
-     status of a row is readable without relying on colour alone. */
-  --color-status-queued: #9aa3b2;
-  --color-status-running: #56b4e9;
-  --color-status-succeeded: #009e73;
-  --color-status-failed: #d55e00;
-  --color-status-cancelled: #7a828f;
+  /* Job/stage lifecycle. Distinct in luminance as well as hue. */
+  --color-status-queued: #55606f;
+  --color-status-running: #0072b2;
+  --color-status-succeeded: #007a59;
+  --color-status-failed: #b8460b;
+  --color-status-cancelled: #838d9c;
 
   /* --------------------------------------------- categorical: labels ---- */
   /* Okabe-Ito. Consumed by the viewport's label colour mode and the legend. */
@@ -84,32 +126,33 @@
   --label-unlabeled: #4a505c;
 
   /* ------------------------------------------------- viewport: geometry -- */
-  /* Diffuse albedo for a mesh with no vertex colours of its own. A mid neutral
-     gray so the lit surface reads as solid geometry against the near-black
-     canvas instead of collapsing to black. */
   --mesh-surface: #8a8f99;
 
   /* ------------------------------------------------------------ typography */
-  --font-sans:
-    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue',
-    Arial, sans-serif;
+  --font-display: 'Oswald', 'Arial Narrow', sans-serif;
+  --font-sans: 'Archivo', 'Helvetica Neue', Arial, sans-serif;
   /* Data tables are monospace by design brief — figures must align. */
   --font-mono:
     ui-monospace, 'SF Mono', 'JetBrains Mono', 'Fira Code', Menlo, Consolas, monospace;
 
-  --font-size-xs: 0.6875rem;
-  --font-size-sm: 0.8125rem;
-  --font-size-md: 0.875rem;
-  --font-size-lg: 1rem;
-  --font-size-xl: 1.25rem;
-  --font-size-2xl: 1.75rem;
+  --font-size-2xs: 0.625rem; /* uppercase field labels, table headers */
+  --font-size-xs: 0.6875rem; /* pills, captions */
+  --font-size-sm: 0.75rem; /* secondary text, controls */
+  --font-size-md: 0.84375rem; /* body (13.5px) */
+  --font-size-lg: 1rem; /* card titles */
+  --font-size-xl: 1.45rem; /* view headings */
+  --font-size-2xl: 1.65rem; /* KPI figures */
+  --font-size-3xl: 1.9rem; /* page headings */
 
   --font-weight-regular: 400;
   --font-weight-medium: 500;
   --font-weight-bold: 600;
 
-  --line-height-tight: 1.2;
-  --line-height-normal: 1.5;
+  --line-height-tight: 1.15;
+  --line-height-normal: 1.45;
+
+  --tracking-caps: 0.08em; /* uppercase labels */
+  --tracking-wide: 0.18em; /* the sidebar's PROJEKT eyebrow */
 
   /* -------------------------------------------------------------- space -- */
   --space-0: 0;
@@ -122,20 +165,23 @@
   --space-7: 3rem;
 
   /* ------------------------------------------------------------- radius -- */
-  --radius-sm: 3px;
-  --radius-md: 6px;
-  --radius-lg: 10px;
+  --radius-sm: 3px; /* pills, kbd */
+  --radius-md: 4px; /* buttons, inputs */
+  --radius-lg: 6px; /* panels, cards */
+  --radius-xl: 8px; /* dialogs */
   --radius-pill: 999px;
 
   /* ------------------------------------------------------------ shadow --- */
-  --shadow-sm: 0 1px 2px rgb(0 0 0 / 40%);
-  --shadow-md: 0 4px 12px rgb(0 0 0 / 45%);
-  --shadow-lg: 0 12px 32px rgb(0 0 0 / 55%);
+  --shadow-sm: 0 1px 2px rgb(29 45 61 / 10%);
+  --shadow-md: 0 4px 12px rgb(29 45 61 / 12%);
+  --shadow-lg: 0 14px 44px rgb(0 0 0 / 40%);
+  --shadow-panel: 0 1px 2px rgb(29 45 61 / 10%), 0 4px 12px rgb(29 45 61 / 7%);
 
   /* ------------------------------------------------------------ layout --- */
   --layout-titlebar-height: 44px;
-  --layout-nav-width: 180px;
+  --layout-nav-width: 13.5rem; /* the navy sidebar */
   --layout-panel-width: 280px;
+  --layout-bench-aside-width: 21.5rem; /* Kortlægning's evidence/detail column */
 
   /* ------------------------------------------------------------- motion -- */
   --duration-fast: 120ms;
@@ -149,65 +195,84 @@
 }
 
 /*
- * Light theme. The GUI is dark-first because the viewport is, so this block
- * only re-points the *chrome* semantic tokens: the canvas stays near-black
- * (point clouds are additive light on a dark field — a light canvas destroys
- * the depth read), and the categorical --label-* palette is left untouched so
- * the Okabe-Ito set keeps its colourblind-safe distinctness in both themes.
- *
- * These are PLACEHOLDER VALUES, exactly like the dark set above: they exist so
- * the toggle has something to switch to before the first /design-sync. Do not
- * hand-tune beyond structure — re-sync instead. What this repo owns here is the
- * set of token names and their roles; the design project owns every value.
- *
- * `[data-theme='light']` and `:root` share specificity (0,1,0); this block
- * wins only because it comes later in the file. Keep it after `:root`.
+ * Dark theme — derived from the navy chrome. Re-points the themed roles only:
+ * the canvas and the --label-* scale are left alone (see the header).
+ * `[data-theme='dark']` and `:root` share specificity (0,1,0); this block wins
+ * only because it comes later in the file. Keep it after `:root`.
  */
-[data-theme='light'] {
-  color-scheme: light;
+[data-theme='dark'] {
+  color-scheme: dark;
 
-  /* ---------------------------------------------------------- surfaces -- */
-  --color-canvas: #0a0b0d; /* unchanged: the viewport must stay near-black */
-  --color-surface: #f4f5f7;
-  --color-surface-raised: #ffffff;
-  --color-surface-overlay: #ffffff;
-  --color-surface-sunken: #e9ebef;
+  --color-canvas: #171c24; /* unchanged: the viewport stays near-black in both themes */
+  --color-surface: #141c25;
+  --color-surface-raised: #1b2530;
+  --color-surface-overlay: #22303d;
+  --color-surface-sunken: #10161d;
+  --color-scrim: #05080c;
 
-  /* ------------------------------------------------------------ border -- */
-  --color-border: #d5d9e0;
-  --color-border-strong: #b7bec9;
-  --color-border-focus: #2563eb;
+  --color-chrome: #0f1822;
+  --color-chrome-raised: #172433;
+  --color-chrome-border: #26384a;
+  --color-on-chrome: #eef1f4;
+  --color-on-chrome-muted: #8698aa;
 
-  /* -------------------------------------------------------------- text -- */
-  --color-text: #1a1d23;
-  --color-text-muted: #55606f;
-  --color-text-faint: #838d9c;
-  --color-text-inverse: #f4f5f7;
+  --color-border: #2c3a48;
+  --color-border-strong: #3e4f60;
+  --color-border-focus: #7fa3c6;
 
-  /* ------------------------------------------------------------ accent -- */
-  --color-accent: #2563eb;
-  --color-accent-hover: #1d4ed8;
-  --color-accent-muted: #dbe6fe;
-  --color-on-accent: #ffffff;
+  --color-text: #e6eaef;
+  --color-text-muted: #a3aebb;
+  --color-text-faint: #74808d;
+  --color-text-inverse: #141c25;
 
-  /* ------------------------------------------------------------ status -- */
-  /* Darkened from the dark-theme hues to hold contrast on light surfaces. */
-  --color-status-queued: #55606f;
-  --color-status-running: #0072b2;
-  --color-status-succeeded: #007a59;
-  --color-status-failed: #b8460b;
-  --color-status-cancelled: #838d9c;
+  --color-accent: #7fa3c6;
+  --color-accent-hover: #9bb8d4;
+  --color-accent-muted: #1f3346;
+  --color-accent-deep: #9bb8d4;
+  --color-on-accent: #0f1720;
+  --color-star: #e0b34a;
 
-  /* --------------------------------------------- categorical: labels ---- */
-  /* --label-0..7 inherit from :root unchanged (Okabe-Ito). Only the neutral
-     unlabeled swatch is re-pointed to read on a light field. */
-  --label-unlabeled: #b7bec9;
+  --tone-good-bg: #1d3527;
+  --tone-good-ink: #8fd1a6;
+  --tone-warn-bg: #3a3017;
+  --tone-warn-ink: #e3c779;
+  --tone-wait-bg: #26303b;
+  --tone-wait-ink: #b4bfcb;
+  --tone-crit-bg: #3d2220;
+  --tone-crit-ink: #f0a094;
+  --tone-accent-bg: #1f3346;
+  --tone-accent-ink: #9bb8d4;
 
-  /* ------------------------------------------------------------ shadow --- */
-  /* Shadows on light surfaces need far less alpha or they read as smudges. */
-  --shadow-sm: 0 1px 2px rgb(0 0 0 / 12%);
-  --shadow-md: 0 4px 12px rgb(0 0 0 / 15%);
-  --shadow-lg: 0 12px 32px rgb(0 0 0 / 18%);
+  /* Lifted so the ranked scale still reads on a dark field. */
+  --circ-bevaring: #8fa7c0;
+  --circ-genbrug: #7fa3c6;
+  --circ-genanvendelse: #8fb3a1;
+  --circ-nyttiggoerelse: #d6b366;
+  --circ-bortskaffelse: #b08e77;
+
+  --chip-blue-bg: #1c2e42;
+  --chip-blue-ink: #8cc3f0;
+  --chip-red-bg: #3a2323;
+  --chip-red-ink: #f0a39c;
+  --chip-green-bg: #1d3427;
+  --chip-green-ink: #8fd1a6;
+  --chip-purple-bg: #33243a;
+  --chip-purple-ink: #d4a6e6;
+  --chip-yellow-bg: #3a3018;
+  --chip-yellow-ink: #e3c779;
+  --chip-gray-bg: #2a3139;
+  --chip-gray-ink: #c1c9d2;
+
+  --color-status-queued: #9aa3b2;
+  --color-status-running: #56b4e9;
+  --color-status-succeeded: #009e73;
+  --color-status-failed: #d55e00;
+  --color-status-cancelled: #7a828f;
+
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 40%);
+  --shadow-md: 0 4px 12px rgb(0 0 0 / 45%);
+  --shadow-lg: 0 12px 32px rgb(0 0 0 / 55%);
+  --shadow-panel: 0 1px 2px rgb(0 0 0 / 35%), 0 4px 12px rgb(0 0 0 / 25%);
 }
 
 @media (prefers-reduced-motion: reduce) {

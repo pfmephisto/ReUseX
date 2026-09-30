@@ -133,6 +133,30 @@ def _fmt(shapes: dict, which: int) -> str:
     return ",".join(parts)
 
 
+def _resolve_engine(
+    engine: str, fp16: bool, int8_vision: bool, workspace_mb: int
+) -> dict:
+    """Resolve one engine's effective build recipe (precision, workspace,
+    shapes) for the given CLI choices. Shared by build_engine() and the
+    engine-build.json emitter, so the recipe written next to the ONNX is by
+    construction the one trtexec was given."""
+    force_fp32 = engine in FP32_ENGINES and not (
+        int8_vision and engine == "vision-encoder"
+    )
+    shapes = dict(SHAPE_PROFILES.get(engine, {}))
+    if force_fp32:
+        fp16 = False
+        workspace_mb = min(workspace_mb, FP32_WORKSPACE_MB)
+        if engine in FP32_SHAPE_OVERRIDES:
+            shapes = {**shapes, **FP32_SHAPE_OVERRIDES[engine]}
+    return {
+        "force_fp32": force_fp32,
+        "precision": "fp16" if fp16 else "fp32",
+        "workspace_mb": workspace_mb,
+        "shapes": shapes,
+    }
+
+
 def build_engine(
     engine: str,
     onnx_dir: Path,
@@ -156,18 +180,16 @@ def build_engine(
     # choices: fp16 does not merely lose accuracy there, it silently produces a
     # broken engine (see the FP32_ENGINES comment). --int8-vision still wins for
     # the vision encoder, since that path is an explicit opt-in experiment.
-    force_fp32 = engine in FP32_ENGINES and not (
-        int8_vision and engine == "vision-encoder"
-    )
-    if force_fp32:
-        if fp16:
-            print(
-                f"[fp32] {engine} is bf16-native; forcing a pure fp32 build "
-                f"(fp16 corrupts it to all-background output) with "
-                f"workspace:{FP32_WORKSPACE_MB}"
-            )
-        fp16 = False
-        workspace_mb = min(workspace_mb, FP32_WORKSPACE_MB)
+    recipe = _resolve_engine(engine, fp16, int8_vision, workspace_mb)
+    force_fp32 = recipe["force_fp32"]
+    if force_fp32 and fp16:
+        print(
+            f"[fp32] {engine} is bf16-native; forcing a pure fp32 build "
+            f"(fp16 corrupts it to all-background output) with "
+            f"workspace:{recipe['workspace_mb']}"
+        )
+    fp16 = recipe["precision"] == "fp16"
+    workspace_mb = recipe["workspace_mb"]
 
     cmd = [
         trtexec or "trtexec",
@@ -175,9 +197,7 @@ def build_engine(
         f"--saveEngine={engine_path}",
         f"--memPoolSize=workspace:{workspace_mb}",
     ]
-    shapes = SHAPE_PROFILES.get(engine)
-    if force_fp32 and engine in FP32_SHAPE_OVERRIDES:
-        shapes = {**(shapes or {}), **FP32_SHAPE_OVERRIDES[engine]}
+    shapes = recipe["shapes"]
     if shapes:
         cmd += [
             f"--minShapes={_fmt(shapes, 0)}",
@@ -214,33 +234,39 @@ DEFAULT_WORKSPACE_MB = 8192
 DEFAULT_PROFILES_PATH = Path(__file__).resolve().parent / "engine-build.json"
 
 
-def _resolved_engine_profile(engine: str) -> dict:
-    """Resolve one engine's build recipe exactly as build_engine() would for a
-    default (fp16, no int8-vision) build — with the fp32-vision-encoder rule and
-    its workspace/shape overrides already applied. This is the SINGLE SOURCE OF
-    TRUTH the C++ side consumes via engine-build.json."""
-    force_fp32 = engine in FP32_ENGINES
-    precision = "fp32" if force_fp32 else "fp16"
-    workspace = FP32_WORKSPACE_MB if force_fp32 else DEFAULT_WORKSPACE_MB
-
-    shapes = dict(SHAPE_PROFILES.get(engine, {}))
-    if force_fp32 and engine in FP32_SHAPE_OVERRIDES:
-        shapes = {**shapes, **FP32_SHAPE_OVERRIDES[engine]}
-
+def _resolved_engine_profile(
+    engine: str,
+    fp16: bool = True,
+    workspace_mb: int = DEFAULT_WORKSPACE_MB,
+) -> dict:
+    """One engine's engine-build.json entry — with the fp32-vision-encoder
+    rule and its workspace/shape overrides already applied. With the defaults
+    this is the canonical recipe (the SINGLE SOURCE OF TRUTH the C++ side
+    consumes); a --no-fp16 / --workspace-mb run resolves to what it really
+    built. INT8 is not expressible in schema v1, so it has no entry here."""
+    r = _resolve_engine(engine, fp16, False, workspace_mb)
     shapes_json = {
         name: {
             "min": list(triple[0]),
             "opt": list(triple[1]),
             "max": list(triple[2]),
         }
-        for name, triple in shapes.items()
+        for name, triple in r["shapes"].items()
     }
-    return {"precision": precision, "workspace_mb": workspace, "shapes": shapes_json}
+    return {
+        "precision": r["precision"],
+        "workspace_mb": r["workspace_mb"],
+        "shapes": shapes_json,
+    }
 
 
-def build_profiles() -> dict:
+def build_profiles(
+    fp16: bool = True, workspace_mb: int = DEFAULT_WORKSPACE_MB
+) -> dict:
     """The full engine-build.json document (schema v1) resolved from the tables
-    above."""
+    above. Always lists every engine: the C++ builder needs the recipe of each
+    engine it may build, even one a restricted ``--engines`` run skipped (whose
+    recipe is unaffected by that restriction)."""
     return {
         "_comment": (
             "SINGLE SOURCE OF TRUTH for SAM 3.1 TensorRT engine builds. Emitted "
@@ -254,16 +280,20 @@ def build_profiles() -> dict:
             "--emit-profiles`."
         ),
         "schema_version": 1,
-        "engines": {e: _resolved_engine_profile(e) for e in ALL_ENGINES},
+        "engines": {
+            e: _resolved_engine_profile(e, fp16, workspace_mb) for e in ALL_ENGINES
+        },
     }
 
 
-def write_profiles(path: Path) -> Path:
+def write_profiles(
+    path: Path, fp16: bool = True, workspace_mb: int = DEFAULT_WORKSPACE_MB
+) -> Path:
     """Write engine-build.json to `path` (JSON has no comment syntax for an SPDX
     header, so a REUSE `.license` sidecar is written next to it)."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as f:
-        json.dump(build_profiles(), f, indent=2)
+        json.dump(build_profiles(fp16, workspace_mb), f, indent=2)
         f.write("\n")
     license_path = path.with_suffix(path.suffix + ".license")
     # REUSE-IgnoreStart
@@ -311,10 +341,6 @@ def main(argv=None) -> int:
         write_profiles(Path(args.emit_profiles))
         return 0
 
-    # Ship the resolved recipe alongside the ONNX so the model bundle is
-    # self-describing (the C++ side reads engine-build.json from the ONNX dir).
-    write_profiles(Path(args.onnx_dir) / "engine-build.json")
-
     for engine in args.engines:
         build_engine(
             engine,
@@ -324,6 +350,25 @@ def main(argv=None) -> int:
             int8_vision=args.int8_vision,
             workspace_mb=args.workspace_mb,
             dry_run=args.dry_run,
+        )
+
+    # Ship the recipe that was actually used alongside the ONNX so the model
+    # bundle is self-describing (the C++ side reads engine-build.json from the
+    # ONNX dir, falling back to its embedded canonical copy when absent).
+    recipe_path = Path(args.onnx_dir) / "engine-build.json"
+    if args.dry_run:
+        print(f"[profiles] dry run: not writing {recipe_path}")
+    elif args.int8_vision:
+        # Schema v1 has no int8 precision, so the C++ builder could only
+        # rebuild these engines differently from what trtexec just did.
+        print(
+            f"[profiles] WARNING: --int8-vision is not expressible in "
+            f"engine-build.json; not writing {recipe_path} (the C++ builder "
+            f"will use its canonical fp16/fp32 recipe)"
+        )
+    else:
+        write_profiles(
+            recipe_path, fp16=not args.no_fp16, workspace_mb=args.workspace_mb
         )
     return 0
 

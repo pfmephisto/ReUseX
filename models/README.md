@@ -96,7 +96,10 @@ python -m reusex_sam3.build_engines --emit-profiles
 ```
 
 `make -C python engines` also writes the file into the ONNX output directory
-so the exported bundle is self-describing.
+so the exported bundle is self-describing (never under `--dry-run`, and not for
+an `--int8-vision` build, which schema v1 cannot express). A directory without
+it — e.g. a bare `make -C python export` — falls back to the canonical copy
+embedded in the C++ build, so it is still a usable `$REUSEX_SAM3_ONNX_DIR`.
 
 ### Lazy provisioning and status polling
 
@@ -110,7 +113,9 @@ background provisioning task and returns HTTP 503 with a message like
 { "state": "building", "progress": 0.42, "message": "...", "use_cuda": true }
 ```
 
-`state` ∈ `{absent, downloading, building, ready, error}`. When `state` is
+`state` ∈ `{absent, not_built, downloading, building, ready, error}`
+(`not_built`: ONNX present, engines not built, nothing running; `error` is
+retried by the next segment request after a short backoff). When `state` is
 `ready`, the response also includes `"model_path"`.
 
 ### SAM License and ONNX redistribution

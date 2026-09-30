@@ -171,6 +171,24 @@ configure_file(
     @ONLY
 )
 
+# -----------------------------------------------
+# Embed the canonical SAM 3.1 engine-build recipe
+# -----------------------------------------------
+# python/reusex_sam3/engine-build.json is the single source of truth for how
+# each SAM 3.1 ONNX graph becomes a TensorRT engine. Embedding it lets the
+# native EngineBuilder build from a bare `make export` ONNX dir (which does not
+# carry engine-build.json) without a second, hand-maintained copy in C++.
+set(REUSEX_SAM3_ENGINE_BUILD_JSON
+    ${CMAKE_SOURCE_DIR}/python/reusex_sam3/engine-build.json)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    ${REUSEX_SAM3_ENGINE_BUILD_JSON})
+file(READ ${REUSEX_SAM3_ENGINE_BUILD_JSON} SAM3_ENGINE_BUILD_JSON)
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/vision/sam3/engine_build_default.hpp.in
+    ${CMAKE_BINARY_DIR}/generated/reusex/vision/sam3/engine_build_default.hpp
+    @ONLY
+)
+
 # ===============================================
 # Shared usage requirements (include dirs, flags, external deps)
 # ===============================================

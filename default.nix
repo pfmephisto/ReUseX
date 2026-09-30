@@ -115,6 +115,9 @@ in
         ./scripts/check-openapi.py
         # Accessed at test runtime via REUSEX_SOURCE_DIR (test_stage_contract.cpp)
         ./docs/CONTRACTS.md
+        # Embedded into a generated header by reusexLibrary.cmake (the native
+        # TensorRT EngineBuilder's default SAM 3.1 recipe)
+        ./python/reusex_sam3/engine-build.json
         # Accessed at test runtime by scripts/check-openapi.py
         ./docs/gui/openapi.yaml
         ./docs/gui/events.schema.json

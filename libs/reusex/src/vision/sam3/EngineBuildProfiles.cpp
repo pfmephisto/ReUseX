@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "vision/sam3/EngineBuildProfiles.hpp"
+#include "reusex/vision/sam3/engine_build_default.hpp"
 
 #include <fmt/format.h>
 #include <nlohmann/json.hpp>
@@ -99,6 +100,12 @@ EngineBuildProfiles EngineBuildProfiles::from_string(const std::string &json) {
         fmt::format("engine-build.json: parse error: {}", e.what()));
   }
   return parse(root);
+}
+
+const EngineBuildProfiles &EngineBuildProfiles::builtin() {
+  static const EngineBuildProfiles profiles =
+      from_string(detail::kDefaultEngineBuildJson);
+  return profiles;
 }
 
 std::optional<EngineProfile>

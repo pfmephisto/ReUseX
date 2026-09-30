@@ -126,8 +126,10 @@ derivative works may be redistributed **only under the SAM License**, with a cop
 of `LICENSE_SAM.txt` bundled alongside, and **not** relicensed under this
 repo's GPL-3.0.
 
-The planned distribution channel is a GitHub Release asset (manifest.json +
-sha256 per file + LICENSE_SAM.txt). The download URL is not yet pinned — a
-`TODO` in `libs/reusex/src/vision/sam3/sam3_assets.cpp` (`kDefaultManifestUrl`)
-marks where it will be filled in. Until then, set `$REUSEX_SAM3_ONNX_DIR` to
-point at a local ONNX export.
+The bundle is distributed as a GitHub Release asset (a `manifest.json` listing
+files + sha256, plus `LICENSE_SAM.txt`), pinned in `kDefaultManifestUrl`
+(`libs/reusex/src/vision/sam3/sam3_assets.cpp`). The current release
+[`sam3.1-onnx-v1`](https://github.com/pfmephisto/ReUseX/releases/tag/sam3.1-onnx-v1)
+is **detector-only** (image + panorama segmentation); the SAM 3.1 video-tracker
+engines are a future bundle version. Override with `$REUSEX_SAM3_ONNX_DIR` (a
+local export) or `--sam3-manifest-url`.

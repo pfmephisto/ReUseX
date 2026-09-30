@@ -60,6 +60,7 @@
 }
 
 .item:focus-visible {
+  outline-color: var(--color-on-chrome);
   outline-offset: -2px;
 }
 
@@ -123,6 +124,10 @@
 
 .back a:hover {
   color: var(--color-on-chrome);
+}
+
+.back a:focus-visible {
+  outline-color: var(--color-on-chrome);
 }
 
 .backPending {

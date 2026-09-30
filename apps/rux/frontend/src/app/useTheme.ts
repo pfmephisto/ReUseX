@@ -14,11 +14,15 @@ import {
 
 const DARK_QUERY = '(prefers-color-scheme: dark)';
 
-/** Whether the OS currently asks for dark; dark-first when it cannot be asked. */
+/**
+ * Whether the OS currently asks for dark. Falls back to light (`false`) when
+ * it cannot be asked, matching the FOUC guard's light fallback in
+ * `index.html` — light is the app default, not dark.
+ */
 function systemPrefersDark(): boolean {
   return typeof window !== 'undefined' && typeof window.matchMedia === 'function'
     ? window.matchMedia(DARK_QUERY).matches
-    : true;
+    : false;
 }
 
 export interface UseThemeResult {

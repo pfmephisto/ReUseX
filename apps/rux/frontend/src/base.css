@@ -35,8 +35,11 @@ h2,
 h3,
 h4 {
   margin: 0;
+  font-family: var(--font-display);
   font-weight: var(--font-weight-bold);
   line-height: var(--line-height-tight);
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
 }
 
 p {

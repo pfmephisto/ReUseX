@@ -4,7 +4,14 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { ALL_CASES_PATH, NAV_ENTRIES, badgeText, displayProjectName, entriesIn } from '../app/navigation';
+import {
+  ALL_CASES_PATH,
+  ALL_CASES_PENDING,
+  NAV_ENTRIES,
+  badgeText,
+  displayProjectName,
+  entriesIn,
+} from '../app/navigation';
 import type { Health, ProjectSummary } from '../api/types';
 
 describe('navigation model', () => {
@@ -59,6 +66,10 @@ describe('navigation model', () => {
 
   it('points "Alle sager" at the case list', () => {
     expect(ALL_CASES_PATH).toBe('/sager');
+  });
+
+  it('marks "Alle sager" pending until the case list exists', () => {
+    expect(ALL_CASES_PENDING).toMatch(/fase 6/);
   });
 
   it('hides a badge for no count and zero, caps it at 99+', () => {

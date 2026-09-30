@@ -4,7 +4,14 @@
 
 import { Link, NavLink } from 'react-router-dom';
 
-import { ALL_CASES_PATH, badgeText, entriesIn, type NavBadge, type NavEntry } from '../app/navigation';
+import {
+  ALL_CASES_PATH,
+  ALL_CASES_PENDING,
+  badgeText,
+  entriesIn,
+  type NavBadge,
+  type NavEntry,
+} from '../app/navigation';
 import styles from './Sidebar.module.css';
 
 export interface SidebarProps {
@@ -66,7 +73,13 @@ export function Sidebar({ projectName, badges = {} }: SidebarProps) {
         ))}
       </nav>
       <div className={styles.back}>
-        <Link to={ALL_CASES_PATH}>← Alle sager</Link>
+        {ALL_CASES_PENDING ? (
+          <span className={styles.backPending} title={ALL_CASES_PENDING} aria-disabled="true">
+            ← Alle sager
+          </span>
+        ) : (
+          <Link to={ALL_CASES_PATH}>← Alle sager</Link>
+        )}
       </div>
     </aside>
   );

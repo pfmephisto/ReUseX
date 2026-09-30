@@ -51,8 +51,13 @@
   animation: pulse-ring 1.4s var(--easing-standard) infinite;
 }
 
+/*
+ * JobIndicator only ever renders inside the navy TitleBar, so its label
+ * colour is a chrome token, not a surface one — --color-text-muted sits on
+ * --color-surface, not --color-chrome, and reads at ~1.8:1 there.
+ */
 .label {
-  color: var(--color-text-muted);
+  color: var(--color-on-chrome-muted);
   font-size: var(--font-size-xs);
   white-space: nowrap;
 }

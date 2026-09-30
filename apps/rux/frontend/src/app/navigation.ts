@@ -34,6 +34,9 @@ export interface NavEntry {
 
 export const ALL_CASES_PATH = '/sager';
 
+/** Set to undefined once the `/sager` route lands; until then "Alle sager" renders inert. */
+export const ALL_CASES_PENDING: string | undefined = 'Kommer i fase 6 — sagsliste';
+
 export const NAV_ENTRIES: readonly NavEntry[] = [
   { to: '/', label: 'Overblik', group: 'sag', end: true },
   {

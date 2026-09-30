@@ -113,7 +113,7 @@ src/
 ├── app/          App shell, routing, cross-cutting state (JobsContext),
 │                 useAsync
 ├── components/   Presentational, contract-agnostic building blocks
-│                 (DataTable, StatCard, NavRail, JobToaster, ...)
+│                 (DataTable, StatCard, Sidebar, JobToaster, ...)
 ├── pipeline/     Pure stage-runner logic: the card view model (stageModel),
 │                 parameter-form parsing and the omit-defaults submit rule
 │                 (params), and the pipeline_log timeline (history)

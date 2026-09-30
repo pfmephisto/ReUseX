@@ -124,3 +124,9 @@
 .back a:hover {
   color: var(--color-on-chrome);
 }
+
+.backPending {
+  color: var(--color-on-chrome-muted);
+  opacity: 0.55;
+  cursor: default;
+}

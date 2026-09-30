@@ -23,6 +23,10 @@
   eigen,
   cgal,
   gtsam,
+  # rux NEEDs libmetis.so directly (via GTSAM's ordering API). Without metis in
+  # our own buildInputs its lib dir is absent from rux's RUNPATH, so the binary
+  # fails at startup with "libmetis.so: cannot open shared object file".
+  metis,
   rtabmap,
   librealsense,
   octomap,
@@ -54,7 +58,8 @@
   aws-sdk-cpp-s3,
   nlohmann_json,
   openssl,
-  #libtorch-bin,
+  # Prebuilt libtorch (pkgs/libtorch: 2.9.0+cu128, CUDA 12.x), replacing the
+  # from-source build whose pinned pytorch submodules became unfetchable.
   libtorch,
   oneDNN,
   protobuf,
@@ -85,6 +90,9 @@ in
         # Build system
         ./CMakeLists.txt
         ./cmake
+        # Embedded into the generated version header by reusexLibrary.cmake
+        # (file(READ ...LICENSE.md)); the build fails to configure without it.
+        ./LICENSE.md
         # C++ library source, headers, and CMake config
         ./libs
         # Applications: rux CLI and ruxd service worker.
@@ -149,6 +157,9 @@ in
         # GTSAM — factor-graph optimization for the `rux optimize` pose-graph
         # back-end (plane-landmark factors + GNC). MIT.
         gtsam
+        # METIS — pulled in transitively via GTSAM; listed so libmetis.so lands
+        # in rux's RUNPATH (see the arg comment above).
+        metis
 
         rtabmap
         librealsense
@@ -163,7 +174,6 @@ in
         opencv
         cli11
 
-        #libtorch-bin
         libtorch
         oneDNN
         protobuf # should be in libtorch?

@@ -653,6 +653,8 @@ const std::vector<Endpoint> &endpoint_table() {
        true},
       {"POST", "/api/v1/panoramas/<int>/segment",
        "Run SAM3 on one 360 panorama and store the equirect label mask"},
+      {"GET", "/api/v1/models/sam3/status",
+       "Provisioning status of the managed SAM3 model"},
       {"GET", "/api/v1/components",
        "Building components, optionally filtered by type"},
       {"GET", "/api/v1/components/<string>",
@@ -1563,6 +1565,18 @@ std::vector<reusex::vision::Sam3Prompt> parse_prompts(const json &body,
   return prompts;
 }
 
+/// Optional `model_path`: absent, null or "" all mean "resolve the managed
+/// SAM3 model server-side". Anything present must be a string.
+std::string parse_optional_model_path(const json &j) {
+  auto it = j.find("model_path");
+  if (it == j.end() || it->is_null())
+    return {};
+  if (!it->is_string())
+    throw HttpError(400, "'model_path' must be a string (omit it to use the "
+                         "managed SAM3 model)");
+  return it->get<std::string>();
+}
+
 } // namespace
 
 SegmentFrameRequest parse_segment_frame_request(std::string_view body,
@@ -1575,7 +1589,7 @@ SegmentFrameRequest parse_segment_frame_request(std::string_view body,
   // Optional: an empty model_path asks the server to resolve/prepare the
   // managed SAM3 model (self-contained packaging). A missing managed model
   // provider turns this back into a 400 at the handler.
-  req.model_path = j.value("model_path", "");
+  req.model_path = parse_optional_model_path(j);
 
   req.confidence = j.value("confidence", 0.5f);
   req.save = j.value("save", true);
@@ -1596,7 +1610,7 @@ parse_segment_panorama_request(std::string_view body,
   SegmentPanoramaRequest req;
   // Optional: see parse_segment_frame_request — empty resolves the managed
   // model.
-  req.model_path = j.value("model_path", "");
+  req.model_path = parse_optional_model_path(j);
 
   req.confidence = j.value("confidence", 0.5f);
   req.save = j.value("save", true);

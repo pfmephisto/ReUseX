@@ -132,10 +132,24 @@ TEST_CASE("ParseSegmentFrameRequest_UseCudaInBody_OverridesServerDefault",
   CHECK(req.use_cuda == false);
 }
 
-TEST_CASE("ParseSegmentFrameRequest_MissingModelPath_Is400",
+// model_path is optional: an omitted or empty path means "the server resolves
+// the managed SAM3 model" (self-contained packaging). The 400 for "no path and
+// no managed model configured" is the handler's job, not the parser's.
+TEST_CASE("ParseSegmentFrameRequest_MissingModelPath_IsAcceptedAsManaged",
+          "[gui][segment][parse]") {
+  const auto omitted = parse_segment_frame_request(R"({})", true);
+  CHECK(omitted.model_path.empty());
+  CHECK(omitted.use_cuda == true);
+
+  const auto empty = parse_segment_frame_request(R"({"model_path":""})", false);
+  CHECK(empty.model_path.empty());
+  CHECK(empty.use_cuda == false);
+}
+
+TEST_CASE("ParseSegmentFrameRequest_NonStringModelPath_Is400",
           "[gui][segment][parse]") {
   try {
-    parse_segment_frame_request(R"({})", true);
+    parse_segment_frame_request(R"({"model_path":42})", true);
     FAIL("expected HttpError");
   } catch (const HttpError &e) {
     CHECK(e.status() == 400);
@@ -203,13 +217,21 @@ TEST_CASE("ParseSegmentPanoramaRequest_UseCudaAbsent_UsesServerDefault",
   CHECK(req.use_cuda == false);
 }
 
-TEST_CASE("ParseSegmentPanoramaRequest_MissingModelPath_Is400",
+TEST_CASE("ParseSegmentPanoramaRequest_MissingModelPath_IsAcceptedAsManaged",
+          "[gui][segment][parse][panorama]") {
+  const auto req = parse_segment_panorama_request(R"({"n_yaw":8})", true);
+  CHECK(req.model_path.empty());
+  CHECK(req.n_yaw == 8);
+}
+
+TEST_CASE("ParseSegmentPanoramaRequest_NonStringModelPath_Is400",
           "[gui][segment][parse][panorama]") {
   try {
-    parse_segment_panorama_request(R"({"n_yaw":8})", true);
+    parse_segment_panorama_request(R"({"model_path":["/m"]})", true);
     FAIL("expected HttpError");
   } catch (const HttpError &e) {
     CHECK(e.status() == 400);
+    CHECK(std::string(e.what()).find("model_path") != std::string::npos);
   }
 }
 

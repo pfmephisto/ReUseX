@@ -65,6 +65,8 @@ tags:
     description: Sensor frames (color / depth / confidence / segmentation)
   - name: panoramas
     description: 360 panoramic images
+  - name: models
+    description: Managed ML model provisioning (SAM3)
   - name: components
     description: Building components
   - name: materials
@@ -972,8 +974,12 @@ paths:
       description: |
         Runs SAM3 segmentation on the colour image of sensor frame `{id}` and
         optionally saves the resulting CV\_32S label map as the frame's
-        segmentation image. Requires a SAM3 model (TensorRT engine directory or
-        ONNX file) to be accessible on the server filesystem.
+        segmentation image. Uses the SAM3 model named by `model_path`, or —
+        when `model_path` is omitted — the server's **managed** SAM3 model,
+        which is provisioned lazily on first use (ONNX bundle download plus,
+        for CUDA, an on-device TensorRT engine build). While the managed model
+        is being prepared the endpoint answers 503; poll
+        `GET /models/sam3/status` until it reports `ready`.
 
         **Point-click emulation:** SAM3 does not natively support point prompts.
         To guide segmentation toward a viewport click, pass a small positive box
@@ -994,14 +1000,16 @@ paths:
           application/json:
             schema:
               type: object
-              required: [model_path]
               properties:
                 model_path:
                   type: string
                   description: |
-                    Filesystem path to the SAM3 model (TRT engine directory
-                    or `.onnx` file). Reloaded when the path changes between
-                    calls; cached otherwise.
+                    Optional filesystem path to the SAM3 model (TRT engine
+                    directory or ONNX directory). Reloaded when the path
+                    changes between calls; cached otherwise. Omitted, null or
+                    empty ⟹ the server resolves its managed SAM3 model (see
+                    `GET /models/sam3/status`); a server with no managed
+                    model configured answers 400.
                 prompts:
                   type: array
                   description: |
@@ -1072,8 +1080,9 @@ paths:
                     additionalProperties: { type: string }
         "400":
           description: |
-            Missing or invalid `model_path`, malformed prompts, or invalid
-            box format.
+            `model_path` omitted on a server with no managed SAM3 model,
+            a non-string `model_path`, malformed prompts, or invalid box
+            format.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -1085,10 +1094,19 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
+        "500":
+          description: |
+            Managed SAM3 model preparation failed (download, verification or
+            engine build). The message carries the reason; the server retries
+            preparation on a later request after a short backoff.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
         "503":
           description: |
             No SAM3 segmenter is registered (server not started via `rux gui`,
-            or model unavailable).
+            or model unavailable), or the managed SAM3 model is still being
+            prepared — poll `GET /models/sam3/status`.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -1199,6 +1217,9 @@ paths:
         **503 without a model registered:** the endpoint returns 503 when the
         server was started without `rux gui` because `rux_gui_lib` never links
         the ML backends directly.
+
+        `model_path` is optional exactly as for `POST /frames/{id}/segment`:
+        omitted, the managed SAM3 model is used (503 while it is prepared).
       parameters:
         - $ref: "#/components/parameters/PanoramaId"
       requestBody:
@@ -1207,14 +1228,16 @@ paths:
           application/json:
             schema:
               type: object
-              required: [model_path]
               properties:
                 model_path:
                   type: string
                   description: |
-                    Filesystem path to the SAM3 model (TRT engine directory
-                    or `.onnx` file). Reloaded when the path changes between
-                    calls; cached otherwise.
+                    Optional filesystem path to the SAM3 model (TRT engine
+                    directory or ONNX directory). Reloaded when the path
+                    changes between calls; cached otherwise. Omitted, null or
+                    empty ⟹ the server resolves its managed SAM3 model (see
+                    `GET /models/sam3/status`); a server with no managed
+                    model configured answers 400.
                 prompts:
                   type: array
                   description: |
@@ -1286,7 +1309,9 @@ paths:
                       list was used.
                     additionalProperties: { type: string }
         "400":
-          description: Missing or invalid `model_path`, or malformed prompts.
+          description: |
+            `model_path` omitted on a server with no managed SAM3 model, a
+            non-string `model_path`, or malformed prompts.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -1298,10 +1323,81 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
+        "500":
+          description: |
+            Managed SAM3 model preparation failed (download, verification or
+            engine build). The message carries the reason; the server retries
+            preparation on a later request after a short backoff.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
         "503":
           description: |
             No SAM3 panorama segmenter is registered (server not started via
-            `rux gui`, or model unavailable).
+            `rux gui`, or model unavailable), or the managed SAM3 model is
+            still being prepared — poll `GET /models/sam3/status`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  # -------------------------------------------------------------- models ----
+  /models/sam3/status:
+    get:
+      tags: [models]
+      operationId: getSam3ModelStatus
+      summary: Provisioning status of the managed SAM3 model
+      description: |
+        Reports whether the server's managed SAM3 model is loadable, without
+        starting preparation. Preparation is started by the first segment
+        request that omits `model_path`; poll this route while such a request
+        answers 503.
+
+        `state` is one of:
+
+        * `absent` — the ONNX bundle is not on disk and nothing has started.
+        * `not_built` — the ONNX bundle is present but the device-specific
+          TensorRT engines have not been built, and no build is running.
+        * `downloading` / `building` — preparation is in progress.
+        * `ready` — loadable; `model_path` is set.
+        * `error` — the last preparation attempt failed (see `message`); the
+          next segment request retries after a short backoff.
+      parameters:
+        - name: cuda
+          in: query
+          required: false
+          description: |
+            Which provisioning slot to report: the CUDA/TensorRT engines
+            (`true`) or the ONNX/CPU model (`false`). Defaults to the
+            server's `--segment-cuda` setting.
+          schema: { type: boolean }
+      responses:
+        "200":
+          description: Current provisioning status
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [state, progress, message, use_cuda]
+                properties:
+                  state:
+                    type: string
+                    enum: [absent, not_built, downloading, building, ready, error]
+                  progress:
+                    type: number
+                    description: Best-effort progress within the current phase, 0..1.
+                  message: { type: string }
+                  use_cuda: { type: boolean }
+                  model_path:
+                    type: string
+                    description: Directory the segmenter loads; only when `ready`.
+        "500":
+          description: The status probe itself failed.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "501":
+          description: No managed SAM3 model is configured on this server.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }

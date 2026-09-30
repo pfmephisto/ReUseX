@@ -74,11 +74,11 @@ export function ThemeToggle() {
             role="radio"
             aria-checked={active}
             className={`${styles.option} ${active ? styles.active : ''}`}
-            title={`${LABELS[option]} theme`}
+            title={`${LABELS[option]} tema`}
             onClick={() => setPreference(option)}
           >
             <ThemeIcon preference={option} />
-            <span className={styles.srOnly}>{LABELS[option]} theme</span>
+            <span className={styles.srOnly}>{LABELS[option]} tema</span>
           </button>
         );
       })}

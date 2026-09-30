@@ -122,8 +122,8 @@ the backend up first (fixture project provided):
 # one command: starts `rux gui` on the fixture + the Vite dev server, prints URLs
 bash <skill-dir>/scripts/dev_env.sh start
 # then capture the route you changed, BOTH themes:
-python <skill-dir>/scripts/screenshot.py http://localhost:5173/viewport --out shots/ --theme dark
-python <skill-dir>/scripts/screenshot.py http://localhost:5173/viewport --out shots/ --theme light
+bash <skill-dir>/scripts/shot.sh http://localhost:5173/viewport --out shots/ --theme dark
+bash <skill-dir>/scripts/shot.sh http://localhost:5173/viewport --out shots/ --theme light
 bash <skill-dir>/scripts/dev_env.sh stop
 ```
 
@@ -138,8 +138,9 @@ Then **open every PNG with your Read tool and actually look.** Defaults: desktop
 **Headless:** Playwright's headless Chromium renders without any display, so this
 works over SSH or in a worktree with no monitor. A monitor being attached is
 fine but never required — do not skip the screenshot because "there's no
-display". If Playwright is missing: `pip install playwright && python -m
-playwright install chromium`. If that's genuinely impossible, say so and ask the
+display". `shot.sh` wraps `screenshot.py` (same arguments) and, when the host python
+cannot import Playwright, borrows nixpkgs' Playwright + matching browsers — so
+no pip install is needed on NixOS. If that's genuinely impossible, say so and ask the
 user for a screenshot — never skip review silently.
 
 ### 6. Critique and fix

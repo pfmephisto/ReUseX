@@ -19,17 +19,18 @@ export interface SelectDropdownProps {
 }
 
 /**
- * Deterministic dark-theme chip palette. `hash(text) % CHIP_COLORS.length`
- * picks one, so a given option always draws with the same colour across every
- * cell — Notion's "coloured tag" affordance without a per-option colour store.
+ * Deterministic chip palette read from tokens.css --chip-* so it follows the
+ * theme. `hash(text) % CHIP_COLORS.length` picks one, so a given option
+ * always draws with the same colour across every cell — Notion's "coloured
+ * tag" affordance without a per-option colour store.
  */
 export const CHIP_COLORS = [
-  { bg: 'rgba(35, 131, 226, 0.15)', text: '#5bb0f0' }, // blue
-  { bg: 'rgba(180, 65, 60, 0.15)', text: '#e07070' }, // red
-  { bg: 'rgba(68, 131, 97, 0.15)', text: '#5cb87b' }, // green
-  { bg: 'rgba(155, 93, 168, 0.15)', text: '#c07de0' }, // purple
-  { bg: 'rgba(183, 133, 38, 0.15)', text: '#d4a843' }, // yellow
-  { bg: 'rgba(90, 90, 90, 0.25)', text: '#b0b0b0' }, // gray
+  { bg: 'var(--chip-blue-bg)', text: 'var(--chip-blue-ink)' }, // blue
+  { bg: 'var(--chip-red-bg)', text: 'var(--chip-red-ink)' }, // red
+  { bg: 'var(--chip-green-bg)', text: 'var(--chip-green-ink)' }, // green
+  { bg: 'var(--chip-purple-bg)', text: 'var(--chip-purple-ink)' }, // purple
+  { bg: 'var(--chip-yellow-bg)', text: 'var(--chip-yellow-ink)' }, // yellow
+  { bg: 'var(--chip-gray-bg)', text: 'var(--chip-gray-ink)' }, // gray
 ] as const;
 
 /** Stable string hash (djb2), non-negative. */

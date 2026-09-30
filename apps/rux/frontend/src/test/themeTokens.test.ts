@@ -53,6 +53,18 @@ const THEMED_ROLES = [
   '--circ-bortskaffelse',
   '--shadow-panel',
   '--color-scrim',
+  '--chip-blue-bg',
+  '--chip-blue-ink',
+  '--chip-red-bg',
+  '--chip-red-ink',
+  '--chip-green-bg',
+  '--chip-green-ink',
+  '--chip-purple-bg',
+  '--chip-purple-ink',
+  '--chip-yellow-bg',
+  '--chip-yellow-ink',
+  '--chip-gray-bg',
+  '--chip-gray-ink',
 ];
 
 /** Theme-independent roles; defined once on :root. */

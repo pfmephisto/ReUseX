@@ -65,6 +65,12 @@ const PAIRS: [string, string][] = [
   ['--tone-wait-ink', '--tone-wait-bg'],
   ['--tone-crit-ink', '--tone-crit-bg'],
   ['--tone-accent-ink', '--tone-accent-bg'],
+  ['--chip-blue-ink', '--chip-blue-bg'],
+  ['--chip-red-ink', '--chip-red-bg'],
+  ['--chip-green-ink', '--chip-green-bg'],
+  ['--chip-purple-ink', '--chip-purple-bg'],
+  ['--chip-yellow-ink', '--chip-yellow-bg'],
+  ['--chip-gray-ink', '--chip-gray-bg'],
 ];
 
 describe.each([

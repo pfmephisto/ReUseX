@@ -87,6 +87,22 @@
   --circ-nyttiggoerelse: #c09a46;
   --circ-bortskaffelse: #8a6a55;
 
+  /* ------------------------------------------------ categorical: chips -- */
+  /* Tag chips for select/multiselect columns (Materialedata). bg/ink pairs,
+     ≥4.5:1 in both themes. */
+  --chip-blue-bg: #dde9f7;
+  --chip-blue-ink: #1f5f99;
+  --chip-red-bg: #f6dedc;
+  --chip-red-ink: #9a3530;
+  --chip-green-bg: #dcede3;
+  --chip-green-ink: #2c6b48;
+  --chip-purple-bg: #eee0f3;
+  --chip-purple-ink: #6f3f80;
+  --chip-yellow-bg: #f5ebd0;
+  --chip-yellow-ink: #72561a;
+  --chip-gray-bg: #e6e7e9;
+  --chip-gray-ink: #4a5260;
+
   /* ------------------------------------------------------------ status -- */
   /* Job/stage lifecycle. Distinct in luminance as well as hue. */
   --color-status-queued: #55606f;
@@ -233,6 +249,19 @@
   --circ-genanvendelse: #8fb3a1;
   --circ-nyttiggoerelse: #d6b366;
   --circ-bortskaffelse: #b08e77;
+
+  --chip-blue-bg: #1c2e42;
+  --chip-blue-ink: #8cc3f0;
+  --chip-red-bg: #3a2323;
+  --chip-red-ink: #f0a39c;
+  --chip-green-bg: #1d3427;
+  --chip-green-ink: #8fd1a6;
+  --chip-purple-bg: #33243a;
+  --chip-purple-ink: #d4a6e6;
+  --chip-yellow-bg: #3a3018;
+  --chip-yellow-ink: #e3c779;
+  --chip-gray-bg: #2a3139;
+  --chip-gray-ink: #c1c9d2;
 
   --color-status-queued: #9aa3b2;
   --color-status-running: #56b4e9;

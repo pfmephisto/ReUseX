@@ -60,7 +60,7 @@
 }
 
 .versionsHeading {
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-md);
   font-weight: var(--font-weight-bold);
   color: var(--color-text);
   margin: 0;
@@ -270,7 +270,7 @@
 }
 
 .csvTemplateApply:hover {
-  background: var(--color-surface-hover, var(--color-surface-raised));
+  background: var(--color-surface-overlay);
 }
 
 .csvTemplateItemActive .csvTemplateApply {
@@ -284,14 +284,14 @@
   border-left: 1px solid var(--color-border);
   background: transparent;
   color: var(--color-text-muted);
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-md);
   cursor: pointer;
   line-height: 1;
 }
 
 .csvTemplateDelete:hover {
   color: var(--color-text);
-  background: var(--color-surface-hover, var(--color-surface-raised));
+  background: var(--color-surface-overlay);
 }
 
 .csvTemplateRenameInput {
@@ -348,7 +348,7 @@
 }
 
 .csvActionButton:hover {
-  background: var(--color-surface-hover, var(--color-surface-raised));
+  background: var(--color-surface-overlay);
   color: var(--color-text);
 }
 
@@ -433,7 +433,7 @@
 }
 
 .csvActionButtonPrimary:hover:not(:disabled) {
-  background: var(--color-surface-hover, var(--color-surface-raised));
+  background: var(--color-surface-overlay);
 }
 
 .csvActionButtonPrimary:disabled {
@@ -451,7 +451,7 @@
 
 .csvError {
   font-size: var(--font-size-sm);
-  color: var(--color-error, #cc3300);
+  color: var(--tone-crit-ink);
   margin: 0;
 }
 

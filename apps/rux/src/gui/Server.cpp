@@ -5,6 +5,7 @@
 #include "gui/Server.hpp"
 
 #include "gui/FrameSegmenter.hpp"
+#include "gui/ModelProvider.hpp"
 #include "gui/api.hpp"
 #include "gui/assets.hpp"
 #include "gui/edits.hpp"
@@ -395,8 +396,38 @@ class Server::Impl {
   void set_panorama_segmenter(IPanoramaSegmenter *seg) noexcept {
     panorama_segmenter_ = seg;
   }
+  void set_model_provider(IModelProvider *provider) noexcept {
+    model_provider_ = provider;
+  }
 
     private:
+  /// Resolve the model path a segment request should load. An explicit
+  /// (non-empty) path is used verbatim (back-compat). An omitted path is
+  /// resolved to the managed SAM3 model, kicking off lazy background
+  /// preparation; while that is in flight the request gets a 503 and the
+  /// client polls GET /models/sam3/status.
+  ///
+  /// @throws HttpError(400) when no path is given and no provider is
+  /// configured.
+  /// @throws HttpError(503) while the managed model is downloading/building.
+  /// @throws HttpError(500) when preparation has failed.
+  std::string resolve_model_path(const std::string &requested, bool use_cuda) {
+    if (!requested.empty())
+      return requested;
+    if (!model_provider_)
+      throw HttpError(400, "'model_path' is required (no managed SAM3 model is "
+                           "configured on this server)");
+    const ModelPrepStatus st = model_provider_->ensure(use_cuda);
+    if (st.state == "ready")
+      return st.model_path;
+    if (st.state == "error")
+      throw HttpError(500, "SAM3 model preparation failed: " + st.message);
+    // absent / downloading / building
+    throw HttpError(503, "SAM3 model is being prepared (" + st.state +
+                             "): " + st.message +
+                             " — poll GET /api/v1/models/sam3/status");
+  }
+
   // --- ProjectDB access ----------------------------------------------------
 
   /// Run @p handler against a fresh read-only ProjectDB.
@@ -725,6 +756,35 @@ class Server::Impl {
       });
     });
 
+    // GET /api/v1/models/sam3/status — managed-model provisioning status
+    // (self-contained SAM3 packaging). Lets the UI poll while the ONNX bundle
+    // downloads and the device-specific engines build on first use. 501 when
+    // no managed model is configured.
+    get("/api/v1/models/sam3/status")(
+        [this](const crow::request &req) -> crow::response {
+          if (!model_provider_)
+            return error_response(
+                501, "no managed SAM3 model is configured on this server");
+          bool use_cuda = options_.segment_cuda;
+          if (const char *c = req.url_params.get("cuda")) {
+            const std::string v(c);
+            use_cuda = !(v == "0" || v == "false" || v == "no");
+          }
+          ModelPrepStatus st;
+          try {
+            st = model_provider_->status(use_cuda);
+          } catch (const std::exception &e) {
+            return error_response(500, e.what());
+          }
+          nlohmann::json out{{"state", st.state},
+                             {"progress", st.progress},
+                             {"message", st.message},
+                             {"use_cuda", use_cuda}};
+          if (st.state == "ready")
+            out["model_path"] = st.model_path;
+          return json_response(200, out);
+        });
+
     // POST /api/v1/frames/<id>/segment — interactive SAM3 segmentation (#409,
     // #467). The segmenter is injected by the rux app layer; returns 503 if
     // absent. use_cuda defaults to ServerOptions::segment_cuda; can be
@@ -741,6 +801,11 @@ class Server::Impl {
             // Parse and validate the request body.
             const auto seg_req =
                 parse_segment_frame_request(req.body, options_.segment_cuda);
+
+            // Resolve the model path (managed model when omitted). May 503
+            // while the managed model is downloading/building.
+            const std::string model_path =
+                resolve_model_path(seg_req.model_path, seg_req.use_cuda);
 
             // Load frame image (brief read-only DB connection).
             cv::Mat image;
@@ -764,7 +829,7 @@ class Server::Impl {
             // Run inference (outside any DB connection — may take seconds).
             const auto result =
                 segmenter_->segment(image, seg_req.prompts, seg_req.confidence,
-                                    seg_req.model_path, seg_req.use_cuda);
+                                    model_path, seg_req.use_cuda);
 
             // Optionally persist the mask (uses write lock to exclude jobs).
             bool saved = false;
@@ -822,6 +887,11 @@ class Server::Impl {
             const auto seg_req =
                 parse_segment_panorama_request(req.body, options_.segment_cuda);
 
+            // Resolve the model path (managed model when omitted). May 503
+            // while the managed model is downloading/building.
+            const std::string model_path =
+                resolve_model_path(seg_req.model_path, seg_req.use_cuda);
+
             // Load panorama image (brief read-only connection).
             cv::Mat image;
             {
@@ -841,7 +911,7 @@ class Server::Impl {
             // Run inference outside any DB connection — may take seconds.
             const auto result = panorama_segmenter_->segment(
                 image, seg_req.prompts, seg_req.confidence, seg_req.n_yaw,
-                seg_req.fov_deg, seg_req.model_path, seg_req.use_cuda);
+                seg_req.fov_deg, model_path, seg_req.use_cuda);
 
             // Optionally persist the label map.
             bool saved = false;
@@ -1327,6 +1397,11 @@ class Server::Impl {
   /// Optional panorama segmenter registered by the rux app layer (#448).
   /// Not owned; lifetime must exceed the server's. nullptr ⟹ 503.
   IPanoramaSegmenter *panorama_segmenter_ = nullptr;
+
+  /// Optional managed-model provider (self-contained SAM3 packaging).
+  /// Not owned; lifetime must exceed the server's. nullptr ⟹ omitted
+  /// model_path is a 400 and the status route is a 501.
+  IModelProvider *model_provider_ = nullptr;
 };
 
 // ===========================================================================
@@ -1356,6 +1431,10 @@ void Server::set_segmenter(IFrameSegmenter *segmenter) {
 
 void Server::set_panorama_segmenter(IPanoramaSegmenter *segmenter) {
   impl_->set_panorama_segmenter(segmenter);
+}
+
+void Server::set_model_provider(IModelProvider *provider) {
+  impl_->set_model_provider(provider);
 }
 
 } // namespace rux::gui

@@ -23,6 +23,7 @@ producing a Q/DQ-annotated ONNX that trtexec then builds with ``--int8``.
 from __future__ import annotations
 
 import argparse
+import json
 import shutil
 import subprocess
 from pathlib import Path
@@ -205,6 +206,76 @@ def build_engine(
 
 ALL_ENGINES = list(SHAPE_PROFILES.keys())
 
+# The default workspace for fp16 engines (mirrors build_engine()'s default).
+DEFAULT_WORKSPACE_MB = 8192
+
+# The canonical checked-in copy, shipped in the model bundle and read by the
+# native C++ EngineBuilder (see EngineBuildProfiles / engine-build.json).
+DEFAULT_PROFILES_PATH = Path(__file__).resolve().parent / "engine-build.json"
+
+
+def _resolved_engine_profile(engine: str) -> dict:
+    """Resolve one engine's build recipe exactly as build_engine() would for a
+    default (fp16, no int8-vision) build — with the fp32-vision-encoder rule and
+    its workspace/shape overrides already applied. This is the SINGLE SOURCE OF
+    TRUTH the C++ side consumes via engine-build.json."""
+    force_fp32 = engine in FP32_ENGINES
+    precision = "fp32" if force_fp32 else "fp16"
+    workspace = FP32_WORKSPACE_MB if force_fp32 else DEFAULT_WORKSPACE_MB
+
+    shapes = dict(SHAPE_PROFILES.get(engine, {}))
+    if force_fp32 and engine in FP32_SHAPE_OVERRIDES:
+        shapes = {**shapes, **FP32_SHAPE_OVERRIDES[engine]}
+
+    shapes_json = {
+        name: {
+            "min": list(triple[0]),
+            "opt": list(triple[1]),
+            "max": list(triple[2]),
+        }
+        for name, triple in shapes.items()
+    }
+    return {"precision": precision, "workspace_mb": workspace, "shapes": shapes_json}
+
+
+def build_profiles() -> dict:
+    """The full engine-build.json document (schema v1) resolved from the tables
+    above."""
+    return {
+        "_comment": (
+            "SINGLE SOURCE OF TRUTH for SAM 3.1 TensorRT engine builds. Emitted "
+            "by python/reusex_sam3/build_engines.py from its in-code tables "
+            "(SHAPE_PROFILES / FP32_ENGINES / FP32_WORKSPACE_MB / "
+            "FP32_SHAPE_OVERRIDES) with the fp32-vision-encoder rule already "
+            "resolved, and shipped in the model bundle. Read verbatim by both "
+            "the python trtexec driver and the native C++ EngineBuilder "
+            "(libs/reusex/.../tensor_rt/common/EngineBuildProfiles.*). Do not "
+            "hand-edit: run `python -m reusex_sam3.build_engines "
+            "--emit-profiles`."
+        ),
+        "schema_version": 1,
+        "engines": {e: _resolved_engine_profile(e) for e in ALL_ENGINES},
+    }
+
+
+def write_profiles(path: Path) -> Path:
+    """Write engine-build.json to `path` (JSON has no comment syntax for an SPDX
+    header, so a REUSE `.license` sidecar is written next to it)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(build_profiles(), f, indent=2)
+        f.write("\n")
+    license_path = path.with_suffix(path.suffix + ".license")
+    # REUSE-IgnoreStart
+    with open(license_path, "w") as f:
+        f.write(
+            "SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen\n\n"
+            "SPDX-License-Identifier: GPL-3.0-or-later\n"
+        )
+    # REUSE-IgnoreEnd
+    print(f"[profiles] wrote {path}")
+    return path
+
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
@@ -224,7 +295,25 @@ def main(argv=None) -> int:
     )
     ap.add_argument("--workspace-mb", type=int, default=8192)
     ap.add_argument("--dry-run", action="store_true", help="Print trtexec cmds only.")
+    ap.add_argument(
+        "--emit-profiles",
+        nargs="?",
+        const=str(DEFAULT_PROFILES_PATH),
+        default=None,
+        metavar="PATH",
+        help="Write engine-build.json (the shared shape/precision recipe the "
+        "C++ EngineBuilder reads) and exit. Defaults to the checked-in "
+        f"{DEFAULT_PROFILES_PATH.name} when no path is given.",
+    )
     args = ap.parse_args(argv)
+
+    if args.emit_profiles is not None:
+        write_profiles(Path(args.emit_profiles))
+        return 0
+
+    # Ship the resolved recipe alongside the ONNX so the model bundle is
+    # self-describing (the C++ side reads engine-build.json from the ONNX dir).
+    write_profiles(Path(args.onnx_dir) / "engine-build.json")
 
     for engine in args.engines:
         build_engine(

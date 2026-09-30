@@ -135,6 +135,28 @@ rux -p <project.rux> create annotate --net <model_dir> --video
 # Note: --project is a GLOBAL flag, so it must precede the subcommand.
 ```
 
+### engine-build.json and the C++ EngineBuilder
+
+`make engines` writes `engine-build.json` into the ONNX output directory
+alongside the `.onnx` files. This JSON encodes the shape profiles and
+precision rules (`FP32_ENGINES`, `SHAPE_PROFILES`) that the Python `trtexec`
+driver uses — and that the C++ `EngineBuilder` reads to build TensorRT engines
+on-device without requiring `trtexec` or Python.
+
+This means **for `rux gui`** the primary export artifact is the ONNX bundle +
+`engine-build.json`, not pre-built `.engine` files. The GUI endpoint provisions
+engines automatically on first use from the ONNX bundle.
+
+To regenerate `engine-build.json` alone (after modifying `SHAPE_PROFILES` or
+`FP32_ENGINES`):
+
+```bash
+python -m reusex_sam3.build_engines --emit-profiles
+```
+
+Commit the result alongside any shape/precision contract change so the C++ side
+picks it up on the next managed engine build.
+
 ## Engine I/O contract
 
 The authoritative I/O contract (names, shapes, dtypes, dynamic axes) lives in

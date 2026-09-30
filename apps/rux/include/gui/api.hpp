@@ -322,6 +322,7 @@ ImageResponse frame_image(const reusex::ProjectDB &db, int id,
 
 /// Parsed and validated body of POST /frames/<id>/segment.
 struct SegmentFrameRequest {
+  /// SAM3 model path. Empty ⟹ resolve/prepare the managed model server-side.
   std::string model_path;
   float confidence = 0.5f;
   bool save = true;
@@ -335,13 +336,15 @@ struct SegmentFrameRequest {
 ///
 /// @param server_cuda_default  Server-wide use_cuda default; used when the
 ///        request body omits the `use_cuda` field.
-/// @throws HttpError(400) on missing/empty model_path, bad JSON, or invalid
-///         prompt/box format.
+/// @note An empty/omitted model_path is accepted; the handler resolves it to
+///       the managed SAM3 model (or returns 400 if none is configured).
+/// @throws HttpError(400) on bad JSON or invalid prompt/box format.
 SegmentFrameRequest parse_segment_frame_request(std::string_view body,
                                                 bool server_cuda_default);
 
 /// Parsed and validated body of POST /panoramas/<id>/segment.
 struct SegmentPanoramaRequest {
+  /// SAM3 model path. Empty ⟹ resolve/prepare the managed model server-side.
   std::string model_path;
   float confidence = 0.5f;
   bool save = true;
@@ -354,8 +357,8 @@ struct SegmentPanoramaRequest {
 /// Parse and validate the body of POST /panoramas/<id>/segment.
 ///
 /// @param server_cuda_default  Server-wide use_cuda default.
-/// @throws HttpError(400) on missing/empty model_path, bad JSON, or invalid
-///         prompt format.
+/// @note An empty/omitted model_path resolves to the managed SAM3 model.
+/// @throws HttpError(400) on bad JSON or invalid prompt format.
 SegmentPanoramaRequest parse_segment_panorama_request(std::string_view body,
                                                       bool server_cuda_default);
 

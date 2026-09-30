@@ -28,6 +28,7 @@
 namespace rux::gui {
 class IFrameSegmenter;
 class IPanoramaSegmenter;
+class IModelProvider;
 } // namespace rux::gui
 
 namespace rux::gui {
@@ -135,6 +136,14 @@ class Server {
   /// Same ownership and lifetime rules as set_segmenter(). When nullptr (the
   /// default), the endpoint returns HTTP 503.
   void set_panorama_segmenter(IPanoramaSegmenter *segmenter);
+
+  /// Register the managed-model provider that resolves an omitted `model_path`
+  /// on the segment endpoints and backs GET /api/v1/models/sam3/status.
+  ///
+  /// Same ownership/lifetime rules as set_segmenter(). When nullptr (the
+  /// default), a segment request without `model_path` returns HTTP 400 and the
+  /// status route returns HTTP 501.
+  void set_model_provider(IModelProvider *provider);
 
     private:
   class Impl;

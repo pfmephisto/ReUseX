@@ -94,7 +94,12 @@ function(configure_ml_backends TARGET_NAME)
             target_link_libraries(${TARGET_NAME} PRIVATE
                 trtsam3::trtsam_core
                 tokenizers_cpp::tokenizers_cpp
+                # On-device ONNX→engine builds (EngineBuilder.cpp). Located in
+                # Dependencies.cmake; ships with TensorRT via trtsam3.
+                ${REUSEX_TRT_ONNXPARSER_LIB}
             )
+            target_include_directories(${TARGET_NAME} PRIVATE
+                ${REUSEX_TRT_ONNXPARSER_INCLUDE})
             message(STATUS "Enabled ML backend: TensorRT")
 
         elseif(backend STREQUAL "LibTorch")

@@ -585,6 +585,35 @@ INT8 for the vision encoder (`--int8-vision`) is a **documented stub**: it
 expects a Q/DQ ONNX (`vision-encoder.int8.onnx`) from `ptq_vision.py`, which
 currently raises until a calibration set is wired in.
 
+### 6.4 engine-build.json — shared recipe for the C++ builder
+
+`make engines` (and `python -m reusex_sam3.build_engines` directly) writes an
+`engine-build.json` file into the ONNX output directory alongside the `.onnx`
+files. This JSON encodes the full build recipe: dynamic shape profiles
+(`SHAPE_PROFILES`), which engines build fp32 vs fp16 (`FP32_ENGINES`), and
+workspace sizes.
+
+The C++ `EngineBuilder` in
+`libs/reusex/src/vision/tensor_rt/common/EngineBuilder.cpp` reads
+`engine-build.json` to build TensorRT engines on-device from the portable ONNX,
+without requiring `trtexec` or Python on the deployment machine. This means:
+
+- **For `rux gui` users**, the main deliverable of `make -C python export` is the
+  ONNX bundle + `engine-build.json`, **not** per-machine `.engine` files. The GUI
+  endpoint builds engines automatically on first use.
+- **For `rux create annotate` users** who want to pre-build engines, `make
+  engines` continues to work as before.
+
+If you change `SHAPE_PROFILES` or `FP32_ENGINES`, regenerate the checked-in copy:
+
+```bash
+$SAM3_PY -m reusex_sam3.build_engines --emit-profiles
+```
+
+This writes `engine-build.json` to the current directory (or `--onnx-dir` if
+given). Commit the result alongside any contract change — the C++ side will pick
+it up automatically on the next managed engine build.
+
 ### 6.3 PROMINENT CAVEAT — the vision encoder MUST be built fp32
 
 > **Do NOT build `vision-encoder` in fp16.** The ViT-L trunk is **bf16-native**,

@@ -32,11 +32,19 @@ describe('parseServerUtc', () => {
 
   it('reads ISO 8601 only with an explicit zone', () => {
     expect(parseServerUtc('2026-08-09T10:05:00Z')?.toISOString()).toBe('2026-08-09T10:05:00.000Z');
-    expect(parseServerUtc('2026-08-09T10:05:00.250Z')?.toISOString()).toBe('2026-08-09T10:05:00.000Z');
+    expect(parseServerUtc('2026-08-09T10:05:00.250Z')?.toISOString()).toBe('2026-08-09T10:05:00.250Z');
     expect(parseServerUtc('2026-08-09T12:05:00+02:00')?.toISOString()).toBe('2026-08-09T10:05:00.000Z');
     expect(parseServerUtc('2026-08-09T05:35:00-04:30')?.toISOString()).toBe('2026-08-09T10:05:00.000Z');
     expect(parseServerUtc('2026-08-09T10:05:00')).toBeNull();
     expect(parseServerUtc('igår')).toBeNull();
     expect(parseServerUtc('2026-08-09T10:05:00+2')).toBeNull();
+  });
+
+  it('rejects impossible dates, times and offsets instead of rolling them over', () => {
+    expect(parseServerUtc('2026-13-01 10:00:00')).toBeNull();
+    expect(parseServerUtc('2026-02-30 10:00')).toBeNull();
+    expect(parseServerUtc('2026-08-09 25:61:61')).toBeNull();
+    expect(parseServerUtc('2026-08-09T10:05:00+25:99')).toBeNull();
+    expect(parseServerUtc('2028-02-29 10:00:00')?.toISOString()).toBe('2028-02-29T10:00:00.000Z');
   });
 });

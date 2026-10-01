@@ -1049,26 +1049,40 @@ export interface ReportPdfVersion {
  */
 export function parseServerUtc(value: string): Date | null {
   const match =
-    /^(\d{4})-(\d{2})-(\d{2})(?: (\d{2}):(\d{2})(?::(\d{2}))?|T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|[+-]\d{2}:\d{2}))$/.exec(
+    /^(\d{4})-(\d{2})-(\d{2})(?: (\d{2}):(\d{2})(?::(\d{2}))?|T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(Z|([+-])(\d{2}):(\d{2})))$/.exec(
       value.trim(),
     );
   if (!match) return null;
-  const [, year, month, day, sh, smin, ss, ih, imin, is, zone] = match;
+  const [, year, month, day, sh, smin, ss, ih, imin, is, frac, zone, sign, oh, om] = match;
   const iso = zone !== undefined;
+  const f = {
+    y: Number(year),
+    mo: Number(month) - 1,
+    d: Number(day),
+    h: Number(iso ? ih : sh),
+    mi: Number(iso ? imin : smin),
+    s: Number(iso ? is : (ss ?? 0)),
+  };
+  // Date.UTC rolls an impossible field over (2026-02-30 -> 2026-03-02), so
+  // only accept the instant when every field comes back as written.
+  const local = new Date(Date.UTC(f.y, f.mo, f.d, f.h, f.mi, f.s));
+  if (
+    local.getUTCFullYear() !== f.y ||
+    local.getUTCMonth() !== f.mo ||
+    local.getUTCDate() !== f.d ||
+    local.getUTCHours() !== f.h ||
+    local.getUTCMinutes() !== f.mi ||
+    local.getUTCSeconds() !== f.s
+  ) {
+    return null;
+  }
   let offsetMin = 0;
   if (iso && zone !== 'Z') {
-    offsetMin = (zone[0] === '-' ? -1 : 1) * (Number(zone.slice(1, 3)) * 60 + Number(zone.slice(4, 6)));
+    const [hh, mm] = [Number(oh), Number(om)];
+    if (hh > 23 || mm > 59) return null;
+    offsetMin = (sign === '-' ? -1 : 1) * (hh * 60 + mm);
   }
-  const ms =
-    Date.UTC(
-      Number(year),
-      Number(month) - 1,
-      Number(day),
-      Number(iso ? ih : sh),
-      Number(iso ? imin : smin),
-      Number(iso ? is : (ss ?? 0)),
-    ) -
-    offsetMin * 60_000;
+  const ms = local.getTime() + (frac ? Math.round(Number(`0.${frac}`) * 1000) : 0) - offsetMin * 60_000;
   return Number.isNaN(ms) ? null : new Date(ms);
 }
 

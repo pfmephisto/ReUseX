@@ -51,3 +51,8 @@
   font-size: var(--font-size-sm);
   color: var(--color-text-muted);
 }
+
+.noticeDetail {
+  display: block;
+  margin-top: var(--space-1);
+}

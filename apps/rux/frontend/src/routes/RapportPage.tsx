@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import { api } from '../api/client';
 import type { ReportPdfVersion } from '../api/types';
+import { explainLoadError } from '../app/errorCopy';
 import { useAsync } from '../app/useAsync';
 import { useMutationQueue } from '../app/useMutationQueue';
 import { useToast } from '../app/useToast';
@@ -57,8 +58,11 @@ export function RapportPage() {
   // `busy` only disables the button after React re-renders, so a double click
   // inside one frame would queue two generations. The ref closes that gap.
   const generating = useRef(false);
+  // Until the first list read lands, a generate could be overwritten by that
+  // late read; the button waits for it.
+  const listReady = versions !== null;
   const generate = () => {
-    if (generating.current) return;
+    if (generating.current || !listReady) return;
     generating.current = true;
     mutate(async () => {
       try {
@@ -103,7 +107,7 @@ export function RapportPage() {
         <h2 className={styles.title}>Rapport</h2>
         <span className={styles.sub}>Ressourcekortlægningsrapport</span>
         <div className={styles.actions}>
-          <button type="button" className={styles.btnPrimary} onClick={generate} disabled={busy}>
+          <button type="button" className={styles.btnPrimary} onClick={generate} disabled={busy || !listReady}>
             {busy ? 'Genererer…' : 'Generér ny version'}
           </button>
         </div>
@@ -122,9 +126,12 @@ export function RapportPage() {
       {stale && (
         <p className={styles.notice} role="status">
           {LIST_REFRESH_FAILED}{' '}
-          <button type="button" className={styles.textBtn} onClick={listed.reload}>
-            Hent listen igen
+          <button type="button" className={styles.textBtn} onClick={listed.reload} disabled={listed.loading}>
+            {listed.loading ? 'Henter listen…' : 'Hent listen igen'}
           </button>
+          {listed.error && !listed.loading && (
+            <span className={styles.noticeDetail}>{explainLoadError(listed.error, 'rapportversionerne').message}</span>
+          )}
         </p>
       )}
 

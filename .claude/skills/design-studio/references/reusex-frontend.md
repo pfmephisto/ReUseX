@@ -34,18 +34,26 @@ apps/rux/frontend/src/
 │                 useTheme, serialQueue + useMutationQueue (a page's writes
 │                 on one chain; `busy` gates buttons, never field commits),
 │                 keyTargets (isField/isControl), saveError (failed-save
-│                 copy), links (Kortlægning ↔ Miljø & prøver deep links)
+│                 copy), errorCopy (failed-*load* copy, `ErrorBanner`'s),
+│                 links (Kortlægning ↔ Miljø & prøver ↔ Overblik deep links
+│                 and route constants)
 ├── components/   Presentational, contract-agnostic blocks — reuse these:
 │                 DataTable, StatCard, Sidebar, EmptyState, ErrorBanner,
 │                 ParameterForm, SelectDropdown, MultiSelectDropdown,
 │                 JobToaster, LayerPanel, PeekPanel, LabelLegend, Pill,
-│                 ConfidenceBar, Kbd, Toast, …
+│                 ConfidenceBar, Kbd, Toast, CircularityBar, …
 │                 kortlaegning/  SurveyTable, EvidencePanel, DetailPanel,
 │                 EditDialog, SampleLine — the Kortlægning workbench's presentational
 │                 layer, built on the shared Pill/ConfidenceBar/Kbd/Toast above
 │                 miljoe/  StageChain, LinkPicker, SampleCard, NewSampleForm —
-│                 Miljø & prøver's presentational layer, same shared blocks;
-│                 controls.module.css holds its buttons and fields (`composes`)
+│                 Miljø & prøver's presentational layer, same shared blocks
+│                 overblik/  CaseHero, KpiRow, QuickLinks, ProjectMetaForm —
+│                 Overblik's case hero, KPI row and quick-link cards
+│                 rapport/  VersionList — Rapport's version list
+│                 indberetning/  FractionTable — Indberetning's fraction table
+│                 controls.module.css (buttons and fields) and
+│                 surfaces.module.css (panels and notices) are the shared
+│                 CSS every case screen's own components `composes` from
 ├── kortlaegning/ Pure modules behind the workbench: vocab.ts (Danish labels,
 │                 number formatting), model.ts (tabs, filters, selection, row
 │                 flattening, initialViewFor), samples.ts (a type's linked
@@ -53,13 +61,23 @@ apps/rux/frontend/src/
 │                 keyboard maps)
 ├── miljoe/       Pure modules behind Miljø & prøver: model.ts (stage chain,
 │                 patches, link toggling, gate feedback), useTextDraft.ts
+├── overblik/     Pure module behind Overblik: model.ts (circularity percents,
+│                 KPI row, quick links, hero subline, metadata-editor commits)
+├── rapport/      Pure module behind Rapport: model.ts (version date/size
+│                 formatting, Komplet/Udkast from the stored blocking count,
+│                 draft notice, generation toasts)
+├── indberetning/ Pure module behind Indberetning: model.ts (fraction table,
+│                 blocking-list notice, send gate)
 ├── pipeline/     Pure stage-runner logic (stageModel, params, history)
-├── routes/       Page compositions: Dashboard, ViewportPage, PipelinePage,
+├── routes/       Page compositions: OverblikPage, Dashboard (now at
+│                 `/projektdata`), ViewportPage, PipelinePage,
 │                 PipelineLogPage, GraphViewPage, FramesPage, DataPage,
 │                 GeometryPage, InstancesPage, MaterialsPage, ExportPage,
-│                 KortlaegningPage, MiljoePage (both use
-│                 app/SurveyCountsContext for the two sidebar badges: review
-│                 queue and pending samples)
+│                 KortlaegningPage, MiljoePage, RapportPage, IndberetningPage
+│                 (KortlaegningPage and MiljoePage use app/SurveyCountsContext
+│                 for the two sidebar badges: review queue and pending
+│                 samples), plus viewHead.module.css, the shared header CSS
+│                 every case screen composes from
 ├── viewport/     three.js: PointCloudScene, MeshScene, PanoramaScene,
 │                 PoseGraphScene, SplatScene, clipping box, camera views,
 │                 label colours, paged cloud stream (useCloudStream)
@@ -73,6 +91,18 @@ rule: presentational → `components/`, page → `routes/`, 3D → `viewport/`, 
 logic → `pipeline/` or a sibling `*.ts`. SPDX header on every file.
 
 Page writes go through `app/useMutationQueue` — never a second ad-hoc chain.
+
+A case screen's own CSS (Kortlægning, Miljø & prøver, Overblik, Rapport,
+Indberetning) `composes` from `components/controls.module.css`,
+`components/surfaces.module.css` and `routes/viewHead.module.css` —
+never copy a button or panel rule into a new module.
+
+Esc in a text field reverts the draft without committing (R10); Esc
+elsewhere on a case screen closes the open panel/dialog.
+
+`ErrorBanner`'s `context` prop is a Danish definite noun phrase (e.g.
+"projektoversigten"), never an English fragment or an indefinite noun — both
+of `explainLoadError`'s sentences read it inline.
 
 ## 2. The token system (full inventory)
 
@@ -166,7 +196,8 @@ For Kortlægning screenshots/manual testing, seed the prototype's demo survey
 4 approved) into a scratch copy with `dev/seed-survey-demo.sh <in.rux>
 <out.rux>`, then point `rux gui` at the copy. Never run it on a real project.
 `--varied` adds two samples for Miljø & prøver (multi-link answered, unlinked
-planned).
+planned). `--varied` also seeds three report versions (v1 and v2 drafts, v3
+complete) for Rapport.
 
 ## 5. The API/WS contract
 

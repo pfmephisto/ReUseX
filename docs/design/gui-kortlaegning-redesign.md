@@ -25,7 +25,9 @@ identity and six screens:
 | 03 | **On-site** | A phone "interruption" sheet during capture |
 
 Screenshots of the prototype, rendered headlessly, are kept in
-`docs/gui/images/prototype-v2/` for reference.
+`docs/gui/images/prototype-v2/` for reference. `rapport.png` and
+`indberetning.png` were added in Phase 5, rendered the same way from the
+artifact.
 
 ## Decisions (agreed with the maintainer, 2026-09-30)
 
@@ -81,6 +83,7 @@ The token system stays the mechanism: the prototype's values go into
 |---|---|---|
 | `/sager` | Sager | — (new) |
 | `/` | Overblik | Dashboard (Overview) |
+| `/projektdata` | Projektdata | the old Dashboard/inventory content, moved here (Phase 5) |
 | `/kortlaegning` | Kortlægning | Materials as the primary materials view |
 | `/miljoe` | Miljø & prøver | — (new) |
 | `/rapport` | Rapport | report part of Export |
@@ -137,8 +140,12 @@ Derived, never stored (pure library functions, unit-tested):
   proportionally (equal split when they are all zero), two decimals, with the
   rounding remainder on the last part.
 - **Circularity breakdown**: tonnes per treatment over non-rejected types.
-- **Fractions** (Indberetning): approved tonnes aggregated per EAK code;
-  blocking rows = types still in the queue or awaiting a sample.
+- **Fractions** (Indberetning): approved tonnes per (EAK code, behandling,
+  contaminated). *Bevaring* never counts: it stays in the building, so it is
+  not waste. A type awaiting a sample is withheld even when approved.
+  Contaminated tonnes get their own row. The **blocking list** holds every
+  non-rejected type still in the queue (`review`) or awaiting a sample
+  (`sample`), and the report is ready when that list is empty.
 
 Rejecting a type ("Afvis — fejldetektion") sets status *rejected*; it is hidden
 from Til gennemsyn / Godkendt / Alle but not deleted, so it can be restored.
@@ -237,6 +244,60 @@ v1 adds, beyond the prototype:
 - the badge is `pending_samples` (from `GET /survey/summary`) — samples not
   yet at stage *svar* — never a client-side count.
 
+## Overblik, Rapport and Indberetning screens (the prototype, component by component)
+
+**Overblik** — the case hero (name, address, year, registration date,
+organisation — only the fields the record has, R5), its in-place editor
+(click the hero to open `ProjectMetaForm`; name/address/notes commit on
+blur, the year field validates and reverts on an invalid draft, Esc reverts
+without saving); a five-tile KPI row (Komponenter, Klassificeret, Bevaring /
+genbrug, Til gennemsyn, Prøver afventer); the circularity bar; and quick
+links to Kortlægning, Miljø & prøver, Rapport and Indberetning, each with a
+live sub-line. v1 changes from the prototype:
+
+- the KPI **Klassificeret** (share of the instance cloud's points that carry
+  an instance label) stands in for the prototype's **Scanningsdækning**,
+  which nothing in the project measures (R4; a real scan-coverage measure is
+  a follow-up);
+- no aerial photo, sync chip, case number, MRK or demolition deadline — none
+  of that is stored yet (R5, a follow-up); correspondingly no BBR line (R6,
+  shown only once a BFE number can be stored);
+- the hero's in-place editor is new: the prototype's hero is static;
+- the old Dashboard/inventory screen moved from `/` to `/projektdata`, a
+  `Værktøjer` entry, so Overblik could take the landing route.
+
+**Rapport** — Ressourcekortlægning report versions, newest first: each one
+numbered `v<n>` with its generation date, file size and a `Komplet`/`Udkast`
+pill; `Generér ny version` (disabled while a pipeline job holds the writer
+lock or another version is generating); a draft notice naming how many types
+still block completeness; and an Inventarliste download. v1 changes:
+
+- versions are numbered `v<n>` and marked `Komplet`/`Udkast` from the
+  **stored** blocking-type count at generation time (schema v23,
+  `ReportPdfVersion.blocking_types`), not inferred client-side — a version
+  generated before that column existed shows "Ukendt status" instead of
+  guessing;
+- the PDF itself opens with the approved survey as its first section (the
+  kortlægning data `Create survey` populates), ahead of the material-passport
+  columns Export already produced;
+- Inventarliste is **not** a stored version: it is the live CSV export
+  (`/exports/csv`), downloaded fresh every time, since a bygningsdel list
+  changes between report generations;
+- no MRK signature or approval workflow on a version — nothing models
+  approval yet (R7, a follow-up).
+
+**Indberetning** — a fraction table (EAK code, behandling, mass in tonnes,
+contaminated flag), a blocking-list notice while types are still in the
+queue or awaiting a sample, a CSV download of the ready fractions, and
+`Send til bygningsaffald.dk`. v1 changes:
+
+- the send button is gated exactly like the prototype's (disabled while any
+  type blocks the report) but, clicked, **posts nothing** — it shows a
+  notice saying so, since no bygningsaffald.dk integration exists (R9, out of
+  scope below);
+- the CSV download is new: the prototype has no export affordance on this
+  screen.
+
 ## Phases
 
 Each phase is a separate PR that leaves the app working.
@@ -252,7 +313,8 @@ Each phase is a separate PR that leaves the app working.
 4. **Miljø & prøver** — the samples screen (stage chain, links, result entry)
    on the Phase 2 API.
 5. **Overblik, Rapport, Indberetning** — KPIs, circularity, report versions on
-   the existing report endpoints, fraction table and send gate.
+   the existing report endpoints, fraction table and send gate. (done in
+   Phase 5)
 6. **Sager & On-site** — case list (single-project), phone capture sheet
    writing ★ / note / sample against a bygningsdel.
 
@@ -282,17 +344,10 @@ Each phase is a separate PR that leaves the app working.
   an endpoint; the prototype's `Upload miljørapport (PDF)` button is not drawn
   until then.
 - Rewinding a sample's stage beyond `Fortryd svar` (back to *sendt*).
-- The shared `ErrorBanner` copy is English ("Could not load …") and should be
-  Danish.
-- `rux gui` sometimes answers concurrent GETs on a full page load with a 503
-  ("project database is busy"). The frontend shows the `ErrorBanner` and
-  Retry recovers, but it needs a server-side busy timeout for reads, or a
-  client retry on 503 for GETs.
 - The `AppShell` overflows horizontally at 390px, when the topbar and the
   open sidebar are both shown. This predates Phase 4 and affects every route.
-- Esc means opposite things in a field on the two screens: in Kortlægning it
-  blurs and saves, in Miljø & prøver it discards the edit. Pick one
-  convention before Phase 5 adds more editors.
+  Phase 6 (On-site) designs the phone layout and owns the collapsible
+  sidebar.
 - Cross-screen staleness: each page has its own mutation queue, so a queued
   Miljø & prøver write can land after Kortlægning's mount `GET /survey`, and
   Kortlægning then shows a stale gate. Either an app-level `SerialQueue` that
@@ -302,3 +357,13 @@ Each phase is a separate PR that leaves the app working.
 - The cross-links are styled differently: Kortlægning's `SampleLine` uses
   accent-deep with an underline, Miljø & prøver's `.typeLink` muted text with a
   border-strong underline. Pick one.
+- Case identity in project metadata: BFE number, case number
+  (`RX-2026-0047`), MRK and the demolition deadline — schema, `PATCH
+  /projects`, `rux set` — then Overblik's hero line and the BBR line with a
+  verified BBR link. Until then BBR is not drawn.
+- Esc in the Kortlægning edit dialog still closes *and saves* (the closing
+  blur commits); every other editor drops the draft (Phase 5 R10).
+- Report approval (`Godkendt` / MRK signature on a version) and a stored XLS
+  inventory version.
+- A scan-coverage measure for the building, so Overblik can show the
+  prototype's `Scanningsdækning` instead of `Klassificeret`.

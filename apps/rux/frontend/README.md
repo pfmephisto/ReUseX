@@ -136,16 +136,22 @@ src/
 │                 gates buttons only, field commits are never dropped),
 │                 keyTargets.ts (classifies a key event's target so page
 │                 shortcuts never fire while typing), links.ts (the
-│                 Kortlægning ↔ Miljø & prøver deep links), saveError.ts
-│                 (Danish copy for a failed save: 409/503 get their own
-│                 message, else the server's)
+│                 Kortlægning ↔ Miljø & prøver ↔ Overblik deep links and
+│                 route constants), saveError.ts (Danish copy for a failed
+│                 save: 409/503 get their own message, else the server's),
+│                 errorCopy.ts (Danish copy for a failed *load*, keyed by a
+│                 definite noun phrase naming what didn't load)
 ├── components/   Presentational, contract-agnostic building blocks
 │                 (DataTable, StatCard, Sidebar, JobToaster, Pill,
-│                 ConfidenceBar, Kbd, Toast, ...), plus kortlaegning/
-│                 (SurveyTable, EvidencePanel, DetailPanel, EditDialog,
-│                 SampleLine) and miljoe/ (StageChain, LinkPicker,
-│                 SampleCard, NewSampleForm, controls.module.css — the
-│                 buttons and fields they share via `composes`)
+│                 ConfidenceBar, Kbd, Toast, CircularityBar, ...), plus
+│                 kortlaegning/ (SurveyTable, EvidencePanel, DetailPanel,
+│                 EditDialog, SampleLine), miljoe/ (StageChain, LinkPicker,
+│                 SampleCard, NewSampleForm), overblik/ (CaseHero, KpiRow,
+│                 QuickLinks, ProjectMetaForm), rapport/ (VersionList) and
+│                 indberetning/ (FractionTable) — plus the shared
+│                 controls.module.css (buttons and fields) and
+│                 surfaces.module.css (panels and notices) every case screen
+│                 composes from
 ├── kortlaegning/ Pure modules for the Kortlægning workbench: vocab.ts
 │                 (Danish labels, number formatting), model.ts (tabs,
 │                 filters, selection, row flattening, initialViewFor for a
@@ -153,11 +159,22 @@ src/
 │                 and its sample line), keys.ts (keyboard maps)
 ├── miljoe/       Pure modules for Miljø & prøver: model.ts (stage chain,
 │                 patches, link toggling, gate feedback), useTextDraft.ts
+├── overblik/     Pure module for Overblik: model.ts (circularity percents,
+│                 the KPI row, quick links, the hero's subline and its
+│                 metadata-editor commits)
+├── rapport/      Pure module for Rapport: model.ts (version date/size
+│                 formatting, the Komplet/Udkast pill from the stored
+│                 blocking count, the draft notice and generation toasts)
+├── indberetning/ Pure module for Indberetning: model.ts (the fraction table,
+│                 the blocking-list notice, the send gate)
 ├── pipeline/     Pure stage-runner logic: the card view model (stageModel),
 │                 parameter-form parsing and the omit-defaults submit rule
 │                 (params), and the pipeline_log timeline (history)
-├── routes/       Page-level compositions (Dashboard, PipelinePage,
-│                 ViewportPage, KortlaegningPage, MiljoePage)
+├── routes/       Page-level compositions (OverblikPage, Dashboard — now at
+│                 `/projektdata` — PipelinePage, ViewportPage,
+│                 KortlaegningPage, MiljoePage, RapportPage,
+│                 IndberetningPage), plus the shared viewHead.module.css a
+│                 case screen's header composes from
 ├── viewport/     three.js point-cloud rendering: PointCloudScene, the paged
 │                 cloud stream (useCloudStream, pagination), point decoding
 │                 (decode.ts) and label colour mapping (labelColors.ts)
@@ -165,3 +182,6 @@ src/
 ├── tokens.css    Design tokens — see above, do not edit by hand
 └── base.css      Global reset / element defaults, built on the tokens
 ```
+
+`/` is Overblik, the case landing page; the old dashboard/inventory screen
+lives at `/projektdata` now (a `Værktøjer` entry).

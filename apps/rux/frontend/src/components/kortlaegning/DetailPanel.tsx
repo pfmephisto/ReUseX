@@ -23,6 +23,7 @@
 
 import type { KeyboardEvent } from 'react';
 
+import { fieldKeyAction as sharedFieldKeyAction } from '../../app/editorKeys';
 import type { Sample, SurveyPart, SurveyType, Treatment } from '../../api/types';
 import { TREATMENTS } from '../../api/types';
 import { pendingSampleList } from '../../kortlaegning/samples';
@@ -70,8 +71,8 @@ export interface DetailPanelProps {
   onReopen: () => void;
   /**
    * The user is done with a field: Enter in the quantity field, or Esc in any
-   * field. The field has already been blurred (so its draft committed); the
-   * page puts focus back on the table.
+   * field. The field has already been left: on Enter its draft committed, on
+   * Esc it was dropped; the page puts focus back on the table.
    */
   onDone: () => void;
 }
@@ -102,13 +103,19 @@ export function gateNoteText(type: SurveyType, samples: Sample[]): string | null
   return `Kan ikke godkendes endnu — afventer prøvesvar (${names}).`;
 }
 
-/** Esc in any field (Enter too in a single-line one) hands focus back to the table. */
-function fieldDoneKey(e: KeyboardEvent<HTMLElement>, onDone: () => void, enterToo: boolean) {
-  if (e.key === 'Escape' || (enterToo && e.key === 'Enter')) {
-    e.preventDefault();
-    e.currentTarget.blur();
-    onDone();
-  }
+/**
+ * What a key does in a detail-panel field (Phase 5 R10): Esc drops the
+ * field's draft without committing, Enter in a single-line field commits it.
+ * Either way focus goes back to the table ("Esc tilbage"). The mapping is the
+ * shared `fieldKeyAction` from `app/editorKeys` (the one Miljø and Overblik
+ * use); this only adapts it to the panel's single-line flag and also takes a
+ * bare key name.
+ */
+export function fieldKeyAction(
+  key: string | { key: string; ctrlKey?: boolean; metaKey?: boolean; altKey?: boolean },
+  singleLine: boolean,
+): 'revert' | 'commit' | null {
+  return sharedFieldKeyAction(typeof key === 'string' ? { key } : key, !singleLine);
 }
 
 export function DetailPanel({
@@ -128,7 +135,16 @@ export function DetailPanel({
   // The entity whose quantity/note/star this panel edits: the selected part
   // when one is selected, otherwise the type itself.
   const current = part ?? type;
-  const { quantityProps, noteProps } = useQuantityNoteDrafts(current, { onQuantity, onNote });
+  const { quantityProps, noteProps, revertQuantity, revertNote } = useQuantityNoteDrafts(current, { onQuantity, onNote });
+
+  function onFieldKey(e: KeyboardEvent<HTMLElement>, singleLine: boolean, revert: ((el: HTMLElement) => void) | null) {
+    const action = fieldKeyAction(e, singleLine);
+    if (!action) return;
+    e.preventDefault();
+    if (action === 'revert' && revert) revert(e.currentTarget);
+    else e.currentTarget.blur();
+    onDone();
+  }
 
   if (!type || !current) {
     return (
@@ -163,7 +179,7 @@ export function DetailPanel({
               className={`${styles.input} mono`}
               aria-label={quantityLabel(part)}
               {...quantityProps}
-              onKeyDown={(e) => fieldDoneKey(e, onDone, true)}
+              onKeyDown={(e) => onFieldKey(e, true, revertQuantity)}
             />
             <span className={styles.unit}>{type.unit}</span>
           </div>
@@ -182,7 +198,7 @@ export function DetailPanel({
             className={styles.select}
             value={type.treatment}
             onChange={(e) => onTreatment(e.target.value as Treatment)}
-            onKeyDown={(e) => fieldDoneKey(e, onDone, false)}
+            onKeyDown={(e) => onFieldKey(e, false, null)}
           >
             {TREATMENTS.map((t) => (
               <option key={t} value={t}>
@@ -206,7 +222,7 @@ export function DetailPanel({
           className={styles.textarea}
           rows={3}
           {...noteProps}
-          onKeyDown={(e) => fieldDoneKey(e, onDone, false)}
+          onKeyDown={(e) => onFieldKey(e, false, revertNote)}
         />
       </div>
 

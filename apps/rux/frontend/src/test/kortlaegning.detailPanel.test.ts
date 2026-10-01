@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import type { Sample, SurveyPart, SurveyType } from '../api/types';
 import {
   approveBlocked,
+  fieldKeyAction,
   gateNoteText,
   linkedSamples,
   panelTitle,
@@ -276,5 +277,15 @@ describe('sampleLineModel', () => {
 
   it('offers registering a sample for a type with none', () => {
     expect(sampleLineModel({ ...type(), id: 9, sample_ids: [] }, [])).toEqual({ kind: 'none', typeId: 9 });
+  });
+});
+
+describe('fieldKeyAction (Esc convention, Phase 5 R10)', () => {
+  it('reverts on Esc in any field and commits on Enter only in a single-line one', () => {
+    expect(fieldKeyAction('Escape', true)).toBe('revert');
+    expect(fieldKeyAction('Escape', false)).toBe('revert');
+    expect(fieldKeyAction('Enter', true)).toBe('commit');
+    expect(fieldKeyAction('Enter', false)).toBeNull();
+    expect(fieldKeyAction('a', true)).toBeNull();
   });
 });

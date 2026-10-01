@@ -43,7 +43,7 @@ export interface SurveyTableProps {
   onToggle: (typeId: number) => void;
   /** Double-click. */
   onOpenDialog: (s: Selection) => void;
-  /** Table-wrap keyboard. */
+  /** Panel keyboard. */
   onKeyDown: (e: React.KeyboardEvent) => void;
   tableRef: React.RefObject<HTMLDivElement | null>;
 }
@@ -88,7 +88,7 @@ export function SurveyTable(props: SurveyTableProps) {
   }, [selection, tableRef]);
 
   return (
-    <section className={styles.panel}>
+    <section className={styles.panel} onKeyDown={onKeyDown}>
       <div className={styles.tabs} role="tablist">
         {TABS.map(({ id, label }) => (
           <button
@@ -162,7 +162,6 @@ export function SurveyTable(props: SurveyTableProps) {
         className={styles.wrap}
         tabIndex={0}
         aria-label="Kortlægningstabel — brug piletaster"
-        onKeyDown={onKeyDown}
       >
         <table className={styles.table}>
           <thead>
@@ -196,30 +195,38 @@ export function SurveyTable(props: SurveyTableProps) {
                       key={`type-${type.id}`}
                       className={styles.typeRow}
                       aria-selected={selected}
-                      onClick={() => onSelect({ typeId: type.id, partCode: null })}
+                      onClick={(e) =>
+                        selected && e.detail === 1
+                          ? onToggle(type.id)
+                          : onSelect({ typeId: type.id, partCode: null })
+                      }
                       onDoubleClick={() => onOpenDialog({ typeId: type.id, partCode: null })}
                     >
-                      <td className={styles.nameCell}>
-                        <button
-                          type="button"
-                          className={styles.chevron}
-                          data-open={isOpen || undefined}
-                          aria-expanded={isOpen}
-                          aria-label={isOpen ? 'Fold ind' : 'Fold ud'}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onToggle(type.id);
-                          }}
-                        >
-                          ▸
-                        </button>
-                        {type.starred && (
-                          <span className={styles.star} aria-hidden="true">
-                            ★
+                      <td>
+                        <div className={styles.nameCell}>
+                          <button
+                            type="button"
+                            className={styles.chevron}
+                            data-open={isOpen || undefined}
+                            aria-expanded={isOpen}
+                            aria-label={isOpen ? 'Fold ind' : 'Fold ud'}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onToggle(type.id);
+                            }}
+                          >
+                            ▸
+                          </button>
+                          {type.starred && (
+                            <span className={styles.star} aria-hidden="true">
+                              ★
+                            </span>
+                          )}
+                          <span className={styles.name}>{type.name}</span>
+                          <span className={styles.faint}>
+                            {type.parts.length === 1 ? '1 del' : `${type.parts.length} dele`}
                           </span>
-                        )}
-                        <span className={styles.name}>{type.name}</span>
-                        <span className={styles.faint}>{type.parts.length} dele</span>
+                        </div>
                       </td>
                       <td>
                         {formatQuantity(type.quantity, type.unit)}{' '}
@@ -258,16 +265,18 @@ export function SurveyTable(props: SurveyTableProps) {
                       onOpenDialog({ typeId: type.id, partCode: part.code })
                     }
                   >
-                    <td className={styles.partCell}>
-                      {part.code} · {part.room_name}
-                      {part.orphaned && (
-                        <Pill
-                          tone="warn"
-                          title="Instansen findes ikke længere — gennemgå eller flyt delen"
-                        >
-                          forældet
-                        </Pill>
-                      )}
+                    <td className={styles.partTd}>
+                      <div className={styles.partCell}>
+                        {part.code} · {part.room_name}
+                        {part.orphaned && (
+                          <Pill
+                            tone="warn"
+                            title="Instansen findes ikke længere — gennemgå eller flyt delen"
+                          >
+                            forældet
+                          </Pill>
+                        )}
+                      </div>
                     </td>
                     <td>{formatQuantity(part.quantity, type.unit)}</td>
                     <td className="mono">{type.eak_code}</td>

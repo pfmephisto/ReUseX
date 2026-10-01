@@ -64,12 +64,6 @@
   flex: 1 1 auto;
 }
 
-.search:focus-visible,
-.select:focus-visible {
-  outline: 2px solid var(--color-border-focus);
-  outline-offset: 1px;
-}
-
 /* ---------------------------------------------------------------- keyBar -- */
 
 .keyBar {
@@ -180,8 +174,11 @@
   font-size: var(--font-size-xs);
 }
 
-.partCell {
+.partTd {
   padding-left: calc(var(--space-3) + var(--space-5));
+}
+
+.partCell {
   display: flex;
   align-items: center;
   gap: var(--space-2);

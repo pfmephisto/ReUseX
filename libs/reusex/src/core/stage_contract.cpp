@@ -44,6 +44,10 @@ const std::vector<Artifact> &artifacts() {
        "derived building components (windows, …)"},
       {"instance_materials", ArtifactKind::table, Alignment::none,
        "instance→material-passport links + the material passports"},
+      {"survey_types", ArtifactKind::table, Alignment::none,
+       "Ressourcekortlægning survey types (one per semantic class)"},
+      {"survey_parts", ArtifactKind::table, Alignment::none,
+       "Ressourcekortlægning survey parts (one bygningsdel per instance)"},
       {"material_annotations", ArtifactKind::table, Alignment::none,
        "per-material VLM annotations (description + key/value attributes)"},
       {"splat", ArtifactKind::gaussian_splat, Alignment::none,
@@ -166,6 +170,19 @@ const std::vector<StageContract> &contracts() {
        // `instances` table it links against is produced with that cloud.
        {{{"instances"}}},
        {"instance_materials"}},
+
+      {PipelineStage::survey,
+       "survey",
+       {},
+       "rux create survey",
+       "fill the Ressourcekortlægning from the instances table",
+       // One survey type per semantic class and one part per instance, so it
+       // needs only the instance-label cloud — the same prerequisite as
+       // `materials`. `rooms`/`labels` are optional enrichments (room
+       // assignment / type naming) sync_survey degrades gracefully without,
+       // so they are not declared as inputs here.
+       {{{"instances"}}},
+       {"survey_types", "survey_parts"}},
 
       {PipelineStage::attributes,
        "attributes",

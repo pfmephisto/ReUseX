@@ -10,6 +10,8 @@
 
 #include "../../support/temp_path.hpp"
 
+#include <pcl/point_types.h>
+
 #include <stdexcept>
 
 using reusex::ProjectDB;
@@ -100,4 +102,97 @@ TEST_CASE("TypeTotals_CarryEnvironment", "[survey][service]") {
   CHECK(totals[0].environment == EnvironmentStatus::afventer);
   CHECK(totals[1].environment == EnvironmentStatus::ren_screening);
   CHECK(totals[0].mass_t == 58.0);
+}
+
+namespace {
+reusex::CloudL label_cloud(std::initializer_list<std::uint32_t> labels) {
+  reusex::CloudL c;
+  for (auto l : labels) {
+    pcl::Label p;
+    p.label = l;
+    c.push_back(p);
+  }
+  return c;
+}
+/// Instances 1,2 (class 3 = window), 3 (class 5 = door); rooms 4 and 6.
+void seed_scan(ProjectDB &db, bool with_rooms = true) {
+  db.save_point_cloud("instances", label_cloud({1, 1, 2, 2, 3, 0}), "test",
+                      "{}");
+  db.save_instances("instances",
+                    {{1, "g1", 3, 2}, {2, "g2", 3, 2}, {3, "g3", 5, 1}});
+  db.save_point_cloud("labels", label_cloud({3, 3, 3, 3, 5, 0}), "test", "{}");
+  db.save_label_definitions("labels", {{3, "window"}, {5, "door"}});
+  if (with_rooms) {
+    db.save_point_cloud("rooms", label_cloud({4, 4, 6, 6, 6, 0}), "test", "{}");
+    db.save_label_definitions("rooms", {{4, "Office Zone"}});
+  }
+}
+} // namespace
+
+TEST_CASE("SyncSurvey_CreatesTypePerClass_PartPerInstance_WithRooms",
+          "[survey][sync]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  seed_scan(db);
+  const auto r = sync_survey(db);
+  CHECK(r.types_created == 2);
+  CHECK(r.parts_created == 3);
+  CHECK(r.rooms_assigned);
+  const auto types = db.survey_types();
+  REQUIRE(types.size() == 2);
+  CHECK(types[0].name == "window");
+  CHECK(types[0].semantic_class == 3);
+  const auto parts = db.survey_parts();
+  REQUIRE(parts.size() == 3);
+  CHECK(parts[0].code == "RX-001");
+  CHECK(parts[0].instance_id == 1u);
+  CHECK(parts[0].room_name == "Office Zone");
+  CHECK(parts[1].room_id == 6u);
+  CHECK(parts[1].room_name == "Rum 6");
+  CHECK(parts[2].type_id == types[1].id);
+}
+
+TEST_CASE("SyncSurvey_Rerun_PreservesUserEdits", "[survey][sync]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  seed_scan(db);
+  sync_survey(db);
+  const auto types = db.survey_types();
+  ProjectDB::SurveyTypePatch rename;
+  rename.name = "Vinduespartier, aluminium";
+  db.update_survey_type(types[0].id, rename);
+  ProjectDB::SurveyPartPatch move;
+  move.type_id = types[1].id;
+  move.quantity = 26;
+  db.update_survey_part("RX-001", move);
+
+  const auto r = sync_survey(db);
+  CHECK(r.types_created == 0);
+  CHECK(r.parts_created == 0);
+  CHECK(r.parts_existing == 3);
+  CHECK(db.survey_type(types[0].id)->name == "Vinduespartier, aluminium");
+  CHECK(db.survey_part("RX-001")->type_id == types[1].id);
+  CHECK(db.survey_part("RX-001")->quantity == 26);
+}
+
+TEST_CASE("SyncSurvey_NoInstanceCloud_ThrowsNamingTheStage", "[survey][sync]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  try {
+    sync_survey(db);
+    FAIL("expected a throw");
+  } catch (const std::runtime_error &e) {
+    CHECK(std::string(e.what()).find("rux create instances") !=
+          std::string::npos);
+  }
+}
+
+TEST_CASE("SyncSurvey_WithoutRooms_StillCreatesParts", "[survey][sync]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  seed_scan(db, /*with_rooms=*/false);
+  const auto r = sync_survey(db);
+  CHECK(r.parts_created == 3);
+  CHECK_FALSE(r.rooms_assigned);
+  CHECK(db.survey_parts()[0].room_name.empty());
 }

@@ -11,7 +11,9 @@
 #include "reusex/core/ProjectDB.hpp"
 #include "reusex/core/survey.hpp"
 
+#include <cstddef>
 #include <map>
+#include <string>
 #include <vector>
 
 namespace reusex::core {
@@ -33,5 +35,27 @@ type_totals(const ProjectDB &db); // one per survey type, same order
 ProjectDB::SampleRecord
 update_sample_checked(ProjectDB &db, int64_t id,
                       const ProjectDB::SamplePatch &patch);
+
+/// Options for `sync_survey` — the cloud names it reads from.
+struct SurveySyncOptions {
+  std::string instances_cloud = "instances"; // mirrors `rux create materials`
+  std::string semantic_cloud = "labels";
+  std::string rooms_cloud = "rooms";
+};
+/// Counts of what `sync_survey` changed.
+struct SurveySyncReport {
+  std::size_t types_created = 0;
+  std::size_t parts_created = 0;
+  std::size_t parts_existing = 0;
+  bool rooms_assigned = false;
+};
+/// Fill survey_types / survey_parts from the instances table: one type per
+/// semantic class, one bygningsdel (survey part) per instance, placed in the
+/// room most of its points fall in. Idempotent — only adds instances that
+/// have no part yet (has_survey_part_for, keyed on instance guid) and never
+/// touches existing types/parts, so edits made in the GUI survive a rerun.
+/// Throws std::runtime_error naming `rux create instances` if the instances
+/// cloud does not exist.
+SurveySyncReport sync_survey(ProjectDB &db, const SurveySyncOptions &opts = {});
 
 } // namespace reusex::core

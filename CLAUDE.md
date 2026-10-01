@@ -448,7 +448,7 @@ Top-level commands, as registered in `apps/rux/src/rux.cpp`:
 | Command | Sub-commands | Source |
 |---|---|---|
 | `import` | `rtabmap`, `mushroom`, `arkitscenes`, `e57`, `ply`, `gsplat`, `materialepas`, `csv`, `360`, `photos` | `src/import/` |
-| `create` | `clouds`, `dense`, `annotate`, `annotate-360`, `material`, `project`, `planes`, `rooms`, `instances`, `materials`, `mesh`, `texture`, `windows` | `src/create/` |
+| `create` | `clouds`, `dense`, `annotate`, `annotate-360`, `material`, `project`, `planes`, `rooms`, `instances`, `materials`, `survey`, `mesh`, `texture`, `windows` | `src/create/` |
 | `export` | `ply`, `e57`, `materialepas`, `csv`, `rhino`, `semantic-images`, `speckle`, `colmap` | `src/export/` |
 | `align` | `360` (content-based panorama pose refinement) | `src/align/` |
 | `edit` | `downsample`, `perturb-poses` (drift synthesis, #338) | `src/edit/` |

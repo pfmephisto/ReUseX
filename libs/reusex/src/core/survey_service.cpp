@@ -4,6 +4,9 @@
 
 #include "reusex/core/survey_service.hpp"
 
+#include "reusex/core/logging.hpp"
+
+#include <algorithm>
 #include <stdexcept>
 #include <utility>
 
@@ -90,6 +93,101 @@ update_sample_checked(ProjectDB &db, int64_t id,
   validate_sample_state({patch.stage.value_or(current->stage),
                          patch.result.value_or(current->result)});
   return db.update_sample(id, patch);
+}
+
+namespace {
+std::vector<std::uint32_t> labels_of(const ProjectDB &db,
+                                     const std::string &name) {
+  std::vector<std::uint32_t> out;
+  if (const auto cloud = db.point_cloud_label(name))
+    for (const auto &p : *cloud)
+      out.push_back(p.label);
+  return out;
+}
+} // namespace
+
+SurveySyncReport sync_survey(ProjectDB &db, const SurveySyncOptions &opts) {
+  if (!db.has_point_cloud(opts.instances_cloud))
+    throw std::runtime_error("sync_survey: no instance cloud '" +
+                             opts.instances_cloud +
+                             "' — run `rux create instances` first");
+  SurveySyncReport report;
+
+  // Room per instance, when a rooms cloud aligned with the instance cloud
+  // exists.
+  std::map<std::uint32_t, std::uint32_t> room_of;
+  std::map<int, std::string> room_names;
+  if (db.has_point_cloud(opts.rooms_cloud)) {
+    const auto inst = labels_of(db, opts.instances_cloud);
+    const auto rooms = labels_of(db, opts.rooms_cloud);
+    if (inst.size() == rooms.size()) {
+      room_of = majority_room(inst, rooms);
+      room_names = db.label_definitions(opts.rooms_cloud);
+      report.rooms_assigned = true;
+    } else {
+      reusex::warn("sync_survey: '{}' has {} labels but '{}' has {} — clouds "
+                   "are out of sync; "
+                   "parts get no room (re-run `rux create rooms`)",
+                   opts.rooms_cloud, rooms.size(), opts.instances_cloud,
+                   inst.size());
+    }
+  } else {
+    reusex::warn("sync_survey: no '{}' cloud; parts get no room (run `rux "
+                 "create rooms`)",
+                 opts.rooms_cloud);
+  }
+
+  const auto class_names = db.has_point_cloud(opts.semantic_cloud)
+                               ? db.label_definitions(opts.semantic_cloud)
+                               : std::map<int, std::string>{};
+  std::map<int, int64_t> type_for_class;
+  for (const auto &t : db.survey_types())
+    type_for_class.try_emplace(t.semantic_class, t.id);
+
+  auto instances = db.instances(opts.instances_cloud);
+  std::sort(instances.begin(), instances.end(),
+            [](const auto &a, const auto &b) {
+              return a.instance_id < b.instance_id;
+            });
+  int next = db.max_survey_part_number();
+  for (const auto &inst : instances) {
+    if (db.has_survey_part_for(opts.instances_cloud, inst.instance_id)) {
+      ++report.parts_existing;
+      continue;
+    }
+    auto it = type_for_class.find(inst.semantic_class);
+    if (it == type_for_class.end()) {
+      ProjectDB::SurveyTypeRecord t;
+      const auto name = class_names.find(inst.semantic_class);
+      t.name = inst.semantic_class < 0 ? "Uklassificeret"
+               : name != class_names.end()
+                   ? name->second
+                   : "Klasse " + std::to_string(inst.semantic_class);
+      t.semantic_class = inst.semantic_class;
+      it = type_for_class.emplace(inst.semantic_class, db.add_survey_type(t).id)
+               .first;
+      ++report.types_created;
+    }
+    ProjectDB::SurveyPartRecord part;
+    part.code = part_code(++next);
+    part.type_id = it->second;
+    part.cloud_name = opts.instances_cloud;
+    part.instance_id = inst.instance_id;
+    if (const auto r = room_of.find(inst.instance_id); r != room_of.end()) {
+      part.room_id = r->second;
+      const auto n = room_names.find(static_cast<int>(r->second));
+      part.room_name = n != room_names.end()
+                           ? n->second
+                           : "Rum " + std::to_string(r->second);
+    }
+    db.add_survey_part(part);
+    ++report.parts_created;
+  }
+  if (instances.empty())
+    reusex::warn(
+        "sync_survey: instance cloud '{}' has no instances; nothing to survey",
+        opts.instances_cloud);
+  return report;
 }
 
 } // namespace reusex::core

@@ -61,8 +61,21 @@ import type {
   ProjectInfo,
   ProjectSummary,
   PropertyDefinition,
+  RenderQuery,
   ReportPdfVersion,
+  Sample,
+  SampleCreate,
+  SamplePatch,
   StageInfo,
+  Survey,
+  SurveyFractions,
+  SurveyPart,
+  SurveyPartPatch,
+  SurveySummary,
+  SurveySyncReport,
+  SurveyType,
+  SurveyTypeCreate,
+  SurveyTypePatch,
   TextureInfo,
   VisibleFrame,
 } from './types';
@@ -103,6 +116,11 @@ export class ApiRequestError extends Error {
   /** Transient: the database was locked by a running job. Safe to retry. */
   get isRetryable(): boolean {
     return this.status === 503;
+  }
+
+  /** The server refused a well-formed request on a rule, e.g. approving while a sample is pending. */
+  get isUnprocessable(): boolean {
+    return this.status === 422;
   }
 
   /**
@@ -1104,6 +1122,78 @@ export class RuxApiClient {
       ? new URL(this.baseUrl).pathname
       : this.baseUrl;
     return `${scheme}//${loc.host}${path}/events`;
+  }
+
+  // --------------------------------------------------------- survey ----
+
+  survey(signal?: AbortSignal): Promise<Survey> {
+    return this.requestJson<Survey>('/survey', undefined, signal);
+  }
+
+  surveySummary(signal?: AbortSignal): Promise<SurveySummary> {
+    return this.requestJson<SurveySummary>('/survey/summary', undefined, signal);
+  }
+
+  surveyFractions(signal?: AbortSignal): Promise<SurveyFractions> {
+    return this.requestJson<SurveyFractions>('/survey/fractions', undefined, signal);
+  }
+
+  /** Create parts for instances that have none. Idempotent; never overwrites edits. */
+  syncSurvey(
+    body: { instances_cloud?: string; semantic_cloud?: string; rooms_cloud?: string } = {},
+  ): Promise<SurveySyncReport> {
+    return this.postJson<SurveySyncReport>('/survey/sync', body);
+  }
+
+  createSurveyType(body: SurveyTypeCreate): Promise<SurveyType> {
+    return this.postJson<SurveyType>('/survey/types', body);
+  }
+
+  /** Sparse edit. `review_status: 'approved'` is refused with a 422 while a sample is pending. */
+  patchSurveyType(id: number, patch: SurveyTypePatch): Promise<SurveyType> {
+    return this.patchJson<SurveyType>(`/survey/types/${id}`, patch);
+  }
+
+  patchSurveyPart(code: string, patch: SurveyPartPatch): Promise<SurveyPart> {
+    return this.patchJson<SurveyPart>(`/survey/parts/${encodeURIComponent(code)}`, patch);
+  }
+
+  async samples(signal?: AbortSignal): Promise<Sample[]> {
+    const body = await this.requestJson<{ samples: Sample[] }>('/samples', undefined, signal);
+    return body.samples;
+  }
+
+  createSample(body: SampleCreate): Promise<Sample> {
+    return this.postJson<Sample>('/samples', body);
+  }
+
+  patchSample(id: number, patch: SamplePatch): Promise<Sample> {
+    return this.patchJson<Sample>(`/samples/${id}`, patch);
+  }
+
+  setSampleLinks(id: number, typeIds: number[]): Promise<Sample> {
+    return this.putJson<Sample>(`/samples/${id}/links`, { type_ids: typeIds });
+  }
+
+  async deleteSample(id: number): Promise<void> {
+    const url = this.url(`/samples/${id}`);
+    const response = await this.doFetch(url, { method: 'DELETE' });
+    if (!response.ok) {
+      throw new ApiRequestError(response.status, await describeFailure(response), url);
+    }
+  }
+
+  /** URL of a server-rendered evidence image, for use as an `<img src>`. */
+  renderUrl(query: RenderQuery): string {
+    return this.url('/renders', {
+      view: query.view,
+      orbit_index: query.orbit_index,
+      highlight_instance: query.highlight_instance,
+      highlight_cloud: query.highlight_cloud,
+      layers: query.layers?.join(','),
+      width: query.width,
+      height: query.height,
+    });
   }
 }
 

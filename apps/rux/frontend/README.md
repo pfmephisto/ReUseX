@@ -53,6 +53,11 @@ talk only to the Vite origin, so CORS never enters into it. See
 [`docs/gui/README.md`](../../../docs/gui/README.md) § "The frontend must be
 same-origin".
 
+For Kortlægning work, seed the prototype's demo survey into a scratch copy:
+`bash dev/seed-survey-demo.sh <project.rux> /tmp/kort-demo.rux`, then
+`rux -p /tmp/kort-demo.rux gui --port 8420 --no-browser`. Never run it on a
+real project.
+
 ## Production
 
 ```bash

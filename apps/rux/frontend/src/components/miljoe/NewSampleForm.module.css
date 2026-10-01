@@ -23,19 +23,19 @@
 }
 
 .fields {
-  composes: fields from './controls.module.css';
+  composes: fields from '../controls.module.css';
 }
 
 .field {
-  composes: field from './controls.module.css';
+  composes: field from '../controls.module.css';
 }
 
 .label {
-  composes: fieldLabel from './controls.module.css';
+  composes: fieldLabel from '../controls.module.css';
 }
 
 .input {
-  composes: input from './controls.module.css';
+  composes: input from '../controls.module.css';
 }
 
 .hint {
@@ -51,9 +51,9 @@
 }
 
 .btnGhost {
-  composes: btnGhost from './controls.module.css';
+  composes: btnGhost from '../controls.module.css';
 }
 
 .btnPrimary {
-  composes: btnPrimary from './controls.module.css';
+  composes: btnPrimary from '../controls.module.css';
 }

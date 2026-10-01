@@ -30,24 +30,36 @@ apps/rux/frontend/src/
 ├── api/          Contract layer: types.ts (hand-mirrors openapi.yaml),
 │                 client.ts (typed fetch), events.ts (WS + reconnect)
 ├── app/          App shell, routing, cross-cutting state (JobsContext,
-│                 LabelQueueContext), useAsync, useTheme
+│                 LabelQueueContext, SurveyCountsContext), useAsync,
+│                 useTheme, serialQueue + useMutationQueue (a page's writes
+│                 on one chain; `busy` gates buttons, never field commits),
+│                 keyTargets (isField/isControl), saveError (failed-save
+│                 copy), links (Kortlægning ↔ Miljø & prøver deep links)
 ├── components/   Presentational, contract-agnostic blocks — reuse these:
 │                 DataTable, StatCard, Sidebar, EmptyState, ErrorBanner,
 │                 ParameterForm, SelectDropdown, MultiSelectDropdown,
 │                 JobToaster, LayerPanel, PeekPanel, LabelLegend, Pill,
 │                 ConfidenceBar, Kbd, Toast, …
 │                 kortlaegning/  SurveyTable, EvidencePanel, DetailPanel,
-│                 EditDialog — the Kortlægning workbench's presentational
+│                 EditDialog, SampleLine — the Kortlægning workbench's presentational
 │                 layer, built on the shared Pill/ConfidenceBar/Kbd/Toast above
+│                 miljoe/  StageChain, LinkPicker, SampleCard, NewSampleForm —
+│                 Miljø & prøver's presentational layer, same shared blocks;
+│                 controls.module.css holds its buttons and fields (`composes`)
 ├── kortlaegning/ Pure modules behind the workbench: vocab.ts (Danish labels,
 │                 number formatting), model.ts (tabs, filters, selection, row
-│                 flattening), keys.ts (tableAction/dialogAction keyboard maps)
+│                 flattening, initialViewFor), samples.ts (a type's linked
+│                 samples, the sample line), keys.ts (tableAction/dialogAction
+│                 keyboard maps)
+├── miljoe/       Pure modules behind Miljø & prøver: model.ts (stage chain,
+│                 patches, link toggling, gate feedback), useTextDraft.ts
 ├── pipeline/     Pure stage-runner logic (stageModel, params, history)
 ├── routes/       Page compositions: Dashboard, ViewportPage, PipelinePage,
 │                 PipelineLogPage, GraphViewPage, FramesPage, DataPage,
 │                 GeometryPage, InstancesPage, MaterialsPage, ExportPage,
-│                 KortlaegningPage (uses app/SurveyCountsContext for the
-│                 sidebar review-queue badge)
+│                 KortlaegningPage, MiljoePage (both use
+│                 app/SurveyCountsContext for the two sidebar badges: review
+│                 queue and pending samples)
 ├── viewport/     three.js: PointCloudScene, MeshScene, PanoramaScene,
 │                 PoseGraphScene, SplatScene, clipping box, camera views,
 │                 label colours, paged cloud stream (useCloudStream)
@@ -59,6 +71,8 @@ apps/rux/frontend/src/
 Every component is `Foo.tsx` + `Foo.module.css`. New `.cpp`-style file placement
 rule: presentational → `components/`, page → `routes/`, 3D → `viewport/`, pure
 logic → `pipeline/` or a sibling `*.ts`. SPDX header on every file.
+
+Page writes go through `app/useMutationQueue` — never a second ad-hoc chain.
 
 ## 2. The token system (full inventory)
 
@@ -151,6 +165,8 @@ For Kortlægning screenshots/manual testing, seed the prototype's demo survey
 (Måløv Byvej 229 — 11 types, 18 parts, 3 samples; 7 in the review queue,
 4 approved) into a scratch copy with `dev/seed-survey-demo.sh <in.rux>
 <out.rux>`, then point `rux gui` at the copy. Never run it on a real project.
+`--varied` adds two samples for Miljø & prøver (multi-link answered, unlinked
+planned).
 
 ## 5. The API/WS contract
 

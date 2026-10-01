@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import type { SurveyPart, SurveyType } from '../api/types';
 import {
   flattenRows,
+  initialViewFor,
   moveSelection,
   nextInQueue,
   NO_FILTERS,
@@ -20,6 +21,7 @@ import {
   typeOf,
   visibleTypes,
 } from '../kortlaegning/model';
+import { surveyType } from './surveyFixtures';
 
 function part(code: string, typeId: number, room: [number, string] | null, quantity: number): SurveyPart {
   return {
@@ -159,5 +161,23 @@ describe('kortlægning model', () => {
     const p = replacePart(TYPES, { ...TYPES[0].parts[1], quantity: 10 });
     expect(p[0].parts[1].quantity).toBe(10);
     expect(p[0].quantity).toBe(28);
+  });
+});
+
+describe('initialViewFor', () => {
+  const types = [
+    surveyType({ id: 2, review_status: 'queue' }),
+    surveyType({ id: 3, review_status: 'approved' }),
+    surveyType({ id: 4, review_status: 'rejected' }),
+  ];
+
+  it('opens a deep-linked type in the tab it lives in', () => {
+    expect(initialViewFor(types, 2)).toEqual({ tab: 'queue', selection: { typeId: 2, partCode: null } });
+    expect(initialViewFor(types, 3)).toEqual({ tab: 'approved', selection: { typeId: 3, partCode: null } });
+  });
+
+  it('ignores rejected and unknown types', () => {
+    expect(initialViewFor(types, 4)).toBeNull();
+    expect(initialViewFor(types, 99)).toBeNull();
   });
 });

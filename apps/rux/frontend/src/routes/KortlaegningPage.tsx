@@ -4,11 +4,16 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
+import { useLocation } from 'react-router-dom';
 
-import { ApiRequestError, api } from '../api/client';
+import { api } from '../api/client';
 import type { Sample, SurveyPart, SurveySummary, SurveyType } from '../api/types';
+import { isControl, isField } from '../app/keyTargets';
+import { parseTypeQuery } from '../app/links';
+import { saveErrorMessage } from '../app/saveError';
 import { useAsync } from '../app/useAsync';
 import { useSurveyCounts } from '../app/SurveyCountsContext';
+import { useMutationQueue } from '../app/useMutationQueue';
 import { useToast } from '../app/useToast';
 import { EmptyState } from '../components/EmptyState';
 import { ErrorBanner } from '../components/ErrorBanner';
@@ -22,6 +27,7 @@ import { dialogAction, tableAction, type EvidenceTab, type KortAction } from '..
 import {
   NO_FILTERS,
   flattenRows,
+  initialViewFor,
   moveSelection,
   nextInQueue,
   partOf,
@@ -50,19 +56,6 @@ export function blockedMessage(type: SurveyType, samples: Sample[]): string {
     : 'Kan ikke godkendes — afventer prøvesvar';
 }
 
-/**
- * The toast for a failed save. A running pipeline job (409) and a server that
- * is not ready (503) are transient and get their own Danish copy; anything
- * else shows the server's message.
- */
-export function saveErrorMessage(cause: unknown): string {
-  if (cause instanceof ApiRequestError) {
-    if (cause.status === 409) return 'Kunne ikke gemme — et pipeline-job kører. Prøv igen om lidt.';
-    if (cause.status === 503) return 'Kunne ikke gemme — serveren er ikke klar.';
-  }
-  return `Kunne ikke gemme: ${errorMessage(cause)}`;
-}
-
 /** The toast after an approval, counting what is left in the queue. */
 export function approvedMessage(name: string, types: SurveyType[]): string {
   return `✓ ${name} godkendt · ${tabCounts(types).queue} tilbage i køen`;
@@ -84,22 +77,6 @@ export function coverageParts(summary: SurveySummary): string[] {
   return parts;
 }
 
-/** Typing targets: the page's shortcuts never fire while one has focus. */
-function isField(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  return target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'TEXTAREA';
-}
-
-/** Buttons and links: Enter/Space belong to their native activation. */
-function isControl(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  return target.tagName === 'BUTTON' || target.tagName === 'A';
-}
-
-function errorMessage(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
-}
-
 /**
  * Kortlægning — the surveyor's review workbench: survey types grouped by
  * review tab, expandable into their building parts, with the evidence and
@@ -116,6 +93,18 @@ export function KortlaegningPage() {
   );
   const { refresh } = useSurveyCounts();
   const toast = useToast();
+  // Every write runs on one serial chain (see useMutationQueue): two PATCHes
+  // to one type — a note blur racing an approve — can never land out of order.
+  const { busy, mutate } = useMutationQueue({
+    onError: (cause) => toast.show(saveErrorMessage(cause)),
+    onSettled: refresh,
+  });
+  const location = useLocation();
+  // `/kortlaegning?type=<id>` (from a sample's "Koblet:" link) selects that
+  // type once, in the tab it lives in. Applied in the same effect that seeds
+  // `types`, so the first render with data already has the right tab and the
+  // keep-selection-visible effect below finds the selection shown.
+  const deepLinkType = useRef(parseTypeQuery(location.search));
 
   const [types, setTypesState] = useState<SurveyType[]>([]);
   // Mirrors `types` synchronously, so a mutation's follow-up (the next queued
@@ -133,10 +122,6 @@ export function KortlaegningPage() {
   const [selection, setSelection] = useState<Selection>(null);
   const [evidenceTab, setEvidenceTab] = useState<EvidenceTab>('plan');
   const [dialogOpen, setDialogOpen] = useState(false);
-  // A count, not a flag: field commits are never gated on `busy`, so two
-  // requests can overlap and the first to finish must not clear it.
-  const [inFlight, setInFlight] = useState(0);
-  const busy = inFlight > 0;
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<Error | null>(null);
   const tableRef = useRef<HTMLDivElement>(null);
@@ -146,7 +131,7 @@ export function KortlaegningPage() {
 
   const visible = visibleTypes(types, tab, filters);
   // The tab and filters as of now, for a queued mutation's follow-up that
-  // runs after later renders (see `mutate`).
+  // runs after later renders (queued via `useMutationQueue`).
   const viewRef = useRef({ tab, filters });
   viewRef.current = { tab, filters };
   const shownIn = (list: SurveyType[]) => visibleTypes(list, viewRef.current.tab, viewRef.current.filters);
@@ -163,12 +148,26 @@ export function KortlaegningPage() {
   }, []);
 
   // Fresh data (first load, or a reload after sync) replaces the local copy.
+  // A `/kortlaegning?type=<id>` deep link selects and opens that type, in the
+  // tab it lives in, the first time data arrives (see `initialViewFor`); an
+  // unknown or rejected id, or no `?type=` at all, leaves the usual
+  // first-load behaviour (the repair effect below picks row 0) untouched.
   const [loadedOnce, setLoadedOnce] = useState(false);
   useEffect(() => {
     if (!data) return;
     setTypes(() => data[0].types);
+    const want = deepLinkType.current;
+    if (want !== null) {
+      deepLinkType.current = null;
+      const view = initialViewFor(data[0].types, want);
+      if (view) {
+        setTab(view.tab);
+        setFilters(NO_FILTERS);
+        select(view.selection);
+      }
+    }
     setLoadedOnce(true);
-  }, [data, setTypes]);
+  }, [data, setTypes, select]);
 
   // Keep the selection on a row that is actually shown: first load, a tab or
   // filter change, or an approval that moved the type out of this tab.
@@ -203,33 +202,6 @@ export function KortlaegningPage() {
   }, [dialogOpen, selType]);
 
   // ------------------------------------------------------------ mutations --
-
-  // Every mutation runs on one promise chain, so requests reach the server —
-  // and their responses are folded in — in the order they were made. Two
-  // PATCHes to one type (a note blur racing an approve) can then never land
-  // out of order and undo each other. Nothing is dropped: a field commit made
-  // while another request is in flight just waits its turn.
-  const chainRef = useRef<Promise<void>>(Promise.resolve());
-
-  function mutate(run: () => Promise<void>, onUnprocessable?: () => void) {
-    setInFlight((n) => n + 1); // counts queued requests too, so `busy` covers them
-    const task = async () => {
-      try {
-        await run();
-      } catch (cause) {
-        if (cause instanceof ApiRequestError && cause.isUnprocessable && onUnprocessable) {
-          onUnprocessable();
-        } else {
-          toast.show(saveErrorMessage(cause));
-        }
-      } finally {
-        setInFlight((n) => n - 1);
-        refresh();
-      }
-    };
-    // `task` never rejects, but chain on both outcomes regardless.
-    chainRef.current = chainRef.current.then(task, task);
-  }
 
   // Approve and reject are gated on `busy` (a held G/A must not stack
   // requests); field commits deliberately are not.

@@ -8,9 +8,12 @@
 # not linked to instances (the demo has none), so evidence renders show the
 # whole cloud without a highlight. Never run this against a real project.
 #
-# Usage: seed-survey-demo.sh <source.rux> <dest.rux>
+# Usage: seed-survey-demo.sh [--varied] <source.rux> <dest.rux>
+# --varied adds P-04 (answered ren, linked to two approved types) and P-05 (planned, unlinked) for Miljø & prøver work.
 set -euo pipefail
 command -v sqlite3 > /dev/null 2>&1 || { echo "sqlite3 not found" >&2; exit 1; }
+varied=0
+if [[ "${1:-}" == "--varied" ]]; then varied=1; shift; fi
 src="${1:?source .rux}"
 dst="${2:?destination .rux}"
 [[ -f "$src" ]] || { echo "no such project: $src" >&2; exit 1; }
@@ -56,4 +59,14 @@ INSERT INTO samples (id,code,title,what,stage,result) VALUES
 INSERT INTO sample_links (sample_id,type_id) VALUES (1,6),(2,11),(3,8);
 COMMIT;
 SQL
+if [[ "$varied" -eq 1 ]]; then
+sqlite3 "$dst" <<'SQL'
+BEGIN;
+INSERT INTO samples (id,code,title,what,stage,result) VALUES
+ (4,'P-04','Asbest i eternitplader','Tagplader over Roof, prøve fra nordfaldet','svar','ren'),
+ (5,'P-05','PAH i tagpap','Tagpap under trapezplader — endnu ikke udtaget','planlagt','');
+INSERT INTO sample_links (sample_id,type_id) VALUES (4,7),(4,10);
+COMMIT;
+SQL
+fi
 echo "seeded demo survey into $dst"

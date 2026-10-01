@@ -11,6 +11,7 @@ import {
   linkedSamples,
   panelTitle,
   pendingSampleList,
+  sampleLineModel,
   sampleLineText,
 } from '../components/kortlaegning/DetailPanel';
 import {
@@ -259,5 +260,21 @@ describe('pendingSampleList', () => {
 
   it('is empty when nothing is pending', () => {
     expect(pendingSampleList(type({ sample_ids: [] }), [])).toBe('');
+  });
+});
+
+describe('sampleLineModel', () => {
+  it('links each linked sample by id with the same text the line shows', () => {
+    const t = { ...type(), id: 6, sample_ids: [1] };
+    const s = [{ ...sample(), id: 1, code: 'P-01', title: 'PCB i fugemasse', stage: 'sendt' as const, result: null }];
+    expect(sampleLineModel(t, s)).toEqual({
+      kind: 'linked',
+      items: [{ id: 1, text: 'P-01 · PCB i fugemasse — Sendt til lab' }],
+    });
+    expect(sampleLineText(t, s)).toBe('Miljøstatus styres af P-01 · PCB i fugemasse — Sendt til lab');
+  });
+
+  it('offers registering a sample for a type with none', () => {
+    expect(sampleLineModel({ ...type(), id: 9, sample_ids: [] }, [])).toEqual({ kind: 'none', typeId: 9 });
   });
 });

@@ -58,6 +58,12 @@ For Kortlægning work, seed the prototype's demo survey into a scratch copy:
 `rux -p /tmp/kort-demo.rux gui --port 8420 --no-browser`. Never run it on a
 real project.
 
+For Miljø & prøver work, add `--varied`
+(`bash dev/seed-survey-demo.sh --varied <project.rux> /tmp/miljoe-demo.rux`).
+This seeds two extra samples, one answered and linked to two types and one
+planned and unlinked, on top of the prototype's three. Screenshots against
+`miljoe.png` use the plain seed.
+
 ## Production
 
 ```bash
@@ -120,21 +126,35 @@ src/
 │                 openapi.yaml), client.ts (typed fetch wrapper), events.ts
 │                 (WebSocket channel + reconnect)
 ├── app/          App shell, routing, cross-cutting state (JobsContext,
-│                 SurveyCountsContext — drives the sidebar review-queue
-│                 badge), useAsync, useToast
+│                 SurveyCountsContext — drives both sidebar badges, the
+│                 review queue and pending samples), useAsync, useToast, serialQueue.ts (one promise
+│                 chain per page, tasks settle in commit order),
+│                 useMutationQueue.ts (a page's writes on that chain; `busy`
+│                 gates buttons only, field commits are never dropped),
+│                 keyTargets.ts (classifies a key event's target so page
+│                 shortcuts never fire while typing), links.ts (the
+│                 Kortlægning ↔ Miljø & prøver deep links), saveError.ts
+│                 (Danish copy for a failed save: 409/503 get their own
+│                 message, else the server's)
 ├── components/   Presentational, contract-agnostic building blocks
 │                 (DataTable, StatCard, Sidebar, JobToaster, Pill,
 │                 ConfidenceBar, Kbd, Toast, ...), plus kortlaegning/
-│                 (SurveyTable, EvidencePanel, DetailPanel, EditDialog)
+│                 (SurveyTable, EvidencePanel, DetailPanel, EditDialog,
+│                 SampleLine) and miljoe/ (StageChain, LinkPicker,
+│                 SampleCard, NewSampleForm, controls.module.css — the
+│                 buttons and fields they share via `composes`)
 ├── kortlaegning/ Pure modules for the Kortlægning workbench: vocab.ts
 │                 (Danish labels, number formatting), model.ts (tabs,
-│                 filters, selection, row flattening), keys.ts (keyboard
-│                 maps)
+│                 filters, selection, row flattening, initialViewFor for a
+│                 `?type=` deep link), samples.ts (a type's linked samples
+│                 and its sample line), keys.ts (keyboard maps)
+├── miljoe/       Pure modules for Miljø & prøver: model.ts (stage chain,
+│                 patches, link toggling, gate feedback), useTextDraft.ts
 ├── pipeline/     Pure stage-runner logic: the card view model (stageModel),
 │                 parameter-form parsing and the omit-defaults submit rule
 │                 (params), and the pipeline_log timeline (history)
 ├── routes/       Page-level compositions (Dashboard, PipelinePage,
-│                 ViewportPage, KortlaegningPage)
+│                 ViewportPage, KortlaegningPage, MiljoePage)
 ├── viewport/     three.js point-cloud rendering: PointCloudScene, the paged
 │                 cloud stream (useCloudStream, pagination), point decoding
 │                 (decode.ts) and label colour mapping (labelColors.ts)

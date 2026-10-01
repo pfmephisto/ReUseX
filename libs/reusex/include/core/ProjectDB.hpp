@@ -1014,6 +1014,35 @@ class ProjectDB {
                                          std::uint32_t instance_id) const;
   [[nodiscard]] int max_survey_part_number() const; // 0 when there are none
 
+  struct SampleRecord {
+    int64_t id = 0;
+    std::string code;  // "P-01"
+    std::string title; // "PCB i fugemasse"
+    std::string what;  // what was sampled, where
+    core::SampleStage stage = core::SampleStage::planlagt;
+    core::SampleResult result = core::SampleResult::none;
+    std::vector<int64_t> type_ids; // linked survey types, ascending
+    std::string created_at;
+    std::string updated_at;
+  };
+  struct SamplePatch {
+    std::optional<std::string> title, what;
+    std::optional<core::SampleStage> stage;
+    std::optional<core::SampleResult> result;
+  };
+  SampleRecord add_sample(std::string_view title, std::string_view what);
+  [[nodiscard]] std::vector<SampleRecord> samples() const; // by id
+  [[nodiscard]] std::optional<SampleRecord> sample(int64_t id) const;
+  SampleRecord
+  update_sample(int64_t id,
+                const SamplePatch &patch); // storage only; no stage rules
+  bool delete_sample(int64_t id);          // false when absent
+  void
+  set_sample_links(int64_t id,
+                   const std::vector<int64_t> &type_ids); // replaces the set
+  [[nodiscard]] std::vector<SampleRecord>
+  samples_for_type(int64_t type_id) const;
+
   // --- Project Metadata Operations ---
 
   struct ProjectMetadata {

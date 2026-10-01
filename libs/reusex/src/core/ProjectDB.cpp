@@ -7880,4 +7880,187 @@ int ProjectDB::max_survey_part_number() const {
   return sqlite3_column_int(stmt, 0);
 }
 
+namespace {
+ProjectDB::SampleRecord read_sample_row(sqlite3_stmt *s) {
+  ProjectDB::SampleRecord r;
+  r.id = sqlite3_column_int64(s, 0);
+  r.code = column_text(s, 1);
+  r.title = column_text(s, 2);
+  r.what = column_text(s, 3);
+  r.stage = core::sample_stage_from_string(column_text(s, 4))
+                .value_or(core::SampleStage::planlagt);
+  r.result = core::sample_result_from_string(column_text(s, 5))
+                 .value_or(core::SampleResult::none);
+  r.created_at = column_text(s, 6);
+  r.updated_at = column_text(s, 7);
+  return r;
+}
+constexpr const char *kSampleColumns =
+    "id, code, title, what, stage, result, created_at, updated_at";
+} // namespace
+
+// Fills type_ids for each record in place.
+static void attach_sample_links(sqlite3 *db,
+                                std::vector<ProjectDB::SampleRecord> &records) {
+  sqlite3_stmt *stmt = prepare_or_throw(
+      db,
+      "SELECT type_id FROM sample_links WHERE sample_id = ? ORDER BY type_id;",
+      "sample_links");
+  StmtGuard guard(stmt);
+  for (auto &r : records) {
+    sqlite3_reset(stmt);
+    sqlite3_bind_int64(stmt, 1, r.id);
+    while (sqlite3_step(stmt) == SQLITE_ROW)
+      r.type_ids.push_back(sqlite3_column_int64(stmt, 0));
+  }
+}
+
+ProjectDB::SampleRecord ProjectDB::add_sample(std::string_view title,
+                                              std::string_view what) {
+  impl_->checkWritable();
+  // Codes are never reused: take the highest ever issued (AUTOINCREMENT's
+  // sqlite_sequence survives deletes), not the current count.
+  sqlite3_stmt *seq =
+      prepare_or_throw(impl_->db,
+                       "SELECT COALESCE((SELECT seq FROM sqlite_sequence WHERE "
+                       "name = 'samples'), 0);",
+                       "add_sample");
+  StmtGuard seq_guard(seq);
+  sqlite3_step(seq);
+  const int next = sqlite3_column_int(seq, 0) + 1;
+
+  sqlite3_stmt *stmt = prepare_or_throw(
+      impl_->db,
+      "INSERT INTO samples (code, title, what) VALUES (?,?,?) RETURNING id;",
+      "add_sample");
+  StmtGuard guard(stmt);
+  bind_text(stmt, 1, core::sample_code(next));
+  bind_text(stmt, 2, title);
+  bind_text(stmt, 3, what);
+  if (sqlite3_step(stmt) != SQLITE_ROW)
+    throw std::runtime_error("add_sample: " +
+                             std::string(sqlite3_errmsg(impl_->db)));
+  return *sample(sqlite3_column_int64(stmt, 0));
+}
+
+std::vector<ProjectDB::SampleRecord> ProjectDB::samples() const {
+  const std::string sql =
+      std::string("SELECT ") + kSampleColumns + " FROM samples ORDER BY id;";
+  sqlite3_stmt *stmt = prepare_or_throw(impl_->db, sql.c_str(), "samples");
+  StmtGuard guard(stmt);
+  std::vector<SampleRecord> out;
+  while (sqlite3_step(stmt) == SQLITE_ROW)
+    out.push_back(read_sample_row(stmt));
+  attach_sample_links(impl_->db, out);
+  return out;
+}
+
+std::optional<ProjectDB::SampleRecord> ProjectDB::sample(int64_t id) const {
+  const std::string sql =
+      std::string("SELECT ") + kSampleColumns + " FROM samples WHERE id = ?;";
+  sqlite3_stmt *stmt = prepare_or_throw(impl_->db, sql.c_str(), "sample");
+  StmtGuard guard(stmt);
+  sqlite3_bind_int64(stmt, 1, id);
+  if (sqlite3_step(stmt) != SQLITE_ROW)
+    return std::nullopt;
+  std::vector<SampleRecord> one{read_sample_row(stmt)};
+  attach_sample_links(impl_->db, one);
+  return one.front();
+}
+
+ProjectDB::SampleRecord ProjectDB::update_sample(int64_t id,
+                                                 const SamplePatch &p) {
+  impl_->checkWritable();
+  if (!sample(id))
+    throw std::out_of_range("no sample " + std::to_string(id));
+  std::vector<std::string> sets;
+  if (p.title)
+    sets.emplace_back("title = ?");
+  if (p.what)
+    sets.emplace_back("what = ?");
+  if (p.stage)
+    sets.emplace_back("stage = ?");
+  if (p.result)
+    sets.emplace_back("result = ?");
+  if (!sets.empty()) {
+    std::string sql = "UPDATE samples SET ";
+    for (const auto &s : sets)
+      sql += s + ", ";
+    sql += "updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id = ?;";
+    sqlite3_stmt *stmt =
+        prepare_or_throw(impl_->db, sql.c_str(), "update_sample");
+    StmtGuard guard(stmt);
+    int i = 1;
+    if (p.title)
+      bind_text(stmt, i++, *p.title);
+    if (p.what)
+      bind_text(stmt, i++, *p.what);
+    if (p.stage)
+      bind_text(stmt, i++, core::to_string(*p.stage));
+    if (p.result)
+      bind_text(stmt, i++, core::to_string(*p.result));
+    sqlite3_bind_int64(stmt, i, id);
+    if (sqlite3_step(stmt) != SQLITE_DONE)
+      throw std::runtime_error("update_sample: " +
+                               std::string(sqlite3_errmsg(impl_->db)));
+  }
+  return *sample(id);
+}
+
+bool ProjectDB::delete_sample(int64_t id) {
+  impl_->checkWritable();
+  sqlite3_stmt *stmt = prepare_or_throw(
+      impl_->db, "DELETE FROM samples WHERE id = ?;", "delete_sample");
+  StmtGuard guard(stmt);
+  sqlite3_bind_int64(stmt, 1, id);
+  sqlite3_step(stmt);
+  return sqlite3_changes(impl_->db) > 0;
+}
+
+void ProjectDB::set_sample_links(int64_t id,
+                                 const std::vector<int64_t> &type_ids) {
+  impl_->checkWritable();
+  if (!sample(id))
+    throw std::out_of_range("no sample " + std::to_string(id));
+  for (auto t : type_ids)
+    if (!survey_type(t))
+      throw std::out_of_range("no survey type " + std::to_string(t));
+  sqlite3_exec(impl_->db, "BEGIN;", nullptr, nullptr, nullptr);
+  try {
+    sqlite3_stmt *del = prepare_or_throw(
+        impl_->db, "DELETE FROM sample_links WHERE sample_id = ?;",
+        "set_sample_links");
+    StmtGuard del_guard(del);
+    sqlite3_bind_int64(del, 1, id);
+    sqlite3_step(del);
+    sqlite3_stmt *ins = prepare_or_throw(impl_->db,
+                                         "INSERT OR IGNORE INTO sample_links "
+                                         "(sample_id, type_id) VALUES (?, ?);",
+                                         "set_sample_links");
+    StmtGuard ins_guard(ins);
+    for (auto t : type_ids) {
+      sqlite3_reset(ins);
+      sqlite3_bind_int64(ins, 1, id);
+      sqlite3_bind_int64(ins, 2, t);
+      if (sqlite3_step(ins) != SQLITE_DONE)
+        throw std::runtime_error("set_sample_links: " +
+                                 std::string(sqlite3_errmsg(impl_->db)));
+    }
+    sqlite3_exec(impl_->db, "COMMIT;", nullptr, nullptr, nullptr);
+  } catch (...) {
+    sqlite3_exec(impl_->db, "ROLLBACK;", nullptr, nullptr, nullptr);
+    throw;
+  }
+}
+
+std::vector<ProjectDB::SampleRecord>
+ProjectDB::samples_for_type(int64_t type_id) const {
+  std::vector<SampleRecord> out;
+  for (auto &s : samples())
+    if (std::find(s.type_ids.begin(), s.type_ids.end(), type_id) !=
+        s.type_ids.end())
+      out.push_back(std::move(s));
+  return out;
+}
+
 } // namespace reusex

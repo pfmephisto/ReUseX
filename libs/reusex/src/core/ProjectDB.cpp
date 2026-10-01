@@ -8025,7 +8025,7 @@ void ProjectDB::set_sample_links(int64_t id,
   for (auto t : type_ids)
     if (!survey_type(t))
       throw std::out_of_range("no survey type " + std::to_string(t));
-  sqlite3_exec(impl_->db, "BEGIN;", nullptr, nullptr, nullptr);
+  impl_->execOrThrow("BEGIN TRANSACTION;");
   try {
     sqlite3_stmt *del = prepare_or_throw(
         impl_->db, "DELETE FROM sample_links WHERE sample_id = ?;",
@@ -8046,9 +8046,16 @@ void ProjectDB::set_sample_links(int64_t id,
         throw std::runtime_error("set_sample_links: " +
                                  std::string(sqlite3_errmsg(impl_->db)));
     }
-    sqlite3_exec(impl_->db, "COMMIT;", nullptr, nullptr, nullptr);
+    impl_->execOrThrow("COMMIT;");
   } catch (...) {
-    sqlite3_exec(impl_->db, "ROLLBACK;", nullptr, nullptr, nullptr);
+    // Non-throwing on purpose: a throw here would mask the original
+    // exception. Still check the result rather than discard it silently
+    // (STANDARDS §5) so a failed rollback — which leaves the transaction
+    // open on impl_->db — is at least visible in the log.
+    if (sqlite3_exec(impl_->db, "ROLLBACK;", nullptr, nullptr, nullptr) !=
+        SQLITE_OK)
+      reusex::warn("set_sample_links: ROLLBACK failed: {}",
+                   sqlite3_errmsg(impl_->db));
     throw;
   }
 }

@@ -58,6 +58,12 @@ For Kortlægning work, seed the prototype's demo survey into a scratch copy:
 `rux -p /tmp/kort-demo.rux gui --port 8420 --no-browser`. Never run it on a
 real project.
 
+For Miljø & prøver work, add `--varied`
+(`bash dev/seed-survey-demo.sh --varied <project.rux> /tmp/miljoe-demo.rux`).
+This seeds two extra samples, one answered and linked to two types and one
+planned and unlinked, on top of the prototype's three. Screenshots against
+`miljoe.png` use the plain seed.
+
 ## Production
 
 ```bash

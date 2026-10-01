@@ -201,7 +201,7 @@ function EvidenceImage({
     }
     return (
       <div className={wellClassName}>
-        <EmptyState title={message} />
+        <EmptyState title={message} bare />
       </div>
     );
   }

@@ -28,6 +28,9 @@
   font-size: var(--font-size-sm);
   color: var(--color-text-muted);
   border-bottom: 2px solid transparent;
+  /* Sit the active underline on the tablist's own border, not above it.
+     (`calc(0 - 1px)` would be invalid: --space-0 is a unitless 0.) */
+  margin-bottom: calc(-1 * 1px);
 }
 
 .tab:hover {

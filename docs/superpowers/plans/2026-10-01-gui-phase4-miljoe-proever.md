@@ -3038,7 +3038,7 @@ git commit -m "docs(gui): Miljø & prøver screen; samples link to survey types"
 ## Phase exit criteria
 
 - Frontend `test`, `typecheck` and `build` pass. Token lint is clean on every new or changed `.module.css`/`.tsx`. `reuse lint` is compliant.
-- Shots of `/miljoe` (light + dark, desktop + mobile) match `miljoe.png`'s structure on the plain seed, with deviations only as ruled (R5, R6).
+- Shots of `/miljoe` (light + dark, desktop + mobile) match `miljoe.png`'s structure on the plain seed, with deviations only as ruled (R4–R6 and the Rediger editor).
 - `miljoe_flow.py` prints `flow OK`:
   - result entry un-gates Vinduespartier, and Kortlægning then enables `Godkend mængde ✓`;
   - the badge goes 2 → 1;

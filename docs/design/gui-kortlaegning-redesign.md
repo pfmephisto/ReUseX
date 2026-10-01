@@ -120,7 +120,9 @@ New storage (schema v22):
   added part needs no instance), room id + name, quantity, starred, note.
 - `samples` — code `P-##`, title, what was sampled, stage (planlagt |
   udtaget | sendt | svar), result (null | ren | forurenet).
-- `sample_links` — many-to-many sample ↔ passport.
+- `sample_links` — many-to-many sample ↔ survey type. (Originally written as
+  "passport"; miljøstatus and the approval gate are properties of a type, so
+  the link is to the type — as implemented in Phase 2.)
 
 Derived, never stored (pure library functions, unit-tested):
 
@@ -188,9 +190,9 @@ answers 503.
   - *Rum-model*: server-rendered view of the `rooms` layer.
 - **Detail panel** — title, BIM7AA pill, miljø pill, ★ pill; Mængde (editable;
   on a type it is redistributed proportionally over the parts), EAK, Behandling
-  (select), Sikkerhed (AI); sample line (plain text today — "Miljøstatus
-  styres af P-01 · PCB i fugemasse" — not yet a link to Miljø & prøver, since
-  that screen doesn't exist until Phase 4); Proces / håndtering note;
+  (select), Sikkerhed (AI); sample line, each sample a link to its card in
+  Miljø & prøver (or `Registrér prøve` when none is linked); Proces /
+  håndtering note;
   ☆ Markér vigtig, Afvis, Godkend mængde ✓ (disabled with a gate note while a
   sample is pending), Genåbn.
 - **Edit dialog** (Enter / double-click) — navy header with prev/next/close;
@@ -200,6 +202,39 @@ answers 503.
   Godkend & næste ✓. ⌘/Ctrl+Enter approve-and-next, PgUp/PgDn move, 1–4
   switch view, Esc close.
 - **Toast** after approve/reject: "✓ <type> godkendt · n tilbage i køen".
+
+## Miljø & prøver screen (the prototype, component by component)
+
+- **Chrome** — the same navy title bar and sidebar; Miljø & prøver carries a
+  neutral count badge (not the "hot" accent Kortlægning's review queue uses).
+- **View head** — `MILJØ & PRØVER` + sub "Prøver styrer miljøstatus på de
+  koblede bygningsdele", and `+ Ny prøve`.
+- **Sample cards** — a vertical stack, one per sample: a title row (code +
+  what was sampled, a stage/result pill, "Koblet: <types>"), a what-line, a
+  stage chain (Planlagt — Udtaget — Sendt til lab — Svar modtaget) and an
+  action row that depends on stage: *sendt* offers `Registrér svar: Ren` /
+  `Registrér svar: Forurenet`; *udtaget* offers `Næste trin →`; *svar* with a
+  result shows only a note that miljøstatus has been updated.
+- **Footnote** — factual, not a sketch note: a prøvesvar updates miljøstatus
+  on every linked type at once; lab integration (e.g. Milva) is a follow-up.
+
+v1 adds, beyond the prototype:
+
+- an inline `Rediger` editor (title, what, links) opened from the `Koblet:`
+  line, since the prototype has no list/detail split or link editor;
+- `Fortryd svar`, the one backward step the screen offers: it returns a
+  sample from *svar* to *sendt* with no result — not to *svar* with no
+  result, which would otherwise count as clean and silently un-gate its
+  types;
+- recording a result as one combined patch, `{stage: 'svar', result}`,
+  checked by the backend against the merged state;
+- a toast after every sample change reporting the approval-gate effect (how
+  many types were un-gated or re-gated by the change);
+- deep links both ways: `?sample=<id>` scrolls to and highlights a card,
+  `?ny=<typeId>` opens the create form pre-linked to that type, and a linked
+  type's name on a card opens `/kortlaegning?type=<id>`;
+- the badge is `pending_samples` (from `GET /survey/summary`) — samples not
+  yet at stage *svar* — never a client-side count.
 
 ## Phases
 
@@ -232,8 +267,9 @@ Each phase is a separate PR that leaves the app working.
   `/design-sync` after Phase 1 merges — a maintainer-initiated step.
 - A nearest-panorama endpoint, so the evidence panel's Foto tab can become a
   true 360° tab instead of substituting a sensor-frame photo.
-- Linking the detail panel's sample line to the Miljø & prøver screen (Phase 4)
-  instead of rendering it as plain text.
+- ~~Linking the detail panel's sample line to the Miljø & prøver screen~~ —
+  done in Phase 4: the sample line is now a link to each linked sample's card
+  (or `Registrér prøve` when none is linked).
 - A survey-specific export — "Eksport (XLS)" currently downloads the existing
   material-passport CSV (`/exports/csv`), not a Kortlægning-shaped spreadsheet.
 - Two pieces of the structure above that v1 does not draw yet: the child
@@ -241,3 +277,15 @@ Each phase is a separate PR that leaves the app working.
 - A `--border-width` token: the tab underline offset in `SurveyTable.module.css`
   and `EvidencePanel.module.css` currently computes it as `calc(-1 * 1px)`
   because no border-width token exists yet.
+- Uploading the lab's miljørapport (PDF) to a sample — needs blob storage and
+  an endpoint; the prototype's `Upload miljørapport (PDF)` button is not drawn
+  until then.
+- Rewinding a sample's stage beyond `Fortryd svar` (back to *sendt*).
+- The shared `ErrorBanner` copy is English ("Could not load …") and should be
+  Danish.
+- `rux gui` sometimes answers concurrent GETs on a full page load with a 503
+  ("project database is busy"). The frontend shows the `ErrorBanner` and
+  Retry recovers, but it needs a server-side busy timeout for reads, or a
+  client retry on 503 for GETs.
+- The `AppShell` overflows horizontally at 390px, when the topbar and the
+  open sidebar are both shown. This predates Phase 4 and affects every route.

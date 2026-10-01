@@ -148,3 +148,14 @@ export function replacePart(types: SurveyType[], updated: SurveyPart): SurveyTyp
     return { ...t, parts, quantity: parts.reduce((s, p) => s + p.quantity, 0) };
   });
 }
+
+/**
+ * Where a deep link to a type (`/kortlaegning?type=<id>`) lands: the tab the
+ * type lives in, with it selected. Rejected types are hidden from every tab,
+ * and an unknown id has nowhere to go — both give null (plain screen).
+ */
+export function initialViewFor(types: SurveyType[], typeId: number): { tab: Tab; selection: Selection } | null {
+  const t = types.find((x) => x.id === typeId);
+  if (!t || t.review_status === 'rejected') return null;
+  return { tab: t.review_status === 'approved' ? 'approved' : 'queue', selection: { typeId, partCode: null } };
+}

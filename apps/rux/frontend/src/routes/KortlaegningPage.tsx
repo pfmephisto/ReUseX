@@ -4,10 +4,12 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
+import { useSearchParams } from 'react-router-dom';
 
 import { api } from '../api/client';
 import type { Sample, SurveyPart, SurveySummary, SurveyType } from '../api/types';
 import { isControl, isField } from '../app/keyTargets';
+import { parseTypeQuery } from '../app/links';
 import { saveErrorMessage } from '../app/saveError';
 import { useAsync } from '../app/useAsync';
 import { useSurveyCounts } from '../app/SurveyCountsContext';
@@ -25,6 +27,7 @@ import { dialogAction, tableAction, type EvidenceTab, type KortAction } from '..
 import {
   NO_FILTERS,
   flattenRows,
+  initialViewFor,
   moveSelection,
   nextInQueue,
   partOf,
@@ -116,13 +119,17 @@ export function KortlaegningPage() {
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<Error | null>(null);
   const tableRef = useRef<HTMLDivElement>(null);
+  const [searchParams] = useSearchParams();
+  // A `?type=` deep link is applied once, against the first data the page
+  // loads; later reloads (e.g. after sync) must not reopen it.
+  const deepLinkAppliedRef = useRef(false);
 
   const samples = data?.[1] ?? [];
   const summary = data?.[2];
 
   const visible = visibleTypes(types, tab, filters);
   // The tab and filters as of now, for a queued mutation's follow-up that
-  // runs after later renders (see `mutate`).
+  // runs after later renders (queued via `useMutationQueue`).
   const viewRef = useRef({ tab, filters });
   viewRef.current = { tab, filters };
   const shownIn = (list: SurveyType[]) => visibleTypes(list, viewRef.current.tab, viewRef.current.filters);
@@ -139,12 +146,26 @@ export function KortlaegningPage() {
   }, []);
 
   // Fresh data (first load, or a reload after sync) replaces the local copy.
+  // A `/kortlaegning?type=<id>` deep link selects and opens that type, in the
+  // tab it lives in, the first time data arrives (see `initialViewFor`); an
+  // unknown or rejected id, or no `?type=` at all, leaves the usual
+  // first-load behaviour (the repair effect below picks row 0) untouched.
   const [loadedOnce, setLoadedOnce] = useState(false);
   useEffect(() => {
     if (!data) return;
-    setTypes(() => data[0].types);
+    const freshTypes = data[0].types;
+    setTypes(() => freshTypes);
+    if (!deepLinkAppliedRef.current) {
+      deepLinkAppliedRef.current = true;
+      const typeId = parseTypeQuery(searchParams.toString());
+      const view = typeId !== null ? initialViewFor(freshTypes, typeId) : null;
+      if (view) {
+        setTab(view.tab);
+        select(view.selection);
+      }
+    }
     setLoadedOnce(true);
-  }, [data, setTypes]);
+  }, [data, setTypes, searchParams, select]);
 
   // Keep the selection on a row that is actually shown: first load, a tab or
   // filter change, or an approval that moved the type out of this tab.

@@ -64,6 +64,10 @@ describe('navigation model', () => {
     expect(NAV_ENTRIES.find((e) => e.to === '/miljoe')?.badge).toBe('pendingSamples');
   });
 
+  it('makes Kortlægning a live destination', () => {
+    expect(NAV_ENTRIES.find((e) => e.to === '/kortlaegning')?.pending).toBeUndefined();
+  });
+
   it('points "Alle sager" at the case list', () => {
     expect(ALL_CASES_PATH).toBe('/sager');
   });

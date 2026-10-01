@@ -11,9 +11,10 @@
  * exported function (`titlePrefix`, `partChips`, `partCountText`,
  * `primaryLabel`, `primaryDisabled`, `photoStrip`, `wrapFocusIndex`,
  * `isTabbable`) so it is unit-testable without a DOM. The review/approval
- * rules themselves are DetailPanel's (`approveBlocked`, `gateNoteText`,
- * `sampleLineText`) and the drafts are `useQuantityNoteDrafts` — reused, not
- * re-derived.
+ * rules themselves are DetailPanel's (`approveBlocked`, `gateNoteText`), the
+ * sample line is `SampleLine` (links to the sample in Miljø & prøver) and the
+ * drafts are `useQuantityNoteDrafts` — reused, not re-derived. The sample
+ * links are `a[href]`, so the Tab trap below includes them.
  *
  * Keyboard: the page owns the key map (`onKeyDown`, see `dialogAction` in
  * `kortlaegning/keys.ts`) and restoring focus on close. The dialog itself
@@ -48,10 +49,11 @@ import {
 import { ConfidenceBar } from '../ConfidenceBar';
 import { Kbd } from '../Kbd';
 import { Pill } from '../Pill';
-import { approveBlocked, gateNoteText, sampleLineText } from './DetailPanel';
+import { approveBlocked, gateNoteText } from './DetailPanel';
 import styles from './EditDialog.module.css';
 import type { FrameLookup } from './EvidencePanel';
 import { EvidencePanel, hasInstanceLink, instanceKey, resolveHighlightPart } from './EvidencePanel';
+import { SampleLine } from './SampleLine';
 import { useQuantityNoteDrafts } from './useQuantityNoteDrafts';
 
 export interface EditDialogProps {
@@ -429,7 +431,7 @@ export function EditDialog(props: EditDialogProps) {
               </span>
             </div>
 
-            <p className={styles.sampleLine}>{sampleLineText(type, samples)}</p>
+            <SampleLine className={styles.sampleLine} type={type} samples={samples} />
 
             <div className={styles.field}>
               <label className={styles.label} htmlFor={`${titleId}-note`}>

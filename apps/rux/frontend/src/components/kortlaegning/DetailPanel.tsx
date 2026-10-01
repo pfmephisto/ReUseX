@@ -8,9 +8,12 @@
  * the review actions (Godkend / Afvis / Genåbn).
  *
  * The pieces that decide *what* the panel shows are pure, exported functions
- * (`panelTitle`, `linkedSamples`, `pendingSampleList`, `sampleLineText`,
- * `approveBlocked`, `gateNoteText`) so the review/approval rules are
- * unit-testable without a DOM; the component itself only wires them to props.
+ * (`panelTitle`, `approveBlocked`, `gateNoteText`, and — from
+ * `kortlaegning/samples.ts`, re-exported here — `linkedSamples`,
+ * `pendingSampleList`, `sampleLineModel`, `sampleLineText`) so the
+ * review/approval rules are unit-testable without a DOM; the component itself
+ * only wires them to props. The sample line links to the sample in Miljø &
+ * prøver (or, with none linked, to registering one) via `SampleLine`.
  * The quantity/note drafts are `useQuantityNoteDrafts`, shared with EditDialog.
  *
  * The page reuses one instance across selections; the drafts reset themselves
@@ -22,20 +25,32 @@ import type { KeyboardEvent } from 'react';
 
 import type { Sample, SurveyPart, SurveyType, Treatment } from '../../api/types';
 import { TREATMENTS } from '../../api/types';
+import { pendingSampleList } from '../../kortlaegning/samples';
 import {
   confidencePercent,
   ENV_LABEL,
   ENV_TONE,
   quantityLabel,
-  RESULT_LABEL,
-  STAGE_LABEL,
   TREATMENT_LABEL,
 } from '../../kortlaegning/vocab';
 import { ConfidenceBar } from '../ConfidenceBar';
 import { EmptyState } from '../EmptyState';
 import { Pill } from '../Pill';
 import styles from './DetailPanel.module.css';
+import { SampleLine } from './SampleLine';
 import { useQuantityNoteDrafts } from './useQuantityNoteDrafts';
+
+// The sample-line functions live in `kortlaegning/samples.ts` (SampleLine
+// uses them too); re-exported so existing callers keep importing them here.
+export type { SampleLineModel } from '../../kortlaegning/samples';
+export {
+  linkedSamples,
+  pendingSampleList,
+  SAMPLE_LINE_LINKED_PREFIX,
+  SAMPLE_LINE_NONE,
+  sampleLineModel,
+  sampleLineText,
+} from '../../kortlaegning/samples';
 
 export interface DetailPanelProps {
   type: SurveyType | null;
@@ -66,43 +81,9 @@ export function panelTitle(type: SurveyType, part: SurveyPart | null): string {
   return part ? `${part.code} · ${type.name}` : type.name;
 }
 
-/** The samples a survey type's `sample_ids` names, in that order. */
-export function linkedSamples(type: SurveyType, samples: Sample[]): Sample[] {
-  const byId = new Map(samples.map((s) => [s.id, s]));
-  return type.sample_ids.map((id) => byId.get(id)).filter((s): s is Sample => s !== undefined);
-}
-
-/**
- * The sample line under the EAK/behandling fields: which sample(s) drive the
- * type's miljøstatus, or the screening-only fallback when none are linked.
- */
-export function sampleLineText(type: SurveyType, samples: Sample[]): string {
-  const linked = linkedSamples(type, samples);
-  if (linked.length === 0) {
-    return 'Ingen prøve koblet — miljøstatus fra screening: ren.';
-  }
-  const parts = linked.map((s) => {
-    const line = `${s.code} · ${s.title} — ${STAGE_LABEL[s.stage]}`;
-    return s.result ? `${line} · ${RESULT_LABEL[s.result]}` : line;
-  });
-  return `Miljøstatus styres af ${parts.join(', ')}`;
-}
-
 /** `environment_status === 'afventer'` blocks approval, regardless of `busy`. */
 export function approveBlocked(type: SurveyType): boolean {
   return type.environment_status === 'afventer';
-}
-
-/**
- * The linked samples still awaiting an answer (`stage !== 'svar'`), as
- * `code · title` joined by ', ' — or '' when none are. The gate note and the
- * page's refused-approval toast both name them this way.
- */
-export function pendingSampleList(type: SurveyType, samples: Sample[]): string {
-  return linkedSamples(type, samples)
-    .filter((s) => s.stage !== 'svar')
-    .map((s) => `${s.code} · ${s.title}`)
-    .join(', ');
 }
 
 /**
@@ -217,7 +198,7 @@ export function DetailPanel({
         </div>
       </div>
 
-      <p className={styles.sampleLine}>{sampleLineText(type, samples)}</p>
+      <SampleLine className={styles.sampleLine} type={type} samples={samples} />
 
       <div className={styles.field}>
         <span className={styles.label}>Proces / håndtering</span>

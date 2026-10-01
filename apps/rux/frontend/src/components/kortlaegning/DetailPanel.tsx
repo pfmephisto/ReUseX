@@ -172,7 +172,7 @@ export function DetailPanel({
   }
 
   function commitQuantity() {
-    if (!current || busy) return;
+    if (!current) return;
     const value = quantityCommitValue(quantityDraft, current.quantity);
     if (value !== null) {
       onQuantity(value);
@@ -182,7 +182,7 @@ export function DetailPanel({
   }
 
   function commitNote() {
-    if (!current || busy) return;
+    if (!current) return;
     if (noteDraft !== current.note) onNote(noteDraft);
   }
 

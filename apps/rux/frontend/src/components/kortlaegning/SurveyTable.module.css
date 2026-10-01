@@ -1,0 +1,194 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-panel);
+  overflow: hidden;
+}
+
+/* ------------------------------------------------------------------ tabs -- */
+
+.tabs {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.tab {
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  border-bottom: 2px solid transparent;
+}
+
+.tab:hover {
+  color: var(--color-text);
+}
+
+.tab[aria-selected='true'] {
+  color: var(--color-accent-deep);
+  font-weight: var(--font-weight-bold);
+  border-bottom-color: var(--color-accent);
+}
+
+/* ----------------------------------------------------------------- tools -- */
+
+.tools {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.search,
+.select {
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  font-family: inherit;
+}
+
+.search {
+  flex: 1 1 auto;
+}
+
+.search:focus-visible,
+.select:focus-visible {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: 1px;
+}
+
+/* ---------------------------------------------------------------- keyBar -- */
+
+.keyBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-3);
+  background: var(--color-surface-sunken);
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--font-size-2xs);
+  color: var(--color-text-muted);
+}
+
+/* ------------------------------------------------------------------ wrap -- */
+
+.wrap {
+  overflow: auto;
+  max-height: calc(100vh - var(--layout-titlebar-height) - var(--space-7) * 4);
+}
+
+.wrap:focus-visible {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: calc(var(--space-0) - 2px);
+}
+
+/* ----------------------------------------------------------------- table -- */
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+}
+
+.table th {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-panel);
+  background: var(--color-surface-sunken);
+  color: var(--color-text-muted);
+  text-align: left;
+  font-size: var(--font-size-2xs);
+  font-weight: var(--font-weight-medium);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.table td {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text);
+  vertical-align: middle;
+}
+
+.typeRow,
+.partRow {
+  cursor: pointer;
+}
+
+.typeRow:hover td,
+.partRow:hover td {
+  background: var(--color-surface-overlay);
+}
+
+.typeRow[aria-selected='true'] td,
+.partRow[aria-selected='true'] td {
+  background: var(--color-accent-muted);
+}
+
+.typeRow[aria-selected='true'] td:first-child,
+.partRow[aria-selected='true'] td:first-child {
+  box-shadow: inset 3px 0 0 var(--color-accent);
+}
+
+.nameCell {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--space-4);
+  color: var(--color-text-muted);
+  transform: rotate(0deg);
+  transition: transform var(--duration-fast) var(--easing-standard);
+}
+
+.chevron[data-open] {
+  transform: rotate(90deg);
+}
+
+.star {
+  color: var(--color-star);
+}
+
+.name {
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text);
+}
+
+.faint {
+  color: var(--color-text-faint);
+  font-size: var(--font-size-xs);
+}
+
+.partCell {
+  padding-left: calc(var(--space-3) + var(--space-5));
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.emptyRow {
+  text-align: center;
+  padding: var(--space-5);
+  color: var(--color-text-muted);
+}

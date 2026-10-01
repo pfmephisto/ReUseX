@@ -68,7 +68,10 @@ describe('hero and notices', () => {
 
   it('warns that a new version will be a draft while types block', () => {
     expect(draftNotice(surveyFractions())).toBe(
-      '7 typer er ikke godkendt eller afventer prøvesvar — en ny version bliver et udkast, og de indgår ikke i mængderne.',
+      '7 typer afventer gennemsyn eller prøvesvar, eller mangler tons — en ny version bliver et udkast, og de indgår ikke i mængderne.',
+    );
+    expect(draftNotice(surveyFractions({ blocking_types: 1 }))).toBe(
+      '1 type afventer gennemsyn eller prøvesvar, eller mangler tons — en ny version bliver et udkast, og de indgår ikke i mængderne.',
     );
     expect(draftNotice(surveyFractions({ ready: true, blocking: [], blocking_types: 0 }))).toBeNull();
   });

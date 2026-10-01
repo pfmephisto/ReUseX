@@ -84,7 +84,7 @@ export function reportHeroSub(s: SurveySummary): string {
 export function draftNotice(f: SurveyFractions): string | null {
   if (f.ready) return null;
   const n = f.blocking_types;
-  return `${n === 1 ? '1 type er' : `${n} typer er`} ikke godkendt eller afventer prøvesvar — en ny version bliver et udkast, og de indgår ikke i mængderne.`;
+  return `${n === 1 ? '1 type' : `${n} typer`} afventer gennemsyn eller prøvesvar, eller mangler tons — en ny version bliver et udkast, og de indgår ikke i mængderne.`;
 }
 
 export function generatedToast(v: ReportPdfVersion): string {

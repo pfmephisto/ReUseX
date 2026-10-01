@@ -49,4 +49,35 @@ describe('serial queue', () => {
     await good;
     expect(log).toEqual(['after']);
   });
+  it('idle settles only after every task enqueued before it, failing ones included', async () => {
+    const q = createSerialQueue();
+    const log: string[] = [];
+    const gate = deferred();
+    void q.enqueue(async () => {
+      await gate.promise;
+      log.push('a');
+    });
+    void q
+      .enqueue(async () => {
+        log.push('b');
+        throw new Error('boom');
+      })
+      .catch(() => log.push('b:caught'));
+    const idle = q.idle().then(() => log.push('idle'));
+    void q.enqueue(async () => {
+      log.push('c'); // enqueued after idle(): idle does not wait for it
+    });
+    await Promise.resolve();
+    expect(log).toEqual([]);
+    gate.resolve();
+    await idle;
+    expect(log.slice(0, 3)).toEqual(['a', 'b', 'b:caught']);
+    expect(log.indexOf('idle')).toBeGreaterThan(log.indexOf('b'));
+    await expect(q.idle()).resolves.toBeUndefined();
+    expect(log).toContain('c');
+  });
+
+  it('idle on an empty queue resolves at once', async () => {
+    await expect(createSerialQueue().idle()).resolves.toBeUndefined();
+  });
 });

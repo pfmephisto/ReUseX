@@ -10,6 +10,7 @@ import type { Sample, SampleCreate, SamplePatch, SampleResult, SurveyType } from
 import { MILJOE_PATH, parseMiljoeQuery } from '../app/links';
 import { saveErrorMessage } from '../app/saveError';
 import { useAsync } from '../app/useAsync';
+import { appWriteChain } from '../app/writeChain';
 import { useMutationQueue } from '../app/useMutationQueue';
 import { useSurveyCounts } from '../app/SurveyCountsContext';
 import { useToast } from '../app/useToast';
@@ -58,7 +59,7 @@ export function MiljoePage() {
       mountedRef.current = false;
     };
   }, []);
-  const { data, error, loading, reload } = useAsync((s) => Promise.all([api.samples(s), api.survey(s)]), []);
+  const { data, error, loading, reload } = useAsync((s) => appWriteChain.idle().then(() => Promise.all([api.samples(s), api.survey(s)])), []);
   const { refresh } = useSurveyCounts();
   const toast = useToast(2600);
   const { busy, mutate } = useMutationQueue({

@@ -11,6 +11,11 @@
 
 export interface SerialQueue {
   enqueue(task: () => Promise<void>): Promise<void>;
+  /**
+   * Settles once every task enqueued so far has settled, failed ones
+   * included. Never rejects. Tasks enqueued later are not waited for.
+   */
+  idle(): Promise<void>;
 }
 
 export function createSerialQueue(): SerialQueue {
@@ -24,6 +29,9 @@ export function createSerialQueue(): SerialQueue {
         () => undefined,
       );
       return result;
+    },
+    idle() {
+      return tail;
     },
   };
 }

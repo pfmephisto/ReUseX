@@ -8,6 +8,7 @@ import { api } from '../api/client';
 import type { ReportPdfVersion } from '../api/types';
 import { explainLoadError } from '../app/errorCopy';
 import { useAsync } from '../app/useAsync';
+import { appWriteChain } from '../app/writeChain';
 import { useMutationQueue } from '../app/useMutationQueue';
 import { useToast } from '../app/useToast';
 import { CircularityBar } from '../components/CircularityBar';
@@ -42,10 +43,10 @@ import styles from './RapportPage.module.css';
  */
 export function RapportPage() {
   const { data, error, loading, reload } = useAsync(
-    (s) => Promise.all([api.projectSummary(s), api.surveySummary(s), api.surveyFractions(s)]),
+    (s) => appWriteChain.idle().then(() => Promise.all([api.projectSummary(s), api.surveySummary(s), api.surveyFractions(s)])),
     [],
   );
-  const listed = useAsync((s) => api.listReportVersions(s), []);
+  const listed = useAsync((s) => appWriteChain.idle().then(() => api.listReportVersions(s)), []);
   const [versions, setVersions] = useState<ReportPdfVersion[] | null>(null);
   const [stale, setStale] = useState(false);
   useEffect(() => {
@@ -56,7 +57,7 @@ export function RapportPage() {
   }, [listed.data]);
 
   const toast = useToast(3200);
-  const { busy, mutate } = useMutationQueue({ onError: (cause) => toast.show(generateErrorMessage(cause)) });
+  const { busy, mutate } = useMutationQueue({ scope: 'page', onError: (cause) => toast.show(generateErrorMessage(cause)) });
   // `busy` only disables the button after React re-renders, so a double click
   // inside one frame would queue two generations. The ref closes that gap.
   const generating = useRef(false);

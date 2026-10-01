@@ -12,6 +12,7 @@ import { isControl, isField } from '../app/keyTargets';
 import { parseTypeQuery } from '../app/links';
 import { saveErrorMessage } from '../app/saveError';
 import { useAsync } from '../app/useAsync';
+import { appWriteChain } from '../app/writeChain';
 import { useSurveyCounts } from '../app/SurveyCountsContext';
 import { useMutationQueue } from '../app/useMutationQueue';
 import { useToast } from '../app/useToast';
@@ -88,7 +89,7 @@ export function coverageParts(summary: SurveySummary): string[] {
  */
 export function KortlaegningPage() {
   const { data, error, loading, reload } = useAsync(
-    (s) => Promise.all([api.survey(s), api.samples(s), api.surveySummary(s)]),
+    (s) => appWriteChain.idle().then(() => Promise.all([api.survey(s), api.samples(s), api.surveySummary(s)])),
     [],
   );
   const { refresh } = useSurveyCounts();

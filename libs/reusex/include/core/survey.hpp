@@ -52,6 +52,10 @@ std::string_view to_string(ReviewStatus);
 std::string_view to_string(SampleStage);
 std::string_view to_string(SampleResult); // none -> ""
 std::string_view to_string(EnvironmentStatus);
+/// Danish user-facing labels (the PDF report). Mirror
+/// apps/rux/frontend/src/kortlaegning/vocab.ts TREATMENT_LABEL / ENV_LABEL.
+std::string_view treatment_label_da(Treatment);
+std::string_view environment_label_da(EnvironmentStatus);
 std::optional<Treatment> treatment_from_string(std::string_view);
 std::optional<ReviewStatus> review_status_from_string(std::string_view);
 std::optional<SampleStage> sample_stage_from_string(std::string_view);

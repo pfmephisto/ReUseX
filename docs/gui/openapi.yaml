@@ -2323,6 +2323,15 @@ paths:
         PDF. The result is persisted in the project database and the new
         version metadata is returned.
 
+        The PDF opens with a Kortlægning section listing the **approved** survey
+        types (name, BIM7AA, EAK, quantity, tonnes, behandling, miljøstatus)
+        and their circularity totals, then the material passports. Types still
+        awaiting a sample, and non-bevaring types without tonnes, are left out
+        of the section, exactly as they are left out of the waste fractions.
+        The new version records `blocking_types` — how many types were not yet
+        approved, still awaited a sample or lacked tonnes — so a draft can be
+        told apart.
+
         Requires `typst` to be present in `PATH` at the server's runtime
         (added to the devshell via `pkgs.typst`).
 
@@ -3364,7 +3373,7 @@ components:
     ReportPdfVersion:
       type: object
       description: Metadata for one stored Ressourcekortlægning PDF version.
-      required: [id, created_at, label, size_bytes]
+      required: [id, created_at, label, size_bytes, version, blocking_types]
       properties:
         id:
           type: integer
@@ -3372,14 +3381,20 @@ components:
           description: Stable numeric id; use in `GET /reports/ressourcekortlaegning/{id}`.
         created_at:
           type: string
-          format: date-time
-          description: ISO 8601 UTC timestamp when the PDF was generated.
+          description: Generation time, UTC, as stored by sqlite (`YYYY-MM-DD HH:MM:SS`) — clients must read it as UTC.
         label:
           type: string
           description: Human-readable label stored with the PDF (e.g. "Ressourcekortlægning").
         size_bytes:
           type: integer
           description: Size of the PDF blob in bytes.
+        version:
+          type: integer
+          description: 1-based position in generation order — the "v3" a user sees. Versions are never deleted, so it is stable.
+        blocking_types:
+          type: integer
+          nullable: true
+          description: Survey types that still blocked the report (in the queue, awaiting a sample, or approved without tonnes) when this PDF was generated; 0 means complete. Null for versions generated before schema v23.
 
     ExportTemplate:
       type: object

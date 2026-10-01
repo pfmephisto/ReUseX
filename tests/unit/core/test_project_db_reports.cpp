@@ -16,6 +16,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -158,4 +159,58 @@ TEST_CASE("ReportPdfs_MigrationFromV19_CreatesTable",
   const auto rec = db.add_report_pdf(pdf, "migrated");
   REQUIRE(rec.id > 0);
   REQUIRE(rec.size_bytes == 4);
+}
+
+TEST_CASE("ReportPdfs_VersionOrdinalAndBlockingTypes", "[projectdb][reports]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  const std::vector<std::uint8_t> pdf{'%', 'P', 'D', 'F'};
+  const auto a = db.add_report_pdf(pdf, "Ressourcekortlægning", 7);
+  const auto b = db.add_report_pdf(pdf, "Ressourcekortlægning", 0);
+  const auto c = db.add_report_pdf(pdf, "Ressourcekortlægning");
+  CHECK(a.version == 1);
+  CHECK(b.version == 2);
+  CHECK(c.version == 3);
+  CHECK(a.blocking_types == std::optional<int>(7));
+  CHECK_FALSE(c.blocking_types.has_value());
+
+  const auto list = db.list_report_pdfs(); // newest first
+  REQUIRE(list.size() == 3);
+  CHECK(list[0].id == c.id);
+  CHECK(list[0].version == 3);
+  CHECK_FALSE(list[0].blocking_types.has_value());
+  CHECK(list[1].blocking_types == std::optional<int>(0));
+  CHECK(list[2].version == 1);
+  CHECK(list[2].blocking_types == std::optional<int>(7));
+}
+
+TEST_CASE("ReportPdfs_MigratesFromV22_OldVersionsHaveNoBlockingCount",
+          "[projectdb][reports][migration]") {
+  TempDB tmp;
+  {
+    ProjectDB db(tmp.path);
+    db.add_report_pdf({'%', 'P', 'D', 'F'}, "Ressourcekortlægning", 3);
+  }
+  {
+    // Roll back to v22: drop the v23 column and its version row.
+    sqlite3 *raw = nullptr;
+    REQUIRE(sqlite3_open(tmp.path.string().c_str(), &raw) == SQLITE_OK);
+    const char *sql = "ALTER TABLE report_pdfs DROP COLUMN blocking_types;"
+                      "DELETE FROM schema_version WHERE version = 23;";
+    REQUIRE(sqlite3_exec(raw, sql, nullptr, nullptr, nullptr) == SQLITE_OK);
+    sqlite3_close(raw);
+  }
+  {
+    // Read-only opens never migrate; the list must still work on v22.
+    ProjectDB ro(tmp.path, /*readOnly=*/true);
+    const auto list = ro.list_report_pdfs();
+    REQUIRE(list.size() == 1);
+    CHECK(list[0].version == 1);
+    CHECK_FALSE(list[0].blocking_types.has_value());
+  }
+  ProjectDB db(tmp.path, /*readOnly=*/false);
+  CHECK(db.schema_version() == ProjectDB::latest_schema_version());
+  const auto list = db.list_report_pdfs();
+  REQUIRE(list.size() == 1);
+  CHECK_FALSE(list[0].blocking_types.has_value());
 }

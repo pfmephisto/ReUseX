@@ -94,6 +94,36 @@ std::string_view to_string(SampleResult v) { return to_table(v, kResults); }
 std::string_view to_string(EnvironmentStatus v) {
   return to_table(v, kEnvironment);
 }
+
+std::string_view treatment_label_da(Treatment t) {
+  switch (t) {
+  case Treatment::bevaring:
+    return "Bevaring";
+  case Treatment::genbrug:
+    return "Genbrug";
+  case Treatment::genanvendelse:
+    return "Genanvendelse";
+  case Treatment::nyttiggoerelse:
+    return "Nyttiggørelse";
+  case Treatment::bortskaffelse:
+    return "Bortskaffelse";
+  }
+  return {};
+}
+
+std::string_view environment_label_da(EnvironmentStatus e) {
+  switch (e) {
+  case EnvironmentStatus::ren_screening:
+    return "Ren";
+  case EnvironmentStatus::afventer:
+    return "Afventer prøve";
+  case EnvironmentStatus::forurenet:
+    return "Forurenet";
+  case EnvironmentStatus::ren_proevesvar:
+    return "Ren (prøvesvar)";
+  }
+  return {};
+}
 std::optional<Treatment> treatment_from_string(std::string_view s) {
   return from_table(s, kTreatments);
 }

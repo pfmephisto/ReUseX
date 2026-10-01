@@ -243,7 +243,7 @@ class ProjectDB::Impl {
   sqlite3 *db = nullptr;
 
   // cppcheck-suppress unusedStructMember
-  static constexpr int LATEST_SCHEMA_VERSION = 22;
+  static constexpr int LATEST_SCHEMA_VERSION = 23;
 
   // How long one statement waits for a lock another connection holds before
   // failing with SQLITE_BUSY. sqlite's default is not to wait at all.
@@ -554,6 +554,10 @@ class ProjectDB::Impl {
 
     if (current < 22) {
       migrateToV22();
+    }
+
+    if (current < 23) {
+      migrateToV23();
     }
 
     reusex::trace("Schema version: {}", getCurrentSchemaVersion());
@@ -1758,6 +1762,36 @@ class ProjectDB::Impl {
     insertSchemaVersion(22,
                         "Add survey types/parts and samples for Kortlægning");
     reusex::info("Migration to schema version 22 complete");
+  }
+
+  void migrateToV23() {
+    reusex::info("Migrating database to schema version 23");
+
+    // GUI Phase 5 (Rapport): how many survey types still blocked the report
+    // when a PDF version was generated, so the GUI can tell a complete
+    // version from a draft. NULL for versions generated before v23.
+    if (!columnExists("report_pdfs", "blocking_types"))
+      execOrThrow("ALTER TABLE report_pdfs ADD COLUMN blocking_types INTEGER;");
+
+    insertSchemaVersion(
+        23, "Record blocking survey types per report PDF version (Phase 5)");
+    reusex::info("Migration to schema version 23 complete");
+  }
+
+  /// 1-based position of a report version in generation order.
+  int reportVersionOf(int64_t id) const {
+    sqlite3_stmt *stmt = nullptr;
+    if (sqlite3_prepare_v2(db,
+                           "SELECT COUNT(*) FROM report_pdfs WHERE id <= ?;",
+                           -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("report version: prepare failed: " +
+                               std::string(sqlite3_errmsg(db)));
+    StmtGuard guard(stmt);
+    sqlite3_bind_int64(stmt, 1, id);
+    if (sqlite3_step(stmt) != SQLITE_ROW)
+      throw std::runtime_error("report version: query failed: " +
+                               std::string(sqlite3_errmsg(db)));
+    return sqlite3_column_int(stmt, 0);
   }
 
   // ── Scan helpers (#129) ──────────────────────────────────────────────────
@@ -7351,45 +7385,60 @@ bool ProjectDB::has_pose_graph() const { return impl_->hasPoseGraph(); }
 
 ProjectDB::ReportPdfRecord
 ProjectDB::add_report_pdf(const std::vector<std::uint8_t> &pdf,
-                          const std::string &label) {
+                          const std::string &label,
+                          std::optional<int> blocking_types) {
   impl_->checkWritable();
 
-  const char *sql = R"(
-    INSERT INTO report_pdfs (label, pdf_blob)
-    VALUES (?, ?)
-    RETURNING id, created_at, length(pdf_blob);
-  )";
-
-  sqlite3_stmt *stmt = nullptr;
-  if (sqlite3_prepare_v2(impl_->db, sql, -1, &stmt, nullptr) != SQLITE_OK)
-    throw std::runtime_error("add_report_pdf: prepare failed: " +
-                             std::string(sqlite3_errmsg(impl_->db)));
-  StmtGuard guard(stmt);
-
-  sqlite3_bind_text(stmt, 1, label.c_str(), -1, SQLITE_TRANSIENT);
-  sqlite3_bind_blob(stmt, 2, pdf.data(), static_cast<int>(pdf.size()),
-                    SQLITE_TRANSIENT);
-
-  if (sqlite3_step(stmt) != SQLITE_ROW)
-    throw std::runtime_error("add_report_pdf: insert failed: " +
-                             std::string(sqlite3_errmsg(impl_->db)));
-
   ReportPdfRecord rec;
-  rec.id = sqlite3_column_int64(stmt, 0);
-  if (const auto *ts =
-          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1)))
-    rec.created_at = ts;
-  rec.size_bytes = static_cast<std::size_t>(sqlite3_column_int64(stmt, 2));
+  {
+    const char *sql = R"(
+      INSERT INTO report_pdfs (label, pdf_blob, blocking_types)
+      VALUES (?, ?, ?)
+      RETURNING id, created_at, length(pdf_blob);
+    )";
+    sqlite3_stmt *stmt = nullptr;
+    if (sqlite3_prepare_v2(impl_->db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+      throw std::runtime_error("add_report_pdf: prepare failed: " +
+                               std::string(sqlite3_errmsg(impl_->db)));
+    StmtGuard guard(stmt);
+
+    sqlite3_bind_text(stmt, 1, label.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_blob(stmt, 2, pdf.data(), static_cast<int>(pdf.size()),
+                      SQLITE_TRANSIENT);
+    if (blocking_types)
+      sqlite3_bind_int(stmt, 3, *blocking_types);
+    else
+      sqlite3_bind_null(stmt, 3);
+
+    if (sqlite3_step(stmt) != SQLITE_ROW)
+      throw std::runtime_error("add_report_pdf: insert failed: " +
+                               std::string(sqlite3_errmsg(impl_->db)));
+
+    rec.id = sqlite3_column_int64(stmt, 0);
+    if (const auto *ts =
+            reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1)))
+      rec.created_at = ts;
+    rec.size_bytes = static_cast<std::size_t>(sqlite3_column_int64(stmt, 2));
+  }
   rec.label = label;
+  rec.blocking_types = blocking_types;
+  rec.version = impl_->reportVersionOf(rec.id);
   return rec;
 }
 
 std::vector<ProjectDB::ReportPdfRecord> ProjectDB::list_report_pdfs() const {
-  const char *sql = "SELECT id, label, created_at, length(pdf_blob) "
-                    "FROM report_pdfs ORDER BY id DESC;";
+  // A read-only open of a pre-v23 project has no blocking_types column.
+  const bool has_blocking =
+      impl_->columnExists("report_pdfs", "blocking_types");
+  const std::string sql =
+      std::string("SELECT id, label, created_at, length(pdf_blob), ") +
+      (has_blocking ? "blocking_types" : "NULL") +
+      ", (SELECT COUNT(*) FROM report_pdfs r2 WHERE r2.id <= r.id) "
+      "FROM report_pdfs r ORDER BY id DESC;";
 
   sqlite3_stmt *stmt = nullptr;
-  if (sqlite3_prepare_v2(impl_->db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+  if (sqlite3_prepare_v2(impl_->db, sql.c_str(), -1, &stmt, nullptr) !=
+      SQLITE_OK)
     throw std::runtime_error("list_report_pdfs: prepare failed: " +
                              std::string(sqlite3_errmsg(impl_->db)));
   StmtGuard guard(stmt);
@@ -7405,6 +7454,9 @@ std::vector<ProjectDB::ReportPdfRecord> ProjectDB::list_report_pdfs() const {
             reinterpret_cast<const char *>(sqlite3_column_text(stmt, 2)))
       rec.created_at = s;
     rec.size_bytes = static_cast<std::size_t>(sqlite3_column_int64(stmt, 3));
+    if (sqlite3_column_type(stmt, 4) != SQLITE_NULL)
+      rec.blocking_types = sqlite3_column_int(stmt, 4);
+    rec.version = sqlite3_column_int(stmt, 5);
     out.push_back(std::move(rec));
   }
   return out;

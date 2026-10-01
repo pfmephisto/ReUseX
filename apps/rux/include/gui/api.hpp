@@ -660,6 +660,11 @@ bool event_matches_subscription(const reusex::pipeline::JobEvent &event,
 
 // --- report PDFs (schema v20, #456) -----------------------------------
 
+/// One ReportPdfVersion: id, created_at, label, size_bytes, version and
+/// blocking_types (null before schema v23). Shared by the list and the POST,
+/// and — via reusex::core::report_version_json — with ruxd.
+nlohmann::json report_version_json(const reusex::ProjectDB::ReportPdfRecord &r);
+
 /// All stored report PDF versions, newest first (metadata only).
 nlohmann::json list_report_pdfs_json(const reusex::ProjectDB &db);
 

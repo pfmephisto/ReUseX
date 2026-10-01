@@ -898,19 +898,30 @@ class ProjectDB {
    */
   struct ReportPdfRecord {
     int64_t id = 0;
-    std::string created_at; // ISO 8601 UTC
-    std::string label;      // human-readable tag (e.g. "Ressourcekortlægning")
+    /// UTC, as sqlite's datetime('now') stores it: "YYYY-MM-DD HH:MM:SS"
+    /// (no 'T', no zone suffix).
+    std::string created_at;
+    std::string label; // human-readable tag (e.g. "Ressourcekortlægning")
     std::size_t size_bytes = 0;
+    /// 1-based position in generation order (v1 is the first PDF ever made).
+    int version = 0;
+    /// Survey types that still blocked the report when it was generated;
+    /// nullopt for versions made before schema v23.
+    std::optional<int> blocking_types;
   };
 
   /**
    * @brief Store a PDF blob and return its record (id, created_at, size).
    * @param pdf Raw PDF bytes
    * @param label Optional human-readable label stored alongside the blob
+   * @param blocking_types Survey types that still blocked the report
+   *        (schema v23); nullopt stores NULL
    * @return The new record (does not include the blob payload)
    */
-  ReportPdfRecord add_report_pdf(const std::vector<std::uint8_t> &pdf,
-                                 const std::string &label = "");
+  ReportPdfRecord
+  add_report_pdf(const std::vector<std::uint8_t> &pdf,
+                 const std::string &label = "",
+                 std::optional<int> blocking_types = std::nullopt);
 
   /**
    * @brief List all stored report PDFs, newest first.

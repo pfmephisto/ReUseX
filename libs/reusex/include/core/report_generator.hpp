@@ -35,4 +35,10 @@ class ProjectDB;
 ///         included in the message).
 std::vector<std::uint8_t> generate_ressourcekortlaegning_pdf(ProjectDB &db);
 
+/// How many survey types keep the report from being complete right now: the
+/// length of core::fractions_by_eak's blocking list (review, sample or mass).
+/// Stored with each PDF version (ProjectDB::add_report_pdf) so the GUI can
+/// tell a complete version from a draft.
+int report_blocking_types(const ProjectDB &db);
+
 } // namespace reusex

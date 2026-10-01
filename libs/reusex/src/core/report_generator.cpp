@@ -6,9 +6,13 @@
 
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/core/logging.hpp>
+#include <reusex/core/survey_service.hpp>
+
+#include <fmt/format.h>
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
@@ -36,6 +40,16 @@ std::string now_iso8601_rg() {
   char buf[32];
   std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &tm);
   return std::string(buf);
+}
+
+/// 1234.5 -> "1234,5"; whole numbers lose the decimal ("640"). The report is
+/// Danish, so the decimal mark is a comma.
+std::string da_number(double v) {
+  std::string s = fmt::format("{:.1f}", v);
+  if (s.size() > 2 && s.compare(s.size() - 2, 2, ".0") == 0)
+    s.resize(s.size() - 2);
+  std::replace(s.begin(), s.end(), '.', ',');
+  return s;
 }
 
 std::string ext_for_mime(const std::string &mime) {
@@ -73,14 +87,45 @@ struct TempDir {
 
 // ── Typst template (embedded) ─────────────────────────────────────────────
 
-// Canonical source: apps/rux/resources/report.typ — keep in sync on edits.
+// Canonical source: apps/rux/resources/report.typ. The two copies must be
+// identical: ReportTemplate_CopiesInSync
+// (tests/unit/core/test_report_survey.cpp) fails when they are not.
 constexpr const char *kTypstTemplate = R"typst(
 // SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+//
 // SPDX-License-Identifier: GPL-3.0-or-later
+
+// Ressourcekortlægning (Material Resource Mapping) report template.
+//
+// Invoked by ruxd via:
+//   typst compile report.typ out.pdf --root <tmpdir>
+//
+// data.json must be present in <tmpdir> with the structure:
+//   {
+//     "project_name": "...",
+//     "generated_at": "...",
+//     "columns": [{"id": "...", "name": "...", "type": "..."}],
+//     "materials": [{
+//       "guid": "...",
+//       "has_thumbnail": true,
+//       "thumbnail_path": "thumbnails/guid.jpg",
+//       "properties": {"col-name": "value"}
+//     }],
+//     "survey": {
+//       "rows": [{"name", "bim7aa", "eak", "quantity", "mass", "treatment", "environment"}],
+//       "circularity": [{"label": "Genanvendelse", "tonnes": "196,8 t"}],
+//       "blocking": 7
+//     }
+//   }
+//
+// The same text is embedded in libs/reusex/src/core/report_generator.cpp
+// (kTypstTemplate); the ReportTemplate_CopiesInSync test fails when they differ.
 
 #let data = json("data.json")
 #let cols = data.columns
 #let mats = data.materials
+
+// ── Page layout ──────────────────────────────────────────────────────────────
 
 #set page(
   paper: "a4",
@@ -102,6 +147,8 @@ constexpr const char *kTypstTemplate = R"typst(
 #set text(size: 10pt)
 #set par(justify: false)
 
+// ── Title block ───────────────────────────────────────────────────────────────
+
 #v(0.5cm)
 #align(center)[
   #text(size: 22pt, weight: "bold")[Ressourcekortlægning]
@@ -114,15 +161,49 @@ constexpr const char *kTypstTemplate = R"typst(
 #line(length: 100%, stroke: 0.4pt + luma(180))
 #v(0.5cm)
 
+// ── Kortlægning: approved survey types ───────────────────────────────────────
+
+#let survey = data.survey
+
+#text(size: 13pt, weight: "bold")[Kortlægning]
+#v(0.2cm)
+#if survey.blocking > 0 [
+  #text(size: 9pt, style: "italic")[Udkast — #survey.blocking type(r) afventer gennemsyn eller prøvesvar, eller mangler tons, og indgår ikke i mængderne.]
+  #v(0.2cm)
+]
+#if survey.rows.len() == 0 [
+  _Ingen godkendte typer endnu._
+] else {
+  table(
+    columns: (1.9fr, 1.5fr, 0.9fr, 0.9fr, 0.7fr, 1.35fr, 1.1fr),
+    stroke: 0.3pt + luma(190),
+    inset: (x: 5pt, y: 5pt),
+    fill: (col, row) => if row == 0 { luma(215) } else { white },
+    table.header([*Type*], [*BIM7AA*], [*EAK*], [*Mængde*], [*Tons*], [*Behandling*], [*Miljø*]),
+    ..survey.rows.map(r => (r.name, r.bim7aa, r.eak, r.quantity, r.mass, r.treatment, r.environment)).flatten(),
+  )
+}
+#if survey.circularity.len() > 0 [
+  #v(0.2cm)
+  #text(size: 9pt)[Cirkularitet (godkendte typer): #survey.circularity.map(c => c.label + " " + c.tonnes).join(" · ")]
+]
+#v(0.6cm)
+#text(size: 13pt, weight: "bold")[Materialepas]
+#v(0.2cm)
+
+// ── Material table ────────────────────────────────────────────────────────────
+
 #if mats.len() == 0 [
   #align(center)[_Ingen materialer i projektet._]
 ] else {
+  // Build header cells: thumbnail + one cell per user-defined column.
   let header_cells = (
     table.cell(fill: luma(215), align: center)[*Billede*],
   ) + cols.map(col =>
     table.cell(fill: luma(215), align: center)[*#col.name*]
   )
 
+  // Build body cells: one thumbnail + one property cell per column per row.
   let body_cells = ()
   for mat in mats {
     let thumb_cell = if mat.has_thumbnail {
@@ -139,6 +220,7 @@ constexpr const char *kTypstTemplate = R"typst(
     }
   }
 
+  // Column widths: fixed thumbnail + 1fr per user column.
   let col_widths = (2.9cm,) + cols.map(_ => 1fr)
 
   table(
@@ -212,6 +294,36 @@ nlohmann::json assemble_report_data(ProjectDB &db,
                     {"properties", std::move(props)}});
   }
   data["materials"] = std::move(mats);
+
+  // Survey (Kortlægning): reportable types only — "kun godkendte mængder
+  // indgår i rapporten" (GUI Phase 5, R8). report_survey_rows already
+  // withholds types awaiting a sample or missing tonnes, so the circularity
+  // line below sums exactly the rows the table shows.
+  nlohmann::json rows = nlohmann::json::array();
+  std::vector<core::TypeTotals> approved;
+  for (const auto &r : core::report_survey_rows(db)) {
+    rows.push_back(
+        {{"name", r.name},
+         {"bim7aa", r.bim7aa_code},
+         {"eak", r.eak_code},
+         {"quantity", da_number(r.quantity) + " " + r.unit},
+         {"mass", r.mass_t ? da_number(*r.mass_t) + " t" : std::string("—")},
+         {"treatment", std::string(core::treatment_label_da(r.treatment))},
+         {"environment",
+          std::string(core::environment_label_da(r.environment))}});
+    approved.push_back({r.treatment, core::ReviewStatus::approved, r.mass_t,
+                        r.eak_code, r.environment});
+  }
+  const auto breakdown = core::circularity_breakdown(approved);
+  nlohmann::json circ = nlohmann::json::array();
+  for (std::size_t i = 0; i < core::kTreatmentCount; ++i)
+    if (breakdown[i] > 0.0)
+      circ.push_back({{"label", std::string(core::treatment_label_da(
+                                    static_cast<core::Treatment>(i)))},
+                      {"tonnes", da_number(breakdown[i]) + " t"}});
+  data["survey"] = {{"rows", std::move(rows)},
+                    {"circularity", std::move(circ)},
+                    {"blocking", report_blocking_types(db)}};
   return data;
 }
 
@@ -258,6 +370,11 @@ std::vector<std::uint8_t> run_typst(const std::filesystem::path &tmpdir) {
 } // namespace
 
 // ── public API ────────────────────────────────────────────────────────────
+
+int report_blocking_types(const ProjectDB &db) {
+  return static_cast<int>(
+      core::fractions_by_eak(core::type_totals(db)).blocking_types);
+}
 
 std::vector<std::uint8_t> generate_ressourcekortlaegning_pdf(ProjectDB &db) {
   TempDir tmpdir;

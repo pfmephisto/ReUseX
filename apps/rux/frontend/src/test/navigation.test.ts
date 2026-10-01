@@ -65,7 +65,9 @@ describe('navigation model', () => {
   });
 
   it('makes Kortlægning a live destination', () => {
-    expect(NAV_ENTRIES.find((e) => e.to === '/kortlaegning')?.pending).toBeUndefined();
+    const entry = NAV_ENTRIES.find((e) => e.to === '/kortlaegning');
+    expect(entry).toBeDefined();
+    expect(entry?.pending).toBeUndefined();
   });
 
   it('points "Alle sager" at the case list', () => {

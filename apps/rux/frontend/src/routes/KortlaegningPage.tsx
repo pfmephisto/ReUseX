@@ -76,6 +76,12 @@ function isField(target: EventTarget | null): boolean {
   return target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'TEXTAREA';
 }
 
+/** Buttons and links: Enter/Space belong to their native activation. */
+function isControl(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.tagName === 'BUTTON' || target.tagName === 'A';
+}
+
 function errorMessage(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
 }
@@ -193,9 +199,11 @@ export function KortlaegningPage() {
     }
   }
 
+  // Approve and reject are gated on `busy` (a held G/A must not stack
+  // requests); field commits deliberately are not.
   function approve() {
     const t = selType;
-    if (!t || t.review_status !== 'queue') return;
+    if (busy || !t || t.review_status !== 'queue') return;
     void mutate(
       async () => {
         const body = await api.patchSurveyType(t.id, { review_status: 'approved' });
@@ -209,7 +217,7 @@ export function KortlaegningPage() {
 
   function reject() {
     const t = selType;
-    if (!t || t.review_status === 'rejected') return;
+    if (busy || !t || t.review_status === 'rejected') return;
     void mutate(async () => {
       const body = await api.patchSurveyType(t.id, { review_status: 'rejected' });
       const next = setTypes((prev) => replaceType(prev, body));
@@ -263,6 +271,8 @@ export function KortlaegningPage() {
       const report = await api.syncSurvey();
       if (report.parts_orphaned > 0) {
         toast.show(`${report.parts_orphaned} del(e) peger på instanser der ikke findes længere`);
+      } else if (report.types_created === 0) {
+        toast.show('Ingen nye typer — ingen instanser at kortlægge');
       }
       reload();
       refresh();
@@ -308,6 +318,7 @@ export function KortlaegningPage() {
       ctrlKey: e.ctrlKey,
       altKey: e.altKey,
       inField: isField(e.target),
+      isControl: isControl(e.target),
     });
     if (!action) return;
     e.preventDefault();
@@ -384,7 +395,9 @@ export function KortlaegningPage() {
       </div>
     );
   }
-  if (loading && !data) {
+  // Until the local copy is seeded from `data`, `types` is still [] — showing
+  // the empty state for that one frame would flash "Ingen kortlægning".
+  if ((loading && !data) || (data && !loadedOnce)) {
     return (
       <div className={styles.page}>
         <Spinner label="Indlæser kortlægning…" />
@@ -401,9 +414,11 @@ export function KortlaegningPage() {
         <span className={styles.sub}>
           Ressourcekortlægning · bygningsdele pr. rum, grupperet pr. type
         </span>
-        <a className={styles.btnGhost} href={api.csvExportUrl()} download>
-          Eksport (XLS)
-        </a>
+        {types.length > 0 && (
+          <a className={styles.btnGhost} href={api.csvExportUrl()} download>
+            Eksport (XLS)
+          </a>
+        )}
       </header>
 
       {coverage.length > 0 && (
@@ -414,7 +429,11 @@ export function KortlaegningPage() {
 
       {types.length === 0 ? (
         <>
-          {syncError && <ErrorBanner error={syncError} onRetry={sync} context="Kortlægning" />}
+          {syncError && (
+            <p className={styles.notice} role="alert">
+              Kunne ikke oprette kortlægning: {syncError.message}
+            </p>
+          )}
           <EmptyState
             title="Ingen kortlægning endnu"
             detail="Opret typer og bygningsdele ud fra projektets instanser. Kræver at rux create instances er kørt."

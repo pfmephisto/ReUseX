@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 import { dialogAction, EVIDENCE_TABS, tableAction } from '../kortlaegning/keys';
 
-const k = (key: string, extra: Partial<{ metaKey: boolean; ctrlKey: boolean; altKey: boolean; inField: boolean }> = {}) => ({
+const k = (key: string, extra: Partial<{ metaKey: boolean; ctrlKey: boolean; altKey: boolean; inField: boolean; isControl: boolean }> = {}) => ({
   key,
   inField: false,
   ...extra,
@@ -29,6 +29,13 @@ describe('table keys', () => {
     expect(tableAction(k('g', { inField: true }))).toBeNull();
     expect(tableAction(k('ArrowDown', { inField: true }))).toBeNull();
     expect(tableAction(k('Escape', { inField: true }))).toEqual({ type: 'blur' });
+  });
+
+  it('leaves Enter and Space to a focused button, but keeps the other keys', () => {
+    expect(tableAction(k('Enter', { isControl: true }))).toBeNull();
+    expect(tableAction(k(' ', { isControl: true }))).toBeNull();
+    expect(tableAction(k('ArrowDown', { isControl: true }))).toEqual({ type: 'move', delta: 1 });
+    expect(tableAction(k('g', { isControl: true }))).toEqual({ type: 'approve' });
   });
 
   it('ignores modified keys so browser shortcuts keep working', () => {

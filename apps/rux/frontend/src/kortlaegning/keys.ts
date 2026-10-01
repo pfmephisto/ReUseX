@@ -31,6 +31,11 @@ export interface KeyInput {
   altKey?: boolean;
   /** True when focus is in an input, select or textarea. */
   inField: boolean;
+  /**
+   * True when focus is on a button or link (a tab, a chevron): Enter and
+   * Space then belong to its native activation, not to the table.
+   */
+  isControl?: boolean;
 }
 
 function letterAction(key: string): KortAction | null {
@@ -54,6 +59,7 @@ function letterAction(key: string): KortAction | null {
 export function tableAction(k: KeyInput): KortAction | null {
   if (k.key === 'Escape') return k.inField ? { type: 'blur' } : null;
   if (k.inField || k.metaKey || k.ctrlKey || k.altKey) return null;
+  if (k.isControl && (k.key === 'Enter' || k.key === ' ')) return null;
   switch (k.key) {
     case 'ArrowDown':
     case 'j':

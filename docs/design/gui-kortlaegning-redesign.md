@@ -236,6 +236,8 @@ Each phase is a separate PR that leaves the app working.
   instead of rendering it as plain text.
 - A survey-specific export — "Eksport (XLS)" currently downloads the existing
   material-passport CSV (`/exports/csv`), not a Kortlægning-shaped spreadsheet.
+- Two pieces of the structure above that v1 does not draw yet: the child
+  rows' photo count and the Punktsky tab's "Åbn i viewport" link.
 - A `--border-width` token: the tab underline offset in `SurveyTable.module.css`
   and `EvidencePanel.module.css` currently computes it as `calc(-1 * 1px)`
   because no border-width token exists yet.

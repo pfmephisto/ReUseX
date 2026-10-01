@@ -9,6 +9,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <cmath>
 #include <cstdint>
 #include <map>
 #include <optional>
@@ -241,15 +242,23 @@ std::optional<std::optional<double>> opt_nullable_number(const json &j,
     return std::optional<double>{};
   if (!it->is_number())
     throw HttpError(400, std::string("'") + key + "' must be a number or null");
-  return std::optional<double>{it->get<double>()};
+  const double v = it->get<double>();
+  if (!std::isfinite(v))
+    throw HttpError(400, std::string("'") + key + "' must be a finite number");
+  return std::optional<double>{v};
 }
 std::optional<double> opt_quantity(const json &j, const char *key) {
   auto it = j.find(key);
   if (it == j.end())
     return std::nullopt;
-  if (!it->is_number() || it->get<double>() < 0.0)
+  if (!it->is_number())
     throw HttpError(400, std::string("'") + key + "' must be a number >= 0");
-  return it->get<double>();
+  const double v = it->get<double>();
+  if (!std::isfinite(v))
+    throw HttpError(400, std::string("'") + key + "' must be a finite number");
+  if (v < 0.0)
+    throw HttpError(400, std::string("'") + key + "' must be a number >= 0");
+  return v;
 }
 template <typename E>
 std::optional<E> opt_enum(const json &j, const char *key,
@@ -355,6 +364,8 @@ json patch_survey_type_json(reusex::ProjectDB &db, int64_t id,
   const auto j = parse_object(body);
   reusex::ProjectDB::SurveyTypePatch p;
   p.name = opt_string(j, "name");
+  if (p.name && p.name->empty())
+    throw HttpError(400, "'name' must be non-empty");
   p.eak_code = opt_string(j, "eak_code");
   p.bim7aa_code = opt_string(j, "bim7aa_code");
   p.unit = opt_string(j, "unit");
@@ -362,6 +373,9 @@ json patch_survey_type_json(reusex::ProjectDB &db, int64_t id,
   p.treatment =
       opt_enum<core::Treatment>(j, "treatment", core::treatment_from_string);
   p.confidence = opt_nullable_number(j, "confidence");
+  if (p.confidence && *p.confidence &&
+      (**p.confidence < 0.0 || **p.confidence > 1.0))
+    throw HttpError(400, "'confidence' must be within [0, 1]");
   p.mass_t = opt_nullable_number(j, "mass_t");
   p.starred = opt_bool(j, "starred");
   const auto quantity = opt_quantity(j, "quantity");

@@ -17,6 +17,9 @@
 
 #include <nlohmann/json.hpp>
 
+#include <pcl/point_types.h>
+
+#include <algorithm>
 #include <functional>
 
 using namespace rux::gui;
@@ -221,6 +224,63 @@ TEST_CASE("PatchSurveyType_Errors_MapToStatuses", "[gui][survey][edits]") {
               db, id, R"({"starred":true,"review_status":"approved"})");
         }) == 422);
   CHECK_FALSE(db.survey_type(id)->starred);
+}
+
+TEST_CASE("PatchSurveyType_RejectsNonFiniteAndOutOfRange",
+          "[gui][survey][edits]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  const auto id = add_type(db, "Betonsøjler", core::Treatment::genbrug, 58);
+  db.add_survey_part({"RX-001",
+                      id,
+                      std::nullopt,
+                      std::nullopt,
+                      std::nullopt,
+                      "",
+                      18,
+                      false,
+                      "",
+                      {},
+                      {}});
+  // 1e999 overflows double on parse, producing +inf.
+  CHECK(status_of([&] {
+          patch_survey_type_json(db, id, R"({"quantity":1e999})");
+        }) == 400);
+  CHECK(status_of([&] {
+          patch_survey_type_json(db, id, R"({"mass_t":1e999})");
+        }) == 400);
+  CHECK(status_of([&] {
+          patch_survey_type_json(db, id, R"({"confidence":5})");
+        }) == 400);
+  CHECK(status_of([&] {
+          patch_survey_type_json(db, id, R"({"confidence":-0.1})");
+        }) == 400);
+  CHECK(status_of([&] { patch_survey_type_json(db, id, R"({"name":""})"); }) ==
+        400);
+  // None of the rejected patches changed anything.
+  CHECK(db.survey_type(id)->mass_t == 58.0);
+  CHECK(db.survey_part("RX-001")->quantity == 18.0);
+}
+
+TEST_CASE("PatchSurveyPart_RejectsNonFiniteQuantity", "[gui][survey][edits]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  const auto id = add_type(db, "Betonsøjler", core::Treatment::genbrug, 58);
+  db.add_survey_part({"RX-001",
+                      id,
+                      std::nullopt,
+                      std::nullopt,
+                      std::nullopt,
+                      "",
+                      18,
+                      false,
+                      "",
+                      {},
+                      {}});
+  CHECK(status_of([&] {
+          patch_survey_part_json(db, "RX-001", R"({"quantity":1e999})");
+        }) == 400);
+  CHECK(db.survey_part("RX-001")->quantity == 18.0);
 }
 
 TEST_CASE("CreateSurveyType_RequiresName", "[gui][survey][edits]") {

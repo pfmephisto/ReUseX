@@ -26,5 +26,12 @@ describe('cross-screen links', () => {
     expect(parseTypeQuery('?type=6')).toBe(6);
     expect(parseTypeQuery('?type=')).toBeNull();
     expect(parseTypeQuery('?other=1')).toBeNull();
+    expect(parseTypeQuery('?type=-1')).toBeNull();
+    expect(parseTypeQuery('?type=1.5')).toBeNull();
+    expect(parseTypeQuery('?type=9007199254740993')).toBeNull();
+  });
+
+  it('takes the first value of a duplicate-key type query, like URLSearchParams does', () => {
+    expect(parseTypeQuery('?type=6&type=7')).toBe(6);
   });
 });

@@ -4,7 +4,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 
 import { api } from '../api/client';
 import type { Sample, SurveyPart, SurveySummary, SurveyType } from '../api/types';
@@ -99,6 +99,12 @@ export function KortlaegningPage() {
     onError: (cause) => toast.show(saveErrorMessage(cause)),
     onSettled: refresh,
   });
+  const location = useLocation();
+  // `/kortlaegning?type=<id>` (from a sample's "Koblet:" link) selects that
+  // type once, in the tab it lives in. Applied in the same effect that seeds
+  // `types`, so the first render with data already has the right tab and the
+  // keep-selection-visible effect below finds the selection shown.
+  const deepLinkType = useRef(parseTypeQuery(location.search));
 
   const [types, setTypesState] = useState<SurveyType[]>([]);
   // Mirrors `types` synchronously, so a mutation's follow-up (the next queued
@@ -119,10 +125,6 @@ export function KortlaegningPage() {
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<Error | null>(null);
   const tableRef = useRef<HTMLDivElement>(null);
-  const [searchParams] = useSearchParams();
-  // A `?type=` deep link is applied once, against the first data the page
-  // loads; later reloads (e.g. after sync) must not reopen it.
-  const deepLinkAppliedRef = useRef(false);
 
   const samples = data?.[1] ?? [];
   const summary = data?.[2];
@@ -153,19 +155,19 @@ export function KortlaegningPage() {
   const [loadedOnce, setLoadedOnce] = useState(false);
   useEffect(() => {
     if (!data) return;
-    const freshTypes = data[0].types;
-    setTypes(() => freshTypes);
-    if (!deepLinkAppliedRef.current) {
-      deepLinkAppliedRef.current = true;
-      const typeId = parseTypeQuery(searchParams.toString());
-      const view = typeId !== null ? initialViewFor(freshTypes, typeId) : null;
+    setTypes(() => data[0].types);
+    const want = deepLinkType.current;
+    if (want !== null) {
+      deepLinkType.current = null;
+      const view = initialViewFor(data[0].types, want);
       if (view) {
         setTab(view.tab);
+        setFilters(NO_FILTERS);
         select(view.selection);
       }
     }
     setLoadedOnce(true);
-  }, [data, setTypes, searchParams, select]);
+  }, [data, setTypes, select]);
 
   // Keep the selection on a row that is actually shown: first load, a tab or
   // filter change, or an approval that moved the type out of this tab.

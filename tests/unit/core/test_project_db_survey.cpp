@@ -5,6 +5,7 @@
 // instance-deleted SET NULL rule, and the v21 -> v22 migration.
 
 #include <catch2/catch_test_macros.hpp>
+#include <core/MaterialPassport.hpp>
 #include <core/ProjectDB.hpp>
 
 #include "../../support/temp_path.hpp"
@@ -173,6 +174,107 @@ TEST_CASE("SurveyParts_InstanceDeleted_KeepsPartWithNullInstance",
   CHECK_FALSE(part->instance_id.has_value());
 }
 
+TEST_CASE("SurveyParts_InstancesResaved_KeepLink", "[ProjectDB][survey]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  add_instance_cloud(db);
+  const auto type_id = db.add_survey_type(window_type()).id;
+  db.add_survey_part(
+      {"RX-001", type_id, "instances", 1, std::nullopt, "", 5, false, "", {}});
+  // Simulates a `rux create instances` re-run: save_instances always
+  // deletes and reinserts the instances rows for the cloud, but the guids
+  // are unchanged, so the guid-based link must survive it.
+  db.save_instances("instances",
+                    {{1, "guid-inst-1", 3, 2}, {2, "guid-inst-2", 5, 1}});
+  const auto part = db.survey_part("RX-001");
+  REQUIRE(part.has_value());
+  CHECK(part->cloud_name == "instances");
+  CHECK(part->instance_id == 1u);
+  CHECK(db.has_survey_part_for("instances", 1));
+}
+
+TEST_CASE("SurveyParts_InstanceRenumbered_FollowsGuid", "[ProjectDB][survey]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  add_instance_cloud(db);
+  const auto type_id = db.add_survey_type(window_type()).id;
+  db.add_survey_part(
+      {"RX-001", type_id, "instances", 1, std::nullopt, "", 5, false, "", {}});
+  // save_instances does not validate instance_id against the label cloud's
+  // contents (verified in ProjectDB.cpp), so re-saving guid-inst-1 under a
+  // different numeric id is a valid "renumbered" scenario.
+  db.save_instances("instances",
+                    {{7, "guid-inst-1", 3, 2}, {2, "guid-inst-2", 5, 1}});
+  const auto part = db.survey_part("RX-001");
+  REQUIRE(part.has_value());
+  CHECK(part->cloud_name == "instances");
+  CHECK(part->instance_id == 7u);
+}
+
+TEST_CASE("SurveyParts_MaterialGuid_JoinsFromLinkedInstance",
+          "[ProjectDB][survey]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  add_instance_cloud(db);
+  core::MaterialPassport passport;
+  passport.metadata.document_guid = "guid-passport-1";
+  passport.metadata.creation_date = "2025-01-01T00:00:00Z";
+  passport.metadata.version_number = "1.0.0";
+  db.add_material_passport(passport, "test-project");
+  db.set_instance_material("instances", 1, "guid-passport-1");
+  const auto type_id = db.add_survey_type(window_type()).id;
+  db.add_survey_part(
+      {"RX-001", type_id, "instances", 1, std::nullopt, "", 5, false, "", {}});
+  const auto part = db.survey_part("RX-001");
+  REQUIRE(part.has_value());
+  REQUIRE(part->material_guid.has_value());
+  CHECK(*part->material_guid == "guid-passport-1");
+}
+
+TEST_CASE("SurveyParts_Add_RejectsHalfSetLink_AndUnknownInstance",
+          "[ProjectDB][survey]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  add_instance_cloud(db);
+  const auto type_id = db.add_survey_type(window_type()).id;
+  // cloud_name set, instance_id missing.
+  CHECK_THROWS_AS(db.add_survey_part({"RX-001",
+                                      type_id,
+                                      "instances",
+                                      std::nullopt,
+                                      std::nullopt,
+                                      "",
+                                      1,
+                                      false,
+                                      "",
+                                      {}}),
+                  std::invalid_argument);
+  // instance_id set, cloud_name missing.
+  CHECK_THROWS_AS(db.add_survey_part({"RX-002",
+                                      type_id,
+                                      std::nullopt,
+                                      1u,
+                                      std::nullopt,
+                                      "",
+                                      1,
+                                      false,
+                                      "",
+                                      {}}),
+                  std::invalid_argument);
+  // Both set, but no such instance in the cloud.
+  CHECK_THROWS_AS(db.add_survey_part({"RX-003",
+                                      type_id,
+                                      "instances",
+                                      99u,
+                                      std::nullopt,
+                                      "",
+                                      1,
+                                      false,
+                                      "",
+                                      {}}),
+                  std::out_of_range);
+}
+
 TEST_CASE("SurveySchema_MigratesFromV21", "[ProjectDB][survey][migration]") {
   TempDB tmp;
   {
@@ -190,6 +292,7 @@ TEST_CASE("SurveySchema_MigratesFromV21", "[ProjectDB][survey][migration]") {
     sqlite3_close(raw);
   }
   ProjectDB db(tmp.path, /*readOnly=*/false);
+  CHECK(db.schema_version() == 22);
   CHECK(db.survey_types().empty());
   CHECK(db.add_survey_type(window_type()).id > 0);
 }

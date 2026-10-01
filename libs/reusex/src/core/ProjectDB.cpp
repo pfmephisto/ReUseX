@@ -1664,18 +1664,14 @@ class ProjectDB::Impl {
         updated_at     TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
       );
       CREATE TABLE IF NOT EXISTS survey_parts (
-        code        TEXT    PRIMARY KEY,
-        type_id     INTEGER NOT NULL REFERENCES survey_types(id) ON DELETE CASCADE,
-        cloud_id    INTEGER,
-        instance_id INTEGER,
-        room_id     INTEGER,
-        room_name   TEXT    NOT NULL DEFAULT '',
-        quantity    REAL    NOT NULL DEFAULT 1,
-        starred     INTEGER NOT NULL DEFAULT 0,
-        note        TEXT    NOT NULL DEFAULT '',
-        UNIQUE (cloud_id, instance_id),
-        FOREIGN KEY (cloud_id, instance_id)
-          REFERENCES instances(cloud_id, instance_id) ON DELETE SET NULL
+        code          TEXT    PRIMARY KEY,
+        type_id       INTEGER NOT NULL REFERENCES survey_types(id) ON DELETE CASCADE,
+        instance_guid TEXT UNIQUE,
+        room_id       INTEGER,
+        room_name     TEXT    NOT NULL DEFAULT '',
+        quantity      REAL    NOT NULL DEFAULT 1,
+        starred       INTEGER NOT NULL DEFAULT 0,
+        note          TEXT    NOT NULL DEFAULT ''
       );
       CREATE INDEX IF NOT EXISTS idx_survey_parts_type ON survey_parts(type_id);
       CREATE TABLE IF NOT EXISTS samples (
@@ -7699,16 +7695,22 @@ ProjectDB::update_survey_type(int64_t id, const SurveyTypePatch &p) {
 }
 
 namespace {
-/// Parts joined to their cloud name and linked passport; one query shape for
-/// list and single lookups.
+/// Parts joined by their stable `instance_guid` (not cloud_id/instance_id:
+/// `rux create instances` always deletes+reinserts `instances` rows on
+/// re-run, but reconciles guids across the re-run, so joining on guid is
+/// what survives it — see the "FOREIGN KEY ... ON DELETE SET NULL nulls the
+/// link on every `create instances` re-run" fix). A part whose guid no
+/// longer matches any instance row reads with null cloud/instance_id but
+/// keeps its own code/quantity/room/note.
 constexpr const char *kSurveyPartSelect =
-    "SELECT p.code, p.type_id, pc.name, p.instance_id, p.room_id, p.room_name, "
+    "SELECT p.code, p.type_id, pc.name, i.instance_id, p.room_id, p.room_name, "
     "p.quantity, "
-    "p.starred, p.note, im.material_guid "
+    "p.starred, p.note, im.material_guid, p.instance_guid "
     "FROM survey_parts p "
-    "LEFT JOIN point_clouds pc ON pc.id = p.cloud_id "
-    "LEFT JOIN instance_materials im ON im.cloud_id = p.cloud_id AND "
-    "im.instance_id = p.instance_id ";
+    "LEFT JOIN instances i ON i.guid = p.instance_guid "
+    "LEFT JOIN point_clouds pc ON pc.id = i.cloud_id "
+    "LEFT JOIN instance_materials im ON im.cloud_id = i.cloud_id AND "
+    "im.instance_id = i.instance_id ";
 
 ProjectDB::SurveyPartRecord read_survey_part(sqlite3_stmt *s) {
   ProjectDB::SurveyPartRecord r;
@@ -7726,6 +7728,8 @@ ProjectDB::SurveyPartRecord read_survey_part(sqlite3_stmt *s) {
   r.note = column_text(s, 8);
   if (sqlite3_column_type(s, 9) != SQLITE_NULL)
     r.material_guid = column_text(s, 9);
+  if (sqlite3_column_type(s, 10) != SQLITE_NULL)
+    r.instance_guid = column_text(s, 10);
   return r;
 }
 } // namespace
@@ -7734,28 +7738,50 @@ void ProjectDB::add_survey_part(const SurveyPartRecord &rec) {
   impl_->checkWritable();
   if (!survey_type(rec.type_id))
     throw std::out_of_range("no survey type " + std::to_string(rec.type_id));
-  sqlite3_stmt *stmt =
-      prepare_or_throw(impl_->db,
-                       "INSERT INTO survey_parts (code, type_id, cloud_id, "
-                       "instance_id, room_id, room_name, "
-                       "quantity, starred, note) VALUES (?,?,?,?,?,?,?,?,?);",
-                       "add_survey_part");
+  if (rec.cloud_name.has_value() != rec.instance_id.has_value())
+    throw std::invalid_argument(
+        "add_survey_part '" + rec.code +
+        "': cloud_name and instance_id must both be set or both be empty "
+        "(missing " +
+        (rec.cloud_name ? "instance_id" : "cloud_name") + ")");
+  // Resolve the instance's stable guid now (not its cloud_id/instance_id):
+  // `rux create instances` deletes and re-inserts `instances` rows on every
+  // re-run, reconciling identity by guid, so the guid is what survives a
+  // re-run and (cloud_id, instance_id) is not.
+  std::optional<std::string> instance_guid;
+  if (rec.cloud_name && rec.instance_id) {
+    const int cloudId = impl_->getCloudId(*rec.cloud_name);
+    sqlite3_stmt *lookup = prepare_or_throw(
+        impl_->db,
+        "SELECT guid FROM instances WHERE cloud_id = ? AND instance_id = ?;",
+        "add_survey_part");
+    StmtGuard lookup_guard(lookup);
+    sqlite3_bind_int(lookup, 1, cloudId);
+    sqlite3_bind_int64(lookup, 2, *rec.instance_id);
+    if (sqlite3_step(lookup) != SQLITE_ROW)
+      throw std::out_of_range("no instance " +
+                              std::to_string(*rec.instance_id) + " in cloud '" +
+                              *rec.cloud_name + "'");
+    instance_guid = column_text(lookup, 0);
+  }
+  sqlite3_stmt *stmt = prepare_or_throw(
+      impl_->db,
+      "INSERT INTO survey_parts (code, type_id, instance_guid, room_id, "
+      "room_name, quantity, starred, note) VALUES (?,?,?,?,?,?,?,?);",
+      "add_survey_part");
   StmtGuard guard(stmt);
   bind_text(stmt, 1, rec.code);
   sqlite3_bind_int64(stmt, 2, rec.type_id);
-  if (rec.cloud_name && rec.instance_id) {
-    sqlite3_bind_int(stmt, 3, impl_->getCloudId(*rec.cloud_name));
-    sqlite3_bind_int64(stmt, 4, *rec.instance_id);
-  } else {
+  if (instance_guid)
+    bind_text(stmt, 3, *instance_guid);
+  else
     sqlite3_bind_null(stmt, 3);
-    sqlite3_bind_null(stmt, 4);
-  }
-  rec.room_id ? sqlite3_bind_int64(stmt, 5, *rec.room_id)
-              : sqlite3_bind_null(stmt, 5);
-  bind_text(stmt, 6, rec.room_name);
-  sqlite3_bind_double(stmt, 7, rec.quantity);
-  sqlite3_bind_int(stmt, 8, rec.starred ? 1 : 0);
-  bind_text(stmt, 9, rec.note);
+  rec.room_id ? sqlite3_bind_int64(stmt, 4, *rec.room_id)
+              : sqlite3_bind_null(stmt, 4);
+  bind_text(stmt, 5, rec.room_name);
+  sqlite3_bind_double(stmt, 6, rec.quantity);
+  sqlite3_bind_int(stmt, 7, rec.starred ? 1 : 0);
+  bind_text(stmt, 8, rec.note);
   if (sqlite3_step(stmt) != SQLITE_DONE)
     throw std::runtime_error("add_survey_part '" + rec.code +
                              "': " + sqlite3_errmsg(impl_->db));
@@ -7829,11 +7855,13 @@ ProjectDB::update_survey_part(std::string_view code, const SurveyPartPatch &p) {
 
 bool ProjectDB::has_survey_part_for(std::string_view cloud_name,
                                     std::uint32_t instance_id) const {
-  sqlite3_stmt *stmt = prepare_or_throw(
-      impl_->db,
-      "SELECT 1 FROM survey_parts p JOIN point_clouds pc ON pc.id = p.cloud_id "
-      "WHERE pc.name = ? AND p.instance_id = ?;",
-      "has_survey_part_for");
+  sqlite3_stmt *stmt =
+      prepare_or_throw(impl_->db,
+                       "SELECT 1 FROM survey_parts p "
+                       "JOIN instances i ON i.guid = p.instance_guid "
+                       "JOIN point_clouds pc ON pc.id = i.cloud_id "
+                       "WHERE pc.name = ? AND i.instance_id = ?;",
+                       "has_survey_part_for");
   StmtGuard guard(stmt);
   bind_text(stmt, 1, cloud_name);
   sqlite3_bind_int64(stmt, 2, instance_id);

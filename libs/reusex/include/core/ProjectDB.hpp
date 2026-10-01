@@ -974,8 +974,10 @@ class ProjectDB {
   struct SurveyPartRecord {
     std::string code; // "RX-001"
     int64_t type_id = 0;
-    std::optional<std::string> cloud_name; // null once the instance is gone
-    std::optional<std::uint32_t> instance_id;
+    std::optional<std::string>
+        cloud_name; // read-only, derived from instance_guid
+    std::optional<std::uint32_t>
+        instance_id; // read-only, derived from instance_guid
     std::optional<std::uint32_t> room_id;
     std::string room_name;
     double quantity = 1.0;
@@ -983,6 +985,12 @@ class ProjectDB {
     std::string note;
     std::optional<std::string>
         material_guid; // read-only: from instance_materials
+    /// Stable link to `instances.guid` (schema v22); survives `rux create
+    /// instances` re-runs because instance identity is reconciled on guid,
+    /// not (cloud_id, instance_id). Nullable: a manually added part needs no
+    /// instance. Read-only on a patch; set via cloud_name/instance_id on add.
+    /// Kept LAST so existing positional aggregate initializers still compile.
+    std::optional<std::string> instance_guid;
   };
   struct SurveyPartPatch {
     std::optional<int64_t> type_id;

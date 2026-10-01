@@ -74,6 +74,7 @@ function sample(overrides: Partial<Sample> = {}): Sample {
     stage: 'sendt',
     result: null,
     type_ids: [1],
+    part_code: null,
     created_at: '',
     updated_at: '',
     ...overrides,

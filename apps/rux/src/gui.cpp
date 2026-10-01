@@ -196,7 +196,8 @@ class DefaultViewRenderer final : public rux::gui::IViewRenderer {
     o.height = req.height;
     if (req.highlight_instance)
       o.highlight = viz::InstanceHighlight{
-          req.highlight_cloud.value_or("instances"), *req.highlight_instance};
+          req.highlight_cloud.value_or(viz::InstanceHighlight{}.cloud_name),
+          *req.highlight_instance};
     std::lock_guard lock(mutex_);
     cv::Mat image;
     try {
@@ -204,8 +205,13 @@ class DefaultViewRenderer final : public rux::gui::IViewRenderer {
     } catch (const viz::OffscreenGlUnavailable &e) {
       throw rux::gui::RenderUnavailable(e.what());
     }
+    if (image.empty())
+      throw std::runtime_error("render produced an empty image");
     std::vector<std::uint8_t> png;
-    cv::imencode(".png", image, png);
+    if (!cv::imencode(".png", image, png) || png.empty())
+      throw std::runtime_error("PNG encode failed for a " +
+                               std::to_string(image.cols) + "x" +
+                               std::to_string(image.rows) + " render");
     return png;
   }
 

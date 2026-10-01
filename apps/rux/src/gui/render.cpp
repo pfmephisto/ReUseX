@@ -5,6 +5,8 @@
 #include "gui/ViewRenderer.hpp"
 #include "gui/api.hpp"
 
+#include <reusex/core/survey.hpp>
+
 #include <sstream>
 
 namespace rux::gui {
@@ -32,7 +34,8 @@ RenderRequest render_request_from(const Params &params) {
       throw HttpError(400,
                       "'highlight_instance' must be a positive instance id");
     r.highlight_instance = static_cast<std::uint32_t>(id);
-    r.highlight_cloud = params.str("highlight_cloud", "instances");
+    r.highlight_cloud = params.str(
+        "highlight_cloud", std::string(reusex::core::kDefaultInstanceCloud));
   }
   r.width = static_cast<int>(params.integer("width", r.width));
   r.height = static_cast<int>(params.integer("height", r.height));

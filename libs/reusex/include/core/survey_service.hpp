@@ -38,7 +38,8 @@ update_sample_checked(ProjectDB &db, int64_t id,
 
 /// Options for `sync_survey` — the cloud names it reads from.
 struct SurveySyncOptions {
-  std::string instances_cloud = "instances"; // mirrors `rux create materials`
+  std::string instances_cloud =
+      std::string(kDefaultInstanceCloud); // mirrors `rux create materials`
   std::string semantic_cloud = "labels";
   std::string rooms_cloud = "rooms";
 };

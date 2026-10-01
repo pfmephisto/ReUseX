@@ -31,6 +31,12 @@ enum class Treatment {
   bortskaffelse
 };
 inline constexpr std::size_t kTreatmentCount = 5;
+/// semantic_class of a survey type created by hand, never matched by
+/// sync_survey.
+inline constexpr int kManualSemanticClass = -2;
+/// Default name of the instance-label cloud `sync_survey` reads from, and the
+/// default `SurveySyncOptions::instances_cloud`.
+inline constexpr std::string_view kDefaultInstanceCloud = "instances";
 enum class ReviewStatus { queue, approved, rejected };
 enum class SampleStage { planlagt, udtaget, sendt, svar };
 enum class SampleResult { none, ren, forurenet };

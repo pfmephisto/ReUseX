@@ -245,6 +245,10 @@ class ProjectDB::Impl {
   // cppcheck-suppress unusedStructMember
   static constexpr int LATEST_SCHEMA_VERSION = 22;
 
+  // How long one statement waits for a lock another connection holds before
+  // failing with SQLITE_BUSY. sqlite's default is not to wait at all.
+  static constexpr int BUSY_TIMEOUT_MS = 5000;
+
   // Maximum bytes per point_cloud_data row. SQLite's default SQLITE_MAX_LENGTH
   // is 1 GB and the hard compile-time max is 2 GB-1. We chunk large clouds
   // into multiple rows so a single cloud can exceed those per-row limits.
@@ -279,6 +283,15 @@ class ProjectDB::Impl {
       sqlite3_close(db);
       throw std::runtime_error("Cannot open database: " + error);
     }
+
+    // Every connection waits out a briefly held lock instead of failing at
+    // once. With WAL, readers never block each other, but a reader whose open
+    // races another connection's close (which takes the file lock to try a
+    // checkpoint) or its WAL-index rebuild got SQLITE_BUSY immediately — the
+    // 503s on a full `rux gui` page load. Writers never block WAL readers, so
+    // the wait only ever covers those millisecond windows; a lock held past
+    // the timeout is still reported.
+    sqlite3_busy_timeout(db, BUSY_TIMEOUT_MS);
 
     if (!readOnly) {
       // Performance pragmas for write mode
@@ -329,15 +342,26 @@ class ProjectDB::Impl {
 
   // ── Schema versioning ──────────────────────────────────────────────
 
+  /// Throws if sqlite cannot answer — in particular when a lock is held past
+  /// the busy timeout. Reporting "no such table" then would be a silent lie
+  /// (an old schema, version -1) instead of the "database is locked" the
+  /// caller can act on (STANDARDS §5).
   bool tableExists(const char *tableName) const {
     const char *query =
         "SELECT name FROM sqlite_master WHERE type='table' AND name=?;";
     sqlite3_stmt *stmt;
     if (sqlite3_prepare_v2(db, query, -1, &stmt, nullptr) != SQLITE_OK)
-      return false;
+      throw std::runtime_error(std::string("Cannot check for table '") +
+                               tableName + "': " + sqlite3_errmsg(db));
     StmtGuard guard(stmt);
     sqlite3_bind_text(stmt, 1, tableName, -1, SQLITE_STATIC);
-    return sqlite3_step(stmt) == SQLITE_ROW;
+    const int rc = sqlite3_step(stmt);
+    if (rc == SQLITE_ROW)
+      return true;
+    if (rc == SQLITE_DONE)
+      return false;
+    throw std::runtime_error(std::string("Cannot check for table '") +
+                             tableName + "': " + sqlite3_errmsg(db));
   }
 
   /// True if `tableName` exists AND carries a column named `columnName`.
@@ -380,17 +404,25 @@ class ProjectDB::Impl {
     if (!tableExists("schema_version"))
       return -1;
 
+    // -1 means "no version recorded", never "could not read it": a busy or
+    // otherwise failing read throws (see tableExists).
     const char *query = "SELECT MAX(version) FROM schema_version;";
     sqlite3_stmt *stmt;
     if (sqlite3_prepare_v2(db, query, -1, &stmt, nullptr) != SQLITE_OK)
-      return -1;
+      throw std::runtime_error(std::string("Cannot read schema version: ") +
+                               sqlite3_errmsg(db));
     StmtGuard guard(stmt);
 
-    if (sqlite3_step(stmt) == SQLITE_ROW &&
-        sqlite3_column_type(stmt, 0) != SQLITE_NULL) {
-      return sqlite3_column_int(stmt, 0);
+    const int rc = sqlite3_step(stmt);
+    if (rc == SQLITE_ROW) {
+      if (sqlite3_column_type(stmt, 0) != SQLITE_NULL)
+        return sqlite3_column_int(stmt, 0);
+      return -1;
     }
-    return -1;
+    if (rc == SQLITE_DONE)
+      return -1;
+    throw std::runtime_error(std::string("Cannot read schema version: ") +
+                             sqlite3_errmsg(db));
   }
 
   void runMigrations(bool isLegacyDb) {

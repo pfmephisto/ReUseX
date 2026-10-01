@@ -312,6 +312,16 @@ class Server::Impl {
                    options_.project.filename().string(), db.schema_version());
     }
 
+    // Hold one read-only connection for the server's lifetime. Every request
+    // opens and closes its own connection (ProjectDB is not thread-safe), and
+    // without an anchor the last of them to close tries a checkpoint under the
+    // file's exclusive lock and drops the WAL index, which the next request
+    // then has to rebuild. Readers landing in those windows saw SQLITE_BUSY.
+    // The anchor holds no transaction and is never queried, so it blocks no
+    // writer and no checkpoint.
+    read_anchor_ = std::make_unique<reusex::ProjectDB>(options_.project,
+                                                       /*readOnly=*/true);
+
     options_.asset_dir = resolve_asset_dir(options_.asset_dir);
 
     if (!is_plausible_host(options_.bind_address))
@@ -444,7 +454,9 @@ class Server::Impl {
   ///
   /// Writers are the job worker and the editor endpoints (with_write below);
   /// both hold the runner's writer lock, so at most one of them is writing at
-  /// any moment and this connection never has to reason about them separately.
+  /// any moment. Each connection waits up to ProjectDB's busy timeout (5 s),
+  /// and the server-lifetime read anchor keeps the WAL index alive, so a 503
+  /// here means a lock really was held that long — by a writer.
   template <typename Handler> crow::response with_db(Handler &&handler) {
     try {
       reusex::ProjectDB db(options_.project, /*readOnly=*/true);
@@ -477,9 +489,13 @@ class Server::Impl {
   ///  * **A queued or running job means 409, not a wait.** A stage holds the
   ///    lock for minutes; blocking a request that long is indistinguishable
   ///    from a hung UI, and the user can retry when the run is done.
-  ///  * **Failing to take the lock means 503, not a longer wait.** That path is
-  ///    another editor request mid-write — milliseconds — so a short timeout
-  ///    absorbs the normal case and anything past it is worth reporting.
+  ///  * **Failing to take the writer lock means 503 after a short wait.** That
+  ///    path is another editor request mid-write — milliseconds — so
+  ///    kWriteLockTimeoutMs absorbs the normal case and anything past it is
+  ///    worth reporting. Once the lock is held, the connection itself waits up
+  ///    to ProjectDB's busy timeout (5 s) for sqlite's own file lock, which
+  ///    covers another connection's checkpoint or WAL-index rebuild; a 503
+  ///    from there means sqlite stayed locked that long.
   ///
   /// Nothing is written when either check fails, so both are safe to retry.
   template <typename Handler> crow::response with_write(Handler &&handler) {
@@ -1500,6 +1516,10 @@ class Server::Impl {
   /// Optional evidence-render renderer (#265 Phase 2 Task 8). Not owned;
   /// lifetime must exceed the server's. nullptr ⟹ 503.
   IViewRenderer *view_renderer_ = nullptr;
+
+  /// Keeps the project's WAL index alive between requests (see the
+  /// constructor). Never used for a query.
+  std::unique_ptr<reusex::ProjectDB> read_anchor_;
 };
 
 // ===========================================================================

@@ -38,6 +38,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -393,4 +394,54 @@ TEST_CASE("RunningServer_NoAssetsKeepAliveRequests_ServesPlaceholderRepeatedly",
   const Response missing = connection.get("/assets/app.js");
   CHECK(missing.status == 404);
   CHECK(missing.content_type == "application/json");
+}
+
+TEST_CASE("RunningServer_ConcurrentReadsOnAFreshServer_NeverBusy",
+          "[gui][server][socket][concurrency]") {
+  // A full page load fires the shell's and the page's GETs at once, and each
+  // opens its own read-only connection. None may answer 503 while nothing
+  // writes (GUI Phase 5, R1).
+  ::unsetenv("RUX_GUI_ASSETS");
+  TempPath project("test_gui_server_socket", ".rux");
+
+  ServerOptions options;
+  options.project = project.path;
+  options.port = free_port();
+  options.open_browser = false;
+  options.threads = 8;
+  RunningServer server(std::move(options));
+
+  const std::vector<std::string> paths{
+      "/api/v1/project",          "/api/v1/survey/summary",
+      "/api/v1/survey/fractions", "/api/v1/survey",
+      "/api/v1/samples",          "/api/v1/reports/ressourcekortlaegning"};
+  constexpr int kClients = 8;
+  constexpr int kRounds = 15;
+  std::mutex mutex;
+  std::vector<std::string> failures;
+  std::vector<std::thread> clients;
+  for (int c = 0; c < kClients; ++c)
+    clients.emplace_back([&, c] {
+      try {
+        KeepAliveConnection connection(server.port());
+        for (int i = 0; i < kRounds; ++i) {
+          const std::string &path =
+              paths[static_cast<std::size_t>(c + i) % paths.size()];
+          const Response response = connection.get(path);
+          if (response.status != 200) {
+            std::lock_guard lock(mutex);
+            failures.push_back(path + " -> " + std::to_string(response.status) +
+                               " " + response.body);
+          }
+        }
+      } catch (const std::exception &e) {
+        std::lock_guard lock(mutex);
+        failures.push_back(std::string("client error: ") + e.what());
+      }
+    });
+  for (auto &client : clients)
+    client.join();
+
+  INFO((failures.empty() ? std::string() : failures.front()));
+  CHECK(failures.empty());
 }

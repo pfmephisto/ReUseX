@@ -16,6 +16,7 @@ import { GraphViewPage } from '../routes/GraphViewPage';
 import { InstancesPage } from '../routes/InstancesPage';
 import { KortlaegningPage } from '../routes/KortlaegningPage';
 import { MaterialsPage } from '../routes/MaterialsPage';
+import { MiljoePage } from '../routes/MiljoePage';
 import { PipelineLogPage } from '../routes/PipelineLogPage';
 import { PipelinePage } from '../routes/PipelinePage';
 import { ViewportPage } from '../routes/ViewportPage';
@@ -63,6 +64,7 @@ function RoutedContent() {
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/kortlaegning" element={<KortlaegningPage />} />
+          <Route path="/miljoe" element={<MiljoePage />} />
           <Route path="/pipeline" element={<PipelinePage />} />
           <Route path="/pipeline/log" element={<PipelineLogPage />} />
           <Route path="/frames" element={<FramesPage />} />

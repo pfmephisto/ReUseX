@@ -40,13 +40,7 @@ export const ALL_CASES_PENDING: string | undefined = 'Kommer i fase 6 — sagsli
 export const NAV_ENTRIES: readonly NavEntry[] = [
   { to: '/', label: 'Overblik', group: 'sag', end: true },
   { to: '/kortlaegning', label: 'Kortlægning', group: 'sag', badge: 'reviewQueue' },
-  {
-    to: '/miljoe',
-    label: 'Miljø & prøver',
-    group: 'sag',
-    badge: 'pendingSamples',
-    pending: 'Kommer i fase 4 — prøver og miljøstatus',
-  },
+  { to: '/miljoe', label: 'Miljø & prøver', group: 'sag', badge: 'pendingSamples' },
   { to: '/rapport', label: 'Rapport', group: 'sag', pending: 'Kommer i fase 5 — rapportversioner' },
   {
     to: '/indberetning',

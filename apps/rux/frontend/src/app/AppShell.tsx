@@ -24,7 +24,9 @@ import styles from './AppShell.module.css';
  * when the database could not be opened — which is exactly the state a title
  * bar must not render as if everything were fine.
  *
- * The Kortlægning badge comes from `GET /survey/summary`. A server that
+ * The Kortlægning and Miljø & prøver badges both come from
+ * `GET /survey/summary` (`counts.queue`, `pending_samples`: samples not yet at
+ * *svar*, i.e. those that can hold a type at *afventer prøve*). A server that
  * predates the survey routes answers 404; the shell then shows no badge rather
  * than an error — the badge is a hint, not something to block the app on.
  */
@@ -34,6 +36,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const survey = useAsync<SurveySummary>((signal) => api.surveySummary(signal), []);
   const { active, status } = useJobs();
   const reviewQueue = survey.error ? undefined : survey.data?.counts.queue;
+  const pendingSamples = survey.error ? undefined : survey.data?.pending_samples;
   const surveyCounts = useMemo(() => ({ refresh: survey.reload }), [survey.reload]);
 
   return (
@@ -49,7 +52,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         unreachable={Boolean(error)}
       />
       <div className={styles.body}>
-        <Sidebar projectName={displayProjectName(summary, health)} badges={{ reviewQueue }} />
+        <Sidebar projectName={displayProjectName(summary, health)} badges={{ reviewQueue, pendingSamples }} />
         <main className={styles.content}>
           <SurveyCountsProvider value={surveyCounts}>{children}</SurveyCountsProvider>
         </main>

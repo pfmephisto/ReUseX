@@ -70,6 +70,12 @@ describe('navigation model', () => {
     expect(entry?.pending).toBeUndefined();
   });
 
+  it('makes Miljø & prøver a live destination', () => {
+    const entry = NAV_ENTRIES.find((e) => e.to === '/miljoe');
+    expect(entry).toBeDefined();
+    expect(entry?.pending).toBeUndefined();
+  });
+
   it('points "Alle sager" at the case list', () => {
     expect(ALL_CASES_PATH).toBe('/sager');
   });

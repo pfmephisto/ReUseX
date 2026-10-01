@@ -7,6 +7,7 @@
 #include "reusex/core/logging.hpp"
 
 #include <algorithm>
+#include <set>
 #include <stdexcept>
 #include <utility>
 
@@ -79,9 +80,30 @@ std::vector<TypeTotals> type_totals(const ProjectDB &db) {
   const auto env = environment_statuses(db);
   std::vector<TypeTotals> out;
   for (const auto &t : db.survey_types())
-    out.push_back(
-        {t.treatment, t.review_status, t.mass_t, t.eak_code, env.at(t.id)});
+    out.push_back({t.treatment, t.review_status, t.mass_t, t.eak_code,
+                   env.at(t.id), t.id, t.name});
   return out;
+}
+
+std::vector<ReportSurveyRow> report_survey_rows(const ProjectDB &db) {
+  const auto env = environment_statuses(db);
+  // Whatever blocks the waste report is withheld here as well, so the PDF's
+  // survey rows and its fractions never disagree about what is reported.
+  std::set<int64_t> blocked;
+  for (const auto &b : fractions_by_eak(type_totals(db)).blocking)
+    blocked.insert(b.type_id);
+  std::map<int64_t, double> quantity;
+  for (const auto &p : db.survey_parts())
+    quantity[p.type_id] += p.quantity;
+  std::vector<ReportSurveyRow> rows;
+  for (const auto &t : db.survey_types()) {
+    const auto e = env.at(t.id);
+    if (!reportable(t.review_status, e) || blocked.count(t.id) != 0)
+      continue;
+    rows.push_back({t.name, t.bim7aa_code, t.eak_code, t.unit, quantity[t.id],
+                    t.mass_t, t.treatment, e});
+  }
+  return rows;
 }
 
 ProjectDB::SampleRecord

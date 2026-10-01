@@ -413,6 +413,11 @@ tree — if a doc mentions `RTABMapDatabase`, that doc is stale.
   `src/core/ProjectDB.cpp` — read it there rather than trusting a doc (it moves
   most releases)
 - **NOT thread-safe** (sqlite3): create a per-thread instance if needed
+- Every connection sets a 5 s sqlite busy timeout (`BUSY_TIMEOUT_MS`), and `rux gui`
+  holds one idle read-write connection for its lifetime so the WAL index survives
+  between per-request connections and the WAL is checkpointed into the .rux on
+  exit (a read-only last closer cannot); a lock held past the timeout throws, never
+  reads as "no table" / schema `-1`
 - **No image rotation.** Images and labels are stored in their original
   orientation; the 90°-clockwise rotation the old RTABMap reader applied is gone
 - Label encoding: `CV_16U` + 1 offset in storage (0 = unlabeled), `CV_32S` with

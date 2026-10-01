@@ -226,17 +226,18 @@ json patch_project(reusex::ProjectDB &db, const std::string &id,
 // ===========================================================================
 
 json generate_report_pdf_json(reusex::ProjectDB &db) {
+  // Counted before generation, from the same state the PDF is built from.
+  const int blocking = reusex::report_blocking_types(db);
   std::vector<std::uint8_t> pdf;
   try {
     pdf = reusex::generate_ressourcekortlaegning_pdf(db);
   } catch (const std::exception &e) {
     throw HttpError(500, std::string("PDF generation failed: ") + e.what());
   }
-  const auto rec = db.add_report_pdf(pdf, "Ressourcekortlægning");
-  return json{{"id", rec.id},
-              {"created_at", rec.created_at},
-              {"label", rec.label},
-              {"size_bytes", rec.size_bytes}};
+  // Storing stays outside the try, so a locked database still maps to 503 in
+  // with_write, not 500.
+  return report_version_json(
+      db.add_report_pdf(pdf, "Ressourcekortlægning", blocking));
 }
 
 } // namespace rux::gui

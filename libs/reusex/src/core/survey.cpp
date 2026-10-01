@@ -94,6 +94,36 @@ std::string_view to_string(SampleResult v) { return to_table(v, kResults); }
 std::string_view to_string(EnvironmentStatus v) {
   return to_table(v, kEnvironment);
 }
+
+std::string_view treatment_label_da(Treatment t) {
+  switch (t) {
+  case Treatment::bevaring:
+    return "Bevaring";
+  case Treatment::genbrug:
+    return "Genbrug";
+  case Treatment::genanvendelse:
+    return "Genanvendelse";
+  case Treatment::nyttiggoerelse:
+    return "Nyttiggørelse";
+  case Treatment::bortskaffelse:
+    return "Bortskaffelse";
+  }
+  return {};
+}
+
+std::string_view environment_label_da(EnvironmentStatus e) {
+  switch (e) {
+  case EnvironmentStatus::ren_screening:
+    return "Ren";
+  case EnvironmentStatus::afventer:
+    return "Afventer prøve";
+  case EnvironmentStatus::forurenet:
+    return "Forurenet";
+  case EnvironmentStatus::ren_proevesvar:
+    return "Ren (prøvesvar)";
+  }
+  return {};
+}
 std::optional<Treatment> treatment_from_string(std::string_view s) {
   return from_table(s, kTreatments);
 }
@@ -138,25 +168,56 @@ circularity_breakdown(const std::vector<TypeTotals> &types) {
   return out;
 }
 
+std::string_view to_string(BlockingReason r) {
+  switch (r) {
+  case BlockingReason::sample:
+    return "sample";
+  case BlockingReason::mass:
+    return "mass";
+  case BlockingReason::review:
+    break;
+  }
+  return "review";
+}
+
+bool reportable(ReviewStatus status, EnvironmentStatus environment) {
+  return status == ReviewStatus::approved &&
+         environment != EnvironmentStatus::afventer;
+}
+
 FractionReport fractions_by_eak(const std::vector<TypeTotals> &types) {
   FractionReport report;
-  std::map<std::pair<std::string, int>, double> grouped;
+  std::map<std::tuple<std::string, int, bool>, double> grouped;
   for (const auto &t : types) {
     if (t.status == ReviewStatus::rejected)
       continue;
-    if (t.status != ReviewStatus::approved ||
-        t.environment == EnvironmentStatus::afventer)
-      ++report.blocking_types;
-    if (t.status == ReviewStatus::approved)
-      grouped[{t.eak_code, static_cast<int>(t.treatment)}] +=
-          t.mass_t.value_or(0.0);
+    if (!reportable(t.status, t.environment)) {
+      const bool awaiting = t.environment == EnvironmentStatus::afventer;
+      report.blocking.push_back(BlockingType{
+          t.type_id, t.name, t.eak_code, t.treatment, t.mass_t,
+          awaiting ? BlockingReason::sample : BlockingReason::review});
+      continue;
+    }
+    if (t.treatment == Treatment::bevaring)
+      continue;
+    if (!t.mass_t) {
+      // An unknown tonnage is not zero tonnes (STANDARDS §5).
+      report.blocking.push_back(BlockingType{t.type_id, t.name, t.eak_code,
+                                             t.treatment, t.mass_t,
+                                             BlockingReason::mass});
+      continue;
+    }
+    grouped[{t.eak_code, static_cast<int>(t.treatment),
+             t.environment == EnvironmentStatus::forurenet}] += *t.mass_t;
   }
   for (const auto &[key, mass] : grouped) {
+    const auto &[code, treatment, contaminated] = key;
     report.fractions.push_back(
-        Fraction{key.first, std::string(eak_fraction_name(key.first)),
-                 static_cast<Treatment>(key.second), mass});
+        Fraction{code, std::string(eak_fraction_name(code)),
+                 static_cast<Treatment>(treatment), mass, contaminated});
     report.total_t += mass;
   }
+  report.blocking_types = report.blocking.size();
   return report;
 }
 

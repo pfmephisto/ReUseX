@@ -28,6 +28,7 @@ describe('navigation model', () => {
   it('keeps every existing technical route reachable under Værktøjer', () => {
     const tools = entriesIn('tools').map((e) => e.to);
     for (const path of [
+      '/projektdata',
       '/viewport',
       '/graph-view',
       '/pipeline',
@@ -41,6 +42,11 @@ describe('navigation model', () => {
     ]) {
       expect(tools).toContain(path);
     }
+  });
+
+  it('keeps the old project inventory reachable as the first tool', () => {
+    const tools = entriesIn('tools');
+    expect(tools[0]).toEqual({ to: '/projektdata', label: 'Projektdata', group: 'tools' });
   });
 
   it('uses unique, extensionless paths', () => {
@@ -72,6 +78,18 @@ describe('navigation model', () => {
 
   it('makes Miljø & prøver a live destination', () => {
     const entry = NAV_ENTRIES.find((e) => e.to === '/miljoe');
+    expect(entry).toBeDefined();
+    expect(entry?.pending).toBeUndefined();
+  });
+
+  it('makes Rapport a live destination', () => {
+    const entry = NAV_ENTRIES.find((e) => e.to === '/rapport');
+    expect(entry).toBeDefined();
+    expect(entry?.pending).toBeUndefined();
+  });
+
+  it('makes Indberetning a live destination', () => {
+    const entry = NAV_ENTRIES.find((e) => e.to === '/indberetning');
     expect(entry).toBeDefined();
     expect(entry?.pending).toBeUndefined();
   });

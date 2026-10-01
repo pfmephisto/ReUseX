@@ -15,6 +15,14 @@
  */
 
 import type { Health, ProjectSummary } from '../api/types';
+import {
+  INDBERETNING_PATH,
+  KORTLAEGNING_PATH,
+  MILJOE_PATH,
+  OVERBLIK_PATH,
+  PROJEKTDATA_PATH,
+  RAPPORT_PATH,
+} from './links';
 
 export type NavGroup = 'sag' | 'tools';
 
@@ -38,17 +46,13 @@ export const ALL_CASES_PATH = '/sager';
 export const ALL_CASES_PENDING: string | undefined = 'Kommer i fase 6 — sagsliste';
 
 export const NAV_ENTRIES: readonly NavEntry[] = [
-  { to: '/', label: 'Overblik', group: 'sag', end: true },
-  { to: '/kortlaegning', label: 'Kortlægning', group: 'sag', badge: 'reviewQueue' },
-  { to: '/miljoe', label: 'Miljø & prøver', group: 'sag', badge: 'pendingSamples' },
-  { to: '/rapport', label: 'Rapport', group: 'sag', pending: 'Kommer i fase 5 — rapportversioner' },
-  {
-    to: '/indberetning',
-    label: 'Indberetning',
-    group: 'sag',
-    pending: 'Kommer i fase 5 — fraktioner til bygningsaffald.dk',
-  },
+  { to: OVERBLIK_PATH, label: 'Overblik', group: 'sag', end: true },
+  { to: KORTLAEGNING_PATH, label: 'Kortlægning', group: 'sag', badge: 'reviewQueue' },
+  { to: MILJOE_PATH, label: 'Miljø & prøver', group: 'sag', badge: 'pendingSamples' },
+  { to: RAPPORT_PATH, label: 'Rapport', group: 'sag' },
+  { to: INDBERETNING_PATH, label: 'Indberetning', group: 'sag' },
 
+  { to: PROJEKTDATA_PATH, label: 'Projektdata', group: 'tools' },
   { to: '/viewport', label: 'Viewport', group: 'tools' },
   { to: '/graph-view', label: 'Posegraf', group: 'tools' },
   { to: '/pipeline', label: 'Pipeline', group: 'tools', end: true },

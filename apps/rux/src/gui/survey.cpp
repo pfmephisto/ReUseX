@@ -147,6 +147,7 @@ json survey_summary_json(const reusex::ProjectDB &db) {
   const std::string rooms_cloud = core::SurveySyncOptions{}.rooms_cloud;
 
   json unlabeled = nullptr;
+  json classified = nullptr;
   if (db.has_point_cloud(instances_cloud)) {
     if (const auto cloud = db.point_cloud_label(instances_cloud)) {
       std::size_t n = 0;
@@ -154,8 +155,17 @@ json survey_summary_json(const reusex::ProjectDB &db) {
         if (p.label == 0)
           ++n;
       unlabeled = n;
+      if (!cloud->empty())
+        classified =
+            1.0 - static_cast<double>(n) / static_cast<double>(cloud->size());
     }
   }
+
+  int contaminated = 0;
+  for (const auto &t : totals)
+    if (t.status != core::ReviewStatus::rejected &&
+        t.environment == core::EnvironmentStatus::forurenet)
+      ++contaminated;
 
   json empty_rooms = json::array();
   if (db.has_point_cloud(rooms_cloud)) {
@@ -183,9 +193,17 @@ json survey_summary_json(const reusex::ProjectDB &db) {
           {"total_mass_t", total},
           {"reuse_share", total > 0.0 ? json(reuse / total) : json(nullptr)},
           {"pending_samples", pending},
+          {"classified_share", std::move(classified)},
+          {"contaminated_types", contaminated},
           {"unlabeled_points", std::move(unlabeled)},
           {"rooms_without_parts", std::move(empty_rooms)}};
 }
+
+namespace {
+/// Tonnes on the wire: 6 decimals, so sums like 190 + 6.8 + 2.4 print as 199.2
+/// rather than 199.20000000000002.
+double wire_tonnes(double t) { return std::round(t * 1e6) / 1e6; }
+} // namespace
 
 json survey_fractions_json(const reusex::ProjectDB &db) {
   const auto report = core::fractions_by_eak(core::type_totals(db));
@@ -194,11 +212,25 @@ json survey_fractions_json(const reusex::ProjectDB &db) {
     list.push_back({{"eak_code", f.eak_code},
                     {"name", f.name},
                     {"treatment", std::string(core::to_string(f.treatment))},
-                    {"mass_t", f.mass_t}});
+                    {"mass_t", wire_tonnes(f.mass_t)},
+                    {"contaminated", f.contaminated}});
+  json blocking = json::array();
+  for (const auto &b : report.blocking)
+    blocking.push_back(
+        {{"type_id", b.type_id},
+         {"name", b.name},
+         {"eak_code", b.eak_code},
+         {"treatment", std::string(core::to_string(b.treatment))},
+         {"mass_t", opt(b.mass_t)},
+         {"reason", std::string(core::to_string(b.reason))}});
+  // Ready means there is something to report and nothing holds it back: an
+  // empty survey (or one that is all bevaring) has no fraction to send.
+  const bool ready = !list.empty() && report.blocking_types == 0;
   return {{"fractions", std::move(list)},
-          {"total_t", report.total_t},
+          {"total_t", wire_tonnes(report.total_t)},
           {"blocking_types", report.blocking_types},
-          {"ready", report.blocking_types == 0}};
+          {"blocking", std::move(blocking)},
+          {"ready", ready}};
 }
 
 json samples_json(const reusex::ProjectDB &db) {

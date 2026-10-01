@@ -1,0 +1,64 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+.page {
+  composes: page from './viewHead.module.css';
+}
+.head {
+  composes: head from './viewHead.module.css';
+}
+.title {
+  composes: title from './viewHead.module.css';
+}
+.sub {
+  composes: sub from './viewHead.module.css';
+}
+.actions {
+  composes: actions from './viewHead.module.css';
+}
+.footnote {
+  composes: footnote from './viewHead.module.css';
+}
+.btnPrimary {
+  composes: btnPrimary from '../components/controls.module.css';
+}
+.textBtn {
+  composes: textBtn from '../components/controls.module.css';
+}
+.notice {
+  composes: notice from '../components/surfaces.module.css';
+}
+
+.hero {
+  composes: panel from '../components/surfaces.module.css';
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+}
+
+.heroTitle {
+  margin: 0;
+  font-size: var(--font-size-xl);
+  text-transform: uppercase;
+}
+
+.heroSub {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.heroScope {
+  composes: heroSub;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-faint);
+}
+
+.noticeDetail {
+  display: block;
+  margin-top: var(--space-1);
+}

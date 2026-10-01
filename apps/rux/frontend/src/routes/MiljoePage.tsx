@@ -291,7 +291,7 @@ export function MiljoePage() {
   if (error) {
     return (
       <div className={styles.page}>
-        <ErrorBanner error={error} onRetry={reload} context="Miljø & prøver" />
+        <ErrorBanner error={error} onRetry={reload} context="prøverne" />
       </div>
     );
   }

@@ -190,6 +190,15 @@ changelog — that history is the point of keeping it in the repo.
 
 ## Direction changelog
 
+- **2026-10-01** — **GUI application (#265): Phases 1–5 of the prototype-v2
+  redesign landed.** Identity & shell, the survey backend (schema v22/v23),
+  the Kortlægning workbench, Miljø & prøver, and Overblik/Rapport/Indberetning
+  are all built and replace the old Dashboard-first layout — see
+  [`docs/design/gui-kortlaegning-redesign.md`](design/gui-kortlaegning-redesign.md)
+  for the full screen-by-screen spec and the remaining follow-ups. Phase 6
+  (Sager & On-site — multi-project case list via `ruxd`, the phone capture
+  sheet) is the only phase left on the anchor issue.
+
 - **2026-09-21** — **Viewport LOD: extend RUXP, do not adopt Potree** (#321
   closed, decision accepted by the maintainer). The evaluation
   ([`research/potree-vs-ruxp-lod.md`](research/potree-vs-ruxp-lod.md), PR #384)

@@ -84,7 +84,7 @@ export function FrameDetail({ id, allFrameIds, onClose }: FrameDetailProps) {
         <ErrorBanner
           error={frame.error}
           onRetry={frame.reload}
-          context={`sensor frame ${id}`}
+          context={`sensorbillede ${id}`}
         />
       ) : !frame.data ? (
         <Spinner label="Reading the frame…" />

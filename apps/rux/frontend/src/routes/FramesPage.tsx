@@ -152,7 +152,7 @@ export function FramesPage() {
                 <ErrorBanner
                   error={frames.error}
                   onRetry={frames.reload}
-                  context="the frame inventory"
+                  context="billedoversigten"
                 />
               ) : !frames.data ? (
                 <Spinner label="Reading frames…" />
@@ -297,7 +297,7 @@ function PanoramaGroupContent() {
       <ErrorBanner
         error={panoramas.error}
         onRetry={panoramas.reload}
-        context="the panorama list"
+        context="panoramalisten"
       />
     );
   }

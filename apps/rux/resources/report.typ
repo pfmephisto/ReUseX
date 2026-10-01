@@ -17,8 +17,16 @@
 //       "has_thumbnail": true,
 //       "thumbnail_path": "thumbnails/guid.jpg",
 //       "properties": {"col-name": "value"}
-//     }]
+//     }],
+//     "survey": {
+//       "rows": [{"name", "bim7aa", "eak", "quantity", "mass", "treatment", "environment"}],
+//       "circularity": [{"label": "Genanvendelse", "tonnes": "196,8 t"}],
+//       "blocking": 7
+//     }
 //   }
+//
+// The same text is embedded in libs/reusex/src/core/report_generator.cpp
+// (kTypstTemplate); the ReportTemplate_CopiesInSync test fails when they differ.
 
 #let data = json("data.json")
 #let cols = data.columns
@@ -59,6 +67,36 @@
 #v(0.6cm)
 #line(length: 100%, stroke: 0.4pt + luma(180))
 #v(0.5cm)
+
+// ── Kortlægning: approved survey types ───────────────────────────────────────
+
+#let survey = data.survey
+
+#text(size: 13pt, weight: "bold")[Kortlægning]
+#v(0.2cm)
+#if survey.blocking > 0 [
+  #text(size: 9pt, style: "italic")[Udkast — #survey.blocking type(r) afventer gennemsyn eller prøvesvar, eller mangler tons, og indgår ikke i mængderne.]
+  #v(0.2cm)
+]
+#if survey.rows.len() == 0 [
+  _Ingen godkendte typer endnu._
+] else {
+  table(
+    columns: (1.9fr, 1.5fr, 0.9fr, 0.9fr, 0.7fr, 1.35fr, 1.1fr),
+    stroke: 0.3pt + luma(190),
+    inset: (x: 5pt, y: 5pt),
+    fill: (col, row) => if row == 0 { luma(215) } else { white },
+    table.header([*Type*], [*BIM7AA*], [*EAK*], [*Mængde*], [*Tons*], [*Behandling*], [*Miljø*]),
+    ..survey.rows.map(r => (r.name, r.bim7aa, r.eak, r.quantity, r.mass, r.treatment, r.environment)).flatten(),
+  )
+}
+#if survey.circularity.len() > 0 [
+  #v(0.2cm)
+  #text(size: 9pt)[Cirkularitet (godkendte typer): #survey.circularity.map(c => c.label + " " + c.tonnes).join(" · ")]
+]
+#v(0.6cm)
+#text(size: 13pt, weight: "bold")[Materialepas]
+#v(0.2cm)
 
 // ── Material table ────────────────────────────────────────────────────────────
 

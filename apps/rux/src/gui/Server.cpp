@@ -302,15 +302,28 @@ class Server::Impl {
           "--port 0 is not supported: Crow cannot report back which ephemeral "
           "port it bound, so nothing could tell you where to connect");
 
-    // Open read-write exactly once, on the way up. This creates and migrates
-    // the database if needed, so every later per-request connection can be
+    // Open read-write once, on the way up. This creates and migrates the
+    // database if needed, so every later per-request connection can be
     // read-only, and a broken project fails at startup instead of on the first
     // fetch (STANDARDS §5).
-    {
-      reusex::ProjectDB db(options_.project, /*readOnly=*/false);
-      spdlog::info("Project '{}' opened (schema v{})",
-                   options_.project.filename().string(), db.schema_version());
-    }
+    //
+    // The connection is then kept for the server's lifetime as the WAL anchor.
+    // Every request opens and closes its own connection (ProjectDB is not
+    // thread-safe), and without an anchor the last of them to close tries a
+    // checkpoint under the file's exclusive lock and drops the WAL index,
+    // which the next request then has to rebuild. Readers landing in those
+    // windows saw SQLITE_BUSY. The anchor holds no transaction and is never
+    // queried after this, so it blocks no writer and no checkpoint.
+    //
+    // It is read-write on purpose: it closes last (see ~Impl), and the last
+    // connection to close checkpoints the WAL into the main file and deletes
+    // it. A read-only connection cannot, which would leave every GUI edit
+    // only in project.rux-wal after shutdown.
+    wal_anchor_ = std::make_unique<reusex::ProjectDB>(options_.project,
+                                                      /*readOnly=*/false);
+    spdlog::info("Project '{}' opened (schema v{})",
+                 options_.project.filename().string(),
+                 wal_anchor_->schema_version());
 
     options_.asset_dir = resolve_asset_dir(options_.asset_dir);
 
@@ -344,8 +357,13 @@ class Server::Impl {
       runner_->remove_listener(listener_);
       runner_.reset();
     }
-    std::lock_guard<std::mutex> lock(clients_mutex_);
-    clients_.clear();
+    {
+      std::lock_guard<std::mutex> lock(clients_mutex_);
+      clients_.clear();
+    }
+    // Last, once the worker and the request threads have released their
+    // connections: as the last connection it checkpoints and removes the WAL.
+    wal_anchor_.reset();
   }
 
   const ServerOptions &options() const noexcept { return options_; }
@@ -444,7 +462,9 @@ class Server::Impl {
   ///
   /// Writers are the job worker and the editor endpoints (with_write below);
   /// both hold the runner's writer lock, so at most one of them is writing at
-  /// any moment and this connection never has to reason about them separately.
+  /// any moment. Each connection waits up to ProjectDB's busy timeout (5 s),
+  /// and the server-lifetime WAL anchor keeps the WAL index alive, so a 503
+  /// here means a lock really was held that long — by a writer.
   template <typename Handler> crow::response with_db(Handler &&handler) {
     try {
       reusex::ProjectDB db(options_.project, /*readOnly=*/true);
@@ -477,9 +497,13 @@ class Server::Impl {
   ///  * **A queued or running job means 409, not a wait.** A stage holds the
   ///    lock for minutes; blocking a request that long is indistinguishable
   ///    from a hung UI, and the user can retry when the run is done.
-  ///  * **Failing to take the lock means 503, not a longer wait.** That path is
-  ///    another editor request mid-write — milliseconds — so a short timeout
-  ///    absorbs the normal case and anything past it is worth reporting.
+  ///  * **Failing to take the writer lock means 503 after a short wait.** That
+  ///    path is another editor request mid-write — milliseconds — so
+  ///    kWriteLockTimeoutMs absorbs the normal case and anything past it is
+  ///    worth reporting. Once the lock is held, the connection itself waits up
+  ///    to ProjectDB's busy timeout (5 s) for sqlite's own file lock, which
+  ///    covers another connection's checkpoint or WAL-index rebuild; a 503
+  ///    from there means sqlite stayed locked that long.
   ///
   /// Nothing is written when either check fails, so both are safe to retry.
   template <typename Handler> crow::response with_write(Handler &&handler) {
@@ -1500,6 +1524,11 @@ class Server::Impl {
   /// Optional evidence-render renderer (#265 Phase 2 Task 8). Not owned;
   /// lifetime must exceed the server's. nullptr ⟹ 503.
   IViewRenderer *view_renderer_ = nullptr;
+
+  /// Read-write connection that keeps the project's WAL index alive between
+  /// requests and checkpoints on shutdown (see the constructor). Never
+  /// queried after startup; reset explicitly at the end of ~Impl.
+  std::unique_ptr<reusex::ProjectDB> wal_anchor_;
 };
 
 // ===========================================================================

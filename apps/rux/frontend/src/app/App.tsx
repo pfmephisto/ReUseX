@@ -7,18 +7,29 @@ import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { JobsProvider } from './JobsContext';
 import { LabelQueueProvider } from './LabelQueueContext';
 import { AppShell } from './AppShell';
+import {
+  INDBERETNING_PATH,
+  KORTLAEGNING_PATH,
+  MILJOE_PATH,
+  OVERBLIK_PATH,
+  PROJEKTDATA_PATH,
+  RAPPORT_PATH,
+} from './links';
 import { Dashboard } from '../routes/Dashboard';
 import { LabelsPage } from '../routes/DataPage';
 import { ExportPage } from '../routes/ExportPage';
 import { FramesPage } from '../routes/FramesPage';
 import { GeometryPage } from '../routes/GeometryPage';
 import { GraphViewPage } from '../routes/GraphViewPage';
+import { IndberetningPage } from '../routes/IndberetningPage';
 import { InstancesPage } from '../routes/InstancesPage';
 import { KortlaegningPage } from '../routes/KortlaegningPage';
 import { MaterialsPage } from '../routes/MaterialsPage';
 import { MiljoePage } from '../routes/MiljoePage';
+import { OverblikPage } from '../routes/OverblikPage';
 import { PipelineLogPage } from '../routes/PipelineLogPage';
 import { PipelinePage } from '../routes/PipelinePage';
+import { RapportPage } from '../routes/RapportPage';
 import { ViewportPage } from '../routes/ViewportPage';
 
 /**
@@ -62,9 +73,12 @@ function RoutedContent() {
       {/* Standard switcher for every other page */}
       {!onViewport && (
         <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/kortlaegning" element={<KortlaegningPage />} />
-          <Route path="/miljoe" element={<MiljoePage />} />
+          <Route path={OVERBLIK_PATH} element={<OverblikPage />} />
+          <Route path={PROJEKTDATA_PATH} element={<Dashboard />} />
+          <Route path={KORTLAEGNING_PATH} element={<KortlaegningPage />} />
+          <Route path={MILJOE_PATH} element={<MiljoePage />} />
+          <Route path={RAPPORT_PATH} element={<RapportPage />} />
+          <Route path={INDBERETNING_PATH} element={<IndberetningPage />} />
           <Route path="/pipeline" element={<PipelinePage />} />
           <Route path="/pipeline/log" element={<PipelineLogPage />} />
           <Route path="/frames" element={<FramesPage />} />
@@ -74,7 +88,7 @@ function RoutedContent() {
           <Route path="/materials" element={<MaterialsPage />} />
           <Route path="/labels" element={<LabelsPage />} />
           <Route path="/export" element={<ExportPage />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="*" element={<Navigate to={OVERBLIK_PATH} replace />} />
         </Routes>
       )}
     </>

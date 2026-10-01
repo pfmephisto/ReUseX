@@ -6,6 +6,7 @@
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_floating_point.hpp>
 
 #include "gui/ViewRenderer.hpp"
 #include <gui/survey.hpp>
@@ -26,6 +27,7 @@ using namespace rux::gui;
 using reusex::ProjectDB;
 namespace core = reusex::core;
 using Catch::Approx;
+using Catch::Matchers::WithinAbs;
 
 namespace {
 struct TempDB : reusex::test_support::TempPath {
@@ -131,6 +133,51 @@ TEST_CASE("SurveyFractionsJson_ApprovedOnly_ReadyFlag", "[gui][survey]") {
   CHECK(j.at("fractions").at(0).at("treatment") == "genanvendelse");
   CHECK(j.at("blocking_types") == 1);
   CHECK(j.at("ready") == false);
+  CHECK(j.at("fractions").at(0).at("contaminated") == false);
+  REQUIRE(j.at("blocking").size() == 1);
+  CHECK(j.at("blocking").at(0).at("name") == "b");
+  CHECK(j.at("blocking").at(0).at("reason") == "review");
+  CHECK(j.at("blocking").at(0).at("treatment") == "genbrug");
+  CHECK(j.at("blocking").at(0).at("mass_t").get<double>() == Approx(58));
+  CHECK(j.at("blocking").at(0).at("type_id").get<int64_t>() > 0);
+}
+
+TEST_CASE("SurveyFractionsJson_BlockingMassNullWhenUnset", "[gui][survey]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  ProjectDB::SurveyTypeRecord t;
+  t.name = "Uden tonnage";
+  t.eak_code = "17.02.01";
+  db.add_survey_type(t); // mass_t stays nullopt
+  const auto j = survey_fractions_json(db);
+  REQUIRE(j.at("blocking").size() == 1);
+  CHECK(j.at("blocking").at(0).at("mass_t").is_null());
+  CHECK(j.at("ready") == false);
+}
+
+TEST_CASE("SurveyFractionsJson_EmptySurveyIsNotReady", "[gui][survey]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  {
+    const auto j = survey_fractions_json(db);
+    CHECK(j.at("fractions").empty());
+    CHECK(j.at("blocking_types") == 0);
+    CHECK(j.at("ready") == false);
+  }
+  // Only bevaring: approved, nothing blocks, but no fraction row to send.
+  add_type(db, "Fundament", core::Treatment::bevaring, 640,
+           core::ReviewStatus::approved);
+  {
+    const auto j = survey_fractions_json(db);
+    CHECK(j.at("fractions").empty());
+    CHECK(j.at("blocking_types") == 0);
+    CHECK(j.at("ready") == false);
+  }
+  add_type(db, "Beton", core::Treatment::genanvendelse, 12,
+           core::ReviewStatus::approved);
+  const auto j = survey_fractions_json(db);
+  CHECK(j.at("fractions").size() == 1);
+  CHECK(j.at("ready") == true);
 }
 
 TEST_CASE("SamplesJson_ResultNullWhenNone", "[gui][survey]") {
@@ -462,4 +509,85 @@ TEST_CASE("RenderBlob_StatusMapping", "[gui][render]") {
   CHECK(status_of([&] {
           render_blob(db, &r, params_of({{"orbit_index", "8"}}));
         }) == 400);
+}
+
+TEST_CASE("SurveyFractionsJson_ApprovedWithoutMass_BlocksAndNotReady",
+          "[gui][survey]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  add_type(db, "a", core::Treatment::genanvendelse, 380,
+           core::ReviewStatus::approved);
+  ProjectDB::SurveyTypeRecord t;
+  t.name = "Uden tonnage";
+  t.eak_code = "17.02.01";
+  t.treatment = core::Treatment::genanvendelse;
+  t.review_status = core::ReviewStatus::approved; // mass_t stays nullopt
+  db.add_survey_type(t);
+  const auto j = survey_fractions_json(db);
+  REQUIRE(j.at("fractions").size() == 1);
+  REQUIRE(j.at("blocking").size() == 1);
+  CHECK(j.at("blocking").at(0).at("name") == "Uden tonnage");
+  CHECK(j.at("blocking").at(0).at("reason") == "mass");
+  CHECK(j.at("blocking").at(0).at("mass_t").is_null());
+  CHECK(j.at("blocking_types") == 1);
+  CHECK(j.at("ready") == false);
+}
+
+TEST_CASE("SurveyFractionsJson_TonnesRoundedOnTheWire", "[gui][survey]") {
+  // Demo-seed-style sum: 190 + 6.8 + 2.4 is 199.20000000000002 in doubles.
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  // One code, summed in input order, so the row and the total both carry it.
+  add_type(db, "a", core::Treatment::genanvendelse, 190,
+           core::ReviewStatus::approved);
+  add_type(db, "b", core::Treatment::genanvendelse, 6.8,
+           core::ReviewStatus::approved);
+  add_type(db, "c", core::Treatment::genanvendelse, 2.4,
+           core::ReviewStatus::approved);
+  const auto j = survey_fractions_json(db);
+  CHECK_THAT(j.at("total_t").get<double>(), WithinAbs(199.2, 1e-9));
+  CHECK(j.at("total_t").dump() == "199.2");
+  REQUIRE(j.at("fractions").size() == 1);
+  CHECK_THAT(j.at("fractions").at(0).at("mass_t").get<double>(),
+             WithinAbs(199.2, 1e-9));
+  CHECK(j.at("fractions").at(0).at("mass_t").dump() == "199.2");
+  CHECK(j.at("ready") == true);
+}
+
+TEST_CASE("SurveySummaryJson_ClassifiedShare_ContaminatedTypes",
+          "[gui][survey]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  reusex::CloudL labels;
+  for (std::uint32_t l : {0u, 1u, 1u, 2u}) {
+    pcl::Label p;
+    p.label = l;
+    labels.push_back(p);
+  }
+  db.save_point_cloud("instances", labels, "test", "{}");
+
+  const auto walls =
+      add_type(db, "Murvægge", core::Treatment::bortskaffelse, 38);
+  const auto gone = add_type(db, "Afvist", core::Treatment::bortskaffelse, 1,
+                             core::ReviewStatus::rejected);
+  const auto lead = db.add_sample("Bly i maling", "");
+  ProjectDB::SamplePatch answered;
+  answered.stage = core::SampleStage::svar;
+  answered.result = core::SampleResult::forurenet;
+  db.update_sample(lead.id, answered);
+  db.set_sample_links(lead.id, {walls, gone});
+
+  const auto j = survey_summary_json(db);
+  CHECK(j.at("classified_share").get<double>() == Approx(0.75));
+  CHECK(j.at("unlabeled_points") == 1);
+  CHECK(j.at("contaminated_types") == 1); // the rejected one never counts
+}
+
+TEST_CASE("SurveySummaryJson_NoInstanceCloud_ClassifiedShareNull",
+          "[gui][survey]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  const auto j = survey_summary_json(db);
+  CHECK(j.at("classified_share").is_null());
+  CHECK(j.at("contaminated_types") == 0);
 }

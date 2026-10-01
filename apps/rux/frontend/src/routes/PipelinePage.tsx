@@ -100,7 +100,7 @@ export function PipelinePage() {
           <ErrorBanner
             error={catalogue.error}
             onRetry={catalogue.reload}
-            context="the stage catalogue"
+            context="trinkataloget"
           />
         )}
         {catalogue.data && (

@@ -92,7 +92,7 @@ export function LabelsPane({ kind, cloud, onCloudChange }: LabelsPaneProps) {
 
   if (clouds.error) {
     return (
-      <ErrorBanner error={clouds.error} onRetry={clouds.reload} context="the cloud list" />
+      <ErrorBanner error={clouds.error} onRetry={clouds.reload} context="punktskylisten" />
     );
   }
   if (!clouds.data) return <Spinner label="Reading clouds…" />;
@@ -196,7 +196,7 @@ function LegendEditor({ cloud }: { cloud: string }) {
       <ErrorBanner
         error={legend.error}
         onRetry={legend.reload}
-        context={`the '${cloud}' legend`}
+        context={`forklaringen til '${cloud}'`}
       />
     );
   }

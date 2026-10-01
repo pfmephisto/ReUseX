@@ -1,0 +1,24 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+.row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(calc(var(--space-7) * 3), 1fr));
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Tiles in a row share its height, so a tile with a hint line does not stand
+ * taller than its neighbours. */
+.row > li {
+  display: flex;
+}
+
+.row > li > * {
+  flex: 1;
+}

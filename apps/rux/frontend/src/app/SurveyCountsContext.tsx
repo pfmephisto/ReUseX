@@ -5,7 +5,8 @@
 /**
  * Lets a page that changes the survey ask the shell to re-read
  * `GET /survey/summary`, so the sidebar's review-queue badge follows the
- * page's approvals without the two sharing survey state.
+ * page's approvals without the two sharing survey state. `refreshProject`
+ * does the same for the project name after a metadata edit.
  */
 
 import { createContext, useContext } from 'react';
@@ -13,9 +14,11 @@ import { createContext, useContext } from 'react';
 export interface SurveyCounts {
   /** Re-fetch the survey summary behind the sidebar badges. */
   refresh: () => void;
+  /** Re-fetch the project summary behind the sidebar's project name (Overblik's hero editor). */
+  refreshProject: () => void;
 }
 
-const SurveyCountsContext = createContext<SurveyCounts>({ refresh: () => {} });
+const SurveyCountsContext = createContext<SurveyCounts>({ refresh: () => {}, refreshProject: () => {} });
 
 export const SurveyCountsProvider = SurveyCountsContext.Provider;
 

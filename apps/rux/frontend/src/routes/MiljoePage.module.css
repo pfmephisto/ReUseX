@@ -5,39 +5,31 @@
  */
 
 .page {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-  padding: var(--space-5);
+  composes: page from './viewHead.module.css';
 }
 
 .head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--space-3);
+  composes: head from './viewHead.module.css';
 }
 
 .title {
-  font-size: var(--font-size-3xl);
-  text-transform: uppercase;
+  composes: title from './viewHead.module.css';
 }
 
 .sub {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-muted);
+  composes: sub from './viewHead.module.css';
 }
 
 /* The page's one primary action; the button itself comes from the shared controls. */
 .btnPrimary {
-  composes: btnPrimary from '../components/miljoe/controls.module.css';
+  composes: btnPrimary from '../components/controls.module.css';
   align-self: center;
   margin-left: auto;
 }
 
 /* The empty state's action keeps its place in EmptyState's layout. */
 .btnPrimaryInline {
-  composes: btnPrimary from '../components/miljoe/controls.module.css';
+  composes: btnPrimary from '../components/controls.module.css';
 }
 
 .list {
@@ -50,7 +42,5 @@
 }
 
 .footnote {
-  margin: 0;
-  font-size: var(--font-size-xs);
-  color: var(--color-text-faint);
+  composes: footnote from './viewHead.module.css';
 }

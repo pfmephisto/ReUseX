@@ -12,7 +12,7 @@
 }
 
 .legend {
-  composes: fieldLabel from './controls.module.css';
+  composes: fieldLabel from '../controls.module.css';
   padding: 0;
   margin-bottom: var(--space-1);
 }
@@ -43,7 +43,7 @@
 }
 
 .checkbox {
-  composes: checkbox from './controls.module.css';
+  composes: checkbox from '../controls.module.css';
 }
 
 .name {

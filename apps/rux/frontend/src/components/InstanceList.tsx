@@ -80,7 +80,7 @@ export function InstanceList({ cloud }: { cloud: string }) {
   );
 
   if (rows.error) {
-    return <ErrorBanner error={rows.error} onRetry={rows.reload} context="the instance list" />;
+    return <ErrorBanner error={rows.error} onRetry={rows.reload} context="instanslisten" />;
   }
   if (!rows.data) return <Spinner label="Loading instances…" />;
   if (rows.data.length === 0) {
@@ -165,7 +165,7 @@ export function InstancePanel() {
 
   if (clouds.error) {
     return (
-      <ErrorBanner error={clouds.error} onRetry={clouds.reload} context="the cloud list" />
+      <ErrorBanner error={clouds.error} onRetry={clouds.reload} context="punktskylisten" />
     );
   }
   if (!clouds.data) return <Spinner label="Reading clouds…" />;

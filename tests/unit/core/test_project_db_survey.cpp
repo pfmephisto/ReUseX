@@ -281,18 +281,21 @@ TEST_CASE("SurveySchema_MigratesFromV21", "[ProjectDB][survey][migration]") {
     ProjectDB db(tmp.path);
   } // fresh DB at the latest version
   {
-    // Roll it back to v21 by removing everything v22 adds.
+    // Roll it back to v21 by removing everything v22 adds and every later
+    // version row: deleting only 22 would leave the DB reading as 23, and the
+    // v22 migration would never re-run. The v23 column stays; migrateToV23
+    // tolerates it.
     sqlite3 *raw = nullptr;
     REQUIRE(sqlite3_open(tmp.path.string().c_str(), &raw) == SQLITE_OK);
     const char *sql =
         "DROP TABLE sample_links; DROP TABLE samples; DROP TABLE survey_parts;"
-        "DROP TABLE survey_types; DELETE FROM schema_version WHERE version = "
+        "DROP TABLE survey_types; DELETE FROM schema_version WHERE version >= "
         "22;";
     REQUIRE(sqlite3_exec(raw, sql, nullptr, nullptr, nullptr) == SQLITE_OK);
     sqlite3_close(raw);
   }
   ProjectDB db(tmp.path, /*readOnly=*/false);
-  CHECK(db.schema_version() == 22);
+  CHECK(db.schema_version() == ProjectDB::latest_schema_version());
   CHECK(db.survey_types().empty());
   CHECK(db.add_survey_type(window_type()).id > 0);
 }

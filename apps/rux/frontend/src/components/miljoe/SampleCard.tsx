@@ -2,12 +2,13 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useEffect, useRef, type KeyboardEvent, type RefObject } from 'react';
+import { useEffect, useRef, type KeyboardEvent } from 'react';
 import { Link } from 'react-router-dom';
 
 import type { Sample, SampleResult, SurveyType } from '../../api/types';
 import { kindOf } from '../../app/keyTargets';
 import { surveyTypeHref } from '../../app/links';
+import { fieldKeys, useTextDraft } from '../../app/useTextDraft';
 import { STAGE_LABEL } from '../../kortlaegning/vocab';
 import {
   answeredNote,
@@ -18,7 +19,6 @@ import {
   nextStage,
   statusPill,
 } from '../../miljoe/model';
-import { useTextDraft, type TextDraft } from '../../miljoe/useTextDraft';
 import { Pill } from '../Pill';
 import { LinkPicker } from './LinkPicker';
 import { StageChain } from './StageChain';
@@ -42,33 +42,6 @@ export interface SampleCardProps {
   onToggleLink: (typeId: number) => void;
   onDelete: () => void;
   cardRef?: (el: HTMLElement | null) => void;
-}
-
-/**
- * Enter commits (blurs) a text field, Esc reverts it without committing and
- * parks focus on the editor itself (`home`), so it never drops to <body> and a
- * second Esc closes the editor.
- */
-function fieldKeys(draft: TextDraft, home: RefObject<HTMLDivElement | null>) {
-  return (e: KeyboardEvent<HTMLInputElement>) => {
-    const action = editorKeyAction({
-      key: e.key,
-      kind: 'text',
-      ctrlKey: e.ctrlKey,
-      metaKey: e.metaKey,
-      altKey: e.altKey,
-    });
-    if (action === 'revert') {
-      e.preventDefault();
-      e.stopPropagation(); // the editor's Esc would otherwise close it
-      draft.revert(e.currentTarget);
-      home.current?.focus();
-    } else if (action === 'commit') {
-      e.preventDefault();
-      e.currentTarget.blur();
-    }
-    // 'submit' (Ctrl/⌘+Enter) bubbles to the editor.
-  };
 }
 
 /** "Koblet: A, B" — a rejected type is plain text, never a link (R8). */

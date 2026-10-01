@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { useCallback, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 
 import { api } from '../api/client';
 import type {
@@ -11,40 +12,30 @@ import type {
   ProjectInfo,
   ProjectSummary,
   PropertyDefinition,
-  ReportPdfVersion,
 } from '../api/types';
+import { RAPPORT_PATH } from '../app/links';
 import { useAsync } from '../app/useAsync';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { Spinner } from '../components/Spinner';
-import { WriteBanner } from '../components/WriteBanner';
 import {
   configToSelection,
   selectionToConfig,
   selectionToQueryParam,
   STRUCTURAL_COLUMNS,
 } from '../data/csvExport';
-import { describeWriteFailure } from '../data/writeState';
-import type { WriteFailure } from '../data/writeState';
 import styles from './ExportPage.module.css';
 
 /**
- * BEK 496 "Ressourcekortlægning" export (#265, #456, #457).
- *
- * BEK 496 (Bekendtgørelse om ressourcekortlægning) is Danish building-waste
- * legislation requiring a resource survey report listing each identified
- * material with quantity, reusability class (A–D), and hazardous status.
- *
- * The authoritative artefact is now the server-side Typst PDF (POST
- * /reports/ressourcekortlaegning). The on-page HTML preview remains for
- * quick reference; the stored versions panel lists every generated PDF with
- * a direct download link.
+ * CSV export (#459) and an on-page HTML preview of the passports. The
+ * server-side Typst PDF and its stored versions live on Rapport (`/rapport`,
+ * GUI Phase 5); this tool screen links there.
  */
 export function ExportPage() {
   const summary = useAsync<ProjectSummary>((signal) => api.projectSummary(signal), []);
 
   if (summary.error)
     return (
-      <ErrorBanner error={summary.error} onRetry={summary.reload} context="project summary" />
+      <ErrorBanner error={summary.error} onRetry={summary.reload} context="projektoversigten" />
     );
   if (!summary.data) return <Spinner label="Loading project…" />;
 
@@ -82,24 +73,6 @@ function formatValue(value: string | undefined, type: PropertyDefinition['type']
   }
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function formatTimestamp(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString('da-DK', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
-
 function ReportView({
   project,
   guids,
@@ -121,44 +94,12 @@ function ReportView({
     [guids.join(',')],
   );
 
-  // Version history — reload key bumped after each successful generate.
-  const [versionsKey, setVersionsKey] = useState(0);
-  const versionsAsync = useAsync<ReportPdfVersion[]>(
-    (signal) => api.listReportVersions(signal),
-    [versionsKey],
-  );
-
-  // Generate PDF state.
-  const [generating, setGenerating] = useState(false);
-  const [generateFailure, setGenerateFailure] = useState<WriteFailure | null>(null);
-
-  const handleGenerate = useCallback(async () => {
-    setGenerating(true);
-    setGenerateFailure(null);
-    try {
-      await api.generateReport();
-      setVersionsKey((k) => k + 1);
-    } catch (err) {
-      setGenerateFailure(describeWriteFailure(err instanceof Error ? err : new Error(String(err)), 'the PDF report'));
-    } finally {
-      setGenerating(false);
-    }
-  }, []);
-
-  const handleRetryGenerate = useCallback(() => {
-    void handleGenerate();
-  }, [handleGenerate]);
-
-  const handleDismissFailure = useCallback(() => {
-    setGenerateFailure(null);
-  }, []);
-
   if (definitionsAsync.error)
     return (
       <ErrorBanner
         error={definitionsAsync.error}
         onRetry={definitionsAsync.reload}
-        context="material columns"
+        context="materialekolonnerne"
       />
     );
   if (detailsAsync.error)
@@ -166,7 +107,7 @@ function ReportView({
       <ErrorBanner
         error={detailsAsync.error}
         onRetry={detailsAsync.reload}
-        context="material passports"
+        context="materialepassene"
       />
     );
   if (!definitionsAsync.data || !detailsAsync.data)
@@ -185,81 +126,9 @@ function ReportView({
 
   return (
     <div className={styles.page}>
-      {/* Screen-only toolbar */}
-      <div className={styles.toolbar}>
-        <div className={styles.toolbarLeft}>
-          <p className={styles.hint}>
-            Click <strong>Generate PDF</strong> to create a server-side PDF using Typst.
-            Previous versions remain available for download below.
-          </p>
-        </div>
-        <button
-          type="button"
-          className={styles.printButton}
-          onClick={() => void handleGenerate()}
-          disabled={generating}
-        >
-          {generating ? 'Generating…' : 'Generate PDF'}
-        </button>
-      </div>
-
-      {/* Generate failure banner */}
-      {generateFailure && (
-        <WriteBanner
-          failure={generateFailure}
-          onRetry={generateFailure.retryable ? handleRetryGenerate : undefined}
-          onDismiss={handleDismissFailure}
-        />
-      )}
-
-      {/* Version history */}
-      <section className={styles.versionsSection}>
-        <h2 className={styles.versionsHeading}>Generated PDFs</h2>
-        {versionsAsync.error ? (
-          <ErrorBanner
-            error={versionsAsync.error}
-            onRetry={versionsAsync.reload}
-            context="report versions"
-          />
-        ) : !versionsAsync.data ? (
-          <Spinner label="Loading versions…" />
-        ) : versionsAsync.data.length === 0 ? (
-          <p className={styles.versionsEmpty}>
-            No PDFs generated yet. Click <strong>Generate PDF</strong> to create the first one.
-          </p>
-        ) : (
-          <table className={styles.versionsTable}>
-            <thead>
-              <tr>
-                <th className={styles.versionsTh}>Generated</th>
-                <th className={styles.versionsTh}>Label</th>
-                <th className={styles.versionsTh}>Size</th>
-                <th className={styles.versionsTh}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {versionsAsync.data.map((v) => (
-                <tr key={v.id} className={styles.versionsTr}>
-                  <td className={styles.versionsTd}>{formatTimestamp(v.created_at)}</td>
-                  <td className={styles.versionsTd}>{v.label}</td>
-                  <td className={`${styles.versionsTd} ${styles.versionsSize}`}>
-                    {formatBytes(v.size_bytes)}
-                  </td>
-                  <td className={styles.versionsTd}>
-                    <a
-                      href={api.reportPdfUrl(v.id)}
-                      download={`ressourcekortlaegning-${v.id}.pdf`}
-                      className={styles.downloadLink}
-                    >
-                      Download
-                    </a>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </section>
+      <p className={styles.hint}>
+        PDF-rapporter genereres og gemmes under <Link to={RAPPORT_PATH}>Rapport →</Link>
+      </p>
 
       {/* CSV Export section */}
       <CsvExportSection definitions={definitions} />

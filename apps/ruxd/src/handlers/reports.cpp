@@ -20,6 +20,7 @@
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/core/logging.hpp>
 #include <reusex/core/report_generator.hpp>
+#include <reusex/core/report_version_json.hpp>
 
 #include <nlohmann/json.hpp>
 
@@ -43,11 +44,9 @@ void finish_r(crow::response &res, crow::response &&built) {
   res.end();
 }
 
+// The same serialiser `rux gui` uses, so the two servers cannot drift.
 nlohmann::json record_json(const reusex::ProjectDB::ReportPdfRecord &r) {
-  return nlohmann::json{{"id", r.id},
-                        {"created_at", r.created_at},
-                        {"label", r.label},
-                        {"size_bytes", r.size_bytes}};
+  return reusex::core::report_version_json(r);
 }
 
 } // namespace
@@ -67,8 +66,11 @@ void register_report_routes(App &app, EndpointRegistry &reg,
       [&db, gen_mutex](const crow::request &) -> crow::response {
         std::unique_lock lock(*gen_mutex);
         try {
+          // Counted before generation, from the state the PDF is built from.
+          const int blocking = reusex::report_blocking_types(db);
           const auto pdf = reusex::generate_ressourcekortlaegning_pdf(db);
-          const auto rec = db.add_report_pdf(pdf, "Ressourcekortlægning");
+          const auto rec =
+              db.add_report_pdf(pdf, "Ressourcekortlægning", blocking);
 
           reusex::core::info("POST /reports/ressourcekortlaegning: stored "
                              "version {} ({} bytes)",

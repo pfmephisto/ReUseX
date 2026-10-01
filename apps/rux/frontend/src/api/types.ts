@@ -870,7 +870,11 @@ export interface SurveySummary {
   /** (bevaring + genbrug) / total. */
   reuse_share: number | null;
   pending_samples: number;
+  /** Non-rejected types whose miljøstatus is forurenet. */
+  contaminated_types: number;
   unlabeled_points: number | null;
+  /** Share (0..1) of instance-cloud points with a label; null without an instance cloud. */
+  classified_share: number | null;
   rooms_without_parts: string[];
 }
 
@@ -880,15 +884,37 @@ export interface SurveyFraction {
   name: string;
   treatment: Treatment;
   mass_t: number;
+  /** Tonnes from forurenet types; never merged with clean tonnes. */
+  contaminated: boolean;
 }
 
-/** `SurveyFractions` — approved tonnes per EAK code for waste reporting. */
+/** One row of `SurveyFractions.blocking`. */
+export interface SurveyBlockingType {
+  type_id: number;
+  name: string;
+  eak_code: string;
+  treatment: Treatment;
+  mass_t: number | null;
+  /**
+   * `sample`: awaiting a sample (blocks even when approved); `review`: not
+   * approved yet; `mass`: approved but tonnage unknown. Precedence
+   * sample > review > mass.
+   */
+  reason: 'review' | 'sample' | 'mass';
+}
+
+/**
+ * `SurveyFractions` — approved tonnes per EAK code, treatment and
+ * contamination for waste reporting. `bevaring` never counts.
+ */
 export interface SurveyFractions {
   fractions: SurveyFraction[];
   total_t: number;
-  /** Types still in the queue or awaiting a sample. */
+  /** Length of `blocking`. */
   blocking_types: number;
-  /** True when `blocking_types` is 0. */
+  /** Non-rejected types that keep the report from being sent, in type-id order. */
+  blocking: SurveyBlockingType[];
+  /** True when `blocking` is empty. */
   ready: boolean;
 }
 
@@ -996,12 +1022,68 @@ export interface RenderQuery {
 export interface ReportPdfVersion {
   /** Stable numeric id; use in `GET /reports/ressourcekortlaegning/{id}`. */
   id: number;
-  /** ISO 8601 UTC timestamp when the PDF was generated. */
+  /** Generation time, UTC, as sqlite stores it ("2026-08-09 10:05:00"). Parse with `parseServerUtc`. */
   created_at: string;
   /** Human-readable label stored with the PDF. */
   label: string;
   /** Size of the PDF blob in bytes. */
   size_bytes: number;
+  /** 1-based, generation order: the "v3" a user sees. */
+  version: number;
+  /** Types that blocked the report at generation; 0 = complete; null before schema v23. */
+  blocking_types: number | null;
+}
+
+/**
+ * Parses a server timestamp into a `Date`. Two shapes are accepted:
+ * - sqlite's zone-less UTC (`"YYYY-MM-DD HH:MM:SS"`, seconds optional), as
+ *   `ReportPdfVersion.created_at` is stored;
+ * - ISO 8601 with an explicit zone (`"…T10:05:00Z"`, `"…T12:05:00+02:00"`,
+ *   optional fraction).
+ *
+ * `new Date(s)` must never be used on these strings: browsers parse a
+ * space-separated, zone-less timestamp as **local** time, not UTC, which
+ * silently shifts the displayed instant by the viewer's offset. So both shapes
+ * go through `Date.UTC`, with an ISO offset applied by hand. Returns `null`
+ * for zone-less ISO and for anything else that does not match.
+ */
+export function parseServerUtc(value: string): Date | null {
+  const match =
+    /^(\d{4})-(\d{2})-(\d{2})(?: (\d{2}):(\d{2})(?::(\d{2}))?|T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(Z|([+-])(\d{2}):(\d{2})))$/.exec(
+      value.trim(),
+    );
+  if (!match) return null;
+  const [, year, month, day, sh, smin, ss, ih, imin, is, frac, zone, sign, oh, om] = match;
+  const iso = zone !== undefined;
+  const f = {
+    y: Number(year),
+    mo: Number(month) - 1,
+    d: Number(day),
+    h: Number(iso ? ih : sh),
+    mi: Number(iso ? imin : smin),
+    s: Number(iso ? is : (ss ?? 0)),
+  };
+  // Date.UTC rolls an impossible field over (2026-02-30 -> 2026-03-02), so
+  // only accept the instant when every field comes back as written.
+  const local = new Date(Date.UTC(f.y, f.mo, f.d, f.h, f.mi, f.s));
+  if (
+    local.getUTCFullYear() !== f.y ||
+    local.getUTCMonth() !== f.mo ||
+    local.getUTCDate() !== f.d ||
+    local.getUTCHours() !== f.h ||
+    local.getUTCMinutes() !== f.mi ||
+    local.getUTCSeconds() !== f.s
+  ) {
+    return null;
+  }
+  let offsetMin = 0;
+  if (iso && zone !== 'Z') {
+    const [hh, mm] = [Number(oh), Number(om)];
+    if (hh > 23 || mm > 59) return null;
+    offsetMin = (sign === '-' ? -1 : 1) * (hh * 60 + mm);
+  }
+  const ms = local.getTime() + (frac ? Math.round(Number(`0.${frac}`) * 1000) : 0) - offsetMin * 60_000;
+  return Number.isNaN(ms) ? null : new Date(ms);
 }
 
 // ------------------------------------------------------------- websocket ----

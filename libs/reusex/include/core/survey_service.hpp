@@ -13,6 +13,7 @@
 
 #include <cstddef>
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -35,6 +36,24 @@ type_totals(const ProjectDB &db); // one per survey type, same order
 ProjectDB::SampleRecord
 update_sample_checked(ProjectDB &db, int64_t id,
                       const ProjectDB::SamplePatch &patch);
+
+/// One survey type as the PDF report's Kortlægning section lists it.
+struct ReportSurveyRow {
+  std::string name, bim7aa_code, eak_code, unit;
+  double quantity = 0.0; // sum of the type's parts
+  std::optional<double> mass_t;
+  Treatment treatment = Treatment::genanvendelse;
+  EnvironmentStatus environment = EnvironmentStatus::ren_screening;
+};
+/// One row per **reportable** survey type, in id order, for the PDF report's
+/// survey section ("kun godkendte mængder indgår"). A type is listed when it is
+/// approved and not awaiting a sample (core::reportable) and it does not block
+/// the waste report — so the rows agree with fractions_by_eak: an approved,
+/// non-bevaring type without tonnes blocks there (reason `mass`) and is left
+/// out here too. A bevaring type without tonnes never blocks (it is not
+/// waste), so it is listed with mass_t nullopt. `quantity` is the sum of the
+/// type's parts.
+std::vector<ReportSurveyRow> report_survey_rows(const ProjectDB &db);
 
 /// Options for `sync_survey` — the cloud names it reads from.
 struct SurveySyncOptions {

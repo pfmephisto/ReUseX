@@ -1,0 +1,21 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+.page {
+  composes: page from './viewHead.module.css';
+}
+
+.panel {
+  composes: panel from '../components/surfaces.module.css';
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+
+.panelHeading {
+  composes: panelHeading from '../components/surfaces.module.css';
+}

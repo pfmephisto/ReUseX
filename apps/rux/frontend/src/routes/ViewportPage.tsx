@@ -440,7 +440,7 @@ export function ViewportPage() {
   );
 
   if (loading && !clouds) return <Spinner label="Loading clouds…" />;
-  if (error) return <ErrorBanner error={error} onRetry={reload} context="cloud inventory" />;
+  if (error) return <ErrorBanner error={error} onRetry={reload} context="punktskyoversigten" />;
 
   // A splat alone is something to render, so the empty state is only honest
   // when there is neither. A project whose splat was imported, or whose seed

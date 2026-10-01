@@ -14,6 +14,7 @@
 #include <reusex/core/frame_visibility.hpp>
 #include <reusex/core/guid.hpp>
 #include <reusex/core/materialepas_json_export.hpp>
+#include <reusex/core/report_version_json.hpp>
 #include <reusex/core/stages.hpp>
 #include <reusex/core/validate.hpp>
 #include <reusex/core/version.hpp>
@@ -2616,14 +2617,14 @@ bool event_matches_subscription(
 // report PDFs (schema v20, #456)
 // ===========================================================================
 
+json report_version_json(const reusex::ProjectDB::ReportPdfRecord &r) {
+  return reusex::core::report_version_json(r);
+}
+
 json list_report_pdfs_json(const reusex::ProjectDB &db) {
-  const auto recs = db.list_report_pdfs();
   json arr = json::array();
-  for (const auto &r : recs)
-    arr.push_back({{"id", r.id},
-                   {"created_at", r.created_at},
-                   {"label", r.label},
-                   {"size_bytes", r.size_bytes}});
+  for (const auto &r : db.list_report_pdfs())
+    arr.push_back(report_version_json(r));
   return json{{"versions", std::move(arr)}};
 }
 

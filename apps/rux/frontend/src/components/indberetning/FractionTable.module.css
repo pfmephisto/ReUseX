@@ -1,0 +1,90 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+/* The panel scrolls sideways on a narrow screen; the page never does. */
+.scroll {
+  composes: panel from '../surfaces.module.css';
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  min-width: calc(var(--space-7) * 11);
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+}
+
+.table th {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface-sunken);
+  font-size: var(--font-size-2xs);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: var(--tracking-caps);
+  text-align: left;
+  text-transform: uppercase;
+  color: var(--color-text-faint);
+}
+
+.table td {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.table th.num {
+  text-align: right;
+}
+
+.amount {
+  font-weight: var(--font-weight-bold);
+}
+
+.blocking td {
+  color: var(--color-text-faint);
+}
+
+.typeLink {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--color-border-strong);
+}
+
+.typeLink:hover {
+  color: var(--color-text);
+}
+
+.typeLink:focus-visible {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: 2px;
+}
+
+.table tfoot td {
+  border-bottom: none;
+  background: var(--color-surface-sunken);
+  font-weight: var(--font-weight-bold);
+}
+
+/*
+ * Status stays pinned to the panel's right edge, so on a narrow screen the
+ * pills are never clipped and the columns sliding under it show the table
+ * scrolls. Each cell repaints its row's own background over what passes under.
+ */
+.table th:last-child,
+.table td:last-child {
+  position: sticky;
+  right: 0;
+  background: var(--color-surface-raised);
+}
+
+.table th:last-child,
+.table tfoot td:last-child {
+  background: var(--color-surface-sunken);
+}

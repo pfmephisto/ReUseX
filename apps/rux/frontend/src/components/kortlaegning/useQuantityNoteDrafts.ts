@@ -56,8 +56,9 @@ export interface DraftCommits {
 /**
  * Drafts for the entity being edited (`current`: the selected part, else the
  * type). Spread `quantityProps` on the quantity `<input>` and `noteProps` on
- * the note `<textarea>`; both commit on blur, so a caller that wants Enter or
- * Esc to commit just blurs the field.
+ * the note `<textarea>`; both commit on blur, so Enter commits by blurring;
+ * `revertQuantity` / `revertNote` are Esc, which drops the draft and blurs
+ * without committing.
  */
 export function useQuantityNoteDrafts(current: SurveyType | SurveyPart | null, commits: DraftCommits) {
   const [quantityDraft, setQuantityDraft] = useState(() => (current ? formatQuantityInput(current.quantity) : ''));
@@ -65,6 +66,9 @@ export function useQuantityNoteDrafts(current: SurveyType | SurveyPart | null, c
   // Whether the quantity input is focused, so the re-sync below never
   // clobbers what the user is mid-typing.
   const quantityFocusedRef = useRef(false);
+  // Set by a revert so the blur it triggers commits nothing (Esc, R10).
+  const skipQuantityCommit = useRef(false);
+  const skipNoteCommit = useRef(false);
   const key = selectionKey(current);
   // The selection the drafts were last reset for. State, not a ref: a blur
   // handler sees the value of the render it came from, so in the render where
@@ -108,13 +112,35 @@ export function useQuantityNoteDrafts(current: SurveyType | SurveyPart | null, c
       },
       onBlur: () => {
         quantityFocusedRef.current = false;
+        if (skipQuantityCommit.current) {
+          skipQuantityCommit.current = false;
+          return;
+        }
         commitQuantity();
       },
     },
     noteProps: {
       value: noteDraft,
       onChange: (e: { target: { value: string } }) => setNoteDraft(e.target.value),
-      onBlur: commitNote,
+      onBlur: () => {
+        if (skipNoteCommit.current) {
+          skipNoteCommit.current = false;
+          return;
+        }
+        commitNote();
+      },
+    },
+    /** Esc: drop the quantity draft and leave the field without committing. */
+    revertQuantity: (el: HTMLElement) => {
+      skipQuantityCommit.current = true;
+      if (current) setQuantityDraft(formatQuantityInput(current.quantity));
+      el.blur();
+    },
+    /** Esc: drop the note draft and leave the field without committing. */
+    revertNote: (el: HTMLElement) => {
+      skipNoteCommit.current = true;
+      setNoteDraft(current?.note ?? '');
+      el.blur();
     },
   };
 }

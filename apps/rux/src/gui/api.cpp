@@ -716,6 +716,14 @@ const std::vector<Endpoint> &endpoint_table() {
        "Update a named export template"},
       {"DELETE", "/api/v1/export-templates/<int>",
        "Delete a named export template"},
+      {"GET", "/api/v1/survey",
+       "Survey types with their parts, derived miljøstatus and counts"},
+      {"GET", "/api/v1/survey/summary",
+       "Survey KPIs: counts, circularity, reuse share, coverage"},
+      {"GET", "/api/v1/survey/fractions",
+       "Approved tonnes per EAK code for waste reporting"},
+      {"GET", "/api/v1/samples",
+       "Environmental samples with their linked survey types"},
   };
   return table;
 }

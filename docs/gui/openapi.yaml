@@ -85,6 +85,8 @@ tags:
     description: CSV export with optional column selection (#459)
   - name: export-templates
     description: Named export templates — saved column selections for CSV export (#459)
+  - name: survey
+    description: Ressourcekortlægning — survey types, parts, samples and derived KPIs
 
 paths:
 
@@ -2496,6 +2498,72 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
+  # -------------------------------------------------------------- survey ----
+  /survey:
+    get:
+      tags: [survey]
+      operationId: getSurvey
+      summary: Survey types with their parts, derived miljøstatus and counts
+      description: |
+        Every survey type (Kortlægning group row) with its parts (RX-### bygningsdele).
+        Rejected types are included with `review_status: rejected`; `counts.all` counts
+        queue + approved only. `environment_status` is derived from linked samples, never stored.
+      responses:
+        "200":
+          description: The survey
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [types, counts]
+                properties:
+                  types: { type: array, items: { $ref: "#/components/schemas/SurveyType" } }
+                  counts: { $ref: "#/components/schemas/SurveyCounts" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+  /survey/summary:
+    get:
+      tags: [survey]
+      operationId: getSurveySummary
+      summary: "Survey KPIs: counts, circularity, reuse share, coverage"
+      responses:
+        "200":
+          description: KPIs for Overblik and the Kortlægning coverage notice
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SurveySummary" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+  /survey/fractions:
+    get:
+      tags: [survey]
+      operationId: getSurveyFractions
+      summary: Approved tonnes per EAK code for waste reporting
+      description: |
+        Only approved types count toward the fractions. `blocking_types` counts types still
+        in the queue or awaiting a sample; the report is `ready` when it is 0.
+      responses:
+        "200":
+          description: Waste fractions
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SurveyFractions" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+  /samples:
+    get:
+      tags: [survey]
+      operationId: listSamples
+      summary: Environmental samples with their linked survey types
+      responses:
+        "200":
+          description: Samples
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [samples]
+                properties:
+                  samples: { type: array, items: { $ref: "#/components/schemas/Sample" } }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
   # ---------------------------------------------------------------- jobs ----
   /jobs:
     get:
@@ -3797,3 +3865,105 @@ components:
         fraction:
           type: [number, "null"]
           description: current/total, or null when total is 0.
+
+    Treatment:
+      type: string
+      enum: [bevaring, genbrug, genanvendelse, nyttiggoerelse, bortskaffelse]
+      description: Waste-hierarchy step (affaldshierarki), best first.
+    ReviewStatus: { type: string, enum: [queue, approved, rejected] }
+    EnvironmentStatus:
+      type: string
+      enum: [ren_screening, afventer, forurenet, ren_proevesvar]
+      description: Derived from linked samples; `afventer` blocks approval.
+    SurveyPart:
+      type: object
+      required: [code, type_id, cloud, instance_id, room_id, room_name, quantity, starred, note,
+                 material_guid, instance_guid]
+      properties:
+        code: { type: string, example: RX-008 }
+        type_id: { type: integer }
+        cloud: { type: string, nullable: true }
+        instance_id: { type: integer, nullable: true }
+        room_id: { type: integer, nullable: true }
+        room_name: { type: string }
+        quantity: { type: number }
+        starred: { type: boolean }
+        note: { type: string }
+        material_guid: { type: string, nullable: true }
+        instance_guid: { type: string, nullable: true }
+    SurveyType:
+      type: object
+      required: [id, name, eak_code, eak_name, bim7aa_code, unit, treatment, review_status, confidence, mass_t,
+                 note, starred, semantic_class, environment_status, sample_ids, quantity, parts, created_at, updated_at]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        eak_code: { type: string, example: "17.04.02" }
+        eak_name: { type: string, example: Aluminium }
+        bim7aa_code: { type: string, example: 312 Udv. vinduer }
+        unit: { type: string, example: stk }
+        treatment: { $ref: "#/components/schemas/Treatment" }
+        review_status: { $ref: "#/components/schemas/ReviewStatus" }
+        confidence: { type: number, nullable: true, minimum: 0, maximum: 1 }
+        mass_t: { type: number, nullable: true }
+        note: { type: string }
+        starred: { type: boolean }
+        semantic_class: { type: integer }
+        environment_status: { $ref: "#/components/schemas/EnvironmentStatus" }
+        sample_ids: { type: array, items: { type: integer } }
+        quantity: { type: number, description: Sum of the parts' quantities. }
+        parts: { type: array, items: { $ref: "#/components/schemas/SurveyPart" } }
+        created_at: { type: string }
+        updated_at: { type: string }
+    SurveyCounts:
+      type: object
+      required: [queue, approved, rejected, all]
+      properties:
+        queue: { type: integer }
+        approved: { type: integer }
+        rejected: { type: integer }
+        all: { type: integer, description: queue + approved }
+    SurveySummary:
+      type: object
+      required: [counts, circularity, total_mass_t, reuse_share, pending_samples, unlabeled_points, rooms_without_parts]
+      properties:
+        counts: { $ref: "#/components/schemas/SurveyCounts" }
+        circularity:
+          type: object
+          description: Tonnes per treatment over non-rejected types.
+          additionalProperties: { type: number }
+        total_mass_t: { type: number }
+        reuse_share: { type: number, nullable: true, description: (bevaring + genbrug) / total }
+        pending_samples: { type: integer }
+        unlabeled_points: { type: integer, nullable: true }
+        rooms_without_parts: { type: array, items: { type: string } }
+    SurveyFractions:
+      type: object
+      required: [fractions, total_t, blocking_types, ready]
+      properties:
+        fractions:
+          type: array
+          items:
+            type: object
+            required: [eak_code, name, treatment, mass_t]
+            properties:
+              eak_code: { type: string }
+              name: { type: string }
+              treatment: { $ref: "#/components/schemas/Treatment" }
+              mass_t: { type: number }
+        total_t: { type: number }
+        blocking_types: { type: integer }
+        ready: { type: boolean }
+    Sample:
+      type: object
+      required: [id, code, title, what, stage, result, type_ids, created_at, updated_at]
+      properties:
+        id: { type: integer }
+        code: { type: string, example: P-01 }
+        title: { type: string }
+        what: { type: string }
+        stage: { type: string, enum: [planlagt, udtaget, sendt, svar] }
+        result: { type: string, enum: [ren, forurenet], nullable: true }
+        type_ids: { type: array, items: { type: integer } }
+        created_at: { type: string }
+        updated_at: { type: string }

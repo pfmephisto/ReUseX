@@ -10,6 +10,7 @@
 #include "gui/assets.hpp"
 #include "gui/edits.hpp"
 #include "gui/gsplat.hpp"
+#include "gui/survey.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/pipeline/JobRunner.hpp>
@@ -1223,6 +1224,32 @@ class Server::Impl {
             const auto body = nlohmann::json::parse(req.body, nullptr, false);
             return json_response(200, update_export_template_json(
                                           db, static_cast<int64_t>(id), body));
+          });
+        });
+
+    // ---- survey (Ressourcekortlægning, #265 Phase 2) ----
+    get("/api/v1/survey")([this](const crow::request &) {
+      return with_db([&](const reusex::ProjectDB &db) {
+        return json_response(200, survey_json(db));
+      });
+    });
+    get("/api/v1/survey/summary")([this](const crow::request &) {
+      return with_db([&](const reusex::ProjectDB &db) {
+        return json_response(200, survey_summary_json(db));
+      });
+    });
+    get("/api/v1/survey/fractions")([this](const crow::request &) {
+      return with_db([&](const reusex::ProjectDB &db) {
+        return json_response(200, survey_fractions_json(db));
+      });
+    });
+
+    // GET-only for now; Task 7 extends this rule with POST (one Crow rule per
+    // path).
+    app_.route_dynamic("/api/v1/samples")
+        .methods(crow::HTTPMethod::GET)([this](const crow::request &) {
+          return with_db([&](const reusex::ProjectDB &db) {
+            return json_response(200, samples_json(db));
           });
         });
 

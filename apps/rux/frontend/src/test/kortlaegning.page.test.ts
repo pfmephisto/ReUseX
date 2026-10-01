@@ -6,7 +6,8 @@ import { describe, expect, it } from 'vitest';
 
 import { ApiRequestError } from '../api/client';
 import type { Sample, SurveySummary, SurveyType } from '../api/types';
-import { approvedMessage, blockedMessage, coverageParts, saveErrorMessage } from '../routes/KortlaegningPage';
+import { saveErrorMessage } from '../app/saveError';
+import { approvedMessage, blockedMessage, coverageParts } from '../routes/KortlaegningPage';
 
 function type(overrides: Partial<SurveyType> = {}): SurveyType {
   return {

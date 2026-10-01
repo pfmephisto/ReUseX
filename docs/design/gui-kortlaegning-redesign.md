@@ -210,7 +210,8 @@ answers 503.
 - **View head** — `MILJØ & PRØVER` + sub "Prøver styrer miljøstatus på de
   koblede bygningsdele", and `+ Ny prøve`.
 - **Sample cards** — a vertical stack, one per sample: a title row (code +
-  what was sampled, a stage/result pill, "Koblet: <types>"), a what-line, a
+  title, a stage/result pill, "Koblet: <types>"), then what was sampled on
+  its own line, a
   stage chain (Planlagt — Udtaget — Sendt til lab — Svar modtaget) and an
   action row that depends on stage: *sendt* offers `Registrér svar: Ren` /
   `Registrér svar: Forurenet`; *udtaget* offers `Næste trin →`; *svar* with a
@@ -289,3 +290,15 @@ Each phase is a separate PR that leaves the app working.
   client retry on 503 for GETs.
 - The `AppShell` overflows horizontally at 390px, when the topbar and the
   open sidebar are both shown. This predates Phase 4 and affects every route.
+- Esc means opposite things in a field on the two screens: in Kortlægning it
+  blurs and saves, in Miljø & prøver it discards the edit. Pick one
+  convention before Phase 5 adds more editors.
+- Cross-screen staleness: each page has its own mutation queue, so a queued
+  Miljø & prøver write can land after Kortlægning's mount `GET /survey`, and
+  Kortlægning then shows a stale gate. Either an app-level `SerialQueue` that
+  initial loads await, or a Kortlægning re-read when the survey counts change.
+- Kortlægning's selection is not in the URL, so Back after a cross-screen link
+  returns to row 0. Keep `?type=<selected>` updated with `replace`.
+- The cross-links are styled differently: Kortlægning's `SampleLine` uses
+  accent-deep with an underline, Miljø & prøver's `.typeLink` muted text with a
+  border-strong underline. Pick one.

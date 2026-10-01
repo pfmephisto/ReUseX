@@ -126,8 +126,8 @@ src/
 │                 openapi.yaml), client.ts (typed fetch wrapper), events.ts
 │                 (WebSocket channel + reconnect)
 ├── app/          App shell, routing, cross-cutting state (JobsContext,
-│                 SurveyCountsContext — drives the sidebar review-queue
-│                 badge), useAsync, useToast, serialQueue.ts (one promise
+│                 SurveyCountsContext — drives both sidebar badges, the
+│                 review queue and pending samples), useAsync, useToast, serialQueue.ts (one promise
 │                 chain per page, tasks settle in commit order),
 │                 useMutationQueue.ts (a page's writes on that chain; `busy`
 │                 gates buttons only, field commits are never dropped),
@@ -139,12 +139,15 @@ src/
 ├── components/   Presentational, contract-agnostic building blocks
 │                 (DataTable, StatCard, Sidebar, JobToaster, Pill,
 │                 ConfidenceBar, Kbd, Toast, ...), plus kortlaegning/
-│                 (SurveyTable, EvidencePanel, DetailPanel, EditDialog) and
-│                 miljoe/ (StageChain, LinkPicker, SampleCard, NewSampleForm)
+│                 (SurveyTable, EvidencePanel, DetailPanel, EditDialog,
+│                 SampleLine) and miljoe/ (StageChain, LinkPicker,
+│                 SampleCard, NewSampleForm, controls.module.css — the
+│                 buttons and fields they share via `composes`)
 ├── kortlaegning/ Pure modules for the Kortlægning workbench: vocab.ts
 │                 (Danish labels, number formatting), model.ts (tabs,
-│                 filters, selection, row flattening), keys.ts (keyboard
-│                 maps)
+│                 filters, selection, row flattening, initialViewFor for a
+│                 `?type=` deep link), samples.ts (a type's linked samples
+│                 and its sample line), keys.ts (keyboard maps)
 ├── miljoe/       Pure modules for Miljø & prøver: model.ts (stage chain,
 │                 patches, link toggling, gate feedback), useTextDraft.ts
 ├── pipeline/     Pure stage-runner logic: the card view model (stageModel),

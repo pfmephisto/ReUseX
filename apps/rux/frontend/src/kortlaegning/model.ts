@@ -84,23 +84,45 @@ export function moveSelection(rows: Row[], sel: Selection, delta: number): Selec
   return toSelection(rows[next]);
 }
 
+/** A part's room as shown: its name, `Rum {id}` when unnamed, '' when it has no room. */
+export function roomName(p: SurveyPart): string {
+  if (p.room_name) return p.room_name;
+  return p.room_id !== null ? `Rum ${p.room_id}` : '';
+}
+
+/** `RX-### · {room}`, or just the code when the part has no room. */
+export function partLabel(p: SurveyPart): string {
+  const room = roomName(p);
+  return room ? `${p.code} · ${room}` : p.code;
+}
+
 export function roomOptions(types: SurveyType[]): { id: number; name: string }[] {
   const byId = new Map<number, string>();
   for (const t of types)
     for (const p of t.parts)
-      if (p.room_id !== null && !byId.has(p.room_id)) byId.set(p.room_id, p.room_name || `Rum ${p.room_id}`);
+      if (p.room_id !== null && !byId.has(p.room_id)) byId.set(p.room_id, roomName(p));
   return [...byId].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name, 'da'));
 }
 
-export function nextInQueue(types: SurveyType[], afterTypeId: number): Selection {
-  const queued = types.filter((t) => t.review_status === 'queue');
-  if (queued.length === 0) return null;
+/**
+ * The queued type to review after `afterTypeId`: the first one following it
+ * (wrapping) that is not `afventer`, else the first `afventer` one, else null.
+ * Order comes from `types`; `among` (default: all of them) limits the
+ * candidates — the page passes what its tab and filters show, so the next
+ * type is never one the surveyor has filtered out. `afterTypeId` need not be
+ * in `among`: an approved type has just left the queue tab.
+ */
+export function nextInQueue(
+  types: SurveyType[],
+  afterTypeId: number,
+  among: SurveyType[] = types,
+): Selection {
+  const eligible = new Set(among.filter((t) => t.review_status === 'queue').map((t) => t.id));
+  if (eligible.size === 0) return null;
   const start = types.findIndex((t) => t.id === afterTypeId);
-  const ordered = [...types.slice(start + 1), ...types.slice(0, start + 1)].filter(
-    (t) => t.review_status === 'queue',
-  );
+  const ordered = [...types.slice(start + 1), ...types.slice(0, start + 1)].filter((t) => eligible.has(t.id));
   const pick = ordered.find((t) => t.environment_status !== 'afventer') ?? ordered[0];
-  return { typeId: pick.id, partCode: null };
+  return pick ? { typeId: pick.id, partCode: null } : null;
 }
 
 export function typeOf(types: SurveyType[], sel: Selection): SurveyType | null {

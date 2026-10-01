@@ -10,9 +10,11 @@ import {
   moveSelection,
   nextInQueue,
   NO_FILTERS,
+  partLabel,
   partOf,
   replacePart,
   replaceType,
+  roomName,
   roomOptions,
   tabCounts,
   typeOf,
@@ -118,6 +120,30 @@ describe('kortlægning model', () => {
     const onlyPending = [type(2, 'x', { environment_status: 'afventer' })];
     expect(nextInQueue(onlyPending, 2)).toEqual({ typeId: 2, partCode: null });
     expect(nextInQueue([type(3, 'y', { review_status: 'approved' })], 3)).toBeNull();
+  });
+
+  it('picks the next queued type among the ones the tab and filters show', () => {
+    const approved = replaceType(TYPES, { ...TYPES[0], review_status: 'approved' });
+    const shown = (f: Partial<typeof NO_FILTERS>) => visibleTypes(approved, 'queue', { ...NO_FILTERS, ...f });
+    // Unfiltered, 5 comes first (2 is afventer); filtered to Office Zone only 2 is shown.
+    expect(nextInQueue(approved, 1, shown({}))).toEqual({ typeId: 5, partCode: null });
+    expect(nextInQueue(approved, 1, shown({ roomId: 2 }))).toEqual({ typeId: 2, partCode: null });
+    expect(nextInQueue(approved, 1, shown({ env: 'afventer' }))).toEqual({ typeId: 2, partCode: null });
+    expect(nextInQueue(approved, 1, shown({ search: 'ingen sådan type' }))).toBeNull();
+  });
+
+  it('keeps its place in the list when the approved type has left the view', () => {
+    const list = [type(10, 'a'), type(11, 'b', { review_status: 'approved' }), type(12, 'c')];
+    const shown = visibleTypes(list, 'queue', NO_FILTERS); // 11 is no longer in it
+    expect(nextInQueue(list, 11, shown)).toEqual({ typeId: 12, partCode: null });
+  });
+
+  it('labels a part by code and room, falling back to the room id', () => {
+    expect(partLabel(part('RX-001', 1, [1, 'Production Hall'], 1))).toBe('RX-001 · Production Hall');
+    const unnamed = { ...part('RX-002', 1, [7, ''], 1) };
+    expect(roomName(unnamed)).toBe('Rum 7');
+    expect(partLabel(unnamed)).toBe('RX-002 · Rum 7');
+    expect(partLabel(part('RX-003', 1, null, 1))).toBe('RX-003');
   });
 
   it('resolves the selected type and part', () => {

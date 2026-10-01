@@ -8,7 +8,7 @@
  * it becomes user-facing copy.
  */
 
-import type { EnvironmentStatus, SampleStage, Treatment } from '../api/types';
+import type { EnvironmentStatus, SampleResult, SampleStage, SurveyPart, Treatment } from '../api/types';
 
 export type Tone = 'good' | 'warn' | 'wait' | 'crit' | 'accent';
 
@@ -41,6 +41,16 @@ export const STAGE_LABEL: Record<SampleStage, string> = {
   svar: 'Svar modtaget',
 };
 
+export const RESULT_LABEL: Record<SampleResult, string> = {
+  ren: 'Ren',
+  forurenet: 'Forurenet',
+};
+
+/** The mængde field's label: a part's own quantity, or the type's aggregate. */
+export function quantityLabel(part: SurveyPart | null): string {
+  return part ? 'Mængde (denne del)' : 'Mængde (aggregeret — fordeles på delene)';
+}
+
 /** The waste-hierarchy colour token for a treatment. */
 export function circToken(t: Treatment): string {
   return `var(--circ-${t})`;
@@ -48,6 +58,25 @@ export function circToken(t: Treatment): string {
 
 export function formatNumber(n: number, maxFractionDigits = 1): string {
   return n.toLocaleString('da-DK', { maximumFractionDigits: maxFractionDigits });
+}
+
+/** Fraction digits a quantity input keeps: enough to be lossless, few enough to hide float noise. */
+export const QUANTITY_INPUT_DIGITS = 6;
+
+/**
+ * A quantity as the edit field shows it: the exact value (to
+ * `QUANTITY_INPUT_DIGITS` decimals, so `0.1 + 0.2` reads `0,3`), Danish decimal
+ * comma and no thousands grouping — always a string `parseDanishNumber` reads
+ * back to the same value. `formatNumber` is for display and rounds to one
+ * decimal, so it must never seed an editable draft.
+ */
+export function formatQuantityInput(n: number): string {
+  const scale = 10 ** QUANTITY_INPUT_DIGITS;
+  const rounded = Math.round(n * scale) / scale;
+  return rounded.toLocaleString('da-DK', {
+    maximumFractionDigits: QUANTITY_INPUT_DIGITS,
+    useGrouping: false,
+  });
 }
 
 export function formatQuantity(q: number, unit: string): string {

@@ -12,8 +12,10 @@ import {
   ENV_TONE,
   formatNumber,
   formatQuantity,
+  formatQuantityInput,
   formatTonnes,
   parseDanishNumber,
+  RESULT_LABEL,
   STAGE_LABEL,
   TREATMENT_LABEL,
 } from '../kortlaegning/vocab';
@@ -77,5 +79,20 @@ describe('kortlægning vocabulary', () => {
     expect(parseDanishNumber('12,')).toBeNull(); // trailing comma
     expect(parseDanishNumber('1e3')).toBeNull(); // scientific notation
     expect(parseDanishNumber('1240.5')).toBeNull(); // English decimal point misread as grouping
+  });
+
+  it('labels sample results in Danish', () => {
+    expect(RESULT_LABEL).toEqual({ ren: 'Ren', forurenet: 'Forurenet' });
+  });
+
+  it('formats a quantity for editing losslessly, so it parses back to itself', () => {
+    expect(formatQuantityInput(12.34)).toBe('12,34');
+    expect(formatQuantityInput(1240.5)).toBe('1240,5'); // no grouping
+    expect(formatQuantityInput(0.1 + 0.2)).toBe('0,3');
+    expect(formatQuantityInput(1.0000004)).toBe('1');
+    expect(formatQuantityInput(2.123456)).toBe('2,123456');
+    for (const n of [0, 7, 12.34, 1240.5, 12345678.25, 2.123456, 0.000001]) {
+      expect(parseDanishNumber(formatQuantityInput(n))).toBe(n);
+    }
   });
 });

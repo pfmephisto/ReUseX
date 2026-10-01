@@ -38,8 +38,10 @@ import styles from './OverblikPage.module.css';
  * with an in-place editor for its details, the KPI row, the circularity bar
  * and a link to each case screen with what waits there.
  *
- * Three reads at mount (project, survey summary, report versions). The busy
- * fix in `rux gui` (Phase 5 R1) is what keeps them from racing into 503s.
+ * Four reads at mount (project, survey summary, report versions, fractions —
+ * the last only for Indberetning's blocking count, so its failure falls back
+ * to the approved count rather than failing the page). The busy fix in
+ * `rux gui` (Phase 5 R1) is what keeps them from racing into 503s.
  * Metadata edits run on the page's mutation queue, and each settles by
  * re-reading the shell's project summary, so the sidebar name follows.
  */
@@ -49,6 +51,7 @@ export function OverblikPage() {
     [],
   );
   const versions = useAsync((s) => api.listReportVersions(s), []);
+  const fractions = useAsync((s) => api.surveyFractions(s), []);
   const { refreshProject } = useSurveyCounts();
   const toast = useToast(2600);
   const { mutate } = useMutationQueue({
@@ -145,7 +148,13 @@ export function OverblikPage() {
         )}
       </section>
 
-      <QuickLinks links={quickLinks(survey, versions.error ? null : versions.data)} />
+      <QuickLinks
+        links={quickLinks(
+          survey,
+          versions.error ? null : versions.data,
+          fractions.error ? null : fractions.data?.blocking_types,
+        )}
+      />
       <Toast message={toast.message} />
     </div>
   );

@@ -13,6 +13,7 @@ import { parseServerUtc } from '../api/types';
 import type { ReportPdfVersion, SurveyFractions, SurveySummary } from '../api/types';
 import { errorMessage } from '../app/saveError';
 import type { Tone } from '../kortlaegning/vocab';
+import { percentText } from '../overblik/model';
 
 /** "09.08.2026" in local time; the raw string when it does not parse. */
 export function versionDate(s: string): string {
@@ -56,7 +57,7 @@ export function versionStatus(v: ReportPdfVersion): VersionStatus | null {
   return {
     tone: 'wait',
     text: 'Udkast',
-    title: `${n === 1 ? '1 type' : `${n} typer`} var ikke godkendt eller afventede prøvesvar.`,
+    title: `${n === 1 ? '1 type' : `${n} typer`} var ikke godkendt, afventede prøvesvar eller manglede tons.`,
   };
 }
 
@@ -70,9 +71,13 @@ export const UNKNOWN_STATUS = {
   title: 'Versionen er ældre end statusregistreringen — det vides ikke, om den var komplet.',
 } as const;
 
-/** The hero line: "11 komponenter · 54 % bevaring/genbrug · 1 forurenet · 2 prøver afventer". */
+/**
+ * The hero line: "11 komponenter · 54 % bevaring/genbrug · 1 forurenet · 2
+ * prøver afventer". Its figures are the whole survey (every non-rejected
+ * type), not the approved subset the PDF reports — see `HERO_SCOPE`.
+ */
 export function reportHeroSub(s: SurveySummary): string {
-  const reuse = s.reuse_share === null ? '—' : `${Math.round(s.reuse_share * 100)} %`;
+  const reuse = s.reuse_share === null ? '—' : `${percentText(s.reuse_share)} %`;
   return [
     `${s.counts.all} komponenter`,
     `${reuse} bevaring/genbrug`,
@@ -81,8 +86,16 @@ export function reportHeroSub(s: SurveySummary): string {
   ].join(' · ');
 }
 
+/** The hero's scope caption: its figures are not the PDF's approved-only ones. */
+export const HERO_SCOPE = 'Hele kortlægningen (inkl. ikke-godkendte)';
+
+/**
+ * Null when nothing blocks. An empty survey is not `ready` (nothing to
+ * report) but blocks nothing either, so it gets no draft warning; a version
+ * generated then is marked Komplet (a known edge, see the spec).
+ */
 export function draftNotice(f: SurveyFractions): string | null {
-  if (f.ready) return null;
+  if (f.ready || f.blocking_types === 0) return null;
   const n = f.blocking_types;
   return `${n === 1 ? '1 type' : `${n} typer`} afventer gennemsyn eller prøvesvar, eller mangler tons — en ny version bliver et udkast, og de indgår ikke i mængderne.`;
 }

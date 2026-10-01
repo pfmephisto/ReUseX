@@ -10,9 +10,9 @@
  * the tonnes) are the server's (R3); nothing here re-sums or re-rounds.
  */
 
-import type { SurveyBlockingType, SurveyFractions } from '../api/types';
+import type { SurveyFractions } from '../api/types';
 import { surveyTypeHref } from '../app/links';
-import { formatNumber, TREATMENT_LABEL, type Tone } from '../kortlaegning/vocab';
+import { BLOCKING_STATUS, formatTonnes, TREATMENT_LABEL, type Tone } from '../kortlaegning/vocab';
 
 export interface ReadyRow {
   kind: 'ready';
@@ -39,17 +39,6 @@ export interface BlockingRow {
 
 export type FractionRow = ReadyRow | BlockingRow;
 
-/** Why a type blocks, worded for the status pill. The server picks one reason (sample > review > mass). */
-export const BLOCKING_STATUS: Record<SurveyBlockingType['reason'], { tone: Tone; text: string }> = {
-  sample: { tone: 'wait', text: 'Afventer prøvesvar' },
-  review: { tone: 'warn', text: 'Afventer gennemsyn' },
-  mass: { tone: 'warn', text: 'Mangler tons' },
-};
-
-export function tonnesText(t: number): string {
-  return `${formatNumber(t)} t`;
-}
-
 export function fractionRows(f: SurveyFractions): FractionRow[] {
   const ready: FractionRow[] = f.fractions.map((x) => ({
     kind: 'ready',
@@ -58,7 +47,7 @@ export function fractionRows(f: SurveyFractions): FractionRow[] {
     fraction: x.name || 'Ukendt EAK-kode',
     contaminated: x.contaminated,
     treatment: TREATMENT_LABEL[x.treatment],
-    amount: tonnesText(x.mass_t),
+    amount: formatTonnes(x.mass_t),
   }));
   const blocking: FractionRow[] = f.blocking.map((b) => ({
     kind: 'blocking',
@@ -68,25 +57,30 @@ export function fractionRows(f: SurveyFractions): FractionRow[] {
     eak: b.eak_code || '—',
     name: b.name,
     treatment: TREATMENT_LABEL[b.treatment],
-    amount: b.mass_t === null ? '(—)' : `(${tonnesText(b.mass_t)})`,
+    amount: b.mass_t === null ? '(—)' : `(${formatTonnes(b.mass_t)})`,
     status: BLOCKING_STATUS[b.reason],
   }));
   return [...ready, ...blocking];
 }
 
 /**
- * The send gate (R9): open exactly when no type blocks. The blocking list is
- * the evidence, so a `ready` flag that disagrees with it never opens the gate.
+ * The send gate (R9): open exactly when there is a fraction to report and no
+ * type blocks. The lists are the evidence, so a `ready` flag that disagrees
+ * with them never opens the gate; an empty survey has nothing to send.
  */
 export function canSend(f: SurveyFractions): boolean {
-  return f.blocking.length === 0;
+  return f.fractions.length > 0 && f.blocking.length === 0;
 }
+
+/** The status when nothing blocks but there is no fraction to report either. */
+export const NOTHING_TO_SEND = 'Ingen fraktioner at indberette';
 
 /** The footer status pill's id; the disabled Send button is described by it. */
 export const FOOT_STATUS_ID = 'indberetning-foot-status';
 
 export function footStatus(f: SurveyFractions): { tone: Tone; text: string } {
   if (canSend(f)) return { tone: 'good', text: 'Klar til afsendelse' };
+  if (f.blocking.length === 0) return { tone: 'wait', text: NOTHING_TO_SEND };
   const n = f.blocking_types;
   return { tone: 'warn', text: n === 1 ? '1 type blokerer' : `${n} typer blokerer` };
 }
@@ -136,7 +130,7 @@ export const CSV_FILENAME = 'fraktioner.csv';
 
 /** The prototype's note, with the bevaring rule said out loud (R3). */
 export const FRACTION_NOTE =
-  'Fraktionerne herunder er aggregeret pr. EAK-kode og behandling — kun godkendte mængder tælles med, og bevaring indgår ikke, da den bliver i bygningen. Rækker der afventer gennemsyn eller miljøsvar er vist nederst og blokerer afsendelse. Direkte indberetning kommer senere — v1 giver tallene i portalens struktur.';
+  'Fraktionerne herunder er aggregeret pr. EAK-kode og behandling — kun godkendte mængder tælles med, og bevaring indgår ikke, da den bliver i bygningen. Rækker der afventer gennemsyn eller miljøsvar, eller mangler tons, er vist nederst og blokerer afsendelse. Direkte indberetning kommer senere — v1 giver tallene i portalens struktur.';
 
 export const SEND_NOTICE =
   'Ikke sendt. Direkte indberetning til bygningsaffald.dk er ikke koblet på endnu — hent tallene som CSV og indtast dem i portalen.';

@@ -8,7 +8,14 @@
  * it becomes user-facing copy.
  */
 
-import type { EnvironmentStatus, SampleResult, SampleStage, SurveyPart, Treatment } from '../api/types';
+import type {
+  EnvironmentStatus,
+  SampleResult,
+  SampleStage,
+  SurveyBlockingType,
+  SurveyPart,
+  Treatment,
+} from '../api/types';
 
 export type Tone = 'good' | 'warn' | 'wait' | 'crit' | 'accent';
 
@@ -44,6 +51,13 @@ export const STAGE_LABEL: Record<SampleStage, string> = {
 export const RESULT_LABEL: Record<SampleResult, string> = {
   ren: 'Ren',
   forurenet: 'Forurenet',
+};
+
+/** Why a type blocks the waste report, worded for its status pill. The server picks one reason (sample > review > mass). */
+export const BLOCKING_STATUS: Record<SurveyBlockingType['reason'], { tone: Tone; text: string }> = {
+  sample: { tone: 'wait', text: 'Afventer prøvesvar' },
+  review: { tone: 'warn', text: 'Afventer gennemsyn' },
+  mass: { tone: 'warn', text: 'Mangler tons' },
 };
 
 /** The mængde field's label: a part's own quantity, or the type's aggregate. */

@@ -10,6 +10,7 @@ import {
   formatBytesDa,
   generatedToast,
   generateErrorMessage,
+  HERO_SCOPE,
   LIST_REFRESH_FAILED,
   REPORT_FOOTNOTE,
   reportHeroSub,
@@ -49,10 +50,10 @@ describe('version rows', () => {
     expect(versionStatus(reportVersion({ blocking_types: 7 }))).toEqual({
       tone: 'wait',
       text: 'Udkast',
-      title: '7 typer var ikke godkendt eller afventede prøvesvar.',
+      title: '7 typer var ikke godkendt, afventede prøvesvar eller manglede tons.',
     });
     expect(versionStatus(reportVersion({ blocking_types: 1 }))?.title).toBe(
-      '1 type var ikke godkendt eller afventede prøvesvar.',
+      '1 type var ikke godkendt, afventede prøvesvar eller manglede tons.',
     );
     expect(versionStatus(reportVersion({ blocking_types: null }))).toBeNull();
   });
@@ -64,6 +65,8 @@ describe('hero and notices', () => {
     expect(reportHeroSub(surveySummary({ reuse_share: null, pending_samples: 1 }))).toBe(
       '11 komponenter · — bevaring/genbrug · 1 forurenet · 1 prøve afventer',
     );
+    // The hero is the whole survey, not the PDF's approved subset, and says so.
+    expect(HERO_SCOPE).toBe('Hele kortlægningen (inkl. ikke-godkendte)');
   });
 
   it('warns that a new version will be a draft while types block', () => {
@@ -74,6 +77,8 @@ describe('hero and notices', () => {
       '1 type afventer gennemsyn eller prøvesvar, eller mangler tons — en ny version bliver et udkast, og de indgår ikke i mængderne.',
     );
     expect(draftNotice(surveyFractions({ ready: true, blocking: [], blocking_types: 0 }))).toBeNull();
+    // An empty survey is not ready, but nothing blocks: no draft warning (a known edge).
+    expect(draftNotice(surveyFractions({ ready: false, fractions: [], blocking: [], blocking_types: 0 }))).toBeNull();
   });
 
   it('confirms a generation and says why one failed', () => {

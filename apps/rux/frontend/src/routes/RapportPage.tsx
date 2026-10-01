@@ -21,6 +21,7 @@ import {
   draftNotice,
   generatedToast,
   generateErrorMessage,
+  HERO_SCOPE,
   LIST_REFRESH_FAILED,
   REPORT_FOOTNOTE,
   reportHeroSub,
@@ -30,7 +31,8 @@ import styles from './RapportPage.module.css';
 /**
  * Rapport — the Ressourcekortlægning report versions (prototype 02d).
  *
- * The hero sums the case up, and the list holds every stored PDF, newest first,
+ * The hero sums the whole case up — every non-rejected type, captioned so it
+ * is not read as the PDF's approved-only figures — and the list holds every stored PDF, newest first,
  * marked complete or draft by how many types still blocked it when it was
  * generated. `Generér ny version` runs on the page's mutation queue. The same
  * queued task re-reads the list, so the new row and its number come from the
@@ -121,6 +123,7 @@ export function RapportPage() {
         </h3>
         <p className={styles.heroSub}>{reportHeroSub(survey)}</p>
         {segments.length > 0 && <CircularityBar segments={segments} legend={false} />}
+        <p className={styles.heroScope}>{HERO_SCOPE}</p>
       </section>
 
       {stale && (

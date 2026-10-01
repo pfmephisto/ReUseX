@@ -117,7 +117,23 @@ export function versionsText(v: readonly ReportPdfVersion[] | null | undefined):
   return v.length === 1 ? '1 version' : `${v.length} versioner`;
 }
 
-export function quickLinks(s: SurveySummary, versions: readonly ReportPdfVersion[] | null | undefined): QuickLink[] {
+/**
+ * Indberetning's sub-line. The server's blocking count wins: approved types
+ * can still block (a pending sample, no tonnes), so "4 af 11 typer godkendt"
+ * would read as further along than Indberetning says. `blockingTypes` is
+ * `GET /survey/fractions`' `blocking_types`; while that is loading
+ * (`undefined`) or failed (`null`), and when it is 0, the approved count.
+ */
+export function indberetningText(s: SurveySummary, blockingTypes: number | null | undefined): string {
+  if (blockingTypes) return blockingTypes === 1 ? '1 type blokerer' : `${blockingTypes} typer blokerer`;
+  return `${s.counts.approved} af ${s.counts.all} typer godkendt`;
+}
+
+export function quickLinks(
+  s: SurveySummary,
+  versions: readonly ReportPdfVersion[] | null | undefined,
+  blockingTypes?: number | null,
+): QuickLink[] {
   return [
     { to: KORTLAEGNING_PATH, title: 'Kortlægning', sub: `${s.counts.queue} til gennemsyn · ${s.counts.all} typer` },
     {
@@ -126,7 +142,7 @@ export function quickLinks(s: SurveySummary, versions: readonly ReportPdfVersion
       sub: s.pending_samples === 1 ? '1 prøve afventer svar' : `${s.pending_samples} prøver afventer svar`,
     },
     { to: RAPPORT_PATH, title: 'Rapport', sub: versionsText(versions) },
-    { to: INDBERETNING_PATH, title: 'Indberetning', sub: `${s.counts.approved} af ${s.counts.all} typer godkendt` },
+    { to: INDBERETNING_PATH, title: 'Indberetning', sub: indberetningText(s, blockingTypes) },
   ];
 }
 

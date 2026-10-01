@@ -7,14 +7,16 @@ import { describe, expect, it } from 'vitest';
 import {
   canSend,
   footStatus,
+  FRACTION_NOTE,
   fractionRows,
   fractionsCsv,
   fractionsCsvHref,
+  NOTHING_TO_SEND,
   SEND_NOTICE,
-  tonnesText,
   type BlockingRow,
   type ReadyRow,
 } from '../indberetning/model';
+import { BLOCKING_STATUS } from '../kortlaegning/vocab';
 import { blockingType, fraction, surveyFractions } from './surveyFixtures';
 
 describe('fraction rows', () => {
@@ -96,8 +98,21 @@ describe('footer and totals', () => {
       tone: 'good',
       text: 'Klar til afsendelse',
     });
-    expect(tonnesText(199.2)).toBe('199,2 t');
-    expect(tonnesText(1334.8)).toBe('1.334,8 t');
+    expect(fractionRows(surveyFractions({ fractions: [fraction({ mass_t: 1334.8 })] }))[0]).toMatchObject({
+      amount: '1.334,8 t',
+    });
+  });
+
+  it('says there is nothing to send for an empty survey', () => {
+    expect(footStatus(surveyFractions({ ready: false, fractions: [], blocking: [], blocking_types: 0 }))).toEqual({
+      tone: 'wait',
+      text: NOTHING_TO_SEND,
+    });
+  });
+
+  it('names every blocker in the note, the missing tonnes included', () => {
+    expect(FRACTION_NOTE).toContain('afventer gennemsyn eller miljøsvar, eller mangler tons, er vist nederst');
+    expect(BLOCKING_STATUS.mass).toEqual({ tone: 'warn', text: 'Mangler tons' });
   });
 });
 
@@ -108,6 +123,12 @@ describe('the send gate and the CSV', () => {
     // The list is the evidence: a stale `ready` never opens the gate over a blocker.
     expect(canSend(surveyFractions({ ready: true }))).toBe(false);
     expect(canSend(surveyFractions({ ready: false, blocking: [], blocking_types: 0 }))).toBe(true);
+  });
+
+  it('keeps the send gate shut for an empty survey', () => {
+    expect(canSend(surveyFractions({ fractions: [], blocking: [], blocking_types: 0, ready: false }))).toBe(false);
+    // Even if a stale `ready` says otherwise.
+    expect(canSend(surveyFractions({ fractions: [], blocking: [], blocking_types: 0, ready: true }))).toBe(false);
   });
 
   it('holds only the ready fractions, Danish Excel style', () => {

@@ -13,6 +13,7 @@ import {
   danishDate,
   EMPTY_NAME_TOAST,
   heroSubline,
+  indberetningText,
   INVALID_YEAR_TOAST,
   kpis,
   maxYear,
@@ -165,6 +166,17 @@ describe('quick links', () => {
     expect(versionsText(undefined)).toBe('Henter versioner…');
     expect(versionsText(null)).toBe('Versioner kunne ikke hentes');
     expect(quickLinks(surveySummary({ pending_samples: 1 }), [])[1].sub).toBe('1 prøve afventer svar');
+  });
+
+  it('says how many types block Indberetning, as Indberetning does', () => {
+    const s = surveySummary();
+    expect(indberetningText(s, 7)).toBe('7 typer blokerer');
+    expect(indberetningText(s, 1)).toBe('1 type blokerer');
+    // Nothing blocks, or the count is loading / failed: the approved count.
+    expect(indberetningText(s, 0)).toBe('4 af 11 typer godkendt');
+    expect(indberetningText(s, undefined)).toBe('4 af 11 typer godkendt');
+    expect(indberetningText(s, null)).toBe('4 af 11 typer godkendt');
+    expect(quickLinks(s, [], 3)[3]).toEqual({ to: '/indberetning', title: 'Indberetning', sub: '3 typer blokerer' });
   });
 });
 

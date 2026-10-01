@@ -5,7 +5,8 @@
 import { Link } from 'react-router-dom';
 
 import type { SurveyFractions } from '../../api/types';
-import { FOOT_STATUS_ID, footStatus, fractionRows, tonnesText } from '../../indberetning/model';
+import { FOOT_STATUS_ID, footStatus, fractionRows } from '../../indberetning/model';
+import { formatTonnes } from '../../kortlaegning/vocab';
 import { Pill } from '../Pill';
 import styles from './FractionTable.module.css';
 
@@ -69,7 +70,7 @@ export function FractionTable({ fractions }: FractionTableProps) {
         <tfoot>
           <tr>
             <td colSpan={3}>I alt (godkendt)</td>
-            <td className={`${styles.num} mono`}>{tonnesText(fractions.total_t)}</td>
+            <td className={`${styles.num} mono`}>{formatTonnes(fractions.total_t)}</td>
             <td>
               <span id={FOOT_STATUS_ID}>
                 <Pill tone={foot.tone}>{foot.text}</Pill>

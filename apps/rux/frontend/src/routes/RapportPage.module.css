@@ -52,6 +52,12 @@
   color: var(--color-text-muted);
 }
 
+.heroScope {
+  composes: heroSub;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-faint);
+}
+
 .noticeDetail {
   display: block;
   margin-top: var(--space-1);

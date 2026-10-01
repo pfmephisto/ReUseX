@@ -119,15 +119,22 @@ src/
 ├── api/          Contract-facing layer: types.ts (generated-by-hand mirrors of
 │                 openapi.yaml), client.ts (typed fetch wrapper), events.ts
 │                 (WebSocket channel + reconnect)
-├── app/          App shell, routing, cross-cutting state (JobsContext),
-│                 useAsync
+├── app/          App shell, routing, cross-cutting state (JobsContext,
+│                 SurveyCountsContext — drives the sidebar review-queue
+│                 badge), useAsync, useToast
 ├── components/   Presentational, contract-agnostic building blocks
-│                 (DataTable, StatCard, Sidebar, JobToaster, ...)
+│                 (DataTable, StatCard, Sidebar, JobToaster, Pill,
+│                 ConfidenceBar, Kbd, Toast, ...), plus kortlaegning/
+│                 (SurveyTable, EvidencePanel, DetailPanel, EditDialog)
+├── kortlaegning/ Pure modules for the Kortlægning workbench: vocab.ts
+│                 (Danish labels, number formatting), model.ts (tabs,
+│                 filters, selection, row flattening), keys.ts (keyboard
+│                 maps)
 ├── pipeline/     Pure stage-runner logic: the card view model (stageModel),
 │                 parameter-form parsing and the omit-defaults submit rule
 │                 (params), and the pipeline_log timeline (history)
 ├── routes/       Page-level compositions (Dashboard, PipelinePage,
-│                 ViewportPage)
+│                 ViewportPage, KortlaegningPage)
 ├── viewport/     three.js point-cloud rendering: PointCloudScene, the paged
 │                 cloud stream (useCloudStream, pagination), point decoding
 │                 (decode.ts) and label colour mapping (labelColors.ts)

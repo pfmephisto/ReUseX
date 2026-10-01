@@ -34,11 +34,20 @@ apps/rux/frontend/src/
 ├── components/   Presentational, contract-agnostic blocks — reuse these:
 │                 DataTable, StatCard, Sidebar, EmptyState, ErrorBanner,
 │                 ParameterForm, SelectDropdown, MultiSelectDropdown,
-│                 JobToaster, LayerPanel, PeekPanel, LabelLegend, …
+│                 JobToaster, LayerPanel, PeekPanel, LabelLegend, Pill,
+│                 ConfidenceBar, Kbd, Toast, …
+│                 kortlaegning/  SurveyTable, EvidencePanel, DetailPanel,
+│                 EditDialog — the Kortlægning workbench's presentational
+│                 layer, built on the shared Pill/ConfidenceBar/Kbd/Toast above
+├── kortlaegning/ Pure modules behind the workbench: vocab.ts (Danish labels,
+│                 number formatting), model.ts (tabs, filters, selection, row
+│                 flattening), keys.ts (tableAction/dialogAction keyboard maps)
 ├── pipeline/     Pure stage-runner logic (stageModel, params, history)
 ├── routes/       Page compositions: Dashboard, ViewportPage, PipelinePage,
 │                 PipelineLogPage, GraphViewPage, FramesPage, DataPage,
-│                 GeometryPage, InstancesPage, MaterialsPage, ExportPage
+│                 GeometryPage, InstancesPage, MaterialsPage, ExportPage,
+│                 KortlaegningPage (uses app/SurveyCountsContext for the
+│                 sidebar review-queue badge)
 ├── viewport/     three.js: PointCloudScene, MeshScene, PanoramaScene,
 │                 PoseGraphScene, SplatScene, clipping box, camera views,
 │                 label colours, paged cloud stream (useCloudStream)
@@ -137,6 +146,11 @@ directly.
 
 Production: `npm run build` → `dist/`, served by `rux gui --assets ./dist` (Nix
 build wires this into `$out/share/reusex/gui` as a separate derivation).
+
+For Kortlægning screenshots/manual testing, seed the prototype's demo survey
+(Måløv Byvej 229 — 11 types, 18 parts, 3 samples; 7 in the review queue,
+4 approved) into a scratch copy with `dev/seed-survey-demo.sh <in.rux>
+<out.rux>`, then point `rux gui` at the copy. Never run it on a real project.
 
 ## 5. The API/WS contract
 

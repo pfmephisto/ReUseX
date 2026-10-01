@@ -48,6 +48,11 @@ describe('stage chain', () => {
     expect(advancePatch({ stage: 'udtaget' })).toEqual({ stage: 'sendt' });
     expect(advancePatch({ stage: 'svar' })).toBeNull();
   });
+
+  it('never advances a sample already at or past the lab, which would send a bare svar', () => {
+    expect(advancePatch({ stage: 'sendt' })).toBeNull();
+    expect(advancePatch({ stage: 'svar' })).toBeNull();
+  });
 });
 
 describe('card status and action', () => {
@@ -101,6 +106,11 @@ describe('links', () => {
     expect(toggleLink([8], 6)).toEqual([6, 8]);
     expect(toggleLink([6, 8], 6)).toEqual([8]);
     expect(toggleLink([], 3)).toEqual([3]);
+  });
+
+  it('dedupes a list that already holds the id twice', () => {
+    expect(toggleLink([3, 3, 5], 6)).toEqual([3, 5, 6]);
+    expect(toggleLink([3, 3, 5], 3)).toEqual([5]);
   });
 });
 
@@ -176,8 +186,29 @@ describe('gate feedback', () => {
       { ...before[1], environment_status: 'ren_screening' },
     ]);
     expect(gateMessage('P-04', two)).toBe(
-      'P-04: 2 typer kan nu godkendes (Vinduespartier, aluminium, Indvendige murvægge, malet)',
+      'P-04: 2 typer kan nu godkendes (Vinduespartier, aluminium · Indvendige murvægge, malet)',
     );
+  });
+
+  it('tells the user when an approved type stops blocking Indberetning', () => {
+    const approvedBefore = [
+      surveyType({ id: 9, name: 'Dørpartier, stål', review_status: 'approved', environment_status: 'afventer' }),
+    ];
+    const approvedAfter = [{ ...approvedBefore[0], environment_status: 'ren_proevesvar' as const }];
+    const c = gateChanges(approvedBefore, approvedAfter);
+    expect(c.released.map((t) => t.id)).toEqual([9]);
+    expect(gateMessage('P-06', c)).toBe('P-06: Dørpartier, stål blokerer ikke længere Indberetning.');
+  });
+
+  it('ignores a type missing from the earlier snapshot', () => {
+    const extra = surveyType({ id: 99, name: 'Ukendt type', environment_status: 'forurenet' });
+    const c = gateChanges(before, [...before, extra]);
+    expect(c.unblocked).toEqual([]);
+    expect(c.contaminated).toEqual([]);
+    expect(c.blocked).toEqual([]);
+    expect(c.reblocked).toEqual([]);
+    expect(c.released).toEqual([]);
+    expect(gateMessage('P-07', c)).toBeNull();
   });
 
   it('has fallback toasts for a result and a delete prompt', () => {

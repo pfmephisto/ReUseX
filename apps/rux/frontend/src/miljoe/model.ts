@@ -64,7 +64,9 @@ export function cardAction(s: Pick<Sample, 'stage' | 'result'>): CardAction {
   return 'advance';
 }
 
+/** Only before the lab has the sample (`cardAction` would be `advance`) — never sends a bare `svar`. */
 export function advancePatch(s: Pick<Sample, 'stage'>): SamplePatch | null {
+  if (s.stage !== 'planlagt' && s.stage !== 'udtaget') return null;
   const next = nextStage(s.stage);
   return next ? { stage: next } : null;
 }
@@ -98,7 +100,7 @@ export function linkableTypes(types: SurveyType[], linked: readonly number[]): S
 
 export function toggleLink(ids: readonly number[], typeId: number): number[] {
   const next = ids.includes(typeId) ? ids.filter((id) => id !== typeId) : [...ids, typeId];
-  return next.sort((a, b) => a - b);
+  return [...new Set(next)].sort((a, b) => a - b);
 }
 
 export function replaceSample(list: Sample[], updated: Sample): Sample[] {
@@ -139,24 +141,27 @@ export interface GateChange {
   blocked: SurveyType[];
   /** Approved types that now await a sample — approved, but blocking Indberetning. */
   reblocked: SurveyType[];
+  /** Approved types that no longer await a sample — were blocking Indberetning, now don't. */
+  released: SurveyType[];
 }
 
 /** Compares two server snapshots of the survey; never derives a status itself. Rejected types are ignored. */
 export function gateChanges(before: SurveyType[], after: SurveyType[]): GateChange {
   const was = new Map(before.map((t) => [t.id, t.environment_status]));
-  const out: GateChange = { unblocked: [], contaminated: [], blocked: [], reblocked: [] };
+  const out: GateChange = { unblocked: [], contaminated: [], blocked: [], reblocked: [], released: [] };
   for (const t of after) {
     const prev = was.get(t.id);
     if (prev === undefined || prev === t.environment_status || t.review_status === 'rejected') continue;
     if (t.environment_status === 'forurenet') out.contaminated.push(t);
     else if (t.environment_status === 'afventer') (t.review_status === 'approved' ? out.reblocked : out.blocked).push(t);
     else if (prev === 'afventer' && t.review_status === 'queue') out.unblocked.push(t);
+    else if (prev === 'afventer' && t.review_status === 'approved') out.released.push(t);
   }
   return out;
 }
 
 function names(types: SurveyType[]): string {
-  return types.map((t) => t.name).join(', ');
+  return types.map((t) => t.name).join(' · ');
 }
 
 export function gateMessage(code: string, c: GateChange): string | null {
@@ -168,6 +173,7 @@ export function gateMessage(code: string, c: GateChange): string | null {
   if (c.contaminated.length > 0) parts.push(`${names(c.contaminated)} er nu forurenet`);
   if (c.blocked.length > 0) parts.push(`${names(c.blocked)} afventer nu prøvesvar`);
   if (c.reblocked.length > 0) parts.push(`${names(c.reblocked)} er godkendt, men afventer nu prøvesvar`);
+  if (c.released.length > 0) parts.push(`${names(c.released)} blokerer ikke længere Indberetning.`);
   return parts.length > 0 ? `${code}: ${parts.join(' · ')}` : null;
 }
 

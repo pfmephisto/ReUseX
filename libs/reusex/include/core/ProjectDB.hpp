@@ -9,6 +9,7 @@
 // are forward-declared here (cv::Mat by value/reference, mesh types via
 // std::shared_ptr) to keep DB clients from transitively compiling them.
 #include "reusex/core/component_record.hpp"
+#include "reusex/core/survey.hpp"
 #include "reusex/types/point_types.hpp"
 
 #include <array>
@@ -943,6 +944,67 @@ class ProjectDB {
                                               const std::string &name,
                                               const std::string &config_json);
   bool delete_export_template(int64_t id);
+
+  // --- Survey (Ressourcekortlægning, schema v22) ---
+  struct SurveyTypeRecord {
+    int64_t id = 0;
+    std::string name;
+    std::string eak_code;
+    std::string bim7aa_code;
+    std::string unit = "stk";
+    core::Treatment treatment = core::Treatment::genanvendelse;
+    core::ReviewStatus review_status = core::ReviewStatus::queue;
+    std::optional<double> confidence; // 0..1, AI detection confidence
+    std::optional<double> mass_t;     // tonnes
+    std::string note;
+    bool starred = false;
+    int semantic_class = -1; // the class sync_survey seeded it from
+    std::string created_at;  // ISO 8601 UTC
+    std::string updated_at;
+  };
+  /// Sparse update; an engaged optional sets the field. For the nullable
+  /// numbers the outer optional says "change it", the inner one the new value.
+  struct SurveyTypePatch {
+    std::optional<std::string> name, eak_code, bim7aa_code, unit, note;
+    std::optional<core::Treatment> treatment;
+    std::optional<core::ReviewStatus> review_status;
+    std::optional<std::optional<double>> confidence, mass_t;
+    std::optional<bool> starred;
+  };
+  struct SurveyPartRecord {
+    std::string code; // "RX-001"
+    int64_t type_id = 0;
+    std::optional<std::string> cloud_name; // null once the instance is gone
+    std::optional<std::uint32_t> instance_id;
+    std::optional<std::uint32_t> room_id;
+    std::string room_name;
+    double quantity = 1.0;
+    bool starred = false;
+    std::string note;
+    std::optional<std::string>
+        material_guid; // read-only: from instance_materials
+  };
+  struct SurveyPartPatch {
+    std::optional<int64_t> type_id;
+    std::optional<double> quantity;
+    std::optional<bool> starred;
+    std::optional<std::string> note, room_name;
+  };
+
+  SurveyTypeRecord
+  add_survey_type(const SurveyTypeRecord &rec); // id/timestamps ignored
+  [[nodiscard]] std::vector<SurveyTypeRecord> survey_types() const; // by id
+  [[nodiscard]] std::optional<SurveyTypeRecord> survey_type(int64_t id) const;
+  SurveyTypeRecord update_survey_type(int64_t id, const SurveyTypePatch &patch);
+  void add_survey_part(const SurveyPartRecord &rec);
+  [[nodiscard]] std::vector<SurveyPartRecord> survey_parts() const; // by code
+  [[nodiscard]] std::optional<SurveyPartRecord>
+  survey_part(std::string_view code) const;
+  SurveyPartRecord update_survey_part(std::string_view code,
+                                      const SurveyPartPatch &patch);
+  [[nodiscard]] bool has_survey_part_for(std::string_view cloud_name,
+                                         std::uint32_t instance_id) const;
+  [[nodiscard]] int max_survey_part_number() const; // 0 when there are none
 
   // --- Project Metadata Operations ---
 

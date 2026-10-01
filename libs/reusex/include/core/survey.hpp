@@ -76,6 +76,9 @@ struct TypeTotals {
   std::optional<double> mass_t;
   std::string eak_code;
   EnvironmentStatus environment = EnvironmentStatus::ren_screening;
+  /// Identify the type in a blocking list; not used by the arithmetic.
+  std::int64_t type_id = 0;
+  std::string name;
 };
 std::array<double, kTreatmentCount>
 circularity_breakdown(const std::vector<TypeTotals> &);
@@ -84,12 +87,37 @@ struct Fraction {
   std::string name;
   Treatment treatment;
   double mass_t = 0.0;
+  bool contaminated = false;
+};
+enum class BlockingReason { review, sample };
+std::string_view to_string(BlockingReason); // "review" | "sample"
+struct BlockingType {
+  std::int64_t type_id = 0;
+  std::string name;
+  std::string eak_code;
+  Treatment treatment = Treatment::genanvendelse;
+  std::optional<double> mass_t;
+  BlockingReason reason = BlockingReason::review;
 };
 struct FractionReport {
   std::vector<Fraction> fractions;
   double total_t = 0.0;
-  std::size_t blocking_types = 0;
+  std::size_t blocking_types = 0; // == blocking.size()
+  std::vector<BlockingType> blocking;
 };
+/// True when a type's tonnes may be reported: it is approved and not awaiting
+/// a sample (an afventer answer can still make it contaminated). The single
+/// rule shared by fractions_by_eak and the report's tonnes (Phase 5, F2).
+bool reportable(ReviewStatus status, EnvironmentStatus environment);
+/// Approved tonnes per (EAK code, treatment, contaminated), for the
+/// bygningsaffald.dk report (GUI Phase 5, R3). Rejected types are ignored.
+/// `bevaring` never counts: it stays in the building, so it is not waste — but
+/// an unapproved bevaring type still blocks. A type awaiting a sample blocks
+/// (reason `sample`) and is withheld even when approved, because its answer
+/// can make it contaminated. Any other unapproved type blocks (`review`).
+/// Contaminated tonnes are never merged into a clean fraction. Rows are in
+/// code, then waste-hierarchy, then clean-before-contaminated order; the
+/// blocking list is in input order.
 FractionReport fractions_by_eak(const std::vector<TypeTotals> &);
 std::string_view eak_fraction_name(std::string_view code); // "" when unknown
 std::map<std::uint32_t, std::uint32_t>

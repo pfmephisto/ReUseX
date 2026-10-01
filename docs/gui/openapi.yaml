@@ -2538,8 +2538,10 @@ paths:
       operationId: getSurveyFractions
       summary: Approved tonnes per EAK code for waste reporting
       description: |
-        Only approved types count toward the fractions. `blocking_types` counts types still
-        in the queue or awaiting a sample; the report is `ready` when it is 0.
+        Approved tonnes per EAK code, treatment and contamination for the bygningsaffald.dk
+        report. `bevaring` never counts (it stays in the building). A type awaiting a sample
+        is withheld even when approved. `blocking` lists every non-rejected type that keeps
+        the report from being sent; the report is `ready` when it is empty.
       responses:
         "200":
           description: Waste fractions
@@ -4358,20 +4360,39 @@ components:
         rooms_without_parts: { type: array, items: { type: string } }
     SurveyFractions:
       type: object
-      required: [fractions, total_t, blocking_types, ready]
+      required: [fractions, total_t, blocking_types, blocking, ready]
       properties:
         fractions:
           type: array
           items:
             type: object
-            required: [eak_code, name, treatment, mass_t]
+            required: [eak_code, name, treatment, mass_t, contaminated]
             properties:
               eak_code: { type: string }
-              name: { type: string }
+              name: { type: string, description: EAK fraction name; empty for an unknown code }
               treatment: { $ref: "#/components/schemas/Treatment" }
               mass_t: { type: number }
+              contaminated:
+                type: boolean
+                description: The tonnes come from types whose miljøstatus is forurenet; never merged with clean tonnes.
         total_t: { type: number }
-        blocking_types: { type: integer }
+        blocking_types: { type: integer, description: Length of `blocking`. }
+        blocking:
+          type: array
+          description: Non-rejected types that keep the report from being sent, in type-id order.
+          items:
+            type: object
+            required: [type_id, name, eak_code, treatment, mass_t, reason]
+            properties:
+              type_id: { type: integer }
+              name: { type: string }
+              eak_code: { type: string }
+              treatment: { $ref: "#/components/schemas/Treatment" }
+              mass_t: { type: number, nullable: true }
+              reason:
+                type: string
+                enum: [review, sample]
+                description: "`sample`: miljøstatus is afventer (blocks even when approved). `review`: not approved yet."
         ready: { type: boolean }
     Sample:
       type: object

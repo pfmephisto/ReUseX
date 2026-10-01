@@ -79,8 +79,8 @@ std::vector<TypeTotals> type_totals(const ProjectDB &db) {
   const auto env = environment_statuses(db);
   std::vector<TypeTotals> out;
   for (const auto &t : db.survey_types())
-    out.push_back(
-        {t.treatment, t.review_status, t.mass_t, t.eak_code, env.at(t.id)});
+    out.push_back({t.treatment, t.review_status, t.mass_t, t.eak_code,
+                   env.at(t.id), t.id, t.name});
   return out;
 }
 

@@ -138,25 +138,42 @@ circularity_breakdown(const std::vector<TypeTotals> &types) {
   return out;
 }
 
+std::string_view to_string(BlockingReason r) {
+  return r == BlockingReason::sample ? "sample" : "review";
+}
+
+bool reportable(ReviewStatus status, EnvironmentStatus environment) {
+  return status == ReviewStatus::approved &&
+         environment != EnvironmentStatus::afventer;
+}
+
 FractionReport fractions_by_eak(const std::vector<TypeTotals> &types) {
   FractionReport report;
-  std::map<std::pair<std::string, int>, double> grouped;
+  std::map<std::tuple<std::string, int, bool>, double> grouped;
   for (const auto &t : types) {
     if (t.status == ReviewStatus::rejected)
       continue;
-    if (t.status != ReviewStatus::approved ||
-        t.environment == EnvironmentStatus::afventer)
-      ++report.blocking_types;
-    if (t.status == ReviewStatus::approved)
-      grouped[{t.eak_code, static_cast<int>(t.treatment)}] +=
-          t.mass_t.value_or(0.0);
+    if (!reportable(t.status, t.environment)) {
+      const bool awaiting = t.environment == EnvironmentStatus::afventer;
+      report.blocking.push_back(BlockingType{
+          t.type_id, t.name, t.eak_code, t.treatment, t.mass_t,
+          awaiting ? BlockingReason::sample : BlockingReason::review});
+      continue;
+    }
+    if (t.treatment == Treatment::bevaring)
+      continue;
+    grouped[{t.eak_code, static_cast<int>(t.treatment),
+             t.environment == EnvironmentStatus::forurenet}] +=
+        t.mass_t.value_or(0.0);
   }
   for (const auto &[key, mass] : grouped) {
+    const auto &[code, treatment, contaminated] = key;
     report.fractions.push_back(
-        Fraction{key.first, std::string(eak_fraction_name(key.first)),
-                 static_cast<Treatment>(key.second), mass});
+        Fraction{code, std::string(eak_fraction_name(code)),
+                 static_cast<Treatment>(treatment), mass, contaminated});
     report.total_t += mass;
   }
+  report.blocking_types = report.blocking.size();
   return report;
 }
 

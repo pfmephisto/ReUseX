@@ -880,15 +880,33 @@ export interface SurveyFraction {
   name: string;
   treatment: Treatment;
   mass_t: number;
+  /** Tonnes from forurenet types; never merged with clean tonnes. */
+  contaminated: boolean;
 }
 
-/** `SurveyFractions` — approved tonnes per EAK code for waste reporting. */
+/** One row of `SurveyFractions.blocking`. */
+export interface SurveyBlockingType {
+  type_id: number;
+  name: string;
+  eak_code: string;
+  treatment: Treatment;
+  mass_t: number | null;
+  /** `sample`: awaiting a sample (blocks even when approved); `review`: not approved yet. */
+  reason: 'review' | 'sample';
+}
+
+/**
+ * `SurveyFractions` — approved tonnes per EAK code, treatment and
+ * contamination for waste reporting. `bevaring` never counts.
+ */
 export interface SurveyFractions {
   fractions: SurveyFraction[];
   total_t: number;
-  /** Types still in the queue or awaiting a sample. */
+  /** Length of `blocking`. */
   blocking_types: number;
-  /** True when `blocking_types` is 0. */
+  /** Non-rejected types that keep the report from being sent, in type-id order. */
+  blocking: SurveyBlockingType[];
+  /** True when `blocking` is empty. */
   ready: boolean;
 }
 

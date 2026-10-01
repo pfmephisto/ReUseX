@@ -131,6 +131,26 @@ TEST_CASE("SurveyFractionsJson_ApprovedOnly_ReadyFlag", "[gui][survey]") {
   CHECK(j.at("fractions").at(0).at("treatment") == "genanvendelse");
   CHECK(j.at("blocking_types") == 1);
   CHECK(j.at("ready") == false);
+  CHECK(j.at("fractions").at(0).at("contaminated") == false);
+  REQUIRE(j.at("blocking").size() == 1);
+  CHECK(j.at("blocking").at(0).at("name") == "b");
+  CHECK(j.at("blocking").at(0).at("reason") == "review");
+  CHECK(j.at("blocking").at(0).at("treatment") == "genbrug");
+  CHECK(j.at("blocking").at(0).at("mass_t").get<double>() == Approx(58));
+  CHECK(j.at("blocking").at(0).at("type_id").get<int64_t>() > 0);
+}
+
+TEST_CASE("SurveyFractionsJson_BlockingMassNullWhenUnset", "[gui][survey]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  ProjectDB::SurveyTypeRecord t;
+  t.name = "Uden tonnage";
+  t.eak_code = "17.02.01";
+  db.add_survey_type(t); // mass_t stays nullopt
+  const auto j = survey_fractions_json(db);
+  REQUIRE(j.at("blocking").size() == 1);
+  CHECK(j.at("blocking").at(0).at("mass_t").is_null());
+  CHECK(j.at("ready") == false);
 }
 
 TEST_CASE("SamplesJson_ResultNullWhenNone", "[gui][survey]") {

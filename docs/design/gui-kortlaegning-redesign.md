@@ -144,8 +144,10 @@ Derived, never stored (pure library functions, unit-tested):
   contaminated). *Bevaring* never counts: it stays in the building, so it is
   not waste. A type awaiting a sample is withheld even when approved.
   Contaminated tonnes get their own row. The **blocking list** holds every
-  non-rejected type still in the queue (`review`) or awaiting a sample
-  (`sample`), and the report is ready when that list is empty.
+  non-rejected type still in the queue (`review`), awaiting a sample
+  (`sample`), or approved without tonnes (`mass`), and the report is ready
+  when that list is empty and there is at least one fraction row (an empty
+  survey has nothing to report).
 
 Rejecting a type ("Afvis — fejldetektion") sets status *rejected*; it is hidden
 from Til gennemsyn / Godkendt / Alle but not deleted, so it can be restored.
@@ -258,7 +260,10 @@ live sub-line. v1 changes from the prototype:
 - the KPI **Klassificeret** (share of the instance cloud's points that carry
   an instance label) stands in for the prototype's **Scanningsdækning**,
   which nothing in the project measures (R4; a real scan-coverage measure is
-  a follow-up);
+  a follow-up, `.github/issue-drafts/35-scan-coverage-kpi.md`);
+- Indberetning's quick-link sub-line says "n typer blokerer" from
+  `GET /survey/fractions` whenever anything blocks — approved types can still
+  block (a pending sample, no tonnes) — and "n af m typer godkendt" otherwise;
 - no aerial photo, sync chip, case number, MRK or demolition deadline — none
   of that is stored yet (R5, a follow-up); correspondingly no BBR line (R6,
   shown only once a BFE number can be stored);
@@ -268,9 +273,11 @@ live sub-line. v1 changes from the prototype:
 
 **Rapport** — Ressourcekortlægning report versions, newest first: each one
 numbered `v<n>` with its generation date, file size and a `Komplet`/`Udkast`
-pill; `Generér ny version` (disabled while a pipeline job holds the writer
-lock or another version is generating); a draft notice naming how many types
-still block completeness; and an Inventarliste download. v1 changes:
+pill; `Generér ny version` (disabled while another version is generating;
+while a pipeline job holds the writer lock it stays enabled, and a click gets
+the server's 409 and a toast saying to try again); a draft notice naming how
+many types still block completeness; and an Inventarliste download. v1
+changes:
 
 - versions are numbered `v<n>` and marked `Komplet`/`Udkast` from the
   **stored** blocking-type count at generation time (schema v23,
@@ -283,18 +290,28 @@ still block completeness; and an Inventarliste download. v1 changes:
 - Inventarliste is **not** a stored version: it is the live CSV export
   (`/exports/csv`), downloaded fresh every time, since a bygningsdel list
   changes between report generations;
+- the hero's figures are the whole survey (every non-rejected type), while
+  the PDF reports approved, reportable types only; the hero is captioned
+  "Hele kortlægningen (inkl. ikke-godkendte)" so the two are not confused;
 - no MRK signature or approval workflow on a version — nothing models
-  approval yet (R7, a follow-up).
+  approval yet (R7, a follow-up, `.github/issue-drafts/34-report-approval-xls-version.md`).
+
+Known edge, not a defect: generating a version from a survey with no
+reportable rows (no types at all, or none approved yet with nothing blocking)
+records `blocking_types: 0`, so the version is marked `Komplet` though its
+survey section is empty. Nothing blocks, so it is not a draft either; the
+Indberetning send gate, which needs at least one fraction, stays shut.
 
 **Indberetning** — a fraction table (EAK code, behandling, mass in tonnes,
 contaminated flag), a blocking-list notice while types are still in the
 queue or awaiting a sample, a CSV download of the ready fractions, and
 `Send til bygningsaffald.dk`. v1 changes:
 
-- the send button is gated exactly like the prototype's (disabled while any
-  type blocks the report) but, clicked, **posts nothing** — it shows a
-  notice saying so, since no bygningsaffald.dk integration exists (R9, out of
-  scope below);
+- the send button is gated like the prototype's (disabled while any type
+  blocks the report, and also while there is no fraction to report) but,
+  clicked, **posts nothing** — it shows a notice saying so, since no
+  bygningsaffald.dk integration exists (R9, out of scope below;
+  `.github/issue-drafts/33-bygningsaffald-submission.md`);
 - the CSV download is new: the prototype has no export affordance on this
   screen.
 

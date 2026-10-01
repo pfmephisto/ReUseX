@@ -140,7 +140,11 @@ src/
 │                 route constants), saveError.ts (Danish copy for a failed
 │                 save: 409/503 get their own message, else the server's),
 │                 errorCopy.ts (Danish copy for a failed *load*, keyed by a
-│                 definite noun phrase naming what didn't load)
+│                 definite noun phrase naming what didn't load),
+│                 editorKeys.ts (Esc/Enter inside an in-place editor),
+│                 textDraft.ts (what a commit-on-blur field sends; pure)
+│                 and useTextDraft.ts (the hook over it, used by Miljø &
+│                 prøver and Overblik)
 ├── components/   Presentational, contract-agnostic building blocks
 │                 (DataTable, StatCard, Sidebar, JobToaster, Pill,
 │                 ConfidenceBar, Kbd, Toast, CircularityBar, ...), plus
@@ -158,7 +162,7 @@ src/
 │                 `?type=` deep link), samples.ts (a type's linked samples
 │                 and its sample line), keys.ts (keyboard maps)
 ├── miljoe/       Pure modules for Miljø & prøver: model.ts (stage chain,
-│                 patches, link toggling, gate feedback), useTextDraft.ts
+│                 patches, link toggling, gate feedback)
 ├── overblik/     Pure module for Overblik: model.ts (circularity percents,
 │                 the KPI row, quick links, the hero's subline and its
 │                 metadata-editor commits)

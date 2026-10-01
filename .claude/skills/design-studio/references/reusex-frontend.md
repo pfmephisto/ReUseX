@@ -36,7 +36,9 @@ apps/rux/frontend/src/
 │                 keyTargets (isField/isControl), saveError (failed-save
 │                 copy), errorCopy (failed-*load* copy, `ErrorBanner`'s),
 │                 links (Kortlægning ↔ Miljø & prøver ↔ Overblik deep links
-│                 and route constants)
+│                 and route constants), editorKeys (in-place editor keys),
+│                 textDraft (commit-on-blur rule, pure) + useTextDraft (its
+│                 hook, shared by Miljø & prøver and Overblik)
 ├── components/   Presentational, contract-agnostic blocks — reuse these:
 │                 DataTable, StatCard, Sidebar, EmptyState, ErrorBanner,
 │                 ParameterForm, SelectDropdown, MultiSelectDropdown,
@@ -60,7 +62,7 @@ apps/rux/frontend/src/
 │                 samples, the sample line), keys.ts (tableAction/dialogAction
 │                 keyboard maps)
 ├── miljoe/       Pure modules behind Miljø & prøver: model.ts (stage chain,
-│                 patches, link toggling, gate feedback), useTextDraft.ts
+│                 patches, link toggling, gate feedback)
 ├── overblik/     Pure module behind Overblik: model.ts (circularity percents,
 │                 KPI row, quick links, hero subline, metadata-editor commits)
 ├── rapport/      Pure module behind Rapport: model.ts (version date/size

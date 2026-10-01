@@ -208,10 +208,16 @@ export function EditDialog(props: EditDialogProps) {
 
   // On open and after every move, focus the dialog itself (not a field), so
   // the single-key shortcuts reach the page's key map instead of typing into
-  // the quantity input. Keyed like the drafts, so it runs after their reset.
+  // the quantity input. Deferred by one render via the tick: focusing the
+  // root blurs a focused field, and that blur must run after the drafts have
+  // been reset for the new selection, not in the same effect flush.
+  const [focusTick, setFocusTick] = useState(0);
   useEffect(() => {
-    rootRef.current?.focus({ preventScroll: true });
+    setFocusTick((t) => t + 1);
   }, [type.id, part?.code]);
+  useEffect(() => {
+    if (focusTick > 0) rootRef.current?.focus({ preventScroll: true });
+  }, [focusTick]);
 
   // A button that turns `disabled` while focused (Afvis / ☆ during a request)
   // drops focus to <body>, which would take the page's key map and the Tab
@@ -272,7 +278,9 @@ export function EditDialog(props: EditDialogProps) {
       root?.contains(active) &&
       dialogAction({ key: e.key, metaKey: e.metaKey, ctrlKey: e.ctrlKey, altKey: e.altKey, inField: true })
     ) {
-      active.blur();
+      // Blur by focusing the root, so the draft commits but focus stays in the
+      // dialog: a refused ⌘/Ctrl+Enter changes nothing that would refocus it.
+      root?.focus();
     }
     props.onKeyDown(e);
   }

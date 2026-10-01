@@ -66,8 +66,9 @@ export const QUANTITY_INPUT_DIGITS = 6;
 /**
  * A quantity as the edit field shows it: the exact value (to
  * `QUANTITY_INPUT_DIGITS` decimals, so `0.1 + 0.2` reads `0,3`), Danish decimal
- * comma and no thousands grouping — always a string `parseDanishNumber` reads
- * back to the same value. `formatNumber` is for display and rounds to one
+ * comma and no thousands grouping. It parses back with `parseDanishNumber`
+ * (to the 6-decimal rounding, so 1/3 is not literal); an untouched draft is
+ * detected by string equality with this format. `formatNumber` is for display and rounds to one
  * decimal, so it must never seed an editable draft.
  */
 export function formatQuantityInput(n: number): string {

@@ -13,7 +13,11 @@ import {
   pendingSampleList,
   sampleLineText,
 } from '../components/kortlaegning/DetailPanel';
-import { quantityCommitValue } from '../components/kortlaegning/useQuantityNoteDrafts';
+import {
+  draftMatchesSelection,
+  quantityCommitValue,
+  selectionKey,
+} from '../components/kortlaegning/useQuantityNoteDrafts';
 import { formatQuantityInput } from '../kortlaegning/vocab';
 
 function part(overrides: Partial<SurveyPart> = {}): SurveyPart {
@@ -223,6 +227,22 @@ describe('quantityCommitValue', () => {
     expect(quantityCommitValue('12,3', 12.34)).toBe(12.3);
     expect(quantityCommitValue('0,4', 0.1 + 0.2)).toBe(0.4);
     expect(quantityCommitValue('1.250', 1240)).toBe(1250);
+  });
+});
+
+describe('draft selection guard', () => {
+  it('keys a part by its code and a type by its id', () => {
+    expect(selectionKey(part({ code: 'RX-008' }))).toBe('p:RX-008');
+    expect(selectionKey(type({ id: 4 }))).toBe('t:4');
+    expect(selectionKey(null)).toBe('');
+  });
+
+  it('lets a blur commit only for the selection the drafts were reset for', () => {
+    expect(draftMatchesSelection('p:RX-008', 'p:RX-008')).toBe(true);
+    // The selection moved (an approve's next row) before the drafts reset:
+    // the old row's text must not be sent to the new row.
+    expect(draftMatchesSelection('t:2', 't:3')).toBe(false);
+    expect(draftMatchesSelection('t:2', 'p:RX-001')).toBe(false);
   });
 });
 

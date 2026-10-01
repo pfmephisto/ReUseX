@@ -32,9 +32,19 @@ export function quantityCommitValue(draftText: string, current: number): number 
 }
 
 /** What the drafts are reset on: the selected part, or the type itself. */
-function selectionKey(current: SurveyType | SurveyPart | null): string {
+export function selectionKey(current: SurveyType | SurveyPart | null): string {
   if (!current) return '';
   return 'code' in current ? `p:${current.code}` : `t:${current.id}`;
+}
+
+/**
+ * Whether a blur may commit: only when the drafts were last reset for the
+ * selection being edited now. Between a selection change and the render that
+ * resets the drafts, a blur would otherwise send the old row's text to the
+ * new row.
+ */
+export function draftMatchesSelection(draftKey: string, currentKey: string): boolean {
+  return draftKey === currentKey;
 }
 
 export interface DraftCommits {
@@ -56,11 +66,17 @@ export function useQuantityNoteDrafts(current: SurveyType | SurveyPart | null, c
   // clobbers what the user is mid-typing.
   const quantityFocusedRef = useRef(false);
   const key = selectionKey(current);
+  // The selection the drafts were last reset for. State, not a ref: a blur
+  // handler sees the value of the render it came from, so in the render where
+  // `current` has already moved but the drafts have not been reset yet, this
+  // still names the old selection and `draftMatchesSelection` refuses.
+  const [draftKey, setDraftKey] = useState(key);
 
   // A new selection starts from its own values.
   useEffect(() => {
     setQuantityDraft(current ? formatQuantityInput(current.quantity) : '');
     setNoteDraft(current?.note ?? '');
+    setDraftKey(key);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
@@ -72,14 +88,15 @@ export function useQuantityNoteDrafts(current: SurveyType | SurveyPart | null, c
   }, [current?.quantity]);
 
   function commitQuantity() {
-    if (!current) return;
+    if (!current || !draftMatchesSelection(draftKey, key)) return;
     const value = quantityCommitValue(quantityDraft, current.quantity);
     if (value !== null) commits.onQuantity(value);
     else setQuantityDraft(formatQuantityInput(current.quantity));
   }
 
   function commitNote() {
-    if (current && noteDraft !== current.note) commits.onNote(noteDraft);
+    if (!current || !draftMatchesSelection(draftKey, key)) return;
+    if (noteDraft !== current.note) commits.onNote(noteDraft);
   }
 
   return {

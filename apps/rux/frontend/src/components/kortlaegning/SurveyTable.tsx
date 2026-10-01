@@ -106,6 +106,9 @@ export function SurveyTable(props: SurveyTableProps) {
     toggleTimer.current = null;
   };
   useEffect(() => cancelToggle, []);
+  // A selection change (a part-row click, a key, the page) cancels a pending
+  // fold, so a quick click on the type and then its part does not fold it.
+  useEffect(() => cancelToggle(), [selection]);
 
   // Keep the selected row in view as selection moves by keyboard.
   useEffect(() => {
@@ -224,6 +227,7 @@ export function SurveyTable(props: SurveyTableProps) {
                       onClick={(e) => {
                         const action = typeRowClick(selected, e.detail);
                         if (action === 'select') {
+                          cancelToggle();
                           onSelect({ typeId: type.id, partCode: null });
                         } else if (action === 'toggle') {
                           cancelToggle();
@@ -298,7 +302,10 @@ export function SurveyTable(props: SurveyTableProps) {
                     key={`part-${part.code}`}
                     className={styles.partRow}
                     aria-selected={selected}
-                    onClick={() => onSelect({ typeId: type.id, partCode: part.code })}
+                    onClick={() => {
+                      cancelToggle();
+                      onSelect({ typeId: type.id, partCode: part.code });
+                    }}
                     onDoubleClick={() =>
                       onOpenDialog({ typeId: type.id, partCode: part.code })
                     }

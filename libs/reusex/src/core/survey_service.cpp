@@ -142,7 +142,8 @@ SurveySyncReport sync_survey(ProjectDB &db, const SurveySyncOptions &opts) {
                                : std::map<int, std::string>{};
   std::map<int, int64_t> type_for_class;
   for (const auto &t : db.survey_types())
-    type_for_class.try_emplace(t.semantic_class, t.id);
+    if (t.semantic_class != kManualSemanticClass)
+      type_for_class.try_emplace(t.semantic_class, t.id);
 
   auto instances = db.instances(opts.instances_cloud);
   std::sort(instances.begin(), instances.end(),
@@ -187,6 +188,30 @@ SurveySyncReport sync_survey(ProjectDB &db, const SurveySyncOptions &opts) {
     reusex::warn(
         "sync_survey: instance cloud '{}' has no instances; nothing to survey",
         opts.instances_cloud);
+
+  // Parts whose instance_guid is set but no longer resolves to an instance
+  // row: the instance was deleted, or recreated without carrying the guid
+  // over (e.g. `rux create instances --clear`). They keep their code and
+  // quantity and still count toward their type's total — report, don't hide
+  // or delete (that is a Phase 3 product decision).
+  for (const auto &p : db.survey_parts())
+    if (p.instance_guid && !p.instance_id) {
+      ++report.parts_orphaned;
+      report.orphaned_codes.push_back(p.code);
+    }
+  if (report.parts_orphaned > 0) {
+    std::string codes;
+    const std::size_t shown =
+        std::min<std::size_t>(20, report.orphaned_codes.size());
+    for (std::size_t i = 0; i < shown; ++i)
+      codes += (i ? ", " : "") + report.orphaned_codes[i];
+    if (report.orphaned_codes.size() > shown)
+      codes += "…";
+    reusex::warn("sync_survey: {} part(s) link to instances that no longer "
+                 "exist ({}); their quantities still count toward their "
+                 "types — review or re-file them",
+                 report.parts_orphaned, codes);
+  }
   return report;
 }
 

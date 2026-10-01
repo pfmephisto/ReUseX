@@ -820,6 +820,7 @@ export interface SurveyPart {
   note: string;
   material_guid: string | null;
   instance_guid: string | null;
+  orphaned: boolean;
 }
 
 /** `SurveyType` — one Kortlægning group row, with its parts. */
@@ -910,6 +911,8 @@ export interface SurveySyncReport {
   parts_created: number;
   parts_existing: number;
   rooms_assigned: boolean;
+  parts_orphaned: number;
+  orphaned_codes: string[];
 }
 
 /** Body of `POST /survey/types`. */

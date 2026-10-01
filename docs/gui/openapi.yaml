@@ -2577,12 +2577,22 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [types_created, parts_created, parts_existing, rooms_assigned]
+                required: [types_created, parts_created, parts_existing, rooms_assigned, parts_orphaned, orphaned_codes]
                 properties:
                   types_created: { type: integer }
                   parts_created: { type: integer }
                   parts_existing: { type: integer }
                   rooms_assigned: { type: boolean }
+                  parts_orphaned:
+                    type: integer
+                    description: |
+                      Parts whose instance_guid no longer resolves to an instance row (the
+                      linked instance was dropped, or recreated without carrying the guid
+                      over). Kept and still counted toward their type's quantity.
+                  orphaned_codes:
+                    type: array
+                    items: { type: string }
+                    description: Codes of the orphaned parts.
         "400":
           description: Body was not a JSON object
           content:
@@ -4284,7 +4294,7 @@ components:
     SurveyPart:
       type: object
       required: [code, type_id, cloud, instance_id, room_id, room_name, quantity, starred, note,
-                 material_guid, instance_guid]
+                 material_guid, instance_guid, orphaned]
       properties:
         code: { type: string, example: RX-008 }
         type_id: { type: integer }
@@ -4297,6 +4307,9 @@ components:
         note: { type: string }
         material_guid: { type: string, nullable: true }
         instance_guid: { type: string, nullable: true }
+        orphaned:
+          type: boolean
+          description: instance_guid is set but no longer resolves to an instance row.
     SurveyType:
       type: object
       required: [id, name, eak_code, eak_name, bim7aa_code, unit, treatment, review_status, confidence, mass_t,

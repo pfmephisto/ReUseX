@@ -62,11 +62,16 @@ int run_subcommand_create_survey(SubcommandCreateSurveyOptions const &opt,
 
     const auto report = reusex::core::sync_survey(db, opt.sync);
 
+    const std::string orphan_note =
+        report.parts_orphaned > 0
+            ? ", " + std::to_string(report.parts_orphaned) +
+                  " part(s) orphaned (linked instance gone)"
+            : "";
     spdlog::info(
         "Survey: {} type(s) and {} part(s) created, {} part(s) already "
-        "present{}",
+        "present{}{}",
         report.types_created, report.parts_created, report.parts_existing,
-        report.rooms_assigned ? "" : " (no rooms assigned)");
+        report.rooms_assigned ? "" : " (no rooms assigned)", orphan_note);
     return RuxError::SUCCESS;
   } catch (const std::exception &e) {
     spdlog::error("create survey failed: {}", e.what());

@@ -258,6 +258,17 @@ or `"Rum <id>"`; a missing or size-mismatched rooms cloud is logged and parts
 get no room. Idempotent — existing types/parts are never modified, so edits
 made in the GUI survive a rerun.
 
+A part's `instance_guid` can stop resolving — the linked instance was
+deleted, or `rux create instances` ran again without carrying the guid over
+(e.g. `--clear`). `sync_survey` does not delete or hide such a part: it keeps
+its code, quantity and room, reads back with a null `cloud`/`instance_id`,
+and still counts toward its type's `quantity` total. `sync_survey` reports
+the count and codes (`SurveySyncReport::parts_orphaned` /
+`orphaned_codes`) and logs a warning; each part is also flagged individually
+(`SurveyPart.orphaned`) so the GUI can surface it. Deciding what to do with an
+orphaned part — re-file it under a new instance, or drop it — is a Phase 3
+product decision.
+
 ### `attributes` (`rux create attributes`)
 
 Describe each material by cropping its linked instance(s) out of their best

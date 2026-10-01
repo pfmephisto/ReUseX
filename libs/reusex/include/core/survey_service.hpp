@@ -49,6 +49,12 @@ struct SurveySyncReport {
   std::size_t parts_created = 0;
   std::size_t parts_existing = 0;
   bool rooms_assigned = false;
+  /// Parts whose instance_guid no longer resolves to an instance row (the
+  /// instance was dropped, or re-created without carrying the guid over).
+  /// Kept and still counted toward their type's quantity — review or re-file
+  /// them; sync_survey does not delete or hide them.
+  std::size_t parts_orphaned = 0;
+  std::vector<std::string> orphaned_codes;
 };
 /// Fill survey_types / survey_parts from the instances table: one type per
 /// semantic class, one bygningsdel (survey part) per instance, placed in the

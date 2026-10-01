@@ -12,6 +12,7 @@
 
 #include <pcl/point_types.h>
 
+#include <algorithm>
 #include <stdexcept>
 
 using reusex::ProjectDB;
@@ -195,4 +196,63 @@ TEST_CASE("SyncSurvey_WithoutRooms_StillCreatesParts", "[survey][sync]") {
   CHECK(r.parts_created == 3);
   CHECK_FALSE(r.rooms_assigned);
   CHECK(db.survey_parts()[0].room_name.empty());
+}
+
+TEST_CASE("SyncSurvey_InstanceGuidReplaced_ReportsOrphan_AndCreatesNewPart",
+          "[survey][sync]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  seed_scan(db);
+  sync_survey(db);
+  REQUIRE(db.survey_part("RX-001").has_value());
+  REQUIRE(db.survey_part("RX-001")->instance_guid == "g1");
+
+  // `rux create instances` (or --clear) re-ran without carrying instance 1's
+  // guid over: same instance_id, new guid. RX-001's instance_guid ("g1") no
+  // longer resolves to any instances row.
+  db.save_instances("instances",
+                    {{1, "g1b", 3, 2}, {2, "g2", 3, 2}, {3, "g3", 5, 1}});
+
+  const auto r = sync_survey(db);
+  CHECK(r.parts_orphaned == 1);
+  CHECK(r.orphaned_codes == std::vector<std::string>{"RX-001"});
+  CHECK(r.parts_created == 1); // the "new" instance (guid g1b)
+
+  const auto orphan = db.survey_part("RX-001");
+  REQUIRE(orphan.has_value());
+  CHECK(orphan->instance_guid == "g1");
+  CHECK_FALSE(orphan->instance_id.has_value());
+  CHECK_FALSE(orphan->cloud_name.has_value());
+}
+
+TEST_CASE("SyncSurvey_ManualType_NeverMatched_UnclassifiedGetsOwnType",
+          "[survey][sync]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  // An unclassified instance (class -1) plus a manually created type, which
+  // must use kManualSemanticClass so sync_survey's seeding never matches it.
+  db.save_point_cloud("instances", label_cloud({1, 1, 0}), "test", "{}");
+  db.save_instances("instances", {{1, "g1", -1, 2}});
+  ProjectDB::SurveyTypeRecord manual;
+  manual.name = "Manuelt tilføjet type";
+  manual.semantic_class = kManualSemanticClass;
+  db.add_survey_type(manual);
+
+  const auto r = sync_survey(db);
+  CHECK(r.types_created == 1); // "Uklassificeret", not the manual type
+  CHECK(r.parts_created == 1);
+  const auto types = db.survey_types();
+  REQUIRE(types.size() == 2);
+  const auto manual_type =
+      std::find_if(types.begin(), types.end(), [](const auto &t) {
+        return t.name == "Manuelt tilføjet type";
+      });
+  REQUIRE(manual_type != types.end());
+  for (const auto &p : db.survey_parts())
+    CHECK(p.type_id != manual_type->id);
+  const auto unclassified =
+      std::find_if(types.begin(), types.end(),
+                   [](const auto &t) { return t.name == "Uklassificeret"; });
+  REQUIRE(unclassified != types.end());
+  CHECK(unclassified->semantic_class == -1);
 }

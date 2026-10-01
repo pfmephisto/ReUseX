@@ -294,6 +294,55 @@ TEST_CASE("CreateSurveyType_RequiresName", "[gui][survey][edits]") {
         400);
 }
 
+TEST_CASE("CreateSurveyType_IsManual_NeverMatchedBySync",
+          "[gui][survey][edits][sync]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  create_survey_type_json(db, R"({"name":"Manuelt tilføjet type"})");
+  CHECK(db.survey_types().at(0).semantic_class == core::kManualSemanticClass);
+
+  // An unclassified (class -1) instance must get its own "Uklassificeret"
+  // type, not the manual one.
+  reusex::CloudL labels;
+  for (std::uint32_t l : {1u, 0u}) {
+    pcl::Label p;
+    p.label = l;
+    labels.push_back(p);
+  }
+  db.save_point_cloud("instances", labels, "test", "{}");
+  db.save_instances("instances", {{1, "g1", -1, 1}});
+
+  const auto r = core::sync_survey(db);
+  CHECK(r.types_created == 1);
+  CHECK(r.parts_created == 1);
+  const auto types = db.survey_types();
+  REQUIRE(types.size() == 2);
+  const auto manual =
+      std::find_if(types.begin(), types.end(), [](const auto &t) {
+        return t.semantic_class == core::kManualSemanticClass;
+      });
+  REQUIRE(manual != types.end());
+  for (const auto &p : db.survey_parts())
+    CHECK(p.type_id != manual->id);
+}
+
+TEST_CASE("SurveyPartJson_OrphanedFlag", "[gui][survey]") {
+  reusex::ProjectDB::SurveyPartRecord linked;
+  linked.code = "RX-001";
+  linked.type_id = 1;
+  linked.cloud_name = "instances";
+  linked.instance_id = 1;
+  linked.instance_guid = "g1";
+  CHECK_FALSE(survey_part_json(linked).at("orphaned").get<bool>());
+
+  // instance_guid set but cloud/instance_id read back null: the guid no
+  // longer resolves to an instances row.
+  reusex::ProjectDB::SurveyPartRecord orphaned = linked;
+  orphaned.cloud_name = std::nullopt;
+  orphaned.instance_id = std::nullopt;
+  CHECK(survey_part_json(orphaned).at("orphaned").get<bool>());
+}
+
 TEST_CASE("PatchSurveyPart_MoveAndErrors", "[gui][survey][edits]") {
   TempDB tmp;
   ProjectDB db(tmp.path);

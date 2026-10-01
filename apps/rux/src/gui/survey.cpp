@@ -47,17 +47,19 @@ json counts_json(
 } // namespace
 
 json survey_part_json(const reusex::ProjectDB::SurveyPartRecord &p) {
-  return {{"code", p.code},
-          {"type_id", p.type_id},
-          {"cloud", opt(p.cloud_name)},
-          {"instance_id", opt(p.instance_id)},
-          {"room_id", opt(p.room_id)},
-          {"room_name", p.room_name},
-          {"quantity", p.quantity},
-          {"starred", p.starred},
-          {"note", p.note},
-          {"material_guid", opt(p.material_guid)},
-          {"instance_guid", opt(p.instance_guid)}};
+  return {
+      {"code", p.code},
+      {"type_id", p.type_id},
+      {"cloud", opt(p.cloud_name)},
+      {"instance_id", opt(p.instance_id)},
+      {"room_id", opt(p.room_id)},
+      {"room_name", p.room_name},
+      {"quantity", p.quantity},
+      {"starred", p.starred},
+      {"note", p.note},
+      {"material_guid", opt(p.material_guid)},
+      {"instance_guid", opt(p.instance_guid)},
+      {"orphaned", p.instance_guid.has_value() && !p.instance_id.has_value()}};
 }
 
 json survey_type_json(
@@ -141,9 +143,12 @@ json survey_summary_json(const reusex::ProjectDB &db) {
     if (s.stage != core::SampleStage::svar)
       ++pending;
 
+  const std::string instances_cloud = core::SurveySyncOptions{}.instances_cloud;
+  const std::string rooms_cloud = core::SurveySyncOptions{}.rooms_cloud;
+
   json unlabeled = nullptr;
-  if (db.has_point_cloud("instances")) {
-    if (const auto cloud = db.point_cloud_label("instances")) {
+  if (db.has_point_cloud(instances_cloud)) {
+    if (const auto cloud = db.point_cloud_label(instances_cloud)) {
       std::size_t n = 0;
       for (const auto &p : *cloud)
         if (p.label == 0)
@@ -153,8 +158,8 @@ json survey_summary_json(const reusex::ProjectDB &db) {
   }
 
   json empty_rooms = json::array();
-  if (db.has_point_cloud("rooms")) {
-    if (const auto cloud = db.point_cloud_label("rooms")) {
+  if (db.has_point_cloud(rooms_cloud)) {
+    if (const auto cloud = db.point_cloud_label(rooms_cloud)) {
       std::set<std::uint32_t> present;
       for (const auto &p : *cloud)
         if (p.label != 0)
@@ -163,7 +168,7 @@ json survey_summary_json(const reusex::ProjectDB &db) {
       for (const auto &p : db.survey_parts())
         if (p.room_id)
           covered.insert(*p.room_id);
-      const auto names = db.label_definitions("rooms");
+      const auto names = db.label_definitions(rooms_cloud);
       for (auto r : present)
         if (!covered.contains(r)) {
           const auto n = names.find(static_cast<int>(r));
@@ -332,7 +337,9 @@ json sync_survey_json(reusex::ProjectDB &db, const std::string &body) {
     return {{"types_created", r.types_created},
             {"parts_created", r.parts_created},
             {"parts_existing", r.parts_existing},
-            {"rooms_assigned", r.rooms_assigned}};
+            {"rooms_assigned", r.rooms_assigned},
+            {"parts_orphaned", r.parts_orphaned},
+            {"orphaned_codes", r.orphaned_codes}};
   } catch (const std::runtime_error &e) {
     if (std::string(e.what()).find("rux create instances") != std::string::npos)
       throw HttpError(422, e.what());
@@ -356,6 +363,10 @@ json create_survey_type_json(reusex::ProjectDB &db, const std::string &body) {
   if (auto v = opt_enum<core::Treatment>(j, "treatment",
                                          core::treatment_from_string))
     t.treatment = *v;
+  // Manually created types are never matched by sync_survey's
+  // semantic_class seeding (kManualSemanticClass, distinct from the -1
+  // "Uklassificeret" sentinel sync_survey itself uses).
+  t.semantic_class = core::kManualSemanticClass;
   return type_by_id(db, db.add_survey_type(t).id);
 }
 

@@ -4,9 +4,17 @@
 
 import { describe, expect, it } from 'vitest';
 
-import type { SurveyPart, SurveyType } from '../api/types';
-import { evidenceSources } from '../components/kortlaegning/EvidencePanel';
+import type { SurveyPart, SurveyType, VisibleFrame } from '../api/types';
+import {
+  evidenceSources,
+  resolvePhotoState,
+  type FrameLookup,
+} from '../components/kortlaegning/EvidencePanel';
 import { EVIDENCE_TABS } from '../kortlaegning/keys';
+
+function frame(overrides: Partial<VisibleFrame> = {}): VisibleFrame {
+  return { frame_id: 1, centrality: 0, score: 1, depth: 1, u: 0, v: 0, ...overrides };
+}
 
 function part(overrides: Partial<SurveyPart> = {}): SurveyPart {
   return {
@@ -129,10 +137,81 @@ describe('kortlægning evidenceSources', () => {
       expect(foto.caption).toBe('Bedste foto · ramme 42');
     });
 
-    it('treats instance_id 0 as linked (not falsy-checked)', () => {
+    it('treats instance_id 0 as unlinked — labels start at 1 (STANDARDS §3)', () => {
       const p = part({ instance_id: 0 });
       const [, foto] = evidenceSources(type({}, [p]), p, 1);
-      expect(foto.url).not.toBeNull();
+      expect(foto.url).toBeNull();
+      expect(foto.empty).toBe('Ingen foto — bygningsdelen er ikke koblet til en instans.');
+    });
+
+    it('reports a distinct message when the lookup itself failed', () => {
+      const p = part();
+      const [, foto] = evidenceSources(type({}, [p]), p, undefined, true);
+      expect(foto.url).toBeNull();
+      expect(foto.empty).toBe('Foto kunne ikke hentes.');
+    });
+  });
+
+  it('a part with instance_id 0 is never highlighted on Plan/Punktsky either', () => {
+    const p = part({ instance_id: 0 });
+    const [plan] = evidenceSources(type({}, [p]), p);
+    expect(plan.url).not.toContain('highlight_instance');
+  });
+});
+
+describe('kortlægning resolvePhotoState', () => {
+  it('reports loading when no data has arrived yet', () => {
+    expect(resolvePhotoState('instances/7', undefined)).toEqual({
+      photoFrameId: undefined,
+      photoFailed: false,
+    });
+  });
+
+  it('does not use data tagged with a different key — the stale-part bug', () => {
+    // Part A's lookup already resolved; the selection has since moved to
+    // part B (a different key) whose own lookup hasn't settled yet. Must
+    // report "loading", never A's frame id captioned as B's evidence.
+    const staleFromA: FrameLookup = {
+      key: 'instances/7',
+      frames: [frame({ frame_id: 99 })],
+      failed: false,
+    };
+    const result = resolvePhotoState('instances/9', staleFromA);
+    expect(result).toEqual({ photoFrameId: undefined, photoFailed: false });
+    expect(result.photoFrameId).not.toBe(99);
+  });
+
+  it('does not surface a stale error from a superseded key either', () => {
+    const staleErrorFromA: FrameLookup = { key: 'instances/7', frames: [], failed: true };
+    const result = resolvePhotoState('instances/9', staleErrorFromA);
+    expect(result).toEqual({ photoFrameId: undefined, photoFailed: false });
+  });
+
+  it('reports failure only once the error is for the current key', () => {
+    const failedForCurrent: FrameLookup = { key: 'instances/9', frames: [], failed: true };
+    expect(resolvePhotoState('instances/9', failedForCurrent)).toEqual({
+      photoFrameId: undefined,
+      photoFailed: true,
+    });
+  });
+
+  it('resolves the best frame id once fresh data for the current key arrives', () => {
+    const fresh: FrameLookup = {
+      key: 'instances/9',
+      frames: [frame({ frame_id: 42 }), frame({ frame_id: 43 })],
+      failed: false,
+    };
+    expect(resolvePhotoState('instances/9', fresh)).toEqual({
+      photoFrameId: 42,
+      photoFailed: false,
+    });
+  });
+
+  it('resolves to null (not undefined) when the current key genuinely has no frames', () => {
+    const empty: FrameLookup = { key: 'instances/9', frames: [], failed: false };
+    expect(resolvePhotoState('instances/9', empty)).toEqual({
+      photoFrameId: null,
+      photoFailed: false,
     });
   });
 });

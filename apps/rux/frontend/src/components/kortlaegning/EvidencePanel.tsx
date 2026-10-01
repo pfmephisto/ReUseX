@@ -15,15 +15,24 @@
  *
  * `evidenceSources` is pure and exported so the dialog's thumbnail grid can
  * compute the same four sources without re-deriving the logic. It takes the
- * Foto tab's resolved best-frame id as an *optional third argument* rather
- * than reaching into `api.instanceFrames` itself — that lookup is async and
- * callers already run their own `useAsync` for it (this component keys one on
- * `[part?.cloud, part?.instance_id]` of the *resolved highlight part* —
- * `part`, or for a type-level selection the type's first linked part; see
+ * Foto tab's resolved best-frame id as an *optional third argument* (plus a
+ * fourth `photoFailed` flag) rather than reaching into `api.instanceFrames`
+ * itself — that lookup is async and callers already run their own `useAsync`
+ * for it, keyed on the *resolved highlight part* (`part`, or for a
+ * type-level selection the type's first linked part; see
  * `resolveHighlightPart` below). Pass:
- *  - `undefined` — the lookup is in flight (or not started).
- *  - `null` — the lookup finished and found no frame.
- *  - a number — the resolved frame id.
+ *  - `photoFrameId: undefined` — the lookup is in flight, hasn't started, or
+ *    (inside `EvidencePanel`) its last-known result is for a *different*
+ *    highlight — `useAsync` keeps stale `data`/`error` around across a deps
+ *    change until the new request settles, so a consumer must gate on a key
+ *    match, not just on `loading`, or it shows the previous part's photo (or
+ *    its error) captioned as the new part's for a render or two.
+ *  - `photoFrameId: null` — the lookup finished (for the *current* highlight)
+ *    and found no frame.
+ *  - `photoFrameId: <number>` — the resolved frame id.
+ *  - `photoFailed: true` — the lookup itself failed (for the current
+ *    highlight) rather than returning zero frames; shown as a distinct
+ *    message from "no frame found".
  */
 
 import { useEffect, useState } from 'react';
@@ -65,24 +74,34 @@ const EVIDENCE_LABEL: Record<EvidenceTab, string> = {
 };
 
 /**
+ * A part counts as linked when it names a cloud and an instance id — and that
+ * id is `>= 1`: label `0` means unlabeled (STANDARDS §3), so an `instance_id`
+ * of 0 is not a real instance and both `/renders` and the frames lookup would
+ * 400 on it.
+ */
+function hasInstanceLink(part: SurveyPart | null): part is SurveyPart & { cloud: string; instance_id: number } {
+  return !!part && !!part.cloud && part.instance_id !== null && part.instance_id >= 1;
+}
+
+/**
  * The part whose instance drives the Plan/Punktsky highlight and the Foto
  * lookup: the selected part itself, or — for a type-level selection — the
  * type's first part that is linked to an instance.
  */
 function resolveHighlightPart(type: SurveyType | null, part: SurveyPart | null): SurveyPart | null {
   if (part) return part;
-  return type?.parts.find((p) => p.cloud && p.instance_id !== null) ?? null;
+  return type?.parts.find((p) => hasInstanceLink(p)) ?? null;
 }
 
-function hasInstanceLink(part: SurveyPart | null): part is SurveyPart & { cloud: string; instance_id: number } {
-  return !!part && !!part.cloud && part.instance_id !== null;
-}
-
-/** The four evidence sources for a selection, in `EVIDENCE_TABS` order. See the module doc for `photoFrameId`. */
+/**
+ * The four evidence sources for a selection, in `EVIDENCE_TABS` order. See
+ * the module doc for `photoFrameId` / `photoFailed`.
+ */
 export function evidenceSources(
   type: SurveyType | null,
   part: SurveyPart | null,
   photoFrameId?: number | null,
+  photoFailed?: boolean,
 ): EvidenceSource[] {
   const highlight = resolveHighlightPart(type, part);
   const linked = hasInstanceLink(highlight);
@@ -94,7 +113,9 @@ export function evidenceSources(
   let fotoCaption = 'Bedste foto';
   let fotoEmpty = 'Ingen foto — bygningsdelen er ikke koblet til en instans.';
   if (linked) {
-    if (photoFrameId === undefined) {
+    if (photoFailed) {
+      fotoEmpty = 'Foto kunne ikke hentes.';
+    } else if (photoFrameId === undefined) {
       fotoEmpty = 'Indlæser foto…';
     } else if (photoFrameId === null) {
       fotoEmpty = 'Ingen foto — der blev ikke fundet en ramme for denne instans.';
@@ -189,7 +210,11 @@ function EvidenceImage({
     <div className={wellClassName}>
       <img
         src={source.url}
-        alt={source.label}
+        // A thumbnail's caption strip already names the source ("1 · Plan"
+        // right below it) — a non-empty alt would have a screen reader say
+        // the label twice. The large stage/panel image has no adjacent label
+        // repeating it, so it keeps the real alt text.
+        alt={compact ? '' : source.label}
         className={styles.image}
         onError={() => setErrored(true)}
       />
@@ -197,18 +222,76 @@ function EvidenceImage({
   );
 }
 
+/** Identifies which highlight a frame lookup's result belongs to. */
+function instanceKey(cloud: string, instanceId: number): string {
+  return `${cloud}/${instanceId}`;
+}
+
+/**
+ * A frame lookup's result, tagged with the highlight it was fetched for.
+ *
+ * `useAsync` keeps the previous `data` (and does not clear a previous
+ * `error`) across a deps change until the new request settles — and `loading`
+ * only flips to `true` inside the effect, so there is one render, right after
+ * the selected part changes, where `loading` is still `false` and `data`
+ * still holds the *old* part's result. Tagging the result with its own key
+ * and comparing against the key computed fresh on every render (from props,
+ * not from hook state) is what catches that render, not just the async race.
+ */
+export interface FrameLookup {
+  key: string;
+  frames: VisibleFrame[];
+  /** True when the request for `key` itself failed (not just "zero frames"). */
+  failed: boolean;
+}
+
+/**
+ * Turns a (possibly stale) `FrameLookup` into the Foto tab's `photoFrameId`
+ * / `photoFailed` input for `evidenceSources`. Exported and pure — kept
+ * separate from `EvidencePanel` itself — so the "a different key's data (or
+ * error) is never shown as the current part's" rule is unit-testable without
+ * a DOM.
+ *
+ * `data` not matching `currentKey` (including `data` not having arrived yet)
+ * is treated exactly like "still loading": `undefined`/not-failed. There is
+ * deliberately no way to distinguish "loading" from "stale" in the output —
+ * both must render as "Indlæser foto…", never as the previous part's photo
+ * or error.
+ */
+export function resolvePhotoState(
+  currentKey: string | null,
+  data: FrameLookup | undefined,
+): { photoFrameId: number | null | undefined; photoFailed: boolean } {
+  if (!data || data.key !== currentKey) return { photoFrameId: undefined, photoFailed: false };
+  if (data.failed) return { photoFrameId: undefined, photoFailed: true };
+  return { photoFrameId: data.frames[0]?.frame_id ?? null, photoFailed: false };
+}
+
 export function EvidencePanel({ type, part, tab, onTab, variant }: EvidencePanelProps) {
   const highlight = resolveHighlightPart(type, part);
   const linked = hasInstanceLink(highlight);
+  const currentKey = linked ? instanceKey(highlight.cloud, highlight.instance_id) : null;
 
-  const frames = useAsync<VisibleFrame[]>(
-    (signal) =>
-      linked ? api.instanceFrames(highlight.cloud, highlight.instance_id, signal) : Promise.resolve([]),
+  const frames = useAsync<FrameLookup>(
+    async (signal) => {
+      if (!linked) return { key: '', frames: [], failed: false };
+      const key = instanceKey(highlight.cloud, highlight.instance_id);
+      try {
+        const result = await api.instanceFrames(highlight.cloud, highlight.instance_id, signal);
+        return { key, frames: result, failed: false };
+      } catch (cause) {
+        // A superseded request's abort still propagates here; let useAsync's
+        // own `controller.signal.aborted` guard swallow it as usual rather
+        // than reporting a stale key as a genuine failure.
+        if (signal.aborted) throw cause;
+        return { key, frames: [], failed: true };
+      }
+    },
     [highlight?.cloud, highlight?.instance_id],
   );
 
-  const photoFrameId = frames.loading ? undefined : (frames.data?.[0]?.frame_id ?? null);
-  const sources = evidenceSources(type, part, photoFrameId);
+  const { photoFrameId, photoFailed } = resolvePhotoState(currentKey, frames.data);
+  const sources = evidenceSources(type, part, photoFrameId, photoFailed);
 
   if (!type) {
     return (

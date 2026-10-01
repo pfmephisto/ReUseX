@@ -967,6 +967,8 @@ class ProjectDB {
   struct SurveyTypePatch {
     std::optional<std::string> name, eak_code, bim7aa_code, unit, note;
     std::optional<core::Treatment> treatment;
+    // Unchecked storage write — set approval through core::set_review_status,
+    // which enforces the sample gate.
     std::optional<core::ReviewStatus> review_status;
     std::optional<std::optional<double>> confidence, mass_t;
     std::optional<bool> starred;

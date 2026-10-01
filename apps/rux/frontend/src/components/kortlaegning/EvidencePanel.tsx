@@ -79,7 +79,7 @@ const EVIDENCE_LABEL: Record<EvidenceTab, string> = {
  * of 0 is not a real instance and both `/renders` and the frames lookup would
  * 400 on it.
  */
-function hasInstanceLink(part: SurveyPart | null): part is SurveyPart & { cloud: string; instance_id: number } {
+export function hasInstanceLink(part: SurveyPart | null): part is SurveyPart & { cloud: string; instance_id: number } {
   return !!part && !!part.cloud && part.instance_id !== null && part.instance_id >= 1;
 }
 
@@ -88,7 +88,7 @@ function hasInstanceLink(part: SurveyPart | null): part is SurveyPart & { cloud:
  * lookup: the selected part itself, or — for a type-level selection — the
  * type's first part that is linked to an instance.
  */
-function resolveHighlightPart(type: SurveyType | null, part: SurveyPart | null): SurveyPart | null {
+export function resolveHighlightPart(type: SurveyType | null, part: SurveyPart | null): SurveyPart | null {
   if (part) return part;
   return type?.parts.find((p) => hasInstanceLink(p)) ?? null;
 }
@@ -223,7 +223,7 @@ function EvidenceImage({
 }
 
 /** Identifies which highlight a frame lookup's result belongs to. */
-function instanceKey(cloud: string, instanceId: number): string {
+export function instanceKey(cloud: string, instanceId: number): string {
   return `${cloud}/${instanceId}`;
 }
 

@@ -724,6 +724,19 @@ const std::vector<Endpoint> &endpoint_table() {
        "Approved tonnes per EAK code for waste reporting"},
       {"GET", "/api/v1/samples",
        "Environmental samples with their linked survey types"},
+      {"POST", "/api/v1/survey/sync",
+       "Create survey parts for instances that have none"},
+      {"POST", "/api/v1/survey/types", "Create a survey type"},
+      {"PATCH", "/api/v1/survey/types/<int>",
+       "Edit a survey type; approval is gated on samples"},
+      {"PATCH", "/api/v1/survey/parts/<string>",
+       "Edit or re-file a survey part"},
+      {"POST", "/api/v1/samples", "Register an environmental sample"},
+      {"PATCH", "/api/v1/samples/<int>",
+       "Advance a sample's stage or record its result"},
+      {"DELETE", "/api/v1/samples/<int>", "Delete a sample"},
+      {"PUT", "/api/v1/samples/<int>/links",
+       "Replace the survey types a sample covers"},
   };
   return table;
 }

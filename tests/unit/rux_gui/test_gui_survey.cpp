@@ -16,6 +16,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include <functional>
+
 using namespace rux::gui;
 using reusex::ProjectDB;
 namespace core = reusex::core;
@@ -136,4 +138,156 @@ TEST_CASE("SamplesJson_ResultNullWhenNone", "[gui][survey]") {
   CHECK(j.at("samples").at(0).at("code") == "P-01");
   CHECK(j.at("samples").at(0).at("stage") == "planlagt");
   CHECK(j.at("samples").at(0).at("result").is_null());
+}
+
+// ===========================================================================
+// Writes (#265 Phase 2)
+// ===========================================================================
+
+namespace {
+int status_of(const std::function<void()> &f) {
+  try {
+    f();
+  } catch (const HttpError &e) {
+    return e.status();
+  }
+  return 200;
+}
+} // namespace
+
+TEST_CASE("PatchSurveyType_SparseFields_AndQuantityRedistribution",
+          "[gui][survey][edits]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  const auto id = add_type(db, "Betonsøjler", core::Treatment::genbrug, 58);
+  db.add_survey_part({"RX-001",
+                      id,
+                      std::nullopt,
+                      std::nullopt,
+                      std::nullopt,
+                      "",
+                      18,
+                      false,
+                      "",
+                      {},
+                      {}});
+  db.add_survey_part({"RX-002",
+                      id,
+                      std::nullopt,
+                      std::nullopt,
+                      std::nullopt,
+                      "",
+                      6,
+                      false,
+                      "",
+                      {},
+                      {}});
+  const auto j = patch_survey_type_json(
+      db, id,
+      R"({"treatment":"genanvendelse","mass_t":null,"starred":true,"quantity":30})");
+  CHECK(j.at("treatment") == "genanvendelse");
+  CHECK(j.at("mass_t").is_null());
+  CHECK(j.at("starred") == true);
+  CHECK(j.at("quantity").get<double>() == Approx(30));
+  CHECK(j.at("parts").at(0).at("quantity").get<double>() == Approx(22.5));
+}
+
+TEST_CASE("PatchSurveyType_Errors_MapToStatuses", "[gui][survey][edits]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  const auto id = add_type(db, "Vinduer", core::Treatment::genbrug, 3.1);
+  const auto s = db.add_sample("PCB", "");
+  db.set_sample_links(s.id, {id});
+  CHECK(status_of([&] {
+          patch_survey_type_json(db, id, R"({"review_status":"approved"})");
+        }) == 422);
+  CHECK(status_of([&] {
+          patch_survey_type_json(db, id, R"({"treatment":"Genbrug"})");
+        }) == 400);
+  CHECK(status_of([&] {
+          patch_survey_type_json(db, id, R"({"quantity":-1})");
+        }) == 400);
+  CHECK(status_of([&] {
+          patch_survey_type_json(db, id, R"({"quantity":5})");
+        }) == 422); // no parts
+  CHECK(status_of([&] {
+          patch_survey_type_json(db, id + 99, R"({"starred":true})");
+        }) == 404);
+  CHECK(status_of([&] { patch_survey_type_json(db, id, "not json"); }) == 400);
+  // A rejected combination must not half-apply: nothing changed.
+  CHECK(status_of([&] {
+          patch_survey_type_json(
+              db, id, R"({"starred":true,"review_status":"approved"})");
+        }) == 422);
+  CHECK_FALSE(db.survey_type(id)->starred);
+}
+
+TEST_CASE("CreateSurveyType_RequiresName", "[gui][survey][edits]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  const auto j = create_survey_type_json(
+      db, R"({"name":"Trapezplader, tag","eak_code":"17.04.05"})");
+  CHECK(j.at("id").get<int64_t>() > 0);
+  CHECK(j.at("review_status") == "queue");
+  CHECK(status_of([&] { create_survey_type_json(db, R"({"name":""})"); }) ==
+        400);
+}
+
+TEST_CASE("PatchSurveyPart_MoveAndErrors", "[gui][survey][edits]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  const auto a = add_type(db, "a", core::Treatment::genbrug, 1);
+  const auto b = add_type(db, "b", core::Treatment::genbrug, 1);
+  db.add_survey_part({"RX-001",
+                      a,
+                      std::nullopt,
+                      std::nullopt,
+                      std::nullopt,
+                      "",
+                      1,
+                      false,
+                      "",
+                      {},
+                      {}});
+  const auto j = patch_survey_part_json(db, "RX-001",
+                                        R"({"type_id":)" + std::to_string(b) +
+                                            R"(,"note":"flyttet"})");
+  CHECK(j.at("type_id") == b);
+  CHECK(j.at("note") == "flyttet");
+  CHECK(status_of([&] {
+          patch_survey_part_json(db, "RX-404", R"({"starred":true})");
+        }) == 404);
+  CHECK(status_of([&] {
+          patch_survey_part_json(db, "RX-001", R"({"type_id":9999})");
+        }) == 404);
+}
+
+TEST_CASE("SampleEndpoints_CreateLinkAnswerDelete", "[gui][survey][edits]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  const auto t = add_type(db, "Vinduer", core::Treatment::genbrug, 3.1);
+  auto s = create_sample_json(db, R"({"title":"PCB i fugemasse","type_ids":[)" +
+                                      std::to_string(t) + "]}");
+  const auto id = s.at("id").get<int64_t>();
+  CHECK(s.at("code") == "P-01");
+  CHECK(s.at("type_ids") == nlohmann::json::array({t}));
+  CHECK(status_of([&] { patch_sample_json(db, id, R"({"result":"ren"})"); }) ==
+        422);
+  s = patch_sample_json(db, id, R"({"stage":"svar","result":"forurenet"})");
+  CHECK(s.at("result") == "forurenet");
+  CHECK(status_of([&] { patch_sample_json(db, id, R"({"stage":"lab"})"); }) ==
+        400);
+  s = set_sample_links_json(db, id, R"({"type_ids":[]})");
+  CHECK(s.at("type_ids").empty());
+  CHECK(status_of([&] {
+          set_sample_links_json(db, id, R"({"type_ids":[9999]})");
+        }) == 404);
+  delete_sample(db, id);
+  CHECK(status_of([&] { delete_sample(db, id); }) == 404);
+}
+
+TEST_CASE("SyncSurveyJson_NoInstances_Is422", "[gui][survey][edits]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  CHECK(status_of([&] { sync_survey_json(db, "{}"); }) == 422);
 }

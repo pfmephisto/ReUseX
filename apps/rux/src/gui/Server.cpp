@@ -1244,12 +1244,67 @@ class Server::Impl {
       });
     });
 
-    // GET-only for now; Task 7 extends this rule with POST (one Crow rule per
-    // path).
+    app_.route_dynamic("/api/v1/survey/sync")
+        .methods(crow::HTTPMethod::POST)([this](const crow::request &req) {
+          return with_write([&](reusex::ProjectDB &db) {
+            return json_response(200, sync_survey_json(db, req.body));
+          });
+        });
+    app_.route_dynamic("/api/v1/survey/types")
+        .methods(crow::HTTPMethod::POST)([this](const crow::request &req) {
+          return with_write([&](reusex::ProjectDB &db) {
+            return json_response(201, create_survey_type_json(db, req.body));
+          });
+        });
+    app_.route_dynamic("/api/v1/survey/types/<int>")
+        .methods(
+            crow::HTTPMethod::PATCH)([this](const crow::request &req, int id) {
+          return with_write([&](reusex::ProjectDB &db) {
+            return json_response(200, patch_survey_type_json(db, id, req.body));
+          });
+        });
+    app_.route_dynamic("/api/v1/survey/parts/<string>")
+        .methods(crow::HTTPMethod::PATCH)([this](const crow::request &req,
+                                                 std::string code) {
+          return with_write([&](reusex::ProjectDB &db) {
+            return json_response(200,
+                                 patch_survey_part_json(db, code, req.body));
+          });
+        });
+
+    // One rule for both methods: registering the same path twice would create
+    // two competing Crow rules (same reasoning as /jobs above).
     app_.route_dynamic("/api/v1/samples")
-        .methods(crow::HTTPMethod::GET)([this](const crow::request &) {
-          return with_db([&](const reusex::ProjectDB &db) {
-            return json_response(200, samples_json(db));
+        .methods(crow::HTTPMethod::GET,
+                 crow::HTTPMethod::POST)([this](const crow::request &req) {
+          if (req.method == crow::HTTPMethod::GET)
+            return with_db([&](const reusex::ProjectDB &db) {
+              return json_response(200, samples_json(db));
+            });
+          return with_write([&](reusex::ProjectDB &db) {
+            return json_response(201, create_sample_json(db, req.body));
+          });
+        });
+
+    app_.route_dynamic("/api/v1/samples/<int>")
+        .methods(crow::HTTPMethod::PATCH, crow::HTTPMethod::DELETE)(
+            [this](const crow::request &req, int id) {
+              if (req.method == crow::HTTPMethod::PATCH)
+                return with_write([&](reusex::ProjectDB &db) {
+                  return json_response(200,
+                                       patch_sample_json(db, id, req.body));
+                });
+              return with_write([&](reusex::ProjectDB &db) {
+                delete_sample(db, id);
+                return crow::response(204);
+              });
+            });
+
+    app_.route_dynamic("/api/v1/samples/<int>/links")
+        .methods(
+            crow::HTTPMethod::PUT)([this](const crow::request &req, int id) {
+          return with_write([&](reusex::ProjectDB &db) {
+            return json_response(200, set_sample_links_json(db, id, req.body));
           });
         });
 

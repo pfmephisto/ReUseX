@@ -62,7 +62,10 @@ For Miljø & prøver work, add `--varied`
 (`bash dev/seed-survey-demo.sh --varied <project.rux> /tmp/miljoe-demo.rux`).
 This seeds two extra samples, one answered and linked to two types and one
 planned and unlinked, on top of the prototype's three. Screenshots against
-`miljoe.png` use the plain seed.
+`miljoe.png` use the plain seed. It also seeds three Ressourcekortlægning
+versions (v1 and v2 drafts, v3 complete) with stub PDFs, for Rapport. Shots
+against `overblik.png`, `rapport.png` and `indberetning.png` use the plain
+seed.
 
 ## Production
 

@@ -17,7 +17,6 @@
  */
 
 import type { Sample, SampleCreate, SamplePatch, SampleResult, SampleStage, SurveyType } from '../api/types';
-import type { TargetKind } from '../app/keyTargets';
 import { RESULT_LABEL, STAGE_LABEL, type Tone } from '../kortlaegning/vocab';
 
 export const STAGES: readonly SampleStage[] = ['planlagt', 'udtaget', 'sendt', 'svar'];
@@ -116,16 +115,7 @@ export function removeSample(list: Sample[], id: number): Sample[] {
   return list.filter((s) => s.id !== id);
 }
 
-/**
- * The value a text draft commits on blur, or null to send nothing: unchanged
- * after trimming (an untouched blur), or emptied when the field is required.
- */
-export function textCommit(draft: string, current: string, required: boolean): string | null {
-  const value = draft.trim();
-  if (value === current.trim()) return null;
-  if (required && value === '') return null;
-  return value;
-}
+export { textCommit } from '../app/textDraft';
 
 export function createBody(title: string, what: string, typeIds: readonly number[]): SampleCreate | null {
   const t = title.trim();
@@ -196,23 +186,5 @@ export function deleteConfirmText(s: Pick<Sample, 'code' | 'title'> & { type_ids
   return `Slet ${s.code} · ${s.title}? ${who} miljøstatus beregnes igen.`;
 }
 
-export type EditorKey = 'revert' | 'close' | 'commit' | 'submit';
-
-/**
- * Keys inside a sample editor or the create form. Esc in a text field drops
- * that field's draft (and must not commit it); Esc anywhere else closes.
- * Enter in a single-line text field commits it; Ctrl/⌘+Enter submits from
- * anywhere. Enter/Space on buttons, links and checkboxes stay native.
- */
-export function editorKeyAction(k: {
-  key: string;
-  kind: TargetKind;
-  ctrlKey?: boolean;
-  metaKey?: boolean;
-  altKey?: boolean;
-}): EditorKey | null {
-  if (k.key === 'Escape') return k.kind === 'text' ? 'revert' : 'close';
-  if (k.key === 'Enter' && (k.ctrlKey || k.metaKey)) return 'submit';
-  if (k.key === 'Enter' && k.kind === 'text' && !k.altKey) return 'commit';
-  return null;
-}
+/** Shared with Overblik's editor; re-exported so Miljø keeps one import. */
+export { editorKeyAction, type EditorKey } from '../app/editorKeys';

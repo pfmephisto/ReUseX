@@ -10,15 +10,20 @@ import {
   CIRC_EMPTY_TEXT,
   circularityAriaLabel,
   circularitySegments,
+  danishDate,
   heroSubline,
   INVALID_YEAR_TOAST,
   kpis,
+  maxYear,
   metaPatch,
+  MIN_YEAR,
+  parseYear,
   percentText,
   quickLinks,
   versionsText,
   wholePercents,
   yearCommit,
+  yearText,
 } from '../overblik/model';
 import { reportVersion, surveySummary } from './surveyFixtures';
 
@@ -179,7 +184,7 @@ describe('case hero', () => {
 
   it('joins only the fields that are set', () => {
     expect(heroSubline(record)).toBe(
-      'Måløv Byvej 229, 2760 Måløv · opført 1978 · registreret 2026-08-09 · udarbejdet af Link Arkitektur',
+      'Måløv Byvej 229, 2760 Måløv · opført 1978 · registreret 09.08.2026 · udarbejdet af Link Arkitektur',
     );
     expect(heroSubline({ id: 'p', name: 'x', year_of_construction: 0 })).toBe('');
     expect(heroSubline(undefined)).toBe('');
@@ -208,5 +213,48 @@ describe('metadata commits', () => {
     expect(yearCommit('1978.5', 1978)).toEqual({ send: false, invalid: true });
     expect(yearCommit('0000', 1978)).toEqual({ send: true, value: null });
     expect(INVALID_YEAR_TOAST).toBe('Byggeår skal være et årstal, fx 1978.');
+  });
+});
+
+describe('year plausibility', () => {
+  it('accepts four-digit years from MIN_YEAR to next year only', () => {
+    expect(MIN_YEAR).toBe(1000);
+    expect(parseYear('1000', 2027)).toEqual({ value: 1000 });
+    expect(parseYear('2027', 2027)).toEqual({ value: 2027 });
+    expect(parseYear('0999', 2027)).toBeNull();
+    expect(parseYear('0005', 2027)).toBeNull();
+    expect(parseYear('2028', 2027)).toBeNull();
+    expect(parseYear('9999', 2027)).toBeNull();
+    expect(parseYear(' ', 2027)).toEqual({ value: null });
+    expect(parseYear('0', 2027)).toEqual({ value: null });
+    expect(parseYear('0000', 2027)).toEqual({ value: null });
+  });
+
+  it('never sends an implausible year', () => {
+    expect(yearCommit('0005', 1978, 2027)).toEqual({ send: false, invalid: true });
+    expect(yearCommit('2028', undefined, 2027)).toEqual({ send: false, invalid: true });
+    expect(yearCommit('2027', 1978, 2027)).toEqual({ send: true, value: 2027 });
+  });
+
+  it('never flags an untouched blur, even on an implausible stored year', () => {
+    expect(yearCommit('5', 5, 2027)).toEqual({ send: false, invalid: false });
+    expect(yearCommit('', 5, 2027)).toEqual({ send: true, value: null });
+  });
+
+  it('caps at next year by the clock', () => {
+    expect(maxYear(new Date(2026, 9, 1))).toBe(2027);
+    expect(yearText(0)).toBe('');
+    expect(yearText(undefined)).toBe('');
+    expect(yearText(1978)).toBe('1978');
+  });
+});
+
+describe('danish dates (F24)', () => {
+  it('shows an ISO date as dd.mm.yyyy and leaves anything else as stored', () => {
+    expect(danishDate('2026-08-09')).toBe('09.08.2026');
+    expect(danishDate(' 2026-08-09T10:15:00Z ')).toBe('09.08.2026');
+    expect(danishDate('09.08.2026')).toBe('09.08.2026');
+    expect(danishDate('august 2026')).toBe('august 2026');
+    expect(danishDate('')).toBe('');
   });
 });

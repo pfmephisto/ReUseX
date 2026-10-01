@@ -32,12 +32,16 @@ import styles from './AppShell.module.css';
  */
 export function AppShell({ children }: { children: ReactNode }) {
   const { data: health, error } = useAsync<Health>((signal) => api.health(signal), []);
-  const { data: summary } = useAsync<ProjectSummary>((signal) => api.projectSummary(signal), []);
+  const project = useAsync<ProjectSummary>((signal) => api.projectSummary(signal), []);
+  const summary = project.data;
   const survey = useAsync<SurveySummary>((signal) => api.surveySummary(signal), []);
   const { active, status } = useJobs();
   const reviewQueue = survey.error ? undefined : survey.data?.counts.queue;
   const pendingSamples = survey.error ? undefined : survey.data?.pending_samples;
-  const surveyCounts = useMemo(() => ({ refresh: survey.reload }), [survey.reload]);
+  const surveyCounts = useMemo(
+    () => ({ refresh: survey.reload, refreshProject: project.reload }),
+    [survey.reload, project.reload],
+  );
 
   return (
     <div className={styles.shell}>

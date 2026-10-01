@@ -296,3 +296,39 @@ TEST_CASE("SurveySchema_MigratesFromV21", "[ProjectDB][survey][migration]") {
   CHECK(db.survey_types().empty());
   CHECK(db.add_survey_type(window_type()).id > 0);
 }
+
+TEST_CASE("SurveyParts_SetQuantities_IsAllOrNothing", "[ProjectDB][survey]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  const auto type_id = db.add_survey_type(window_type()).id;
+  db.add_survey_part({"RX-001",
+                      type_id,
+                      std::nullopt,
+                      std::nullopt,
+                      std::nullopt,
+                      "",
+                      1,
+                      false,
+                      "",
+                      {},
+                      {}});
+  db.add_survey_part({"RX-002",
+                      type_id,
+                      std::nullopt,
+                      std::nullopt,
+                      std::nullopt,
+                      "",
+                      2,
+                      false,
+                      "",
+                      {},
+                      {}});
+  CHECK_THROWS_AS(db.set_survey_part_quantities({{"RX-001", 5}, {"RX-404", 9}}),
+                  std::out_of_range);
+  CHECK(db.survey_part("RX-001")->quantity == 1);
+  CHECK(db.survey_part("RX-002")->quantity == 2);
+
+  db.set_survey_part_quantities({{"RX-001", 5}, {"RX-002", 6}});
+  CHECK(db.survey_part("RX-001")->quantity == 5);
+  CHECK(db.survey_part("RX-002")->quantity == 6);
+}

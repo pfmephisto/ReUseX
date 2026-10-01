@@ -7853,6 +7853,40 @@ ProjectDB::update_survey_part(std::string_view code, const SurveyPartPatch &p) {
   return *survey_part(code);
 }
 
+void ProjectDB::set_survey_part_quantities(
+    const std::vector<std::pair<std::string, double>> &code_quantities) {
+  impl_->checkWritable();
+  for (const auto &[code, quantity] : code_quantities)
+    if (!survey_part(code))
+      throw std::out_of_range("no survey part '" + code + "'");
+  impl_->execOrThrow("BEGIN TRANSACTION;");
+  try {
+    sqlite3_stmt *stmt = prepare_or_throw(
+        impl_->db, "UPDATE survey_parts SET quantity = ? WHERE code = ?;",
+        "set_survey_part_quantities");
+    StmtGuard guard(stmt);
+    for (const auto &[code, quantity] : code_quantities) {
+      sqlite3_reset(stmt);
+      sqlite3_bind_double(stmt, 1, quantity);
+      bind_text(stmt, 2, code);
+      if (sqlite3_step(stmt) != SQLITE_DONE)
+        throw std::runtime_error("set_survey_part_quantities: " +
+                                 std::string(sqlite3_errmsg(impl_->db)));
+    }
+    impl_->execOrThrow("COMMIT;");
+  } catch (...) {
+    // Non-throwing on purpose: a throw here would mask the original
+    // exception. Still check the result rather than discard it silently
+    // (STANDARDS §5) so a failed rollback — which leaves the transaction
+    // open on impl_->db — is at least visible in the log.
+    if (sqlite3_exec(impl_->db, "ROLLBACK;", nullptr, nullptr, nullptr) !=
+        SQLITE_OK)
+      reusex::warn("set_survey_part_quantities: ROLLBACK failed: {}",
+                   sqlite3_errmsg(impl_->db));
+    throw;
+  }
+}
+
 bool ProjectDB::has_survey_part_for(std::string_view cloud_name,
                                     std::uint32_t instance_id) const {
   sqlite3_stmt *stmt =

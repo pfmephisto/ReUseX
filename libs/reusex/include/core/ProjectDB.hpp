@@ -1010,6 +1010,10 @@ class ProjectDB {
   survey_part(std::string_view code) const;
   SurveyPartRecord update_survey_part(std::string_view code,
                                       const SurveyPartPatch &patch);
+  /// Set several parts' quantities in one transaction — all or nothing.
+  /// Storage only; the redistribution rule lives in core/survey_service.
+  void set_survey_part_quantities(
+      const std::vector<std::pair<std::string, double>> &code_quantities);
   [[nodiscard]] bool has_survey_part_for(std::string_view cloud_name,
                                          std::uint32_t instance_id) const;
   [[nodiscard]] int max_survey_part_number() const; // 0 when there are none

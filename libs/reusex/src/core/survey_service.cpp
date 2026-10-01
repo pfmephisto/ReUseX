@@ -5,6 +5,7 @@
 #include "reusex/core/survey_service.hpp"
 
 #include <stdexcept>
+#include <utility>
 
 namespace reusex::core {
 
@@ -60,12 +61,14 @@ set_type_quantity(ProjectDB &db, int64_t type_id, double total) {
   for (const auto &p : parts)
     current.push_back(p.quantity);
   const auto next = redistribute_quantity(current, total);
+  std::vector<std::pair<std::string, double>> code_quantities;
+  for (std::size_t i = 0; i < parts.size(); ++i)
+    code_quantities.emplace_back(parts[i].code, next[i]);
+  db.set_survey_part_quantities(code_quantities);
   std::vector<ProjectDB::SurveyPartRecord> out;
-  for (std::size_t i = 0; i < parts.size(); ++i) {
-    ProjectDB::SurveyPartPatch patch;
-    patch.quantity = next[i];
-    out.push_back(db.update_survey_part(parts[i].code, patch));
-  }
+  for (const auto &p : db.survey_parts())
+    if (p.type_id == type_id)
+      out.push_back(p);
   return out;
 }
 

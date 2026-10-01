@@ -218,6 +218,17 @@ describe('gate feedback', () => {
     );
     expect(deleteConfirmText({ code: 'P-05', title: 'PAH i tagpap', type_ids: [] })).toBe('Slet P-05 · PAH i tagpap?');
   });
+
+  it('counts the draft links it is given, read-only, not the server copy', () => {
+    const server = { code: 'P-02', title: 'Bly i maling', type_ids: [3] };
+    const draft: readonly number[] = [3, 4, 9];
+    expect(deleteConfirmText({ ...server, type_ids: draft })).toBe(
+      'Slet P-02 · Bly i maling? 3 koblede typer mister prøven, og deres miljøstatus beregnes igen.',
+    );
+    expect(answeredNote({ type_ids: draft })).toBe(
+      'Svar registreret — miljøstatus opdateret på 3 type(r) i kortlægningen.',
+    );
+  });
 });
 
 describe('editor keys', () => {

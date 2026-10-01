@@ -79,7 +79,8 @@ export function resultPatch(result: SampleResult): SamplePatch {
 /** Back to awaiting the lab — never `svar` without a result (that counts as clean). */
 export const UNDO_RESULT_PATCH: SamplePatch = { stage: 'sendt', result: null };
 
-export function answeredNote(s: Pick<Sample, 'type_ids'>): string {
+/** Takes the links as shown (a pending link draft, else the server's), hence `readonly`. */
+export function answeredNote(s: { type_ids: readonly number[] }): string {
   const n = s.type_ids.length;
   return n === 0
     ? 'Svar registreret — prøven er ikke koblet til nogen type.'
@@ -181,7 +182,11 @@ export function resultToast(code: string, result: SampleResult): string {
   return `✓ ${code} · svar registreret: ${RESULT_LABEL[result]}`;
 }
 
-export function deleteConfirmText(s: Pick<Sample, 'code' | 'title' | 'type_ids'>): string {
+/**
+ * Counts the links passed in — the card passes the draft links its editor
+ * shows, not the server's, so the prompt matches what the user sees.
+ */
+export function deleteConfirmText(s: Pick<Sample, 'code' | 'title'> & { type_ids: readonly number[] }): string {
   const n = s.type_ids.length;
   if (n === 0) return `Slet ${s.code} · ${s.title}?`;
   const who = n === 1 ? '1 koblet type mister prøven, og dens' : `${n} koblede typer mister prøven, og deres`;

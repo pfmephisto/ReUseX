@@ -37,9 +37,14 @@
   composes: textBtn from '../controls.module.css';
   align-self: flex-start;
   font-size: var(--font-size-sm);
+}
+
+/* Scoped under .hero so the chrome ink outranks textBtn's accent colour
+ * whatever order the two stylesheets load in. */
+.hero .edit {
   color: var(--color-on-chrome);
 }
 
-.edit:focus-visible {
+.hero .edit:focus-visible {
   outline-color: var(--color-on-chrome);
 }

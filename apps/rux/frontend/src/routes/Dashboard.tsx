@@ -106,7 +106,8 @@ const TYPE_COLUMNS: Column<TypeCount>[] = [
 ];
 
 /**
- * Project overview — the app's landing route.
+ * Project data (Værktøjer › Projektdata) — the technical inventory that was
+ * the landing route until Overblik replaced it (Phase 5).
  *
  * Two independent requests, and deliberately two independent failure surfaces:
  * `/project` is the screen, so losing it replaces the screen, while

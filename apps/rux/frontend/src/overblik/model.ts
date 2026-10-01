@@ -236,3 +236,32 @@ export function danishDate(stored: string): string {
   const real = date.getUTCFullYear() === y && date.getUTCMonth() === mo - 1 && date.getUTCDate() === d;
   return real ? `${m[3]}.${m[2]}.${m[1]}` : t;
 }
+
+/** Where a new record id's randomness comes from (injectable for tests). */
+export interface IdSource {
+  /** `crypto.randomUUID`, which only exists in a secure context. */
+  randomUUID?: () => string;
+  now: () => number;
+  random: () => number;
+}
+
+/** The browser's sources. `crypto.randomUUID` is absent over plain http on a LAN address (`rux gui --bind`). */
+export function browserIdSource(): IdSource {
+  const c = globalThis.crypto;
+  return {
+    randomUUID: typeof c?.randomUUID === 'function' ? () => c.randomUUID() : undefined,
+    now: Date.now,
+    random: Math.random,
+  };
+}
+
+/**
+ * An id for a project record that does not exist yet (PATCH upserts it). A
+ * UUID when the context allows one, else a time-plus-random id that is
+ * unique enough for the one record a `.rux` holds.
+ */
+export function newRecordId(src: IdSource = browserIdSource()): string {
+  if (src.randomUUID) return src.randomUUID();
+  const rand = src.random().toString(36).slice(2, 12).padEnd(10, '0');
+  return `p-${src.now().toString(36)}-${rand}`;
+}

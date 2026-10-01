@@ -12,3 +12,13 @@
   padding: 0;
   list-style: none;
 }
+
+/* Tiles in a row share its height, so a tile with a hint line does not stand
+ * taller than its neighbours. */
+.row > li {
+  display: flex;
+}
+
+.row > li > * {
+  flex: 1;
+}

@@ -15,7 +15,14 @@
  */
 
 import type { Health, ProjectSummary } from '../api/types';
-import { INDBERETNING_PATH, KORTLAEGNING_PATH, MILJOE_PATH, OVERBLIK_PATH, RAPPORT_PATH } from './links';
+import {
+  INDBERETNING_PATH,
+  KORTLAEGNING_PATH,
+  MILJOE_PATH,
+  OVERBLIK_PATH,
+  PROJEKTDATA_PATH,
+  RAPPORT_PATH,
+} from './links';
 
 export type NavGroup = 'sag' | 'tools';
 
@@ -50,6 +57,7 @@ export const NAV_ENTRIES: readonly NavEntry[] = [
     pending: 'Kommer i fase 5 — fraktioner til bygningsaffald.dk',
   },
 
+  { to: PROJEKTDATA_PATH, label: 'Projektdata', group: 'tools' },
   { to: '/viewport', label: 'Viewport', group: 'tools' },
   { to: '/graph-view', label: 'Posegraf', group: 'tools' },
   { to: '/pipeline', label: 'Pipeline', group: 'tools', end: true },

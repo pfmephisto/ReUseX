@@ -17,6 +17,7 @@ import {
   kpis,
   maxYear,
   metaPatch,
+  newRecordId,
   MIN_YEAR,
   parseYear,
   percentText,
@@ -272,5 +273,31 @@ describe('danish dates (F24)', () => {
 describe('empty case name', () => {
   it('has its Danish toast', () => {
     expect(EMPTY_NAME_TOAST).toBe('Sagsnavnet kan ikke være tomt.');
+  });
+});
+
+describe('newRecordId', () => {
+  it('uses randomUUID when the context offers it', () => {
+    expect(newRecordId({ randomUUID: () => 'uuid-1', now: () => 0, random: () => 0.5 })).toBe('uuid-1');
+  });
+
+  it('falls back to time plus randomness without randomUUID (plain http on a LAN)', () => {
+    const id = newRecordId({ now: () => 1_700_000_000_000, random: () => 0.123456789 });
+    expect(id).toMatch(/^p-[0-9a-z]+-[0-9a-z]{10}$/);
+    expect(id).toContain((1_700_000_000_000).toString(36));
+  });
+
+  it('gives two fallback calls different ids when the randomness differs', () => {
+    const a = newRecordId({ now: () => 1, random: () => 0.1 });
+    const b = newRecordId({ now: () => 1, random: () => 0.2 });
+    expect(a).not.toBe(b);
+  });
+
+  it('pads a short random part so the id keeps its shape', () => {
+    expect(newRecordId({ now: () => 1, random: () => 0.5 })).toBe('p-1-i000000000');
+  });
+
+  it('works with the real browser source in Node', () => {
+    expect(newRecordId().length).toBeGreaterThan(8);
   });
 });

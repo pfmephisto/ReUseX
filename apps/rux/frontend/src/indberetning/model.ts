@@ -75,8 +75,40 @@ export function canSend(f: SurveyFractions): boolean {
 /** The status when nothing blocks but there is no fraction to report either. */
 export const NOTHING_TO_SEND = 'Ingen fraktioner at indberette';
 
-/** The footer status pill's id; the disabled Send button is described by it. */
+/** The footer status pill's id (only while the table is shown). */
 export const FOOT_STATUS_ID = 'indberetning-foot-status';
+
+/**
+ * The gate hint's id beside the Send button. The disabled button is described
+ * by it, not by the footer pill: the hint is rendered exactly when the button
+ * is disabled, so the reference always resolves, table or no table.
+ */
+export const GATE_HINT_ID = 'indberetning-gate-hint';
+
+export interface EmptyCopy {
+  title: string;
+  detail: string;
+}
+
+/**
+ * What the page shows instead of the table, or null when there is a table
+ * (any fraction or blocker). `typeCount` is the survey's non-rejected types
+ * (`SurveySummary.counts.all`). With types but no row at all, every type is
+ * approved bevaring — which is not waste — so "no types yet" would be wrong.
+ */
+export function emptyFractions(f: SurveyFractions, typeCount: number): EmptyCopy | null {
+  if (f.fractions.length > 0 || f.blocking.length > 0) return null;
+  if (typeCount === 0) {
+    return {
+      title: 'Ingen typer i kortlægningen endnu',
+      detail: 'Fraktionerne opstår, når typerne i Kortlægning er godkendt med tonnage.',
+    };
+  }
+  return {
+    title: 'Ingen fraktioner at indberette — bevaring bliver i bygningen.',
+    detail: 'Alle typer i kortlægningen er godkendt til bevaring, og bevaring indgår ikke i affaldsindberetningen.',
+  };
+}
 
 export function footStatus(f: SurveyFractions): { tone: Tone; text: string } {
   if (canSend(f)) return { tone: 'good', text: 'Klar til afsendelse' };

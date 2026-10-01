@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   canSend,
+  emptyFractions,
   footStatus,
   FRACTION_NOTE,
   fractionRows,
@@ -113,6 +114,24 @@ describe('footer and totals', () => {
   it('names every blocker in the note, the missing tonnes included', () => {
     expect(FRACTION_NOTE).toContain('afventer gennemsyn eller miljøsvar, eller mangler tons, er vist nederst');
     expect(BLOCKING_STATUS.mass).toEqual({ tone: 'warn', text: 'Mangler tons' });
+  });
+});
+
+describe('the empty state', () => {
+  const none = surveyFractions({ fractions: [], blocking: [], blocking_types: 0, ready: false });
+
+  it('says there are no types yet only when there are none', () => {
+    expect(emptyFractions(none, 0)?.title).toBe('Ingen typer i kortlægningen endnu');
+  });
+
+  it('says bevaring stays in the building when every type is approved bevaring', () => {
+    expect(emptyFractions(none, 4)?.title).toBe('Ingen fraktioner at indberette — bevaring bliver i bygningen.');
+  });
+
+  it('shows the table whenever there is a fraction or a blocker', () => {
+    expect(emptyFractions(surveyFractions(), 11)).toBeNull();
+    expect(emptyFractions(surveyFractions({ blocking: [], blocking_types: 0, ready: true }), 3)).toBeNull();
+    expect(emptyFractions(surveyFractions({ fractions: [] }), 7)).toBeNull();
   });
 });
 

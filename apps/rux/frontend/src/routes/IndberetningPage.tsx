@@ -13,10 +13,11 @@ import { FractionTable } from '../components/indberetning/FractionTable';
 import {
   canSend,
   CSV_FILENAME,
-  FOOT_STATUS_ID,
+  emptyFractions,
   footStatus,
   FRACTION_NOTE,
   fractionsCsvHref,
+  GATE_HINT_ID,
   SEND_NOTICE,
 } from '../indberetning/model';
 import styles from './IndberetningPage.module.css';
@@ -24,14 +25,19 @@ import styles from './IndberetningPage.module.css';
 /**
  * Indberetning — approved tonnes per EAK fraction for bygningsaffald.dk
  * (prototype 02e). Read-only: the fractions, the blocking types and readiness
- * are all `GET /survey/fractions`.
+ * are all `GET /survey/fractions`; `GET /survey/summary`'s type count only
+ * tells an empty survey from an all-bevaring one.
  *
  * The send gate is the prototype's: `Send til bygningsaffald.dk` is enabled
  * exactly when nothing blocks. v1 posts nothing, so a click only says so and
  * points to the CSV (R9), which is always available. Submission is a follow-up.
  */
 export function IndberetningPage() {
-  const { data, error, loading, reload } = useAsync((s) => api.surveyFractions(s), []);
+  const { data: loaded, error, loading, reload } = useAsync(
+    (s) => Promise.all([api.surveyFractions(s), api.surveySummary(s)]),
+    [],
+  );
+  const data = loaded?.[0];
   const [sendNotice, setSendNotice] = useState(false);
   const csvHref = useMemo(() => (data ? fractionsCsvHref(data) : null), [data]);
 
@@ -49,10 +55,10 @@ export function IndberetningPage() {
       </div>
     );
   }
-  if (!data || !csvHref) return null;
+  if (!loaded || !data || !csvHref) return null;
 
   const sendable = canSend(data);
-  const empty = data.fractions.length === 0 && data.blocking.length === 0;
+  const empty = emptyFractions(data, loaded[1].counts.all);
 
   return (
     <div className={styles.page}>
@@ -63,13 +69,17 @@ export function IndberetningPage() {
           <a className={styles.btnGhost} href={csvHref} download={CSV_FILENAME}>
             Hent fraktioner (CSV)
           </a>
-          {!sendable && <span className={styles.gateHint}>{footStatus(data).text}</span>}
+          {!sendable && (
+            <span id={GATE_HINT_ID} className={styles.gateHint}>
+              {footStatus(data).text}
+            </span>
+          )}
           <button
             type="button"
             className={styles.btnPrimary}
             disabled={!sendable}
             title={sendable ? undefined : footStatus(data).text}
-            aria-describedby={sendable ? undefined : FOOT_STATUS_ID}
+            aria-describedby={sendable ? undefined : GATE_HINT_ID}
             onClick={() => setSendNotice(true)}
           >
             Send til bygningsaffald.dk
@@ -86,10 +96,7 @@ export function IndberetningPage() {
       <p className={styles.note}>{FRACTION_NOTE}</p>
 
       {empty ? (
-        <EmptyState
-          title="Ingen typer i kortlægningen endnu"
-          detail="Fraktionerne opstår, når typerne i Kortlægning er godkendt med tonnage."
-        />
+        <EmptyState title={empty.title} detail={empty.detail} />
       ) : (
         <FractionTable fractions={data} />
       )}

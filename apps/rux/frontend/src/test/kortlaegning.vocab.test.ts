@@ -57,12 +57,25 @@ describe('kortlægning vocabulary', () => {
   });
 
   it('parses what a Danish user types', () => {
+    // Valid grouped format (thousands separator)
     expect(parseDanishNumber('1.240')).toBe(1240);
     expect(parseDanishNumber('1.240,5')).toBe(1240.5);
+    expect(parseDanishNumber('1.240,50')).toBe(1240.5);
+
+    // Valid ungrouped format (no thousands separator)
     expect(parseDanishNumber('22,5')).toBe(22.5);
+    expect(parseDanishNumber('1,5')).toBe(1.5);
     expect(parseDanishNumber(' 18 ')).toBe(18);
+    expect(parseDanishNumber('0')).toBe(0);
+
+    // Invalid inputs
     expect(parseDanishNumber('')).toBeNull();
     expect(parseDanishNumber('abc')).toBeNull();
     expect(parseDanishNumber('-3')).toBeNull(); // quantities are never negative
+    expect(parseDanishNumber('1.2.3')).toBeNull(); // malformed grouping
+    expect(parseDanishNumber('1.24')).toBeNull(); // incomplete grouping
+    expect(parseDanishNumber('12,')).toBeNull(); // trailing comma
+    expect(parseDanishNumber('1e3')).toBeNull(); // scientific notation
+    expect(parseDanishNumber('1240.5')).toBeNull(); // English decimal point misread as grouping
   });
 });

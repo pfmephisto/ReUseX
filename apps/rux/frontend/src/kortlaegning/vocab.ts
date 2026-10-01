@@ -64,10 +64,22 @@ export function confidencePercent(c: number | null): number | null {
 
 /**
  * Parse a quantity as a Danish user types it: '.' groups thousands, ',' is the
- * decimal point. Returns null for empty, malformed or negative input.
+ * decimal point. Accepts two formats after trimming:
+ * - Grouped: 1-3 digits followed by groups of .NNN, optionally with ,decimal
+ *   (e.g. '1.240', '12.345.678', '1.240,5')
+ * - Ungrouped: digits with optional ,decimal (e.g. '18', '22,5', '0')
+ * Returns null for empty, malformed, negative, or English-decimal input.
  */
 export function parseDanishNumber(text: string): number | null {
-  const t = text.trim().replace(/\./g, '').replace(',', '.');
-  if (t === '' || !/^\d+(\.\d+)?$/.test(t)) return null;
-  return Number(t);
+  const t = text.trim();
+  if (t === '') return null;
+
+  // Accept grouped: /^\d{1,3}(\.\d{3})+(,\d+)?$/
+  // Or ungrouped: /^\d+(,\d+)?$/
+  if (!/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(t) && !/^\d+(,\d+)?$/.test(t)) {
+    return null;
+  }
+
+  const normalized = t.replace(/\./g, '').replace(',', '.');
+  return Number(normalized);
 }

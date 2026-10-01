@@ -12,13 +12,9 @@
 }
 
 .legend {
+  composes: fieldLabel from './controls.module.css';
   padding: 0;
   margin-bottom: var(--space-1);
-  font-size: var(--font-size-2xs);
-  font-weight: var(--font-weight-bold);
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-caps);
-  color: var(--color-text-muted);
 }
 
 .list {

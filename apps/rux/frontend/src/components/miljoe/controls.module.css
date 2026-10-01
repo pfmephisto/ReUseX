@@ -92,7 +92,27 @@
   outline-offset: 2px;
 }
 
-/* Form fields: an uppercase caption over a sunken single-line input. */
+/* Form fields: an uppercase caption over a sunken single-line input, laid
+ * out as a narrow + wide pair that stacks on a narrow screen. */
+
+.fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  gap: var(--space-3);
+}
+
+@media (max-width: 45rem) {
+  .fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
 
 .fieldLabel {
   font-size: var(--font-size-2xs);

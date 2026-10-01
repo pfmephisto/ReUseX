@@ -53,6 +53,11 @@ talk only to the Vite origin, so CORS never enters into it. See
 [`docs/gui/README.md`](../../../docs/gui/README.md) § "The frontend must be
 same-origin".
 
+For Kortlægning work, seed the prototype's demo survey into a scratch copy:
+`bash dev/seed-survey-demo.sh <project.rux> /tmp/kort-demo.rux`, then
+`rux -p /tmp/kort-demo.rux gui --port 8420 --no-browser`. Never run it on a
+real project.
+
 ## Production
 
 ```bash
@@ -114,15 +119,22 @@ src/
 ├── api/          Contract-facing layer: types.ts (generated-by-hand mirrors of
 │                 openapi.yaml), client.ts (typed fetch wrapper), events.ts
 │                 (WebSocket channel + reconnect)
-├── app/          App shell, routing, cross-cutting state (JobsContext),
-│                 useAsync
+├── app/          App shell, routing, cross-cutting state (JobsContext,
+│                 SurveyCountsContext — drives the sidebar review-queue
+│                 badge), useAsync, useToast
 ├── components/   Presentational, contract-agnostic building blocks
-│                 (DataTable, StatCard, Sidebar, JobToaster, ...)
+│                 (DataTable, StatCard, Sidebar, JobToaster, Pill,
+│                 ConfidenceBar, Kbd, Toast, ...), plus kortlaegning/
+│                 (SurveyTable, EvidencePanel, DetailPanel, EditDialog)
+├── kortlaegning/ Pure modules for the Kortlægning workbench: vocab.ts
+│                 (Danish labels, number formatting), model.ts (tabs,
+│                 filters, selection, row flattening), keys.ts (keyboard
+│                 maps)
 ├── pipeline/     Pure stage-runner logic: the card view model (stageModel),
 │                 parameter-form parsing and the omit-defaults submit rule
 │                 (params), and the pipeline_log timeline (history)
 ├── routes/       Page-level compositions (Dashboard, PipelinePage,
-│                 ViewportPage)
+│                 ViewportPage, KortlaegningPage)
 ├── viewport/     three.js point-cloud rendering: PointCloudScene, the paged
 │                 cloud stream (useCloudStream, pagination), point decoding
 │                 (decode.ts) and label colour mapping (labelColors.ts)

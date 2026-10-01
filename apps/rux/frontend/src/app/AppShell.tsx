@@ -2,15 +2,16 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import type { ReactNode } from 'react';
+import { useMemo, type ReactNode } from 'react';
 
 import { api } from '../api/client';
-import type { Health, ProjectSummary } from '../api/types';
+import type { Health, ProjectSummary, SurveySummary } from '../api/types';
 import { TitleBar } from '../components/TitleBar';
 import { Sidebar } from '../components/Sidebar';
 import { JobToaster } from '../components/JobToaster';
 import { useAsync } from './useAsync';
 import { useJobs } from './JobsContext';
+import { SurveyCountsProvider } from './SurveyCountsContext';
 import { displayProjectName } from './navigation';
 import styles from './AppShell.module.css';
 
@@ -22,11 +23,18 @@ import styles from './AppShell.module.css';
  * designates for the version handshake, and it reports `project.open === false`
  * when the database could not be opened — which is exactly the state a title
  * bar must not render as if everything were fine.
+ *
+ * The Kortlægning badge comes from `GET /survey/summary`. A server that
+ * predates the survey routes answers 404; the shell then shows no badge rather
+ * than an error — the badge is a hint, not something to block the app on.
  */
 export function AppShell({ children }: { children: ReactNode }) {
   const { data: health, error } = useAsync<Health>((signal) => api.health(signal), []);
   const { data: summary } = useAsync<ProjectSummary>((signal) => api.projectSummary(signal), []);
+  const survey = useAsync<SurveySummary>((signal) => api.surveySummary(signal), []);
   const { active, status } = useJobs();
+  const reviewQueue = survey.error ? undefined : survey.data?.counts.queue;
+  const surveyCounts = useMemo(() => ({ refresh: survey.reload }), [survey.reload]);
 
   return (
     <div className={styles.shell}>
@@ -41,8 +49,10 @@ export function AppShell({ children }: { children: ReactNode }) {
         unreachable={Boolean(error)}
       />
       <div className={styles.body}>
-        <Sidebar projectName={displayProjectName(summary, health)} />
-        <main className={styles.content}>{children}</main>
+        <Sidebar projectName={displayProjectName(summary, health)} badges={{ reviewQueue }} />
+        <main className={styles.content}>
+          <SurveyCountsProvider value={surveyCounts}>{children}</SurveyCountsProvider>
+        </main>
       </div>
       <JobToaster />
     </div>

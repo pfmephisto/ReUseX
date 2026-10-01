@@ -11,6 +11,8 @@ export interface EmptyStateProps {
   /** What would put something here — the stage that produces it. */
   detail?: string;
   action?: ReactNode;
+  /** Drop the dashed frame, for a container that already draws one. */
+  bare?: boolean;
 }
 
 /**
@@ -21,9 +23,9 @@ export interface EmptyStateProps {
  * passports — that is the normal starting state of the pipeline, not a fault,
  * and styling it like one would train the user to ignore real failures.
  */
-export function EmptyState({ title, detail, action }: EmptyStateProps) {
+export function EmptyState({ title, detail, action, bare }: EmptyStateProps) {
   return (
-    <div className={styles.empty}>
+    <div className={`${styles.empty} ${bare ? styles.bare : ''}`}>
       <p className={styles.title}>{title}</p>
       {detail && <p className={styles.detail}>{detail}</p>}
       {action && <div className={styles.action}>{action}</div>}

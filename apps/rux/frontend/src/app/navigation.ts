@@ -39,13 +39,7 @@ export const ALL_CASES_PENDING: string | undefined = 'Kommer i fase 6 — sagsli
 
 export const NAV_ENTRIES: readonly NavEntry[] = [
   { to: '/', label: 'Overblik', group: 'sag', end: true },
-  {
-    to: '/kortlaegning',
-    label: 'Kortlægning',
-    group: 'sag',
-    badge: 'reviewQueue',
-    pending: 'Kommer i fase 3 — brug Materialedata indtil da',
-  },
+  { to: '/kortlaegning', label: 'Kortlægning', group: 'sag', badge: 'reviewQueue' },
   {
     to: '/miljoe',
     label: 'Miljø & prøver',

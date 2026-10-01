@@ -176,18 +176,23 @@ answers 503.
   circularity-coloured pill, miljø as a tone pill, status as a confidence bar
   or "Godkendt ✓". Sticky header, keyboard-focusable, selected row with an
   accent inset bar.
-- **Evidence panel** — tabs Plan · 360° · Punktsky · Rum-model:
+- **Evidence panel** — tabs Plan · Foto · Punktsky · Rum-model:
   - *Plan*: server-rendered floor plan (`render_view`, `plan` preset) with the
     selected instance highlighted.
-  - *360°*: the panorama nearest to the instance.
+  - *Foto*: no nearest-panorama endpoint exists yet, so this tab substitutes a
+    regular sensor-frame photo ("Bedste foto") of the selected part's instance
+    — or of the first linked part's instance, for a type row — not a true 360°
+    view. Swap in a real 360° tab once the endpoint lands (see follow-ups).
   - *Punktsky*: server-rendered orbit view of the cloud, instance highlighted,
     plus "Åbn i viewport".
   - *Rum-model*: server-rendered view of the `rooms` layer.
 - **Detail panel** — title, BIM7AA pill, miljø pill, ★ pill; Mængde (editable;
   on a type it is redistributed proportionally over the parts), EAK, Behandling
-  (select), Sikkerhed (AI); sample line linking to Miljø & prøver or
-  "Kobl prøve"; Proces / håndtering note; ☆ Markér vigtig, Afvis, Godkend
-  mængde ✓ (disabled with a gate note while a sample is pending), Genåbn.
+  (select), Sikkerhed (AI); sample line (plain text today — "Miljøstatus
+  styres af P-01 · PCB i fugemasse" — not yet a link to Miljø & prøver, since
+  that screen doesn't exist until Phase 4); Proces / håndtering note;
+  ☆ Markér vigtig, Afvis, Godkend mængde ✓ (disabled with a gate note while a
+  sample is pending), Genåbn.
 - **Edit dialog** (Enter / double-click) — navy header with prev/next/close;
   left form (part chips, quantity, EAK, behandling, sikkerhed, sample line,
   note, photos = the instance's best frames, ☆); right evidence with four
@@ -225,3 +230,14 @@ Each phase is a separate PR that leaves the app working.
 - Lab integration (e.g. Milva) for automatic sample results.
 - Pushing the new token values to the Claude Design project ("ReUseX GUI") with
   `/design-sync` after Phase 1 merges — a maintainer-initiated step.
+- A nearest-panorama endpoint, so the evidence panel's Foto tab can become a
+  true 360° tab instead of substituting a sensor-frame photo.
+- Linking the detail panel's sample line to the Miljø & prøver screen (Phase 4)
+  instead of rendering it as plain text.
+- A survey-specific export — "Eksport (XLS)" currently downloads the existing
+  material-passport CSV (`/exports/csv`), not a Kortlægning-shaped spreadsheet.
+- Two pieces of the structure above that v1 does not draw yet: the child
+  rows' photo count and the Punktsky tab's "Åbn i viewport" link.
+- A `--border-width` token: the tab underline offset in `SurveyTable.module.css`
+  and `EvidencePanel.module.css` currently computes it as `calc(-1 * 1px)`
+  because no border-width token exists yet.

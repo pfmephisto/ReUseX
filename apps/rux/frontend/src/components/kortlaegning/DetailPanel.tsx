@@ -1,0 +1,261 @@
+// SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+/**
+ * Kortlægning's right-column detail panel: the selected survey type or
+ * building part, editable (mængde, behandling, note, ★) and — for a type —
+ * the review actions (Godkend / Afvis / Genåbn).
+ *
+ * The pieces that decide *what* the panel shows are pure, exported functions
+ * (`panelTitle`, `linkedSamples`, `pendingSampleList`, `sampleLineText`,
+ * `approveBlocked`, `gateNoteText`) so the review/approval rules are
+ * unit-testable without a DOM; the component itself only wires them to props.
+ * The quantity/note drafts are `useQuantityNoteDrafts`, shared with EditDialog.
+ *
+ * The page reuses one instance across selections; the drafts reset themselves
+ * whenever the selected type or part changes (the hook's selection-keyed
+ * effect), so nothing depends on the caller re-keying the panel.
+ */
+
+import type { KeyboardEvent } from 'react';
+
+import type { Sample, SurveyPart, SurveyType, Treatment } from '../../api/types';
+import { TREATMENTS } from '../../api/types';
+import {
+  confidencePercent,
+  ENV_LABEL,
+  ENV_TONE,
+  quantityLabel,
+  RESULT_LABEL,
+  STAGE_LABEL,
+  TREATMENT_LABEL,
+} from '../../kortlaegning/vocab';
+import { ConfidenceBar } from '../ConfidenceBar';
+import { EmptyState } from '../EmptyState';
+import { Pill } from '../Pill';
+import styles from './DetailPanel.module.css';
+import { useQuantityNoteDrafts } from './useQuantityNoteDrafts';
+
+export interface DetailPanelProps {
+  type: SurveyType | null;
+  part: SurveyPart | null;
+  /** All samples; the panel picks the ones linked to `type.sample_ids`. */
+  samples: Sample[];
+  /** A request is in flight — blocks the review actions. */
+  busy: boolean;
+  /** type → redistributes across its parts; part → that part only. */
+  onQuantity: (q: number) => void;
+  onTreatment: (t: Treatment) => void;
+  /** Committed on blur when changed. */
+  onNote: (note: string) => void;
+  onStar: () => void;
+  onApprove: () => void;
+  onReject: () => void;
+  onReopen: () => void;
+  /**
+   * The user is done with a field: Enter in the quantity field, or Esc in any
+   * field. The field has already been blurred (so its draft committed); the
+   * page puts focus back on the table.
+   */
+  onDone: () => void;
+}
+
+/** `RX-### · {type name}` for a part, or just the type name. */
+export function panelTitle(type: SurveyType, part: SurveyPart | null): string {
+  return part ? `${part.code} · ${type.name}` : type.name;
+}
+
+/** The samples a survey type's `sample_ids` names, in that order. */
+export function linkedSamples(type: SurveyType, samples: Sample[]): Sample[] {
+  const byId = new Map(samples.map((s) => [s.id, s]));
+  return type.sample_ids.map((id) => byId.get(id)).filter((s): s is Sample => s !== undefined);
+}
+
+/**
+ * The sample line under the EAK/behandling fields: which sample(s) drive the
+ * type's miljøstatus, or the screening-only fallback when none are linked.
+ */
+export function sampleLineText(type: SurveyType, samples: Sample[]): string {
+  const linked = linkedSamples(type, samples);
+  if (linked.length === 0) {
+    return 'Ingen prøve koblet — miljøstatus fra screening: ren.';
+  }
+  const parts = linked.map((s) => {
+    const line = `${s.code} · ${s.title} — ${STAGE_LABEL[s.stage]}`;
+    return s.result ? `${line} · ${RESULT_LABEL[s.result]}` : line;
+  });
+  return `Miljøstatus styres af ${parts.join(', ')}`;
+}
+
+/** `environment_status === 'afventer'` blocks approval, regardless of `busy`. */
+export function approveBlocked(type: SurveyType): boolean {
+  return type.environment_status === 'afventer';
+}
+
+/**
+ * The linked samples still awaiting an answer (`stage !== 'svar'`), as
+ * `code · title` joined by ', ' — or '' when none are. The gate note and the
+ * page's refused-approval toast both name them this way.
+ */
+export function pendingSampleList(type: SurveyType, samples: Sample[]): string {
+  return linkedSamples(type, samples)
+    .filter((s) => s.stage !== 'svar')
+    .map((s) => `${s.code} · ${s.title}`)
+    .join(', ');
+}
+
+/**
+ * The gate note shown under the actions when blocked, or `null` when not
+ * blocked. Names only the *pending* linked samples (`stage !== 'svar'`) —
+ * matching the backend's own `environment_status` rule
+ * (`libs/reusex/src/core/survey.cpp`: a sample only keeps a type `afventer`
+ * while its stage isn't `svar` yet). When none of the linked samples resolve
+ * as pending (e.g. no samples are linked at all), the note drops the
+ * parenthetical rather than showing an empty `()`.
+ */
+export function gateNoteText(type: SurveyType, samples: Sample[]): string | null {
+  if (!approveBlocked(type)) return null;
+  const names = pendingSampleList(type, samples);
+  if (!names) return 'Kan ikke godkendes endnu — afventer prøvesvar.';
+  return `Kan ikke godkendes endnu — afventer prøvesvar (${names}).`;
+}
+
+/** Esc in any field (Enter too in a single-line one) hands focus back to the table. */
+function fieldDoneKey(e: KeyboardEvent<HTMLElement>, onDone: () => void, enterToo: boolean) {
+  if (e.key === 'Escape' || (enterToo && e.key === 'Enter')) {
+    e.preventDefault();
+    e.currentTarget.blur();
+    onDone();
+  }
+}
+
+export function DetailPanel({
+  type,
+  part,
+  samples,
+  busy,
+  onQuantity,
+  onTreatment,
+  onNote,
+  onStar,
+  onApprove,
+  onReject,
+  onReopen,
+  onDone,
+}: DetailPanelProps) {
+  // The entity whose quantity/note/star this panel edits: the selected part
+  // when one is selected, otherwise the type itself.
+  const current = part ?? type;
+  const { quantityProps, noteProps } = useQuantityNoteDrafts(current, { onQuantity, onNote });
+
+  if (!type || !current) {
+    return (
+      <div className={styles.panel}>
+        <EmptyState title="Vælg en type eller bygningsdel i tabellen." />
+      </div>
+    );
+  }
+
+  const gateNote = gateNoteText(type, samples);
+  const blocked = approveBlocked(type);
+  const queued = type.review_status === 'queue';
+
+  return (
+    <div className={styles.panel}>
+      <div className={styles.head}>
+        <span className={styles.title}>{panelTitle(type, part)}</span>
+        {type.bim7aa_code && (
+          <Pill tone="accent">{type.bim7aa_code}</Pill>
+        )}
+        <Pill tone={ENV_TONE[type.environment_status]}>{ENV_LABEL[type.environment_status]}</Pill>
+        {current.starred && <Pill tone="warn">★ Vigtig</Pill>}
+      </div>
+
+      <div className={styles.grid}>
+        <div className={styles.field}>
+          <span className={styles.label}>{quantityLabel(part)}</span>
+          <div className={styles.quantityRow}>
+            <input
+              type="text"
+              inputMode="decimal"
+              className={`${styles.input} mono`}
+              aria-label={quantityLabel(part)}
+              {...quantityProps}
+              onKeyDown={(e) => fieldDoneKey(e, onDone, true)}
+            />
+            <span className={styles.unit}>{type.unit}</span>
+          </div>
+        </div>
+
+        <div className={styles.field}>
+          <span className={styles.label}>EAK-kode</span>
+          <span className={styles.value}>
+            <span className="mono">{type.eak_code}</span> · {type.eak_name}
+          </span>
+        </div>
+
+        <div className={styles.field}>
+          <span className={styles.label}>Behandling</span>
+          <select
+            className={styles.select}
+            value={type.treatment}
+            onChange={(e) => onTreatment(e.target.value as Treatment)}
+            onKeyDown={(e) => fieldDoneKey(e, onDone, false)}
+          >
+            {TREATMENTS.map((t) => (
+              <option key={t} value={t}>
+                {TREATMENT_LABEL[t]}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className={styles.field}>
+          <span className={styles.label}>Sikkerhed (AI)</span>
+          <ConfidenceBar percent={confidencePercent(type.confidence)} />
+        </div>
+      </div>
+
+      <p className={styles.sampleLine}>{sampleLineText(type, samples)}</p>
+
+      <div className={styles.field}>
+        <span className={styles.label}>Proces / håndtering</span>
+        <textarea
+          className={styles.textarea}
+          rows={3}
+          {...noteProps}
+          onKeyDown={(e) => fieldDoneKey(e, onDone, false)}
+        />
+      </div>
+
+      <div className={styles.actions}>
+        <button type="button" className={styles.ghost} onClick={onStar} disabled={busy}>
+          {current.starred ? '★ Fjern vigtig' : '☆ Markér vigtig'}
+        </button>
+        <div className={styles.spacer} />
+        {queued ? (
+          <>
+            <button type="button" className={styles.ghost} onClick={onReject} disabled={busy}>
+              Afvis
+            </button>
+            <button
+              type="button"
+              className={styles.primary}
+              onClick={onApprove}
+              disabled={blocked || busy}
+            >
+              Godkend mængde ✓
+            </button>
+          </>
+        ) : (
+          <button type="button" className={styles.ghost} onClick={onReopen} disabled={busy}>
+            Genåbn
+          </button>
+        )}
+      </div>
+
+      {queued && gateNote && <p className={styles.gateNote}>{gateNote}</p>}
+    </div>
+  );
+}

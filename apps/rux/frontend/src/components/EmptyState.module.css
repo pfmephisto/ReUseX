@@ -16,6 +16,11 @@
   text-align: center;
 }
 
+.bare {
+  border: none;
+  background: transparent;
+}
+
 .title {
   font-size: var(--font-size-sm);
   color: var(--color-text-muted);

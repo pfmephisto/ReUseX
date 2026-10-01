@@ -773,6 +773,223 @@ export interface PanoramaSegmentResult {
   labels: Record<string, string>;
 }
 
+// ----------------------------------------------------------------- survey ----
+
+/** `Treatment` — waste-hierarchy step (affaldshierarki), best first. */
+export type Treatment =
+  | 'bevaring'
+  | 'genbrug'
+  | 'genanvendelse'
+  | 'nyttiggoerelse'
+  | 'bortskaffelse';
+
+/** `Treatment` values in waste-hierarchy order, best first. */
+export const TREATMENTS = [
+  'bevaring',
+  'genbrug',
+  'genanvendelse',
+  'nyttiggoerelse',
+  'bortskaffelse',
+] as const satisfies readonly Treatment[];
+
+/** `ReviewStatus` — a survey type's place in the review workflow. */
+export type ReviewStatus = 'queue' | 'approved' | 'rejected';
+
+/**
+ * `EnvironmentStatus` — derived from a survey type's linked samples, never
+ * stored. `afventer` blocks approval.
+ */
+export type EnvironmentStatus = 'ren_screening' | 'afventer' | 'forurenet' | 'ren_proevesvar';
+
+/** Stage of an environmental sample's lab workflow. */
+export type SampleStage = 'planlagt' | 'udtaget' | 'sendt' | 'svar';
+
+/** Lab result of an environmental sample, once answered. */
+export type SampleResult = 'ren' | 'forurenet';
+
+/** `SurveyPart` — one bygningsdel (building part) filed under a survey type. */
+export interface SurveyPart {
+  code: string;
+  type_id: number;
+  cloud: string | null;
+  instance_id: number | null;
+  room_id: number | null;
+  room_name: string;
+  quantity: number;
+  starred: boolean;
+  note: string;
+  material_guid: string | null;
+  instance_guid: string | null;
+  orphaned: boolean;
+}
+
+/** `SurveyType` — one Kortlægning group row, with its parts. */
+export interface SurveyType {
+  id: number;
+  name: string;
+  eak_code: string;
+  eak_name: string;
+  bim7aa_code: string;
+  unit: string;
+  treatment: Treatment;
+  review_status: ReviewStatus;
+  confidence: number | null;
+  mass_t: number | null;
+  note: string;
+  starred: boolean;
+  semantic_class: number;
+  environment_status: EnvironmentStatus;
+  sample_ids: number[];
+  /** Sum of the parts' quantities. */
+  quantity: number;
+  parts: SurveyPart[];
+  created_at: string;
+  updated_at: string;
+}
+
+/** `SurveyCounts` — review-workflow counts. `all` is queue + approved. */
+export interface SurveyCounts {
+  queue: number;
+  approved: number;
+  rejected: number;
+  all: number;
+}
+
+/** Body of `GET /survey`. */
+export interface Survey {
+  types: SurveyType[];
+  counts: SurveyCounts;
+}
+
+/** `SurveySummary` — KPIs for Overblik and the Kortlægning coverage notice. */
+export interface SurveySummary {
+  counts: SurveyCounts;
+  /** Tonnes per treatment over non-rejected types. */
+  circularity: Record<Treatment, number>;
+  total_mass_t: number;
+  /** (bevaring + genbrug) / total. */
+  reuse_share: number | null;
+  pending_samples: number;
+  unlabeled_points: number | null;
+  rooms_without_parts: string[];
+}
+
+/** One row of `SurveyFractions.fractions`. */
+export interface SurveyFraction {
+  eak_code: string;
+  name: string;
+  treatment: Treatment;
+  mass_t: number;
+}
+
+/** `SurveyFractions` — approved tonnes per EAK code for waste reporting. */
+export interface SurveyFractions {
+  fractions: SurveyFraction[];
+  total_t: number;
+  /** Types still in the queue or awaiting a sample. */
+  blocking_types: number;
+  /** True when `blocking_types` is 0. */
+  ready: boolean;
+}
+
+/** `Sample` — one environmental sample, with its linked survey types. */
+export interface Sample {
+  id: number;
+  code: string;
+  title: string;
+  what: string;
+  stage: SampleStage;
+  result: SampleResult | null;
+  type_ids: number[];
+  created_at: string;
+  updated_at: string;
+}
+
+/** Body of `POST /survey/sync` — counts of what sync_survey changed. */
+export interface SurveySyncReport {
+  types_created: number;
+  parts_created: number;
+  parts_existing: number;
+  rooms_assigned: boolean;
+  parts_orphaned: number;
+  orphaned_codes: string[];
+}
+
+/** Body of `POST /survey/types`. */
+export interface SurveyTypeCreate {
+  name: string;
+  eak_code?: string;
+  bim7aa_code?: string;
+  unit?: string;
+  treatment?: Treatment;
+}
+
+/**
+ * `SurveyTypePatch` — sparse update for `PATCH /survey/types/{id}`; only
+ * present fields change. `review_status: 'approved'` is refused (422) while
+ * the type's derived `environment_status` is `afventer`.
+ */
+export interface SurveyTypePatch {
+  name?: string;
+  eak_code?: string;
+  bim7aa_code?: string;
+  unit?: string;
+  note?: string;
+  treatment?: Treatment;
+  review_status?: ReviewStatus;
+  confidence?: number | null;
+  mass_t?: number | null;
+  starred?: boolean;
+  /** Redistributes across the type's existing parts (core::set_type_quantity). */
+  quantity?: number;
+}
+
+/** `SurveyPartPatch` — sparse update for `PATCH /survey/parts/{code}`. */
+export interface SurveyPartPatch {
+  /** Re-files the part under a different survey type. */
+  type_id?: number;
+  quantity?: number;
+  starred?: boolean;
+  note?: string;
+  room_name?: string;
+}
+
+/** Body of `POST /samples`. */
+export interface SampleCreate {
+  title: string;
+  what?: string;
+  type_ids?: number[];
+}
+
+/**
+ * `SamplePatch` — sparse update for `PATCH /samples/{id}`. `result` can only
+ * be set once `stage` is `svar`; `result: null` clears it.
+ */
+export interface SamplePatch {
+  title?: string;
+  what?: string;
+  stage?: SampleStage;
+  result?: SampleResult | null;
+}
+
+/** Camera placement for `GET /renders`. */
+export type RenderView = 'plan' | 'top' | 'front' | 'orbit';
+
+/** Query parameters of `GET /renders`. */
+export interface RenderQuery {
+  view?: RenderView;
+  /** Which of 8 viewpoints on the orbit ring to render. Only used with `view: 'orbit'`. */
+  orbit_index?: number;
+  /** Layers to draw, in draw order. */
+  layers?: string[];
+  /** Instance id to paint; every other point is dimmed. */
+  highlight_instance?: number;
+  /** Named Label cloud supplying the instance id per point. Defaults to `instances`. */
+  highlight_cloud?: string;
+  width?: number;
+  height?: number;
+}
+
 // --------------------------------------------------------------- reports ----
 
 /** `ReportPdfVersion` — metadata for one stored Ressourcekortlægning PDF. */

@@ -6,10 +6,12 @@
 
 #include "gui/FrameSegmenter.hpp"
 #include "gui/ModelProvider.hpp"
+#include "gui/ViewRenderer.hpp"
 #include "gui/api.hpp"
 #include "gui/assets.hpp"
 #include "gui/edits.hpp"
 #include "gui/gsplat.hpp"
+#include "gui/survey.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/pipeline/JobRunner.hpp>
@@ -399,6 +401,9 @@ class Server::Impl {
   void set_model_provider(IModelProvider *provider) noexcept {
     model_provider_ = provider;
   }
+  void set_view_renderer(IViewRenderer *renderer) noexcept {
+    view_renderer_ = renderer;
+  }
 
     private:
   /// Resolve the model path a segment request should load. An explicit
@@ -695,6 +700,14 @@ class Server::Impl {
             return blob_response(mesh_texture_blob(db, name, texture));
           });
         });
+
+    // ---- evidence renders (#265 Phase 2 Task 8) ----
+    get("/api/v1/renders")([this](const crow::request &req) {
+      const Params params = params_of(req);
+      return with_db([&](const reusex::ProjectDB &db) {
+        return blob_response(render_blob(db, view_renderer_, params));
+      });
+    });
 
     // ---- gaussian splats (#322) ----
     get("/api/v1/gsplats")([this](const crow::request &req) {
@@ -1226,6 +1239,87 @@ class Server::Impl {
           });
         });
 
+    // ---- survey (Ressourcekortlægning, #265 Phase 2) ----
+    get("/api/v1/survey")([this](const crow::request &) {
+      return with_db([&](const reusex::ProjectDB &db) {
+        return json_response(200, survey_json(db));
+      });
+    });
+    get("/api/v1/survey/summary")([this](const crow::request &) {
+      return with_db([&](const reusex::ProjectDB &db) {
+        return json_response(200, survey_summary_json(db));
+      });
+    });
+    get("/api/v1/survey/fractions")([this](const crow::request &) {
+      return with_db([&](const reusex::ProjectDB &db) {
+        return json_response(200, survey_fractions_json(db));
+      });
+    });
+
+    app_.route_dynamic("/api/v1/survey/sync")
+        .methods(crow::HTTPMethod::POST)([this](const crow::request &req) {
+          return with_write([&](reusex::ProjectDB &db) {
+            return json_response(200, sync_survey_json(db, req.body));
+          });
+        });
+    app_.route_dynamic("/api/v1/survey/types")
+        .methods(crow::HTTPMethod::POST)([this](const crow::request &req) {
+          return with_write([&](reusex::ProjectDB &db) {
+            return json_response(201, create_survey_type_json(db, req.body));
+          });
+        });
+    app_.route_dynamic("/api/v1/survey/types/<int>")
+        .methods(
+            crow::HTTPMethod::PATCH)([this](const crow::request &req, int id) {
+          return with_write([&](reusex::ProjectDB &db) {
+            return json_response(200, patch_survey_type_json(db, id, req.body));
+          });
+        });
+    app_.route_dynamic("/api/v1/survey/parts/<string>")
+        .methods(crow::HTTPMethod::PATCH)([this](const crow::request &req,
+                                                 std::string code) {
+          return with_write([&](reusex::ProjectDB &db) {
+            return json_response(200,
+                                 patch_survey_part_json(db, code, req.body));
+          });
+        });
+
+    // One rule for both methods: registering the same path twice would create
+    // two competing Crow rules (same reasoning as /jobs above).
+    app_.route_dynamic("/api/v1/samples")
+        .methods(crow::HTTPMethod::GET,
+                 crow::HTTPMethod::POST)([this](const crow::request &req) {
+          if (req.method == crow::HTTPMethod::GET)
+            return with_db([&](const reusex::ProjectDB &db) {
+              return json_response(200, samples_json(db));
+            });
+          return with_write([&](reusex::ProjectDB &db) {
+            return json_response(201, create_sample_json(db, req.body));
+          });
+        });
+
+    app_.route_dynamic("/api/v1/samples/<int>")
+        .methods(crow::HTTPMethod::PATCH, crow::HTTPMethod::DELETE)(
+            [this](const crow::request &req, int id) {
+              if (req.method == crow::HTTPMethod::PATCH)
+                return with_write([&](reusex::ProjectDB &db) {
+                  return json_response(200,
+                                       patch_sample_json(db, id, req.body));
+                });
+              return with_write([&](reusex::ProjectDB &db) {
+                delete_sample(db, id);
+                return crow::response(204);
+              });
+            });
+
+    app_.route_dynamic("/api/v1/samples/<int>/links")
+        .methods(
+            crow::HTTPMethod::PUT)([this](const crow::request &req, int id) {
+          return with_write([&](reusex::ProjectDB &db) {
+            return json_response(200, set_sample_links_json(db, id, req.body));
+          });
+        });
+
     register_websocket();
     register_static();
   }
@@ -1402,6 +1496,10 @@ class Server::Impl {
   /// Not owned; lifetime must exceed the server's. nullptr ⟹ omitted
   /// model_path is a 400 and the status route is a 501.
   IModelProvider *model_provider_ = nullptr;
+
+  /// Optional evidence-render renderer (#265 Phase 2 Task 8). Not owned;
+  /// lifetime must exceed the server's. nullptr ⟹ 503.
+  IViewRenderer *view_renderer_ = nullptr;
 };
 
 // ===========================================================================
@@ -1435,6 +1533,10 @@ void Server::set_panorama_segmenter(IPanoramaSegmenter *segmenter) {
 
 void Server::set_model_provider(IModelProvider *provider) {
   impl_->set_model_provider(provider);
+}
+
+void Server::set_view_renderer(IViewRenderer *renderer) {
+  impl_->set_view_renderer(renderer);
 }
 
 } // namespace rux::gui

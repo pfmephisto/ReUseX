@@ -124,6 +124,7 @@ TEST_CASE("EndpointTable_DocumentedRoutes_MatchesContract", "[gui][routes]") {
       "GET /api/v1/meshes/<string>/data",
       "GET /api/v1/meshes/<string>/textures",
       "GET /api/v1/meshes/<string>/textures/<string>",
+      "GET /api/v1/renders",
       "GET /api/v1/gsplats",
       "GET /api/v1/gsplats/<string>",
       "GET /api/v1/gsplats/<string>/data",
@@ -174,6 +175,18 @@ TEST_CASE("EndpointTable_DocumentedRoutes_MatchesContract", "[gui][routes]") {
       "GET /api/v1/export-templates/<int>",
       "PATCH /api/v1/export-templates/<int>",
       "DELETE /api/v1/export-templates/<int>",
+      "GET /api/v1/survey",
+      "GET /api/v1/survey/summary",
+      "GET /api/v1/survey/fractions",
+      "GET /api/v1/samples",
+      "POST /api/v1/survey/sync",
+      "POST /api/v1/survey/types",
+      "PATCH /api/v1/survey/types/<int>",
+      "PATCH /api/v1/survey/parts/<string>",
+      "POST /api/v1/samples",
+      "PATCH /api/v1/samples/<int>",
+      "DELETE /api/v1/samples/<int>",
+      "PUT /api/v1/samples/<int>/links",
   };
 
   std::set<std::string> actual;

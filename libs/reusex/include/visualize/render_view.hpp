@@ -17,6 +17,7 @@
 // forward-declared, and no VTK header is exposed to consumers.
 
 #include <array>
+#include <cstdint>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -122,6 +123,16 @@ inline constexpr double kDefaultCutBboxFraction = 0.45;
 /// corridor, so "horizontal" means the same thing in both places.
 inline constexpr double kHorizontalNormalZ = 0.95;
 
+/// One instance to call out in a render (Kortlægning evidence, #265 Phase 2
+/// Task 8).
+struct InstanceHighlight {
+  /// Named Label cloud supplying the per-point instance id, index-aligned
+  /// with RenderOptions::cloud_name.
+  std::string cloud_name = "instances";
+  /// The instance id to paint; every other point is dimmed.
+  std::uint32_t instance_id = 0;
+};
+
 /// Everything render_view() can be told to do.
 ///
 /// This struct is the single definition of every render default; `rux render`
@@ -176,6 +187,11 @@ struct RenderOptions {
   /// Framing slack around the scene bounding box: 1.0 is a tight fit, larger
   /// pulls back, smaller crops in. Must be positive.
   double margin = 1.08;
+
+  /// Paint one instance in kHighlightRgb and dim the rest (Kortlægning
+  /// evidence). Applies to every point layer; needs the named Label cloud,
+  /// index-aligned with cloud_name.
+  std::optional<InstanceHighlight> highlight;
 };
 
 /// This machine cannot create an offscreen OpenGL context (#313).

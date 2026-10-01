@@ -17,6 +17,7 @@
 #include "create/project.hpp"
 #include "create/rooms.hpp"
 #include "create/segment_frame.hpp"
+#include "create/survey.hpp"
 #include "create/texture.hpp"
 #include "create/windows.hpp"
 
@@ -38,6 +39,7 @@ SUBCOMMANDS:
   rooms        Segment rooms using Leiden clustering
   instances    Separate labels into spatial instances
   materials    Create a material passport per instance
+  survey       Fill the Ressourcekortlægning from instances
   mesh         Generate watertight mesh from planes
   texture      Apply textures to mesh from sensor frames
   gsplat       Train a 3D Gaussian Splatting model (CUDA)
@@ -70,6 +72,7 @@ NOTES:
   setup_subcommand_create_rooms(*sub, global_opt);
   setup_subcommand_create_instances(*sub, global_opt);
   setup_subcommand_create_materials(*sub, global_opt);
+  setup_subcommand_create_survey(*sub, global_opt);
   setup_subcommand_create_mesh(*sub, global_opt);
   setup_subcommand_create_texture(*sub, global_opt);
   setup_subcommand_create_windows(*sub, global_opt);

@@ -232,6 +232,43 @@ Generates a `material_passports` row per instance in the instance-label cloud
 and records the instance→passport link in `instance_materials`. This is the
 prerequisite that lets `attributes` iterate materials.
 
+### `survey` (`rux create survey`)
+
+Fill the Ressourcekortlægning (Kortlægning in `rux gui`) from the instances
+table: one survey type per semantic class, one bygningsdel (survey part) per
+instance.
+
+| | |
+|---|---|
+| Consumes | `instances` |
+| Produces | `survey_types`, `survey_parts` |
+| Options  | `rux create survey` CLI options (`--instances`, `--semantic`, `--rooms`) |
+| Checks   | `instances` cloud present |
+
+Processes instances in ascending `instance_id`. Each unmapped `semantic_class`
+gets one new survey type (named from the semantic label cloud's definitions
+when that optional cloud, named "labels" by default, is present —
+`"Klasse <n>"` if unnamed, or `"Uklassificeret"` for class `-1`); each
+instance without an existing part (joined on instance guid, so a `rux create
+instances` rerun that keeps GUIDs does not duplicate) gets one new survey
+part. When an optional rooms label cloud (named "rooms" by default) exists
+and is aligned with `instances`, each part's room is the room most of its
+points fall in (`majority_room`), named from that cloud's label definitions
+or `"Rum <id>"`; a missing or size-mismatched rooms cloud is logged and parts
+get no room. Idempotent — existing types/parts are never modified, so edits
+made in the GUI survive a rerun.
+
+A part's `instance_guid` can stop resolving — the linked instance was
+deleted, or `rux create instances` ran again without carrying the guid over
+(e.g. `--clear`). `sync_survey` does not delete or hide such a part: it keeps
+its code, quantity and room, reads back with a null `cloud`/`instance_id`,
+and still counts toward its type's `quantity` total. `sync_survey` reports
+the count and codes (`SurveySyncReport::parts_orphaned` /
+`orphaned_codes`) and logs a warning; each part is also flagged individually
+(`SurveyPart.orphaned`) so the GUI can surface it. Deciding what to do with an
+orphaned part — re-file it under a new instance, or drop it — is a Phase 3
+product decision.
+
 ### `attributes` (`rux create attributes`)
 
 Describe each material by cropping its linked instance(s) out of their best

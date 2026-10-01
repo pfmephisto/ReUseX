@@ -29,6 +29,7 @@ namespace rux::gui {
 class IFrameSegmenter;
 class IPanoramaSegmenter;
 class IModelProvider;
+class IViewRenderer;
 } // namespace rux::gui
 
 namespace rux::gui {
@@ -144,6 +145,13 @@ class Server {
   /// default), a segment request without `model_path` returns HTTP 400 and the
   /// status route returns HTTP 501.
   void set_model_provider(IModelProvider *provider);
+
+  /// Register the renderer for GET /api/v1/renders (#265 Phase 2 Task 8,
+  /// Kortlægning evidence images).
+  ///
+  /// Same ownership/lifetime rules as set_segmenter(). When nullptr (the
+  /// default), the endpoint returns HTTP 503.
+  void set_view_renderer(IViewRenderer *renderer);
 
     private:
   class Impl;

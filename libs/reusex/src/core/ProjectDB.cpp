@@ -70,6 +70,39 @@ class BlobGuard {
   sqlite3_blob *get() const { return blob_; }
 };
 
+// ── Small sqlite3 column/bind helpers (survey CRUD, schema v22) ─────────
+namespace {
+std::string column_text(sqlite3_stmt *s, int i) {
+  const auto *t = reinterpret_cast<const char *>(sqlite3_column_text(s, i));
+  return t ? t : "";
+}
+std::optional<double> column_opt_double(sqlite3_stmt *s, int i) {
+  if (sqlite3_column_type(s, i) == SQLITE_NULL)
+    return std::nullopt;
+  return sqlite3_column_double(s, i);
+}
+std::optional<std::int64_t> column_opt_int64(sqlite3_stmt *s, int i) {
+  if (sqlite3_column_type(s, i) == SQLITE_NULL)
+    return std::nullopt;
+  return sqlite3_column_int64(s, i);
+}
+void bind_opt_double(sqlite3_stmt *s, int i, const std::optional<double> &v) {
+  v ? sqlite3_bind_double(s, i, *v) : sqlite3_bind_null(s, i);
+}
+void bind_text(sqlite3_stmt *s, int i, std::string_view v) {
+  sqlite3_bind_text(s, i, v.data(), static_cast<int>(v.size()),
+                    SQLITE_TRANSIENT);
+}
+/// prepare_v2 that throws with the caller's name and sqlite's message.
+sqlite3_stmt *prepare_or_throw(sqlite3 *db, const char *sql, const char *who) {
+  sqlite3_stmt *stmt = nullptr;
+  if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+    throw std::runtime_error(std::string(who) +
+                             ": prepare failed: " + sqlite3_errmsg(db));
+  return stmt;
+}
+} // namespace
+
 // ── Compact point serialization helpers ─────────────────────────────────
 
 static constexpr int XYZRGB_STEP = 16; // 3 float + 1 uint32
@@ -210,7 +243,7 @@ class ProjectDB::Impl {
   sqlite3 *db = nullptr;
 
   // cppcheck-suppress unusedStructMember
-  static constexpr int LATEST_SCHEMA_VERSION = 21;
+  static constexpr int LATEST_SCHEMA_VERSION = 22;
 
   // Maximum bytes per point_cloud_data row. SQLite's default SQLITE_MAX_LENGTH
   // is 1 GB and the hard compile-time max is 2 GB-1. We chunk large clouds
@@ -462,6 +495,10 @@ class ProjectDB::Impl {
 
     if (current < 21) {
       migrateToV21();
+    }
+
+    if (current < 22) {
+      migrateToV22();
     }
 
     reusex::trace("Schema version: {}", getCurrentSchemaVersion());
@@ -1599,6 +1636,73 @@ class ProjectDB::Impl {
     insertSchemaVersion(
         21, "Add export_templates table for named CSV export configs (#459)");
     reusex::info("Migration to schema version 21 complete");
+  }
+
+  void migrateToV22() {
+    reusex::info("Migrating database to schema version 22");
+
+    // Ressourcekortlægning (docs/design/gui-kortlaegning-redesign.md): survey
+    // types group instance-parts; samples gate approval. Enum columns are
+    // CHECK-constrained to the wire strings in core/survey.hpp.
+    const char *v22_schema = R"(
+      CREATE TABLE IF NOT EXISTS survey_types (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        name           TEXT    NOT NULL,
+        eak_code       TEXT    NOT NULL DEFAULT '',
+        bim7aa_code    TEXT    NOT NULL DEFAULT '',
+        unit           TEXT    NOT NULL DEFAULT 'stk',
+        treatment      TEXT    NOT NULL DEFAULT 'genanvendelse'
+          CHECK (treatment IN ('bevaring','genbrug','genanvendelse','nyttiggoerelse','bortskaffelse')),
+        review_status  TEXT    NOT NULL DEFAULT 'queue'
+          CHECK (review_status IN ('queue','approved','rejected')),
+        confidence     REAL,
+        mass_t         REAL,
+        note           TEXT    NOT NULL DEFAULT '',
+        starred        INTEGER NOT NULL DEFAULT 0,
+        semantic_class INTEGER NOT NULL DEFAULT -1,
+        created_at     TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+        updated_at     TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+      );
+      CREATE TABLE IF NOT EXISTS survey_parts (
+        code          TEXT    PRIMARY KEY,
+        type_id       INTEGER NOT NULL REFERENCES survey_types(id) ON DELETE CASCADE,
+        instance_guid TEXT UNIQUE,
+        room_id       INTEGER,
+        room_name     TEXT    NOT NULL DEFAULT '',
+        quantity      REAL    NOT NULL DEFAULT 1,
+        starred       INTEGER NOT NULL DEFAULT 0,
+        note          TEXT    NOT NULL DEFAULT ''
+      );
+      CREATE INDEX IF NOT EXISTS idx_survey_parts_type ON survey_parts(type_id);
+      CREATE TABLE IF NOT EXISTS samples (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        code       TEXT    NOT NULL UNIQUE,
+        title      TEXT    NOT NULL,
+        what       TEXT    NOT NULL DEFAULT '',
+        stage      TEXT    NOT NULL DEFAULT 'planlagt'
+          CHECK (stage IN ('planlagt','udtaget','sendt','svar')),
+        result     TEXT    NOT NULL DEFAULT ''
+          CHECK (result IN ('','ren','forurenet')),
+        created_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+        updated_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+      );
+      CREATE TABLE IF NOT EXISTS sample_links (
+        sample_id INTEGER NOT NULL REFERENCES samples(id) ON DELETE CASCADE,
+        type_id   INTEGER NOT NULL REFERENCES survey_types(id) ON DELETE CASCADE,
+        PRIMARY KEY (sample_id, type_id)
+      );
+    )";
+
+    char *errMsg = nullptr;
+    if (sqlite3_exec(db, v22_schema, nullptr, nullptr, &errMsg) != SQLITE_OK) {
+      std::string error = errMsg ? errMsg : "unknown error";
+      sqlite3_free(errMsg);
+      throw std::runtime_error("Migration to v22 failed: " + error);
+    }
+
+    insertSchemaVersion(22,
+                        "Add survey types/parts and samples for Kortlægning");
+    reusex::info("Migration to schema version 22 complete");
   }
 
   // ── Scan helpers (#129) ──────────────────────────────────────────────────
@@ -7440,6 +7544,564 @@ bool ProjectDB::delete_export_template(int64_t id) {
                              std::string(sqlite3_errmsg(impl_->db)));
 
   return sqlite3_changes(impl_->db) > 0;
+}
+
+// --- Survey (Ressourcekortlægning, schema v22) ---
+
+namespace {
+constexpr const char *kSurveyTypeColumns =
+    "id, name, eak_code, bim7aa_code, unit, treatment, review_status, "
+    "confidence, mass_t, "
+    "note, starred, semantic_class, created_at, updated_at";
+
+ProjectDB::SurveyTypeRecord read_survey_type(sqlite3_stmt *s) {
+  ProjectDB::SurveyTypeRecord r;
+  r.id = sqlite3_column_int64(s, 0);
+  r.name = column_text(s, 1);
+  r.eak_code = column_text(s, 2);
+  r.bim7aa_code = column_text(s, 3);
+  r.unit = column_text(s, 4);
+  r.treatment = core::treatment_from_string(column_text(s, 5))
+                    .value_or(core::Treatment::genanvendelse);
+  r.review_status = core::review_status_from_string(column_text(s, 6))
+                        .value_or(core::ReviewStatus::queue);
+  r.confidence = column_opt_double(s, 7);
+  r.mass_t = column_opt_double(s, 8);
+  r.note = column_text(s, 9);
+  r.starred = sqlite3_column_int(s, 10) != 0;
+  r.semantic_class = sqlite3_column_int(s, 11);
+  r.created_at = column_text(s, 12);
+  r.updated_at = column_text(s, 13);
+  return r;
+}
+} // namespace
+
+ProjectDB::SurveyTypeRecord
+ProjectDB::add_survey_type(const SurveyTypeRecord &rec) {
+  impl_->checkWritable();
+  sqlite3_stmt *stmt =
+      prepare_or_throw(impl_->db,
+                       "INSERT INTO survey_types (name, eak_code, bim7aa_code, "
+                       "unit, treatment, review_status, "
+                       "confidence, mass_t, note, starred, semantic_class) "
+                       "VALUES (?,?,?,?,?,?,?,?,?,?,?) "
+                       "RETURNING id;",
+                       "add_survey_type");
+  StmtGuard guard(stmt);
+  bind_text(stmt, 1, rec.name);
+  bind_text(stmt, 2, rec.eak_code);
+  bind_text(stmt, 3, rec.bim7aa_code);
+  bind_text(stmt, 4, rec.unit);
+  bind_text(stmt, 5, core::to_string(rec.treatment));
+  bind_text(stmt, 6, core::to_string(rec.review_status));
+  bind_opt_double(stmt, 7, rec.confidence);
+  bind_opt_double(stmt, 8, rec.mass_t);
+  bind_text(stmt, 9, rec.note);
+  sqlite3_bind_int(stmt, 10, rec.starred ? 1 : 0);
+  sqlite3_bind_int(stmt, 11, rec.semantic_class);
+  if (sqlite3_step(stmt) != SQLITE_ROW)
+    throw std::runtime_error("add_survey_type: insert failed: " +
+                             std::string(sqlite3_errmsg(impl_->db)));
+  const auto id = sqlite3_column_int64(stmt, 0);
+  return *survey_type(id);
+}
+
+std::vector<ProjectDB::SurveyTypeRecord> ProjectDB::survey_types() const {
+  const std::string sql = std::string("SELECT ") + kSurveyTypeColumns +
+                          " FROM survey_types ORDER BY id;";
+  sqlite3_stmt *stmt = prepare_or_throw(impl_->db, sql.c_str(), "survey_types");
+  StmtGuard guard(stmt);
+  std::vector<SurveyTypeRecord> out;
+  while (sqlite3_step(stmt) == SQLITE_ROW)
+    out.push_back(read_survey_type(stmt));
+  return out;
+}
+
+std::optional<ProjectDB::SurveyTypeRecord>
+ProjectDB::survey_type(int64_t id) const {
+  const std::string sql = std::string("SELECT ") + kSurveyTypeColumns +
+                          " FROM survey_types WHERE id = ?;";
+  sqlite3_stmt *stmt = prepare_or_throw(impl_->db, sql.c_str(), "survey_type");
+  StmtGuard guard(stmt);
+  sqlite3_bind_int64(stmt, 1, id);
+  if (sqlite3_step(stmt) != SQLITE_ROW)
+    return std::nullopt;
+  return read_survey_type(stmt);
+}
+
+ProjectDB::SurveyTypeRecord
+ProjectDB::update_survey_type(int64_t id, const SurveyTypePatch &p) {
+  impl_->checkWritable();
+  if (!survey_type(id))
+    throw std::out_of_range("no survey type " + std::to_string(id));
+  // Built from a fixed column vocabulary, never from input: only the bound
+  // values come from the caller.
+  std::vector<std::string> sets;
+  if (p.name)
+    sets.emplace_back("name = ?");
+  if (p.eak_code)
+    sets.emplace_back("eak_code = ?");
+  if (p.bim7aa_code)
+    sets.emplace_back("bim7aa_code = ?");
+  if (p.unit)
+    sets.emplace_back("unit = ?");
+  if (p.note)
+    sets.emplace_back("note = ?");
+  if (p.treatment)
+    sets.emplace_back("treatment = ?");
+  if (p.review_status)
+    sets.emplace_back("review_status = ?");
+  if (p.confidence)
+    sets.emplace_back("confidence = ?");
+  if (p.mass_t)
+    sets.emplace_back("mass_t = ?");
+  if (p.starred)
+    sets.emplace_back("starred = ?");
+  if (sets.empty())
+    return *survey_type(id);
+  std::string sql = "UPDATE survey_types SET ";
+  for (const auto &s : sets)
+    sql += s + ", ";
+  sql += "updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id = ?;";
+  sqlite3_stmt *stmt =
+      prepare_or_throw(impl_->db, sql.c_str(), "update_survey_type");
+  StmtGuard guard(stmt);
+  int i = 1;
+  if (p.name)
+    bind_text(stmt, i++, *p.name);
+  if (p.eak_code)
+    bind_text(stmt, i++, *p.eak_code);
+  if (p.bim7aa_code)
+    bind_text(stmt, i++, *p.bim7aa_code);
+  if (p.unit)
+    bind_text(stmt, i++, *p.unit);
+  if (p.note)
+    bind_text(stmt, i++, *p.note);
+  if (p.treatment)
+    bind_text(stmt, i++, core::to_string(*p.treatment));
+  if (p.review_status)
+    bind_text(stmt, i++, core::to_string(*p.review_status));
+  if (p.confidence)
+    bind_opt_double(stmt, i++, *p.confidence);
+  if (p.mass_t)
+    bind_opt_double(stmt, i++, *p.mass_t);
+  if (p.starred)
+    sqlite3_bind_int(stmt, i++, *p.starred ? 1 : 0);
+  sqlite3_bind_int64(stmt, i, id);
+  if (sqlite3_step(stmt) != SQLITE_DONE)
+    throw std::runtime_error("update_survey_type: " +
+                             std::string(sqlite3_errmsg(impl_->db)));
+  return *survey_type(id);
+}
+
+namespace {
+/// Parts joined by their stable `instance_guid` (not cloud_id/instance_id:
+/// `rux create instances` always deletes+reinserts `instances` rows on
+/// re-run, but reconciles guids across the re-run, so joining on guid is
+/// what survives it — see the "FOREIGN KEY ... ON DELETE SET NULL nulls the
+/// link on every `create instances` re-run" fix). A part whose guid no
+/// longer matches any instance row reads with null cloud/instance_id but
+/// keeps its own code/quantity/room/note.
+constexpr const char *kSurveyPartSelect =
+    "SELECT p.code, p.type_id, pc.name, i.instance_id, p.room_id, p.room_name, "
+    "p.quantity, "
+    "p.starred, p.note, im.material_guid, p.instance_guid "
+    "FROM survey_parts p "
+    "LEFT JOIN instances i ON i.guid = p.instance_guid "
+    "LEFT JOIN point_clouds pc ON pc.id = i.cloud_id "
+    "LEFT JOIN instance_materials im ON im.cloud_id = i.cloud_id AND "
+    "im.instance_id = i.instance_id ";
+
+ProjectDB::SurveyPartRecord read_survey_part(sqlite3_stmt *s) {
+  ProjectDB::SurveyPartRecord r;
+  r.code = column_text(s, 0);
+  r.type_id = sqlite3_column_int64(s, 1);
+  if (sqlite3_column_type(s, 2) != SQLITE_NULL)
+    r.cloud_name = column_text(s, 2);
+  if (auto v = column_opt_int64(s, 3))
+    r.instance_id = static_cast<std::uint32_t>(*v);
+  if (auto v = column_opt_int64(s, 4))
+    r.room_id = static_cast<std::uint32_t>(*v);
+  r.room_name = column_text(s, 5);
+  r.quantity = sqlite3_column_double(s, 6);
+  r.starred = sqlite3_column_int(s, 7) != 0;
+  r.note = column_text(s, 8);
+  if (sqlite3_column_type(s, 9) != SQLITE_NULL)
+    r.material_guid = column_text(s, 9);
+  if (sqlite3_column_type(s, 10) != SQLITE_NULL)
+    r.instance_guid = column_text(s, 10);
+  return r;
+}
+} // namespace
+
+void ProjectDB::add_survey_part(const SurveyPartRecord &rec) {
+  impl_->checkWritable();
+  if (!survey_type(rec.type_id))
+    throw std::out_of_range("no survey type " + std::to_string(rec.type_id));
+  if (rec.cloud_name.has_value() != rec.instance_id.has_value())
+    throw std::invalid_argument(
+        "add_survey_part '" + rec.code +
+        "': cloud_name and instance_id must both be set or both be empty "
+        "(missing " +
+        (rec.cloud_name ? "instance_id" : "cloud_name") + ")");
+  // Resolve the instance's stable guid now (not its cloud_id/instance_id):
+  // `rux create instances` deletes and re-inserts `instances` rows on every
+  // re-run, reconciling identity by guid, so the guid is what survives a
+  // re-run and (cloud_id, instance_id) is not.
+  std::optional<std::string> instance_guid;
+  if (rec.cloud_name && rec.instance_id) {
+    const int cloudId = impl_->getCloudId(*rec.cloud_name);
+    sqlite3_stmt *lookup = prepare_or_throw(
+        impl_->db,
+        "SELECT guid FROM instances WHERE cloud_id = ? AND instance_id = ?;",
+        "add_survey_part");
+    StmtGuard lookup_guard(lookup);
+    sqlite3_bind_int(lookup, 1, cloudId);
+    sqlite3_bind_int64(lookup, 2, *rec.instance_id);
+    if (sqlite3_step(lookup) != SQLITE_ROW)
+      throw std::out_of_range("no instance " +
+                              std::to_string(*rec.instance_id) + " in cloud '" +
+                              *rec.cloud_name + "'");
+    instance_guid = column_text(lookup, 0);
+  }
+  sqlite3_stmt *stmt = prepare_or_throw(
+      impl_->db,
+      "INSERT INTO survey_parts (code, type_id, instance_guid, room_id, "
+      "room_name, quantity, starred, note) VALUES (?,?,?,?,?,?,?,?);",
+      "add_survey_part");
+  StmtGuard guard(stmt);
+  bind_text(stmt, 1, rec.code);
+  sqlite3_bind_int64(stmt, 2, rec.type_id);
+  if (instance_guid)
+    bind_text(stmt, 3, *instance_guid);
+  else
+    sqlite3_bind_null(stmt, 3);
+  rec.room_id ? sqlite3_bind_int64(stmt, 4, *rec.room_id)
+              : sqlite3_bind_null(stmt, 4);
+  bind_text(stmt, 5, rec.room_name);
+  sqlite3_bind_double(stmt, 6, rec.quantity);
+  sqlite3_bind_int(stmt, 7, rec.starred ? 1 : 0);
+  bind_text(stmt, 8, rec.note);
+  if (sqlite3_step(stmt) != SQLITE_DONE)
+    throw std::runtime_error("add_survey_part '" + rec.code +
+                             "': " + sqlite3_errmsg(impl_->db));
+}
+
+std::vector<ProjectDB::SurveyPartRecord> ProjectDB::survey_parts() const {
+  const std::string sql = std::string(kSurveyPartSelect) + "ORDER BY p.code;";
+  sqlite3_stmt *stmt = prepare_or_throw(impl_->db, sql.c_str(), "survey_parts");
+  StmtGuard guard(stmt);
+  std::vector<SurveyPartRecord> out;
+  while (sqlite3_step(stmt) == SQLITE_ROW)
+    out.push_back(read_survey_part(stmt));
+  return out;
+}
+
+std::optional<ProjectDB::SurveyPartRecord>
+ProjectDB::survey_part(std::string_view code) const {
+  const std::string sql = std::string(kSurveyPartSelect) + "WHERE p.code = ?;";
+  sqlite3_stmt *stmt = prepare_or_throw(impl_->db, sql.c_str(), "survey_part");
+  StmtGuard guard(stmt);
+  bind_text(stmt, 1, code);
+  if (sqlite3_step(stmt) != SQLITE_ROW)
+    return std::nullopt;
+  return read_survey_part(stmt);
+}
+
+ProjectDB::SurveyPartRecord
+ProjectDB::update_survey_part(std::string_view code, const SurveyPartPatch &p) {
+  impl_->checkWritable();
+  if (!survey_part(code))
+    throw std::out_of_range("no survey part '" + std::string(code) + "'");
+  if (p.type_id && !survey_type(*p.type_id))
+    throw std::out_of_range("no survey type " + std::to_string(*p.type_id));
+  std::vector<std::string> sets;
+  if (p.type_id)
+    sets.emplace_back("type_id = ?");
+  if (p.quantity)
+    sets.emplace_back("quantity = ?");
+  if (p.starred)
+    sets.emplace_back("starred = ?");
+  if (p.note)
+    sets.emplace_back("note = ?");
+  if (p.room_name)
+    sets.emplace_back("room_name = ?");
+  if (!sets.empty()) {
+    std::string sql = "UPDATE survey_parts SET ";
+    for (std::size_t k = 0; k < sets.size(); ++k)
+      sql += (k ? ", " : "") + sets[k];
+    sql += " WHERE code = ?;";
+    sqlite3_stmt *stmt =
+        prepare_or_throw(impl_->db, sql.c_str(), "update_survey_part");
+    StmtGuard guard(stmt);
+    int i = 1;
+    if (p.type_id)
+      sqlite3_bind_int64(stmt, i++, *p.type_id);
+    if (p.quantity)
+      sqlite3_bind_double(stmt, i++, *p.quantity);
+    if (p.starred)
+      sqlite3_bind_int(stmt, i++, *p.starred ? 1 : 0);
+    if (p.note)
+      bind_text(stmt, i++, *p.note);
+    if (p.room_name)
+      bind_text(stmt, i++, *p.room_name);
+    bind_text(stmt, i, code);
+    if (sqlite3_step(stmt) != SQLITE_DONE)
+      throw std::runtime_error("update_survey_part: " +
+                               std::string(sqlite3_errmsg(impl_->db)));
+  }
+  return *survey_part(code);
+}
+
+void ProjectDB::set_survey_part_quantities(
+    const std::vector<std::pair<std::string, double>> &code_quantities) {
+  impl_->checkWritable();
+  for (const auto &[code, quantity] : code_quantities)
+    if (!survey_part(code))
+      throw std::out_of_range("no survey part '" + code + "'");
+  impl_->execOrThrow("BEGIN TRANSACTION;");
+  try {
+    sqlite3_stmt *stmt = prepare_or_throw(
+        impl_->db, "UPDATE survey_parts SET quantity = ? WHERE code = ?;",
+        "set_survey_part_quantities");
+    StmtGuard guard(stmt);
+    for (const auto &[code, quantity] : code_quantities) {
+      sqlite3_reset(stmt);
+      sqlite3_bind_double(stmt, 1, quantity);
+      bind_text(stmt, 2, code);
+      if (sqlite3_step(stmt) != SQLITE_DONE)
+        throw std::runtime_error("set_survey_part_quantities: " +
+                                 std::string(sqlite3_errmsg(impl_->db)));
+    }
+    impl_->execOrThrow("COMMIT;");
+  } catch (...) {
+    // Non-throwing on purpose: a throw here would mask the original
+    // exception. Still check the result rather than discard it silently
+    // (STANDARDS §5) so a failed rollback — which leaves the transaction
+    // open on impl_->db — is at least visible in the log.
+    if (sqlite3_exec(impl_->db, "ROLLBACK;", nullptr, nullptr, nullptr) !=
+        SQLITE_OK)
+      reusex::warn("set_survey_part_quantities: ROLLBACK failed: {}",
+                   sqlite3_errmsg(impl_->db));
+    throw;
+  }
+}
+
+bool ProjectDB::has_survey_part_for(std::string_view cloud_name,
+                                    std::uint32_t instance_id) const {
+  sqlite3_stmt *stmt =
+      prepare_or_throw(impl_->db,
+                       "SELECT 1 FROM survey_parts p "
+                       "JOIN instances i ON i.guid = p.instance_guid "
+                       "JOIN point_clouds pc ON pc.id = i.cloud_id "
+                       "WHERE pc.name = ? AND i.instance_id = ?;",
+                       "has_survey_part_for");
+  StmtGuard guard(stmt);
+  bind_text(stmt, 1, cloud_name);
+  sqlite3_bind_int64(stmt, 2, instance_id);
+  return sqlite3_step(stmt) == SQLITE_ROW;
+}
+
+int ProjectDB::max_survey_part_number() const {
+  // Codes are "RX-<n>"; substr from 4 skips the prefix.
+  sqlite3_stmt *stmt = prepare_or_throw(impl_->db,
+                                        "SELECT COALESCE(MAX(CAST(substr(code, "
+                                        "4) AS INTEGER)), 0) FROM survey_parts "
+                                        "WHERE code LIKE 'RX-%';",
+                                        "max_survey_part_number");
+  StmtGuard guard(stmt);
+  sqlite3_step(stmt);
+  return sqlite3_column_int(stmt, 0);
+}
+
+namespace {
+ProjectDB::SampleRecord read_sample_row(sqlite3_stmt *s) {
+  ProjectDB::SampleRecord r;
+  r.id = sqlite3_column_int64(s, 0);
+  r.code = column_text(s, 1);
+  r.title = column_text(s, 2);
+  r.what = column_text(s, 3);
+  r.stage = core::sample_stage_from_string(column_text(s, 4))
+                .value_or(core::SampleStage::planlagt);
+  r.result = core::sample_result_from_string(column_text(s, 5))
+                 .value_or(core::SampleResult::none);
+  r.created_at = column_text(s, 6);
+  r.updated_at = column_text(s, 7);
+  return r;
+}
+constexpr const char *kSampleColumns =
+    "id, code, title, what, stage, result, created_at, updated_at";
+} // namespace
+
+// Fills type_ids for each record in place.
+static void attach_sample_links(sqlite3 *db,
+                                std::vector<ProjectDB::SampleRecord> &records) {
+  sqlite3_stmt *stmt = prepare_or_throw(
+      db,
+      "SELECT type_id FROM sample_links WHERE sample_id = ? ORDER BY type_id;",
+      "sample_links");
+  StmtGuard guard(stmt);
+  for (auto &r : records) {
+    sqlite3_reset(stmt);
+    sqlite3_bind_int64(stmt, 1, r.id);
+    while (sqlite3_step(stmt) == SQLITE_ROW)
+      r.type_ids.push_back(sqlite3_column_int64(stmt, 0));
+  }
+}
+
+ProjectDB::SampleRecord ProjectDB::add_sample(std::string_view title,
+                                              std::string_view what) {
+  impl_->checkWritable();
+  // Codes are never reused: take the highest ever issued (AUTOINCREMENT's
+  // sqlite_sequence survives deletes), not the current count.
+  sqlite3_stmt *seq =
+      prepare_or_throw(impl_->db,
+                       "SELECT COALESCE((SELECT seq FROM sqlite_sequence WHERE "
+                       "name = 'samples'), 0);",
+                       "add_sample");
+  StmtGuard seq_guard(seq);
+  sqlite3_step(seq);
+  const int next = sqlite3_column_int(seq, 0) + 1;
+
+  sqlite3_stmt *stmt = prepare_or_throw(
+      impl_->db,
+      "INSERT INTO samples (code, title, what) VALUES (?,?,?) RETURNING id;",
+      "add_sample");
+  StmtGuard guard(stmt);
+  bind_text(stmt, 1, core::sample_code(next));
+  bind_text(stmt, 2, title);
+  bind_text(stmt, 3, what);
+  if (sqlite3_step(stmt) != SQLITE_ROW)
+    throw std::runtime_error("add_sample: " +
+                             std::string(sqlite3_errmsg(impl_->db)));
+  return *sample(sqlite3_column_int64(stmt, 0));
+}
+
+std::vector<ProjectDB::SampleRecord> ProjectDB::samples() const {
+  const std::string sql =
+      std::string("SELECT ") + kSampleColumns + " FROM samples ORDER BY id;";
+  sqlite3_stmt *stmt = prepare_or_throw(impl_->db, sql.c_str(), "samples");
+  StmtGuard guard(stmt);
+  std::vector<SampleRecord> out;
+  while (sqlite3_step(stmt) == SQLITE_ROW)
+    out.push_back(read_sample_row(stmt));
+  attach_sample_links(impl_->db, out);
+  return out;
+}
+
+std::optional<ProjectDB::SampleRecord> ProjectDB::sample(int64_t id) const {
+  const std::string sql =
+      std::string("SELECT ") + kSampleColumns + " FROM samples WHERE id = ?;";
+  sqlite3_stmt *stmt = prepare_or_throw(impl_->db, sql.c_str(), "sample");
+  StmtGuard guard(stmt);
+  sqlite3_bind_int64(stmt, 1, id);
+  if (sqlite3_step(stmt) != SQLITE_ROW)
+    return std::nullopt;
+  std::vector<SampleRecord> one{read_sample_row(stmt)};
+  attach_sample_links(impl_->db, one);
+  return one.front();
+}
+
+ProjectDB::SampleRecord ProjectDB::update_sample(int64_t id,
+                                                 const SamplePatch &p) {
+  impl_->checkWritable();
+  if (!sample(id))
+    throw std::out_of_range("no sample " + std::to_string(id));
+  std::vector<std::string> sets;
+  if (p.title)
+    sets.emplace_back("title = ?");
+  if (p.what)
+    sets.emplace_back("what = ?");
+  if (p.stage)
+    sets.emplace_back("stage = ?");
+  if (p.result)
+    sets.emplace_back("result = ?");
+  if (!sets.empty()) {
+    std::string sql = "UPDATE samples SET ";
+    for (const auto &s : sets)
+      sql += s + ", ";
+    sql += "updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id = ?;";
+    sqlite3_stmt *stmt =
+        prepare_or_throw(impl_->db, sql.c_str(), "update_sample");
+    StmtGuard guard(stmt);
+    int i = 1;
+    if (p.title)
+      bind_text(stmt, i++, *p.title);
+    if (p.what)
+      bind_text(stmt, i++, *p.what);
+    if (p.stage)
+      bind_text(stmt, i++, core::to_string(*p.stage));
+    if (p.result)
+      bind_text(stmt, i++, core::to_string(*p.result));
+    sqlite3_bind_int64(stmt, i, id);
+    if (sqlite3_step(stmt) != SQLITE_DONE)
+      throw std::runtime_error("update_sample: " +
+                               std::string(sqlite3_errmsg(impl_->db)));
+  }
+  return *sample(id);
+}
+
+bool ProjectDB::delete_sample(int64_t id) {
+  impl_->checkWritable();
+  sqlite3_stmt *stmt = prepare_or_throw(
+      impl_->db, "DELETE FROM samples WHERE id = ?;", "delete_sample");
+  StmtGuard guard(stmt);
+  sqlite3_bind_int64(stmt, 1, id);
+  sqlite3_step(stmt);
+  return sqlite3_changes(impl_->db) > 0;
+}
+
+void ProjectDB::set_sample_links(int64_t id,
+                                 const std::vector<int64_t> &type_ids) {
+  impl_->checkWritable();
+  if (!sample(id))
+    throw std::out_of_range("no sample " + std::to_string(id));
+  for (auto t : type_ids)
+    if (!survey_type(t))
+      throw std::out_of_range("no survey type " + std::to_string(t));
+  impl_->execOrThrow("BEGIN TRANSACTION;");
+  try {
+    sqlite3_stmt *del = prepare_or_throw(
+        impl_->db, "DELETE FROM sample_links WHERE sample_id = ?;",
+        "set_sample_links");
+    StmtGuard del_guard(del);
+    sqlite3_bind_int64(del, 1, id);
+    sqlite3_step(del);
+    sqlite3_stmt *ins = prepare_or_throw(impl_->db,
+                                         "INSERT OR IGNORE INTO sample_links "
+                                         "(sample_id, type_id) VALUES (?, ?);",
+                                         "set_sample_links");
+    StmtGuard ins_guard(ins);
+    for (auto t : type_ids) {
+      sqlite3_reset(ins);
+      sqlite3_bind_int64(ins, 1, id);
+      sqlite3_bind_int64(ins, 2, t);
+      if (sqlite3_step(ins) != SQLITE_DONE)
+        throw std::runtime_error("set_sample_links: " +
+                                 std::string(sqlite3_errmsg(impl_->db)));
+    }
+    impl_->execOrThrow("COMMIT;");
+  } catch (...) {
+    // Non-throwing on purpose: a throw here would mask the original
+    // exception. Still check the result rather than discard it silently
+    // (STANDARDS §5) so a failed rollback — which leaves the transaction
+    // open on impl_->db — is at least visible in the log.
+    if (sqlite3_exec(impl_->db, "ROLLBACK;", nullptr, nullptr, nullptr) !=
+        SQLITE_OK)
+      reusex::warn("set_sample_links: ROLLBACK failed: {}",
+                   sqlite3_errmsg(impl_->db));
+    throw;
+  }
+}
+
+std::vector<ProjectDB::SampleRecord>
+ProjectDB::samples_for_type(int64_t type_id) const {
+  std::vector<SampleRecord> out;
+  for (auto &s : samples())
+    if (std::find(s.type_ids.begin(), s.type_ids.end(), type_id) !=
+        s.type_ids.end())
+      out.push_back(std::move(s));
+  return out;
 }
 
 } // namespace reusex

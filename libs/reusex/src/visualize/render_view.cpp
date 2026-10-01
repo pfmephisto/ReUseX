@@ -10,6 +10,7 @@
 #include "geometry/BuildingComponent.hpp"
 #include "geometry/component_persistence.hpp"
 #include "geometry/transform_utils.hpp"
+#include "reusex/visualize/highlight.hpp"
 #include "types/point_types.hpp"
 #include "visualize/offscreen_gl.hpp"
 
@@ -856,6 +857,35 @@ cv::Mat render_view(const ProjectDB &db, const RenderOptions &opts) {
     return *geometry;
   };
 
+  std::optional<std::vector<std::uint32_t>> highlight_labels;
+  const auto highlight = [&](std::vector<unsigned char> &colors,
+                             std::size_t points) {
+    if (!opts.highlight)
+      return;
+    if (!highlight_labels) {
+      const auto &h = *opts.highlight;
+      if (!db.has_point_cloud(h.cloud_name))
+        throw std::runtime_error("render: highlight needs the label cloud '" +
+                                 h.cloud_name +
+                                 "' — run `rux create instances` first");
+      const CloudLPtr labels = db.point_cloud_label(h.cloud_name);
+      highlight_labels.emplace();
+      for (const auto &p : *labels)
+        highlight_labels->push_back(p.label);
+    }
+    if (highlight_labels->size() != points)
+      throw std::runtime_error(
+          "render: highlight cloud '" + opts.highlight->cloud_name + "' has " +
+          std::to_string(highlight_labels->size()) + " labels but '" +
+          opts.cloud_name + "' has " + std::to_string(points) +
+          " points — the clouds are out of sync");
+    if (apply_instance_highlight(colors, *highlight_labels,
+                                 opts.highlight->instance_id) == 0)
+      core::warn(
+          "render: instance {} has no points in '{}'; nothing is highlighted",
+          opts.highlight->instance_id, opts.highlight->cloud_name);
+  };
+
   for (const Layer layer : opts.layers) {
     switch (layer) {
     case Layer::cloud: {
@@ -866,6 +896,7 @@ cv::Mat render_view(const ProjectDB &db, const RenderOptions &opts) {
         colors[3 * i + 1] = cloud[i].g;
         colors[3 * i + 2] = cloud[i].b;
       }
+      highlight(colors, cloud.size());
       add_points_actor(renderer, make_point_polydata(cloud, colors),
                        opts.point_size);
       drawn_points += cloud.size();
@@ -915,6 +946,7 @@ cv::Mat render_view(const ProjectDB &db, const RenderOptions &opts) {
                    "the '{}' layer will be uniformly grey",
                    name, cloud.size(), to_string(layer));
       }
+      highlight(colors, cloud.size());
       add_points_actor(renderer, make_point_polydata(cloud, colors),
                        opts.point_size);
       drawn_points += cloud.size();

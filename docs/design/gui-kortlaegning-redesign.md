@@ -115,9 +115,9 @@ New storage (schema v22):
   genbrug | genanvendelse | nyttiggoerelse | bortskaffelse), review status
   (queue | approved | rejected), AI confidence (nullable), mass in tonnes
   (nullable), process note, starred, and the semantic class it was seeded from.
-- `survey_parts` — code `RX-###` (primary key), type, instance (cloud + id,
-  nullable so a manually added part needs no instance), room id + name,
-  quantity, starred, note.
+- `survey_parts` — code `RX-###` (primary key), type, instance (by its stable
+  GUID — survives `rux create instances` re-runs; nullable so a manually
+  added part needs no instance), room id + name, quantity, starred, note.
 - `samples` — code `P-##`, title, what was sampled, stage (planlagt |
   udtaget | sendt | svar), result (null | ren | forurenet).
 - `sample_links` — many-to-many sample ↔ passport.

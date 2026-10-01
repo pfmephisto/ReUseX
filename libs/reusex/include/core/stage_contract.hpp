@@ -47,6 +47,7 @@ enum class PipelineStage {
   texture,    ///< texture-map the reconstructed mesh
   windows,    ///< derive window building components
   materials,  ///< create one material passport per instance + link it
+  survey,     ///< fill the Ressourcekortlægning from the instances table
   attributes, ///< VLM-derived per-material annotations (description + kv)
   // `gsplat` consumes `cloud` + `sensor_frames`, so anywhere after `clouds`
   // would satisfy the ordering invariant. It sits last because it is a LEAF:

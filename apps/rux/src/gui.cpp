@@ -8,6 +8,7 @@
 #include "gui/FrameSegmenter.hpp"
 #include "gui/ModelProvider.hpp"
 #include "gui/Server.hpp"
+#include "gui/ViewRenderer.hpp"
 #include "gui_icp.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
@@ -18,10 +19,12 @@
 #include <reusex/vision/sam3_prompt.hpp>
 #include <reusex/vision/segment_image.hpp>
 #include <reusex/vision/segment_panorama.hpp>
+#include <reusex/visualize/render_view.hpp>
 
 #include <fmt/format.h>
 #include <nlohmann/json.hpp>
 #include <opencv2/core.hpp>
+#include <opencv2/imgcodecs.hpp>
 #include <spdlog/spdlog.h>
 
 #include <atomic>
@@ -166,6 +169,54 @@ class DefaultPanoramaSegmenter : public rux::gui::IPanoramaSegmenter {
   std::unique_ptr<reusex::vision::IModel> model_;
   std::string current_path_;
   bool current_cuda_ = false;
+};
+
+/// Concrete evidence renderer (Kortlægning). render_view() drives VTK, which
+/// is not safe to run concurrently in one process — hence the mutex.
+class DefaultViewRenderer final : public rux::gui::IViewRenderer {
+    public:
+  std::vector<std::uint8_t>
+  render_png(const reusex::ProjectDB &db,
+             const rux::gui::RenderRequest &req) override {
+    namespace viz = reusex::visualize;
+    viz::RenderOptions o;
+    o.layers.clear();
+    for (const auto &name : req.layers) {
+      const auto layer = viz::layer_from_string(name);
+      if (!layer)
+        throw std::invalid_argument("unknown layer '" + name + "'");
+      o.layers.push_back(*layer);
+    }
+    const auto view = viz::view_preset_from_string(req.view);
+    if (!view)
+      throw std::invalid_argument("unknown view '" + req.view + "'");
+    o.view = *view;
+    o.orbit_index = req.orbit_index;
+    o.width = req.width;
+    o.height = req.height;
+    if (req.highlight_instance)
+      o.highlight = viz::InstanceHighlight{
+          req.highlight_cloud.value_or(viz::InstanceHighlight{}.cloud_name),
+          *req.highlight_instance};
+    std::lock_guard lock(mutex_);
+    cv::Mat image;
+    try {
+      image = viz::render_view(db, o);
+    } catch (const viz::OffscreenGlUnavailable &e) {
+      throw rux::gui::RenderUnavailable(e.what());
+    }
+    if (image.empty())
+      throw std::runtime_error("render produced an empty image");
+    std::vector<std::uint8_t> png;
+    if (!cv::imencode(".png", image, png) || png.empty())
+      throw std::runtime_error("PNG encode failed for a " +
+                               std::to_string(image.cols) + "x" +
+                               std::to_string(image.rows) + " render");
+    return png;
+  }
+
+    private:
+  std::mutex mutex_;
 };
 
 /// Managed-SAM3-model provider (self-contained packaging). Resolves an omitted
@@ -415,6 +466,10 @@ int run_subcommand_gui(SubcommandGuiOptions const &opt,
 
     DefaultPanoramaSegmenter panorama_segmenter;
     server.set_panorama_segmenter(&panorama_segmenter);
+
+    // Register the evidence-render renderer (#265 Phase 2 Task 8).
+    DefaultViewRenderer view_renderer;
+    server.set_view_renderer(&view_renderer);
 
     // Managed-model provider: resolves an omitted model_path and provisions the
     // SAM3 model (download ONNX + build engines) lazily on first use (#448).

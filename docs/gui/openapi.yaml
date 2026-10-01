@@ -85,6 +85,8 @@ tags:
     description: CSV export with optional column selection (#459)
   - name: export-templates
     description: Named export templates — saved column selections for CSV export (#459)
+  - name: survey
+    description: Ressourcekortlægning — survey types, parts, samples and derived KPIs
 
 paths:
 
@@ -2496,6 +2498,488 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
+  # -------------------------------------------------------------- survey ----
+  /survey:
+    get:
+      tags: [survey]
+      operationId: getSurvey
+      summary: Survey types with their parts, derived miljøstatus and counts
+      description: |
+        Every survey type (Kortlægning group row) with its parts (RX-### bygningsdele).
+        Rejected types are included with `review_status: rejected`; `counts.all` counts
+        queue + approved only. `environment_status` is derived from linked samples, never stored.
+      responses:
+        "200":
+          description: The survey
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [types, counts]
+                properties:
+                  types: { type: array, items: { $ref: "#/components/schemas/SurveyType" } }
+                  counts: { $ref: "#/components/schemas/SurveyCounts" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+  /survey/summary:
+    get:
+      tags: [survey]
+      operationId: getSurveySummary
+      summary: "Survey KPIs: counts, circularity, reuse share, coverage"
+      responses:
+        "200":
+          description: KPIs for Overblik and the Kortlægning coverage notice
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SurveySummary" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+  /survey/fractions:
+    get:
+      tags: [survey]
+      operationId: getSurveyFractions
+      summary: Approved tonnes per EAK code for waste reporting
+      description: |
+        Only approved types count toward the fractions. `blocking_types` counts types still
+        in the queue or awaiting a sample; the report is `ready` when it is 0.
+      responses:
+        "200":
+          description: Waste fractions
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SurveyFractions" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+  /survey/sync:
+    post:
+      tags: [survey]
+      operationId: syncSurvey
+      summary: Create survey parts for instances that have none
+      description: |
+        Fills survey_types / survey_parts from the instances cloud: one type
+        per semantic class, one bygningsdel (survey part) per instance,
+        placed in the room most of its points fall in. Idempotent — only
+        instances that have no part yet (keyed on instance guid) get one;
+        existing types/parts are never touched, so GUI edits survive a rerun.
+
+        Performed under the project's writer lock; see `409`/`503`.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                instances_cloud: { type: string, default: instances }
+                semantic_cloud: { type: string, default: labels }
+                rooms_cloud: { type: string, default: rooms }
+      responses:
+        "200":
+          description: Counts of what sync_survey changed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [types_created, parts_created, parts_existing, rooms_assigned, parts_orphaned, orphaned_codes]
+                properties:
+                  types_created: { type: integer }
+                  parts_created: { type: integer }
+                  parts_existing: { type: integer }
+                  rooms_assigned: { type: boolean }
+                  parts_orphaned:
+                    type: integer
+                    description: |
+                      Parts whose instance_guid no longer resolves to an instance row (the
+                      linked instance was dropped, or recreated without carrying the guid
+                      over). Kept and still counted toward their type's quantity.
+                  orphaned_codes:
+                    type: array
+                    items: { type: string }
+                    description: Codes of the orphaned parts.
+        "400":
+          description: Body was not a JSON object
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "415":
+          description: Content-Type was not application/json
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "422":
+          description: >-
+            Approval blocked by a pending sample, a quantity with no parts, a
+            sample result before the answer stage, or (sync) no instance cloud
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503": { $ref: "#/components/responses/WriterBusy" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  /survey/types:
+    post:
+      tags: [survey]
+      operationId: createSurveyType
+      summary: Create a survey type
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                eak_code: { type: string }
+                bim7aa_code: { type: string }
+                unit: { type: string }
+                treatment: { $ref: "#/components/schemas/Treatment" }
+      responses:
+        "201":
+          description: The created survey type
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SurveyType" }
+        "400":
+          description: name is missing/empty, or treatment names an unknown value
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "415":
+          description: Content-Type was not application/json
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503": { $ref: "#/components/responses/WriterBusy" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  /survey/types/{id}:
+    patch:
+      tags: [survey]
+      operationId: patchSurveyType
+      summary: Edit a survey type; approval is gated on samples
+      description: |
+        Sparse update. Every refusal is checked before the first write, so a
+        rejected combination changes nothing. `quantity` redistributes across
+        the type's existing parts (core::set_type_quantity); setting
+        `review_status: approved` is refused (422) while the type's derived
+        `environment_status` is `afventer`.
+
+        Performed under the project's writer lock; see `409`/`503`.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The survey type's id.
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SurveyTypePatch" }
+      responses:
+        "200":
+          description: The survey type after the edit
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SurveyType" }
+        "400":
+          description: >-
+            Malformed JSON, an unknown field type or enum value, or a
+            negative quantity
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "415":
+          description: Content-Type was not application/json
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "422":
+          description: >-
+            Approval blocked by a pending sample, a quantity with no parts, a
+            sample result before the answer stage, or (sync) no instance cloud
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503": { $ref: "#/components/responses/WriterBusy" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  /survey/parts/{code}:
+    patch:
+      tags: [survey]
+      operationId: patchSurveyPart
+      summary: Edit or re-file a survey part
+      description: |
+        Sparse update. `type_id` re-files the part under a different survey
+        type.
+
+        Performed under the project's writer lock; see `409`/`503`.
+      parameters:
+        - name: code
+          in: path
+          required: true
+          description: The part's code, e.g. `RX-008`.
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SurveyPartPatch" }
+      responses:
+        "200":
+          description: The survey part after the edit
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SurveyPart" }
+        "400":
+          description: Malformed JSON, a wrong field type, or a negative quantity
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "415":
+          description: Content-Type was not application/json
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503": { $ref: "#/components/responses/WriterBusy" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  /samples:
+    get:
+      tags: [survey]
+      operationId: listSamples
+      summary: Environmental samples with their linked survey types
+      responses:
+        "200":
+          description: Samples
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [samples]
+                properties:
+                  samples: { type: array, items: { $ref: "#/components/schemas/Sample" } }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+    post:
+      tags: [survey]
+      operationId: createSample
+      summary: Register an environmental sample
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title: { type: string }
+                what: { type: string }
+                type_ids: { type: array, items: { type: integer } }
+      responses:
+        "201":
+          description: The created sample
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Sample" }
+        "400":
+          description: title is missing/empty
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "415":
+          description: Content-Type was not application/json
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503": { $ref: "#/components/responses/WriterBusy" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  /samples/{id}:
+    patch:
+      tags: [survey]
+      operationId: patchSample
+      summary: Advance a sample's stage or record its result
+      description: |
+        Sparse update, applied via core::update_sample_checked. A `result`
+        can only be set once `stage` is `svar` (answer received); setting one
+        earlier is refused (422). `result: null` clears it.
+
+        Performed under the project's writer lock; see `409`/`503`.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The sample's id.
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SamplePatch" }
+      responses:
+        "200":
+          description: The sample after the edit
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Sample" }
+        "400":
+          description: Malformed JSON, or an unknown stage/result value
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "415":
+          description: Content-Type was not application/json
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "422":
+          description: >-
+            Approval blocked by a pending sample, a quantity with no parts, a
+            sample result before the answer stage, or (sync) no instance cloud
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503": { $ref: "#/components/responses/WriterBusy" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+    delete:
+      tags: [survey]
+      operationId: deleteSample
+      summary: Delete a sample
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The sample's id.
+          schema: { type: integer }
+      responses:
+        "204": { description: Sample deleted }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "503": { $ref: "#/components/responses/WriterBusy" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  /samples/{id}/links:
+    put:
+      tags: [survey]
+      operationId: setSampleLinks
+      summary: Replace the survey types a sample covers
+      description: |
+        Replaces the full set of linked type ids with the given list (empty
+        unlinks all). Performed under the project's writer lock; see
+        `409`/`503`.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The sample's id.
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type_ids]
+              properties:
+                type_ids: { type: array, items: { type: integer } }
+      responses:
+        "200":
+          description: The sample after the edit
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Sample" }
+        "400":
+          description: type_ids is missing or not an array of integers
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "503": { $ref: "#/components/responses/WriterBusy" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  /renders:
+    get:
+      tags: [survey]
+      operationId: getRender
+      summary: Server-rendered view of the project, optionally highlighting one instance
+      description: |
+        Renders a view of the project with VTK's headless renderer and
+        answers PNG bytes. Backs the Plan / Punktsky / Rum-model evidence
+        tabs in Kortlægning: a reviewer can call out one instance (an
+        element, a room) against the rest of the scan without opening the
+        interactive viewport.
+
+        `highlight_instance` paints that instance's points in a fixed accent
+        colour and dims every other point to 30% brightness; it reads the
+        named Label cloud given by `highlight_cloud` (default `instances`),
+        which must be index-aligned with the geometry cloud the render draws.
+
+        The server may take a second or two to answer — this issues a real
+        VTK render, not a cached thumbnail.
+      parameters:
+        - name: view
+          in: query
+          description: Camera placement.
+          schema:
+            type: string
+            enum: [plan, top, front, orbit]
+            default: plan
+        - name: orbit_index
+          in: query
+          description: Which of 8 viewpoints on the orbit ring to render. Only used with `view=orbit`.
+          schema: { type: integer, minimum: 0, maximum: 7, default: 0 }
+        - name: layers
+          in: query
+          description: Comma-separated layers to draw, in draw order.
+          schema: { type: string, default: cloud }
+        - name: highlight_cloud
+          in: query
+          description: |
+            Named Label cloud supplying the instance id per point, used only
+            when `highlight_instance` is given. Defaults to `instances`.
+          schema: { type: string }
+        - name: highlight_instance
+          in: query
+          description: Instance id to paint; every other point is dimmed.
+          schema: { type: integer, minimum: 1 }
+        - name: width
+          in: query
+          schema: { type: integer, minimum: 64, maximum: 2048, default: 960 }
+        - name: height
+          in: query
+          schema: { type: integer, minimum: 64, maximum: 2048, default: 720 }
+      responses:
+        "200":
+          description: Rendered PNG image
+          content:
+            image/png:
+              schema: { type: string, format: binary }
+        "400":
+          description: Unknown `view`/layer, or a parameter out of range
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "422":
+          description: The project lacks the data the requested layer or highlight needs (the message names the stage to run first)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503":
+          description: No view renderer is registered, or this machine has no usable offscreen OpenGL context
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
   # ---------------------------------------------------------------- jobs ----
   /jobs:
     get:
@@ -3797,3 +4281,149 @@ components:
         fraction:
           type: [number, "null"]
           description: current/total, or null when total is 0.
+
+    Treatment:
+      type: string
+      enum: [bevaring, genbrug, genanvendelse, nyttiggoerelse, bortskaffelse]
+      description: Waste-hierarchy step (affaldshierarki), best first.
+    ReviewStatus: { type: string, enum: [queue, approved, rejected] }
+    EnvironmentStatus:
+      type: string
+      enum: [ren_screening, afventer, forurenet, ren_proevesvar]
+      description: Derived from linked samples; `afventer` blocks approval.
+    SurveyPart:
+      type: object
+      required: [code, type_id, cloud, instance_id, room_id, room_name, quantity, starred, note,
+                 material_guid, instance_guid, orphaned]
+      properties:
+        code: { type: string, example: RX-008 }
+        type_id: { type: integer }
+        cloud: { type: string, nullable: true }
+        instance_id: { type: integer, nullable: true }
+        room_id: { type: integer, nullable: true }
+        room_name: { type: string }
+        quantity: { type: number }
+        starred: { type: boolean }
+        note: { type: string }
+        material_guid: { type: string, nullable: true }
+        instance_guid: { type: string, nullable: true }
+        orphaned:
+          type: boolean
+          description: instance_guid is set but no longer resolves to an instance row.
+    SurveyType:
+      type: object
+      required: [id, name, eak_code, eak_name, bim7aa_code, unit, treatment, review_status, confidence, mass_t,
+                 note, starred, semantic_class, environment_status, sample_ids, quantity, parts, created_at, updated_at]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        eak_code: { type: string, example: "17.04.02" }
+        eak_name: { type: string, example: Aluminium }
+        bim7aa_code: { type: string, example: 312 Udv. vinduer }
+        unit: { type: string, example: stk }
+        treatment: { $ref: "#/components/schemas/Treatment" }
+        review_status: { $ref: "#/components/schemas/ReviewStatus" }
+        confidence: { type: number, nullable: true, minimum: 0, maximum: 1 }
+        mass_t: { type: number, nullable: true }
+        note: { type: string }
+        starred: { type: boolean }
+        semantic_class: { type: integer }
+        environment_status: { $ref: "#/components/schemas/EnvironmentStatus" }
+        sample_ids: { type: array, items: { type: integer } }
+        quantity: { type: number, description: Sum of the parts' quantities. }
+        parts: { type: array, items: { $ref: "#/components/schemas/SurveyPart" } }
+        created_at: { type: string }
+        updated_at: { type: string }
+    SurveyCounts:
+      type: object
+      required: [queue, approved, rejected, all]
+      properties:
+        queue: { type: integer }
+        approved: { type: integer }
+        rejected: { type: integer }
+        all: { type: integer, description: queue + approved }
+    SurveySummary:
+      type: object
+      required: [counts, circularity, total_mass_t, reuse_share, pending_samples, unlabeled_points, rooms_without_parts]
+      properties:
+        counts: { $ref: "#/components/schemas/SurveyCounts" }
+        circularity:
+          type: object
+          description: Tonnes per treatment over non-rejected types.
+          additionalProperties: { type: number }
+        total_mass_t: { type: number }
+        reuse_share: { type: number, nullable: true, description: (bevaring + genbrug) / total }
+        pending_samples: { type: integer }
+        unlabeled_points: { type: integer, nullable: true }
+        rooms_without_parts: { type: array, items: { type: string } }
+    SurveyFractions:
+      type: object
+      required: [fractions, total_t, blocking_types, ready]
+      properties:
+        fractions:
+          type: array
+          items:
+            type: object
+            required: [eak_code, name, treatment, mass_t]
+            properties:
+              eak_code: { type: string }
+              name: { type: string }
+              treatment: { $ref: "#/components/schemas/Treatment" }
+              mass_t: { type: number }
+        total_t: { type: number }
+        blocking_types: { type: integer }
+        ready: { type: boolean }
+    Sample:
+      type: object
+      required: [id, code, title, what, stage, result, type_ids, created_at, updated_at]
+      properties:
+        id: { type: integer }
+        code: { type: string, example: P-01 }
+        title: { type: string }
+        what: { type: string }
+        stage: { type: string, enum: [planlagt, udtaget, sendt, svar] }
+        result: { type: string, enum: [ren, forurenet], nullable: true }
+        type_ids: { type: array, items: { type: integer } }
+        created_at: { type: string }
+        updated_at: { type: string }
+    SurveyTypePatch:
+      type: object
+      description: Sparse update for PATCH /survey/types/{id}; only present fields change.
+      properties:
+        name: { type: string }
+        eak_code: { type: string }
+        bim7aa_code: { type: string }
+        unit: { type: string }
+        note: { type: string }
+        treatment: { $ref: "#/components/schemas/Treatment" }
+        review_status: { $ref: "#/components/schemas/ReviewStatus" }
+        confidence: { type: number, nullable: true, minimum: 0, maximum: 1 }
+        mass_t: { type: number, nullable: true }
+        starred: { type: boolean }
+        quantity:
+          type: number
+          minimum: 0
+          description: Redistributes across the type's existing parts (core::set_type_quantity).
+    SurveyPartPatch:
+      type: object
+      description: Sparse update for PATCH /survey/parts/{code}; only present fields change.
+      properties:
+        type_id:
+          type: integer
+          description: Re-files the part under a different survey type.
+        quantity: { type: number, minimum: 0 }
+        starred: { type: boolean }
+        note: { type: string }
+        room_name: { type: string }
+    SamplePatch:
+      type: object
+      description: Sparse update for PATCH /samples/{id}; only present fields change.
+      properties:
+        title: { type: string }
+        what: { type: string }
+        stage: { type: string, enum: [planlagt, udtaget, sendt, svar] }
+        result:
+          type: string
+          enum: [ren, forurenet]
+          nullable: true
+          description: Can only be set once stage is 'svar'; null clears it.

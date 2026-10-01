@@ -155,6 +155,31 @@ TEST_CASE("SurveyFractionsJson_BlockingMassNullWhenUnset", "[gui][survey]") {
   CHECK(j.at("ready") == false);
 }
 
+TEST_CASE("SurveyFractionsJson_EmptySurveyIsNotReady", "[gui][survey]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  {
+    const auto j = survey_fractions_json(db);
+    CHECK(j.at("fractions").empty());
+    CHECK(j.at("blocking_types") == 0);
+    CHECK(j.at("ready") == false);
+  }
+  // Only bevaring: approved, nothing blocks, but no fraction row to send.
+  add_type(db, "Fundament", core::Treatment::bevaring, 640,
+           core::ReviewStatus::approved);
+  {
+    const auto j = survey_fractions_json(db);
+    CHECK(j.at("fractions").empty());
+    CHECK(j.at("blocking_types") == 0);
+    CHECK(j.at("ready") == false);
+  }
+  add_type(db, "Beton", core::Treatment::genanvendelse, 12,
+           core::ReviewStatus::approved);
+  const auto j = survey_fractions_json(db);
+  CHECK(j.at("fractions").size() == 1);
+  CHECK(j.at("ready") == true);
+}
+
 TEST_CASE("SamplesJson_ResultNullWhenNone", "[gui][survey]") {
   TempDB tmp;
   ProjectDB db(tmp.path);

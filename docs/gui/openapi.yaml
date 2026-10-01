@@ -2551,8 +2551,9 @@ paths:
         report. `bevaring` never counts (it stays in the building). A type awaiting a sample
         is withheld even when approved. An approved type without tonnes blocks rather than
         counting as zero. `blocking` lists every non-rejected type that keeps the report
-        from being sent; the report is `ready` when it is empty. Tonnes are rounded to 6
-        decimals.
+        from being sent; the report is `ready` when it is empty and at least one fraction
+        row exists (an empty survey, or one that is all bevaring, has nothing to send).
+        Tonnes are rounded to 6 decimals.
       responses:
         "200":
           description: Waste fractions
@@ -4415,7 +4416,9 @@ components:
                 type: string
                 enum: [review, sample, mass]
                 description: "`sample`: miljøstatus is afventer (blocks even when approved). `review`: not approved yet. `mass`: approved, but the tonnage is unknown (never counted as zero). A type gets one reason, by precedence sample > review > mass."
-        ready: { type: boolean }
+        ready:
+          type: boolean
+          description: "`fractions` is non-empty and `blocking` is empty."
     Sample:
       type: object
       required: [id, code, title, what, stage, result, type_ids, created_at, updated_at]

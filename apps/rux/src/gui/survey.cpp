@@ -223,11 +223,14 @@ json survey_fractions_json(const reusex::ProjectDB &db) {
          {"treatment", std::string(core::to_string(b.treatment))},
          {"mass_t", opt(b.mass_t)},
          {"reason", std::string(core::to_string(b.reason))}});
+  // Ready means there is something to report and nothing holds it back: an
+  // empty survey (or one that is all bevaring) has no fraction to send.
+  const bool ready = !list.empty() && report.blocking_types == 0;
   return {{"fractions", std::move(list)},
           {"total_t", wire_tonnes(report.total_t)},
           {"blocking_types", report.blocking_types},
           {"blocking", std::move(blocking)},
-          {"ready", report.blocking_types == 0}};
+          {"ready", ready}};
 }
 
 json samples_json(const reusex::ProjectDB &db) {

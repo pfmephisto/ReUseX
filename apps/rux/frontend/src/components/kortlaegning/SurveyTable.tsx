@@ -2,11 +2,12 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
 import type { SurveyType } from '../../api/types';
 import {
   flattenRows,
+  partLabel,
   sameSelection,
   type EnvFilter,
   type Filters,
@@ -55,6 +56,23 @@ const TABS: { id: Tab; label: string }[] = [
 ];
 
 /**
+ * How long a click on the already-selected type row waits before it folds the
+ * row, so the first click of a double-click (which opens the dialog) never
+ * folds it as well.
+ */
+export const TOGGLE_DELAY_MS = 250;
+
+/**
+ * What a click on a type row does: the first click on an unselected row
+ * selects it; the first click on the selected row folds it (after
+ * `TOGGLE_DELAY_MS`); a double-click's later clicks do neither.
+ */
+export function typeRowClick(selected: boolean, detail: number): 'select' | 'toggle' | 'ignore' {
+  if (detail > 1) return 'ignore';
+  return selected ? 'toggle' : 'select';
+}
+
+/**
  * The tabbed, filterable Kortlægning table: survey types grouped by tab,
  * expandable into their building-part rows. Purely presentational — every
  * piece of state (tab, filters, open set, selection) is a prop, and this
@@ -80,6 +98,14 @@ export function SurveyTable(props: SurveyTableProps) {
 
   const rows = flattenRows(types, open);
   const typeById = new Map(types.map((t) => [t.id, t]));
+
+  // A pending fold from a click on the selected row; a double-click cancels it.
+  const toggleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelToggle = () => {
+    if (toggleTimer.current !== null) clearTimeout(toggleTimer.current);
+    toggleTimer.current = null;
+  };
+  useEffect(() => cancelToggle, []);
 
   // Keep the selected row in view as selection moves by keyboard.
   useEffect(() => {
@@ -195,12 +221,24 @@ export function SurveyTable(props: SurveyTableProps) {
                       key={`type-${type.id}`}
                       className={styles.typeRow}
                       aria-selected={selected}
-                      onClick={(e) =>
-                        selected && e.detail === 1
-                          ? onToggle(type.id)
-                          : onSelect({ typeId: type.id, partCode: null })
-                      }
-                      onDoubleClick={() => onOpenDialog({ typeId: type.id, partCode: null })}
+                      onClick={(e) => {
+                        const action = typeRowClick(selected, e.detail);
+                        if (action === 'select') {
+                          onSelect({ typeId: type.id, partCode: null });
+                        } else if (action === 'toggle') {
+                          cancelToggle();
+                          toggleTimer.current = setTimeout(() => {
+                            toggleTimer.current = null;
+                            onToggle(type.id);
+                          }, TOGGLE_DELAY_MS);
+                        } else {
+                          cancelToggle();
+                        }
+                      }}
+                      onDoubleClick={() => {
+                        cancelToggle();
+                        onOpenDialog({ typeId: type.id, partCode: null });
+                      }}
                     >
                       <td>
                         <div className={styles.nameCell}>
@@ -218,7 +256,7 @@ export function SurveyTable(props: SurveyTableProps) {
                             ▸
                           </button>
                           {type.starred && (
-                            <span className={styles.star} aria-hidden="true">
+                            <span className={styles.star} role="img" aria-label="Vigtig" title="Vigtig">
                               ★
                             </span>
                           )}
@@ -267,7 +305,7 @@ export function SurveyTable(props: SurveyTableProps) {
                   >
                     <td className={styles.partTd}>
                       <div className={styles.partCell}>
-                        {part.code} · {part.room_name}
+                        {partLabel(part)}
                         {part.orphaned && (
                           <Pill
                             tone="warn"

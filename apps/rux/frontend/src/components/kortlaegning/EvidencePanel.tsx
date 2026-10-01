@@ -41,6 +41,7 @@ import { api } from '../../api/client';
 import type { SurveyPart, SurveyType, VisibleFrame } from '../../api/types';
 import { useAsync } from '../../app/useAsync';
 import type { EvidenceTab } from '../../kortlaegning/keys';
+import { partLabel } from '../../kortlaegning/model';
 import { EmptyState } from '../EmptyState';
 import styles from './EvidencePanel.module.css';
 
@@ -302,7 +303,7 @@ export function EvidencePanel({ type, part, tab, onTab, variant }: EvidencePanel
   }
 
   const active = sources.find((s) => s.tab === tab) ?? sources[0];
-  const selectionLabel = part ? `${part.code} · ${part.room_name}` : type.name;
+  const selectionLabel = part ? partLabel(part) : type.name;
 
   if (variant === 'panel') {
     return (

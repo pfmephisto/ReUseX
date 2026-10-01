@@ -1053,11 +1053,18 @@ class ProjectDB {
     std::optional<core::SampleStage> stage;
     std::optional<core::SampleResult> result;
   };
-  /// @throws std::out_of_range when part_code names no survey part; nothing
-  /// is written then.
+  /// Register a sample, its type links and its initial stage in one
+  /// transaction. When `part_code` is given, that part's type is always
+  /// linked (added to `type_ids` unless already there; duplicates collapse).
+  /// @throws std::out_of_range when part_code names no survey part or a
+  /// `type_ids` entry names no survey type.
+  /// @throws std::invalid_argument when `stage` is not planlagt/udtaget.
+  /// Nothing is written (and no P-## code consumed) when it throws.
   SampleRecord
   add_sample(std::string_view title, std::string_view what,
-             const std::optional<std::string> &part_code = std::nullopt);
+             const std::optional<std::string> &part_code = std::nullopt,
+             const std::vector<int64_t> &type_ids = {},
+             core::SampleStage stage = core::SampleStage::planlagt);
   [[nodiscard]] std::vector<SampleRecord> samples() const; // by id
   [[nodiscard]] std::optional<SampleRecord> sample(int64_t id) const;
   SampleRecord

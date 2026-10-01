@@ -107,9 +107,12 @@ nlohmann::json patch_survey_part_json(reusex::ProjectDB &db,
                                       const std::string &body);
 
 /// `POST /samples`: register a new environmental sample. Body: `{ "title"
-/// (required), "what"?, "type_ids"? }`.
-/// @throws HttpError(400) when `title` is missing/empty.
-/// @throws HttpError(404) when a given `type_ids` entry is unknown.
+/// (required), "what"?, "type_ids"?, "part_code"?, "stage"? }`. A
+/// `part_code` records the bygningsdel it was taken at (On-site) and always
+/// links that part's type; `stage` is `planlagt` (default) or `udtaget`.
+/// @throws HttpError(400) when `title` is missing/empty, `part_code` is empty
+/// or not a string, or `stage` is not `planlagt`/`udtaget`.
+/// @throws HttpError(404) when a `type_ids` entry or the part is unknown.
 nlohmann::json create_sample_json(reusex::ProjectDB &db,
                                   const std::string &body);
 

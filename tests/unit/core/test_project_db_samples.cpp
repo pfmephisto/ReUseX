@@ -14,6 +14,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 using reusex::ProjectDB;
 namespace core = reusex::core;
@@ -154,4 +155,39 @@ TEST_CASE("Samples_MigratesFromV23_PartCodeNull",
   add_part(db, "RX-001", t);
   CHECK(db.add_sample("Ny", "", std::string("RX-001")).part_code ==
         std::optional<std::string>("RX-001"));
+}
+
+// GUI Phase 6 (On-site): the row, its links and its initial stage are one
+// write; the part's type is always linked.
+
+TEST_CASE("Samples_Add_WithPart_LinksThePartsTypeOnce",
+          "[ProjectDB][samples]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  const auto t = add_type(db, "Vinduespartier, aluminium");
+  const auto u = add_type(db, "Fuger");
+  add_part(db, "RX-008", t);
+  const auto s = db.add_sample("Asbest", "", std::string("RX-008"), {u, t, u},
+                               core::SampleStage::udtaget);
+  CHECK(s.type_ids == std::vector<int64_t>{t, u});
+  CHECK(s.stage == core::SampleStage::udtaget);
+  CHECK(db.samples_for_type(t).size() == 1);
+  CHECK(db.add_sample("Uden typer", "", std::string("RX-008")).type_ids ==
+        std::vector<int64_t>{t});
+}
+
+TEST_CASE("Samples_Add_BadTypeOrStage_ThrowsAndWritesNothing",
+          "[ProjectDB][samples]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  CHECK_THROWS_AS(db.add_sample("x", "", std::nullopt, {9999}),
+                  std::out_of_range);
+  CHECK_THROWS_AS(
+      db.add_sample("x", "", std::nullopt, {}, core::SampleStage::svar),
+      std::invalid_argument);
+  CHECK_THROWS_AS(
+      db.add_sample("x", "", std::nullopt, {}, core::SampleStage::sendt),
+      std::invalid_argument);
+  CHECK(db.samples().empty());
+  CHECK(db.add_sample("y", "").code == "P-01");
 }

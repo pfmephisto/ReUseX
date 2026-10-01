@@ -1035,26 +1035,40 @@ export interface ReportPdfVersion {
 }
 
 /**
- * Parses a sqlite-style zone-less UTC timestamp (`"YYYY-MM-DD HH:MM:SS"`, as
- * `ReportPdfVersion.created_at` is stored) into a `Date`.
+ * Parses a server timestamp into a `Date`. Two shapes are accepted:
+ * - sqlite's zone-less UTC (`"YYYY-MM-DD HH:MM:SS"`, seconds optional), as
+ *   `ReportPdfVersion.created_at` is stored;
+ * - ISO 8601 with an explicit zone (`"…T10:05:00Z"`, `"…T12:05:00+02:00"`,
+ *   optional fraction).
  *
- * `new Date(s)` must never be used on this string directly: browsers parse a
+ * `new Date(s)` must never be used on these strings: browsers parse a
  * space-separated, zone-less timestamp as **local** time, not UTC, which
- * silently shifts the displayed instant by the viewer's offset. Returns
- * `null` for anything that does not match the expected shape.
+ * silently shifts the displayed instant by the viewer's offset. So both shapes
+ * go through `Date.UTC`, with an ISO offset applied by hand. Returns `null`
+ * for zone-less ISO and for anything else that does not match.
  */
 export function parseServerUtc(value: string): Date | null {
-  const match = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/.exec(value);
+  const match =
+    /^(\d{4})-(\d{2})-(\d{2})(?: (\d{2}):(\d{2})(?::(\d{2}))?|T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|[+-]\d{2}:\d{2}))$/.exec(
+      value.trim(),
+    );
   if (!match) return null;
-  const [, year, month, day, hour, minute, second] = match;
-  const ms = Date.UTC(
-    Number(year),
-    Number(month) - 1,
-    Number(day),
-    Number(hour),
-    Number(minute),
-    Number(second),
-  );
+  const [, year, month, day, sh, smin, ss, ih, imin, is, zone] = match;
+  const iso = zone !== undefined;
+  let offsetMin = 0;
+  if (iso && zone !== 'Z') {
+    offsetMin = (zone[0] === '-' ? -1 : 1) * (Number(zone.slice(1, 3)) * 60 + Number(zone.slice(4, 6)));
+  }
+  const ms =
+    Date.UTC(
+      Number(year),
+      Number(month) - 1,
+      Number(day),
+      Number(iso ? ih : sh),
+      Number(iso ? imin : smin),
+      Number(iso ? is : (ss ?? 0)),
+    ) -
+    offsetMin * 60_000;
   return Number.isNaN(ms) ? null : new Date(ms);
 }
 

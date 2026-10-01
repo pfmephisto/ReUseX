@@ -2,10 +2,10 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import { parseServerUtc } from '../../api/types';
 import type { ReportPdfVersion } from '../../api/types';
 import {
   formatBytesDa,
-  parseServerTime,
   UNKNOWN_STATUS,
   versionDate,
   versionDateTime,
@@ -30,7 +30,7 @@ export function VersionList({ versions, pdfUrl, inventoryUrl }: VersionListProps
       {versions.map((v) => {
         const status = versionStatus(v);
         const title = versionTitle(v);
-        const at = parseServerTime(v.created_at);
+        const at = parseServerUtc(v.created_at);
         return (
           <li key={v.id} className={styles.row}>
             <span className={styles.format}>PDF</span>

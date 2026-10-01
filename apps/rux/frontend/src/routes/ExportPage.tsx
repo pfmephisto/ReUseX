@@ -127,7 +127,7 @@ function ReportView({
   return (
     <div className={styles.page}>
       <p className={styles.hint}>
-        PDF reports (Ressourcekortlægning) are generated and stored on <Link to={RAPPORT_PATH}>Rapport →</Link>
+        PDF-rapporter genereres og gemmes under <Link to={RAPPORT_PATH}>Rapport →</Link>
       </p>
 
       {/* CSV Export section */}

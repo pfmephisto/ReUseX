@@ -11,7 +11,6 @@ import {
   generatedToast,
   generateErrorMessage,
   LIST_REFRESH_FAILED,
-  parseServerTime,
   REPORT_FOOTNOTE,
   reportHeroSub,
   UNKNOWN_STATUS,
@@ -23,12 +22,6 @@ import {
 import { reportVersion, surveyFractions, surveySummary } from './surveyFixtures';
 
 describe('server time', () => {
-  it('reads sqlite datetime as UTC, and ISO as given', () => {
-    expect(parseServerTime('2026-08-09 10:05:00')?.toISOString()).toBe('2026-08-09T10:05:00.000Z');
-    expect(parseServerTime('2026-08-09T10:05:00Z')?.toISOString()).toBe('2026-08-09T10:05:00.000Z');
-    expect(parseServerTime('igår')).toBeNull();
-  });
-
   it('formats the version date like the prototype', () => {
     expect(versionDate('2026-08-09 10:05:00')).toBe('09.08.2026');
     expect(versionDate('igår')).toBe('igår');
@@ -106,12 +99,6 @@ describe('beyond the brief', () => {
     expect(versionDateTime('2026-08-09 10:05:00', 'Europe/Copenhagen')).toBe('09.08.2026 kl. 12.05');
     expect(versionDateTime('2026-01-15 23:30:00', 'Europe/Copenhagen')).toBe('16.01.2026 kl. 00.30');
     expect(versionDateTime('igår')).toBe('igår');
-  });
-
-  it('reads an ISO time only with an explicit zone', () => {
-    expect(parseServerTime('2026-08-09T12:05:00+02:00')?.toISOString()).toBe('2026-08-09T10:05:00.000Z');
-    expect(parseServerTime('2026-08-09T10:05:00')).toBeNull();
-    expect(parseServerTime('2026-08-09 10:05')?.toISOString()).toBe('2026-08-09T10:05:00.000Z');
   });
 
   it('words a version with no recorded status neutrally, never as Komplet', () => {

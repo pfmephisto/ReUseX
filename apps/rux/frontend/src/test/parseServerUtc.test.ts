@@ -25,4 +25,18 @@ describe('parseServerUtc', () => {
     const d = parseServerUtc('2026-01-01 00:00:00');
     expect(d!.getTime()).toBe(Date.UTC(2026, 0, 1, 0, 0, 0));
   });
+
+  it('accepts sqlite text without seconds', () => {
+    expect(parseServerUtc('2026-08-09 10:05')?.toISOString()).toBe('2026-08-09T10:05:00.000Z');
+  });
+
+  it('reads ISO 8601 only with an explicit zone', () => {
+    expect(parseServerUtc('2026-08-09T10:05:00Z')?.toISOString()).toBe('2026-08-09T10:05:00.000Z');
+    expect(parseServerUtc('2026-08-09T10:05:00.250Z')?.toISOString()).toBe('2026-08-09T10:05:00.000Z');
+    expect(parseServerUtc('2026-08-09T12:05:00+02:00')?.toISOString()).toBe('2026-08-09T10:05:00.000Z');
+    expect(parseServerUtc('2026-08-09T05:35:00-04:30')?.toISOString()).toBe('2026-08-09T10:05:00.000Z');
+    expect(parseServerUtc('2026-08-09T10:05:00')).toBeNull();
+    expect(parseServerUtc('igår')).toBeNull();
+    expect(parseServerUtc('2026-08-09T10:05:00+2')).toBeNull();
+  });
 });

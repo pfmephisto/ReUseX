@@ -14,35 +14,15 @@ import type { ReportPdfVersion, SurveyFractions, SurveySummary } from '../api/ty
 import { errorMessage } from '../app/saveError';
 import type { Tone } from '../kortlaegning/vocab';
 
-/** ISO 8601 with an explicit zone: "2026-08-09T10:05:00Z", "…T12:05:00+02:00". */
-const ZONED_ISO = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|([+-])(\d{2}):(\d{2}))$/;
-
-/**
- * sqlite's `datetime('now')` ("2026-08-09 10:05:00", UTC, no zone; seconds
- * optional) via `parseServerUtc`, or an ISO time that names its zone. Never
- * `new Date(s)`: a zone-less string would be read as local time.
- */
-export function parseServerTime(s: string): Date | null {
-  const t = s.trim();
-  const utc = parseServerUtc(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(t) ? `${t}:00` : t);
-  if (utc) return utc;
-  const m = ZONED_ISO.exec(t);
-  if (!m) return null;
-  const [y, mo, d, h, mi, se] = m.slice(1, 7).map(Number);
-  const offsetMin = m[7] === 'Z' ? 0 : (m[8] === '-' ? -1 : 1) * (Number(m[9]) * 60 + Number(m[10]));
-  const ms = Date.UTC(y, mo - 1, d, h, mi, se) - offsetMin * 60_000;
-  return Number.isNaN(ms) ? null : new Date(ms);
-}
-
 /** "09.08.2026" in local time; the raw string when it does not parse. */
 export function versionDate(s: string): string {
-  const d = parseServerTime(s);
+  const d = parseServerUtc(s);
   return d ? d.toLocaleDateString('da-DK', { day: '2-digit', month: '2-digit', year: 'numeric' }) : s;
 }
 
 /** "09.08.2026 kl. 12.05" in local time (or `timeZone`); the raw string when it does not parse. */
 export function versionDateTime(s: string, timeZone?: string): string {
-  const d = parseServerTime(s);
+  const d = parseServerUtc(s);
   if (!d) return s;
   const date = d.toLocaleDateString('da-DK', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone });
   const time = d.toLocaleTimeString('da-DK', { hour: '2-digit', minute: '2-digit', timeZone });

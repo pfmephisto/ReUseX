@@ -5,7 +5,7 @@
 import { Link } from 'react-router-dom';
 
 import type { SurveyFractions } from '../../api/types';
-import { footStatus, fractionRows, tonnesText } from '../../indberetning/model';
+import { FOOT_STATUS_ID, footStatus, fractionRows, tonnesText } from '../../indberetning/model';
 import { Pill } from '../Pill';
 import styles from './FractionTable.module.css';
 
@@ -17,6 +17,7 @@ export interface FractionTableProps {
  * EAK-kode · Fraktion · Behandling · Mængde · Status. Ready fractions first,
  * then the types that block sending, muted, each linking to that type in
  * Kortlægning. The footer shows the server's `total_t` — never a client sum.
+ * Not a DataTable: that has no `<tfoot>` and no per-row class (muted blockers).
  */
 export function FractionTable({ fractions }: FractionTableProps) {
   const foot = footStatus(fractions);
@@ -70,7 +71,9 @@ export function FractionTable({ fractions }: FractionTableProps) {
             <td colSpan={3}>I alt (godkendt)</td>
             <td className={`${styles.num} mono`}>{tonnesText(fractions.total_t)}</td>
             <td>
-              <Pill tone={foot.tone}>{foot.text}</Pill>
+              <span id={FOOT_STATUS_ID}>
+                <Pill tone={foot.tone}>{foot.text}</Pill>
+              </span>
             </td>
           </tr>
         </tfoot>

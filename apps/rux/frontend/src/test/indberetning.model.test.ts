@@ -131,6 +131,21 @@ describe('the send gate and the CSV', () => {
     expect(nl).toContain('17.01.01;"Beton\nknust";Genanvendelse;Nej;190\r\n');
   });
 
+  it('neutralises a text field Excel would run as a formula', () => {
+    const row = (name: string, eak = '17.01.01') =>
+      fractionsCsv(surveyFractions({ fractions: [fraction({ name, eak_code: eak })] })).split('\r\n')[1];
+    expect(row('=HYPERLINK("http://x","klik")')).toBe(
+      '17.01.01;"\'=HYPERLINK(""http://x"",""klik"")";Genanvendelse;Nej;190',
+    );
+    expect(row('-2+3')).toBe("17.01.01;'-2+3;Genanvendelse;Nej;190");
+    expect(row('+x')).toBe("17.01.01;'+x;Genanvendelse;Nej;190");
+    expect(row('@SUM(A1)')).toBe("17.01.01;'@SUM(A1);Genanvendelse;Nej;190");
+    expect(row('\tx')).toBe("17.01.01;'\tx;Genanvendelse;Nej;190");
+    expect(row('\rx')).toBe('17.01.01;"\'\rx";Genanvendelse;Nej;190');
+    expect(row('Beton', '=1+1')).toBe("'=1+1;Beton;Genanvendelse;Nej;190");
+    expect(row('Beton')).toBe('17.01.01;Beton;Genanvendelse;Nej;190');
+  });
+
   it('downloads with a byte-order mark so Excel reads æøå', () => {
     const href = fractionsCsvHref(surveyFractions());
     expect(href.startsWith('data:text/csv;charset=utf-8,')).toBe(true);

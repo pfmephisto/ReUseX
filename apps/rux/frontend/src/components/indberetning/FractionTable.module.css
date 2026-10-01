@@ -71,3 +71,20 @@
   background: var(--color-surface-sunken);
   font-weight: var(--font-weight-bold);
 }
+
+/*
+ * Status stays pinned to the panel's right edge, so on a narrow screen the
+ * pills are never clipped and the columns sliding under it show the table
+ * scrolls. Each cell repaints its row's own background over what passes under.
+ */
+.table th:last-child,
+.table td:last-child {
+  position: sticky;
+  right: 0;
+  background: var(--color-surface-raised);
+}
+
+.table th:last-child,
+.table tfoot td:last-child {
+  background: var(--color-surface-sunken);
+}

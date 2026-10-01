@@ -36,3 +36,10 @@
   font-size: var(--font-size-sm);
   color: var(--color-text-muted);
 }
+
+/* Why Send is disabled, visible without a tooltip (touch has none). */
+.gateHint {
+  align-self: center;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}

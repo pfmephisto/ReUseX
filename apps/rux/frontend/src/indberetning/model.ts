@@ -82,6 +82,9 @@ export function canSend(f: SurveyFractions): boolean {
   return f.blocking.length === 0;
 }
 
+/** The footer status pill's id; the disabled Send button is described by it. */
+export const FOOT_STATUS_ID = 'indberetning-foot-status';
+
 export function footStatus(f: SurveyFractions): { tone: Tone; text: string } {
   if (canSend(f)) return { tone: 'good', text: 'Klar til afsendelse' };
   const n = f.blocking_types;
@@ -90,6 +93,15 @@ export function footStatus(f: SurveyFractions): { tone: Tone; text: string } {
 
 function csvField(s: string): string {
   return /[";\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+/**
+ * A text cell Excel would evaluate (`=`, `+`, `-`, `@`, tab, CR first) gets a
+ * leading `'`, so a type named `=HYPERLINK(…)` stays text (CSV injection).
+ * Only for text columns: the tonnes are formatted here and never start so.
+ */
+function csvText(s: string): string {
+  return csvField(/^[=+\-@\t\r]/.test(s) ? `'${s}` : s);
 }
 
 /** The wire rounds tonnes to 6 dp; the CSV keeps every one of those digits. */
@@ -104,14 +116,9 @@ export function fractionsCsv(f: SurveyFractions): string {
   for (const x of f.fractions) {
     lines.push(
       [
-        x.eak_code,
-        x.name,
-        TREATMENT_LABEL[x.treatment],
-        x.contaminated ? 'Ja' : 'Nej',
-        x.mass_t.toLocaleString('da-DK', { useGrouping: false, maximumFractionDigits: CSV_TONNE_DIGITS }),
-      ]
-        .map(csvField)
-        .join(';'),
+        ...[x.eak_code, x.name, TREATMENT_LABEL[x.treatment], x.contaminated ? 'Ja' : 'Nej'].map(csvText),
+        csvField(x.mass_t.toLocaleString('da-DK', { useGrouping: false, maximumFractionDigits: CSV_TONNE_DIGITS })),
+      ].join(';'),
     );
   }
   return `${lines.join('\r\n')}\r\n`;

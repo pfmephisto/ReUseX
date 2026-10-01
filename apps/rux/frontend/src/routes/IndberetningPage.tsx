@@ -13,6 +13,7 @@ import { FractionTable } from '../components/indberetning/FractionTable';
 import {
   canSend,
   CSV_FILENAME,
+  FOOT_STATUS_ID,
   footStatus,
   FRACTION_NOTE,
   fractionsCsvHref,
@@ -62,11 +63,13 @@ export function IndberetningPage() {
           <a className={styles.btnGhost} href={csvHref} download={CSV_FILENAME}>
             Hent fraktioner (CSV)
           </a>
+          {!sendable && <span className={styles.gateHint}>{footStatus(data).text}</span>}
           <button
             type="button"
             className={styles.btnPrimary}
             disabled={!sendable}
             title={sendable ? undefined : footStatus(data).text}
+            aria-describedby={sendable ? undefined : FOOT_STATUS_ID}
             onClick={() => setSendNotice(true)}
           >
             Send til bygningsaffald.dk

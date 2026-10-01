@@ -9,7 +9,7 @@
 # whole cloud without a highlight. Never run this against a real project.
 #
 # Usage: seed-survey-demo.sh [--varied] <source.rux> <dest.rux>
-# --varied adds P-04 (answered ren, linked to two approved types) and P-05 (planned, unlinked) for Miljø & prøver work, plus three report versions (two drafts, one complete) for Rapport.
+# --varied adds P-04 (answered ren, linked to two approved types) and P-05 (planned, unlinked) for Miljø & prøver work, three report versions (two drafts, one complete) for Rapport, and — what On-site writes — a ★ part with a note (RX-014) and P-06 taken at RX-013.
 set -euo pipefail
 command -v sqlite3 > /dev/null 2>&1 || { echo "sqlite3 not found" >&2; exit 1; }
 varied=0
@@ -25,7 +25,7 @@ rm -f "$dst-wal" "$dst-shm"
 rux -p "$dst" create survey > /dev/null 2>&1 || true
 ver=$(sqlite3 "$dst" 'SELECT MAX(version) FROM schema_version;')
 [[ "$ver" -ge 22 ]] || { echo "schema v$ver < 22 — build a newer rux" >&2; exit 1; }
-[[ "$varied" -eq 0 || "$ver" -ge 23 ]] || { echo "schema v$ver < 23 — --varied needs a rux with report versions" >&2; exit 1; }
+[[ "$varied" -eq 0 || "$ver" -ge 24 ]] || { echo "schema v$ver < 24 — --varied needs a rux with samples.part_code" >&2; exit 1; }
 sqlite3 "$dst" <<'SQL'
 BEGIN;
 DELETE FROM sample_links; DELETE FROM samples; DELETE FROM survey_parts; DELETE FROM survey_types;
@@ -67,6 +67,10 @@ INSERT INTO samples (id,code,title,what,stage,result) VALUES
  (4,'P-04','Asbest i eternitplader','Tagplader over Roof, prøve fra nordfaldet','svar','ren'),
  (5,'P-05','PAH i tagpap','Tagpap under trapezplader — endnu ikke udtaget','planlagt','');
 INSERT INTO sample_links (sample_id,type_id) VALUES (4,7),(4,10);
+UPDATE survey_parts SET starred = 1, note = '8–10 stk. skønnes direkte genbrugelige.' WHERE code = 'RX-014';
+INSERT INTO samples (id,code,title,what,stage,result,part_code) VALUES
+ (6,'P-06','Asbest i linoleumslim','Prøve under vinduet mod gården','udtaget','','RX-013');
+INSERT INTO sample_links (sample_id,type_id) VALUES (6,8);
 DELETE FROM report_pdfs;
 INSERT INTO report_pdfs (label,created_at,pdf_blob,blocking_types) VALUES
  ('Ressourcekortlægning','2026-05-21 09:12:00',X'255044462D312E340A2525454F460A',9),

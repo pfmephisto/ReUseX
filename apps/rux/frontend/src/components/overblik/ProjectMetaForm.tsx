@@ -23,6 +23,8 @@ export interface ProjectMetaFormProps {
   /** One field's sparse patch. Never gated on busy: the page queues it. */
   onCommit: (patch: ProjectPatch) => void;
   onInvalidYear: () => void;
+  /** The required name was emptied and snapped back (`EMPTY_NAME_TOAST`). */
+  onInvalidName: () => void;
   onClose: () => void;
 }
 
@@ -30,17 +32,26 @@ export interface ProjectMetaFormProps {
  * The case details, edited in place (R5). Each field commits on blur
  * (`useTextDraft`); an untouched blur sends nothing. Esc in a field drops its
  * draft without sending and parks focus on the form itself, so a second Esc
- * closes it (R10). Enter in a single-line field commits by leaving the field.
+ * closes it (R10). Enter in a single-line field commits by leaving the field;
+ * Ctrl/⌘+Enter commits the focused field and closes.
  */
-export function ProjectMetaForm({ project, onCommit, onInvalidYear, onClose }: ProjectMetaFormProps) {
+export function ProjectMetaForm({ project, onCommit, onInvalidYear, onInvalidName, onClose }: ProjectMetaFormProps) {
   const formRef = useRef<HTMLElement>(null);
 
-  // Esc outside a text field closes. Esc inside one is handled by fieldKeys.
+  // Esc outside a text field closes; Ctrl/⌘+Enter commits the focused field
+  // (by blurring it) and closes. Esc inside a field is handled by fieldKeys.
   function onKeyDown(e: KeyboardEvent<HTMLElement>) {
-    const action = editorKeyAction({ key: e.key, kind: kindOf(e.target), ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey });
-    if (action === 'close') {
+    const action = editorKeyAction({
+      key: e.key,
+      kind: kindOf(e.target),
+      ctrlKey: e.ctrlKey,
+      metaKey: e.metaKey,
+      altKey: e.altKey,
+    });
+    if (action === 'close' || action === 'submit') {
       e.preventDefault();
       e.stopPropagation(); // handled here: no page-level handler may act on it too
+      if (e.target instanceof HTMLElement) e.target.blur();
       onClose();
     }
   }
@@ -58,7 +69,13 @@ export function ProjectMetaForm({ project, onCommit, onInvalidYear, onClose }: P
       <div className={styles.grid}>
         {META_FIELDS.map((spec) => (
           <Fragment key={spec.key}>
-            <MetaTextField spec={spec} current={project?.[spec.key] ?? ''} onCommit={onCommit} home={formRef} />
+            <MetaTextField
+              spec={spec}
+              current={project?.[spec.key] ?? ''}
+              onCommit={onCommit}
+              onInvalid={onInvalidName}
+              home={formRef}
+            />
             {spec.key === 'building_address' && (
               <MetaYearField
                 current={project?.year_of_construction}
@@ -70,7 +87,7 @@ export function ProjectMetaForm({ project, onCommit, onInvalidYear, onClose }: P
           </Fragment>
         ))}
       </div>
-      <p className={styles.hint}>Ændringer gemmes, når du forlader feltet. Esc fortryder feltet; Esc igen lukker.</p>
+      <p className={styles.hint}>Ændringer gemmes, når du forlader feltet. Esc fortryder feltet; Esc igen lukker. Ctrl+Enter gemmer og lukker.</p>
     </section>
   );
 }
@@ -79,14 +96,20 @@ function MetaTextField({
   spec,
   current,
   onCommit,
+  onInvalid,
   home,
 }: {
   spec: MetaFieldSpec;
   current: string;
   onCommit: (patch: ProjectPatch) => void;
+  /** A required field was emptied; only the name is required. */
+  onInvalid: () => void;
   home: RefObject<HTMLElement | null>;
 }) {
-  const draft = useTextDraft(current, (value) => onCommit(metaPatch(spec.key, value)), spec.required);
+  const draft = useTextDraft(current, (value) => onCommit(metaPatch(spec.key, value)), {
+    required: spec.required,
+    onInvalid,
+  });
   const id = `meta-${spec.key}`;
   const keys = fieldKeys(draft, home, spec.multiline);
   return (

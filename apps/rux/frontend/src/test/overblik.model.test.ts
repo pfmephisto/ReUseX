@@ -11,6 +11,7 @@ import {
   circularityAriaLabel,
   circularitySegments,
   danishDate,
+  EMPTY_NAME_TOAST,
   heroSubline,
   INVALID_YEAR_TOAST,
   kpis,
@@ -256,5 +257,20 @@ describe('danish dates (F24)', () => {
     expect(danishDate('09.08.2026')).toBe('09.08.2026');
     expect(danishDate('august 2026')).toBe('august 2026');
     expect(danishDate('')).toBe('');
+  });
+
+  it('shows an impossible ISO date as stored, never reformatted', () => {
+    expect(danishDate('2026-13-45')).toBe('2026-13-45');
+    expect(danishDate('2026-00-10')).toBe('2026-00-10');
+    expect(danishDate('2026-02-30')).toBe('2026-02-30');
+    expect(danishDate('2026-04-31')).toBe('2026-04-31');
+    expect(danishDate('2024-02-29')).toBe('29.02.2024');
+    expect(danishDate('2026-12-31')).toBe('31.12.2026');
+  });
+});
+
+describe('empty case name', () => {
+  it('has its Danish toast', () => {
+    expect(EMPTY_NAME_TOAST).toBe('Sagsnavnet kan ikke være tomt.');
   });
 });

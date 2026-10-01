@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent, type RefObject } from 'react';
 
 import { fieldKeyAction } from './editorKeys';
-import { draftCommit, textCommit, type DraftCommit, type DraftValidate } from './textDraft';
+import { draftCommit, textDraftCommit, type DraftCommit, type DraftValidate } from './textDraft';
 
 export interface TextDraft {
   props: {
@@ -25,6 +25,12 @@ export interface DraftOptions<T> {
   onInvalid?: () => void;
 }
 
+/** A plain text field; `onInvalid` fires when a required field was emptied. */
+export interface TextOptions {
+  required?: boolean;
+  onInvalid?: () => void;
+}
+
 /**
  * A text field that commits on blur. An untouched blur sends nothing
  * (`textCommit` / `draftCommit`); a required field that was emptied, or a
@@ -32,20 +38,24 @@ export interface DraftOptions<T> {
  * not focused it follows the server value, so a response that changed it
  * shows up; while focused it never clobbers what is being typed.
  *
- * The third argument is either `required` (plain text) or `DraftOptions`
- * (a validated field that commits the parsed value).
+ * The third argument is `required` or `TextOptions` (plain text), or
+ * `DraftOptions` (a validated field that commits the parsed value).
  *
  * If the commit fails, the caller shows an error toast and this hook does
  * nothing extra: the unsaved draft simply stays in the field (it was never
  * reset, because `current` on the server did not change), and the next blur
  * retries the same commit (D14, accepted for v1).
  */
-export function useTextDraft(current: string, onCommit: (value: string) => void, required?: boolean): TextDraft;
+export function useTextDraft(
+  current: string,
+  onCommit: (value: string) => void,
+  options?: boolean | TextOptions,
+): TextDraft;
 export function useTextDraft<T>(current: string, onCommit: (value: T) => void, options: DraftOptions<T>): TextDraft;
 export function useTextDraft<T>(
   current: string,
   onCommit: (value: T) => void,
-  options: boolean | DraftOptions<T> = false,
+  options: boolean | TextOptions | DraftOptions<T> = false,
 ): TextDraft {
   const [draft, setDraft] = useState(current);
   const focused = useRef(false);
@@ -56,10 +66,10 @@ export function useTextDraft<T>(
   }, [current]);
 
   function decide(): DraftCommit<T> {
-    if (typeof options === 'object') return draftCommit(draft, current, options.validate);
-    const value = textCommit(draft, current, options);
+    if (typeof options === 'object' && 'validate' in options) return draftCommit(draft, current, options.validate);
+    const required = typeof options === 'object' ? options.required === true : options;
     // Plain text: T is string (the overloads guarantee it).
-    return value === null ? { send: false, invalid: false } : { send: true, value: value as T };
+    return textDraftCommit(draft, current, required) as DraftCommit<T>;
   }
 
   return {
@@ -101,7 +111,10 @@ export function useTextDraft<T>(
  */
 export function fieldKeys(draft: TextDraft, home: RefObject<HTMLElement | null>, multiline = false) {
   return (e: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const action = fieldKeyAction(e, multiline);
+    const action = fieldKeyAction(
+      { key: e.key, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey },
+      multiline,
+    );
     if (action === 'revert') {
       e.preventDefault();
       e.stopPropagation(); // the editor's Esc would otherwise close it

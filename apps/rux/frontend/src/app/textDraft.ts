@@ -19,10 +19,25 @@ export function textCommit(draft: string, current: string, required: boolean): s
   return value;
 }
 
-/** Parses a draft into the value to send, or null when the draft is invalid. */
+/**
+ * Parses a draft into the value to send, or null when the draft is invalid.
+ * T must be a primitive (string, number, null, …): `draftCommit` compares the
+ * parsed draft with the parsed stored value by `Object.is`, so two equal
+ * objects would always count as a change.
+ */
 export type DraftValidate<T> = (draft: string) => { value: T } | null;
 
 export type DraftCommit<T> = { send: true; value: T } | { send: false; invalid: boolean };
+
+/**
+ * A plain text field's blur (`textCommit`) as a `DraftCommit`: emptying a
+ * required field is `invalid`, so the caller can say why it snapped back.
+ */
+export function textDraftCommit(draft: string, current: string, required: boolean): DraftCommit<string> {
+  const value = textCommit(draft, current, required);
+  if (value !== null) return { send: true, value };
+  return { send: false, invalid: required && draft.trim() === '' && current.trim() !== '' };
+}
 
 /**
  * A validated field's blur. Text unchanged from `current` (after trimming)

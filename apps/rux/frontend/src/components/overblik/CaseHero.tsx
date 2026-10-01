@@ -31,7 +31,7 @@ export function CaseHero({ name, subline, editing, onToggle, toggleRef }: CaseHe
         type="button"
         className={styles.edit}
         aria-expanded={editing}
-        aria-controls="case-meta-form"
+        aria-controls={editing ? 'case-meta-form' : undefined}
         onClick={onToggle}
       >
         {editing ? 'Luk redigering' : 'Rediger sagsoplysninger'}

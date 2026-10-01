@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 import { editorKeyAction, fieldKeyAction } from '../app/editorKeys';
 import { editorKeyAction as miljoeEditorKeyAction, textCommit as miljoeTextCommit } from '../miljoe/model';
-import { draftCommit, textCommit } from '../app/textDraft';
+import { draftCommit, textCommit, textDraftCommit } from '../app/textDraft';
 
 describe('field keys (R10)', () => {
   it('reverts on Esc and commits on Enter in a single-line field', () => {
@@ -45,5 +45,18 @@ describe('validated drafts', () => {
     expect(draftCommit('1x', '12', int)).toEqual({ send: false, invalid: true });
     expect(draftCommit('13', '12', int)).toEqual({ send: true, value: 13 });
     expect(draftCommit('', '12', int)).toEqual({ send: true, value: null });
+  });
+});
+
+describe('plain text drafts', () => {
+  it('flags an emptied required field so the caller can say why', () => {
+    expect(textDraftCommit('  ', 'Måløv', true)).toEqual({ send: false, invalid: true });
+    expect(textDraftCommit('', '', true)).toEqual({ send: false, invalid: false });
+    expect(textDraftCommit('Måløv ', 'Måløv', true)).toEqual({ send: false, invalid: false });
+    expect(textDraftCommit('Ballerup', 'Måløv', true)).toEqual({ send: true, value: 'Ballerup' });
+  });
+
+  it('clears an optional field without flagging it', () => {
+    expect(textDraftCommit('', 'Måløv', false)).toEqual({ send: true, value: '' });
   });
 });

@@ -180,6 +180,9 @@ export type YearCommit = DraftCommit<number | null>;
 
 export const INVALID_YEAR_TOAST = 'Byggeår skal være et årstal, fx 1978.';
 
+/** Said when the required case name was emptied and snapped back. */
+export const EMPTY_NAME_TOAST = 'Sagsnavnet kan ikke være tomt.';
+
 /** The earliest year of construction the field accepts. */
 export const MIN_YEAR = 1000;
 
@@ -225,5 +228,11 @@ export function yearCommit(draft: string, current: number | undefined, max: numb
 export function danishDate(stored: string): string {
   const t = stored.trim();
   const m = /^(\d{4})-(\d{2})-(\d{2})(?:[T ].*)?$/.exec(t);
-  return m ? `${m[3]}.${m[2]}.${m[1]}` : t;
+  if (!m) return t;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  // Round-trip through Date.UTC: an impossible date (2026-13-45, 2026-02-30)
+  // rolls over, so it no longer matches and is shown as stored.
+  const date = new Date(Date.UTC(y, mo - 1, d));
+  const real = date.getUTCFullYear() === y && date.getUTCMonth() === mo - 1 && date.getUTCDate() === d;
+  return real ? `${m[3]}.${m[2]}.${m[1]}` : t;
 }

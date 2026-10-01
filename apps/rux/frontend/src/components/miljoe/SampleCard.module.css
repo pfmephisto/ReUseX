@@ -39,6 +39,8 @@
   font-family: var(--font-display);
   font-size: var(--font-size-md);
   font-weight: var(--font-weight-bold);
+  /* The prototype keeps the sample's own wording ("PCB i fugemasse"), unlike the page headings. */
+  text-transform: none;
 }
 
 .linked {
@@ -81,6 +83,13 @@
 
 .editorActions {
   justify-content: space-between;
+}
+
+/* On a narrow card a long label wraps inside its button instead of spilling out. */
+.actions > button {
+  max-width: 100%;
+  white-space: normal;
+  text-align: left;
 }
 
 .note {

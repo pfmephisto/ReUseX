@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useEffect, useRef, type KeyboardEvent } from 'react';
+import { useEffect, useRef, type KeyboardEvent, type RefObject } from 'react';
 import { Link } from 'react-router-dom';
 
 import type { Sample, SampleResult, SurveyType } from '../../api/types';
@@ -44,8 +44,12 @@ export interface SampleCardProps {
   cardRef?: (el: HTMLElement | null) => void;
 }
 
-/** Enter commits (blurs) a text field, Esc reverts it without committing. */
-function fieldKeys(draft: TextDraft) {
+/**
+ * Enter commits (blurs) a text field, Esc reverts it without committing and
+ * parks focus on the editor itself (`home`), so it never drops to <body> and a
+ * second Esc closes the editor.
+ */
+function fieldKeys(draft: TextDraft, home: RefObject<HTMLDivElement | null>) {
   return (e: KeyboardEvent<HTMLInputElement>) => {
     const action = editorKeyAction({
       key: e.key,
@@ -58,6 +62,7 @@ function fieldKeys(draft: TextDraft) {
       e.preventDefault();
       e.stopPropagation(); // the editor's Esc would otherwise close it
       draft.revert(e.currentTarget);
+      home.current?.focus();
     } else if (action === 'commit') {
       e.preventDefault();
       e.currentTarget.blur();
@@ -111,6 +116,7 @@ function SampleEditor({
   const titleId = `sample-${sample.id}-edit-title`;
   const whatId = `sample-${sample.id}-edit-what`;
   const titleInput = useRef<HTMLInputElement>(null);
+  const editorRef = useRef<HTMLDivElement>(null);
 
   // Opening the editor lands on Titel.
   useEffect(() => {
@@ -135,19 +141,28 @@ function SampleEditor({
   }
 
   return (
-    <div id={id} role="group" aria-label={`Rediger ${sample.code}`} className={styles.editor} onKeyDown={onKeyDown}>
+    // tabIndex -1: a focus target for Esc-revert, never a Tab stop.
+    <div
+      ref={editorRef}
+      id={id}
+      role="group"
+      aria-label={`Rediger ${sample.code}`}
+      tabIndex={-1}
+      className={styles.editor}
+      onKeyDown={onKeyDown}
+    >
       <div className={styles.fields}>
         <div className={styles.field}>
           <label className={styles.label} htmlFor={titleId}>
             Titel
           </label>
-          <input ref={titleInput} id={titleId} className={styles.input} {...title.props} onKeyDown={fieldKeys(title)} />
+          <input ref={titleInput} id={titleId} className={styles.input} {...title.props} onKeyDown={fieldKeys(title, editorRef)} />
         </div>
         <div className={styles.field}>
           <label className={styles.label} htmlFor={whatId}>
             Hvad er udtaget, og hvor
           </label>
-          <input id={whatId} className={styles.input} {...what.props} onKeyDown={fieldKeys(what)} />
+          <input id={whatId} className={styles.input} {...what.props} onKeyDown={fieldKeys(what, editorRef)} />
         </div>
       </div>
       <LinkPicker types={types} selected={linkedIds} onToggle={onToggleLink} />

@@ -93,6 +93,13 @@ export function MiljoePage() {
     setFocusNonce((n) => n + 1);
   }, []);
   const newButton = useRef<HTMLButtonElement>(null);
+  // Cancelling the create form returns focus to "+ Ny prøve" once it is enabled.
+  const focusNewRef = useRef(false);
+  useEffect(() => {
+    if (creating || !focusNewRef.current) return;
+    focusNewRef.current = false;
+    newButton.current?.focus();
+  }, [creating]);
   // `busy` is React state: two submits in the same tick would both see it
   // false. This ref is set synchronously, before the request is queued.
   const createInFlight = useRef(false);
@@ -151,14 +158,24 @@ export function MiljoePage() {
     navigate({ pathname: MILJOE_PATH, search: params.toString() }, { replace: true });
   }
 
+  // Set when a re-read failed: `typesRef` then predates that write, so the
+  // next diff would credit (or blame) this change for the earlier one too.
+  const gateStaleRef = useRef(false);
+
   /** Re-read the survey and say what the change did to the approval gate. */
   async function refreshGate(code: string): Promise<string | null> {
     const before = typesRef.current;
     try {
       const survey = await api.survey();
       setTypes(survey.types);
+      if (gateStaleRef.current) {
+        // No trustworthy baseline: resync and let the caller's plain toast speak.
+        gateStaleRef.current = false;
+        return null;
+      }
       return gateMessage(code, gateChanges(before, survey.types));
     } catch {
+      gateStaleRef.current = true;
       return 'Gemt — men miljøstatus kunne ikke genindlæses. Åbn Kortlægning for at se den.';
     }
   }
@@ -237,6 +254,9 @@ export function MiljoePage() {
   }
 
   function cancelCreate() {
+    // "+ Ny prøve" is still disabled until `creating` re-renders false, so the
+    // focus is handed back by the effect below, not here.
+    focusNewRef.current = true;
     setCreating(false);
     clearNewQuery();
   }

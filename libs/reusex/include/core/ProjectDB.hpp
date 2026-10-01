@@ -1041,13 +1041,23 @@ class ProjectDB {
     std::vector<int64_t> type_ids; // linked survey types, ascending
     std::string created_at;
     std::string updated_at;
+    /// The bygningsdel (survey part code) the sample was taken at, set when
+    /// it was registered on site (schema v24). Not a foreign key: like
+    /// SurveyPartRecord::instance_guid it may outlive what it names, and a
+    /// reader shows the code as stored. Kept LAST so positional aggregate
+    /// initializers still compile.
+    std::optional<std::string> part_code;
   };
   struct SamplePatch {
     std::optional<std::string> title, what;
     std::optional<core::SampleStage> stage;
     std::optional<core::SampleResult> result;
   };
-  SampleRecord add_sample(std::string_view title, std::string_view what);
+  /// @throws std::out_of_range when part_code names no survey part; nothing
+  /// is written then.
+  SampleRecord
+  add_sample(std::string_view title, std::string_view what,
+             const std::optional<std::string> &part_code = std::nullopt);
   [[nodiscard]] std::vector<SampleRecord> samples() const; // by id
   [[nodiscard]] std::optional<SampleRecord> sample(int64_t id) const;
   SampleRecord

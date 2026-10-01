@@ -35,7 +35,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 - **Re-running sync after a user re-filed a part.** A part moved to another type must stay there; sync only creates parts for instances without one, and never renames a type the user renamed. (Task 5 test `SyncSurvey_Rerun_PreservesUserEdits`.)
 - **Approve while a *new* sample is pending on an already-approved type.** Linking a pending sample to an approved type does not un-approve it, but Indberetning must count it as blocking. (Task 1 `FractionsByEak_ApprovedButAfventer_CountsAsBlocking`.)
 - **Setting a type's quantity when all parts are 0, or when it has no parts.** Equal split for all-zero; no parts → 422, not a divide-by-zero. (Tasks 1 and 5.)
-- **Deleting an instance cloud (`rux create instances --clear`) after survey parts reference it.** Parts keep their code, quantity and room; `cloud`/`instance_id` go null via `ON DELETE SET NULL`. (Task 2 `SurveyParts_InstanceDeleted_KeepsPartWithNullInstance`.)
+- **Deleting an instance cloud (`rux create instances --clear`) after survey parts reference it.** Parts keep their code, quantity and room; the part keeps its `instance_guid`; `cloud`/`instance_id` read back null because the guid no longer resolves (see the Task 2 ruling). (Task 2 `SurveyParts_InstanceDeleted_KeepsPartWithNullInstance`.)
 - **Concurrent GUI renders.** Two browser tabs requesting renders must not run VTK concurrently; the renderer serialises with a mutex. (Task 8, stated in the implementation; covered by the fake-renderer handler test only for dispatch — VTK concurrency itself is not unit-testable.)
 
 ---

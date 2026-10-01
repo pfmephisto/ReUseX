@@ -1022,12 +1022,40 @@ export interface RenderQuery {
 export interface ReportPdfVersion {
   /** Stable numeric id; use in `GET /reports/ressourcekortlaegning/{id}`. */
   id: number;
-  /** ISO 8601 UTC timestamp when the PDF was generated. */
+  /** Generation time, UTC, as sqlite stores it ("2026-08-09 10:05:00"). Parse with `parseServerUtc`. */
   created_at: string;
   /** Human-readable label stored with the PDF. */
   label: string;
   /** Size of the PDF blob in bytes. */
   size_bytes: number;
+  /** 1-based, generation order: the "v3" a user sees. */
+  version: number;
+  /** Types that blocked the report at generation; 0 = complete; null before schema v23. */
+  blocking_types: number | null;
+}
+
+/**
+ * Parses a sqlite-style zone-less UTC timestamp (`"YYYY-MM-DD HH:MM:SS"`, as
+ * `ReportPdfVersion.created_at` is stored) into a `Date`.
+ *
+ * `new Date(s)` must never be used on this string directly: browsers parse a
+ * space-separated, zone-less timestamp as **local** time, not UTC, which
+ * silently shifts the displayed instant by the viewer's offset. Returns
+ * `null` for anything that does not match the expected shape.
+ */
+export function parseServerUtc(value: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/.exec(value);
+  if (!match) return null;
+  const [, year, month, day, hour, minute, second] = match;
+  const ms = Date.UTC(
+    Number(year),
+    Number(month) - 1,
+    Number(day),
+    Number(hour),
+    Number(minute),
+    Number(second),
+  );
+  return Number.isNaN(ms) ? null : new Date(ms);
 }
 
 // ------------------------------------------------------------- websocket ----

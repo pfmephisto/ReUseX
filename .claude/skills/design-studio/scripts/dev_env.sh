@@ -32,7 +32,7 @@
 # ./build/apps/rux/rux).
 set -euo pipefail
 
-# Repo root = two dirs above this script's skill dir (.claude/skills/design-studio).
+# Repo root = four dirs above this script (scripts/ → design-studio/ → skills/ → .claude/ → root).
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
 FRONTEND="$REPO_ROOT/apps/rux/frontend"
@@ -48,35 +48,79 @@ resolve_rux() {
   echo ""; return
 }
 
+# Who each pidfile's process must be: its executable name (`ps -o comm=`) and
+# a substring of its command line (`ps -o args=`). `rux gui` is the rux binary
+# serving the copy under $RUN_DIR/project/; the dev server is node running
+# vite with the flags `start` gives it. Both are checked: a command line alone
+# is not enough, since any shell whose script merely mentions "vite" would
+# match it. A live pid that fails the check is a stale pidfile whose pid the
+# system has reused — it is never signalled.
+expected_comm() {
+  case "$1" in
+    gui) echo "rux" ;;
+    vite) echo "node" ;;
+  esac
+}
+expected_args() {
+  case "$1" in
+    gui) echo " -p $RUN_DIR/project/" ;;
+    vite) echo "node_modules/.bin/vite --port " ;;
+  esac
+}
+
+# Succeeds when <name>.pid holds a live process that is ours. A stale pidfile
+# (a live pid that is someone else) is removed with a warning; one whose
+# process has exited is left for the caller to clear.
 alive() {
-  [[ -f "$1" ]] && kill -0 "$(cat "$1" 2>/dev/null)" 2>/dev/null
+  local name="$1" f="$RUN_DIR/$1.pid"
+  [[ -f "$f" ]] || return 1
+  local pid; pid="$(cat "$f" 2>/dev/null || true)"
+  [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null || return 1
+  local comm args
+  comm="$(ps -o comm= -p "$pid" 2>/dev/null || true)"
+  args="$(ps -ww -o args= -p "$pid" 2>/dev/null || true)"
+  local want_comm want_args
+  want_comm="$(expected_comm "$name")"
+  want_args="$(expected_args "$name")"
+  if [[ "$comm" != "$want_comm" || "$args" != *"$want_args"* ]]; then
+    echo "warning: stale $name.pid: pid $pid is '${comm:-?}', not $name ($want_comm …$want_args…); removed the pidfile, killed nothing" >&2
+    rm -f "$f"
+    return 1
+  fi
+  return 0
 }
 
 # Each server runs in its own session (setsid), so its pid is also its process
-# group id: signalling the group stops npm *and* the vite node process it
-# spawned, which a plain `kill <npm pid>` left running on the port.
+# group id: signalling the group stops the server *and* anything it spawned.
+# Only a pid that `alive` vouches for is ever signalled.
 kill_pidfile() {
-  local f="$1"
+  local name="$1" f="$RUN_DIR/$1.pid"
   [[ -f "$f" ]] || return 0
-  local pid; pid="$(cat "$f" 2>/dev/null || true)"
-  if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+  if alive "$name"; then
+    local pid; pid="$(cat "$f")"
     kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
     for _ in $(seq 1 20); do
       kill -0 "$pid" 2>/dev/null || break
       sleep 0.25
     done
-    kill -KILL -- "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true
+    if kill -0 "$pid" 2>/dev/null; then
+      kill -KILL -- "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true
+    fi
   fi
   rm -f "$f"
 }
 
 case "$cmd" in
   start)
+    command -v setsid >/dev/null || { echo "dev_env: setsid not found (util-linux)"; exit 1; }
     project="${2:-$REPO_ROOT/tests/fixtures/scans/office_corridor.rux}"
     gui_port="${3:-8420}"
     vite_port="${4:-5173}"
 
-    if alive "$RUN_DIR/gui.pid" || alive "$RUN_DIR/vite.pid"; then
+    gui_up=0; vite_up=0
+    alive gui && gui_up=1
+    alive vite && vite_up=1
+    if (( gui_up || vite_up )); then
       echo "error: already running (bash $SCRIPT_DIR/dev_env.sh status); stop it first" >&2
       exit 1
     fi
@@ -109,8 +153,10 @@ case "$cmd" in
 
     echo "Starting vite dev on :$vite_port (proxying /api -> :$gui_port)…"
     VITE_LOG="$RUN_DIR/vite.log"
-    RUX_GUI_URL="http://localhost:$gui_port" \
-      setsid nohup npm --prefix "$FRONTEND" run dev -- --port "$vite_port" --strictPort \
+    # vite itself, not `npm run dev` (which is just `vite`): the recorded pid's
+    # command line then names vite, which is what `alive` checks.
+    (cd "$FRONTEND" && RUX_GUI_URL="http://localhost:$gui_port" \
+      exec setsid nohup ./node_modules/.bin/vite --port "$vite_port" --strictPort) \
       >"$VITE_LOG" 2>&1 &
     echo $! > "$RUN_DIR/vite.pid"
 
@@ -133,8 +179,8 @@ case "$cmd" in
     ;;
 
   stop)
-    kill_pidfile "$RUN_DIR/vite.pid"
-    kill_pidfile "$RUN_DIR/gui.pid"
+    kill_pidfile vite
+    kill_pidfile gui
     rm -rf "$RUN_DIR/project"
     echo "Stopped."
     ;;
@@ -142,7 +188,7 @@ case "$cmd" in
   status)
     for name in gui vite; do
       f="$RUN_DIR/$name.pid"
-      if alive "$f"; then
+      if alive "$name"; then
         echo "$name: running (pid $(cat "$f"))"
       else
         echo "$name: not running"

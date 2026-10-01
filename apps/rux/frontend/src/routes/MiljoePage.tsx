@@ -7,7 +7,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 
 import { api, type ApiRequestError } from '../api/client';
 import type { Sample, SampleCreate, SamplePatch, SampleResult, SurveyType } from '../api/types';
-import { parseMiljoeQuery } from '../app/links';
+import { MILJOE_PATH, parseMiljoeQuery } from '../app/links';
 import { saveErrorMessage } from '../app/saveError';
 import { useAsync } from '../app/useAsync';
 import { useMutationQueue } from '../app/useMutationQueue';
@@ -47,6 +47,17 @@ export function MiljoePage() {
   const location = useLocation();
   const navigate = useNavigate();
   const query = parseMiljoeQuery(location.search);
+  // Queued tasks outlive the render that queued them: they read the location
+  // and the mount state through refs, never a stale closure.
+  const locationRef = useRef(location);
+  locationRef.current = location;
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
   const { data, error, loading, reload } = useAsync((s) => Promise.all([api.samples(s), api.survey(s)]), []);
   const { refresh } = useSurveyCounts();
   const toast = useToast(2600);
@@ -74,6 +85,14 @@ export function MiljoePage() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [creating, setCreating] = useState(query.newForType !== null);
   const [focusedId, setFocusedId] = useState<number | null>(query.sampleId);
+  // Bumped on every focus request, so re-targeting the already-focused card
+  // (the same `?sample=` link clicked again) still scrolls and focuses it.
+  const [focusNonce, setFocusNonce] = useState(0);
+  const focusCard = useCallback((id: number | null) => {
+    setFocusedId(id);
+    setFocusNonce((n) => n + 1);
+  }, []);
+  const newButton = useRef<HTMLButtonElement>(null);
   // `busy` is React state: two submits in the same tick would both see it
   // false. This ref is set synchronously, before the request is queued.
   const createInFlight = useRef(false);
@@ -106,9 +125,9 @@ export function MiljoePage() {
   // the focus where the page put it.
   useEffect(() => {
     const q = parseMiljoeQuery(location.search);
-    if (q.sampleId !== null) setFocusedId(q.sampleId);
+    if (q.sampleId !== null) focusCard(q.sampleId);
     if (q.newForType !== null) setCreating(true);
-  }, [location.search]);
+  }, [location.search, focusCard]);
 
   // Scroll to and focus the deep-linked (or just created) card. A stale id
   // (deleted sample) simply finds no card.
@@ -117,11 +136,17 @@ export function MiljoePage() {
     const el = cardRefs.current.get(focusedId);
     el?.scrollIntoView({ block: 'center' });
     el?.focus({ preventScroll: true });
-  }, [loadedOnce, focusedId]);
+  }, [loadedOnce, focusedId, focusNonce]);
 
   /** Drop `?ny=` once the form it opened is done, so the next "+ Ny prøve" starts empty. */
   function clearNewQuery() {
-    if (parseMiljoeQuery(location.search).newForType !== null) navigate({ search: '' }, { replace: true });
+    // Off the page (navigated away mid-create), the user's own history entry
+    // must not be replaced; a `?sample=` that landed meanwhile is kept.
+    const current = locationRef.current;
+    if (!mountedRef.current || parseMiljoeQuery(current.search).newForType === null) return;
+    const params = new URLSearchParams(current.search);
+    params.delete('ny');
+    navigate({ pathname: MILJOE_PATH, search: params.toString() }, { replace: true });
   }
 
   /** Re-read the survey and say what the change did to the approval gate. */
@@ -173,8 +198,19 @@ export function MiljoePage() {
     if (busy) return;
     mutate(async () => {
       await api.deleteSample(sample.id);
+      // Hand focus to the next card, else the previous one, else "+ Ny prøve";
+      // never leave it on <body> or on the deleted id.
+      const list = samplesRef.current;
+      const at = list.findIndex((x) => x.id === sample.id);
+      const neighbour = at < 0 ? undefined : (list[at + 1] ?? list[at - 1]);
       setSamples((prev) => removeSample(prev, sample.id));
       setEditingId((id) => (id === sample.id ? null : id));
+      if (neighbour) {
+        focusCard(neighbour.id);
+      } else {
+        setFocusedId((id) => (id === sample.id ? null : id));
+        newButton.current?.focus();
+      }
       const message = await refreshGate(sample.code);
       toast.show(message ?? `${sample.code} slettet`);
     });
@@ -189,7 +225,7 @@ export function MiljoePage() {
         setSamples((prev) => addSample(prev, created));
         setCreating(false);
         clearNewQuery();
-        setFocusedId(created.id);
+        focusCard(created.id);
         const message = await refreshGate(created.code);
         toast.show(message ?? `${created.code} registreret`);
       } finally {
@@ -256,7 +292,13 @@ export function MiljoePage() {
       <header className={styles.head}>
         <h2 className={styles.title}>Miljø & prøver</h2>
         <span className={styles.sub}>Prøver styrer miljøstatus på de koblede bygningsdele</span>
-        <button type="button" className={styles.btnPrimary} onClick={() => setCreating(true)} disabled={creating}>
+        <button
+          ref={newButton}
+          type="button"
+          className={styles.btnPrimary}
+          onClick={() => setCreating(true)}
+          disabled={creating}
+        >
           + Ny prøve
         </button>
       </header>
@@ -272,7 +314,7 @@ export function MiljoePage() {
         />
       )}
 
-      {samples.length === 0 && !creating ? (
+      {samples.length === 0 && !creating && (
         <EmptyState
           title="Ingen prøver endnu"
           detail="Registrér en miljøprøve og kobl den til de typer i kortlægningen, den dækker. Indtil svaret foreligger, kan typerne ikke godkendes."
@@ -282,12 +324,13 @@ export function MiljoePage() {
             </button>
           }
         />
-      ) : (
+      )}
+
+      {samples.length > 0 && (
         <ul className={styles.list} aria-label="Prøver">
           {samples.map((s) => (
             <li key={s.id}>
               <SampleCard
-                key={s.id}
                 sample={s}
                 types={types}
                 linkedIds={linkDrafts.get(s.id) ?? s.type_ids}

@@ -6,10 +6,12 @@ import { describe, expect, it } from 'vitest';
 
 import type { SurveyPart, SurveyType, VisibleFrame } from '../api/types';
 import {
+  isTabbable,
   partChips,
   partCountText,
   PHOTO_STRIP_MAX,
   photoStrip,
+  primaryDisabled,
   primaryLabel,
   quantityLabel,
   titlePrefix,
@@ -187,5 +189,52 @@ describe('wrapFocusIndex', () => {
 
   it('does nothing with no focusables', () => {
     expect(wrapFocusIndex(0, -1, false)).toBeNull();
+  });
+});
+
+describe('primaryDisabled', () => {
+  it('is enabled for a queued, unblocked type when idle', () => {
+    expect(primaryDisabled(type(), false)).toBe(false);
+  });
+
+  it('is disabled while a request is in flight', () => {
+    expect(primaryDisabled(type(), true)).toBe(true);
+    expect(primaryDisabled(type({ review_status: 'approved' }), true)).toBe(true);
+  });
+
+  it('blocks approving a type that awaits a sample', () => {
+    expect(primaryDisabled(type({ environment_status: 'afventer' }), false)).toBe(true);
+    expect(primaryDisabled(type({ environment_status: 'afventer', review_status: 'rejected' }), false)).toBe(true);
+  });
+
+  it('never blocks "Godkendt ✓ — næste" on afventer: it only advances', () => {
+    expect(primaryDisabled(type({ environment_status: 'afventer', review_status: 'approved' }), false)).toBe(false);
+  });
+});
+
+describe('isTabbable', () => {
+  function probe(overrides: { hidden?: boolean; rects?: number; inside?: string | null } = {}) {
+    const { hidden = false, rects = 1, inside = null } = overrides;
+    return {
+      hidden,
+      getClientRects: () => ({ length: rects }),
+      closest: (sel: string) => (inside !== null && sel === '[inert],fieldset[disabled]' ? {} : null),
+    };
+  }
+
+  it('accepts a visible element outside any inert subtree', () => {
+    expect(isTabbable(probe())).toBe(true);
+  });
+
+  it('skips a hidden element', () => {
+    expect(isTabbable(probe({ hidden: true }))).toBe(false);
+  });
+
+  it('skips an element with no layout box (display: none)', () => {
+    expect(isTabbable(probe({ rects: 0 }))).toBe(false);
+  });
+
+  it('skips an element inside [inert] or a disabled fieldset', () => {
+    expect(isTabbable(probe({ inside: 'inert' }))).toBe(false);
   });
 });

@@ -9,7 +9,8 @@
  *
  * Like `DetailPanel`, everything that decides *what* is shown is a pure,
  * exported function (`titlePrefix`, `partChips`, `quantityLabel`,
- * `partCountText`, `primaryLabel`, `photoStrip`, `wrapFocusIndex`) so it is
+ * `partCountText`, `primaryLabel`, `primaryDisabled`, `photoStrip`,
+ * `wrapFocusIndex`, `isTabbable`) so it is
  * unit-testable without a DOM. The review/approval rules themselves are
  * DetailPanel's (`approveBlocked`, `gateNoteText`, `sampleLineText`,
  * `quantityCommitValue`) and are reused, not re-derived.
@@ -113,6 +114,15 @@ export function primaryLabel(type: SurveyType): string {
   return type.review_status === 'approved' ? 'Godkendt ✓ — næste' : 'Godkend & næste ✓';
 }
 
+/**
+ * Whether the primary button is disabled. An already-approved type's
+ * `Godkendt ✓ — næste` only advances, so `afventer` does not block it. The
+ * page reuses this for the ⌘/Ctrl+Enter path.
+ */
+export function primaryDisabled(type: SurveyType, busy: boolean): boolean {
+  return busy || (approveBlocked(type) && type.review_status !== 'approved');
+}
+
 /** Splits a frame list into the thumbnails shown and the `+n` overflow count. */
 export function photoStrip(
   frames: readonly VisibleFrame[],
@@ -139,8 +149,46 @@ const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), ' +
   'textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
+/** The bits of an element `isTabbable` looks at; a structural type so tests can stub it. */
+export interface TabbableProbe {
+  /** `HTMLElement.hidden` is `boolean | "until-found"`; either truthy form hides. */
+  hidden: boolean | string;
+  getClientRects(): { length: number };
+  closest(selectors: string): unknown;
+}
+
+/**
+ * Whether a `FOCUSABLE` match can actually take Tab focus: not `hidden`,
+ * rendered (has a layout box — `display: none` ancestors give none), and not
+ * inside an `inert` subtree or a disabled fieldset.
+ */
+export function isTabbable(el: TabbableProbe): boolean {
+  return !el.hidden && el.getClientRects().length > 0 && !el.closest('[inert],fieldset[disabled]');
+}
+
 function isField(el: Element | null): el is HTMLElement {
   return el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement;
+}
+
+/** One Fotos thumbnail; a sunken placeholder when the image fails to load. */
+function PhotoThumb({ frameId }: { frameId: number }) {
+  const [errored, setErrored] = useState(false);
+  if (errored) {
+    return (
+      <span className={styles.photoFallback} title={`Ramme ${frameId} kunne ikke hentes`}>
+        Intet billede
+      </span>
+    );
+  }
+  return (
+    <img
+      className={styles.photo}
+      src={api.frameImageUrl(frameId, 'color', { maxSize: 160 })}
+      alt={`Ramme ${frameId}`}
+      loading="lazy"
+      onError={() => setErrored(true)}
+    />
+  );
 }
 
 export function EditDialog(props: EditDialogProps) {
@@ -176,6 +224,19 @@ export function EditDialog(props: EditDialogProps) {
     input?.focus();
     input?.select();
   }, [focusTick]);
+
+  // A button that turns `disabled` while focused (Afvis / ☆ during a request)
+  // drops focus to <body>, which would take the page's key map and the Tab
+  // trap with it. On every busy transition, pull focus back to the dialog
+  // root if it has left the dialog or sits on a now-disabled control.
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const active = document.activeElement;
+    const lost = !active || !root.contains(active);
+    const onDisabled = active instanceof HTMLButtonElement && active.disabled;
+    if (lost || onDisabled) root.focus();
+  }, [busy]);
 
   // Re-sync the quantity draft when the server value changes under us (e.g.
   // a redistribution changes this part's share) — never while focused.
@@ -222,7 +283,7 @@ export function EditDialog(props: EditDialogProps) {
   function handleKeyDown(e: KeyboardEvent<HTMLDivElement>) {
     const root = rootRef.current;
     if (e.key === 'Tab' && root) {
-      const focusables = Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE));
+      const focusables = Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(isTabbable);
       const index = focusables.indexOf(document.activeElement as HTMLElement);
       const next = wrapFocusIndex(focusables.length, index, e.shiftKey);
       if (next !== null) {
@@ -245,7 +306,6 @@ export function EditDialog(props: EditDialogProps) {
   }
 
   const chips = partChips(type);
-  const blocked = approveBlocked(type);
   const queued = type.review_status === 'queue';
   const gateNote = queued ? gateNoteText(type, samples) : null;
   const tonnes = part ? '' : formatTonnes(type.mass_t);
@@ -262,6 +322,10 @@ export function EditDialog(props: EditDialogProps) {
     <div className={styles.scrim}>
       <div
         ref={rootRef}
+        // Focusable but not in the Tab order (FOCUSABLE skips tabindex=-1):
+        // a click on a non-focusable area focuses the dialog itself, so the
+        // keys keep reaching `handleKeyDown` instead of falling to <body>.
+        tabIndex={-1}
         className={styles.dialog}
         role="dialog"
         aria-modal="true"
@@ -412,13 +476,7 @@ export function EditDialog(props: EditDialogProps) {
               {strip && strip.visible.length > 0 ? (
                 <div className={styles.photos}>
                   {strip.visible.map((f) => (
-                    <img
-                      key={f.frame_id}
-                      className={styles.photo}
-                      src={api.frameImageUrl(f.frame_id, 'color', { maxSize: 160 })}
-                      alt={`Ramme ${f.frame_id}`}
-                      loading="lazy"
-                    />
+                    <PhotoThumb key={f.frame_id} frameId={f.frame_id} />
                   ))}
                   {strip.overflow > 0 && <span className={styles.photoMore}>+{strip.overflow}</span>}
                 </div>
@@ -453,7 +511,7 @@ export function EditDialog(props: EditDialogProps) {
             type="button"
             className={styles.primary}
             onClick={props.onApproveNext}
-            disabled={blocked || busy}
+            disabled={primaryDisabled(type, busy)}
           >
             {primaryLabel(type)}
           </button>

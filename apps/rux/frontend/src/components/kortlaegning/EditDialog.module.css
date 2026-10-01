@@ -25,6 +25,12 @@
   overflow: hidden;
 }
 
+/* The root takes focus only as a keyboard anchor (tabIndex -1); it is not a
+   control, so it shows no ring. */
+.dialog:focus {
+  outline: none;
+}
+
 .spacer {
   flex: 1 1 auto;
 }
@@ -203,6 +209,20 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background: var(--color-surface-sunken);
+}
+
+.photoFallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(var(--space-7) + var(--space-3));
+  aspect-ratio: 4 / 3;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-sunken);
+  font-size: var(--font-size-2xs);
+  color: var(--color-text-muted);
+  text-align: center;
 }
 
 .photoMore {

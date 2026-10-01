@@ -206,6 +206,11 @@ TEST_CASE("ReportPdf_WithSurveySection_Compiles", "[report][typst]") {
   add_part(db, "RX-005", facade, 340);
   add_type(db, "Betonsøjler, bærende", core::Treatment::genbrug, 58,
            core::ReviewStatus::queue);
+  // A name that is Typst markup and code. It reaches the template as data,
+  // so it prints literally; were it evaluated, #panic would fail the compile.
+  add_type(db, "#panic(\"x\") *y*", core::Treatment::genanvendelse, 4,
+           core::ReviewStatus::approved);
+  REQUIRE(core::report_survey_rows(db).size() == 2);
 
   const auto pdf = reusex::generate_ressourcekortlaegning_pdf(db);
   REQUIRE(pdf.size() > 4);

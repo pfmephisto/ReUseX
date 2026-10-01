@@ -2896,6 +2896,80 @@ paths:
         "503": { $ref: "#/components/responses/WriterBusy" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
+  /renders:
+    get:
+      tags: [survey]
+      operationId: getRender
+      summary: Server-rendered view of the project, optionally highlighting one instance
+      description: |
+        Renders a view of the project with VTK's headless renderer and
+        answers PNG bytes. Backs the Plan / Punktsky / Rum-model evidence
+        tabs in Kortlægning: a reviewer can call out one instance (an
+        element, a room) against the rest of the scan without opening the
+        interactive viewport.
+
+        `highlight_instance` paints that instance's points in a fixed accent
+        colour and dims every other point to 30% brightness; it reads the
+        named Label cloud given by `highlight_cloud` (default `instances`),
+        which must be index-aligned with the geometry cloud the render draws.
+
+        The server may take a second or two to answer — this issues a real
+        VTK render, not a cached thumbnail.
+      parameters:
+        - name: view
+          in: query
+          description: Camera placement.
+          schema:
+            type: string
+            enum: [plan, top, front, orbit]
+            default: plan
+        - name: orbit_index
+          in: query
+          description: Which of 8 viewpoints on the orbit ring to render. Only used with `view=orbit`.
+          schema: { type: integer, minimum: 0, maximum: 7, default: 0 }
+        - name: layers
+          in: query
+          description: Comma-separated layers to draw, in draw order.
+          schema: { type: string, default: cloud }
+        - name: highlight_cloud
+          in: query
+          description: |
+            Named Label cloud supplying the instance id per point, used only
+            when `highlight_instance` is given. Defaults to `instances`.
+          schema: { type: string }
+        - name: highlight_instance
+          in: query
+          description: Instance id to paint; every other point is dimmed.
+          schema: { type: integer, minimum: 1 }
+        - name: width
+          in: query
+          schema: { type: integer, minimum: 64, maximum: 2048, default: 960 }
+        - name: height
+          in: query
+          schema: { type: integer, minimum: 64, maximum: 2048, default: 720 }
+      responses:
+        "200":
+          description: Rendered PNG image
+          content:
+            image/png:
+              schema: { type: string, format: binary }
+        "400":
+          description: Unknown `view`/layer, or a parameter out of range
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "422":
+          description: The project lacks the data the requested layer or highlight needs (the message names the stage to run first)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503":
+          description: No view renderer is registered, or this machine has no usable offscreen OpenGL context
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
   # ---------------------------------------------------------------- jobs ----
   /jobs:
     get:

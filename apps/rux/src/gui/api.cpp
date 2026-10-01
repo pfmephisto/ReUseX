@@ -634,6 +634,10 @@ const std::vector<Endpoint> &endpoint_table() {
        "Texture metadata for a mesh (no image bytes)"},
       {"GET", "/api/v1/meshes/<string>/textures/<string>", "One texture image",
        true},
+      {"GET", "/api/v1/renders",
+       "Server-rendered view of the project, optionally highlighting one "
+       "instance",
+       true},
       {"GET", "/api/v1/gsplats", "Gaussian splats stored in this project"},
       {"GET", "/api/v1/gsplats/<string>", "One Gaussian splat's metadata"},
       {"GET", "/api/v1/gsplats/<string>/data",

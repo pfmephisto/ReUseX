@@ -16,6 +16,7 @@
 // here that alters a response shape is a change to that document too.
 
 #include "FrameSegmenter.hpp"
+#include "ViewRenderer.hpp"
 
 #include <reusex/pipeline/JobRunner.hpp>
 #include <reusex/pipeline/stages.hpp>
@@ -273,6 +274,22 @@ nlohmann::json mesh_textures_json(const reusex::ProjectDB &db,
 Blob mesh_data_blob(const reusex::ProjectDB &db, const std::string &name);
 Blob mesh_texture_blob(const reusex::ProjectDB &db, const std::string &name,
                        const std::string &texture);
+
+// --- evidence renders (#265 Phase 2 Task 8) --------------------------------
+
+/// Parse and validate the query of GET /renders.
+/// @throws HttpError(400) on an unknown view/layer or an out-of-range value.
+RenderRequest render_request_from(const Params &params);
+
+/// Render one evidence image, dispatching to @p renderer.
+///
+/// @throws HttpError(503) when @p renderer is null, or RenderUnavailable
+///         (no usable offscreen OpenGL context).
+/// @throws HttpError(400) on a malformed request or std::invalid_argument
+///         from the renderer.
+/// @throws HttpError(422) when the project lacks data the render needs.
+Blob render_blob(const reusex::ProjectDB &db, IViewRenderer *renderer,
+                 const Params &params);
 
 // --- sensor frames --------------------------------------------------------
 

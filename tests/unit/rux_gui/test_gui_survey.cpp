@@ -7,6 +7,7 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include "gui/ViewRenderer.hpp"
 #include <gui/survey.hpp>
 
 #include "../../support/temp_path.hpp"
@@ -290,4 +291,66 @@ TEST_CASE("SyncSurveyJson_NoInstances_Is422", "[gui][survey][edits]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
   CHECK(status_of([&] { sync_survey_json(db, "{}"); }) == 422);
+}
+
+namespace {
+struct FakeRenderer : IViewRenderer {
+  RenderRequest last;
+  enum class Mode { ok, no_gl, missing_data } mode = Mode::ok;
+  std::vector<std::uint8_t> render_png(const reusex::ProjectDB &,
+                                       const RenderRequest &req) override {
+    last = req;
+    if (mode == Mode::no_gl)
+      throw RenderUnavailable("no EGL");
+    if (mode == Mode::missing_data)
+      throw std::runtime_error(
+          "needs the label cloud 'rooms' — run `rux create rooms` first");
+    return {0x89, 'P', 'N', 'G'};
+  }
+};
+Params
+params_of(std::initializer_list<std::pair<const char *, const char *>> kv) {
+  Params p;
+  for (auto [k, v] : kv)
+    p.set(k, v);
+  return p;
+}
+} // namespace
+
+TEST_CASE("RenderBlob_ParsesQuery_DefaultsHighlightCloud", "[gui][render]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  FakeRenderer r;
+  const auto blob = render_blob(db, &r,
+                                params_of({{"view", "orbit"},
+                                           {"orbit_index", "3"},
+                                           {"layers", "cloud,rooms"},
+                                           {"highlight_instance", "12"}}));
+  CHECK(blob.content_type == "image/png");
+  CHECK(blob.data.size() == 4);
+  CHECK(r.last.view == "orbit");
+  CHECK(r.last.orbit_index == 3);
+  CHECK(r.last.layers == std::vector<std::string>{"cloud", "rooms"});
+  CHECK(r.last.highlight_cloud == "instances");
+  CHECK(r.last.highlight_instance == 12u);
+}
+
+TEST_CASE("RenderBlob_StatusMapping", "[gui][render]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  FakeRenderer r;
+  CHECK(status_of([&] { render_blob(db, nullptr, {}); }) == 503);
+  r.mode = FakeRenderer::Mode::no_gl;
+  CHECK(status_of([&] { render_blob(db, &r, {}); }) == 503);
+  r.mode = FakeRenderer::Mode::missing_data;
+  CHECK(status_of([&] { render_blob(db, &r, {}); }) == 422);
+  r.mode = FakeRenderer::Mode::ok;
+  CHECK(status_of([&] {
+          render_blob(db, &r, params_of({{"view", "sideways"}}));
+        }) == 400);
+  CHECK(status_of([&] { render_blob(db, &r, params_of({{"width", "5"}})); }) ==
+        400);
+  CHECK(status_of([&] {
+          render_blob(db, &r, params_of({{"orbit_index", "8"}}));
+        }) == 400);
 }

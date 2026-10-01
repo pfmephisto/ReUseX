@@ -14,7 +14,7 @@ import { EmptyState } from '../components/EmptyState';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { Spinner } from '../components/Spinner';
 import { Toast } from '../components/Toast';
-import { DetailPanel, linkedSamples } from '../components/kortlaegning/DetailPanel';
+import { DetailPanel, pendingSampleList } from '../components/kortlaegning/DetailPanel';
 import { EditDialog, primaryDisabled } from '../components/kortlaegning/EditDialog';
 import { EvidencePanel } from '../components/kortlaegning/EvidencePanel';
 import { SurveyTable } from '../components/kortlaegning/SurveyTable';
@@ -39,14 +39,28 @@ import {
 import { formatNumber } from '../kortlaegning/vocab';
 import styles from './KortlaegningPage.module.css';
 
-/** The toast after a refused approval: names the samples still awaiting an answer. */
+/**
+ * The toast after a refused approval: names the samples still awaiting an
+ * answer, the same way the gate note does (`pendingSampleList`).
+ */
 export function blockedMessage(type: SurveyType, samples: Sample[]): string {
-  const linked = linkedSamples(type, samples);
-  const pending = linked.filter((s) => s.stage !== 'svar');
-  const codes = (pending.length > 0 ? pending : linked).map((s) => s.code).join(', ');
-  return codes
-    ? `Kan ikke godkendes — afventer prøvesvar (${codes})`
+  const names = pendingSampleList(type, samples);
+  return names
+    ? `Kan ikke godkendes — afventer prøvesvar (${names})`
     : 'Kan ikke godkendes — afventer prøvesvar';
+}
+
+/**
+ * The toast for a failed save. A running pipeline job (409) and a server that
+ * is not ready (503) are transient and get their own Danish copy; anything
+ * else shows the server's message.
+ */
+export function saveErrorMessage(cause: unknown): string {
+  if (cause instanceof ApiRequestError) {
+    if (cause.status === 409) return 'Kunne ikke gemme — et pipeline-job kører. Prøv igen om lidt.';
+    if (cause.status === 503) return 'Kunne ikke gemme — serveren er ikke klar.';
+  }
+  return `Kunne ikke gemme: ${errorMessage(cause)}`;
 }
 
 /** The toast after an approval, counting what is left in the queue. */
@@ -131,6 +145,11 @@ export function KortlaegningPage() {
   const summary = data?.[2];
 
   const visible = visibleTypes(types, tab, filters);
+  // The tab and filters as of now, for a queued mutation's follow-up that
+  // runs after later renders (see `mutate`).
+  const viewRef = useRef({ tab, filters });
+  viewRef.current = { tab, filters };
+  const shownIn = (list: SurveyType[]) => visibleTypes(list, viewRef.current.tab, viewRef.current.filters);
   const rows = flattenRows(visible, open);
   const counts = tabCounts(types);
   const rooms = roomOptions(types);
@@ -164,10 +183,12 @@ export function KortlaegningPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadedOnce, rowsKey]);
 
-  // Focus the table once it exists, so the arrow keys work without a click.
+  // Focus the table once it exists, so the arrow keys work without a click:
+  // on first load, and when the first sync replaces the empty state.
+  const hasTypes = types.length > 0;
   useEffect(() => {
-    if (loadedOnce) tableRef.current?.focus({ preventScroll: true });
-  }, [loadedOnce]);
+    if (loadedOnce && hasTypes) tableRef.current?.focus({ preventScroll: true });
+  }, [loadedOnce, hasTypes]);
 
   // The dialog does not hand focus back on close; the page does.
   const wasOpen = useRef(false);
@@ -183,20 +204,31 @@ export function KortlaegningPage() {
 
   // ------------------------------------------------------------ mutations --
 
-  async function mutate(run: () => Promise<void>, onUnprocessable?: () => void) {
-    setInFlight((n) => n + 1);
-    try {
-      await run();
-    } catch (cause) {
-      if (cause instanceof ApiRequestError && cause.isUnprocessable && onUnprocessable) {
-        onUnprocessable();
-      } else {
-        toast.show(`Kunne ikke gemme: ${errorMessage(cause)}`);
+  // Every mutation runs on one promise chain, so requests reach the server —
+  // and their responses are folded in — in the order they were made. Two
+  // PATCHes to one type (a note blur racing an approve) can then never land
+  // out of order and undo each other. Nothing is dropped: a field commit made
+  // while another request is in flight just waits its turn.
+  const chainRef = useRef<Promise<void>>(Promise.resolve());
+
+  function mutate(run: () => Promise<void>, onUnprocessable?: () => void) {
+    setInFlight((n) => n + 1); // counts queued requests too, so `busy` covers them
+    const task = async () => {
+      try {
+        await run();
+      } catch (cause) {
+        if (cause instanceof ApiRequestError && cause.isUnprocessable && onUnprocessable) {
+          onUnprocessable();
+        } else {
+          toast.show(saveErrorMessage(cause));
+        }
+      } finally {
+        setInFlight((n) => n - 1);
+        refresh();
       }
-    } finally {
-      setInFlight((n) => n - 1);
-      refresh();
-    }
+    };
+    // `task` never rejects, but chain on both outcomes regardless.
+    chainRef.current = chainRef.current.then(task, task);
   }
 
   // Approve and reject are gated on `busy` (a held G/A must not stack
@@ -209,7 +241,7 @@ export function KortlaegningPage() {
         const body = await api.patchSurveyType(t.id, { review_status: 'approved' });
         const next = setTypes((prev) => replaceType(prev, body));
         toast.show(approvedMessage(body.name, next));
-        select(nextInQueue(next, t.id));
+        select(nextInQueue(next, t.id, shownIn(next)));
       },
       () => toast.show(blockedMessage(t, samples)),
     );
@@ -222,7 +254,7 @@ export function KortlaegningPage() {
       const body = await api.patchSurveyType(t.id, { review_status: 'rejected' });
       const next = setTypes((prev) => replaceType(prev, body));
       toast.show('Afvist som fejldetektion — fjernet fra listen');
-      select(nextInQueue(next, t.id));
+      select(nextInQueue(next, t.id, shownIn(next)));
     });
   }
 
@@ -491,6 +523,7 @@ export function KortlaegningPage() {
               onApprove={approve}
               onReject={reject}
               onReopen={reopen}
+              onDone={() => tableRef.current?.focus({ preventScroll: true })}
             />
           </aside>
         </div>

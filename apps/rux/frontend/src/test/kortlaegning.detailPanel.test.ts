@@ -10,9 +10,11 @@ import {
   gateNoteText,
   linkedSamples,
   panelTitle,
-  quantityCommitValue,
+  pendingSampleList,
   sampleLineText,
 } from '../components/kortlaegning/DetailPanel';
+import { quantityCommitValue } from '../components/kortlaegning/useQuantityNoteDrafts';
+import { formatQuantityInput } from '../kortlaegning/vocab';
 
 function part(overrides: Partial<SurveyPart> = {}): SurveyPart {
   return {
@@ -116,7 +118,7 @@ describe('sampleLineText', () => {
   it('appends the result once the sample has one', () => {
     const t = type({ sample_ids: [1] });
     const line = sampleLineText(t, [sample({ stage: 'svar', result: 'ren' })]);
-    expect(line).toBe('Miljøstatus styres af P-01 · PCB i fugemasse — Svar modtaget · ren');
+    expect(line).toBe('Miljøstatus styres af P-01 · PCB i fugemasse — Svar modtaget · Ren');
   });
 
   it('joins multiple linked samples', () => {
@@ -201,5 +203,41 @@ describe('quantityCommitValue', () => {
   it('treats 0 as a valid, distinct value', () => {
     expect(quantityCommitValue('0', 38)).toBe(0);
     expect(quantityCommitValue('0', 0)).toBeNull();
+  });
+
+  // Focus-then-blur with no typing must never send a PATCH: the draft is
+  // seeded with formatQuantityInput, so it round-trips exactly.
+  it('sends nothing when a two-decimal value is focused and left untouched', () => {
+    expect(formatQuantityInput(12.34)).toBe('12,34');
+    expect(quantityCommitValue(formatQuantityInput(12.34), 12.34)).toBeNull();
+  });
+
+  it('sends nothing for a float sum whose draft hides its noise', () => {
+    const sum = 0.1 + 0.2; // 0.30000000000000004
+    expect(formatQuantityInput(sum)).toBe('0,3');
+    expect(quantityCommitValue(formatQuantityInput(sum), sum)).toBeNull();
+    expect(quantityCommitValue(' 0,3 ', sum)).toBeNull();
+  });
+
+  it('still sends a genuine edit', () => {
+    expect(quantityCommitValue('12,3', 12.34)).toBe(12.3);
+    expect(quantityCommitValue('0,4', 0.1 + 0.2)).toBe(0.4);
+    expect(quantityCommitValue('1.250', 1240)).toBe(1250);
+  });
+});
+
+describe('pendingSampleList', () => {
+  it('names the pending linked samples as code · title, skipping answered ones', () => {
+    const t = type({ sample_ids: [1, 2, 3] });
+    const samples = [
+      sample({ id: 1, code: 'P-01', title: 'PCB i fugemasse', stage: 'sendt' }),
+      sample({ id: 2, code: 'P-02', title: 'Bly i maling', stage: 'svar' }),
+      sample({ id: 3, code: 'P-03', title: 'Asbest i lim', stage: 'planlagt' }),
+    ];
+    expect(pendingSampleList(t, samples)).toBe('P-01 · PCB i fugemasse, P-03 · Asbest i lim');
+  });
+
+  it('is empty when nothing is pending', () => {
+    expect(pendingSampleList(type({ sample_ids: [] }), [])).toBe('');
   });
 });

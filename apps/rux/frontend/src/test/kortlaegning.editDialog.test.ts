@@ -13,10 +13,10 @@ import {
   photoStrip,
   primaryDisabled,
   primaryLabel,
-  quantityLabel,
   titlePrefix,
   wrapFocusIndex,
 } from '../components/kortlaegning/EditDialog';
+import { quantityLabel } from '../kortlaegning/vocab';
 
 function part(overrides: Partial<SurveyPart> = {}): SurveyPart {
   return {
@@ -102,6 +102,13 @@ describe('partChips', () => {
     ]);
   });
 
+  it('falls back to "Rum {id}" for an unnamed room, and to the bare code with no room', () => {
+    const t = type({
+      parts: [part({ code: 'RX-001', room_id: 7, room_name: '' }), part({ code: 'RX-002', room_id: null, room_name: '' })],
+    });
+    expect(partChips(t).slice(1).map((c) => c.label)).toEqual(['RX-001 · Rum 7 · 18', 'RX-002 · 18']);
+  });
+
   it('has only the "Alle" chip for a type without parts', () => {
     expect(partChips(type({ parts: [] }))).toHaveLength(1);
   });
@@ -175,6 +182,12 @@ describe('wrapFocusIndex', () => {
   it('leaves Tab inside the list to the browser', () => {
     expect(wrapFocusIndex(4, 1, false)).toBeNull();
     expect(wrapFocusIndex(4, 2, true)).toBeNull();
+  });
+
+  it('enters at the given entry index (the quantity field) from the dialog root', () => {
+    expect(wrapFocusIndex(6, -1, false, 4)).toBe(4);
+    expect(wrapFocusIndex(6, -1, true, 4)).toBe(5);
+    expect(wrapFocusIndex(6, -1, false, -1)).toBe(0); // entry not found
   });
 
   it('pulls focus from outside the list back in', () => {

@@ -8,13 +8,17 @@
  * the review actions (Godkend / Afvis / Genåbn).
  *
  * The pieces that decide *what* the panel shows are pure, exported functions
- * (`panelTitle`, `linkedSamples`, `sampleLineText`, `approveBlocked`,
- * `gateNoteText`, `quantityCommitValue`) so the review/approval rules are
- * unit-testable without a DOM; the component itself only wires them to props
- * and local draft state.
+ * (`panelTitle`, `linkedSamples`, `pendingSampleList`, `sampleLineText`,
+ * `approveBlocked`, `gateNoteText`) so the review/approval rules are
+ * unit-testable without a DOM; the component itself only wires them to props.
+ * The quantity/note drafts are `useQuantityNoteDrafts`, shared with EditDialog.
+ *
+ * The page reuses one instance across selections; the drafts reset themselves
+ * whenever the selected type or part changes (the hook's selection-keyed
+ * effect), so nothing depends on the caller re-keying the panel.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import type { KeyboardEvent } from 'react';
 
 import type { Sample, SurveyPart, SurveyType, Treatment } from '../../api/types';
 import { TREATMENTS } from '../../api/types';
@@ -22,8 +26,8 @@ import {
   confidencePercent,
   ENV_LABEL,
   ENV_TONE,
-  formatNumber,
-  parseDanishNumber,
+  quantityLabel,
+  RESULT_LABEL,
   STAGE_LABEL,
   TREATMENT_LABEL,
 } from '../../kortlaegning/vocab';
@@ -31,15 +35,8 @@ import { ConfidenceBar } from '../ConfidenceBar';
 import { EmptyState } from '../EmptyState';
 import { Pill } from '../Pill';
 import styles from './DetailPanel.module.css';
+import { useQuantityNoteDrafts } from './useQuantityNoteDrafts';
 
-/**
- * Mount this with `key={part ? `p:${part.code}` : `t:${type?.id}`}` (or
- * equivalent) on the Kortlægning page so a new selection gets a fresh
- * component instance — that is the primary way the quantity/note drafts are
- * reset. The component also resets them itself in an effect keyed on
- * `type?.id` / `part?.code`, so it stays correct even if a caller reuses one
- * instance across selections.
- */
 export interface DetailPanelProps {
   type: SurveyType | null;
   part: SurveyPart | null;
@@ -56,6 +53,12 @@ export interface DetailPanelProps {
   onApprove: () => void;
   onReject: () => void;
   onReopen: () => void;
+  /**
+   * The user is done with a field: Enter in the quantity field, or Esc in any
+   * field. The field has already been blurred (so its draft committed); the
+   * page puts focus back on the table.
+   */
+  onDone: () => void;
 }
 
 /** `RX-### · {type name}` for a part, or just the type name. */
@@ -80,7 +83,7 @@ export function sampleLineText(type: SurveyType, samples: Sample[]): string {
   }
   const parts = linked.map((s) => {
     const line = `${s.code} · ${s.title} — ${STAGE_LABEL[s.stage]}`;
-    return s.result ? `${line} · ${s.result}` : line;
+    return s.result ? `${line} · ${RESULT_LABEL[s.result]}` : line;
   });
   return `Miljøstatus styres af ${parts.join(', ')}`;
 }
@@ -88,6 +91,18 @@ export function sampleLineText(type: SurveyType, samples: Sample[]): string {
 /** `environment_status === 'afventer'` blocks approval, regardless of `busy`. */
 export function approveBlocked(type: SurveyType): boolean {
   return type.environment_status === 'afventer';
+}
+
+/**
+ * The linked samples still awaiting an answer (`stage !== 'svar'`), as
+ * `code · title` joined by ', ' — or '' when none are. The gate note and the
+ * page's refused-approval toast both name them this way.
+ */
+export function pendingSampleList(type: SurveyType, samples: Sample[]): string {
+  return linkedSamples(type, samples)
+    .filter((s) => s.stage !== 'svar')
+    .map((s) => `${s.code} · ${s.title}`)
+    .join(', ');
 }
 
 /**
@@ -101,22 +116,18 @@ export function approveBlocked(type: SurveyType): boolean {
  */
 export function gateNoteText(type: SurveyType, samples: Sample[]): string | null {
   if (!approveBlocked(type)) return null;
-  const pending = linkedSamples(type, samples).filter((s) => s.stage !== 'svar');
-  if (pending.length === 0) return 'Kan ikke godkendes endnu — afventer prøvesvar.';
-  const names = pending.map((s) => `${s.code} · ${s.title}`).join(', ');
+  const names = pendingSampleList(type, samples);
+  if (!names) return 'Kan ikke godkendes endnu — afventer prøvesvar.';
   return `Kan ikke godkendes endnu — afventer prøvesvar (${names}).`;
 }
 
-/**
- * Parses a quantity draft against the value currently on the server. Returns
- * the number to send to `onQuantity`, or `null` when nothing should be sent —
- * either the text doesn't parse, or it parses to the unchanged value. Either
- * way the caller reverts the draft to `formatNumber(current)`.
- */
-export function quantityCommitValue(draftText: string, current: number): number | null {
-  const parsed = parseDanishNumber(draftText);
-  if (parsed === null || parsed === current) return null;
-  return parsed;
+/** Esc in any field (Enter too in a single-line one) hands focus back to the table. */
+function fieldDoneKey(e: KeyboardEvent<HTMLElement>, onDone: () => void, enterToo: boolean) {
+  if (e.key === 'Escape' || (enterToo && e.key === 'Enter')) {
+    e.preventDefault();
+    e.currentTarget.blur();
+    onDone();
+  }
 }
 
 export function DetailPanel({
@@ -131,37 +142,12 @@ export function DetailPanel({
   onApprove,
   onReject,
   onReopen,
+  onDone,
 }: DetailPanelProps) {
   // The entity whose quantity/note/star this panel edits: the selected part
   // when one is selected, otherwise the type itself.
   const current = part ?? type;
-
-  const [quantityDraft, setQuantityDraft] = useState(() => (current ? formatNumber(current.quantity) : ''));
-  const [noteDraft, setNoteDraft] = useState(() => current?.note ?? '');
-  const quantityInputRef = useRef<HTMLInputElement>(null);
-  // Tracks whether the quantity input is currently focused, so the
-  // server-resync effect below never clobbers what the user is mid-typing.
-  const quantityFocusedRef = useRef(false);
-
-  // Defense in depth: reset the drafts on a selection change even if the
-  // page reuses one instance instead of keying it by selection (see the
-  // props doc above).
-  useEffect(() => {
-    setQuantityDraft(current ? formatNumber(current.quantity) : '');
-    setNoteDraft(current?.note ?? '');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [type?.id, part?.code]);
-
-  // Re-sync the quantity draft whenever the server value changes under us
-  // (e.g. a redistribution from editing the type's aggregate quantity
-  // changes this part's share) — but never while the user has the field
-  // focused, or their keystrokes would be overwritten mid-edit.
-  useEffect(() => {
-    if (current && !quantityFocusedRef.current) {
-      setQuantityDraft(formatNumber(current.quantity));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [current?.quantity]);
+  const { quantityProps, noteProps } = useQuantityNoteDrafts(current, { onQuantity, onNote });
 
   if (!type || !current) {
     return (
@@ -169,21 +155,6 @@ export function DetailPanel({
         <EmptyState title="Vælg en type eller bygningsdel i tabellen." />
       </div>
     );
-  }
-
-  function commitQuantity() {
-    if (!current) return;
-    const value = quantityCommitValue(quantityDraft, current.quantity);
-    if (value !== null) {
-      onQuantity(value);
-    } else {
-      setQuantityDraft(formatNumber(current.quantity));
-    }
-  }
-
-  function commitNote() {
-    if (!current) return;
-    if (noteDraft !== current.note) onNote(noteDraft);
   }
 
   const gateNote = gateNoteText(type, samples);
@@ -203,25 +174,15 @@ export function DetailPanel({
 
       <div className={styles.grid}>
         <div className={styles.field}>
-          <span className={styles.label}>{part ? 'Mængde (denne del)' : 'Mængde (aggregeret)'}</span>
+          <span className={styles.label}>{quantityLabel(part)}</span>
           <div className={styles.quantityRow}>
             <input
-              ref={quantityInputRef}
               type="text"
               inputMode="decimal"
               className={`${styles.input} mono`}
-              value={quantityDraft}
-              onChange={(e) => setQuantityDraft(e.target.value)}
-              onFocus={() => {
-                quantityFocusedRef.current = true;
-              }}
-              onBlur={() => {
-                quantityFocusedRef.current = false;
-                commitQuantity();
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') quantityInputRef.current?.blur();
-              }}
+              aria-label={quantityLabel(part)}
+              {...quantityProps}
+              onKeyDown={(e) => fieldDoneKey(e, onDone, true)}
             />
             <span className={styles.unit}>{type.unit}</span>
           </div>
@@ -240,6 +201,7 @@ export function DetailPanel({
             className={styles.select}
             value={type.treatment}
             onChange={(e) => onTreatment(e.target.value as Treatment)}
+            onKeyDown={(e) => fieldDoneKey(e, onDone, false)}
           >
             {TREATMENTS.map((t) => (
               <option key={t} value={t}>
@@ -262,9 +224,8 @@ export function DetailPanel({
         <textarea
           className={styles.textarea}
           rows={3}
-          value={noteDraft}
-          onChange={(e) => setNoteDraft(e.target.value)}
-          onBlur={commitNote}
+          {...noteProps}
+          onKeyDown={(e) => fieldDoneKey(e, onDone, false)}
         />
       </div>
 

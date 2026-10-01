@@ -8,19 +8,21 @@
  * behandling, note, photos and the evidence stage — then "Godkend & næste".
  *
  * Like `DetailPanel`, everything that decides *what* is shown is a pure,
- * exported function (`titlePrefix`, `partChips`, `quantityLabel`,
- * `partCountText`, `primaryLabel`, `primaryDisabled`, `photoStrip`,
- * `wrapFocusIndex`, `isTabbable`) so it is
- * unit-testable without a DOM. The review/approval rules themselves are
- * DetailPanel's (`approveBlocked`, `gateNoteText`, `sampleLineText`,
- * `quantityCommitValue`) and are reused, not re-derived.
+ * exported function (`titlePrefix`, `partChips`, `partCountText`,
+ * `primaryLabel`, `primaryDisabled`, `photoStrip`, `wrapFocusIndex`,
+ * `isTabbable`) so it is unit-testable without a DOM. The review/approval
+ * rules themselves are DetailPanel's (`approveBlocked`, `gateNoteText`,
+ * `sampleLineText`) and the drafts are `useQuantityNoteDrafts` — reused, not
+ * re-derived.
  *
  * Keyboard: the page owns the key map (`onKeyDown`, see `dialogAction` in
  * `kortlaegning/keys.ts`) and restoring focus on close. The dialog itself
- * traps Tab, focuses the quantity field on open and after every move, and —
- * before handing a navigating key (PgUp/PgDn, ⌘/Ctrl+Enter, Esc) to the page
- * — blurs the focused field so its pending draft commits first instead of
- * being dropped by the selection change.
+ * traps Tab and focuses its own root on open and after every move, so the
+ * advertised single-key shortcuts (1–4, G, A, V) work straight away; Tab from
+ * the root goes to the quantity field. Before handing a navigating key
+ * (PgUp/PgDn, ⌘/Ctrl+Enter, Esc) to the page it blurs the focused field, so
+ * the pending draft commits first instead of being dropped by the selection
+ * change.
  */
 
 import { useEffect, useId, useRef, useState } from 'react';
@@ -32,6 +34,7 @@ import { TREATMENTS } from '../../api/types';
 import { useAsync } from '../../app/useAsync';
 import type { EvidenceTab } from '../../kortlaegning/keys';
 import { dialogAction } from '../../kortlaegning/keys';
+import { partLabel } from '../../kortlaegning/model';
 import {
   confidencePercent,
   ENV_LABEL,
@@ -39,15 +42,17 @@ import {
   formatNumber,
   formatQuantity,
   formatTonnes,
+  quantityLabel,
   TREATMENT_LABEL,
 } from '../../kortlaegning/vocab';
 import { ConfidenceBar } from '../ConfidenceBar';
 import { Kbd } from '../Kbd';
 import { Pill } from '../Pill';
-import { approveBlocked, gateNoteText, quantityCommitValue, sampleLineText } from './DetailPanel';
+import { approveBlocked, gateNoteText, sampleLineText } from './DetailPanel';
 import styles from './EditDialog.module.css';
 import type { FrameLookup } from './EvidencePanel';
 import { EvidencePanel, hasInstanceLink, instanceKey, resolveHighlightPart } from './EvidencePanel';
+import { useQuantityNoteDrafts } from './useQuantityNoteDrafts';
 
 export interface EditDialogProps {
   type: SurveyType;
@@ -88,20 +93,15 @@ export interface PartChip {
   label: string;
 }
 
-/** `Alle · {total} {unit}`, then `RX-### · room · {qty}` per part. */
+/** `Alle · {total} {unit}`, then `RX-### · room · {qty}` per part (see `partLabel`). */
 export function partChips(type: SurveyType): PartChip[] {
   return [
     { code: null, label: `Alle · ${formatQuantity(type.quantity, type.unit)}` },
     ...type.parts.map((p) => ({
       code: p.code,
-      label: `${p.code} · ${p.room_name} · ${formatNumber(p.quantity)}`,
+      label: `${partLabel(p)} · ${formatNumber(p.quantity)}`,
     })),
   ];
-}
-
-/** The mængde field's label: a part's own quantity, or the type's aggregate. */
-export function quantityLabel(part: SurveyPart | null): string {
-  return part ? 'Mængde (denne del)' : 'Mængde (aggregeret — fordeles på delene)';
 }
 
 /** `n dele` (or `1 del`) after the confidence bar. */
@@ -133,13 +133,14 @@ export function photoStrip(
 
 /**
  * The Tab trap: given the focusable count, the index of the focused element
- * (`-1` when focus is outside the list) and the Tab direction, returns the
- * index to move focus to — or `null` to let the browser's own Tab order
- * proceed (anywhere strictly inside the list).
+ * (`-1` when focus is outside the list, e.g. on the dialog root) and the Tab
+ * direction, returns the index to move focus to — or `null` to let the
+ * browser's own Tab order proceed (anywhere strictly inside the list). From
+ * outside, Tab enters at `entry` (the quantity field) and Shift+Tab at the end.
  */
-export function wrapFocusIndex(count: number, current: number, shift: boolean): number | null {
+export function wrapFocusIndex(count: number, current: number, shift: boolean, entry = 0): number | null {
   if (count === 0) return null;
-  if (current < 0) return shift ? count - 1 : 0;
+  if (current < 0) return shift ? count - 1 : entry >= 0 && entry < count ? entry : 0;
   if (shift && current === 0) return count - 1;
   if (!shift && current === count - 1) return 0;
   return null;
@@ -199,31 +200,18 @@ export function EditDialog(props: EditDialogProps) {
   const titleId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
 
-  const [quantityDraft, setQuantityDraft] = useState(() => formatNumber(current.quantity));
-  const [noteDraft, setNoteDraft] = useState(() => current.note);
+  const { quantityProps, noteProps } = useQuantityNoteDrafts(current, {
+    onQuantity: props.onQuantity,
+    onNote: props.onNote,
+  });
   const quantityInputRef = useRef<HTMLInputElement>(null);
-  // Whether the quantity input is focused, so the server-resync effect below
-  // never clobbers what the user is mid-typing.
-  const quantityFocusedRef = useRef(false);
-  // Bumped on every selection change; focusing in its own effect means the
-  // field is selected *after* the render that put the new draft in it.
-  const [focusTick, setFocusTick] = useState(0);
 
-  // Reset the drafts on open and on every selection change, then ask for the
-  // quantity field to be focused.
+  // On open and after every move, focus the dialog itself (not a field), so
+  // the single-key shortcuts reach the page's key map instead of typing into
+  // the quantity input. Keyed like the drafts, so it runs after their reset.
   useEffect(() => {
-    setQuantityDraft(formatNumber(current.quantity));
-    setNoteDraft(current.note);
-    setFocusTick((t) => t + 1);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    rootRef.current?.focus({ preventScroll: true });
   }, [type.id, part?.code]);
-
-  useEffect(() => {
-    if (focusTick === 0) return;
-    const input = quantityInputRef.current;
-    input?.focus();
-    input?.select();
-  }, [focusTick]);
 
   // A button that turns `disabled` while focused (Afvis / ☆ during a request)
   // drops focus to <body>, which would take the page's key map and the Tab
@@ -237,13 +225,6 @@ export function EditDialog(props: EditDialogProps) {
     const onDisabled = active instanceof HTMLButtonElement && active.disabled;
     if (lost || onDisabled) root.focus();
   }, [busy]);
-
-  // Re-sync the quantity draft when the server value changes under us (e.g.
-  // a redistribution changes this part's share) — never while focused.
-  useEffect(() => {
-    if (!quantityFocusedRef.current) setQuantityDraft(formatNumber(current.quantity));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [current.quantity]);
 
   // Fotos row: the selected part's frames, or the type's first linked part's.
   const highlight = resolveHighlightPart(type, part);
@@ -267,28 +248,19 @@ export function EditDialog(props: EditDialogProps) {
   // request settles; only a key match counts (see EvidencePanel's FrameLookup).
   const lookup = frames.data && frames.data.key === currentKey ? frames.data : undefined;
 
-  function commitQuantity() {
-    const value = quantityCommitValue(quantityDraft, current.quantity);
-    if (value !== null) {
-      props.onQuantity(value);
-    } else {
-      setQuantityDraft(formatNumber(current.quantity));
-    }
-  }
-
-  function commitNote() {
-    if (noteDraft !== current.note) props.onNote(noteDraft);
-  }
-
   function handleKeyDown(e: KeyboardEvent<HTMLDivElement>) {
     const root = rootRef.current;
     if (e.key === 'Tab' && root) {
       const focusables = Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(isTabbable);
       const index = focusables.indexOf(document.activeElement as HTMLElement);
-      const next = wrapFocusIndex(focusables.length, index, e.shiftKey);
+      const entry = quantityInputRef.current ? focusables.indexOf(quantityInputRef.current) : 0;
+      const next = wrapFocusIndex(focusables.length, index, e.shiftKey, entry);
       if (next !== null) {
         e.preventDefault();
-        focusables[next].focus();
+        const target = focusables[next];
+        target.focus();
+        // Native Tab selects a text field's contents; do the same, so typing replaces the value.
+        if (target instanceof HTMLInputElement) target.select();
       }
     }
     // A key that navigates away (move / approve & next / close) while a field
@@ -404,17 +376,11 @@ export function EditDialog(props: EditDialogProps) {
                   type="text"
                   inputMode="decimal"
                   className={`${styles.input} mono`}
-                  value={quantityDraft}
-                  onChange={(e) => setQuantityDraft(e.target.value)}
-                  onFocus={() => {
-                    quantityFocusedRef.current = true;
-                  }}
-                  onBlur={() => {
-                    quantityFocusedRef.current = false;
-                    commitQuantity();
-                  }}
+                  {...quantityProps}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey) quantityInputRef.current?.blur();
+                    // Back to the dialog root, which blurs (and so commits) the field
+                    // and keeps the shortcuts live; a bare blur would drop focus to <body>.
+                    if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey) rootRef.current?.focus();
                   }}
                 />
                 <span className={styles.unit}>{type.unit}</span>
@@ -465,9 +431,7 @@ export function EditDialog(props: EditDialogProps) {
                 id={`${titleId}-note`}
                 className={styles.textarea}
                 rows={3}
-                value={noteDraft}
-                onChange={(e) => setNoteDraft(e.target.value)}
-                onBlur={commitNote}
+                {...noteProps}
               />
             </div>
 
@@ -500,7 +464,7 @@ export function EditDialog(props: EditDialogProps) {
         <footer className={styles.foot}>
           <span className={styles.hints}>
             <Kbd>⌘/Ctrl</Kbd>+<Kbd>Enter</Kbd> godkend &amp; næste · <Kbd>PgUp</Kbd>
-            <Kbd>PgDn</Kbd> skift række/del · <Kbd>1</Kbd>–<Kbd>4</Kbd> skift visning · <Kbd>Esc</Kbd> luk
+            <Kbd>PgDn</Kbd> skift række/del · <Kbd>1</Kbd>–<Kbd>4</Kbd> skift visning · <Kbd>Tab</Kbd> rediger mængde · <Kbd>Esc</Kbd> luk
           </span>
           <div className={styles.spacer} />
           {gateNote && <span className={styles.gateNote}>{gateNote}</span>}

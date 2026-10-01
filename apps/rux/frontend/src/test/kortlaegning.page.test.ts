@@ -4,8 +4,9 @@
 
 import { describe, expect, it } from 'vitest';
 
+import { ApiRequestError } from '../api/client';
 import type { Sample, SurveySummary, SurveyType } from '../api/types';
-import { approvedMessage, blockedMessage, coverageParts } from '../routes/KortlaegningPage';
+import { approvedMessage, blockedMessage, coverageParts, saveErrorMessage } from '../routes/KortlaegningPage';
 
 function type(overrides: Partial<SurveyType> = {}): SurveyType {
   return {
@@ -61,15 +62,43 @@ function summary(overrides: Partial<SurveySummary> = {}): SurveySummary {
 }
 
 describe('blockedMessage', () => {
-  it('names the pending linked samples by code', () => {
-    const samples = [sample(), sample({ id: 2, code: 'P-02', stage: 'svar' }), sample({ id: 3, code: 'P-03' })];
+  it('names the pending linked samples like the gate note does', () => {
+    const samples = [
+      sample(),
+      sample({ id: 2, code: 'P-02', stage: 'svar' }),
+      sample({ id: 3, code: 'P-03', title: 'Asbest i lim' }),
+    ];
     expect(blockedMessage(type({ sample_ids: [1, 2, 3] }), samples)).toBe(
-      'Kan ikke godkendes — afventer prøvesvar (P-01, P-03)',
+      'Kan ikke godkendes — afventer prøvesvar (P-01 · PCB i fugemasse, P-03 · Asbest i lim)',
     );
+  });
+
+  it('drops the parenthesis when no linked sample is pending', () => {
+    const answered = sample({ stage: 'svar', result: 'ren' });
+    expect(blockedMessage(type({ sample_ids: [1] }), [answered])).toBe('Kan ikke godkendes — afventer prøvesvar');
   });
 
   it('drops the parenthesis when no sample is linked', () => {
     expect(blockedMessage(type(), [sample()])).toBe('Kan ikke godkendes — afventer prøvesvar');
+  });
+});
+
+describe('saveErrorMessage', () => {
+  it('explains a running pipeline job (409) in Danish', () => {
+    expect(saveErrorMessage(new ApiRequestError(409, 'job running', '/survey/types/1'))).toBe(
+      'Kunne ikke gemme — et pipeline-job kører. Prøv igen om lidt.',
+    );
+  });
+
+  it('explains a server that is not ready (503) in Danish', () => {
+    expect(saveErrorMessage(new ApiRequestError(503, 'database locked', '/survey/types/1'))).toBe(
+      'Kunne ikke gemme — serveren er ikke klar.',
+    );
+  });
+
+  it('shows the message for any other failure', () => {
+    expect(saveErrorMessage(new ApiRequestError(500, 'boom', '/survey/types/1'))).toBe('Kunne ikke gemme: boom');
+    expect(saveErrorMessage(new TypeError('Failed to fetch'))).toBe('Kunne ikke gemme: Failed to fetch');
   });
 });
 

@@ -188,6 +188,13 @@ describe('gate feedback', () => {
     expect(gateMessage('P-04', two)).toBe(
       'P-04: 2 typer kan nu godkendes (Vinduespartier, aluminium · Indvendige murvægge, malet)',
     );
+    const twoContaminated = gateChanges(before, [
+      { ...before[0], environment_status: 'forurenet' },
+      { ...before[1], environment_status: 'forurenet' },
+    ]);
+    expect(gateMessage('P-05', twoContaminated)).toBe(
+      'P-05: Vinduespartier, aluminium · Indvendige murvægge, malet er nu forurenede',
+    );
   });
 
   it('tells the user when an approved type stops blocking Indberetning', () => {

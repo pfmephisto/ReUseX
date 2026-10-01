@@ -171,7 +171,10 @@ export function gateMessage(code: string, c: GateChange): string | null {
     const n = c.unblocked.length;
     parts.push(`${n === 1 ? '1 type kan' : `${n} typer kan`} nu godkendes (${names(c.unblocked)})`);
   }
-  if (c.contaminated.length > 0) parts.push(`${names(c.contaminated)} er nu forurenet`);
+  if (c.contaminated.length > 0) {
+    // The adjective agrees in number: "A er nu forurenet", "A · B er nu forurenede".
+    parts.push(`${names(c.contaminated)} er nu ${c.contaminated.length === 1 ? 'forurenet' : 'forurenede'}`);
+  }
   if (c.blocked.length > 0) parts.push(`${names(c.blocked)} afventer nu prøvesvar`);
   if (c.reblocked.length > 0) parts.push(`${names(c.reblocked)} er godkendt, men afventer nu prøvesvar`);
   if (c.released.length > 0) parts.push(`${names(c.released)} blokerer ikke længere Indberetning`);

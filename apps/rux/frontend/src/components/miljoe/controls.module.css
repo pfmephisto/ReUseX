@@ -1,0 +1,23 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+/*
+ * Controls shared by the Miljø & prøver components (SampleCard, NewSampleForm,
+ * MiljoePage, LinkPicker). Pull a rule in with
+ * `composes: checkbox from './controls.module.css';` — never copy it.
+ */
+
+.checkbox {
+  flex: none;
+  margin: 0;
+  accent-color: var(--color-accent);
+  cursor: pointer;
+}
+
+.checkbox:focus-visible {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: 2px;
+}

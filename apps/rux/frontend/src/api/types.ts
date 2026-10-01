@@ -870,7 +870,11 @@ export interface SurveySummary {
   /** (bevaring + genbrug) / total. */
   reuse_share: number | null;
   pending_samples: number;
+  /** Non-rejected types whose miljøstatus is forurenet. */
+  contaminated_types: number;
   unlabeled_points: number | null;
+  /** Share (0..1) of instance-cloud points with a label; null without an instance cloud. */
+  classified_share: number | null;
   rooms_without_parts: string[];
 }
 

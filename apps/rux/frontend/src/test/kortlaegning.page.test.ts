@@ -56,7 +56,9 @@ function summary(overrides: Partial<SurveySummary> = {}): SurveySummary {
     total_mass_t: 0,
     reuse_share: null,
     pending_samples: 0,
+    contaminated_types: 0,
     unlabeled_points: null,
+    classified_share: null,
     rooms_without_parts: [],
     ...overrides,
   };

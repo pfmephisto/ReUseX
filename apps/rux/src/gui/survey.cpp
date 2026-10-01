@@ -147,6 +147,7 @@ json survey_summary_json(const reusex::ProjectDB &db) {
   const std::string rooms_cloud = core::SurveySyncOptions{}.rooms_cloud;
 
   json unlabeled = nullptr;
+  json classified = nullptr;
   if (db.has_point_cloud(instances_cloud)) {
     if (const auto cloud = db.point_cloud_label(instances_cloud)) {
       std::size_t n = 0;
@@ -154,8 +155,17 @@ json survey_summary_json(const reusex::ProjectDB &db) {
         if (p.label == 0)
           ++n;
       unlabeled = n;
+      if (!cloud->empty())
+        classified =
+            1.0 - static_cast<double>(n) / static_cast<double>(cloud->size());
     }
   }
+
+  int contaminated = 0;
+  for (const auto &t : totals)
+    if (t.status != core::ReviewStatus::rejected &&
+        t.environment == core::EnvironmentStatus::forurenet)
+      ++contaminated;
 
   json empty_rooms = json::array();
   if (db.has_point_cloud(rooms_cloud)) {
@@ -183,6 +193,8 @@ json survey_summary_json(const reusex::ProjectDB &db) {
           {"total_mass_t", total},
           {"reuse_share", total > 0.0 ? json(reuse / total) : json(nullptr)},
           {"pending_samples", pending},
+          {"classified_share", std::move(classified)},
+          {"contaminated_types", contaminated},
           {"unlabeled_points", std::move(unlabeled)},
           {"rooms_without_parts", std::move(empty_rooms)}};
 }

@@ -4348,7 +4348,7 @@ components:
         all: { type: integer, description: queue + approved }
     SurveySummary:
       type: object
-      required: [counts, circularity, total_mass_t, reuse_share, pending_samples, unlabeled_points, rooms_without_parts]
+      required: [counts, circularity, total_mass_t, reuse_share, pending_samples, contaminated_types, unlabeled_points, classified_share, rooms_without_parts]
       properties:
         counts: { $ref: "#/components/schemas/SurveyCounts" }
         circularity:
@@ -4358,7 +4358,12 @@ components:
         total_mass_t: { type: number }
         reuse_share: { type: number, nullable: true, description: (bevaring + genbrug) / total }
         pending_samples: { type: integer }
+        contaminated_types: { type: integer, description: Non-rejected types whose miljøstatus is forurenet. }
         unlabeled_points: { type: integer, nullable: true }
+        classified_share:
+          type: number
+          nullable: true
+          description: Share (0..1) of the instance cloud's points that carry an instance label; null without an instance cloud. Overblik's "Klassificeret" KPI.
         rooms_without_parts: { type: array, items: { type: string } }
     SurveyFractions:
       type: object

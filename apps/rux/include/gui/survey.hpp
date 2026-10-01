@@ -50,9 +50,9 @@ nlohmann::json sample_json(const reusex::ProjectDB::SampleRecord &s);
 nlohmann::json survey_json(const reusex::ProjectDB &db);
 
 /// `GET /survey/summary`: counts, circularity (tonnes per affaldshierarki
-/// step), reuse share, pending-sample count and the two optional coverage
-/// signals (unlabeled points, rooms without a part) that depend on clouds the
-/// project may not have yet.
+/// step), reuse share, pending-sample and contaminated-type counts, and the
+/// coverage signals (unlabeled points, classified share, rooms without a part)
+/// that depend on clouds the project may not have yet.
 nlohmann::json survey_summary_json(const reusex::ProjectDB &db);
 
 /// `GET /survey/fractions`: approved tonnes per EAK code, treatment and

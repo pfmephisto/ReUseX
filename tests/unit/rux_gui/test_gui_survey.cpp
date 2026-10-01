@@ -528,3 +528,41 @@ TEST_CASE("SurveyFractionsJson_TonnesRoundedOnTheWire", "[gui][survey]") {
   CHECK(j.at("fractions").at(0).at("mass_t").dump() == "199.2");
   CHECK(j.at("ready") == true);
 }
+
+TEST_CASE("SurveySummaryJson_ClassifiedShare_ContaminatedTypes",
+          "[gui][survey]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  reusex::CloudL labels;
+  for (std::uint32_t l : {0u, 1u, 1u, 2u}) {
+    pcl::Label p;
+    p.label = l;
+    labels.push_back(p);
+  }
+  db.save_point_cloud("instances", labels, "test", "{}");
+
+  const auto walls =
+      add_type(db, "Murvægge", core::Treatment::bortskaffelse, 38);
+  const auto gone = add_type(db, "Afvist", core::Treatment::bortskaffelse, 1,
+                             core::ReviewStatus::rejected);
+  const auto lead = db.add_sample("Bly i maling", "");
+  ProjectDB::SamplePatch answered;
+  answered.stage = core::SampleStage::svar;
+  answered.result = core::SampleResult::forurenet;
+  db.update_sample(lead.id, answered);
+  db.set_sample_links(lead.id, {walls, gone});
+
+  const auto j = survey_summary_json(db);
+  CHECK(j.at("classified_share").get<double>() == Approx(0.75));
+  CHECK(j.at("unlabeled_points") == 1);
+  CHECK(j.at("contaminated_types") == 1); // the rejected one never counts
+}
+
+TEST_CASE("SurveySummaryJson_NoInstanceCloud_ClassifiedShareNull",
+          "[gui][survey]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  const auto j = survey_summary_json(db);
+  CHECK(j.at("classified_share").is_null());
+  CHECK(j.at("contaminated_types") == 0);
+}

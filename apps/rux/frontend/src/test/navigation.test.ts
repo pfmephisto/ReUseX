@@ -82,6 +82,10 @@ describe('navigation model', () => {
     expect(entry?.pending).toBeUndefined();
   });
 
+  it('makes Rapport a live destination', () => {
+    expect(NAV_ENTRIES.find((e) => e.to === '/rapport')?.pending).toBeUndefined();
+  });
+
   it('points "Alle sager" at the case list', () => {
     expect(ALL_CASES_PATH).toBe('/sager');
   });

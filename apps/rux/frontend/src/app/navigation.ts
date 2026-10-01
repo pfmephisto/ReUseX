@@ -49,7 +49,7 @@ export const NAV_ENTRIES: readonly NavEntry[] = [
   { to: OVERBLIK_PATH, label: 'Overblik', group: 'sag', end: true },
   { to: KORTLAEGNING_PATH, label: 'Kortlægning', group: 'sag', badge: 'reviewQueue' },
   { to: MILJOE_PATH, label: 'Miljø & prøver', group: 'sag', badge: 'pendingSamples' },
-  { to: RAPPORT_PATH, label: 'Rapport', group: 'sag', pending: 'Kommer i fase 5 — rapportversioner' },
+  { to: RAPPORT_PATH, label: 'Rapport', group: 'sag' },
   {
     to: INDBERETNING_PATH,
     label: 'Indberetning',

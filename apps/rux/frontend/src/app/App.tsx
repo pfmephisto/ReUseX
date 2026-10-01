@@ -7,7 +7,7 @@ import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { JobsProvider } from './JobsContext';
 import { LabelQueueProvider } from './LabelQueueContext';
 import { AppShell } from './AppShell';
-import { KORTLAEGNING_PATH, MILJOE_PATH, OVERBLIK_PATH, PROJEKTDATA_PATH } from './links';
+import { KORTLAEGNING_PATH, MILJOE_PATH, OVERBLIK_PATH, PROJEKTDATA_PATH, RAPPORT_PATH } from './links';
 import { Dashboard } from '../routes/Dashboard';
 import { LabelsPage } from '../routes/DataPage';
 import { ExportPage } from '../routes/ExportPage';
@@ -21,6 +21,7 @@ import { MiljoePage } from '../routes/MiljoePage';
 import { OverblikPage } from '../routes/OverblikPage';
 import { PipelineLogPage } from '../routes/PipelineLogPage';
 import { PipelinePage } from '../routes/PipelinePage';
+import { RapportPage } from '../routes/RapportPage';
 import { ViewportPage } from '../routes/ViewportPage';
 
 /**
@@ -68,6 +69,7 @@ function RoutedContent() {
           <Route path={PROJEKTDATA_PATH} element={<Dashboard />} />
           <Route path={KORTLAEGNING_PATH} element={<KortlaegningPage />} />
           <Route path={MILJOE_PATH} element={<MiljoePage />} />
+          <Route path={RAPPORT_PATH} element={<RapportPage />} />
           <Route path="/pipeline" element={<PipelinePage />} />
           <Route path="/pipeline/log" element={<PipelineLogPage />} />
           <Route path="/frames" element={<FramesPage />} />

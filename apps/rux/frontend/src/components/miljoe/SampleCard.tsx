@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useRef, type KeyboardEvent } from 'react';
+import { useEffect, useRef, type KeyboardEvent } from 'react';
 import { Link } from 'react-router-dom';
 
 import type { Sample, SampleResult, SurveyType } from '../../api/types';
@@ -89,6 +89,7 @@ function LinkedLine({ types }: { types: SurveyType[] }) {
 }
 
 interface SampleEditorProps extends SampleCardProps {
+  id: string;
   /** Close the editor and hand focus back to the card's Rediger button. */
   onClose: () => void;
 }
@@ -103,11 +104,18 @@ function SampleEditor({
   onToggleLink,
   onDelete,
   onClose,
+  id,
 }: SampleEditorProps) {
   const title = useTextDraft(sample.title, onTitle, true);
   const what = useTextDraft(sample.what, onWhat);
   const titleId = `sample-${sample.id}-edit-title`;
   const whatId = `sample-${sample.id}-edit-what`;
+  const titleInput = useRef<HTMLInputElement>(null);
+
+  // Opening the editor lands on Titel.
+  useEffect(() => {
+    titleInput.current?.focus();
+  }, []);
 
   // Esc outside a text field closes; Ctrl/⌘+Enter commits the focused field
   // (by blurring it) and closes. Esc inside a field is handled by fieldKeys.
@@ -120,19 +128,20 @@ function SampleEditor({
     });
     if (action === 'close' || action === 'submit') {
       e.preventDefault();
+      e.stopPropagation(); // handled here: no page-level handler may act on it too
       if (e.target instanceof HTMLElement) e.target.blur();
       onClose();
     }
   }
 
   return (
-    <div className={styles.editor} onKeyDown={onKeyDown}>
+    <div id={id} role="group" aria-label={`Rediger ${sample.code}`} className={styles.editor} onKeyDown={onKeyDown}>
       <div className={styles.fields}>
         <div className={styles.field}>
           <label className={styles.label} htmlFor={titleId}>
             Titel
           </label>
-          <input id={titleId} className={styles.input} {...title.props} onKeyDown={fieldKeys(title)} />
+          <input ref={titleInput} id={titleId} className={styles.input} {...title.props} onKeyDown={fieldKeys(title)} />
         </div>
         <div className={styles.field}>
           <label className={styles.label} htmlFor={whatId}>
@@ -185,6 +194,7 @@ export function SampleCard(props: SampleCardProps) {
   const action = cardAction(sample);
   const next = nextStage(sample.stage);
   const headingId = `sample-${sample.id}-title`;
+  const editorId = `sample-${sample.id}-editor`;
 
   function closeEditor() {
     onEditing(false);
@@ -210,6 +220,8 @@ export function SampleCard(props: SampleCardProps) {
             type="button"
             className={styles.textBtn}
             aria-expanded={editing}
+            aria-controls={editing ? editorId : undefined}
+            aria-describedby={headingId}
             onClick={() => onEditing(!editing)}
           >
             {editing ? 'Luk redigering' : 'Rediger'}
@@ -228,9 +240,10 @@ export function SampleCard(props: SampleCardProps) {
             className={styles.btnGhost}
             disabled={busy}
             onClick={onAdvance}
+            aria-describedby={headingId}
             title={next ? `Markér som ${STAGE_LABEL[next]}` : undefined}
           >
-            Næste trin →
+            Næste trin <span aria-hidden="true">→</span>
           </button>
         </div>
       )}
@@ -247,13 +260,19 @@ export function SampleCard(props: SampleCardProps) {
       {action === 'answered' && (
         <p className={styles.note}>
           {answeredNote({ type_ids: linkedIds })}{' '}
-          <button type="button" className={styles.textBtn} disabled={busy} onClick={onUndoResult}>
+          <button
+            type="button"
+            className={styles.textBtn}
+            disabled={busy}
+            onClick={onUndoResult}
+            aria-describedby={headingId}
+          >
             Fortryd svar
           </button>
         </p>
       )}
 
-      {editing && <SampleEditor {...props} onClose={closeEditor} />}
+      {editing && <SampleEditor {...props} id={editorId} onClose={closeEditor} />}
     </article>
   );
 }

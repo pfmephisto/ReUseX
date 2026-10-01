@@ -121,13 +121,15 @@ export function MiljoePage() {
   }, [data, setSamples, setTypes]);
 
   // A new deep link on the mounted page (e.g. the sidebar after ?sample=)
-  // re-targets. Clearing the query (after a `?ny=` create or cancel) leaves
-  // the focus where the page put it.
+  // re-targets. Keyed on `location.key` too, so the identical link clicked
+  // again re-focuses its card. The body only sets page state, never the
+  // location, so it cannot loop. Clearing the query (after a `?ny=` create or
+  // cancel) leaves the focus where the page put it.
   useEffect(() => {
     const q = parseMiljoeQuery(location.search);
     if (q.sampleId !== null) focusCard(q.sampleId);
     if (q.newForType !== null) setCreating(true);
-  }, [location.search, focusCard]);
+  }, [location.key, location.search, focusCard]);
 
   // Scroll to and focus the deep-linked (or just created) card. A stale id
   // (deleted sample) simply finds no card.

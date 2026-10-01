@@ -44,7 +44,7 @@ export function ExportPage() {
 
   if (summary.error)
     return (
-      <ErrorBanner error={summary.error} onRetry={summary.reload} context="project summary" />
+      <ErrorBanner error={summary.error} onRetry={summary.reload} context="projektoversigten" />
     );
   if (!summary.data) return <Spinner label="Loading project…" />;
 
@@ -158,7 +158,7 @@ function ReportView({
       <ErrorBanner
         error={definitionsAsync.error}
         onRetry={definitionsAsync.reload}
-        context="material columns"
+        context="materialekolonnerne"
       />
     );
   if (detailsAsync.error)
@@ -166,7 +166,7 @@ function ReportView({
       <ErrorBanner
         error={detailsAsync.error}
         onRetry={detailsAsync.reload}
-        context="material passports"
+        context="materialepassene"
       />
     );
   if (!definitionsAsync.data || !detailsAsync.data)
@@ -219,7 +219,7 @@ function ReportView({
           <ErrorBanner
             error={versionsAsync.error}
             onRetry={versionsAsync.reload}
-            context="report versions"
+            context="rapportversionerne"
           />
         ) : !versionsAsync.data ? (
           <Spinner label="Loading versions…" />

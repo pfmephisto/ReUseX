@@ -395,7 +395,7 @@ export function KortlaegningPage() {
   if (error) {
     return (
       <div className={styles.page}>
-        <ErrorBanner error={error} onRetry={reload} context="Kortlægning" />
+        <ErrorBanner error={error} onRetry={reload} context="kortlægningen" />
       </div>
     );
   }

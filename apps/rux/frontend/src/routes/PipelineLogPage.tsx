@@ -156,7 +156,7 @@ export function PipelineLogPage() {
 
       {log.loading && !log.data && <Spinner label="Loading the pipeline log" />}
       {log.error && (
-        <ErrorBanner error={log.error} onRetry={log.reload} context="the pipeline log" />
+        <ErrorBanner error={log.error} onRetry={log.reload} context="kørselsloggen" />
       )}
 
       {log.data && rows.length === 0 && (

@@ -102,7 +102,7 @@ export function ComponentsPane({
       <ErrorBanner
         error={components.error}
         onRetry={components.reload}
-        context="building components"
+        context="bygningskomponenterne"
       />
     );
   }
@@ -169,7 +169,7 @@ function ComponentDetailPane({ name, onClose }: { name: string; onClose: () => v
         <ErrorBanner
           error={detail.error}
           onRetry={detail.reload}
-          context={`component ${name}`}
+          context={`komponenten ${name}`}
         />
       ) : !detail.data ? (
         <Spinner label="Reading component…" />

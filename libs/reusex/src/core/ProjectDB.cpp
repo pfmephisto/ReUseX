@@ -284,6 +284,32 @@ class ProjectDB::Impl {
       throw std::runtime_error("Cannot open database: " + error);
     }
 
+    // ~Impl never runs for a constructor that throws, so anything that fails
+    // from here on (a probe that finds the file locked, a migration) must
+    // close the handle itself. Leaking it would also leak its WAL read lock,
+    // once per failed open — one per 503 in `rux gui`.
+    try {
+      configure();
+    } catch (...) {
+      sqlite3_close_v2(db);
+      db = nullptr;
+      throw;
+    }
+
+    reusex::info("Project database opened successfully");
+  }
+
+  ~Impl() {
+    reusex::trace("Closing project database connection");
+    if (db) {
+      sqlite3_close(db);
+    }
+  }
+
+  /// Everything the constructor does after the handle is open: pragmas, the
+  /// busy timeout, and the schema create / migrate (read-write) or the schema
+  /// check (read-only). May throw; the constructor then closes the handle.
+  void configure() {
     // Every connection waits out a briefly held lock instead of failing at
     // once. With WAL, readers never block each other, but a reader whose open
     // races another connection's close (which takes the file lock to try a
@@ -323,15 +349,6 @@ class ProjectDB::Impl {
                      onDisk, LATEST_SCHEMA_VERSION, dbPath);
       }
     }
-
-    reusex::info("Project database opened successfully");
-  }
-
-  ~Impl() {
-    reusex::trace("Closing project database connection");
-    if (db) {
-      sqlite3_close(db);
-    }
   }
 
   void checkWritable() const {
@@ -370,16 +387,22 @@ class ProjectDB::Impl {
   bool columnExists(const char *tableName, const char *columnName) const {
     const std::string query =
         std::string("PRAGMA table_info(") + tableName + ");";
+    // Throws when sqlite cannot answer, like tableExists.
     sqlite3_stmt *stmt;
     if (sqlite3_prepare_v2(db, query.c_str(), -1, &stmt, nullptr) != SQLITE_OK)
-      return false;
+      throw std::runtime_error(std::string("Cannot list the columns of '") +
+                               tableName + "': " + sqlite3_errmsg(db));
     StmtGuard guard(stmt);
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
+    int rc = SQLITE_ROW;
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
       const char *name =
           reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1));
       if (name && std::strcmp(name, columnName) == 0)
         return true;
     }
+    if (rc != SQLITE_DONE)
+      throw std::runtime_error(std::string("Cannot list the columns of '") +
+                               tableName + "': " + sqlite3_errmsg(db));
     return false;
   }
 

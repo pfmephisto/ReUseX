@@ -28,6 +28,8 @@
 #include <gui/Server.hpp>
 #include <gui/assets.hpp>
 
+#include <sqlite3.h>
+
 #include "../../support/temp_path.hpp"
 
 #include <algorithm>
@@ -128,10 +130,25 @@ class KeepAliveConnection {
       ::close(fd_);
   }
 
-  Response get(std::string_view path) {
-    const std::string request = "GET " + std::string(path) +
-                                " HTTP/1.1\r\nHost: 127.0.0.1\r\n"
-                                "Connection: keep-alive\r\n\r\n";
+  Response get(std::string_view path) { return send_request("GET", path, {}); }
+
+  /// One request with a JSON body (PATCH/POST/PUT) on this connection.
+  Response send_json(std::string_view method, std::string_view path,
+                     std::string_view body) {
+    return send_request(method, path, body);
+  }
+
+    private:
+  Response send_request(std::string_view method, std::string_view path,
+                        std::string_view body) {
+    std::string request = std::string(method) + " " + std::string(path) +
+                          " HTTP/1.1\r\nHost: 127.0.0.1\r\n"
+                          "Connection: keep-alive\r\n";
+    if (!body.empty() || method != "GET")
+      request += "Content-Type: application/json\r\nContent-Length: " +
+                 std::to_string(body.size()) + "\r\n";
+    request += "\r\n";
+    request += body;
     std::size_t sent = 0;
     while (sent < request.size()) {
       const ssize_t n = ::send(fd_, request.data() + sent,
@@ -143,7 +160,6 @@ class KeepAliveConnection {
     return read_response(path);
   }
 
-    private:
   /// Read exactly one response out of the stream, leaving any bytes that
   /// belong to the next one in the buffer.
   Response read_response(std::string_view path) {
@@ -444,4 +460,53 @@ TEST_CASE("RunningServer_ConcurrentReadsOnAFreshServer_NeverBusy",
 
   INFO((failures.empty() ? std::string() : failures.front()));
   CHECK(failures.empty());
+}
+
+TEST_CASE("RunningServer_EditThenShutdown_LeavesTheEditInTheMainFile",
+          "[gui][server][socket][wal]") {
+  // The server's long-lived connection is the last to close, so it is the one
+  // that must checkpoint. Were it read-only it could not, and an edit made
+  // through the GUI would survive only in project.rux-wal: copying or
+  // uploading the .rux alone would silently drop it.
+  ::unsetenv("RUX_GUI_ASSETS");
+  TempPath project("test_gui_server_socket", ".rux");
+  const fs::path wal = project.path.string() + "-wal";
+  const std::string name = "Checkpoint probe";
+
+  {
+    ServerOptions options;
+    options.project = project.path;
+    options.port = free_port();
+    options.open_browser = false;
+    options.threads = 2;
+    RunningServer server(std::move(options));
+    KeepAliveConnection connection(server.port());
+    const Response response = connection.send_json(
+        "PATCH", "/api/v1/projects/p1", R"({"name":"Checkpoint probe"})");
+    INFO(response.body);
+    REQUIRE(response.status == 200);
+  }
+
+  std::error_code ec;
+  const bool wal_exists = fs::exists(wal, ec);
+  const auto wal_size = wal_exists ? fs::file_size(wal, ec) : 0;
+  INFO("-wal exists: " << wal_exists << ", size " << wal_size);
+  CHECK(wal_size == 0);
+
+  // Read the main file alone, as a copy that left the -wal behind would.
+  TempPath copy("test_gui_server_socket_copy", ".rux");
+  fs::copy_file(project.path, copy.path, fs::copy_options::overwrite_existing);
+  sqlite3 *raw = nullptr;
+  REQUIRE(sqlite3_open_v2(copy.path.string().c_str(), &raw,
+                          SQLITE_OPEN_READONLY, nullptr) == SQLITE_OK);
+  sqlite3_stmt *stmt = nullptr;
+  std::string stored;
+  if (sqlite3_prepare_v2(raw, "SELECT name FROM projects WHERE id='p1';", -1,
+                         &stmt, nullptr) == SQLITE_OK &&
+      sqlite3_step(stmt) == SQLITE_ROW)
+    if (const auto *text = sqlite3_column_text(stmt, 0))
+      stored = reinterpret_cast<const char *>(text);
+  sqlite3_finalize(stmt);
+  sqlite3_close(raw);
+  CHECK(stored == name);
 }

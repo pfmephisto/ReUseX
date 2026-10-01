@@ -145,19 +145,38 @@ describe('gateNoteText', () => {
     expect(gateNoteText(type({ environment_status: 'ren_screening' }), [])).toBeNull();
   });
 
-  it('names the pending sample codes when blocked', () => {
+  it('names the pending sample as code · title when blocked', () => {
     const t = type({ environment_status: 'afventer', sample_ids: [1] });
-    expect(gateNoteText(t, [sample({ code: 'P-01' })])).toBe(
-      'Kan ikke godkendes endnu — afventer prøvesvar (P-01).',
+    expect(gateNoteText(t, [sample({ code: 'P-01', title: 'PCB i fugemasse', stage: 'sendt' })])).toBe(
+      'Kan ikke godkendes endnu — afventer prøvesvar (P-01 · PCB i fugemasse).',
     );
   });
 
-  it('joins multiple pending sample codes', () => {
+  it('joins multiple pending samples as code · title, comma-separated', () => {
     const t = type({ environment_status: 'afventer', sample_ids: [1, 2] });
-    const samples = [sample({ id: 1, code: 'P-01' }), sample({ id: 2, code: 'P-02' })];
+    const samples = [
+      sample({ id: 1, code: 'P-01', title: 'PCB i fugemasse', stage: 'sendt' }),
+      sample({ id: 2, code: 'P-02', title: 'Asbest i loft', stage: 'planlagt' }),
+    ];
     expect(gateNoteText(t, samples)).toBe(
-      'Kan ikke godkendes endnu — afventer prøvesvar (P-01, P-02).',
+      'Kan ikke godkendes endnu — afventer prøvesvar (P-01 · PCB i fugemasse, P-02 · Asbest i loft).',
     );
+  });
+
+  it('excludes a linked sample that already has svar, naming only the pending one', () => {
+    const t = type({ environment_status: 'afventer', sample_ids: [1, 2] });
+    const samples = [
+      sample({ id: 1, code: 'P-01', title: 'PCB i fugemasse', stage: 'svar', result: 'ren' }),
+      sample({ id: 2, code: 'P-02', title: 'Asbest i loft', stage: 'sendt' }),
+    ];
+    expect(gateNoteText(t, samples)).toBe(
+      'Kan ikke godkendes endnu — afventer prøvesvar (P-02 · Asbest i loft).',
+    );
+  });
+
+  it('drops the parenthetical when no linked sample resolves as pending', () => {
+    const t = type({ environment_status: 'afventer', sample_ids: [] });
+    expect(gateNoteText(t, [])).toBe('Kan ikke godkendes endnu — afventer prøvesvar.');
   });
 });
 

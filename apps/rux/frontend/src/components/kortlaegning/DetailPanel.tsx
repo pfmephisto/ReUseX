@@ -90,13 +90,21 @@ export function approveBlocked(type: SurveyType): boolean {
   return type.environment_status === 'afventer';
 }
 
-/** The gate note shown under the actions when blocked, or `null` when not. */
+/**
+ * The gate note shown under the actions when blocked, or `null` when not
+ * blocked. Names only the *pending* linked samples (`stage !== 'svar'`) —
+ * matching the backend's own `environment_status` rule
+ * (`libs/reusex/src/core/survey.cpp`: a sample only keeps a type `afventer`
+ * while its stage isn't `svar` yet). When none of the linked samples resolve
+ * as pending (e.g. no samples are linked at all), the note drops the
+ * parenthetical rather than showing an empty `()`.
+ */
 export function gateNoteText(type: SurveyType, samples: Sample[]): string | null {
   if (!approveBlocked(type)) return null;
-  const codes = linkedSamples(type, samples)
-    .map((s) => s.code)
-    .join(', ');
-  return `Kan ikke godkendes endnu — afventer prøvesvar (${codes}).`;
+  const pending = linkedSamples(type, samples).filter((s) => s.stage !== 'svar');
+  if (pending.length === 0) return 'Kan ikke godkendes endnu — afventer prøvesvar.';
+  const names = pending.map((s) => `${s.code} · ${s.title}`).join(', ');
+  return `Kan ikke godkendes endnu — afventer prøvesvar (${names}).`;
 }
 
 /**
@@ -131,6 +139,9 @@ export function DetailPanel({
   const [quantityDraft, setQuantityDraft] = useState(() => (current ? formatNumber(current.quantity) : ''));
   const [noteDraft, setNoteDraft] = useState(() => current?.note ?? '');
   const quantityInputRef = useRef<HTMLInputElement>(null);
+  // Tracks whether the quantity input is currently focused, so the
+  // server-resync effect below never clobbers what the user is mid-typing.
+  const quantityFocusedRef = useRef(false);
 
   // Defense in depth: reset the drafts on a selection change even if the
   // page reuses one instance instead of keying it by selection (see the
@@ -141,6 +152,17 @@ export function DetailPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [type?.id, part?.code]);
 
+  // Re-sync the quantity draft whenever the server value changes under us
+  // (e.g. a redistribution from editing the type's aggregate quantity
+  // changes this part's share) — but never while the user has the field
+  // focused, or their keystrokes would be overwritten mid-edit.
+  useEffect(() => {
+    if (current && !quantityFocusedRef.current) {
+      setQuantityDraft(formatNumber(current.quantity));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [current?.quantity]);
+
   if (!type || !current) {
     return (
       <div className={styles.panel}>
@@ -150,7 +172,7 @@ export function DetailPanel({
   }
 
   function commitQuantity() {
-    if (!current) return;
+    if (!current || busy) return;
     const value = quantityCommitValue(quantityDraft, current.quantity);
     if (value !== null) {
       onQuantity(value);
@@ -160,7 +182,7 @@ export function DetailPanel({
   }
 
   function commitNote() {
-    if (!current) return;
+    if (!current || busy) return;
     if (noteDraft !== current.note) onNote(noteDraft);
   }
 
@@ -190,7 +212,13 @@ export function DetailPanel({
               className={`${styles.input} mono`}
               value={quantityDraft}
               onChange={(e) => setQuantityDraft(e.target.value)}
-              onBlur={commitQuantity}
+              onFocus={() => {
+                quantityFocusedRef.current = true;
+              }}
+              onBlur={() => {
+                quantityFocusedRef.current = false;
+                commitQuantity();
+              }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') quantityInputRef.current?.blur();
               }}
@@ -266,7 +294,7 @@ export function DetailPanel({
         )}
       </div>
 
-      {gateNote && <p className={styles.gateNote}>{gateNote}</p>}
+      {queued && gateNote && <p className={styles.gateNote}>{gateNote}</p>}
     </div>
   );
 }

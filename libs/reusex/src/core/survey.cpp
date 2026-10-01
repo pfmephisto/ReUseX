@@ -139,7 +139,15 @@ circularity_breakdown(const std::vector<TypeTotals> &types) {
 }
 
 std::string_view to_string(BlockingReason r) {
-  return r == BlockingReason::sample ? "sample" : "review";
+  switch (r) {
+  case BlockingReason::sample:
+    return "sample";
+  case BlockingReason::mass:
+    return "mass";
+  case BlockingReason::review:
+    break;
+  }
+  return "review";
 }
 
 bool reportable(ReviewStatus status, EnvironmentStatus environment) {
@@ -162,9 +170,15 @@ FractionReport fractions_by_eak(const std::vector<TypeTotals> &types) {
     }
     if (t.treatment == Treatment::bevaring)
       continue;
+    if (!t.mass_t) {
+      // An unknown tonnage is not zero tonnes (STANDARDS §5).
+      report.blocking.push_back(BlockingType{t.type_id, t.name, t.eak_code,
+                                             t.treatment, t.mass_t,
+                                             BlockingReason::mass});
+      continue;
+    }
     grouped[{t.eak_code, static_cast<int>(t.treatment),
-             t.environment == EnvironmentStatus::forurenet}] +=
-        t.mass_t.value_or(0.0);
+             t.environment == EnvironmentStatus::forurenet}] += *t.mass_t;
   }
   for (const auto &[key, mass] : grouped) {
     const auto &[code, treatment, contaminated] = key;

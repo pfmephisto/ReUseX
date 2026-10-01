@@ -187,6 +187,12 @@ json survey_summary_json(const reusex::ProjectDB &db) {
           {"rooms_without_parts", std::move(empty_rooms)}};
 }
 
+namespace {
+/// Tonnes on the wire: 6 decimals, so sums like 190 + 6.8 + 2.4 print as 199.2
+/// rather than 199.20000000000002.
+double wire_tonnes(double t) { return std::round(t * 1e6) / 1e6; }
+} // namespace
+
 json survey_fractions_json(const reusex::ProjectDB &db) {
   const auto report = core::fractions_by_eak(core::type_totals(db));
   json list = json::array();
@@ -194,7 +200,7 @@ json survey_fractions_json(const reusex::ProjectDB &db) {
     list.push_back({{"eak_code", f.eak_code},
                     {"name", f.name},
                     {"treatment", std::string(core::to_string(f.treatment))},
-                    {"mass_t", f.mass_t},
+                    {"mass_t", wire_tonnes(f.mass_t)},
                     {"contaminated", f.contaminated}});
   json blocking = json::array();
   for (const auto &b : report.blocking)
@@ -206,7 +212,7 @@ json survey_fractions_json(const reusex::ProjectDB &db) {
          {"mass_t", opt(b.mass_t)},
          {"reason", std::string(core::to_string(b.reason))}});
   return {{"fractions", std::move(list)},
-          {"total_t", report.total_t},
+          {"total_t", wire_tonnes(report.total_t)},
           {"blocking_types", report.blocking_types},
           {"blocking", std::move(blocking)},
           {"ready", report.blocking_types == 0}};

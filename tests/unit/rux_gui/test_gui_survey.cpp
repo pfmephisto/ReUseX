@@ -6,6 +6,7 @@
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_floating_point.hpp>
 
 #include "gui/ViewRenderer.hpp"
 #include <gui/survey.hpp>
@@ -26,6 +27,7 @@ using namespace rux::gui;
 using reusex::ProjectDB;
 namespace core = reusex::core;
 using Catch::Approx;
+using Catch::Matchers::WithinAbs;
 
 namespace {
 struct TempDB : reusex::test_support::TempPath {
@@ -482,4 +484,47 @@ TEST_CASE("RenderBlob_StatusMapping", "[gui][render]") {
   CHECK(status_of([&] {
           render_blob(db, &r, params_of({{"orbit_index", "8"}}));
         }) == 400);
+}
+
+TEST_CASE("SurveyFractionsJson_ApprovedWithoutMass_BlocksAndNotReady",
+          "[gui][survey]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  add_type(db, "a", core::Treatment::genanvendelse, 380,
+           core::ReviewStatus::approved);
+  ProjectDB::SurveyTypeRecord t;
+  t.name = "Uden tonnage";
+  t.eak_code = "17.02.01";
+  t.treatment = core::Treatment::genanvendelse;
+  t.review_status = core::ReviewStatus::approved; // mass_t stays nullopt
+  db.add_survey_type(t);
+  const auto j = survey_fractions_json(db);
+  REQUIRE(j.at("fractions").size() == 1);
+  REQUIRE(j.at("blocking").size() == 1);
+  CHECK(j.at("blocking").at(0).at("name") == "Uden tonnage");
+  CHECK(j.at("blocking").at(0).at("reason") == "mass");
+  CHECK(j.at("blocking").at(0).at("mass_t").is_null());
+  CHECK(j.at("blocking_types") == 1);
+  CHECK(j.at("ready") == false);
+}
+
+TEST_CASE("SurveyFractionsJson_TonnesRoundedOnTheWire", "[gui][survey]") {
+  // Demo-seed-style sum: 190 + 6.8 + 2.4 is 199.20000000000002 in doubles.
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  // One code, summed in input order, so the row and the total both carry it.
+  add_type(db, "a", core::Treatment::genanvendelse, 190,
+           core::ReviewStatus::approved);
+  add_type(db, "b", core::Treatment::genanvendelse, 6.8,
+           core::ReviewStatus::approved);
+  add_type(db, "c", core::Treatment::genanvendelse, 2.4,
+           core::ReviewStatus::approved);
+  const auto j = survey_fractions_json(db);
+  CHECK_THAT(j.at("total_t").get<double>(), WithinAbs(199.2, 1e-9));
+  CHECK(j.at("total_t").dump() == "199.2");
+  REQUIRE(j.at("fractions").size() == 1);
+  CHECK_THAT(j.at("fractions").at(0).at("mass_t").get<double>(),
+             WithinAbs(199.2, 1e-9));
+  CHECK(j.at("fractions").at(0).at("mass_t").dump() == "199.2");
+  CHECK(j.at("ready") == true);
 }

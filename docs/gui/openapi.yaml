@@ -2540,8 +2540,10 @@ paths:
       description: |
         Approved tonnes per EAK code, treatment and contamination for the bygningsaffald.dk
         report. `bevaring` never counts (it stays in the building). A type awaiting a sample
-        is withheld even when approved. `blocking` lists every non-rejected type that keeps
-        the report from being sent; the report is `ready` when it is empty.
+        is withheld even when approved. An approved type without tonnes blocks rather than
+        counting as zero. `blocking` lists every non-rejected type that keeps the report
+        from being sent; the report is `ready` when it is empty. Tonnes are rounded to 6
+        decimals.
       responses:
         "200":
           description: Waste fractions
@@ -4391,8 +4393,8 @@ components:
               mass_t: { type: number, nullable: true }
               reason:
                 type: string
-                enum: [review, sample]
-                description: "`sample`: miljøstatus is afventer (blocks even when approved). `review`: not approved yet."
+                enum: [review, sample, mass]
+                description: "`sample`: miljøstatus is afventer (blocks even when approved). `review`: not approved yet. `mass`: approved, but the tonnage is unknown (never counted as zero). A type gets one reason, by precedence sample > review > mass."
         ready: { type: boolean }
     Sample:
       type: object

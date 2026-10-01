@@ -6,6 +6,7 @@
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <core/survey.hpp>
 
 #include <stdexcept>
@@ -13,6 +14,7 @@
 
 using namespace reusex::core;
 using Catch::Approx;
+using Catch::Matchers::WithinAbs;
 
 TEST_CASE("SurveyEnums_WireStrings_RoundTrip", "[survey]") {
   for (auto t :
@@ -153,6 +155,92 @@ TEST_CASE("FractionsByEak_ContaminatedTonnes_GetTheirOwnRow", "[survey]") {
 TEST_CASE("BlockingReason_WireStrings", "[survey]") {
   CHECK(to_string(BlockingReason::review) == "review");
   CHECK(to_string(BlockingReason::sample) == "sample");
+  CHECK(to_string(BlockingReason::mass) == "mass");
+}
+
+TEST_CASE("FractionsByEak_ApprovedWithoutMass_BlocksAsMass", "[survey]") {
+  // Unknown tonnes are not zero tonnes: the report must not be ready.
+  std::vector<TypeTotals> types{
+      {Treatment::genanvendelse, ReviewStatus::approved, 10.0, "17.01.01",
+       EnvironmentStatus::ren_screening, 1, "Beton"},
+      {Treatment::genanvendelse, ReviewStatus::approved, std::nullopt,
+       "17.02.01", EnvironmentStatus::ren_screening, 2, "Træ uden tonnage"},
+  };
+  const auto r = fractions_by_eak(types);
+  REQUIRE(r.fractions.size() == 1);
+  CHECK(r.fractions[0].eak_code == "17.01.01");
+  CHECK_THAT(r.total_t, WithinAbs(10.0, 1e-9));
+  REQUIRE(r.blocking.size() == 1);
+  CHECK(r.blocking_types == 1);
+  CHECK(r.blocking[0].type_id == 2);
+  CHECK(r.blocking[0].reason == BlockingReason::mass);
+  CHECK_FALSE(r.blocking[0].mass_t.has_value());
+}
+
+TEST_CASE("FractionsByEak_ReasonPrecedence_SampleThenReviewThenMass",
+          "[survey]") {
+  std::vector<TypeTotals> types{
+      // queue + afventer + no mass: sample wins.
+      {Treatment::genbrug, ReviewStatus::queue, std::nullopt, "17.01.01",
+       EnvironmentStatus::afventer, 1, "a"},
+      // queue + no mass: review wins over mass.
+      {Treatment::genbrug, ReviewStatus::queue, std::nullopt, "17.01.01",
+       EnvironmentStatus::ren_screening, 2, "b"},
+  };
+  const auto r = fractions_by_eak(types);
+  REQUIRE(r.blocking.size() == 2);
+  CHECK(r.blocking[0].reason == BlockingReason::sample);
+  CHECK(r.blocking[1].reason == BlockingReason::review);
+}
+
+TEST_CASE("FractionsByEak_QueuedAfventer_BlocksAsSample", "[survey]") {
+  std::vector<TypeTotals> types{{Treatment::genbrug, ReviewStatus::queue, 3.1,
+                                 "17.04.02", EnvironmentStatus::afventer, 6,
+                                 "Vinduespartier, aluminium"}};
+  const auto r = fractions_by_eak(types);
+  CHECK(r.fractions.empty());
+  REQUIRE(r.blocking.size() == 1);
+  CHECK(r.blocking[0].reason == BlockingReason::sample);
+}
+
+TEST_CASE("FractionsByEak_RejectedAfventer_NeverBlocks", "[survey]") {
+  std::vector<TypeTotals> types{{Treatment::genbrug, ReviewStatus::rejected,
+                                 3.1, "17.04.02", EnvironmentStatus::afventer,
+                                 6, "Vinduespartier, aluminium"}};
+  const auto r = fractions_by_eak(types);
+  CHECK(r.fractions.empty());
+  CHECK(r.blocking.empty());
+  CHECK(r.blocking_types == 0);
+}
+
+TEST_CASE("FractionsByEak_ApprovedForurenetBevaring_ExcludedAndNotBlocking",
+          "[survey]") {
+  std::vector<TypeTotals> types{
+      {Treatment::bevaring, ReviewStatus::approved, 640.0, "17.01.01",
+       EnvironmentStatus::forurenet, 1, "Fundamenter & terrændæk, beton"}};
+  const auto r = fractions_by_eak(types);
+  CHECK(r.fractions.empty());
+  CHECK_THAT(r.total_t, WithinAbs(0.0, 1e-12));
+  CHECK(r.blocking.empty());
+}
+
+TEST_CASE("FractionsByEak_Blocking_KeepsInputOrder", "[survey]") {
+  std::vector<TypeTotals> types{
+      {Treatment::genbrug, ReviewStatus::queue, 1.0, "17.09.04",
+       EnvironmentStatus::ren_screening, 9, "z"},
+      {Treatment::genbrug, ReviewStatus::approved, 1.0, "17.01.01",
+       EnvironmentStatus::afventer, 3, "y"},
+      {Treatment::genbrug, ReviewStatus::approved, std::nullopt, "17.02.01",
+       EnvironmentStatus::ren_screening, 5, "x"},
+  };
+  const auto r = fractions_by_eak(types);
+  REQUIRE(r.blocking.size() == 3);
+  CHECK(r.blocking[0].type_id == 9);
+  CHECK(r.blocking[1].type_id == 3);
+  CHECK(r.blocking[2].type_id == 5);
+  CHECK(r.blocking[0].reason == BlockingReason::review);
+  CHECK(r.blocking[1].reason == BlockingReason::sample);
+  CHECK(r.blocking[2].reason == BlockingReason::mass);
 }
 
 TEST_CASE("Reportable_ApprovedAndNotAwaitingSample", "[survey]") {

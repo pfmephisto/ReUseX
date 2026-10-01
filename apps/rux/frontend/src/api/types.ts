@@ -891,8 +891,12 @@ export interface SurveyBlockingType {
   eak_code: string;
   treatment: Treatment;
   mass_t: number | null;
-  /** `sample`: awaiting a sample (blocks even when approved); `review`: not approved yet. */
-  reason: 'review' | 'sample';
+  /**
+   * `sample`: awaiting a sample (blocks even when approved); `review`: not
+   * approved yet; `mass`: approved but tonnage unknown. Precedence
+   * sample > review > mass.
+   */
+  reason: 'review' | 'sample' | 'mass';
 }
 
 /**

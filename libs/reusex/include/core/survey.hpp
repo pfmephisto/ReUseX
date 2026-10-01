@@ -89,8 +89,10 @@ struct Fraction {
   double mass_t = 0.0;
   bool contaminated = false;
 };
-enum class BlockingReason { review, sample };
-std::string_view to_string(BlockingReason); // "review" | "sample"
+/// Why a type blocks the waste report; a type gets one reason, by precedence
+/// sample > review > mass.
+enum class BlockingReason { review, sample, mass };
+std::string_view to_string(BlockingReason); // "review" | "sample" | "mass"
 struct BlockingType {
   std::int64_t type_id = 0;
   std::string name;
@@ -114,7 +116,9 @@ bool reportable(ReviewStatus status, EnvironmentStatus environment);
 /// `bevaring` never counts: it stays in the building, so it is not waste — but
 /// an unapproved bevaring type still blocks. A type awaiting a sample blocks
 /// (reason `sample`) and is withheld even when approved, because its answer
-/// can make it contaminated. Any other unapproved type blocks (`review`).
+/// can make it contaminated. Any other unapproved type blocks (`review`). An
+/// approved, reportable non-bevaring type without tonnes blocks (`mass`) and is
+/// never counted as zero, so the report cannot be `ready` while incomplete.
 /// Contaminated tonnes are never merged into a clean fraction. Rows are in
 /// code, then waste-hierarchy, then clean-before-contaminated order; the
 /// blocking list is in input order.

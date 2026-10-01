@@ -50,12 +50,7 @@ export const NAV_ENTRIES: readonly NavEntry[] = [
   { to: KORTLAEGNING_PATH, label: 'Kortlægning', group: 'sag', badge: 'reviewQueue' },
   { to: MILJOE_PATH, label: 'Miljø & prøver', group: 'sag', badge: 'pendingSamples' },
   { to: RAPPORT_PATH, label: 'Rapport', group: 'sag' },
-  {
-    to: INDBERETNING_PATH,
-    label: 'Indberetning',
-    group: 'sag',
-    pending: 'Kommer i fase 5 — fraktioner til bygningsaffald.dk',
-  },
+  { to: INDBERETNING_PATH, label: 'Indberetning', group: 'sag' },
 
   { to: PROJEKTDATA_PATH, label: 'Projektdata', group: 'tools' },
   { to: '/viewport', label: 'Viewport', group: 'tools' },

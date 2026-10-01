@@ -7,13 +7,21 @@ import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { JobsProvider } from './JobsContext';
 import { LabelQueueProvider } from './LabelQueueContext';
 import { AppShell } from './AppShell';
-import { KORTLAEGNING_PATH, MILJOE_PATH, OVERBLIK_PATH, PROJEKTDATA_PATH, RAPPORT_PATH } from './links';
+import {
+  INDBERETNING_PATH,
+  KORTLAEGNING_PATH,
+  MILJOE_PATH,
+  OVERBLIK_PATH,
+  PROJEKTDATA_PATH,
+  RAPPORT_PATH,
+} from './links';
 import { Dashboard } from '../routes/Dashboard';
 import { LabelsPage } from '../routes/DataPage';
 import { ExportPage } from '../routes/ExportPage';
 import { FramesPage } from '../routes/FramesPage';
 import { GeometryPage } from '../routes/GeometryPage';
 import { GraphViewPage } from '../routes/GraphViewPage';
+import { IndberetningPage } from '../routes/IndberetningPage';
 import { InstancesPage } from '../routes/InstancesPage';
 import { KortlaegningPage } from '../routes/KortlaegningPage';
 import { MaterialsPage } from '../routes/MaterialsPage';
@@ -70,6 +78,7 @@ function RoutedContent() {
           <Route path={KORTLAEGNING_PATH} element={<KortlaegningPage />} />
           <Route path={MILJOE_PATH} element={<MiljoePage />} />
           <Route path={RAPPORT_PATH} element={<RapportPage />} />
+          <Route path={INDBERETNING_PATH} element={<IndberetningPage />} />
           <Route path="/pipeline" element={<PipelinePage />} />
           <Route path="/pipeline/log" element={<PipelineLogPage />} />
           <Route path="/frames" element={<FramesPage />} />

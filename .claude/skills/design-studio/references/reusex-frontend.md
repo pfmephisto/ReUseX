@@ -149,7 +149,7 @@ rux -p tests/fixtures/scans/office_corridor.rux gui --port 8420 --no-browser  # 
 npm --prefix apps/rux/frontend run dev                                         # http://localhost:5173
 ```
 
-`scripts/dev_env.sh start` does both and prints the URLs; `stop` tears them down.
+`scripts/dev_env.sh start [project.rux]` does both and prints the URLs; `stop` tears them down from any shell. It serves a fresh **copy** of the project (`.superpowers/dev-env/project/`), never the file you name — `rux gui` migrates and leaves -wal/-shm beside whatever it opens. Do not run the bare `rux -p tests/fixtures/... gui` line above against the tracked fixture; copy it first.
 
 The Vite dev server proxies `/api` (REST **and** the `/api/v1/events` WebSocket)
 to `http://localhost:8420` (override with `RUX_GUI_URL`). **The proxy is

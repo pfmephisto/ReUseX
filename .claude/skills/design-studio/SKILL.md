@@ -121,7 +121,7 @@ Run the app and screenshot it. The frontend is a client of `rux gui`, so bring
 the backend up first (fixture project provided):
 
 ```bash
-# one command: starts `rux gui` on the fixture + the Vite dev server, prints URLs
+# one command: starts `rux gui` on a COPY of the fixture (never the tracked file) + the Vite dev server, prints URLs; state in .superpowers/dev-env/
 bash <skill-dir>/scripts/dev_env.sh start
 # then capture the route you changed, BOTH themes:
 bash <skill-dir>/scripts/shot.sh http://localhost:5173/viewport --out shots/ --theme dark

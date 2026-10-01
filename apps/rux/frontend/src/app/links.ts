@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 /**
- * The links between Kortlægning and Miljø & prøver, as data: a sample line in
+ * The links between the case screens, as data: a sample line in
  * Kortlægning opens its sample; a type with no sample opens the create form
  * pre-linked; a sample's linked type opens that type. Paths stay
  * extensionless (see App.tsx) and ids are positive integers.
@@ -11,6 +11,10 @@
 
 export const MILJOE_PATH = '/miljoe';
 export const KORTLAEGNING_PATH = '/kortlaegning';
+export const OVERBLIK_PATH = '/';
+export const RAPPORT_PATH = '/rapport';
+export const INDBERETNING_PATH = '/indberetning';
+export const PROJEKTDATA_PATH = '/projektdata';
 
 export function sampleHref(sampleId: number): string {
   return `${MILJOE_PATH}?sample=${sampleId}`;

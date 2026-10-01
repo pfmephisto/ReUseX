@@ -1,0 +1,67 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+/*
+ * The shared affaldshierarki bar (Overblik, Rapport). Segment and swatch
+ * colours come in as `circToken()` inline styles — always a var(--circ-*)
+ * reference, never a literal.
+ */
+
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.bar {
+  display: flex;
+  height: var(--space-3);
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-sunken);
+}
+
+.segment {
+  flex-basis: 0;
+  min-width: 1px;
+}
+
+/* The prototype's white seam between steps. */
+.segment + .segment {
+  border-left: 2px solid var(--color-surface-raised);
+}
+
+.legend,
+.empty {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  padding: 0;
+  list-style: none;
+}
+
+.item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.item b {
+  color: var(--color-text);
+}
+
+.swatch {
+  display: inline-block;
+  width: var(--space-3);
+  height: var(--space-3);
+  border-radius: var(--radius-sm);
+}

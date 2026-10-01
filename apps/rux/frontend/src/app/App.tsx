@@ -7,6 +7,7 @@ import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { JobsProvider } from './JobsContext';
 import { LabelQueueProvider } from './LabelQueueContext';
 import { AppShell } from './AppShell';
+import { KORTLAEGNING_PATH, MILJOE_PATH, OVERBLIK_PATH } from './links';
 import { Dashboard } from '../routes/Dashboard';
 import { LabelsPage } from '../routes/DataPage';
 import { ExportPage } from '../routes/ExportPage';
@@ -62,9 +63,9 @@ function RoutedContent() {
       {/* Standard switcher for every other page */}
       {!onViewport && (
         <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/kortlaegning" element={<KortlaegningPage />} />
-          <Route path="/miljoe" element={<MiljoePage />} />
+          <Route path={OVERBLIK_PATH} element={<Dashboard />} />
+          <Route path={KORTLAEGNING_PATH} element={<KortlaegningPage />} />
+          <Route path={MILJOE_PATH} element={<MiljoePage />} />
           <Route path="/pipeline" element={<PipelinePage />} />
           <Route path="/pipeline/log" element={<PipelineLogPage />} />
           <Route path="/frames" element={<FramesPage />} />
@@ -74,7 +75,7 @@ function RoutedContent() {
           <Route path="/materials" element={<MaterialsPage />} />
           <Route path="/labels" element={<LabelsPage />} />
           <Route path="/export" element={<ExportPage />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="*" element={<Navigate to={OVERBLIK_PATH} replace />} />
         </Routes>
       )}
     </>

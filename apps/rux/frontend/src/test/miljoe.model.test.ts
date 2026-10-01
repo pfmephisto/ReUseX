@@ -177,7 +177,7 @@ describe('gate feedback', () => {
       { ...before[3], environment_status: 'afventer' },
     ]);
     expect(gateMessage('P-02', mixed)).toBe(
-      'P-02: Indvendige murvægge, malet er nu forurenet · Betonsøjler, bærende afventer nu prøvesvar · ' +
+      'P-02: Indvendige murvægge, malet er nu forurenet; Betonsøjler, bærende afventer nu prøvesvar; ' +
         'Trapezplader, tag er godkendt, men afventer nu prøvesvar',
     );
     expect(gateMessage('P-03', gateChanges(before, before))).toBeNull();
@@ -197,7 +197,7 @@ describe('gate feedback', () => {
     const approvedAfter = [{ ...approvedBefore[0], environment_status: 'ren_proevesvar' as const }];
     const c = gateChanges(approvedBefore, approvedAfter);
     expect(c.released.map((t) => t.id)).toEqual([9]);
-    expect(gateMessage('P-06', c)).toBe('P-06: Dørpartier, stål blokerer ikke længere Indberetning.');
+    expect(gateMessage('P-06', c)).toBe('P-06: Dørpartier, stål blokerer ikke længere Indberetning');
   });
 
   it('ignores a type missing from the earlier snapshot', () => {

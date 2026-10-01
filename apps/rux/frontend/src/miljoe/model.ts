@@ -173,8 +173,8 @@ export function gateMessage(code: string, c: GateChange): string | null {
   if (c.contaminated.length > 0) parts.push(`${names(c.contaminated)} er nu forurenet`);
   if (c.blocked.length > 0) parts.push(`${names(c.blocked)} afventer nu prøvesvar`);
   if (c.reblocked.length > 0) parts.push(`${names(c.reblocked)} er godkendt, men afventer nu prøvesvar`);
-  if (c.released.length > 0) parts.push(`${names(c.released)} blokerer ikke længere Indberetning.`);
-  return parts.length > 0 ? `${code}: ${parts.join(' · ')}` : null;
+  if (c.released.length > 0) parts.push(`${names(c.released)} blokerer ikke længere Indberetning`);
+  return parts.length > 0 ? `${code}: ${parts.join('; ')}` : null;
 }
 
 export function resultToast(code: string, result: SampleResult): string {

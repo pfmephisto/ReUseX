@@ -482,6 +482,8 @@ json create_sample_json(reusex::ProjectDB &db, const std::string &body) {
       opt_enum<core::SampleStage>(j, "stage", core::sample_stage_from_string);
   // A sample is registered before it reaches a lab. Later stages are reached
   // through PATCH, and `svar` without a result would count as clean.
+  // Keep this route-level check: add_sample's invalid_argument maps to 422,
+  // which openapi does not list for this operation.
   if (stage && *stage != core::SampleStage::planlagt &&
       *stage != core::SampleStage::udtaget)
     throw HttpError(400, "'stage' on create must be 'planlagt' or 'udtaget'");

@@ -191,3 +191,25 @@ TEST_CASE("Samples_Add_BadTypeOrStage_ThrowsAndWritesNothing",
   CHECK(db.samples().empty());
   CHECK(db.add_sample("y", "").code == "P-01");
 }
+
+TEST_CASE("Samples_Add_FailureMidTransaction_RollsBack",
+          "[ProjectDB][samples]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  const auto t = add_type(db, "Fuger");
+  auto exec_raw = [&](const char *sql) {
+    sqlite3 *raw = nullptr;
+    REQUIRE(sqlite3_open(tmp.path.string().c_str(), &raw) == SQLITE_OK);
+    REQUIRE(sqlite3_exec(raw, sql, nullptr, nullptr, nullptr) == SQLITE_OK);
+    sqlite3_close(raw);
+  };
+  // The sample row is inserted, then the link insert fails: the row must go.
+  exec_raw("CREATE TRIGGER fail_link BEFORE INSERT ON sample_links "
+           "BEGIN SELECT RAISE(ABORT,'forced'); END;");
+  CHECK_THROWS_AS(db.add_sample("x", "", std::nullopt, {t}),
+                  std::runtime_error);
+  CHECK(db.samples().empty());
+  exec_raw("DROP TRIGGER fail_link;");
+  // The rolled-back insert consumed no P-## code.
+  CHECK(db.add_sample("y", "", std::nullopt, {t}).code == "P-01");
+}

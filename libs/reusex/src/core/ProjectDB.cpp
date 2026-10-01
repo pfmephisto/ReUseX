@@ -8132,7 +8132,9 @@ ProjectDB::add_sample(std::string_view title, std::string_view what,
           "name = 'samples'), 0);",
           "add_sample");
       StmtGuard seq_guard(seq);
-      sqlite3_step(seq);
+      if (sqlite3_step(seq) != SQLITE_ROW)
+        throw std::runtime_error("add_sample: " +
+                                 std::string(sqlite3_errmsg(impl_->db)));
       const int next = sqlite3_column_int(seq, 0) + 1;
 
       sqlite3_stmt *stmt = prepare_or_throw(

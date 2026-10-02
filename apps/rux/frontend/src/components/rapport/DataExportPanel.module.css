@@ -1,0 +1,51 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+.panel {
+  composes: panel from '../surfaces.module.css';
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+.heading {
+  composes: panelHeading from '../surfaces.module.css';
+}
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(calc(var(--space-7) * 4), 1fr));
+  gap: var(--space-3);
+}
+.field {
+  composes: field from '../controls.module.css';
+}
+.fieldLabel {
+  composes: fieldLabel from '../controls.module.css';
+}
+.input {
+  composes: input from '../controls.module.css';
+}
+.btnPrimary {
+  composes: btnPrimary from '../controls.module.css';
+}
+.downloadLink {
+  composes: btnPrimary linkBtn from '../controls.module.css';
+}
+.crossLink {
+  composes: crossLink from '../controls.module.css';
+  margin-left: auto;
+}
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+.muted {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}

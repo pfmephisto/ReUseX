@@ -18,6 +18,8 @@
 }
 .actions {
   composes: actions from './viewHead.module.css';
+  /* The labelled Ressourcetabel select and the button share a bottom edge. */
+  align-items: flex-end;
 }
 .footnote {
   composes: footnote from './viewHead.module.css';
@@ -61,4 +63,14 @@
 .noticeDetail {
   display: block;
   margin-top: var(--space-1);
+}
+
+.ressourcetabel {
+  min-width: calc(var(--space-7) * 4);
+}
+
+.hint {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
 }

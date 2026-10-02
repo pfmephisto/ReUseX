@@ -15,6 +15,12 @@ find_package(Catch2 3 REQUIRED)
 find_package(fmt CONFIG REQUIRED)
 find_package(OpenSSL REQUIRED)
 find_package(SQLite3 REQUIRED)
+# CMake 4.3 renamed FindSQLite3's target to SQLite3::SQLite3 and deprecated
+# SQLite::SQLite3 (an author warning per link). Use the new name, aliasing it on
+# older CMake as FindSQLite3's own documentation recommends.
+if(NOT TARGET SQLite3::SQLite3)
+    add_library(SQLite3::SQLite3 ALIAS SQLite::SQLite3)
+endif()
 
 # Note: ENABLE_COVERAGE option is now set in main CMakeLists.txt
 # Coverage flags are automatically inherited from parent scope
@@ -148,7 +154,7 @@ target_link_libraries(reusex_unit_tests
         Catch2::Catch2WithMain
         fmt::fmt
         OpenSSL::Crypto
-        SQLite::SQLite3
+        SQLite3::SQLite3
 )
 
 target_include_directories(reusex_unit_tests PRIVATE
@@ -186,7 +192,7 @@ if(HEAVY_TEST_SOURCES)
             Catch2::Catch2WithMain
             fmt::fmt
             OpenSSL::Crypto
-            SQLite::SQLite3
+            SQLite3::SQLite3
     )
 
     target_include_directories(reusex_unit_tests_vision PRIVATE

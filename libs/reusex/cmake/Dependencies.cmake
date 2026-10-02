@@ -37,6 +37,21 @@ find_package(nlohmann_json 3.11 REQUIRED)
 find_package(absl CONFIG REQUIRED)
 find_package(utf8_range CONFIG REQUIRED)
 find_package(Protobuf CONFIG REQUIRED)
+# tokenizers_cpp's config then calls find_package(Protobuf) in MODULE mode, and
+# FindProtobuf's find_path(Protobuf_INCLUDE_DIR) hits the prebuilt libtorch's
+# include/ first -- it ships protobuf 3.13.0's headers for its own internal use.
+# The headers then disagreed with the one libprotobuf/protoc in the closure
+# (the protobuf package found above) and FindProtobuf warned "Protobuf compiler
+# version X doesn't match library version 3.13.0". Pin the module-mode lookup
+# to the headers of the protobuf found above, so both modes describe the same
+# package. FORCE so an existing build dir drops the libtorch path it cached.
+get_target_property(_reusex_protobuf_includes protobuf::libprotobuf
+                    INTERFACE_INCLUDE_DIRECTORIES)
+list(GET _reusex_protobuf_includes 0 _reusex_protobuf_include)
+set(Protobuf_INCLUDE_DIR "${_reusex_protobuf_include}" CACHE PATH
+    "Protobuf headers, pinned to the CONFIG-mode protobuf package" FORCE)
+unset(_reusex_protobuf_includes)
+unset(_reusex_protobuf_include)
 
 # -----------------------------------------------
 # ML Backends (Optional)
@@ -108,11 +123,29 @@ foreach(backend IN LISTS BACKENDS_TO_FIND)
         string(REPLACE " " ";" pkg_parts ${pkg})
         list(GET pkg_parts 0 pkg_name)
         list(LENGTH pkg_parts pkg_parts_len)
+        # Caffe2's public/cuda.cmake (inside TorchConfig) warns whenever
+        # CMAKE_CUDA_ARCHITECTURES is defined, then overwrites it with OFF and
+        # appends -gencode flags for TORCH_CUDA_ARCH_LIST to CMAKE_CUDA_FLAGS.
+        # CUDAOptions.cmake sets both to the same arch set, so hide ours while
+        # Torch loads and then do what Caffe2 would have done: OFF if Torch
+        # supplied the -gencode flags, our list back if Torch was not found.
+        if(pkg_name STREQUAL "Torch" AND DEFINED CMAKE_CUDA_ARCHITECTURES)
+            set(_reusex_cuda_archs "${CMAKE_CUDA_ARCHITECTURES}")
+            unset(CMAKE_CUDA_ARCHITECTURES)
+        endif()
         if(pkg_parts_len GREATER 1)
             list(GET pkg_parts 1 pkg_version)
             find_package(${pkg_name} ${pkg_version} CONFIG QUIET)
         else()
             find_package(${pkg_name} CONFIG QUIET)
+        endif()
+        if(DEFINED _reusex_cuda_archs)
+            if(${pkg_name}_FOUND)
+                set(CMAKE_CUDA_ARCHITECTURES OFF)
+            else()
+                set(CMAKE_CUDA_ARCHITECTURES "${_reusex_cuda_archs}")
+            endif()
+            unset(_reusex_cuda_archs)
         endif()
 
         if(NOT ${pkg_name}_FOUND)

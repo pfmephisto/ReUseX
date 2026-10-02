@@ -735,6 +735,11 @@ export function KortlaegningPage() {
               onDone={() => tableRef.current?.focus({ preventScroll: true })}
               manual={selPart !== null && isManual(selPart)}
               onDeleteResource={deleteResource}
+              resource={selPart ? (index.get(selPart.code) ?? null) : null}
+              catalogue={keys}
+              onCellCommit={commitCell}
+              onInvalid={invalidValue}
+              home={tableRef}
             />
           </aside>
         </div>

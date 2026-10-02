@@ -21,11 +21,12 @@
  * effect), so nothing depends on the caller re-keying the panel.
  */
 
-import { useEffect, useState, type KeyboardEvent } from 'react';
+import { useEffect, useState, type KeyboardEvent, type RefObject } from 'react';
 
 import { fieldKeyAction as sharedFieldKeyAction } from '../../app/editorKeys';
-import type { Sample, SurveyPart, SurveyType, Treatment } from '../../api/types';
+import type { Resource, ResourceKey, Sample, SurveyPart, SurveyType, Treatment } from '../../api/types';
 import { TREATMENTS } from '../../api/types';
+import { allPropertyGroups } from '../../kortlaegning/resources';
 import { pendingSampleList } from '../../kortlaegning/samples';
 import {
   confidencePercent,
@@ -38,6 +39,7 @@ import { ConfidenceBar } from '../ConfidenceBar';
 import { EmptyState } from '../EmptyState';
 import { Pill } from '../Pill';
 import styles from './DetailPanel.module.css';
+import { ResourceCell } from './ResourceCell';
 import { SampleLine } from './SampleLine';
 import { useQuantityNoteDrafts } from './useQuantityNoteDrafts';
 
@@ -78,6 +80,13 @@ export interface DetailPanelProps {
   /** The selected part was added by hand: it can be deleted (spec §4.4). */
   manual: boolean;
   onDeleteResource: () => void;
+  /** The selected part's values; null for a type. */
+  resource: Resource | null;
+  catalogue: ResourceKey[];
+  onCellCommit: (code: string, keyId: string, value: string | null) => void;
+  onInvalid: (label: string) => void;
+  /** Where Esc/Enter in a property field returns focus. */
+  home: RefObject<HTMLElement | null>;
 }
 
 /** `RX-### · {type name}` for a part, or just the type name. */
@@ -136,6 +145,11 @@ export function DetailPanel({
   onDone,
   manual,
   onDeleteResource,
+  resource,
+  catalogue,
+  onCellCommit,
+  onInvalid,
+  home,
 }: DetailPanelProps) {
   // The entity whose quantity/note/star this panel edits: the selected part
   // when one is selected, otherwise the type itself.
@@ -167,6 +181,7 @@ export function DetailPanel({
   const gateNote = gateNoteText(type, samples);
   const blocked = approveBlocked(type);
   const queued = type.review_status === 'queue';
+  const groups = allPropertyGroups(part ? resource : null, catalogue);
 
   return (
     <div className={styles.panel}>
@@ -236,6 +251,39 @@ export function DetailPanel({
           onKeyDown={(e) => onFieldKey(e, false, revertNote)}
         />
       </div>
+
+      <section className={styles.props} aria-label="Alle egenskaber">
+        <h3 className={styles.propsHeading}>Alle egenskaber</h3>
+        {!part ? (
+          <p className={styles.propsEmpty}>Vælg en bygningsdel for at se alle dens egenskaber.</p>
+        ) : groups.length === 0 ? (
+          <p className={styles.propsEmpty}>Ingen udfyldte egenskaber endnu — udfyld felter i tabellen.</p>
+        ) : (
+          groups.map((g, i) => (
+            <details key={g.category} className={styles.group} open={i === 0}>
+              <summary className={styles.groupSummary}>
+                {g.category} <span className={styles.groupCount}>{g.keys.length}</span>
+              </summary>
+              <div className={styles.groupBody}>
+                {g.keys.map((key) => (
+                  <div key={key.id} className={styles.field}>
+                    <span className={styles.label}>{key.label}</span>
+                    <ResourceCell
+                      resourceKey={key}
+                      value={resource?.values[key.id] ?? null}
+                      editing={key.editable}
+                      variant="field"
+                      onCommit={(v) => onCellCommit(part.code, key.id, v)}
+                      onInvalid={onInvalid}
+                      home={home}
+                    />
+                  </div>
+                ))}
+              </div>
+            </details>
+          ))
+        )}
+      </section>
 
       <div className={styles.actions}>
         <button type="button" className={styles.ghost} onClick={onStar} disabled={busy}>

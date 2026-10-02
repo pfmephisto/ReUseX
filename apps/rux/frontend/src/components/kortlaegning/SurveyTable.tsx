@@ -176,6 +176,15 @@ export function SurveyTable(props: SurveyTableProps) {
           <option value="afventer">Afventer prøve</option>
           <option value="forurenet">Forurenet</option>
         </select>
+        <label className={styles.starFilter}>
+          <input
+            type="checkbox"
+            className={styles.checkbox}
+            checked={filters.starred}
+            onChange={(e) => onFilters({ ...filters, starred: e.target.checked })}
+          />
+          Kun vigtige ★
+        </label>
       </div>
 
       <div className={styles.keyBar} aria-label="Tastaturgenveje">
@@ -312,7 +321,22 @@ export function SurveyTable(props: SurveyTableProps) {
                   >
                     <td className={styles.partTd}>
                       <div className={styles.partCell}>
+                        {part.starred && (
+                          <span className={styles.star} role="img" aria-label="Vigtig" title="Vigtig">
+                            ★
+                          </span>
+                        )}
                         {partLabel(part)}
+                        {part.note && (
+                          <span
+                            className={styles.noteMark}
+                            role="img"
+                            aria-label={`Har note: ${part.note}`}
+                            title={part.note}
+                          >
+                            ✎
+                          </span>
+                        )}
                         {part.orphaned && (
                           <Pill
                             tone="warn"

@@ -382,6 +382,12 @@ EXAMPLES:
 NOTES:
   - Binds to 127.0.0.1 by default. There is NO authentication and the API can
     execute pipeline stages, so only change --bind if you know what that means.
+  - To use On-site from a phone on the same network, bind the LAN address and
+    allow the page's own origin, e.g.
+    --bind 192.168.1.20 --allow-origin http://192.168.1.20:8420
+    Anyone who can reach that address can then read and change the project
+    and run pipeline stages: there is still NO authentication, so do this only
+    on a network you trust.
   - Cross-origin requests are refused unless they come from loopback or an
     origin named with --allow-origin. WebSocket upgrades are checked the same
     way, since CORS does not apply to them.

@@ -243,7 +243,7 @@ class ProjectDB::Impl {
   sqlite3 *db = nullptr;
 
   // cppcheck-suppress unusedStructMember
-  static constexpr int LATEST_SCHEMA_VERSION = 23;
+  static constexpr int LATEST_SCHEMA_VERSION = 24;
 
   // How long one statement waits for a lock another connection holds before
   // failing with SQLITE_BUSY. sqlite's default is not to wait at all.
@@ -558,6 +558,10 @@ class ProjectDB::Impl {
 
     if (current < 23) {
       migrateToV23();
+    }
+
+    if (current < 24) {
+      migrateToV24();
     }
 
     reusex::trace("Schema version: {}", getCurrentSchemaVersion());
@@ -1776,6 +1780,22 @@ class ProjectDB::Impl {
     insertSchemaVersion(
         23, "Record blocking survey types per report PDF version (Phase 5)");
     reusex::info("Migration to schema version 23 complete");
+  }
+
+  void migrateToV24() {
+    reusex::info("Migrating database to schema version 24");
+
+    // GUI Phase 6 (On-site): the bygningsdel a sample was taken at. NULL for
+    // a sample registered without one (Miljø & prøver, or before v24). Plain
+    // TEXT, not a foreign key: see SampleRecord::part_code.
+    // Deliberate exception to STANDARDS §3.2: when a type's parts are
+    // cascade-deleted, part_code dangles silently (see the Phase 6 spec).
+    if (!columnExists("samples", "part_code"))
+      execOrThrow("ALTER TABLE samples ADD COLUMN part_code TEXT;");
+
+    insertSchemaVersion(
+        24, "Record the survey part a sample was taken at (Phase 6)");
+    reusex::info("Migration to schema version 24 complete");
   }
 
   /// 1-based position of a report version in generation order.
@@ -8034,10 +8054,18 @@ ProjectDB::SampleRecord read_sample_row(sqlite3_stmt *s) {
                  .value_or(core::SampleResult::none);
   r.created_at = column_text(s, 6);
   r.updated_at = column_text(s, 7);
+  if (sqlite3_column_type(s, 8) != SQLITE_NULL)
+    r.part_code = column_text(s, 8);
   return r;
 }
-constexpr const char *kSampleColumns =
-    "id, code, title, what, stage, result, created_at, updated_at";
+/// The sample columns read_sample_row expects. A read-only open of a pre-v24
+/// project has no part_code column (read-only opens never migrate), so it
+/// selects NULL in its place.
+std::string sample_columns(bool has_part_code) {
+  return std::string(
+             "id, code, title, what, stage, result, created_at, updated_at, ") +
+         (has_part_code ? "part_code" : "NULL");
+}
 } // namespace
 
 // Fills type_ids for each record in place.
@@ -8056,37 +8084,110 @@ static void attach_sample_links(sqlite3 *db,
   }
 }
 
-ProjectDB::SampleRecord ProjectDB::add_sample(std::string_view title,
-                                              std::string_view what) {
+ProjectDB::SampleRecord
+ProjectDB::add_sample(std::string_view title, std::string_view what,
+                      const std::optional<std::string> &part_code,
+                      const std::vector<int64_t> &type_ids,
+                      core::SampleStage stage) {
   impl_->checkWritable();
-  // Codes are never reused: take the highest ever issued (AUTOINCREMENT's
-  // sqlite_sequence survives deletes), not the current count.
-  sqlite3_stmt *seq =
-      prepare_or_throw(impl_->db,
-                       "SELECT COALESCE((SELECT seq FROM sqlite_sequence WHERE "
-                       "name = 'samples'), 0);",
-                       "add_sample");
-  StmtGuard seq_guard(seq);
-  sqlite3_step(seq);
-  const int next = sqlite3_column_int(seq, 0) + 1;
+  // A sample is registered before it reaches a lab; later stages are reached
+  // by update_sample (via update_sample_checked).
+  if (stage != core::SampleStage::planlagt &&
+      stage != core::SampleStage::udtaget)
+    throw std::invalid_argument(
+        "add_sample: initial stage must be planlagt or udtaget, not " +
+        std::string(core::to_string(stage)));
+  // Every refusal is checked before the first write, so a bad request
+  // consumes no P-## code.
+  std::vector<int64_t> links;
+  for (auto t : type_ids) {
+    if (!survey_type(t))
+      throw std::out_of_range("no survey type " + std::to_string(t));
+    if (std::find(links.begin(), links.end(), t) == links.end())
+      links.push_back(t);
+  }
+  if (part_code) {
+    const auto part = survey_part(*part_code);
+    if (!part)
+      throw std::out_of_range("no survey part " + *part_code);
+    // The approval gate is a property of the type, so a sample taken at a
+    // part always covers that part's type.
+    if (std::find(links.begin(), links.end(), part->type_id) == links.end())
+      links.push_back(part->type_id);
+  }
 
-  sqlite3_stmt *stmt = prepare_or_throw(
-      impl_->db,
-      "INSERT INTO samples (code, title, what) VALUES (?,?,?) RETURNING id;",
-      "add_sample");
-  StmtGuard guard(stmt);
-  bind_text(stmt, 1, core::sample_code(next));
-  bind_text(stmt, 2, title);
-  bind_text(stmt, 3, what);
-  if (sqlite3_step(stmt) != SQLITE_ROW)
-    throw std::runtime_error("add_sample: " +
-                             std::string(sqlite3_errmsg(impl_->db)));
-  return *sample(sqlite3_column_int64(stmt, 0));
+  int64_t id = 0;
+  // The row, its links and its stage land together: a sample never exists
+  // with its part's type unlinked.
+  impl_->execOrThrow("BEGIN TRANSACTION;");
+  try {
+    // Statements live in their own scope: an un-finalised RETURNING
+    // statement would still be active at COMMIT and make it fail.
+    {
+      // Codes are never reused: take the highest ever issued (AUTOINCREMENT's
+      // sqlite_sequence survives deletes), not the current count.
+      sqlite3_stmt *seq = prepare_or_throw(
+          impl_->db,
+          "SELECT COALESCE((SELECT seq FROM sqlite_sequence WHERE "
+          "name = 'samples'), 0);",
+          "add_sample");
+      StmtGuard seq_guard(seq);
+      if (sqlite3_step(seq) != SQLITE_ROW)
+        throw std::runtime_error("add_sample: " +
+                                 std::string(sqlite3_errmsg(impl_->db)));
+      const int next = sqlite3_column_int(seq, 0) + 1;
+
+      sqlite3_stmt *stmt = prepare_or_throw(
+          impl_->db,
+          "INSERT INTO samples (code, title, what, stage, part_code) "
+          "VALUES (?,?,?,?,?) RETURNING id;",
+          "add_sample");
+      StmtGuard guard(stmt);
+      bind_text(stmt, 1, core::sample_code(next));
+      bind_text(stmt, 2, title);
+      bind_text(stmt, 3, what);
+      bind_text(stmt, 4, core::to_string(stage));
+      if (part_code)
+        bind_text(stmt, 5, *part_code);
+      else
+        sqlite3_bind_null(stmt, 5);
+      if (sqlite3_step(stmt) != SQLITE_ROW)
+        throw std::runtime_error("add_sample: " +
+                                 std::string(sqlite3_errmsg(impl_->db)));
+      id = sqlite3_column_int64(stmt, 0);
+
+      sqlite3_stmt *ins =
+          prepare_or_throw(impl_->db,
+                           "INSERT OR IGNORE INTO sample_links "
+                           "(sample_id, type_id) VALUES (?, ?);",
+                           "add_sample");
+      StmtGuard ins_guard(ins);
+      for (auto t : links) {
+        sqlite3_reset(ins);
+        sqlite3_bind_int64(ins, 1, id);
+        sqlite3_bind_int64(ins, 2, t);
+        if (sqlite3_step(ins) != SQLITE_DONE)
+          throw std::runtime_error("add_sample: " +
+                                   std::string(sqlite3_errmsg(impl_->db)));
+      }
+    }
+    impl_->execOrThrow("COMMIT;");
+  } catch (...) {
+    // Non-throwing on purpose (see set_sample_links); a failed rollback is
+    // logged rather than discarded (STANDARDS §5).
+    if (sqlite3_exec(impl_->db, "ROLLBACK;", nullptr, nullptr, nullptr) !=
+        SQLITE_OK)
+      reusex::warn("add_sample: ROLLBACK failed: {}",
+                   sqlite3_errmsg(impl_->db));
+    throw;
+  }
+  return *sample(id);
 }
 
 std::vector<ProjectDB::SampleRecord> ProjectDB::samples() const {
   const std::string sql =
-      std::string("SELECT ") + kSampleColumns + " FROM samples ORDER BY id;";
+      "SELECT " + sample_columns(impl_->columnExists("samples", "part_code")) +
+      " FROM samples ORDER BY id;";
   sqlite3_stmt *stmt = prepare_or_throw(impl_->db, sql.c_str(), "samples");
   StmtGuard guard(stmt);
   std::vector<SampleRecord> out;
@@ -8098,7 +8199,8 @@ std::vector<ProjectDB::SampleRecord> ProjectDB::samples() const {
 
 std::optional<ProjectDB::SampleRecord> ProjectDB::sample(int64_t id) const {
   const std::string sql =
-      std::string("SELECT ") + kSampleColumns + " FROM samples WHERE id = ?;";
+      "SELECT " + sample_columns(impl_->columnExists("samples", "part_code")) +
+      " FROM samples WHERE id = ?;";
   sqlite3_stmt *stmt = prepare_or_throw(impl_->db, sql.c_str(), "sample");
   StmtGuard guard(stmt);
   sqlite3_bind_int64(stmt, 1, id);

@@ -164,3 +164,13 @@
   font-size: var(--font-size-xs);
   color: var(--tone-warn-ink);
 }
+
+/* Phone width (the shell's 56.25rem breakpoint): 44px tap targets. */
+@media (max-width: 56.25rem) {
+  .input,
+  .select,
+  .ghost,
+  .primary {
+    min-height: var(--layout-titlebar-height);
+  }
+}

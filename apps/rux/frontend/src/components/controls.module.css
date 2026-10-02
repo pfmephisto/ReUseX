@@ -137,3 +137,73 @@
   outline: 2px solid var(--color-border-focus);
   outline-offset: 0;
 }
+
+/* A link to another case screen (Kortlægning ↔ Miljø & prøver ↔ On-site,
+ * Sager → On-site). One style everywhere, so "this opens the other screen"
+ * reads the same on every screen (Phase 6 R12). */
+
+.crossLink {
+  color: var(--color-accent-deep);
+  text-decoration: underline;
+}
+
+.crossLink:hover {
+  color: var(--color-text);
+}
+
+.crossLink:focus-visible {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* An <a> styled as a button: compose this next to btnGhost/btnPrimary.
+ * Only an inline link needs it — a <button> already centres its label in a
+ * min-height box, and making every button a flex box would override the
+ * layout of the ones that set their own (a left-aligned picker option with
+ * an ellipsis, a label whose spaces must survive). */
+.linkBtn {
+  text-decoration: none;
+}
+
+/* Phone width (the shell's 56.25rem breakpoint, DRAWER_QUERY in
+ * navigation.ts): every control is a 44px tap target — the title bar's
+ * height, as in the drawer. Buttons and fields grow to it. Text buttons and
+ * cross-screen links often sit inside running text, so they keep their line
+ * box and grow only their hit area: an invisible 44px-tall ::after centred
+ * on the text. */
+@media (max-width: 56.25rem) {
+  .btnGhost,
+  .btnPrimary,
+  .btnDanger {
+    min-width: var(--layout-titlebar-height);
+    min-height: var(--layout-titlebar-height);
+  }
+
+  /* An inline <a> ignores min-height; as a flex box it grows and centres
+   * its label vertically. */
+  .linkBtn {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .input {
+    min-height: var(--layout-titlebar-height);
+  }
+
+  .textBtn,
+  .crossLink {
+    position: relative;
+  }
+
+  .textBtn::after,
+  .crossLink::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: max(100%, var(--layout-titlebar-height));
+    height: var(--layout-titlebar-height);
+    transform: translate(-50%, -50%);
+  }
+}

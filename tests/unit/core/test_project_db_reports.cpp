@@ -192,11 +192,13 @@ TEST_CASE("ReportPdfs_MigratesFromV22_OldVersionsHaveNoBlockingCount",
     db.add_report_pdf({'%', 'P', 'D', 'F'}, "Ressourcekortlægning", 3);
   }
   {
-    // Roll back to v22: drop the v23 column and its version row.
+    // Roll back to v22: drop the v23 column and every later version row
+    // (deleting only 23 would leave the DB reading as 24, and migrateToV23
+    // would never re-run).
     sqlite3 *raw = nullptr;
     REQUIRE(sqlite3_open(tmp.path.string().c_str(), &raw) == SQLITE_OK);
     const char *sql = "ALTER TABLE report_pdfs DROP COLUMN blocking_types;"
-                      "DELETE FROM schema_version WHERE version = 23;";
+                      "DELETE FROM schema_version WHERE version >= 23;";
     REQUIRE(sqlite3_exec(raw, sql, nullptr, nullptr, nullptr) == SQLITE_OK);
     sqlite3_close(raw);
   }

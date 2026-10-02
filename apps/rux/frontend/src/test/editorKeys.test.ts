@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { editorKeyAction, fieldKeyAction } from '../app/editorKeys';
+import { editorKeyAction, fieldKeyAction, formKeyDown } from '../app/editorKeys';
 import { editorKeyAction as miljoeEditorKeyAction, textCommit as miljoeTextCommit } from '../miljoe/model';
 import { draftCommit, textCommit, textDraftCommit } from '../app/textDraft';
 
@@ -58,5 +58,35 @@ describe('plain text drafts', () => {
 
   it('clears an optional field without flagging it', () => {
     expect(textDraftCommit('', 'Måløv', false)).toEqual({ send: true, value: '' });
+  });
+});
+
+describe('formKeyDown (a create form whose fields are not saved yet)', () => {
+  function press(key: string, mods: { ctrlKey?: boolean; metaKey?: boolean } = {}) {
+    const calls: string[] = [];
+    const e = {
+      key,
+      target: { tagName: 'INPUT', type: 'text' } as unknown as EventTarget,
+      ctrlKey: mods.ctrlKey ?? false,
+      metaKey: mods.metaKey ?? false,
+      altKey: false,
+      preventDefault: () => calls.push('prevent'),
+      stopPropagation: () => calls.push('stop'),
+    };
+    formKeyDown(e, { onCancel: () => calls.push('cancel'), onSubmit: () => calls.push('submit') });
+    return calls;
+  }
+
+  it('cancels on Esc, even in a text field, and stops it there', () => {
+    expect(press('Escape')).toEqual(['prevent', 'stop', 'cancel']);
+  });
+
+  it('submits on Ctrl/⌘+Enter', () => {
+    expect(press('Enter', { ctrlKey: true })).toEqual(['prevent', 'stop', 'submit']);
+    expect(press('Enter', { metaKey: true })).toEqual(['prevent', 'stop', 'submit']);
+  });
+
+  it('leaves plain Enter to the native submit', () => {
+    expect(press('Enter')).toEqual([]);
   });
 });

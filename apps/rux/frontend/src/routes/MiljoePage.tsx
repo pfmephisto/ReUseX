@@ -8,8 +8,10 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { api, type ApiRequestError } from '../api/client';
 import type { Sample, SampleCreate, SamplePatch, SampleResult, SurveyType } from '../api/types';
 import { MILJOE_PATH, parseMiljoeQuery } from '../app/links';
+import { createOnceGuard } from '../app/onceGuard';
 import { saveErrorMessage } from '../app/saveError';
 import { useAsync } from '../app/useAsync';
+import { appWriteChain } from '../app/writeChain';
 import { useMutationQueue } from '../app/useMutationQueue';
 import { useSurveyCounts } from '../app/SurveyCountsContext';
 import { useToast } from '../app/useToast';
@@ -58,7 +60,10 @@ export function MiljoePage() {
       mountedRef.current = false;
     };
   }, []);
-  const { data, error, loading, reload } = useAsync((s) => Promise.all([api.samples(s), api.survey(s)]), []);
+  const { data, error, loading, reload } = useAsync(
+    (s) => appWriteChain.idle().then(() => Promise.all([api.samples(s), api.survey(s)])),
+    [],
+  );
   const { refresh } = useSurveyCounts();
   const toast = useToast(2600);
   const { busy, mutate } = useMutationQueue({
@@ -101,8 +106,8 @@ export function MiljoePage() {
     newButton.current?.focus();
   }, [creating]);
   // `busy` is React state: two submits in the same tick would both see it
-  // false. This ref is set synchronously, before the request is queued.
-  const createInFlight = useRef(false);
+  // false. The guard shuts synchronously, before the request is queued.
+  const [createInFlight] = useState(createOnceGuard);
 
   // Link toggles are field commits: each sends the full desired set at once
   // (PUT replaces the set, so the last request wins), and the checkboxes show
@@ -236,10 +241,9 @@ export function MiljoePage() {
   }
 
   function create(body: SampleCreate) {
-    if (busy || createInFlight.current) return;
-    createInFlight.current = true;
-    mutate(async () => {
-      try {
+    if (busy) return;
+    createInFlight.run(() =>
+      mutate(async () => {
         const created = await api.createSample(body);
         setSamples((prev) => addSample(prev, created));
         setCreating(false);
@@ -247,10 +251,8 @@ export function MiljoePage() {
         focusCard(created.id);
         const message = await refreshGate(created.code);
         toast.show(message ?? `${created.code} registreret`);
-      } finally {
-        createInFlight.current = false;
-      }
-    });
+      }),
+    );
   }
 
   function cancelCreate() {

@@ -467,6 +467,7 @@ Top-level commands, as registered in `apps/rux/src/rux.cpp`:
 | `view` | — (interactive viewer, needs a display) | `src/view/` |
 | `render` | — (headless render to PNG: `--view top\|plan[:h]\|front\|orbit:N\|frame:<id>`) | `src/render.cpp` |
 | `assemble` | — (multi-scan assembly) | `src/assemble.cpp` |
+| `gui` | — (serves the web frontend over the REST + WebSocket contract in `docs/gui/openapi.yaml`; `--bind`/`--allow-origin` to reach On-site from a phone on the LAN, with no authentication) | `src/gui.cpp` |
 
 `create`, `import`, `export`, `edit`, `analyze`, `align` all
 `require_subcommand(1)`.

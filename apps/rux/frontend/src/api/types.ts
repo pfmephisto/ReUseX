@@ -927,6 +927,8 @@ export interface Sample {
   stage: SampleStage;
   result: SampleResult | null;
   type_ids: number[];
+  /** The bygningsdel the sample was taken at (On-site, schema v24); null otherwise. */
+  part_code: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -985,6 +987,10 @@ export interface SampleCreate {
   title: string;
   what?: string;
   type_ids?: number[];
+  /** The bygningsdel it is taken at; the server always adds that part's type to `type_ids`. */
+  part_code?: string;
+  /** `udtaget` when registered on site; later stages go through PATCH. The server's default is `planlagt`. */
+  stage?: Extract<SampleStage, 'planlagt' | 'udtaget'>;
 }
 
 /**

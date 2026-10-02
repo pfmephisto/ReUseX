@@ -12,6 +12,7 @@ import { isControl, isField } from '../app/keyTargets';
 import { parseTypeQuery } from '../app/links';
 import { saveErrorMessage } from '../app/saveError';
 import { useAsync } from '../app/useAsync';
+import { appWriteChain } from '../app/writeChain';
 import { useSurveyCounts } from '../app/SurveyCountsContext';
 import { useMutationQueue } from '../app/useMutationQueue';
 import { useToast } from '../app/useToast';
@@ -88,7 +89,10 @@ export function coverageParts(summary: SurveySummary): string[] {
  */
 export function KortlaegningPage() {
   const { data, error, loading, reload } = useAsync(
-    (s) => Promise.all([api.survey(s), api.samples(s), api.surveySummary(s)]),
+    (s) =>
+      appWriteChain
+        .idle()
+        .then(() => Promise.all([api.survey(s), api.samples(s), api.surveySummary(s)])),
     [],
   );
   const { refresh } = useSurveyCounts();
@@ -272,12 +276,16 @@ export function KortlaegningPage() {
     setSyncing(true);
     setSyncError(null);
     try {
-      const report = await api.syncSurvey();
-      if (report.parts_orphaned > 0) {
-        toast.show(`${report.parts_orphaned} del(e) peger på instanser der ikke findes længere`);
-      } else if (report.types_created === 0) {
-        toast.show('Ingen nye typer — ingen instanser at kortlægge');
-      }
+      // A write like any other: it joins the app-wide chain (R11), so it lands
+      // after earlier writes and before any screen's next first load.
+      await appWriteChain.enqueue(async () => {
+        const report = await api.syncSurvey();
+        if (report.parts_orphaned > 0) {
+          toast.show(`${report.parts_orphaned} del(e) peger på instanser der ikke findes længere`);
+        } else if (report.types_created === 0) {
+          toast.show('Ingen nye typer — ingen instanser at kortlægge');
+        }
+      });
       reload();
       refresh();
     } catch (cause) {

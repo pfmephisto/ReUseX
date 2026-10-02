@@ -2,7 +2,10 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import type { RefObject } from 'react';
+
 import type { ConnectionStatus } from '../api/events';
+import type { ThemePreference } from '../theme';
 import { JobIndicator } from './JobIndicator';
 import { ThemeToggle } from './ThemeToggle';
 import styles from './TitleBar.module.css';
@@ -21,6 +24,18 @@ export interface TitleBarProps {
   activeJobCount: number;
   /** True when even `GET /health` failed. */
   unreachable?: boolean;
+  /** Below 900px: the sidebar drawer is open (R5). */
+  menuOpen?: boolean;
+  /** Below 900px: toggles the sidebar drawer. Without it no Menu button is drawn. */
+  onMenu?: () => void;
+  menuRef?: RefObject<HTMLButtonElement | null>;
+  /** The `<header>` itself, so the shell can tell focus inside the bar. */
+  barRef?: RefObject<HTMLElement | null>;
+  /** The drawer's id. */
+  menuControls?: string;
+  /** The shell's single `useTheme()` state, shared with the drawer's toggle. */
+  themePreference: ThemePreference;
+  onThemeChange: (preference: ThemePreference) => void;
 }
 
 /**
@@ -41,14 +56,34 @@ export function TitleBar({
   connection,
   activeJobCount,
   unreachable = false,
+  menuOpen = false,
+  onMenu,
+  menuRef,
+  barRef,
+  menuControls,
+  themePreference,
+  onThemeChange,
 }: TitleBarProps) {
   const title = unreachable
     ? 'Server utilgængelig'
     : (projectName ?? 'Indlæser…');
 
   return (
-    <header className={styles.bar}>
+    <header ref={barRef} className={styles.bar}>
       <div className={styles.identity}>
+        {onMenu && (
+          <button
+            ref={menuRef}
+            type="button"
+            className={styles.menu}
+            aria-label="Menu"
+            aria-expanded={menuOpen}
+            aria-controls={menuControls}
+            onClick={onMenu}
+          >
+            <span aria-hidden="true">☰</span>
+          </button>
+        )}
         <span className={styles.product}>
           ReUse<em className={styles.x}>X</em>
         </span>
@@ -70,7 +105,10 @@ export function TitleBar({
         <JobIndicator connection={connection} activeJobCount={activeJobCount} />
         {implementation && <span className={styles.meta}>{implementation}</span>}
         {version && <span className={`${styles.meta} mono`}>{version}</span>}
-        <ThemeToggle />
+        {/* Below the breakpoint the theme control lives in the drawer. */}
+        <span className={styles.theme}>
+          <ThemeToggle preference={themePreference} setPreference={onThemeChange} />
+        </span>
       </div>
     </header>
   );

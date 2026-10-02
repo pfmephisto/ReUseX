@@ -48,6 +48,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  flex-wrap: wrap;
   padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--color-border);
 }
@@ -198,4 +199,38 @@
   text-align: center;
   padding: var(--space-5);
   color: var(--color-text-muted);
+}
+
+.starFilter {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.checkbox {
+  composes: checkbox from '../controls.module.css';
+}
+
+/* A meaningful mark (the part has a note), so muted, not faint. */
+.noteMark {
+  color: var(--color-text-muted);
+}
+
+/* Phone width (the shell's 56.25rem breakpoint): 44px tap targets. The
+ * title bar's height is the tap-target size. */
+@media (max-width: 56.25rem) {
+  .tab,
+  .search,
+  .select,
+  .starFilter {
+    min-height: var(--layout-titlebar-height);
+  }
+
+  .chevron {
+    min-width: var(--layout-titlebar-height);
+    min-height: var(--layout-titlebar-height);
+  }
 }

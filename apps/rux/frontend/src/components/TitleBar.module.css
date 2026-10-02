@@ -67,3 +67,59 @@
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-medium);
 }
+
+.theme {
+  display: contents;
+}
+
+.menu {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: var(--layout-titlebar-height); /* 44px square: a phone tap target */
+  height: var(--layout-titlebar-height);
+  margin-left: calc(-1 * var(--space-3)); /* the square, not its glyph, sits on the bar's edge */
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-on-chrome);
+  font-size: var(--font-size-lg);
+  cursor: pointer;
+}
+
+.menu:hover,
+.menu[aria-expanded='true'] {
+  background: var(--color-chrome-raised);
+}
+
+.menu:focus-visible {
+  outline: 2px solid var(--color-on-chrome);
+  outline-offset: -2px;
+}
+
+/* R5: the shell's phone breakpoint (900px; DRAWER_QUERY in navigation.ts).
+   Below it the bar keeps Menu, product, project and job state, and drops
+   the rest; the theme control moves into the drawer (Sidebar). */
+@media (max-width: 56.25rem) {
+  .bar {
+    gap: var(--space-2);
+    padding: 0 var(--space-3);
+  }
+
+  .identity {
+    flex: 1 1 auto;
+    gap: var(--space-2);
+  }
+
+  .menu {
+    display: inline-flex;
+  }
+
+  .divider,
+  .meta,
+  .theme {
+    display: none;
+  }
+}

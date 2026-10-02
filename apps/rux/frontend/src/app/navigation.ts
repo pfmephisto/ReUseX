@@ -15,10 +15,13 @@
  */
 
 import type { Health, ProjectSummary } from '../api/types';
+import { editorKeyAction } from './editorKeys';
+import type { TargetKind } from './keyTargets';
 import {
   INDBERETNING_PATH,
   KORTLAEGNING_PATH,
   MILJOE_PATH,
+  ONSITE_PATH,
   OVERBLIK_PATH,
   PROJEKTDATA_PATH,
   RAPPORT_PATH,
@@ -42,8 +45,32 @@ export interface NavEntry {
 
 export const ALL_CASES_PATH = '/sager';
 
-/** Set to undefined once the `/sager` route lands; until then "Alle sager" renders inert. */
-export const ALL_CASES_PENDING: string | undefined = 'Kommer i fase 6 — sagsliste';
+/**
+ * The shell's phone breakpoint (Phase 6 R5): at or below it the sidebar is a
+ * drawer behind the title bar's Menu button. 900px, in rem like the existing
+ * `45rem` query in controls.module.css. CSS cannot import it, so the
+ * `@media` rules in AppShell, Sidebar and TitleBar spell the same value.
+ */
+export const DRAWER_QUERY = '(max-width: 56.25rem)';
+
+/**
+ * What a key does to the open drawer. Esc closes it from anywhere in the shell
+ * except a text field, where R10 gives Esc to the field (revert its draft).
+ */
+export function drawerKeyAction(k: { key: string; kind: TargetKind; open: boolean }): 'close' | null {
+  if (!k.open) return null;
+  return editorKeyAction({ key: k.key, kind: k.kind }) === 'close' ? 'close' : null;
+}
+
+/**
+ * Whether a click inside the drawer closes it: any link does, the link to the
+ * page already shown included, since the user has chosen where to be. `tags`
+ * are the tag names from the click target up to the drawer. A pending entry
+ * is a span, so it leaves the drawer open.
+ */
+export function drawerClickCloses(tags: readonly string[]): boolean {
+  return tags.some((t) => t.toUpperCase() === 'A');
+}
 
 export const NAV_ENTRIES: readonly NavEntry[] = [
   { to: OVERBLIK_PATH, label: 'Overblik', group: 'sag', end: true },
@@ -51,6 +78,7 @@ export const NAV_ENTRIES: readonly NavEntry[] = [
   { to: MILJOE_PATH, label: 'Miljø & prøver', group: 'sag', badge: 'pendingSamples' },
   { to: RAPPORT_PATH, label: 'Rapport', group: 'sag' },
   { to: INDBERETNING_PATH, label: 'Indberetning', group: 'sag' },
+  { to: ONSITE_PATH, label: 'On-site', group: 'sag' },
 
   { to: PROJEKTDATA_PATH, label: 'Projektdata', group: 'tools' },
   { to: '/viewport', label: 'Viewport', group: 'tools' },

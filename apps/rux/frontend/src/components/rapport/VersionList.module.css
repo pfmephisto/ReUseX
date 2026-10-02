@@ -61,8 +61,8 @@
 }
 
 .download {
-  composes: btnGhost from '../controls.module.css';
-  text-decoration: none;
+  composes: btnGhost linkBtn from '../controls.module.css';
+  justify-content: center; /* the ↓ glyph, centred in its 44px phone box */
 }
 
 .unknown {

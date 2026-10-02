@@ -17,6 +17,7 @@
  */
 
 import type { Sample, SampleCreate, SamplePatch, SampleResult, SampleStage, SurveyType } from '../api/types';
+import { partLabel } from '../kortlaegning/model';
 import { RESULT_LABEL, STAGE_LABEL, type Tone } from '../kortlaegning/vocab';
 
 export const STAGES: readonly SampleStage[] = ['planlagt', 'udtaget', 'sendt', 'svar'];
@@ -155,7 +156,8 @@ function names(types: SurveyType[]): string {
   return types.map((t) => t.name).join(' · ');
 }
 
-export function gateMessage(code: string, c: GateChange): string | null {
+/** Each non-empty effect of `c`, worded; shared by Miljø's toast and On-site's sample toast. */
+export function gatePhrases(c: GateChange): string[] {
   const parts: string[] = [];
   if (c.unblocked.length > 0) {
     const n = c.unblocked.length;
@@ -168,6 +170,11 @@ export function gateMessage(code: string, c: GateChange): string | null {
   if (c.blocked.length > 0) parts.push(`${names(c.blocked)} afventer nu prøvesvar`);
   if (c.reblocked.length > 0) parts.push(`${names(c.reblocked)} er godkendt, men afventer nu prøvesvar`);
   if (c.released.length > 0) parts.push(`${names(c.released)} blokerer ikke længere Indberetning`);
+  return parts;
+}
+
+export function gateMessage(code: string, c: GateChange): string | null {
+  const parts = gatePhrases(c);
   return parts.length > 0 ? `${code}: ${parts.join('; ')}` : null;
 }
 
@@ -188,3 +195,19 @@ export function deleteConfirmText(s: Pick<Sample, 'code' | 'title'> & { type_ids
 
 /** Shared with Overblik's editor; re-exported so Miljø keeps one import. */
 export { editorKeyAction, type EditorKey } from '../app/editorKeys';
+
+export interface TakenAt {
+  text: string;
+  /** The part's type to link to; null for a rejected type or an unknown code (plain text, R8). */
+  typeId: number | null;
+}
+
+/** "Udtaget ved RX-008 · Office Zone" for a sample registered on site; null for any other. */
+export function takenAt(s: Pick<Sample, 'part_code'>, types: readonly SurveyType[]): TakenAt | null {
+  if (!s.part_code) return null;
+  for (const t of types) {
+    const p = t.parts.find((x) => x.code === s.part_code);
+    if (p) return { text: `Udtaget ved ${partLabel(p)}`, typeId: t.review_status === 'rejected' ? null : t.id };
+  }
+  return { text: `Udtaget ved ${s.part_code}`, typeId: null };
+}

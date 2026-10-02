@@ -16,8 +16,10 @@ export interface Filters {
   search: string;
   roomId: number | null;
   env: EnvFilter | null;
+  /** Only types that are ★, or have a ★ part — what On-site marks (Phase 6 R13). */
+  starred: boolean;
 }
-export const NO_FILTERS: Filters = { search: '', roomId: null, env: null };
+export const NO_FILTERS: Filters = { search: '', roomId: null, env: null, starred: false };
 
 export type Selection = { typeId: number; partCode: string | null } | null;
 export type Row =
@@ -50,7 +52,8 @@ export function visibleTypes(types: SurveyType[], tab: Tab, f: Filters): SurveyT
       inTab(t, tab) &&
       (q === '' || t.name.toLowerCase().includes(q)) &&
       (f.roomId === null || t.parts.some((p) => p.room_id === f.roomId)) &&
-      (f.env === null || envFilterOf(t.environment_status) === f.env),
+      (f.env === null || envFilterOf(t.environment_status) === f.env) &&
+      (!f.starred || t.starred || t.parts.some((p) => p.starred)),
   );
 }
 

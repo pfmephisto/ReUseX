@@ -6,7 +6,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # GUI redesign: prototype v2 + Kortlægning workbench
 
-Status: **proposed** (2026-09-30). Anchor: #265 (GUI application).
+Status: **implemented** (2026-10-02; phases 1–6 complete; proposed 2026-09-30). Anchor: #265 (GUI application).
 
 ## Source
 
@@ -27,7 +27,8 @@ identity and six screens:
 Screenshots of the prototype, rendered headlessly, are kept in
 `docs/gui/images/prototype-v2/` for reference. `rapport.png` and
 `indberetning.png` were added in Phase 5, rendered the same way from the
-artifact.
+artifact. `onsite.png` was added in Phase 6, rendered at the prototype's
+phone size (390×844) from the artifact's `03 On-site` screen.
 
 ## Decisions (agreed with the maintainer, 2026-09-30)
 
@@ -122,10 +123,23 @@ New storage (schema v22):
   GUID — survives `rux create instances` re-runs; nullable so a manually
   added part needs no instance), room id + name, quantity, starred, note.
 - `samples` — code `P-##`, title, what was sampled, stage (planlagt |
-  udtaget | sendt | svar), result (null | ren | forurenet).
+  udtaget | sendt | svar), result (null | ren | forurenet), and — from
+  schema v24 — part code: the bygningsdel it was taken at, set when it is
+  registered on site (not a foreign key; it may outlive the part).
 - `sample_links` — many-to-many sample ↔ survey type. (Originally written as
   "passport"; miljøstatus and the approval gate are properties of a type, so
   the link is to the type — as implemented in Phase 2.)
+
+A dangling `samples.part_code` — left behind when a survey type's parts are
+cascade-deleted — is a deliberate exception to STANDARDS §3.2 (no silent
+orphaning): the sample keeps the code rather than being rewritten or
+rejected, and Miljø shows it as plain text instead of a link when the part no
+longer exists.
+
+The same holds when the part outlives its link: a sample's type links stay
+user-editable in Miljø, so unlinking the type the part belongs to is allowed.
+`Udtaget ved` then still names the part — the code records where the sample
+was taken, not which types it currently covers.
 
 Derived, never stored (pure library functions, unit-tested):
 
@@ -315,6 +329,48 @@ queue or awaiting a sample, a CSV download of the ready fractions, and
 - the CSV download is new: the prototype has no export affordance on this
   screen.
 
+## Sager and On-site screens (the prototype, component by component)
+
+**Sager** — a case list: one card per building survey, the fixture name and
+address, the survey's figures, a status pill and a deadline. **On-site** — a
+phone "interruption" sheet during capture: a live camera viewfinder with a
+reticle on the detected object, a detection chip, and a bottom sheet with
+★ / note / `+ Tilføj ekstra foto` / `Registrér prøve` actions plus
+`Videre → RX-###`.
+
+v1 changes:
+
+- **Sager:**
+  - one card for the project the server was started with, linking to
+    Overblik;
+  - a plan render as its thumb (the striped status thumb when the render
+    fails);
+  - the survey's figures, and a status derived from the summary and the
+    fractions (`Kladde`, `Gennemgang`, `Klar til indberetning`,
+    `Gennemgået`);
+  - the registration date in place of the deadline, which is not stored;
+  - no `+ Nyt projekt` — instead an `Åbn en anden sag` panel with
+    `rux -p <fil>.rux gui` and the `--bind`/`--allow-origin` recipe for a
+    phone, with its no-authentication warning;
+  - the prototype's top tabs are not built; `← Alle sager` and an `On-site`
+    sidebar entry replace them.
+- **On-site:**
+  - a walk through the stored bygningsdele (rooms in Danish order, then
+    code; `?del=RX-###`);
+  - the part's best sensor-frame photo with the reticle on its instance in
+    place of a live camera;
+  - the sheet writes ★ and the note to the part and registers a sample
+    there (`POST /samples` with `part_code`, `stage: udtaget`; the part's
+    type is always linked);
+  - `Tilføj ekstra foto` is not drawn (no blob storage);
+  - `Videre → RX-###` moves on, replacing the history entry;
+  - Kortlægning gains a `Kun vigtige ★` filter and ★/✎ part markers, and a
+    Miljø card says `Udtaget ved RX-### · <rum>`.
+- **Shell:** below 900px the sidebar is a drawer behind `Menu`, the title
+  bar drops its meta, and no route overflows at 390px.
+- **Writes:** one app-wide chain. The case screens' first loads wait for
+  it; Rapport keeps its own.
+
 ## Phases
 
 Each phase is a separate PR that leaves the app working.
@@ -333,13 +389,18 @@ Each phase is a separate PR that leaves the app working.
    the existing report endpoints, fraction table and send gate. (done in
    Phase 5)
 6. **Sager & On-site** — case list (single-project), phone capture sheet
-   writing ★ / note / sample against a bygningsdel.
+   writing ★ / note / sample against a bygningsdel. (done in Phase 6)
 
 ## Out of scope / follow-up issues
 
-- Multi-project case list and switching (`ruxd`, #265 Phase 6).
+- Multi-project case list and switching, and creating a project from the GUI
+  (`ruxd`, #265 Phase 6; `.github/issue-drafts/37-multi-case-list-ruxd.md`).
+- Pairing or authentication for opening `rux gui` from a phone on the LAN;
+  v1 documents `--bind` + `--allow-origin` and warns
+  (`.github/issue-drafts/38-lan-pairing-auth.md`).
 - bygningsaffald.dk API submission (v1 produces the numbers in the portal's
-  structure; the send button is gated but posts nowhere).
+  structure; the send button is gated but posts nowhere;
+  `.github/issue-drafts/33-bygningsaffald-submission.md`).
 - BBR lookup (the prototype marks it "Demodata"; shown only when project
   metadata carries a BFE number).
 - Lab integration (e.g. Milva) for automatic sample results.
@@ -360,27 +421,37 @@ Each phase is a separate PR that leaves the app working.
 - Uploading the lab's miljørapport (PDF) to a sample — needs blob storage and
   an endpoint; the prototype's `Upload miljørapport (PDF)` button is not drawn
   until then.
-- Rewinding a sample's stage beyond `Fortryd svar` (back to *sendt*).
-- The `AppShell` overflows horizontally at 390px, when the topbar and the
-  open sidebar are both shown. This predates Phase 4 and affects every route.
-  Phase 6 (On-site) designs the phone layout and owns the collapsible
-  sidebar.
-- Cross-screen staleness: each page has its own mutation queue, so a queued
-  Miljø & prøver write can land after Kortlægning's mount `GET /survey`, and
-  Kortlægning then shows a stale gate. Either an app-level `SerialQueue` that
-  initial loads await, or a Kortlægning re-read when the survey counts change.
+- Extra photos from the phone, stored against a part and shown in the
+  evidence panel — needs the same blob storage as the miljørapport upload
+  (`.github/issue-drafts/36-onsite-part-photos.md`, with
+  `22-miljoerapport-pdf-upload.md`).
+- On-site during a live capture: the sheet as an interruption while the scan
+  runs, with a detection chip from live segmentation
+  (`.github/issue-drafts/39-onsite-live-capture.md`).
+- An offline outbox for On-site, so writes made without signal are kept and
+  sent later (`.github/issue-drafts/40-onsite-offline-outbox.md`).
+- Rewinding a sample's stage beyond `Fortryd svar` (back to *sendt*)
+  (`.github/issue-drafts/23-sample-stage-rewind.md`).
 - Kortlægning's selection is not in the URL, so Back after a cross-screen link
-  returns to row 0. Keep `?type=<selected>` updated with `replace`.
-- The cross-links are styled differently: Kortlægning's `SampleLine` uses
-  accent-deep with an underline, Miljø & prøver's `.typeLink` muted text with a
-  border-strong underline. Pick one.
+  returns to row 0. Keep `?type=<selected>` updated with `replace`
+  (`.github/issue-drafts/31-kortlaegning-selection-not-in-url.md`).
 - Case identity in project metadata: BFE number, case number
   (`RX-2026-0047`), MRK and the demolition deadline — schema, `PATCH
   /projects`, `rux set` — then Overblik's hero line and the BBR line with a
-  verified BBR link. Until then BBR is not drawn.
+  verified BBR link. Until then BBR is not drawn
+  (`.github/issue-drafts/24-case-identity-metadata-bbr.md`).
+- The client (bygherre) in case metadata, for the Sager card and the
+  Overblik hero (`.github/issue-drafts/41-case-client-bygherre.md`).
 - Esc in the Kortlægning edit dialog still closes *and saves* (the closing
-  blur commits); every other editor drops the draft (Phase 5 R10).
+  blur commits); every other editor drops the draft (Phase 5 R10)
+  (`.github/issue-drafts/26-editdialog-esc-commits.md`).
 - Report approval (`Godkendt` / MRK signature on a version) and a stored XLS
-  inventory version.
+  inventory version (`.github/issue-drafts/34-report-approval-xls-version.md`).
 - A scan-coverage measure for the building, so Overblik can show the
-  prototype's `Scanningsdækning` instead of `Klassificeret`.
+  prototype's `Scanningsdækning` instead of `Klassificeret`
+  (`.github/issue-drafts/35-scan-coverage-kpi.md`).
+- The Phase 6 regression checks for the responsive shell (R5), the app-wide
+  write chain (R11) and the cross-link style (R12) were run as uncommitted
+  Playwright scripts, not from the repo. Committing them as a suite is a
+  follow-up; the draft lists what they cover and the gaps they found
+  (`.github/issue-drafts/42-commit-playwright-suite.md`).

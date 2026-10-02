@@ -41,8 +41,10 @@ export interface UseThemeResult {
  * theme before first paint; this hook keeps it in sync afterwards, so mounting
  * it re-applies the identical value (idempotent) rather than causing a flash.
  *
- * Mount exactly one instance (the shell's toggle) — a second would add a
- * redundant `matchMedia` listener.
+ * Mount exactly one instance: `AppShell` calls it and passes the result to
+ * both `ThemeToggle`s (title bar and drawer). A second instance would add a
+ * redundant `matchMedia` listener and keep its own `preference`, so two
+ * toggles would drift apart.
  */
 export function useTheme(): UseThemeResult {
   const [preference, setPreferenceState] = useState<ThemePreference>(() =>

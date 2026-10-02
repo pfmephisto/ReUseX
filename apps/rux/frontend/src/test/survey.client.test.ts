@@ -83,6 +83,25 @@ describe('survey client', () => {
     expect(calls[0]).toMatchObject({ url: '/api/v1/samples/3', method: 'DELETE' });
   });
 
+  it('registers a sample at a part, already taken', async () => {
+    const { calls, api } = client({ id: 4, code: 'P-04' }, 201);
+    await api.createSample({
+      title: 'Asbest i fugemasse',
+      what: 'Fuge mod nord',
+      type_ids: [6],
+      part_code: 'RX-008',
+      stage: 'udtaget',
+    });
+    expect(calls[0]).toMatchObject({ url: '/api/v1/samples', method: 'POST' });
+    expect(JSON.parse(calls[0].body!)).toEqual({
+      title: 'Asbest i fugemasse',
+      what: 'Fuge mod nord',
+      type_ids: [6],
+      part_code: 'RX-008',
+      stage: 'udtaget',
+    });
+  });
+
   it('builds render URLs with a comma layer list', () => {
     const { api } = client({});
     expect(api.renderUrl({ view: 'plan', highlight_instance: 12, layers: ['cloud', 'rooms'] })).toBe(

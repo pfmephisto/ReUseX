@@ -22,9 +22,9 @@
 .btnPrimary {
   composes: btnPrimary from '../components/controls.module.css';
 }
+/* Only on the CSV <a>. */
 .btnGhost {
-  composes: btnGhost from '../components/controls.module.css';
-  text-decoration: none;
+  composes: btnGhost linkBtn from '../components/controls.module.css';
 }
 .notice {
   composes: notice from '../components/surfaces.module.css';

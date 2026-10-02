@@ -8,6 +8,7 @@ import { api } from '../api/client';
 import type { ProjectInfo } from '../api/types';
 import { saveErrorMessage } from '../app/saveError';
 import { useAsync } from '../app/useAsync';
+import { appWriteChain } from '../app/writeChain';
 import { useMutationQueue } from '../app/useMutationQueue';
 import { useSurveyCounts } from '../app/SurveyCountsContext';
 import { useToast } from '../app/useToast';
@@ -47,11 +48,11 @@ import styles from './OverblikPage.module.css';
  */
 export function OverblikPage() {
   const { data, error, loading, reload } = useAsync(
-    (s) => Promise.all([api.projectSummary(s), api.surveySummary(s)]),
+    (s) => appWriteChain.idle().then(() => Promise.all([api.projectSummary(s), api.surveySummary(s)])),
     [],
   );
   const versions = useAsync((s) => api.listReportVersions(s), []);
-  const fractions = useAsync((s) => api.surveyFractions(s), []);
+  const fractions = useAsync((s) => appWriteChain.idle().then(() => api.surveyFractions(s)), []);
   const { refreshProject } = useSurveyCounts();
   const toast = useToast(2600);
   const { mutate } = useMutationQueue({

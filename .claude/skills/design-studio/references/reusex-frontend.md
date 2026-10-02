@@ -53,6 +53,9 @@ apps/rux/frontend/src/
 │                 Overblik's case hero, KPI row and quick-link cards
 │                 rapport/  VersionList — Rapport's version list
 │                 indberetning/  FractionTable — Indberetning's fraction table
+│                 sager/  CaseCard — Sager's case card
+│                 onsite/  CaptureStage, CaptureSheet, PartPicker — On-site's
+│                 phone sheet
 │                 controls.module.css (buttons and fields) and
 │                 surfaces.module.css (panels and notices) are the shared
 │                 CSS every case screen's own components `composes` from
@@ -70,12 +73,18 @@ apps/rux/frontend/src/
 │                 draft notice, generation toasts)
 ├── indberetning/ Pure module behind Indberetning: model.ts (fraction table,
 │                 blocking-list notice, send gate)
+├── sager/        Pure module for Sager: model.ts (case status, card stats and
+│                 text, the open-another and phone commands)
+├── onsite/       Pure module for On-site: model.ts (the walk order, the
+│                 picker, the detection chip, photo state and reticle, the
+│                 sample body and its toast)
 ├── pipeline/     Pure stage-runner logic (stageModel, params, history)
 ├── routes/       Page compositions: OverblikPage, Dashboard (now at
 │                 `/projektdata`), ViewportPage, PipelinePage,
 │                 PipelineLogPage, GraphViewPage, FramesPage, DataPage,
 │                 GeometryPage, InstancesPage, MaterialsPage, ExportPage,
-│                 KortlaegningPage, MiljoePage, RapportPage, IndberetningPage
+│                 KortlaegningPage, MiljoePage, RapportPage, IndberetningPage,
+│                 SagerPage, OnsitePage
 │                 (KortlaegningPage and MiljoePage use app/SurveyCountsContext
 │                 for the two sidebar badges: review queue and pending
 │                 samples), plus viewHead.module.css, the shared header CSS
@@ -105,6 +114,17 @@ elsewhere on a case screen closes the open panel/dialog.
 `ErrorBanner`'s `context` prop is a Danish definite noun phrase (e.g.
 "projektoversigten"), never an English fragment or an indefinite noun — both
 of `explainLoadError`'s sentences read it inline.
+
+Page writes join the app-wide `appWriteChain` (`useMutationQueue`); a case
+screen's first load starts with `appWriteChain.idle()`. Only a page whose
+writes change no survey state and run long (Rapport) passes `scope: 'page'`.
+
+A link to another case screen composes `crossLink` from `controls.module.css`
+— never a local link colour.
+
+Below 900px the shell's sidebar is a drawer (`AppShell`, `Sidebar`,
+`TitleBar`); a new case screen must not overflow `<main>` at 390px — wrap it
+or scroll it inside its own panel.
 
 ## 2. The token system (full inventory)
 
@@ -199,7 +219,8 @@ For Kortlægning screenshots/manual testing, seed the prototype's demo survey
 <out.rux>`, then point `rux gui` at the copy. Never run it on a real project.
 `--varied` adds two samples for Miljø & prøver (multi-link answered, unlinked
 planned). `--varied` also seeds three report versions (v1 and v2 drafts, v3
-complete) for Rapport.
+complete) for Rapport, a ★ part with a note (RX-014) and P-06 taken at
+RX-013.
 
 ## 5. The API/WS contract
 

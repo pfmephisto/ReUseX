@@ -2,12 +2,14 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { api } from '../api/client';
 import type { ReportPdfVersion } from '../api/types';
 import { explainLoadError } from '../app/errorCopy';
+import { createOnceGuard } from '../app/onceGuard';
 import { useAsync } from '../app/useAsync';
+import { appWriteChain } from '../app/writeChain';
 import { useMutationQueue } from '../app/useMutationQueue';
 import { useToast } from '../app/useToast';
 import { CircularityBar } from '../components/CircularityBar';
@@ -42,10 +44,13 @@ import styles from './RapportPage.module.css';
  */
 export function RapportPage() {
   const { data, error, loading, reload } = useAsync(
-    (s) => Promise.all([api.projectSummary(s), api.surveySummary(s), api.surveyFractions(s)]),
+    (s) =>
+      appWriteChain
+        .idle()
+        .then(() => Promise.all([api.projectSummary(s), api.surveySummary(s), api.surveyFractions(s)])),
     [],
   );
-  const listed = useAsync((s) => api.listReportVersions(s), []);
+  const listed = useAsync((s) => appWriteChain.idle().then(() => api.listReportVersions(s)), []);
   const [versions, setVersions] = useState<ReportPdfVersion[] | null>(null);
   const [stale, setStale] = useState(false);
   useEffect(() => {
@@ -56,18 +61,20 @@ export function RapportPage() {
   }, [listed.data]);
 
   const toast = useToast(3200);
-  const { busy, mutate } = useMutationQueue({ onError: (cause) => toast.show(generateErrorMessage(cause)) });
+  const { busy, mutate } = useMutationQueue({
+    scope: 'page',
+    onError: (cause) => toast.show(generateErrorMessage(cause)),
+  });
   // `busy` only disables the button after React re-renders, so a double click
-  // inside one frame would queue two generations. The ref closes that gap.
-  const generating = useRef(false);
+  // inside one frame would queue two generations. The guard closes that gap.
+  const [generating] = useState(createOnceGuard);
   // Until the first list read lands, a generate could be overwritten by that
   // late read; the button waits for it.
   const listReady = versions !== null;
   const generate = () => {
-    if (generating.current || !listReady) return;
-    generating.current = true;
-    mutate(async () => {
-      try {
+    if (!listReady) return;
+    generating.run(() =>
+      mutate(async () => {
         const created = await api.generateReport();
         setVersions((prev) => [created, ...(prev ?? []).filter((v) => v.id !== created.id)]);
         toast.show(generatedToast(created));
@@ -77,10 +84,8 @@ export function RapportPage() {
         } catch {
           setStale(true);
         }
-      } finally {
-        generating.current = false;
-      }
-    });
+      }),
+    );
   };
 
   if (error) {

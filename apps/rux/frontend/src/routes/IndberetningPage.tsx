@@ -6,6 +6,7 @@ import { useMemo, useState } from 'react';
 
 import { api } from '../api/client';
 import { useAsync } from '../app/useAsync';
+import { appWriteChain } from '../app/writeChain';
 import { EmptyState } from '../components/EmptyState';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { Spinner } from '../components/Spinner';
@@ -34,7 +35,7 @@ import styles from './IndberetningPage.module.css';
  */
 export function IndberetningPage() {
   const { data: loaded, error, loading, reload } = useAsync(
-    (s) => Promise.all([api.surveyFractions(s), api.surveySummary(s)]),
+    (s) => appWriteChain.idle().then(() => Promise.all([api.surveyFractions(s), api.surveySummary(s)])),
     [],
   );
   const data = loaded?.[0];

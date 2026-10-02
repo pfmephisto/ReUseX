@@ -1,0 +1,79 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+/* A stored photo, not the 3D viewport: the photo stage sits on themed
+ * surfaces. Only the no-photo placeholder (.empty) borrows --color-canvas. */
+
+.stage {
+  position: relative;
+  aspect-ratio: 4 / 3; /* unless the caller passes the frame aspect */
+  overflow: hidden;
+  background: var(--color-surface-sunken);
+}
+
+/* No photo: the placeholder deliberately borrows the 3D canvas tone, so it
+ * is a dark viewfinder in both themes (R6: dark placeholder, onsite.png). */
+.empty {
+  background: var(--color-canvas);
+}
+
+.empty .placeholder {
+  color: var(--color-on-chrome-muted);
+}
+
+.photo {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: var(--space-4) var(--space-4) calc(var(--space-7) + var(--space-2));
+  text-align: center;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+/* An outline only: the part inside stays visible. The raised-surface halo
+ * keeps the accent line readable on dark and light photos alike. */
+.reticle {
+  position: absolute;
+  border: 2px solid var(--color-accent);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 0 0 1px var(--color-surface-raised);
+  pointer-events: none;
+}
+
+.chip {
+  position: absolute;
+  left: var(--space-3);
+  bottom: var(--space-3);
+  max-width: calc(100% - var(--space-3) * 2);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-md);
+  color: var(--color-text);
+}
+
+.chipTitle {
+  display: block;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
+}
+
+.chipDetail {
+  display: block;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}

@@ -11,10 +11,12 @@ import {
   INDBERETNING_PATH,
   KORTLAEGNING_PATH,
   MILJOE_PATH,
+  ONSITE_PATH,
   OVERBLIK_PATH,
   PROJEKTDATA_PATH,
   RAPPORT_PATH,
 } from './links';
+import { ALL_CASES_PATH } from './navigation';
 import { Dashboard } from '../routes/Dashboard';
 import { LabelsPage } from '../routes/DataPage';
 import { ExportPage } from '../routes/ExportPage';
@@ -26,10 +28,12 @@ import { InstancesPage } from '../routes/InstancesPage';
 import { KortlaegningPage } from '../routes/KortlaegningPage';
 import { MaterialsPage } from '../routes/MaterialsPage';
 import { MiljoePage } from '../routes/MiljoePage';
+import { OnsitePage } from '../routes/OnsitePage';
 import { OverblikPage } from '../routes/OverblikPage';
 import { PipelineLogPage } from '../routes/PipelineLogPage';
 import { PipelinePage } from '../routes/PipelinePage';
 import { RapportPage } from '../routes/RapportPage';
+import { SagerPage } from '../routes/SagerPage';
 import { ViewportPage } from '../routes/ViewportPage';
 
 /**
@@ -73,12 +77,14 @@ function RoutedContent() {
       {/* Standard switcher for every other page */}
       {!onViewport && (
         <Routes>
+          <Route path={ALL_CASES_PATH} element={<SagerPage />} />
           <Route path={OVERBLIK_PATH} element={<OverblikPage />} />
           <Route path={PROJEKTDATA_PATH} element={<Dashboard />} />
           <Route path={KORTLAEGNING_PATH} element={<KortlaegningPage />} />
           <Route path={MILJOE_PATH} element={<MiljoePage />} />
           <Route path={RAPPORT_PATH} element={<RapportPage />} />
           <Route path={INDBERETNING_PATH} element={<IndberetningPage />} />
+          <Route path={ONSITE_PATH} element={<OnsitePage />} />
           <Route path="/pipeline" element={<PipelinePage />} />
           <Route path="/pipeline/log" element={<PipelineLogPage />} />
           <Route path="/frames" element={<FramesPage />} />

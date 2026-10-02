@@ -1,0 +1,112 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+/* Phone-first: one column at the prototype's phone width, the jump list below
+   the sheet. On a wide screen (the shell's breakpoint) the list moves beside
+   it and the pair is centred. */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: 100%;
+  max-width: calc(var(--space-7) * 8);
+  margin: 0 auto;
+  padding: var(--space-3) var(--space-3) var(--space-6);
+  min-width: 0;
+}
+
+.layout {
+  display: grid;
+  gap: var(--space-5);
+  min-width: 0;
+}
+
+.main {
+  display: grid;
+  align-content: start;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.side {
+  min-width: 0;
+}
+
+@media (min-width: 56.25rem) {
+  .page {
+    max-width: calc(var(--space-7) * 17);
+  }
+
+  .layout {
+    grid-template-columns: minmax(0, calc(var(--space-7) * 8)) minmax(0, 1fr);
+    align-items: start;
+  }
+}
+
+.title {
+  composes: title from './viewHead.module.css';
+  font-size: var(--font-size-xl);
+}
+
+.notice {
+  composes: notice from '../components/surfaces.module.css';
+}
+
+.device {
+  overflow: hidden;
+  border: 1px solid var(--color-chrome-border);
+  border-radius: var(--radius-xl);
+  background: var(--color-chrome);
+  box-shadow: var(--shadow-panel);
+}
+
+/* Dark: the navy sheet is nearly the page's colour, so a stronger edge and
+   a deeper shadow keep it a separate object. */
+:global([data-theme='dark']) .device {
+  border-color: var(--color-border-strong);
+  box-shadow: var(--shadow-lg);
+}
+
+.samples {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.samplesHeading {
+  composes: panelHeading from '../components/surfaces.module.css';
+  font-size: var(--font-size-md);
+}
+
+.sampleList {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sampleRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+}
+
+.muted {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.footnote {
+  composes: footnote from './viewHead.module.css';
+}
+
+.crossLink {
+  composes: crossLink from '../components/controls.module.css';
+}

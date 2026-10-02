@@ -2782,6 +2782,11 @@ paths:
       tags: [survey]
       operationId: createSample
       summary: Register an environmental sample
+      description: |
+        Creates a sample at stage `planlagt` (or `udtaget`, see `stage`) with
+        the next P-## code. Every refusal is checked before the first write.
+
+        Performed under the project's writer lock; see `409`/`503`.
       requestBody:
         required: true
         content:
@@ -2793,6 +2798,14 @@ paths:
                 title: { type: string }
                 what: { type: string }
                 type_ids: { type: array, items: { type: integer } }
+                part_code:
+                  type: string
+                  description: The bygningsdel the sample is taken at. Its survey type is always added to `type_ids` (the approval gate is on the type); an unknown code is 404.
+                stage:
+                  type: string
+                  enum: [planlagt, udtaget]
+                  default: planlagt
+                  description: "`udtaget` when the sample is registered on site, already taken. Later stages are reached with PATCH."
       responses:
         "201":
           description: The created sample
@@ -2800,7 +2813,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Sample" }
         "400":
-          description: title is missing/empty
+          description: title is missing/empty, part_code is empty or not a string, or stage is not planlagt/udtaget
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -4421,7 +4434,7 @@ components:
           description: "`fractions` is non-empty and `blocking` is empty."
     Sample:
       type: object
-      required: [id, code, title, what, stage, result, type_ids, created_at, updated_at]
+      required: [id, code, title, what, stage, result, type_ids, part_code, created_at, updated_at]
       properties:
         id: { type: integer }
         code: { type: string, example: P-01 }
@@ -4430,6 +4443,11 @@ components:
         stage: { type: string, enum: [planlagt, udtaget, sendt, svar] }
         result: { type: string, enum: [ren, forurenet], nullable: true }
         type_ids: { type: array, items: { type: integer } }
+        part_code:
+          type: string
+          nullable: true
+          example: RX-008
+          description: The bygningsdel the sample was taken at, when it was registered on site (schema v24); null otherwise.
         created_at: { type: string }
         updated_at: { type: string }
     SurveyTypePatch:

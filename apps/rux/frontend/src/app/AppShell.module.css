@@ -25,6 +25,10 @@
   background: var(--color-surface);
 }
 
+.content:focus {
+  outline: none; /* a focus landing spot when the drawer closes, not a control */
+}
+
 .scrim {
   display: none;
 }

@@ -81,7 +81,7 @@ export function Sidebar({ projectName, badges = {}, id, open = false, onClose, n
       className={styles.sidebar}
       data-open={open || undefined}
       tabIndex={-1}
-      aria-label="Navigation"
+      aria-label={open ? 'Navigation' : undefined}
       onClick={(e) => {
         if (open && drawerClickCloses(tagsUpTo(e))) onClose?.();
       }}

@@ -38,9 +38,12 @@ const NAV_ID = 'app-nav';
  * Menu button, over a scrim. Open, it takes focus and `<main>` is inert, so
  * Tab cannot wander behind the scrim; the title bar stays live, since Menu is
  * how it closes. It closes on any link click inside it, on a scrim click, on
- * Esc (except in a text field, R10) and on any navigation, and every close
- * hands focus back to Menu so it never drops to <body>. Widening past the
- * breakpoint closes it too, so a desktop is never left with an inert `<main>`.
+ * Esc (except in a text field, R10) and on any other navigation (back/forward,
+ * a programmatic redirect); each of those hands focus back to Menu. Crossing
+ * the breakpoint closes it too, so a desktop is never left with an inert
+ * `<main>`, and moves focus off whatever the crossing hid: widening, from
+ * the drawer or Menu to the sidebar's active link (else `<main>`);
+ * narrowing, from the sidebar to Menu.
  */
 export function AppShell({ children }: { children: ReactNode }) {
   const { data: health, error } = useAsync<Health>((signal) => api.health(signal), []);
@@ -56,8 +59,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   );
 
   const [navOpen, setNavOpen] = useState(false);
+  const navOpenRef = useRef(false);
+  navOpenRef.current = navOpen;
   const menuRef = useRef<HTMLButtonElement>(null);
   const navRef = useRef<HTMLElement>(null);
+  const mainRef = useRef<HTMLElement>(null);
   const closeNav = useCallback(() => {
     setNavOpen(false);
     menuRef.current?.focus();
@@ -65,8 +71,47 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   const location = useLocation();
   useEffect(() => {
-    setNavOpen(false); // any navigation closes the drawer
-  }, [location.pathname, location.search]);
+    // Any navigation closes an open drawer. Never on first mount, and never
+    // when it is already closed: a desktop route change must not pull focus.
+    if (navOpenRef.current) closeNav();
+  }, [location.pathname, location.search, closeNav]);
+
+  // `<main>` is inert until the close re-renders, so a focus move to it waits.
+  const [focusMain, setFocusMain] = useState(false);
+  useEffect(() => {
+    if (!focusMain || navOpen) return;
+    setFocusMain(false);
+    mainRef.current?.focus();
+  }, [focusMain, navOpen]);
+
+  useEffect(() => {
+    const drawerMq = window.matchMedia(DRAWER_QUERY);
+    // The browser may drop focus from an element the crossing hid before the
+    // change event fires, so remember the last real focus target.
+    let lastFocused: Element | null = null;
+    const onFocusIn = (e: FocusEvent) => {
+      lastFocused = e.target instanceof Element ? e.target : null;
+    };
+    const onCross = () => {
+      const focused = document.activeElement === document.body ? lastFocused : document.activeElement;
+      const inNav = navRef.current?.contains(focused) ?? false;
+      setNavOpen(false);
+      if (drawerMq.matches) {
+        if (inNav) menuRef.current?.focus(); // the sidebar just went off-canvas
+        return;
+      }
+      if (!inNav && focused !== menuRef.current) return; // Menu just went display:none
+      const active = navRef.current?.querySelector<HTMLElement>('[aria-current="page"]');
+      if (active) active.focus();
+      else setFocusMain(true);
+    };
+    document.addEventListener('focusin', onFocusIn);
+    drawerMq.addEventListener('change', onCross);
+    return () => {
+      document.removeEventListener('focusin', onFocusIn);
+      drawerMq.removeEventListener('change', onCross);
+    };
+  }, []);
 
   useEffect(() => {
     if (!navOpen) return;
@@ -77,16 +122,8 @@ export function AppShell({ children }: { children: ReactNode }) {
       e.stopPropagation();
       closeNav();
     };
-    const wide = window.matchMedia(DRAWER_QUERY);
-    const onWidth = () => {
-      if (!wide.matches) setNavOpen(false);
-    };
     document.addEventListener('keydown', onKey, true);
-    wide.addEventListener('change', onWidth);
-    return () => {
-      document.removeEventListener('keydown', onKey, true);
-      wide.removeEventListener('change', onWidth);
-    };
+    return () => document.removeEventListener('keydown', onKey, true);
   }, [navOpen, closeNav]);
 
   return (
@@ -115,7 +152,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           projectName={displayProjectName(summary, health)}
           badges={{ reviewQueue, pendingSamples }}
         />
-        <main className={styles.content} inert={navOpen}>
+        <main ref={mainRef} className={styles.content} inert={navOpen} tabIndex={-1}>
           <SurveyCountsProvider value={surveyCounts}>{children}</SurveyCountsProvider>
         </main>
       </div>

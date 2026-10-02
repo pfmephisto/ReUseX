@@ -205,3 +205,6 @@ scratch/
 
 # stray root-level node_modules (e.g. vitest cache when run outside apps/rux/frontend)
 /node_modules/
+
+# design-studio screenshots: a per-phase review artefact, never committed
+/shots/

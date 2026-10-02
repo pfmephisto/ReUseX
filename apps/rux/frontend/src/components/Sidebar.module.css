@@ -157,9 +157,13 @@
       visibility var(--duration-normal);
   }
 
+  /* Opening flips visibility at once (no visibility transition), so the
+     drawer can take focus in the same frame; closing keeps it visible until
+     the slide ends. */
   .sidebar[data-open] {
     transform: none;
     visibility: visible;
+    transition: transform var(--duration-normal) var(--easing-standard);
   }
 
   /* Shorter than its content, the drawer scrolls; its rows never squash. */
@@ -179,7 +183,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sidebar {
+  .sidebar,
+  .sidebar[data-open] {
     transition: none;
   }
 }

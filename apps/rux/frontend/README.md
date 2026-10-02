@@ -130,14 +130,16 @@ src/
 │                 (WebSocket channel + reconnect)
 ├── app/          App shell, routing, cross-cutting state (JobsContext,
 │                 SurveyCountsContext — drives both sidebar badges, the
-│                 review queue and pending samples), useAsync, useToast, serialQueue.ts (one promise
-│                 chain per page, tasks settle in commit order),
+│                 review queue and pending samples), useAsync, useToast, serialQueue.ts (a promise
+│                 chain whose tasks settle in commit order; idle() waits for them),
+│                 writeChain.ts (the one app-wide chain every page's writes
+│                 join and the case screens' first loads wait for),
 │                 useMutationQueue.ts (a page's writes on that chain; `busy`
 │                 gates buttons only, field commits are never dropped),
 │                 keyTargets.ts (classifies a key event's target so page
 │                 shortcuts never fire while typing), links.ts (the
-│                 Kortlægning ↔ Miljø & prøver ↔ Overblik deep links and
-│                 route constants), saveError.ts (Danish copy for a failed
+│                 Kortlægning ↔ Miljø & prøver ↔ Overblik ↔ On-site deep links
+│                 and route constants), saveError.ts (Danish copy for a failed
 │                 save: 409/503 get their own message, else the server's),
 │                 errorCopy.ts (Danish copy for a failed *load*, keyed by a
 │                 definite noun phrase naming what didn't load),
@@ -151,9 +153,11 @@ src/
 │                 kortlaegning/ (SurveyTable, EvidencePanel, DetailPanel,
 │                 EditDialog, SampleLine), miljoe/ (StageChain, LinkPicker,
 │                 SampleCard, NewSampleForm), overblik/ (CaseHero, KpiRow,
-│                 QuickLinks, ProjectMetaForm), rapport/ (VersionList) and
-│                 indberetning/ (FractionTable) — plus the shared
-│                 controls.module.css (buttons and fields) and
+│                 QuickLinks, ProjectMetaForm), rapport/ (VersionList),
+│                 indberetning/ (FractionTable), sager/ (CaseCard) and
+│                 onsite/ (CaptureStage, CaptureSheet, PartPicker) — plus the
+│                 shared controls.module.css (buttons, fields and the
+│                 crossLink every cross-screen link composes) and
 │                 surfaces.module.css (panels and notices) every case screen
 │                 composes from
 ├── kortlaegning/ Pure modules for the Kortlægning workbench: vocab.ts
@@ -171,14 +175,19 @@ src/
 │                 blocking count, the draft notice and generation toasts)
 ├── indberetning/ Pure module for Indberetning: model.ts (the fraction table,
 │                 the blocking-list notice, the send gate)
+├── sager/        Pure module for Sager: model.ts (case status, card stats and
+│                 text, the open-another and phone commands)
+├── onsite/       Pure module for On-site: model.ts (the walk order, the
+│                 picker, the detection chip, photo state and reticle, the
+│                 sample body and its toast)
 ├── pipeline/     Pure stage-runner logic: the card view model (stageModel),
 │                 parameter-form parsing and the omit-defaults submit rule
 │                 (params), and the pipeline_log timeline (history)
 ├── routes/       Page-level compositions (OverblikPage, Dashboard — now at
 │                 `/projektdata` — PipelinePage, ViewportPage,
 │                 KortlaegningPage, MiljoePage, RapportPage,
-│                 IndberetningPage), plus the shared viewHead.module.css a
-│                 case screen's header composes from
+│                 IndberetningPage, SagerPage, OnsitePage), plus the shared
+│                 viewHead.module.css a case screen's header composes from
 ├── viewport/     three.js point-cloud rendering: PointCloudScene, the paged
 │                 cloud stream (useCloudStream, pagination), point decoding
 │                 (decode.ts) and label colour mapping (labelColors.ts)
@@ -189,3 +198,7 @@ src/
 
 `/` is Overblik, the case landing page; the old dashboard/inventory screen
 lives at `/projektdata` now (a `Værktøjer` entry).
+`/sager` lists the one open case; `/on-site` is the phone sheet. Below 900px
+the sidebar is a drawer. To use On-site from a phone, start
+`rux gui --bind <LAN-IP> --allow-origin http://<LAN-IP>:<port>` (no
+authentication — trusted networks only).

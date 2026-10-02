@@ -1033,35 +1033,30 @@ class Server::Impl {
               });
             });
 
-    // /material-columns is the pre-v25 path; Phase 3 of the resources
-    // redesign deletes it once its last frontend user is gone.
-    for (const std::string base :
-         {"/api/v1/material-columns", "/api/v1/resources/columns"}) {
-      app_.route_dynamic(base).methods(crow::HTTPMethod::GET,
-                                       crow::HTTPMethod::POST)(
-          [this](const crow::request &req) {
-            if (req.method == crow::HTTPMethod::GET)
-              return with_db([&](const reusex::ProjectDB &db) {
-                return json_response(200, material_columns_json(db));
-              });
-            return with_write([&](reusex::ProjectDB &db) {
-              return json_response(201, create_material_column(db, req.body));
+    app_.route_dynamic("/api/v1/resources/columns")
+        .methods(crow::HTTPMethod::GET,
+                 crow::HTTPMethod::POST)([this](const crow::request &req) {
+          if (req.method == crow::HTTPMethod::GET)
+            return with_db([&](const reusex::ProjectDB &db) {
+              return json_response(200, material_columns_json(db));
             });
+          return with_write([&](reusex::ProjectDB &db) {
+            return json_response(201, create_material_column(db, req.body));
           });
-      app_.route_dynamic(base + "/<string>")
-          .methods(crow::HTTPMethod::PATCH, crow::HTTPMethod::DELETE)(
-              [this](const crow::request &req, std::string id) {
-                if (req.method == crow::HTTPMethod::PATCH)
-                  return with_write([&](reusex::ProjectDB &db) {
-                    return json_response(
-                        200, patch_material_column(db, id, req.body));
-                  });
+        });
+    app_.route_dynamic("/api/v1/resources/columns/<string>")
+        .methods(crow::HTTPMethod::PATCH, crow::HTTPMethod::DELETE)(
+            [this](const crow::request &req, std::string id) {
+              if (req.method == crow::HTTPMethod::PATCH)
                 return with_write([&](reusex::ProjectDB &db) {
-                  delete_material_column(db, id);
-                  return crow::response(204);
+                  return json_response(200,
+                                       patch_material_column(db, id, req.body));
                 });
+              return with_write([&](reusex::ProjectDB &db) {
+                delete_material_column(db, id);
+                return crow::response(204);
               });
-    }
+            });
 
     // ---- resources (schema v25) ----
     // Static paths are registered before /resources/<string>. Crow keeps one

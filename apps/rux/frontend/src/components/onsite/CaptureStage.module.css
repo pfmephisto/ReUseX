@@ -4,16 +4,18 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-/* A stored photo, not the 3D viewport: themed surfaces, not --color-canvas. */
+/* A stored photo, not the 3D viewport: the photo stage sits on themed
+ * surfaces. Only the no-photo placeholder (.empty) borrows --color-canvas. */
 
 .stage {
   position: relative;
-  aspect-ratio: 4 / 3; /* until the frame size is known */
+  aspect-ratio: 4 / 3; /* unless the caller passes the frame aspect */
   overflow: hidden;
   background: var(--color-surface-sunken);
 }
 
-/* No photo: a dark viewfinder in both themes (R6, onsite.png). */
+/* No photo: the placeholder deliberately borrows the 3D canvas tone, so it
+ * is a dark viewfinder in both themes (R6: dark placeholder, onsite.png). */
 .empty {
   background: var(--color-canvas);
 }

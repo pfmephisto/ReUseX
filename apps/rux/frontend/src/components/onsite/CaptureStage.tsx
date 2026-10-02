@@ -15,6 +15,7 @@ export interface CaptureStageProps {
   detail: string;
   /** The part's code, for the photo's alt text. */
   code: string;
+  /** The frame aspect to hold; `null` keeps the 4/3 default. */
   aspect: { width: number; height: number } | null;
 }
 
@@ -23,17 +24,26 @@ export interface CaptureStageProps {
  * sensor frame, the reticle on its instance, and the detection chip. Takes
  * the frame's aspect ratio, so the reticle's percentages land on the photo.
  * A photo, not the 3D canvas: the stage is themed like any other surface.
- * With no photo it keeps 4/3 — a portrait frame's height would push the sheet
- * under the fold for nothing — and is dark in both themes, as a camera
- * viewfinder is (R6).
+ *
+ * `aspect` is the caller's call: OnsitePage passes the frame aspect while the
+ * frames lookup is loading and once a photo arrives, so Videre onto a part
+ * with a photo never resizes the stage (and moves the sheet) when it loads.
+ * For an unlinked part, no frame or a failed lookup it passes `null` and the
+ * stage keeps 4/3 — a portrait frame's height would push the sheet under the
+ * fold for nothing. An image that fails to load falls back to 4/3 too.
+ *
+ * With no photo the placeholder deliberately borrows the 3D canvas tone
+ * (`--color-canvas`), so it reads as a dark camera viewfinder in both themes
+ * (R6: dark placeholder).
  */
 export function CaptureStage({ photoUrl, placeholder, reticle, title, detail, code, aspect }: CaptureStageProps) {
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
-  const showPhoto = photoUrl !== null && failedUrl !== photoUrl;
+  const imageFailed = photoUrl !== null && failedUrl === photoUrl;
+  const showPhoto = photoUrl !== null && !imageFailed;
   return (
     <div
       className={`${styles.stage} ${showPhoto ? '' : styles.empty}`}
-      style={showPhoto && aspect ? { aspectRatio: `${aspect.width} / ${aspect.height}` } : undefined}
+      style={aspect && !imageFailed ? { aspectRatio: `${aspect.width} / ${aspect.height}` } : undefined}
     >
       {showPhoto ? (
         <img className={styles.photo} src={photoUrl} alt={`Bedste foto af ${code}, ${title}`} onError={() => setFailedUrl(photoUrl)} />

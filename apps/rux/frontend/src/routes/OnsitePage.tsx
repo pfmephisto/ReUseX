@@ -206,7 +206,12 @@ export function OnsitePage() {
 
   const { type } = at;
   const frameSize = data[2].sensor_frames;
-  const aspect = frameSize.width && frameSize.height ? { width: frameSize.width, height: frameSize.height } : null;
+  // Hold the frame aspect while the lookup loads and once a photo is there, so
+  // the stage does not resize (and move Videre) when the photo arrives; 4/3
+  // only when there will be no photo (unlinked, none, failed).
+  const holdsFrame = photo.kind === 'loading' || photo.kind === 'photo';
+  const aspect =
+    holdsFrame && frameSize.width && frameSize.height ? { width: frameSize.width, height: frameSize.height } : null;
   const photoUrl =
     photo.kind === 'photo'
       ? api.frameImageUrl(photo.frame.frame_id, 'color', {

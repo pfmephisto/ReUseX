@@ -90,16 +90,16 @@ export function SagerPage() {
       </ul>
 
       <section className={styles.panel} aria-labelledby="sager-andre">
-        <h3 id="sager-andre" className={styles.panelHeading}>
+        <h2 id="sager-andre" className={styles.panelHeading}>
           Åbn en anden sag
-        </h3>
+        </h2>
         <p className={styles.text}>
           Denne server viser én sag — den projektfil, den blev startet med. Start den med en anden fil:
         </p>
         <code className={styles.command}>{OPEN_ANOTHER_COMMAND}</code>
         <p className={styles.muted}>En sagsliste på tværs af projekter hører til serverudgaven (ruxd).</p>
 
-        <h3 className={styles.panelHeading}>På pladsen med telefonen</h3>
+        <h2 className={styles.panelHeading}>På pladsen med telefonen</h2>
         <p className={styles.text}>
           Åbn{' '}
           <Link className={styles.crossLink} to={ONSITE_PATH}>

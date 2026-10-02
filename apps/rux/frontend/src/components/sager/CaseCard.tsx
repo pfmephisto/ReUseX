@@ -46,7 +46,7 @@ export function CaseCard({ to, name, subline, stats, status, date, thumbUrl }: C
         )}
       </div>
       <div className={styles.body}>
-        <h3 className={styles.name}>{name}</h3>
+        <h2 className={styles.name}>{name}</h2>
         <p id={`${id}-sub`} className={styles.addr}>
           {subline}
         </p>

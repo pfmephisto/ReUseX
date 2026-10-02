@@ -943,6 +943,8 @@ export interface SurveySyncReport {
   rooms_assigned: boolean;
   parts_orphaned: number;
   orphaned_codes: string[];
+  /** Instance links put back for instance-backed parts that lost theirs (a `create instances` re-run cascade-deletes them). */
+  links_restored?: number;
 }
 
 /** Body of `POST /survey/types`. */
@@ -1000,6 +1002,101 @@ export interface SamplePatch {
   what?: string;
   stage?: SampleStage;
   result?: SampleResult | null;
+}
+
+// ------------------------------------------------- resources & templates ----
+
+/** Where a key's write lands (spec §4.3): `type` changes every part of the type. */
+export type ResourceKeyScope = 'type' | 'part';
+
+/**
+ * Which editor a key gets in Kortlægning (spec §6.1). `multiselect` is a
+ * leksikon `EnumArray` field (R3-A1): Phase 3 shows its joined values
+ * read-only, with no editor of its own yet.
+ */
+export type ResourceDataType = 'text' | 'number' | 'enum' | 'multiselect' | 'boolean' | 'date';
+
+/**
+ * `ResourceKey` — one row of `GET /resources/keys`. `id` is `lex:<guid>`
+ * (leksikon), `col:<id>` (user column) or `sys:<name>` (built-in); the UI
+ * shows `label`, never the id.
+ */
+export interface ResourceKey {
+  id: string;
+  label: string;
+  category: string;
+  scope: ResourceKeyScope;
+  data_type: ResourceDataType;
+  unit: string | null;
+  /** Choices of an `enum` or `multiselect` key, wire values (e.g. `genbrug`). */
+  options: string[];
+  /** False for derived keys (`sys:environment`): a write is a 400. */
+  editable: boolean;
+}
+
+/** `Resource` — one survey part's values by key id. `null` = no value. */
+export interface Resource {
+  code: string;
+  type_id: number;
+  /** Added by hand (no instance); only these can be deleted. */
+  manual: boolean;
+  values: Record<string, string | null>;
+}
+
+/** Response of `PATCH /resources/{code}`: the resource, plus the type's other parts after a type-scoped write. */
+export interface ResourcePatchResult {
+  resource: Resource;
+  siblings: Resource[];
+}
+
+/** Body of `POST /resources` — a manual part under an existing type. */
+export interface ResourceCreate {
+  type_id: number;
+  name?: string;
+}
+
+/** Body of `POST /resources/columns` (a `PropertyDefinition` without its id). */
+export interface ResourceColumnCreate {
+  name: string;
+  type: PropertyType;
+  options?: string[];
+  sort_order?: number;
+  width?: number;
+}
+
+/** A template member: a whole category, or one key (spec §5.1). */
+export type TemplateMember = { category: string } | { key: string };
+
+/** The tag of a seeded template (spec §5.3). */
+export type TemplateSeed = 'materialepas' | 'screening';
+
+/** CSV export options saved on a template (Phase 4 edits them). */
+export interface TemplateCsv {
+  delimiter?: string;
+  encoding?: string;
+  header?: 'label' | 'key';
+}
+
+/** `Template` — one row of `GET /templates`, resolved against the live catalogue. */
+export interface Template {
+  id: number;
+  name: string;
+  members: TemplateMember[];
+  csv: TemplateCsv;
+  seed: TemplateSeed | null;
+  /** Ordered key ids the members resolve to now (spec §5.2). */
+  resolved_keys: string[];
+  /** Members whose key or category no longer exists. */
+  missing: TemplateMember[];
+  created_at: string;
+  updated_at: string;
+}
+
+/** Body of `POST /templates` (name required) or `PATCH /templates/{id}` (sparse). */
+export interface TemplatePatch {
+  name?: string;
+  members?: TemplateMember[];
+  csv?: TemplateCsv;
 }
 
 /** Camera placement for `GET /renders`. */

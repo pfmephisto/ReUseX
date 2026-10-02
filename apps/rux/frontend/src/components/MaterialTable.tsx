@@ -66,7 +66,7 @@ import styles from './MaterialTable.module.css';
  */
 export function MaterialTable() {
   const materialsAsync = useAsync((signal) => api.materials(signal), []);
-  const columnsAsync = useAsync((signal) => api.propertyDefinitions(signal), []);
+  const columnsAsync = useAsync((signal) => api.resourceColumns(signal), []);
 
   /** Per-row full detail (properties + has_thumbnail), fetched from the detail endpoint. */
   const [details, setDetails] = useState<Map<string, MaterialDetail>>(new Map());
@@ -217,7 +217,7 @@ export function MaterialTable() {
       const onMouseUp = () => {
         window.removeEventListener('mousemove', onMouseMove);
         window.removeEventListener('mouseup', onMouseUp);
-        void api.updatePropertyDefinition(colId, { width: currentWidth });
+        void api.updateResourceColumn(colId, { width: currentWidth });
       };
 
       window.addEventListener('mousemove', onMouseMove);
@@ -231,7 +231,7 @@ export function MaterialTable() {
   const handleAddColumn = useCallback(async () => {
     const order = columnsAsync.data?.length ?? 0;
     try {
-      await api.createPropertyDefinition({ name: 'New column', type: 'text', sort_order: order });
+      await api.createResourceColumn({ name: 'New column', type: 'text', sort_order: order });
       columnsAsync.reload();
     } catch (error) {
       setFailure(
@@ -245,7 +245,7 @@ export function MaterialTable() {
 
   const handleRename = useCallback(
     async (id: string, name: string) => {
-      await api.updatePropertyDefinition(id, { name });
+      await api.updateResourceColumn(id, { name });
       columnsAsync.reload();
     },
     [columnsAsync],
@@ -253,7 +253,7 @@ export function MaterialTable() {
 
   const handleTypeChange = useCallback(
     async (id: string, type: PropertyType) => {
-      await api.updatePropertyDefinition(id, { type });
+      await api.updateResourceColumn(id, { type });
       columnsAsync.reload();
     },
     [columnsAsync],
@@ -261,7 +261,7 @@ export function MaterialTable() {
 
   const handleOptionsChange = useCallback(
     async (id: string, options: string[]) => {
-      await api.updatePropertyDefinition(id, { options });
+      await api.updateResourceColumn(id, { options });
       columnsAsync.reload();
     },
     [columnsAsync],
@@ -269,7 +269,7 @@ export function MaterialTable() {
 
   const handleDeleteColumn = useCallback(
     async (id: string) => {
-      await api.deletePropertyDefinition(id);
+      await api.deleteResourceColumn(id);
       // Remove any filter for the deleted column.
       setColumnFilters((prev) => {
         const next = { ...prev };
@@ -289,7 +289,7 @@ export function MaterialTable() {
       if (target < 0 || target >= cols.length) return;
       const newCols = arrayMove(cols, idx, target);
       await Promise.all(
-        newCols.map((col, newOrder) => api.updatePropertyDefinition(col.id, { sort_order: newOrder })),
+        newCols.map((col, newOrder) => api.updateResourceColumn(col.id, { sort_order: newOrder })),
       );
       columnsAsync.reload();
     },
@@ -312,7 +312,7 @@ export function MaterialTable() {
         newCols
           .map((col, idx) => ({ col, newOrder: idx }))
           .filter(({ col, newOrder }) => cols.find((c) => c.id === col.id)?.sort_order !== newOrder)
-          .map(({ col, newOrder }) => api.updatePropertyDefinition(col.id, { sort_order: newOrder })),
+          .map(({ col, newOrder }) => api.updateResourceColumn(col.id, { sort_order: newOrder })),
       );
       columnsAsync.reload();
     },

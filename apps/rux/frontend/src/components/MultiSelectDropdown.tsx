@@ -13,7 +13,7 @@ export interface MultiSelectDropdownProps {
   values: string[];
   colDef: PropertyDefinition;
   onSave: (values: string[]) => void;
-  /** Add the option to the column definition (calls `api.updatePropertyDefinition`). */
+  /** Add the option to the column definition (calls `api.updateResourceColumn`). */
   onAddOption: (option: string) => Promise<void>;
   onClose: () => void;
   /** The panel positions itself below this element. */

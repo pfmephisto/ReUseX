@@ -1070,11 +1070,12 @@ export type TemplateMember = { category: string } | { key: string };
 /** The tag of a seeded template (spec §5.3). */
 export type TemplateSeed = 'materialepas' | 'screening';
 
-/** CSV export options saved on a template (Phase 4 edits them). */
+/** CSV export options saved on a template (Phase 4 edits them). The server keeps unknown fields. */
 export interface TemplateCsv {
   delimiter?: string;
   encoding?: string;
   header?: 'label' | 'key';
+  [extra: string]: unknown;
 }
 
 /** `Template` — one row of `GET /templates`, resolved against the live catalogue. */
@@ -1098,6 +1099,9 @@ export interface TemplatePatch {
   members?: TemplateMember[];
   csv?: TemplateCsv;
 }
+
+/** Body of `POST /templates`: {@link TemplatePatch} with `name` required. */
+export type TemplateCreate = TemplatePatch & { name: string };
 
 /** Camera placement for `GET /renders`. */
 export type RenderView = 'plan' | 'top' | 'front' | 'orbit';

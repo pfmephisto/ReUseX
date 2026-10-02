@@ -73,6 +73,7 @@ import type {
   SamplePatch,
   StageInfo,
   Template,
+  TemplateCreate,
   TemplatePatch,
   Survey,
   SurveyFractions,
@@ -945,6 +946,11 @@ export class RuxApiClient {
     return body.templates;
   }
 
+  /** Create a template. A duplicate name is a 409. */
+  createTemplate(body: TemplateCreate, signal?: AbortSignal): Promise<Template> {
+    return this.postJson<Template>('/templates', body, signal);
+  }
+
   /** Copy a template as "<name> (kopi)" (numeric suffix until unique). */
   duplicateTemplate(id: number): Promise<Template> {
     return this.postJson<Template>(`/templates/${id}/duplicate`);
@@ -953,6 +959,21 @@ export class RuxApiClient {
   /** Sparse edit of name / members / csv. A duplicate name is a 409. */
   patchTemplate(id: number, patch: TemplatePatch): Promise<Template> {
     return this.patchJson<Template>(`/templates/${id}`, patch);
+  }
+
+  /** Delete a template. The server answers 204 (no body). */
+  async deleteTemplate(id: number): Promise<void> {
+    await this.deleteNoContent(`/templates/${id}`);
+  }
+
+  /** Re-insert any missing seed template (materialepas, screening). Re-list afterwards. */
+  async restoreSeedTemplates(signal?: AbortSignal): Promise<void> {
+    await this.postJson<unknown>('/templates/restore-seeds', {}, signal);
+  }
+
+  /** The resources CSV for one template, for an `<a href download>`. */
+  resourcesExportCsvUrl(templateId: number): string {
+    return this.url('/resources/export.csv', { template: templateId });
   }
 
   // -------------------------------------------------------- instances ----
@@ -1067,12 +1088,15 @@ export class RuxApiClient {
    * Generate a Ressourcekortlægning PDF server-side and store it.
    *
    * Invokes `typst compile` on the server, stores the PDF in the project
-   * database, and returns the new version metadata. Writer-locked: a 409
-   * means a pipeline stage is holding the lock; a 503 means a transient
-   * busy — the `ApiRequestError` properties distinguish the two.
+   * database, and returns the new version metadata. `templateId` adds a
+   * Ressourcetabel section built from that template's columns; null or
+   * omitted leaves it out. Writer-locked: a 409 means a pipeline stage is
+   * holding the lock; a 503 means a transient busy — the `ApiRequestError`
+   * properties distinguish the two.
    */
-  generateReport(signal?: AbortSignal): Promise<ReportPdfVersion> {
-    return this.postJson<ReportPdfVersion>('/reports/ressourcekortlaegning', {}, signal);
+  generateReport(templateId?: number | null, signal?: AbortSignal): Promise<ReportPdfVersion> {
+    const body = templateId == null ? {} : { resource_template_id: templateId };
+    return this.postJson<ReportPdfVersion>('/reports/ressourcekortlaegning', body, signal);
   }
 
   /**

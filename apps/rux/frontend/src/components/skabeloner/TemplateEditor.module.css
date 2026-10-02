@@ -45,10 +45,17 @@
   border: 0;
   min-width: 0;
 }
+/* `<legend>` (Kategorier) and `<h3>` (Enkelte felter, Rækkefølge) must read
+ * identically. `fieldLabel` covers size/weight/caps/tracking/colour, but a
+ * bare <h3> also matches base.css's h1–h4 rule (display font, tight leading)
+ * that `<legend>` never does — reset those two here so the element choice
+ * stops being visible. */
 .heading {
   composes: fieldLabel from '../controls.module.css';
   margin: 0;
   padding: 0;
+  font-family: var(--font-sans);
+  line-height: var(--line-height-normal);
 }
 .categories {
   display: grid;

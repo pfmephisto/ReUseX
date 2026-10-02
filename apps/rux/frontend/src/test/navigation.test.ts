@@ -8,6 +8,7 @@ import {
   ALL_CASES_PATH,
   DRAWER_QUERY,
   NAV_ENTRIES,
+  REDIRECTS,
   badgeText,
   drawerClickCloses,
   drawerKeyAction,
@@ -18,44 +19,71 @@ import * as navigation from '../app/navigation';
 import type { Health, ProjectSummary } from '../api/types';
 
 describe('navigation model', () => {
-  it('lists the case workflow in the prototype order', () => {
+  it('lists the case workflow in the spec §3 order', () => {
     expect(entriesIn('sag').map((e) => e.label)).toEqual([
       'Overblik',
       'Kortlægning',
+      'Viewport',
       'Miljø & prøver',
       'Rapport',
       'Indberetning',
-      'On-site',
+      'Skabeloner',
     ]);
   });
 
-  it('lists On-site last in the case workflow', () => {
-    const sag = NAV_ENTRIES.filter((e) => e.group === 'sag');
-    expect(sag.at(-1)).toEqual({ to: '/on-site', label: 'On-site', group: 'sag' });
+  it('lists the tools in the spec §3 order', () => {
+    expect(entriesIn('tools').map((e) => e.label)).toEqual([
+      'Projektdata',
+      'Posegraf',
+      'Pipeline',
+      'Kørselslog',
+      'Billeder',
+      'Geometri',
+      'Instanser',
+      'Labels',
+    ]);
   });
 
-  it('keeps every existing technical route reachable under Værktøjer', () => {
+  it('shows each job exactly once', () => {
+    const labels = NAV_ENTRIES.map((e) => e.label);
+    expect(new Set(labels).size).toBe(labels.length);
+  });
+
+  it('drops the pages the redesign retires from the nav', () => {
+    const paths = NAV_ENTRIES.map((e) => e.to);
+    for (const gone of ['/on-site', '/onsite', '/materials', '/export']) {
+      expect(paths, gone).not.toContain(gone);
+    }
+  });
+
+  it('keeps Viewport live, now in the case group', () => {
+    expect(NAV_ENTRIES.find((e) => e.to === '/viewport')).toEqual({
+      to: '/viewport',
+      label: 'Viewport',
+      group: 'sag',
+    });
+  });
+
+  it('keeps Skabeloner pending until its page exists', () => {
+    const entry = NAV_ENTRIES.find((e) => e.to === '/skabeloner');
+    expect(entry?.group).toBe('sag');
+    expect(entry?.pending).toBeDefined();
+  });
+
+  it('keeps every remaining technical route reachable under Værktøjer', () => {
     const tools = entriesIn('tools').map((e) => e.to);
     for (const path of [
       '/projektdata',
-      '/viewport',
       '/graph-view',
       '/pipeline',
       '/pipeline/log',
       '/frames',
       '/geometry',
       '/instances',
-      '/materials',
       '/labels',
-      '/export',
     ]) {
       expect(tools).toContain(path);
     }
-  });
-
-  it('keeps the old project inventory reachable as the first tool', () => {
-    const tools = entriesIn('tools');
-    expect(tools[0]).toEqual({ to: '/projektdata', label: 'Projektdata', group: 'tools' });
   });
 
   it('uses unique, extensionless paths', () => {
@@ -116,6 +144,33 @@ describe('navigation model', () => {
     expect(badgeText(0)).toBeNull();
     expect(badgeText(7)).toBe('7');
     expect(badgeText(120)).toBe('99+');
+  });
+});
+
+describe('redirects for retired paths (spec §3)', () => {
+  it('sends both On-site spellings to Kortlægning', () => {
+    expect(REDIRECTS).toContainEqual({ from: '/on-site', to: '/kortlaegning' });
+    expect(REDIRECTS).toContainEqual({ from: '/onsite', to: '/kortlaegning' });
+  });
+
+  it('never redirects from a path the nav still lists', () => {
+    const navPaths = new Set(NAV_ENTRIES.map((e) => e.to));
+    for (const r of REDIRECTS) expect(navPaths.has(r.from), r.from).toBe(false);
+  });
+
+  it('redirects land on a live entry, never on another redirect', () => {
+    const live = new Set(NAV_ENTRIES.filter((e) => e.pending === undefined).map((e) => e.to));
+    const sources = new Set(REDIRECTS.map((r) => r.from));
+    for (const r of REDIRECTS) {
+      expect(live.has(r.to), `${r.from} → ${r.to}`).toBe(true);
+      expect(sources.has(r.to), `${r.from} → ${r.to}`).toBe(false);
+    }
+  });
+
+  it('uses unique, extensionless sources', () => {
+    const from = REDIRECTS.map((r) => r.from);
+    expect(new Set(from).size).toBe(from.length);
+    for (const p of from) expect(p, p).not.toMatch(/\./);
   });
 });
 

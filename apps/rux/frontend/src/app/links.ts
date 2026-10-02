@@ -16,6 +16,9 @@ export const RAPPORT_PATH = '/rapport';
 export const INDBERETNING_PATH = '/indberetning';
 export const PROJEKTDATA_PATH = '/projektdata';
 
+/** Skabeloner — the template editor (resources/templates spec §6.2). Its page arrives in Phase 4. */
+export const SKABELONER_PATH = '/skabeloner';
+
 export function sampleHref(sampleId: number): string {
   return `${MILJOE_PATH}?sample=${sampleId}`;
 }

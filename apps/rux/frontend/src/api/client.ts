@@ -857,24 +857,6 @@ export class RuxApiClient {
     return this.postJson<MaterialDetail>('/materials', body ?? {});
   }
 
-  /** Delete a material passport. The server answers 204 (no body). */
-  async deleteMaterial(guid: string): Promise<void> {
-    const url = this.url(`/materials/${encodeURIComponent(guid)}`);
-    const response = await this.doFetch(url, { method: 'DELETE' });
-    if (!response.ok) {
-      throw new ApiRequestError(response.status, await describeFailure(response), url);
-    }
-  }
-
-  /**
-   * URL of a material's thumbnail image, for use as an `<img src>`.
-   *
-   * This returns a URL string, not a fetch — the browser loads it directly.
-   */
-  materialThumbnail(guid: string): string {
-    return this.url(`/materials/${encodeURIComponent(guid)}/thumbnail`);
-  }
-
   /**
    * Upload (or replace) a material's thumbnail image.
    *

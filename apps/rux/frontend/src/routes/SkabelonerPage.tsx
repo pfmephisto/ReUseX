@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { api } from '../api/client';
-import type { ResourceKey, Template, TemplateMember } from '../api/types';
+import type { PropertyDefinition, ResourceKey, Template, TemplateMember } from '../api/types';
 import { createOnceGuard } from '../app/onceGuard';
 import { useAsync } from '../app/useAsync';
 import { useMutationQueue } from '../app/useMutationQueue';
@@ -15,6 +15,7 @@ import { EmptyState } from '../components/EmptyState';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { Spinner } from '../components/Spinner';
 import { Toast } from '../components/Toast';
+import { ColumnList } from '../components/skabeloner/ColumnList';
 import { TemplateEditor } from '../components/skabeloner/TemplateEditor';
 import { TemplateList } from '../components/skabeloner/TemplateList';
 import {
@@ -26,6 +27,7 @@ import {
   templateErrorMessage,
   withMembers,
 } from '../skabeloner/model';
+import { columnErrorMessage, optionsChanged, optionsError, renameError } from '../skabeloner/columns';
 import styles from './SkabelonerPage.module.css';
 
 /**
@@ -37,11 +39,16 @@ import styles from './SkabelonerPage.module.css';
  */
 export function SkabelonerPage() {
   const loaded = useAsync(
-    (s) => appWriteChain.idle().then(() => Promise.all([api.templates(s), api.resourceKeys(s)])),
+    (s) =>
+      appWriteChain.idle().then(() => Promise.all([api.templates(s), api.resourceKeys(s), api.resourceColumns(s)])),
     [],
   );
   const [templates, setTemplatesState] = useState<Template[] | null>(null);
   const [keys, setKeys] = useState<ResourceKey[]>([]);
+  const [columns, setColumns] = useState<PropertyDefinition[]>([]);
+  // Egne felter: an inline error per column id, and a re-key counter per refused field (R4-D1).
+  const [columnErrors, setColumnErrors] = useState<Record<string, string>>({});
+  const [columnEpochs, setColumnEpochs] = useState<Record<string, number>>({});
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const nameRef = useRef<HTMLInputElement | null>(null);
   const [focusName, setFocusName] = useState(false);
@@ -66,9 +73,10 @@ export function SkabelonerPage() {
 
   useEffect(() => {
     if (!loaded.data) return;
-    const [list, catalogue] = loaded.data;
+    const [list, catalogue, cols] = loaded.data;
     adopt(list);
     setKeys(catalogue);
+    setColumns(cols);
   }, [loaded.data]);
 
   // After "Ny skabelon" / "Omdøb", focus the name field once it is rendered.
@@ -143,6 +151,78 @@ export function SkabelonerPage() {
       setSelectedId((sel) => (sel === id ? selectAfterDelete(ids, id) : sel));
     });
 
+  // ---- Egne felter (R4-EF) ----
+
+  const setColumnError = (id: string, message: string | null) =>
+    setColumnErrors((prev) => {
+      const next = { ...prev };
+      if (message === null) delete next[id];
+      else next[id] = message;
+      return next;
+    });
+
+  /** Re-key one column field so it drops its draft and shows the server value (R4-D1). */
+  const snapBack = (id: string, field: 'name' | 'options') =>
+    setColumnEpochs((prev) => ({ ...prev, [`${id}:${field}`]: (prev[`${id}:${field}`] ?? 0) + 1 }));
+
+  /** A refused field commit: say why next to the row and snap the field back. */
+  const refuse = (id: string, field: 'name' | 'options', message: string) => {
+    setColumnError(id, message);
+    snapBack(id, field);
+  };
+
+  /**
+   * A column write, on the page's chain. Afterwards — success or not — the
+   * columns, the catalogue and the templates are re-read: a rename changes
+   * member labels, and a delete turns `col:<id>` members into missing ones.
+   * A refused rename/options edit is shown next to its row; a failed delete
+   * goes to the toast.
+   */
+  const columnWrite = (id: string, field: 'name' | 'options' | null, run: () => Promise<void>) =>
+    void write(async () => {
+      try {
+        await run();
+        setColumnError(id, null);
+      } catch (cause) {
+        if (field === null) toast.show(columnErrorMessage(cause));
+        else refuse(id, field, columnErrorMessage(cause));
+      }
+      const [cols, catalogue, list] = await Promise.all([api.resourceColumns(), api.resourceKeys(), api.templates()]);
+      setColumns(cols);
+      setKeys(catalogue);
+      adopt(list);
+    });
+
+  const onRenameColumn = (column: PropertyDefinition, name: string) => {
+    const trimmed = name.trim();
+    if (trimmed === column.name) return;
+    const invalid = renameError(trimmed, column.name, keys.map((k) => k.label));
+    if (invalid) return refuse(column.id, 'name', invalid);
+    columnWrite(column.id, 'name', async () => {
+      await api.updateResourceColumn(column.id, { name: trimmed });
+    });
+  };
+
+  const onColumnOptions = (column: PropertyDefinition, text: string) => {
+    const invalid = optionsError(text);
+    if (invalid) return refuse(column.id, 'options', invalid);
+    const next = optionsChanged(text, column.options ?? []);
+    if (next === null) {
+      // Same list, other spelling ("a, b" for "a⏎b"): show it the server's way.
+      snapBack(column.id, 'options');
+      return;
+    }
+    columnWrite(column.id, 'options', async () => {
+      await api.updateResourceColumn(column.id, { options: next });
+    });
+  };
+
+  // ColumnList arms the button first (two-click confirm, R4-D14).
+  const onDeleteColumn = (column: PropertyDefinition) =>
+    columnWrite(column.id, null, async () => {
+      await api.deleteResourceColumn(column.id);
+    });
+
   const onRestoreSeeds = () =>
     void write(async () => {
       await api.restoreSeedTemplates();
@@ -173,38 +253,57 @@ export function SkabelonerPage() {
         <span className={styles.sub}>Feltudvalg til Kortlægning og Rapport</span>
       </header>
       <div className={styles.layout}>
-        <TemplateList
-          templates={templates}
-          keys={keys}
-          selectedId={selectedId}
-          busy={busy}
-          missingSeeds={missingSeeds(templates)}
-          onSelect={setSelectedId}
-          onNew={onNew}
-          onRename={(id) => {
-            setSelectedId(id);
-            setFocusName(true);
-          }}
-          onDuplicate={onDuplicate}
-          onDelete={onDelete}
-          onRestoreSeeds={onRestoreSeeds}
-        />
-        {selected ? (
-          <TemplateEditor
-            key={selected.id}
-            template={selected}
+        <div className={styles.listArea}>
+          <TemplateList
+            templates={templates}
             keys={keys}
-            nameRef={nameRef}
-            nameEpoch={nameEpoch}
-            onRename={(name) => onRename(selected.id, name)}
-            onMembers={(next) => onMembers(selected.id, next)}
+            selectedId={selectedId}
+            busy={busy}
+            missingSeeds={missingSeeds(templates)}
+            onSelect={setSelectedId}
+            onNew={onNew}
+            onRename={(id) => {
+              setSelectedId(id);
+              setFocusName(true);
+            }}
+            onDuplicate={onDuplicate}
+            onDelete={onDelete}
+            onRestoreSeeds={onRestoreSeeds}
           />
-        ) : (
-          <EmptyState
-            title="Ingen skabelon valgt"
-            detail={templates.length === 0 ? 'Opret en ny, eller gendan standardskabelonerne.' : 'Vælg en skabelon i listen.'}
+        </div>
+        <div className={styles.editorArea}>
+          {selected ? (
+            <TemplateEditor
+              key={selected.id}
+              template={selected}
+              keys={keys}
+              nameRef={nameRef}
+              nameEpoch={nameEpoch}
+              onRename={(name) => onRename(selected.id, name)}
+              onMembers={(next) => onMembers(selected.id, next)}
+            />
+          ) : (
+            <EmptyState
+              title="Ingen skabelon valgt"
+              detail={
+                templates.length === 0
+                  ? 'Opret en ny, eller gendan standardskabelonerne.'
+                  : 'Vælg en skabelon i listen.'
+              }
+            />
+          )}
+        </div>
+        <div className={styles.columnsArea}>
+          <ColumnList
+            columns={columns}
+            busy={busy}
+            errors={columnErrors}
+            epochs={columnEpochs}
+            onRename={onRenameColumn}
+            onOptions={onColumnOptions}
+            onDelete={onDeleteColumn}
           />
-        )}
+        </div>
       </div>
       <Toast message={toast.message} />
     </div>

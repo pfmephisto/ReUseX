@@ -1,0 +1,80 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+.panel {
+  composes: panel from '../surfaces.module.css';
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+/* Focus parks here after Esc in a field (fieldKeys' home); it is not a control, so no ring. */
+.panel:focus {
+  outline: none;
+}
+.heading {
+  composes: panelHeading from '../surfaces.module.css';
+}
+.empty {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+.list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--color-border);
+}
+.row:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+}
+.input {
+  composes: input from '../controls.module.css';
+}
+.field {
+  composes: field from '../controls.module.css';
+}
+.fieldLabel {
+  composes: fieldLabel from '../controls.module.css';
+}
+.textarea {
+  composes: input from '../controls.module.css';
+  width: 100%;
+  resize: vertical;
+}
+.kind {
+  composes: fieldLabel from '../controls.module.css';
+}
+.hint,
+.confirm {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+.error {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--tone-crit-ink);
+}
+.btnDanger {
+  composes: btnDanger from '../controls.module.css';
+}

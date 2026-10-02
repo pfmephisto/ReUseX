@@ -81,9 +81,42 @@ describe('seed templates', () => {
 });
 
 describe('columnCreateConflict', () => {
-  it('shows a 409 in the dialog with the server reason, not the pipeline-job copy', () => {
-    const cause = new ApiRequestError(409, "a column named 'Stand' already exists", '/api/v1/resources/columns');
-    expect(columnCreateConflict(cause)).toBe("Navnet kan ikke bruges: a column named 'Stand' already exists");
+  const conflict = (message: string) => new ApiRequestError(409, message, '/api/v1/resources/columns');
+
+  it('maps a name a column already uses to Danish copy', () => {
+    expect(columnCreateConflict(conflict("a column named 'Stand' already exists"))).toBe(
+      'Der findes allerede en kolonne med det navn.',
+    );
+  });
+
+  it('maps a leksikon field name to Danish copy', () => {
+    expect(
+      columnCreateConflict(conflict("'Producent' is a leksikon field name; choose another column name")),
+    ).toBe('Navnet bruges af et felt i materialepasset.');
+  });
+
+  it('maps a name with stored values to Danish copy', () => {
+    expect(
+      columnCreateConflict(
+        conflict(
+          "values are already stored under 'Gammel' (left by a deleted column); choose another column name",
+        ),
+      ),
+    ).toBe('Navnet har stadig gemte værdier fra en slettet kolonne.');
+  });
+
+  it('falls back to the server message for an unknown name conflict', () => {
+    expect(columnCreateConflict(conflict("the name 'X' is reserved"))).toBe(
+      "Navnet kan ikke bruges: the name 'X' is reserved",
+    );
+  });
+
+  it('leaves the pipeline-job busy 409 to the toast', () => {
+    expect(
+      columnCreateConflict(
+        conflict('a pipeline job is running or queued; edits are refused while a stage is writing the project'),
+      ),
+    ).toBeNull();
   });
 
   it('leaves every other failure to the toast', () => {

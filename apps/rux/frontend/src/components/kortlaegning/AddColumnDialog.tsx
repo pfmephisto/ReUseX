@@ -50,10 +50,14 @@ export function AddColumnDialog({
   const note = seedNote(template);
   const nameRef = useRef<HTMLInputElement>(null);
 
+  // The server's refusal, until the name is edited: it is about the name.
+  const [conflict, setConflict] = useState(serverError);
+
   // A refused name is the thing to fix: put the caret back on it. (The
   // submit button was disabled while the request ran, which drops focus to
   // the body, where Esc would no longer reach the dialog.)
   useEffect(() => {
+    setConflict(serverError);
     if (serverError) nameRef.current?.select();
   }, [serverError]);
 
@@ -69,7 +73,7 @@ export function AddColumnDialog({
       title="Tilføj kolonne"
       onCancel={onCancel}
       onSubmit={() => submit(false)}
-      error={error ?? serverError}
+      error={error ?? conflict}
       actions={
         <>
           <button type="button" className={styles.btnGhost} onClick={onCancel}>
@@ -92,7 +96,10 @@ export function AddColumnDialog({
           ref={nameRef}
           className={styles.input}
           value={draft.name}
-          onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+          onChange={(e) => {
+            setDraft({ ...draft, name: e.target.value });
+            setConflict(null);
+          }}
           autoFocus
         />
       </label>

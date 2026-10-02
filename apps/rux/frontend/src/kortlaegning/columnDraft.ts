@@ -87,15 +87,29 @@ export function columnPartialFailureMessage(name: string, detail: string): strin
 }
 
 /**
+ * The server's name-conflict reasons for a column create (core/resources.cpp
+ * `check_column_name`, NameConflictError), as Danish dialog copy.
+ */
+const NAME_CONFLICTS: readonly [RegExp, string][] = [
+  [/^a column named '.*' already exists$/s, 'Der findes allerede en kolonne med det navn.'],
+  [/^'.*' is a leksikon field name\b/s, 'Navnet bruges af et felt i materialepasset.'],
+  [/^values are already stored under '.*'/s, 'Navnet har stadig gemte værdier fra en slettet kolonne.'],
+];
+
+/**
  * The dialog's error for a refused column create, or null when the failure
- * is not the dialog's to show. A 409 here is always a name conflict — a
- * column, a leksikon field or stored values already use the name (R3-D3) —
- * never the generic "pipeline-job kører" save copy; the server's reason is
- * shown as-is. Anything else goes to the page's toast.
+ * is not the dialog's to show (R3-D3). Only a 409 that is a name conflict is
+ * claimed: the three known reasons get Danish copy, and another 409 that
+ * still names the column name falls back to the server's message. Any other
+ * 409 — the "pipeline job is running" write guard — and every other error
+ * go to the page's toast (`saveErrorMessage`).
  */
 export function columnCreateConflict(cause: unknown): string | null {
-  if (cause instanceof ApiRequestError && cause.status === 409) {
-    return `Navnet kan ikke bruges: ${cause.message}`;
+  if (!(cause instanceof ApiRequestError) || cause.status !== 409) return null;
+  const message = cause.message;
+  for (const [shape, copy] of NAME_CONFLICTS) if (shape.test(message)) return copy;
+  if (/\bname\b/i.test(message) && !/pipeline job/i.test(message)) {
+    return `Navnet kan ikke bruges: ${message}`;
   }
   return null;
 }

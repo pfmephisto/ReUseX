@@ -41,6 +41,15 @@ export function optionsError(text: string): string | null {
   return parseOptions(text).length === 0 ? 'Angiv mindst én valgmulighed.' : null;
 }
 
+/** Shown under the options field while `text` drops one of `current`'s values — they stay stored, just hidden from new picks. */
+export const OPTIONS_REMOVED_HINT = 'Gemte værdier, der ikke længere er en mulighed, bevares';
+
+/** Whether saving `text` as the new option list would drop any of `current`'s values. */
+export function optionsRemoved(text: string, current: readonly string[]): boolean {
+  const next = new Set(parseOptions(text));
+  return current.some((o) => !next.has(o));
+}
+
 /** The armed delete button's explanation: the server drops the column's stored values too. */
 export function columnDeleteConfirm(name: string): string {
   return `Klik igen for at slette «${name}» og alle gemte værdier i feltet. Det kan ikke fortrydes.`;

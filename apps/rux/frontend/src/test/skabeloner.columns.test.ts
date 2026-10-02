@@ -10,8 +10,10 @@ import {
   columnErrorMessage,
   columnKindLabel,
   hasOptions,
+  OPTIONS_REMOVED_HINT,
   optionsChanged,
   optionsError,
+  optionsRemoved,
   optionsText,
   renameError,
 } from '../skabeloner/columns';
@@ -56,6 +58,24 @@ describe('options', () => {
   it('requires at least one option', () => {
     expect(optionsError(' , \n')).toBe('Angiv mindst én valgmulighed.');
     expect(optionsError('Rød')).toBeNull();
+  });
+});
+
+describe('optionsRemoved', () => {
+  it('is false when every current option survives, reordered or not', () => {
+    expect(optionsRemoved('Rød\nGrøn', ['Rød', 'Grøn'])).toBe(false);
+    expect(optionsRemoved('Grøn\nRød', ['Rød', 'Grøn'])).toBe(false);
+    expect(optionsRemoved('Rød\nGrøn\nBlå', ['Rød', 'Grøn'])).toBe(false);
+  });
+  it('is true when a stored option is dropped', () => {
+    expect(optionsRemoved('Rød', ['Rød', 'Grøn'])).toBe(true);
+    expect(optionsRemoved('', ['Rød'])).toBe(true);
+  });
+  it('is false with nothing stored yet', () => {
+    expect(optionsRemoved('Rød', [])).toBe(false);
+  });
+  it('names the hint in Danish', () => {
+    expect(OPTIONS_REMOVED_HINT).toMatch(/gemte værdier/i);
   });
 });
 

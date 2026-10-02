@@ -7,7 +7,14 @@ import { useRef, type RefObject } from 'react';
 import type { PropertyDefinition } from '../../api/types';
 import { useArmedConfirm } from '../../app/useArmedConfirm';
 import { fieldKeys, useTextDraft } from '../../app/useTextDraft';
-import { columnDeleteConfirm, columnKindLabel, hasOptions, optionsText } from '../../skabeloner/columns';
+import {
+  columnDeleteConfirm,
+  columnKindLabel,
+  hasOptions,
+  optionsRemoved,
+  OPTIONS_REMOVED_HINT,
+  optionsText,
+} from '../../skabeloner/columns';
 import styles from './ColumnList.module.css';
 
 export interface ColumnListProps {
@@ -39,7 +46,12 @@ function NameField({ value, label, home, reset, onCommit }: DraftFieldProps) {
   return <input className={styles.input} aria-label={label} {...draft.props} onKeyDown={fieldKeys(draft, home)} />;
 }
 
-function OptionsField({ value, label, home, reset, onCommit }: DraftFieldProps) {
+interface OptionsFieldProps extends DraftFieldProps {
+  /** The column's currently stored options, to warn when the draft drops one. */
+  current: readonly string[];
+}
+
+function OptionsField({ value, current, label, home, reset, onCommit }: OptionsFieldProps) {
   const draft = useTextDraft(value, onCommit, { reset });
   return (
     <label className={styles.field}>
@@ -51,6 +63,7 @@ function OptionsField({ value, label, home, reset, onCommit }: DraftFieldProps) 
         onKeyDown={fieldKeys(draft, home, true)}
       />
       <span className={styles.hint}>Én valgmulighed pr. linje, eller adskilt med komma.</span>
+      {optionsRemoved(draft.props.value, current) && <span className={styles.hint}>{OPTIONS_REMOVED_HINT}</span>}
     </label>
   );
 }
@@ -110,6 +123,7 @@ export function ColumnList({ columns, busy, errors, resets, onRename, onOptions,
                   <OptionsField
                     reset={resets[`${c.id}:options`] ?? 0}
                     value={optionsText(c.options)}
+                    current={c.options ?? []}
                     label="Valgmuligheder"
                     home={home}
                     onCommit={(text) => onOptions(c, text)}

@@ -24,7 +24,11 @@ export interface MutationQueueOptions {
 export interface MutationQueue {
   /** True while any mutation is queued or in flight. Gates buttons only. */
   busy: boolean;
-  mutate: (run: () => Promise<void>, onUnprocessable?: (cause: ApiRequestError) => void) => void;
+  /**
+   * Queues `run`. The returned promise settles (never rejects) once the
+   * mutation has finished, its error handling included; callers may ignore it.
+   */
+  mutate: (run: () => Promise<void>, onUnprocessable?: (cause: ApiRequestError) => void) => Promise<void>;
 }
 
 /**
@@ -43,9 +47,9 @@ export function useMutationQueue(options: MutationQueueOptions): MutationQueue {
   const [inFlight, setInFlight] = useState(0);
 
   const mutate = useCallback(
-    (run: () => Promise<void>, onUnprocessable?: (cause: ApiRequestError) => void) => {
+    (run: () => Promise<void>, onUnprocessable?: (cause: ApiRequestError) => void): Promise<void> => {
       setInFlight((n) => n + 1);
-      void queueRef.current!.enqueue(async () => {
+      return queueRef.current!.enqueue(async () => {
         try {
           await run();
         } catch (cause) {

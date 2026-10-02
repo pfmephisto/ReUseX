@@ -2,11 +2,11 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useId, useRef, useState, type RefObject } from 'react';
 
 import type { SampleCreate, SurveyPart } from '../../api/types';
-import { editorKeyAction } from '../../app/editorKeys';
-import { kindOf } from '../../app/keyTargets';
+import { formKeyDown } from '../../app/editorKeys';
+import { createOnceGuard } from '../../app/onceGuard';
 import { fieldKeys, useTextDraft } from '../../app/useTextDraft';
 import { STAGE_LABEL } from '../../kortlaegning/vocab';
 import { nextLabel, onsiteSampleBody, starButton, type Stop } from '../../onsite/model';
@@ -16,34 +16,19 @@ export interface CaptureSheetProps {
   part: SurveyPart;
   busy: boolean;
   next: Stop | null;
-  onStar: () => void;
+  /** Return the mutation's promise: the double-tap guard stays shut until it settles. */
+  onStar: () => Promise<void> | void;
   onNote: (note: string) => void;
-  onRegister: (body: SampleCreate, done: () => void) => void;
+  /** Return the mutation's promise; call `done()` on success to close the form. */
+  onRegister: (body: SampleCreate, done: () => void) => Promise<void> | void;
   onNext: () => void;
-}
-
-/**
- * A synchronous once-only guard for a busy-gated button (RapportPage's
- * generate guard): `busy` only disables the button on the next render, so a
- * fast double tap inside one frame would otherwise send twice. The guard
- * opens again once `busy` settles back to false (or a `reset` dep changes).
- */
-function useOnceWhileBusy(busy: boolean, reset: unknown = null) {
-  const inFlight = useRef(false);
-  useEffect(() => {
-    if (!busy) inFlight.current = false;
-  }, [busy, reset]);
-  return (run: () => void) => {
-    if (inFlight.current || busy) return;
-    inFlight.current = true;
-    run();
-  };
 }
 
 interface SampleFormProps {
   part: SurveyPart;
   busy: boolean;
-  onSubmit: (body: SampleCreate) => void;
+  formRef: RefObject<HTMLFormElement | null>;
+  onSubmit: (body: SampleCreate) => Promise<void> | void;
   onCancel: () => void;
 }
 
@@ -52,52 +37,32 @@ interface SampleFormProps {
  * `Registrér prøve`; Esc anywhere in the form cancels it (nothing in it is
  * saved yet), Ctrl/⌘+Enter submits — the keys of Miljø's create form.
  */
-function SampleForm({ part, busy, onSubmit, onCancel }: SampleFormProps) {
+function SampleForm({ part, busy, formRef, onSubmit, onCancel }: SampleFormProps) {
   const [title, setTitle] = useState('');
   const [what, setWhat] = useState('');
   const body = onsiteSampleBody(title, what, part);
   const id = useId();
   const titleRef = useRef<HTMLInputElement>(null);
-  const once = useOnceWhileBusy(busy);
+  const [guard] = useState(createOnceGuard);
   useEffect(() => {
     titleRef.current?.focus();
   }, []);
 
   function submit() {
-    if (body) once(() => onSubmit(body));
-  }
-
-  function onKeyDown(e: KeyboardEvent<HTMLFormElement>) {
-    const action = editorKeyAction({
-      key: e.key,
-      kind: kindOf(e.target),
-      ctrlKey: e.ctrlKey,
-      metaKey: e.metaKey,
-      altKey: e.altKey,
-    });
-    // As in Miljø's create form, Esc in a text field ('revert') cancels the
-    // whole form: nothing here is saved yet, so there is nothing to revert to.
-    if (action === 'revert' || action === 'close') {
-      e.preventDefault();
-      e.stopPropagation();
-      onCancel();
-    } else if (action === 'submit') {
-      e.preventDefault();
-      e.stopPropagation();
-      submit();
-    }
-    // 'commit' (plain Enter in a field) falls through to the native submit.
+    if (body && !busy) guard.run(() => onSubmit(body));
   }
 
   return (
     <form
+      ref={formRef}
       className={styles.form}
       aria-label={`Ny prøve ved ${part.code}`}
       onSubmit={(e) => {
         e.preventDefault();
         submit();
       }}
-      onKeyDown={onKeyDown}
+      // Esc cancels (nothing here is saved yet), Ctrl/⌘+Enter submits.
+      onKeyDown={(e) => formKeyDown(e, { onCancel, onSubmit: submit })}
     >
       <div className={styles.field}>
         <label className={styles.label} htmlFor={`${id}-titel`}>
@@ -152,12 +117,32 @@ export function CaptureSheet({ part, busy, next, onStar, onNote, onRegister, onN
   const note = useTextDraft(part.note, onNote);
   const [form, setForm] = useState(false);
   const star = starButton(part.starred);
-  const starOnce = useOnceWhileBusy(busy, part.starred);
+  const [starGuard] = useState(createOnceGuard);
   const noteId = useId();
+  const formRef = useRef<HTMLFormElement>(null);
+  const opener = useRef<HTMLButtonElement>(null);
+  const refocusOpener = useRef(false);
 
-  const closeForm = () => {
+  // The opener only exists again after the form has unmounted.
+  useEffect(() => {
+    if (!form && refocusOpener.current) {
+      refocusOpener.current = false;
+      opener.current?.focus();
+    }
+  }, [form]);
+
+  // Cancel: the user is in the form, so focus goes back to its opener.
+  const cancelForm = () => {
+    refocusOpener.current = true;
     setForm(false);
-    home.current?.focus(); // never drop focus to <body>
+  };
+
+  // Success arrives later: take focus back only if it is still in the form
+  // (or fell to <body>), never from somewhere the user has moved on to.
+  const doneForm = () => {
+    const active = document.activeElement;
+    refocusOpener.current = active === null || active === document.body || (formRef.current?.contains(active) ?? false);
+    setForm(false);
   };
 
   return (
@@ -168,7 +153,9 @@ export function CaptureSheet({ part, busy, next, onStar, onNote, onRegister, onN
         data-on={part.starred || undefined}
         aria-pressed={part.starred}
         disabled={busy}
-        onClick={() => starOnce(onStar)}
+        onClick={() => {
+          if (!busy) starGuard.run(onStar);
+        }}
       >
         <span className={styles.icon} aria-hidden="true">
           {star.icon}
@@ -177,9 +164,15 @@ export function CaptureSheet({ part, busy, next, onStar, onNote, onRegister, onN
       </button>
 
       {form ? (
-        <SampleForm part={part} busy={busy} onSubmit={(body) => onRegister(body, closeForm)} onCancel={closeForm} />
+        <SampleForm
+          part={part}
+          busy={busy}
+          formRef={formRef}
+          onSubmit={(body) => onRegister(body, doneForm)}
+          onCancel={cancelForm}
+        />
       ) : (
-        <button type="button" className={styles.row} onClick={() => setForm(true)}>
+        <button ref={opener} type="button" className={styles.row} onClick={() => setForm(true)}>
           <span className={styles.icon} aria-hidden="true">
             ◎
           </span>
@@ -187,13 +180,11 @@ export function CaptureSheet({ part, busy, next, onStar, onNote, onRegister, onN
         </button>
       )}
 
-      <div className={`${styles.row} ${styles.noteRow}`}>
+      <label className={`${styles.row} ${styles.noteRow}`} htmlFor={noteId}>
         <span className={styles.icon} aria-hidden="true">
           ✎
         </span>
-        <label className={styles.noteLabel} htmlFor={noteId}>
-          Note
-        </label>
+        <span className={styles.noteLabel}>Note</span>
         <input
           id={noteId}
           className={styles.noteInput}
@@ -201,7 +192,7 @@ export function CaptureSheet({ part, busy, next, onStar, onNote, onRegister, onN
           {...note.props}
           onKeyDown={fieldKeys(note, home)}
         />
-      </div>
+      </label>
 
       <button type="button" className={styles.next} disabled={next === null} onClick={onNext}>
         {nextLabel(next)}

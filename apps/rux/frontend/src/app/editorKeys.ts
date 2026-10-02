@@ -8,7 +8,7 @@
  * field reverts it without committing; Esc anywhere else closes.
  */
 
-import type { TargetKind } from './keyTargets';
+import { kindOf, type TargetKind } from './keyTargets';
 
 export type EditorKey = 'revert' | 'close' | 'commit' | 'submit';
 
@@ -45,4 +45,41 @@ export function fieldKeyAction(
   if (action === 'revert') return 'revert';
   if (action === 'commit' && !multiline) return 'commit';
   return null;
+}
+
+/** The parts of a keydown event `formKeyDown` reads (React's or the DOM's). */
+export interface FormKeyEvent {
+  key: string;
+  target: EventTarget | null;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  altKey: boolean;
+  preventDefault: () => void;
+  stopPropagation: () => void;
+}
+
+/**
+ * The keys of a create form whose fields are not saved yet (Miljø's
+ * `+ Ny prøve`, On-site's sample form): Esc anywhere — a text field included —
+ * cancels the form, since there is no committed value to revert to;
+ * Ctrl/⌘+Enter submits. Both are handled here and stop propagating. Plain
+ * Enter in a field falls through to the native submit.
+ */
+export function formKeyDown(e: FormKeyEvent, handlers: { onCancel: () => void; onSubmit: () => void }): void {
+  const action = editorKeyAction({
+    key: e.key,
+    kind: kindOf(e.target),
+    ctrlKey: e.ctrlKey,
+    metaKey: e.metaKey,
+    altKey: e.altKey,
+  });
+  if (action === 'revert' || action === 'close') {
+    e.preventDefault();
+    e.stopPropagation(); // handled here: no page-level handler may act on it too
+    handlers.onCancel();
+  } else if (action === 'submit') {
+    e.preventDefault();
+    e.stopPropagation();
+    handlers.onSubmit();
+  }
 }

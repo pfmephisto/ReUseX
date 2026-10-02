@@ -26,7 +26,7 @@ export function PartPicker({ groups, value, onChange }: PartPickerProps) {
         Bygningsdele
       </h2>
       {groups.map((g, i) => (
-        <section key={g.room} className={styles.group} aria-labelledby={`${id}-room-${i}`}>
+        <section key={`${i}-${g.room}`} className={styles.group} aria-labelledby={`${id}-room-${i}`}>
           <h3 id={`${id}-room-${i}`} className={styles.room}>
             {g.room}
           </h3>

@@ -2,11 +2,11 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 
 import type { SampleCreate, SurveyType } from '../../api/types';
-import { kindOf } from '../../app/keyTargets';
-import { createBody, editorKeyAction, toggleLink } from '../../miljoe/model';
+import { formKeyDown } from '../../app/editorKeys';
+import { createBody, toggleLink } from '../../miljoe/model';
 import { LinkPicker } from './LinkPicker';
 import styles from './NewSampleForm.module.css';
 
@@ -44,28 +44,6 @@ export function NewSampleForm({ types, initialTypeIds, busy, onSubmit, onCancel 
     if (body && !busy) onSubmit(body);
   }
 
-  function onKeyDown(e: KeyboardEvent<HTMLFormElement>) {
-    const action = editorKeyAction({
-      key: e.key,
-      kind: kindOf(e.target),
-      ctrlKey: e.ctrlKey,
-      metaKey: e.metaKey,
-      altKey: e.altKey,
-    });
-    // Unlike the sample editor, Esc in a text field ('revert') cancels the
-    // whole form rather than reverting that field: nothing here is saved
-    // yet, so there is no committed value to revert to.
-    if (action === 'revert' || action === 'close') {
-      e.preventDefault();
-      e.stopPropagation(); // handled here: no page-level handler may act on it too
-      onCancel();
-    } else if (action === 'submit') {
-      e.preventDefault();
-      e.stopPropagation();
-      submit();
-    }
-    // 'commit' (plain Enter in a text input) falls through to the native submit.
-  }
 
   return (
     <form
@@ -75,7 +53,7 @@ export function NewSampleForm({ types, initialTypeIds, busy, onSubmit, onCancel 
         e.preventDefault();
         submit();
       }}
-      onKeyDown={onKeyDown}
+      onKeyDown={(e) => formKeyDown(e, { onCancel, onSubmit: submit })}
     >
       <h3 id={headingId} className={styles.title}>
         Ny prøve

@@ -13,6 +13,8 @@ export interface CaptureStageProps {
   reticle: Reticle | null;
   title: string;
   detail: string;
+  /** The part's code, for the photo's alt text. */
+  code: string;
   aspect: { width: number; height: number } | null;
 }
 
@@ -22,17 +24,18 @@ export interface CaptureStageProps {
  * the frame's aspect ratio, so the reticle's percentages land on the photo.
  * A photo, not the 3D canvas: the stage is themed like any other surface.
  */
-export function CaptureStage({ photoUrl, placeholder, reticle, title, detail, aspect }: CaptureStageProps) {
+export function CaptureStage({ photoUrl, placeholder, reticle, title, detail, code, aspect }: CaptureStageProps) {
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const showPhoto = photoUrl !== null && failedUrl !== photoUrl;
   return (
     <div className={styles.stage} style={aspect ? { aspectRatio: `${aspect.width} / ${aspect.height}` } : undefined}>
       {showPhoto ? (
-        <img className={styles.photo} src={photoUrl} alt={`Bedste foto af ${title}`} onError={() => setFailedUrl(photoUrl)} />
+        <img className={styles.photo} src={photoUrl} alt={`Bedste foto af ${code}, ${title}`} onError={() => setFailedUrl(photoUrl)} />
       ) : (
         <p className={styles.placeholder}>{photoUrl !== null ? PHOTO_TEXT.failed : placeholder}</p>
       )}
-      {showPhoto && reticle && (
+      {/* Without the frame's size the stage is 4/3, so the percentages would miss. */}
+      {showPhoto && reticle && aspect && (
         <div
           className={styles.reticle}
           aria-hidden="true"

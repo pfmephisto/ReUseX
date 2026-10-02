@@ -1,0 +1,31 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+.page {
+  composes: page from './viewHead.module.css';
+}
+.head {
+  composes: head from './viewHead.module.css';
+}
+.title {
+  composes: title from './viewHead.module.css';
+}
+.sub {
+  composes: sub from './viewHead.module.css';
+}
+.layout {
+  display: grid;
+  grid-template-columns: minmax(14rem, 18rem) minmax(0, 1fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+
+/* The shell's phone breakpoint (navigation.ts DRAWER_QUERY). */
+@media (max-width: 56.25rem) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

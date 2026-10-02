@@ -33,9 +33,32 @@ export default defineConfig({
   build: {
     // `rux gui` serves this directory verbatim; --assets points at it.
     outDir: 'dist',
-    // A scan viewport pulls in three.js; the default 500 kB warning is noise.
-    chunkSizeWarningLimit: 1500,
     sourcemap: true,
+    rolldownOptions: {
+      output: {
+        // Split the big vendor libraries out of the app chunk, so no chunk
+        // crosses Vite's 500 kB warning limit and an app-only change leaves
+        // the vendor chunks' hashes (and the browser's cached copies) intact.
+        // The ViewportPage is mounted on every route (see App.tsx), so three.js
+        // is needed at start-up either way; this splits it, it does not defer it.
+        // three ships as two modules (three.core.js + the WebGL renderer in
+        // three.module.js) that together exceed 500 kB; keep them apart.
+        // Groups are tried in order, so the core group must come first.
+        codeSplitting: {
+          groups: [
+            {
+              name: 'vendor-three-core',
+              test: /[\\/]node_modules[\\/]three[\\/]build[\\/]three\.core\.js$/,
+            },
+            { name: 'vendor-three', test: /[\\/]node_modules[\\/]three[\\/]/ },
+            {
+              name: 'vendor-react',
+              test: /[\\/]node_modules[\\/](react|react-dom|react-router|react-router-dom|scheduler)[\\/]/,
+            },
+          ],
+        },
+      },
+    },
   },
   test: {
     // The tested modules are pure logic — the API client with an injected

@@ -8,6 +8,16 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 Status: **implemented** (2026-10-02; phases 1–6 complete; proposed 2026-09-30). Anchor: #265 (GUI application).
 
+> **2026-10-02 (resources/templates redesign):** this doc is kept as the
+> record of what shipped in Phases 1–6, but two of its screens were since
+> folded into others — see
+> `docs/superpowers/specs/2026-10-02-resources-templates-ia-design.md`.
+> **On-site** was removed from `rux gui` and moved to the mobile-app track
+> (§8 of that spec, and the note under "Sager and On-site screens" below).
+> **Materialedata** and **Eksport** were retired: their content now lives in
+> Kortlægning (resources replace materials) and Rapport (CSV + PDF
+> Ressourcetabel export) respectively.
+
 ## Source
 
 A colleague's clickable prototype, *ReUseX Overblik — prototype v2*
@@ -89,11 +99,16 @@ The token system stays the mechanism: the prototype's values go into
 | `/miljoe` | Miljø & prøver | — (new) |
 | `/rapport` | Rapport | report part of Export |
 | `/indberetning` | Indberetning | — (new) |
-| `/on-site` | On-site | — (new, phone layout) |
-| `/viewport`, `/graph-view`, `/pipeline`, `/pipeline/log`, `/frames`, `/geometry`, `/instances`, `/materials`, `/labels`, `/export` | Værktøjer group | unchanged, restyled by the tokens only |
+| `/on-site` | On-site | — (new, phone layout) (removed 2026-10-02 → mobile app) |
+| `/graph-view`, `/pipeline`, `/pipeline/log`, `/frames`, `/geometry`, `/instances`, `/labels` | Værktøjer group | unchanged, restyled by the tokens only |
 
-`/materials` (the free-form passport spreadsheet) stays as a tool: it edits
-arbitrary MaterialEPAS properties Kortlægning does not model.
+> **2026-10-02:** `/materials` and `/export` were retired by the
+> resources/templates spec (§3) — both now redirect (`/materials` to
+> Kortlægning, `/export` to Rapport) rather than rendering their own page.
+> The free-form MaterialEPAS passport spreadsheet `/materials` once offered
+> no longer exists as a distinct tool now that resources carry the passport
+> fields. `Viewport` moved out of Værktøjer into the Sag group (above),
+> alongside the new `/skabeloner`.
 
 **Sager and one project per server.** `rux gui` serves one `.rux`. The Sager
 screen lists the open project as its card and says how to open another
@@ -331,6 +346,11 @@ queue or awaiting a sample, a CSV download of the ready fractions, and
 
 ## Sager and On-site screens (the prototype, component by component)
 
+> **2026-10-02:** On-site was removed from `rux gui` and its backend
+> (`samples.part_code` dropped in schema v25) and moved to the mobile-app
+> track — see `docs/superpowers/specs/2026-10-02-resources-templates-ia-design.md` §8.
+> The description below is kept as the design record for that app.
+
 **Sager** — a case list: one card per building survey, the fixture name and
 address, the survey's figures, a status pill and a deadline. **On-site** — a
 phone "interruption" sheet during capture: a live camera viewfinder with a
@@ -389,7 +409,9 @@ Each phase is a separate PR that leaves the app working.
    the existing report endpoints, fraction table and send gate. (done in
    Phase 5)
 6. **Sager & On-site** — case list (single-project), phone capture sheet
-   writing ★ / note / sample against a bygningsdel. (done in Phase 6)
+   writing ★ / note / sample against a bygningsdel. (done in Phase 6) —
+   later removed from rux gui; On-site moved to the mobile-app track
+   (2026-10-02)
 
 ## Out of scope / follow-up issues
 

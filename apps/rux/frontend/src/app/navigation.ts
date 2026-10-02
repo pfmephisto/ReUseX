@@ -108,6 +108,7 @@ export const REDIRECTS: readonly Redirect[] = [
   { from: '/on-site', to: KORTLAEGNING_PATH },
   { from: '/onsite', to: KORTLAEGNING_PATH },
   { from: '/materials', to: KORTLAEGNING_PATH },
+  { from: '/export', to: RAPPORT_PATH },
 ];
 
 export function entriesIn(group: NavGroup): NavEntry[] {

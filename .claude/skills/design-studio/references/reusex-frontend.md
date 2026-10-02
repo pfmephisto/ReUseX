@@ -77,9 +77,9 @@ apps/rux/frontend/src/
 ├── routes/       Page compositions: OverblikPage, Dashboard (now at
 │                 `/projektdata`), ViewportPage, PipelinePage,
 │                 PipelineLogPage, GraphViewPage, FramesPage, DataPage,
-│                 GeometryPage, InstancesPage, ExportPage,
+│                 GeometryPage, InstancesPage,
 │                 KortlaegningPage, MiljoePage, RapportPage, IndberetningPage,
-│                 SagerPage
+│                 SagerPage, SkabelonerPage
 │                 (KortlaegningPage and MiljoePage use app/SurveyCountsContext
 │                 for the two sidebar badges: review queue and pending
 │                 samples), plus viewHead.module.css, the shared header CSS

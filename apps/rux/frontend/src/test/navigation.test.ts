@@ -159,6 +159,10 @@ describe('redirects for retired paths (spec §3)', () => {
     expect(REDIRECTS).toContainEqual({ from: '/materials', to: '/kortlaegning' });
   });
 
+  it('sends the retired Eksport path to Rapport', () => {
+    expect(REDIRECTS).toContainEqual({ from: '/export', to: '/rapport' });
+  });
+
   it('never redirects from a path the nav still lists', () => {
     const navPaths = new Set(NAV_ENTRIES.map((e) => e.to));
     for (const r of REDIRECTS) expect(navPaths.has(r.from), r.from).toBe(false);

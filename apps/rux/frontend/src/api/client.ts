@@ -30,7 +30,6 @@ import type {
   DescriptorMatchResult,
   DescriptorMethod,
   EndpointInfo,
-  ExportTemplate,
   FrameInfo,
   FrameImageKind,
   FrameList,
@@ -1140,39 +1139,6 @@ export class RuxApiClient {
       '/exports/csv',
       columns && columns.length > 0 ? { columns: columns.join(',') } : undefined,
     );
-  }
-
-  // ------------------------------------------------ export-templates ----
-
-  async listExportTemplates(signal?: AbortSignal): Promise<ExportTemplate[]> {
-    const body = await this.requestJson<{ templates: ExportTemplate[] }>(
-      '/export-templates',
-      undefined,
-      signal,
-    );
-    return body.templates;
-  }
-
-  createExportTemplate(
-    name: string,
-    config: { columns?: string[] },
-  ): Promise<ExportTemplate> {
-    return this.postJson<ExportTemplate>('/export-templates', { name, config });
-  }
-
-  updateExportTemplate(
-    id: number,
-    patch: { name?: string; config?: { columns?: string[] } },
-  ): Promise<ExportTemplate> {
-    return this.patchJson<ExportTemplate>(`/export-templates/${id}`, patch);
-  }
-
-  async deleteExportTemplate(id: number): Promise<void> {
-    const url = this.url(`/export-templates/${id}`);
-    const response = await this.doFetch(url, { method: 'DELETE' });
-    if (!response.ok) {
-      throw new ApiRequestError(response.status, await describeFailure(response), url);
-    }
   }
 
   // -------------------------------------------------------- websocket ----

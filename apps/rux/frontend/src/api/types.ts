@@ -724,22 +724,6 @@ export interface FrameSegmentResult {
   labels: Record<string, string>;
 }
 
-// -------------------------------------------------------- export-templates ----
-
-/**
- * `ExportTemplate` — a named, saved CSV export column selection (#459).
- *
- * Mirror of `components.schemas.ExportTemplate` in `docs/gui/openapi.yaml`.
- * `config.columns` holds the ordered column names; absent or empty means all.
- */
-export interface ExportTemplate {
-  id: number;
-  name: string;
-  config: { columns?: string[] };
-  created_at: string;
-  updated_at: string;
-}
-
 // ------------------------------------------------------- panorama segment ----
 
 /** Body of `POST /panoramas/{id}/segment`. */

@@ -19,7 +19,6 @@ import {
 import { ALL_CASES_PATH, REDIRECTS } from './navigation';
 import { Dashboard } from '../routes/Dashboard';
 import { LabelsPage } from '../routes/DataPage';
-import { ExportPage } from '../routes/ExportPage';
 import { FramesPage } from '../routes/FramesPage';
 import { GeometryPage } from '../routes/GeometryPage';
 import { GraphViewPage } from '../routes/GraphViewPage';
@@ -91,7 +90,6 @@ function RoutedContent() {
           <Route path="/geometry" element={<GeometryPage />} />
           <Route path="/instances" element={<InstancesPage />} />
           <Route path="/labels" element={<LabelsPage />} />
-          <Route path="/export" element={<ExportPage />} />
           {REDIRECTS.map((r) => (
             <Route key={r.from} path={r.from} element={<Navigate to={r.to} replace />} />
           ))}

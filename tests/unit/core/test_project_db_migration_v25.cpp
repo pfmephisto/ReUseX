@@ -10,11 +10,13 @@
 #include <core/ProjectDB.hpp>
 #include <core/resource_templates.hpp>
 
+#include "../../support/survey_fixture.hpp"
 #include "../../support/temp_path.hpp"
 
 #include <nlohmann/json.hpp>
 #include <sqlite3.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -23,6 +25,7 @@ using reusex::ProjectDB;
 namespace core = reusex::core;
 namespace fs = std::filesystem;
 using json = nlohmann::json;
+using namespace reusex::test_support;
 
 namespace {
 struct TempDB : reusex::test_support::TempPath {
@@ -49,8 +52,36 @@ void roll_back_to_v24(const fs::path &path) {
       config TEXT NOT NULL DEFAULT '{}',
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now')));
+    DROP INDEX IF EXISTS idx_survey_parts_passport;
+    CREATE TABLE survey_parts_v24 (
+      code TEXT PRIMARY KEY,
+      type_id INTEGER NOT NULL REFERENCES survey_types(id) ON DELETE CASCADE,
+      instance_guid TEXT UNIQUE, room_id INTEGER,
+      room_name TEXT NOT NULL DEFAULT '', quantity REAL NOT NULL DEFAULT 1,
+      starred INTEGER NOT NULL DEFAULT 0, note TEXT NOT NULL DEFAULT '');
+    INSERT INTO survey_parts_v24 SELECT code, type_id, instance_guid, room_id,
+      room_name, quantity, starred, note FROM survey_parts;
+    DROP TABLE survey_parts;
+    ALTER TABLE survey_parts_v24 RENAME TO survey_parts;
+    CREATE INDEX IF NOT EXISTS idx_survey_parts_type ON survey_parts(type_id);
+    ALTER TABLE samples ADD COLUMN part_code TEXT;
     DELETE FROM schema_version WHERE version >= 25;
   )sql");
+}
+
+bool column_exists(const fs::path &path, const char *table, const char *col) {
+  sqlite3 *raw = nullptr;
+  REQUIRE(sqlite3_open(path.string().c_str(), &raw) == SQLITE_OK);
+  sqlite3_stmt *s = nullptr;
+  const std::string sql = std::string("PRAGMA table_info(") + table + ");";
+  sqlite3_prepare_v2(raw, sql.c_str(), -1, &s, nullptr);
+  bool found = false;
+  while (sqlite3_step(s) == SQLITE_ROW)
+    found = found || std::string(reinterpret_cast<const char *>(
+                         sqlite3_column_text(s, 1))) == col;
+  sqlite3_finalize(s);
+  sqlite3_close(raw);
+  return found;
 }
 
 bool table_exists(const fs::path &path, const char *name) {
@@ -169,4 +200,54 @@ TEST_CASE("TemplatesStore_Crud_NameIsUnique", "[ProjectDB][templates]") {
   CHECK(db.delete_resource_template(added.id));
   CHECK_FALSE(db.delete_resource_template(added.id));
   CHECK_FALSE(db.resource_template(added.id).has_value());
+}
+
+TEST_CASE("MigrationV25_LinksAndSplitsPassports_DropsPartCode",
+          "[ProjectDB][migration]") {
+  TempDB tmp;
+  int64_t sample_id = 0;
+  int64_t type_id = 0;
+  {
+    ProjectDB db(tmp.path);
+    make_instance_cloud(db, 3);
+    make_passport(db, "guid-shared");
+    db.set_passport_property("guid-shared", "width_mm", "600");
+    db.set_material_thumbnail("guid-shared", {0xFF, 0xD8, 0xFF}, "image/jpeg");
+    make_passport(db, "guid-orphan");
+    // `rux create materials` style: one passport on two instances.
+    db.set_instance_material("instances", 1, "guid-shared");
+    db.set_instance_material("instances", 2, "guid-shared");
+    type_id = make_type(db, "Døre");
+    make_part(db, "RX-001", type_id, 1u);
+    make_part(db, "RX-002", type_id, 2u);
+    make_part(db, "RX-003", type_id); // manual
+    const auto s = db.add_sample("PCB", "Fuge", {type_id});
+    sample_id = s.id;
+  }
+  roll_back_to_v24(tmp.path);
+  exec_raw(tmp.path, "UPDATE samples SET part_code = 'RX-001';");
+  ProjectDB db(tmp.path);
+  CHECK(db.schema_version() == 25);
+  CHECK(db.survey_part("RX-001")->material_guid ==
+        std::optional<std::string>("guid-shared")); // first by code keeps it
+  const auto copy = db.survey_part("RX-002")->material_guid;
+  REQUIRE(copy.has_value());
+  CHECK(*copy != "guid-shared");
+  CHECK(db.passport_stored_properties(*copy).at("width_mm") == "600");
+  CHECK(db.material_thumbnail(*copy).has_value());
+  CHECK(db.instance_material_guid("instances", 2) == copy);
+  CHECK(db.instance_material_guid("instances", 1) ==
+        std::optional<std::string>("guid-shared"));
+  CHECK_FALSE(db.survey_part("RX-003")->material_guid.has_value());
+  const auto guids = db.list_passport_guids();
+  CHECK(std::find(guids.begin(), guids.end(), "guid-orphan") != guids.end());
+  CHECK_FALSE(column_exists(tmp.path, "samples", "part_code"));
+  CHECK(column_exists(tmp.path, "survey_parts", "passport_guid"));
+  REQUIRE(db.samples().size() == 1);
+  CHECK(db.samples()[0].id == sample_id);
+  CHECK(db.samples()[0].type_ids == std::vector<int64_t>{type_id});
+  // A second open changes nothing.
+  const auto count = db.list_passport_guids().size();
+  ProjectDB again(tmp.path);
+  CHECK(again.list_passport_guids().size() == count);
 }

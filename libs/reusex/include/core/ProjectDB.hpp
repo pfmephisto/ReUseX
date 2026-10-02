@@ -88,6 +88,23 @@ class ProjectDB {
   const std::filesystem::path &path() const noexcept;
   int schema_version() const;
   static int latest_schema_version() noexcept;
+
+  /// One write transaction (BEGIN IMMEDIATE ... COMMIT), rolled back unless
+  /// commit() is called. ProjectDB methods that open their own transaction
+  /// (add_material_passport, set_survey_part_quantities, add_sample, …)
+  /// cannot be called inside one; the resource/template methods can.
+  class Transaction {
+      public:
+    explicit Transaction(ProjectDB &db); ///< throws on a read-only project
+    ~Transaction();
+    void commit();
+    Transaction(const Transaction &) = delete;
+    Transaction &operator=(const Transaction &) = delete;
+
+      private:
+    ProjectDB *db_;
+    bool open_ = true;
+  };
   void validate_schema() const;
 
   // --- Sensor Frame Operations ---
@@ -1032,7 +1049,10 @@ class ProjectDB {
     bool starred = false;
     std::string note;
     std::optional<std::string>
-        material_guid; // read-only: from instance_materials
+        material_guid; // read-only: the part's passport (survey_parts.
+                       // passport_guid, schema v25), else its instance's
+                       // instance_materials link — unless another part
+                       // owns that passport, then empty
     /// Stable link to `instances.guid` (schema v22); survives `rux create
     /// instances` re-runs because instance identity is reconciled on guid,
     /// not (cloud_id, instance_id). Nullable: a manually added part needs no
@@ -1065,6 +1085,24 @@ class ProjectDB {
   [[nodiscard]] bool has_survey_part_for(std::string_view cloud_name,
                                          std::uint32_t instance_id) const;
   [[nodiscard]] int max_survey_part_number() const; // 0 when there are none
+
+  /// Resource storage (schema v25). Call inside a Transaction. Returns the
+  /// part's passport guid; on first use creates a bare passport (or adopts
+  /// the instance's linked passport when no other part owns it), sets
+  /// survey_parts.passport_guid, upserts instance_materials for an
+  /// instance-backed part, and makes sure the leksikon property_definitions
+  /// exist. @throws std::out_of_range when @p code is unknown.
+  std::string ensure_resource_passport(std::string_view code);
+  /// @throws std::out_of_range when @p code is unknown.
+  void delete_survey_part(std::string_view code);
+  /// Call inside a Transaction. Moves the values stored under a user
+  /// column's field name to @p new_name; a no-op when nothing is stored.
+  /// @throws core::NameConflictError when values already exist under
+  ///         @p new_name (they would merge).
+  void rename_passport_field(std::string_view old_name,
+                             std::string_view new_name);
+  /// True when a survey part or an instance link still references @p guid.
+  [[nodiscard]] bool is_passport_linked(std::string_view guid) const;
 
   struct SampleRecord {
     int64_t id = 0;
@@ -1137,6 +1175,7 @@ class ProjectDB {
   std::vector<std::string> list_project_ids() const;
 
     private:
+  bool is_passport_linked_by_part(std::string_view guid) const;
   class Impl;
   std::unique_ptr<Impl> impl_;
 };

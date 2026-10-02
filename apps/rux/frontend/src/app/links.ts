@@ -50,3 +50,16 @@ export function parseMiljoeQuery(search: string): MiljoeQuery {
 export function parseTypeQuery(search: string): number | null {
   return positiveId(new URLSearchParams(search).get('type'));
 }
+
+export const ONSITE_PATH = '/on-site';
+
+/** On-site at one bygningsdel. */
+export function onsiteHref(code: string): string {
+  return `${ONSITE_PATH}?del=${encodeURIComponent(code)}`;
+}
+
+/** `?del=<RX-###>` on /on-site; anything that is not a part code is ignored. */
+export function parseOnsiteQuery(search: string): string | null {
+  const v = new URLSearchParams(search).get('del');
+  return v !== null && /^RX-\d+$/.test(v) ? v : null;
+}

@@ -15,6 +15,7 @@ import {
   PROJEKTDATA_PATH,
   RAPPORT_PATH,
 } from './links';
+import { ALL_CASES_PATH } from './navigation';
 import { Dashboard } from '../routes/Dashboard';
 import { LabelsPage } from '../routes/DataPage';
 import { ExportPage } from '../routes/ExportPage';
@@ -30,6 +31,7 @@ import { OverblikPage } from '../routes/OverblikPage';
 import { PipelineLogPage } from '../routes/PipelineLogPage';
 import { PipelinePage } from '../routes/PipelinePage';
 import { RapportPage } from '../routes/RapportPage';
+import { SagerPage } from '../routes/SagerPage';
 import { ViewportPage } from '../routes/ViewportPage';
 
 /**
@@ -73,6 +75,7 @@ function RoutedContent() {
       {/* Standard switcher for every other page */}
       {!onViewport && (
         <Routes>
+          <Route path={ALL_CASES_PATH} element={<SagerPage />} />
           <Route path={OVERBLIK_PATH} element={<OverblikPage />} />
           <Route path={PROJEKTDATA_PATH} element={<Dashboard />} />
           <Route path={KORTLAEGNING_PATH} element={<KortlaegningPage />} />

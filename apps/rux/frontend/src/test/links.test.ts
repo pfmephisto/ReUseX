@@ -4,7 +4,16 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { newSampleHref, parseMiljoeQuery, parseTypeQuery, sampleHref, surveyTypeHref } from '../app/links';
+import {
+  newSampleHref,
+  ONSITE_PATH,
+  onsiteHref,
+  parseMiljoeQuery,
+  parseOnsiteQuery,
+  parseTypeQuery,
+  sampleHref,
+  surveyTypeHref,
+} from '../app/links';
 
 describe('cross-screen links', () => {
   it('builds the hrefs both screens link with', () => {
@@ -33,5 +42,22 @@ describe('cross-screen links', () => {
 
   it('takes the first value of a duplicate-key type query, like URLSearchParams does', () => {
     expect(parseTypeQuery('?type=6&type=7')).toBe(6);
+  });
+});
+
+describe('on-site links', () => {
+  it('builds and reads ?del=<part code>', () => {
+    expect(ONSITE_PATH).toBe('/on-site');
+    expect(onsiteHref('RX-008')).toBe('/on-site?del=RX-008');
+    expect(parseOnsiteQuery('?del=RX-008')).toBe('RX-008');
+    expect(parseOnsiteQuery('?del=RX-008&x=1')).toBe('RX-008');
+  });
+
+  it('ignores anything that is not a part code', () => {
+    expect(parseOnsiteQuery('')).toBeNull();
+    expect(parseOnsiteQuery('?del=')).toBeNull();
+    expect(parseOnsiteQuery('?del=rx-008')).toBeNull();
+    expect(parseOnsiteQuery('?del=RX-8a')).toBeNull();
+    expect(parseOnsiteQuery('?del=%3Cscript%3E')).toBeNull();
   });
 });

@@ -2857,8 +2857,12 @@ json update_export_template_json(reusex::ProjectDB &db, int64_t id,
   const std::string name = body.contains("name") && body["name"].is_string()
                                ? body["name"].get<std::string>()
                                : existing->name;
+  // No config in the body (a rename) must touch only the name: "{}" carries
+  // neither columns nor CSV options, so the stored members stay as they are.
+  // Echoing existing->config_json instead would rebuild the members from the
+  // view, which leaves out col: members whose user column was deleted.
   const std::string config_json =
-      body.contains("config") ? body["config"].dump() : existing->config_json;
+      body.contains("config") ? body["config"].dump() : "{}";
   try {
     return template_record_json(
         db.update_export_template(id, name, config_json));

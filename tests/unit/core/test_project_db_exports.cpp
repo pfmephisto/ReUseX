@@ -202,3 +202,51 @@ TEST_CASE("ExportTemplates_Update_ReplacesColumnsInPlace",
                                           {core::MemberKind::key, "legacy:d"},
                                           {core::MemberKind::category, "Mål"}});
 }
+
+TEST_CASE("ExportTemplates_Rename_KeepsMembersOfADeletedColumn",
+          "[ProjectDB][exports]") {
+  // A rename (no columns in the config) touches only the name. A col: member
+  // whose user column was deleted is not in the view's columns, so it must
+  // survive both a rename and a columns update (kept as a missing member).
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  const auto col = db.add_property_definition("Bredde", "number", {}, 0);
+  const auto rec = db.add_export_template(
+      "Valg", R"({"columns":["Bredde","kind"],"delimiter":","})");
+  const auto before = db.resource_template(rec.id)->members_json;
+  db.delete_property_definition(col);
+
+  const auto renamed = db.update_export_template(rec.id, "Omdøbt", "{}");
+  CHECK(renamed.name == "Omdøbt");
+  CHECK(db.resource_template(rec.id)->members_json == before);
+  CHECK(nlohmann::json::parse(renamed.config_json).at("delimiter") == ",");
+
+  db.update_export_template(rec.id, "Omdøbt", R"({"columns":["id"]})");
+  CHECK(
+      core::read_members(db.resource_template(rec.id)->members_json, "") ==
+      std::vector<core::TemplateMember>{{core::MemberKind::key, "col:" + col},
+                                        {core::MemberKind::key, "legacy:id"}});
+}
+
+TEST_CASE("ExportTemplates_RepeatedColumns_FirstPositionWins",
+          "[ProjectDB][exports]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  const auto col = db.add_property_definition("Bredde", "number", {}, 0);
+  const auto rec = db.add_export_template(
+      "Valg", R"({"columns":["kind","Bredde","kind",7,"Bredde"]})");
+  const std::vector<core::TemplateMember> want{
+      {core::MemberKind::key, "legacy:kind"},
+      {core::MemberKind::key, "col:" + col}};
+  CHECK(core::read_members(db.resource_template(rec.id)->members_json, "") ==
+        want);
+  CHECK(nlohmann::json::parse(rec.config_json).at("columns") ==
+        nlohmann::json::parse(R"(["kind","Bredde"])"));
+
+  db.update_export_template(rec.id, "Valg",
+                            R"({"columns":["Bredde",null,"kind","Bredde"]})");
+  CHECK(core::read_members(db.resource_template(rec.id)->members_json, "") ==
+        std::vector<core::TemplateMember>{
+            {core::MemberKind::key, "col:" + col},
+            {core::MemberKind::key, "legacy:kind"}});
+}

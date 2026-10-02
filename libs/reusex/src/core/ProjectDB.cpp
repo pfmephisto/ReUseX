@@ -154,6 +154,34 @@ constexpr const char *kTemplatesSchema = R"(
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
   );
 )";
+
+/// Export-template `columns` (schema v21 config) as key members, via
+/// core::legacy_column_member. First position wins: a column that maps to a
+/// member already taken is dropped, as are non-string entries; both are
+/// counted in one warn naming @p who (STANDARDS §5).
+std::vector<core::TemplateMember>
+column_members(const nlohmann::json &columns,
+               const std::vector<core::ResourceKey> &catalogue,
+               std::string_view who) {
+  std::vector<core::TemplateMember> out;
+  std::size_t non_string = 0, repeated = 0;
+  for (const auto &c : columns) {
+    if (!c.is_string()) {
+      ++non_string;
+      continue;
+    }
+    auto m = core::legacy_column_member(c.get<std::string>(), catalogue);
+    if (std::find(out.begin(), out.end(), m) != out.end()) {
+      ++repeated;
+      continue;
+    }
+    out.push_back(std::move(m));
+  }
+  if (non_string + repeated > 0)
+    reusex::warn("{}: skipped {} non-string and {} repeated column(s) of {}",
+                 who, non_string, repeated, columns.size());
+  return out;
+}
 } // namespace
 
 // ── Compact point serialization helpers ─────────────────────────────────
@@ -1916,23 +1944,33 @@ class ProjectDB::Impl {
     return sqlite3_column_int64(s, 0);
   }
 
-  /// Insert one templates row. @throws core::NameConflictError on a taken name.
+  /// Insert one templates row; unset timestamps default to now.
+  /// @throws core::NameConflictError on a taken name.
   int64_t insertTemplate(const std::string &name, const std::string &members,
                          const std::string &csv,
-                         const std::optional<std::string> &seed) {
+                         const std::optional<std::string> &seed,
+                         const std::optional<std::string> &created_at = {},
+                         const std::optional<std::string> &updated_at = {}) {
     sqlite3_stmt *s = prepare_or_throw(
         db,
-        "INSERT INTO templates (name, members, csv, seed) VALUES (?,?,?,?) "
-        "RETURNING id;",
+        "INSERT INTO templates (name, members, csv, seed, created_at, "
+        "updated_at) VALUES (?,?,?,?,"
+        "COALESCE(?5, strftime('%Y-%m-%dT%H:%M:%SZ','now')),"
+        "COALESCE(?6, strftime('%Y-%m-%dT%H:%M:%SZ','now'))) RETURNING id;",
         "insert template");
     StmtGuard guard(s);
+    auto bind_opt = [&](int i, const std::optional<std::string> &v) {
+      if (v)
+        bind_text(s, i, *v);
+      else
+        sqlite3_bind_null(s, i);
+    };
     bind_text(s, 1, name);
     bind_text(s, 2, members);
     bind_text(s, 3, csv);
-    if (seed)
-      bind_text(s, 4, *seed);
-    else
-      sqlite3_bind_null(s, 4);
+    bind_opt(4, seed);
+    bind_opt(5, created_at);
+    bind_opt(6, updated_at);
     if (sqlite3_step(s) != SQLITE_ROW) {
       if (sqlite3_extended_errcode(db) == SQLITE_CONSTRAINT_UNIQUE)
         throw core::NameConflictError("a template named '" + name +
@@ -1975,16 +2013,31 @@ class ProjectDB::Impl {
       return out;
     const auto catalogue = core::key_catalogue(listPropertyDefinitions());
     auto taken = templateNames();
-    std::vector<std::pair<std::string, std::string>> rows;
+    struct Row {
+      std::string name, config;
+      std::optional<std::string> created_at, updated_at;
+    };
+    std::vector<Row> rows;
     {
+      // v21 stamped datetime('now') ("YYYY-MM-DD HH:MM:SS", UTC); carry it
+      // over in the v25 ISO form. Unparseable stamps read NULL -> now.
       sqlite3_stmt *s = prepare_or_throw(
-          db, "SELECT name, config FROM export_templates ORDER BY id;",
+          db,
+          "SELECT name, config, strftime('%Y-%m-%dT%H:%M:%SZ', created_at), "
+          "strftime('%Y-%m-%dT%H:%M:%SZ', updated_at) FROM export_templates "
+          "ORDER BY id;",
           "migrateToV25");
       StmtGuard guard(s);
+      auto opt_text = [&](int i) -> std::optional<std::string> {
+        if (sqlite3_column_type(s, i) == SQLITE_NULL)
+          return std::nullopt;
+        return column_text(s, i);
+      };
       while (sqlite3_step(s) == SQLITE_ROW)
-        rows.emplace_back(column_text(s, 0), column_text(s, 1));
+        rows.push_back(
+            {column_text(s, 0), column_text(s, 1), opt_text(2), opt_text(3)});
     }
-    for (const auto &[name, config] : rows) {
+    for (const auto &[name, config, created_at, updated_at] : rows) {
       auto cfg = nlohmann::json::parse(config, nullptr, false);
       if (cfg.is_discarded() || !cfg.is_object()) {
         reusex::warn("v25: export template '{}' had unreadable config; moved "
@@ -1994,22 +2047,19 @@ class ProjectDB::Impl {
       }
       std::vector<core::TemplateMember> members;
       if (cfg.contains("columns") && cfg["columns"].is_array())
-        for (const auto &col : cfg["columns"]) {
-          if (!col.is_string())
-            continue;
-          auto m =
-              core::legacy_column_member(col.get<std::string>(), catalogue);
-          if (m.ref.rfind(core::kLegacyKeyPrefix, 0) == 0)
-            out.unmatched.push_back(name + ": " + col.get<std::string>());
-          members.push_back(std::move(m));
-        }
+        members = column_members(cfg["columns"], catalogue,
+                                 "v25: export template '" + name + "'");
+      for (const auto &m : members)
+        if (m.ref.rfind(core::kLegacyKeyPrefix, 0) == 0)
+          out.unmatched.push_back(name + ": " +
+                                  m.ref.substr(core::kLegacyKeyPrefix.size()));
       cfg.erase("columns");
       const bool clash =
           std::find(taken.begin(), taken.end(), name) != taken.end();
       const auto final_name =
           clash ? core::unique_name(name, "eksport", taken) : name;
       insertTemplate(final_name, core::members_json(members).dump(), cfg.dump(),
-                     std::nullopt);
+                     std::nullopt, created_at, updated_at);
       taken.push_back(final_name);
       ++out.moved;
     }
@@ -7966,6 +8016,8 @@ ProjectDB::ResourceTemplateRecord
 ProjectDB::update_resource_template(int64_t id,
                                     const ResourceTemplatePatch &p) {
   impl_->checkWritable();
+  // The existence check, the UPDATE and the read-back are one unit.
+  Savepoint sp(impl_->db, "update_resource_template");
   if (!resource_template(id))
     throw std::out_of_range("no template " + std::to_string(id));
   std::vector<std::string> sets;
@@ -7975,8 +8027,11 @@ ProjectDB::update_resource_template(int64_t id,
     sets.emplace_back("members = ?");
   if (p.csv_json)
     sets.emplace_back("csv = ?");
-  if (sets.empty())
-    return *resource_template(id);
+  if (sets.empty()) {
+    auto unchanged = *resource_template(id);
+    sp.release();
+    return unchanged;
+  }
   std::string sql = "UPDATE templates SET ";
   for (const auto &s : sets)
     sql += s + ", ";
@@ -7999,7 +8054,9 @@ ProjectDB::update_resource_template(int64_t id,
     throw std::runtime_error("update_resource_template: " +
                              std::string(sqlite3_errmsg(impl_->db)));
   }
-  return *resource_template(id);
+  auto updated = *resource_template(id);
+  sp.release();
+  return updated;
 }
 
 bool ProjectDB::delete_resource_template(int64_t id) {
@@ -8033,19 +8090,14 @@ as_export_template(const ProjectDB::ResourceTemplateRecord &t,
 std::pair<std::optional<std::vector<core::TemplateMember>>,
           std::optional<std::string>>
 from_export_config(const std::string &config_json,
-                   const std::vector<core::ResourceKey> &catalogue) {
+                   const std::vector<core::ResourceKey> &catalogue,
+                   std::string_view who) {
   auto config = nlohmann::json::parse(config_json, nullptr, false);
   if (config.is_discarded() || !config.is_object())
     config = nlohmann::json::object();
   std::optional<std::vector<core::TemplateMember>> members;
-  if (config.contains("columns") && config["columns"].is_array()) {
-    std::vector<core::TemplateMember> m;
-    for (const auto &c : config["columns"])
-      if (c.is_string())
-        m.push_back(
-            core::legacy_column_member(c.get<std::string>(), catalogue));
-    members = std::move(m);
-  }
+  if (config.contains("columns") && config["columns"].is_array())
+    members = column_members(config["columns"], catalogue, who);
   config.erase("columns");
   std::optional<std::string> csv;
   if (!config.empty())
@@ -8053,24 +8105,34 @@ from_export_config(const std::string &config_json,
   return {members, csv};
 }
 
-/// A member the legacy view owns: what `columns` reads back from and writes.
-bool is_column_member(const core::TemplateMember &m) {
-  return m.kind == core::MemberKind::key &&
-         (m.ref.rfind(core::kLegacyKeyPrefix, 0) == 0 ||
-          m.ref.rfind("col:", 0) == 0);
+/// A member the legacy view owns, i.e. one core::legacy_columns renders into
+/// `columns`: a `legacy:` member, or a `col:` member whose user column still
+/// exists. A `col:` member whose column was deleted is not in the view, so a
+/// write through the view never removes it (spec: kept as missing).
+bool is_column_member(const core::TemplateMember &m,
+                      const std::vector<core::ResourceKey> &catalogue) {
+  if (m.kind != core::MemberKind::key)
+    return false;
+  if (m.ref.rfind(core::kLegacyKeyPrefix, 0) == 0)
+    return true;
+  return m.ref.rfind("col:", 0) == 0 && core::find_key(catalogue, m.ref);
 }
 
-/// R-P4: replace only the `legacy:`/`col:` members of @p stored with
-/// @p columns. Every other member (category, sys:, lex:) keeps its relative
-/// position; the new column members go where the first old one was, or at
-/// the end when there was none. A column that maps onto a member already
-/// kept is not added twice.
+/// R-P4: replace only the view's members (see is_column_member) of @p stored
+/// with @p columns. Every other member (category, sys:, lex:, a missing
+/// col:) keeps its relative position; the new column members go where the
+/// first old one was, or at the end when there was none. A column that maps
+/// onto a member already kept is not added twice.
 std::vector<core::TemplateMember>
 merge_column_members(const std::vector<core::TemplateMember> &stored,
-                     const std::vector<core::TemplateMember> &columns) {
+                     const std::vector<core::TemplateMember> &columns,
+                     const std::vector<core::ResourceKey> &catalogue) {
+  const auto owned = [&](const core::TemplateMember &m) {
+    return is_column_member(m, catalogue);
+  };
   std::vector<core::TemplateMember> kept;
   for (const auto &m : stored)
-    if (!is_column_member(m))
+    if (!owned(m))
       kept.push_back(m);
   std::vector<core::TemplateMember> fresh;
   for (const auto &m : columns)
@@ -8080,7 +8142,7 @@ merge_column_members(const std::vector<core::TemplateMember> &stored,
   std::vector<core::TemplateMember> out;
   bool placed = false;
   for (const auto &m : stored) {
-    if (!is_column_member(m)) {
+    if (!owned(m)) {
       out.push_back(m);
       continue;
     }
@@ -8099,7 +8161,8 @@ ProjectDB::ExportTemplateRecord
 ProjectDB::add_export_template(const std::string &name,
                                const std::string &config_json) {
   const auto catalogue = core::key_catalogue(list_property_definitions());
-  const auto [members, csv] = from_export_config(config_json, catalogue);
+  const auto [members, csv] =
+      from_export_config(config_json, catalogue, "add_export_template");
   ResourceTemplateRecord rec;
   rec.name = name;
   rec.members_json =
@@ -8130,12 +8193,17 @@ ProjectDB::export_template(int64_t id) const {
 ProjectDB::ExportTemplateRecord
 ProjectDB::update_export_template(int64_t id, const std::string &name,
                                   const std::string &config_json) {
+  impl_->checkWritable();
+  // Read, merge and write as one unit, so a concurrent writer on the same
+  // file cannot slip in between the read of the members and the UPDATE.
+  Savepoint sp(impl_->db, "update_export_template");
   const auto stored = resource_template(id);
   if (!stored)
     throw std::runtime_error("update_export_template: id not found: " +
                              std::to_string(id));
   const auto catalogue = core::key_catalogue(list_property_definitions());
-  const auto [columns, csv] = from_export_config(config_json, catalogue);
+  const auto [columns, csv] =
+      from_export_config(config_json, catalogue, "update_export_template");
   ResourceTemplatePatch p;
   p.name = name;
   if (columns)
@@ -8143,10 +8211,12 @@ ProjectDB::update_export_template(int64_t id, const std::string &name,
         core::members_json(
             merge_column_members(
                 core::read_members(stored->members_json, stored->name),
-                *columns))
+                *columns, catalogue))
             .dump();
   p.csv_json = csv;
-  return as_export_template(update_resource_template(id, p), catalogue);
+  auto out = as_export_template(update_resource_template(id, p), catalogue);
+  sp.release();
+  return out;
 }
 
 bool ProjectDB::delete_export_template(int64_t id) {

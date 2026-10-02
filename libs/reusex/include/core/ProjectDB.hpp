@@ -985,9 +985,11 @@ class ProjectDB {
   /// until GUI Phase 4, and ruxd). `config_json` is the template's CSV
   /// options plus `columns`: legacy-member names and user-column labels. A
   /// write maps `columns` back with core::legacy_column_member; other config
-  /// fields become the CSV options (only when the body has any). An update
-  /// replaces only the template's `legacy:` and `col:` members; category,
-  /// `sys:` and `lex:` members are kept in place.
+  /// fields become the CSV options (only when the body has any), and repeated
+  /// columns keep their first position. An update replaces only the members
+  /// the view shows (`legacy:` ones and `col:` ones whose user column
+  /// exists); category, `sys:`, `lex:` and missing `col:` members are kept in
+  /// place. A config without `columns` leaves the members untouched.
   struct ExportTemplateRecord {
     int64_t id = 0;
     std::string name;

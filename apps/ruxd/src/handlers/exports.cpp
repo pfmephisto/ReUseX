@@ -392,9 +392,10 @@ void register_export_routes(App &app, EndpointRegistry &reg,
               body.contains("name") && body["name"].is_string()
                   ? body["name"].get<std::string>()
                   : existing->name;
-          const std::string config_json = body.contains("config")
-                                              ? body["config"].dump()
-                                              : existing->config_json;
+          // A rename (no config) touches only the name; see rux gui's
+          // update_export_template_json.
+          const std::string config_json =
+              body.contains("config") ? body["config"].dump() : "{}";
 
           const auto updated = db.update_export_template(
               static_cast<int64_t>(id), name, config_json);

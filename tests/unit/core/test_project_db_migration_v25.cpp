@@ -251,3 +251,27 @@ TEST_CASE("MigrationV25_LinksAndSplitsPassports_DropsPartCode",
   ProjectDB again(tmp.path);
   CHECK(again.list_passport_guids().size() == count);
 }
+
+TEST_CASE("MigrationV25_MovedRows_KeepTimestamps_DedupeColumns",
+          "[ProjectDB][migration]") {
+  TempDB tmp;
+  {
+    ProjectDB db(tmp.path);
+  }
+  roll_back_to_v24(tmp.path);
+  exec_raw(tmp.path, R"sql(
+    INSERT INTO export_templates (name, config, created_at, updated_at)
+    VALUES ('Gammel', '{"columns":["kind","id","kind",3]}',
+            '2025-03-04 05:06:07', '2025-06-07 08:09:10');
+  )sql");
+  ProjectDB db(tmp.path);
+  const auto list = db.resource_templates();
+  REQUIRE(list.size() == 3);
+  CHECK(list[2].name == "Gammel");
+  CHECK(list[2].created_at == "2025-03-04T05:06:07Z");
+  CHECK(list[2].updated_at == "2025-06-07T08:09:10Z");
+  CHECK(
+      core::read_members(list[2].members_json, "") ==
+      std::vector<core::TemplateMember>{{core::MemberKind::key, "legacy:kind"},
+                                        {core::MemberKind::key, "legacy:id"}});
+}

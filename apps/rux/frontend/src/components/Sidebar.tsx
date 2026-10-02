@@ -48,8 +48,9 @@ function Entry({ entry, count }: { entry: NavEntry; count?: number }) {
   );
   if (entry.pending) {
     return (
-      <span className={`${styles.item} ${styles.pending}`} title={entry.pending} aria-disabled="true">
+      <span className={`${styles.item} ${styles.pending}`} title={entry.pending}>
         {inner}
+        <span className={styles.note}>kommer snart</span>
       </span>
     );
   }

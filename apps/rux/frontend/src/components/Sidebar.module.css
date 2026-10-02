@@ -112,6 +112,14 @@
   color: var(--color-on-chrome-muted);
 }
 
+/* Visible status cue so keyboard and touch users — who never see the `title`
+   tooltip — and screen readers get the "not yet available" reason too. */
+.note {
+  margin-left: auto;
+  font-size: var(--font-size-2xs);
+  font-style: italic;
+}
+
 .back {
   margin-top: auto;
   padding: var(--space-3) var(--space-4) 0;

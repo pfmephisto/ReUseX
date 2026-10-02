@@ -2833,8 +2833,11 @@ json create_export_template_json(reusex::ProjectDB &db, const json &body) {
   const std::string name = body["name"].get<std::string>();
   const std::string config_json =
       body.contains("config") ? body["config"].dump() : "{}";
-  const auto rec = db.add_export_template(name, config_json);
-  return template_record_json(rec);
+  try {
+    return template_record_json(db.add_export_template(name, config_json));
+  } catch (const reusex::core::NameConflictError &e) {
+    throw HttpError(409, e.what());
+  }
 }
 
 json get_export_template_json(const reusex::ProjectDB &db, int64_t id) {
@@ -2856,8 +2859,12 @@ json update_export_template_json(reusex::ProjectDB &db, int64_t id,
                                : existing->name;
   const std::string config_json =
       body.contains("config") ? body["config"].dump() : existing->config_json;
-  const auto rec = db.update_export_template(id, name, config_json);
-  return template_record_json(rec);
+  try {
+    return template_record_json(
+        db.update_export_template(id, name, config_json));
+  } catch (const reusex::core::NameConflictError &e) {
+    throw HttpError(409, e.what());
+  }
 }
 
 void delete_export_template(reusex::ProjectDB &db, int64_t id) {

@@ -936,21 +936,56 @@ class ProjectDB {
   [[nodiscard]] std::optional<std::vector<std::uint8_t>>
   report_pdf(int64_t id) const;
 
-  // --- Export Templates (schema v21) ---
+  // --- Resource templates (schema v25) ---
+  /// One row of `templates` (resources/templates spec §5.1). members_json
+  /// and csv_json are parsed by core/resource_templates.hpp.
+  struct ResourceTemplateRecord {
+    int64_t id = 0;
+    std::string name;
+    std::string members_json = "[]";
+    std::string csv_json = "{}";
+    std::optional<std::string> seed; // "materialepas" | "screening"
+    std::string created_at;          // ISO 8601 UTC
+    std::string updated_at;
+  };
+  struct ResourceTemplatePatch {
+    std::optional<std::string> name, members_json, csv_json;
+  };
+  /// By id. Empty on a read-only open of a pre-v25 project.
+  [[nodiscard]] std::vector<ResourceTemplateRecord> resource_templates() const;
+  [[nodiscard]] std::optional<ResourceTemplateRecord>
+  resource_template(int64_t id) const;
+  /// id/timestamps are ignored. @throws core::NameConflictError
+  ResourceTemplateRecord
+  add_resource_template(const ResourceTemplateRecord &rec);
+  /// @throws std::out_of_range, core::NameConflictError
+  ResourceTemplateRecord
+  update_resource_template(int64_t id, const ResourceTemplatePatch &patch);
+  bool delete_resource_template(int64_t id); // false when absent
 
+  // --- Export templates: legacy view over `templates` (schema v25) ---
+  /// The schema v21 shape, kept for the /export-templates routes (rux gui
+  /// until GUI Phase 4, and ruxd). `config_json` is the template's CSV
+  /// options plus `columns`: legacy-member names and user-column labels. A
+  /// write maps `columns` back with core::legacy_column_member; other config
+  /// fields become the CSV options (only when the body has any). An update
+  /// replaces only the template's `legacy:` and `col:` members; category,
+  /// `sys:` and `lex:` members are kept in place.
   struct ExportTemplateRecord {
     int64_t id = 0;
     std::string name;
-    std::string config_json; // JSON: {"columns": [...]}
+    std::string config_json; // JSON: {"columns": [...], ...csv options}
     std::string created_at;  // ISO 8601 UTC
     std::string updated_at;  // ISO 8601 UTC
   };
 
+  /// @throws core::NameConflictError
   ExportTemplateRecord add_export_template(const std::string &name,
                                            const std::string &config_json);
   [[nodiscard]] std::vector<ExportTemplateRecord> list_export_templates() const;
   [[nodiscard]] std::optional<ExportTemplateRecord>
   export_template(int64_t id) const;
+  /// @throws std::runtime_error when @p id is unknown, core::NameConflictError
   ExportTemplateRecord update_export_template(int64_t id,
                                               const std::string &name,
                                               const std::string &config_json);

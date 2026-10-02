@@ -60,7 +60,7 @@ export interface FormKeyEvent {
 
 /**
  * The keys of a create form whose fields are not saved yet (Miljø's
- * `+ Ny prøve`, On-site's sample form): Esc anywhere — a text field included —
+ * `+ Ny prøve`): Esc anywhere — a text field included —
  * cancels the form, since there is no committed value to revert to;
  * Ctrl/⌘+Enter submits. Both are handled here and stop propagating. Plain
  * Enter in a field falls through to the native submit.

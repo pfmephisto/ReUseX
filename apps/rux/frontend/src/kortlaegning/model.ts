@@ -16,7 +16,7 @@ export interface Filters {
   search: string;
   roomId: number | null;
   env: EnvFilter | null;
-  /** Only types that are ★, or have a ★ part — what On-site marks (Phase 6 R13). */
+  /** Only types that are ★, or have a ★ part (Phase 6 R13). */
   starred: boolean;
 }
 export const NO_FILTERS: Filters = { search: '', roomId: null, env: null, starred: false };

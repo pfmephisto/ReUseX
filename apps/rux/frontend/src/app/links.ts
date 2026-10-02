@@ -16,6 +16,9 @@ export const RAPPORT_PATH = '/rapport';
 export const INDBERETNING_PATH = '/indberetning';
 export const PROJEKTDATA_PATH = '/projektdata';
 
+/** Skabeloner — the template editor (resources/templates spec §6.2). Its page arrives in Phase 4. */
+export const SKABELONER_PATH = '/skabeloner';
+
 export function sampleHref(sampleId: number): string {
   return `${MILJOE_PATH}?sample=${sampleId}`;
 }
@@ -49,23 +52,4 @@ export function parseMiljoeQuery(search: string): MiljoeQuery {
 /** `?type=<id>` on /kortlaegning. */
 export function parseTypeQuery(search: string): number | null {
   return positiveId(new URLSearchParams(search).get('type'));
-}
-
-export const ONSITE_PATH = '/on-site';
-
-/** On-site at one bygningsdel. */
-export function onsiteHref(code: string): string {
-  return `${ONSITE_PATH}?del=${encodeURIComponent(code)}`;
-}
-
-/** `?del=<RX-###>` on /on-site; anything that is not a part code is ignored. */
-export function parseOnsiteQuery(search: string): string | null {
-  const v = new URLSearchParams(search).get('del');
-  return v !== null && /^RX-\d{1,6}$/.test(v) ? v : null;
-}
-
-/** The raw `?del=` value, malformed or not, so the page can name what it was asked for; null when absent or empty. */
-export function rawOnsiteDel(search: string): string | null {
-  const v = new URLSearchParams(search).get('del');
-  return v ? v : null;
 }

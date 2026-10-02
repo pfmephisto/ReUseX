@@ -21,10 +21,10 @@ import {
   INDBERETNING_PATH,
   KORTLAEGNING_PATH,
   MILJOE_PATH,
-  ONSITE_PATH,
   OVERBLIK_PATH,
   PROJEKTDATA_PATH,
   RAPPORT_PATH,
+  SKABELONER_PATH,
 } from './links';
 
 export type NavGroup = 'sag' | 'tools';
@@ -75,22 +75,43 @@ export function drawerClickCloses(tags: readonly string[]): boolean {
 export const NAV_ENTRIES: readonly NavEntry[] = [
   { to: OVERBLIK_PATH, label: 'Overblik', group: 'sag', end: true },
   { to: KORTLAEGNING_PATH, label: 'Kortlægning', group: 'sag', badge: 'reviewQueue' },
+  { to: '/viewport', label: 'Viewport', group: 'sag' },
   { to: MILJOE_PATH, label: 'Miljø & prøver', group: 'sag', badge: 'pendingSamples' },
   { to: RAPPORT_PATH, label: 'Rapport', group: 'sag' },
   { to: INDBERETNING_PATH, label: 'Indberetning', group: 'sag' },
-  { to: ONSITE_PATH, label: 'On-site', group: 'sag' },
+  {
+    to: SKABELONER_PATH,
+    label: 'Skabeloner',
+    group: 'sag',
+    pending: 'Skabeloner er på vej — her samler du felter, du bruger igen og igen.',
+  },
 
   { to: PROJEKTDATA_PATH, label: 'Projektdata', group: 'tools' },
-  { to: '/viewport', label: 'Viewport', group: 'tools' },
   { to: '/graph-view', label: 'Posegraf', group: 'tools' },
   { to: '/pipeline', label: 'Pipeline', group: 'tools', end: true },
   { to: '/pipeline/log', label: 'Kørselslog', group: 'tools' },
   { to: '/frames', label: 'Billeder', group: 'tools' },
   { to: '/geometry', label: 'Geometri', group: 'tools' },
   { to: '/instances', label: 'Instanser', group: 'tools' },
-  { to: '/materials', label: 'Materialedata', group: 'tools' },
   { to: '/labels', label: 'Labels', group: 'tools' },
-  { to: '/export', label: 'Eksport', group: 'tools' },
+];
+
+/** An old path that still resolves, so bookmarks and cross-links keep working. */
+export interface Redirect {
+  from: string;
+  to: string;
+}
+
+/**
+ * Retired paths (resources/templates spec §3), rendered by App.tsx as
+ * `<Navigate replace>` ahead of the catch-all, so they never stack history.
+ * The query is dropped. A source must not also be a `<Route>` in App.tsx:
+ * whoever adds one here deletes that route in the same change. Phase 3 adds
+ * `/materials`, Phase 4 `/export`.
+ */
+export const REDIRECTS: readonly Redirect[] = [
+  { from: '/on-site', to: KORTLAEGNING_PATH },
+  { from: '/onsite', to: KORTLAEGNING_PATH },
 ];
 
 export function entriesIn(group: NavGroup): NavEntry[] {

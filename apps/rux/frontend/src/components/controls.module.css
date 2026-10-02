@@ -138,9 +138,9 @@
   outline-offset: 0;
 }
 
-/* A link to another case screen (Kortlægning ↔ Miljø & prøver ↔ On-site,
- * Sager → On-site). One style everywhere, so "this opens the other screen"
- * reads the same on every screen (Phase 6 R12). */
+/* A link to another case screen (Kortlægning ↔ Miljø & prøver). One style
+ * everywhere, so "this opens the other screen" reads the same on every screen
+ * (Phase 6 R12). */
 
 .crossLink {
   color: var(--color-accent-deep);

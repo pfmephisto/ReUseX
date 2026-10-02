@@ -49,7 +49,6 @@ export function sample(over: Partial<Sample> = {}): Sample {
     stage: 'sendt',
     result: null,
     type_ids: [],
-    part_code: null,
     created_at: '',
     updated_at: '',
     ...over,

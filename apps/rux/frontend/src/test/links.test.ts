@@ -4,17 +4,8 @@
 
 import { describe, expect, it } from 'vitest';
 
-import {
-  newSampleHref,
-  ONSITE_PATH,
-  onsiteHref,
-  parseMiljoeQuery,
-  parseOnsiteQuery,
-  parseTypeQuery,
-  rawOnsiteDel,
-  sampleHref,
-  surveyTypeHref,
-} from '../app/links';
+import { newSampleHref, parseMiljoeQuery, parseTypeQuery, sampleHref, surveyTypeHref } from '../app/links';
+import * as links from '../app/links';
 
 describe('cross-screen links', () => {
   it('builds the hrefs both screens link with', () => {
@@ -46,32 +37,10 @@ describe('cross-screen links', () => {
   });
 });
 
-describe('on-site links', () => {
-  it('builds and reads ?del=<part code>', () => {
-    expect(ONSITE_PATH).toBe('/on-site');
-    expect(onsiteHref('RX-008')).toBe('/on-site?del=RX-008');
-    expect(parseOnsiteQuery('?del=RX-008')).toBe('RX-008');
-    expect(parseOnsiteQuery('?del=RX-008&x=1')).toBe('RX-008');
-  });
-
-  it('ignores anything that is not a part code', () => {
-    expect(parseOnsiteQuery('')).toBeNull();
-    expect(parseOnsiteQuery('?del=')).toBeNull();
-    expect(parseOnsiteQuery('?del=rx-008')).toBeNull();
-    expect(parseOnsiteQuery('?del=RX-8a')).toBeNull();
-    expect(parseOnsiteQuery('?del=%3Cscript%3E')).toBeNull();
-  });
-
-  it('bounds the part code to six digits', () => {
-    expect(parseOnsiteQuery('?del=RX-123456')).toBe('RX-123456');
-    expect(parseOnsiteQuery('?del=RX-1234567')).toBeNull();
-    expect(parseOnsiteQuery(`?del=RX-${'9'.repeat(400)}`)).toBeNull();
-  });
-
-  it('keeps the raw ?del= value so a malformed one can be named', () => {
-    expect(rawOnsiteDel('?del=junk')).toBe('junk');
-    expect(rawOnsiteDel('?del=RX-008')).toBe('RX-008');
-    expect(rawOnsiteDel('?del=')).toBeNull();
-    expect(rawOnsiteDel('')).toBeNull();
+describe('retired On-site links', () => {
+  it('links no longer export the On-site helpers', () => {
+    for (const name of ['ONSITE_PATH', 'onsiteHref', 'parseOnsiteQuery', 'rawOnsiteDel']) {
+      expect(name in links, name).toBe(false);
+    }
   });
 });

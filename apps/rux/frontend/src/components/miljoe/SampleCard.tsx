@@ -18,7 +18,6 @@ import {
   linkedTypes,
   nextStage,
   statusPill,
-  takenAt,
 } from '../../miljoe/model';
 import { Pill } from '../Pill';
 import { LinkPicker } from './LinkPicker';
@@ -182,7 +181,6 @@ export function SampleCard(props: SampleCardProps) {
   const pill = statusPill(sample);
   const action = cardAction(sample);
   const next = nextStage(sample.stage);
-  const taken = takenAt(sample, types);
   const headingId = `sample-${sample.id}-title`;
   const editorId = `sample-${sample.id}-editor`;
 
@@ -220,18 +218,6 @@ export function SampleCard(props: SampleCardProps) {
       </header>
 
       {sample.what && <p className={styles.what}>{sample.what}</p>}
-
-      {taken && (
-        <p className={styles.what}>
-          {taken.typeId !== null ? (
-            <Link className={styles.typeLink} to={surveyTypeHref(taken.typeId)}>
-              {taken.text}
-            </Link>
-          ) : (
-            taken.text
-          )}
-        </p>
-      )}
 
       <StageChain sample={sample} />
 

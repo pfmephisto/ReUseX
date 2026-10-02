@@ -11,12 +11,11 @@ import {
   INDBERETNING_PATH,
   KORTLAEGNING_PATH,
   MILJOE_PATH,
-  ONSITE_PATH,
   OVERBLIK_PATH,
   PROJEKTDATA_PATH,
   RAPPORT_PATH,
 } from './links';
-import { ALL_CASES_PATH } from './navigation';
+import { ALL_CASES_PATH, REDIRECTS } from './navigation';
 import { Dashboard } from '../routes/Dashboard';
 import { LabelsPage } from '../routes/DataPage';
 import { ExportPage } from '../routes/ExportPage';
@@ -28,7 +27,6 @@ import { InstancesPage } from '../routes/InstancesPage';
 import { KortlaegningPage } from '../routes/KortlaegningPage';
 import { MaterialsPage } from '../routes/MaterialsPage';
 import { MiljoePage } from '../routes/MiljoePage';
-import { OnsitePage } from '../routes/OnsitePage';
 import { OverblikPage } from '../routes/OverblikPage';
 import { PipelineLogPage } from '../routes/PipelineLogPage';
 import { PipelinePage } from '../routes/PipelinePage';
@@ -84,7 +82,6 @@ function RoutedContent() {
           <Route path={MILJOE_PATH} element={<MiljoePage />} />
           <Route path={RAPPORT_PATH} element={<RapportPage />} />
           <Route path={INDBERETNING_PATH} element={<IndberetningPage />} />
-          <Route path={ONSITE_PATH} element={<OnsitePage />} />
           <Route path="/pipeline" element={<PipelinePage />} />
           <Route path="/pipeline/log" element={<PipelineLogPage />} />
           <Route path="/frames" element={<FramesPage />} />
@@ -94,6 +91,9 @@ function RoutedContent() {
           <Route path="/materials" element={<MaterialsPage />} />
           <Route path="/labels" element={<LabelsPage />} />
           <Route path="/export" element={<ExportPage />} />
+          {REDIRECTS.map((r) => (
+            <Route key={r.from} path={r.from} element={<Navigate to={r.to} replace />} />
+          ))}
           <Route path="*" element={<Navigate to={OVERBLIK_PATH} replace />} />
         </Routes>
       )}

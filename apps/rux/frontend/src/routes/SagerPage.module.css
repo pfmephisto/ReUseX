@@ -50,18 +50,13 @@
 }
 
 .text,
-.muted,
-.warn {
+.muted {
   margin: 0;
   font-size: var(--font-size-sm);
 }
 
 .muted {
   color: var(--color-text-muted);
-}
-
-.warn {
-  composes: notice from '../components/surfaces.module.css';
 }
 
 .command {
@@ -73,8 +68,4 @@
   font-family: var(--font-mono);
   font-size: var(--font-size-sm);
   white-space: nowrap;
-}
-
-.crossLink {
-  composes: crossLink from '../components/controls.module.css';
 }

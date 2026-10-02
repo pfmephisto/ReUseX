@@ -3,9 +3,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 /**
- * Sager as data: the one card `rux gui` can show (R1) and the commands that
- * open another case or reach this one from a phone (R10). Every figure is
- * read off a server response; this module only words it.
+ * Sager as data: the one card `rux gui` can show (R1) and the command that
+ * opens another case. Every figure is read off a server response; this module
+ * only words it.
  */
 
 import type { ProjectInfo, SurveyFractions, SurveySummary } from '../api/types';
@@ -85,17 +85,3 @@ export function cardDate(p: ProjectInfo | undefined): string {
 
 /** How to open another case: `rux gui` serves the project it was started with. */
 export const OPEN_ANOTHER_COMMAND = 'rux -p <fil>.rux gui';
-
-/**
- * How to reach this case from a phone on the same network (R10): bind the LAN
- * address and allow the page's own origin. `port` is the page's own port —
- * read off `window.location`, so in a dev session it is the vite dev-server
- * port, not `rux gui`'s default (F20, accepted: the command is for the page
- * actually open, whichever server that is). Empty means the default.
- */
-export function phoneCommand(file: string, port: string): string {
-  const p = port || '8420';
-  return `rux -p ${file} gui --bind <din-ip> --allow-origin http://<din-ip>:${p}`;
-}
-
-export const NO_AUTH_WARNING = 'Serveren har ingen adgangskontrol — gør det kun på et netværk, du stoler på.';

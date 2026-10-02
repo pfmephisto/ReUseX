@@ -130,8 +130,7 @@ export function parseDanishNumber(text: string): number | null {
 
 /**
  * What a part's photo slot says when there is no photo to show — one copy for
- * Kortlægning's evidence panel and On-site's capture stage ("et foto", so
- * "Intet foto").
+ * Kortlægning's evidence panel ("et foto", so "Intet foto").
  */
 export const PHOTO_EMPTY_TEXT = {
   unlinked: 'Intet foto — bygningsdelen er ikke koblet til en instans.',

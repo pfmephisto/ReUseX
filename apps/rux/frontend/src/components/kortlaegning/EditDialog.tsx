@@ -32,6 +32,7 @@ import type { KeyboardEvent } from 'react';
 import { api } from '../../api/client';
 import type { Sample, SurveyPart, SurveyType, Treatment, VisibleFrame } from '../../api/types';
 import { TREATMENTS } from '../../api/types';
+import { trapTab } from '../../app/focusTrap';
 import { useAsync } from '../../app/useAsync';
 import type { EvidenceTab } from '../../kortlaegning/keys';
 import { dialogAction } from '../../kortlaegning/keys';
@@ -133,41 +134,9 @@ export function photoStrip(
   return { visible: frames.slice(0, max), overflow: Math.max(0, frames.length - max) };
 }
 
-/**
- * The Tab trap: given the focusable count, the index of the focused element
- * (`-1` when focus is outside the list, e.g. on the dialog root) and the Tab
- * direction, returns the index to move focus to — or `null` to let the
- * browser's own Tab order proceed (anywhere strictly inside the list). From
- * outside, Tab enters at `entry` (the quantity field) and Shift+Tab at the end.
- */
-export function wrapFocusIndex(count: number, current: number, shift: boolean, entry = 0): number | null {
-  if (count === 0) return null;
-  if (current < 0) return shift ? count - 1 : entry >= 0 && entry < count ? entry : 0;
-  if (shift && current === 0) return count - 1;
-  if (!shift && current === count - 1) return 0;
-  return null;
-}
-
-const FOCUSABLE =
-  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), ' +
-  'textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
-
-/** The bits of an element `isTabbable` looks at; a structural type so tests can stub it. */
-export interface TabbableProbe {
-  /** `HTMLElement.hidden` is `boolean | "until-found"`; either truthy form hides. */
-  hidden: boolean | string;
-  getClientRects(): { length: number };
-  closest(selectors: string): unknown;
-}
-
-/**
- * Whether a `FOCUSABLE` match can actually take Tab focus: not `hidden`,
- * rendered (has a layout box — `display: none` ancestors give none), and not
- * inside an `inert` subtree or a disabled fieldset.
- */
-export function isTabbable(el: TabbableProbe): boolean {
-  return !el.hidden && el.getClientRects().length > 0 && !el.closest('[inert],fieldset[disabled]');
-}
+// The Tab trap lives in `app/focusTrap` (FormDialog shares it); re-exported
+// so existing callers keep importing it here.
+export { isTabbable, wrapFocusIndex, type TabbableProbe } from '../../app/focusTrap';
 
 function isField(el: Element | null): el is HTMLElement {
   return el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement;
@@ -258,19 +227,7 @@ export function EditDialog(props: EditDialogProps) {
 
   function handleKeyDown(e: KeyboardEvent<HTMLDivElement>) {
     const root = rootRef.current;
-    if (e.key === 'Tab' && root) {
-      const focusables = Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(isTabbable);
-      const index = focusables.indexOf(document.activeElement as HTMLElement);
-      const entry = quantityInputRef.current ? focusables.indexOf(quantityInputRef.current) : 0;
-      const next = wrapFocusIndex(focusables.length, index, e.shiftKey, entry);
-      if (next !== null) {
-        e.preventDefault();
-        const target = focusables[next];
-        target.focus();
-        // Native Tab selects a text field's contents; do the same, so typing replaces the value.
-        if (target instanceof HTMLInputElement) target.select();
-      }
-    }
+    trapTab(e, root, quantityInputRef.current);
     // A key that navigates away (move / approve & next / close) while a field
     // holds a draft: blur first so the draft commits against the current
     // selection rather than being reset by the next one.
@@ -435,7 +392,7 @@ export function EditDialog(props: EditDialogProps) {
 
             <div className={styles.field}>
               <label className={styles.label} htmlFor={`${titleId}-note`}>
-                Proces / håndtering
+                Note
               </label>
               <textarea
                 id={`${titleId}-note`}

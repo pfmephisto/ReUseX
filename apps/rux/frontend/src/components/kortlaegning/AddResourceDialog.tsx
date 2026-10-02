@@ -29,6 +29,8 @@ export function AddResourceDialog({ types, defaultTypeId, busy, onCancel, onSubm
   const [error, setError] = useState<string | null>(null);
 
   function submit() {
+    // Ctrl/⌘+Enter and plain Enter reach here even while the button is disabled.
+    if (busy) return;
     if (typeId === null) {
       setError('Vælg en type.');
       return;

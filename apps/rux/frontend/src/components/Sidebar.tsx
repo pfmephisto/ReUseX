@@ -13,6 +13,7 @@ import {
   type NavBadge,
   type NavEntry,
 } from '../app/navigation';
+import { ThemeToggle } from './ThemeToggle';
 import styles from './Sidebar.module.css';
 
 export interface SidebarProps {
@@ -71,7 +72,8 @@ function tagsUpTo(e: MouseEvent<HTMLElement>): string[] {
 /**
  * The navy case sidebar: which project, the case workflow, the technical tools,
  * and the way back to the case list. Below 900px it is a drawer the title
- * bar's Menu button opens (R5); closed, CSS hides it from the tab order.
+ * bar's Menu button opens (R5); closed, CSS hides it from the tab order. The
+ * drawer also carries the theme control, which the title bar drops there.
  */
 export function Sidebar({ projectName, badges = {}, id, open = false, onClose, navRef }: SidebarProps) {
   return (
@@ -101,6 +103,13 @@ export function Sidebar({ projectName, badges = {}, id, open = false, onClose, n
           <Entry key={e.to} entry={e} />
         ))}
       </nav>
+      {/* Only in the drawer: above the breakpoint the title bar carries it. */}
+      <div className={styles.theme}>
+        <div className={styles.groupLabel}>Tema</div>
+        <div className={styles.themeControl}>
+          <ThemeToggle touch />
+        </div>
+      </div>
       <div className={styles.back}>
         <NavLink to={ALL_CASES_PATH} className={({ isActive }) => (isActive ? styles.backActive : undefined)}>
           ← Alle sager

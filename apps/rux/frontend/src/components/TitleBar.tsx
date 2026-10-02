@@ -96,7 +96,10 @@ export function TitleBar({
         <JobIndicator connection={connection} activeJobCount={activeJobCount} />
         {implementation && <span className={styles.meta}>{implementation}</span>}
         {version && <span className={`${styles.meta} mono`}>{version}</span>}
-        <ThemeToggle />
+        {/* Below the breakpoint the theme control lives in the drawer. */}
+        <span className={styles.theme}>
+          <ThemeToggle />
+        </span>
       </div>
     </header>
   );

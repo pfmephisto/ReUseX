@@ -41,6 +41,32 @@
   height: var(--font-size-md);
 }
 
+/* In the drawer: a phone tap target (the title bar's height, 44px), and
+   chrome-toned so the control sits calmly on the navy drawer. */
+.touch {
+  background: var(--color-chrome-raised);
+  border-color: var(--color-chrome-border);
+}
+
+.touch .option {
+  width: var(--layout-titlebar-height);
+  height: var(--layout-titlebar-height);
+  color: var(--color-on-chrome-muted);
+}
+
+.touch .option:hover {
+  color: var(--color-on-chrome);
+}
+
+.touch .option.active {
+  color: var(--color-on-accent);
+}
+
+.touch .icon {
+  width: var(--font-size-lg);
+  height: var(--font-size-lg);
+}
+
 /* Visually-hidden accessible label for each segment. */
 .srOnly {
   position: absolute;

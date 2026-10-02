@@ -23,12 +23,18 @@ export interface CaptureStageProps {
  * sensor frame, the reticle on its instance, and the detection chip. Takes
  * the frame's aspect ratio, so the reticle's percentages land on the photo.
  * A photo, not the 3D canvas: the stage is themed like any other surface.
+ * With no photo it keeps 4/3 — a portrait frame's height would push the sheet
+ * under the fold for nothing — and is dark in both themes, as a camera
+ * viewfinder is (R6).
  */
 export function CaptureStage({ photoUrl, placeholder, reticle, title, detail, code, aspect }: CaptureStageProps) {
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const showPhoto = photoUrl !== null && failedUrl !== photoUrl;
   return (
-    <div className={styles.stage} style={aspect ? { aspectRatio: `${aspect.width} / ${aspect.height}` } : undefined}>
+    <div
+      className={`${styles.stage} ${showPhoto ? '' : styles.empty}`}
+      style={showPhoto && aspect ? { aspectRatio: `${aspect.width} / ${aspect.height}` } : undefined}
+    >
       {showPhoto ? (
         <img className={styles.photo} src={photoUrl} alt={`Bedste foto af ${code}, ${title}`} onError={() => setFailedUrl(photoUrl)} />
       ) : (

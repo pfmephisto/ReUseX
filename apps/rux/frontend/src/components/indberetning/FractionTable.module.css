@@ -66,6 +66,16 @@
   outline-offset: 2px;
 }
 
+/* Phone width (the shell's breakpoint): a 44px tap target (the title bar's
+   height). Rows grow to it, so neighbouring links never share a hit area. */
+@media (max-width: 56.25rem) {
+  .typeLink {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--layout-titlebar-height);
+  }
+}
+
 .table tfoot td {
   border-bottom: none;
   background: var(--color-surface-sunken);

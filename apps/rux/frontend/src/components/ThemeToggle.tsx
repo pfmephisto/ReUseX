@@ -53,18 +53,19 @@ function ThemeIcon({ preference }: { preference: ThemePreference }) {
 }
 
 /**
- * Three-way Light / Dark / System theme control for the title bar.
+ * Three-way Light / Dark / System theme control: in the title bar on a wide
+ * screen, in the drawer below the shell's breakpoint (`touch`, 44px options).
  *
  * A single-select radio group: the checked segment is the stored *preference*
  * (which may be `system`), not the resolved theme. Selecting one persists it
  * and repaints the whole app via the `data-theme` attribute — no per-component
  * work, since every style already reads `var(--…)` tokens.
  */
-export function ThemeToggle() {
+export function ThemeToggle({ touch = false }: { touch?: boolean }) {
   const { preference, setPreference } = useTheme();
 
   return (
-    <div className={styles.group} role="radiogroup" aria-label="Farvetema">
+    <div className={`${styles.group} ${touch ? styles.touch : ''}`} role="radiogroup" aria-label="Farvetema">
       {THEME_PREFERENCES.map((option) => {
         const active = option === preference;
         return (

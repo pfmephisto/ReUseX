@@ -64,6 +64,13 @@
   box-shadow: var(--shadow-panel);
 }
 
+/* Dark: the navy sheet is nearly the page's colour, so a stronger edge and
+   a deeper shadow keep it a separate object. */
+:global([data-theme='dark']) .device {
+  border-color: var(--color-border-strong);
+  box-shadow: var(--shadow-lg);
+}
+
 .samples {
   display: grid;
   gap: var(--space-2);

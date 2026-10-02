@@ -134,6 +134,14 @@
   color: var(--color-on-chrome);
 }
 
+.theme {
+  display: none; /* the title bar carries the theme control above the breakpoint */
+}
+
+.themeControl {
+  padding: 0 var(--space-4);
+}
+
 .sidebar:focus {
   outline: none; /* a keyboard anchor while the drawer is open, not a control */
 }
@@ -179,6 +187,10 @@
   .back a {
     display: flex;
     align-items: center;
+  }
+
+  .theme {
+    display: block;
   }
 }
 

@@ -218,3 +218,19 @@
 .noteMark {
   color: var(--color-text-muted);
 }
+
+/* Phone width (the shell's 56.25rem breakpoint): 44px tap targets. The
+ * title bar's height is the tap-target size. */
+@media (max-width: 56.25rem) {
+  .tab,
+  .search,
+  .select,
+  .starFilter {
+    min-height: var(--layout-titlebar-height);
+  }
+
+  .chevron {
+    min-width: var(--layout-titlebar-height);
+    min-height: var(--layout-titlebar-height);
+  }
+}

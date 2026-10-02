@@ -68,6 +68,10 @@
   font-weight: var(--font-weight-medium);
 }
 
+.theme {
+  display: contents;
+}
+
 .menu {
   display: none;
   align-items: center;
@@ -96,8 +100,8 @@
 }
 
 /* R5: the shell's phone breakpoint (900px; DRAWER_QUERY in navigation.ts).
-   Below it the bar keeps Menu, product, project, job state and theme, and
-   drops the rest. */
+   Below it the bar keeps Menu, product, project and job state, and drops
+   the rest; the theme control moves into the drawer (Sidebar). */
 @media (max-width: 56.25rem) {
   .bar {
     gap: var(--space-2);
@@ -114,7 +118,8 @@
   }
 
   .divider,
-  .meta {
+  .meta,
+  .theme {
     display: none;
   }
 }

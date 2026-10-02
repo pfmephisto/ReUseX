@@ -13,6 +13,15 @@
   background: var(--color-surface-sunken);
 }
 
+/* No photo: a dark viewfinder in both themes (R6, onsite.png). */
+.empty {
+  background: var(--color-canvas);
+}
+
+.empty .placeholder {
+  color: var(--color-on-chrome-muted);
+}
+
 .photo {
   display: block;
   width: 100%;

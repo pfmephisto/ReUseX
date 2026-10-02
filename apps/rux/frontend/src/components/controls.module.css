@@ -156,3 +156,41 @@
   outline-offset: 2px;
   border-radius: var(--radius-sm);
 }
+
+/* Phone width (the shell's 56.25rem breakpoint, DRAWER_QUERY in
+ * navigation.ts): every control is a 44px tap target — the title bar's
+ * height, as in the drawer. Buttons and fields grow to it. Text buttons and
+ * cross-screen links often sit inside running text, so they keep their line
+ * box and grow only their hit area: an invisible 44px-tall ::after centred
+ * on the text. */
+@media (max-width: 56.25rem) {
+  .btnGhost,
+  .btnPrimary,
+  .btnDanger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: var(--layout-titlebar-height);
+    min-height: var(--layout-titlebar-height);
+  }
+
+  .input {
+    min-height: var(--layout-titlebar-height);
+  }
+
+  .textBtn,
+  .crossLink {
+    position: relative;
+  }
+
+  .textBtn::after,
+  .crossLink::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: max(100%, var(--layout-titlebar-height));
+    height: var(--layout-titlebar-height);
+    transform: translate(-50%, -50%);
+  }
+}

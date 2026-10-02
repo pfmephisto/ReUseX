@@ -4,11 +4,13 @@
 
 #include "reusex/core/resources.hpp"
 
+#include "reusex/core/logging.hpp"
 #include "reusex/core/survey.hpp"
 #include "reusex/core/survey_service.hpp"
 
 #include <algorithm>
 #include <map>
+#include <set>
 
 namespace reusex::core {
 namespace {
@@ -19,9 +21,11 @@ struct Context {
   std::map<int64_t, EnvironmentStatus> env;
 };
 
-Context load(const ProjectDB &db) {
+/// @p catalogue reuses a catalogue already built for this request.
+Context load(const ProjectDB &db,
+             std::optional<std::vector<ResourceKey>> catalogue = std::nullopt) {
   Context c;
-  c.catalogue = key_catalogue(db);
+  c.catalogue = catalogue ? std::move(*catalogue) : key_catalogue(db);
   for (auto &t : db.survey_types())
     c.types.emplace(t.id, std::move(t));
   c.env = environment_statuses(db);
@@ -108,6 +112,12 @@ void check_column_name(const ProjectDB &db, const std::string &name,
     throw NameConflictError("'" + name +
                             "' is a leksikon field name; choose another "
                             "column name");
+  // Values a deleted column left behind: a column under this name would
+  // silently show them as its own.
+  if (db.has_passport_field_values(name))
+    throw NameConflictError("values are already stored under '" + name +
+                            "' (left by a deleted column); choose another "
+                            "column name");
 }
 } // namespace
 
@@ -152,10 +162,13 @@ patch_resource(ProjectDB &db, std::string_view code,
     std::optional<std::string> value;
   };
   std::vector<Planned> plan;
+  std::set<std::string> seen;
   for (const auto &w : writes) {
     const auto *k = find_key(catalogue, w.key);
     if (!k)
       throw KeyValueError(w.key, "unknown key '" + w.key + "'");
+    if (!seen.insert(w.key).second)
+      throw KeyValueError(w.key, "key '" + w.key + "' is written twice");
     plan.push_back({k, normalise_value(*k, w.value)});
   }
 
@@ -219,11 +232,13 @@ patch_resource(ProjectDB &db, std::string_view code,
     tx.commit();
   }
 
-  ResourcePatchResult out{resource(db, code, keys), {}};
+  // Columns did not change: one catalogue serves the whole patch.
+  const auto c = load(db, catalogue);
+  ResourcePatchResult out{build(db, c, *db.survey_part(code), keys), {}};
   if (type_written)
-    for (const auto &r : list_resources(db, keys))
-      if (r.type_id == part->type_id && r.code != code)
-        out.siblings.push_back(r);
+    for (const auto &p : db.survey_parts())
+      if (p.type_id == part->type_id && p.code != code)
+        out.siblings.push_back(build(db, c, p, keys));
   return out;
 }
 
@@ -234,10 +249,11 @@ Resource create_resource(ProjectDB &db, int64_t type_id,
   if (name && name->empty())
     throw std::invalid_argument("'name' must be non-empty when given");
   ProjectDB::SurveyPartRecord rec;
-  rec.code = part_code(db.max_survey_part_number() + 1);
   rec.type_id = type_id;
   {
     ProjectDB::Transaction tx(db);
+    // Inside BEGIN IMMEDIATE, so a second writer cannot take the same code.
+    rec.code = part_code(db.max_survey_part_number() + 1);
     db.add_survey_part(rec);
     if (name) {
       const auto guid = db.ensure_resource_passport(rec.code);
@@ -258,8 +274,14 @@ void delete_resource(ProjectDB &db, std::string_view code) {
         *part->instance_guid + ") and cannot be deleted");
   ProjectDB::Transaction tx(db);
   db.delete_survey_part(code);
-  if (part->material_guid && !db.is_passport_linked(*part->material_guid))
-    db.delete_material_passport(*part->material_guid);
+  if (part->material_guid) {
+    if (!db.is_passport_linked(*part->material_guid))
+      db.delete_material_passport(*part->material_guid);
+    else
+      reusex::warn("delete_resource: kept passport '{}' of deleted part '{}' "
+                   "— another part or an instance still links it",
+                   *part->material_guid, code);
+  }
   tx.commit();
 }
 

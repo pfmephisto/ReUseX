@@ -8835,6 +8835,17 @@ void ProjectDB::delete_survey_part(std::string_view code) {
     throw std::out_of_range("no survey part '" + std::string(code) + "'");
 }
 
+bool ProjectDB::has_passport_field_values(std::string_view name) const {
+  sqlite3_stmt *s = prepare_or_throw(
+      impl_->db,
+      "SELECT 1 FROM passport_property_values v JOIN property_definitions d "
+      "ON d.id = v.property_id WHERE d.name_en = ? LIMIT 1;",
+      "has_passport_field_values");
+  StmtGuard guard(s);
+  bind_text(s, 1, name);
+  return sqlite3_step(s) == SQLITE_ROW;
+}
+
 void ProjectDB::rename_passport_field(std::string_view old_name,
                                       std::string_view new_name) {
   impl_->checkWritable();
@@ -8860,16 +8871,8 @@ void ProjectDB::rename_passport_field(std::string_view old_name,
       return std::nullopt;
     return std::make_pair(column_text(s, 0), column_text(s, 1));
   };
-  /// True when passport_property_values rows are stored under @p name.
   auto has_values = [&](std::string_view name) {
-    sqlite3_stmt *s = prepare_or_throw(
-        db,
-        "SELECT 1 FROM passport_property_values v JOIN property_definitions d "
-        "ON d.id = v.property_id WHERE d.name_en = ? LIMIT 1;",
-        "rename_passport_field");
-    StmtGuard guard(s);
-    bind_text(s, 1, name);
-    return sqlite3_step(s) == SQLITE_ROW;
+    return has_passport_field_values(name);
   };
   if (!has_values(old_name))
     return; // nothing stored under the old name

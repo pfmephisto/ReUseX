@@ -1103,6 +1103,10 @@ class ProjectDB {
   ///         @p new_name (they would merge).
   void rename_passport_field(std::string_view old_name,
                              std::string_view new_name);
+  /// True when any passport stores a value under the field name @p name
+  /// (a leksikon name_en or a user column's display name) — including
+  /// values a deleted user column left behind.
+  [[nodiscard]] bool has_passport_field_values(std::string_view name) const;
   /// True when a survey part or an instance link still references @p guid.
   [[nodiscard]] bool is_passport_linked(std::string_view guid) const;
 

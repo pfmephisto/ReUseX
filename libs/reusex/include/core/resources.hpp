@@ -61,7 +61,8 @@ struct ResourcePatchResult {
 /// transaction: type-scoped keys to the survey type, part-scoped built-ins
 /// to the part, leksikon/column keys to the part's passport (created on
 /// the first non-null write). Clearing an absent value succeeds.
-/// @throws KeyValueError (nothing written), std::out_of_range (no part).
+/// @throws KeyValueError (nothing written) — also when one key appears
+///         twice in @p writes —, std::out_of_range (no part).
 ResourcePatchResult patch_resource(
     ProjectDB &db, std::string_view code,
     const std::vector<ResourceWrite> &writes,
@@ -79,7 +80,8 @@ class ResourceConflictError : public std::runtime_error {
     public:
   using std::runtime_error::runtime_error;
 };
-/// Delete a manual part and its passport (unless something else links it).
+/// Delete a manual part and its passport (unless something else links it;
+/// a kept passport is logged at warn).
 /// @throws ResourceConflictError for an instance-backed part,
 ///         std::out_of_range for an unknown code.
 void delete_resource(ProjectDB &db, std::string_view code);
@@ -92,12 +94,15 @@ struct ColumnPatch {
 };
 /// Add a user column (def.id is ignored and returned filled in).
 /// @throws NameConflictError when a user column or a leksikon field already
-///         has that name, std::invalid_argument for an empty name.
+///         has that name, or any passport already stores values under it
+///         (left by a deleted column — never inherited silently),
+///         std::invalid_argument for an empty name.
 ProjectDB::PropertyDefinition create_column(ProjectDB &db,
                                             ProjectDB::PropertyDefinition def);
 /// A rename moves the stored values in the same transaction.
 /// @throws std::out_of_range (no column), NameConflictError (name taken, or
-///         values already stored under it), std::invalid_argument (empty).
+///         any passport already stores values under it — even when this
+///         column holds none), std::invalid_argument (empty).
 ProjectDB::PropertyDefinition
 update_column(ProjectDB &db, const std::string &id, const ColumnPatch &patch);
 

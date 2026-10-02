@@ -231,3 +231,67 @@ TEST_CASE("Resources_RenameColumn_RefusesNameWithStoredValues",
   update_column(db, new_col.id, p);
   CHECK(value_of(resource(db, "RX-001"), "col:" + new_col.id) == "frisk");
 }
+
+TEST_CASE("Resources_Column_RefusesNameWithStaleValues",
+          "[resources][columns]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  const auto t = make_type(db, "Døre");
+  make_part(db, "RX-001", t);
+  ProjectDB::PropertyDefinition a;
+  a.name = "Gammel";
+  a.type = "text";
+  const auto old_col = create_column(db, a);
+  patch_resource(db, "RX-001", {{"col:" + old_col.id, "rest"}});
+  db.delete_property_definition(old_col.id); // values stay, column gone
+  // Neither a new column nor a value-less rename may adopt "Gammel"'s values.
+  CHECK_THROWS_AS(create_column(db, a), reusex::core::NameConflictError);
+  ProjectDB::PropertyDefinition b;
+  b.name = "Tom";
+  b.type = "text";
+  const auto empty_col = create_column(db, b);
+  ColumnPatch p;
+  p.name = "Gammel";
+  CHECK_THROWS_AS(update_column(db, empty_col.id, p),
+                  reusex::core::NameConflictError);
+  const auto defs = db.list_property_definitions();
+  REQUIRE(defs.size() == 1);
+  CHECK(defs[0].name == "Tom");
+}
+
+TEST_CASE("Resources_Patch_DuplicateKey_RefusedTypeUnchanged", "[resources]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  const auto t = make_type(db, "Døre");
+  make_part(db, "RX-001", t);
+  CHECK_THROWS_AS(
+      patch_resource(db, "RX-001",
+                     {{"sys:eak", "17.02.01"}, {"sys:eak", std::nullopt}}),
+      KeyValueError);
+  // A refused patch leaves the type untouched too.
+  CHECK_THROWS_AS(patch_resource(db, "RX-001",
+                                 {{"sys:eak", "17.02.01"},
+                                  {"sys:mass_t", "0,9"},
+                                  {"sys:treatment", "smid ud"}}),
+                  KeyValueError);
+  const auto type = db.survey_type(t);
+  CHECK(type->eak_code.empty());
+  CHECK_FALSE(type->mass_t.has_value());
+  CHECK(type->treatment == reusex::core::Treatment::genbrug);
+}
+
+TEST_CASE("Resources_Delete_KeepsPassportLinkedElsewhere", "[resources]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  make_instance_cloud(db, 1);
+  const auto t = make_type(db, "Døre");
+  const auto r = create_resource(db, t, std::string("Branddør"));
+  const auto guid = db.survey_part(r.code)->material_guid;
+  REQUIRE(guid.has_value());
+  db.set_instance_material("instances", 1, *guid); // linked elsewhere
+  delete_resource(db, r.code);
+  CHECK_FALSE(db.survey_part(r.code).has_value());
+  const auto guids = db.list_passport_guids();
+  CHECK(std::find(guids.begin(), guids.end(), *guid) != guids.end());
+  CHECK(db.instance_material_guid("instances", 1) == guid);
+}

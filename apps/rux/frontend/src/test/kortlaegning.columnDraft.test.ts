@@ -4,9 +4,11 @@
 
 import { describe, expect, it } from 'vitest';
 
+import { ApiRequestError } from '../api/client';
 import {
   COLUMN_KIND_LABEL,
   columnCreateBody,
+  columnCreateConflict,
   columnDraftError,
   columnPartialFailureMessage,
   duplicateFirst,
@@ -75,5 +77,18 @@ describe('seed templates', () => {
     expect(columnPartialFailureMessage('Stand', 'busy')).toBe(
       'Kolonnen »Stand« er oprettet, men kunne ikke føjes til skabelonen: busy',
     );
+  });
+});
+
+describe('columnCreateConflict', () => {
+  it('shows a 409 in the dialog with the server reason, not the pipeline-job copy', () => {
+    const cause = new ApiRequestError(409, "a column named 'Stand' already exists", '/api/v1/resources/columns');
+    expect(columnCreateConflict(cause)).toBe("Navnet kan ikke bruges: a column named 'Stand' already exists");
+  });
+
+  it('leaves every other failure to the toast', () => {
+    expect(columnCreateConflict(new ApiRequestError(400, 'bad', '/x'))).toBeNull();
+    expect(columnCreateConflict(new ApiRequestError(503, 'locked', '/x'))).toBeNull();
+    expect(columnCreateConflict(new Error('network'))).toBeNull();
   });
 });

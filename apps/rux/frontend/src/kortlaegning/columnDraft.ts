@@ -16,6 +16,7 @@
  * make room for that — the two never compete for the same field.
  */
 
+import { ApiRequestError } from '../api/client';
 import type { ResourceColumnCreate, Template } from '../api/types';
 
 export type ColumnKind = 'text' | 'number' | 'date' | 'boolean' | 'select';
@@ -83,4 +84,18 @@ export function duplicateFirst(template: Template | null, copyInstead: boolean):
 /** The toast when the column was created but appending it to the template failed. */
 export function columnPartialFailureMessage(name: string, detail: string): string {
   return `Kolonnen »${name}« er oprettet, men kunne ikke føjes til skabelonen: ${detail}`;
+}
+
+/**
+ * The dialog's error for a refused column create, or null when the failure
+ * is not the dialog's to show. A 409 here is always a name conflict — a
+ * column, a leksikon field or stored values already use the name (R3-D3) —
+ * never the generic "pipeline-job kører" save copy; the server's reason is
+ * shown as-is. Anything else goes to the page's toast.
+ */
+export function columnCreateConflict(cause: unknown): string | null {
+  if (cause instanceof ApiRequestError && cause.status === 409) {
+    return `Navnet kan ikke bruges: ${cause.message}`;
+  }
+  return null;
 }

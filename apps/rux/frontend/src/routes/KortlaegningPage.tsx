@@ -21,7 +21,7 @@ import type {
 import { isControl, isField } from '../app/keyTargets';
 import { parseTypeQuery } from '../app/links';
 import { createOnceGuard } from '../app/onceGuard';
-import { saveErrorMessage } from '../app/saveError';
+import { errorMessage, saveErrorMessage } from '../app/saveError';
 import { useAsync } from '../app/useAsync';
 import { appWriteChain } from '../app/writeChain';
 import { useSurveyCounts } from '../app/SurveyCountsContext';
@@ -31,11 +31,19 @@ import { EmptyState } from '../components/EmptyState';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { Spinner } from '../components/Spinner';
 import { Toast } from '../components/Toast';
+import { AddColumnDialog } from '../components/kortlaegning/AddColumnDialog';
 import { AddResourceDialog } from '../components/kortlaegning/AddResourceDialog';
 import { DetailPanel, pendingSampleList } from '../components/kortlaegning/DetailPanel';
 import { EditDialog, primaryDisabled } from '../components/kortlaegning/EditDialog';
 import { EvidencePanel } from '../components/kortlaegning/EvidencePanel';
 import { SurveyTable } from '../components/kortlaegning/SurveyTable';
+import {
+  columnCreateBody,
+  columnCreateConflict,
+  columnPartialFailureMessage,
+  duplicateFirst,
+  type ColumnDraft,
+} from '../kortlaegning/columnDraft';
 import { dialogAction, tableAction, type EvidenceTab, type KortAction } from '../kortlaegning/keys';
 import {
   NO_FILTERS,
@@ -59,12 +67,18 @@ import {
   isManual,
   patchedResources,
   replaceResources,
+  resourceColumnKeyId,
   resourceIndex,
   templateColumns,
   touchesSurvey,
   viewForNewResource,
 } from '../kortlaegning/resources';
-import { pickTemplate, readStoredTemplateId, writeStoredTemplateId } from '../kortlaegning/templatePick';
+import {
+  appendKeyMember,
+  pickTemplate,
+  readStoredTemplateId,
+  writeStoredTemplateId,
+} from '../kortlaegning/templatePick';
 import { formatNumber } from '../kortlaegning/vocab';
 import styles from './KortlaegningPage.module.css';
 
@@ -208,6 +222,10 @@ export function KortlaegningPage() {
   const [addResourceOpen, setAddResourceOpen] = useState(false);
   // A create burns a server-assigned code: a double tap must send once (Review Focus).
   const createGuard = useRef(createOnceGuard());
+  const [addColumnOpen, setAddColumnOpen] = useState(false);
+  // The server's 409 for the last "Tilføj kolonne" (R3-D3), shown in the dialog.
+  const [columnError, setColumnError] = useState<string | null>(null);
+  const columnGuard = useRef(createOnceGuard());
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<Error | null>(null);
   const tableRef = useRef<HTMLDivElement>(null);
@@ -284,7 +302,7 @@ export function KortlaegningPage() {
   }, [loadedOnce, hasTypes]);
 
   // A dialog does not hand focus back on close; the page does.
-  const anyDialog = dialogOpen || addResourceOpen;
+  const anyDialog = dialogOpen || addResourceOpen || addColumnOpen;
   const wasOpen = useRef(false);
   useEffect(() => {
     if (wasOpen.current && !anyDialog) tableRef.current?.focus({ preventScroll: true });
@@ -396,6 +414,49 @@ export function KortlaegningPage() {
         select({ typeId: created.type_id, partCode: created.code });
         setAddResourceOpen(false);
         toast.show(`${created.code} tilføjet`);
+      }),
+    );
+  }
+
+  /**
+   * "Tilføj kolonne": create a user column, then append `col:<id>` as a key
+   * member to the selected template — or, on request for a seed, to a fresh
+   * copy of it, which is then selected. A name conflict (409) stays in the
+   * dialog with the server's reason (R3-D3); any other create failure goes
+   * to the queue's toast and the dialog keeps its input. A failure after the
+   * column exists closes the dialog with the partial-failure copy; either
+   * way the catalogue and templates are re-read so the column shows.
+   */
+  function addColumn(draft: ColumnDraft, copyInstead: boolean) {
+    const base = template;
+    if (!base) return;
+    setColumnError(null);
+    columnGuard.current.run(() =>
+      mutate(async () => {
+        let def;
+        try {
+          def = await api.createResourceColumn(columnCreateBody(draft));
+        } catch (cause) {
+          const conflict = columnCreateConflict(cause);
+          if (conflict === null) throw cause;
+          setColumnError(conflict);
+          return;
+        }
+        try {
+          const target = duplicateFirst(base, copyInstead) ? await api.duplicateTemplate(base.id) : base;
+          await api.patchTemplate(target.id, {
+            members: appendKeyMember(target.members, resourceColumnKeyId(def.id)),
+          });
+          chooseTemplate(target.id);
+          toast.show(`Kolonnen »${def.name}« er tilføjet til »${target.name}«`);
+        } catch (cause) {
+          toast.show(columnPartialFailureMessage(def.name, errorMessage(cause)));
+        } finally {
+          setAddColumnOpen(false);
+          const [k, t] = await Promise.all([api.resourceKeys(), api.templates()]);
+          setKeys(k);
+          setTemplates(t);
+        }
       }),
     );
   }
@@ -646,7 +707,10 @@ export function KortlaegningPage() {
             onCellCommit={commitCell}
             onInvalid={invalidValue}
             onAddResource={() => setAddResourceOpen(true)}
-            onAddColumn={() => {}}
+            onAddColumn={() => {
+              setColumnError(null);
+              setAddColumnOpen(true);
+            }}
           />
           <aside className={styles.aside}>
             <EvidencePanel
@@ -705,6 +769,17 @@ export function KortlaegningPage() {
           busy={busy}
           onCancel={() => setAddResourceOpen(false)}
           onSubmit={addResource}
+        />
+      )}
+
+      {addColumnOpen && (
+        <AddColumnDialog
+          template={template}
+          existingLabels={keys.map((k) => k.label)}
+          busy={busy}
+          serverError={columnError}
+          onCancel={() => setAddColumnOpen(false)}
+          onSubmit={addColumn}
         />
       )}
 

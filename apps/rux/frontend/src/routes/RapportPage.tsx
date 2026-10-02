@@ -2,11 +2,12 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { api } from '../api/client';
 import type { ReportPdfVersion } from '../api/types';
 import { explainLoadError } from '../app/errorCopy';
+import { createOnceGuard } from '../app/onceGuard';
 import { useAsync } from '../app/useAsync';
 import { appWriteChain } from '../app/writeChain';
 import { useMutationQueue } from '../app/useMutationQueue';
@@ -65,16 +66,15 @@ export function RapportPage() {
     onError: (cause) => toast.show(generateErrorMessage(cause)),
   });
   // `busy` only disables the button after React re-renders, so a double click
-  // inside one frame would queue two generations. The ref closes that gap.
-  const generating = useRef(false);
+  // inside one frame would queue two generations. The guard closes that gap.
+  const [generating] = useState(createOnceGuard);
   // Until the first list read lands, a generate could be overwritten by that
   // late read; the button waits for it.
   const listReady = versions !== null;
   const generate = () => {
-    if (generating.current || !listReady) return;
-    generating.current = true;
-    mutate(async () => {
-      try {
+    if (!listReady) return;
+    generating.run(() =>
+      mutate(async () => {
         const created = await api.generateReport();
         setVersions((prev) => [created, ...(prev ?? []).filter((v) => v.id !== created.id)]);
         toast.show(generatedToast(created));
@@ -84,10 +84,8 @@ export function RapportPage() {
         } catch {
           setStale(true);
         }
-      } finally {
-        generating.current = false;
-      }
-    });
+      }),
+    );
   };
 
   if (error) {

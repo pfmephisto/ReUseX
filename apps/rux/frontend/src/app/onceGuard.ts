@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 /**
- * A synchronous once-at-a-time guard for a busy-gated button (RapportPage's
- * generate guard, as a helper). `busy` only disables the button on the next
+ * A synchronous once-at-a-time guard for a busy-gated button (Rapport's
+ * generate, Miljø's create, On-site's sample and ★). `busy` only disables the button on the next
  * render, so a fast double tap inside one frame would otherwise send twice —
  * and burn a server-assigned code. While a run's promise is pending, further
  * calls are dropped; the guard reopens when it settles. A run that returns

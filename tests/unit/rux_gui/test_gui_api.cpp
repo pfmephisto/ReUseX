@@ -183,11 +183,6 @@ TEST_CASE("EndpointTable_DocumentedRoutes_MatchesContract", "[gui][routes]") {
       "POST /api/v1/reports/ressourcekortlaegning",
       "GET /api/v1/reports/ressourcekortlaegning/<int>",
       "GET /api/v1/exports/csv",
-      "GET /api/v1/export-templates",
-      "POST /api/v1/export-templates",
-      "GET /api/v1/export-templates/<int>",
-      "PATCH /api/v1/export-templates/<int>",
-      "DELETE /api/v1/export-templates/<int>",
       "GET /api/v1/survey",
       "GET /api/v1/survey/summary",
       "GET /api/v1/survey/fractions",
@@ -214,6 +209,9 @@ TEST_CASE("EndpointTable_DocumentedRoutes_MatchesContract", "[gui][routes]") {
   }
 
   CHECK(actual == expected);
+
+  for (const auto &endpoint : table)
+    CHECK(endpoint.path.find("/export-templates") == std::string::npos);
 }
 
 TEST_CASE("EndpointsJson_RegisteredRoutes_MatchesEndpointTable",
@@ -2003,69 +2001,4 @@ TEST_CASE("SegmentPanoramaResultJson_NoClassNames_EmptyLabelsObject",
   CHECK(body.at("labeled_pixels") == 0);
   CHECK(body.at("labels").is_object());
   CHECK(body.at("labels").empty());
-}
-
-// ---------------------------------------------------------------------------
-// /export-templates: legacy view over the v25 templates table
-// ---------------------------------------------------------------------------
-
-namespace {
-int http_status_of(const std::function<void()> &f) {
-  try {
-    f();
-  } catch (const HttpError &e) {
-    return e.status();
-  }
-  return 200;
-}
-} // namespace
-
-TEST_CASE("ExportTemplateRoutes_DuplicateName_Is409",
-          "[gui][export-templates]") {
-  TempPath project("test_gui_api");
-  reusex::ProjectDB db(project.path);
-  const auto a = create_export_template_json(
-      db,
-      json{{"name", "A"}, {"config", {{"columns", json::array({"kind"})}}}});
-  create_export_template_json(db, json{{"name", "B"}});
-
-  // POST with a taken name (a seed's, or one just made).
-  CHECK(http_status_of([&] {
-          create_export_template_json(db, json{{"name", "A"}});
-        }) == 409);
-  CHECK(http_status_of([&] {
-          create_export_template_json(db,
-                                      json{{"name", "Materialepas (fuld)"}});
-        }) == 409);
-  // PATCH renaming onto a taken name; the template is left as it was.
-  const int64_t id = a.at("id").get<int64_t>();
-  CHECK(http_status_of([&] {
-          update_export_template_json(db, id, json{{"name", "B"}});
-        }) == 409);
-  CHECK(get_export_template_json(db, id).at("name") == "A");
-  // Other errors keep their statuses.
-  CHECK(http_status_of([&] { create_export_template_json(db, json{}); }) ==
-        400);
-  CHECK(http_status_of([&] {
-          update_export_template_json(db, 9999, json{{"name", "C"}});
-        }) == 404);
-}
-
-TEST_CASE("ExportTemplateRoutes_RenameOnly_KeepsMembers",
-          "[gui][export-templates]") {
-  // ExportPage renames with {name} only. That must not rebuild the members
-  // from the view, which leaves out a col: member whose column was deleted.
-  TempPath project("test_gui_api");
-  reusex::ProjectDB db(project.path);
-  const auto col = db.add_property_definition("Bredde", "number", {}, 0);
-  const auto t = create_export_template_json(
-      db, json{{"name", "A"},
-               {"config", {{"columns", json::array({"Bredde", "kind"})}}}});
-  const int64_t id = t.at("id").get<int64_t>();
-  const auto before = db.resource_template(id)->members_json;
-  db.delete_property_definition(col);
-  const auto renamed =
-      update_export_template_json(db, id, json{{"name", "Omdøbt"}});
-  CHECK(renamed.at("name") == "Omdøbt");
-  CHECK(db.resource_template(id)->members_json == before);
 }

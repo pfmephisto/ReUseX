@@ -83,8 +83,6 @@ tags:
     description: Server-side PDF report generation (Ressourcekortlægning)
   - name: exports
     description: CSV export with optional column selection (#459)
-  - name: export-templates
-    description: Named export templates — saved column selections for CSV export (#459)
   - name: survey
     description: Ressourcekortlægning — survey types, parts, samples and derived KPIs
   - name: resources
@@ -2645,121 +2643,6 @@ paths:
               schema: { type: string, format: binary }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  # -------------------------------------------------------- export-templates ----
-  /export-templates:
-    get:
-      tags: [export-templates]
-      operationId: listExportTemplates
-      summary: List all named export templates
-      description: |
-        Legacy view over /templates (schema v25): config.columns lists the
-        template's legacy members and user-column labels; category members
-        are not listed. Removed from rux gui in resources Phase 4. Duplicate
-        names are 409.
-      responses:
-        "200":
-          description: Template list
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [templates]
-                properties:
-                  templates:
-                    type: array
-                    items: { $ref: "#/components/schemas/ExportTemplate" }
-        default: { $ref: "#/components/responses/UnexpectedError" }
-    post:
-      tags: [export-templates]
-      operationId: createExportTemplate
-      summary: Create a named export template
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [name]
-              properties:
-                name:
-                  type: string
-                  description: Human-readable template name
-                config:
-                  type: object
-                  description: Template configuration (column selection, etc.)
-                  properties:
-                    columns:
-                      type: array
-                      items: { type: string }
-                      description: Ordered list of column names to include
-      responses:
-        "201":
-          description: Template created
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ExportTemplate" }
-        "400": { $ref: "#/components/responses/BadRequest" }
-        "409": { $ref: "#/components/responses/WriteConflict" }
-        default: { $ref: "#/components/responses/UnexpectedError" }
-
-  /export-templates/{id}:
-    parameters:
-      - name: id
-        in: path
-        required: true
-        schema: { type: integer, format: int64 }
-        description: Template id
-    get:
-      tags: [export-templates]
-      operationId: getExportTemplate
-      summary: Fetch one export template by id
-      responses:
-        "200":
-          description: Template record
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ExportTemplate" }
-        "404": { $ref: "#/components/responses/NotFound" }
-        default: { $ref: "#/components/responses/UnexpectedError" }
-    patch:
-      tags: [export-templates]
-      operationId: updateExportTemplate
-      summary: Update a template's name and/or config
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                name:
-                  type: string
-                config:
-                  type: object
-                  properties:
-                    columns:
-                      type: array
-                      items: { type: string }
-      responses:
-        "200":
-          description: Updated template
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ExportTemplate" }
-        "400": { $ref: "#/components/responses/BadRequest" }
-        "404": { $ref: "#/components/responses/NotFound" }
-        "409": { $ref: "#/components/responses/WriteConflict" }
-        default: { $ref: "#/components/responses/UnexpectedError" }
-    delete:
-      tags: [export-templates]
-      operationId: deleteExportTemplate
-      summary: Delete an export template
-      responses:
-        "204":
-          description: Template deleted
-        "404": { $ref: "#/components/responses/NotFound" }
-        default: { $ref: "#/components/responses/UnexpectedError" }
-
   # ------------------------------------------------------------- templates ----
   /templates:
     get:
@@ -3796,35 +3679,6 @@ components:
           type: integer
           nullable: true
           description: Survey types that still blocked the report (in the queue, awaiting a sample, or approved without tonnes) when this PDF was generated; 0 means complete. Null for versions generated before schema v23.
-
-    ExportTemplate:
-      type: object
-      description: A named, saved CSV export configuration (column selection).
-      required: [id, name, config, created_at, updated_at]
-      properties:
-        id:
-          type: integer
-          format: int64
-          description: Stable numeric id.
-        name:
-          type: string
-          description: Human-readable template name.
-        config:
-          type: object
-          description: Export configuration stored as a JSON object.
-          properties:
-            columns:
-              type: array
-              items: { type: string }
-              description: Ordered list of column names to include in the CSV.
-        created_at:
-          type: string
-          format: date-time
-          description: ISO 8601 UTC timestamp when the template was created.
-        updated_at:
-          type: string
-          format: date-time
-          description: ISO 8601 UTC timestamp of the last update.
 
     EndpointInfo:
       type: object

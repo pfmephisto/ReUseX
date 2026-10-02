@@ -756,14 +756,6 @@ const std::vector<Endpoint> &endpoint_table() {
        "Fetch a stored Ressourcekortlægning PDF by version id", true},
       {"GET", "/api/v1/exports/csv",
        "Export project elements (components + passports) as CSV", true},
-      {"GET", "/api/v1/export-templates", "List all named export templates"},
-      {"POST", "/api/v1/export-templates", "Create a named export template"},
-      {"GET", "/api/v1/export-templates/<int>",
-       "Fetch a named export template by id"},
-      {"PATCH", "/api/v1/export-templates/<int>",
-       "Update a named export template"},
-      {"DELETE", "/api/v1/export-templates/<int>",
-       "Delete a named export template"},
       {"GET", "/api/v1/survey",
        "Survey types with their parts, derived miljøstatus and counts"},
       {"GET", "/api/v1/survey/summary",
@@ -2735,17 +2727,6 @@ void write_csv_row(std::ostream &os, const std::vector<std::string> &hdr,
   os << '\n';
 }
 
-json template_record_json(const reusex::ProjectDB::ExportTemplateRecord &t) {
-  json cfg = json::parse(t.config_json, nullptr, false);
-  if (cfg.is_discarded())
-    cfg = json::object();
-  return json{{"id", t.id},
-              {"name", t.name},
-              {"config", cfg},
-              {"created_at", t.created_at},
-              {"updated_at", t.updated_at}};
-}
-
 } // anonymous namespace
 
 Blob export_csv_blob(reusex::ProjectDB &db,
@@ -2843,62 +2824,6 @@ Blob export_csv_blob(reusex::ProjectDB &db,
                    reinterpret_cast<const uint8_t *>(csv_str.data()) +
                        csv_str.size());
   return blob;
-}
-
-json list_export_templates_json(const reusex::ProjectDB &db) {
-  json arr = json::array();
-  for (const auto &t : db.list_export_templates())
-    arr.push_back(template_record_json(t));
-  return json{{"templates", std::move(arr)}};
-}
-
-json create_export_template_json(reusex::ProjectDB &db, const json &body) {
-  if (!body.is_object() || !body.contains("name") || !body["name"].is_string())
-    throw HttpError(400, "\"name\" (string) is required");
-  const std::string name = body["name"].get<std::string>();
-  const std::string config_json =
-      body.contains("config") ? body["config"].dump() : "{}";
-  try {
-    return template_record_json(db.add_export_template(name, config_json));
-  } catch (const reusex::core::NameConflictError &e) {
-    throw HttpError(409, e.what());
-  }
-}
-
-json get_export_template_json(const reusex::ProjectDB &db, int64_t id) {
-  const auto rec = db.export_template(id);
-  if (!rec.has_value())
-    throw HttpError(404, "export template not found: " + std::to_string(id));
-  return template_record_json(*rec);
-}
-
-json update_export_template_json(reusex::ProjectDB &db, int64_t id,
-                                 const json &body) {
-  const auto existing = db.export_template(id);
-  if (!existing.has_value())
-    throw HttpError(404, "export template not found: " + std::to_string(id));
-  if (!body.is_object())
-    throw HttpError(400, "body must be a JSON object");
-  const std::string name = body.contains("name") && body["name"].is_string()
-                               ? body["name"].get<std::string>()
-                               : existing->name;
-  // No config in the body (a rename) must touch only the name: "{}" carries
-  // neither columns nor CSV options, so the stored members stay as they are.
-  // Echoing existing->config_json instead would rebuild the members from the
-  // view, which leaves out col: members whose user column was deleted.
-  const std::string config_json =
-      body.contains("config") ? body["config"].dump() : "{}";
-  try {
-    return template_record_json(
-        db.update_export_template(id, name, config_json));
-  } catch (const reusex::core::NameConflictError &e) {
-    throw HttpError(409, e.what());
-  }
-}
-
-void delete_export_template(reusex::ProjectDB &db, int64_t id) {
-  if (!db.delete_export_template(id))
-    throw HttpError(404, "export template not found: " + std::to_string(id));
 }
 
 } // namespace rux::gui

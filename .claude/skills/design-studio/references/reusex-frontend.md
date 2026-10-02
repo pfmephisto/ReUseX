@@ -54,8 +54,6 @@ apps/rux/frontend/src/
 │                 rapport/  VersionList — Rapport's version list
 │                 indberetning/  FractionTable — Indberetning's fraction table
 │                 sager/  CaseCard — Sager's case card
-│                 onsite/  CaptureStage, CaptureSheet, PartPicker — On-site's
-│                 phone sheet
 │                 controls.module.css (buttons and fields) and
 │                 surfaces.module.css (panels and notices) are the shared
 │                 CSS every case screen's own components `composes` from
@@ -74,17 +72,14 @@ apps/rux/frontend/src/
 ├── indberetning/ Pure module behind Indberetning: model.ts (fraction table,
 │                 blocking-list notice, send gate)
 ├── sager/        Pure module for Sager: model.ts (case status, card stats and
-│                 text, the open-another and phone commands)
-├── onsite/       Pure module for On-site: model.ts (the walk order, the
-│                 picker, the detection chip, photo state and reticle, the
-│                 sample body and its toast)
+│                 text, the open-another command)
 ├── pipeline/     Pure stage-runner logic (stageModel, params, history)
 ├── routes/       Page compositions: OverblikPage, Dashboard (now at
 │                 `/projektdata`), ViewportPage, PipelinePage,
 │                 PipelineLogPage, GraphViewPage, FramesPage, DataPage,
 │                 GeometryPage, InstancesPage, MaterialsPage, ExportPage,
 │                 KortlaegningPage, MiljoePage, RapportPage, IndberetningPage,
-│                 SagerPage, OnsitePage
+│                 SagerPage
 │                 (KortlaegningPage and MiljoePage use app/SurveyCountsContext
 │                 for the two sidebar badges: review queue and pending
 │                 samples), plus viewHead.module.css, the shared header CSS

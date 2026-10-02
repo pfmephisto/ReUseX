@@ -138,7 +138,7 @@ src/
 │                 gates buttons only, field commits are never dropped),
 │                 keyTargets.ts (classifies a key event's target so page
 │                 shortcuts never fire while typing), links.ts (the
-│                 Kortlægning ↔ Miljø & prøver ↔ Overblik ↔ On-site deep links
+│                 Kortlægning ↔ Miljø & prøver ↔ Overblik deep links
 │                 and route constants), saveError.ts (Danish copy for a failed
 │                 save: 409/503 get their own message, else the server's),
 │                 errorCopy.ts (Danish copy for a failed *load*, keyed by a
@@ -154,8 +154,7 @@ src/
 │                 EditDialog, SampleLine), miljoe/ (StageChain, LinkPicker,
 │                 SampleCard, NewSampleForm), overblik/ (CaseHero, KpiRow,
 │                 QuickLinks, ProjectMetaForm), rapport/ (VersionList),
-│                 indberetning/ (FractionTable), sager/ (CaseCard) and
-│                 onsite/ (CaptureStage, CaptureSheet, PartPicker) — plus the
+│                 indberetning/ (FractionTable), and sager/ (CaseCard) — plus the
 │                 shared controls.module.css (buttons, fields and the
 │                 crossLink every cross-screen link composes) and
 │                 surfaces.module.css (panels and notices) every case screen
@@ -176,17 +175,14 @@ src/
 ├── indberetning/ Pure module for Indberetning: model.ts (the fraction table,
 │                 the blocking-list notice, the send gate)
 ├── sager/        Pure module for Sager: model.ts (case status, card stats and
-│                 text, the open-another and phone commands)
-├── onsite/       Pure module for On-site: model.ts (the walk order, the
-│                 picker, the detection chip, photo state and reticle, the
-│                 sample body and its toast)
+│                 text, the open-another command)
 ├── pipeline/     Pure stage-runner logic: the card view model (stageModel),
 │                 parameter-form parsing and the omit-defaults submit rule
 │                 (params), and the pipeline_log timeline (history)
 ├── routes/       Page-level compositions (OverblikPage, Dashboard — now at
 │                 `/projektdata` — PipelinePage, ViewportPage,
 │                 KortlaegningPage, MiljoePage, RapportPage,
-│                 IndberetningPage, SagerPage, OnsitePage), plus the shared
+│                 IndberetningPage, SagerPage), plus the shared
 │                 viewHead.module.css a case screen's header composes from
 ├── viewport/     three.js point-cloud rendering: PointCloudScene, the paged
 │                 cloud stream (useCloudStream, pagination), point decoding
@@ -198,7 +194,8 @@ src/
 
 `/` is Overblik, the case landing page; the old dashboard/inventory screen
 lives at `/projektdata` now (a `Værktøjer` entry).
-`/sager` lists the one open case; `/on-site` is the phone sheet. Below 900px
-the sidebar is a drawer. To use On-site from a phone, start
-`rux gui --bind <LAN-IP> --allow-origin http://<LAN-IP>:<port>` (no
-authentication — trusted networks only).
+`/sager` lists the one open case. Below 900px the sidebar is a drawer.
+Retired paths (`/on-site`) redirect to Kortlægning; see `REDIRECTS` in
+`src/app/navigation.ts`. Materialedata (`/materials`) and Eksport (`/export`)
+are off the sidebar and still reachable by URL until Kortlægning and Rapport
+take them over.

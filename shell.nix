@@ -138,7 +138,7 @@ in
         include-what-you-use # Check #include dependencies
 
         # Performance profiling
-        linuxPackages.perf # Performance profiling
+        perf # Performance profiling
         hotspot # GUI for perf data visualization
 
         # Development tools

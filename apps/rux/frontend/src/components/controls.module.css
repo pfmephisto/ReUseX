@@ -157,6 +157,15 @@
   border-radius: var(--radius-sm);
 }
 
+/* An <a> styled as a button: compose this next to btnGhost/btnPrimary.
+ * Only an inline link needs it — a <button> already centres its label in a
+ * min-height box, and making every button a flex box would override the
+ * layout of the ones that set their own (a left-aligned picker option with
+ * an ellipsis, a label whose spaces must survive). */
+.linkBtn {
+  text-decoration: none;
+}
+
 /* Phone width (the shell's 56.25rem breakpoint, DRAWER_QUERY in
  * navigation.ts): every control is a 44px tap target — the title bar's
  * height, as in the drawer. Buttons and fields grow to it. Text buttons and
@@ -167,11 +176,15 @@
   .btnGhost,
   .btnPrimary,
   .btnDanger {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
     min-width: var(--layout-titlebar-height);
     min-height: var(--layout-titlebar-height);
+  }
+
+  /* An inline <a> ignores min-height; as a flex box it grows and centres
+   * its label vertically. */
+  .linkBtn {
+    display: inline-flex;
+    align-items: center;
   }
 
   .input {

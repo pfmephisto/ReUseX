@@ -103,7 +103,6 @@ json sample_json(const reusex::ProjectDB::SampleRecord &s) {
                          ? json(nullptr)
                          : json(std::string(core::to_string(s.result)))},
           {"type_ids", s.type_ids},
-          {"part_code", opt(s.part_code)},
           {"created_at", s.created_at},
           {"updated_at", s.updated_at}};
 }
@@ -477,27 +476,11 @@ json create_sample_json(reusex::ProjectDB &db, const std::string &body) {
     throw HttpError(400, "'title' is required and must be non-empty");
   const auto what = opt_string(j, "what").value_or("");
   const auto types = id_list(j, "type_ids");
-  const auto part_code = opt_string(j, "part_code");
-  if (part_code && part_code->empty())
-    throw HttpError(400, "'part_code' must be non-empty");
-  const auto stage =
-      opt_enum<core::SampleStage>(j, "stage", core::sample_stage_from_string);
-  // A sample is registered before it reaches a lab. Later stages are reached
-  // through PATCH, and `svar` without a result would count as clean.
-  // Keep this route-level check: add_sample's invalid_argument maps to 422,
-  // which openapi does not list for this operation.
-  if (stage && *stage != core::SampleStage::planlagt &&
-      *stage != core::SampleStage::udtaget)
-    throw HttpError(400, "'stage' on create must be 'planlagt' or 'udtaget'");
-  // add_sample checks every refusal (unknown type -> out_of_range -> 404,
-  // unknown part -> 404) before its first write, and inserts the row, its
-  // links (always including the part's type) and its stage in one
-  // transaction.
-  return mapped([&] {
-    const auto s = db.add_sample(*title, what, part_code, types,
-                                 stage.value_or(core::SampleStage::planlagt));
-    return sample_json(s);
-  });
+  // add_sample checks every refusal (unknown type -> out_of_range -> 404)
+  // before its first write, and inserts the row and its links in one
+  // transaction. A new sample always starts at `planlagt`.
+  return mapped(
+      [&] { return sample_json(db.add_sample(*title, what, types)); });
 }
 
 json patch_sample_json(reusex::ProjectDB &db, int64_t id,

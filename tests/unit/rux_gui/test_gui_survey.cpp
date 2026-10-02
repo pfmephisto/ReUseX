@@ -620,69 +620,20 @@ TEST_CASE("SurveySummaryJson_NoInstanceCloud_ClassifiedShareNull",
   CHECK(j.at("contaminated_types") == 0);
 }
 
-// ===========================================================================
-// On-site (GUI Phase 6): a sample registered at a bygningsdel
-// ===========================================================================
-
-TEST_CASE("CreateSample_AtAPart_LinksItsTypeAndRecordsTheCode",
+TEST_CASE("CreateSample_Refusals_WriteNothing_OnsiteFieldsIgnored",
           "[gui][survey][edits]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
-  const auto t =
-      add_type(db, "Vinduespartier, aluminium", core::Treatment::genbrug, 3.1);
-  db.add_survey_part({"RX-008",
-                      t,
-                      std::nullopt,
-                      std::nullopt,
-                      std::nullopt,
-                      "Office Zone",
-                      26,
-                      false,
-                      "",
-                      {},
-                      {}});
-  const auto s = create_sample_json(
-      db, R"({"title":"Asbest i fugemasse","what":"Fuge mod nord",)"
-          R"("part_code":"RX-008","stage":"udtaget"})");
-  CHECK(s.at("part_code") == "RX-008");
-  CHECK(s.at("type_ids") == nlohmann::json::array({t}));
-  CHECK(s.at("stage") == "udtaget");
-  CHECK(s.at("result").is_null());
-  // The part's type now waits for the sample: the gate is on the type.
-  CHECK(core::environment_status_of(db, t) ==
-        core::EnvironmentStatus::afventer);
-  // The part's type is added once, even when the body already names it.
-  const auto again = create_sample_json(
-      db, R"({"title":"PCB","part_code":"RX-008","type_ids":[)" +
-              std::to_string(t) + "]}");
-  CHECK(again.at("type_ids") == nlohmann::json::array({t}));
-  CHECK(again.at("stage") == "planlagt");
-  // Without a part the field is null, also in the list.
-  CHECK(create_sample_json(db, R"({"title":"Bly"})").at("part_code").is_null());
-  CHECK(samples_json(db).at("samples").at(0).at("part_code") == "RX-008");
-}
-
-TEST_CASE("CreateSample_PartAndStage_RefusalsWriteNothing",
-          "[gui][survey][edits]") {
-  TempDB tmp;
-  ProjectDB db(tmp.path);
-  CHECK(status_of([&] {
-          create_sample_json(db, R"({"title":"x","part_code":"RX-404"})");
-        }) == 404);
-  CHECK(status_of([&] {
-          create_sample_json(db, R"({"title":"x","part_code":""})");
-        }) == 400);
-  CHECK(status_of([&] {
-          create_sample_json(db, R"({"title":"x","part_code":7})");
-        }) == 400);
-  CHECK(status_of([&] {
-          create_sample_json(db, R"({"title":"x","stage":"svar"})");
-        }) == 400);
-  CHECK(status_of([&] {
-          create_sample_json(db, R"({"title":"x","stage":"lab"})");
-        }) == 400);
+  CHECK(status_of([&] { create_sample_json(db, R"({"title":""})"); }) == 400);
+  CHECK(status_of([&] { create_sample_json(db, R"({"what":"x"})"); }) == 400);
   CHECK(status_of([&] {
           create_sample_json(db, R"({"title":"x","type_ids":[9999]})");
         }) == 404);
   CHECK(db.samples().empty());
+  // On-site's fields are gone: the route ignores them like any unknown key.
+  const auto s = create_sample_json(
+      db, R"({"title":"PCB","part_code":"RX-404","stage":"svar"})");
+  CHECK(s.at("stage") == "planlagt");
+  CHECK_FALSE(s.contains("part_code"));
+  CHECK_FALSE(samples_json(db).at("samples").at(0).contains("part_code"));
 }

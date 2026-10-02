@@ -121,14 +121,25 @@ describe('resolveMembers (spec §5.2)', () => {
 
 describe('searchKeys', () => {
   it('matches label, id and category case-insensitively, minus explicit key members', () => {
-    expect(searchKeys(KEYS, 'PROD', [], 20).map((k) => k.id)).toEqual(['lex:a', 'lex:b']);
-    expect(searchKeys(KEYS, 'col:', [], 20).map((k) => k.id)).toEqual(['col:1']);
-    expect(searchKeys(KEYS, 'prod', [{ key: 'lex:a' }], 20).map((k) => k.id)).toEqual(['lex:b']);
+    expect(searchKeys(KEYS, 'PROD', [], 20).map((h) => h.key.id)).toEqual(['lex:a', 'lex:b']);
+    expect(searchKeys(KEYS, 'col:', [], 20).map((h) => h.key.id)).toEqual(['col:1']);
+    expect(searchKeys(KEYS, 'prod', [{ key: 'lex:a' }], 20).map((h) => h.key.id)).toEqual(['lex:b']);
   });
 
   it('returns nothing for a blank query and honours the limit', () => {
     expect(searchKeys(KEYS, '   ', [], 20)).toEqual([]);
     expect(searchKeys(KEYS, 'e', [], 2)).toHaveLength(2);
+  });
+
+  it('marks hits already covered by a ticked category, and still lists them', () => {
+    const hits = searchKeys(KEYS, 'prod', [{ category: 'Produkt' }], 20);
+    expect(hits.map((h) => h.key.id)).toEqual(['lex:a', 'lex:b']);
+    expect(hits.every((h) => h.covered)).toBe(true);
+  });
+
+  it('leaves hits from an untouched category uncovered', () => {
+    const hits = searchKeys(KEYS, 'prod', [{ category: 'Brand' }], 20);
+    expect(hits.every((h) => !h.covered)).toBe(true);
   });
 });
 
@@ -138,8 +149,12 @@ describe('memberLabel', () => {
     expect(memberLabel({ key: 'lex:c' }, KEYS)).toEqual({ label: 'Brandklasse', kind: 'Felt', detail: 'Brand' });
   });
 
-  it('falls back to the raw id for a missing member', () => {
-    expect(memberLabel({ key: 'col:99' }, KEYS)).toEqual({ label: 'col:99', kind: 'Felt', detail: 'Findes ikke længere' });
+  it('labels a deleted user column, not its raw uuid', () => {
+    expect(memberLabel({ key: 'col:99' }, KEYS)).toEqual({ label: 'Slettet felt', kind: 'Felt', detail: 'Findes ikke længere' });
+  });
+
+  it('falls back to the raw id for a missing non-column key', () => {
+    expect(memberLabel({ key: 'lex:zzz' }, KEYS)).toEqual({ label: 'lex:zzz', kind: 'Felt', detail: 'Findes ikke længere' });
     expect(memberLabel({ category: 'Fjernet' }, KEYS)).toEqual({ label: 'Fjernet', kind: 'Kategori', detail: 'Findes ikke længere' });
   });
 });

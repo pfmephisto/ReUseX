@@ -144,14 +144,18 @@ export function TemplateEditor({ template, keys, nameRef, nameReset, onRename, o
         />
         {hits.length > 0 && (
           <ul className={styles.hits}>
-            {hits.map((k) => (
+            {hits.map(({ key: k, covered }) => (
               <li key={k.id} className={styles.hit}>
                 <span>
                   {k.label} <span className={styles.muted}>· {k.category}</span>
                 </span>
-                <button type="button" className={styles.textBtn} onClick={() => onMembers(addKey(members, k.id))}>
-                  Tilføj
-                </button>
+                {covered ? (
+                  <span className={styles.muted}>Dækket af kategori</span>
+                ) : (
+                  <button type="button" className={styles.textBtn} onClick={() => onMembers(addKey(members, k.id))}>
+                    Tilføj
+                  </button>
+                )}
               </li>
             ))}
           </ul>

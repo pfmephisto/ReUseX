@@ -91,26 +91,35 @@ export function resolveMembers(
   return { keys: out, missing };
 }
 
+/** One catalogue-search hit: the key, plus whether a ticked category already resolves it. */
+export interface SearchHit {
+  key: ResourceKey;
+  /** A ticked category member already includes this key — adding it as an explicit key member would pin its position but change neither the count nor the columns. */
+  covered: boolean;
+}
+
 export function searchKeys(
   keys: readonly ResourceKey[],
   query: string,
   members: readonly TemplateMember[],
   limit = 20,
-): ResourceKey[] {
+): SearchHit[] {
   const q = query.trim().toLocaleLowerCase('da-DK');
   if (!q) return [];
   const explicit = new Set(members.filter((m) => !isCategory(m)).map((m) => (m as { key: string }).key));
-  const hits: ResourceKey[] = [];
+  const tickedCategories = new Set(members.filter(isCategory).map((m) => m.category));
+  const hits: SearchHit[] = [];
   for (const k of keys) {
     if (explicit.has(k.id)) continue;
     const hay = `${k.label}\n${k.id}\n${k.category}`.toLocaleLowerCase('da-DK');
-    if (hay.includes(q)) hits.push(k);
+    if (hay.includes(q)) hits.push({ key: k, covered: tickedCategories.has(k.category) });
     if (hits.length >= limit) break;
   }
   return hits;
 }
 
 const GONE = 'Findes ikke længere';
+const DELETED_COLUMN = 'Slettet felt';
 
 export function memberLabel(
   m: TemplateMember,
@@ -121,5 +130,10 @@ export function memberLabel(
     return { label: m.category, kind: 'Kategori', detail: n === 0 ? GONE : n === 1 ? '1 felt' : `${n} felter` };
   }
   const k = keys.find((x) => x.id === m.key);
-  return k ? { label: k.label, kind: 'Felt', detail: k.category } : { label: m.key, kind: 'Felt', detail: GONE };
+  if (k) return { label: k.label, kind: 'Felt', detail: k.category };
+  // A `col:` id is a deleted user column — the raw uuid means nothing to a
+  // user. Anything else (`lex:`/legacy keys) still shows the raw id, since
+  // that at least names the leksikon field it once pointed at.
+  const label = m.key.startsWith('col:') ? DELETED_COLUMN : m.key;
+  return { label, kind: 'Felt', detail: GONE };
 }

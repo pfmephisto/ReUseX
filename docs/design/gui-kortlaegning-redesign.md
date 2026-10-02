@@ -6,7 +6,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # GUI redesign: prototype v2 + Kortlægning workbench
 
-Status: **proposed** (2026-09-30). Anchor: #265 (GUI application).
+Status: **implemented** (2026-10-02; phases 1–6 complete; proposed 2026-09-30). Anchor: #265 (GUI application).
 
 ## Source
 
@@ -135,6 +135,11 @@ cascade-deleted — is a deliberate exception to STANDARDS §3.2 (no silent
 orphaning): the sample keeps the code rather than being rewritten or
 rejected, and Miljø shows it as plain text instead of a link when the part no
 longer exists.
+
+The same holds when the part outlives its link: a sample's type links stay
+user-editable in Miljø, so unlinking the type the part belongs to is allowed.
+`Udtaget ved` then still names the part — the code records where the sample
+was taken, not which types it currently covers.
 
 Derived, never stored (pure library functions, unit-tested):
 
@@ -394,7 +399,8 @@ Each phase is a separate PR that leaves the app working.
   v1 documents `--bind` + `--allow-origin` and warns
   (`.github/issue-drafts/38-lan-pairing-auth.md`).
 - bygningsaffald.dk API submission (v1 produces the numbers in the portal's
-  structure; the send button is gated but posts nowhere).
+  structure; the send button is gated but posts nowhere;
+  `.github/issue-drafts/33-bygningsaffald-submission.md`).
 - BBR lookup (the prototype marks it "Demodata"; shown only when project
   metadata carries a BFE number).
 - Lab integration (e.g. Milva) for automatic sample results.
@@ -424,24 +430,28 @@ Each phase is a separate PR that leaves the app working.
   (`.github/issue-drafts/39-onsite-live-capture.md`).
 - An offline outbox for On-site, so writes made without signal are kept and
   sent later (`.github/issue-drafts/40-onsite-offline-outbox.md`).
-- Rewinding a sample's stage beyond `Fortryd svar` (back to *sendt*).
+- Rewinding a sample's stage beyond `Fortryd svar` (back to *sendt*)
+  (`.github/issue-drafts/23-sample-stage-rewind.md`).
 - Kortlægning's selection is not in the URL, so Back after a cross-screen link
-  returns to row 0. Keep `?type=<selected>` updated with `replace`.
+  returns to row 0. Keep `?type=<selected>` updated with `replace`
+  (`.github/issue-drafts/31-kortlaegning-selection-not-in-url.md`).
 - Case identity in project metadata: BFE number, case number
   (`RX-2026-0047`), MRK and the demolition deadline — schema, `PATCH
   /projects`, `rux set` — then Overblik's hero line and the BBR line with a
-  verified BBR link. Until then BBR is not drawn.
+  verified BBR link. Until then BBR is not drawn
+  (`.github/issue-drafts/24-case-identity-metadata-bbr.md`).
 - The client (bygherre) in case metadata, for the Sager card and the
   Overblik hero (`.github/issue-drafts/41-case-client-bygherre.md`).
 - Esc in the Kortlægning edit dialog still closes *and saves* (the closing
-  blur commits); every other editor drops the draft (Phase 5 R10).
+  blur commits); every other editor drops the draft (Phase 5 R10)
+  (`.github/issue-drafts/26-editdialog-esc-commits.md`).
 - Report approval (`Godkendt` / MRK signature on a version) and a stored XLS
-  inventory version.
+  inventory version (`.github/issue-drafts/34-report-approval-xls-version.md`).
 - A scan-coverage measure for the building, so Overblik can show the
-  prototype's `Scanningsdækning` instead of `Klassificeret`.
+  prototype's `Scanningsdækning` instead of `Klassificeret`
+  (`.github/issue-drafts/35-scan-coverage-kpi.md`).
 - The Phase 6 regression checks for the responsive shell (R5), the app-wide
-  write chain (R11) and the cross-link style (R12) live only as scratchpad
-  Playwright scripts, not in the repo:
-  `/tmp/claude-1001/-home-mephisto-repos-ReUseX/3f5d811b-b3af-447f-a3ba-505a5e85dab5/scratchpad/phase6_flow.py`,
-  `phase6_shots.py` and `onsite_live.py`. Committing a Playwright suite is a
-  follow-up (`.github/issue-drafts/42-commit-playwright-suite.md`).
+  write chain (R11) and the cross-link style (R12) were run as uncommitted
+  Playwright scripts, not from the repo. Committing them as a suite is a
+  follow-up; the draft lists what they cover and the gaps they found
+  (`.github/issue-drafts/42-commit-playwright-suite.md`).

@@ -34,7 +34,7 @@ in {
       (old.buildInputs or [])
       ++ prev.lib.optionals cudaSupport [
         prev.cudaPackages.cuda_cudart
-        prev.cudaPackages.cuda_cccl
+        prev.cudaPackages.cccl
         # OpenMVS's Common library auto-links CUDA::curand whenever CUDA is
         # detected, regardless of whether the build actually uses it.
         prev.cudaPackages.libcurand

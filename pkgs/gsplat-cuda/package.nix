@@ -91,7 +91,7 @@ in
       ]
       ++ (with cudaPackages; [
         cuda_cudart
-        cuda_cccl # <thrust/*>, <cub/*> pulled in by torch/glm
+        cccl # <thrust/*>, <cub/*> pulled in by torch/glm
         cuda_nvrtc # Torch imported target references CUDA_nvrtc_LIBRARY
         cuda_nvtx
         libcublas

@@ -309,7 +309,13 @@ target_link_libraries(reusex_core PUBLIC reusex_utils)
 # shared lib; per-module static libs need it named explicitly so the symbols are
 # on the final link line (DSO-missing-from-command-line otherwise).
 find_package(SQLite3 REQUIRED)
-target_link_libraries(reusex_core PUBLIC SQLite::SQLite3)
+# CMake 4.3 renamed FindSQLite3's target to SQLite3::SQLite3 and deprecated
+# SQLite::SQLite3 (an author warning per link). Use the new name, aliasing it on
+# older CMake as FindSQLite3's own documentation recommends.
+if(NOT TARGET SQLite3::SQLite3)
+    add_library(SQLite3::SQLite3 ALIAS SQLite::SQLite3)
+endif()
+target_link_libraries(reusex_core PUBLIC SQLite3::SQLite3)
 # NOTE (#227): core deliberately does NOT link reusex_geometry_common.
 # ProjectDB persists the core-owned POD `core::ComponentRecord`; the
 # BuildingComponent <-> record mapping lives in the header-only adapter

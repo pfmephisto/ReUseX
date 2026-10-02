@@ -67,6 +67,8 @@ core::PipelineStage contract_of(pipeline::JobStage stage) {
     return core::PipelineStage::instances;
   case pipeline::JobStage::mesh:
     return core::PipelineStage::mesh;
+  case pipeline::JobStage::optimize:
+    return core::PipelineStage::optimize;
   }
   FAIL("JobStage has no contract mapping");
   return core::PipelineStage::clouds;

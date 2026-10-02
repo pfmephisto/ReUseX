@@ -13,6 +13,13 @@ cmake_minimum_required(VERSION 3.17)
 cmake_policy(SET CMP0167 NEW)
 # Silence "FindPythonInterp/FindPythonLibs removed" from pybind11 < 2.12.
 cmake_policy(SET CMP0148 NEW)
+# The cmake_policy() calls above only cover this directory: every subproject
+# (libs/reusex, apps/*, bindings/python) re-runs cmake_minimum_required(3.17),
+# which unsets policies newer than 3.17 again, so GTSAM's find_dependency(Boost),
+# OpenMVS's find_package(Boost) and pybind11's FindPythonLibsNew still warned
+# from there. CMAKE_POLICY_DEFAULT_* is what an unset policy falls back to.
+set(CMAKE_POLICY_DEFAULT_CMP0167 NEW)
+set(CMAKE_POLICY_DEFAULT_CMP0148 NEW)
 
 project(reusex
     VERSION 0.0.5

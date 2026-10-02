@@ -7,6 +7,39 @@
   system,
   ...
 }: let
+  # One merged CUDA root for the dev shell (cudaSupport only).
+  #
+  # The package build compiles against the individual CUDA redist packages
+  # (cf6d7fd9, which keeps nvcc and the merged toolkit out of rux's runtime
+  # closure). That works inside the derivation only because nixpkgs'
+  # setupCUDAToolkitCompilers hook runs in configurePhase and hands CMake
+  # -DCUDAToolkit_INCLUDE_DIR / -DCUDAToolkit_ROOT lists spanning every
+  # package. A dev shell never runs configurePhase, so a plain cmake (or the
+  # `configure` helper below) sees only the bare cuda_nvcc. CMake's own
+  # FindCUDAToolkit copes, but LibTorch's bundled copy
+  # (Caffe2/FindCUDAToolkit.cmake) takes the toolkit root from the CUDA
+  # compiler and needs <root>/include/cuda_runtime.h and cublas_v2.h, so it
+  # fails with "Could NOT find CUDAToolkit (missing: CUDAToolkit_INCLUDE_DIR)".
+  #
+  # Merging the package's own CUDA inputs (passthru.cudaToolkitPackages, same
+  # store paths, every output) into one directory and pointing the compiler
+  # at it gives that finder the layout it expects. This exists only in the
+  # shell: the package derivation and its runtime closure are unchanged.
+  reusex = self.packages.${system}.default;
+  cudaDevToolkit = pkgs.symlinkJoin {
+    name = "reusex-devshell-cuda-${pkgs.cudaPackages.cudaMajorMinorVersion}";
+    paths = pkgs.lib.concatMap (p: map (o: p.${o}) p.outputs) reusex.cudaToolkitPackages;
+  };
+  cudaEnv = pkgs.lib.optionalAttrs (reusex.cudaToolkitPackages != []) {
+    # CUDACXX seeds CMAKE_CUDA_COMPILER on a fresh configure; the toolkit root
+    # CMake derives from it is what Caffe2's FindCUDAToolkit uses.
+    CUDACXX = "${cudaDevToolkit}/bin/nvcc";
+    # Read by CMake's FindCUDAToolkit (CMP0074) and by FindCUDA, which
+    # LibTorch also calls; they would otherwise resolve to the nvcc on PATH.
+    CUDAToolkit_ROOT = "${cudaDevToolkit}";
+    CUDA_PATH = "${cudaDevToolkit}";
+  };
+
   motd = ''
     echo ""
     echo "  ┌─────────────────────────────────────────────┐"
@@ -67,7 +100,8 @@
   };
 in
   pkgs.mkShell {
-    inputsFrom = [self.packages.${system}.default];
+    inputsFrom = [reusex];
+    env = cudaEnv;
     buildInputs = self.checks.${system}.pre-commit-check.enabledPackages;
 
     packages =

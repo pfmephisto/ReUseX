@@ -23,11 +23,12 @@ import {
   resultPatch,
   resultToast,
   statusPill,
+  takenAt,
   textCommit,
   toggleLink,
   UNDO_RESULT_PATCH,
 } from '../miljoe/model';
-import { sample, surveyType } from './surveyFixtures';
+import { sample, surveyPart, surveyType } from './surveyFixtures';
 
 describe('stage chain', () => {
   it('marks steps before the stage done, the stage current, the rest todo', () => {
@@ -235,6 +236,23 @@ describe('gate feedback', () => {
     expect(answeredNote({ type_ids: draft })).toBe(
       'Svar registreret — miljøstatus opdateret på 3 type(r) i kortlægningen.',
     );
+  });
+});
+
+describe('where a sample was taken (Phase 6 R8)', () => {
+  const types = [
+    surveyType({ id: 6, parts: [surveyPart()] }),
+    surveyType({ id: 9, review_status: 'rejected', parts: [surveyPart({ code: 'RX-020', type_id: 9, room_id: null, room_name: '' })] }),
+  ];
+
+  it('names the part and its room, linking to the part’s type', () => {
+    expect(takenAt({ part_code: 'RX-008' }, types)).toEqual({ text: 'Udtaget ved RX-008 · Office Zone', typeId: 6 });
+  });
+
+  it('is plain text for a rejected type or an unknown code, and absent without a part', () => {
+    expect(takenAt({ part_code: 'RX-020' }, types)).toEqual({ text: 'Udtaget ved RX-020', typeId: null });
+    expect(takenAt({ part_code: 'RX-404' }, types)).toEqual({ text: 'Udtaget ved RX-404', typeId: null });
+    expect(takenAt({ part_code: null }, types)).toBeNull();
   });
 });
 

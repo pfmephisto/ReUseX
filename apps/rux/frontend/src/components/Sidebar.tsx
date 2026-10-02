@@ -13,6 +13,7 @@ import {
   type NavBadge,
   type NavEntry,
 } from '../app/navigation';
+import type { ThemePreference } from '../theme';
 import { ThemeToggle } from './ThemeToggle';
 import styles from './Sidebar.module.css';
 
@@ -29,6 +30,9 @@ export interface SidebarProps {
   onClose?: () => void;
   /** The drawer takes focus when it opens. */
   navRef?: RefObject<HTMLElement | null>;
+  /** The shell's single `useTheme()` state, shared with the title bar's toggle. */
+  themePreference: ThemePreference;
+  onThemeChange: (preference: ThemePreference) => void;
 }
 
 function Entry({ entry, count }: { entry: NavEntry; count?: number }) {
@@ -75,7 +79,16 @@ function tagsUpTo(e: MouseEvent<HTMLElement>): string[] {
  * bar's Menu button opens (R5); closed, CSS hides it from the tab order. The
  * drawer also carries the theme control, which the title bar drops there.
  */
-export function Sidebar({ projectName, badges = {}, id, open = false, onClose, navRef }: SidebarProps) {
+export function Sidebar({
+  projectName,
+  badges = {},
+  id,
+  open = false,
+  onClose,
+  navRef,
+  themePreference,
+  onThemeChange,
+}: SidebarProps) {
   return (
     <aside
       id={id}
@@ -107,7 +120,7 @@ export function Sidebar({ projectName, badges = {}, id, open = false, onClose, n
       <div className={styles.theme}>
         <div className={styles.groupLabel}>Tema</div>
         <div className={styles.themeControl}>
-          <ThemeToggle touch />
+          <ThemeToggle touch preference={themePreference} setPreference={onThemeChange} />
         </div>
       </div>
       <div className={styles.back}>

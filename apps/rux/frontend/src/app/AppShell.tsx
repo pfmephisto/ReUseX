@@ -11,6 +11,7 @@ import { TitleBar } from '../components/TitleBar';
 import { Sidebar } from '../components/Sidebar';
 import { JobToaster } from '../components/JobToaster';
 import { useAsync } from './useAsync';
+import { useTheme } from './useTheme';
 import { useJobs } from './JobsContext';
 import { SurveyCountsProvider } from './SurveyCountsContext';
 import { kindOf } from './keyTargets';
@@ -43,7 +44,8 @@ const NAV_ID = 'app-nav';
  * the breakpoint closes it too, so a desktop is never left with an inert
  * `<main>`, and moves focus off whatever the crossing hid: widening, from
  * the drawer or Menu to the sidebar's active link (else `<main>`);
- * narrowing, from the sidebar to Menu.
+ * narrowing, from the sidebar, or from a title-bar control the narrow layout
+ * hides (the theme toggle), to Menu.
  */
 export function AppShell({ children }: { children: ReactNode }) {
   const { data: health, error } = useAsync<Health>((signal) => api.health(signal), []);
@@ -58,11 +60,15 @@ export function AppShell({ children }: { children: ReactNode }) {
     [survey.reload, project.reload],
   );
 
+  // The one useTheme() instance; both toggles render from it (title bar, drawer).
+  const theme = useTheme();
+
   const [navOpen, setNavOpen] = useState(false);
   const navOpenRef = useRef(false);
   navOpenRef.current = navOpen;
   const menuRef = useRef<HTMLButtonElement>(null);
   const navRef = useRef<HTMLElement>(null);
+  const barRef = useRef<HTMLElement>(null);
   const mainRef = useRef<HTMLElement>(null);
   const closeNav = useCallback(() => {
     setNavOpen(false);
@@ -98,6 +104,10 @@ export function AppShell({ children }: { children: ReactNode }) {
       setNavOpen(false);
       if (drawerMq.matches) {
         if (inNav) menuRef.current?.focus(); // the sidebar just went off-canvas
+        // A title-bar control the narrow layout hides (the theme toggle).
+        else if (focused && barRef.current?.contains(focused) && !focused.checkVisibility?.()) {
+          menuRef.current?.focus();
+        }
         return;
       }
       if (!inNav && focused !== menuRef.current) return; // Menu just went display:none
@@ -140,7 +150,10 @@ export function AppShell({ children }: { children: ReactNode }) {
         menuOpen={navOpen}
         onMenu={() => (navOpen ? closeNav() : setNavOpen(true))}
         menuRef={menuRef}
+        barRef={barRef}
         menuControls={NAV_ID}
+        themePreference={theme.preference}
+        onThemeChange={theme.setPreference}
       />
       <div className={styles.body}>
         <div className={styles.scrim} hidden={!navOpen} aria-hidden="true" onClick={closeNav} />
@@ -151,6 +164,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           navRef={navRef}
           projectName={displayProjectName(summary, health)}
           badges={{ reviewQueue, pendingSamples }}
+          themePreference={theme.preference}
+          onThemeChange={theme.setPreference}
         />
         <main ref={mainRef} className={styles.content} inert={navOpen} tabIndex={-1}>
           <SurveyCountsProvider value={surveyCounts}>{children}</SurveyCountsProvider>

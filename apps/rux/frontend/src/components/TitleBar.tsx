@@ -5,6 +5,7 @@
 import type { RefObject } from 'react';
 
 import type { ConnectionStatus } from '../api/events';
+import type { ThemePreference } from '../theme';
 import { JobIndicator } from './JobIndicator';
 import { ThemeToggle } from './ThemeToggle';
 import styles from './TitleBar.module.css';
@@ -28,8 +29,13 @@ export interface TitleBarProps {
   /** Below 900px: toggles the sidebar drawer. Without it no Menu button is drawn. */
   onMenu?: () => void;
   menuRef?: RefObject<HTMLButtonElement | null>;
+  /** The `<header>` itself, so the shell can tell focus inside the bar. */
+  barRef?: RefObject<HTMLElement | null>;
   /** The drawer's id. */
   menuControls?: string;
+  /** The shell's single `useTheme()` state, shared with the drawer's toggle. */
+  themePreference: ThemePreference;
+  onThemeChange: (preference: ThemePreference) => void;
 }
 
 /**
@@ -53,14 +59,17 @@ export function TitleBar({
   menuOpen = false,
   onMenu,
   menuRef,
+  barRef,
   menuControls,
+  themePreference,
+  onThemeChange,
 }: TitleBarProps) {
   const title = unreachable
     ? 'Server utilgængelig'
     : (projectName ?? 'Indlæser…');
 
   return (
-    <header className={styles.bar}>
+    <header ref={barRef} className={styles.bar}>
       <div className={styles.identity}>
         {onMenu && (
           <button
@@ -98,7 +107,7 @@ export function TitleBar({
         {version && <span className={`${styles.meta} mono`}>{version}</span>}
         {/* Below the breakpoint the theme control lives in the drawer. */}
         <span className={styles.theme}>
-          <ThemeToggle />
+          <ThemeToggle preference={themePreference} setPreference={onThemeChange} />
         </span>
       </div>
     </header>

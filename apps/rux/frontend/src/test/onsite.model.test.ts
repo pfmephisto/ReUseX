@@ -100,10 +100,15 @@ describe('walk order (R6)', () => {
     expect(currentStop(order, null)?.code).toBe('RX-002');
     expect(currentStop(order, 'RX-404')?.code).toBe('RX-002');
     expect(currentStop([], 'RX-002')).toBeNull();
-    expect(unknownNotice('RX-404', currentStop(order, 'RX-404'))).toBe('RX-404 findes ikke — viser RX-002.');
+    expect(unknownNotice('RX-404', currentStop(order, 'RX-404'))).toBe("Bygningsdel 'RX-404' findes ikke — viser RX-002.");
     expect(unknownNotice('RX-009', currentStop(order, 'RX-009'))).toBeNull();
     expect(unknownNotice(null, currentStop(order, null))).toBeNull();
-    expect(unknownNotice('RX-020', currentStop(order, 'RX-020'))).toBe('RX-020 findes ikke — viser RX-002.');
+    expect(unknownNotice('RX-020', currentStop(order, 'RX-020'))).toBe("Bygningsdel 'RX-020' findes ikke — viser RX-002.");
+    expect(unknownNotice('xyz', currentStop(order, null))).toBe("Bygningsdel 'xyz' findes ikke — viser RX-002.");
+    expect(unknownNotice('', currentStop(order, null))).toBeNull();
+    expect(unknownNotice('x'.repeat(50), currentStop(order, null))).toBe(
+      `Bygningsdel '${'x'.repeat(40)}…' findes ikke — viser RX-002.`,
+    );
   });
 
   it('moves on, wrapping at the end, and names the next part', () => {
@@ -263,7 +268,7 @@ describe('edges', () => {
     expect(pickerGroups([], TYPES)).toEqual([]);
     expect(stopAfter([], 'RX-002')).toBeNull();
     expect(stopAfter(walkOrder(TYPES), 'RX-404')).toBeNull();
-    expect(unknownNotice('RX-404', null)).toBeNull();
+    expect(unknownNotice('RX-404', null)).toBe("Bygningsdel 'RX-404' findes ikke.");
     expect(partAt(TYPES, { code: 'RX-404', typeId: 6, room: '' })).toBeNull();
     expect(partAt(TYPES, { code: 'RX-008', typeId: 99, room: '' })).toBeNull();
   });

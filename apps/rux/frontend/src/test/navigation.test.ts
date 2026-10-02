@@ -25,7 +25,13 @@ describe('navigation model', () => {
       'Miljø & prøver',
       'Rapport',
       'Indberetning',
+      'On-site',
     ]);
+  });
+
+  it('lists On-site last in the case workflow', () => {
+    const sag = NAV_ENTRIES.filter((e) => e.group === 'sag');
+    expect(sag.at(-1)).toEqual({ to: '/on-site', label: 'On-site', group: 'sag' });
   });
 
   it('keeps every existing technical route reachable under Værktøjer', () => {

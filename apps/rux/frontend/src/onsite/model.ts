@@ -51,10 +51,19 @@ export function currentStop(order: readonly Stop[], asked: string | null): Stop 
   return order.find((s) => s.code === asked) ?? order[0];
 }
 
-/** Said when `?del=` names a part that is not on the walk (unknown, or of a rejected type). */
+/** How much of a raw `?del=` value the notice repeats. */
+const NOTICE_MAX = 40;
+
+/**
+ * Said when `?del=` names a part that is not on the walk: unknown, of a
+ * rejected type, or not a part code at all. `asked` is the raw value, so a
+ * malformed one is named too; the notice says where the page went instead.
+ */
 export function unknownNotice(asked: string | null, stop: Stop | null): string | null {
-  if (asked === null || stop === null || stop.code === asked) return null;
-  return `${asked} findes ikke — viser ${stop.code}.`;
+  if (asked === null || asked === '' || stop?.code === asked) return null;
+  const shown = asked.length > NOTICE_MAX ? `${asked.slice(0, NOTICE_MAX)}…` : asked;
+  const base = `Bygningsdel '${shown}' findes ikke`;
+  return stop ? `${base} — viser ${stop.code}.` : `${base}.`;
 }
 
 /**

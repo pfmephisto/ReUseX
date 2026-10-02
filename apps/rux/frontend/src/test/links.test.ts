@@ -11,6 +11,7 @@ import {
   parseMiljoeQuery,
   parseOnsiteQuery,
   parseTypeQuery,
+  rawOnsiteDel,
   sampleHref,
   surveyTypeHref,
 } from '../app/links';
@@ -59,5 +60,18 @@ describe('on-site links', () => {
     expect(parseOnsiteQuery('?del=rx-008')).toBeNull();
     expect(parseOnsiteQuery('?del=RX-8a')).toBeNull();
     expect(parseOnsiteQuery('?del=%3Cscript%3E')).toBeNull();
+  });
+
+  it('bounds the part code to six digits', () => {
+    expect(parseOnsiteQuery('?del=RX-123456')).toBe('RX-123456');
+    expect(parseOnsiteQuery('?del=RX-1234567')).toBeNull();
+    expect(parseOnsiteQuery(`?del=RX-${'9'.repeat(400)}`)).toBeNull();
+  });
+
+  it('keeps the raw ?del= value so a malformed one can be named', () => {
+    expect(rawOnsiteDel('?del=junk')).toBe('junk');
+    expect(rawOnsiteDel('?del=RX-008')).toBe('RX-008');
+    expect(rawOnsiteDel('?del=')).toBeNull();
+    expect(rawOnsiteDel('')).toBeNull();
   });
 });

@@ -29,7 +29,7 @@ export interface CaseCardProps {
 export function CaseCard({ to, name, subline, stats, status, date, thumbUrl }: CaseCardProps) {
   const [thumbFailed, setThumbFailed] = useState(false);
   return (
-    <Link to={to} className={styles.card}>
+    <Link to={to} className={styles.card} aria-label={name}>
       <div className={styles.thumb} data-plain={thumbFailed || undefined}>
         {thumbFailed ? (
           <span className={styles.thumbLabel}>{status.label}</span>

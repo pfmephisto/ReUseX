@@ -61,5 +61,11 @@ export function onsiteHref(code: string): string {
 /** `?del=<RX-###>` on /on-site; anything that is not a part code is ignored. */
 export function parseOnsiteQuery(search: string): string | null {
   const v = new URLSearchParams(search).get('del');
-  return v !== null && /^RX-\d+$/.test(v) ? v : null;
+  return v !== null && /^RX-\d{1,6}$/.test(v) ? v : null;
+}
+
+/** The raw `?del=` value, malformed or not, so the page can name what it was asked for; null when absent or empty. */
+export function rawOnsiteDel(search: string): string | null {
+  const v = new URLSearchParams(search).get('del');
+  return v ? v : null;
 }

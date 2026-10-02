@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import type { CaseStat, CaseStatus } from '../../sager/model';
@@ -28,8 +28,10 @@ export interface CaseCardProps {
 /** One case on Sager: the prototype's card, linking to the case's Overblik. */
 export function CaseCard({ to, name, subline, stats, status, date, thumbUrl }: CaseCardProps) {
   const [thumbFailed, setThumbFailed] = useState(false);
+  const id = useId();
+  // Named by the case alone; the subline, status and date describe it.
   return (
-    <Link to={to} className={styles.card} aria-label={name}>
+    <Link to={to} className={styles.card} aria-label={name} aria-describedby={`${id}-sub ${id}-foot`}>
       <div className={styles.thumb} data-plain={thumbFailed || undefined}>
         {thumbFailed ? (
           <span className={styles.thumbLabel}>{status.label}</span>
@@ -45,7 +47,9 @@ export function CaseCard({ to, name, subline, stats, status, date, thumbUrl }: C
       </div>
       <div className={styles.body}>
         <h3 className={styles.name}>{name}</h3>
-        <p className={styles.addr}>{subline}</p>
+        <p id={`${id}-sub`} className={styles.addr}>
+          {subline}
+        </p>
         <p className={styles.stats}>
           {stats
             ? stats.map((s) => (
@@ -55,7 +59,7 @@ export function CaseCard({ to, name, subline, stats, status, date, thumbUrl }: C
               ))
             : NO_SURVEY_TEXT}
         </p>
-        <div className={styles.foot}>
+        <div id={`${id}-foot`} className={styles.foot}>
           <Pill tone={status.tone}>{status.label}</Pill>
           <span className={styles.date}>{date}</span>
         </div>

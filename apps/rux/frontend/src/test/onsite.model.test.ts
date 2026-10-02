@@ -9,6 +9,7 @@ import type { GateChange } from '../miljoe/model';
 import {
   chipDetail,
   currentStop,
+  emptyWalkText,
   NO_ROOM,
   nextLabel,
   onsiteSampleBody,
@@ -17,6 +18,7 @@ import {
   photoView,
   pickerGroups,
   reticleBox,
+  sampleReloadFailedToast,
   sampleToast,
   starButton,
   stopAfter,
@@ -100,10 +102,14 @@ describe('walk order (R6)', () => {
     expect(currentStop(order, null)?.code).toBe('RX-002');
     expect(currentStop(order, 'RX-404')?.code).toBe('RX-002');
     expect(currentStop([], 'RX-002')).toBeNull();
-    expect(unknownNotice('RX-404', currentStop(order, 'RX-404'))).toBe("Bygningsdel 'RX-404' findes ikke — viser RX-002.");
+    expect(unknownNotice('RX-404', currentStop(order, 'RX-404'))).toBe(
+      "Bygningsdel 'RX-404' findes ikke — viser RX-002.",
+    );
     expect(unknownNotice('RX-009', currentStop(order, 'RX-009'))).toBeNull();
     expect(unknownNotice(null, currentStop(order, null))).toBeNull();
-    expect(unknownNotice('RX-020', currentStop(order, 'RX-020'))).toBe("Bygningsdel 'RX-020' findes ikke — viser RX-002.");
+    expect(unknownNotice('RX-020', currentStop(order, 'RX-020'))).toBe(
+      "Bygningsdel 'RX-020' findes ikke — viser RX-002.",
+    );
     expect(unknownNotice('xyz', currentStop(order, null))).toBe("Bygningsdel 'xyz' findes ikke — viser RX-002.");
     expect(unknownNotice('', currentStop(order, null))).toBeNull();
     expect(unknownNotice('x'.repeat(50), currentStop(order, null))).toBe(
@@ -356,5 +362,23 @@ describe('edges', () => {
       part_code: 'RX-002',
       stage: 'udtaget',
     });
+  });
+});
+
+describe('fallbacks', () => {
+  it('still confirms a registered sample when the gate could not be re-read', () => {
+    expect(sampleReloadFailedToast('P-09', 'RX-008')).toBe(
+      '✓ P-09 registreret ved RX-008 — men miljøstatus kunne ikke genindlæses.',
+    );
+  });
+
+  it('tells an all-rejected survey from one without parts', () => {
+    expect(emptyWalkText([]).title).toBe('Ingen bygningsdele endnu');
+    expect(emptyWalkText([surveyType({ id: 9, parts: [] })]).title).toBe('Ingen bygningsdele endnu');
+    const rejected = [
+      surveyType({ id: 9, review_status: 'rejected', parts: [surveyPart({ code: 'RX-090', type_id: 9 })] }),
+    ];
+    expect(walkOrder(rejected)).toEqual([]);
+    expect(emptyWalkText(rejected).title).toBe('Alle bygningsdele er afvist');
   });
 });

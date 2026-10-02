@@ -22,6 +22,8 @@ export interface CaptureSheetProps {
   /** Return the mutation's promise; call `done()` on success to close the form. */
   onRegister: (body: SampleCreate, done: () => void) => Promise<void> | void;
   onNext: () => void;
+  /** Take focus once mounted (after Videre): the Videre button, or the sheet when there is no next part. */
+  focusOnMount?: boolean;
 }
 
 interface SampleFormProps {
@@ -112,8 +114,25 @@ function SampleForm({ part, busy, formRef, onSubmit, onCancel }: SampleFormProps
  * buttons, gated on `busy` and guarded against a double tap. The page re-keys
  * this per part (R6), which resets the note draft and closes the form.
  */
-export function CaptureSheet({ part, busy, next, onStar, onNote, onRegister, onNext }: CaptureSheetProps) {
+export function CaptureSheet({
+  part,
+  busy,
+  next,
+  onStar,
+  onNote,
+  onRegister,
+  onNext,
+  focusOnMount = false,
+}: CaptureSheetProps) {
   const home = useRef<HTMLDivElement>(null);
+  const nextButton = useRef<HTMLButtonElement>(null);
+  // Mount only: the page re-keys the sheet per part, so this runs once per part.
+  const focusOnMountRef = useRef(focusOnMount);
+  useEffect(() => {
+    if (!focusOnMountRef.current) return;
+    const button = nextButton.current;
+    (button && !button.disabled ? button : home.current)?.focus();
+  }, []);
   const note = useTextDraft(part.note, onNote);
   const [form, setForm] = useState(false);
   const star = starButton(part.starred);
@@ -194,7 +213,7 @@ export function CaptureSheet({ part, busy, next, onStar, onNote, onRegister, onN
         />
       </label>
 
-      <button type="button" className={styles.next} disabled={next === null} onClick={onNext}>
+      <button ref={nextButton} type="button" className={styles.next} disabled={next === null} onClick={onNext}>
         {nextLabel(next)}
       </button>
     </div>

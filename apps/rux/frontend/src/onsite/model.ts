@@ -225,6 +225,29 @@ export function sampleToast(code: string, partCode: string, gate: GateChange): s
   return effect.length > 0 ? `${base} — ${effect.join('; ')}` : base;
 }
 
+/** The toast when a sample was registered but the survey could not be re-read for its gate effect. */
+export function sampleReloadFailedToast(code: string, partCode: string): string {
+  return `✓ ${code} registreret ved ${partCode} — men miljøstatus kunne ikke genindlæses.`;
+}
+
+/**
+ * The empty state when the walk has no stops: no parts at all, or parts only
+ * on rejected types (which the walk leaves out).
+ */
+export function emptyWalkText(types: readonly SurveyType[]): { title: string; detail: string } {
+  if (types.some((t) => t.parts.length > 0)) {
+    return {
+      title: 'Alle bygningsdele er afvist',
+      detail:
+        'Bygningsdelene hører kun til afviste typer, så der er intet at gå til. En afvisning fortrydes i Kortlægning.',
+    };
+  }
+  return {
+    title: 'Ingen bygningsdele endnu',
+    detail: 'Bygningsdele oprettes i Kortlægning (Opret kortlægning), ud fra projektets instanser.',
+  };
+}
+
 /** The samples on the part's type, in list order, each marked when it was taken at this part. */
 export function typeSamples(
   type: SurveyType,

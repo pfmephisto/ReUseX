@@ -82,7 +82,7 @@ struct TypeTotals {
   EnvironmentStatus environment = EnvironmentStatus::ren_screening;
   /// Identify the type in a blocking list; not used by the arithmetic.
   std::int64_t type_id = 0;
-  std::string name;
+  std::string name{};
 };
 std::array<double, kTreatmentCount>
 circularity_breakdown(const std::vector<TypeTotals> &);

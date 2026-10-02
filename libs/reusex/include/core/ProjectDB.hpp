@@ -1003,7 +1003,7 @@ class ProjectDB {
     /// not (cloud_id, instance_id). Nullable: a manually added part needs no
     /// instance. Read-only on a patch; set via cloud_name/instance_id on add.
     /// Kept LAST so existing positional aggregate initializers still compile.
-    std::optional<std::string> instance_guid;
+    std::optional<std::string> instance_guid{};
   };
   struct SurveyPartPatch {
     std::optional<int64_t> type_id;

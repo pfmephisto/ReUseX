@@ -3,28 +3,25 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { useEffect, useRef } from 'react';
+import type { RefObject } from 'react';
 
-import type { SurveyType } from '../../api/types';
+import type { SurveyType, Template } from '../../api/types';
 import {
   flattenRows,
   partLabel,
   sameSelection,
   type EnvFilter,
   type Filters,
+  type Row,
   type Selection,
   type Tab,
 } from '../../kortlaegning/model';
-import {
-  confidencePercent,
-  ENV_LABEL,
-  ENV_TONE,
-  formatQuantity,
-  formatTonnes,
-  TREATMENT_LABEL,
-} from '../../kortlaegning/vocab';
+import { cellModel, isManual, type ResourceColumn, type ResourceIndex } from '../../kortlaegning/resources';
+import { confidencePercent, formatQuantity, formatTonnes } from '../../kortlaegning/vocab';
 import { ConfidenceBar } from '../ConfidenceBar';
 import { Kbd } from '../Kbd';
 import { Pill } from '../Pill';
+import { ResourceCell } from './ResourceCell';
 import styles from './SurveyTable.module.css';
 
 export interface SurveyTableProps {
@@ -47,6 +44,16 @@ export interface SurveyTableProps {
   /** Panel keyboard. */
   onKeyDown: (e: React.KeyboardEvent) => void;
   tableRef: React.RefObject<HTMLDivElement | null>;
+  /** Template-built columns (resolved_keys order, sys:name excluded — plan R4). */
+  columns: ResourceColumn[];
+  resources: ResourceIndex;
+  templates: Template[];
+  templateId: number | null;
+  onTemplate: (id: number) => void;
+  onCellCommit: (code: string, keyId: string, value: string | null) => void;
+  onInvalid: (label: string) => void;
+  onAddResource: () => void;
+  onAddColumn: () => void;
 }
 
 const TABS: { id: Tab; label: string }[] = [
@@ -73,6 +80,55 @@ export function typeRowClick(selected: boolean, detail: number): 'select' | 'tog
 }
 
 /**
+ * One row's template cells. A type row shows the Mængde sum and its
+ * type-scoped keys (through its carrier part); a part row shows every key.
+ * Editors appear only in the selected row (plan R2).
+ */
+function Cells(props: {
+  row: Row;
+  type: SurveyType;
+  columns: ResourceColumn[];
+  resources: ResourceIndex;
+  selected: boolean;
+  onCellCommit: SurveyTableProps['onCellCommit'];
+  onInvalid: SurveyTableProps['onInvalid'];
+  home: RefObject<HTMLElement | null>;
+}) {
+  const { row, type, columns, resources, selected } = props;
+  return (
+    <>
+      {columns.map((column) => {
+        const m = cellModel(row, type, column, resources);
+        let content = null;
+        if (m.kind === 'aggregate') {
+          content = (
+            <>
+              {formatQuantity(type.quantity, type.unit)}{' '}
+              <span className={styles.faint}>{formatTonnes(type.mass_t)}</span>
+            </>
+          );
+        } else if (m.kind === 'value') {
+          const target = m.target;
+          content = (
+            <ResourceCell
+              resourceKey={column.key}
+              value={m.value}
+              editing={selected && target !== null}
+              onCommit={(v) => {
+                if (target !== null) props.onCellCommit(target, column.key.id, v);
+              }}
+              onInvalid={props.onInvalid}
+              home={props.home}
+            />
+          );
+        }
+        return <td key={column.key.id}>{content}</td>;
+      })}
+    </>
+  );
+}
+
+/**
  * The tabbed, filterable Kortlægning table: survey types grouped by tab,
  * expandable into their building-part rows. Purely presentational — every
  * piece of state (tab, filters, open set, selection) is a prop, and this
@@ -94,6 +150,15 @@ export function SurveyTable(props: SurveyTableProps) {
     onOpenDialog,
     onKeyDown,
     tableRef,
+    columns,
+    resources,
+    templates,
+    templateId,
+    onTemplate,
+    onCellCommit,
+    onInvalid,
+    onAddResource,
+    onAddColumn,
   } = props;
 
   const rows = flattenRows(types, open);
@@ -134,6 +199,23 @@ export function SurveyTable(props: SurveyTableProps) {
       </div>
 
       <div className={styles.tools}>
+        <label className={styles.picker}>
+          <span className={styles.pickerLabel}>Skabelon</span>
+          <select
+            className={styles.select}
+            aria-label="Skabelon"
+            value={templateId === null ? '' : String(templateId)}
+            onChange={(e) => onTemplate(Number(e.target.value))}
+            disabled={templates.length === 0}
+          >
+            {templates.length === 0 && <option value="">Ingen skabeloner</option>}
+            {templates.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+        </label>
         <input
           type="search"
           className={styles.search}
@@ -185,6 +267,14 @@ export function SurveyTable(props: SurveyTableProps) {
           />
           Kun vigtige ★
         </label>
+        <div className={styles.toolActions}>
+          <button type="button" className={styles.btnGhost} onClick={onAddResource}>
+            + Tilføj ressource
+          </button>
+          <button type="button" className={styles.btnGhost} onClick={onAddColumn} disabled={templateId === null}>
+            + Tilføj kolonne
+          </button>
+        </div>
       </div>
 
       <div className={styles.keyBar} aria-label="Tastaturgenveje">
@@ -205,18 +295,25 @@ export function SurveyTable(props: SurveyTableProps) {
           <thead>
             <tr>
               <th>Betegnelse</th>
-              <th>Mængde</th>
-              <th>EAK</th>
-              <th>BIM7AA</th>
-              <th>Behandling</th>
-              <th>Miljø</th>
+              {columns.map((c) => (
+                <th key={c.key.id}>
+                  <span className={styles.headLabel}>
+                    {c.key.label}
+                    {c.typeScoped && (
+                      <span className={styles.typeMark} title="Gælder alle dele af typen">
+                        type
+                      </span>
+                    )}
+                  </span>
+                </th>
+              ))}
               <th>Status</th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td className={styles.emptyRow} colSpan={7}>
+                <td className={styles.emptyRow} colSpan={columns.length + 2}>
                   Ingen rækker matcher filtrene.
                 </td>
               </tr>
@@ -279,20 +376,16 @@ export function SurveyTable(props: SurveyTableProps) {
                           </span>
                         </div>
                       </td>
-                      <td>
-                        {formatQuantity(type.quantity, type.unit)}{' '}
-                        <span className={styles.faint}>{formatTonnes(type.mass_t)}</span>
-                      </td>
-                      <td className="mono">{type.eak_code}</td>
-                      <td>{type.bim7aa_code}</td>
-                      <td>
-                        <Pill treatment={type.treatment}>{TREATMENT_LABEL[type.treatment]}</Pill>
-                      </td>
-                      <td>
-                        <Pill tone={ENV_TONE[type.environment_status]}>
-                          {ENV_LABEL[type.environment_status]}
-                        </Pill>
-                      </td>
+                      <Cells
+                        row={row}
+                        type={type}
+                        columns={columns}
+                        resources={resources}
+                        selected={selected}
+                        onCellCommit={onCellCommit}
+                        onInvalid={onInvalid}
+                        home={tableRef}
+                      />
                       <td>
                         {type.review_status === 'approved' ? (
                           <Pill tone="good">Godkendt ✓</Pill>
@@ -327,6 +420,11 @@ export function SurveyTable(props: SurveyTableProps) {
                           </span>
                         )}
                         {partLabel(part)}
+                        {isManual(part) && (
+                          <Pill tone="accent" title="Tilføjet manuelt — ikke fra scanningen">
+                            Manuel
+                          </Pill>
+                        )}
                         {part.note && (
                           <span
                             className={styles.noteMark}
@@ -347,11 +445,16 @@ export function SurveyTable(props: SurveyTableProps) {
                         )}
                       </div>
                     </td>
-                    <td>{formatQuantity(part.quantity, type.unit)}</td>
-                    <td className="mono">{type.eak_code}</td>
-                    <td></td>
-                    <td></td>
-                    <td></td>
+                    <Cells
+                      row={row}
+                      type={type}
+                      columns={columns}
+                      resources={resources}
+                      selected={selected}
+                      onCellCommit={onCellCommit}
+                      onInvalid={onInvalid}
+                      home={tableRef}
+                    />
                     <td className={styles.faint}>—</td>
                   </tr>
                 );

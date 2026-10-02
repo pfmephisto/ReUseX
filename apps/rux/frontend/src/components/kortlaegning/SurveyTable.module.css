@@ -234,3 +234,61 @@
     min-height: var(--layout-titlebar-height);
   }
 }
+
+/* -------------------------------------------------------- picker/actions -- */
+
+.picker {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.pickerLabel {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+}
+
+.toolActions {
+  display: inline-flex;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+.btnGhost {
+  composes: btnGhost from '../controls.module.css';
+}
+
+/* ------------------------------------------------------- column headers -- */
+
+.headLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  white-space: nowrap;
+}
+
+.typeMark {
+  padding: 0 var(--space-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-faint);
+  font-size: var(--font-size-2xs);
+  font-weight: var(--font-weight-regular);
+  text-transform: none;
+  cursor: help;
+}
+
+@media (max-width: 56.25rem) {
+  .toolActions {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .toolActions > button {
+    flex: 1 1 0;
+    min-height: var(--layout-titlebar-height);
+  }
+}

@@ -53,3 +53,28 @@ export function draftCommit<T>(draft: string, current: string, validate: DraftVa
   if (cur !== null && Object.is(cur.value, parsed.value)) return { send: false, invalid: false };
   return { send: true, value: parsed.value };
 }
+
+/** How a field decides: plain text (`required` flag) or a validated draft. */
+export type DraftMode<T> = boolean | { required?: boolean } | { validate: DraftValidate<T> };
+
+/** A field's commit decision under `mode` — the one `useTextDraft` runs on blur. */
+export function decideDraft<T>(draft: string, current: string, mode: DraftMode<T> = false): DraftCommit<T> {
+  if (typeof mode === 'object' && 'validate' in mode) return draftCommit(draft, current, mode.validate);
+  const required = typeof mode === 'object' ? mode.required === true : mode;
+  // Plain text: T is string (useTextDraft's overloads guarantee it).
+  return textDraftCommit(draft, current, required) as DraftCommit<T>;
+}
+
+/**
+ * The commit owed when a field unmounts (a template switch, a row that
+ * re-renders away) without a blur: a focused field's dirty draft would
+ * otherwise be dropped. Nothing is owed when the blur already ran (not
+ * focused) or Esc reverted the field.
+ */
+export function leaveCommit<T = string>(
+  state: { focused: boolean; reverted: boolean; draft: string; current: string },
+  mode: DraftMode<T> = false,
+): DraftCommit<T> {
+  if (!state.focused || state.reverted) return { send: false, invalid: false };
+  return decideDraft(state.draft, state.current, mode);
+}

@@ -418,11 +418,10 @@ TEST_CASE("RunningServer_ResourceRoutes_StaticPathsBeatTheCodeParam",
             .status == 201);
 }
 
-TEST_CASE("RunningServer_ResourceColumns_NameConflictsAre409OnBothPaths",
+TEST_CASE("RunningServer_ResourceColumns_NameConflictsAre409",
           "[gui][server][socket]") {
   // A column name that a leksikon field owns, or that passports still store
-  // values under (left by a deleted column), is a 409 — on the new path and
-  // on the deprecated /material-columns alias alike, for create and rename.
+  // values under (left by a deleted column), is a 409, for create and rename.
   TempPath project("test_gui_server_socket", ".rux");
   TempDir assets("test_gui_server_socket_assets");
   write_file(assets.path / "index.html", kIndexBody);
@@ -444,8 +443,7 @@ TEST_CASE("RunningServer_ResourceColumns_NameConflictsAre409OnBothPaths",
   }
   RunningServer server(options_for(project.path, assets.path, free_port()));
   KeepAliveConnection connection(server.port());
-  for (const std::string base :
-       {"/api/v1/resources/columns", "/api/v1/material-columns"}) {
+  for (const std::string base : {"/api/v1/resources/columns"}) {
     INFO("base: " << base);
     for (const char *name : {"Gammel", "width_mm"}) {
       INFO("name: " << name);

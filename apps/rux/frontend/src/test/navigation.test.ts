@@ -153,6 +153,10 @@ describe('redirects for retired paths (spec §3)', () => {
     expect(REDIRECTS).toContainEqual({ from: '/onsite', to: '/kortlaegning' });
   });
 
+  it('sends the retired Materialedata path to Kortlægning', () => {
+    expect(REDIRECTS).toContainEqual({ from: '/materials', to: '/kortlaegning' });
+  });
+
   it('never redirects from a path the nav still lists', () => {
     const navPaths = new Set(NAV_ENTRIES.map((e) => e.to));
     for (const r of REDIRECTS) expect(navPaths.has(r.from), r.from).toBe(false);

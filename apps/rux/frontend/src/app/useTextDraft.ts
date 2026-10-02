@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent, type RefObject } from 'react';
 
 import { fieldKeyAction } from './editorKeys';
-import { draftCommit, textDraftCommit, type DraftCommit, type DraftValidate } from './textDraft';
+import { decideDraft, leaveCommit, type DraftCommit, type DraftValidate } from './textDraft';
 
 export interface TextDraft {
   props: {
@@ -41,6 +41,9 @@ export interface TextOptions {
  * The third argument is `required` or `TextOptions` (plain text), or
  * `DraftOptions` (a validated field that commits the parsed value).
  *
+ * A field that unmounts while focused (no blur ran) commits its dirty draft
+ * on the way out (`leaveCommit`), so a field commit is never dropped.
+ *
  * If the commit fails, the caller shows an error toast and this hook does
  * nothing extra: the unsaved draft simply stays in the field (it was never
  * reset, because `current` on the server did not change), and the next blur
@@ -66,11 +69,23 @@ export function useTextDraft<T>(
   }, [current]);
 
   function decide(): DraftCommit<T> {
-    if (typeof options === 'object' && 'validate' in options) return draftCommit(draft, current, options.validate);
-    const required = typeof options === 'object' ? options.required === true : options;
-    // Plain text: T is string (the overloads guarantee it).
-    return textDraftCommit(draft, current, required) as DraftCommit<T>;
+    return decideDraft<T>(draft, current, options);
   }
+
+  // The latest state, for the unmount commit below (its closure is the first render's).
+  const latest = useRef({ draft, current, options, onCommit });
+  latest.current = { draft, current, options, onCommit };
+  useEffect(
+    () => () => {
+      const l = latest.current;
+      const c = leaveCommit<T>(
+        { focused: focused.current, reverted: skipNextCommit.current, draft: l.draft, current: l.current },
+        l.options,
+      );
+      if (c.send) l.onCommit(c.value);
+    },
+    [],
+  );
 
   return {
     props: {

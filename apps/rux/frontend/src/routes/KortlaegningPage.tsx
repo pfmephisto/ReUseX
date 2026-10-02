@@ -2,15 +2,26 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { useLocation } from 'react-router-dom';
 
 import { api } from '../api/client';
-import type { Sample, SurveyPart, SurveySummary, SurveySyncReport, SurveyType } from '../api/types';
+import type {
+  Resource,
+  ResourceCreate,
+  ResourceKey,
+  Sample,
+  SurveyPart,
+  SurveySummary,
+  SurveySyncReport,
+  SurveyType,
+  Template,
+} from '../api/types';
 import { isControl, isField } from '../app/keyTargets';
 import { parseTypeQuery } from '../app/links';
-import { saveErrorMessage } from '../app/saveError';
+import { createOnceGuard } from '../app/onceGuard';
+import { errorMessage, saveErrorMessage } from '../app/saveError';
 import { useAsync } from '../app/useAsync';
 import { appWriteChain } from '../app/writeChain';
 import { useSurveyCounts } from '../app/SurveyCountsContext';
@@ -20,10 +31,19 @@ import { EmptyState } from '../components/EmptyState';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { Spinner } from '../components/Spinner';
 import { Toast } from '../components/Toast';
+import { AddColumnDialog } from '../components/kortlaegning/AddColumnDialog';
+import { AddResourceDialog } from '../components/kortlaegning/AddResourceDialog';
 import { DetailPanel, pendingSampleList } from '../components/kortlaegning/DetailPanel';
 import { EditDialog, primaryDisabled } from '../components/kortlaegning/EditDialog';
 import { EvidencePanel } from '../components/kortlaegning/EvidencePanel';
 import { SurveyTable } from '../components/kortlaegning/SurveyTable';
+import {
+  columnCreateBody,
+  columnCreateConflict,
+  columnPartialFailureMessage,
+  duplicateFirst,
+  type ColumnDraft,
+} from '../kortlaegning/columnDraft';
 import { dialogAction, tableAction, type EvidenceTab, type KortAction } from '../kortlaegning/keys';
 import {
   NO_FILTERS,
@@ -43,6 +63,25 @@ import {
   type Selection,
   type Tab,
 } from '../kortlaegning/model';
+import {
+  isManual,
+  patchedResources,
+  replaceResources,
+  resourceColumnKeyId,
+  resourceIndex,
+  templateColumns,
+  touchesSurvey,
+  viewForNewResource,
+} from '../kortlaegning/resources';
+import {
+  appendKeyMember,
+  pickTemplate,
+  projectIdentity,
+  readStoredTemplateId,
+  writeStoredTemplateId,
+  type ProjectIdentity,
+} from '../kortlaegning/templatePick';
+import { cellErrorMessage, invalidValueMessage, refreshAfterSave } from '../kortlaegning/writeOutcome';
 import { formatNumber } from '../kortlaegning/vocab';
 import styles from './KortlaegningPage.module.css';
 
@@ -123,7 +162,18 @@ export function KortlaegningPage() {
     (s) =>
       appWriteChain
         .idle()
-        .then(() => Promise.all([api.survey(s), api.samples(s), api.surveySummary(s)])),
+        .then(() =>
+          Promise.all([
+            api.survey(s),
+            api.samples(s),
+            api.surveySummary(s),
+            api.resourceKeys(s),
+            api.templates(s),
+            api.resources(undefined, s),
+            api.health(s),
+            api.projects(s),
+          ]),
+        ),
     [],
   );
   const { refresh } = useSurveyCounts();
@@ -151,12 +201,37 @@ export function KortlaegningPage() {
     return typesRef.current;
   }, []);
 
+  // The resource catalogue, the templates and every resource's values (R1):
+  // a template switch only rebuilds columns, it never re-fetches.
+  const [keys, setKeys] = useState<ResourceKey[]>([]);
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [templateId, setTemplateId] = useState<number | null>(null);
+  const [resources, setResourcesState] = useState<Resource[]>([]);
+  // Mirrors `resources` synchronously, like `typesRef`, so queued commits
+  // fold their responses into the state the previous one produced.
+  const resourcesRef = useRef<Resource[]>([]);
+  const setResources = useCallback((update: (prev: Resource[]) => Resource[]) => {
+    resourcesRef.current = update(resourcesRef.current);
+    setResourcesState(resourcesRef.current);
+  }, []);
+  // The project's identity keys the remembered template choice (templatePick).
+  const projectRef = useRef<ProjectIdentity>({ id: null, name: '' });
+  // A write succeeded but the re-read after it failed: the view may be stale.
+  const [refreshNotice, setRefreshNotice] = useState<string | null>(null);
+
   const [tab, setTab] = useState<Tab>('queue');
   const [filters, setFilters] = useState<Filters>(NO_FILTERS);
   const [open, setOpen] = useState<ReadonlySet<number>>(() => new Set());
   const [selection, setSelection] = useState<Selection>(null);
   const [evidenceTab, setEvidenceTab] = useState<EvidenceTab>('plan');
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [addResourceOpen, setAddResourceOpen] = useState(false);
+  // A create burns a server-assigned code: a double tap must send once (Review Focus).
+  const createGuard = useRef(createOnceGuard());
+  const [addColumnOpen, setAddColumnOpen] = useState(false);
+  // The server's 409 for the last "Tilføj kolonne" (R3-D3), shown in the dialog.
+  const [columnError, setColumnError] = useState<string | null>(null);
+  const columnGuard = useRef(createOnceGuard());
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<Error | null>(null);
   const tableRef = useRef<HTMLDivElement>(null);
@@ -175,6 +250,9 @@ export function KortlaegningPage() {
   const rooms = roomOptions(types);
   const selType = typeOf(types, selection);
   const selPart = partOf(types, selection);
+  const template = templates.find((t) => t.id === templateId) ?? null;
+  const columns = useMemo(() => templateColumns(template, keys), [template, keys]);
+  const index = useMemo(() => resourceIndex(resources), [resources]);
 
   /** Select, and open the selected type so its parts show. */
   const select = useCallback((sel: Selection) => {
@@ -191,6 +269,12 @@ export function KortlaegningPage() {
   useEffect(() => {
     if (!data) return;
     setTypes(() => data[0].types);
+    setKeys(data[3]);
+    setTemplates(data[4]);
+    setResources(() => data[5]);
+    projectRef.current = projectIdentity(data[7], data[6].project.name);
+    setRefreshNotice(null);
+    setTemplateId((current) => pickTemplate(data[4], current ?? readStoredTemplateId(projectRef.current))?.id ?? null);
     const want = deepLinkType.current;
     if (want !== null) {
       deepLinkType.current = null;
@@ -202,7 +286,7 @@ export function KortlaegningPage() {
       }
     }
     setLoadedOnce(true);
-  }, [data, setTypes, select]);
+  }, [data, setTypes, setResources, select]);
 
   // Keep the selection on a row that is actually shown: first load, a tab or
   // filter change, or an approval that moved the type out of this tab.
@@ -224,12 +308,13 @@ export function KortlaegningPage() {
     if (loadedOnce && hasTypes) tableRef.current?.focus({ preventScroll: true });
   }, [loadedOnce, hasTypes]);
 
-  // The dialog does not hand focus back on close; the page does.
+  // A dialog does not hand focus back on close; the page does.
+  const anyDialog = dialogOpen || addResourceOpen || addColumnOpen;
   const wasOpen = useRef(false);
   useEffect(() => {
-    if (wasOpen.current && !dialogOpen) tableRef.current?.focus({ preventScroll: true });
-    wasOpen.current = dialogOpen;
-  }, [dialogOpen]);
+    if (wasOpen.current && !anyDialog) tableRef.current?.focus({ preventScroll: true });
+    wasOpen.current = anyDialog;
+  }, [anyDialog]);
 
   // A selection that vanished (last queued type approved) leaves nothing to edit.
   useEffect(() => {
@@ -274,10 +359,13 @@ export function KortlaegningPage() {
     });
   }
 
+  // A survey PATCH changes `sys:` values, so both re-read resources (R5).
+  // Approve, reject and reopen do not: review status is not a key.
   function patchType(t: SurveyType, patch: Parameters<typeof api.patchSurveyType>[1]) {
     void mutate(async () => {
       const body = await api.patchSurveyType(t.id, patch);
       setTypes((prev) => replaceType(prev, body));
+      await reread(refreshResources);
     });
   }
 
@@ -285,7 +373,145 @@ export function KortlaegningPage() {
     void mutate(async () => {
       const body = await api.patchSurveyPart(p.code, patch);
       setTypes((prev) => replacePart(prev, body));
+      await reread(refreshResources);
     });
+  }
+
+  /**
+   * The re-read after a write that already succeeded. A failure never undoes
+   * the success (no "Kunne ikke gemme" for a value that was saved); it shows
+   * the stale-view notice instead, which a later successful re-read clears.
+   */
+  async function reread(refresh: () => Promise<unknown>) {
+    if (await refreshAfterSave(refresh, setRefreshNotice)) setRefreshNotice(null);
+  }
+
+  function chooseTemplate(id: number) {
+    setTemplateId(id);
+    writeStoredTemplateId(projectRef.current, id);
+  }
+
+  /** Re-read every resource (after a survey PATCH changed sys: values — plan R5). */
+  async function refreshResources() {
+    const list = await api.resources();
+    setResources(() => list);
+  }
+
+  /** Re-read the survey (after a resource write changed type state — plan R5). */
+  async function refreshSurvey() {
+    const s = await api.survey();
+    setTypes(() => s.types);
+  }
+
+  /**
+   * An inline cell's commit: never gated on `busy` (field commits never are).
+   * A refused value names the key by its label, never the server's text with
+   * the raw key id. Returns the queued write, so a select or checkbox can
+   * show its choice until the write settles.
+   */
+  function commitCell(code: string, keyId: string, value: string | null): Promise<void> {
+    const label = keys.find((k) => k.id === keyId)?.label ?? 'feltet';
+    return mutate(async () => {
+      let body;
+      try {
+        body = await api.patchResource(code, { [keyId]: value });
+      } catch (cause) {
+        toast.show(cellErrorMessage(cause, label));
+        return;
+      }
+      setResources((prev) => replaceResources(prev, patchedResources(body)));
+      if (touchesSurvey([keyId])) await reread(refreshSurvey);
+    });
+  }
+
+  /**
+   * "Tilføj ressource": create a manual part, then show and select it. The
+   * dialog closes as soon as the part exists — a failed re-read after that
+   * must not leave it open, or a second submit would create a second part —
+   * and a failed create keeps it open with its input (the queue's toast).
+   */
+  function addResource(body: ResourceCreate) {
+    createGuard.current.run(() =>
+      mutate(async () => {
+        const created = await api.createResource(body);
+        setAddResourceOpen(false);
+        toast.show(`${created.code} tilføjet`);
+        await reread(async () => {
+          const [s, list] = await Promise.all([api.survey(), api.resources()]);
+          const next = setTypes(() => s.types);
+          setResources(() => list);
+          const view = viewForNewResource(next, created.type_id, viewRef.current.tab, viewRef.current.filters);
+          setTab(view.tab);
+          setFilters(view.filters);
+          select({ typeId: created.type_id, partCode: created.code });
+        });
+      }),
+    );
+  }
+
+  /**
+   * "Tilføj kolonne": create a user column, then append `col:<id>` as a key
+   * member to the selected template — or, on request for a seed, to a fresh
+   * copy of it, which is then selected. A name conflict (409) stays in the
+   * dialog with the server's reason (R3-D3); any other create failure goes
+   * to the queue's toast and the dialog keeps its input. A failure after the
+   * column exists closes the dialog with the partial-failure copy; either
+   * way the catalogue and templates are re-read so the column shows. A
+   * failed re-read keeps the toast and adds the stale-view notice.
+   */
+  function addColumn(draft: ColumnDraft, copyInstead: boolean) {
+    const base = template;
+    if (!base) return;
+    setColumnError(null);
+    columnGuard.current.run(() =>
+      mutate(async () => {
+        let def;
+        try {
+          def = await api.createResourceColumn(columnCreateBody(draft));
+        } catch (cause) {
+          const conflict = columnCreateConflict(cause);
+          if (conflict === null) throw cause;
+          setColumnError(conflict);
+          return;
+        }
+        try {
+          const target = duplicateFirst(base, copyInstead) ? await api.duplicateTemplate(base.id) : base;
+          await api.patchTemplate(target.id, {
+            members: appendKeyMember(target.members, resourceColumnKeyId(def.id)),
+          });
+          chooseTemplate(target.id);
+          toast.show(`Kolonnen »${def.name}« er tilføjet til »${target.name}«`);
+        } catch (cause) {
+          toast.show(columnPartialFailureMessage(def.name, errorMessage(cause)));
+        }
+        setAddColumnOpen(false);
+        await reread(async () => {
+          const [k, t] = await Promise.all([api.resourceKeys(), api.templates()]);
+          setKeys(k);
+          setTemplates(t);
+        });
+      }),
+    );
+  }
+
+  /** "Slet ressource": only a manual part (an instance-backed one is a server 409). */
+  function deleteResource() {
+    const p = selPart;
+    if (!p || !isManual(p)) return;
+    void mutate(async () => {
+      await api.deleteResource(p.code);
+      toast.show(`${p.code} slettet`);
+      await reread(async () => {
+        const [s, list] = await Promise.all([api.survey(), api.resources()]);
+        setTypes(() => s.types);
+        setResources(() => list);
+        select({ typeId: p.type_id, partCode: null });
+      });
+    });
+  }
+
+  function invalidValue(label: string) {
+    toast.show(invalidValueMessage(label));
   }
 
   function star() {
@@ -459,6 +685,12 @@ export function KortlaegningPage() {
         )}
       </header>
 
+      {refreshNotice && (
+        <p className={styles.notice} role="alert">
+          {refreshNotice}
+        </p>
+      )}
+
       {coverage.length > 0 && (
         <p className={styles.notice}>
           <b>Dækning:</b> {coverage.join(' · ')}
@@ -508,6 +740,19 @@ export function KortlaegningPage() {
             }}
             onKeyDown={onTableKeyDown}
             tableRef={tableRef}
+            columns={columns}
+            resources={index}
+            catalogue={keys}
+            templates={templates}
+            templateId={templateId}
+            onTemplate={chooseTemplate}
+            onCellCommit={commitCell}
+            onInvalid={invalidValue}
+            onAddResource={() => setAddResourceOpen(true)}
+            onAddColumn={() => {
+              setColumnError(null);
+              setAddColumnOpen(true);
+            }}
           />
           <aside className={styles.aside}>
             <EvidencePanel
@@ -530,6 +775,13 @@ export function KortlaegningPage() {
               onReject={reject}
               onReopen={reopen}
               onDone={() => tableRef.current?.focus({ preventScroll: true })}
+              manual={selPart !== null && isManual(selPart)}
+              onDeleteResource={deleteResource}
+              resource={selPart ? (index.get(selPart.code) ?? null) : null}
+              catalogue={keys}
+              onCellCommit={commitCell}
+              onInvalid={invalidValue}
+              home={tableRef}
             />
           </aside>
         </div>
@@ -554,6 +806,27 @@ export function KortlaegningPage() {
           onNote={setNote}
           onStar={star}
           onKeyDown={onDialogKeyDown}
+        />
+      )}
+
+      {addResourceOpen && (
+        <AddResourceDialog
+          types={types}
+          defaultTypeId={selType?.id ?? null}
+          busy={busy}
+          onCancel={() => setAddResourceOpen(false)}
+          onSubmit={addResource}
+        />
+      )}
+
+      {addColumnOpen && (
+        <AddColumnDialog
+          template={template}
+          existingLabels={keys.map((k) => k.label)}
+          busy={busy}
+          serverError={columnError}
+          onCancel={() => setAddColumnOpen(false)}
+          onSubmit={addColumn}
         />
       )}
 

@@ -29,7 +29,7 @@ buildNpmPackage {
 
   # Recompute after any package-lock.json change with:
   #   nix run nixpkgs#prefetch-npm-deps -- apps/rux/frontend/package-lock.json
-  npmDepsHash = "sha256-Erho5oGxkPIP1eImmRJeanQW2xYnZMfuNe6JuSdkWj4=";
+  npmDepsHash = "sha256-1zLiJNeKUiSRLd6O3Qwx4a56MBQbKJTjZIKWsUe2OaQ=";
 
   # Match the Node the lockfile was generated with; Vite 8 requires Node >= 20.
   nodejs = nodejs_22;

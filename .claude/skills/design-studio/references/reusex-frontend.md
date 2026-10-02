@@ -42,7 +42,7 @@ apps/rux/frontend/src/
 ├── components/   Presentational, contract-agnostic blocks — reuse these:
 │                 DataTable, StatCard, Sidebar, EmptyState, ErrorBanner,
 │                 ParameterForm, SelectDropdown, MultiSelectDropdown,
-│                 JobToaster, LayerPanel, PeekPanel, LabelLegend, Pill,
+│                 JobToaster, LayerPanel, LabelLegend, Pill,
 │                 ConfidenceBar, Kbd, Toast, CircularityBar, …
 │                 kortlaegning/  SurveyTable, EvidencePanel, DetailPanel,
 │                 EditDialog, SampleLine — the Kortlægning workbench's presentational
@@ -77,7 +77,7 @@ apps/rux/frontend/src/
 ├── routes/       Page compositions: OverblikPage, Dashboard (now at
 │                 `/projektdata`), ViewportPage, PipelinePage,
 │                 PipelineLogPage, GraphViewPage, FramesPage, DataPage,
-│                 GeometryPage, InstancesPage, MaterialsPage, ExportPage,
+│                 GeometryPage, InstancesPage, ExportPage,
 │                 KortlaegningPage, MiljoePage, RapportPage, IndberetningPage,
 │                 SagerPage
 │                 (KortlaegningPage and MiljoePage use app/SurveyCountsContext

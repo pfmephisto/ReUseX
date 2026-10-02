@@ -63,10 +63,17 @@ import type {
   PropertyDefinition,
   RenderQuery,
   ReportPdfVersion,
+  Resource,
+  ResourceColumnCreate,
+  ResourceCreate,
+  ResourceKey,
+  ResourcePatchResult,
   Sample,
   SampleCreate,
   SamplePatch,
   StageInfo,
+  Template,
+  TemplatePatch,
   Survey,
   SurveyFractions,
   SurveyPart,
@@ -295,6 +302,15 @@ export class RuxApiClient {
       throw new ApiRequestError(response.status, await describeFailure(response), url);
     }
     return (await response.json()) as T;
+  }
+
+  /** A DELETE that answers 204 with no body. */
+  private async deleteNoContent(path: string): Promise<void> {
+    const url = this.url(path);
+    const response = await this.doFetch(url, { method: 'DELETE' });
+    if (!response.ok) {
+      throw new ApiRequestError(response.status, await describeFailure(response), url);
+    }
   }
 
   // ------------------------------------------------------------- meta ----
@@ -841,24 +857,6 @@ export class RuxApiClient {
     return this.postJson<MaterialDetail>('/materials', body ?? {});
   }
 
-  /** Delete a material passport. The server answers 204 (no body). */
-  async deleteMaterial(guid: string): Promise<void> {
-    const url = this.url(`/materials/${encodeURIComponent(guid)}`);
-    const response = await this.doFetch(url, { method: 'DELETE' });
-    if (!response.ok) {
-      throw new ApiRequestError(response.status, await describeFailure(response), url);
-    }
-  }
-
-  /**
-   * URL of a material's thumbnail image, for use as an `<img src>`.
-   *
-   * This returns a URL string, not a fetch — the browser loads it directly.
-   */
-  materialThumbnail(guid: string): string {
-    return this.url(`/materials/${encodeURIComponent(guid)}/thumbnail`);
-  }
-
   /**
    * Upload (or replace) a material's thumbnail image.
    *
@@ -878,36 +876,83 @@ export class RuxApiClient {
     }
   }
 
-  // ------------------------------------------------- material columns ----
+  // ------------------------------------------------- resource columns ----
 
-  /** All user-defined material column definitions. */
-  propertyDefinitions(signal?: AbortSignal): Promise<PropertyDefinition[]> {
-    return this.requestJson<PropertyDefinition[]>('/material-columns', undefined, signal);
+  /** All user-defined resource column definitions (`col:<id>` keys). */
+  resourceColumns(signal?: AbortSignal): Promise<PropertyDefinition[]> {
+    return this.requestJson<PropertyDefinition[]>('/resources/columns', undefined, signal);
   }
 
-  /** Create a material column definition. Returns the created definition. */
-  createPropertyDefinition(def: Omit<PropertyDefinition, 'id'>): Promise<PropertyDefinition> {
-    return this.postJson<PropertyDefinition>('/material-columns', def);
+  /** Create a user column. Returns the created definition; its key id is `col:<id>`. */
+  createResourceColumn(body: ResourceColumnCreate): Promise<PropertyDefinition> {
+    return this.postJson<PropertyDefinition>('/resources/columns', body);
   }
 
-  /** Sparsely update a material column definition. Returns the updated one. */
-  updatePropertyDefinition(
-    id: string,
-    patch: Partial<Omit<PropertyDefinition, 'id'>>,
-  ): Promise<PropertyDefinition> {
-    return this.patchJson<PropertyDefinition>(
-      `/material-columns/${encodeURIComponent(id)}`,
-      patch,
+  /** Sparsely update a user column. A rename also renames its stored values (spec §4.3). */
+  updateResourceColumn(id: string, patch: Partial<ResourceColumnCreate>): Promise<PropertyDefinition> {
+    return this.patchJson<PropertyDefinition>(`/resources/columns/${encodeURIComponent(id)}`, patch);
+  }
+
+  /** Delete a user column. The server answers 204 (no body). */
+  async deleteResourceColumn(id: string): Promise<void> {
+    await this.deleteNoContent(`/resources/columns/${encodeURIComponent(id)}`);
+  }
+
+  // -------------------------------------------------------- resources ----
+
+  /** The key catalogue: leksikon, user columns and built-ins (spec §4.3). */
+  resourceKeys(signal?: AbortSignal): Promise<ResourceKey[]> {
+    return this.requestJson<ResourceKey[]>('/resources/keys', undefined, signal);
+  }
+
+  /**
+   * Every resource. With `templateId`, `values` holds exactly that template's
+   * resolved keys (missing = null); without, every key the resource has.
+   */
+  async resources(templateId?: number, signal?: AbortSignal): Promise<Resource[]> {
+    const body = await this.requestJson<{ resources: Resource[] }>(
+      '/resources',
+      templateId === undefined ? undefined : { template: templateId },
+      signal,
     );
+    return body.resources;
   }
 
-  /** Delete a material column definition. The server answers 204 (no body). */
-  async deletePropertyDefinition(id: string): Promise<void> {
-    const url = this.url(`/material-columns/${encodeURIComponent(id)}`);
-    const response = await this.doFetch(url, { method: 'DELETE' });
-    if (!response.ok) {
-      throw new ApiRequestError(response.status, await describeFailure(response), url);
-    }
+  /**
+   * Set or clear values (`null` clears; clearing an absent value succeeds).
+   * Writes route by key scope; a type-scoped write changes every part of the
+   * type, and those parts come back in `siblings`. 400 names a bad key/value.
+   */
+  patchResource(code: string, values: Record<string, string | null>): Promise<ResourcePatchResult> {
+    return this.patchJson<ResourcePatchResult>(`/resources/${encodeURIComponent(code)}`, { values });
+  }
+
+  /** Create a manual part with the next code for the type. */
+  createResource(body: ResourceCreate): Promise<Resource> {
+    return this.postJson<Resource>('/resources', body);
+  }
+
+  /** Delete a manual part (an instance-backed one is a 409). 204, no body. */
+  async deleteResource(code: string): Promise<void> {
+    await this.deleteNoContent(`/resources/${encodeURIComponent(code)}`);
+  }
+
+  // -------------------------------------------------------- templates ----
+
+  /** Every template, each resolved (`resolved_keys`, `missing`). */
+  async templates(signal?: AbortSignal): Promise<Template[]> {
+    const body = await this.requestJson<{ templates: Template[] }>('/templates', undefined, signal);
+    return body.templates;
+  }
+
+  /** Copy a template as "<name> (kopi)" (numeric suffix until unique). */
+  duplicateTemplate(id: number): Promise<Template> {
+    return this.postJson<Template>(`/templates/${id}/duplicate`);
+  }
+
+  /** Sparse edit of name / members / csv. A duplicate name is a 409. */
+  patchTemplate(id: number, patch: TemplatePatch): Promise<Template> {
+    return this.patchJson<Template>(`/templates/${id}`, patch);
   }
 
   // -------------------------------------------------------- instances ----

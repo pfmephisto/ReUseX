@@ -93,3 +93,31 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+.notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--tone-good-ink);
+  border-radius: var(--radius-md);
+  background: var(--tone-good-bg);
+  color: var(--tone-good-ink);
+  font-size: var(--font-size-sm);
+}
+
+.noticeDismiss {
+  flex: none;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--tone-good-ink);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--tone-good-ink);
+  font-size: var(--font-size-xs);
+}
+
+.noticeDismiss:hover {
+  background: var(--tone-good-ink);
+  color: var(--color-on-accent);
+}

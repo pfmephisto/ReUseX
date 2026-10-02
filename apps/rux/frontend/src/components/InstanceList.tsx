@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { useCallback, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 
 import { api } from '../api/client';
 import type { CloudInfo, InstanceInfo } from '../api/types';
@@ -26,21 +25,24 @@ import styles from './InstanceList.module.css';
  *   4. `GET /frames/{frame_id}/image` → `PUT /materials/{guid}/thumbnail`
  *      — prefill the thumbnail.  Best-effort: skipped silently when no
  *      frames exist (instance has no visible sensor frames).
- *   5. Navigate to `/materials`.
+ *   5. Show a success notice and stay on the page — the Materialedata page
+ *      this used to jump to is retired; the passport lives under Alle
+ *      egenskaber on Kortlægning now.
  *
  * Failures in steps 1–2 surface through `WriteBanner`; steps 3–4 are
- * best-effort and never block navigation.
+ * best-effort and never block the success notice.
  */
 export function InstanceList({ cloud }: { cloud: string }) {
-  const navigate = useNavigate();
   const rows = useAsync((signal) => api.instances(cloud, signal), [cloud]);
   const [failure, setFailure] = useState<WriteFailure | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [creating, setCreating] = useState<number | null>(null);
 
   const handleCreateMaterial = useCallback(
     async (instance: InstanceInfo) => {
       setCreating(instance.instance_id);
       setFailure(null);
+      setNotice(null);
       try {
         // 1. Mint a blank material passport.
         const passport = await api.createMaterial();
@@ -65,18 +67,20 @@ export function InstanceList({ cloud }: { cloud: string }) {
             }
           }
         } catch {
-          // thumbnail prefill is best-effort — never block navigation
+          // thumbnail prefill is best-effort — never block the success notice
         }
 
-        // 5. Navigate to the materials page.
-        navigate('/materials');
+        // 5. Stay on the page: reload so the row picks up its new "linked"
+        // state, and show a short notice naming where the passport now lives.
+        rows.reload();
+        setNotice('Materiale oprettet og koblet til instansen.');
       } catch (err) {
         setFailure(describeWriteFailure(err as Error, 'the material passport'));
       } finally {
         setCreating(null);
       }
     },
-    [cloud, navigate],
+    [cloud, rows.reload],
   );
 
   if (rows.error) {
@@ -94,6 +98,14 @@ export function InstanceList({ cloud }: { cloud: string }) {
 
   return (
     <div className={styles.root}>
+      {notice && (
+        <div className={styles.notice} role="status">
+          <span>{notice}</span>
+          <button type="button" className={styles.noticeDismiss} onClick={() => setNotice(null)}>
+            Luk
+          </button>
+        </div>
+      )}
       {failure && (
         <WriteBanner
           failure={failure}

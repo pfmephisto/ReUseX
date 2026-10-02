@@ -82,7 +82,7 @@ function ReportView({
 }) {
   // User-defined column definitions — the same source as the material table.
   const definitionsAsync = useAsync<PropertyDefinition[]>(
-    (signal) => api.propertyDefinitions(signal),
+    (signal) => api.resourceColumns(signal),
     [],
   );
 

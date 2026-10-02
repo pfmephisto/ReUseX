@@ -6,15 +6,20 @@ import { describe, expect, it } from 'vitest';
 
 import { ApiRequestError } from '../api/client';
 import {
+  defaultExportTemplateId,
   draftNotice,
   formatBytesDa,
   generatedToast,
   generateErrorMessage,
   HERO_SCOPE,
   LIST_REFRESH_FAILED,
+  NO_TEMPLATE,
+  parseTemplateChoice,
   REPORT_FOOTNOTE,
   reportHeroSub,
+  ressourcetabelHint,
   UNKNOWN_STATUS,
+  validChoice,
   versionDate,
   versionDateTime,
   versionStatus,
@@ -117,5 +122,41 @@ describe('beyond the brief', () => {
   it('keeps a stale list apart from a failed generation', () => {
     expect(LIST_REFRESH_FAILED).toBe('Rapporten blev genereret, men listen kunne ikke opdateres.');
     expect(LIST_REFRESH_FAILED).not.toMatch(/Kunne ikke generere/);
+  });
+});
+
+describe('template choices (R10)', () => {
+  const T = [
+    { id: 3, seed: 'materialepas' },
+    { id: 5, seed: null },
+    { id: 8, seed: 'screening' },
+  ];
+
+  it('parses the select value', () => {
+    expect(parseTemplateChoice(NO_TEMPLATE)).toBeNull();
+    expect(parseTemplateChoice('8')).toBe(8);
+    expect(parseTemplateChoice('x')).toBeNull();
+  });
+
+  it('drops a choice whose template is gone', () => {
+    expect(validChoice(T, 5)).toBe(5);
+    expect(validChoice(T, 99)).toBeNull();
+    expect(validChoice(T, null)).toBeNull();
+  });
+
+  it('defaults the export to the screening seed, then the first template', () => {
+    expect(defaultExportTemplateId(T)).toBe(8);
+    expect(defaultExportTemplateId([{ id: 5, seed: null }])).toBe(5);
+    expect(defaultExportTemplateId([])).toBeNull();
+  });
+
+  it('says what the Ressourcetabel will hold', () => {
+    expect(ressourcetabelHint(null)).toBe('Rapporten genereres uden ressourcetabel.');
+    expect(ressourcetabelHint({ name: 'Hurtig genbrugsscreening', resolved_keys: ['a', 'b'] })).toBe(
+      'Ressourcetabel med 2 felter fra "Hurtig genbrugsscreening".',
+    );
+    expect(ressourcetabelHint({ name: 'Tom', resolved_keys: [] })).toBe(
+      'Skabelonen "Tom" har ingen felter — tabellen bliver tom.',
+    );
   });
 });

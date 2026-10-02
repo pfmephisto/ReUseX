@@ -6,12 +6,16 @@ import { describe, expect, it } from 'vitest';
 
 import {
   BLANK,
+  booleanChoice,
   cellCommit,
+  choiceCommit,
   cellDisplay,
   cellInputText,
   enumOptions,
   isTrue,
+  isTriStateBoolean,
   optionLabel,
+  shownChoice,
   toggleValue,
 } from '../kortlaegning/cellDraft';
 import { resourceKey } from './resourceFixtures';
@@ -195,5 +199,73 @@ describe('yes/no/unknown display (R3-D2): a leksikon TriState field in Danish', 
     expect(cellDisplay(triState, 'no')).toBe('Nej');
     expect(cellDisplay(triState, 'unknown')).toBe('Ukendt');
     expect(optionLabel(triState, 'yes')).toBe('Ja');
+  });
+});
+
+// ------------------------------------------------------ final fix wave ----
+
+describe('ISO dates are checked for month and day bounds', () => {
+  it('rejects a month or day that does not exist', () => {
+    expect(cellCommit(date, '2026-13-40', null)).toEqual({ send: false, invalid: true });
+    expect(cellCommit(date, '2026-00-10', null)).toEqual({ send: false, invalid: true });
+    expect(cellCommit(date, '2026-02-30', null)).toEqual({ send: false, invalid: true });
+    expect(cellCommit(date, '2025-02-29', null)).toEqual({ send: false, invalid: true });
+  });
+
+  it('accepts real dates, leap days included', () => {
+    expect(cellCommit(date, '2024-02-29', null)).toEqual({ send: true, value: '2024-02-29' });
+    expect(cellCommit(date, '2026-12-31', null)).toEqual({ send: true, value: '2026-12-31' });
+  });
+});
+
+describe('JSON-array joining is for read-only keys only', () => {
+  it('an editable text key shows its stored text verbatim, brackets and all', () => {
+    expect(cellDisplay(text, '["a","b"]')).toBe('["a","b"]');
+  });
+});
+
+describe('tri-state booleans', () => {
+  it('a clearable boolean is tri-state; Vigtig is not', () => {
+    expect(isTriStateBoolean(flag)).toBe(true);
+    expect(isTriStateBoolean(starred)).toBe(false);
+    expect(isTriStateBoolean(text)).toBe(false);
+  });
+
+  it('maps a stored value onto the select choice, blank included', () => {
+    expect(booleanChoice(null)).toBe('');
+    expect(booleanChoice('  ')).toBe('');
+    expect(booleanChoice('1')).toBe('true');
+    expect(booleanChoice('false')).toBe('false');
+    expect(booleanChoice('nej')).toBe('false');
+  });
+
+  it('blank → Ja sends true, Ja → — clears, the same choice sends nothing', () => {
+    expect(cellCommit(flag, 'true', null)).toEqual({ send: true, value: 'true' });
+    expect(cellCommit(flag, '', 'true')).toEqual({ send: true, value: null });
+    expect(cellCommit(flag, 'false', 'true')).toEqual({ send: true, value: 'false' });
+    expect(cellCommit(flag, 'true', '1')).toEqual({ send: false, invalid: false });
+  });
+
+  it('a blank boolean displays the muted placeholder, not Nej', () => {
+    expect(cellDisplay(flag, null)).toBe('');
+  });
+});
+
+describe('optimistic choices', () => {
+  it('shows the pending choice while its PATCH is in flight, else the stored value', () => {
+    expect(shownChoice('false', undefined)).toBe('false');
+    expect(shownChoice('false', { value: 'true' })).toBe('true');
+    expect(shownChoice('true', { value: null })).toBeNull();
+  });
+
+  it('a rapid double toggle sends true then false, never the same value twice', () => {
+    const first = toggleValue(shownChoice('false', undefined));
+    const second = toggleValue(shownChoice('false', { value: first }));
+    expect([first, second]).toEqual(['true', 'false']);
+  });
+
+  it('choosing what is already shown (pending included) sends nothing', () => {
+    expect(choiceCommit(stand, 'God', 'Dårlig', { value: 'God' })).toEqual({ send: false, invalid: false });
+    expect(choiceCommit(stand, 'Dårlig', 'Dårlig', { value: 'God' })).toEqual({ send: true, value: 'Dårlig' });
   });
 });

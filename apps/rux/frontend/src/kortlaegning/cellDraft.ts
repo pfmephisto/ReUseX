@@ -45,6 +45,45 @@ export function toggleValue(value: string | null): 'true' | 'false' {
   return isTrue(value) ? 'false' : 'true';
 }
 
+/**
+ * A boolean key that can be blank: every boolean except the non-clearable
+ * `sys:starred`. It edits as a select (— / Ja / Nej), so a blank shows as
+ * blank and a set value can go back to blank; `sys:starred` stays a checkbox.
+ */
+export function isTriStateBoolean(key: ResourceKey): boolean {
+  return key.data_type === 'boolean' && !NON_CLEARABLE.has(key.id);
+}
+
+/** A stored boolean as the tri-state select's value: `''` (blank), `'true'` or `'false'`. */
+export function booleanChoice(value: string | null): '' | 'true' | 'false' {
+  if (value === null || value.trim() === '') return '';
+  return isTrue(value) ? 'true' : 'false';
+}
+
+/** A select/checkbox choice whose PATCH is still in flight. */
+export interface PendingChoice {
+  value: string | null;
+}
+
+/** What a select/checkbox shows: the pending choice while its PATCH runs, else the stored value. */
+export function shownChoice(value: string | null, pending: PendingChoice | undefined): string | null {
+  return pending ? pending.value : value;
+}
+
+/**
+ * A select's change: what to send, judged against what the control shows
+ * (the pending choice included), so re-choosing the shown value sends
+ * nothing and a quick second change sends the new value, not a repeat.
+ */
+export function choiceCommit(
+  key: ResourceKey,
+  chosen: string,
+  value: string | null,
+  pending: PendingChoice | undefined,
+): DraftCommit<string | null> {
+  return cellCommit(key, chosen, shownChoice(value, pending));
+}
+
 /** Danish labels for a leksikon `TriState` field's options (`PropertyType::TriState`, resource_keys.cpp:224-226). */
 const YES_NO_UNKNOWN_LABEL: Record<string, string> = {
   yes: 'Ja',
@@ -99,6 +138,8 @@ export function cellDisplay(key: ResourceKey, value: string | null): string {
     default: {
       // R3-D7: a leksikon StringArray field (data_type 'text', editable:
       // false) stores its JSON array verbatim; show it joined, not raw JSON.
+      // An editable text key shows what was typed, brackets and all.
+      if (key.editable) return value;
       const items = parseStringArray(value);
       return items ? items.join(', ') : value;
     }
@@ -115,7 +156,17 @@ export function cellInputText(key: ResourceKey, value: string | null): string {
   return value;
 }
 
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/** `YYYY-MM-DD` naming a day that exists (2026-13-40 and 2025-02-29 do not). */
+function isIsoDate(text: string): boolean {
+  const m = ISO_DATE.exec(text);
+  if (!m) return false;
+  const [year, month, day] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  if (month < 1 || month > 12 || day < 1) return false;
+  // Day 0 of the next month is the last day of this one (UTC: no DST shift).
+  return day <= new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
 
 /** Parses a draft into the wire value to send: `null` clears, a failed parse is invalid. */
 export function cellValidate(key: ResourceKey): DraftValidate<string | null> {
@@ -128,7 +179,7 @@ export function cellValidate(key: ResourceKey): DraftValidate<string | null> {
         return n === null ? null : { value: String(n) };
       }
       case 'date':
-        return ISO_DATE.test(t) ? { value: t } : null;
+        return isIsoDate(t) ? { value: t } : null;
       case 'enum':
         return (key.options ?? []).includes(t) ? { value: t } : null;
       case 'boolean':

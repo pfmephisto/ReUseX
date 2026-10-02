@@ -9,6 +9,7 @@ import { useLocation } from 'react-router-dom';
 import { api } from '../api/client';
 import type {
   Resource,
+  ResourceCreate,
   ResourceKey,
   Sample,
   SurveyPart,
@@ -19,6 +20,7 @@ import type {
 } from '../api/types';
 import { isControl, isField } from '../app/keyTargets';
 import { parseTypeQuery } from '../app/links';
+import { createOnceGuard } from '../app/onceGuard';
 import { saveErrorMessage } from '../app/saveError';
 import { useAsync } from '../app/useAsync';
 import { appWriteChain } from '../app/writeChain';
@@ -29,6 +31,7 @@ import { EmptyState } from '../components/EmptyState';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { Spinner } from '../components/Spinner';
 import { Toast } from '../components/Toast';
+import { AddResourceDialog } from '../components/kortlaegning/AddResourceDialog';
 import { DetailPanel, pendingSampleList } from '../components/kortlaegning/DetailPanel';
 import { EditDialog, primaryDisabled } from '../components/kortlaegning/EditDialog';
 import { EvidencePanel } from '../components/kortlaegning/EvidencePanel';
@@ -53,11 +56,13 @@ import {
   type Tab,
 } from '../kortlaegning/model';
 import {
+  isManual,
   patchedResources,
   replaceResources,
   resourceIndex,
   templateColumns,
   touchesSurvey,
+  viewForNewResource,
 } from '../kortlaegning/resources';
 import { pickTemplate, readStoredTemplateId, writeStoredTemplateId } from '../kortlaegning/templatePick';
 import { formatNumber } from '../kortlaegning/vocab';
@@ -200,6 +205,9 @@ export function KortlaegningPage() {
   const [selection, setSelection] = useState<Selection>(null);
   const [evidenceTab, setEvidenceTab] = useState<EvidenceTab>('plan');
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [addResourceOpen, setAddResourceOpen] = useState(false);
+  // A create burns a server-assigned code: a double tap must send once (Review Focus).
+  const createGuard = useRef(createOnceGuard());
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<Error | null>(null);
   const tableRef = useRef<HTMLDivElement>(null);
@@ -275,12 +283,13 @@ export function KortlaegningPage() {
     if (loadedOnce && hasTypes) tableRef.current?.focus({ preventScroll: true });
   }, [loadedOnce, hasTypes]);
 
-  // The dialog does not hand focus back on close; the page does.
+  // A dialog does not hand focus back on close; the page does.
+  const anyDialog = dialogOpen || addResourceOpen;
   const wasOpen = useRef(false);
   useEffect(() => {
-    if (wasOpen.current && !dialogOpen) tableRef.current?.focus({ preventScroll: true });
-    wasOpen.current = dialogOpen;
-  }, [dialogOpen]);
+    if (wasOpen.current && !anyDialog) tableRef.current?.focus({ preventScroll: true });
+    wasOpen.current = anyDialog;
+  }, [anyDialog]);
 
   // A selection that vanished (last queued type approved) leaves nothing to edit.
   useEffect(() => {
@@ -366,6 +375,42 @@ export function KortlaegningPage() {
       const body = await api.patchResource(code, { [keyId]: value });
       setResources((prev) => replaceResources(prev, patchedResources(body)));
       if (touchesSurvey([keyId])) await refreshSurvey();
+    });
+  }
+
+  /**
+   * "Tilføj ressource": create a manual part, then show and select it. The
+   * dialog closes only on success; on failure the queue's toast explains and
+   * the dialog keeps its input.
+   */
+  function addResource(body: ResourceCreate) {
+    createGuard.current.run(() =>
+      mutate(async () => {
+        const created = await api.createResource(body);
+        const [s, list] = await Promise.all([api.survey(), api.resources()]);
+        const next = setTypes(() => s.types);
+        setResources(() => list);
+        const view = viewForNewResource(next, created.type_id, viewRef.current.tab, viewRef.current.filters);
+        setTab(view.tab);
+        setFilters(view.filters);
+        select({ typeId: created.type_id, partCode: created.code });
+        setAddResourceOpen(false);
+        toast.show(`${created.code} tilføjet`);
+      }),
+    );
+  }
+
+  /** "Slet ressource": only a manual part (an instance-backed one is a server 409). */
+  function deleteResource() {
+    const p = selPart;
+    if (!p || !isManual(p)) return;
+    void mutate(async () => {
+      await api.deleteResource(p.code);
+      const [s, list] = await Promise.all([api.survey(), api.resources()]);
+      setTypes(() => s.types);
+      setResources(() => list);
+      select({ typeId: p.type_id, partCode: null });
+      toast.show(`${p.code} slettet`);
     });
   }
 
@@ -600,7 +645,7 @@ export function KortlaegningPage() {
             onTemplate={chooseTemplate}
             onCellCommit={commitCell}
             onInvalid={invalidValue}
-            onAddResource={() => {}}
+            onAddResource={() => setAddResourceOpen(true)}
             onAddColumn={() => {}}
           />
           <aside className={styles.aside}>
@@ -624,6 +669,8 @@ export function KortlaegningPage() {
               onReject={reject}
               onReopen={reopen}
               onDone={() => tableRef.current?.focus({ preventScroll: true })}
+              manual={selPart !== null && isManual(selPart)}
+              onDeleteResource={deleteResource}
             />
           </aside>
         </div>
@@ -648,6 +695,16 @@ export function KortlaegningPage() {
           onNote={setNote}
           onStar={star}
           onKeyDown={onDialogKeyDown}
+        />
+      )}
+
+      {addResourceOpen && (
+        <AddResourceDialog
+          types={types}
+          defaultTypeId={selType?.id ?? null}
+          busy={busy}
+          onCancel={() => setAddResourceOpen(false)}
+          onSubmit={addResource}
         />
       )}
 

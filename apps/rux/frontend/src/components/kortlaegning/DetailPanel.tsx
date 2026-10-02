@@ -21,7 +21,7 @@
  * effect), so nothing depends on the caller re-keying the panel.
  */
 
-import type { KeyboardEvent } from 'react';
+import { useEffect, useState, type KeyboardEvent } from 'react';
 
 import { fieldKeyAction as sharedFieldKeyAction } from '../../app/editorKeys';
 import type { Sample, SurveyPart, SurveyType, Treatment } from '../../api/types';
@@ -75,6 +75,9 @@ export interface DetailPanelProps {
    * Esc it was dropped; the page puts focus back on the table.
    */
   onDone: () => void;
+  /** The selected part was added by hand: it can be deleted (spec §4.4). */
+  manual: boolean;
+  onDeleteResource: () => void;
 }
 
 /** `RX-### · {type name}` for a part, or just the type name. */
@@ -131,6 +134,8 @@ export function DetailPanel({
   onReject,
   onReopen,
   onDone,
+  manual,
+  onDeleteResource,
 }: DetailPanelProps) {
   // The entity whose quantity/note/star this panel edits: the selected part
   // when one is selected, otherwise the type itself.
@@ -145,6 +150,11 @@ export function DetailPanel({
     else e.currentTarget.blur();
     onDone();
   }
+
+  // Two-step delete: the first click arms, the second deletes. Re-armed per selection.
+  const [armed, setArmed] = useState(false);
+  const partCode = part?.code ?? null;
+  useEffect(() => setArmed(false), [partCode]);
 
   if (!type || !current) {
     return (
@@ -165,6 +175,7 @@ export function DetailPanel({
         {type.bim7aa_code && (
           <Pill tone="accent">{type.bim7aa_code}</Pill>
         )}
+        {part && manual && <Pill tone="accent">Manuel</Pill>}
         <Pill tone={ENV_TONE[type.environment_status]}>{ENV_LABEL[type.environment_status]}</Pill>
         {current.starred && <Pill tone="warn">★ Vigtig</Pill>}
       </div>
@@ -230,6 +241,23 @@ export function DetailPanel({
         <button type="button" className={styles.ghost} onClick={onStar} disabled={busy}>
           {current.starred ? '★ Fjern vigtig' : '☆ Markér vigtig'}
         </button>
+        {part && manual && (
+          <button
+            type="button"
+            className={styles.danger}
+            disabled={busy}
+            onClick={() => {
+              if (!armed) {
+                setArmed(true);
+                return;
+              }
+              setArmed(false);
+              onDeleteResource();
+            }}
+          >
+            {armed ? `Bekræft: slet ${part.code}` : 'Slet ressource'}
+          </button>
+        )}
         <div className={styles.spacer} />
         {queued ? (
           <>

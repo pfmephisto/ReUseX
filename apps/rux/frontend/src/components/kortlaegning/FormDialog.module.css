@@ -1,0 +1,77 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+.scrim {
+  composes: scrim from './EditDialog.module.css';
+}
+
+.dialog {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: min(calc(var(--space-7) * 11), calc(100vw - var(--space-4) * 2));
+  max-height: 92vh;
+  overflow: auto;
+  padding: var(--space-5);
+  background: var(--color-surface);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-bold);
+}
+
+/* A vertical stack of fields (controls' `.fields` is a narrow + wide grid). */
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.error {
+  margin: 0;
+  color: var(--tone-crit-ink);
+  font-size: var(--font-size-sm);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+/* The form's own controls, for the forms rendered inside the dialog. */
+
+.field {
+  composes: field from '../controls.module.css';
+}
+
+.fieldLabel {
+  composes: fieldLabel from '../controls.module.css';
+}
+
+.input {
+  composes: input from '../controls.module.css';
+}
+
+.btnGhost {
+  composes: btnGhost from '../controls.module.css';
+}
+
+.btnPrimary {
+  composes: btnPrimary from '../controls.module.css';
+}
+
+@media (max-width: 56.25rem) {
+  .actions > button {
+    flex: 1 1 100%;
+    min-height: var(--layout-titlebar-height);
+  }
+}

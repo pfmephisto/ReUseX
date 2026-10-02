@@ -174,3 +174,7 @@
     min-height: var(--layout-titlebar-height);
   }
 }
+
+.danger {
+  composes: btnDanger from '../controls.module.css';
+}

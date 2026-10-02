@@ -106,12 +106,13 @@ export interface Redirect {
  * Retired paths (resources/templates spec §3), rendered by App.tsx as
  * `<Navigate replace>` ahead of the catch-all, so they never stack history.
  * The query is dropped. A source must not also be a `<Route>` in App.tsx:
- * whoever adds one here deletes that route in the same change. Phase 3 adds
- * `/materials`, Phase 4 `/export`.
+ * whoever adds one here deletes that route in the same change. Phase 4 adds
+ * `/export`.
  */
 export const REDIRECTS: readonly Redirect[] = [
   { from: '/on-site', to: KORTLAEGNING_PATH },
   { from: '/onsite', to: KORTLAEGNING_PATH },
+  { from: '/materials', to: KORTLAEGNING_PATH },
 ];
 
 export function entriesIn(group: NavGroup): NavEntry[] {

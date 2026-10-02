@@ -195,7 +195,8 @@ src/
 `/` is Overblik, the case landing page; the old dashboard/inventory screen
 lives at `/projektdata` now (a `Værktøjer` entry).
 `/sager` lists the one open case. Below 900px the sidebar is a drawer.
-Retired paths (`/on-site`, `/onsite`) redirect to Kortlægning; see `REDIRECTS` in
-`src/app/navigation.ts`. Materialedata (`/materials`) and Eksport (`/export`)
-are off the sidebar and still reachable by URL until Kortlægning and Rapport
-take them over.
+Retired paths (`/on-site`, `/onsite`, `/materials`) redirect to Kortlægning;
+see `REDIRECTS` in `src/app/navigation.ts`. Materialedata (`MaterialsPage`,
+`MaterialTable`) is gone — its data lives under Alle egenskaber on
+Kortlægning now. Eksport (`/export`) is still off the sidebar and reachable
+by URL until Rapport takes it over.

@@ -25,7 +25,6 @@ import { GraphViewPage } from '../routes/GraphViewPage';
 import { IndberetningPage } from '../routes/IndberetningPage';
 import { InstancesPage } from '../routes/InstancesPage';
 import { KortlaegningPage } from '../routes/KortlaegningPage';
-import { MaterialsPage } from '../routes/MaterialsPage';
 import { MiljoePage } from '../routes/MiljoePage';
 import { OverblikPage } from '../routes/OverblikPage';
 import { PipelineLogPage } from '../routes/PipelineLogPage';
@@ -45,7 +44,7 @@ import { ViewportPage } from '../routes/ViewportPage';
  * ## Viewport keep-alive
  *
  * `ViewportPage` is rendered *outside* the `<Routes>` switcher and kept mounted
- * permanently. Navigating to `/geometry`, `/materials`, etc. CSS-hides it via
+ * permanently. Navigating to `/geometry`, `/kortlaegning`, etc. CSS-hides it via
  * `display:none` but does not unmount it, so the Three.js scene, point-cloud
  * pages, mesh blobs, and splat blobs all stay in GPU/CPU memory across
  * navigation. Without this, every visit to `/viewport` re-downloads all
@@ -88,7 +87,6 @@ function RoutedContent() {
           <Route path="/graph-view" element={<GraphViewPage />} />
           <Route path="/geometry" element={<GeometryPage />} />
           <Route path="/instances" element={<InstancesPage />} />
-          <Route path="/materials" element={<MaterialsPage />} />
           <Route path="/labels" element={<LabelsPage />} />
           <Route path="/export" element={<ExportPage />} />
           {REDIRECTS.map((r) => (

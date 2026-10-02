@@ -101,6 +101,23 @@ class HttpError : public std::runtime_error {
   int status_;
 };
 
+/// Translate the exception in flight into the documented HTTP status — the
+/// ONE mapping every resources/templates handler shares:
+/// core::KeyValueError and std::invalid_argument -> 400, std::out_of_range
+/// -> 404, core::NameConflictError and core::ResourceConflictError (an
+/// instance-backed resource) -> 409. HttpError and anything else are
+/// rethrown unchanged. Call only from inside a catch block.
+[[noreturn]] void rethrow_as_http_error();
+
+/// Run @p f, mapping library exceptions through rethrow_as_http_error().
+template <typename F> decltype(auto) map_library_errors(F &&f) {
+  try {
+    return std::forward<F>(f)();
+  } catch (...) {
+    rethrow_as_http_error();
+  }
+}
+
 /// A non-JSON response body (image, mesh blob).
 struct Blob {
   std::string content_type;
@@ -475,14 +492,18 @@ nlohmann::json material_columns_json(const reusex::ProjectDB &db);
 ///
 /// @param body `{name, type, options?, sort_order?}`; `type` must be one of
 ///        text/number/date/boolean/select.
-/// @throws HttpError(400) on a malformed body or an unknown `type`.
+/// @throws HttpError(400) on a malformed body or an unknown `type`,
+///         HttpError(409) when the name is taken by a column or a leksikon
+///         field, or already holds stored passport values.
 nlohmann::json create_material_column(reusex::ProjectDB &db,
                                       const std::string &body);
 
 /// Sparse-update a material column definition; only the fields present in the
 /// body change.
 /// @throws HttpError(404) when @p id is not a defined column, HttpError(400)
-///         on a malformed body or an unknown `type`.
+///         on a malformed body or an unknown `type`, HttpError(409) when a
+///         rename hits a taken name or one with stored passport values. A
+///         rename moves the column's stored values.
 nlohmann::json patch_material_column(reusex::ProjectDB &db,
                                      const std::string &id,
                                      const std::string &body);

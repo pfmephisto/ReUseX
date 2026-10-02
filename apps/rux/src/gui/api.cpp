@@ -15,7 +15,10 @@
 #include <reusex/core/guid.hpp>
 #include <reusex/core/materialepas_json_export.hpp>
 #include <reusex/core/report_version_json.hpp>
+#include <reusex/core/resource_keys.hpp>
+#include <reusex/core/resources.hpp>
 #include <reusex/core/stages.hpp>
+#include <reusex/core/survey.hpp>
 #include <reusex/core/validate.hpp>
 #include <reusex/core/version.hpp>
 #include <reusex/geometry/BuildingComponent.hpp>
@@ -600,6 +603,29 @@ void add_page_envelope(json &object, const PageWindow &window) {
 }
 
 // ===========================================================================
+// Library exceptions -> HTTP statuses
+// ===========================================================================
+
+void rethrow_as_http_error() {
+  try {
+    throw;
+  } catch (const HttpError &) {
+    throw;
+  } catch (const reusex::core::KeyValueError &e) {
+    // Before std::invalid_argument, its base. The message names the key.
+    throw HttpError(400, e.what());
+  } catch (const reusex::core::NameConflictError &e) {
+    throw HttpError(409, e.what());
+  } catch (const reusex::core::ResourceConflictError &e) {
+    throw HttpError(409, e.what());
+  } catch (const std::out_of_range &e) {
+    throw HttpError(404, e.what());
+  } catch (const std::invalid_argument &e) {
+    throw HttpError(400, e.what());
+  }
+}
+
+// ===========================================================================
 // Route table
 // ===========================================================================
 
@@ -682,6 +708,24 @@ const std::vector<Endpoint> &endpoint_table() {
        "Update a material column definition"},
       {"DELETE", "/api/v1/material-columns/<string>",
        "Delete a material column definition"},
+      {"GET", "/api/v1/resources/columns",
+       "User-defined resource column definitions"},
+      {"POST", "/api/v1/resources/columns",
+       "Create a resource column definition"},
+      {"PATCH", "/api/v1/resources/columns/<string>",
+       "Update a resource column definition"},
+      {"DELETE", "/api/v1/resources/columns/<string>",
+       "Delete a resource column definition"},
+      {"GET", "/api/v1/resources/keys", "The resource key catalogue"},
+      {"GET", "/api/v1/resources",
+       "Resources (survey parts) with their key values"},
+      {"POST", "/api/v1/resources", "Add a resource by hand"},
+      {"PATCH", "/api/v1/resources/<string>",
+       "Set or clear a resource's key values"},
+      {"DELETE", "/api/v1/resources/<string>",
+       "Delete a manually added resource"},
+      {"GET", "/api/v1/resources/export.csv",
+       "Resources as CSV through a template", true},
       {"GET", "/api/v1/instances/<string>",
        "Instance rows of an instance-label cloud, with material links"},
       {"GET", "/api/v1/instances/<string>/<int>/frames",
@@ -2074,15 +2118,16 @@ json create_material_column(reusex::ProjectDB &db, const std::string &body) {
   if (width_it != parsed.end() && width_it->is_number_integer())
     width = width_it->get<int>();
 
-  reusex::ProjectDB::PropertyDefinition created;
-  created.id =
-      db.add_property_definition(name, type, options, sort_order, width);
-  created.name = name;
-  created.type = type;
-  created.options = options;
-  created.sort_order = sort_order;
-  created.width = width;
-  return definition_json(created);
+  reusex::ProjectDB::PropertyDefinition def;
+  def.name = name;
+  def.type = type;
+  def.options = options;
+  def.sort_order = sort_order;
+  def.width = width;
+  // 409 when the name is taken by a column or a leksikon field, or already
+  // holds stored passport values (core::create_column).
+  return map_library_errors(
+      [&] { return definition_json(reusex::core::create_column(db, def)); });
 }
 
 json patch_material_column(reusex::ProjectDB &db, const std::string &id,
@@ -2091,63 +2136,44 @@ json patch_material_column(reusex::ProjectDB &db, const std::string &id,
   if (parsed.is_discarded() || !parsed.is_object())
     throw HttpError(400, "request body must be a JSON object");
 
-  const auto defs = db.list_property_definitions();
-  const auto it = std::find_if(defs.begin(), defs.end(),
-                               [&](const auto &d) { return d.id == id; });
-  if (it == defs.end())
-    not_found("material column", id);
-
-  // Sparse update: start from the stored values and overlay only the fields the
-  // request carries, so an absent field keeps what it had rather than being
-  // cleared to a default.
-  std::string name = it->name;
-  std::string type = it->type;
-  std::vector<std::string> options = it->options;
-  int sort_order = it->sort_order;
-  int width = it->width;
-
+  reusex::core::ColumnPatch patch;
   if (parsed.contains("name")) {
     if (!parsed["name"].is_string())
       throw HttpError(400, "'name' must be a string");
-    name = parsed["name"].get<std::string>();
+    patch.name = parsed["name"].get<std::string>();
   }
   if (parsed.contains("type")) {
     if (!parsed["type"].is_string())
       throw HttpError(400, "'type' must be a string");
-    type = parsed["type"].get<std::string>();
-    if (!is_valid_column_type(type))
+    patch.type = parsed["type"].get<std::string>();
+    if (!is_valid_column_type(*patch.type))
       throw HttpError(400, "'type' must be one of "
                            "text/number/date/boolean/select/multiselect");
   }
   if (parsed.contains("options")) {
     if (!parsed["options"].is_array())
       throw HttpError(400, "'options' must be an array");
-    options.clear();
+    std::vector<std::string> options;
     for (const auto &option : parsed["options"])
       if (option.is_string())
         options.push_back(option.get<std::string>());
+    patch.options = std::move(options);
   }
   if (parsed.contains("sort_order")) {
     if (!parsed["sort_order"].is_number_integer())
       throw HttpError(400, "'sort_order' must be an integer");
-    sort_order = parsed["sort_order"].get<int>();
+    patch.sort_order = parsed["sort_order"].get<int>();
   }
   if (parsed.contains("width")) {
     if (!parsed["width"].is_number_integer())
       throw HttpError(400, "'width' must be an integer");
-    width = parsed["width"].get<int>();
+    patch.width = parsed["width"].get<int>();
   }
-
-  db.update_property_definition(id, name, type, options, sort_order, width);
-
-  reusex::ProjectDB::PropertyDefinition updated;
-  updated.id = id;
-  updated.name = name;
-  updated.type = type;
-  updated.options = options;
-  updated.sort_order = sort_order;
-  updated.width = width;
-  return definition_json(updated);
+  // A rename carries the column's stored values (core::update_column); 404
+  // for an unknown id, 409 for a taken name or one with stored values.
+  return map_library_errors([&] {
+    return definition_json(reusex::core::update_column(db, id, patch));
+  });
 }
 
 void delete_material_column(reusex::ProjectDB &db, const std::string &id) {

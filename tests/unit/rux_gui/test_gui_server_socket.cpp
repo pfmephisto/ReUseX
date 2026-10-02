@@ -382,6 +382,24 @@ TEST_CASE("RunningServer_KeepAliveVariousRoutes_HonorsRoutingContract",
   }
 }
 
+TEST_CASE("RunningServer_ResourceRoutes_StaticPathsBeatTheCodeParam",
+          "[gui][server][socket]") {
+  // /resources/keys etc. sit next to /resources/<string>; Crow keeps one
+  // trie per method, so GET never reaches the PATCH/DELETE code route.
+  TempPath project("test_gui_server_socket", ".rux");
+  TempDir assets("test_gui_server_socket_assets");
+  write_file(assets.path / "index.html", kIndexBody);
+  RunningServer server(options_for(project.path, assets.path, free_port()));
+  KeepAliveConnection connection(server.port());
+  for (const char *route :
+       {"/api/v1/resources/keys", "/api/v1/resources/columns",
+        "/api/v1/resources", "/api/v1/resources/export.csv?template=2"}) {
+    INFO("route: " << route);
+    CHECK(connection.get(route).status == 200);
+  }
+  CHECK(connection.get("/api/v1/resources/export.csv").status == 400);
+}
+
 TEST_CASE("RunningServer_NoAssetsKeepAliveRequests_ServesPlaceholderRepeatedly",
           "[gui][server][socket]") {
   // With no bundle installed the server must still answer SPA routes, request

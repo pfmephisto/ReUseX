@@ -190,6 +190,16 @@ changelog — that history is the point of keeping it in the repo.
 
 ## Direction changelog
 
+- **2026-10-02** — **GUI application (#265): the prototype-v2 redesign is
+  complete — Phases 1–6 have landed.** Phase 6 added Sager (the single-project
+  case list `rux gui` can serve) and On-site (the phone sheet that writes ★, a
+  note and a sample against a bygningsdel; schema v24 records the part a sample
+  was taken at), made the shell responsive below 900px, and put every screen's
+  writes on one app-wide chain. What remains are follow-ups, not phases: the
+  multi-case list and switching belong to `ruxd` (#265's own Phase 6, a
+  different numbering), and photo capture waits for blob storage — see the
+  spec's Out of scope list and `.github/issue-drafts/36`–`42`.
+
 - **2026-10-01** — **GUI application (#265): Phases 1–5 of the prototype-v2
   redesign landed.** Identity & shell, the survey backend (schema v22/v23),
   the Kortlægning workbench, Miljø & prøver, and Overblik/Rapport/Indberetning

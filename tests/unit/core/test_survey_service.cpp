@@ -256,3 +256,74 @@ TEST_CASE("SyncSurvey_ManualType_NeverMatched_UnclassifiedGetsOwnType",
   REQUIRE(unclassified != types.end());
   CHECK(unclassified->semantic_class == -1);
 }
+
+// Regression: an instance cloud written before schema v10 has its labels and
+// "SM{class}-{id} (Np)" definitions but no `instances` rows — the v10
+// migration backfilled rows only for clouds that had material links. Sync
+// used to iterate the empty table, create nothing and report "no instances"
+// while the cloud held 155 of them (NewOffice, 2026-10-02).
+TEST_CASE("SyncSurvey_LegacyCloudWithoutInstanceRows_BackfillsThem",
+          "[survey][sync]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  db.save_point_cloud("instances", label_cloud({1, 1, 2, 2, 3, 0}), "test",
+                      "{}");
+  // 4294967295 is the pre-#214 unlabeled semantic value wrapped to uint32.
+  db.save_label_definitions(
+      "instances",
+      {{1, "SM3-1 (2p)"}, {2, "SM3-2 (2p)"}, {3, "SM4294967295-3 (1p)"}});
+  db.save_point_cloud("labels", label_cloud({3, 3, 3, 3, 0, 0}), "test", "{}");
+  db.save_label_definitions("labels", {{3, "window"}});
+  db.save_point_cloud("rooms", label_cloud({4, 4, 4, 6, 6, 0}), "test", "{}");
+  REQUIRE(db.instances("instances").empty());
+
+  const auto r = sync_survey(db);
+  CHECK(r.instances_backfilled == 3);
+  CHECK(r.instances_seen == 3);
+  CHECK(r.types_created == 2); // window + Uklassificeret
+  CHECK(r.parts_created == 3);
+  CHECK(r.rooms_assigned);
+
+  const auto rows = db.instances("instances");
+  REQUIRE(rows.size() == 3);
+  CHECK(rows[0].semantic_class == 3);
+  CHECK(rows[0].point_count == 2);
+  CHECK_FALSE(rows[0].guid.empty());
+  CHECK(rows[2].semantic_class == -1);
+  CHECK(rows[2].point_count == 1);
+  const auto parts = db.survey_parts();
+  REQUIRE(parts.size() == 3);
+  CHECK(parts[0].instance_guid == rows[0].guid);
+  CHECK(parts[1].room_id == 4u); // instance 2: points 2,3 → rooms 4,6 tie → 4
+
+  // A rerun finds the rows it wrote: nothing is backfilled or duplicated.
+  const auto again = sync_survey(db);
+  CHECK(again.instances_backfilled == 0);
+  CHECK(again.instances_seen == 3);
+  CHECK(again.parts_created == 0);
+  CHECK(again.parts_existing == 3);
+}
+
+TEST_CASE("SyncSurvey_LegacyCloudWithoutDefinitions_BackfillsUnclassified",
+          "[survey][sync]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  db.save_point_cloud("instances", label_cloud({7, 7, 0}), "test", "{}");
+  const auto r = sync_survey(db);
+  CHECK(r.instances_backfilled == 1);
+  CHECK(r.parts_created == 1);
+  REQUIRE(db.survey_types().size() == 1);
+  CHECK(db.survey_types()[0].name == "Uklassificeret");
+  CHECK(db.instances("instances")[0].instance_id == 7u);
+}
+
+TEST_CASE("SyncSurvey_EmptyInstanceCloud_ReportsZeroSeen", "[survey][sync]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  db.save_point_cloud("instances", label_cloud({0, 0}), "test", "{}");
+  const auto r = sync_survey(db);
+  CHECK(r.instances_seen == 0);
+  CHECK(r.instances_backfilled == 0);
+  CHECK(r.parts_created == 0);
+  CHECK(db.instances("instances").empty());
+}

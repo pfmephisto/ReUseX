@@ -258,6 +258,15 @@ or `"Rum <id>"`; a missing or size-mismatched rooms cloud is logged and parts
 get no room. Idempotent — existing types/parts are never modified, so edits
 made in the GUI survive a rerun.
 
+An instance cloud written before schema v10 can have labels but no
+`instances` rows: the v10 migration backfilled rows only for clouds that had
+material links. `sync_survey` then writes the rows first (one per distinct
+label, with its point count, a fresh guid, and the class parsed from the
+`"SM{class}-{id} (Np)"` definition, else `-1`), logs a warning with the count,
+and reports it as `instances_backfilled`. `instances_seen` counts the rows
+considered, so a caller can tell "no instances" (0) from "all already
+surveyed".
+
 A part's `instance_guid` can stop resolving — the linked instance was
 deleted, or `rux create instances` ran again without carrying the guid over
 (e.g. `--clear`). `sync_survey` does not delete or hide such a part: it keeps

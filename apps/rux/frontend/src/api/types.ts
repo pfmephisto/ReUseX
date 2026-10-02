@@ -938,6 +938,10 @@ export interface SurveySyncReport {
   types_created: number;
   parts_created: number;
   parts_existing: number;
+  /** Instance rows sync considered; 0 means the instance cloud holds none. */
+  instances_seen: number;
+  /** Rows sync wrote first for an instance cloud from before schema v10. */
+  instances_backfilled: number;
   rooms_assigned: boolean;
   parts_orphaned: number;
   orphaned_codes: string[];

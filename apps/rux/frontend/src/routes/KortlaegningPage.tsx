@@ -7,7 +7,7 @@ import type { KeyboardEvent } from 'react';
 import { useLocation } from 'react-router-dom';
 
 import { api } from '../api/client';
-import type { Sample, SurveyPart, SurveySummary, SurveyType } from '../api/types';
+import type { Sample, SurveyPart, SurveySummary, SurveySyncReport, SurveyType } from '../api/types';
 import { isControl, isField } from '../app/keyTargets';
 import { parseTypeQuery } from '../app/links';
 import { saveErrorMessage } from '../app/saveError';
@@ -62,9 +62,20 @@ export function approvedMessage(name: string, types: SurveyType[]): string {
   return `✓ ${name} godkendt · ${tabCounts(types).queue} tilbage i køen`;
 }
 
+/** How many room names the coverage notice spells out before "… og N flere". */
+export const COVERAGE_ROOMS_SHOWN = 5;
+
+/** `names` joined, capped at `shown`: "A, B, C … og 451 flere". */
+export function cappedList(names: string[], shown = COVERAGE_ROOMS_SHOWN): string {
+  if (names.length <= shown) return names.join(', ');
+  return `${names.slice(0, shown).join(', ')} … og ${formatNumber(names.length - shown)} flere`;
+}
+
 /**
  * The coverage notice's clauses after `Dækning:`, or `[]` when there is
- * nothing to warn about. A clause whose figure is absent is left out.
+ * nothing to warn about. A clause whose figure is absent is left out. The
+ * rooms clause waits until the survey has types: before the first sync every
+ * room lacks parts, which says nothing.
  */
 export function coverageParts(summary: SurveySummary): string[] {
   const parts: string[] = [];
@@ -72,10 +83,30 @@ export function coverageParts(summary: SurveySummary): string[] {
     parts.push(`${formatNumber(summary.unlabeled_points)} punkter uklassificeret`);
   }
   const rooms = summary.rooms_without_parts;
-  if (rooms.length > 0) {
-    parts.push(`${rooms.length} rum uden registrerede bygningsdele (${rooms.join(', ')})`);
+  if (rooms.length > 0 && summary.counts.all > 0) {
+    parts.push(
+      `${formatNumber(rooms.length)} rum uden registrerede bygningsdele (${cappedList(rooms)})`,
+    );
   }
   return parts;
+}
+
+/** The toast after "Opret kortlægning fra instanser": what sync did, and why not more. */
+export function syncMessage(report: SurveySyncReport): string {
+  if (report.parts_orphaned > 0) {
+    return `${report.parts_orphaned} del(e) peger på instanser der ikke findes længere`;
+  }
+  const parts = report.parts_created;
+  if (parts > 0) {
+    const noun = parts === 1 ? 'bygningsdel' : 'bygningsdele';
+    const types = report.types_created;
+    if (types === 0) return `${formatNumber(parts)} ${noun} tilføjet til eksisterende typer`;
+    return `${formatNumber(parts)} ${noun} oprettet i ${formatNumber(types)} ${types === 1 ? 'ny type' : 'nye typer'}`;
+  }
+  if (report.instances_seen === 0) {
+    return 'Ingen instanser at kortlægge — opret instanser først';
+  }
+  return `Ingen nye bygningsdele — alle ${formatNumber(report.instances_seen)} instanser er allerede kortlagt`;
 }
 
 /**
@@ -279,12 +310,7 @@ export function KortlaegningPage() {
       // A write like any other: it joins the app-wide chain (R11), so it lands
       // after earlier writes and before any screen's next first load.
       await appWriteChain.enqueue(async () => {
-        const report = await api.syncSurvey();
-        if (report.parts_orphaned > 0) {
-          toast.show(`${report.parts_orphaned} del(e) peger på instanser der ikke findes længere`);
-        } else if (report.types_created === 0) {
-          toast.show('Ingen nye typer — ingen instanser at kortlægge');
-        }
+        toast.show(syncMessage(await api.syncSurvey()));
       });
       reload();
       refresh();

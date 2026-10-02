@@ -11,7 +11,9 @@
  * own.
  */
 
+import { ApiRequestError } from '../api/client';
 import type { Template } from '../api/types';
+import { errorMessage } from '../app/saveError';
 
 export type CsvDelimiter = ',' | ';' | '\t';
 export type CsvEncoding = 'utf-8' | 'utf-8-bom';
@@ -86,4 +88,37 @@ export function downloadState(
  */
 export function csvCountLine(fields: number): string {
   return `${fields === 1 ? '1 felt' : `${fields} felter`} + kode · én række pr. ressource`;
+}
+
+/** The fallback name when the response carries no usable `Content-Disposition`. */
+export const CSV_FALLBACK_FILENAME = 'ressourcer.csv';
+
+/**
+ * The download's filename from a `Content-Disposition` header value (or
+ * `null`), falling back to `CSV_FALLBACK_FILENAME`. Prefers the RFC 5987
+ * `filename*=UTF-8''…` form over plain `filename="…"` when both are present.
+ */
+export function csvFilename(contentDisposition: string | null): string {
+  if (!contentDisposition) return CSV_FALLBACK_FILENAME;
+  const star = /filename\*\s*=\s*[^']*''([^;]+)/i.exec(contentDisposition);
+  if (star) {
+    try {
+      const name = decodeURIComponent(star[1].trim());
+      if (name) return name;
+    } catch {
+      /* malformed percent-encoding — fall through to filename= */
+    }
+  }
+  const plain = /filename\s*=\s*"?([^";]+)"?/i.exec(contentDisposition);
+  const name = plain?.[1]?.trim();
+  return name ? name : CSV_FALLBACK_FILENAME;
+}
+
+/** The Danish toast for a failed CSV download (a non-OK response, or the fetch itself failing). */
+export function csvDownloadErrorMessage(cause: unknown): string {
+  if (cause instanceof ApiRequestError) {
+    if (cause.isNotFound) return 'Skabelonen findes ikke længere.';
+    if (cause.isRetryable) return 'Kunne ikke hente CSV-filen — serveren er ikke klar. Prøv igen om lidt.';
+  }
+  return `Kunne ikke hente CSV-filen: ${errorMessage(cause)}`;
 }

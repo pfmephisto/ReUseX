@@ -218,8 +218,12 @@ function pointsQuery(options: CloudPointsQuery): Query {
  * The contract says every non-2xx body is an `Error` object with a non-empty
  * `error`. A server that is wedged badly enough may not manage that, so this
  * degrades to the status text rather than throwing while building a throw.
+ *
+ * Exported so a caller that downloads a non-JSON response directly (a CSV,
+ * say) with its own `fetch` can read the same error shape on a non-OK
+ * response, instead of saving the error body as if it were the file.
  */
-async function describeFailure(response: Response): Promise<string> {
+export async function describeFailure(response: Response): Promise<string> {
   try {
     const body = (await response.json()) as { error?: unknown };
     if (typeof body?.error === 'string' && body.error.length > 0) return body.error;
@@ -970,7 +974,7 @@ export class RuxApiClient {
     await this.postJson<unknown>('/templates/restore-seeds', {}, signal);
   }
 
-  /** The resources CSV for one template, for an `<a href download>`. */
+  /** The resources CSV for one template. Fetched directly (not through this client) so a non-OK response can be read as an error rather than saved as the file. */
   resourcesExportCsvUrl(templateId: number): string {
     return this.url('/resources/export.csv', { template: templateId });
   }

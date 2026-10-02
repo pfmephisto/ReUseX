@@ -31,9 +31,6 @@
 .btnPrimary {
   composes: btnPrimary from '../controls.module.css';
 }
-.downloadLink {
-  composes: btnPrimary linkBtn from '../controls.module.css';
-}
 .crossLink {
   composes: crossLink from '../controls.module.css';
   margin-left: auto;

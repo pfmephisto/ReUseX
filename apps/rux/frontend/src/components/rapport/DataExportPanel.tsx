@@ -2,12 +2,16 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 
+import { ApiRequestError, describeFailure } from '../../api/client';
 import type { Template } from '../../api/types';
 import { SKABELONER_PATH } from '../../app/links';
 import {
   csvCountLine,
+  csvDownloadErrorMessage,
+  csvFilename,
   DELIMITER_OPTIONS,
   downloadState,
   ENCODING_OPTIONS,
@@ -26,17 +30,64 @@ export interface DataExportPanelProps {
   /** A CSV-option write is queued or in flight (R12). */
   writing: boolean;
   csvUrl: (id: number) => string;
+  /** A download failed: a non-OK response, or the fetch itself. Shown as the page's toast. */
+  onDownloadError: (message: string) => void;
+}
+
+/** Saves `blob` as `filename` via a throwaway, revoked object URL. */
+function saveBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  try {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 /**
  * Data-eksport (spec §6.3): pick a template, set its CSV options (saved back
- * to the template), download the backend-built CSV. The server names the
- * file (Content-Disposition), so the link carries a bare `download`.
+ * to the template), download the backend-built CSV. A plain `<a href
+ * download>` would save a non-OK response's JSON error body as if it were
+ * the file, so this fetches it instead: on success it saves a Blob under the
+ * server's `Content-Disposition` filename, on failure it reports the error
+ * through `onDownloadError` and saves nothing.
  */
-export function DataExportPanel({ templates, selectedId, onSelect, onCsvChange, writing, csvUrl }: DataExportPanelProps) {
+export function DataExportPanel({
+  templates,
+  selectedId,
+  onSelect,
+  onCsvChange,
+  writing,
+  csvUrl,
+  onDownloadError,
+}: DataExportPanelProps) {
   const t = templates.find((x) => x.id === selectedId) ?? null;
   const opts = readCsvOptions(t?.csv);
+  const [downloading, setDownloading] = useState(false);
   const dl = downloadState(t, writing);
+
+  const download = async () => {
+    if (!t) return;
+    setDownloading(true);
+    try {
+      const url = csvUrl(t.id);
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new ApiRequestError(response.status, await describeFailure(response), url);
+      }
+      const blob = await response.blob();
+      saveBlob(blob, csvFilename(response.headers.get('Content-Disposition')));
+    } catch (cause) {
+      onDownloadError(csvDownloadErrorMessage(cause));
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   return (
     <section className={styles.panel} aria-labelledby="rapport-dataeksport">
@@ -84,15 +135,9 @@ export function DataExportPanel({ templates, selectedId, onSelect, onCsvChange, 
             />
           </div>
           <div className={styles.row}>
-            {t && dl.enabled ? (
-              <a className={styles.downloadLink} href={csvUrl(t.id)} download>
-                Download CSV
-              </a>
-            ) : (
-              <button type="button" className={styles.btnPrimary} disabled>
-                Download CSV
-              </button>
-            )}
+            <button type="button" className={styles.btnPrimary} disabled={!dl.enabled || downloading} onClick={download}>
+              {downloading ? 'Henter…' : 'Download CSV'}
+            </button>
             <span className={styles.muted} role="status">
               {dl.reason ?? (t ? csvCountLine(t.resolved_keys.length) : '')}
             </span>

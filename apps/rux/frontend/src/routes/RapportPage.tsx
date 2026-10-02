@@ -243,6 +243,7 @@ export function RapportPage() {
           onCsvChange={onCsvChange}
           writing={csvQueue.busy}
           csvUrl={(id) => api.resourcesExportCsvUrl(id)}
+          onDownloadError={toast.show}
         />
       )}
 

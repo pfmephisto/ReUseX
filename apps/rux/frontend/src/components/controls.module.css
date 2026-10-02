@@ -137,3 +137,22 @@
   outline: 2px solid var(--color-border-focus);
   outline-offset: 0;
 }
+
+/* A link to another case screen (Kortlægning ↔ Miljø & prøver ↔ On-site,
+ * Sager → On-site). One style everywhere, so "this opens the other screen"
+ * reads the same on every screen (Phase 6 R12). */
+
+.crossLink {
+  color: var(--color-accent-deep);
+  text-decoration: underline;
+}
+
+.crossLink:hover {
+  color: var(--color-text);
+}
+
+.crossLink:focus-visible {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}

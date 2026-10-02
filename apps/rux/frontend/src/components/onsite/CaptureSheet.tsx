@@ -208,6 +208,8 @@ export function CaptureSheet({
           id={noteId}
           className={styles.noteInput}
           placeholder="Hurtig note…"
+          // Names the part too; it starts with the visible "Note" (label in name).
+          aria-label={`Note til ${part.code}`}
           {...note.props}
           onKeyDown={fieldKeys(note, home)}
         />

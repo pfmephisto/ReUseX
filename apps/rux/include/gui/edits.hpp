@@ -89,6 +89,10 @@ nlohmann::json patch_project(reusex::ProjectDB &db, const std::string &id,
 /// report_pdfs table (schema v20) via ProjectDB::add_report_pdf().
 ///
 /// @throws HttpError(500) if typst is not available or compilation fails.
-nlohmann::json generate_report_pdf_json(reusex::ProjectDB &db);
+/// Body: optional `{"resource_template_id": int|null}` — adds the
+/// Ressourcetabel section.
+/// @throws HttpError(400) bad body/field, HttpError(404) unknown template.
+nlohmann::json generate_report_pdf_json(reusex::ProjectDB &db,
+                                        const std::string &body);
 
 } // namespace rux::gui

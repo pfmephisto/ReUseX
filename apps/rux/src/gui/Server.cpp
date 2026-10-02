@@ -1288,8 +1288,8 @@ class Server::Impl {
             return with_db([](const reusex::ProjectDB &db) {
               return json_response(200, list_report_pdfs_json(db));
             });
-          return with_write([](reusex::ProjectDB &db) {
-            return json_response(201, generate_report_pdf_json(db));
+          return with_write([&](reusex::ProjectDB &db) {
+            return json_response(201, generate_report_pdf_json(db, req.body));
           });
         });
 

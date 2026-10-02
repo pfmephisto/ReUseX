@@ -8,6 +8,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <gui/api.hpp>
+#include <gui/edits.hpp>
 
 #include "../../support/temp_path.hpp"
 
@@ -38,4 +39,22 @@ TEST_CASE("ReportVersionsJson_VersionAndBlockingTypes", "[gui][reports]") {
   CHECK(v.at(1).at("blocking_types") == 2);
   CHECK(v.at(1).at("label") == "Ressourcekortlægning");
   CHECK(v.at(1).at("size_bytes") == 4);
+}
+
+TEST_CASE("GuiReport_TemplateField_400And404BeforeGenerating",
+          "[gui][reports]") {
+  reusex::test_support::TempPath tmp("test_gui_reports_template");
+  reusex::ProjectDB db(tmp.path);
+  auto status = [&](const std::string &body) {
+    try {
+      rux::gui::generate_report_pdf_json(db, body);
+    } catch (const rux::gui::HttpError &e) {
+      return e.status();
+    }
+    return 201;
+  };
+  CHECK(status(R"({"resource_template_id":"2"})") == 400);
+  CHECK(status(R"({"resource_template_id":999})") == 404);
+  CHECK(status("[]") == 400);
+  CHECK(db.list_report_pdfs().empty());
 }

@@ -23,6 +23,10 @@
 //       "circularity": [{"label": "Genanvendelse", "tonnes": "196,8 t"}],
 //       "blocking": 7
 //     }
+//     "resources": null | {
+//       "name": "template name",
+//       "tables": [{"headers": ["Betegnelse", ...], "rows": [["...", ...]]}]
+//     }
 //   }
 //
 // The same text is embedded in libs/reusex/src/core/report_generator.cpp
@@ -95,6 +99,31 @@
   #text(size: 9pt)[Cirkularitet (godkendte typer): #survey.circularity.map(c => c.label + " " + c.tonnes).join(" · ")]
 ]
 #v(0.6cm)
+
+// ── Ressourcetabel: resources through a chosen template ──────────────────────
+
+#let res = data.at("resources", default: none)
+#if res != none [
+  #text(size: 13pt, weight: "bold")[Ressourcetabel — #res.name]
+  #v(0.2cm)
+  #if res.tables.len() == 0 [
+    _Ingen ressourcer i projektet._
+  ] else {
+    for t in res.tables {
+      table(
+        columns: t.headers.len(),
+        stroke: 0.3pt + luma(190),
+        inset: (x: 5pt, y: 5pt),
+        fill: (col, row) => if row == 0 { luma(215) } else { white },
+        table.header(..t.headers.map(h => [*#h*])),
+        ..t.rows.flatten(),
+      )
+      v(0.3cm)
+    }
+  }
+  #v(0.6cm)
+]
+
 #text(size: 13pt, weight: "bold")[Materialepas]
 #v(0.2cm)
 

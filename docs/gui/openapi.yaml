@@ -2694,12 +2694,33 @@ paths:
         (added to the devshell via `pkgs.typst`).
 
         Writer-locked: concurrent POST requests queue behind a mutex.
+
+        With resource_template_id the PDF also carries a Ressourcetabel
+        between Kortlægning and Materialepas.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                resource_template_id:
+                  type: integer
+                  format: int64
+                  nullable: true
+                  description: |
+                    Adds a Ressourcetabel section: every resource whose type
+                    is not rejected, through this template's keys, in tables
+                    of at most 8 columns each led by Betegnelse. Null or
+                    absent leaves the section out.
       responses:
         "201":
           description: PDF generated and stored; returns the new version metadata
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ReportPdfVersion" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
   /reports/ressourcekortlaegning/{id}:

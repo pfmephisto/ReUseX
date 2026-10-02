@@ -69,6 +69,19 @@ TEST_CASE("TemplateService_Update_Delete", "[templates]") {
   in.name = "Hurtig genbrugsscreening";
   CHECK_THROWS_AS(update_template(db, id, in), NameConflictError);
   CHECK_THROWS_AS(update_template(db, 999, named("x")), std::out_of_range);
+  // A csv-only edit changes the options and nothing else; a bad one is
+  // refused and changes nothing.
+  TemplateInput csv;
+  csv.csv = json::parse(R"({"delimiter":"\t","header":"key"})");
+  const auto edited = update_template(db, id, csv);
+  CHECK(edited.csv.delimiter == "\t");
+  CHECK(edited.csv.header == "key");
+  CHECK(edited.csv.encoding == "utf-8-bom");
+  CHECK(edited.record.name == "A");
+  CHECK(edited.resolved.keys.size() == 11);
+  csv.csv = json::parse(R"({"delimiter":"|"})");
+  CHECK_THROWS_AS(update_template(db, id, csv), std::invalid_argument);
+  CHECK(template_view(db, id).csv.delimiter == "\t");
   delete_template(db, id);
   CHECK_THROWS_AS(delete_template(db, id), std::out_of_range);
   CHECK_THROWS_AS(template_view(db, id), std::out_of_range);

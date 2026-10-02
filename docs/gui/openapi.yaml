@@ -1897,6 +1897,9 @@ paths:
       tags: [resources]
       operationId: deleteResourceColumn
       summary: Delete a resource column definition
+      description: |
+        Deletes the column and, in the same transaction, every value stored
+        under it on any passport, so its name can be used again.
       parameters:
         - name: id
           in: path
@@ -2080,10 +2083,13 @@ paths:
       operationId: exportResourcesCsv
       summary: Resources as CSV through a template
       description: |
-        One row per resource, columns from the template's resolved keys,
-        delimiter/encoding/header from its `csv` options. Cells starting
-        with = + - @ TAB or CR are prefixed with an apostrophe (formula
-        injection guard). Lines end in CRLF.
+        One row per resource, led by its code (header "Kode", or "code"
+        when the template's `csv.header` is `key`), then the template's
+        resolved keys; delimiter/encoding/header from its `csv` options.
+        In label mode a label that occurs more than once gets
+        " (<category>)" appended, so no two headers read the same. Cells
+        starting with = + - @ TAB or CR are prefixed with an apostrophe
+        (formula injection guard). Lines end in CRLF.
       parameters:
         - name: template
           in: query
@@ -2958,6 +2964,7 @@ paths:
                   templates:
                     type: array
                     items: { $ref: "#/components/schemas/Template" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
         "503": { $ref: "#/components/responses/WriterBusy" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
@@ -2994,6 +3001,7 @@ paths:
       responses:
         "204": { description: Deleted }
         "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
         "503": { $ref: "#/components/responses/WriterBusy" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
@@ -3017,6 +3025,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Template" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
         "503": { $ref: "#/components/responses/WriterBusy" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
@@ -5011,13 +5020,22 @@ components:
         label: { type: string }
         category: { type: string, description: "Kortlægning, Egne felter, or a leksikon category" }
         scope: { type: string, enum: [type, part], description: "What a write changes" }
-        data_type: { type: string, enum: [text, number, enum, boolean, date] }
+        data_type:
+          type: string
+          enum: [text, number, enum, multiselect, boolean, date]
+          description: |
+            A multiselect value is a JSON array of option strings, sent and
+            returned as a string, e.g. "[\"concrete\",\"steel\"]"; "[]"
+            clears it. "" clears any key except a built-in text key.
         unit: { type: string, nullable: true }
-        options: { type: array, items: { type: string }, description: "Choices of an enum key" }
-        editable: { type: boolean, description: "false for derived keys (sys:environment)" }
+        options: { type: array, items: { type: string }, description: "Choices of an enum or multiselect key" }
+        editable: { type: boolean, description: "false for derived keys (sys:environment) and for leksikon list fields with nothing to validate entries against (images, documents)" }
     ResourceValues:
       type: object
-      description: Key id -> value; null means unset (GET) or clear (PATCH).
+      description: |
+        Key id -> value; null means unset (GET) or clear (PATCH). Stored
+        blanks ("", "[]", a leksikon yes/no/unknown key's "unknown") read
+        as null, and a GET without a template leaves them out.
       additionalProperties: { type: string, nullable: true }
     Resource:
       type: object

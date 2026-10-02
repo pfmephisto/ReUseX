@@ -301,6 +301,8 @@ TemplateView duplicate_template(ProjectDB &db, int64_t id) {
 
 std::vector<TemplateView> restore_seed_templates(ProjectDB &db) {
   std::vector<TemplateView> out;
+  // One transaction: every missing seed lands, or none does.
+  ProjectDB::Transaction tx(db);
   const auto existing = db.resource_templates();
   auto names = template_names(db);
   for (const auto &seed : seed_templates()) {
@@ -318,6 +320,7 @@ std::vector<TemplateView> restore_seed_templates(ProjectDB &db) {
     names.push_back(rec.name);
     out.push_back(template_view(db, db.add_resource_template(rec).id));
   }
+  tx.commit();
   return out;
 }
 

@@ -212,10 +212,7 @@ json patch_template_json(reusex::ProjectDB &db, int64_t id,
 }
 
 void delete_template(reusex::ProjectDB &db, int64_t id) {
-  map_library_errors([&] {
-    core::delete_template(db, id);
-    return 0;
-  });
+  map_library_errors([&] { core::delete_template(db, id); });
 }
 
 json duplicate_template_json(reusex::ProjectDB &db, int64_t id) {

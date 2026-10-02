@@ -46,13 +46,27 @@ json resource_json(const core::Resource &r) {
           {"values", std::move(values)}};
 }
 
+/// The ?template=<id> value; nullopt without the parameter.
+/// @throws HttpError(400) for an empty or non-integer value — an empty one
+///         is not "no template" and must not 404 as template 0.
+std::optional<int64_t> template_id_param(const Params &params) {
+  const auto raw = params.find("template");
+  if (!raw)
+    return std::nullopt;
+  if (raw->empty())
+    throw HttpError(400, "query parameter 'template' must be an integer, "
+                         "got an empty value");
+  return params.integer("template", 0);
+}
+
 /// The template ?template=<id> names; nullopt without the parameter.
-/// @throws HttpError(400) for a non-integer, std::out_of_range (→ 404).
+/// @throws HttpError(400) (see template_id_param), std::out_of_range (→ 404).
 std::optional<core::TemplateView> template_param(const reusex::ProjectDB &db,
                                                  const Params &params) {
-  if (!params.find("template"))
+  const auto id = template_id_param(params);
+  if (!id)
     return std::nullopt;
-  return core::template_view(db, params.integer("template", 0));
+  return core::template_view(db, *id);
 }
 
 std::optional<std::vector<std::string>>
@@ -167,12 +181,12 @@ void delete_resource(reusex::ProjectDB &db, const std::string &code) {
 }
 
 Blob resources_csv_blob(const reusex::ProjectDB &db, const Params &params) {
-  if (!params.find("template"))
+  const auto id = template_id_param(params);
+  if (!id)
     throw HttpError(400, "'template' is required: the CSV's columns come from "
                          "a template");
-  const auto id = params.integer("template", 0);
   return map_library_errors([&] {
-    const auto csv = core::export_resources_csv(db, id);
+    const auto csv = core::export_resources_csv(db, *id);
     Blob b;
     b.content_type = "text/csv; charset=utf-8";
     b.data.assign(csv.begin(), csv.end());

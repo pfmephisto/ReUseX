@@ -2184,11 +2184,16 @@ json patch_material_column(reusex::ProjectDB &db, const std::string &id,
 }
 
 void delete_material_column(reusex::ProjectDB &db, const std::string &id) {
-  try {
+  // Existence is checked up front so only "no such column" is a 404; any
+  // other failure (a locked database) keeps its own status (R-P10: one
+  // mapping, no catch-all).
+  map_library_errors([&] {
+    const auto defs = db.list_property_definitions();
+    if (std::none_of(defs.begin(), defs.end(),
+                     [&](const auto &d) { return d.id == id; }))
+      throw std::out_of_range("no material column '" + id + "'");
     db.delete_property_definition(id);
-  } catch (const std::exception &e) {
-    throw HttpError(404, e.what());
-  }
+  });
 }
 
 json instances_json(const reusex::ProjectDB &db, const std::string &cloud,

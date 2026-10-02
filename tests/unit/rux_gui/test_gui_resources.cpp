@@ -77,6 +77,16 @@ TEST_CASE("GuiResources_List_WithAndWithoutTemplate", "[gui][resources]") {
   REQUIRE(all.at("resources").size() == 1);
   CHECK(all.at("resources")[0].at("manual") == true);
   CHECK_FALSE(all.contains("template"));
+  // Without a template: every sys: key, null when unset.
+  const auto &plain = all.at("resources")[0].at("values");
+  for (const auto &k : reusex::core::builtin_keys()) {
+    INFO("key: " << k.id);
+    CHECK(plain.contains(k.id));
+  }
+  CHECK(plain.at("sys:name") == "Døre");
+  CHECK(plain.at("sys:mass_t").is_null());
+  CHECK(status_of([&] { resources_json(db, params_of({{"template", ""}})); }) ==
+        400);
   const auto id = screening_id(db);
   const auto shaped =
       resources_json(db, params_of({{"template", std::to_string(id)}}));
@@ -166,6 +176,9 @@ TEST_CASE("GuiResources_Csv_RequiresTemplate", "[gui][resources][csv]") {
   CHECK(csv.find("\r\n'=Døre;1;") != std::string::npos);
   CHECK(status_of([&] { resources_csv_blob(db, {}); }) == 400);
   CHECK(status_of([&] {
+          resources_csv_blob(db, params_of({{"template", ""}}));
+        }) == 400);
+  CHECK(status_of([&] {
           resources_csv_blob(db, params_of({{"template", "999"}}));
         }) == 404);
 }
@@ -188,6 +201,9 @@ TEST_CASE("GuiResources_Columns_ConflictIs409", "[gui][resources][columns]") {
         }) == 404);
   CHECK(patch_material_column(db, a.at("id"), R"({"width":300})").at("width") ==
         300);
+  CHECK(status_of([&] { delete_material_column(db, "nope"); }) == 404);
+  delete_material_column(db, b.at("id"));
+  CHECK(status_of([&] { delete_material_column(db, b.at("id")); }) == 404);
 }
 
 TEST_CASE("GuiTemplates_ListShape", "[gui][templates]") {

@@ -211,4 +211,114 @@ std::string unique_name(std::string_view base, std::string_view tag,
   return candidate;
 }
 
+namespace {
+std::vector<std::string> template_names(const ProjectDB &db) {
+  std::vector<std::string> out;
+  for (const auto &t : db.resource_templates())
+    out.push_back(t.name);
+  return out;
+}
+
+TemplateView make_view(const ProjectDB::ResourceTemplateRecord &rec,
+                       const std::vector<ResourceKey> &catalogue) {
+  TemplateView v{rec,
+                 read_members(rec.members_json, rec.name),
+                 read_csv_options(rec.csv_json, rec.name),
+                 {}};
+  v.resolved = resolve_template(v.members, catalogue);
+  if (!v.resolved.missing.empty()) {
+    std::string refs;
+    for (const auto &m : v.resolved.missing)
+      refs += (refs.empty() ? "" : ", ") + m.ref;
+    reusex::warn("template '{}' (id {}): {} member(s) no longer resolve and "
+                 "are skipped: {}",
+                 rec.name, rec.id, v.resolved.missing.size(), refs);
+  }
+  return v;
+}
+} // namespace
+
+std::vector<TemplateView> template_views(const ProjectDB &db) {
+  const auto catalogue = key_catalogue(db);
+  std::vector<TemplateView> out;
+  for (const auto &rec : db.resource_templates())
+    out.push_back(make_view(rec, catalogue));
+  return out;
+}
+
+TemplateView template_view(const ProjectDB &db, int64_t id) {
+  const auto rec = db.resource_template(id);
+  if (!rec)
+    throw std::out_of_range("no template " + std::to_string(id));
+  return make_view(*rec, key_catalogue(db));
+}
+
+TemplateView create_template(ProjectDB &db, const TemplateInput &in) {
+  if (!in.name || in.name->empty())
+    throw std::invalid_argument("'name' is required and must be non-empty");
+  ProjectDB::ResourceTemplateRecord rec;
+  rec.name = *in.name;
+  if (in.members)
+    rec.members_json = members_json(parse_members(*in.members)).dump();
+  if (in.csv)
+    rec.csv_json = csv_options_json(parse_csv_options(*in.csv)).dump();
+  return template_view(db, db.add_resource_template(rec).id);
+}
+
+TemplateView update_template(ProjectDB &db, int64_t id,
+                             const TemplateInput &in) {
+  if (!db.resource_template(id))
+    throw std::out_of_range("no template " + std::to_string(id));
+  ProjectDB::ResourceTemplatePatch p;
+  if (in.name) {
+    if (in.name->empty())
+      throw std::invalid_argument("'name' must be non-empty");
+    p.name = *in.name;
+  }
+  if (in.members)
+    p.members_json = members_json(parse_members(*in.members)).dump();
+  if (in.csv)
+    p.csv_json = csv_options_json(parse_csv_options(*in.csv)).dump();
+  db.update_resource_template(id, p);
+  return template_view(db, id);
+}
+
+void delete_template(ProjectDB &db, int64_t id) {
+  if (!db.delete_resource_template(id))
+    throw std::out_of_range("no template " + std::to_string(id));
+}
+
+TemplateView duplicate_template(ProjectDB &db, int64_t id) {
+  const auto src = db.resource_template(id);
+  if (!src)
+    throw std::out_of_range("no template " + std::to_string(id));
+  ProjectDB::ResourceTemplateRecord copy;
+  copy.name = unique_name(src->name, "kopi", template_names(db));
+  copy.members_json = src->members_json;
+  copy.csv_json = src->csv_json;
+  return template_view(db, db.add_resource_template(copy).id);
+}
+
+std::vector<TemplateView> restore_seed_templates(ProjectDB &db) {
+  std::vector<TemplateView> out;
+  const auto existing = db.resource_templates();
+  auto names = template_names(db);
+  for (const auto &seed : seed_templates()) {
+    const bool present =
+        std::any_of(existing.begin(), existing.end(),
+                    [&](const auto &r) { return r.seed == seed.tag; });
+    if (present)
+      continue;
+    ProjectDB::ResourceTemplateRecord rec;
+    rec.name = std::find(names.begin(), names.end(), seed.name) == names.end()
+                   ? seed.name
+                   : unique_name(seed.name, "standard", names);
+    rec.members_json = members_json(seed.members).dump();
+    rec.seed = seed.tag;
+    names.push_back(rec.name);
+    out.push_back(template_view(db, db.add_resource_template(rec).id));
+  }
+  return out;
+}
+
 } // namespace reusex::core

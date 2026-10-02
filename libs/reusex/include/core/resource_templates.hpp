@@ -14,6 +14,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -89,5 +91,41 @@ legacy_columns(const std::vector<TemplateMember> &members,
 /// that is not in @p taken.
 std::string unique_name(std::string_view base, std::string_view tag,
                         const std::vector<std::string> &taken);
+
+// ---- Template service over ProjectDB --------------------------------------
+
+/// One template as the API shows it: its row, parsed members and CSV
+/// options, and its resolution against the live key catalogue.
+struct TemplateView {
+  ProjectDB::ResourceTemplateRecord record;
+  std::vector<TemplateMember> members;
+  CsvOptions csv;
+  ResolvedTemplate resolved;
+};
+/// Every template by id. Logs warn once per template with missing members.
+std::vector<TemplateView> template_views(const ProjectDB &db);
+/// @throws std::out_of_range when @p id is unknown.
+TemplateView template_view(const ProjectDB &db, int64_t id);
+
+/// A create or sparse edit; absent fields are left alone.
+struct TemplateInput {
+  std::optional<std::string> name;
+  std::optional<nlohmann::json> members, csv;
+};
+/// @throws std::invalid_argument (no/empty name, bad members or csv),
+///         NameConflictError (name taken).
+TemplateView create_template(ProjectDB &db, const TemplateInput &input);
+/// @throws as create_template, plus std::out_of_range for an unknown id.
+TemplateView update_template(ProjectDB &db, int64_t id,
+                             const TemplateInput &input);
+/// @throws std::out_of_range when @p id is unknown.
+void delete_template(ProjectDB &db, int64_t id);
+/// Copy as "<name> (kopi)", "<name> (kopi 2)", … (never a seed).
+/// @throws std::out_of_range when @p id is unknown.
+TemplateView duplicate_template(ProjectDB &db, int64_t id);
+/// Insert every seed whose tag no template carries ("Gendan
+/// standardskabeloner"); a seed whose name is taken gets " (standard)".
+/// Returns the inserted ones.
+std::vector<TemplateView> restore_seed_templates(ProjectDB &db);
 
 } // namespace reusex::core

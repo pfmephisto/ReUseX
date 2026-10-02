@@ -24,3 +24,20 @@
   overflow: auto;
   background: var(--color-surface);
 }
+
+.scrim {
+  display: none;
+}
+
+/* R5: the shell's phone breakpoint (900px; DRAWER_QUERY in navigation.ts).
+   The scrim sits under the drawer (same layer, earlier in the DOM) and over
+   anything a screen lifts to --z-panel. */
+@media (max-width: 56.25rem) {
+  .scrim:not([hidden]) {
+    display: block;
+    position: fixed;
+    inset: var(--layout-titlebar-height) 0 0 0;
+    z-index: var(--z-titlebar);
+    background: color-mix(in srgb, var(--color-scrim) 45%, transparent);
+  }
+}

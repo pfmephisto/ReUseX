@@ -130,8 +130,56 @@
   outline-color: var(--color-on-chrome);
 }
 
-.backPending {
-  color: var(--color-on-chrome-muted);
-  opacity: 0.55;
-  cursor: default;
+.back .backActive {
+  color: var(--color-on-chrome);
+}
+
+.sidebar:focus {
+  outline: none; /* a keyboard anchor while the drawer is open, not a control */
+}
+
+/* R5: the shell's phone breakpoint — 900px, in rem like controls.module.css's
+   45rem query; DRAWER_QUERY in navigation.ts is the same value. Below it the
+   sidebar is a drawer; closed, it is visibility:hidden, so its links leave the
+   tab order. Every row is a 44px tap target there. */
+@media (max-width: 56.25rem) {
+  .sidebar {
+    position: fixed;
+    top: var(--layout-titlebar-height);
+    bottom: 0;
+    left: 0;
+    z-index: var(--z-titlebar);
+    box-shadow: var(--shadow-lg);
+    transform: translateX(-100%);
+    visibility: hidden;
+    transition:
+      transform var(--duration-normal) var(--easing-standard),
+      visibility var(--duration-normal);
+  }
+
+  .sidebar[data-open] {
+    transform: none;
+    visibility: visible;
+  }
+
+  /* Shorter than its content, the drawer scrolls; its rows never squash. */
+  .sidebar > * {
+    flex-shrink: 0;
+  }
+
+  .item,
+  .back a {
+    min-height: var(--layout-titlebar-height); /* 44px: the bar's height is the tap-target size */
+  }
+
+  .back a {
+    display: flex;
+    align-items: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar {
+    transition: none;
+  }
 }

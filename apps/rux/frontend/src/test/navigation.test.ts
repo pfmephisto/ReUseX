@@ -6,12 +6,15 @@ import { describe, expect, it } from 'vitest';
 
 import {
   ALL_CASES_PATH,
-  ALL_CASES_PENDING,
+  DRAWER_QUERY,
   NAV_ENTRIES,
   badgeText,
+  drawerClickCloses,
+  drawerKeyAction,
   displayProjectName,
   entriesIn,
 } from '../app/navigation';
+import * as navigation from '../app/navigation';
 import type { Health, ProjectSummary } from '../api/types';
 
 describe('navigation model', () => {
@@ -98,8 +101,8 @@ describe('navigation model', () => {
     expect(ALL_CASES_PATH).toBe('/sager');
   });
 
-  it('marks "Alle sager" pending until the case list exists', () => {
-    expect(ALL_CASES_PENDING).toMatch(/fase 6/);
+  it('makes "Alle sager" a live link: nothing is pending any more', () => {
+    expect('ALL_CASES_PENDING' in navigation).toBe(false);
   });
 
   it('hides a badge for no count and zero, caps it at 99+', () => {
@@ -122,5 +125,38 @@ describe('displayProjectName', () => {
   });
   it('is undefined while nothing has loaded', () => {
     expect(displayProjectName(undefined, undefined)).toBeUndefined();
+  });
+});
+
+describe('the sidebar drawer below 900px (R5)', () => {
+  it('matches the CSS breakpoint, in rem like the existing 45rem query', () => {
+    expect(DRAWER_QUERY).toBe('(max-width: 56.25rem)');
+  });
+
+  it('closes on Esc anywhere in the shell while open', () => {
+    expect(drawerKeyAction({ key: 'Escape', kind: 'control', open: true })).toBe('close');
+    expect(drawerKeyAction({ key: 'Escape', kind: 'other', open: true })).toBe('close');
+  });
+
+  it('leaves Esc in a text field to the field (R10: revert, not close)', () => {
+    expect(drawerKeyAction({ key: 'Escape', kind: 'text', open: true })).toBeNull();
+  });
+
+  it('ignores Esc while closed and other keys while open', () => {
+    expect(drawerKeyAction({ key: 'Escape', kind: 'other', open: false })).toBeNull();
+    expect(drawerKeyAction({ key: 'Enter', kind: 'control', open: true })).toBeNull();
+    expect(drawerKeyAction({ key: 'Tab', kind: 'other', open: true })).toBeNull();
+  });
+
+  it('closes on any link click inside it, the current page included', () => {
+    expect(drawerClickCloses(['SPAN', 'A', 'NAV', 'ASIDE'])).toBe(true);
+    expect(drawerClickCloses(['A', 'DIV', 'ASIDE'])).toBe(true);
+    expect(drawerClickCloses(['a'])).toBe(true);
+  });
+
+  it('stays open for a click on a pending entry or the drawer itself', () => {
+    expect(drawerClickCloses(['SPAN', 'SPAN', 'NAV', 'ASIDE'])).toBe(false);
+    expect(drawerClickCloses(['DIV', 'ASIDE'])).toBe(false);
+    expect(drawerClickCloses([])).toBe(false);
   });
 });

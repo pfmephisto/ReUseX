@@ -2,12 +2,13 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { Link, NavLink } from 'react-router-dom';
+import type { MouseEvent, RefObject } from 'react';
+import { NavLink } from 'react-router-dom';
 
 import {
   ALL_CASES_PATH,
-  ALL_CASES_PENDING,
   badgeText,
+  drawerClickCloses,
   entriesIn,
   type NavBadge,
   type NavEntry,
@@ -19,6 +20,14 @@ export interface SidebarProps {
   projectName?: string;
   /** Live counts for entries that carry a badge; absent or 0 hides it. */
   badges?: Partial<Record<NavBadge, number>>;
+  /** The drawer's id, for the title bar's `aria-controls`. */
+  id?: string;
+  /** Below 900px the sidebar is a drawer (Phase 6 R5); this opens it. */
+  open?: boolean;
+  /** A link was clicked inside the open drawer. */
+  onClose?: () => void;
+  /** The drawer takes focus when it opens. */
+  navRef?: RefObject<HTMLElement | null>;
 }
 
 function Entry({ entry, count }: { entry: NavEntry; count?: number }) {
@@ -50,13 +59,33 @@ function Entry({ entry, count }: { entry: NavEntry; count?: number }) {
   );
 }
 
+/** Tag names from the click target up to (not including) the drawer. */
+function tagsUpTo(e: MouseEvent<HTMLElement>): string[] {
+  const tags: string[] = [];
+  for (let el = e.target as Element | null; el && el !== e.currentTarget; el = el.parentElement) {
+    tags.push(el.tagName);
+  }
+  return tags;
+}
+
 /**
  * The navy case sidebar: which project, the case workflow, the technical tools,
- * and the way back to the case list.
+ * and the way back to the case list. Below 900px it is a drawer the title
+ * bar's Menu button opens (R5); closed, CSS hides it from the tab order.
  */
-export function Sidebar({ projectName, badges = {} }: SidebarProps) {
+export function Sidebar({ projectName, badges = {}, id, open = false, onClose, navRef }: SidebarProps) {
   return (
-    <aside className={styles.sidebar}>
+    <aside
+      id={id}
+      ref={navRef}
+      className={styles.sidebar}
+      data-open={open || undefined}
+      tabIndex={-1}
+      aria-label="Navigation"
+      onClick={(e) => {
+        if (open && drawerClickCloses(tagsUpTo(e))) onClose?.();
+      }}
+    >
       <div className={styles.eyebrow}>Projekt</div>
       <div className={styles.project} title={projectName}>
         {projectName ?? '—'}
@@ -73,13 +102,9 @@ export function Sidebar({ projectName, badges = {} }: SidebarProps) {
         ))}
       </nav>
       <div className={styles.back}>
-        {ALL_CASES_PENDING ? (
-          <span className={styles.backPending} title={ALL_CASES_PENDING} aria-disabled="true">
-            ← Alle sager
-          </span>
-        ) : (
-          <Link to={ALL_CASES_PATH}>← Alle sager</Link>
-        )}
+        <NavLink to={ALL_CASES_PATH} className={({ isActive }) => (isActive ? styles.backActive : undefined)}>
+          ← Alle sager
+        </NavLink>
       </div>
     </aside>
   );

@@ -2,6 +2,8 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import type { RefObject } from 'react';
+
 import type { ConnectionStatus } from '../api/events';
 import { JobIndicator } from './JobIndicator';
 import { ThemeToggle } from './ThemeToggle';
@@ -21,6 +23,13 @@ export interface TitleBarProps {
   activeJobCount: number;
   /** True when even `GET /health` failed. */
   unreachable?: boolean;
+  /** Below 900px: the sidebar drawer is open (R5). */
+  menuOpen?: boolean;
+  /** Below 900px: toggles the sidebar drawer. Without it no Menu button is drawn. */
+  onMenu?: () => void;
+  menuRef?: RefObject<HTMLButtonElement | null>;
+  /** The drawer's id. */
+  menuControls?: string;
 }
 
 /**
@@ -41,6 +50,10 @@ export function TitleBar({
   connection,
   activeJobCount,
   unreachable = false,
+  menuOpen = false,
+  onMenu,
+  menuRef,
+  menuControls,
 }: TitleBarProps) {
   const title = unreachable
     ? 'Server utilgængelig'
@@ -49,6 +62,19 @@ export function TitleBar({
   return (
     <header className={styles.bar}>
       <div className={styles.identity}>
+        {onMenu && (
+          <button
+            ref={menuRef}
+            type="button"
+            className={styles.menu}
+            aria-label="Menu"
+            aria-expanded={menuOpen}
+            aria-controls={menuControls}
+            onClick={onMenu}
+          >
+            <span aria-hidden="true">☰</span>
+          </button>
+        )}
         <span className={styles.product}>
           ReUse<em className={styles.x}>X</em>
         </span>

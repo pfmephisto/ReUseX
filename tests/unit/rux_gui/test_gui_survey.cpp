@@ -475,6 +475,20 @@ TEST_CASE("SyncSurveyJson_ReportsInstancesSeenAndBackfilled",
   CHECK(again.at("instances_seen") == 2);
   CHECK(again.at("parts_created") == 0);
   CHECK(again.at("parts_existing") == 2);
+  CHECK(again.at("links_restored") == 0);
+
+  // A `rux create instances` re-run drops the instance links; sync puts
+  // back the one whose part owns a passport.
+  std::string guid;
+  {
+    ProjectDB::Transaction tx(db);
+    guid = db.ensure_resource_passport("RX-001");
+    tx.commit();
+  }
+  db.save_instances("instances", db.instances("instances"));
+  const auto restored = sync_survey_json(db, "{}");
+  CHECK(restored.at("links_restored") == 1);
+  CHECK(db.instance_material_guid("instances", 1) == guid);
 }
 
 namespace {

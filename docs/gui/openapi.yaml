@@ -2617,6 +2617,13 @@ paths:
                     type: array
                     items: { type: string }
                     description: Codes of the orphaned parts.
+                  links_restored:
+                    type: integer
+                    description: |
+                      Instance links put back for instance-backed parts that own a
+                      passport but whose instance had lost its link (a `rux create
+                      instances` re-run cascade-deletes them). An existing link to a
+                      different passport is never overwritten.
         "400":
           description: Body was not a JSON object
           content:

@@ -373,7 +373,8 @@ json sync_survey_json(reusex::ProjectDB &db, const std::string &body) {
             {"instances_backfilled", r.instances_backfilled},
             {"rooms_assigned", r.rooms_assigned},
             {"parts_orphaned", r.parts_orphaned},
-            {"orphaned_codes", r.orphaned_codes}};
+            {"orphaned_codes", r.orphaned_codes},
+            {"links_restored", r.links_restored}};
   } catch (const std::runtime_error &e) {
     if (std::string(e.what()).find("rux create instances") != std::string::npos)
       throw HttpError(422, e.what());

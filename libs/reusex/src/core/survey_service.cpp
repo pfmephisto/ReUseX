@@ -265,6 +265,41 @@ SurveySyncReport sync_survey(ProjectDB &db, const SurveySyncOptions &opts) {
                  "point is unlabeled); nothing to survey",
                  opts.instances_cloud);
 
+  // Instance links lost to a `rux create instances` re-run (save_instances
+  // cascade-deletes instance_materials): a part that owns a passport gets its
+  // instance's link back. survey_part() reports the owned passport first, so
+  // an instance with no link but a part material_guid means an owned one; an
+  // instance linked to a different passport is left alone (spec §4.1).
+  {
+    std::size_t conflicting = 0;
+    std::vector<std::string> restore;
+    for (const auto &p : db.survey_parts()) {
+      if (!p.cloud_name || !p.instance_id || !p.material_guid)
+        continue;
+      const auto linked = db.instance_material_guid(
+          *p.cloud_name, static_cast<int>(*p.instance_id));
+      if (!linked)
+        restore.push_back(p.code);
+      else if (*linked != *p.material_guid)
+        ++conflicting;
+    }
+    if (!restore.empty()) {
+      ProjectDB::Transaction tx(db);
+      for (const auto &code : restore)
+        db.ensure_resource_passport(code); // owned: only restores the link
+      tx.commit();
+      report.links_restored = restore.size();
+      reusex::info("sync_survey: restored {} instance link(s) to their "
+                   "parts' passports",
+                   report.links_restored);
+    }
+    if (conflicting > 0)
+      reusex::warn("sync_survey: {} instance-backed part(s) own a passport "
+                   "but their instance is linked to a different one; the "
+                   "existing link(s) were left alone",
+                   conflicting);
+  }
+
   // Parts whose instance_guid is set but no longer resolves to an instance
   // row: the instance was deleted, or recreated without carrying the guid
   // over (e.g. `rux create instances --clear`). They keep their code and

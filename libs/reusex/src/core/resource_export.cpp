@@ -7,6 +7,7 @@
 #include "reusex/core/survey.hpp"
 
 #include <algorithm>
+#include <map>
 #include <set>
 
 namespace reusex::core {
@@ -58,21 +59,35 @@ std::string csv_cell(std::string_view value, std::string_view delimiter) {
   return out + "\"";
 }
 
+std::vector<std::string> csv_labels(const std::vector<ResourceKey> &columns) {
+  std::map<std::string, std::size_t> uses{{std::string(kCsvCodeLabel), 1}};
+  for (const auto &k : columns)
+    ++uses[k.label];
+  std::vector<std::string> out;
+  for (const auto &k : columns)
+    out.push_back(uses[k.label] > 1 ? k.label + " (" + k.category + ")"
+                                    : k.label);
+  return out;
+}
+
 std::string build_resource_csv(const std::vector<ResourceKey> &columns,
                                const std::vector<Resource> &rows,
                                const CsvOptions &o) {
   const bool by_key = o.header == "key";
   std::string out = o.encoding == "utf-8-bom" ? "\xEF\xBB\xBF" : "";
+  out += csv_cell(by_key ? kCsvCodeKey : kCsvCodeLabel, o.delimiter);
+  const auto labels = by_key ? std::vector<std::string>{} : csv_labels(columns);
   for (std::size_t i = 0; i < columns.size(); ++i)
-    out += (i ? o.delimiter : std::string()) +
-           csv_cell(by_key ? columns[i].id : columns[i].label, o.delimiter);
+    out +=
+        o.delimiter + csv_cell(by_key ? columns[i].id : labels[i], o.delimiter);
   out += "\r\n";
   for (const auto &r : rows) {
-    for (std::size_t i = 0; i < columns.size(); ++i) {
-      const auto v = value_of(r, columns[i].id);
-      out += (i ? o.delimiter : std::string()) +
-             csv_cell(by_key ? v.value_or("") : display_value(columns[i], v),
-                      o.delimiter);
+    out += csv_cell(r.code, o.delimiter);
+    for (const auto &k : columns) {
+      const auto v = value_of(r, k.id);
+      out +=
+          o.delimiter +
+          csv_cell(by_key ? v.value_or("") : display_value(k, v), o.delimiter);
     }
     out += "\r\n";
   }

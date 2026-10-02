@@ -30,9 +30,18 @@ std::string display_value(const ResourceKey &key,
 /// (formula injection), then RFC 4180 quoting when it holds the delimiter,
 /// a quote, CR or LF.
 std::string csv_cell(std::string_view value, std::string_view delimiter);
-/// Header + one CRLF-terminated row per resource. header "label" writes key
-/// labels and display values; "key" writes key ids and raw values. A
-/// "utf-8-bom" encoding prefixes the UTF-8 byte-order mark.
+/// The leading resource-code column of the CSV: its header in label mode
+/// and in key mode.
+inline constexpr std::string_view kCsvCodeLabel = "Kode";
+inline constexpr std::string_view kCsvCodeKey = "code";
+/// The CSV header labels of @p columns: each key's label, with
+/// " (<category>)" appended to every label that occurs more than once
+/// (counting the "Kode" column), so no two headers read the same.
+std::vector<std::string> csv_labels(const std::vector<ResourceKey> &columns);
+/// Header + one CRLF-terminated row per resource, led by the resource code.
+/// header "label" writes csv_labels() and display values; "key" writes key
+/// ids and raw values. A "utf-8-bom" encoding prefixes the UTF-8 byte-order
+/// mark.
 std::string build_resource_csv(const std::vector<ResourceKey> &columns,
                                const std::vector<Resource> &rows,
                                const CsvOptions &options);

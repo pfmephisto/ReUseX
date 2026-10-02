@@ -171,9 +171,9 @@ TEST_CASE("GuiResources_Csv_RequiresTemplate", "[gui][resources][csv]") {
   CHECK(blob.content_type == "text/csv; charset=utf-8");
   const std::string csv(blob.data.begin(), blob.data.end());
   CHECK(csv.rfind("\xEF\xBB\xBF"
-                  "Betegnelse;Mængde;",
+                  "Kode;Betegnelse;Mængde;",
                   0) == 0);
-  CHECK(csv.find("\r\n'=Døre;1;") != std::string::npos);
+  CHECK(csv.find("\r\nRX-001;'=Døre;1;") != std::string::npos);
   CHECK(status_of([&] { resources_csv_blob(db, {}); }) == 400);
   CHECK(status_of([&] {
           resources_csv_blob(db, params_of({{"template", ""}}));

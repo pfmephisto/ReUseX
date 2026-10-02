@@ -62,14 +62,49 @@ TEST_CASE("ResourceExport_Csv_HeaderModesDisplayValuesBom",
   CsvOptions o; // ";", utf-8-bom, label
   CHECK(build_resource_csv(cols, rows, o) ==
         "\xEF\xBB\xBF"
-        "Betegnelse;Behandling;Vigtig;Tons\r\n"
-        "'=Døre;Nyttiggørelse;Ja;\r\n");
+        "Kode;Betegnelse;Behandling;Vigtig;Tons\r\n"
+        "RX-001;'=Døre;Nyttiggørelse;Ja;\r\n");
   o.header = "key";
   o.encoding = "utf-8";
   o.delimiter = ",";
   CHECK(build_resource_csv(cols, rows, o) ==
-        "sys:name,sys:treatment,sys:starred,sys:mass_t\r\n"
-        "'=Døre,nyttiggoerelse,true,\r\n");
+        "code,sys:name,sys:treatment,sys:starred,sys:mass_t\r\n"
+        "RX-001,'=Døre,nyttiggoerelse,true,\r\n");
+  // Tab-delimited: a cell holding a tab is quoted, one starting with a tab
+  // is guarded too.
+  o.delimiter = "\t";
+  const std::vector<Resource> tabbed{
+      {"RX-002", 1, true, {{"sys:name", "a\tb"}, {"sys:treatment", "\tx"}}}};
+  CHECK(build_resource_csv(cols, tabbed, o) ==
+        "code\tsys:name\tsys:treatment\tsys:starred\tsys:mass_t\r\n"
+        "RX-002\t\"a\tb\"\t\"'\tx\"\t\t\r\n");
+}
+
+TEST_CASE("ResourceExport_Csv_DuplicateLabelsGetTheirCategory",
+          "[resources][csv]") {
+  ResourceKey a;
+  a.id = "col:c1";
+  a.label = "Description";
+  a.category = "Egne felter";
+  ResourceKey b;
+  b.id = "lex:g1";
+  b.label = "Description";
+  b.category = "Description";
+  ResourceKey c;
+  c.id = "lex:g2";
+  c.label = "Width mm";
+  c.category = "Dimensions";
+  CsvOptions o;
+  o.encoding = "utf-8";
+  const std::vector<Resource> rows{
+      {"RX-001", 1, true, {{"col:c1", "egen"}, {"lex:g1", "leksikon"}}}};
+  CHECK(build_resource_csv({a, b, c}, rows, o) ==
+        "Kode;Description (Egne felter);Description (Description);Width mm"
+        "\r\nRX-001;egen;leksikon;\r\n");
+  o.header = "key"; // ids are unique already
+  CHECK(
+      build_resource_csv({a, b}, rows, o).rfind("code;col:c1;lex:g1\r\n", 0) ==
+      0);
 }
 
 TEST_CASE("ResourceExport_Tables_ChunkedLedByBetegnelse", "[resources][pdf]") {
@@ -92,6 +127,8 @@ TEST_CASE("ResourceExport_Tables_ChunkedLedByBetegnelse", "[resources][pdf]") {
     CHECK(t.rows[0].size() == t.headers.size());
   }
   CHECK(resource_tables(cols, {}).empty());
+  CHECK_THROWS_AS(resource_tables(cols, {r}, 1), std::invalid_argument);
+  CHECK(resource_tables(cols, {r}, 2).size() == 15);
   const auto only_name = resource_tables({*find_key(cat, "sys:name")}, {r});
   REQUIRE(only_name.size() == 1);
   CHECK(only_name[0].headers == std::vector<std::string>{"Betegnelse"});
@@ -113,7 +150,7 @@ TEST_CASE("ResourceExport_ThroughATemplate", "[resources][csv][pdf]") {
   in.csv = nlohmann::json::parse(R"({"encoding":"utf-8"})");
   const auto id = create_template(db, in).record.id;
   CHECK(export_resources_csv(db, id) ==
-        "Mængde\r\n1\r\n1\r\n"); // CSV: every resource
+        "Kode;Mængde\r\nRX-001;1\r\nRX-002;1\r\n"); // every resource
   const auto section = resource_report_section(db, id);
   CHECK(section.template_name == "Kort");
   REQUIRE(section.tables.size() == 1);

@@ -8,6 +8,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <core/ProjectDB.hpp>
+#include <core/logging.hpp>
 #include <core/resource_keys.hpp>
 
 #include "../../support/survey_fixture.hpp"
@@ -15,8 +16,11 @@
 
 #include <sqlite3.h>
 
+#include <algorithm>
 #include <optional>
 #include <string>
+#include <utility>
+#include <vector>
 
 using reusex::ProjectDB;
 namespace core = reusex::core;
@@ -26,6 +30,41 @@ namespace {
 struct TempDB : reusex::test_support::TempPath {
   TempDB() : reusex::test_support::TempPath("test_projectdb_resources") {}
 };
+/// Captures library log lines for the scope of one test.
+struct LogCapture {
+  std::vector<std::pair<core::LogLevel, std::string>> lines;
+  core::LogLevel saved = core::get_log_level();
+  LogCapture() {
+    core::set_log_handler([this](core::LogLevel l, std::string_view m) {
+      lines.emplace_back(l, std::string(m));
+    });
+    core::set_log_level(core::LogLevel::info);
+  }
+  ~LogCapture() {
+    core::reset_log_handler();
+    core::set_log_level(saved);
+  }
+  std::size_t count(core::LogLevel l, std::string_view needle) const {
+    return static_cast<std::size_t>(
+        std::count_if(lines.begin(), lines.end(), [&](const auto &e) {
+          return e.first == l && e.second.find(needle) != std::string::npos;
+        }));
+  }
+};
+/// Column 0 of every row @p sql returns, read through a raw connection.
+std::vector<std::string> raw_strings(const reusex::test_support::TempPath &t,
+                                     const char *sql) {
+  sqlite3 *raw = nullptr;
+  REQUIRE(sqlite3_open(t.path.string().c_str(), &raw) == SQLITE_OK);
+  sqlite3_stmt *s = nullptr;
+  REQUIRE(sqlite3_prepare_v2(raw, sql, -1, &s, nullptr) == SQLITE_OK);
+  std::vector<std::string> out;
+  while (sqlite3_step(s) == SQLITE_ROW)
+    out.emplace_back(reinterpret_cast<const char *>(sqlite3_column_text(s, 0)));
+  sqlite3_finalize(s);
+  sqlite3_close(raw);
+  return out;
+}
 std::string guid_of_field(const char *field) {
   for (const auto &f : core::leksikon_fields())
     if (f.field_name == field)
@@ -143,6 +182,7 @@ TEST_CASE("ResourceStore_InstanceLinkOwnedByOtherPart_ReadsEmptyThenOwnCopy",
   // Instance 2 is pointed at RX-001's passport; RX-002 has none, so the
   // sync cannot give it one and the fallback must not either (no two parts
   // writing through one passport).
+  LogCapture log;
   db.set_instance_material("instances", 2, a);
   CHECK(db.instance_material_guid("instances", 2) ==
         std::optional<std::string>(a));
@@ -157,6 +197,8 @@ TEST_CASE("ResourceStore_InstanceLinkOwnedByOtherPart_ReadsEmptyThenOwnCopy",
     tx.commit();
   }
   CHECK(b != a);
+  // R-P5: exactly one warning across the link and the first write.
+  CHECK(log.count(core::LogLevel::warn, "RX-002") == 1);
   CHECK(db.survey_part("RX-002")->material_guid ==
         std::optional<std::string>(b));
   CHECK(db.survey_part("RX-001")->material_guid ==
@@ -229,18 +271,102 @@ TEST_CASE("ResourceStore_RenameField_OntoDefinitionWithoutValues",
   ProjectDB db(tmp.path);
   const auto t = make_type(db, "Døre");
   make_part(db, "RX-001", t);
-  // A definition with no stored values does not block the rename (only
-  // stored values would merge); the values join that definition.
-  db.add_property_definition("Bredde", "number", {}, 0);
   std::string guid;
   {
     ProjectDB::Transaction tx(db);
     guid = db.ensure_resource_passport("RX-001");
+    // A value stored then deleted leaves a real custom:Bredde
+    // property_definitions row with no values behind it.
+    db.set_passport_property(guid, "Bredde", "1");
+    db.delete_passport_property(guid, "Bredde");
     db.set_passport_property(guid, "Gammel", "x");
     tx.commit();
   }
+  REQUIRE(raw_strings(tmp, "SELECT id FROM property_definitions WHERE "
+                           "name_en = 'Bredde';") ==
+          std::vector<std::string>{"custom:Bredde"});
+  // Only stored values block a rename (R-P6): the leftover definition is
+  // reused, not duplicated, and the value's id follows its leksikon_guid.
   db.rename_passport_field("Gammel", "Bredde");
   const auto props = db.passport_stored_properties(guid);
   CHECK(props.at("Bredde") == "x");
   CHECK(props.count("Gammel") == 0);
+  CHECK(raw_strings(tmp, "SELECT id FROM property_definitions WHERE "
+                         "name_en IN ('Bredde', 'Gammel');") ==
+        std::vector<std::string>{"custom:Bredde"});
+  CHECK(raw_strings(tmp, "SELECT v.id || '|' || v.property_id || '|' || "
+                         "v.leksikon_guid FROM passport_property_values v;") ==
+        std::vector<std::string>{guid + "_custom:Bredde|custom:Bredde|"
+                                        "custom:Bredde"});
+}
+
+TEST_CASE("ResourceStore_SetInstanceMaterial_LogsUnreferencedOldPassport",
+          "[ProjectDB][resources]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  make_instance_cloud(db, 1);
+  const auto t = make_type(db, "Døre");
+  make_part(db, "RX-001", t, 1u);
+  std::string a;
+  {
+    ProjectDB::Transaction tx(db);
+    a = db.ensure_resource_passport("RX-001");
+    db.set_passport_property(a, "Stand", "God");
+    tx.commit();
+  }
+  make_passport(db, "guid-new");
+  LogCapture log;
+  db.set_instance_material("instances", 1, "guid-new");
+  CHECK(db.survey_part("RX-001")->material_guid ==
+        std::optional<std::string>("guid-new"));
+  CHECK_FALSE(db.is_passport_linked(a));
+  CHECK(log.count(core::LogLevel::info, a) == 1);
+  CHECK(log.count(core::LogLevel::info, "guid-new") == 1);
+  CHECK(log.count(core::LogLevel::info, "1 stored value") == 1);
+}
+
+TEST_CASE("ResourceStore_EnsurePassport_RestoresLinkLostToInstancesRerun",
+          "[ProjectDB][resources]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  make_instance_cloud(db, 1);
+  const auto t = make_type(db, "Døre");
+  make_part(db, "RX-001", t, 1u);
+  std::string guid;
+  {
+    ProjectDB::Transaction tx(db);
+    guid = db.ensure_resource_passport("RX-001");
+    tx.commit();
+  }
+  REQUIRE(db.instance_material_guid("instances", 1) == guid);
+  // `rux create instances` re-run: same guid, rows deleted and re-inserted;
+  // instance_materials cascades away with them.
+  db.save_instances("instances", {{1, "guid-inst-1", 3, 1}});
+  REQUIRE_FALSE(db.instance_material_guid("instances", 1).has_value());
+  CHECK(db.survey_part("RX-001")->material_guid ==
+        std::optional<std::string>(guid)); // the part still knows
+  {
+    ProjectDB::Transaction tx(db);
+    CHECK(db.ensure_resource_passport("RX-001") == guid);
+    tx.commit();
+  }
+  CHECK(db.instance_material_guid("instances", 1) ==
+        std::optional<std::string>(guid));
+  // An existing link to another part's passport (the deliberate
+  // disagreement set_instance_material leaves) is not overwritten.
+  make_part(db, "RX-002", t);
+  std::string c;
+  {
+    ProjectDB::Transaction tx(db);
+    c = db.ensure_resource_passport("RX-002");
+    tx.commit();
+  }
+  db.set_instance_material("instances", 1, c);
+  {
+    ProjectDB::Transaction tx(db);
+    CHECK(db.ensure_resource_passport("RX-001") == guid);
+    tx.commit();
+  }
+  CHECK(db.instance_material_guid("instances", 1) ==
+        std::optional<std::string>(c));
 }

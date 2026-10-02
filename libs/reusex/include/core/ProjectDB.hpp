@@ -1177,7 +1177,6 @@ class ProjectDB {
   std::vector<std::string> list_project_ids() const;
 
     private:
-  bool is_passport_linked_by_part(std::string_view guid) const;
   class Impl;
   std::unique_ptr<Impl> impl_;
 };

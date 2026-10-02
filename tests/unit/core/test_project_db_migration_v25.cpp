@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <string>
+#include <utility>
 #include <vector>
 
 using reusex::ProjectDB;
@@ -213,6 +214,12 @@ TEST_CASE("MigrationV25_LinksAndSplitsPassports_DropsPartCode",
     make_passport(db, "guid-shared");
     db.set_passport_property("guid-shared", "width_mm", "600");
     db.set_material_thumbnail("guid-shared", {0xFF, 0xD8, 0xFF}, "image/jpeg");
+    ProjectDB::MaterialAnnotation ann;
+    ann.description = "Fyrretræsdør";
+    ann.attributes = {{"farve", "hvid"}};
+    ann.provider_model = "test|vlm";
+    ann.raw_json = "{}";
+    db.save_material_annotation("guid-shared", ann);
     make_passport(db, "guid-orphan");
     // `rux create materials` style: one passport on two instances.
     db.set_instance_material("instances", 1, "guid-shared");
@@ -235,6 +242,11 @@ TEST_CASE("MigrationV25_LinksAndSplitsPassports_DropsPartCode",
   CHECK(*copy != "guid-shared");
   CHECK(db.passport_stored_properties(*copy).at("width_mm") == "600");
   CHECK(db.material_thumbnail(*copy).has_value());
+  const auto copied_ann = db.material_annotation(*copy);
+  REQUIRE(copied_ann.has_value());
+  CHECK(copied_ann->description == "Fyrretræsdør");
+  CHECK(copied_ann->attributes ==
+        std::vector<std::pair<std::string, std::string>>{{"farve", "hvid"}});
   CHECK(db.instance_material_guid("instances", 2) == copy);
   CHECK(db.instance_material_guid("instances", 1) ==
         std::optional<std::string>("guid-shared"));
@@ -274,4 +286,43 @@ TEST_CASE("MigrationV25_MovedRows_KeepTimestamps_DedupeColumns",
       core::read_members(list[2].members_json, "") ==
       std::vector<core::TemplateMember>{{core::MemberKind::key, "legacy:kind"},
                                         {core::MemberKind::key, "legacy:id"}});
+}
+
+TEST_CASE("MigrationV25_ReRunOverMigratedData_ChangesNothing",
+          "[ProjectDB][migration]") {
+  TempDB tmp;
+  std::vector<std::optional<std::string>> parts_before;
+  std::size_t passports_before = 0;
+  {
+    ProjectDB db(tmp.path);
+    make_instance_cloud(db, 2);
+    make_passport(db, "guid-shared");
+    db.set_instance_material("instances", 1, "guid-shared");
+    db.set_instance_material("instances", 2, "guid-shared");
+    const auto t = make_type(db, "Døre");
+    make_part(db, "RX-001", t, 1u);
+    make_part(db, "RX-002", t, 2u);
+  }
+  roll_back_to_v24(tmp.path);
+  {
+    ProjectDB db(tmp.path); // the real migration: links and splits
+    for (const auto &p : db.survey_parts())
+      parts_before.push_back(p.material_guid);
+    passports_before = db.list_passport_guids().size();
+    REQUIRE(passports_before == 2);
+  }
+  // Only the version row goes: every v25 step runs again over v25 data
+  // (column, index, links, part_code, templates).
+  exec_raw(tmp.path, "DELETE FROM schema_version WHERE version = 25;");
+  ProjectDB db(tmp.path);
+  CHECK(db.schema_version() == 25);
+  std::vector<std::optional<std::string>> parts_after;
+  for (const auto &p : db.survey_parts())
+    parts_after.push_back(p.material_guid);
+  CHECK(parts_after == parts_before);
+  CHECK(db.list_passport_guids().size() == passports_before);
+  CHECK(db.instance_material_guid("instances", 1) == parts_before[0]);
+  CHECK(db.instance_material_guid("instances", 2) == parts_before[1]);
+  CHECK(db.resource_templates().size() == 2); // seeds not re-inserted
+  CHECK_FALSE(column_exists(tmp.path, "samples", "part_code"));
 }

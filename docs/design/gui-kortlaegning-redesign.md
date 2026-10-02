@@ -96,9 +96,11 @@ The token system stays the mechanism: the prototype's values go into
 | `/` | Overblik | Dashboard (Overview) |
 | `/projektdata` | Projektdata | the old Dashboard/inventory content, moved here (Phase 5) |
 | `/kortlaegning` | Kortlægning | Materials as the primary materials view |
+| `/viewport` | Viewport | moved from the Værktøjer group (2026-10-02) |
 | `/miljoe` | Miljø & prøver | — (new) |
 | `/rapport` | Rapport | report part of Export |
 | `/indberetning` | Indberetning | — (new) |
+| `/skabeloner` | Skabeloner | template CRUD, split out of Export (2026-10-02) |
 | `/on-site` | On-site | — (new, phone layout) (removed 2026-10-02 → mobile app) |
 | `/graph-view`, `/pipeline`, `/pipeline/log`, `/frames`, `/geometry`, `/instances`, `/labels` | Værktøjer group | unchanged, restyled by the tokens only |
 
@@ -107,8 +109,8 @@ The token system stays the mechanism: the prototype's values go into
 > Kortlægning, `/export` to Rapport) rather than rendering their own page.
 > The free-form MaterialEPAS passport spreadsheet `/materials` once offered
 > no longer exists as a distinct tool now that resources carry the passport
-> fields. `Viewport` moved out of Værktøjer into the Sag group (above),
-> alongside the new `/skabeloner`.
+> fields. `Viewport` moved out of Værktøjer into the Sag group, alongside the
+> new `/skabeloner` — both rows are above.
 
 **Sager and one project per server.** `rux gui` serves one `.rux`. The Sager
 screen lists the open project as its card and says how to open another

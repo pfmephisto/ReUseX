@@ -59,7 +59,10 @@ export function MiljoePage() {
       mountedRef.current = false;
     };
   }, []);
-  const { data, error, loading, reload } = useAsync((s) => appWriteChain.idle().then(() => Promise.all([api.samples(s), api.survey(s)])), []);
+  const { data, error, loading, reload } = useAsync(
+    (s) => appWriteChain.idle().then(() => Promise.all([api.samples(s), api.survey(s)])),
+    [],
+  );
   const { refresh } = useSurveyCounts();
   const toast = useToast(2600);
   const { busy, mutate } = useMutationQueue({

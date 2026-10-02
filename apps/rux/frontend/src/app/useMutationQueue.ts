@@ -28,8 +28,8 @@ export interface MutationQueue {
 }
 
 /**
- * A page's writes on one serial chain — the app-wide `appWriteChain` unless `scope: 'page'`. Nothing is
- * dropped: a field commit made while another request is in flight waits its
+ * A page's writes on one serial chain — the app-wide `appWriteChain` unless
+ * `scope: 'page'`. Nothing is dropped: a field commit made while another request is in flight waits its
  * turn. `busy` counts queued requests too, so two overlapping requests cannot
  * clear it early.
  */

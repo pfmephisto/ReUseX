@@ -43,7 +43,10 @@ import styles from './RapportPage.module.css';
  */
 export function RapportPage() {
   const { data, error, loading, reload } = useAsync(
-    (s) => appWriteChain.idle().then(() => Promise.all([api.projectSummary(s), api.surveySummary(s), api.surveyFractions(s)])),
+    (s) =>
+      appWriteChain
+        .idle()
+        .then(() => Promise.all([api.projectSummary(s), api.surveySummary(s), api.surveyFractions(s)])),
     [],
   );
   const listed = useAsync((s) => appWriteChain.idle().then(() => api.listReportVersions(s)), []);
@@ -57,7 +60,10 @@ export function RapportPage() {
   }, [listed.data]);
 
   const toast = useToast(3200);
-  const { busy, mutate } = useMutationQueue({ scope: 'page', onError: (cause) => toast.show(generateErrorMessage(cause)) });
+  const { busy, mutate } = useMutationQueue({
+    scope: 'page',
+    onError: (cause) => toast.show(generateErrorMessage(cause)),
+  });
   // `busy` only disables the button after React re-renders, so a double click
   // inside one frame would queue two generations. The ref closes that gap.
   const generating = useRef(false);

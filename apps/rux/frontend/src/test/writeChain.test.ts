@@ -2,20 +2,27 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 
 import { appWriteChain, chainFor } from '../app/writeChain';
 
 describe('write chain', () => {
-  it('joins the app-wide chain by default and with scope app', () => {
-    expect(chainFor()).toBe(appWriteChain);
-    expect(chainFor('app')).toBe(appWriteChain);
+  // `appWriteChain` is a module singleton: start every test on a drained chain
+  // so no test depends on what an earlier one left queued.
+  beforeEach(async () => {
+    await appWriteChain.idle();
   });
 
-  it("gives scope 'page' a chain of its own, which the app chain's idle ignores", async () => {
+  it("chainFor('app') is the app-wide chain; chainFor('page') a fresh, separate one", () => {
+    expect(chainFor('app')).toBe(appWriteChain);
+    expect(chainFor()).toBe(appWriteChain);
+    const page = chainFor('page');
+    expect(page).not.toBe(appWriteChain);
+    expect(chainFor('page')).not.toBe(page);
+  });
+
+  it("a 'page' chain's pending write does not hold up the app chain's idle", async () => {
     const own = chainFor('page');
-    expect(own).not.toBe(appWriteChain);
-    expect(chainFor('page')).not.toBe(own);
     let release!: () => void;
     const held = own.enqueue(() => new Promise<void>((resolve) => (release = resolve)));
     await expect(appWriteChain.idle()).resolves.toBeUndefined();

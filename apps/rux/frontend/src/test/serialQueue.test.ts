@@ -64,8 +64,10 @@ describe('serial queue', () => {
       })
       .catch(() => log.push('b:caught'));
     const idle = q.idle().then(() => log.push('idle'));
+    const cGate = deferred();
     void q.enqueue(async () => {
-      log.push('c'); // enqueued after idle(): idle does not wait for it
+      await cGate.promise; // released only after idle settled: idle must not wait for c
+      log.push('c');
     });
     await Promise.resolve();
     expect(log).toEqual([]);
@@ -73,6 +75,8 @@ describe('serial queue', () => {
     await idle;
     expect(log.slice(0, 3)).toEqual(['a', 'b', 'b:caught']);
     expect(log.indexOf('idle')).toBeGreaterThan(log.indexOf('b'));
+    expect(log).not.toContain('c');
+    cGate.resolve();
     await expect(q.idle()).resolves.toBeUndefined();
     expect(log).toContain('c');
   });

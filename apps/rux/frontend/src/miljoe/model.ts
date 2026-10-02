@@ -156,7 +156,7 @@ function names(types: SurveyType[]): string {
   return types.map((t) => t.name).join(' · ');
 }
 
-/** Each non-empty effect of `c`, worded; shared by Miljø's toast and On-site's sample toast. */
+/** Each non-empty effect of `c`, worded for Miljø's toast. */
 export function gatePhrases(c: GateChange): string[] {
   const parts: string[] = [];
   if (c.unblocked.length > 0) {

@@ -2,32 +2,22 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { Link } from 'react-router-dom';
-
 import { api } from '../api/client';
-import { ONSITE_PATH, OVERBLIK_PATH } from '../app/links';
+import { OVERBLIK_PATH } from '../app/links';
 import { useAsync } from '../app/useAsync';
 import { appWriteChain } from '../app/writeChain';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { Spinner } from '../components/Spinner';
 import { CaseCard } from '../components/sager/CaseCard';
 import { caseName } from '../overblik/model';
-import {
-  cardDate,
-  cardSubline,
-  caseStats,
-  caseStatus,
-  NO_AUTH_WARNING,
-  OPEN_ANOTHER_COMMAND,
-  phoneCommand,
-} from '../sager/model';
+import { cardDate, cardSubline, caseStats, caseStatus, OPEN_ANOTHER_COMMAND } from '../sager/model';
 import styles from './SagerPage.module.css';
 
 /**
  * Sager — the case list (R1). `rux gui` serves one project, so the list is
- * that project's card, plus how to open another and how to reach this one
- * from a phone (R10). The grid is the prototype's, so a longer list from a
- * multi-case server drops in without a layout change.
+ * that project's card, plus how to open another. The grid is the
+ * prototype's, so a longer list from a multi-case server drops in without a
+ * layout change.
  */
 export function SagerPage() {
   const { data, error, loading, reload } = useAsync(
@@ -98,17 +88,6 @@ export function SagerPage() {
         </p>
         <code className={styles.command}>{OPEN_ANOTHER_COMMAND}</code>
         <p className={styles.muted}>En sagsliste på tværs af projekter hører til serverudgaven (ruxd).</p>
-
-        <h2 className={styles.panelHeading}>På pladsen med telefonen</h2>
-        <p className={styles.text}>
-          Åbn{' '}
-          <Link className={styles.crossLink} to={ONSITE_PATH}>
-            On-site
-          </Link>{' '}
-          på telefonen. Serveren lytter kun på denne maskine; for at nå den fra en telefon på samme netværk:
-        </p>
-        <code className={styles.command}>{phoneCommand(summary.path, window.location.port)}</code>
-        <p className={styles.warn}>{NO_AUTH_WARNING}</p>
       </section>
     </div>
   );

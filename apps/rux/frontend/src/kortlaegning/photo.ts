@@ -5,8 +5,8 @@
 /**
  * The best-photo lookup as data: whether a part is linked to an instance, the
  * key a frames lookup is tagged with, and how a (possibly stale) lookup
- * resolves. Pure, so Kortlægning's evidence panel and On-site share one rule:
- * another key's photo or error is never shown as the current part's.
+ * resolves. Pure, so Kortlægning's evidence panel and edit dialog share one
+ * rule: another key's photo or error is never shown as the current part's.
  */
 
 import type { SurveyPart, VisibleFrame } from '../api/types';

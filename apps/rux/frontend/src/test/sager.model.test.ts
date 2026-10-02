@@ -4,15 +4,8 @@
 
 import { describe, expect, it } from 'vitest';
 
-import {
-  cardDate,
-  cardSubline,
-  caseStats,
-  caseStatus,
-  NO_AUTH_WARNING,
-  OPEN_ANOTHER_COMMAND,
-  phoneCommand,
-} from '../sager/model';
+import { cardDate, cardSubline, caseStats, caseStatus, OPEN_ANOTHER_COMMAND } from '../sager/model';
+import * as sager from '../sager/model';
 import { surveyFractions, surveySummary } from './surveyFixtures';
 
 describe('case status (R3)', () => {
@@ -86,15 +79,13 @@ describe('card text', () => {
   });
 });
 
-describe('commands (R1, R10)', () => {
-  it('says how to open another case and how to reach this one from a phone', () => {
+describe('commands (R1)', () => {
+  it('says how to open another case', () => {
     expect(OPEN_ANOTHER_COMMAND).toBe('rux -p <fil>.rux gui');
-    expect(phoneCommand('maaloev.rux', '8426')).toBe(
-      'rux -p maaloev.rux gui --bind <din-ip> --allow-origin http://<din-ip>:8426',
-    );
-    expect(phoneCommand('maaloev.rux', '')).toBe(
-      'rux -p maaloev.rux gui --bind <din-ip> --allow-origin http://<din-ip>:8420',
-    );
-    expect(NO_AUTH_WARNING).toMatch(/ingen adgangskontrol/);
+  });
+
+  it('sager no longer exports the phone command (On-site moved to the mobile app)', () => {
+    expect('phoneCommand' in sager).toBe(false);
+    expect('NO_AUTH_WARNING' in sager).toBe(false);
   });
 });

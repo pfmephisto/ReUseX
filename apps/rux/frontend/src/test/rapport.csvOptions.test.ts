@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { CSV_DEFAULTS, DELIMITER_OPTIONS, downloadState, readCsvOptions, writeCsvOptions } from '../rapport/csvOptions';
+import { csvCountLine, CSV_DEFAULTS, DELIMITER_OPTIONS, downloadState, readCsvOptions, writeCsvOptions } from '../rapport/csvOptions';
 
 describe('readCsvOptions', () => {
   it('fills defaults for an empty or foreign csv object', () => {
@@ -54,5 +54,13 @@ describe('downloadState (R12)', () => {
       reason: 'Gemmer CSV-indstillingerne…',
     });
     expect(downloadState({ resolved_keys: ['sys:name'] }, false)).toEqual({ enabled: true, reason: null });
+  });
+});
+
+describe('csvCountLine', () => {
+  it('counts the template fields and names the leading code column', () => {
+    expect(csvCountLine(11)).toBe('11 felter + kode · én række pr. ressource');
+    expect(csvCountLine(1)).toBe('1 felt + kode · én række pr. ressource');
+    expect(csvCountLine(0)).toBe('0 felter + kode · én række pr. ressource');
   });
 });

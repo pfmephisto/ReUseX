@@ -23,6 +23,7 @@ import { VersionList } from '../components/rapport/VersionList';
 import { caseName, circularitySegments } from '../overblik/model';
 import { type CsvOptions, writeCsvOptions } from '../rapport/csvOptions';
 import {
+  csvWriteOutcome,
   defaultExportTemplateId,
   draftNotice,
   generatedToast,
@@ -106,11 +107,17 @@ export function RapportPage() {
     void csvQueue.mutate(async () => {
       try {
         const saved = await api.patchTemplate(t.id, { csv });
-        if (csvGate.isLatest(t.id, ticket)) setTemplates((prev) => replaceTemplate(prev, saved));
+        if (csvWriteOutcome(csvGate.isLatest(t.id, ticket), true) === 'apply') {
+          setTemplates((prev) => replaceTemplate(prev, saved));
+        }
       } catch (cause) {
-        // Re-read the truth; if that fails too, undo the optimistic edit.
-        const fresh = await api.templates().catch(() => null);
-        setTemplates((prev) => fresh ?? replaceTemplate(prev, t));
+        // Only the newest write reconciles: re-read the truth, and if that
+        // fails too, undo the optimistic edit. An older failure leaves a newer
+        // queued edit's preview alone; that edit settles the state.
+        if (csvWriteOutcome(csvGate.isLatest(t.id, ticket), false) === 'reconcile') {
+          const fresh = await api.templates().catch(() => null);
+          setTemplates((prev) => fresh ?? replaceTemplate(prev, t));
+        }
         throw cause;
       }
     });

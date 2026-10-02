@@ -7,6 +7,7 @@ import { Link } from 'react-router-dom';
 import type { Template } from '../../api/types';
 import { SKABELONER_PATH } from '../../app/links';
 import {
+  csvCountLine,
   DELIMITER_OPTIONS,
   downloadState,
   ENCODING_OPTIONS,
@@ -14,7 +15,6 @@ import {
   readCsvOptions,
   type CsvOptions,
 } from '../../rapport/csvOptions';
-import { countLine } from '../../skabeloner/model';
 import { TemplateSelect } from './TemplateSelect';
 import styles from './DataExportPanel.module.css';
 
@@ -94,7 +94,7 @@ export function DataExportPanel({ templates, selectedId, onSelect, onCsvChange, 
               </button>
             )}
             <span className={styles.muted} role="status">
-              {dl.reason ?? (t ? `${countLine(t.resolved_keys.length)} · én række pr. ressource` : '')}
+              {dl.reason ?? (t ? csvCountLine(t.resolved_keys.length) : '')}
             </span>
             <Link className={styles.crossLink} to={SKABELONER_PATH}>
               Redigér skabeloner

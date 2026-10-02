@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 import { ApiRequestError } from '../api/client';
 import {
+  csvWriteOutcome,
   defaultExportTemplateId,
   draftNotice,
   formatBytesDa,
@@ -25,6 +26,7 @@ import {
   versionStatus,
   versionTitle,
 } from '../rapport/model';
+import { createLatestGate } from '../skabeloner/model';
 import { reportVersion, surveyFractions, surveySummary } from './surveyFixtures';
 
 describe('server time', () => {
@@ -158,5 +160,37 @@ describe('template choices (R10)', () => {
     expect(ressourcetabelHint({ name: 'Tom', resolved_keys: [] })).toBe(
       'Skabelonen "Tom" har ingen felter — tabellen bliver tom.',
     );
+  });
+});
+
+describe('csvWriteOutcome (latest-write gate)', () => {
+  it('ignores an older write that fails while a newer edit is pending — no revert', () => {
+    const gate = createLatestGate();
+    const older = gate.next(2);
+    gate.next(2); // a newer edit to the same template is queued
+    expect(csvWriteOutcome(gate.isLatest(2, older), false)).toBe('ignore');
+  });
+  it('ignores an older write that succeeds while a newer edit is pending', () => {
+    const gate = createLatestGate();
+    const older = gate.next(2);
+    gate.next(2);
+    expect(csvWriteOutcome(gate.isLatest(2, older), true)).toBe('ignore');
+  });
+  it('reconciles (re-read / revert) when the latest write fails', () => {
+    const gate = createLatestGate();
+    gate.next(2);
+    const latest = gate.next(2);
+    expect(csvWriteOutcome(gate.isLatest(2, latest), false)).toBe('reconcile');
+  });
+  it('applies the server template when the latest write succeeds', () => {
+    const gate = createLatestGate();
+    const only = gate.next(2);
+    expect(csvWriteOutcome(gate.isLatest(2, only), true)).toBe('apply');
+  });
+  it('keeps templates independent', () => {
+    const gate = createLatestGate();
+    const a = gate.next(1);
+    gate.next(2);
+    expect(csvWriteOutcome(gate.isLatest(1, a), false)).toBe('reconcile');
   });
 });

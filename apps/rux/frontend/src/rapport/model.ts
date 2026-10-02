@@ -153,3 +153,18 @@ export function ressourcetabelHint(t: Pick<Template, 'name' | 'resolved_keys'> |
   if (n === 0) return `Skabelonen "${t.name}" har ingen felter — tabellen bliver tom.`;
   return `Ressourcetabel med ${n === 1 ? '1 felt' : `${n} felter`} fra "${t.name}".`;
 }
+
+/**
+ * What a settled CSV-option write does to the page's optimistic template
+ * copy. Only the newest write per template decides (its ticket is still the
+ * latest): its success applies the server's template, its failure re-reads
+ * (or reverts). An older write — success or failure — is ignored, because a
+ * newer edit is already showing and was built on top of it; that edit's own
+ * outcome settles the final state.
+ */
+export type CsvWriteOutcome = 'apply' | 'reconcile' | 'ignore';
+
+export function csvWriteOutcome(isLatest: boolean, ok: boolean): CsvWriteOutcome {
+  if (!isLatest) return 'ignore';
+  return ok ? 'apply' : 'reconcile';
+}

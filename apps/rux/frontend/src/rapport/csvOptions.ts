@@ -78,3 +78,12 @@ export function downloadState(
   if (writing) return { enabled: false, reason: 'Gemmer CSV-indstillingerne…' };
   return { enabled: true, reason: null };
 }
+
+/**
+ * Data-eksport's count line. The CSV always leads with the part code
+ * (`Kode` / `code`) ahead of the template's fields, so say so — the file
+ * has one column more than the template has fields.
+ */
+export function csvCountLine(fields: number): string {
+  return `${fields === 1 ? '1 felt' : `${fields} felter`} + kode · én række pr. ressource`;
+}

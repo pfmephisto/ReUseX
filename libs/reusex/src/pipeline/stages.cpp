@@ -493,7 +493,7 @@ StageResult run_instances(ProjectDB &db, const StageContext &ctx,
        {"table", output_cloud, static_cast<int64_t>(records.size())}});
 }
 
-StageResult run_mesh(ProjectDB &db, const StageContext &ctx,
+StageResult run_mesh(ProjectDB &db, const StageContext & /*ctx*/,
                      const json &params) {
   const auto output_name = param_or<std::string>(params, "output_name", "mesh");
 

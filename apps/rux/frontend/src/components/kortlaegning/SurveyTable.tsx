@@ -5,10 +5,9 @@
 import { useEffect, useRef } from 'react';
 import type { RefObject } from 'react';
 
-import type { SurveyType, Template } from '../../api/types';
+import type { ResourceKey, SurveyType, Template } from '../../api/types';
 import {
   flattenRows,
-  partLabel,
   sameSelection,
   type EnvFilter,
   type Filters,
@@ -16,12 +15,20 @@ import {
   type Selection,
   type Tab,
 } from '../../kortlaegning/model';
-import { cellModel, isManual, type ResourceColumn, type ResourceIndex } from '../../kortlaegning/resources';
+import {
+  cellModel,
+  isManual,
+  partDesignation,
+  partRowLabel,
+  type ResourceColumn,
+  type ResourceIndex,
+} from '../../kortlaegning/resources';
 import { confidencePercent, formatQuantity, formatTonnes } from '../../kortlaegning/vocab';
 import { ConfidenceBar } from '../ConfidenceBar';
 import { Kbd } from '../Kbd';
 import { Pill } from '../Pill';
 import { ResourceCell } from './ResourceCell';
+import { TypeMark } from './TypeMark';
 import styles from './SurveyTable.module.css';
 
 export interface SurveyTableProps {
@@ -47,10 +54,13 @@ export interface SurveyTableProps {
   /** Template-built columns (resolved_keys order, sys:name excluded — plan R4). */
   columns: ResourceColumn[];
   resources: ResourceIndex;
+  /** The key catalogue: a part row finds its designation through it. */
+  catalogue: ResourceKey[];
   templates: Template[];
   templateId: number | null;
   onTemplate: (id: number) => void;
-  onCellCommit: (code: string, keyId: string, value: string | null) => void;
+  /** Returns the write's promise (a select/checkbox shows its choice until it settles). */
+  onCellCommit: (code: string, keyId: string, value: string | null) => Promise<void>;
   onInvalid: (label: string) => void;
   onAddResource: () => void;
   onAddColumn: () => void;
@@ -114,9 +124,7 @@ function Cells(props: {
               resourceKey={column.key}
               value={m.value}
               editing={selected && target !== null}
-              onCommit={(v) => {
-                if (target !== null) props.onCellCommit(target, column.key.id, v);
-              }}
+              onCommit={(v) => (target !== null ? props.onCellCommit(target, column.key.id, v) : undefined)}
               onInvalid={props.onInvalid}
               home={props.home}
             />
@@ -152,6 +160,7 @@ export function SurveyTable(props: SurveyTableProps) {
     tableRef,
     columns,
     resources,
+    catalogue,
     templates,
     templateId,
     onTemplate,
@@ -294,20 +303,16 @@ export function SurveyTable(props: SurveyTableProps) {
         <table className={styles.table}>
           <thead>
             <tr>
-              <th>Betegnelse</th>
+              <th className={styles.stickyStart}>Betegnelse</th>
               {columns.map((c) => (
                 <th key={c.key.id}>
                   <span className={styles.headLabel}>
                     {c.key.label}
-                    {c.typeScoped && (
-                      <span className={styles.typeMark} title="Gælder alle dele af typen">
-                        type
-                      </span>
-                    )}
+                    {c.typeScoped && <TypeMark />}
                   </span>
                 </th>
               ))}
-              <th>Status</th>
+              <th className={styles.stickyEnd}>Status</th>
             </tr>
           </thead>
           <tbody>
@@ -350,7 +355,7 @@ export function SurveyTable(props: SurveyTableProps) {
                         onOpenDialog({ typeId: type.id, partCode: null });
                       }}
                     >
-                      <td>
+                      <td className={styles.stickyStart}>
                         <div className={styles.nameCell}>
                           <button
                             type="button"
@@ -386,7 +391,7 @@ export function SurveyTable(props: SurveyTableProps) {
                         onInvalid={onInvalid}
                         home={tableRef}
                       />
-                      <td>
+                      <td className={styles.stickyEnd}>
                         {type.review_status === 'approved' ? (
                           <Pill tone="good">Godkendt ✓</Pill>
                         ) : (
@@ -412,16 +417,16 @@ export function SurveyTable(props: SurveyTableProps) {
                       onOpenDialog({ typeId: type.id, partCode: part.code })
                     }
                   >
-                    <td className={styles.partTd}>
+                    <td className={`${styles.stickyStart} ${styles.partTd}`}>
                       <div className={styles.partCell}>
                         {part.starred && (
                           <span className={styles.star} role="img" aria-label="Vigtig" title="Vigtig">
                             ★
                           </span>
                         )}
-                        {partLabel(part)}
+                        {partRowLabel(part, partDesignation(resources.get(part.code), catalogue))}
                         {isManual(part) && (
-                          <Pill tone="accent" title="Tilføjet manuelt — ikke fra scanningen">
+                          <Pill variant="outline" title="Tilføjet manuelt — ikke fra scanningen">
                             Manuel
                           </Pill>
                         )}
@@ -455,7 +460,7 @@ export function SurveyTable(props: SurveyTableProps) {
                       onInvalid={onInvalid}
                       home={tableRef}
                     />
-                    <td className={styles.faint}>—</td>
+                    <td className={`${styles.stickyEnd} ${styles.faint}`}>—</td>
                   </tr>
                 );
               })

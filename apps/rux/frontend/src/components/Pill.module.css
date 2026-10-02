@@ -37,6 +37,13 @@
   color: var(--tone-accent-ink);
 }
 
+/* Neutral: an outline, no fill — sits beside a tone pill without matching it. */
+.outline {
+  background: transparent;
+  color: var(--color-text-muted);
+  box-shadow: inset 0 0 0 1px var(--color-border-strong);
+}
+
 /* Waste hierarchy: the step colour as ink on a light wash of itself. */
 .circ_bevaring,
 .circ_genbrug,

@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { useLocation } from 'react-router-dom';
 
@@ -76,9 +76,12 @@ import {
 import {
   appendKeyMember,
   pickTemplate,
+  projectIdentity,
   readStoredTemplateId,
   writeStoredTemplateId,
+  type ProjectIdentity,
 } from '../kortlaegning/templatePick';
+import { cellErrorMessage, invalidValueMessage, refreshAfterSave } from '../kortlaegning/writeOutcome';
 import { formatNumber } from '../kortlaegning/vocab';
 import styles from './KortlaegningPage.module.css';
 
@@ -168,6 +171,7 @@ export function KortlaegningPage() {
             api.templates(s),
             api.resources(undefined, s),
             api.health(s),
+            api.projects(s),
           ]),
         ),
     [],
@@ -210,8 +214,10 @@ export function KortlaegningPage() {
     resourcesRef.current = update(resourcesRef.current);
     setResourcesState(resourcesRef.current);
   }, []);
-  // The project's name keys the remembered template choice (templatePick).
-  const projectRef = useRef('');
+  // The project's identity keys the remembered template choice (templatePick).
+  const projectRef = useRef<ProjectIdentity>({ id: null, name: '' });
+  // A write succeeded but the re-read after it failed: the view may be stale.
+  const [refreshNotice, setRefreshNotice] = useState<string | null>(null);
 
   const [tab, setTab] = useState<Tab>('queue');
   const [filters, setFilters] = useState<Filters>(NO_FILTERS);
@@ -245,8 +251,8 @@ export function KortlaegningPage() {
   const selType = typeOf(types, selection);
   const selPart = partOf(types, selection);
   const template = templates.find((t) => t.id === templateId) ?? null;
-  const columns = templateColumns(template, keys);
-  const index = resourceIndex(resources);
+  const columns = useMemo(() => templateColumns(template, keys), [template, keys]);
+  const index = useMemo(() => resourceIndex(resources), [resources]);
 
   /** Select, and open the selected type so its parts show. */
   const select = useCallback((sel: Selection) => {
@@ -266,7 +272,8 @@ export function KortlaegningPage() {
     setKeys(data[3]);
     setTemplates(data[4]);
     setResources(() => data[5]);
-    projectRef.current = data[6].project.name;
+    projectRef.current = projectIdentity(data[7], data[6].project.name);
+    setRefreshNotice(null);
     setTemplateId((current) => pickTemplate(data[4], current ?? readStoredTemplateId(projectRef.current))?.id ?? null);
     const want = deepLinkType.current;
     if (want !== null) {
@@ -358,7 +365,7 @@ export function KortlaegningPage() {
     void mutate(async () => {
       const body = await api.patchSurveyType(t.id, patch);
       setTypes((prev) => replaceType(prev, body));
-      await refreshResources();
+      await reread(refreshResources);
     });
   }
 
@@ -366,8 +373,17 @@ export function KortlaegningPage() {
     void mutate(async () => {
       const body = await api.patchSurveyPart(p.code, patch);
       setTypes((prev) => replacePart(prev, body));
-      await refreshResources();
+      await reread(refreshResources);
     });
+  }
+
+  /**
+   * The re-read after a write that already succeeded. A failure never undoes
+   * the success (no "Kunne ikke gemme" for a value that was saved); it shows
+   * the stale-view notice instead, which a later successful re-read clears.
+   */
+  async function reread(refresh: () => Promise<unknown>) {
+    if (await refreshAfterSave(refresh, setRefreshNotice)) setRefreshNotice(null);
   }
 
   function chooseTemplate(id: number) {
@@ -387,33 +403,48 @@ export function KortlaegningPage() {
     setTypes(() => s.types);
   }
 
-  /** An inline cell's commit: never gated on `busy` (field commits never are). */
-  function commitCell(code: string, keyId: string, value: string | null) {
-    void mutate(async () => {
-      const body = await api.patchResource(code, { [keyId]: value });
+  /**
+   * An inline cell's commit: never gated on `busy` (field commits never are).
+   * A refused value names the key by its label, never the server's text with
+   * the raw key id. Returns the queued write, so a select or checkbox can
+   * show its choice until the write settles.
+   */
+  function commitCell(code: string, keyId: string, value: string | null): Promise<void> {
+    const label = keys.find((k) => k.id === keyId)?.label ?? 'feltet';
+    return mutate(async () => {
+      let body;
+      try {
+        body = await api.patchResource(code, { [keyId]: value });
+      } catch (cause) {
+        toast.show(cellErrorMessage(cause, label));
+        return;
+      }
       setResources((prev) => replaceResources(prev, patchedResources(body)));
-      if (touchesSurvey([keyId])) await refreshSurvey();
+      if (touchesSurvey([keyId])) await reread(refreshSurvey);
     });
   }
 
   /**
    * "Tilføj ressource": create a manual part, then show and select it. The
-   * dialog closes only on success; on failure the queue's toast explains and
-   * the dialog keeps its input.
+   * dialog closes as soon as the part exists — a failed re-read after that
+   * must not leave it open, or a second submit would create a second part —
+   * and a failed create keeps it open with its input (the queue's toast).
    */
   function addResource(body: ResourceCreate) {
     createGuard.current.run(() =>
       mutate(async () => {
         const created = await api.createResource(body);
-        const [s, list] = await Promise.all([api.survey(), api.resources()]);
-        const next = setTypes(() => s.types);
-        setResources(() => list);
-        const view = viewForNewResource(next, created.type_id, viewRef.current.tab, viewRef.current.filters);
-        setTab(view.tab);
-        setFilters(view.filters);
-        select({ typeId: created.type_id, partCode: created.code });
         setAddResourceOpen(false);
         toast.show(`${created.code} tilføjet`);
+        await reread(async () => {
+          const [s, list] = await Promise.all([api.survey(), api.resources()]);
+          const next = setTypes(() => s.types);
+          setResources(() => list);
+          const view = viewForNewResource(next, created.type_id, viewRef.current.tab, viewRef.current.filters);
+          setTab(view.tab);
+          setFilters(view.filters);
+          select({ typeId: created.type_id, partCode: created.code });
+        });
       }),
     );
   }
@@ -425,7 +456,8 @@ export function KortlaegningPage() {
    * dialog with the server's reason (R3-D3); any other create failure goes
    * to the queue's toast and the dialog keeps its input. A failure after the
    * column exists closes the dialog with the partial-failure copy; either
-   * way the catalogue and templates are re-read so the column shows.
+   * way the catalogue and templates are re-read so the column shows. A
+   * failed re-read keeps the toast and adds the stale-view notice.
    */
   function addColumn(draft: ColumnDraft, copyInstead: boolean) {
     const base = template;
@@ -451,12 +483,13 @@ export function KortlaegningPage() {
           toast.show(`Kolonnen »${def.name}« er tilføjet til »${target.name}«`);
         } catch (cause) {
           toast.show(columnPartialFailureMessage(def.name, errorMessage(cause)));
-        } finally {
-          setAddColumnOpen(false);
+        }
+        setAddColumnOpen(false);
+        await reread(async () => {
           const [k, t] = await Promise.all([api.resourceKeys(), api.templates()]);
           setKeys(k);
           setTemplates(t);
-        }
+        });
       }),
     );
   }
@@ -467,16 +500,18 @@ export function KortlaegningPage() {
     if (!p || !isManual(p)) return;
     void mutate(async () => {
       await api.deleteResource(p.code);
-      const [s, list] = await Promise.all([api.survey(), api.resources()]);
-      setTypes(() => s.types);
-      setResources(() => list);
-      select({ typeId: p.type_id, partCode: null });
       toast.show(`${p.code} slettet`);
+      await reread(async () => {
+        const [s, list] = await Promise.all([api.survey(), api.resources()]);
+        setTypes(() => s.types);
+        setResources(() => list);
+        select({ typeId: p.type_id, partCode: null });
+      });
     });
   }
 
   function invalidValue(label: string) {
-    toast.show(`Ugyldig værdi for ${label} — ikke gemt`);
+    toast.show(invalidValueMessage(label));
   }
 
   function star() {
@@ -650,6 +685,12 @@ export function KortlaegningPage() {
         )}
       </header>
 
+      {refreshNotice && (
+        <p className={styles.notice} role="alert">
+          {refreshNotice}
+        </p>
+      )}
+
       {coverage.length > 0 && (
         <p className={styles.notice}>
           <b>Dækning:</b> {coverage.join(' · ')}
@@ -701,6 +742,7 @@ export function KortlaegningPage() {
             tableRef={tableRef}
             columns={columns}
             resources={index}
+            catalogue={keys}
             templates={templates}
             templateId={templateId}
             onTemplate={chooseTemplate}

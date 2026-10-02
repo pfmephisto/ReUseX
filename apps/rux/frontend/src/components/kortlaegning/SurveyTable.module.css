@@ -84,8 +84,11 @@
 
 /* ------------------------------------------------------------------ wrap -- */
 
+/* The table scrolls sideways inside this box, never the page: a template
+   can carry dozens of columns (Materialepas (fuld): 64). */
 .wrap {
   overflow: auto;
+  overscroll-behavior-x: contain;
   max-height: calc(100vh - var(--layout-titlebar-height) - var(--space-7) * 4);
 }
 
@@ -146,9 +149,55 @@
   background: var(--color-accent-muted);
 }
 
-.typeRow[aria-selected='true'] td:first-child,
-.partRow[aria-selected='true'] td:first-child {
-  box-shadow: inset 3px 0 0 var(--color-accent);
+/* ------------------------------------------------------- sticky columns -- */
+
+/* Betegnelse stays at the left edge and Status at the right while the
+   template columns scroll between them. Each has an opaque surface (the row
+   states below repaint it with opaque tokens too) and a divider, so the
+   scrolled cells never show through. */
+.table .stickyStart,
+.table .stickyEnd {
+  position: sticky;
+  z-index: calc(var(--z-panel) - 1);
+  background: var(--color-surface-raised);
+}
+
+.table .stickyStart {
+  left: 0;
+  box-shadow: inset -1px 0 0 var(--color-border-strong);
+}
+
+.table .stickyEnd {
+  right: 0;
+  box-shadow: inset 1px 0 0 var(--color-border-strong);
+}
+
+/* Header corners sit above both the sticky header row and the sticky columns. */
+.table th.stickyStart,
+.table th.stickyEnd {
+  z-index: calc(var(--z-panel) + 1);
+  background: var(--color-surface-sunken);
+}
+
+.typeRow:hover td.stickyStart,
+.typeRow:hover td.stickyEnd,
+.partRow:hover td.stickyStart,
+.partRow:hover td.stickyEnd {
+  background: var(--color-surface-overlay);
+}
+
+.typeRow[aria-selected='true'] td.stickyStart,
+.typeRow[aria-selected='true'] td.stickyEnd,
+.partRow[aria-selected='true'] td.stickyStart,
+.partRow[aria-selected='true'] td.stickyEnd {
+  background: var(--color-accent-muted);
+}
+
+.typeRow[aria-selected='true'] td.stickyStart,
+.partRow[aria-selected='true'] td.stickyStart {
+  box-shadow:
+    inset 3px 0 0 var(--color-accent),
+    inset -1px 0 0 var(--color-border-strong);
 }
 
 .nameCell {
@@ -268,17 +317,6 @@
   align-items: center;
   gap: var(--space-1);
   white-space: nowrap;
-}
-
-.typeMark {
-  padding: 0 var(--space-1);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  color: var(--color-text-faint);
-  font-size: var(--font-size-2xs);
-  font-weight: var(--font-weight-regular);
-  text-transform: none;
-  cursor: help;
 }
 
 @media (max-width: 56.25rem) {

@@ -14,12 +14,18 @@ export interface PillProps {
   /** Or a waste-hierarchy step, drawn in its --circ-* colour. */
   treatment?: Treatment;
   title?: string;
+  /** `outline`: a neutral bordered label that does not read as a code or status (e.g. "Manuel"). */
+  variant?: 'outline';
   children: ReactNode;
 }
 
 /** A small status label: miljøstatus, behandling, BIM7AA, "Godkendt ✓". */
-export function Pill({ tone = 'wait', treatment, title, children }: PillProps) {
-  const cls = treatment ? `${styles.pill} ${styles[`circ_${treatment}`]}` : `${styles.pill} ${styles[tone]}`;
+export function Pill({ tone = 'wait', treatment, title, variant, children }: PillProps) {
+  const cls = treatment
+    ? `${styles.pill} ${styles[`circ_${treatment}`]}`
+    : variant === 'outline'
+      ? `${styles.pill} ${styles.outline}`
+      : `${styles.pill} ${styles[tone]}`;
   return (
     <span className={cls} title={title}>
       {children}

@@ -26,7 +26,7 @@ import { useEffect, useState, type KeyboardEvent, type RefObject } from 'react';
 import { fieldKeyAction as sharedFieldKeyAction } from '../../app/editorKeys';
 import type { Resource, ResourceKey, Sample, SurveyPart, SurveyType, Treatment } from '../../api/types';
 import { TREATMENTS } from '../../api/types';
-import { allPropertyGroups } from '../../kortlaegning/resources';
+import { allPropertyGroups, PANEL_FIELD_KEYS } from '../../kortlaegning/resources';
 import { pendingSampleList } from '../../kortlaegning/samples';
 import {
   confidencePercent,
@@ -41,6 +41,7 @@ import { Pill } from '../Pill';
 import styles from './DetailPanel.module.css';
 import { ResourceCell } from './ResourceCell';
 import { SampleLine } from './SampleLine';
+import { TypeMark } from './TypeMark';
 import { useQuantityNoteDrafts } from './useQuantityNoteDrafts';
 
 // The sample-line functions live in `kortlaegning/samples.ts` (SampleLine
@@ -83,7 +84,7 @@ export interface DetailPanelProps {
   /** The selected part's values; null for a type. */
   resource: Resource | null;
   catalogue: ResourceKey[];
-  onCellCommit: (code: string, keyId: string, value: string | null) => void;
+  onCellCommit: (code: string, keyId: string, value: string | null) => Promise<void>;
   onInvalid: (label: string) => void;
   /** Where Esc/Enter in a property field returns focus. */
   home: RefObject<HTMLElement | null>;
@@ -181,7 +182,8 @@ export function DetailPanel({
   const gateNote = gateNoteText(type, samples);
   const blocked = approveBlocked(type);
   const queued = type.review_status === 'queue';
-  const groups = allPropertyGroups(part ? resource : null, catalogue);
+  // The panel's own fields (Mængde, Behandling, Note, ★, miljøstatus) are not repeated below.
+  const groups = allPropertyGroups(part ? resource : null, catalogue, PANEL_FIELD_KEYS);
 
   return (
     <div className={styles.panel}>
@@ -190,7 +192,7 @@ export function DetailPanel({
         {type.bim7aa_code && (
           <Pill tone="accent">{type.bim7aa_code}</Pill>
         )}
-        {part && manual && <Pill tone="accent">Manuel</Pill>}
+        {part && manual && <Pill variant="outline">Manuel</Pill>}
         <Pill tone={ENV_TONE[type.environment_status]}>{ENV_LABEL[type.environment_status]}</Pill>
         {current.starred && <Pill tone="warn">★ Vigtig</Pill>}
       </div>
@@ -243,10 +245,11 @@ export function DetailPanel({
       <SampleLine className={styles.sampleLine} type={type} samples={samples} />
 
       <div className={styles.field}>
-        <span className={styles.label}>Proces / håndtering</span>
+        <span className={styles.label}>Note</span>
         <textarea
           className={styles.textarea}
           rows={3}
+          aria-label="Note"
           {...noteProps}
           onKeyDown={(e) => onFieldKey(e, false, revertNote)}
         />
@@ -267,7 +270,10 @@ export function DetailPanel({
               <div className={styles.groupBody}>
                 {g.keys.map((key) => (
                   <div key={key.id} className={styles.field}>
-                    <span className={styles.label}>{key.label}</span>
+                    <span className={styles.label}>
+                      {key.label}
+                      {key.scope === 'type' && <TypeMark />}
+                    </span>
                     <ResourceCell
                       resourceKey={key}
                       value={resource?.values[key.id] ?? null}

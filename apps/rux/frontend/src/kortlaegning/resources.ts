@@ -16,7 +16,7 @@
  */
 
 import type { Resource, ResourceKey, ResourcePatchResult, SurveyPart, SurveyType, Template } from '../api/types';
-import { NO_FILTERS, visibleTypes, type Filters, type Row, type Tab } from './model';
+import { NO_FILTERS, roomName, visibleTypes, type Filters, type Row, type Tab } from './model';
 
 /** One template-built column of the parts table. */
 export interface ResourceColumn {
@@ -120,14 +120,32 @@ export interface PropertyGroup {
 }
 
 /**
- * "Alle egenskaber": every key the resource has a value for, grouped by
- * category. Categories and keys keep catalogue order. A whitespace-only
- * value counts as no value (R3-A7).
+ * The built-in keys the detail panel edits (or shows) in its own fields —
+ * Mængde, Behandling, Note, the ★ button and the miljøstatus pill — so
+ * "Alle egenskaber" leaves them out rather than offering a second editor.
  */
-export function allPropertyGroups(resource: Resource | null, catalogue: readonly ResourceKey[]): PropertyGroup[] {
+export const PANEL_FIELD_KEYS: ReadonlySet<string> = new Set([
+  'sys:quantity',
+  'sys:treatment',
+  'sys:note',
+  'sys:starred',
+  'sys:environment',
+]);
+
+/**
+ * "Alle egenskaber": every key the resource has a value for, grouped by
+ * category, minus `exclude`. Categories and keys keep catalogue order. A
+ * whitespace-only value counts as no value (R3-A7).
+ */
+export function allPropertyGroups(
+  resource: Resource | null,
+  catalogue: readonly ResourceKey[],
+  exclude: ReadonlySet<string> = new Set(),
+): PropertyGroup[] {
   if (!resource) return [];
   const groups = new Map<string, ResourceKey[]>();
   for (const key of catalogue) {
+    if (exclude.has(key.id)) continue;
     const v = resource.values[key.id];
     if (v === null || v === undefined || v.trim() === '') continue;
     const list = groups.get(key.category) ?? [];
@@ -151,4 +169,24 @@ export function viewForNewResource(
 ): { tab: Tab; filters: Filters } {
   const shown = visibleTypes(types, tab, filters).some((t) => t.id === typeId);
   return shown ? { tab, filters } : { tab: 'all', filters: NO_FILTERS };
+}
+
+/**
+ * The leksikon field "Tilføj ressource" stores a manual part's name in
+ * (`kDesignationField`, resources.hpp). The wire carries no field name, so it
+ * is found by its humanized label among the leksikon keys.
+ */
+export const DESIGNATION_LABEL = 'Designation';
+
+/** A part's leksikon designation (e.g. a manual part's name), or null when it has none. */
+export function partDesignation(resource: Resource | undefined, catalogue: readonly ResourceKey[]): string | null {
+  if (!resource) return null;
+  const key = catalogue.find((k) => k.id.startsWith('lex:') && k.label === DESIGNATION_LABEL);
+  const value = key ? resource.values[key.id]?.trim() : undefined;
+  return value ? value : null;
+}
+
+/** A part row's label: `RX-### · {designation} · {room}`, leaving out what it lacks. */
+export function partRowLabel(part: SurveyPart, designation: string | null): string {
+  return [part.code, designation, roomName(part)].filter((s) => s).join(' · ');
 }

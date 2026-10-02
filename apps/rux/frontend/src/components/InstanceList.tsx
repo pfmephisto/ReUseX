@@ -73,7 +73,7 @@ export function InstanceList({ cloud }: { cloud: string }) {
         // 5. Stay on the page: reload so the row picks up its new "linked"
         // state, and show a short notice naming where the passport now lives.
         rows.reload();
-        setNotice('Materiale oprettet og koblet til instansen. Se det under Alle egenskaber på Kortlægning.');
+        setNotice('Materiale oprettet og koblet til instansen.');
       } catch (err) {
         setFailure(describeWriteFailure(err as Error, 'the material passport'));
       } finally {

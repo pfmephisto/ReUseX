@@ -10,6 +10,9 @@ import {
   allPropertyGroups,
   cellModel,
   isManual,
+  PANEL_FIELD_KEYS,
+  partDesignation,
+  partRowLabel,
   patchedResources,
   replaceResources,
   resourceColumnKeyId,
@@ -141,5 +144,34 @@ describe('resource helpers', () => {
     expect(viewForNewResource(types, 1, 'queue', NO_FILTERS)).toEqual({ tab: 'all', filters: NO_FILTERS });
     const filters = { ...NO_FILTERS, search: 'vindue' };
     expect(viewForNewResource(types, 1, 'approved', filters)).toEqual({ tab: 'approved', filters });
+  });
+});
+
+describe('final fix wave', () => {
+  it('Alle egenskaber leaves out keys the panel already edits elsewhere', () => {
+    const r = resource({ values: { 'sys:quantity': '3', 'sys:treatment': 'genbrug', 'sys:note': 'x', 'sys:starred': 'true', 'sys:eak': '17 01', 'lex:abc': 'Velux' } });
+    const groups = allPropertyGroups(r, catalogue, PANEL_FIELD_KEYS);
+    expect(groups.flatMap((g) => g.keys.map((k) => k.id))).toEqual(['sys:eak', 'lex:abc']);
+    expect([...PANEL_FIELD_KEYS].sort()).toEqual(['sys:environment', 'sys:note', 'sys:quantity', 'sys:starred', 'sys:treatment']);
+  });
+
+  const designation = resourceKey({ id: 'lex:des', label: 'Designation', category: 'Description' });
+  const userCol = resourceKey({ id: 'col:9', label: 'Designation', category: 'Egne felter' });
+
+  it("finds a part's leksikon designation, ignoring a user column of the same name", () => {
+    const keys = [userCol, designation];
+    expect(partDesignation(resource({ values: { 'lex:des': ' Ekstra væg ', 'col:9': 'nej' } }), keys)).toBe('Ekstra væg');
+    expect(partDesignation(resource({ values: { 'lex:des': '  ' } }), keys)).toBeNull();
+    expect(partDesignation(resource({ values: { 'col:9': 'nej' } }), keys)).toBeNull();
+    expect(partDesignation(undefined, keys)).toBeNull();
+  });
+
+  it('a part row shows code · designation · room, dropping what is absent', () => {
+    const p = surveyPart({ code: 'RX-004', room_id: null, room_name: undefined });
+    expect(partRowLabel(p, 'Ekstra væg')).toBe('RX-004 · Ekstra væg');
+    expect(partRowLabel(p, null)).toBe('RX-004');
+    const roomed = surveyPart({ code: 'RX-001', room_id: 2, room_name: 'Køkken' });
+    expect(partRowLabel(roomed, 'Dør')).toBe('RX-001 · Dør · Køkken');
+    expect(partRowLabel(roomed, null)).toBe('RX-001 · Køkken');
   });
 });

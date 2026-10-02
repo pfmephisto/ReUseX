@@ -19,7 +19,7 @@ import * as navigation from '../app/navigation';
 import type { Health, ProjectSummary } from '../api/types';
 
 describe('navigation model', () => {
-  it('lists the case workflow in the spec §3 order', () => {
+  it('lists the case workflow in the spec order, Skabeloner last', () => {
     expect(entriesIn('sag').map((e) => e.label)).toEqual([
       'Overblik',
       'Kortlægning',
@@ -64,10 +64,12 @@ describe('navigation model', () => {
     });
   });
 
-  it('keeps Skabeloner pending until its page exists', () => {
-    const entry = NAV_ENTRIES.find((e) => e.to === '/skabeloner');
-    expect(entry?.group).toBe('sag');
-    expect(entry?.pending).toBeDefined();
+  it('links Skabeloner live, not as a pending placeholder', () => {
+    expect(NAV_ENTRIES.find((e) => e.label === 'Skabeloner')).toEqual({
+      to: '/skabeloner',
+      label: 'Skabeloner',
+      group: 'sag',
+    });
   });
 
   it('keeps every remaining technical route reachable under Værktøjer', () => {
@@ -155,6 +157,10 @@ describe('redirects for retired paths (spec §3)', () => {
 
   it('sends the retired Materialedata path to Kortlægning', () => {
     expect(REDIRECTS).toContainEqual({ from: '/materials', to: '/kortlaegning' });
+  });
+
+  it('sends the retired Eksport path to Rapport', () => {
+    expect(REDIRECTS).toContainEqual({ from: '/export', to: '/rapport' });
   });
 
   it('never redirects from a path the nav still lists', () => {

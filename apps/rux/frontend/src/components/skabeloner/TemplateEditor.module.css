@@ -1,0 +1,136 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+.panel {
+  composes: panel from '../surfaces.module.css';
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  min-width: 0;
+}
+/* Focus parks here after Esc in the name field (fieldKeys' home); it is not a control, so no ring. */
+.panel:focus {
+  outline: none;
+}
+.field {
+  composes: field from '../controls.module.css';
+}
+.fieldLabel {
+  composes: fieldLabel from '../controls.module.css';
+}
+.input {
+  composes: input from '../controls.module.css';
+}
+.checkbox {
+  composes: checkbox from '../controls.module.css';
+}
+.textBtn {
+  composes: textBtn from '../controls.module.css';
+}
+.count {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
+}
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+/* `<legend>` (Kategorier) and `<h3>` (Enkelte felter, Rækkefølge) must read
+ * identically. `fieldLabel` covers size/weight/caps/tracking/colour, but a
+ * bare <h3> also matches base.css's h1–h4 rule (display font, tight leading)
+ * that `<legend>` never does — reset those two here so the element choice
+ * stops being visible. */
+.heading {
+  composes: fieldLabel from '../controls.module.css';
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-sans);
+  line-height: var(--line-height-normal);
+}
+.categories {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+  gap: var(--space-1) var(--space-3);
+}
+.check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+}
+.muted {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+.hits,
+.order {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.hit {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-sunken);
+  font-size: var(--font-size-sm);
+}
+.member {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+.dragging {
+  opacity: 0.5;
+}
+.grip {
+  color: var(--color-text-faint);
+  cursor: grab;
+}
+.memberMain {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+}
+.memberName {
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+.gone .memberName {
+  text-decoration: line-through;
+  color: var(--color-text-faint);
+}
+.memberActions {
+  display: flex;
+  gap: var(--space-1);
+}
+.iconBtn {
+  composes: btnGhost from '../controls.module.css';
+  min-width: 2rem;
+  padding-inline: var(--space-1);
+}
+/* Read aloud after a keyboard reorder, not shown. */
+.srOnly {
+  composes: srOnly from '../miljoe/StageChain.module.css';
+}

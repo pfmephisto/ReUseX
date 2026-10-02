@@ -408,7 +408,11 @@ tree — if a doc mentions `RTABMapDatabase`, that doc is stale.
   (chunked, schema v12 — `rux create gsplat` writes here, #322), sensor frames
   (color/depth/confidence/pose/intrinsics), panoramic images,
   `segmentation_images`, building components, material passports,
-  instance↔material links, and the pipeline log
+  instance↔material links, and the pipeline log. Schema v25 turned
+  materials into **resources** (one passport per survey part) and replaced
+  `export_templates` with a `templates` table selecting resource keys by
+  category or individually, read via `resource_templates()`
+  (`core/resource_templates.hpp`)
 - Migrating schema; `LATEST_SCHEMA_VERSION` is defined in
   `src/core/ProjectDB.cpp` — read it there rather than trusting a doc (it moves
   most releases)
@@ -467,7 +471,7 @@ Top-level commands, as registered in `apps/rux/src/rux.cpp`:
 | `view` | — (interactive viewer, needs a display) | `src/view/` |
 | `render` | — (headless render to PNG: `--view top\|plan[:h]\|front\|orbit:N\|frame:<id>`) | `src/render.cpp` |
 | `assemble` | — (multi-scan assembly) | `src/assemble.cpp` |
-| `gui` | — (serves the web frontend over the REST + WebSocket contract in `docs/gui/openapi.yaml`; `--bind`/`--allow-origin` to reach On-site from a phone on the LAN, with no authentication) | `src/gui.cpp` |
+| `gui` | — (serves the web frontend over the REST + WebSocket contract in `docs/gui/openapi.yaml`; `--bind`/`--allow-origin` to serve it beyond localhost, with no authentication) | `src/gui.cpp` |
 
 `create`, `import`, `export`, `edit`, `analyze`, `align` all
 `require_subcommand(1)`.

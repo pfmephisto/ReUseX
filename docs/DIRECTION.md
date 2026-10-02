@@ -190,6 +190,19 @@ changelog — that history is the point of keeping it in the repo.
 
 ## Direction changelog
 
+- **2026-10-02** — **GUI: resources, templates and navigation cleanup**
+  ([spec](superpowers/specs/2026-10-02-resources-templates-ia-design.md)).
+  Materials are now *resources* in the GUI: one per survey part, carrying any
+  number of key/value pairs, with the material passport as one set of keys
+  (schema v25). Project-stored **templates** select keys by category or one by
+  one; Kortlægning edits through them, the new **Skabeloner** page maintains
+  them (two seeds: Materialepas (fuld), Hurtig genbrugsscreening), and
+  **Rapport** exports CSV and a PDF Ressourcetabel through them. Eksport and
+  Materialedata are retired into Rapport and Kortlægning, Viewport moved into
+  the case section, and **On-site left `rux gui` and the backend** — it moves
+  to the future mobile app. xlsx export, a global template library and the
+  Excel-supplied category selection are deferred.
+
 - **2026-10-02** — **GUI application (#265): the prototype-v2 redesign is
   complete — Phases 1–6 have landed.** Phase 6 added Sager (the single-project
   case list `rux gui` can serve) and On-site (the phone sheet that writes ★, a

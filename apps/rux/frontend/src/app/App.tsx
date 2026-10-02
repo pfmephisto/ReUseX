@@ -14,11 +14,11 @@ import {
   OVERBLIK_PATH,
   PROJEKTDATA_PATH,
   RAPPORT_PATH,
+  SKABELONER_PATH,
 } from './links';
 import { ALL_CASES_PATH, REDIRECTS } from './navigation';
 import { Dashboard } from '../routes/Dashboard';
 import { LabelsPage } from '../routes/DataPage';
-import { ExportPage } from '../routes/ExportPage';
 import { FramesPage } from '../routes/FramesPage';
 import { GeometryPage } from '../routes/GeometryPage';
 import { GraphViewPage } from '../routes/GraphViewPage';
@@ -31,6 +31,7 @@ import { PipelineLogPage } from '../routes/PipelineLogPage';
 import { PipelinePage } from '../routes/PipelinePage';
 import { RapportPage } from '../routes/RapportPage';
 import { SagerPage } from '../routes/SagerPage';
+import { SkabelonerPage } from '../routes/SkabelonerPage';
 import { ViewportPage } from '../routes/ViewportPage';
 
 /**
@@ -80,6 +81,7 @@ function RoutedContent() {
           <Route path={KORTLAEGNING_PATH} element={<KortlaegningPage />} />
           <Route path={MILJOE_PATH} element={<MiljoePage />} />
           <Route path={RAPPORT_PATH} element={<RapportPage />} />
+          <Route path={SKABELONER_PATH} element={<SkabelonerPage />} />
           <Route path={INDBERETNING_PATH} element={<IndberetningPage />} />
           <Route path="/pipeline" element={<PipelinePage />} />
           <Route path="/pipeline/log" element={<PipelineLogPage />} />
@@ -88,7 +90,6 @@ function RoutedContent() {
           <Route path="/geometry" element={<GeometryPage />} />
           <Route path="/instances" element={<InstancesPage />} />
           <Route path="/labels" element={<LabelsPage />} />
-          <Route path="/export" element={<ExportPage />} />
           {REDIRECTS.map((r) => (
             <Route key={r.from} path={r.from} element={<Navigate to={r.to} replace />} />
           ))}

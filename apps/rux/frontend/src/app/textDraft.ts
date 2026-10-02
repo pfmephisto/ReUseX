@@ -78,3 +78,15 @@ export function leaveCommit<T = string>(
   if (!state.focused || state.reverted) return { send: false, invalid: false };
   return decideDraft(state.draft, state.current, mode);
 }
+
+/**
+ * Whether a reset signal drops the draft now. The page bumps a per-field
+ * counter (`reset`) after it refused that field's commit, and the field then
+ * shows the server value again — without remounting, because a remount of a
+ * focused field would commit what is being typed (`leaveCommit`) and steal
+ * focus. A focused field is therefore never reset: the user is already typing
+ * something new. The signal is consumed either way, so it never fires later.
+ */
+export function draftResets(seen: number, token: number, focused: boolean): boolean {
+  return token !== seen && !focused;
+}

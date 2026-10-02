@@ -10,9 +10,10 @@
 
 import { ApiRequestError } from '../api/client';
 import { parseServerUtc } from '../api/types';
-import type { ReportPdfVersion, SurveyFractions, SurveySummary } from '../api/types';
+import type { ReportPdfVersion, SurveyFractions, SurveySummary, Template } from '../api/types';
 import { errorMessage } from '../app/saveError';
 import type { Tone } from '../kortlaegning/vocab';
+import { pickTemplate } from '../kortlaegning/templatePick';
 import { percentText } from '../overblik/model';
 
 /** "09.08.2026" in local time; the raw string when it does not parse. */
@@ -118,3 +119,52 @@ export const LIST_REFRESH_FAILED = 'Rapporten blev genereret, men listen kunne i
 /** The prototype's footnote without the MRK signature, which nothing models (R7). */
 export const REPORT_FOOTNOTE =
   'Kun godkendte mængder indgår i rapportens kortlægningsafsnit. Versioner er uforanderlige — en ny generering giver en ny version med tidsstempel. Inventarlisten er en aktuel eksport og gemmes ikke som version.';
+
+/** The select value for "Ingen" (no Ressourcetabel). */
+export const NO_TEMPLATE = '';
+
+export function parseTemplateChoice(value: string): number | null {
+  return /^\d+$/.test(value) && Number(value) > 0 ? Number(value) : null;
+}
+
+/** The choice if its template still exists, else null (R10). */
+export function validChoice(templates: readonly Pick<Template, 'id'>[], id: number | null): number | null {
+  return id !== null && templates.some((t) => t.id === id) ? id : null;
+}
+
+/**
+ * Data-eksport's default: the screening seed, else the first template (R10).
+ * Delegates to Kortlægning's `pickTemplate` (spec §6.1) so both pickers share
+ * one rule; only `id`/`seed` are read, so a narrower fixture is accepted.
+ * `seed` is typed as plain `string | null` rather than `Template['seed']`
+ * (`TemplateSeed | null`) because an inline test fixture's string-literal
+ * properties widen to `string`, and the comparison inside `pickTemplate`
+ * never needs the narrower type.
+ */
+export function defaultExportTemplateId(
+  templates: readonly (Pick<Template, 'id'> & { seed: string | null })[],
+): number | null {
+  return pickTemplate(templates as readonly Template[], null)?.id ?? null;
+}
+
+export function ressourcetabelHint(t: Pick<Template, 'name' | 'resolved_keys'> | null): string {
+  if (!t) return 'Rapporten genereres uden ressourcetabel.';
+  const n = t.resolved_keys.length;
+  if (n === 0) return `Skabelonen "${t.name}" har ingen felter — tabellen bliver tom.`;
+  return `Ressourcetabel med ${n === 1 ? '1 felt' : `${n} felter`} fra "${t.name}".`;
+}
+
+/**
+ * What a settled CSV-option write does to the page's optimistic template
+ * copy. Only the newest write per template decides (its ticket is still the
+ * latest): its success applies the server's template, its failure re-reads
+ * (or reverts). An older write — success or failure — is ignored, because a
+ * newer edit is already showing and was built on top of it; that edit's own
+ * outcome settles the final state.
+ */
+export type CsvWriteOutcome = 'apply' | 'reconcile' | 'ignore';
+
+export function csvWriteOutcome(isLatest: boolean, ok: boolean): CsvWriteOutcome {
+  if (!isLatest) return 'ignore';
+  return ok ? 'apply' : 'reconcile';
+}

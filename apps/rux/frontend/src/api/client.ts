@@ -30,7 +30,6 @@ import type {
   DescriptorMatchResult,
   DescriptorMethod,
   EndpointInfo,
-  ExportTemplate,
   FrameInfo,
   FrameImageKind,
   FrameList,
@@ -73,6 +72,7 @@ import type {
   SamplePatch,
   StageInfo,
   Template,
+  TemplateCreate,
   TemplatePatch,
   Survey,
   SurveyFractions,
@@ -218,8 +218,12 @@ function pointsQuery(options: CloudPointsQuery): Query {
  * The contract says every non-2xx body is an `Error` object with a non-empty
  * `error`. A server that is wedged badly enough may not manage that, so this
  * degrades to the status text rather than throwing while building a throw.
+ *
+ * Exported so a caller that downloads a non-JSON response directly (a CSV,
+ * say) with its own `fetch` can read the same error shape on a non-OK
+ * response, instead of saving the error body as if it were the file.
  */
-async function describeFailure(response: Response): Promise<string> {
+export async function describeFailure(response: Response): Promise<string> {
   try {
     const body = (await response.json()) as { error?: unknown };
     if (typeof body?.error === 'string' && body.error.length > 0) return body.error;
@@ -945,6 +949,11 @@ export class RuxApiClient {
     return body.templates;
   }
 
+  /** Create a template. A duplicate name is a 409. */
+  createTemplate(body: TemplateCreate, signal?: AbortSignal): Promise<Template> {
+    return this.postJson<Template>('/templates', body, signal);
+  }
+
   /** Copy a template as "<name> (kopi)" (numeric suffix until unique). */
   duplicateTemplate(id: number): Promise<Template> {
     return this.postJson<Template>(`/templates/${id}/duplicate`);
@@ -953,6 +962,21 @@ export class RuxApiClient {
   /** Sparse edit of name / members / csv. A duplicate name is a 409. */
   patchTemplate(id: number, patch: TemplatePatch): Promise<Template> {
     return this.patchJson<Template>(`/templates/${id}`, patch);
+  }
+
+  /** Delete a template. The server answers 204 (no body). */
+  async deleteTemplate(id: number): Promise<void> {
+    await this.deleteNoContent(`/templates/${id}`);
+  }
+
+  /** Re-insert any missing seed template (materialepas, screening). Re-list afterwards. */
+  async restoreSeedTemplates(signal?: AbortSignal): Promise<void> {
+    await this.postJson<unknown>('/templates/restore-seeds', {}, signal);
+  }
+
+  /** The resources CSV for one template. Fetched directly (not through this client) so a non-OK response can be read as an error rather than saved as the file. */
+  resourcesExportCsvUrl(templateId: number): string {
+    return this.url('/resources/export.csv', { template: templateId });
   }
 
   // -------------------------------------------------------- instances ----
@@ -1067,12 +1091,15 @@ export class RuxApiClient {
    * Generate a Ressourcekortlægning PDF server-side and store it.
    *
    * Invokes `typst compile` on the server, stores the PDF in the project
-   * database, and returns the new version metadata. Writer-locked: a 409
-   * means a pipeline stage is holding the lock; a 503 means a transient
-   * busy — the `ApiRequestError` properties distinguish the two.
+   * database, and returns the new version metadata. `templateId` adds a
+   * Ressourcetabel section built from that template's columns; null or
+   * omitted leaves it out. Writer-locked: a 409 means a pipeline stage is
+   * holding the lock; a 503 means a transient busy — the `ApiRequestError`
+   * properties distinguish the two.
    */
-  generateReport(signal?: AbortSignal): Promise<ReportPdfVersion> {
-    return this.postJson<ReportPdfVersion>('/reports/ressourcekortlaegning', {}, signal);
+  generateReport(templateId?: number | null, signal?: AbortSignal): Promise<ReportPdfVersion> {
+    const body = templateId == null ? {} : { resource_template_id: templateId };
+    return this.postJson<ReportPdfVersion>('/reports/ressourcekortlaegning', body, signal);
   }
 
   /**
@@ -1116,39 +1143,6 @@ export class RuxApiClient {
       '/exports/csv',
       columns && columns.length > 0 ? { columns: columns.join(',') } : undefined,
     );
-  }
-
-  // ------------------------------------------------ export-templates ----
-
-  async listExportTemplates(signal?: AbortSignal): Promise<ExportTemplate[]> {
-    const body = await this.requestJson<{ templates: ExportTemplate[] }>(
-      '/export-templates',
-      undefined,
-      signal,
-    );
-    return body.templates;
-  }
-
-  createExportTemplate(
-    name: string,
-    config: { columns?: string[] },
-  ): Promise<ExportTemplate> {
-    return this.postJson<ExportTemplate>('/export-templates', { name, config });
-  }
-
-  updateExportTemplate(
-    id: number,
-    patch: { name?: string; config?: { columns?: string[] } },
-  ): Promise<ExportTemplate> {
-    return this.patchJson<ExportTemplate>(`/export-templates/${id}`, patch);
-  }
-
-  async deleteExportTemplate(id: number): Promise<void> {
-    const url = this.url(`/export-templates/${id}`);
-    const response = await this.doFetch(url, { method: 'DELETE' });
-    if (!response.ok) {
-      throw new ApiRequestError(response.status, await describeFailure(response), url);
-    }
   }
 
   // -------------------------------------------------------- websocket ----

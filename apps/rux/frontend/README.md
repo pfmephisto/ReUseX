@@ -153,12 +153,13 @@ src/
 │                 kortlaegning/ (SurveyTable, EvidencePanel, DetailPanel,
 │                 EditDialog, SampleLine), miljoe/ (StageChain, LinkPicker,
 │                 SampleCard, NewSampleForm), overblik/ (CaseHero, KpiRow,
-│                 QuickLinks, ProjectMetaForm), rapport/ (VersionList),
-│                 indberetning/ (FractionTable), and sager/ (CaseCard) — plus the
-│                 shared controls.module.css (buttons, fields and the
-│                 crossLink every cross-screen link composes) and
-│                 surfaces.module.css (panels and notices) every case screen
-│                 composes from
+│                 QuickLinks, ProjectMetaForm), skabeloner/ (TemplateList,
+│                 TemplateEditor, ColumnList), rapport/ (DataExportPanel,
+│                 TemplateSelect, VersionList), indberetning/ (FractionTable),
+│                 and sager/ (CaseCard) — plus the shared controls.module.css
+│                 (buttons, fields and the crossLink every cross-screen link
+│                 composes) and surfaces.module.css (panels and notices)
+│                 every case screen composes from
 ├── kortlaegning/ Pure modules for the Kortlægning workbench: vocab.ts
 │                 (Danish labels, number formatting), model.ts (tabs,
 │                 filters, selection, row flattening, initialViewFor for a
@@ -169,9 +170,17 @@ src/
 ├── overblik/     Pure module for Overblik: model.ts (circularity percents,
 │                 the KPI row, quick links, the hero's subline and its
 │                 metadata-editor commits)
-├── rapport/      Pure module for Rapport: model.ts (version date/size
+├── skabeloner/   Pure modules for Skabeloner: model.ts (template CRUD copy,
+│                 the duplicate/rename/delete flow, the resolved-count line),
+│                 members.ts (category/key editing, the local port of the
+│                 server's resolve_template, catalogue search), columns.ts
+│                 (Egne felter: rename, option-list and delete copy for user
+│                 columns)
+├── rapport/      Pure modules for Rapport: model.ts (version date/size
 │                 formatting, the Komplet/Udkast pill from the stored
-│                 blocking count, the draft notice and generation toasts)
+│                 blocking count, the draft notice and generation toasts, the
+│                 Ressourcetabel choice), csvOptions.ts (the Data-eksport CSV
+│                 options and download-filename parsing)
 ├── indberetning/ Pure module for Indberetning: model.ts (the fraction table,
 │                 the blocking-list notice, the send gate)
 ├── sager/        Pure module for Sager: model.ts (case status, card stats and
@@ -181,7 +190,7 @@ src/
 │                 (params), and the pipeline_log timeline (history)
 ├── routes/       Page-level compositions (OverblikPage, Dashboard — now at
 │                 `/projektdata` — PipelinePage, ViewportPage,
-│                 KortlaegningPage, MiljoePage, RapportPage,
+│                 KortlaegningPage, MiljoePage, SkabelonerPage, RapportPage,
 │                 IndberetningPage, SagerPage), plus the shared
 │                 viewHead.module.css a case screen's header composes from
 ├── viewport/     three.js point-cloud rendering: PointCloudScene, the paged
@@ -195,8 +204,10 @@ src/
 `/` is Overblik, the case landing page; the old dashboard/inventory screen
 lives at `/projektdata` now (a `Værktøjer` entry).
 `/sager` lists the one open case. Below 900px the sidebar is a drawer.
-Retired paths (`/on-site`, `/onsite`, `/materials`) redirect to Kortlægning;
-see `REDIRECTS` in `src/app/navigation.ts`. Materialedata (`MaterialsPage`,
-`MaterialTable`) is gone — its data lives under Alle egenskaber on
-Kortlægning now. Eksport (`/export`) is still off the sidebar and reachable
-by URL until Rapport takes it over.
+Retired paths (`/on-site`, `/onsite`, `/materials`, `/export`) redirect to
+Kortlægning (the first three) or Rapport (`/export`); see `REDIRECTS` in
+`src/app/navigation.ts`. Materialedata (`MaterialsPage`, `MaterialTable`) is
+gone — its data lives under Alle egenskaber on Kortlægning now. Eksport
+(`ExportPage`) is gone too — Rapport's Data-eksport panel (`DataExportPanel`)
+replaced it, backed by Skabeloner (`/skabeloner`, `SkabelonerPage`), which
+manages the resource templates both screens read.

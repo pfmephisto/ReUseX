@@ -79,12 +79,7 @@ export const NAV_ENTRIES: readonly NavEntry[] = [
   { to: MILJOE_PATH, label: 'Miljø & prøver', group: 'sag', badge: 'pendingSamples' },
   { to: RAPPORT_PATH, label: 'Rapport', group: 'sag' },
   { to: INDBERETNING_PATH, label: 'Indberetning', group: 'sag' },
-  {
-    to: SKABELONER_PATH,
-    label: 'Skabeloner',
-    group: 'sag',
-    pending: 'Skabeloner er på vej — her samler du felter, du bruger igen og igen.',
-  },
+  { to: SKABELONER_PATH, label: 'Skabeloner', group: 'sag' },
 
   { to: PROJEKTDATA_PATH, label: 'Projektdata', group: 'tools' },
   { to: '/graph-view', label: 'Posegraf', group: 'tools' },
@@ -113,6 +108,7 @@ export const REDIRECTS: readonly Redirect[] = [
   { from: '/on-site', to: KORTLAEGNING_PATH },
   { from: '/onsite', to: KORTLAEGNING_PATH },
   { from: '/materials', to: KORTLAEGNING_PATH },
+  { from: '/export', to: RAPPORT_PATH },
 ];
 
 export function entriesIn(group: NavGroup): NavEntry[] {

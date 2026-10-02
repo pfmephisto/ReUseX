@@ -123,3 +123,7 @@
   min-width: 2rem;
   padding-inline: var(--space-1);
 }
+/* Read aloud after a keyboard reorder, not shown. */
+.srOnly {
+  composes: srOnly from '../miljoe/StageChain.module.css';
+}

@@ -11,6 +11,7 @@ import {
   deleteConfirmText,
   isNameConflict,
   missingSeeds,
+  moveAnnouncement,
   nextTemplateName,
   replaceTemplate,
   restoreSeedsTitle,
@@ -123,5 +124,12 @@ describe('createLatestGate (R3)', () => {
     expect(gate.isLatest(1, a)).toBe(false);
     expect(gate.isLatest(1, b)).toBe(true);
     expect(gate.isLatest(2, other)).toBe(true);
+  });
+});
+
+describe('moveAnnouncement', () => {
+  it('names the row and its new 1-based place', () => {
+    expect(moveAnnouncement('EAK', 0, 5)).toBe('«EAK» flyttet til plads 1 af 5');
+    expect(moveAnnouncement('Fire', 4, 5)).toBe('«Fire» flyttet til plads 5 af 5');
   });
 });

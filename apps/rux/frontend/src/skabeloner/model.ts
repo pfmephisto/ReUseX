@@ -23,6 +23,11 @@ export function countLine(n: number): string {
   return n === 1 ? '1 felt' : `${n} felter`;
 }
 
+/** What a screen reader hears after a keyboard reorder (`to` is 0-based). */
+export function moveAnnouncement(label: string, to: number, total: number): string {
+  return `«${label}» flyttet til plads ${to + 1} af ${total}`;
+}
+
 export function seedLabel(seed: string | null): string | null {
   return seed ? 'Standard' : null;
 }

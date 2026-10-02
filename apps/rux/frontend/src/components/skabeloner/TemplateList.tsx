@@ -2,9 +2,8 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useEffect, useState } from 'react';
-
 import type { ResourceKey, Template } from '../../api/types';
+import { useArmedConfirm } from '../../app/useArmedConfirm';
 import { resolveMembers } from '../../skabeloner/members';
 import { countLine, deleteConfirmText, restoreSeedsTitle, seedLabel } from '../../skabeloner/model';
 import { Pill } from '../Pill';
@@ -28,13 +27,14 @@ export interface TemplateListProps {
 /**
  * The template list and its actions (spec §6.2). Actions act on the selected
  * row. "Slet" is a two-click confirm like Kortlægning's DetailPanel: the
- * first click arms it and says what will happen, the second deletes.
+ * first click arms it and says what will happen, the second deletes. Escape,
+ * a press elsewhere, a busy page or another selection disarms it.
  */
 export function TemplateList(p: TemplateListProps) {
   const sel = p.selectedId;
   const selected = p.templates.find((t) => t.id === sel) ?? null;
-  const [armed, setArmed] = useState(false);
-  useEffect(() => setArmed(false), [sel]);
+  const confirm = useArmedConfirm<number>(p.busy, sel);
+  const armed = sel !== null && confirm.armed === sel;
 
   return (
     <aside className={styles.panel} aria-label="Skabeloner">
@@ -82,16 +82,16 @@ export function TemplateList(p: TemplateListProps) {
           type="button"
           className={styles.btnDanger}
           disabled={sel === null || p.busy}
-          onClick={() => {
+          onClick={(e) => {
             if (sel === null) return;
             if (!armed) {
-              setArmed(true);
+              confirm.arm(sel, e.currentTarget);
               return;
             }
-            setArmed(false);
+            confirm.disarm();
             p.onDelete(sel);
           }}
-          onBlur={() => setArmed(false)}
+          onBlur={confirm.disarm}
         >
           {armed ? 'Bekræft: slet' : 'Slet'}
         </button>

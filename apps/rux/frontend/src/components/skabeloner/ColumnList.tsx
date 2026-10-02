@@ -2,9 +2,10 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useRef, useState, type RefObject } from 'react';
+import { useRef, type RefObject } from 'react';
 
 import type { PropertyDefinition } from '../../api/types';
+import { useArmedConfirm } from '../../app/useArmedConfirm';
 import { fieldKeys, useTextDraft } from '../../app/useTextDraft';
 import { columnDeleteConfirm, columnKindLabel, hasOptions, optionsText } from '../../skabeloner/columns';
 import styles from './ColumnList.module.css';
@@ -16,9 +17,10 @@ export interface ColumnListProps {
   errors: Readonly<Record<string, string>>;
   /**
    * Bumped per field (`<id>:name`, `<id>:options`) when its commit was
-   * refused, so that field drops its draft and shows the server value (R4-D1).
+   * refused, so that field drops its draft and shows the server value —
+   * unless it is focused again by then (`draftResets`, R4-D1).
    */
-  epochs: Readonly<Record<string, number>>;
+  resets: Readonly<Record<string, number>>;
   onRename: (column: PropertyDefinition, name: string) => void;
   onOptions: (column: PropertyDefinition, text: string) => void;
   onDelete: (column: PropertyDefinition) => void;
@@ -28,16 +30,17 @@ interface DraftFieldProps {
   value: string;
   label: string;
   home: RefObject<HTMLElement | null>;
+  reset: number;
   onCommit: (value: string) => void;
 }
 
-function NameField({ value, label, home, onCommit }: DraftFieldProps) {
-  const draft = useTextDraft(value, onCommit, { required: true });
+function NameField({ value, label, home, reset, onCommit }: DraftFieldProps) {
+  const draft = useTextDraft(value, onCommit, { required: true, reset });
   return <input className={styles.input} aria-label={label} {...draft.props} onKeyDown={fieldKeys(draft, home)} />;
 }
 
-function OptionsField({ value, label, home, onCommit }: DraftFieldProps) {
-  const draft = useTextDraft(value, onCommit);
+function OptionsField({ value, label, home, reset, onCommit }: DraftFieldProps) {
+  const draft = useTextDraft(value, onCommit, { reset });
   return (
     <label className={styles.field}>
       <span className={styles.fieldLabel}>{label}</span>
@@ -56,11 +59,11 @@ function OptionsField({ value, label, home, onCommit }: DraftFieldProps) {
  * "Egne felter" (R4-EF): the project's user columns — rename, edit a choice
  * column's options, delete. Fields commit on blur through the page; "Slet" is
  * a two-click confirm like TemplateList's, armed per column, disarmed on
- * blur or Esc.
+ * blur, Esc, a press elsewhere or a busy page (`useArmedConfirm`).
  */
-export function ColumnList({ columns, busy, errors, epochs, onRename, onOptions, onDelete }: ColumnListProps) {
+export function ColumnList({ columns, busy, errors, resets, onRename, onOptions, onDelete }: ColumnListProps) {
   const home = useRef<HTMLElement | null>(null);
-  const [armed, setArmed] = useState<string | null>(null);
+  const confirm = useArmedConfirm<string>(busy, null);
 
   return (
     <section ref={home} tabIndex={-1} className={styles.panel} aria-labelledby="egne-felter-heading">
@@ -72,14 +75,14 @@ export function ColumnList({ columns, busy, errors, epochs, onRename, onOptions,
       ) : (
         <ul className={styles.list}>
           {columns.map((c) => {
-            const isArmed = armed === c.id;
+            const isArmed = confirm.armed === c.id;
             const error = errors[c.id];
             return (
               <li key={c.id} className={styles.row}>
                 <span className={styles.kind}>{columnKindLabel(c.type)}</span>
                 <div className={styles.line}>
                   <NameField
-                    key={epochs[`${c.id}:name`] ?? 0}
+                    reset={resets[`${c.id}:name`] ?? 0}
                     value={c.name}
                     label={`Navn på feltet ${c.name}`}
                     home={home}
@@ -90,29 +93,22 @@ export function ColumnList({ columns, busy, errors, epochs, onRename, onOptions,
                     className={styles.btnDanger}
                     disabled={busy}
                     aria-label={isArmed ? `Bekræft: slet ${c.name}` : `Slet ${c.name}`}
-                    onClick={() => {
+                    onClick={(e) => {
                       if (!isArmed) {
-                        setArmed(c.id);
+                        confirm.arm(c.id, e.currentTarget);
                         return;
                       }
-                      setArmed(null);
+                      confirm.disarm();
                       onDelete(c);
                     }}
-                    onBlur={() => setArmed((a) => (a === c.id ? null : a))}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Escape' && isArmed) {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setArmed(null);
-                      }
-                    }}
+                    onBlur={() => isArmed && confirm.disarm()}
                   >
                     {isArmed ? 'Bekræft: slet' : 'Slet'}
                   </button>
                 </div>
                 {hasOptions(c.type) && (
                   <OptionsField
-                    key={epochs[`${c.id}:options`] ?? 0}
+                    reset={resets[`${c.id}:options`] ?? 0}
                     value={optionsText(c.options)}
                     label="Valgmuligheder"
                     home={home}

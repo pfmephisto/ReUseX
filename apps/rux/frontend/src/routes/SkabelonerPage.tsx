@@ -46,14 +46,15 @@ export function SkabelonerPage() {
   const [templates, setTemplatesState] = useState<Template[] | null>(null);
   const [keys, setKeys] = useState<ResourceKey[]>([]);
   const [columns, setColumns] = useState<PropertyDefinition[]>([]);
-  // Egne felter: an inline error per column id, and a re-key counter per refused field (R4-D1).
+  // Egne felter: an inline error per column id, and a reset counter per refused field (R4-D1).
   const [columnErrors, setColumnErrors] = useState<Record<string, string>>({});
-  const [columnEpochs, setColumnEpochs] = useState<Record<string, number>>({});
+  const [columnResets, setColumnResets] = useState<Record<string, number>>({});
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const nameRef = useRef<HTMLInputElement | null>(null);
   const [focusName, setFocusName] = useState(false);
-  // Bumped when a rename fails, so the name field drops its draft and shows the server name (R4-D1).
-  const [nameEpoch, setNameEpoch] = useState(0);
+  // Bumped per template when its rename fails, so its name field shows the server name again
+  // unless the user is typing in it (draftResets, R4-D1).
+  const [nameResets, setNameResets] = useState<Record<number, number>>({});
   const [gate] = useState(createLatestGate);
   const [creating] = useState(createOnceGuard);
   // The newest list, for queued tasks whose render-time closure may be stale (R4-D7).
@@ -119,7 +120,7 @@ export function SkabelonerPage() {
           prev ? prev.map((t) => (t.id === id ? { ...t, name: saved.name, updated_at: saved.updated_at } : t)) : prev,
         );
       } catch (cause) {
-        setNameEpoch((n) => n + 1);
+        setNameResets((prev) => ({ ...prev, [id]: (prev[id] ?? 0) + 1 }));
         throw cause;
       }
     });
@@ -161,9 +162,9 @@ export function SkabelonerPage() {
       return next;
     });
 
-  /** Re-key one column field so it drops its draft and shows the server value (R4-D1). */
+  /** Reset one column field so it drops its draft and shows the server value (R4-D1). */
   const snapBack = (id: string, field: 'name' | 'options') =>
-    setColumnEpochs((prev) => ({ ...prev, [`${id}:${field}`]: (prev[`${id}:${field}`] ?? 0) + 1 }));
+    setColumnResets((prev) => ({ ...prev, [`${id}:${field}`]: (prev[`${id}:${field}`] ?? 0) + 1 }));
 
   /** A refused field commit: say why next to the row and snap the field back. */
   const refuse = (id: string, field: 'name' | 'options', message: string) => {
@@ -278,7 +279,7 @@ export function SkabelonerPage() {
               template={selected}
               keys={keys}
               nameRef={nameRef}
-              nameEpoch={nameEpoch}
+              nameReset={nameResets[selected.id] ?? 0}
               onRename={(name) => onRename(selected.id, name)}
               onMembers={(next) => onMembers(selected.id, next)}
             />
@@ -298,7 +299,7 @@ export function SkabelonerPage() {
             columns={columns}
             busy={busy}
             errors={columnErrors}
-            epochs={columnEpochs}
+            resets={columnResets}
             onRename={onRenameColumn}
             onOptions={onColumnOptions}
             onDelete={onDeleteColumn}

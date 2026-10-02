@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent, type RefObject } from 'react';
 
 import { fieldKeyAction } from './editorKeys';
-import { decideDraft, leaveCommit, type DraftCommit, type DraftValidate } from './textDraft';
+import { decideDraft, draftResets, leaveCommit, type DraftCommit, type DraftValidate } from './textDraft';
 
 export interface TextDraft {
   props: {
@@ -23,12 +23,16 @@ export interface DraftOptions<T> {
   validate: DraftValidate<T>;
   /** Called when a blur finds the draft invalid; the draft then snaps back. */
   onInvalid?: () => void;
+  /** Bump to drop the draft after a refused commit (`draftResets`). */
+  reset?: number;
 }
 
 /** A plain text field; `onInvalid` fires when a required field was emptied. */
 export interface TextOptions {
   required?: boolean;
   onInvalid?: () => void;
+  /** Bump to drop the draft after a refused commit (`draftResets`). */
+  reset?: number;
 }
 
 /**
@@ -47,7 +51,8 @@ export interface TextOptions {
  * If the commit fails, the caller shows an error toast and this hook does
  * nothing extra: the unsaved draft simply stays in the field (it was never
  * reset, because `current` on the server did not change), and the next blur
- * retries the same commit (D14, accepted for v1).
+ * retries the same commit (D14, accepted for v1) — unless the caller bumps
+ * `reset`, which snaps an unfocused field back to `current`.
  */
 export function useTextDraft(
   current: string,
@@ -67,6 +72,14 @@ export function useTextDraft<T>(
   useEffect(() => {
     if (!focused.current) setDraft(current);
   }, [current]);
+
+  // A refused commit: show the server value again, unless the user is typing (draftResets).
+  const resetToken = typeof options === 'object' ? (options.reset ?? 0) : 0;
+  const seenReset = useRef(resetToken);
+  useEffect(() => {
+    if (draftResets(seenReset.current, resetToken, focused.current)) setDraft(current);
+    seenReset.current = resetToken;
+  }, [resetToken]);
 
   function decide(): DraftCommit<T> {
     return decideDraft<T>(draft, current, options);

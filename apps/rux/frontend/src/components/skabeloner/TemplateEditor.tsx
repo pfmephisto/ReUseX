@@ -18,15 +18,18 @@ import {
   searchKeys,
   toggleCategory,
 } from '../../skabeloner/members';
-import { countLine } from '../../skabeloner/model';
+import { countLine, moveAnnouncement } from '../../skabeloner/model';
 import styles from './TemplateEditor.module.css';
 
 export interface TemplateEditorProps {
   template: Template;
   keys: ResourceKey[];
   nameRef: RefObject<HTMLInputElement | null>;
-  /** Bumped by the page when a rename failed: the name field drops its draft (R4-D1). */
-  nameEpoch: number;
+  /**
+   * Bumped by the page when this template's rename failed: the name field
+   * shows the server name again, unless it is focused (`draftResets`, R4-D1).
+   */
+  nameReset: number;
   onRename: (name: string) => void;
   onMembers: (next: TemplateMember[]) => void;
 }
@@ -35,12 +38,13 @@ interface NameFieldProps {
   name: string;
   inputRef: RefObject<HTMLInputElement | null>;
   home: RefObject<HTMLElement | null>;
+  reset: number;
   onRename: (name: string) => void;
 }
 
-/** The name input; re-keyed by the editor so a failed rename snaps back to the server name. */
-function NameField({ name, inputRef, home, onRename }: NameFieldProps) {
-  const draft = useTextDraft(name, onRename, { required: true });
+/** The name input. A failed rename snaps it back through `reset`, never by a remount. */
+function NameField({ name, inputRef, home, reset, onRename }: NameFieldProps) {
+  const draft = useTextDraft(name, onRename, { required: true, reset });
   return (
     <label className={styles.field}>
       <span className={styles.fieldLabel}>Navn</span>
@@ -67,11 +71,13 @@ function rowKeys(members: readonly TemplateMember[]): string[] {
  * buttons, and focus follows the moved row's button (the other arrow once
  * the row reaches an end of the list).
  */
-export function TemplateEditor({ template, keys, nameRef, nameEpoch, onRename, onMembers }: TemplateEditorProps) {
+export function TemplateEditor({ template, keys, nameRef, nameReset, onRename, onMembers }: TemplateEditorProps) {
   const members = template.members;
   const home = useRef<HTMLElement | null>(null);
   const [query, setQuery] = useState('');
-  const [dragFrom, setDragFrom] = useState<number | null>(null);
+  // The dragged row, by its row key (not its index, which a response could shift mid-drag).
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [announcement, setAnnouncement] = useState('');
   const moveRefs = useRef(new Map<string, HTMLButtonElement | null>());
 
   const resolved = resolveMembers(members, keys);
@@ -84,6 +90,7 @@ export function TemplateEditor({ template, keys, nameRef, nameEpoch, onRename, o
     if (next === members) return;
     const id = ids[from];
     onMembers(next);
+    setAnnouncement(moveAnnouncement(memberLabel(members[from], keys).label, to, members.length));
     requestAnimationFrame(() => {
       const other = dir === 'up' ? 'down' : 'up';
       const target = moveRefs.current.get(`${id}:${dir}`);
@@ -91,15 +98,17 @@ export function TemplateEditor({ template, keys, nameRef, nameEpoch, onRename, o
     });
   };
 
+  const drop = (to: number) => {
+    const from = dragId === null ? -1 : ids.indexOf(dragId);
+    setDragId(null);
+    if (from === -1) return;
+    const next = moveMember(members, from, to);
+    if (next !== members) onMembers(next); // a drop on its own place sends nothing
+  };
+
   return (
     <section ref={home} tabIndex={-1} className={styles.panel} aria-label={`Skabelon ${template.name}`}>
-      <NameField
-        key={nameEpoch}
-        name={template.name}
-        inputRef={nameRef}
-        home={home}
-        onRename={onRename}
-      />
+      <NameField name={template.name} inputRef={nameRef} home={home} reset={nameReset} onRename={onRename} />
 
       <p className={styles.count} aria-live="polite">
         {countLine(resolved.keys.length)}
@@ -163,10 +172,10 @@ export function TemplateEditor({ template, keys, nameRef, nameEpoch, onRename, o
               return (
                 <li
                   key={id}
-                  className={`${styles.member} ${dragFrom === i ? styles.dragging : ''}`}
+                  className={`${styles.member} ${dragId === id ? styles.dragging : ''}`}
                   draggable
                   onDragStart={(e) => {
-                    setDragFrom(i);
+                    setDragId(id);
                     e.dataTransfer.effectAllowed = 'move';
                     // Firefox starts no drag without data (R4-D5).
                     e.dataTransfer.setData('text/plain', memberId(m));
@@ -174,10 +183,9 @@ export function TemplateEditor({ template, keys, nameRef, nameEpoch, onRename, o
                   onDragOver={(e) => e.preventDefault()}
                   onDrop={(e) => {
                     e.preventDefault();
-                    if (dragFrom !== null) onMembers(moveMember(members, dragFrom, i));
-                    setDragFrom(null);
+                    drop(i);
                   }}
-                  onDragEnd={() => setDragFrom(null)}
+                  onDragEnd={() => setDragId(null)}
                 >
                   <span className={styles.grip} aria-hidden="true">
                     ⋮⋮
@@ -223,6 +231,9 @@ export function TemplateEditor({ template, keys, nameRef, nameEpoch, onRename, o
             })}
           </ol>
         )}
+        <p className={styles.srOnly} aria-live="polite">
+          {announcement}
+        </p>
       </div>
     </section>
   );

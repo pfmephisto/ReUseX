@@ -189,3 +189,61 @@ TEST_CASE("GuiResources_Columns_ConflictIs409", "[gui][resources][columns]") {
   CHECK(patch_material_column(db, a.at("id"), R"({"width":300})").at("width") ==
         300);
 }
+
+TEST_CASE("GuiTemplates_ListShape", "[gui][templates]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  const auto body = templates_json(db);
+  REQUIRE(body.at("templates").size() == 2);
+  const auto &s = body.at("templates")[1];
+  CHECK(s.at("name") == "Hurtig genbrugsscreening");
+  CHECK(s.at("seed") == "screening");
+  CHECK(s.at("members").size() == 11);
+  CHECK(s.at("members")[0] == json::parse(R"({"key":"sys:name"})"));
+  CHECK(s.at("resolved_keys").size() == 11);
+  CHECK(s.at("missing") == json::array());
+  CHECK(s.at("csv") == json::parse(R"({"delimiter":";","encoding":"utf-8-bom",
+        "header":"label"})"));
+  CHECK(body.at("templates")[0].at("seed") == "materialepas");
+}
+
+TEST_CASE("GuiTemplates_CrudAndStatuses", "[gui][templates]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  const auto t = create_template_json(
+      db, R"({"name":"Mit","members":[{"key":"sys:note"},{"key":"col:x"}]})");
+  const int64_t id = t.at("id");
+  CHECK(t.at("seed").is_null());
+  CHECK(t.at("missing") == json::parse(R"([{"key":"col:x"}])"));
+  CHECK(status_of([&] { create_template_json(db, R"({"name":"Mit"})"); }) ==
+        409);
+  CHECK(status_of([&] { create_template_json(db, R"({})"); }) == 400);
+  CHECK(status_of([&] {
+          create_template_json(db, R"({"name":"X","members":{}})");
+        }) == 400);
+  CHECK(status_of([&] {
+          create_template_json(db, R"({"name":"X","csv":{"delimiter":"|"}})");
+        }) == 400);
+  const auto p = patch_template_json(db, id, R"({"csv":{"header":"key"}})");
+  CHECK(p.at("csv").at("header") == "key");
+  CHECK(p.at("name") == "Mit");
+  CHECK(status_of([&] { patch_template_json(db, 999, R"({"name":"Y"})"); }) ==
+        404);
+  CHECK(status_of([&] {
+          patch_template_json(db, id, R"({"name":"Hurtig genbrugsscreening"})");
+        }) == 409);
+  CHECK(duplicate_template_json(db, id).at("name") == "Mit (kopi)");
+  CHECK(status_of([&] { duplicate_template_json(db, 999); }) == 404);
+  delete_template(db, id);
+  CHECK(status_of([&] { delete_template(db, id); }) == 404);
+}
+
+TEST_CASE("GuiTemplates_RestoreSeeds", "[gui][templates]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  delete_template(db, screening_id(db));
+  const auto r = restore_seed_templates_json(db);
+  CHECK(r.at("restored") == json::parse(R"(["Hurtig genbrugsscreening"])"));
+  CHECK(r.at("templates").size() == 2);
+  CHECK(restore_seed_templates_json(db).at("restored") == json::array());
+}

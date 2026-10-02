@@ -41,4 +41,19 @@ void delete_resource(reusex::ProjectDB &db, const std::string &code);
 /// `GET /resources/export.csv?template=<id>` (template required → 400).
 Blob resources_csv_blob(const reusex::ProjectDB &db, const Params &params);
 
+/// `GET /templates`: `{templates:[Template…]}`, by id.
+nlohmann::json templates_json(const reusex::ProjectDB &db);
+/// `POST /templates`, body `{name, members?, csv?}` (201).
+nlohmann::json create_template_json(reusex::ProjectDB &db,
+                                    const std::string &body);
+/// `PATCH /templates/<id>`, body any of `{name, members, csv}`.
+nlohmann::json patch_template_json(reusex::ProjectDB &db, int64_t id,
+                                   const std::string &body);
+/// `DELETE /templates/<id>` (204).
+void delete_template(reusex::ProjectDB &db, int64_t id);
+/// `POST /templates/<id>/duplicate` (201): "<name> (kopi)", numbered.
+nlohmann::json duplicate_template_json(reusex::ProjectDB &db, int64_t id);
+/// `POST /templates/restore-seeds`: `{restored:[names], templates:[…]}`.
+nlohmann::json restore_seed_templates_json(reusex::ProjectDB &db);
+
 } // namespace rux::gui

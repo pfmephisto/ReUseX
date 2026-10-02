@@ -398,6 +398,11 @@ TEST_CASE("RunningServer_ResourceRoutes_StaticPathsBeatTheCodeParam",
     CHECK(connection.get(route).status == 200);
   }
   CHECK(connection.get("/api/v1/resources/export.csv").status == 400);
+  CHECK(connection.get("/api/v1/templates").status == 200);
+  CHECK(connection.send_json("POST", "/api/v1/templates/restore-seeds", "{}")
+            .status == 200);
+  CHECK(connection.send_json("POST", "/api/v1/templates/1/duplicate", "{}")
+            .status == 201);
 }
 
 TEST_CASE("RunningServer_NoAssetsKeepAliveRequests_ServesPlaceholderRepeatedly",

@@ -2712,6 +2712,11 @@ paths:
       tags: [export-templates]
       operationId: listExportTemplates
       summary: List all named export templates
+      description: |
+        Legacy view over /templates (schema v25): config.columns lists the
+        template's legacy members and user-column labels; category members
+        are not listed. Removed from rux gui in resources Phase 4. Duplicate
+        names are 409.
       responses:
         "200":
           description: Template list
@@ -2755,11 +2760,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ExportTemplate" }
         "400": { $ref: "#/components/responses/BadRequest" }
-        "409":
-          description: Another template already has this name.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Error" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
   /export-templates/{id}:
@@ -2808,11 +2809,7 @@ paths:
               schema: { $ref: "#/components/schemas/ExportTemplate" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "404": { $ref: "#/components/responses/NotFound" }
-        "409":
-          description: Another template already has this name.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Error" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
         default: { $ref: "#/components/responses/UnexpectedError" }
     delete:
       tags: [export-templates]
@@ -2822,6 +2819,133 @@ paths:
         "204":
           description: Template deleted
         "404": { $ref: "#/components/responses/NotFound" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  # ------------------------------------------------------------- templates ----
+  /templates:
+    get:
+      tags: [templates]
+      operationId: listTemplates
+      summary: Templates with their resolved keys
+      description: |
+        Every template, by id, resolved against the live key catalogue: a
+        category member expands to every key now in that category. Members
+        that resolve to nothing are listed in `missing`.
+      responses:
+        "200":
+          description: Templates
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [templates]
+                properties:
+                  templates:
+                    type: array
+                    items: { $ref: "#/components/schemas/Template" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+    post:
+      tags: [templates]
+      operationId: createTemplate
+      summary: Create a template
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TemplateInput" }
+      responses:
+        "201":
+          description: The new template
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Template" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "503": { $ref: "#/components/responses/WriterBusy" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  /templates/restore-seeds:
+    post:
+      tags: [templates]
+      operationId: restoreSeedTemplates
+      summary: Re-insert missing standard templates
+      description: |
+        Inserts every seed (materialepas, screening) whose tag no template
+        carries. A seed whose name is taken gets " (standard)". Running it
+        again inserts nothing.
+      responses:
+        "200":
+          description: Names inserted, and the full list afterwards
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [restored, templates]
+                properties:
+                  restored: { type: array, items: { type: string } }
+                  templates:
+                    type: array
+                    items: { $ref: "#/components/schemas/Template" }
+        "503": { $ref: "#/components/responses/WriterBusy" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  /templates/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer, format: int64 }
+    patch:
+      tags: [templates]
+      operationId: patchTemplate
+      summary: Rename or edit a template
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TemplateInput" }
+      responses:
+        "200":
+          description: The template after the edit
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Template" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "503": { $ref: "#/components/responses/WriterBusy" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+    delete:
+      tags: [templates]
+      operationId: deleteTemplate
+      summary: Delete a template
+      responses:
+        "204": { description: Deleted }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/WriterBusy" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  /templates/{id}/duplicate:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer, format: int64 }
+    post:
+      tags: [templates]
+      operationId: duplicateTemplate
+      summary: Copy a template
+      description: |
+        Copies members and CSV options as "<name> (kopi)", then
+        "<name> (kopi 2)", … until the name is free. The copy is never a seed.
+      responses:
+        "201":
+          description: The copy
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Template" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/WriterBusy" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
   # -------------------------------------------------------------- survey ----
@@ -4837,3 +4961,37 @@ components:
       properties:
         category: { type: string }
         key: { type: string }
+    CsvOptions:
+      type: object
+      description: A template's CSV export options; unknown fields are kept.
+      properties:
+        delimiter: { type: string, enum: [";", ",", "\t"], default: ";" }
+        encoding: { type: string, enum: [utf-8, utf-8-bom], default: utf-8-bom }
+        header: { type: string, enum: [label, key], default: label, description: "label writes key labels and display values; key writes key ids and raw values" }
+      additionalProperties: true
+    Template:
+      type: object
+      required: [id, name, members, csv, seed, resolved_keys, missing, created_at, updated_at]
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        members:
+          type: array
+          items: { $ref: "#/components/schemas/TemplateMember" }
+        csv: { $ref: "#/components/schemas/CsvOptions" }
+        seed: { type: string, enum: [materialepas, screening], nullable: true }
+        resolved_keys: { type: array, items: { type: string } }
+        missing:
+          type: array
+          items: { $ref: "#/components/schemas/TemplateMember" }
+        created_at: { type: string }
+        updated_at: { type: string }
+    TemplateInput:
+      type: object
+      description: Create (name required) or sparse edit.
+      properties:
+        name: { type: string }
+        members:
+          type: array
+          items: { $ref: "#/components/schemas/TemplateMember" }
+        csv: { $ref: "#/components/schemas/CsvOptions" }

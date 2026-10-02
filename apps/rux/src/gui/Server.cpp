@@ -1114,6 +1114,44 @@ class Server::Impl {
               });
             });
 
+    // ---- templates (schema v25) ----
+    app_.route_dynamic("/api/v1/templates")
+        .methods(crow::HTTPMethod::GET,
+                 crow::HTTPMethod::POST)([this](const crow::request &req) {
+          if (req.method == crow::HTTPMethod::GET)
+            return with_db([](const reusex::ProjectDB &db) {
+              return json_response(200, templates_json(db));
+            });
+          return with_write([&](reusex::ProjectDB &db) {
+            return json_response(201, create_template_json(db, req.body));
+          });
+        });
+    app_.route_dynamic("/api/v1/templates/restore-seeds")
+        .methods(crow::HTTPMethod::POST)([this](const crow::request &) {
+          return with_write([](reusex::ProjectDB &db) {
+            return json_response(200, restore_seed_templates_json(db));
+          });
+        });
+    app_.route_dynamic("/api/v1/templates/<int>")
+        .methods(crow::HTTPMethod::PATCH, crow::HTTPMethod::DELETE)(
+            [this](const crow::request &req, int id) {
+              if (req.method == crow::HTTPMethod::PATCH)
+                return with_write([&](reusex::ProjectDB &db) {
+                  return json_response(200,
+                                       patch_template_json(db, id, req.body));
+                });
+              return with_write([&](reusex::ProjectDB &db) {
+                delete_template(db, id);
+                return crow::response(204);
+              });
+            });
+    app_.route_dynamic("/api/v1/templates/<int>/duplicate")
+        .methods(crow::HTTPMethod::POST)([this](const crow::request &, int id) {
+          return with_write([&](reusex::ProjectDB &db) {
+            return json_response(201, duplicate_template_json(db, id));
+          });
+        });
+
     get("/api/v1/instances/<string>")(
         [this](const crow::request &req, std::string cloud) {
           const Params params = params_of(req);

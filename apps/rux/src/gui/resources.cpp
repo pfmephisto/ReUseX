@@ -61,6 +61,39 @@ keys_of(const std::optional<core::TemplateView> &view) {
     return std::nullopt;
   return view->resolved.keys;
 }
+
+json template_json(const core::TemplateView &v) {
+  return {{"id", v.record.id},
+          {"name", v.record.name},
+          {"members", core::members_json(v.members)},
+          {"csv", core::csv_options_json(v.csv)},
+          {"seed", v.record.seed ? json(*v.record.seed) : json(nullptr)},
+          {"resolved_keys", v.resolved.keys},
+          {"missing", core::members_json(v.resolved.missing)},
+          {"created_at", v.record.created_at},
+          {"updated_at", v.record.updated_at}};
+}
+
+core::TemplateInput template_input(const json &j) {
+  core::TemplateInput in;
+  if (const auto it = j.find("name"); it != j.end()) {
+    if (!it->is_string())
+      throw HttpError(400, "'name' must be a string");
+    in.name = it->get<std::string>();
+  }
+  if (const auto it = j.find("members"); it != j.end())
+    in.members = *it; // shape checked by core::parse_members (400)
+  if (const auto it = j.find("csv"); it != j.end())
+    in.csv = *it; // checked by core::parse_csv_options (400)
+  return in;
+}
+
+json template_list(const reusex::ProjectDB &db) {
+  json list = json::array();
+  for (const auto &v : core::template_views(db))
+    list.push_back(template_json(v));
+  return list;
+}
 } // namespace
 
 json resource_keys_json(const reusex::ProjectDB &db) {
@@ -144,6 +177,45 @@ Blob resources_csv_blob(const reusex::ProjectDB &db, const Params &params) {
     b.content_type = "text/csv; charset=utf-8";
     b.data.assign(csv.begin(), csv.end());
     return b;
+  });
+}
+
+json templates_json(const reusex::ProjectDB &db) {
+  return {{"templates", template_list(db)}};
+}
+
+json create_template_json(reusex::ProjectDB &db, const std::string &body) {
+  const auto in = template_input(parse_body(body));
+  return map_library_errors(
+      [&] { return template_json(core::create_template(db, in)); });
+}
+
+json patch_template_json(reusex::ProjectDB &db, int64_t id,
+                         const std::string &body) {
+  const auto in = template_input(parse_body(body));
+  return map_library_errors(
+      [&] { return template_json(core::update_template(db, id, in)); });
+}
+
+void delete_template(reusex::ProjectDB &db, int64_t id) {
+  map_library_errors([&] {
+    core::delete_template(db, id);
+    return 0;
+  });
+}
+
+json duplicate_template_json(reusex::ProjectDB &db, int64_t id) {
+  return map_library_errors(
+      [&] { return template_json(core::duplicate_template(db, id)); });
+}
+
+json restore_seed_templates_json(reusex::ProjectDB &db) {
+  return map_library_errors([&] {
+    json names = json::array();
+    for (const auto &v : core::restore_seed_templates(db))
+      names.push_back(v.record.name);
+    return json{{"restored", std::move(names)},
+                {"templates", template_list(db)}};
   });
 }
 

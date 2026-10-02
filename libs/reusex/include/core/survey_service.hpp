@@ -81,6 +81,11 @@ struct SurveySyncReport {
   /// them; sync_survey does not delete or hide them.
   std::size_t parts_orphaned = 0;
   std::vector<std::string> orphaned_codes;
+  /// Instance links put back: instance-backed parts that own a passport
+  /// (survey_parts.passport_guid) but whose instance had lost its
+  /// instance_materials row — `rux create instances` re-runs cascade-delete
+  /// them. A link to a different passport is never overwritten (warned).
+  std::size_t links_restored = 0;
 };
 /// Fill survey_types / survey_parts from the instances table: one type per
 /// semantic class, one bygningsdel (survey part) per instance, placed in the
@@ -89,7 +94,8 @@ struct SurveySyncReport {
 /// touches existing types/parts, so edits made in the GUI survive a rerun.
 /// If the instance cloud has labels but no `instances` rows (a pre-v10
 /// cloud), the rows are backfilled first from the cloud's labels and its
-/// "SM{class}-{id}" definitions (see instances_backfilled). Throws
+/// "SM{class}-{id}" definitions (see instances_backfilled). Lost instance
+/// links of parts that own a passport are restored (see links_restored). Throws
 /// std::runtime_error naming `rux create instances` if the instances cloud does
 /// not exist.
 SurveySyncReport sync_survey(ProjectDB &db, const SurveySyncOptions &opts = {});

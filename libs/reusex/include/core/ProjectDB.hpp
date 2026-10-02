@@ -88,6 +88,23 @@ class ProjectDB {
   const std::filesystem::path &path() const noexcept;
   int schema_version() const;
   static int latest_schema_version() noexcept;
+
+  /// One write transaction (BEGIN IMMEDIATE ... COMMIT), rolled back unless
+  /// commit() is called. ProjectDB methods that open their own transaction
+  /// (add_material_passport, set_survey_part_quantities, add_sample, …)
+  /// cannot be called inside one; the resource/template methods can.
+  class Transaction {
+      public:
+    explicit Transaction(ProjectDB &db); ///< throws on a read-only project
+    ~Transaction();
+    void commit();
+    Transaction(const Transaction &) = delete;
+    Transaction &operator=(const Transaction &) = delete;
+
+      private:
+    ProjectDB *db_;
+    bool open_ = true;
+  };
   void validate_schema() const;
 
   // --- Sensor Frame Operations ---
@@ -936,21 +953,58 @@ class ProjectDB {
   [[nodiscard]] std::optional<std::vector<std::uint8_t>>
   report_pdf(int64_t id) const;
 
-  // --- Export Templates (schema v21) ---
+  // --- Resource templates (schema v25) ---
+  /// One row of `templates` (resources/templates spec §5.1). members_json
+  /// and csv_json are parsed by core/resource_templates.hpp.
+  struct ResourceTemplateRecord {
+    int64_t id = 0;
+    std::string name;
+    std::string members_json = "[]";
+    std::string csv_json = "{}";
+    std::optional<std::string> seed; // "materialepas" | "screening"
+    std::string created_at;          // ISO 8601 UTC
+    std::string updated_at;
+  };
+  struct ResourceTemplatePatch {
+    std::optional<std::string> name, members_json, csv_json;
+  };
+  /// By id. Empty on a read-only open of a pre-v25 project.
+  [[nodiscard]] std::vector<ResourceTemplateRecord> resource_templates() const;
+  [[nodiscard]] std::optional<ResourceTemplateRecord>
+  resource_template(int64_t id) const;
+  /// id/timestamps are ignored. @throws core::NameConflictError
+  ResourceTemplateRecord
+  add_resource_template(const ResourceTemplateRecord &rec);
+  /// @throws std::out_of_range, core::NameConflictError
+  ResourceTemplateRecord
+  update_resource_template(int64_t id, const ResourceTemplatePatch &patch);
+  bool delete_resource_template(int64_t id); // false when absent
 
+  // --- Export templates: legacy view over `templates` (schema v25) ---
+  /// The schema v21 shape, kept for the /export-templates routes (rux gui
+  /// until GUI Phase 4, and ruxd). `config_json` is the template's CSV
+  /// options plus `columns`: legacy-member names and user-column labels. A
+  /// write maps `columns` back with core::legacy_column_member; other config
+  /// fields become the CSV options (only when the body has any), and repeated
+  /// columns keep their first position. An update replaces only the members
+  /// the view shows (`legacy:` ones and `col:` ones whose user column
+  /// exists); category, `sys:`, `lex:` and missing `col:` members are kept in
+  /// place. A config without `columns` leaves the members untouched.
   struct ExportTemplateRecord {
     int64_t id = 0;
     std::string name;
-    std::string config_json; // JSON: {"columns": [...]}
+    std::string config_json; // JSON: {"columns": [...], ...csv options}
     std::string created_at;  // ISO 8601 UTC
     std::string updated_at;  // ISO 8601 UTC
   };
 
+  /// @throws core::NameConflictError
   ExportTemplateRecord add_export_template(const std::string &name,
                                            const std::string &config_json);
   [[nodiscard]] std::vector<ExportTemplateRecord> list_export_templates() const;
   [[nodiscard]] std::optional<ExportTemplateRecord>
   export_template(int64_t id) const;
+  /// @throws std::runtime_error when @p id is unknown, core::NameConflictError
   ExportTemplateRecord update_export_template(int64_t id,
                                               const std::string &name,
                                               const std::string &config_json);
@@ -997,7 +1051,10 @@ class ProjectDB {
     bool starred = false;
     std::string note;
     std::optional<std::string>
-        material_guid; // read-only: from instance_materials
+        material_guid; // read-only: the part's passport (survey_parts.
+                       // passport_guid, schema v25), else its instance's
+                       // instance_materials link — unless another part
+                       // owns that passport, then empty
     /// Stable link to `instances.guid` (schema v22); survives `rux create
     /// instances` re-runs because instance identity is reconciled on guid,
     /// not (cloud_id, instance_id). Nullable: a manually added part needs no
@@ -1031,6 +1088,33 @@ class ProjectDB {
                                          std::uint32_t instance_id) const;
   [[nodiscard]] int max_survey_part_number() const; // 0 when there are none
 
+  /// Resource storage (schema v25). Call inside a Transaction. Returns the
+  /// part's passport guid; on first use creates a bare passport (or adopts
+  /// the instance's linked passport when no other part owns it), sets
+  /// survey_parts.passport_guid, upserts instance_materials for an
+  /// instance-backed part, and makes sure the leksikon property_definitions
+  /// exist. @throws std::out_of_range when @p code is unknown.
+  std::string ensure_resource_passport(std::string_view code);
+  /// @throws std::out_of_range when @p code is unknown.
+  void delete_survey_part(std::string_view code);
+  /// Call inside a Transaction. Moves the values stored under a user
+  /// column's field name to @p new_name; a no-op when nothing is stored.
+  /// @throws core::NameConflictError when values already exist under
+  ///         @p new_name (they would merge).
+  void rename_passport_field(std::string_view old_name,
+                             std::string_view new_name);
+  /// True when any passport stores a value under the field name @p name
+  /// (a leksikon name_en or a user column's display name) — including
+  /// values a deleted user column left behind.
+  [[nodiscard]] bool has_passport_field_values(std::string_view name) const;
+  /// Call inside a Transaction. Deletes every value stored under the user
+  /// column field name @p name, and its "custom:" definition, so the name
+  /// is free again. Leksikon fields are never touched. Returns the number
+  /// of values deleted.
+  std::size_t delete_passport_field_values(std::string_view name);
+  /// True when a survey part or an instance link still references @p guid.
+  [[nodiscard]] bool is_passport_linked(std::string_view guid) const;
+
   struct SampleRecord {
     int64_t id = 0;
     std::string code;  // "P-01"
@@ -1041,12 +1125,6 @@ class ProjectDB {
     std::vector<int64_t> type_ids; // linked survey types, ascending
     std::string created_at;
     std::string updated_at;
-    /// The bygningsdel (survey part code) the sample was taken at, set when
-    /// it was registered on site (schema v24). Not a foreign key: like
-    /// SurveyPartRecord::instance_guid it may outlive what it names, and a
-    /// reader shows the code as stored. Kept LAST so positional aggregate
-    /// initializers still compile.
-    std::optional<std::string> part_code;
   };
   struct SamplePatch {
     std::optional<std::string> title, what;
@@ -1054,15 +1132,12 @@ class ProjectDB {
     std::optional<core::SampleResult> result;
   };
   /// Register a sample, its type links and its initial stage in one
-  /// transaction. When `part_code` is given, that part's type is always
-  /// linked (added to `type_ids` unless already there; duplicates collapse).
-  /// @throws std::out_of_range when part_code names no survey part or a
-  /// `type_ids` entry names no survey type.
+  /// transaction (duplicate type ids collapse).
+  /// @throws std::out_of_range when a `type_ids` entry names no survey type.
   /// @throws std::invalid_argument when `stage` is not planlagt/udtaget.
   /// Nothing is written (and no P-## code consumed) when it throws.
   SampleRecord
   add_sample(std::string_view title, std::string_view what,
-             const std::optional<std::string> &part_code = std::nullopt,
              const std::vector<int64_t> &type_ids = {},
              core::SampleStage stage = core::SampleStage::planlagt);
   [[nodiscard]] std::vector<SampleRecord> samples() const; // by id

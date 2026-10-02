@@ -74,6 +74,13 @@ class SamplePendingError : public std::runtime_error {
   using std::runtime_error::runtime_error;
 };
 
+/// A name that must be unique (template, user column, stored field) is
+/// already taken. The GUI answers 409.
+class NameConflictError : public std::runtime_error {
+    public:
+  using std::runtime_error::runtime_error;
+};
+
 struct TypeTotals {
   Treatment treatment = Treatment::genanvendelse;
   ReviewStatus status = ReviewStatus::queue;

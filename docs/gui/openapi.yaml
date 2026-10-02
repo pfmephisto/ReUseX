@@ -87,6 +87,10 @@ tags:
     description: Named export templates — saved column selections for CSV export (#459)
   - name: survey
     description: Ressourcekortlægning — survey types, parts, samples and derived KPIs
+  - name: resources
+    description: Resources (survey parts) addressed by key id, their columns and CSV export (schema v25)
+  - name: templates
+    description: Templates — ordered category/key selections over resource keys (schema v25)
 
 paths:
 
@@ -1640,6 +1644,8 @@ paths:
       tags: [materials]
       operationId: listMaterialColumns
       summary: List user-defined material column definitions
+      description: |
+        Deprecated alias of /resources/columns; removed in GUI resources Phase 3.
       responses:
         "200":
           description: Column definitions, ordered by sort_order
@@ -1653,6 +1659,10 @@ paths:
       tags: [materials]
       operationId: createMaterialColumn
       summary: Create a material column definition
+      description: |
+        Deprecated alias of /resources/columns; removed in GUI resources Phase 3.
+        409 when the name is taken by another column or a leksikon field, or
+        already holds stored values.
       requestBody:
         required: true
         content:
@@ -1681,6 +1691,16 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: |
+            Not applied, for one of two reasons the message names: the name is
+            taken by another column or a leksikon field, or already holds stored
+            passport values (left by a deleted column) — retrying never helps;
+            or a pipeline job is running or queued — retry once it finishes.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503": { $ref: "#/components/responses/WriterBusy" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
   /material-columns/{id}:
@@ -1689,8 +1709,10 @@ paths:
       operationId: updateMaterialColumn
       summary: Sparsely update a material column definition
       description: |
+        Deprecated alias of /resources/columns; removed in GUI resources Phase 3.
         Send only the fields that changed; anything omitted keeps its current
         value.
+        A rename moves the values stored under the old name; 409 when the name is taken by another column or a leksikon field, or already holds stored values.
       parameters:
         - name: id
           in: path
@@ -1725,11 +1747,23 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: |
+            Not applied, for one of two reasons the message names: the name is
+            taken by another column or a leksikon field, or already holds stored
+            passport values (left by a deleted column) — retrying never helps;
+            or a pipeline job is running or queued — retry once it finishes.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503": { $ref: "#/components/responses/WriterBusy" }
         default: { $ref: "#/components/responses/UnexpectedError" }
     delete:
       tags: [materials]
       operationId: deleteMaterialColumn
       summary: Delete a material column definition
+      description: |
+        Deprecated alias of /resources/columns; removed in GUI resources Phase 3.
       parameters:
         - name: id
           in: path
@@ -1738,6 +1772,336 @@ paths:
           schema: { type: string }
       responses:
         "204": { description: Column deleted }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "503": { $ref: "#/components/responses/WriterBusy" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  # ---------------------------------------------------- resources (v25) ----
+  /resources/columns:
+    get:
+      tags: [resources]
+      operationId: listResourceColumns
+      summary: User-defined resource column definitions
+      responses:
+        "200":
+          description: Column definitions, ordered by sort_order
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/PropertyDefinition" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+    post:
+      tags: [resources]
+      operationId: createResourceColumn
+      summary: Create a resource column definition
+      description: |
+        409 when the name is taken by another column or a leksikon field, or
+        already holds stored values.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, type]
+              properties:
+                name: { type: string }
+                type:
+                  type: string
+                  enum: [text, number, date, boolean, select, multiselect, url]
+                options:
+                  type: array
+                  items: { type: string }
+                sort_order: { type: integer }
+                width: { type: integer, default: 200 }
+      responses:
+        "201":
+          description: The created column definition
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PropertyDefinition" }
+        "400":
+          description: Body invalid or `type` not one of the allowed values
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: |
+            Not applied, for one of two reasons the message names: the name is
+            taken by another column or a leksikon field, or already holds stored
+            passport values (left by a deleted column) — retrying never helps;
+            or a pipeline job is running or queued — retry once it finishes.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503": { $ref: "#/components/responses/WriterBusy" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  /resources/columns/{id}:
+    patch:
+      tags: [resources]
+      operationId: updateResourceColumn
+      summary: Update a resource column definition
+      description: |
+        Send only the fields that changed; anything omitted keeps its current
+        value.
+        A rename moves the values stored under the old name; 409 when the name is taken by another column or a leksikon field, or already holds stored values.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The column definition id.
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                type:
+                  type: string
+                  enum: [text, number, date, boolean, select, multiselect, url]
+                options:
+                  type: array
+                  items: { type: string }
+                sort_order: { type: integer }
+                width: { type: integer, default: 200 }
+      responses:
+        "200":
+          description: The updated column definition
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PropertyDefinition" }
+        "400":
+          description: Body invalid or `type` not one of the allowed values
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: |
+            Not applied, for one of two reasons the message names: the name is
+            taken by another column or a leksikon field, or already holds stored
+            passport values (left by a deleted column) — retrying never helps;
+            or a pipeline job is running or queued — retry once it finishes.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503": { $ref: "#/components/responses/WriterBusy" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+    delete:
+      tags: [resources]
+      operationId: deleteResourceColumn
+      summary: Delete a resource column definition
+      description: |
+        Deletes the column and, in the same transaction, every value stored
+        under it on any passport, so its name can be used again.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The column definition id.
+          schema: { type: string }
+      responses:
+        "204": { description: Column deleted }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "503": { $ref: "#/components/responses/WriterBusy" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  /resources/keys:
+    get:
+      tags: [resources]
+      operationId: listResourceKeys
+      summary: The resource key catalogue
+      description: |
+        Built-in keys (sys:), leksikon keys (lex:) and user columns (col:),
+        in catalogue order — the order a template category expands in.
+      responses:
+        "200":
+          description: Every key
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ResourceKey" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  /resources:
+    get:
+      tags: [resources]
+      operationId: listResources
+      summary: Resources (survey parts) with their key values
+      parameters:
+        - name: template
+          in: query
+          required: false
+          schema: { type: integer, format: int64 }
+          description: |
+            When given, `values` holds exactly the template's resolved keys
+            (null when unset). Without it, `values` holds every built-in
+            (sys:) key, null when unset, plus each catalogue key the
+            resource's passport stores a value for.
+            An empty value (`?template=`) is a 400, not "no template".
+      responses:
+        "200":
+          description: Resources, by code
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [resources]
+                properties:
+                  resources:
+                    type: array
+                    items: { $ref: "#/components/schemas/Resource" }
+                  template:
+                    type: object
+                    description: Present when `template` was given.
+                    required: [id, resolved_keys, missing]
+                    properties:
+                      id: { type: integer, format: int64 }
+                      resolved_keys: { type: array, items: { type: string } }
+                      missing:
+                        type: array
+                        items: { $ref: "#/components/schemas/TemplateMember" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+    post:
+      tags: [resources]
+      operationId: createResource
+      summary: Add a resource by hand
+      description: |
+        Creates a manual survey part with the next RX code under `type_id`.
+        `name` is stored as the resource's leksikon `designation`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type_id]
+              properties:
+                type_id: { type: integer, format: int64 }
+                name: { type: string, nullable: true }
+      responses:
+        "201":
+          description: The new resource
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Resource" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "503": { $ref: "#/components/responses/WriterBusy" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  /resources/{code}:
+    parameters:
+      - name: code
+        in: path
+        required: true
+        schema: { type: string, example: RX-008 }
+    patch:
+      tags: [resources]
+      operationId: patchResource
+      summary: Set or clear a resource's key values
+      description: |
+        Writes are routed by scope: type-scoped keys change the survey type
+        (and so every part of it; those parts come back in `siblings`),
+        part-scoped keys the part, leksikon and column keys the part's own
+        passport (created on the first write). `null` clears; clearing an
+        absent value succeeds. Every value is validated before anything is
+        written, in one transaction. Optional `template` shapes `values`
+        like GET /resources.
+      parameters:
+        - name: template
+          in: query
+          required: false
+          schema: { type: integer, format: int64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [values]
+              properties:
+                values: { $ref: "#/components/schemas/ResourceValues" }
+      responses:
+        "200":
+          description: The resource after the write, and its type's other parts when a type-scoped key changed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [resource, siblings]
+                properties:
+                  resource: { $ref: "#/components/schemas/Resource" }
+                  siblings:
+                    type: array
+                    items: { $ref: "#/components/schemas/Resource" }
+        "400":
+          description: Unknown key, read-only key, or a value its type refuses; the message names the key
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "503": { $ref: "#/components/responses/WriterBusy" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+    delete:
+      tags: [resources]
+      operationId: deleteResource
+      summary: Delete a manually added resource
+      description: |
+        Removes a manual part and its passport (unless something else links
+        it). An instance-backed part comes from the scan and is refused.
+      responses:
+        "204": { description: Deleted }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: |
+            Not applied, for one of two reasons the message names: the resource
+            is instance-backed (it comes from the scan; only manual resources
+            can be deleted) — retrying never helps; or a pipeline job is running
+            or queued — retry once it finishes.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503": { $ref: "#/components/responses/WriterBusy" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  /resources/export.csv:
+    get:
+      tags: [resources]
+      operationId: exportResourcesCsv
+      summary: Resources as CSV through a template
+      description: |
+        One row per resource, led by its code (header "Kode", or "code"
+        when the template's `csv.header` is `key`), then the template's
+        resolved keys; delimiter/encoding/header from its `csv` options.
+        In label mode a label that occurs more than once gets
+        " (<category>)" appended, so no two headers read the same. Cells
+        starting with = + - @ TAB or CR are prefixed with an apostrophe
+        (formula injection guard). Lines end in CRLF.
+      parameters:
+        - name: template
+          in: query
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        "200":
+          description: The CSV file
+          content:
+            text/csv:
+              schema: { type: string }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "404": { $ref: "#/components/responses/NotFound" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
@@ -2336,12 +2700,33 @@ paths:
         (added to the devshell via `pkgs.typst`).
 
         Writer-locked: concurrent POST requests queue behind a mutex.
+
+        With resource_template_id the PDF also carries a Ressourcetabel
+        between Kortlægning and Materialepas.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                resource_template_id:
+                  type: integer
+                  format: int64
+                  nullable: true
+                  description: |
+                    Adds a Ressourcetabel section: every resource whose type
+                    is not rejected, through this template's keys, in tables
+                    of at most 8 columns each led by Betegnelse. Null or
+                    absent leaves the section out.
       responses:
         "201":
           description: PDF generated and stored; returns the new version metadata
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ReportPdfVersion" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
   /reports/ressourcekortlaegning/{id}:
@@ -2405,6 +2790,11 @@ paths:
       tags: [export-templates]
       operationId: listExportTemplates
       summary: List all named export templates
+      description: |
+        Legacy view over /templates (schema v25): config.columns lists the
+        template's legacy members and user-column labels; category members
+        are not listed. Removed from rux gui in resources Phase 4. Duplicate
+        names are 409.
       responses:
         "200":
           description: Template list
@@ -2448,6 +2838,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ExportTemplate" }
         "400": { $ref: "#/components/responses/BadRequest" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
   /export-templates/{id}:
@@ -2496,6 +2887,7 @@ paths:
               schema: { $ref: "#/components/schemas/ExportTemplate" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
         default: { $ref: "#/components/responses/UnexpectedError" }
     delete:
       tags: [export-templates]
@@ -2505,6 +2897,136 @@ paths:
         "204":
           description: Template deleted
         "404": { $ref: "#/components/responses/NotFound" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  # ------------------------------------------------------------- templates ----
+  /templates:
+    get:
+      tags: [templates]
+      operationId: listTemplates
+      summary: Templates with their resolved keys
+      description: |
+        Every template, by id, resolved against the live key catalogue: a
+        category member expands to every key now in that category. Members
+        that resolve to nothing are listed in `missing`.
+      responses:
+        "200":
+          description: Templates
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [templates]
+                properties:
+                  templates:
+                    type: array
+                    items: { $ref: "#/components/schemas/Template" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+    post:
+      tags: [templates]
+      operationId: createTemplate
+      summary: Create a template
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TemplateInput" }
+      responses:
+        "201":
+          description: The new template
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Template" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "503": { $ref: "#/components/responses/WriterBusy" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  /templates/restore-seeds:
+    post:
+      tags: [templates]
+      operationId: restoreSeedTemplates
+      summary: Re-insert missing standard templates
+      description: |
+        Inserts every seed (materialepas, screening) whose tag no template
+        carries. A seed whose name is taken gets " (standard)". Running it
+        again inserts nothing.
+      responses:
+        "200":
+          description: Names inserted, and the full list afterwards
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [restored, templates]
+                properties:
+                  restored: { type: array, items: { type: string } }
+                  templates:
+                    type: array
+                    items: { $ref: "#/components/schemas/Template" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "503": { $ref: "#/components/responses/WriterBusy" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  /templates/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer, format: int64 }
+    patch:
+      tags: [templates]
+      operationId: patchTemplate
+      summary: Rename or edit a template
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TemplateInput" }
+      responses:
+        "200":
+          description: The template after the edit
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Template" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "503": { $ref: "#/components/responses/WriterBusy" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+    delete:
+      tags: [templates]
+      operationId: deleteTemplate
+      summary: Delete a template
+      responses:
+        "204": { description: Deleted }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "503": { $ref: "#/components/responses/WriterBusy" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  /templates/{id}/duplicate:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer, format: int64 }
+    post:
+      tags: [templates]
+      operationId: duplicateTemplate
+      summary: Copy a template
+      description: |
+        Copies members and CSV options as "<name> (kopi)", then
+        "<name> (kopi 2)", … until the name is free. The copy is never a seed.
+      responses:
+        "201":
+          description: The copy
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Template" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "503": { $ref: "#/components/responses/WriterBusy" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
   # -------------------------------------------------------------- survey ----
@@ -2607,6 +3129,13 @@ paths:
                     type: array
                     items: { type: string }
                     description: Codes of the orphaned parts.
+                  links_restored:
+                    type: integer
+                    description: |
+                      Instance links put back for instance-backed parts that own a
+                      passport but whose instance had lost its link (a `rux create
+                      instances` re-run cascade-deletes them). An existing link to a
+                      different passport is never overwritten.
         "400":
           description: Body was not a JSON object
           content:
@@ -2783,8 +3312,8 @@ paths:
       operationId: createSample
       summary: Register an environmental sample
       description: |
-        Creates a sample at stage `planlagt` (or `udtaget`, see `stage`) with
-        the next P-## code. Every refusal is checked before the first write.
+        Creates a sample at stage `planlagt` with the next P-## code. Every
+        refusal is checked before the first write.
 
         Performed under the project's writer lock; see `409`/`503`.
       requestBody:
@@ -2798,14 +3327,6 @@ paths:
                 title: { type: string }
                 what: { type: string }
                 type_ids: { type: array, items: { type: integer } }
-                part_code:
-                  type: string
-                  description: The bygningsdel the sample is taken at. Its survey type is always added to `type_ids` (the approval gate is on the type); an unknown code is 404.
-                stage:
-                  type: string
-                  enum: [planlagt, udtaget]
-                  default: planlagt
-                  description: "`udtaget` when the sample is registered on site, already taken. Later stages are reached with PATCH."
       responses:
         "201":
           description: The created sample
@@ -2813,7 +3334,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Sample" }
         "400":
-          description: title is missing/empty, part_code is empty or not a string, or stage is not planlagt/udtaget
+          description: title is missing or empty
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -3272,6 +3793,11 @@ components:
           schema: { $ref: "#/components/schemas/Error" }
     NotFound:
       description: No such resource
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    BadRequest:
+      description: The request was malformed — a bad parameter or body; the message says which
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
@@ -4434,7 +4960,7 @@ components:
           description: "`fractions` is non-empty and `blocking` is empty."
     Sample:
       type: object
-      required: [id, code, title, what, stage, result, type_ids, part_code, created_at, updated_at]
+      required: [id, code, title, what, stage, result, type_ids, created_at, updated_at]
       properties:
         id: { type: integer }
         code: { type: string, example: P-01 }
@@ -4443,11 +4969,6 @@ components:
         stage: { type: string, enum: [planlagt, udtaget, sendt, svar] }
         result: { type: string, enum: [ren, forurenet], nullable: true }
         type_ids: { type: array, items: { type: integer } }
-        part_code:
-          type: string
-          nullable: true
-          example: RX-008
-          description: The bygningsdel the sample was taken at, when it was registered on site (schema v24); null otherwise.
         created_at: { type: string }
         updated_at: { type: string }
     SurveyTypePatch:
@@ -4491,3 +5012,76 @@ components:
           enum: [ren, forurenet]
           nullable: true
           description: Can only be set once stage is 'svar'; null clears it.
+    ResourceKey:
+      type: object
+      required: [id, label, category, scope, data_type, unit, options, editable]
+      properties:
+        id: { type: string, example: "sys:quantity", description: "sys:<name>, lex:<leksikon guid> or col:<column id>" }
+        label: { type: string }
+        category: { type: string, description: "Kortlægning, Egne felter, or a leksikon category" }
+        scope: { type: string, enum: [type, part], description: "What a write changes" }
+        data_type:
+          type: string
+          enum: [text, number, enum, multiselect, boolean, date]
+          description: |
+            A multiselect value is a JSON array of option strings, sent and
+            returned as a string, e.g. "[\"concrete\",\"steel\"]"; "[]"
+            clears it. "" clears any key except a built-in text key.
+        unit: { type: string, nullable: true }
+        options: { type: array, items: { type: string }, description: "Choices of an enum or multiselect key" }
+        editable: { type: boolean, description: "false for derived keys (sys:environment) and for leksikon list fields with nothing to validate entries against (images, documents)" }
+    ResourceValues:
+      type: object
+      description: |
+        Key id -> value; null means unset (GET) or clear (PATCH). Stored
+        blanks ("", "[]", a leksikon yes/no/unknown key's "unknown") read
+        as null, and a GET without a template leaves them out.
+      additionalProperties: { type: string, nullable: true }
+    Resource:
+      type: object
+      required: [code, type_id, manual, values]
+      properties:
+        code: { type: string, example: RX-008 }
+        type_id: { type: integer, format: int64 }
+        manual: { type: boolean, description: "Added by hand (no instance); only these can be deleted" }
+        values: { $ref: "#/components/schemas/ResourceValues" }
+    TemplateMember:
+      type: object
+      description: Exactly one of `category` or `key`.
+      properties:
+        category: { type: string }
+        key: { type: string }
+    CsvOptions:
+      type: object
+      description: A template's CSV export options; unknown fields are kept.
+      properties:
+        delimiter: { type: string, enum: [";", ",", "\t"], default: ";" }
+        encoding: { type: string, enum: [utf-8, utf-8-bom], default: utf-8-bom }
+        header: { type: string, enum: [label, key], default: label, description: "label writes key labels and display values; key writes key ids and raw values" }
+      additionalProperties: true
+    Template:
+      type: object
+      required: [id, name, members, csv, seed, resolved_keys, missing, created_at, updated_at]
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        members:
+          type: array
+          items: { $ref: "#/components/schemas/TemplateMember" }
+        csv: { $ref: "#/components/schemas/CsvOptions" }
+        seed: { type: string, enum: [materialepas, screening], nullable: true }
+        resolved_keys: { type: array, items: { type: string } }
+        missing:
+          type: array
+          items: { $ref: "#/components/schemas/TemplateMember" }
+        created_at: { type: string }
+        updated_at: { type: string }
+    TemplateInput:
+      type: object
+      description: Create (name required) or sparse edit.
+      properties:
+        name: { type: string }
+        members:
+          type: array
+          items: { $ref: "#/components/schemas/TemplateMember" }
+        csv: { $ref: "#/components/schemas/CsvOptions" }

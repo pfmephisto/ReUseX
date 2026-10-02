@@ -12,15 +12,18 @@
 
 #include <core/ProjectDB.hpp>
 #include <core/report_generator.hpp>
+#include <core/resource_templates.hpp>
 #include <core/survey_service.hpp>
 
 #include "../../support/temp_path.hpp"
 
 #include <cstddef>
+#include <cstdint>
 #include <cstdlib>
 #include <fstream>
 #include <iterator>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -213,6 +216,36 @@ TEST_CASE("ReportPdf_WithSurveySection_Compiles", "[report][typst]") {
   REQUIRE(core::report_survey_rows(db).size() == 2);
 
   const auto pdf = reusex::generate_ressourcekortlaegning_pdf(db);
+  REQUIRE(pdf.size() > 4);
+  CHECK(std::string(pdf.begin(), pdf.begin() + 4) == "%PDF");
+}
+
+TEST_CASE("ReportPdf_UnknownResourceTemplate_ThrowsBeforeTypst",
+          "[report][resources]") {
+  // Checked before any typst work, so it holds on machines without typst.
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  CHECK_THROWS_AS(reusex::generate_ressourcekortlaegning_pdf(db, 999),
+                  std::out_of_range);
+}
+
+TEST_CASE("ReportPdf_WithResourceTable_Compiles", "[report][typst]") {
+  if (std::system("command -v typst > /dev/null 2>&1") != 0)
+    SKIP("typst is not on PATH (the nix devshell provides it)");
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  const auto t =
+      add_type(db, "#panic(\"x\") *y*", core::Treatment::genanvendelse, 4,
+               core::ReviewStatus::approved);
+  add_part(db, "RX-001", t, 3);
+  add_part(db, "RX-002", t, 5);
+  int64_t screening = 0;
+  for (const auto &rec : db.resource_templates())
+    if (rec.seed == std::optional<std::string>("screening"))
+      screening = rec.id;
+  REQUIRE(screening > 0);
+  // 11 screening keys: Betegnelse + 10 others -> two stacked tables.
+  const auto pdf = reusex::generate_ressourcekortlaegning_pdf(db, screening);
   REQUIRE(pdf.size() > 4);
   CHECK(std::string(pdf.begin(), pdf.begin() + 4) == "%PDF");
 }

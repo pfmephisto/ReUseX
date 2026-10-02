@@ -2,22 +2,25 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Schema v21 migration and export_templates CRUD round-trip tests (#459).
-// Covers: table creation on a fresh DB, add/list/fetch/update/delete, and that
-// a DB opened at v20 migrates cleanly to v21.
+// The /export-templates view over the v25 templates table (resources/templates
+// spec §5.4): CRUD round trips keep working for ExportPage and ruxd.
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <core/ProjectDB.hpp>
+#include <core/resource_templates.hpp>
 
 #include "../../support/temp_path.hpp"
 
+#include <nlohmann/json.hpp>
 #include <sqlite3.h>
 
 #include <filesystem>
 #include <string>
+#include <vector>
 
 using reusex::ProjectDB;
+namespace core = reusex::core;
 namespace fs = std::filesystem;
 
 namespace {
@@ -73,116 +76,177 @@ void build_v20_fixture(const fs::path &path) {
 
 } // namespace
 
-TEST_CASE("ExportTemplates_FreshDB_TableExists",
-          "[ProjectDB][exports][schema]") {
+TEST_CASE("ExportTemplates_FreshDB_ListsTheSeeds", "[ProjectDB][exports]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
-  REQUIRE(db.list_export_templates().empty());
   REQUIRE(db.schema_version() == ProjectDB::latest_schema_version());
+  const auto list = db.list_export_templates();
+  REQUIRE(list.size() == 2);
+  CHECK(list[0].name == "Materialepas (fuld)");
+  // A category-only template has no legacy columns: ExportPage reads [] as
+  // "all columns".
+  CHECK(nlohmann::json::parse(list[0].config_json).at("columns") ==
+        nlohmann::json::array());
 }
 
-TEST_CASE("ExportTemplates_MigratesFromV20_TableCreated",
-          "[ProjectDB][exports][schema]") {
+TEST_CASE("ExportTemplates_MigratesFromV20", "[ProjectDB][exports]") {
   TempDB tmp;
   build_v20_fixture(tmp.path);
-
-  // Read-write open must migrate v20 → v21.
-  ProjectDB db(tmp.path);
+  ProjectDB db(tmp.path, /*readOnly=*/false);
   REQUIRE(db.schema_version() == ProjectDB::latest_schema_version());
-  REQUIRE(db.list_export_templates().empty());
+  CHECK(db.list_export_templates().size() == 2);
 }
 
-TEST_CASE("ExportTemplates_AddAndList_RoundTrip", "[ProjectDB][exports]") {
-  TempDB tmp;
-  ProjectDB db(tmp.path);
-
-  const std::string cfg = R"({"columns":["kind","id","component_name"]})";
-  const auto rec = db.add_export_template("My Selection", cfg);
-
-  REQUIRE(rec.id > 0);
-  REQUIRE(rec.name == "My Selection");
-  REQUIRE(rec.config_json == cfg);
-  REQUIRE(!rec.created_at.empty());
-  REQUIRE(!rec.updated_at.empty());
-
-  const auto list = db.list_export_templates();
-  REQUIRE(list.size() == 1);
-  CHECK(list[0].id == rec.id);
-  CHECK(list[0].name == "My Selection");
-  CHECK(list[0].config_json == cfg);
-}
-
-TEST_CASE("ExportTemplates_Fetch_ReturnsExactRecord", "[ProjectDB][exports]") {
-  TempDB tmp;
-  ProjectDB db(tmp.path);
-
-  db.add_export_template("A", R"({})");
-  const auto b = db.add_export_template("B", R"({"columns":["kind"]})");
-
-  const auto got = db.export_template(b.id);
-  REQUIRE(got.has_value());
-  CHECK(got->name == "B");
-  CHECK(got->config_json == R"({"columns":["kind"]})");
-}
-
-TEST_CASE("ExportTemplates_Fetch_MissingReturnsNullopt",
+TEST_CASE("ExportTemplates_AddFetch_RoundTripsColumnsThroughMembers",
           "[ProjectDB][exports]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
-
-  CHECK(!db.export_template(9999).has_value());
-}
-
-TEST_CASE("ExportTemplates_Update_ChangesNameAndConfig",
-          "[ProjectDB][exports]") {
-  TempDB tmp;
-  ProjectDB db(tmp.path);
-
-  const auto orig = db.add_export_template("Old", R"({"columns":[]})");
-  const auto upd =
-      db.update_export_template(orig.id, "New", R"({"columns":["kind","id"]})");
-
-  CHECK(upd.id == orig.id);
-  CHECK(upd.name == "New");
-  CHECK(upd.config_json == R"({"columns":["kind","id"]})");
-
-  const auto fetched = db.export_template(orig.id);
+  const auto col = db.add_property_definition("Bredde", "number", {}, 0);
+  const auto rec = db.add_export_template(
+      "Valg", R"({"columns":["kind","id","Bredde"],"delimiter":","})");
+  CHECK(rec.name == "Valg");
+  const auto cfg = nlohmann::json::parse(rec.config_json);
+  CHECK(cfg.at("columns") ==
+        nlohmann::json::parse(R"(["kind","id","Bredde"])"));
+  CHECK(cfg.at("delimiter") == ",");
+  const auto stored = db.resource_template(rec.id);
+  REQUIRE(stored.has_value());
+  CHECK(
+      core::read_members(stored->members_json, "") ==
+      std::vector<core::TemplateMember>{{core::MemberKind::key, "legacy:kind"},
+                                        {core::MemberKind::key, "legacy:id"},
+                                        {core::MemberKind::key, "col:" + col}});
+  const auto fetched = db.export_template(rec.id);
   REQUIRE(fetched.has_value());
-  CHECK(fetched->name == "New");
+  CHECK(fetched->config_json == rec.config_json);
+  CHECK_FALSE(db.export_template(9999).has_value());
+  CHECK_THROWS_AS(db.add_export_template("Valg", "{}"),
+                  core::NameConflictError);
 }
 
-TEST_CASE("ExportTemplates_Delete_RemovesRecord", "[ProjectDB][exports]") {
-  TempDB tmp;
-  ProjectDB db(tmp.path);
-
-  const auto rec = db.add_export_template("Temp", R"({})");
-  REQUIRE(db.list_export_templates().size() == 1);
-
-  CHECK(db.delete_export_template(rec.id));
-  CHECK(db.list_export_templates().empty());
-  CHECK(!db.export_template(rec.id).has_value());
-}
-
-TEST_CASE("ExportTemplates_DeleteMissing_ReturnsFalse",
+TEST_CASE("ExportTemplates_Update_ColumnsAndName_KeepsOtherOptions",
           "[ProjectDB][exports]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
-
-  CHECK(!db.delete_export_template(42));
+  const auto orig =
+      db.add_export_template("Old", R"({"columns":["kind"],"delimiter":","})");
+  const auto updated =
+      db.update_export_template(orig.id, "New", R"({"columns":["kind","id"]})");
+  CHECK(updated.name == "New");
+  const auto cfg = nlohmann::json::parse(updated.config_json);
+  CHECK(cfg.at("columns") == nlohmann::json::parse(R"(["kind","id"])"));
+  // A body carrying only columns (all ExportPage sends) keeps csv options.
+  CHECK(cfg.at("delimiter") == ",");
+  CHECK_THROWS_AS(db.update_export_template(9999, "x", "{}"),
+                  std::runtime_error);
 }
 
-TEST_CASE("ExportTemplates_MultipleTemplates_ListPreservesOrder",
-          "[ProjectDB][exports]") {
+TEST_CASE("ExportTemplates_Delete_AndOrder", "[ProjectDB][exports]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
-
   db.add_export_template("First", "{}");
-  db.add_export_template("Second", "{}");
-  db.add_export_template("Third", "{}");
-
+  const auto second = db.add_export_template("Second", "{}");
+  CHECK(db.delete_export_template(second.id));
+  CHECK_FALSE(db.delete_export_template(second.id));
   const auto list = db.list_export_templates();
   REQUIRE(list.size() == 3);
-  CHECK(list[0].name == "First");
-  CHECK(list[1].name == "Second");
-  CHECK(list[2].name == "Third");
+  CHECK(list[2].name == "First");
+}
+
+TEST_CASE("ExportTemplates_UpdateSeed_KeepsCategoryMembers",
+          "[ProjectDB][exports]") {
+  // R-P4: the legacy view owns only legacy:/col: members. Updating a seed's
+  // columns through it must not drop its category members.
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  const auto seed = db.resource_templates().at(0);
+  const auto before = core::read_members(seed.members_json, seed.name);
+  REQUIRE_FALSE(before.empty());
+  const auto col = db.add_property_definition("Bredde", "number", {}, 0);
+  const auto updated = db.update_export_template(
+      seed.id, seed.name, R"({"columns":["kind","Bredde"]})");
+  CHECK(nlohmann::json::parse(updated.config_json).at("columns") ==
+        nlohmann::json::parse(R"(["kind","Bredde"])"));
+  const auto stored = db.resource_template(seed.id);
+  REQUIRE(stored.has_value());
+  auto expected = before;
+  expected.push_back({core::MemberKind::key, "legacy:kind"});
+  expected.push_back({core::MemberKind::key, "col:" + col});
+  CHECK(core::read_members(stored->members_json, "") == expected);
+  CHECK(stored->seed == seed.seed);
+
+  // A second update replaces the column members in place and still keeps
+  // every category member.
+  db.update_export_template(seed.id, seed.name, R"({"columns":["id"]})");
+  expected = before;
+  expected.push_back({core::MemberKind::key, "legacy:id"});
+  CHECK(core::read_members(db.resource_template(seed.id)->members_json, "") ==
+        expected);
+}
+
+TEST_CASE("ExportTemplates_Update_ReplacesColumnsInPlace",
+          "[ProjectDB][exports]") {
+  // Kept members (category, sys:) keep their relative order; new column
+  // members take the first old column member's slot.
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  ProjectDB::ResourceTemplateRecord rec;
+  rec.name = "Blandet";
+  rec.members_json = R"([{"key":"sys:name"},{"key":"legacy:a"},)"
+                     R"({"category":"Mål"},{"key":"legacy:b"}])";
+  const auto added = db.add_resource_template(rec);
+  db.update_export_template(added.id, "Blandet", R"({"columns":["c","d"]})");
+  CHECK(core::read_members(db.resource_template(added.id)->members_json, "") ==
+        std::vector<core::TemplateMember>{{core::MemberKind::key, "sys:name"},
+                                          {core::MemberKind::key, "legacy:c"},
+                                          {core::MemberKind::key, "legacy:d"},
+                                          {core::MemberKind::category, "Mål"}});
+}
+
+TEST_CASE("ExportTemplates_Rename_KeepsMembersOfADeletedColumn",
+          "[ProjectDB][exports]") {
+  // A rename (no columns in the config) touches only the name. A col: member
+  // whose user column was deleted is not in the view's columns, so it must
+  // survive both a rename and a columns update (kept as a missing member).
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  const auto col = db.add_property_definition("Bredde", "number", {}, 0);
+  const auto rec = db.add_export_template(
+      "Valg", R"({"columns":["Bredde","kind"],"delimiter":","})");
+  const auto before = db.resource_template(rec.id)->members_json;
+  db.delete_property_definition(col);
+
+  const auto renamed = db.update_export_template(rec.id, "Omdøbt", "{}");
+  CHECK(renamed.name == "Omdøbt");
+  CHECK(db.resource_template(rec.id)->members_json == before);
+  CHECK(nlohmann::json::parse(renamed.config_json).at("delimiter") == ",");
+
+  db.update_export_template(rec.id, "Omdøbt", R"({"columns":["id"]})");
+  CHECK(
+      core::read_members(db.resource_template(rec.id)->members_json, "") ==
+      std::vector<core::TemplateMember>{{core::MemberKind::key, "col:" + col},
+                                        {core::MemberKind::key, "legacy:id"}});
+}
+
+TEST_CASE("ExportTemplates_RepeatedColumns_FirstPositionWins",
+          "[ProjectDB][exports]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  const auto col = db.add_property_definition("Bredde", "number", {}, 0);
+  const auto rec = db.add_export_template(
+      "Valg", R"({"columns":["kind","Bredde","kind",7,"Bredde"]})");
+  const std::vector<core::TemplateMember> want{
+      {core::MemberKind::key, "legacy:kind"},
+      {core::MemberKind::key, "col:" + col}};
+  CHECK(core::read_members(db.resource_template(rec.id)->members_json, "") ==
+        want);
+  CHECK(nlohmann::json::parse(rec.config_json).at("columns") ==
+        nlohmann::json::parse(R"(["kind","Bredde"])"));
+
+  db.update_export_template(rec.id, "Valg",
+                            R"({"columns":["Bredde",null,"kind","Bredde"]})");
+  CHECK(core::read_members(db.resource_template(rec.id)->members_json, "") ==
+        std::vector<core::TemplateMember>{
+            {core::MemberKind::key, "col:" + col},
+            {core::MemberKind::key, "legacy:kind"}});
 }

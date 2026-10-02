@@ -9,7 +9,7 @@
 # whole cloud without a highlight. Never run this against a real project.
 #
 # Usage: seed-survey-demo.sh [--varied] <source.rux> <dest.rux>
-# --varied adds P-04 (answered ren, linked to two approved types) and P-05 (planned, unlinked) for Miljø & prøver work, three report versions (two drafts, one complete) for Rapport, and — what On-site writes — a ★ part with a note (RX-014) and P-06 taken at RX-013.
+# --varied adds P-04 (answered ren, linked to two approved types) and P-05 (planned, unlinked) for Miljø & prøver work, three report versions (two drafts, one complete) for Rapport, and a ★ part with a note (RX-014).
 set -euo pipefail
 command -v sqlite3 > /dev/null 2>&1 || { echo "sqlite3 not found" >&2; exit 1; }
 varied=0
@@ -25,7 +25,6 @@ rm -f "$dst-wal" "$dst-shm"
 rux -p "$dst" create survey > /dev/null 2>&1 || true
 ver=$(sqlite3 "$dst" 'SELECT MAX(version) FROM schema_version;')
 [[ "$ver" -ge 22 ]] || { echo "schema v$ver < 22 — build a newer rux" >&2; exit 1; }
-[[ "$varied" -eq 0 || "$ver" -ge 24 ]] || { echo "schema v$ver < 24 — --varied needs a rux with samples.part_code" >&2; exit 1; }
 sqlite3 "$dst" <<'SQL'
 BEGIN;
 DELETE FROM sample_links; DELETE FROM samples; DELETE FROM survey_parts; DELETE FROM survey_types;
@@ -38,7 +37,7 @@ INSERT INTO survey_types (id,name,eak_code,bim7aa_code,unit,treatment,review_sta
  (6,'Vinduespartier, aluminium','17.04.02','312 Udv. vinduer','stk','genbrug','queue',0.82,3.1,'Ved ren fuge: salg som brugte partier.',0,-2),
  (7,'Trapezplader, tag','17.04.05','272 Tagdækning','m²','genanvendelse','approved',0.89,6.8,'Skrot/omsmeltning via metalgenvinding.',0,-2),
  (8,'Gulvbelægning, linoleum','17.09.04','421 Gulvbelægning','m²','nyttiggoerelse','queue',0.84,1.6,'Behandling afhænger af limprøve (asbest).',0,-2),
- (9,'Indvendige døre, træ','17.02.01','322 Indv. døre','stk','genbrug','queue',0.74,0.9,'Blandet stand — ★ fra on-site: 8–10 stk. skønnes direkte genbrugelige.',1,-2),
+ (9,'Indvendige døre, træ','17.02.01','322 Indv. døre','stk','genbrug','queue',0.74,0.9,'Blandet stand — ★ fra besigtigelsen: 8–10 stk. skønnes direkte genbrugelige.',1,-2),
  (10,'Isolering, mineraluld','17.06.04','251 Isolering','m²','bortskaffelse','approved',0.87,2.4,'Deponi medmindre retur-ordning kan afsætte.',0,-2),
  (11,'Indvendige murvægge, malet','17.01.02','222 Indervægge','m²','bortskaffelse','queue',0.87,38,'Bly i maling påvist (P-02) — afrenses eller håndteres som forurenet.',0,-2);
 INSERT INTO survey_parts (code,type_id,instance_guid,room_id,room_name,quantity) VALUES
@@ -68,9 +67,6 @@ INSERT INTO samples (id,code,title,what,stage,result) VALUES
  (5,'P-05','PAH i tagpap','Tagpap under trapezplader — endnu ikke udtaget','planlagt','');
 INSERT INTO sample_links (sample_id,type_id) VALUES (4,7),(4,10);
 UPDATE survey_parts SET starred = 1, note = '8–10 stk. skønnes direkte genbrugelige.' WHERE code = 'RX-014';
-INSERT INTO samples (id,code,title,what,stage,result,part_code) VALUES
- (6,'P-06','Asbest i linoleumslim','Prøve under vinduet mod gården','udtaget','','RX-013');
-INSERT INTO sample_links (sample_id,type_id) VALUES (6,8);
 DELETE FROM report_pdfs;
 INSERT INTO report_pdfs (label,created_at,pdf_blob,blocking_types) VALUES
  ('Ressourcekortlægning','2026-05-21 09:12:00',X'255044462D312E340A2525454F460A',9),

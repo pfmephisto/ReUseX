@@ -11,6 +11,8 @@
 #include "core/logging.hpp"
 #include "core/materialepas_serialization.hpp"
 #include "core/materialepas_traits.hpp"
+#include "core/resource_keys.hpp"
+#include "core/resource_templates.hpp"
 
 #include <opencv2/core/mat.hpp>
 #include <opencv2/imgcodecs.hpp>
@@ -100,6 +102,85 @@ sqlite3_stmt *prepare_or_throw(sqlite3 *db, const char *sql, const char *who) {
     throw std::runtime_error(std::string(who) +
                              ": prepare failed: " + sqlite3_errmsg(db));
   return stmt;
+}
+
+/// SAVEPOINT scope: atomic on its own, nests inside a ProjectDB::Transaction.
+/// Rolled back to (and released) unless release() is called.
+class Savepoint {
+  sqlite3 *db_;
+  const char *name_;
+  bool open_ = true;
+
+  void exec(const std::string &sql) {
+    char *err = nullptr;
+    if (sqlite3_exec(db_, sql.c_str(), nullptr, nullptr, &err) != SQLITE_OK) {
+      std::string msg = err ? err : "unknown error";
+      sqlite3_free(err);
+      throw std::runtime_error(sql + " failed: " + msg);
+    }
+  }
+
+    public:
+  Savepoint(sqlite3 *db, const char *name) : db_(db), name_(name) {
+    exec(std::string("SAVEPOINT ") + name_ + ";");
+  }
+  ~Savepoint() {
+    if (!open_)
+      return;
+    const std::string sql =
+        std::string("ROLLBACK TO ") + name_ + "; RELEASE " + name_ + ";";
+    if (sqlite3_exec(db_, sql.c_str(), nullptr, nullptr, nullptr) != SQLITE_OK)
+      reusex::warn("{}: rollback to savepoint failed: {}", name_,
+                   sqlite3_errmsg(db_));
+  }
+  void release() {
+    exec(std::string("RELEASE ") + name_ + ";");
+    open_ = false;
+  }
+  Savepoint(const Savepoint &) = delete;
+  Savepoint &operator=(const Savepoint &) = delete;
+};
+
+/// Spec §5.1, verbatim. IF NOT EXISTS because tests that roll a project
+/// back past v25 without dropping the table re-run migrateToV25.
+constexpr const char *kTemplatesSchema = R"(
+  CREATE TABLE IF NOT EXISTS templates (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT NOT NULL UNIQUE,
+    members    TEXT NOT NULL DEFAULT '[]',
+    csv        TEXT NOT NULL DEFAULT '{}',
+    seed       TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+  );
+)";
+
+/// Export-template `columns` (schema v21 config) as key members, via
+/// core::legacy_column_member. First position wins: a column that maps to a
+/// member already taken is dropped, as are non-string entries; both are
+/// counted in one warn naming @p who (STANDARDS §5).
+std::vector<core::TemplateMember>
+column_members(const nlohmann::json &columns,
+               const std::vector<core::ResourceKey> &catalogue,
+               std::string_view who) {
+  std::vector<core::TemplateMember> out;
+  std::size_t non_string = 0, repeated = 0;
+  for (const auto &c : columns) {
+    if (!c.is_string()) {
+      ++non_string;
+      continue;
+    }
+    auto m = core::legacy_column_member(c.get<std::string>(), catalogue);
+    if (std::find(out.begin(), out.end(), m) != out.end()) {
+      ++repeated;
+      continue;
+    }
+    out.push_back(std::move(m));
+  }
+  if (non_string + repeated > 0)
+    reusex::warn("{}: skipped {} non-string and {} repeated column(s) of {}",
+                 who, non_string, repeated, columns.size());
+  return out;
 }
 } // namespace
 
@@ -241,9 +322,13 @@ class ProjectDB::Impl {
   std::filesystem::path dbPath;
   bool readOnly;
   sqlite3 *db = nullptr;
+  /// survey_parts.passport_guid exists (schema v25). Set once at the end of
+  /// configure(): a read-write open has migrated, a read-only open of an
+  /// older project has not, and neither changes for this connection.
+  bool hasPassportColumn = false;
 
   // cppcheck-suppress unusedStructMember
-  static constexpr int LATEST_SCHEMA_VERSION = 24;
+  static constexpr int LATEST_SCHEMA_VERSION = 25;
 
   // How long one statement waits for a lock another connection holds before
   // failing with SQLITE_BUSY. sqlite's default is not to wait at all.
@@ -349,6 +434,53 @@ class ProjectDB::Impl {
                      onDisk, LATEST_SCHEMA_VERSION, dbPath);
       }
     }
+    hasPassportColumn = columnExists("survey_parts", "passport_guid");
+  }
+
+  /// `save_instances` (every `rux create instances` re-run) deletes the
+  /// cloud's instances rows, and instance_materials cascades with them. The
+  /// stage re-links carried-over instances itself, but a link lost any other
+  /// way would leave the pipeline (Viewport, create materials, MaterialEPAS
+  /// export) blind to a part's passport. Put a missing link back; an existing
+  /// one — even to another passport — is left alone (spec §4.1).
+  void restoreInstanceLink(std::string_view code, const std::string &guid,
+                           const std::string &instance_guid) {
+    sqlite3_stmt *s = prepare_or_throw(
+        db,
+        "INSERT INTO instance_materials (cloud_id, instance_id, material_guid) "
+        "SELECT cloud_id, instance_id, ?1 FROM instances WHERE guid = ?2 "
+        "ON CONFLICT(cloud_id, instance_id) DO NOTHING;",
+        "ensure_resource_passport");
+    StmtGuard guard(s);
+    bind_text(s, 1, guid);
+    bind_text(s, 2, instance_guid);
+    if (sqlite3_step(s) != SQLITE_DONE)
+      throw std::runtime_error("ensure_resource_passport: " +
+                               std::string(sqlite3_errmsg(db)));
+    if (sqlite3_changes(db) > 0)
+      reusex::info("ensure_resource_passport: restored the instance link of "
+                   "part '{}' to its passport '{}' (instance {})",
+                   code, guid, instance_guid);
+  }
+
+  /// True when an instance_materials row links passport @p guid.
+  bool passportLinkedByInstance(std::string_view guid) const {
+    sqlite3_stmt *s = prepare_or_throw(
+        db, "SELECT 1 FROM instance_materials WHERE material_guid = ? LIMIT 1;",
+        "passport linked by instance");
+    StmtGuard guard(s);
+    bind_text(s, 1, guid);
+    return sqlite3_step(s) == SQLITE_ROW;
+  }
+
+  /// True when a survey part owns passport @p guid (schema v25).
+  bool passportOwnedByPart(std::string_view guid) const {
+    sqlite3_stmt *s = prepare_or_throw(
+        db, "SELECT 1 FROM survey_parts WHERE passport_guid = ?;",
+        "passport owned by part");
+    StmtGuard guard(s);
+    bind_text(s, 1, guid);
+    return sqlite3_step(s) == SQLITE_ROW;
   }
 
   void checkWritable() const {
@@ -562,6 +694,10 @@ class ProjectDB::Impl {
 
     if (current < 24) {
       migrateToV24();
+    }
+
+    if (current < 25) {
+      migrateToV25();
     }
 
     reusex::trace("Schema version: {}", getCurrentSchemaVersion());
@@ -1796,6 +1932,375 @@ class ProjectDB::Impl {
     insertSchemaVersion(
         24, "Record the survey part a sample was taken at (Phase 6)");
     reusex::info("Migration to schema version 24 complete");
+  }
+
+  std::vector<ProjectDB::PropertyDefinition> listPropertyDefinitions() const {
+    const char *query = "SELECT id, name, type, options, sort_order, width "
+                        "FROM material_property_definitions "
+                        "ORDER BY sort_order, created_at;";
+
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, query, -1, &stmt, nullptr) != SQLITE_OK) {
+      throw std::runtime_error(
+          "Failed to prepare list property definitions query: " +
+          std::string(sqlite3_errmsg(db)));
+    }
+    StmtGuard guard(stmt);
+
+    std::vector<ProjectDB::PropertyDefinition> defs;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+      ProjectDB::PropertyDefinition def;
+      const char *id =
+          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
+      const char *name =
+          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1));
+      const char *type =
+          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 2));
+      const char *options =
+          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 3));
+
+      def.id = id ? id : "";
+      def.name = name ? name : "";
+      def.type = type ? type : "text";
+      def.sort_order = sqlite3_column_int(stmt, 4);
+      def.width = sqlite3_column_int(stmt, 5);
+
+      if (options && *options) {
+        try {
+          auto parsed = nlohmann::json::parse(options);
+          if (parsed.is_array()) {
+            for (const auto &opt : parsed) {
+              if (opt.is_string())
+                def.options.push_back(opt.get<std::string>());
+            }
+          }
+        } catch (const nlohmann::json::exception &) {
+          // Tolerate a malformed options blob rather than failing the whole
+          // list.
+          reusex::warn("Ignoring malformed options for property definition {}",
+                       def.id);
+        }
+      }
+      defs.push_back(std::move(def));
+    }
+    return defs;
+  }
+
+  int64_t queryInt(const char *sql) const {
+    sqlite3_stmt *s = prepare_or_throw(db, sql, "queryInt");
+    StmtGuard guard(s);
+    if (sqlite3_step(s) != SQLITE_ROW)
+      throw std::runtime_error(std::string("query failed: ") + sql + ": " +
+                               sqlite3_errmsg(db));
+    return sqlite3_column_int64(s, 0);
+  }
+
+  /// Insert one templates row; unset timestamps default to now.
+  /// @throws core::NameConflictError on a taken name.
+  int64_t insertTemplate(const std::string &name, const std::string &members,
+                         const std::string &csv,
+                         const std::optional<std::string> &seed,
+                         const std::optional<std::string> &created_at = {},
+                         const std::optional<std::string> &updated_at = {}) {
+    sqlite3_stmt *s = prepare_or_throw(
+        db,
+        "INSERT INTO templates (name, members, csv, seed, created_at, "
+        "updated_at) VALUES (?,?,?,?,"
+        "COALESCE(?5, strftime('%Y-%m-%dT%H:%M:%SZ','now')),"
+        "COALESCE(?6, strftime('%Y-%m-%dT%H:%M:%SZ','now'))) RETURNING id;",
+        "insert template");
+    StmtGuard guard(s);
+    auto bind_opt = [&](int i, const std::optional<std::string> &v) {
+      if (v)
+        bind_text(s, i, *v);
+      else
+        sqlite3_bind_null(s, i);
+    };
+    bind_text(s, 1, name);
+    bind_text(s, 2, members);
+    bind_text(s, 3, csv);
+    bind_opt(4, seed);
+    bind_opt(5, created_at);
+    bind_opt(6, updated_at);
+    if (sqlite3_step(s) != SQLITE_ROW) {
+      if (sqlite3_extended_errcode(db) == SQLITE_CONSTRAINT_UNIQUE)
+        throw core::NameConflictError("a template named '" + name +
+                                      "' already exists");
+      throw std::runtime_error("insert template '" + name +
+                               "': " + sqlite3_errmsg(db));
+    }
+    return sqlite3_column_int64(s, 0);
+  }
+
+  std::vector<std::string> templateNames() const {
+    sqlite3_stmt *s =
+        prepare_or_throw(db, "SELECT name FROM templates;", "template names");
+    StmtGuard guard(s);
+    std::vector<std::string> out;
+    while (sqlite3_step(s) == SQLITE_ROW)
+      out.push_back(column_text(s, 0));
+    return out;
+  }
+
+  std::size_t seedTemplates() {
+    std::size_t n = 0;
+    for (const auto &seed : core::seed_templates()) {
+      insertTemplate(seed.name, core::members_json(seed.members).dump(), "{}",
+                     seed.tag);
+      ++n;
+    }
+    return n;
+  }
+
+  struct MovedTemplates {
+    std::size_t moved = 0;
+    std::vector<std::string> unmatched; // "<template>: <column>"
+  };
+  /// Spec §5.4: every export_templates row becomes a templates row; its
+  /// columns become key members, the rest of its config the CSV options.
+  MovedTemplates moveExportTemplates() {
+    MovedTemplates out;
+    if (!tableExists("export_templates"))
+      return out;
+    const auto catalogue = core::key_catalogue(listPropertyDefinitions());
+    auto taken = templateNames();
+    struct Row {
+      std::string name, config;
+      std::optional<std::string> created_at, updated_at;
+    };
+    std::vector<Row> rows;
+    {
+      // v21 stamped datetime('now') ("YYYY-MM-DD HH:MM:SS", UTC); carry it
+      // over in the v25 ISO form. Unparseable stamps read NULL -> now.
+      sqlite3_stmt *s = prepare_or_throw(
+          db,
+          "SELECT name, config, strftime('%Y-%m-%dT%H:%M:%SZ', created_at), "
+          "strftime('%Y-%m-%dT%H:%M:%SZ', updated_at) FROM export_templates "
+          "ORDER BY id;",
+          "migrateToV25");
+      StmtGuard guard(s);
+      auto opt_text = [&](int i) -> std::optional<std::string> {
+        if (sqlite3_column_type(s, i) == SQLITE_NULL)
+          return std::nullopt;
+        return column_text(s, i);
+      };
+      while (sqlite3_step(s) == SQLITE_ROW)
+        rows.push_back(
+            {column_text(s, 0), column_text(s, 1), opt_text(2), opt_text(3)});
+    }
+    for (const auto &[name, config, created_at, updated_at] : rows) {
+      auto cfg = nlohmann::json::parse(config, nullptr, false);
+      if (cfg.is_discarded() || !cfg.is_object()) {
+        reusex::warn("v25: export template '{}' had unreadable config; moved "
+                     "with no columns",
+                     name);
+        cfg = nlohmann::json::object();
+      }
+      std::vector<core::TemplateMember> members;
+      if (cfg.contains("columns") && cfg["columns"].is_array())
+        members = column_members(cfg["columns"], catalogue,
+                                 "v25: export template '" + name + "'");
+      for (const auto &m : members)
+        if (m.ref.rfind(core::kLegacyKeyPrefix, 0) == 0)
+          out.unmatched.push_back(name + ": " +
+                                  m.ref.substr(core::kLegacyKeyPrefix.size()));
+      cfg.erase("columns");
+      const bool clash =
+          std::find(taken.begin(), taken.end(), name) != taken.end();
+      const auto final_name =
+          clash ? core::unique_name(name, "eksport", taken) : name;
+      insertTemplate(final_name, core::members_json(members).dump(), cfg.dump(),
+                     std::nullopt, created_at, updated_at);
+      taken.push_back(final_name);
+      ++out.moved;
+    }
+    execOrThrow("DROP TABLE export_templates;");
+    if (!out.unmatched.empty()) {
+      std::string list;
+      for (const auto &u : out.unmatched)
+        list += (list.empty() ? "" : "; ") + u;
+      reusex::warn("v25: {} export-template column(s) match no resource key "
+                   "and are kept as missing members: {}",
+                   out.unmatched.size(), list);
+    }
+    return out;
+  }
+
+  /// A copy of passport @p src under a fresh guid: row, property values and
+  /// thumbnail (not the log). Spec §4.2 step 2.
+  std::string copyPassport(const std::string &src) {
+    const std::string dst = core::generate_guid();
+    auto run = [&](const char *sql) {
+      sqlite3_stmt *s = prepare_or_throw(db, sql, "migrateToV25");
+      StmtGuard guard(s);
+      bind_text(s, 1, dst);
+      bind_text(s, 2, src);
+      if (sqlite3_step(s) != SQLITE_DONE)
+        throw std::runtime_error("Migration to v25 failed copying passport " +
+                                 src + ": " + sqlite3_errmsg(db));
+    };
+    run("INSERT INTO material_passports (id, project_id, document_guid, "
+        "created_at, revised_at, version_number, version_date) "
+        "SELECT ?1, project_id, ?1, created_at, revised_at, version_number, "
+        "version_date FROM material_passports WHERE document_guid = ?2;");
+    run("INSERT INTO passport_property_values (id, passport_id, property_id, "
+        "leksikon_guid, sort_order, value) "
+        "SELECT ?1 || '_' || v.leksikon_guid, ?1, v.property_id, "
+        "v.leksikon_guid, v.sort_order, v.value "
+        "FROM passport_property_values v "
+        "JOIN material_passports mp ON mp.id = v.passport_id "
+        "WHERE mp.document_guid = ?2;");
+    run("INSERT INTO material_thumbnails (material_guid, blob, mime_type) "
+        "SELECT ?1, blob, mime_type FROM material_thumbnails "
+        "WHERE material_guid = ?2;");
+    // The VLM description (v13) hangs off document_guid too.
+    if (tableExists("material_annotations")) {
+      run("INSERT INTO material_annotations (material_guid, description, "
+          "provider_model, raw_json, created_at) SELECT ?1, description, "
+          "provider_model, raw_json, created_at FROM material_annotations "
+          "WHERE material_guid = ?2;");
+      run("INSERT INTO material_annotation_kv (material_guid, key, value) "
+          "SELECT ?1, key, value FROM material_annotation_kv "
+          "WHERE material_guid = ?2;");
+    }
+    return dst;
+  }
+
+  struct LinkCounts {
+    std::size_t linked = 0, split = 0, unlinked = 0;
+  };
+  /// Spec §4.2 steps 2–3: link each instance-backed part to its instance's
+  /// passport; when several parts share one, the first by code keeps it and
+  /// every other gets a copy (its instance link repointed). Passports no
+  /// part references are left alone.
+  LinkCounts linkResourcePassports() {
+    LinkCounts c;
+    // Column checks, not table checks: hand-built legacy fixtures carry an
+    // `instances` table that predates instance_id/guid.
+    if (columnExists("instances", "guid") &&
+        columnExists("instances", "instance_id") &&
+        tableExists("instance_materials")) {
+      struct Row {
+        std::string code;
+        int64_t cloud_id = 0, instance_id = 0;
+        std::string guid;
+      };
+      std::vector<Row> rows;
+      {
+        // Only links to a passport that exists: the new column is a foreign
+        // key, and a dangling link has nothing to own.
+        sqlite3_stmt *s = prepare_or_throw(
+            db,
+            "SELECT p.code, i.cloud_id, i.instance_id, im.material_guid "
+            "FROM survey_parts p "
+            "JOIN instances i ON i.guid = p.instance_guid "
+            "JOIN instance_materials im ON im.cloud_id = i.cloud_id AND "
+            "im.instance_id = i.instance_id "
+            "JOIN material_passports mp ON mp.document_guid = "
+            "im.material_guid "
+            "WHERE p.passport_guid IS NULL "
+            "ORDER BY im.material_guid, p.code;",
+            "migrateToV25");
+        StmtGuard guard(s);
+        while (sqlite3_step(s) == SQLITE_ROW)
+          rows.push_back({column_text(s, 0), sqlite3_column_int64(s, 1),
+                          sqlite3_column_int64(s, 2), column_text(s, 3)});
+      }
+      std::set<std::string> claimed;
+      {
+        sqlite3_stmt *s = prepare_or_throw(
+            db,
+            "SELECT passport_guid FROM survey_parts WHERE passport_guid IS "
+            "NOT NULL;",
+            "migrateToV25");
+        StmtGuard guard(s);
+        while (sqlite3_step(s) == SQLITE_ROW)
+          claimed.insert(column_text(s, 0));
+      }
+      for (const auto &r : rows) {
+        std::string guid = r.guid;
+        if (claimed.count(guid)) {
+          guid = copyPassport(r.guid);
+          sqlite3_stmt *s = prepare_or_throw(
+              db,
+              "UPDATE instance_materials SET material_guid = ? WHERE "
+              "cloud_id = ? AND instance_id = ?;",
+              "migrateToV25");
+          StmtGuard guard(s);
+          bind_text(s, 1, guid);
+          sqlite3_bind_int64(s, 2, r.cloud_id);
+          sqlite3_bind_int64(s, 3, r.instance_id);
+          if (sqlite3_step(s) != SQLITE_DONE)
+            throw std::runtime_error("Migration to v25 failed repointing " +
+                                     r.code + ": " + sqlite3_errmsg(db));
+          ++c.split;
+        }
+        sqlite3_stmt *s = prepare_or_throw(
+            db, "UPDATE survey_parts SET passport_guid = ? WHERE code = ?;",
+            "migrateToV25");
+        StmtGuard guard(s);
+        bind_text(s, 1, guid);
+        bind_text(s, 2, r.code);
+        if (sqlite3_step(s) != SQLITE_DONE)
+          throw std::runtime_error("Migration to v25 failed linking " + r.code +
+                                   ": " + sqlite3_errmsg(db));
+        claimed.insert(guid);
+        ++c.linked;
+      }
+      if (c.split > 0)
+        reusex::warn("v25: {} survey part(s) shared a passport with another "
+                     "part and now each have their own copy (values, "
+                     "thumbnail and VLM annotation copied, log not copied)",
+                     c.split);
+    }
+    c.unlinked = static_cast<std::size_t>(
+        queryInt("SELECT COUNT(*) FROM material_passports WHERE document_guid "
+                 "NOT IN (SELECT passport_guid FROM survey_parts WHERE "
+                 "passport_guid IS NOT NULL);"));
+    return c;
+  }
+
+  void migrateToV25() {
+    reusex::info("Migrating database to schema version 25");
+    // Resources and templates (docs/superpowers/specs/
+    // 2026-10-02-resources-templates-ia-design.md §4.2): one transaction, so
+    // a v24 project upgrades whole or stays v24. Every step is guarded so a
+    // test that rolls the version back and reopens re-runs it safely.
+    execOrThrow("BEGIN TRANSACTION;");
+    try {
+      // §4.2 step 1. ADD COLUMN cannot carry UNIQUE; the index does (NULLs
+      // stay distinct, so parts without a passport are fine).
+      if (!columnExists("survey_parts", "passport_guid"))
+        execOrThrow("ALTER TABLE survey_parts ADD COLUMN passport_guid TEXT "
+                    "REFERENCES material_passports(document_guid) "
+                    "ON DELETE SET NULL;");
+      execOrThrow("CREATE UNIQUE INDEX IF NOT EXISTS idx_survey_parts_passport "
+                  "ON survey_parts(passport_guid);");
+      const auto links = linkResourcePassports(); // steps 2–3
+      // Step 4: On-site is gone. Plain TEXT column: no rebuild needed.
+      if (columnExists("samples", "part_code"))
+        execOrThrow("ALTER TABLE samples DROP COLUMN part_code;");
+      execOrThrow(kTemplatesSchema);
+      // Seeds first: the table is new, so this is "if templates is empty",
+      // and moved export templates can then be suffixed against the seeds.
+      std::size_t seeded = 0;
+      if (queryInt("SELECT COUNT(*) FROM templates;") == 0)
+        seeded = seedTemplates();
+      const auto moved = moveExportTemplates();
+      insertSchemaVersion(25, "Resources and templates: passport per part, "
+                              "templates table, no On-site part_code");
+      execOrThrow("COMMIT;");
+      reusex::info("Migration to schema version 25 complete: passports "
+                   "linked {}, split {}, left unlinked {}; {} seed "
+                   "template(s); {} export template(s) moved, {} column(s) "
+                   "unmatched",
+                   links.linked, links.split, links.unlinked, seeded,
+                   moved.moved, moved.unmatched.size());
+    } catch (...) {
+      if (sqlite3_exec(db, "ROLLBACK;", nullptr, nullptr, nullptr) != SQLITE_OK)
+        reusex::warn("migrateToV25: ROLLBACK failed: {}", sqlite3_errmsg(db));
+      throw;
+    }
   }
 
   /// 1-based position of a report version in generation order.
@@ -3696,6 +4201,96 @@ class ProjectDB::Impl {
     if (sqlite3_step(stmt) != SQLITE_DONE)
       throw std::runtime_error("Failed to set instance material: " +
                                std::string(sqlite3_errmsg(db)));
+
+    // Schema v25: the part backed by this instance follows the new link,
+    // unless another part owns that passport — then it keeps its own (or,
+    // having none, reads as passport-less until its first edit) and the two
+    // disagree until someone relinks (warn, STANDARDS §5).
+    if (hasPassportColumn) {
+      // The part's passport before the move, to report one it leaves behind.
+      std::optional<std::pair<std::string, std::string>> before;
+      {
+        sqlite3_stmt *s = prepare_or_throw(
+            db,
+            "SELECT code, passport_guid FROM survey_parts WHERE instance_guid "
+            "= (SELECT guid FROM instances WHERE cloud_id = ? AND "
+            "instance_id = ?) AND passport_guid IS NOT NULL;",
+            "set_instance_material");
+        StmtGuard guard(s);
+        sqlite3_bind_int(s, 1, cloudId);
+        sqlite3_bind_int(s, 2, instanceId);
+        if (sqlite3_step(s) == SQLITE_ROW)
+          before = std::make_pair(column_text(s, 0), column_text(s, 1));
+      }
+      sqlite3_stmt *up = prepare_or_throw(
+          db,
+          "UPDATE survey_parts SET passport_guid = ?1 "
+          "WHERE instance_guid = (SELECT guid FROM instances WHERE "
+          "cloud_id = ?2 AND instance_id = ?3) "
+          "AND NOT EXISTS (SELECT 1 FROM survey_parts WHERE "
+          "passport_guid = ?1);",
+          "set_instance_material");
+      StmtGuard up_guard(up);
+      bind_text(up, 1, materialGuid);
+      sqlite3_bind_int(up, 2, cloudId);
+      sqlite3_bind_int(up, 3, instanceId);
+      if (sqlite3_step(up) != SQLITE_DONE)
+        throw std::runtime_error("Failed to sync the part's passport: " +
+                                 std::string(sqlite3_errmsg(db)));
+      const bool moved =
+          before && sqlite3_changes(db) > 0 && before->second != materialGuid;
+      if (moved && !passportOwnedByPart(before->second) &&
+          !passportLinkedByInstance(before->second)) {
+        // The old passport (and any values edited on it) stays in the
+        // project but nothing references it any more — say so (§5).
+        sqlite3_stmt *n = prepare_or_throw(
+            db,
+            "SELECT COUNT(*) FROM passport_property_values v JOIN "
+            "material_passports mp ON mp.id = v.passport_id WHERE "
+            "mp.document_guid = ?;",
+            "set_instance_material");
+        StmtGuard n_guard(n);
+        bind_text(n, 1, before->second);
+        sqlite3_step(n);
+        const auto values = sqlite3_column_int64(n, 0);
+        // Values on it (user edits, possibly) are now out of reach: warn.
+        // An empty one loses nothing.
+        reusex::log(values > 0 ? reusex::core::LogLevel::warn
+                               : reusex::core::LogLevel::info,
+                    "set_instance_material: survey part '{}' moved from "
+                    "passport '{}' to '{}'; '{}' ({} stored value(s)) is "
+                    "now unreferenced",
+                    before->first, before->second, materialGuid, before->second,
+                    values);
+      }
+      sqlite3_stmt *chk = prepare_or_throw(
+          db,
+          "SELECT p.code, p.passport_guid, (SELECT code FROM survey_parts "
+          "WHERE passport_guid = ?1) FROM survey_parts p "
+          "WHERE p.instance_guid = (SELECT guid FROM instances WHERE "
+          "cloud_id = ?2 AND instance_id = ?3) AND (p.passport_guid IS "
+          "NULL OR p.passport_guid <> ?1);",
+          "set_instance_material");
+      StmtGuard chk_guard(chk);
+      bind_text(chk, 1, materialGuid);
+      sqlite3_bind_int(chk, 2, cloudId);
+      sqlite3_bind_int(chk, 3, instanceId);
+      if (sqlite3_step(chk) == SQLITE_ROW) {
+        if (sqlite3_column_type(chk, 1) == SQLITE_NULL)
+          // Not a warn: ensure_resource_passport warns once, on the write
+          // that gives this part its own passport (R-P5: one warning).
+          reusex::debug("set_instance_material: passport '{}' belongs to "
+                        "survey part '{}'; part '{}' has no passport until "
+                        "its first edit creates one",
+                        materialGuid, column_text(chk, 2), column_text(chk, 0));
+        else
+          reusex::warn("set_instance_material: passport '{}' belongs to "
+                       "survey part '{}'; part '{}' keeps its own passport "
+                       "'{}'",
+                       materialGuid, column_text(chk, 2), column_text(chk, 0),
+                       column_text(chk, 1));
+      }
+    }
   }
 
   std::optional<std::string> instanceMaterialGuid(std::string_view cloudName,
@@ -4979,16 +5574,13 @@ class ProjectDB::Impl {
 
     reusex::core::MaterialPassportMetadata metadata;
     if (sqlite3_step(stmt) == SQLITE_ROW) {
-      metadata.document_guid =
-          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
-      metadata.creation_date =
-          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1));
-      metadata.revision_date =
-          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 2));
-      metadata.version_number =
-          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 3));
-      metadata.version_date =
-          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 4));
+      // NULL reads as "" (column_text): rows written by hand or before
+      // ensure_resource_passport filled every column hold NULLs.
+      metadata.document_guid = column_text(stmt, 0);
+      metadata.creation_date = column_text(stmt, 1);
+      metadata.revision_date = column_text(stmt, 2);
+      metadata.version_number = column_text(stmt, 3);
+      metadata.version_date = column_text(stmt, 4);
     } else {
       sqlite3_finalize(stmt);
       throw std::runtime_error("Material passport not found: " +
@@ -5065,21 +5657,16 @@ class ProjectDB::Impl {
     while (sqlite3_step(stmt) == SQLITE_ROW) {
       reusex::core::TransactionLogEntry entry;
 
-      const char *entry_type =
-          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
-      if (auto type = reusex::core::transaction_type_from_string(entry_type)) {
+      if (auto type = reusex::core::transaction_type_from_string(
+              column_text(stmt, 0))) {
         entry.type = *type;
       }
 
-      entry.guid = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1));
-      entry.edited_by =
-          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 2));
-      entry.edited_date =
-          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 3));
-      entry.old_value =
-          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 4));
-      entry.new_value =
-          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 5));
+      entry.guid = column_text(stmt, 1);
+      entry.edited_by = column_text(stmt, 2);
+      entry.edited_date = column_text(stmt, 3);
+      entry.old_value = column_text(stmt, 4);
+      entry.new_value = column_text(stmt, 5);
 
       entries.push_back(std::move(entry));
     }
@@ -6630,54 +7217,7 @@ void ProjectDB::delete_material_passport(std::string_view documentGuid) {
 
 std::vector<ProjectDB::PropertyDefinition>
 ProjectDB::list_property_definitions() const {
-  const char *query = "SELECT id, name, type, options, sort_order, width "
-                      "FROM material_property_definitions "
-                      "ORDER BY sort_order, created_at;";
-
-  sqlite3_stmt *stmt;
-  if (sqlite3_prepare_v2(impl_->db, query, -1, &stmt, nullptr) != SQLITE_OK) {
-    throw std::runtime_error(
-        "Failed to prepare list property definitions query: " +
-        std::string(sqlite3_errmsg(impl_->db)));
-  }
-  StmtGuard guard(stmt);
-
-  std::vector<PropertyDefinition> defs;
-  while (sqlite3_step(stmt) == SQLITE_ROW) {
-    PropertyDefinition def;
-    const char *id =
-        reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
-    const char *name =
-        reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1));
-    const char *type =
-        reinterpret_cast<const char *>(sqlite3_column_text(stmt, 2));
-    const char *options =
-        reinterpret_cast<const char *>(sqlite3_column_text(stmt, 3));
-
-    def.id = id ? id : "";
-    def.name = name ? name : "";
-    def.type = type ? type : "text";
-    def.sort_order = sqlite3_column_int(stmt, 4);
-    def.width = sqlite3_column_int(stmt, 5);
-
-    if (options && *options) {
-      try {
-        auto parsed = nlohmann::json::parse(options);
-        if (parsed.is_array()) {
-          for (const auto &opt : parsed) {
-            if (opt.is_string())
-              def.options.push_back(opt.get<std::string>());
-          }
-        }
-      } catch (const nlohmann::json::exception &) {
-        // Tolerate a malformed options blob rather than failing the whole list.
-        reusex::warn("Ignoring malformed options for property definition {}",
-                     def.id);
-      }
-    }
-    defs.push_back(std::move(def));
-  }
-  return defs;
+  return impl_->listPropertyDefinitions();
 }
 
 std::string ProjectDB::add_property_definition(
@@ -7510,167 +8050,273 @@ int ProjectDB::latest_schema_version() noexcept {
   return Impl::LATEST_SCHEMA_VERSION;
 }
 
-// --- Export Templates (schema v21) ---
+// --- Resource templates (schema v25) ---
+
+namespace {
+constexpr const char *kTemplateColumns =
+    "id, name, members, csv, seed, created_at, updated_at";
+
+ProjectDB::ResourceTemplateRecord read_template(sqlite3_stmt *s) {
+  ProjectDB::ResourceTemplateRecord r;
+  r.id = sqlite3_column_int64(s, 0);
+  r.name = column_text(s, 1);
+  r.members_json = column_text(s, 2);
+  r.csv_json = column_text(s, 3);
+  if (sqlite3_column_type(s, 4) != SQLITE_NULL)
+    r.seed = column_text(s, 4);
+  r.created_at = column_text(s, 5);
+  r.updated_at = column_text(s, 6);
+  return r;
+}
+} // namespace
+
+std::vector<ProjectDB::ResourceTemplateRecord>
+ProjectDB::resource_templates() const {
+  if (!impl_->tableExists("templates"))
+    return {};
+  const std::string sql = std::string("SELECT ") + kTemplateColumns +
+                          " FROM templates ORDER BY id;";
+  sqlite3_stmt *stmt =
+      prepare_or_throw(impl_->db, sql.c_str(), "resource_templates");
+  StmtGuard guard(stmt);
+  std::vector<ResourceTemplateRecord> out;
+  while (sqlite3_step(stmt) == SQLITE_ROW)
+    out.push_back(read_template(stmt));
+  return out;
+}
+
+std::optional<ProjectDB::ResourceTemplateRecord>
+ProjectDB::resource_template(int64_t id) const {
+  if (!impl_->tableExists("templates"))
+    return std::nullopt;
+  const std::string sql = std::string("SELECT ") + kTemplateColumns +
+                          " FROM templates WHERE id = ?;";
+  sqlite3_stmt *stmt =
+      prepare_or_throw(impl_->db, sql.c_str(), "resource_template");
+  StmtGuard guard(stmt);
+  sqlite3_bind_int64(stmt, 1, id);
+  if (sqlite3_step(stmt) != SQLITE_ROW)
+    return std::nullopt;
+  return read_template(stmt);
+}
+
+ProjectDB::ResourceTemplateRecord
+ProjectDB::add_resource_template(const ResourceTemplateRecord &rec) {
+  impl_->checkWritable();
+  const auto id =
+      impl_->insertTemplate(rec.name, rec.members_json, rec.csv_json, rec.seed);
+  return *resource_template(id);
+}
+
+ProjectDB::ResourceTemplateRecord
+ProjectDB::update_resource_template(int64_t id,
+                                    const ResourceTemplatePatch &p) {
+  impl_->checkWritable();
+  // The existence check, the UPDATE and the read-back are one unit.
+  Savepoint sp(impl_->db, "update_resource_template");
+  if (!resource_template(id))
+    throw std::out_of_range("no template " + std::to_string(id));
+  std::vector<std::string> sets;
+  if (p.name)
+    sets.emplace_back("name = ?");
+  if (p.members_json)
+    sets.emplace_back("members = ?");
+  if (p.csv_json)
+    sets.emplace_back("csv = ?");
+  if (sets.empty()) {
+    auto unchanged = *resource_template(id);
+    sp.release();
+    return unchanged;
+  }
+  std::string sql = "UPDATE templates SET ";
+  for (const auto &s : sets)
+    sql += s + ", ";
+  sql += "updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id = ?;";
+  sqlite3_stmt *stmt =
+      prepare_or_throw(impl_->db, sql.c_str(), "update_resource_template");
+  StmtGuard guard(stmt);
+  int i = 1;
+  if (p.name)
+    bind_text(stmt, i++, *p.name);
+  if (p.members_json)
+    bind_text(stmt, i++, *p.members_json);
+  if (p.csv_json)
+    bind_text(stmt, i++, *p.csv_json);
+  sqlite3_bind_int64(stmt, i, id);
+  if (sqlite3_step(stmt) != SQLITE_DONE) {
+    if (sqlite3_extended_errcode(impl_->db) == SQLITE_CONSTRAINT_UNIQUE)
+      throw core::NameConflictError("a template named '" + p.name.value_or("") +
+                                    "' already exists");
+    throw std::runtime_error("update_resource_template: " +
+                             std::string(sqlite3_errmsg(impl_->db)));
+  }
+  auto updated = *resource_template(id);
+  sp.release();
+  return updated;
+}
+
+bool ProjectDB::delete_resource_template(int64_t id) {
+  impl_->checkWritable();
+  sqlite3_stmt *stmt = prepare_or_throw(
+      impl_->db, "DELETE FROM templates WHERE id = ?;", "delete template");
+  StmtGuard guard(stmt);
+  sqlite3_bind_int64(stmt, 1, id);
+  if (sqlite3_step(stmt) != SQLITE_DONE)
+    throw std::runtime_error("delete_resource_template: " +
+                             std::string(sqlite3_errmsg(impl_->db)));
+  return sqlite3_changes(impl_->db) > 0;
+}
+
+// --- Export templates: legacy view over `templates` (schema v25) ---
+
+namespace {
+ProjectDB::ExportTemplateRecord
+as_export_template(const ProjectDB::ResourceTemplateRecord &t,
+                   const std::vector<core::ResourceKey> &catalogue) {
+  auto config = nlohmann::json::parse(t.csv_json, nullptr, false);
+  if (config.is_discarded() || !config.is_object())
+    config = nlohmann::json::object();
+  config["columns"] = core::legacy_columns(
+      core::read_members(t.members_json, t.name), catalogue);
+  return {t.id, t.name, config.dump(), t.created_at, t.updated_at};
+}
+
+/// An export config split into (column members, csv_json). Either is nullopt
+/// when the config does not carry it, so an update keeps what is stored.
+std::pair<std::optional<std::vector<core::TemplateMember>>,
+          std::optional<std::string>>
+from_export_config(const std::string &config_json,
+                   const std::vector<core::ResourceKey> &catalogue,
+                   std::string_view who) {
+  auto config = nlohmann::json::parse(config_json, nullptr, false);
+  if (config.is_discarded() || !config.is_object())
+    config = nlohmann::json::object();
+  std::optional<std::vector<core::TemplateMember>> members;
+  if (config.contains("columns") && config["columns"].is_array())
+    members = column_members(config["columns"], catalogue, who);
+  config.erase("columns");
+  std::optional<std::string> csv;
+  if (!config.empty())
+    csv = config.dump();
+  return {members, csv};
+}
+
+/// A member the legacy view owns, i.e. one core::legacy_columns renders into
+/// `columns`: a `legacy:` member, or a `col:` member whose user column still
+/// exists. A `col:` member whose column was deleted is not in the view, so a
+/// write through the view never removes it (spec: kept as missing).
+bool is_column_member(const core::TemplateMember &m,
+                      const std::vector<core::ResourceKey> &catalogue) {
+  if (m.kind != core::MemberKind::key)
+    return false;
+  if (m.ref.rfind(core::kLegacyKeyPrefix, 0) == 0)
+    return true;
+  return m.ref.rfind("col:", 0) == 0 && core::find_key(catalogue, m.ref);
+}
+
+/// R-P4: replace only the view's members (see is_column_member) of @p stored
+/// with @p columns. Every other member (category, sys:, lex:, a missing
+/// col:) keeps its relative position; the new column members go where the
+/// first old one was, or at the end when there was none. A column that maps
+/// onto a member already kept is not added twice.
+std::vector<core::TemplateMember>
+merge_column_members(const std::vector<core::TemplateMember> &stored,
+                     const std::vector<core::TemplateMember> &columns,
+                     const std::vector<core::ResourceKey> &catalogue) {
+  const auto owned = [&](const core::TemplateMember &m) {
+    return is_column_member(m, catalogue);
+  };
+  std::vector<core::TemplateMember> kept;
+  for (const auto &m : stored)
+    if (!owned(m))
+      kept.push_back(m);
+  std::vector<core::TemplateMember> fresh;
+  for (const auto &m : columns)
+    if (std::find(kept.begin(), kept.end(), m) == kept.end() &&
+        std::find(fresh.begin(), fresh.end(), m) == fresh.end())
+      fresh.push_back(m);
+  std::vector<core::TemplateMember> out;
+  bool placed = false;
+  for (const auto &m : stored) {
+    if (!owned(m)) {
+      out.push_back(m);
+      continue;
+    }
+    if (!placed) {
+      out.insert(out.end(), fresh.begin(), fresh.end());
+      placed = true;
+    }
+  }
+  if (!placed)
+    out.insert(out.end(), fresh.begin(), fresh.end());
+  return out;
+}
+} // namespace
 
 ProjectDB::ExportTemplateRecord
 ProjectDB::add_export_template(const std::string &name,
                                const std::string &config_json) {
-  impl_->checkWritable();
-
-  const char *sql = R"(
-    INSERT INTO export_templates (name, config)
-    VALUES (?, ?)
-    RETURNING id, created_at, updated_at;
-  )";
-
-  sqlite3_stmt *stmt = nullptr;
-  if (sqlite3_prepare_v2(impl_->db, sql, -1, &stmt, nullptr) != SQLITE_OK)
-    throw std::runtime_error("add_export_template: prepare failed: " +
-                             std::string(sqlite3_errmsg(impl_->db)));
-  StmtGuard guard(stmt);
-
-  sqlite3_bind_text(stmt, 1, name.c_str(), -1, SQLITE_TRANSIENT);
-  sqlite3_bind_text(stmt, 2, config_json.c_str(), -1, SQLITE_TRANSIENT);
-
-  if (sqlite3_step(stmt) != SQLITE_ROW)
-    throw std::runtime_error("add_export_template: insert failed: " +
-                             std::string(sqlite3_errmsg(impl_->db)));
-
-  ExportTemplateRecord rec;
-  rec.id = sqlite3_column_int64(stmt, 0);
-  if (const auto *s =
-          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1)))
-    rec.created_at = s;
-  if (const auto *s =
-          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 2)))
-    rec.updated_at = s;
+  const auto catalogue = core::key_catalogue(list_property_definitions());
+  const auto [members, csv] =
+      from_export_config(config_json, catalogue, "add_export_template");
+  ResourceTemplateRecord rec;
   rec.name = name;
-  rec.config_json = config_json;
-  return rec;
+  rec.members_json =
+      core::members_json(members.value_or(std::vector<core::TemplateMember>{}))
+          .dump();
+  rec.csv_json = csv.value_or("{}");
+  return as_export_template(add_resource_template(rec), catalogue);
 }
 
 std::vector<ProjectDB::ExportTemplateRecord>
 ProjectDB::list_export_templates() const {
-  const char *sql = "SELECT id, name, config, created_at, updated_at "
-                    "FROM export_templates ORDER BY id ASC;";
-
-  sqlite3_stmt *stmt = nullptr;
-  if (sqlite3_prepare_v2(impl_->db, sql, -1, &stmt, nullptr) != SQLITE_OK)
-    throw std::runtime_error("list_export_templates: prepare failed: " +
-                             std::string(sqlite3_errmsg(impl_->db)));
-  StmtGuard guard(stmt);
-
+  const auto catalogue = core::key_catalogue(list_property_definitions());
   std::vector<ExportTemplateRecord> out;
-  while (sqlite3_step(stmt) == SQLITE_ROW) {
-    ExportTemplateRecord rec;
-    rec.id = sqlite3_column_int64(stmt, 0);
-    if (const auto *s =
-            reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1)))
-      rec.name = s;
-    if (const auto *s =
-            reinterpret_cast<const char *>(sqlite3_column_text(stmt, 2)))
-      rec.config_json = s;
-    if (const auto *s =
-            reinterpret_cast<const char *>(sqlite3_column_text(stmt, 3)))
-      rec.created_at = s;
-    if (const auto *s =
-            reinterpret_cast<const char *>(sqlite3_column_text(stmt, 4)))
-      rec.updated_at = s;
-    out.push_back(std::move(rec));
-  }
+  for (const auto &t : resource_templates())
+    out.push_back(as_export_template(t, catalogue));
   return out;
 }
 
 std::optional<ProjectDB::ExportTemplateRecord>
 ProjectDB::export_template(int64_t id) const {
-  const char *sql = "SELECT id, name, config, created_at, updated_at "
-                    "FROM export_templates WHERE id = ?;";
-
-  sqlite3_stmt *stmt = nullptr;
-  if (sqlite3_prepare_v2(impl_->db, sql, -1, &stmt, nullptr) != SQLITE_OK)
-    throw std::runtime_error("export_template: prepare failed: " +
-                             std::string(sqlite3_errmsg(impl_->db)));
-  StmtGuard guard(stmt);
-
-  sqlite3_bind_int64(stmt, 1, id);
-
-  if (sqlite3_step(stmt) != SQLITE_ROW)
+  const auto t = resource_template(id);
+  if (!t)
     return std::nullopt;
-
-  ExportTemplateRecord rec;
-  rec.id = sqlite3_column_int64(stmt, 0);
-  if (const auto *s =
-          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1)))
-    rec.name = s;
-  if (const auto *s =
-          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 2)))
-    rec.config_json = s;
-  if (const auto *s =
-          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 3)))
-    rec.created_at = s;
-  if (const auto *s =
-          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 4)))
-    rec.updated_at = s;
-  return rec;
+  return as_export_template(*t,
+                            core::key_catalogue(list_property_definitions()));
 }
 
 ProjectDB::ExportTemplateRecord
 ProjectDB::update_export_template(int64_t id, const std::string &name,
                                   const std::string &config_json) {
   impl_->checkWritable();
-
-  const char *sql = R"(
-    UPDATE export_templates
-    SET name = ?, config = ?, updated_at = datetime('now')
-    WHERE id = ?
-    RETURNING id, created_at, updated_at;
-  )";
-
-  sqlite3_stmt *stmt = nullptr;
-  if (sqlite3_prepare_v2(impl_->db, sql, -1, &stmt, nullptr) != SQLITE_OK)
-    throw std::runtime_error("update_export_template: prepare failed: " +
-                             std::string(sqlite3_errmsg(impl_->db)));
-  StmtGuard guard(stmt);
-
-  sqlite3_bind_text(stmt, 1, name.c_str(), -1, SQLITE_TRANSIENT);
-  sqlite3_bind_text(stmt, 2, config_json.c_str(), -1, SQLITE_TRANSIENT);
-  sqlite3_bind_int64(stmt, 3, id);
-
-  if (sqlite3_step(stmt) != SQLITE_ROW)
+  // Read, merge and write as one unit, so a concurrent writer on the same
+  // file cannot slip in between the read of the members and the UPDATE.
+  Savepoint sp(impl_->db, "update_export_template");
+  const auto stored = resource_template(id);
+  if (!stored)
     throw std::runtime_error("update_export_template: id not found: " +
                              std::to_string(id));
-
-  ExportTemplateRecord rec;
-  rec.id = sqlite3_column_int64(stmt, 0);
-  if (const auto *s =
-          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1)))
-    rec.created_at = s;
-  if (const auto *s =
-          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 2)))
-    rec.updated_at = s;
-  rec.name = name;
-  rec.config_json = config_json;
-  return rec;
+  const auto catalogue = core::key_catalogue(list_property_definitions());
+  const auto [columns, csv] =
+      from_export_config(config_json, catalogue, "update_export_template");
+  ResourceTemplatePatch p;
+  p.name = name;
+  if (columns)
+    p.members_json =
+        core::members_json(
+            merge_column_members(
+                core::read_members(stored->members_json, stored->name),
+                *columns, catalogue))
+            .dump();
+  p.csv_json = csv;
+  auto out = as_export_template(update_resource_template(id, p), catalogue);
+  sp.release();
+  return out;
 }
 
 bool ProjectDB::delete_export_template(int64_t id) {
-  impl_->checkWritable();
-
-  const char *sql = "DELETE FROM export_templates WHERE id = ?;";
-
-  sqlite3_stmt *stmt = nullptr;
-  if (sqlite3_prepare_v2(impl_->db, sql, -1, &stmt, nullptr) != SQLITE_OK)
-    throw std::runtime_error("delete_export_template: prepare failed: " +
-                             std::string(sqlite3_errmsg(impl_->db)));
-  StmtGuard guard(stmt);
-
-  sqlite3_bind_int64(stmt, 1, id);
-
-  if (sqlite3_step(stmt) != SQLITE_DONE)
-    throw std::runtime_error("delete_export_template: delete failed: " +
-                             std::string(sqlite3_errmsg(impl_->db)));
-
-  return sqlite3_changes(impl_->db) > 0;
+  return delete_resource_template(id);
 }
 
 // --- Survey (Ressourcekortlægning, schema v22) ---
@@ -7829,15 +8475,25 @@ namespace {
 /// link on every `create instances` re-run" fix). A part whose guid no
 /// longer matches any instance row reads with null cloud/instance_id but
 /// keeps its own code/quantity/room/note.
-constexpr const char *kSurveyPartSelect =
-    "SELECT p.code, p.type_id, pc.name, i.instance_id, p.room_id, p.room_name, "
-    "p.quantity, "
-    "p.starred, p.note, im.material_guid, p.instance_guid "
-    "FROM survey_parts p "
-    "LEFT JOIN instances i ON i.guid = p.instance_guid "
-    "LEFT JOIN point_clouds pc ON pc.id = i.cloud_id "
-    "LEFT JOIN instance_materials im ON im.cloud_id = i.cloud_id AND "
-    "im.instance_id = i.instance_id ";
+/// material_guid is the part's own passport (v25) and falls back to its
+/// instance's link — but only when no other part owns that passport, so two
+/// parts never write through one passport (a part reads as passport-less
+/// instead; ensure_resource_passport gives it its own on first write).
+std::string survey_part_select(bool has_passport_column) {
+  return std::string(
+             "SELECT p.code, p.type_id, pc.name, i.instance_id, "
+             "p.room_id, p.room_name, p.quantity, p.starred, p.note, ") +
+         (has_passport_column
+              ? "COALESCE(p.passport_guid, CASE WHEN NOT EXISTS (SELECT 1 "
+                "FROM survey_parts o WHERE o.passport_guid = "
+                "im.material_guid) THEN im.material_guid END)"
+              : "im.material_guid") +
+         ", p.instance_guid FROM survey_parts p "
+         "LEFT JOIN instances i ON i.guid = p.instance_guid "
+         "LEFT JOIN point_clouds pc ON pc.id = i.cloud_id "
+         "LEFT JOIN instance_materials im ON im.cloud_id = i.cloud_id AND "
+         "im.instance_id = i.instance_id ";
+}
 
 ProjectDB::SurveyPartRecord read_survey_part(sqlite3_stmt *s) {
   ProjectDB::SurveyPartRecord r;
@@ -7915,7 +8571,8 @@ void ProjectDB::add_survey_part(const SurveyPartRecord &rec) {
 }
 
 std::vector<ProjectDB::SurveyPartRecord> ProjectDB::survey_parts() const {
-  const std::string sql = std::string(kSurveyPartSelect) + "ORDER BY p.code;";
+  const std::string sql =
+      survey_part_select(impl_->hasPassportColumn) + "ORDER BY p.code;";
   sqlite3_stmt *stmt = prepare_or_throw(impl_->db, sql.c_str(), "survey_parts");
   StmtGuard guard(stmt);
   std::vector<SurveyPartRecord> out;
@@ -7926,7 +8583,8 @@ std::vector<ProjectDB::SurveyPartRecord> ProjectDB::survey_parts() const {
 
 std::optional<ProjectDB::SurveyPartRecord>
 ProjectDB::survey_part(std::string_view code) const {
-  const std::string sql = std::string(kSurveyPartSelect) + "WHERE p.code = ?;";
+  const std::string sql =
+      survey_part_select(impl_->hasPassportColumn) + "WHERE p.code = ?;";
   sqlite3_stmt *stmt = prepare_or_throw(impl_->db, sql.c_str(), "survey_part");
   StmtGuard guard(stmt);
   bind_text(stmt, 1, code);
@@ -8041,6 +8699,272 @@ int ProjectDB::max_survey_part_number() const {
   return sqlite3_column_int(stmt, 0);
 }
 
+ProjectDB::Transaction::Transaction(ProjectDB &db) : db_(&db) {
+  db_->impl_->checkWritable();
+  db_->impl_->execOrThrow("BEGIN IMMEDIATE;");
+}
+
+ProjectDB::Transaction::~Transaction() {
+  if (!open_)
+    return;
+  // Non-throwing on purpose; a failed rollback leaves the transaction open
+  // on this connection, so at least say so (STANDARDS §5).
+  if (sqlite3_exec(db_->impl_->db, "ROLLBACK;", nullptr, nullptr, nullptr) !=
+      SQLITE_OK)
+    reusex::warn("ProjectDB::Transaction: ROLLBACK failed: {}",
+                 sqlite3_errmsg(db_->impl_->db));
+}
+
+void ProjectDB::Transaction::commit() {
+  db_->impl_->execOrThrow("COMMIT;");
+  open_ = false;
+}
+
+std::string ProjectDB::ensure_resource_passport(std::string_view code) {
+  impl_->checkWritable();
+  std::optional<std::string> instance_guid, owned;
+  {
+    sqlite3_stmt *s = prepare_or_throw(
+        impl_->db,
+        "SELECT passport_guid, instance_guid FROM survey_parts WHERE code = ?;",
+        "ensure_resource_passport");
+    StmtGuard guard(s);
+    bind_text(s, 1, code);
+    if (sqlite3_step(s) != SQLITE_ROW)
+      throw std::out_of_range("no survey part '" + std::string(code) + "'");
+    if (sqlite3_column_type(s, 0) != SQLITE_NULL)
+      owned = column_text(s, 0);
+    if (sqlite3_column_type(s, 1) != SQLITE_NULL)
+      instance_guid = column_text(s, 1);
+  }
+  if (owned) {
+    if (instance_guid)
+      impl_->restoreInstanceLink(code, *owned, *instance_guid);
+    return *owned;
+  }
+  // The instance's current link, if any (the part may predate it or have
+  // been created after `rux create materials` linked it).
+  std::optional<std::string> linked;
+  if (instance_guid) {
+    sqlite3_stmt *s = prepare_or_throw(
+        impl_->db,
+        "SELECT im.material_guid FROM instances i JOIN instance_materials im "
+        "ON im.cloud_id = i.cloud_id AND im.instance_id = i.instance_id "
+        "WHERE i.guid = ?;",
+        "ensure_resource_passport");
+    StmtGuard guard(s);
+    bind_text(s, 1, *instance_guid);
+    if (sqlite3_step(s) == SQLITE_ROW)
+      linked = column_text(s, 0);
+  }
+  Savepoint sp(impl_->db, "ensure_resource_passport");
+  // set_passport_property files an unknown name_en under an auto-created
+  // "custom:" definition; leksikon names must find their real one.
+  impl_->ensureAllPropertyDefinitions();
+  std::string guid;
+  if (linked && impl_->passportExists(*linked) &&
+      !impl_->passportOwnedByPart(*linked)) {
+    guid = *linked; // adopt the instance's unowned passport
+  } else {
+    if (linked && impl_->passportOwnedByPart(*linked))
+      // Reads already showed this part as passport-less (spec: one passport
+      // per part); say once, now that it gets its own, why it is not shared.
+      reusex::warn("ensure_resource_passport: the instance of part '{}' is "
+                   "linked to passport '{}', which another part owns; '{}' "
+                   "gets its own passport and its instance is relinked",
+                   code, *linked, code);
+    guid = core::generate_guid();
+    sqlite3_stmt *s = prepare_or_throw(
+        impl_->db,
+        // Every metadata column gets a value: the passport readers and the
+        // MaterialEPAS export expect text, not NULL, in each one.
+        "INSERT INTO material_passports (id, document_guid, created_at, "
+        "revised_at, version_number, version_date) VALUES (?1, ?1, "
+        "strftime('%Y-%m-%dT%H:%M:%SZ','now'), '', '0.1.0', '');",
+        "ensure_resource_passport");
+    StmtGuard guard(s);
+    bind_text(s, 1, guid);
+    if (sqlite3_step(s) != SQLITE_DONE)
+      throw std::runtime_error("ensure_resource_passport: " +
+                               std::string(sqlite3_errmsg(impl_->db)));
+  }
+  {
+    sqlite3_stmt *s = prepare_or_throw(
+        impl_->db, "UPDATE survey_parts SET passport_guid = ? WHERE code = ?;",
+        "ensure_resource_passport");
+    StmtGuard guard(s);
+    bind_text(s, 1, guid);
+    bind_text(s, 2, code);
+    if (sqlite3_step(s) != SQLITE_DONE)
+      throw std::runtime_error("ensure_resource_passport: " +
+                               std::string(sqlite3_errmsg(impl_->db)));
+  }
+  if (instance_guid) {
+    // The pipeline's link (Viewport, create materials, MaterialEPAS
+    // export) follows in the same transaction (spec §4.1).
+    sqlite3_stmt *s = prepare_or_throw(
+        impl_->db,
+        "INSERT INTO instance_materials (cloud_id, instance_id, material_guid) "
+        "SELECT cloud_id, instance_id, ?1 FROM instances WHERE guid = ?2 "
+        "ON CONFLICT(cloud_id, instance_id) DO UPDATE SET "
+        "material_guid = excluded.material_guid;",
+        "ensure_resource_passport");
+    StmtGuard guard(s);
+    bind_text(s, 1, guid);
+    bind_text(s, 2, *instance_guid);
+    if (sqlite3_step(s) != SQLITE_DONE)
+      throw std::runtime_error("ensure_resource_passport: " +
+                               std::string(sqlite3_errmsg(impl_->db)));
+  }
+  sp.release();
+  return guid;
+}
+
+void ProjectDB::delete_survey_part(std::string_view code) {
+  impl_->checkWritable();
+  sqlite3_stmt *s =
+      prepare_or_throw(impl_->db, "DELETE FROM survey_parts WHERE code = ?;",
+                       "delete_survey_part");
+  StmtGuard guard(s);
+  bind_text(s, 1, code);
+  if (sqlite3_step(s) != SQLITE_DONE)
+    throw std::runtime_error("delete_survey_part: " +
+                             std::string(sqlite3_errmsg(impl_->db)));
+  if (sqlite3_changes(impl_->db) == 0)
+    throw std::out_of_range("no survey part '" + std::string(code) + "'");
+}
+
+bool ProjectDB::has_passport_field_values(std::string_view name) const {
+  sqlite3_stmt *s = prepare_or_throw(
+      impl_->db,
+      "SELECT 1 FROM passport_property_values v JOIN property_definitions d "
+      "ON d.id = v.property_id WHERE d.name_en = ? LIMIT 1;",
+      "has_passport_field_values");
+  StmtGuard guard(s);
+  bind_text(s, 1, name);
+  return sqlite3_step(s) == SQLITE_ROW;
+}
+
+std::size_t ProjectDB::delete_passport_field_values(std::string_view name) {
+  impl_->checkWritable();
+  sqlite3 *db = impl_->db;
+  Savepoint sp(db, "delete_passport_field_values");
+  std::optional<std::size_t> deleted; // the values statement's count
+  for (const char *sql :
+       {"DELETE FROM passport_property_values WHERE property_id IN (SELECT id "
+        "FROM property_definitions WHERE name_en = ? AND id LIKE 'custom:%');",
+        "DELETE FROM property_definitions WHERE name_en = ? AND id LIKE "
+        "'custom:%';"}) {
+    sqlite3_stmt *s = prepare_or_throw(db, sql, "delete_passport_field_values");
+    StmtGuard guard(s);
+    bind_text(s, 1, name);
+    if (sqlite3_step(s) != SQLITE_DONE)
+      throw std::runtime_error("delete_passport_field_values: " +
+                               std::string(sqlite3_errmsg(db)));
+    if (!deleted)
+      deleted = static_cast<std::size_t>(sqlite3_changes(db));
+  }
+  sp.release();
+  return *deleted;
+}
+
+void ProjectDB::rename_passport_field(std::string_view old_name,
+                                      std::string_view new_name) {
+  impl_->checkWritable();
+  if (old_name == new_name)
+    return;
+  sqlite3 *db = impl_->db;
+  auto check = [&](sqlite3_stmt *s) {
+    if (sqlite3_step(s) != SQLITE_DONE)
+      throw std::runtime_error("rename_passport_field: " +
+                               std::string(sqlite3_errmsg(db)));
+  };
+  /// The definition (id, leksikon_guid) whose name_en is @p name.
+  auto definition = [&](std::string_view name)
+      -> std::optional<std::pair<std::string, std::string>> {
+    sqlite3_stmt *s = prepare_or_throw(
+        db,
+        "SELECT id, leksikon_guid FROM property_definitions WHERE name_en = ? "
+        "ORDER BY id LIMIT 1;",
+        "rename_passport_field");
+    StmtGuard guard(s);
+    bind_text(s, 1, name);
+    if (sqlite3_step(s) != SQLITE_ROW)
+      return std::nullopt;
+    return std::make_pair(column_text(s, 0), column_text(s, 1));
+  };
+  auto has_values = [&](std::string_view name) {
+    return has_passport_field_values(name);
+  };
+  if (!has_values(old_name))
+    return; // nothing stored under the old name
+  // Only stored values block the rename: a definition left behind with no
+  // values (or a leksikon definition) is reused, not a conflict.
+  if (has_values(new_name))
+    throw core::NameConflictError(
+        "values are already stored under the field name '" +
+        std::string(new_name) + "'; renaming onto it would merge them");
+  const auto old_def = definition(old_name);
+  Savepoint sp(db, "rename_passport_field");
+  auto target = definition(new_name);
+  if (!target) {
+    // New definition first (values reference it), then the values, then the
+    // old definition: foreign keys stay satisfied at every statement.
+    const std::string new_id = "custom:" + std::string(new_name);
+    sqlite3_stmt *s = prepare_or_throw(
+        db,
+        "INSERT INTO property_definitions (id, leksikon_guid, name_en, "
+        "category, data_type) SELECT ?1, ?1, ?2, category, data_type "
+        "FROM property_definitions WHERE id = ?3;",
+        "rename_passport_field");
+    StmtGuard guard(s);
+    bind_text(s, 1, new_id);
+    bind_text(s, 2, new_name);
+    bind_text(s, 3, old_def->first);
+    check(s);
+    target = std::make_pair(new_id, new_id);
+  }
+  {
+    sqlite3_stmt *s = prepare_or_throw(
+        db,
+        "UPDATE passport_property_values SET property_id = ?1, "
+        "leksikon_guid = ?2, id = passport_id || '_' || ?2 "
+        "WHERE property_id = ?3;",
+        "rename_passport_field");
+    StmtGuard guard(s);
+    bind_text(s, 1, target->first);
+    bind_text(s, 2, target->second);
+    bind_text(s, 3, old_def->first);
+    check(s);
+  }
+  // A user column's definition goes with its name, so the old name is free
+  // again; a leksikon definition stays.
+  {
+    sqlite3_stmt *s = prepare_or_throw(
+        db,
+        "DELETE FROM property_definitions WHERE id = ? AND id LIKE 'custom:%';",
+        "rename_passport_field");
+    StmtGuard guard(s);
+    bind_text(s, 1, old_def->first);
+    check(s);
+  }
+  sp.release();
+}
+
+bool ProjectDB::is_passport_linked(std::string_view guid) const {
+  sqlite3_stmt *s = prepare_or_throw(
+      impl_->db,
+      impl_->hasPassportColumn
+          ? "SELECT 1 FROM instance_materials WHERE material_guid = ?1 "
+            "UNION ALL SELECT 1 FROM survey_parts WHERE passport_guid = ?1 "
+            "LIMIT 1;"
+          : "SELECT 1 FROM instance_materials WHERE material_guid = ?1;",
+      "is_passport_linked");
+  StmtGuard guard(s);
+  bind_text(s, 1, guid);
+  return sqlite3_step(s) == SQLITE_ROW;
+}
+
 namespace {
 ProjectDB::SampleRecord read_sample_row(sqlite3_stmt *s) {
   ProjectDB::SampleRecord r;
@@ -8054,18 +8978,11 @@ ProjectDB::SampleRecord read_sample_row(sqlite3_stmt *s) {
                  .value_or(core::SampleResult::none);
   r.created_at = column_text(s, 6);
   r.updated_at = column_text(s, 7);
-  if (sqlite3_column_type(s, 8) != SQLITE_NULL)
-    r.part_code = column_text(s, 8);
   return r;
 }
-/// The sample columns read_sample_row expects. A read-only open of a pre-v24
-/// project has no part_code column (read-only opens never migrate), so it
-/// selects NULL in its place.
-std::string sample_columns(bool has_part_code) {
-  return std::string(
-             "id, code, title, what, stage, result, created_at, updated_at, ") +
-         (has_part_code ? "part_code" : "NULL");
-}
+/// The sample columns read_sample_row expects.
+constexpr const char *kSampleColumns =
+    "id, code, title, what, stage, result, created_at, updated_at";
 } // namespace
 
 // Fills type_ids for each record in place.
@@ -8086,7 +9003,6 @@ static void attach_sample_links(sqlite3 *db,
 
 ProjectDB::SampleRecord
 ProjectDB::add_sample(std::string_view title, std::string_view what,
-                      const std::optional<std::string> &part_code,
                       const std::vector<int64_t> &type_ids,
                       core::SampleStage stage) {
   impl_->checkWritable();
@@ -8106,19 +9022,9 @@ ProjectDB::add_sample(std::string_view title, std::string_view what,
     if (std::find(links.begin(), links.end(), t) == links.end())
       links.push_back(t);
   }
-  if (part_code) {
-    const auto part = survey_part(*part_code);
-    if (!part)
-      throw std::out_of_range("no survey part " + *part_code);
-    // The approval gate is a property of the type, so a sample taken at a
-    // part always covers that part's type.
-    if (std::find(links.begin(), links.end(), part->type_id) == links.end())
-      links.push_back(part->type_id);
-  }
 
   int64_t id = 0;
-  // The row, its links and its stage land together: a sample never exists
-  // with its part's type unlinked.
+  // The row, its links and its stage land together.
   impl_->execOrThrow("BEGIN TRANSACTION;");
   try {
     // Statements live in their own scope: an un-finalised RETURNING
@@ -8137,20 +9043,16 @@ ProjectDB::add_sample(std::string_view title, std::string_view what,
                                  std::string(sqlite3_errmsg(impl_->db)));
       const int next = sqlite3_column_int(seq, 0) + 1;
 
-      sqlite3_stmt *stmt = prepare_or_throw(
-          impl_->db,
-          "INSERT INTO samples (code, title, what, stage, part_code) "
-          "VALUES (?,?,?,?,?) RETURNING id;",
-          "add_sample");
+      sqlite3_stmt *stmt =
+          prepare_or_throw(impl_->db,
+                           "INSERT INTO samples (code, title, what, stage) "
+                           "VALUES (?,?,?,?) RETURNING id;",
+                           "add_sample");
       StmtGuard guard(stmt);
       bind_text(stmt, 1, core::sample_code(next));
       bind_text(stmt, 2, title);
       bind_text(stmt, 3, what);
       bind_text(stmt, 4, core::to_string(stage));
-      if (part_code)
-        bind_text(stmt, 5, *part_code);
-      else
-        sqlite3_bind_null(stmt, 5);
       if (sqlite3_step(stmt) != SQLITE_ROW)
         throw std::runtime_error("add_sample: " +
                                  std::string(sqlite3_errmsg(impl_->db)));
@@ -8186,8 +9088,7 @@ ProjectDB::add_sample(std::string_view title, std::string_view what,
 
 std::vector<ProjectDB::SampleRecord> ProjectDB::samples() const {
   const std::string sql =
-      "SELECT " + sample_columns(impl_->columnExists("samples", "part_code")) +
-      " FROM samples ORDER BY id;";
+      std::string("SELECT ") + kSampleColumns + " FROM samples ORDER BY id;";
   sqlite3_stmt *stmt = prepare_or_throw(impl_->db, sql.c_str(), "samples");
   StmtGuard guard(stmt);
   std::vector<SampleRecord> out;
@@ -8199,8 +9100,7 @@ std::vector<ProjectDB::SampleRecord> ProjectDB::samples() const {
 
 std::optional<ProjectDB::SampleRecord> ProjectDB::sample(int64_t id) const {
   const std::string sql =
-      "SELECT " + sample_columns(impl_->columnExists("samples", "part_code")) +
-      " FROM samples WHERE id = ?;";
+      std::string("SELECT ") + kSampleColumns + " FROM samples WHERE id = ?;";
   sqlite3_stmt *stmt = prepare_or_throw(impl_->db, sql.c_str(), "sample");
   StmtGuard guard(stmt);
   sqlite3_bind_int64(stmt, 1, id);

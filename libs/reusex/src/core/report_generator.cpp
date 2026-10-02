@@ -6,6 +6,7 @@
 
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/core/logging.hpp>
+#include <reusex/core/resource_export.hpp>
 #include <reusex/core/survey_service.hpp>
 
 #include <fmt/format.h>
@@ -116,6 +117,10 @@ constexpr const char *kTypstTemplate = R"typst(
 //       "circularity": [{"label": "Genanvendelse", "tonnes": "196,8 t"}],
 //       "blocking": 7
 //     }
+//     "resources": null | {
+//       "name": "template name",
+//       "tables": [{"headers": ["Betegnelse", ...], "rows": [["...", ...]]}]
+//     }
 //   }
 //
 // The same text is embedded in libs/reusex/src/core/report_generator.cpp
@@ -188,6 +193,31 @@ constexpr const char *kTypstTemplate = R"typst(
   #text(size: 9pt)[Cirkularitet (godkendte typer): #survey.circularity.map(c => c.label + " " + c.tonnes).join(" · ")]
 ]
 #v(0.6cm)
+
+// ── Ressourcetabel: resources through a chosen template ──────────────────────
+
+#let res = data.at("resources", default: none)
+#if res != none [
+  #text(size: 13pt, weight: "bold")[Ressourcetabel — #res.name]
+  #v(0.2cm)
+  #if res.tables.len() == 0 [
+    _Ingen ressourcer i projektet._
+  ] else {
+    for t in res.tables {
+      table(
+        columns: t.headers.len(),
+        stroke: 0.3pt + luma(190),
+        inset: (x: 5pt, y: 5pt),
+        fill: (col, row) => if row == 0 { luma(215) } else { white },
+        table.header(..t.headers.map(h => [*#h*])),
+        ..t.rows.flatten(),
+      )
+      v(0.3cm)
+    }
+  }
+  #v(0.6cm)
+]
+
 #text(size: 13pt, weight: "bold")[Materialepas]
 #v(0.2cm)
 
@@ -237,6 +267,13 @@ constexpr const char *kTypstTemplate = R"typst(
   )
 }
 )typst";
+
+nlohmann::json resources_json(const core::ResourceReportSection &s) {
+  nlohmann::json tables = nlohmann::json::array();
+  for (const auto &t : s.tables)
+    tables.push_back({{"headers", t.headers}, {"rows", t.rows}});
+  return {{"name", s.template_name}, {"tables", std::move(tables)}};
+}
 
 // ── data assembly ─────────────────────────────────────────────────────────
 
@@ -376,10 +413,19 @@ int report_blocking_types(const ProjectDB &db) {
       core::fractions_by_eak(core::type_totals(db)).blocking_types);
 }
 
-std::vector<std::uint8_t> generate_ressourcekortlaegning_pdf(ProjectDB &db) {
+std::vector<std::uint8_t>
+generate_ressourcekortlaegning_pdf(ProjectDB &db,
+                                   std::optional<std::int64_t> template_id) {
+  // Resolve the template first: an unknown id fails fast, typst or not.
+  std::optional<core::ResourceReportSection> resources;
+  if (template_id)
+    resources = core::resource_report_section(db, *template_id);
+
   TempDir tmpdir;
 
-  const auto data = assemble_report_data(db, tmpdir.path);
+  auto data = assemble_report_data(db, tmpdir.path);
+  data["resources"] =
+      resources ? resources_json(*resources) : nlohmann::json(nullptr);
   {
     std::ofstream f(tmpdir.path / "data.json");
     f << data.dump();
@@ -389,8 +435,9 @@ std::vector<std::uint8_t> generate_ressourcekortlaegning_pdf(ProjectDB &db) {
 
   reusex::info(
       "generate_ressourcekortlaegning_pdf: invoking typst ({} materials, "
-      "{} columns)",
-      data.at("materials").size(), data.at("columns").size());
+      "{} columns, {} resource table(s))",
+      data.at("materials").size(), data.at("columns").size(),
+      resources ? resources->tables.size() : 0);
 
   const auto pdf = run_typst(tmpdir.path);
 

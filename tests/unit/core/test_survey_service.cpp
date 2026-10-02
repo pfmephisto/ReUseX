@@ -225,6 +225,37 @@ TEST_CASE("SyncSurvey_InstanceGuidReplaced_ReportsOrphan_AndCreatesNewPart",
   CHECK_FALSE(orphan->cloud_name.has_value());
 }
 
+TEST_CASE("SyncSurvey_RestoresLostInstanceLinks_NeverOverwrites",
+          "[survey][sync]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  seed_scan(db);
+  sync_survey(db);
+  std::string own1, own2;
+  {
+    ProjectDB::Transaction tx(db);
+    own1 = db.ensure_resource_passport("RX-001");
+    own2 = db.ensure_resource_passport("RX-002");
+    tx.commit();
+  }
+  REQUIRE(db.instance_material_guid("instances", 1) == own1);
+  // A `rux create instances` re-run: same guids, but save_instances
+  // cascade-deletes every instance_materials row of the cloud.
+  db.save_instances("instances",
+                    {{1, "g1", 3, 2}, {2, "g2", 3, 2}, {3, "g3", 5, 1}});
+  REQUIRE_FALSE(db.instance_material_guid("instances", 1).has_value());
+  // Instance 2 meanwhile got linked to another passport: left alone.
+  db.set_instance_material("instances", 2, own1);
+
+  const auto r = sync_survey(db);
+  CHECK(r.links_restored == 1); // RX-001; RX-003 owns no passport
+  CHECK(db.instance_material_guid("instances", 1) == own1);
+  CHECK(db.instance_material_guid("instances", 2) == own1);
+  CHECK_FALSE(db.instance_material_guid("instances", 3).has_value());
+  CHECK(db.survey_part("RX-002")->material_guid == own2);
+  CHECK(sync_survey(db).links_restored == 0);
+}
+
 TEST_CASE("SyncSurvey_ManualType_NeverMatched_UnclassifiedGetsOwnType",
           "[survey][sync]") {
   TempDB tmp;

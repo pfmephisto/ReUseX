@@ -11,6 +11,7 @@
 
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/core/logging.hpp>
+#include <reusex/core/resources.hpp>
 
 #include <algorithm>
 #include <array>
@@ -252,7 +253,8 @@ void register_material_column_routes(App &app, EndpointRegistry &reg,
        {{204, "Column deleted"}, {404, "No such column"}}},
       [&db](const crow::request &, crow::response &res, std::string id) {
         try {
-          db.delete_property_definition(id);
+          // Its stored values go too, so the name can be reused.
+          reusex::core::delete_column(db, id);
           finish(res, crow::response(crow::status::NO_CONTENT));
         } catch (const std::exception &e) {
           reusex::core::warn("DELETE /material-columns/{} failed: {}", id,

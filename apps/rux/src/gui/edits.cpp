@@ -225,12 +225,26 @@ json patch_project(reusex::ProjectDB &db, const std::string &id,
 // report PDFs (schema v20, #456)
 // ===========================================================================
 
-json generate_report_pdf_json(reusex::ProjectDB &db) {
+json generate_report_pdf_json(reusex::ProjectDB &db, const std::string &body) {
+  auto parsed = json::parse(body.empty() ? "{}" : body, nullptr,
+                            /*allow_exceptions=*/false);
+  if (parsed.is_discarded() || !parsed.is_object())
+    throw HttpError(400, "request body must be a JSON object");
+  std::optional<std::int64_t> template_id;
+  if (const auto it = parsed.find("resource_template_id");
+      it != parsed.end() && !it->is_null()) {
+    if (!it->is_number_integer())
+      throw HttpError(400, "'resource_template_id' must be an integer or null");
+    template_id = it->get<std::int64_t>();
+    // Checked here, not left to the generator: its errors map to 500.
+    if (!db.resource_template(*template_id))
+      throw HttpError(404, "no template " + std::to_string(*template_id));
+  }
   // Counted before generation, from the same state the PDF is built from.
   const int blocking = reusex::report_blocking_types(db);
   std::vector<std::uint8_t> pdf;
   try {
-    pdf = reusex::generate_ressourcekortlaegning_pdf(db);
+    pdf = reusex::generate_ressourcekortlaegning_pdf(db, template_id);
   } catch (const std::exception &e) {
     throw HttpError(500, std::string("PDF generation failed: ") + e.what());
   }

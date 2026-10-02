@@ -8,6 +8,7 @@
 #include <array>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace reusex::core {
 
@@ -164,6 +165,14 @@ auto material_from_string(std::string_view str) -> std::optional<Material> {
     return it->second;
   }
   return std::nullopt;
+}
+
+auto material_names() -> std::vector<std::string_view> {
+  std::vector<std::string_view> out;
+  out.reserve(material_lookup.size());
+  for (const auto &[name, value] : material_lookup)
+    out.push_back(name);
+  return out;
 }
 
 // ===========================================================================

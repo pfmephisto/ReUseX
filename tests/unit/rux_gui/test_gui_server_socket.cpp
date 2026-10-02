@@ -30,7 +30,11 @@
 
 #include <sqlite3.h>
 
+#include "../../support/survey_fixture.hpp"
 #include "../../support/temp_path.hpp"
+
+#include <core/ProjectDB.hpp>
+#include <core/resources.hpp>
 
 #include <algorithm>
 #include <cctype>
@@ -95,6 +99,7 @@ std::uint16_t free_port() {
 struct Response {
   int status = 0;
   std::string content_type;
+  std::string content_disposition;
   std::string body;
 };
 
@@ -197,6 +202,8 @@ class KeepAliveConnection {
         content_length = static_cast<std::size_t>(std::stoul(value));
       else if (name == "content-type")
         response.content_type = value;
+      else if (name == "content-disposition")
+        response.content_disposition = value;
     }
 
     const std::size_t body_start = header_end + 4;
@@ -379,6 +386,78 @@ TEST_CASE("RunningServer_KeepAliveVariousRoutes_HonorsRoutingContract",
       CHECK((response.status == 200 || response.status == 404));
       CHECK(response.body.find("root:") == std::string::npos);
     }
+  }
+}
+
+TEST_CASE("RunningServer_ResourceRoutes_StaticPathsBeatTheCodeParam",
+          "[gui][server][socket]") {
+  // /resources/keys etc. sit next to /resources/<string>; Crow keeps one
+  // trie per method, so GET never reaches the PATCH/DELETE code route.
+  TempPath project("test_gui_server_socket", ".rux");
+  TempDir assets("test_gui_server_socket_assets");
+  write_file(assets.path / "index.html", kIndexBody);
+  RunningServer server(options_for(project.path, assets.path, free_port()));
+  KeepAliveConnection connection(server.port());
+  for (const char *route :
+       {"/api/v1/resources/keys", "/api/v1/resources/columns",
+        "/api/v1/resources", "/api/v1/resources/export.csv?template=2"}) {
+    INFO("route: " << route);
+    CHECK(connection.get(route).status == 200);
+  }
+  CHECK(connection.get("/api/v1/resources/export.csv").status == 400);
+  CHECK(connection.get("/api/v1/resources/export.csv?template=").status == 400);
+  CHECK(connection.get("/api/v1/resources?template=").status == 400);
+  const Response csv =
+      connection.get("/api/v1/resources/export.csv?template=2");
+  CHECK(csv.content_type == "text/csv; charset=utf-8");
+  CHECK(csv.content_disposition == "attachment; filename=\"ressourcer.csv\"");
+  CHECK(connection.get("/api/v1/templates").status == 200);
+  CHECK(connection.send_json("POST", "/api/v1/templates/restore-seeds", "{}")
+            .status == 200);
+  CHECK(connection.send_json("POST", "/api/v1/templates/1/duplicate", "{}")
+            .status == 201);
+}
+
+TEST_CASE("RunningServer_ResourceColumns_NameConflictsAre409OnBothPaths",
+          "[gui][server][socket]") {
+  // A column name that a leksikon field owns, or that passports still store
+  // values under (left by a deleted column), is a 409 — on the new path and
+  // on the deprecated /material-columns alias alike, for create and rename.
+  TempPath project("test_gui_server_socket", ".rux");
+  TempDir assets("test_gui_server_socket_assets");
+  write_file(assets.path / "index.html", kIndexBody);
+  std::string live_id;
+  {
+    reusex::ProjectDB db(project.path);
+    const auto t = reusex::test_support::make_type(db, "Døre");
+    reusex::test_support::make_part(db, "RX-001", t);
+    reusex::ProjectDB::PropertyDefinition gone;
+    gone.name = "Gammel";
+    gone.type = "text";
+    const auto col = reusex::core::create_column(db, gone);
+    reusex::core::patch_resource(db, "RX-001", {{"col:" + col.id, "rest"}});
+    db.delete_property_definition(col.id); // values stay, column gone
+    reusex::ProjectDB::PropertyDefinition live;
+    live.name = "Ny";
+    live.type = "text";
+    live_id = reusex::core::create_column(db, live).id;
+  }
+  RunningServer server(options_for(project.path, assets.path, free_port()));
+  KeepAliveConnection connection(server.port());
+  for (const std::string base :
+       {"/api/v1/resources/columns", "/api/v1/material-columns"}) {
+    INFO("base: " << base);
+    for (const char *name : {"Gammel", "width_mm"}) {
+      INFO("name: " << name);
+      const std::string body =
+          std::string(R"({"name":")") + name + R"(","type":"text"})";
+      CHECK(connection.send_json("POST", base, body).status == 409);
+      CHECK(connection
+                .send_json("PATCH", base + "/" + live_id,
+                           std::string(R"({"name":")") + name + "\"}")
+                .status == 409);
+    }
+    CHECK(connection.send_json("DELETE", base + "/nope", "").status == 404);
   }
 }
 

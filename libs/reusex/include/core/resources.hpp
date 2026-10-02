@@ -1,0 +1,114 @@
+// SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#pragma once
+
+/// Resources
+/// (docs/superpowers/specs/2026-10-02-resources-templates-ia-design.md §4): a
+/// resource is one survey part; its values are addressed by key id
+/// (core/resource_keys.hpp) and routed by scope — the type, the part, or
+/// the part's own passport, created on the first passport write.
+
+#include "reusex/core/ProjectDB.hpp"
+#include "reusex/core/resource_keys.hpp"
+
+#include <cstdint>
+#include <optional>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <vector>
+
+namespace reusex::core {
+
+struct ResourceValue {
+  std::string key;
+  std::optional<std::string> value; ///< nullopt: not set
+};
+struct Resource {
+  std::string code;
+  int64_t type_id = 0;
+  bool manual = false; ///< added by hand: no instance behind it
+  std::vector<ResourceValue> values;
+};
+/// The value stored under @p key in @p r, or nullopt (absent or unset).
+std::optional<std::string> value_of(const Resource &r, std::string_view key);
+
+/// One per survey part, by code. With @p keys, `values` holds exactly those
+/// keys in that order (null when unset or unknown); without, every
+/// built-in key plus each catalogue key the part's passport stores, in
+/// catalogue order. Passport fields with no catalogue key are skipped, and
+/// stored blanks ("", "[]", a leksikon TriState's "unknown") read as unset.
+std::vector<Resource> list_resources(
+    const ProjectDB &db,
+    const std::optional<std::vector<std::string>> &keys = std::nullopt);
+/// @throws std::out_of_range when @p code is unknown.
+Resource
+resource(const ProjectDB &db, std::string_view code,
+         const std::optional<std::vector<std::string>> &keys = std::nullopt);
+
+struct ResourceWrite {
+  std::string key;
+  std::optional<std::string> value; ///< nullopt clears
+};
+struct ResourcePatchResult {
+  Resource resource;
+  /// The type's other parts, when a type-scoped key was written (they
+  /// changed too); empty otherwise.
+  std::vector<Resource> siblings;
+};
+/// Validate every write (normalise_value), then apply them in one
+/// transaction: type-scoped keys to the survey type, part-scoped built-ins
+/// to the part, leksikon/column keys to the part's passport (created on
+/// the first non-null write). Clearing an absent value succeeds.
+/// @throws KeyValueError (nothing written) — also when one key appears
+///         twice in @p writes —, std::out_of_range (no part).
+ResourcePatchResult patch_resource(
+    ProjectDB &db, std::string_view code,
+    const std::vector<ResourceWrite> &writes,
+    const std::optional<std::vector<std::string>> &keys = std::nullopt);
+
+/// The leksikon field a hand-added resource's `name` is stored under.
+inline constexpr std::string_view kDesignationField = "designation";
+/// A manual part with the next RX code; @p name becomes its designation.
+/// @throws std::out_of_range (no type), std::invalid_argument (empty name).
+Resource create_resource(ProjectDB &db, int64_t type_id,
+                         const std::optional<std::string> &name = std::nullopt);
+
+/// Deleting a resource the scan produced. The GUI answers 409.
+class ResourceConflictError : public std::runtime_error {
+    public:
+  using std::runtime_error::runtime_error;
+};
+/// Delete a manual part and its passport (unless something else links it;
+/// a kept passport is logged at warn).
+/// @throws ResourceConflictError for an instance-backed part,
+///         std::out_of_range for an unknown code.
+void delete_resource(ProjectDB &db, std::string_view code);
+
+/// Sparse update of a user column definition.
+struct ColumnPatch {
+  std::optional<std::string> name, type;
+  std::optional<std::vector<std::string>> options;
+  std::optional<int> sort_order, width;
+};
+/// Add a user column (def.id is ignored and returned filled in).
+/// @throws NameConflictError when a user column or a leksikon field already
+///         has that name, or any passport already stores values under it
+///         (left by a deleted column — never inherited silently),
+///         std::invalid_argument for an empty name.
+ProjectDB::PropertyDefinition create_column(ProjectDB &db,
+                                            ProjectDB::PropertyDefinition def);
+/// Delete a user column and, in the same transaction, every value stored
+/// under its name (logged at warn with the count), so the name can be used
+/// again. @throws std::out_of_range (no column).
+void delete_column(ProjectDB &db, const std::string &id);
+/// A rename moves the stored values in the same transaction.
+/// @throws std::out_of_range (no column), NameConflictError (name taken, or
+///         any passport already stores values under it — even when this
+///         column holds none), std::invalid_argument (empty).
+ProjectDB::PropertyDefinition
+update_column(ProjectDB &db, const std::string &id, const ColumnPatch &patch);
+
+} // namespace reusex::core

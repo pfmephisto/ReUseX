@@ -299,7 +299,9 @@ void register_export_routes(App &app, EndpointRegistry &reg,
        "/export-templates",
        "Create a named export template",
        true,
-       {{201, "Template created"}, {400, "Invalid request body"}}},
+       {{201, "Template created"},
+        {400, "Invalid request body"},
+        {409, "Template name already taken"}}},
       [&db](const crow::request &req) -> crow::response {
         try {
           const auto body = nlohmann::json::parse(req.body, nullptr,
@@ -319,6 +321,8 @@ void register_export_routes(App &app, EndpointRegistry &reg,
           reusex::core::info("POST /export-templates: created id={} name={}",
                              rec.id, rec.name);
           return json_response(crow::status::CREATED, template_json(rec));
+        } catch (const reusex::core::NameConflictError &e) {
+          return error_json_e(crow::status::CONFLICT, e.what());
         } catch (const std::exception &e) {
           reusex::core::error("POST /export-templates failed: {}", e.what());
           return error_json_e(crow::status::INTERNAL_SERVER_ERROR, e.what());
@@ -360,7 +364,10 @@ void register_export_routes(App &app, EndpointRegistry &reg,
        "/export-templates/<int>",
        "Update a named export template",
        true,
-       {{200, "Updated template"}, {400, "Invalid body"}, {404, "Not found"}}},
+       {{200, "Updated template"},
+        {400, "Invalid body"},
+        {404, "Not found"},
+        {409, "Template name already taken"}}},
       [&db](const crow::request &req, crow::response &res, int id) {
         try {
           const auto existing = db.export_template(static_cast<int64_t>(id));
@@ -385,15 +392,19 @@ void register_export_routes(App &app, EndpointRegistry &reg,
               body.contains("name") && body["name"].is_string()
                   ? body["name"].get<std::string>()
                   : existing->name;
-          const std::string config_json = body.contains("config")
-                                              ? body["config"].dump()
-                                              : existing->config_json;
+          // A rename (no config) touches only the name; see rux gui's
+          // update_export_template_json.
+          const std::string config_json =
+              body.contains("config") ? body["config"].dump() : "{}";
 
           const auto updated = db.update_export_template(
               static_cast<int64_t>(id), name, config_json);
           reusex::core::info("PATCH /export-templates/{}: name={}", id,
                              updated.name);
           res = json_response(crow::status::OK, template_json(updated));
+          res.end();
+        } catch (const reusex::core::NameConflictError &e) {
+          res = error_json_e(crow::status::CONFLICT, e.what());
           res.end();
         } catch (const std::exception &e) {
           reusex::core::error("PATCH /export-templates/{} failed: {}", id,

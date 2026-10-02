@@ -16,6 +16,7 @@
 // `pkgs.typst` in shell.nix; in production supply it in the process's PATH.
 
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 namespace reusex {
@@ -29,11 +30,19 @@ class ProjectDB;
 /// Typst template there, and executes:
 ///   typst compile report.typ out.pdf --root <tmpdir>
 ///
+/// With @p resource_template_id the PDF also gets a Ressourcetabel: every
+/// non-rejected resource through that template's keys, in tables of at
+/// most 8 columns each led by Betegnelse (core::resource_report_section).
+///
 /// @returns Raw PDF bytes on success.
+/// @throws std::out_of_range when @p resource_template_id names no
+///         template (checked before any typst work).
 /// @throws std::runtime_error if typst is not in PATH, data assembly fails,
 ///         or the compilation exits non-zero (the error text from typst is
 ///         included in the message).
-std::vector<std::uint8_t> generate_ressourcekortlaegning_pdf(ProjectDB &db);
+std::vector<std::uint8_t> generate_ressourcekortlaegning_pdf(
+    ProjectDB &db,
+    std::optional<std::int64_t> resource_template_id = std::nullopt);
 
 /// How many survey types keep the report from being complete right now: the
 /// length of core::fractions_by_eak's blocking list (review, sample or mass).

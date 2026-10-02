@@ -83,6 +83,24 @@
   gsplat-cuda,
   addDriverRunpath,
 }: let
+  # Individual CUDA redist libraries linked by the build. This is the set
+  # LibTorch's Caffe2 CMake config, trtsam3, cuOpt and OpenCV's CUDA modules
+  # resolve through FindCUDAToolkit / CUDA::* targets, plus the headers they
+  # include. Shared with the dev shell through passthru (see shell.nix).
+  cudaLibraries = lib.optionals cudaSupport (with cudaPackages; [
+    cuda_cudart
+    cccl # <thrust/*>, <cub/*> (CUDA::cccl / torch headers)
+    cuda_nvrtc # Torch imported target references CUDA_nvrtc_LIBRARY
+    cuda_nvtx
+    cuda_profiler_api
+    libcublas
+    libcufft
+    libcurand
+    libcusolver
+    libcusparse
+    cudnn
+  ]);
+
   effectiveStdenv =
     if cudaSupport
     then cudaPackages.backendStdenv
@@ -244,22 +262,8 @@ in
           gsplat-cuda
         ]
         # Individual CUDA redist libraries instead of the merged `cudatoolkit`
-        # (see nativeBuildInputs). This is the set LibTorch's Caffe2 CMake
-        # config, trtsam3, cuOpt and OpenCV's CUDA modules resolve through
-        # FindCUDAToolkit / CUDA::* targets, plus the headers they include.
-        ++ (with cudaPackages; [
-          cuda_cudart
-          cccl # <thrust/*>, <cub/*> (CUDA::cccl / torch headers)
-          cuda_nvrtc # Torch imported target references CUDA_nvrtc_LIBRARY
-          cuda_nvtx
-          cuda_profiler_api
-          libcublas
-          libcufft
-          libcurand
-          libcusolver
-          libcusparse
-          cudnn
-        ])
+        # (see nativeBuildInputs and `cudaLibraries` above).
+        ++ cudaLibraries
       );
 
     # Drive the project's WITH_CUDA option from cudaSupport. For CPU and ROCm
@@ -284,6 +288,16 @@ in
       ];
 
     dontWrapQtApps = true;
+
+    # The CUDA packages this build compiles against, for shell.nix to merge
+    # into one toolkit root. Inside this derivation nixpkgs'
+    # setupCUDAToolkitCompilers hook passes -DCUDAToolkit_INCLUDE_DIR/_ROOT
+    # lists to CMake, which is what lets the split redist packages satisfy
+    # LibTorch's bundled FindCUDAToolkit. A dev shell never runs that hook, so
+    # it needs a single directory instead. passthru is not part of the
+    # derivation, so this does not touch the package or its closure.
+    passthru.cudaToolkitPackages =
+      lib.optionals cudaSupport ([cudaPackages.cuda_nvcc] ++ cudaLibraries);
 
     # Drop the prebuilt GUI bundle next to the binaries. `rux gui` falls back to
     # <install prefix>/share/reusex/gui when neither --assets nor

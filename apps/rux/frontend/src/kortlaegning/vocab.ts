@@ -127,3 +127,15 @@ export function parseDanishNumber(text: string): number | null {
   const normalized = t.replace(/\./g, '').replace(',', '.');
   return Number(normalized);
 }
+
+/**
+ * What a part's photo slot says when there is no photo to show — one copy for
+ * Kortlægning's evidence panel and On-site's capture stage ("et foto", so
+ * "Intet foto").
+ */
+export const PHOTO_EMPTY_TEXT = {
+  unlinked: 'Intet foto — bygningsdelen er ikke koblet til en instans.',
+  loading: 'Indlæser foto…',
+  failed: 'Foto kunne ikke hentes.',
+  none: 'Intet foto — der blev ikke fundet en ramme for denne instans.',
+} as const satisfies Record<string, string>;

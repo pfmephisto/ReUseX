@@ -111,7 +111,7 @@ describe('kortlægning evidenceSources', () => {
       const [, foto] = evidenceSources(type({}, [p]), p);
       expect(foto.url).toBeNull();
       expect(foto.caption).toBe('Bedste foto');
-      expect(foto.empty).toBe('Ingen foto — bygningsdelen er ikke koblet til en instans.');
+      expect(foto.empty).toBe('Intet foto — bygningsdelen er ikke koblet til en instans.');
     });
 
     it('reports loading while the frame lookup is in flight (photoFrameId undefined)', () => {
@@ -125,7 +125,7 @@ describe('kortlægning evidenceSources', () => {
       const p = part();
       const [, foto] = evidenceSources(type({}, [p]), p, null);
       expect(foto.url).toBeNull();
-      expect(foto.empty).toBe('Ingen foto — der blev ikke fundet en ramme for denne instans.');
+      expect(foto.empty).toBe('Intet foto — der blev ikke fundet en ramme for denne instans.');
     });
 
     it('builds the frame image URL and caption once resolved', () => {
@@ -141,7 +141,7 @@ describe('kortlægning evidenceSources', () => {
       const p = part({ instance_id: 0 });
       const [, foto] = evidenceSources(type({}, [p]), p, 1);
       expect(foto.url).toBeNull();
-      expect(foto.empty).toBe('Ingen foto — bygningsdelen er ikke koblet til en instans.');
+      expect(foto.empty).toBe('Intet foto — bygningsdelen er ikke koblet til en instans.');
     });
 
     it('reports a distinct message when the lookup itself failed', () => {

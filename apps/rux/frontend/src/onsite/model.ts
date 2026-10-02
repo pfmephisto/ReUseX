@@ -16,7 +16,7 @@
 import type { Sample, SampleCreate, SurveyPart, SurveyType, VisibleFrame } from '../api/types';
 import { roomName } from '../kortlaegning/model';
 import { type FrameLookup, resolvePhotoState } from '../kortlaegning/photo';
-import { confidencePercent } from '../kortlaegning/vocab';
+import { confidencePercent, PHOTO_EMPTY_TEXT } from '../kortlaegning/vocab';
 import { createBody, type GateChange, gatePhrases } from '../miljoe/model';
 
 /** One bygningsdel on the walk. `room` is '' for a part without one. */
@@ -148,12 +148,8 @@ export function photoView(currentKey: string | null, lookup: PhotoLookup | undef
   return photoFrameId !== null && frame ? { kind: 'photo', frame } : { kind: 'none' };
 }
 
-export const PHOTO_TEXT: Record<Exclude<PhotoView['kind'], 'photo'>, string> = {
-  unlinked: 'Intet foto — bygningsdelen er ikke koblet til en instans.',
-  loading: 'Indlæser foto…',
-  failed: 'Foto kunne ikke hentes.',
-  none: 'Intet foto — der blev ikke fundet en ramme for denne instans.',
-};
+/** The photo placeholder copy, shared with Kortlægning's evidence panel. */
+export const PHOTO_TEXT: Record<Exclude<PhotoView['kind'], 'photo'>, string> = PHOTO_EMPTY_TEXT;
 
 /** Percent of the stage. */
 export interface Reticle {

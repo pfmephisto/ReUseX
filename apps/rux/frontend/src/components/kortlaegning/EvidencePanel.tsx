@@ -43,6 +43,7 @@ import { useAsync } from '../../app/useAsync';
 import type { EvidenceTab } from '../../kortlaegning/keys';
 import { partLabel } from '../../kortlaegning/model';
 import { type FrameLookup, hasInstanceLink, instanceKey, resolvePhotoState } from '../../kortlaegning/photo';
+import { PHOTO_EMPTY_TEXT } from '../../kortlaegning/vocab';
 import { EmptyState } from '../EmptyState';
 import styles from './EvidencePanel.module.css';
 
@@ -103,14 +104,14 @@ export function evidenceSources(
 
   let fotoUrl: string | null = null;
   let fotoCaption = 'Bedste foto';
-  let fotoEmpty = 'Ingen foto — bygningsdelen er ikke koblet til en instans.';
+  let fotoEmpty: string = PHOTO_EMPTY_TEXT.unlinked;
   if (linked) {
     if (photoFailed) {
-      fotoEmpty = 'Foto kunne ikke hentes.';
+      fotoEmpty = PHOTO_EMPTY_TEXT.failed;
     } else if (photoFrameId === undefined) {
-      fotoEmpty = 'Indlæser foto…';
+      fotoEmpty = PHOTO_EMPTY_TEXT.loading;
     } else if (photoFrameId === null) {
-      fotoEmpty = 'Ingen foto — der blev ikke fundet en ramme for denne instans.';
+      fotoEmpty = PHOTO_EMPTY_TEXT.none;
     } else {
       fotoUrl = api.frameImageUrl(photoFrameId, 'color', { maxSize: 960 });
       fotoCaption = `Bedste foto · ramme ${photoFrameId}`;

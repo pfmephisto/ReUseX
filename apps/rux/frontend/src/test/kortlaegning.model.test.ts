@@ -181,3 +181,16 @@ describe('initialViewFor', () => {
     expect(initialViewFor(types, 99)).toBeNull();
   });
 });
+
+describe('the ★ filter (Phase 6 R13)', () => {
+  it('keeps starred types and types with a starred part', () => {
+    const types = [
+      type(1, 'Stålspær', { starred: true }),
+      type(2, 'Vinduespartier', { parts: [{ ...part('RX-008', 2, [2, 'Office Zone'], 26), starred: true }] }),
+      type(3, 'Betondæk', { parts: [part('RX-003', 3, [1, 'Production Hall'], 980)] }),
+    ];
+    expect(NO_FILTERS.starred).toBe(false);
+    expect(visibleTypes(types, 'all', NO_FILTERS).map((t) => t.id)).toEqual([1, 2, 3]);
+    expect(visibleTypes(types, 'all', { ...NO_FILTERS, starred: true }).map((t) => t.id)).toEqual([1, 2]);
+  });
+});

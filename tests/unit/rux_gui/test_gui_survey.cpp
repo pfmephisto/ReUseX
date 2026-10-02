@@ -449,6 +449,34 @@ TEST_CASE("SyncSurveyJson_NoInstances_Is422", "[gui][survey][edits]") {
   CHECK(status_of([&] { sync_survey_json(db, "{}"); }) == 422);
 }
 
+TEST_CASE("SyncSurveyJson_ReportsInstancesSeenAndBackfilled",
+          "[gui][survey][edits][sync]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  // A pre-v10 instance cloud: labels and definitions, no `instances` rows.
+  reusex::CloudL inst;
+  for (std::uint32_t l : {1u, 1u, 2u, 0u}) {
+    pcl::Label p;
+    p.label = l;
+    inst.push_back(p);
+  }
+  db.save_point_cloud("instances", inst, "test", "{}");
+  db.save_label_definitions("instances",
+                            {{1, "SM2-1 (2p)"}, {2, "SM2-2 (1p)"}});
+
+  const auto first = sync_survey_json(db, "{}");
+  CHECK(first.at("instances_backfilled") == 2);
+  CHECK(first.at("instances_seen") == 2);
+  CHECK(first.at("types_created") == 1);
+  CHECK(first.at("parts_created") == 2);
+
+  const auto again = sync_survey_json(db, "{}");
+  CHECK(again.at("instances_backfilled") == 0);
+  CHECK(again.at("instances_seen") == 2);
+  CHECK(again.at("parts_created") == 0);
+  CHECK(again.at("parts_existing") == 2);
+}
+
 namespace {
 struct FakeRenderer : IViewRenderer {
   RenderRequest last;

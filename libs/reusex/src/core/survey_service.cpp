@@ -4,9 +4,12 @@
 
 #include "reusex/core/survey_service.hpp"
 
+#include "reusex/core/guid.hpp"
+#include "reusex/core/label_semantics.hpp"
 #include "reusex/core/logging.hpp"
 
 #include <algorithm>
+#include <climits>
 #include <set>
 #include <stdexcept>
 #include <utility>
@@ -126,6 +129,50 @@ std::vector<std::uint32_t> labels_of(const ProjectDB &db,
       out.push_back(p.label);
   return out;
 }
+
+/// The semantic class `rux create instances` recorded in an instance label's
+/// "SM{class}-{id} (Np)" definition, or -1. A class above INT_MAX is the
+/// pre-#214 unlabeled value (-1) wrapped to uint32 (4294967295).
+int class_from_definition(const std::string &def) {
+  if (def.size() < 4 || def.compare(0, 2, "SM") != 0)
+    return -1;
+  std::size_t i = 2;
+  unsigned long long value = 0;
+  while (i < def.size() && def[i] >= '0' && def[i] <= '9' && value <= INT_MAX)
+    value = value * 10 + static_cast<unsigned>(def[i++] - '0');
+  if (i == 2 || i >= def.size() || def[i] != '-' || value > INT_MAX)
+    return -1;
+  return static_cast<int>(value);
+}
+
+/// Write `instances` rows for an instance cloud that has labels but none: one
+/// row per distinct label with its point count, a fresh guid, and the class
+/// from its definition. Clouds from before schema v10 are in this state when
+/// they had no material links, which is all the v10 migration backfilled.
+std::size_t backfill_instance_rows(ProjectDB &db, const std::string &cloud) {
+  std::map<std::uint32_t, int> points;
+  for (const auto l : labels_of(db, cloud))
+    if (is_valid_label(l))
+      ++points[l];
+  if (points.empty())
+    return 0;
+  const auto defs = db.label_definitions(cloud);
+  std::vector<ProjectDB::InstanceRecord> rows;
+  std::size_t classified = 0;
+  for (const auto &[id, n] : points) {
+    const auto d = defs.find(static_cast<int>(id));
+    const int cls = d != defs.end() ? class_from_definition(d->second) : -1;
+    if (cls >= 0)
+      ++classified;
+    rows.push_back({id, generate_guid(), cls, n});
+  }
+  db.save_instances(cloud, rows);
+  reusex::warn("sync_survey: instance cloud '{}' had {} instance label(s) but "
+               "no `instances` rows (written before schema v10); backfilled "
+               "them, {} with a semantic class from the label definitions",
+               cloud, rows.size(), classified);
+  return rows.size();
+}
 } // namespace
 
 SurveySyncReport sync_survey(ProjectDB &db, const SurveySyncOptions &opts) {
@@ -168,6 +215,13 @@ SurveySyncReport sync_survey(ProjectDB &db, const SurveySyncOptions &opts) {
       type_for_class.try_emplace(t.semantic_class, t.id);
 
   auto instances = db.instances(opts.instances_cloud);
+  if (instances.empty()) {
+    report.instances_backfilled =
+        backfill_instance_rows(db, opts.instances_cloud);
+    if (report.instances_backfilled > 0)
+      instances = db.instances(opts.instances_cloud);
+  }
+  report.instances_seen = instances.size();
   std::sort(instances.begin(), instances.end(),
             [](const auto &a, const auto &b) {
               return a.instance_id < b.instance_id;
@@ -207,9 +261,9 @@ SurveySyncReport sync_survey(ProjectDB &db, const SurveySyncOptions &opts) {
     ++report.parts_created;
   }
   if (instances.empty())
-    reusex::warn(
-        "sync_survey: instance cloud '{}' has no instances; nothing to survey",
-        opts.instances_cloud);
+    reusex::warn("sync_survey: instance cloud '{}' has no instances (every "
+                 "point is unlabeled); nothing to survey",
+                 opts.instances_cloud);
 
   // Parts whose instance_guid is set but no longer resolves to an instance
   // row: the instance was deleted, or recreated without carrying the guid

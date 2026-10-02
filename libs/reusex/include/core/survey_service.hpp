@@ -67,6 +67,13 @@ struct SurveySyncReport {
   std::size_t types_created = 0;
   std::size_t parts_created = 0;
   std::size_t parts_existing = 0;
+  /// Instance rows considered: parts_created + parts_existing. Zero means the
+  /// instance cloud holds no instances, as opposed to "all already surveyed".
+  std::size_t instances_seen = 0;
+  /// Instance rows sync wrote first because the cloud had labels but no
+  /// `instances` rows: a cloud from before schema v10, whose migration only
+  /// backfilled clouds that had material links.
+  std::size_t instances_backfilled = 0;
   bool rooms_assigned = false;
   /// Parts whose instance_guid no longer resolves to an instance row (the
   /// instance was dropped, or re-created without carrying the guid over).
@@ -80,8 +87,11 @@ struct SurveySyncReport {
 /// room most of its points fall in. Idempotent — only adds instances that
 /// have no part yet (has_survey_part_for, keyed on instance guid) and never
 /// touches existing types/parts, so edits made in the GUI survive a rerun.
-/// Throws std::runtime_error naming `rux create instances` if the instances
-/// cloud does not exist.
+/// If the instance cloud has labels but no `instances` rows (a pre-v10
+/// cloud), the rows are backfilled first from the cloud's labels and its
+/// "SM{class}-{id}" definitions (see instances_backfilled). Throws
+/// std::runtime_error naming `rux create instances` if the instances cloud does
+/// not exist.
 SurveySyncReport sync_survey(ProjectDB &db, const SurveySyncOptions &opts = {});
 
 } // namespace reusex::core

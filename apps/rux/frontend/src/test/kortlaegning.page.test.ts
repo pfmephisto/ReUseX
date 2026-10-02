@@ -5,9 +5,15 @@
 import { describe, expect, it } from 'vitest';
 
 import { ApiRequestError } from '../api/client';
-import type { Sample, SurveySummary, SurveyType } from '../api/types';
+import type { Sample, SurveySummary, SurveySyncReport, SurveyType } from '../api/types';
 import { saveErrorMessage } from '../app/saveError';
-import { approvedMessage, blockedMessage, coverageParts } from '../routes/KortlaegningPage';
+import {
+  approvedMessage,
+  blockedMessage,
+  cappedList,
+  coverageParts,
+  syncMessage,
+} from '../routes/KortlaegningPage';
 
 function type(overrides: Partial<SurveyType> = {}): SurveyType {
   return {
@@ -120,15 +126,90 @@ describe('coverageParts', () => {
     expect(coverageParts(summary({ unlabeled_points: 0 }))).toEqual([]);
   });
 
+  const surveyed = { queue: 3, approved: 0, rejected: 0, all: 3 };
+
   it('lists unlabeled points and rooms without parts', () => {
     expect(
-      coverageParts(summary({ unlabeled_points: 2400, rooms_without_parts: ['Kælder', 'Tagrum'] })),
+      coverageParts(
+        summary({ counts: surveyed, unlabeled_points: 2400, rooms_without_parts: ['Kælder', 'Tagrum'] }),
+      ),
     ).toEqual(['2.400 punkter uklassificeret', '2 rum uden registrerede bygningsdele (Kælder, Tagrum)']);
   });
 
   it('omits the clause whose figure is absent', () => {
-    expect(coverageParts(summary({ rooms_without_parts: ['Kælder'] }))).toEqual([
+    expect(coverageParts(summary({ counts: surveyed, rooms_without_parts: ['Kælder'] }))).toEqual([
       '1 rum uden registrerede bygningsdele (Kælder)',
     ]);
+  });
+
+  it('caps the room list at five names', () => {
+    const rooms = Array.from({ length: 454 }, (_, i) => `Rum ${i + 1}`);
+    expect(coverageParts(summary({ counts: surveyed, rooms_without_parts: rooms }))).toEqual([
+      '454 rum uden registrerede bygningsdele (Rum 1, Rum 2, Rum 3, Rum 4, Rum 5 … og 449 flere)',
+    ]);
+  });
+
+  it('leaves rooms out before the first sync, when every room lacks parts', () => {
+    expect(
+      coverageParts(summary({ unlabeled_points: 140698, rooms_without_parts: ['Rum 1', 'Rum 2'] })),
+    ).toEqual(['140.698 punkter uklassificeret']);
+  });
+});
+
+describe('cappedList', () => {
+  it('joins short lists whole', () => {
+    expect(cappedList(['A', 'B', 'C', 'D', 'E'])).toBe('A, B, C, D, E');
+  });
+
+  it('names the first five and counts the rest', () => {
+    expect(cappedList(['A', 'B', 'C', 'D', 'E', 'F'])).toBe('A, B, C, D, E … og 1 flere');
+    expect(cappedList(['A', 'B', 'C'], 2)).toBe('A, B … og 1 flere');
+  });
+});
+
+describe('syncMessage', () => {
+  function report(overrides: Partial<SurveySyncReport> = {}): SurveySyncReport {
+    return {
+      types_created: 0,
+      parts_created: 0,
+      parts_existing: 0,
+      instances_seen: 0,
+      instances_backfilled: 0,
+      rooms_assigned: true,
+      parts_orphaned: 0,
+      orphaned_codes: [],
+      ...overrides,
+    };
+  }
+
+  it('counts the parts and types it created', () => {
+    expect(syncMessage(report({ types_created: 10, parts_created: 155, instances_seen: 155 }))).toBe(
+      '155 bygningsdele oprettet i 10 nye typer',
+    );
+    expect(syncMessage(report({ types_created: 1, parts_created: 1, instances_seen: 1 }))).toBe(
+      '1 bygningsdel oprettet i 1 ny type',
+    );
+  });
+
+  it('reports parts added to existing types, not "no instances"', () => {
+    expect(syncMessage(report({ parts_created: 4, parts_existing: 151, instances_seen: 155 }))).toBe(
+      '4 bygningsdele tilføjet til eksisterende typer',
+    );
+  });
+
+  it('says every instance is already surveyed when nothing is new', () => {
+    expect(syncMessage(report({ parts_existing: 155, instances_seen: 155 }))).toBe(
+      'Ingen nye bygningsdele — alle 155 instanser er allerede kortlagt',
+    );
+  });
+
+  it('says there are no instances only when there are none', () => {
+    expect(syncMessage(report())).toBe('Ingen instanser at kortlægge — opret instanser først');
+  });
+
+  it('puts orphaned parts first', () => {
+    expect(syncMessage(report({ parts_orphaned: 2, parts_created: 3, instances_seen: 3 }))).toBe(
+      '2 del(e) peger på instanser der ikke findes længere',
+    );
   });
 });

@@ -370,6 +370,8 @@ json sync_survey_json(reusex::ProjectDB &db, const std::string &body) {
     return {{"types_created", r.types_created},
             {"parts_created", r.parts_created},
             {"parts_existing", r.parts_existing},
+            {"instances_seen", r.instances_seen},
+            {"instances_backfilled", r.instances_backfilled},
             {"rooms_assigned", r.rooms_assigned},
             {"parts_orphaned", r.parts_orphaned},
             {"orphaned_codes", r.orphaned_codes}};
